@@ -11,12 +11,13 @@
 
 sparkDash is a real-time web dashboard for one or more **NVIDIA DGX Spark (GB10)** machines in a single browser window. It streams GPU, CPU, unified memory, storage, network, and local LLM metrics — and lets you add, edit, reorder, or remove Sparks from the UI without restarts or code changes.
 
+<img src="./assets/screenshot.png" alt="sparkDash Overview page with multiple DGX Spark units, GPU metrics, and LLM status" width="800">
+
 ---
 
 ## Table of contents
 
 - [Features](#features)
-- [Screenshot](#screenshot)
 - [Quick start](#quick-start)
 - [Architecture](#architecture)
 - [Tech stack](#tech-stack)
@@ -45,14 +46,6 @@ sparkDash is a real-time web dashboard for one or more **NVIDIA DGX Spark (GB10)
 | **Secrets** | SSH passwords AES-256-GCM encrypted; never in `sparks.json` or API responses |
 | **Docker-first** | Single privileged container for host metrics; prod and dev Compose files |
 | **Hot config** | Add / edit / remove / reorder Sparks from the UI with no process restart |
-
----
-
-## Screenshot
-
-<img src="./assets/screenshot.png" alt="sparkDash Overview page with multiple DGX Spark units, GPU metrics, and LLM status" width="800">
-
-*Overview: GPU usage, temperature, memory, and LLM throughput across Sparks.*
 
 ---
 
