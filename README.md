@@ -19,6 +19,7 @@ sparkDash is a real-time web dashboard for one or more **NVIDIA DGX Spark (GB10)
 
 - [Latest version changelog](#latest-version-changelog)
 - [Features](#features)
+- [Full changelog](./CHANGELOG.md)
 - [Quick start](#quick-start)
 - [Architecture](#architecture)
 - [Tech stack](#tech-stack)
@@ -35,10 +36,13 @@ sparkDash is a real-time web dashboard for one or more **NVIDIA DGX Spark (GB10)
 
 ## Latest version changelog
 
-### Version 1.0.5
-- **Multiple LLM ports** — monitor several LLM servers on different ports simultaneously
-- **GPU processes** — see top GPU processes by VRAM usage with name and memory
-- **Spark uptime** — system uptime inline on each Spark header
+### Version 1.1.0
+- **Power management** — graceful **Shutdown** / **Wake** per Spark, plus **Shutdown All** / **Wake All** on Overview
+- **Wake-on-LAN** — magic packets via the **enP7s7** MAC (auto-detected while online; optional override in Edit Spark)
+- **Worker node** — mark distributed-LLM workers in Edit Spark; LLM card/probes stay off and a **Worker node** badge shows in the Spark header
+- Host shutdown uses `sudo -n /usr/local/bin/spark-shutdown` over SSH (same LAN-trusted API model as the rest of the dashboard)
+
+Full history: [CHANGELOG.md](./CHANGELOG.md)
 
 ---
 
@@ -53,6 +57,8 @@ sparkDash is a real-time web dashboard for one or more **NVIDIA DGX Spark (GB10)
 | **Multiple LLM ports** | Monitor several LLM servers on different ports simultaneously — each gets its own panel with independent backend detection and metrics |
 | **GPU processes** | See the top GPU processes by VRAM usage directly in the GPU panel, including process name and memory allocation |
 | **Spark uptime** | System uptime displayed inline on each Spark header for at-a-glance availability |
+| **Power controls** | Graceful shutdown (SSH host script) and Wake-on-LAN; batch actions on Overview |
+| **Worker node** | Flag Sparks that only run as distributed LLM workers — no local LLM card |
 | **Unified memory** | GB10 128 GB LPDDR5X pool (~273 GB/s), GPU/CPU split, bandwidth via `nvidia-smi dmon` |
 | **Themes** | Dark, light, cool white, OLED — neutral palettes, persisted in `localStorage` |
 | **Secrets** | SSH passwords AES-256-GCM encrypted; never in `sparks.json` or API responses |
