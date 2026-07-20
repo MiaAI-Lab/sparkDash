@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import {
   broadcastForLanIp,
   buildMagicPacket,
+  effectiveMac,
   normalizeMac,
+  WOL_INTERFACE,
 } from "../server/wol.js";
 
 test("normalizeMac accepts colon and hyphen forms", () => {
@@ -36,4 +38,17 @@ test("buildMagicPacket is 6xFF followed by 16x MAC", () => {
       [0x01, 0x23, 0x45, 0x67, 0x89, 0xab]
     );
   }
+});
+
+test("effectiveMac prefers user override over detected enP7s7 MAC", () => {
+  assert.equal(WOL_INTERFACE, "enP7s7");
+  assert.equal(
+    effectiveMac({ macAddress: null, detectedMacAddress: "aa:bb:cc:dd:ee:ff" }),
+    "aa:bb:cc:dd:ee:ff"
+  );
+  assert.equal(
+    effectiveMac({ macAddress: "11:22:33:44:55:66", detectedMacAddress: "aa:bb:cc:dd:ee:ff" }),
+    "11:22:33:44:55:66"
+  );
+  assert.equal(effectiveMac({ macAddress: null, detectedMacAddress: null }), null);
 });

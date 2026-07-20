@@ -217,7 +217,7 @@ Copy `.env.example` to `.env` if needed:
 ### Adding a Spark
 
 1. Open the **+** tab.
-2. Set **Name**, **LAN IP** (required), optional **CX7 IP**, optional **MAC address** (for Wake-on-LAN), **SSH user**, and auth (key or password).
+2. Set **Name**, **LAN IP** (required), optional **CX7 IP**, **SSH user**, and auth (key or password). Wake-on-LAN MAC is auto-read from **enP7s7** when online (optional override in Edit).
 3. **Test Connection** for SSH + LLM reachability.
 4. Save — a tab appears and metrics start streaming.
 
@@ -226,7 +226,7 @@ Copy `.env.example` to `.env` if needed:
 - **Shutdown** (per Spark or **Shutdown All** on Overview) runs over SSH:  
   `sudo -n /usr/local/bin/spark-shutdown`  
   Install that script on each Spark and allow passwordless sudo for it only.
-- **Wake** / **Wake All** send a UDP magic packet (port 9) to the Spark’s MAC. Set **MAC Address** in Edit Spark. Broadcast is derived as `/24` from LAN IP, or `255.255.255.255` if LAN IP is missing.
+- **Wake** / **Wake All** send a UDP magic packet (port 9). The MAC is taken from the **enP7s7** interface automatically while the Spark is online (persisted as `detectedMacAddress`). Optionally set a **MAC override** in Edit Spark. Broadcast is derived as `/24` from LAN IP, or `255.255.255.255` if LAN IP is missing.
 - Batch shutdown only targets **online** Sparks; offline nodes are skipped.
 - Same trust model as the rest of the API: **do not expose port 5555** beyond a trusted network — power actions are not separately authenticated.
 

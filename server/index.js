@@ -10,7 +10,7 @@ import { SparkMonitor } from "./sparks/SparkMonitor.js";
 import { sshExec, sshTest, llmTest } from "./collectors/ssh.js";
 import { validateSparkTarget, createRateLimiter } from "./validate.js";
 import { getSettings, updateSettings, loadSettings } from "./settings.js";
-import { broadcastForLanIp, normalizeMac, sendWol } from "./wol.js";
+import { broadcastForLanIp, effectiveMac, normalizeMac, sendWol } from "./wol.js";
 
 dotenv.config();
 
@@ -53,7 +53,15 @@ const monitors = new Map();
 // ─── Start monitor for a Spark ───────────────────────────
 function startMonitor(spark) {
   if (monitors.has(spark.id)) return;
-  const monitor = new SparkMonitor(spark);
+  const monitor = new SparkMonitor(spark, {
+    onWolMac: (id, mac) => {
+      const updated = registry.noteDetectedMac(id, mac);
+      if (updated) {
+        const mon = monitors.get(id);
+        if (mon) mon.updateConfig(registry.getSpark(id));
+      }
+    },
+  });
   monitors.set(spark.id, monitor);
   monitor.start();
 }
@@ -581,12 +589,12 @@ app.post("/api/sparks/shutdown-all", async (_req, res) => {
 app.post("/api/sparks/wake-all", async (_req, res) => {
   const results = [];
   for (const spark of registry.sparks) {
-    const cleanMac = normalizeMac(spark.macAddress);
+    const cleanMac = effectiveMac(spark);
     if (!cleanMac) {
       results.push({
         id: spark.id,
         ok: false,
-        error: spark.macAddress ? `Invalid MAC: ${spark.macAddress}` : "No MAC address configured",
+        error: "No MAC address (enP7s7 not seen yet; set override in Edit Spark)",
       });
       continue;
     }
@@ -625,15 +633,17 @@ app.post("/api/sparks/:id/wake", async (req, res) => {
     const spark = registry.getSpark(req.params.id);
     if (!spark) return res.status(404).json({ error: "Spark not found" });
 
-    const cleanMac = normalizeMac(spark.macAddress || req.body?.mac);
+    // Body mac > user override > auto-detected enP7s7
+    const cleanMac = normalizeMac(req.body?.mac) || effectiveMac(spark);
     if (!cleanMac) {
-      if (!spark.macAddress && !req.body?.mac) {
+      if (req.body?.mac || spark.macAddress) {
         return res.status(400).json({
-          error: "No MAC address configured. Set macAddress on the Spark or pass mac in the body.",
+          error: `Invalid MAC address: ${req.body?.mac || spark.macAddress}`,
         });
       }
       return res.status(400).json({
-        error: `Invalid MAC address: ${spark.macAddress || req.body?.mac}`,
+        error:
+          "No MAC address yet. Wait until the node is online so enP7s7 can be detected, or set a MAC override in Edit Spark.",
       });
     }
 

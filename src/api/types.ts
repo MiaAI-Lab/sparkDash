@@ -4,8 +4,13 @@ export interface SparkConfig {
   name: string;
   lanIp: string;
   cx7Ip?: string | null;
-  /** Ethernet MAC for Wake-on-LAN (aa:bb:cc:dd:ee:ff) */
+  /**
+   * Optional Wake-on-LAN MAC override. When empty, the server uses
+   * `detectedMacAddress` from the enP7s7 interface.
+   */
   macAddress?: string | null;
+  /** Last MAC read from enP7s7 while the Spark was online (read-only). */
+  detectedMacAddress?: string | null;
   isLocal: boolean;
   ssh: {
     host: string;
@@ -105,6 +110,8 @@ export interface NetworkMetrics {
   primaryInterface: string | null;
   linkSpeedMbps: number | null;
   interfaces: NetworkInterface[];
+  /** MAC of enP7s7 when present (same value persisted as detectedMacAddress). */
+  wolMac?: string | null;
 }
 
 // ─── Unified memory metrics ──────────────────────────────

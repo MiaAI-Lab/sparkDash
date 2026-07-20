@@ -276,14 +276,25 @@ export function EditSparkDialog({
             </div>
 
             <div>
-              <label className="mb-1 block text-xs text-muted">MAC Address (Wake-on-LAN)</label>
+              <label className="mb-1 block text-xs text-muted">
+                MAC Address (Wake-on-LAN override)
+              </label>
               <input
                 type="text"
                 value={config.macAddress || ""}
                 onChange={(e) => update({ macAddress: e.target.value || null })}
-                placeholder="e.g. 00:1a:2b:3c:4d:5e"
+                placeholder={
+                  config.detectedMacAddress
+                    ? `Auto: ${config.detectedMacAddress}`
+                    : "Auto from enP7s7 when online"
+                }
                 className="w-full rounded border border-border bg-surface-elevated px-3 py-1.5 text-xs text-text outline-none focus:border-accent"
               />
+              <p className="mt-1 text-[10px] text-muted">
+                {config.detectedMacAddress
+                  ? `Using enP7s7 automatically (${config.detectedMacAddress}). Leave blank to keep auto, or enter a different MAC.`
+                  : "Leave blank to use enP7s7 once the Spark has been online and detected."}
+              </p>
             </div>
 
             <label className="flex items-center gap-2 text-xs text-muted">

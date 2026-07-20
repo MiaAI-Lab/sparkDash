@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { HOST_PATHS, GPU_MEMORY_JSON_PATH, DGX_SPARK, HARDWARE_DEFAULTS } from "../config.js";
+import { normalizeMac, WOL_INTERFACE } from "../wol.js";
 import { sshExec } from "./ssh.js";
 
 /**
@@ -107,7 +108,8 @@ export class SystemCollector {
         primaryInterface = alt?.name ?? primaryInterface;
       }
       const linkSpeed = primaryInterface ? await this._getNetworkLinkSpeedMbps(primaryInterface) : null;
-      return { primaryInterface, linkSpeedMbps: linkSpeed, interfaces };
+      const wolMac = await this._getWolInterfaceMac();
+      return { primaryInterface, linkSpeedMbps: linkSpeed, interfaces, wolMac };
     } catch (err) {
       console.error(`[SystemCollector] Network error for ${this.spark.id}:`, err.message);
       return this._defaultNetwork();
@@ -654,6 +656,19 @@ export class SystemCollector {
     }
   }
 
+  /**
+   * MAC of the Spark LAN NIC used for Wake-on-LAN (enP7s7).
+   * @returns {Promise<string | null>}
+   */
+  async _getWolInterfaceMac() {
+    try {
+      const raw = await this._readHostFile(`/sys/class/net/${WOL_INTERFACE}/address`);
+      return normalizeMac(raw);
+    } catch {
+      return null;
+    }
+  }
+
   /** Mark interfaces listed in spark.disabledInterfaces (still returned for Settings). */
   _tagDisabledInterfaces(interfaces) {
     const disabled = this.spark.disabledInterfaces || [];
@@ -951,6 +966,9 @@ export class SystemCollector {
         "echo '---'",
         // Collect operstate for all non-virtual interfaces in one go
         "for d in /sys/class/net/*/operstate; do echo \"$(basename $(dirname $d)):$(cat $d)\"; done",
+        "echo '---'",
+        // WoL MAC for the primary LAN NIC on DGX Spark
+        `cat /sys/class/net/${WOL_INTERFACE}/address 2>/dev/null || true`,
       ].join("; ");
 
       const output = await sshExec(this.spark, cmd);
@@ -959,6 +977,7 @@ export class SystemCollector {
       const routeOut = sections[1]?.trim() || "";
       const ipOut = sections[2]?.trim() || "";
       const operstateOut = sections[3]?.trim() || "";
+      const wolMac = normalizeMac(sections[4]?.trim() || "");
 
       // Parse operstate lines ("enP7s7:up")
       const operstateMap = new Map();
@@ -1045,7 +1064,7 @@ export class SystemCollector {
         }
       }
 
-      return { primaryInterface, linkSpeedMbps, interfaces: tagged };
+      return { primaryInterface, linkSpeedMbps, interfaces: tagged, wolMac };
     } catch (err) {
       console.error(`[SystemCollector] Remote Network error for ${this.spark.id}:`, err.message);
       return this._defaultNetwork();
@@ -1239,7 +1258,7 @@ export class SystemCollector {
   }
 
   _defaultNetwork() {
-    return { primaryInterface: null, linkSpeedMbps: null, interfaces: [] };
+    return { primaryInterface: null, linkSpeedMbps: null, interfaces: [], wolMac: null };
   }
 
   _defaultUnifiedMemory() {
