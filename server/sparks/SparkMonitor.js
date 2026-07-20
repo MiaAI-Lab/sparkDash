@@ -31,10 +31,12 @@ export class SparkMonitor {
     this._onWolMac = typeof options.onWolMac === "function" ? options.onWolMac : null;
     this.collector = new SystemCollector(spark);
 
-    // One LlmProbe per port — Map<port, LlmProbe>
+    // One LlmProbe per port — Map<port, LlmProbe> (none on worker nodes)
     this.llmProbes = new Map();
-    for (const port of this._llmPorts()) {
-      this.llmProbes.set(port, new LlmProbe(spark, port));
+    if (!spark.workerNode) {
+      for (const port of this._llmPorts()) {
+        this.llmProbes.set(port, new LlmProbe(spark, port));
+      }
     }
 
     // Online status from dedicated liveness checks (not metric poll success)
@@ -58,6 +60,8 @@ export class SparkMonitor {
 
     // Timers
     this._intervals = [];
+    /** @type {ReturnType<typeof setInterval> | null} */
+    this._llmIntervalId = null;
     this._running = false;
     /** @type {Record<string, boolean>} in-flight domain guards */
     this._inflight = {};
@@ -65,11 +69,12 @@ export class SparkMonitor {
 
   /** Hot-update config without tearing down poll loops / rate baselines. */
   updateConfig(spark) {
+    const wasWorker = Boolean(this.spark?.workerNode);
     this.spark = spark;
     this.collector.spark = spark;
 
     // Rebuild LLM probe map — add new ports, remove stale ones, update existing
-    const ports = this._llmPorts();
+    const ports = this.spark.workerNode ? [] : this._llmPorts();
     const prevProbes = this.llmProbes;
     this.llmProbes = new Map();
     for (const port of ports) {
@@ -80,6 +85,28 @@ export class SparkMonitor {
       } else {
         this.llmProbes.set(port, new LlmProbe(spark, port));
       }
+    }
+    if (this.spark.workerNode) {
+      this._metrics.llm = [];
+    }
+
+    // Toggle LLM poll interval when workerNode flips without full restart
+    if (this._running && wasWorker !== Boolean(this.spark.workerNode)) {
+      this._restartLlmPollInterval();
+    }
+  }
+
+  /** Start or clear the LLM poll timer based on workerNode. */
+  _restartLlmPollInterval() {
+    if (this._llmIntervalId != null) {
+      clearInterval(this._llmIntervalId);
+      this._intervals = this._intervals.filter((id) => id !== this._llmIntervalId);
+      this._llmIntervalId = null;
+    }
+    if (!this.spark.workerNode && this._running) {
+      this._llmIntervalId = setInterval(() => this._pollDomain("llm"), POLL_INTERVAL_LLM);
+      this._intervals.push(this._llmIntervalId);
+      void this._pollDomain("llm");
     }
   }
 
@@ -109,7 +136,7 @@ export class SparkMonitor {
     this._intervals.push(setInterval(() => this._pollDomain("storage"), POLL_INTERVAL_STORAGE));
     this._intervals.push(setInterval(() => this._pollDomain("ram"), POLL_INTERVAL_CPU));
     this._intervals.push(setInterval(() => this._pollDomain("memory"), POLL_INTERVAL_BANDWIDTH));
-    this._intervals.push(setInterval(() => this._pollDomain("llm"), POLL_INTERVAL_LLM));
+    this._restartLlmPollInterval();
     // Liveness on a slightly slower cadence
     this._intervals.push(setInterval(() => this._checkOnline(), POLL_INTERVAL_LIVENESS));
     console.log(`[SparkMonitor] ${this.spark.id} started`);
@@ -120,13 +147,14 @@ export class SparkMonitor {
     this._running = false;
     for (const id of this._intervals) clearInterval(id);
     this._intervals = [];
+    this._llmIntervalId = null;
     this._inflight = {};
     console.log(`[SparkMonitor] ${this.spark.id} stopped`);
   }
 
   /** Return a full snapshot of this Spark's metrics. */
   snapshot() {
-    const ports = this._llmPorts();
+    const ports = this.spark.workerNode ? [] : this._llmPorts();
     return {
       id: this.spark.id,
       name: this.spark.name,
@@ -135,6 +163,7 @@ export class SparkMonitor {
       disabledDevices: this.spark.disabledDevices || [],
       disabledInterfaces: this.spark.disabledInterfaces || [],
       storagePollDisabled: Boolean(this.spark.storagePollDisabled),
+      workerNode: Boolean(this.spark.workerNode),
       llmPort: ports[0] ?? LLM_PORT,
       llmPorts: ports,
       hardware: this._getHardwareSummary(),
@@ -227,6 +256,8 @@ export class SparkMonitor {
     if (!this._running || this._inflight[domain]) return;
     // Skip storage auto-poll when disabled for this spark
     if (domain === "storage" && this.spark.storagePollDisabled) return;
+    // Worker nodes: no local LLM API
+    if (domain === "llm" && this.spark.workerNode) return;
     this._inflight[domain] = true;
     try {
       let result;

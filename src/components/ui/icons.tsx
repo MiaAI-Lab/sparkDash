@@ -183,6 +183,17 @@ export function PowerOffIcon({ className = "" }: { className?: string }) {
   );
 }
 
+/** Circle-i — for short help / tooltips. */
+export function InfoIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg {...baseProps(className)}>
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" y1="16" x2="12" y2="12" />
+      <line x1="12" y1="8" x2="12.01" y2="8" />
+    </svg>
+  );
+}
+
 /** Sun burst — used for Wake-on-LAN (distinct from PowerOffIcon). */
 export function PowerOnIcon({ className = "" }: { className?: string }) {
   return (

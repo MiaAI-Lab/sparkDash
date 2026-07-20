@@ -28,6 +28,11 @@ export interface SparkConfig {
   llmPort?: number;
   /** HTTP ports for LLM servers on this Spark (default [8888]) */
   llmPorts?: number[];
+  /**
+   * When true, this Spark is a distributed-LLM worker: no local OpenAI API.
+   * The LLM card is hidden and LLM ports are not probed.
+   */
+  workerNode?: boolean;
   /** When true, storage is only updated on manual refresh, not auto-polled. */
   storagePollDisabled?: boolean;
 }
@@ -169,6 +174,8 @@ export interface SparkSnapshot {
   disabledDevices: string[];
   disabledInterfaces: string[];
   storagePollDisabled?: boolean;
+  /** Distributed LLM worker — LLM card inactive / not shown */
+  workerNode?: boolean;
   /** LLM server port (first port, for backward compat) */
   llmPort: number;
   /** All LLM server ports configured for this Spark */

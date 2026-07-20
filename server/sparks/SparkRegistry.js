@@ -315,6 +315,8 @@ export class SparkRegistry {
       isLocal: Boolean(config.isLocal),
       ssh,
       llmPorts,
+      /** When true, this Spark is an LLM worker — no local API card / probe. */
+      workerNode: Boolean(config.workerNode),
       disabledDevices: Array.isArray(config.disabledDevices) ? config.disabledDevices : [],
       disabledInterfaces: Array.isArray(config.disabledInterfaces) ? config.disabledInterfaces : [],
       storagePollDisabled: Boolean(config.storagePollDisabled),

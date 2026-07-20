@@ -110,68 +110,76 @@ export function SparkPage({ spark, temperatureUnit, onEdit }: SparkPageProps) {
           disabledInterfaces={disabledInterfaces}
           onDisabledChange={setDisabledInterfaces}
         />
-        {llmPorts.map((port, i) => {
-          const llmMetrics = metrics.llm?.[i] ?? null;
-          return (
-            <LlmPanel
-              key={port}
-              llm={llmMetrics}
-              sparkId={spark.id}
-              llmPort={port}
-              llmPortsCount={llmPorts.length}
-              onRemovePort={llmPorts.length > 1 ? handleRemovePort : undefined}
-              className="md:col-span-2"
-            />
-          );
-        })}
-        {showAddPort ? (
-          <div className="md:col-span-2 rounded-lg border border-border bg-surface p-3">
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                min={1}
-                max={65535}
-                inputMode="numeric"
-                placeholder="Port number"
-                value={newPortDraft}
-                onChange={(e) => setNewPortDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    void handleAddPort();
-                  }
-                }}
-                className="w-32 rounded-md border border-border bg-surface-elevated px-3 py-1.5 font-tabular text-sm text-text outline-none focus:border-accent"
-                autoFocus
-              />
-              <button
-                type="button"
-                onClick={() => void handleAddPort()}
-                disabled={!newPortDraft.trim()}
-                className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50"
-              >
-                Add
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowAddPort(false);
-                  setNewPortDraft("");
-                }}
-                className="rounded border border-border px-3 py-1.5 text-xs text-muted hover:bg-surface-hover"
-              >
-                Cancel
-              </button>
-            </div>
+        {spark.workerNode ? (
+          <div className="md:col-span-2 rounded-lg border border-border bg-surface px-4 py-3 text-xs text-muted">
+            Worker node — LLM card inactive (no local model API on this Spark).
           </div>
         ) : (
-          <button
-            type="button"
-            onClick={() => setShowAddPort(true)}
-            className="md:col-span-2 rounded-lg border border-dashed border-border bg-transparent p-3 text-xs text-muted hover:border-accent hover:text-accent transition-colors"
-          >
-            + Add LLM port
-          </button>
+          <>
+            {llmPorts.map((port, i) => {
+              const llmMetrics = metrics.llm?.[i] ?? null;
+              return (
+                <LlmPanel
+                  key={port}
+                  llm={llmMetrics}
+                  sparkId={spark.id}
+                  llmPort={port}
+                  llmPortsCount={llmPorts.length}
+                  onRemovePort={llmPorts.length > 1 ? handleRemovePort : undefined}
+                  className="md:col-span-2"
+                />
+              );
+            })}
+            {showAddPort ? (
+              <div className="md:col-span-2 rounded-lg border border-border bg-surface p-3">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={1}
+                    max={65535}
+                    inputMode="numeric"
+                    placeholder="Port number"
+                    value={newPortDraft}
+                    onChange={(e) => setNewPortDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        void handleAddPort();
+                      }
+                    }}
+                    className="w-32 rounded-md border border-border bg-surface-elevated px-3 py-1.5 font-tabular text-sm text-text outline-none focus:border-accent"
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void handleAddPort()}
+                    disabled={!newPortDraft.trim()}
+                    className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+                  >
+                    Add
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAddPort(false);
+                      setNewPortDraft("");
+                    }}
+                    className="rounded border border-border px-3 py-1.5 text-xs text-muted hover:bg-surface-hover"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowAddPort(true)}
+                className="md:col-span-2 rounded-lg border border-dashed border-border bg-transparent p-3 text-xs text-muted hover:border-accent hover:text-accent transition-colors"
+              >
+                + Add LLM port
+              </button>
+            )}
+          </>
         )}
       </div>
     </div>

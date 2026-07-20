@@ -8,6 +8,7 @@ import {
   updateSpark,
 } from "../api/client";
 import type { SparkConfig } from "../api/types";
+import { InfoIcon } from "./ui/icons";
 
 interface EditSparkDialogProps {
   open: boolean;
@@ -199,6 +200,7 @@ export function EditSparkDialog({
         cx7Ip: config.cx7Ip,
         macAddress: config.macAddress || null,
         isLocal: config.isLocal,
+        workerNode: Boolean(config.workerNode),
         ssh: {
           host: config.ssh.host || config.lanIp,
           user: config.ssh.user,
@@ -305,6 +307,23 @@ export function EditSparkDialog({
                 className="rounded border-border"
               />
               This host (local collectors — no SSH for metrics)
+            </label>
+
+            <label className="flex items-center gap-2 text-xs text-muted">
+              <input
+                type="checkbox"
+                checked={Boolean(config.workerNode)}
+                onChange={(e) => update({ workerNode: e.target.checked })}
+                className="rounded border-border"
+              />
+              <span>Worker node</span>
+              <span
+                className="inline-flex shrink-0 text-muted hover:text-text cursor-help"
+                title="Check this when this Spark is a distributed-LLM worker (no local OpenAI-style API). The LLM card on this Spark will be inactive / hidden, and LLM ports will not be probed."
+                aria-label="When checked, the LLM card is not shown on this Spark because workers do not expose a local model API."
+              >
+                <InfoIcon className="h-3.5 w-3.5" />
+              </span>
             </label>
 
             {!config.isLocal && (
