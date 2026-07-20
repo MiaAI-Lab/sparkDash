@@ -27,6 +27,7 @@ sparkDash is a real-time web dashboard for one or more **NVIDIA DGX Spark (GB10)
 - [Configuration](#configuration)
 - [Security](#security)
 - [Scripts](#scripts)
+- [Automatic updates](#automatic-updates)
 - [How it works](#how-it-works)
 - [Contributing](#contributing)
 - [License](#license)
@@ -264,6 +265,24 @@ Choice is stored in `localStorage`.
 | `npm run docker:dev` | Dev Compose |
 | `npm run docker:dev:build` | Dev Compose with rebuild |
 | `./deploy.sh` | Recreate container; `--build`, `--frontend` flags |
+
+## Automatic updates
+
+Install the optional daily self-update service:
+
+```bash
+npm run self-update:install
+```
+
+It runs daily at **03:15** using a launchd agent on macOS or a systemd user
+timer on Linux. Set `SPARKDASH_UPDATE_TIME=HH:MM` while installing to choose a
+different time.
+
+The updater is deliberately conservative: it only updates a clean `main`
+branch and only accepts fast-forward changes from `origin/main`. When an update
+exists it runs `npm ci`, builds the frontend, and redeploys with Docker Compose.
+Tracked local modifications, another checked-out branch, or divergent history
+cause a safe skip rather than overwriting work.
 
 ---
 

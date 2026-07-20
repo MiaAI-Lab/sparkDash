@@ -17,7 +17,8 @@
     "docker:prod": "docker compose up -d",
     "docker:rebuild": "docker compose up --build -d",
     "frontend": "npm run build",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "self-update:install": "./scripts/install-self-update.sh",
+    "test": "./test/self-update.test.sh"
   },
   "keywords": ["nvidia", "dgx-spark", "gb10", "monitoring", "dashboard", "gpu", "llm"],
   "author": "Mia'a AI Lab",
