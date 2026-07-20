@@ -13,12 +13,12 @@ sparkDash is a real-time web dashboard for one or more **NVIDIA DGX Spark (GB10)
 
 <img src="./assets/screenshot.png" alt="sparkDash Overview page with multiple DGX Spark units, GPU metrics, and LLM status" width="800">
 
-<table>
+<table border="0" cellspacing="0" cellpadding="0">
   <tr>
-    <td valign="middle">
+    <td valign="middle" style="border:0;padding:0 8px 0 0;">
       <a href="https://x.com/MiaAI_lab" target="_blank"><img src="https://img.shields.io/badge/Follow%20me%20on%20X-000000?style=for-the-badge&logo=x&logoColor=white" alt="Follow Mia on X" height="36" /></a>
     </td>
-    <td valign="middle">
+    <td valign="middle" style="border:0;padding:0;">
       <a href="https://ko-fi.com/Z8Z3SPLOD" target="_blank"><img src="https://storage.ko-fi.com/cdn/kofi6.png?v=6" alt="Buy Me a Coffee at ko-fi.com" height="36" border="0" /></a>
     </td>
   </tr>
