@@ -5,6 +5,17 @@ import dgram from "node:dgram";
 
 const MAC_RE = /^([0-9a-f]{2}[:\-]){5}[0-9a-f]{2}$/;
 
+/** Primary LAN NIC on DGX Spark used for WoL auto-detect. */
+export const WOL_INTERFACE = "enP7s7";
+
+/**
+ * Resolve MAC for wake: user override first, then last auto-detected enP7s7 MAC.
+ * @param {{ macAddress?: string | null, detectedMacAddress?: string | null }} spark
+ */
+export function effectiveMac(spark) {
+  return normalizeMac(spark?.macAddress) || normalizeMac(spark?.detectedMacAddress);
+}
+
 /** @param {unknown} mac */
 export function normalizeMac(mac) {
   if (mac == null) return null;

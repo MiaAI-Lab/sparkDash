@@ -73,12 +73,35 @@ export class SparkRegistry {
     return this._withPassword(spark);
   }
 
+  /**
+   * Persist the last-seen MAC for the WoL NIC (enP7s7). No-op if unchanged.
+   * Does not overwrite a user macAddress override.
+   * @param {string} id
+   * @param {string} mac
+   * @returns {object | null} updated public spark, or null if unchanged / missing
+   */
+  noteDetectedMac(id, mac) {
+    const idx = this._sparks.findIndex((s) => s.id === id);
+    if (idx === -1) return null;
+    const clean = String(mac || "")
+      .trim()
+      .toLowerCase();
+    if (!/^([0-9a-f]{2}[:\-]){5}[0-9a-f]{2}$/.test(clean)) return null;
+    const prev = this._sparks[idx];
+    if (prev.detectedMacAddress === clean) return null;
+    this._sparks[idx] = this._normalizeConfig({ ...prev, detectedMacAddress: clean });
+    this._save();
+    this._emit("update", this._withPassword(this._sparks[idx]));
+    return this.toPublic(this._sparks[idx]);
+  }
+
   /** Update an existing Spark by ID. Does not allow changing `id`. */
   updateSpark(id, updates) {
     const idx = this._sparks.findIndex((s) => s.id === id);
     if (idx === -1) throw new Error(`Spark ${id} not found`);
 
-    const { id: _ignoreId, ...safeUpdates } = updates || {};
+    // Client cannot set detectedMacAddress (auto from enP7s7 only)
+    const { id: _ignoreId, detectedMacAddress: _ignoreDetected, ...safeUpdates } = updates || {};
     const prev = this._sparks[idx];
 
     // Merge ssh carefully so we don't drop auth fields
@@ -285,7 +308,10 @@ export class SparkRegistry {
       name: config.name || config.id,
       lanIp: config.lanIp || "",
       cx7Ip: config.cx7Ip || null,
+      /** Optional user override for Wake-on-LAN. Empty → use detectedMacAddress. */
       macAddress: config.macAddress || null,
+      /** Last MAC seen on enP7s7 (auto; not set via public PATCH). */
+      detectedMacAddress: config.detectedMacAddress || null,
       isLocal: Boolean(config.isLocal),
       ssh,
       llmPorts,

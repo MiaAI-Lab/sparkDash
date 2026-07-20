@@ -22,8 +22,13 @@ const ONLINE_GRACE_MS = 10000;
  * Exposes snapshot() for WebSocket pushed payload.
  */
 export class SparkMonitor {
-  constructor(spark) {
+  /**
+   * @param {object} spark
+   * @param {{ onWolMac?: (sparkId: string, mac: string) => void }} [options]
+   */
+  constructor(spark, options = {}) {
     this.spark = spark;
+    this._onWolMac = typeof options.onWolMac === "function" ? options.onWolMac : null;
     this.collector = new SystemCollector(spark);
 
     // One LlmProbe per port — Map<port, LlmProbe>
@@ -269,6 +274,13 @@ export class SparkMonitor {
           break;
         case "network":
           this._metrics.network = result;
+          if (result?.wolMac && this._onWolMac) {
+            try {
+              this._onWolMac(this.spark.id, result.wolMac);
+            } catch (err) {
+              console.error(`[SparkMonitor] ${this.spark.id} wolMac persist error:`, err.message);
+            }
+          }
           break;
         case "storage":
           this._metrics.storage = result;
