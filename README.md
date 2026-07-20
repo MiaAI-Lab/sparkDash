@@ -1,4 +1,4 @@
-# sparkDash ![⚡](assets/bolt.svg) — Multi-unit monitoring dashboard for NVIDIA DGX Spark
+# sparkDash <img src="assets/bolt.svg" alt="" width="20" height="20" /> — Multi-unit monitoring dashboard for NVIDIA DGX Spark
 
 <p align="center">
   <img src="https://img.shields.io/badge/platform-arm64-2d9d78?style=flat-square" alt="Platform: ARM64">
