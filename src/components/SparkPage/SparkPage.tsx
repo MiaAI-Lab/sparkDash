@@ -110,11 +110,7 @@ export function SparkPage({ spark, temperatureUnit, onEdit }: SparkPageProps) {
           disabledInterfaces={disabledInterfaces}
           onDisabledChange={setDisabledInterfaces}
         />
-        {spark.workerNode ? (
-          <div className="md:col-span-2 rounded-lg border border-border bg-surface px-4 py-3 text-xs text-muted">
-            Worker node — LLM card inactive (no local model API on this Spark).
-          </div>
-        ) : (
+        {!spark.workerNode && (
           <>
             {llmPorts.map((port, i) => {
               const llmMetrics = metrics.llm?.[i] ?? null;
