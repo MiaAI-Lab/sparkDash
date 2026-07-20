@@ -80,6 +80,14 @@ export function SparkHeader({ spark, onEdit }: SparkHeaderProps) {
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <h2 className="truncate text-base font-semibold text-text-strong">{spark.name}</h2>
+            {spark.workerNode && (
+              <span
+                className="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-accent"
+                title="Distributed LLM worker — no local model API; LLM card is hidden"
+              >
+                Worker node
+              </span>
+            )}
             {online && spark.uptime != null && (
               <span
                 className="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 font-tabular text-[10px] font-medium text-accent"
