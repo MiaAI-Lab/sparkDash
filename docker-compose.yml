@@ -15,8 +15,6 @@ services:
     volumes:
       # Live server code — edits apply after --watch reloads the process
       - ./server:/app/server
-      # Live frontend build — run `npm run build` on the host, refresh browser
-      - ./dist:/app/dist:ro
       # Mount host filesystem for local Spark metrics
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
