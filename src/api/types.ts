@@ -4,6 +4,7 @@ export interface SparkConfig {
   name: string;
   lanIp: string;
   cx7Ip?: string | null;
+  macAddress?: string | null;
   isLocal: boolean;
   ssh: {
     host: string;

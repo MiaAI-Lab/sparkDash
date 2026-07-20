@@ -1,0 +1,26 @@
+services:
+  sparkdash:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      platforms:
+        - linux/arm64
+    container_name: sparkDash
+    restart: unless-stopped
+    command: ["node", "--watch", "server/index.js"]
+    ports:
+      - "5555:5555"
+    volumes:
+      - ./server:/app/server
+      - ./dist:/app/dist:ro
+      - ./config:/app/config
+    environment:
+      - PORT=5555
+      - LLM_PORT=8888
+      - NODE_ENV=production
+    networks:
+      - sparkdash-net
+
+networks:
+  sparkdash-net:
+    driver: bridge

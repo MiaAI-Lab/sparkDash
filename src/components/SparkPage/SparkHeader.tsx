@@ -1,5 +1,7 @@
+import { useState } from "react";
 import type { SparkSnapshot } from "../../api/types";
-import { EditIcon } from "../ui/icons";
+import { shutdownSpark, wakeSpark } from "../../api/client";
+import { EditIcon, PowerOffIcon, PowerOnIcon } from "../ui/icons";
 
 interface SparkHeaderProps {
   spark: SparkSnapshot;
@@ -21,6 +23,39 @@ function formatUptime(seconds: number): string {
 export function SparkHeader({ spark, onEdit }: SparkHeaderProps) {
   const { hardware } = spark;
   const online = spark.online;
+  const [powerLoading, setPowerLoading] = useState(false);
+  const [powerMsg, setPowerMsg] = useState<{ text: string; tone: "ok" | "err" } | null>(null);
+
+  async function handleShutdown() {
+    if (!confirm(`Gracefully shut down ${spark.name}? This will stop all containers and power off the node.`)) {
+      return;
+    }
+    setPowerLoading(true);
+    setPowerMsg(null);
+    try {
+      const res = await shutdownSpark(spark.id);
+      setPowerMsg({ text: res.message || "Shutdown initiated", tone: "ok" });
+    } catch (err: any) {
+      setPowerMsg({ text: err.message || "Shutdown failed", tone: "err" });
+    } finally {
+      setPowerLoading(false);
+      setTimeout(() => setPowerMsg(null), 5000);
+    }
+  }
+
+  async function handleWake() {
+    setPowerLoading(true);
+    setPowerMsg(null);
+    try {
+      const res = await wakeSpark(spark.id);
+      setPowerMsg({ text: res.message || "Wake packet sent", tone: "ok" });
+    } catch (err: any) {
+      setPowerMsg({ text: err.message || "Wake failed", tone: "err" });
+    } finally {
+      setPowerLoading(false);
+      setTimeout(() => setPowerMsg(null), 5000);
+    }
+  }
 
   return (
     <div className="spark-header panel flex flex-wrap items-center gap-x-4 gap-y-2 p-5" style={online ? undefined : { opacity: 0.6 }}>
@@ -47,16 +82,47 @@ export function SparkHeader({ spark, onEdit }: SparkHeaderProps) {
         </div>
       </div>
 
-      {onEdit && (
-        <button
-          type="button"
-          onClick={onEdit}
-          className="ml-auto flex items-center gap-1.5 rounded-md border border-border bg-surface-elevated px-3 py-1.5 text-[11px] text-muted hover:bg-surface-hover hover:text-text transition-colors"
-        >
-          <EditIcon className="h-3 w-3" />
-          Edit
-        </button>
-      )}
+      {/* Power management buttons */}
+      <div className="ml-auto flex items-center gap-2">
+        {powerMsg && (
+          <span className={`text-[11px] ${powerMsg.tone === "ok" ? "text-success" : "text-danger"}`}>
+            {powerMsg.text}
+          </span>
+        )}
+        {online ? (
+          <button
+            type="button"
+            onClick={handleShutdown}
+            disabled={powerLoading}
+            title="Graceful shutdown"
+            className="flex items-center gap-1.5 rounded-md border border-border bg-surface-elevated px-3 py-1.5 text-[11px] text-muted hover:bg-danger-soft hover:text-danger transition-colors disabled:opacity-50"
+          >
+            <PowerOffIcon className="h-3 w-3" />
+            Shutdown
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={handleWake}
+            disabled={powerLoading}
+            title="Wake-on-LAN"
+            className="flex items-center gap-1.5 rounded-md border border-border bg-surface-elevated px-3 py-1.5 text-[11px] text-muted hover:bg-success-soft hover:text-success transition-colors disabled:opacity-50"
+          >
+            <PowerOnIcon className="h-3 w-3" />
+            Wake
+          </button>
+        )}
+        {onEdit && (
+          <button
+            type="button"
+            onClick={onEdit}
+            className="flex items-center gap-1.5 rounded-md border border-border bg-surface-elevated px-3 py-1.5 text-[11px] text-muted hover:bg-surface-hover hover:text-text transition-colors"
+          >
+            <EditIcon className="h-3 w-3" />
+            Edit
+          </button>
+        )}
+      </div>
     </div>
   );
 }

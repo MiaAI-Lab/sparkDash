@@ -172,3 +172,24 @@ export function RotateIcon({ className = "" }: { className?: string }) {
     </svg>
   );
 }
+
+/** Power button icon — for shutdown action. */
+export function PowerOffIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg {...baseProps(className)}>
+      <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+      <line x1="12" y1="2" x2="12" y2="12" />
+    </svg>
+  );
+}
+
+/** Power on / wake icon — sun-like burst. */
+export function PowerOnIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg {...baseProps(className)}>
+      <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+      <line x1="12" y1="2" x2="12" y2="12" />
+      <path d="M12 7v5" strokeWidth={2.5} />
+    </svg>
+  );
+}

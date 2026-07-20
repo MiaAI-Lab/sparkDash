@@ -7,7 +7,7 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import { SparkRegistry } from "./sparks/SparkRegistry.js";
 import { SparkMonitor } from "./sparks/SparkMonitor.js";
-import { sshTest, llmTest } from "./collectors/ssh.js";
+import { sshExec, sshTest, llmTest } from "./collectors/ssh.js";
 import { validateSparkTarget, createRateLimiter } from "./validate.js";
 import { getSettings, updateSettings, loadSettings } from "./settings.js";
 
@@ -544,6 +544,153 @@ app.post("/api/sparks/:id/llm/bench", async (req, res) => {
   } catch (err) {
     res.status(500).json({ ok: false, message: err.message });
   }
+});
+
+// ─── Power management: graceful shutdown ─────────────────
+app.post("/api/sparks/:id/shutdown", async (req, res) => {
+  try {
+    const spark = registry.getSpark(req.params.id);
+    if (!spark) return res.status(404).json({ error: "Spark not found" });
+
+    // Use the installed /usr/local/bin/spark-shutdown script (passwordless sudo).
+    // SSH exec with a short connect timeout — if the host is already down we
+    // return a clear error rather than hanging.
+    try {
+      const result = await sshExec(spark, "sudo -n /usr/local/bin/spark-shutdown");
+      res.json({ success: true, message: "Shutdown initiated", output: result });
+    } catch (err) {
+      // Connection refused / timeout = host already down or unreachable
+      const msg = err.message || String(err);
+      if (/timed out|connection refused|unreachable|no route/i.test(msg)) {
+        res.status(503).json({ error: `Spark unreachable: ${msg}` });
+      } else {
+        res.status(500).json({ error: msg });
+      }
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Power management: Wake-on-LAN ──────────────────────
+app.post("/api/sparks/:id/wake", async (req, res) => {
+  try {
+    const spark = registry.getSpark(req.params.id);
+    if (!spark) return res.status(404).json({ error: "Spark not found" });
+
+    const mac = spark.macAddress || req.body?.mac;
+    if (!mac) {
+      return res.status(400).json({
+        error: "No MAC address configured. Set macAddress on the Spark or pass mac in the body.",
+      });
+    }
+
+    // Validate MAC format
+    const cleanMac = String(mac).trim().toLowerCase();
+    if (!/^([0-9a-f]{2}[:\-]){5}[0-9a-f]{2}$/.test(cleanMac)) {
+      return res.status(400).json({ error: `Invalid MAC address: ${mac}` });
+    }
+
+    // Send WoL magic packet (6× 0xff + 16× MAC, UDP broadcast port 9)
+    const dgram = await import("dgram");
+    const sock = dgram.createSocket("udp4");
+    sock.on("error", (err) => {
+      sock.close();
+      res.status(500).json({ error: `WoL socket error: ${err.message}` });
+    });
+
+    sock.bind(0, () => {
+      sock.setBroadcast(true);
+      const macBytes = cleanMac.split(/[:\-]/).map((b) => parseInt(b, 16));
+      const magic = Buffer.alloc(6 + 16 * 6);
+      magic.fill(0xff, 0, 6);
+      for (let i = 0; i < 16; i++) {
+        for (let j = 0; j < 6; j++) {
+          magic[6 + i * 6 + j] = macBytes[j];
+        }
+      }
+      // Send to the subnet broadcast (derive from lanIp, assume /24)
+      const lanIp = spark.lanIp;
+      let broadcastAddr = "255.255.255.255";
+      if (lanIp && /^\d+\.\d+\.\d+\.\d+$/.test(lanIp)) {
+        const parts = lanIp.split(".");
+        broadcastAddr = `${parts[0]}.${parts[1]}.${parts[2]}.255`;
+      }
+      sock.send(magic, 0, magic.length, 9, broadcastAddr, (err) => {
+        sock.close();
+        if (err) {
+          res.status(500).json({ error: `WoL send failed: ${err.message}` });
+        } else {
+          res.json({
+            success: true,
+            message: `Magic packet sent to ${cleanMac} via ${broadcastAddr}`,
+            mac: cleanMac,
+            broadcast: broadcastAddr,
+          });
+        }
+      });
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Batch power: shutdown all online Sparks ─────────────
+app.post("/api/sparks/shutdown-all", async (req, res) => {
+  const results = [];
+  for (const spark of registry.sparks) {
+    try {
+      await sshExec(spark, "sudo -n /usr/local/bin/spark-shutdown");
+      results.push({ id: spark.id, ok: true });
+    } catch (err) {
+      results.push({ id: spark.id, ok: false, error: err.message });
+    }
+  }
+  res.json({ success: true, results });
+});
+
+// ─── Batch power: wake all Sparks ────────────────────────
+app.post("/api/sparks/wake-all", async (req, res) => {
+  const results = [];
+  const dgram = await import("dgram");
+  for (const spark of registry.sparks) {
+    const mac = spark.macAddress;
+    if (!mac) {
+      results.push({ id: spark.id, ok: false, error: "No MAC address configured" });
+      continue;
+    }
+    const cleanMac = String(mac).trim().toLowerCase();
+    if (!/^([0-9a-f]{2}[:\-]){5}[0-9a-f]{2}$/.test(cleanMac)) {
+      results.push({ id: spark.id, ok: false, error: `Invalid MAC: ${mac}` });
+      continue;
+    }
+    try {
+      await new Promise((resolve) => {
+        const sock = dgram.createSocket("udp4");
+        sock.bind(0, () => {
+          sock.setBroadcast(true);
+          const macBytes = cleanMac.split(/[:\-]/).map((b) => parseInt(b, 16));
+          const magic = Buffer.alloc(6 + 16 * 6);
+          magic.fill(0xff, 0, 6);
+          for (let i = 0; i < 16; i++) {
+            for (let j = 0; j < 6; j++) {
+              magic[6 + i * 6 + j] = macBytes[j];
+            }
+          }
+          const parts = spark.lanIp.split(".");
+          const broadcast = `${parts[0]}.${parts[1]}.${parts[2]}.255`;
+          sock.send(magic, 0, magic.length, 9, broadcast, () => {
+            sock.close();
+            resolve();
+          });
+        });
+      });
+      results.push({ id: spark.id, ok: true, mac: cleanMac });
+    } catch (err) {
+      results.push({ id: spark.id, ok: false, error: err.message });
+    }
+  }
+  res.json({ success: true, results });
 });
 
 // ─── Static files (built frontend) ───────────────────────
