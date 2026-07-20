@@ -119,6 +119,7 @@ export function SparkPage({ spark, temperatureUnit, onEdit }: SparkPageProps) {
               sparkId={spark.id}
               llmPort={port}
               llmPortsCount={llmPorts.length}
+              cluster={spark.llmCluster}
               onRemovePort={llmPorts.length > 1 ? handleRemovePort : undefined}
               className="md:col-span-2"
             />

@@ -132,6 +132,7 @@ export class SparkMonitor {
       storagePollDisabled: Boolean(this.spark.storagePollDisabled),
       llmPort: ports[0] ?? LLM_PORT,
       llmPorts: ports,
+      llmCluster: this.spark.llmCluster || null,
       hardware: this._getHardwareSummary(),
       metrics: {
         // NOTE: no `timestamp` here on purpose. The broadcast path skips

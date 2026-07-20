@@ -18,7 +18,7 @@
     "docker:rebuild": "docker compose up --build -d",
     "frontend": "npm run build",
     "self-update:install": "./scripts/install-self-update.sh",
-    "test": "./test/self-update.test.sh"
+    "test": "./test/self-update.test.sh && node --test test/*.test.mjs"
   },
   "keywords": ["nvidia", "dgx-spark", "gb10", "monitoring", "dashboard", "gpu", "llm"],
   "author": "Mia'a AI Lab",

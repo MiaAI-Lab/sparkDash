@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import type { LlmMetrics } from "../../api/types";
+import type { LlmClusterMembership, LlmMetrics } from "../../api/types";
 import { updateLlmPort } from "../../api/client";
 import { Sparkline } from "../ui/Sparkline";
 import { Panel } from "../ui/Panel";
@@ -10,6 +10,7 @@ interface LlmPanelProps {
   sparkId: string;
   llmPort: number;
   llmPortsCount?: number;
+  cluster?: LlmClusterMembership | null;
   onRemovePort?: (port: number) => void;
   className?: string;
 }
@@ -33,7 +34,7 @@ function BackendBadge({ backend }: { backend: string | null }) {
   );
 }
 
-export function LlmPanel({ llm, sparkId, llmPort, llmPortsCount = 1, onRemovePort, className }: LlmPanelProps) {
+export function LlmPanel({ llm, sparkId, llmPort, llmPortsCount = 1, cluster, onRemovePort, className }: LlmPanelProps) {
   const [genHistory, setGenHistory] = useState<number[]>([]);
   const [showSettings, setShowSettings] = useState(false);
   const [portDraft, setPortDraft] = useState(String(llmPort));
@@ -190,6 +191,19 @@ export function LlmPanel({ llm, sparkId, llmPort, llmPortsCount = 1, onRemovePor
             </button>
           </div>
         </div>
+      ) : cluster?.role === "worker" ? (
+        <div className="space-y-2 py-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="llm-badge">
+              <span className="h-1.5 w-1.5 rounded-full bg-accent" />
+              Distributed worker
+            </span>
+            <span className="text-xs text-text">{cluster.label}</span>
+          </div>
+          <div className="text-xs text-muted">
+            Rank {cluster.rank} / {cluster.worldSize - 1} · API at {cluster.headSparkId} :{cluster.headPort}
+          </div>
+        </div>
       ) : !available ? (
         <div className="flex items-center gap-2 py-1">
           <span className="h-1.5 w-1.5 rounded-full bg-muted" />
@@ -197,6 +211,11 @@ export function LlmPanel({ llm, sparkId, llmPort, llmPortsCount = 1, onRemovePor
         </div>
       ) : (
         <div className="space-y-3">
+          {cluster?.role === "head" && (
+            <div className="text-[10px] uppercase tracking-wide text-muted">
+              {cluster.label} cluster head · rank {cluster.rank} / {cluster.worldSize - 1}
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <BackendBadge backend={llm?.backend ?? null} />
             {llm?.modelId && (
