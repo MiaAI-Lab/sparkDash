@@ -1,4 +1,4 @@
-# sparkDash ⚡ — Multi-unit monitoring dashboard for NVIDIA DGX Spark
+# sparkDash <img src="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23e8a830' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' width='20' height='20' style='display:inline;vertical-align:-4px'><path d='M13 2L3 14h9l-1 8 10-12h-9l1-8z'/></svg>" alt="" /> — Multi-unit monitoring dashboard for NVIDIA DGX Spark
 
 <p align="center">
   <img src="https://img.shields.io/badge/platform-arm64-2d9d78?style=flat-square" alt="Platform: ARM64">
