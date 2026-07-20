@@ -170,6 +170,48 @@ export function updateLlmPort(
   });
 }
 
+// ─── Power management ────────────────────────────────────
+export interface PowerResult {
+  success: boolean;
+  message?: string;
+  output?: string;
+  mac?: string;
+  broadcast?: string;
+  error?: string;
+}
+
+export interface BatchPowerResult {
+  success: boolean;
+  results: {
+    id: string;
+    ok: boolean;
+    error?: string;
+    skipped?: boolean;
+    mac?: string;
+    broadcast?: string;
+  }[];
+}
+
+/** Gracefully shut down a single Spark (host script: spark-shutdown). */
+export function shutdownSpark(id: string): Promise<PowerResult> {
+  return apiFetch(`/api/sparks/${id}/shutdown`, { method: "POST" });
+}
+
+/** Send a Wake-on-LAN magic packet to a single Spark. */
+export function wakeSpark(id: string): Promise<PowerResult> {
+  return apiFetch(`/api/sparks/${id}/wake`, { method: "POST" });
+}
+
+/** Shut down Sparks that are currently online. */
+export function shutdownAllSparks(): Promise<BatchPowerResult> {
+  return apiFetch("/api/sparks/shutdown-all", { method: "POST" });
+}
+
+/** Send WoL to all registered Sparks that have a MAC configured. */
+export function wakeAllSparks(): Promise<BatchPowerResult> {
+  return apiFetch("/api/sparks/wake-all", { method: "POST" });
+}
+
 // ─── Global settings ──────────────────────────────────────
 export function fetchSettings(): Promise<Settings> {
   return apiFetch("/api/settings");

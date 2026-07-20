@@ -4,6 +4,8 @@ export interface SparkConfig {
   name: string;
   lanIp: string;
   cx7Ip?: string | null;
+  /** Ethernet MAC for Wake-on-LAN (aa:bb:cc:dd:ee:ff) */
+  macAddress?: string | null;
   isLocal: boolean;
   ssh: {
     host: string;

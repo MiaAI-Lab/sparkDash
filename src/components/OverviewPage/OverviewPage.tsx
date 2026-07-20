@@ -1,6 +1,8 @@
+import { useState } from "react";
 import type { SparkSnapshot } from "../../api/types";
+import { shutdownAllSparks, wakeAllSparks } from "../../api/client";
 import { MetricBar } from "../ui/MetricBar";
-import { ActivityIcon } from "../ui/icons";
+import { ActivityIcon, PowerOffIcon, PowerOnIcon } from "../ui/icons";
 
 interface OverviewPageProps {
   sparks: SparkSnapshot[];
@@ -212,6 +214,61 @@ function SparkCard({ spark, temperatureUnit, onSelect }: { spark: SparkSnapshot;
 
 export function OverviewPage({ sparks, hideOffline = false, temperatureUnit = "celsius", onSelectSpark }: OverviewPageProps) {
   const visibleSparks = hideOffline ? sparks.filter((s) => s.online) : sparks;
+  const [batchLoading, setBatchLoading] = useState(false);
+  const [batchMsg, setBatchMsg] = useState<{ text: string; tone: "ok" | "err" } | null>(null);
+
+  async function handleShutdownAll() {
+    const onlineCount = sparks.filter((s) => s.online).length;
+    if (onlineCount === 0) return;
+    if (!confirm(`Gracefully shut down all ${onlineCount} online Spark(s)? Offline nodes will be skipped.`)) {
+      return;
+    }
+    setBatchLoading(true);
+    setBatchMsg(null);
+    try {
+      const res = await shutdownAllSparks();
+      const ok = res.results.filter((r) => r.ok).length;
+      const fail = res.results.filter((r) => !r.ok && !r.skipped).length;
+      const skipped = res.results.filter((r) => r.skipped).length;
+      const parts = [`${ok} shut down`];
+      if (fail) parts.push(`${fail} failed`);
+      if (skipped) parts.push(`${skipped} skipped`);
+      setBatchMsg({
+        text: parts.join(", "),
+        tone: fail === 0 ? "ok" : "err",
+      });
+    } catch (err: unknown) {
+      setBatchMsg({
+        text: err instanceof Error ? err.message : "Batch shutdown failed",
+        tone: "err",
+      });
+    } finally {
+      setBatchLoading(false);
+      setTimeout(() => setBatchMsg(null), 6000);
+    }
+  }
+
+  async function handleWakeAll() {
+    setBatchLoading(true);
+    setBatchMsg(null);
+    try {
+      const res = await wakeAllSparks();
+      const ok = res.results.filter((r) => r.ok).length;
+      const fail = res.results.filter((r) => !r.ok).length;
+      setBatchMsg({
+        text: fail === 0 ? `${ok} wake packet(s) sent` : `${ok} sent, ${fail} failed`,
+        tone: fail === 0 ? "ok" : "err",
+      });
+    } catch (err: unknown) {
+      setBatchMsg({
+        text: err instanceof Error ? err.message : "Batch wake failed",
+        tone: "err",
+      });
+    } finally {
+      setBatchLoading(false);
+      setTimeout(() => setBatchMsg(null), 6000);
+    }
+  }
 
   if (visibleSparks.length === 0) {
     const allOffline = hideOffline && sparks.length > 0;
@@ -240,10 +297,41 @@ export function OverviewPage({ sparks, hideOffline = false, temperatureUnit = "c
         <h1 className="text-[32px] font-normal leading-tight tracking-tight text-text-strong">
           Overview
         </h1>
-        <span className="online-chip">
-          <span className="dot" />
-          {onlineCount}/{visibleSparks.length} online
-        </span>
+        <div className="flex items-center gap-3">
+          {batchMsg && (
+            <span className={`text-[11px] ${batchMsg.tone === "ok" ? "text-success" : "text-danger"}`}>
+              {batchMsg.text}
+            </span>
+          )}
+          {sparks.length > 0 && (
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => void handleWakeAll()}
+                disabled={batchLoading}
+                title="Wake all Sparks that have a MAC configured (WoL)"
+                className="flex items-center gap-1 rounded-md border border-border bg-surface-elevated px-2.5 py-1.5 text-[11px] text-muted hover:bg-success/20 hover:text-success transition-colors disabled:opacity-50"
+              >
+                <PowerOnIcon className="h-3 w-3" />
+                Wake All
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleShutdownAll()}
+                disabled={batchLoading || !sparks.some((s) => s.online)}
+                title="Shut down all online Sparks"
+                className="flex items-center gap-1 rounded-md border border-border bg-surface-elevated px-2.5 py-1.5 text-[11px] text-muted hover:bg-danger/20 hover:text-danger transition-colors disabled:opacity-50"
+              >
+                <PowerOffIcon className="h-3 w-3" />
+                Shutdown All
+              </button>
+            </div>
+          )}
+          <span className="online-chip">
+            <span className="dot" />
+            {onlineCount}/{visibleSparks.length} online
+          </span>
+        </div>
       </div>
       <div className="overview-page grid gap-[18px] sm:grid-cols-2 lg:grid-cols-3">
         {visibleSparks.map((spark) => (

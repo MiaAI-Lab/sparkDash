@@ -217,9 +217,18 @@ Copy `.env.example` to `.env` if needed:
 ### Adding a Spark
 
 1. Open the **+** tab.
-2. Set **Name**, **LAN IP** (required), optional **CX7 IP**, **SSH user**, and auth (key or password).
+2. Set **Name**, **LAN IP** (required), optional **CX7 IP**, optional **MAC address** (for Wake-on-LAN), **SSH user**, and auth (key or password).
 3. **Test Connection** for SSH + LLM reachability.
 4. Save — a tab appears and metrics start streaming.
+
+### Power controls (shutdown / Wake-on-LAN)
+
+- **Shutdown** (per Spark or **Shutdown All** on Overview) runs over SSH:  
+  `sudo -n /usr/local/bin/spark-shutdown`  
+  Install that script on each Spark and allow passwordless sudo for it only.
+- **Wake** / **Wake All** send a UDP magic packet (port 9) to the Spark’s MAC. Set **MAC Address** in Edit Spark. Broadcast is derived as `/24` from LAN IP, or `255.255.255.255` if LAN IP is missing.
+- Batch shutdown only targets **online** Sparks; offline nodes are skipped.
+- Same trust model as the rest of the API: **do not expose port 5555** beyond a trusted network — power actions are not separately authenticated.
 
 ### Themes
 
@@ -244,7 +253,8 @@ Choice is stored in `localStorage`.
 - **Target validation** rejects clearly unsafe IPv4 targets (link-local `169.254.0.0/16`, `0.0.0.0/8`, multicast/reserved ≥ 224). Private, loopback, and public addresses are allowed so LAN and remote Sparks work.
 - SSH and HTTP probes use short timeouts (about 5 s SSH connect, 3 s HTTP) so a hung host cannot stall the poll loop.
 - Prefer **SSH keys** over passwords.
-- Treat the dashboard as **LAN-trusted**: the API is intentionally unauthenticated for ease of use on a private network.
+- Treat the dashboard as **LAN-trusted**: the API is intentionally unauthenticated for ease of use on a private network. That includes **power APIs** (shutdown / Wake-on-LAN): anyone who can reach the dashboard can request fleet power actions.
+
 
 ---
 

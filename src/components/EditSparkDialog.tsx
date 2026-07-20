@@ -197,6 +197,7 @@ export function EditSparkDialog({
         name: config.name,
         lanIp: config.lanIp,
         cx7Ip: config.cx7Ip,
+        macAddress: config.macAddress || null,
         isLocal: config.isLocal,
         ssh: {
           host: config.ssh.host || config.lanIp,
@@ -270,6 +271,17 @@ export function EditSparkDialog({
                 type="text"
                 value={config.cx7Ip || ""}
                 onChange={(e) => update({ cx7Ip: e.target.value || null })}
+                className="w-full rounded border border-border bg-surface-elevated px-3 py-1.5 text-xs text-text outline-none focus:border-accent"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs text-muted">MAC Address (Wake-on-LAN)</label>
+              <input
+                type="text"
+                value={config.macAddress || ""}
+                onChange={(e) => update({ macAddress: e.target.value || null })}
+                placeholder="e.g. 00:1a:2b:3c:4d:5e"
                 className="w-full rounded border border-border bg-surface-elevated px-3 py-1.5 text-xs text-text outline-none focus:border-accent"
               />
             </div>

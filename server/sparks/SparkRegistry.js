@@ -285,6 +285,7 @@ export class SparkRegistry {
       name: config.name || config.id,
       lanIp: config.lanIp || "",
       cx7Ip: config.cx7Ip || null,
+      macAddress: config.macAddress || null,
       isLocal: Boolean(config.isLocal),
       ssh,
       llmPorts,

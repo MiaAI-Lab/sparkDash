@@ -7,9 +7,10 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import { SparkRegistry } from "./sparks/SparkRegistry.js";
 import { SparkMonitor } from "./sparks/SparkMonitor.js";
-import { sshTest, llmTest } from "./collectors/ssh.js";
+import { sshExec, sshTest, llmTest } from "./collectors/ssh.js";
 import { validateSparkTarget, createRateLimiter } from "./validate.js";
 import { getSettings, updateSettings, loadSettings } from "./settings.js";
+import { broadcastForLanIp, normalizeMac, sendWol } from "./wol.js";
 
 dotenv.config();
 
@@ -543,6 +544,113 @@ app.post("/api/sparks/:id/llm/bench", async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ ok: false, message: err.message });
+  }
+});
+
+// ─── Power management ────────────────────────────────────
+// Shutdown uses host script: sudo -n /usr/local/bin/spark-shutdown (passwordless).
+// These routes are unauthenticated like the rest of the LAN dashboard — do not
+// expose port 5555 beyond a trusted network.
+
+const SHUTDOWN_CMD = "sudo -n /usr/local/bin/spark-shutdown";
+
+function shutdownErrorStatus(msg) {
+  if (/timed out|connection refused|unreachable|no route/i.test(msg)) return 503;
+  return 500;
+}
+
+/** Batch routes first so they never collide with /:id/* if routing changes. */
+app.post("/api/sparks/shutdown-all", async (_req, res) => {
+  const results = [];
+  for (const spark of registry.sparks) {
+    const monitor = monitors.get(spark.id);
+    if (!monitor?.online) {
+      results.push({ id: spark.id, ok: false, skipped: true, error: "Offline — skipped" });
+      continue;
+    }
+    try {
+      await sshExec(spark, SHUTDOWN_CMD);
+      results.push({ id: spark.id, ok: true });
+    } catch (err) {
+      results.push({ id: spark.id, ok: false, error: err.message || String(err) });
+    }
+  }
+  res.json({ success: true, results });
+});
+
+app.post("/api/sparks/wake-all", async (_req, res) => {
+  const results = [];
+  for (const spark of registry.sparks) {
+    const cleanMac = normalizeMac(spark.macAddress);
+    if (!cleanMac) {
+      results.push({
+        id: spark.id,
+        ok: false,
+        error: spark.macAddress ? `Invalid MAC: ${spark.macAddress}` : "No MAC address configured",
+      });
+      continue;
+    }
+    try {
+      const broadcast = broadcastForLanIp(spark.lanIp);
+      const sent = await sendWol(cleanMac, broadcast);
+      results.push({ id: spark.id, ok: true, mac: sent.mac, broadcast: sent.broadcast });
+    } catch (err) {
+      results.push({ id: spark.id, ok: false, error: err.message || String(err) });
+    }
+  }
+  res.json({ success: true, results });
+});
+
+app.post("/api/sparks/:id/shutdown", async (req, res) => {
+  try {
+    const spark = registry.getSpark(req.params.id);
+    if (!spark) return res.status(404).json({ error: "Spark not found" });
+
+    try {
+      const result = await sshExec(spark, SHUTDOWN_CMD);
+      res.json({ success: true, message: "Shutdown initiated", output: result });
+    } catch (err) {
+      const msg = err.message || String(err);
+      res.status(shutdownErrorStatus(msg)).json({
+        error: shutdownErrorStatus(msg) === 503 ? `Spark unreachable: ${msg}` : msg,
+      });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/sparks/:id/wake", async (req, res) => {
+  try {
+    const spark = registry.getSpark(req.params.id);
+    if (!spark) return res.status(404).json({ error: "Spark not found" });
+
+    const cleanMac = normalizeMac(spark.macAddress || req.body?.mac);
+    if (!cleanMac) {
+      if (!spark.macAddress && !req.body?.mac) {
+        return res.status(400).json({
+          error: "No MAC address configured. Set macAddress on the Spark or pass mac in the body.",
+        });
+      }
+      return res.status(400).json({
+        error: `Invalid MAC address: ${spark.macAddress || req.body?.mac}`,
+      });
+    }
+
+    const broadcast = broadcastForLanIp(spark.lanIp);
+    try {
+      const sent = await sendWol(cleanMac, broadcast);
+      res.json({
+        success: true,
+        message: `Magic packet sent to ${sent.mac} via ${sent.broadcast}`,
+        mac: sent.mac,
+        broadcast: sent.broadcast,
+      });
+    } catch (err) {
+      res.status(500).json({ error: `WoL send failed: ${err.message || String(err)}` });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
