@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Timers start with a minimal PATH; include common Homebrew/local locations.
+export PATH="${PATH:-}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
 REPO="${SPARKDASH_REPO:-$(cd "$(dirname "$0")/.." && pwd)}"
 REMOTE="${SPARKDASH_REMOTE:-origin}"
 BRANCH="${SPARKDASH_BRANCH:-main}"

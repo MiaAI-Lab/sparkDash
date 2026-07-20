@@ -3,6 +3,7 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 SCHEDULE="${SPARKDASH_UPDATE_TIME:-03:15}"
+RESTART_CMD="${SPARKDASH_RESTART_CMD:-docker compose up --build -d}"
 HOUR="${SCHEDULE%:*}"
 MINUTE="${SCHEDULE#*:}"
 
@@ -18,6 +19,9 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
 <key>Label</key><string>$LABEL</string>
 <key>ProgramArguments</key><array><string>$REPO/scripts/self-update.sh</string></array>
 <key>WorkingDirectory</key><string>$REPO</string>
+<key>EnvironmentVariables</key><dict>
+<key>SPARKDASH_RESTART_CMD</key><string>$RESTART_CMD</string>
+</dict>
 <key>StartCalendarInterval</key><dict><key>Hour</key><integer>$((10#$HOUR))</integer><key>Minute</key><integer>$((10#$MINUTE))</integer></dict>
 <key>StandardOutPath</key><string>$LOG_DIR/self-update.log</string>
 <key>StandardErrorPath</key><string>$LOG_DIR/self-update-error.log</string>
@@ -39,6 +43,7 @@ Description=Update and redeploy sparkDash
 [Service]
 Type=oneshot
 WorkingDirectory=$REPO
+Environment="SPARKDASH_RESTART_CMD=$RESTART_CMD"
 ExecStart=$REPO/scripts/self-update.sh
 EOF
   cat > "$UNIT_DIR/sparkdash-self-update.timer" <<EOF

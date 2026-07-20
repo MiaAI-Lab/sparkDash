@@ -16,7 +16,9 @@ git init -b main "$TMP/source" >/dev/null
 git -C "$TMP/source" config user.name Test
 git -C "$TMP/source" config user.email test@example.com
 printf 'one\n' > "$TMP/source/version.txt"
-git -C "$TMP/source" add version.txt
+cp "$ROOT/test/fixtures/package.json" "$TMP/source/package.json"
+cp "$ROOT/test/fixtures/package-lock.json" "$TMP/source/package-lock.json"
+git -C "$TMP/source" add version.txt package.json package-lock.json
 git -C "$TMP/source" commit -m one >/dev/null
 git -C "$TMP/source" remote add origin "$TMP/origin.git"
 git -C "$TMP/source" push -u origin main >/dev/null
