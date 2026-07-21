@@ -4,6 +4,7 @@ dist/
 sparks.json
 config/sparks-secrets.json
 config/.secrets-key
+config/gpu-memory.json
 *.log
 .DS_Store
 docs/

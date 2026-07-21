@@ -210,10 +210,37 @@ export class SystemCollector {
       } catch {}
     }
 
-    // Host cron file (gpu-memory.sh) as last resort for used / total
+    // Host cron file (gpu-memory.sh): used/total + process list when SMI is empty.
+    // Common in Docker: memory.* is N/A on GB10; compute-apps can also be empty
+    // depending on PID namespace / driver mounts (not always, but often enough).
     const file = this._readGpuMemoryFileFull();
     if ((used == null || used === 0) && file.used > 0) used = file.used;
     if (total == null && file.total > 0) total = file.total;
+
+    if (
+      this.nvidiaComputeAppsCache.size === 0 &&
+      Array.isArray(file.processes) &&
+      file.processes.length > 0
+    ) {
+      for (const proc of file.processes) {
+        const pid = Number(proc?.pid);
+        const vramMB = this._parseSmiNumber(proc?.vramMB);
+        const name =
+          typeof proc?.name === "string" && proc.name.trim()
+            ? proc.name.trim()
+            : "unknown";
+        // Allow vramMB === 0; only skip missing / non-finite values
+        if (!Number.isInteger(pid) || pid <= 0 || vramMB == null) continue;
+        this.nvidiaComputeAppsCache.set(pid, { name, vramMB });
+      }
+      if ((used == null || used === 0) && this.nvidiaComputeAppsCache.size > 0) {
+        let sum = 0;
+        for (const entry of this.nvidiaComputeAppsCache.values()) {
+          sum += entry.vramMB || 0;
+        }
+        if (sum > 0) used = sum;
+      }
+    }
 
     // Unified-memory pool size + actual available memory from /proc/meminfo.
     // This matches the Unified Memory panel's basis so the two read consistently.
@@ -499,12 +526,13 @@ export class SystemCollector {
         const memData = JSON.parse(fs.readFileSync(GPU_MEMORY_JSON_PATH, "utf-8"));
         const used = this._parseSmiNumber(memData.used) || 0;
         const total = this._parseSmiNumber(memData.total) || 0;
-        return { used, total };
+        const processes = Array.isArray(memData.processes) ? memData.processes : [];
+        return { used, total, processes };
       }
     } catch (err) {
       console.warn(`[SystemCollector] gpu-memory.json read failed: ${err.message}`);
     }
-    return { used: 0, total: 0 };
+    return { used: 0, total: 0, processes: [] };
   }
 
   /** Map container-visible mount to a host path for statfs. */
