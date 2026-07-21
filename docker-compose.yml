@@ -24,6 +24,11 @@ services:
       - /usr/lib/aarch64-linux-gnu/libnvidia-ml.so.1:/usr/lib/aarch64-linux-gnu/libnvidia-ml.so.1:ro
       # Config + encrypted secrets (passwords survive restarts)
       - ./config:/app/config
+      # SSH keys for remote Spark monitoring (ofus, mama)
+      - /home/kesslerio/.ssh:/root/.ssh:ro
+    # Allow the local Spark's LLM probe to reach host-side vLLM on port 8888
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       - PORT=5555
       - LLM_PORT=8888

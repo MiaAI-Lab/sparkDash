@@ -149,6 +149,18 @@ export interface LlmMetrics {
   prefillTps: number;
   /** Cumulative total output (generation) tokens as reported by the LLM server */
   totalOutputTokens: number;
+  /** vLLM KV cache usage fraction (0–1). null when backend !== 'vllm' or unreachable. */
+  kvCacheUsage: number | null;
+  /** vLLM running request count. null when backend !== 'vllm' or unreachable. */
+  requestsRunning: number | null;
+  /** vLLM waiting request count. null when backend !== 'vllm' or unreachable. */
+  requestsWaiting: number | null;
+  /** vLLM time-to-first-token p95 in seconds (histogram quantile). null when unavailable. */
+  ttftP95Seconds: number | null;
+  /** vLLM inter-token latency p95 in seconds (histogram quantile). null when unavailable. */
+  interTokenP95Seconds: number | null;
+  /** vLLM cumulative preemption count. null when backend !== 'vllm' or unreachable. */
+  preemptionsTotal: number | null;
   error: string | null;
 }
 

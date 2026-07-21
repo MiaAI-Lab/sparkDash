@@ -37,6 +37,14 @@ export class LlmProbe {
     // Cumulative total output tokens (generation) as reported by the LLM server
     this.totalOutputTokens = 0;
 
+    // vLLM inference performance metrics (null when backend !== 'vllm' or unreachable)
+    this.kvCacheUsage = null;       // 0–1 fraction
+    this.requestsRunning = null;
+    this.requestsWaiting = null;
+    this.ttftP95Seconds = null;     // computed from histogram buckets
+    this.interTokenP95Seconds = null;
+    this.preemptionsTotal = null;  // cumulative counter
+
     this._consecutiveFailures = 0;
     this._lastDetectAt = 0;
   }
@@ -111,6 +119,12 @@ export class LlmProbe {
     this.slotsActive = 0;
     this.slotsTotal = 0;
     this.totalOutputTokens = 0;
+    this.kvCacheUsage = null;
+    this.requestsRunning = null;
+    this.requestsWaiting = null;
+    this.ttftP95Seconds = null;
+    this.interTokenP95Seconds = null;
+    this.preemptionsTotal = null;
     this.slotState.clear();
     this.lastTokenCounts = { input: 0, output: 0 };
   }
@@ -213,6 +227,9 @@ export class LlmProbe {
           }
 
           const running = this._getVllmMetric(txt, "num_requests_running");
+          // requestsRunning updates unconditionally (null on missing) to stay in sync with
+          // the other vLLM metrics; slotsActive keeps its round-to-int, null-skipped behavior.
+          this.requestsRunning = running;
           if (running != null) this.slotsActive = Math.round(running);
 
           // Engine sleep state (0 = active, 1 = sleeping)
@@ -220,6 +237,22 @@ export class LlmProbe {
             const sleepState = this._getVllmMetric(txt, "engine_sleep_state");
             if (sleepState != null) this.gpuMemoryUtilization = sleepState;
           }
+
+          // vLLM inference performance metrics (Prometheus exposition)
+          this.requestsWaiting = this._getVllmMetric(txt, "num_requests_waiting");
+          this.kvCacheUsage = this._getVllmMetric(txt, "kv_cache_usage_perc");
+          this.preemptionsTotal = this._getVllmMetric(txt, "num_preemptions_total");
+
+          const ttftHist = this._parseVllmHistogram(txt, "vllm:time_to_first_token_seconds");
+          const ttftP95 = this._histogramQuantile(ttftHist.buckets, ttftHist.total, 0.95);
+          // Round to 3 decimals at storage: the UI displays .toFixed(3), and a stable
+          // stringified value preserves the WebSocket broadcast's byte-identical diff-cache
+          // (a raw interpolated float jitters tick-to-tick as the _count total shifts).
+          this.ttftP95Seconds = ttftP95 == null ? null : Math.round(ttftP95 * 1000) / 1000;
+
+          const itlHist = this._parseVllmHistogram(txt, "vllm:inter_token_latency_seconds");
+          const itlP95 = this._histogramQuantile(itlHist.buckets, itlHist.total, 0.95);
+          this.interTokenP95Seconds = itlP95 == null ? null : Math.round(itlP95 * 1000) / 1000;
         }
       } catch {}
     }
@@ -310,6 +343,80 @@ export class LlmProbe {
     return found ? sum : null;
   }
 
+  /**
+   * Parse a vLLM Prometheus histogram from the /metrics text body.
+   * Returns { buckets: [{upper, count}], total } where `upper` is the bucket's
+   * le boundary (Infinity for +Inf) and `count` is the cumulative sample count.
+   * `total` is the histogram's _count line (summed across label sets); null if absent.
+   * Ported from the legacy gx10-ds4-monitor `_histogram_quantile` input shape.
+   */
+  _parseVllmHistogram(body, metricPrefix) {
+    const esc = metricPrefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // Bucket lines: <metricPrefix>_bucket{...le="X"...} VALUE
+    // The [^}]* class allows prior label values (which may contain ") but cannot cross
+    // the closing brace, bounding the match. Adversarial bodies with thousands of
+    // partial le= tokens on one line can cause quadratic backtracking (~5s for 550KB),
+    // but the /metrics exposition is a localhost trusted source, so this is accepted.
+    const bucketRe = new RegExp(`^${esc}_bucket\\{[^}]*\\ble="([^"]+)"[^}]*\\}\\s+([\\d.eE+-]+)\\s*$`, "gm");
+    const byUpper = new Map();
+    let infCount = 0;
+    let m;
+    while ((m = bucketRe.exec(body)) !== null) {
+      const le = m[1];
+      const count = parseFloat(m[2]);
+      if (!Number.isFinite(count)) continue;
+      // +Inf is the unbounded tail bucket; keep it (its count is the cumulative total
+      // for observations exceeding the highest finite le). Only skip non-numeric le
+      // values that are neither finite nor +Inf.
+      const upper = le === "+Inf" ? Infinity : parseFloat(le);
+      if (upper !== Infinity && !Number.isFinite(upper)) continue;
+      if (upper === Infinity) infCount += count;
+      // Sum cumulative counts per le boundary across label sets (multi-engine / multi-model / LoRA),
+      // matching how _getVllmMetric sums scalar series. Without this, duplicate `upper` values
+      // produce non-monotonic counts and the quantile interpolates against the wrong series.
+      byUpper.set(upper, (byUpper.get(upper) || 0) + count);
+    }
+    const total = this._getVllmMetric(body, `${metricPrefix.replace(/^vllm:/, "")}_count`);
+    // Consistency check: the +Inf bucket count must equal the _count total (Prometheus
+    // invariant). A mismatch means the body is partial/corrupted (relabel rules, proxy
+    // line-drops, truncated read) — interpolating against a partial distribution with the
+    // full total yields a plausible-but-wrong quantile. Return empty buckets so the UI
+    // shows '—' rather than a silently wrong number.
+    if (total != null && infCount > 0 && Math.abs(infCount - total) > 1e-6) {
+      return { buckets: [], total: null };
+    }
+    const buckets = Array.from(byUpper, ([upper, count]) => ({ upper, count }));
+    buckets.sort((a, b) => a.upper - b.upper);
+    return { buckets, total };
+  }
+
+  /**
+   * Compute a quantile from histogram buckets via Prometheus-style linear
+   * interpolation between bucket boundaries. Ported from the legacy
+   * gx10-ds4-monitor `_histogram_quantile` (metrics.py).
+   * Returns null when buckets are empty, total is missing/non-positive,
+   * or the target lands in the unbounded (+Inf) tail.
+   */
+  _histogramQuantile(buckets, total, quantile) {
+    if (!buckets || !buckets.length || total == null || total <= 0) return null;
+    const target = total * quantile;
+    let prevUpper = 0.0;
+    let prevCount = 0.0;
+    for (const { upper, count } of buckets) {
+      if (count >= target) {
+        // Target lands in the unbounded (+Inf) tail — no finite upper to interpolate
+        // against. Return null per the documented contract (UI shows '—') rather than
+        // interpolating to Infinity, which would render as 'Infinitys'.
+        if (!Number.isFinite(upper)) return null;
+        if (count === prevCount) return upper;
+        return prevUpper + (upper - prevUpper) * ((target - prevCount) / (count - prevCount));
+      }
+      prevUpper = upper;
+      prevCount = count;
+    }
+    return null;
+  }
+
   _getSlotDecoded(slot) {
     // Some llama.cpp builds nest n_decoded inside next_token[0]
     if (slot.n_decoded != null) {
@@ -340,6 +447,12 @@ export class LlmProbe {
       generationTps: this.generationTps,
       prefillTps: this.prefillTps,
       totalOutputTokens: this.totalOutputTokens,
+      kvCacheUsage: this.kvCacheUsage,
+      requestsRunning: this.requestsRunning,
+      requestsWaiting: this.requestsWaiting,
+      ttftP95Seconds: this.ttftP95Seconds,
+      interTokenP95Seconds: this.interTokenP95Seconds,
+      preemptionsTotal: this.preemptionsTotal,
       error: this.error,
     };
   }
@@ -357,6 +470,12 @@ export class LlmProbe {
       generationTps: 0,
       prefillTps: 0,
       totalOutputTokens: 0,
+      kvCacheUsage: null,
+      requestsRunning: null,
+      requestsWaiting: null,
+      ttftP95Seconds: null,
+      interTokenP95Seconds: null,
+      preemptionsTotal: null,
       error: this.error,
     };
   }

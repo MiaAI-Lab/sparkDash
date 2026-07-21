@@ -300,6 +300,59 @@ export function LlmPanel({ llm, sparkId, llmPort, llmPortsCount = 1, onRemovePor
               </div>
             </div>
           </div>
+
+          {llm?.backend === "vllm" && (
+            <div className="grid grid-cols-5 gap-2 border-t border-border pt-3">
+              <div className="space-y-0.5">
+                <div className="text-[10px] uppercase tracking-wide text-muted">KV Cache</div>
+                <div
+                  className={`font-tabular text-sm ${
+                    llm.kvCacheUsage == null
+                      ? "text-text"
+                      : llm.kvCacheUsage >= 0.8
+                        ? "text-danger"
+                        : llm.kvCacheUsage >= 0.5
+                          ? "text-warning"
+                          : "text-success"
+                  }`}
+                >
+                  {llm.kvCacheUsage != null
+                    ? `${(llm.kvCacheUsage * 100).toFixed(1)}%`
+                    : "—"}
+                </div>
+              </div>
+              <div className="space-y-0.5">
+                <div className="text-[10px] uppercase tracking-wide text-muted">Requests</div>
+                <div className="font-tabular text-sm text-text">
+                  {llm.requestsRunning != null && llm.requestsWaiting != null
+                    ? `${llm.requestsRunning} run / ${llm.requestsWaiting} wait`
+                    : "—"}
+                </div>
+              </div>
+              <div className="space-y-0.5">
+                <div className="text-[10px] uppercase tracking-wide text-muted">TTFT p95</div>
+                <div className="font-tabular text-sm text-text">
+                  {llm.ttftP95Seconds != null ? `${llm.ttftP95Seconds.toFixed(3)}s` : "—"}
+                </div>
+              </div>
+              <div className="space-y-0.5">
+                <div className="text-[10px] uppercase tracking-wide text-muted">ITL p95</div>
+                <div className="font-tabular text-sm text-text">
+                  {llm.interTokenP95Seconds != null
+                    ? `${llm.interTokenP95Seconds.toFixed(3)}s`
+                    : "—"}
+                </div>
+              </div>
+              <div className="space-y-0.5">
+                <div className="text-[10px] uppercase tracking-wide text-muted">Preempts</div>
+                <div className="font-tabular text-sm text-text">
+                  {llm.preemptionsTotal != null
+                    ? Math.round(llm.preemptionsTotal).toLocaleString()
+                    : "—"}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </Panel>
