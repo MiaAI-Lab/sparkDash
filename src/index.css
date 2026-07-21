@@ -1140,7 +1140,7 @@ input[type="checkbox"] {
   color: var(--color-text);
   font-size: 0.8125rem;
   font-variant-numeric: tabular-nums;
-  text-align: right;
+  text-align: left;
   outline: none;
 }
 [data-theme="dark"] .bench-input,
