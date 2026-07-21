@@ -28,6 +28,8 @@ export interface SparkConfig {
   llmPort?: number;
   /** HTTP ports for LLM servers on this Spark (default [8888]) */
   llmPorts?: number[];
+  /** Optional membership in a distributed LLM cluster. */
+  llmCluster?: LlmClusterMembership | null;
   /**
    * When true, this Spark is a distributed-LLM worker: no local OpenAI API.
    * The LLM card is hidden and LLM ports are not probed.
@@ -35,6 +37,15 @@ export interface SparkConfig {
   workerNode?: boolean;
   /** When true, storage is only updated on manual refresh, not auto-polled. */
   storagePollDisabled?: boolean;
+}
+
+export interface LlmClusterMembership {
+  label: string;
+  role: "head" | "worker";
+  headSparkId: string;
+  headPort: number;
+  rank: number;
+  worldSize: number;
 }
 
 // ─── Hardware info ───────────────────────────────────────
@@ -180,6 +191,8 @@ export interface SparkSnapshot {
   llmPort: number;
   /** All LLM server ports configured for this Spark */
   llmPorts: number[];
+  /** Optional distributed LLM cluster membership. */
+  llmCluster: LlmClusterMembership | null;
   hardware: HardwareInfo;
   metrics: SparkMetrics;
 }

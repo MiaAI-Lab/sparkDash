@@ -166,6 +166,7 @@ export class SparkMonitor {
       workerNode: Boolean(this.spark.workerNode),
       llmPort: ports[0] ?? LLM_PORT,
       llmPorts: ports,
+      llmCluster: this.spark.llmCluster || null,
       hardware: this._getHardwareSummary(),
       metrics: {
         // NOTE: no `timestamp` here on purpose. The broadcast path skips

@@ -3,6 +3,7 @@ import type { SparkSnapshot } from "../../api/types";
 import { shutdownAllSparks, wakeAllSparks } from "../../api/client";
 import { MetricBar } from "../ui/MetricBar";
 import { ActivityIcon, PowerOffIcon, PowerOnIcon } from "../ui/icons";
+import { getOverviewLlmStat } from "./overviewLlmStat";
 
 interface OverviewPageProps {
   sparks: SparkSnapshot[];
@@ -177,24 +178,15 @@ function SparkCard({ spark, temperatureUnit, onSelect }: { spark: SparkSnapshot;
               }
               return null;
             })()}
-            {spark.workerNode ? (
-              <MiniStat
-                label="Worker"
-                value="Distributed"
-                tone="accent"
-                title="Distributed LLM worker node"
-              />
-            ) : (() => {
-              // Find first available LLM for the overview card
-              const llmArr = spark.metrics.llm;
-              const llm = Array.isArray(llmArr) ? llmArr.find((l) => l.available) : null;
-              if (!llm) return null;
+            {(() => {
+              const stat = getOverviewLlmStat(spark);
+              if (!stat) return null;
               return (
                 <MiniStat
-                  label={llm.backend === "vllm" ? "vLLM" : llm.backend ?? "LLM"}
-                  value={llm.modelId ?? "unknown"}
+                  label={stat.label}
+                  value={stat.value}
                   tone="accent"
-                  title={llm.modelId ?? undefined}
+                  title={stat.title}
                 />
               );
             })()}

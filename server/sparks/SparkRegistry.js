@@ -302,6 +302,7 @@ export class SparkRegistry {
       auth: sshIn.auth === "pass" ? "pass" : "key",
     };
     const llmPorts = this._normalizeLlmPorts(config.llmPorts ?? config.llmPort);
+    const llmCluster = this._normalizeLlmCluster(config.llmCluster);
     // Never keep password on the persisted object
     return {
       id: config.id,
@@ -315,11 +316,37 @@ export class SparkRegistry {
       isLocal: Boolean(config.isLocal),
       ssh,
       llmPorts,
+      llmCluster,
       /** When true, this Spark is an LLM worker — no local API card / probe. */
       workerNode: Boolean(config.workerNode),
       disabledDevices: Array.isArray(config.disabledDevices) ? config.disabledDevices : [],
       disabledInterfaces: Array.isArray(config.disabledInterfaces) ? config.disabledInterfaces : [],
       storagePollDisabled: Boolean(config.storagePollDisabled),
+    };
+  }
+
+  /** Normalize optional distributed-LLM cluster membership metadata. */
+  _normalizeLlmCluster(value) {
+    if (!value || typeof value !== "object") return null;
+    const role = value.role === "head" ? "head" : value.role === "worker" ? "worker" : null;
+    const headPort = Number(value.headPort);
+    const rank = Number(value.rank);
+    const worldSize = Number(value.worldSize);
+    if (
+      !role ||
+      typeof value.label !== "string" || !value.label.trim() ||
+      typeof value.headSparkId !== "string" || !value.headSparkId.trim() ||
+      !Number.isInteger(headPort) || headPort < 1 || headPort > 65535 ||
+      !Number.isInteger(rank) || rank < 0 ||
+      !Number.isInteger(worldSize) || worldSize < 1 || rank >= worldSize
+    ) return null;
+    return {
+      label: value.label.trim(),
+      role,
+      headSparkId: value.headSparkId.trim(),
+      headPort,
+      rank,
+      worldSize,
     };
   }
 

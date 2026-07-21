@@ -29,6 +29,7 @@ function placeholderSnapshot(
     disabledInterfaces,
     llmPort: llmPorts[0] ?? 8888,
     llmPorts,
+    llmCluster: null,
     workerNode: false,
     hardware: {
       device: "NVIDIA DGX Spark",
