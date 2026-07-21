@@ -1,9 +1,16 @@
 #!/bin/bash
-# Run on host to write GPU memory to shared file
-# Add to crontab: * * * * * /mnt/admin/sparkDash/config/gpu-memory.sh
+OUTPUT="/opt/sparkDash/config/gpu-memory.json"
 
-OUTPUT="/mnt/admin/sparkDash/config/gpu-memory.json"
-MEMORY=$(nvidia-smi --query-compute-apps=pid,used_gpu_memory --format=csv,noheader,nounits 2>/dev/null | awk -F',' '{sum+=$2} END {print sum+0}')
-TOTAL=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1)
+COMPUTE_RAW=$(nvidia-smi --query-compute-apps=pid,process_name,used_gpu_memory --format=csv,noheader,nounits 2>/dev/null)
 
-echo "{\"used\": $MEMORY, \"total\": \"$(echo $TOTAL | tr -d ' ')\", \"timestamp\": $(date +%s)}" > "$OUTPUT"
+USED=0
+PROCESSES=""
+while IFS=", " read -r pid pname vram; do
+    [ -z "$pid" ] && continue
+    USED=$((USED + vram))
+    if [ -n "$PROCESSES" ]; then PROCESSES="$PROCESSES,"; fi
+    PROCESSES="${PROCESSES}{\"pid\":$pid,\"name\":\"$pname\",\"vramMB\":$vram}"
+done <<< "$COMPUTE_RAW"
+
+TOTAL=$(awk "/^MemTotal:/ {printf \"%.0f\", \$2/1024}" /proc/meminfo)
+echo "{\"used\": $USED, \"total\": $TOTAL, \"processes\": [$PROCESSES], \"timestamp\": $(date +%s)}" > "$OUTPUT"

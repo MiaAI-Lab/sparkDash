@@ -214,7 +214,14 @@ export class SystemCollector {
     const file = this._readGpuMemoryFileFull();
     if ((used == null || used === 0) && file.used > 0) used = file.used;
     if (total == null && file.total > 0) total = file.total;
-
+    // Fallback: populate process cache from gpu-memory.json when nvidia-smi compute-apps returns empty (PID namespace isolation in containers)
+    if (this.nvidiaComputeAppsCache.size === 0 && Array.isArray(file.processes) && file.processes.length > 0) {
+      for (const proc of file.processes) {
+        if (proc.pid && proc.name && proc.vramMB) {
+          this.nvidiaComputeAppsCache.set(proc.pid, { name: proc.name, vramMB: proc.vramMB });
+        }
+      }
+    }
     // Unified-memory pool size + actual available memory from /proc/meminfo.
     // This matches the Unified Memory panel's basis so the two read consistently.
     const { totalMB: memTotalMB, availMB } = await this._readMeminfoMB();
@@ -499,12 +506,13 @@ export class SystemCollector {
         const memData = JSON.parse(fs.readFileSync(GPU_MEMORY_JSON_PATH, "utf-8"));
         const used = this._parseSmiNumber(memData.used) || 0;
         const total = this._parseSmiNumber(memData.total) || 0;
-        return { used, total };
+        const processes = Array.isArray(memData.processes) ? memData.processes : [];
+        return { used, total, processes };
       }
     } catch (err) {
       console.warn(`[SystemCollector] gpu-memory.json read failed: ${err.message}`);
     }
-    return { used: 0, total: 0 };
+    return { used: 0, total: 0, processes: [] };
   }
 
   /** Map container-visible mount to a host path for statfs. */
