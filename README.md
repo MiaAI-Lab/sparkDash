@@ -46,7 +46,6 @@ sparkDash is a real-time web dashboard for one or more **NVIDIA DGX Spark (GB10)
 ### Version 1.1.5 / 1.1.7
 - **LLM decode benchmark** — **Run decode benchmark** on each LLM panel; multi-select concurrency (`1–32`, default **1, 2**); levels run one-by-one with concurrent streams per level
 - **Bench metrics** — **Server tok/s** (engine counters, aligned with live Generation tok/s) and **per-stream** decode after first token; TTFT; last run restored after refresh/restart
-- **Remove extra LLM ports** — only additional ports can be removed (primary port stays)
 - **GB10 GPU metrics** — host `gpu-memory.sh` + process list fallback when Docker / `nvidia-smi` apps are empty
 - **Mobile dialogs** — solid scrollable sheets for benchmark, Edit Spark, and Add Spark
 - **vLLM ops tiles** — KV cache %, run/wait requests, TTFT p95, cumulative preemptions (vLLM only; info tooltips on each)
