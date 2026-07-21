@@ -177,7 +177,14 @@ function SparkCard({ spark, temperatureUnit, onSelect }: { spark: SparkSnapshot;
               }
               return null;
             })()}
-            {(() => {
+            {spark.workerNode ? (
+              <MiniStat
+                label="Worker"
+                value="Distributed"
+                tone="accent"
+                title="Distributed LLM worker node"
+              />
+            ) : (() => {
               // Find first available LLM for the overview card
               const llmArr = spark.metrics.llm;
               const llm = Array.isArray(llmArr) ? llmArr.find((l) => l.available) : null;
