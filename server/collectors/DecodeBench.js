@@ -64,6 +64,16 @@ const MAX_MAX_TOKENS = 2048;
 const PER_REQUEST_TIMEOUT_MS = 180_000;
 const WAVE_TIMEOUT_MS = 300_000;
 const HISTORY_LIMIT = 10;
+/** Hardware sample cadence while a concurrency wave runs (debug timeline). */
+const HARDWARE_SAMPLE_MS = 1_000;
+/** Cap samples per wave so history stays bounded (~2 min). */
+const HARDWARE_SAMPLE_MAX = 120;
+/** Truncate streamed content previews stored for debugging. */
+const CONTENT_PREVIEW_CHARS = 160;
+
+/** Response headers worth keeping for request correlation / debugging. */
+const DEBUG_HEADER_RE =
+  /^(x-request-id|x-stainless-|server|date|content-type|openai-|x-envoy-|cf-ray|request-id)$/i;
 
 function round2(n) {
   return Math.round(n * 100) / 100;
@@ -202,8 +212,11 @@ async function pollServerGenerationRates(baseUrl, signal, intervalMs = 400) {
  *
  * Decode tok/s uses the **first-token → last-token** window (not stream EOF),
  * so trailing usage/[DONE] latency does not drag the rate down.
+ *
+ * When `debug` is true, also captures a compact HTTP/SSE debug trace
+ * (no full completion text).
  */
-async function runStreamingRequest(url, body, signal) {
+async function runStreamingRequest(url, body, signal, { debug = false } = {}) {
   const t0 = performance.now();
   /** @type {number | null} */
   let tFirst = null;
@@ -211,8 +224,21 @@ async function runStreamingRequest(url, body, signal) {
   let tLast = null;
   let chunkTokenCount = 0;
   let usageCompletionTokens = null;
+  /** @type {Record<string, number> | null} */
+  let usage = null;
   let model = null;
   let error = null;
+  /** @type {number | null} */
+  let httpStatus = null;
+  /** @type {Record<string, string>} */
+  let responseHeaders = {};
+  /** @type {string | null} */
+  let completionId = null;
+  /** @type {string | null} */
+  let finishReason = null;
+  let content = "";
+  let sseEventCount = 0;
+  let firstSseDataPreview = null;
 
   try {
     const response = await fetch(url, {
@@ -224,6 +250,9 @@ async function runStreamingRequest(url, body, signal) {
       body: JSON.stringify(body),
       signal,
     });
+
+    httpStatus = response.status;
+    if (debug) responseHeaders = pickDebugHeaders(response.headers);
 
     if (!response.ok) {
       const text = await response.text().catch(() => "");
@@ -254,6 +283,13 @@ async function runStreamingRequest(url, body, signal) {
           const data = trimmed.slice(5).trim();
           if (!data || data === "[DONE]") continue;
 
+          if (debug) {
+            sseEventCount += 1;
+            if (firstSseDataPreview == null) {
+              firstSseDataPreview = data.slice(0, 240);
+            }
+          }
+
           let json;
           try {
             json = JSON.parse(data);
@@ -261,12 +297,23 @@ async function runStreamingRequest(url, body, signal) {
             continue;
           }
 
+          if (debug && json.id && !completionId) completionId = String(json.id);
           if (json.model) model = json.model;
-          if (json.usage?.completion_tokens != null) {
-            usageCompletionTokens = Number(json.usage.completion_tokens);
+          if (json.usage && typeof json.usage === "object") {
+            if (debug) {
+              usage = {
+                promptTokens: Number(json.usage.prompt_tokens) || 0,
+                completionTokens: Number(json.usage.completion_tokens) || 0,
+                totalTokens: Number(json.usage.total_tokens) || 0,
+              };
+            }
+            if (json.usage.completion_tokens != null) {
+              usageCompletionTokens = Number(json.usage.completion_tokens);
+            }
           }
 
           const choice = json.choices?.[0];
+          if (debug && choice?.finish_reason) finishReason = String(choice.finish_reason);
           const delta = choice?.delta?.content ?? choice?.text ?? "";
           if (typeof delta === "string" && delta.length > 0) {
             const now = performance.now();
@@ -274,6 +321,7 @@ async function runStreamingRequest(url, body, signal) {
             tLast = now;
             // OpenAI-compatible servers typically emit ~1 token per content chunk.
             chunkTokenCount += 1;
+            if (debug) content += delta;
           }
         }
       }
@@ -305,7 +353,8 @@ async function runStreamingRequest(url, body, signal) {
   const decodeTps =
     decodeMs > 0 && decodeTokens > 0 ? (decodeTokens / decodeMs) * 1000 : 0;
 
-  return {
+  /** @type {Record<string, unknown>} */
+  const out = {
     ttftMs: round2(ttftMs),
     decodeMs: round2(decodeMs),
     completionTokens,
@@ -318,6 +367,77 @@ async function runStreamingRequest(url, body, signal) {
     model,
     error,
   };
+
+  if (debug) {
+    out.httpStatus = httpStatus;
+    out.responseHeaders = responseHeaders;
+    out.completionId = completionId;
+    out.finishReason = finishReason;
+    out.usage = usage;
+    out.sseEventCount = sseEventCount;
+    out.firstSseDataPreview = firstSseDataPreview;
+    out.contentPreview = {
+      first: content.slice(0, CONTENT_PREVIEW_CHARS),
+      last:
+        content.length > CONTENT_PREVIEW_CHARS
+          ? content.slice(-CONTENT_PREVIEW_CHARS)
+          : content,
+      chars: content.length,
+    };
+  }
+
+  return out;
+}
+
+/** Pick correlatable response headers for the debug trace. */
+function pickDebugHeaders(headers) {
+  /** @type {Record<string, string>} */
+  const out = {};
+  if (!headers || typeof headers.forEach !== "function") return out;
+  headers.forEach((value, key) => {
+    if (DEBUG_HEADER_RE.test(key) || String(key).toLowerCase().startsWith("x-")) {
+      out[String(key).toLowerCase()] = String(value);
+    }
+  });
+  return out;
+}
+
+/**
+ * Poll cached / fresh hardware while a wave runs (GPU util, temp, power, VRAM).
+ * @param {(() => Promise<object | null> | object | null) | null | undefined} sampleHardware
+ * @param {AbortSignal} signal
+ */
+async function pollHardwareSamples(sampleHardware, signal, intervalMs = HARDWARE_SAMPLE_MS) {
+  /** @type {object[]} */
+  const samples = [];
+  if (typeof sampleHardware !== "function") {
+    return samples;
+  }
+
+  const push = async () => {
+    if (samples.length >= HARDWARE_SAMPLE_MAX) return;
+    try {
+      const raw = await sampleHardware();
+      if (!raw || typeof raw !== "object") return;
+      samples.push({
+        t: Date.now(),
+        ...raw,
+      });
+    } catch {
+      /* non-fatal */
+    }
+  };
+
+  await push();
+  while (!signal.aborted && samples.length < HARDWARE_SAMPLE_MAX) {
+    try {
+      await sleep(intervalMs, signal);
+    } catch {
+      break;
+    }
+    await push();
+  }
+  return samples;
 }
 
 /**
@@ -346,7 +466,7 @@ function pickDistinctPrompts(count) {
 /**
  * Run one concurrency wave: N simultaneous streams, each with a different prompt.
  */
-function emptyWaveResult(concurrency, waveMs, results, modelId, error) {
+function emptyWaveResult(concurrency, waveMs, results, modelId, error, prompts = [], debug = false) {
   return {
     concurrency,
     streamsOk: 0,
@@ -368,17 +488,55 @@ function emptyWaveResult(concurrency, waveMs, results, modelId, error) {
     totalCompletionTokens: 0,
     durationMs: round2(waveMs),
     error,
-    streams: (results || []).map((r, i) => ({
-      index: i,
-      ttftMs: r?.ttftMs ?? 0,
-      decodeTps: r?.decodeTps ?? 0,
-      decodeTokens: r?.decodeTokens ?? 0,
-      completionTokens: r?.completionTokens ?? 0,
-      totalMs: r?.totalMs ?? 0,
-      error: r?.error ?? error,
-    })),
+    streams: (results || []).map((r, i) => {
+      const pub = streamPublicResult(r, i, prompts[i] ?? null, {
+        url: null,
+        modelId,
+        maxTokens: null,
+      }, debug);
+      if (!pub.error && error) pub.error = error;
+      return pub;
+    }),
+    ...(debug ? { hardwareSamples: [] } : {}),
     model: modelId || null,
   };
+}
+
+function streamPublicResult(r, index, prompt, reqMeta, debug = false) {
+  /** @type {Record<string, unknown>} */
+  const out = {
+    index,
+    ttftMs: r?.ttftMs ?? 0,
+    decodeTps: r?.decodeTps ?? 0,
+    decodeTokens: r?.decodeTokens ?? 0,
+    completionTokens: r?.completionTokens ?? 0,
+    totalMs: r?.totalMs ?? 0,
+    error: r?.error ?? null,
+  };
+
+  if (!debug) return out;
+
+  out.prompt = prompt ?? null;
+  out.http = {
+    url: reqMeta?.url ?? null,
+    status: r?.httpStatus ?? null,
+    headers: r?.responseHeaders || {},
+    completionId: r?.completionId ?? null,
+    finishReason: r?.finishReason ?? null,
+    sseEventCount: r?.sseEventCount ?? 0,
+    firstSseDataPreview: r?.firstSseDataPreview ?? null,
+    request: {
+      model: reqMeta?.modelId ?? null,
+      maxTokens: reqMeta?.maxTokens ?? null,
+      temperature: 0,
+      stream: true,
+      promptChars: prompt != null ? String(prompt).length : 0,
+    },
+  };
+  out.usage = r?.usage ?? null;
+  out.contentPreview = r?.contentPreview ?? null;
+  out.decodeMs = r?.decodeMs ?? null;
+  return out;
 }
 
 async function runConcurrencyWave({
@@ -387,20 +545,30 @@ async function runConcurrencyWave({
   concurrency,
   maxTokens,
   abortSignal,
+  sampleHardware = null,
+  debug = false,
 }) {
   const url = `${baseUrl}/v1/chat/completions`;
   const prompts = pickDistinctPrompts(concurrency);
+  const reqMeta = { url, modelId, maxTokens };
 
   const wallStart = performance.now();
 
   // Poll /metrics like the live panel while streams run (steady-state gen tok/s)
   const ratePollAbort = new AbortController();
-  const onParentForPoll = () => ratePollAbort.abort();
+  const hwPollAbort = new AbortController();
+  const onParentForPoll = () => {
+    ratePollAbort.abort();
+    hwPollAbort.abort();
+  };
   if (abortSignal) {
-    if (abortSignal.aborted) ratePollAbort.abort();
+    if (abortSignal.aborted) onParentForPoll();
     else abortSignal.addEventListener("abort", onParentForPoll, { once: true });
   }
   const ratePollPromise = pollServerGenerationRates(baseUrl, ratePollAbort.signal, 400);
+  const hwPollPromise = debug
+    ? pollHardwareSamples(sampleHardware, hwPollAbort.signal, HARDWARE_SAMPLE_MS)
+    : Promise.resolve([]);
 
   const controllers = [];
 
@@ -427,7 +595,7 @@ async function runConcurrencyWave({
     };
 
     const timeout = setTimeout(() => ctrl.abort(), PER_REQUEST_TIMEOUT_MS);
-    return runStreamingRequest(url, body, ctrl.signal).finally(() => {
+    return runStreamingRequest(url, body, ctrl.signal, { debug }).finally(() => {
       clearTimeout(timeout);
       if (abortSignal) abortSignal.removeEventListener("abort", onParentAbort);
     });
@@ -445,23 +613,29 @@ async function runConcurrencyWave({
     results = await Promise.all(promises);
   } finally {
     clearTimeout(waveTimer);
-    // Stop metrics polling as soon as streams finish
+    // Stop metrics / hardware polling as soon as streams finish
     ratePollAbort.abort();
+    hwPollAbort.abort();
     if (abortSignal) abortSignal.removeEventListener("abort", onParentForPoll);
   }
 
   const wallEnd = performance.now();
   const waveMs = wallEnd - wallStart;
   const rateStats = await ratePollPromise;
+  const hardwareSamples = await hwPollPromise;
 
   if (waveTimedOut && results.every((r) => r.error)) {
-    return emptyWaveResult(
+    const empty = emptyWaveResult(
       concurrency,
       waveMs,
       results,
       modelId,
-      `Wave timed out after ${WAVE_TIMEOUT_MS}ms`
+      `Wave timed out after ${WAVE_TIMEOUT_MS}ms`,
+      prompts,
+      debug
     );
+    if (debug) empty.hardwareSamples = hardwareSamples;
+    return empty;
   }
 
   const ok = results.filter((r) => !r.error && r.decodeTokens > 0);
@@ -491,7 +665,8 @@ async function runConcurrencyWave({
 
   const model = results.find((r) => r.model)?.model || modelId || null;
 
-  return {
+  /** @type {Record<string, unknown>} */
+  const wave = {
     concurrency,
     streamsOk: ok.length,
     streamsFailed: failed.length,
@@ -513,17 +688,13 @@ async function runConcurrencyWave({
       : failed.length
         ? `${failed.length} of ${concurrency} streams failed`
         : null,
-    streams: results.map((r, i) => ({
-      index: i,
-      ttftMs: r.ttftMs,
-      decodeTps: r.decodeTps,
-      decodeTokens: r.decodeTokens,
-      completionTokens: r.completionTokens,
-      totalMs: r.totalMs,
-      error: r.error,
-    })),
+    streams: results.map((r, i) =>
+      streamPublicResult(r, i, prompts[i], reqMeta, debug)
+    ),
     model,
   };
+  if (debug) wave.hardwareSamples = hardwareSamples;
+  return wave;
 }
 
 /**
@@ -666,6 +837,8 @@ export class DecodeBenchManager {
    *   modelId: string | null,
    *   concurrencies: number[],
    *   maxTokens?: number,
+   *   debug?: boolean,
+   *   sampleHardware?: (() => Promise<object | null> | object | null) | null,
    * }} opts
    */
   start(opts) {
@@ -676,6 +849,8 @@ export class DecodeBenchManager {
       modelId,
       concurrencies: rawConc,
       maxTokens: rawMax,
+      debug = false,
+      sampleHardware = null,
     } = opts;
 
     if (this.activeBySpark.has(sparkId)) {
@@ -707,6 +882,7 @@ export class DecodeBenchManager {
       throw err;
     }
 
+    const debugOn = Boolean(debug);
     const benchId = randomUUID();
     const abort = new AbortController();
     const job = {
@@ -720,6 +896,7 @@ export class DecodeBenchManager {
         modelId: modelId || null,
         concurrencies,
         maxTokens,
+        ...(debugOn ? { debug: true } : {}),
       },
       progress: {
         currentConcurrency: null,
@@ -730,6 +907,9 @@ export class DecodeBenchManager {
       results: [],
       error: null,
       _abort: abort,
+      _debug: debugOn,
+      _sampleHardware:
+        debugOn && typeof sampleHardware === "function" ? sampleHardware : null,
     };
 
     this.jobs.set(benchId, job);
@@ -755,6 +935,7 @@ export class DecodeBenchManager {
 
   async _runJob(job, lanIp) {
     const baseUrl = `http://${lanIp}:${job.config.port}`;
+    const debug = Boolean(job._debug);
     try {
       for (const c of job.config.concurrencies) {
         if (job._abort.signal.aborted) {
@@ -773,6 +954,8 @@ export class DecodeBenchManager {
           concurrency: c,
           maxTokens: job.config.maxTokens,
           abortSignal: job._abort.signal,
+          sampleHardware: job._sampleHardware,
+          debug,
         });
 
         if (job._abort.signal.aborted) {

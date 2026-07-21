@@ -15,6 +15,8 @@ const DEFAULTS = Object.freeze({
   defaultLlmPort: 8888,
   autoHideOffline: false,
   temperatureUnit: "celsius",
+  /** Persist prompts / HTTP traces / GPU samples on decode benchmark runs. */
+  benchDebugTraces: false,
 });
 
 /** @type {typeof DEFAULTS} */
@@ -32,6 +34,8 @@ function _clampSettings(settings) {
   }
   // Ensure autoHideOffline is boolean
   s.autoHideOffline = Boolean(s.autoHideOffline);
+  // Ensure benchDebugTraces is boolean
+  s.benchDebugTraces = Boolean(s.benchDebugTraces);
   // Ensure temperatureUnit is valid
   if (s.temperatureUnit !== "celsius" && s.temperatureUnit !== "fahrenheit") {
     s.temperatureUnit = DEFAULTS.temperatureUnit;

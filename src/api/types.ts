@@ -238,6 +238,8 @@ export interface Settings {
   defaultLlmPort: number;
   autoHideOffline: boolean;
   temperatureUnit: "celsius" | "fahrenheit";
+  /** Persist prompts / HTTP traces / GPU samples on decode benchmark runs. */
+  benchDebugTraces: boolean;
 }
 
 export interface SparksListResponse {
@@ -271,6 +273,36 @@ export interface DecodeBenchStreamResult {
   completionTokens: number;
   totalMs: number;
   error: string | null;
+  /** Exact prompt used for this stream (debug). */
+  prompt?: string | null;
+  /** Compact HTTP/SSE trace (no full completion body). */
+  http?: {
+    url: string | null;
+    status: number | null;
+    headers: Record<string, string>;
+    completionId: string | null;
+    finishReason: string | null;
+    sseEventCount: number;
+    firstSseDataPreview: string | null;
+    request: {
+      model: string | null;
+      maxTokens: number | null;
+      temperature: number;
+      stream: boolean;
+      promptChars: number;
+    };
+  };
+  usage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  } | null;
+  contentPreview?: {
+    first: string;
+    last: string;
+    chars: number;
+  } | null;
+  decodeMs?: number | null;
 }
 
 /** One concurrency wave (all streams at that concurrency). */
@@ -302,6 +334,18 @@ export interface DecodeBenchLevelResult {
   error: string | null;
   streams: DecodeBenchStreamResult[];
   model: string | null;
+  /** ~1 Hz GPU/VRAM/power samples during the wave (debug). */
+  hardwareSamples?: Array<{
+    t: number;
+    gpuUsage: number | null;
+    temperature: number | null;
+    powerDraw: number | null;
+    powerLimit?: number | null;
+    vramUsed: number | null;
+    vramTotal: number | null;
+    vramAvailable?: number | null;
+    memAvailable?: number | null;
+  }>;
 }
 
 export interface DecodeBenchProgress {
@@ -317,7 +361,7 @@ export interface DecodeBenchJob {
   status: "running" | "completed" | "failed" | "cancelled";
   startedAt: number;
   completedAt: number | null;
-  config: DecodeBenchConfig;
+  config: DecodeBenchConfig & { debug?: boolean };
   progress: DecodeBenchProgress;
   results: DecodeBenchLevelResult[];
   error: string | null;

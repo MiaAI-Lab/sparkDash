@@ -549,6 +549,7 @@ app.post("/api/sparks/:id/llm/bench", (req, res) => {
   }
 
   try {
+    const benchDebug = Boolean(getSettings().benchDebugTraces);
     const job = decodeBenchManager.start({
       sparkId: spark.id,
       lanIp: spark.lanIp,
@@ -556,6 +557,41 @@ app.post("/api/sparks/:id/llm/bench", (req, res) => {
       modelId,
       concurrencies: req.body?.concurrencies,
       maxTokens: req.body?.maxTokens,
+      debug: benchDebug,
+      sampleHardware:
+        benchDebug && monitor
+          ? async () => {
+              const fromGpu = (gpu, um) =>
+                gpu
+                  ? {
+                      gpuUsage: gpu.usage ?? null,
+                      temperature: gpu.temperature ?? null,
+                      powerDraw: gpu.power?.draw ?? null,
+                      powerLimit: gpu.power?.limit ?? null,
+                      vramUsed: gpu.vram?.used ?? null,
+                      vramTotal: gpu.vram?.total ?? null,
+                      vramAvailable: gpu.vram?.available ?? null,
+                      memAvailable: um?.available ?? null,
+                    }
+                  : null;
+
+              // Local: fresh collect so the timeline isn't stuck on the 2s poll cache.
+              // Remote: use snapshot only — SSH collectGpu every 1s is too heavy mid-bench.
+              if (spark.isLocal) {
+                try {
+                  const [gpu, um] = await Promise.all([
+                    monitor.collector.collectGpu(),
+                    monitor.collector.collectUnifiedMemory(),
+                  ]);
+                  return fromGpu(gpu, um);
+                } catch {
+                  /* fall through */
+                }
+              }
+              const snap = monitor.snapshot();
+              return fromGpu(snap?.metrics?.gpu, snap?.metrics?.unifiedMemory);
+            }
+          : null,
     });
     res.status(202).json(job);
   } catch (err) {

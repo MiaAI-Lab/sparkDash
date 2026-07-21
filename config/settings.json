@@ -1,6 +1,7 @@
 {
-  "pollIntervalMs": 1000,
+  "pollIntervalMs": 2000,
   "defaultLlmPort": 8888,
   "autoHideOffline": false,
-  "temperatureUnit": "celsius"
+  "temperatureUnit": "celsius",
+  "benchDebugTraces": false
 }
