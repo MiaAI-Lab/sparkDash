@@ -78,7 +78,7 @@ function serverTps(r: DecodeBenchJob["results"][number]): number {
   return r.serverGenerationTps != null ? r.serverGenerationTps : r.aggregateDecodeTps;
 }
 
-function ResultCard({ r }: { r: DecodeBenchJob["results"][number] }) {
+function ResultRow({ r }: { r: DecodeBenchJob["results"][number] }) {
   const server = serverTps(r);
   const peak =
     r.serverGenerationTpsMax != null &&
@@ -86,42 +86,50 @@ function ResultCard({ r }: { r: DecodeBenchJob["results"][number] }) {
     r.serverGenerationTpsMax > r.serverGenerationTps + 0.5
       ? r.serverGenerationTpsMax
       : null;
+  const decodeRange =
+    r.minDecodeTps !== r.maxDecodeTps
+      ? `${r.minDecodeTps.toFixed(0)}–${r.maxDecodeTps.toFixed(0)}`
+      : null;
 
   return (
-    <article className="bench-result-card" title={r.error || undefined}>
-      <header className="bench-result-card__head">
-        <span className="bench-result-card__badge">×{r.concurrency}</span>
-        <span className="bench-result-card__meta">
-          TTFT {formatTtft(r.meanTtftMs)}
-          <span className="bench-result-card__dot">·</span>
+    <article className="bench-result-row" title={r.error || undefined}>
+      <div className="bench-result-row__load">
+        <span className="bench-result-row__badge">×{r.concurrency}</span>
+        <div className="bench-result-row__facts">
+          <span>
+            TTFT <strong>{formatTtft(r.meanTtftMs)}</strong>
+          </span>
+          <span className="bench-result-row__sep" aria-hidden>
+            ·
+          </span>
           <span className={r.streamsFailed ? "text-warning" : undefined}>
-            {r.streamsOk}/{r.streamsOk + r.streamsFailed}
-          </span>{" "}
-          streams
-        </span>
-      </header>
+            <strong>
+              {r.streamsOk}/{r.streamsOk + r.streamsFailed}
+            </strong>{" "}
+            streams
+          </span>
+        </div>
+      </div>
 
-      <div className="bench-result-card__metrics">
-        <div className="bench-result-card__metric">
-          <div className="bench-result-card__label">Server</div>
-          <div className="bench-result-card__value bench-result-card__value--accent">
+      <div className="bench-result-row__speeds">
+        <div className="bench-result-row__metric">
+          <span className="bench-result-row__label">Server</span>
+          <span className="bench-result-row__value bench-result-row__value--accent">
             {server.toFixed(1)}
-            <span className="bench-result-card__unit">tok/s</span>
-          </div>
+            <span className="bench-result-row__unit">tok/s</span>
+          </span>
           {peak != null && (
-            <div className="bench-result-card__sub">peak {peak.toFixed(0)}</div>
+            <span className="bench-result-row__sub">peak {peak.toFixed(0)}</span>
           )}
         </div>
-        <div className="bench-result-card__metric">
-          <div className="bench-result-card__label">Per stream</div>
-          <div className="bench-result-card__value">
+        <div className="bench-result-row__metric bench-result-row__metric--decode">
+          <span className="bench-result-row__label">Decode</span>
+          <span className="bench-result-row__value">
             {r.meanDecodeTps.toFixed(1)}
-            <span className="bench-result-card__unit">tok/s</span>
-          </div>
-          {r.minDecodeTps !== r.maxDecodeTps && (
-            <div className="bench-result-card__sub">
-              {r.minDecodeTps.toFixed(0)}–{r.maxDecodeTps.toFixed(0)}
-            </div>
+            <span className="bench-result-row__unit">tok/s</span>
+          </span>
+          {decodeRange != null && (
+            <span className="bench-result-row__sub">{decodeRange}</span>
           )}
         </div>
       </div>
@@ -331,7 +339,7 @@ export function BenchmarkDialog({
               Decode benchmark
             </h2>
             <p className="bench-sheet__subtitle">
-              :{llmPort}
+              Port {llmPort}
               {modelId ? ` · ${modelId}` : ""}
             </p>
           </div>
@@ -352,45 +360,52 @@ export function BenchmarkDialog({
 
           {showConfig && (
             <section className="bench-sheet__section">
-              <h3 className="bench-sheet__section-title">Concurrency</h3>
-              <p className="bench-sheet__hint">
-                Levels run one after another. Each opens that many streams with different
-                prompts.
-              </p>
-              <div className="bench-conc-grid">
-                {CONCURRENCY_OPTIONS.map((n) => {
-                  const on = selected.includes(n);
-                  return (
-                    <button
-                      key={n}
-                      type="button"
-                      disabled={isRunning || starting}
-                      onClick={() => toggleConcurrency(n)}
-                      className={`bench-conc-btn${on ? " is-on" : ""}`}
-                    >
-                      {n}
-                    </button>
-                  );
-                })}
+              <div className="bench-field">
+                <div className="bench-field__head">
+                  <h3 className="bench-sheet__section-title">Concurrency</h3>
+                  <p className="bench-sheet__hint">
+                    Levels run sequentially; each opens that many parallel streams.
+                  </p>
+                </div>
+                <div className="bench-conc-grid">
+                  {CONCURRENCY_OPTIONS.map((n) => {
+                    const on = selected.includes(n);
+                    return (
+                      <button
+                        key={n}
+                        type="button"
+                        disabled={isRunning || starting}
+                        onClick={() => toggleConcurrency(n)}
+                        className={`bench-conc-btn${on ? " is-on" : ""}`}
+                      >
+                        {n}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
-              <h3 className="bench-sheet__section-title bench-sheet__section-title--spaced">
-                Max tokens / stream
-              </h3>
-              <input
-                id="bench-max-tokens"
-                type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                disabled={isRunning || starting}
-                value={maxTokensDraft}
-                onChange={(e) => {
-                  const raw = e.target.value;
-                  if (raw === "" || /^\d+$/.test(raw)) setMaxTokensDraft(raw);
-                }}
-                className="bench-input"
-              />
-              <p className="bench-sheet__hint">Default 500 · range 64–2048</p>
+              <div className="bench-field bench-field--inline">
+                <div className="bench-field__head">
+                  <label htmlFor="bench-max-tokens" className="bench-sheet__section-title">
+                    Max tokens / stream
+                  </label>
+                  <p className="bench-sheet__hint">Default 500 · range 64–2048</p>
+                </div>
+                <input
+                  id="bench-max-tokens"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  disabled={isRunning || starting}
+                  value={maxTokensDraft}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    if (raw === "" || /^\d+$/.test(raw)) setMaxTokensDraft(raw);
+                  }}
+                  className="bench-input"
+                />
+              </div>
             </section>
           )}
 
@@ -403,7 +418,7 @@ export function BenchmarkDialog({
                   <span className="bench-progress__status">
                     Running
                     {job.progress.currentConcurrency != null
-                      ? ` · c${job.progress.currentConcurrency}`
+                      ? ` · ×${job.progress.currentConcurrency}`
                       : ""}
                   </span>
                   <span className="bench-progress__meta">
@@ -417,12 +432,15 @@ export function BenchmarkDialog({
                     style={{ width: `${Math.min(100, progressPct)}%` }}
                   />
                 </div>
-                <p className="bench-sheet__hint">{job.progress.message}</p>
+                {job.progress.message ? (
+                  <p className="bench-sheet__hint">{job.progress.message}</p>
+                ) : null}
               </div>
               {job.results.length > 0 && (
-                <div className="bench-results-list">
+                <div className="bench-results">
+                  <div className="bench-results__caption">Completed levels</div>
                   {job.results.map((r) => (
-                    <ResultCard key={r.concurrency} r={r} />
+                    <ResultRow key={r.concurrency} r={r} />
                   ))}
                 </div>
               )}
@@ -438,7 +456,8 @@ export function BenchmarkDialog({
                   {statusLabel(job.status)}
                 </span>
                 <span className="bench-status-meta">
-                  {job.config.maxTokens} tok · {job.config.concurrencies.join(", ")} conc
+                  {job.config.maxTokens} tok · {job.config.concurrencies.join(", ")}{" "}
+                  conc
                   {job.durationMs != null ? ` · ${formatDuration(job.durationMs)}` : ""}
                 </span>
               </div>
@@ -446,17 +465,24 @@ export function BenchmarkDialog({
               {job.error && <p className="bench-sheet__error">{job.error}</p>}
 
               {job.results.length > 0 && (
-                <div className="bench-results-list">
+                <div className="bench-results bench-results--table">
+                  <div className="bench-results__head" aria-hidden="true">
+                    <span>Load</span>
+                    <span className="bench-results__head-speeds">
+                      <span>Server</span>
+                      <span>Decode</span>
+                    </span>
+                  </div>
                   {job.results.map((r) => (
-                    <ResultCard key={r.concurrency} r={r} />
+                    <ResultRow key={r.concurrency} r={r} />
                   ))}
                 </div>
               )}
 
               {job.results.length > 0 && (
                 <p className="bench-legend">
-                  <strong>Server</strong> = engine counters (live tok/s).{" "}
-                  <strong>Per stream</strong> = client after first token.
+                  <strong>Server</strong> — engine counters.{" "}
+                  <strong>Decode</strong> — client tok/s after first token.
                 </p>
               )}
             </section>
