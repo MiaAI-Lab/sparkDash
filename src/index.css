@@ -1091,19 +1091,6 @@ input[type="checkbox"] {
   flex-direction: column;
   gap: 0.2rem;
 }
-.bench-field--inline {
-  flex-direction: row;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 1rem;
-}
-.bench-field--inline .bench-field__head {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.bench-field--inline .bench-input {
-  flex: 0 0 auto;
-}
 
 .bench-conc-grid {
   display: grid;
@@ -1141,7 +1128,10 @@ input[type="checkbox"] {
 }
 
 .bench-input {
-  width: 5.5rem;
+  display: block;
+  box-sizing: border-box;
+  width: 5.75rem;
+  max-width: 100%;
   min-height: 2.25rem;
   padding: 0.4rem 0.65rem;
   border-radius: 0.5rem;

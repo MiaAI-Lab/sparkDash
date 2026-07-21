@@ -385,7 +385,7 @@ export function BenchmarkDialog({
                 </div>
               </div>
 
-              <div className="bench-field bench-field--inline">
+              <div className="bench-field">
                 <div className="bench-field__head">
                   <label htmlFor="bench-max-tokens" className="bench-sheet__section-title">
                     Max tokens / stream
@@ -404,6 +404,7 @@ export function BenchmarkDialog({
                     if (raw === "" || /^\d+$/.test(raw)) setMaxTokensDraft(raw);
                   }}
                   className="bench-input"
+                  size={6}
                 />
               </div>
             </section>
