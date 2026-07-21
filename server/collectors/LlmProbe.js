@@ -37,6 +37,14 @@ export class LlmProbe {
     // Cumulative total output tokens (generation) as reported by the LLM server
     this.totalOutputTokens = 0;
 
+    // vLLM inference metrics from /metrics (null when not vLLM / missing series)
+    // Metric names follow stock vLLM Prometheus exposition (versions may differ).
+    this.kvCacheUsage = null; // 0–1 fraction
+    this.requestsRunning = null;
+    this.requestsWaiting = null;
+    this.ttftP95Seconds = null;
+    this.preemptionsTotal = null; // cumulative counter
+
     this._consecutiveFailures = 0;
     this._lastDetectAt = 0;
   }
@@ -111,6 +119,11 @@ export class LlmProbe {
     this.slotsActive = 0;
     this.slotsTotal = 0;
     this.totalOutputTokens = 0;
+    this.kvCacheUsage = null;
+    this.requestsRunning = null;
+    this.requestsWaiting = null;
+    this.ttftP95Seconds = null;
+    this.preemptionsTotal = null;
     this.slotState.clear();
     this.lastTokenCounts = { input: 0, output: 0 };
   }
@@ -213,6 +226,8 @@ export class LlmProbe {
           }
 
           const running = this._getVllmMetric(txt, "num_requests_running");
+          // Keep requestsRunning in sync with other vLLM tiles (null when missing)
+          this.requestsRunning = running;
           if (running != null) this.slotsActive = Math.round(running);
 
           // Engine sleep state (0 = active, 1 = sleeping)
@@ -220,6 +235,16 @@ export class LlmProbe {
             const sleepState = this._getVllmMetric(txt, "engine_sleep_state");
             if (sleepState != null) this.gpuMemoryUtilization = sleepState;
           }
+
+          // vLLM inference performance (same /metrics body — no extra HTTP)
+          this.requestsWaiting = this._getVllmMetric(txt, "num_requests_waiting");
+          this.kvCacheUsage = this._getVllmMetric(txt, "kv_cache_usage_perc");
+          this.preemptionsTotal = this._getVllmMetric(txt, "num_preemptions_total");
+
+          const ttftHist = this._parseVllmHistogram(txt, "vllm:time_to_first_token_seconds");
+          const ttftP95 = this._histogramQuantile(ttftHist.buckets, ttftHist.total, 0.95);
+          // Round to 3 decimals so WS snapshots stay stable (avoids float jitter)
+          this.ttftP95Seconds = ttftP95 == null ? null : Math.round(ttftP95 * 1000) / 1000;
         }
       } catch {}
     }
@@ -310,6 +335,61 @@ export class LlmProbe {
     return found ? sum : null;
   }
 
+  /**
+   * Parse a vLLM Prometheus histogram from /metrics text.
+   * Returns { buckets: [{upper, count}], total } with cumulative counts per `le`,
+   * summed across label sets. `total` is the summed `_count` series (or null).
+   */
+  _parseVllmHistogram(body, metricPrefix) {
+    const esc = metricPrefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // Bucket lines: <metricPrefix>_bucket{...le="X"...} VALUE
+    const bucketRe = new RegExp(
+      `^${esc}_bucket\\{[^}]*\\ble="([^"]+)"[^}]*\\}\\s+([\\d.eE+-]+)\\s*$`,
+      "gm"
+    );
+    const byUpper = new Map();
+    let infCount = 0;
+    let m;
+    while ((m = bucketRe.exec(body)) !== null) {
+      const le = m[1];
+      const count = parseFloat(m[2]);
+      if (!Number.isFinite(count)) continue;
+      const upper = le === "+Inf" ? Infinity : parseFloat(le);
+      if (upper !== Infinity && !Number.isFinite(upper)) continue;
+      if (upper === Infinity) infCount += count;
+      byUpper.set(upper, (byUpper.get(upper) || 0) + count);
+    }
+    const total = this._getVllmMetric(body, `${metricPrefix.replace(/^vllm:/, "")}_count`);
+    // Prometheus invariant: +Inf bucket count == _count. Mismatch → refuse quantile.
+    if (total != null && infCount > 0 && Math.abs(infCount - total) > 1e-6) {
+      return { buckets: [], total: null };
+    }
+    const buckets = Array.from(byUpper, ([upper, count]) => ({ upper, count }));
+    buckets.sort((a, b) => a.upper - b.upper);
+    return { buckets, total };
+  }
+
+  /**
+   * Prometheus-style linear interpolation for a histogram quantile.
+   * Returns null when empty / invalid or target is in the +Inf tail.
+   */
+  _histogramQuantile(buckets, total, quantile) {
+    if (!buckets || !buckets.length || total == null || total <= 0) return null;
+    const target = total * quantile;
+    let prevUpper = 0.0;
+    let prevCount = 0.0;
+    for (const { upper, count } of buckets) {
+      if (count >= target) {
+        if (!Number.isFinite(upper)) return null;
+        if (count === prevCount) return upper;
+        return prevUpper + (upper - prevUpper) * ((target - prevCount) / (count - prevCount));
+      }
+      prevUpper = upper;
+      prevCount = count;
+    }
+    return null;
+  }
+
   _getSlotDecoded(slot) {
     // Some llama.cpp builds nest n_decoded inside next_token[0]
     if (slot.n_decoded != null) {
@@ -340,6 +420,11 @@ export class LlmProbe {
       generationTps: this.generationTps,
       prefillTps: this.prefillTps,
       totalOutputTokens: this.totalOutputTokens,
+      kvCacheUsage: this.kvCacheUsage,
+      requestsRunning: this.requestsRunning,
+      requestsWaiting: this.requestsWaiting,
+      ttftP95Seconds: this.ttftP95Seconds,
+      preemptionsTotal: this.preemptionsTotal,
       error: this.error,
     };
   }
@@ -357,6 +442,11 @@ export class LlmProbe {
       generationTps: 0,
       prefillTps: 0,
       totalOutputTokens: 0,
+      kvCacheUsage: null,
+      requestsRunning: null,
+      requestsWaiting: null,
+      ttftP95Seconds: null,
+      preemptionsTotal: null,
       error: this.error,
     };
   }

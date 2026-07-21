@@ -3,7 +3,7 @@ import type { LlmMetrics } from "../../api/types";
 import { updateLlmPort } from "../../api/client";
 import { Sparkline } from "../ui/Sparkline";
 import { Panel } from "../ui/Panel";
-import { BotIcon, GearIcon } from "../ui/icons";
+import { BotIcon, GearIcon, InfoIcon } from "../ui/icons";
 import { BenchmarkDialog } from "./BenchmarkDialog";
 
 interface LlmPanelProps {
@@ -14,6 +14,16 @@ interface LlmPanelProps {
   className?: string;
 }
 
+const VLLM_METRIC_INFO = {
+  kvCache:
+    "Fraction of the engine’s KV cache memory currently in use (0–100%). High values (≥80%) mean little room for new or long contexts and often lead to queuing or preemptions.",
+  requests:
+    "Run = requests actively generating on the GPU. Wait = accepted but not yet scheduled (capacity or constraints). Growing wait with high KV cache usually means the server is overloaded.",
+  ttftP95:
+    "95th percentile time-to-first-token from vLLM’s history of requests: how long “slow” requests wait until the first output token. Spikes mean queueing, long prefills, or cold paths—not average decode speed.",
+  preempts:
+    "Cumulative times the engine paused a running request to free KV cache for others. Rising under load signals memory pressure; zero is normal when the server is comfortable.",
+} as const;
 
 /** Backend badge — neutral surfaces with a single accent dot. No blue/purple. */
 function BackendBadge({ backend }: { backend: string | null }) {
@@ -33,6 +43,74 @@ function BackendBadge({ backend }: { backend: string | null }) {
   );
 }
 
+/** Small (i) next to a metric label; one open tooltip at a time. */
+function MetricInfoTip({
+  id,
+  label,
+  text,
+  openId,
+  setOpenId,
+}: {
+  id: string;
+  label: string;
+  text: string;
+  openId: string | null;
+  setOpenId: (id: string | null) => void;
+}) {
+  const open = openId === id;
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearTimer = useCallback(() => {
+    if (timer.current != null) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+  }, []);
+
+  const scheduleClose = useCallback(() => {
+    clearTimer();
+    timer.current = setTimeout(() => setOpenId(null), 2000);
+  }, [clearTimer, setOpenId]);
+
+  useEffect(() => () => clearTimer(), [clearTimer]);
+
+  return (
+    <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted">
+      <span>{label}</span>
+      <button
+        type="button"
+        onClick={() => {
+          if (open) {
+            clearTimer();
+            setOpenId(null);
+          } else {
+            setOpenId(id);
+            scheduleClose();
+          }
+        }}
+        onMouseEnter={() => {
+          clearTimer();
+          setOpenId(id);
+        }}
+        onMouseLeave={scheduleClose}
+        className="relative cursor-pointer opacity-60 hover:opacity-100"
+        aria-label={`${label} info`}
+      >
+        <InfoIcon className="h-2.5 w-2.5" />
+        {open && (
+          <div
+            onMouseEnter={clearTimer}
+            onMouseLeave={scheduleClose}
+            className="absolute left-0 top-full z-20 mt-1 w-52 rounded-md border border-border bg-surface-elevated px-3 py-2 text-left text-[11px] font-normal normal-case leading-snug text-text shadow-lg"
+          >
+            {text}
+          </div>
+        )}
+      </button>
+    </div>
+  );
+}
+
 export function LlmPanel({ llm, sparkId, llmPort, onRemovePort, className }: LlmPanelProps) {
   const [genHistory, setGenHistory] = useState<number[]>([]);
   const [showSettings, setShowSettings] = useState(false);
@@ -41,6 +119,8 @@ export function LlmPanel({ llm, sparkId, llmPort, onRemovePort, className }: Llm
   const [saveError, setSaveError] = useState<string | null>(null);
   const [engineInfoOpen, setEngineInfoOpen] = useState(false);
   const [benchOpen, setBenchOpen] = useState(false);
+  /** Which vLLM metric info tip is open (kvCache | requests | ttftP95 | preempts). */
+  const [metricInfoId, setMetricInfoId] = useState<string | null>(null);
   const engineInfoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearEngineInfoTimer = useCallback(() => {
@@ -302,6 +382,75 @@ export function LlmPanel({ llm, sparkId, llmPort, onRemovePort, className }: Llm
               </div>
             </div>
           </div>
+
+          {llm?.backend === "vllm" && (
+            <div className="grid grid-cols-2 gap-2 border-t border-border pt-3 sm:grid-cols-4">
+              <div className="space-y-0.5">
+                <MetricInfoTip
+                  id="kvCache"
+                  label="KV Cache"
+                  text={VLLM_METRIC_INFO.kvCache}
+                  openId={metricInfoId}
+                  setOpenId={setMetricInfoId}
+                />
+                <div
+                  className={`font-tabular text-sm ${
+                    llm.kvCacheUsage == null
+                      ? "text-text"
+                      : llm.kvCacheUsage >= 0.8
+                        ? "text-danger"
+                        : llm.kvCacheUsage >= 0.5
+                          ? "text-warning"
+                          : "text-success"
+                  }`}
+                >
+                  {llm.kvCacheUsage != null
+                    ? `${(llm.kvCacheUsage * 100).toFixed(1)}%`
+                    : "—"}
+                </div>
+              </div>
+              <div className="space-y-0.5">
+                <MetricInfoTip
+                  id="requests"
+                  label="Requests"
+                  text={VLLM_METRIC_INFO.requests}
+                  openId={metricInfoId}
+                  setOpenId={setMetricInfoId}
+                />
+                <div className="font-tabular text-sm text-text">
+                  {llm.requestsRunning != null && llm.requestsWaiting != null
+                    ? `${Math.round(llm.requestsRunning)} run / ${Math.round(llm.requestsWaiting)} wait`
+                    : "—"}
+                </div>
+              </div>
+              <div className="space-y-0.5">
+                <MetricInfoTip
+                  id="ttftP95"
+                  label="TTFT p95"
+                  text={VLLM_METRIC_INFO.ttftP95}
+                  openId={metricInfoId}
+                  setOpenId={setMetricInfoId}
+                />
+                <div className="font-tabular text-sm text-text">
+                  {llm.ttftP95Seconds != null ? `${llm.ttftP95Seconds.toFixed(3)}s` : "—"}
+                </div>
+              </div>
+              <div className="space-y-0.5">
+                <MetricInfoTip
+                  id="preempts"
+                  label="Preempts"
+                  text={VLLM_METRIC_INFO.preempts}
+                  openId={metricInfoId}
+                  setOpenId={setMetricInfoId}
+                />
+                <div className="font-tabular text-sm text-text">
+                  {llm.preemptionsTotal != null
+                    ? Math.round(llm.preemptionsTotal).toLocaleString()
+                    : "—"}
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="border-t border-border pt-3">
             <button
