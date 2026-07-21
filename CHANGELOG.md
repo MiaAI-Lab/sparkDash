@@ -7,6 +7,24 @@ Format: version sections are listed newest first.
 
 ---
 
+## [1.1.7] — 2026-07-21
+
+### Added
+- **vLLM inference tiles** on the LLM panel (shown only when `backend === "vllm"`):
+  - **KV Cache** — usage % from Prometheus (`kv_cache_usage_perc`), colour-coded (green / amber / red)
+  - **Requests** — running / waiting counts
+  - **TTFT p95** — time-to-first-token 95th percentile from histogram quantiles
+  - **Preempts** — cumulative preemption counter
+- **Info tooltips** (small “i”) next to each of those four metrics
+- Histogram parse/quantile helpers in `LlmProbe` with unit tests (`npm test` → `server/collectors/__tests__`)
+
+### Notes
+- Metrics use the same single `/metrics` fetch already used for tok/s (no extra HTTP call).
+- ITL p95 was considered and omitted to keep the panel readable; TTFT p95 is the latency signal kept.
+- Supersedes contributor PR #11 without personal `docker-compose` SSH mounts or `host.docker.internal`.
+
+---
+
 ## [1.1.5] — 2026-07-21
 
 ### Added
