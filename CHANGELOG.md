@@ -7,6 +7,23 @@ Format: version sections are listed newest first.
 
 ---
 
+## [1.23.0] — 2026-07-22
+
+### Added
+- **Centralized metrics history store** (`src/hooks/metricsStore.ts`)
+  - Single writer from the WebSocket snapshot path; series keyed by `${sparkId}:${metric}`
+  - Caps each series at 1800 samples (~1 h at the default 2 s poll); sparklines read a 30-sample tail
+  - Survives Spark tab switches (history no longer lives in per-panel `useState`)
+  - Offline Sparks skip ingest so frozen hosts do not drag charts to zero
+  - Series: `gpu.usage`, `gpu.temp`, `cpu.usage`, `llm:${port}.tps` (multi-port aware)
+  - `useSpark` / `getSpark` selective-subscription seam; orphan series pruned when a Spark leaves the WS list
+
+### Changed
+- **GPU/CPU sparklines** — Usage and Temperature charts widened (180px)
+- **Spark tab pills** — memoize label + online dot only; drag handle stays outside memo so reorder listeners stay fresh
+
+---
+
 ## [1.22.6] — 2026-07-22
 
 ### Added

@@ -1,13 +1,14 @@
-import { useState, useEffect } from "react";
 import type { CpuMetrics, RamMetrics, UnifiedMemoryMetrics } from "../../api/types";
 import { Sparkline } from "../ui/Sparkline";
 import { Panel } from "../ui/Panel";
 import { CpuIcon, MemoryIcon } from "../ui/icons";
 import { MetricBar } from "../ui/MetricBar";
+import { useMetricsHistoryTail } from "../../hooks/metricsStore";
 
 interface CpuPanelProps {
   cpu: CpuMetrics | null;
   ram: RamMetrics | null;
+  sparkId: string;
   unifiedMemory: UnifiedMemoryMetrics | null;
 }
 
@@ -38,16 +39,12 @@ function MetricRow({
   );
 }
 
-export function CpuPanel({ cpu, ram, unifiedMemory }: CpuPanelProps) {
-  const [usageHistory, setUsageHistory] = useState<number[]>([]);
+export function CpuPanel({ cpu, ram, sparkId, unifiedMemory }: CpuPanelProps) {
+  const usageHistory = useMetricsHistoryTail(sparkId, "cpu.usage");
 
   const usage = cpu?.usage ?? 0;
   const draw = cpu?.draw ?? 0;
   const tdp = cpu?.tdp ?? 0;
-
-  useEffect(() => {
-    setUsageHistory((prev) => [...prev.slice(-30), usage]);
-  }, [usage]);
 
   const ramUsed = ram?.used ?? 0;
   const ramTotal = ram?.total ?? 0;
@@ -59,7 +56,7 @@ export function CpuPanel({ cpu, ram, unifiedMemory }: CpuPanelProps) {
       <MetricRow
         label="Usage"
         color="var(--color-accent)"
-        spark={<Sparkline data={usageHistory} color="var(--color-accent)" />}
+        spark={<Sparkline data={usageHistory} color="var(--color-accent)" width={180} />}
         value={<span className="text-text-strong">{usage}%</span>}
       />
       <div className="flex items-center justify-between text-sm">

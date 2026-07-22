@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { SparkSnapshot, WsSnapshot } from "../api/types";
+import { ingestSnapshots } from "./metricsStore";
 import { OVERVIEW_ID } from "../constants";
 
 const WS_URL = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/ws`;
@@ -38,6 +39,8 @@ export function useSnapshot() {
       try {
         const msg: WsSnapshot = JSON.parse(ev.data);
         if (msg.type === "snapshot") {
+          // Feed the central history store (8b) before notifying React state.
+          ingestSnapshots(msg.sparks);
           setSparks(msg.sparks);
           // Default to the Overview tab; keep the current selection if it
           // is still valid (Overview is always valid).

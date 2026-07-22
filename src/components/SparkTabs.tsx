@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef, useCallback } from "react";
+import { memo, useEffect, useMemo, useState, useRef, useCallback } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -91,8 +91,54 @@ function HamburgerIcon({ className = "" }: { className?: string }) {
 }
 
 /**
+ * Label + online-dot only. Memoized on primitives (#8a) so 2s WS frames that
+ * rebuild the parent `spark` object do not reconcile the label. The drag
+ * handle stays *outside* this memo so useSortable's fresh listeners/ref always
+ * attach (excluding dragHandleProps from a whole-pill memo was stale-risk).
+ */
+const TabLabelButton = memo(
+  function TabLabelButton({
+    id,
+    name,
+    online,
+    onSelect,
+    onEdit,
+  }: {
+    id: string;
+    name: string;
+    online: boolean;
+    onSelect: (id: string) => void;
+    onEdit?: (id: string) => void;
+  }) {
+    return (
+      <button
+        type="button"
+        onClick={() => onSelect(id)}
+        onDoubleClick={() => onEdit?.(id)}
+        className="pill-label"
+      >
+        <span
+          className={`inline-block h-2 w-2 shrink-0 rounded-full ${
+            online ? "bg-success" : "bg-danger"
+          }`}
+        />
+        {name}
+      </button>
+    );
+  },
+  (prev, next) =>
+    prev.id === next.id &&
+    prev.name === next.name &&
+    prev.online === next.online &&
+    prev.onSelect === next.onSelect &&
+    prev.onEdit === next.onEdit
+);
+
+/**
  * Pill-nav tab item. When reorderable, a dedicated grip handle starts the
  * drag; clicking the label selects. Active = dark pill (via .pill-item-with-handle).
+ * Not memoized as a whole — shell classes (active/drag/overlay) and handle props
+ * must update every SortableTab render.
  */
 function TabChrome({
   spark,
@@ -131,19 +177,13 @@ function TabChrome({
       >
         <GripIcon />
       </button>
-      <button
-        type="button"
-        onClick={() => onSelect(spark.id)}
-        onDoubleClick={() => onEdit?.(spark.id)}
-        className="pill-label"
-      >
-        <span
-          className={`inline-block h-2 w-2 shrink-0 rounded-full ${
-            spark.online ? "bg-success" : "bg-danger"
-          }`}
-        />
-        {spark.name}
-      </button>
+      <TabLabelButton
+        id={spark.id}
+        name={spark.name}
+        online={spark.online}
+        onSelect={onSelect}
+        onEdit={onEdit}
+      />
     </div>
   );
 }

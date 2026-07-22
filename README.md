@@ -40,8 +40,10 @@ sparkDash is a real-time web dashboard for one or more **NVIDIA DGX Spark (GB10)
 
 ## Latest version changelog
 
-### Version 1.22.6
-- **Compact UI** — Settings toggle for tighter spacing and smaller radius so more Sparks fit on screen (persisted as `density: compact`)
+### Version 1.23.0
+- **Central metrics history** — sparklines survive Spark tab switches; ~1 h of samples in store, short tail for charts; offline Sparks no longer zero-fill
+- **Wider GPU/CPU sparklines** — Usage and Temperature charts use more horizontal room
+- **Tab pill memo** — name/online label skips re-render on every WS frame; drag handle stays live
 
 Full history: [CHANGELOG.md](./CHANGELOG.md)
 
@@ -52,7 +54,7 @@ Full history: [CHANGELOG.md](./CHANGELOG.md)
 | Area | What you get |
 |------|----------------|
 | **Multi-unit** | Any number of Sparks; each has a tabbed detail page plus a shared Overview |
-| **Live streaming** | WebSocket metrics with configurable poll intervals |
+| **Live streaming** | WebSocket metrics with configurable poll intervals; central history store for sparklines across tab switches |
 | **Local + remote** | Host metrics via sysfs/proc/`nvidia-smi`; remotes over SSH (key or password) |
 | **LLM probe** | Auto-detects llama.cpp, vLLM, or sglang; live tok/s per server |
 | **Decode benchmark** | Multi-concurrency streaming decode tok/s (server + per-stream), persisted last run |

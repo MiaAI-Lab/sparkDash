@@ -1,12 +1,13 @@
-import { useState, useEffect } from "react";
 import type { GpuMetrics } from "../../api/types";
 import { Sparkline } from "../ui/Sparkline";
 import { Panel } from "../ui/Panel";
 import { ActivityIcon } from "../ui/icons";
 import { MetricBar } from "../ui/MetricBar";
+import { useMetricsHistoryTail } from "../../hooks/metricsStore";
 
 interface GpuPanelProps {
   gpu: GpuMetrics | null;
+  sparkId: string;
   temperatureUnit: "celsius" | "fahrenheit";
 }
 
@@ -41,9 +42,9 @@ function MetricRow({
   );
 }
 
-export function GpuPanel({ gpu, temperatureUnit }: GpuPanelProps) {
-  const [tempHistory, setTempHistory] = useState<number[]>([]);
-  const [usageHistory, setUsageHistory] = useState<number[]>([]);
+export function GpuPanel({ gpu, sparkId, temperatureUnit }: GpuPanelProps) {
+  const tempHistory = useMetricsHistoryTail(sparkId, "gpu.temp");
+  const usageHistory = useMetricsHistoryTail(sparkId, "gpu.usage");
 
   const temperature = gpu?.temperature ?? 0;
   const displayTemp = temperatureUnit === "fahrenheit" ? celsiusToFahrenheit(temperature) : temperature;
@@ -55,11 +56,6 @@ export function GpuPanel({ gpu, temperatureUnit }: GpuPanelProps) {
   const vramUsed = gpu?.vram?.used ?? 0;
   const vramTotal = gpu?.vram?.total ?? 0;
   const vramPct = gpu?.vram?.percentage ?? 0;
-
-  useEffect(() => {
-    setTempHistory((prev) => [...prev.slice(-30), temperature]);
-    setUsageHistory((prev) => [...prev.slice(-30), usage]);
-  }, [temperature, usage]);
 
   const tempColor =
     temperature > 85
@@ -79,13 +75,13 @@ export function GpuPanel({ gpu, temperatureUnit }: GpuPanelProps) {
       <MetricRow
         label="Usage"
         color="var(--color-accent)"
-        spark={<Sparkline data={usageHistory} color="var(--color-accent)" />}
+        spark={<Sparkline data={usageHistory} color="var(--color-accent)" width={180} />}
         value={<span className="text-text-strong">{usage}%</span>}
       />
       <MetricRow
         label="Temperature"
         color={tempColor}
-        spark={<Sparkline data={tempHistory} color={tempColor} />}
+        spark={<Sparkline data={tempHistory} color={tempColor} width={180} />}
         value={<span className="text-text-strong">{tempLabel}</span>}
       />
       <div className="flex justify-between text-sm">

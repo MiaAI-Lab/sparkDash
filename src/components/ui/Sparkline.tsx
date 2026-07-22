@@ -1,5 +1,5 @@
 interface SparklineProps {
-  data: number[];
+  data: readonly number[];
   width?: number;
   height?: number;
   color?: string;

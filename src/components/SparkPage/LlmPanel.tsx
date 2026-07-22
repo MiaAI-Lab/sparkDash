@@ -4,6 +4,7 @@ import { updateLlmPort } from "../../api/client";
 import { Sparkline } from "../ui/Sparkline";
 import { Panel } from "../ui/Panel";
 import { BotIcon, GearIcon, InfoIcon } from "../ui/icons";
+import { useMetricsHistoryTail } from "../../hooks/metricsStore";
 import { BenchmarkDialog } from "./BenchmarkDialog";
 
 interface LlmPanelProps {
@@ -125,7 +126,8 @@ function MetricInfoTip({
 }
 
 export function LlmPanel({ llm, sparkId, llmPort, onRemovePort, className }: LlmPanelProps) {
-  const [genHistory, setGenHistory] = useState<number[]>([]);
+  // Tail keyed by port so multi-port LLM sparklines stay distinct (8b).
+  const genHistory = useMetricsHistoryTail(sparkId, `llm:${llmPort}.tps`);
   const [showSettings, setShowSettings] = useState(false);
   const [portDraft, setPortDraft] = useState(String(llmPort));
   const [saving, setSaving] = useState(false);
@@ -155,11 +157,6 @@ export function LlmPanel({ llm, sparkId, llmPort, onRemovePort, className }: Llm
   useEffect(() => {
     if (!showSettings) setPortDraft(String(llmPort));
   }, [llmPort, showSettings]);
-
-  // Track token rates over time for sparklines
-  useEffect(() => {
-    setGenHistory((prev) => [...prev.slice(-30), generationTps]);
-  }, [generationTps]);
 
   const parsedPort = (() => {
     const n = parseInt(portDraft, 10);
