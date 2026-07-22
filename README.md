@@ -44,7 +44,6 @@ sparkDash is a real-time web dashboard for one or more **NVIDIA DGX Spark (GB10)
 - **Decode benchmark UI** — denser result rows with right-aligned Server/Decode tok/s; consistent sheet padding; max-tokens field stacked (no crushed label); value left-aligned
 - **Benchmark debug traces** — Settings toggle (off by default) stores prompts, HTTP/completion IDs, usage, content previews, and GPU samples for post-mortem
 - **Worker role stability** — fallback snapshots keep real roles; null/invalid role patches cannot rewrite a Worker as Standalone on disk
-- **README screenshot** — `assets/screenshot.jpg` (PNG removed), natural size (no fixed width)
 
 Full history: [CHANGELOG.md](./CHANGELOG.md)
 

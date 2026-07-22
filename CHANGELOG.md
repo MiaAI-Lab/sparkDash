@@ -31,11 +31,6 @@ Format: version sections are listed newest first.
   - `workerNode: true` without an explicit role promotes to **Worker**; role strings are trimmed/lowercased
   - Unit tests cover coerce/patch edge cases (`server/sparks/__tests__/role-normalize.test.js`)
 
-### Docs
-- README hero screenshot: **`assets/screenshot.jpg`** replaces `screenshot.png` (PNG removed from the tree)
-- Screenshot `<img>` no longer forces a fixed width (natural size in the GitHub README)
-- README “Latest version changelog” retitled to **Version 1.2.2**
-
 ---
 
 ## [1.2.0] — 2026-07-21
