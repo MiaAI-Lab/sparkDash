@@ -40,14 +40,11 @@ sparkDash is a real-time web dashboard for one or more **NVIDIA DGX Spark (GB10)
 
 ## Latest version changelog
 
-### Version 1.1.5 / 1.1.7 / 1.2.0
-- **LLM decode benchmark** — **Run decode benchmark** on each LLM panel; multi-select concurrency (`1–32`, default **1, 2**); levels run one-by-one with concurrent streams per level
-- **Bench metrics** — **Server tok/s** (engine counters, aligned with live Generation tok/s) and **per-stream** decode after first token; TTFT; last run restored after refresh/restart
-- **GB10 GPU metrics** — host `gpu-memory.sh` + process list fallback when Docker / `nvidia-smi` apps are empty
-- **Mobile dialogs** — solid scrollable sheets for benchmark, Edit Spark, and Add Spark
-- **vLLM ops tiles** — KV cache %, run/wait requests, TTFT p95, cumulative preemptions (vLLM only; info tooltips on each)
-- **Spark roles** — **Head** / **Worker** / **Standalone** in Edit Spark; worker label + head picker; standalone **LLM monitoring** opt-in; role badges on Overview and Spark header
-- **Reliable shutdown** — background remote shutdown so the UI gets a real response (no “Failed to fetch” when the host drops SSH)
+### Version 1.2.2
+- **Decode benchmark UI** — denser result rows with right-aligned Server/Decode tok/s; consistent sheet padding; max-tokens field stacked (no crushed label); value left-aligned
+- **Benchmark debug traces** — Settings toggle (off by default) stores prompts, HTTP/completion IDs, usage, content previews, and GPU samples for post-mortem
+- **Worker role stability** — fallback snapshots keep real roles; null/invalid role patches cannot rewrite a Worker as Standalone on disk
+- **README screenshot** — `assets/screenshot.jpg` (PNG removed), natural size (no fixed width)
 
 Full history: [CHANGELOG.md](./CHANGELOG.md)
 

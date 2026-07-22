@@ -7,6 +7,37 @@ Format: version sections are listed newest first.
 
 ---
 
+## [1.2.2] — 2026-07-22
+
+### Added
+- **Benchmark debug traces** (Settings → **Enable debug traces for Benchmark runs**, default **off**)
+  - When enabled, each decode-bench wave persists: full stream **prompts**, HTTP status/headers, SSE **completion IDs**, finish reason, token **usage**, content previews (first/last chars — not full output), and ~1 Hz **GPU** samples (util, temp, power, VRAM)
+  - Local Sparks sample fresh GPU metrics during the run; remotes use the live snapshot cache (avoids SSH spam)
+  - `config.debug: true` is recorded on jobs that ran with traces on
+
+### Changed
+- **Decode benchmark dialog UI**
+  - Tighter, more consistent padding on the sheet (header / body / footer)
+  - Results shown as denser comparison rows: load/TTFT on the left; **Server** and **Decode** tok/s **right-aligned**
+  - Column headers on wider screens; clearer status/progress chrome and legend
+  - **Max tokens / stream** stacked like Concurrency (label + hint above a compact input) so the field no longer wraps into a crushed column
+  - Max-tokens input value **left-aligned**
+
+### Fixed
+- **Worker role flipping to Standalone**
+  - API fallback tab snapshots no longer hardcode `role: "standalone"` — they copy role / workerLabel / workerHeadId / llmMonitoring from the registry
+  - After Edit/save refresh, live WS metrics are kept but role fields are refreshed from the API
+  - PATCH with `role: null` / invalid role no longer clobbers a persisted Worker (normalize would otherwise fall through to Standalone)
+  - `workerNode: true` without an explicit role promotes to **Worker**; role strings are trimmed/lowercased
+  - Unit tests cover coerce/patch edge cases (`server/sparks/__tests__/role-normalize.test.js`)
+
+### Docs
+- README hero screenshot: **`assets/screenshot.jpg`** replaces `screenshot.png` (PNG removed from the tree)
+- Screenshot `<img>` no longer forces a fixed width (natural size in the GitHub README)
+- README “Latest version changelog” retitled to **Version 1.2.2**
+
+---
+
 ## [1.2.0] — 2026-07-21
 
 ### Added
