@@ -540,6 +540,25 @@ input[type="checkbox"] {
   accent-color: var(--color-accent);
 }
 
+/*
+ * iOS Safari zooms the page when a focused text field is under 16px.
+ * Keep desktop/compact sizes elsewhere; only bump editable fields on iOS.
+ */
+@supports (-webkit-touch-callout: none) {
+  input[type="text"],
+  input[type="number"],
+  input[type="password"],
+  input[type="search"],
+  input[type="email"],
+  input[type="url"],
+  input[type="tel"],
+  select,
+  textarea,
+  .bench-input {
+    font-size: 16px !important;
+  }
+}
+
 /* ─── Toggle switch ────────────────────────────────────── */
 .toggle-track {
   background: var(--toggle-track-off);
