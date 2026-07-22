@@ -7,6 +7,18 @@ Format: version sections are listed newest first.
 
 ---
 
+## [1.22.5] — 2026-07-22
+
+### Added
+- **vLLM LLM panel row 3** (when `backend === "vllm"`)
+  - **Prefix Cache** — lifetime hit rate (`prefix_cache_hits_total` ÷ `prefix_cache_queries_total`)
+  - **E2E p95** — end-to-end request latency from `e2e_request_latency_seconds`
+  - **ITL p95** — inter-token latency from `inter_token_latency_seconds`
+  - **MTP Accept** — speculative decode acceptance (`spec_decode_num_accepted_tokens_total` ÷ `spec_decode_num_draft_tokens_total`)
+  - Parsed from the same `/metrics` body as existing tiles; tooltips match the row-2 pattern; missing series show **—**
+
+---
+
 ## [1.2.2] — 2026-07-22
 
 ### Added

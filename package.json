@@ -1,6 +1,6 @@
 {
   "name": "sparkdash",
-  "version": "1.2.2",
+  "version": "1.22.5",
   "description": "sparkDash — Multi-DGX Spark Monitoring Dashboard",
   "type": "module",
   "scripts": {

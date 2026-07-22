@@ -23,6 +23,14 @@ const VLLM_METRIC_INFO = {
     "95th percentile time-to-first-token from vLLM’s history of requests: how long “slow” requests wait until the first output token. Spikes mean queueing, long prefills, or cold paths—not average decode speed.",
   preempts:
     "Cumulative times the engine paused a running request to free KV cache for others. Rising under load signals memory pressure; zero is normal when the server is comfortable.",
+  prefixCache:
+    "Lifetime fraction of prefix-cache lookups that hit (hits ÷ queries). Higher means more prompt reuse and less prefill work; — when the series is missing or unused.",
+  e2eP95:
+    "95th percentile end-to-end request latency from vLLM’s history: arrival until the request finishes. Includes queue wait, prefill, and decode—not just token generation speed.",
+  itlP95:
+    "95th percentile inter-token latency (time between successive output tokens) from vLLM’s history. Spikes mean decode stalls or contention; lower is smoother streaming.",
+  mtpAccept:
+    "Lifetime speculative / MTP acceptance rate (accepted draft tokens ÷ drafted tokens). Higher means speculative decoding is paying off; — when speculation is off or unused.",
 } as const;
 
 /** Backend badge — neutral surfaces with a single accent dot. No blue/purple. */
@@ -453,6 +461,65 @@ export function LlmPanel({ llm, sparkId, llmPort, onRemovePort, className }: Llm
                 <div className="font-tabular text-sm text-text">
                   {llm.preemptionsTotal != null
                     ? Math.round(llm.preemptionsTotal).toLocaleString()
+                    : "—"}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {llm?.backend === "vllm" && (
+            <div className="grid grid-cols-2 gap-2 border-t border-border pt-3 sm:grid-cols-4">
+              <div className="space-y-0.5">
+                <MetricInfoTip
+                  id="prefixCache"
+                  label="Prefix Cache"
+                  text={VLLM_METRIC_INFO.prefixCache}
+                  openId={metricInfoId}
+                  setOpenId={setMetricInfoId}
+                />
+                <div className="font-tabular text-sm text-text">
+                  {llm.prefixCacheHitRate != null
+                    ? `${(llm.prefixCacheHitRate * 100).toFixed(1)}%`
+                    : "—"}
+                </div>
+              </div>
+              <div className="space-y-0.5">
+                <MetricInfoTip
+                  id="e2eP95"
+                  label="E2E p95"
+                  text={VLLM_METRIC_INFO.e2eP95}
+                  openId={metricInfoId}
+                  setOpenId={setMetricInfoId}
+                  align="right"
+                />
+                <div className="font-tabular text-sm text-text">
+                  {llm.e2eP95Seconds != null ? `${llm.e2eP95Seconds.toFixed(3)}s` : "—"}
+                </div>
+              </div>
+              <div className="space-y-0.5">
+                <MetricInfoTip
+                  id="itlP95"
+                  label="ITL p95"
+                  text={VLLM_METRIC_INFO.itlP95}
+                  openId={metricInfoId}
+                  setOpenId={setMetricInfoId}
+                />
+                <div className="font-tabular text-sm text-text">
+                  {llm.itlP95Seconds != null ? `${llm.itlP95Seconds.toFixed(3)}s` : "—"}
+                </div>
+              </div>
+              <div className="space-y-0.5">
+                <MetricInfoTip
+                  id="mtpAccept"
+                  label="MTP Accept"
+                  text={VLLM_METRIC_INFO.mtpAccept}
+                  openId={metricInfoId}
+                  setOpenId={setMetricInfoId}
+                  align="right"
+                />
+                <div className="font-tabular text-sm text-text">
+                  {llm.mtpAcceptanceRate != null
+                    ? `${(llm.mtpAcceptanceRate * 100).toFixed(1)}%`
                     : "—"}
                 </div>
               </div>

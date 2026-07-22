@@ -40,10 +40,8 @@ sparkDash is a real-time web dashboard for one or more **NVIDIA DGX Spark (GB10)
 
 ## Latest version changelog
 
-### Version 1.2.2
-- **Decode benchmark UI** — denser result rows with right-aligned Server/Decode tok/s; consistent sheet padding; max-tokens field stacked (no crushed label); value left-aligned
-- **Benchmark debug traces** — Settings toggle (off by default) stores prompts, HTTP/completion IDs, usage, content previews, and GPU samples for post-mortem
-- **Worker role stability** — fallback snapshots keep real roles; null/invalid role patches cannot rewrite a Worker as Standalone on disk
+### Version 1.22.5
+- **vLLM metrics row 3** — Prefix cache hit rate, E2E latency p95, inter-token latency (ITL) p95, and speculative/MTP acceptance — same `/metrics` scrape as the existing KV/queue/TTFT/preempt tiles
 
 Full history: [CHANGELOG.md](./CHANGELOG.md)
 
@@ -58,7 +56,7 @@ Full history: [CHANGELOG.md](./CHANGELOG.md)
 | **Local + remote** | Host metrics via sysfs/proc/`nvidia-smi`; remotes over SSH (key or password) |
 | **LLM probe** | Auto-detects llama.cpp, vLLM, or sglang; live tok/s per server |
 | **Decode benchmark** | Multi-concurrency streaming decode tok/s (server + per-stream), persisted last run |
-| **vLLM health** | KV cache %, run/wait queue, TTFT p95, preemptions from Prometheus `/metrics` |
+| **vLLM health** | KV cache %, run/wait queue, TTFT/E2E/ITL p95, preemptions, prefix cache, MTP accept from Prometheus `/metrics` |
 | **Multiple LLM ports** | Monitor several LLM servers on different ports simultaneously — each gets its own panel with independent backend detection and metrics |
 | **GPU processes** | See the top GPU processes by VRAM usage directly in the GPU panel, including process name and memory allocation |
 | **Spark uptime** | System uptime displayed inline on each Spark header for at-a-glance availability |

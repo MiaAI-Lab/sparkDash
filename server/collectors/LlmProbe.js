@@ -44,6 +44,14 @@ export class LlmProbe {
     this.requestsWaiting = null;
     this.ttftP95Seconds = null;
     this.preemptionsTotal = null; // cumulative counter
+    /** Prefix cache hit rate 0–1 (hits/queries). */
+    this.prefixCacheHitRate = null;
+    /** End-to-end request latency p95 (seconds). */
+    this.e2eP95Seconds = null;
+    /** Inter-token latency p95 (seconds). */
+    this.itlP95Seconds = null;
+    /** Speculative/MTP acceptance rate 0–1 (accepted/drafted). */
+    this.mtpAcceptanceRate = null;
 
     this._consecutiveFailures = 0;
     this._lastDetectAt = 0;
@@ -124,6 +132,10 @@ export class LlmProbe {
     this.requestsWaiting = null;
     this.ttftP95Seconds = null;
     this.preemptionsTotal = null;
+    this.prefixCacheHitRate = null;
+    this.e2eP95Seconds = null;
+    this.itlP95Seconds = null;
+    this.mtpAcceptanceRate = null;
     this.slotState.clear();
     this.lastTokenCounts = { input: 0, output: 0 };
   }
@@ -245,6 +257,29 @@ export class LlmProbe {
           const ttftP95 = this._histogramQuantile(ttftHist.buckets, ttftHist.total, 0.95);
           // Round to 3 decimals so WS snapshots stay stable (avoids float jitter)
           this.ttftP95Seconds = ttftP95 == null ? null : Math.round(ttftP95 * 1000) / 1000;
+
+          const e2eHist = this._parseVllmHistogram(txt, "vllm:e2e_request_latency_seconds");
+          const e2eP95 = this._histogramQuantile(e2eHist.buckets, e2eHist.total, 0.95);
+          this.e2eP95Seconds = e2eP95 == null ? null : Math.round(e2eP95 * 1000) / 1000;
+
+          const itlHist = this._parseVllmHistogram(txt, "vllm:inter_token_latency_seconds");
+          const itlP95 = this._histogramQuantile(itlHist.buckets, itlHist.total, 0.95);
+          this.itlP95Seconds = itlP95 == null ? null : Math.round(itlP95 * 1000) / 1000;
+
+          // Lifetime rates from absolute counters (stable tiles; null when unused)
+          const prefixHits = this._getVllmMetric(txt, "prefix_cache_hits_total");
+          const prefixQueries = this._getVllmMetric(txt, "prefix_cache_queries_total");
+          this.prefixCacheHitRate =
+            prefixHits != null && prefixQueries != null && prefixQueries > 0
+              ? Math.round((prefixHits / prefixQueries) * 10000) / 10000
+              : null;
+
+          const mtpAccepted = this._getVllmMetric(txt, "spec_decode_num_accepted_tokens_total");
+          const mtpDrafted = this._getVllmMetric(txt, "spec_decode_num_draft_tokens_total");
+          this.mtpAcceptanceRate =
+            mtpAccepted != null && mtpDrafted != null && mtpDrafted > 0
+              ? Math.round((mtpAccepted / mtpDrafted) * 10000) / 10000
+              : null;
         }
       } catch {}
     }
@@ -425,6 +460,10 @@ export class LlmProbe {
       requestsWaiting: this.requestsWaiting,
       ttftP95Seconds: this.ttftP95Seconds,
       preemptionsTotal: this.preemptionsTotal,
+      prefixCacheHitRate: this.prefixCacheHitRate,
+      e2eP95Seconds: this.e2eP95Seconds,
+      itlP95Seconds: this.itlP95Seconds,
+      mtpAcceptanceRate: this.mtpAcceptanceRate,
       error: this.error,
     };
   }
@@ -447,6 +486,10 @@ export class LlmProbe {
       requestsWaiting: null,
       ttftP95Seconds: null,
       preemptionsTotal: null,
+      prefixCacheHitRate: null,
+      e2eP95Seconds: null,
+      itlP95Seconds: null,
+      mtpAcceptanceRate: null,
       error: this.error,
     };
   }

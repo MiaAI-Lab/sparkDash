@@ -211,3 +211,51 @@ test("_histogramQuantile returns null when all buckets are +Inf (degenerate)", (
   const result = probe._histogramQuantile(buckets, 100, 0.95);
   assert.equal(result, null, "only +Inf bucket must return null");
 });
+// ─── Row-3 vLLM counters / alternate histograms ───────────────────────────
+
+const ROW3_BODY = `
+vllm:prefix_cache_hits_total{engine="0",model_name="m"} 75.0
+vllm:prefix_cache_queries_total{engine="0",model_name="m"} 100.0
+vllm:spec_decode_num_accepted_tokens_total{engine="0",model_name="m"} 40.0
+vllm:spec_decode_num_draft_tokens_total{engine="0",model_name="m"} 50.0
+vllm:e2e_request_latency_seconds_bucket{engine="0",le="0.5",model_name="m"} 10.0
+vllm:e2e_request_latency_seconds_bucket{engine="0",le="1.0",model_name="m"} 90.0
+vllm:e2e_request_latency_seconds_bucket{engine="0",le="10.0",model_name="m"} 100.0
+vllm:e2e_request_latency_seconds_bucket{engine="0",le="+Inf",model_name="m"} 100.0
+vllm:e2e_request_latency_seconds_count{engine="0",model_name="m"} 100.0
+vllm:inter_token_latency_seconds_bucket{engine="0",le="0.01",model_name="m"} 50.0
+vllm:inter_token_latency_seconds_bucket{engine="0",le="0.05",model_name="m"} 95.0
+vllm:inter_token_latency_seconds_bucket{engine="0",le="1.0",model_name="m"} 100.0
+vllm:inter_token_latency_seconds_bucket{engine="0",le="+Inf",model_name="m"} 100.0
+vllm:inter_token_latency_seconds_count{engine="0",model_name="m"} 100.0
+`;
+
+test("_getVllmMetric reads prefix-cache and speculative-decode counters", () => {
+  const probe = makeProbe();
+  assert.equal(probe._getVllmMetric(ROW3_BODY, "prefix_cache_hits_total"), 75);
+  assert.equal(probe._getVllmMetric(ROW3_BODY, "prefix_cache_queries_total"), 100);
+  assert.equal(probe._getVllmMetric(ROW3_BODY, "spec_decode_num_accepted_tokens_total"), 40);
+  assert.equal(probe._getVllmMetric(ROW3_BODY, "spec_decode_num_draft_tokens_total"), 50);
+});
+
+test("row-3 rates match hits/queries and accepted/drafted from absolute counters", () => {
+  const probe = makeProbe();
+  const hits = probe._getVllmMetric(ROW3_BODY, "prefix_cache_hits_total");
+  const queries = probe._getVllmMetric(ROW3_BODY, "prefix_cache_queries_total");
+  const accepted = probe._getVllmMetric(ROW3_BODY, "spec_decode_num_accepted_tokens_total");
+  const drafted = probe._getVllmMetric(ROW3_BODY, "spec_decode_num_draft_tokens_total");
+  assert.equal(Math.round((hits / queries) * 10000) / 10000, 0.75);
+  assert.equal(Math.round((accepted / drafted) * 10000) / 10000, 0.8);
+});
+
+test("_parseVllmHistogram parses e2e and ITL histograms used by row-3 tiles", () => {
+  const probe = makeProbe();
+  const e2e = probe._parseVllmHistogram(ROW3_BODY, "vllm:e2e_request_latency_seconds");
+  const itl = probe._parseVllmHistogram(ROW3_BODY, "vllm:inter_token_latency_seconds");
+  assert.equal(e2e.total, 100);
+  assert.equal(itl.total, 100);
+  const e2eP95 = probe._histogramQuantile(e2e.buckets, e2e.total, 0.95);
+  const itlP95 = probe._histogramQuantile(itl.buckets, itl.total, 0.95);
+  assert.ok(e2eP95 != null && e2eP95 >= 0.5 && e2eP95 <= 10, `unexpected e2e p95 ${e2eP95}`);
+  assert.ok(itlP95 != null && itlP95 >= 0.01 && itlP95 <= 1, `unexpected itl p95 ${itlP95}`);
+});

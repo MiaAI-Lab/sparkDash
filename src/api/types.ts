@@ -182,6 +182,14 @@ export interface LlmMetrics {
   ttftP95Seconds?: number | null;
   /** vLLM cumulative preemption count. null when unavailable. */
   preemptionsTotal?: number | null;
+  /** vLLM prefix-cache hit rate (hits/queries, 0–1). null when unavailable. */
+  prefixCacheHitRate?: number | null;
+  /** vLLM end-to-end request latency p95 in seconds. null when unavailable. */
+  e2eP95Seconds?: number | null;
+  /** vLLM inter-token latency p95 in seconds. null when unavailable. */
+  itlP95Seconds?: number | null;
+  /** vLLM speculative/MTP acceptance rate (accepted/drafted, 0–1). null when unavailable. */
+  mtpAcceptanceRate?: number | null;
   error: string | null;
 }
 
