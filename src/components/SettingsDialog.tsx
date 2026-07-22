@@ -247,7 +247,7 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
                 <span>
                   <span className="block text-text">Compact UI</span>
                   <span className="mt-0.5 block text-[10px] leading-snug text-muted">
-                    Tighter spacing, smaller radius — fits more Sparks on a single screen.
+                    Tighter spacing, smaller radius, and reduced font size — fits more Sparks on a single screen.
                   </span>
                 </span>
               </label>

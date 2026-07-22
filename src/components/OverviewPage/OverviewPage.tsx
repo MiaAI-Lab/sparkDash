@@ -350,7 +350,10 @@ export function OverviewPage({ sparks, hideOffline = false, temperatureUnit = "c
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--density-overview-rhythm)" }}>
       <div className="flex flex-wrap items-end justify-between gap-6">
-        <h1 className="text-[32px] font-normal leading-tight tracking-tight text-text-strong">
+        <h1
+          className="font-normal leading-tight tracking-tight text-text-strong"
+          style={{ fontSize: "var(--density-overview-title)" }}
+        >
           Overview
         </h1>
         <div className="flex items-center gap-3">

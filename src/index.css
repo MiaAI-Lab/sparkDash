@@ -166,6 +166,7 @@
   --density-card-pad: 22px;    /* overview card padding (p-[22px]) */
   --density-card-gap: 12px;    /* overview card internal stack gap */
   --density-overview-rhythm: 24px; /* overview page space-y-6 */
+  --density-overview-title: 32px; /* Overview h1 */
 }
 
 [data-density="compact"] {
@@ -178,6 +179,7 @@
   --density-card-pad: 14px;
   --density-card-gap: 8px;
   --density-overview-rhythm: 16px;
+  --density-overview-title: 24px;
   --radius-panel: 14px;
   --radius-sm: 8px;
 }
