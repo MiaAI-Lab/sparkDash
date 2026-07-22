@@ -31,3 +31,49 @@ test("invalid role falls back via workerNode", () => {
   assert.equal(n({ role: "nope", workerNode: true }).role, "worker");
   assert.equal(n({ role: "nope" }).role, "standalone");
 });
+
+test("coerceRole trims and lowercases", () => {
+  assert.equal(r._coerceRole(" Worker "), "worker");
+  assert.equal(r._coerceRole("HEAD"), "head");
+  assert.equal(r._coerceRole(""), null);
+  assert.equal(r._coerceRole(null), null);
+});
+
+test("null/invalid role in a patch must not flip worker → standalone", () => {
+  const prev = n({ role: "worker", workerNode: true, workerLabel: "DS" });
+
+  // Mirrors updateSpark: drop invalid role, keep prev.role through merge
+  for (const bad of [null, undefined, "", "nope", "Worker "]) {
+    /** @type {Record<string, unknown>} */
+    const safeUpdates = { role: bad, storagePollDisabled: true };
+    const coerced = r._coerceRole(safeUpdates.role);
+    if (coerced) safeUpdates.role = coerced;
+    else delete safeUpdates.role;
+    if (
+      Object.prototype.hasOwnProperty.call(safeUpdates, "workerNode") &&
+      !Object.prototype.hasOwnProperty.call(safeUpdates, "role") &&
+      safeUpdates.workerNode
+    ) {
+      safeUpdates.role = "worker";
+    }
+    const out = r._normalizeConfig({ ...prev, ...safeUpdates, id: prev.id });
+    assert.equal(out.role, "worker", `bad role=${JSON.stringify(bad)}`);
+    assert.equal(out.workerNode, true);
+  }
+});
+
+test("workerNode:true without role promotes to worker", () => {
+  const prev = n({ role: "standalone" });
+  /** @type {Record<string, unknown>} */
+  const safeUpdates = { workerNode: true };
+  if (
+    Object.prototype.hasOwnProperty.call(safeUpdates, "workerNode") &&
+    !Object.prototype.hasOwnProperty.call(safeUpdates, "role") &&
+    safeUpdates.workerNode
+  ) {
+    safeUpdates.role = "worker";
+  }
+  const out = r._normalizeConfig({ ...prev, ...safeUpdates, id: prev.id });
+  assert.equal(out.role, "worker");
+  assert.equal(out.workerNode, true);
+});

@@ -18,8 +18,24 @@ function placeholderSnapshot(
   name: string,
   disabledDevices: string[] = [],
   disabledInterfaces: string[] = [],
-  llmPorts: number[] = [8888]
+  llmPorts: number[] = [8888],
+  roleFields?: {
+    role?: SparkSnapshot["role"];
+    workerNode?: boolean;
+    workerLabel?: string | null;
+    workerHeadId?: string | null;
+    llmMonitoring?: boolean;
+  }
 ): SparkSnapshot {
+  const role =
+    roleFields?.role === "head" ||
+    roleFields?.role === "worker" ||
+    roleFields?.role === "standalone"
+      ? roleFields.role
+      : roleFields?.workerNode
+        ? "worker"
+        : "standalone";
+  const workerNode = role === "worker";
   return {
     id,
     name,
@@ -29,11 +45,16 @@ function placeholderSnapshot(
     disabledInterfaces,
     llmPort: llmPorts[0] ?? 8888,
     llmPorts,
-    workerNode: false,
-    role: "standalone",
-    workerLabel: null,
-    workerHeadId: null,
-    llmMonitoring: true,
+    workerNode,
+    role,
+    workerLabel: workerNode ? roleFields?.workerLabel ?? null : null,
+    workerHeadId: workerNode ? roleFields?.workerHeadId ?? null : null,
+    llmMonitoring:
+      role === "worker"
+        ? false
+        : role === "head"
+          ? true
+          : roleFields?.llmMonitoring !== false,
     hardware: {
       device: "NVIDIA DGX Spark",
       cpuModel: "…",
@@ -118,13 +139,36 @@ function App() {
       setFallbackSparks(
         configs.map((c) => {
           const existing = sparks.find((s) => s.id === c.id);
-          if (existing) return existing;
+          if (existing) {
+            // Keep live metrics, but never let a stale WS snapshot override
+            // role fields that were just saved via the API.
+            return {
+              ...existing,
+              name: c.name,
+              role: c.role ?? existing.role,
+              workerNode: c.workerNode ?? existing.workerNode,
+              workerLabel: c.workerLabel ?? existing.workerLabel,
+              workerHeadId: c.workerHeadId ?? existing.workerHeadId,
+              llmMonitoring: c.llmMonitoring ?? existing.llmMonitoring,
+              disabledDevices: c.disabledDevices || existing.disabledDevices,
+              disabledInterfaces: c.disabledInterfaces || existing.disabledInterfaces,
+              llmPorts: c.llmPorts ?? existing.llmPorts,
+              llmPort: c.llmPorts?.[0] ?? c.llmPort ?? existing.llmPort,
+            };
+          }
           return placeholderSnapshot(
             c.id,
             c.name,
             c.disabledDevices || [],
             c.disabledInterfaces || [],
-            c.llmPorts ?? (c.llmPort ? [c.llmPort] : [8888])
+            c.llmPorts ?? (c.llmPort ? [c.llmPort] : [8888]),
+            {
+              role: c.role,
+              workerNode: c.workerNode,
+              workerLabel: c.workerLabel,
+              workerHeadId: c.workerHeadId,
+              llmMonitoring: c.llmMonitoring,
+            }
           );
         })
       );

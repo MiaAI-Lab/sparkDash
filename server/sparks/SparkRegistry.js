@@ -101,8 +101,29 @@ export class SparkRegistry {
     if (idx === -1) throw new Error(`Spark ${id} not found`);
 
     // Client cannot set detectedMacAddress (auto from enP7s7 only)
-    const { id: _ignoreId, detectedMacAddress: _ignoreDetected, ...safeUpdates } = updates || {};
+    const { id: _ignoreId, detectedMacAddress: _ignoreDetected, ...rawUpdates } =
+      updates || {};
     const prev = this._sparks[idx];
+
+    /** @type {Record<string, unknown>} */
+    const safeUpdates = { ...rawUpdates };
+
+    // Null / invalid role must not clobber a persisted role. Otherwise
+    // normalize falls through to workerNode and can flip worker → standalone
+    // when the patch omits workerNode (common for partial updates).
+    if (Object.prototype.hasOwnProperty.call(safeUpdates, "role")) {
+      const normalized = this._coerceRole(safeUpdates.role);
+      if (normalized) safeUpdates.role = normalized;
+      else delete safeUpdates.role;
+    }
+
+    // workerNode-only patches: keep role in sync (legacy clients / partial API).
+    if (
+      Object.prototype.hasOwnProperty.call(safeUpdates, "workerNode") &&
+      !Object.prototype.hasOwnProperty.call(safeUpdates, "role")
+    ) {
+      if (safeUpdates.workerNode) safeUpdates.role = "worker";
+    }
 
     // Merge ssh carefully so we don't drop auth fields
     let mergedSsh = prev.ssh;
@@ -340,9 +361,17 @@ export class SparkRegistry {
 
   /** Normalize role; legacy workerNode=true → worker. */
   _normalizeRole(config) {
-    const role = config?.role;
-    if (role === "head" || role === "worker" || role === "standalone") return role;
+    const coerced = this._coerceRole(config?.role);
+    if (coerced) return coerced;
     return config?.workerNode ? "worker" : "standalone";
+  }
+
+  /** @param {unknown} value */
+  _coerceRole(value) {
+    if (typeof value !== "string") return null;
+    const role = value.trim().toLowerCase();
+    if (role === "head" || role === "worker" || role === "standalone") return role;
+    return null;
   }
 
   /** Trim optional worker label; empty → null. */
