@@ -40,10 +40,8 @@ sparkDash is a real-time web dashboard for one or more **NVIDIA DGX Spark (GB10)
 
 ## Latest version changelog
 
-### Version 1.23.0
-- **Central metrics history** — sparklines survive Spark tab switches; ~1 h of samples in store, short tail for charts; offline Sparks no longer zero-fill
-- **Wider GPU/CPU sparklines** — Usage and Temperature charts use more horizontal room
-- **Tab pill memo** — name/online label skips re-render on every WS frame; drag handle stays live
+### Version 1.23.1
+- **Live local VRAM** — Compose uses `pid: host` so the local Spark reads compute-apps each poll (no minute-old cron lag); live empty/0 is no longer overwritten by stale `gpu-memory.json`
 
 Full history: [CHANGELOG.md](./CHANGELOG.md)
 

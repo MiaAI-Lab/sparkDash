@@ -9,8 +9,10 @@
 # so the Node collector may not see processes. This script runs on the *host*
 # and writes a small JSON file the container reads via the ./config bind mount.
 #
-# Install (example)
-# -----------------
+# Install (example) — optional backup when the container does *not* use `pid: host`
+# --------------------------------------------------------------------
+# With docker-compose `pid: host`, sparkDash reads compute-apps live each poll.
+# Keep this cron only as a fallback (e.g. older compose without pid: host):
 #   chmod +x /path/to/sparkDash/config/gpu-memory.sh
 #   * * * * * /path/to/sparkDash/config/gpu-memory.sh
 #

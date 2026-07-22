@@ -23,6 +23,9 @@ services:
       # Full config dir (sparks.json, secrets, gpu-memory)
       - ./config:/app/config
     privileged: true
+    # Share host PID namespace so nvidia-smi compute-apps sees GPU processes
+    # (otherwise local VRAM falls back to minute-old config/gpu-memory.json).
+    pid: host
     environment:
       - PORT=5555
       - LLM_PORT=8888

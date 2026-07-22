@@ -190,57 +190,62 @@ export class SystemCollector {
       /* memory.* often N/A on GB10 */
     }
 
-    // Compute-apps sum is the reliable "used" path on unified-memory GB10
-    if (used == null || used === 0) {
-      try {
-        const raw =
-          computeOut != null
-            ? computeOut
-            : await this._nvidiaSmi(
-                "--query-compute-apps=pid,process_name,used_gpu_memory --format=csv,noheader,nounits"
-              );
-        const apps = this._parseComputeApps(raw);
-        this.nvidiaComputeAppsCache.clear();
-        let sum = 0;
-        for (const app of apps) {
-          this.nvidiaComputeAppsCache.set(app.pid, { name: app.name, vramMB: app.vramMB });
-          sum += app.vramMB;
-        }
-        if (sum > 0) used = sum;
-      } catch {}
+    // Compute-apps sum is the reliable "used" path on unified-memory GB10.
+    // Track whether the live query succeeded so we don't resurrect a stale
+    // gpu-memory.json after VRAM is cleared (cron is ~1/min).
+    let computeAppsQueried = false;
+    let computeSum = 0;
+    try {
+      const raw =
+        computeOut != null
+          ? computeOut
+          : await this._nvidiaSmi(
+              "--query-compute-apps=pid,process_name,used_gpu_memory --format=csv,noheader,nounits"
+            );
+      const apps = this._parseComputeApps(raw);
+      this.nvidiaComputeAppsCache.clear();
+      for (const app of apps) {
+        this.nvidiaComputeAppsCache.set(app.pid, { name: app.name, vramMB: app.vramMB });
+        computeSum += app.vramMB;
+      }
+      computeAppsQueried = true;
+      // Prefer live compute-apps for used (including 0 = cleared).
+      if (used == null || used === 0) used = computeSum;
+    } catch {
+      /* Docker without host PID ns often fails/empties here — file fallback below */
     }
 
-    // Host cron file (gpu-memory.sh): used/total + process list when SMI is empty.
-    // Common in Docker: memory.* is N/A on GB10; compute-apps can also be empty
-    // depending on PID namespace / driver mounts (not always, but often enough).
+    // Host cron file (gpu-memory.sh): backup when live compute-apps is unavailable
+    // (container PID namespace without `pid: host`). Do not apply when we already
+    // got a live answer — that was the "stuck at 98 GB after clear" bug.
     const file = this._readGpuMemoryFileFull();
-    if ((used == null || used === 0) && file.used > 0) used = file.used;
-    if (total == null && file.total > 0) total = file.total;
-
-    if (
-      this.nvidiaComputeAppsCache.size === 0 &&
-      Array.isArray(file.processes) &&
-      file.processes.length > 0
-    ) {
-      for (const proc of file.processes) {
-        const pid = Number(proc?.pid);
-        const vramMB = this._parseSmiNumber(proc?.vramMB);
-        const name =
-          typeof proc?.name === "string" && proc.name.trim()
-            ? proc.name.trim()
-            : "unknown";
-        // Allow vramMB === 0; only skip missing / non-finite values
-        if (!Number.isInteger(pid) || pid <= 0 || vramMB == null) continue;
-        this.nvidiaComputeAppsCache.set(pid, { name, vramMB });
-      }
-      if ((used == null || used === 0) && this.nvidiaComputeAppsCache.size > 0) {
-        let sum = 0;
-        for (const entry of this.nvidiaComputeAppsCache.values()) {
-          sum += entry.vramMB || 0;
+    if (!computeAppsQueried) {
+      if ((used == null || used === 0) && file.used > 0) used = file.used;
+      if (
+        this.nvidiaComputeAppsCache.size === 0 &&
+        Array.isArray(file.processes) &&
+        file.processes.length > 0
+      ) {
+        for (const proc of file.processes) {
+          const pid = Number(proc?.pid);
+          const vramMB = this._parseSmiNumber(proc?.vramMB);
+          const name =
+            typeof proc?.name === "string" && proc.name.trim()
+              ? proc.name.trim()
+              : "unknown";
+          if (!Number.isInteger(pid) || pid <= 0 || vramMB == null) continue;
+          this.nvidiaComputeAppsCache.set(pid, { name, vramMB });
         }
-        if (sum > 0) used = sum;
+        if ((used == null || used === 0) && this.nvidiaComputeAppsCache.size > 0) {
+          let sum = 0;
+          for (const entry of this.nvidiaComputeAppsCache.values()) {
+            sum += entry.vramMB || 0;
+          }
+          if (sum > 0) used = sum;
+        }
       }
     }
+    if (total == null && file.total > 0) total = file.total;
 
     // Unified-memory pool size + actual available memory from /proc/meminfo.
     // This matches the Unified Memory panel's basis so the two read consistently.
@@ -753,12 +758,16 @@ export class SystemCollector {
     const totalKB = this._parseMemTotal(raw);
     const totalMB = Math.round(totalKB / 1024);
 
-    // GPU memory from shared file (written by host cron / script)
-    let gpuUsedMB = this._readGpuMemoryFile();
-
-    // Fallback: try nvidiaComputeAppsCache
+    // GPU-allocated memory: prefer live compute-apps cache (filled by GPU poll),
+    // then host cron file as backup when the container cannot see host PIDs.
+    let gpuUsedMB = 0;
+    if (this.nvidiaComputeAppsCache.size > 0) {
+      gpuUsedMB = Math.round(
+        [...this.nvidiaComputeAppsCache.values()].reduce((a, b) => a + (b.vramMB || 0), 0)
+      );
+    }
     if (gpuUsedMB === 0) {
-      gpuUsedMB = Math.round([...this.nvidiaComputeAppsCache.values()].reduce((a, b) => a + b, 0));
+      gpuUsedMB = this._readGpuMemoryFile();
     }
 
     // CPU memory = total - available - GPU (since GPU is part of unified pool)

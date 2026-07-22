@@ -7,6 +7,15 @@ Format: version sections are listed newest first.
 
 ---
 
+## [1.23.1] — 2026-07-22
+
+### Fixed
+- **Local Spark VRAM lag** — Docker Compose sets `pid: host` so `nvidia-smi` compute-apps sees host GPU processes on each poll (parity with remote SSH Sparks)
+- **Stale `gpu-memory.json` override** — a successful live compute-apps result (including cleared **0**) is trusted; the host cron file is backup only when live query is unavailable
+- **Unified Memory GPU used** — prefer live compute-apps cache over the cron file; fix cache sum using `vramMB`
+
+---
+
 ## [1.23.0] — 2026-07-22
 
 ### Added
