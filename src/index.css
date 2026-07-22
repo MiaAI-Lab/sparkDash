@@ -153,6 +153,43 @@
   --shell-gradient: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
 }
 
+/* ─── Density tokens (layout spacing) ───────────────────── */
+/* Comfortable is the default. The override block sits AFTER all theme */
+/* blocks so its --radius-* overrides win on source order (equal specificity). */
+:root {
+  --density-root-font: 121%;
+  --density-shell-pad: 32px;
+  --density-header-gap: 28px;   /* header bottom margin (mb-7) */
+  --density-page-gap: 18px;    /* per-Spark grid + vertical rhythm */
+  --density-panel-pad: 20px;   /* .panel + .spark-header padding (p-5) */
+  --density-panel-title-mb: 16px;
+  --density-card-pad: 22px;    /* overview card padding (p-[22px]) */
+  --density-card-gap: 12px;    /* overview card internal stack gap */
+  --density-overview-rhythm: 24px; /* overview page space-y-6 */
+}
+
+[data-density="compact"] {
+  --density-root-font: 112%;
+  --density-shell-pad: 20px;
+  --density-header-gap: 16px;
+  --density-page-gap: 10px;
+  --density-panel-pad: 13px;
+  --density-panel-title-mb: 9px;
+  --density-card-pad: 14px;
+  --density-card-gap: 8px;
+  --density-overview-rhythm: 16px;
+  --radius-panel: 14px;
+  --radius-sm: 8px;
+}
+
+/* Compact: pin metric label/value text (Usage, GPU Power, VRAM caption, etc.)
+   to 14px. Tailwind's `.text-sm` (0,1,0) loses on specificity here. Only
+   `text-sm` inside surfaces is affected — buttons use text-xs/[10px]/[11px]. */
+[data-density="compact"] .panel .text-sm,
+[data-density="compact"] .overview-card .text-sm {
+  font-size: 14px;
+}
+
 /* ─── Ensure extension classes ────────────────────────── */
 @theme {
   --color-base: var(--color-base);
@@ -176,7 +213,7 @@
 /* ─── Base styles ─────────────────────────────────────── */
 html {
   color-scheme: light;
-  font-size: 121%;
+  font-size: var(--density-root-font, 121%);
 }
 
 [data-theme="dark"] {
@@ -252,7 +289,7 @@ input:disabled {
   margin: 0 auto;
   background: var(--shell-gradient);
   border-radius: 32px;
-  padding: 32px;
+  padding: var(--density-shell-pad);
   box-shadow: var(--shadow-shell);
 }
 

@@ -210,3 +210,25 @@ export function PowerOnIcon({ className = "" }: { className?: string }) {
     </svg>
   );
 }
+
+/** Comfortable density: three widely-spaced horizontal rows. */
+export function ComfortableIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg {...baseProps()}>
+      <line x1="4" y1="6" x2="20" y2="6" />
+      <line x1="4" y1="12" x2="20" y2="12" />
+      <line x1="4" y1="18" x2="20" y2="18" />
+    </svg>
+  );
+}
+
+/** Compact UI: three tightly-spaced horizontal rows. */
+export function CompactIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg {...baseProps()}>
+      <line x1="4" y1="9" x2="20" y2="9" />
+      <line x1="4" y1="12" x2="20" y2="12" />
+      <line x1="4" y1="15" x2="20" y2="15" />
+    </svg>
+  );
+}

@@ -97,8 +97,12 @@ function SparkCard({
 
   return (
     <div
-      className="overview-card flex flex-col gap-3 p-[22px]"
-      style={online ? undefined : { opacity: 0.6 }}
+      className="overview-card flex flex-col"
+      style={{
+        padding: "var(--density-card-pad)",
+        gap: "var(--density-card-gap)",
+        ...(online ? {} : { opacity: 0.6 }),
+      }}
     >
       {/* Card header */}
       <div className="flex items-center gap-2.5">
@@ -344,7 +348,7 @@ export function OverviewPage({ sparks, hideOffline = false, temperatureUnit = "c
   const onlineCount = visibleSparks.filter((s) => s.online).length;
 
   return (
-    <div className="space-y-6">
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--density-overview-rhythm)" }}>
       <div className="flex flex-wrap items-end justify-between gap-6">
         <h1 className="text-[32px] font-normal leading-tight tracking-tight text-text-strong">
           Overview
@@ -385,7 +389,7 @@ export function OverviewPage({ sparks, hideOffline = false, temperatureUnit = "c
           </span>
         </div>
       </div>
-      <div className="overview-page grid gap-[18px] sm:grid-cols-2 lg:grid-cols-3">
+      <div className="overview-page grid sm:grid-cols-2 lg:grid-cols-3" style={{ gap: "var(--density-page-gap)" }}>
         {visibleSparks.map((spark) => (
           <SparkCard
             key={spark.id}

@@ -92,9 +92,9 @@ export function SparkPage({ spark, temperatureUnit, onEdit }: SparkPageProps) {
   }, [spark.id]);
 
   return (
-    <div className="space-y-[18px]">
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--density-page-gap)" }}>
       <SparkHeader spark={spark} onEdit={onEdit} />
-      <div className="spark-page grid gap-[18px] md:grid-cols-2">
+      <div className="spark-page grid md:grid-cols-2" style={{ gap: "var(--density-page-gap)" }}>
         <GpuPanel gpu={metrics.gpu} temperatureUnit={temperatureUnit} />
         <CpuPanel cpu={metrics.cpu} ram={metrics.ram} unifiedMemory={metrics.unifiedMemory} />
         <StoragePanel

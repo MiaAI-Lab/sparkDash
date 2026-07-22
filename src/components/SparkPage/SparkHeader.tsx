@@ -70,8 +70,8 @@ export function SparkHeader({ spark, onEdit }: SparkHeaderProps) {
 
   return (
     <div
-      className="spark-header panel flex flex-wrap items-center gap-x-4 gap-y-2 p-5"
-      style={online ? undefined : { opacity: 0.6 }}
+      className="spark-header panel flex flex-wrap items-center gap-x-4 gap-y-2"
+      style={{ padding: "var(--density-panel-pad)", ...(online ? {} : { opacity: 0.6 }) }}
     >
       <div className="flex items-center gap-2.5">
         <span

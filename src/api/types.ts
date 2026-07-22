@@ -248,6 +248,8 @@ export interface Settings {
   temperatureUnit: "celsius" | "fahrenheit";
   /** Persist prompts / HTTP traces / GPU samples on decode benchmark runs. */
   benchDebugTraces: boolean;
+  /** Layout density — comfortable (default) or compact. */
+  density: "comfortable" | "compact";
 }
 
 export interface SparksListResponse {

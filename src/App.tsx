@@ -133,6 +133,13 @@ function App() {
     setSettings(s);
   }, []);
 
+  // Apply layout density (comfortable/compact) from persisted settings.
+  useEffect(() => {
+    if (settings?.density) {
+      document.documentElement.setAttribute("data-density", settings.density);
+    }
+  }, [settings?.density]);
+
   const refreshFromApi = useCallback(async () => {
     try {
       const { sparks: configs } = await fetchSparks();
@@ -194,7 +201,7 @@ function App() {
   return (
     <div className="min-h-screen p-0 text-text sm:p-8">
       <div className="dashboard-shell">
-        <header className="mb-7 flex flex-wrap items-center gap-3">
+        <header className="flex flex-wrap items-center gap-3" style={{ marginBottom: "var(--density-header-gap)" }}>
           <button
             type="button"
             onClick={() => navigate(OVERVIEW_ID)}

@@ -17,6 +17,8 @@ const DEFAULTS = Object.freeze({
   temperatureUnit: "celsius",
   /** Persist prompts / HTTP traces / GPU samples on decode benchmark runs. */
   benchDebugTraces: false,
+  /** Layout density — comfortable (default) or compact. */
+  density: "comfortable",
 });
 
 /** @type {typeof DEFAULTS} */
@@ -39,6 +41,10 @@ function _clampSettings(settings) {
   // Ensure temperatureUnit is valid
   if (s.temperatureUnit !== "celsius" && s.temperatureUnit !== "fahrenheit") {
     s.temperatureUnit = DEFAULTS.temperatureUnit;
+  }
+  // Ensure density is valid
+  if (s.density !== "comfortable" && s.density !== "compact") {
+    s.density = DEFAULTS.density;
   }
   return s;
 }

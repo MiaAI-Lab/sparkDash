@@ -7,6 +7,16 @@ Format: version sections are listed newest first.
 
 ---
 
+## [1.22.6] — 2026-07-22
+
+### Added
+- **Compact UI** (Settings toggle; persisted as `density: "comfortable" | "compact"`, default comfortable)
+  - Applies `data-density` on `<html>` with CSS tokens for shell/header/page/panel/card spacing, root font size, and tighter radius
+  - Overview cards, Spark page grid, Panel padding/title margin, and dashboard header gap all follow density tokens
+  - Compact mode pins panel/overview `.text-sm` metric text to 14px
+
+---
+
 ## [1.22.5] — 2026-07-22
 
 ### Added

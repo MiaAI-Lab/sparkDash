@@ -40,8 +40,8 @@ sparkDash is a real-time web dashboard for one or more **NVIDIA DGX Spark (GB10)
 
 ## Latest version changelog
 
-### Version 1.22.5
-- **vLLM metrics row 3** — Prefix cache hit rate, E2E latency p95, inter-token latency (ITL) p95, and speculative/MTP acceptance — same `/metrics` scrape as the existing KV/queue/TTFT/preempt tiles
+### Version 1.22.6
+- **Compact UI** — Settings toggle for tighter spacing and smaller radius so more Sparks fit on screen (persisted as `density: compact`)
 
 Full history: [CHANGELOG.md](./CHANGELOG.md)
 

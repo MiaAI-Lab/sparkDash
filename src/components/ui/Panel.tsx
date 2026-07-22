@@ -28,10 +28,13 @@ export function Panel({
 }: PanelProps) {
   return (
     <section
-      className={`panel ${accent ? "panel-accent" : ""} p-5 ${className}`}
-      style={style}
+      className={`panel ${accent ? "panel-accent" : ""} ${className}`}
+      style={{ padding: "var(--density-panel-pad)", ...style }}
     >
-      <header className="mb-4 flex items-center justify-between gap-2">
+      <header
+        className="flex items-center justify-between gap-2"
+        style={{ marginBottom: "var(--density-panel-title-mb)" }}
+      >
         <h3 className="panel-title">
           {icon}
           {title}
