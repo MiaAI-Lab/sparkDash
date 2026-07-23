@@ -17,9 +17,7 @@ sparkDash is a real-time web dashboard for one or more **NVIDIA DGX Spark (GB10)
 
 ### LLM Prompt Showcase
 
-<video src="./assets/llm-showcase.mp4" controls muted playsinline width="100%">
-  <a href="./assets/llm-showcase.mp4">Watch the LLM Prompt Showcase demo (MP4)</a>
-</video>
+https://github.com/MiaAI-Lab/sparkDash/releases/download/media-showcase/llm-showcase.mp4
 
 ---
 
