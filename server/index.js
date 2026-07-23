@@ -101,6 +101,16 @@ const server = createServer(app);
 
 app.use(express.json());
 
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "";
+
+app.use("/api", (req, res, next) => {
+  if (req.method === "GET") return next();
+  if (!ADMIN_TOKEN) return next();
+  const auth = req.headers["authorization"] || "";
+  if (auth === `Bearer ${ADMIN_TOKEN}`) return next();
+  return res.status(401).json({ error: "Unauthorized" });
+});
+
 function clientKey(req) {
   return req.ip || req.socket?.remoteAddress || "unknown";
 }
@@ -953,7 +963,7 @@ startBroadcast();
 
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`[sparkDash] server listening on http://0.0.0.0:${PORT}`);
-  console.log(`[sparkDash] WebSocket endpoint ws://0.0.0.0:${PORT}/ws`);
+  console.log(`[sparkDash] WebSocket endpoint 0.0.0.0:${PORT}/ws`);
   startAllMonitors();
 });
 
