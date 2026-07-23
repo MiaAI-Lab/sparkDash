@@ -1745,16 +1745,20 @@ input[type="checkbox"] {
   letter-spacing: 0.02em;
   color: var(--color-muted);
   line-height: 1.2;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: min(42vw, 28rem);
 }
 .showcase-config__meta-label {
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 .showcase-config__model {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.6875rem;
+  line-height: 1.25;
   color: var(--color-text);
   font-weight: 500;
   letter-spacing: 0;
@@ -1983,6 +1987,37 @@ input[type="checkbox"] {
     min-height: 100dvh;
     overflow-x: hidden;
     overflow-y: auto;
+    padding: 0.65rem;
+  }
+  .showcase-config__bar {
+    align-items: stretch;
+  }
+  .showcase-config__title {
+    flex: 1 1 100%;
+    width: 100%;
+    margin-right: 0;
+    min-height: 0;
+  }
+  .showcase-config__subtitle {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .showcase-config__controls {
+    flex: 1 1 100%;
+    width: 100%;
+    margin-left: 0;
+  }
+  .showcase-config-peek {
+    align-items: flex-start;
+  }
+  .showcase-config-peek .showcase-config__title {
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
+  }
+  .showcase-config-peek__actions {
+    width: 100%;
+    margin-left: 0;
   }
   .showcase-grid {
     flex: 0 0 auto;
@@ -1993,11 +2028,19 @@ input[type="checkbox"] {
   }
   .showcase-term {
     height: auto;
-    min-height: 11.5rem;
+    min-height: 14rem;
+  }
+  .showcase-term__header {
+    flex-wrap: wrap;
+    row-gap: 0.25rem;
   }
   .showcase-term__body {
-    min-height: 7.5rem;
-    max-height: 40vh;
+    flex: 1 1 auto;
+    min-height: 9rem;
+    max-height: 50vh;
+  }
+  .showcase-metrics__hero-value {
+    font-size: 1.15rem;
   }
 }
 @media (min-width: 640px) {

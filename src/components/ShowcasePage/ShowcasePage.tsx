@@ -506,6 +506,7 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
         port,
         maxTokens,
         thinking,
+        modelId: modelId || undefined,
         prompts: trimmed,
       });
       sessionIdRef.current = started.sessionId;
@@ -603,15 +604,12 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
               <span className="showcase-config__name">{spark.name}</span>
               <span className="showcase-config__meta">
                 <span className="showcase-config__meta-label">Prompt Showcase</span>
-                {modelId ? (
-                  <>
-                    {" · "}
-                    <span className="showcase-config__model" title={modelId}>
-                      {modelId}
-                    </span>
-                  </>
-                ) : null}
               </span>
+              {modelId ? (
+                <span className="showcase-config__model" title={modelId}>
+                  {modelId}
+                </span>
+              ) : null}
             </div>
           </div>
           <div className="showcase-config-peek__actions">
@@ -663,15 +661,12 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
               <span className="showcase-config__name">{spark.name}</span>
               <span className="showcase-config__meta">
                 <span className="showcase-config__meta-label">Prompt Showcase</span>
-                {modelId ? (
-                  <>
-                    {" · "}
-                    <span className="showcase-config__model" title={modelId}>
-                      {modelId}
-                    </span>
-                  </>
-                ) : null}
               </span>
+              {modelId ? (
+                <span className="showcase-config__model" title={modelId}>
+                  {modelId}
+                </span>
+              ) : null}
             </div>
           </div>
           <div className="showcase-config__controls">
