@@ -7,6 +7,13 @@ Format: version sections are listed newest first.
 
 ---
 
+## [1.23.2] — 2026-07-23
+
+### Added
+- **Copy results** on the decode benchmark dialog — clipboard plain-text summary (`model | decode tok/s results:` plus per-concurrency decode/server tok/s, optional peak, TTFT; failed rows included)
+
+---
+
 ## [1.23.1] — 2026-07-22
 
 ### Fixed

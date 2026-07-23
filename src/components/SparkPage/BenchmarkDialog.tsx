@@ -78,6 +78,35 @@ function serverTps(r: DecodeBenchJob["results"][number]): number {
   return r.serverGenerationTps != null ? r.serverGenerationTps : r.aggregateDecodeTps;
 }
 
+/**
+ * Build a plain-text benchmark summary for the clipboard.
+ * Format: "<model> | decode tok/s results:" header, then one line per
+ * concurrency level with decode tok/s and key metrics.
+ */
+function buildShareText(job: DecodeBenchJob, modelId: string | null): string {
+  const name = modelId || "unknown model";
+  const head = `${name} | decode tok/s results:`;
+
+  const lines = job.results
+    .slice()
+    .sort((a, b) => a.concurrency - b.concurrency)
+    .map((r) => {
+      if (r.totalDecodeTokens > 0 || r.totalCompletionTokens > 0) {
+        const srv = serverTps(r);
+        const peak =
+          r.serverGenerationTpsMax != null &&
+          r.serverGenerationTps != null &&
+          r.serverGenerationTpsMax > r.serverGenerationTps + 0.5
+            ? ` (peak ${r.serverGenerationTpsMax.toFixed(0)})`
+            : "";
+        return `×${r.concurrency}  decode ${r.meanDecodeTps.toFixed(0)} tok/s  server ${srv.toFixed(0)} tok/s${peak}  · TTFT ${formatTtft(r.medianTtftMs)}`;
+      }
+      return `×${r.concurrency}  failed${r.error ? ` — ${r.error}` : ""}`;
+    });
+
+  return [head, "", ...lines].join("\n");
+}
+
 function ResultRow({ r }: { r: DecodeBenchJob["results"][number] }) {
   const server = serverTps(r);
   const peak =
@@ -150,7 +179,9 @@ export function BenchmarkDialog({
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [loadingLast, setLoadingLast] = useState(false);
+  const [copied, setCopied] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const stopPoll = useCallback(() => {
     if (pollRef.current != null) {
@@ -232,6 +263,13 @@ export function BenchmarkDialog({
 
   useEffect(() => () => stopPoll(), [stopPoll]);
 
+  useEffect(
+    () => () => {
+      if (copyResetRef.current != null) clearTimeout(copyResetRef.current);
+    },
+    []
+  );
+
   const toggleConcurrency = (n: number) => {
     if (isRunning || starting) return;
     setSelected((prev) => {
@@ -287,6 +325,30 @@ export function BenchmarkDialog({
     stopPoll();
     setJob(null);
     setError(null);
+  };
+
+  const handleCopyResults = async () => {
+    if (!job || job.results.length === 0) return;
+    const text = buildShareText(job, modelId);
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+      setCopied(true);
+      if (copyResetRef.current != null) clearTimeout(copyResetRef.current);
+      copyResetRef.current = setTimeout(() => setCopied(false), 1800);
+    } catch {
+      setError("Could not copy results to clipboard");
+    }
   };
 
   const handleClear = async () => {
@@ -505,6 +567,16 @@ export function BenchmarkDialog({
                   title="Clear saved results for this port"
                 >
                   Clear
+                </button>
+              )}
+              {job.results.length > 0 && (
+                <button
+                  type="button"
+                  className="bench-btn bench-btn--ghost"
+                  onClick={() => void handleCopyResults()}
+                  title="Copy a plain-text summary to the clipboard"
+                >
+                  {copied ? "Copied!" : "Copy results"}
                 </button>
               )}
               <button type="button" className="bench-btn bench-btn--ghost" onClick={handleNewRun}>
