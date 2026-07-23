@@ -523,13 +523,27 @@ export function LlmPanel({ llm, sparkId, llmPort, onRemovePort, className }: Llm
             </div>
           )}
 
-          <div className="border-t border-border pt-3">
+          <div className="border-t border-border pt-3 space-y-2">
             <button
               type="button"
               onClick={() => setBenchOpen(true)}
               className="w-full rounded border border-border bg-surface-elevated px-3 py-1.5 text-xs font-medium text-text transition-colors hover:border-accent hover:bg-accent-soft"
             >
               Run decode benchmark
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const q = llmPort ? `?port=${encodeURIComponent(String(llmPort))}` : "";
+                window.open(
+                  `/showcase/${encodeURIComponent(sparkId)}${q}`,
+                  "_blank",
+                  "noopener,noreferrer"
+                );
+              }}
+              className="w-full rounded border border-border bg-surface-elevated px-3 py-1.5 text-xs font-medium text-text transition-colors hover:border-accent hover:bg-accent-soft"
+            >
+              Showcase
             </button>
           </div>
         </div>

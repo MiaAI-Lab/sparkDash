@@ -38,8 +38,10 @@ sparkDash is a real-time web dashboard for one or more **NVIDIA DGX Spark (GB10)
 
 ## Latest version changelog
 
-### Version 1.23.2
-- **Copy benchmark results** — plain-text summary of decode/server tok/s (and TTFT) per concurrency level to the clipboard
+### Version 1.3.0 — major feature release
+- **LLM Prompt Showcase** — full-page multi-terminal streaming demo (up to 32 concurrent prompts) from the LLM panel
+- Aggregate server tok/s during runs, copy one/all terminals, collapsible reasoning, thinking-flag adapter
+- Shared streaming path for Showcase + DecodeBench; mutual exclusion between the two
 
 Full history: [CHANGELOG.md](./CHANGELOG.md)
 
@@ -54,6 +56,7 @@ Full history: [CHANGELOG.md](./CHANGELOG.md)
 | **Local + remote** | Host metrics via sysfs/proc/`nvidia-smi`; remotes over SSH (key or password) |
 | **LLM probe** | Auto-detects llama.cpp, vLLM, or sglang; live tok/s per server |
 | **Decode benchmark** | Multi-concurrency streaming decode tok/s (server + per-stream), persisted last run |
+| **Prompt Showcase** | Full-page multi-terminal LLM streaming demo (up to 32 prompts) with live tok/s and copy-out |
 | **vLLM health** | KV cache %, run/wait queue, TTFT/E2E/ITL p95, preemptions, prefix cache, MTP accept from Prometheus `/metrics` |
 | **Multiple LLM ports** | Monitor several LLM servers on different ports simultaneously — each gets its own panel with independent backend detection and metrics |
 | **GPU processes** | See the top GPU processes by VRAM usage directly in the GPU panel, including process name and memory allocation |

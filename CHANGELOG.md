@@ -7,6 +7,26 @@ Format: version sections are listed newest first.
 
 ---
 
+## [1.3.0] — 2026-07-23
+
+Major feature release.
+
+### Added
+- **LLM Prompt Showcase** — full-page multi-terminal streaming demo (`/showcase/:sparkId`) opened from the LLM panel
+  - Up to **32** concurrent chat streams with curated default prompts; optional prompt editor (“Show prompts”)
+  - Dense auto-fit terminal grid, brand chrome in the config bar, Hide/Show controls with peek strip (Stop + aggregate tok/s)
+  - Aggregate **tok/s** hero from server `/metrics` during the run (peak, tokens, streams)
+  - Copy one terminal or copy all as plain text; collapsible reasoning vs answer styling
+  - Thinking-flag adapter (`enable_thinking` vs MiniMax `thinking_mode`, with 400 retry)
+  - Ephemeral sessions with heartbeat cancel; mutual exclusion vs DecodeBench (409 both ways)
+  - Shared streaming helper extracted for DecodeBench + Showcase (`LlmStreaming.js`)
+
+### Changed
+- Mid-run: Port / Terminals / Max tokens / Run locked; Stop stays available
+- Changing terminal count after a run clears stale streams and rebuilds the grid
+
+---
+
 ## [1.23.2] — 2026-07-23
 
 ### Added

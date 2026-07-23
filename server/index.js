@@ -16,6 +16,7 @@ import {
   decodeBenchManager,
   DECODE_BENCH_DEFAULTS,
 } from "./collectors/DecodeBench.js";
+import { showcaseManager } from "./collectors/ShowcaseManager.js";
 
 dotenv.config();
 
@@ -524,6 +525,9 @@ app.post("/api/sparks/:id/llm/bench", (req, res) => {
   if (spark.llmMonitoring === false) {
     return res.status(400).json({ error: "LLM monitoring is disabled for this Spark" });
   }
+  if (showcaseManager.getActive(spark.id)) {
+    return res.status(409).json({ error: "A prompt showcase is already running for this Spark" });
+  }
 
   const monitor = monitors.get(req.params.id);
   const ports = Array.isArray(spark.llmPorts) && spark.llmPorts.length
@@ -657,6 +661,105 @@ app.delete("/api/sparks/:id/llm/bench/:benchId", (req, res) => {
   const job = decodeBenchManager.cancel(spark.id, req.params.benchId);
   if (!job) return res.status(404).json({ error: "Benchmark not found" });
   res.json(job);
+});
+
+/**
+ * LLM Prompt Showcase — concurrent streaming demos (ephemeral).
+ *
+ * POST body: { port, modelId?, maxTokens?, prompts: string[] }
+ * Returns 202 { sessionId }; poll GET for deltas; DELETE to cancel.
+ */
+app.post("/api/sparks/:id/llm/showcase", (req, res) => {
+  const spark = registry.getSpark(req.params.id);
+  if (!spark) return res.status(404).json({ error: "Spark not found" });
+  if (spark.workerNode) {
+    return res.status(403).json({ error: "Worker nodes do not expose a local LLM API" });
+  }
+  if (spark.llmMonitoring === false) {
+    return res.status(403).json({ error: "LLM monitoring is disabled for this Spark" });
+  }
+
+  const monitor = monitors.get(req.params.id);
+  const ports = Array.isArray(spark.llmPorts) && spark.llmPorts.length
+    ? spark.llmPorts
+    : [resolveLlmPort(spark)];
+
+  if (req.body?.port == null) {
+    return res.status(400).json({ error: "port is required" });
+  }
+  const port = Number(req.body.port);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    return res.status(400).json({ error: "Invalid port" });
+  }
+  if (!ports.includes(port)) {
+    return res.status(400).json({ error: "port is not configured for this Spark" });
+  }
+
+  let modelId = req.body?.modelId || null;
+  if (!modelId && monitor) {
+    const snap = monitor.snapshot();
+    const llmList = Array.isArray(snap?.metrics?.llm) ? snap.metrics.llm : [];
+    const portIndex = ports.indexOf(port);
+    const llm =
+      (portIndex >= 0 ? llmList[portIndex] : null) ||
+      llmList.find((m) => m?.available) ||
+      llmList[0];
+    modelId = llm?.modelId || null;
+  }
+
+  try {
+    const result = showcaseManager.start({
+      sparkId: spark.id,
+      lanIp: spark.lanIp,
+      port,
+      modelId,
+      maxTokens: req.body?.maxTokens,
+      prompts: req.body?.prompts,
+    });
+    res.status(202).json(result);
+  } catch (err) {
+    const status = err.status || 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+app.get("/api/sparks/:id/llm/showcase/:sessionId", (req, res) => {
+  const spark = registry.getSpark(req.params.id);
+  if (!spark) return res.status(404).json({ error: "Spark not found" });
+  if (spark.workerNode) {
+    return res.status(403).json({ error: "Worker nodes do not expose a local LLM API" });
+  }
+  if (spark.llmMonitoring === false) {
+    return res.status(403).json({ error: "LLM monitoring is disabled for this Spark" });
+  }
+
+  const sinceRaw = req.query.since;
+  const since =
+    sinceRaw != null && sinceRaw !== ""
+      ? parseInt(String(sinceRaw), 10)
+      : null;
+  const session = showcaseManager.getSession(
+    spark.id,
+    req.params.sessionId,
+    Number.isInteger(since) ? since : null
+  );
+  if (!session) return res.status(404).json({ error: "Showcase session not found" });
+  res.json(session);
+});
+
+app.delete("/api/sparks/:id/llm/showcase/:sessionId", (req, res) => {
+  const spark = registry.getSpark(req.params.id);
+  if (!spark) return res.status(404).json({ error: "Spark not found" });
+  if (spark.workerNode) {
+    return res.status(403).json({ error: "Worker nodes do not expose a local LLM API" });
+  }
+  if (spark.llmMonitoring === false) {
+    return res.status(403).json({ error: "LLM monitoring is disabled for this Spark" });
+  }
+
+  const session = showcaseManager.cancel(spark.id, req.params.sessionId);
+  if (!session) return res.status(404).json({ error: "Showcase session not found" });
+  res.json(session);
 });
 
 // ─── Power management ────────────────────────────────────

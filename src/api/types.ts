@@ -399,3 +399,51 @@ export interface StartDecodeBenchRequest {
   maxTokens?: number;
   modelId?: string | null;
 }
+
+// ─── LLM Prompt Showcase ─────────────────────────────────
+export interface ShowcaseStartRequest {
+  port: number;
+  modelId?: string | null;
+  maxTokens?: number;
+  prompts: string[];
+}
+
+export interface ShowcaseStreamState {
+  streamId: string;
+  label: string;
+  prompt: string;
+  status: "pending" | "streaming" | "completed" | "error" | "cancelled";
+  contentAppend?: string;
+  content?: string;
+  contentLength: number;
+  reasoningAppend?: string;
+  reasoning?: string;
+  reasoningLength?: number;
+  resetContent?: boolean;
+  tokenCount: number;
+  ttftMs: number | null;
+  decodeTps: number;
+  liveTokPerSec: number;
+  model: string | null;
+  error: string | null;
+}
+
+export interface ShowcaseSessionState {
+  sessionId: string;
+  sparkId: string;
+  status: "running" | "completed" | "cancelled" | "error";
+  rev: number;
+  port: number;
+  startedAt?: number;
+  /** Median server generation tok/s from /metrics during the run (null if unavailable). */
+  serverGenerationTps?: number | null;
+  serverGenerationTpsMax?: number | null;
+  serverGenerationSamples?: number;
+  streams: ShowcaseStreamState[];
+  error?: string | null;
+}
+
+export interface ShowcaseStartResponse {
+  sessionId: string;
+  status: "running";
+}

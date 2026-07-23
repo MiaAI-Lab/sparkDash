@@ -2,6 +2,9 @@ import type {
   DecodeBenchJob,
   DecodeBenchListResponse,
   Settings,
+  ShowcaseSessionState,
+  ShowcaseStartRequest,
+  ShowcaseStartResponse,
   SparkConfig,
   SparkTestResponse,
   StartDecodeBenchRequest,
@@ -163,6 +166,39 @@ export function clearDecodeBenchHistory(
   const q =
     port != null && Number.isInteger(port) ? `?port=${encodeURIComponent(port)}` : "";
   return apiFetch(`/api/sparks/${id}/llm/bench${q}`, { method: "DELETE" });
+}
+
+// ─── LLM Prompt Showcase ──────────────────────────────
+/** Start a concurrent prompt showcase (returns 202 session). */
+export function startShowcase(
+  id: string,
+  body: ShowcaseStartRequest
+): Promise<ShowcaseStartResponse> {
+  return apiFetch(`/api/sparks/${id}/llm/showcase`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function getShowcase(
+  id: string,
+  sessionId: string,
+  opts?: { since?: number }
+): Promise<ShowcaseSessionState> {
+  const q =
+    opts?.since != null && Number.isFinite(opts.since)
+      ? `?since=${encodeURIComponent(String(opts.since))}`
+      : "";
+  return apiFetch(`/api/sparks/${id}/llm/showcase/${sessionId}${q}`);
+}
+
+export function cancelShowcase(
+  id: string,
+  sessionId: string
+): Promise<ShowcaseSessionState> {
+  return apiFetch(`/api/sparks/${id}/llm/showcase/${sessionId}`, {
+    method: "DELETE",
+  });
 }
 
 // ─── LLM probe ports (per Spark) ─────────────────────────

@@ -1,12 +1,13 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useSnapshot } from "./hooks/useSnapshot";
-import { useRoute } from "./hooks/useRoute";
+import { useAppRoute, useRoute } from "./hooks/useRoute";
 import { fetchSparks, reorderSparks, fetchSettings } from "./api/client";
 import { SparkTabs } from "./components/SparkTabs";
 import { AddSparkDialog } from "./components/AddSparkDialog";
 import { EditSparkDialog } from "./components/EditSparkDialog";
 import { SparkPage } from "./components/SparkPage/SparkPage";
 import { OverviewPage } from "./components/OverviewPage/OverviewPage";
+import { ShowcasePage } from "./components/ShowcasePage/ShowcasePage";
 import { ThemeSwitch } from "./components/ThemeSwitch";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { GearIcon, BoltIcon } from "./components/ui/icons";
@@ -76,7 +77,7 @@ function placeholderSnapshot(
   };
 }
 
-function App() {
+function DashboardApp() {
   const { sparks, activeId, setActiveId, activeSpark, connected } = useSnapshot();
   const navigate = useRoute(setActiveId);
   const [showAdd, setShowAdd] = useState(false);
@@ -292,6 +293,14 @@ function App() {
       />
     </div>
   );
+}
+
+function App() {
+  const route = useAppRoute();
+  if (route.mode === "showcase" && route.showcaseSparkId) {
+    return <ShowcasePage sparkId={route.showcaseSparkId} />;
+  }
+  return <DashboardApp />;
 }
 
 export default App;
