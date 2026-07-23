@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   cancelShowcase,
+  fetchSparkMetrics,
   fetchSparks,
   getShowcase,
   startShowcase,
@@ -117,6 +118,17 @@ function readPortQuery(fallback: number): number {
   return fallback;
 }
 
+function readModelQuery(): string | null {
+  try {
+    const q = new URLSearchParams(window.location.search).get("model");
+    if (q == null || q === "") return null;
+    const trimmed = q.trim();
+    return trimmed || null;
+  } catch {
+    return null;
+  }
+}
+
 function buildTerminalPlainText(s: LocalStream): string {
   const parts: string[] = [`## ${s.label || s.streamId}`, `status: ${s.status}`];
   if (s.liveTokPerSec > 0 || s.decodeTps > 0) {
@@ -140,11 +152,12 @@ function buildTerminalPlainText(s: LocalStream): string {
 
 function buildAllPlainText(
   streams: LocalStream[],
-  meta: { name: string; port: number; serverTps: number | null }
+  meta: { name: string; port: number; modelId: string | null; serverTps: number | null }
 ): string {
   const head = [
     `${meta.name} | prompt showcase`,
     `port ${meta.port}` +
+      (meta.modelId ? `  ·  ${meta.modelId}` : "") +
       (meta.serverTps != null ? `  · server ${meta.serverTps.toFixed(0)} tok/s` : ""),
     "",
   ];
@@ -184,6 +197,7 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
   const [prompts, setPrompts] = useState<string[]>(() => DEFAULT_PROMPTS.slice(0, 4));
   const [terminalCount, setTerminalCount] = useState(4);
   const [port, setPort] = useState(8888);
+  const [modelId, setModelId] = useState<string | null>(() => readModelQuery());
   const [maxTokens, setMaxTokens] = useState(DEFAULT_MAX_TOKENS);
   const [thinking, setThinking] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
@@ -282,6 +296,8 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
               ? [found.llmPort]
               : [8888];
         setPort(readPortQuery(ports[0]));
+        const fromQuery = readModelQuery();
+        if (fromQuery) setModelId(fromQuery);
       })
       .catch((err) => {
         if (!cancelled) setLoadError(err?.message || "Failed to load Spark");
@@ -290,6 +306,35 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
       cancelled = true;
     };
   }, [sparkId]);
+
+  useEffect(() => {
+    if (!sparkId || !spark) return;
+    let cancelled = false;
+    const ports =
+      Array.isArray(spark.llmPorts) && spark.llmPorts.length
+        ? spark.llmPorts
+        : spark.llmPort
+          ? [spark.llmPort]
+          : [8888];
+    fetchSparkMetrics(sparkId)
+      .then((snap) => {
+        if (cancelled) return;
+        const llmList = Array.isArray(snap?.metrics?.llm) ? snap.metrics.llm : [];
+        const portIndex = ports.indexOf(port);
+        const llm =
+          (portIndex >= 0 ? llmList[portIndex] : null) ||
+          llmList.find((m) => m?.available && m?.modelId) ||
+          llmList[0];
+        const id = llm?.modelId?.trim() || null;
+        if (id) setModelId(id);
+      })
+      .catch(() => {
+        /* keep query / prior modelId */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sparkId, spark, port]);
 
   useEffect(() => {
     setPrompts((prev) => {
@@ -339,16 +384,22 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
       buildAllPlainText(displayStreams, {
         name: spark.name,
         port,
+        modelId,
         serverTps,
       })
     );
     if (ok) flashCopied("all");
     else setRunError("Could not copy to clipboard");
-  }, [spark, displayStreams, port, serverTps, flashCopied]);
+  }, [spark, displayStreams, port, modelId, serverTps, flashCopied]);
 
   const applySession = useCallback((data: ShowcaseSessionState, full: boolean) => {
     setSessionStatus(data.status);
     revRef.current = data.rev;
+    if (data.modelId) setModelId(data.modelId);
+    else {
+      const fromStream = data.streams.find((s) => s.model)?.model;
+      if (fromStream) setModelId(fromStream);
+    }
     if (data.serverGenerationTps != null) setServerTps(data.serverGenerationTps);
     if (data.serverGenerationTpsMax != null) setServerTpsMax(data.serverGenerationTpsMax);
     setStreams((prev) => {
@@ -550,7 +601,17 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
             </a>
             <div className="showcase-config__subtitle">
               <span className="showcase-config__name">{spark.name}</span>
-              <span className="showcase-config__meta">Prompt Showcase</span>
+              <span className="showcase-config__meta">
+                <span className="showcase-config__meta-label">Prompt Showcase</span>
+                {modelId ? (
+                  <>
+                    {" · "}
+                    <span className="showcase-config__model" title={modelId}>
+                      {modelId}
+                    </span>
+                  </>
+                ) : null}
+              </span>
             </div>
           </div>
           <div className="showcase-config-peek__actions">
@@ -600,7 +661,17 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
             </a>
             <div className="showcase-config__subtitle">
               <span className="showcase-config__name">{spark.name}</span>
-              <span className="showcase-config__meta">Prompt Showcase</span>
+              <span className="showcase-config__meta">
+                <span className="showcase-config__meta-label">Prompt Showcase</span>
+                {modelId ? (
+                  <>
+                    {" · "}
+                    <span className="showcase-config__model" title={modelId}>
+                      {modelId}
+                    </span>
+                  </>
+                ) : null}
+              </span>
             </div>
           </div>
           <div className="showcase-config__controls">

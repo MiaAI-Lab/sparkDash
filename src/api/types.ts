@@ -436,6 +436,7 @@ export interface ShowcaseSessionState {
   status: "running" | "completed" | "cancelled" | "error";
   rev: number;
   port: number;
+  modelId?: string | null;
   startedAt?: number;
   /** Median server generation tok/s from /metrics during the run (null if unavailable). */
   serverGenerationTps?: number | null;

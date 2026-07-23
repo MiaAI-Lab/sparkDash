@@ -1742,10 +1742,23 @@ input[type="checkbox"] {
 }
 .showcase-config__meta {
   font-size: 0.625rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
   color: var(--color-muted);
   line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: min(42vw, 28rem);
+}
+.showcase-config__meta-label {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.showcase-config__model {
+  color: var(--color-text);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .showcase-config__controls {

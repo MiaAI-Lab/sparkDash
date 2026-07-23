@@ -1,6 +1,7 @@
 import type {
   DecodeBenchJob,
   DecodeBenchListResponse,
+  LlmMetrics,
   Settings,
   ShowcaseSessionState,
   ShowcaseStartRequest,
@@ -33,6 +34,13 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
 // ─── Sparks CRUD ─────────────────────────────────────────
 export function fetchSparks(): Promise<{ sparks: SparkConfig[] }> {
   return apiFetch("/api/sparks");
+}
+
+/** Latest metrics snapshot for one Spark (includes per-port LLM modelId). */
+export function fetchSparkMetrics(id: string): Promise<{
+  metrics?: { llm?: LlmMetrics[] };
+}> {
+  return apiFetch(`/api/sparks/${id}/metrics`);
 }
 
 export function addSpark(config: SparkConfig): Promise<{ success: boolean; spark: SparkConfig }> {

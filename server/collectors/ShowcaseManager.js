@@ -283,6 +283,7 @@ export class ShowcaseManager {
       status: session.status,
       rev: session.rev,
       port: session.port,
+      modelId: session.modelId,
       startedAt: session.startedAt,
       serverGenerationTps: session.serverGenerationTps,
       serverGenerationTpsMax: session.serverGenerationTpsMax,

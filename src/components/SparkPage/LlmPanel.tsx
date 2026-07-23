@@ -534,7 +534,10 @@ export function LlmPanel({ llm, sparkId, llmPort, onRemovePort, className }: Llm
             <button
               type="button"
               onClick={() => {
-                const q = llmPort ? `?port=${encodeURIComponent(String(llmPort))}` : "";
+                const params = new URLSearchParams();
+                if (llmPort) params.set("port", String(llmPort));
+                if (llm?.modelId) params.set("model", llm.modelId);
+                const q = params.toString() ? `?${params.toString()}` : "";
                 window.open(
                   `/showcase/${encodeURIComponent(sparkId)}${q}`,
                   "_blank",
