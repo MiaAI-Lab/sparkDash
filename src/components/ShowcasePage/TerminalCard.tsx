@@ -62,7 +62,7 @@ export function TerminalCard({
         </span>
         <span className={`showcase-term__status ${statusClass(status)}`}>{status}</span>
         <span className="showcase-term__tps font-tabular">
-          {liveTokPerSec > 0 ? `${liveTokPerSec.toFixed(0)}/s` : "—"}
+          {liveTokPerSec > 0 ? `${liveTokPerSec.toFixed(0)} tok/s` : "—"}
         </span>
         {onCopy && (
           <button

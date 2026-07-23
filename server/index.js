@@ -714,6 +714,7 @@ app.post("/api/sparks/:id/llm/showcase", (req, res) => {
       port,
       modelId,
       maxTokens: req.body?.maxTokens,
+      thinking: req.body?.thinking,
       prompts: req.body?.prompts,
     });
     res.status(202).json(result);

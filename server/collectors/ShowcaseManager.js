@@ -98,6 +98,7 @@ export class ShowcaseManager {
    *   port: number,
    *   modelId?: string | null,
    *   maxTokens?: number,
+   *   thinking?: boolean,
    *   prompts: string[],
    * }} opts
    */
@@ -108,6 +109,7 @@ export class ShowcaseManager {
       port,
       modelId = null,
       maxTokens: rawMax,
+      thinking: rawThinking,
       prompts: rawPrompts,
     } = opts;
 
@@ -149,6 +151,8 @@ export class ShowcaseManager {
       throw err;
     }
 
+    const thinking = rawThinking !== false;
+
     const sessionId = randomUUID();
     const abort = new AbortController();
     const cap = contentCap(maxTokens);
@@ -187,6 +191,7 @@ export class ShowcaseManager {
       port: p,
       modelId: modelId || null,
       maxTokens,
+      thinking,
       startedAt: now,
       completedAt: null,
       streams,
@@ -419,7 +424,7 @@ export class ShowcaseManager {
         stream: true,
         stream_options: { include_usage: true },
       };
-      applyThinkingFlags(body, session.modelId, true);
+      applyThinkingFlags(body, session.modelId, session.thinking !== false);
 
       stream.status = "streaming";
       stream._t0 = performance.now();

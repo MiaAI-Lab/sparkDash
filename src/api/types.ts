@@ -405,6 +405,8 @@ export interface ShowcaseStartRequest {
   port: number;
   modelId?: string | null;
   maxTokens?: number;
+  /** When true, enable model thinking/reasoning flags (UI defaults to off). */
+  thinking?: boolean;
   prompts: string[];
 }
 

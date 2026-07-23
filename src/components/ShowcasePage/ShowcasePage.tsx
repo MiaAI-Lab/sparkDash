@@ -185,6 +185,7 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
   const [terminalCount, setTerminalCount] = useState(4);
   const [port, setPort] = useState(8888);
   const [maxTokens, setMaxTokens] = useState(DEFAULT_MAX_TOKENS);
+  const [thinking, setThinking] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
   const [barVisible, setBarVisible] = useState(true);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -453,6 +454,7 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
       const started = await startShowcase(sparkId, {
         port,
         maxTokens,
+        thinking,
         prompts: trimmed,
       });
       sessionIdRef.current = started.sessionId;
@@ -469,7 +471,7 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
     } finally {
       setStarting(false);
     }
-  }, [canRun, prompts, sparkId, port, maxTokens, pollOnce, schedulePoll]);
+  }, [canRun, prompts, sparkId, port, maxTokens, thinking, pollOnce, schedulePoll]);
 
   useEffect(() => {
     const cancelBeacon = () => {
@@ -643,6 +645,20 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
                   onChange={(e) => setMaxTokens(Number(e.target.value) || DEFAULT_MAX_TOKENS)}
                 />
               </label>
+              <div className="showcase-field">
+                <span className="showcase-field__label showcase-field__label--spacer" aria-hidden="true">
+                  &nbsp;
+                </span>
+                <label className="showcase-check" title="Enable model thinking / reasoning tokens">
+                  <input
+                    type="checkbox"
+                    checked={thinking}
+                    disabled={controlsLocked}
+                    onChange={(e) => setThinking(e.target.checked)}
+                  />
+                  <span>Thinking</span>
+                </label>
+              </div>
             </fieldset>
             <div className="showcase-field">
               <span className="showcase-field__label showcase-field__label--spacer" aria-hidden="true">
