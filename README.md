@@ -15,6 +15,12 @@ sparkDash is a real-time web dashboard for one or more **NVIDIA DGX Spark (GB10)
 
 <img src="./assets/screenshot.jpg" alt="sparkDash Overview page with multiple DGX Spark units, GPU metrics, and LLM status">
 
+### LLM Prompt Showcase
+
+<video src="./assets/llm-showcase.mp4" controls muted playsinline width="100%">
+  <a href="./assets/llm-showcase.mp4">Watch the LLM Prompt Showcase demo (MP4)</a>
+</video>
+
 ---
 
 ## Table of contents
