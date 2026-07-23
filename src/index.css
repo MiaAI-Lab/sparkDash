@@ -1973,6 +1973,33 @@ input[type="checkbox"] {
   gap: var(--density-page-gap, 10px);
   align-content: stretch;
 }
+
+/* Mobile / narrow: scroll the page; give each terminal a readable height */
+@media (max-width: 899px) {
+  .showcase-page {
+    height: auto;
+    max-height: none;
+    min-height: 100vh;
+    min-height: 100dvh;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+  .showcase-grid {
+    flex: 0 0 auto;
+    min-height: 0;
+    overflow: visible;
+    grid-auto-rows: auto;
+    align-content: start;
+  }
+  .showcase-term {
+    height: auto;
+    min-height: 11.5rem;
+  }
+  .showcase-term__body {
+    min-height: 7.5rem;
+    max-height: 40vh;
+  }
+}
 @media (min-width: 640px) {
   .showcase-grid {
     --_vp-max-cols: 2;
