@@ -7,6 +7,13 @@ Format: version sections are listed newest first.
 
 ---
 
+## [1.3.1] — 2026-07-24
+
+### Fixed
+- **LLM probe `/slots` 404 spam** — once a backend is known to be vLLM or SGLang, skip the llama.cpp `/slots` re-probe on each detect cycle (still probes on first contact / unknown / llama.cpp). Thanks [@kesslerio](https://github.com/kesslerio) ([#16](https://github.com/MiaAI-Lab/sparkDash/pull/16), fixes [#15](https://github.com/MiaAI-Lab/sparkDash/issues/15))
+
+---
+
 ## [1.3.0] — 2026-07-23
 
 Major feature release.
