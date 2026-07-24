@@ -142,18 +142,25 @@ export class LlmProbe {
 
   // ─── Server type detection ───────────────────────────────
   async _detectServerType() {
-    const slotUrl = `${this.baseUrl}/slots`;
-    try {
-      const slotRes = await this._fetch(slotUrl);
-      if (slotRes.ok) {
-        const slots = await slotRes.json();
-        if (Array.isArray(slots)) {
-          this.serverIsOpenAI = false;
-          this.backendType = "llama.cpp";
-          return;
+    // Skip the llama.cpp /slots probe once we've positively identified an
+    // OpenAI-compatible backend. vLLM and sglang have no /slots endpoint, so
+    // re-probing it on every re-detect cycle just spams 404s in the backend's
+    // access log (#15). Still probe /slots on first contact, when the type is
+    // unknown, or when the backend was previously llama.cpp.
+    if (this.backendType !== "vllm" && this.backendType !== "sglang") {
+      const slotUrl = `${this.baseUrl}/slots`;
+      try {
+        const slotRes = await this._fetch(slotUrl);
+        if (slotRes.ok) {
+          const slots = await slotRes.json();
+          if (Array.isArray(slots)) {
+            this.serverIsOpenAI = false;
+            this.backendType = "llama.cpp";
+            return;
+          }
         }
-      }
-    } catch {}
+      } catch {}
+    }
 
     // Try OpenAI-compatible
     try {
