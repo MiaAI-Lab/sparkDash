@@ -29,6 +29,28 @@ export function isValidHost(host) {
 }
 
 /**
+ * Classify a probe target for security-posture hints.
+ * Uses the configured host only — not the process bind address.
+ * Hostnames (except localhost) are "unknown" (no DNS lookup).
+ *
+ * @returns {"local" | "lan" | "public" | "unknown"}
+ */
+export function classifyHostScope(host) {
+  if (typeof host !== "string" || !host.trim()) return "unknown";
+  const h = host.trim().toLowerCase();
+  if (h === "localhost" || h === "::1") return "local";
+  if (!isValidIPv4(h)) return "unknown";
+  const [a, b] = h.split(".").map(Number);
+  if (a === 127) return "local";
+  if (a === 10) return "lan";
+  if (a === 172 && b >= 16 && b <= 31) return "lan";
+  if (a === 192 && b === 168) return "lan";
+  if (a === 169 && b === 254) return "lan";
+  if (a === 0 || a >= 224) return "unknown";
+  return "public";
+}
+
+/**
  * Block cloud metadata / link-local misuse. Allow private, loopback, and public
  * (remote Sparks may be anywhere on a managed network).
  */

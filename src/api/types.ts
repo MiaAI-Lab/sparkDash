@@ -190,7 +190,25 @@ export interface LlmMetrics {
   itlP95Seconds?: number | null;
   /** vLLM speculative/MTP acceptance rate (accepted/drafted, 0–1). null when unavailable. */
   mtpAcceptanceRate?: number | null;
+  /**
+   * Observational exposure hint from unauthenticated probe reachability +
+   * configured target host scope. null when auth status is unknown.
+   * Does not claim process bind address.
+   */
+  posture?: LlmPosture | null;
   error: string | null;
+}
+
+/** Security posture badge payload from LlmProbe. */
+export interface LlmPosture {
+  /** ok = green, warn = amber, danger = red */
+  level: "ok" | "warn" | "danger";
+  auth: "open" | "protected";
+  scope: "local" | "lan" | "public" | "unknown";
+  /** Short badge text */
+  label: string;
+  /** Tooltip / title detail */
+  detail: string;
 }
 
 // ─── Full metrics snapshot ────────────────────────────────

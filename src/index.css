@@ -729,6 +729,36 @@ input[type="checkbox"] {
   color: var(--color-accent);
 }
 
+/* Endpoint exposure / auth posture (#17) */
+.llm-posture {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: help;
+}
+.llm-posture__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.llm-posture--ok {
+  background: color-mix(in srgb, var(--color-success) 16%, transparent);
+  color: var(--color-success);
+}
+.llm-posture--warn {
+  background: color-mix(in srgb, var(--color-warning) 16%, transparent);
+  color: var(--color-warning);
+}
+.llm-posture--danger {
+  background: color-mix(in srgb, var(--color-danger) 16%, transparent);
+  color: var(--color-danger);
+}
+
 /* ─── Mobile spark menu dropdown ────────────────────────── */
 /* Wrapper needed for absolute positioning */
 .mobile-menu-wrapper {

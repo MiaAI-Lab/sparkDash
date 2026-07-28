@@ -52,6 +52,23 @@ function BackendBadge({ backend }: { backend: string | null }) {
   );
 }
 
+/** Exposure / auth posture from the unauthenticated probe (issue #17). */
+function PostureBadge({
+  posture,
+}: {
+  posture: NonNullable<LlmMetrics["posture"]>;
+}) {
+  return (
+    <span
+      className={`llm-posture llm-posture--${posture.level}`}
+      title={posture.detail}
+    >
+      <span className="llm-posture__dot" />
+      {posture.label}
+    </span>
+  );
+}
+
 /** Small (i) next to a metric label; one open tooltip at a time. */
 function MetricInfoTip({
   id,
@@ -284,9 +301,17 @@ export function LlmPanel({ llm, sparkId, llmPort, onRemovePort, className }: Llm
         </div>
       ) : !available ? (
         <div className="space-y-3">
-          <div className="flex items-center gap-2 py-1">
-            <span className="h-1.5 w-1.5 rounded-full bg-muted" />
-            <p className="text-xs text-muted">No model loaded on :{llmPort}</p>
+          <div className="flex flex-wrap items-center gap-2 py-1">
+            {llm?.posture ? (
+              <PostureBadge posture={llm.posture} />
+            ) : (
+              <span className="h-1.5 w-1.5 rounded-full bg-muted" />
+            )}
+            <p className="text-xs text-muted">
+              {llm?.posture?.auth === "protected"
+                ? `Auth required on :${llmPort}`
+                : `No model loaded on :${llmPort}`}
+            </p>
           </div>
           <div className="border-t border-border pt-3 space-y-2">
             <button
@@ -312,6 +337,7 @@ export function LlmPanel({ llm, sparkId, llmPort, onRemovePort, className }: Llm
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <BackendBadge backend={llm?.backend ?? null} />
+            {llm?.posture && <PostureBadge posture={llm.posture} />}
             {llm?.modelId && (
               <span
                 className="min-w-0 flex-1 truncate text-xs text-text"

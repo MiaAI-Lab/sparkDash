@@ -5,6 +5,7 @@
  * Ported from legacy `probeLlamaServerType` and `_getLlamaMetricsFor`.
  */
 import { LLM_PROBE_TIMEOUT_MS } from "../config.js";
+import { classifyHostScope } from "../validate.js";
 
 const FAIL_RESET_THRESHOLD = 3;
 const REDETECT_INTERVAL_MS = 60_000;
@@ -18,6 +19,8 @@ export class LlmProbe {
     // State
     this.backendType = null; // 'vllm' | 'llama.cpp' | 'sglang' | null
     this.serverIsOpenAI = null; // true = OpenAI-compatible
+    /** Whether /v1/models (or /slots) answered without credentials. null = unknown. */
+    this.authOpen = null;
     this.stepId = 0;
     this.modelId = null;
     this.modelPath = null;
@@ -118,6 +121,7 @@ export class LlmProbe {
   _resetDetection() {
     this.serverIsOpenAI = null;
     this.backendType = null;
+    this.authOpen = null;
     this.modelId = null;
     this.modelPath = null;
     this.generationTps = 0;
@@ -140,6 +144,19 @@ export class LlmProbe {
     this.lastTokenCounts = { input: 0, output: 0 };
   }
 
+  /** Note auth from an HTTP status on an unauthenticated probe request. */
+  _noteAuthStatus(status) {
+    if (status >= 200 && status < 300) {
+      this.authOpen = true;
+      return "ok";
+    }
+    if (status === 401 || status === 403) {
+      this.authOpen = false;
+      return "auth";
+    }
+    return "other";
+  }
+
   // ─── Server type detection ───────────────────────────────
   async _detectServerType() {
     // Skip the llama.cpp /slots probe once we've positively identified an
@@ -151,13 +168,19 @@ export class LlmProbe {
       const slotUrl = `${this.baseUrl}/slots`;
       try {
         const slotRes = await this._fetch(slotUrl);
-        if (slotRes.ok) {
+        const auth = this._noteAuthStatus(slotRes.status);
+        if (auth === "ok") {
           const slots = await slotRes.json();
           if (Array.isArray(slots)) {
             this.serverIsOpenAI = false;
             this.backendType = "llama.cpp";
             return;
           }
+        } else if (auth === "auth") {
+          // Authenticated llama.cpp — treat as protected OpenAI-style for posture
+          this.serverIsOpenAI = false;
+          this.backendType = "llama.cpp";
+          return;
         }
       } catch {}
     }
@@ -165,7 +188,8 @@ export class LlmProbe {
     // Try OpenAI-compatible
     try {
       const modelRes = await this._fetch(`${this.baseUrl}/v1/models`);
-      if (modelRes.ok) {
+      const auth = this._noteAuthStatus(modelRes.status);
+      if (auth === "ok" || auth === "auth") {
         this.serverIsOpenAI = true;
         this.backendType = "vllm";
         return;
@@ -182,11 +206,15 @@ export class LlmProbe {
     const dtSec = (now - this.lastProbeTime) / 1000;
     this.lastProbeTime = now;
 
-    // Model info from /v1/models — failure means server is down
+    // Model info from /v1/models — 401/403 means protected; other failure = down
     let modelsOk = false;
     try {
       const modelsRes = await this._fetch(`${this.baseUrl}/v1/models`);
-      if (modelsRes.ok) {
+      const auth = this._noteAuthStatus(modelsRes.status);
+      if (auth === "auth") {
+        return this._getSnapshot();
+      }
+      if (auth === "ok") {
         modelsOk = true;
         const modelsData = await modelsRes.json();
         const model = modelsData?.data?.[0];
@@ -306,7 +334,11 @@ export class LlmProbe {
     let slotsOk = false;
     try {
       const slotsRes = await this._fetch(`${this.baseUrl}/slots`);
-      if (slotsRes.ok) {
+      const auth = this._noteAuthStatus(slotsRes.status);
+      if (auth === "auth") {
+        return this._getSnapshot();
+      }
+      if (auth === "ok") {
         const slots = await slotsRes.json();
         if (Array.isArray(slots)) {
           slotsOk = true;
@@ -449,9 +481,52 @@ export class LlmProbe {
     return slot.n_prompt_tokens_processed || slot.n_prompt_tokens || 0;
   }
 
+  /**
+   * Observational exposure hint from probe target + unauthenticated reachability.
+   * Does not claim process bind address (0.0.0.0 vs interface).
+   */
+  _buildPosture() {
+    if (this.authOpen == null) return null;
+
+    const host = this.spark?.lanIp || "";
+    const scope = classifyHostScope(host);
+    const auth = this.authOpen ? "open" : "protected";
+
+    let level = "ok";
+    if (auth === "open") {
+      if (scope === "public") level = "danger";
+      else if (scope === "local") level = "ok";
+      else level = "warn"; // lan or unknown hostname
+    }
+
+    const scopeWords = {
+      local: "loopback",
+      lan: "LAN",
+      public: "public",
+      unknown: "unknown-host",
+    };
+    const shortScope = {
+      local: "Local",
+      lan: "LAN",
+      public: "Public",
+      unknown: "Host",
+    };
+    const label =
+      auth === "protected"
+        ? "Auth required"
+        : `Open · ${shortScope[scope]}`;
+    const detail =
+      auth === "protected"
+        ? `API key required · ${scopeWords[scope]} target (${host || "—"}). Based on the configured probe host, not the process bind address.`
+        : `Unauthenticated · ${scopeWords[scope]} target (${host || "—"}). Based on the configured probe host, not the process bind address.`;
+
+    return { level, auth, scope, label, detail };
+  }
+
   _getSnapshot() {
+    const metricsLive = this.serverIsOpenAI !== null && this.authOpen !== false;
     return {
-      available: this.serverIsOpenAI !== null,
+      available: metricsLive,
       backend: this.backendType,
       modelId: this.modelId || null,
       modelPath: this.modelPath || null,
@@ -471,6 +546,7 @@ export class LlmProbe {
       e2eP95Seconds: this.e2eP95Seconds,
       itlP95Seconds: this.itlP95Seconds,
       mtpAcceptanceRate: this.mtpAcceptanceRate,
+      posture: this._buildPosture(),
       error: this.error,
     };
   }
@@ -478,7 +554,7 @@ export class LlmProbe {
   _defaultLlm() {
     return {
       available: false,
-      backend: null,
+      backend: this.backendType,
       modelId: null,
       modelPath: null,
       contextLength: null,
@@ -497,6 +573,7 @@ export class LlmProbe {
       e2eP95Seconds: null,
       itlP95Seconds: null,
       mtpAcceptanceRate: null,
+      posture: this._buildPosture(),
       error: this.error,
     };
   }
