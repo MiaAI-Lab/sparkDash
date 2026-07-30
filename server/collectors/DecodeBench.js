@@ -65,7 +65,7 @@ const BENCH_PROMPTS = [
   "Write only valid HTML5 (no markdown fences). Create a multi-chapter tutorial with <h1>–<h3>, code samples in <pre>, and notes. Keep writing chapters.",
 ];
 
-const ALLOWED_CONCURRENCIES = new Set([1, 2, 3, 4, 6, 8, 16, 32]);
+const ALLOWED_CONCURRENCIES = new Set([1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 24, 32]);
 const DEFAULT_MAX_TOKENS = 500;
 const MIN_MAX_TOKENS = 64;
 const MAX_MAX_TOKENS = 2048;
@@ -530,7 +530,7 @@ export class DecodeBenchManager {
 
     const concurrencies = normalizeConcurrencies(rawConc);
     if (!concurrencies.length) {
-      const err = new Error("Select at least one concurrency level (1, 2, 3, 4, 6, 8, 16, or 32)");
+      const err = new Error("Select at least one concurrency level (1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 24, or 32)");
       err.status = 400;
       throw err;
     }

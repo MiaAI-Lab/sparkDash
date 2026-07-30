@@ -10,7 +10,7 @@ import {
 import type { DecodeBenchJob } from "../../api/types";
 import { useModalPresence } from "../../hooks/useModalPresence";
 
-const CONCURRENCY_OPTIONS = [1, 2, 3, 4, 6, 8, 16, 32] as const;
+const CONCURRENCY_OPTIONS = [1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 24, 32] as const;
 const DEFAULT_SELECTED = [1, 2];
 const DEFAULT_MAX_TOKENS = 500;
 
