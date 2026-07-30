@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { SparkSnapshot } from "../../api/types";
 import { resolveSparkRole } from "../../api/sparkRole";
 import { shutdownSpark, wakeSpark } from "../../api/client";
+import { ConfirmShutdownDialog } from "../ConfirmShutdownDialog";
 import { EditIcon, PowerOffIcon, PowerOnIcon } from "../ui/icons";
 
 interface SparkHeaderProps {
@@ -26,15 +27,9 @@ export function SparkHeader({ spark, onEdit }: SparkHeaderProps) {
   const online = spark.online;
   const [powerLoading, setPowerLoading] = useState(false);
   const [powerMsg, setPowerMsg] = useState<{ text: string; tone: "ok" | "err" } | null>(null);
+  const [shutdownOpen, setShutdownOpen] = useState(false);
 
   async function handleShutdown() {
-    if (
-      !confirm(
-        `Gracefully shut down ${spark.name}? This will stop all containers and power off the node.`
-      )
-    ) {
-      return;
-    }
     setPowerLoading(true);
     setPowerMsg(null);
     try {
@@ -138,10 +133,10 @@ export function SparkHeader({ spark, onEdit }: SparkHeaderProps) {
         {online ? (
           <button
             type="button"
-            onClick={() => void handleShutdown()}
+            onClick={() => setShutdownOpen(true)}
             disabled={powerLoading}
             title="Graceful shutdown (requires /usr/local/bin/spark-shutdown on the host)"
-            className="flex items-center gap-1.5 rounded-md border border-border bg-surface-elevated px-3 py-1.5 text-[11px] text-muted hover:bg-danger/20 hover:text-danger transition-colors disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-md border border-border bg-surface-elevated px-3 py-1.5 text-[11px] text-muted transition-colors hover:bg-danger/20 hover:text-danger disabled:opacity-50"
           >
             <PowerOffIcon className="h-3 w-3" />
             Shutdown
@@ -169,6 +164,15 @@ export function SparkHeader({ spark, onEdit }: SparkHeaderProps) {
           </button>
         )}
       </div>
+
+      <ConfirmShutdownDialog
+        open={shutdownOpen}
+        onClose={() => setShutdownOpen(false)}
+        onConfirm={handleShutdown}
+        title={`Shut down ${spark.name}`}
+        description={`Gracefully shut down ${spark.name}? This will stop all containers and power off the node.`}
+        confirmLabel="Shut down"
+      />
     </div>
   );
 }

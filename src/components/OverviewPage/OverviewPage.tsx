@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { SparkSnapshot } from "../../api/types";
 import { resolveSparkRole } from "../../api/sparkRole";
 import { shutdownAllSparks, wakeAllSparks } from "../../api/client";
+import { ConfirmShutdownDialog } from "../ConfirmShutdownDialog";
 import { MetricBar } from "../ui/MetricBar";
 import { ActivityIcon, PowerOffIcon, PowerOnIcon } from "../ui/icons";
 
@@ -272,13 +273,12 @@ export function OverviewPage({ sparks, hideOffline = false, temperatureUnit = "c
   const visibleSparks = hideOffline ? sparks.filter((s) => s.online) : sparks;
   const [batchLoading, setBatchLoading] = useState(false);
   const [batchMsg, setBatchMsg] = useState<{ text: string; tone: "ok" | "err" } | null>(null);
+  const [shutdownOpen, setShutdownOpen] = useState(false);
+
+  const onlineShutdownCount = sparks.filter((s) => s.online).length;
 
   async function handleShutdownAll() {
-    const onlineCount = sparks.filter((s) => s.online).length;
-    if (onlineCount === 0) return;
-    if (!confirm(`Gracefully shut down all ${onlineCount} online Spark(s)? Offline nodes will be skipped.`)) {
-      return;
-    }
+    if (onlineShutdownCount === 0) return;
     setBatchLoading(true);
     setBatchMsg(null);
     try {
@@ -376,10 +376,10 @@ export function OverviewPage({ sparks, hideOffline = false, temperatureUnit = "c
               </button>
               <button
                 type="button"
-                onClick={() => void handleShutdownAll()}
-                disabled={batchLoading || !sparks.some((s) => s.online)}
+                onClick={() => setShutdownOpen(true)}
+                disabled={batchLoading || onlineShutdownCount === 0}
                 title="Shut down all online Sparks"
-                className="flex items-center gap-1 rounded-md border border-border bg-surface-elevated px-2.5 py-1.5 text-[11px] text-muted hover:bg-danger/20 hover:text-danger transition-colors disabled:opacity-50"
+                className="flex items-center gap-1 rounded-md border border-border bg-surface-elevated px-2.5 py-1.5 text-[11px] text-muted transition-colors hover:bg-danger/20 hover:text-danger disabled:opacity-50"
               >
                 <PowerOffIcon className="h-3 w-3" />
                 Shutdown All
@@ -392,6 +392,14 @@ export function OverviewPage({ sparks, hideOffline = false, temperatureUnit = "c
           </span>
         </div>
       </div>
+      <ConfirmShutdownDialog
+        open={shutdownOpen}
+        onClose={() => setShutdownOpen(false)}
+        onConfirm={handleShutdownAll}
+        title="Shutdown All"
+        description={`Gracefully shut down all ${onlineShutdownCount} online Spark${onlineShutdownCount === 1 ? "" : "s"}? Offline nodes will be skipped.`}
+        confirmLabel="Shut down all"
+      />
       <div className="overview-page grid sm:grid-cols-2 lg:grid-cols-3" style={{ gap: "var(--density-page-gap)" }}>
         {visibleSparks.map((spark) => (
           <SparkCard
