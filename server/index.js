@@ -48,6 +48,15 @@ function resolveLlmPort(sparkOrPort) {
   return LLM_PORT;
 }
 
+/** Optional Bearer token for a Spark LLM port (from encrypted secrets). */
+function resolveLlmApiKey(spark, port) {
+  const keys = spark?.llmApiKeys;
+  if (!keys || typeof keys !== "object") return null;
+  const raw = keys[String(port)] ?? keys[port];
+  const key = raw != null ? String(raw).trim() : "";
+  return key || null;
+}
+
 // Rate-limit ephemeral + registered connectivity tests (per client IP)
 const allowTest = createRateLimiter(20, 60_000);
 
@@ -499,13 +508,54 @@ app.delete("/api/sparks/:id/llm-ports/:port", (req, res) => {
     }
 
     const updated = registry.updateSpark(req.params.id, { llmPorts: newPorts });
+    registry.clearLlmApiKey(req.params.id, port);
+    const withSecrets = registry.getSpark(req.params.id);
     const monitor = monitors.get(req.params.id);
     if (monitor) {
-      monitor.updateConfig(updated);
+      monitor.updateConfig(withSecrets);
     } else {
-      startMonitor(updated);
+      startMonitor(withSecrets);
     }
-    res.json({ success: true, llmPorts: updated.llmPorts });
+    res.json({
+      success: true,
+      llmPorts: updated.llmPorts,
+      llmApiKeyPorts: registry.llmApiKeyPorts(req.params.id),
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Set / clear optional LLM API key for one port (encrypted secrets store)
+app.put("/api/sparks/:id/llm-ports/:port/api-key", (req, res) => {
+  try {
+    const spark = registry.getSpark(req.params.id);
+    if (!spark) return res.status(404).json({ error: "Spark not found" });
+
+    const port = parseInt(req.params.port, 10);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      return res.status(400).json({ error: "port must be an integer 1–65535" });
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(req.body || {}, "apiKey")) {
+      return res.status(400).json({ error: "apiKey is required (use \"\" to clear)" });
+    }
+
+    const apiKey = req.body.apiKey == null ? "" : String(req.body.apiKey);
+    const publicSpark = registry.setLlmApiKey(req.params.id, port, apiKey);
+    const withSecrets = registry.getSpark(req.params.id);
+    const monitor = monitors.get(req.params.id);
+    if (monitor) {
+      monitor.updateConfig(withSecrets);
+    } else {
+      startMonitor(withSecrets);
+    }
+    res.json({
+      success: true,
+      spark: publicSpark,
+      hasApiKey: registry.hasLlmApiKey(req.params.id, port),
+      llmApiKeyPorts: registry.llmApiKeyPorts(req.params.id),
+    });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -563,6 +613,7 @@ app.post("/api/sparks/:id/llm/bench", (req, res) => {
       concurrencies: req.body?.concurrencies,
       maxTokens: req.body?.maxTokens,
       debug: benchDebug,
+      apiKey: resolveLlmApiKey(spark, port),
       sampleHardware:
         benchDebug && monitor
           ? async () => {
@@ -720,6 +771,7 @@ app.post("/api/sparks/:id/llm/showcase", (req, res) => {
       thinking: req.body?.thinking,
       promptType: req.body?.promptType,
       prompts: req.body?.prompts,
+      apiKey: resolveLlmApiKey(spark, port),
     });
     res.status(202).json(result);
   } catch (err) {

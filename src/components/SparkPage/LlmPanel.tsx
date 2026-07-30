@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { LlmMetrics } from "../../api/types";
-import { updateLlmPort } from "../../api/client";
+import { setLlmApiKey, updateLlmPort } from "../../api/client";
 import { Sparkline } from "../ui/Sparkline";
 import { Panel } from "../ui/Panel";
 import { BotIcon, GearIcon, InfoIcon } from "../ui/icons";
@@ -11,6 +11,7 @@ interface LlmPanelProps {
   llm: LlmMetrics | null;
   sparkId: string;
   llmPort: number;
+  hasApiKey?: boolean;
   onRemovePort?: (port: number) => void;
   className?: string;
 }
@@ -142,11 +143,20 @@ function MetricInfoTip({
   );
 }
 
-export function LlmPanel({ llm, sparkId, llmPort, onRemovePort, className }: LlmPanelProps) {
+export function LlmPanel({
+  llm,
+  sparkId,
+  llmPort,
+  hasApiKey = false,
+  onRemovePort,
+  className,
+}: LlmPanelProps) {
   // Tail keyed by port so multi-port LLM sparklines stay distinct (8b).
   const genHistory = useMetricsHistoryTail(sparkId, `llm:${llmPort}.tps`);
   const [showSettings, setShowSettings] = useState(false);
   const [portDraft, setPortDraft] = useState(String(llmPort));
+  const [apiKeyDraft, setApiKeyDraft] = useState("");
+  const [clearApiKey, setClearApiKey] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [engineInfoOpen, setEngineInfoOpen] = useState(false);
@@ -172,7 +182,11 @@ export function LlmPanel({ llm, sparkId, llmPort, onRemovePort, className }: Llm
 
   // Keep draft in sync when server pushes a different port (other tab / reload)
   useEffect(() => {
-    if (!showSettings) setPortDraft(String(llmPort));
+    if (!showSettings) {
+      setPortDraft(String(llmPort));
+      setApiKeyDraft("");
+      setClearApiKey(false);
+    }
   }, [llmPort, showSettings]);
 
   const parsedPort = (() => {
@@ -183,24 +197,34 @@ export function LlmPanel({ llm, sparkId, llmPort, onRemovePort, className }: Llm
 
   const portDirty = parsedPort !== null && parsedPort !== llmPort;
   const portInvalid = portDraft.trim() !== "" && parsedPort === null;
+  const apiKeyDirty = apiKeyDraft.trim() !== "" || clearApiKey;
+  const settingsDirty = portDirty || apiKeyDirty;
 
-  const handleSavePort = async () => {
+  const handleSaveSettings = async () => {
     if (parsedPort === null) {
       setSaveError("Port must be an integer 1–65535");
       return;
     }
-    if (parsedPort === llmPort) {
+    if (!settingsDirty) {
       setShowSettings(false);
       return;
     }
     setSaving(true);
     setSaveError(null);
     try {
-      await updateLlmPort(sparkId, parsedPort);
-      // Port change will sync via WS broadcast — no local callback needed
+      if (portDirty) {
+        await updateLlmPort(sparkId, parsedPort);
+      }
+      if (clearApiKey) {
+        await setLlmApiKey(sparkId, parsedPort, "");
+      } else if (apiKeyDraft.trim() !== "") {
+        await setLlmApiKey(sparkId, parsedPort, apiKeyDraft.trim());
+      }
+      setApiKeyDraft("");
+      setClearApiKey(false);
       setShowSettings(false);
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Failed to save port");
+      setSaveError(err instanceof Error ? err.message : "Failed to save LLM settings");
     } finally {
       setSaving(false);
     }
@@ -231,6 +255,8 @@ export function LlmPanel({ llm, sparkId, llmPort, onRemovePort, className }: Llm
             onClick={() => {
               if (showSettings) {
                 setPortDraft(String(llmPort));
+                setApiKeyDraft("");
+                setClearApiKey(false);
                 setSaveError(null);
               }
               setShowSettings(!showSettings);
@@ -249,7 +275,7 @@ export function LlmPanel({ llm, sparkId, llmPort, onRemovePort, className }: Llm
       {showSettings ? (
         <div className="space-y-3">
           <p className="text-[10px] text-muted">
-            HTTP port of the LLM server on this Spark (vLLM / llama.cpp / sglang).
+            HTTP port of the LLM server on this Spark (vLLM / llama.cpp / sglang / OpenAI-compatible gateway).
           </p>
           <label className="block space-y-1">
             <span className="text-xs text-muted">Port</span>
@@ -266,12 +292,50 @@ export function LlmPanel({ llm, sparkId, llmPort, onRemovePort, className }: Llm
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
-                  void handleSavePort();
+                  void handleSaveSettings();
                 }
               }}
               className="w-full rounded-md border border-border bg-surface-elevated px-3 py-1.5 font-tabular text-sm text-text outline-none focus:border-accent"
             />
           </label>
+          <label className="block space-y-1">
+            <span className="text-xs text-muted">API key (optional)</span>
+            <input
+              type="password"
+              autoComplete="new-password"
+              spellCheck={false}
+              value={apiKeyDraft}
+              disabled={clearApiKey}
+              placeholder={hasApiKey && !clearApiKey ? "•••••••• (saved — leave blank to keep)" : "Bearer token if required"}
+              onChange={(e) => {
+                setApiKeyDraft(e.target.value);
+                setClearApiKey(false);
+                setSaveError(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void handleSaveSettings();
+                }
+              }}
+              className="w-full rounded-md border border-border bg-surface-elevated px-3 py-1.5 font-mono text-sm text-text outline-none focus:border-accent disabled:opacity-50"
+            />
+          </label>
+          {hasApiKey && (
+            <label className="flex cursor-pointer items-center gap-2 text-[11px] text-muted">
+              <input
+                type="checkbox"
+                checked={clearApiKey}
+                onChange={(e) => {
+                  setClearApiKey(e.target.checked);
+                  if (e.target.checked) setApiKeyDraft("");
+                  setSaveError(null);
+                }}
+                className="h-3.5 w-3.5 accent-[var(--color-accent)]"
+              />
+              Clear saved API key
+            </label>
+          )}
           {portInvalid && (
             <p className="text-[10px] text-danger">Enter an integer between 1 and 65535</p>
           )}
@@ -281,6 +345,8 @@ export function LlmPanel({ llm, sparkId, llmPort, onRemovePort, className }: Llm
               type="button"
               onClick={() => {
                 setPortDraft(String(llmPort));
+                setApiKeyDraft("");
+                setClearApiKey(false);
                 setSaveError(null);
                 setShowSettings(false);
               }}
@@ -291,8 +357,8 @@ export function LlmPanel({ llm, sparkId, llmPort, onRemovePort, className }: Llm
             </button>
             <button
               type="button"
-              onClick={() => void handleSavePort()}
-              disabled={saving || portInvalid || (!portDirty && parsedPort === llmPort)}
+              onClick={() => void handleSaveSettings()}
+              disabled={saving || portInvalid || !settingsDirty}
               className="rounded bg-accent px-2 py-1 text-[10px] font-medium text-white hover:bg-accent-hover disabled:opacity-50"
             >
               {saving ? "Saving…" : "Save"}

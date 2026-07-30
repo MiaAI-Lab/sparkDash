@@ -7,6 +7,29 @@ Format: version sections are listed newest first.
 
 ---
 
+## [1.4.4] — 2026-07-30
+
+### Added
+- **Optional per-port LLM API key** — set a Bearer token in LLM panel Settings for OpenAI-compatible gateways (e.g. LiteLLM); stored encrypted like SSH passwords; used by probe, Showcase, and Decode bench ([#21](https://github.com/MiaAI-Lab/sparkDash/issues/21))
+
+### Changed
+- **Settings version label** — reads `package.json` version instead of a hardcoded string
+
+---
+
+## [1.4.3] — 2026-07-30
+
+### Added
+- **Shutdown confirmation dialog** — Shutdown / Shutdown All open a danger-zone modal requiring a checkbox and typing `poweroff` before powering off ([#22](https://github.com/MiaAI-Lab/sparkDash/issues/22), [#24](https://github.com/MiaAI-Lab/sparkDash/pull/24))
+
+### Changed
+- **Decode benchmark results** — dropped Server column; show Aggregate + per-stream tok/s
+
+### Fixed
+- **Storage tile height jump** — always show disk ↑/↓ I/O rates (`0 B/s` when idle) so multi-disk panels keep a stable height ([#20](https://github.com/MiaAI-Lab/sparkDash/issues/20), [#23](https://github.com/MiaAI-Lab/sparkDash/pull/23))
+
+---
+
 ## [1.4.0] — 2026-07-29
 
 ### Added

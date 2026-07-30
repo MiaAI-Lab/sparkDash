@@ -29,6 +29,11 @@ export interface SparkConfig {
   /** HTTP ports for LLM servers on this Spark (default [8888]) */
   llmPorts?: number[];
   /**
+   * Ports that have an encrypted LLM API key stored server-side.
+   * The key itself is never returned by the API.
+   */
+  llmApiKeyPorts?: number[];
+  /**
    * Cluster role for overview + worker behavior.
    * - head / standalone: local LLM API probed
    * - worker: no local API (LLM card hidden, ports not probed)
@@ -203,7 +208,7 @@ export interface LlmMetrics {
 export interface LlmPosture {
   /** ok = green, warn = amber, danger = red */
   level: "ok" | "warn" | "danger";
-  auth: "open" | "protected";
+  auth: "open" | "protected" | "keyed";
   scope: "local" | "lan" | "public" | "unknown";
   /** Short badge text */
   label: string;
@@ -247,6 +252,8 @@ export interface SparkSnapshot {
   llmPort: number;
   /** All LLM server ports configured for this Spark */
   llmPorts: number[];
+  /** Ports with a stored LLM API key (key itself never exposed) */
+  llmApiKeyPorts?: number[];
   hardware: HardwareInfo;
   metrics: SparkMetrics;
 }

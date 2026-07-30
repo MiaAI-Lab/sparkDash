@@ -324,6 +324,7 @@ export class ShowcaseManager {
    *   thinking?: boolean,
    *   promptType?: string | null,
    *   prompts: string[],
+   *   apiKey?: string | null,
    * }} opts
    */
   start(opts) {
@@ -337,6 +338,7 @@ export class ShowcaseManager {
       thinking: rawThinking,
       promptType: rawPromptType,
       prompts: rawPrompts,
+      apiKey = null,
     } = opts;
 
     if (this.activeBySpark.has(sparkId)) {
@@ -449,6 +451,7 @@ export class ShowcaseManager {
       _lastTouchAt: now,
       _contentCap: cap,
       _lanIp: lanIp,
+      _apiKey: apiKey != null && String(apiKey).trim() ? String(apiKey).trim() : null,
       _sentContentLengths: /** @type {number[]} */ (prompts.map(() => 0)),
       _sentReasoningLengths: /** @type {number[]} */ (prompts.map(() => 0)),
     };
@@ -681,6 +684,7 @@ export class ShowcaseManager {
       ratePollAbort.signal,
       400,
       {
+        apiKey: session._apiKey,
         onSample: (info) => {
           if (session.status !== "running") return;
           session.serverGenerationTps = info.median;
@@ -727,6 +731,7 @@ export class ShowcaseManager {
       return runStreamingRequest(url, body, ctrl.signal, {
         collectContent: true,
         retryOnThinking400: true,
+        apiKey: session._apiKey,
         onDelta: (info) => {
           if (session.status !== "running") return;
           this._appendParts(session, stream, {
@@ -752,6 +757,7 @@ export class ShowcaseManager {
               {
                 collectContent: true,
                 retryOnThinking400: true,
+                apiKey: session._apiKey,
                 onDelta: (info) => {
                   if (session.status !== "running") return;
                   this._appendParts(session, stream, {

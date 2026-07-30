@@ -46,17 +46,16 @@ sparkDash is a real-time web dashboard for one or more **NVIDIA DGX Spark (GB10)
 
 ## Latest version changelog
 
-### Version 1.4.0 — Free storage, cleaner disk rows
-- **Free space** — each disk shows available GB right next to used/total; I/O speeds get their own row below
+### Version 1.4.4 — Optional LLM API key
+- **Per-port API key** — optional Bearer token in LLM Settings for authenticated OpenAI-compatible gateways; encrypted at rest ([#21](https://github.com/MiaAI-Lab/sparkDash/issues/21))
+- **Settings version** — footer shows the real `package.json` version
 
 Full history: [CHANGELOG.md](./CHANGELOG.md)
 
-### Version 1.3.9 — Showcase prompt types, full-token fills & live tok/s
-- **Prompt types** — Text / Structural / Mixed catalogs for apples-to-apples tok/s scenarios
-- **Fill max tokens** — showcase streams force full-length generations (`min_tokens` + `ignore_eos`)
-- **Accurate live tok/s** — estimate from text while streaming (SSE chunks were under-counting)
-- **Security posture badge** — open / LAN / public exposure hint on each LLM panel ([#17](https://github.com/MiaAI-Lab/sparkDash/issues/17))
-- **`BIND_HOST`** — configurable HTTP/WebSocket listen address ([#18](https://github.com/MiaAI-Lab/sparkDash/pull/18))
+### Version 1.4.3 — Shutdown confirm, stable storage I/O, decode bench cleanup
+- **Shutdown confirmation** — danger-zone dialog with checkbox + type `poweroff` before Shutdown / Shutdown All ([#22](https://github.com/MiaAI-Lab/sparkDash/issues/22))
+- **Stable Storage height** — always show disk ↑/↓ rates (`0 B/s` when idle) ([#20](https://github.com/MiaAI-Lab/sparkDash/issues/20))
+- **Decode benchmark** — Aggregate + per-stream tok/s (Server column removed)
 
 Full history: [CHANGELOG.md](./CHANGELOG.md)
 

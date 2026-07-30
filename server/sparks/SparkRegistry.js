@@ -8,10 +8,10 @@ import { isValidSparkId } from "../validate.js";
  * SparkRegistry — loads, persists, and emits change events for the Spark list.
  * Single source of truth for `sparks.json`.
  *
- * SSH passwords:
+ * SSH passwords / LLM API keys:
  *  - Never written to sparks.json
- *  - Never returned by public API helpers (hasPassword only)
- *  - Held in memory for SSH collectors
+ *  - Never returned by public API helpers (hasPassword / llmApiKeyPorts only)
+ *  - Held in memory for SSH collectors / LLM probes
  *  - Encrypted at rest in config/sparks-secrets.json (survives Docker restart)
  */
 export class SparkRegistry {
@@ -19,13 +19,15 @@ export class SparkRegistry {
     this._sparks = [];
     /** @type {Map<string, string>} sparkId -> password */
     this._passwords = new Map();
+    /** @type {Map<string, Record<string, string>>} sparkId -> { portStr -> apiKey } */
+    this._llmApiKeys = new Map();
     this._listeners = new Set();
     this._load();
   }
 
   // ─── Accessors ──────────────────────────────────────────
   get sparks() {
-    return this._sparks.map((s) => this._withPassword(s));
+    return this._sparks.map((s) => this._withSecrets(s));
   }
 
   /** Public-safe list (no secrets). */
@@ -37,10 +39,10 @@ export class SparkRegistry {
     return this._sparks.map((s) => s.id);
   }
 
-  /** Find a Spark by ID (includes in-memory password if present). */
+  /** Find a Spark by ID (includes in-memory secrets if present). */
   getSpark(id) {
     const s = this._sparks.find((s) => s.id === id) || null;
-    return s ? this._withPassword(s) : null;
+    return s ? this._withSecrets(s) : null;
   }
 
   /** Redact secrets for API responses. */
@@ -52,7 +54,12 @@ export class SparkRegistry {
     if (ssh.auth === "pass" || this._passwords.has(spark.id)) {
       ssh.hasPassword = this._passwords.has(spark.id);
     }
-    return { ...spark, ssh };
+    const { llmApiKeys: _drop, ...rest } = spark;
+    return {
+      ...rest,
+      ssh,
+      llmApiKeyPorts: this.llmApiKeyPorts(spark.id),
+    };
   }
 
   // ─── CRUD ───────────────────────────────────────────────
@@ -69,8 +76,8 @@ export class SparkRegistry {
     this._storePassword(spark.id, config?.ssh?.password);
     this._sparks.push(spark);
     this._save();
-    this._emit("add", this._withPassword(spark));
-    return this._withPassword(spark);
+    this._emit("add", this._withSecrets(spark));
+    return this._withSecrets(spark);
   }
 
   /**
@@ -91,7 +98,7 @@ export class SparkRegistry {
     if (prev.detectedMacAddress === clean) return null;
     this._sparks[idx] = this._normalizeConfig({ ...prev, detectedMacAddress: clean });
     this._save();
-    this._emit("update", this._withPassword(this._sparks[idx]));
+    this._emit("update", this._withSecrets(this._sparks[idx]));
     return this.toPublic(this._sparks[idx]);
   }
 
@@ -143,8 +150,8 @@ export class SparkRegistry {
     };
     this._sparks[idx] = this._normalizeConfig(updated);
     this._save();
-    this._emit("update", this._withPassword(this._sparks[idx]));
-    return this._withPassword(this._sparks[idx]);
+    this._emit("update", this._withSecrets(this._sparks[idx]));
+    return this._withSecrets(this._sparks[idx]);
   }
 
   /** Remove a Spark by ID. Returns removed Spark or null. */
@@ -152,10 +159,16 @@ export class SparkRegistry {
     const idx = this._sparks.findIndex((s) => s.id === id);
     if (idx === -1) return null;
     const removed = this._sparks.splice(idx, 1)[0];
+    let secretsChanged = false;
     if (this._passwords.has(id)) {
       this._passwords.delete(id);
-      this._persistSecrets();
+      secretsChanged = true;
     }
+    if (this._llmApiKeys.has(id)) {
+      this._llmApiKeys.delete(id);
+      secretsChanged = true;
+    }
+    if (secretsChanged) this._persistSecrets();
     this._save();
     this._emit("remove", removed);
     return this.toPublic(removed);
@@ -197,10 +210,13 @@ export class SparkRegistry {
   _load() {
     // Load encrypted secrets first (survives restart)
     try {
-      this._passwords = loadSecrets();
+      const loaded = loadSecrets();
+      this._passwords = loaded.passwords || new Map();
+      this._llmApiKeys = loaded.llmApiKeys || new Map();
     } catch (err) {
       console.error("[SparkRegistry] secrets load failed:", err.message);
       this._passwords = new Map();
+      this._llmApiKeys = new Map();
     }
 
     try {
@@ -238,12 +254,13 @@ export class SparkRegistry {
 
   _save() {
     try {
-      // Never write passwords to sparks.json
+      // Never write passwords / API keys to sparks.json
       const sparks = this._sparks.map((s) => {
         const ssh = { ...(s.ssh || {}) };
         delete ssh.password;
         delete ssh.hasPassword;
-        return { ...s, ssh };
+        const { llmApiKeys: _k, llmApiKeyPorts: _p, ...rest } = s;
+        return { ...rest, ssh };
       });
       const data = { sparks };
       // Atomic write (tmp + rename) — a SIGKILL/power loss mid-write must not
@@ -296,23 +313,90 @@ export class SparkRegistry {
     return this._passwords.has(id);
   }
 
+  /**
+   * Ports that have an LLM API key configured for this Spark.
+   * @param {string} id
+   * @returns {number[]}
+   */
+  llmApiKeyPorts(id) {
+    const ports = this._llmApiKeys.get(id);
+    if (!ports) return [];
+    return Object.keys(ports)
+      .map((p) => parseInt(p, 10))
+      .filter((n) => Number.isInteger(n) && n >= 1 && n <= 65535)
+      .sort((a, b) => a - b);
+  }
+
+  hasLlmApiKey(id, port) {
+    const ports = this._llmApiKeys.get(id);
+    if (!ports) return false;
+    const key = ports[String(port)];
+    return Boolean(key && String(key).trim());
+  }
+
+  /**
+   * Set / clear an LLM API key for one port.
+   * @param {string} id
+   * @param {number} port
+   * @param {string|null|undefined} apiKey  null/undefined = no-op; "" = clear
+   */
+  setLlmApiKey(id, port, apiKey) {
+    if (!this._sparks.find((s) => s.id === id)) throw new Error(`Spark ${id} not found`);
+    const p = Number(port);
+    if (!Number.isInteger(p) || p < 1 || p > 65535) {
+      throw new Error("port must be an integer 1–65535");
+    }
+    this._storeLlmApiKey(id, p, apiKey);
+    return this.toPublic(this.getSpark(id));
+  }
+
+  /**
+   * @param {string} id
+   * @param {number} port
+   * @param {string|null|undefined} apiKey
+   */
+  _storeLlmApiKey(id, port, apiKey) {
+    if (apiKey == null) return;
+    const portKey = String(port);
+    const existing = { ...(this._llmApiKeys.get(id) || {}) };
+    if (apiKey === "") {
+      if (!existing[portKey]) return;
+      delete existing[portKey];
+      if (Object.keys(existing).length === 0) this._llmApiKeys.delete(id);
+      else this._llmApiKeys.set(id, existing);
+      this._persistSecrets();
+      return;
+    }
+    existing[portKey] = String(apiKey).trim();
+    this._llmApiKeys.set(id, existing);
+    this._persistSecrets();
+  }
+
+  /** Drop API key for a port (e.g. when the port is removed). */
+  clearLlmApiKey(id, port) {
+    this._storeLlmApiKey(id, port, "");
+  }
+
   _persistSecrets() {
     try {
-      saveSecrets(this._passwords);
+      saveSecrets(this._passwords, this._llmApiKeys);
     } catch (err) {
       console.error("[SparkRegistry] Failed to persist secrets:", err.message);
       throw err; // surface to API so the UI can show it
     }
   }
 
-  _withPassword(spark) {
+  _withSecrets(spark) {
     if (!spark) return spark;
     const password = this._passwords.get(spark.id);
-    if (!password) return { ...spark, ssh: { ...spark.ssh } };
-    return {
-      ...spark,
-      ssh: { ...spark.ssh, password },
-    };
+    const llmApiKeys = this._llmApiKeys.get(spark.id);
+    const ssh = { ...(spark.ssh || {}) };
+    if (password) ssh.password = password;
+    const out = { ...spark, ssh };
+    if (llmApiKeys && Object.keys(llmApiKeys).length > 0) {
+      out.llmApiKeys = { ...llmApiKeys };
+    }
+    return out;
   }
 
   _normalizeConfig(config) {

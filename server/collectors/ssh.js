@@ -173,8 +173,18 @@ export async function llmTest(spark, port) {
         ? port
         : Number(spark?.llmPorts?.[0] || spark?.llmPort) || 8888;
     const url = `http://${host}:${resolvedPort}/v1/models`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
-    const data = await res.json();
+    /** @type {Record<string, string>} */
+    const headers = {};
+    const apiKey =
+      spark?.llmApiKeys?.[String(resolvedPort)] ||
+      spark?.llmApiKeys?.[resolvedPort] ||
+      null;
+    if (apiKey) headers.Authorization = `Bearer ${String(apiKey).trim()}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(3000), headers });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401 || res.status === 403) {
+      return { ok: false, message: "Auth required (set API key in LLM Settings)" };
+    }
     return { ok: res.ok, message: `Model: ${data?.data?.[0]?.id || "unknown"}` };
   } catch (err) {
     return { ok: false, message: err.message };

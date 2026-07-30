@@ -1,10 +1,19 @@
 /**
- * Encrypted SSH password store — survives process/Docker restarts.
+ * Encrypted secrets store — survives process/Docker restarts.
  *
- * Passwords are NEVER written to sparks.json and NEVER returned by the API.
+ * Secrets are NEVER written to sparks.json and NEVER returned by the API.
  * They live in:
- *   - memory (Map) for SSH collectors
+ *   - memory (Maps) for SSH collectors / LLM probes
  *   - config/sparks-secrets.json (AES-256-GCM ciphertext, volume-mounted)
+ *
+ * File shape (v2):
+ *   {
+ *     version: 2,
+ *     secrets: { [sparkId]: "<encrypted ssh password>" },
+ *     llmApiKeys: { [sparkId]: "<encrypted JSON { \"8000\": \"sk-…\" }>" }
+ *   }
+ *
+ * v1 files (secrets only) still load; rewritten as v2 on next save.
  *
  * Encryption key:
  *   - SPARKDASH_SECRETS_KEY env (passphrase or 64-char hex), or
@@ -56,7 +65,6 @@ function resolveKey() {
       _cachedKey = keyFromString(raw);
       return _cachedKey;
     } catch (err) {
-      // Do NOT generate a new key — that would make existing secrets unreadable
       throw new Error(
         `Cannot read secrets key at ${SECRETS_KEY_PATH}: ${err.message}. ` +
           `Fix permissions or set SPARKDASH_SECRETS_KEY.`
@@ -64,7 +72,6 @@ function resolveKey() {
     }
   }
 
-  // No key yet — only create one if there is no secrets file either
   if (fs.existsSync(SPARKS_SECRETS_PATH)) {
     throw new Error(
       `Encrypted secrets exist at ${SPARKS_SECRETS_PATH} but key file is missing (${SECRETS_KEY_PATH}). ` +
@@ -109,59 +116,111 @@ function decrypt(blobB64, key) {
 }
 
 /**
- * Load sparkId -> password map from disk.
- * @returns {Map<string, string>}
+ * @returns {{
+ *   passwords: Map<string, string>,
+ *   llmApiKeys: Map<string, Record<string, string>>,
+ * }}
  */
 export function loadSecrets() {
-  const map = new Map();
-  if (!fs.existsSync(SPARKS_SECRETS_PATH)) return map;
+  /** @type {Map<string, string>} */
+  const passwords = new Map();
+  /** @type {Map<string, Record<string, string>>} */
+  const llmApiKeys = new Map();
+
+  if (!fs.existsSync(SPARKS_SECRETS_PATH)) {
+    return { passwords, llmApiKeys };
+  }
 
   try {
     const key = resolveKey();
     const raw = fs.readFileSync(SPARKS_SECRETS_PATH, "utf8");
     const data = JSON.parse(raw);
     const entries = data?.secrets || {};
-    if (typeof entries !== "object" || entries === null) return map;
-
-    let failed = 0;
-    for (const [id, blob] of Object.entries(entries)) {
-      if (!id || typeof blob !== "string") continue;
-      try {
-        const pw = decrypt(blob, key);
-        if (pw) map.set(id, pw);
-      } catch {
-        failed += 1;
-        console.error(
-          `[secretsStore] Failed to decrypt password for ${id} (wrong/missing key?)`
+    if (typeof entries === "object" && entries !== null) {
+      let failed = 0;
+      for (const [id, blob] of Object.entries(entries)) {
+        if (!id || typeof blob !== "string") continue;
+        try {
+          const pw = decrypt(blob, key);
+          if (pw) passwords.set(id, pw);
+        } catch {
+          failed += 1;
+          console.error(
+            `[secretsStore] Failed to decrypt password for ${id} (wrong/missing key?)`
+          );
+        }
+      }
+      if (passwords.size > 0) {
+        console.log(`[secretsStore] Loaded ${passwords.size} SSH password(s) from encrypted store`);
+      }
+      if (failed > 0) {
+        console.warn(
+          `[secretsStore] ${failed} password(s) could not be decrypted — re-enter via Edit Spark`
         );
       }
     }
-    if (map.size > 0) {
-      console.log(`[secretsStore] Loaded ${map.size} SSH password(s) from encrypted store`);
-    }
-    if (failed > 0) {
-      console.warn(
-        `[secretsStore] ${failed} password(s) could not be decrypted — re-enter via Edit Spark`
-      );
+
+    const keyEntries = data?.llmApiKeys || {};
+    if (typeof keyEntries === "object" && keyEntries !== null) {
+      let failed = 0;
+      let portCount = 0;
+      for (const [id, blob] of Object.entries(keyEntries)) {
+        if (!id || typeof blob !== "string") continue;
+        try {
+          const json = decrypt(blob, key);
+          const parsed = JSON.parse(json);
+          if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) continue;
+          /** @type {Record<string, string>} */
+          const ports = {};
+          for (const [port, apiKey] of Object.entries(parsed)) {
+            if (!apiKey || typeof apiKey !== "string") continue;
+            ports[String(port)] = apiKey;
+            portCount += 1;
+          }
+          if (Object.keys(ports).length > 0) llmApiKeys.set(id, ports);
+        } catch {
+          failed += 1;
+          console.error(
+            `[secretsStore] Failed to decrypt LLM API keys for ${id} (wrong/missing key?)`
+          );
+        }
+      }
+      if (portCount > 0) {
+        console.log(`[secretsStore] Loaded ${portCount} LLM API key(s) from encrypted store`);
+      }
+      if (failed > 0) {
+        console.warn(
+          `[secretsStore] ${failed} LLM API key bundle(s) could not be decrypted — re-enter via LLM Settings`
+        );
+      }
     }
   } catch (err) {
     console.error(`[secretsStore] Failed to load secrets: ${err.message}`);
   }
-  return map;
+
+  return { passwords, llmApiKeys };
 }
 
 /**
- * Persist sparkId -> password map (encrypted). Empty map removes the file.
- * Throws on failure so callers can surface errors to the UI.
- *
- * Encrypted file mode is 0o644 so bind-mounted volumes stay usable across
- * root/non-root container users (contents are ciphertext, not plaintext).
+ * Persist SSH passwords + per-port LLM API keys (encrypted).
+ * Empty maps remove the file when both are empty.
  *
  * @param {Map<string, string>} passwords
+ * @param {Map<string, Record<string, string>>} [llmApiKeys]
  */
-export function saveSecrets(passwords) {
-  if (!passwords || passwords.size === 0) {
-    // Only delete if we can read the path; never "clear" on a failed load
+export function saveSecrets(passwords, llmApiKeys = new Map()) {
+  const hasPasswords = passwords && passwords.size > 0;
+  let hasKeys = false;
+  if (llmApiKeys) {
+    for (const ports of llmApiKeys.values()) {
+      if (ports && Object.keys(ports).length > 0) {
+        hasKeys = true;
+        break;
+      }
+    }
+  }
+
+  if (!hasPasswords && !hasKeys) {
     if (fs.existsSync(SPARKS_SECRETS_PATH)) {
       try {
         fs.accessSync(SPARKS_SECRETS_PATH, fs.constants.W_OK);
@@ -178,11 +237,32 @@ export function saveSecrets(passwords) {
 
   const key = resolveKey();
   const secrets = {};
-  for (const [id, pw] of passwords.entries()) {
-    if (pw) secrets[id] = encrypt(pw, key);
+  if (passwords) {
+    for (const [id, pw] of passwords.entries()) {
+      if (pw) secrets[id] = encrypt(pw, key);
+    }
   }
 
-  const payload = JSON.stringify({ version: 1, secrets }, null, 2) + "\n";
+  /** @type {Record<string, string>} */
+  const llmOut = {};
+  if (llmApiKeys) {
+    for (const [id, ports] of llmApiKeys.entries()) {
+      if (!ports || typeof ports !== "object") continue;
+      const clean = {};
+      for (const [port, apiKey] of Object.entries(ports)) {
+        if (apiKey) clean[String(port)] = String(apiKey);
+      }
+      if (Object.keys(clean).length === 0) continue;
+      llmOut[id] = encrypt(JSON.stringify(clean), key);
+    }
+  }
+
+  const payload =
+    JSON.stringify({ version: 2, secrets, llmApiKeys: llmOut }, null, 2) + "\n";
   atomicWrite(SPARKS_SECRETS_PATH, payload, 0o644);
-  console.log(`[secretsStore] Saved ${Object.keys(secrets).length} SSH password(s)`);
+  const keyCount = Object.keys(llmOut).length;
+  console.log(
+    `[secretsStore] Saved ${Object.keys(secrets).length} SSH password(s)` +
+      (keyCount ? `, ${keyCount} LLM API key bundle(s)` : "")
+  );
 }

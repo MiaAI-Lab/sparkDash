@@ -181,6 +181,11 @@ export class SparkMonitor {
       llmMonitoring: this._llmMonitoringEnabled(),
       llmPort: ports[0] ?? LLM_PORT,
       llmPorts: ports,
+      llmApiKeyPorts: Array.isArray(this.spark.llmApiKeyPorts)
+        ? this.spark.llmApiKeyPorts
+        : Object.keys(this.spark.llmApiKeys || {})
+            .map((p) => parseInt(p, 10))
+            .filter((n) => Number.isInteger(n)),
       hardware: this._getHardwareSummary(),
       metrics: {
         // NOTE: no `timestamp` here on purpose. The broadcast path skips

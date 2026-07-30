@@ -490,7 +490,8 @@ export class LlmProbe {
 
     const host = this.spark?.lanIp || "";
     const scope = classifyHostScope(host);
-    const auth = this.authOpen ? "open" : "protected";
+    const keyed = Boolean(this._apiKey());
+    const auth = keyed ? "keyed" : this.authOpen ? "open" : "protected";
 
     let level = "ok";
     if (auth === "open") {
@@ -514,11 +515,15 @@ export class LlmProbe {
     const label =
       auth === "protected"
         ? "Auth required"
-        : `Open · ${shortScope[scope]}`;
+        : auth === "keyed"
+          ? `API key · ${shortScope[scope]}`
+          : `Open · ${shortScope[scope]}`;
     const detail =
       auth === "protected"
         ? `API key required · ${scopeWords[scope]} target (${host || "—"}). Based on the configured probe host, not the process bind address.`
-        : `Unauthenticated · ${scopeWords[scope]} target (${host || "—"}). Based on the configured probe host, not the process bind address.`;
+        : auth === "keyed"
+          ? `Using configured API key · ${scopeWords[scope]} target (${host || "—"}). Based on the configured probe host, not the process bind address.`
+          : `Unauthenticated · ${scopeWords[scope]} target (${host || "—"}). Based on the configured probe host, not the process bind address.`;
 
     return { level, auth, scope, label, detail };
   }
@@ -579,7 +584,18 @@ export class LlmProbe {
   }
 
   // ─── HTTP helpers ────────────────────────────────────────
+  _apiKey() {
+    const keys = this.spark?.llmApiKeys;
+    if (!keys || typeof keys !== "object") return null;
+    const raw = keys[String(this.port)] ?? keys[this.port];
+    const key = raw != null ? String(raw).trim() : "";
+    return key || null;
+  }
+
   async _fetch(url) {
-    return fetch(url, { signal: AbortSignal.timeout(LLM_PROBE_TIMEOUT_MS) });
+    const headers = {};
+    const apiKey = this._apiKey();
+    if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+    return fetch(url, { signal: AbortSignal.timeout(LLM_PROBE_TIMEOUT_MS), headers });
   }
 }
