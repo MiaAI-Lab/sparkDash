@@ -69,6 +69,30 @@ test("_buildPosture: protected → ok regardless of scope", () => {
   assert.equal(p.label, "Auth required");
 });
 
+test("_buildPosture: valid API key → keyed", () => {
+  const probe = new LlmProbe(
+    { lanIp: "192.168.1.10", llmApiKeys: { "8888": "sk-test" } },
+    8888
+  );
+  probe.authOpen = true;
+  const p = probe._buildPosture();
+  assert.equal(p.auth, "keyed");
+  assert.equal(p.level, "ok");
+  assert.match(p.label, /API key/);
+});
+
+test("_buildPosture: rejected API key → Bad API key", () => {
+  const probe = new LlmProbe(
+    { lanIp: "192.168.1.10", llmApiKeys: { "8888": "sk-bad" } },
+    8888
+  );
+  probe.authOpen = false;
+  const p = probe._buildPosture();
+  assert.equal(p.auth, "protected");
+  assert.equal(p.level, "danger");
+  assert.equal(p.label, "Bad API key");
+});
+
 test("_buildPosture: unknown auth → null", () => {
   const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 8888);
   assert.equal(probe._buildPosture(), null);

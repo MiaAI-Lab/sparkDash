@@ -414,14 +414,21 @@ app.put("/api/sparks/:id/llm-ports", (req, res) => {
       return res.status(400).json({ error: "llmPorts must contain at least one valid port 1–65535" });
     }
 
+    const prevPorts = Array.isArray(spark.llmPorts) ? [...spark.llmPorts] : [];
     const updated = registry.updateSpark(req.params.id, { llmPorts: unique });
+    registry.syncLlmApiKeysToPorts(req.params.id, prevPorts, unique);
+    const withSecrets = registry.getSpark(req.params.id);
     const monitor = monitors.get(req.params.id);
     if (monitor) {
-      monitor.updateConfig(updated);
+      monitor.updateConfig(withSecrets);
     } else {
-      startMonitor(updated);
+      startMonitor(withSecrets);
     }
-    res.json({ success: true, llmPorts: updated.llmPorts });
+    res.json({
+      success: true,
+      llmPorts: updated.llmPorts,
+      llmApiKeyPorts: registry.llmApiKeyPorts(req.params.id),
+    });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -439,15 +446,23 @@ app.put("/api/sparks/:id/llm-port", (req, res) => {
       return res.status(400).json({ error: "llmPort must be an integer 1–65535" });
     }
 
+    const prevPorts = Array.isArray(spark.llmPorts) ? [...spark.llmPorts] : [];
     // Replace the ports list with just this single port
     const updated = registry.updateSpark(req.params.id, { llmPorts: [n] });
+    registry.syncLlmApiKeysToPorts(req.params.id, prevPorts, [n]);
+    const withSecrets = registry.getSpark(req.params.id);
     const monitor = monitors.get(req.params.id);
     if (monitor) {
-      monitor.updateConfig(updated);
+      monitor.updateConfig(withSecrets);
     } else {
-      startMonitor(updated);
+      startMonitor(withSecrets);
     }
-    res.json({ success: true, llmPort: n, llmPorts: updated.llmPorts });
+    res.json({
+      success: true,
+      llmPort: n,
+      llmPorts: updated.llmPorts,
+      llmApiKeyPorts: registry.llmApiKeyPorts(req.params.id),
+    });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

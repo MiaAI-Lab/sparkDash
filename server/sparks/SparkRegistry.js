@@ -377,6 +377,74 @@ export class SparkRegistry {
     this._storeLlmApiKey(id, port, "");
   }
 
+  /**
+   * Move an API key from one port to another (port rename).
+   * @param {string} id
+   * @param {number} fromPort
+   * @param {number} toPort
+   */
+  moveLlmApiKey(id, fromPort, toPort) {
+    if (!this._sparks.find((s) => s.id === id)) throw new Error(`Spark ${id} not found`);
+    const from = Number(fromPort);
+    const to = Number(toPort);
+    if (!Number.isInteger(from) || from < 1 || from > 65535) {
+      throw new Error("fromPort must be an integer 1–65535");
+    }
+    if (!Number.isInteger(to) || to < 1 || to > 65535) {
+      throw new Error("toPort must be an integer 1–65535");
+    }
+    if (from === to) return;
+    const existing = { ...(this._llmApiKeys.get(id) || {}) };
+    const key = existing[String(from)];
+    if (!key) return;
+    delete existing[String(from)];
+    existing[String(to)] = key;
+    this._llmApiKeys.set(id, existing);
+    this._persistSecrets();
+  }
+
+  /**
+   * Drop API keys for ports no longer in the configured list.
+   * @param {string} id
+   * @param {number[]} keepPorts
+   */
+  pruneLlmApiKeys(id, keepPorts) {
+    const existing = this._llmApiKeys.get(id);
+    if (!existing) return;
+    const keep = new Set(
+      (Array.isArray(keepPorts) ? keepPorts : [])
+        .map((p) => String(p))
+        .filter(Boolean)
+    );
+    let changed = false;
+    const next = {};
+    for (const [port, key] of Object.entries(existing)) {
+      if (keep.has(String(port))) next[port] = key;
+      else changed = true;
+    }
+    if (!changed) return;
+    if (Object.keys(next).length === 0) this._llmApiKeys.delete(id);
+    else this._llmApiKeys.set(id, next);
+    this._persistSecrets();
+  }
+
+  /**
+   * After llmPorts change: migrate key if exactly one port was renamed, then prune.
+   * @param {string} id
+   * @param {number[]} prevPorts
+   * @param {number[]} nextPorts
+   */
+  syncLlmApiKeysToPorts(id, prevPorts, nextPorts) {
+    const prev = Array.isArray(prevPorts) ? prevPorts : [];
+    const next = Array.isArray(nextPorts) ? nextPorts : [];
+    const removed = prev.filter((p) => !next.includes(p));
+    const added = next.filter((p) => !prev.includes(p));
+    if (removed.length === 1 && added.length === 1) {
+      this.moveLlmApiKey(id, removed[0], added[0]);
+    }
+    this.pruneLlmApiKeys(id, next);
+  }
+
   _persistSecrets() {
     try {
       saveSecrets(this._passwords, this._llmApiKeys);

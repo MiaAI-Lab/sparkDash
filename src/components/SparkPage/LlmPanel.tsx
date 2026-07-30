@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { LlmMetrics } from "../../api/types";
-import { setLlmApiKey, updateLlmPort } from "../../api/client";
+import { setLlmApiKey, updateLlmPort, updateLlmPorts } from "../../api/client";
 import { Sparkline } from "../ui/Sparkline";
 import { Panel } from "../ui/Panel";
 import { BotIcon, GearIcon, InfoIcon } from "../ui/icons";
@@ -11,6 +11,7 @@ interface LlmPanelProps {
   llm: LlmMetrics | null;
   sparkId: string;
   llmPort: number;
+  llmPorts?: number[];
   hasApiKey?: boolean;
   onRemovePort?: (port: number) => void;
   className?: string;
@@ -147,6 +148,7 @@ export function LlmPanel({
   llm,
   sparkId,
   llmPort,
+  llmPorts,
   hasApiKey = false,
   onRemovePort,
   className,
@@ -213,12 +215,26 @@ export function LlmPanel({
     setSaveError(null);
     try {
       if (portDirty) {
-        await updateLlmPort(sparkId, parsedPort);
+        const currentPorts =
+          Array.isArray(llmPorts) && llmPorts.length > 0 ? llmPorts : [llmPort];
+        if (currentPorts.includes(parsedPort) && parsedPort !== llmPort) {
+          setSaveError(`Port ${parsedPort} is already configured`);
+          setSaving(false);
+          return;
+        }
+        // Rename this panel's port in-place so sibling ports (and their keys) survive
+        if (currentPorts.length > 1) {
+          const next = currentPorts.map((p) => (p === llmPort ? parsedPort : p));
+          await updateLlmPorts(sparkId, next);
+        } else {
+          await updateLlmPort(sparkId, parsedPort);
+        }
       }
+      const keyPort = parsedPort;
       if (clearApiKey) {
-        await setLlmApiKey(sparkId, parsedPort, "");
+        await setLlmApiKey(sparkId, keyPort, "");
       } else if (apiKeyDraft.trim() !== "") {
-        await setLlmApiKey(sparkId, parsedPort, apiKeyDraft.trim());
+        await setLlmApiKey(sparkId, keyPort, apiKeyDraft.trim());
       }
       setApiKeyDraft("");
       setClearApiKey(false);
@@ -375,7 +391,7 @@ export function LlmPanel({
             )}
             <p className="text-xs text-muted">
               {llm?.posture?.auth === "protected"
-                ? `Auth required on :${llmPort}`
+                ? `${llm.posture.label} on :${llmPort}`
                 : `No model loaded on :${llmPort}`}
             </p>
           </div>
