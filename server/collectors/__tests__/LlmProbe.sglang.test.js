@@ -3,7 +3,7 @@
  */
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
-import { normalizeModelId, LlmProbe, readSglangTokenTotals, readSglangLiveThroughput } from "../LlmProbe.js";
+import { normalizeModelId, LlmProbe, readSglangTokenTotals, readSglangLiveThroughput, readSglangLoads } from "../LlmProbe.js";
 
 test("normalizeModelId: HF hub cache snapshot path → org/name", () => {
   const raw =
@@ -193,6 +193,9 @@ test("_applySglangTokenRates: falls back to server_info totals", async () => {
     if (u.endsWith("/metrics")) {
       return { ok: false, status: 404, text: async () => "" };
     }
+    if (u.endsWith("/v1/loads")) {
+      return { ok: false, status: 404, json: async () => ({}) };
+    }
     if (u.endsWith("/get_server_info")) {
       return {
         ok: true,
@@ -225,31 +228,66 @@ test("readSglangLiveThroughput: sums scheduler shards", () => {
   );
 });
 
-test("_applySglangTokenRates: uses last_gen_throughput when metrics 404", async () => {
+test("readSglangLoads: idle → busy false, gen_throughput 0", () => {
+  const loads = readSglangLoads({
+    loads: [{ num_running_reqs: 0, num_waiting_reqs: 0, gen_throughput: 0, num_used_tokens: 0 }],
+  });
+  assert.equal(loads.busy, false);
+  assert.equal(loads.genThroughput, 0);
+  assert.equal(loads.running, 0);
+});
+
+test("_applySglangTokenRates: idle /v1/loads zeros sticky last_gen", async () => {
   const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888);
+  probe.generationTps = 99;
   probe._fetch = async (url) => {
     const u = String(url);
     if (u.endsWith("/metrics")) {
       return { ok: false, status: 404, text: async () => '{"detail":"Not Found"}' };
     }
-    if (u.endsWith("/get_server_info")) {
+    if (u.includes("/v1/loads")) {
       return {
         ok: true,
         status: 200,
         json: async () => ({
-          enable_metrics: false,
-          internal_states: [{ last_gen_throughput: 41.234 }],
+          loads: [{ num_running_reqs: 0, num_waiting_reqs: 0, gen_throughput: 0, num_used_tokens: 0 }],
         }),
       };
     }
     return { ok: false, status: 404, json: async () => ({}) };
   };
   await probe._applySglangTokenRates(2, {
-    liveThroughput: readSglangLiveThroughput({
-      internal_states: [{ last_gen_throughput: 41.234 }],
-    }),
+    liveThroughput: 41.23,
+    serverInfoProbed: true,
+  });
+  assert.equal(probe.generationTps, 0);
+  assert.equal(probe.requestsRunning, 0);
+});
+
+test("_applySglangTokenRates: busy uses sticky last_gen when loads tps is 0", async () => {
+  const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888);
+  probe._fetch = async (url) => {
+    const u = String(url);
+    if (u.endsWith("/metrics")) {
+      return { ok: false, status: 404, text: async () => "" };
+    }
+    if (u.includes("/v1/loads")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          loads: [{ num_running_reqs: 1, num_waiting_reqs: 0, gen_throughput: 0, num_used_tokens: 80 }],
+        }),
+      };
+    }
+    return { ok: false, status: 404, json: async () => ({}) };
+  };
+  await probe._applySglangTokenRates(2, {
+    liveThroughput: 41.23,
+    serverInfoProbed: true,
   });
   assert.equal(probe.generationTps, 41.23);
+  assert.equal(probe.requestsRunning, 1);
 });
 
 test("_getPromMetric: accepts sglang_ underscore prefix", () => {

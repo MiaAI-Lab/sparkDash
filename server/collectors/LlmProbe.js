@@ -72,8 +72,9 @@ export function readSglangTokenTotals(data) {
 }
 
 /**
- * SGLang's instantaneous decode rate from get_server_info (no --enable-metrics needed).
- * Prefer summing `internal_states[].last_gen_throughput` (per-scheduler shards).
+ * SGLang's last measured decode rate from get_server_info.
+ * NOTE: this value is sticky after idle — only use it when /v1/loads (or
+ * metrics) reports active requests.
  * @param {Record<string, unknown>} data
  * @returns {number | null}
  */
@@ -97,6 +98,47 @@ export function readSglangLiveThroughput(data) {
   const top = Number(data.last_gen_throughput);
   if (Number.isFinite(top)) return Math.max(0, Math.round(top * 100) / 100);
   return null;
+}
+
+/**
+ * Parse SGLang `/v1/loads` JSON — live activity + gen_throughput (0 when idle).
+ * @param {unknown} data
+ * @returns {{ running: number, waiting: number, genThroughput: number, usedTokens: number, busy: boolean } | null}
+ */
+export function readSglangLoads(data) {
+  if (!data || typeof data !== "object") return null;
+  const loads = Array.isArray(/** @type {any} */ (data).loads)
+    ? /** @type {any} */ (data).loads
+    : Array.isArray(data)
+      ? data
+      : null;
+  if (!loads || loads.length === 0) return null;
+
+  let running = 0;
+  let waiting = 0;
+  let genTps = 0;
+  let used = 0;
+  let found = false;
+  for (const row of loads) {
+    if (!row || typeof row !== "object") continue;
+    found = true;
+    const r = Number(row.num_running_reqs);
+    const w = Number(row.num_waiting_reqs);
+    if (Number.isFinite(r)) running += r;
+    if (Number.isFinite(w)) waiting += w;
+    const g = Number(row.gen_throughput);
+    if (Number.isFinite(g)) genTps += g;
+    const u = Number(row.num_used_tokens ?? row.num_active_tokens);
+    if (Number.isFinite(u)) used += u;
+  }
+  if (!found) return null;
+  return {
+    running,
+    waiting,
+    genThroughput: Math.max(0, Math.round(genTps * 100) / 100),
+    usedTokens: used,
+    busy: running > 0 || waiting > 0,
+  };
 }
 
 export class LlmProbe {
@@ -125,6 +167,8 @@ export class LlmProbe {
     this.slotState = new Map();
     this.lastTokenCounts = { input: 0, output: 0 };
     this.lastProbeTime = 0;
+    /** Last /v1/loads used-token sum (for SGLang delta when gauges are idle/sticky). */
+    this._lastSglangUsedTokens = null;
 
     // Cumulative total output tokens (generation) as reported by the LLM server
     this.totalOutputTokens = 0;
@@ -231,6 +275,7 @@ export class LlmProbe {
     this.mtpAcceptanceRate = null;
     this.slotState.clear();
     this.lastTokenCounts = { input: 0, output: 0 };
+    this._lastSglangUsedTokens = null;
   }
 
   /** Note auth from an HTTP status on an unauthenticated probe request. */
@@ -507,19 +552,22 @@ export class LlmProbe {
   /**
    * Live tok/s for SGLang:
    * 1) Prometheus counters (/metrics, needs --enable-metrics)
-   * 2) Prometheus gen_throughput gauge
+   * 2) /v1/loads activity — force 0 when idle (last_gen_throughput is sticky)
    * 3) Legacy total_*_tokens on server_info
-   * 4) internal_states[].last_gen_throughput (works without metrics)
+   * 4) While busy: loads.gen_throughput, else last_gen_throughput, else used-token delta
    * @param {number} dtSec
    * @param {{ tokens?: { input: number, output: number } | null, liveThroughput?: number | null, serverInfoProbed?: boolean }} [opts]
    */
   async _applySglangTokenRates(dtSec, opts = {}) {
     const serverInfoTokens = opts?.tokens ?? null;
-    let liveThroughput = opts?.liveThroughput ?? null;
+    let stickyThroughput = opts?.liveThroughput ?? null;
     let input = null;
     let output = null;
     /** @type {number | null} */
     let metricsGauge = null;
+    /** @type {ReturnType<typeof readSglangLoads>} */
+    let loads = null;
+    let activityKnown = false;
 
     try {
       const metricsRes = await this._fetch(`${this.baseUrl}/metrics`);
@@ -531,7 +579,6 @@ export class LlmProbe {
           input = promptTokens;
           output = genTokens;
         } else if (genTokens != null) {
-          // Some builds only expose generation counter
           input = this.lastTokenCounts.input;
           output = genTokens;
         }
@@ -544,14 +591,35 @@ export class LlmProbe {
         if (running != null) {
           this.requestsRunning = running;
           this.slotsActive = Math.round(running);
+          activityKnown = true;
         }
         const waiting =
           this._getPromMetric(txt, "num_requests_waiting", ["sglang", "vllm"]) ??
           this._getPromMetric(txt, "num_queue_reqs", ["sglang", "vllm"]);
-        if (waiting != null) this.requestsWaiting = waiting;
+        if (waiting != null) {
+          this.requestsWaiting = waiting;
+          activityKnown = true;
+        }
       }
     } catch {
-      /* fall through to server_info */
+      /* fall through */
+    }
+
+    // /v1/loads: authoritative idle/busy (gen_throughput / last_gen are often sticky)
+    try {
+      const loadsRes = await this._fetch(`${this.baseUrl}/v1/loads`);
+      if (loadsRes.ok) {
+        const body = await loadsRes.json().catch(() => null);
+        loads = readSglangLoads(body);
+        if (loads) {
+          this.requestsRunning = loads.running;
+          this.requestsWaiting = loads.waiting;
+          this.slotsActive = Math.round(loads.running);
+          activityKnown = true;
+        }
+      }
+    } catch {
+      /* optional */
     }
 
     if ((input == null || output == null) && serverInfoTokens) {
@@ -560,17 +628,22 @@ export class LlmProbe {
     }
 
     const needTokens = input == null || output == null;
-    const needGauge = liveThroughput == null && metricsGauge == null;
-    if ((needTokens || needGauge) && !opts?.serverInfoProbed) {
+    const needSticky = stickyThroughput == null;
+    if ((needTokens || needSticky) && !opts?.serverInfoProbed) {
       const info = await this._probeSglangServerInfo();
       if (needTokens && info.tokens) {
         input = info.tokens.input;
         output = info.tokens.output;
       }
-      if (needGauge && info.liveThroughput != null) {
-        liveThroughput = info.liveThroughput;
+      if (needSticky && info.liveThroughput != null) {
+        stickyThroughput = info.liveThroughput;
       }
     }
+
+    const busy =
+      activityKnown &&
+      ((this.requestsRunning ?? 0) > 0 || (this.requestsWaiting ?? 0) > 0);
+    const idle = activityKnown && !busy;
 
     if (input != null && output != null) {
       const deltaIn = input - this.lastTokenCounts.input;
@@ -578,18 +651,52 @@ export class LlmProbe {
       this.lastTokenCounts.input = input;
       this.lastTokenCounts.output = output;
       this.totalOutputTokens = output;
-      if (dtSec > 0 && dtSec < 10) {
+      if (idle) {
+        this.generationTps = 0;
+        this.prefillTps = 0;
+      } else if (dtSec > 0 && dtSec < 10) {
         this.generationTps = Math.max(0, Math.round((deltaOut / dtSec) * 100) / 100);
         this.prefillTps = Math.max(0, Math.round((deltaIn / dtSec) * 100) / 100);
       }
+      if (loads) this._lastSglangUsedTokens = loads.usedTokens;
       return;
     }
 
-    // Instantaneous gauge — used when Prometheus counters / legacy totals are absent
-    // (common: SGLang without --enable-metrics).
-    const gauge = metricsGauge != null ? metricsGauge : liveThroughput;
+    if (idle) {
+      this.generationTps = 0;
+      this.prefillTps = 0;
+      if (loads) this._lastSglangUsedTokens = loads.usedTokens;
+      return;
+    }
+
+    // Busy (or activity unknown): instantaneous / sticky gauges, then used-token delta
+    const gauge =
+      (loads && loads.genThroughput > 0 ? loads.genThroughput : null) ??
+      (metricsGauge != null && metricsGauge > 0 ? metricsGauge : null) ??
+      (busy && stickyThroughput != null ? stickyThroughput : null);
+
     if (gauge != null) {
       this.generationTps = Math.max(0, Math.round(Number(gauge) * 100) / 100);
+      if (loads) this._lastSglangUsedTokens = loads.usedTokens;
+      return;
+    }
+
+    if (loads && busy && dtSec > 0 && dtSec < 10 && this._lastSglangUsedTokens != null) {
+      const delta = loads.usedTokens - this._lastSglangUsedTokens;
+      this.generationTps = Math.max(0, Math.round((delta / dtSec) * 100) / 100);
+      this._lastSglangUsedTokens = loads.usedTokens;
+      return;
+    }
+
+    if (loads) this._lastSglangUsedTokens = loads.usedTokens;
+
+    // Activity unknown and no counters: do not paint sticky last_gen as "live"
+    if (!activityKnown && stickyThroughput != null) {
+      // Keep prior behavior only when we cannot tell idle vs busy
+      this.generationTps = Math.max(0, Math.round(Number(stickyThroughput) * 100) / 100);
+    } else if (!busy) {
+      this.generationTps = 0;
+      this.prefillTps = 0;
     }
   }
 
