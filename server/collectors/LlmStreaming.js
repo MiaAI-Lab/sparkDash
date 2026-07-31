@@ -57,7 +57,7 @@ export async function readServerGenerationTokens(baseUrl, opts = {}) {
   const apiKey = opts?.apiKey != null ? String(opts.apiKey).trim() : "";
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
 
-  // vLLM Prometheus
+  // vLLM / SGLang Prometheus (needs --enable-metrics on SGLang)
   try {
     const res = await fetch(`${baseUrl}/metrics`, {
       signal: AbortSignal.timeout(5_000),
@@ -66,7 +66,7 @@ export async function readServerGenerationTokens(baseUrl, opts = {}) {
     if (res.ok) {
       const txt = await res.text();
       const re =
-        /^vllm:generation_tokens_total(?:\{[^}]*\})?\s+([\d.eE+-]+)\s*$/gm;
+        /^(?:vllm|sglang):generation_tokens_total(?:\{[^}]*\})?\s+([\d.eE+-]+)\s*$/gm;
       let sum = 0;
       let found = false;
       let m;
@@ -83,21 +83,37 @@ export async function readServerGenerationTokens(baseUrl, opts = {}) {
     /* try next */
   }
 
-  // SGLang
-  try {
-    const res = await fetch(`${baseUrl}/get_server_info`, {
-      signal: AbortSignal.timeout(5_000),
-      headers,
-    });
-    if (res.ok) {
+  // SGLang legacy server_info counters
+  for (const path of ["/get_server_info", "/server_info"]) {
+    try {
+      const res = await fetch(`${baseUrl}${path}`, {
+        signal: AbortSignal.timeout(5_000),
+        headers,
+      });
+      if (!res.ok) continue;
       const data = await res.json();
-      if (data?.total_output_tokens != null) {
-        const v = Number(data.total_output_tokens);
+      const top = data?.total_output_tokens ?? data?.generation_tokens;
+      if (top != null) {
+        const v = Number(top);
         if (Number.isFinite(v)) return v;
       }
+      const states = data?.internal_states ?? data?.internal_state;
+      if (Array.isArray(states)) {
+        let sum = 0;
+        let found = false;
+        for (const s of states) {
+          const o = s?.total_output_tokens ?? s?.generation_tokens;
+          if (o == null) continue;
+          const n = Number(o);
+          if (!Number.isFinite(n)) continue;
+          sum += n;
+          found = true;
+        }
+        if (found) return sum;
+      }
+    } catch {
+      /* try next */
     }
-  } catch {
-    /* ignore */
   }
 
   return null;

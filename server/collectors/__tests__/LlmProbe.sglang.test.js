@@ -3,7 +3,7 @@
  */
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
-import { normalizeModelId, LlmProbe } from "../LlmProbe.js";
+import { normalizeModelId, LlmProbe, readSglangTokenTotals } from "../LlmProbe.js";
 
 test("normalizeModelId: HF hub cache snapshot path → org/name", () => {
   const raw =
@@ -122,4 +122,87 @@ test("_detectServerType: OpenAI models without SGLang endpoints → vllm", async
   };
   await probe._detectServerType();
   assert.equal(probe.backendType, "vllm");
+});
+
+test("readSglangTokenTotals: top-level counters", () => {
+  assert.deepEqual(
+    readSglangTokenTotals({ total_input_tokens: 100, total_output_tokens: 50 }),
+    { input: 100, output: 50 }
+  );
+});
+
+test("readSglangTokenTotals: internal_states sum", () => {
+  assert.deepEqual(
+    readSglangTokenTotals({
+      internal_states: [
+        { total_input_tokens: 10, total_output_tokens: 5 },
+        { total_input_tokens: 20, total_output_tokens: 7 },
+      ],
+    }),
+    { input: 30, output: 12 }
+  );
+});
+
+test("readSglangTokenTotals: missing → null", () => {
+  assert.equal(readSglangTokenTotals({ version: "0.5.0" }), null);
+});
+
+test("_getPromMetric: sglang generation_tokens_total", () => {
+  const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 30000);
+  const body = `
+# HELP sglang:generation_tokens_total Number of generation tokens processed.
+# TYPE sglang:generation_tokens_total counter
+sglang:prompt_tokens_total{model_name="m"} 1000
+sglang:generation_tokens_total{model_name="m"} 2500
+sglang:num_requests_running{model_name="m"} 2
+`;
+  assert.equal(probe._getPromMetric(body, "generation_tokens_total", ["sglang"]), 2500);
+  assert.equal(probe._getPromMetric(body, "prompt_tokens_total", ["sglang", "vllm"]), 1000);
+  assert.equal(probe._getVllmMetric(body, "generation_tokens_total"), null);
+});
+
+test("_applySglangTokenRates: Prometheus sglang counters → tok/s", async () => {
+  const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 30000);
+  probe.lastTokenCounts = { input: 1000, output: 2500 };
+  probe._fetch = async (url) => {
+    if (String(url).endsWith("/metrics")) {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => `
+sglang:prompt_tokens_total 1200
+sglang:generation_tokens_total 3100
+sglang:num_requests_running 1
+`,
+      };
+    }
+    return { ok: false, status: 404, json: async () => ({}) };
+  };
+  await probe._applySglangTokenRates(2);
+  assert.equal(probe.generationTps, 300); // (3100-2500)/2
+  assert.equal(probe.prefillTps, 100); // (1200-1000)/2
+  assert.equal(probe.totalOutputTokens, 3100);
+  assert.equal(probe.requestsRunning, 1);
+});
+
+test("_applySglangTokenRates: falls back to server_info totals", async () => {
+  const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 30000);
+  probe.lastTokenCounts = { input: 0, output: 0 };
+  probe._fetch = async (url) => {
+    const u = String(url);
+    if (u.endsWith("/metrics")) {
+      return { ok: false, status: 404, text: async () => "" };
+    }
+    if (u.endsWith("/get_server_info")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ total_input_tokens: 40, total_output_tokens: 80 }),
+      };
+    }
+    return { ok: false, status: 404, json: async () => ({}) };
+  };
+  await probe._applySglangTokenRates(1);
+  assert.equal(probe.generationTps, 80);
+  assert.equal(probe.prefillTps, 40);
 });

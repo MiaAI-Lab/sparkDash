@@ -31,6 +31,46 @@ export function normalizeModelId(id) {
   return s;
 }
 
+/**
+ * Extract cumulative prompt/generation token totals from SGLang server_info JSON.
+ * Newer builds often omit these (use Prometheus instead); older builds expose
+ * top-level totals or per-scheduler `internal_states`.
+ * @param {Record<string, unknown>} data
+ * @returns {{ input: number, output: number } | null}
+ */
+export function readSglangTokenTotals(data) {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+
+  const topIn = data.total_input_tokens ?? data.prompt_tokens;
+  const topOut = data.total_output_tokens ?? data.generation_tokens;
+  if (topIn != null && topOut != null) {
+    const input = Number(topIn);
+    const output = Number(topOut);
+    if (Number.isFinite(input) && Number.isFinite(output)) return { input, output };
+  }
+
+  const states = data.internal_states ?? data.internal_state;
+  if (Array.isArray(states)) {
+    let input = 0;
+    let output = 0;
+    let found = false;
+    for (const s of states) {
+      if (!s || typeof s !== "object") continue;
+      const out = s.total_output_tokens ?? s.generation_tokens;
+      if (out == null) continue;
+      const o = Number(out);
+      const i = Number(s.total_input_tokens ?? s.prompt_tokens ?? 0);
+      if (!Number.isFinite(o)) continue;
+      output += o;
+      input += Number.isFinite(i) ? i : 0;
+      found = true;
+    }
+    if (found) return { input, output };
+  }
+
+  return null;
+}
+
 export class LlmProbe {
   constructor(spark, port = 8888) {
     this.spark = spark;
@@ -287,38 +327,25 @@ export class LlmProbe {
       throw new Error("OpenAI-compatible /v1/models unreachable");
     }
 
-    // SGLang: native info endpoints. Skip on known vLLM to avoid 404 spam.
+    // SGLang: native info + Prometheus metrics. Skip on known vLLM to avoid 404 spam.
     let isSglang = this.backendType === "sglang";
+    /** @type {{ ok: boolean, contextLength?: number|null, modelPath?: string|null, tokens?: {input:number, output:number}|null } | null} */
+    let fromInfo = null;
     if (this.backendType !== "vllm") {
-      try {
-        const sgRes = await this._fetch(`${this.baseUrl}/get_server_info`);
-        if (sgRes.ok) {
-          isSglang = true;
-          const sgData = await sgRes.json();
-          this.contextLength =
-            sgData.max_total_tokens || sgData.context_length || this.contextLength;
-          if (sgData.total_input_tokens != null && sgData.total_output_tokens != null) {
-            const deltaIn = sgData.total_input_tokens - this.lastTokenCounts.input;
-            const deltaOut = sgData.total_output_tokens - this.lastTokenCounts.output;
-            this.lastTokenCounts.input = sgData.total_input_tokens;
-            this.lastTokenCounts.output = sgData.total_output_tokens;
-            this.totalOutputTokens = sgData.total_output_tokens;
-            if (dtSec > 0 && dtSec < 10) {
-              this.generationTps = Math.max(0, Math.round((deltaOut / dtSec) * 100) / 100);
-              this.prefillTps = Math.max(0, Math.round((deltaIn / dtSec) * 100) / 100);
-            }
-          }
-          // Prefer model_path from CLI args when /v1/models id is a cache path
-          if (sgData.model_path) {
-            this.modelPath = String(sgData.model_path);
-            this.modelId = normalizeModelId(sgData.model_path);
-          }
+      fromInfo = await this._probeSglangServerInfo();
+      if (fromInfo.ok) {
+        isSglang = true;
+        if (fromInfo.contextLength != null) this.contextLength = fromInfo.contextLength;
+        if (fromInfo.modelPath) {
+          this.modelPath = fromInfo.modelPath;
+          this.modelId = normalizeModelId(fromInfo.modelPath);
         }
-      } catch {}
+      }
     }
 
     if (isSglang) {
       await this._enrichSglangModelInfo();
+      await this._applySglangTokenRates(dtSec, fromInfo?.tokens ?? null);
     }
 
     // Single /metrics fetch: tok/s + slots/sleep (vLLM exposes max_model_len via /v1/models)
@@ -412,6 +439,100 @@ export class LlmProbe {
     }
   }
 
+  /**
+   * Read SGLang /get_server_info (or /server_info) for context + optional legacy counters.
+   * @returns {Promise<{ ok: boolean, contextLength?: number|null, modelPath?: string|null, tokens?: {input:number, output:number}|null }>}
+   */
+  async _probeSglangServerInfo() {
+    for (const path of ["/get_server_info", "/server_info"]) {
+      try {
+        const res = await this._fetch(`${this.baseUrl}${path}`);
+        if (!res.ok) continue;
+        const sgData = await res.json().catch(() => null);
+        if (!sgData || typeof sgData !== "object" || Array.isArray(sgData)) continue;
+        const contextLength =
+          sgData.max_total_tokens ??
+          sgData.max_total_num_tokens ??
+          sgData.context_length ??
+          null;
+        const modelPath = sgData.model_path ? String(sgData.model_path) : null;
+        const tokens = readSglangTokenTotals(sgData);
+        return {
+          ok: true,
+          contextLength: Number.isFinite(Number(contextLength)) ? Number(contextLength) : null,
+          modelPath,
+          tokens,
+        };
+      } catch {
+        /* try next */
+      }
+    }
+    return { ok: false };
+  }
+
+  /**
+   * Live tok/s for SGLang: prefer Prometheus `sglang:*` counters (/metrics),
+   * fall back to legacy total_*_tokens on server_info.
+   * @param {number} dtSec
+   * @param {{ input: number, output: number } | null} [serverInfoTokens]
+   */
+  async _applySglangTokenRates(dtSec, serverInfoTokens = null) {
+    let input = null;
+    let output = null;
+
+    try {
+      const metricsRes = await this._fetch(`${this.baseUrl}/metrics`);
+      if (metricsRes.ok) {
+        const txt = await metricsRes.text();
+        const promptTokens = this._getPromMetric(txt, "prompt_tokens_total", ["sglang", "vllm"]);
+        const genTokens = this._getPromMetric(txt, "generation_tokens_total", ["sglang", "vllm"]);
+        if (promptTokens != null && genTokens != null) {
+          input = promptTokens;
+          output = genTokens;
+        } else if (genTokens != null) {
+          // Some builds only expose generation counter
+          input = this.lastTokenCounts.input;
+          output = genTokens;
+        }
+
+        const running = this._getPromMetric(txt, "num_requests_running", ["sglang", "vllm"]);
+        if (running != null) {
+          this.requestsRunning = running;
+          this.slotsActive = Math.round(running);
+        }
+        const waiting = this._getPromMetric(txt, "num_requests_waiting", ["sglang", "vllm"]);
+        if (waiting != null) this.requestsWaiting = waiting;
+      }
+    } catch {
+      /* fall through to server_info */
+    }
+
+    if ((input == null || output == null) && serverInfoTokens) {
+      input = serverInfoTokens.input;
+      output = serverInfoTokens.output;
+    }
+
+    if (input == null || output == null) {
+      const info = await this._probeSglangServerInfo();
+      if (info.tokens) {
+        input = info.tokens.input;
+        output = info.tokens.output;
+      }
+    }
+
+    if (input == null || output == null) return;
+
+    const deltaIn = input - this.lastTokenCounts.input;
+    const deltaOut = output - this.lastTokenCounts.output;
+    this.lastTokenCounts.input = input;
+    this.lastTokenCounts.output = output;
+    this.totalOutputTokens = output;
+    if (dtSec > 0 && dtSec < 10) {
+      this.generationTps = Math.max(0, Math.round((deltaOut / dtSec) * 100) / 100);
+      this.prefillTps = Math.max(0, Math.round((deltaIn / dtSec) * 100) / 100);
+    }
+  }
+
   // ─── llama.cpp native path ────────────────────────────────
   async _probeLlamaCpp() {
     const now = Date.now();
@@ -480,21 +601,36 @@ export class LlmProbe {
   }
 
   // ─── Metrics helpers ─────────────────────────────────────
-  _getVllmMetric(body, name) {
+  /**
+   * Sum a Prometheus counter/gauge across series for the first matching prefix.
+   * @param {string} body
+   * @param {string} name metric name without prefix (e.g. generation_tokens_total)
+   * @param {string[]} [prefixes] e.g. ["vllm"] or ["sglang","vllm"]
+   * @returns {number | null}
+   */
+  _getPromMetric(body, name, prefixes = ["vllm", "sglang"]) {
     const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    // Allow optional Prometheus labels; sum all series (multi-engine / multi-model)
-    const re = new RegExp(`^vllm:${esc}(?:\\{[^}]*\\})?\\s+([\\d.eE+-]+)\\s*$`, "gm");
-    let sum = 0;
-    let found = false;
-    let m;
-    while ((m = re.exec(body)) !== null) {
-      const v = parseFloat(m[1]);
-      if (Number.isFinite(v)) {
-        sum += v;
-        found = true;
+    for (const prefix of prefixes) {
+      const pEsc = String(prefix).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      // Allow optional Prometheus labels; sum all series (multi-engine / multi-model)
+      const re = new RegExp(`^${pEsc}:${esc}(?:\\{[^}]*\\})?\\s+([\\d.eE+-]+)\\s*$`, "gm");
+      let sum = 0;
+      let found = false;
+      let m;
+      while ((m = re.exec(body)) !== null) {
+        const v = parseFloat(m[1]);
+        if (Number.isFinite(v)) {
+          sum += v;
+          found = true;
+        }
       }
+      if (found) return sum;
     }
-    return found ? sum : null;
+    return null;
+  }
+
+  _getVllmMetric(body, name) {
+    return this._getPromMetric(body, name, ["vllm"]);
   }
 
   /**
