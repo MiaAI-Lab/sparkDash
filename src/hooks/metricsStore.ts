@@ -95,6 +95,8 @@ export function ingestSnapshots(sparks: SparkSnapshot[]): void {
     }
     if (m.cpu) {
       pushHistory(`${s.id}:cpu.usage`, m.cpu.usage);
+      // Hosts with no readable sensor report 0 — don't flatten the sparkline with it.
+      if (m.cpu.temperature > 0) pushHistory(`${s.id}:cpu.temp`, m.cpu.temperature);
     }
     if (Array.isArray(m.llm)) {
       // Zip with snapshot.llmPorts so multi-port LLM series key distinctly.
