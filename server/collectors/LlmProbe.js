@@ -10,6 +10,27 @@ import { classifyHostScope } from "../validate.js";
 const FAIL_RESET_THRESHOLD = 3;
 const REDETECT_INTERVAL_MS = 60_000;
 
+/**
+ * Prefer a short model id when the server returns a Hugging Face hub cache path.
+ * e.g. /root/.cache/huggingface/models--org--Name/snapshots/<hash>
+ *   → org/Name
+ * @param {unknown} id
+ * @returns {string | null}
+ */
+export function normalizeModelId(id) {
+  if (id == null) return null;
+  const s = String(id).trim();
+  if (!s) return null;
+
+  const hub = s.match(/(?:^|\/)models--([^/]+?)(?:\/snapshots\/[^/]+)?\/?$/);
+  if (hub) return hub[1].replace(/--/g, "/");
+
+  const mid = s.match(/models--([^/]+)\/snapshots\//);
+  if (mid) return mid[1].replace(/--/g, "/");
+
+  return s;
+}
+
 export class LlmProbe {
   constructor(spark, port = 8888) {
     this.spark = spark;
@@ -185,19 +206,49 @@ export class LlmProbe {
       } catch {}
     }
 
-    // Try OpenAI-compatible
+    // Try OpenAI-compatible (vLLM or SGLang)
     try {
       const modelRes = await this._fetch(`${this.baseUrl}/v1/models`);
       const auth = this._noteAuthStatus(modelRes.status);
       if (auth === "ok" || auth === "auth") {
         this.serverIsOpenAI = true;
-        this.backendType = "vllm";
+        let isSglang = false;
+        if (auth === "ok") {
+          try {
+            const modelsData = await modelRes.json();
+            const owned = modelsData?.data?.[0]?.owned_by;
+            if (typeof owned === "string" && /sglang/i.test(owned)) {
+              isSglang = true;
+            }
+          } catch {
+            /* body optional for detection */
+          }
+        }
+        if (!isSglang) {
+          isSglang = await this._probeIsSglang();
+        }
+        this.backendType = isSglang ? "sglang" : "vllm";
         return;
       }
     } catch {}
 
     this.serverIsOpenAI = null;
     this.backendType = null;
+  }
+
+  /** True when SGLang native server-info endpoints respond. */
+  async _probeIsSglang() {
+    for (const path of ["/get_server_info", "/server_info"]) {
+      try {
+        const res = await this._fetch(`${this.baseUrl}${path}`);
+        if (!res.ok) continue;
+        const data = await res.json().catch(() => null);
+        if (data && typeof data === "object" && !Array.isArray(data)) return true;
+      } catch {
+        /* try next */
+      }
+    }
+    return false;
   }
 
   // ─── OpenAI-compatible path (vLLM/sglang) ────────────────
@@ -218,8 +269,17 @@ export class LlmProbe {
         modelsOk = true;
         const modelsData = await modelsRes.json();
         const model = modelsData?.data?.[0];
-        this.modelId = model?.id || null;
+        this.modelId = normalizeModelId(model?.id || null);
         this.contextLength = model?.max_model_len || null;
+        // Cheap SGLang hint if detection still says vLLM (self-heal before redetect)
+        const owned = model?.owned_by;
+        if (
+          this.backendType === "vllm" &&
+          typeof owned === "string" &&
+          /sglang/i.test(owned)
+        ) {
+          this.backendType = "sglang";
+        }
       }
     } catch {}
 
@@ -227,15 +287,16 @@ export class LlmProbe {
       throw new Error("OpenAI-compatible /v1/models unreachable");
     }
 
-    // Skip SGLang probe when we already know the backend is vLLM
-    let isSglang = false;
+    // SGLang: native info endpoints. Skip on known vLLM to avoid 404 spam.
+    let isSglang = this.backendType === "sglang";
     if (this.backendType !== "vllm") {
       try {
         const sgRes = await this._fetch(`${this.baseUrl}/get_server_info`);
         if (sgRes.ok) {
           isSglang = true;
           const sgData = await sgRes.json();
-          this.contextLength = sgData.max_total_tokens || sgData.context_length || this.contextLength;
+          this.contextLength =
+            sgData.max_total_tokens || sgData.context_length || this.contextLength;
           if (sgData.total_input_tokens != null && sgData.total_output_tokens != null) {
             const deltaIn = sgData.total_input_tokens - this.lastTokenCounts.input;
             const deltaOut = sgData.total_output_tokens - this.lastTokenCounts.output;
@@ -247,8 +308,17 @@ export class LlmProbe {
               this.prefillTps = Math.max(0, Math.round((deltaIn / dtSec) * 100) / 100);
             }
           }
+          // Prefer model_path from CLI args when /v1/models id is a cache path
+          if (sgData.model_path) {
+            this.modelPath = String(sgData.model_path);
+            this.modelId = normalizeModelId(sgData.model_path);
+          }
         }
       } catch {}
+    }
+
+    if (isSglang) {
+      await this._enrichSglangModelInfo();
     }
 
     // Single /metrics fetch: tok/s + slots/sleep (vLLM exposes max_model_len via /v1/models)
@@ -322,6 +392,24 @@ export class LlmProbe {
     this.backendType = isSglang ? "sglang" : "vllm";
 
     return this._getSnapshot();
+  }
+
+  /** Prefer SGLang /get_model_info (or /model_info) over raw HF cache paths. */
+  async _enrichSglangModelInfo() {
+    for (const path of ["/get_model_info", "/model_info"]) {
+      try {
+        const res = await this._fetch(`${this.baseUrl}${path}`);
+        if (!res.ok) continue;
+        const data = await res.json();
+        const raw = data?.model_path || data?.tokenizer_path;
+        if (!raw) continue;
+        this.modelPath = String(raw);
+        this.modelId = normalizeModelId(raw);
+        return;
+      } catch {
+        /* try next */
+      }
+    }
   }
 
   // ─── llama.cpp native path ────────────────────────────────
