@@ -46,16 +46,17 @@ sparkDash is a real-time web dashboard for one or more **NVIDIA DGX Spark (GB10)
 
 ## Latest version changelog
 
-### Version 1.4.4 — Optional LLM API key
-- **Per-port API key** — optional Bearer token in LLM Settings for authenticated OpenAI-compatible gateways; encrypted at rest ([#21](https://github.com/MiaAI-Lab/sparkDash/issues/21))
-- **Settings version** — footer shows the real `package.json` version
+### Version 1.4.5 — SGLang detect, model wrap, decode concurrencies
+- **SGLang detection** — correct backend badge; HF cache paths shortened to `org/name` ([#29](https://github.com/MiaAI-Lab/sparkDash/pull/29))
+- **Model name wrap** — overview / LLM panel show full model id (wrap, no ellipsis trim)
+- **Decode concurrencies** — 5, 10, 12, 24 ([#27](https://github.com/MiaAI-Lab/sparkDash/pull/27))
+- **API key port renames** — migrate/prune keys; “Bad API key” on reject ([#26](https://github.com/MiaAI-Lab/sparkDash/pull/26))
 
 Full history: [CHANGELOG.md](./CHANGELOG.md)
 
-### Version 1.4.3 — Shutdown confirm, stable storage I/O, decode bench cleanup
-- **Shutdown confirmation** — danger-zone dialog with checkbox + type `poweroff` before Shutdown / Shutdown All ([#22](https://github.com/MiaAI-Lab/sparkDash/issues/22))
-- **Stable Storage height** — always show disk ↑/↓ rates (`0 B/s` when idle) ([#20](https://github.com/MiaAI-Lab/sparkDash/issues/20))
-- **Decode benchmark** — Aggregate + per-stream tok/s (Server column removed)
+### Version 1.4.4 — Optional LLM API key
+- **Per-port API key** — optional Bearer token in LLM Settings for authenticated OpenAI-compatible gateways; encrypted at rest ([#21](https://github.com/MiaAI-Lab/sparkDash/issues/21))
+- **Settings version** — footer shows the real `package.json` version
 
 Full history: [CHANGELOG.md](./CHANGELOG.md)
 

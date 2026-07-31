@@ -7,6 +7,18 @@ Format: version sections are listed newest first.
 
 ---
 
+## [1.4.5] — 2026-07-31
+
+### Fixed
+- **SGLang detection** — OpenAI-compatible servers are no longer always labeled vLLM; SGLang is identified via `owned_by` / `/get_server_info`, and HF hub cache model paths are shortened to `org/name` ([#29](https://github.com/MiaAI-Lab/sparkDash/pull/29))
+- **Overview model name trim** — long LLM / worker labels wrap instead of ellipsis-truncating in the stats grid
+
+### Changed
+- **Decode benchmark concurrencies** — added 5, 10, 12, and 24 ([#27](https://github.com/MiaAI-Lab/sparkDash/pull/27))
+- **LLM API key port renames** — keys migrate/prune when ports change; rejected keys show “Bad API key” ([#26](https://github.com/MiaAI-Lab/sparkDash/pull/26))
+
+---
+
 ## [1.4.4] — 2026-07-30
 
 ### Added

@@ -422,7 +422,7 @@ export function LlmPanel({
             {llm?.posture && <PostureBadge posture={llm.posture} />}
             {llm?.modelId && (
               <span
-                className="min-w-0 flex-1 truncate text-xs text-text"
+                className="min-w-0 flex-1 whitespace-normal break-words text-xs leading-snug text-text [overflow-wrap:anywhere]"
                 title={llm.modelId}
               >
                 {llm.modelId}

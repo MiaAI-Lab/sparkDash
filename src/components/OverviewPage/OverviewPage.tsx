@@ -36,12 +36,15 @@ function MiniStat({
   tone = "default",
   bold = true,
   title,
+  wrap = false,
 }: {
   label: string;
   value: string;
   tone?: "default" | "accent" | "warning" | "danger" | "success";
   bold?: boolean;
   title?: string;
+  /** Allow value to wrap (no ellipsis trim) — used for long model ids. */
+  wrap?: boolean;
 }) {
   const toneClass =
     tone === "danger"
@@ -57,9 +60,15 @@ function MiniStat({
     <div className="flex min-w-0 flex-col gap-0.5">
       <span className="text-[10px] tracking-wide text-muted">{label}</span>
       <span
-        className={`font-tabular text-[13px] truncate ${bold ? "font-semibold" : ""} ${toneClass}`}
+        className={`font-tabular text-[13px] ${
+          wrap
+            ? "whitespace-normal break-words leading-snug [overflow-wrap:anywhere]"
+            : "truncate"
+        } ${bold ? "font-semibold" : ""} ${toneClass}`}
         title={title}
-      >{value}</span>
+      >
+        {value}
+      </span>
     </div>
   );
 }
@@ -231,6 +240,7 @@ function SparkCard({
                     value={label}
                     tone="accent"
                     title={title}
+                    wrap
                   />
                 );
               }
@@ -245,6 +255,7 @@ function SparkCard({
                   value={llm.modelId ?? "unknown"}
                   tone="accent"
                   title={llm.modelId ?? undefined}
+                  wrap
                 />
               );
             })()}
