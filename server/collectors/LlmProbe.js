@@ -71,6 +71,34 @@ export function readSglangTokenTotals(data) {
   return null;
 }
 
+/**
+ * SGLang's instantaneous decode rate from get_server_info (no --enable-metrics needed).
+ * Prefer summing `internal_states[].last_gen_throughput` (per-scheduler shards).
+ * @param {Record<string, unknown>} data
+ * @returns {number | null}
+ */
+export function readSglangLiveThroughput(data) {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+
+  const states = data.internal_states ?? data.internal_state;
+  if (Array.isArray(states) && states.length > 0) {
+    let sum = 0;
+    let found = false;
+    for (const s of states) {
+      if (!s || typeof s !== "object") continue;
+      const v = Number(s.last_gen_throughput);
+      if (!Number.isFinite(v)) continue;
+      sum += v;
+      found = true;
+    }
+    if (found) return Math.max(0, Math.round(sum * 100) / 100);
+  }
+
+  const top = Number(data.last_gen_throughput);
+  if (Number.isFinite(top)) return Math.max(0, Math.round(top * 100) / 100);
+  return null;
+}
+
 export class LlmProbe {
   constructor(spark, port = 8888) {
     this.spark = spark;
@@ -345,7 +373,11 @@ export class LlmProbe {
 
     if (isSglang) {
       await this._enrichSglangModelInfo();
-      await this._applySglangTokenRates(dtSec, fromInfo?.tokens ?? null);
+      await this._applySglangTokenRates(dtSec, {
+        tokens: fromInfo?.tokens ?? null,
+        liveThroughput: fromInfo?.liveThroughput ?? null,
+        serverInfoProbed: fromInfo != null,
+      });
     }
 
     // Single /metrics fetch: tok/s + slots/sleep (vLLM exposes max_model_len via /v1/models)
@@ -441,7 +473,7 @@ export class LlmProbe {
 
   /**
    * Read SGLang /get_server_info (or /server_info) for context + optional legacy counters.
-   * @returns {Promise<{ ok: boolean, contextLength?: number|null, modelPath?: string|null, tokens?: {input:number, output:number}|null }>}
+   * @returns {Promise<{ ok: boolean, contextLength?: number|null, modelPath?: string|null, tokens?: {input:number, output:number}|null, liveThroughput?: number|null }>}
    */
   async _probeSglangServerInfo() {
     for (const path of ["/get_server_info", "/server_info"]) {
@@ -457,11 +489,13 @@ export class LlmProbe {
           null;
         const modelPath = sgData.model_path ? String(sgData.model_path) : null;
         const tokens = readSglangTokenTotals(sgData);
+        const liveThroughput = readSglangLiveThroughput(sgData);
         return {
           ok: true,
           contextLength: Number.isFinite(Number(contextLength)) ? Number(contextLength) : null,
           modelPath,
           tokens,
+          liveThroughput,
         };
       } catch {
         /* try next */
@@ -471,14 +505,21 @@ export class LlmProbe {
   }
 
   /**
-   * Live tok/s for SGLang: prefer Prometheus `sglang:*` counters (/metrics),
-   * fall back to legacy total_*_tokens on server_info.
+   * Live tok/s for SGLang:
+   * 1) Prometheus counters (/metrics, needs --enable-metrics)
+   * 2) Prometheus gen_throughput gauge
+   * 3) Legacy total_*_tokens on server_info
+   * 4) internal_states[].last_gen_throughput (works without metrics)
    * @param {number} dtSec
-   * @param {{ input: number, output: number } | null} [serverInfoTokens]
+   * @param {{ tokens?: { input: number, output: number } | null, liveThroughput?: number | null, serverInfoProbed?: boolean }} [opts]
    */
-  async _applySglangTokenRates(dtSec, serverInfoTokens = null) {
+  async _applySglangTokenRates(dtSec, opts = {}) {
+    const serverInfoTokens = opts?.tokens ?? null;
+    let liveThroughput = opts?.liveThroughput ?? null;
     let input = null;
     let output = null;
+    /** @type {number | null} */
+    let metricsGauge = null;
 
     try {
       const metricsRes = await this._fetch(`${this.baseUrl}/metrics`);
@@ -495,12 +536,18 @@ export class LlmProbe {
           output = genTokens;
         }
 
-        const running = this._getPromMetric(txt, "num_requests_running", ["sglang", "vllm"]);
+        metricsGauge = this._getPromMetric(txt, "gen_throughput", ["sglang", "vllm"]);
+
+        const running =
+          this._getPromMetric(txt, "num_requests_running", ["sglang", "vllm"]) ??
+          this._getPromMetric(txt, "num_running_reqs", ["sglang", "vllm"]);
         if (running != null) {
           this.requestsRunning = running;
           this.slotsActive = Math.round(running);
         }
-        const waiting = this._getPromMetric(txt, "num_requests_waiting", ["sglang", "vllm"]);
+        const waiting =
+          this._getPromMetric(txt, "num_requests_waiting", ["sglang", "vllm"]) ??
+          this._getPromMetric(txt, "num_queue_reqs", ["sglang", "vllm"]);
         if (waiting != null) this.requestsWaiting = waiting;
       }
     } catch {
@@ -512,24 +559,37 @@ export class LlmProbe {
       output = serverInfoTokens.output;
     }
 
-    if (input == null || output == null) {
+    const needTokens = input == null || output == null;
+    const needGauge = liveThroughput == null && metricsGauge == null;
+    if ((needTokens || needGauge) && !opts?.serverInfoProbed) {
       const info = await this._probeSglangServerInfo();
-      if (info.tokens) {
+      if (needTokens && info.tokens) {
         input = info.tokens.input;
         output = info.tokens.output;
       }
+      if (needGauge && info.liveThroughput != null) {
+        liveThroughput = info.liveThroughput;
+      }
     }
 
-    if (input == null || output == null) return;
+    if (input != null && output != null) {
+      const deltaIn = input - this.lastTokenCounts.input;
+      const deltaOut = output - this.lastTokenCounts.output;
+      this.lastTokenCounts.input = input;
+      this.lastTokenCounts.output = output;
+      this.totalOutputTokens = output;
+      if (dtSec > 0 && dtSec < 10) {
+        this.generationTps = Math.max(0, Math.round((deltaOut / dtSec) * 100) / 100);
+        this.prefillTps = Math.max(0, Math.round((deltaIn / dtSec) * 100) / 100);
+      }
+      return;
+    }
 
-    const deltaIn = input - this.lastTokenCounts.input;
-    const deltaOut = output - this.lastTokenCounts.output;
-    this.lastTokenCounts.input = input;
-    this.lastTokenCounts.output = output;
-    this.totalOutputTokens = output;
-    if (dtSec > 0 && dtSec < 10) {
-      this.generationTps = Math.max(0, Math.round((deltaOut / dtSec) * 100) / 100);
-      this.prefillTps = Math.max(0, Math.round((deltaIn / dtSec) * 100) / 100);
+    // Instantaneous gauge — used when Prometheus counters / legacy totals are absent
+    // (common: SGLang without --enable-metrics).
+    const gauge = metricsGauge != null ? metricsGauge : liveThroughput;
+    if (gauge != null) {
+      this.generationTps = Math.max(0, Math.round(Number(gauge) * 100) / 100);
     }
   }
 
@@ -612,19 +672,22 @@ export class LlmProbe {
     const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     for (const prefix of prefixes) {
       const pEsc = String(prefix).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      // Allow optional Prometheus labels; sum all series (multi-engine / multi-model)
-      const re = new RegExp(`^${pEsc}:${esc}(?:\\{[^}]*\\})?\\s+([\\d.eE+-]+)\\s*$`, "gm");
-      let sum = 0;
-      let found = false;
-      let m;
-      while ((m = re.exec(body)) !== null) {
-        const v = parseFloat(m[1]);
-        if (Number.isFinite(v)) {
-          sum += v;
-          found = true;
+      // Colon form (vllm:… / sglang:…) and underscore form (sglang_…, v0.5.4+)
+      const forms = [`${pEsc}:${esc}`, `${pEsc}_${esc}`];
+      for (const full of forms) {
+        const re = new RegExp(`^${full}(?:\\{[^}]*\\})?\\s+([\\d.eE+-]+)\\s*$`, "gm");
+        let sum = 0;
+        let found = false;
+        let m;
+        while ((m = re.exec(body)) !== null) {
+          const v = parseFloat(m[1]);
+          if (Number.isFinite(v)) {
+            sum += v;
+            found = true;
+          }
         }
+        if (found) return sum;
       }
-      if (found) return sum;
     }
     return null;
   }
