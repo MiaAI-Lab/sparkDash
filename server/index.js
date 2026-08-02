@@ -25,7 +25,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT = path.resolve(__dirname, "..");
 
-const BIND_HOST = process.env.BIND_HOST || "0.0.0.0";
+// Default to loopback: the dashboard exposes SSH and remote power controls, so it
+// should not be reachable on the LAN unless explicitly opted in. Set BIND_HOST to the
+// host's LAN IP (or 0.0.0.0) to expose it; the provided docker-compose.yml sets it.
+const BIND_HOST = process.env.BIND_HOST || "127.0.0.1";
 const PORT = parseInt(process.env.PORT || "5555", 10);
 const LLM_PORT = parseInt(process.env.LLM_PORT || "8888", 10);
 
@@ -1164,6 +1167,13 @@ startBroadcast();
 server.listen(PORT, BIND_HOST, () => {
   console.log(`[sparkDash] server listening on http://${BIND_HOST}:${PORT}`);
   console.log(`[sparkDash] WebSocket endpoint ws://${BIND_HOST}:${PORT}/ws`);
+  const isLoopback =
+    BIND_HOST === "localhost" || BIND_HOST === "::1" || /^127\./.test(BIND_HOST);
+  if (isLoopback) {
+    console.log(`[sparkDash] localhost-only; set BIND_HOST=<lan-ip> (or 0.0.0.0) to allow remote access`);
+  } else {
+    console.warn(`[sparkDash] WARNING: bound to ${BIND_HOST} — reachable on the LAN. This dashboard is unauthenticated and can SSH into and power off your Sparks; restrict access at the network/firewall layer.`);
+  }
   startAllMonitors();
 });
 

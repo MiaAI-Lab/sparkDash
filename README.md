@@ -228,7 +228,7 @@ Copy `.env.example` to `.env` if needed:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BIND_HOST` | `0.0.0.0` | HTTP and WebSocket listen address |
+| `BIND_HOST` | `127.0.0.1` | HTTP and WebSocket listen address. Loopback by default — the dashboard exposes SSH + power controls, so set a LAN IP (or `0.0.0.0`) to allow remote access. |
 | `PORT` | `5555` | HTTP + WebSocket listen port |
 | `LLM_PORT` | `8888` | Default LLM probe port |
 | `POLL_INTERVAL_GPU` | `2000` | GPU poll (ms) |
@@ -243,8 +243,11 @@ Copy `.env.example` to `.env` if needed:
 | `HOST_SYS_PATH` | `/host/sys` | Host sys mount |
 | `HOST_ROOT_PATH` | `/host/root` | Host root mount |
 
-> When using Docker's default bridge network, keep `BIND_HOST=0.0.0.0`.  
-> With `network_mode: host`, use `BIND_HOST=127.0.0.1` to restrict access to the local host or a reverse proxy.
+> The listener defaults to `127.0.0.1` (loopback) so the dashboard — which can SSH into and
+> power off your Sparks — isn't reachable on the LAN by default. Set `BIND_HOST` to the host's
+> LAN IP (or `0.0.0.0`) to reach it from another machine. The provided `docker-compose.yml`
+> (`network_mode: host`) sets `BIND_HOST=0.0.0.0` explicitly; restrict access at the network
+> layer, or set `127.0.0.1` when running behind a reverse proxy.
 
 ### Adding a Spark
 
