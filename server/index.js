@@ -542,6 +542,89 @@ app.delete("/api/sparks/:id/llm-ports/:port", (req, res) => {
   }
 });
 
+// ─── ComfyUI (video) ports ───────────────────────────────
+// Unlike LLM ports, an empty list is valid: it means video monitoring is off.
+
+/** Push a changed Spark config into its monitor, starting one if needed. */
+function applySparkConfig(id, fallback) {
+  const spark = registry.getSpark(id) || fallback;
+  const monitor = monitors.get(id);
+  if (monitor) monitor.updateConfig(spark);
+  else startMonitor(spark);
+}
+
+// Replace the full video port list
+app.put("/api/sparks/:id/video-ports", (req, res) => {
+  try {
+    const spark = registry.getSpark(req.params.id);
+    if (!spark) return res.status(404).json({ error: "Spark not found" });
+
+    const raw = req.body?.videoPorts;
+    if (!Array.isArray(raw)) {
+      return res.status(400).json({ error: "videoPorts must be an array" });
+    }
+    const ports = raw
+      .map((v) => (typeof v === "string" ? parseInt(v, 10) : Number(v)))
+      .filter((n) => Number.isInteger(n) && n >= 1 && n <= 65535);
+
+    const updated = registry.updateSpark(req.params.id, { videoPorts: [...new Set(ports)] });
+    applySparkConfig(req.params.id, updated);
+    res.json({ success: true, videoPorts: updated.videoPorts });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Add a single ComfyUI port (hot — no monitor restart)
+app.post("/api/sparks/:id/video-ports", (req, res) => {
+  try {
+    const spark = registry.getSpark(req.params.id);
+    if (!spark) return res.status(404).json({ error: "Spark not found" });
+
+    const raw = req.body?.port;
+    const n = typeof raw === "string" ? parseInt(raw, 10) : Number(raw);
+    if (!Number.isInteger(n) || n < 1 || n > 65535) {
+      return res.status(400).json({ error: "port must be an integer 1–65535" });
+    }
+
+    const currentPorts = spark.videoPorts || [];
+    if (currentPorts.includes(n)) {
+      return res.json({ success: true, videoPorts: currentPorts });
+    }
+
+    const updated = registry.updateSpark(req.params.id, { videoPorts: [...currentPorts, n] });
+    applySparkConfig(req.params.id, updated);
+    res.json({ success: true, videoPorts: updated.videoPorts });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Remove a ComfyUI port (hot). Removing the last one turns video monitoring off.
+app.delete("/api/sparks/:id/video-ports/:port", (req, res) => {
+  try {
+    const spark = registry.getSpark(req.params.id);
+    if (!spark) return res.status(404).json({ error: "Spark not found" });
+
+    const port = parseInt(req.params.port, 10);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      return res.status(400).json({ error: "port must be an integer 1–65535" });
+    }
+
+    const currentPorts = spark.videoPorts || [];
+    const newPorts = currentPorts.filter((p) => p !== port);
+    if (newPorts.length === currentPorts.length) {
+      return res.json({ success: true, videoPorts: currentPorts });
+    }
+
+    const updated = registry.updateSpark(req.params.id, { videoPorts: newPorts });
+    applySparkConfig(req.params.id, updated);
+    res.json({ success: true, videoPorts: updated.videoPorts });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // Set / clear optional LLM API key for one port (encrypted secrets store)
 app.put("/api/sparks/:id/llm-ports/:port/api-key", (req, res) => {
   try {

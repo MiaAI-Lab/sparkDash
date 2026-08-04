@@ -73,6 +73,7 @@ function placeholderSnapshot(
       network: null,
       unifiedMemory: null,
       llm: [],
+      comfy: [],
     },
   };
 }

@@ -26,6 +26,8 @@ const POLL_INTERVAL_CPU = parseInt(process.env.POLL_INTERVAL_CPU || "2000", 10);
 const POLL_INTERVAL_NETWORK = parseInt(process.env.POLL_INTERVAL_NETWORK || "2000", 10);
 const POLL_INTERVAL_STORAGE = parseInt(process.env.POLL_INTERVAL_STORAGE || "5000", 10);
 const POLL_INTERVAL_LLM = parseInt(process.env.POLL_INTERVAL_LLM || "2000", 10);
+// ComfyUI: queue state moves on job boundaries, not per token — poll slower.
+const POLL_INTERVAL_COMFY = parseInt(process.env.POLL_INTERVAL_COMFY || "3000", 10);
 // dmon -c 1 -d 1 blocks ~1s; default 2s avoids stacking with in-flight guards
 const POLL_INTERVAL_BANDWIDTH = parseInt(process.env.POLL_INTERVAL_BANDWIDTH || "2000", 10);
 // Dedicated liveness (sshTest / local ping) cadence — not a metric domain.
@@ -34,6 +36,8 @@ const POLL_INTERVAL_LIVENESS = parseInt(process.env.POLL_INTERVAL_LIVENESS || "5
 // ─── Port ────────────────────────────────────────────────
 const PORT = parseInt(process.env.PORT || "5555", 10);
 const LLM_PORT = parseInt(process.env.LLM_PORT || "8888", 10);
+// Suggested default only — video monitoring stays off until videoPorts is set.
+const COMFY_PORT = parseInt(process.env.COMFY_PORT || "8188", 10);
 
 // ─── DGX Spark constants ────────────────────────────────
 const DGX_SPARK = {
@@ -83,10 +87,12 @@ export {
   POLL_INTERVAL_NETWORK,
   POLL_INTERVAL_STORAGE,
   POLL_INTERVAL_LLM,
+  POLL_INTERVAL_COMFY,
   POLL_INTERVAL_BANDWIDTH,
   POLL_INTERVAL_LIVENESS,
   PORT,
   LLM_PORT,
+  COMFY_PORT,
   DGX_SPARK,
   UNIT_CONVERSION,
   HARDWARE_DEFAULTS,

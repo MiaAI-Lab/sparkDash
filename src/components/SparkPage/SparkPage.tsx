@@ -1,13 +1,21 @@
 import { useState, useEffect, useCallback } from "react";
 import type { SparkSnapshot } from "../../api/types";
 import { isLlmMonitoringEnabled } from "../../api/sparkRole";
-import { updateSpark, refreshSparkMetric, addLlmPort, removeLlmPort } from "../../api/client";
+import {
+  updateSpark,
+  refreshSparkMetric,
+  addLlmPort,
+  removeLlmPort,
+  addVideoPort,
+  removeVideoPort,
+} from "../../api/client";
 import { SparkHeader } from "./SparkHeader";
 import { GpuPanel } from "./GpuPanel";
 import { CpuPanel } from "./CpuPanel";
 import { StoragePanel } from "./StoragePanel";
 import { NetworkPanel } from "./NetworkPanel";
 import { LlmPanel } from "./LlmPanel";
+import { ComfyPanel } from "./ComfyPanel";
 
 interface SparkPageProps {
   spark: SparkSnapshot;
@@ -25,8 +33,11 @@ export function SparkPage({ spark, temperatureUnit, onEdit }: SparkPageProps) {
   const [storagePollDisabled, setStoragePollDisabled] = useState<boolean>(
     spark.storagePollDisabled ?? false
   );
+  const [videoPorts, setVideoPorts] = useState<number[]>(spark.videoPorts ?? []);
   const [showAddPort, setShowAddPort] = useState(false);
   const [newPortDraft, setNewPortDraft] = useState("");
+  const [showAddVideoPort, setShowAddVideoPort] = useState(false);
+  const [newVideoPortDraft, setNewVideoPortDraft] = useState("");
 
   // Sync when spark data changes (WS push)
   useEffect(() => {
@@ -40,6 +51,10 @@ export function SparkPage({ spark, temperatureUnit, onEdit }: SparkPageProps) {
   useEffect(() => {
     if (spark.llmPorts) setLlmPorts(spark.llmPorts);
   }, [spark.llmPorts]);
+
+  useEffect(() => {
+    if (spark.videoPorts) setVideoPorts(spark.videoPorts);
+  }, [spark.videoPorts]);
 
   useEffect(() => {
     setStoragePollDisabled(spark.storagePollDisabled ?? false);
@@ -81,6 +96,33 @@ export function SparkPage({ spark, temperatureUnit, onEdit }: SparkPageProps) {
       console.error("Failed to add LLM port:", err);
     }
   }, [spark.id, newPortDraft, llmPorts]);
+
+  const handleAddVideoPort = useCallback(async () => {
+    const port = parseInt(newVideoPortDraft, 10);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return;
+    if (videoPorts.includes(port)) {
+      setNewVideoPortDraft("");
+      setShowAddVideoPort(false);
+      return;
+    }
+    try {
+      const result = await addVideoPort(spark.id, port);
+      setVideoPorts(result.videoPorts);
+      setNewVideoPortDraft("");
+      setShowAddVideoPort(false);
+    } catch (err) {
+      console.error("Failed to add ComfyUI port:", err);
+    }
+  }, [spark.id, newVideoPortDraft, videoPorts]);
+
+  const handleRemoveVideoPort = useCallback(async (port: number) => {
+    try {
+      const result = await removeVideoPort(spark.id, port);
+      setVideoPorts(result.videoPorts);
+    } catch (err) {
+      console.error("Failed to remove ComfyUI port:", err);
+    }
+  }, [spark.id]);
 
   const handleRemovePort = useCallback(async (port: number) => {
     try {
@@ -180,6 +222,68 @@ export function SparkPage({ spark, temperatureUnit, onEdit }: SparkPageProps) {
               </button>
             )}
           </>
+        )}
+        {videoPorts.map((port, i) => (
+          <ComfyPanel
+            key={port}
+            comfy={metrics.comfy?.[i] ?? null}
+            sparkId={spark.id}
+            videoPort={port}
+            videoPorts={videoPorts}
+            comfyLogPath={spark.comfyLogPath}
+            onPortsChange={setVideoPorts}
+            onRemovePort={handleRemoveVideoPort}
+            className="md:col-span-2"
+          />
+        ))}
+        {showAddVideoPort ? (
+          <div className="md:col-span-2 rounded-lg border border-border bg-surface p-3">
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={1}
+                max={65535}
+                inputMode="numeric"
+                placeholder="ComfyUI port (e.g. 8188)"
+                value={newVideoPortDraft}
+                onChange={(e) => setNewVideoPortDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void handleAddVideoPort();
+                  }
+                }}
+                className="w-48 rounded-md border border-border bg-surface-elevated px-3 py-1.5 font-tabular text-sm text-text outline-none focus:border-accent"
+                autoFocus
+              />
+              <button
+                type="button"
+                onClick={() => void handleAddVideoPort()}
+                disabled={!newVideoPortDraft.trim()}
+                className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+              >
+                Add
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAddVideoPort(false);
+                  setNewVideoPortDraft("");
+                }}
+                className="rounded border border-border px-3 py-1.5 text-xs text-muted hover:bg-surface-hover"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setShowAddVideoPort(true)}
+            className="md:col-span-2 rounded-lg border border-dashed border-border bg-transparent p-3 text-xs text-muted transition-colors hover:border-accent hover:text-accent"
+          >
+            + Add ComfyUI port
+          </button>
         )}
       </div>
     </div>
