@@ -165,6 +165,15 @@ export function BoltIcon({ className = "" }: { className?: string }) {
   );
 }
 
+export function FilmIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg {...baseProps(className)}>
+      <rect x="2" y="4" width="20" height="16" rx="2" />
+      <path d="M7 4v16M17 4v16M2 9h5M2 15h5M17 9h5M17 15h5" />
+    </svg>
+  );
+}
+
 export function RotateIcon({ className = "" }: { className?: string }) {
   return (
     <svg {...baseProps(className)}>

@@ -33,6 +33,14 @@ export interface SparkConfig {
    * The key itself is never returned by the API.
    */
   llmApiKeyPorts?: number[];
+  /** HTTP ports for ComfyUI servers on this Spark. Absent/empty = not probed. */
+  videoPorts?: number[];
+  /**
+   * Host path to the ComfyUI server log. When set, the probe parses the tqdm
+   * line from it to report sampler step progress — which the ComfyUI API does
+   * not expose to a passive observer.
+   */
+  comfyLogPath?: string | null;
   /**
    * Cluster role for overview + worker behavior.
    * - head / standalone: local LLM API probed
@@ -237,6 +245,50 @@ export interface LlmPosture {
 }
 
 // ─── Full metrics snapshot ────────────────────────────────
+// ─── ComfyUI (video generation) ───────────────────────────
+export interface ComfyOutput {
+  filename: string;
+  subfolder: string;
+  type: string;
+  mediaType: string | null;
+  finishedAt: number | null;
+}
+
+export interface ComfyJob {
+  id: string | null;
+  /** Seconds since execution started, from the server clock. */
+  elapsedSeconds: number | null;
+  /**
+   * Sampler step progress. Only populated when `comfyLogPath` is configured —
+   * ComfyUI sends progress_state only to the submitting client, so a passive
+   * monitor cannot read it from the API.
+   */
+  step: number | null;
+  steps: number | null;
+  percent: number | null;
+  secPerStep: number | null;
+  etaSeconds: number | null;
+}
+
+export interface ComfyMetrics {
+  available: boolean;
+  version: string | null;
+  pythonVersion: string | null;
+  pytorchVersion: string | null;
+  device: {
+    name: string | null;
+    vramTotal: number | null;
+    vramFree: number | null;
+    torchVramTotal: number | null;
+    torchVramFree: number | null;
+  } | null;
+  queueRunning: number;
+  queuePending: number;
+  job: ComfyJob | null;
+  lastOutput: ComfyOutput | null;
+  error: string | null;
+}
+
 export interface SparkMetrics {
   gpu: GpuMetrics | null;
   cpu: CpuMetrics | null;
@@ -246,6 +298,8 @@ export interface SparkMetrics {
   unifiedMemory: UnifiedMemoryMetrics | null;
   /** Array of LLM metrics, one per configured port. Empty array when no ports. */
   llm: LlmMetrics[];
+  /** One entry per configured video port. Empty array when none configured. */
+  comfy: ComfyMetrics[];
 }
 
 // ─── Spark snapshot (server pushes this) ──────────────────
@@ -274,6 +328,12 @@ export interface SparkSnapshot {
   llmPorts: number[];
   /** Ports with a stored LLM API key (key itself never exposed) */
   llmApiKeyPorts?: number[];
+  /** ComfyUI ports probed on this Spark. Empty = video monitoring off. */
+  videoPorts?: number[];
+  /** True when at least one video port is configured. */
+  videoMonitoring?: boolean;
+  /** Optional ComfyUI server log path used to recover sampler step progress. */
+  comfyLogPath?: string | null;
   hardware: HardwareInfo;
   metrics: SparkMetrics;
 }

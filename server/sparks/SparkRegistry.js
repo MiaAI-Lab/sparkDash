@@ -475,6 +475,7 @@ export class SparkRegistry {
       auth: sshIn.auth === "pass" ? "pass" : "key",
     };
     const llmPorts = this._normalizeLlmPorts(config.llmPorts ?? config.llmPort);
+    const videoPorts = this._normalizeVideoPorts(config.videoPorts);
     const role = this._normalizeRole(config);
     const isWorker = role === "worker";
     // Never keep password on the persisted object
@@ -490,6 +491,10 @@ export class SparkRegistry {
       isLocal: Boolean(config.isLocal),
       ssh,
       llmPorts,
+      /** ComfyUI ports to probe. Empty = video monitoring off for this Spark. */
+      videoPorts,
+      /** Host path to the ComfyUI server log — enables sampler step progress. */
+      comfyLogPath: typeof config.comfyLogPath === "string" ? config.comfyLogPath.trim() : null,
       role,
       /** When true, this Spark is an LLM worker — no local API card / probe. */
       workerNode: isWorker,
@@ -562,5 +567,24 @@ export class SparkRegistry {
     const n = typeof value === "string" ? parseInt(value, 10) : Number(value);
     if (Number.isInteger(n) && n >= 1 && n <= 65535) return [n];
     return [LLM_PORT];
+  }
+
+  /**
+   * Normalize ComfyUI ports: validates 1–65535, deduplicates preserving order.
+   * Unlike LLM ports there is no default — absent/invalid means "off", so
+   * Sparks that predate this feature never start probing something that
+   * isn't there.
+   */
+  _normalizeVideoPorts(value) {
+    const list = Array.isArray(value) ? value : value == null ? [] : [value];
+    const seen = new Set();
+    const unique = [];
+    for (const v of list) {
+      const n = typeof v === "string" ? parseInt(v, 10) : Number(v);
+      if (!Number.isInteger(n) || n < 1 || n > 65535 || seen.has(n)) continue;
+      seen.add(n);
+      unique.push(n);
+    }
+    return unique;
   }
 }

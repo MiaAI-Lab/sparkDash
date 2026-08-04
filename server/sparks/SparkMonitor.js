@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { SystemCollector } from "../collectors/SystemCollector.js";
 import { LlmProbe } from "../collectors/LlmProbe.js";
+import { ComfyProbe } from "../collectors/ComfyProbe.js";
 import { sshTest, sshExec } from "../collectors/ssh.js";
 import {
   POLL_INTERVAL_GPU,
@@ -9,6 +10,7 @@ import {
   POLL_INTERVAL_NETWORK,
   POLL_INTERVAL_STORAGE,
   POLL_INTERVAL_LLM,
+  POLL_INTERVAL_COMFY,
   POLL_INTERVAL_BANDWIDTH,
   POLL_INTERVAL_LIVENESS,
   LLM_PORT,
@@ -39,6 +41,12 @@ export class SparkMonitor {
       }
     }
 
+    // One ComfyProbe per configured video port — empty unless videoPorts is set
+    this.comfyProbes = new Map();
+    for (const port of this._videoPorts(spark)) {
+      this.comfyProbes.set(port, new ComfyProbe(spark, port));
+    }
+
     // Online status from dedicated liveness checks (not metric poll success)
     this.online = false;
     this.lastOnlineOk = 0;
@@ -55,6 +63,7 @@ export class SparkMonitor {
       network: this.collector._defaultNetwork(),
       unifiedMemory: this.collector._defaultUnifiedMemory(),
       llm: [],
+      comfy: [],
     };
     this._lastUpdate = {};
 
@@ -62,6 +71,8 @@ export class SparkMonitor {
     this._intervals = [];
     /** @type {ReturnType<typeof setInterval> | null} */
     this._llmIntervalId = null;
+    /** @type {ReturnType<typeof setInterval> | null} */
+    this._comfyIntervalId = null;
     this._running = false;
     /** @type {Record<string, boolean>} in-flight domain guards */
     this._inflight = {};
@@ -70,6 +81,7 @@ export class SparkMonitor {
   /** Hot-update config without tearing down poll loops / rate baselines. */
   updateConfig(spark) {
     const wasLlm = this._llmMonitoringEnabled(this.spark);
+    const wasComfy = this._videoPorts(this.spark).length > 0;
     this.spark = spark;
     this.collector.spark = spark;
 
@@ -90,9 +102,27 @@ export class SparkMonitor {
       this._metrics.llm = [];
     }
 
-    // Toggle LLM poll interval when monitoring enablement flips
+    // Rebuild ComfyUI probe map the same way
+    const videoPorts = this._videoPorts();
+    const prevComfy = this.comfyProbes;
+    this.comfyProbes = new Map();
+    for (const port of videoPorts) {
+      const existing = prevComfy.get(port);
+      if (existing) {
+        existing.spark = spark;
+        this.comfyProbes.set(port, existing);
+      } else {
+        this.comfyProbes.set(port, new ComfyProbe(spark, port));
+      }
+    }
+    if (videoPorts.length === 0) this._metrics.comfy = [];
+
+    // Toggle poll intervals when monitoring enablement flips
     if (this._running && wasLlm !== this._llmMonitoringEnabled()) {
       this._restartLlmPollInterval();
+    }
+    if (this._running && wasComfy !== (videoPorts.length > 0)) {
+      this._restartComfyPollInterval();
     }
   }
 
@@ -119,6 +149,42 @@ export class SparkMonitor {
       this._intervals.push(this._llmIntervalId);
       void this._pollDomain("llm");
     }
+  }
+
+  /** Start or clear the ComfyUI poll timer based on configured video ports. */
+  _restartComfyPollInterval() {
+    if (this._comfyIntervalId != null) {
+      clearInterval(this._comfyIntervalId);
+      this._intervals = this._intervals.filter((id) => id !== this._comfyIntervalId);
+      this._comfyIntervalId = null;
+    }
+    if (this._videoPorts().length > 0 && this._running) {
+      this._comfyIntervalId = setInterval(() => this._pollDomain("comfy"), POLL_INTERVAL_COMFY);
+      this._intervals.push(this._comfyIntervalId);
+      void this._pollDomain("comfy");
+    }
+  }
+
+  /**
+   * Video (ComfyUI) ports from spark config. Unlike LLM ports there is no
+   * default — an unconfigured spark gets no ComfyUI probe at all, so existing
+   * installs are untouched. Workers never serve one.
+   * @param {object} [spark]
+   */
+  _videoPorts(spark = this.spark) {
+    const role = spark?.role || (spark?.workerNode ? "worker" : "standalone");
+    if (role === "worker") return [];
+    const raw = spark?.videoPorts;
+    if (!Array.isArray(raw)) return [];
+    const seen = new Set();
+    const ports = [];
+    for (const v of raw) {
+      const n = typeof v === "string" ? parseInt(v, 10) : Number(v);
+      if (!Number.isInteger(n) || n < 1 || n > 65535 || seen.has(n)) continue;
+      seen.add(n);
+      ports.push(n);
+    }
+    return ports;
   }
 
   /** Returns array of LLM ports from spark config. */
@@ -148,6 +214,7 @@ export class SparkMonitor {
     this._intervals.push(setInterval(() => this._pollDomain("ram"), POLL_INTERVAL_CPU));
     this._intervals.push(setInterval(() => this._pollDomain("memory"), POLL_INTERVAL_BANDWIDTH));
     this._restartLlmPollInterval();
+    this._restartComfyPollInterval();
     // Liveness on a slightly slower cadence
     this._intervals.push(setInterval(() => this._checkOnline(), POLL_INTERVAL_LIVENESS));
     console.log(`[SparkMonitor] ${this.spark.id} started`);
@@ -159,6 +226,7 @@ export class SparkMonitor {
     for (const id of this._intervals) clearInterval(id);
     this._intervals = [];
     this._llmIntervalId = null;
+    this._comfyIntervalId = null;
     this._inflight = {};
     console.log(`[SparkMonitor] ${this.spark.id} stopped`);
   }
@@ -166,6 +234,7 @@ export class SparkMonitor {
   /** Return a full snapshot of this Spark's metrics. */
   snapshot() {
     const ports = this._llmMonitoringEnabled() ? this._llmPorts() : [];
+    const videoPorts = this._videoPorts();
     return {
       id: this.spark.id,
       name: this.spark.name,
@@ -186,6 +255,10 @@ export class SparkMonitor {
         : Object.keys(this.spark.llmApiKeys || {})
             .map((p) => parseInt(p, 10))
             .filter((n) => Number.isInteger(n)),
+      videoPorts,
+      videoMonitoring: videoPorts.length > 0,
+      comfyLogPath:
+        typeof this.spark.comfyLogPath === "string" ? this.spark.comfyLogPath : null,
       hardware: this._getHardwareSummary(),
       metrics: {
         // NOTE: no `timestamp` here on purpose. The broadcast path skips
@@ -202,6 +275,7 @@ export class SparkMonitor {
         network: this._metrics.network,
         unifiedMemory: this._metrics.unifiedMemory,
         llm: this._metrics.llm,
+        comfy: this._metrics.comfy,
       },
     };
   }
@@ -269,6 +343,7 @@ export class SparkMonitor {
       this._pollDomain("ram"),
       this._pollDomain("memory"),
       this._pollDomain("llm"),
+      this._pollDomain("comfy"),
     ]);
   }
 
@@ -278,6 +353,8 @@ export class SparkMonitor {
     if (domain === "storage" && this.spark.storagePollDisabled) return;
     // Worker nodes: no local LLM API
     if (domain === "llm" && !this._llmMonitoringEnabled()) return;
+    // No ComfyUI configured for this spark
+    if (domain === "comfy" && this.comfyProbes.size === 0) return;
     this._inflight[domain] = true;
     try {
       let result;
@@ -304,6 +381,11 @@ export class SparkMonitor {
           // Probe all ports in parallel
           result = await Promise.all(
             Array.from(this.llmProbes.values()).map((probe) => probe.probe())
+          );
+          break;
+        case "comfy":
+          result = await Promise.all(
+            Array.from(this.comfyProbes.values()).map((probe) => probe.probe())
           );
           break;
       }
@@ -341,6 +423,9 @@ export class SparkMonitor {
           break;
         case "llm":
           this._metrics.llm = result;
+          break;
+        case "comfy":
+          this._metrics.comfy = result;
           break;
       }
       this._lastUpdate[domain] = Date.now();

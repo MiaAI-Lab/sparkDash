@@ -255,6 +255,38 @@ export function removeLlmPort(
   });
 }
 
+/** Replace the full ComfyUI (video) port list. An empty list turns monitoring off. */
+export function updateVideoPorts(
+  id: string,
+  videoPorts: number[]
+): Promise<{ success: boolean; videoPorts: number[] }> {
+  return apiFetch(`/api/sparks/${id}/video-ports`, {
+    method: "PUT",
+    body: JSON.stringify({ videoPorts }),
+  });
+}
+
+/** Add a ComfyUI (video) port to a Spark (hot update). */
+export function addVideoPort(
+  id: string,
+  port: number
+): Promise<{ success: boolean; videoPorts: number[] }> {
+  return apiFetch(`/api/sparks/${id}/video-ports`, {
+    method: "POST",
+    body: JSON.stringify({ port }),
+  });
+}
+
+/** Remove a ComfyUI (video) port. Removing the last one turns monitoring off. */
+export function removeVideoPort(
+  id: string,
+  port: number
+): Promise<{ success: boolean; videoPorts: number[] }> {
+  return apiFetch(`/api/sparks/${id}/video-ports/${port}`, {
+    method: "DELETE",
+  });
+}
+
 /** Backward-compat: replace all ports via the legacy single-port endpoint. */
 export function updateLlmPort(
   id: string,

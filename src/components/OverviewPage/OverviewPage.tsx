@@ -30,6 +30,15 @@ function fmtStorage(mb: number, unit: boolean): string {
   return unit ? `${s} ${label}` : s;
 }
 
+/** Seconds → "m:ss" / "h:mm:ss", for the ComfyUI render ETA tooltip. */
+function formatEta(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return h > 0 ? `${h}:${pad(m)}:${pad(s % 60)}` : `${m}:${pad(s % 60)}`;
+}
+
 function MiniStat({
   label,
   value,
@@ -275,18 +284,63 @@ function SparkCard({
                 />
               );
             })()}
+            {(() => {
+              // ComfyUI, when a video port is configured and answering.
+              const comfy = Array.isArray(spark.metrics.comfy)
+                ? spark.metrics.comfy.find((c) => c.available)
+                : null;
+              if (!comfy) return null;
+              const job = comfy.job;
+              const value = job
+                ? job.step != null && job.steps != null
+                  ? `${job.step} / ${job.steps}`
+                  : "rendering"
+                : "idle";
+              const title = [
+                comfy.version ? `ComfyUI ${comfy.version}` : "ComfyUI",
+                job?.etaSeconds != null ? `ETA ${formatEta(job.etaSeconds)}` : null,
+                comfy.queuePending > 0 ? `${comfy.queuePending} queued` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ");
+              return (
+                <MiniStat
+                  label="ComfyUI"
+                  value={value}
+                  tone={job ? "accent" : "default"}
+                  title={title}
+                  bold={Boolean(job)}
+                />
+              );
+            })()}
           </div>
 
           {(() => {
             const llmArr = spark.metrics.llm;
             const llm = Array.isArray(llmArr) ? llmArr.find((l) => l.available) : null;
-            if (!llm) return null;
+            const comfy = Array.isArray(spark.metrics.comfy)
+              ? spark.metrics.comfy.find((c) => c.available && c.job)
+              : null;
+            const percent = comfy?.job?.percent ?? null;
+            if (!llm && percent == null) return null;
             return (
-              <div className="mt-3.5 border-t border-border pt-3 text-center">
-                <span className="font-tabular text-[28px] font-bold leading-none text-text-strong">
-                  {llm.generationTps.toFixed(0)}
-                </span>
-                <span className="text-sm font-normal text-muted"> tok/s</span>
+              <div className="mt-3.5 flex items-center justify-center gap-6 border-t border-border pt-3 text-center">
+                {llm && (
+                  <div>
+                    <span className="font-tabular text-[28px] font-bold leading-none text-text-strong">
+                      {llm.generationTps.toFixed(0)}
+                    </span>
+                    <span className="text-sm font-normal text-muted"> tok/s</span>
+                  </div>
+                )}
+                {percent != null && (
+                  <div>
+                    <span className="font-tabular text-[28px] font-bold leading-none text-accent">
+                      {percent.toFixed(0)}
+                    </span>
+                    <span className="text-sm font-normal text-muted">% render</span>
+                  </div>
+                )}
               </div>
             );
           })()}

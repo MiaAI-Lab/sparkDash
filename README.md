@@ -67,6 +67,7 @@ Full history: [CHANGELOG.md](./CHANGELOG.md)
 | **Prompt Showcase** | Full-page multi-terminal LLM streaming demo (up to 32 prompts) with live tok/s and copy-out |
 | **vLLM health** | KV cache %, run/wait queue, TTFT/E2E/ITL p95, preemptions, prefix cache, MTP accept from Prometheus `/metrics` |
 | **Multiple LLM ports** | Monitor several LLM servers on different ports simultaneously — each gets its own panel with independent backend detection and metrics |
+| **ComfyUI probe** | Optional video/diffusion monitoring: queue depth, running job, sampler step progress + ETA, ComfyUI VRAM — per Spark, opt-in, any port |
 | **GPU processes** | See the top GPU processes by VRAM usage directly in the GPU panel, including process name and memory allocation |
 | **Spark uptime** | System uptime displayed inline on each Spark header for at-a-glance availability |
 | **Power controls** | Graceful shutdown (SSH host script) and Wake-on-LAN; batch actions on Overview |
@@ -114,7 +115,8 @@ Design principle: **one Spark model, N instances**. Every Spark is a record in `
 │  ├─ SparkRegistry             load/persist Sparks; change events           │
 │  ├─ SparkMonitor (per Spark)  collector + LLM probe + rate baselines       │
 │  │   ├─ SystemCollector       local sysfs/proc OR remote SSH               │
-│  │   └─ LlmProbe              HTTP to host:LLM_PORT, backend autodetect    │
+│  │   ├─ LlmProbe              HTTP to host:LLM_PORT, backend autodetect    │
+│  │   └─ ComfyProbe            HTTP to host:videoPort, opt-in (ComfyUI)     │
 │  ├─ REST /api/*                                                            │
 │  └─ WebSocket /ws             snapshot stream to browsers                  │
 │  React SPA (src/)  — Overview + per-Spark pages, themes, dialogs           │
@@ -191,6 +193,9 @@ sparkDash/
 | POST | `/api/sparks/:id/llm-ports` | Add an LLM port (hot) |
 | DELETE | `/api/sparks/:id/llm-ports/:port` | Remove an LLM port (hot) |
 | PUT | `/api/sparks/:id/llm-port` | LLM port — backward-compat (hot) |
+| PUT | `/api/sparks/:id/video-ports` | Replace all ComfyUI ports (empty = off, hot) |
+| POST | `/api/sparks/:id/video-ports` | Add a ComfyUI port (hot) |
+| DELETE | `/api/sparks/:id/video-ports/:port` | Remove a ComfyUI port (hot) |
 | GET | `/api/settings` | Global settings |
 | PUT | `/api/settings` | Update global settings |
 | WS | `/ws` | Real-time metrics stream |
@@ -226,6 +231,8 @@ Copy `.env.example` to `.env` if needed:
 | `POLL_INTERVAL_NETWORK` | `2000` | Network poll (ms) |
 | `POLL_INTERVAL_STORAGE` | `5000` | Storage poll (ms) |
 | `POLL_INTERVAL_LLM` | `2000` | LLM probe poll (ms) |
+| `POLL_INTERVAL_COMFY` | `3000` | ComfyUI probe poll (ms) |
+| `COMFY_PORT` | `8188` | Suggested ComfyUI port (probing stays off until a Spark has video ports) |
 | `POLL_INTERVAL_BANDWIDTH` | `2000` | Memory bandwidth / dmon poll (ms) |
 | `POLL_INTERVAL_LIVENESS` | `5000` | Online/SSH liveness check (ms) |
 | `SPARKDASH_SECRETS_KEY` | _(auto)_ | Passphrase or 64-char hex for secret encryption |
@@ -322,6 +329,20 @@ Each configured LLM port gets its own `LlmProbe` instance running in parallel. P
 - **vLLM / sglang** — `/v1/models`; sglang via `/get_server_info` (`last_gen_throughput` when metrics off), vLLM via Prometheus `/metrics` counters (scientific notation supported)
 
 Rates are derived from per-probe cumulative counter diffs (or SGLang sticky throughput while it moves). Multiple ports can be added or removed at runtime without restarting the monitor.
+
+### ComfyUI probe (video / diffusion)
+
+Off by default: a Spark is probed only once it has at least one **video port**. Add one with **+ Add ComfyUI port** on the Spark page (or `POST /api/sparks/:id/video-ports`); remove the last one and monitoring stops. Worker-role Sparks are never probed.
+
+Each port gets a `ComfyProbe` reading ComfyUI's REST API:
+
+- `/system_stats` — version, torch/python versions, device VRAM total/free and torch allocator VRAM
+- `/queue` — running and pending prompt counts
+- `/api/jobs?limit=5` — current job id + timings, and the last finished output filename
+
+**Sampler step progress needs a log path.** ComfyUI sends `progress_state` only to the WebSocket client that submitted the prompt (`comfy_execution/progress.py`), so a passive observer can never read "14 / 20" from the API. Set **Server log path** in the panel's *Settings* (or `comfyLogPath` via `PATCH /api/sparks/:id`) and the probe tails the last few KiB of ComfyUI's stdout log, parsing the tqdm line for step, steps, s/step and ETA. Local Sparks read it through the host root mount; remote Sparks over SSH. Leave it blank and the panel simply shows *Rendering* with elapsed time instead of a progress bar.
+
+ComfyUI shares the GPU with any LLM server on the same box — on a 128 GB GB10, an `--gpu-memory-utilization` around `0.45` for vLLM leaves enough unified memory for video work.
 
 ---
 
