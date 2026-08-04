@@ -208,10 +208,39 @@ async function pollServerGenerationRates(baseUrl, signal, intervalMs = 400) {
 }
 
 /**
+ * Pull generated text out of one streamed choice.
+ *
+ * Reasoning models (DeepSeek-V4-Flash, R1-style) emit their thinking phase as
+ * `delta.reasoning` / `delta.reasoning_content` and only switch to
+ * `delta.content` at the end — but `usage.completion_tokens` counts *both*.
+ * Timing the window on content alone therefore pairs the full token count with
+ * a fraction of the wall clock (inflated tok/s), or with a zero-length window
+ * when the reply never leaves the reasoning phase (tok/s reads 0).
+ *
+ * @returns {{ text: string, isReasoning: boolean }} empty text when the delta
+ * carries no generated tokens (role-only openers, tool calls, keepalives).
+ */
+export function extractDeltaText(choice) {
+  const delta = choice?.delta;
+  const content = delta?.content ?? choice?.text;
+  if (typeof content === "string" && content.length > 0) {
+    return { text: content, isReasoning: false };
+  }
+  // `reasoning_content` is the vLLM/OpenAI spelling; `reasoning` is what
+  // DeepSeek-V4-Flash emits. Accept either.
+  const reasoning = delta?.reasoning_content ?? delta?.reasoning;
+  if (typeof reasoning === "string" && reasoning.length > 0) {
+    return { text: reasoning, isReasoning: true };
+  }
+  return { text: "", isReasoning: false };
+}
+
+/**
  * Parse one OpenAI-compatible SSE stream for a single completion request.
  *
  * Decode tok/s uses the **first-token → last-token** window (not stream EOF),
- * so trailing usage/[DONE] latency does not drag the rate down.
+ * so trailing usage/[DONE] latency does not drag the rate down. Reasoning
+ * deltas count as tokens for both ends of that window — see extractDeltaText.
  *
  * When `debug` is true, also captures a compact HTTP/SSE debug trace
  * (no full completion text).
@@ -222,6 +251,10 @@ async function runStreamingRequest(url, body, signal, { debug = false } = {}) {
   let tFirst = null;
   /** @type {number | null} */
   let tLast = null;
+  /** First *answer* token — after the reasoning phase, when there is one. */
+  /** @type {number | null} */
+  let tFirstContent = null;
+  let reasoningChunkCount = 0;
   let chunkTokenCount = 0;
   let usageCompletionTokens = null;
   /** @type {Record<string, number> | null} */
@@ -314,14 +347,19 @@ async function runStreamingRequest(url, body, signal, { debug = false } = {}) {
 
           const choice = json.choices?.[0];
           if (debug && choice?.finish_reason) finishReason = String(choice.finish_reason);
-          const delta = choice?.delta?.content ?? choice?.text ?? "";
-          if (typeof delta === "string" && delta.length > 0) {
+          const { text: delta, isReasoning } = extractDeltaText(choice);
+          if (delta.length > 0) {
             const now = performance.now();
             if (tFirst == null) tFirst = now;
             tLast = now;
+            if (isReasoning) {
+              reasoningChunkCount += 1;
+            } else if (tFirstContent == null) {
+              tFirstContent = now;
+            }
             // OpenAI-compatible servers typically emit ~1 token per content chunk.
             chunkTokenCount += 1;
-            if (debug) content += delta;
+            if (debug && !isReasoning) content += delta;
           }
         }
       }
@@ -347,7 +385,9 @@ async function runStreamingRequest(url, body, signal, { debug = false } = {}) {
   // Post-first-token tokens. With usage: all but the first generated token.
   const decodeTokens = Math.max(0, completionTokens - (completionTokens > 0 ? 1 : 0));
 
-  // Decode window: first content token → last content token (excludes prefill + teardown).
+  // Decode window: first generated token → last generated token (excludes
+  // prefill + teardown). Reasoning tokens are inside the window because
+  // usage.completion_tokens counts them.
   const decodeMs =
     tFirst != null && tLast != null && tLast > tFirst ? tLast - tFirst : 0;
   const decodeTps =
@@ -356,6 +396,9 @@ async function runStreamingRequest(url, body, signal, { debug = false } = {}) {
   /** @type {Record<string, unknown>} */
   const out = {
     ttftMs: round2(ttftMs),
+    /** Reasoning models only: first answer token, after the thinking phase. */
+    ttftContentMs: tFirstContent != null ? round2(tFirstContent - t0) : null,
+    reasoningChunks: reasoningChunkCount,
     decodeMs: round2(decodeMs),
     completionTokens,
     decodeTokens,
@@ -507,6 +550,8 @@ function streamPublicResult(r, index, prompt, reqMeta, debug = false) {
   const out = {
     index,
     ttftMs: r?.ttftMs ?? 0,
+    ttftContentMs: r?.ttftContentMs ?? null,
+    reasoningChunks: r?.reasoningChunks ?? 0,
     decodeTps: r?.decodeTps ?? 0,
     decodeTokens: r?.decodeTokens ?? 0,
     completionTokens: r?.completionTokens ?? 0,
