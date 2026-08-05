@@ -10,6 +10,11 @@ interface CpuPanelProps {
   ram: RamMetrics | null;
   sparkId: string;
   unifiedMemory: UnifiedMemoryMetrics | null;
+  temperatureUnit: "celsius" | "fahrenheit";
+}
+
+function celsiusToFahrenheit(c: number): number {
+  return Math.round((c * 9) / 5 + 32);
 }
 
 function formatMb(mb: number): string {
@@ -39,12 +44,27 @@ function MetricRow({
   );
 }
 
-export function CpuPanel({ cpu, ram, sparkId, unifiedMemory }: CpuPanelProps) {
+export function CpuPanel({ cpu, ram, sparkId, unifiedMemory, temperatureUnit }: CpuPanelProps) {
   const usageHistory = useMetricsHistoryTail(sparkId, "cpu.usage");
+  const tempHistory = useMetricsHistoryTail(sparkId, "cpu.temp");
 
   const usage = cpu?.usage ?? 0;
   const draw = cpu?.draw ?? 0;
   const tdp = cpu?.tdp ?? 0;
+
+  // 0 means no sensor was readable on this host (see SystemCollector._parseSensorTemp).
+  const temperature = cpu?.temperature ?? 0;
+  const displayTemp =
+    temperatureUnit === "fahrenheit" ? celsiusToFahrenheit(temperature) : temperature;
+  const tempLabel = temperatureUnit === "fahrenheit" ? `${displayTemp}°F` : `${displayTemp}°C`;
+  // GB10 CPU thresholds follow DGX_SPARK.THERMAL_THRESHOLDS.junction (warn 85, crit 95).
+  // The GPU panel's 65°C warning would sit amber permanently here under normal load.
+  const tempColor =
+    temperature > 95
+      ? "var(--color-danger)"
+      : temperature > 85
+        ? "var(--color-warning)"
+        : "var(--color-accent)";
 
   const ramUsed = ram?.used ?? 0;
   const ramTotal = ram?.total ?? 0;
@@ -59,6 +79,14 @@ export function CpuPanel({ cpu, ram, sparkId, unifiedMemory }: CpuPanelProps) {
         spark={<Sparkline data={usageHistory} color="var(--color-accent)" width={180} />}
         value={<span className="text-text-strong">{usage}%</span>}
       />
+      {temperature > 0 && (
+        <MetricRow
+          label="Temperature"
+          color={tempColor}
+          spark={<Sparkline data={tempHistory} color={tempColor} width={180} />}
+          value={<span className="text-text-strong">{tempLabel}</span>}
+        />
+      )}
       <div className="flex items-center justify-between text-sm">
         <span className="text-muted">Power</span>
         <span className="font-tabular text-[13px] text-text">
