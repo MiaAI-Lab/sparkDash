@@ -897,6 +897,22 @@ export class SystemCollector {
       }
     } catch {}
 
+    // NV_ERR_NO_MEMORY kernel error count from the NVRM driver (host journal).
+    let nvErrNoMemory = 0;
+    try {
+      const js = "journalctl -k --no-pager 2>/dev/null | grep -c \"NV_ERR_NO_MEMORY\" || true";
+      const out = this._hasHostProc() ? await this._execOnHost(js) : await this._exec(js);
+      const n = Number(String(out).trim());
+      if (!Number.isNaN(n) && n > 0) nvErrNoMemory = Math.round(n);
+    } catch {
+      try {
+        const dmesg = "dmesg 2>/dev/null | grep -c \"NV_ERR_NO_MEMORY\" || true";
+        const out = this._hasHostProc() ? await this._execOnHost(dmesg) : await this._exec(dmesg);
+        const n = Number(String(out).trim());
+        if (!Number.isNaN(n) && n > 0) nvErrNoMemory = Math.round(n);
+      } catch {}
+    }
+
     return {
       total: totalMB,
       gpuUsed: gpuUsedMB,
@@ -906,6 +922,7 @@ export class SystemCollector {
       percentage,
       oomRisk,
       bandwidth,
+      nvErrNoMemory,
     };
   }
 
@@ -1248,6 +1265,17 @@ export class SystemCollector {
       const percentage = totalMB > 0 ? Math.round((usedMB / totalMB) * 100) : 0;
       const oomRisk = percentage > 85 ? "high" : percentage > 60 ? "medium" : "low";
 
+      // NV_ERR_NO_MEMORY kernel error count from the NVRM driver (remote host).
+      let nvErrNoMemory = 0;
+      try {
+        const countRaw = await sshExec(
+          this.spark,
+          "journalctl -k --no-pager 2>/dev/null | grep -c \"NV_ERR_NO_MEMORY\" || true"
+        );
+        const n = Number(String(countRaw).trim());
+        if (!Number.isNaN(n) && n > 0) nvErrNoMemory = Math.round(n);
+      } catch {}
+
       return {
         total: totalMB,
         gpuUsed: gpuUsedMB,
@@ -1257,6 +1285,7 @@ export class SystemCollector {
         percentage,
         oomRisk,
         bandwidth: { current: 0, peak: 400 },
+        nvErrNoMemory,
       };
     } catch (err) {
       console.error(`[SystemCollector] Remote Unified Memory error for ${this.spark.id}:`, err.message);
@@ -1411,6 +1440,7 @@ export class SystemCollector {
       percentage: 0,
       oomRisk: "low",
       bandwidth: { current: 0, peak: 0 },
+      nvErrNoMemory: 0,
     };
   }
 

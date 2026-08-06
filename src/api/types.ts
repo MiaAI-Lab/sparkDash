@@ -175,6 +175,8 @@ export interface UnifiedMemoryMetrics {
   used: number;
   available: number;
   percentage: number;
+  /** Cumulative count of NV_ERR_NO_MEMORY kernel driver errors. */
+  nvErrNoMemory: number;
   oomRisk: "low" | "medium" | "high";
   bandwidth: {
     current: number;
