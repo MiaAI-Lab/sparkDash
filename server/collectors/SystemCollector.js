@@ -897,6 +897,21 @@ export class SystemCollector {
       }
     } catch {}
 
+    // NV_ERR_NO_MEMORY kernel error count from the NVRM driver (host journal).
+    let nvErrNoMemory = 0;
+    try {
+      const js = "journalctl -k --no-pager 2>/dev/null | grep -c \"NV_ERR_NO_MEMORY\" || true";
+      const out = this._hasHostProc() ? await this._execOnHost(js) : await this._exec(js);
+      const n = Number(String(out).trim());
+      if (!Number.isNaN(n) && n > 0) nvErrNoMemory = Math.round(n);
+    } catch {
+      try {
+        const out = await this._exec("dmesg 2>/dev/null | grep -c \"NV_ERR_NO_MEMORY\" || true");
+        const n = Number(String(out).trim());
+        if (!Number.isNaN(n) && n > 0) nvErrNoMemory = Math.round(n);
+      } catch {}
+    }
+
     return {
       total: totalMB,
       gpuUsed: gpuUsedMB,
@@ -906,6 +921,7 @@ export class SystemCollector {
       percentage,
       oomRisk,
       bandwidth,
+      nvErrNoMemory,
     };
   }
 
@@ -1411,6 +1427,7 @@ export class SystemCollector {
       percentage: 0,
       oomRisk: "low",
       bandwidth: { current: 0, peak: 0 },
+      nvErrNoMemory: 0,
     };
   }
 
