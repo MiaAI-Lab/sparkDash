@@ -1,6 +1,24 @@
 import { test, mock } from "node:test";
 import { strict as assert } from "node:assert";
-import { SystemCollector } from "../SystemCollector.js";
+
+// The remote unified-memory path calls the module-level sshExec() imported by
+// SystemCollector.js. ESM namespace bindings are non-configurable, so we mock
+// the whole ssh.js module via mock.module() (requires --experimental-test-module-mocks).
+let journalCount = 0;
+mock.module("../ssh.js", {
+  exports: {
+    sshExec: async (_spark, cmd) => {
+      if (cmd.includes("journalctl")) {
+        journalCount += 1;
+        return "43";
+      }
+      return "MemTotal:       16000000 kB\nMemAvailable:   4000000 kB\n---\n";
+    },
+  },
+});
+
+// Import after registering the mock so SystemCollector picks up the stubbed sshExec.
+const { SystemCollector } = await import("../SystemCollector.js");
 
 const MEMINFO =
   "MemTotal:       8000000 kB\nMemFree:        1000000 kB\nMemAvailable:   2000000 kB\n";
@@ -35,4 +53,15 @@ test("nvErrNoMemory: defaults to 0 when the journal command fails", async () => 
   });
   const result = await c._getUnifiedMemory();
   assert.equal(result.nvErrNoMemory, 0);
+});
+
+test("nvErrNoMemory: remote collection includes the count over SSH", async () => {
+  journalCount = 0;
+
+  const c = new SystemCollector({ id: "gx11", isLocal: false, lanIp: "10.200.0.2" });
+  const result = await c._getRemoteUnifiedMemory();
+
+  assert.ok(journalCount === 1, "journalctl count command should be issued once");
+  assert.equal(typeof result.nvErrNoMemory, "number");
+  assert.equal(result.nvErrNoMemory, 43);
 });
