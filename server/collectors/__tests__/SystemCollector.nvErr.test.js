@@ -5,9 +5,11 @@ import { strict as assert } from "node:assert";
 // SystemCollector.js. ESM namespace bindings are non-configurable, so we mock
 // the whole ssh.js module via mock.module() (requires --experimental-test-module-mocks).
 let journalCount = 0;
+let failSsh = false;
 mock.module("../ssh.js", {
   exports: {
     sshExec: async (_spark, cmd) => {
+      if (failSsh) throw new Error("ssh exec failed");
       if (cmd.includes("journalctl")) {
         journalCount += 1;
         return "43";
@@ -64,4 +66,14 @@ test("nvErrNoMemory: remote collection includes the count over SSH", async () =>
   assert.ok(journalCount === 1, "journalctl count command should be issued once");
   assert.equal(typeof result.nvErrNoMemory, "number");
   assert.equal(result.nvErrNoMemory, 43);
+});
+
+test("nvErrNoMemory: defaults to 0 when the remote SSH journal call throws", async () => {
+  failSsh = true;
+
+  const c = new SystemCollector({ id: "gx11", isLocal: false, lanIp: "10.200.0.2" });
+  const result = await c._getRemoteUnifiedMemory();
+
+  failSsh = false;
+  assert.equal(result.nvErrNoMemory, 0);
 });

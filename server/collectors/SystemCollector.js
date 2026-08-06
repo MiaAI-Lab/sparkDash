@@ -906,7 +906,8 @@ export class SystemCollector {
       if (!Number.isNaN(n) && n > 0) nvErrNoMemory = Math.round(n);
     } catch {
       try {
-        const out = await this._exec("dmesg 2>/dev/null | grep -c \"NV_ERR_NO_MEMORY\" || true");
+        const dmesg = "dmesg 2>/dev/null | grep -c \"NV_ERR_NO_MEMORY\" || true";
+        const out = this._hasHostProc() ? await this._execOnHost(dmesg) : await this._exec(dmesg);
         const n = Number(String(out).trim());
         if (!Number.isNaN(n) && n > 0) nvErrNoMemory = Math.round(n);
       } catch {}
