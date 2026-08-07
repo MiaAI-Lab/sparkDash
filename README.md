@@ -169,7 +169,7 @@ docker compose -f docker-compose.dev.yml up --build
 Design principle: **one Spark model, N instances**. Every Spark is a record in `config/sparks.json`. The same `SparkMonitor`, `SystemCollector`, and `LlmProbe` code runs for all of them. Adding a unit is a config change, not a code change.
 
 ```txt
-┌────────────────────── Docker container (sparkDash) ──────────────────────┐
+┌────────────────────── Docker container (sparkDash) ────────────────────────┐
 │  Express (server/)                                                         │
 │  ├─ config/sparks.json        Spark registry (API read/write)              │
 │  ├─ SparkRegistry             load/persist Sparks; change events           │
