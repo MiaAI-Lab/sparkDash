@@ -12,7 +12,7 @@ Format: version sections are listed newest first.
 ### Added
 - **Fleet model storage tiers** — a dedicated **Storage** view (fleet-wide) plus per-Spark storage cards and a model-placement table
 - **Tier classification** — each mounted disk is labeled **Hot** (root NVMe), **Warm** (other local disks), or **Cold** (NAS `/mnt/modelshelf` and `cifs`/`smb`/`nfs` mounts), driven by `tierPaths` overrides, filesystem type, and mount prefix
-- **Model inventory** — scans configured model directories (`.safetensors` / `.gguf` / `.bin` / `.pt` / `.pth` / `.ckpt` weight files) per tier, local and over SSH, with a new `models` metrics domain (`POLL_INTERVAL_MODELS`, default 30 s)
+- **Model inventory** — scans configured model directories (`.safetensors` / `.gguf` / `.bin` / `.pt` / `.pth` / `.ckpt` weight files) per tier, local and over SSH, with a new `models` metrics domain (`POLL_INTERVAL_MODELS`, default 30 s). Each scanned dir is inspected **one level deep**, so `modelDirs` should point at the directory whose direct children are models (e.g. the outer family dir for HF-style nests)
 - **Dual placement** — a model is shown as **resident** on the Sparks holding a local copy, and as served **over the CX7/ConnectX fabric** on a peer that has it loaded via its LLM probe without a local copy
 - Optional per-Spark `modelDirs` / `tierPaths` in `config/sparks.json` to override which directories map to which tier
 

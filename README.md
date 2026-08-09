@@ -329,6 +329,8 @@ Rates are derived from per-probe cumulative counter diffs (or SGLang sticky thro
 
 Each mounted disk is assigned a tier — **Hot** (root NVMe), **Warm** (other local disks), or **Cold** (NAS: `/mnt/modelshelf`, `/media`, `/Volumes`, `/mnt`, or any `cifs`/`smb`/`nfs` mount). Per-Spark `tierPaths` in `config/sparks.json` override the heuristic per mount. The collector scans the configured model directories (grouped by tier via `modelDirs`) for weight files (`.safetensors`, `.gguf`, `.bin`, `.pt`, `.pth`, `.ckpt`) and reports each model by name, size, and tier.
 
+The scan looks **one directory level deep**: each immediate child of a `modelDirs` entry counts as a model if it is a loose weight file or a subdirectory whose immediate children include a weight file. Point `modelDirs` at the directory whose *direct* children are your models. HF-hub-style nesting (`models--org--name/snapshots/<ref>/*.safetensors`, or `~/models/hf/<family>/*.safetensors`) is two levels deep, so use the outer family dir (e.g. `~/models/hf`), not the parent, as the `modelDirs` root.
+
 A model is **resident** on the Sparks holding a local copy. Because a peer with the model loaded in its LLM probe (matched by name) serves it to the fleet over the CX7/ConnectX fabric, such a Spark is shown as placing the model **over the fabric** even with no local copy. The fleet **Storage** view rolls these up per tier and lists every model with its resident and fabric placement.
 
 ---
