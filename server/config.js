@@ -30,6 +30,8 @@ const POLL_INTERVAL_LLM = parseInt(process.env.POLL_INTERVAL_LLM || "2000", 10);
 const POLL_INTERVAL_BANDWIDTH = parseInt(process.env.POLL_INTERVAL_BANDWIDTH || "2000", 10);
 // Dedicated liveness (sshTest / local ping) cadence — not a metric domain.
 const POLL_INTERVAL_LIVENESS = parseInt(process.env.POLL_INTERVAL_LIVENESS || "5000", 10);
+// Model-inventory scan cadence (heavier dir walk than storage; keep slow).
+const POLL_INTERVAL_MODELS = parseInt(process.env.POLL_INTERVAL_MODELS || "30000", 10);
 
 // ─── Port ────────────────────────────────────────────────
 const PORT = parseInt(process.env.PORT || "5555", 10);
@@ -71,6 +73,18 @@ const HOST_PATHS = {
   ROOT: process.env.HOST_ROOT_PATH || "/host/root",
 };
 
+// ─── Model tier storage ──────────────────────────────────
+// Classifies each Spark storage device into hot/warm/cold. These are the
+// self-contained defaults; a Spark can override them via `tierPaths`.
+const TIER_DEFAULTS = {
+  /** Cold = the shared library/NAS. Matched by fstype or by mount prefix. */
+  COLD_FSTYPES: ["cifs", "smb", "smb3", "nfs", "nfs4"],
+  COLD_MOUNT_PREFIXES: ["/mnt/modelshelf", "/media", "/Volumes", "/mnt"],
+};
+
+/** Weight file extensions that make a directory count as a model. */
+const WEIGHT_EXTENSIONS = new Set([".safetensors", ".gguf", ".bin", ".pt", ".pth", ".ckpt"]);
+
 export {
   SPARKS_JSON_PATH,
   GPU_MEMORY_JSON_PATH,
@@ -85,11 +99,14 @@ export {
   POLL_INTERVAL_LLM,
   POLL_INTERVAL_BANDWIDTH,
   POLL_INTERVAL_LIVENESS,
+  POLL_INTERVAL_MODELS,
   PORT,
   LLM_PORT,
   DGX_SPARK,
   UNIT_CONVERSION,
   HARDWARE_DEFAULTS,
   HOST_PATHS,
+  TIER_DEFAULTS,
+  WEIGHT_EXTENSIONS,
   ROOT,
 };

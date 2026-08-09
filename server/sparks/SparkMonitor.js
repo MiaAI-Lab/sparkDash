@@ -11,6 +11,7 @@ import {
   POLL_INTERVAL_LLM,
   POLL_INTERVAL_BANDWIDTH,
   POLL_INTERVAL_LIVENESS,
+  POLL_INTERVAL_MODELS,
   LLM_PORT,
   HOST_PATHS,
 } from "../config.js";
@@ -52,6 +53,7 @@ export class SparkMonitor {
       cpu: this.collector._defaultCpu(),
       ram: this.collector._defaultRam(),
       storage: [],
+      models: [],
       network: this.collector._defaultNetwork(),
       unifiedMemory: this.collector._defaultUnifiedMemory(),
       llm: [],
@@ -145,6 +147,7 @@ export class SparkMonitor {
     this._intervals.push(setInterval(() => this._pollDomain("cpu"), POLL_INTERVAL_CPU));
     this._intervals.push(setInterval(() => this._pollDomain("network"), POLL_INTERVAL_NETWORK));
     this._intervals.push(setInterval(() => this._pollDomain("storage"), POLL_INTERVAL_STORAGE));
+    this._intervals.push(setInterval(() => this._pollDomain("models"), POLL_INTERVAL_MODELS));
     this._intervals.push(setInterval(() => this._pollDomain("ram"), POLL_INTERVAL_CPU));
     this._intervals.push(setInterval(() => this._pollDomain("memory"), POLL_INTERVAL_BANDWIDTH));
     this._restartLlmPollInterval();
@@ -199,6 +202,7 @@ export class SparkMonitor {
         cpu: this._metrics.cpu,
         ram: this._metrics.ram,
         storage: this._metrics.storage,
+        models: this._metrics.models,
         network: this._metrics.network,
         unifiedMemory: this._metrics.unifiedMemory,
         llm: this._metrics.llm,
@@ -266,6 +270,7 @@ export class SparkMonitor {
       this._pollDomain("cpu"),
       this._pollDomain("network"),
       this._pollDomain("storage"),
+      this._pollDomain("models"),
       this._pollDomain("ram"),
       this._pollDomain("memory"),
       this._pollDomain("llm"),
@@ -296,6 +301,9 @@ export class SparkMonitor {
           break;
         case "storage":
           result = await this.collector.collectStorage();
+          break;
+        case "models":
+          result = await this.collector.collectModels();
           break;
         case "memory":
           result = await this.collector.collectUnifiedMemory();
@@ -335,6 +343,9 @@ export class SparkMonitor {
           break;
         case "storage":
           this._metrics.storage = result;
+          break;
+        case "models":
+          this._metrics.models = result;
           break;
         case "memory":
           this._metrics.unifiedMemory = result;

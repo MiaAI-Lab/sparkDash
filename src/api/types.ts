@@ -61,6 +61,16 @@ export interface SparkConfig {
   llmMonitoring?: boolean;
   /** When true, storage is only updated on manual refresh, not auto-polled. */
   storagePollDisabled?: boolean;
+  /**
+   * Optional storage-tier override: { hot?, warm?, cold?: string[] } of mount
+   * prefixes. When empty, tier classification uses defaults. (self-contained)
+   */
+  tierPaths?: Partial<Record<ModelTier, string[]>>;
+  /**
+   * Optional per-tier model directories to scan for the model inventory:
+   * { hot?, warm?, cold?: string[] }. When empty, no models are reported.
+   */
+  modelDirs?: Partial<Record<ModelTier, string[]>>;
 }
 
 export type SparkRole = "head" | "worker" | "standalone";
@@ -144,6 +154,22 @@ export interface StorageMetrics {
   writeSpeed: number;
   /** Present when device is in disabledDevices; still returned for Settings UI */
   disabled?: boolean;
+  /** Storage tier: hot (internal NVMe) / warm (USB) / cold (NAS library). */
+  tier?: "hot" | "warm" | "cold";
+}
+
+/** A storage tier label. */
+export type ModelTier = "hot" | "warm" | "cold";
+
+/**
+ * A resident model on a Spark, from the per-Spark scanner. Placement
+ * (replicated across Sparks vs served over the CX7 fabric from a peer) is
+ * derived fleet-wide in the frontend from each Spark's models + loaded llm ids.
+ */
+export interface ModelTierMetrics {
+  name: string;
+  sizeBytes: number;
+  tier: ModelTier;
 }
 
 // ─── Network metrics ─────────────────────────────────────
@@ -244,6 +270,8 @@ export interface SparkMetrics {
   cpu: CpuMetrics | null;
   ram: RamMetrics | null;
   storage: StorageMetrics[];
+  /** Resident models from the per-Spark scanner (tier + size). */
+  models: ModelTierMetrics[];
   network: NetworkMetrics | null;
   unifiedMemory: UnifiedMemoryMetrics | null;
   /** Array of LLM metrics, one per configured port. Empty array when no ports. */
