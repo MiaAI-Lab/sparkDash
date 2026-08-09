@@ -514,7 +514,35 @@ export class SparkRegistry {
       disabledDevices: Array.isArray(config.disabledDevices) ? config.disabledDevices : [],
       disabledInterfaces: Array.isArray(config.disabledInterfaces) ? config.disabledInterfaces : [],
       storagePollDisabled: Boolean(config.storagePollDisabled),
+      /**
+       * Optional storage-tier override: { hot?: string[], warm?: string[],
+       * cold?: string[] } of mount-prefix lists. When empty/absent, tier
+       * classification falls back to TIER_DEFAULTS heuristics.
+       */
+      tierPaths: this._normalizeTierMap(config.tierPaths),
+      /**
+       * Optional per-tier model directories to scan:
+       * { hot?: string[], warm?: string[], cold?: string[] }. When empty,
+       * scan roots are derived from the classified tier mounts.
+       */
+      modelDirs: this._normalizeTierMap(config.modelDirs),
     };
+  }
+
+  /** Normalize { tier: string[] } to a clean { hot?, warm?, cold? } map. */
+  _normalizeTierMap(value) {
+    if (!value || typeof value !== "object") return {};
+    const out = {};
+    for (const tier of ["hot", "warm", "cold"]) {
+      const raw = value[tier];
+      if (Array.isArray(raw)) {
+        const paths = raw
+          .map((p) => (typeof p === "string" ? p.trim() : ""))
+          .filter(Boolean);
+        if (paths.length > 0) out[tier] = paths;
+      }
+    }
+    return out;
   }
 
   /** Normalize ComfyUI port to 1–65535 (default 8188). */

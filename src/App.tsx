@@ -7,11 +7,12 @@ import { AddSparkDialog } from "./components/AddSparkDialog";
 import { EditSparkDialog } from "./components/EditSparkDialog";
 import { SparkPage } from "./components/SparkPage/SparkPage";
 import { OverviewPage } from "./components/OverviewPage/OverviewPage";
+import { FleetStoragePage } from "./components/FleetStoragePage/FleetStoragePage";
 import { ShowcasePage } from "./components/ShowcasePage/ShowcasePage";
 import { ThemeSwitch } from "./components/ThemeSwitch";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { GearIcon, BoltIcon } from "./components/ui/icons";
-import { OVERVIEW_ID } from "./constants";
+import { OVERVIEW_ID, FLEET_STORAGE_ID } from "./constants";
 import type { Settings, SparkSnapshot } from "./api/types";
 
 function placeholderSnapshot(
@@ -74,6 +75,7 @@ function placeholderSnapshot(
       cpu: null,
       ram: null,
       storage: [],
+      models: [],
       network: null,
       unifiedMemory: null,
       llm: [],
@@ -120,6 +122,7 @@ function DashboardApp() {
   }, [liveSparks, orderOverride]);
 
   const isOverview = activeId === OVERVIEW_ID;
+  const isFleetStorage = activeId === FLEET_STORAGE_ID;
   const displayActive = isOverview
     ? null
     : displaySparks.find((s) => s.id === activeId) || displaySparks[0] || activeSpark || null;
@@ -244,7 +247,9 @@ function DashboardApp() {
           </div>
         </header>
         <main>
-          {isOverview ? (
+          {isFleetStorage ? (
+            <FleetStoragePage sparks={displaySparks} />
+          ) : isOverview ? (
             <OverviewPage
               sparks={displaySparks}
               hideOffline={settings?.autoHideOffline ?? false}

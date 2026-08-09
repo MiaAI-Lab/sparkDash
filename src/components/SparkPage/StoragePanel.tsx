@@ -25,6 +25,24 @@ function formatGb(mb: number): string {
   return `${Math.round(mb)} MB`;
 }
 
+function TierBadge({ tier }: { tier?: "hot" | "warm" | "cold" }) {
+  if (tier !== "hot" && tier !== "warm" && tier !== "cold") return null;
+  const label = tier === "hot" ? "Hot" : tier === "warm" ? "Warm" : "Cold";
+  const cls =
+    tier === "hot"
+      ? "bg-accent text-black"
+      : tier === "warm"
+        ? "bg-warning text-black"
+        : "bg-muted text-black";
+  return (
+    <span
+      className={`inline-block shrink-0 rounded px-1 py-px text-[9px] font-medium uppercase tracking-wide ${cls}`}
+    >
+      {label}
+    </span>
+  );
+}
+
 function MetricBar({ value, max }: { value: number; max: number }) {
   const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0;
   const barColor = pct > 85 ? "bg-danger" : pct > 60 ? "bg-warning" : "bg-accent";
@@ -213,6 +231,7 @@ export function StoragePanel({
                     <div className="flex items-baseline justify-between">
                       <div className="flex min-w-0 items-center gap-2">
                         <span className="truncate text-xs text-text">{disk.label}</span>
+                        <TierBadge tier={disk.tier} />
                         <span className="shrink-0 font-tabular text-xs text-muted">{disk.device}</span>
                       </div>
                       <span className="shrink-0 font-tabular text-xs text-text-strong">{pct}%</span>

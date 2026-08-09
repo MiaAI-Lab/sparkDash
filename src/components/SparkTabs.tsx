@@ -19,8 +19,8 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { SparkSnapshot } from "../api/types";
-import { PlusIcon, GridIcon } from "./ui/icons";
-import { OVERVIEW_ID } from "../constants";
+import { PlusIcon, GridIcon, DiskIcon } from "./ui/icons";
+import { OVERVIEW_ID, FLEET_STORAGE_ID } from "../constants";
 
 interface SparkTabsProps {
   sparks: SparkSnapshot[];
@@ -326,6 +326,7 @@ export function SparkTabs({
     return (
       <nav className="pill-nav" aria-label="Sparks">
         <OverviewTab isActive={activeId === OVERVIEW_ID} onSelect={onSelect} />
+        <FleetStorageTab isActive={activeId === FLEET_STORAGE_ID} onSelect={onSelect} />
         {sparks.map((spark) => (
           <div key={spark.id} className="shrink-0">
             <TabChrome
@@ -351,6 +352,7 @@ export function SparkTabs({
     >
       <nav className="pill-nav" aria-label="Sparks">
         <OverviewTab isActive={activeId === OVERVIEW_ID} onSelect={onSelect} />
+        <FleetStorageTab isActive={activeId === FLEET_STORAGE_ID} onSelect={onSelect} />
         <SortableContext items={items} strategy={horizontalListSortingStrategy}>
           {ordered.map((spark) => (
             <SortableTab
@@ -409,6 +411,28 @@ function OverviewTab({
       >
         <GridIcon className="h-3.5 w-3.5" />
         Overview
+      </button>
+    </div>
+  );
+}
+
+function FleetStorageTab({
+  isActive,
+  onSelect,
+}: {
+  isActive: boolean;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <div className="shrink-0">
+      <button
+        type="button"
+        onClick={() => onSelect(FLEET_STORAGE_ID)}
+        className={`pill-item ${isActive ? "is-active" : ""}`}
+        title="Fleet model storage tiers"
+      >
+        <DiskIcon className="h-3.5 w-3.5" />
+        Storage
       </button>
     </div>
   );
@@ -484,6 +508,15 @@ function MobileSparkMenu({
       >
         <GridIcon className="h-3.5 w-3.5" />
         Overview
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        className={`mobile-menu-item ${activeId === FLEET_STORAGE_ID ? "is-active" : ""}`}
+        onClick={() => handleItemClick(FLEET_STORAGE_ID)}
+      >
+        <DiskIcon className="h-3.5 w-3.5" />
+        Storage
       </button>
       {sparks.map((spark) => (
         <button

@@ -79,6 +79,7 @@ Full history: [CHANGELOG.md](./CHANGELOG.md)
 | **Secrets** | SSH passwords AES-256-GCM encrypted; never in `sparks.json` or API responses |
 | **Docker-first** | Single privileged container for host metrics; prod and dev Compose files |
 | **Hot config** | Add / edit / remove / reorder Sparks from the UI with no process restart |
+| **Storage tiers** | Fleet **Storage** view — disks classified **Hot / Warm / Cold** (NAS/nfs/cifs vs local), model inventory, and resident-vs-CX7-fabric placement |
 
 ---
 
@@ -292,6 +293,7 @@ Copy `.env.example` to `.env` if needed:
 | `POLL_INTERVAL_LLM` | `2000` | LLM probe poll (ms) |
 | `POLL_INTERVAL_BANDWIDTH` | `2000` | Memory bandwidth / dmon poll (ms) |
 | `POLL_INTERVAL_LIVENESS` | `5000` | Online/SSH liveness check (ms) |
+| `POLL_INTERVAL_MODELS` | `30000` | Model inventory / tier scan (ms) |
 | `SPARKDASH_SECRETS_KEY` | _(auto)_ | Passphrase or 64-char hex for secret encryption |
 | `HOST_PROC_PATH` | `/host/proc` | Host proc mount inside container |
 | `HOST_SYS_PATH` | `/host/sys` | Host sys mount |
@@ -386,6 +388,14 @@ Each configured LLM port gets its own `LlmProbe` instance running in parallel. P
 - **vLLM / sglang** — `/v1/models`; sglang via `/get_server_info` (`last_gen_throughput` when metrics off), vLLM via Prometheus `/metrics` counters (scientific notation supported)
 
 Rates are derived from per-probe cumulative counter diffs (or SGLang sticky throughput while it moves). Multiple ports can be added or removed at runtime without restarting the monitor.
+
+### Storage tiers & model placement
+
+Each mounted disk is assigned a tier — **Hot** (root NVMe), **Warm** (other local disks), or **Cold** (NAS: `/mnt/modelshelf`, `/media`, `/Volumes`, `/mnt`, or any `cifs`/`smb`/`nfs` mount). Per-Spark `tierPaths` in `config/sparks.json` override the heuristic per mount. The collector scans the configured model directories (grouped by tier via `modelDirs`) for weight files (`.safetensors`, `.gguf`, `.bin`, `.pt`, `.pth`, `.ckpt`) and reports each model by name, size, and tier.
+
+The scan looks **one directory level deep**: each immediate child of a `modelDirs` entry counts as a model if it is a loose weight file or a subdirectory whose immediate children include a weight file. Point `modelDirs` at the directory whose *direct* children are your models. HF-hub-style nesting (`models--org--name/snapshots/<ref>/*.safetensors`, or `~/models/hf/<family>/*.safetensors`) is two levels deep, so use the outer family dir (e.g. `~/models/hf`), not the parent, as the `modelDirs` root.
+
+A model is **resident** on the Sparks holding a local copy. Because a peer with the model loaded in its LLM probe (matched by name) serves it to the fleet over the CX7/ConnectX fabric, such a Spark is shown as placing the model **over the fabric** even with no local copy. The fleet **Storage** view rolls these up per tier and lists every model with its resident and fabric placement.
 
 ---
 

@@ -1,8 +1,71 @@
 import fs from "fs";
 import path from "path";
-import { HOST_PATHS, GPU_MEMORY_JSON_PATH, DGX_SPARK, HARDWARE_DEFAULTS } from "../config.js";
+import {
+  HOST_PATHS,
+  GPU_MEMORY_JSON_PATH,
+  DGX_SPARK,
+  HARDWARE_DEFAULTS,
+  TIER_DEFAULTS,
+  WEIGHT_EXTENSIONS,
+} from "../config.js";
 import { normalizeMac, WOL_INTERFACE } from "../wol.js";
 import { sshExec } from "./ssh.js";
+
+/**
+ * Classify a storage device into a tier: "hot" | "warm" | "cold".
+ * Pure (no `this`) so it is unit-testable in isolation.
+ *
+ * @param {object} params
+ * @param {string} params.device  lsblk/df device name (e.g. "nvme0n1p2", "sdb1")
+ * @param {string} params.mount   mount path (host-style, e.g. "/", "/mnt/modelshelf")
+ * @param {string} [params.fstype] filesystem type (may be "")
+ * @param {object} [params.tierPaths] per-Spark override { hot?, warm?, cold?: string[] }
+ * @returns {"hot"|"warm"|"cold"}
+ */
+export function classifyTier(device, mount, fstype = "", tierPaths = {}) {
+  const overrides = tierPaths || {};
+  // Explicit per-Spark overrides win — match by mount-prefix or device name.
+  for (const tier of ["hot", "warm", "cold"]) {
+    const paths = overrides[tier];
+    if (Array.isArray(paths)) {
+      for (const p of paths) {
+        if (!p) continue;
+        if (mount === p || mount.startsWith(p + "/") || device === p) return tier;
+      }
+    }
+  }
+  // Cold: NAS/library share — by fstype or well-known mount prefix.
+  const ft = (fstype || "").toLowerCase();
+  if (TIER_DEFAULTS.COLD_FSTYPES.includes(ft)) return "cold";
+  if (
+    mount &&
+    TIER_DEFAULTS.COLD_MOUNT_PREFIXES.some((p) => mount === p || mount.startsWith(p + "/"))
+  ) {
+    return "cold";
+  }
+  // Hot: the primary internal disk — root mount or the GB10 root partition.
+  if (mount === "/" || device === "nvme0n1p2") return "hot";
+  // Everything else that is a real local mount is warm.
+  return "warm";
+}
+
+/** True when a file name carries a model-weight extension. */
+export function isWeightFile(name) {
+  const dot = name.lastIndexOf(".");
+  if (dot < 0) return false;
+  return WEIGHT_EXTENSIONS.has(name.slice(dot).toLowerCase());
+}
+
+/** Strip the weight extension from a file name (e.g. "model.gguf" -> "model"). */
+export function stripWeightExt(name) {
+  const dot = name.lastIndexOf(".");
+  return dot > 0 ? name.slice(0, dot) : name;
+}
+
+/** find -name args for weight extensions (used by the remote scan). */
+export const WEIGHT_ARGS = Array.from(WEIGHT_EXTENSIONS)
+  .map((ext) => `-name '*${ext}'`)
+  .join(" ");
 
 /**
  * SystemCollector — collects hardware metrics for a Spark.
@@ -94,6 +157,130 @@ export class SystemCollector {
       console.error(`[SystemCollector] Storage error for ${this.spark.id}:`, err.message);
       return [];
     }
+  }
+
+  /**
+   * Collect the Spark's resident model inventory, grouped by storage tier.
+   * Which dirs are scanned come from the per-Spark `modelDirs` config
+   * ({ hot?, warm?, cold?: string[] }); a tier with no configured dir
+   * contributes nothing. With no `modelDirs` set, returns [].
+   */
+  async collectModels() {
+    try {
+      const dirs = this.spark.modelDirs || {};
+      const models = [];
+      const seen = new Set();
+      for (const tier of ["hot", "warm", "cold"]) {
+        const roots = dirs[tier];
+        if (!Array.isArray(roots) || roots.length === 0) continue;
+        for (const root of roots) {
+          if (!root) continue;
+          const found = this.spark.isLocal
+            ? await this._scanLocalRoot(root)
+            : await this._scanRemoteRoot(root);
+          for (const m of found) {
+            if (!m?.name || !m?.sizeBytes || seen.has(m.name)) continue;
+            seen.add(m.name);
+            models.push({ name: m.name, sizeBytes: m.sizeBytes, tier });
+          }
+        }
+      }
+      return models;
+    } catch (err) {
+      console.error(`[SystemCollector] Models error for ${this.spark.id}:`, err.message);
+      return [];
+    }
+  }
+
+  /**
+   * Scan one model dir locally. A top-level entry is a model if it is a loose
+   * weight file, or a subdirectory whose immediate children include a weight
+   * file. Size is on-disk bytes (dir size recursed; loose-file size direct).
+   * @returns {Promise<Array<{name:string,sizeBytes:number}>>}
+   */
+  async _scanLocalRoot(root) {
+    let entries;
+    try {
+      entries = await fs.promises.readdir(root, { withFileTypes: true });
+    } catch {
+      return [];
+    }
+    const out = [];
+    for (const entry of entries) {
+      const full = path.join(root, entry.name);
+      try {
+        if (entry.isFile() && isWeightFile(entry.name)) {
+          const st = await fs.promises.stat(full);
+          out.push({ name: stripWeightExt(entry.name), sizeBytes: st.size });
+        } else if (entry.isDirectory() && (await this._dirHasWeights(full))) {
+          out.push({ name: entry.name, sizeBytes: await this._dirSizeBytes(full) });
+        }
+      } catch {
+        // Unreadable entry — skip (matches the storage collector's per-mount catch)
+      }
+    }
+    return out;
+  }
+
+  /** True when the immediate children of `dir` include a weight file. */
+  async _dirHasWeights(dir) {
+    try {
+      const names = await fs.promises.readdir(dir);
+      return names.some((n) => isWeightFile(n));
+    } catch {
+      return false;
+    }
+  }
+
+  /** Recursive on-disk size of a directory (bytes). */
+  async _dirSizeBytes(dir) {
+    let total = 0;
+    const stack = [dir];
+    while (stack.length > 0) {
+      const cur = stack.pop();
+      let names;
+      try {
+        names = await fs.promises.readdir(cur, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const e of names) {
+        const full = path.join(cur, e.name);
+        if (e.isDirectory()) stack.push(full);
+        else if (e.isFile()) {
+          try {
+            total += (await fs.promises.stat(full)).size;
+          } catch {}
+        }
+      }
+    }
+    return total;
+  }
+
+  /**
+   * Scan one model dir over SSH (single call per root). Prints one
+   * "name<TAB>bytes" line per model so parsing stays trivial; a subdir only
+   * qualifies when it immediately contains a weight file; loose weight files
+   * are reported by file stem.
+   * @returns {Promise<Array<{name:string,sizeBytes:number}>>}
+   */
+  async _scanRemoteRoot(root) {
+    const cmd =
+      `find '${root}' -maxdepth 1 -type f \( ${WEIGHT_ARGS} \) -printf '%f\t%s\n' 2>/dev/null; ` +
+      `for d in '${root}'/*/; do [ -d "$d" ] || continue; ` +
+      `if find "$d" -maxdepth 1 -type f \( ${WEIGHT_ARGS} \) -print -quit 2>/dev/null | grep -q .; then ` +
+      `echo "$(basename "$d")\t$(du -sb "$d" 2>/dev/null | cut -f1)"; fi; done`;
+    const output = await sshExec(this.spark, cmd, { timeoutMs: 15000 });
+    const models = [];
+    for (const line of output.split("\n")) {
+      const m = line.match(/^(.+?)\t(\d+)$/);
+      if (!m) continue;
+      const name = String(m[1]).replace(/^\//, "");
+      const sizeBytes = parseInt(m[2], 10) || 0;
+      if (!name || sizeBytes <= 0) continue;
+      models.push({ name, sizeBytes });
+    }
+    return models;
   }
 
   /** Collect network metrics (interfaces, speeds). */
@@ -596,6 +783,7 @@ export class SystemCollector {
           readSpeed: io.readSpeed,
           writeSpeed: io.writeSpeed,
           disabled: isDisabled,
+          tier: classifyTier(name, displayMount, fstype, this.spark.tierPaths),
         });
       } catch (err) {
         console.warn(
@@ -897,6 +1085,22 @@ export class SystemCollector {
       }
     } catch {}
 
+    // NV_ERR_NO_MEMORY kernel error count from the NVRM driver (host journal).
+    let nvErrNoMemory = 0;
+    try {
+      const js = "journalctl -k --no-pager 2>/dev/null | grep -c \"NV_ERR_NO_MEMORY\" || true";
+      const out = this._hasHostProc() ? await this._execOnHost(js) : await this._exec(js);
+      const n = Number(String(out).trim());
+      if (!Number.isNaN(n) && n > 0) nvErrNoMemory = Math.round(n);
+    } catch {
+      try {
+        const dmesg = "dmesg 2>/dev/null | grep -c \"NV_ERR_NO_MEMORY\" || true";
+        const out = this._hasHostProc() ? await this._execOnHost(dmesg) : await this._exec(dmesg);
+        const n = Number(String(out).trim());
+        if (!Number.isNaN(n) && n > 0) nvErrNoMemory = Math.round(n);
+      } catch {}
+    }
+
     return {
       total: totalMB,
       gpuUsed: gpuUsedMB,
@@ -906,6 +1110,7 @@ export class SystemCollector {
       percentage,
       oomRisk,
       bandwidth,
+      nvErrNoMemory,
     };
   }
 
@@ -1084,6 +1289,7 @@ export class SystemCollector {
           readSpeed: 0,
           writeSpeed: 0,
           disabled: isDisabled,
+          tier: classifyTier(device, mount, type, this.spark.tierPaths),
         });
       }
 
@@ -1248,6 +1454,17 @@ export class SystemCollector {
       const percentage = totalMB > 0 ? Math.round((usedMB / totalMB) * 100) : 0;
       const oomRisk = percentage > 85 ? "high" : percentage > 60 ? "medium" : "low";
 
+      // NV_ERR_NO_MEMORY kernel error count from the NVRM driver (remote host).
+      let nvErrNoMemory = 0;
+      try {
+        const countRaw = await sshExec(
+          this.spark,
+          "journalctl -k --no-pager 2>/dev/null | grep -c \"NV_ERR_NO_MEMORY\" || true"
+        );
+        const n = Number(String(countRaw).trim());
+        if (!Number.isNaN(n) && n > 0) nvErrNoMemory = Math.round(n);
+      } catch {}
+
       return {
         total: totalMB,
         gpuUsed: gpuUsedMB,
@@ -1257,6 +1474,7 @@ export class SystemCollector {
         percentage,
         oomRisk,
         bandwidth: { current: 0, peak: 400 },
+        nvErrNoMemory,
       };
     } catch (err) {
       console.error(`[SystemCollector] Remote Unified Memory error for ${this.spark.id}:`, err.message);
@@ -1411,6 +1629,7 @@ export class SystemCollector {
       percentage: 0,
       oomRisk: "low",
       bandwidth: { current: 0, peak: 0 },
+      nvErrNoMemory: 0,
     };
   }
 
