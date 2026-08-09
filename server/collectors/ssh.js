@@ -7,7 +7,7 @@
  */
 import { execFile } from "child_process";
 import fs from "fs";
-import { SSH_CONNECT_TIMEOUT } from "../config.js";
+import { COMFY_PORT, COMFY_PROBE_TIMEOUT_MS, SSH_CONNECT_TIMEOUT } from "../config.js";
 import { isAllowedTargetHost, isValidSshUser } from "../validate.js";
 import { llmProbeHost } from "./llmHost.js";
 
@@ -206,4 +206,36 @@ export async function llmTestAll(spark) {
   );
   const allOk = results.every((r) => r.ok);
   return { ok: allOk, ports: results };
+}
+
+/**
+ * Test ComfyUI connectivity on a single port (GET /system_stats).
+ * Returns { ok: boolean, message: string, skipped?: boolean }
+ */
+export async function comfyTest(spark, port) {
+  try {
+    const host = llmProbeHost(spark);
+    if (!isAllowedTargetHost(host)) {
+      return { ok: false, message: `Invalid or disallowed ComfyUI host: ${host}` };
+    }
+    const resolvedPort =
+      Number.isInteger(port) && port >= 1 && port <= 65535
+        ? port
+        : Number(spark?.comfyPort) || COMFY_PORT;
+    const url = `http://${host}:${resolvedPort}/system_stats`;
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(COMFY_PROBE_TIMEOUT_MS),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { ok: false, message: `HTTP ${res.status}` };
+    }
+    const ver = data?.system?.comfyui_version;
+    return {
+      ok: true,
+      message: ver ? `ComfyUI ${ver}` : "reachable",
+    };
+  } catch (err) {
+    return { ok: false, message: err.message };
+  }
 }

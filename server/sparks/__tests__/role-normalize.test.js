@@ -15,6 +15,18 @@ test("roles derive workerNode and llmMonitoring", () => {
   assert.equal(n({ role: "standalone", llmMonitoring: false }).llmMonitoring, false);
 });
 
+test("comfyMonitoring is opt-in for all roles; comfyPort defaults to 8188", () => {
+  assert.equal(n({ role: "head" }).comfyMonitoring, false);
+  assert.equal(n({ role: "worker" }).comfyMonitoring, false);
+  assert.equal(n({ role: "standalone" }).comfyMonitoring, false);
+  assert.equal(n({ role: "standalone", comfyMonitoring: true }).comfyMonitoring, true);
+  assert.equal(n({ role: "worker", comfyMonitoring: true }).comfyMonitoring, true);
+  assert.equal(n({}).comfyPort, 8188);
+  assert.equal(n({ comfyPort: 9000 }).comfyPort, 9000);
+  assert.equal(n({ comfyPort: 0 }).comfyPort, 8188);
+  assert.equal(n({ comfyPort: "8190" }).comfyPort, 8190);
+});
+
 test("legacy workerNode-only becomes worker", () => {
   const out = n({ workerNode: true, workerLabel: "  DS  ", workerHeadId: "s5" });
   assert.equal(out.role, "worker");

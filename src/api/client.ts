@@ -100,6 +100,17 @@ export function testSparkConfig(config: Omit<SparkConfig, "id"> & { id?: string 
   });
 }
 
+/** Cancel a ComfyUI job (interrupt running and/or remove from queue). */
+export function cancelComfyJob(
+  sparkId: string,
+  promptId: string
+): Promise<{ success: boolean; ok?: boolean; method?: string; message?: string }> {
+  return apiFetch(`/api/sparks/${encodeURIComponent(sparkId)}/comfy/cancel`, {
+    method: "POST",
+    body: JSON.stringify({ promptId }),
+  });
+}
+
 // ─── Disabled storage devices ─────────────────────────────
 export function updateDisabledDevices(
   id: string,

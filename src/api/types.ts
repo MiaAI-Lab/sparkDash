@@ -59,6 +59,12 @@ export interface SparkConfig {
    * Forced true for head, forced false for worker.
    */
   llmMonitoring?: boolean;
+  /**
+   * Probe local ComfyUI and show the ComfyUI card (default false; all roles).
+   */
+  comfyMonitoring?: boolean;
+  /** ComfyUI HTTP port (default 8188). */
+  comfyPort?: number;
   /** When true, storage is only updated on manual refresh, not auto-polled. */
   storagePollDisabled?: boolean;
   /**
@@ -264,6 +270,74 @@ export interface LlmPosture {
   detail: string;
 }
 
+// ─── ComfyUI metrics ─────────────────────────────────────
+/** Active or queued ComfyUI job (parsed from /queue prompt graph). */
+export interface ComfyJob {
+  id: string;
+  status: "running" | "pending";
+  /** Workflow title when present in extra_pnginfo. */
+  title: string | null;
+  /** Model weight files referenced by loader nodes. */
+  models: string[];
+  nodeCount: number;
+  steps: number | null;
+  width: number | null;
+  height: number | null;
+  batchSize: number | null;
+  sampler: string | null;
+  /** Queue entry create time (ms epoch when available). */
+  createTime: number | null;
+}
+
+/** Live or estimated progress for the active Comfy job. */
+export interface ComfyProgress {
+  promptId: string | null;
+  nodeId: string | null;
+  nodeLabel: string | null;
+  value: number;
+  max: number;
+  percent: number | null;
+  updatedAt: number;
+  /** ws = Comfy WebSocket frames; estimate = elapsed/avg heuristic */
+  source?: "ws" | "estimate";
+}
+
+export interface ComfyLastJob {
+  id: string;
+  status: "completed" | "failed" | "cancelled" | string;
+  title: string | null;
+  durationMs: number | null;
+  endedAt: number | null;
+}
+
+export interface ComfyModelsInstalled {
+  checkpoints: string[];
+  loras: string[];
+}
+
+export interface ComfyMetrics {
+  available: boolean;
+  port: number;
+  version: string | null;
+  pytorchVersion: string | null;
+  /** Primary device type from /system_stats (e.g. cpu, cuda) — not VRAM. */
+  deviceType?: string | null;
+  queueRunning: number;
+  queuePending: number;
+  /** Currently executing job, if any. */
+  activeJob?: ComfyJob | null;
+  /** Next pending jobs (capped server-side). */
+  pendingJobs?: ComfyJob[];
+  progress?: ComfyProgress | null;
+  lastJob?: ComfyLastJob | null;
+  modelsInstalled?: ComfyModelsInstalled | null;
+  /** Estimated ms until queue idle (running remainder + pending × avg). */
+  queueEtaMs?: number | null;
+  /** Browser-openable ComfyUI base URL (probe host + port). */
+  openUrl?: string | null;
+  error: string | null;
+}
+
 // ─── Full metrics snapshot ────────────────────────────────
 export interface SparkMetrics {
   gpu: GpuMetrics | null;
@@ -276,6 +350,8 @@ export interface SparkMetrics {
   unifiedMemory: UnifiedMemoryMetrics | null;
   /** Array of LLM metrics, one per configured port. Empty array when no ports. */
   llm: LlmMetrics[];
+  /** ComfyUI probe result when monitoring is enabled; null when off or not yet polled. */
+  comfy?: ComfyMetrics | null;
 }
 
 // ─── Spark snapshot (server pushes this) ──────────────────
@@ -285,6 +361,9 @@ export interface SparkSnapshot {
   online: boolean;
   /** Uptime in seconds, or null when offline */
   uptime: number | null;
+  /** LAN IP for browser deep-links (e.g. Open ComfyUI). */
+  lanIp?: string;
+  isLocal?: boolean;
   disabledDevices: string[];
   disabledInterfaces: string[];
   storagePollDisabled?: boolean;
@@ -304,6 +383,10 @@ export interface SparkSnapshot {
   llmPorts: number[];
   /** Ports with a stored LLM API key (key itself never exposed) */
   llmApiKeyPorts?: number[];
+  /** Whether ComfyUI is probed (opt-in; all roles) */
+  comfyMonitoring?: boolean;
+  /** ComfyUI HTTP port (default 8188) */
+  comfyPort?: number;
   hardware: HardwareInfo;
   metrics: SparkMetrics;
 }
@@ -323,7 +406,7 @@ export interface Settings {
   temperatureUnit: "celsius" | "fahrenheit";
   /** Persist prompts / HTTP traces / GPU samples on decode benchmark runs. */
   benchDebugTraces: boolean;
-  /** Layout density — comfortable (default) or compact. */
+  /** Layout density — compact (default) or comfortable. */
   density: "comfortable" | "compact";
 }
 
@@ -335,6 +418,7 @@ export interface SparkTestResponse {
   id: string;
   ssh: { ok: boolean; message: string };
   llm: { ok: boolean; message: string };
+  comfy?: { ok: boolean; message: string; skipped?: boolean };
   ok: boolean;
 }
 
@@ -353,6 +437,10 @@ export interface DecodeBenchConfig {
 export interface DecodeBenchStreamResult {
   index: number;
   ttftMs: number;
+  /** First answer token (post-reasoning) in ms from request start; null when the reply never leaves the reasoning phase. */
+  ttftContentMs: number | null;
+  /** Number of streamed chunks that carried reasoning (not answer) text. */
+  reasoningChunks: number;
   decodeTps: number;
   decodeTokens: number;
   completionTokens: number;

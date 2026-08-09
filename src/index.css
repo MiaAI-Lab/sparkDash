@@ -154,21 +154,10 @@
 }
 
 /* ─── Density tokens (layout spacing) ───────────────────── */
-/* Comfortable is the default. The override block sits AFTER all theme */
-/* blocks so its --radius-* overrides win on source order (equal specificity). */
-:root {
-  --density-root-font: 121%;
-  --density-shell-pad: 32px;
-  --density-header-gap: 28px;   /* header bottom margin (mb-7) */
-  --density-page-gap: 18px;    /* per-Spark grid + vertical rhythm */
-  --density-panel-pad: 20px;   /* .panel + .spark-header padding (p-5) */
-  --density-panel-title-mb: 16px;
-  --density-card-pad: 22px;    /* overview card padding (p-[22px]) */
-  --density-card-gap: 12px;    /* overview card internal stack gap */
-  --density-overview-rhythm: 24px; /* overview page space-y-6 */
-  --density-overview-title: 32px; /* Overview h1 */
-}
-
+/* Compact is the default (matches server settings DEFAULTS.density).
+   Comfortable is the roomier override. Both density attribute blocks sit
+   AFTER theme blocks so --radius-* wins on source order (equal specificity). */
+:root,
 [data-density="compact"] {
   --density-root-font: 112%;
   --density-shell-pad: 20px;
@@ -184,9 +173,27 @@
   --radius-sm: 8px;
 }
 
+[data-density="comfortable"] {
+  --density-root-font: 121%;
+  --density-shell-pad: 32px;
+  --density-header-gap: 28px;
+  --density-page-gap: 18px;
+  --density-panel-pad: 20px;
+  --density-panel-title-mb: 16px;
+  --density-card-pad: 22px;
+  --density-card-gap: 12px;
+  --density-overview-rhythm: 24px;
+  --density-overview-title: 32px;
+  --radius-panel: 22px;
+  --radius-sm: 12px;
+}
+
 /* Compact: pin metric label/value text (Usage, GPU Power, VRAM caption, etc.)
    to 14px. Tailwind's `.text-sm` (0,1,0) loses on specificity here. Only
-   `text-sm` inside surfaces is affected — buttons use text-xs/[10px]/[11px]. */
+   `text-sm` inside surfaces is affected — buttons use text-xs/[10px]/[11px].
+   :root is compact by default, so bare .panel/.overview-card also pin. */
+:root:not([data-density="comfortable"]) .panel .text-sm,
+:root:not([data-density="comfortable"]) .overview-card .text-sm,
 [data-density="compact"] .panel .text-sm,
 [data-density="compact"] .overview-card .text-sm {
   font-size: 14px;

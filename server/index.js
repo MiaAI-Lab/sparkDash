@@ -8,7 +8,8 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import { SparkRegistry } from "./sparks/SparkRegistry.js";
 import { SparkMonitor } from "./sparks/SparkMonitor.js";
-import { sshExec, sshTest, llmTest } from "./collectors/ssh.js";
+import { sshExec, sshTest, llmTest, comfyTest } from "./collectors/ssh.js";
+import { comfyCancelJob } from "./collectors/comfyActions.js";
 import { validateSparkTarget, createRateLimiter } from "./validate.js";
 import { getSettings, updateSettings, loadSettings } from "./settings.js";
 import { broadcastForLanIp, effectiveMac, normalizeMac, sendWol } from "./wol.js";
@@ -28,6 +29,7 @@ const ROOT = path.resolve(__dirname, "..");
 const BIND_HOST = process.env.BIND_HOST || "0.0.0.0";
 const PORT = parseInt(process.env.PORT || "5555", 10);
 const LLM_PORT = parseInt(process.env.LLM_PORT || "8888", 10);
+const COMFY_PORT = parseInt(process.env.COMFY_PORT || "8188", 10);
 
 /** Per-spark LLM HTTP port (1–65535), else env default. */
 function resolveLlmPort(sparkOrPort) {
@@ -47,6 +49,20 @@ function resolveLlmPort(sparkOrPort) {
   const n = typeof raw === "string" ? parseInt(raw, 10) : Number(raw);
   if (Number.isInteger(n) && n >= 1 && n <= 65535) return n;
   return LLM_PORT;
+}
+
+/** Per-spark ComfyUI HTTP port (1–65535), else env default 8188. */
+function resolveComfyPort(sparkOrPort) {
+  if (sparkOrPort && typeof sparkOrPort === "object") {
+    const raw = sparkOrPort.comfyPort;
+    const n = typeof raw === "string" ? parseInt(raw, 10) : Number(raw);
+    if (Number.isInteger(n) && n >= 1 && n <= 65535) return n;
+    return COMFY_PORT;
+  }
+  const raw = sparkOrPort;
+  const n = typeof raw === "string" ? parseInt(raw, 10) : Number(raw);
+  if (Number.isInteger(n) && n >= 1 && n <= 65535) return n;
+  return COMFY_PORT;
 }
 
 /** Optional Bearer token for a Spark LLM port (from encrypted secrets). */
@@ -141,6 +157,8 @@ app.post("/api/sparks/test", async (req, res) => {
       cx7Ip: body.cx7Ip || null,
       isLocal: Boolean(body.isLocal),
       llmPort: resolveLlmPort(body),
+      comfyPort: resolveComfyPort(body),
+      comfyMonitoring: Boolean(body.comfyMonitoring),
       ssh: {
         host: body.ssh?.host || body.lanIp || "",
         user: body.ssh?.user || "root",
@@ -152,15 +170,20 @@ app.post("/api/sparks/test", async (req, res) => {
       return res.status(400).json({ error: "lanIp or ssh.host required" });
     }
     const llmPort = resolveLlmPort(spark);
-    const [sshResult, llmResult] = await Promise.all([
+    const comfyPort = resolveComfyPort(spark);
+    const [sshResult, llmResult, comfyResult] = await Promise.all([
       spark.isLocal ? Promise.resolve({ ok: true, message: "local (skipped SSH)" }) : sshTest(spark),
       llmTest(spark, llmPort),
+      spark.comfyMonitoring
+        ? comfyTest(spark, comfyPort)
+        : Promise.resolve({ ok: true, message: "disabled", skipped: true }),
     ]);
     res.json({
       id: spark.id,
       ssh: sshResult,
       llm: llmResult,
-      ok: sshResult.ok || llmResult.ok,
+      comfy: comfyResult,
+      ok: sshResult.ok || llmResult.ok || (comfyResult.ok && !comfyResult.skipped),
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -294,17 +317,46 @@ app.post("/api/sparks/:id/test", async (req, res) => {
     const spark = registry.getSpark(req.params.id);
     if (!spark) return res.status(404).json({ error: "Spark not found" });
 
-    const [sshResult, llmResult] = await Promise.all([
+    const [sshResult, llmResult, comfyResult] = await Promise.all([
       spark.isLocal ? Promise.resolve({ ok: true, message: "local (skipped SSH)" }) : sshTest(spark),
       llmTest(spark, resolveLlmPort(spark)),
+      spark.comfyMonitoring
+        ? comfyTest(spark, resolveComfyPort(spark))
+        : Promise.resolve({ ok: true, message: "disabled", skipped: true }),
     ]);
     res.json({
       id: req.params.id,
       ssh: sshResult,
       llm: llmResult,
-      ok: sshResult.ok || llmResult.ok,
+      comfy: comfyResult,
+      ok: sshResult.ok || llmResult.ok || (comfyResult.ok && !comfyResult.skipped),
       hasPassword: registry.hasPassword(req.params.id),
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Cancel a ComfyUI job (running interrupt and/or pending dequeue).
+app.post("/api/sparks/:id/comfy/cancel", async (req, res) => {
+  if (!allowTest(clientKey(req))) {
+    return res.status(429).json({ error: "Too many requests; try again shortly" });
+  }
+  try {
+    const spark = registry.getSpark(req.params.id);
+    if (!spark) return res.status(404).json({ error: "Spark not found" });
+    if (!spark.comfyMonitoring) {
+      return res.status(400).json({ error: "ComfyUI monitoring is disabled for this Spark" });
+    }
+    const promptId = req.body?.promptId ?? req.body?.prompt_id;
+    if (!promptId || typeof promptId !== "string") {
+      return res.status(400).json({ error: "promptId is required" });
+    }
+    const result = await comfyCancelJob(spark, promptId, resolveComfyPort(spark));
+    // Nudge a comfy re-poll so UI updates quickly
+    const mon = monitors.get(req.params.id);
+    if (mon) void mon._pollDomain?.("comfy");
+    res.json({ success: result.ok, ...result });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

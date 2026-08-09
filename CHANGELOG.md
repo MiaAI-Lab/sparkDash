@@ -16,6 +16,29 @@ Format: version sections are listed newest first.
 - **Dual placement** — a model is shown as **resident** on the Sparks holding a local copy, and as served **over the CX7/ConnectX fabric** on a peer that has it loaded via its LLM probe without a local copy
 - Optional per-Spark `modelDirs` / `tierPaths` in `config/sparks.json` to override which directories map to which tier
 
+## [1.6.0] — 2026-08-07
+
+### Added
+- **ComfyUI monitoring** — opt-in per Spark (`comfyMonitoring`, default port **8188**); Edit Spark checkbox + inline port field; connectivity Test includes ComfyUI when enabled
+- **ComfyUI probe** — `GET /system_stats` + `GET /queue` (job-centric card; no host RAM/VRAM duplicate of GPU/CPU panels)
+- **Active / queued jobs** — workflow title, model weight names from the graph, footprint (resolution · steps · sampler · batch · node count)
+- **Live progress** — Comfy WebSocket when events are available; elapsed/avg-duration estimate otherwise; progress bar on the running job
+- **Last finished job** — status + duration from `/api/jobs` (with `/history` fallback)
+- **Cancel / remove** — `POST /api/sparks/:id/comfy/cancel` to interrupt a running job or dequeue a pending one from the card
+- **Open ComfyUI** — deep link to `http://{lanIp}:{comfyPort}` (LAN IP preferred over localhost for remote browsers)
+- **Overview Comfy chip** — `Comfy · idle` / `run` / `Nq` / muted when unreachable (only when monitoring is on)
+- **Model inventory** — checkpoints + LoRAs from `/models/*` (section hidden when both lists are empty)
+- **Queue ETA** — estimate from recent job durations × pending (+ progress remainder when known)
+- **Collapsible sections** — **Resources** (GPU / CPU / Storage / Network) and **Services** (LLM / ComfyUI); open state persisted in `localStorage`
+- **Services layout** — primary LLM + ComfyUI side-by-side when both enabled; +1 extra LLM full-width; +2 extras as a pair; odd leftover full-width
+
+### Changed
+- **Compact UI is the default** layout density (`density: "compact"` in settings + CSS/`data-density`); comfortable remains available via Settings
+- Spark snapshot includes **`lanIp`** / **`isLocal`** for client deep-links
+
+### Fixed
+- Comfy progress WebSocket soft-reconnects on host/port change (no longer permanently closed after `setTarget`)
+
 ---
 
 ## [1.5.0] — 2026-08-03

@@ -505,6 +505,12 @@ export class SparkRegistry {
        */
       llmMonitoring:
         role === "worker" ? false : role === "head" ? true : config.llmMonitoring !== false,
+      /**
+       * Probe local ComfyUI and show the ComfyUI card (default false; all roles).
+       */
+      comfyMonitoring: Boolean(config.comfyMonitoring),
+      /** ComfyUI HTTP port (default 8188). */
+      comfyPort: this._normalizeComfyPort(config.comfyPort),
       disabledDevices: Array.isArray(config.disabledDevices) ? config.disabledDevices : [],
       disabledInterfaces: Array.isArray(config.disabledInterfaces) ? config.disabledInterfaces : [],
       storagePollDisabled: Boolean(config.storagePollDisabled),
@@ -537,6 +543,13 @@ export class SparkRegistry {
       }
     }
     return out;
+  }
+
+  /** Normalize ComfyUI port to 1–65535 (default 8188). */
+  _normalizeComfyPort(value) {
+    const n = typeof value === "string" ? parseInt(value, 10) : Number(value);
+    if (Number.isInteger(n) && n >= 1 && n <= 65535) return n;
+    return 8188;
   }
 
   /** Normalize role; legacy workerNode=true → worker. */

@@ -155,6 +155,38 @@ function SparkCard({
             </span>
           );
         })()}
+        {spark.comfyMonitoring ? (
+          <span
+            className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${
+              !spark.metrics?.comfy?.available
+                ? "bg-border/60 text-muted"
+                : (spark.metrics.comfy.queueRunning ?? 0) > 0
+                  ? "bg-accent/15 text-accent"
+                  : (spark.metrics.comfy.queuePending ?? 0) > 0
+                    ? "bg-warning/15 text-warning"
+                    : "bg-border/60 text-muted"
+            }`}
+            title={
+              !spark.metrics?.comfy?.available
+                ? "ComfyUI monitoring on — not reachable"
+                : (spark.metrics.comfy.queueRunning ?? 0) > 0
+                  ? spark.metrics.comfy.activeJob?.title
+                    ? `ComfyUI running: ${spark.metrics.comfy.activeJob.title}`
+                    : "ComfyUI job running"
+                  : (spark.metrics.comfy.queuePending ?? 0) > 0
+                    ? `ComfyUI queue: ${spark.metrics.comfy.queuePending} pending`
+                    : "ComfyUI idle"
+            }
+          >
+            {!spark.metrics?.comfy?.available
+              ? "Comfy"
+              : (spark.metrics.comfy.queueRunning ?? 0) > 0
+                ? "Comfy · run"
+                : (spark.metrics.comfy.queuePending ?? 0) > 0
+                  ? `Comfy · ${spark.metrics.comfy.queuePending}q`
+                  : "Comfy · idle"}
+          </span>
+        ) : null}
         <span className="text-[10px] uppercase tracking-wide text-muted">
           {online ? "online" : "offline"}
         </span>

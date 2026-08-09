@@ -73,6 +73,37 @@ export function BotIcon({ className }: IconProps) {
   );
 }
 
+/** Chevron pointing down; rotate -90° when a section is collapsed. */
+export function ChevronDownIcon({ className }: IconProps) {
+  return (
+    <svg {...baseProps(className)}>
+      <path d="M6 9l6 6 6-6" />
+    </svg>
+  );
+}
+
+/** External link (open ComfyUI). */
+export function ExternalLinkIcon({ className }: IconProps) {
+  return (
+    <svg {...baseProps(className)}>
+      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+      <path d="M15 3h6v6" />
+      <path d="M10 14L21 3" />
+    </svg>
+  );
+}
+
+/** ComfyUI / image-workflow service. */
+export function ComfyIcon({ className }: IconProps) {
+  return (
+    <svg {...baseProps(className)}>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <circle cx="9" cy="11" r="2" />
+      <path d="M3 16l5-4 3 2 4-5 6 7" />
+    </svg>
+  );
+}
+
 export function GearIcon({ className = "" }: { className?: string }) {
   return (
     <svg {...baseProps(className)}>

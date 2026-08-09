@@ -106,6 +106,9 @@ export function ingestSnapshots(sparks: SparkSnapshot[]): void {
         pushHistory(`${s.id}:llm${portKey}.tps`, llm.generationTps);
       }
     }
+    if (m.comfy?.available) {
+      pushHistory(`${s.id}:comfy.queue`, (m.comfy.queueRunning ?? 0) + (m.comfy.queuePending ?? 0));
+    }
   }
 
   // Drop series for Sparks no longer in the registry (deleted / removed from WS).

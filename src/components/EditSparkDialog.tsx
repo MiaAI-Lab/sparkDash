@@ -178,7 +178,9 @@ export function EditSparkDialog({
         config.isLocal !== savedConfig.isLocal ||
         (config.ssh?.host || config.lanIp) !== (savedConfig.ssh?.host || savedConfig.lanIp) ||
         config.ssh?.user !== savedConfig.ssh?.user ||
-        config.ssh?.auth !== savedConfig.ssh?.auth;
+        config.ssh?.auth !== savedConfig.ssh?.auth ||
+        Boolean(config.comfyMonitoring) !== Boolean(savedConfig.comfyMonitoring) ||
+        (config.comfyPort ?? 8188) !== (savedConfig.comfyPort ?? 8188);
 
       const result = formDirty
         ? await testSparkConfig({
@@ -196,10 +198,16 @@ export function EditSparkDialog({
       else parts.push(`SSH ✗ ${result.ssh.message}`);
       if (result.llm.ok) parts.push("LLM ✓");
       else parts.push(`LLM ✗ ${result.llm.message}`);
+      if (result.comfy && !result.comfy.skipped) {
+        if (result.comfy.ok) parts.push("ComfyUI ✓");
+        else parts.push(`ComfyUI ✗ ${result.comfy.message}`);
+      }
       setTestResult({
         ok: result.ok,
         message: result.ok
-          ? "Connection successful"
+          ? parts.length
+            ? `Connection successful (${parts.join(" · ")})`
+            : "Connection successful"
           : `${parts.join(" | ")} — password is still saved for when the host is back.`,
       });
       if (password) setPassword("");
@@ -236,6 +244,11 @@ export function EditSparkDialog({
         workerHeadId: role === "worker" ? (config.workerHeadId?.trim() || null) : null,
         llmMonitoring:
           role === "worker" ? false : role === "head" ? true : config.llmMonitoring !== false,
+        comfyMonitoring: Boolean(config.comfyMonitoring),
+        comfyPort: (() => {
+          const n = Number(config.comfyPort);
+          return Number.isInteger(n) && n >= 1 && n <= 65535 ? n : 8188;
+        })(),
         ssh: {
           host: config.ssh.host || config.lanIp,
           user: config.ssh.user,
@@ -392,6 +405,63 @@ export function EditSparkDialog({
                   </span>
                 </label>
               )}
+
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                <label className="flex min-w-0 items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(config.comfyMonitoring)}
+                    onChange={(e) =>
+                      update({
+                        comfyMonitoring: e.target.checked,
+                        comfyPort: config.comfyPort ?? 8188,
+                      })
+                    }
+                    className="rounded border-border"
+                  />
+                  <span>ComfyUI monitoring</span>
+                  <span
+                    className="inline-flex shrink-0 cursor-help text-muted hover:text-text"
+                    title="When enabled, probe ComfyUI on this host and show a ComfyUI card. Default port is 8188 — change the port value on the right if needed."
+                    aria-label="Enable probing ComfyUI and showing the ComfyUI card."
+                  >
+                    <InfoIcon className="h-3.5 w-3.5" />
+                  </span>
+                </label>
+                {/* Compact “port 8188” control on the same row. */}
+                <div
+                  className={`ml-auto flex items-center gap-1 font-tabular ${
+                    config.comfyMonitoring ? "text-text" : "pointer-events-none opacity-40"
+                  }`}
+                  title="ComfyUI HTTP port (default 8188)"
+                >
+                  <span className="select-none text-muted" aria-hidden>
+                    port
+                  </span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={65535}
+                    inputMode="numeric"
+                    disabled={!config.comfyMonitoring}
+                    aria-label="ComfyUI port"
+                    value={config.comfyPort ?? 8188}
+                    onChange={(e) => {
+                      const n = parseInt(e.target.value, 10);
+                      if (Number.isInteger(n) && n >= 1 && n <= 65535) {
+                        update({ comfyPort: n });
+                      }
+                    }}
+                    onBlur={() => {
+                      const n = Number(config.comfyPort);
+                      if (!Number.isInteger(n) || n < 1 || n > 65535) {
+                        update({ comfyPort: 8188 });
+                      }
+                    }}
+                    className="w-14 border-0 bg-transparent px-0.5 py-0.5 text-center font-tabular text-xs text-inherit outline-none focus:rounded focus:bg-surface-elevated focus:ring-1 focus:ring-accent disabled:cursor-not-allowed"
+                  />
+                </div>
+              </div>
 
               {role === "worker" && (
                 <div className="space-y-3">

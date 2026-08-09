@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { SystemCollector } from "../collectors/SystemCollector.js";
 import { LlmProbe } from "../collectors/LlmProbe.js";
+import { ComfyProbe } from "../collectors/ComfyProbe.js";
 import { sshTest, sshExec } from "../collectors/ssh.js";
 import {
   POLL_INTERVAL_GPU,
@@ -9,10 +10,12 @@ import {
   POLL_INTERVAL_NETWORK,
   POLL_INTERVAL_STORAGE,
   POLL_INTERVAL_LLM,
+  POLL_INTERVAL_COMFY,
   POLL_INTERVAL_BANDWIDTH,
   POLL_INTERVAL_LIVENESS,
   POLL_INTERVAL_MODELS,
   LLM_PORT,
+  COMFY_PORT,
   HOST_PATHS,
 } from "../config.js";
 
@@ -40,6 +43,11 @@ export class SparkMonitor {
       }
     }
 
+    /** @type {ComfyProbe | null} */
+    this.comfyProbe = this._comfyMonitoringEnabled(spark)
+      ? new ComfyProbe(spark, this._comfyPort(spark))
+      : null;
+
     // Online status from dedicated liveness checks (not metric poll success)
     this.online = false;
     this.lastOnlineOk = 0;
@@ -57,6 +65,7 @@ export class SparkMonitor {
       network: this.collector._defaultNetwork(),
       unifiedMemory: this.collector._defaultUnifiedMemory(),
       llm: [],
+      comfy: null,
     };
     this._lastUpdate = {};
 
@@ -64,6 +73,8 @@ export class SparkMonitor {
     this._intervals = [];
     /** @type {ReturnType<typeof setInterval> | null} */
     this._llmIntervalId = null;
+    /** @type {ReturnType<typeof setInterval> | null} */
+    this._comfyIntervalId = null;
     this._running = false;
     /** @type {Record<string, boolean>} in-flight domain guards */
     this._inflight = {};
@@ -72,6 +83,8 @@ export class SparkMonitor {
   /** Hot-update config without tearing down poll loops / rate baselines. */
   updateConfig(spark) {
     const wasLlm = this._llmMonitoringEnabled(this.spark);
+    const wasComfy = this._comfyMonitoringEnabled(this.spark);
+    const prevComfyPort = this._comfyPort(this.spark);
     this.spark = spark;
     this.collector.spark = spark;
 
@@ -92,9 +105,34 @@ export class SparkMonitor {
       this._metrics.llm = [];
     }
 
+    // ComfyUI probe — create / update / clear
+    if (this._comfyMonitoringEnabled()) {
+      const port = this._comfyPort();
+      if (this.comfyProbe) {
+        this.comfyProbe.setTarget(spark, port);
+      } else {
+        this.comfyProbe = new ComfyProbe(spark, port);
+      }
+    } else {
+      if (this.comfyProbe) {
+        try {
+          this.comfyProbe.dispose();
+        } catch {
+          /* ignore */
+        }
+      }
+      this.comfyProbe = null;
+      this._metrics.comfy = null;
+    }
+
     // Toggle LLM poll interval when monitoring enablement flips
     if (this._running && wasLlm !== this._llmMonitoringEnabled()) {
       this._restartLlmPollInterval();
+    }
+    const comfyOn = this._comfyMonitoringEnabled();
+    const comfyPortChanged = comfyOn && prevComfyPort !== this._comfyPort();
+    if (this._running && (wasComfy !== comfyOn || comfyPortChanged)) {
+      this._restartComfyPollInterval();
     }
   }
 
@@ -120,6 +158,35 @@ export class SparkMonitor {
       this._llmIntervalId = setInterval(() => this._pollDomain("llm"), POLL_INTERVAL_LLM);
       this._intervals.push(this._llmIntervalId);
       void this._pollDomain("llm");
+    }
+  }
+
+  /**
+   * Opt-in ComfyUI monitoring (all roles; default off).
+   * @param {object} [spark]
+   */
+  _comfyMonitoringEnabled(spark = this.spark) {
+    return Boolean(spark?.comfyMonitoring);
+  }
+
+  /** @param {object} [spark] */
+  _comfyPort(spark = this.spark) {
+    const n = Number(spark?.comfyPort);
+    if (Number.isInteger(n) && n >= 1 && n <= 65535) return n;
+    return COMFY_PORT;
+  }
+
+  /** Start or clear the ComfyUI poll timer based on monitoring flag. */
+  _restartComfyPollInterval() {
+    if (this._comfyIntervalId != null) {
+      clearInterval(this._comfyIntervalId);
+      this._intervals = this._intervals.filter((id) => id !== this._comfyIntervalId);
+      this._comfyIntervalId = null;
+    }
+    if (this._comfyMonitoringEnabled() && this._running) {
+      this._comfyIntervalId = setInterval(() => this._pollDomain("comfy"), POLL_INTERVAL_COMFY);
+      this._intervals.push(this._comfyIntervalId);
+      void this._pollDomain("comfy");
     }
   }
 
@@ -151,6 +218,7 @@ export class SparkMonitor {
     this._intervals.push(setInterval(() => this._pollDomain("ram"), POLL_INTERVAL_CPU));
     this._intervals.push(setInterval(() => this._pollDomain("memory"), POLL_INTERVAL_BANDWIDTH));
     this._restartLlmPollInterval();
+    this._restartComfyPollInterval();
     // Liveness on a slightly slower cadence
     this._intervals.push(setInterval(() => this._checkOnline(), POLL_INTERVAL_LIVENESS));
     console.log(`[SparkMonitor] ${this.spark.id} started`);
@@ -162,18 +230,29 @@ export class SparkMonitor {
     for (const id of this._intervals) clearInterval(id);
     this._intervals = [];
     this._llmIntervalId = null;
+    this._comfyIntervalId = null;
     this._inflight = {};
+    if (this.comfyProbe) {
+      try {
+        this.comfyProbe.dispose();
+      } catch {
+        /* ignore */
+      }
+    }
     console.log(`[SparkMonitor] ${this.spark.id} stopped`);
   }
 
   /** Return a full snapshot of this Spark's metrics. */
   snapshot() {
     const ports = this._llmMonitoringEnabled() ? this._llmPorts() : [];
+    const comfyOn = this._comfyMonitoringEnabled();
     return {
       id: this.spark.id,
       name: this.spark.name,
       online: this.online,
       uptime: this._uptimeSeconds,
+      lanIp: this.spark.lanIp || "",
+      isLocal: Boolean(this.spark.isLocal),
       disabledDevices: this.spark.disabledDevices || [],
       disabledInterfaces: this.spark.disabledInterfaces || [],
       storagePollDisabled: Boolean(this.spark.storagePollDisabled),
@@ -189,6 +268,8 @@ export class SparkMonitor {
         : Object.keys(this.spark.llmApiKeys || {})
             .map((p) => parseInt(p, 10))
             .filter((n) => Number.isInteger(n)),
+      comfyMonitoring: comfyOn,
+      comfyPort: this._comfyPort(),
       hardware: this._getHardwareSummary(),
       metrics: {
         // NOTE: no `timestamp` here on purpose. The broadcast path skips
@@ -206,6 +287,7 @@ export class SparkMonitor {
         network: this._metrics.network,
         unifiedMemory: this._metrics.unifiedMemory,
         llm: this._metrics.llm,
+        comfy: comfyOn ? this._metrics.comfy : null,
       },
     };
   }
@@ -274,6 +356,7 @@ export class SparkMonitor {
       this._pollDomain("ram"),
       this._pollDomain("memory"),
       this._pollDomain("llm"),
+      this._pollDomain("comfy"),
     ]);
   }
 
@@ -283,6 +366,7 @@ export class SparkMonitor {
     if (domain === "storage" && this.spark.storagePollDisabled) return;
     // Worker nodes: no local LLM API
     if (domain === "llm" && !this._llmMonitoringEnabled()) return;
+    if (domain === "comfy" && !this._comfyMonitoringEnabled()) return;
     this._inflight[domain] = true;
     try {
       let result;
@@ -313,6 +397,9 @@ export class SparkMonitor {
           result = await Promise.all(
             Array.from(this.llmProbes.values()).map((probe) => probe.probe())
           );
+          break;
+        case "comfy":
+          result = this.comfyProbe ? await this.comfyProbe.probe() : null;
           break;
       }
       // Re-check after the await — `stop()`/`updateSpark()` may have torn
@@ -352,6 +439,9 @@ export class SparkMonitor {
           break;
         case "llm":
           this._metrics.llm = result;
+          break;
+        case "comfy":
+          this._metrics.comfy = result;
           break;
       }
       this._lastUpdate[domain] = Date.now();

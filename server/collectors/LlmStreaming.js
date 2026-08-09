@@ -363,6 +363,10 @@ async function runStreamingRequestOnce(
   let tFirst = null;
   /** @type {number | null} */
   let tLast = null;
+  /** First answer (non-reasoning) token, for ttftContentMs. Stays null when a reply never leaves the reasoning phase. */
+  /** @type {number | null} */
+  let tFirstContent = null;
+  let reasoningChunkCount = 0;
   let chunkTokenCount = 0;
   let usageCompletionTokens = null;
   /** @type {Record<string, number> | null} */
@@ -470,6 +474,11 @@ async function runStreamingRequestOnce(
             const now = performance.now();
             if (tFirst == null) tFirst = now;
             tLast = now;
+            if (reasoning) {
+              reasoningChunkCount += 1;
+            } else if (tFirstContent == null) {
+              tFirstContent = now;
+            }
             chunkTokenCount += tokenChunks;
             const text = `${reasoning}${answer}`;
             if (keepContent) {
@@ -526,6 +535,9 @@ async function runStreamingRequestOnce(
   /** @type {Record<string, unknown>} */
   const out = {
     ttftMs: round2(ttftMs),
+    /** Time-to-first-answer-token (post-reasoning) in ms from request start. Null when the reply never leaves the reasoning phase. */
+    ttftContentMs: tFirstContent != null ? round2(tFirstContent - t0) : null,
+    reasoningChunks: reasoningChunkCount,
     decodeMs: round2(decodeMs),
     completionTokens,
     decodeTokens,

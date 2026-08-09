@@ -181,6 +181,8 @@ function streamPublicResult(r, index, prompt, reqMeta, debug = false) {
   /** @type {Record<string, unknown>} */
   const out = {
     index,
+    ttftContentMs: r?.ttftContentMs ?? null,
+    reasoningChunks: r?.reasoningChunks ?? 0,
     ttftMs: r?.ttftMs ?? 0,
     decodeTps: r?.decodeTps ?? 0,
     decodeTokens: r?.decodeTokens ?? 0,
