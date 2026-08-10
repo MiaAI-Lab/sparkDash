@@ -7,6 +7,17 @@ Format: version sections are listed newest first.
 
 ---
 
+## [1.7.0] — 2026-08-10
+
+### Added
+- **Tailnet monitoring** — opt-in per Spark (`tailscaleMonitoring`, default **off**); runs `tailscale status --json` on the host and shows a **Tailnet** card beside Network. Closes a blind spot shared by every LAN-based check: when `tailscaled` loses its coordination-server session, SSH/GPU/LLM all keep reporting healthy while the Spark is unreachable from off-LAN.
+- **Off-tailnet verdict from the node itself** — reads `Self.Online` on each host rather than a peer's (possibly stale) view of it.
+- **Failure reason, not just state** — surfaces Tailscale's own `Health` messages (e.g. *"hasn't received a network map from the coordination server in 2m7s"*), `BackendState`, tailnet IP, DERP relay region, version, and an expired-node-key warning.
+- **Edit Spark** — `Tailnet monitoring` checkbox.
+- Env: `POLL_INTERVAL_TAILSCALE` (default `30000`), `TAILSCALE_PROBE_TIMEOUT_MS` (default `8000`).
+
+---
+
 ## [1.6.0] — 2026-08-07
 
 ### Added

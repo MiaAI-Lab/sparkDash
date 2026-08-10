@@ -7,6 +7,7 @@ import { GpuPanel } from "./GpuPanel";
 import { CpuPanel } from "./CpuPanel";
 import { StoragePanel } from "./StoragePanel";
 import { NetworkPanel } from "./NetworkPanel";
+import { TailscalePanel } from "./TailscalePanel";
 import { LlmPanel } from "./LlmPanel";
 import { ComfyPanel } from "./ComfyPanel";
 import { ChevronDownIcon } from "../ui/icons";
@@ -174,6 +175,7 @@ export function SparkPage({ spark, temperatureUnit, onEdit }: SparkPageProps) {
 
   const llmOn = isLlmMonitoringEnabled(spark);
   const comfyOn = Boolean(spark.comfyMonitoring);
+  const tailscaleOn = Boolean(spark.tailscaleMonitoring);
   /** First LLM + Comfy share a row when both are on. */
   const primarySideBySide = llmOn && comfyOn;
   const showServices = llmOn || comfyOn;
@@ -241,6 +243,7 @@ export function SparkPage({ spark, temperatureUnit, onEdit }: SparkPageProps) {
               disabledInterfaces={disabledInterfaces}
               onDisabledChange={setDisabledInterfaces}
             />
+            {tailscaleOn && <TailscalePanel tailscale={metrics.tailscale ?? null} />}
           </>
         )}
         {/*

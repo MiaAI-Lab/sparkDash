@@ -180,6 +180,7 @@ export function EditSparkDialog({
         config.ssh?.user !== savedConfig.ssh?.user ||
         config.ssh?.auth !== savedConfig.ssh?.auth ||
         Boolean(config.comfyMonitoring) !== Boolean(savedConfig.comfyMonitoring) ||
+        Boolean(config.tailscaleMonitoring) !== Boolean(savedConfig.tailscaleMonitoring) ||
         (config.comfyPort ?? 8188) !== (savedConfig.comfyPort ?? 8188);
 
       const result = formDirty
@@ -249,6 +250,7 @@ export function EditSparkDialog({
           const n = Number(config.comfyPort);
           return Number.isInteger(n) && n >= 1 && n <= 65535 ? n : 8188;
         })(),
+        tailscaleMonitoring: Boolean(config.tailscaleMonitoring),
         ssh: {
           host: config.ssh.host || config.lanIp,
           user: config.ssh.user,
@@ -461,6 +463,25 @@ export function EditSparkDialog({
                     className="w-14 border-0 bg-transparent px-0.5 py-0.5 text-center font-tabular text-xs text-inherit outline-none focus:rounded focus:bg-surface-elevated focus:ring-1 focus:ring-accent disabled:cursor-not-allowed"
                   />
                 </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                <label className="flex min-w-0 items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(config.tailscaleMonitoring)}
+                    onChange={(e) => update({ tailscaleMonitoring: e.target.checked })}
+                    className="rounded border-border"
+                  />
+                  <span>Tailnet monitoring</span>
+                  <span
+                    className="inline-flex shrink-0 cursor-help text-muted hover:text-text"
+                    title="When enabled, run `tailscale status --json` on this host and show a Tailnet card. Catches a Spark that is healthy on the LAN but has fallen off its tailnet — which no LAN-based check can see. Requires the tailscale CLI on the host."
+                    aria-label="Enable reporting this Spark's tailnet presence."
+                  >
+                    <InfoIcon className="h-3.5 w-3.5" />
+                  </span>
+                </label>
               </div>
 
               {role === "worker" && (

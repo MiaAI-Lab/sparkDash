@@ -27,6 +27,7 @@ function placeholderSnapshot(
     workerHeadId?: string | null;
     llmMonitoring?: boolean;
     comfyMonitoring?: boolean;
+    tailscaleMonitoring?: boolean;
     comfyPort?: number;
   }
 ): SparkSnapshot {
@@ -59,6 +60,7 @@ function placeholderSnapshot(
           ? true
           : roleFields?.llmMonitoring !== false,
     comfyMonitoring: Boolean(roleFields?.comfyMonitoring),
+    tailscaleMonitoring: Boolean(roleFields?.tailscaleMonitoring),
     comfyPort: roleFields?.comfyPort ?? 8188,
     hardware: {
       device: "NVIDIA DGX Spark",
@@ -164,6 +166,7 @@ function DashboardApp() {
               workerHeadId: c.workerHeadId ?? existing.workerHeadId,
               llmMonitoring: c.llmMonitoring ?? existing.llmMonitoring,
               comfyMonitoring: c.comfyMonitoring ?? existing.comfyMonitoring,
+              tailscaleMonitoring: c.tailscaleMonitoring ?? existing.tailscaleMonitoring,
               comfyPort: c.comfyPort ?? existing.comfyPort,
               disabledDevices: c.disabledDevices || existing.disabledDevices,
               disabledInterfaces: c.disabledInterfaces || existing.disabledInterfaces,
@@ -184,6 +187,7 @@ function DashboardApp() {
               workerHeadId: c.workerHeadId,
               llmMonitoring: c.llmMonitoring,
               comfyMonitoring: c.comfyMonitoring,
+              tailscaleMonitoring: c.tailscaleMonitoring,
               comfyPort: c.comfyPort,
             }
           );

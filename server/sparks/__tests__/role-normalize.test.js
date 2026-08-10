@@ -27,6 +27,17 @@ test("comfyMonitoring is opt-in for all roles; comfyPort defaults to 8188", () =
   assert.equal(n({ comfyPort: "8190" }).comfyPort, 8190);
 });
 
+test("tailscaleMonitoring is opt-in for all roles", () => {
+  assert.equal(n({ role: "head" }).tailscaleMonitoring, false);
+  assert.equal(n({ role: "worker" }).tailscaleMonitoring, false);
+  assert.equal(n({ role: "standalone" }).tailscaleMonitoring, false);
+  assert.equal(n({ role: "standalone", tailscaleMonitoring: true }).tailscaleMonitoring, true);
+  assert.equal(n({ role: "worker", tailscaleMonitoring: true }).tailscaleMonitoring, true);
+  // Non-boolean input is coerced, never persisted raw.
+  assert.equal(n({ tailscaleMonitoring: "yes" }).tailscaleMonitoring, true);
+  assert.equal(n({ tailscaleMonitoring: 0 }).tailscaleMonitoring, false);
+});
+
 test("legacy workerNode-only becomes worker", () => {
   const out = n({ workerNode: true, workerLabel: "  DS  ", workerHeadId: "s5" });
   assert.equal(out.role, "worker");

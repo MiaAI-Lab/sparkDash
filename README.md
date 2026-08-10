@@ -30,6 +30,7 @@ sparkDash is a real-time web dashboard for one or more **NVIDIA DGX Spark (GB10)
 - [Latest version changelog](#latest-version-changelog)
 - [Features](#features)
 - [ComfyUI monitoring](#comfyui-monitoring)
+- [Tailnet monitoring](#tailnet-monitoring)
 - [Full changelog](./CHANGELOG.md)
 - [Quick start](#quick-start)
 - [Architecture](#architecture)
@@ -46,6 +47,10 @@ sparkDash is a real-time web dashboard for one or more **NVIDIA DGX Spark (GB10)
 ---
 
 ## Latest version changelog
+
+### Version 1.7.0 — Tailnet monitoring
+- **Tailnet** — opt-in per Spark (`tailscaleMonitoring`): flags a Spark that is healthy on the LAN but has fallen off its tailnet, which no LAN-based check can see
+- **Reason shown, not just state** — surfaces Tailscale's own `Health` messages plus backend state, tailnet IP, DERP relay, version, and expired-key warning
 
 ### Version 1.6.0 — ComfyUI monitoring & compact default
 - **ComfyUI** — opt-in per Spark (port 8188): live jobs, progress, last run, cancel, queue ETA, Open on LAN IP, model inventory
@@ -66,6 +71,7 @@ Full history: [CHANGELOG.md](./CHANGELOG.md)
 | **Local + remote** | Host metrics via sysfs/proc/`nvidia-smi`; remotes over SSH (key or password) |
 | **LLM probe** | Auto-detects llama.cpp, vLLM, sglang, or ds4-server; live tok/s per server |
 | **ComfyUI** | Opt-in probe: queue/jobs, progress, cancel, Open link, inventory, overview chip |
+| **Tailnet** | Opt-in probe: flags a Spark that is healthy on the LAN but off its tailnet |
 | **Decode benchmark** | Multi-concurrency streaming decode tok/s (server + per-stream), persisted last run |
 | **Prompt Showcase** | Full-page multi-terminal LLM streaming demo (up to 32 prompts) with live tok/s and copy-out |
 | **vLLM health** | KV cache %, run/wait queue, TTFT/E2E/ITL p95, preemptions, prefix cache, MTP accept from Prometheus `/metrics` |
@@ -137,6 +143,61 @@ The Spark page **Services** section shows the ComfyUI card. On Overview, a small
 | POST | `/api/sparks/:id/comfy/cancel` | Cancel a job (`{ "promptId": "<uuid>" }`) — interrupt running and/or remove from queue |
 
 Env (optional): `COMFY_PORT` (default `8188`), `COMFY_PROBE_TIMEOUT_MS`, `POLL_INTERVAL_COMFY`.
+
+---
+
+## Tailnet monitoring
+
+Opt-in per Spark. Runs `tailscale status --json` on the host and shows a **Tailnet** card
+beside Network.
+
+This closes a blind spot that every LAN-based check shares, including sparkDash's own SSH
+liveness. When `tailscaled` loses its session with the coordination server, short connections
+keep retrying and succeeding — SSH answers, the GPU reports, the LLM serves, and the dashboard
+says **up**, correctly. But the Spark is unreachable from anywhere *off* the LAN: your phone on
+cellular, the admin console, another tailnet node. The box looks perfectly healthy and is
+invisible. This card is the difference.
+
+### What is supported
+
+| Capability | Details |
+|------------|---------|
+| **Opt-in per Spark** | `tailscaleMonitoring` (default **off**) |
+| **Off-tailnet detection** | `Self.Online` — the node's *own* view of the coordination server |
+| **Reason, not just state** | Tailscale's `Health` messages, e.g. *"hasn't received a network map from the coordination server in 2m7s"* |
+| **Backend state** | `Running` / `Stopped` / `NeedsLogin` / `NoState` |
+| **Identity** | Tailnet IP, hostname, DERP relay region, tailscale version |
+| **Key expiry** | Flags an expired node key (which a restart will not fix — it needs re-auth) |
+
+Asked of **each node about itself**, deliberately: one node's view of a *peer* can be stale, so
+peer state is never used as the verdict.
+
+Not claimed: this does not manage Tailscale. It never runs `tailscale up`, `down`, or `login` —
+the probe is read-only.
+
+### How to enable (per Spark)
+
+1. Open **Edit Spark**.
+2. Tick **Tailnet monitoring**.
+3. Save. The Tailnet card appears under Resources, next to Network.
+
+### Host requirements
+
+- The `tailscale` CLI on the monitored host, and `tailscaled` running.
+- Remote Sparks: reached over the existing SSH connection — no extra setup.
+- Local Spark in Docker: tailscaled's socket lives on the *host*, so the probe enters the host
+  mount namespace via `nsenter` (the same approach used for `nvidia-smi`). This needs
+  `/host/proc` bind-mounted, which the shipped compose file already does.
+- A node with key expiry disabled reports no expiry — that is normal, not an error.
+
+### Config fields (persisted on the Spark)
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `tailscaleMonitoring` | `false` | Run `tailscale status --json` and show the Tailnet card |
+
+Env (optional): `POLL_INTERVAL_TAILSCALE` (default `30000` — tailnet state changes slowly and
+each poll is an SSH round-trip), `TAILSCALE_PROBE_TIMEOUT_MS` (default `8000`).
 
 ---
 

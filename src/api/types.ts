@@ -65,6 +65,10 @@ export interface SparkConfig {
   comfyMonitoring?: boolean;
   /** ComfyUI HTTP port (default 8188). */
   comfyPort?: number;
+  /**
+   * Report tailnet presence via `tailscale status --json` (default false; all roles).
+   */
+  tailscaleMonitoring?: boolean;
   /** When true, storage is only updated on manual refresh, not auto-polled. */
   storagePollDisabled?: boolean;
 }
@@ -310,6 +314,31 @@ export interface ComfyMetrics {
   error: string | null;
 }
 
+export interface TailscaleMetrics {
+  /** True when `tailscale status --json` was read and had a Self entry. */
+  available: boolean;
+  /**
+   * The node's OWN view of whether it is talking to the coordination server.
+   * A Spark can be healthy on the LAN with this false — that is the whole point
+   * of this probe. null when tailscale did not report it.
+   */
+  online: boolean | null;
+  /** tailscaled's own state: Running | Stopped | NeedsLogin | NoState. */
+  backendState: string | null;
+  hostName: string | null;
+  dnsName: string | null;
+  tailscaleIp: string | null;
+  /** DERP relay region, or null when the node has a direct path. */
+  relay: string | null;
+  /** ISO timestamp; null when key expiry is disabled for this node. */
+  keyExpiry: string | null;
+  keyExpired: boolean;
+  version: string | null;
+  /** Tailscale's own health warnings — these explain a false `online`. */
+  health: string[];
+  error: string | null;
+}
+
 // ─── Full metrics snapshot ────────────────────────────────
 export interface SparkMetrics {
   gpu: GpuMetrics | null;
@@ -322,6 +351,8 @@ export interface SparkMetrics {
   llm: LlmMetrics[];
   /** ComfyUI probe result when monitoring is enabled; null when off or not yet polled. */
   comfy?: ComfyMetrics | null;
+  /** Tailnet probe result when monitoring is enabled; null when off or not yet polled. */
+  tailscale?: TailscaleMetrics | null;
 }
 
 // ─── Spark snapshot (server pushes this) ──────────────────
@@ -357,6 +388,8 @@ export interface SparkSnapshot {
   comfyMonitoring?: boolean;
   /** ComfyUI HTTP port (default 8188) */
   comfyPort?: number;
+  /** Whether tailnet presence is probed (opt-in; all roles) */
+  tailscaleMonitoring?: boolean;
   hardware: HardwareInfo;
   metrics: SparkMetrics;
 }

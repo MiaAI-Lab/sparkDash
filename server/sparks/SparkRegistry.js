@@ -511,6 +511,12 @@ export class SparkRegistry {
       comfyMonitoring: Boolean(config.comfyMonitoring),
       /** ComfyUI HTTP port (default 8188). */
       comfyPort: this._normalizeComfyPort(config.comfyPort),
+      /**
+       * Report tailnet presence via `tailscale status --json` (default false;
+       * all roles). Catches a Spark that is healthy on the LAN but has fallen
+       * off its tailnet, which no LAN-based check can see.
+       */
+      tailscaleMonitoring: Boolean(config.tailscaleMonitoring),
       disabledDevices: Array.isArray(config.disabledDevices) ? config.disabledDevices : [],
       disabledInterfaces: Array.isArray(config.disabledInterfaces) ? config.disabledInterfaces : [],
       storagePollDisabled: Boolean(config.storagePollDisabled),
