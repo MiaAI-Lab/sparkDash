@@ -778,6 +778,9 @@ app.post("/api/sparks/:id/llm/bench", (req, res) => {
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     return res.status(400).json({ error: "Invalid port" });
   }
+  if (!ports.includes(port)) {
+    return res.status(400).json({ error: "port is not configured for this Spark" });
+  }
 
   // Resolve model id for this port from live snapshot when possible
   let modelId = req.body?.modelId || null;
