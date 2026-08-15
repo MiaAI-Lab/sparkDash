@@ -3,6 +3,7 @@ import type {
   DecodeBenchListResponse,
   LlmMetrics,
   SessionSources,
+  SessionSourcesHealth,
   SessionSourcesPatch,
   Settings,
   ShowcaseSessionState,
@@ -317,5 +318,12 @@ export function updateSessionSources(patch: SessionSourcesPatch): Promise<Sessio
   return apiFetch("/api/session-sources", {
     method: "PATCH",
     body: JSON.stringify(patch),
+  });
+}
+
+export function testSessionSources(body: SessionSourcesPatch = {}): Promise<SessionSourcesHealth> {
+  return apiFetch("/api/session-sources/test", {
+    method: "POST",
+    body: JSON.stringify(body),
   });
 }

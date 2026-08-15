@@ -49,6 +49,10 @@ function listenHosts(spark) {
   const hosts = new Set();
   const lan = normalizeHost(spark.lanIp);
   if (lan) hosts.add(lan);
+  const named = normalizeHost(spark.name);
+  if (named) hosts.add(named);
+  const sshHost = normalizeHost(spark.ssh?.host);
+  if (sshHost) hosts.add(sshHost);
   if (spark.isLocal) {
     for (const host of LOOPBACK_HOSTS) hosts.add(host);
   }

@@ -13,8 +13,9 @@ import {
   parseBaseUrl,
   resolveStateDir,
   defaultReadFile,
-  defaultFetchJson,
+  defaultFetchResponse,
   normalizeSessionList,
+  sanitizeProbeError,
 } from "./sessionIo.js";
 
 const HANDLE_FIELDS = ["title", "source", "id"];
@@ -49,6 +50,30 @@ export async function collectHermesSessions(attach, deps = {}) {
     return mapHermesSessions(loaded.sessions, loaded.profiles);
   } catch {
     return [];
+  }
+}
+
+/**
+ * Connectivity probe for Settings. Counts only — never session titles or transcripts.
+ * @returns {Promise<{ status: "disabled" | "ok" | "error", found: number, mapped: number, error: string | null }>}
+ */
+export async function diagnoseHermesSessions(attach, deps = {}) {
+  if (!attach?.enabled) {
+    return { status: "disabled", found: 0, mapped: 0, error: null };
+  }
+  if (attach.mode === "url" && !String(attach.url || "").trim()) {
+    return { status: "error", found: 0, mapped: 0, error: "URL is required" };
+  }
+  if (attach.mode === "state-dir" && !String(attach.stateDir || "").trim()) {
+    return { status: "error", found: 0, mapped: 0, error: "State dir is required" };
+  }
+  try {
+    const loaded = await loadHermesPayload(attach, deps);
+    const list = normalizeSessions(loaded.sessions);
+    const rows = mapHermesSessions(loaded.sessions, loaded.profiles);
+    return { status: "ok", found: list.length, mapped: rows.length, error: null };
+  } catch (err) {
+    return { status: "error", found: 0, mapped: 0, error: sanitizeProbeError(err) };
   }
 }
 
@@ -92,8 +117,11 @@ function midTurnOf(session) {
 }
 
 function originOf(session, profileOrigin) {
-  if (typeof session.billing_base_url === "string" && session.billing_base_url.trim()) {
-    return parseBaseUrl(session.billing_base_url.trim());
+  for (const raw of [session.billing_base_url, session.base_url, session.model?.base_url]) {
+    if (typeof raw === "string" && raw.trim()) {
+      const origin = parseBaseUrl(raw.trim());
+      if (origin) return origin;
+    }
   }
   return profileOrigin;
 }
@@ -124,11 +152,76 @@ async function loadHermesPayload(attach, deps) {
 }
 
 async function loadFromUrl(attach, deps) {
-  const fetchJson = deps.fetchJson ?? defaultFetchJson;
   const token = deps.token;
-  const payload = await fetchJson(sessionsUrl(attach.url), { token });
-  const profiles = deps.profiles ?? (await loadProfilesFromUrl(attach.url, fetchJson, token));
+  if (typeof deps.fetchJson === "function") {
+    const payload = await deps.fetchJson(sessionsUrl(attach.url), { token });
+    const profiles = deps.profiles ?? (await loadProfilesFromUrl(attach.url, deps.fetchJson, token));
+    return { sessions: payload, profiles };
+  }
+  const origin = gatewayOrigin(attach.url);
+  const fetchResponse = deps.fetchResponse ?? defaultFetchResponse;
+  const getJson = await hermesAuthedGetter(origin, token, fetchResponse);
+  const payload = await getJson(sessionsUrl(attach.url));
+  const profiles = deps.profiles ?? (await loadProfilesFromUrl(attach.url, getJson, token));
   return { sessions: payload, profiles };
+}
+
+const cookieCache = new Map();
+
+export function resetHermesAuthCache() {
+  cookieCache.clear();
+}
+
+function cookieCacheKey(origin, token) {
+  return `${origin}\0${token}`;
+}
+
+async function hermesAuthedGetter(origin, token, fetchResponse) {
+  let cookie = token ? await cookieFor(origin, token, fetchResponse) : "";
+  return async function getJson(url) {
+    try {
+      const res = await fetchResponse(url, { cookie: cookie || undefined });
+      return res.json();
+    } catch (err) {
+      if (Number(err?.status) !== 401 || !token) throw err;
+      cookieCache.delete(cookieCacheKey(origin, token));
+      cookie = await cookieFor(origin, token, fetchResponse);
+      const res = await fetchResponse(url, { cookie: cookie || undefined });
+      return res.json();
+    }
+  };
+}
+
+async function cookieFor(origin, token, fetchResponse) {
+  const key = cookieCacheKey(origin, token);
+  const cached = cookieCache.get(key);
+  if (cached) return cached;
+  const cookie = await loginHermes(origin, token, fetchResponse);
+  if (cookie) cookieCache.set(key, cookie);
+  return cookie;
+}
+
+async function loginHermes(origin, token, fetchResponse) {
+  const res = await fetchResponse(`${origin}/api/auth/login`, {
+    method: "POST",
+    extraHeaders: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password: token }),
+  });
+  return sessionCookieFromResponse(res);
+}
+
+function sessionCookieFromResponse(res) {
+  const headers = res?.headers;
+  if (!headers) return "";
+  const rawList =
+    typeof headers.getSetCookie === "function"
+      ? headers.getSetCookie()
+      : [headers.get("set-cookie")].filter(Boolean);
+  for (const raw of rawList) {
+    const first = String(raw).split(";", 1)[0].trim();
+    if (first.toLowerCase().startsWith("hermes_session=")) return first;
+  }
+  return "";
 }
 
 function gatewayOrigin(raw) {
@@ -142,7 +235,7 @@ function sessionsUrl(raw) {
   if (!base) return "";
   const original = String(raw || "");
   if (/\/api\/sessions\?/.test(original)) return original.replace(/\/+$/, "");
-  return `${base}/api/sessions?limit=50`;
+  return `${base}/api/sessions?limit=50&include_cli=1`;
 }
 
 async function loadProfilesFromUrl(raw, fetchJson, token) {

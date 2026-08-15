@@ -2,16 +2,18 @@ import { useEffect, useState } from "react";
 import {
   fetchSessionSources,
   fetchSettings,
+  testSessionSources,
   updateSessionSources,
   updateSettings,
 } from "../api/client";
 import type {
   SessionSourceAttach,
-  SessionSourceMode,
   SessionSources,
+  SessionSourcesHealth,
   SessionSourcesPatch,
   Settings,
 } from "../api/types";
+import { SessionSourceFields } from "./SessionSourceFields";
 import { useModalPresence } from "../hooks/useModalPresence";
 
 interface SettingsDialogProps {
@@ -37,124 +39,7 @@ const POLL_PRESETS = [
   { label: "10s", value: 10000 },
 ];
 
-const SOURCE_LABELS = { openclaw: "OpenClaw", hermes: "Hermes Agent" } as const;
 const SOURCE_IDS = ["openclaw", "hermes"] as const;
-const MODE_OPTIONS: { value: SessionSourceMode; label: string }[] = [
-  { value: "local", label: "Local" },
-  { value: "url", label: "URL" },
-  { value: "state-dir", label: "State dir" },
-];
-
-const fieldClass =
-  "w-full rounded border border-border bg-surface-elevated px-3 py-1.5 text-xs text-text outline-none focus:border-accent";
-
-function Toggle({
-  on,
-  onClick,
-}: {
-  on: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={on}
-      onClick={onClick}
-      className={`toggle-track relative mt-0.5 inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
-        on ? "is-on" : ""
-      }`}
-    >
-      <span
-        className={`toggle-dot inline-block h-4 w-4 transform rounded-full shadow transition-transform ${
-          on ? "translate-x-4" : "translate-x-0"
-        }`}
-      />
-    </button>
-  );
-}
-
-function SessionSourceFields({
-  id,
-  source,
-  tokenDraft,
-  onSource,
-  onToken,
-  onClearToken,
-}: {
-  id: (typeof SOURCE_IDS)[number];
-  source: SessionSourceAttach;
-  tokenDraft: string;
-  onSource: (patch: Partial<SessionSourceAttach>) => void;
-  onToken: (value: string) => void;
-  onClearToken: () => void;
-}) {
-  return (
-    <div className="space-y-2 rounded border border-border px-3 py-2">
-      <label className="flex items-center gap-3 text-xs text-muted">
-        <Toggle on={source.enabled} onClick={() => onSource({ enabled: !source.enabled })} />
-        <span className="text-text">{SOURCE_LABELS[id]}</span>
-      </label>
-      <select
-        value={source.mode}
-        onChange={(e) => onSource({ mode: e.target.value as SessionSourceMode })}
-        className={fieldClass}
-        aria-label={`${SOURCE_LABELS[id]} mode`}
-      >
-        {MODE_OPTIONS.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
-      {source.mode === "local" && (
-        <p className="text-[10px] leading-snug text-muted">Uses {source.conventionalStateDir}</p>
-      )}
-      {source.mode === "url" && (
-        <input
-          type="text"
-          value={source.url}
-          onChange={(e) => onSource({ url: e.target.value })}
-          placeholder="http://127.0.0.1:18789"
-          className={fieldClass}
-          aria-label={`${SOURCE_LABELS[id]} URL`}
-        />
-      )}
-      {source.mode === "state-dir" && (
-        <input
-          type="text"
-          value={source.stateDir}
-          onChange={(e) => onSource({ stateDir: e.target.value })}
-          placeholder="State directory"
-          className={fieldClass}
-          aria-label={`${SOURCE_LABELS[id]} state directory`}
-        />
-      )}
-      <div className="flex gap-2">
-        <input
-          type="password"
-          autoComplete="new-password"
-          value={tokenDraft}
-          onChange={(e) => onToken(e.target.value)}
-          placeholder={
-            source.hasToken ? "Token stored — leave blank to keep" : "Optional token"
-          }
-          className={fieldClass}
-          aria-label={`${SOURCE_LABELS[id]} token`}
-        />
-        {source.hasToken && !tokenDraft && (
-          <button
-            type="button"
-            onClick={onClearToken}
-            className="shrink-0 rounded border border-border bg-surface-elevated px-2 py-1.5 text-[10px] text-muted hover:bg-surface-hover"
-          >
-            Clear
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
 
 export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) {
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -165,8 +50,38 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
+  const [sourceHealth, setSourceHealth] = useState<SessionSourcesHealth | null>(null);
+  const [checkingSources, setCheckingSources] = useState(false);
 
   useEscape(onClose);
+
+  const sourceTestBody = (sources: SessionSources): SessionSourcesPatch => {
+    const patch: SessionSourcesPatch = {};
+    for (const id of SOURCE_IDS) {
+      const src = sources[id];
+      const draft = tokenDrafts[id];
+      patch[id] = {
+        enabled: src.enabled,
+        mode: src.mode,
+        url: src.url,
+        stateDir: src.stateDir,
+        ...(clearTokens[id] && !draft ? { token: "" } : draft ? { token: draft } : {}),
+      };
+    }
+    return patch;
+  };
+
+  const runSourceCheck = async (sources: SessionSources) => {
+    setCheckingSources(true);
+    try {
+      const result = await testSessionSources(sourceTestBody(sources));
+      setSourceHealth(result);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCheckingSources(false);
+    }
+  };
 
   useEffect(() => {
     if (!open) {
@@ -174,6 +89,8 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
       setSessionSources(null);
       setTokenDrafts({ openclaw: "", hermes: "" });
       setClearTokens({ openclaw: false, hermes: false });
+      setSourceHealth(null);
+      setCheckingSources(false);
       setError(null);
       setDirty(false);
       return;
@@ -181,10 +98,32 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
     let cancelled = false;
     setLoading(true);
     Promise.all([fetchSettings(), fetchSessionSources()])
-      .then(([s, sources]) => {
+      .then(async ([s, sources]) => {
         if (cancelled) return;
         setSettings(s);
         setSessionSources(sources);
+        setCheckingSources(true);
+        try {
+          const result = await testSessionSources({
+            openclaw: {
+              enabled: sources.openclaw.enabled,
+              mode: sources.openclaw.mode,
+              url: sources.openclaw.url,
+              stateDir: sources.openclaw.stateDir,
+            },
+            hermes: {
+              enabled: sources.hermes.enabled,
+              mode: sources.hermes.mode,
+              url: sources.hermes.url,
+              stateDir: sources.hermes.stateDir,
+            },
+          });
+          if (!cancelled) setSourceHealth(result);
+        } catch (err: unknown) {
+          if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+        } finally {
+          if (!cancelled) setCheckingSources(false);
+        }
       })
       .catch((err: Error) => {
         if (!cancelled) setError(err.message);
@@ -392,6 +331,8 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
                     id={id}
                     source={sessionSources[id]}
                     tokenDraft={tokenDrafts[id]}
+                    health={sourceHealth?.[id]}
+                    checking={checkingSources}
                     onSource={(patch) => patchSource(id, patch)}
                     onToken={(value) => {
                       setTokenDrafts((prev) => ({ ...prev, [id]: value }));
@@ -405,6 +346,7 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
                       setClearTokens((prev) => ({ ...prev, [id]: true }));
                       patchSource(id, { hasToken: false });
                     }}
+                    onCheck={() => void runSourceCheck(sessionSources)}
                   />
                 ))}
               </div>

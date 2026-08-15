@@ -299,6 +299,21 @@ export interface SessionSourcesPatch {
   hermes?: SessionSourcePatch;
 }
 
+export type SessionSourceHealthStatus = "disabled" | "ok" | "error";
+
+/** Counts only. Never handles, titles, or transcripts. */
+export interface SessionSourceHealth {
+  status: SessionSourceHealthStatus;
+  found: number;
+  mapped: number;
+  error: string | null;
+}
+
+export interface SessionSourcesHealth {
+  openclaw: SessionSourceHealth;
+  hermes: SessionSourceHealth;
+}
+
 export interface SparksListResponse {
   sparks: SparkConfig[];
 }

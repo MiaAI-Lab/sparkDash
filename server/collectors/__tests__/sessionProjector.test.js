@@ -238,3 +238,20 @@ test("duplicate handles keep distinct ids from native session identity", () => {
   );
   assert.equal(list.every((r) => r.handle === "World Cup"), true);
 });
+
+test("origin hostname matching the Spark name binds even when lanIp differs", () => {
+  const named = spark({
+    id: "spark-john",
+    name: "john",
+    lanIp: "100.120.26.16",
+    isLocal: true,
+    llmPorts: [8888],
+  });
+  const result = projectConversations(
+    [row({ source: "hermes", handle: "cli-chat", originHost: "john", originPort: 8888, midTurn: "unknown" })],
+    [named]
+  );
+  assert.deepEqual(rowsFor(result, "spark-john"), [
+    { id: "hermes:8888:cli-chat", source: "hermes", handle: "cli-chat", badge: "unknown", port: 8888 },
+  ]);
+});

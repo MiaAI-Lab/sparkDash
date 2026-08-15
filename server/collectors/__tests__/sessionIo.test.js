@@ -9,6 +9,7 @@ import {
   remapHostRoot,
   resolveStateDir,
   defaultFetchJson,
+  sanitizeProbeError,
 } from "../sessionIo.js";
 
 test("expandTilde maps ~ and ~/path against injected home", () => {
@@ -82,4 +83,22 @@ test("defaultFetchJson rejects file: protocol, userinfo, and disallowed IPs befo
     () => defaultFetchJson("http://169.254.169.254/latest/meta-data/"),
     /disallowed host/i
   );
+});
+
+test("sanitizeProbeError strips paths and maps auth / connect codes", () => {
+  const missing = new Error("ENOENT: no such file or directory, open '/secret/path/sessions.json'");
+  missing.code = "ENOENT";
+  assert.equal(sanitizeProbeError(missing), "State files not found");
+  assert.equal(String(sanitizeProbeError(missing)).includes("/secret/"), false);
+
+  const auth = new Error("HTTP 401");
+  auth.status = 401;
+  assert.equal(sanitizeProbeError(auth), "HTTP 401 (auth failed)");
+
+  const refused = new Error("connect ECONNREFUSED 127.0.0.1:8787");
+  refused.code = "ECONNREFUSED";
+  assert.equal(sanitizeProbeError(refused), "Connection refused");
+
+  const html = new Error("Unexpected token '<', \"<!doctype \"... is not valid JSON");
+  assert.equal(sanitizeProbeError(html), "Not a JSON session list");
 });
