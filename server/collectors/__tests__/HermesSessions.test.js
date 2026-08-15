@@ -1,0 +1,307 @@
+/**
+ * Hermes Agent conversation reader (U4): dashboard sessions → projector rows.
+ *
+ * Recency is_active is never mid-turn. Fixture JSON / injected loaders only.
+ * Run: node --test server/collectors/__tests__/HermesSessions.test.js
+ */
+import { test } from "node:test";
+import { strict as assert } from "node:assert";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import {
+  mapHermesSessions,
+  collectHermesSessions,
+} from "../HermesSessions.js";
+
+const MODULE_PATH = fileURLToPath(new URL("../HermesSessions.js", import.meta.url));
+
+const PROFILE = { model: { base_url: "http://127.0.0.1:8888/v1" } };
+
+function session(overrides = {}) {
+  return {
+    id: "sess-1",
+    source: "cli",
+    model: "local-model",
+    title: "Coding session",
+    is_active: true,
+    billing_base_url: "http://127.0.0.1:8888/v1",
+    preview: "user asked a secret question",
+    ...overrides,
+  };
+}
+
+function expectedRow(overrides = {}) {
+  return {
+    source: "hermes",
+    handle: "Coding session",
+    originHost: "127.0.0.1",
+    originPort: 8888,
+    midTurn: "unknown",
+    ...overrides,
+  };
+}
+
+test("is_active true without a mid-turn field is midTurn unknown", () => {
+  const rows = mapHermesSessions([session({ is_active: true })]);
+  assert.deepEqual(rows, [expectedRow({ midTurn: "unknown" })]);
+});
+
+test("origin from billing_base_url is still emitted when midTurn is unknown", () => {
+  const rows = mapHermesSessions([session({ is_active: true })]);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].originHost, "127.0.0.1");
+  assert.equal(rows[0].originPort, 8888);
+  assert.equal(rows[0].midTurn, "unknown");
+  assert.equal(rows[0].source, "hermes");
+});
+
+test("billing_base_url http://127.0.0.1:8888/v1 → origin 127.0.0.1:8888", () => {
+  const rows = mapHermesSessions([
+    session({ billing_base_url: "http://127.0.0.1:8888/v1" }),
+  ]);
+  assert.equal(rows[0].originHost, "127.0.0.1");
+  assert.equal(rows[0].originPort, 8888);
+});
+
+test("is_active true + status working is midTurn true", () => {
+  const rows = mapHermesSessions([
+    session({ is_active: true, status: "working" }),
+  ]);
+  assert.deepEqual(rows, [expectedRow({ midTurn: true })]);
+});
+
+test("status running is midTurn true; is_active is ignored", () => {
+  const rows = mapHermesSessions([
+    session({ is_active: false, status: "running" }),
+  ]);
+  assert.equal(rows[0].midTurn, true);
+});
+
+test("handle is title; preview is absent from the JSON row", () => {
+  const rows = mapHermesSessions([
+    session({
+      title: "Topic A",
+      preview: "secret transcript body",
+    }),
+  ]);
+  assert.equal(rows[0].handle, "Topic A");
+  const json = JSON.stringify(rows);
+  assert.equal(json.includes("secret transcript body"), false);
+  assert.equal(json.includes("preview"), false);
+  assert.deepEqual(Object.keys(rows[0]).sort(), [
+    "handle",
+    "midTurn",
+    "originHost",
+    "originPort",
+    "source",
+  ]);
+});
+
+test("handle falls back to source, then id; preview is never the handle", () => {
+  const noTitle = mapHermesSessions([
+    session({ title: "", source: "telegram", preview: "sneaky preview" }),
+  ]);
+  assert.equal(noTitle[0].handle, "telegram");
+  assert.equal(JSON.stringify(noTitle).includes("sneaky preview"), false);
+
+  const idOnly = mapHermesSessions([
+    session({ title: "  ", source: "", id: "abc-123", preview: "body" }),
+  ]);
+  assert.equal(idOnly[0].handle, "abc-123");
+  assert.equal(JSON.stringify(idOnly).includes("body"), false);
+});
+
+test("profile model.base_url supplies origin when billing_base_url is absent", () => {
+  const { billing_base_url: _omit, ...rest } = session();
+  const rows = mapHermesSessions([rest], PROFILE);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].originHost, "127.0.0.1");
+  assert.equal(rows[0].originPort, 8888);
+});
+
+test("billing_base_url wins over profile model.base_url", () => {
+  const rows = mapHermesSessions(
+    [session({ billing_base_url: "http://10.0.0.2:4000/v1" })],
+    { model: { base_url: "http://127.0.0.1:8888/v1" } }
+  );
+  assert.equal(rows[0].originHost, "10.0.0.2");
+  assert.equal(rows[0].originPort, 4000);
+});
+
+test("session without origin URL is omitted", () => {
+  const { billing_base_url: _omit, ...rest } = session();
+  const rows = mapHermesSessions(
+    [rest, session({ title: "kept" })],
+    {}
+  );
+  assert.deepEqual(rows, [expectedRow({ handle: "kept" })]);
+});
+
+test("wrapped { sessions: [...] } list is accepted", () => {
+  const rows = mapHermesSessions({ sessions: [session({ is_active: true })] });
+  assert.equal(rows[0].midTurn, "unknown");
+  assert.equal(rows[0].handle, "Coding session");
+});
+
+test("disabled attach returns [] and does not load", async () => {
+  let loaded = false;
+  const rows = await collectHermesSessions(
+    { enabled: false, mode: "local" },
+    {
+      readFile: async () => {
+        loaded = true;
+        throw new Error("should not read");
+      },
+      fetchJson: async () => {
+        loaded = true;
+        throw new Error("should not fetch");
+      },
+      listSessions: async () => {
+        loaded = true;
+        throw new Error("should not list");
+      },
+    }
+  );
+  assert.deepEqual(rows, []);
+  assert.equal(loaded, false);
+});
+
+test("throwing fetch returns [] and does not throw", async () => {
+  const rows = await collectHermesSessions(
+    { enabled: true, mode: "url", url: "http://127.0.0.1:9119" },
+    {
+      fetchJson: async () => {
+        throw new Error("ECONNREFUSED");
+      },
+    }
+  );
+  assert.deepEqual(rows, []);
+});
+
+test("url mode GETs /api/sessions?limit=50 with Bearer token from deps", async () => {
+  let seenUrl;
+  let seenToken;
+  const rows = await collectHermesSessions(
+    { enabled: true, mode: "url", url: "http://127.0.0.1:9119" },
+    {
+      token: "from-deps",
+      fetchJson: async (url, opts) => {
+        if (String(url).includes("/api/sessions")) {
+          seenUrl = url;
+          seenToken = opts.token;
+          return { sessions: [session({ is_active: true })] };
+        }
+        const err = new Error("HTTP 404");
+        err.status = 404;
+        throw err;
+      },
+    }
+  );
+  assert.equal(seenUrl, "http://127.0.0.1:9119/api/sessions?limit=50");
+  assert.equal(seenToken, "from-deps");
+  assert.deepEqual(rows, [expectedRow({ midTurn: "unknown" })]);
+});
+
+test("injected listSessions is mapped; throwing listSessions returns []", async () => {
+  const listed = await collectHermesSessions(
+    { enabled: true, mode: "url", url: "http://127.0.0.1:9119" },
+    {
+      listSessions: async () => [session({ status: "working" })],
+    }
+  );
+  assert.deepEqual(listed, [expectedRow({ midTurn: true })]);
+
+  const failed = await collectHermesSessions(
+    { enabled: true, mode: "local" },
+    {
+      listSessions: async () => {
+        throw new Error("boom");
+      },
+    }
+  );
+  assert.deepEqual(failed, []);
+});
+
+test("state-dir reads sessions.json + optional config.json via injected readFile", async () => {
+  const dir = "/tmp/hermes-fixture";
+  const { billing_base_url: _omit, ...rest } = session({ is_active: true });
+  const files = {
+    [`${dir}/sessions.json`]: JSON.stringify({ sessions: [rest] }),
+    [`${dir}/config.json`]: JSON.stringify(PROFILE),
+  };
+  const rows = await collectHermesSessions(
+    { enabled: true, mode: "state-dir", stateDir: dir },
+    {
+      readFile: async (filePath) => {
+        if (!(filePath in files)) {
+          const err = new Error(`ENOENT ${filePath}`);
+          err.code = "ENOENT";
+          throw err;
+        }
+        return files[filePath];
+      },
+    }
+  );
+  assert.deepEqual(rows, [expectedRow({ midTurn: "unknown" })]);
+});
+
+test("local mode reads conventional state dir; profile.json supplies base_url", async () => {
+  const dir = "/opt/hermes-home";
+  const { billing_base_url: _omit, ...rest } = session();
+  const files = {
+    [`${dir}/sessions.json`]: JSON.stringify([rest]),
+    [`${dir}/profile.json`]: JSON.stringify(PROFILE),
+  };
+  const seen = [];
+  const rows = await collectHermesSessions(
+    { enabled: true, mode: "local" },
+    {
+      conventionalStateDir: dir,
+      hostRoot: "",
+      readFile: async (filePath) => {
+        seen.push(filePath);
+        if (!(filePath in files)) {
+          const err = new Error(`ENOENT ${filePath}`);
+          err.code = "ENOENT";
+          throw err;
+        }
+        return files[filePath];
+      },
+    }
+  );
+  assert.ok(seen.some((p) => p.endsWith("sessions.json")));
+  assert.ok(seen.some((p) => p.endsWith("config.json") || p.endsWith("profile.json")));
+  assert.equal(rows[0].midTurn, "unknown");
+  assert.equal(rows[0].originHost, "127.0.0.1");
+  assert.equal(rows[0].originPort, 8888);
+});
+
+test("missing state files return [] not throw", async () => {
+  const rows = await collectHermesSessions(
+    { enabled: true, mode: "state-dir", stateDir: "/no/such/hermes" },
+    {
+      readFile: async () => {
+        const err = new Error("ENOENT");
+        err.code = "ENOENT";
+        throw err;
+      },
+    }
+  );
+  assert.deepEqual(rows, []);
+});
+
+test("module has no CLI update probe, alphaclaw, or llmPorts HTTP", () => {
+  const src = readFileSync(MODULE_PATH, "utf8");
+  assert.equal(/hermes update/.test(src), false);
+  assert.equal(/check\(/.test(src), false);
+  assert.equal(/alphaclaw/i.test(src), false);
+  assert.equal(/\bmama\b/i.test(src), false);
+  assert.equal(/kalliope/i.test(src), false);
+  assert.equal(/llmPorts/.test(src), false);
+  assert.equal(/projectConversations/.test(src), false);
+  assert.equal(/OpenClawSessions/.test(src), false);
+  assert.equal(/HermesProbe/.test(src), false);
+  assert.equal(/POLL_INTERVAL_HERMES/.test(src), false);
+  assert.equal(/\/v1\/chat/.test(src), false);
+  assert.equal(/\/v1\/models/.test(src), false);
+});
