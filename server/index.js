@@ -11,7 +11,10 @@ import { SparkMonitor } from "./sparks/SparkMonitor.js";
 import { sshExec, sshTest, llmTest } from "./collectors/ssh.js";
 import { validateSparkTarget, createRateLimiter } from "./validate.js";
 import { getSettings, updateSettings, loadSettings } from "./settings.js";
-import { getPublicSessionSources, updateSessionSources } from "./sessionSources.js";
+import { getPublicSessionSources, loadSessionSources, updateSessionSources } from "./sessionSources.js";
+import { loadSessionSourceTokens } from "./secretsStore.js";
+import { pollOccupancy } from "./collectors/occupancyPoller.js";
+import { POLL_INTERVAL_LLM } from "./config.js";
 import { broadcastForLanIp, effectiveMac, normalizeMac, sendWol } from "./wol.js";
 import {
   decodeBenchManager,
@@ -95,6 +98,56 @@ function orderedSnapshots() {
     .map((id) => monitors.get(id))
     .filter(Boolean)
     .map((m) => m.snapshot());
+}
+
+// Occupancy is dashboard-level (KTD1), on LLM cadence, never folded into _pollDomain("llm").
+let _occupancyInflight = false;
+/** @type {ReturnType<typeof setInterval> | null} */
+let occupancyTimer = null;
+
+function applyOccupancy(bySpark) {
+  for (const [id, monitor] of monitors) {
+    monitor.setConversations(bySpark[id] || []);
+  }
+}
+
+function sourcesEnabled(sources) {
+  return Boolean(sources?.openclaw?.enabled || sources?.hermes?.enabled);
+}
+
+async function tickOccupancy() {
+  if (_occupancyInflight) return;
+  const sources = loadSessionSources();
+  if (!sourcesEnabled(sources)) {
+    applyOccupancy({});
+    return;
+  }
+  _occupancyInflight = true;
+  try {
+    const bySpark = await pollOccupancy({
+      sparks: registry.sparks,
+      sources,
+      tokens: loadSessionSourceTokens(),
+    });
+    applyOccupancy(bySpark);
+  } catch (err) {
+    console.error("[occupancy] poll error:", err.message);
+  } finally {
+    _occupancyInflight = false;
+  }
+}
+
+function startOccupancyPoll() {
+  if (occupancyTimer != null) return;
+  occupancyTimer = setInterval(() => void tickOccupancy(), POLL_INTERVAL_LLM);
+  void tickOccupancy();
+}
+
+function stopOccupancyPoll() {
+  if (occupancyTimer == null) return;
+  clearInterval(occupancyTimer);
+  occupancyTimer = null;
+  _occupancyInflight = false;
 }
 
 // ─── Express app ─────────────────────────────────────────
@@ -1073,6 +1126,7 @@ server.listen(PORT, "0.0.0.0", () => {
   console.log(`[sparkDash] server listening on http://0.0.0.0:${PORT}`);
   console.log(`[sparkDash] WebSocket endpoint ws://0.0.0.0:${PORT}/ws`);
   startAllMonitors();
+  startOccupancyPoll();
 });
 
 // ─── Graceful shutdown ─────────────────────────────────
@@ -1086,6 +1140,7 @@ function shutdown(signal) {
       clearInterval(broadcastTimer);
       broadcastTimer = null;
     }
+    stopOccupancyPoll();
     for (const m of monitors.values()) m.stop();
     monitors.clear();
   } catch (err) {

@@ -65,6 +65,9 @@ export class SparkMonitor {
     this._running = false;
     /** @type {Record<string, boolean>} in-flight domain guards */
     this._inflight = {};
+
+    /** Bound conversation rows from the dashboard occupancy poller. */
+    this._conversations = [];
   }
 
   /** Hot-update config without tearing down poll loops / rate baselines. */
@@ -163,6 +166,19 @@ export class SparkMonitor {
     console.log(`[SparkMonitor] ${this.spark.id} stopped`);
   }
 
+  /** Store a copy of occupancy rows. Dashboard poller owns collection. */
+  setConversations(rows) {
+    this._conversations = Array.isArray(rows) ? rows.map((row) => ({ ...row })) : [];
+  }
+
+  /** Occupancy list for snapshot: omit when empty, disabled, or worker. */
+  _conversationSnapshot() {
+    if (!this._llmMonitoringEnabled()) return {};
+    const rows = this._conversations;
+    if (!Array.isArray(rows) || rows.length === 0) return {};
+    return { conversations: rows };
+  }
+
   /** Return a full snapshot of this Spark's metrics. */
   snapshot() {
     const ports = this._llmMonitoringEnabled() ? this._llmPorts() : [];
@@ -198,6 +214,7 @@ export class SparkMonitor {
         unifiedMemory: this._metrics.unifiedMemory,
         llm: this._metrics.llm,
       },
+      ...this._conversationSnapshot(),
     };
   }
 

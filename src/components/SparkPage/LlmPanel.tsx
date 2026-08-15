@@ -1,16 +1,18 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import type { LlmMetrics } from "../../api/types";
+import type { ConversationRow, LlmMetrics } from "../../api/types";
 import { updateLlmPort } from "../../api/client";
 import { Sparkline } from "../ui/Sparkline";
 import { Panel } from "../ui/Panel";
 import { BotIcon, GearIcon, InfoIcon } from "../ui/icons";
 import { useMetricsHistoryTail } from "../../hooks/metricsStore";
 import { BenchmarkDialog } from "./BenchmarkDialog";
+import { ConversationList } from "./ConversationList";
 
 interface LlmPanelProps {
   llm: LlmMetrics | null;
   sparkId: string;
   llmPort: number;
+  conversations?: ConversationRow[];
   onRemovePort?: (port: number) => void;
   className?: string;
 }
@@ -125,7 +127,14 @@ function MetricInfoTip({
   );
 }
 
-export function LlmPanel({ llm, sparkId, llmPort, onRemovePort, className }: LlmPanelProps) {
+export function LlmPanel({
+  llm,
+  sparkId,
+  llmPort,
+  conversations = [],
+  onRemovePort,
+  className,
+}: LlmPanelProps) {
   // Tail keyed by port so multi-port LLM sparklines stay distinct (8b).
   const genHistory = useMetricsHistoryTail(sparkId, `llm:${llmPort}.tps`);
   const [showSettings, setShowSettings] = useState(false);
@@ -283,9 +292,12 @@ export function LlmPanel({ llm, sparkId, llmPort, onRemovePort, className }: Llm
           </div>
         </div>
       ) : !available ? (
-        <div className="flex items-center gap-2 py-1">
-          <span className="h-1.5 w-1.5 rounded-full bg-muted" />
-          <p className="text-xs text-muted">No model loaded on :{llmPort}</p>
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 py-1">
+            <span className="h-1.5 w-1.5 rounded-full bg-muted" />
+            <p className="text-xs text-muted">No model loaded on :{llmPort}</p>
+          </div>
+          <ConversationList conversations={conversations} />
         </div>
       ) : (
         <div className="space-y-3">
@@ -522,6 +534,8 @@ export function LlmPanel({ llm, sparkId, llmPort, onRemovePort, className }: Llm
               </div>
             </div>
           )}
+
+          <ConversationList conversations={conversations} />
 
           <div className="border-t border-border pt-3 space-y-2">
             <button
