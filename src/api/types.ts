@@ -205,6 +205,18 @@ export interface SparkMetrics {
   llm: LlmMetrics[];
 }
 
+// ─── Bound gateway conversations (occupancy; not LlmMetrics) ─
+export type ConversationSource = "openclaw" | "hermes";
+export type ConversationBadge = "generating" | "stalled" | "unknown";
+
+/** Live-calls row: handle + badge only. No transcripts or session files. */
+export interface ConversationRow {
+  source: ConversationSource;
+  handle: string;
+  badge: ConversationBadge;
+  port: number;
+}
+
 // ─── Spark snapshot (server pushes this) ──────────────────
 export interface SparkSnapshot {
   id: string;
@@ -231,6 +243,8 @@ export interface SparkSnapshot {
   llmPorts: number[];
   hardware: HardwareInfo;
   metrics: SparkMetrics;
+  /** Bound OpenClaw / Hermes conversations. Omit when empty (U5). */
+  conversations?: ConversationRow[];
 }
 
 // ─── WebSocket envelope ───────────────────────────────────
