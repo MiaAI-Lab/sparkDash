@@ -1,0 +1,145 @@
+/**
+ * Dashboard-level OpenClaw / Hermes Agent conversation-source attach config.
+ * Tokens live in secretsStore, never in this JSON file.
+ */
+import fs from "fs";
+import { SESSION_SOURCES_JSON_PATH } from "./config.js";
+import { atomicWrite } from "./util/atomicWrite.js";
+import { isAllowedTargetHost } from "./validate.js";
+import { hasSessionSourceToken, patchSessionSourceTokens } from "./secretsStore.js";
+
+const SOURCE_IDS = Object.freeze(["openclaw", "hermes"]);
+const MODES = new Set(["local", "url", "state-dir"]);
+const PUBLIC_ONLY = new Set(["token", "hasToken", "conventionalStateDir"]);
+
+const DEFAULT_ATTACH = Object.freeze({
+  enabled: false,
+  mode: "local",
+  url: "",
+  stateDir: "",
+});
+
+export function conventionalStateDir(id) {
+  if (id === "openclaw") {
+    const env = process.env.OPENCLAW_STATE_DIR;
+    return env && env.trim() ? env.trim() : "~/.openclaw";
+  }
+  if (id === "hermes") {
+    const env = process.env.HERMES_HOME;
+    return env && env.trim() ? env.trim() : "~/.hermes";
+  }
+  return "";
+}
+
+function normalizeAttach(raw) {
+  const extras = raw && typeof raw === "object" && !Array.isArray(raw) ? { ...raw } : {};
+  for (const key of PUBLIC_ONLY) delete extras[key];
+  const mode = MODES.has(extras.mode) ? extras.mode : DEFAULT_ATTACH.mode;
+  return {
+    ...extras,
+    enabled: Boolean(extras.enabled),
+    mode,
+    url: typeof extras.url === "string" ? extras.url.trim() : "",
+    stateDir: typeof extras.stateDir === "string" ? extras.stateDir.trim() : "",
+  };
+}
+
+function normalizeConfig(raw) {
+  const base = raw && typeof raw === "object" && !Array.isArray(raw) ? { ...raw } : {};
+  return {
+    ...base,
+    openclaw: normalizeAttach(base.openclaw),
+    hermes: normalizeAttach(base.hermes),
+  };
+}
+
+function hostFromUrl(url) {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "";
+  }
+}
+
+function validateAttach(attach) {
+  if (attach.mode !== "url" || !attach.url) return;
+  const host = hostFromUrl(attach.url);
+  if (!host || !isAllowedTargetHost(host)) {
+    throw new Error(`Invalid or disallowed host: ${host || attach.url}`);
+  }
+}
+
+function persistableAttach(attach) {
+  const rest = { ...attach };
+  for (const key of PUBLIC_ONLY) delete rest[key];
+  return rest;
+}
+
+function saveSessionSources(config) {
+  const payload = {
+    ...config,
+    openclaw: persistableAttach(config.openclaw),
+    hermes: persistableAttach(config.hermes),
+  };
+  atomicWrite(SESSION_SOURCES_JSON_PATH, JSON.stringify(payload, null, 2) + "\n", 0o644);
+}
+
+export function loadSessionSources() {
+  try {
+    const raw = fs.readFileSync(SESSION_SOURCES_JSON_PATH, "utf8");
+    return normalizeConfig(JSON.parse(raw));
+  } catch (err) {
+    if (err.code === "ENOENT") return normalizeConfig({});
+    console.error("[sessionSources] Failed to load session-sources.json:", err.message);
+    return normalizeConfig({});
+  }
+}
+
+function publicAttach(id, attach) {
+  const rest = persistableAttach(attach);
+  return {
+    ...rest,
+    hasToken: hasSessionSourceToken(id),
+    conventionalStateDir: conventionalStateDir(id),
+  };
+}
+
+export function getPublicSessionSources() {
+  const config = loadSessionSources();
+  return {
+    ...config,
+    openclaw: publicAttach("openclaw", config.openclaw),
+    hermes: publicAttach("hermes", config.hermes),
+  };
+}
+
+function tokenPatchFromBody(patch) {
+  /** @type {Record<string, string>} */
+  const out = {};
+  for (const id of SOURCE_IDS) {
+    const src = patch[id];
+    if (!src || typeof src !== "object") continue;
+    if (!Object.prototype.hasOwnProperty.call(src, "token")) continue;
+    if (src.token == null) continue;
+    out[id] = String(src.token);
+  }
+  return out;
+}
+
+export function updateSessionSources(patch) {
+  const body = patch && typeof patch === "object" ? patch : {};
+  const current = loadSessionSources();
+  const next = { ...current };
+  for (const id of SOURCE_IDS) {
+    const src = body[id];
+    if (!src || typeof src !== "object") continue;
+    const attachPatch = { ...src };
+    for (const key of PUBLIC_ONLY) delete attachPatch[key];
+    next[id] = normalizeAttach({ ...current[id], ...attachPatch });
+    validateAttach(next[id]);
+  }
+  const tokens = tokenPatchFromBody(body);
+  if (Object.keys(tokens).length > 0) patchSessionSourceTokens(tokens);
+  saveSessionSources(next);
+  return getPublicSessionSources();
+}

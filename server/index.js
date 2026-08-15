@@ -11,6 +11,7 @@ import { SparkMonitor } from "./sparks/SparkMonitor.js";
 import { sshExec, sshTest, llmTest } from "./collectors/ssh.js";
 import { validateSparkTarget, createRateLimiter } from "./validate.js";
 import { getSettings, updateSettings, loadSettings } from "./settings.js";
+import { getPublicSessionSources, updateSessionSources } from "./sessionSources.js";
 import { broadcastForLanIp, effectiveMac, normalizeMac, sendWol } from "./wol.js";
 import {
   decodeBenchManager,
@@ -255,6 +256,19 @@ app.put("/api/settings", (req, res) => {
       restartBroadcast();
     }
     res.json(newSettings);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Dashboard-level conversation sources (tokens never returned)
+app.get("/api/session-sources", (_req, res) => {
+  res.json(getPublicSessionSources());
+});
+
+app.patch("/api/session-sources", (req, res) => {
+  try {
+    res.json(updateSessionSources(req.body || {}));
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

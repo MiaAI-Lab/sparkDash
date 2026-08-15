@@ -252,6 +252,38 @@ export interface Settings {
   density: "comfortable" | "compact";
 }
 
+export type SessionSourceMode = "local" | "url" | "state-dir";
+
+/** Dashboard-level OpenClaw / Hermes Agent attach record. Token never returned. */
+export interface SessionSourceAttach {
+  enabled: boolean;
+  mode: SessionSourceMode;
+  url: string;
+  stateDir: string;
+  hasToken: boolean;
+  /** Conventional local path (`~/.openclaw` / `~/.hermes`, or env override). */
+  conventionalStateDir: string;
+}
+
+export interface SessionSources {
+  openclaw: SessionSourceAttach;
+  hermes: SessionSourceAttach;
+}
+
+export interface SessionSourcePatch {
+  enabled?: boolean;
+  mode?: SessionSourceMode;
+  url?: string;
+  stateDir?: string;
+  /** Omit to leave stored token; empty string clears. Never returned on GET. */
+  token?: string;
+}
+
+export interface SessionSourcesPatch {
+  openclaw?: SessionSourcePatch;
+  hermes?: SessionSourcePatch;
+}
+
 export interface SparksListResponse {
   sparks: SparkConfig[];
 }

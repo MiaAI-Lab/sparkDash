@@ -1,6 +1,17 @@
 import { useEffect, useState } from "react";
-import { fetchSettings, updateSettings } from "../api/client";
-import type { Settings } from "../api/types";
+import {
+  fetchSessionSources,
+  fetchSettings,
+  updateSessionSources,
+  updateSettings,
+} from "../api/client";
+import type {
+  SessionSourceAttach,
+  SessionSourceMode,
+  SessionSources,
+  SessionSourcesPatch,
+  Settings,
+} from "../api/types";
 import { useModalPresence } from "../hooks/useModalPresence";
 
 interface SettingsDialogProps {
@@ -26,8 +37,130 @@ const POLL_PRESETS = [
   { label: "10s", value: 10000 },
 ];
 
+const SOURCE_LABELS = { openclaw: "OpenClaw", hermes: "Hermes Agent" } as const;
+const SOURCE_IDS = ["openclaw", "hermes"] as const;
+const MODE_OPTIONS: { value: SessionSourceMode; label: string }[] = [
+  { value: "local", label: "Local" },
+  { value: "url", label: "URL" },
+  { value: "state-dir", label: "State dir" },
+];
+
+const fieldClass =
+  "w-full rounded border border-border bg-surface-elevated px-3 py-1.5 text-xs text-text outline-none focus:border-accent";
+
+function Toggle({
+  on,
+  onClick,
+}: {
+  on: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      onClick={onClick}
+      className={`toggle-track relative mt-0.5 inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+        on ? "is-on" : ""
+      }`}
+    >
+      <span
+        className={`toggle-dot inline-block h-4 w-4 transform rounded-full shadow transition-transform ${
+          on ? "translate-x-4" : "translate-x-0"
+        }`}
+      />
+    </button>
+  );
+}
+
+function SessionSourceFields({
+  id,
+  source,
+  tokenDraft,
+  onSource,
+  onToken,
+  onClearToken,
+}: {
+  id: (typeof SOURCE_IDS)[number];
+  source: SessionSourceAttach;
+  tokenDraft: string;
+  onSource: (patch: Partial<SessionSourceAttach>) => void;
+  onToken: (value: string) => void;
+  onClearToken: () => void;
+}) {
+  return (
+    <div className="space-y-2 rounded border border-border px-3 py-2">
+      <label className="flex items-center gap-3 text-xs text-muted">
+        <Toggle on={source.enabled} onClick={() => onSource({ enabled: !source.enabled })} />
+        <span className="text-text">{SOURCE_LABELS[id]}</span>
+      </label>
+      <select
+        value={source.mode}
+        onChange={(e) => onSource({ mode: e.target.value as SessionSourceMode })}
+        className={fieldClass}
+        aria-label={`${SOURCE_LABELS[id]} mode`}
+      >
+        {MODE_OPTIONS.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+      {source.mode === "local" && (
+        <p className="text-[10px] leading-snug text-muted">Uses {source.conventionalStateDir}</p>
+      )}
+      {source.mode === "url" && (
+        <input
+          type="text"
+          value={source.url}
+          onChange={(e) => onSource({ url: e.target.value })}
+          placeholder="http://127.0.0.1:18789"
+          className={fieldClass}
+          aria-label={`${SOURCE_LABELS[id]} URL`}
+        />
+      )}
+      {source.mode === "state-dir" && (
+        <input
+          type="text"
+          value={source.stateDir}
+          onChange={(e) => onSource({ stateDir: e.target.value })}
+          placeholder="State directory"
+          className={fieldClass}
+          aria-label={`${SOURCE_LABELS[id]} state directory`}
+        />
+      )}
+      <div className="flex gap-2">
+        <input
+          type="password"
+          autoComplete="new-password"
+          value={tokenDraft}
+          onChange={(e) => onToken(e.target.value)}
+          placeholder={
+            source.hasToken ? "Token stored — leave blank to keep" : "Optional token"
+          }
+          className={fieldClass}
+          aria-label={`${SOURCE_LABELS[id]} token`}
+        />
+        {source.hasToken && !tokenDraft && (
+          <button
+            type="button"
+            onClick={onClearToken}
+            className="shrink-0 rounded border border-border bg-surface-elevated px-2 py-1.5 text-[10px] text-muted hover:bg-surface-hover"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) {
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [sessionSources, setSessionSources] = useState<SessionSources | null>(null);
+  const [tokenDrafts, setTokenDrafts] = useState({ openclaw: "", hermes: "" });
+  const [clearTokens, setClearTokens] = useState({ openclaw: false, hermes: false });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,15 +171,20 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
   useEffect(() => {
     if (!open) {
       setSettings(null);
+      setSessionSources(null);
+      setTokenDrafts({ openclaw: "", hermes: "" });
+      setClearTokens({ openclaw: false, hermes: false });
       setError(null);
       setDirty(false);
       return;
     }
     let cancelled = false;
     setLoading(true);
-    fetchSettings()
-      .then((s) => {
-        if (!cancelled) setSettings(s);
+    Promise.all([fetchSettings(), fetchSessionSources()])
+      .then(([s, sources]) => {
+        if (cancelled) return;
+        setSettings(s);
+        setSessionSources(sources);
       })
       .catch((err: Error) => {
         if (!cancelled) setError(err.message);
@@ -66,11 +204,31 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
     setDirty(true);
   };
 
+  const patchSource = (id: (typeof SOURCE_IDS)[number], patch: Partial<SessionSourceAttach>) => {
+    setSessionSources((prev) => (prev ? { ...prev, [id]: { ...prev[id], ...patch } } : prev));
+    setDirty(true);
+  };
+
   const handleSave = async () => {
     if (!settings) return;
     setSaving(true);
     setError(null);
     try {
+      if (sessionSources) {
+        const sessionPatch: SessionSourcesPatch = {};
+        for (const id of SOURCE_IDS) {
+          const src = sessionSources[id];
+          const draft = tokenDrafts[id];
+          sessionPatch[id] = {
+            enabled: src.enabled,
+            mode: src.mode,
+            url: src.url,
+            stateDir: src.stateDir,
+            ...(clearTokens[id] && !draft ? { token: "" } : draft ? { token: draft } : {}),
+          };
+        }
+        await updateSessionSources(sessionPatch);
+      }
       const result = await updateSettings(settings);
       setSettings(result);
       setDirty(false);
@@ -94,7 +252,7 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="settings-panel w-full max-w-sm p-6">
+      <div className="settings-panel w-full max-w-md max-h-[90vh] overflow-y-auto p-6">
         <h2 className="mb-4 text-sm font-semibold text-text-strong">Settings</h2>
 
         {loading && <p className="text-xs text-muted">Loading…</p>}
@@ -252,6 +410,36 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
                 </span>
               </label>
             </div>
+
+            {sessionSources && (
+              <div className="space-y-2 border-t border-border pt-4">
+                <h3 className="text-xs font-medium text-text">Session sources</h3>
+                <p className="text-[10px] leading-snug text-muted">
+                  Optional OpenClaw and Hermes Agent conversations. Local defaults are{" "}
+                  ~/.openclaw (or OPENCLAW_STATE_DIR) and ~/.hermes (or HERMES_HOME). Use a
+                  state dir or URL when the product is on another host or in Docker.
+                </p>
+                {SOURCE_IDS.map((id) => (
+                  <SessionSourceFields
+                    key={id}
+                    id={id}
+                    source={sessionSources[id]}
+                    tokenDraft={tokenDrafts[id]}
+                    onSource={(patch) => patchSource(id, patch)}
+                    onToken={(value) => {
+                      setTokenDrafts((prev) => ({ ...prev, [id]: value }));
+                      setClearTokens((prev) => ({ ...prev, [id]: false }));
+                      setDirty(true);
+                    }}
+                    onClearToken={() => {
+                      setTokenDrafts((prev) => ({ ...prev, [id]: "" }));
+                      setClearTokens((prev) => ({ ...prev, [id]: true }));
+                      patchSource(id, { hasToken: false });
+                    }}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         )}
 
