@@ -206,16 +206,19 @@ test("worker with empty llmPorts gets no rows even when lanIp matches", () => {
   assert.deepEqual(result, {});
 });
 
-test("list is capped at 20 and sorted by source, handle, port", () => {
+test("list is capped at 20; generating rows survive ahead of stalled siblings", () => {
   const rows = [];
   for (let i = 0; i < 21; i++) {
     const n = String(20 - i).padStart(2, "0");
     rows.push(row({ source: "hermes", handle: `h-${n}`, midTurn: false }));
   }
-  rows.push(row({ source: "openclaw", handle: "z-last", originPort: 8888, midTurn: false }));
+  rows.push(row({ source: "openclaw", handle: "z-last", originPort: 8888, midTurn: true }));
   const list = rowsFor(projectConversations(rows, [spark()]), "spark-local");
   assert.equal(list.length, 20);
-  const keys = list.map((r) => `${r.source}\0${r.handle}\0${r.port}`);
+  assert.equal(list[0].badge, "generating");
+  assert.equal(list[0].handle, "z-last");
+  const stalled = list.slice(1);
+  const keys = stalled.map((r) => `${r.source}\0${r.handle}\0${r.port}`);
   const sorted = [...keys].sort();
   assert.deepEqual(keys, sorted);
 });

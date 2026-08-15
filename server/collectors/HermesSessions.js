@@ -123,17 +123,22 @@ async function loadFromUrl(attach, deps) {
   return { sessions: payload, profiles };
 }
 
+function gatewayOrigin(raw) {
+  return String(raw || "")
+    .replace(/\/+$/, "")
+    .replace(/\/api\/sessions(?:\?.*)?$/, "");
+}
+
 function sessionsUrl(raw) {
-  const base = String(raw || "").replace(/\/+$/, "");
+  const base = gatewayOrigin(raw);
   if (!base) return "";
-  if (/\/api\/sessions(?:\?|$)/.test(base)) {
-    return base.includes("?") ? base : `${base}?limit=50`;
-  }
+  const original = String(raw || "");
+  if (/\/api\/sessions\?/.test(original)) return original.replace(/\/+$/, "");
   return `${base}/api/sessions?limit=50`;
 }
 
 async function loadProfilesFromUrl(raw, fetchJson, token) {
-  const base = String(raw || "").replace(/\/+$/, "");
+  const base = gatewayOrigin(raw);
   for (const suffix of ["/api/config", "/api/profile"]) {
     try {
       const payload = await fetchJson(`${base}${suffix}`, { token });

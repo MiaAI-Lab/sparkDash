@@ -5,7 +5,11 @@
  */
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { pollOccupancy } from "../occupancyPoller.js";
+
+const MODULE_PATH = fileURLToPath(new URL("../occupancyPoller.js", import.meta.url));
 
 function spark(overrides = {}) {
   return {
@@ -88,7 +92,10 @@ test("disabled sources: collect fns not called", async () => {
   assert.equal(hermes, 0);
 });
 
-test("AE6: showcase running flag does not mint generating", async () => {
+test("AE6: occupancy poller does not read showcase or DecodeBench state", async () => {
+  const src = readFileSync(MODULE_PATH, "utf8");
+  assert.equal(/ShowcaseManager/.test(src), false);
+  assert.equal(/DecodeBench/.test(src), false);
   const result = await pollOccupancy({
     sparks: [spark()],
     sources: sources({ openclaw: true }),
@@ -98,16 +105,25 @@ test("AE6: showcase running flag does not mint generating", async () => {
       row({ handle: "unknown-chat", midTurn: "unknown" }),
     ],
     collectHermes: async () => [],
-    showcaseRunning: true,
-    decodeBenchRunning: true,
   });
   const list = result["spark-local"];
   assert.ok(Array.isArray(list));
   const byHandle = Object.fromEntries(list.map((r) => [r.handle, r]));
   assert.equal(byHandle["stalled-chat"].badge, "stalled");
   assert.equal(byHandle["unknown-chat"].badge, "unknown");
-  assert.notEqual(byHandle["stalled-chat"].badge, "generating");
-  assert.notEqual(byHandle["unknown-chat"].badge, "generating");
+});
+
+test("projector throw returns {} and does not throw", async () => {
+  const result = await pollOccupancy({
+    sparks: [spark()],
+    sources: sources({ openclaw: true }),
+    collectOpenClaw: async () => [row({ midTurn: true })],
+    collectHermes: async () => [],
+    project: () => {
+      throw new Error("projector boom");
+    },
+  });
+  assert.deepEqual(result, {});
 });
 
 test("per-source catch: throwing source contributes [] and sibling still projects", async () => {

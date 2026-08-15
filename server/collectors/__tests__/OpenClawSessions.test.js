@@ -207,6 +207,16 @@ test("url 404 returns []", async () => {
   assert.deepEqual(rows, []);
 });
 
+test("url mode unwraps a top-level sessions array plus providers", async () => {
+  const payload = [session({ hasActiveRun: false })];
+  payload.models = { providers: SPARK_PROVIDERS };
+  const rows = await collectOpenClawSessions(
+    { enabled: true, mode: "url", url: "http://127.0.0.1:18789" },
+    { fetchJson: async () => payload }
+  );
+  assert.deepEqual(rows, [expectedRow({ midTurn: false })]);
+});
+
 test("url mode unwraps models.providers and nested sessions; token from deps", async () => {
   let seenToken;
   const rows = await collectOpenClawSessions(
@@ -283,6 +293,34 @@ test("local mode reads conventional state dir files", async () => {
   assert.equal(rows[0].midTurn, "unknown");
   assert.equal(rows[0].originHost, "127.0.0.1");
   assert.equal(rows[0].originPort, 4000);
+});
+
+test("state-dir falls back to agents/*/sessions/sessions.json", async () => {
+  const dir = "/tmp/openclaw-agents";
+  const files = {
+    [`${dir}/openclaw.json`]: JSON.stringify({ models: { providers: SPARK_PROVIDERS } }),
+    [`${dir}/agents/main/sessions/sessions.json`]: JSON.stringify({
+      sessions: [session({ hasActiveRun: true })],
+    }),
+  };
+  const rows = await collectOpenClawSessions(
+    { enabled: true, mode: "state-dir", stateDir: dir },
+    {
+      readFile: async (filePath) => {
+        if (!(filePath in files)) {
+          const err = new Error(`ENOENT ${filePath}`);
+          err.code = "ENOENT";
+          throw err;
+        }
+        return files[filePath];
+      },
+      readDir: async (dirPath) => {
+        assert.equal(dirPath, `${dir}/agents`);
+        return ["main"];
+      },
+    }
+  );
+  assert.deepEqual(rows, [expectedRow({ midTurn: true })]);
 });
 
 test("missing state files return [] not throw", async () => {

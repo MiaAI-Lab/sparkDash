@@ -178,6 +178,37 @@ test("throwing fetch returns [] and does not throw", async () => {
   assert.deepEqual(rows, []);
 });
 
+test("url already pointing at /api/sessions still loads profile from the gateway origin", async () => {
+  const seen = [];
+  const { billing_base_url: _omit, ...rest } = session({ is_active: true });
+  const rows = await collectHermesSessions(
+    { enabled: true, mode: "url", url: "http://127.0.0.1:9119/api/sessions" },
+    {
+      token: "from-deps",
+      fetchJson: async (url) => {
+        seen.push(String(url));
+        if (String(url).includes("/api/sessions")) {
+          return { sessions: [rest] };
+        }
+        if (String(url).includes("/api/config")) {
+          return PROFILE;
+        }
+        const err = new Error("HTTP 404");
+        err.status = 404;
+        throw err;
+      },
+    }
+  );
+  assert.ok(seen.some((u) => u.startsWith("http://127.0.0.1:9119/api/sessions")));
+  assert.ok(seen.includes("http://127.0.0.1:9119/api/config"));
+  assert.equal(
+    seen.some((u) => u.includes("/api/sessions/api/")),
+    false
+  );
+  assert.equal(rows[0].originHost, "127.0.0.1");
+  assert.equal(rows[0].originPort, 8888);
+});
+
 test("url mode GETs /api/sessions?limit=50 with Bearer token from deps", async () => {
   let seenUrl;
   let seenToken;

@@ -116,12 +116,12 @@ function sourcesEnabled(sources) {
 }
 
 async function tickOccupancy() {
-  if (_occupancyInflight) return;
   const sources = loadSessionSources();
   if (!sourcesEnabled(sources)) {
     applyOccupancy({});
     return;
   }
+  if (_occupancyInflight) return;
   _occupancyInflight = true;
   try {
     const bySpark = await pollOccupancy({
@@ -129,6 +129,10 @@ async function tickOccupancy() {
       sources,
       tokens: loadSessionSourceTokens(),
     });
+    if (!sourcesEnabled(loadSessionSources())) {
+      applyOccupancy({});
+      return;
+    }
     applyOccupancy(bySpark);
   } catch (err) {
     console.error("[occupancy] poll error:", err.message);

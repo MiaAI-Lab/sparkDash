@@ -5,7 +5,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { HOST_PATHS } from "../config.js";
+import { HOST_PATHS, LLM_PROBE_TIMEOUT_MS } from "../config.js";
+import { isAllowedTargetHost } from "../validate.js";
 
 /**
  * @param {string} url
@@ -58,7 +59,7 @@ export function remapHostRoot(expanded, deps = {}) {
 export function resolveStateDir(attach, deps, conventional) {
   const home = deps.homedir ?? os.homedir();
   if (attach.mode === "state-dir" && attach.stateDir) {
-    return expandTilde(attach.stateDir, home);
+    return remapHostRoot(expandTilde(attach.stateDir, home), deps);
   }
   return remapHostRoot(expandTilde(String(conventional || ""), home), deps);
 }
@@ -67,10 +68,33 @@ export function defaultReadFile(filePath) {
   return fs.promises.readFile(filePath, "utf8");
 }
 
+export function defaultReadDir(dirPath) {
+  return fs.promises.readdir(dirPath);
+}
+
 export async function defaultFetchJson(url, { token } = {}) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error("Invalid URL");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(`Invalid URL protocol: ${parsed.protocol}`);
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error("URL userinfo is not allowed");
+  }
+  if (!isAllowedTargetHost(parsed.hostname)) {
+    throw new Error(`Invalid or disallowed host: ${parsed.hostname}`);
+  }
   const headers = { Accept: "application/json" };
   if (token) headers.Authorization = `Bearer ${token}`;
-  const res = await fetch(url, { headers });
+  const res = await fetch(url, {
+    headers,
+    redirect: "error",
+    signal: AbortSignal.timeout(LLM_PROBE_TIMEOUT_MS),
+  });
   if (!res.ok) {
     const err = new Error(`HTTP ${res.status}`);
     err.status = res.status;

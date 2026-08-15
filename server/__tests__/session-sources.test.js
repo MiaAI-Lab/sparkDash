@@ -186,6 +186,45 @@ test("omitted token on PATCH does not wipe; empty string clears", () => {
   assert.equal(getPublicSessionSources().openclaw.hasToken, false);
 });
 
+test("url-only PATCH to a new origin clears the stored token", () => {
+  resetFiles();
+  updateSessionSources({
+    openclaw: { enabled: true, mode: "url", url: "http://127.0.0.1:18789", token: "keep-me" },
+  });
+  assert.equal(getPublicSessionSources().openclaw.hasToken, true);
+
+  const pub = updateSessionSources({
+    openclaw: { enabled: true, mode: "url", url: "http://192.168.4.10:18789" },
+  });
+  assert.equal(pub.openclaw.hasToken, false);
+  assert.equal(pub.openclaw.url, "http://192.168.4.10:18789");
+});
+
+test("URL userinfo, non-http protocol, and NUL stateDir are rejected", () => {
+  resetFiles();
+  assert.throws(
+    () =>
+      updateSessionSources({
+        openclaw: { enabled: true, mode: "url", url: "http://user:pass@127.0.0.1:18789" },
+      }),
+    /userinfo/i
+  );
+  assert.throws(
+    () =>
+      updateSessionSources({
+        hermes: { enabled: true, mode: "url", url: "file:///tmp/sessions.json" },
+      }),
+    /protocol/i
+  );
+  assert.throws(
+    () =>
+      updateSessionSources({
+        openclaw: { enabled: true, mode: "state-dir", stateDir: "/tmp/openclaw\0evil" },
+      }),
+    /state dir/i
+  );
+});
+
 test("disallowed URL host is rejected", () => {
   resetFiles();
   assert.throws(

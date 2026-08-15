@@ -1,6 +1,6 @@
 /**
  * Dashboard occupancy poll. Collect once per tick, then project onto Sparks.
- * Never throws. Does not read showcase/bench. Skip I/O when both sources are off.
+ * Never throws. Skip I/O when both sources are off.
  */
 import { collectOpenClawSessions } from "./OpenClawSessions.js";
 import { collectHermesSessions } from "./HermesSessions.js";

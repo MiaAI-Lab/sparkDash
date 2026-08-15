@@ -61,9 +61,33 @@ function hostFromUrl(url) {
   }
 }
 
+function originKey(url) {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return "";
+  }
+}
+
 function validateAttach(attach) {
+  if (attach.mode === "state-dir" && attach.stateDir && /[\0\r\n]/.test(attach.stateDir)) {
+    throw new Error("Invalid state dir");
+  }
   if (attach.mode !== "url" || !attach.url) return;
-  const host = hostFromUrl(attach.url);
+  let parsed;
+  try {
+    parsed = new URL(attach.url);
+  } catch {
+    throw new Error(`Invalid or disallowed host: ${attach.url}`);
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(`Invalid URL protocol: ${parsed.protocol}`);
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error("URL userinfo is not allowed");
+  }
+  const host = parsed.hostname || hostFromUrl(attach.url);
   if (!host || !isAllowedTargetHost(host)) {
     throw new Error(`Invalid or disallowed host: ${host || attach.url}`);
   }
@@ -140,6 +164,13 @@ export function updateSessionSources(patch) {
     validateAttach(next[id]);
   }
   const tokens = tokenPatchFromBody(body);
+  for (const id of SOURCE_IDS) {
+    const src = body[id];
+    if (!src || typeof src !== "object") continue;
+    if (Object.prototype.hasOwnProperty.call(src, "token")) continue;
+    if (originKey(current[id].url) === originKey(next[id].url)) continue;
+    tokens[id] = "";
+  }
   if (Object.keys(tokens).length > 0) patchSessionSourceTokens(tokens);
   saveSessionSources(next);
   return getPublicSessionSources();

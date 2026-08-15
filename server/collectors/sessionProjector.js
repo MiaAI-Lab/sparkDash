@@ -77,6 +77,10 @@ function badgeFromMidTurn(midTurn) {
   return "unknown";
 }
 
+const BADGE_RANK = { generating: 0, unknown: 1, stalled: 2 };
+
 function compareRows(a, b) {
+  const rank = (BADGE_RANK[a.badge] ?? 9) - (BADGE_RANK[b.badge] ?? 9);
+  if (rank) return rank;
   return a.source.localeCompare(b.source) || a.handle.localeCompare(b.handle) || a.port - b.port;
 }

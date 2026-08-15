@@ -9,6 +9,7 @@ import {
   parseBaseUrl,
   resolveStateDir,
   defaultReadFile,
+  defaultReadDir,
   defaultFetchJson,
   normalizeSessionList,
 } from "./sessionIo.js";
@@ -113,10 +114,56 @@ async function loadFromRpc(rpc) {
 
 function unwrapGatewayPayload(payload) {
   if (!payload || typeof payload !== "object") return { sessions: [], providers: {} };
+  const sessions = Array.isArray(payload)
+    ? payload
+    : (normalizeSessionList(payload.sessions) ?? payload.sessions ?? []);
   return {
-    sessions: payload.sessions ?? [],
+    sessions,
     providers: payload.providers ?? payload.models?.providers ?? {},
   };
+}
+
+async function readOptional(readFile, filePath) {
+  try {
+    return await readFile(filePath);
+  } catch {
+    return null;
+  }
+}
+
+function mergeSessionStores(stores) {
+  const arrays = [];
+  const maps = [];
+  for (const store of stores) {
+    if (Array.isArray(store)) arrays.push(store);
+    else if (store && typeof store === "object") maps.push(store);
+  }
+  if (arrays.length > 0) return arrays.flat();
+  if (maps.length === 1) return maps[0];
+  if (maps.length > 1) return Object.assign({}, ...maps);
+  return {};
+}
+
+async function loadAgentSessionStores(dir, readFile, readDir) {
+  let names = [];
+  try {
+    names = await readDir(path.join(dir, "agents"));
+  } catch {
+    return {};
+  }
+  const stores = [];
+  for (const entry of names) {
+    const name = typeof entry === "string" ? entry : entry?.name;
+    if (!name || name.startsWith(".")) continue;
+    const raw = await readOptional(readFile, path.join(dir, "agents", name, "sessions", "sessions.json"));
+    if (!raw) continue;
+    try {
+      stores.push(JSON.parse(raw));
+    } catch {
+      /* skip corrupt agent store */
+    }
+  }
+  return mergeSessionStores(stores);
 }
 
 async function loadFromStateDir(attach, deps) {
@@ -126,12 +173,17 @@ async function loadFromStateDir(attach, deps) {
     deps.conventionalStateDir ?? conventionalStateDir("openclaw")
   );
   const readFile = deps.readFile ?? defaultReadFile;
-  const [configRaw, sessionsRawText] = await Promise.all([
-    readFile(path.join(dir, "openclaw.json")),
-    readFile(path.join(dir, "sessions.json")),
-  ]);
+  const readDir = deps.readDir ?? defaultReadDir;
+  const configRaw = await readOptional(readFile, path.join(dir, "openclaw.json"));
+  if (!configRaw) return { sessions: [], providers: {} };
   const config = JSON.parse(configRaw);
-  const sessionsRaw = JSON.parse(sessionsRawText);
+  const siblingRaw = await readOptional(readFile, path.join(dir, "sessions.json"));
+  let sessionsRaw;
+  if (siblingRaw) {
+    sessionsRaw = JSON.parse(siblingRaw);
+  } else {
+    sessionsRaw = await loadAgentSessionStores(dir, readFile, readDir);
+  }
   return {
     sessions: sessionsRaw?.sessions ?? sessionsRaw,
     providers: config?.models?.providers ?? {},

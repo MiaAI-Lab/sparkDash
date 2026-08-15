@@ -262,10 +262,6 @@ export function loadSessionSourceTokens() {
   }
 }
 
-export function hasSessionSourceToken(id) {
-  return Boolean(loadSessionSourceTokens()[id]);
-}
-
 /**
  * Merge session-source token slots. Omitted keys leave the stored token;
  * empty string clears that slot.
