@@ -16,8 +16,6 @@ import {
 
 const HANDLE_FIELDS = ["label", "displayName", "key"];
 
-export { parseBaseUrl };
-
 /**
  * @param {unknown} sessions
  * @param {Record<string, { baseUrl?: string }>} providers
@@ -101,15 +99,8 @@ async function loadOpenClawPayload(attach, deps) {
 }
 
 async function loadFromUrl(attach, deps) {
-  if (typeof deps.rpc === "function") return loadFromRpc(deps.rpc);
   const fetchJson = deps.fetchJson ?? defaultFetchJson;
   return unwrapGatewayPayload(await fetchJson(attach.url, { token: deps.token }));
-}
-
-async function loadFromRpc(rpc) {
-  const [listed, config] = await Promise.all([rpc("sessions.list"), rpc("config.get")]);
-  const sessions = Array.isArray(listed) ? listed : listed?.sessions ?? listed;
-  return { sessions, providers: config?.models?.providers ?? {} };
 }
 
 function unwrapGatewayPayload(payload) {

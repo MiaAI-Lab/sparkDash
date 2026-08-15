@@ -21,8 +21,6 @@ const HANDLE_FIELDS = ["title", "source", "id"];
 const LIVE_STATUS = new Set(["working", "running"]);
 const PROFILE_FILES = ["config.json", "profile.json"];
 
-export { parseBaseUrl };
-
 /**
  * @param {unknown} sessions
  * @param {object} [profiles]

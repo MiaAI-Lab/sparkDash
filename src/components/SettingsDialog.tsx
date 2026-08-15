@@ -302,21 +302,10 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
             {/* Auto-hide offline */}
             <div>
               <label className="flex items-center gap-3 text-xs text-muted">
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={settings.autoHideOffline}
+                <Toggle
+                  on={settings.autoHideOffline}
                   onClick={() => update({ autoHideOffline: !settings.autoHideOffline })}
-                  className={`toggle-track relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
-                    settings.autoHideOffline ? "is-on" : ""
-                  }`}
-                >
-                  <span
-                    className={`toggle-dot inline-block h-4 w-4 transform rounded-full shadow transition-transform ${
-                      settings.autoHideOffline ? "translate-x-4" : "translate-x-0"
-                    }`}
-                  />
-                </button>
+                />
                 Auto-hide offline Sparks on Overview
               </label>
             </div>
@@ -324,23 +313,12 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
             {/* Benchmark debug traces */}
             <div>
               <label className="flex items-start gap-3 text-xs text-muted">
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={Boolean(settings.benchDebugTraces)}
+                <Toggle
+                  on={Boolean(settings.benchDebugTraces)}
                   onClick={() =>
                     update({ benchDebugTraces: !settings.benchDebugTraces })
                   }
-                  className={`toggle-track relative mt-0.5 inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
-                    settings.benchDebugTraces ? "is-on" : ""
-                  }`}
-                >
-                  <span
-                    className={`toggle-dot inline-block h-4 w-4 transform rounded-full shadow transition-transform ${
-                      settings.benchDebugTraces ? "translate-x-4" : "translate-x-0"
-                    }`}
-                  />
-                </button>
+                />
                 <span>
                   <span className="block text-text">Enable debug traces for Benchmark runs</span>
                   <span className="mt-0.5 block text-[10px] leading-snug text-muted">
@@ -383,25 +361,14 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
             {/* Density */}
             <div>
               <label className="flex items-start gap-3 text-xs text-muted">
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={settings.density === "compact"}
+                <Toggle
+                  on={settings.density === "compact"}
                   onClick={() =>
                     update({
                       density: settings.density === "compact" ? "comfortable" : "compact",
                     })
                   }
-                  className={`toggle-track relative mt-0.5 inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
-                    settings.density === "compact" ? "is-on" : ""
-                  }`}
-                >
-                  <span
-                    className={`toggle-dot inline-block h-4 w-4 transform rounded-full shadow transition-transform ${
-                      settings.density === "compact" ? "translate-x-4" : "translate-x-0"
-                    }`}
-                  />
-                </button>
+                />
                 <span>
                   <span className="block text-text">Compact UI</span>
                   <span className="mt-0.5 block text-[10px] leading-snug text-muted">

@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { pollOccupancy } from "../occupancyPoller.js";
+import { createOccupancyLoop, pollOccupancy } from "../occupancyPoller.js";
 
 const MODULE_PATH = fileURLToPath(new URL("../occupancyPoller.js", import.meta.url));
 
@@ -140,4 +140,80 @@ test("per-source catch: throwing source contributes [] and sibling still project
   assert.deepEqual(result["spark-local"], [
     { source: "hermes", handle: "agent-1", badge: "unknown", port: 8888 },
   ]);
+});
+
+function loopHarness(overrides = {}) {
+  const applied = [];
+  const sparks = [spark()];
+  let currentSources = sources({ openclaw: true });
+  const loop = createOccupancyLoop({
+    intervalMs: 60_000,
+    getSparks: () => sparks,
+    getSources: () => currentSources,
+    getTokens: () => ({}),
+    apply: (bySpark) => applied.push(bySpark),
+    poll: async () => ({ "spark-local": [{ source: "openclaw", handle: "chat-a", badge: "generating", port: 8888 }] }),
+    ...overrides,
+  });
+  return {
+    loop,
+    applied,
+    setSources(next) {
+      currentSources = next;
+    },
+  };
+}
+
+test("occupancy loop: disabled sources apply {} without polling", async () => {
+  let polls = 0;
+  const { loop, applied } = loopHarness({
+    getSources: () => sources(),
+    poll: async () => {
+      polls += 1;
+      return { "spark-local": [] };
+    },
+  });
+  await loop.tick();
+  assert.equal(polls, 0);
+  assert.deepEqual(applied, [{}]);
+});
+
+test("occupancy loop: skip a second tick while a poll is in flight", async () => {
+  let polls = 0;
+  let release;
+  const hanging = new Promise((resolve) => {
+    release = resolve;
+  });
+  const { loop, applied } = loopHarness({
+    poll: async () => {
+      polls += 1;
+      await hanging;
+      return { "spark-local": [{ source: "openclaw", handle: "chat-a", badge: "generating", port: 8888 }] };
+    },
+  });
+  const first = loop.tick();
+  await loop.tick();
+  release();
+  await first;
+  assert.equal(polls, 1);
+  assert.equal(applied.length, 1);
+});
+
+test("occupancy loop: disable during poll applies {} not the hung result", async () => {
+  const { loop, applied, setSources } = loopHarness({
+    poll: async () => {
+      setSources(sources());
+      return { "spark-local": [{ source: "openclaw", handle: "chat-a", badge: "generating", port: 8888 }] };
+    },
+  });
+  await loop.tick();
+  assert.deepEqual(applied, [{}]);
+});
+
+test("occupancy loop: stop clears the timer so later ticks are caller-driven only", async () => {
+  const { loop } = loopHarness();
+  loop.start();
+  loop.stop();
+  loop.start();
+  loop.stop();
 });
