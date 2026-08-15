@@ -1,5 +1,5 @@
 /**
- * Hermes Agent conversation reader (U4).
+ * Hermes Agent conversation reader.
  * Projector input rows only: source, handle, origin, midTurn.
  * Recency is_active is never mid-turn. Never transcripts. Never throws.
  *
@@ -7,37 +7,21 @@
  * (`model.base_url`). URL mode: GET /api/sessions. Native sqlite (state.db)
  * is not read — better-sqlite3 is not a dependency.
  */
-import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
-import { HOST_PATHS } from "../config.js";
 import { conventionalStateDir } from "../sessionSources.js";
+import {
+  parseBaseUrl,
+  resolveStateDir,
+  defaultReadFile,
+  defaultFetchJson,
+  normalizeSessionList,
+} from "./sessionIo.js";
 
 const HANDLE_FIELDS = ["title", "source", "id"];
 const LIVE_STATUS = new Set(["working", "running"]);
 const PROFILE_FILES = ["config.json", "profile.json"];
 
-/**
- * @param {string} url
- * @returns {{ host: string, port: number } | null}
- */
-export function parseBaseUrl(url) {
-  if (!url || typeof url !== "string") return null;
-  try {
-    const parsed = new URL(url);
-    const host = parsed.hostname;
-    if (!host) return null;
-    const port = parsed.port
-      ? Number(parsed.port)
-      : parsed.protocol === "https:"
-        ? 443
-        : 80;
-    if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
-    return { host, port };
-  } catch {
-    return null;
-  }
-}
+export { parseBaseUrl };
 
 /**
  * @param {unknown} sessions
@@ -46,9 +30,10 @@ export function parseBaseUrl(url) {
  */
 export function mapHermesSessions(sessions, profiles) {
   const list = normalizeSessions(sessions);
+  const profileOrigin = parseBaseUrl(profileBaseUrl(profiles));
   const rows = [];
   for (const item of list) {
-    const row = mapOneSession(item, profiles);
+    const row = mapOneSession(item, profileOrigin);
     if (row) rows.push(row);
   }
   return rows;
@@ -63,16 +48,15 @@ export async function collectHermesSessions(attach, deps = {}) {
   try {
     if (!attach?.enabled) return [];
     const loaded = await loadHermesPayload(attach, deps);
-    if (!loaded) return [];
     return mapHermesSessions(loaded.sessions, loaded.profiles);
   } catch {
     return [];
   }
 }
 
-function mapOneSession(session, profiles) {
+function mapOneSession(session, profileOrigin) {
   if (!session || typeof session !== "object") return null;
-  const origin = parseBaseUrl(originUrlOf(session, profiles));
+  const origin = originOf(session, profileOrigin);
   if (!origin) return null;
   const handle = sessionHandle(session);
   if (!handle) return null;
@@ -99,11 +83,11 @@ function midTurnOf(session) {
   return "unknown";
 }
 
-function originUrlOf(session, profiles) {
+function originOf(session, profileOrigin) {
   if (typeof session.billing_base_url === "string" && session.billing_base_url.trim()) {
-    return session.billing_base_url.trim();
+    return parseBaseUrl(session.billing_base_url.trim());
   }
-  return profileBaseUrl(profiles);
+  return profileOrigin;
 }
 
 function profileBaseUrl(profiles) {
@@ -117,9 +101,7 @@ function profileBaseUrl(profiles) {
 }
 
 function normalizeSessions(sessions) {
-  if (Array.isArray(sessions)) return sessions;
-  if (sessions && Array.isArray(sessions.sessions)) return sessions.sessions;
-  return [];
+  return normalizeSessionList(sessions) ?? [];
 }
 
 async function loadHermesPayload(attach, deps) {
@@ -164,10 +146,16 @@ async function loadProfilesFromUrl(raw, fetchJson, token) {
 }
 
 async function loadFromStateDir(attach, deps) {
-  const dir = resolveStateDir(attach, deps);
-  const readFile = deps.readFile ?? ((filePath) => fs.promises.readFile(filePath, "utf8"));
-  const sessionsRaw = JSON.parse(await readFile(path.join(dir, "sessions.json")));
-  const profiles = await loadProfilesFromDir(dir, readFile);
+  const dir = resolveStateDir(
+    attach,
+    deps,
+    deps.conventionalStateDir ?? conventionalStateDir("hermes")
+  );
+  const readFile = deps.readFile ?? defaultReadFile;
+  const [sessionsRaw, profiles] = await Promise.all([
+    readFile(path.join(dir, "sessions.json")).then((raw) => JSON.parse(raw)),
+    loadProfilesFromDir(dir, readFile),
+  ]);
   return { sessions: sessionsRaw, profiles };
 }
 
@@ -181,51 +169,4 @@ async function loadProfilesFromDir(dir, readFile) {
     }
   }
   return {};
-}
-
-function resolveStateDir(attach, deps) {
-  const home = deps.homedir ?? os.homedir();
-  if (attach.mode === "state-dir" && attach.stateDir) {
-    return expandTilde(attach.stateDir, home);
-  }
-  const conventional = deps.conventionalStateDir ?? conventionalStateDir("hermes");
-  return remapHostRoot(expandTilde(String(conventional || ""), home), deps);
-}
-
-function expandTilde(raw, home) {
-  const value = String(raw || "");
-  if (value === "~") return home;
-  if (value.startsWith("~/")) return path.join(home, value.slice(2));
-  return value;
-}
-
-function remapHostRoot(expanded, deps) {
-  const hostRoot = deps.hostRoot === undefined ? HOST_PATHS.ROOT : deps.hostRoot;
-  if (!hostRoot) return expanded;
-  const isReadable = deps.isReadable ?? pathReadable;
-  if (isReadable(expanded)) return expanded;
-  if (!expanded.startsWith("/") || !isReadable(hostRoot)) return expanded;
-  const mapped = path.join(hostRoot, expanded.slice(1));
-  return isReadable(mapped) ? mapped : expanded;
-}
-
-function pathReadable(filePath) {
-  try {
-    fs.accessSync(filePath);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function defaultFetchJson(url, { token } = {}) {
-  const headers = { Accept: "application/json" };
-  if (token) headers.Authorization = `Bearer ${token}`;
-  const res = await fetch(url, { headers });
-  if (!res.ok) {
-    const err = new Error(`HTTP ${res.status}`);
-    err.status = res.status;
-    throw err;
-  }
-  return res.json();
 }

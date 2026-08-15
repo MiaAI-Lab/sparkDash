@@ -17,6 +17,24 @@ import {
 
 const ONLINE_GRACE_MS = 10000;
 
+function sameConversationRows(a, b) {
+  if (a === b) return true;
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const left = a[i];
+    const right = b[i];
+    if (
+      left.source !== right.source ||
+      left.handle !== right.handle ||
+      left.badge !== right.badge ||
+      left.port !== right.port
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /**
  * SparkMonitor — one per Spark. Owns collectors + rate state + poll loop.
  * Exposes snapshot() for WebSocket pushed payload.
@@ -168,7 +186,9 @@ export class SparkMonitor {
 
   /** Store a copy of occupancy rows. Dashboard poller owns collection. */
   setConversations(rows) {
-    this._conversations = Array.isArray(rows) ? rows.map((row) => ({ ...row })) : [];
+    const next = Array.isArray(rows) ? rows.map((row) => ({ ...row })) : [];
+    if (sameConversationRows(this._conversations, next)) return;
+    this._conversations = next;
   }
 
   /** Occupancy list for snapshot: omit when empty, disabled, or worker. */

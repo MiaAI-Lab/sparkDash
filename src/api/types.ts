@@ -205,11 +205,11 @@ export interface SparkMetrics {
   llm: LlmMetrics[];
 }
 
-// ─── Bound gateway conversations (occupancy; not LlmMetrics) ─
+// ─── Occupancy conversations (not LlmMetrics) ────────────
 export type ConversationSource = "openclaw" | "hermes";
 export type ConversationBadge = "generating" | "stalled" | "unknown";
 
-/** Live-calls row: handle + badge only. No transcripts or session files. */
+/** Occupancy row: handle + badge only. No transcripts or session files. */
 export interface ConversationRow {
   source: ConversationSource;
   handle: string;
@@ -243,7 +243,7 @@ export interface SparkSnapshot {
   llmPorts: number[];
   hardware: HardwareInfo;
   metrics: SparkMetrics;
-  /** Bound OpenClaw / Hermes conversations. Omit when empty (U5). */
+  /** Bound OpenClaw / Hermes conversations. Omit when empty. */
   conversations?: ConversationRow[];
 }
 

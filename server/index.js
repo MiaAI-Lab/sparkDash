@@ -100,7 +100,7 @@ function orderedSnapshots() {
     .map((m) => m.snapshot());
 }
 
-// Occupancy is dashboard-level (KTD1), on LLM cadence, never folded into _pollDomain("llm").
+// Occupancy is dashboard-level, on LLM cadence, never folded into _pollDomain("llm").
 let _occupancyInflight = false;
 /** @type {ReturnType<typeof setInterval> | null} */
 let occupancyTimer = null;

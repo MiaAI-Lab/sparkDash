@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
-import type { SparkSnapshot } from "../../api/types";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import type { ConversationRow, SparkSnapshot } from "../../api/types";
 import { isLlmMonitoringEnabled } from "../../api/sparkRole";
 import { updateSpark, refreshSparkMetric, addLlmPort, removeLlmPort } from "../../api/client";
 import { SparkHeader } from "./SparkHeader";
@@ -15,6 +15,8 @@ interface SparkPageProps {
   onEdit?: () => void;
 }
 
+const EMPTY_CONVERSATIONS: ConversationRow[] = [];
+
 export function SparkPage({ spark, temperatureUnit, onEdit }: SparkPageProps) {
   const { metrics } = spark;
   const [disabledDevices, setDisabledDevices] = useState<string[]>(spark.disabledDevices || []);
@@ -27,6 +29,16 @@ export function SparkPage({ spark, temperatureUnit, onEdit }: SparkPageProps) {
   );
   const [showAddPort, setShowAddPort] = useState(false);
   const [newPortDraft, setNewPortDraft] = useState("");
+
+  const conversationsByPort = useMemo(() => {
+    const byPort = new Map<number, ConversationRow[]>();
+    for (const row of spark.conversations ?? []) {
+      const list = byPort.get(row.port);
+      if (list) list.push(row);
+      else byPort.set(row.port, [row]);
+    }
+    return byPort;
+  }, [spark.conversations]);
 
   // Sync when spark data changes (WS push)
   useEffect(() => {
@@ -123,7 +135,7 @@ export function SparkPage({ spark, temperatureUnit, onEdit }: SparkPageProps) {
                   llm={llmMetrics}
                   sparkId={spark.id}
                   llmPort={port}
-                  conversations={spark.conversations?.filter((c) => c.port === port) ?? []}
+                  conversations={conversationsByPort.get(port) ?? EMPTY_CONVERSATIONS}
                   onRemovePort={canRemove ? handleRemovePort : undefined}
                   className="md:col-span-2"
                 />

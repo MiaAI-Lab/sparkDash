@@ -6,7 +6,7 @@ import fs from "fs";
 import { SESSION_SOURCES_JSON_PATH } from "./config.js";
 import { atomicWrite } from "./util/atomicWrite.js";
 import { isAllowedTargetHost } from "./validate.js";
-import { hasSessionSourceToken, patchSessionSourceTokens } from "./secretsStore.js";
+import { loadSessionSourceTokens, patchSessionSourceTokens } from "./secretsStore.js";
 
 const SOURCE_IDS = Object.freeze(["openclaw", "hermes"]);
 const MODES = new Set(["local", "url", "state-dir"]);
@@ -95,21 +95,22 @@ export function loadSessionSources() {
   }
 }
 
-function publicAttach(id, attach) {
+function publicAttach(id, attach, tokens) {
   const rest = persistableAttach(attach);
   return {
     ...rest,
-    hasToken: hasSessionSourceToken(id),
+    hasToken: Boolean(tokens[id]),
     conventionalStateDir: conventionalStateDir(id),
   };
 }
 
 export function getPublicSessionSources() {
   const config = loadSessionSources();
+  const tokens = loadSessionSourceTokens();
   return {
     ...config,
-    openclaw: publicAttach("openclaw", config.openclaw),
-    hermes: publicAttach("hermes", config.hermes),
+    openclaw: publicAttach("openclaw", config.openclaw, tokens),
+    hermes: publicAttach("hermes", config.hermes, tokens),
   };
 }
 
