@@ -205,6 +205,19 @@ export interface SparkMetrics {
   llm: LlmMetrics[];
 }
 
+// ─── Occupancy conversations (not LlmMetrics) ────────────
+export type ConversationSource = "openclaw" | "hermes";
+export type ConversationBadge = "generating" | "stalled" | "unknown";
+
+/** Occupancy row: handle + badge only. `id` is list identity, not a transcript. */
+export interface ConversationRow {
+  id: string;
+  source: ConversationSource;
+  handle: string;
+  badge: ConversationBadge;
+  port: number;
+}
+
 // ─── Spark snapshot (server pushes this) ──────────────────
 export interface SparkSnapshot {
   id: string;
@@ -231,6 +244,8 @@ export interface SparkSnapshot {
   llmPorts: number[];
   hardware: HardwareInfo;
   metrics: SparkMetrics;
+  /** Bound OpenClaw / Hermes conversations. Omit when empty. */
+  conversations?: ConversationRow[];
 }
 
 // ─── WebSocket envelope ───────────────────────────────────
@@ -250,6 +265,38 @@ export interface Settings {
   benchDebugTraces: boolean;
   /** Layout density — comfortable (default) or compact. */
   density: "comfortable" | "compact";
+}
+
+export type SessionSourceMode = "local" | "url" | "state-dir";
+
+/** Dashboard-level OpenClaw / Hermes Agent attach record. Token never returned. */
+export interface SessionSourceAttach {
+  enabled: boolean;
+  mode: SessionSourceMode;
+  url: string;
+  stateDir: string;
+  hasToken: boolean;
+  /** Conventional local path (`~/.openclaw` / `~/.hermes`, or env override). */
+  conventionalStateDir: string;
+}
+
+export interface SessionSources {
+  openclaw: SessionSourceAttach;
+  hermes: SessionSourceAttach;
+}
+
+export interface SessionSourcePatch {
+  enabled?: boolean;
+  mode?: SessionSourceMode;
+  url?: string;
+  stateDir?: string;
+  /** Omit to leave stored token; empty string clears. Never returned on GET. */
+  token?: string;
+}
+
+export interface SessionSourcesPatch {
+  openclaw?: SessionSourcePatch;
+  hermes?: SessionSourcePatch;
 }
 
 export interface SparksListResponse {

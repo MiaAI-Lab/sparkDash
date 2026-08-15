@@ -1,10 +1,15 @@
 /**
- * Encrypted SSH password store — survives process/Docker restarts.
+ * Encrypted secret store — survives process/Docker restarts.
  *
- * Passwords are NEVER written to sparks.json and NEVER returned by the API.
+ * SSH passwords and session-source tokens are NEVER written to sparks.json
+ * / session-sources.json and NEVER returned by GET APIs.
  * They live in:
  *   - memory (Map) for SSH collectors
  *   - config/sparks-secrets.json (AES-256-GCM ciphertext, volume-mounted)
+ *
+ * File shape (v1, backward compatible):
+ *   { version: 1, secrets, sessionSourceTokens? }
+ * sessionSourceTokens keys: openclaw | hermes
  *
  * Encryption key:
  *   - SPARKDASH_SECRETS_KEY env (passphrase or 64-char hex), or
@@ -20,9 +25,15 @@ const ALGO = "aes-256-gcm";
 const IV_LEN = 12;
 const TAG_LEN = 16;
 const KEY_LEN = 32;
+const TOKEN_IDS = Object.freeze(["openclaw", "hermes"]);
 
 /** Cached key so we never regenerate mid-process. */
 let _cachedKey = null;
+
+/** Test helper: drop the in-process key cache. Does not rotate the key file. */
+export function resetSecretsKeyCache() {
+  _cachedKey = null;
+}
 
 function ensureDir(filePath) {
   const dir = path.dirname(filePath);
@@ -108,6 +119,73 @@ function decrypt(blobB64, key) {
   return Buffer.concat([decipher.update(data), decipher.final()]).toString("utf8");
 }
 
+function asBlobMap(value) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
+  return value;
+}
+
+function readRawStore() {
+  const empty = { version: 1, secrets: {}, sessionSourceTokens: {} };
+  if (!fs.existsSync(SPARKS_SECRETS_PATH)) return empty;
+  const data = JSON.parse(fs.readFileSync(SPARKS_SECRETS_PATH, "utf8"));
+  return {
+    version: 1,
+    secrets: asBlobMap(data?.secrets),
+    sessionSourceTokens: asBlobMap(data?.sessionSourceTokens),
+  };
+}
+
+function hasTokenBlobs(tokenBlobs) {
+  return TOKEN_IDS.some((id) => typeof tokenBlobs[id] === "string" && tokenBlobs[id]);
+}
+
+function unlinkStoreFile() {
+  if (!fs.existsSync(SPARKS_SECRETS_PATH)) return;
+  try {
+    fs.accessSync(SPARKS_SECRETS_PATH, fs.constants.W_OK);
+    fs.unlinkSync(SPARKS_SECRETS_PATH);
+  } catch (err) {
+    throw new Error(
+      `Failed to clear secrets file (permission?): ${err.message}. ` +
+        `Run: sudo chown -R $(id -u):$(id -g) config/sparks-secrets.json`
+    );
+  }
+}
+
+function persistStore(secretBlobs, tokenBlobs) {
+  const secrets = asBlobMap(secretBlobs);
+  const sessionSourceTokens = {};
+  for (const id of TOKEN_IDS) {
+    if (typeof tokenBlobs?.[id] === "string" && tokenBlobs[id]) {
+      sessionSourceTokens[id] = tokenBlobs[id];
+    }
+  }
+  const hasSecrets = Object.keys(secrets).length > 0;
+  if (!hasSecrets && !hasTokenBlobs(sessionSourceTokens)) {
+    unlinkStoreFile();
+    return;
+  }
+  const payload = { version: 1, secrets };
+  if (hasTokenBlobs(sessionSourceTokens)) payload.sessionSourceTokens = sessionSourceTokens;
+  atomicWrite(SPARKS_SECRETS_PATH, JSON.stringify(payload, null, 2) + "\n", 0o644);
+}
+
+function decryptEntries(entries, key, kind) {
+  const map = new Map();
+  let failed = 0;
+  for (const [id, blob] of Object.entries(entries)) {
+    if (!id || typeof blob !== "string") continue;
+    try {
+      const value = decrypt(blob, key);
+      if (value) map.set(id, value);
+    } catch {
+      failed += 1;
+      console.error(`[secretsStore] Failed to decrypt ${kind} for ${id} (wrong/missing key?)`);
+    }
+  }
+  return { map, failed };
+}
+
 /**
  * Load sparkId -> password map from disk.
  * @returns {Map<string, string>}
@@ -118,24 +196,9 @@ export function loadSecrets() {
 
   try {
     const key = resolveKey();
-    const raw = fs.readFileSync(SPARKS_SECRETS_PATH, "utf8");
-    const data = JSON.parse(raw);
-    const entries = data?.secrets || {};
-    if (typeof entries !== "object" || entries === null) return map;
-
-    let failed = 0;
-    for (const [id, blob] of Object.entries(entries)) {
-      if (!id || typeof blob !== "string") continue;
-      try {
-        const pw = decrypt(blob, key);
-        if (pw) map.set(id, pw);
-      } catch {
-        failed += 1;
-        console.error(
-          `[secretsStore] Failed to decrypt password for ${id} (wrong/missing key?)`
-        );
-      }
-    }
+    const raw = readRawStore();
+    const { map: loaded, failed } = decryptEntries(raw.secrets, key, "password");
+    for (const [id, pw] of loaded) map.set(id, pw);
     if (map.size > 0) {
       console.log(`[secretsStore] Loaded ${map.size} SSH password(s) from encrypted store`);
     }
@@ -151,7 +214,8 @@ export function loadSecrets() {
 }
 
 /**
- * Persist sparkId -> password map (encrypted). Empty map removes the file.
+ * Persist sparkId -> password map (encrypted). Empty passwords remove those
+ * slots; the file is deleted only when passwords AND session tokens are gone.
  * Throws on failure so callers can surface errors to the UI.
  *
  * Encrypted file mode is 0o644 so bind-mounted volumes stay usable across
@@ -160,19 +224,9 @@ export function loadSecrets() {
  * @param {Map<string, string>} passwords
  */
 export function saveSecrets(passwords) {
+  const raw = readRawStore();
   if (!passwords || passwords.size === 0) {
-    // Only delete if we can read the path; never "clear" on a failed load
-    if (fs.existsSync(SPARKS_SECRETS_PATH)) {
-      try {
-        fs.accessSync(SPARKS_SECRETS_PATH, fs.constants.W_OK);
-        fs.unlinkSync(SPARKS_SECRETS_PATH);
-      } catch (err) {
-        throw new Error(
-          `Failed to clear secrets file (permission?): ${err.message}. ` +
-            `Run: sudo chown -R $(id -u):$(id -g) config/sparks-secrets.json`
-        );
-      }
-    }
+    persistStore({}, raw.sessionSourceTokens);
     return;
   }
 
@@ -181,8 +235,56 @@ export function saveSecrets(passwords) {
   for (const [id, pw] of passwords.entries()) {
     if (pw) secrets[id] = encrypt(pw, key);
   }
-
-  const payload = JSON.stringify({ version: 1, secrets }, null, 2) + "\n";
-  atomicWrite(SPARKS_SECRETS_PATH, payload, 0o644);
+  persistStore(secrets, raw.sessionSourceTokens);
   console.log(`[secretsStore] Saved ${Object.keys(secrets).length} SSH password(s)`);
+}
+
+function decryptTokenMap(blobs, key) {
+  const { map } = decryptEntries(blobs, key, "session source token");
+  /** @type {Record<string, string>} */
+  const out = {};
+  for (const id of TOKEN_IDS) {
+    const value = map.get(id);
+    if (value) out[id] = value;
+  }
+  return out;
+}
+
+/** @returns {Record<string, string>} plaintext tokens keyed openclaw | hermes */
+export function loadSessionSourceTokens() {
+  try {
+    const raw = readRawStore();
+    if (!hasTokenBlobs(raw.sessionSourceTokens)) return {};
+    return decryptTokenMap(raw.sessionSourceTokens, resolveKey());
+  } catch (err) {
+    console.error(`[secretsStore] Failed to load session source tokens: ${err.message}`);
+    return {};
+  }
+}
+
+/**
+ * Merge session-source token slots. Omitted keys leave the stored token;
+ * empty string clears that slot.
+ * @param {{ openclaw?: string, hermes?: string }} patch
+ * @returns {Record<string, string>}
+ */
+export function patchSessionSourceTokens(patch) {
+  const raw = readRawStore();
+  const key = resolveKey();
+  const current = decryptTokenMap(raw.sessionSourceTokens, key);
+  const body = patch && typeof patch === "object" ? patch : {};
+  for (const id of TOKEN_IDS) {
+    if (!Object.prototype.hasOwnProperty.call(body, id)) continue;
+    const value = body[id];
+    if (value == null) continue;
+    if (value === "") delete current[id];
+    else current[id] = String(value);
+  }
+  /** @type {Record<string, string>} */
+  const tokenBlobs = {};
+  for (const id of TOKEN_IDS) {
+    if (current[id]) tokenBlobs[id] = encrypt(current[id], key);
+  }
+  persistStore(raw.secrets, tokenBlobs);
+  return current;
 }

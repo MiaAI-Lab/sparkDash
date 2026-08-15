@@ -2,6 +2,8 @@ import type {
   DecodeBenchJob,
   DecodeBenchListResponse,
   LlmMetrics,
+  SessionSources,
+  SessionSourcesPatch,
   Settings,
   ShowcaseSessionState,
   ShowcaseStartRequest,
@@ -303,6 +305,17 @@ export function fetchSettings(): Promise<Settings> {
 export function updateSettings(patch: Partial<Settings>): Promise<Settings> {
   return apiFetch("/api/settings", {
     method: "PUT",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function fetchSessionSources(): Promise<SessionSources> {
+  return apiFetch("/api/session-sources");
+}
+
+export function updateSessionSources(patch: SessionSourcesPatch): Promise<SessionSources> {
+  return apiFetch("/api/session-sources", {
+    method: "PATCH",
     body: JSON.stringify(patch),
   });
 }
