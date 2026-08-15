@@ -202,10 +202,13 @@ test("url-only PATCH to a new origin clears the stored token", () => {
 
 test("URL userinfo, non-http protocol, and NUL stateDir are rejected", () => {
   resetFiles();
+  const userinfoUrl = new URL("http://127.0.0.1:18789");
+  userinfoUrl.username = "review-user";
+  userinfoUrl.password = "review-pass";
   assert.throws(
     () =>
       updateSessionSources({
-        openclaw: { enabled: true, mode: "url", url: "http://user:pass@127.0.0.1:18789" },
+        openclaw: { enabled: true, mode: "url", url: userinfoUrl.toString() },
       }),
     /userinfo/i
   );

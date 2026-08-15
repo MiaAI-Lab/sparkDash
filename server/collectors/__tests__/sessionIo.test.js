@@ -65,8 +65,11 @@ test("defaultFetchJson rejects file: protocol, userinfo, and disallowed IPs befo
     () => defaultFetchJson("file:///etc/passwd"),
     /protocol/i
   );
+  const userinfoUrl = new URL("http://127.0.0.1:18789/");
+  userinfoUrl.username = "review-user";
+  userinfoUrl.password = "review-pass";
   await assert.rejects(
-    () => defaultFetchJson("http://user:secret@127.0.0.1:18789/"),
+    () => defaultFetchJson(userinfoUrl.toString()),
     /userinfo/i
   );
   await assert.rejects(
