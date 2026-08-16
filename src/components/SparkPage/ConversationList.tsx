@@ -2,13 +2,13 @@ import type { ConversationBadge, ConversationRow, ConversationSource } from "../
 
 const SOURCE_LABEL: Record<ConversationSource, string> = {
   openclaw: "OpenClaw",
-  hermes: "Hermes Agent",
+  hermes: "Hermes",
 };
 
-const BADGE_CLASS: Record<ConversationBadge, string> = {
-  generating: "text-accent",
-  stalled: "text-muted",
-  unknown: "text-warning",
+const BADGE_LABEL: Record<ConversationBadge, string> = {
+  generating: "Generating",
+  stalled: "Stalled",
+  unknown: "Unknown",
 };
 
 interface ConversationListProps {
@@ -19,19 +19,17 @@ export function ConversationList({ conversations }: ConversationListProps) {
   if (conversations.length === 0) return null;
 
   return (
-    <div className="space-y-1.5 border-t border-border pt-3">
+    <ul className="occupancy" aria-label="Occupancy on this LLM">
       {conversations.map((row) => (
-        <div
-          key={row.id}
-          className="flex items-center justify-between gap-2"
-        >
-          <div className="min-w-0 flex-1 truncate">
-            <span className="text-xs text-muted">{SOURCE_LABEL[row.source]}</span>
-            <span className="ml-2 text-xs text-text">{row.handle}</span>
-          </div>
-          <span className={`shrink-0 text-xs ${BADGE_CLASS[row.badge]}`}>{row.badge}</span>
-        </div>
+        <li key={row.id} className={`occupancy-row is-${row.badge}`}>
+          <span className="occupancy-dot" aria-hidden="true" />
+          <span className="occupancy-source">{SOURCE_LABEL[row.source]}</span>
+          <span className="occupancy-handle" title={row.handle}>
+            {row.handle}
+          </span>
+          <span className="occupancy-state">{BADGE_LABEL[row.badge]}</span>
+        </li>
       ))}
-    </div>
+    </ul>
   );
 }

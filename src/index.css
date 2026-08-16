@@ -729,6 +729,155 @@ input[type="checkbox"] {
   color: var(--color-accent);
 }
 
+/* ─── Occupancy (bound chats on an LLM port) ───────────── */
+.occupancy {
+  list-style: none;
+  margin: 0;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.occupancy-row {
+  display: grid;
+  grid-template-columns: 8px minmax(0, auto) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 2px 0;
+}
+.occupancy-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-muted);
+}
+.occupancy-row.is-generating .occupancy-dot {
+  background: var(--color-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 22%, transparent);
+  animation: occupancy-live 1.8s ease-out infinite;
+}
+.occupancy-row.is-stalled .occupancy-dot {
+  background: var(--color-muted);
+}
+.occupancy-row.is-unknown .occupancy-dot {
+  background: var(--color-warning);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-warning) 20%, transparent);
+}
+.occupancy-source {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-muted-strong);
+  white-space: nowrap;
+}
+.occupancy-handle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--color-text);
+}
+.occupancy-state {
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+.occupancy-row.is-generating .occupancy-state {
+  color: var(--color-accent);
+}
+.occupancy-row.is-unknown .occupancy-state {
+  color: var(--color-warning);
+}
+
+@keyframes occupancy-live {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 22%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--color-accent) 8%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .occupancy-row.is-generating .occupancy-dot {
+    animation: none;
+  }
+}
+
+.session-health {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.session-health-body {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+}
+.session-health-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 50px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: var(--color-surface-elevated);
+  color: var(--color-muted-strong);
+  border: 1px solid var(--color-border);
+}
+.session-health-pill.is-ok {
+  color: var(--color-success);
+  border-color: color-mix(in srgb, var(--color-success) 35%, var(--color-border));
+}
+.session-health-pill.is-danger {
+  color: var(--color-danger);
+  border-color: color-mix(in srgb, var(--color-danger) 35%, var(--color-border));
+}
+.session-health-metric {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.session-health-k {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+.session-health-v {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.session-health-detail {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--color-danger);
+}
+
+[data-density="compact"] .occupancy {
+  padding-top: 8px;
+}
+[data-density="compact"] .occupancy-row {
+  min-height: 22px;
+  gap: 6px;
+}
+
 /* ─── Mobile spark menu dropdown ────────────────────────── */
 /* Wrapper needed for absolute positioning */
 .mobile-menu-wrapper {

@@ -31,27 +31,27 @@ function Toggle({ on, onClick }: { on: boolean; onClick: () => void }) {
   );
 }
 
-export function healthMessage(health: SessionSourceHealth | undefined, checking: boolean): {
-  text: string;
-  tone: "muted" | "success" | "danger";
-} | null {
-  if (checking) return { text: "Checking…", tone: "muted" };
+export type HealthTone = "muted" | "ok" | "danger";
+
+export interface HealthView {
+  label: string;
+  tone: HealthTone;
+  found?: number;
+  mapped?: number;
+  detail?: string;
+}
+
+export function healthView(
+  health: SessionSourceHealth | undefined,
+  checking: boolean
+): HealthView | null {
+  if (checking) return { label: "Checking", tone: "muted" };
   if (!health) return null;
-  if (health.status === "disabled") return { text: "Off", tone: "muted" };
+  if (health.status === "disabled") return { label: "Off", tone: "muted" };
   if (health.status === "error") {
-    return { text: health.error || "Unreachable", tone: "danger" };
+    return { label: "Unreachable", tone: "danger", detail: health.error || undefined };
   }
-  if (health.found === 0) return { text: "Connected · 0 conversations", tone: "success" };
-  if (health.mapped === 0) {
-    return {
-      text: `Connected · ${health.found} found · none mapped to a Spark`,
-      tone: "success",
-    };
-  }
-  return {
-    text: `Connected · ${health.found} found · ${health.mapped} on a Spark`,
-    tone: "success",
-  };
+  return { label: "Connected", tone: "ok", found: health.found, mapped: health.mapped };
 }
 
 export function SessionSourceFields({
@@ -75,7 +75,7 @@ export function SessionSourceFields({
   onClearToken: () => void;
   onCheck: () => void;
 }) {
-  const status = healthMessage(health, checking);
+  const status = healthView(health, checking);
   return (
     <div className="space-y-2 rounded border border-border px-3 py-2">
       <label className="flex items-center gap-3 text-xs text-muted">
@@ -137,7 +137,7 @@ export function SessionSourceFields({
           </button>
         )}
       </div>
-      <div className="flex items-start gap-2">
+      <div className="session-health">
         <button
           type="button"
           onClick={onCheck}
@@ -147,16 +147,21 @@ export function SessionSourceFields({
           {checking ? "Checking…" : "Check"}
         </button>
         {status && (
-          <div
-            className={`min-w-0 flex-1 rounded px-2 py-1.5 text-[10px] leading-snug ${
-              status.tone === "success"
-                ? "bg-success/20 text-success"
-                : status.tone === "danger"
-                  ? "bg-danger/20 text-danger"
-                  : "text-muted"
-            }`}
-          >
-            {status.text}
+          <div className="session-health-body">
+            <span className={`session-health-pill is-${status.tone}`}>{status.label}</span>
+            {status.found != null && (
+              <span className="session-health-metric">
+                <span className="session-health-k">found</span>
+                <span className="session-health-v">{status.found}</span>
+              </span>
+            )}
+            {status.mapped != null && (
+              <span className="session-health-metric">
+                <span className="session-health-k">on Sparks</span>
+                <span className="session-health-v">{status.mapped}</span>
+              </span>
+            )}
+            {status.detail && <p className="session-health-detail">{status.detail}</p>}
           </div>
         )}
       </div>
