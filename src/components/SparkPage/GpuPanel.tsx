@@ -178,6 +178,18 @@ export function GpuPanel({ gpu, sparkId, temperatureUnit, className }: GpuPanelP
         </div>
       )}
 
+      {(gpu?.nvErrNoMemory ?? 0) > 0 && (
+        <div
+          className="flex items-center justify-between text-sm"
+          title="NVRM kernel NV_ERR_NO_MEMORY lines since boot (journal). GPU memory allocation failures under pressure."
+        >
+          <span className="text-muted">NV_ERR_NO_MEMORY</span>
+          <span className="font-tabular text-sm font-semibold text-danger">
+            {gpu?.nvErrNoMemory}
+          </span>
+        </div>
+      )}
+
       {/* Top GPU processes by VRAM usage */}
       {gpu && gpu.processes && gpu.processes.length > 0 && (
         <div className="space-y-1.5 border-t border-border pt-3">
