@@ -11,6 +11,8 @@ import { fileURLToPath } from "node:url";
 import {
   mapHermesSessions,
   collectHermesSessions,
+  diagnoseHermesSessions,
+  resetHermesAuthCache,
 } from "../HermesSessions.js";
 
 const MODULE_PATH = fileURLToPath(new URL("../HermesSessions.js", import.meta.url));
@@ -76,6 +78,20 @@ test("status running is midTurn true; is_active is ignored", () => {
     session({ is_active: false, status: "running" }),
   ]);
   assert.equal(rows[0].midTurn, true);
+});
+
+test("running true is midTurn true; is_active is still ignored", () => {
+  const rows = mapHermesSessions([
+    session({ is_active: false, running: true }),
+  ]);
+  assert.equal(rows[0].midTurn, true);
+});
+
+test("running false without status stays unknown, never stalled", () => {
+  const rows = mapHermesSessions([
+    session({ is_active: true, running: false }),
+  ]);
+  assert.equal(rows[0].midTurn, "unknown");
 });
 
 test("handle is title; preview is absent from the JSON row", () => {
@@ -230,7 +246,7 @@ test("url mode GETs /api/sessions?limit=50 with Bearer token from deps", async (
       },
     }
   );
-  assert.equal(seenUrl, "http://127.0.0.1:9119/api/sessions?limit=50");
+  assert.equal(seenUrl, "http://127.0.0.1:9119/api/sessions?limit=50&include_cli=1");
   assert.equal(seenToken, "from-deps");
   assert.deepEqual(rows, [expectedRow({ midTurn: "unknown" })]);
 });
@@ -369,6 +385,124 @@ test("missing state files return [] not throw", async () => {
     }
   );
   assert.deepEqual(rows, []);
+});
+
+test("url mode without fetchJson logs in then GETs sessions with Cookie", async () => {
+  resetHermesAuthCache();
+  const calls = [];
+  const rows = await collectHermesSessions(
+    { enabled: true, mode: "url", url: "http://127.0.0.1:9119" },
+    {
+      token: "ui-password",
+      fetchResponse: async (url, opts = {}) => {
+        calls.push({ url: String(url), method: opts.method ?? "GET", cookie: opts.cookie, body: opts.body });
+        if (String(url).includes("/api/auth/login")) {
+          assert.equal(JSON.parse(opts.body).password, "ui-password");
+          return {
+            json: async () => ({ ok: true }),
+            headers: {
+              getSetCookie: () => ["hermes_session=abc.def; HttpOnly; Path=/"],
+              get: () => null,
+            },
+          };
+        }
+        if (String(url).includes("/api/sessions")) {
+          assert.equal(opts.cookie, "hermes_session=abc.def");
+          return { json: async () => ({ sessions: [session({ is_active: true })] }) };
+        }
+        const err = new Error("HTTP 404");
+        err.status = 404;
+        throw err;
+      },
+    }
+  );
+  assert.equal(calls[0].url, "http://127.0.0.1:9119/api/auth/login");
+  assert.equal(calls[0].method, "POST");
+  assert.ok(calls.some((c) => c.url.includes("/api/sessions?limit=50&include_cli=1")));
+  assert.equal(rows.length, 1);
+});
+
+test("login 404 falls back to Bearer instead of treating the token as a password", async () => {
+  resetHermesAuthCache();
+  const calls = [];
+  const rows = await collectHermesSessions(
+    { enabled: true, mode: "url", url: "http://127.0.0.1:9119" },
+    {
+      token: "gateway-bearer",
+      fetchResponse: async (url, opts = {}) => {
+        calls.push({ url: String(url), method: opts.method ?? "GET", token: opts.token, cookie: opts.cookie });
+        if (String(url).includes("/api/auth/login")) {
+          const err = new Error("HTTP 404");
+          err.status = 404;
+          throw err;
+        }
+        if (String(url).includes("/api/sessions")) {
+          assert.equal(opts.token, "gateway-bearer");
+          assert.equal(opts.cookie, undefined);
+          return { json: async () => ({ sessions: [session({ is_active: true })] }) };
+        }
+        const err = new Error("HTTP 404");
+        err.status = 404;
+        throw err;
+      },
+    }
+  );
+  assert.equal(calls[0].url, "http://127.0.0.1:9119/api/auth/login");
+  assert.equal(rows.length, 1);
+});
+
+test("diagnose reports HTTP 401 when Hermes login fails", async () => {
+  resetHermesAuthCache();
+  const result = await diagnoseHermesSessions(
+    { enabled: true, mode: "url", url: "http://127.0.0.1:9119" },
+    {
+      token: "wrong",
+      fetchResponse: async () => {
+        const err = new Error("HTTP 401");
+        err.status = 401;
+        throw err;
+      },
+    }
+  );
+  assert.equal(result.status, "error");
+  assert.equal(result.error, "HTTP 401 (auth failed)");
+  assert.equal(result.found, 0);
+});
+
+test("CLI billing_base_url hostname origin is mapped", () => {
+  const rows = mapHermesSessions([
+    {
+      session_id: "cli-1",
+      title: "Telegram chat",
+      billing_base_url: "http://john:8888/v1",
+      is_cli_session: true,
+    },
+  ]);
+  assert.equal(rows[0].originHost, "john");
+  assert.equal(rows[0].originPort, 8888);
+  assert.equal(rows[0].handle, "Telegram chat");
+});
+
+test("diagnose JSON has counts only", async () => {
+  const result = await diagnoseHermesSessions(
+    { enabled: true, mode: "url", url: "http://127.0.0.1:9119" },
+    {
+      fetchJson: async (url) => {
+        if (String(url).includes("/api/sessions")) {
+          return { sessions: [session({ title: "Secret title", preview: "do not leak" })] };
+        }
+        const err = new Error("HTTP 404");
+        err.status = 404;
+        throw err;
+      },
+    }
+  );
+  const json = JSON.stringify(result);
+  assert.equal(json.includes("Secret title"), false);
+  assert.equal(json.includes("do not leak"), false);
+  assert.equal(result.status, "ok");
+  assert.equal(result.found, 1);
+  assert.equal(result.mapped, 1);
 });
 
 test("module has no CLI update probe, alphaclaw, or llmPorts HTTP", () => {

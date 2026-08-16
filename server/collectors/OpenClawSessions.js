@@ -12,6 +12,7 @@ import {
   defaultReadDir,
   defaultFetchJson,
   normalizeSessionList,
+  sanitizeProbeError,
 } from "./sessionIo.js";
 
 const HANDLE_FIELDS = ["label", "displayName", "key"];
@@ -44,6 +45,38 @@ export async function collectOpenClawSessions(attach, deps = {}) {
     return mapOpenClawSessions(loaded.sessions, loaded.providers);
   } catch {
     return [];
+  }
+}
+
+/**
+ * Connectivity probe for Settings. Counts only — never session handles or transcripts.
+ * @returns {Promise<{ status: "disabled" | "ok" | "error", found: number, mapped: number, error: string | null }>}
+ */
+export async function diagnoseOpenClawSessions(attach, deps = {}) {
+  if (!attach?.enabled) {
+    return { status: "disabled", found: 0, mapped: 0, error: null };
+  }
+  if (attach.mode === "url" && !String(attach.url || "").trim()) {
+    return { status: "error", found: 0, mapped: 0, error: "URL is required" };
+  }
+  if (attach.mode === "state-dir" && !String(attach.stateDir || "").trim()) {
+    return { status: "error", found: 0, mapped: 0, error: "State dir is required" };
+  }
+  try {
+    const loaded = await loadOpenClawPayload(attach, deps);
+    if (attach.mode !== "url" && loaded.missingConfig) {
+      return { status: "error", found: 0, mapped: 0, error: "OpenClaw state not found" };
+    }
+    const list = normalizeSessions(loaded.sessions);
+    const rows = mapOpenClawSessions(loaded.sessions, loaded.providers);
+    return {
+      status: "ok",
+      found: list.length,
+      mapped: deps.countMapped?.(rows) ?? rows.length,
+      error: null,
+    };
+  } catch (err) {
+    return { status: "error", found: 0, mapped: 0, error: sanitizeProbeError(err) };
   }
 }
 
@@ -167,11 +200,11 @@ async function loadFromStateDir(attach, deps) {
     deps,
     deps.conventionalStateDir ?? conventionalStateDir("openclaw")
   );
-  if (!dir) return { sessions: [], providers: {} };
+  if (!dir) return { sessions: [], providers: {}, missingConfig: true };
   const readFile = deps.readFile ?? defaultReadFile;
   const readDir = deps.readDir ?? defaultReadDir;
   const configRaw = await readOptional(readFile, path.join(dir, "openclaw.json"));
-  if (!configRaw) return { sessions: [], providers: {} };
+  if (!configRaw) return { sessions: [], providers: {}, missingConfig: true };
   const config = JSON.parse(configRaw);
   const siblingRaw = await readOptional(readFile, path.join(dir, "sessions.json"));
   let sessionsRaw;
@@ -183,5 +216,6 @@ async function loadFromStateDir(attach, deps) {
   return {
     sessions: sessionsRaw?.sessions ?? sessionsRaw,
     providers: config?.models?.providers ?? {},
+    missingConfig: false,
   };
 }

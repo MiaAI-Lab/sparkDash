@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import {
   mapOpenClawSessions,
   collectOpenClawSessions,
+  diagnoseOpenClawSessions,
 } from "../OpenClawSessions.js";
 
 const MODULE_PATH = fileURLToPath(new URL("../OpenClawSessions.js", import.meta.url));
@@ -373,6 +374,26 @@ test("missing state files return [] not throw", async () => {
     }
   );
   assert.deepEqual(rows, []);
+});
+
+test("diagnose reports missing OpenClaw state as error not empty ok", async () => {
+  const result = await diagnoseOpenClawSessions(
+    { enabled: true, mode: "state-dir", stateDir: "/no/such/openclaw" },
+    {
+      readFile: async () => {
+        const err = new Error("ENOENT");
+        err.code = "ENOENT";
+        throw err;
+      },
+    }
+  );
+  assert.equal(result.status, "error");
+  assert.equal(result.error, "OpenClaw state not found");
+});
+
+test("disabled OpenClaw diagnose is disabled", async () => {
+  const result = await diagnoseOpenClawSessions({ enabled: false, mode: "url", url: "http://127.0.0.1:18789" });
+  assert.deepEqual(result, { status: "disabled", found: 0, mapped: 0, error: null });
 });
 
 test("module has no alphaclaw strings and no llmPorts HTTP", () => {

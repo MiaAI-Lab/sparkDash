@@ -12,19 +12,21 @@ const LIST_CAP = 20;
  * @returns {Record<string, object[]>}
  */
 export function projectConversations(rows, sparks) {
+  const list = Array.isArray(sparks) ? sparks : [];
+  const nameHosts = exclusiveNameHosts(list);
   const bySpark = {};
-  for (const spark of Array.isArray(sparks) ? sparks : []) {
+  for (const spark of list) {
     if (!spark?.id) continue;
-    const projected = projectSpark(Array.isArray(rows) ? rows : [], spark);
+    const projected = projectSpark(Array.isArray(rows) ? rows : [], spark, nameHosts);
     if (projected.length > 0) bySpark[spark.id] = projected;
   }
   return bySpark;
 }
 
-function projectSpark(rows, spark) {
+function projectSpark(rows, spark, nameHosts) {
   const ports = listenPorts(spark);
   if (ports.size === 0) return [];
-  const hosts = listenHosts(spark);
+  const hosts = listenHosts(spark, nameHosts);
   const matched = [];
   for (const row of rows) {
     const port = Number(row?.originPort);
@@ -45,14 +47,41 @@ function listenPorts(spark) {
   return ports;
 }
 
-function listenHosts(spark) {
+function listenHosts(spark, nameHosts) {
   const hosts = new Set();
   const lan = normalizeHost(spark.lanIp);
   if (lan) hosts.add(lan);
+  const named = normalizeHost(spark.name);
+  if (named && nameHosts.has(named)) hosts.add(named);
+  const sshHost = normalizeHost(spark.ssh?.host);
+  if (sshHost) hosts.add(sshHost);
   if (spark.isLocal) {
     for (const host of LOOPBACK_HOSTS) hosts.add(host);
   }
   return hosts;
+}
+
+function exclusiveNameHosts(sparks) {
+  const names = new Map();
+  const identity = new Map();
+  for (const spark of sparks) {
+    if (!spark?.id) continue;
+    const name = normalizeHost(spark.name);
+    if (name) names.set(name, [...(names.get(name) || []), spark.id]);
+    for (const host of [normalizeHost(spark.lanIp), normalizeHost(spark.ssh?.host)]) {
+      if (!host) continue;
+      identity.set(host, [...(identity.get(host) || []), spark.id]);
+    }
+  }
+  const exclusive = new Set();
+  for (const [name, ids] of names) {
+    if (new Set(ids).size !== 1) continue;
+    const owner = ids[0];
+    const claimedByOther = (identity.get(name) || []).some((id) => id !== owner);
+    if (claimedByOther) continue;
+    exclusive.add(name);
+  }
+  return exclusive;
 }
 
 function normalizeHost(value) {

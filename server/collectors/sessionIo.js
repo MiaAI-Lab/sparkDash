@@ -73,7 +73,7 @@ export function defaultReadDir(dirPath) {
   return fs.promises.readdir(dirPath);
 }
 
-export async function defaultFetchJson(url, { token } = {}) {
+export function assertAllowedFetchUrl(url) {
   let parsed;
   try {
     parsed = new URL(url);
@@ -89,10 +89,18 @@ export async function defaultFetchJson(url, { token } = {}) {
   if (!isAllowedTargetHost(parsed.hostname)) {
     throw new Error(`Invalid or disallowed host: ${parsed.hostname}`);
   }
-  const headers = { Accept: "application/json" };
-  if (token) headers.Authorization = `Bearer ${token}`;
+  return parsed;
+}
+
+export async function defaultFetchResponse(url, { token, cookie, method, body, extraHeaders } = {}) {
+  assertAllowedFetchUrl(url);
+  const headers = { Accept: "application/json", ...(extraHeaders ?? {}) };
+  if (cookie) headers.Cookie = cookie;
+  else if (token) headers.Authorization = `Bearer ${token}`;
   const res = await fetch(url, {
+    method: method ?? "GET",
     headers,
+    body,
     redirect: "error",
     signal: AbortSignal.timeout(LLM_PROBE_TIMEOUT_MS),
   });
@@ -101,6 +109,11 @@ export async function defaultFetchJson(url, { token } = {}) {
     err.status = res.status;
     throw err;
   }
+  return res;
+}
+
+export async function defaultFetchJson(url, opts = {}) {
+  const res = await defaultFetchResponse(url, opts);
   return res.json();
 }
 
@@ -108,4 +121,26 @@ export function normalizeSessionList(sessions) {
   if (Array.isArray(sessions)) return sessions;
   if (sessions && Array.isArray(sessions.sessions)) return sessions.sessions;
   return null;
+}
+
+/** Short probe error for Settings. No paths, tokens, or payloads. */
+export function sanitizeProbeError(err) {
+  const code = err?.code;
+  if (code === "ENOENT") return "State files not found";
+  if (code === "EACCES" || code === "EPERM") return "Permission denied";
+  if (code === "ENOTFOUND") return "Host not found";
+  if (code === "ECONNREFUSED") return "Connection refused";
+  if (code === "ECONNRESET") return "Connection reset";
+  if (code === "ETIMEDOUT" || err?.name === "TimeoutError" || err?.name === "AbortError") {
+    return "Timed out";
+  }
+  const status = Number(err?.status);
+  if (status === 401 || status === 403) return `HTTP ${status} (auth failed)`;
+  if (Number.isInteger(status) && status >= 400) return `HTTP ${status}`;
+  const raw = err?.message ? String(err.message) : "Request failed";
+  if (/Unexpected token|^JSON|not valid JSON/i.test(raw)) return "Not a JSON session list";
+  if (/^HTTP 401\b/.test(raw) || /^HTTP 403\b/.test(raw)) return `${raw.split(/\s+/).slice(0, 2).join(" ")} (auth failed)`;
+  const http = raw.match(/^HTTP \d+/);
+  if (http) return http[0];
+  return "Request failed";
 }
