@@ -6,7 +6,7 @@
  */
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
-import { projectConversations } from "../sessionProjector.js";
+import { projectConversations, localInterfaceHosts, withOccupancyHosts, parseFibLocalIpv4, hostListenIps } from "../sessionProjector.js";
 
 function spark(overrides = {}) {
   return {
@@ -48,6 +48,43 @@ test("unknown rows sort by lastUsedAt descending", () => {
     "spark-local"
   );
   assert.deepEqual(list.map((r) => r.handle), ["new", "mid", "old"]);
+});
+
+test("agent is projected when present and omitted when empty", () => {
+  const withAgent = rowsFor(
+    projectConversations([row({ agent: "niemand" })], [spark()]),
+    "spark-local"
+  );
+  assert.equal(withAgent[0].agent, "niemand");
+  const without = rowsFor(projectConversations([row()], [spark()]), "spark-local");
+  assert.equal("agent" in without[0], false);
+});
+
+test("gateway is projected when present and omitted when empty", () => {
+  const withGateway = rowsFor(
+    projectConversations([row({ gateway: "theshop", agent: "niemand" })], [spark()]),
+    "spark-local"
+  );
+  assert.equal(withGateway[0].gateway, "theshop");
+  const without = rowsFor(projectConversations([row()], [spark()]), "spark-local");
+  assert.equal("gateway" in without[0], false);
+});
+
+test("contextUsed and contextWindow are projected when present and omitted when empty", () => {
+  const withCtx = rowsFor(
+    projectConversations(
+      [row({ contextUsed: 12345, contextWindow: 128000, contextApprox: true })],
+      [spark()]
+    ),
+    "spark-local"
+  );
+  assert.equal(withCtx[0].contextUsed, 12345);
+  assert.equal(withCtx[0].contextWindow, 128000);
+  assert.equal(withCtx[0].contextApprox, true);
+  const without = rowsFor(projectConversations([row()], [spark()]), "spark-local");
+  assert.equal("contextUsed" in without[0], false);
+  assert.equal("contextWindow" in without[0], false);
+  assert.equal("contextApprox" in without[0], false);
 });
 
 test("AE1: mid-turn + origin match is generating; midTurn false is stalled", () => {
@@ -308,4 +345,69 @@ test("a Spark name that matches another Spark ssh.host does not steal that origi
   );
   assert.equal("named" in result, false);
   assert.equal(rowsFor(result, "sshed")[0].handle, "cli-chat");
+});
+
+test("cx7Ip and occupancyHosts bind the same port as lanIp", () => {
+  const box = spark({
+    id: "spark-box",
+    lanIp: "100.10.0.2",
+    cx7Ip: "192.168.100.10",
+    occupancyHosts: ["192.168.4.50"],
+    isLocal: true,
+    llmPorts: [8888],
+  });
+  const cx7 = projectConversations(
+    [row({ handle: "cx7-chat", originHost: "192.168.100.10", originPort: 8888 })],
+    [box]
+  );
+  const wifi = projectConversations(
+    [row({ handle: "wifi-chat", originHost: "192.168.4.50", originPort: 8888 })],
+    [box]
+  );
+  assert.equal(rowsFor(cx7, "spark-box")[0].handle, "cx7-chat");
+  assert.equal(rowsFor(wifi, "spark-box")[0].handle, "wifi-chat");
+});
+
+test("withOccupancyHosts only annotates isLocal sparks", () => {
+  const local = spark({ id: "local", isLocal: true, lanIp: "10.0.0.1" });
+  const remote = spark({ id: "remote", isLocal: false, lanIp: "10.0.0.2" });
+  const [nextLocal, nextRemote] = withOccupancyHosts([local, remote], ["192.168.4.50"]);
+  assert.deepEqual(nextLocal.occupancyHosts, ["192.168.4.50"]);
+  assert.equal("occupancyHosts" in nextRemote, false);
+});
+
+test("localInterfaceHosts skips loopback, link-local, and bridge ifaces", () => {
+  const hosts = localInterfaceHosts({
+    lo: [{ address: "127.0.0.1", family: "IPv4", internal: true }],
+    docker0: [{ address: "172.17.0.1", family: "IPv4", internal: false }],
+    "br-abc": [{ address: "172.18.0.1", family: "IPv4", internal: false }],
+    wl0: [{ address: "192.168.4.50", family: "IPv4", internal: false }],
+    eth0: [{ address: "169.254.1.1", family: "IPv4", internal: false }],
+    tailscale0: [{ address: "100.10.0.2", family: "IPv4", internal: false }],
+  });
+  assert.deepEqual(hosts.sort(), ["100.10.0.2", "192.168.4.50"]);
+});
+
+test("parseFibLocalIpv4 keeps host LOCAL /32s and hostListenIps drops docker", () => {
+  const fib = `
+           |-- 192.168.4.117
+              /32 host LOCAL
+        |-- 172.17.0.1
+           /32 host LOCAL
+           |-- 100.10.0.2
+              /32 host LOCAL
+           |-- 127.0.0.1
+              /32 host LOCAL
+`;
+  assert.deepEqual(parseFibLocalIpv4(fib).sort(), [
+    "100.10.0.2",
+    "127.0.0.1",
+    "172.17.0.1",
+    "192.168.4.117",
+  ]);
+  const hosts = hostListenIps({
+    readFileSync: () => fib,
+    procPath: "/host/proc",
+  });
+  assert.deepEqual(hosts.sort(), ["100.10.0.2", "192.168.4.117"]);
 });

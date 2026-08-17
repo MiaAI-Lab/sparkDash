@@ -38,6 +38,7 @@ function expectedRow(overrides = {}) {
     originHost: "127.0.0.1",
     originPort: 4000,
     midTurn: true,
+    agent: "main",
     ...overrides,
   };
 }
@@ -84,6 +85,29 @@ test("updatedAt is lastUsedAt and is not a transcript", () => {
   assert.equal(JSON.stringify(rows).includes("secret"), false);
 });
 
+test("totalTokens and contextTokens become contextUsed and contextWindow", () => {
+  const rows = mapOpenClawSessions(
+    [session({ totalTokens: 12_345, contextTokens: 128_000, lastMessage: "secret" })],
+    SPARK_PROVIDERS
+  );
+  assert.equal(rows[0].contextUsed, 12345);
+  assert.equal(rows[0].contextWindow, 128000);
+  assert.equal("contextApprox" in rows[0], false);
+  assert.equal(JSON.stringify(rows).includes("secret"), false);
+});
+
+test("stale totalTokens is contextApprox; zero tokens are omitted", () => {
+  const stale = mapOpenClawSessions(
+    [session({ totalTokens: 99, contextTokens: 200_000, totalTokensFresh: false })],
+    SPARK_PROVIDERS
+  );
+  assert.equal(stale[0].contextUsed, 99);
+  assert.equal(stale[0].contextApprox, true);
+  const empty = mapOpenClawSessions([session({ totalTokens: 0, contextTokens: 0 })], SPARK_PROVIDERS);
+  assert.equal("contextUsed" in empty[0], false);
+  assert.equal("contextWindow" in empty[0], false);
+});
+
 test("handle comes from label, never lastMessage / preview / transcript", () => {
   const rows = mapOpenClawSessions(
     [
@@ -102,6 +126,7 @@ test("handle comes from label, never lastMessage / preview / transcript", () => 
   assert.equal(json.includes("preview text"), false);
   assert.equal(json.includes("full transcript"), false);
   assert.deepEqual(Object.keys(rows[0]).sort(), [
+    "agent",
     "handle",
     "id",
     "midTurn",
@@ -254,6 +279,35 @@ test("url mode unwraps models.providers and nested sessions; token from deps", a
   assert.deepEqual(rows, [expectedRow({ midTurn: false })]);
 });
 
+test("url mode prefers gatewayRpc over fetchJson and stamps attach id", async () => {
+  let fetched = false;
+  const rows = await collectOpenClawSessions(
+    {
+      id: "openclaw",
+      enabled: true,
+      mode: "url",
+      url: "http://127.0.0.1:18789",
+      label: "theshop",
+    },
+    {
+      token: "rpc-token",
+      fetchJson: async () => {
+        fetched = true;
+        throw new Error("should not fetch");
+      },
+      gatewayRpc: async (url, token) => {
+        assert.equal(url, "http://127.0.0.1:18789");
+        assert.equal(token, "rpc-token");
+        return { sessions: [session({ hasActiveRun: false })], providers: SPARK_PROVIDERS };
+      },
+    }
+  );
+  assert.equal(fetched, false);
+  assert.equal(rows[0].id, "openclaw:agent:main:telegram:topic:1");
+  assert.equal(rows[0].gateway, "theshop");
+  assert.equal(rows[0].handle, "World Cup");
+});
+
 test("state-dir reads openclaw.json + sessions.json via injected readFile", async () => {
   const dir = "/tmp/openclaw-fixture";
   const files = {
@@ -367,8 +421,10 @@ test("mixed array-form and map-form agent stores are merged", async () => {
   assert.equal(rows.length, 2);
   assert.equal(byHandle.FromArray.midTurn, true);
   assert.equal(byHandle.FromArray.id, "array-sess");
+  assert.equal(byHandle.FromArray.agent, "main");
   assert.equal(byHandle.FromMap.midTurn, false);
   assert.equal(byHandle.FromMap.id, "map-sess");
+  assert.equal(byHandle.FromMap.agent, "work");
 });
 
 test("missing state files return [] not throw", async () => {

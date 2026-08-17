@@ -18,8 +18,12 @@ test("disabled sources return disabled without requiring a live attach", async (
       getSparks: () => [],
     }
   );
-  assert.deepEqual(result.openclaw, { status: "disabled", found: 0, mapped: 0, error: null });
-  assert.deepEqual(result.hermes, { status: "disabled", found: 0, mapped: 0, error: null });
+  assert.deepEqual(result.openclaw, [
+    { id: "openclaw", status: "disabled", found: 0, mapped: 0, error: null },
+  ]);
+  assert.deepEqual(result.hermes, [
+    { id: "hermes", status: "disabled", found: 0, mapped: 0, error: null },
+  ]);
 });
 
 test("blank enabled URL is an error, not a conventional fallback", async () => {
@@ -34,8 +38,8 @@ test("blank enabled URL is an error, not a conventional fallback", async () => {
       getSparks: () => [],
     }
   );
-  assert.equal(result.hermes.status, "error");
-  assert.equal(result.hermes.error, "URL is required");
+  assert.equal(result.hermes[0].status, "error");
+  assert.equal(result.hermes[0].error, "URL is required");
   assert.equal(JSON.stringify(result).includes("token"), false);
 });
 
@@ -99,4 +103,31 @@ test("health probe reads the source once", async () => {
     }
   );
   assert.equal(sessionCalls, 1);
+});
+
+test("health probe returns one result per OpenClaw attach", async () => {
+  const result = await testSessionSources(
+    {
+      openclaw: [
+        { id: "openclaw", enabled: false },
+        { id: "openclaw-2", enabled: true, mode: "url", url: "  " },
+      ],
+    },
+    {
+      loadSessionSources: () => ({
+        openclaw: [
+          { id: "openclaw", enabled: false, mode: "local", url: "", stateDir: "" },
+          { id: "openclaw-2", enabled: false, mode: "url", url: "", stateDir: "" },
+        ],
+        hermes: DISABLED,
+      }),
+      loadSessionSourceTokens: () => ({}),
+      getSparks: () => [],
+    }
+  );
+  assert.equal(result.openclaw.length, 2);
+  assert.equal(result.openclaw[0].status, "disabled");
+  assert.equal(result.openclaw[1].id, "openclaw-2");
+  assert.equal(result.openclaw[1].status, "error");
+  assert.equal(result.openclaw[1].error, "URL is required");
 });

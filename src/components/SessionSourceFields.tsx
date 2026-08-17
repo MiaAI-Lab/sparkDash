@@ -1,7 +1,7 @@
 import type { SessionSourceAttach, SessionSourceHealth, SessionSourceMode } from "../api/types";
 
-const SOURCE_LABELS = { openclaw: "OpenClaw", hermes: "Hermes Agent" } as const;
-const SOURCE_IDS = ["openclaw", "hermes"] as const;
+export const SOURCE_LABELS = { openclaw: "OpenClaw", hermes: "Hermes Agent" } as const;
+export const SOURCE_IDS = ["openclaw", "hermes"] as const;
 const MODE_OPTIONS: { value: SessionSourceMode; label: string }[] = [
   { value: "local", label: "Local" },
   { value: "url", label: "URL" },
@@ -11,7 +11,7 @@ const MODE_OPTIONS: { value: SessionSourceMode; label: string }[] = [
 const fieldClass =
   "w-full rounded border border-border bg-surface-elevated px-3 py-1.5 text-xs text-text outline-none focus:border-accent";
 
-function Toggle({ on, onClick }: { on: boolean; onClick: () => void }) {
+export function Toggle({ on, onClick }: { on: boolean; onClick: () => void }) {
   return (
     <button
       type="button"
@@ -55,38 +55,62 @@ export function healthView(
 }
 
 export function SessionSourceFields({
-  id,
+  kind,
   source,
   tokenDraft,
   health,
   checking,
+  canRemove,
   onSource,
   onToken,
   onClearToken,
   onCheck,
+  onRemove,
 }: {
-  id: (typeof SOURCE_IDS)[number];
+  kind: (typeof SOURCE_IDS)[number];
   source: SessionSourceAttach;
   tokenDraft: string;
   health?: SessionSourceHealth;
   checking: boolean;
+  canRemove: boolean;
   onSource: (patch: Partial<SessionSourceAttach>) => void;
   onToken: (value: string) => void;
   onClearToken: () => void;
   onCheck: () => void;
+  onRemove: () => void;
 }) {
   const status = healthView(health, checking);
+  const title = source.label?.trim() || SOURCE_LABELS[kind];
   return (
     <div className="space-y-2 rounded border border-border px-3 py-2">
-      <label className="flex items-center gap-3 text-xs text-muted">
-        <Toggle on={source.enabled} onClick={() => onSource({ enabled: !source.enabled })} />
-        <span className="text-text">{SOURCE_LABELS[id]}</span>
-      </label>
+      <div className="flex items-center gap-3">
+        <label className="flex min-w-0 flex-1 items-center gap-3 text-xs text-muted">
+          <Toggle on={source.enabled} onClick={() => onSource({ enabled: !source.enabled })} />
+          <span className="truncate text-text">{title}</span>
+        </label>
+        {canRemove && (
+          <button
+            type="button"
+            onClick={onRemove}
+            className="shrink-0 rounded border border-border bg-surface-elevated px-2 py-1 text-[10px] text-muted hover:bg-surface-hover"
+          >
+            Remove
+          </button>
+        )}
+      </div>
+      <input
+        type="text"
+        value={source.label ?? ""}
+        onChange={(e) => onSource({ label: e.target.value })}
+        placeholder="Optional label"
+        className={fieldClass}
+        aria-label={`${SOURCE_LABELS[kind]} label`}
+      />
       <select
         value={source.mode}
         onChange={(e) => onSource({ mode: e.target.value as SessionSourceMode })}
         className={fieldClass}
-        aria-label={`${SOURCE_LABELS[id]} mode`}
+        aria-label={`${SOURCE_LABELS[kind]} mode`}
       >
         {MODE_OPTIONS.map((opt) => (
           <option key={opt.value} value={opt.value}>
@@ -102,9 +126,19 @@ export function SessionSourceFields({
           type="text"
           value={source.url}
           onChange={(e) => onSource({ url: e.target.value })}
-          placeholder="http://127.0.0.1:18789"
+          placeholder={kind === "openclaw" ? "http://127.0.0.1:18789" : "http://127.0.0.1:8787"}
           className={fieldClass}
-          aria-label={`${SOURCE_LABELS[id]} URL`}
+          aria-label={`${SOURCE_LABELS[kind]} URL`}
+        />
+      )}
+      {kind === "hermes" && source.mode === "url" && (
+        <input
+          type="text"
+          value={source.username ?? ""}
+          onChange={(e) => onSource({ username: e.target.value })}
+          placeholder="Username (default admin)"
+          className={fieldClass}
+          aria-label={`${SOURCE_LABELS[kind]} username`}
         />
       )}
       {source.mode === "state-dir" && (
@@ -114,7 +148,7 @@ export function SessionSourceFields({
           onChange={(e) => onSource({ stateDir: e.target.value })}
           placeholder="State directory"
           className={fieldClass}
-          aria-label={`${SOURCE_LABELS[id]} state directory`}
+          aria-label={`${SOURCE_LABELS[kind]} state directory`}
         />
       )}
       <div className="flex gap-2">
@@ -125,7 +159,7 @@ export function SessionSourceFields({
           onChange={(e) => onToken(e.target.value)}
           placeholder={source.hasToken ? "Token stored — leave blank to keep" : "Optional token"}
           className={fieldClass}
-          aria-label={`${SOURCE_LABELS[id]} token`}
+          aria-label={`${SOURCE_LABELS[kind]} token`}
         />
         {source.hasToken && !tokenDraft && (
           <button

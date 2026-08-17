@@ -768,10 +768,28 @@ input[type="checkbox"] {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 12px;
   max-height: min(28rem, 58vh);
   overflow: auto;
   scrollbar-color: var(--color-border-strong) transparent;
+}
+.occupancy-lane {
+  min-width: 0;
+}
+.occupancy-lane-label {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  color: var(--color-muted);
+}
+.occupancy-lane-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
 .occupancy-row {
   display: grid;
@@ -792,15 +810,18 @@ input[type="checkbox"] {
   background: var(--color-muted);
 }
 .occupancy-row.is-generating .occupancy-dot {
-  background: var(--color-accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 22%, transparent);
+  background: var(--color-success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-success) 22%, transparent);
   animation: occupancy-live 1.8s ease-out infinite;
 }
-.occupancy-row.is-stalled .occupancy-dot {
-  background: var(--color-muted);
+.occupancy-row.is-recent .occupancy-dot {
+  background: var(--color-success);
 }
-.occupancy-row.is-unknown .occupancy-dot {
-  background: var(--color-border-strong);
+.occupancy-row.is-warm .occupancy-dot {
+  background: var(--color-accent);
+}
+.occupancy-row.is-idle .occupancy-dot {
+  background: var(--color-muted);
 }
 .occupancy-handle {
   min-width: 0;
@@ -811,11 +832,13 @@ input[type="checkbox"] {
   font-weight: 550;
   color: var(--color-text);
 }
-.occupancy-source {
-  font-size: 11px;
+.occupancy-ctx {
+  font-size: 12px;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
   color: var(--color-muted);
   white-space: nowrap;
+  justify-self: end;
 }
 .occupancy-state {
   font-size: 12px;
@@ -826,19 +849,25 @@ input[type="checkbox"] {
   justify-self: end;
 }
 .occupancy-row.is-generating .occupancy-state {
+  color: var(--color-success);
+}
+.occupancy-row.is-recent .occupancy-state {
+  color: var(--color-success);
+}
+.occupancy-row.is-warm .occupancy-state {
   color: var(--color-accent);
 }
-.occupancy-row.is-stalled .occupancy-state {
+.occupancy-row.is-idle .occupancy-state {
   color: var(--color-muted);
 }
 
 @keyframes occupancy-live {
   0%,
   100% {
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 22%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-success) 22%, transparent);
   }
   50% {
-    box-shadow: 0 0 0 5px color-mix(in srgb, var(--color-accent) 8%, transparent);
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--color-success) 8%, transparent);
   }
 }
 

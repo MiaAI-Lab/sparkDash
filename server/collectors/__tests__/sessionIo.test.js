@@ -12,6 +12,9 @@ import {
   sanitizeProbeError,
   parseSessionTime,
   sessionLastUsedAt,
+  sessionAgent,
+  sessionContextSize,
+  profileFromStateDir,
 } from "../sessionIo.js";
 
 test("expandTilde maps ~ and ~/path against injected home", () => {
@@ -104,6 +107,11 @@ test("sanitizeProbeError strips paths and maps auth / connect codes", () => {
   const html = new Error("Unexpected token '<', \"<!doctype \"... is not valid JSON");
   assert.equal(sanitizeProbeError(html), "Not a JSON session list");
 
+  const pairing = new Error("pairing required: device is not approved yet");
+  assert.equal(sanitizeProbeError(pairing), "Pairing required — approve this device in OpenClaw");
+  const missingScope = new Error("missing scope: operator.read");
+  assert.equal(sanitizeProbeError(missingScope), "Missing operator.read scope");
+
   const denied = new Error("EACCES: permission denied, open '/home/op/.hermes/sessions.json'");
   denied.code = "EACCES";
   assert.equal(sanitizeProbeError(denied), "Permission denied");
@@ -123,4 +131,43 @@ test("parseSessionTime accepts ms, seconds, and ISO strings", () => {
   assert.equal(sessionLastUsedAt({ updatedAt: 1_700_000_000_000, createdAt: 1 }), 1_700_000_000_000);
   assert.equal(sessionLastUsedAt({ created_at: "2024-01-15T12:00:00.000Z" }), Date.parse("2024-01-15T12:00:00.000Z"));
   assert.equal(sessionLastUsedAt({ preview: "secret" }), null);
+});
+
+test("sessionAgent prefers explicit fields, then fallback, then agent: key", () => {
+  assert.equal(sessionAgent({ agentId: "work", key: "agent:main:telegram:t:1" }), "work");
+  assert.equal(sessionAgent({ profile: "unleashed" }), "unleashed");
+  assert.equal(sessionAgent({ active_profile: "planner" }), "planner");
+  assert.equal(sessionAgent({ key: "agent:niemand:telegram:t:1" }), "niemand");
+  assert.equal(sessionAgent({ session_key: "agent:main:telegram:t:1" }, "unleashed"), "unleashed");
+  assert.equal(sessionAgent({ key: "sess-a" }, "main"), "main");
+  assert.equal(profileFromStateDir("/home/op/.hermes/profiles/unleashed"), "unleashed");
+  assert.equal(profileFromStateDir("/home/op/.hermes"), "");
+});
+
+test("sessionContextSize reads OpenClaw totalTokens and contextTokens", () => {
+  assert.deepEqual(sessionContextSize({ totalTokens: 12_345, contextTokens: 128_000 }), {
+    used: 12345,
+    window: 128000,
+  });
+});
+
+test("sessionContextSize prefers last_prompt_tokens over cumulative input_tokens", () => {
+  assert.deepEqual(
+    sessionContextSize({ last_prompt_tokens: 42_000, input_tokens: 900_000 }),
+    { used: 42000 }
+  );
+});
+
+test("sessionContextSize omits zero, negative, and missing counts", () => {
+  assert.equal(sessionContextSize({ totalTokens: 0, last_prompt_tokens: -1 }), null);
+  assert.equal(sessionContextSize({ label: "chat" }), null);
+  assert.equal(sessionContextSize(null), null);
+});
+
+test("sessionContextSize marks stale OpenClaw totals as approx", () => {
+  assert.deepEqual(sessionContextSize({ totalTokens: 180_000, contextTokens: 200_000, totalTokensFresh: false }), {
+    used: 180000,
+    window: 200000,
+    approx: true,
+  });
 });

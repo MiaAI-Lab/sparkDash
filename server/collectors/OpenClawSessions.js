@@ -10,11 +10,14 @@ import {
   resolveStateDir,
   defaultReadFile,
   defaultReadDir,
-  defaultFetchJson,
   normalizeSessionList,
   sanitizeProbeError,
   sessionLastUsedAt,
+  sessionAgent,
+  applySessionContext,
+  stampAttachRows,
 } from "./sessionIo.js";
+import { defaultOpenClawGatewayRpc, gatewayDeviceKey } from "./openclawGateway.js";
 
 const HANDLE_FIELDS = ["label", "displayName", "key"];
 
@@ -43,7 +46,7 @@ export async function collectOpenClawSessions(attach, deps = {}) {
   try {
     if (!attach?.enabled) return [];
     const loaded = await loadOpenClawPayload(attach, deps);
-    return mapOpenClawSessions(loaded.sessions, loaded.providers);
+    return stampAttachRows(mapOpenClawSessions(loaded.sessions, loaded.providers), attach);
   } catch {
     return [];
   }
@@ -69,7 +72,7 @@ export async function diagnoseOpenClawSessions(attach, deps = {}) {
       return { status: "error", found: 0, mapped: 0, error: "OpenClaw state not found" };
     }
     const list = normalizeSessions(loaded.sessions);
-    const rows = mapOpenClawSessions(loaded.sessions, loaded.providers);
+    const rows = stampAttachRows(mapOpenClawSessions(loaded.sessions, loaded.providers), attach);
     return {
       status: "ok",
       found: list.length,
@@ -88,6 +91,7 @@ function mapOneSession(session, providers) {
   const handle = sessionHandle(session);
   if (!handle) return null;
   const lastUsedAt = sessionLastUsedAt(session);
+  const agent = sessionAgent(session);
   const mapped = {
     source: "openclaw",
     id: sessionIdentity(session) || handle,
@@ -97,7 +101,8 @@ function mapOneSession(session, providers) {
     midTurn: midTurnOf(session),
   };
   if (lastUsedAt != null) mapped.lastUsedAt = lastUsedAt;
-  return mapped;
+  if (agent) mapped.agent = agent;
+  return applySessionContext(mapped, session);
 }
 
 function sessionIdentity(session) {
@@ -145,8 +150,17 @@ async function loadOpenClawPayload(attach, deps) {
 }
 
 async function loadFromUrl(attach, deps) {
-  const fetchJson = deps.fetchJson ?? defaultFetchJson;
-  return unwrapGatewayPayload(await fetchJson(attach.url, { token: deps.token }));
+  if (typeof deps.gatewayRpc === "function") {
+    return unwrapGatewayPayload(await deps.gatewayRpc(attach.url, deps.token));
+  }
+  if (typeof deps.fetchJson === "function") {
+    return unwrapGatewayPayload(await deps.fetchJson(attach.url, { token: deps.token }));
+  }
+  return unwrapGatewayPayload(
+    await defaultOpenClawGatewayRpc(attach.url, deps.token, {
+      deviceKey: gatewayDeviceKey(attach.url, attach.id),
+    })
+  );
 }
 
 function unwrapGatewayPayload(payload) {
@@ -168,14 +182,6 @@ async function readOptional(readFile, filePath) {
   }
 }
 
-function mergeSessionStores(stores) {
-  const rows = [];
-  for (const store of stores) {
-    rows.push(...normalizeSessions(store));
-  }
-  return rows;
-}
-
 async function loadAgentSessionStores(dir, readFile, readDir) {
   let names = [];
   try {
@@ -183,19 +189,22 @@ async function loadAgentSessionStores(dir, readFile, readDir) {
   } catch {
     return {};
   }
-  const stores = [];
+  const rows = [];
   for (const entry of names) {
     const name = typeof entry === "string" ? entry : entry?.name;
     if (!name || name.startsWith(".")) continue;
     const raw = await readOptional(readFile, path.join(dir, "agents", name, "sessions", "sessions.json"));
     if (!raw) continue;
     try {
-      stores.push(JSON.parse(raw));
+      for (const session of normalizeSessions(JSON.parse(raw))) {
+        if (!session || typeof session !== "object") continue;
+        rows.push(session.agentId ? session : { ...session, agentId: name });
+      }
     } catch {
       /* skip corrupt agent store */
     }
   }
-  return mergeSessionStores(stores);
+  return rows;
 }
 
 async function loadFromStateDir(attach, deps) {

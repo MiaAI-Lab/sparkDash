@@ -8,8 +8,9 @@
  *   - config/sparks-secrets.json (AES-256-GCM ciphertext, volume-mounted)
  *
  * File shape (v1, backward compatible):
- *   { version: 1, secrets, sessionSourceTokens? }
- * sessionSourceTokens keys: openclaw | hermes
+ *   { version: 1, secrets, sessionSourceTokens?, sessionSourceDevices? }
+ * sessionSourceTokens keys: attach ids (legacy: openclaw | hermes)
+ * sessionSourceDevices keys: attach ids (OpenClaw gateway Ed25519 identity)
  *
  * Encryption key:
  *   - SPARKDASH_SECRETS_KEY env (passphrase or 64-char hex), or
@@ -25,8 +26,6 @@ const ALGO = "aes-256-gcm";
 const IV_LEN = 12;
 const TAG_LEN = 16;
 const KEY_LEN = 32;
-const TOKEN_IDS = Object.freeze(["openclaw", "hermes"]);
-
 /** Cached key so we never regenerate mid-process. */
 let _cachedKey = null;
 
@@ -125,18 +124,27 @@ function asBlobMap(value) {
 }
 
 function readRawStore() {
-  const empty = { version: 1, secrets: {}, sessionSourceTokens: {} };
+  const empty = { version: 1, secrets: {}, sessionSourceTokens: {}, sessionSourceDevices: {} };
   if (!fs.existsSync(SPARKS_SECRETS_PATH)) return empty;
   const data = JSON.parse(fs.readFileSync(SPARKS_SECRETS_PATH, "utf8"));
   return {
     version: 1,
     secrets: asBlobMap(data?.secrets),
     sessionSourceTokens: asBlobMap(data?.sessionSourceTokens),
+    sessionSourceDevices: asBlobMap(data?.sessionSourceDevices),
   };
 }
 
-function hasTokenBlobs(tokenBlobs) {
-  return TOKEN_IDS.some((id) => typeof tokenBlobs[id] === "string" && tokenBlobs[id]);
+function nonEmptyBlobs(blobs) {
+  const out = {};
+  for (const [id, blob] of Object.entries(blobs || {})) {
+    if (id && typeof blob === "string" && blob) out[id] = blob;
+  }
+  return out;
+}
+
+function hasBlobMap(blobs) {
+  return Object.keys(nonEmptyBlobs(blobs)).length > 0;
 }
 
 function unlinkStoreFile() {
@@ -152,21 +160,18 @@ function unlinkStoreFile() {
   }
 }
 
-function persistStore(secretBlobs, tokenBlobs) {
+function persistStore(secretBlobs, tokenBlobs, deviceBlobs) {
   const secrets = asBlobMap(secretBlobs);
-  const sessionSourceTokens = {};
-  for (const id of TOKEN_IDS) {
-    if (typeof tokenBlobs?.[id] === "string" && tokenBlobs[id]) {
-      sessionSourceTokens[id] = tokenBlobs[id];
-    }
-  }
+  const sessionSourceTokens = nonEmptyBlobs(tokenBlobs);
+  const sessionSourceDevices = nonEmptyBlobs(deviceBlobs);
   const hasSecrets = Object.keys(secrets).length > 0;
-  if (!hasSecrets && !hasTokenBlobs(sessionSourceTokens)) {
+  if (!hasSecrets && !hasBlobMap(sessionSourceTokens) && !hasBlobMap(sessionSourceDevices)) {
     unlinkStoreFile();
     return;
   }
   const payload = { version: 1, secrets };
-  if (hasTokenBlobs(sessionSourceTokens)) payload.sessionSourceTokens = sessionSourceTokens;
+  if (hasBlobMap(sessionSourceTokens)) payload.sessionSourceTokens = sessionSourceTokens;
+  if (hasBlobMap(sessionSourceDevices)) payload.sessionSourceDevices = sessionSourceDevices;
   atomicWrite(SPARKS_SECRETS_PATH, JSON.stringify(payload, null, 2) + "\n", 0o644);
 }
 
@@ -226,7 +231,7 @@ export function loadSecrets() {
 export function saveSecrets(passwords) {
   const raw = readRawStore();
   if (!passwords || passwords.size === 0) {
-    persistStore({}, raw.sessionSourceTokens);
+    persistStore({}, raw.sessionSourceTokens, raw.sessionSourceDevices);
     return;
   }
 
@@ -235,7 +240,7 @@ export function saveSecrets(passwords) {
   for (const [id, pw] of passwords.entries()) {
     if (pw) secrets[id] = encrypt(pw, key);
   }
-  persistStore(secrets, raw.sessionSourceTokens);
+  persistStore(secrets, raw.sessionSourceTokens, raw.sessionSourceDevices);
   console.log(`[secretsStore] Saved ${Object.keys(secrets).length} SSH password(s)`);
 }
 
@@ -243,18 +248,17 @@ function decryptTokenMap(blobs, key) {
   const { map } = decryptEntries(blobs, key, "session source token");
   /** @type {Record<string, string>} */
   const out = {};
-  for (const id of TOKEN_IDS) {
-    const value = map.get(id);
+  for (const [id, value] of map) {
     if (value) out[id] = value;
   }
   return out;
 }
 
-/** @returns {Record<string, string>} plaintext tokens keyed openclaw | hermes */
+/** @returns {Record<string, string>} plaintext tokens keyed by attach id */
 export function loadSessionSourceTokens() {
   try {
     const raw = readRawStore();
-    if (!hasTokenBlobs(raw.sessionSourceTokens)) return {};
+    if (!hasBlobMap(raw.sessionSourceTokens)) return {};
     return decryptTokenMap(raw.sessionSourceTokens, resolveKey());
   } catch (err) {
     console.error(`[secretsStore] Failed to load session source tokens: ${err.message}`);
@@ -264,8 +268,8 @@ export function loadSessionSourceTokens() {
 
 /**
  * Merge session-source token slots. Omitted keys leave the stored token;
- * empty string clears that slot.
- * @param {{ openclaw?: string, hermes?: string }} patch
+ * empty string clears that slot. Keys are attach ids.
+ * @param {Record<string, string>} patch
  * @returns {Record<string, string>}
  */
 export function patchSessionSourceTokens(patch) {
@@ -273,8 +277,8 @@ export function patchSessionSourceTokens(patch) {
   const key = resolveKey();
   const current = decryptTokenMap(raw.sessionSourceTokens, key);
   const body = patch && typeof patch === "object" ? patch : {};
-  for (const id of TOKEN_IDS) {
-    if (!Object.prototype.hasOwnProperty.call(body, id)) continue;
+  for (const id of Object.keys(body)) {
+    if (!id) continue;
     const value = body[id];
     if (value == null) continue;
     if (value === "") delete current[id];
@@ -282,9 +286,44 @@ export function patchSessionSourceTokens(patch) {
   }
   /** @type {Record<string, string>} */
   const tokenBlobs = {};
-  for (const id of TOKEN_IDS) {
-    if (current[id]) tokenBlobs[id] = encrypt(current[id], key);
+  for (const [id, value] of Object.entries(current)) {
+    if (value) tokenBlobs[id] = encrypt(value, key);
   }
-  persistStore(raw.secrets, tokenBlobs);
+  persistStore(raw.secrets, tokenBlobs, raw.sessionSourceDevices);
   return current;
+}
+
+/** @returns {{ deviceId: string, publicKey: string, privateKeyPem: string } | null} */
+export function loadSessionSourceDevice(id) {
+  if (!id) return null;
+  try {
+    const raw = readRawStore();
+    const blob = raw.sessionSourceDevices?.[id];
+    if (typeof blob !== "string" || !blob) return null;
+    const parsed = JSON.parse(decrypt(blob, resolveKey()));
+    if (parsed?.deviceId && parsed?.publicKey && parsed?.privateKeyPem) return parsed;
+  } catch (err) {
+    console.error(`[secretsStore] Failed to load session source device for ${id}: ${err.message}`);
+  }
+  return null;
+}
+
+/** Persist OpenClaw gateway device identity for one attach id. */
+export function saveSessionSourceDevice(id, identity) {
+  if (!id || !identity) return;
+  const raw = readRawStore();
+  const devices = { ...raw.sessionSourceDevices };
+  devices[id] = encrypt(JSON.stringify(identity), resolveKey());
+  persistStore(raw.secrets, raw.sessionSourceTokens, devices);
+}
+
+/** Drop device identities whose attach ids are no longer present. */
+export function dropSessionSourceDevices(keepIds) {
+  const keep = new Set(Array.isArray(keepIds) ? keepIds : []);
+  const raw = readRawStore();
+  const devices = {};
+  for (const [id, blob] of Object.entries(raw.sessionSourceDevices || {})) {
+    if (keep.has(id) && typeof blob === "string" && blob) devices[id] = blob;
+  }
+  persistStore(raw.secrets, raw.sessionSourceTokens, devices);
 }

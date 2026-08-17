@@ -1,55 +1,100 @@
 /**
  * Dashboard-level OpenClaw / Hermes Agent conversation-source attach config.
  * Tokens live in secretsStore, never in this JSON file.
+ * Each product is a list of attaches (legacy singleton objects migrate on load).
  */
 import fs from "fs";
 import { SESSION_SOURCES_JSON_PATH } from "./config.js";
 import { atomicWrite } from "./util/atomicWrite.js";
 import { isAllowedTargetHost } from "./validate.js";
-import { loadSessionSourceTokens, patchSessionSourceTokens } from "./secretsStore.js";
+import {
+  dropSessionSourceDevices,
+  loadSessionSourceTokens,
+  patchSessionSourceTokens,
+} from "./secretsStore.js";
 
 const SOURCE_IDS = Object.freeze(["openclaw", "hermes"]);
 const MODES = new Set(["local", "url", "state-dir"]);
 const PUBLIC_ONLY = new Set(["token", "hasToken", "conventionalStateDir"]);
+const ATTACH_ID_RE = /^[a-z][a-z0-9-]{0,63}$/;
 
 const DEFAULT_ATTACH = Object.freeze({
   enabled: false,
   mode: "local",
   url: "",
   stateDir: "",
+  label: "",
+  username: "",
 });
 
 export function conventionalStateDir(id) {
-  if (id === "openclaw") {
+  if (id === "openclaw" || String(id).startsWith("openclaw")) {
     const env = process.env.OPENCLAW_STATE_DIR;
     return env && env.trim() ? env.trim() : "~/.openclaw";
   }
-  if (id === "hermes") {
+  if (id === "hermes" || String(id).startsWith("hermes")) {
     const env = process.env.HERMES_HOME;
     return env && env.trim() ? env.trim() : "~/.hermes";
   }
   return "";
 }
 
-function normalizeAttach(raw) {
+export function attachList(source) {
+  if (Array.isArray(source)) return source.filter((item) => item && typeof item === "object");
+  if (source && typeof source === "object") return [source];
+  return [];
+}
+
+function nextAttachId(kind, used) {
+  if (!used.has(kind)) return kind;
+  let n = 2;
+  while (used.has(`${kind}-${n}`)) n += 1;
+  return `${kind}-${n}`;
+}
+
+function assignAttachId(rawId, kind, used) {
+  const id = typeof rawId === "string" ? rawId.trim() : "";
+  if (ATTACH_ID_RE.test(id) && !used.has(id)) return id;
+  return nextAttachId(kind, used);
+}
+
+function normalizeAttach(raw, kind, used) {
   const extras = raw && typeof raw === "object" && !Array.isArray(raw) ? { ...raw } : {};
   for (const key of PUBLIC_ONLY) delete extras[key];
   const mode = MODES.has(extras.mode) ? extras.mode : DEFAULT_ATTACH.mode;
+  const id = assignAttachId(extras.id, kind, used);
   return {
     ...extras,
+    id,
     enabled: Boolean(extras.enabled),
     mode,
     url: typeof extras.url === "string" ? extras.url.trim() : "",
     stateDir: typeof extras.stateDir === "string" ? extras.stateDir.trim() : "",
+    label: typeof extras.label === "string" ? extras.label.trim() : "",
+    username: typeof extras.username === "string" ? extras.username.trim() : "",
   };
+}
+
+function normalizeKindList(kind, raw) {
+  const used = new Set();
+  const list = attachList(raw).map((item) => {
+    const attach = normalizeAttach(item, kind, used);
+    used.add(attach.id);
+    return attach;
+  });
+  if (list.length === 0) {
+    const attach = normalizeAttach({ id: kind }, kind, used);
+    list.push(attach);
+  }
+  return list;
 }
 
 function normalizeConfig(raw) {
   const base = raw && typeof raw === "object" && !Array.isArray(raw) ? { ...raw } : {};
   return {
     ...base,
-    openclaw: normalizeAttach(base.openclaw),
-    hermes: normalizeAttach(base.hermes),
+    openclaw: normalizeKindList("openclaw", base.openclaw),
+    hermes: normalizeKindList("hermes", base.hermes),
   };
 }
 
@@ -105,8 +150,8 @@ function persistableAttach(attach) {
 function saveSessionSources(config) {
   const payload = {
     ...config,
-    openclaw: persistableAttach(config.openclaw),
-    hermes: persistableAttach(config.hermes),
+    openclaw: config.openclaw.map(persistableAttach),
+    hermes: config.hermes.map(persistableAttach),
   };
   atomicWrite(SESSION_SOURCES_JSON_PATH, JSON.stringify(payload, null, 2) + "\n", 0o644);
 }
@@ -122,12 +167,12 @@ export function loadSessionSources() {
   }
 }
 
-function publicAttach(id, attach, tokens) {
+function publicAttach(kind, attach, tokens) {
   const rest = persistableAttach(attach);
   return {
     ...rest,
-    hasToken: Boolean(tokens[id]),
-    conventionalStateDir: conventionalStateDir(id),
+    hasToken: Boolean(tokens[attach.id] || tokens[kind]),
+    conventionalStateDir: conventionalStateDir(kind),
   };
 }
 
@@ -136,20 +181,72 @@ export function getPublicSessionSources() {
   const tokens = loadSessionSourceTokens();
   return {
     ...config,
-    openclaw: publicAttach("openclaw", config.openclaw, tokens),
-    hermes: publicAttach("hermes", config.hermes, tokens),
+    openclaw: config.openclaw.map((attach) => publicAttach("openclaw", attach, tokens)),
+    hermes: config.hermes.map((attach) => publicAttach("hermes", attach, tokens)),
   };
 }
 
-function tokenPatchFromBody(patch) {
+function allAttachIds(config) {
+  return [...attachList(config.openclaw), ...attachList(config.hermes)]
+    .map((attach) => attach.id)
+    .filter(Boolean);
+}
+
+function patchKindList(kind, currentList, src) {
+  if (Array.isArray(src)) {
+    const used = new Set();
+    return src.map((item) => {
+      const prev = item?.id ? currentList.find((a) => a.id === item.id) : null;
+      const attachPatch = { ...(prev || {}), ...item };
+      for (const key of PUBLIC_ONLY) delete attachPatch[key];
+      const attach = normalizeAttach(attachPatch, kind, used);
+      used.add(attach.id);
+      validateAttach(attach);
+      return attach;
+    });
+  }
+  const attachPatch = { ...src };
+  for (const key of PUBLIC_ONLY) delete attachPatch[key];
+  const idx = src.id ? currentList.findIndex((a) => a.id === src.id) : 0;
+  const base = idx >= 0 ? currentList[idx] : currentList[0] || { id: kind };
+  const used = new Set(currentList.map((a) => a.id).filter((id) => id !== base.id));
+  const updated = normalizeAttach({ ...base, ...attachPatch }, kind, used);
+  validateAttach(updated);
+  if (idx >= 0 && currentList.length > 0) {
+    const next = [...currentList];
+    next[idx] = updated;
+    return next;
+  }
+  return [updated];
+}
+
+function tokenPatchFromBody(patch, previous, next) {
   /** @type {Record<string, string>} */
   const out = {};
-  for (const id of SOURCE_IDS) {
-    const src = patch[id];
-    if (!src || typeof src !== "object") continue;
-    if (!Object.prototype.hasOwnProperty.call(src, "token")) continue;
-    if (src.token == null) continue;
-    out[id] = String(src.token);
+  for (const kind of SOURCE_IDS) {
+    const src = patch[kind];
+    if (src === undefined) continue;
+    const items = Array.isArray(src) ? src : [src];
+    const prevList = attachList(previous[kind]);
+    const nextList = attachList(next[kind]);
+    for (const item of items) {
+      if (!item || typeof item !== "object") continue;
+      const id = item.id || nextList[0]?.id || kind;
+      if (Object.prototype.hasOwnProperty.call(item, "token") && item.token != null) {
+        out[id] = String(item.token);
+        continue;
+      }
+      const prev = item.id ? prevList.find((a) => a.id === item.id) : prevList[0];
+      const curr = nextList.find((a) => a.id === id) || nextList[0];
+      if (!prev || !curr) continue;
+      if (originKey(prev.url) === originKey(curr.url)) continue;
+      out[id] = "";
+    }
+  }
+  const keep = new Set(allAttachIds(next));
+  const stored = loadSessionSourceTokens();
+  for (const id of Object.keys(stored)) {
+    if (!keep.has(id)) out[id] = "";
   }
   return out;
 }
@@ -158,23 +255,14 @@ export function updateSessionSources(patch) {
   const body = patch && typeof patch === "object" ? patch : {};
   const current = loadSessionSources();
   const next = { ...current };
-  for (const id of SOURCE_IDS) {
-    const src = body[id];
-    if (!src || typeof src !== "object") continue;
-    const attachPatch = { ...src };
-    for (const key of PUBLIC_ONLY) delete attachPatch[key];
-    next[id] = normalizeAttach({ ...current[id], ...attachPatch });
-    validateAttach(next[id]);
+  for (const kind of SOURCE_IDS) {
+    const src = body[kind];
+    if (src === undefined) continue;
+    if (src !== null && typeof src !== "object") continue;
+    next[kind] = patchKindList(kind, attachList(current[kind]), src);
   }
-  const tokens = tokenPatchFromBody(body);
-  for (const id of SOURCE_IDS) {
-    const src = body[id];
-    if (!src || typeof src !== "object") continue;
-    if (Object.prototype.hasOwnProperty.call(src, "token")) continue;
-    if (originKey(current[id].url) === originKey(next[id].url)) continue;
-    tokens[id] = "";
-  }
-  const previousTokens = tokenSnapshot();
+  const tokens = tokenPatchFromBody(body, current, next);
+  const previousTokens = tokenSnapshot(current);
   let tokensPatched = false;
   try {
     if (Object.keys(tokens).length > 0) {
@@ -182,6 +270,7 @@ export function updateSessionSources(patch) {
       tokensPatched = true;
     }
     saveSessionSources(next);
+    dropSessionSourceDevices(allAttachIds(next));
   } catch (err) {
     if (tokensPatched) patchSessionSourceTokens(previousTokens);
     throw err;
@@ -189,10 +278,12 @@ export function updateSessionSources(patch) {
   return getPublicSessionSources();
 }
 
-function tokenSnapshot() {
+function tokenSnapshot(config) {
   const current = loadSessionSourceTokens();
   /** @type {Record<string, string>} */
   const out = {};
-  for (const id of SOURCE_IDS) out[id] = current[id] ?? "";
+  for (const id of allAttachIds(config)) out[id] = current[id] ?? "";
   return out;
 }
+
+export { SOURCE_IDS };

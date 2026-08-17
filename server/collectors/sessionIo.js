@@ -162,6 +162,117 @@ export function sessionLastUsedAt(session) {
   return null;
 }
 
+const AGENT_FIELDS = ["agentId", "agent_id", "agent", "profile", "profile_name", "active_profile"];
+
+/** OpenClaw/Hermes key form `agent:<id>:…`. Empty when absent. */
+export function agentFromSessionKey(value) {
+  const match = String(value || "").match(/^agent:([^:]+):/);
+  return match ? match[1].trim() : "";
+}
+
+/** `…/profiles/<name>/…` → name. Empty when the path is not a profile home. */
+export function profileFromStateDir(dir) {
+  const parts = String(dir || "").split(/[/\\]/).filter(Boolean);
+  const index = parts.indexOf("profiles");
+  const name = index >= 0 ? parts[index + 1] : "";
+  if (!name || name === "." || name === "..") return "";
+  return name;
+}
+
+function trimmedAgent(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : "";
+}
+
+const CONTEXT_USED_FIELDS = [
+  "totalTokens",
+  "last_prompt_tokens",
+  "lastPromptTokens",
+  "input_tokens",
+  "inputTokens",
+];
+const CONTEXT_WINDOW_FIELDS = [
+  "contextTokens",
+  "context_tokens",
+  "contextWindow",
+  "context_window",
+];
+
+function positiveTokens(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.round(n);
+}
+
+function firstPositiveToken(session, fields) {
+  for (const field of fields) {
+    const n = positiveTokens(session[field]);
+    if (n != null) return n;
+  }
+  return null;
+}
+
+/**
+ * Current context fill and window from a session list row. Counts only.
+ * @returns {{ used?: number, window?: number, approx?: boolean } | null}
+ */
+export function sessionContextSize(session) {
+  if (!session || typeof session !== "object") return null;
+  const used = firstPositiveToken(session, CONTEXT_USED_FIELDS);
+  const window = firstPositiveToken(session, CONTEXT_WINDOW_FIELDS);
+  if (used == null && window == null) return null;
+  const size = {};
+  if (used != null) size.used = used;
+  if (window != null) size.window = window;
+  if (session.totalTokensFresh === false && used != null) size.approx = true;
+  return size;
+}
+
+/** Stamp contextUsed / contextWindow onto a projector row. */
+export function applySessionContext(mapped, session) {
+  const size = sessionContextSize(session);
+  if (!size) return mapped;
+  if (size.used != null) mapped.contextUsed = size.used;
+  if (size.window != null) mapped.contextWindow = size.window;
+  if (size.approx) mapped.contextApprox = true;
+  return mapped;
+}
+
+/** OpenClaw agent id or Hermes profile/agent. Never a transcript. */
+export function sessionAgent(session, fallback = "") {
+  if (session && typeof session === "object") {
+    for (const field of AGENT_FIELDS) {
+      const value = trimmedAgent(session[field]);
+      if (value) return value;
+    }
+  }
+  const fromFallback = trimmedAgent(fallback);
+  if (fromFallback) return fromFallback;
+  if (session && typeof session === "object") {
+    return agentFromSessionKey(session.key ?? session.session_key ?? session.sessionKey);
+  }
+  return "";
+}
+
+/**
+ * Stamp attach id onto row ids and an optional gateway label for grouping.
+ * @param {object[]} rows
+ * @param {{ id?: string, label?: string, url?: string }} [attach]
+ */
+export function stampAttachRows(rows, attach) {
+  const list = Array.isArray(rows) ? rows : [];
+  const attachId = typeof attach?.id === "string" ? attach.id.trim() : "";
+  if (!attachId) return list;
+  const label = typeof attach?.label === "string" ? attach.label.trim() : "";
+  const origin = parseBaseUrl(attach?.url);
+  const gateway = label || origin?.host || "";
+  return list.map((row) => {
+    const next = { ...row };
+    if (next.id != null) next.id = `${attachId}:${next.id}`;
+    if (gateway) next.gateway = gateway;
+    return next;
+  });
+}
+
 /** Short probe error for Settings. No paths, tokens, or payloads. */
 export function sanitizeProbeError(err) {
   const code = err?.code;
@@ -177,6 +288,8 @@ export function sanitizeProbeError(err) {
   if (status === 401 || status === 403) return `HTTP ${status} (auth failed)`;
   if (Number.isInteger(status) && status >= 400) return `HTTP ${status}`;
   const raw = err?.message ? String(err.message) : "Request failed";
+  if (/pairing required/i.test(raw)) return "Pairing required — approve this device in OpenClaw";
+  if (/missing scope/i.test(raw)) return "Missing operator.read scope";
   if (/Unexpected token|^JSON|not valid JSON/i.test(raw)) return "Not a JSON session list";
   if (/^HTTP 401\b/.test(raw) || /^HTTP 403\b/.test(raw)) return `${raw.split(/\s+/).slice(0, 2).join(" ")} (auth failed)`;
   const http = raw.match(/^HTTP \d+/);

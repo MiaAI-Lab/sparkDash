@@ -142,6 +142,41 @@ test("per-source catch: throwing source contributes [] and sibling still project
   ]);
 });
 
+test("collects every enabled attach of the same product", async () => {
+  const seen = [];
+  const result = await pollOccupancy({
+    sparks: [spark()],
+    sources: {
+      openclaw: { enabled: false, mode: "local", url: "", stateDir: "" },
+      hermes: [
+        { id: "hermes", enabled: true, mode: "url", url: "http://127.0.0.1:8787", stateDir: "" },
+        { id: "hermes-2", enabled: true, mode: "url", url: "http://10.0.0.2:9119", stateDir: "" },
+      ],
+    },
+    tokens: { hermes: "a", "hermes-2": "b" },
+    collectOpenClaw: async () => [],
+    collectHermes: async (attach, deps) => {
+      seen.push({ id: attach.id, token: deps.token, url: attach.url });
+      return [
+        row({
+          source: "hermes",
+          handle: attach.id,
+          midTurn: "unknown",
+        }),
+      ];
+    },
+  });
+  assert.equal(seen.length, 2);
+  assert.deepEqual(seen, [
+    { id: "hermes", token: "a", url: "http://127.0.0.1:8787" },
+    { id: "hermes-2", token: "b", url: "http://10.0.0.2:9119" },
+  ]);
+  assert.deepEqual(
+    result["spark-local"].map((r) => r.handle).sort(),
+    ["hermes", "hermes-2"]
+  );
+});
+
 function loopHarness(overrides = {}) {
   const applied = [];
   const sparks = [spark()];

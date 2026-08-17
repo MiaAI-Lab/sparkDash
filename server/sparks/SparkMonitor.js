@@ -29,7 +29,12 @@ function sameConversationRows(a, b) {
       left.handle !== right.handle ||
       left.badge !== right.badge ||
       left.port !== right.port ||
-      left.lastUsedAt !== right.lastUsedAt
+      left.lastUsedAt !== right.lastUsedAt ||
+      left.agent !== right.agent ||
+      left.gateway !== right.gateway ||
+      left.contextUsed !== right.contextUsed ||
+      left.contextWindow !== right.contextWindow ||
+      left.contextApprox !== right.contextApprox
     ) {
       return false;
     }

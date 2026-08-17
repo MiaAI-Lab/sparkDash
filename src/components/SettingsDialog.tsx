@@ -13,7 +13,8 @@ import type {
   SessionSourcesPatch,
   Settings,
 } from "../api/types";
-import { SessionSourceFields } from "./SessionSourceFields";
+import { SOURCE_IDS, Toggle } from "./SessionSourceFields";
+import { SessionSourcesPanel, nextAttachId } from "./SessionSourcesPanel";
 import { useModalPresence } from "../hooks/useModalPresence";
 
 interface SettingsDialogProps {
@@ -39,47 +40,52 @@ const POLL_PRESETS = [
   { label: "10s", value: 10000 },
 ];
 
-const SOURCE_IDS = ["openclaw", "hermes"] as const;
+function attachPatch(
+  src: SessionSourceAttach,
+  tokenDrafts: Record<string, string>,
+  clearTokens: Record<string, boolean>
+) {
+  const draft = tokenDrafts[src.id] ?? "";
+  return {
+    id: src.id,
+    label: src.label ?? "",
+    enabled: src.enabled,
+    mode: src.mode,
+    url: src.url,
+    stateDir: src.stateDir,
+    username: src.username ?? "",
+    ...(clearTokens[src.id] && !draft ? { token: "" } : draft ? { token: draft } : {}),
+  };
+}
 
 export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [sessionSources, setSessionSources] = useState<SessionSources | null>(null);
-  const [tokenDrafts, setTokenDrafts] = useState({ openclaw: "", hermes: "" });
-  const [clearTokens, setClearTokens] = useState({ openclaw: false, hermes: false });
+  const [tokenDrafts, setTokenDrafts] = useState<Record<string, string>>({});
+  const [clearTokens, setClearTokens] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [sourceHealth, setSourceHealth] = useState<SessionSourcesHealth | null>(null);
-  const [checkingSources, setCheckingSources] = useState(false);
+  const [checkingId, setCheckingId] = useState<string | null>(null);
 
   useEscape(onClose);
 
-  const sourceTestBody = (sources: SessionSources): SessionSourcesPatch => {
-    const patch: SessionSourcesPatch = {};
-    for (const id of SOURCE_IDS) {
-      const src = sources[id];
-      const draft = tokenDrafts[id];
-      patch[id] = {
-        enabled: src.enabled,
-        mode: src.mode,
-        url: src.url,
-        stateDir: src.stateDir,
-        ...(clearTokens[id] && !draft ? { token: "" } : draft ? { token: draft } : {}),
-      };
-    }
-    return patch;
-  };
+  const sourceTestBody = (sources: SessionSources): SessionSourcesPatch => ({
+    openclaw: sources.openclaw.map((src) => attachPatch(src, tokenDrafts, clearTokens)),
+    hermes: sources.hermes.map((src) => attachPatch(src, tokenDrafts, clearTokens)),
+  });
 
-  const runSourceCheck = async (sources: SessionSources) => {
-    setCheckingSources(true);
+  const runSourceCheck = async (sources: SessionSources, attachId?: string) => {
+    setCheckingId(attachId ?? "*");
     try {
       const result = await testSessionSources(sourceTestBody(sources));
       setSourceHealth(result);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setCheckingSources(false);
+      setCheckingId(null);
     }
   };
 
@@ -87,10 +93,10 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
     if (!open) {
       setSettings(null);
       setSessionSources(null);
-      setTokenDrafts({ openclaw: "", hermes: "" });
-      setClearTokens({ openclaw: false, hermes: false });
+      setTokenDrafts({});
+      setClearTokens({});
       setSourceHealth(null);
-      setCheckingSources(false);
+      setCheckingId(null);
       setError(null);
       setDirty(false);
       return;
@@ -102,21 +108,8 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
         if (cancelled) return;
         setSettings(s);
         setSessionSources(sources);
-        setCheckingSources(true);
-        testSessionSources({
-          openclaw: {
-            enabled: sources.openclaw.enabled,
-            mode: sources.openclaw.mode,
-            url: sources.openclaw.url,
-            stateDir: sources.openclaw.stateDir,
-          },
-          hermes: {
-            enabled: sources.hermes.enabled,
-            mode: sources.hermes.mode,
-            url: sources.hermes.url,
-            stateDir: sources.hermes.stateDir,
-          },
-        })
+        setCheckingId("*");
+        testSessionSources(sourceTestBody(sources))
           .then((result) => {
             if (!cancelled) setSourceHealth(result);
           })
@@ -124,7 +117,7 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
             if (!cancelled) setError(err instanceof Error ? err.message : String(err));
           })
           .finally(() => {
-            if (!cancelled) setCheckingSources(false);
+            if (!cancelled) setCheckingId(null);
           });
       })
       .catch((err: Error) => {
@@ -145,8 +138,58 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
     setDirty(true);
   };
 
-  const patchSource = (id: (typeof SOURCE_IDS)[number], patch: Partial<SessionSourceAttach>) => {
-    setSessionSources((prev) => (prev ? { ...prev, [id]: { ...prev[id], ...patch } } : prev));
+  const patchSource = (
+    kind: (typeof SOURCE_IDS)[number],
+    id: string,
+    patch: Partial<SessionSourceAttach>
+  ) => {
+    setSessionSources((prev) =>
+      prev
+        ? {
+            ...prev,
+            [kind]: prev[kind].map((row) => (row.id === id ? { ...row, ...patch } : row)),
+          }
+        : prev
+    );
+    setDirty(true);
+  };
+
+  const addSource = (kind: (typeof SOURCE_IDS)[number]) => {
+    setSessionSources((prev) => {
+      if (!prev) return prev;
+      const id = nextAttachId(kind, prev[kind]);
+      const blank: SessionSourceAttach = {
+        id,
+        label: "",
+        enabled: true,
+        mode: "url",
+        url: "",
+        stateDir: "",
+        username: "",
+        hasToken: false,
+        conventionalStateDir:
+          prev[kind][0]?.conventionalStateDir ??
+          (kind === "openclaw" ? "~/.openclaw" : "~/.hermes"),
+      };
+      return { ...prev, [kind]: [...prev[kind], blank] };
+    });
+    setDirty(true);
+  };
+
+  const removeSource = (kind: (typeof SOURCE_IDS)[number], id: string) => {
+    setSessionSources((prev) =>
+      prev ? { ...prev, [kind]: prev[kind].filter((row) => row.id !== id) } : prev
+    );
+    setTokenDrafts((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    setClearTokens((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
     setDirty(true);
   };
 
@@ -156,19 +199,7 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
     setError(null);
     try {
       if (sessionSources) {
-        const sessionPatch: SessionSourcesPatch = {};
-        for (const id of SOURCE_IDS) {
-          const src = sessionSources[id];
-          const draft = tokenDrafts[id];
-          sessionPatch[id] = {
-            enabled: src.enabled,
-            mode: src.mode,
-            url: src.url,
-            stateDir: src.stateDir,
-            ...(clearTokens[id] && !draft ? { token: "" } : draft ? { token: draft } : {}),
-          };
-        }
-        await updateSessionSources(sessionPatch);
+        await updateSessionSources(sourceTestBody(sessionSources));
       }
       const result = await updateSettings(settings);
       setSettings(result);
@@ -320,38 +351,28 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
             </div>
 
             {sessionSources && (
-              <div className="space-y-2 border-t border-border pt-4">
-                <h3 className="text-xs font-medium text-text">Session sources</h3>
-                <p className="text-[10px] leading-snug text-muted">
-                  Optional OpenClaw and Hermes Agent conversations. Local defaults are{" "}
-                  ~/.openclaw (or OPENCLAW_STATE_DIR) and ~/.hermes (or HERMES_HOME). Use a
-                  state dir or URL when the product is on another host or in Docker.
-                </p>
-                {SOURCE_IDS.map((id) => (
-                  <SessionSourceFields
-                    key={id}
-                    id={id}
-                    source={sessionSources[id]}
-                    tokenDraft={tokenDrafts[id]}
-                    health={sourceHealth?.[id]}
-                    checking={checkingSources}
-                    onSource={(patch) => patchSource(id, patch)}
-                    onToken={(value) => {
-                      setTokenDrafts((prev) => ({ ...prev, [id]: value }));
-                      if (value) {
-                        setClearTokens((prev) => ({ ...prev, [id]: false }));
-                      }
-                      setDirty(true);
-                    }}
-                    onClearToken={() => {
-                      setTokenDrafts((prev) => ({ ...prev, [id]: "" }));
-                      setClearTokens((prev) => ({ ...prev, [id]: true }));
-                      patchSource(id, { hasToken: false });
-                    }}
-                    onCheck={() => void runSourceCheck(sessionSources)}
-                  />
-                ))}
-              </div>
+              <SessionSourcesPanel
+                sources={sessionSources}
+                tokenDrafts={tokenDrafts}
+                health={sourceHealth}
+                checkingId={checkingId}
+                onPatch={patchSource}
+                onToken={(id, value) => {
+                  setTokenDrafts((prev) => ({ ...prev, [id]: value }));
+                  if (value) {
+                    setClearTokens((prev) => ({ ...prev, [id]: false }));
+                  }
+                  setDirty(true);
+                }}
+                onClearToken={(kind, id) => {
+                  setTokenDrafts((prev) => ({ ...prev, [id]: "" }));
+                  setClearTokens((prev) => ({ ...prev, [id]: true }));
+                  patchSource(kind, id, { hasToken: false });
+                }}
+                onCheck={(id) => void runSourceCheck(sessionSources, id)}
+                onAdd={addSource}
+                onRemove={removeSource}
+              />
             )}
           </div>
         )}

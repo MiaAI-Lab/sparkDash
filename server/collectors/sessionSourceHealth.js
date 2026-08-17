@@ -2,19 +2,19 @@
  * Settings connectivity probe for OpenClaw / Hermes Agent sources.
  * Counts only. Never persists. Never returns handles, transcripts, or tokens.
  */
-import { loadSessionSources, conventionalStateDir } from "../sessionSources.js";
+import { attachList, loadSessionSources, conventionalStateDir } from "../sessionSources.js";
 import { loadSessionSourceTokens } from "../secretsStore.js";
 import { diagnoseOpenClawSessions } from "./OpenClawSessions.js";
 import { diagnoseHermesSessions } from "./HermesSessions.js";
 import { parseBaseUrl } from "./sessionIo.js";
-import { projectConversations } from "./sessionProjector.js";
+import { projectConversations, withOccupancyHosts, hostListenIps } from "./sessionProjector.js";
 
 const SOURCE_IDS = Object.freeze(["openclaw", "hermes"]);
 
 /**
  * @param {object} [body]
  * @param {{ getSparks?: () => object[], loadSessionSources?: Function, loadSessionSourceTokens?: Function }} [deps]
- * @returns {Promise<{ openclaw: object, hermes: object }>}
+ * @returns {Promise<{ openclaw: object[], hermes: object[] }>}
  */
 export async function testSessionSources(body = {}, deps = {}) {
   const saved = (deps.loadSessionSources ?? loadSessionSources)();
@@ -22,41 +22,59 @@ export async function testSessionSources(body = {}, deps = {}) {
   const sparks = deps.getSparks?.() ?? [];
   const patch = body && typeof body === "object" ? body : {};
   const [openclaw, hermes] = await Promise.all([
-    probeOne("openclaw", saved.openclaw, storedTokens.openclaw, patch.openclaw, sparks, deps),
-    probeOne("hermes", saved.hermes, storedTokens.hermes, patch.hermes, sparks, deps),
+    probeKind("openclaw", saved.openclaw, storedTokens, patch.openclaw, sparks, deps),
+    probeKind("hermes", saved.hermes, storedTokens, patch.hermes, sparks, deps),
   ]);
   return { openclaw, hermes };
 }
 
-async function probeOne(id, saved, storedToken, patch, sparks, deps) {
-  const attach = attachForTest(saved, patch);
-  const token = tokenForTest(storedToken, patch, saved, attach);
-  const collectDeps = {
-    token,
-    conventionalStateDir: conventionalStateDir(id),
-    countMapped: (rows) => countBound(rows, sparks),
-    listSessions: deps.listSessions,
-    fetchJson: deps.fetchJson,
-    fetchResponse: deps.fetchResponse,
-  };
-  return id === "openclaw"
-    ? diagnoseOpenClawSessions(attach, collectDeps)
-    : diagnoseHermesSessions(attach, collectDeps);
+function probePatches(savedList, patch) {
+  if (patch === undefined) return savedList.map(() => ({}));
+  const listed = attachList(patch);
+  return listed.length > 0 ? listed : [{}];
+}
+
+async function probeKind(kind, savedRaw, storedTokens, patch, sparks, deps) {
+  const savedList = attachList(savedRaw);
+  const patches = probePatches(savedList, patch);
+  const jobs = patches.map((item, index) => {
+    const saved = (item.id && savedList.find((a) => a.id === item.id)) || savedList[index] || savedList[0] || {};
+    const attach = attachForTest(saved, item);
+    const token = tokenForTest(storedTokens[attach.id] ?? storedTokens[kind], item, saved, attach);
+    const collectDeps = {
+      token,
+      conventionalStateDir: conventionalStateDir(kind),
+      countMapped: (rows) => countBound(rows, sparks),
+      listSessions: deps.listSessions,
+      fetchJson: deps.fetchJson,
+      fetchResponse: deps.fetchResponse,
+      gatewayRpc: deps.gatewayRpc,
+    };
+    const diagnose = kind === "openclaw" ? diagnoseOpenClawSessions : diagnoseHermesSessions;
+    return diagnose(attach, collectDeps).then((result) => ({ id: attach.id || kind, ...result }));
+  });
+  return Promise.all(jobs);
 }
 
 function countBound(rows, sparks) {
   if (!Array.isArray(sparks) || sparks.length === 0) return 0;
-  const bySpark = projectConversations(Array.isArray(rows) ? rows : [], sparks);
+  const bySpark = projectConversations(
+    Array.isArray(rows) ? rows : [],
+    withOccupancyHosts(sparks, hostListenIps())
+  );
   return Object.values(bySpark).reduce((sum, list) => sum + (Array.isArray(list) ? list.length : 0), 0);
 }
 
 function attachForTest(saved, patch) {
   const src = patch && typeof patch === "object" ? patch : {};
   return {
+    id: typeof src.id === "string" && src.id.trim() ? src.id.trim() : saved?.id,
     enabled: src.enabled !== undefined ? Boolean(src.enabled) : Boolean(saved?.enabled),
     mode: typeof src.mode === "string" ? src.mode : saved?.mode ?? "local",
     url: src.url !== undefined ? String(src.url).trim() : String(saved?.url ?? ""),
     stateDir: src.stateDir !== undefined ? String(src.stateDir).trim() : String(saved?.stateDir ?? ""),
+    label: src.label !== undefined ? String(src.label).trim() : String(saved?.label ?? ""),
+    username: src.username !== undefined ? String(src.username).trim() : String(saved?.username ?? ""),
   };
 }
 

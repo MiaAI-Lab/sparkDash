@@ -4,15 +4,16 @@
  * The process owner injects sparks/sources/tokens/apply; this module owns
  * inflight, the LLM-cadence timer, and the disable-during-poll recheck.
  */
+import { attachList } from "../sessionSources.js";
 import { collectOpenClawSessions } from "./OpenClawSessions.js";
 import { collectHermesSessions } from "./HermesSessions.js";
-import { projectConversations } from "./sessionProjector.js";
+import { projectConversations, withOccupancyHosts, hostListenIps } from "./sessionProjector.js";
 
 /**
  * @param {object} opts
  * @param {object[]} opts.sparks
- * @param {{ openclaw?: { enabled?: boolean }, hermes?: { enabled?: boolean } }} opts.sources
- * @param {{ openclaw?: string, hermes?: string }} [opts.tokens]
+ * @param {{ openclaw?: object|object[], hermes?: object|object[] }} opts.sources
+ * @param {Record<string, string>} [opts.tokens]
  * @param {Function} [opts.collectOpenClaw]
  * @param {Function} [opts.collectHermes]
  * @param {Function} [opts.project]
@@ -28,15 +29,11 @@ export async function pollOccupancy({
 } = {}) {
   if (!sourcesEnabled(sources)) return {};
   const [openclawRows, hermesRows] = await Promise.all([
-    sources.openclaw?.enabled
-      ? collectSafe(collectOpenClaw, sources.openclaw, { token: tokens.openclaw })
-      : [],
-    sources.hermes?.enabled
-      ? collectSafe(collectHermes, sources.hermes, { token: tokens.hermes })
-      : [],
+    collectKind(collectOpenClaw, sources?.openclaw, tokens, "openclaw"),
+    collectKind(collectHermes, sources?.hermes, tokens, "hermes"),
   ]);
   try {
-    return project([...openclawRows, ...hermesRows], sparks);
+    return project([...openclawRows, ...hermesRows], withOccupancyHosts(sparks, hostListenIps()));
   } catch {
     return {};
   }
@@ -113,23 +110,42 @@ export function createOccupancyLoop({
 }
 
 export function sourcesEnabled(sources) {
-  return Boolean(sources?.openclaw?.enabled || sources?.hermes?.enabled);
+  return (
+    attachList(sources?.openclaw).some((attach) => attach.enabled) ||
+    attachList(sources?.hermes).some((attach) => attach.enabled)
+  );
+}
+
+function collectKind(collect, attaches, tokens, kind) {
+  const jobs = attachList(attaches)
+    .filter((attach) => attach.enabled)
+    .map((attach) =>
+      collectSafe(collect, attach, { token: tokens[attach.id] ?? tokens[kind] ?? "" })
+    );
+  return Promise.all(jobs).then((batches) => batches.flat());
 }
 
 function attachSnapshot(attach, token) {
   return {
+    id: attach?.id ?? "",
     enabled: Boolean(attach?.enabled),
     mode: attach?.mode ?? "",
     url: attach?.url ?? "",
     stateDir: attach?.stateDir ?? "",
+    label: attach?.label ?? "",
+    username: attach?.username ?? "",
     token: token ?? "",
   };
 }
 
 function sourcesSnapshot(sources, tokens = {}) {
   return JSON.stringify({
-    openclaw: attachSnapshot(sources?.openclaw, tokens.openclaw),
-    hermes: attachSnapshot(sources?.hermes, tokens.hermes),
+    openclaw: attachList(sources?.openclaw).map((attach) =>
+      attachSnapshot(attach, tokens[attach.id] ?? tokens.openclaw)
+    ),
+    hermes: attachList(sources?.hermes).map((attach) =>
+      attachSnapshot(attach, tokens[attach.id] ?? tokens.hermes)
+    ),
   });
 }
 

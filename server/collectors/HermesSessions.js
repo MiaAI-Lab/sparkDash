@@ -18,7 +18,15 @@ import {
   normalizeSessionList,
   sanitizeProbeError,
   sessionLastUsedAt,
+  sessionAgent,
+  applySessionContext,
+  profileFromStateDir,
+  defaultReadDir,
+  stampAttachRows,
 } from "./sessionIo.js";
+import { hermesAuthedGetter } from "./hermesAuth.js";
+
+export { resetHermesAuthCache } from "./hermesAuth.js";
 
 const HANDLE_FIELDS = ["title", "source", "id"];
 const LIVE_STATUS = new Set(["working", "running"]);
@@ -29,12 +37,13 @@ const PROFILE_FILES = ["config.json", "profile.json"];
  * @param {object} [profiles]
  * @returns {object[]}
  */
-export function mapHermesSessions(sessions, profiles) {
+export function mapHermesSessions(sessions, profiles, agentFallback = "") {
   const list = normalizeSessions(sessions);
   const profileOrigin = parseBaseUrl(profileBaseUrl(profiles));
+  const fallback = sessionAgent(profiles, agentFallback);
   const rows = [];
   for (const item of list) {
-    const row = mapOneSession(item, profileOrigin);
+    const row = mapOneSession(item, profileOrigin, fallback);
     if (row) rows.push(row);
   }
   return rows;
@@ -49,7 +58,7 @@ export async function collectHermesSessions(attach, deps = {}) {
   try {
     if (!attach?.enabled) return [];
     const loaded = await loadHermesPayload(attach, deps);
-    return mapHermesSessions(loaded.sessions, loaded.profiles);
+    return stampAttachRows(mapLoadedHermes(loaded), attach);
   } catch {
     return [];
   }
@@ -71,8 +80,8 @@ export async function diagnoseHermesSessions(attach, deps = {}) {
   }
   try {
     const loaded = await loadHermesPayload(attach, deps);
-    const list = normalizeSessions(loaded.sessions);
-    const rows = mapHermesSessions(loaded.sessions, loaded.profiles);
+    const list = hermesBundles(loaded).flatMap((bundle) => normalizeSessions(bundle.sessions));
+    const rows = stampAttachRows(mapLoadedHermes(loaded), attach);
     return {
       status: "ok",
       found: list.length,
@@ -84,13 +93,25 @@ export async function diagnoseHermesSessions(attach, deps = {}) {
   }
 }
 
-function mapOneSession(session, profileOrigin) {
+function hermesBundles(loaded) {
+  if (Array.isArray(loaded?.bundles)) return loaded.bundles;
+  return [{ sessions: loaded?.sessions, profiles: loaded?.profiles, agent: loaded?.agent }];
+}
+
+function mapLoadedHermes(loaded) {
+  return hermesBundles(loaded).flatMap((bundle) =>
+    mapHermesSessions(bundle.sessions, bundle.profiles, bundle.agent)
+  );
+}
+
+function mapOneSession(session, profileOrigin, fallback) {
   if (!session || typeof session !== "object") return null;
   const origin = originOf(session, profileOrigin);
   if (!origin) return null;
   const handle = sessionHandle(session);
   if (!handle) return null;
   const lastUsedAt = sessionLastUsedAt(session);
+  const agent = sessionAgent(session, fallback);
   const mapped = {
     source: "hermes",
     id: sessionIdentity(session) || handle,
@@ -100,7 +121,8 @@ function mapOneSession(session, profileOrigin) {
     midTurn: midTurnOf(session),
   };
   if (lastUsedAt != null) mapped.lastUsedAt = lastUsedAt;
-  return mapped;
+  if (agent) mapped.agent = agent;
+  return applySessionContext(mapped, session);
 }
 
 function sessionIdentity(session) {
@@ -153,13 +175,14 @@ function normalizeSessions(sessions) {
 
 async function loadHermesPayload(attach, deps) {
   if (typeof deps.listSessions === "function") {
-    return {
-      sessions: await deps.listSessions(),
-      profiles: deps.profiles ?? {},
-    };
+    return hermesBundle(await deps.listSessions(), deps.profiles ?? {}, "");
   }
   if (attach.mode === "url") return loadFromUrl(attach, deps);
   return loadFromStateDir(attach, deps);
+}
+
+function hermesBundle(sessions, profiles, agent) {
+  return { bundles: [{ sessions, profiles, agent: sessionAgent(profiles, agent) }] };
 }
 
 async function loadFromUrl(attach, deps) {
@@ -167,94 +190,14 @@ async function loadFromUrl(attach, deps) {
   if (typeof deps.fetchJson === "function") {
     const payload = await deps.fetchJson(sessionsUrl(attach.url), { token });
     const profiles = deps.profiles ?? (await loadProfilesFromUrl(attach.url, deps.fetchJson, token));
-    return { sessions: payload, profiles };
+    return hermesBundle(payload, profiles, "");
   }
   const origin = gatewayOrigin(attach.url);
   const fetchResponse = deps.fetchResponse ?? defaultFetchResponse;
-  const getJson = await hermesAuthedGetter(origin, token, fetchResponse);
+  const getJson = await hermesAuthedGetter(origin, token, fetchResponse, attach.username);
   const payload = await getJson(sessionsUrl(attach.url));
   const profiles = deps.profiles ?? (await loadProfilesFromUrl(attach.url, getJson, token));
-  return { sessions: payload, profiles };
-}
-
-const cookieCache = new Map();
-
-export function resetHermesAuthCache() {
-  cookieCache.clear();
-}
-
-function cookieCacheKey(origin, token) {
-  return `${origin}\0${token}`;
-}
-
-async function hermesAuthedGetter(origin, token, fetchResponse) {
-  if (!token) {
-    return async function getJson(url) {
-      const res = await fetchResponse(url);
-      return res.json();
-    };
-  }
-  let cookie = "";
-  try {
-    cookie = await cookieFor(origin, token, fetchResponse);
-  } catch (err) {
-    if (!isMissingLoginEndpoint(err)) throw err;
-  }
-  if (!cookie) {
-    return async function getJson(url) {
-      const res = await fetchResponse(url, { token });
-      return res.json();
-    };
-  }
-  return async function getJson(url) {
-    try {
-      const res = await fetchResponse(url, { cookie });
-      return res.json();
-    } catch (err) {
-      if (Number(err?.status) !== 401) throw err;
-      cookieCache.delete(cookieCacheKey(origin, token));
-      cookie = await cookieFor(origin, token, fetchResponse);
-      const res = await fetchResponse(url, { cookie });
-      return res.json();
-    }
-  };
-}
-
-function isMissingLoginEndpoint(err) {
-  const status = Number(err?.status);
-  return status === 404 || status === 405;
-}
-
-async function cookieFor(origin, token, fetchResponse) {
-  const key = cookieCacheKey(origin, token);
-  const cached = cookieCache.get(key);
-  if (cached) return cached;
-  const cookie = await loginHermes(origin, token, fetchResponse);
-  if (cookie) cookieCache.set(key, cookie);
-  return cookie;
-}
-
-async function loginHermes(origin, token, fetchResponse) {
-  const res = await fetchResponse(`${origin}/api/auth/login`, {
-    method: "POST",
-    extraHeaders: { "Content-Type": "application/json" },
-    body: JSON.stringify({ password: token }),
-  });
-  return sessionCookieFromResponse(res);
-}
-
-function sessionCookieFromResponse(res) {
-  const headers = res?.headers;
-  if (!headers) return "";
-  const rawList =
-    typeof headers.getSetCookie === "function"
-      ? headers.getSetCookie()
-      : [headers.get("set-cookie")].filter(Boolean);
-  for (const raw of rawList) {
-    const first = String(raw).split(";", 1)[0].trim();
-    if (first.toLowerCase().startsWith("hermes_session=")) return first;
-  }
-  return "";
+  return hermesBundle(payload, profiles, "");
 }
 
 function gatewayOrigin(raw) {
@@ -290,13 +233,38 @@ async function loadFromStateDir(attach, deps) {
     deps,
     deps.conventionalStateDir ?? conventionalStateDir("hermes")
   );
-  if (!dir) return { sessions: [], profiles: {} };
+  if (!dir) return { bundles: [] };
   const readFile = deps.readFile ?? defaultReadFile;
-  const [sessionsRaw, profiles] = await Promise.all([
-    readFile(path.join(dir, "sessions.json")).then((raw) => JSON.parse(raw)),
-    loadProfilesFromDir(dir, readFile),
-  ]);
-  return { sessions: sessionsRaw, profiles };
+  const readDir = deps.readDir ?? defaultReadDir;
+  const homes = await listHermesHomes(dir, readDir);
+  const bundles = [];
+  for (const home of homes) {
+    try {
+      const sessions = JSON.parse(await readFile(path.join(home.dir, "sessions.json")));
+      const profiles = await loadProfilesFromDir(home.dir, readFile);
+      bundles.push({ sessions, profiles, agent: home.agent });
+    } catch {
+      // skip missing or unreadable profile store
+    }
+  }
+  return { bundles };
+}
+
+async function listHermesHomes(dir, readDir) {
+  let names = [];
+  try {
+    names = await readDir(path.join(dir, "profiles"));
+  } catch {
+    names = [];
+  }
+  const homes = [];
+  for (const entry of names) {
+    const name = typeof entry === "string" ? entry : entry?.name;
+    if (!name || name.startsWith(".")) continue;
+    homes.push({ dir: path.join(dir, "profiles", name), agent: name });
+  }
+  if (homes.length > 0) return homes;
+  return [{ dir, agent: profileFromStateDir(dir) }];
 }
 
 async function loadProfilesFromDir(dir, readFile) {
