@@ -3,6 +3,7 @@
  * GET /occupancy → { found, rows } of projector-input fields only.
  */
 import http from "node:http";
+import { timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { diagnoseOpenCodeSessions } from "../../server/collectors/OpenCodeSessions.js";
@@ -59,13 +60,7 @@ function timingEqual(left, right) {
   const a = Buffer.from(String(left));
   const b = Buffer.from(String(right));
   if (a.length !== b.length) return false;
-  return cryptoTimingSafeEqual(a, b);
-}
-
-function cryptoTimingSafeEqual(a, b) {
-  let diff = 0;
-  for (let i = 0; i < a.length; i += 1) diff |= a[i] ^ b[i];
-  return diff === 0;
+  return timingSafeEqual(a, b);
 }
 
 export function createOccupancyHelper(opts = {}) {
