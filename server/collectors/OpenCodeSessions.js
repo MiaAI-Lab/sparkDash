@@ -17,21 +17,44 @@ import {
   defaultReadFile,
   defaultFetchJson,
   sanitizeProbeError,
-  applySessionContext,
   stampAttachRows,
 } from "./sessionIo.js";
 
 const SOURCE = "opencode";
 const MAX_HELPER_ROWS = 500;
 const SESSION_COLUMNS = ["id", "title", "model", "time_updated", "tokens_input"];
+const PROJECTOR_ROW_KEYS = [
+  "source",
+  "id",
+  "handle",
+  "originHost",
+  "originPort",
+  "lastUsedAt",
+  "midTurn",
+  "contextUsed",
+  "contextWindow",
+  "contextApprox",
+];
 const BUSY_RETRY_MS = 50;
 
+export function sanitizeOpenCodeRow(row) {
+  const out = { source: SOURCE, midTurn: "unknown" };
+  if (!row || typeof row !== "object") return out;
+  for (const key of PROJECTOR_ROW_KEYS) {
+    if (row[key] !== undefined) out[key] = row[key];
+  }
+  out.source = SOURCE;
+  if (out.midTurn == null) out.midTurn = "unknown";
+  return out;
+}
+
 /**
- * Parse JSON with `//` and `/* * /` comments. Strings are left intact.
+ * Parse JSON with `//` comments and block comments. Strings are left intact.
+ * Trailing commas outside strings are stripped.
  * @param {string} text
  */
 export function parseJsonc(text) {
-  return JSON.parse(stripJsoncComments(String(text ?? "")));
+  return JSON.parse(stripTrailingCommas(stripJsoncComments(String(text ?? ""))));
 }
 
 /**
@@ -115,10 +138,7 @@ function mapOneSession(session, providers) {
     midTurn: "unknown",
   };
   if (lastUsedAt != null) mapped.lastUsedAt = lastUsedAt;
-  return applySessionContext(mapped, {
-    ...session,
-    input_tokens: session.tokens_input ?? session.input_tokens,
-  });
+  return mapped;
 }
 
 function sessionIdentity(session) {
@@ -160,11 +180,7 @@ async function loadFromUrl(attach, deps) {
   if (parsed.error) return { sessions: [], providers: {}, preMapped: [], found: 0, invalidHelper: true };
   const preMapped = parsed.rows
     .filter((row) => row && typeof row === "object")
-    .map((row) => ({
-      ...row,
-      source: SOURCE,
-      midTurn: row.midTurn ?? "unknown",
-    }));
+    .map((row) => sanitizeOpenCodeRow(row));
   return {
     sessions: parsed.rows,
     providers: {},
@@ -252,7 +268,12 @@ async function readSessionRows(dbPath, deps, attempt = 0) {
     if (columns.length === 0) return [];
     const selected = SESSION_COLUMNS.filter((name) => columns.includes(name));
     if (selected.length === 0) return [];
-    const sql = `SELECT ${selected.join(", ")} FROM session`;
+    let sql = `SELECT ${selected.join(", ")} FROM session`;
+    if (columns.includes("time_updated")) {
+      sql += ` ORDER BY time_updated DESC LIMIT ${MAX_HELPER_ROWS}`;
+    } else {
+      sql += ` LIMIT ${MAX_HELPER_ROWS}`;
+    }
     return db.prepare(sql).all() ?? [];
   } catch (err) {
     if (isBusy(err) && attempt < 1) {
@@ -285,6 +306,34 @@ function isBusy(err) {
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function stripTrailingCommas(src) {
+  let out = "";
+  let inString = false;
+  let escape = false;
+  for (let i = 0; i < src.length; i += 1) {
+    const c = src[i];
+    if (inString) {
+      out += c;
+      if (escape) escape = false;
+      else if (c === "\\") escape = true;
+      else if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') {
+      inString = true;
+      out += c;
+      continue;
+    }
+    if (c === ",") {
+      let j = i + 1;
+      while (j < src.length && /\s/.test(src[j])) j += 1;
+      if (src[j] === "}" || src[j] === "]") continue;
+    }
+    out += c;
+  }
+  return out;
 }
 
 function stripJsoncComments(src) {

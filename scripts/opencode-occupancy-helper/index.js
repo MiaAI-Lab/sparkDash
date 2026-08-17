@@ -6,30 +6,10 @@ import http from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { diagnoseOpenCodeSessions } from "../../server/collectors/OpenCodeSessions.js";
-
-const ROW_KEYS = [
-  "source",
-  "id",
-  "handle",
-  "originHost",
-  "originPort",
-  "lastUsedAt",
-  "midTurn",
-  "contextUsed",
-  "contextWindow",
-  "contextApprox",
-];
+import { diagnoseOpenCodeSessions, sanitizeOpenCodeRow } from "../../server/collectors/OpenCodeSessions.js";
 
 export function publicOccupancyRow(row) {
-  const out = { source: "opencode", midTurn: "unknown" };
-  if (!row || typeof row !== "object") return out;
-  for (const key of ROW_KEYS) {
-    if (row[key] !== undefined) out[key] = row[key];
-  }
-  out.source = "opencode";
-  if (out.midTurn == null) out.midTurn = "unknown";
-  return out;
+  return sanitizeOpenCodeRow(row);
 }
 
 export async function loadOccupancy(deps = {}) {
@@ -39,7 +19,7 @@ export async function loadOccupancy(deps = {}) {
     mode: deps.mode ?? "local",
     stateDir: deps.stateDir ?? "",
     url: "",
-    id: "opencode",
+    id: "",
   };
   const diagnosed = await diagnoseOpenCodeSessions(attach, {
     ...deps,
@@ -116,7 +96,9 @@ export function createOccupancyHelper(opts = {}) {
       return Promise.reject(new Error("bind not allowed"));
     }
     if (token === "" && host !== "127.0.0.1" && host !== "::1") {
-      console.error("Warning: reachable bind without OPENCODE_OCCUPANCY_TOKEN.");
+      console.error("Refusing reachable bind without OPENCODE_OCCUPANCY_TOKEN.");
+      process.exitCode = 1;
+      return Promise.reject(new Error("token required"));
     }
     server = http.createServer((req, res) => void onRequest(req, res));
     return new Promise((resolve) => {

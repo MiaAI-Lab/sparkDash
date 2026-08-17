@@ -23,7 +23,9 @@ Settings → Session sources → OpenCode → mode **URL**.
 Do **not** bind `0.0.0.0`. Either:
 
 1. **Tailscale Serve** (recommended): keep the helper on loopback and serve the port on the tailnet.
-2. Bind a **tailnet IP**: `OPENCODE_OCCUPANCY_BIND=100.x.y.z OPENCODE_OCCUPANCY_TOKEN=… node scripts/opencode-occupancy-helper/index.js`
+2. Bind a **tailnet IP** with a token: `OPENCODE_OCCUPANCY_BIND=100.x.y.z OPENCODE_OCCUPANCY_TOKEN=… node scripts/opencode-occupancy-helper/index.js`
+
+A reachable (non-loopback) bind **requires** `OPENCODE_OCCUPANCY_TOKEN`.
 
 ## Environment
 

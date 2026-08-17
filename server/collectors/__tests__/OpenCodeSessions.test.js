@@ -126,6 +126,15 @@ test("parseJsonc strips comments and keeps strings that look like comments", () 
   assert.equal(parsed.note, "http://example.com/path");
 });
 
+test("parseJsonc accepts trailing commas outside strings", () => {
+  const parsed = parseJsonc(`{
+    "provider": {
+      "spark": { "options": { "baseURL": "http://john:8888/v1" }, },
+    },
+  }`);
+  assert.equal(parsed.provider.spark.options.baseURL, "http://john:8888/v1");
+});
+
 test("local collect reads JSONC-only provider config and sqlite session rows", async () => {
   const queries = [];
   const files = {
