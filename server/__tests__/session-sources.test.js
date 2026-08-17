@@ -61,13 +61,12 @@ test.after(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-test("U1 registry: OpenClaw and Hermes only; config iterates registry kinds", async () => {
+test("U1 registry: OpenClaw, Hermes, and OpenCode; config iterates registry kinds", async () => {
   const registry = await import("../sessionSourceRegistry.js");
-  assert.deepEqual(registry.sessionSourceIds(), ["openclaw", "hermes"]);
-  assert.equal(registry.sessionSourceIds().includes("opencode"), false);
+  assert.deepEqual(registry.sessionSourceIds(), ["openclaw", "hermes", "opencode"]);
   assert.equal(registry.kindById("openclaw")?.label, "OpenClaw");
   assert.equal(registry.kindById("hermes")?.label, "Hermes Agent");
-  assert.equal(registry.kindById("opencode"), null);
+  assert.equal(registry.kindById("opencode")?.label, "OpenCode");
   assert.deepEqual([...SOURCE_IDS], registry.sessionSourceIds());
   assert.equal(conventionalStateDir, registry.conventionalStateDir);
 
@@ -85,7 +84,9 @@ test("U1 registry: OpenClaw and Hermes only; config iterates registry kinds", as
     assert.equal(first(pub[kind]).conventionalStateDir, registry.conventionalStateDir(kind));
   }
   assert.equal(conventionalStateDir("openclaw-2"), "~/.openclaw");
-  assert.equal(conventionalStateDir("opencode"), "");
+  assert.equal(conventionalStateDir("opencode"), "~/.local/share/opencode");
+  assert.equal(registry.conventionalConfigDir("opencode"), "~/.config/opencode");
+  assert.equal(registry.conventionalConfigDir("openclaw"), "");
   assert.equal(
     conventionalStateDir("hermes", { HERMES_HOME: " /custom/hermes " }),
     "/custom/hermes"

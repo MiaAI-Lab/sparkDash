@@ -57,7 +57,7 @@ test("enabled kinds not in the registry do not trigger occupancy I/O", async () 
     sparks: [spark()],
     sources: {
       ...sources(),
-      opencode: { enabled: true, mode: "local", url: "", stateDir: "" },
+      omp: { enabled: true, mode: "local", url: "", stateDir: "" },
     },
     collectOpenClaw: collect,
     collectHermes: collect,
@@ -200,6 +200,39 @@ test("collects every enabled attach of the same product", async () => {
   assert.deepEqual(
     result["spark-local"].map((r) => r.handle).sort(),
     ["hermes", "hermes-2"]
+  );
+});
+
+test("collects every enabled OpenCode attach into one row list", async () => {
+  const seen = [];
+  const result = await pollOccupancy({
+    sparks: [spark()],
+    sources: {
+      ...sources(),
+      opencode: [
+        { id: "opencode", enabled: true, mode: "url", url: "http://127.0.0.1:8788", stateDir: "" },
+        { id: "opencode-2", enabled: true, mode: "url", url: "http://127.0.0.1:8789", stateDir: "" },
+      ],
+    },
+    collectOpenClaw: async () => [],
+    collectHermes: async () => [],
+    collectOpenCode: async (attach) => {
+      seen.push(attach.id);
+      return [
+        row({
+          source: "opencode",
+          handle: attach.id,
+          originHost: "127.0.0.1",
+          originPort: 8888,
+          midTurn: "unknown",
+        }),
+      ];
+    },
+  });
+  assert.deepEqual(seen, ["opencode", "opencode-2"]);
+  assert.deepEqual(
+    result["spark-local"].map((r) => r.handle).sort(),
+    ["opencode", "opencode-2"]
   );
 });
 

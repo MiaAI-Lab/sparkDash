@@ -23,6 +23,16 @@ const KINDS = Object.freeze([
       return trimmedEnv(env?.HERMES_HOME, "~/.hermes");
     },
   }),
+  Object.freeze({
+    id: "opencode",
+    label: "OpenCode",
+    conventionalStateDir(env = process.env) {
+      return trimmedEnv(env?.OPENCODE_DATA_DIR, "~/.local/share/opencode");
+    },
+    conventionalConfigDir(env = process.env) {
+      return trimmedEnv(env?.OPENCODE_CONFIG_DIR, "~/.config/opencode");
+    },
+  }),
 ]);
 
 export function sessionSourceKinds() {
@@ -48,6 +58,14 @@ function kindForId(id) {
 export function conventionalStateDir(id, env = process.env) {
   const kind = kindForId(id);
   return kind ? kind.conventionalStateDir(env) : "";
+}
+
+export function conventionalConfigDir(id, env = process.env) {
+  const kind = kindForId(id);
+  if (kind && typeof kind.conventionalConfigDir === "function") {
+    return kind.conventionalConfigDir(env);
+  }
+  return "";
 }
 
 export const SOURCE_IDS = Object.freeze(sessionSourceIds());

@@ -7,12 +7,14 @@ import { sessionSourceIds, SOURCE_IDS } from "../sessionSourceRegistry.js";
 import { loadSessionSourceTokens } from "../secretsStore.js";
 import { diagnoseOpenClawSessions } from "./OpenClawSessions.js";
 import { diagnoseHermesSessions } from "./HermesSessions.js";
+import { diagnoseOpenCodeSessions } from "./OpenCodeSessions.js";
 import { parseBaseUrl } from "./sessionIo.js";
 import { projectConversations, withOccupancyHosts, hostListenIps } from "./sessionProjector.js";
 
 const DIAGNOSE = {
   openclaw: diagnoseOpenClawSessions,
   hermes: diagnoseHermesSessions,
+  opencode: diagnoseOpenCodeSessions,
 };
 
 /**

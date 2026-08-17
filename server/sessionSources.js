@@ -16,6 +16,7 @@ import {
 import {
   SOURCE_IDS,
   conventionalStateDir,
+  conventionalConfigDir,
   sessionSourceIds,
 } from "./sessionSourceRegistry.js";
 
@@ -32,7 +33,7 @@ const DEFAULT_ATTACH = Object.freeze({
   username: "",
 });
 
-export { SOURCE_IDS, conventionalStateDir };
+export { SOURCE_IDS, conventionalStateDir, conventionalConfigDir };
 
 export function attachList(source) {
   if (Array.isArray(source)) return source.filter((item) => item && typeof item === "object");

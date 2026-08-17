@@ -8,11 +8,13 @@ import { attachList } from "../sessionSources.js";
 import { sessionSourceIds } from "../sessionSourceRegistry.js";
 import { collectOpenClawSessions } from "./OpenClawSessions.js";
 import { collectHermesSessions } from "./HermesSessions.js";
+import { collectOpenCodeSessions } from "./OpenCodeSessions.js";
 import { projectConversations, withOccupancyHosts, hostListenIps } from "./sessionProjector.js";
 
 const DEFAULT_COLLECTORS = {
   openclaw: collectOpenClawSessions,
   hermes: collectHermesSessions,
+  opencode: collectOpenCodeSessions,
 };
 
 /**
@@ -22,6 +24,7 @@ const DEFAULT_COLLECTORS = {
  * @param {Record<string, string>} [opts.tokens]
  * @param {Function} [opts.collectOpenClaw]
  * @param {Function} [opts.collectHermes]
+ * @param {Function} [opts.collectOpenCode]
  * @param {Record<string, Function>} [opts.collectors]
  * @param {Function} [opts.project]
  * @returns {Promise<Record<string, object[]>>}
@@ -32,6 +35,7 @@ export async function pollOccupancy({
   tokens = {},
   collectOpenClaw,
   collectHermes,
+  collectOpenCode,
   collectors,
   project = projectConversations,
 } = {}) {
@@ -42,6 +46,7 @@ export async function pollOccupancy({
   };
   if (collectOpenClaw) collectByKind.openclaw = collectOpenClaw;
   if (collectHermes) collectByKind.hermes = collectHermes;
+  if (collectOpenCode) collectByKind.opencode = collectOpenCode;
   const batches = await Promise.all(
     sessionSourceIds().map((kind) => {
       const collect = collectByKind[kind];
