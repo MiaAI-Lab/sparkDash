@@ -1,7 +1,7 @@
 import type { SessionSourceAttach, SessionSourceHealth, SessionSourceMode } from "../api/types";
 
-export const SOURCE_LABELS = { openclaw: "OpenClaw", hermes: "Hermes Agent" } as const;
-export const SOURCE_IDS = ["openclaw", "hermes"] as const;
+export const SOURCE_LABELS = { openclaw: "OpenClaw", hermes: "Hermes Agent", opencode: "OpenCode" } as const;
+export const SOURCE_IDS = ["openclaw", "hermes", "opencode"] as const;
 const MODE_OPTIONS: { value: SessionSourceMode; label: string }[] = [
   { value: "local", label: "Local" },
   { value: "url", label: "URL" },
@@ -119,14 +119,24 @@ export function SessionSourceFields({
         ))}
       </select>
       {source.mode === "local" && (
-        <p className="text-[10px] leading-snug text-muted">Uses {source.conventionalStateDir}</p>
+        <p className="text-[10px] leading-snug text-muted">
+          {kind === "opencode"
+            ? `Sessions ${source.conventionalStateDir}; providers ${source.conventionalConfigDir || "~/.config/opencode"}`
+            : `Uses ${source.conventionalStateDir}`}
+        </p>
       )}
       {source.mode === "url" && (
         <input
           type="text"
           value={source.url}
           onChange={(e) => onSource({ url: e.target.value })}
-          placeholder={kind === "openclaw" ? "http://127.0.0.1:18789" : "http://127.0.0.1:8787"}
+          placeholder={
+            kind === "openclaw"
+              ? "http://127.0.0.1:18789"
+              : kind === "opencode"
+                ? "http://127.0.0.1:8788/occupancy"
+                : "http://127.0.0.1:8787"
+          }
           className={fieldClass}
           aria-label={`${SOURCE_LABELS[kind]} URL`}
         />

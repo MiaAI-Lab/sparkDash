@@ -2,7 +2,7 @@
  * Dashboard-level conversation-source attach config.
  * Tokens live in secretsStore, never in this JSON file.
  * Each product is a list of attaches (legacy singleton objects migrate on load).
- * Kind ids come from sessionSourceRegistry (OpenClaw and Hermes in U1).
+ * Kind ids come from sessionSourceRegistry.
  */
 import fs from "fs";
 import { SESSION_SOURCES_JSON_PATH } from "./config.js";
@@ -21,7 +21,7 @@ import {
 } from "./sessionSourceRegistry.js";
 
 const MODES = new Set(["local", "url", "state-dir"]);
-const PUBLIC_ONLY = new Set(["token", "hasToken", "conventionalStateDir"]);
+const PUBLIC_ONLY = new Set(["token", "hasToken", "conventionalStateDir", "conventionalConfigDir"]);
 const ATTACH_ID_RE = /^[a-z][a-z0-9-]{0,63}$/;
 
 const DEFAULT_ATTACH = Object.freeze({
@@ -168,6 +168,7 @@ function publicAttach(kind, attach, tokens) {
     ...rest,
     hasToken: Boolean(tokens[attach.id] || tokens[kind]),
     conventionalStateDir: conventionalStateDir(kind),
+    conventionalConfigDir: conventionalConfigDir(kind) || undefined,
   };
 }
 

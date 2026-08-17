@@ -72,10 +72,10 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
 
   useEscape(onClose);
 
-  const sourceTestBody = (sources: SessionSources): SessionSourcesPatch => ({
-    openclaw: sources.openclaw.map((src) => attachPatch(src, tokenDrafts, clearTokens)),
-    hermes: sources.hermes.map((src) => attachPatch(src, tokenDrafts, clearTokens)),
-  });
+  const sourceTestBody = (sources: SessionSources): SessionSourcesPatch =>
+    Object.fromEntries(
+      SOURCE_IDS.map((kind) => [kind, sources[kind].map((src) => attachPatch(src, tokenDrafts, clearTokens))])
+    );
 
   const runSourceCheck = async (sources: SessionSources, attachId?: string) => {
     setCheckingId(attachId ?? "*");
@@ -169,7 +169,14 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
         hasToken: false,
         conventionalStateDir:
           prev[kind][0]?.conventionalStateDir ??
-          (kind === "openclaw" ? "~/.openclaw" : "~/.hermes"),
+          (kind === "openclaw"
+            ? "~/.openclaw"
+            : kind === "opencode"
+              ? "~/.local/share/opencode"
+              : "~/.hermes"),
+        conventionalConfigDir:
+          prev[kind][0]?.conventionalConfigDir ??
+          (kind === "opencode" ? "~/.config/opencode" : undefined),
       };
       return { ...prev, [kind]: [...prev[kind], blank] };
     });

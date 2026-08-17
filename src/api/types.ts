@@ -206,7 +206,7 @@ export interface SparkMetrics {
 }
 
 // ─── Occupancy conversations (not LlmMetrics) ────────────
-export type ConversationSource = "openclaw" | "hermes";
+export type ConversationSource = "openclaw" | "hermes" | "opencode";
 export type ConversationBadge = "generating" | "stalled" | "unknown";
 
 /** Occupancy row: handle + badge only. `id` is list identity, not a transcript. */
@@ -256,7 +256,7 @@ export interface SparkSnapshot {
   llmPorts: number[];
   hardware: HardwareInfo;
   metrics: SparkMetrics;
-  /** Bound OpenClaw / Hermes conversations. Omit when empty. */
+  /** Bound occupancy conversations. Omit when empty. */
   conversations?: ConversationRow[];
 }
 
@@ -293,13 +293,16 @@ export interface SessionSourceAttach {
   /** Hermes dashboard username. Empty uses `admin`. Not a secret. */
   username?: string;
   hasToken: boolean;
-  /** Conventional local path (`~/.openclaw` / `~/.hermes`, or env override). */
+  /** Conventional local path (`~/.openclaw` / `~/.hermes` / `~/.local/share/opencode`, or env override). */
   conventionalStateDir: string;
+  /** OpenCode provider-config dir (`~/.config/opencode`). Empty for other kinds. */
+  conventionalConfigDir?: string;
 }
 
 export interface SessionSources {
   openclaw: SessionSourceAttach[];
   hermes: SessionSourceAttach[];
+  opencode: SessionSourceAttach[];
 }
 
 export interface SessionSourcePatch {
@@ -317,6 +320,7 @@ export interface SessionSourcePatch {
 export interface SessionSourcesPatch {
   openclaw?: SessionSourcePatch | SessionSourcePatch[];
   hermes?: SessionSourcePatch | SessionSourcePatch[];
+  opencode?: SessionSourcePatch | SessionSourcePatch[];
 }
 
 export type SessionSourceHealthStatus = "disabled" | "ok" | "error";
@@ -333,6 +337,7 @@ export interface SessionSourceHealth {
 export interface SessionSourcesHealth {
   openclaw: SessionSourceHealth[];
   hermes: SessionSourceHealth[];
+  opencode: SessionSourceHealth[];
 }
 
 export interface SparksListResponse {

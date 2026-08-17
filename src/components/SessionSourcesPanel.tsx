@@ -46,10 +46,10 @@ export function SessionSourcesPanel({
     <div className="space-y-3 border-t border-border pt-4">
       <h3 className="text-xs font-medium text-text">Session sources</h3>
       <p className="text-[10px] leading-snug text-muted">
-        Optional OpenClaw and Hermes Agent conversations. Add one attach per gateway. Local
-        defaults are ~/.openclaw (or OPENCLAW_STATE_DIR) and ~/.hermes (or HERMES_HOME). URL
-        mode talks to the product gateway — OpenClaw uses its WebSocket session list, not the
-        Control UI page.
+        Optional OpenClaw, Hermes Agent, and OpenCode occupancy. Add one attach per instance.
+        Local OpenClaw is ~/.openclaw; Hermes is ~/.hermes; OpenCode sessions are
+        ~/.local/share/opencode and providers ~/.config/opencode. OpenCode URL mode polls the
+        occupancy helper — start it first, then Check. Token only; no username.
       </p>
       {SOURCE_IDS.map((kind) => (
         <div key={kind} className="space-y-2">
@@ -74,7 +74,7 @@ export function SessionSourcesPanel({
             onClick={() => onAdd(kind)}
             className="rounded border border-border bg-surface-elevated px-2 py-1.5 text-[10px] text-muted hover:bg-surface-hover"
           >
-            Add {SOURCE_LABELS[kind]} gateway
+            Add {SOURCE_LABELS[kind]}
           </button>
         </div>
       ))}

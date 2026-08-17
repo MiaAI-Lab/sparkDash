@@ -3,6 +3,7 @@ import type { ConversationRow, ConversationSource } from "../../api/types";
 const SOURCE_LABEL: Record<ConversationSource, string> = {
   openclaw: "OpenClaw",
   hermes: "Hermes",
+  opencode: "OpenCode",
 };
 
 interface ConversationListProps {
