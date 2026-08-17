@@ -1,6 +1,7 @@
 /**
  * Project source session rows onto Sparks by LLM listen origin (host+port).
- * Occupancy badges are per-conversation mid-turn, never recency or clocks.
+ * Occupancy badges are per-conversation mid-turn. List order is generating
+ * first, then lastUsedAt descending. Projector does not inject Date.now().
  */
 
 const LOOPBACK_HOSTS = ["127.0.0.1", "localhost", "::1"];
@@ -95,13 +96,16 @@ function toConversationRow(row, port) {
   const handle = String(row.handle ?? "");
   const source = row.source;
   const nativeId = String(row.id ?? "").trim();
-  return {
+  const lastUsedAt = Number.isFinite(row.lastUsedAt) ? row.lastUsedAt : null;
+  const projected = {
     id: nativeId || `${source}:${port}:${handle}`,
     source,
     handle,
     badge: badgeFromMidTurn(row.midTurn),
     port,
   };
+  if (lastUsedAt != null) projected.lastUsedAt = lastUsedAt;
+  return projected;
 }
 
 function uniquifyIds(rows) {
@@ -126,10 +130,11 @@ function badgeFromMidTurn(midTurn) {
   return "unknown";
 }
 
-const BADGE_RANK = { generating: 0, unknown: 1, stalled: 2 };
-
 function compareRows(a, b) {
-  const rank = (BADGE_RANK[a.badge] ?? 9) - (BADGE_RANK[b.badge] ?? 9);
-  if (rank) return rank;
+  const live = Number(b.badge === "generating") - Number(a.badge === "generating");
+  if (live) return live;
+  const tb = b.lastUsedAt ?? 0;
+  const ta = a.lastUsedAt ?? 0;
+  if (tb !== ta) return tb - ta;
   return a.source.localeCompare(b.source) || a.handle.localeCompare(b.handle) || a.port - b.port || a.id.localeCompare(b.id);
 }

@@ -35,6 +35,21 @@ function rowsFor(result, sparkId) {
   return result[sparkId];
 }
 
+test("unknown rows sort by lastUsedAt descending", () => {
+  const list = rowsFor(
+    projectConversations(
+      [
+        row({ handle: "old", midTurn: "unknown", lastUsedAt: 100 }),
+        row({ handle: "new", midTurn: "unknown", lastUsedAt: 300 }),
+        row({ handle: "mid", midTurn: "unknown", lastUsedAt: 200 }),
+      ],
+      [spark()]
+    ),
+    "spark-local"
+  );
+  assert.deepEqual(list.map((r) => r.handle), ["new", "mid", "old"]);
+});
+
 test("AE1: mid-turn + origin match is generating; midTurn false is stalled", () => {
   const sparks = [spark()];
   const generating = projectConversations([row({ handle: "chat-a", midTurn: true })], sparks);
@@ -160,22 +175,23 @@ test("recency-only is_active does not mint generating", () => {
   assert.equal(list.length, 2);
 });
 
-test("projected JSON has no Date.now-like changing field", () => {
+test("projected JSON is stable and does not inject Date.now()", () => {
   const rows = [
-    row({ handle: "chat-a", midTurn: true }),
-    row({ source: "hermes", handle: "chat-b", midTurn: false }),
+    row({ handle: "chat-a", midTurn: true, lastUsedAt: 1_700_000_000_000 }),
+    row({ source: "hermes", handle: "chat-b", midTurn: false, lastUsedAt: 1_700_000_100_000 }),
   ];
   const sparks = [spark()];
   const first = projectConversations(rows, sparks);
   const second = projectConversations(rows, sparks);
   const json1 = JSON.stringify(first);
   const json2 = JSON.stringify(second);
-  const jsonAgain = JSON.stringify(first);
   assert.equal(json1, json2);
-  assert.equal(json1, jsonAgain);
-  assert.equal(/\d{13}/.test(json1), false, "must not embed millisecond timestamps");
   for (const conversation of first["spark-local"]) {
-    assert.deepEqual(Object.keys(conversation).sort(), ["badge", "handle", "id", "port", "source"]);
+    assert.equal("lastUsedAt" in conversation, true);
+    assert.deepEqual(
+      Object.keys(conversation).sort(),
+      ["badge", "handle", "id", "lastUsedAt", "port", "source"]
+    );
   }
 });
 
@@ -206,21 +222,26 @@ test("worker with empty llmPorts gets no rows even when lanIp matches", () => {
   assert.deepEqual(result, {});
 });
 
-test("list is capped at 20; generating rows survive ahead of stalled siblings", () => {
+test("list is capped at 20; generating and most-recent lastUsedAt survive", () => {
   const rows = [];
   for (let i = 0; i < 21; i++) {
     const n = String(20 - i).padStart(2, "0");
-    rows.push(row({ source: "hermes", handle: `h-${n}`, midTurn: false }));
+    rows.push(
+      row({
+        source: "hermes",
+        handle: `h-${n}`,
+        midTurn: false,
+        lastUsedAt: 1_700_000_000_000 + i * 1000,
+      })
+    );
   }
-  rows.push(row({ source: "openclaw", handle: "z-last", originPort: 8888, midTurn: true }));
+  rows.push(row({ source: "openclaw", handle: "z-last", originPort: 8888, midTurn: true, lastUsedAt: 1 }));
   const list = rowsFor(projectConversations(rows, [spark()]), "spark-local");
   assert.equal(list.length, 20);
   assert.equal(list[0].badge, "generating");
   assert.equal(list[0].handle, "z-last");
-  const stalled = list.slice(1);
-  const keys = stalled.map((r) => `${r.source}\0${r.handle}\0${r.port}`);
-  const sorted = [...keys].sort();
-  assert.deepEqual(keys, sorted);
+  assert.equal(list[1].handle, "h-00");
+  assert.equal(list[list.length - 1].handle, "h-18");
 });
 
 test("duplicate handles keep distinct ids from native session identity", () => {

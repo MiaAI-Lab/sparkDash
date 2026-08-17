@@ -10,6 +10,8 @@ import {
   resolveStateDir,
   defaultFetchJson,
   sanitizeProbeError,
+  parseSessionTime,
+  sessionLastUsedAt,
 } from "../sessionIo.js";
 
 test("expandTilde maps ~ and ~/path against injected home", () => {
@@ -110,4 +112,15 @@ test("sanitizeProbeError strips paths and maps auth / connect codes", () => {
   const mystery = new Error("ENOENT-looking path /secret/layout in a generic failure");
   assert.equal(sanitizeProbeError(mystery), "Request failed");
   assert.equal(String(sanitizeProbeError(mystery)).includes("/secret/"), false);
+});
+
+test("parseSessionTime accepts ms, seconds, and ISO strings", () => {
+  assert.equal(parseSessionTime(1_700_000_000_000), 1_700_000_000_000);
+  assert.equal(parseSessionTime(1_700_000_000), 1_700_000_000_000);
+  assert.equal(parseSessionTime("2024-01-15T12:00:00.000Z"), Date.parse("2024-01-15T12:00:00.000Z"));
+  assert.equal(parseSessionTime(""), null);
+  assert.equal(parseSessionTime(0), null);
+  assert.equal(sessionLastUsedAt({ updatedAt: 1_700_000_000_000, createdAt: 1 }), 1_700_000_000_000);
+  assert.equal(sessionLastUsedAt({ created_at: "2024-01-15T12:00:00.000Z" }), Date.parse("2024-01-15T12:00:00.000Z"));
+  assert.equal(sessionLastUsedAt({ preview: "secret" }), null);
 });

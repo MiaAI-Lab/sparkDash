@@ -17,6 +17,7 @@ import {
   defaultFetchResponse,
   normalizeSessionList,
   sanitizeProbeError,
+  sessionLastUsedAt,
 } from "./sessionIo.js";
 
 const HANDLE_FIELDS = ["title", "source", "id"];
@@ -89,7 +90,8 @@ function mapOneSession(session, profileOrigin) {
   if (!origin) return null;
   const handle = sessionHandle(session);
   if (!handle) return null;
-  return {
+  const lastUsedAt = sessionLastUsedAt(session);
+  const mapped = {
     source: "hermes",
     id: sessionIdentity(session) || handle,
     handle,
@@ -97,6 +99,8 @@ function mapOneSession(session, profileOrigin) {
     originPort: origin.port,
     midTurn: midTurnOf(session),
   };
+  if (lastUsedAt != null) mapped.lastUsedAt = lastUsedAt;
+  return mapped;
 }
 
 function sessionIdentity(session) {

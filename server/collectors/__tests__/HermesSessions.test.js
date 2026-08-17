@@ -44,6 +44,14 @@ function expectedRow(overrides = {}) {
   };
 }
 
+test("updated_at is lastUsedAt; is_active is still not mid-turn", () => {
+  const rows = mapHermesSessions([
+    session({ is_active: true, updated_at: "2024-01-15T12:00:00.000Z" }),
+  ]);
+  assert.equal(rows[0].midTurn, "unknown");
+  assert.equal(rows[0].lastUsedAt, Date.parse("2024-01-15T12:00:00.000Z"));
+});
+
 test("is_active true without a mid-turn field is midTurn unknown", () => {
   const rows = mapHermesSessions([session({ is_active: true })]);
   assert.deepEqual(rows, [expectedRow({ midTurn: "unknown" })]);

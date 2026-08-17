@@ -730,22 +730,60 @@ input[type="checkbox"] {
 }
 
 /* ─── Occupancy (bound chats on an LLM port) ───────────── */
+.llm-operate {
+  display: grid;
+  gap: 16px;
+}
+@media (min-width: 768px) {
+  .llm-operate:has(.occupancy) {
+    grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+    gap: 28px;
+    align-items: start;
+  }
+}
 .occupancy {
+  min-width: 0;
+}
+.occupancy-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 8px;
+}
+.occupancy-head-count {
+  font-size: 18px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+  line-height: 1;
+}
+.occupancy-head-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-muted-strong);
+}
+.occupancy-list {
   list-style: none;
   margin: 0;
-  padding: 12px 0 0;
-  border-top: 1px solid var(--color-border);
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
+  max-height: min(28rem, 58vh);
+  overflow: auto;
+  scrollbar-color: var(--color-border-strong) transparent;
 }
 .occupancy-row {
   display: grid;
-  grid-template-columns: 8px minmax(0, auto) minmax(0, 1fr) auto;
+  grid-template-columns: 8px minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 8px;
-  min-height: 28px;
-  padding: 2px 0;
+  gap: 10px 12px;
+  min-height: 32px;
+  padding: 4px 4px 4px 0;
+  border-radius: 8px;
+}
+.occupancy-row:hover {
+  background: var(--color-surface-hover);
 }
 .occupancy-dot {
   width: 7px;
@@ -762,16 +800,7 @@ input[type="checkbox"] {
   background: var(--color-muted);
 }
 .occupancy-row.is-unknown .occupancy-dot {
-  background: var(--color-warning);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-warning) 20%, transparent);
-}
-.occupancy-source {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--color-muted-strong);
-  white-space: nowrap;
+  background: var(--color-border-strong);
 }
 .occupancy-handle {
   min-width: 0;
@@ -779,20 +808,28 @@ input[type="checkbox"] {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
+  font-weight: 550;
   color: var(--color-text);
 }
-.occupancy-state {
+.occupancy-source {
   font-size: 11px;
   font-weight: 600;
-  font-variant-numeric: tabular-nums;
   color: var(--color-muted);
   white-space: nowrap;
+}
+.occupancy-state {
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-muted-strong);
+  white-space: nowrap;
+  justify-self: end;
 }
 .occupancy-row.is-generating .occupancy-state {
   color: var(--color-accent);
 }
-.occupancy-row.is-unknown .occupancy-state {
-  color: var(--color-warning);
+.occupancy-row.is-stalled .occupancy-state {
+  color: var(--color-muted);
 }
 
 @keyframes occupancy-live {
@@ -809,6 +846,31 @@ input[type="checkbox"] {
   .occupancy-row.is-generating .occupancy-dot {
     animation: none;
   }
+}
+
+@media (min-width: 768px) {
+  .occupancy-list {
+    max-height: min(32rem, 64vh);
+  }
+  .occupancy-row {
+    min-height: 36px;
+    padding: 6px 8px 6px 4px;
+  }
+  .occupancy-handle {
+    font-size: 14px;
+  }
+}
+
+[data-density="compact"] .occupancy-head-count {
+  font-size: 15px;
+}
+[data-density="compact"] .occupancy-row {
+  min-height: 26px;
+  gap: 8px;
+  padding: 2px 4px 2px 0;
+}
+[data-density="compact"] .occupancy-handle {
+  font-size: 12px;
 }
 
 .session-health {
@@ -868,14 +930,6 @@ input[type="checkbox"] {
   font-size: 11px;
   line-height: 1.4;
   color: var(--color-danger);
-}
-
-[data-density="compact"] .occupancy {
-  padding-top: 8px;
-}
-[data-density="compact"] .occupancy-row {
-  min-height: 22px;
-  gap: 6px;
 }
 
 /* ─── Mobile spark menu dropdown ────────────────────────── */

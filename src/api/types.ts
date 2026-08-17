@@ -216,6 +216,8 @@ export interface ConversationRow {
   handle: string;
   badge: ConversationBadge;
   port: number;
+  /** Session last-used epoch ms from the source. Omit when unknown. */
+  lastUsedAt?: number;
 }
 
 // ─── Spark snapshot (server pushes this) ──────────────────

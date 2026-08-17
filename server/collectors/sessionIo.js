@@ -123,6 +123,45 @@ export function normalizeSessionList(sessions) {
   return null;
 }
 
+const LAST_USED_FIELDS = [
+  "updatedAt",
+  "updated_at",
+  "lastActivityAt",
+  "last_activity",
+  "last_activity_at",
+  "lastMessageAt",
+  "last_message_at",
+  "mtime",
+  "modifiedAt",
+  "timestamp",
+  "createdAt",
+  "created_at",
+];
+
+/** Epoch ms from a session timestamp field. Null when absent or unparseable. */
+export function parseSessionTime(value) {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return value < 1e12 ? Math.round(value * 1000) : Math.round(value);
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) return parsed;
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && numeric > 0) return parseSessionTime(numeric);
+  }
+  return null;
+}
+
+/** Prefer updated/activity timestamps; createdAt is last-resort. Never Date.now(). */
+export function sessionLastUsedAt(session) {
+  if (!session || typeof session !== "object") return null;
+  for (const field of LAST_USED_FIELDS) {
+    const ms = parseSessionTime(session[field]);
+    if (ms != null) return ms;
+  }
+  return null;
+}
+
 /** Short probe error for Settings. No paths, tokens, or payloads. */
 export function sanitizeProbeError(err) {
   const code = err?.code;

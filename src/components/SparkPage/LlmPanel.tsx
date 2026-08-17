@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, type ReactNode } from "react";
 import type { ConversationRow, LlmMetrics } from "../../api/types";
 import { updateLlmPort } from "../../api/client";
 import { Sparkline } from "../ui/Sparkline";
@@ -51,6 +51,21 @@ function BackendBadge({ backend }: { backend: string | null }) {
       <span className="h-1.5 w-1.5 rounded-full bg-accent" />
       {labels[backend] || backend}
     </span>
+  );
+}
+
+function LlmOperate({
+  conversations,
+  children,
+}: {
+  conversations: ConversationRow[];
+  children: ReactNode;
+}) {
+  return (
+    <div className="llm-operate">
+      <div className="llm-operate-metrics space-y-3">{children}</div>
+      <ConversationList conversations={conversations} />
+    </div>
   );
 }
 
@@ -292,15 +307,14 @@ export function LlmPanel({
           </div>
         </div>
       ) : !available ? (
-        <div className="space-y-3">
+        <LlmOperate conversations={conversations}>
           <div className="flex items-center gap-2 py-1">
             <span className="h-1.5 w-1.5 rounded-full bg-muted" />
             <p className="text-xs text-muted">No model loaded on :{llmPort}</p>
           </div>
-          <ConversationList conversations={conversations} />
-        </div>
+        </LlmOperate>
       ) : (
-        <div className="space-y-3">
+        <LlmOperate conversations={conversations}>
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <BackendBadge backend={llm?.backend ?? null} />
             {llm?.modelId && (
@@ -535,8 +549,6 @@ export function LlmPanel({
             </div>
           )}
 
-          <ConversationList conversations={conversations} />
-
           <div className="border-t border-border pt-3 space-y-2">
             <button
               type="button"
@@ -563,7 +575,7 @@ export function LlmPanel({
               Showcase
             </button>
           </div>
-        </div>
+        </LlmOperate>
       )}
 
       <BenchmarkDialog

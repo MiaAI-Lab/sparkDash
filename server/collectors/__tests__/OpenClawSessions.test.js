@@ -75,6 +75,15 @@ test("hasActiveRun false wins over status running", () => {
   assert.equal(rows[0].midTurn, false);
 });
 
+test("updatedAt is lastUsedAt and is not a transcript", () => {
+  const rows = mapOpenClawSessions(
+    [session({ updatedAt: 1_700_000_000_000, lastMessage: "secret" })],
+    SPARK_PROVIDERS
+  );
+  assert.equal(rows[0].lastUsedAt, 1_700_000_000_000);
+  assert.equal(JSON.stringify(rows).includes("secret"), false);
+});
+
 test("handle comes from label, never lastMessage / preview / transcript", () => {
   const rows = mapOpenClawSessions(
     [
