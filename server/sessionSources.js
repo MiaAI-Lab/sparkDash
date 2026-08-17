@@ -1,7 +1,8 @@
 /**
- * Dashboard-level OpenClaw / Hermes Agent conversation-source attach config.
+ * Dashboard-level conversation-source attach config.
  * Tokens live in secretsStore, never in this JSON file.
  * Each product is a list of attaches (legacy singleton objects migrate on load).
+ * Kind ids come from sessionSourceRegistry (OpenClaw and Hermes in U1).
  */
 import fs from "fs";
 import { SESSION_SOURCES_JSON_PATH } from "./config.js";
@@ -12,8 +13,12 @@ import {
   loadSessionSourceTokens,
   patchSessionSourceTokens,
 } from "./secretsStore.js";
+import {
+  SOURCE_IDS,
+  conventionalStateDir,
+  sessionSourceIds,
+} from "./sessionSourceRegistry.js";
 
-const SOURCE_IDS = Object.freeze(["openclaw", "hermes"]);
 const MODES = new Set(["local", "url", "state-dir"]);
 const PUBLIC_ONLY = new Set(["token", "hasToken", "conventionalStateDir"]);
 const ATTACH_ID_RE = /^[a-z][a-z0-9-]{0,63}$/;
@@ -27,17 +32,7 @@ const DEFAULT_ATTACH = Object.freeze({
   username: "",
 });
 
-export function conventionalStateDir(id) {
-  if (id === "openclaw" || String(id).startsWith("openclaw")) {
-    const env = process.env.OPENCLAW_STATE_DIR;
-    return env && env.trim() ? env.trim() : "~/.openclaw";
-  }
-  if (id === "hermes" || String(id).startsWith("hermes")) {
-    const env = process.env.HERMES_HOME;
-    return env && env.trim() ? env.trim() : "~/.hermes";
-  }
-  return "";
-}
+export { SOURCE_IDS, conventionalStateDir };
 
 export function attachList(source) {
   if (Array.isArray(source)) return source.filter((item) => item && typeof item === "object");
@@ -91,11 +86,11 @@ function normalizeKindList(kind, raw) {
 
 function normalizeConfig(raw) {
   const base = raw && typeof raw === "object" && !Array.isArray(raw) ? { ...raw } : {};
-  return {
-    ...base,
-    openclaw: normalizeKindList("openclaw", base.openclaw),
-    hermes: normalizeKindList("hermes", base.hermes),
-  };
+  const next = { ...base };
+  for (const kind of sessionSourceIds()) {
+    next[kind] = normalizeKindList(kind, base[kind]);
+  }
+  return next;
 }
 
 function hostFromUrl(url) {
@@ -148,11 +143,10 @@ function persistableAttach(attach) {
 }
 
 function saveSessionSources(config) {
-  const payload = {
-    ...config,
-    openclaw: config.openclaw.map(persistableAttach),
-    hermes: config.hermes.map(persistableAttach),
-  };
+  const payload = { ...config };
+  for (const kind of sessionSourceIds()) {
+    payload[kind] = attachList(config[kind]).map(persistableAttach);
+  }
   atomicWrite(SESSION_SOURCES_JSON_PATH, JSON.stringify(payload, null, 2) + "\n", 0o644);
 }
 
@@ -179,15 +173,16 @@ function publicAttach(kind, attach, tokens) {
 export function getPublicSessionSources() {
   const config = loadSessionSources();
   const tokens = loadSessionSourceTokens();
-  return {
-    ...config,
-    openclaw: config.openclaw.map((attach) => publicAttach("openclaw", attach, tokens)),
-    hermes: config.hermes.map((attach) => publicAttach("hermes", attach, tokens)),
-  };
+  const pub = { ...config };
+  for (const kind of sessionSourceIds()) {
+    pub[kind] = attachList(config[kind]).map((attach) => publicAttach(kind, attach, tokens));
+  }
+  return pub;
 }
 
 function allAttachIds(config) {
-  return [...attachList(config.openclaw), ...attachList(config.hermes)]
+  return sessionSourceIds()
+    .flatMap((kind) => attachList(config[kind]))
     .map((attach) => attach.id)
     .filter(Boolean);
 }
@@ -223,7 +218,7 @@ function patchKindList(kind, currentList, src) {
 function tokenPatchFromBody(patch, previous, next) {
   /** @type {Record<string, string>} */
   const out = {};
-  for (const kind of SOURCE_IDS) {
+  for (const kind of sessionSourceIds()) {
     const src = patch[kind];
     if (src === undefined) continue;
     const items = Array.isArray(src) ? src : [src];
@@ -255,7 +250,7 @@ export function updateSessionSources(patch) {
   const body = patch && typeof patch === "object" ? patch : {};
   const current = loadSessionSources();
   const next = { ...current };
-  for (const kind of SOURCE_IDS) {
+  for (const kind of sessionSourceIds()) {
     const src = body[kind];
     if (src === undefined) continue;
     if (src !== null && typeof src !== "object") continue;
@@ -285,5 +280,3 @@ function tokenSnapshot(config) {
   for (const id of allAttachIds(config)) out[id] = current[id] ?? "";
   return out;
 }
-
-export { SOURCE_IDS };

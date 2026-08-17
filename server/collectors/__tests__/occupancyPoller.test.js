@@ -40,6 +40,32 @@ function sources({ openclaw = false, hermes = false } = {}) {
   };
 }
 
+test("occupancy poll iterates registry kinds, not a local openclaw/hermes pair", () => {
+  const src = readFileSync(MODULE_PATH, "utf8");
+  assert.match(src, /sessionSourceIds|sessionSourceKinds/);
+  assert.match(src, /sessionSourceRegistry/);
+  assert.equal(/\[["']openclaw["']\s*,\s*["']hermes["']\]/.test(src), false);
+});
+
+test("enabled kinds not in the registry do not trigger occupancy I/O", async () => {
+  let called = 0;
+  const collect = async () => {
+    called += 1;
+    return [row()];
+  };
+  const result = await pollOccupancy({
+    sparks: [spark()],
+    sources: {
+      ...sources(),
+      opencode: { enabled: true, mode: "local", url: "", stateDir: "" },
+    },
+    collectOpenClaw: collect,
+    collectHermes: collect,
+  });
+  assert.deepEqual(result, {});
+  assert.equal(called, 0);
+});
+
 test("AE4: empty sources skip collect and return {}", async () => {
   let called = 0;
   const collect = async () => {

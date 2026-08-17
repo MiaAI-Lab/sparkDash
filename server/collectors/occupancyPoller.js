@@ -1,21 +1,28 @@
 /**
  * Dashboard occupancy poll. Collect once per tick, then project onto Sparks.
- * Never throws. Skip I/O when both sources are off.
+ * Never throws. Skip I/O when no registry kind is enabled.
  * The process owner injects sparks/sources/tokens/apply; this module owns
  * inflight, the LLM-cadence timer, and the disable-during-poll recheck.
  */
 import { attachList } from "../sessionSources.js";
+import { sessionSourceIds } from "../sessionSourceRegistry.js";
 import { collectOpenClawSessions } from "./OpenClawSessions.js";
 import { collectHermesSessions } from "./HermesSessions.js";
 import { projectConversations, withOccupancyHosts, hostListenIps } from "./sessionProjector.js";
 
+const DEFAULT_COLLECTORS = {
+  openclaw: collectOpenClawSessions,
+  hermes: collectHermesSessions,
+};
+
 /**
  * @param {object} opts
  * @param {object[]} opts.sparks
- * @param {{ openclaw?: object|object[], hermes?: object|object[] }} opts.sources
+ * @param {Record<string, object|object[]>} opts.sources
  * @param {Record<string, string>} [opts.tokens]
  * @param {Function} [opts.collectOpenClaw]
  * @param {Function} [opts.collectHermes]
+ * @param {Record<string, Function>} [opts.collectors]
  * @param {Function} [opts.project]
  * @returns {Promise<Record<string, object[]>>}
  */
@@ -23,17 +30,27 @@ export async function pollOccupancy({
   sparks,
   sources,
   tokens = {},
-  collectOpenClaw = collectOpenClawSessions,
-  collectHermes = collectHermesSessions,
+  collectOpenClaw,
+  collectHermes,
+  collectors,
   project = projectConversations,
 } = {}) {
   if (!sourcesEnabled(sources)) return {};
-  const [openclawRows, hermesRows] = await Promise.all([
-    collectKind(collectOpenClaw, sources?.openclaw, tokens, "openclaw"),
-    collectKind(collectHermes, sources?.hermes, tokens, "hermes"),
-  ]);
+  const collectByKind = {
+    ...DEFAULT_COLLECTORS,
+    ...collectors,
+  };
+  if (collectOpenClaw) collectByKind.openclaw = collectOpenClaw;
+  if (collectHermes) collectByKind.hermes = collectHermes;
+  const batches = await Promise.all(
+    sessionSourceIds().map((kind) => {
+      const collect = collectByKind[kind];
+      if (typeof collect !== "function") return [];
+      return collectKind(collect, sources?.[kind], tokens, kind);
+    })
+  );
   try {
-    return project([...openclawRows, ...hermesRows], withOccupancyHosts(sparks, hostListenIps()));
+    return project(batches.flat(), withOccupancyHosts(sparks, hostListenIps()));
   } catch {
     return {};
   }
@@ -110,9 +127,8 @@ export function createOccupancyLoop({
 }
 
 export function sourcesEnabled(sources) {
-  return (
-    attachList(sources?.openclaw).some((attach) => attach.enabled) ||
-    attachList(sources?.hermes).some((attach) => attach.enabled)
+  return sessionSourceIds().some((kind) =>
+    attachList(sources?.[kind]).some((attach) => attach.enabled)
   );
 }
 
@@ -139,14 +155,13 @@ function attachSnapshot(attach, token) {
 }
 
 function sourcesSnapshot(sources, tokens = {}) {
-  return JSON.stringify({
-    openclaw: attachList(sources?.openclaw).map((attach) =>
-      attachSnapshot(attach, tokens[attach.id] ?? tokens.openclaw)
-    ),
-    hermes: attachList(sources?.hermes).map((attach) =>
-      attachSnapshot(attach, tokens[attach.id] ?? tokens.hermes)
-    ),
-  });
+  const snapshot = {};
+  for (const kind of sessionSourceIds()) {
+    snapshot[kind] = attachList(sources?.[kind]).map((attach) =>
+      attachSnapshot(attach, tokens[attach.id] ?? tokens[kind])
+    );
+  }
+  return JSON.stringify(snapshot);
 }
 
 async function collectSafe(collect, attach, deps) {

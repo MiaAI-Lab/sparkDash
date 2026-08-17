@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "sparkdash-session-sources-"));
 const sourcesPath = path.join(tmpDir, "session-sources.json");
@@ -34,6 +35,8 @@ const {
   getPublicSessionSources,
   updateSessionSources,
   loadSessionSources,
+  SOURCE_IDS,
+  conventionalStateDir,
 } = sessionSources;
 
 function first(list) {
@@ -56,6 +59,37 @@ function resetFiles() {
 
 test.after(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
+test("U1 registry: OpenClaw and Hermes only; config iterates registry kinds", async () => {
+  const registry = await import("../sessionSourceRegistry.js");
+  assert.deepEqual(registry.sessionSourceIds(), ["openclaw", "hermes"]);
+  assert.equal(registry.sessionSourceIds().includes("opencode"), false);
+  assert.equal(registry.kindById("openclaw")?.label, "OpenClaw");
+  assert.equal(registry.kindById("hermes")?.label, "Hermes Agent");
+  assert.equal(registry.kindById("opencode"), null);
+  assert.deepEqual([...SOURCE_IDS], registry.sessionSourceIds());
+  assert.equal(conventionalStateDir, registry.conventionalStateDir);
+
+  const src = fs.readFileSync(fileURLToPath(new URL("../sessionSources.js", import.meta.url)), "utf8");
+  assert.match(src, /sessionSourceRegistry/);
+  assert.equal(/\[["']openclaw["']\s*,\s*["']hermes["']\]/.test(src), false);
+
+  resetFiles();
+  const loaded = loadSessionSources();
+  const pub = getPublicSessionSources();
+  for (const kind of registry.sessionSourceIds()) {
+    assert.ok(Array.isArray(loaded[kind]), `expected ${kind} attach list`);
+    assert.equal(first(loaded[kind]).enabled, false);
+    assert.ok(Array.isArray(pub[kind]), `expected public ${kind} attach list`);
+    assert.equal(first(pub[kind]).conventionalStateDir, registry.conventionalStateDir(kind));
+  }
+  assert.equal(conventionalStateDir("openclaw-2"), "~/.openclaw");
+  assert.equal(conventionalStateDir("opencode"), "");
+  assert.equal(
+    conventionalStateDir("hermes", { HERMES_HOME: " /custom/hermes " }),
+    "/custom/hermes"
+  );
 });
 
 test("AE4 config: both sources disabled/absent is a valid normalized config", () => {

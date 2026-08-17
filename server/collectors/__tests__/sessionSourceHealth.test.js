@@ -4,7 +4,18 @@
  */
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { testSessionSources } from "../sessionSourceHealth.js";
+
+const MODULE_PATH = fileURLToPath(new URL("../sessionSourceHealth.js", import.meta.url));
+
+test("health probe iterates registry kinds, not a local SOURCE_IDS pair", () => {
+  const src = readFileSync(MODULE_PATH, "utf8");
+  assert.match(src, /sessionSourceIds|sessionSourceKinds/);
+  assert.match(src, /sessionSourceRegistry/);
+  assert.equal(/\[["']openclaw["']\s*,\s*["']hermes["']\]/.test(src), false);
+});
 
 test("disabled sources return disabled without requiring a live attach", async () => {
   const result = await testSessionSources(
@@ -24,6 +35,31 @@ test("disabled sources return disabled without requiring a live attach", async (
   assert.deepEqual(result.hermes, [
     { id: "hermes", status: "disabled", found: 0, mapped: 0, error: null },
   ]);
+});
+
+test("health returns found/mapped per registry kind without handles", async () => {
+  const { sessionSourceIds } = await import("../../sessionSourceRegistry.js");
+  const result = await testSessionSources(
+    { openclaw: { enabled: false }, hermes: { enabled: false } },
+    {
+      loadSessionSources: () => ({
+        openclaw: { enabled: false, mode: "local", url: "", stateDir: "" },
+        hermes: { enabled: false, mode: "local", url: "", stateDir: "" },
+      }),
+      loadSessionSourceTokens: () => ({ openclaw: "", hermes: "" }),
+      getSparks: () => [],
+    }
+  );
+  assert.deepEqual(Object.keys(result).sort(), [...sessionSourceIds()].sort());
+  for (const kind of sessionSourceIds()) {
+    assert.ok(Array.isArray(result[kind]));
+    for (const row of result[kind]) {
+      assert.equal("found" in row, true);
+      assert.equal("mapped" in row, true);
+      assert.equal("handle" in row, false);
+      assert.equal(JSON.stringify(row).includes("token"), false);
+    }
+  }
 });
 
 test("blank enabled URL is an error, not a conventional fallback", async () => {

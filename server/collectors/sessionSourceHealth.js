@@ -1,31 +1,45 @@
 /**
- * Settings connectivity probe for OpenClaw / Hermes Agent sources.
+ * Settings connectivity probe for session sources.
  * Counts only. Never persists. Never returns handles, transcripts, or tokens.
  */
 import { attachList, loadSessionSources, conventionalStateDir } from "../sessionSources.js";
+import { sessionSourceIds, SOURCE_IDS } from "../sessionSourceRegistry.js";
 import { loadSessionSourceTokens } from "../secretsStore.js";
 import { diagnoseOpenClawSessions } from "./OpenClawSessions.js";
 import { diagnoseHermesSessions } from "./HermesSessions.js";
 import { parseBaseUrl } from "./sessionIo.js";
 import { projectConversations, withOccupancyHosts, hostListenIps } from "./sessionProjector.js";
 
-const SOURCE_IDS = Object.freeze(["openclaw", "hermes"]);
+const DIAGNOSE = {
+  openclaw: diagnoseOpenClawSessions,
+  hermes: diagnoseHermesSessions,
+};
 
 /**
  * @param {object} [body]
- * @param {{ getSparks?: () => object[], loadSessionSources?: Function, loadSessionSourceTokens?: Function }} [deps]
- * @returns {Promise<{ openclaw: object[], hermes: object[] }>}
+ * @param {{ getSparks?: () => object[], loadSessionSources?: Function, loadSessionSourceTokens?: Function, diagnoseByKind?: Record<string, Function> }} [deps]
+ * @returns {Promise<Record<string, object[]>>}
  */
 export async function testSessionSources(body = {}, deps = {}) {
   const saved = (deps.loadSessionSources ?? loadSessionSources)();
   const storedTokens = (deps.loadSessionSourceTokens ?? loadSessionSourceTokens)();
   const sparks = deps.getSparks?.() ?? [];
   const patch = body && typeof body === "object" ? body : {};
-  const [openclaw, hermes] = await Promise.all([
-    probeKind("openclaw", saved.openclaw, storedTokens, patch.openclaw, sparks, deps),
-    probeKind("hermes", saved.hermes, storedTokens, patch.hermes, sparks, deps),
-  ]);
-  return { openclaw, hermes };
+  const diagnoseByKind = { ...DIAGNOSE, ...deps.diagnoseByKind };
+  const pairs = await Promise.all(
+    sessionSourceIds().map(async (kind) => {
+      const rows = await probeKind(
+        kind,
+        saved[kind],
+        storedTokens,
+        patch[kind],
+        sparks,
+        { ...deps, diagnose: diagnoseByKind[kind] }
+      );
+      return [kind, rows];
+    })
+  );
+  return Object.fromEntries(pairs);
 }
 
 function probePatches(savedList, patch) {
@@ -50,7 +64,16 @@ async function probeKind(kind, savedRaw, storedTokens, patch, sparks, deps) {
       fetchResponse: deps.fetchResponse,
       gatewayRpc: deps.gatewayRpc,
     };
-    const diagnose = kind === "openclaw" ? diagnoseOpenClawSessions : diagnoseHermesSessions;
+    const diagnose = deps.diagnose;
+    if (typeof diagnose !== "function") {
+      return Promise.resolve({
+        id: attach.id || kind,
+        status: "disabled",
+        found: 0,
+        mapped: 0,
+        error: null,
+      });
+    }
     return diagnose(attach, collectDeps).then((result) => ({ id: attach.id || kind, ...result }));
   });
   return Promise.all(jobs);
