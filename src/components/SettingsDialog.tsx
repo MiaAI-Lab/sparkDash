@@ -167,16 +167,10 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
         stateDir: "",
         username: "",
         hasToken: false,
-        conventionalStateDir:
-          prev[kind][0]?.conventionalStateDir ??
-          (kind === "openclaw"
-            ? "~/.openclaw"
-            : kind === "opencode"
-              ? "~/.local/share/opencode"
-              : "~/.hermes"),
-        conventionalConfigDir:
-          prev[kind][0]?.conventionalConfigDir ??
-          (kind === "opencode" ? "~/.config/opencode" : undefined),
+        conventionalStateDir: prev[kind][0]?.conventionalStateDir ?? "",
+        conventionalConfigDir: prev[kind][0]?.conventionalConfigDir,
+        urlPlaceholder: prev[kind][0]?.urlPlaceholder,
+        usesUsername: prev[kind][0]?.usesUsername,
       };
       return { ...prev, [kind]: [...prev[kind], blank] };
     });

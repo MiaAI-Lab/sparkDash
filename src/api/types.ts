@@ -297,6 +297,10 @@ export interface SessionSourceAttach {
   conventionalStateDir: string;
   /** OpenCode provider-config dir (`~/.config/opencode`). Empty for other kinds. */
   conventionalConfigDir?: string;
+  /** URL-mode input placeholder from the source registry. */
+  urlPlaceholder?: string;
+  /** Hermes dashboard username field. Omit when the kind has no username. */
+  usesUsername?: boolean;
 }
 
 export interface SessionSources {

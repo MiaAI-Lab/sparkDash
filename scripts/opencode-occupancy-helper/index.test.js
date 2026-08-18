@@ -4,7 +4,8 @@
  */
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
-import { createOccupancyHelper, loadOccupancy, publicOccupancyRow } from "./index.js";
+import { createOccupancyHelper, loadOccupancy } from "./index.js";
+import { sanitizeOpenCodeRow } from "../../server/collectors/OpenCodeSessions.js";
 
 const JOHN = {
   spark: { options: { baseURL: "http://john:8888/v1" } },
@@ -100,7 +101,7 @@ test("missing db is 503, not an empty list", async () => {
 });
 
 test("occupancy JSON has no transcript table keys", () => {
-  const row = publicOccupancyRow({
+  const row = sanitizeOpenCodeRow({
     source: "opencode",
     handle: "t",
     originHost: "john",

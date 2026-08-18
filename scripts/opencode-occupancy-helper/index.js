@@ -6,14 +6,9 @@ import http from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { diagnoseOpenCodeSessions, sanitizeOpenCodeRow } from "../../server/collectors/OpenCodeSessions.js";
-
-export function publicOccupancyRow(row) {
-  return sanitizeOpenCodeRow(row);
-}
+import { loadOpenCodeOccupancy } from "../../server/collectors/OpenCodeSessions.js";
 
 export async function loadOccupancy(deps = {}) {
-  let rows = [];
   const attach = {
     enabled: true,
     mode: deps.mode ?? "local",
@@ -21,19 +16,13 @@ export async function loadOccupancy(deps = {}) {
     url: "",
     id: "",
   };
-  const diagnosed = await diagnoseOpenCodeSessions(attach, {
-    ...deps,
-    countMapped: (mapped) => {
-      rows = (Array.isArray(mapped) ? mapped : []).map(publicOccupancyRow);
-      return rows.length;
-    },
-  });
-  if (diagnosed.status === "error") {
-    const err = new Error(diagnosed.error || "OpenCode state not found");
+  const loaded = await loadOpenCodeOccupancy(attach, deps);
+  if (loaded.missingState || loaded.invalidHelper) {
+    const err = new Error("OpenCode state not found");
     err.status = 503;
     throw err;
   }
-  return { found: diagnosed.found, rows };
+  return { found: loaded.found, rows: loaded.rows };
 }
 
 function timingEqual(left, right) {

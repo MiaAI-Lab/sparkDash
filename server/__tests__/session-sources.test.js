@@ -83,10 +83,13 @@ test("U1 registry: OpenClaw, Hermes, and OpenCode; config iterates registry kind
     assert.ok(Array.isArray(pub[kind]), `expected public ${kind} attach list`);
     assert.equal(first(pub[kind]).conventionalStateDir, registry.conventionalStateDir(kind));
   }
-  assert.equal(conventionalStateDir("openclaw-2"), "~/.openclaw");
+  assert.equal(conventionalStateDir("openclaw-2"), "");
   assert.equal(conventionalStateDir("opencode"), "~/.local/share/opencode");
   assert.equal(registry.conventionalConfigDir("opencode"), "~/.config/opencode");
   assert.equal(registry.conventionalConfigDir("openclaw"), "");
+  assert.equal(first(pub.opencode).urlPlaceholder, "http://127.0.0.1:8788/occupancy");
+  assert.equal(first(pub.hermes).usesUsername, true);
+  assert.equal(first(pub.openclaw).usesUsername, undefined);
   assert.equal(
     conventionalStateDir("hermes", { HERMES_HOME: " /custom/hermes " }),
     "/custom/hermes"

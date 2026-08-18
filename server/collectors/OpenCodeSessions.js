@@ -22,7 +22,7 @@ import {
 
 const SOURCE = "opencode";
 const MAX_HELPER_ROWS = 500;
-const SESSION_COLUMNS = ["id", "title", "model", "time_updated", "tokens_input"];
+const SESSION_COLUMNS = ["id", "title", "model", "time_updated"];
 const PROJECTOR_ROW_KEYS = [
   "source",
   "id",
@@ -72,11 +72,26 @@ export function mapOpenCodeSessions(sessions, providers) {
   return rows;
 }
 
+/**
+ * One sqlite/helper read for collect, diagnose, and the occupancy helper.
+ * @returns {Promise<{ missingState: boolean, invalidHelper: boolean, found: number, rows: object[] }>}
+ */
+export async function loadOpenCodeOccupancy(attach, deps = {}) {
+  const loaded = await loadOpenCodePayload(attach, deps);
+  const rows = stampMapped(loaded, attach).map(sanitizeOpenCodeRow);
+  const found = loaded.found ?? (Array.isArray(loaded.sessions) ? loaded.sessions.length : rows.length);
+  return {
+    missingState: Boolean(loaded.missingState),
+    invalidHelper: Boolean(loaded.invalidHelper),
+    found,
+    rows,
+  };
+}
+
 export async function collectOpenCodeSessions(attach, deps = {}) {
   try {
     if (!attach?.enabled) return [];
-    const loaded = await loadOpenCodePayload(attach, deps);
-    return stampMapped(loaded, attach);
+    return (await loadOpenCodeOccupancy(attach, deps)).rows;
   } catch {
     return [];
   }
@@ -96,18 +111,17 @@ export async function diagnoseOpenCodeSessions(attach, deps = {}) {
     return { status: "error", found: 0, mapped: 0, error: "State dir is required" };
   }
   try {
-    const loaded = await loadOpenCodePayload(attach, deps);
+    const loaded = await loadOpenCodeOccupancy(attach, deps);
     if (loaded.invalidHelper) {
       return { status: "error", found: 0, mapped: 0, error: "Invalid occupancy payload" };
     }
     if (attach.mode !== "url" && loaded.missingState) {
       return { status: "error", found: 0, mapped: 0, error: "OpenCode state not found" };
     }
-    const rows = stampMapped(loaded, attach);
     return {
       status: "ok",
-      found: loaded.found ?? loaded.sessions.length,
-      mapped: deps.countMapped?.(rows) ?? rows.length,
+      found: loaded.found,
+      mapped: deps.countMapped?.(loaded.rows) ?? loaded.rows.length,
       error: null,
     };
   } catch (err) {

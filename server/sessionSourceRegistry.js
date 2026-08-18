@@ -12,6 +12,8 @@ const KINDS = Object.freeze([
   Object.freeze({
     id: "openclaw",
     label: "OpenClaw",
+    urlPlaceholder: "http://127.0.0.1:18789",
+    usesUsername: false,
     conventionalStateDir(env = process.env) {
       return trimmedEnv(env?.OPENCLAW_STATE_DIR, "~/.openclaw");
     },
@@ -19,6 +21,8 @@ const KINDS = Object.freeze([
   Object.freeze({
     id: "hermes",
     label: "Hermes Agent",
+    urlPlaceholder: "http://127.0.0.1:8787",
+    usesUsername: true,
     conventionalStateDir(env = process.env) {
       return trimmedEnv(env?.HERMES_HOME, "~/.hermes");
     },
@@ -26,6 +30,8 @@ const KINDS = Object.freeze([
   Object.freeze({
     id: "opencode",
     label: "OpenCode",
+    urlPlaceholder: "http://127.0.0.1:8788/occupancy",
+    usesUsername: false,
     conventionalStateDir(env = process.env) {
       return trimmedEnv(env?.OPENCODE_DATA_DIR, "~/.local/share/opencode");
     },
@@ -48,20 +54,13 @@ export function kindById(id) {
   return KINDS.find((kind) => kind.id === key) ?? null;
 }
 
-function kindForId(id) {
-  const key = String(id ?? "");
-  const exact = kindById(key);
-  if (exact) return exact;
-  return KINDS.find((kind) => key.startsWith(kind.id)) ?? null;
-}
-
 export function conventionalStateDir(id, env = process.env) {
-  const kind = kindForId(id);
+  const kind = kindById(id);
   return kind ? kind.conventionalStateDir(env) : "";
 }
 
 export function conventionalConfigDir(id, env = process.env) {
-  const kind = kindForId(id);
+  const kind = kindById(id);
   if (kind && typeof kind.conventionalConfigDir === "function") {
     return kind.conventionalConfigDir(env);
   }

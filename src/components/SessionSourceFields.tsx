@@ -120,8 +120,8 @@ export function SessionSourceFields({
       </select>
       {source.mode === "local" && (
         <p className="text-[10px] leading-snug text-muted">
-          {kind === "opencode"
-            ? `Sessions ${source.conventionalStateDir}; providers ${source.conventionalConfigDir || "~/.config/opencode"}`
+          {source.conventionalConfigDir
+            ? `Sessions ${source.conventionalStateDir}; providers ${source.conventionalConfigDir}`
             : `Uses ${source.conventionalStateDir}`}
         </p>
       )}
@@ -130,18 +130,12 @@ export function SessionSourceFields({
           type="text"
           value={source.url}
           onChange={(e) => onSource({ url: e.target.value })}
-          placeholder={
-            kind === "openclaw"
-              ? "http://127.0.0.1:18789"
-              : kind === "opencode"
-                ? "http://127.0.0.1:8788/occupancy"
-                : "http://127.0.0.1:8787"
-          }
+          placeholder={source.urlPlaceholder}
           className={fieldClass}
           aria-label={`${SOURCE_LABELS[kind]} URL`}
         />
       )}
-      {kind === "hermes" && source.mode === "url" && (
+      {source.usesUsername && source.mode === "url" && (
         <input
           type="text"
           value={source.username ?? ""}

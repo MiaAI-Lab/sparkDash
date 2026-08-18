@@ -45,7 +45,7 @@ function expectedRow(overrides = {}) {
 }
 
 function sessionColumns() {
-  return ["id", "title", "model", "time_updated", "tokens_input"].map((name, cid) => ({
+  return ["id", "title", "model", "time_updated"].map((name, cid) => ({
     cid,
     name,
     type: "TEXT",

@@ -22,9 +22,6 @@ const DEFAULT_COLLECTORS = {
  * @param {object[]} opts.sparks
  * @param {Record<string, object|object[]>} opts.sources
  * @param {Record<string, string>} [opts.tokens]
- * @param {Function} [opts.collectOpenClaw]
- * @param {Function} [opts.collectHermes]
- * @param {Function} [opts.collectOpenCode]
  * @param {Record<string, Function>} [opts.collectors]
  * @param {Function} [opts.project]
  * @returns {Promise<Record<string, object[]>>}
@@ -33,9 +30,6 @@ export async function pollOccupancy({
   sparks,
   sources,
   tokens = {},
-  collectOpenClaw,
-  collectHermes,
-  collectOpenCode,
   collectors,
   project = projectConversations,
 } = {}) {
@@ -44,9 +38,6 @@ export async function pollOccupancy({
     ...DEFAULT_COLLECTORS,
     ...collectors,
   };
-  if (collectOpenClaw) collectByKind.openclaw = collectOpenClaw;
-  if (collectHermes) collectByKind.hermes = collectHermes;
-  if (collectOpenCode) collectByKind.opencode = collectOpenCode;
   const batches = await Promise.all(
     sessionSourceIds().map((kind) => {
       const collect = collectByKind[kind];

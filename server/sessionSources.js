@@ -18,10 +18,18 @@ import {
   conventionalStateDir,
   conventionalConfigDir,
   sessionSourceIds,
+  kindById,
 } from "./sessionSourceRegistry.js";
 
 const MODES = new Set(["local", "url", "state-dir"]);
-const PUBLIC_ONLY = new Set(["token", "hasToken", "conventionalStateDir", "conventionalConfigDir"]);
+const PUBLIC_ONLY = new Set([
+  "token",
+  "hasToken",
+  "conventionalStateDir",
+  "conventionalConfigDir",
+  "urlPlaceholder",
+  "usesUsername",
+]);
 const ATTACH_ID_RE = /^[a-z][a-z0-9-]{0,63}$/;
 
 const DEFAULT_ATTACH = Object.freeze({
@@ -164,11 +172,14 @@ export function loadSessionSources() {
 
 function publicAttach(kind, attach, tokens) {
   const rest = persistableAttach(attach);
+  const meta = kindById(kind);
   return {
     ...rest,
     hasToken: Boolean(tokens[attach.id] || tokens[kind]),
     conventionalStateDir: conventionalStateDir(kind),
     conventionalConfigDir: conventionalConfigDir(kind) || undefined,
+    urlPlaceholder: meta?.urlPlaceholder || undefined,
+    usesUsername: meta?.usesUsername || undefined,
   };
 }
 

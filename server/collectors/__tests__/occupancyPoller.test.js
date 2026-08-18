@@ -59,8 +59,7 @@ test("enabled kinds not in the registry do not trigger occupancy I/O", async () 
       ...sources(),
       omp: { enabled: true, mode: "local", url: "", stateDir: "" },
     },
-    collectOpenClaw: collect,
-    collectHermes: collect,
+    collectors: { openclaw: collect, hermes: collect },
   });
   assert.deepEqual(result, {});
   assert.equal(called, 0);
@@ -76,8 +75,7 @@ test("AE4: empty sources skip collect and return {}", async () => {
     sparks: [spark()],
     sources: sources(),
     tokens: {},
-    collectOpenClaw: collect,
-    collectHermes: collect,
+    collectors: { openclaw: collect, hermes: collect },
   });
   assert.deepEqual(result, {});
   assert.equal(called, 0);
@@ -88,11 +86,13 @@ test("AE4: occupancy throw returns {} and does not throw", async () => {
     sparks: [spark()],
     sources: sources({ openclaw: true }),
     tokens: {},
-    collectOpenClaw: async () => {
-      throw new Error("gateway down");
-    },
-    collectHermes: async () => {
-      throw new Error("hermes down");
+    collectors: {
+      openclaw: async () => {
+        throw new Error("gateway down");
+      },
+      hermes: async () => {
+        throw new Error("hermes down");
+      },
     },
   });
   assert.deepEqual(result, {});
@@ -104,13 +104,15 @@ test("disabled sources: collect fns not called", async () => {
   const result = await pollOccupancy({
     sparks: [spark()],
     sources: sources({ openclaw: false, hermes: false }),
-    collectOpenClaw: async () => {
-      openclaw += 1;
-      return [row()];
-    },
-    collectHermes: async () => {
-      hermes += 1;
-      return [row({ source: "hermes", handle: "ha" })];
+    collectors: {
+      openclaw: async () => {
+        openclaw += 1;
+        return [row()];
+      },
+      hermes: async () => {
+        hermes += 1;
+        return [row({ source: "hermes", handle: "ha" })];
+      },
     },
   });
   assert.deepEqual(result, {});
@@ -126,11 +128,13 @@ test("AE6: occupancy poller does not read showcase or DecodeBench state", async 
     sparks: [spark()],
     sources: sources({ openclaw: true }),
     tokens: {},
-    collectOpenClaw: async () => [
-      row({ handle: "stalled-chat", midTurn: false }),
-      row({ handle: "unknown-chat", midTurn: "unknown" }),
-    ],
-    collectHermes: async () => [],
+    collectors: {
+      openclaw: async () => [
+        row({ handle: "stalled-chat", midTurn: false }),
+        row({ handle: "unknown-chat", midTurn: "unknown" }),
+      ],
+      hermes: async () => [],
+    },
   });
   const list = result["spark-local"];
   assert.ok(Array.isArray(list));
@@ -143,8 +147,10 @@ test("projector throw returns {} and does not throw", async () => {
   const result = await pollOccupancy({
     sparks: [spark()],
     sources: sources({ openclaw: true }),
-    collectOpenClaw: async () => [row({ midTurn: true })],
-    collectHermes: async () => [],
+    collectors: {
+      openclaw: async () => [row({ midTurn: true })],
+      hermes: async () => [],
+    },
     project: () => {
       throw new Error("projector boom");
     },
@@ -156,12 +162,14 @@ test("per-source catch: throwing source contributes [] and sibling still project
   const result = await pollOccupancy({
     sparks: [spark()],
     sources: sources({ openclaw: true, hermes: true }),
-    collectOpenClaw: async () => {
-      throw new Error("openclaw boom");
+    collectors: {
+      openclaw: async () => {
+        throw new Error("openclaw boom");
+      },
+      hermes: async () => [
+        row({ source: "hermes", handle: "agent-1", midTurn: "unknown" }),
+      ],
     },
-    collectHermes: async () => [
-      row({ source: "hermes", handle: "agent-1", midTurn: "unknown" }),
-    ],
   });
   assert.deepEqual(result["spark-local"], [
     { id: "hermes:8888:agent-1", source: "hermes", handle: "agent-1", badge: "unknown", port: 8888 },
@@ -180,16 +188,18 @@ test("collects every enabled attach of the same product", async () => {
       ],
     },
     tokens: { hermes: "a", "hermes-2": "b" },
-    collectOpenClaw: async () => [],
-    collectHermes: async (attach, deps) => {
-      seen.push({ id: attach.id, token: deps.token, url: attach.url });
-      return [
-        row({
-          source: "hermes",
-          handle: attach.id,
-          midTurn: "unknown",
-        }),
-      ];
+    collectors: {
+      openclaw: async () => [],
+      hermes: async (attach, deps) => {
+        seen.push({ id: attach.id, token: deps.token, url: attach.url });
+        return [
+          row({
+            source: "hermes",
+            handle: attach.id,
+            midTurn: "unknown",
+          }),
+        ];
+      },
     },
   });
   assert.equal(seen.length, 2);
@@ -214,19 +224,21 @@ test("collects every enabled OpenCode attach into one row list", async () => {
         { id: "opencode-2", enabled: true, mode: "url", url: "http://127.0.0.1:8789", stateDir: "" },
       ],
     },
-    collectOpenClaw: async () => [],
-    collectHermes: async () => [],
-    collectOpenCode: async (attach) => {
-      seen.push(attach.id);
-      return [
-        row({
-          source: "opencode",
-          handle: attach.id,
-          originHost: "127.0.0.1",
-          originPort: 8888,
-          midTurn: "unknown",
-        }),
-      ];
+    collectors: {
+      openclaw: async () => [],
+      hermes: async () => [],
+      opencode: async (attach) => {
+        seen.push(attach.id);
+        return [
+          row({
+            source: "opencode",
+            handle: attach.id,
+            originHost: "127.0.0.1",
+            originPort: 8888,
+            midTurn: "unknown",
+          }),
+        ];
+      },
     },
   });
   assert.deepEqual(seen, ["opencode", "opencode-2"]);
