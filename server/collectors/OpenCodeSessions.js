@@ -18,11 +18,12 @@ import {
   defaultFetchJson,
   sanitizeProbeError,
   stampAttachRows,
+  applySessionContext,
 } from "./sessionIo.js";
 
 const SOURCE = "opencode";
 const MAX_HELPER_ROWS = 500;
-const SESSION_COLUMNS = ["id", "title", "model", "time_updated"];
+const SESSION_COLUMNS = ["id", "title", "model", "time_updated", "tokens_input"];
 const PROJECTOR_ROW_KEYS = [
   "source",
   "id",
@@ -152,7 +153,11 @@ function mapOneSession(session, providers) {
     midTurn: "unknown",
   };
   if (lastUsedAt != null) mapped.lastUsedAt = lastUsedAt;
-  return mapped;
+  // tokens_input is cumulative session usage, not KV-cache fill.
+  return applySessionContext(mapped, {
+    input_tokens: session.tokens_input,
+    totalTokensFresh: false,
+  });
 }
 
 function sessionIdentity(session) {

@@ -44,7 +44,15 @@ test("occupancy poll iterates registry kinds, not a local openclaw/hermes pair",
   const src = readFileSync(MODULE_PATH, "utf8");
   assert.match(src, /sessionSourceIds|sessionSourceKinds/);
   assert.match(src, /sessionSourceRegistry/);
+  assert.match(src, /occupancyCollectors/);
   assert.equal(/\[["']openclaw["']\s*,\s*["']hermes["']\]/.test(src), false);
+});
+
+test("occupancy adapters cover every registry kind", async () => {
+  const { occupancyCollectors, occupancyDiagnosers } = await import("../sessionSourceAdapters.js");
+  const { sessionSourceIds } = await import("../../sessionSourceRegistry.js");
+  assert.deepEqual(Object.keys(occupancyCollectors()).sort(), [...sessionSourceIds()].sort());
+  assert.deepEqual(Object.keys(occupancyDiagnosers()).sort(), [...sessionSourceIds()].sort());
 });
 
 test("enabled kinds not in the registry do not trigger occupancy I/O", async () => {

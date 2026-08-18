@@ -36,6 +36,7 @@ sparkDash is a real-time web dashboard for one or more **NVIDIA DGX Spark (GB10)
 - [Repository layout](#repository-layout)
 - [REST API](#rest-api)
 - [Configuration](#configuration)
+- [Session occupancy](#session-occupancy)
 - [Security](#security)
 - [Scripts](#scripts)
 - [How it works](#how-it-works)
@@ -76,6 +77,7 @@ Full history: [CHANGELOG.md](./CHANGELOG.md)
 | **Secrets** | SSH passwords AES-256-GCM encrypted; never in `sparks.json` or API responses |
 | **Docker-first** | Single privileged container for host metrics; prod and dev Compose files |
 | **Hot config** | Add / edit / remove / reorder Sparks from the UI with no process restart |
+| **Session occupancy** | OpenClaw / Hermes / OpenCode sessions on each LLM card; OpenCode on another machine uses a small helper |
 
 ---
 
@@ -193,6 +195,9 @@ sparkDash/
 | PUT | `/api/sparks/:id/llm-port` | LLM port — backward-compat (hot) |
 | GET | `/api/settings` | Global settings |
 | PUT | `/api/settings` | Update global settings |
+| GET | `/api/session-sources` | Occupancy attaches (tokens redacted) |
+| PATCH | `/api/session-sources` | Update occupancy attaches |
+| POST | `/api/session-sources/test` | Check occupancy attach reachability |
 | WS | `/ws` | Real-time metrics stream |
 
 There is no authentication on the HTTP/WebSocket API. Run sparkDash only on a trusted network (or behind your own reverse proxy with auth).
@@ -260,6 +265,32 @@ Header theme control cycles:
 | **OLED** | True black for OLED panels |
 
 Choice is stored in `localStorage`.
+
+---
+
+## Session occupancy
+
+OpenClaw, Hermes Agent, and OpenCode sessions that hit a Spark LLM show on that card’s **Sessions** list.
+
+Configure attaches on **any LLM card → Settings (gear) → Occupancy sources**. The list is dashboard-wide; save with **Save occupancy** (separate from the LLM port Save).
+
+| Source | Typical setup |
+|--------|----------------|
+| **OpenClaw / Hermes** | **Local** if they run on the dashboard host; otherwise **URL** or **State dir** |
+| **OpenCode on this host** | **Local** — reads `opencode.db` directly |
+| **OpenCode on another computer** | Run the helper on that machine, then **URL** + token |
+
+OpenCode has no occupancy HTTP API. On the OpenCode machine (Node 22+, sparkDash checkout):
+
+```bash
+BIND="$(tailscale ip -4 2>/dev/null || ipconfig getifaddr en0 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}')"
+TOKEN="$(openssl rand -hex 32)"
+printf 'URL:   http://%s:8788/occupancy\nToken: %s\n' "$BIND" "$TOKEN"
+OPENCODE_OCCUPANCY_BIND="$BIND" OPENCODE_OCCUPANCY_TOKEN="$TOKEN" \
+  node scripts/opencode-occupancy-helper/index.js
+```
+
+Paste the printed URL (`http://<that-ip>:8788/occupancy`) and token into Occupancy sources → OpenCode → URL, then **Check** and **Save occupancy**. Do not bind `0.0.0.0`. Full env and macOS path notes: [`scripts/opencode-occupancy-helper/README.md`](./scripts/opencode-occupancy-helper/README.md).
 
 ---
 

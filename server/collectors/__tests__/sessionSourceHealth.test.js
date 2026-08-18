@@ -14,6 +14,7 @@ test("health probe iterates registry kinds, not a local SOURCE_IDS pair", () => 
   const src = readFileSync(MODULE_PATH, "utf8");
   assert.match(src, /sessionSourceIds|sessionSourceKinds/);
   assert.match(src, /sessionSourceRegistry/);
+  assert.match(src, /occupancyDiagnosers/);
   assert.equal(/\[["']openclaw["']\s*,\s*["']hermes["']\]/.test(src), false);
 });
 

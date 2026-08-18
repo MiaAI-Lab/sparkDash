@@ -88,12 +88,34 @@ test("U1 registry: OpenClaw, Hermes, and OpenCode; config iterates registry kind
   assert.equal(registry.conventionalConfigDir("opencode"), "~/.config/opencode");
   assert.equal(registry.conventionalConfigDir("openclaw"), "");
   assert.equal(first(pub.opencode).urlPlaceholder, "http://127.0.0.1:8788/occupancy");
+  assert.equal(first(pub.opencode).kindLabel, "OpenCode");
+  assert.equal(first(pub.hermes).kindLabel, "Hermes Agent");
   assert.equal(first(pub.hermes).usesUsername, true);
   assert.equal(first(pub.openclaw).usesUsername, undefined);
   assert.equal(
     conventionalStateDir("hermes", { HERMES_HOME: " /custom/hermes " }),
     "/custom/hermes"
   );
+});
+
+test("public GET and save only emit registry kinds; kindLabel is not persisted", () => {
+  resetFiles();
+  fs.writeFileSync(
+    sourcesPath,
+    JSON.stringify({
+      openclaw: [{ id: "openclaw", enabled: false, mode: "local", url: "", stateDir: "" }],
+      hermes: [{ id: "hermes", enabled: false, mode: "local", url: "", stateDir: "" }],
+      leftover: [{ id: "leftover", enabled: true, mode: "local", url: "", stateDir: "" }],
+    })
+  );
+  const pub = getPublicSessionSources();
+  assert.deepEqual(Object.keys(pub).sort(), ["hermes", "openclaw", "opencode"]);
+  assert.equal("leftover" in pub, false);
+  const next = updateSessionSources({ opencode: { id: "opencode", enabled: false } });
+  assert.equal(first(next.opencode).kindLabel, "OpenCode");
+  const disk = JSON.parse(fs.readFileSync(sourcesPath, "utf8"));
+  assert.deepEqual(Object.keys(disk).sort(), ["hermes", "openclaw", "opencode"]);
+  assert.equal("kindLabel" in first(disk.opencode), false);
 });
 
 test("AE4 config: both sources disabled/absent is a valid normalized config", () => {

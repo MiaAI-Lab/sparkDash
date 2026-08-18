@@ -3,19 +3,11 @@
  * Counts only. Never persists. Never returns handles, transcripts, or tokens.
  */
 import { attachList, loadSessionSources, conventionalStateDir } from "../sessionSources.js";
-import { sessionSourceIds, SOURCE_IDS } from "../sessionSourceRegistry.js";
+import { sessionSourceIds } from "../sessionSourceRegistry.js";
 import { loadSessionSourceTokens } from "../secretsStore.js";
-import { diagnoseOpenClawSessions } from "./OpenClawSessions.js";
-import { diagnoseHermesSessions } from "./HermesSessions.js";
-import { diagnoseOpenCodeSessions } from "./OpenCodeSessions.js";
+import { occupancyDiagnosers } from "./sessionSourceAdapters.js";
 import { parseBaseUrl } from "./sessionIo.js";
 import { projectConversations, withOccupancyHosts, hostListenIps } from "./sessionProjector.js";
-
-const DIAGNOSE = {
-  openclaw: diagnoseOpenClawSessions,
-  hermes: diagnoseHermesSessions,
-  opencode: diagnoseOpenCodeSessions,
-};
 
 /**
  * @param {object} [body]
@@ -27,7 +19,7 @@ export async function testSessionSources(body = {}, deps = {}) {
   const storedTokens = (deps.loadSessionSourceTokens ?? loadSessionSourceTokens)();
   const sparks = deps.getSparks?.() ?? [];
   const patch = body && typeof body === "object" ? body : {};
-  const diagnoseByKind = { ...DIAGNOSE, ...deps.diagnoseByKind };
+  const diagnoseByKind = { ...occupancyDiagnosers(), ...deps.diagnoseByKind };
   const pairs = await Promise.all(
     sessionSourceIds().map(async (kind) => {
       const rows = await probeKind(
@@ -127,5 +119,3 @@ function sameOrigin(left, right) {
   if (!a || !b) return false;
   return a.host.toLowerCase() === b.host.toLowerCase() && a.port === b.port;
 }
-
-export { SOURCE_IDS };

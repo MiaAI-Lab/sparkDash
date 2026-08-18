@@ -7,6 +7,7 @@ import { BotIcon, GearIcon, InfoIcon } from "../ui/icons";
 import { useMetricsHistoryTail } from "../../hooks/metricsStore";
 import { BenchmarkDialog } from "./BenchmarkDialog";
 import { ConversationList } from "./ConversationList";
+import { SessionSourcesSettings } from "../SessionSourcesSettings";
 
 interface LlmPanelProps {
   llm: LlmMetrics | null;
@@ -56,15 +57,17 @@ function BackendBadge({ backend }: { backend: string | null }) {
 
 function LlmOperate({
   conversations,
+  onAddHarness,
   children,
 }: {
   conversations: ConversationRow[];
+  onAddHarness?: () => void;
   children: ReactNode;
 }) {
   return (
     <div className="llm-operate">
       <div className="llm-operate-metrics space-y-3">{children}</div>
-      <ConversationList conversations={conversations} />
+      <ConversationList conversations={conversations} onAddHarness={onAddHarness} />
     </div>
   );
 }
@@ -153,6 +156,8 @@ export function LlmPanel({
   // Tail keyed by port so multi-port LLM sparklines stay distinct (8b).
   const genHistory = useMetricsHistoryTail(sparkId, `llm:${llmPort}.tps`);
   const [showSettings, setShowSettings] = useState(false);
+  const [focusOccupancy, setFocusOccupancy] = useState(false);
+  const occupancySettingsRef = useRef<HTMLDivElement>(null);
   const [portDraft, setPortDraft] = useState(String(llmPort));
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -190,6 +195,17 @@ export function LlmPanel({
 
   const portDirty = parsedPort !== null && parsedPort !== llmPort;
   const portInvalid = portDraft.trim() !== "" && parsedPort === null;
+
+  const openHarnessSettings = useCallback(() => {
+    setFocusOccupancy(true);
+    setShowSettings(true);
+  }, []);
+
+  useEffect(() => {
+    if (!showSettings || !focusOccupancy) return;
+    occupancySettingsRef.current?.scrollIntoView({ block: "nearest" });
+    setFocusOccupancy(false);
+  }, [showSettings, focusOccupancy]);
 
   const handleSavePort = async () => {
     if (parsedPort === null) {
@@ -254,9 +270,10 @@ export function LlmPanel({
       }
     >
       {showSettings ? (
-        <div className="space-y-3">
+        <div className="max-h-[70vh] space-y-3 overflow-y-auto pr-1">
           <p className="text-[10px] text-muted">
-            HTTP port of the LLM server on this Spark (vLLM / llama.cpp / sglang).
+            HTTP port of the LLM server on this Spark (vLLM / llama.cpp / sglang). Occupancy
+            sources below are dashboard-wide and save separately.
           </p>
           <label className="block space-y-1">
             <span className="text-xs text-muted">Port</span>
@@ -302,19 +319,22 @@ export function LlmPanel({
               disabled={saving || portInvalid || (!portDirty && parsedPort === llmPort)}
               className="rounded bg-accent px-2 py-1 text-[10px] font-medium text-white hover:bg-accent-hover disabled:opacity-50"
             >
-              {saving ? "Saving…" : "Save"}
+              {saving ? "Saving…" : "Save port"}
             </button>
+          </div>
+          <div ref={occupancySettingsRef}>
+            <SessionSourcesSettings />
           </div>
         </div>
       ) : !available ? (
-        <LlmOperate conversations={conversations}>
+        <LlmOperate conversations={conversations} onAddHarness={openHarnessSettings}>
           <div className="flex items-center gap-2 py-1">
             <span className="h-1.5 w-1.5 rounded-full bg-muted" />
             <p className="text-xs text-muted">No model loaded on :{llmPort}</p>
           </div>
         </LlmOperate>
       ) : (
-        <LlmOperate conversations={conversations}>
+        <LlmOperate conversations={conversations} onAddHarness={openHarnessSettings}>
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <BackendBadge backend={llm?.backend ?? null} />
             {llm?.modelId && (

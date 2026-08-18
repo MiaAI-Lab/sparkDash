@@ -129,5 +129,9 @@ const isMain =
 if (isMain) {
   const helper = createOccupancyHelper();
   await helper.listen();
-  console.error(`OpenCode occupancy helper on http://${helper.host}:${helper.port}${helper.path}`);
+  const url = `http://${helper.host}:${helper.port}${helper.path}`;
+  console.error(`OpenCode occupancy helper on ${url}`);
+  console.error(
+    "In sparkDash: any LLM card → Settings → Occupancy sources → OpenCode → URL. Paste that URL and OPENCODE_OCCUPANCY_TOKEN, then Check and Save occupancy."
+  );
 }

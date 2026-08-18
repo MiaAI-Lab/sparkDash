@@ -1,31 +1,32 @@
 # OpenCode occupancy helper
 
-sparkDash on john polls this process over LAN or Tailscale. It does **not** talk to OpenCode’s own HTTP server.
+sparkDash polls this process over LAN or Tailscale. It does **not** talk to OpenCode’s own HTTP server.
+
+In the dashboard: any **LLM card → Settings (gear) → Occupancy sources → OpenCode → URL**.
+That panel also has a copy-paste start command.
 
 ## Run (from the sparkDash checkout)
 
+Node 22+. Do **not** bind `0.0.0.0`.
+
 ```bash
-node scripts/opencode-occupancy-helper/index.js
+BIND="$(tailscale ip -4 2>/dev/null || ipconfig getifaddr en0 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}')"
+TOKEN="$(openssl rand -hex 32)"
+printf 'URL:   http://%s:8788/occupancy\nToken: %s\n' "$BIND" "$TOKEN"
+OPENCODE_OCCUPANCY_BIND="$BIND" OPENCODE_OCCUPANCY_TOKEN="$TOKEN" \
+  node scripts/opencode-occupancy-helper/index.js
 ```
 
-Default listen is **loopback** `127.0.0.1:8788`, path `/occupancy`.
+Leave it running. Paste the printed URL and token into sparkDash, then **Check** and **Save occupancy** (not the LLM port Save).
 
-## Point sparkDash at it
+Loopback-only (dashboard on the same host as OpenCode): skip the helper and use mode **Local**.
 
-Settings → Session sources → OpenCode → mode **URL**.
+## Reach sparkDash from a workstation
 
-- URL: `http://<this-host>:8788/occupancy`
-- Token: the same value as `OPENCODE_OCCUPANCY_TOKEN` (optional on loopback; set it if john can reach this bind)
-- Start this helper **before** Check
+A reachable (non-loopback) bind **requires** `OPENCODE_OCCUPANCY_TOKEN`. Either:
 
-## Reach john from a workstation
-
-Do **not** bind `0.0.0.0`. Either:
-
-1. **Tailscale Serve** (recommended): keep the helper on loopback and serve the port on the tailnet.
-2. Bind a **tailnet IP** with a token: `OPENCODE_OCCUPANCY_BIND=100.x.y.z OPENCODE_OCCUPANCY_TOKEN=… node scripts/opencode-occupancy-helper/index.js`
-
-A reachable (non-loopback) bind **requires** `OPENCODE_OCCUPANCY_TOKEN`.
+1. Bind a **tailnet or LAN IP** with a token (command above).
+2. **Tailscale Serve**: keep the helper on `127.0.0.1` and serve the port on the tailnet.
 
 ## Environment
 
@@ -37,6 +38,8 @@ A reachable (non-loopback) bind **requires** `OPENCODE_OCCUPANCY_TOKEN`.
 | `OPENCODE_OCCUPANCY_TOKEN` | empty | If set, require `Authorization: Bearer …` |
 | `OPENCODE_DATA_DIR` | `~/.local/share/opencode` | Session db root (`opencode.db`) |
 | `OPENCODE_CONFIG_DIR` | `~/.config/opencode` | Provider map (`opencode.jsonc` then `opencode.json`) |
+
+macOS: if Check returns **503**, set `OPENCODE_DATA_DIR` to the folder that contains `opencode.db` (often `~/Library/Application Support/opencode`).
 
 The helper reads the OpenCode **session** table only. Missing state returns **HTTP 503**, not an empty list.
 

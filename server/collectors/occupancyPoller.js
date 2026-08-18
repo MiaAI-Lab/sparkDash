@@ -6,16 +6,8 @@
  */
 import { attachList } from "../sessionSources.js";
 import { sessionSourceIds } from "../sessionSourceRegistry.js";
-import { collectOpenClawSessions } from "./OpenClawSessions.js";
-import { collectHermesSessions } from "./HermesSessions.js";
-import { collectOpenCodeSessions } from "./OpenCodeSessions.js";
+import { occupancyCollectors } from "./sessionSourceAdapters.js";
 import { projectConversations, withOccupancyHosts, hostListenIps } from "./sessionProjector.js";
-
-const DEFAULT_COLLECTORS = {
-  openclaw: collectOpenClawSessions,
-  hermes: collectHermesSessions,
-  opencode: collectOpenCodeSessions,
-};
 
 /**
  * @param {object} opts
@@ -35,7 +27,7 @@ export async function pollOccupancy({
 } = {}) {
   if (!sourcesEnabled(sources)) return {};
   const collectByKind = {
-    ...DEFAULT_COLLECTORS,
+    ...occupancyCollectors(),
     ...collectors,
   };
   const batches = await Promise.all(

@@ -1,6 +1,7 @@
-import type { ConversationRow, ConversationSource } from "../../api/types";
+import type { ConversationRow } from "../../api/types";
+import { PlusIcon } from "../ui/icons";
 
-const SOURCE_LABEL: Record<ConversationSource, string> = {
+const SOURCE_LABEL: Record<string, string> = {
   openclaw: "OpenClaw",
   hermes: "Hermes",
   opencode: "OpenCode",
@@ -8,6 +9,7 @@ const SOURCE_LABEL: Record<ConversationSource, string> = {
 
 interface ConversationListProps {
   conversations: ConversationRow[];
+  onAddHarness?: () => void;
 }
 
 function formatSessionAge(lastUsedAt: number | undefined, now: number): string {
@@ -60,8 +62,8 @@ function stateLabel(row: ConversationRow, now: number): string {
   return formatSessionAge(row.lastUsedAt, now);
 }
 
-function laneLabel(source: ConversationSource, agent?: string, gateway?: string): string {
-  const parts = [SOURCE_LABEL[source]];
+function laneLabel(source: string, agent?: string, gateway?: string): string {
+  const parts = [SOURCE_LABEL[source] ?? source];
   if (gateway) parts.push(gateway);
   if (agent) parts.push(agent);
   return parts.join(" · ");
@@ -83,8 +85,7 @@ function groupConversations(rows: ConversationRow[]) {
   return groups;
 }
 
-export function ConversationList({ conversations }: ConversationListProps) {
-  if (conversations.length === 0) return null;
+export function ConversationList({ conversations, onAddHarness }: ConversationListProps) {
   const now = Date.now();
   const groups = groupConversations(conversations);
 
@@ -93,31 +94,53 @@ export function ConversationList({ conversations }: ConversationListProps) {
       <div className="occupancy-head">
         <span className="occupancy-head-count">{conversations.length}</span>
         <span className="occupancy-head-title">Sessions</span>
+        {onAddHarness && (
+          <button
+            type="button"
+            title="Add harness"
+            aria-label="Add harness"
+            onClick={onAddHarness}
+            className="occupancy-head-add"
+          >
+            <PlusIcon className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
-      <div className="occupancy-list" aria-label="Occupancy on this LLM">
-        {groups.map((group) => (
-          <section key={group.key} className="occupancy-lane">
-            <h3 className="occupancy-lane-label">{group.label}</h3>
-            <ul className="occupancy-lane-list" aria-label={group.label}>
-              {group.rows.map((row) => {
-                const ctx = contextLabel(row);
-                return (
-                <li key={row.id} className={`occupancy-row is-${occupancyTone(row, now)}`}>
-                  <span className="occupancy-dot" aria-hidden="true" />
-                  <span className="occupancy-handle" title={row.handle}>
-                    {row.handle}
-                  </span>
-                  <span className="occupancy-ctx" title={ctx ? contextTitle(row) : undefined}>
-                    {ctx}
-                  </span>
-                  <span className="occupancy-state">{stateLabel(row, now)}</span>
-                </li>
-                );
-              })}
-            </ul>
-          </section>
-        ))}
-      </div>
+      {conversations.length === 0 ? (
+        <div className="occupancy-empty">
+          <p>No sessions on this LLM. Attach OpenClaw, Hermes, or OpenCode.</p>
+          {onAddHarness && (
+            <button type="button" onClick={onAddHarness} className="occupancy-add-harness">
+              + Harness
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="occupancy-list" aria-label="Occupancy on this LLM">
+          {groups.map((group) => (
+            <section key={group.key} className="occupancy-lane">
+              <h3 className="occupancy-lane-label">{group.label}</h3>
+              <ul className="occupancy-lane-list" aria-label={group.label}>
+                {group.rows.map((row) => {
+                  const ctx = contextLabel(row);
+                  return (
+                    <li key={row.id} className={`occupancy-row is-${occupancyTone(row, now)}`}>
+                      <span className="occupancy-dot" aria-hidden="true" />
+                      <span className="occupancy-handle" title={row.handle}>
+                        {row.handle}
+                      </span>
+                      <span className="occupancy-ctx" title={ctx ? contextTitle(row) : undefined}>
+                        {ctx}
+                      </span>
+                      <span className="occupancy-state">{stateLabel(row, now)}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

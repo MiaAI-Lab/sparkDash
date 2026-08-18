@@ -135,6 +135,20 @@ test("parseJsonc accepts trailing commas outside strings", () => {
   assert.equal(parsed.provider.spark.options.baseURL, "http://john:8888/v1");
 });
 
+test("tokens_input is approximate contextUsed; zero is omitted", () => {
+  const withTokens = mapOpenCodeSessions([session({ tokens_input: 75_000 })], JOHN_PROVIDERS);
+  assert.equal(withTokens[0].contextUsed, 75000);
+  assert.equal(withTokens[0].contextApprox, true);
+  assert.equal("contextWindow" in withTokens[0], false);
+
+  const missing = mapOpenCodeSessions([session()], JOHN_PROVIDERS);
+  assert.equal("contextUsed" in missing[0], false);
+  assert.equal("contextApprox" in missing[0], false);
+
+  const zero = mapOpenCodeSessions([session({ tokens_input: 0 })], JOHN_PROVIDERS);
+  assert.equal("contextUsed" in zero[0], false);
+});
+
 test("local collect reads JSONC-only provider config and sqlite session rows", async () => {
   const queries = [];
   const files = {
@@ -164,6 +178,43 @@ test("local collect reads JSONC-only provider config and sqlite session rows", a
   assert.equal(queries.some((sql) => /message|part/i.test(sql)), false);
   assert.equal(queries.some((sql) => /table_info\s*\(\s*session\s*\)/i.test(sql)), true);
   assert.equal(queries.some((sql) => /\bfrom\s+session\b/i.test(sql)), true);
+});
+
+test("local collect selects tokens_input when the session table has it", async () => {
+  const queries = [];
+  const columns = ["id", "title", "model", "time_updated", "tokens_input"].map((name, cid) => ({
+    cid,
+    name,
+    type: "TEXT",
+  }));
+  const rows = await collectOpenCodeSessions(
+    { enabled: true, mode: "local" },
+    {
+      conventionalStateDir: "/tmp/opencode-data",
+      conventionalConfigDir: "/tmp/opencode-config",
+      readFile: async (filePath) => {
+        if (filePath.endsWith("opencode.jsonc") || filePath.endsWith("opencode.json")) {
+          return JSON.stringify({ provider: JOHN_PROVIDERS });
+        }
+        const err = new Error("ENOENT");
+        err.code = "ENOENT";
+        throw err;
+      },
+      openDatabase: () =>
+        fakeDb({
+          queries,
+          tables: { session: columns },
+          rows: [session({ tokens_input: 75_000 })],
+        }),
+    }
+  );
+  assert.equal(rows[0].contextUsed, 75000);
+  assert.equal(rows[0].contextApprox, true);
+  assert.equal(
+    queries.some((sql) => /\btokens_input\b/i.test(sql) && /\bfrom\s+session\b/i.test(sql)),
+    true
+  );
+  assert.equal(queries.some((sql) => /message|part/i.test(sql)), false);
 });
 
 test("injected db that only exposes message is never queried", async () => {

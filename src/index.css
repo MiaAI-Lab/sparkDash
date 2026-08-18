@@ -746,7 +746,7 @@ input[type="checkbox"] {
 }
 .occupancy-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   margin: 0 0 8px;
 }
@@ -761,6 +761,46 @@ input[type="checkbox"] {
   font-size: 12px;
   font-weight: 600;
   color: var(--color-muted-strong);
+}
+.occupancy-head-add {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  color: var(--color-muted);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.occupancy-head-add:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-accent);
+}
+.occupancy-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.occupancy-empty p {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--color-muted);
+}
+.occupancy-add-harness {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px dashed var(--color-border);
+  background: transparent;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--color-muted);
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.occupancy-add-harness:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
 }
 .occupancy-list {
   list-style: none;

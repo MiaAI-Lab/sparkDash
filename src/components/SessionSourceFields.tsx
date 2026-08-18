@@ -1,12 +1,25 @@
 import type { SessionSourceAttach, SessionSourceHealth, SessionSourceMode } from "../api/types";
 
-export const SOURCE_LABELS = { openclaw: "OpenClaw", hermes: "Hermes Agent", opencode: "OpenCode" } as const;
-export const SOURCE_IDS = ["openclaw", "hermes", "opencode"] as const;
 const MODE_OPTIONS: { value: SessionSourceMode; label: string }[] = [
   { value: "local", label: "Local" },
   { value: "url", label: "URL" },
   { value: "state-dir", label: "State dir" },
 ];
+
+function tokenPlaceholder(source: SessionSourceAttach): string {
+  if (source.hasToken) return "Token stored — leave blank to keep";
+  if (source.mode === "url" && urlRequiresToken(source.url)) return "Token required";
+  return "Optional token";
+}
+
+function urlRequiresToken(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return host !== "127.0.0.1" && host !== "localhost" && host !== "::1";
+  } catch {
+    return false;
+  }
+}
 
 const fieldClass =
   "w-full rounded border border-border bg-surface-elevated px-3 py-1.5 text-xs text-text outline-none focus:border-accent";
@@ -67,7 +80,7 @@ export function SessionSourceFields({
   onCheck,
   onRemove,
 }: {
-  kind: (typeof SOURCE_IDS)[number];
+  kind: string;
   source: SessionSourceAttach;
   tokenDraft: string;
   health?: SessionSourceHealth;
@@ -80,7 +93,7 @@ export function SessionSourceFields({
   onRemove: () => void;
 }) {
   const status = healthView(health, checking);
-  const title = source.label?.trim() || SOURCE_LABELS[kind];
+  const title = source.kindLabel || kind;
   return (
     <div className="space-y-2 rounded border border-border px-3 py-2">
       <div className="flex items-center gap-3">
@@ -104,13 +117,13 @@ export function SessionSourceFields({
         onChange={(e) => onSource({ label: e.target.value })}
         placeholder="Optional label"
         className={fieldClass}
-        aria-label={`${SOURCE_LABELS[kind]} label`}
+        aria-label={`${title} label`}
       />
       <select
         value={source.mode}
         onChange={(e) => onSource({ mode: e.target.value as SessionSourceMode })}
         className={fieldClass}
-        aria-label={`${SOURCE_LABELS[kind]} mode`}
+        aria-label={`${title} mode`}
       >
         {MODE_OPTIONS.map((opt) => (
           <option key={opt.value} value={opt.value}>
@@ -132,7 +145,7 @@ export function SessionSourceFields({
           onChange={(e) => onSource({ url: e.target.value })}
           placeholder={source.urlPlaceholder}
           className={fieldClass}
-          aria-label={`${SOURCE_LABELS[kind]} URL`}
+          aria-label={`${title} URL`}
         />
       )}
       {source.usesUsername && source.mode === "url" && (
@@ -142,7 +155,7 @@ export function SessionSourceFields({
           onChange={(e) => onSource({ username: e.target.value })}
           placeholder="Username (default admin)"
           className={fieldClass}
-          aria-label={`${SOURCE_LABELS[kind]} username`}
+          aria-label={`${title} username`}
         />
       )}
       {source.mode === "state-dir" && (
@@ -152,7 +165,7 @@ export function SessionSourceFields({
           onChange={(e) => onSource({ stateDir: e.target.value })}
           placeholder="State directory"
           className={fieldClass}
-          aria-label={`${SOURCE_LABELS[kind]} state directory`}
+          aria-label={`${title} state directory`}
         />
       )}
       <div className="flex gap-2">
@@ -161,9 +174,9 @@ export function SessionSourceFields({
           autoComplete="new-password"
           value={tokenDraft}
           onChange={(e) => onToken(e.target.value)}
-          placeholder={source.hasToken ? "Token stored — leave blank to keep" : "Optional token"}
+          placeholder={tokenPlaceholder(source)}
           className={fieldClass}
-          aria-label={`${SOURCE_LABELS[kind]} token`}
+          aria-label={`${title} token`}
         />
         {source.hasToken && !tokenDraft && (
           <button

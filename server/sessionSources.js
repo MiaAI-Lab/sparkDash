@@ -29,6 +29,7 @@ const PUBLIC_ONLY = new Set([
   "conventionalConfigDir",
   "urlPlaceholder",
   "usesUsername",
+  "kindLabel",
 ]);
 const ATTACH_ID_RE = /^[a-z][a-z0-9-]{0,63}$/;
 
@@ -152,7 +153,8 @@ function persistableAttach(attach) {
 }
 
 function saveSessionSources(config) {
-  const payload = { ...config };
+  /** @type {Record<string, object[]>} */
+  const payload = {};
   for (const kind of sessionSourceIds()) {
     payload[kind] = attachList(config[kind]).map(persistableAttach);
   }
@@ -180,13 +182,15 @@ function publicAttach(kind, attach, tokens) {
     conventionalConfigDir: conventionalConfigDir(kind) || undefined,
     urlPlaceholder: meta?.urlPlaceholder || undefined,
     usesUsername: meta?.usesUsername || undefined,
+    kindLabel: meta?.label || undefined,
   };
 }
 
 export function getPublicSessionSources() {
   const config = loadSessionSources();
   const tokens = loadSessionSourceTokens();
-  const pub = { ...config };
+  /** @type {Record<string, object[]>} */
+  const pub = {};
   for (const kind of sessionSourceIds()) {
     pub[kind] = attachList(config[kind]).map((attach) => publicAttach(kind, attach, tokens));
   }

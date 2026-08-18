@@ -63,6 +63,30 @@ test("helper maps a fixture db the same as local collect", async () => {
   assert.equal(payload.rows[0].source, "opencode");
 });
 
+test("helper stamps cumulative tokens_input as approximate contextUsed", async () => {
+  const columns = ["id", "title", "model", "time_updated", "tokens_input"].map((name, cid) => ({
+    cid,
+    name,
+    type: "TEXT",
+  }));
+  const payload = await loadOccupancy({
+    ...localDeps,
+    openDatabase: () => ({
+      prepare(sql) {
+        const text = String(sql);
+        if (/table_info\s*\(\s*session\s*\)/i.test(text)) return { all: () => columns };
+        if (/\bfrom\s+session\b/i.test(text)) {
+          return { all: () => [{ ...sessionRow(), tokens_input: 75_000 }] };
+        }
+        throw new Error(`unexpected sql: ${text}`);
+      },
+      close() {},
+    }),
+  });
+  assert.equal(payload.rows[0].contextUsed, 75000);
+  assert.equal(payload.rows[0].contextApprox, true);
+});
+
 test("missing db is 503, not an empty list", async () => {
   await assert.rejects(
     () =>

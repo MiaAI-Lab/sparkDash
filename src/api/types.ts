@@ -206,7 +206,7 @@ export interface SparkMetrics {
 }
 
 // ─── Occupancy conversations (not LlmMetrics) ────────────
-export type ConversationSource = "openclaw" | "hermes" | "opencode";
+export type ConversationSource = string;
 export type ConversationBadge = "generating" | "stalled" | "unknown";
 
 /** Occupancy row: handle + badge only. `id` is list identity, not a transcript. */
@@ -297,17 +297,15 @@ export interface SessionSourceAttach {
   conventionalStateDir: string;
   /** OpenCode provider-config dir (`~/.config/opencode`). Empty for other kinds. */
   conventionalConfigDir?: string;
+  /** Occupancy lane / Settings title from the source registry. */
+  kindLabel?: string;
   /** URL-mode input placeholder from the source registry. */
   urlPlaceholder?: string;
   /** Hermes dashboard username field. Omit when the kind has no username. */
   usesUsername?: boolean;
 }
 
-export interface SessionSources {
-  openclaw: SessionSourceAttach[];
-  hermes: SessionSourceAttach[];
-  opencode: SessionSourceAttach[];
-}
+export type SessionSources = Record<string, SessionSourceAttach[]>;
 
 export interface SessionSourcePatch {
   id?: string;
@@ -321,11 +319,7 @@ export interface SessionSourcePatch {
   token?: string;
 }
 
-export interface SessionSourcesPatch {
-  openclaw?: SessionSourcePatch | SessionSourcePatch[];
-  hermes?: SessionSourcePatch | SessionSourcePatch[];
-  opencode?: SessionSourcePatch | SessionSourcePatch[];
-}
+export type SessionSourcesPatch = Record<string, SessionSourcePatch | SessionSourcePatch[]>;
 
 export type SessionSourceHealthStatus = "disabled" | "ok" | "error";
 
@@ -338,11 +332,7 @@ export interface SessionSourceHealth {
   error: string | null;
 }
 
-export interface SessionSourcesHealth {
-  openclaw: SessionSourceHealth[];
-  hermes: SessionSourceHealth[];
-  opencode: SessionSourceHealth[];
-}
+export type SessionSourcesHealth = Record<string, SessionSourceHealth[]>;
 
 export interface SparksListResponse {
   sparks: SparkConfig[];
