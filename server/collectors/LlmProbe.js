@@ -386,14 +386,23 @@ export class LlmProbe {
       if (auth === "ok") {
         modelsOk = true;
         const modelsData = await modelsRes.json();
-        const model = modelsData?.data?.[0];
-        this.modelId = normalizeModelId(model?.id || null);
-        // Drop HF hub cache paths from modelPath if /v1/models id was a cache dir
-        if (isHfHubCachePath(model?.id)) this.modelPath = null;
-        // ds4-server uses context_length; vLLM uses max_model_len
-        this.contextLength =
-          model?.max_model_len ?? model?.context_length ?? this.contextLength;
-        owned = model?.owned_by;
+        const models = Array.isArray(modelsData?.data) ? modelsData.data : [];
+        if (models.length > 1) {
+          // Multi-model router (e.g. LiteLLM): show count, list IDs in modelPath
+          this.modelId = `${models.length} models`;
+          this.modelPath = models.map((m) => m?.id).filter(Boolean).join(", ");
+          this.contextLength = null;
+          owned = models[0]?.owned_by;
+        } else {
+          const model = models[0];
+          this.modelId = normalizeModelId(model?.id || null);
+          // Drop HF hub cache paths from modelPath if /v1/models id was a cache dir
+          if (isHfHubCachePath(model?.id)) this.modelPath = null;
+          // ds4-server uses context_length; vLLM uses max_model_len
+          this.contextLength =
+            model?.max_model_len ?? model?.context_length ?? this.contextLength;
+          owned = model?.owned_by;
+        }
       }
     } catch {}
 
