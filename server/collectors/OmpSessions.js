@@ -18,6 +18,7 @@ import {
   defaultReadFile,
   defaultReadDir,
   defaultStat,
+  defaultFetchJson,
   sanitizeProbeError,
   stampAttachRows,
 } from "./sessionIo.js";
@@ -206,6 +207,34 @@ function uuidFromFileName(fileName) {
  * @returns {Promise<{ missingState: boolean, invalidHelper: boolean, found: number, rows: object[] }>}
  */
 export async function loadOmpOccupancy(attach, deps = {}) {
+  if (attach.mode === "url") return loadFromUrl(attach, deps);
+  return loadFromStateDir(attach, deps);
+}
+
+async function loadFromUrl(attach, deps) {
+  const fetchJson = deps.fetchJson ?? defaultFetchJson;
+  const payload = await fetchJson(String(attach.url || "").trim(), { token: deps.token });
+  const parsed = parseHelperPayload(payload);
+  if (parsed.error) return { missingState: false, invalidHelper: true, found: 0, rows: [] };
+  const preMapped = parsed.rows
+    .filter((row) => row && typeof row === "object")
+    .map((row) => sanitizeOmpRow(row));
+  return { missingState: false, invalidHelper: false, found: parsed.found, rows: stampAttachRows(preMapped, attach) };
+}
+
+function parseHelperPayload(payload) {
+  if (Array.isArray(payload)) {
+    if (payload.length > OMP_MAX_SESSION_FILES) return { error: true };
+    return { found: payload.length, rows: payload };
+  }
+  if (!payload || typeof payload !== "object") return { error: true };
+  if (!Array.isArray(payload.rows)) return { error: true };
+  if (payload.rows.length > OMP_MAX_SESSION_FILES) return { error: true };
+  const found = Number.isFinite(Number(payload.found)) ? Number(payload.found) : payload.rows.length;
+  return { found, rows: payload.rows };
+}
+
+async function loadFromStateDir(attach, deps) {
   const stateDir = resolveStateDir(
     attach,
     deps,
@@ -262,11 +291,17 @@ export async function diagnoseOmpSessions(attach, deps = {}) {
   if (!attach?.enabled) {
     return { status: "disabled", found: 0, mapped: 0, error: null };
   }
+  if (attach.mode === "url" && !String(attach.url || "").trim()) {
+    return { status: "error", found: 0, mapped: 0, error: "URL is required" };
+  }
   if (attach.mode === "state-dir" && !String(attach.stateDir || "").trim()) {
     return { status: "error", found: 0, mapped: 0, error: "State dir is required" };
   }
   try {
     const loaded = await loadOmpOccupancy(attach, deps);
+    if (loaded.invalidHelper) {
+      return { status: "error", found: 0, mapped: 0, error: "Invalid occupancy payload" };
+    }
     if (loaded.missingState) {
       return { status: "error", found: 0, mapped: 0, error: "oh-my-pi sessions not found" };
     }

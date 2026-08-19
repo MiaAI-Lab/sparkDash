@@ -42,6 +42,7 @@ const KINDS = Object.freeze([
   Object.freeze({
     id: "omp",
     label: "oh-my-pi",
+    urlPlaceholder: "http://127.0.0.1:8789/occupancy",
     usesUsername: false,
     conventionalStateDir(env = process.env) {
       return trimmedEnv(env?.OMP_STATE_DIR, "~/.omp");

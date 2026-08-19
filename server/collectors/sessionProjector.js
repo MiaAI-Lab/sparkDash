@@ -15,18 +15,32 @@ const SKIP_IFACE = /^(lo\d*|docker|br-|veth|virbr|cni)/i;
 /**
  * @param {object[]} rows
  * @param {object[]} sparks
+ * @param {{ maxAgeMs?: number, now?: number }} [opts]
  * @returns {Record<string, object[]>}
  */
-export function projectConversations(rows, sparks) {
+export function projectConversations(rows, sparks, opts = {}) {
   const list = Array.isArray(sparks) ? sparks : [];
   const nameHosts = exclusiveNameHosts(list);
+  const maxAgeMs = opts.maxAgeMs ?? 0;
+  const now = opts.now ?? Date.now();
+  const filtered = maxAgeMs > 0 ? filterByAge(rows, maxAgeMs, now) : rows;
   const bySpark = {};
   for (const spark of list) {
     if (!spark?.id) continue;
-    const projected = projectSpark(Array.isArray(rows) ? rows : [], spark, nameHosts);
+    const projected = projectSpark(filtered, spark, nameHosts);
     if (projected.length > 0) bySpark[spark.id] = projected;
   }
   return bySpark;
+}
+
+/** Drop rows whose lastUsedAt is older than maxAgeMs. Keep rows with no timestamp. */
+function filterByAge(rows, maxAgeMs, now) {
+  const cutoff = now - maxAgeMs;
+  return rows.filter((row) => {
+    const ts = row?.lastUsedAt;
+    if (ts == null || !Number.isFinite(ts)) return true;
+    return ts >= cutoff;
+  });
 }
 
 function projectSpark(rows, spark, nameHosts) {

@@ -141,6 +141,10 @@ const occupancyLoop = createOccupancyLoop({
   getSparks: () => registry.sparks,
   getSources: loadSessionSources,
   getTokens: loadSessionSourceTokens,
+  getMaxAgeMs: () => {
+    const hours = getSettings().occupancyMaxAgeHours;
+    return hours > 0 ? hours * 3600_000 : 0;
+  },
   apply(bySpark) {
     for (const [id, monitor] of monitors) {
       monitor.setConversations(bySpark[id] || []);

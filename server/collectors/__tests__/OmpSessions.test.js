@@ -282,7 +282,7 @@ test("T12: registry includes omp with correct metadata", async () => {
   assert.equal(registry.kindById("omp")?.label, "oh-my-pi");
   assert.equal(registry.conventionalStateDir("omp"), "~/.omp");
   assert.equal(registry.conventionalConfigDir("omp"), "~/.omp/agent");
-  assert.equal(registry.kindById("omp")?.urlPlaceholder, undefined);
+  assert.equal(registry.kindById("omp")?.urlPlaceholder, "http://127.0.0.1:8789/occupancy");
 });
 
 // T13: adapter wiring

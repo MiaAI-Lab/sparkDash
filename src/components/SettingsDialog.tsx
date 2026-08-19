@@ -215,6 +215,22 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
                 </span>
               </label>
             </div>
+
+            <div>
+              <label className="block text-xs text-text">Occupancy session age limit</label>
+              <span className="mt-0.5 block text-[10px] leading-snug text-muted">
+                Hide occupancy sessions older than this many hours. 0 shows all.
+              </span>
+              <input
+                type="number"
+                min={0}
+                max={168}
+                value={settings.occupancyMaxAgeHours}
+                onChange={(e) => update({ occupancyMaxAgeHours: Number(e.target.value) || 0 })}
+                className="mt-1 w-20 rounded border border-border bg-surface-elevated px-2 py-1 text-xs text-text outline-none focus:border-accent"
+              />
+              <span className="ml-1 text-[10px] text-muted">hours</span>
+            </div>
           </div>
         )}
 

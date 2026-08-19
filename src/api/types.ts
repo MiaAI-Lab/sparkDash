@@ -550,6 +550,8 @@ export interface Settings {
   benchDebugTraces: boolean;
   /** Layout density — compact (default) or comfortable. */
   density: "comfortable" | "compact";
+  /** Hide occupancy sessions older than this many hours. 0 = show all. */
+  occupancyMaxAgeHours: number;
 }
 
 export type SessionSourceMode = "local" | "url" | "state-dir";

@@ -16,6 +16,7 @@ import { projectConversations, withOccupancyHosts, hostListenIps } from "./sessi
  * @param {Record<string, string>} [opts.tokens]
  * @param {Record<string, Function>} [opts.collectors]
  * @param {Function} [opts.project]
+ * @param {number} [opts.maxAgeMs] - Hide sessions older than this (0 = show all)
  * @returns {Promise<Record<string, object[]>>}
  */
 export async function pollOccupancy({
@@ -24,6 +25,7 @@ export async function pollOccupancy({
   tokens = {},
   collectors,
   project = projectConversations,
+  maxAgeMs = 0,
 } = {}) {
   if (!sourcesEnabled(sources)) return {};
   const collectByKind = {
@@ -38,7 +40,7 @@ export async function pollOccupancy({
     })
   );
   try {
-    return project(batches.flat(), withOccupancyHosts(sparks, hostListenIps()));
+    return project(batches.flat(), withOccupancyHosts(sparks, hostListenIps()), { maxAgeMs });
   } catch {
     return {};
   }
@@ -59,6 +61,7 @@ export function createOccupancyLoop({
   getSparks,
   getSources,
   getTokens = () => ({}),
+  getMaxAgeMs = () => 0,
   apply,
   poll = pollOccupancy,
 } = {}) {
@@ -80,6 +83,7 @@ export function createOccupancyLoop({
         sparks: getSparks(),
         sources,
         tokens,
+        maxAgeMs: getMaxAgeMs(),
       });
       const currentSources = getSources();
       const currentTokens = getTokens();
