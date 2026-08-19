@@ -463,6 +463,31 @@ export interface SparkMetrics {
   tailscale?: TailscaleMetrics | null;
 }
 
+// ─── Occupancy conversations (not LlmMetrics) ────────────
+export type ConversationSource = string;
+export type ConversationBadge = "generating" | "stalled" | "unknown";
+
+/** Occupancy row: handle + badge only. `id` is list identity, not a transcript. */
+export interface ConversationRow {
+  id: string;
+  source: ConversationSource;
+  handle: string;
+  badge: ConversationBadge;
+  port: number;
+  /** Session last-used epoch ms from the source. Omit when unknown. */
+  lastUsedAt?: number;
+  /** OpenClaw agent id or Hermes profile/agent. Omit when unknown. */
+  agent?: string;
+  /** Attach label or gateway hostname when several of the same product are attached. */
+  gateway?: string;
+  /** Tokens currently in context. Omit when the source does not report it. */
+  contextUsed?: number;
+  /** Model context window in tokens. Omit when unknown. */
+  contextWindow?: number;
+  /** True when used tokens are a stale/approximate snapshot. */
+  contextApprox?: boolean;
+}
+
 // ─── Spark snapshot (server pushes this) ──────────────────
 export interface SparkSnapshot {
   id: string;
@@ -504,6 +529,8 @@ export interface SparkSnapshot {
   hermes?: HermesStatus;
   hardware: HardwareInfo;
   metrics: SparkMetrics;
+  /** Bound occupancy conversations. Omit when empty. */
+  conversations?: ConversationRow[];
 }
 
 // ─── WebSocket envelope ───────────────────────────────────
@@ -524,6 +551,61 @@ export interface Settings {
   /** Layout density — compact (default) or comfortable. */
   density: "comfortable" | "compact";
 }
+
+export type SessionSourceMode = "local" | "url" | "state-dir";
+
+/** Dashboard-level OpenClaw / Hermes Agent attach record. Token never returned. */
+export interface SessionSourceAttach {
+  id: string;
+  /** Optional operator label for this gateway. */
+  label?: string;
+  enabled: boolean;
+  mode: SessionSourceMode;
+  url: string;
+  stateDir: string;
+  /** Hermes dashboard username. Empty uses `admin`. Not a secret. */
+  username?: string;
+  hasToken: boolean;
+  /** Conventional local path (`~/.openclaw` / `~/.hermes` / `~/.local/share/opencode` / `~/.omp`, or env override). */
+  conventionalStateDir: string;
+  /** OpenCode provider-config dir (`~/.config/opencode`). Empty for other kinds. */
+  conventionalConfigDir?: string;
+  /** Occupancy lane / Settings title from the source registry. */
+  kindLabel?: string;
+  /** URL-mode input placeholder from the source registry. */
+  urlPlaceholder?: string;
+  /** Hermes dashboard username field. Omit when the kind has no username. */
+  usesUsername?: boolean;
+}
+
+export type SessionSources = Record<string, SessionSourceAttach[]>;
+
+export interface SessionSourcePatch {
+  id?: string;
+  label?: string;
+  enabled?: boolean;
+  mode?: SessionSourceMode;
+  url?: string;
+  stateDir?: string;
+  username?: string;
+  /** Omit to leave stored token; empty string clears. Never returned on GET. */
+  token?: string;
+}
+
+export type SessionSourcesPatch = Record<string, SessionSourcePatch | SessionSourcePatch[]>;
+
+export type SessionSourceHealthStatus = "disabled" | "ok" | "error";
+
+/** Counts only. Never handles, titles, or transcripts. */
+export interface SessionSourceHealth {
+  id?: string;
+  status: SessionSourceHealthStatus;
+  found: number;
+  mapped: number;
+  error: string | null;
+}
+
+export type SessionSourcesHealth = Record<string, SessionSourceHealth[]>;
 
 export interface SparksListResponse {
   sparks: SparkConfig[];

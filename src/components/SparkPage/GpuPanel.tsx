@@ -1,4 +1,4 @@
-import type { GpuMetrics } from "../../api/types";
+import type { GpuMetrics, ConversationRow } from "../../api/types";
 import { Sparkline } from "../ui/Sparkline";
 import { Panel } from "../ui/Panel";
 import { ActivityIcon } from "../ui/icons";
@@ -10,6 +10,8 @@ interface GpuPanelProps {
   sparkId: string;
   temperatureUnit: "celsius" | "fahrenheit";
   className?: string;
+  llmPort?: number;
+  conversations?: ConversationRow[];
 }
 
 function celsiusToFahrenheit(c: number): number {

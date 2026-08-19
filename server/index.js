@@ -12,6 +12,11 @@ import { sshExec, sshTest, llmTest, comfyTest } from "./collectors/ssh.js";
 import { comfyCancelJob } from "./collectors/comfyActions.js";
 import { validateSparkTarget, createRateLimiter } from "./validate.js";
 import { getSettings, updateSettings, loadSettings } from "./settings.js";
+import { getPublicSessionSources, loadSessionSources, updateSessionSources } from "./sessionSources.js";
+import { loadSessionSourceTokens } from "./secretsStore.js";
+import { testSessionSources } from "./collectors/sessionSourceHealth.js";
+import { createOccupancyLoop } from "./collectors/occupancyPoller.js";
+import { POLL_INTERVAL_LLM } from "./config.js";
 import { broadcastForLanIp, effectiveMac, normalizeMac, sendWol } from "./wol.js";
 import {
   decodeBenchManager,
@@ -129,6 +134,19 @@ function orderedSnapshots() {
     .filter(Boolean)
     .map((m) => m.snapshot());
 }
+
+// Occupancy is dashboard-level, on LLM cadence, never folded into _pollDomain("llm").
+const occupancyLoop = createOccupancyLoop({
+  intervalMs: POLL_INTERVAL_LLM,
+  getSparks: () => registry.sparks,
+  getSources: loadSessionSources,
+  getTokens: loadSessionSourceTokens,
+  apply(bySpark) {
+    for (const [id, monitor] of monitors) {
+      monitor.setConversations(bySpark[id] || []);
+    }
+  },
+});
 
 // ─── Express app ─────────────────────────────────────────
 const app = express();
@@ -296,6 +314,30 @@ app.put("/api/settings", (req, res) => {
       restartBroadcast();
     }
     res.json(newSettings);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Dashboard-level conversation sources (tokens never returned)
+app.get("/api/session-sources", (_req, res) => {
+  res.json(getPublicSessionSources());
+});
+
+app.patch("/api/session-sources", (req, res) => {
+  try {
+    res.json(updateSessionSources(req.body || {}));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/api/session-sources/test", async (req, res) => {
+  if (!allowTest(clientKey(req))) {
+    return res.status(429).json({ error: "Too many test requests; try again shortly" });
+  }
+  try {
+    res.json(await testSessionSources(req.body || {}, { getSparks: () => registry.sparks }));
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -1385,6 +1427,7 @@ server.listen(PORT, BIND_HOST, () => {
     );
   }
   startAllMonitors();
+  occupancyLoop.start();
 });
 
 // ─── Graceful shutdown ─────────────────────────────────
@@ -1412,6 +1455,7 @@ function shutdown(signal) {
       clearInterval(broadcastTimer);
       broadcastTimer = null;
     }
+    occupancyLoop.stop();
     for (const m of monitors.values()) m.stop();
     monitors.clear();
   } catch (err) {

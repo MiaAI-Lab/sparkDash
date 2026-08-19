@@ -15,6 +15,9 @@ const SPARKS_SECRETS_PATH =
 /** AES key file (auto-generated if SPARKDASH_SECRETS_KEY unset). */
 const SECRETS_KEY_PATH =
   process.env.SECRETS_KEY_PATH || path.join(ROOT, "config", ".secrets-key");
+/** Dashboard-level OpenClaw / Hermes Agent attach records (no tokens). */
+const SESSION_SOURCES_JSON_PATH =
+  process.env.SESSION_SOURCES_JSON_PATH || path.join(ROOT, "config", "session-sources.json");
 /** Daily LLM tok/s rollups (gitignored). */
 const LLM_DAILY_JSON_PATH =
   process.env.LLM_DAILY_JSON_PATH || path.join(ROOT, "config", "llm-daily.json");
@@ -94,6 +97,7 @@ export {
   GPU_MEMORY_JSON_PATH,
   SPARKS_SECRETS_PATH,
   SECRETS_KEY_PATH,
+  SESSION_SOURCES_JSON_PATH,
   LLM_DAILY_JSON_PATH,
   LLM_PROBE_TIMEOUT_MS,
   COMFY_PROBE_TIMEOUT_MS,

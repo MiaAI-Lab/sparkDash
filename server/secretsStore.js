@@ -1,19 +1,23 @@
 /**
- * Encrypted secrets store — survives process/Docker restarts.
+ * Encrypted secret store — survives process/Docker restarts.
  *
- * Secrets are NEVER written to sparks.json and NEVER returned by the API.
+ * SSH passwords, session-source tokens, and LLM API keys are NEVER written to
+ * sparks.json / session-sources.json and NEVER returned by GET APIs.
  * They live in:
  *   - memory (Maps) for SSH collectors / LLM probes
  *   - config/sparks-secrets.json (AES-256-GCM ciphertext, volume-mounted)
  *
- * File shape (v2):
+ * File shape (v2, backward compatible):
  *   {
  *     version: 2,
  *     secrets: { [sparkId]: "<encrypted ssh password>" },
- *     llmApiKeys: { [sparkId]: "<encrypted JSON { \"8000\": \"sk-…\" }>" }
+ *     llmApiKeys?: { [sparkId]: "<encrypted JSON { \"8000\": \"sk-…\" }>" },
+ *     sessionSourceTokens?: { [attachId]: "<encrypted token>" },
+ *     sessionSourceDevices?: { [attachId]: "<encrypted device identity JSON>" }
  *   }
  *
- * v1 files (secrets only) still load; rewritten as v2 on next save.
+ * v1 files (secrets + optional sessionSourceTokens/Devices) still load;
+ * rewritten as v2 on next save.
  *
  * Encryption key:
  *   - SPARKDASH_SECRETS_KEY env (passphrase or 64-char hex), or
@@ -29,9 +33,13 @@ const ALGO = "aes-256-gcm";
 const IV_LEN = 12;
 const TAG_LEN = 16;
 const KEY_LEN = 32;
-
 /** Cached key so we never regenerate mid-process. */
 let _cachedKey = null;
+
+/** Test helper: drop the in-process key cache. Does not rotate the key file. */
+export function resetSecretsKeyCache() {
+  _cachedKey = null;
+}
 
 function ensureDir(filePath) {
   const dir = path.dirname(filePath);
@@ -115,6 +123,82 @@ function decrypt(blobB64, key) {
   return Buffer.concat([decipher.update(data), decipher.final()]).toString("utf8");
 }
 
+function asBlobMap(value) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
+  return value;
+}
+
+function readRawStore() {
+  const empty = { version: 2, secrets: {}, llmApiKeys: {}, sessionSourceTokens: {}, sessionSourceDevices: {} };
+  if (!fs.existsSync(SPARKS_SECRETS_PATH)) return empty;
+  const data = JSON.parse(fs.readFileSync(SPARKS_SECRETS_PATH, "utf8"));
+  return {
+    version: 2,
+    secrets: asBlobMap(data?.secrets),
+    llmApiKeys: asBlobMap(data?.llmApiKeys),
+    sessionSourceTokens: asBlobMap(data?.sessionSourceTokens),
+    sessionSourceDevices: asBlobMap(data?.sessionSourceDevices),
+  };
+}
+
+function nonEmptyBlobs(blobs) {
+  const out = {};
+  for (const [id, blob] of Object.entries(blobs || {})) {
+    if (id && typeof blob === "string" && blob) out[id] = blob;
+  }
+  return out;
+}
+
+function hasBlobMap(blobs) {
+  return Object.keys(nonEmptyBlobs(blobs)).length > 0;
+}
+
+function unlinkStoreFile() {
+  if (!fs.existsSync(SPARKS_SECRETS_PATH)) return;
+  try {
+    fs.accessSync(SPARKS_SECRETS_PATH, fs.constants.W_OK);
+    fs.unlinkSync(SPARKS_SECRETS_PATH);
+  } catch (err) {
+    throw new Error(
+      `Failed to clear secrets file (permission?): ${err.message}. ` +
+        `Run: sudo chown -R $(id -u):$(id -g) config/sparks-secrets.json`
+    );
+  }
+}
+
+function persistStore({ secrets: secretBlobs, llmApiKeys: llmKeyBlobs, sessionSourceTokens: tokenBlobs, sessionSourceDevices: deviceBlobs }) {
+  const secrets = asBlobMap(secretBlobs);
+  const llmApiKeys = nonEmptyBlobs(llmKeyBlobs);
+  const sessionSourceTokens = nonEmptyBlobs(tokenBlobs);
+  const sessionSourceDevices = nonEmptyBlobs(deviceBlobs);
+  const hasSecrets = Object.keys(secrets).length > 0;
+  if (!hasSecrets && !hasBlobMap(llmApiKeys) && !hasBlobMap(sessionSourceTokens) && !hasBlobMap(sessionSourceDevices)) {
+    unlinkStoreFile();
+    return;
+  }
+  const payload = { version: 2, secrets };
+  if (hasBlobMap(llmApiKeys)) payload.llmApiKeys = llmApiKeys;
+  if (hasBlobMap(sessionSourceTokens)) payload.sessionSourceTokens = sessionSourceTokens;
+  if (hasBlobMap(sessionSourceDevices)) payload.sessionSourceDevices = sessionSourceDevices;
+  atomicWrite(SPARKS_SECRETS_PATH, JSON.stringify(payload, null, 2) + "\n", 0o644);
+}
+
+function decryptEntries(entries, key, kind) {
+  const map = new Map();
+  let failed = 0;
+  for (const [id, blob] of Object.entries(entries)) {
+    if (!id || typeof blob !== "string") continue;
+    try {
+      const value = decrypt(blob, key);
+      if (value) map.set(id, value);
+    } catch {
+      failed += 1;
+      console.error(`[secretsStore] Failed to decrypt ${kind} for ${id} (wrong/missing key?)`);
+    }
+  }
+  return { map, failed };
+}
+
 /**
  * @returns {{
  *   passwords: Map<string, string>,
@@ -133,36 +217,21 @@ export function loadSecrets() {
 
   try {
     const key = resolveKey();
-    const raw = fs.readFileSync(SPARKS_SECRETS_PATH, "utf8");
-    const data = JSON.parse(raw);
-    const entries = data?.secrets || {};
-    if (typeof entries === "object" && entries !== null) {
-      let failed = 0;
-      for (const [id, blob] of Object.entries(entries)) {
-        if (!id || typeof blob !== "string") continue;
-        try {
-          const pw = decrypt(blob, key);
-          if (pw) passwords.set(id, pw);
-        } catch {
-          failed += 1;
-          console.error(
-            `[secretsStore] Failed to decrypt password for ${id} (wrong/missing key?)`
-          );
-        }
-      }
-      if (passwords.size > 0) {
-        console.log(`[secretsStore] Loaded ${passwords.size} SSH password(s) from encrypted store`);
-      }
-      if (failed > 0) {
-        console.warn(
-          `[secretsStore] ${failed} password(s) could not be decrypted — re-enter via Edit Spark`
-        );
-      }
+    const raw = readRawStore();
+    const { map: loaded, failed } = decryptEntries(raw.secrets, key, "password");
+    for (const [id, pw] of loaded) passwords.set(id, pw);
+    if (passwords.size > 0) {
+      console.log(`[secretsStore] Loaded ${passwords.size} SSH password(s) from encrypted store`);
+    }
+    if (failed > 0) {
+      console.warn(
+        `[secretsStore] ${failed} password(s) could not be decrypted — re-enter via Edit Spark`
+      );
     }
 
-    const keyEntries = data?.llmApiKeys || {};
+    const keyEntries = raw.llmApiKeys || {};
     if (typeof keyEntries === "object" && keyEntries !== null) {
-      let failed = 0;
+      let failedKeys = 0;
       let portCount = 0;
       for (const [id, blob] of Object.entries(keyEntries)) {
         if (!id || typeof blob !== "string") continue;
@@ -179,7 +248,7 @@ export function loadSecrets() {
           }
           if (Object.keys(ports).length > 0) llmApiKeys.set(id, ports);
         } catch {
-          failed += 1;
+          failedKeys += 1;
           console.error(
             `[secretsStore] Failed to decrypt LLM API keys for ${id} (wrong/missing key?)`
           );
@@ -188,9 +257,9 @@ export function loadSecrets() {
       if (portCount > 0) {
         console.log(`[secretsStore] Loaded ${portCount} LLM API key(s) from encrypted store`);
       }
-      if (failed > 0) {
+      if (failedKeys > 0) {
         console.warn(
-          `[secretsStore] ${failed} LLM API key bundle(s) could not be decrypted — re-enter via LLM Settings`
+          `[secretsStore] ${failedKeys} LLM API key bundle(s) could not be decrypted — re-enter via LLM Settings`
         );
       }
     }
@@ -202,13 +271,19 @@ export function loadSecrets() {
 }
 
 /**
- * Persist SSH passwords + per-port LLM API keys (encrypted).
- * Empty maps remove the file when both are empty.
+ * Persist SSH passwords + per-port LLM API keys (encrypted). Empty passwords
+ * remove those slots; the file is deleted only when passwords, LLM keys, AND
+ * session tokens/devices are all gone. Throws on failure so callers can
+ * surface errors to the UI.
+ *
+ * Encrypted file mode is 0o644 so bind-mounted volumes stay usable across
+ * root/non-root container users (contents are ciphertext, not plaintext).
  *
  * @param {Map<string, string>} passwords
  * @param {Map<string, Record<string, string>>} [llmApiKeys]
  */
 export function saveSecrets(passwords, llmApiKeys = new Map()) {
+  const raw = readRawStore();
   const hasPasswords = passwords && passwords.size > 0;
   let hasKeys = false;
   if (llmApiKeys) {
@@ -221,17 +296,7 @@ export function saveSecrets(passwords, llmApiKeys = new Map()) {
   }
 
   if (!hasPasswords && !hasKeys) {
-    if (fs.existsSync(SPARKS_SECRETS_PATH)) {
-      try {
-        fs.accessSync(SPARKS_SECRETS_PATH, fs.constants.W_OK);
-        fs.unlinkSync(SPARKS_SECRETS_PATH);
-      } catch (err) {
-        throw new Error(
-          `Failed to clear secrets file (permission?): ${err.message}. ` +
-            `Run: sudo chown -R $(id -u):$(id -g) config/sparks-secrets.json`
-        );
-      }
-    }
+    persistStore({ secrets: {}, llmApiKeys: raw.llmApiKeys, sessionSourceTokens: raw.sessionSourceTokens, sessionSourceDevices: raw.sessionSourceDevices });
     return;
   }
 
@@ -257,12 +322,94 @@ export function saveSecrets(passwords, llmApiKeys = new Map()) {
     }
   }
 
-  const payload =
-    JSON.stringify({ version: 2, secrets, llmApiKeys: llmOut }, null, 2) + "\n";
-  atomicWrite(SPARKS_SECRETS_PATH, payload, 0o644);
+  persistStore({ secrets, llmApiKeys: llmOut, sessionSourceTokens: raw.sessionSourceTokens, sessionSourceDevices: raw.sessionSourceDevices });
   const keyCount = Object.keys(llmOut).length;
   console.log(
     `[secretsStore] Saved ${Object.keys(secrets).length} SSH password(s)` +
       (keyCount ? `, ${keyCount} LLM API key bundle(s)` : "")
   );
+}
+
+function decryptTokenMap(blobs, key) {
+  const { map } = decryptEntries(blobs, key, "session source token");
+  /** @type {Record<string, string>} */
+  const out = {};
+  for (const [id, value] of map) {
+    if (value) out[id] = value;
+  }
+  return out;
+}
+
+/** @returns {Record<string, string>} plaintext tokens keyed by attach id */
+export function loadSessionSourceTokens() {
+  try {
+    const raw = readRawStore();
+    if (!hasBlobMap(raw.sessionSourceTokens)) return {};
+    return decryptTokenMap(raw.sessionSourceTokens, resolveKey());
+  } catch (err) {
+    console.error(`[secretsStore] Failed to load session source tokens: ${err.message}`);
+    return {};
+  }
+}
+
+/**
+ * Merge session-source token slots. Omitted keys leave the stored token;
+ * empty string clears that slot. Keys are attach ids.
+ * @param {Record<string, string>} patch
+ * @returns {Record<string, string>}
+ */
+export function patchSessionSourceTokens(patch) {
+  const raw = readRawStore();
+  const key = resolveKey();
+  const current = decryptTokenMap(raw.sessionSourceTokens, key);
+  const body = patch && typeof patch === "object" ? patch : {};
+  for (const id of Object.keys(body)) {
+    if (!id) continue;
+    const value = body[id];
+    if (value == null) continue;
+    if (value === "") delete current[id];
+    else current[id] = String(value);
+  }
+  /** @type {Record<string, string>} */
+  const tokenBlobs = {};
+  for (const [id, value] of Object.entries(current)) {
+    if (value) tokenBlobs[id] = encrypt(value, key);
+  }
+  persistStore({ secrets: raw.secrets, llmApiKeys: raw.llmApiKeys, sessionSourceTokens: tokenBlobs, sessionSourceDevices: raw.sessionSourceDevices });
+  return current;
+}
+
+/** @returns {{ deviceId: string, publicKey: string, privateKeyPem: string } | null} */
+export function loadSessionSourceDevice(id) {
+  if (!id) return null;
+  try {
+    const raw = readRawStore();
+    const blob = raw.sessionSourceDevices?.[id];
+    if (typeof blob !== "string" || !blob) return null;
+    const parsed = JSON.parse(decrypt(blob, resolveKey()));
+    if (parsed?.deviceId && parsed?.publicKey && parsed?.privateKeyPem) return parsed;
+  } catch (err) {
+    console.error(`[secretsStore] Failed to load session source device for ${id}: ${err.message}`);
+  }
+  return null;
+}
+
+/** Persist OpenClaw gateway device identity for one attach id. */
+export function saveSessionSourceDevice(id, identity) {
+  if (!id || !identity) return;
+  const raw = readRawStore();
+  const devices = { ...raw.sessionSourceDevices };
+  devices[id] = encrypt(JSON.stringify(identity), resolveKey());
+  persistStore({ secrets: raw.secrets, llmApiKeys: raw.llmApiKeys, sessionSourceTokens: raw.sessionSourceTokens, sessionSourceDevices: devices });
+}
+
+/** Drop device identities whose attach ids are no longer present. */
+export function dropSessionSourceDevices(keepIds) {
+  const keep = new Set(Array.isArray(keepIds) ? keepIds : []);
+  const raw = readRawStore();
+  const devices = {};
+  for (const [id, blob] of Object.entries(raw.sessionSourceDevices || {})) {
+    if (keep.has(id) && typeof blob === "string" && blob) devices[id] = blob;
+  }
+  persistStore({ secrets: raw.secrets, llmApiKeys: raw.llmApiKeys, sessionSourceTokens: raw.sessionSourceTokens, sessionSourceDevices: devices });
 }

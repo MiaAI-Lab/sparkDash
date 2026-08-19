@@ -1,0 +1,350 @@
+/**
+ * Shared I/O helpers for OpenClaw / Hermes conversation readers.
+ * Collectors keep their own mapping and mid-turn rules.
+ */
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { HOST_PATHS, LLM_PROBE_TIMEOUT_MS } from "../config.js";
+import { isAllowedTargetHost } from "../validate.js";
+import { conventionalConfigDir } from "../sessionSourceRegistry.js";
+
+/**
+ * @param {string} url
+ * @returns {{ host: string, port: number } | null}
+ */
+export function parseBaseUrl(url) {
+  if (!url || typeof url !== "string") return null;
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname;
+    if (!host) return null;
+    const port = parsed.port
+      ? Number(parsed.port)
+      : parsed.protocol === "https:"
+        ? 443
+        : 80;
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
+    return { host, port };
+  } catch {
+    return null;
+  }
+}
+
+export function expandTilde(raw, home) {
+  const value = String(raw || "");
+  if (value === "~") return home;
+  if (value.startsWith("~/")) return path.join(home, value.slice(2));
+  return value;
+}
+
+export function pathReadable(filePath) {
+  try {
+    fs.accessSync(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function remapHostRoot(expanded, deps = {}) {
+  const hostRoot = deps.hostRoot === undefined ? HOST_PATHS.ROOT : deps.hostRoot;
+  if (!hostRoot) return expanded;
+  const isReadable = deps.isReadable ?? pathReadable;
+  if (isReadable(expanded)) return expanded;
+  if (!expanded.startsWith("/") || !isReadable(hostRoot)) return expanded;
+  const mapped = path.join(hostRoot, expanded.slice(1));
+  return isReadable(mapped) ? mapped : expanded;
+}
+
+export function resolveStateDir(attach, deps, conventional) {
+  const home = deps.homedir ?? os.homedir();
+  if (attach.mode === "state-dir") {
+    if (!attach.stateDir) return "";
+    return remapHostRoot(expandTilde(attach.stateDir, home), deps);
+  }
+  return remapHostRoot(expandTilde(String(conventional || ""), home), deps);
+}
+
+/**
+ * Resolve a source kind's conventional config directory, with host-root remap.
+ * Empty when the kind has no config dir.
+ * @param {string} source - Source kind id
+ * @param {object} deps - { conventionalConfigDir?, homedir?, hostRoot?, isReadable? }
+ * @returns {string}
+ */
+export function resolveConfigDir(source, deps = {}) {
+  const conventional = deps.conventionalConfigDir ?? conventionalConfigDir(source);
+  if (!conventional) return "";
+  const home = deps.homedir ?? os.homedir();
+  return remapHostRoot(expandTilde(String(conventional), home), deps);
+}
+
+/**
+ * Read a file, returning null on any error (missing, unreadable, etc).
+ * @param {Function} readFile
+ * @param {string} filePath
+ * @returns {Promise<string | null>}
+ */
+export async function readOptional(readFile, filePath) {
+  try {
+    return await readFile(filePath);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Sanitize a projector row to an allowlisted shape.
+ * Copies only the listed keys; forces source and midTurn defaults.
+ * @param {object} row
+ * @param {string} source
+ * @param {string[]} keys
+ * @returns {object}
+ */
+export function sanitizeProjectorRow(row, source, keys) {
+  const out = { source, midTurn: "unknown" };
+  if (!row || typeof row !== "object") return out;
+  for (const key of keys) {
+    if (row[key] !== undefined) out[key] = row[key];
+  }
+  out.source = source;
+  if (out.midTurn == null) out.midTurn = "unknown";
+  return out;
+}
+
+export function defaultReadFile(filePath) {
+  return fs.promises.readFile(filePath, "utf8");
+}
+
+export function defaultReadDir(dirPath) {
+  return fs.promises.readdir(dirPath);
+}
+
+export function defaultStat(filePath) {
+  return fs.promises.stat(filePath);
+}
+
+export function assertAllowedFetchUrl(url) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error("Invalid URL");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(`Invalid URL protocol: ${parsed.protocol}`);
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error("URL userinfo is not allowed");
+  }
+  if (!isAllowedTargetHost(parsed.hostname)) {
+    throw new Error(`Invalid or disallowed host: ${parsed.hostname}`);
+  }
+  return parsed;
+}
+
+export async function defaultFetchResponse(url, { token, cookie, method, body, extraHeaders } = {}) {
+  assertAllowedFetchUrl(url);
+  const headers = { Accept: "application/json", ...(extraHeaders ?? {}) };
+  if (cookie) headers.Cookie = cookie;
+  else if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(url, {
+    method: method ?? "GET",
+    headers,
+    body,
+    redirect: "error",
+    signal: AbortSignal.timeout(LLM_PROBE_TIMEOUT_MS),
+  });
+  if (!res.ok) {
+    const err = new Error(`HTTP ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  return res;
+}
+
+export async function defaultFetchJson(url, opts = {}) {
+  const res = await defaultFetchResponse(url, opts);
+  return res.json();
+}
+
+export function normalizeSessionList(sessions) {
+  if (Array.isArray(sessions)) return sessions;
+  if (sessions && Array.isArray(sessions.sessions)) return sessions.sessions;
+  return null;
+}
+
+const LAST_USED_FIELDS = [
+  "updatedAt",
+  "updated_at",
+  "lastActivityAt",
+  "last_activity",
+  "last_activity_at",
+  "lastMessageAt",
+  "last_message_at",
+  "mtime",
+  "modifiedAt",
+  "timestamp",
+  "createdAt",
+  "created_at",
+];
+
+/** Epoch ms from a session timestamp field. Null when absent or unparseable. */
+export function parseSessionTime(value) {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return value < 1e12 ? Math.round(value * 1000) : Math.round(value);
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) return parsed;
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && numeric > 0) return parseSessionTime(numeric);
+  }
+  return null;
+}
+
+/** Prefer updated/activity timestamps; createdAt is last-resort. Never Date.now(). */
+export function sessionLastUsedAt(session) {
+  if (!session || typeof session !== "object") return null;
+  for (const field of LAST_USED_FIELDS) {
+    const ms = parseSessionTime(session[field]);
+    if (ms != null) return ms;
+  }
+  return null;
+}
+
+const AGENT_FIELDS = ["agentId", "agent_id", "agent", "profile", "profile_name", "active_profile"];
+
+/** OpenClaw/Hermes key form `agent:<id>:…`. Empty when absent. */
+export function agentFromSessionKey(value) {
+  const match = String(value || "").match(/^agent:([^:]+):/);
+  return match ? match[1].trim() : "";
+}
+
+/** `…/profiles/<name>/…` → name. Empty when the path is not a profile home. */
+export function profileFromStateDir(dir) {
+  const parts = String(dir || "").split(/[/\\]/).filter(Boolean);
+  const index = parts.indexOf("profiles");
+  const name = index >= 0 ? parts[index + 1] : "";
+  if (!name || name === "." || name === "..") return "";
+  return name;
+}
+
+function trimmedAgent(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : "";
+}
+
+const CONTEXT_USED_FIELDS = [
+  "totalTokens",
+  "last_prompt_tokens",
+  "lastPromptTokens",
+  "input_tokens",
+  "inputTokens",
+];
+const CONTEXT_WINDOW_FIELDS = [
+  "contextTokens",
+  "context_tokens",
+  "contextWindow",
+  "context_window",
+];
+
+function positiveTokens(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.round(n);
+}
+
+function firstPositiveToken(session, fields) {
+  for (const field of fields) {
+    const n = positiveTokens(session[field]);
+    if (n != null) return n;
+  }
+  return null;
+}
+
+/**
+ * Current context fill and window from a session list row. Counts only.
+ * @returns {{ used?: number, window?: number, approx?: boolean } | null}
+ */
+export function sessionContextSize(session) {
+  if (!session || typeof session !== "object") return null;
+  const used = firstPositiveToken(session, CONTEXT_USED_FIELDS);
+  const window = firstPositiveToken(session, CONTEXT_WINDOW_FIELDS);
+  if (used == null && window == null) return null;
+  const size = {};
+  if (used != null) size.used = used;
+  if (window != null) size.window = window;
+  if (session.totalTokensFresh === false && used != null) size.approx = true;
+  return size;
+}
+
+/** Stamp contextUsed / contextWindow onto a projector row. */
+export function applySessionContext(mapped, session) {
+  const size = sessionContextSize(session);
+  if (!size) return mapped;
+  if (size.used != null) mapped.contextUsed = size.used;
+  if (size.window != null) mapped.contextWindow = size.window;
+  if (size.approx) mapped.contextApprox = true;
+  return mapped;
+}
+
+/** OpenClaw agent id or Hermes profile/agent. Never a transcript. */
+export function sessionAgent(session, fallback = "") {
+  if (session && typeof session === "object") {
+    for (const field of AGENT_FIELDS) {
+      const value = trimmedAgent(session[field]);
+      if (value) return value;
+    }
+  }
+  const fromFallback = trimmedAgent(fallback);
+  if (fromFallback) return fromFallback;
+  if (session && typeof session === "object") {
+    return agentFromSessionKey(session.key ?? session.session_key ?? session.sessionKey);
+  }
+  return "";
+}
+
+/**
+ * Stamp attach id onto row ids and an optional gateway label for grouping.
+ * @param {object[]} rows
+ * @param {{ id?: string, label?: string, url?: string }} [attach]
+ */
+export function stampAttachRows(rows, attach) {
+  const list = Array.isArray(rows) ? rows : [];
+  const attachId = typeof attach?.id === "string" ? attach.id.trim() : "";
+  if (!attachId) return list;
+  const label = typeof attach?.label === "string" ? attach.label.trim() : "";
+  const origin = parseBaseUrl(attach?.url);
+  const gateway = label || origin?.host || "";
+  return list.map((row) => {
+    const next = { ...row };
+    if (next.id != null) next.id = `${attachId}:${next.id}`;
+    if (gateway) next.gateway = gateway;
+    return next;
+  });
+}
+
+/** Short probe error for Settings. No paths, tokens, or payloads. */
+export function sanitizeProbeError(err) {
+  const code = err?.code;
+  if (code === "ENOENT") return "State files not found";
+  if (code === "EACCES" || code === "EPERM") return "Permission denied";
+  if (code === "ENOTFOUND") return "Host not found";
+  if (code === "ECONNREFUSED") return "Connection refused";
+  if (code === "ECONNRESET") return "Connection reset";
+  if (code === "ETIMEDOUT" || err?.name === "TimeoutError" || err?.name === "AbortError") {
+    return "Timed out";
+  }
+  const status = Number(err?.status);
+  if (status === 401 || status === 403) return `HTTP ${status} (auth failed)`;
+  if (Number.isInteger(status) && status >= 400) return `HTTP ${status}`;
+  const raw = err?.message ? String(err.message) : "Request failed";
+  if (/pairing required/i.test(raw)) return "Pairing required — approve this device in OpenClaw";
+  if (/missing scope/i.test(raw)) return "Missing operator.read scope";
+  if (/Unexpected token|^JSON|not valid JSON/i.test(raw)) return "Not a JSON session list";
+  if (/^HTTP 401\b/.test(raw) || /^HTTP 403\b/.test(raw)) return `${raw.split(/\s+/).slice(0, 2).join(" ")} (auth failed)`;
+  const http = raw.match(/^HTTP \d+/);
+  if (http) return http[0];
+  return "Request failed";
+}

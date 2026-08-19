@@ -741,6 +741,277 @@ input[type="checkbox"] {
   color: var(--color-accent);
 }
 
+
+/* ─── Occupancy (bound chats on an LLM port) ───────────── */
+.llm-operate {
+  display: grid;
+  gap: 16px;
+}
+@media (min-width: 768px) {
+  .llm-operate:has(.occupancy) {
+    grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+    gap: 28px;
+    align-items: start;
+  }
+}
+.occupancy {
+  min-width: 0;
+}
+.occupancy-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+}
+.occupancy-head-count {
+  font-size: 18px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+  line-height: 1;
+}
+.occupancy-head-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-muted-strong);
+}
+.occupancy-head-add {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  color: var(--color-muted);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.occupancy-head-add:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-accent);
+}
+.occupancy-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.occupancy-empty p {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--color-muted);
+}
+.occupancy-add-harness {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px dashed var(--color-border);
+  background: transparent;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--color-muted);
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.occupancy-add-harness:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+.occupancy-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: min(28rem, 58vh);
+  overflow: auto;
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+.occupancy-lane {
+  min-width: 0;
+}
+.occupancy-lane-label {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  color: var(--color-muted);
+}
+.occupancy-lane-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.occupancy-row {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px 12px;
+  min-height: 32px;
+  padding: 4px 4px 4px 0;
+  border-radius: 8px;
+}
+.occupancy-row:hover {
+  background: var(--color-surface-hover);
+}
+.occupancy-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-muted);
+}
+.occupancy-row.is-generating .occupancy-dot {
+  background: var(--color-success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-success) 22%, transparent);
+  animation: occupancy-live 1.8s ease-out infinite;
+}
+.occupancy-row.is-recent .occupancy-dot {
+  background: var(--color-success);
+}
+.occupancy-row.is-warm .occupancy-dot {
+  background: var(--color-accent);
+}
+.occupancy-row.is-idle .occupancy-dot {
+  background: var(--color-muted);
+}
+.occupancy-handle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--color-text);
+}
+.occupancy-ctx {
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-muted);
+  white-space: nowrap;
+  justify-self: end;
+}
+.occupancy-state {
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-muted-strong);
+  white-space: nowrap;
+  justify-self: end;
+}
+.occupancy-row.is-generating .occupancy-state {
+  color: var(--color-success);
+}
+.occupancy-row.is-recent .occupancy-state {
+  color: var(--color-success);
+}
+.occupancy-row.is-warm .occupancy-state {
+  color: var(--color-accent);
+}
+.occupancy-row.is-idle .occupancy-state {
+  color: var(--color-muted);
+}
+
+@keyframes occupancy-live {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-success) 22%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--color-success) 8%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .occupancy-row.is-generating .occupancy-dot {
+    animation: none;
+  }
+}
+
+@media (min-width: 768px) {
+  .occupancy-list {
+    max-height: min(32rem, 64vh);
+  }
+  .occupancy-row {
+    min-height: 36px;
+    padding: 6px 8px 6px 4px;
+  }
+  .occupancy-handle {
+    font-size: 14px;
+  }
+}
+
+[data-density="compact"] .occupancy-head-count {
+  font-size: 15px;
+}
+[data-density="compact"] .occupancy-row {
+  min-height: 26px;
+  gap: 8px;
+  padding: 2px 4px 2px 0;
+}
+[data-density="compact"] .occupancy-handle {
+  font-size: 12px;
+}
+
+.session-health {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.session-health-body {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+}
+.session-health-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 50px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: var(--color-surface-elevated);
+  color: var(--color-muted-strong);
+  border: 1px solid var(--color-border);
+}
+.session-health-pill.is-ok {
+  color: var(--color-success);
+  border-color: color-mix(in srgb, var(--color-success) 35%, var(--color-border));
+}
+.session-health-pill.is-danger {
+  color: var(--color-danger);
+  border-color: color-mix(in srgb, var(--color-danger) 35%, var(--color-border));
+}
+.session-health-metric {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.session-health-k {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+.session-health-v {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.session-health-detail {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+
 /* Endpoint exposure / auth posture (#17) */
 .llm-posture {
   display: inline-flex;
@@ -768,6 +1039,7 @@ input[type="checkbox"] {
 }
 .llm-posture--danger {
   background: color-mix(in srgb, var(--color-danger) 16%, transparent);
+
   color: var(--color-danger);
 }
 

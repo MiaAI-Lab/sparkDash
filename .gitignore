@@ -4,6 +4,7 @@ dist/
 sparks.json
 config/sparks-secrets.json
 config/.secrets-key
+config/session-sources.json
 config/bench-history.json
 config/bench-active.json
 config/showcase-history.json

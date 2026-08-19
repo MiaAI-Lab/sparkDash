@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { fetchSettings, updateSettings } from "../api/client";
 import type { Settings } from "../api/types";
+import { Toggle } from "./SessionSourceFields";
 import { useModalPresence } from "../hooks/useModalPresence";
 import packageJson from "../../package.json";
 
@@ -95,14 +96,13 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="settings-panel w-full max-w-sm p-6">
+      <div className="settings-panel w-full max-w-md max-h-[90vh] overflow-y-auto p-6">
         <h2 className="mb-4 text-sm font-semibold text-text-strong">Settings</h2>
 
         {loading && <p className="text-xs text-muted">Loading…</p>}
 
         {settings && !loading && (
           <div className="space-y-4">
-            {/* Poll interval */}
             <div>
               <label className="mb-2 block text-xs text-muted">Poll interval</label>
               <div className="flex gap-2">
@@ -123,7 +123,6 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
               </div>
             </div>
 
-            {/* Default LLM port */}
             <div>
               <label className="mb-1 block text-xs text-muted">Default LLM port</label>
               <input
@@ -142,48 +141,24 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
               </p>
             </div>
 
-            {/* Auto-hide offline */}
             <div>
               <label className="flex items-center gap-3 text-xs text-muted">
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={settings.autoHideOffline}
+                <Toggle
+                  on={settings.autoHideOffline}
                   onClick={() => update({ autoHideOffline: !settings.autoHideOffline })}
-                  className={`toggle-track relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
-                    settings.autoHideOffline ? "is-on" : ""
-                  }`}
-                >
-                  <span
-                    className={`toggle-dot inline-block h-4 w-4 transform rounded-full shadow transition-transform ${
-                      settings.autoHideOffline ? "translate-x-4" : "translate-x-0"
-                    }`}
-                  />
-                </button>
+                />
                 Auto-hide offline Sparks on Overview
               </label>
             </div>
 
-            {/* Benchmark debug traces */}
             <div>
               <label className="flex items-start gap-3 text-xs text-muted">
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={Boolean(settings.benchDebugTraces)}
+                <Toggle
+                  on={Boolean(settings.benchDebugTraces)}
                   onClick={() =>
                     update({ benchDebugTraces: !settings.benchDebugTraces })
                   }
-                  className={`toggle-track relative mt-0.5 inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
-                    settings.benchDebugTraces ? "is-on" : ""
-                  }`}
-                >
-                  <span
-                    className={`toggle-dot inline-block h-4 w-4 transform rounded-full shadow transition-transform ${
-                      settings.benchDebugTraces ? "translate-x-4" : "translate-x-0"
-                    }`}
-                  />
-                </button>
+                />
                 <span>
                   <span className="block text-text">Enable debug traces for Benchmark runs</span>
                   <span className="mt-0.5 block text-[10px] leading-snug text-muted">
@@ -194,7 +169,6 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
               </label>
             </div>
 
-            {/* Temperature unit */}
             <div>
               <label className="text-xs text-muted">Temperature unit</label>
               <div className="mt-1.5 flex gap-2">
@@ -223,28 +197,16 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
               </div>
             </div>
 
-            {/* Density */}
             <div>
               <label className="flex items-start gap-3 text-xs text-muted">
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={settings.density === "compact"}
+                <Toggle
+                  on={settings.density === "compact"}
                   onClick={() =>
                     update({
                       density: settings.density === "compact" ? "comfortable" : "compact",
                     })
                   }
-                  className={`toggle-track relative mt-0.5 inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
-                    settings.density === "compact" ? "is-on" : ""
-                  }`}
-                >
-                  <span
-                    className={`toggle-dot inline-block h-4 w-4 transform rounded-full shadow transition-transform ${
-                      settings.density === "compact" ? "translate-x-4" : "translate-x-0"
-                    }`}
-                  />
-                </button>
+                />
                 <span>
                   <span className="block text-text">Compact UI</span>
                   <span className="mt-0.5 block text-[10px] leading-snug text-muted">
@@ -256,7 +218,6 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
           </div>
         )}
 
-        {/* Links */}
         <div className="mt-5 flex items-center gap-3 border-t border-border pt-3">
           <span className="text-[10px] text-muted">sparkDash v{packageJson.version}</span>
           <span className="text-border-strong text-[10px]">·</span>
@@ -293,7 +254,7 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
           </button>
           <button
             type="button"
-            onClick={handleSave}
+            onClick={() => void handleSave()}
             disabled={saving || !settings || !dirty}
             className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50"
           >

@@ -9,7 +9,7 @@
     "dev:client": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "test": "node --test server/collectors/__tests__/*.test.js server/sparks/__tests__/*.test.js",
+    "test": "node --test server/collectors/__tests__/*.test.js server/sparks/__tests__/*.test.js server/__tests__/*.test.js scripts/opencode-occupancy-helper/index.test.js",
     "preview": "vite preview",
     "start": "node server/index.js",
     "docker:up": "docker compose up -d",
