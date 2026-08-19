@@ -206,7 +206,8 @@ function extractDeltaPieces(choice) {
 
 /**
  * Apply per-model thinking flags so reasoning models don't 400.
- * MiniMax-M3 needs `thinking_mode`; most others use `enable_thinking`.
+ * MiniMax-M3 needs `thinking_mode`; DeepSeek V4 needs `thinking`;
+ * most others use `enable_thinking`.
  *
  * @param {Record<string, unknown>} body
  * @param {string | null | undefined} modelId
@@ -226,6 +227,10 @@ export function applyThinkingFlags(body, modelId, think = true) {
   if (id.includes("minimax") || /(^|[^a-z])m3([^a-z]|$)/.test(id)) {
     ctk.thinking_mode = think ? "enabled" : "disabled";
   }
+  // DeepSeek V4 templates use `thinking` and ignore enable_thinking
+  if (id.includes("deepseek")) {
+    ctk.thinking = think;
+  }
   body.chat_template_kwargs = ctk;
   return body;
 }
@@ -240,6 +245,7 @@ export function stripThinkingFlags(body) {
     const ctk = { ...body.chat_template_kwargs };
     delete ctk.enable_thinking;
     delete ctk.thinking_mode;
+    delete ctk.thinking;
     if (Object.keys(ctk).length) body.chat_template_kwargs = ctk;
     else delete body.chat_template_kwargs;
   }
