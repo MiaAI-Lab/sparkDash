@@ -123,14 +123,34 @@ test("T6: lastUsedAt uses max valid timestamp", () => {
   assert.equal(rows[0].lastUsedAt, Date.parse("2026-08-18T18:10:51.196Z"));
 });
 
-// T7: byte-cap truncation fallback (no timestamps → null lastUsedAt)
+// T7: byte-cap truncation fallback (no timestamps → null lastUsedAt, mtime fallback)
 test("T7: truncated text with no timestamps produces null lastUsedAt", () => {
   const jsonl = '{ type: "session", session: { id: "01a01604-537f'; // torn JSON
   const parsed = parseOmpSessionJsonl(jsonl, "2026-08-18T17-56-17-407Z_01a01604-537f-7000-90bb-3cbf3f8af435.jsonl");
-  // No valid lines parsed → returns null (no session id from events, filename fallback)
-  // Actually filename has UUID so it should produce a session with null lastUsedAt
   assert.ok(parsed);
   assert.equal(parsed.lastUsedAt, null);
+});
+
+test("T7b: mtime fallback when no valid timestamps in JSONL", () => {
+  const jsonl = [
+    jsonlLine({ type: "session", session: { id: "01a01604-537f-7000-90bb-3cbf3f8af435" } }),
+    jsonlLine({ type: "title", title: { title: "Test" } }),
+    jsonlLine({ type: "model_change", model_change: { model: "john-ofus/test" } }),
+  ].join("\n");
+  const mtime = 1723990000000;
+  const parsed = parseOmpSessionJsonl(jsonl, "test.jsonl", mtime);
+  assert.equal(parsed.lastUsedAt, mtime);
+});
+
+test("T7c: mtime does not override valid timestamps", () => {
+  const jsonl = [
+    jsonlLine({ type: "session", session: { id: "01a01604-537f-7000-90bb-3cbf3f8af435" }, timestamp: "2026-08-18T18:00:00.000Z" }),
+    jsonlLine({ type: "title", title: { title: "Test" }, timestamp: "2026-08-18T18:00:00.000Z" }),
+    jsonlLine({ type: "model_change", model_change: { model: "john-ofus/test" }, timestamp: "2026-08-18T18:00:00.000Z" }),
+  ].join("\n");
+  const mtime = 1000000000000;
+  const parsed = parseOmpSessionJsonl(jsonl, "test.jsonl", mtime);
+  assert.equal(parsed.lastUsedAt, Date.parse("2026-08-18T18:00:00.000Z"));
 });
 
 // T8: missing root hides lane
@@ -188,8 +208,6 @@ test("T9: url-mode attach degrades to local collection", async () => {
     }
   );
   assert.ok(Array.isArray(rows));
-  // URL mode resolves through resolveStateDir to conventional local path
-  // May or may not find files depending on accessSync behavior, but must not crash
 });
 
 // T10: provider yaml extractor purity
@@ -276,8 +294,24 @@ test("T13: occupancyCollectors and occupancyDiagnosers expose omp", async () => 
   assert.equal(typeof diagnosers.omp, "function");
 });
 
-// T14: auto-migrate is a frontend concern — tested via component tests
-// (placeholder: the UrlModeMigrator component is verified in frontend tests)
+test("T4c: no session ID and no UUID in filename returns null", () => {
+  const jsonl = [
+    jsonlLine({ type: "title", title: { title: "Test" }, timestamp: "2026-08-18T17:00:00.000Z" }),
+    jsonlLine({ type: "model_change", model_change: { model: "john-ofus/test" }, timestamp: "2026-08-18T18:00:00.000Z" }),
+  ].join("\n");
+  const parsed = parseOmpSessionJsonl(jsonl, "plain.jsonl");
+  assert.equal(parsed, null);
+});
+
+test("T4d: shortMatch fallback extracts first 8+ alnum chars from filename", () => {
+  const jsonl = [
+    jsonlLine({ type: "title", title: { title: "Test" }, timestamp: "2026-08-18T17:00:00.000Z" }),
+    jsonlLine({ type: "model_change", model_change: { model: "john-ofus/test" }, timestamp: "2026-08-18T18:00:00.000Z" }),
+  ].join("\n");
+  const parsed = parseOmpSessionJsonl(jsonl, "my-session-name.jsonl");
+  assert.ok(parsed);
+  assert.equal(parsed.id, "my-session-name");
+});
 
 // T15: empty sessions directory
 test("T15: empty sessions dir returns found=0, missingState=false", async () => {
@@ -376,4 +410,66 @@ test("collect never throws on filesystem errors", async () => {
     }
   );
   assert.deepEqual(rows, []);
+});
+
+test("partial file read failure: one bad file does not abort the sweep", async () => {
+  const files = {
+    "/tmp/omp/agent/sessions/good.jsonl": sessionJsonl(),
+    "/tmp/omp/agent/sessions/bad.jsonl": null,
+  };
+  const dirs = { "/tmp/omp/agent/sessions": ["good.jsonl", "bad.jsonl"] };
+  const stats = {
+    "/tmp/omp/agent/sessions": { isDirectory: () => true, isFile: () => false, mtimeMs: 0 },
+    "/tmp/omp/agent/sessions/good.jsonl": { isDirectory: () => false, isFile: () => true, mtimeMs: 2000 },
+    "/tmp/omp/agent/sessions/bad.jsonl": { isDirectory: () => false, isFile: () => true, mtimeMs: 1000 },
+  };
+  const rows = await collectOmpSessions(
+    { enabled: true, mode: "local", id: "omp" },
+    {
+      conventionalStateDir: "/tmp/omp",
+      conventionalConfigDir: "/tmp/omp/agent",
+      realpath: (p) => p,
+      readFile: async (p) => {
+        if (p === "/tmp/omp/agent/sessions/bad.jsonl") {
+          const e = new Error("EIO"); e.code = "EIO"; throw e;
+        }
+        return files[p];
+      },
+      readDir: async (p) => dirs[p] ?? (() => { const e = new Error("ENOENT"); e.code = "ENOENT"; throw e; })(),
+      stat: async (p) => stats[p] ?? (() => { const e = new Error("ENOENT"); e.code = "ENOENT"; throw e; })(),
+    }
+  );
+  assert.ok(rows.length >= 1);
+  assert.equal(rows[0].handle, "Wrap up task");
+});
+
+test("found count reflects successfully parsed sessions, not files attempted", async () => {
+  const files = {
+    "/tmp/omp/agent/sessions/good.jsonl": sessionJsonl(),
+    "/tmp/omp/agent/sessions/bad.jsonl": null,
+  };
+  const dirs = { "/tmp/omp/agent/sessions": ["good.jsonl", "bad.jsonl"] };
+  const stats = {
+    "/tmp/omp/agent/sessions": { isDirectory: () => true, isFile: () => false, mtimeMs: 0 },
+    "/tmp/omp/agent/sessions/good.jsonl": { isDirectory: () => false, isFile: () => true, mtimeMs: 2000 },
+    "/tmp/omp/agent/sessions/bad.jsonl": { isDirectory: () => false, isFile: () => true, mtimeMs: 1000 },
+  };
+  const diag = await diagnoseOmpSessions(
+    { enabled: true, mode: "local", id: "omp" },
+    {
+      conventionalStateDir: "/tmp/omp",
+      conventionalConfigDir: "/tmp/omp/agent",
+      realpath: (p) => p,
+      readFile: async (p) => {
+        if (p === "/tmp/omp/agent/sessions/bad.jsonl") {
+          const e = new Error("EIO"); e.code = "EIO"; throw e;
+        }
+        return files[p];
+      },
+      readDir: async (p) => dirs[p] ?? (() => { const e = new Error("ENOENT"); e.code = "ENOENT"; throw e; })(),
+      stat: async (p) => stats[p] ?? (() => { const e = new Error("ENOENT"); e.code = "ENOENT"; throw e; })(),
+    }
+  );
+  assert.equal(diag.status, "ok");
+  assert.equal(diag.found, 1);
 });

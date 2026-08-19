@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { SessionSourceAttach, SessionSources, SessionSourcesHealth } from "../api/types";
 import { SessionSourceFields } from "./SessionSourceFields";
 
@@ -147,14 +147,16 @@ function UrlModeMigrator({
   sources: SessionSources;
   onPatch: (kind: string, id: string, patch: Partial<SessionSourceAttach>) => void;
 }) {
+  const onPatchRef = useRef(onPatch);
+  onPatchRef.current = onPatch;
   useEffect(() => {
     for (const kind of sourceKinds(sources)) {
       for (const src of sources[kind]) {
         if (src.mode === "url" && !src.urlPlaceholder) {
-          onPatch(kind, src.id, { mode: "local" });
+          onPatchRef.current(kind, src.id, { mode: "local" });
         }
       }
     }
-  }, [sources, onPatch]);
+  }, [sources]);
   return null;
 }

@@ -118,7 +118,7 @@ export function extractOmpProviders(text) {
  * @param {string} fileName
  * @returns {{ id: string, handle: string, model: string, lastUsedAt: number | null } | null}
  */
-export function parseOmpSessionJsonl(text, fileName) {
+export function parseOmpSessionJsonl(text, fileName, fileMtime) {
   const src = String(text ?? "");
   if (!src) return null;
   let title = "";
@@ -156,6 +156,7 @@ export function parseOmpSessionJsonl(text, fileName) {
   if (!sessionId) sessionId = uuidFromFileName(fileName);
   if (!sessionId) return null;
   if (!title) title = `omp-${sessionId.slice(0, 8).toLowerCase()}`;
+  if (lastUsedAt == null && typeof fileMtime === "number") lastUsedAt = fileMtime;
   return { id: sessionId, handle: title, model, lastUsedAt };
 }
 
@@ -219,28 +220,37 @@ export async function loadOmpOccupancy(attach, deps = {}) {
   );
   const configDir = resolveConfigDir(deps);
   const sessionsDir = stateDir ? path.join(stateDir, SESSIONS_SUBDIR) : "";
-  if (!sessionsDir || !pathReadableDir(sessionsDir, deps)) {
+  if (!sessionsDir) {
     return { missingState: true, invalidHelper: false, found: 0, rows: [] };
   }
   const readFile = deps.readFile ?? defaultReadFile;
   const readDir = deps.readDir ?? defaultReadDir;
   const stat = deps.stat ?? defaultStat;
+  try {
+    const info = await stat(sessionsDir);
+    if (!info.isDirectory()) {
+      return { missingState: true, invalidHelper: false, found: 0, rows: [] };
+    }
+  } catch {
+    return { missingState: true, invalidHelper: false, found: 0, rows: [] };
+  }
   const providers = await loadProviders(configDir, readFile);
   const files = await scanOmpSessions(sessionsDir, deps, readDir, stat);
-  const parsed = [];
-  for (const filePath of files) {
-    try {
-      const raw = await readFile(filePath);
-      const text = String(raw).slice(0, OMP_SCAN_BYTE_CAP);
-      const session = parseOmpSessionJsonl(text, path.basename(filePath));
-      if (session) parsed.push(session);
-    } catch {
-      // One bad file never aborts the sweep. Live jsonl appends may torn-truncate.
-      continue;
-    }
-  }
+  const readResults = await Promise.all(
+    files.map(async (fileEntry) => {
+      try {
+        const raw = await readFile(fileEntry.path);
+        const text = String(raw).slice(0, OMP_SCAN_BYTE_CAP);
+        return parseOmpSessionJsonl(text, path.basename(fileEntry.path), fileEntry.mtime);
+      } catch {
+        // One bad file never aborts the sweep. Live jsonl appends may torn-truncate.
+        return null;
+      }
+    })
+  );
+  const parsed = readResults.filter((s) => s != null);
   const rows = stampAttachRows(mapOmpSessions(parsed, providers), attach).map(sanitizeOmpRow);
-  return { missingState: false, invalidHelper: false, found: files.length, rows };
+  return { missingState: false, invalidHelper: false, found: parsed.length, rows };
 }
 
 export async function collectOmpSessions(attach, deps = {}) {
@@ -304,16 +314,6 @@ async function readOptional(readFile, filePath) {
   }
 }
 
-function pathReadableDir(dirPath, deps) {
-  const stat = deps.stat ?? defaultStat;
-  try {
-    fs.accessSync(dirPath);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /**
  * Recursively discover .jsonl files under sessionsDir up to OMP_SCAN_MAX_DEPTH.
  * Symlink-loop guard via visited realpaths. Sort newest-first by mtime.
@@ -323,11 +323,12 @@ function pathReadableDir(dirPath, deps) {
 async function scanOmpSessions(sessionsDir, deps, readDir, stat) {
   const results = [];
   const visited = new Set();
+  const realpath = deps.realpath ?? ((p) => fs.realpathSync(p));
   async function walk(dir, depth) {
     if (depth > OMP_SCAN_MAX_DEPTH) return;
     let real;
     try {
-      real = fs.realpathSync(dir);
+      real = realpath(dir);
     } catch {
       return;
     }
@@ -340,6 +341,7 @@ async function scanOmpSessions(sessionsDir, deps, readDir, stat) {
       return;
     }
     for (const entry of entries) {
+      if (!entry || entry.startsWith(".")) continue;
       const fullPath = path.join(dir, entry);
       let info;
       try {
@@ -356,5 +358,5 @@ async function scanOmpSessions(sessionsDir, deps, readDir, stat) {
   }
   await walk(sessionsDir, 0);
   results.sort((a, b) => b.mtime - a.mtime);
-  return results.slice(0, OMP_MAX_SESSION_FILES).map((r) => r.path);
+  return results.slice(0, OMP_MAX_SESSION_FILES);
 }
