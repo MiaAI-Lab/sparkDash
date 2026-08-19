@@ -10,9 +10,9 @@ import {
 import type { DecodeBenchJob } from "../../api/types";
 import { useModalPresence } from "../../hooks/useModalPresence";
 
-const CONCURRENCY_OPTIONS = [1, 2, 3, 4, 6, 8, 16, 32] as const;
+const CONCURRENCY_OPTIONS = [1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 24, 32] as const;
 const DEFAULT_SELECTED = [1, 2];
-const DEFAULT_MAX_TOKENS = 500;
+const DEFAULT_MAX_TOKENS = 512;
 
 interface BenchmarkDialogProps {
   open: boolean;
@@ -74,10 +74,6 @@ function formatTtft(ms: number): string {
   return `${Math.round(ms)}ms`;
 }
 
-function serverTps(r: DecodeBenchJob["results"][number]): number {
-  return r.serverGenerationTps != null ? r.serverGenerationTps : r.aggregateDecodeTps;
-}
-
 /**
  * Build a plain-text benchmark summary for the clipboard.
  * Format: "<model> | decode tok/s results:" header, then one line per
@@ -92,14 +88,8 @@ function buildShareText(job: DecodeBenchJob, modelId: string | null): string {
     .sort((a, b) => a.concurrency - b.concurrency)
     .map((r) => {
       if (r.totalDecodeTokens > 0 || r.totalCompletionTokens > 0) {
-        const srv = serverTps(r);
-        const peak =
-          r.serverGenerationTpsMax != null &&
-          r.serverGenerationTps != null &&
-          r.serverGenerationTpsMax > r.serverGenerationTps + 0.5
-            ? ` (peak ${r.serverGenerationTpsMax.toFixed(0)})`
-            : "";
-        return `×${r.concurrency}  decode ${r.meanDecodeTps.toFixed(0)} tok/s  server ${srv.toFixed(0)} tok/s${peak}  · TTFT ${formatTtft(r.medianTtftMs)}`;
+        const agg = r.aggregateDecodeTps > 0 ? r.aggregateDecodeTps : r.meanDecodeTps;
+        return `×${r.concurrency}  ${agg.toFixed(0)} agg  ${r.meanDecodeTps.toFixed(0)}/str  · TTFT ${formatTtft(r.medianTtftMs)}`;
       }
       return `×${r.concurrency}  failed${r.error ? ` — ${r.error}` : ""}`;
     });
@@ -108,18 +98,6 @@ function buildShareText(job: DecodeBenchJob, modelId: string | null): string {
 }
 
 function ResultRow({ r }: { r: DecodeBenchJob["results"][number] }) {
-  const server = serverTps(r);
-  const peak =
-    r.serverGenerationTpsMax != null &&
-    r.serverGenerationTps != null &&
-    r.serverGenerationTpsMax > r.serverGenerationTps + 0.5
-      ? r.serverGenerationTpsMax
-      : null;
-  const decodeRange =
-    r.minDecodeTps !== r.maxDecodeTps
-      ? `${r.minDecodeTps.toFixed(0)}–${r.maxDecodeTps.toFixed(0)}`
-      : null;
-
   return (
     <article className="bench-result-row" title={r.error || undefined}>
       <div className="bench-result-row__load">
@@ -142,24 +120,18 @@ function ResultRow({ r }: { r: DecodeBenchJob["results"][number] }) {
 
       <div className="bench-result-row__speeds">
         <div className="bench-result-row__metric">
-          <span className="bench-result-row__label">Server</span>
+          <span className="bench-result-row__label">Aggregate</span>
           <span className="bench-result-row__value bench-result-row__value--accent">
-            {server.toFixed(1)}
+            {(r.aggregateDecodeTps > 0 ? r.aggregateDecodeTps : r.meanDecodeTps).toFixed(1)}
             <span className="bench-result-row__unit">tok/s</span>
           </span>
-          {peak != null && (
-            <span className="bench-result-row__sub">peak {peak.toFixed(0)}</span>
-          )}
         </div>
-        <div className="bench-result-row__metric bench-result-row__metric--decode">
-          <span className="bench-result-row__label">Decode</span>
+        <div className="bench-result-row__metric">
+          <span className="bench-result-row__label">Stream</span>
           <span className="bench-result-row__value">
             {r.meanDecodeTps.toFixed(1)}
             <span className="bench-result-row__unit">tok/s</span>
           </span>
-          {decodeRange != null && (
-            <span className="bench-result-row__sub">{decodeRange}</span>
-          )}
         </div>
       </div>
     </article>
@@ -213,15 +185,52 @@ export function BenchmarkDialog({
         void getDecodeBench(sparkId, benchId)
           .then((j) => {
             setJob(j);
+            setError(null);
             if (j.status !== "running") stopPoll();
           })
           .catch((err: Error) => {
-            setError(err.message);
-            stopPoll();
+            // Server --watch / restart can drop the in-memory job for a moment.
+            // Recover via list, or show a clear interrupt message instead of a bare 404.
+            void listDecodeBench(sparkId, llmPort)
+              .then((data) => {
+                if (data.active) {
+                  setJob(data.active);
+                  setError(null);
+                  if (data.active.benchId !== benchId) {
+                    startPolling(data.active.benchId);
+                  } else if (data.active.status !== "running") {
+                    stopPoll();
+                  }
+                  return;
+                }
+                const finished =
+                  data.history?.find((j) => j.benchId === benchId) ||
+                  (data.last?.benchId === benchId ? data.last : null);
+                if (finished) {
+                  setJob(finished);
+                  setError(null);
+                  stopPoll();
+                  return;
+                }
+                setError(
+                  err.message === "Benchmark not found"
+                    ? "Benchmark interrupted — server restarted during the run"
+                    : err.message
+                );
+                stopPoll();
+              })
+              .catch(() => {
+                setError(
+                  err.message === "Benchmark not found"
+                    ? "Benchmark interrupted — server restarted during the run"
+                    : err.message
+                );
+                stopPoll();
+              });
           });
       }, 800);
     },
-    [sparkId, stopPoll]
+    [sparkId, llmPort, stopPoll]
   );
 
   useEffect(() => {
@@ -452,7 +461,9 @@ export function BenchmarkDialog({
                   <label htmlFor="bench-max-tokens" className="bench-sheet__section-title">
                     Max tokens / stream
                   </label>
-                  <p className="bench-sheet__hint">Default 500 · range 64–2048</p>
+                  <p className="bench-sheet__hint">
+                    Default 512 · range 64–2048 · Showcase structural, temp 0, thinking off
+                  </p>
                 </div>
                 <input
                   id="bench-max-tokens"
@@ -532,8 +543,8 @@ export function BenchmarkDialog({
                   <div className="bench-results__head" aria-hidden="true">
                     <span>Load</span>
                     <span className="bench-results__head-speeds">
-                      <span>Server</span>
-                      <span>Decode</span>
+                      <span>Aggregate</span>
+                      <span>Stream</span>
                     </span>
                   </div>
                   {job.results.map((r) => (
@@ -544,8 +555,8 @@ export function BenchmarkDialog({
 
               {job.results.length > 0 && (
                 <p className="bench-legend">
-                  <strong>Server</strong> — engine counters.{" "}
-                  <strong>Decode</strong> — client tok/s after first token.
+                  <strong>Aggregate</strong> — total decode tok/s across all concurrent streams.{" "}
+                  <strong>Stream</strong> — per-stream average decode.
                 </p>
               )}
             </section>

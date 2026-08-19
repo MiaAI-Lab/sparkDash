@@ -7,9 +7,9 @@ services:
         - linux/arm64
     container_name: sparkDash-dev
     restart: unless-stopped
-    ports:
-      - "5555:5555"   # Express API
-      - "5173:5173"   # Vite HMR frontend
+    # Host network: Vite :5173 + API :5555 bind on the host; local LLM
+    # probes reach 127.0.0.1-bound servers (ds4-server / start.sh default).
+    network_mode: host
     volumes:
       # Full source — server --watch + Vite HMR, no rebuild for code edits
       - .:/app
@@ -22,20 +22,17 @@ services:
       - /usr/lib/aarch64-linux-gnu/libnvidia-ml.so.1:/usr/lib/aarch64-linux-gnu/libnvidia-ml.so.1:ro
       # Full config dir (sparks.json, secrets, gpu-memory)
       - ./config:/app/config
+      # Remote Sparks with SSH key auth — see docker-compose.yml. Uncomment:
+      # - ${HOME}/.ssh/id_ed25519:/root/.ssh/id_ed25519:ro
     privileged: true
     # Share host PID namespace so nvidia-smi compute-apps sees GPU processes
     # (otherwise local VRAM falls back to minute-old config/gpu-memory.json).
     pid: host
     environment:
+      - BIND_HOST=0.0.0.0
       - PORT=5555
       - LLM_PORT=8888
       - NODE_ENV=development
       - HOST_PROC_PATH=/host/proc
       - HOST_SYS_PATH=/host/sys
       - HOST_ROOT_PATH=/host/root
-    networks:
-      - sparkdash-net
-
-networks:
-  sparkdash-net:
-    driver: bridge

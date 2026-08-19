@@ -325,23 +325,23 @@ test("disallowed URL host is rejected", () => {
 test("v1 sparks-secrets.json passwords still load after session-token field is added", () => {
   resetFiles();
   saveSecrets(new Map([["spark-a", "ssh-password-a"]]));
-  const v1 = JSON.parse(fs.readFileSync(secretsPath, "utf8"));
-  assert.equal(v1.version, 1);
-  assert.ok(v1.secrets["spark-a"]);
-  assert.equal(v1.sessionSourceTokens, undefined);
-  assert.equal(loadSecrets().get("spark-a"), "ssh-password-a");
+  const v2 = JSON.parse(fs.readFileSync(secretsPath, "utf8"));
+  assert.equal(v2.version, 2);
+  assert.ok(v2.secrets["spark-a"]);
+  assert.equal(v2.sessionSourceTokens, undefined);
+  assert.equal(loadSecrets().passwords.get("spark-a"), "ssh-password-a");
 
   updateSessionSources({ hermes: { token: "hermes-session-token" } });
-  assert.equal(loadSecrets().get("spark-a"), "ssh-password-a");
+  assert.equal(loadSecrets().passwords.get("spark-a"), "ssh-password-a");
   assert.equal(first(getPublicSessionSources().hermes).hasToken, true);
 
   saveSecrets(new Map([["spark-a", "ssh-password-a"], ["spark-b", "ssh-password-b"]]));
-  assert.equal(loadSecrets().get("spark-a"), "ssh-password-a");
-  assert.equal(loadSecrets().get("spark-b"), "ssh-password-b");
+  assert.equal(loadSecrets().passwords.get("spark-a"), "ssh-password-a");
+  assert.equal(loadSecrets().passwords.get("spark-b"), "ssh-password-b");
   assert.equal(first(getPublicSessionSources().hermes).hasToken, true);
 
   saveSecrets(new Map());
-  assert.equal(loadSecrets().size, 0);
+  assert.equal(loadSecrets().passwords.size, 0);
   assert.equal(first(getPublicSessionSources().hermes).hasToken, true);
 });
 

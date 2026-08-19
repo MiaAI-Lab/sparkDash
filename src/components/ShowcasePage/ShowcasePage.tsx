@@ -1,53 +1,33 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   cancelShowcase,
+  clearShowcaseHistory,
   fetchSparkMetrics,
   fetchSparks,
   getShowcase,
+  listShowcase,
   startShowcase,
 } from "../../api/client";
-import type { ShowcaseSessionState, SparkConfig } from "../../api/types";
+import type {
+  ShowcaseHistorySummary,
+  ShowcaseSessionState,
+  SparkConfig,
+} from "../../api/types";
 import { isLlmMonitoringEnabled } from "../../api/sparkRole";
 import { BoltIcon } from "../ui/icons";
 import { TerminalCard } from "./TerminalCard";
-
-const DEFAULT_PROMPTS = [
-  "Explain NVIDIA GB10 unified memory in plain language. Write a short essay of a few paragraphs.",
-  "Emit only a JSON array of fake GPU metrics rows. Each object needs host, gpuIndex, utilPct, tempC, powerW, memUsedMb. Invent at least 12 rows. No markdown.",
-  "Emit only an HTML FAQ about CUDA and vLLM. Use <h2> and <p> for several Q&A pairs. No markdown fences.",
-  "Write a short sci-fi scene set in a server room at 3 a.m. Keep it vivid and under 400 words.",
-  "List 20 shell one-liners useful for NVIDIA Sparks / DGX. Commands only, one per line, no commentary.",
-  "Emit a Markdown comparison table: llama.cpp vs vLLM vs SGLang. Columns: feature, llama.cpp, vLLM, SGLang. Fill many rows.",
-  "Stream a fake syslog of cluster events (timestamps, INFO/WARN/ERROR, services). Keep lines coming until the length limit.",
-  "Write a sequence of haiku about tokens, GPUs, and heat. Separate each haiku with a blank line. Write at least eight.",
-  "Write only valid YAML for a multi-service docker-compose stack with redis, postgres, api, and worker. Expand with env and volumes.",
-  "Emit a CSV of invent datacenter PUE readings: date,site,pue,itKw,facilityKw. At least 40 rows. CSV only, no commentary.",
-  "Write a pirate-captain monologue explaining KV-cache pressure to the crew. Keep it under 350 words.",
-  "Generate a GraphQL schema as SDL only: types Query, Mutation, User, Job, Metric. Add many fields and enums.",
-  "List 25 git aliases useful for ML infra repos. Format: alias = command. No explanations.",
-  "Write a fake RFC-style abstract and intro for \"Token Streaming over QUIC\". Formal tone, continue until the length limit.",
-  "Emit only a Python dataclass module for SparkHost, GpuSlice, and LlmEndpoint with typed fields and docstrings.",
-  "Write a nursery-rhyme style poem about thermal throttling. Several stanzas.",
-  "Generate an OpenAPI 3 paths snippet as JSON for /v1/models and /v1/chat/completions. Expand schemas heavily.",
-  "Emit a Markdown cheatsheet: nvidia-smi flags vs what they show. Dense table, many rows.",
-  "Write dialogue between two ops engineers debugging a stuck vLLM queue. Natural, continue for many turns.",
-  "Generate a long TOML config for a fictional inference gateway: listeners, routes, retries, budgets.",
-  "Emit only SQL: CREATE TABLE + many INSERT statements for gpu_jobs(id, host, model, tokens, ms).",
-  "Write a travel-brochure parody for visiting a liquid-cooled GPU rack. Flowery marketing tone.",
-  "Generate ASCII art labels (text only) for WARN, Crit, OK, and Idle banners. Several variants each.",
-  "Emit a bullet-only runbook: cold-start a 4-GPU SGLang node. Commands and checks, no fluff.",
-  "Write a courtroom cross-examination where the witness is a tokenizer. Continue with many Q&A exchanges.",
-  "Generate a Mermaid sequenceDiagram as fenced code for client → proxy → vLLM → GPU. Expand with retries.",
-  "Emit a long alphabetized glossary of ML-systems jargon (KV cache, TTFT, ITL, MTP, …) as Markdown definition list.",
-  "Write a weather report for a cluster: temperature fronts across racks, token-storm warnings. Radio-host style.",
-  "Generate only a Rust-flavored pseudocode module for a lock-free token ring buffer. Keep expanding functions.",
-  "Emit a fake Prometheus scrape dump (text exposition format) for showcase_tokens_total and showcase_ttft_seconds.",
-  "Write packaging copy for a fictional energy drink called Prefill Punch aimed at LLM operators.",
-  "Generate a multi-chapter outline then expand chapter 1 into prose: \"The Day the Slots Went to Zero.\"",
-];
+import {
+  PROMPT_TYPES,
+  pickShowcasePrompts,
+  type ShowcasePromptType,
+} from "./showcasePrompts";
 
 const POLL_MS = 300;
 const DEFAULT_MAX_TOKENS = 512;
+const DEFAULT_PROMPT_TYPE: ShowcasePromptType = "mixed";
+const DEFAULT_TEMPERATURE = 0.7;
+const MIN_TEMPERATURE = 0;
+const MAX_TEMPERATURE = 2;
 const MIN_TERMINALS = 1;
 const MAX_TERMINALS = 32;
 const TERMINAL_COUNTS = Array.from(
@@ -131,9 +111,11 @@ function readModelQuery(): string | null {
 
 function buildTerminalPlainText(s: LocalStream): string {
   const parts: string[] = [`## ${s.label || s.streamId}`, `status: ${s.status}`];
-  if (s.liveTokPerSec > 0 || s.decodeTps > 0) {
+  if (s.liveTokPerSec > 0 || s.decodeTps > 0 || s.peakTokPerSec > 0) {
+    const live = s.liveTokPerSec || s.decodeTps;
     parts.push(
-      `tok/s: ${(s.liveTokPerSec || s.decodeTps).toFixed(1)}` +
+      `tok/s: ${live > 0 ? live.toFixed(1) : "—"}` +
+        (s.peakTokPerSec > 0 ? `  peak ${s.peakTokPerSec.toFixed(1)}` : "") +
         (s.ttftMs != null ? `  TTFT ${s.ttftMs.toFixed(0)}ms` : "")
     );
   }
@@ -152,12 +134,21 @@ function buildTerminalPlainText(s: LocalStream): string {
 
 function buildAllPlainText(
   streams: LocalStream[],
-  meta: { name: string; port: number; modelId: string | null; serverTps: number | null }
+  meta: {
+    name: string;
+    port: number;
+    modelId: string | null;
+    serverTps: number | null;
+    sessionAvgTps?: number | null;
+  }
 ): string {
   const head = [
     `${meta.name} | prompt showcase`,
     `port ${meta.port}` +
       (meta.modelId ? `  ·  ${meta.modelId}` : "") +
+      (meta.sessionAvgTps != null && meta.sessionAvgTps > 0
+        ? `  · avg ${meta.sessionAvgTps.toFixed(0)} tok/s/stream`
+        : "") +
       (meta.serverTps != null ? `  · server ${meta.serverTps.toFixed(0)} tok/s` : ""),
     "",
   ];
@@ -194,11 +185,15 @@ async function copyText(text: string): Promise<boolean> {
 export function ShowcasePage({ sparkId }: ShowcasePageProps) {
   const [spark, setSpark] = useState<SparkConfig | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [prompts, setPrompts] = useState<string[]>(() => DEFAULT_PROMPTS.slice(0, 4));
+  const [promptType, setPromptType] = useState<ShowcasePromptType>(DEFAULT_PROMPT_TYPE);
+  const [prompts, setPrompts] = useState<string[]>(() =>
+    pickShowcasePrompts(DEFAULT_PROMPT_TYPE, 4)
+  );
   const [terminalCount, setTerminalCount] = useState(4);
   const [port, setPort] = useState(8888);
   const [modelId, setModelId] = useState<string | null>(() => readModelQuery());
   const [maxTokens, setMaxTokens] = useState(DEFAULT_MAX_TOKENS);
+  const [temperature, setTemperature] = useState(DEFAULT_TEMPERATURE);
   const [thinking, setThinking] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
   const [barVisible, setBarVisible] = useState(true);
@@ -211,6 +206,10 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
   const [serverTpsMax, setServerTpsMax] = useState<number | null>(null);
   const [aggregatePeakTps, setAggregatePeakTps] = useState(0);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [history, setHistory] = useState<ShowcaseHistorySummary[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [viewingHistory, setViewingHistory] = useState(false);
 
   const revRef = useRef<number | null>(null);
   const sessionIdRef = useRef<string | null>(null);
@@ -270,6 +269,24 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
     () => displayStreams.reduce((sum, s) => sum + (s.tokenCount || 0), 0),
     [displayStreams]
   );
+
+  /** Mean final/live decode tok/s across active streams (session avg per terminal). */
+  const sessionAvgTps = useMemo(() => {
+    const rates = displayStreams
+      .map((s) => {
+        if (s.decodeTps > 0) return s.decodeTps;
+        if (s.liveTokPerSec > 0) return s.liveTokPerSec;
+        return 0;
+      })
+      .filter((r) => r > 0);
+    if (!rates.length) return 0;
+    return rates.reduce((sum, r) => sum + r, 0) / rates.length;
+  }, [displayStreams]);
+
+  const runFinished =
+    sessionStatus != null &&
+    sessionStatus !== "running" &&
+    sessionStatus !== "pending";
 
   useEffect(() => {
     if (aggregateTps <= 0) return;
@@ -336,22 +353,34 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
     };
   }, [sparkId, spark, port]);
 
-  useEffect(() => {
-    setPrompts((prev) => {
-      const next = DEFAULT_PROMPTS.slice(0, terminalCount);
-      return next.map((d, i) => (prev[i] != null && prev[i] !== "" ? prev[i] : d));
-    });
-  }, [terminalCount]);
-
   const setTerminalCountSafe = useCallback(
     (n: number) => {
       setTerminalCount(n);
-      // Rebuild the grid when idle so a finished run doesn't stick at the old count.
       if (!running && !starting) {
+        // Preserve edited prompts; only fill new slots from the catalog.
+        setPrompts((prev) => {
+          const catalog = pickShowcasePrompts(promptType, n);
+          return catalog.map((d, i) =>
+            i < prev.length && prev[i] != null && prev[i] !== "" ? prev[i] : d
+          );
+        });
         setStreams([]);
+        setViewingHistory(false);
       }
     },
-    [running, starting]
+    [running, starting, promptType]
+  );
+
+  const setPromptTypeSafe = useCallback(
+    (t: ShowcasePromptType) => {
+      setPromptType(t);
+      if (!running && !starting) {
+        setPrompts(pickShowcasePrompts(t, terminalCount));
+        setStreams([]);
+        setViewingHistory(false);
+      }
+    },
+    [running, starting, terminalCount]
   );
 
   const stopPolling = useCallback(() => {
@@ -386,11 +415,12 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
         port,
         modelId,
         serverTps,
+        sessionAvgTps: runFinished ? sessionAvgTps : null,
       })
     );
     if (ok) flashCopied("all");
     else setRunError("Could not copy to clipboard");
-  }, [spark, displayStreams, port, modelId, serverTps, flashCopied]);
+  }, [spark, displayStreams, port, modelId, serverTps, runFinished, sessionAvgTps, flashCopied]);
 
   const applySession = useCallback((data: ShowcaseSessionState, full: boolean) => {
     setSessionStatus(data.status);
@@ -419,7 +449,12 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
           reasoning += s.reasoningAppend;
         }
         const live = s.liveTokPerSec || 0;
-        const peak = Math.max(old?.peakTokPerSec ?? 0, live, s.decodeTps || 0);
+        const peak = Math.max(
+          old?.peakTokPerSec ?? 0,
+          s.peakTokPerSec ?? 0,
+          live,
+          s.decodeTps || 0
+        );
         return {
           streamId: s.streamId,
           label: s.label,
@@ -437,6 +472,31 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
       });
     });
   }, []);
+
+  const refreshHistory = useCallback(async () => {
+    if (!sparkId) return;
+    setHistoryLoading(true);
+    try {
+      const data = await listShowcase(sparkId);
+      setHistory(data.history || []);
+    } catch {
+      /* ignore list failures in UI */
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [sparkId]);
+
+  useEffect(() => {
+    void refreshHistory();
+  }, [refreshHistory]);
+
+  useEffect(() => {
+    if (historyOpen) void refreshHistory();
+  }, [historyOpen, refreshHistory]);
+
+  useEffect(() => {
+    if (runFinished) void refreshHistory();
+  }, [runFinished, refreshHistory]);
 
   const pollOnce = useCallback(
     async (sid: string) => {
@@ -492,6 +552,7 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
     if (!canRun) return;
     setRunError(null);
     setStarting(true);
+    setViewingHistory(false);
     revRef.current = null;
     setStreams([]);
     setServerTps(null);
@@ -505,14 +566,17 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
       const started = await startShowcase(sparkId, {
         port,
         maxTokens,
+        temperature,
         thinking,
         modelId: modelId || undefined,
+        promptType,
         prompts: trimmed,
       });
       sessionIdRef.current = started.sessionId;
       setSessionId(started.sessionId);
       setSessionStatus("running");
       setConfigOpen(false);
+      setHistoryOpen(false);
       const data = await pollOnce(started.sessionId);
       if (data.status === "running") schedulePoll(started.sessionId);
     } catch (err) {
@@ -523,7 +587,118 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
     } finally {
       setStarting(false);
     }
-  }, [canRun, prompts, sparkId, port, maxTokens, thinking, pollOnce, schedulePoll]);
+  }, [
+    canRun,
+    prompts,
+    sparkId,
+    port,
+    maxTokens,
+    temperature,
+    thinking,
+    modelId,
+    promptType,
+    pollOnce,
+    schedulePoll,
+  ]);
+
+  const handleOpenHistoryRun = useCallback(
+    async (sid: string) => {
+      if (running || starting) return;
+      setRunError(null);
+      stopPolling();
+      revRef.current = null;
+      try {
+        const data = await getShowcase(sparkId, sid);
+        setViewingHistory(Boolean(data.fromHistory) || data.status !== "running");
+        sessionIdRef.current = data.sessionId;
+        setSessionId(data.sessionId);
+        applySession(data, true);
+        if (typeof data.port === "number") setPort(data.port);
+        if (data.maxTokens != null) setMaxTokens(data.maxTokens);
+        if (data.temperature != null) setTemperature(data.temperature);
+        if (typeof data.thinking === "boolean") setThinking(data.thinking);
+        if (
+          data.promptType === "text" ||
+          data.promptType === "structural" ||
+          data.promptType === "mixed"
+        ) {
+          setPromptType(data.promptType);
+        }
+        if (Array.isArray(data.streams) && data.streams.length) {
+          setTerminalCount(data.streams.length);
+          setPrompts(data.streams.map((s) => s.prompt || ""));
+        }
+        const peaks = (data.streams || []).map(
+          (s) => Math.max(s.peakTokPerSec || 0, s.decodeTps || 0, s.liveTokPerSec || 0)
+        );
+        const aggPeak = peaks.reduce((a, b) => a + b, 0);
+        setAggregatePeakTps(aggPeak);
+        setHistoryOpen(false);
+      } catch (err) {
+        setRunError(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [running, starting, sparkId, stopPolling, applySession]
+  );
+
+  const handleUseHistorySettings = useCallback(
+    (row: ShowcaseHistorySummary) => {
+      if (running || starting) return;
+      if (row.port) setPort(row.port);
+      if (row.maxTokens != null) setMaxTokens(row.maxTokens);
+      if (row.temperature != null) setTemperature(row.temperature);
+      if (typeof row.thinking === "boolean") setThinking(row.thinking);
+      if (row.modelId) setModelId(row.modelId);
+      if (
+        row.promptType === "text" ||
+        row.promptType === "structural" ||
+        row.promptType === "mixed"
+      ) {
+        setPromptType(row.promptType);
+      }
+      // Load full session only for prompts
+      void (async () => {
+        try {
+          const data = await getShowcase(sparkId, row.sessionId);
+          if (
+            data.promptType === "text" ||
+            data.promptType === "structural" ||
+            data.promptType === "mixed"
+          ) {
+            setPromptType(data.promptType);
+          }
+          if (Array.isArray(data.streams) && data.streams.length) {
+            setTerminalCount(data.streams.length);
+            setPrompts(data.streams.map((s) => s.prompt || ""));
+          }
+          setConfigOpen(true);
+          setHistoryOpen(false);
+          setViewingHistory(false);
+        } catch (err) {
+          setRunError(err instanceof Error ? err.message : String(err));
+        }
+      })();
+    },
+    [running, starting, sparkId]
+  );
+
+  const handleClearHistory = useCallback(async () => {
+    if (running || starting) return;
+    if (!window.confirm("Clear all saved showcase history for this Spark?")) return;
+    try {
+      await clearShowcaseHistory(sparkId);
+      setHistory([]);
+      if (viewingHistory) {
+        setViewingHistory(false);
+        setStreams([]);
+        setSessionId(null);
+        setSessionStatus(null);
+        sessionIdRef.current = null;
+      }
+    } catch (err) {
+      setRunError(err instanceof Error ? err.message : String(err));
+    }
+  }, [running, starting, sparkId, viewingHistory]);
 
   useEffect(() => {
     const cancelBeacon = () => {
@@ -577,6 +752,7 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
   const hasCopyable = displayStreams.some((s) => s.content || s.reasoning || s.error);
   const showMetricsStrip =
     aggregateTps > 0 ||
+    sessionAvgTps > 0 ||
     totalTokens > 0 ||
     serverTps != null ||
     serverTpsMax != null ||
@@ -605,11 +781,6 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
               <span className="showcase-config__meta">
                 <span className="showcase-config__meta-label">Prompt Showcase</span>
               </span>
-              {modelId ? (
-                <span className="showcase-config__model" title={modelId}>
-                  {modelId}
-                </span>
-              ) : null}
             </div>
           </div>
           <div className="showcase-config-peek__actions">
@@ -662,11 +833,6 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
               <span className="showcase-config__meta">
                 <span className="showcase-config__meta-label">Prompt Showcase</span>
               </span>
-              {modelId ? (
-                <span className="showcase-config__model" title={modelId}>
-                  {modelId}
-                </span>
-              ) : null}
             </div>
           </div>
           <div className="showcase-config__controls">
@@ -699,6 +865,25 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
                   ))}
                 </select>
               </label>
+              <label
+                className="showcase-field"
+                title={PROMPT_TYPES.find((t) => t.id === promptType)?.hint}
+              >
+                <span className="showcase-field__label">Prompt type</span>
+                <select
+                  value={promptType}
+                  disabled={controlsLocked}
+                  onChange={(e) =>
+                    setPromptTypeSafe(e.target.value as ShowcasePromptType)
+                  }
+                >
+                  {PROMPT_TYPES.map((t) => (
+                    <option key={t.id} value={t.id} title={t.hint}>
+                      {t.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <label className="showcase-field">
                 <span className="showcase-field__label">Max tokens</span>
                 <input
@@ -709,6 +894,28 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
                   value={maxTokens}
                   disabled={controlsLocked}
                   onChange={(e) => setMaxTokens(Number(e.target.value) || DEFAULT_MAX_TOKENS)}
+                />
+              </label>
+              <label className="showcase-field">
+                <span className="showcase-field__label">Temp</span>
+                <input
+                  type="number"
+                  min={MIN_TEMPERATURE}
+                  max={MAX_TEMPERATURE}
+                  step={0.1}
+                  value={temperature}
+                  disabled={controlsLocked}
+                  title="Sampling temperature (0–2)"
+                  onChange={(e) => {
+                    const n = Number(e.target.value);
+                    if (!Number.isFinite(n)) {
+                      setTemperature(DEFAULT_TEMPERATURE);
+                      return;
+                    }
+                    setTemperature(
+                      Math.min(MAX_TEMPERATURE, Math.max(MIN_TEMPERATURE, n))
+                    );
+                  }}
                 />
               </label>
               <div className="showcase-field">
@@ -774,6 +981,14 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
                 </button>
                 <button
                   type="button"
+                  className={`showcase-btn showcase-btn--ghost${historyOpen ? " is-active" : ""}`}
+                  onClick={() => setHistoryOpen((o) => !o)}
+                  title="Past showcase runs"
+                >
+                  History{history.length > 0 ? ` (${history.length})` : ""}
+                </button>
+                <button
+                  type="button"
                   className="showcase-btn showcase-btn--ghost"
                   onClick={() => setBarVisible(false)}
                   title="Hide controls"
@@ -784,6 +999,97 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
             </div>
           </div>
         </div>
+
+        {historyOpen && (
+          <div className="showcase-history">
+            <div className="showcase-history__head">
+              <span className="showcase-history__title">Past runs</span>
+              <div className="showcase-history__head-actions">
+                <button
+                  type="button"
+                  className="showcase-btn showcase-btn--ghost"
+                  disabled={historyLoading}
+                  onClick={() => void refreshHistory()}
+                >
+                  {historyLoading ? "Loading…" : "Refresh"}
+                </button>
+                <button
+                  type="button"
+                  className="showcase-btn showcase-btn--ghost"
+                  disabled={!history.length || controlsLocked}
+                  onClick={() => void handleClearHistory()}
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+            {!history.length && !historyLoading ? (
+              <p className="showcase-history__empty">
+                No saved runs yet. Finished showcases appear here automatically.
+              </p>
+            ) : (
+              <ul className="showcase-history__list">
+                {history.map((row) => {
+                  const when = row.startedAt
+                    ? new Date(row.startedAt).toLocaleString(undefined, {
+                        month: "short",
+                        day: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })
+                    : "—";
+                  const active = viewingHistory && sessionId === row.sessionId;
+                  return (
+                    <li
+                      key={row.sessionId}
+                      className={`showcase-history__item${active ? " is-active" : ""}`}
+                    >
+                      <button
+                        type="button"
+                        className="showcase-history__main"
+                        disabled={controlsLocked}
+                        onClick={() => void handleOpenHistoryRun(row.sessionId)}
+                        title="View this run"
+                      >
+                        <span className="showcase-history__when">{when}</span>
+                        <span className="showcase-history__meta">
+                          <span className={`showcase-history__status showcase-history__status--${row.status}`}>
+                            {row.status}
+                          </span>
+                          <span>· :{row.port}</span>
+                          <span>· {row.streamCount} term</span>
+                          {row.promptType ? (
+                            <span>· {row.promptType}</span>
+                          ) : null}
+                          {row.meanDecodeTps > 0 && (
+                            <span>· avg {row.meanDecodeTps.toFixed(0)} tok/s</span>
+                          )}
+                          {row.totalTokens > 0 && (
+                            <span>· {formatToks(row.totalTokens)} tok</span>
+                          )}
+                        </span>
+                        {row.modelId ? (
+                          <span className="showcase-history__model" title={row.modelId}>
+                            {row.modelId}
+                          </span>
+                        ) : null}
+                      </button>
+                      <button
+                        type="button"
+                        className="showcase-btn showcase-btn--ghost showcase-history__reuse"
+                        disabled={controlsLocked}
+                        onClick={() => handleUseHistorySettings(row)}
+                        title="Load prompts & settings into the form (does not re-run)"
+                      >
+                        Reuse
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        )}
 
         {configOpen && (
           <div className="showcase-config__prompts">
@@ -814,6 +1120,13 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
       </div>
       )}
 
+      {modelId ? (
+        <header className="showcase-model-header" title={modelId}>
+          <span className="showcase-model-header__label">Model</span>
+          <h1 className="showcase-model-header__name">{modelId}</h1>
+        </header>
+      ) : null}
+
       {showMetricsStrip && (
         <div className="showcase-metrics" aria-live="polite">
           <div className="showcase-metrics__hero" title="Sum of live decode tok/s across all terminals">
@@ -822,14 +1135,30 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
               {aggregateTps > 0 ? aggregateTps.toFixed(0) : "—"}
               <span className="showcase-metrics__hero-unit">tok/s</span>
             </span>
-            {aggregatePeakTps > 0 &&
-              aggregateTps > 0 &&
-              aggregatePeakTps > aggregateTps + 0.5 && (
+            {aggregatePeakTps > 0 && (
                 <span className="showcase-metrics__sub">
                   peak {aggregatePeakTps.toFixed(0)}
                 </span>
               )}
           </div>
+          {runFinished && sessionAvgTps > 0 && (
+            <>
+              <span className="showcase-metrics__sep" aria-hidden>
+                ·
+              </span>
+              <div
+                className="showcase-metrics__item"
+                title="Average decode tok/s per terminal for this session"
+              >
+                <span className="showcase-metrics__label">Avg</span>
+                <span className="showcase-metrics__value font-tabular">
+                  {sessionAvgTps.toFixed(0)}
+                  <span className="showcase-metrics__unit"> tok/s</span>
+                </span>
+                <span className="showcase-metrics__sub">per stream</span>
+              </div>
+            </>
+          )}
           <span className="showcase-metrics__sep" aria-hidden>
             ·
           </span>
@@ -850,9 +1179,7 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
                 <span className="showcase-metrics__unit"> tok/s</span>
               )}
             </span>
-            {serverTpsMax != null &&
-              serverTps != null &&
-              serverTpsMax > serverTps + 0.5 && (
+            {serverTpsMax != null && serverTpsMax > 0 && (
                 <span className="showcase-metrics__sub">
                   peak {serverTpsMax.toFixed(0)}
                 </span>
@@ -904,8 +1231,10 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
 
       {sessionId && sessionStatus && sessionStatus !== "running" && (
         <p className="showcase-page__footer-note">
-          Session {sessionStatus}
+          {viewingHistory ? "History · " : "Session "}
+          {sessionStatus}
           {sessionId ? ` · ${sessionId.slice(0, 8)}…` : ""}
+          {viewingHistory ? " · read-only" : ""}
         </p>
       )}
     </div>

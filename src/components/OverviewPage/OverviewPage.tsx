@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { SparkSnapshot } from "../../api/types";
 import { resolveSparkRole } from "../../api/sparkRole";
-import { shutdownAllSparks, wakeAllSparks } from "../../api/client";
+import { shutdownAllSparks, updateAllHermes, wakeAllSparks } from "../../api/client";
+import { ConfirmShutdownDialog } from "../ConfirmShutdownDialog";
 import { MetricBar } from "../ui/MetricBar";
-import { ActivityIcon, PowerOffIcon, PowerOnIcon } from "../ui/icons";
+import { ActivityIcon, PowerOffIcon, PowerOnIcon, RotateIcon } from "../ui/icons";
 
 interface OverviewPageProps {
   sparks: SparkSnapshot[];
@@ -35,12 +36,15 @@ function MiniStat({
   tone = "default",
   bold = true,
   title,
+  wrap = false,
 }: {
   label: string;
   value: string;
   tone?: "default" | "accent" | "warning" | "danger" | "success";
   bold?: boolean;
   title?: string;
+  /** Allow value to wrap (no ellipsis trim) — used for long model ids. */
+  wrap?: boolean;
 }) {
   const toneClass =
     tone === "danger"
@@ -56,9 +60,15 @@ function MiniStat({
     <div className="flex min-w-0 flex-col gap-0.5">
       <span className="text-[10px] tracking-wide text-muted">{label}</span>
       <span
-        className={`font-tabular text-[13px] truncate ${bold ? "font-semibold" : ""} ${toneClass}`}
+        className={`font-tabular text-[13px] ${
+          wrap
+            ? "whitespace-normal break-words leading-snug [overflow-wrap:anywhere]"
+            : "truncate"
+        } ${bold ? "font-semibold" : ""} ${toneClass}`}
         title={title}
-      >{value}</span>
+      >
+        {value}
+      </span>
     </div>
   );
 }
@@ -145,6 +155,38 @@ function SparkCard({
             </span>
           );
         })()}
+        {spark.comfyMonitoring ? (
+          <span
+            className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${
+              !spark.metrics?.comfy?.available
+                ? "bg-border/60 text-muted"
+                : (spark.metrics.comfy.queueRunning ?? 0) > 0
+                  ? "bg-accent/15 text-accent"
+                  : (spark.metrics.comfy.queuePending ?? 0) > 0
+                    ? "bg-warning/15 text-warning"
+                    : "bg-border/60 text-muted"
+            }`}
+            title={
+              !spark.metrics?.comfy?.available
+                ? "ComfyUI monitoring on — not reachable"
+                : (spark.metrics.comfy.queueRunning ?? 0) > 0
+                  ? spark.metrics.comfy.activeJob?.title
+                    ? `ComfyUI running: ${spark.metrics.comfy.activeJob.title}`
+                    : "ComfyUI job running"
+                  : (spark.metrics.comfy.queuePending ?? 0) > 0
+                    ? `ComfyUI queue: ${spark.metrics.comfy.queuePending} pending`
+                    : "ComfyUI idle"
+            }
+          >
+            {!spark.metrics?.comfy?.available
+              ? "Comfy"
+              : (spark.metrics.comfy.queueRunning ?? 0) > 0
+                ? "Comfy · run"
+                : (spark.metrics.comfy.queuePending ?? 0) > 0
+                  ? `Comfy · ${spark.metrics.comfy.queuePending}q`
+                  : "Comfy · idle"}
+          </span>
+        ) : null}
         <span className="text-[10px] uppercase tracking-wide text-muted">
           {online ? "online" : "offline"}
         </span>
@@ -167,13 +209,56 @@ function SparkCard({
               color={vramBarColor}
               caption={vramTotal > 0 ? `${fmtStorage(vramUsed, false)} / ${fmtStorage(vramTotal, true)}` : "—"}
             />
+            {spark.kind === "host" && (() => {
+              // Non-Spark hosts: system RAM is separate from discrete VRAM.
+              const ram = spark.metrics.ram;
+              const rUsed = ram?.used ?? 0;
+              const rTotal = ram?.total ?? 0;
+              const rPct = rTotal > 0 ? Math.round((rUsed / rTotal) * 100) : 0;
+              const ramBarColor = rPct > 85 ? "bg-danger" : rPct > 60 ? "bg-warning" : "bg-accent";
+              return (
+                <MetricBar
+                  label="RAM"
+                  value={rUsed}
+                  max={rTotal}
+                  color={ramBarColor}
+                  caption={rTotal > 0 ? `${fmtStorage(rUsed, false)} / ${fmtStorage(rTotal, true)}` : "—"}
+                />
+              );
+            })()}
             <MetricBar
-              label="Temperature"
+              label={spark.kind === "host" ? "GPU" : "Temperature"}
               value={displayTemp}
               max={temperatureUnit === "fahrenheit" ? 212 : 100}
               color={tempBarColor}
               caption={tempLabel}
             />
+            {spark.kind === "host" && (spark.metrics.cpu?.temperature ?? 0) > 0 && (() => {
+              const cpuRaw = spark.metrics.cpu?.temperature ?? 0;
+              const cpuDisplay =
+                temperatureUnit === "fahrenheit" ? celsiusToFahrenheit(cpuRaw) : cpuRaw;
+              const cpuLabel =
+                temperatureUnit === "fahrenheit" ? `${cpuDisplay}°F` : `${cpuDisplay}°C`;
+              const cpuBarColor =
+                cpuRaw > 95 ? "bg-danger" : cpuRaw > 85 ? "bg-warning" : cpuRaw > 50 ? "bg-accent" : "bg-success";
+              return (
+                <MetricBar
+                  label="CPU"
+                  value={cpuDisplay}
+                  max={temperatureUnit === "fahrenheit" ? 212 : 100}
+                  color={cpuBarColor}
+                  caption={cpuLabel}
+                />
+              );
+            })()}
+            {gpu?.throttle?.thermal && (
+              <div
+                className="rounded border border-danger/40 bg-danger/10 px-2 py-1 text-[11px] font-medium text-danger"
+                title={gpu.throttle.detail || "GPU thermal slowdown engaged"}
+              >
+                Thermal throttle
+              </div>
+            )}
             <MetricBar
               label="Usage"
               value={usage}
@@ -230,6 +315,7 @@ function SparkCard({
                     value={label}
                     tone="accent"
                     title={title}
+                    wrap
                   />
                 );
               }
@@ -240,25 +326,44 @@ function SparkCard({
               if (!llm) return null;
               return (
                 <MiniStat
-                  label={llm.backend === "vllm" ? "vLLM" : llm.backend ?? "LLM"}
+                  label={
+                    llm.backend === "vllm"
+                      ? "vLLM"
+                      : llm.backend === "ds4"
+                        ? "ds4"
+                        : llm.backend === "sglang"
+                          ? "sgLang"
+                          : llm.backend ?? "LLM"
+                  }
                   value={llm.modelId ?? "unknown"}
                   tone="accent"
                   title={llm.modelId ?? undefined}
+                  wrap
                 />
               );
             })()}
           </div>
 
           {(() => {
+            const role = resolveSparkRole(spark);
+            if (role === "worker") return null;
             const llmArr = spark.metrics.llm;
             const llm = Array.isArray(llmArr) ? llmArr.find((l) => l.available) : null;
             if (!llm) return null;
             return (
-              <div className="mt-3.5 border-t border-border pt-3 text-center">
-                <span className="font-tabular text-[28px] font-bold leading-none text-text-strong">
-                  {llm.generationTps.toFixed(0)}
-                </span>
-                <span className="text-sm font-normal text-muted"> tok/s</span>
+              <div className="mt-3.5 grid grid-cols-2 gap-2 border-t border-border pt-3">
+                <div className="text-center">
+                  <span className="font-tabular text-[28px] font-bold leading-none text-text-strong">
+                    {llm.generationTps.toFixed(0)}
+                  </span>
+                  <span className="text-sm font-normal text-muted"> tok/s</span>
+                </div>
+                <div className="border-l border-border text-center">
+                  <span className="font-tabular text-[28px] font-bold leading-none text-text-strong">
+                    {llm.prefillTps.toFixed(0)}
+                  </span>
+                  <span className="text-sm font-normal text-muted"> prefill</span>
+                </div>
               </div>
             );
           })()}
@@ -272,13 +377,82 @@ export function OverviewPage({ sparks, hideOffline = false, temperatureUnit = "c
   const visibleSparks = hideOffline ? sparks.filter((s) => s.online) : sparks;
   const [batchLoading, setBatchLoading] = useState(false);
   const [batchMsg, setBatchMsg] = useState<{ text: string; tone: "ok" | "err" } | null>(null);
+  const [shutdownOpen, setShutdownOpen] = useState(false);
+  /** Spark ids we started a batch Hermes update on; drives the live progress bar. */
+  const [batchRun, setBatchRun] = useState<string[] | null>(null);
+
+  const onlineShutdownCount = sparks.filter((s) => s.online).length;
+  const hermesMonitoredCount = sparks.filter((s) => s.hermes?.monitoring).length;
+  const hermesPendingUpdateCount = sparks.filter((s) => s.hermes?.updateAvailable === true).length;
+
+  // Live batch progress — counted from WS snapshots, not from the one-shot HTTP response.
+  const batchProg = (() => {
+    if (!batchRun || batchRun.length === 0) return null;
+    let done = 0;
+    let failed = 0;
+    for (const id of batchRun) {
+      const h = sparks.find((s) => s.id === id)?.hermes;
+      if (!h) continue;
+      if (h.status === "error") {
+        done += 1;
+        failed += 1;
+      } else if (h.status === "success" || h.finishedAt != null) {
+        done += 1;
+      }
+    }
+    return { total: batchRun.length, done, failed };
+  })();
+
+  // Once every started update has settled (success/error), dismiss the progress bar.
+  useEffect(() => {
+    if (!batchRun || batchRun.length === 0) return;
+    const settled = batchRun.reduce((n, id) => {
+      const h = sparks.find((s) => s.id === id)?.hermes;
+      if (!h) return n;
+      return n + (h.status === "success" || h.status === "error" || h.finishedAt != null ? 1 : 0);
+    }, 0);
+    if (settled === batchRun.length) {
+      const t = setTimeout(() => setBatchRun(null), 6000);
+      return () => clearTimeout(t);
+    }
+  }, [batchRun, sparks]);
+
+  async function handleUpdateAllHermes() {
+    if (hermesMonitoredCount === 0) return;
+    setBatchLoading(true);
+    setBatchMsg(null);
+    try {
+      const res = await updateAllHermes();
+      const started = res.results.filter((r) => r.started);
+      const skipped = res.results.filter((r) => r.skipped).length;
+      const failed = res.results.filter((r) => !r.ok && !r.skipped).length;
+      const parts = [`${started.length} update${started.length === 1 ? "" : "s"} started`];
+      if (skipped) parts.push(`${skipped} skipped`);
+      if (failed) parts.push(`${failed} failed`);
+      setBatchMsg({
+        text: parts.join(", "),
+        tone: failed === 0 ? "ok" : "err",
+      });
+      // Merge with any in-flight batch instead of replacing (server may skip
+      // already-running jobs, which must not clear a live progress bar).
+      setBatchRun((prev) => {
+        const ids = started.map((r) => r.id);
+        if (ids.length === 0) return prev;
+        return [...new Set([...(prev ?? []), ...ids])];
+      });
+    } catch (err: unknown) {
+      setBatchMsg({
+        text: err instanceof Error ? err.message : "Batch hermes update failed",
+        tone: "err",
+      });
+    } finally {
+      setBatchLoading(false);
+      setTimeout(() => setBatchMsg(null), 6000);
+    }
+  }
 
   async function handleShutdownAll() {
-    const onlineCount = sparks.filter((s) => s.online).length;
-    if (onlineCount === 0) return;
-    if (!confirm(`Gracefully shut down all ${onlineCount} online Spark(s)? Offline nodes will be skipped.`)) {
-      return;
-    }
+    if (onlineShutdownCount === 0) return;
     setBatchLoading(true);
     setBatchMsg(null);
     try {
@@ -356,14 +530,68 @@ export function OverviewPage({ sparks, hideOffline = false, temperatureUnit = "c
         >
           Overview
         </h1>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-end justify-end gap-3">
           {batchMsg && (
             <span className={`text-[11px] ${batchMsg.tone === "ok" ? "text-success" : "text-danger"}`}>
               {batchMsg.text}
             </span>
           )}
+          {batchProg && (
+            <div className="flex flex-col items-end gap-1">
+              <span className="flex items-center gap-1.5 text-[11px] text-muted">
+                <RotateIcon className="h-3 w-3" />
+                Updating Hermes — {batchProg.done}/{batchProg.total}
+                {batchProg.failed > 0 && (
+                  <span className="text-danger">({batchProg.failed} failed)</span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setBatchRun(null)}
+                  aria-label="Dismiss update progress"
+                  title="Dismiss"
+                  className="rounded p-0.5 text-muted transition-colors hover:bg-surface-hover hover:text-text"
+                >
+                  <span className="text-xs leading-none">✕</span>
+                </button>
+              </span>
+              <div className="h-1 w-36 overflow-hidden rounded-full bg-border">
+                <div
+                  className={`h-full rounded-full transition-[width] duration-300 ease-out ${
+                    batchProg.failed > 0 ? "bg-danger" : "bg-accent"
+                  }`}
+                  style={{
+                    width: `${batchProg.total > 0 ? Math.round((batchProg.done / batchProg.total) * 100) : 0}%`,
+                  }}
+                />
+              </div>
+            </div>
+          )}
           {sparks.length > 0 && (
-            <div className="flex items-center gap-1.5">
+            <div className="flex flex-wrap items-center justify-end gap-1.5">
+              {hermesMonitoredCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => void handleUpdateAllHermes()}
+                  disabled={batchLoading}
+                  title="Run `hermes update` on every Spark with Hermes Agent enabled"
+                  className={`flex items-center gap-1 rounded-md border bg-surface-elevated px-2.5 py-1.5 text-[11px] transition-colors disabled:opacity-50 ${
+                    hermesPendingUpdateCount > 0
+                      ? "border-warning/40 text-warning hover:bg-warning/15"
+                      : "border-border text-muted hover:bg-surface-hover hover:text-text"
+                  }`}
+                >
+                  <RotateIcon className="h-3 w-3" />
+                  Update Hermes
+                  {hermesPendingUpdateCount > 0 && (
+                    <span
+                      className="ml-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-warning px-1 text-[9px] font-bold leading-none text-white"
+                      title={`${hermesPendingUpdateCount} Spark${hermesPendingUpdateCount === 1 ? "" : "s"} with a Hermes update available`}
+                    >
+                      {hermesPendingUpdateCount}
+                    </span>
+                  )}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => void handleWakeAll()}
@@ -376,10 +604,10 @@ export function OverviewPage({ sparks, hideOffline = false, temperatureUnit = "c
               </button>
               <button
                 type="button"
-                onClick={() => void handleShutdownAll()}
-                disabled={batchLoading || !sparks.some((s) => s.online)}
+                onClick={() => setShutdownOpen(true)}
+                disabled={batchLoading || onlineShutdownCount === 0}
                 title="Shut down all online Sparks"
-                className="flex items-center gap-1 rounded-md border border-border bg-surface-elevated px-2.5 py-1.5 text-[11px] text-muted hover:bg-danger/20 hover:text-danger transition-colors disabled:opacity-50"
+                className="flex items-center gap-1 rounded-md border border-border bg-surface-elevated px-2.5 py-1.5 text-[11px] text-muted transition-colors hover:bg-danger/20 hover:text-danger disabled:opacity-50"
               >
                 <PowerOffIcon className="h-3 w-3" />
                 Shutdown All
@@ -392,6 +620,14 @@ export function OverviewPage({ sparks, hideOffline = false, temperatureUnit = "c
           </span>
         </div>
       </div>
+      <ConfirmShutdownDialog
+        open={shutdownOpen}
+        onClose={() => setShutdownOpen(false)}
+        onConfirm={handleShutdownAll}
+        title="Shutdown All"
+        description={`Gracefully shut down all ${onlineShutdownCount} online Spark${onlineShutdownCount === 1 ? "" : "s"}? Offline nodes will be skipped.`}
+        confirmLabel="Shut down all"
+      />
       <div className="overview-page grid sm:grid-cols-2 lg:grid-cols-3" style={{ gap: "var(--density-page-gap)" }}>
         {visibleSparks.map((spark) => (
           <SparkCard

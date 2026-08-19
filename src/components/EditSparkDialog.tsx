@@ -178,7 +178,11 @@ export function EditSparkDialog({
         config.isLocal !== savedConfig.isLocal ||
         (config.ssh?.host || config.lanIp) !== (savedConfig.ssh?.host || savedConfig.lanIp) ||
         config.ssh?.user !== savedConfig.ssh?.user ||
-        config.ssh?.auth !== savedConfig.ssh?.auth;
+        config.ssh?.auth !== savedConfig.ssh?.auth ||
+        (config.kind ?? "spark") !== (savedConfig.kind ?? "spark") ||
+        Boolean(config.comfyMonitoring) !== Boolean(savedConfig.comfyMonitoring) ||
+        Boolean(config.tailscaleMonitoring) !== Boolean(savedConfig.tailscaleMonitoring) ||
+        (config.comfyPort ?? 8188) !== (savedConfig.comfyPort ?? 8188);
 
       const result = formDirty
         ? await testSparkConfig({
@@ -196,10 +200,16 @@ export function EditSparkDialog({
       else parts.push(`SSH ✗ ${result.ssh.message}`);
       if (result.llm.ok) parts.push("LLM ✓");
       else parts.push(`LLM ✗ ${result.llm.message}`);
+      if (result.comfy && !result.comfy.skipped) {
+        if (result.comfy.ok) parts.push("ComfyUI ✓");
+        else parts.push(`ComfyUI ✗ ${result.comfy.message}`);
+      }
       setTestResult({
         ok: result.ok,
         message: result.ok
-          ? "Connection successful"
+          ? parts.length
+            ? `Connection successful (${parts.join(" · ")})`
+            : "Connection successful"
           : `${parts.join(" | ")} — password is still saved for when the host is back.`,
       });
       if (password) setPassword("");
@@ -226,6 +236,7 @@ export function EditSparkDialog({
 
       const patch: Partial<SparkConfig> = {
         name: config.name,
+        kind: config.kind ?? "spark",
         lanIp: config.lanIp,
         cx7Ip: config.cx7Ip,
         macAddress: config.macAddress || null,
@@ -236,6 +247,13 @@ export function EditSparkDialog({
         workerHeadId: role === "worker" ? (config.workerHeadId?.trim() || null) : null,
         llmMonitoring:
           role === "worker" ? false : role === "head" ? true : config.llmMonitoring !== false,
+        comfyMonitoring: Boolean(config.comfyMonitoring),
+        comfyPort: (() => {
+          const n = Number(config.comfyPort);
+          return Number.isInteger(n) && n >= 1 && n <= 65535 ? n : 8188;
+        })(),
+        hermesMonitoring: Boolean(config.hermesMonitoring),
+        tailscaleMonitoring: Boolean(config.tailscaleMonitoring),
         ssh: {
           host: config.ssh.host || config.lanIp,
           user: config.ssh.user,
@@ -291,6 +309,18 @@ export function EditSparkDialog({
           {config && !loading && (
             <div className="space-y-3">
               <div>
+                <label className="mb-1 block text-xs text-muted">Unit type</label>
+                <select
+                  value={config.kind ?? "spark"}
+                  onChange={(e) => update({ kind: e.target.value as "spark" | "host" })}
+                  className="w-full rounded border border-border bg-surface-elevated px-3 py-1.5 text-xs text-text outline-none focus:border-accent"
+                >
+                  <option value="spark">NVIDIA DGX Spark</option>
+                  <option value="host">Dedicated GPU host (Linux, nvidia-smi, not a Spark)</option>
+                </select>
+              </div>
+
+              <div>
                 <label className="mb-1 block text-xs text-muted">Name</label>
                 <input
                   type="text"
@@ -310,15 +340,17 @@ export function EditSparkDialog({
                 />
               </div>
 
-              <div>
-                <label className="mb-1 block text-xs text-muted">CX7 IP (optional)</label>
-                <input
-                  type="text"
-                  value={config.cx7Ip || ""}
-                  onChange={(e) => update({ cx7Ip: e.target.value || null })}
-                  className="w-full rounded border border-border bg-surface-elevated px-3 py-1.5 text-xs text-text outline-none focus:border-accent"
-                />
-              </div>
+              {config.kind !== "host" && (
+                <div>
+                  <label className="mb-1 block text-xs text-muted">CX7 IP (optional)</label>
+                  <input
+                    type="text"
+                    value={config.cx7Ip || ""}
+                    onChange={(e) => update({ cx7Ip: e.target.value || null })}
+                    className="w-full rounded border border-border bg-surface-elevated px-3 py-1.5 text-xs text-text outline-none focus:border-accent"
+                  />
+                </div>
+              )}
 
               <div>
                 <label className="mb-1 block text-xs text-muted">
@@ -392,6 +424,105 @@ export function EditSparkDialog({
                   </span>
                 </label>
               )}
+
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                <label className="flex min-w-0 items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(config.comfyMonitoring)}
+                    onChange={(e) =>
+                      update({
+                        comfyMonitoring: e.target.checked,
+                        comfyPort: config.comfyPort ?? 8188,
+                      })
+                    }
+                    className="rounded border-border"
+                  />
+                  <span>ComfyUI monitoring</span>
+                  <span
+                    className="inline-flex shrink-0 cursor-help text-muted hover:text-text"
+                    title="When enabled, probe ComfyUI on this host and show a ComfyUI card. Default port is 8188 — change the port value on the right if needed."
+                    aria-label="Enable probing ComfyUI and showing the ComfyUI card."
+                  >
+                    <InfoIcon className="h-3.5 w-3.5" />
+                  </span>
+                </label>
+                {/* Compact “port 8188” control on the same row. */}
+                <div
+                  className={`ml-auto flex items-center gap-1 font-tabular ${
+                    config.comfyMonitoring ? "text-text" : "pointer-events-none opacity-40"
+                  }`}
+                  title="ComfyUI HTTP port (default 8188)"
+                >
+                  <span className="select-none text-muted" aria-hidden>
+                    port
+                  </span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={65535}
+                    inputMode="numeric"
+                    disabled={!config.comfyMonitoring}
+                    aria-label="ComfyUI port"
+                    value={config.comfyPort ?? 8188}
+                    onChange={(e) => {
+                      const n = parseInt(e.target.value, 10);
+                      if (Number.isInteger(n) && n >= 1 && n <= 65535) {
+                        update({ comfyPort: n });
+                      }
+                    }}
+                    onBlur={() => {
+                      const n = Number(config.comfyPort);
+                      if (!Number.isInteger(n) || n < 1 || n > 65535) {
+                        update({ comfyPort: 8188 });
+                      }
+                    }}
+                    className="w-14 border-0 bg-transparent px-0.5 py-0.5 text-center font-tabular text-xs text-inherit outline-none focus:rounded focus:bg-surface-elevated focus:ring-1 focus:ring-accent disabled:cursor-not-allowed"
+                  />
+                </div>
+              </div>
+
+              <label className="flex items-center gap-2 text-xs text-muted">
+                <input
+                  type="checkbox"
+                  checked={Boolean(config.hermesMonitoring)}
+                  onChange={(e) => update({ hermesMonitoring: e.target.checked })}
+                  className="rounded border-border"
+                />
+                <span>Hermes Agent</span>
+                <span
+                  className="inline-flex shrink-0 cursor-help text-muted hover:text-text"
+                  title='Hermes Agent CLI is installed on this machine (nousresearch/hermes-agent). When enabled, sparkDash checks for updates (hermes update --check) and can run “hermes update” for you via SSH with one click.'
+                  aria-label='Hermes Agent CLI is installed on this machine; enable update monitoring and one-click updates.'
+                >
+                  <InfoIcon className="h-3.5 w-3.5" />
+                </span>
+              </label>
+              <p className="mt-1 text-[10px] text-muted">
+                Checks for updates in the background (10 min) and adds an "Update Hermes" button
+                that runs{" "}
+                <code className="rounded bg-surface-elevated px-1">hermes update</code> on this
+                machine via SSH.
+              </p>
+
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                <label className="flex min-w-0 items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(config.tailscaleMonitoring)}
+                    onChange={(e) => update({ tailscaleMonitoring: e.target.checked })}
+                    className="rounded border-border"
+                  />
+                  <span>Tailnet monitoring</span>
+                  <span
+                    className="inline-flex shrink-0 cursor-help text-muted hover:text-text"
+                    title="When enabled, run `tailscale status --json` on this host and show a Tailnet card. Catches a unit that is healthy on the LAN but has fallen off its tailnet. Requires the tailscale CLI. Default off."
+                    aria-label="Enable reporting this unit's tailnet presence."
+                  >
+                    <InfoIcon className="h-3.5 w-3.5" />
+                  </span>
+                </label>
+              </div>
 
               {role === "worker" && (
                 <div className="space-y-3">
@@ -467,6 +598,12 @@ export function EditSparkDialog({
                       <option value="key">Key</option>
                       <option value="pass">Password</option>
                     </select>
+                    {config.ssh.auth === "key" && (
+                      <p className="mt-1 text-[10px] text-muted">
+                        SSH runs on the sparkDash host. Docker: mount a key at /root/.ssh/id_ed25519
+                        (or SSH_IDENTITY_FILE). IPs are from that host, not your laptop.
+                      </p>
+                    )}
                   </div>
 
                   {config.ssh.auth === "pass" && (

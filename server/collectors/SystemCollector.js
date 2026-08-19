@@ -130,7 +130,7 @@ export class SystemCollector {
   // ─── GPU helpers ─────────────────────────────────────────
   async _getGPUAll() {
     const gpuOut = await this._nvidiaSmi(
-      "--query-gpu=temperature.gpu,utilization.gpu,power.draw,power.limit --format=csv,noheader,nounits"
+      "--query-gpu=temperature.gpu,utilization.gpu,power.draw,power.limit,clocks.current.sm,clocks.max.sm,clocks_throttle_reasons.hw_thermal_slowdown,clocks_throttle_reasons.sw_thermal_slowdown,clocks_throttle_reasons.hw_slowdown,clocks_throttle_reasons.sw_power_cap --format=csv,noheader,nounits"
     );
     const gpu = this._parseGpuLine(gpuOut);
     const vram = await this._queryNvidiaVram();
@@ -156,6 +156,7 @@ export class SystemCollector {
       power: { draw: gpu.powerDraw, limit: gpu.powerLimit, systemDraw },
       vram,
       processes,
+      throttle: gpu.throttle,
     };
   }
 
@@ -252,16 +253,24 @@ export class SystemCollector {
     const { totalMB: memTotalMB, availMB } = await this._readMeminfoMB();
     availableMB = availMB;
 
-    // Prefer the OS-visible pool (MemTotal) as the total; fall back to the nvidia-smi
-    // value, then the hardware spec (HBM) only if nothing else is known.
-    if (memTotalMB > 0) {
-      total = memTotalMB;
-    } else if (total == null || total === 0) {
-      total = DGX_SPARK.MEMORY_HBM_SIZE_GB * 1024; // Convert to MB
+    const usedMB = Math.round(used || 0);
+    let totalMB = Math.round(total || 0);
+
+    if (this.spark.kind === "host") {
+      // Discrete GPU VRAM: trust nvidia-smi's memory.total (e.g. 24 GB L4), and
+      // only fall back to the OS pool / Spark spec when nvidia-smi says N/A.
+      // Free VRAM = total − used (unlike the shared pool, GPU memory is dedicated).
+      if (totalMB <= 0 && memTotalMB > 0) totalMB = memTotalMB;
+      else if (totalMB <= 0) totalMB = DGX_SPARK.MEMORY_HBM_SIZE_GB * 1024; // Convert to MB
+      if (totalMB > 0 && usedMB > 0) availableMB = Math.max(0, totalMB - usedMB);
+    } else {
+      // GB10 shared HBM pool: prefer the OS-visible pool (MemTotal) as the total,
+      // fall back to nvidia-smi, then the hardware spec (HBM) only if nothing known.
+      if (memTotalMB > 0) totalMB = memTotalMB;
+      else if (totalMB <= 0) totalMB = DGX_SPARK.MEMORY_HBM_SIZE_GB * 1024; // Convert to MB
+      availableMB = availMB;
     }
 
-    const usedMB = Math.round(used || 0);
-    const totalMB = Math.round(total || 0);
     const percentage = totalMB > 0 ? Math.round((usedMB / totalMB) * 100) : 0;
 
     return { used: usedMB, total: totalMB, percentage, available: availableMB };
@@ -278,13 +287,113 @@ export class SystemCollector {
 
   _parseGpuLine(output) {
     const lines = output.trim().split("\n").filter(Boolean);
-    if (!lines[0]) return { temperature: 0, usage: 0, powerDraw: 0, powerLimit: 120 };
+    if (!lines[0]) {
+      return {
+        temperature: 0,
+        usage: 0,
+        powerDraw: 0,
+        powerLimit: 120,
+        throttle: this._defaultThrottle(),
+      };
+    }
     const parts = lines[0].split(",").map((s) => s.trim());
     const temperature = parseFloat(parts[0]) || 0;
     const usage = parseFloat(parts[1]) || 0;
     const powerDraw = parseFloat(parts[2]) || 0;
-    const powerLimit = parseFloat(parts[3]) || 120;
-    return { temperature, usage, powerDraw, powerLimit };
+    const powerLimit = this._parseSmiNumber(parts[3]) ?? 120;
+    const smClockMHz = this._parseSmiNumber(parts[4]);
+    const smClockMaxMHz = this._parseSmiNumber(parts[5]);
+    const hwThermal = this._parseSmiActive(parts[6]);
+    const swThermal = this._parseSmiActive(parts[7]);
+    const hwSlowdown = this._parseSmiActive(parts[8]);
+    const powerCap = this._parseSmiActive(parts[9]);
+    return {
+      temperature,
+      usage,
+      powerDraw,
+      powerLimit,
+      throttle: this._buildThrottle({
+        hwThermal,
+        swThermal,
+        hwSlowdown,
+        powerCap,
+        smClockMHz,
+        smClockMaxMHz,
+      }),
+    };
+  }
+
+  /** Parse nvidia-smi Active / Not Active fields. */
+  _parseSmiActive(value) {
+    if (value == null) return false;
+    const t = String(value).trim();
+    if (!t || /^\[?n\/a\]?$/i.test(t)) return false;
+    if (/^not\s*active$/i.test(t)) return false;
+    if (/^active$/i.test(t)) return true;
+    // Bitmask form (rare with this query): non-zero means active
+    if (/^0x[0-9a-f]+$/i.test(t)) return BigInt(t) !== 0n;
+    const n = parseInt(t, 10);
+    if (Number.isFinite(n)) return n !== 0;
+    return false;
+  }
+
+  /**
+   * @param {{
+   *   hwThermal?: boolean,
+   *   swThermal?: boolean,
+   *   hwSlowdown?: boolean,
+   *   powerCap?: boolean,
+   *   smClockMHz?: number | null,
+   *   smClockMaxMHz?: number | null,
+   * }} flags
+   */
+  _buildThrottle(flags = {}) {
+    const hwThermal = Boolean(flags.hwThermal);
+    const swThermal = Boolean(flags.swThermal);
+    const hwSlowdown = Boolean(flags.hwSlowdown);
+    const powerCap = Boolean(flags.powerCap);
+    const thermal = hwThermal || swThermal;
+    const active = thermal || hwSlowdown || powerCap;
+    /** @type {"ok" | "thermal" | "power" | "hw" | "unknown"} */
+    let reason = "ok";
+    if (thermal) reason = "thermal";
+    else if (powerCap) reason = "power";
+    else if (hwSlowdown) reason = "hw";
+
+    const smClockMHz =
+      flags.smClockMHz != null && Number.isFinite(flags.smClockMHz)
+        ? Math.round(flags.smClockMHz)
+        : null;
+    const smClockMaxMHz =
+      flags.smClockMaxMHz != null && Number.isFinite(flags.smClockMaxMHz)
+        ? Math.round(flags.smClockMaxMHz)
+        : null;
+    const smClockPct =
+      smClockMHz != null && smClockMaxMHz != null && smClockMaxMHz > 0
+        ? Math.min(100, Math.round((smClockMHz / smClockMaxMHz) * 1000) / 10)
+        : null;
+
+    const details = [];
+    if (hwThermal) details.push("HW thermal slowdown");
+    if (swThermal) details.push("SW thermal slowdown");
+    if (powerCap) details.push("SW power cap");
+    if (hwSlowdown && !hwThermal) details.push("HW slowdown");
+
+    return {
+      thermal,
+      hwSlowdown,
+      powerCap,
+      active,
+      reason,
+      smClockMHz,
+      smClockMaxMHz,
+      smClockPct,
+      detail: details.length ? details.join(" · ") : "Clocks not limited",
+    };
+  }
+
+  _defaultThrottle() {
+    return this._buildThrottle();
   }
 
   _parseComputeApps(output) {
@@ -812,7 +921,7 @@ export class SystemCollector {
   async _getRemoteGpu() {
     try {
       const cmd = [
-        "nvidia-smi --query-gpu=temperature.gpu,utilization.gpu,power.draw,power.limit --format=csv,noheader,nounits 2>/dev/null",
+        "nvidia-smi --query-gpu=temperature.gpu,utilization.gpu,power.draw,power.limit,clocks.current.sm,clocks.max.sm,clocks_throttle_reasons.hw_thermal_slowdown,clocks_throttle_reasons.sw_thermal_slowdown,clocks_throttle_reasons.hw_slowdown,clocks_throttle_reasons.sw_power_cap --format=csv,noheader,nounits 2>/dev/null",
         "echo '---'",
         "nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader,nounits 2>/dev/null",
         "echo '---'",
@@ -852,16 +961,21 @@ export class SystemCollector {
       const totalMatch = meminfoOut.match(/MemTotal:\s+(\d+)\s+kB/);
       const availMatch = meminfoOut.match(/MemAvailable:\s+(\d+)\s+kB/);
       const memTotalMB = totalMatch ? Math.round(parseInt(totalMatch[1]) / 1024) : 0;
-      const availableMB = availMatch ? Math.round(parseInt(availMatch[1]) / 1024) : 0;
-
-      if (memTotalMB > 0) {
-        total = memTotalMB;
-      } else if (total == null || total === 0) {
-        total = DGX_SPARK.MEMORY_HBM_SIZE_GB * 1024; // Convert to MB
-      }
+      let availableMB = availMatch ? Math.round(parseInt(availMatch[1]) / 1024) : 0;
 
       const usedMB = Math.round(used || 0);
-      const totalMB = Math.round(total || 0);
+      let totalMB = Math.round(total || 0);
+      if (this.spark.kind === "host") {
+        // Discrete GPU VRAM: trust nvidia-smi's memory.total; free VRAM = total − used.
+        if (totalMB <= 0 && memTotalMB > 0) totalMB = memTotalMB;
+        else if (totalMB <= 0) totalMB = DGX_SPARK.MEMORY_HBM_SIZE_GB * 1024; // Convert to MB
+        if (totalMB > 0 && usedMB > 0) availableMB = Math.max(0, totalMB - usedMB);
+      } else {
+        // GB10 shared HBM pool: prefer the OS-visible pool (MemTotal) as the total,
+        // fall back to nvidia-smi, then the hardware spec (HBM) only if nothing known.
+        if (memTotalMB > 0) totalMB = memTotalMB;
+        else if (totalMB <= 0) totalMB = DGX_SPARK.MEMORY_HBM_SIZE_GB * 1024; // Convert to MB
+      }
       const percentage = totalMB > 0 ? Math.round((usedMB / totalMB) * 100) : 0;
 
       // Rough system power estimate: GPU draw + 20W CX7/peripherals
@@ -879,6 +993,7 @@ export class SystemCollector {
         power: { draw: gpu.powerDraw, limit: gpu.powerLimit, systemDraw },
         vram: { used: usedMB, total: totalMB, percentage, available: availableMB },
         processes,
+        throttle: gpu.throttle,
       };
     } catch (err) {
       console.error(`[SystemCollector] Remote GPU error for ${this.spark.id}:`, err.message);
@@ -892,12 +1007,22 @@ export class SystemCollector {
         "cat /proc/stat | head -1",
         "echo '---'",
         "cat /proc/cpuinfo | grep -E 'CPU architecture|aarch64' | head -1",
+        ...(this.spark.kind === "host"
+          ? [
+              "echo '---'",
+              // Same hwmon-then-thermal priority as local `_getCPUTemperature()`.
+              // GB10 also exposes nvme/mlx5 sensors; the name allowlist keeps those out.
+              'for h in /sys/class/hwmon/*; do n=$(cat "$h/name" 2>/dev/null); case "$n" in coretemp|k10temp|zenpower|acpitz) for t in "$h"/temp*_input; do cat "$t" 2>/dev/null; break; done;; esac; done',
+              "cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null",
+            ]
+          : []),
       ].join("; ");
 
       const output = await sshExec(this.spark, cmd);
       const sections = output.split("---");
       const statOut = sections[0]?.trim() || "";
       const cpuinfoOut = sections[1]?.trim() || "";
+      const tempOut = this.spark.kind === "host" ? sections[2] || "" : "";
 
       const cpuStat = this._parseCPUUsage(statOut);
       const totalDiff = cpuStat.total - (this.lastCpuStat?.total || cpuStat.total);
@@ -911,11 +1036,34 @@ export class SystemCollector {
       const idleWatts = tdp * 0.08;
       const draw = idleWatts + (tdp - idleWatts) * Math.min(usage / 100, 1);
 
-      return { usage, temperature: 0, draw: Math.round(draw * 10) / 10, tdp: Math.round(tdp) };
+      return {
+        usage,
+        temperature: this.spark.kind === "host" ? this._parseSensorTemp(tempOut) : 0,
+        draw: Math.round(draw * 10) / 10,
+        tdp: Math.round(tdp),
+      };
     } catch (err) {
       console.error(`[SystemCollector] Remote CPU error for ${this.spark.id}:`, err.message);
       return this._defaultCpu();
     }
+  }
+
+  /**
+   * First plausible temperature from a remote sensor dump (raw millidegrees,
+   * one per line, highest priority first). Same accept range as local
+   * `_getCPUTemperature()`; returns 0 when nothing is readable.
+   *
+   * @param {string} raw
+   * @returns {number} degrees Celsius, or 0
+   */
+  _parseSensorTemp(raw) {
+    for (const line of String(raw).split("\n")) {
+      const millidegrees = parseInt(line.trim(), 10);
+      if (Number.isFinite(millidegrees) && millidegrees > 0 && millidegrees < 200000) {
+        return Math.round((millidegrees / 1000) * 10) / 10;
+      }
+    }
+    return 0;
   }
 
   async _getRemoteRam() {
@@ -1202,6 +1350,77 @@ export class SystemCollector {
   }
 
   /**
+   * One-shot real-hardware detection (GPU chip + driver, CPU model/cores, RAM).
+   * Used for kind === "host" units (dedicated GPU Linux boxes) so the header
+   * doesn't claim DGX Spark specs. Returns null on any failure → caller keeps
+   * its static fallback summary.
+   * @returns {Promise<object|null>}
+   */
+  async detectHardware() {
+    try {
+      let smiOut = "";
+      let cpuinfo = "";
+      let meminfo = "";
+      let coresParsed = null;
+      if (this.spark.isLocal) {
+        const results = await Promise.all([
+          this._nvidiaSmi(
+            "--query-gpu=name,driver_version --format=csv,noheader,nounits 2>/dev/null"
+          ).catch(() => ""),
+          this._readHostFile("/proc/cpuinfo").catch(() => ""),
+          this._readHostFile("/proc/meminfo").catch(() => ""),
+        ]);
+        smiOut = results[0];
+        cpuinfo = results[1];
+        meminfo = results[2];
+        coresParsed = (cpuinfo.match(/processor\s*:/g) || []).length;
+      } else {
+        const out = await sshExec(this.spark, [
+          "nvidia-smi --query-gpu=name,driver_version --format=csv,noheader,nounits 2>/dev/null",
+          "echo '---'",
+          "grep -E '^model name' /proc/cpuinfo | head -1",
+          "echo '---'",
+          "grep -E 'processor\\s*:' /proc/cpuinfo | wc -l",
+          "echo '---'",
+          "grep -E 'MemTotal' /proc/meminfo",
+        ].join("; "));
+        const parts = out.split("---");
+        smiOut = parts[0]?.trim() || "";
+        cpuinfo = parts[1]?.trim() || "";
+        meminfo = parts[3]?.trim() || "";
+        const n = parseInt(parts[2]?.trim() || "", 10);
+        coresParsed = Number.isInteger(n) && n > 0 ? n : null;
+      }
+
+      const smiLine = smiOut.split("\n").find(Boolean) || "";
+      const smiParts = smiLine.split(",").map((s) => s.trim());
+      const gpuChip = smiParts[0] || null;
+      const cudaDriver = smiParts[1] || null;
+
+      const modelMatch = cpuinfo.match(/model name\s*:\s*(.+)/i);
+      const cpuModel = modelMatch ? modelMatch[1].trim() : null;
+      const cpuCores = coresParsed !== null && coresParsed > 0 ? coresParsed : null;
+
+      const memMatch = meminfo.match(/MemTotal:\s+(\d+)\s+kB/);
+      const totalMemoryGB = memMatch
+        ? Math.max(1, Math.round(parseInt(memMatch[1], 10) / 1024 / 1024))
+        : null;
+
+      return {
+        device: "Linux GPU host",
+        cpuModel,
+        cpuCores,
+        totalMemoryGB,
+        gpuChip,
+        cudaDriver,
+        storageModel: null,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Read host network files via host netns — /proc/net is netns-local even under
    * a bind-mounted /host/proc (self/net symlink semantics).
    */
@@ -1283,6 +1502,7 @@ export class SystemCollector {
       power: { draw: 0, limit: 120, systemDraw: 0 },
       vram: { used: 0, total: 0, percentage: 0, available: 0 },
       processes: [],
+      throttle: this._defaultThrottle(),
     };
   }
 

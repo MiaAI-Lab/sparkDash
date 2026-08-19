@@ -1,4 +1,4 @@
-import type { GpuMetrics } from "../../api/types";
+import type { GpuMetrics, ConversationRow } from "../../api/types";
 import { Sparkline } from "../ui/Sparkline";
 import { Panel } from "../ui/Panel";
 import { ActivityIcon } from "../ui/icons";
@@ -9,6 +9,9 @@ interface GpuPanelProps {
   gpu: GpuMetrics | null;
   sparkId: string;
   temperatureUnit: "celsius" | "fahrenheit";
+  className?: string;
+  llmPort?: number;
+  conversations?: ConversationRow[];
 }
 
 function celsiusToFahrenheit(c: number): number {
@@ -42,7 +45,7 @@ function MetricRow({
   );
 }
 
-export function GpuPanel({ gpu, sparkId, temperatureUnit }: GpuPanelProps) {
+export function GpuPanel({ gpu, sparkId, temperatureUnit, className }: GpuPanelProps) {
   const tempHistory = useMetricsHistoryTail(sparkId, "gpu.temp");
   const usageHistory = useMetricsHistoryTail(sparkId, "gpu.usage");
 
@@ -69,7 +72,7 @@ export function GpuPanel({ gpu, sparkId, temperatureUnit }: GpuPanelProps) {
       title="GPU"
       accent
       icon={<ActivityIcon />}
-      className="panel-gpu"
+      className={`panel-gpu ${className ?? ""}`}
       bodyClassName="space-y-3"
     >
       <MetricRow
@@ -90,6 +93,63 @@ export function GpuPanel({ gpu, sparkId, temperatureUnit }: GpuPanelProps) {
           {powerDraw}W / {powerLimit}W
         </span>
       </div>
+
+      {/* NVIDIA throttle / thermal slowdown + SM clock headroom */}
+      {(() => {
+        const t = gpu?.throttle;
+        const reason = t?.reason ?? "ok";
+        const chipLabel =
+          reason === "thermal"
+            ? "Thermal"
+            : reason === "power"
+              ? "Power"
+              : reason === "hw"
+                ? "HW"
+                : "OK";
+        const chipClass =
+          reason === "thermal"
+            ? "border-danger/40 bg-danger/15 text-danger"
+            : reason === "power" || reason === "hw"
+              ? "border-warning/40 bg-warning/15 text-warning"
+              : "border-border bg-surface-elevated text-muted";
+        const barColor =
+          reason === "thermal"
+            ? "bg-danger"
+            : reason === "power" || reason === "hw"
+              ? "bg-warning"
+              : "bg-accent";
+        const pct = t?.smClockPct;
+        const clockCaption =
+          t?.smClockMHz != null && t?.smClockMaxMHz != null
+            ? `${t.smClockMHz} / ${t.smClockMaxMHz} MHz`
+            : pct != null
+              ? `${pct}%`
+              : "—";
+        return (
+          <div className="space-y-1.5" title={t?.detail ?? undefined}>
+            <div className="flex items-center justify-between gap-2 text-sm">
+              <span className="text-muted">Throttle</span>
+              <span
+                className={`rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${chipClass}`}
+              >
+                {chipLabel}
+              </span>
+            </div>
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-[10px] uppercase tracking-wide text-muted">SM clock</span>
+              <span className="font-tabular text-xs text-text">{clockCaption}</span>
+            </div>
+            <div className="h-1.5 overflow-hidden rounded-full bg-border">
+              <div
+                className={`h-full rounded-full transition-[width] duration-300 ease-out ${barColor}`}
+                style={{
+                  width: `${pct != null ? Math.min(100, Math.max(0, pct)) : 0}%`,
+                }}
+              />
+            </div>
+          </div>
+        );
+      })()}
 
       {/* GPU-allocated memory (portion of the unified pool held by GPU compute apps) */}
       {gpu && (
@@ -125,12 +185,12 @@ export function GpuPanel({ gpu, sparkId, temperatureUnit }: GpuPanelProps) {
         <div className="space-y-1.5 border-t border-border pt-3">
           <div className="text-[10px] uppercase tracking-wide text-muted">Processes</div>
           {gpu.processes.map((proc) => (
-            <div key={proc.pid} className="flex items-center justify-between text-xs">
-              <div className="min-w-0 flex-1">
-                <span className="truncate text-text" title={`${proc.name} (PID ${proc.pid})`}>
+            <div key={proc.pid} className="flex items-center justify-between gap-2 text-xs">
+              <div className="flex min-w-0 flex-1 items-baseline gap-1.5">
+                <span className="min-w-0 truncate text-text" title={`${proc.name} (PID ${proc.pid})`}>
                   {proc.name}
                 </span>
-                <span className="ml-1.5 font-tabular text-[10px] text-muted">
+                <span className="shrink-0 font-tabular text-[10px] text-muted">
                   {proc.pid}
                 </span>
               </div>

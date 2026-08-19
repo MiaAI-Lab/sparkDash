@@ -2,6 +2,13 @@
 export interface SparkConfig {
   id: string;
   name: string;
+  /**
+   * Unit type:
+   * - spark: NVIDIA DGX Spark (default) — DGX Spark specs shown in the header.
+   * - host: any Linux box with an NVIDIA GPU (still monitored via nvidia-smi,
+   *   just not a Spark). Real hardware is auto-detected once online.
+   */
+  kind?: "spark" | "host";
   lanIp: string;
   cx7Ip?: string | null;
   /**
@@ -29,6 +36,11 @@ export interface SparkConfig {
   /** HTTP ports for LLM servers on this Spark (default [8888]) */
   llmPorts?: number[];
   /**
+   * Ports that have an encrypted LLM API key stored server-side.
+   * The key itself is never returned by the API.
+   */
+  llmApiKeyPorts?: number[];
+  /**
    * Cluster role for overview + worker behavior.
    * - head / standalone: local LLM API probed
    * - worker: no local API (LLM card hidden, ports not probed)
@@ -54,24 +66,131 @@ export interface SparkConfig {
    * Forced true for head, forced false for worker.
    */
   llmMonitoring?: boolean;
+  /**
+   * Probe local ComfyUI and show the ComfyUI card (default false; all roles).
+   */
+  comfyMonitoring?: boolean;
+  /** ComfyUI HTTP port (default 8188). */
+  comfyPort?: number;
+  /**
+   * Opt-in: Hermes Agent CLI (nousresearch/hermes-agent) is installed on this
+   * machine. When enabled, sparkDash checks for Hermes updates and can run
+   * `hermes update` for you via SSH.
+   */
+  hermesMonitoring?: boolean;
+  /**
+   * Report tailnet presence via `tailscale status --json` (default false; all roles).
+   */
+  tailscaleMonitoring?: boolean;
   /** When true, storage is only updated on manual refresh, not auto-polled. */
   storagePollDisabled?: boolean;
 }
 
 export type SparkRole = "head" | "worker" | "standalone";
 
+// ─── Hermes Agent status ───────────────────────────────
+/** Opt-in Hermes Agent update monitoring state, pushed in every snapshot. */
+export interface HermesStatus {
+  /** Opt-in setting from Edit Spark (hermes installed on this machine). */
+  monitoring: boolean;
+  /** Whether the `hermes` binary was found on the target. null before first check. */
+  installed: boolean | null;
+  /** Installed version string when detected (e.g. "0.20.0"). */
+  version: string | null;
+  /** true when `hermes update --check` reports commits behind origin/main. */
+  updateAvailable: boolean | null;
+  /** Number of commits behind origin/main when reported. */
+  behindCommits: number | null;
+  /** Last check time (ms epoch). */
+  checkedAt: number | null;
+  /** One-shot update job state. */
+  status: "idle" | "running" | "success" | "error";
+  startedAt: number | null;
+  finishedAt: number | null;
+  /** Short human-readable message when the last check/update failed. */
+  error: string | null;
+}
+
+/** Latest public Hermes Agent release (changelog for the update dialog). */
+export interface HermesRelease {
+  /** GitHub release tag, e.g. "v2026.7.7.2". */
+  tagName: string;
+  /** Human release name, e.g. "Hermes Agent v0.18.1 (v2026.7.7.2)". */
+  name: string;
+  version: string;
+  /** Semantic version of the release (e.g. "0.20.0") for bump detection. */
+  semver: string | null;
+  publishedAt: string | null;
+  htmlUrl: string;
+  /** Markdown release body. */
+  body: string;
+}
+
+/** One pending commit an update would bring (from git HEAD..origin/main). */
+export interface HermesPendingCommit {
+  sha: string;
+  title: string;
+}
+
+/** One Spark's outcome from a batch `update-all` call. */
+export interface HermesBatchUpdateResult {
+  id: string;
+  name: string;
+  ok: boolean;
+  started: boolean;
+  skipped?: boolean;
+  reason?: string;
+}
+
+export interface HermesBatchUpdateResponse {
+  success: boolean;
+  results: HermesBatchUpdateResult[];
+}
+
+/** Per-Spark update preview used by the confirmation dialog. */
+export interface HermesUpdatesResponse {
+  success: boolean;
+  /** Which content the dialog should lead with. */
+  view: "commits" | "release";
+  /** Latest tagged release (may be null on GitHub API failure). */
+  release: HermesRelease | null;
+  releaseError: string | null;
+  /** Installed hermes version on this Spark (e.g. "0.20.0"), when known. */
+  installedVersion: string | null;
+  /** Pending commits from git (may be null if the repo can't be read). */
+  pending: { count: number; headSha: string | null; commits: HermesPendingCommit[] } | null;
+}
+
 // ─── Hardware info ───────────────────────────────────────
 export interface HardwareInfo {
   device: string;
-  cpuModel: string;
-  cpuCores: number;
-  totalMemoryGB: number;
-  gpuChip: string;
+  cpuModel: string | null;
+  cpuCores: number | null;
+  totalMemoryGB: number | null;
+  gpuChip: string | null;
   cudaDriver: string | null;
   storageModel: string | null;
 }
 
 // ─── GPU metrics ─────────────────────────────────────────
+export interface GpuThrottle {
+  /** HW or SW thermal slowdown engaged. */
+  thermal: boolean;
+  /** HW slowdown (may include thermal or power brake). */
+  hwSlowdown: boolean;
+  /** SW power-cap scaling limiting clocks. */
+  powerCap: boolean;
+  /** Any limiting reason above. */
+  active: boolean;
+  reason: "ok" | "thermal" | "power" | "hw" | "unknown";
+  smClockMHz: number | null;
+  smClockMaxMHz: number | null;
+  /** Current SM clock as % of max (0–100). null when clocks unavailable. */
+  smClockPct: number | null;
+  /** Human-readable active reasons (tooltip). */
+  detail: string;
+}
+
 export interface GpuMetrics {
   temperature: number;
   usage: number;
@@ -90,6 +209,8 @@ export interface GpuMetrics {
   };
   /** Top GPU processes by VRAM usage (sorted descending, max 5). */
   processes?: Array<{ pid: number; name: string; vramMB: number }>;
+  /** NVIDIA clock throttle / thermal slowdown state from nvidia-smi. */
+  throttle?: GpuThrottle | null;
 }
 
 // ─── CPU metrics ─────────────────────────────────────────
@@ -160,7 +281,7 @@ export interface UnifiedMemoryMetrics {
 // ─── LLM metrics ─────────────────────────────────────────
 export interface LlmMetrics {
   available: boolean;
-  backend: "vllm" | "llama.cpp" | "sglang" | null;
+  backend: "vllm" | "llama.cpp" | "sglang" | "ds4" | null;
   modelId: string | null;
   modelPath: string | null;
   contextLength: number | null;
@@ -170,6 +291,10 @@ export interface LlmMetrics {
   slotsTotal: number;
   generationTps: number;
   prefillTps: number;
+  /** Live cached-prefill tok/s when the backend splits kinds (ds4, llama.cpp, sglang). */
+  cachedPrefillTps?: number | null;
+  /** Live uncached/computed prefill tok/s when split is available. */
+  uncachedPrefillTps?: number | null;
   /** Cumulative total output (generation) tokens as reported by the LLM server */
   totalOutputTokens: number;
   /** vLLM KV cache usage fraction (0–1). null when backend !== vllm or unreachable. */
@@ -190,6 +315,135 @@ export interface LlmMetrics {
   itlP95Seconds?: number | null;
   /** vLLM speculative/MTP acceptance rate (accepted/drafted, 0–1). null when unavailable. */
   mtpAcceptanceRate?: number | null;
+  /**
+   * Observational exposure hint from unauthenticated probe reachability +
+   * configured target host scope. null when auth status is unknown.
+   * Does not claim process bind address.
+   */
+  posture?: LlmPosture | null;
+  error: string | null;
+}
+
+/** One UTC day of busy tok/s rollups (null avg = no busy samples). */
+export interface LlmDailyDay {
+  date: string;
+  decodeMax: number;
+  decodeAvg: number | null;
+  prefillMax: number;
+  prefillAvg: number | null;
+  cachedPrefillMax: number | null;
+  cachedPrefillAvg: number | null;
+  uncachedPrefillMax: number | null;
+  uncachedPrefillAvg: number | null;
+}
+
+export interface LlmDailyResponse {
+  sparkId: string;
+  port: number;
+  days: LlmDailyDay[];
+}
+
+/** Security posture badge payload from LlmProbe. */
+export interface LlmPosture {
+  /** ok = green, warn = amber, danger = red */
+  level: "ok" | "warn" | "danger";
+  auth: "open" | "protected" | "keyed";
+  scope: "local" | "lan" | "public" | "unknown";
+  /** Short badge text */
+  label: string;
+  /** Tooltip / title detail */
+  detail: string;
+}
+
+// ─── ComfyUI metrics ─────────────────────────────────────
+/** Active or queued ComfyUI job (parsed from /queue prompt graph). */
+export interface ComfyJob {
+  id: string;
+  status: "running" | "pending";
+  /** Workflow title when present in extra_pnginfo. */
+  title: string | null;
+  /** Model weight files referenced by loader nodes. */
+  models: string[];
+  nodeCount: number;
+  steps: number | null;
+  width: number | null;
+  height: number | null;
+  batchSize: number | null;
+  sampler: string | null;
+  /** Queue entry create time (ms epoch when available). */
+  createTime: number | null;
+}
+
+/** Live or estimated progress for the active Comfy job. */
+export interface ComfyProgress {
+  promptId: string | null;
+  nodeId: string | null;
+  nodeLabel: string | null;
+  value: number;
+  max: number;
+  percent: number | null;
+  updatedAt: number;
+  /** ws = Comfy WebSocket frames; estimate = elapsed/avg heuristic */
+  source?: "ws" | "estimate";
+}
+
+export interface ComfyLastJob {
+  id: string;
+  status: "completed" | "failed" | "cancelled" | string;
+  title: string | null;
+  durationMs: number | null;
+  endedAt: number | null;
+}
+
+export interface ComfyModelsInstalled {
+  checkpoints: string[];
+  loras: string[];
+}
+
+export interface ComfyMetrics {
+  available: boolean;
+  port: number;
+  version: string | null;
+  pytorchVersion: string | null;
+  /** Primary device type from /system_stats (e.g. cpu, cuda) — not VRAM. */
+  deviceType?: string | null;
+  queueRunning: number;
+  queuePending: number;
+  /** Currently executing job, if any. */
+  activeJob?: ComfyJob | null;
+  /** Next pending jobs (capped server-side). */
+  pendingJobs?: ComfyJob[];
+  progress?: ComfyProgress | null;
+  lastJob?: ComfyLastJob | null;
+  modelsInstalled?: ComfyModelsInstalled | null;
+  /** Estimated ms until queue idle (running remainder + pending × avg). */
+  queueEtaMs?: number | null;
+  /** Browser-openable ComfyUI base URL (probe host + port). */
+  openUrl?: string | null;
+  error: string | null;
+}
+
+export interface TailscaleMetrics {
+  /** True when `tailscale status --json` was read and had a Self entry. */
+  available: boolean;
+  /**
+   * The node's OWN view of whether it is talking to the coordination server.
+   * null when tailscale did not report it.
+   */
+  online: boolean | null;
+  /** tailscaled's own state: Running | Stopped | NeedsLogin | NoState. */
+  backendState: string | null;
+  hostName: string | null;
+  dnsName: string | null;
+  tailscaleIp: string | null;
+  /** DERP relay region, or null when the node has a direct path. */
+  relay: string | null;
+  /** ISO timestamp; null when key expiry is disabled for this node. */
+  keyExpiry: string | null;
+  keyExpired: boolean;
+  version: string | null;
+  /** Tailscale's own health warnings — these explain a false `online`. */
+  health: string[];
   error: string | null;
 }
 
@@ -203,6 +457,10 @@ export interface SparkMetrics {
   unifiedMemory: UnifiedMemoryMetrics | null;
   /** Array of LLM metrics, one per configured port. Empty array when no ports. */
   llm: LlmMetrics[];
+  /** ComfyUI probe result when monitoring is enabled; null when off or not yet polled. */
+  comfy?: ComfyMetrics | null;
+  /** Tailnet probe result when monitoring is enabled; null when off or not yet polled. */
+  tailscale?: TailscaleMetrics | null;
 }
 
 // ─── Occupancy conversations (not LlmMetrics) ────────────
@@ -234,9 +492,14 @@ export interface ConversationRow {
 export interface SparkSnapshot {
   id: string;
   name: string;
+  /** Unit type: spark (DGX Spark) or host (dedicated GPU Linux box). */
+  kind?: "spark" | "host";
   online: boolean;
   /** Uptime in seconds, or null when offline */
   uptime: number | null;
+  /** LAN IP for browser deep-links (e.g. Open ComfyUI). */
+  lanIp?: string;
+  isLocal?: boolean;
   disabledDevices: string[];
   disabledInterfaces: string[];
   storagePollDisabled?: boolean;
@@ -254,6 +517,16 @@ export interface SparkSnapshot {
   llmPort: number;
   /** All LLM server ports configured for this Spark */
   llmPorts: number[];
+  /** Ports with a stored LLM API key (key itself never exposed) */
+  llmApiKeyPorts?: number[];
+  /** Whether ComfyUI is probed (opt-in; all roles) */
+  comfyMonitoring?: boolean;
+  /** ComfyUI HTTP port (default 8188) */
+  comfyPort?: number;
+  /** Whether tailnet presence is probed (opt-in; all roles) */
+  tailscaleMonitoring?: boolean;
+  /** Hermes Agent update monitoring state (present in every snapshot). */
+  hermes?: HermesStatus;
   hardware: HardwareInfo;
   metrics: SparkMetrics;
   /** Bound occupancy conversations. Omit when empty. */
@@ -275,7 +548,7 @@ export interface Settings {
   temperatureUnit: "celsius" | "fahrenheit";
   /** Persist prompts / HTTP traces / GPU samples on decode benchmark runs. */
   benchDebugTraces: boolean;
-  /** Layout density — comfortable (default) or compact. */
+  /** Layout density — compact (default) or comfortable. */
   density: "comfortable" | "compact";
 }
 
@@ -342,6 +615,7 @@ export interface SparkTestResponse {
   id: string;
   ssh: { ok: boolean; message: string };
   llm: { ok: boolean; message: string };
+  comfy?: { ok: boolean; message: string; skipped?: boolean };
   ok: boolean;
 }
 
@@ -360,9 +634,15 @@ export interface DecodeBenchConfig {
 export interface DecodeBenchStreamResult {
   index: number;
   ttftMs: number;
+  /** First answer token (post-reasoning) in ms from request start; null when the reply never leaves the reasoning phase. */
+  ttftContentMs: number | null;
+  /** Number of streamed chunks that carried reasoning (not answer) text. */
+  reasoningChunks: number;
   decodeTps: number;
   decodeTokens: number;
   completionTokens: number;
+  prefillTps: number;
+  prefillTokens: number;
   totalMs: number;
   error: string | null;
   /** Exact prompt used for this stream (debug). */
@@ -411,15 +691,11 @@ export interface DecodeBenchLevelResult {
   medianTtftMs: number;
   /** Client: total post-first-token tokens / concurrent decode window */
   aggregateDecodeTps: number;
-  /**
-   * Median server-side generation tok/s from live-style /metrics polls during the wave.
-   * Null when the backend does not expose counters.
-   */
-  serverGenerationTps: number | null;
-  /** Peak sample of server generation tok/s during the wave */
-  serverGenerationTpsMax?: number | null;
-  /** Number of positive rate samples collected from the engine */
-  serverGenerationSamples?: number;
+  meanPrefillTps: number;
+  medianPrefillTps: number;
+  /** Sum prompt tokens / concurrent TTFT window (min start → max first token) */
+  aggregatePrefillTps: number;
+  totalPrefillTokens: number;
   totalDecodeTokens: number;
   totalCompletionTokens: number;
   durationMs: number;
@@ -483,12 +759,18 @@ export interface StartDecodeBenchRequest {
 }
 
 // ─── LLM Prompt Showcase ─────────────────────────────────
+export type ShowcasePromptType = "structural" | "text" | "mixed";
+
 export interface ShowcaseStartRequest {
   port: number;
   modelId?: string | null;
   maxTokens?: number;
+  /** Sampling temperature (0–2). Defaults to 0.7 on the server. */
+  temperature?: number;
   /** When true, enable model thinking/reasoning flags (UI defaults to off). */
   thinking?: boolean;
+  /** Catalog mode used to seed prompts (structural / text / mixed). */
+  promptType?: ShowcasePromptType | null;
   prompts: string[];
 }
 
@@ -508,6 +790,7 @@ export interface ShowcaseStreamState {
   ttftMs: number | null;
   decodeTps: number;
   liveTokPerSec: number;
+  peakTokPerSec?: number;
   model: string | null;
   error: string | null;
 }
@@ -519,13 +802,51 @@ export interface ShowcaseSessionState {
   rev: number;
   port: number;
   modelId?: string | null;
+  maxTokens?: number | null;
+  temperature?: number;
+  thinking?: boolean;
+  promptType?: ShowcasePromptType | null;
   startedAt?: number;
+  completedAt?: number | null;
   /** Median server generation tok/s from /metrics during the run (null if unavailable). */
   serverGenerationTps?: number | null;
   serverGenerationTpsMax?: number | null;
   serverGenerationSamples?: number;
+  totalTokens?: number;
+  meanDecodeTps?: number;
+  peakStreamTps?: number;
+  streamCount?: number;
   streams: ShowcaseStreamState[];
   error?: string | null;
+  /** True when loaded from disk history (not a live poll session). */
+  fromHistory?: boolean;
+}
+
+/** List-row for finished showcase runs (no stream bodies). */
+export interface ShowcaseHistorySummary {
+  sessionId: string;
+  sparkId: string;
+  status: "completed" | "cancelled" | "error" | string;
+  port: number;
+  modelId?: string | null;
+  maxTokens?: number | null;
+  temperature?: number;
+  thinking?: boolean;
+  promptType?: ShowcasePromptType | null;
+  startedAt?: number | null;
+  completedAt?: number | null;
+  serverGenerationTps?: number | null;
+  serverGenerationTpsMax?: number | null;
+  totalTokens: number;
+  meanDecodeTps: number;
+  peakStreamTps: number;
+  streamCount: number;
+  error?: string | null;
+}
+
+export interface ShowcaseListResponse {
+  active: { sessionId: string; status: string } | null;
+  history: ShowcaseHistorySummary[];
 }
 
 export interface ShowcaseStartResponse {

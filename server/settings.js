@@ -17,8 +17,8 @@ const DEFAULTS = Object.freeze({
   temperatureUnit: "celsius",
   /** Persist prompts / HTTP traces / GPU samples on decode benchmark runs. */
   benchDebugTraces: false,
-  /** Layout density — comfortable (default) or compact. */
-  density: "comfortable",
+  /** Layout density — compact (default) or comfortable. */
+  density: "compact",
 });
 
 /** @type {typeof DEFAULTS} */

@@ -1,8 +1,6 @@
-import { useState } from "react";
 import type { SparkSnapshot } from "../../api/types";
 import { resolveSparkRole } from "../../api/sparkRole";
-import { shutdownSpark, wakeSpark } from "../../api/client";
-import { EditIcon, PowerOffIcon, PowerOnIcon } from "../ui/icons";
+import { SparkActions } from "./SparkActions";
 
 interface SparkHeaderProps {
   spark: SparkSnapshot;
@@ -24,49 +22,7 @@ function formatUptime(seconds: number): string {
 export function SparkHeader({ spark, onEdit }: SparkHeaderProps) {
   const { hardware } = spark;
   const online = spark.online;
-  const [powerLoading, setPowerLoading] = useState(false);
-  const [powerMsg, setPowerMsg] = useState<{ text: string; tone: "ok" | "err" } | null>(null);
-
-  async function handleShutdown() {
-    if (
-      !confirm(
-        `Gracefully shut down ${spark.name}? This will stop all containers and power off the node.`
-      )
-    ) {
-      return;
-    }
-    setPowerLoading(true);
-    setPowerMsg(null);
-    try {
-      const res = await shutdownSpark(spark.id);
-      setPowerMsg({ text: res.message || "Shutdown initiated", tone: "ok" });
-    } catch (err: unknown) {
-      setPowerMsg({
-        text: err instanceof Error ? err.message : "Shutdown failed",
-        tone: "err",
-      });
-    } finally {
-      setPowerLoading(false);
-      setTimeout(() => setPowerMsg(null), 5000);
-    }
-  }
-
-  async function handleWake() {
-    setPowerLoading(true);
-    setPowerMsg(null);
-    try {
-      const res = await wakeSpark(spark.id);
-      setPowerMsg({ text: res.message || "Wake packet sent", tone: "ok" });
-    } catch (err: unknown) {
-      setPowerMsg({
-        text: err instanceof Error ? err.message : "Wake failed",
-        tone: "err",
-      });
-    } finally {
-      setPowerLoading(false);
-      setTimeout(() => setPowerMsg(null), 5000);
-    }
-  }
+  const hermes = spark.hermes;
 
   return (
     <div
@@ -89,7 +45,7 @@ export function SparkHeader({ spark, onEdit }: SparkHeaderProps) {
                 role === "head"
                   ? "Cluster head — local LLM API"
                   : role === "worker"
-                    ? "Distributed LLM worker — no local model API; LLM card is hidden"
+                    ? "Distributed LLM worker — no local model; LLM card is hidden"
                     : spark.llmMonitoring === false
                       ? "Standalone — LLM monitoring off"
                       : "Standalone — local LLM API";
@@ -122,53 +78,47 @@ export function SparkHeader({ spark, onEdit }: SparkHeaderProps) {
                 {formatUptime(spark.uptime)}
               </span>
             )}
+            {hermes?.monitoring && hermes.installed && hermes.version && (
+              <span
+                className="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 font-tabular text-[10px] font-medium text-accent"
+                title={`Hermes Agent ${hermes.version} installed on this machine`}
+              >
+                Hermes
+              </span>
+            )}
+            {hermes?.monitoring && hermes.installed === false && hermes.checkedAt != null && (
+              <span
+                className="shrink-0 rounded bg-danger/15 px-1.5 py-0.5 text-[10px] font-medium text-danger"
+                title="The `hermes` binary was not found on this machine (check the install path or Edit Spark)."
+              >
+                Hermes not found
+              </span>
+            )}
+            {hermes?.monitoring &&
+              hermes.error &&
+              hermes.status === "idle" && (
+                <span
+                  className="max-w-[16rem] shrink-0 truncate rounded bg-danger/15 px-1.5 py-0.5 text-[10px] font-medium text-danger"
+                  title={`Update check failed — it will retry automatically: ${hermes.error}`}
+                >
+                  Update check failed
+                </span>
+              )}
           </div>
           <p className="truncate text-xs text-muted">
-            {hardware.device} · {hardware.gpuChip}
+            {hardware.gpuChip
+              ? `${hardware.device} · ${hardware.gpuChip}`
+              : hardware.device}
           </p>
         </div>
       </div>
 
-      <div className="ml-auto flex items-center gap-2">
-        {powerMsg && (
-          <span className={`text-[11px] ${powerMsg.tone === "ok" ? "text-success" : "text-danger"}`}>
-            {powerMsg.text}
-          </span>
-        )}
-        {online ? (
-          <button
-            type="button"
-            onClick={() => void handleShutdown()}
-            disabled={powerLoading}
-            title="Graceful shutdown (requires /usr/local/bin/spark-shutdown on the host)"
-            className="flex items-center gap-1.5 rounded-md border border-border bg-surface-elevated px-3 py-1.5 text-[11px] text-muted hover:bg-danger/20 hover:text-danger transition-colors disabled:opacity-50"
-          >
-            <PowerOffIcon className="h-3 w-3" />
-            Shutdown
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={() => void handleWake()}
-            disabled={powerLoading}
-            title="Wake-on-LAN (set MAC address in Edit Spark)"
-            className="flex items-center gap-1.5 rounded-md border border-border bg-surface-elevated px-3 py-1.5 text-[11px] text-muted hover:bg-success/20 hover:text-success transition-colors disabled:opacity-50"
-          >
-            <PowerOnIcon className="h-3 w-3" />
-            Wake
-          </button>
-        )}
-        {onEdit && (
-          <button
-            type="button"
-            onClick={onEdit}
-            className="flex items-center gap-1.5 rounded-md border border-border bg-surface-elevated px-3 py-1.5 text-[11px] text-muted hover:bg-surface-hover hover:text-text transition-colors"
-          >
-            <EditIcon className="h-3 w-3" />
-            Edit
-          </button>
-        )}
-      </div>
+      {/* Desktop action cluster (hidden on mobile; mobile renders its own row above Resources) */}
+      <SparkActions
+        spark={spark}
+        onEdit={onEdit}
+        className="ml-auto hidden flex-wrap items-center justify-end gap-2 sm:flex"
+      />
     </div>
   );
 }

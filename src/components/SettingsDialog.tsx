@@ -3,6 +3,7 @@ import { fetchSettings, updateSettings } from "../api/client";
 import type { Settings } from "../api/types";
 import { Toggle } from "./SessionSourceFields";
 import { useModalPresence } from "../hooks/useModalPresence";
+import packageJson from "../../package.json";
 
 interface SettingsDialogProps {
   open: boolean;
@@ -218,7 +219,7 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
         )}
 
         <div className="mt-5 flex items-center gap-3 border-t border-border pt-3">
-          <span className="text-[10px] text-muted">sparkDash v1.3.0</span>
+          <span className="text-[10px] text-muted">sparkDash v{packageJson.version}</span>
           <span className="text-border-strong text-[10px]">·</span>
           <a
             href="https://x.com/MiaAI_lab"

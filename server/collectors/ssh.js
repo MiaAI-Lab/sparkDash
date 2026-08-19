@@ -7,8 +7,9 @@
  */
 import { execFile } from "child_process";
 import fs from "fs";
-import { SSH_CONNECT_TIMEOUT } from "../config.js";
+import { COMFY_PORT, COMFY_PROBE_TIMEOUT_MS, SSH_CONNECT_TIMEOUT } from "../config.js";
 import { isAllowedTargetHost, isValidSshUser } from "../validate.js";
+import { llmProbeHost } from "./llmHost.js";
 
 // Detect sshpass without shelling out to `which` on every cold call —
 // checking PATH entries directly is faster and avoids spawning a shell.
@@ -126,7 +127,12 @@ export async function sshExec(spark, cmd, options = {}) {
   } else {
     // Key-based SSH (default) — BatchMode prevents hanging on missing keys
     file = "ssh";
-    args = [...baseOpts, "-o", "BatchMode=yes", "--", remote, cmd];
+    args = [...baseOpts, "-o", "BatchMode=yes"];
+    const identityFile = process.env.SSH_IDENTITY_FILE;
+    if (identityFile) {
+      args.push("-i", identityFile);
+    }
+    args.push("--", remote, cmd);
   }
 
   return new Promise((resolve, reject) => {
@@ -164,17 +170,27 @@ export async function sshTest(spark) {
  */
 export async function llmTest(spark, port) {
   try {
-    const host = spark.lanIp;
+    const host = llmProbeHost(spark);
     if (!isAllowedTargetHost(host)) {
-      return { ok: false, message: `Invalid or disallowed lanIp: ${host}` };
+      return { ok: false, message: `Invalid or disallowed LLM host: ${host}` };
     }
     const resolvedPort =
       Number.isInteger(port) && port >= 1 && port <= 65535
         ? port
         : Number(spark?.llmPorts?.[0] || spark?.llmPort) || 8888;
     const url = `http://${host}:${resolvedPort}/v1/models`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
-    const data = await res.json();
+    /** @type {Record<string, string>} */
+    const headers = {};
+    const apiKey =
+      spark?.llmApiKeys?.[String(resolvedPort)] ||
+      spark?.llmApiKeys?.[resolvedPort] ||
+      null;
+    if (apiKey) headers.Authorization = `Bearer ${String(apiKey).trim()}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(3000), headers });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401 || res.status === 403) {
+      return { ok: false, message: "Auth required (set API key in LLM Settings)" };
+    }
     return { ok: res.ok, message: `Model: ${data?.data?.[0]?.id || "unknown"}` };
   } catch (err) {
     return { ok: false, message: err.message };
@@ -195,4 +211,36 @@ export async function llmTestAll(spark) {
   );
   const allOk = results.every((r) => r.ok);
   return { ok: allOk, ports: results };
+}
+
+/**
+ * Test ComfyUI connectivity on a single port (GET /system_stats).
+ * Returns { ok: boolean, message: string, skipped?: boolean }
+ */
+export async function comfyTest(spark, port) {
+  try {
+    const host = llmProbeHost(spark);
+    if (!isAllowedTargetHost(host)) {
+      return { ok: false, message: `Invalid or disallowed ComfyUI host: ${host}` };
+    }
+    const resolvedPort =
+      Number.isInteger(port) && port >= 1 && port <= 65535
+        ? port
+        : Number(spark?.comfyPort) || COMFY_PORT;
+    const url = `http://${host}:${resolvedPort}/system_stats`;
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(COMFY_PROBE_TIMEOUT_MS),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { ok: false, message: `HTTP ${res.status}` };
+    }
+    const ver = data?.system?.comfyui_version;
+    return {
+      ok: true,
+      message: ver ? `ComfyUI ${ver}` : "reachable",
+    };
+  } catch (err) {
+    return { ok: false, message: err.message };
+  }
 }

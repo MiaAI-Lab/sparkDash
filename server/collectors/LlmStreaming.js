@@ -48,29 +48,52 @@ export function sleep(ms, signal) {
 /**
  * Read cumulative generation (output) token counters from the server —
  * same sources as LlmProbe live tok/s.
+ * @param {string} baseUrl
+ * @param {{ apiKey?: string | null }} [opts]
  * @returns {Promise<number | null>}
  */
-export async function readServerGenerationTokens(baseUrl) {
-  // vLLM Prometheus
+export async function readServerGenerationTokens(baseUrl, opts = {}) {
+  const headers = {};
+  const apiKey = opts?.apiKey != null ? String(opts.apiKey).trim() : "";
+  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+
+  // Prometheus (vLLM or ds4-server) — prefer whichever series is present
   try {
     const res = await fetch(`${baseUrl}/metrics`, {
       signal: AbortSignal.timeout(5_000),
+      headers,
     });
     if (res.ok) {
       const txt = await res.text();
-      const re =
-        /^vllm:generation_tokens_total(?:\{[^}]*\})?\s+([\d.eE+-]+)\s*$/gm;
-      let sum = 0;
-      let found = false;
-      let m;
-      while ((m = re.exec(txt)) !== null) {
-        const v = parseFloat(m[1]);
-        if (Number.isFinite(v)) {
-          sum += v;
-          found = true;
+      const fromSeries = (re) => {
+        let sum = 0;
+        let found = false;
+        let m;
+        while ((m = re.exec(txt)) !== null) {
+          const v = parseFloat(m[1]);
+          if (Number.isFinite(v)) {
+            sum += v;
+            found = true;
+          }
         }
-      }
-      if (found) return sum;
+        return found ? sum : null;
+      };
+      const ds4 = fromSeries(
+        /^ds4_tokens_decoded_total(?:\{[^}]*\})?\s+([\d.eE+-]+)\s*$/gm
+      );
+      if (ds4 != null) return ds4;
+      const vllm = fromSeries(
+        /^vllm:generation_tokens_total(?:\{[^}]*\})?\s+([\d.eE+-]+)\s*$/gm
+      );
+      if (vllm != null) return vllm;
+      const sglang =
+        fromSeries(
+          /^sglang:generation_tokens_total(?:\{[^}]*\})?\s+([\d.eE+-]+)\s*$/gm
+        ) ??
+        fromSeries(
+          /^sglang_generation_tokens_total(?:\{[^}]*\})?\s+([\d.eE+-]+)\s*$/gm
+        );
+      if (sglang != null) return sglang;
     }
   } catch {
     /* try next */
@@ -80,6 +103,7 @@ export async function readServerGenerationTokens(baseUrl) {
   try {
     const res = await fetch(`${baseUrl}/get_server_info`, {
       signal: AbortSignal.timeout(5_000),
+      headers,
     });
     if (res.ok) {
       const data = await res.json();
@@ -109,6 +133,39 @@ export function pickDebugHeaders(headers) {
 }
 
 /**
+ * Rough completion-token estimate from visible text.
+ * SSE deltas often carry multiple tokens; counting events under-reports live tok/s.
+ * Final metrics still prefer server `usage.completion_tokens` when present.
+ * @param {string} text
+ */
+export function estimateTokenCount(text) {
+  if (!text || typeof text !== "string" || text.length === 0) return 0;
+  // ~4 chars/token for Latin / code; never less than 1 for non-empty text
+  return Math.max(1, Math.round(text.length / 4));
+}
+
+/** Concatenate string message contents from an OpenAI chat body (prefill fallback). */
+/** vLLM-oriented fields that some OpenAI-compat servers reject with HTTP 400. */
+export function stripFillForceFields(body) {
+  if (!body || typeof body !== "object") return body;
+  const next = { ...body };
+  delete next.min_tokens;
+  delete next.ignore_eos;
+  delete next.stop;
+  return next;
+}
+
+export function promptTextFromBody(body) {
+  const msgs = body?.messages;
+  if (!Array.isArray(msgs)) return "";
+  const parts = [];
+  for (const m of msgs) {
+    if (typeof m?.content === "string" && m.content) parts.push(m.content);
+  }
+  return parts.join("\n");
+}
+
+/**
  * Extract visible text pieces from an OpenAI-compatible delta (or choice.text).
  * Counts content + reasoning / reasoning_content so thinking models stay "alive".
  * Separates answer (`content`/`text`) from reasoning for display styling.
@@ -123,25 +180,25 @@ function extractDeltaPieces(choice) {
   if (delta && typeof delta === "object") {
     if (typeof delta.content === "string" && delta.content.length > 0) {
       answer = delta.content;
-      tokenChunks += 1;
+      tokenChunks += estimateTokenCount(delta.content);
     }
     // Prefer delta.reasoning; fall back to reasoning_content (don't double-count)
     if (typeof delta.reasoning === "string" && delta.reasoning.length > 0) {
       reasoning = delta.reasoning;
-      tokenChunks += 1;
+      tokenChunks += estimateTokenCount(delta.reasoning);
     } else if (
       typeof delta.reasoning_content === "string" &&
       delta.reasoning_content.length > 0
     ) {
       reasoning = delta.reasoning_content;
-      tokenChunks += 1;
+      tokenChunks += estimateTokenCount(delta.reasoning_content);
     }
   }
 
   // Non-delta fallbacks (some backends)
   if (!answer && !reasoning && typeof choice?.text === "string" && choice.text.length > 0) {
     answer = choice.text;
-    tokenChunks = 1;
+    tokenChunks = estimateTokenCount(choice.text);
   }
 
   return { answer, reasoning, tokenChunks };
@@ -196,7 +253,7 @@ export function stripThinkingFlags(body) {
  * @param {string} baseUrl
  * @param {AbortSignal} signal
  * @param {number} [intervalMs=400]
- * @param {{ onSample?: (info: { rate: number, median: number | null, max: number | null, samples: number }) => void }} [opts]
+ * @param {{ onSample?: (info: { rate: number, median: number | null, max: number | null, samples: number }) => void, apiKey?: string | null }} [opts]
  * @returns {Promise<{ median: number | null, mean: number | null, max: number | null, samples: number }>}
  */
 export async function pollServerGenerationRates(
@@ -207,7 +264,8 @@ export async function pollServerGenerationRates(
 ) {
   /** @type {number[]} */
   const rates = [];
-  let lastTokens = await readServerGenerationTokens(baseUrl);
+  const apiKey = opts?.apiKey != null ? String(opts.apiKey).trim() : "";
+  let lastTokens = await readServerGenerationTokens(baseUrl, { apiKey: apiKey || null });
   let lastT = performance.now();
   const onSample = typeof opts.onSample === "function" ? opts.onSample : null;
 
@@ -218,7 +276,7 @@ export async function pollServerGenerationRates(
       break;
     }
     const now = performance.now();
-    const tokens = await readServerGenerationTokens(baseUrl);
+    const tokens = await readServerGenerationTokens(baseUrl, { apiKey: apiKey || null });
     if (tokens == null || lastTokens == null) {
       if (tokens != null) {
         lastTokens = tokens;
@@ -268,6 +326,7 @@ export async function pollServerGenerationRates(
  * - collectContent: accumulate full visible text (showcase)
  * - onDelta: live callback `{ text?, answer?, reasoning?, tokenCount, tFirst, tLast, … }`
  * - retryOnThinking400: if HTTP 400 and body had thinking flags, retry once stripped
+ * - apiKey: optional Bearer token for OpenAI-compatible gateways
  */
 export async function runStreamingRequest(
   url,
@@ -278,12 +337,14 @@ export async function runStreamingRequest(
     collectContent = false,
     onDelta = null,
     retryOnThinking400 = false,
+    apiKey = null,
   } = {}
 ) {
   const result = await runStreamingRequestOnce(url, body, signal, {
     debug,
     collectContent,
     onDelta,
+    apiKey,
   });
 
   if (
@@ -299,6 +360,7 @@ export async function runStreamingRequest(
       debug,
       collectContent,
       onDelta,
+      apiKey,
     });
   }
 
@@ -309,21 +371,26 @@ export async function runStreamingRequest(
  * @param {string} url
  * @param {Record<string, unknown>} body
  * @param {AbortSignal} signal
- * @param {{ debug?: boolean, collectContent?: boolean, onDelta?: Function | null }} opts
+ * @param {{ debug?: boolean, collectContent?: boolean, onDelta?: Function | null, apiKey?: string | null }} opts
  */
 async function runStreamingRequestOnce(
   url,
   body,
   signal,
-  { debug = false, collectContent = false, onDelta = null } = {}
+  { debug = false, collectContent = false, onDelta = null, apiKey = null } = {}
 ) {
   const t0 = performance.now();
   /** @type {number | null} */
   let tFirst = null;
   /** @type {number | null} */
   let tLast = null;
+  /** First answer (non-reasoning) token, for ttftContentMs. Stays null when a reply never leaves the reasoning phase. */
+  /** @type {number | null} */
+  let tFirstContent = null;
+  let reasoningChunkCount = 0;
   let chunkTokenCount = 0;
   let usageCompletionTokens = null;
+  let usagePromptTokens = null;
   /** @type {Record<string, number> | null} */
   let usage = null;
   let model = null;
@@ -345,12 +412,17 @@ async function runStreamingRequestOnce(
   const deltaCb = typeof onDelta === "function" ? onDelta : null;
 
   try {
+    /** @type {Record<string, string>} */
+    const headers = {
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+    };
+    const key = apiKey != null ? String(apiKey).trim() : "";
+    if (key) headers.Authorization = `Bearer ${key}`;
+
     const response = await fetch(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "text/event-stream",
-      },
+      headers,
       body: JSON.stringify(body),
       signal,
     });
@@ -404,15 +476,16 @@ async function runStreamingRequestOnce(
           if (debug && json.id && !completionId) completionId = String(json.id);
           if (json.model) model = json.model;
           if (json.usage && typeof json.usage === "object") {
-            if (debug) {
-              usage = {
-                promptTokens: Number(json.usage.prompt_tokens) || 0,
-                completionTokens: Number(json.usage.completion_tokens) || 0,
-                totalTokens: Number(json.usage.total_tokens) || 0,
-              };
-            }
+            usage = {
+              promptTokens: Number(json.usage.prompt_tokens) || 0,
+              completionTokens: Number(json.usage.completion_tokens) || 0,
+              totalTokens: Number(json.usage.total_tokens) || 0,
+            };
             if (json.usage.completion_tokens != null) {
               usageCompletionTokens = Number(json.usage.completion_tokens);
+            }
+            if (json.usage.prompt_tokens != null) {
+              usagePromptTokens = Number(json.usage.prompt_tokens);
             }
           }
 
@@ -424,6 +497,11 @@ async function runStreamingRequestOnce(
             const now = performance.now();
             if (tFirst == null) tFirst = now;
             tLast = now;
+            if (reasoning) {
+              reasoningChunkCount += 1;
+            } else if (tFirstContent == null) {
+              tFirstContent = now;
+            }
             chunkTokenCount += tokenChunks;
             const text = `${reasoning}${answer}`;
             if (keepContent) {
@@ -477,15 +555,29 @@ async function runStreamingRequestOnce(
   const decodeTps =
     decodeMs > 0 && decodeTokens > 0 ? (decodeTokens / decodeMs) * 1000 : 0;
 
+  const promptEstimate = estimateTokenCount(promptTextFromBody(body));
+  const prefillTokens =
+    usagePromptTokens != null && usagePromptTokens > 0
+      ? usagePromptTokens
+      : promptEstimate;
+  const prefillTps =
+    ttftMs > 0 && prefillTokens > 0 ? (prefillTokens / ttftMs) * 1000 : 0;
+
   /** @type {Record<string, unknown>} */
   const out = {
     ttftMs: round2(ttftMs),
+    /** Time-to-first-answer-token (post-reasoning) in ms from request start. Null when the reply never leaves the reasoning phase. */
+    ttftContentMs: tFirstContent != null ? round2(tFirstContent - t0) : null,
+    reasoningChunks: reasoningChunkCount,
     decodeMs: round2(decodeMs),
     completionTokens,
     decodeTokens,
     decodeTps: round2(decodeTps),
+    prefillTokens,
+    prefillTps: round2(prefillTps),
     totalMs: round2(totalMs),
     /** Absolute performance.now() marks for wave-level aggregation */
+    t0,
     tFirst,
     tLast,
     model,

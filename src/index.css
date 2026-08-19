@@ -154,21 +154,10 @@
 }
 
 /* ─── Density tokens (layout spacing) ───────────────────── */
-/* Comfortable is the default. The override block sits AFTER all theme */
-/* blocks so its --radius-* overrides win on source order (equal specificity). */
-:root {
-  --density-root-font: 121%;
-  --density-shell-pad: 32px;
-  --density-header-gap: 28px;   /* header bottom margin (mb-7) */
-  --density-page-gap: 18px;    /* per-Spark grid + vertical rhythm */
-  --density-panel-pad: 20px;   /* .panel + .spark-header padding (p-5) */
-  --density-panel-title-mb: 16px;
-  --density-card-pad: 22px;    /* overview card padding (p-[22px]) */
-  --density-card-gap: 12px;    /* overview card internal stack gap */
-  --density-overview-rhythm: 24px; /* overview page space-y-6 */
-  --density-overview-title: 32px; /* Overview h1 */
-}
-
+/* Compact is the default (matches server settings DEFAULTS.density).
+   Comfortable is the roomier override. Both density attribute blocks sit
+   AFTER theme blocks so --radius-* wins on source order (equal specificity). */
+:root,
 [data-density="compact"] {
   --density-root-font: 112%;
   --density-shell-pad: 20px;
@@ -184,9 +173,27 @@
   --radius-sm: 8px;
 }
 
+[data-density="comfortable"] {
+  --density-root-font: 121%;
+  --density-shell-pad: 32px;
+  --density-header-gap: 28px;
+  --density-page-gap: 18px;
+  --density-panel-pad: 20px;
+  --density-panel-title-mb: 16px;
+  --density-card-pad: 22px;
+  --density-card-gap: 12px;
+  --density-overview-rhythm: 24px;
+  --density-overview-title: 32px;
+  --radius-panel: 22px;
+  --radius-sm: 12px;
+}
+
 /* Compact: pin metric label/value text (Usage, GPU Power, VRAM caption, etc.)
    to 14px. Tailwind's `.text-sm` (0,1,0) loses on specificity here. Only
-   `text-sm` inside surfaces is affected — buttons use text-xs/[10px]/[11px]. */
+   `text-sm` inside surfaces is affected — buttons use text-xs/[10px]/[11px].
+   :root is compact by default, so bare .panel/.overview-card also pin. */
+:root:not([data-density="comfortable"]) .panel .text-sm,
+:root:not([data-density="comfortable"]) .overview-card .text-sm,
 [data-density="compact"] .panel .text-sm,
 [data-density="compact"] .overview-card .text-sm {
   font-size: 14px;
@@ -696,7 +703,7 @@ input[type="checkbox"] {
 
 /* ─── Online chip (overview welcome row) ──────────────── */
 .online-chip {
-  display: inline-flex;
+  display: none; /* hidden on mobile; shown at sm via media query below */
   align-items: center;
   gap: 6px;
   padding: 6px 16px;
@@ -707,6 +714,11 @@ input[type="checkbox"] {
   color: var(--color-muted-strong);
   box-shadow: var(--shadow-card);
   white-space: nowrap;
+}
+@media (min-width: 640px) {
+  .online-chip {
+    display: inline-flex;
+  }
 }
 .online-chip .dot {
   width: 7px;
@@ -728,6 +740,7 @@ input[type="checkbox"] {
   background: var(--color-accent-soft);
   color: var(--color-accent);
 }
+
 
 /* ─── Occupancy (bound chats on an LLM port) ───────────── */
 .llm-operate {
@@ -998,6 +1011,35 @@ input[type="checkbox"] {
   margin: 0;
   font-size: 11px;
   line-height: 1.4;
+
+/* Endpoint exposure / auth posture (#17) */
+.llm-posture {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: help;
+}
+.llm-posture__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.llm-posture--ok {
+  background: color-mix(in srgb, var(--color-success) 16%, transparent);
+  color: var(--color-success);
+}
+.llm-posture--warn {
+  background: color-mix(in srgb, var(--color-warning) 16%, transparent);
+  color: var(--color-warning);
+}
+.llm-posture--danger {
+  background: color-mix(in srgb, var(--color-danger) 16%, transparent);
+
   color: var(--color-danger);
 }
 
@@ -1212,6 +1254,10 @@ input[type="checkbox"] {
     box-shadow: var(--shadow-shell);
   }
 }
+.modal-sheet--wide {
+  max-width: 40rem;
+}
+
 .modal-sheet__header {
   flex-shrink: 0;
   padding: 0.9rem 1.1rem 0.75rem;
@@ -1695,9 +1741,7 @@ input[type="checkbox"] {
   text-align: right;
   min-width: 0;
 }
-.bench-result-row__metric--decode .bench-result-row__value {
-  color: var(--color-text-strong);
-}
+
 .bench-result-row__label {
   font-size: 0.625rem;
   font-weight: 600;
@@ -1707,7 +1751,7 @@ input[type="checkbox"] {
 }
 @media (min-width: 480px) {
   .bench-results--table .bench-result-row__label {
-    /* Column headers already name Server / Decode on wider screens */
+    /* Column headers already name Aggregate / /stream on wider screens */
     position: absolute;
     width: 1px;
     height: 1px;
@@ -1819,7 +1863,7 @@ input[type="checkbox"] {
   padding: calc(var(--density-shell-pad, 20px) * 0.85);
   background: var(--color-bg);
   color: var(--color-text);
-  font-size: 0.8125rem;
+  font-size: 0.75rem; /* 12px — 1px tighter than prior 13px base */
 }
 
 .showcase-brand {
@@ -1839,14 +1883,14 @@ input[type="checkbox"] {
   text-align: center;
 }
 .showcase-page__empty h1 {
-  font-size: 1.0625rem;
+  font-size: 1rem;
   font-weight: 600;
   color: var(--color-text-strong);
   margin-bottom: 0.5rem;
 }
 .showcase-page__empty p,
 .showcase-page__footer-note {
-  font-size: 0.75rem;
+  font-size: 0.6875rem;
   color: var(--color-muted);
 }
 .showcase-page__footer-note {
@@ -1855,28 +1899,71 @@ input[type="checkbox"] {
   flex-shrink: 0;
 }
 
+/* Big centered model identity — sits above metrics strip */
+.showcase-model-header {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 0.2rem;
+  margin: 0 0 0.45rem;
+  padding: 0.55rem 1rem 0.6rem;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 28%, var(--color-border));
+  border-radius: 10px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-accent) 10%, var(--color-surface)) 0%,
+      var(--color-surface) 100%
+    );
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--color-accent) 18%, transparent);
+  min-width: 0;
+}
+.showcase-model-header__label {
+  font-size: 0.5625rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: color-mix(in srgb, var(--color-accent) 75%, var(--color-muted));
+  line-height: 1;
+}
+.showcase-model-header__name {
+  margin: 0;
+  max-width: 100%;
+  font-size: clamp(1.05rem, 2.4vw, 1.45rem);
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  color: var(--color-text-strong);
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
 .showcase-metrics {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   flex-shrink: 0;
-  gap: 0.35rem 0.65rem;
+  gap: 0.3rem 0.55rem;
   margin-bottom: var(--density-page-gap, 10px);
-  padding: 0.45rem 0.75rem;
+  padding: 0.35rem 0.6rem;
   border: 1px solid var(--color-border);
   border-radius: 8px;
   background: var(--color-surface);
-  font-size: 0.75rem;
+  font-size: 0.6875rem;
 }
 .showcase-metrics__hero {
   display: inline-flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 0.3rem 0.45rem;
-  padding-right: 0.35rem;
+  gap: 0.25rem 0.4rem;
+  padding-right: 0.3rem;
 }
 .showcase-metrics__hero-value {
-  font-size: 1.35rem;
+  font-size: 1.25rem;
   font-weight: 700;
   line-height: 1;
   color: var(--color-accent);
@@ -1884,7 +1971,7 @@ input[type="checkbox"] {
 }
 .showcase-metrics__hero-unit {
   margin-left: 0.2rem;
-  font-size: 0.75rem;
+  font-size: 0.6875rem;
   font-weight: 600;
   color: var(--color-accent);
   opacity: 0.85;
@@ -1893,10 +1980,10 @@ input[type="checkbox"] {
   display: inline-flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 0.25rem 0.35rem;
+  gap: 0.2rem 0.3rem;
 }
 .showcase-metrics__label {
-  font-size: 0.625rem;
+  font-size: 0.5625rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--color-muted);
@@ -1909,10 +1996,10 @@ input[type="checkbox"] {
 .showcase-metrics__unit {
   font-weight: 500;
   color: var(--color-muted);
-  font-size: 0.6875rem;
+  font-size: 0.625rem;
 }
 .showcase-metrics__sub {
-  font-size: 0.6875rem;
+  font-size: 0.625rem;
   color: var(--color-muted);
 }
 .showcase-metrics__sep {
@@ -1923,9 +2010,9 @@ input[type="checkbox"] {
 .showcase-config {
   flex-shrink: 0;
   border: 1px solid var(--color-border);
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--color-surface);
-  margin-bottom: var(--density-page-gap, 12px);
+  margin-bottom: var(--density-page-gap, 10px);
   overflow: hidden;
 }
 .showcase-config.is-collapsed .showcase-config__prompts {
@@ -1937,18 +2024,18 @@ input[type="checkbox"] {
   flex-wrap: wrap;
   align-items: center;
   flex-shrink: 0;
-  gap: 0.45rem 0.75rem;
-  margin-bottom: var(--density-page-gap, 12px);
-  padding: 0.45rem 0.75rem;
+  gap: 0.35rem 0.55rem;
+  margin-bottom: var(--density-page-gap, 10px);
+  padding: 0.35rem 0.6rem;
   border: 1px solid var(--color-border);
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--color-surface);
 }
 .showcase-config-peek__actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.45rem 0.65rem;
+  gap: 0.35rem 0.5rem;
   margin-left: auto;
 }
 .showcase-config-peek__show {
@@ -1957,23 +2044,23 @@ input[type="checkbox"] {
 .showcase-config-peek__tps {
   display: inline-flex;
   align-items: baseline;
-  gap: 0.25rem;
+  gap: 0.2rem;
 }
 .showcase-config-peek__tps-value {
-  font-size: 1.05rem;
+  font-size: 0.95rem;
   font-weight: 700;
   color: var(--color-accent);
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }
 .showcase-config-peek__tps-unit {
-  font-size: 0.6875rem;
+  font-size: 0.625rem;
   font-weight: 600;
   color: var(--color-accent);
   opacity: 0.85;
 }
 .showcase-config-peek__tps-tokens {
-  font-size: 0.6875rem;
+  font-size: 0.625rem;
   color: var(--color-muted);
   margin-left: 0.15rem;
 }
@@ -1983,65 +2070,55 @@ input[type="checkbox"] {
   flex-wrap: wrap;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 0.55rem 0.85rem;
-  padding: 0.55rem 0.75rem;
+  gap: 0.4rem 0.55rem;
+  padding: 0.4rem 0.55rem;
 }
 
 .showcase-config__title {
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 0.65rem;
+  gap: 0.5rem;
   min-width: 0;
-  min-height: 2.65rem;
+  min-height: 2.2rem;
   margin-right: auto;
 }
 .showcase-config__subtitle {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 0.05rem;
+  gap: 0.02rem;
   min-width: 0;
 }
 .showcase-config__name {
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   font-weight: 600;
   color: var(--color-text-strong);
-  line-height: 1.2;
+  line-height: 1.15;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .showcase-config__meta {
-  font-size: 0.625rem;
+  font-size: 0.5625rem;
   letter-spacing: 0.02em;
   color: var(--color-muted);
-  line-height: 1.2;
+  line-height: 1.15;
 }
 .showcase-config__meta-label {
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+/* legacy small model line removed — use .showcase-model-header */
 .showcase-config__model {
-  display: block;
-  min-width: 0;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 0.6875rem;
-  line-height: 1.25;
-  color: var(--color-text);
-  font-weight: 500;
-  letter-spacing: 0;
-  text-transform: none;
+  display: none;
 }
 
 .showcase-config__controls {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
-  gap: 0.45rem 0.65rem;
+  gap: 0.3rem 0.45rem;
   margin-left: auto;
 }
 .showcase-config__lockgroup {
@@ -2062,14 +2139,14 @@ input[type="checkbox"] {
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  gap: 0.2rem;
+  gap: 0.12rem;
   min-width: 0;
 }
 .showcase-field__label {
   display: block;
-  height: 0.9rem;
-  font-size: 0.625rem;
-  line-height: 0.9rem;
+  height: 0.8rem;
+  font-size: 0.5625rem;
+  line-height: 0.8rem;
   color: var(--color-muted);
   text-transform: uppercase;
   letter-spacing: 0.03em;
@@ -2083,23 +2160,23 @@ input[type="checkbox"] {
 .showcase-field select,
 .showcase-field input[type="number"] {
   box-sizing: border-box;
-  height: 1.85rem;
-  min-width: 4.75rem;
+  height: 1.65rem;
+  min-width: 4.25rem;
   border: 1px solid var(--color-border);
-  border-radius: 6px;
+  border-radius: 5px;
   background: var(--color-surface-elevated);
   color: var(--color-text);
   font-size: 16px; /* iOS: avoid input zoom */
-  padding: 0 0.45rem;
-  line-height: 1.2;
+  padding: 0 0.35rem;
+  line-height: 1.15;
 }
 .showcase-field input[type="number"] {
-  width: 5.25rem;
+  width: 4.75rem;
 }
 @media (min-width: 640px) {
   .showcase-field select,
   .showcase-field input[type="number"] {
-    font-size: 0.75rem;
+    font-size: 0.6875rem;
   }
 }
 
@@ -2107,10 +2184,10 @@ input[type="checkbox"] {
   box-sizing: border-box;
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  height: 1.85rem;
-  padding: 0 0.15rem;
-  font-size: 0.75rem;
+  gap: 0.3rem;
+  height: 1.65rem;
+  padding: 0 0.1rem;
+  font-size: 0.6875rem;
   line-height: 1;
   color: var(--color-text);
   cursor: pointer;
@@ -2118,8 +2195,8 @@ input[type="checkbox"] {
   white-space: nowrap;
 }
 .showcase-check input {
-  width: 0.85rem;
-  height: 0.85rem;
+  width: 0.8rem;
+  height: 0.8rem;
   margin: 0;
   accent-color: var(--color-accent);
   flex-shrink: 0;
@@ -2128,8 +2205,8 @@ input[type="checkbox"] {
 .showcase-config__actions {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  height: 1.85rem;
+  gap: 0.3rem;
+  height: 1.65rem;
 }
 
 .showcase-btn {
@@ -2137,11 +2214,11 @@ input[type="checkbox"] {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 1.85rem;
-  border-radius: 6px;
+  height: 1.65rem;
+  border-radius: 5px;
   border: 1px solid var(--color-border);
-  padding: 0 0.75rem;
-  font-size: 0.75rem;
+  padding: 0 0.6rem;
+  font-size: 0.6875rem;
   font-weight: 500;
   line-height: 1;
   cursor: pointer;
@@ -2158,6 +2235,122 @@ input[type="checkbox"] {
 .showcase-btn--ghost:hover:not(:disabled) {
   background: var(--color-surface-hover);
   color: var(--color-text);
+}
+.showcase-btn--ghost.is-active {
+  color: var(--color-text);
+  border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-border));
+  background: color-mix(in srgb, var(--color-accent) 12%, var(--color-surface-elevated));
+}
+
+.showcase-history {
+  border-top: 1px solid var(--color-border);
+  padding: 0.4rem 0.55rem 0.55rem;
+  max-height: min(36vh, 320px);
+  overflow: auto;
+}
+.showcase-history__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+  margin-bottom: 0.35rem;
+}
+.showcase-history__title {
+  font-size: 0.625rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-muted);
+}
+.showcase-history__head-actions {
+  display: flex;
+  gap: 0.25rem;
+}
+.showcase-history__empty {
+  margin: 0;
+  font-size: 0.6875rem;
+  color: var(--color-muted);
+}
+.showcase-history__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.showcase-history__item {
+  display: flex;
+  align-items: stretch;
+  gap: 0.25rem;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  background: var(--color-surface-elevated);
+  overflow: hidden;
+}
+.showcase-history__item.is-active {
+  border-color: color-mix(in srgb, var(--color-accent) 50%, var(--color-border));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 25%, transparent);
+}
+.showcase-history__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  padding: 0.3rem 0.45rem;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.showcase-history__main:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-surface-hover) 70%, transparent);
+}
+.showcase-history__main:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.showcase-history__when {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.showcase-history__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.35rem;
+  font-size: 0.625rem;
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+}
+.showcase-history__status {
+  text-transform: capitalize;
+}
+.showcase-history__status--completed {
+  color: #7dba8a;
+}
+.showcase-history__status--error {
+  color: #e07070;
+}
+.showcase-history__status--cancelled {
+  color: #b0a070;
+}
+.showcase-history__model {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.5625rem;
+  color: var(--color-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+.showcase-history__reuse {
+  align-self: center;
+  margin-right: 0.3rem;
+  flex-shrink: 0;
 }
 .showcase-btn--primary {
   background: #b87a12;
@@ -2180,10 +2373,10 @@ input[type="checkbox"] {
 .showcase-config__prompts {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 0.55rem;
-  padding: 0 0.75rem 0.75rem;
+  gap: 0.4rem;
+  padding: 0 0.55rem 0.55rem;
   border-top: 1px solid var(--color-border);
-  padding-top: 0.7rem;
+  padding-top: 0.5rem;
   max-height: min(42vh, 520px);
   overflow: auto;
 }
@@ -2201,10 +2394,10 @@ input[type="checkbox"] {
 .showcase-prompt {
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
+  gap: 0.12rem;
 }
 .showcase-prompt__label {
-  font-size: 0.625rem;
+  font-size: 0.5625rem;
   text-transform: uppercase;
   letter-spacing: 0.03em;
   color: var(--color-muted);
@@ -2213,23 +2406,23 @@ input[type="checkbox"] {
   width: 100%;
   resize: vertical;
   border: 1px solid var(--color-border);
-  border-radius: 6px;
+  border-radius: 5px;
   background: var(--color-surface-elevated);
   color: var(--color-text);
   font-size: 16px;
-  line-height: 1.35;
-  padding: 0.4rem 0.5rem;
+  line-height: 1.3;
+  padding: 0.3rem 0.4rem;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 @media (min-width: 640px) {
   .showcase-prompt textarea {
-    font-size: 0.75rem;
+    font-size: 0.6875rem;
   }
 }
 
 .showcase-config__error {
-  margin: 0 0.75rem 0.7rem;
-  font-size: 0.75rem;
+  margin: 0 0.55rem 0.55rem;
+  font-size: 0.6875rem;
   color: var(--color-danger, #c44);
 }
 
@@ -2402,6 +2595,10 @@ input[type="checkbox"] {
   flex-shrink: 0;
   color: #9ad4b8;
   font-variant-numeric: tabular-nums;
+}
+.showcase-term__tps-peak {
+  color: #7a9e8c;
+  font-size: 0.9em;
 }
 .showcase-term__copy {
   flex-shrink: 0;

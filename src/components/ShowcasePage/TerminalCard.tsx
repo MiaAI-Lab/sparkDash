@@ -61,8 +61,27 @@ export function TerminalCard({
           {label || "Terminal"}
         </span>
         <span className={`showcase-term__status ${statusClass(status)}`}>{status}</span>
-        <span className="showcase-term__tps font-tabular">
-          {liveTokPerSec > 0 ? `${liveTokPerSec.toFixed(0)} tok/s` : "—"}
+        <span
+          className="showcase-term__tps font-tabular"
+          title={
+            peakTokPerSec > 0 || liveTokPerSec > 0
+              ? `Live ${liveTokPerSec.toFixed(1)} tok/s · peak ${Math.max(peakTokPerSec, liveTokPerSec).toFixed(1)} tok/s`
+              : undefined
+          }
+        >
+          {liveTokPerSec > 0 || peakTokPerSec > 0 ? (
+            <>
+              {(liveTokPerSec > 0 ? liveTokPerSec : peakTokPerSec).toFixed(0)} tok/s
+              {peakTokPerSec > 0 && (
+                <span className="showcase-term__tps-peak">
+                  {" "}
+                  peak {Math.max(peakTokPerSec, liveTokPerSec).toFixed(0)}
+                </span>
+              )}
+            </>
+          ) : (
+            "—"
+          )}
         </span>
         {onCopy && (
           <button

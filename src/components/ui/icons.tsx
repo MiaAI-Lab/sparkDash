@@ -22,16 +22,6 @@ function baseProps(className?: string) {
   };
 }
 
-export function CpuIcon({ className }: IconProps) {
-  return (
-    <svg {...baseProps(className)}>
-      <rect x="4" y="4" width="16" height="16" rx="2" />
-      <rect x="9" y="9" width="6" height="6" />
-      <path d="M9 1v3M15 1v3M9 20v3M15 20v3M1 9h3M1 15h3M20 9h3M20 15h3" />
-    </svg>
-  );
-}
-
 export function ActivityIcon({ className }: IconProps) {
   return (
     <svg {...baseProps(className)}>
@@ -69,6 +59,37 @@ export function BotIcon({ className }: IconProps) {
       <circle cx="9" cy="14" r="1.2" fill="currentColor" stroke="none" />
       <circle cx="15" cy="14" r="1.2" fill="currentColor" stroke="none" />
       <path d="M2 14v2M22 14v2" />
+    </svg>
+  );
+}
+
+/** Chevron pointing down; rotate -90° when a section is collapsed. */
+export function ChevronDownIcon({ className }: IconProps) {
+  return (
+    <svg {...baseProps(className)}>
+      <path d="M6 9l6 6 6-6" />
+    </svg>
+  );
+}
+
+/** External link (open ComfyUI). */
+export function ExternalLinkIcon({ className }: IconProps) {
+  return (
+    <svg {...baseProps(className)}>
+      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+      <path d="M15 3h6v6" />
+      <path d="M10 14L21 3" />
+    </svg>
+  );
+}
+
+/** ComfyUI / image-workflow service. */
+export function ComfyIcon({ className }: IconProps) {
+  return (
+    <svg {...baseProps(className)}>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <circle cx="9" cy="11" r="2" />
+      <path d="M3 16l5-4 3 2 4-5 6 7" />
     </svg>
   );
 }

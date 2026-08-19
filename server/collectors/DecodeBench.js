@@ -14,64 +14,33 @@ import {
   applyThinkingFlags,
   mean,
   median,
-  pollServerGenerationRates,
   round2,
   runStreamingRequest,
   sleep,
+  stripFillForceFields,
 } from "./LlmStreaming.js";
+import {
+  pickShowcasePrompts,
+  withFillToMaxInstruction,
+} from "../../src/shared/llmPrompts.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT = path.resolve(__dirname, "../..");
 const HISTORY_PATH =
   process.env.BENCH_HISTORY_PATH || path.join(ROOT, "config", "bench-history.json");
+/** In-flight jobs checkpointed here so a --watch / SIGTERM restart does not 404 polls. */
+const ACTIVE_PATH =
+  process.env.BENCH_ACTIVE_PATH || path.join(ROOT, "config", "bench-active.json");
 
-/**
- * Structured generation prompts (JSON / HTML). Models usually sustain higher
- * decode tok/s on these than open-ended chat essays. Keep prompts short and
- * distinct so concurrent streams don't share an identical prefix.
- */
-const BENCH_PROMPTS = [
-  "Write only valid JSON (no markdown). Generate a large array \"items\" of objects with fields id, name, category, price, inStock, tags (string array). Keep writing many items until you hit the length limit.",
-  "Write only valid JSON (no markdown). Generate a nested object for a fake e-commerce order: orderId, customer, shipping, lineItems[], payments[], timeline[]. Expand lineItems and timeline with many entries.",
-  "Write only valid JSON (no markdown). Generate { \"users\": [ ... ] } where each user has id, email, profile{firstName,lastName,bio}, roles[], lastLogin. Add as many users as possible.",
-  "Write only valid JSON (no markdown). Generate a metrics dump: { \"hosts\": [ { hostname, cpus[], disks[], gpus[], services[] } ] }. Invent many hosts with nested arrays fully populated.",
-  "Write only valid JSON (no markdown). Generate a GraphQL-like schema as JSON: types[], fields[], enums[]. Include many types each with many fields.",
-  "Write only valid JSON (no markdown). Generate { \"events\": [ ... ] } log lines with ts, level, service, message, attrs{}. Produce a long continuous event stream.",
-  "Write only valid JSON (no markdown). Generate a product catalog: categories[], products[] with sku, title, description, specs{}, variants[]. Make it large.",
-  "Write only valid JSON (no markdown). Generate OpenAPI-style paths as JSON: paths{}, components.schemas{}. Invent many endpoints and schemas.",
-  "Write only valid HTML5 (no markdown fences). Build a long multi-section documentation page with header, nav, main articles, tables, and footers. Keep adding sections.",
-  "Write only valid HTML5 (no markdown fences). Generate a large data table report (<table> with many rows) of invent server metrics: host, cpu, mem, disk, net, status. Dozens of rows.",
-  "Write only valid HTML5 (no markdown fences). Create a multi-page-looking dashboard layout with cards, lists, and nested <div>s. Keep expanding content blocks.",
-  "Write only valid HTML5 (no markdown fences). Write a long FAQ page with many <h2>/<p>/<ul> Q&A pairs about networking and GPUs. Keep adding pairs.",
-  "Write only valid HTML5 (no markdown fences). Generate a blog index with many <article> entries (title, date, tags, excerpt). Continue with lots of articles.",
-  "Write only valid HTML5 (no markdown fences). Produce a form-heavy admin UI: multiple <form>s with inputs, selects, textareas, and labels. Expand with more field groups.",
-  "Write only valid JSON (no markdown). Generate { \"benchmarks\": [ { name, concurrency, ttftMs, tokPerSec, notes } ] } with many synthetic result rows.",
-  "Write only valid JSON (no markdown). Generate a filesystem tree as nested JSON: { name, type, children[] }. Make a deep and wide tree under /data.",
-  "Write only valid JSON (no markdown). Generate { \" sparql_like_rows\": [ ... ] } with columns subject, predicate, object, graph — hundreds of triples style rows.",
-  "Write only valid HTML5 (no markdown fences). Write a long changelog page with version headings and bullet lists of changes. Keep adding versions.",
-  "Write only valid JSON (no markdown). Generate a chat transcript: { \"messages\": [ { role, content, ts } ] } alternating user/assistant, many turns, substantial content.",
-  "Write only valid HTML5 (no markdown fences). Generate a recipe site section with many recipes: ingredients lists and step lists. Keep adding recipes.",
-  "Write only valid JSON (no markdown). Generate geo data: { \"features\": [ { type:\"Feature\", properties{}, geometry{type,coordinates} } ] } with many features.",
-  "Write only valid HTML5 (no markdown fences). Create a long comparison matrix page using nested tables for software features. Fill many rows and columns.",
-  "Write only valid JSON (no markdown). Generate CI job results: { \"jobs\": [ { id, name, status, steps[], durationSec, logs[] } ] }. Expand jobs and steps.",
-  "Write only valid HTML5 (no markdown fences). Write an API reference page: many endpoint sections with <code> blocks and parameter tables. Keep going.",
-  "Write only valid JSON (no markdown). Generate a config blob: services{}, networks{}, volumes{}, env{} with many service definitions and ports.",
-  "Write only valid HTML5 (no markdown fences). Produce a news wire page: many <section> items with headline, byline, and paragraphs. Continue writing items.",
-  "Write only valid JSON (no markdown). Generate token usage records: { \"requests\": [ { id, model, promptTokens, completionTokens, latencyMs, route } ] } — many requests.",
-  "Write only valid HTML5 (no markdown fences). Build a long glossary: <dl> with many <dt>/<dd> terms about ML systems. Keep adding terms.",
-  "Write only valid JSON (no markdown). Generate a dependency lock style file: { \"packages\": { \"name\": { version, deps{}, integrity } } } with many packages.",
-  "Write only valid HTML5 (no markdown fences). Write a product landing page with repeated feature blocks, pricing tables, and testimonials. Expand heavily.",
-  "Write only valid JSON (no markdown). Generate sensor readings: { \"series\": [ { sensorId, points:[{t,v}] } ] } with long point arrays.",
-  "Write only valid HTML5 (no markdown fences). Create a multi-chapter tutorial with <h1>–<h3>, code samples in <pre>, and notes. Keep writing chapters.",
-];
+/** Same catalog + fill-to-max as Showcase structural; temperature 0; thinking off. */
 
-const ALLOWED_CONCURRENCIES = new Set([1, 2, 3, 4, 6, 8, 16, 32]);
-const DEFAULT_MAX_TOKENS = 500;
+const ALLOWED_CONCURRENCIES = new Set([1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 24, 32]);
+const DEFAULT_MAX_TOKENS = 512;
 const MIN_MAX_TOKENS = 64;
 const MAX_MAX_TOKENS = 2048;
-const PER_REQUEST_TIMEOUT_MS = 180_000;
-const WAVE_TIMEOUT_MS = 300_000;
+const PER_REQUEST_TIMEOUT_MS = 360_000;
+const WAVE_TIMEOUT_MS = 360_000;
 const HISTORY_LIMIT = 10;
 /** Hardware sample cadence while a concurrency wave runs (debug timeline). */
 const HARDWARE_SAMPLE_MS = 1_000;
@@ -116,31 +85,14 @@ async function pollHardwareSamples(sampleHardware, signal, intervalMs = HARDWARE
   return samples;
 }
 
-/**
- * Pick `count` distinct prompts (shuffled). Falls back to unique suffixes if
- * we ever need more than the pool size.
- */
-function pickDistinctPrompts(count) {
-  const pool = [...BENCH_PROMPTS];
-  // Fisher–Yates shuffle so concurrent sets vary across waves/runs
-  for (let i = pool.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [pool[i], pool[j]] = [pool[j], pool[i]];
-  }
-  const out = [];
-  for (let i = 0; i < count; i++) {
-    if (i < pool.length) {
-      out.push(pool[i]);
-    } else {
-      // Should not hit for allowed concurrencies ≤ pool size
-      out.push(`${pool[i % pool.length]}\n\n[stream variant ${i + 1}]`);
-    }
-  }
-  return out;
+/** Same cycling as Showcase structural, plus the shared fill-to-max suffix. */
+function pickBenchPrompts(count) {
+  return pickShowcasePrompts("structural", count).map(withFillToMaxInstruction);
 }
 
 /**
- * Run one concurrency wave: N simultaneous streams, each with a different prompt.
+ * Run one concurrency wave: N simultaneous streams.
+ * Prompts cycle the structural catalog (repeats after the catalog length).
  */
 function emptyWaveResult(concurrency, waveMs, results, modelId, error, prompts = [], debug = false) {
   return {
@@ -155,11 +107,15 @@ function emptyWaveResult(concurrency, waveMs, results, modelId, error, prompts =
     medianTtftMs: 0,
     /** Client-side: total decode tokens / concurrent decode window */
     aggregateDecodeTps: 0,
+    meanPrefillTps: 0,
+    medianPrefillTps: 0,
+    aggregatePrefillTps: 0,
+    totalPrefillTokens: 0,
     /**
      * Server-side generation tok/s (same basis as live Generation tok/s panel).
      * Null when the backend does not expose counters.
      */
-    serverGenerationTps: null,
+
     totalDecodeTokens: 0,
     totalCompletionTokens: 0,
     durationMs: round2(waveMs),
@@ -182,10 +138,14 @@ function streamPublicResult(r, index, prompt, reqMeta, debug = false) {
   /** @type {Record<string, unknown>} */
   const out = {
     index,
+    ttftContentMs: r?.ttftContentMs ?? null,
+    reasoningChunks: r?.reasoningChunks ?? 0,
     ttftMs: r?.ttftMs ?? 0,
     decodeTps: r?.decodeTps ?? 0,
     decodeTokens: r?.decodeTokens ?? 0,
     completionTokens: r?.completionTokens ?? 0,
+    prefillTps: r?.prefillTps ?? 0,
+    prefillTokens: r?.prefillTokens ?? 0,
     totalMs: r?.totalMs ?? 0,
     error: r?.error ?? null,
   };
@@ -215,6 +175,7 @@ function streamPublicResult(r, index, prompt, reqMeta, debug = false) {
   return out;
 }
 
+
 async function runConcurrencyWave({
   baseUrl,
   modelId,
@@ -223,25 +184,23 @@ async function runConcurrencyWave({
   abortSignal,
   sampleHardware = null,
   debug = false,
+  apiKey = null,
 }) {
   const url = `${baseUrl}/v1/chat/completions`;
-  const prompts = pickDistinctPrompts(concurrency);
+  const prompts = pickBenchPrompts(concurrency);
   const reqMeta = { url, modelId, maxTokens };
 
   const wallStart = performance.now();
 
   // Poll /metrics like the live panel while streams run (steady-state gen tok/s)
-  const ratePollAbort = new AbortController();
   const hwPollAbort = new AbortController();
   const onParentForPoll = () => {
-    ratePollAbort.abort();
     hwPollAbort.abort();
   };
   if (abortSignal) {
     if (abortSignal.aborted) onParentForPoll();
     else abortSignal.addEventListener("abort", onParentForPoll, { once: true });
   }
-  const ratePollPromise = pollServerGenerationRates(baseUrl, ratePollAbort.signal, 400);
   const hwPollPromise = debug
     ? pollHardwareSamples(sampleHardware, hwPollAbort.signal, HARDWARE_SAMPLE_MS)
     : Promise.resolve([]);
@@ -262,23 +221,43 @@ async function runConcurrencyWave({
       model: modelId || undefined,
       messages: [{ role: "user", content: prompts[streamIndex] }],
       max_tokens: maxTokens,
+      min_tokens: maxTokens,
+      ignore_eos: true,
+      stop: [],
       temperature: 0,
       stream: true,
       stream_options: { include_usage: true },
-      // Prefer full-length generations when the backend supports it
-      ignore_eos: true,
-      stop: [],
     };
-    applyThinkingFlags(body, modelId, true);
+    applyThinkingFlags(body, modelId, false);
 
-    const timeout = setTimeout(() => ctrl.abort(), PER_REQUEST_TIMEOUT_MS);
-    return runStreamingRequest(url, body, ctrl.signal, {
+    const streamOpts = {
       debug,
       retryOnThinking400: true,
-    }).finally(() => {
-      clearTimeout(timeout);
-      if (abortSignal) abortSignal.removeEventListener("abort", onParentAbort);
-    });
+      apiKey,
+    };
+
+    return (async () => {
+      const timeout = setTimeout(() => ctrl.abort(), PER_REQUEST_TIMEOUT_MS);
+      try {
+        let result = await runStreamingRequest(url, body, ctrl.signal, streamOpts);
+        if (
+          result.error &&
+          /^HTTP 400\b/.test(result.error) &&
+          (body.min_tokens != null || body.ignore_eos != null)
+        ) {
+          result = await runStreamingRequest(
+            url,
+            stripFillForceFields(body),
+            ctrl.signal,
+            streamOpts
+          );
+        }
+        return result;
+      } finally {
+        clearTimeout(timeout);
+        if (abortSignal) abortSignal.removeEventListener("abort", onParentAbort);
+      }
+    })();
   });
 
   // Hard cap on the whole wave
@@ -294,14 +273,12 @@ async function runConcurrencyWave({
   } finally {
     clearTimeout(waveTimer);
     // Stop metrics / hardware polling as soon as streams finish
-    ratePollAbort.abort();
     hwPollAbort.abort();
     if (abortSignal) abortSignal.removeEventListener("abort", onParentForPoll);
   }
 
   const wallEnd = performance.now();
   const waveMs = wallEnd - wallStart;
-  const rateStats = await ratePollPromise;
   const hardwareSamples = await hwPollPromise;
 
   if (waveTimedOut && results.every((r) => r.error)) {
@@ -322,8 +299,10 @@ async function runConcurrencyWave({
   const failed = results.filter((r) => r.error || r.decodeTokens <= 0);
   const decodeTpsList = ok.map((r) => r.decodeTps);
   const ttftList = ok.map((r) => r.ttftMs);
+  const prefillTpsList = ok.map((r) => r.prefillTps).filter((n) => n > 0);
   const totalDecodeTokens = ok.reduce((s, r) => s + r.decodeTokens, 0);
   const totalCompletionTokens = ok.reduce((s, r) => s + r.completionTokens, 0);
+  const totalPrefillTokens = ok.reduce((s, r) => s + (r.prefillTokens || 0), 0);
 
   // Client aggregate over concurrent first→last content window (network-affected)
   let aggregateDecodeTps = 0;
@@ -336,11 +315,16 @@ async function runConcurrencyWave({
     }
   }
 
-  // Primary server number: median of live-style poll samples (matches dashboard)
-  let serverGenerationTps = rateStats.median;
-  // Fallback: total completion tokens / client decode window if no metrics endpoint
-  if (serverGenerationTps == null && aggregateDecodeTps > 0) {
-    serverGenerationTps = round2(aggregateDecodeTps);
+  // Concurrent prefill window: earliest request start → latest first token
+  let aggregatePrefillTps = 0;
+  const t0s = ok
+    .map((r) => (r.t0 != null ? r.t0 : r.tFirst != null ? r.tFirst - (r.ttftMs || 0) : null))
+    .filter((t) => t != null);
+  if (ok.length > 0 && t0s.length && firsts.length && totalPrefillTokens > 0) {
+    const prefillWindowMs = Math.max(...firsts) - Math.min(...t0s);
+    if (prefillWindowMs > 0) {
+      aggregatePrefillTps = (totalPrefillTokens / prefillWindowMs) * 1000;
+    }
   }
 
   const model = results.find((r) => r.model)?.model || modelId || null;
@@ -357,9 +341,11 @@ async function runConcurrencyWave({
     meanTtftMs: round2(mean(ttftList)),
     medianTtftMs: round2(median(ttftList)),
     aggregateDecodeTps: round2(aggregateDecodeTps),
-    serverGenerationTps,
-    serverGenerationTpsMax: rateStats.max,
-    serverGenerationSamples: rateStats.samples,
+    meanPrefillTps: round2(mean(prefillTpsList)),
+    medianPrefillTps: round2(median(prefillTpsList)),
+    aggregatePrefillTps: round2(aggregatePrefillTps),
+    totalPrefillTokens,
+
     totalDecodeTokens,
     totalCompletionTokens,
     durationMs: round2(waveMs),
@@ -380,9 +366,13 @@ async function runConcurrencyWave({
 /**
  * Job manager: one active job per spark, short history persisted to disk
  * so last results survive page refresh and process restart.
+ *
+ * Running jobs are also checkpointed to bench-active.json. On boot (or
+ * graceful shutdown), any leftover "running" entries are finalized as
+ * interrupted so GET /bench/:id keeps working instead of returning 404.
  */
 export class DecodeBenchManager {
-  constructor(historyPath = HISTORY_PATH) {
+  constructor(historyPath = HISTORY_PATH, activePath = ACTIVE_PATH) {
     /** @type {Map<string, object>} */
     this.jobs = new Map();
     /** @type {Map<string, string>} sparkId → active benchId */
@@ -390,7 +380,9 @@ export class DecodeBenchManager {
     /** @type {Map<string, object[]>} */
     this.historyBySpark = new Map();
     this.historyPath = historyPath;
+    this.activePath = activePath;
     this._loadHistory();
+    this._recoverInterruptedActive();
   }
 
   getJob(benchId) {
@@ -496,6 +488,112 @@ export class DecodeBenchManager {
     }
   }
 
+  /**
+   * Promote leftover active checkpoints (process died mid-run) into history
+   * so clients polling GET /:benchId still get a final job instead of 404.
+   */
+  _recoverInterruptedActive() {
+    const leftovers = this._readActiveFile();
+    if (!leftovers.length) return;
+
+    let changed = false;
+    for (const snap of leftovers) {
+      if (!snap?.benchId || !snap?.sparkId) continue;
+      // Already in history from a prior clean finalize — skip
+      const hist = this.getHistory(snap.sparkId);
+      if (hist.some((j) => j.benchId === snap.benchId)) continue;
+
+      const interrupted = {
+        ...snap,
+        status: "failed",
+        error:
+          snap.error ||
+          "Interrupted — server restarted while the benchmark was running",
+        completedAt: snap.completedAt || Date.now(),
+        progress: {
+          ...(snap.progress || {}),
+          message: "Interrupted",
+          currentConcurrency: null,
+        },
+      };
+      if (interrupted.completedAt && interrupted.startedAt) {
+        interrupted.durationMs = interrupted.completedAt - interrupted.startedAt;
+      }
+      this.jobs.set(interrupted.benchId, interrupted);
+      this._pushHistory(interrupted);
+      changed = true;
+      console.warn(
+        `[DecodeBench] recovered interrupted job ${interrupted.benchId} on ${interrupted.sparkId}`
+      );
+    }
+
+    // Clear active file either way — nothing is actually running after boot
+    this._writeActiveFile([]);
+    if (changed) this._saveHistory();
+  }
+
+  _readActiveFile() {
+    try {
+      if (!fs.existsSync(this.activePath)) return [];
+      const raw = fs.readFileSync(this.activePath, "utf8");
+      const data = JSON.parse(raw);
+      if (Array.isArray(data)) return data;
+      if (data && typeof data === "object" && Array.isArray(data.jobs)) {
+        return data.jobs;
+      }
+      return [];
+    } catch (err) {
+      console.warn("[DecodeBench] failed to load active jobs:", err?.message || err);
+      return [];
+    }
+  }
+
+  _writeActiveFile(jobs) {
+    try {
+      atomicWrite(
+        this.activePath,
+        JSON.stringify({ jobs }, null, 2),
+        0o600
+      );
+    } catch (err) {
+      console.warn("[DecodeBench] failed to save active jobs:", err?.message || err);
+    }
+  }
+
+  /** Persist public snapshots of all currently running jobs. */
+  _checkpointActive() {
+    /** @type {object[]} */
+    const running = [];
+    for (const job of this.jobs.values()) {
+      if (job.status === "running") running.push(publicJob(job));
+    }
+    this._writeActiveFile(running);
+  }
+
+  /**
+   * Finalize every running job (used on SIGTERM / --watch reload).
+   * Aborts in-flight streams and writes history so polls do not 404.
+   * @param {string} [reason]
+   */
+  interruptAll(reason = "Interrupted — server shutting down") {
+    for (const job of this.jobs.values()) {
+      if (job.status !== "running") continue;
+      try {
+        job._abort?.abort();
+      } catch {
+        /* ignore */
+      }
+      job.status = "failed";
+      job.error = reason;
+      job.progress.message = "Interrupted";
+      job.progress.currentConcurrency = null;
+      job.completedAt = Date.now();
+      this.activeBySpark.delete(job.sparkId);
+      this._pushHistory(job);
+    }
+    this._writeActiveFile([]);
+  }
+
   _saveHistory() {
     try {
       /** @type {Record<string, object[]>} */
@@ -519,6 +617,7 @@ export class DecodeBenchManager {
    *   maxTokens?: number,
    *   debug?: boolean,
    *   sampleHardware?: (() => Promise<object | null> | object | null) | null,
+   *   apiKey?: string | null,
    * }} opts
    */
   start(opts) {
@@ -531,6 +630,7 @@ export class DecodeBenchManager {
       maxTokens: rawMax,
       debug = false,
       sampleHardware = null,
+      apiKey = null,
     } = opts;
 
     if (this.activeBySpark.has(sparkId)) {
@@ -541,7 +641,7 @@ export class DecodeBenchManager {
 
     const concurrencies = normalizeConcurrencies(rawConc);
     if (!concurrencies.length) {
-      const err = new Error("Select at least one concurrency level (1, 2, 3, 4, 6, 8, 16, or 32)");
+      const err = new Error("Select at least one concurrency level (1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 24, or 32)");
       err.status = 400;
       throw err;
     }
@@ -588,12 +688,14 @@ export class DecodeBenchManager {
       error: null,
       _abort: abort,
       _debug: debugOn,
+      _apiKey: apiKey != null && String(apiKey).trim() ? String(apiKey).trim() : null,
       _sampleHardware:
         debugOn && typeof sampleHardware === "function" ? sampleHardware : null,
     };
 
     this.jobs.set(benchId, job);
     this.activeBySpark.set(sparkId, benchId);
+    this._checkpointActive();
 
     // Fire and forget — client polls GET
     this._runJob(job, lanIp).catch(() => {
@@ -619,14 +721,17 @@ export class DecodeBenchManager {
     try {
       for (const c of job.config.concurrencies) {
         if (job._abort.signal.aborted) {
-          job.status = "cancelled";
-          job.error = "Cancelled by user";
-          job.progress.message = "Cancelled";
+          if (job.status === "running") {
+            job.status = "cancelled";
+            job.error = "Cancelled by user";
+            job.progress.message = "Cancelled";
+          }
           break;
         }
 
         job.progress.currentConcurrency = c;
         job.progress.message = `Running concurrency ${c}…`;
+        this._checkpointActive();
 
         const wave = await runConcurrencyWave({
           baseUrl,
@@ -636,6 +741,7 @@ export class DecodeBenchManager {
           abortSignal: job._abort.signal,
           sampleHardware: job._sampleHardware,
           debug,
+          apiKey: job._apiKey,
         });
 
         if (job._abort.signal.aborted) {
@@ -644,9 +750,11 @@ export class DecodeBenchManager {
             job.results.push(wave);
             job.progress.completedLevels += 1;
           }
-          job.status = "cancelled";
-          job.error = "Cancelled by user";
-          job.progress.message = "Cancelled";
+          if (job.status === "running") {
+            job.status = "cancelled";
+            job.error = "Cancelled by user";
+            job.progress.message = "Cancelled";
+          }
           break;
         }
 
@@ -656,6 +764,7 @@ export class DecodeBenchManager {
 
         job.results.push(wave);
         job.progress.completedLevels += 1;
+        this._checkpointActive();
       }
 
       if (job.status === "running") {
@@ -664,25 +773,31 @@ export class DecodeBenchManager {
         job.progress.message = "Done";
       }
     } catch (err) {
-      if (job._abort.signal.aborted) {
-        job.status = "cancelled";
-        job.error = "Cancelled by user";
-        job.progress.message = "Cancelled";
-      } else {
-        job.status = "failed";
-        job.error = err?.message || String(err);
-        job.progress.message = "Failed";
+      if (job.status === "running") {
+        if (job._abort.signal.aborted) {
+          job.status = "cancelled";
+          job.error = "Cancelled by user";
+          job.progress.message = "Cancelled";
+        } else {
+          job.status = "failed";
+          job.error = err?.message || String(err);
+          job.progress.message = "Failed";
+        }
       }
     } finally {
-      job.completedAt = Date.now();
+      if (job.completedAt == null) job.completedAt = Date.now();
       this.activeBySpark.delete(job.sparkId);
       this._pushHistory(job);
+      this._checkpointActive();
     }
   }
 
   _pushHistory(job) {
     const list = this.historyBySpark.get(job.sparkId) || [];
-    list.unshift(publicJob(job));
+    const pub = publicJob(job);
+    const existing = list.findIndex((j) => j.benchId === pub.benchId);
+    if (existing >= 0) list.splice(existing, 1);
+    list.unshift(pub);
     this.historyBySpark.set(job.sparkId, list.slice(0, HISTORY_LIMIT));
     this._saveHistory();
   }
