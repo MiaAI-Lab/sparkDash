@@ -25,6 +25,31 @@ import {
 
 const ONLINE_GRACE_MS = 10000;
 
+function sameConversationRows(a, b) {
+  if (a === b) return true;
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const left = a[i];
+    const right = b[i];
+    if (
+      left.id !== right.id ||
+      left.source !== right.source ||
+      left.handle !== right.handle ||
+      left.badge !== right.badge ||
+      left.port !== right.port ||
+      left.lastUsedAt !== right.lastUsedAt ||
+      left.agent !== right.agent ||
+      left.gateway !== right.gateway ||
+      left.contextUsed !== right.contextUsed ||
+      left.contextWindow !== right.contextWindow ||
+      left.contextApprox !== right.contextApprox
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /**
  * SparkMonitor — one per Spark. Owns collectors + rate state + poll loop.
  * Exposes snapshot() for WebSocket pushed payload.
@@ -128,6 +153,9 @@ export class SparkMonitor {
     this._running = false;
     /** @type {Record<string, boolean>} in-flight domain guards */
     this._inflight = {};
+
+    /** Bound conversation rows from the dashboard occupancy poller. */
+    this._conversations = [];
   }
 
   /** Hot-update config without tearing down poll loops / rate baselines. */
@@ -380,6 +408,21 @@ export class SparkMonitor {
     console.log(`[SparkMonitor] ${this.spark.id} stopped`);
   }
 
+  /** Store a copy of occupancy rows. Dashboard poller owns collection. */
+  setConversations(rows) {
+    const next = Array.isArray(rows) ? rows.map((row) => ({ ...row })) : [];
+    if (sameConversationRows(this._conversations, next)) return;
+    this._conversations = next;
+  }
+
+  /** Occupancy list for snapshot: omit when empty, disabled, or worker. */
+  _conversationSnapshot() {
+    if (!this._llmMonitoringEnabled()) return {};
+    const rows = this._conversations;
+    if (!Array.isArray(rows) || rows.length === 0) return {};
+    return { conversations: rows };
+  }
+
   /** Return a full snapshot of this Spark's metrics. */
   snapshot() {
     const ports = this._llmMonitoringEnabled() ? this._llmPorts() : [];
@@ -431,6 +474,7 @@ export class SparkMonitor {
         comfy: comfyOn ? this._metrics.comfy : null,
         tailscale: tailscaleOn ? this._metrics.tailscale : null,
       },
+      ...this._conversationSnapshot(),
     };
   }
 

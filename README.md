@@ -41,6 +41,7 @@ It also supports **non-Spark units**: any Linux machine with an NVIDIA GPU (e.g.
 - [Repository layout](#repository-layout)
 - [REST API](#rest-api)
 - [Configuration](#configuration)
+- [Harness sessions](#harness-sessions)
 - [Security](#security)
 - [Scripts](#scripts)
 - [How it works](#how-it-works)
@@ -85,6 +86,7 @@ Full history: [CHANGELOG.md](./CHANGELOG.md)
 | **Secrets** | SSH passwords AES-256-GCM encrypted; never in `sparks.json` or API responses |
 | **Docker-first** | Single privileged container for host metrics; prod and dev Compose files |
 | **Hot config** | Add / edit / remove / reorder Sparks from the UI with no process restart |
+| **Harness sessions** | OpenClaw / Hermes / OpenCode / oh-my-pi / DeepSeek Harness sessions on each LLM card; onboarding wizard for setup |
 
 ---
 
@@ -357,6 +359,9 @@ sparkDash/
 | GET | `/api/sparks/:id/llm/daily` | Daily busy decode/prefill tok/s (`port`, `days`) |
 | GET | `/api/settings` | Global settings |
 | PUT | `/api/settings` | Update global settings |
+| GET | `/api/session-sources` | Occupancy attaches (tokens redacted) |
+| PATCH | `/api/session-sources` | Update occupancy attaches |
+| POST | `/api/session-sources/test` | Check occupancy attach reachability |
 | WS | `/ws` | Real-time metrics stream |
 
 There is no authentication on the HTTP/WebSocket API. Run sparkDash only on a trusted network (or behind your own reverse proxy with auth).
@@ -441,6 +446,16 @@ Header theme control cycles:
 | **OLED** | True black for OLED panels |
 
 Choice is stored in `localStorage`.
+
+---
+
+## Harness sessions
+
+Active coding-agent sessions from OpenClaw, Hermes, OpenCode, oh-my-pi, and DeepSeek Harness show on each Spark’s LLM card. Sessions are matched to Sparks by the LLM host:port they hit.
+
+Configure harnesses via the onboarding wizard: **Header → Manage harnesses** (or any LLM card → Settings → Add harness). The wizard walks you through picking harnesses, choosing local or remote mode, checking connectivity, and saving.
+
+For full setup details — helper snippets, security rules, multiple attaches, origin matching, and LiteLLM notes — see [`docs/harness-sessions.md`](./docs/harness-sessions.md).
 
 ---
 

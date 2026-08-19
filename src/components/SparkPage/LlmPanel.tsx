@@ -1,20 +1,23 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-import type { LlmMetrics } from "../../api/types";
+import { useState, useEffect, useRef, useCallback, type ReactNode } from "react";
+import type { ConversationRow, LlmMetrics } from "../../api/types";
 import { setLlmApiKey, updateLlmPort, updateLlmPorts } from "../../api/client";
 import { Sparkline } from "../ui/Sparkline";
 import { Panel } from "../ui/Panel";
 import { BotIcon, GearIcon, InfoIcon } from "../ui/icons";
 import { useMetricsHistoryTail } from "../../hooks/metricsStore";
 import { BenchmarkDialog } from "./BenchmarkDialog";
+import { ConversationList } from "./ConversationList";
 import { LlmDailyChart } from "./LlmDailyChart";
 
 interface LlmPanelProps {
   llm: LlmMetrics | null;
   sparkId: string;
   llmPort: number;
+  conversations?: ConversationRow[];
   llmPorts?: number[];
   hasApiKey?: boolean;
   onRemovePort?: (port: number) => void;
+  onOpenHarnessWizard?: () => void;
   className?: string;
 }
 
@@ -53,6 +56,23 @@ function BackendBadge({ backend }: { backend: string | null }) {
       <span className="h-1.5 w-1.5 rounded-full bg-accent" />
       {labels[backend] || backend}
     </span>
+  );
+}
+
+function LlmOperate({
+  conversations,
+  onAddHarness,
+  children,
+}: {
+  conversations: ConversationRow[];
+  onAddHarness?: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className="llm-operate">
+      <div className="llm-operate-metrics space-y-3">{children}</div>
+      <ConversationList conversations={conversations} onAddHarness={onAddHarness} />
+    </div>
   );
 }
 
@@ -150,9 +170,11 @@ export function LlmPanel({
   llm,
   sparkId,
   llmPort,
+  conversations = [],
   llmPorts,
   hasApiKey = false,
   onRemovePort,
+  onOpenHarnessWizard,
   className,
 }: LlmPanelProps) {
   // Tail keyed by port so multi-port LLM sparklines stay distinct (8b).
@@ -298,9 +320,10 @@ export function LlmPanel({
       }
     >
       {showSettings ? (
-        <div className="space-y-3">
+        <div className="max-h-[70vh] space-y-3 overflow-y-auto pr-1">
           <p className="text-[10px] text-muted">
-            HTTP port of the LLM server on this Spark (vLLM / llama.cpp / sglang / ds4 / OpenAI-compatible gateway).
+            HTTP port of the LLM server on this Spark (vLLM / llama.cpp / sglang / ds4 / OpenAI-compatible gateway). Harness
+            connections are dashboard-wide and managed via the Add harness button.
           </p>
           <label className="block space-y-1">
             <span className="text-xs text-muted">Port</span>
@@ -386,47 +409,49 @@ export function LlmPanel({
               disabled={saving || portInvalid || !settingsDirty}
               className="rounded bg-accent px-2 py-1 text-[10px] font-medium text-white hover:bg-accent-hover disabled:opacity-50"
             >
-              {saving ? "Saving…" : "Save"}
+              {saving ? "Saving…" : "Save port"}
             </button>
           </div>
         </div>
       ) : !available ? (
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-2 py-1">
-            {llm?.posture ? (
-              <PostureBadge posture={llm.posture} />
-            ) : (
-              <span className="h-1.5 w-1.5 rounded-full bg-muted" />
-            )}
-            <p className="text-xs text-muted">
-              {llm?.posture?.auth === "protected"
-                ? `${llm.posture.label} on :${llmPort}`
-                : `No model loaded on :${llmPort}`}
-            </p>
+        <LlmOperate conversations={conversations} onAddHarness={onOpenHarnessWizard}>
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2 py-1">
+              {llm?.posture ? (
+                <PostureBadge posture={llm.posture} />
+              ) : (
+                <span className="h-1.5 w-1.5 rounded-full bg-muted" />
+              )}
+              <p className="text-xs text-muted">
+                {llm?.posture?.auth === "protected"
+                  ? `${llm.posture.label} on :${llmPort}`
+                  : `No model loaded on :${llmPort}`}
+              </p>
+            </div>
+            <div className="border-t border-border pt-3 space-y-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const params = new URLSearchParams();
+                  if (llmPort) params.set("port", String(llmPort));
+                  const q = params.toString() ? `?${params.toString()}` : "";
+                  window.open(
+                    `/showcase/${encodeURIComponent(sparkId)}${q}`,
+                    "_blank",
+                    "noopener,noreferrer"
+                  );
+                }}
+                className="w-full rounded border border-border bg-surface-elevated px-3 py-1.5 text-xs font-medium text-text transition-colors hover:border-accent hover:bg-accent-soft"
+                title="Open prompt showcase (works offline to view history or prepare a run)"
+              >
+                Showcase
+              </button>
+              <LlmDailyChart sparkId={sparkId} llmPort={llmPort} />
+            </div>
           </div>
-          <div className="border-t border-border pt-3 space-y-2">
-            <button
-              type="button"
-              onClick={() => {
-                const params = new URLSearchParams();
-                if (llmPort) params.set("port", String(llmPort));
-                const q = params.toString() ? `?${params.toString()}` : "";
-                window.open(
-                  `/showcase/${encodeURIComponent(sparkId)}${q}`,
-                  "_blank",
-                  "noopener,noreferrer"
-                );
-              }}
-              className="w-full rounded border border-border bg-surface-elevated px-3 py-1.5 text-xs font-medium text-text transition-colors hover:border-accent hover:bg-accent-soft"
-              title="Open prompt showcase (works offline to view history or prepare a run)"
-            >
-              Showcase
-            </button>
-            <LlmDailyChart sparkId={sparkId} llmPort={llmPort} />
-          </div>
-        </div>
+        </LlmOperate>
       ) : (
-        <div className="space-y-3">
+        <LlmOperate conversations={conversations} onAddHarness={onOpenHarnessWizard}>
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <BackendBadge backend={llm?.backend ?? null} />
             {llm?.posture && <PostureBadge posture={llm.posture} />}
@@ -732,7 +757,7 @@ export function LlmPanel({
               Showcase
             </button>
           </div>
-        </div>
+        </LlmOperate>
       )}
 
       <BenchmarkDialog

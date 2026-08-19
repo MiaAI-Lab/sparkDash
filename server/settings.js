@@ -19,6 +19,8 @@ const DEFAULTS = Object.freeze({
   benchDebugTraces: false,
   /** Layout density — compact (default) or comfortable. */
   density: "compact",
+  /** Hide occupancy sessions older than this many hours. 0 = show all. */
+  occupancyMaxAgeHours: 12,
 });
 
 /** @type {typeof DEFAULTS} */
@@ -45,6 +47,10 @@ function _clampSettings(settings) {
   // Ensure density is valid
   if (s.density !== "comfortable" && s.density !== "compact") {
     s.density = DEFAULTS.density;
+  }
+  // Ensure occupancyMaxAgeHours is a non-negative number
+  if (typeof s.occupancyMaxAgeHours !== "number" || s.occupancyMaxAgeHours < 0) {
+    s.occupancyMaxAgeHours = DEFAULTS.occupancyMaxAgeHours;
   }
   return s;
 }
