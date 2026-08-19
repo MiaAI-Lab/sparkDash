@@ -473,3 +473,72 @@ test("found count reflects successfully parsed sessions, not files attempted", a
   assert.equal(diag.status, "ok");
   assert.equal(diag.found, 1);
 });
+
+test("symlink loop: visited realpath set prevents infinite recursion", async () => {
+  // Simulate a directory that symlinks back into itself.
+  // realpath returns the same path for both the original and the symlink,
+  // so the second visit is skipped by the visited set.
+  const sessionPath = "/tmp/omp-loop/agent/sessions";
+  const linkPath = `${sessionPath}/loopback`;
+  const files = {
+    [`${sessionPath}/real.jsonl`]: sessionJsonl(),
+  };
+  const dirs = {
+    [sessionPath]: ["real.jsonl", "loopback"],
+    [linkPath]: ["loopback"], // points back to parent
+  };
+  const stats = {
+    [sessionPath]: { isDirectory: () => true, isFile: () => false, mtimeMs: 0 },
+    [`${sessionPath}/real.jsonl`]: { isDirectory: () => false, isFile: () => true, mtimeMs: 2000 },
+    [linkPath]: { isDirectory: () => true, isFile: () => false, mtimeMs: 0 },
+  };
+  // realpath maps both sessionPath and linkPath to the same real path,
+  // simulating a symlink loop.
+  const realPaths = new Map();
+  realPaths.set(sessionPath, "/real/sessions");
+  realPaths.set(linkPath, "/real/sessions");
+  const rows = await collectOmpSessions(
+    { enabled: true, mode: "local", id: "omp" },
+    {
+      conventionalStateDir: "/tmp/omp-loop",
+      conventionalConfigDir: "/tmp/omp-loop/agent",
+      realpath: (p) => realPaths.get(p) ?? p,
+      readFile: async (p) => files[p] ?? (() => { const e = new Error("ENOENT"); e.code = "ENOENT"; throw e; })(),
+      readDir: async (p) => dirs[p] ?? [],
+      stat: async (p) => stats[p] ?? (() => { const e = new Error("ENOENT"); e.code = "ENOENT"; throw e; })(),
+    }
+  );
+  // Should find exactly one session (real.jsonl), not loop infinitely.
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].source, "omp");
+});
+
+test("dot entries are skipped during recursive scan", async () => {
+  const sessionPath = "/tmp/omp-dot/agent/sessions";
+  const files = {
+    [`${sessionPath}/visible.jsonl`]: sessionJsonl(),
+    [`${sessionPath}/.hidden.jsonl`]: sessionJsonl({ sessionId: "hidden-session-id" }),
+  };
+  const dirs = {
+    [sessionPath]: ["visible.jsonl", ".hidden.jsonl"],
+  };
+  const stats = {
+    [sessionPath]: { isDirectory: () => true, isFile: () => false, mtimeMs: 0 },
+    [`${sessionPath}/visible.jsonl`]: { isDirectory: () => false, isFile: () => true, mtimeMs: 2000 },
+    [`${sessionPath}/.hidden.jsonl`]: { isDirectory: () => false, isFile: () => true, mtimeMs: 1000 },
+  };
+  const rows = await collectOmpSessions(
+    { enabled: true, mode: "local", id: "omp" },
+    {
+      conventionalStateDir: "/tmp/omp-dot",
+      conventionalConfigDir: "/tmp/omp-dot/agent",
+      realpath: (p) => p,
+      readFile: async (p) => files[p] ?? (() => { const e = new Error("ENOENT"); e.code = "ENOENT"; throw e; })(),
+      readDir: async (p) => dirs[p] ?? [],
+      stat: async (p) => stats[p] ?? (() => { const e = new Error("ENOENT"); e.code = "ENOENT"; throw e; })(),
+    }
+  );
+  // Only the non-dot file should be collected.
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].handle, "Wrap up task");
+});
