@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { SessionSourceAttach, SessionSources, SessionSourcesHealth } from "../api/types";
 import { SessionSourceFields } from "./SessionSourceFields";
 
@@ -56,6 +56,7 @@ export function SessionSourcesPanel({
         host:port they hit. Local = this dashboard host; URL = another machine.
       </p>
       <OpenCodeHelperSetup />
+      <UrlModeMigrator sources={sources} onPatch={onPatch} />
       {sourceKinds(sources).map((kind) => {
         const kindLabel = sources[kind][0]?.kindLabel || kind;
         return (
@@ -137,4 +138,23 @@ function OpenCodeHelperSetup() {
       </ol>
     </details>
   );
+}
+
+function UrlModeMigrator({
+  sources,
+  onPatch,
+}: {
+  sources: SessionSources;
+  onPatch: (kind: string, id: string, patch: Partial<SessionSourceAttach>) => void;
+}) {
+  useEffect(() => {
+    for (const kind of sourceKinds(sources)) {
+      for (const src of sources[kind]) {
+        if (src.mode === "url" && !src.urlPlaceholder) {
+          onPatch(kind, src.id, { mode: "local" });
+        }
+      }
+    }
+  }, [sources, onPatch]);
+  return null;
 }

@@ -293,7 +293,7 @@ export interface SessionSourceAttach {
   /** Hermes dashboard username. Empty uses `admin`. Not a secret. */
   username?: string;
   hasToken: boolean;
-  /** Conventional local path (`~/.openclaw` / `~/.hermes` / `~/.local/share/opencode`, or env override). */
+  /** Conventional local path (`~/.openclaw` / `~/.hermes` / `~/.local/share/opencode` / `~/.omp`, or env override). */
   conventionalStateDir: string;
   /** OpenCode provider-config dir (`~/.config/opencode`). Empty for other kinds. */
   conventionalConfigDir?: string;

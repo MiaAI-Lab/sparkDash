@@ -73,6 +73,10 @@ export function defaultReadDir(dirPath) {
   return fs.promises.readdir(dirPath);
 }
 
+export function defaultStat(filePath) {
+  return fs.promises.stat(filePath);
+}
+
 export function assertAllowedFetchUrl(url) {
   let parsed;
   try {

@@ -63,10 +63,11 @@ test.after(() => {
 
 test("U1 registry: OpenClaw, Hermes, and OpenCode; config iterates registry kinds", async () => {
   const registry = await import("../sessionSourceRegistry.js");
-  assert.deepEqual(registry.sessionSourceIds(), ["openclaw", "hermes", "opencode"]);
+  assert.deepEqual(registry.sessionSourceIds(), ["openclaw", "hermes", "opencode", "omp"]);
   assert.equal(registry.kindById("openclaw")?.label, "OpenClaw");
   assert.equal(registry.kindById("hermes")?.label, "Hermes Agent");
   assert.equal(registry.kindById("opencode")?.label, "OpenCode");
+  assert.equal(registry.kindById("omp")?.label, "oh-my-pi");
   assert.deepEqual([...SOURCE_IDS], registry.sessionSourceIds());
   assert.equal(conventionalStateDir, registry.conventionalStateDir);
 
@@ -109,12 +110,12 @@ test("public GET and save only emit registry kinds; kindLabel is not persisted",
     })
   );
   const pub = getPublicSessionSources();
-  assert.deepEqual(Object.keys(pub).sort(), ["hermes", "openclaw", "opencode"]);
+  assert.deepEqual(Object.keys(pub).sort(), ["hermes", "omp", "openclaw", "opencode"]);
   assert.equal("leftover" in pub, false);
   const next = updateSessionSources({ opencode: { id: "opencode", enabled: false } });
   assert.equal(first(next.opencode).kindLabel, "OpenCode");
   const disk = JSON.parse(fs.readFileSync(sourcesPath, "utf8"));
-  assert.deepEqual(Object.keys(disk).sort(), ["hermes", "openclaw", "opencode"]);
+  assert.deepEqual(Object.keys(disk).sort(), ["hermes", "omp", "openclaw", "opencode"]);
   assert.equal("kindLabel" in first(disk.opencode), false);
 });
 

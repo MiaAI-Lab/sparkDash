@@ -39,6 +39,17 @@ const KINDS = Object.freeze([
       return trimmedEnv(env?.OPENCODE_CONFIG_DIR, "~/.config/opencode");
     },
   }),
+  Object.freeze({
+    id: "omp",
+    label: "oh-my-pi",
+    usesUsername: false,
+    conventionalStateDir(env = process.env) {
+      return trimmedEnv(env?.OMP_STATE_DIR, "~/.omp");
+    },
+    conventionalConfigDir(env = process.env) {
+      return trimmedEnv(env?.OMP_CONFIG_DIR, "~/.omp/agent");
+    },
+  }),
 ]);
 
 export function sessionSourceKinds() {

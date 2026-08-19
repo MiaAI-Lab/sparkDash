@@ -6,12 +6,14 @@
 import { collectOpenClawSessions, diagnoseOpenClawSessions } from "./OpenClawSessions.js";
 import { collectHermesSessions, diagnoseHermesSessions } from "./HermesSessions.js";
 import { collectOpenCodeSessions, diagnoseOpenCodeSessions } from "./OpenCodeSessions.js";
+import { collectOmpSessions, diagnoseOmpSessions } from "./OmpSessions.js";
 import { sessionSourceIds } from "../sessionSourceRegistry.js";
 
 const ADAPTERS = {
   openclaw: { collect: collectOpenClawSessions, diagnose: diagnoseOpenClawSessions },
   hermes: { collect: collectHermesSessions, diagnose: diagnoseHermesSessions },
   opencode: { collect: collectOpenCodeSessions, diagnose: diagnoseOpenCodeSessions },
+  omp: { collect: collectOmpSessions, diagnose: diagnoseOmpSessions },
 };
 
 function byKind(field) {

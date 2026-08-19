@@ -125,7 +125,7 @@ export function SessionSourceFields({
         className={fieldClass}
         aria-label={`${title} mode`}
       >
-        {MODE_OPTIONS.map((opt) => (
+        {MODE_OPTIONS.filter((opt) => opt.value !== "url" || source.urlPlaceholder).map((opt) => (
           <option key={opt.value} value={opt.value}>
             {opt.label}
           </option>
