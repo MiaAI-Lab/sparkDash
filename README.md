@@ -86,7 +86,7 @@ Full history: [CHANGELOG.md](./CHANGELOG.md)
 | **Secrets** | SSH passwords AES-256-GCM encrypted; never in `sparks.json` or API responses |
 | **Docker-first** | Single privileged container for host metrics; prod and dev Compose files |
 | **Hot config** | Add / edit / remove / reorder Sparks from the UI with no process restart |
-| **Session occupancy** | OpenClaw / Hermes / OpenCode sessions on each LLM card; OpenCode on another machine uses a small helper |
+| **Session occupancy** | OpenClaw / Hermes / OpenCode / oh-my-pi sessions on each LLM card; remote machines use a small helper |
 
 ---
 
@@ -451,7 +451,7 @@ Choice is stored in `localStorage`.
 
 ## Session occupancy
 
-OpenClaw, Hermes Agent, and OpenCode sessions that hit a Spark LLM show on that card’s **Sessions** list.
+OpenClaw, Hermes Agent, OpenCode, and oh-my-pi (omp) sessions that hit a Spark LLM show on that card’s **Sessions** list.
 
 Configure attaches on **any LLM card → Settings (gear) → Occupancy sources**. The list is dashboard-wide; save with **Save occupancy** (separate from the LLM port Save).
 
@@ -460,8 +460,14 @@ Configure attaches on **any LLM card → Settings (gear) → Occupancy sources**
 | **OpenClaw / Hermes** | **Local** if they run on the dashboard host; otherwise **URL** or **State dir** |
 | **OpenCode on this host** | **Local** — reads `opencode.db` directly |
 | **OpenCode on another computer** | Run the helper on that machine, then **URL** + token |
+| **oh-my-pi on this host** | **Local** — reads `~/.omp/agent/sessions/*.jsonl` directly |
+| **oh-my-pi on another computer** | Run the helper on that machine, then **URL** + token |
 
-OpenCode has no occupancy HTTP API. On the OpenCode machine (Node 22+, sparkDash checkout):
+Sessions older than the **Occupancy session age limit** (Settings, default 12h) are hidden. Set to `0` to show all.
+
+### OpenCode helper (remote machine)
+
+On the OpenCode machine (Node 22+, sparkDash checkout):
 
 ```bash
 BIND="$(tailscale ip -4 2>/dev/null || ipconfig getifaddr en0 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}')"
@@ -472,6 +478,22 @@ OPENCODE_OCCUPANCY_BIND="$BIND" OPENCODE_OCCUPANCY_TOKEN="$TOKEN" \
 ```
 
 Paste the printed URL (`http://<that-ip>:8788/occupancy`) and token into Occupancy sources → OpenCode → URL, then **Check** and **Save occupancy**. Do not bind `0.0.0.0`. Full env and macOS path notes: [`scripts/opencode-occupancy-helper/README.md`](./scripts/opencode-occupancy-helper/README.md).
+
+### oh-my-pi helper (remote machine)
+
+On the omp machine (Node 22+, sparkDash checkout):
+
+```bash
+BIND="$(tailscale ip -4 2>/dev/null || ipconfig getifaddr en0 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}')"
+TOKEN="$(openssl rand -hex 32)"
+printf 'URL:   http://%s:8789/occupancy\nToken: %s\n' "$BIND" "$TOKEN"
+OMP_OCCUPANCY_BIND="$BIND" OMP_OCCUPANCY_TOKEN="$TOKEN" \
+  node scripts/omp-occupancy-helper/index.js
+```
+
+Paste the printed URL (`http://<that-ip>:8789/occupancy`) and token into Occupancy sources → oh-my-pi → URL, then **Check** and **Save occupancy**. Full env notes: [`scripts/omp-occupancy-helper/README.md`](./scripts/omp-occupancy-helper/README.md).
+
+Both helpers can run on the same machine (ports 8788 and 8789). Full setup guide: [`OCCUPANCY.md`](./OCCUPANCY.md).
 
 ---
 
