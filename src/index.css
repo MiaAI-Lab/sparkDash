@@ -1532,6 +1532,34 @@ input[type="checkbox"] {
   opacity: 0.5;
 }
 
+.bench-select {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 24rem;
+  min-height: 2.25rem;
+  padding: 0.4rem 0.65rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--color-border);
+  background: #ffffff;
+  color: var(--color-text);
+  font-size: 0.8125rem;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+[data-theme="dark"] .bench-select,
+[data-theme="oled"] .bench-select {
+  background: var(--color-surface-elevated);
+}
+.bench-select:focus {
+  border-color: var(--color-accent);
+}
+.bench-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .bench-progress {
   display: flex;
   flex-direction: column;
