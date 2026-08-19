@@ -166,7 +166,7 @@ function unlinkStoreFile() {
   }
 }
 
-function persistStore(secretBlobs, llmKeyBlobs, tokenBlobs, deviceBlobs) {
+function persistStore({ secrets: secretBlobs, llmApiKeys: llmKeyBlobs, sessionSourceTokens: tokenBlobs, sessionSourceDevices: deviceBlobs }) {
   const secrets = asBlobMap(secretBlobs);
   const llmApiKeys = nonEmptyBlobs(llmKeyBlobs);
   const sessionSourceTokens = nonEmptyBlobs(tokenBlobs);
@@ -296,7 +296,7 @@ export function saveSecrets(passwords, llmApiKeys = new Map()) {
   }
 
   if (!hasPasswords && !hasKeys) {
-    persistStore({}, raw.llmApiKeys, raw.sessionSourceTokens, raw.sessionSourceDevices);
+    persistStore({ secrets: {}, llmApiKeys: raw.llmApiKeys, sessionSourceTokens: raw.sessionSourceTokens, sessionSourceDevices: raw.sessionSourceDevices });
     return;
   }
 
@@ -322,7 +322,7 @@ export function saveSecrets(passwords, llmApiKeys = new Map()) {
     }
   }
 
-  persistStore(secrets, llmOut, raw.sessionSourceTokens, raw.sessionSourceDevices);
+  persistStore({ secrets, llmApiKeys: llmOut, sessionSourceTokens: raw.sessionSourceTokens, sessionSourceDevices: raw.sessionSourceDevices });
   const keyCount = Object.keys(llmOut).length;
   console.log(
     `[secretsStore] Saved ${Object.keys(secrets).length} SSH password(s)` +
@@ -375,7 +375,7 @@ export function patchSessionSourceTokens(patch) {
   for (const [id, value] of Object.entries(current)) {
     if (value) tokenBlobs[id] = encrypt(value, key);
   }
-  persistStore(raw.secrets, raw.llmApiKeys, tokenBlobs, raw.sessionSourceDevices);
+  persistStore({ secrets: raw.secrets, llmApiKeys: raw.llmApiKeys, sessionSourceTokens: tokenBlobs, sessionSourceDevices: raw.sessionSourceDevices });
   return current;
 }
 
@@ -400,7 +400,7 @@ export function saveSessionSourceDevice(id, identity) {
   const raw = readRawStore();
   const devices = { ...raw.sessionSourceDevices };
   devices[id] = encrypt(JSON.stringify(identity), resolveKey());
-  persistStore(raw.secrets, raw.llmApiKeys, raw.sessionSourceTokens, devices);
+  persistStore({ secrets: raw.secrets, llmApiKeys: raw.llmApiKeys, sessionSourceTokens: raw.sessionSourceTokens, sessionSourceDevices: devices });
 }
 
 /** Drop device identities whose attach ids are no longer present. */
@@ -411,5 +411,5 @@ export function dropSessionSourceDevices(keepIds) {
   for (const [id, blob] of Object.entries(raw.sessionSourceDevices || {})) {
     if (keep.has(id) && typeof blob === "string" && blob) devices[id] = blob;
   }
-  persistStore(raw.secrets, raw.llmApiKeys, raw.sessionSourceTokens, devices);
+  persistStore({ secrets: raw.secrets, llmApiKeys: raw.llmApiKeys, sessionSourceTokens: raw.sessionSourceTokens, sessionSourceDevices: devices });
 }

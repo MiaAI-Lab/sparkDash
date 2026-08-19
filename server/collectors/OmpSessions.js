@@ -7,14 +7,14 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import os from "node:os";
-import { conventionalStateDir, conventionalConfigDir } from "../sessionSourceRegistry.js";
+import { conventionalStateDir } from "../sessionSourceRegistry.js";
 import {
   parseBaseUrl,
   parseSessionTime,
   resolveStateDir,
-  remapHostRoot,
-  expandTilde,
+  resolveConfigDir,
+  readOptional,
+  sanitizeProjectorRow,
   defaultReadFile,
   defaultReadDir,
   defaultStat,
@@ -40,14 +40,7 @@ const PROJECTOR_ROW_KEYS = [
 ];
 
 export function sanitizeOmpRow(row) {
-  const out = { source: SOURCE, midTurn: "unknown" };
-  if (!row || typeof row !== "object") return out;
-  for (const key of PROJECTOR_ROW_KEYS) {
-    if (row[key] !== undefined) out[key] = row[key];
-  }
-  out.source = SOURCE;
-  if (out.midTurn == null) out.midTurn = "unknown";
-  return out;
+  return sanitizeProjectorRow(row, SOURCE, PROJECTOR_ROW_KEYS);
 }
 
 /**
@@ -218,7 +211,7 @@ export async function loadOmpOccupancy(attach, deps = {}) {
     deps,
     deps.conventionalStateDir ?? conventionalStateDir(SOURCE)
   );
-  const configDir = resolveConfigDir(deps);
+  const configDir = resolveConfigDir(SOURCE, deps);
   const sessionsDir = stateDir ? path.join(stateDir, SESSIONS_SUBDIR) : "";
   if (!sessionsDir) {
     return { missingState: true, invalidHelper: false, found: 0, rows: [] };
@@ -288,13 +281,6 @@ export async function diagnoseOmpSessions(attach, deps = {}) {
   }
 }
 
-function resolveConfigDir(deps) {
-  const conventional = deps.conventionalConfigDir ?? conventionalConfigDir(SOURCE);
-  if (!conventional) return "";
-  const home = deps.homedir ?? os.homedir();
-  return remapHostRoot(expandTilde(String(conventional), home), deps);
-}
-
 async function loadProviders(configDir, readFile) {
   if (!configDir) return {};
   const raw = await readOptional(readFile, path.join(configDir, PROVIDERS_FILE_NAME));
@@ -303,14 +289,6 @@ async function loadProviders(configDir, readFile) {
     return extractOmpProviders(raw);
   } catch {
     return {};
-  }
-}
-
-async function readOptional(readFile, filePath) {
-  try {
-    return await readFile(filePath);
-  } catch {
-    return null;
   }
 }
 

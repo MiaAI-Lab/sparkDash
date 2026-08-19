@@ -66,7 +66,10 @@ function assignAttachId(rawId, kind, used) {
 function normalizeAttach(raw, kind, used) {
   const extras = raw && typeof raw === "object" && !Array.isArray(raw) ? { ...raw } : {};
   for (const key of PUBLIC_ONLY) delete extras[key];
-  const mode = MODES.has(extras.mode) ? extras.mode : DEFAULT_ATTACH.mode;
+  const kindMeta = kindById(kind);
+  const supportsUrl = Boolean(kindMeta?.urlPlaceholder);
+  let mode = MODES.has(extras.mode) ? extras.mode : DEFAULT_ATTACH.mode;
+  if (mode === "url" && !supportsUrl) mode = DEFAULT_ATTACH.mode;
   const id = assignAttachId(extras.id, kind, used);
   return {
     ...extras,

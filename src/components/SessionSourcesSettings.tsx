@@ -96,20 +96,21 @@ export function SessionSourcesSettings() {
     setSessionSources((prev) => {
       if (!prev) return prev;
       const id = nextAttachId(kind, prev[kind] ?? []);
+      const template = prev[kind]?.[0];
       const blank: SessionSourceAttach = {
         id,
         label: "",
         enabled: true,
-        mode: "url",
+        mode: template?.urlPlaceholder ? "url" : "local",
         url: "",
         stateDir: "",
         username: "",
         hasToken: false,
-        conventionalStateDir: prev[kind]?.[0]?.conventionalStateDir ?? "",
-        conventionalConfigDir: prev[kind]?.[0]?.conventionalConfigDir,
-        urlPlaceholder: prev[kind]?.[0]?.urlPlaceholder,
-        usesUsername: prev[kind]?.[0]?.usesUsername,
-        kindLabel: prev[kind]?.[0]?.kindLabel,
+        conventionalStateDir: template?.conventionalStateDir ?? "",
+        conventionalConfigDir: template?.conventionalConfigDir,
+        urlPlaceholder: template?.urlPlaceholder,
+        usesUsername: template?.usesUsername,
+        kindLabel: template?.kindLabel,
       };
       return { ...prev, [kind]: [...(prev[kind] ?? []), blank] };
     });

@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { HOST_PATHS, LLM_PROBE_TIMEOUT_MS } from "../config.js";
 import { isAllowedTargetHost } from "../validate.js";
+import { conventionalConfigDir } from "../sessionSourceRegistry.js";
 
 /**
  * @param {string} url
@@ -63,6 +64,53 @@ export function resolveStateDir(attach, deps, conventional) {
     return remapHostRoot(expandTilde(attach.stateDir, home), deps);
   }
   return remapHostRoot(expandTilde(String(conventional || ""), home), deps);
+}
+
+/**
+ * Resolve a source kind's conventional config directory, with host-root remap.
+ * Empty when the kind has no config dir.
+ * @param {string} source - Source kind id
+ * @param {object} deps - { conventionalConfigDir?, homedir?, hostRoot?, isReadable? }
+ * @returns {string}
+ */
+export function resolveConfigDir(source, deps = {}) {
+  const conventional = deps.conventionalConfigDir ?? conventionalConfigDir(source);
+  if (!conventional) return "";
+  const home = deps.homedir ?? os.homedir();
+  return remapHostRoot(expandTilde(String(conventional), home), deps);
+}
+
+/**
+ * Read a file, returning null on any error (missing, unreadable, etc).
+ * @param {Function} readFile
+ * @param {string} filePath
+ * @returns {Promise<string | null>}
+ */
+export async function readOptional(readFile, filePath) {
+  try {
+    return await readFile(filePath);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Sanitize a projector row to an allowlisted shape.
+ * Copies only the listed keys; forces source and midTurn defaults.
+ * @param {object} row
+ * @param {string} source
+ * @param {string[]} keys
+ * @returns {object}
+ */
+export function sanitizeProjectorRow(row, source, keys) {
+  const out = { source, midTurn: "unknown" };
+  if (!row || typeof row !== "object") return out;
+  for (const key of keys) {
+    if (row[key] !== undefined) out[key] = row[key];
+  }
+  out.source = source;
+  if (out.midTurn == null) out.midTurn = "unknown";
+  return out;
 }
 
 export function defaultReadFile(filePath) {

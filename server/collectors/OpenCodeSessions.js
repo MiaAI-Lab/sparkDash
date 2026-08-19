@@ -5,15 +5,15 @@
  * Never throws. Never reads transcript tables.
  */
 import path from "node:path";
-import os from "node:os";
 import { DatabaseSync } from "node:sqlite";
-import { conventionalStateDir, conventionalConfigDir } from "../sessionSourceRegistry.js";
+import { conventionalStateDir } from "../sessionSourceRegistry.js";
 import {
   parseBaseUrl,
   parseSessionTime,
   resolveStateDir,
-  remapHostRoot,
-  expandTilde,
+  resolveConfigDir,
+  readOptional,
+  sanitizeProjectorRow,
   defaultReadFile,
   defaultFetchJson,
   sanitizeProbeError,
@@ -39,14 +39,7 @@ const PROJECTOR_ROW_KEYS = [
 const BUSY_RETRY_MS = 50;
 
 export function sanitizeOpenCodeRow(row) {
-  const out = { source: SOURCE, midTurn: "unknown" };
-  if (!row || typeof row !== "object") return out;
-  for (const key of PROJECTOR_ROW_KEYS) {
-    if (row[key] !== undefined) out[key] = row[key];
-  }
-  out.source = SOURCE;
-  if (out.midTurn == null) out.midTurn = "unknown";
-  return out;
+  return sanitizeProjectorRow(row, SOURCE, PROJECTOR_ROW_KEYS);
 }
 
 /**
@@ -226,7 +219,7 @@ async function loadFromStateDir(attach, deps) {
     deps,
     deps.conventionalStateDir ?? conventionalStateDir(SOURCE)
   );
-  const configDir = resolveConfigDir(deps);
+  const configDir = resolveConfigDir(SOURCE, deps);
   if (!dataDir) return { sessions: [], providers: {}, missingState: true };
   const readFile = deps.readFile ?? defaultReadFile;
   const providers = await loadProviders(configDir, readFile);
@@ -237,13 +230,6 @@ async function loadFromStateDir(attach, deps) {
     if (err?.code === "ENOENT") return { sessions: [], providers, missingState: true };
     throw err;
   }
-}
-
-function resolveConfigDir(deps) {
-  const conventional = deps.conventionalConfigDir ?? conventionalConfigDir(SOURCE);
-  if (!conventional) return "";
-  const home = deps.homedir ?? os.homedir();
-  return remapHostRoot(expandTilde(String(conventional), home), deps);
 }
 
 async function loadProviders(configDir, readFile) {
@@ -260,14 +246,6 @@ async function loadProviders(configDir, readFile) {
     }
   }
   return {};
-}
-
-async function readOptional(readFile, filePath) {
-  try {
-    return await readFile(filePath);
-  } catch {
-    return null;
-  }
 }
 
 async function readSessionRows(dbPath, deps, attempt = 0) {

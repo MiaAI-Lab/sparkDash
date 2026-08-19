@@ -10,6 +10,7 @@ import {
   resolveStateDir,
   defaultReadFile,
   defaultReadDir,
+  readOptional,
   normalizeSessionList,
   sanitizeProbeError,
   sessionLastUsedAt,
@@ -172,14 +173,6 @@ function unwrapGatewayPayload(payload) {
     sessions,
     providers: payload.providers ?? payload.models?.providers ?? {},
   };
-}
-
-async function readOptional(readFile, filePath) {
-  try {
-    return await readFile(filePath);
-  } catch {
-    return null;
-  }
 }
 
 async function loadAgentSessionStores(dir, readFile, readDir) {
