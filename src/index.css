@@ -1011,6 +1011,8 @@ input[type="checkbox"] {
   margin: 0;
   font-size: 11px;
   line-height: 1.4;
+  color: var(--color-muted);
+}
 
 /* Endpoint exposure / auth posture (#17) */
 .llm-posture {
