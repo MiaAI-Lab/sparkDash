@@ -284,6 +284,8 @@ export interface LlmMetrics {
   backend: "vllm" | "llama.cpp" | "sglang" | "ds4" | null;
   modelId: string | null;
   modelPath: string | null;
+  /** Model ID to use for benchmark/showcase requests. Falls back to modelId for single-model backends. */
+  benchmarkModel?: string | null;
   contextLength: number | null;
   /** GPU memory utilization for the LLM engine (0–1), e.g. 0.9. Only from vLLM internal info. */
   gpuMemoryUtilization: number | null;

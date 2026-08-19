@@ -70,6 +70,7 @@ export class LlmProbe {
     this.stepId = 0;
     this.modelId = null;
     this.modelPath = null;
+    this.benchmarkModel = null;
     this.contextLength = null;
     this.gpuMemoryUtilization = null;
     this.slotsActive = 0;
@@ -226,6 +227,7 @@ export class LlmProbe {
     this.authOpen = null;
     this.modelId = null;
     this.modelPath = null;
+    this.benchmarkModel = null;
     this.generationTps = 0;
     this.prefillTps = 0;
     this.cachedPrefillTps = null;
@@ -388,14 +390,17 @@ export class LlmProbe {
         const modelsData = await modelsRes.json();
         const models = Array.isArray(modelsData?.data) ? modelsData.data : [];
         if (models.length > 1) {
-          // Multi-model router (e.g. LiteLLM): show count, list IDs in modelPath
+          // Multi-model router (e.g. LiteLLM): show count, list IDs in modelPath.
+          // Store first model for benchmark/showcase requests.
           this.modelId = `${models.length} models`;
           this.modelPath = models.map((m) => m?.id).filter(Boolean).join(", ");
+          this.benchmarkModel = models[0]?.id || null;
           this.contextLength = null;
           owned = models[0]?.owned_by;
         } else {
           const model = models[0];
           this.modelId = normalizeModelId(model?.id || null);
+          this.benchmarkModel = this.modelId;
           // Drop HF hub cache paths from modelPath if /v1/models id was a cache dir
           if (isHfHubCachePath(model?.id)) this.modelPath = null;
           // ds4-server uses context_length; vLLM uses max_model_len
@@ -1166,6 +1171,7 @@ export class LlmProbe {
       backend: this.backendType,
       modelId: this.modelId || null,
       modelPath: this.modelPath || null,
+      benchmarkModel: this.benchmarkModel || null,
       contextLength: this.contextLength,
       gpuMemoryUtilization: this.gpuMemoryUtilization,
       slotsActive: this.slotsActive,
