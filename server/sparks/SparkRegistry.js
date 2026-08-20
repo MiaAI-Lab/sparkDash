@@ -525,6 +525,8 @@ export class SparkRegistry {
       disabledDevices: Array.isArray(config.disabledDevices) ? config.disabledDevices : [],
       disabledInterfaces: Array.isArray(config.disabledInterfaces) ? config.disabledInterfaces : [],
       storagePollDisabled: Boolean(config.storagePollDisabled),
+      /** Extra IPs this spark answers on (LAN IPs for origin matching). */
+      occupancyHosts: Array.isArray(config.occupancyHosts) ? config.occupancyHosts.filter(Boolean) : [],
     };
   }
 

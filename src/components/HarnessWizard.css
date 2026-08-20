@@ -1,0 +1,594 @@
+/* ─── Harness Wizard — scoped modal styles (KTD4) ─── */
+
+.harness-wizard-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  isolation: isolate;
+  background: rgba(0, 0, 0, 0.55);
+  opacity: 0;
+  transition: opacity 0.24s ease;
+  pointer-events: none;
+}
+.harness-wizard-overlay.is-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.harness-wizard-sheet {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 36rem;
+  max-height: min(94dvh, 100%);
+  border: 1px solid var(--color-border);
+  border-bottom: none;
+  border-radius: 1.1rem 1.1rem 0 0;
+  background: #faf7f0;
+  box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+  transform: translateY(110%);
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.24s ease;
+  opacity: 0.98;
+}
+:root .harness-wizard-sheet,
+[data-theme="light"] .harness-wizard-sheet {
+  background: #faf7f0;
+}
+[data-theme="white"] .harness-wizard-sheet {
+  background: #ffffff;
+}
+[data-theme="dark"] .harness-wizard-sheet {
+  background: #1a1a1a;
+  box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.55);
+}
+[data-theme="oled"] .harness-wizard-sheet {
+  background: #0a0a0a;
+}
+
+.harness-wizard-overlay.is-open .harness-wizard-sheet {
+  transform: translateY(0) scale(1);
+  opacity: 1;
+}
+
+@media (min-width: 640px) {
+  .harness-wizard-overlay {
+    align-items: center;
+    padding: 1rem;
+  }
+  .harness-wizard-sheet {
+    max-height: min(90vh, 44rem);
+    border-radius: 1.1rem;
+    border-bottom: 1px solid var(--color-border);
+    box-shadow: var(--shadow-shell);
+    transform: translateY(12px) scale(0.98);
+    opacity: 0;
+  }
+}
+
+/* ─── Mobile: full-screen below 640px (R10) ─── */
+@media (max-width: 639px) {
+  .harness-wizard-overlay {
+    background: #faf7f0;
+  }
+  :root .harness-wizard-overlay,
+  [data-theme="light"] .harness-wizard-overlay {
+    background: #faf7f0;
+  }
+  [data-theme="white"] .harness-wizard-overlay {
+    background: #ffffff;
+  }
+  [data-theme="dark"] .harness-wizard-overlay {
+    background: #1a1a1a;
+  }
+  [data-theme="oled"] .harness-wizard-overlay {
+    background: #0a0a0a;
+  }
+  .harness-wizard-sheet {
+    max-width: 100%;
+    max-height: 100dvh;
+    border: none;
+    border-radius: 0;
+    height: 100dvh;
+  }
+}
+
+/* ─── Header ─── */
+.harness-wizard__header {
+  flex-shrink: 0;
+  padding: 1.25rem 1.5rem 1rem;
+  border-bottom: 1px solid var(--color-border);
+}
+.harness-wizard__header-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.harness-wizard__header-text {
+  flex: 1;
+  min-width: 0;
+}
+.harness-wizard__title {
+  font-size: 1.125rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--color-text-strong);
+  margin: 0;
+  line-height: 1.25;
+}
+.harness-wizard__subtitle {
+  font-size: 0.8rem;
+  color: var(--color-muted);
+  margin: 0.3rem 0 0;
+  line-height: 1.4;
+}
+.harness-wizard__close {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+  border-radius: 0.5rem;
+  transition: background 0.15s, color 0.15s;
+  margin-top: 0.1rem;
+}
+.harness-wizard__close:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+}
+
+/* ─── Step indicator ─── */
+.harness-wizard__step-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+.harness-wizard__step-compact {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.harness-wizard__step-track {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+}
+.harness-wizard__step-node {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+}
+.harness-wizard__step-node-dot {
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-border);
+  border: 2px solid var(--color-border);
+  transition: all 0.2s ease;
+}
+.harness-wizard__step-node.is-current .harness-wizard__step-node-dot {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 4px var(--color-accent-soft);
+  transform: scale(1.15);
+}
+.harness-wizard__step-node.is-done .harness-wizard__step-node-dot {
+  background: var(--color-success);
+  border-color: var(--color-success);
+}
+.harness-wizard__step-node-line {
+  flex: 1;
+  height: 2px;
+  background: var(--color-border);
+  margin: 0 0.4rem;
+  border-radius: 1px;
+  transition: background 0.2s ease;
+  min-width: 8px;
+}
+.harness-wizard__step-node.is-done .harness-wizard__step-node-line {
+  background: var(--color-success);
+}
+
+/* Hide track on mobile, show compact label only */
+@media (max-width: 639px) {
+  .harness-wizard__step-track {
+    display: none;
+  }
+  .harness-wizard__step-indicator {
+    margin-top: 0.6rem;
+  }
+  .harness-wizard__close {
+    width: 44px;
+    height: 44px;
+  }
+  .harness-wizard__header {
+    padding: 1rem 1.1rem 0.85rem;
+  }
+  .harness-wizard__title {
+    font-size: 1rem;
+  }
+}
+
+/* ─── Body ─── */
+.harness-wizard__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 1rem 1.1rem;
+}
+
+/* ─── Footer ─── */
+.harness-wizard__footer {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.7rem 1.1rem;
+  padding-bottom: max(0.7rem, env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--color-border);
+  background: inherit;
+}
+.harness-wizard__footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: auto;
+}
+
+/* On mobile, footer follows content (R10) — no pinning */
+@media (max-width: 639px) {
+  .harness-wizard__body {
+    flex: 0 1 auto;
+  }
+}
+
+/* ─── Buttons ─── */
+.harness-wizard__btn {
+  min-height: 44px;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+  border: 1px solid var(--color-border);
+}
+.harness-wizard__btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.harness-wizard__btn--ghost {
+  background: var(--color-surface-elevated);
+  color: var(--color-muted);
+}
+.harness-wizard__btn--ghost:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+}
+.harness-wizard__btn--primary {
+  background: var(--color-accent);
+  color: #fff;
+  border-color: var(--color-accent);
+}
+.harness-wizard__btn--primary:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+/* ─── Pick step ─── */
+.harness-wizard__pick-intro {
+  font-size: 0.8rem;
+  color: var(--color-muted);
+  margin: 0 0 0.75rem;
+}
+.harness-wizard__cards {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.harness-wizard__card {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.6rem;
+  background: var(--color-surface-elevated);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  min-height: 44px;
+}
+.harness-wizard__card:hover {
+  border-color: var(--color-accent);
+}
+.harness-wizard__card.is-selected {
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+}
+.harness-wizard__card-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+.harness-wizard__card-check {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  margin-top: 0.1rem;
+  border: 2px solid var(--color-border);
+  border-radius: 0.35rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-accent);
+}
+.harness-wizard__card.is-selected .harness-wizard__card-check {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: #fff;
+}
+.harness-wizard__card-content {
+  flex: 1;
+  min-width: 0;
+}
+.harness-wizard__card-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.harness-wizard__card-tag {
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 0.12rem 0.4rem;
+  border-radius: 0.3rem;
+  background: color-mix(in srgb, var(--color-muted-strong) 12%, transparent);
+  color: var(--color-muted-strong);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.harness-wizard__card-tag.is-helper {
+  background: color-mix(in srgb, var(--color-accent) 15%, transparent);
+  color: var(--color-accent);
+}
+.harness-wizard__card-desc {
+  font-size: 0.75rem;
+  color: var(--color-muted);
+  margin-top: 0.15rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ─── Configure step ─── */
+.harness-wizard__configure {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.harness-wizard__field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.harness-wizard__field-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.harness-wizard__field-hint {
+  font-size: 0.7rem;
+  color: var(--color-muted);
+  margin: 0;
+}
+.harness-wizard__input {
+  width: 100%;
+  min-height: 44px;
+  padding: 0.5rem 0.75rem;
+  font-size: 16px; /* ≥16px to prevent iOS auto-zoom (R10) */
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  background: var(--color-surface-elevated);
+  color: var(--color-text);
+  outline: none;
+  transition: border-color 0.15s;
+}
+.harness-wizard__input:focus {
+  border-color: var(--color-accent);
+}
+
+/* ─── Radio toggle ─── */
+.harness-wizard__radio-row {
+  display: flex;
+  gap: 0.5rem;
+}
+.harness-wizard__radio {
+  flex: 1;
+  min-height: 44px;
+  padding: 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  background: var(--color-surface-elevated);
+  color: var(--color-muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.harness-wizard__radio.is-active {
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+/* ─── Helper snippet ─── */
+.harness-wizard__snippet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.harness-wizard__snippet-toggle {
+  display: flex;
+  gap: 0.25rem;
+}
+.harness-wizard__toggle-btn {
+  padding: 0.35rem 0.6rem;
+  min-height: 36px;
+  border: 1px solid var(--color-border);
+  border-radius: 0.4rem;
+  background: var(--color-surface-elevated);
+  color: var(--color-muted);
+  font-size: 0.7rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.harness-wizard__toggle-btn.is-active {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+.harness-wizard__copy-btn {
+  padding: 0.35rem 0.6rem;
+  min-height: 36px;
+  border: 1px solid var(--color-border);
+  border-radius: 0.4rem;
+  background: var(--color-surface-elevated);
+  color: var(--color-muted);
+  font-size: 0.7rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.harness-wizard__copy-btn:hover {
+  background: var(--color-surface-hover);
+}
+.harness-wizard__snippet {
+  margin: 0;
+  padding: 0.75rem;
+  background: var(--color-surface-hover);
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  font-size: 0.72rem;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  line-height: 1.5;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--color-text);
+}
+
+/* ─── Check row ─── */
+.harness-wizard__check-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--color-border);
+}
+.harness-wizard__check-result {
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+.harness-wizard__check-result.is-ok {
+  color: var(--color-success);
+}
+.harness-wizard__check-result.is-fail {
+  color: var(--color-danger);
+}
+
+/* ─── Review step ─── */
+.harness-wizard__review-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.harness-wizard__review-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  background: var(--color-surface-elevated);
+}
+.harness-wizard__review-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.harness-wizard__review-sublabel {
+  font-size: 0.7rem;
+  font-weight: 400;
+  color: var(--color-muted);
+}
+.harness-wizard__review-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.harness-wizard__review-mode {
+  font-size: 0.7rem;
+  color: var(--color-muted);
+  text-transform: capitalize;
+}
+.harness-wizard__review-status {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.25rem;
+}
+.harness-wizard__review-status.is-ok {
+  background: color-mix(in srgb, var(--color-success) 15%, transparent);
+  color: var(--color-success);
+}
+.harness-wizard__review-status.is-fail {
+  background: color-mix(in srgb, var(--color-danger) 15%, transparent);
+  color: var(--color-danger);
+}
+.harness-wizard__review-status.is-pending {
+  background: var(--color-surface-hover);
+  color: var(--color-muted);
+}
+
+/* ─── Error message ─── */
+.harness-wizard__error {
+  padding: 0.6rem 0.75rem;
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--color-danger) 15%, transparent);
+  color: var(--color-danger);
+  font-size: 0.75rem;
+}
+.harness-wizard__error--save {
+  margin-top: 0.75rem;
+}
+
+/* ─── Reduced motion ─── */
+@media (prefers-reduced-motion: reduce) {
+  .harness-wizard-overlay,
+  .harness-wizard-sheet {
+    transition: none !important;
+  }
+}

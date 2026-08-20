@@ -22,29 +22,6 @@ interface BenchmarkDialogProps {
   modelId: string | null;
 }
 
-function useEscape(onClose: () => void, enabled: boolean) {
-  useEffect(() => {
-    if (!enabled) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [onClose, enabled]);
-}
-
-/** Lock body scroll while the modal is open (important on iOS). */
-function useBodyScrollLock(locked: boolean) {
-  useEffect(() => {
-    if (!locked) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, [locked]);
-}
-
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)} ms`;
   const s = ms / 1000;
@@ -164,10 +141,9 @@ export function BenchmarkDialog({
 
   const isRunning = job?.status === "running";
 
-  const { mounted, visible } = useModalPresence(open);
-
-  useEscape(onClose, open && !starting);
-  useBodyScrollLock(mounted);
+  const { mounted, visible } = useModalPresence(open, 240, {
+    escapeOnClose: open && !starting ? onClose : undefined,
+  });
 
   const applyJobConfig = useCallback((j: DecodeBenchJob) => {
     if (Array.isArray(j.config?.concurrencies) && j.config.concurrencies.length > 0) {

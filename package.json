@@ -3,13 +3,18 @@
   "version": "1.8.1",
   "description": "sparkDash — Multi-DGX Spark Monitoring Dashboard",
   "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
     "dev:server": "node --watch server/index.js",
     "dev:client": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "test": "node --test server/collectors/__tests__/*.test.js server/sparks/__tests__/*.test.js",
+    "test": "node --test server/collectors/__tests__/*.test.js server/sparks/__tests__/*.test.js server/__tests__/*.test.js scripts/opencode-occupancy-helper/index.test.js scripts/dsh-occupancy-helper/index.test.js && vitest run",
+    "test:server": "node --test server/collectors/__tests__/*.test.js server/sparks/__tests__/*.test.js server/__tests__/*.test.js scripts/opencode-occupancy-helper/index.test.js scripts/dsh-occupancy-helper/index.test.js",
+    "test:frontend": "vitest run",
     "preview": "vite preview",
     "start": "node server/index.js",
     "docker:up": "docker compose up -d",
@@ -41,6 +46,9 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@tailwindcss/vite": "^4.3.2",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.5",
     "@types/express": "^5.0.6",
     "@types/node": "^26.1.1",
     "@types/react": "^19.2.17",
@@ -49,11 +57,13 @@
     "@vitejs/plugin-react": "^6.0.3",
     "autoprefixer": "^10.5.2",
     "concurrently": "^10.0.3",
+    "jsdom": "^29.1.1",
     "postcss": "^8.5.19",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "tailwindcss": "^4.3.2",
     "typescript": "^7.0.2",
-    "vite": "^8.1.4"
+    "vite": "^8.1.4",
+    "vitest": "^4.1.11"
   }
 }

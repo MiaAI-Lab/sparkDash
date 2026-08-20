@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, type CSSProperties } from "react";
-import type { SparkSnapshot } from "../../api/types";
+import { useState, useEffect, useCallback, useMemo, type CSSProperties } from "react";
+import type { ConversationRow, SparkSnapshot } from "../../api/types";
 import { isLlmMonitoringEnabled } from "../../api/sparkRole";
 import { updateSpark, refreshSparkMetric, addLlmPort, removeLlmPort } from "../../api/client";
 import { SparkHeader } from "./SparkHeader";
@@ -17,7 +17,10 @@ interface SparkPageProps {
   spark: SparkSnapshot;
   temperatureUnit: "celsius" | "fahrenheit";
   onEdit?: () => void;
+  onOpenHarnessWizard?: () => void;
 }
+
+const EMPTY_CONVERSATIONS: ConversationRow[] = [];
 
 const SECTION_OPEN_KEYS = {
   resources: "sparkdash.ui.section.resources",
@@ -76,7 +79,7 @@ function SectionHeading({
   );
 }
 
-export function SparkPage({ spark, temperatureUnit, onEdit }: SparkPageProps) {
+export function SparkPage({ spark, temperatureUnit, onEdit, onOpenHarnessWizard }: SparkPageProps) {
   const { metrics } = spark;
   const [disabledDevices, setDisabledDevices] = useState<string[]>(spark.disabledDevices || []);
   const [disabledInterfaces, setDisabledInterfaces] = useState<string[]>(
@@ -110,6 +113,16 @@ export function SparkPage({ spark, temperatureUnit, onEdit }: SparkPageProps) {
       return next;
     });
   }, []);
+
+  const conversationsByPort = useMemo(() => {
+    const byPort = new Map<number, ConversationRow[]>();
+    for (const row of spark.conversations ?? []) {
+      const list = byPort.get(row.port);
+      if (list) list.push(row);
+      else byPort.set(row.port, [row]);
+    }
+    return byPort;
+  }, [spark.conversations]);
 
   // Sync when spark data changes (WS push)
   useEffect(() => {
@@ -203,9 +216,11 @@ export function SparkPage({ spark, temperatureUnit, onEdit }: SparkPageProps) {
         llm={llmMetrics}
         sparkId={spark.id}
         llmPort={port}
+        conversations={conversationsByPort.get(port) ?? EMPTY_CONVERSATIONS}
         llmPorts={llmPorts}
         hasApiKey={Boolean(spark.llmApiKeyPorts?.includes(port))}
         onRemovePort={canRemove ? handleRemovePort : undefined}
+        onOpenHarnessWizard={onOpenHarnessWizard}
         className={className}
       />
     );

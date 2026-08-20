@@ -5,6 +5,9 @@ import type {
   HermesUpdatesResponse,
   LlmMetrics,
   LlmDailyResponse,
+  SessionSources,
+  SessionSourcesHealth,
+  SessionSourcesPatch,
   Settings,
   ShowcaseListResponse,
   ShowcaseSessionState,
@@ -382,5 +385,23 @@ export function updateSettings(patch: Partial<Settings>): Promise<Settings> {
   return apiFetch("/api/settings", {
     method: "PUT",
     body: JSON.stringify(patch),
+  });
+}
+
+export function fetchSessionSources(): Promise<SessionSources> {
+  return apiFetch("/api/session-sources");
+}
+
+export function updateSessionSources(patch: SessionSourcesPatch): Promise<SessionSources> {
+  return apiFetch("/api/session-sources", {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function testSessionSources(body: SessionSourcesPatch = {}): Promise<SessionSourcesHealth> {
+  return apiFetch("/api/session-sources/test", {
+    method: "POST",
+    body: JSON.stringify(body),
   });
 }
