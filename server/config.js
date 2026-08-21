@@ -34,6 +34,8 @@ const POLL_INTERVAL_LLM = parseInt(process.env.POLL_INTERVAL_LLM || "2000", 10);
 const POLL_INTERVAL_COMFY = parseInt(process.env.POLL_INTERVAL_COMFY || "2000", 10);
 // Tailnet membership changes slowly; each poll is an SSH round-trip.
 const POLL_INTERVAL_TAILSCALE = parseInt(process.env.POLL_INTERVAL_TAILSCALE || "30000", 10);
+// Kernel journal scan for NV_ERR_NO_MEMORY — not on the 2s GPU loop.
+const POLL_INTERVAL_NVERR = parseInt(process.env.POLL_INTERVAL_NVERR || "60000", 10);
 // dmon -c 1 -d 1 blocks ~1s; default 2s avoids stacking with in-flight guards
 const POLL_INTERVAL_BANDWIDTH = parseInt(process.env.POLL_INTERVAL_BANDWIDTH || "2000", 10);
 // Dedicated liveness (sshTest / local ping) cadence — not a metric domain.
@@ -106,6 +108,7 @@ export {
   POLL_INTERVAL_LLM,
   POLL_INTERVAL_COMFY,
   POLL_INTERVAL_TAILSCALE,
+  POLL_INTERVAL_NVERR,
   POLL_INTERVAL_BANDWIDTH,
   POLL_INTERVAL_LIVENESS,
   POLL_INTERVAL_HERMES,
