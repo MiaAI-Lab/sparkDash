@@ -7,6 +7,16 @@ Format: version sections are listed newest first.
 
 ---
 
+## [Unreleased]
+
+### Added
+- **LM Studio backend** — OpenAI-compatible servers reporting `owned_by: organization_owner` are detected as `lmstudio` (badge **LM Studio**). Model + context come from LM Studio's native `/api/v0/models` (first *loaded* LLM/VLM, `loaded_context_length`; falls back to `/v1/models`), read at most every 10 s. No live tok/s (LM Studio has no counters); decode benchmark and Prompt Showcase are unaffected.
+
+### Fixed
+- **LM Studio error-log spam / misdetection as SGLang** — LM Studio answers every unknown path with HTTP 200 + `{"error": …}`, which the SGLang check read as "server info", so each 2 s poll hit `/get_server_info`, `/metrics`, `/get_model_info`, `/model_info` (each logged as an ERROR in LM Studio's Developer Logs), and the Showcase rate poller hit `/metrics` + `/get_server_info` every 400 ms. The SGLang check now rejects bare error envelopes, LM Studio is classified from `owned_by` before any network probe, and the showcase poller stops after three initial misses on counter-less backends (also quiets llama.cpp 404s).
+
+---
+
 ## [1.8.0] — 2026-08-15
 
 ### Added

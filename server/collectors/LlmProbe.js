@@ -2,6 +2,10 @@
  * LlmProbe — probes an LLM server on port 8888, auto-detects backend,
  * computes live tokens/sec (generation + prefill).
  *
+ * Backends: llama.cpp (native /slots), vLLM / SGLang / ds4-server
+ * (OpenAI-compatible + live counters), LM Studio (OpenAI-compatible, no live
+ * counters — model list only, polled slowly).
+ *
  * Ported from legacy `probeLlamaServerType` and `_getLlamaMetricsFor`.
  */
 import { LLM_PROBE_TIMEOUT_MS } from "../config.js";
@@ -16,6 +20,17 @@ const REDETECT_INTERVAL_MS = 60_000;
  * expire back to 0 if it stops changing.
  */
 const SGLANG_STICKY_TPS_LIVE_MS = 6_000;
+/**
+ * LM Studio exposes no live token counters (no /metrics, /slots, /get_server_info)
+ * and answers *every* unknown path with HTTP 200 + {"error": ...}, logging each
+ * hit as an ERROR in its Developer Logs. Once detected, read only its model list,
+ * and only this often — there is nothing live to pick up between polls.
+ */
+const LMSTUDIO_POLL_INTERVAL_MS = 10_000;
+/** `owned_by` that LM Studio's /v1/models reports for every model. */
+const LMSTUDIO_OWNED_BY = "organization_owner";
+/** Keys of a bare error envelope ({"error": "..."}) — not server info. */
+const ERROR_ENVELOPE_KEYS = new Set(["error", "message", "detail", "code", "status"]);
 
 /**
  * Prefer a short model id when the server returns a Hugging Face hub cache path.
@@ -63,7 +78,7 @@ export class LlmProbe {
     this.baseUrl = `http://${llmProbeHost(spark)}:${port}`;
 
     // State
-    this.backendType = null; // 'vllm' | 'llama.cpp' | 'sglang' | 'ds4' | null
+    this.backendType = null; // 'vllm' | 'llama.cpp' | 'sglang' | 'ds4' | 'lmstudio' | null
     this.serverIsOpenAI = null; // true = OpenAI-compatible
     /** Whether /v1/models (or /slots) answered without credentials. null = unknown. */
     this.authOpen = null;
@@ -110,6 +125,8 @@ export class LlmProbe {
     this._lastDetectAt = 0;
     /** @type {{ value: number, liveUntil: number } | null} */
     this._sglangStickyTps = null;
+    /** Last successful LM Studio model-list read (ms). 0 = never / reset. */
+    this._lmStudioLastOkAt = 0;
   }
 
   /**
@@ -156,7 +173,10 @@ export class LlmProbe {
         this._noteSuccess();
         return snap;
       } else if (this.serverIsOpenAI === true) {
-        const snap = await this._probeOpenAICompatible();
+        const snap =
+          this.backendType === "lmstudio"
+            ? await this._probeLmStudio()
+            : await this._probeOpenAICompatible();
         this._noteSuccess();
         return snap;
       } else {
@@ -209,6 +229,7 @@ export class LlmProbe {
     this.lastTtftSum = null;
     this.lastIterSum = null;
     this._sglangStickyTps = null;
+    this._lmStudioLastOkAt = 0;
   }
 
   /** Note auth from an HTTP status on an unauthenticated probe request. */
@@ -227,14 +248,16 @@ export class LlmProbe {
   // ─── Server type detection ───────────────────────────────
   async _detectServerType() {
     // Skip the llama.cpp /slots probe once we've positively identified an
-    // OpenAI-compatible backend. vLLM / sglang / ds4-server have no /slots,
-    // so re-probing it on every re-detect cycle just spams 404s in the
-    // backend's access log (#15). Still probe /slots on first contact, when
-    // the type is unknown, or when the backend was previously llama.cpp.
+    // OpenAI-compatible backend. vLLM / sglang / ds4-server / LM Studio have
+    // no /slots, so re-probing it on every re-detect cycle just spams 404s
+    // (or, for LM Studio, ERROR log lines) in the backend's log (#15). Still
+    // probe /slots on first contact, when the type is unknown, or when the
+    // backend was previously llama.cpp.
     if (
       this.backendType !== "vllm" &&
       this.backendType !== "sglang" &&
-      this.backendType !== "ds4"
+      this.backendType !== "ds4" &&
+      this.backendType !== "lmstudio"
     ) {
       const slotUrl = `${this.baseUrl}/slots`;
       try {
@@ -281,12 +304,16 @@ export class LlmProbe {
   }
 
   /**
-   * Classify an OpenAI-compatible server: ds4-server, SGLang, or vLLM (default).
+   * Classify an OpenAI-compatible server: LM Studio, ds4-server, SGLang, or
+   * vLLM (default). LM Studio is decided from `owned_by` alone — it answers
+   * 200 to any path, so the ds4 / SGLang network probes would misfire on it
+   * (and every probe lands in its error log).
    * @param {unknown} ownedBy
-   * @returns {Promise<"ds4" | "sglang" | "vllm">}
+   * @returns {Promise<"lmstudio" | "ds4" | "sglang" | "vllm">}
    */
   async _classifyOpenAIBackend(ownedBy) {
     if (typeof ownedBy === "string") {
+      if (LlmProbe._isLmStudioOwner(ownedBy)) return "lmstudio";
       if (/ds4/i.test(ownedBy)) return "ds4";
       if (/sglang/i.test(ownedBy)) return "sglang";
     }
@@ -295,19 +322,39 @@ export class LlmProbe {
     return "vllm";
   }
 
-  /** True when SGLang native server-info endpoints respond. */
+  /** @param {unknown} ownedBy */
+  static _isLmStudioOwner(ownedBy) {
+    return (
+      typeof ownedBy === "string" && ownedBy.trim().toLowerCase() === LMSTUDIO_OWNED_BY
+    );
+  }
+
+  /** True when SGLang native server-info endpoints respond with real info. */
   async _probeIsSglang() {
     for (const path of ["/get_server_info", "/server_info"]) {
       try {
         const res = await this._fetch(`${this.baseUrl}${path}`);
         if (!res.ok) continue;
         const data = await res.json().catch(() => null);
-        if (data && typeof data === "object" && !Array.isArray(data)) return true;
+        if (LlmProbe._looksLikeServerInfo(data)) return true;
       } catch {
         /* try next */
       }
     }
     return false;
+  }
+
+  /**
+   * True for a JSON object that carries real server info — not a bare error
+   * envelope. Some servers (LM Studio) answer unknown paths with
+   * 200 + {"error": "..."}; that must not read as "SGLang answered".
+   * @param {unknown} data
+   */
+  static _looksLikeServerInfo(data) {
+    if (!data || typeof data !== "object" || Array.isArray(data)) return false;
+    const keys = Object.keys(data);
+    if (!keys.length) return false;
+    return keys.some((k) => !ERROR_ENVELOPE_KEYS.has(k));
   }
 
   /** True when Prometheus /metrics exposes ds4-server series (ds4-on-spark). */
@@ -373,9 +420,13 @@ export class LlmProbe {
       try {
         const sgRes = await this._fetch(`${this.baseUrl}/get_server_info`);
         if (sgRes.ok) {
-          this.backendType = "sglang";
           const sgData = await sgRes.json();
-          this._applySglangServerInfo(sgData, dtSec);
+          // Only *promote* an unknown backend on real server info — a 200
+          // error envelope (LM Studio-style) is not SGLang.
+          if (this.backendType === "sglang" || LlmProbe._looksLikeServerInfo(sgData)) {
+            this.backendType = "sglang";
+            this._applySglangServerInfo(sgData, dtSec);
+          }
         }
       } catch {}
     }
@@ -784,6 +835,81 @@ export class LlmProbe {
         /* try next */
       }
     }
+  }
+
+  // ─── LM Studio path ───────────────────────────────────────
+  /**
+   * LM Studio: OpenAI-compatible, but with no live counters anywhere, and it
+   * answers every unknown path with 200 + {"error"} and logs it as an ERROR.
+   * So: never touch /slots, /metrics, /get_server_info, /get_model_info here.
+   * Read the loaded model + context from its native REST list (/api/v0/models,
+   * falling back to /v1/models) at most once per LMSTUDIO_POLL_INTERVAL_MS and
+   * re-serve the last snapshot in between. Live tok/s stays 0 by design — the
+   * decode bench / showcase measure client-side.
+   */
+  async _probeLmStudio() {
+    const now = Date.now();
+    if (this._lmStudioLastOkAt && now - this._lmStudioLastOkAt < LMSTUDIO_POLL_INTERVAL_MS) {
+      return this._getSnapshot();
+    }
+    this.lastProbeTime = now;
+
+    let applied = false;
+    try {
+      const res = await this._fetch(`${this.baseUrl}/api/v0/models`);
+      const auth = this._noteAuthStatus(res.status);
+      if (auth === "auth") return this._getSnapshot();
+      if (auth === "ok") {
+        const data = await res.json().catch(() => null);
+        const list = Array.isArray(data?.data) ? data.data : null;
+        // Shape check: the native list carries `state`; a 200 error envelope doesn't.
+        if (list && list.some((m) => m && typeof m === "object" && "state" in m)) {
+          this._applyLmStudioModels(list);
+          applied = true;
+        }
+      }
+    } catch {
+      /* fall back to the OpenAI list */
+    }
+
+    if (!applied) {
+      const res = await this._fetch(`${this.baseUrl}/v1/models`);
+      const auth = this._noteAuthStatus(res.status);
+      if (auth === "auth") return this._getSnapshot();
+      if (auth !== "ok") throw new Error("LM Studio /v1/models unreachable");
+      const data = await res.json();
+      const model = data?.data?.[0];
+      this.modelId = normalizeModelId(model?.id || null);
+      this.modelPath = null;
+    }
+
+    // No live counters on this backend — never show a stale rate.
+    this.generationTps = 0;
+    this.prefillTps = 0;
+    this._lmStudioLastOkAt = Date.now();
+    return this._getSnapshot();
+  }
+
+  /**
+   * Pick the model to show from LM Studio's native list: the first *loaded*
+   * LLM/VLM (what a request would hit), else the first LLM (JIT-loadable) so
+   * the bench / showcase still have a model id to send. Embedding models are
+   * never picked.
+   * @param {Array<Record<string, unknown>>} list
+   */
+  _applyLmStudioModels(list) {
+    const isLlm = (m) => m?.type == null || m.type === "llm" || m.type === "vlm";
+    const loaded = list.filter((m) => m && m.state === "loaded" && isLlm(m));
+    const pick = loaded[0] ?? list.find((m) => m && isLlm(m)) ?? null;
+    this.modelId = normalizeModelId(pick?.id || null);
+    this.modelPath = null;
+    this.contextLength =
+      LlmProbe._positiveNumber(pick?.loaded_context_length) ??
+      LlmProbe._positiveNumber(pick?.max_context_length) ??
+      null;
+    // Running / queued request counts are not exposed by LM Studio.
+    this.slotsActive = 0;
+    this.slotsTotal = 0;
   }
 
   // ─── llama.cpp native path ────────────────────────────────

@@ -315,7 +315,9 @@ function SparkCard({
                         ? "ds4"
                         : llm.backend === "sglang"
                           ? "sgLang"
-                          : llm.backend ?? "LLM"
+                          : llm.backend === "lmstudio"
+                            ? "LM Studio"
+                            : llm.backend ?? "LLM"
                   }
                   value={llm.modelId ?? "unknown"}
                   tone="accent"
