@@ -36,6 +36,12 @@ function textRes(txt, status = 200) {
   };
 }
 
+function freezeProbeClock(t) {
+  const now = 10_000;
+  t.mock.method(Date, "now", () => now);
+  return now;
+}
+
 test("vLLM detect: /v1/models + vllm /metrics → vllm (not ds4/sglang)", async () => {
   const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 8000);
   const hits = [];
@@ -58,13 +64,14 @@ test("vLLM detect: /v1/models + vllm /metrics → vllm (not ds4/sglang)", async 
   assert.ok(!hits.includes("/get_server_info") || hits.includes("/metrics"));
 });
 
-test("vLLM probe: counter diffs + tiles; skips get_server_info when known vllm", async () => {
+test("vLLM probe: counter diffs + tiles; skips get_server_info when known vllm", async (t) => {
+  const now = freezeProbeClock(t);
   const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 8000);
   probe.serverIsOpenAI = true;
   probe.backendType = "vllm";
   probe.authOpen = true;
-  probe._lastDetectAt = Date.now();
-  probe.lastProbeTime = Date.now() - 2000;
+  probe._lastDetectAt = now;
+  probe.lastProbeTime = now - 2000;
   probe.lastTokenCounts = { input: 1000, output: 500 };
   const hits = [];
   probe._fetch = async (url) => {
@@ -219,13 +226,14 @@ test("llama.cpp detect: /slots array wins over OpenAI paths", async () => {
   assert.equal(probe.backendType, "llama.cpp");
 });
 
-test("llama.cpp probe: slot deltas → tok/s; props for model", async () => {
+test("llama.cpp probe: slot deltas → tok/s; props for model", async (t) => {
+  const now = freezeProbeClock(t);
   const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 8080);
   probe.serverIsOpenAI = false;
   probe.backendType = "llama.cpp";
   probe.authOpen = true;
-  probe._lastDetectAt = Date.now();
-  probe.lastProbeTime = Date.now() - 2000;
+  probe._lastDetectAt = now;
+  probe.lastProbeTime = now - 2000;
   probe.slotState.set(0, { decoded: 10, prompted: 5 });
   probe._fetch = async (url) => {
     const u = String(url);
@@ -268,13 +276,14 @@ test("llama.cpp probe: slot deltas → tok/s; props for model", async () => {
   assert.equal(snap.uncachedPrefillTps, null);
 });
 
-test("llama.cpp probe: n_prompt_tokens_cache → cached vs uncached prefill", async () => {
+test("llama.cpp probe: n_prompt_tokens_cache → cached vs uncached prefill", async (t) => {
+  const now = freezeProbeClock(t);
   const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 8080);
   probe.serverIsOpenAI = false;
   probe.backendType = "llama.cpp";
   probe.authOpen = true;
-  probe._lastDetectAt = Date.now();
-  probe.lastProbeTime = Date.now() - 2000;
+  probe._lastDetectAt = now;
+  probe.lastProbeTime = now - 2000;
   probe.slotState.set(0, { decoded: 10, prompted: 5 });
   probe.lastPrefillKinds = { cached: 10, computed: 5 };
   probe._fetch = async (url) => {
@@ -299,13 +308,14 @@ test("llama.cpp probe: n_prompt_tokens_cache → cached vs uncached prefill", as
   assert.equal(snap.cachedPrefillTps, 15); // (40-10)/2
 });
 
-test("llama.cpp: n_prompt_tokens_processed 0 is not treated as missing", async () => {
+test("llama.cpp: n_prompt_tokens_processed 0 is not treated as missing", async (t) => {
+  const now = freezeProbeClock(t);
   const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 8080);
   probe.serverIsOpenAI = false;
   probe.backendType = "llama.cpp";
   probe.authOpen = true;
-  probe._lastDetectAt = Date.now();
-  probe.lastProbeTime = Date.now() - 2000;
+  probe._lastDetectAt = now;
+  probe.lastProbeTime = now - 2000;
   probe.slotState.set(0, { decoded: 10, prompted: 0 });
   probe.lastPrefillKinds = { cached: 10, computed: 0 };
   probe._fetch = async (url) => {

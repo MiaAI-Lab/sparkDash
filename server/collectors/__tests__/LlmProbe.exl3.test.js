@@ -121,13 +121,15 @@ test("_applyExl3Health: counter diffs → tok/s; idle → 0", () => {
   assert.equal(probe.prefillTps, 40);
 });
 
-test("probe: exl3 path does not mislabel as vllm", async () => {
+test("probe: exl3 path does not mislabel as vllm", async (t) => {
+  const now = 10_000;
+  t.mock.method(Date, "now", () => now);
   const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888);
   probe.serverIsOpenAI = true;
   probe.backendType = "exl3";
   probe.authOpen = true;
-  probe._lastDetectAt = Date.now();
-  probe.lastProbeTime = Date.now() - 2000;
+  probe._lastDetectAt = now;
+  probe.lastProbeTime = now - 2000;
   probe.lastTokenCounts = { input: 100, output: 50 };
   probe._fetch = async (url) => {
     const u = String(url);
