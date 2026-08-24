@@ -20,6 +20,8 @@ interface BenchmarkDialogProps {
   sparkId: string;
   llmPort: number;
   modelId: string | null;
+  /** All model IDs from /v1/models. Undefined for backends that don't report a list. */
+  models?: string[];
 }
 
 function useEscape(onClose: () => void, enabled: boolean) {
@@ -144,6 +146,7 @@ export function BenchmarkDialog({
   sparkId,
   llmPort,
   modelId,
+  models,
 }: BenchmarkDialogProps) {
   const [selected, setSelected] = useState<number[]>([...DEFAULT_SELECTED]);
   const [maxTokensDraft, setMaxTokensDraft] = useState(String(DEFAULT_MAX_TOKENS));
@@ -152,8 +155,19 @@ export function BenchmarkDialog({
   const [starting, setStarting] = useState(false);
   const [loadingLast, setLoadingLast] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const availableModels = models ?? [];
+  const isMultiModel = availableModels.length > 1;
+
+  // Sync selected model when the prop changes or dialog opens.
+  useEffect(() => {
+    if (open) {
+      setSelectedModel(modelId);
+    }
+  }, [open, modelId]);
 
   const stopPoll = useCallback(() => {
     if (pollRef.current != null) {
@@ -308,7 +322,7 @@ export function BenchmarkDialog({
         port: llmPort,
         concurrencies: selected,
         maxTokens,
-        modelId: modelId || undefined,
+        modelId: selectedModel || undefined,
       });
       setJob(started);
       startPolling(started.benchId);
@@ -338,7 +352,7 @@ export function BenchmarkDialog({
 
   const handleCopyResults = async () => {
     if (!job || job.results.length === 0) return;
-    const text = buildShareText(job, modelId);
+    const text = buildShareText(job, selectedModel);
     try {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(text);
@@ -411,7 +425,11 @@ export function BenchmarkDialog({
             </h2>
             <p className="bench-sheet__subtitle">
               Port {llmPort}
-              {modelId ? ` · ${modelId}` : ""}
+              {isMultiModel
+                ? ` · ${availableModels.length} models`
+                : modelId
+                  ? ` · ${modelId}`
+                  : ""}
             </p>
           </div>
           <button
@@ -431,6 +449,32 @@ export function BenchmarkDialog({
 
           {showConfig && (
             <section className="bench-sheet__section">
+              {isMultiModel && (
+                <div className="bench-field">
+                  <div className="bench-field__head">
+                    <label htmlFor="bench-model-select" className="bench-sheet__section-title">
+                      Model
+                    </label>
+                    <p className="bench-sheet__hint">
+                      Select which model the benchmark targets.
+                    </p>
+                  </div>
+                  <select
+                    id="bench-model-select"
+                    disabled={isRunning || starting}
+                    value={selectedModel ?? ""}
+                    onChange={(e) => setSelectedModel(e.target.value || null)}
+                    className="bench-select"
+                  >
+                    {availableModels.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div className="bench-field">
                 <div className="bench-field__head">
                   <h3 className="bench-sheet__section-title">Concurrency</h3>

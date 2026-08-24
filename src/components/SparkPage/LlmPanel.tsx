@@ -720,7 +720,8 @@ export function LlmPanel({
               onClick={() => {
                 const params = new URLSearchParams();
                 if (llmPort) params.set("port", String(llmPort));
-                if (llm?.modelId) params.set("model", llm.modelId);
+                const benchModel = llm?.benchmarkModel ?? llm?.modelId ?? null;
+                if (benchModel) params.set("model", benchModel);
                 const q = params.toString() ? `?${params.toString()}` : "";
                 window.open(
                   `/showcase/${encodeURIComponent(sparkId)}${q}`,
@@ -741,7 +742,8 @@ export function LlmPanel({
         onClose={() => setBenchOpen(false)}
         sparkId={sparkId}
         llmPort={llmPort}
-        modelId={llm?.modelId ?? null}
+        modelId={llm?.benchmarkModel ?? llm?.modelId ?? null}
+        models={llm?.models ?? undefined}
       />
     </Panel>
   );
