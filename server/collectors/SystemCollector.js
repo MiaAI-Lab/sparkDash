@@ -1448,7 +1448,7 @@ export class SystemCollector {
         });
       }
     }
-    return this._readHostFile(`/proc/net/${relPath}`);
+    return fs.readFileSync(`/proc/net/${relPath}`, "utf-8");
   }
 
   /** Lightweight liveness for local Sparks. */
