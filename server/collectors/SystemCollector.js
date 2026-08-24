@@ -1001,28 +1001,28 @@ export class SystemCollector {
     }
   }
 
-  async _getRemoteCpu() {
-    try {
-      const cmd = [
-        "cat /proc/stat | head -1",
-        "echo '---'",
-        "cat /proc/cpuinfo | grep -E 'CPU architecture|aarch64' | head -1",
-        ...(this.spark.kind === "host"
-          ? [
-              "echo '---'",
-              // Same hwmon-then-thermal priority as local `_getCPUTemperature()`.
-              // GB10 also exposes nvme/mlx5 sensors; the name allowlist keeps those out.
-              'for h in /sys/class/hwmon/*; do n=$(cat "$h/name" 2>/dev/null); case "$n" in coretemp|k10temp|zenpower|acpitz) for t in "$h"/temp*_input; do cat "$t" 2>/dev/null; break; done;; esac; done',
-              "cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null",
-            ]
-          : []),
-      ].join("; ");
+  _buildRemoteCpuCommand() {
+    return [
+      "cat /proc/stat | head -1",
+      "echo '---'",
+      "cat /proc/cpuinfo | grep -E 'CPU architecture|aarch64' | head -1",
+      "echo '---'",
+      // Same hwmon-then-thermal priority as local `_getCPUTemperature()`.
+      // GB10 also exposes nvme/mlx5 sensors; the name allowlist keeps those out.
+      'for h in /sys/class/hwmon/*; do n=$(cat "$h/name" 2>/dev/null); case "$n" in coretemp|k10temp|zenpower|acpitz) for t in "$h"/temp*_input; do cat "$t" 2>/dev/null; break; done;; esac; done',
+      "cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null",
+    ].join("; ");
+  }
 
-      const output = await sshExec(this.spark, cmd);
+  async _getRemoteCpu(sshExecutor = sshExec) {
+    try {
+      const cmd = this._buildRemoteCpuCommand();
+
+      const output = await sshExecutor(this.spark, cmd);
       const sections = output.split("---");
       const statOut = sections[0]?.trim() || "";
       const cpuinfoOut = sections[1]?.trim() || "";
-      const tempOut = this.spark.kind === "host" ? sections[2] || "" : "";
+      const tempOut = sections[2] || "";
 
       const cpuStat = this._parseCPUUsage(statOut);
       const totalDiff = cpuStat.total - (this.lastCpuStat?.total || cpuStat.total);
@@ -1038,7 +1038,7 @@ export class SystemCollector {
 
       return {
         usage,
-        temperature: this.spark.kind === "host" ? this._parseSensorTemp(tempOut) : 0,
+        temperature: this._parseSensorTemp(tempOut),
         draw: Math.round(draw * 10) / 10,
         tdp: Math.round(tdp),
       };

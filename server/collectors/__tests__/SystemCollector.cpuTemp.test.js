@@ -5,6 +5,25 @@ import { SystemCollector } from "../SystemCollector.js";
 const c = Object.create(SystemCollector.prototype);
 const parse = (raw) => c._parseSensorTemp(raw);
 
+test("remote CPU collection returns temperature for DGX Spark nodes", async () => {
+  const collector = new SystemCollector({ id: "spark-test", kind: "spark" });
+  const result = await collector._getRemoteCpu(async (spark, command) => {
+    assert.equal(spark.id, "spark-test");
+    assert.match(command, /coretemp\|k10temp\|zenpower\|acpitz/);
+    assert.match(command, /thermal_zone\*\/temp/);
+    assert.equal((command.match(/echo '---'/g) || []).length, 2);
+    return [
+      "cpu  100 0 40 860 0 0 0 0",
+      "---",
+      "CPU architecture: 8",
+      "---",
+      "70900",
+    ].join("\n");
+  });
+
+  assert.equal(result.temperature, 70.9);
+});
+
 test("converts millidegrees to Celsius", () => {
   assert.equal(parse("70900"), 70.9);
   assert.equal(parse("69200"), 69.2);
