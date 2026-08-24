@@ -17,6 +17,7 @@ export class SystemCollector {
     // Rate-tracking baselines
     this.lastNetworkStats = new Map();
     this.lastCpuStat = null;
+    this._cpuCollectionSequence = 0;
     /** Last computed CPU usage percentage (0-100) — used by GPU system-draw estimate. */
     this.lastCpuUsagePct = 0;
     this.lastRaplReading = null;
@@ -48,7 +49,8 @@ export class SystemCollector {
 
   /** Collect CPU metrics (usage, temperature, power). */
   async collectCpu() {
-    if (!this.spark.isLocal) return this._getRemoteCpu();
+    const collectionSequence = ++this._cpuCollectionSequence;
+    if (!this.spark.isLocal) return this._getRemoteCpu(collectionSequence);
     try {
       // Read /proc/stat once and compute usage BEFORE estimating power.
       // Previously _getCPUPower re-read /proc/stat in parallel with _getCPUUsage,
@@ -58,8 +60,10 @@ export class SystemCollector {
       const usedDiff = usage.used - (this.lastCpuStat?.used || usage.used);
       const cpuPercentage = totalDiff > 0 ? Math.round((usedDiff / totalDiff) * 100) : 0;
       const usageFraction = totalDiff > 0 ? usedDiff / totalDiff : 0;
-      this.lastCpuStat = usage;
-      this.lastCpuUsagePct = cpuPercentage;
+      if (collectionSequence === this._cpuCollectionSequence) {
+        this.lastCpuStat = usage;
+        this.lastCpuUsagePct = cpuPercentage;
+      }
 
       // Temperature and power can run in parallel — power is now a pure
       // function of the usage fraction (no extra /proc/stat read).
@@ -72,6 +76,11 @@ export class SystemCollector {
       console.error(`[SystemCollector] CPU error for ${this.spark.id}:`, err.message);
       return this._defaultCpu();
     }
+  }
+
+  /** Prevent an earlier monitor lifecycle from updating shared CPU baselines. */
+  invalidatePendingCollections() {
+    this._cpuCollectionSequence += 1;
   }
 
   /** Collect RAM metrics. */
@@ -1001,7 +1010,10 @@ export class SystemCollector {
     }
   }
 
-  async _getRemoteCpu() {
+  async _getRemoteCpu(collectionSequence = null) {
+    const attemptSequence = Number.isInteger(collectionSequence)
+      ? collectionSequence
+      : ++this._cpuCollectionSequence;
     try {
       const cmd = [
         "cat /proc/stat | head -1",
@@ -1028,7 +1040,10 @@ export class SystemCollector {
       const totalDiff = cpuStat.total - (this.lastCpuStat?.total || cpuStat.total);
       const usedDiff = cpuStat.used - (this.lastCpuStat?.used || cpuStat.used);
       const usage = totalDiff > 0 ? Math.round((usedDiff / totalDiff) * 100) : 0;
-      this.lastCpuStat = cpuStat;
+      if (attemptSequence === this._cpuCollectionSequence) {
+        this.lastCpuStat = cpuStat;
+        this.lastCpuUsagePct = usage;
+      }
 
       // ARM/Neoverse power estimation
       const isArm = /CPU architecture:\s*[89]|aarch64|ARMv[89]|armv[89]/i.test(cpuinfoOut);
