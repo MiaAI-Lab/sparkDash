@@ -2,6 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { SparkMonitor } from "../SparkMonitor.js";
+import {
+  COLLECTION_SUCCESS,
+  SystemCollector,
+  collectionWasSuccessful,
+} from "../../collectors/SystemCollector.js";
 
 function spark() {
   return {
@@ -24,6 +29,66 @@ function validGpu(temperature = 42) {
     throttle: {},
   };
 }
+
+function tagged(result, successful = true) {
+  Object.defineProperty(result, COLLECTION_SUCCESS, {
+    value: successful,
+    enumerable: false,
+  });
+  return result;
+}
+
+test("collector provenance rejects partial GPU and malformed CPU samples", async (t) => {
+  t.mock.method(console, "error", () => {});
+  const remote = new SystemCollector({ id: "remote", isLocal: false });
+  remote._getRemoteGpu = async () => ({
+    ...validGpu(),
+    power: { draw: Number.NaN, limit: 120, systemDraw: 39 },
+  });
+  assert.equal(collectionWasSuccessful(await remote.collectGpu()), false);
+
+  const local = new SystemCollector({ id: "local", isLocal: true });
+  local._getCPUUsage = async () => ({ total: 0, used: 0 });
+  assert.equal(collectionWasSuccessful(await local.collectCpu()), false);
+});
+
+test("monitor publishes per-domain collection provenance", async () => {
+  const monitor = new SparkMonitor(spark());
+  monitor._running = true;
+  monitor.collector.collectGpu = async () => tagged(validGpu());
+
+  await monitor._pollDomain("gpu");
+  assert.equal(monitor._metricCollectionSuccessful.gpu, true);
+
+  monitor.collector.collectGpu = async () => validGpu(43);
+  await monitor._pollDomain("gpu");
+  assert.equal(monitor._metricCollectionSuccessful.gpu, false);
+
+  monitor.updateConfig({ ...spark(), lanIp: "127.0.0.2" });
+  assert.deepEqual(monitor._metricCollectionSuccessful, { gpu: false, cpu: false });
+});
+
+test("a rejected prior-run poll cannot clear current collection provenance", async (t) => {
+  t.mock.method(console, "error", () => {});
+  const monitor = new SparkMonitor(spark());
+  monitor._running = true;
+  let rejectPrior;
+  monitor.collector.collectGpu = () =>
+    new Promise((_resolve, reject) => {
+      rejectPrior = reject;
+    });
+
+  const priorPoll = monitor._pollDomain("gpu");
+  await Promise.resolve();
+  monitor.updateConfig({ ...spark(), lanIp: "127.0.0.2" });
+  monitor.collector.collectGpu = async () => tagged(validGpu(43));
+  await monitor._pollDomain("gpu");
+  assert.equal(monitor._metricCollectionSuccessful.gpu, true);
+
+  rejectPrior(new Error("prior target failed late"));
+  await priorPoll;
+  assert.equal(monitor._metricCollectionSuccessful.gpu, true);
+});
 
 test("a poll from an earlier monitor run cannot commit or clear a restarted poll", async (t) => {
   t.mock.method(console, "log", () => {});

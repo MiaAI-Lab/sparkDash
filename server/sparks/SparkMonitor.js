@@ -1,6 +1,9 @@
 import fs from "fs";
 import path from "path";
-import { SystemCollector } from "../collectors/SystemCollector.js";
+import {
+  SystemCollector,
+  collectionWasSuccessful,
+} from "../collectors/SystemCollector.js";
 import { LlmProbe } from "../collectors/LlmProbe.js";
 import { ComfyProbe } from "../collectors/ComfyProbe.js";
 import { HermesProbe } from "../collectors/HermesProbe.js";
@@ -99,6 +102,7 @@ export class SparkMonitor {
       tailscale: null,
     };
     this._lastUpdate = {};
+    this._metricCollectionSuccessful = { gpu: false, cpu: false };
 
     // Hardware summary: kind "spark" uses the static DGX Spark specs; kind
     // "host" (dedicated GPU Linux box) detects real hardware once in the
@@ -141,6 +145,7 @@ export class SparkMonitor {
     this.collector.invalidatePendingCollections();
     this._runGeneration += 1;
     this._inflight = {};
+    this._metricCollectionSuccessful = { gpu: false, cpu: false };
     this.spark = spark;
     this.collector.spark = spark;
 
@@ -368,6 +373,7 @@ export class SparkMonitor {
   stop() {
     this.collector.invalidatePendingCollections();
     this._runGeneration += 1;
+    this._metricCollectionSuccessful = { gpu: false, cpu: false };
     this._running = false;
     this._stopped = true;
     for (const id of this._intervals) clearInterval(id);
@@ -574,9 +580,11 @@ export class SparkMonitor {
       switch (domain) {
         case "gpu":
           this._metrics.gpu = result;
+          this._metricCollectionSuccessful.gpu = collectionWasSuccessful(result);
           break;
         case "cpu":
           this._metrics.cpu = result;
+          this._metricCollectionSuccessful.cpu = collectionWasSuccessful(result);
           break;
         case "ram":
           this._metrics.ram = result;
@@ -619,6 +627,13 @@ export class SparkMonitor {
       }
       this._lastUpdate[domain] = Date.now();
     } catch (err) {
+      if (
+        this._running &&
+        this._runGeneration === runGeneration &&
+        (domain === "gpu" || domain === "cpu")
+      ) {
+        this._metricCollectionSuccessful[domain] = false;
+      }
       console.error(`[SparkMonitor] ${this.spark.id} ${domain} poll error:`, err.message);
     } finally {
       if (this._inflight[domain] === pollToken) {
