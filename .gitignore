@@ -8,6 +8,8 @@ config/bench-history.json
 config/bench-active.json
 config/showcase-history.json
 config/llm-daily.json
+config/fleet-energy.json
+config/.fleet-energy.json.*.tmp
 config/gpu-memory.json
 config/gpu-memory.json.*
 config/bench-exports/

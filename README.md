@@ -343,6 +343,7 @@ sparkDash/
 | DELETE | `/api/sparks/:id` | Remove Spark and drain monitor |
 | PUT | `/api/sparks/order` | Persist tab order |
 | GET | `/api/sparks/:id/metrics` | One-shot metrics snapshot |
+| GET | `/api/fleet-energy` | Estimated fleet watts, rolling energy, coverage, and Wh/output-token |
 | POST | `/api/sparks/test` | Ephemeral SSH + LLM (+ Comfy if enabled) test (no persist) |
 | POST | `/api/sparks/:id/test` | Connectivity test (can save password) |
 | POST | `/api/sparks/:id/comfy/cancel` | Cancel ComfyUI job by `promptId` |
@@ -359,6 +360,15 @@ sparkDash/
 | WS | `/ws` | Real-time metrics stream |
 
 There is no authentication on the HTTP/WebSocket API. Run sparkDash only on a trusted network (or behind your own reverse proxy with auth).
+
+`/api/fleet-energy` samples the configured fleet independently every two seconds. It estimates
+each node as GPU board draw + a CPU utilization model (5.2–65 W) + 23 W of memory/network/base
+overhead, clamped to the DGX Spark power envelope. Current and hourly fleet watts require fresh,
+simultaneous telemetry from every node; coverage fields make gaps explicit. Minute buckets are
+persisted at mode `0600` for rolling 24-hour and 31-day windows. Wh/output-token is reported when
+exactly one configured node has role `head` and exposes a monotonic LLM output-token counter.
+These values are estimates, not wall-meter measurements. Restart sparkDash after changing fleet
+membership so the persisted series has one stable node set.
 
 ---
 
@@ -402,6 +412,7 @@ Copy `.env.example` to `.env` if needed:
 | `HOST_SYS_PATH` | `/host/sys` | Host sys mount |
 | `HOST_ROOT_PATH` | `/host/root` | Host root mount |
 | `SSH_IDENTITY_FILE` | _(unset)_ | Path **inside the process** to a private key (`ssh -i`). Use when the bind-mount is not a default OpenSSH name. |
+| `FLEET_ENERGY_JSON_PATH` | `config/fleet-energy.json` | Rolling fleet-energy persistence path |
 
 > The listener defaults to `127.0.0.1` (loopback) so the dashboard — which can SSH into and
 > power off your Sparks — isn't reachable on the LAN by default. Set `BIND_HOST` to the host's

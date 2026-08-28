@@ -4,6 +4,21 @@ import { HOST_PATHS, GPU_MEMORY_JSON_PATH, DGX_SPARK, HARDWARE_DEFAULTS } from "
 import { normalizeMac, WOL_INTERFACE } from "../wol.js";
 import { sshExec } from "./ssh.js";
 
+export const COLLECTION_SUCCESS = Symbol("sparkdash.collectionSuccess");
+
+export function collectionWasSuccessful(result) {
+  return result?.[COLLECTION_SUCCESS] === true;
+}
+
+function tagCollectionResult(result, successful) {
+  Object.defineProperty(result, COLLECTION_SUCCESS, {
+    value: successful === true,
+    enumerable: false,
+    configurable: true,
+  });
+  return result;
+}
+
 /**
  * SystemCollector — collects hardware metrics for a Spark.
  * In Phase 2, this is the LOCAL path only (no SSH).
@@ -17,6 +32,7 @@ export class SystemCollector {
     // Rate-tracking baselines
     this.lastNetworkStats = new Map();
     this.lastCpuStat = null;
+    this._cpuCollectionSequence = 0;
     /** Last computed CPU usage percentage (0-100) — used by GPU system-draw estimate. */
     this.lastCpuUsagePct = 0;
     this.lastRaplReading = null;
@@ -36,42 +52,92 @@ export class SystemCollector {
 
   /** Collect GPU metrics (temperature, usage, power, VRAM). */
   async collectGpu() {
-    if (!this.spark.isLocal) return this._getRemoteGpu();
     try {
-      const gpuData = await this._getGPUAll();
-      return gpuData;
+      const gpuData = this.spark.isLocal
+        ? await this._getGPUAll()
+        : await this._getRemoteGpu();
+      return tagCollectionResult(gpuData, this._isSuccessfulGpuCollection(gpuData));
     } catch (err) {
       console.error(`[SystemCollector] GPU error for ${this.spark.id}:`, err.message);
-      return this._defaultGpu();
+      return tagCollectionResult(this._defaultGpu(), false);
     }
   }
 
   /** Collect CPU metrics (usage, temperature, power). */
   async collectCpu() {
-    if (!this.spark.isLocal) return this._getRemoteCpu();
+    const collectionSequence = ++this._cpuCollectionSequence;
     try {
+      if (!this.spark.isLocal) {
+        const cpuData = await this._getRemoteCpu(collectionSequence);
+        return tagCollectionResult(cpuData, this._isSuccessfulCpuCollection(cpuData));
+      }
+
       // Read /proc/stat once and compute usage BEFORE estimating power.
       // Previously _getCPUPower re-read /proc/stat in parallel with _getCPUUsage,
       // racing on lastCpuStat and producing 0% (idle power) on the first poll.
       const usage = await this._getCPUUsage();
+      if (!this._isValidCpuStat(usage)) {
+        throw new Error("invalid /proc/stat CPU counters");
+      }
       const totalDiff = usage.total - (this.lastCpuStat?.total || usage.total);
       const usedDiff = usage.used - (this.lastCpuStat?.used || usage.used);
       const cpuPercentage = totalDiff > 0 ? Math.round((usedDiff / totalDiff) * 100) : 0;
       const usageFraction = totalDiff > 0 ? usedDiff / totalDiff : 0;
-      this.lastCpuStat = usage;
-      this.lastCpuUsagePct = cpuPercentage;
-
       // Temperature and power can run in parallel — power is now a pure
       // function of the usage fraction (no extra /proc/stat read).
       const [temp, power] = await Promise.all([
         this._getCPUTemperature(),
         this._getCPUPower(usageFraction),
       ]);
-      return { usage: cpuPercentage, temperature: temp, ...power };
+      if (collectionSequence === this._cpuCollectionSequence) {
+        this.lastCpuStat = usage;
+        this.lastCpuUsagePct = cpuPercentage;
+      }
+      const cpuData = { usage: cpuPercentage, temperature: temp, ...power };
+      return tagCollectionResult(cpuData, this._isSuccessfulCpuCollection(cpuData));
     } catch (err) {
       console.error(`[SystemCollector] CPU error for ${this.spark.id}:`, err.message);
-      return this._defaultCpu();
+      return tagCollectionResult(this._defaultCpu(), false);
     }
+  }
+
+  _isSuccessfulGpuCollection(gpu) {
+    return (
+      Number.isFinite(gpu?.temperature) &&
+      gpu.temperature > 0 &&
+      Number.isFinite(gpu?.usage) &&
+      Number.isFinite(gpu?.power?.draw) &&
+      gpu.power.draw >= 0 &&
+      Number.isFinite(gpu?.power?.limit) &&
+      gpu.power.limit > 0
+    );
+  }
+
+  _isSuccessfulCpuCollection(cpu) {
+    return (
+      Number.isFinite(cpu?.usage) &&
+      cpu.usage >= 0 &&
+      cpu.usage <= 100 &&
+      Number.isFinite(cpu?.draw) &&
+      cpu.draw > 0 &&
+      Number.isFinite(cpu?.tdp) &&
+      cpu.tdp > 0
+    );
+  }
+
+  _isValidCpuStat(cpuStat) {
+    return (
+      Number.isFinite(cpuStat?.total) &&
+      cpuStat.total > 0 &&
+      Number.isFinite(cpuStat?.used) &&
+      cpuStat.used >= 0 &&
+      cpuStat.used <= cpuStat.total
+    );
+  }
+
+  /** Prevent an earlier monitor lifecycle from updating shared CPU baselines. */
+  invalidatePendingCollections() {
+    this._cpuCollectionSequence += 1;
   }
 
   /** Collect RAM metrics. */
@@ -1001,7 +1067,10 @@ export class SystemCollector {
     }
   }
 
-  async _getRemoteCpu() {
+  async _getRemoteCpu(collectionSequence = null) {
+    const attemptSequence = Number.isInteger(collectionSequence)
+      ? collectionSequence
+      : ++this._cpuCollectionSequence;
     try {
       const cmd = [
         "cat /proc/stat | head -1",
@@ -1025,10 +1094,16 @@ export class SystemCollector {
       const tempOut = this.spark.kind === "host" ? sections[2] || "" : "";
 
       const cpuStat = this._parseCPUUsage(statOut);
+      if (!this._isValidCpuStat(cpuStat)) {
+        throw new Error("invalid remote /proc/stat CPU counters");
+      }
       const totalDiff = cpuStat.total - (this.lastCpuStat?.total || cpuStat.total);
       const usedDiff = cpuStat.used - (this.lastCpuStat?.used || cpuStat.used);
       const usage = totalDiff > 0 ? Math.round((usedDiff / totalDiff) * 100) : 0;
-      this.lastCpuStat = cpuStat;
+      if (attemptSequence === this._cpuCollectionSequence) {
+        this.lastCpuStat = cpuStat;
+        this.lastCpuUsagePct = usage;
+      }
 
       // ARM/Neoverse power estimation
       const isArm = /CPU architecture:\s*[89]|aarch64|ARMv[89]|armv[89]/i.test(cpuinfoOut);
