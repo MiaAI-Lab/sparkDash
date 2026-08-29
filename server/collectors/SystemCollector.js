@@ -9,6 +9,38 @@ import { sshExec } from "./ssh.js";
  * In Phase 2, this is the LOCAL path only (no SSH).
  * Remote path added in Phase 3.
  */
+/**
+ * Remote CPU probe command. Exported for testing.
+ *
+ * The sensor read is exit-tolerant on purpose. A host with no hwmon match and
+ * no readable thermal_zone temp file leaves the glob unexpanded, so the final
+ * `cat` exits 1 — and it is the last command in the ";"-joined chain, so the
+ * whole remote command exits non-zero. `sshExec` uses `execFile`, which rejects
+ * on a non-zero exit, so `_getRemoteCpu` would throw and fall back to
+ * `_defaultCpu()`: usage, draw and tdp lost as well as temperature.
+ * `_parseSensorTemp` already maps "nothing readable" to 0, so degrading to
+ * "no temperature" is the intended behaviour.
+ *
+ * @param {"spark"|"host"|undefined} kind
+ * @returns {string}
+ */
+export function buildRemoteCpuCommand(kind) {
+  return [
+    "cat /proc/stat | head -1",
+    "echo '---'",
+    "cat /proc/cpuinfo | grep -E 'CPU architecture|aarch64' | head -1",
+    ...(kind === "host"
+      ? [
+          "echo '---'",
+          // Same hwmon-then-thermal priority as local `_getCPUTemperature()`.
+          // GB10 also exposes nvme/mlx5 sensors; the name allowlist keeps those out.
+          'for h in /sys/class/hwmon/*; do n=$(cat "$h/name" 2>/dev/null); case "$n" in coretemp|k10temp|zenpower|acpitz) for t in "$h"/temp*_input; do cat "$t" 2>/dev/null; break; done;; esac; done',
+          "cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null || true",
+        ]
+      : []),
+  ].join("; ");
+}
+
 export class SystemCollector {
   constructor(spark) {
     this.spark = spark;
@@ -1003,20 +1035,7 @@ export class SystemCollector {
 
   async _getRemoteCpu() {
     try {
-      const cmd = [
-        "cat /proc/stat | head -1",
-        "echo '---'",
-        "cat /proc/cpuinfo | grep -E 'CPU architecture|aarch64' | head -1",
-        ...(this.spark.kind === "host"
-          ? [
-              "echo '---'",
-              // Same hwmon-then-thermal priority as local `_getCPUTemperature()`.
-              // GB10 also exposes nvme/mlx5 sensors; the name allowlist keeps those out.
-              'for h in /sys/class/hwmon/*; do n=$(cat "$h/name" 2>/dev/null); case "$n" in coretemp|k10temp|zenpower|acpitz) for t in "$h"/temp*_input; do cat "$t" 2>/dev/null; break; done;; esac; done',
-              "cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null",
-            ]
-          : []),
-      ].join("; ");
+      const cmd = buildRemoteCpuCommand(this.spark.kind);
 
       const output = await sshExec(this.spark, cmd);
       const sections = output.split("---");
