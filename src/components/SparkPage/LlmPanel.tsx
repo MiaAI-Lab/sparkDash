@@ -47,6 +47,7 @@ function BackendBadge({ backend }: { backend: string | null }) {
     sglang: "sgLang",
     ds4: "ds4",
     exl3: "EXL3",
+    q27: "q27",
   };
 
   return (
@@ -613,8 +614,12 @@ export function LlmPanel({
                   align="right"
                 />
                 <div className="font-tabular text-sm text-text">
-                  {llm.requestsRunning != null && llm.requestsWaiting != null
-                    ? `${Math.round(llm.requestsRunning)} run / ${Math.round(llm.requestsWaiting)} wait`
+                  {llm.requestsRunning != null
+                    ? `${Math.round(llm.requestsRunning)} run${
+                        llm.requestsWaiting != null
+                          ? ` / ${Math.round(llm.requestsWaiting)} wait`
+                          : ""
+                      }`
                     : "—"}
                 </div>
               </div>
