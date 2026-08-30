@@ -424,7 +424,7 @@ export class LlmProbe {
 
   /** @param {string} body */
   static _metricsLookLikeQ27(body) {
-    return /(?:^|\n)q27_(?:decode_tokens_total|requests_total)(?:\{|\s)/m.test(
+    return /(?:^|\n)q27_(?:decode_tokens_(?:processed_)?total|requests_total)(?:\{|\s)/m.test(
       String(body || "")
     );
   }
@@ -545,11 +545,21 @@ export class LlmProbe {
           this.backendType = "vllm";
           this._applyVllmMetrics(txt, dtSec);
         }
-      } else if (this.backendType !== "ds4" && this.backendType !== "exl3" && this.backendType !== "q27") {
+      } else if (
+        this.backendType !== "ds4" &&
+        this.backendType !== "exl3" &&
+        this.backendType !== "q27"
+      ) {
         this.backendType = "vllm";
       }
     } catch {
-      if (this.backendType !== "ds4" && this.backendType !== "exl3" && this.backendType !== "q27") this.backendType = "vllm";
+      if (
+        this.backendType !== "ds4" &&
+        this.backendType !== "exl3" &&
+        this.backendType !== "q27"
+      ) {
+        this.backendType = "vllm";
+      }
     }
 
     return this._getSnapshot();
@@ -650,10 +660,12 @@ export class LlmProbe {
    * messages / responses). The probe sums across label sets, exactly like the
    * ds4/vLLM paths: live tok/s from counter deltas so idle → 0.
    *
-   * Semantics vs the vLLM path: prefill is EXACT (q27_prompt_tokens_total),
-   * not estimated, and the prefix split (computed/cached) doubles as the
-   * prefix-cache hit rate. Missing vLLM-only tiles (waiting, preemptions)
-   * stay null → the panel shows "—" (q27 FIFO-queues, it never preempts).
+   * Semantics vs the vLLM path: prefill accounting is EXACT (per-request
+   * token counts, not vLLM's estimates) and the prefix split (computed/cached)
+   * doubles as the prefix-cache hit rate; the main prefill tile follows the
+   * ds4 convention and counts COMPUTED tokens only. The waiting tile stays
+   * null → the panel shows "—" (q27 FIFO-queues, no scheduler wait), while
+   * preemptions are exposed as a constant-0 counter so Preempts reads 0.
    * @param {string} txt
    * @param {number} dtSec
    */

@@ -4,6 +4,7 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { LlmProbe } from "../LlmProbe.js";
+import { readServerGenerationTokens } from "../LlmStreaming.js";
 
 // Realistic q27 /metrics exposition: q27_* series, api= labels (the probe
 // sums across label sets). +Inf == _count by construction.
@@ -206,6 +207,26 @@ test("_applyQ27Metrics: +Inf != _count refuses the quantile", () => {
   );
   probe._applyQ27Metrics(broken, 2);
   assert.equal(probe.ttftP95Seconds, null);
+});
+
+test("_metricsLookLikeQ27: true for live processed-counters-only exposition", () => {
+  assert.equal(LlmProbe._metricsLookLikeQ27(Q27_LIVE_METRICS), true);
+});
+
+test("readServerGenerationTokens: q27 live processed counter", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (String(url).endsWith("/metrics")) {
+      return { ok: true, status: 200, text: async () => Q27_LIVE_METRICS };
+    }
+    return { ok: false, status: 404 };
+  };
+  try {
+    const v = await readServerGenerationTokens("http://127.0.0.1:8888");
+    assert.equal(v, 400); // q27_decode_tokens_processed_total
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("probe: q27 path does not mislabel as vllm", async () => {
