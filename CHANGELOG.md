@@ -10,6 +10,7 @@ Format: version sections are listed newest first.
 ## [Unreleased]
 
 ### Added
+- **q27 LLM backend** — detect and parse the signalnine/q27 engine (`/v1/models` `owned_by: "q27"` or Prometheus `q27_*` series) instead of mislabeling it as vLLM. Live tok/s from `q27_*_processed` counter diffs (real-time during generation; completion-based per-api totals as fallback for older binaries), exact computed-only prefill whose cached/uncached split doubles as the prefix-cache hit rate, KV usage, slots, TTFT/E2E/ITL p95 histograms, MTP accept, engine Active state, and constant-0 preemptions (FIFO admission — no wait queue, the Requests tile reads “N run”). Inference-health tiles render for q27 like vLLM. DecodeBench server-side tok/s reads the same q27 counters.
 - **DGX Spark CPU temperature** — remote Sparks collect CPU temp over SSH with the same hwmon allowlist as hosts (`acpitz` / `coretemp` / `k10temp` / `zenpower`; NVMe / CX7 filtered out). Overview shows a CPU bar and Spark pages show a CPU row on the GPU panel when the reading is above 0°C.
 
 ### Fixed
