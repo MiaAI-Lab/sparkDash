@@ -658,14 +658,19 @@ export class LlmProbe {
    * @param {number} dtSec
    */
   _applyQ27Metrics(txt, dtSec) {
-    const decoded = this._getPromMetric(txt, "q27_decode_tokens_total");
+    // Live processed counters first (move during generation -> real-time
+    // tok/s); fall back to the completion-based per-api totals for older
+    // q27 binaries (step function: 0 during generation, jump at completion).
+    const decoded =
+      this._getPromMetric(txt, "q27_decode_tokens_processed_total") ??
+      this._getPromMetric(txt, "q27_decode_tokens_total");
     // Exact prefill (not estimated like vLLM). Follow the ds4 convention:
     // the main prefill tile counts COMPUTED tokens only -- cache-served
     // tokens go to the cached/uncached split below, so a cache hit does not
     // inflate the "real work" rate.
     const computed =
-      this._getPromMetric(txt, "q27_prefill_computed_tokens_total") ??
-      this._getPromMetric(txt, "q27_prompt_tokens_total");
+      this._getPromMetric(txt, "q27_prefill_computed_tokens_processed_total") ??
+      this._getPromMetric(txt, "q27_prefill_computed_tokens_total");
     if (decoded != null) {
       if (dtSec > 0 && dtSec < 10) {
         const deltaOut = decoded - this.lastTokenCounts.output;
@@ -722,9 +727,14 @@ export class LlmProbe {
     const itlP95 = this._histogramQuantile(itlHist.buckets, itlHist.total, 0.95);
     this.itlP95Seconds = itlP95 == null ? null : Math.round(itlP95 * 1000) / 1000;
 
-    // Prefix-cache hit rate + live cached/uncached prefill split.
-    const cachedSplit = this._getPromMetric(txt, "q27_prefill_cached_tokens_total");
-    const computedSplit = this._getPromMetric(txt, "q27_prefill_computed_tokens_total");
+    // Prefix-cache hit rate + live cached/uncached prefill split (live
+    // processed counters, with completion-based fallback).
+    const cachedSplit =
+      this._getPromMetric(txt, "q27_prefill_cached_tokens_processed_total") ??
+      this._getPromMetric(txt, "q27_prefill_cached_tokens_total");
+    const computedSplit =
+      this._getPromMetric(txt, "q27_prefill_computed_tokens_processed_total") ??
+      this._getPromMetric(txt, "q27_prefill_computed_tokens_total");
     this._setPrefillSplitRates(cachedSplit, computedSplit, dtSec);
 
     const specAccept = this._getPromMetric(txt, "q27_spec_accept_ratio");

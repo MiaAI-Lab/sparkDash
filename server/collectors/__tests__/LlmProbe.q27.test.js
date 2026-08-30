@@ -157,6 +157,47 @@ test("_applyQ27Metrics: gauges + counters + split + histograms", () => {
   assert.equal(probe.cachedPrefillTps, 270); // (600-60)/2
 });
 
+// Live processed counters: move DURING generation, so tok/s is real-time
+// (no completion-time step). No api= labels on these series.
+const Q27_LIVE_METRICS = `# TYPE q27_decode_tokens_processed_total counter
+q27_decode_tokens_processed_total 400
+# TYPE q27_prefill_computed_tokens_processed_total counter
+q27_prefill_computed_tokens_processed_total 150
+# TYPE q27_prefill_cached_tokens_processed_total counter
+q27_prefill_cached_tokens_processed_total 50
+# TYPE q27_requests_inflight gauge
+q27_requests_inflight 1
+`;
+
+test("_applyQ27Metrics: live processed counters drive real-time rates", () => {
+  const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888);
+  probe.lastTokenCounts = { input: 150, output: 400 }; // seeded baseline
+  probe._applyQ27Metrics(Q27_LIVE_METRICS, 2);
+  assert.equal(probe.totalOutputTokens, 400);
+  assert.equal(probe.generationTps, 0); // first sample seeds the baseline
+  assert.equal(probe.requestsRunning, 1);
+
+  const advanced = Q27_LIVE_METRICS
+    .replace(
+      "q27_decode_tokens_processed_total 400",
+      "q27_decode_tokens_processed_total 620"
+    )
+    .replace(
+      "q27_prefill_computed_tokens_processed_total 150",
+      "q27_prefill_computed_tokens_processed_total 190"
+    )
+    .replace(
+      "q27_prefill_cached_tokens_processed_total 50",
+      "q27_prefill_cached_tokens_processed_total 60"
+    );
+  probe._applyQ27Metrics(advanced, 2);
+  assert.equal(probe.generationTps, 110); // (620-400)/2
+  assert.equal(probe.prefillTps, 20); // computed (190-150)/2
+  assert.equal(probe.uncachedPrefillTps, 20);
+  assert.equal(probe.cachedPrefillTps, 5); // (60-50)/2
+  assert.equal(probe.prefixCacheHitRate, 0.24); // 60/(60+190)
+});
+
 test("_applyQ27Metrics: +Inf != _count refuses the quantile", () => {
   const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888);
   const broken = Q27_METRICS.replace(
