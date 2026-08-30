@@ -561,7 +561,7 @@ export class SystemCollector {
     const lines = output.trim().split("\n").filter(Boolean);
     const disks = [];
     const disabledDevices = this.spark.disabledDevices || [];
-    const PSEUDO = new Set(["tmpfs", "devtmpfs", "proc", "sysfs", "efivarfs", "squashfs", "overlay", "devpts", "cgroup", "cgroup2"]);
+    const PSEUDO = new Set(["tmpfs", "devtmpfs", "proc", "sysfs", "efivarfs", "squashfs", "overlay", "devpts", "cgroup", "cgroup2", "swap"]);
 
     for (const line of lines) {
       const nameMatch = line.match(/NAME="([^"]*)"/);
@@ -1448,7 +1448,10 @@ export class SystemCollector {
         });
       }
     }
-    return this._readHostFile(`/proc/net/${relPath}`);
+    // No host bind mount: read straight from the local /proc/net.
+    // Do NOT re-dispatch through _readHostFile here — it routes /proc/net/*
+    // back into this method, causing infinite recursion.
+    return fs.readFileSync(`/proc/net/${relPath}`, "utf-8");
   }
 
   /** Lightweight liveness for local Sparks. */
