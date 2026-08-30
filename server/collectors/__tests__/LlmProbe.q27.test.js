@@ -31,6 +31,8 @@ q27_slots_total 4
 q27_kv_usage_perc 0.42
 # TYPE q27_spec_accept_ratio gauge
 q27_spec_accept_ratio 0.87
+# TYPE q27_preemptions_total counter
+q27_preemptions_total 0
 # TYPE q27_ttft_seconds histogram
 q27_ttft_seconds_bucket{api="chat",le="0.010"} 0
 q27_ttft_seconds_bucket{api="chat",le="0.050"} 0
@@ -68,7 +70,7 @@ test("_detectServerType: owned_by q27 → q27", async () => {
         ok: true,
         status: 200,
         json: async () => ({
-          data: [{ id: "qwen38-27b-mtp", owned_by: "q27" }],
+          data: [{ id: "qwen38-27b-mtp", owned_by: "q27", max_model_len: 262144 }],
         }),
       };
     }
@@ -113,6 +115,8 @@ test("_applyQ27Metrics: gauges + counters + split + histograms", () => {
   assert.equal(probe.slotsTotal, 4);
   assert.equal(probe.kvCacheUsage, 0.42);
   assert.equal(probe.mtpAcceptanceRate, 0.87);
+  assert.equal(probe.preemptionsTotal, 0);
+  assert.equal(probe.gpuMemoryUtilization, 1); // weights resident → Active
   assert.equal(probe.prefixCacheHitRate, 0.2); // cached 50 / (50 + computed 200)
   // Histograms parsed (all TTFT observations in the le=0.5 bucket → p95 ≈ 0.488)
   assert.ok(
@@ -178,7 +182,7 @@ test("probe: q27 path does not mislabel as vllm", async () => {
         ok: true,
         status: 200,
         json: async () => ({
-          data: [{ id: "qwen38-27b-mtp", owned_by: "q27" }],
+          data: [{ id: "qwen38-27b-mtp", owned_by: "q27", max_model_len: 262144 }],
         }),
       };
     }
@@ -191,4 +195,5 @@ test("probe: q27 path does not mislabel as vllm", async () => {
   assert.equal(snap.backend, "q27");
   assert.equal(snap.available, true);
   assert.equal(snap.generationTps, 0); // no delta vs seeded baseline
+  assert.equal(snap.contextLength, 262144); // from /v1/models max_model_len
 });

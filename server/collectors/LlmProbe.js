@@ -689,7 +689,13 @@ export class LlmProbe {
 
     this.kvCacheUsage = this._getPromMetric(txt, "q27_kv_usage_perc");
     this.requestsWaiting = null; // not exposed: q27 FIFO-queues, no wait gauge
-    this.preemptionsTotal = null; // not exposed: q27 never preempts
+    // q27 never preempts (FIFO admission) — the server exposes a constant-0
+    // counter, so the Preempts tile reads 0 instead of "—".
+    this.preemptionsTotal = this._getPromMetric(txt, "q27_preemptions_total");
+    // Engine state: q27 keeps weights resident and is ready whenever the
+    // server is up (no sleep state / memory release), so report Active like
+    // the SGLang path does.
+    if (this.gpuMemoryUtilization == null) this.gpuMemoryUtilization = 1;
 
     // Histograms (cumulative buckets, +Inf == _count by construction).
     const ttftHist = this._parseHistogram(
