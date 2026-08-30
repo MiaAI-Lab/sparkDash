@@ -577,7 +577,7 @@ export function LlmPanel({
             </div>
           </div>
 
-          {llm?.backend === "vllm" && (
+          {llm && (llm.backend === "vllm" || llm.backend === "q27") && (
             <div className="grid grid-cols-2 gap-2 border-t border-border pt-3 sm:grid-cols-4">
               <div className="space-y-0.5">
                 <MetricInfoTip
@@ -648,7 +648,7 @@ export function LlmPanel({
             </div>
           )}
 
-          {llm?.backend === "vllm" && (
+          {llm && (llm.backend === "vllm" || llm.backend === "q27") && (
             <div className="grid grid-cols-2 gap-2 border-t border-border pt-3 sm:grid-cols-4">
               <div className="space-y-0.5">
                 <MetricInfoTip
