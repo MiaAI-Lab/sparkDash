@@ -33,6 +33,23 @@ const listeners = new Set<() => void>();
 
 const EMPTY: readonly number[] = Object.freeze([] as number[]);
 
+/**
+ * Mean of a metric series over samples where the reading is > 0, or null when
+ * there are no busy samples. Skipping zeros keeps idle/off phases from dragging
+ * the average toward zero (a prefill that runs at 500 tok/s is "500", not 0.5).
+ */
+export function avgPositive(values: readonly number[]): number | null {
+  let sum = 0;
+  let count = 0;
+  for (const v of values) {
+    if (v > 0) {
+      sum += v;
+      count += 1;
+    }
+  }
+  return count > 0 ? sum / count : null;
+}
+
 function notify() {
   for (const l of listeners) l();
 }
@@ -112,6 +129,9 @@ export function ingestSnapshots(sparks: SparkSnapshot[]): void {
         const portKey = port != null ? `:${port}` : `:${i}`;
         pushHistory(`${s.id}:llm${portKey}.tps`, llm.generationTps);
         pushHistory(`${s.id}:llm${portKey}.prefill`, llm.prefillTps);
+        if (llm.ttftSeconds != null) {
+          pushHistory(`${s.id}:llm${portKey}.ttft`, llm.ttftSeconds);
+        }
         if (llm.cachedPrefillTps != null) {
           pushHistory(`${s.id}:llm${portKey}.prefillCached`, llm.cachedPrefillTps);
         }

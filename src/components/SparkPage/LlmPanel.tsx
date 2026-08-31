@@ -1,14 +1,19 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import type { LlmMetrics, LlmBenchTarget } from "../../api/types";
 import { setLlmApiKey, updateLlmPort, updateLlmPorts } from "../../api/client";
 import { Sparkline } from "../ui/Sparkline";
 import { Panel } from "../ui/Panel";
 import { BotIcon, GearIcon, InfoIcon } from "../ui/icons";
-import { useMetricsHistoryTail } from "../../hooks/metricsStore";
+import {
+  useMetricsHistory,
+  useMetricsHistoryTail,
+  avgPositive,
+} from "../../hooks/metricsStore";
 import { BenchmarkDialog } from "./BenchmarkDialog";
 import { PrefillBenchDialog } from "./PrefillBenchDialog";
 import { LlmDailyChart } from "./LlmDailyChart";
 import { parseLlmTargetInput } from "../../shared/llmTarget.js";
+import { LlmTrendChart } from "./LlmTrendChart";
 
 interface LlmPanelProps {
   llm: LlmMetrics | null;
@@ -384,6 +389,16 @@ export function LlmPanel({
   const prefillHistory = useMetricsHistoryTail(sparkId, `llm:${llmPort}.prefill`);
   const cachedPrefillHistory = useMetricsHistoryTail(sparkId, `llm:${llmPort}.prefillCached`);
   const uncachedPrefillHistory = useMetricsHistoryTail(sparkId, `llm:${llmPort}.prefillUncached`);
+
+  // Full series (~1 h) for running averages over busy (>0) samples only.
+  const genFull = useMetricsHistory(sparkId, `llm:${llmPort}.tps`);
+  const prefillFull = useMetricsHistory(sparkId, `llm:${llmPort}.prefill`);
+  const cachedFull = useMetricsHistory(sparkId, `llm:${llmPort}.prefillCached`);
+  const uncachedFull = useMetricsHistory(sparkId, `llm:${llmPort}.prefillUncached`);
+  const genAvg = useMemo(() => avgPositive(genFull), [genFull]);
+  const prefillAvg = useMemo(() => avgPositive(prefillFull), [prefillFull]);
+  const cachedPrefillAvg = useMemo(() => avgPositive(cachedFull), [cachedFull]);
+  const uncachedPrefillAvg = useMemo(() => avgPositive(uncachedFull), [uncachedFull]);
   const [showSettings, setShowSettings] = useState(false);
   const [portDraft, setPortDraft] = useState(String(llmPort));
   const [apiKeyDraft, setApiKeyDraft] = useState("");
@@ -684,9 +699,16 @@ export function LlmPanel({
             <span className="text-xs text-muted">Generation tok/s</span>
             <div className="flex items-center gap-2">
               <Sparkline data={genHistory} color="var(--color-accent)" height={24} />
-              <span className="font-tabular text-sm font-semibold text-accent">
-                {generationTps.toFixed(1)}
-              </span>
+              <div className="text-right">
+                <div className="font-tabular text-sm font-semibold text-accent">
+                  {generationTps.toFixed(1)}
+                </div>
+                {genAvg != null && (
+                  <div className="font-tabular text-[9px] text-muted">
+                    avg {genAvg >= 100 ? genAvg.toFixed(0) : genAvg.toFixed(1)}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
           <div
@@ -696,9 +718,16 @@ export function LlmPanel({
             <span className="text-xs text-muted">Prefill tok/s</span>
             <div className="flex items-center gap-2">
               <Sparkline data={prefillHistory} color="var(--color-text)" height={24} />
-              <span className="font-tabular text-sm font-semibold text-text">
-                {prefillTps.toFixed(1)}
-              </span>
+              <div className="text-right">
+                <div className="font-tabular text-sm font-semibold text-text">
+                  {prefillTps.toFixed(1)}
+                </div>
+                {prefillAvg != null && (
+                  <div className="font-tabular text-[9px] text-muted">
+                    avg {prefillAvg >= 100 ? prefillAvg.toFixed(0) : prefillAvg.toFixed(1)}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
           {showPrefillSplit && (
@@ -710,9 +739,16 @@ export function LlmPanel({
                 <span className="text-xs text-muted">Cached prefill tok/s</span>
                 <div className="flex items-center gap-2">
                   <Sparkline data={cachedPrefillHistory} color="var(--color-muted)" height={24} />
-                  <span className="font-tabular text-sm font-semibold text-muted">
-                    {cachedPrefillTps.toFixed(1)}
-                  </span>
+                  <div className="text-right">
+                    <div className="font-tabular text-sm font-semibold text-muted">
+                      {cachedPrefillTps.toFixed(1)}
+                    </div>
+                    {cachedPrefillAvg != null && (
+                      <div className="font-tabular text-[9px] text-muted">
+                        avg {cachedPrefillAvg >= 100 ? cachedPrefillAvg.toFixed(0) : cachedPrefillAvg.toFixed(1)}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
               <div
@@ -722,14 +758,22 @@ export function LlmPanel({
                 <span className="text-xs text-muted">Uncached prefill tok/s</span>
                 <div className="flex items-center gap-2">
                   <Sparkline data={uncachedPrefillHistory} color="var(--color-text)" height={24} />
-                  <span className="font-tabular text-sm font-semibold text-text">
-                    {uncachedPrefillTps.toFixed(1)}
-                  </span>
+                  <div className="text-right">
+                    <div className="font-tabular text-sm font-semibold text-text">
+                      {uncachedPrefillTps.toFixed(1)}
+                    </div>
+                    {uncachedPrefillAvg != null && (
+                      <div className="font-tabular text-[9px] text-muted">
+                        avg {uncachedPrefillAvg >= 100 ? uncachedPrefillAvg.toFixed(0) : uncachedPrefillAvg.toFixed(1)}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </>
           )}
 
+          <LlmTrendChart sparkId={sparkId} llmPort={llmPort} />
           <LlmDailyChart sparkId={sparkId} llmPort={llmPort} />
 
           <div className="grid grid-cols-4 gap-2 border-t border-border pt-3">
