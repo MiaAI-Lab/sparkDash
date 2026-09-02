@@ -250,6 +250,40 @@ export class SparkRegistry {
         this._sparks = [];
       }
     }
+
+    // Out-of-band config edits (sparks.json edited directly without resyncing
+    // secrets) can rename llmPorts underneath stored API keys. Reconcile once
+    // here — before the registry is handed to anything — and never delete key
+    // material at load.
+    this._reconcileLlmApiKeysAtLoad();
+  }
+
+  /**
+   * Load-time LLM key/port reconcile.
+   * An out-of-band sparks.json edit that renames llmPorts (without going
+   * through PATCH / PUT llm-ports) leaves keys keyed on ports the spark no
+   * longer exposes. When exactly one keyed port is orphaned and exactly one
+   * configured port lacks a key, the rename shape is unambiguous → MOVE the
+   * key. Any other mismatch shape is warn-only: never prune, never delete
+   * stored key material at load.
+   */
+  _reconcileLlmApiKeysAtLoad() {
+    for (const spark of this._sparks) {
+      const configured = Array.isArray(spark.llmPorts) ? spark.llmPorts : [];
+      const keyed = this.llmApiKeyPorts(spark.id);
+      const orphans = keyed.filter((p) => !configured.includes(p));
+      const missing = configured.filter((p) => !this.hasLlmApiKey(spark.id, p));
+      if (orphans.length === 1 && missing.length === 1) {
+        this.moveLlmApiKey(spark.id, orphans[0], missing[0]);
+        console.warn(
+          `[SparkRegistry] migrated LLM API key for spark ${spark.id}: port ${orphans[0]} -> port ${missing[0]} after out-of-band config change`
+        );
+      } else if (orphans.length > 0 || missing.length > 0) {
+        console.warn(
+          `[SparkRegistry] spark ${spark.id} LLM key/port mismatch: keyed=<${orphans.join(", ")}> missing=<${missing.join(", ")}>`
+        );
+      }
+    }
   }
 
   _save() {
