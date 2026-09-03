@@ -1,4 +1,5 @@
-import type { CpuMetrics, GpuMetrics } from "../../api/types";
+import { useEffect, useState } from "react";
+import type { CpuMetrics, GpuMetrics, UnifiedMemoryMetrics } from "../../api/types";
 import { Sparkline } from "../ui/Sparkline";
 import { Panel } from "../ui/Panel";
 import { ActivityIcon } from "../ui/icons";
@@ -9,6 +10,7 @@ interface GpuPanelProps {
   gpu: GpuMetrics | null;
   /** When set and temperature > 0, show a CPU temp row (DGX Spark pages). */
   cpu?: CpuMetrics | null;
+  unifiedMemory: UnifiedMemoryMetrics | null;
   sparkId: string;
   temperatureUnit: "celsius" | "fahrenheit";
   className?: string;
@@ -16,6 +18,25 @@ interface GpuPanelProps {
 
 function celsiusToFahrenheit(c: number): number {
   return Math.round(c * 9 / 5 + 32);
+}
+
+const NV_ERR_STORAGE_KEY = "nvErrBaseline";
+
+function getNvErrBaseline(sparkId: string): number {
+  try {
+    const raw = localStorage.getItem(`${NV_ERR_STORAGE_KEY}.${sparkId}`);
+    return raw ? parseInt(raw, 10) || 0 : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function setNvErrBaseline(sparkId: string, value: number) {
+  try {
+    localStorage.setItem(`${NV_ERR_STORAGE_KEY}.${sparkId}`, String(value));
+  } catch {
+    /* localStorage unavailable */
+  }
 }
 
 function formatMb(mb: number): string {
@@ -45,7 +66,7 @@ function MetricRow({
   );
 }
 
-export function GpuPanel({ gpu, cpu, sparkId, temperatureUnit, className }: GpuPanelProps) {
+export function GpuPanel({ gpu, cpu, unifiedMemory, sparkId, temperatureUnit, className }: GpuPanelProps) {
   const tempHistory = useMetricsHistoryTail(sparkId, "gpu.temp");
   const usageHistory = useMetricsHistoryTail(sparkId, "gpu.usage");
   const cpuTempHistory = useMetricsHistoryTail(sparkId, "cpu.temp");
@@ -66,6 +87,22 @@ export function GpuPanel({ gpu, cpu, sparkId, temperatureUnit, className }: GpuP
     temperatureUnit === "fahrenheit" ? celsiusToFahrenheit(cpuTemperature) : cpuTemperature;
   const cpuTempLabel =
     temperatureUnit === "fahrenheit" ? `${cpuDisplayTemp}°F` : `${cpuDisplayTemp}°C`;
+
+  const nvErrRaw = unifiedMemory?.nvErrNoMemory ?? 0;
+  const [nvErrBaseline, setNvErrBaselineState] = useState<number>(() =>
+    getNvErrBaseline(sparkId)
+  );
+  const [nvErrSinceReset, setNvErrSinceReset] = useState<number>(0);
+
+  useEffect(() => {
+    setNvErrSinceReset(Math.max(0, nvErrRaw - nvErrBaseline));
+  }, [nvErrRaw, nvErrBaseline]);
+
+  const handleResetNvErr = () => {
+    setNvErrBaseline(sparkId, nvErrRaw);
+    setNvErrBaselineState(nvErrRaw);
+    setNvErrSinceReset(0);
+  };
 
   const tempColor =
     temperature > 85
@@ -188,6 +225,28 @@ export function GpuPanel({ gpu, cpu, sparkId, temperatureUnit, className }: GpuP
                 <div className="flex justify-between text-xs">
                   <span className="text-muted">Available</span>
                   <span className="font-tabular text-text">{formatMb(gpu.vram.available)}</span>
+                </div>
+              )}
+              {unifiedMemory !== null && (
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted">NV_ERR_NO_MEMORY</span>
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className={`font-tabular ${
+                        nvErrSinceReset > 0 ? "text-danger font-semibold" : "text-text"
+                      }`}
+                    >
+                      {nvErrSinceReset}
+                    </span>
+                    <button
+                      type="button"
+                      className="cursor-pointer rounded border border-border bg-surface px-1.5 py-0.5 text-xs text-muted hover:border-accent hover:text-accent transition-colors"
+                      onClick={handleResetNvErr}
+                      title="Reset error counter — set a new baseline so only future errors are counted"
+                    >
+                      ↺ reset
+                    </button>
+                  </div>
                 </div>
               )}
             </>

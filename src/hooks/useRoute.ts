@@ -1,7 +1,15 @@
 import { useEffect, useCallback, useRef, useState } from "react";
-import { OVERVIEW_ID } from "../constants";
+import { OVERVIEW_ID, FLEET_STORAGE_ID } from "../constants";
 
 export type RouteMode = "app" | "showcase";
+
+/** Map a pathname to an active tab id (Overview or a Spark), or null. */
+function activeIdFromPath(pathname: string): string | null {
+  if (pathname === "/storage") return FLEET_STORAGE_ID;
+  const spark = pathname.match(/^\/spark\/([^/]+)/);
+  return spark ? decodeURIComponent(spark[1]) : OVERVIEW_ID;
+}
+
 
 export interface AppRoute {
   mode: RouteMode;
@@ -59,13 +67,7 @@ export function useRoute(
 
     const path = window.location.pathname;
     if (path.startsWith("/showcase/")) return;
-
-    const match = path.match(/^\/spark\/([^/]+)/);
-    if (match) {
-      setActiveId(match[1]);
-    } else if (path !== "/spark") {
-      setActiveId(OVERVIEW_ID);
-    }
+    setActiveId(activeIdFromPath(path));
   }, [setActiveId]);
 
   // Sync back/forward navigation
@@ -73,8 +75,7 @@ export function useRoute(
     const handler = () => {
       const path = window.location.pathname;
       if (path.startsWith("/showcase/")) return;
-      const match = path.match(/^\/spark\/([^/]+)/);
-      setActiveId(match ? match[1] : OVERVIEW_ID);
+      setActiveId(activeIdFromPath(path));
     };
     window.addEventListener("popstate", handler);
     return () => window.removeEventListener("popstate", handler);
@@ -83,7 +84,9 @@ export function useRoute(
   // Wrapped navigate function — updates URL + internal state
   const navigate = useCallback(
     (id: string | null) => {
-      const url = id && id !== OVERVIEW_ID ? `/spark/${encodeURIComponent(id)}` : "/";
+      let url = "/";
+      if (id === FLEET_STORAGE_ID) url = "/storage";
+      else if (id && id !== OVERVIEW_ID) url = `/spark/${encodeURIComponent(id)}`;
       window.history.pushState(null, "", url);
       setActiveId(id);
     },

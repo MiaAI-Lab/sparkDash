@@ -91,9 +91,10 @@ test("catalog prompts exist for text, structural, and mixed pickers", () => {
   assert.ok(textCount >= 2);
 });
 
-test("DecodeBench uses Showcase structural prompts at temperature 0, thinking off", () => {
-  assert.match(benchSrc, /pickShowcasePrompts\("structural"/);
-  assert.match(benchSrc, /withFillToMaxInstruction/);
+test("DecodeBench uses dedicated decode prompts at temperature 0, thinking off", () => {
+  assert.match(benchSrc, /pickDecodeBenchPrompts/);
+  assert.match(benchSrc, /decodeBenchPromptForType/);
+  assert.match(benchSrc, /stripFillForceFields/);
   assert.match(benchSrc, /temperature:\s*0/);
   assert.match(benchSrc, /applyThinkingFlags\(body,\s*modelId,\s*false\)/);
   assert.match(benchSrc, /min_tokens:\s*maxTokens/);
