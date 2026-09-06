@@ -1,21 +1,35 @@
 import { useMemo } from "react";
-import { useMetricsHistory, avgPositive } from "../../hooks/metricsStore";
+import { HISTORY_MAX, useMetricsHistory, avgPositive } from "../../hooks/metricsStore";
 
 const VIEW_W = 300;
 const VIEW_H = 64;
 const PAD = 2;
+/**
+ * Fixed display window: 30 minutes of 2 s samples. The x-axis is anchored to
+ * this constant — never the current sample count — so the line grows into the
+ * chart left-to-right and then scrolls, instead of re-stretching (rewriting
+ * history) on every tick. Averages below still span full HISTORY_MAX retention.
+ */
+const DISPLAY_WINDOW = 900;
 
 function fmt(n: number | null): string {
   if (n == null || !Number.isFinite(n)) return "—";
   return n >= 100 ? n.toFixed(0) : n.toFixed(1);
 }
 
-/** Polyline points for one series, normalised to the shared max. */
-function buildPoints(data: readonly number[], max: number): string {
+/**
+ * Polyline points for one series, normalised to the shared max. x maps onto a
+ * FIXED window: the newest sample sits at the right edge once the window is
+ * full; while filling, points occupy only the left fraction and the line grows.
+ */
+function buildPoints(raw: readonly number[], max: number): string {
+  // Only the newest DISPLAY_WINDOW samples are drawn; older ones still feed
+  // the averages below. Once full, the window scrolls (newest at right edge).
+  const data = raw.length > DISPLAY_WINDOW ? raw.slice(-DISPLAY_WINDOW) : raw;
   if (data.length < 2) return "";
   const span = max || 1;
   const pts = data.map((v, i) => {
-    const x = (i / (data.length - 1)) * VIEW_W;
+    const x = (i / (DISPLAY_WINDOW - 1)) * VIEW_W;
     const y = VIEW_H - PAD - (Math.min(v, max) / span) * (VIEW_H - PAD * 2);
     return `${x.toFixed(1)},${y.toFixed(1)}`;
   });
@@ -23,20 +37,39 @@ function buildPoints(data: readonly number[], max: number): string {
 }
 
 function areaPath(points: string): string {
-  const last = points.split(" ").pop() ?? `0,${VIEW_H}`;
-  return `M0,${VIEW_H} L${points} L${last.split(",")[0]},${VIEW_H} Z`;
+  const seg = points.split(" ");
+  const first = seg[0]?.split(",")[0] ?? "0";
+  const last = seg[seg.length - 1]?.split(",")[0] ?? first;
+  return `M${first},${VIEW_H} L${points} L${last},${VIEW_H} Z`;
+}
+
+/** Human label: chart shows the last window; averages span full retention. */
+function fmtSpan(seconds: number): string {
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
+  const h = seconds / 3600;
+  return `${h % 1 === 0 ? h : h.toFixed(1)}h`;
+}
+
+function historyLabel(): string {
+  return `chart ~${fmtSpan(DISPLAY_WINDOW * 2)} · avgs ~${fmtSpan(HISTORY_MAX * 2)} · 2s samples`;
+}
+
+/** Newest DISPLAY_WINDOW samples — the slice the chart draws. */
+function windowed(data: readonly number[]): readonly number[] {
+  return data.length > DISPLAY_WINDOW ? data.slice(-DISPLAY_WINDOW) : data;
 }
 
 /**
- * Longer tok/s history for one LLM port — reads the full in-memory series
- * (HISTORY_MAX samples ≈ 1 h at the 2 s poll) rather than the short sparkline
- * tail, and shows the average over busy (>0) samples for each phase.
+ * tok/s trend chart for one LLM port. The x-axis is a FIXED 30-minute window:
+ * the line grows left-to-right while filling, then scrolls — history already
+ * drawn never re-stretches, so the chart can't "rewrite" its own past. The
+ * averages below span the full retention (VITE_HISTORY_HOURS, default 8 h).
  *
- * TTFT is deliberately NOT overlaid here: vLLM reports it only while serving,
- * so the series is sparse and not tick-aligned — on this index-normalised
- * x-axis it misplaces in time across idle gaps. It is also near-redundant
- * with the prefill spikes it tracks. The busy-sample TTFT average badge reads
- * the sparse series directly (no x-axis involved).
+ * TTFT is deliberately NOT drawn here: vLLM reports it only while serving, so
+ * the series is sparse and not tick-aligned — overlaying it on this chart would
+ * misplace it in time. It is also near-redundant with the prefill spikes it
+ * tracks. The busy-sample TTFT average badge is the useful signal and reads the
+ * sparse series directly (no x-axis involved).
  */
 export function LlmTrendChart({
   sparkId,
@@ -47,21 +80,25 @@ export function LlmTrendChart({
 }) {
   const gen = useMetricsHistory(sparkId, `llm:${llmPort}.tps`);
   const prefill = useMetricsHistory(sparkId, `llm:${llmPort}.prefill`);
-  const ttft = useMetricsHistory(sparkId, `llm:${llmPort}.ttft`); // avg badge only — not overlaid
+  const ttft = useMetricsHistory(sparkId, `llm:${llmPort}.ttft`);
 
   const genAvg = useMemo(() => avgPositive(gen), [gen]);
   const prefillAvg = useMemo(() => avgPositive(prefill), [prefill]);
   const ttftAvg = useMemo(() => avgPositive(ttft), [ttft]);
 
+  // Chart draws only the newest hour; averages above use the full series.
+  const genWin = useMemo(() => windowed(gen), [gen]);
+  const prefillWin = useMemo(() => windowed(prefill), [prefill]);
+
   // Normalise each series to its OWN max: prefill (thousands) and generation
   // (tens) differ by ~100x, so a shared scale would flatten gen into the floor.
-  // TTFT (seconds, ~0.1–5) is likewise independent — shape over magnitude.
-  const genMax = useMemo(() => Math.max(1, ...gen), [gen]);
-  const prefillMax = useMemo(() => Math.max(1, ...prefill), [prefill]);
-  const genPts = useMemo(() => buildPoints(gen, genMax), [gen, genMax]);
-  const prefillPts = useMemo(() => buildPoints(prefill, prefillMax), [prefill, prefillMax]);
+  // Max is over the drawn window so old spikes can't squash recent detail.
+  const genMax = useMemo(() => Math.max(1, ...genWin), [genWin]);
+  const prefillMax = useMemo(() => Math.max(1, ...prefillWin), [prefillWin]);
+  const genPts = useMemo(() => buildPoints(genWin, genMax), [genWin, genMax]);
+  const prefillPts = useMemo(() => buildPoints(prefillWin, prefillMax), [prefillWin, prefillMax]);
 
-  const hasData = gen.length > 1 || prefill.length > 1;
+  const hasData = genWin.length > 1 || prefillWin.length > 1;
 
   return (
     <div className="border-t border-border pt-3 space-y-1.5">
@@ -69,7 +106,7 @@ export function LlmTrendChart({
         <span className="text-[10px] uppercase tracking-wide text-muted">
           tok/s history
         </span>
-        <span className="text-[10px] text-muted">last ~1h · 2s samples</span>
+        <span className="text-[10px] text-muted">{historyLabel()}</span>
       </div>
       {!hasData ? (
         <p className="text-[10px] text-muted">No samples yet.</p>
@@ -80,7 +117,7 @@ export function LlmTrendChart({
           className="block w-full"
           style={{ height: 64 }}
           role="img"
-          aria-label="Generation and prefill tokens per second over the last hour"
+          aria-label="Generation and prefill tokens per second over the last 30 minutes"
         >
           {prefillPts && (
             <>

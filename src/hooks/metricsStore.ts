@@ -21,7 +21,12 @@ import type { SparkSnapshot } from "../api/types";
  * All listeners are woken on notify; unchanged keys keep the same ref → no render.
  */
 
-const HISTORY_MAX = 1800; // 1 h at 2 s poll — the WS interval, not wall-clock guarantees
+// History depth, configurable at build time. VITE_HISTORY_HOURS = wall-clock
+// hours to retain (default 8 h at the 2 s WS poll ≈ 112 KB per series — the
+// browser tab is the only thing that pays for it).
+const SAMPLES_PER_HOUR = 1800; // 2 s poll
+const HISTORY_HOURS = Number(import.meta.env.VITE_HISTORY_HOURS ?? 8) || 8;
+export const HISTORY_MAX = Math.round(SAMPLES_PER_HOUR * HISTORY_HOURS);
 /** Samples shown in inline sparklines (≈1 min at 2 s poll). Full series stays in HISTORY_MAX. */
 export const SPARKLINE_TAIL = 30;
 

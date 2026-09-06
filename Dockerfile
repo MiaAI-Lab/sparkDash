@@ -22,7 +22,11 @@ COPY package.json package-lock.json* ./
 RUN npm ci --no-audit --no-fund \
   || (echo "npm ci failed once — retrying…" && npm cache clean --force && npm ci --no-audit --no-fund)
 
-# Copy source and build
+# Copy source and build. VITE_HISTORY_HOURS sets the frontend metrics-history
+# retention window (see src/hooks/metricsStore.ts); override via
+# `docker compose build --build-arg VITE_HISTORY_HOURS=4` or the env in compose.
+ARG VITE_HISTORY_HOURS=8
+ENV VITE_HISTORY_HOURS=${VITE_HISTORY_HOURS}
 COPY . .
 RUN npm run build
 
