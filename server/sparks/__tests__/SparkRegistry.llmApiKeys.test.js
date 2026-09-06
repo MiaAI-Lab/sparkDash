@@ -29,6 +29,7 @@ process.env.LLM_PORT = "8888";
 
 const { SparkRegistry } = await import("../SparkRegistry.js");
 const { saveSecrets } = await import("../../secretsStore.js");
+const { LLM_PORT } = await import("../../config.js");
 
 /** Synthetic test key only — never real key material. */
 const TEST_KEY = "sk-test-0000";
@@ -149,4 +150,32 @@ test("syncLlmApiKeysToPorts: removed port without rename is pruned", () => {
   r.setLlmApiKey("sp", 9001, TEST_KEY);
   r.syncLlmApiKeysToPorts("sp", [8888, 9001], [8888]);
   assert.deepEqual(r.llmApiKeyPorts("sp"), [8888]);
+});
+
+// ─── patchSpark (PATCH /api/sparks/:id path) ─────────────────────
+
+test("patchSpark: llmPorts [] normalizes to the default port and moves the key", () => {
+  const r = loadRegistry([8899], { "8899": TEST_KEY }, { reset: true });
+  const { spark, llmPortsSynced } = r.patchSpark(SPARK_ID, { llmPorts: [] });
+  assert.equal(llmPortsSynced, true);
+  assert.deepEqual(spark.llmPorts, [LLM_PORT]);
+  assert.deepEqual(r.llmApiKeyPorts(SPARK_ID), [LLM_PORT]);
+  assert.equal(r.getSpark(SPARK_ID).llmApiKeys[String(LLM_PORT)], TEST_KEY);
+  assert.equal(r.hasLlmApiKey(SPARK_ID, 8899), false);
+});
+
+test("patchSpark: legacy scalar llmPorts is applied and the key follows", () => {
+  const r = loadRegistry([8888], { "8888": TEST_KEY }, { reset: true });
+  const { spark } = r.patchSpark(SPARK_ID, { llmPorts: "8899" });
+  assert.deepEqual(spark.llmPorts, [8899]);
+  assert.deepEqual(r.llmApiKeyPorts(SPARK_ID), [8899]);
+  assert.equal(r.getSpark(SPARK_ID).llmApiKeys["8899"], TEST_KEY);
+});
+
+test("patchSpark: a body without llmPorts never touches keys", () => {
+  const r = loadRegistry([8888], { "8888": TEST_KEY }, { reset: true });
+  const { llmPortsSynced } = r.patchSpark(SPARK_ID, { name: "renamed" });
+  assert.equal(llmPortsSynced, false);
+  assert.deepEqual(r.llmApiKeyPorts(SPARK_ID), [8888]);
+  assert.equal(r.getSpark(SPARK_ID).name, "renamed");
 });

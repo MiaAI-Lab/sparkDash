@@ -248,30 +248,13 @@ app.patch("/api/sparks/:id", (req, res) => {
     }
 
     // LLM API keys: an llmPorts change is the second bypass besides out-of-band
-    // sparks.json writes. When the body carries llmPorts (validated like
-    // PUT /api/sparks/:id/llm-ports below), capture the pre-update ports and
-    // re-sync keyed ports after the update.
-    let prevPorts = null;
-    if (Object.prototype.hasOwnProperty.call(body, "llmPorts")) {
-      const patchedPorts = Array.isArray(body.llmPorts)
-        ? [...new Set(body.llmPorts
-            .map((v) => (typeof v === "string" ? parseInt(v, 10) : Number(v)))
-            .filter((n) => Number.isInteger(n) && n >= 1 && n <= 65535))]
-        : [];
-      if (patchedPorts.length > 0) {
-        const existing = registry.getSpark(req.params.id);
-        prevPorts = Array.isArray(existing?.llmPorts) ? [...existing.llmPorts] : [];
-      }
-    }
-
-    const spark = registry.updateSpark(req.params.id, body);
-    const llmPortsSynced = prevPorts !== null && Array.isArray(spark.llmPorts);
-    if (llmPortsSynced) {
-      registry.syncLlmApiKeysToPorts(req.params.id, prevPorts, spark.llmPorts);
-    }
+    // sparks.json writes. patchSpark() arms the reconcile on the llmPorts
+    // own-property (any shape — [] and the legacy scalar are applied by the
+    // normalizer too) and syncs against the post-normalize ports.
+    const { spark } = registry.patchSpark(req.params.id, body);
     // Restart monitor so collectors pick up host/auth/isLocal changes
     stopMonitor(req.params.id);
-    startMonitor(llmPortsSynced ? registry.getSpark(req.params.id) : spark);
+    startMonitor(spark);
     res.json({
       success: true,
       spark: registry.toPublic(spark),

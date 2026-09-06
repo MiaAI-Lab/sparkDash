@@ -468,6 +468,35 @@ export class SparkRegistry {
    * @param {number[]} prevPorts
    * @param {number[]} nextPorts
    */
+  /**
+   * updateSpark() plus LLM API key reconcile for PATCH /api/sparks/:id.
+   *
+   * Armed whenever the patch carries an `llmPorts` own-property — including
+   * `[]` and the legacy single-value shape — because _normalizeLlmPorts()
+   * applies those too (empty/invalid -> [LLM_PORT], scalar -> [n]). The sync
+   * runs against the POST-normalize ports on the stored spark, so it sees the
+   * same rename the persisted record does, not the raw request body.
+   * @param {string} id
+   * @param {object} updates PATCH body
+   * @returns {{ spark: object, llmPortsSynced: boolean }}
+   */
+  patchSpark(id, updates) {
+    const body = updates || {};
+    const armed = Object.prototype.hasOwnProperty.call(body, "llmPorts");
+    let prevPorts = null;
+    if (armed) {
+      const existing = this.getSpark(id);
+      if (!existing) throw new Error(`Spark ${id} not found`);
+      prevPorts = Array.isArray(existing.llmPorts) ? [...existing.llmPorts] : [];
+    }
+    const updated = this.updateSpark(id, body);
+    const llmPortsSynced = armed && Array.isArray(updated.llmPorts);
+    if (llmPortsSynced) {
+      this.syncLlmApiKeysToPorts(id, prevPorts, updated.llmPorts);
+    }
+    return { spark: llmPortsSynced ? this.getSpark(id) : updated, llmPortsSynced };
+  }
+
   syncLlmApiKeysToPorts(id, prevPorts, nextPorts) {
     const prev = Array.isArray(prevPorts) ? prevPorts : [];
     const next = Array.isArray(nextPorts) ? nextPorts : [];
