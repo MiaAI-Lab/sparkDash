@@ -31,6 +31,12 @@ function areaPath(points: string): string {
  * Longer tok/s history for one LLM port — reads the full in-memory series
  * (HISTORY_MAX samples ≈ 1 h at the 2 s poll) rather than the short sparkline
  * tail, and shows the average over busy (>0) samples for each phase.
+ *
+ * TTFT is deliberately NOT overlaid here: vLLM reports it only while serving,
+ * so the series is sparse and not tick-aligned — on this index-normalised
+ * x-axis it misplaces in time across idle gaps. It is also near-redundant
+ * with the prefill spikes it tracks. The busy-sample TTFT average badge reads
+ * the sparse series directly (no x-axis involved).
  */
 export function LlmTrendChart({
   sparkId,
@@ -41,7 +47,7 @@ export function LlmTrendChart({
 }) {
   const gen = useMetricsHistory(sparkId, `llm:${llmPort}.tps`);
   const prefill = useMetricsHistory(sparkId, `llm:${llmPort}.prefill`);
-  const ttft = useMetricsHistory(sparkId, `llm:${llmPort}.ttft`);
+  const ttft = useMetricsHistory(sparkId, `llm:${llmPort}.ttft`); // avg badge only — not overlaid
 
   const genAvg = useMemo(() => avgPositive(gen), [gen]);
   const prefillAvg = useMemo(() => avgPositive(prefill), [prefill]);
@@ -52,15 +58,10 @@ export function LlmTrendChart({
   // TTFT (seconds, ~0.1–5) is likewise independent — shape over magnitude.
   const genMax = useMemo(() => Math.max(1, ...gen), [gen]);
   const prefillMax = useMemo(() => Math.max(1, ...prefill), [prefill]);
-  // TTFT y-axis always spans at least 1 s (a stable benchmark) — sub-second
-  // prefills stay low rather than filling the chart — scaling up only when TTFT
-  // actually exceeds a second. Data is in seconds, so 1000 ms == 1.0.
-  const ttftMax = useMemo(() => Math.max(1, ...ttft), [ttft]);
   const genPts = useMemo(() => buildPoints(gen, genMax), [gen, genMax]);
   const prefillPts = useMemo(() => buildPoints(prefill, prefillMax), [prefill, prefillMax]);
-  const ttftPts = useMemo(() => buildPoints(ttft, ttftMax), [ttft, ttftMax]);
 
-  const hasData = gen.length > 1 || prefill.length > 1 || ttft.length > 1;
+  const hasData = gen.length > 1 || prefill.length > 1;
 
   return (
     <div className="border-t border-border pt-3 space-y-1.5">
@@ -79,20 +80,8 @@ export function LlmTrendChart({
           className="block w-full"
           style={{ height: 64 }}
           role="img"
-          aria-label="Generation and prefill tokens per second, and time-to-first-token, over the last hour"
+          aria-label="Generation and prefill tokens per second over the last hour"
         >
-          {ttftPts && (
-            <polyline
-              points={ttftPts}
-              fill="none"
-              stroke="var(--color-muted)"
-              strokeWidth="1.5"
-              vectorEffect="non-scaling-stroke"
-              strokeDasharray="4 3"
-              strokeLinejoin="round"
-              strokeLinecap="round"
-            />
-          )}
           {prefillPts && (
             <>
               <path d={areaPath(prefillPts)} fill="var(--color-text)" opacity={0.1} />
