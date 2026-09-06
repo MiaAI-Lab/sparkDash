@@ -486,6 +486,12 @@ export interface SparkSnapshot {
   workerNode?: boolean;
   /** Optional cluster/model label when role is worker */
   workerLabel?: string | null;
+  /**
+   * Derived worker label: live mirror of the head's served model id.
+   * Display-only (never written to config). A non-empty manual workerLabel
+   * takes priority over this in the UI.
+   */
+  workerDerivedLabel?: string | null;
   /** Optional head Spark id when role is worker */
   workerHeadId?: string | null;
   /** Standalone: whether LLM is probed (head always true, worker always false) */

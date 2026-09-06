@@ -32,13 +32,18 @@ const ONLINE_GRACE_MS = 10000;
 export class SparkMonitor {
   /**
    * @param {object} spark
-   * @param {{ onWolMac?: (sparkId: string, mac: string) => void }} [options]
+   * @param {{ onWolMac?: (sparkId: string, mac: string) => void, onHermesChange?: () => void, resolveHeadModelId?: ((headId: string) => string | null) }} [options]
    */
   constructor(spark, options = {}) {
     this.spark = spark;
     this._onWolMac = typeof options.onWolMac === "function" ? options.onWolMac : null;
     this._onHermesChange =
       typeof options.onHermesChange === "function" ? options.onHermesChange : null;
+    // Resolver for worker derived label: maps a head spark id to its live
+    // LLM model id (or null when unknown). Wired by index.js from the monitor
+    // map; never writes back to registry config (derived display only).
+    this._resolveHeadModelId =
+      typeof options.resolveHeadModelId === "function" ? options.resolveHeadModelId : null;
     this.collector = new SystemCollector(spark);
 
     // One LlmProbe per port — none when LLM monitoring is off
@@ -230,6 +235,50 @@ export class SparkMonitor {
     return spark?.llmMonitoring !== false;
   }
 
+  /**
+   * Live LLM model id from this monitor's own probes (first non-empty
+   * modelId on an AVAILABLE entry across ports), or null when unknown /
+   * offline / protected. Protected/auth-failure snapshots can retain a
+   * previous modelId with available:false — those entries are skipped so a
+   * dead or locked head never yields a stale model (fail-closed).
+   * @returns {string | null}
+   */
+  headLlmModelId() {
+    const llm = this._metrics?.llm;
+    if (!Array.isArray(llm)) return null;
+    for (const entry of llm) {
+      if (entry?.available !== true) continue;
+      const id = typeof entry?.modelId === "string" ? entry.modelId.trim() : "";
+      if (id) return id;
+    }
+    return null;
+  }
+
+  /**
+   * Derived worker label: mirror the head's live served model. Display-only —
+   * never written back to registry config. Non-null only when ALL hold:
+   * role is worker, workerHeadId points at another spark, and the resolver
+   * yields a non-empty model id. A hand-written workerLabel (non-empty) is a
+   * manual override and takes display priority in the frontend; it does not
+   * suppress this derived value.
+   * @returns {string | null}
+   */
+  workerDerivedLabel() {
+    const spark = this.spark || {};
+    const role = spark.role || (spark.workerNode ? "worker" : "standalone");
+    if (role !== "worker") return null;
+    const headId = typeof spark.workerHeadId === "string" ? spark.workerHeadId.trim() : "";
+    if (!headId || headId === spark.id) return null;
+    if (typeof this._resolveHeadModelId !== "function") return null;
+    let model = null;
+    try {
+      model = this._resolveHeadModelId(headId);
+    } catch {
+      return null;
+    }
+    return typeof model === "string" && model.trim() ? model.trim() : null;
+  }
+
   /** Start or clear the LLM poll timer based on monitoring flag. */
   _restartLlmPollInterval() {
     if (this._llmIntervalId != null) {
@@ -400,6 +449,9 @@ export class SparkMonitor {
       role: this.spark.role || (this.spark.workerNode ? "worker" : "standalone"),
       workerLabel: this.spark.workerLabel || null,
       workerHeadId: this.spark.workerHeadId || null,
+      // Derived display label (head model mirror). Raw workerLabel above is
+      // untouched — frontend prefers a non-empty manual label over this.
+      workerDerivedLabel: this.workerDerivedLabel(),
       llmMonitoring: this._llmMonitoringEnabled(),
       llmPort: ports[0] ?? LLM_PORT,
       llmPorts: ports,
