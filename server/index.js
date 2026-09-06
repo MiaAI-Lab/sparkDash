@@ -315,7 +315,11 @@ app.patch("/api/sparks/:id", (req, res) => {
       return res.json({ success: true, spark, hasPassword: true });
     }
 
-    const spark = registry.updateSpark(req.params.id, body);
+    // LLM API keys: an llmPorts change is the second bypass besides out-of-band
+    // sparks.json writes. patchSpark() arms the reconcile on the llmPorts
+    // own-property (any shape — [] and the legacy scalar are applied by the
+    // normalizer too) and syncs against the post-normalize ports.
+    const { spark } = registry.patchSpark(req.params.id, body);
     // Restart monitor so collectors pick up host/auth/isLocal changes
     stopMonitor(req.params.id);
     startMonitor(spark);
