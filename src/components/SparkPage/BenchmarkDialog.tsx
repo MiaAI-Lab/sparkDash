@@ -7,8 +7,9 @@ import {
   listDecodeBench,
   startDecodeBench,
 } from "../../api/client";
-import type { DecodeBenchJob, DecodeBenchPromptType } from "../../api/types";
+import type { DecodeBenchJob, DecodeBenchPromptType, LlmBenchTarget } from "../../api/types";
 import { useModalPresence } from "../../hooks/useModalPresence";
+import { formatLlmBaseUrl } from "../../shared/llmTarget.js";
 import {
   DECODE_BENCH_DEFAULT_TYPE,
   DECODE_BENCH_TYPE_META,
@@ -27,6 +28,7 @@ interface BenchmarkDialogProps {
   sparkId: string;
   llmPort: number;
   modelId: string | null;
+  remoteTarget?: LlmBenchTarget | null;
 }
 
 function useEscape(onClose: () => void, enabled: boolean) {
@@ -152,6 +154,7 @@ export function BenchmarkDialog({
   sparkId,
   llmPort,
   modelId,
+  remoteTarget = null,
 }: BenchmarkDialogProps) {
   const [selected, setSelected] = useState<number[]>([...DEFAULT_SELECTED]);
   const [maxTokensDraft, setMaxTokensDraft] = useState(String(DEFAULT_MAX_TOKENS));
@@ -163,6 +166,7 @@ export function BenchmarkDialog({
   const [copied, setCopied] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const benchPort = remoteTarget?.port ?? llmPort;
 
   const stopPoll = useCallback(() => {
     if (pollRef.current != null) {
@@ -207,7 +211,7 @@ export function BenchmarkDialog({
           .catch((err: Error) => {
             // Server --watch / restart can drop the in-memory job for a moment.
             // Recover via list, or show a clear interrupt message instead of a bare 404.
-            void listDecodeBench(sparkId, llmPort)
+            void listDecodeBench(sparkId, benchPort)
               .then((data) => {
                 if (data.active) {
                   setJob(data.active);
@@ -246,7 +250,7 @@ export function BenchmarkDialog({
           });
       }, 800);
     },
-    [sparkId, llmPort, stopPoll]
+    [sparkId, benchPort, stopPoll]
   );
 
   useEffect(() => {
@@ -258,7 +262,7 @@ export function BenchmarkDialog({
     setError(null);
     let cancelled = false;
     setLoadingLast(true);
-    listDecodeBench(sparkId, llmPort)
+    listDecodeBench(sparkId, benchPort)
       .then((data) => {
         if (cancelled) return;
         if (data.active) {
@@ -285,7 +289,7 @@ export function BenchmarkDialog({
       cancelled = true;
       stopPoll();
     };
-  }, [open, sparkId, llmPort, stopPoll, startPolling, applyJobConfig]);
+  }, [open, sparkId, benchPort, stopPoll, startPolling, applyJobConfig]);
 
   useEffect(() => () => stopPoll(), [stopPoll]);
 
@@ -322,11 +326,14 @@ export function BenchmarkDialog({
     setJob(null);
     try {
       const started = await startDecodeBench(sparkId, {
-        port: llmPort,
+        port: benchPort,
         concurrencies: selected,
         maxTokens,
         modelId: modelId || undefined,
         promptType,
+        ...(remoteTarget
+          ? { host: remoteTarget.host, tls: remoteTarget.tls }
+          : {}),
       });
       setJob(started);
       startPolling(started.benchId);
@@ -382,7 +389,7 @@ export function BenchmarkDialog({
     if (!job || job.status === "running") return;
     setError(null);
     try {
-      await clearDecodeBenchHistory(sparkId, llmPort);
+      await clearDecodeBenchHistory(sparkId, benchPort);
       stopPoll();
       setJob(null);
     } catch (err: unknown) {
@@ -428,7 +435,9 @@ export function BenchmarkDialog({
               Decode benchmark
             </h2>
             <p className="bench-sheet__subtitle">
-              Port {llmPort}
+              {remoteTarget
+                ? formatLlmBaseUrl(remoteTarget)
+                : `Port ${llmPort}`}
               {modelId ? ` · ${modelId}` : ""}
             </p>
           </div>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { SparkSnapshot } from "../../api/types";
-import { resolveSparkRole } from "../../api/sparkRole";
+import { isWorkerSpark, resolveSparkRole } from "../../api/sparkRole";
 import { shutdownAllSparks, updateAllHermes, wakeAllSparks } from "../../api/client";
 import { ConfirmShutdownDialog } from "../ConfirmShutdownDialog";
 import { MetricBar } from "../ui/MetricBar";
@@ -9,6 +9,7 @@ import { ActivityIcon, PowerOffIcon, PowerOnIcon, RotateIcon } from "../ui/icons
 interface OverviewPageProps {
   sparks: SparkSnapshot[];
   hideOffline?: boolean;
+  hideWorkers?: boolean;
   temperatureUnit?: "celsius" | "fahrenheit";
   onSelectSpark?: (id: string) => void;
 }
@@ -379,8 +380,16 @@ function SparkCard({
   );
 }
 
-export function OverviewPage({ sparks, hideOffline = false, temperatureUnit = "celsius", onSelectSpark }: OverviewPageProps) {
-  const visibleSparks = hideOffline ? sparks.filter((s) => s.online) : sparks;
+export function OverviewPage({
+  sparks,
+  hideOffline = false,
+  hideWorkers = false,
+  temperatureUnit = "celsius",
+  onSelectSpark,
+}: OverviewPageProps) {
+  const withoutWorkers = hideWorkers ? sparks.filter((s) => !isWorkerSpark(s)) : sparks;
+  const visibleSparks = hideOffline ? withoutWorkers.filter((s) => s.online) : withoutWorkers;
+  const hiddenWorkerCount = hideWorkers ? sparks.filter(isWorkerSpark).length : 0;
   const [batchLoading, setBatchLoading] = useState(false);
   const [batchMsg, setBatchMsg] = useState<{ text: string; tone: "ok" | "err" } | null>(null);
   const [shutdownOpen, setShutdownOpen] = useState(false);
@@ -507,20 +516,25 @@ export function OverviewPage({ sparks, hideOffline = false, temperatureUnit = "c
   }
 
   if (visibleSparks.length === 0) {
-    const allOffline = hideOffline && sparks.length > 0;
+    const allWorkersHidden = hideWorkers && sparks.length > 0 && withoutWorkers.length === 0;
+    const allOffline = hideOffline && withoutWorkers.length > 0;
+    const title = allWorkersHidden
+      ? "Worker nodes are hidden"
+      : allOffline
+        ? "All Sparks are offline"
+        : "No Sparks registered";
+    const detail = allWorkersHidden
+      ? "Hide worker nodes is on in Settings. Turn it off to show Worker-role Sparks again."
+      : allOffline
+        ? "Auto-hide is enabled and no Sparks are currently online."
+        : "Click the + tab to add a DGX Spark unit.";
     return (
       <div className="panel mx-auto mt-16 max-w-md p-8 text-center">
         <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-accent-soft text-accent">
           <ActivityIcon className="h-5 w-5" />
         </div>
-        <h2 className="text-sm font-semibold text-text-strong">
-          {allOffline ? "All Sparks are offline" : "No Sparks registered"}
-        </h2>
-        <p className="mt-1 text-xs text-muted">
-          {allOffline
-            ? "Auto-hide is enabled and no Sparks are currently online."
-            : "Click the + tab to add a DGX Spark unit."}
-        </p>
+        <h2 className="text-sm font-semibold text-text-strong">{title}</h2>
+        <p className="mt-1 text-xs text-muted">{detail}</p>
       </div>
     );
   }
@@ -624,6 +638,11 @@ export function OverviewPage({ sparks, hideOffline = false, temperatureUnit = "c
             <span className="dot" />
             {onlineCount}/{visibleSparks.length} online
           </span>
+          {hiddenWorkerCount > 0 && (
+            <span className="text-[11px] text-muted">
+              {hiddenWorkerCount} worker{hiddenWorkerCount === 1 ? "" : "s"} hidden
+            </span>
+          )}
         </div>
       </div>
       <ConfirmShutdownDialog

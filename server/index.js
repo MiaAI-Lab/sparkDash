@@ -10,7 +10,7 @@ import { SparkRegistry } from "./sparks/SparkRegistry.js";
 import { SparkMonitor } from "./sparks/SparkMonitor.js";
 import { sshExec, sshTest, llmTest, comfyTest } from "./collectors/ssh.js";
 import { comfyCancelJob } from "./collectors/comfyActions.js";
-import { validateSparkTarget, createRateLimiter } from "./validate.js";
+import { validateSparkTarget, createRateLimiter, isAllowedTargetHost } from "./validate.js";
 import { getSettings, updateSettings, loadSettings } from "./settings.js";
 import { broadcastForLanIp, effectiveMac, normalizeMac, sendWol } from "./wol.js";
 import {
@@ -23,6 +23,8 @@ import {
 } from "./collectors/PrefillBench.js";
 import { showcaseManager } from "./collectors/ShowcaseManager.js";
 import { llmProbeHost } from "./collectors/llmHost.js";
+import { onceClose, resolveLlmHttpTarget } from "./collectors/llmTunnel.js";
+import { formatLlmBaseUrl, parseLlmTargetInput } from "../src/shared/llmTarget.js";
 import { llmDaily } from "./collectors/LlmDaily.js";
 import { compareSemver, getLatestRelease } from "./collectors/HermesReleases.js";
 
@@ -81,6 +83,68 @@ function resolveLlmApiKey(spark, port) {
   const raw = keys[String(port)] ?? keys[port];
   const key = raw != null ? String(raw).trim() : "";
   return key || null;
+}
+
+/**
+ * Local Spark LLM port, or an on-demand remote host (HTTPS Tailscale, etc.).
+ * Custom `host` skips the configured-port allowlist and SSH tunnel.
+ *
+ * @param {object} spark
+ * @param {number[]} configuredPorts
+ * @param {object} body
+ */
+function benchHttpTarget(spark, configuredPorts, body) {
+  const hostRaw = body?.host != null ? String(body.host).trim() : "";
+  if (hostRaw) {
+    const parsed = parseLlmTargetInput(hostRaw, body?.port, body?.tls);
+    if (!isAllowedTargetHost(parsed.host)) {
+      const err = new Error(`Invalid or disallowed host: ${parsed.host}`);
+      err.status = 400;
+      throw err;
+    }
+    return {
+      port: parsed.port,
+      host: parsed.host,
+      tls: parsed.tls,
+      custom: true,
+      apiKey: null,
+      resolveTarget: async ({ onStatus }) => {
+        onStatus?.(`Reaching ${formatLlmBaseUrl(parsed)}…`);
+        return {
+          host: parsed.host,
+          port: parsed.port,
+          tls: parsed.tls,
+          via: "direct",
+          close: onceClose(() => {}),
+        };
+      },
+    };
+  }
+
+  let port = body?.port != null ? Number(body.port) : configuredPorts[0];
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    const err = new Error("Invalid port");
+    err.status = 400;
+    throw err;
+  }
+  if (!configuredPorts.includes(port)) {
+    const err = new Error("port is not configured for this Spark");
+    err.status = 400;
+    throw err;
+  }
+  return {
+    port,
+    host: null,
+    tls: false,
+    custom: false,
+    apiKey: resolveLlmApiKey(spark, port),
+    resolveTarget: ({ onStatus, signal }) =>
+      resolveLlmHttpTarget(spark, port, {
+        apiKey: resolveLlmApiKey(spark, port),
+        onStatus,
+        signal,
+      }),
+  };
 }
 
 // Rate-limit ephemeral + registered connectivity tests (per client IP)
@@ -806,17 +870,17 @@ app.post("/api/sparks/:id/llm/bench", (req, res) => {
     ? spark.llmPorts
     : [resolveLlmPort(spark)];
 
-  let port = req.body?.port != null ? Number(req.body.port) : ports[0];
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    return res.status(400).json({ error: "Invalid port" });
+  let target;
+  try {
+    target = benchHttpTarget(spark, ports, req.body || {});
+  } catch (err) {
+    return res.status(err.status || 400).json({ error: err.message });
   }
-  if (!ports.includes(port)) {
-    return res.status(400).json({ error: "port is not configured for this Spark" });
-  }
+  const port = target.port;
 
   // Resolve model id for this port from live snapshot when possible
   let modelId = req.body?.modelId || null;
-  if (!modelId && monitor) {
+  if (!modelId && !target.custom && monitor) {
     const snap = monitor.snapshot();
     const llmList = Array.isArray(snap?.metrics?.llm) ? snap.metrics.llm : [];
     const portIndex = ports.indexOf(port);
@@ -838,9 +902,12 @@ app.post("/api/sparks/:id/llm/bench", (req, res) => {
       maxTokens: req.body?.maxTokens,
       promptType: req.body?.promptType,
       debug: benchDebug,
-      apiKey: resolveLlmApiKey(spark, port),
+      apiKey: target.apiKey,
+      host: target.host,
+      tls: target.tls,
+      resolveTarget: target.resolveTarget,
       sampleHardware:
-        benchDebug && monitor
+        benchDebug && monitor && !target.custom
           ? async () => {
               const fromGpu = (gpu, um) =>
                 gpu
@@ -967,16 +1034,16 @@ app.post("/api/sparks/:id/llm/prefill-bench", (req, res) => {
     ? spark.llmPorts
     : [resolveLlmPort(spark)];
 
-  let port = req.body?.port != null ? Number(req.body.port) : ports[0];
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    return res.status(400).json({ error: "Invalid port" });
+  let target;
+  try {
+    target = benchHttpTarget(spark, ports, req.body || {});
+  } catch (err) {
+    return res.status(err.status || 400).json({ error: err.message });
   }
-  if (!ports.includes(port)) {
-    return res.status(400).json({ error: "port is not configured for this Spark" });
-  }
+  const port = target.port;
 
   let modelId = req.body?.modelId || null;
-  if (!modelId && monitor) {
+  if (!modelId && !target.custom && monitor) {
     const snap = monitor.snapshot();
     const llmList = Array.isArray(snap?.metrics?.llm) ? snap.metrics.llm : [];
     const portIndex = ports.indexOf(port);
@@ -994,7 +1061,10 @@ app.post("/api/sparks/:id/llm/prefill-bench", (req, res) => {
       port,
       modelId,
       contextSizes: req.body?.contextSizes,
-      apiKey: resolveLlmApiKey(spark, port),
+      apiKey: target.apiKey,
+      host: target.host,
+      tls: target.tls,
+      resolveTarget: target.resolveTarget,
     });
     res.status(202).json(job);
   } catch (err) {
