@@ -13,7 +13,7 @@ import {
 import {
   SortableContext,
   arrayMove,
-  horizontalListSortingStrategy,
+  rectSortingStrategy,
   sortableKeyboardCoordinates,
   useSortable,
 } from "@dnd-kit/sortable";
@@ -351,7 +351,10 @@ export function SparkTabs({
     >
       <nav className="pill-nav" aria-label="Sparks">
         <OverviewTab isActive={activeId === OVERVIEW_ID} onSelect={onSelect} />
-        <SortableContext items={items} strategy={horizontalListSortingStrategy}>
+        {/* rect (not horizontal-list) strategy: .pill-nav wraps onto several
+            rows once there are more Sparks than fit one line, and the
+            horizontal strategy only ever shifts items along X. */}
+        <SortableContext items={items} strategy={rectSortingStrategy}>
           {ordered.map((spark) => (
             <SortableTab
               key={spark.id}
