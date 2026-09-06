@@ -169,6 +169,10 @@ function startMonitor(spark) {
     },
     // Hermes check / update results must not wait for the next broadcast tick.
     onHermesChange: () => forceBroadcast(),
+    // Worker derived label: resolve a head id to its live LLM model id.
+    // Returns null when the head is unknown/offline/model-less so workers
+    // never display a stale model. Display-only; never writes to config.
+    resolveHeadModelId: (headId) => monitors.get(headId)?.headLlmModelId() ?? null,
   });
   monitors.set(spark.id, monitor);
   monitor.start();

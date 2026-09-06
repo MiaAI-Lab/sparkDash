@@ -49,8 +49,11 @@ export function SparkHeader({ spark, onEdit }: SparkHeaderProps) {
                     : spark.llmMonitoring === false
                       ? "Standalone — LLM monitoring off"
                       : "Standalone — local LLM API";
+              // Manual override first, then derived head-model mirror.
               const workerLabel =
-                role === "worker" ? spark.workerLabel?.trim() || null : null;
+                role === "worker"
+                  ? spark.workerLabel?.trim() || spark.workerDerivedLabel?.trim() || null
+                  : null;
               return (
                 <>
                   <span

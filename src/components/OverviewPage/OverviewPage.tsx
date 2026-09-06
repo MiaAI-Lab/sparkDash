@@ -309,8 +309,12 @@ function SparkCard({
               const role = resolveSparkRole(spark);
 
               // Workers have no local LLM API — show cluster/model label instead.
+              // Priority: manual workerLabel override > derived head-model
+              // mirror > generic fallback. Derived never shows a stale model:
+              // the backend nulls it when the head is unresolvable/offline.
               if (role === "worker") {
-                const label = spark.workerLabel?.trim() || "distributed";
+                const label =
+                  spark.workerLabel?.trim() || spark.workerDerivedLabel?.trim() || "distributed";
                 const title = headSparkName
                   ? `${label} · worker of ${headSparkName}`
                   : `${label} · distributed LLM worker`;
