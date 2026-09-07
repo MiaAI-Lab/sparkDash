@@ -1,6 +1,7 @@
 import type {
   DecodeBenchJob,
   DecodeBenchListResponse,
+  FleetEnergy,
   HermesBatchUpdateResponse,
   HermesUpdatesResponse,
   LlmMetrics,
@@ -41,6 +42,10 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
 // ─── Sparks CRUD ─────────────────────────────────────────
 export function fetchSparks(): Promise<{ sparks: SparkConfig[] }> {
   return apiFetch("/api/sparks");
+}
+
+export function fetchFleetEnergy(): Promise<FleetEnergy> {
+  return apiFetch("/api/fleet-energy");
 }
 
 /** Latest metrics snapshot for one Spark (includes per-port LLM modelId). */
