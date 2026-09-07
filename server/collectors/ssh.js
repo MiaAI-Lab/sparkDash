@@ -6,6 +6,7 @@
  * Password auth uses sshpass -e (password via env), not -p on the command line.
  */
 import { execFile } from "child_process";
+import crypto from "crypto";
 import fs from "fs";
 import { COMFY_PORT, COMFY_PROBE_TIMEOUT_MS, SSH_CONNECT_TIMEOUT } from "../config.js";
 import { isAllowedTargetHost, isValidSshUser } from "../validate.js";
@@ -14,6 +15,93 @@ import { llmProbeHost } from "./llmHost.js";
 // Detect sshpass without shelling out to `which` on every cold call —
 // checking PATH entries directly is faster and avoids spawning a shell.
 let _sshpassAvailable = null;
+const _multiplexStates = new Map();
+const _controlDir = fs.mkdtempSync("/tmp/sparkdash-ssh-");
+const _controlSalt = crypto.randomBytes(32);
+fs.chmodSync(_controlDir, 0o700);
+
+function controlPersistSeconds() {
+  const configured = Number.parseInt(process.env.SSH_CONTROL_PERSIST_SECONDS ?? "60", 10);
+  return Number.isFinite(configured) ? Math.min(3600, Math.max(0, configured)) : 60;
+}
+
+function ensureControlDir() {
+  fs.mkdirSync(_controlDir, { recursive: true, mode: 0o700 });
+  fs.chmodSync(_controlDir, 0o700);
+}
+
+/**
+ * Build an isolated OpenSSH control socket config. Credentials are included
+ * only in the digest so two password records cannot share an authenticated
+ * transport; the secret itself is never exposed in argv or the socket path.
+ */
+export function sshMultiplexConfig(spark, targetHost, user, auth, password) {
+  const persistSeconds = controlPersistSeconds();
+  if (persistSeconds === 0) return null;
+
+  ensureControlDir();
+  const identityFile = process.env.SSH_IDENTITY_FILE || "default";
+  const isolationKey = [spark.id, user, targetHost, auth || "key", identityFile, password || ""].join("\0");
+  const digest = crypto
+    .createHash("sha256")
+    .update(_controlSalt)
+    .update(isolationKey)
+    .digest("hex")
+    .slice(0, 24);
+  return {
+    key: digest,
+    persistSeconds,
+    args: [
+      "-o",
+      "ControlMaster=auto",
+      "-o",
+      `ControlPersist=${persistSeconds}`,
+      "-o",
+      `ControlPath=${_controlDir}/${digest}`,
+    ],
+  };
+}
+
+/** Establish or re-check the master before concurrent pollers run. */
+export async function ensureMultiplexReady(config, establish) {
+  if (!config) return;
+
+  const now = Date.now();
+  let state = _multiplexStates.get(config.key);
+  if (state && now >= state.expiresAt) {
+    _multiplexStates.delete(config.key);
+    state = null;
+  }
+
+  if (!state) {
+    state = {
+      ready: Promise.resolve().then(establish),
+      expiresAt: now + config.persistSeconds * 1000,
+    };
+    _multiplexStates.set(config.key, state);
+  }
+
+  try {
+    await state.ready;
+  } catch (err) {
+    if (_multiplexStates.get(config.key) === state) _multiplexStates.delete(config.key);
+    throw err;
+  }
+}
+
+/** Forget cached readiness after a multiplexed command fails. */
+export function invalidateMultiplex(config) {
+  if (config) _multiplexStates.delete(config.key);
+}
+
+process.once("exit", () => {
+  try {
+    fs.rmSync(_controlDir, { recursive: true, force: true });
+  } catch {
+    // ControlPersist bounds any master left behind by an abrupt shutdown.
+  }
+});
+
 function sshpassAvailable() {
   if (_sshpassAvailable !== null) return _sshpassAvailable;
   try {
@@ -92,6 +180,8 @@ export function sshCommandSpec(spark, opts = {}) {
   ];
 
   const remote = `${user}@${targetHost}`;
+  const multiplex = sshMultiplexConfig(spark, targetHost, user, auth, password);
+  const multiplexOpts = multiplex?.args || [];
   // `--` stops option parsing before destination.
   let file;
   let args;
@@ -121,11 +211,20 @@ export function sshCommandSpec(spark, opts = {}) {
     // Password via env (sshpass -e) — never on argv or in process list as -p
     env.SSHPASS = password;
     file = "sshpass";
-    args = ["-e", "ssh", ...baseOpts, ...extraSshArgs, "--", remote, ...remoteArgv];
+    args = [
+      "-e",
+      "ssh",
+      ...baseOpts,
+      ...multiplexOpts,
+      ...extraSshArgs,
+      "--",
+      remote,
+      ...remoteArgv,
+    ];
   } else {
     // Key-based SSH (default) — BatchMode prevents hanging on missing keys
     file = "ssh";
-    args = [...baseOpts, "-o", "BatchMode=yes"];
+    args = [...baseOpts, ...multiplexOpts, "-o", "BatchMode=yes"];
     const identityFile = process.env.SSH_IDENTITY_FILE;
     if (identityFile) {
       args.push("-i", identityFile);
@@ -133,7 +232,7 @@ export function sshCommandSpec(spark, opts = {}) {
     args.push(...extraSshArgs, "--", remote, ...remoteArgv);
   }
 
-  return { file, args, env, targetHost };
+  return { file, args, env, targetHost, multiplex };
 }
 
 /**
@@ -152,18 +251,35 @@ export async function sshExec(spark, cmd, options = {}) {
     throw new Error("SSH command must be a non-empty string");
   }
 
-  const { file, args, env, targetHost } = sshCommandSpec(spark, { remoteArgv: [cmd] });
-
-  return new Promise((resolve, reject) => {
-    execFile(file, args, { timeout: timeoutMs, env, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
-      if (err) {
-        const msg = stderr?.trim() || err.message;
-        reject(new Error(`SSH to ${targetHost} failed: ${msg}`));
-      } else {
-        resolve(String(stdout).trim());
-      }
-    });
+  const { file, args, env, targetHost, multiplex } = sshCommandSpec(spark, {
+    remoteArgv: [cmd],
   });
+
+  const execute = (execArgs) =>
+    new Promise((resolve, reject) => {
+      execFile(file, execArgs, { timeout: timeoutMs, env, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
+        if (err) {
+          const msg = stderr?.trim() || err.message;
+          reject(new Error(`SSH to ${targetHost} failed: ${msg}`));
+        } else {
+          resolve(String(stdout).trim());
+        }
+      });
+    });
+
+  if (multiplex) {
+    const probeArgs = [...args];
+    probeArgs[probeArgs.length - 1] = "true";
+    await ensureMultiplexReady(multiplex, () => execute(probeArgs));
+  }
+  try {
+    return await execute(args);
+  } catch (err) {
+    // The master can die after readiness but before this exec. Never trust
+    // cached state after a transport failure; the next caller must re-probe.
+    invalidateMultiplex(multiplex);
+    throw err;
+  }
 }
 
 /**
