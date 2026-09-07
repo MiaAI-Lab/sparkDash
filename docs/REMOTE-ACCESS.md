@@ -27,7 +27,7 @@ Keep `BIND_HOST=127.0.0.1` and publish the loopback service through one of these
 
 The front door must proxy both `/api/*` and `/ws`, preserve WebSocket upgrades, and require authentication for every path. TLS without authentication is not sufficient.
 
-Direct `BIND_HOST=0.0.0.0` or a LAN address is intentionally rejected. A firewall-only or “trusted LAN” deployment is not a supported substitute because any reachable browser or device could invoke administrative routes. Direct LAN binding can return only after application authentication and origin protection are implemented.
+Direct `BIND_HOST=0.0.0.0` requires `SPARKDASH_TOKEN`. Without a token, remote bind fails closed for mutations and WebSocket telemetry. A firewall-only or “trusted LAN” deployment is not a supported substitute.
 
 ## Existing Docker installations
 

@@ -256,7 +256,7 @@ For another computer, keep the server on loopback and use an SSH tunnel:
 ssh -N -L 5555:127.0.0.1:5555 user@sparkdash-host
 ```
 
-Then open `http://127.0.0.1:5555` on that computer. For shared access, use an authenticated TLS reverse proxy or Tailscale Serve. See [Remote access](./docs/REMOTE-ACCESS.md). Direct LAN binding is refused because the application API is not yet authenticated.
+Then open `http://127.0.0.1:5555` on that computer. For shared access, use an authenticated TLS reverse proxy, Tailscale Serve, or set `BIND_HOST=0.0.0.0` **and** `SPARKDASH_TOKEN`. Direct LAN bind without a token fails closed. Previous `http://<host-ip>:5555` installs must migrate.
 
 For development with Docker (source-mounted, HMR):
 ```bash
@@ -403,7 +403,8 @@ Copy `.env.example` to `.env` if needed:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BIND_HOST` | `127.0.0.1` | HTTP and WebSocket listen address. Non-loopback values fail closed until direct-client authentication exists. |
+| `BIND_HOST` | `127.0.0.1` | HTTP and WebSocket listen address. Non-loopback bind requires `SPARKDASH_TOKEN`. |
+| `SPARKDASH_TOKEN` | _(empty)_ | Bearer token required for mutations and remote telemetry when not on loopback. |
 | `PORT` | `5555` | HTTP + WebSocket listen port |
 | `LLM_PORT` | `8888` | Default LLM probe port |
 | `COMFY_PORT` | `8188` | Default ComfyUI probe port |
@@ -429,9 +430,9 @@ Copy `.env.example` to `.env` if needed:
 | `FLEET_ENERGY_JSON_PATH` | `config/fleet-energy.json` | Rolling fleet-energy persistence path |
 
 > The listener and both Compose files default to `127.0.0.1`. Existing Docker users who opened
-> `http://<host-ip>:5555` must migrate to an SSH tunnel, authenticated reverse proxy, or Tailscale
-> Serve. Recovery: `BIND_HOST=127.0.0.1 docker compose up -d --force-recreate`. See
-> [Remote access](./docs/REMOTE-ACCESS.md).
+> `http://<host-ip>:5555` must migrate to an SSH tunnel, authenticated reverse proxy, Tailscale
+> Serve, or `BIND_HOST=0.0.0.0 SPARKDASH_TOKEN=...`. Recovery:
+> `BIND_HOST=127.0.0.1 docker compose up -d --force-recreate`.
 
 ### Adding a unit
 
@@ -450,7 +451,7 @@ Copy `.env.example` to `.env` if needed:
   Install that script on each Spark and allow passwordless sudo for it only.
 - **Wake** / **Wake All** send a UDP magic packet (port 9). The MAC is taken from the **enP7s7** interface automatically while the Spark is online (persisted as `detectedMacAddress`). Optionally set a **MAC override** in Edit Spark. Broadcast is derived as `/24` from LAN IP, or `255.255.255.255` if LAN IP is missing.
 - Batch shutdown only targets **online** Sparks; offline nodes are skipped.
-- Same trust model as the rest of the API: **do not expose port 5555** beyond a trusted network — power actions are not separately authenticated.
+- Power APIs are mutations: on loopback they follow the local-trust model; a remote bind requires `SPARKDASH_TOKEN`.
 
 ### Themes
 
@@ -475,7 +476,9 @@ Choice is stored in `localStorage`.
 - **Target validation** rejects clearly unsafe IPv4 targets (link-local `169.254.0.0/16`, `0.0.0.0/8`, multicast/reserved ≥ 224). Private, loopback, and public addresses are allowed so LAN and remote Sparks work.
 - SSH and HTTP probes use short timeouts (about 5 s SSH connect, 3 s HTTP) so a hung host cannot stall the poll loop.
 - Prefer **SSH keys** over passwords. In Docker, mount the private key into `/root/.ssh` (see Quick start); passwords are the only SSH secret the app stores itself.
-- The API is unauthenticated, including power actions. The server therefore fails closed on non-loopback binds. Do not bypass this with a firewall-only “trusted LAN”; use one of the authenticated paths in [Remote access](./docs/REMOTE-ACCESS.md).
+- Loopback installs remain local-trust. Remote bind (`BIND_HOST` not loopback) requires `SPARKDASH_TOKEN` for mutations and WebSocket telemetry and fails closed without it.
+- One-off remote benchmark hosts must be listed in `SPARKDASH_BENCH_HOSTS`.
+- Tested operator capacity for this remediation: **12 units**.
 
 
 ---
