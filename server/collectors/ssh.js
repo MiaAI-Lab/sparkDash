@@ -83,6 +83,7 @@ export async function ensureMultiplexReady(config, establish) {
 
   try {
     await state.ready;
+    return state;
   } catch (err) {
     if (_multiplexStates.get(config.key) === state) _multiplexStates.delete(config.key);
     throw err;
@@ -225,19 +226,35 @@ export async function sshExec(spark, cmd, options = {}) {
       execFile(file, execArgs, { timeout: timeoutMs, env, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
         if (err) {
           const msg = stderr?.trim() || err.message;
-          reject(new Error(`SSH to ${targetHost} failed: ${msg}`));
+          reject(new Error(`SSH to ${targetHost} failed: ${msg}`, { cause: err }));
         } else {
           resolve(String(stdout).trim());
         }
       });
     });
 
+  let multiplexState;
   if (multiplex) {
     const probeArgs = [...args];
     probeArgs[probeArgs.length - 1] = "true";
-    await ensureMultiplexReady(multiplex, () => execute(probeArgs));
+    multiplexState = await ensureMultiplexReady(multiplex, () => execute(probeArgs));
   }
-  return execute(args);
+  try {
+    return await execute(args);
+  } catch (err) {
+    // OpenSSH reports transport errors as 255. Signals/timeouts and local
+    // execution errors also leave transport health unknown. Ordinary remote
+    // nonzero exits do not mean the shared connection is dead.
+    const failure = err.cause;
+    const transportFailed = failure?.code === 255 || failure?.killed ||
+      failure?.signal || typeof failure?.code !== "number";
+    // A late failure from an old command must not evict a newer recovery probe.
+    if (multiplex && transportFailed && _multiplexStates.get(multiplex.key) === multiplexState) {
+      _multiplexStates.delete(multiplex.key);
+    }
+    // Never replay the command: the remote side may already have executed it.
+    throw err;
+  }
 }
 
 /**
