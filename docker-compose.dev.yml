@@ -29,7 +29,7 @@ services:
     # (otherwise local VRAM falls back to minute-old config/gpu-memory.json).
     pid: host
     environment:
-      - BIND_HOST=0.0.0.0
+      - BIND_HOST=${BIND_HOST:-127.0.0.1}
       - PORT=5555
       - LLM_PORT=8888
       - NODE_ENV=development
@@ -37,3 +37,4 @@ services:
       - HOST_SYS_PATH=/host/sys
       - HOST_ROOT_PATH=/host/root
       - SSH_CONTROL_PERSIST_SECONDS=${SSH_CONTROL_PERSIST_SECONDS:-60}
+      - SSH_IDENTITY_FILE=${SSH_IDENTITY_FILE:-}
