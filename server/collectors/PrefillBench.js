@@ -198,6 +198,7 @@ function publicJob(job) {
       job.completedAt != null
         ? job.completedAt - job.startedAt
         : Date.now() - job.startedAt,
+    owner: job.owner || null,
   };
 }
 
@@ -216,6 +217,10 @@ export class PrefillBenchManager {
     this.activePath = activePath;
     this._loadHistory();
     this._recoverInterruptedActive();
+  }
+
+  activeCount() {
+    return this.activeBySpark.size;
   }
 
   getJob(benchId) {
@@ -436,6 +441,7 @@ export class PrefillBenchManager {
       resolveTarget = null,
       host: rawHost = null,
       tls: rawTls = false,
+      owner = null,
     } = opts;
 
     if (this.activeBySpark.has(sparkId)) {
@@ -493,6 +499,7 @@ export class PrefillBenchManager {
       _apiKey: apiKey != null && String(apiKey).trim() ? String(apiKey).trim() : null,
       _resolveTarget: typeof resolveTarget === "function" ? resolveTarget : null,
       _closeTarget: null,
+      owner: owner ? { id: owner.id, via: owner.via } : null,
     };
 
     this.jobs.set(benchId, job);

@@ -438,6 +438,10 @@ export class DecodeBenchManager {
     this._recoverInterruptedActive();
   }
 
+  activeCount() {
+    return this.activeBySpark.size;
+  }
+
   getJob(benchId) {
     const job = this.jobs.get(benchId);
     if (job) return publicJob(job);
@@ -700,6 +704,7 @@ export class DecodeBenchManager {
       resolveTarget = null,
       host: rawHost = null,
       tls: rawTls = false,
+      owner = null,
     } = opts;
 
     if (this.activeBySpark.has(sparkId)) {
@@ -767,6 +772,7 @@ export class DecodeBenchManager {
         debugOn && typeof sampleHardware === "function" ? sampleHardware : null,
       _resolveTarget: typeof resolveTarget === "function" ? resolveTarget : null,
       _closeTarget: null,
+      owner: owner ? { id: owner.id, via: owner.via } : null,
     };
 
     this.jobs.set(benchId, job);
@@ -921,6 +927,8 @@ export class DecodeBenchManager {
   }
 }
 
+export { ALLOWED_CONCURRENCIES, DEFAULT_MAX_TOKENS, normalizeConcurrencies };
+
 function normalizeConcurrencies(raw) {
   if (!Array.isArray(raw)) return [];
   const out = [];
@@ -948,6 +956,7 @@ function publicJob(job) {
       job.completedAt != null
         ? job.completedAt - job.startedAt
         : Date.now() - job.startedAt,
+    owner: job.owner || null,
   };
 }
 
