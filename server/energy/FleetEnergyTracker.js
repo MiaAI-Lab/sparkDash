@@ -44,6 +44,7 @@ function emptyBucket(minuteStartMs, nodeIds) {
     fleetWattMs: 0,
     fleetCoverageMs: 0,
     outputTokens: 0,
+    coveredOutputTokens: 0,
   };
 }
 
@@ -243,6 +244,8 @@ export class FleetEnergyTracker {
     this._recentFullFleetSamples = [];
     this._latestFreshNodeCount = 0;
     this._latestRecordAt = null;
+    this._membershipChanged = false;
+    this._currentNodeIds = [...this.nodeIds];
     this._dirty = false;
     this._flushTimer = null;
 
@@ -266,6 +269,21 @@ export class FleetEnergyTracker {
 
   _time(atMs) {
     return atMs === undefined ? this._now() : atMs;
+  }
+
+  /** Invalidate aggregates when the visible registry no longer matches this tracker's scope. */
+  invalidateMembership(currentNodeIds) {
+    const normalized = normalizeNodeIds(currentNodeIds);
+    const unchanged =
+      normalized.length === this.nodeIds.length &&
+      normalized.every((id) => this._nodeIdSet.has(id));
+    this._currentNodeIds = normalized;
+    this._membershipChanged = !unchanged;
+    if (this._membershipChanged) {
+      this._recentFullFleetSamples = [];
+      this._latestFreshNodeCount = 0;
+    }
+    return this._membershipChanged;
   }
 
   _bucket(minuteStartMs) {
@@ -326,7 +344,7 @@ export class FleetEnergyTracker {
     );
   }
 
-  _recordTokens(snapshots, atMs) {
+  _recordTokens(snapshots, atMs, hasFullFleetInterval) {
     const observation = tokenObservation(snapshots, atMs, this._nodeIdSet);
     if (!observation) return;
 
@@ -346,6 +364,10 @@ export class FleetEnergyTracker {
       const bucket = this._bucket(minuteStartMs);
       const nextTotal = bucket.outputTokens + delta;
       if (Number.isSafeInteger(nextTotal)) bucket.outputTokens = nextTotal;
+      if (hasFullFleetInterval) {
+        const nextCovered = bucket.coveredOutputTokens + delta;
+        if (Number.isSafeInteger(nextCovered)) bucket.coveredOutputTokens = nextCovered;
+      }
     }
     this._tokenCounter = observation;
     this._tokenNeedsRebase = false;
@@ -438,6 +460,7 @@ export class FleetEnergyTracker {
       this._nodeBaselines.set(id, { atMs: timestamp, watts });
     }
 
+    let hasFullFleetInterval = false;
     if (this.nodeIds.length > 0 && validNodes.size === this.nodeIds.length) {
       const fleetWatts = [...validNodes.values()].reduce((sum, watts) => sum + watts, 0);
       const previous = this._fleetBaseline;
@@ -452,6 +475,7 @@ export class FleetEnergyTracker {
           : null;
       if (interval) {
         this._integrateFleet(interval.previous, interval.current);
+        hasFullFleetInterval = true;
         integratedAtTimestamp = true;
       }
       this._fleetBaseline = { atMs: timestamp, watts: fleetWatts };
@@ -467,7 +491,7 @@ export class FleetEnergyTracker {
       );
     }
 
-    this._recordTokens(snapshots, timestamp);
+    this._recordTokens(snapshots, timestamp, hasFullFleetInterval);
     this._latestFreshNodeCount = validNodes.size;
     this._latestRecordAt = timestamp;
     this._dirty = true;
@@ -480,7 +504,9 @@ export class FleetEnergyTracker {
     const nodeWh = nodeValues(this.nodeIds);
     const nodeCoverageMs = nodeValues(this.nodeIds);
     let fleetCoverageMs = 0;
+    let fleetWattMs = 0;
     let outputTokens = 0;
+    let coveredOutputTokens = 0;
 
     for (const bucket of this._buckets.values()) {
       if (bucket.minuteStartMs < cutoff || bucket.minuteStartMs > atMs) continue;
@@ -489,7 +515,9 @@ export class FleetEnergyTracker {
         nodeCoverageMs[id] += bucket.nodeCoverageMs[id];
       }
       fleetCoverageMs += bucket.fleetCoverageMs;
+      fleetWattMs += bucket.fleetWattMs;
       outputTokens += bucket.outputTokens;
+      coveredOutputTokens += bucket.coveredOutputTokens;
     }
 
     const energyWh = Object.values(nodeWh).reduce((sum, value) => sum + value, 0);
@@ -499,7 +527,9 @@ export class FleetEnergyTracker {
       hasObservedEnergy,
       nodeCoverageMs,
       fleetCoverageMs,
+      fleetEnergyWh: fleetWattMs / 3_600_000,
       outputTokens,
+      coveredOutputTokens,
     };
   }
 
@@ -545,20 +575,28 @@ export class FleetEnergyTracker {
 
     return {
       estimated: true,
-      freshNodeCount,
-      currentWatts30s,
-      energy24hKwh: last24h.hasObservedEnergy ? last24h.energyWh / 1000 : null,
-      energy31dKwh: last31d.hasObservedEnergy ? last31d.energyWh / 1000 : null,
+      membershipChanged: this._membershipChanged,
+      restartRequired: this._membershipChanged,
+      trackedNodeIds: [...this.nodeIds],
+      currentNodeIds: [...this._currentNodeIds],
+      freshNodeCount: this._membershipChanged ? 0 : freshNodeCount,
+      currentWatts30s: this._membershipChanged ? null : currentWatts30s,
+      energy24hKwh:
+        !this._membershipChanged && last24h.hasObservedEnergy ? last24h.energyWh / 1000 : null,
+      energy31dKwh:
+        !this._membershipChanged && last31d.hasObservedEnergy ? last31d.energyWh / 1000 : null,
       whPerOutputToken24h:
-        last24h.hasObservedEnergy && last24h.outputTokens > 0
-          ? last24h.energyWh / last24h.outputTokens
+        !this._membershipChanged && last24h.fleetEnergyWh > 0 && last24h.coveredOutputTokens > 0
+          ? last24h.fleetEnergyWh / last24h.coveredOutputTokens
           : null,
       outputTokens24h: last24h.outputTokens,
       coverage24hMs: last24h.fleetCoverageMs,
       coverage31dMs: last31d.fleetCoverageMs,
       nodeCoverage24hMs: last24h.nodeCoverageMs,
       nodeCoverage31dMs: last31d.nodeCoverageMs,
-      hourlyWatts24h: this._hourly(safeTimestamp),
+      hourlyWatts24h: this._membershipChanged
+        ? Array(24).fill(null)
+        : this._hourly(safeTimestamp),
     };
   }
 
@@ -651,7 +689,9 @@ export class FleetEnergyTracker {
               bucket.nodeCoverageMs[id]
             )
           ) ||
-          !validNonnegativeSafeInteger(candidate.outputTokens)
+          !validNonnegativeSafeInteger(candidate.outputTokens) ||
+          (candidate.coveredOutputTokens != null &&
+            !validNonnegativeSafeInteger(candidate.coveredOutputTokens))
         ) {
           rejectedBucket = true;
           continue;
@@ -659,6 +699,7 @@ export class FleetEnergyTracker {
         bucket.fleetWattMs = candidate.fleetWattMs;
         bucket.fleetCoverageMs = candidate.fleetCoverageMs;
         bucket.outputTokens = candidate.outputTokens;
+        bucket.coveredOutputTokens = candidate.coveredOutputTokens ?? 0;
         this._buckets.set(minuteStartMs, bucket);
       }
       this._bucketsOrdered = true;
