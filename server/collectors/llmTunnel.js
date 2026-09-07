@@ -151,6 +151,10 @@ export async function openSshLlmTunnel(spark, remotePort, opts = {}) {
   opts.onStatus?.(`Opening SSH tunnel to 127.0.0.1:${p}…`);
 
   const spec = sshCommandSpec(spark, {
+    // A forward has to live on its own connection: killing this process is how
+    // the tunnel gets torn down, and a channel on a shared master would outlive
+    // it.
+    multiplex: false,
     extraSshArgs: [
       "-N",
       "-o",

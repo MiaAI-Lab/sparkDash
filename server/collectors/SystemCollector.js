@@ -1178,6 +1178,12 @@ export class SystemCollector {
         "echo '---'",
         // WoL MAC for the primary LAN NIC on DGX Spark
         `cat /sys/class/net/${WOL_INTERFACE}/address 2>/dev/null || true`,
+        "echo '---'",
+        // Link speed for every interface, not just the primary one: which
+        // interface is primary only falls out of the route table above, and
+        // fetching that one afterwards cost a second SSH login per poll.
+        // Virtual interfaces have no `speed`; they just come back blank.
+        "for d in /sys/class/net/*/speed; do echo \"$(basename $(dirname $d)):$(cat $d 2>/dev/null)\"; done 2>/dev/null || true",
       ].join("; ");
 
       const output = await sshExec(this.spark, cmd);
@@ -1187,6 +1193,16 @@ export class SystemCollector {
       const ipOut = sections[2]?.trim() || "";
       const operstateOut = sections[3]?.trim() || "";
       const wolMac = normalizeMac(sections[4]?.trim() || "");
+      const speedOut = sections[5]?.trim() || "";
+
+      // Parse link speed lines ("enP7s7:10000"); blank values stay unknown.
+      const speedMap = new Map();
+      for (const line of speedOut.split("\n")) {
+        const idx = line.indexOf(":");
+        if (idx <= 0) continue;
+        const mbps = parseInt(line.slice(idx + 1).trim(), 10);
+        if (Number.isFinite(mbps) && mbps > 0) speedMap.set(line.slice(0, idx), mbps);
+      }
 
       // Parse operstate lines ("enP7s7:up")
       const operstateMap = new Map();
@@ -1256,22 +1272,7 @@ export class SystemCollector {
         primaryInterface = alt?.name ?? primaryInterface;
       }
 
-      let linkSpeedMbps = null;
-      if (primaryInterface) {
-        try {
-          // Interface name is from the kernel; still keep it to safe chars
-          if (/^[a-zA-Z0-9._-]+$/.test(primaryInterface)) {
-            const speedRaw = await sshExec(
-              this.spark,
-              `cat /sys/class/net/${primaryInterface}/speed 2>/dev/null || true`
-            );
-            const n = parseInt(String(speedRaw).trim(), 10);
-            if (Number.isFinite(n) && n > 0) linkSpeedMbps = n;
-          }
-        } catch {
-          /* link speed optional */
-        }
-      }
+      const linkSpeedMbps = (primaryInterface && speedMap.get(primaryInterface)) || null;
 
       return { primaryInterface, linkSpeedMbps, interfaces: tagged, wolMac };
     } catch (err) {

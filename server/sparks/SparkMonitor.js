@@ -6,7 +6,7 @@ import { ComfyProbe } from "../collectors/ComfyProbe.js";
 import { HermesProbe } from "../collectors/HermesProbe.js";
 import { TailscaleProbe } from "../collectors/TailscaleProbe.js";
 import { llmDaily } from "../collectors/LlmDaily.js";
-import { sshTest, sshExec } from "../collectors/ssh.js";
+import { sshExec } from "../collectors/ssh.js";
 import {
   POLL_INTERVAL_GPU,
   POLL_INTERVAL_CPU,
@@ -456,23 +456,28 @@ export class SparkMonitor {
     try {
       if (this.spark.isLocal) {
         await this.collector.pingHost();
+        if (!this._running) return;
+        this.online = true;
+        this.lastOnlineOk = Date.now();
+        // Non-fatal — uptime stays at its previous value or null
+        try {
+          this._uptimeSeconds = await this._readUptime();
+        } catch {
+          /* ignore */
+        }
       } else {
-        const result = await sshTest(this.spark);
+        // One SSH round trip, not two. Reading /proc/uptime already proves the
+        // session came up, so the separate `echo ok` probe told us nothing the
+        // uptime read doesn't — and on a remote Spark every probe is a full
+        // login, which is the expensive half of this loop.
+        const uptimeSeconds = await this._readUptime();
         // Re-check after the (up to 10s) SSH await — `stop()` may have fired
         // mid-flight (removeSpark / updateSpark). Bail before mutating state or
         // running into a stopped registry entry.
         if (!this._running) return;
-        if (!result.ok) throw new Error(result.message);
-      }
-      if (!this._running) return;
-      this.online = true;
-      this.lastOnlineOk = Date.now();
-
-      // Collect system uptime
-      try {
-        this._uptimeSeconds = await this._readUptime();
-      } catch {
-        // Non-fatal — uptime stays at previous value or null
+        this.online = true;
+        this.lastOnlineOk = Date.now();
+        this._uptimeSeconds = uptimeSeconds;
       }
     } catch {
       if (!this._running) return;
