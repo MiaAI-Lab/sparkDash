@@ -169,6 +169,10 @@ function monitorWithCollectionState({
 
 const APPROVED_RESPONSE_FIELDS = [
   "estimated",
+  "membershipChanged",
+  "restartRequired",
+  "trackedNodeIds",
+  "currentNodeIds",
   "freshNodeCount",
   "currentWatts30s",
   "energy24hKwh",
@@ -189,6 +193,10 @@ function assertNullableFiniteNumber(value) {
 function assertFleetEnergyResponseContract(response) {
   assert.deepEqual(Object.keys(response).sort(), [...APPROVED_RESPONSE_FIELDS].sort());
   assert.equal(typeof response.estimated, "boolean");
+  assert.equal(typeof response.membershipChanged, "boolean");
+  assert.equal(typeof response.restartRequired, "boolean");
+  assert.equal(Array.isArray(response.trackedNodeIds), true);
+  assert.equal(Array.isArray(response.currentNodeIds), true);
   for (const field of [
     "freshNodeCount",
     "outputTokens24h",
@@ -343,6 +351,9 @@ test("fleet-energy handler returns the exact empty tracker response contract", (
   assert.equal(response.energy31dKwh, null);
   assert.equal(response.whPerOutputToken24h, null);
   assert.deepEqual(response.hourlyWatts24h, Array(24).fill(null));
+  assert.equal(response.membershipChanged, false);
+  assert.deepEqual(response.trackedNodeIds, CANONICAL_NODE_IDS);
+  assert.deepEqual(response.currentNodeIds, CANONICAL_NODE_IDS);
 });
 
 test("fleet-energy handler returns the exact populated tracker response contract", () => {
@@ -363,6 +374,27 @@ test("fleet-energy handler returns the exact populated tracker response contract
   assert.ok(response.whPerOutputToken24h > 0);
   assert.equal(response.outputTokens24h, 20);
   assert.equal(response.hourlyWatts24h.some(Number.isFinite), true);
+});
+
+test("fleet-energy membership changes invalidate aggregates until restart", () => {
+  const now = Date.UTC(2026, 7, 23, 12, 34, 0);
+  const tracker = new FleetEnergyTracker({ ...noTimerOptions(), now: () => now });
+  tracker.record(fleetSnapshots(100, { outputTokens: 100 }), now - 2_000);
+  tracker.record(fleetSnapshots(100, { outputTokens: 120 }), now);
+  assert.equal(tracker.snapshot(now).currentWatts30s, 400);
+
+  assert.equal(tracker.invalidateMembership([...CANONICAL_NODE_IDS, "node-e"]), true);
+  const changed = tracker.snapshot(now);
+  assert.equal(changed.membershipChanged, true);
+  assert.equal(changed.restartRequired, true);
+  assert.deepEqual(changed.trackedNodeIds, CANONICAL_NODE_IDS);
+  assert.deepEqual(changed.currentNodeIds, [...CANONICAL_NODE_IDS, "node-e"]);
+  assert.equal(changed.freshNodeCount, 0);
+  assert.equal(changed.currentWatts30s, null);
+  assert.equal(changed.energy24hKwh, null);
+  assert.equal(changed.energy31dKwh, null);
+  assert.equal(changed.whPerOutputToken24h, null);
+  assert.deepEqual(changed.hourlyWatts24h, Array(24).fill(null));
 });
 
 test("fleet-energy runtime samples without WebSockets and schedules decorated ticks every 2000ms", () => {

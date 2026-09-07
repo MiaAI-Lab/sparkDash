@@ -295,6 +295,7 @@ app.post("/api/sparks", (req, res) => {
       return res.status(400).json({ error: validationError });
     }
     const spark = registry.addSpark(req.body);
+    fleetEnergyTracker.invalidateMembership(registry.sparkIds);
     startMonitor(spark);
     res.json({ success: true, spark: registry.toPublic(spark) });
   } catch (err) {
@@ -356,6 +357,7 @@ app.delete("/api/sparks/:id", (req, res) => {
   try {
     const removed = registry.removeSpark(req.params.id);
     if (!removed) return res.status(404).json({ error: "Spark not found" });
+    fleetEnergyTracker.invalidateMembership(registry.sparkIds);
     stopMonitor(req.params.id);
     res.json({ success: true, removed });
   } catch (err) {

@@ -243,6 +243,8 @@ export class FleetEnergyTracker {
     this._recentFullFleetSamples = [];
     this._latestFreshNodeCount = 0;
     this._latestRecordAt = null;
+    this._membershipChanged = false;
+    this._currentNodeIds = [...this.nodeIds];
     this._dirty = false;
     this._flushTimer = null;
 
@@ -266,6 +268,21 @@ export class FleetEnergyTracker {
 
   _time(atMs) {
     return atMs === undefined ? this._now() : atMs;
+  }
+
+  /** Invalidate aggregates when the visible registry no longer matches this tracker's scope. */
+  invalidateMembership(currentNodeIds) {
+    const normalized = normalizeNodeIds(currentNodeIds);
+    const unchanged =
+      normalized.length === this.nodeIds.length &&
+      normalized.every((id) => this._nodeIdSet.has(id));
+    this._currentNodeIds = normalized;
+    this._membershipChanged = !unchanged;
+    if (this._membershipChanged) {
+      this._recentFullFleetSamples = [];
+      this._latestFreshNodeCount = 0;
+    }
+    return this._membershipChanged;
   }
 
   _bucket(minuteStartMs) {
@@ -545,12 +562,18 @@ export class FleetEnergyTracker {
 
     return {
       estimated: true,
-      freshNodeCount,
-      currentWatts30s,
-      energy24hKwh: last24h.hasObservedEnergy ? last24h.energyWh / 1000 : null,
-      energy31dKwh: last31d.hasObservedEnergy ? last31d.energyWh / 1000 : null,
+      membershipChanged: this._membershipChanged,
+      restartRequired: this._membershipChanged,
+      trackedNodeIds: [...this.nodeIds],
+      currentNodeIds: [...this._currentNodeIds],
+      freshNodeCount: this._membershipChanged ? 0 : freshNodeCount,
+      currentWatts30s: this._membershipChanged ? null : currentWatts30s,
+      energy24hKwh:
+        !this._membershipChanged && last24h.hasObservedEnergy ? last24h.energyWh / 1000 : null,
+      energy31dKwh:
+        !this._membershipChanged && last31d.hasObservedEnergy ? last31d.energyWh / 1000 : null,
       whPerOutputToken24h:
-        last24h.hasObservedEnergy && last24h.outputTokens > 0
+        !this._membershipChanged && last24h.hasObservedEnergy && last24h.outputTokens > 0
           ? last24h.energyWh / last24h.outputTokens
           : null,
       outputTokens24h: last24h.outputTokens,
@@ -558,7 +581,9 @@ export class FleetEnergyTracker {
       coverage31dMs: last31d.fleetCoverageMs,
       nodeCoverage24hMs: last24h.nodeCoverageMs,
       nodeCoverage31dMs: last31d.nodeCoverageMs,
-      hourlyWatts24h: this._hourly(safeTimestamp),
+      hourlyWatts24h: this._membershipChanged
+        ? Array(24).fill(null)
+        : this._hourly(safeTimestamp),
     };
   }
 
