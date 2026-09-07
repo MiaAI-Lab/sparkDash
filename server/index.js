@@ -1516,10 +1516,13 @@ app.get("*splat", (_req, res) => {
 const wss = new WebSocketServer({ server, path: "/ws" });
 wss.on("connection", (ws) => {
   console.log("[ws] client connected");
-  // Send the initial snapshot through the same path the broadcast uses so the
-  // new client benefits from the same payload format (and bufferedAmount
-  // guard, although a freshly-open socket trivially passes it).
-  broadcastPayload(buildSnapshotPayload());
+  // This snapshot belongs only to the new client. Broadcasting it would add a
+  // duplicate history sample to every existing dashboard whenever a tab opens.
+  try {
+    ws.send(buildSnapshotPayload());
+  } catch {
+    // The close handler will clean up a client that disappears during connect.
+  }
   ws.on("close", () => {
     console.log("[ws] client disconnected");
   });
