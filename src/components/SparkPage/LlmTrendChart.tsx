@@ -12,7 +12,7 @@ const PAD = 2;
  * history) on every tick. Averages below still span full HISTORY_MAX retention.
  */
 const DISPLAY_WINDOW = 900;
-const DISPLAY_WINDOW_MS = 30 * 60 * 1000;
+export const DISPLAY_WINDOW_MS = 30 * 60 * 1000;
 
 function fmt(n: number | null): string {
   if (n == null || !Number.isFinite(n)) return "—";
@@ -24,10 +24,15 @@ function fmt(n: number | null): string {
  * FIXED window: the newest sample sits at the right edge once the window is
  * full; while filling, points occupy only the left fraction and the line grows.
  */
-function buildSegments(data: readonly TimedSample[], max: number): string[] {
+export function windowSamples(data: readonly TimedSample[], endAt = data[data.length - 1]?.at ?? 0): TimedSample[] {
+  const start = endAt - DISPLAY_WINDOW_MS;
+  return data.filter((sample) => sample.at >= start);
+}
+
+export function buildSegments(data: readonly TimedSample[], max: number, endAt = data[data.length - 1]?.at): string[] {
   if (data.length < 2) return [];
   const span = max || 1;
-  const end = data[data.length - 1].at;
+  const end = endAt ?? data[data.length - 1].at;
   const start = end - DISPLAY_WINDOW_MS;
   const segments: string[][] = [[]];
   data.forEach((sample, i) => {

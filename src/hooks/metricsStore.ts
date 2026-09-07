@@ -84,7 +84,10 @@ function pushHistory(key: string, value: number, at: number) {
     ring = new TimedRingBuffer(HISTORY_MAX);
     history.set(key, ring);
   }
-  ring.push({ at, value });
+  const last = ring.last();
+  if (last && at < last.at) return;
+  if (last && at === last.at) ring.replaceLast({ at, value });
+  else ring.push({ at, value });
   ring.pruneBefore(at - HISTORY_HOURS * 3_600_000);
   const samples = ring.toArray();
   historySamples.set(key, samples);
@@ -180,6 +183,12 @@ function getHistory(key: string): readonly number[] {
 }
 
 const EMPTY_TIMED: readonly TimedSample[] = Object.freeze([] as TimedSample[]);
+
+export type MetricSample = TimedSample;
+
+export function getMetricHistorySamples(sparkId: string, metric: string): readonly TimedSample[] {
+  return historySamples.get(`${sparkId}:${metric}`) ?? EMPTY_TIMED;
+}
 
 function getTimedHistory(key: string): readonly TimedSample[] {
   return historySamples.get(key) ?? EMPTY_TIMED;
