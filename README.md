@@ -239,7 +239,7 @@ Env (optional): `POLL_INTERVAL_TAILSCALE` (default `30000`), `TAILSCALE_PROBE_TI
 git clone https://github.com/MiaAI-Lab/sparkDash.git
 cd sparkDash
 
-# Production (Docker)
+# Production (Docker; loopback-only by default)
 docker compose up --build -d
 
 # Or development (host, with hot reload)
@@ -247,8 +247,16 @@ npm install
 npm run dev
 ```
 
-- **Docker**: open **http://&lt;host-ip&gt;:5555** (arm64 image, auto-restart, host mounts for GPU/metrics access)
+- **Docker**: open **http://127.0.0.1:5555** on the host (arm64 image, auto-restart, host mounts for GPU/metrics access)
 - **Dev**: Vite on **http://localhost:5173** (proxies API/WS to Express)
+
+For another computer, keep the server on loopback and use an SSH tunnel:
+
+```bash
+ssh -N -L 5555:127.0.0.1:5555 user@sparkdash-host
+```
+
+Then open `http://127.0.0.1:5555` on that computer. For shared access, use an authenticated TLS reverse proxy or Tailscale Serve. See [Remote access](./docs/REMOTE-ACCESS.md). Direct LAN binding is refused because the application API is not yet authenticated.
 
 For development with Docker (source-mounted, HMR):
 ```bash
@@ -362,7 +370,7 @@ sparkDash/
 | PUT | `/api/settings` | Update global settings |
 | WS | `/ws` | Real-time metrics stream |
 
-There is no authentication on the HTTP/WebSocket API. Run sparkDash only on a trusted network (or behind your own reverse proxy with auth).
+There is no application authentication on the HTTP/WebSocket API. sparkDash therefore binds to loopback and refuses direct LAN binding. Use an SSH tunnel, authenticated TLS reverse proxy, or Tailscale Serve; see [Remote access](./docs/REMOTE-ACCESS.md).
 
 `/api/fleet-energy` samples the configured fleet independently every two seconds. It estimates
 each node as GPU board draw + a CPU utilization model (5.2–65 W) + 23 W of memory/network/base
@@ -395,7 +403,7 @@ Copy `.env.example` to `.env` if needed:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BIND_HOST` | `127.0.0.1` | HTTP and WebSocket listen address. Loopback by default — the dashboard exposes SSH + power controls, so set a LAN IP (or `0.0.0.0`) to allow remote access. |
+| `BIND_HOST` | `127.0.0.1` | HTTP and WebSocket listen address. Non-loopback values fail closed until direct-client authentication exists. |
 | `PORT` | `5555` | HTTP + WebSocket listen port |
 | `LLM_PORT` | `8888` | Default LLM probe port |
 | `COMFY_PORT` | `8188` | Default ComfyUI probe port |
@@ -420,11 +428,10 @@ Copy `.env.example` to `.env` if needed:
 | `SSH_CONTROL_PERSIST_SECONDS` | `60` | Reuse authenticated SSH transports for remote collectors. Set to `0` to disable multiplexing. |
 | `FLEET_ENERGY_JSON_PATH` | `config/fleet-energy.json` | Rolling fleet-energy persistence path |
 
-> The listener defaults to `127.0.0.1` (loopback) so the dashboard — which can SSH into and
-> power off your Sparks — isn't reachable on the LAN by default. Set `BIND_HOST` to the host's
-> LAN IP (or `0.0.0.0`) to reach it from another machine. The provided `docker-compose.yml`
-> (`network_mode: host`) sets `BIND_HOST=0.0.0.0` explicitly (prod and `docker-compose.dev.yml`); restrict access at the network
-> layer, or set `127.0.0.1` when running behind a reverse proxy.
+> The listener and both Compose files default to `127.0.0.1`. Existing Docker users who opened
+> `http://<host-ip>:5555` must migrate to an SSH tunnel, authenticated reverse proxy, or Tailscale
+> Serve. Recovery: `BIND_HOST=127.0.0.1 docker compose up -d --force-recreate`. See
+> [Remote access](./docs/REMOTE-ACCESS.md).
 
 ### Adding a unit
 
@@ -468,7 +475,7 @@ Choice is stored in `localStorage`.
 - **Target validation** rejects clearly unsafe IPv4 targets (link-local `169.254.0.0/16`, `0.0.0.0/8`, multicast/reserved ≥ 224). Private, loopback, and public addresses are allowed so LAN and remote Sparks work.
 - SSH and HTTP probes use short timeouts (about 5 s SSH connect, 3 s HTTP) so a hung host cannot stall the poll loop.
 - Prefer **SSH keys** over passwords. In Docker, mount the private key into `/root/.ssh` (see Quick start); passwords are the only SSH secret the app stores itself.
-- Treat the dashboard as **LAN-trusted**: the API is intentionally unauthenticated for ease of use on a private network. That includes **power APIs** (shutdown / Wake-on-LAN): anyone who can reach the dashboard can request fleet power actions.
+- The API is unauthenticated, including power actions. The server therefore fails closed on non-loopback binds. Do not bypass this with a firewall-only “trusted LAN”; use one of the authenticated paths in [Remote access](./docs/REMOTE-ACCESS.md).
 
 
 ---
