@@ -11,6 +11,7 @@ import { SparkMonitor } from "./sparks/SparkMonitor.js";
 import { sshExec } from "./collectors/ssh.js";
 import { comfyCancelJob } from "./collectors/comfyActions.js";
 import { validateSparkTarget, createRateLimiter, isAllowedTargetHost } from "./validate.js";
+import { inspectHealth } from "./health.js";
 import { getSettings, updateSettings, loadSettings } from "./settings.js";
 import { broadcastForLanIp, effectiveMac, normalizeMac, sendWol } from "./wol.js";
 import {
@@ -226,6 +227,10 @@ const app = express();
 const server = createServer(app);
 
 app.use(express.json());
+
+app.get("/api/health", (_req, res) => {
+  res.json(inspectHealth(process.env.BIND_HOST || "127.0.0.1"));
+});
 
 function clientKey(req) {
   return req.ip || req.socket?.remoteAddress || "unknown";
