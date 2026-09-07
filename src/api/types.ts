@@ -525,6 +525,25 @@ export interface WsSnapshot {
   refreshInterval: number;
 }
 
+export interface FleetEnergy {
+  estimated: boolean;
+  membershipChanged: boolean;
+  restartRequired: boolean;
+  trackedNodeIds: string[];
+  currentNodeIds: string[];
+  freshNodeCount: number;
+  currentWatts30s: number | null;
+  energy24hKwh: number | null;
+  energy31dKwh: number | null;
+  whPerOutputToken24h: number | null;
+  outputTokens24h: number;
+  coverage24hMs: number;
+  coverage31dMs: number;
+  nodeCoverage24hMs: Record<string, number>;
+  nodeCoverage31dMs: Record<string, number>;
+  hourlyWatts24h: Array<number | null>;
+}
+
 // ─── API responses ────────────────────────────────────────
 export interface Settings {
   pollIntervalMs: number;

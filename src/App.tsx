@@ -13,6 +13,7 @@ import { ThemeSwitch } from "./components/ThemeSwitch";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { GearIcon, BoltIcon } from "./components/ui/icons";
 import { ConnectionBanner } from "./components/ui/ConnectionBanner";
+import { ErrorBanner } from "./components/ui/ErrorBanner";
 import { OVERVIEW_ID } from "./constants";
 import type { Settings, SparkSnapshot } from "./api/types";
 import { isWorkerSpark } from "./api/sparkRole";
@@ -139,6 +140,7 @@ function DashboardApp() {
   const [editId, setEditId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   /** Used when WS is down so add/delete still updates the tab bar */
   const [fallbackSparks, setFallbackSparks] = useState<SparkSnapshot[]>([]);
   const staleAfterMs = Math.max(10_000, 3 * (refreshInterval ?? 2_000));
@@ -206,7 +208,11 @@ function DashboardApp() {
   useEffect(() => {
     fetchSettings()
       .then(setSettings)
-      .catch((err) => console.error("Failed to fetch settings:", err));
+      .catch((err) =>
+        setActionError(
+          `Could not load settings: ${err instanceof Error ? err.message : String(err)}. Reload to retry.`
+        )
+      );
   }, []);
 
   const handleSettingsSaved = useCallback((s: Settings) => {
@@ -273,6 +279,9 @@ function DashboardApp() {
       if (configs.length === 0 && activeId !== OVERVIEW_ID) setActiveId(null);
     } catch (err) {
       console.error("Failed to refresh sparks:", err);
+      setActionError(
+        `Could not refresh Sparks: ${err instanceof Error ? err.message : String(err)}. Previous data remains visible.`
+      );
     }
   }, [sparks, activeId, setActiveId]);
 
@@ -285,6 +294,9 @@ function DashboardApp() {
       } catch (err) {
         console.error("Failed to reorder Sparks:", err);
         setOrderOverride(null);
+        setActionError(
+          `Could not save the Spark order: ${err instanceof Error ? err.message : String(err)}. The previous order was restored.`
+        );
       }
     },
     [displaySparks, hiddenWorkerIds]
@@ -332,6 +344,7 @@ function DashboardApp() {
           now={telemetryNow}
           stale={telemetryStale}
         />
+        <ErrorBanner message={actionError} onDismiss={() => setActionError(null)} />
         <main className={telemetryStale || !connected ? "telemetry-stale" : undefined}>
           {isOverview ? (
             <OverviewPage
