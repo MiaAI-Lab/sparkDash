@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { addSpark, testSparkConfig } from "../api/client";
 import type { SparkConfig } from "../api/types";
 import { useModalPresence } from "../hooks/useModalPresence";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 interface AddSparkDialogProps {
   open: boolean;
@@ -41,6 +42,7 @@ export function AddSparkDialog({ open, onClose, onAdded, defaultLlmPort = 8888 }
   useEscape(onClose);
 
   const { mounted, visible } = useModalPresence(open);
+  const trapRef = useFocusTrap(mounted);
 
   useEffect(() => {
     if (!mounted) return;
@@ -133,6 +135,7 @@ export function AddSparkDialog({ open, onClose, onAdded, defaultLlmPort = 8888 }
       }}
     >
       <div
+        ref={trapRef}
         className="modal-sheet"
         role="dialog"
         aria-modal="true"
