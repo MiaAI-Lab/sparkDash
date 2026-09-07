@@ -12,6 +12,7 @@ import { ShowcasePage } from "./components/ShowcasePage/ShowcasePage";
 import { ThemeSwitch } from "./components/ThemeSwitch";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { GearIcon, BoltIcon } from "./components/ui/icons";
+import { ConnectionBanner } from "./components/ui/ConnectionBanner";
 import { OVERVIEW_ID } from "./constants";
 import type { Settings, SparkSnapshot } from "./api/types";
 import { isWorkerSpark } from "./api/sparkRole";
@@ -122,7 +123,17 @@ function placeholderSnapshot(
 }
 
 function DashboardApp() {
-  const { sparks, activeId, setActiveId, activeSpark, connected } = useSnapshot();
+  const {
+    sparks,
+    activeId,
+    setActiveId,
+    activeSpark,
+    connected,
+    lastValidSnapshotAt,
+    snapshotError,
+    refreshInterval,
+  } = useSnapshot();
+  const [telemetryNow, setTelemetryNow] = useState(Date.now());
   const navigate = useRoute(setActiveId);
   const [showAdd, setShowAdd] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -130,6 +141,16 @@ function DashboardApp() {
   const [settings, setSettings] = useState<Settings | null>(null);
   /** Used when WS is down so add/delete still updates the tab bar */
   const [fallbackSparks, setFallbackSparks] = useState<SparkSnapshot[]>([]);
+  const staleAfterMs = Math.max(10_000, 3 * (refreshInterval ?? 2_000));
+  const telemetryStale =
+    lastValidSnapshotAt != null && telemetryNow - lastValidSnapshotAt > staleAfterMs;
+
+  useEffect(() => {
+    if (lastValidSnapshotAt == null) return;
+    setTelemetryNow(Date.now());
+    const timer = window.setInterval(() => setTelemetryNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [lastValidSnapshotAt]);
 
   // Prefer live WS data; fall back to API-fetched list when empty
   const liveSparks = sparks.length > 0 ? sparks : fallbackSparks;
@@ -304,7 +325,14 @@ function DashboardApp() {
             <ThemeSwitch />
           </div>
         </header>
-        <main>
+        <ConnectionBanner
+          connected={connected}
+          lastValidSnapshotAt={lastValidSnapshotAt}
+          snapshotError={snapshotError}
+          now={telemetryNow}
+          stale={telemetryStale}
+        />
+        <main className={telemetryStale || !connected ? "telemetry-stale" : undefined}>
           {isOverview ? (
             <OverviewPage
               sparks={displaySparks}

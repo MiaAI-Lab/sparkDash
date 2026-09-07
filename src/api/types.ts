@@ -519,6 +519,8 @@ export interface SparkSnapshot {
 // ─── WebSocket envelope ───────────────────────────────────
 export interface WsSnapshot {
   type: "snapshot";
+  /** Server generation time; optional while clients and servers roll independently. */
+  generatedAt?: number;
   sparks: SparkSnapshot[];
   refreshInterval: number;
 }

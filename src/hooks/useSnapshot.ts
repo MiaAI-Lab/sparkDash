@@ -14,6 +14,10 @@ const RECONNECT_DELAY = 2000;
 export function useSnapshot() {
   const [sparks, setSparks] = useState<SparkSnapshot[]>([]);
   const [connected, setConnected] = useState(false);
+  const [lastValidSnapshotAt, setLastValidSnapshotAt] = useState<number | null>(null);
+  const [snapshotGeneratedAt, setSnapshotGeneratedAt] = useState<number | null>(null);
+  const [snapshotError, setSnapshotError] = useState<string | null>(null);
+  const [refreshInterval, setRefreshInterval] = useState<number | null>(null);
   const [activeId, setActiveId] = useState<string | null>(OVERVIEW_ID);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -32,17 +36,28 @@ export function useSnapshot() {
     wsRef.current = ws;
 
     ws.onopen = () => {
-      setConnected(true);
+      // A socket alone is not healthy; wait for one valid snapshot.
+      setConnected(false);
       console.log("[ws] connected");
     };
 
     ws.onmessage = (ev) => {
       try {
         const msg: WsSnapshot = JSON.parse(ev.data);
-        if (msg.type === "snapshot") {
+        if (msg.type === "snapshot" && Array.isArray(msg.sparks)) {
+          const receivedAt = Date.now();
           // Feed the central history store (8b) before notifying React state.
-          ingestSnapshots(msg.sparks);
+          ingestSnapshots(msg.sparks, msg.generatedAt ?? receivedAt);
           setSparks(msg.sparks);
+          setConnected(true);
+          setLastValidSnapshotAt(receivedAt);
+          setSnapshotGeneratedAt(
+            Number.isFinite(msg.generatedAt) ? Number(msg.generatedAt) : null
+          );
+          setRefreshInterval(
+            Number.isFinite(msg.refreshInterval) ? Number(msg.refreshInterval) : null
+          );
+          setSnapshotError(null);
           // Default to the Overview tab; keep the current selection if it
           // is still valid (Overview is always valid).
           setActiveId((prev) => {
@@ -50,8 +65,12 @@ export function useSnapshot() {
             if (prev && msg.sparks.some((s) => s.id === prev)) return prev;
             return OVERVIEW_ID;
           });
+        } else {
+          setSnapshotError("The server sent an invalid telemetry payload.");
         }
-      } catch {}
+      } catch {
+        setSnapshotError("The server sent malformed telemetry data.");
+      }
     };
 
     ws.onclose = () => {
@@ -93,5 +112,9 @@ export function useSnapshot() {
     activeId,
     setActiveId,
     activeSpark,
+    lastValidSnapshotAt,
+    snapshotGeneratedAt,
+    snapshotError,
+    refreshInterval,
   };
 }

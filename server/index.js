@@ -35,6 +35,7 @@ import { llmProbeHost } from "./collectors/llmHost.js";
 import { onceClose, resolveLlmHttpTarget } from "./collectors/llmTunnel.js";
 import { formatLlmBaseUrl, parseLlmTargetInput } from "../src/shared/llmTarget.js";
 import { llmDaily } from "./collectors/LlmDaily.js";
+import { closeLlmStreamAgent } from "./collectors/LlmStreaming.js";
 import { compareSemver, getLatestRelease } from "./collectors/HermesReleases.js";
 import { FLEET_ENERGY_JSON_PATH } from "./config.js";
 import { FleetEnergyTracker } from "./energy/FleetEnergyTracker.js";
@@ -1611,10 +1612,13 @@ const wss = new WebSocketServer({
 });
 wss.on("connection", (ws) => {
   console.log("[ws] client connected");
-  // Send the initial snapshot through the same path the broadcast uses so the
-  // new client benefits from the same payload format (and bufferedAmount
-  // guard, although a freshly-open socket trivially passes it).
-  broadcastPayload(buildSnapshotPayload());
+  // This snapshot belongs only to the new client. Broadcasting it would add a
+  // duplicate history sample to every existing dashboard whenever a tab opens.
+  try {
+    ws.send(buildSnapshotPayload());
+  } catch {
+    // The close handler will clean up a client that disappears during connect.
+  }
   ws.on("close", () => {
     console.log("[ws] client disconnected");
   });
@@ -1628,6 +1632,7 @@ let _lastBroadcastPayload = null;
 function buildSnapshotPayload() {
   return JSON.stringify({
     type: "snapshot",
+    generatedAt: Date.now(),
     sparks: orderedSnapshots(),
     refreshInterval: getSettings().pollIntervalMs,
   });
@@ -1709,7 +1714,7 @@ server.listen(PORT, BIND_HOST, () => {
 
 // ─── Graceful shutdown ─────────────────────────────────
 let _shuttingDown = false;
-function shutdown(signal) {
+async function shutdown(signal) {
   if (_shuttingDown) return;
   _shuttingDown = true;
   console.log(`[sparkDash] ${signal} received, shutting down…`);
@@ -1731,6 +1736,10 @@ function shutdown(signal) {
     console.error("[sparkDash] failed to flush LLM daily history:", err.message);
   }
   const energyPersistenceSucceeded = fleetEnergyRuntime.stop();
+  const streamAgentClosedGracefully = await closeLlmStreamAgent();
+  if (!streamAgentClosedGracefully) {
+    console.warn("[sparkDash] LLM dispatcher close timed out; destroyed open sockets");
+  }
   try {
     if (broadcastTimer) {
       clearInterval(broadcastTimer);
