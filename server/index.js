@@ -298,7 +298,7 @@ app.post("/api/sparks", (req, res) => {
     startMonitor(spark);
     res.json({ success: true, spark: registry.toPublic(spark) });
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(err.status || 400).json({ error: err.message });
   }
 });
 
@@ -348,7 +348,7 @@ app.patch("/api/sparks/:id", (req, res) => {
       hasPassword: registry.hasPassword(req.params.id),
     });
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(err.status || 400).json({ error: err.message });
   }
 });
 
@@ -359,7 +359,7 @@ app.delete("/api/sparks/:id", (req, res) => {
     stopMonitor(req.params.id);
     res.json({ success: true, removed });
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(err.status || 400).json({ error: err.message });
   }
 });
 
