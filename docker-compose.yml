@@ -5,6 +5,9 @@ services:
       dockerfile: Dockerfile
       platforms:
         - linux/arm64
+      args:
+        # Frontend metrics-history retention (hours). Rebuild after changing.
+        VITE_HISTORY_HOURS: ${VITE_HISTORY_HOURS:-8}
     container_name: sparkDash
     # always: come back after host reboot even if the container was stopped
     # before shutdown (unlike unless-stopped, which stays down after a manual stop).

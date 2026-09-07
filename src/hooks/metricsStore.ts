@@ -21,7 +21,12 @@ import type { SparkSnapshot } from "../api/types";
  * All listeners are woken on notify; unchanged keys keep the same ref → no render.
  */
 
-const HISTORY_MAX = 1800; // 1 h at 2 s poll — the WS interval, not wall-clock guarantees
+// History depth, configurable at build time. VITE_HISTORY_HOURS = wall-clock
+// hours to retain (default 8 h at the 2 s WS poll ≈ 112 KB per series — the
+// browser tab is the only thing that pays for it).
+const SAMPLES_PER_HOUR = 1800; // 2 s poll
+const HISTORY_HOURS = Number(import.meta.env.VITE_HISTORY_HOURS ?? 8) || 8;
+export const HISTORY_MAX = Math.round(SAMPLES_PER_HOUR * HISTORY_HOURS);
 /** Samples shown in inline sparklines (≈1 min at 2 s poll). Full series stays in HISTORY_MAX. */
 export const SPARKLINE_TAIL = 30;
 
@@ -32,6 +37,23 @@ const sparkMap = new Map<string, SparkSnapshot>();
 const listeners = new Set<() => void>();
 
 const EMPTY: readonly number[] = Object.freeze([] as number[]);
+
+/**
+ * Mean of a metric series over samples where the reading is > 0, or null when
+ * there are no busy samples. Skipping zeros keeps idle/off phases from dragging
+ * the average toward zero (a prefill that runs at 500 tok/s is "500", not 0.5).
+ */
+export function avgPositive(values: readonly number[]): number | null {
+  let sum = 0;
+  let count = 0;
+  for (const v of values) {
+    if (v > 0) {
+      sum += v;
+      count += 1;
+    }
+  }
+  return count > 0 ? sum / count : null;
+}
 
 function notify() {
   for (const l of listeners) l();
@@ -112,6 +134,13 @@ export function ingestSnapshots(sparks: SparkSnapshot[]): void {
         const portKey = port != null ? `:${port}` : `:${i}`;
         pushHistory(`${s.id}:llm${portKey}.tps`, llm.generationTps);
         pushHistory(`${s.id}:llm${portKey}.prefill`, llm.prefillTps);
+        // TTFT is sparse: vLLM reports live TTFT only while serving. It is NOT
+        // index-aligned with the tick-dense series above — that is fine because
+        // the ttft series feeds only the busy-sample average badge, never the
+        // overlaid chart (see LlmTrendChart).
+        if (llm.ttftSeconds != null) {
+          pushHistory(`${s.id}:llm${portKey}.ttft`, llm.ttftSeconds);
+        }
         if (llm.cachedPrefillTps != null) {
           pushHistory(`${s.id}:llm${portKey}.prefillCached`, llm.cachedPrefillTps);
         }

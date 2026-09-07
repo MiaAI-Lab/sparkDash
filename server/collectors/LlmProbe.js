@@ -92,6 +92,8 @@ export class LlmProbe {
     this.lastPrefillKinds = null;
     /** Previous vLLM TTFT histogram `_sum` (seconds). null until first sample. */
     this.lastTtftSum = null;
+    /** Previous vLLM TTFT histogram `_count` (requests). null until first sample. */
+    this.lastTtftCount = null;
     /** Previous `vllm:iteration_tokens_total_sum` (engine-step tokens). */
     this.lastIterSum = null;
     this.lastProbeTime = 0;
@@ -105,6 +107,8 @@ export class LlmProbe {
     this.requestsRunning = null;
     this.requestsWaiting = null;
     this.ttftP95Seconds = null;
+    /** Live recent-window mean TTFT (seconds) from histogram sum/count deltas. null when unavailable. */
+    this.ttftSeconds = null;
     this.preemptionsTotal = null; // cumulative counter
     /** Prefix cache hit rate 0–1 (hits/queries). */
     this.prefixCacheHitRate = null;
@@ -242,6 +246,7 @@ export class LlmProbe {
     this.requestsRunning = null;
     this.requestsWaiting = null;
     this.ttftP95Seconds = null;
+    this.ttftSeconds = null;
     this.preemptionsTotal = null;
     this.prefixCacheHitRate = null;
     this.e2eP95Seconds = null;
@@ -251,6 +256,7 @@ export class LlmProbe {
     this.lastTokenCounts = { input: 0, output: 0 };
     this.lastPrefillKinds = null;
     this.lastTtftSum = null;
+    this.lastTtftCount = null;
     this.lastIterSum = null;
     this._sglangStickyTps = null;
   }
@@ -647,6 +653,7 @@ export class LlmProbe {
     this.kvCacheUsage = null;
     this.requestsWaiting = null;
     this.ttftP95Seconds = null;
+    this.ttftSeconds = null;
     this.preemptionsTotal = null;
     this.e2eP95Seconds = null;
     this.itlP95Seconds = null;
@@ -773,6 +780,7 @@ export class LlmProbe {
     this.kvCacheUsage = null;
     this.requestsWaiting = null;
     this.ttftP95Seconds = null;
+    this.ttftSeconds = null;
     this.preemptionsTotal = null;
     this.prefixCacheHitRate = null;
     this.e2eP95Seconds = null;
@@ -846,6 +854,22 @@ export class LlmProbe {
           0,
           Math.round((livePrefill > 0 ? livePrefill : finishedPrefill) * 100) / 100
         );
+      }
+      // Live mean TTFT over the last poll window from histogram sum/count deltas.
+      // Computed BEFORE lastTtftSum is advanced so the delta is real, not 0.
+      const ttftCount = this._getVllmMetric(txt, "time_to_first_token_seconds_count");
+      if (ttftCount != null) {
+        const deltaSum =
+          ttftSum != null && this.lastTtftSum != null ? ttftSum - this.lastTtftSum : null;
+        const deltaCount =
+          this.lastTtftCount != null ? ttftCount - this.lastTtftCount : null;
+        this.ttftSeconds =
+          deltaSum != null && deltaCount != null && deltaCount > 0 && deltaSum >= 0
+            ? Math.round((deltaSum / deltaCount) * 1000) / 1000
+            : null;
+        this.lastTtftCount = ttftCount;
+      } else {
+        this.ttftSeconds = null;
       }
       if (ttftSum != null) this.lastTtftSum = ttftSum;
     }
@@ -1524,6 +1548,7 @@ export class LlmProbe {
       requestsRunning: this.requestsRunning,
       requestsWaiting: this.requestsWaiting,
       ttftP95Seconds: this.ttftP95Seconds,
+      ttftSeconds: this.ttftSeconds,
       preemptionsTotal: this.preemptionsTotal,
       prefixCacheHitRate: this.prefixCacheHitRate,
       e2eP95Seconds: this.e2eP95Seconds,
@@ -1553,6 +1578,7 @@ export class LlmProbe {
       requestsRunning: null,
       requestsWaiting: null,
       ttftP95Seconds: null,
+      ttftSeconds: null,
       preemptionsTotal: null,
       prefixCacheHitRate: null,
       e2eP95Seconds: null,
