@@ -8,7 +8,15 @@
 import { execFile } from "child_process";
 import crypto from "crypto";
 import fs from "fs";
-import { COMFY_PORT, COMFY_PROBE_TIMEOUT_MS, SSH_CONNECT_TIMEOUT } from "../config.js";
+import os from "os";
+import path from "path";
+import {
+  COMFY_PORT,
+  COMFY_PROBE_TIMEOUT_MS,
+  SSH_CONNECT_TIMEOUT,
+  SSH_CONTROL_PERSIST,
+  SSH_MULTIPLEX,
+} from "../config.js";
 import { isAllowedTargetHost, isValidSshUser } from "../validate.js";
 import { llmProbeHost } from "./llmHost.js";
 
@@ -143,14 +151,48 @@ function sshpassAvailable() {
 }
 
 /**
+ * `-o` flags that let every poll ride an already-authenticated connection.
+ *
+ * Without them each collector tick pays for a fresh TCP connect, key exchange
+ * and authentication. At the default cadence a single remote Spark takes 217
+ * of those per minute, and on password auth the KDF alone dominates the cost —
+ * the login is far more expensive than the `cat /proc/meminfo` it carries.
+ * With a shared master, the first command connects and the rest open a channel
+ * on the socket that is already up.
+ *
+ * `%C` hashes (local host, user, host, port) into a fixed-length name, so the
+ * socket path can never grow past the ~104 byte sun_path limit no matter how
+ * long the hostname is. A master that died leaves a stale socket behind;
+ * `ControlMaster=auto` notices, reconnects, and replaces it.
+ *
+ * @returns {string[]}
+ */
+function multiplexOpts() {
+  if (!SSH_MULTIPLEX) return ["-o", "ControlMaster=no", "-o", "ControlPath=none"];
+  const controlPath = path.join(os.tmpdir(), "sparkdash-%C");
+  return [
+    "-o",
+    "ControlMaster=auto",
+    "-o",
+    `ControlPath=${controlPath}`,
+    "-o",
+    `ControlPersist=${SSH_CONTROL_PERSIST}`,
+  ];
+}
+
+/**
  * Build file/args/env for an ssh (or sshpass) invocation. No shell interpolation.
  *
  * `extraSshArgs` sit after the shared ConnectTimeout / StrictHostKeyChecking
  * options and before `-- user@host`. `remoteArgv` is the remote command (omit
  * for `-N` tunnels).
  *
+ * Pass `multiplex: false` for invocations that need a connection of their own
+ * — a `-N` port forward has to own its channel so that killing the process
+ * tears the forward down with it.
+ *
  * @param {object} spark
- * @param {{ extraSshArgs?: string[], remoteArgv?: string[] }} [opts]
+ * @param {{ extraSshArgs?: string[], remoteArgv?: string[], multiplex?: boolean }} [opts]
  * @returns {{ file: string, args: string[], env: NodeJS.ProcessEnv, targetHost: string }}
  */
 export function sshCommandSpec(spark, opts = {}) {
@@ -180,8 +222,21 @@ export function sshCommandSpec(spark, opts = {}) {
   ];
 
   const remote = `${user}@${targetHost}`;
-  const multiplex = sshMultiplexConfig(spark, targetHost, user, auth, password);
-  const multiplexOpts = multiplex?.args || [];
+  const multiplex =
+    opts.multiplex === false || !SSH_MULTIPLEX
+      ? null
+      : sshMultiplexConfig(spark, targetHost, user, auth, password);
+  // ControlPath selection (three tiers):
+  //   - multiplex:false / SSH_MULTIPLEX=0 (tunnels, picky sshd): own connection.
+  //   - #83 global master: %C-hashed socket shared per host/user/port, so
+  //     different sparks and collectors on the same Spark share one login.
+  //   - credential-isolated digest socket (main): only when the global master
+  //     is off but a control-persist was configured — password records with the
+  //     same host/user must never share an authenticated transport.
+  const controlOpts =
+    opts.multiplex === false || !SSH_MULTIPLEX
+      ? ["-o", "ControlMaster=no", "-o", "ControlPath=none"]
+      : multiplexOpts();
   // `--` stops option parsing before destination.
   let file;
   let args;
@@ -215,7 +270,7 @@ export function sshCommandSpec(spark, opts = {}) {
       "-e",
       "ssh",
       ...baseOpts,
-      ...multiplexOpts,
+      ...controlOpts,
       ...extraSshArgs,
       "--",
       remote,
@@ -224,7 +279,7 @@ export function sshCommandSpec(spark, opts = {}) {
   } else {
     // Key-based SSH (default) — BatchMode prevents hanging on missing keys
     file = "ssh";
-    args = [...baseOpts, ...multiplexOpts, "-o", "BatchMode=yes"];
+    args = [...baseOpts, ...controlOpts, "-o", "BatchMode=yes"];
     const identityFile = process.env.SSH_IDENTITY_FILE;
     if (identityFile) {
       args.push("-i", identityFile);
