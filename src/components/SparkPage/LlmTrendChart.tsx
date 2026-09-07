@@ -1,5 +1,6 @@
 import { useMemo } from "react";
-import { HISTORY_MAX, useMetricsHistory, avgPositive } from "../../hooks/metricsStore";
+import { HISTORY_MAX, useMetricsHistory, useTimedMetricsHistory, avgPositive } from "../../hooks/metricsStore";
+import type { TimedSample } from "../../hooks/ringBuffer";
 
 const VIEW_W = 300;
 const VIEW_H = 64;
@@ -11,6 +12,7 @@ const PAD = 2;
  * history) on every tick. Averages below still span full HISTORY_MAX retention.
  */
 const DISPLAY_WINDOW = 900;
+const DISPLAY_WINDOW_MS = 30 * 60 * 1000;
 
 function fmt(n: number | null): string {
   if (n == null || !Number.isFinite(n)) return "—";
@@ -22,18 +24,19 @@ function fmt(n: number | null): string {
  * FIXED window: the newest sample sits at the right edge once the window is
  * full; while filling, points occupy only the left fraction and the line grows.
  */
-function buildPoints(raw: readonly number[], max: number): string {
-  // Only the newest DISPLAY_WINDOW samples are drawn; older ones still feed
-  // the averages below. Once full, the window scrolls (newest at right edge).
-  const data = raw.length > DISPLAY_WINDOW ? raw.slice(-DISPLAY_WINDOW) : raw;
-  if (data.length < 2) return "";
+function buildSegments(data: readonly TimedSample[], max: number): string[] {
+  if (data.length < 2) return [];
   const span = max || 1;
-  const pts = data.map((v, i) => {
-    const x = (i / (DISPLAY_WINDOW - 1)) * VIEW_W;
-    const y = VIEW_H - PAD - (Math.min(v, max) / span) * (VIEW_H - PAD * 2);
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  const end = data[data.length - 1].at;
+  const start = end - DISPLAY_WINDOW_MS;
+  const segments: string[][] = [[]];
+  data.forEach((sample, i) => {
+    if (i > 0 && sample.at - data[i - 1].at > 10_000) segments.push([]);
+    const x = ((sample.at - start) / DISPLAY_WINDOW_MS) * VIEW_W;
+    const y = VIEW_H - PAD - (Math.min(sample.value, max) / span) * (VIEW_H - PAD * 2);
+    segments[segments.length - 1].push(`${x.toFixed(1)},${y.toFixed(1)}`);
   });
-  return pts.join(" ");
+  return segments.filter((segment) => segment.length > 1).map((segment) => segment.join(" "));
 }
 
 function areaPath(points: string): string {
@@ -51,7 +54,7 @@ function fmtSpan(seconds: number): string {
 }
 
 function historyLabel(): string {
-  return `chart ~${fmtSpan(DISPLAY_WINDOW * 2)} · avgs ~${fmtSpan(HISTORY_MAX * 2)} · 2s samples`;
+  return `last 30m · averages since page opened (up to ${fmtSpan(HISTORY_MAX * 2)})`;
 }
 
 /** Newest DISPLAY_WINDOW samples — the slice the chart draws. */
@@ -81,6 +84,8 @@ export function LlmTrendChart({
   const gen = useMetricsHistory(sparkId, `llm:${llmPort}.tps`);
   const prefill = useMetricsHistory(sparkId, `llm:${llmPort}.prefill`);
   const ttft = useMetricsHistory(sparkId, `llm:${llmPort}.ttft`);
+  const genTimed = useTimedMetricsHistory(sparkId, `llm:${llmPort}.tps`);
+  const prefillTimed = useTimedMetricsHistory(sparkId, `llm:${llmPort}.prefill`);
 
   const genAvg = useMemo(() => avgPositive(gen), [gen]);
   const prefillAvg = useMemo(() => avgPositive(prefill), [prefill]);
@@ -95,8 +100,8 @@ export function LlmTrendChart({
   // Max is over the drawn window so old spikes can't squash recent detail.
   const genMax = useMemo(() => Math.max(1, ...genWin), [genWin]);
   const prefillMax = useMemo(() => Math.max(1, ...prefillWin), [prefillWin]);
-  const genPts = useMemo(() => buildPoints(genWin, genMax), [genWin, genMax]);
-  const prefillPts = useMemo(() => buildPoints(prefillWin, prefillMax), [prefillWin, prefillMax]);
+  const genPts = useMemo(() => buildSegments(genTimed.filter((s) => s.at >= (genTimed.at(-1)?.at ?? 0) - DISPLAY_WINDOW_MS), genMax), [genTimed, genMax]);
+  const prefillPts = useMemo(() => buildSegments(prefillTimed.filter((s) => s.at >= (prefillTimed.at(-1)?.at ?? 0) - DISPLAY_WINDOW_MS), prefillMax), [prefillTimed, prefillMax]);
 
   const hasData = genWin.length > 1 || prefillWin.length > 1;
 
@@ -119,11 +124,11 @@ export function LlmTrendChart({
           role="img"
           aria-label="Generation and prefill tokens per second over the last 30 minutes"
         >
-          {prefillPts && (
-            <>
-              <path d={areaPath(prefillPts)} fill="var(--color-text)" opacity={0.1} />
+          {prefillPts.map((points, index) => (
+            <g key={`prefill-${index}`}>
+              <path d={areaPath(points)} fill="var(--color-text)" opacity={0.1} />
               <polyline
-                points={prefillPts}
+                points={points}
                 fill="none"
                 stroke="var(--color-text)"
                 strokeWidth="1.5"
@@ -131,13 +136,13 @@ export function LlmTrendChart({
                 strokeLinejoin="round"
                 strokeLinecap="round"
               />
-            </>
-          )}
-          {genPts && (
-            <>
-              <path d={areaPath(genPts)} fill="var(--color-accent)" opacity={0.12} />
+            </g>
+          ))}
+          {genPts.map((points, index) => (
+            <g key={`gen-${index}`}>
+              <path d={areaPath(points)} fill="var(--color-accent)" opacity={0.12} />
               <polyline
-                points={genPts}
+                points={points}
                 fill="none"
                 stroke="var(--color-accent)"
                 strokeWidth="1.5"
@@ -145,8 +150,8 @@ export function LlmTrendChart({
                 strokeLinejoin="round"
                 strokeLinecap="round"
               />
-            </>
-          )}
+            </g>
+          ))}
         </svg>
       )}
       <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-[10px] text-muted">

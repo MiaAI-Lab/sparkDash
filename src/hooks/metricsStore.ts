@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import type { SparkSnapshot } from "../api/types";
+import { TimedRingBuffer, type TimedSample } from "./ringBuffer";
 
 /**
  * Central metrics history store (idea #8b).
@@ -30,7 +31,9 @@ export const HISTORY_MAX = Math.round(SAMPLES_PER_HOUR * HISTORY_HOURS);
 /** Samples shown in inline sparklines (≈1 min at 2 s poll). Full series stays in HISTORY_MAX. */
 export const SPARKLINE_TAIL = 30;
 
-const history = new Map<string, number[]>(); // key: `${sparkId}:${metric}`
+const history = new Map<string, TimedRingBuffer>(); // key: `${sparkId}:${metric}`
+const historySamples = new Map<string, readonly TimedSample[]>();
+const historyValues = new Map<string, readonly number[]>();
 /** Cached last-N views — refreshed whenever the full series is replaced. */
 const historyTails = new Map<string, readonly number[]>();
 const sparkMap = new Map<string, SparkSnapshot>();
@@ -75,21 +78,18 @@ function setHistoryTail(key: string, full: number[]) {
   historyTails.set(key, full.length <= SPARKLINE_TAIL ? full : full.slice(-SPARKLINE_TAIL));
 }
 
-function pushHistory(key: string, value: number) {
-  const prev = history.get(key);
-  // Build a fresh ref so useSyncExternalStore observes the change for this key.
-  let next: number[];
-  if (!prev || prev.length === 0) {
-    next = [value];
-  } else if (prev.length >= HISTORY_MAX) {
-    next = prev.slice(prev.length - HISTORY_MAX + 1);
-    next.push(value);
-  } else {
-    next = prev.slice();
-    next.push(value);
+function pushHistory(key: string, value: number, at: number) {
+  let ring = history.get(key);
+  if (!ring) {
+    ring = new TimedRingBuffer(HISTORY_MAX);
+    history.set(key, ring);
   }
-  history.set(key, next);
-  setHistoryTail(key, next);
+  ring.push({ at, value });
+  ring.pruneBefore(at - HISTORY_HOURS * 3_600_000);
+  const samples = ring.toArray();
+  historySamples.set(key, samples);
+  historyValues.set(key, samples.map((sample) => sample.value));
+  setHistoryTail(key, ring.tail(SPARKLINE_TAIL).map((sample) => sample.value));
 }
 
 function removeHistoryForSpark(sparkId: string) {
@@ -97,13 +97,15 @@ function removeHistoryForSpark(sparkId: string) {
   for (const key of history.keys()) {
     if (key.startsWith(prefix)) {
       history.delete(key);
+      historySamples.delete(key);
+      historyValues.delete(key);
       historyTails.delete(key);
     }
   }
 }
 
 /** Ingest a full WS snapshot: update latest-per-spark + append history series. */
-export function ingestSnapshots(sparks: SparkSnapshot[]): void {
+export function ingestSnapshots(sparks: SparkSnapshot[], at = Date.now()): void {
   const alive = new Set<string>();
 
   for (const s of sparks) {
@@ -112,18 +114,18 @@ export function ingestSnapshots(sparks: SparkSnapshot[]): void {
     if (!s.online) continue; // don't record zero-samples for offline hosts
     const m = s.metrics;
     if (m.gpu) {
-      pushHistory(`${s.id}:gpu.usage`, m.gpu.usage);
-      pushHistory(`${s.id}:gpu.temp`, m.gpu.temperature);
+      pushHistory(`${s.id}:gpu.usage`, m.gpu.usage, at);
+      pushHistory(`${s.id}:gpu.temp`, m.gpu.temperature, at);
     }
     if (m.cpu) {
-      pushHistory(`${s.id}:cpu.usage`, m.cpu.usage);
+      pushHistory(`${s.id}:cpu.usage`, m.cpu.usage, at);
       // Skip 0°C so a missing sensor does not draw a fake floor on the sparkline.
       if (m.cpu.temperature > 0) {
-        pushHistory(`${s.id}:cpu.temp`, m.cpu.temperature);
+        pushHistory(`${s.id}:cpu.temp`, m.cpu.temperature, at);
       }
     }
     if (m.ram) {
-      pushHistory(`${s.id}:ram.percentage`, m.ram.percentage);
+      pushHistory(`${s.id}:ram.percentage`, m.ram.percentage, at);
     }
     if (Array.isArray(m.llm)) {
       // Zip with snapshot.llmPorts so multi-port LLM series key distinctly.
@@ -132,25 +134,25 @@ export function ingestSnapshots(sparks: SparkSnapshot[]): void {
         const llm = m.llm[i];
         const port = ports[i];
         const portKey = port != null ? `:${port}` : `:${i}`;
-        pushHistory(`${s.id}:llm${portKey}.tps`, llm.generationTps);
-        pushHistory(`${s.id}:llm${portKey}.prefill`, llm.prefillTps);
+        pushHistory(`${s.id}:llm${portKey}.tps`, llm.generationTps, at);
+        pushHistory(`${s.id}:llm${portKey}.prefill`, llm.prefillTps, at);
         // TTFT is sparse: vLLM reports live TTFT only while serving. It is NOT
         // index-aligned with the tick-dense series above — that is fine because
         // the ttft series feeds only the busy-sample average badge, never the
         // overlaid chart (see LlmTrendChart).
         if (llm.ttftSeconds != null) {
-          pushHistory(`${s.id}:llm${portKey}.ttft`, llm.ttftSeconds);
+          pushHistory(`${s.id}:llm${portKey}.ttft`, llm.ttftSeconds, at);
         }
         if (llm.cachedPrefillTps != null) {
-          pushHistory(`${s.id}:llm${portKey}.prefillCached`, llm.cachedPrefillTps);
+          pushHistory(`${s.id}:llm${portKey}.prefillCached`, llm.cachedPrefillTps, at);
         }
         if (llm.uncachedPrefillTps != null) {
-          pushHistory(`${s.id}:llm${portKey}.prefillUncached`, llm.uncachedPrefillTps);
+          pushHistory(`${s.id}:llm${portKey}.prefillUncached`, llm.uncachedPrefillTps, at);
         }
       }
     }
     if (m.comfy?.available) {
-      pushHistory(`${s.id}:comfy.queue`, (m.comfy.queueRunning ?? 0) + (m.comfy.queuePending ?? 0));
+      pushHistory(`${s.id}:comfy.queue`, (m.comfy.queueRunning ?? 0) + (m.comfy.queuePending ?? 0), at);
     }
   }
 
@@ -174,7 +176,13 @@ export function getSpark(id: string): SparkSnapshot | undefined {
 
 /** @internal getSnapshot for useMetricsHistory — stable ref per key. */
 function getHistory(key: string): readonly number[] {
-  return history.get(key) ?? EMPTY;
+  return historyValues.get(key) ?? EMPTY;
+}
+
+const EMPTY_TIMED: readonly TimedSample[] = Object.freeze([] as TimedSample[]);
+
+function getTimedHistory(key: string): readonly TimedSample[] {
+  return historySamples.get(key) ?? EMPTY_TIMED;
 }
 
 function getHistoryTail(key: string): readonly number[] {
@@ -191,6 +199,15 @@ export function useMetricsHistory(sparkId: string, metric: string): readonly num
     subscribeMetrics,
     () => getHistory(key),
     () => EMPTY
+  );
+}
+
+export function useTimedMetricsHistory(sparkId: string, metric: string): readonly TimedSample[] {
+  const key = `${sparkId}:${metric}`;
+  return useSyncExternalStore(
+    subscribeMetrics,
+    () => getTimedHistory(key),
+    () => EMPTY_TIMED
   );
 }
 
@@ -222,6 +239,8 @@ export function useSpark(id: string): SparkSnapshot | undefined {
 /** Clear all cached state — used on hard reload paths / tests. */
 export function _resetStore(): void {
   history.clear();
+  historySamples.clear();
+  historyValues.clear();
   historyTails.clear();
   sparkMap.clear();
 }

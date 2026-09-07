@@ -46,7 +46,7 @@ export function useSnapshot() {
         if (msg.type === "snapshot" && Array.isArray(msg.sparks)) {
           const receivedAt = Date.now();
           // Feed the central history store (8b) before notifying React state.
-          ingestSnapshots(msg.sparks);
+          ingestSnapshots(msg.sparks, msg.generatedAt ?? receivedAt);
           setSparks(msg.sparks);
           setConnected(true);
           setLastValidSnapshotAt(receivedAt);
