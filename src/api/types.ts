@@ -211,6 +211,8 @@ export interface GpuMetrics {
   processes?: Array<{ pid: number; name: string; vramMB: number }>;
   /** NVIDIA clock throttle / thermal slowdown state from nvidia-smi. */
   throttle?: GpuThrottle | null;
+  /** Kernel NVRM NV_ERR_NO_MEMORY count since boot (cached ~60s). */
+  nvErrNoMemory?: number;
 }
 
 // ─── CPU metrics ─────────────────────────────────────────
@@ -518,6 +520,8 @@ export interface Settings {
   pollIntervalMs: number;
   defaultLlmPort: number;
   autoHideOffline: boolean;
+  /** Hide worker-role Sparks from Overview cards and the tab bar. */
+  hideWorkers: boolean;
   temperatureUnit: "celsius" | "fahrenheit";
   /** Persist prompts / HTTP traces / GPU samples on decode benchmark runs. */
   benchDebugTraces: boolean;
@@ -545,6 +549,13 @@ export interface ApiError {
 /** Output-shape label for decode bench prompts (not guided decoding). */
 export type DecodeBenchPromptType = "structured" | "prose" | "code" | "json";
 
+/** On-demand remote LLM endpoint for decode/prefill benches. */
+export interface LlmBenchTarget {
+  host: string;
+  port: number;
+  tls: boolean;
+}
+
 export interface DecodeBenchConfig {
   port: number;
   modelId: string | null;
@@ -552,6 +563,9 @@ export interface DecodeBenchConfig {
   maxTokens: number;
   /** Output-shape label only — not guided decoding / JSON schema. */
   promptType?: DecodeBenchPromptType;
+  /** On-demand remote host (Tailscale HTTPS, etc.). */
+  host?: string;
+  tls?: boolean;
 }
 
 export interface DecodeBenchStreamResult {
@@ -683,6 +697,9 @@ export interface StartDecodeBenchRequest {
   modelId?: string | null;
   /** Output type: structured (default), prose, code, json. Prompt only. */
   promptType?: DecodeBenchPromptType;
+  /** On-demand remote LLM host (hostname or URL). Skips this Spark's LAN/SSH path. */
+  host?: string;
+  tls?: boolean;
 }
 
 // ─── LLM prefill benchmark ───────────────────────────────
@@ -690,6 +707,8 @@ export interface PrefillBenchConfig {
   port: number;
   modelId: string | null;
   contextSizes: number[];
+  host?: string;
+  tls?: boolean;
 }
 
 export interface PrefillBenchSizeResult {
@@ -741,6 +760,8 @@ export interface StartPrefillBenchRequest {
   port?: number;
   contextSizes: number[];
   modelId?: string | null;
+  host?: string;
+  tls?: boolean;
 }
 
 // ─── LLM Prompt Showcase ─────────────────────────────────

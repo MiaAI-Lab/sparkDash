@@ -139,21 +139,24 @@ function sshpassAvailable() {
 }
 
 /**
- * Execute a command on a remote Spark via SSH.
+ * Build file/args/env for an ssh (or sshpass) invocation. No shell interpolation.
  *
- * @param {Object} spark - Spark config object
- * @param {string} cmd - Command to execute (passed as a single remote argv via bash -c)
- * @param {{ timeoutMs?: number }} [options]
- * @returns {Promise<string>} - Trimmed stdout
+ * `extraSshArgs` sit after the shared ConnectTimeout / StrictHostKeyChecking
+ * options and before `-- user@host`. `remoteArgv` is the remote command (omit
+ * for `-N` tunnels).
+ *
+ * @param {object} spark
+ * @param {{ extraSshArgs?: string[], remoteArgv?: string[] }} [opts]
+ * @returns {{ file: string, args: string[], env: NodeJS.ProcessEnv, targetHost: string }}
  */
-export async function sshExec(spark, cmd, options = {}) {
-  const timeoutMs =
-    Number.isFinite(options.timeoutMs) && options.timeoutMs > 0 ? options.timeoutMs : 10000;
-  const { host, user, auth, password } = spark.ssh || {};
-  const targetHost = host || spark.lanIp;
+export function sshCommandSpec(spark, opts = {}) {
+  const extraSshArgs = Array.isArray(opts.extraSshArgs) ? opts.extraSshArgs : [];
+  const remoteArgv = Array.isArray(opts.remoteArgv) ? opts.remoteArgv : [];
+  const { host, user, auth, password } = spark?.ssh || {};
+  const targetHost = host || spark?.lanIp;
 
   if (!targetHost || !user) {
-    throw new Error(`SSH config missing for ${spark.id}: host=${targetHost}, user=${user}`);
+    throw new Error(`SSH config missing for ${spark?.id}: host=${targetHost}, user=${user}`);
   }
 
   if (!isAllowedTargetHost(targetHost)) {
@@ -161,10 +164,6 @@ export async function sshExec(spark, cmd, options = {}) {
   }
   if (!isValidSshUser(user)) {
     throw new Error(`SSH user not allowed: ${user}`);
-  }
-
-  if (typeof cmd !== "string" || !cmd) {
-    throw new Error("SSH command must be a non-empty string");
   }
 
   // Base SSH options (no shell metacharacters in argv)
@@ -177,10 +176,7 @@ export async function sshExec(spark, cmd, options = {}) {
   ];
 
   const remote = `${user}@${targetHost}`;
-  const multiplex = sshMultiplexConfig(spark, targetHost, user, auth, password);
-  const multiplexOpts = multiplex?.args || [];
-  // Remote command as a single argument — ssh does not invoke a local shell for it
-  // when using execFile without a shell. `--` stops option parsing before destination.
+  // `--` stops option parsing before destination.
   let file;
   let args;
   // Minimal child env — only what ssh/sshpass actually need. Spreading the full
@@ -209,29 +205,55 @@ export async function sshExec(spark, cmd, options = {}) {
     // Password via env (sshpass -e) — never on argv or in process list as -p
     env.SSHPASS = password;
     file = "sshpass";
-    args = ["-e", "ssh", ...baseOpts, ...multiplexOpts, "--", remote, cmd];
+    args = ["-e", "ssh", ...baseOpts, ...extraSshArgs, "--", remote, ...remoteArgv];
   } else {
     // Key-based SSH (default) — BatchMode prevents hanging on missing keys
     file = "ssh";
-    args = [...baseOpts, ...multiplexOpts, "-o", "BatchMode=yes"];
+    args = [...baseOpts, "-o", "BatchMode=yes"];
     const identityFile = process.env.SSH_IDENTITY_FILE;
     if (identityFile) {
       args.push("-i", identityFile);
     }
-    args.push("--", remote, cmd);
+    args.push(...extraSshArgs, "--", remote, ...remoteArgv);
   }
 
-  const execute = (execArgs) =>
-    new Promise((resolve, reject) => {
-      execFile(file, execArgs, { timeout: timeoutMs, env, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
-        if (err) {
-          const msg = stderr?.trim() || err.message;
-          reject(new Error(`SSH to ${targetHost} failed: ${msg}`, { cause: err }));
-        } else {
-          resolve(String(stdout).trim());
-        }
-      });
+  return { file, args, env, targetHost };
+}
+
+/**
+ * Execute a command on a remote Spark via SSH.
+ *
+ * @param {Object} spark - Spark config object
+ * @param {string} cmd - Command to execute (passed as a single remote argv via bash -c)
+ * @param {{ timeoutMs?: number }} [options]
+ * @returns {Promise<string>} - Trimmed stdout
+ */
+export async function sshExec(spark, cmd, options = {}) {
+  const timeoutMs =
+    Number.isFinite(options.timeoutMs) && options.timeoutMs > 0 ? options.timeoutMs : 10000;
+
+  if (typeof cmd !== "string" || !cmd) {
+    throw new Error("SSH command must be a non-empty string");
+  }
+
+  const spec = sshCommandSpec(spark, { remoteArgv: [cmd] });
+  const { user, auth, password } = spark.ssh || {};
+  const multiplex = sshMultiplexConfig(spark, spec.targetHost, user, auth, password);
+  // Keep tunnel callers of sshCommandSpec independent of collector mux state.
+  const { file, args, env, targetHost } = multiplex
+    ? sshCommandSpec(spark, { extraSshArgs: multiplex.args, remoteArgv: [cmd] })
+    : spec;
+
+  const execute = (execArgs) => new Promise((resolve, reject) => {
+    execFile(file, execArgs, { timeout: timeoutMs, env, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
+      if (err) {
+        const msg = stderr?.trim() || err.message;
+        reject(new Error(`SSH to ${targetHost} failed: ${msg}`, { cause: err }));
+      } else {
+        resolve(String(stdout).trim());
+      }
     });
+  });
 
   let multiplexState;
   if (multiplex) {

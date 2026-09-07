@@ -11,6 +11,7 @@ import {
   thinkingOffFallbackBody,
   estimateTokenCount,
   round2,
+  describeStreamFetchError,
 } from "../LlmStreaming.js";
 
 test("estimateTokenCount: empty → 0", () => {
@@ -84,4 +85,20 @@ test("thinking-off 400 fallback keeps an explicit disable, strip does not", () =
   const stripped = stripThinkingFlags({ ...body, chat_template_kwargs: { ...body.chat_template_kwargs } });
   assert.equal(stripped.chat_template_kwargs, undefined);
   assert.equal(stripped.enable_thinking, undefined);
+});
+
+test("describeStreamFetchError maps undici 5-minute idle timeouts", () => {
+  assert.equal(
+    describeStreamFetchError({
+      name: "HeadersTimeoutError",
+      code: "UND_ERR_HEADERS_TIMEOUT",
+      message: "Headers Timeout Error",
+    }),
+    "HTTP idle timeout (UND_ERR_HEADERS_TIMEOUT): no data from the LLM for 5 minutes"
+  );
+  assert.equal(
+    describeStreamFetchError({ name: "AbortError", message: "This operation was aborted" }),
+    "Request aborted or timed out"
+  );
+  assert.equal(describeStreamFetchError({ message: "ECONNRESET" }), "ECONNRESET");
 });

@@ -5,12 +5,43 @@
  * (not stream EOF), so trailing usage/[DONE] latency does not drag the rate down.
  */
 
+import { Agent } from "undici";
+
 /** Response headers worth keeping for request correlation / debugging. */
 const DEBUG_HEADER_RE =
   /^(x-request-id|x-stainless-|server|date|content-type|openai-|x-envoy-|cf-ray|request-id)$/i;
 
 /** Truncate streamed content previews stored for debugging. */
 export const CONTENT_PREVIEW_CHARS = 160;
+
+/**
+ * Undici's default headersTimeout/bodyTimeout is 300s. A 256k prefill that has
+ * not produced a first token (or even response headers) by then is aborted
+ * even when PrefillBench's own timer is 30–45 minutes. 0 disables those idle
+ * cuts; the caller AbortSignal still bounds the request.
+ */
+export const LLM_STREAM_AGENT = new Agent({
+  headersTimeout: 0,
+  bodyTimeout: 0,
+});
+
+/** Map fetch/undici failures to a short UI string. */
+export function describeStreamFetchError(err) {
+  if (!err) return "Request failed";
+  const code = err.code || err.cause?.code;
+  if (
+    code === "UND_ERR_HEADERS_TIMEOUT" ||
+    code === "UND_ERR_BODY_TIMEOUT" ||
+    err.name === "HeadersTimeoutError" ||
+    err.name === "BodyTimeoutError"
+  ) {
+    return `HTTP idle timeout (${code || err.name}): no data from the LLM for 5 minutes`;
+  }
+  if (err.name === "AbortError" || err.name === "TimeoutError") {
+    return "Request aborted or timed out";
+  }
+  return err.message || String(err);
+}
 
 export function round2(n) {
   return Math.round(n * 100) / 100;
@@ -490,6 +521,7 @@ async function runStreamingRequestOnce(
       headers,
       body: JSON.stringify(body),
       signal,
+      dispatcher: LLM_STREAM_AGENT,
     });
 
     httpStatus = response.status;
@@ -594,11 +626,7 @@ async function runStreamingRequestOnce(
       }
     }
   } catch (err) {
-    if (err?.name === "AbortError") {
-      error = "Request aborted or timed out";
-    } else {
-      error = err?.message || String(err);
-    }
+    error = describeStreamFetchError(err);
   }
 
   const tEnd = performance.now();

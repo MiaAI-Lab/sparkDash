@@ -7,13 +7,14 @@ import {
   listPrefillBench,
   startPrefillBench,
 } from "../../api/client";
-import type { PrefillBenchJob } from "../../api/types";
+import type { PrefillBenchJob, LlmBenchTarget } from "../../api/types";
 import { useModalPresence } from "../../hooks/useModalPresence";
 import {
   PREFILL_CONTEXT_SIZES,
   PREFILL_DEFAULT_CONTEXT_SIZES,
   formatContextSize,
 } from "../../shared/prefillBench.js";
+import { formatLlmBaseUrl } from "../../shared/llmTarget.js";
 
 interface PrefillBenchDialogProps {
   open: boolean;
@@ -22,6 +23,7 @@ interface PrefillBenchDialogProps {
   llmPort: number;
   modelId: string | null;
   contextLength: number | null;
+  remoteTarget?: LlmBenchTarget | null;
 }
 
 function useEscape(onClose: () => void, enabled: boolean) {
@@ -144,6 +146,7 @@ export function PrefillBenchDialog({
   llmPort,
   modelId,
   contextLength,
+  remoteTarget = null,
 }: PrefillBenchDialogProps) {
   const [selected, setSelected] = useState<number[]>(() => defaultSelected(contextLength));
   const [job, setJob] = useState<PrefillBenchJob | null>(null);
@@ -153,6 +156,7 @@ export function PrefillBenchDialog({
   const [copied, setCopied] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const benchPort = remoteTarget?.port ?? llmPort;
 
   const stopPoll = useCallback(() => {
     if (pollRef.current != null) {
@@ -178,7 +182,7 @@ export function PrefillBenchDialog({
             if (j.status !== "running") stopPoll();
           })
           .catch((err: Error) => {
-            void listPrefillBench(sparkId, llmPort)
+            void listPrefillBench(sparkId, benchPort)
               .then((data) => {
                 if (data.active) {
                   setJob(data.active);
@@ -217,7 +221,7 @@ export function PrefillBenchDialog({
           });
       }, 800);
     },
-    [sparkId, llmPort, stopPoll]
+    [sparkId, benchPort, stopPoll]
   );
 
   useEffect(() => {
@@ -228,7 +232,7 @@ export function PrefillBenchDialog({
     let cancelled = false;
     setLoadingLast(true);
     setError(null);
-    void listPrefillBench(sparkId, llmPort)
+    void listPrefillBench(sparkId, benchPort)
       .then((data) => {
         if (cancelled) return;
         if (data.active) {
@@ -263,7 +267,7 @@ export function PrefillBenchDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, sparkId, llmPort, contextLength, startPolling, stopPoll]);
+  }, [open, sparkId, benchPort, contextLength, startPolling, stopPoll]);
 
   useEffect(() => () => stopPoll(), [stopPoll]);
   useEffect(
@@ -298,9 +302,12 @@ export function PrefillBenchDialog({
     setJob(null);
     try {
       const started = await startPrefillBench(sparkId, {
-        port: llmPort,
+        port: benchPort,
         contextSizes: sizes,
         modelId: modelId || undefined,
+        ...(remoteTarget
+          ? { host: remoteTarget.host, tls: remoteTarget.tls }
+          : {}),
       });
       setJob(started);
       startPolling(started.benchId);
@@ -356,7 +363,7 @@ export function PrefillBenchDialog({
     if (!job || job.status === "running") return;
     setError(null);
     try {
-      await clearPrefillBenchHistory(sparkId, llmPort);
+      await clearPrefillBenchHistory(sparkId, benchPort);
       stopPoll();
       setJob(null);
     } catch (err: unknown) {
@@ -405,7 +412,9 @@ export function PrefillBenchDialog({
               Prefill benchmark
             </h2>
             <p className="bench-sheet__subtitle">
-              Port {llmPort}
+              {remoteTarget
+                ? formatLlmBaseUrl(remoteTarget)
+                : `Port ${llmPort}`}
               {modelId ? ` · ${modelId}` : ""}
             </p>
           </div>

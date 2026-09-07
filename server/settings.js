@@ -14,6 +14,8 @@ const DEFAULTS = Object.freeze({
   pollIntervalMs: 2000,
   defaultLlmPort: 8888,
   autoHideOffline: false,
+  /** Hide worker-role Sparks from Overview and the tab bar. */
+  hideWorkers: false,
   temperatureUnit: "celsius",
   /** Persist prompts / HTTP traces / GPU samples on decode benchmark runs. */
   benchDebugTraces: false,
@@ -36,6 +38,7 @@ function _clampSettings(settings) {
   }
   // Ensure autoHideOffline is boolean
   s.autoHideOffline = Boolean(s.autoHideOffline);
+  s.hideWorkers = Boolean(s.hideWorkers);
   // Ensure benchDebugTraces is boolean
   s.benchDebugTraces = Boolean(s.benchDebugTraces);
   // Ensure temperatureUnit is valid
