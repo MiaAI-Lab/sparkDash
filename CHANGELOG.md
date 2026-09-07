@@ -10,6 +10,7 @@ Format: version sections are listed newest first.
 ## [Unreleased]
 
 ### Added
+- **q27 LLM backend** — detect signalnine/q27 via `/v1/models` ownership or `q27_*` Prometheus series; report backend-aware decode/prefill rates and inference-health telemetry.
 - **Hide worker nodes** — Settings toggle. Worker-role Sparks drop off Overview cards and the tab bar (the open worker tab stays). Direct URLs and batch Wake / Shutdown / Hermes still include them.
 - **On-demand Remote bench** — a **Remote** button next to decode/prefill opens a host + port (HTTPS) field. Paste a Tailscale URL such as `https://name.ts.net/v1/models`; nothing is probed until you run Decode or Prefill against it.
 - **Decode / prefill benches on remote Sparks** — if the remote LLM is not reachable on its LAN IP (loopback-only bind), sparkDash opens an SSH local-forward to `127.0.0.1:<port>` for the job. Bench buttons stay on the LLM card even when the live probe shows no model.

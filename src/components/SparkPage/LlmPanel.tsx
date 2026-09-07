@@ -26,15 +26,15 @@ const VLLM_METRIC_INFO = {
   requests:
     "Run = requests actively generating on the GPU. Wait = accepted but not yet scheduled (capacity or constraints). Growing wait with high KV cache usually means the server is overloaded.",
   ttftP95:
-    "95th percentile time-to-first-token from vLLM’s history of requests: how long “slow” requests wait until the first output token. Spikes mean queueing, long prefills, or cold paths—not average decode speed.",
+    "95th percentile time-to-first-token from the engine’s request history: how long “slow” requests wait until the first output token. Spikes mean queueing, long prefills, or cold paths—not average decode speed.",
   preempts:
     "Cumulative times the engine paused a running request to free KV cache for others. Rising under load signals memory pressure; zero is normal when the server is comfortable.",
   prefixCache:
     "Lifetime fraction of prefix-cache lookups that hit (hits ÷ queries). Higher means more prompt reuse and less prefill work; — when the series is missing or unused.",
   e2eP95:
-    "95th percentile end-to-end request latency from vLLM’s history: arrival until the request finishes. Includes queue wait, prefill, and decode—not just token generation speed.",
+    "95th percentile end-to-end request latency from the engine’s request history: arrival until the request finishes. Includes queue wait, prefill, and decode—not just token generation speed.",
   itlP95:
-    "95th percentile inter-token latency (time between successive output tokens) from vLLM’s history. Spikes mean decode stalls or contention; lower is smoother streaming.",
+    "95th percentile inter-token latency (time between successive output tokens) from the engine’s request history. Spikes mean decode stalls or contention; lower is smoother streaming.",
   mtpAccept:
     "Lifetime speculative / MTP acceptance rate (accepted draft tokens ÷ drafted tokens). Higher means speculative decoding is paying off; — when speculation is off or unused.",
 } as const;
@@ -270,6 +270,7 @@ function BackendBadge({ backend }: { backend: string | null }) {
     sglang: "sgLang",
     ds4: "ds4",
     exl3: "EXL3",
+    q27: "q27",
   };
 
   return (
@@ -808,7 +809,7 @@ export function LlmPanel({
             </div>
           </div>
 
-          {llm?.backend === "vllm" && (
+          {llm && (llm.backend === "vllm" || llm.backend === "q27") && (
             <div className="grid grid-cols-2 gap-2 border-t border-border pt-3 sm:grid-cols-4">
               <div className="space-y-0.5">
                 <MetricInfoTip
@@ -844,8 +845,12 @@ export function LlmPanel({
                   align="right"
                 />
                 <div className="font-tabular text-sm text-text">
-                  {llm.requestsRunning != null && llm.requestsWaiting != null
-                    ? `${Math.round(llm.requestsRunning)} run / ${Math.round(llm.requestsWaiting)} wait`
+                  {llm.requestsRunning != null
+                    ? `${Math.round(llm.requestsRunning)} run${
+                        llm.requestsWaiting != null
+                          ? ` / ${Math.round(llm.requestsWaiting)} wait`
+                          : ""
+                      }`
                     : "—"}
                 </div>
               </div>
@@ -879,7 +884,7 @@ export function LlmPanel({
             </div>
           )}
 
-          {llm?.backend === "vllm" && (
+          {llm && (llm.backend === "vllm" || llm.backend === "q27") && (
             <div className="grid grid-cols-2 gap-2 border-t border-border pt-3 sm:grid-cols-4">
               <div className="space-y-0.5">
                 <MetricInfoTip

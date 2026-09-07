@@ -125,6 +125,16 @@ export async function readServerGenerationTokens(baseUrl, opts = {}) {
           /^sglang_generation_tokens_total(?:\{[^}]*\})?\s+([\d.eE+-]+)\s*$/gm
         );
       if (sglang != null) return sglang;
+      // q27 (signalnine/q27 engine) — live processed counter first, then the
+      // completion-based per-api total (same preference as LlmProbe).
+      const q27 =
+        fromSeries(
+          /^q27_decode_tokens_processed_total(?:\{[^}]*\})?\s+([\d.eE+-]+)\s*$/gm
+        ) ??
+        fromSeries(
+          /^q27_decode_tokens_total(?:\{[^}]*\})?\s+([\d.eE+-]+)\s*$/gm
+        );
+      if (q27 != null) return q27;
     }
   } catch {
     /* try next */
