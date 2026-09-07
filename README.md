@@ -432,8 +432,8 @@ Copy `.env.example` to `.env` if needed:
 2. Choose **Unit type**:
    - **NVIDIA DGX Spark** — the default; hardware summary shows DGX Spark specs and the CX7 IP field is available.
    - **Dedicated GPU host** — any Linux machine with an NVIDIA GPU. It is monitored exactly like a Spark (SSH + `nvidia-smi`) but is **not** reported as a DGX Spark: the header shows a detected hardware summary (GPU model, CPU, RAM) instead of fixed GB10 specs, and the page shows separate **RAM** and **VRAM** panels (VRAM from `nvidia-smi`, RAM from system memory). On the unit page, RAM → Network → Storage stack in the right column with GPU filling the left column.
-3. Set **Name**, **LAN IP** (required), optional **CX7 IP** (Sparks only), **SSH user**, and auth (key or password). LAN IP is probed from the sparkDash host. Key auth in Docker needs a key mounted into the container (see Quick start). Wake-on-LAN MAC is auto-read from **enP7s7** when online (optional override in Edit).
-4. **Test Connection** for SSH + LLM reachability.
+3. Set **Name** and choose whether this is **This host**. Local units do not require a LAN IP or SSH; their optional LAN IP enables browser links and directed Wake-on-LAN. Remote units require a LAN IP/host, SSH user, and key or password. Key auth in Docker needs a key mounted into the container (see Quick start).
+4. **Test** shows pass/fail/skipped for host collectors/SSH and each enabled service (LLM, ComfyUI, Hermes Agent, Tailnet). Every enabled capability must pass; disable an unavailable optional service before saving if it should not be monitored.
 5. Save — a tab appears and metrics start streaming.
 
 ### Power controls (shutdown / Wake-on-LAN)

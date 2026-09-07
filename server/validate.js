@@ -100,6 +100,7 @@ export function validateSparkTarget(body) {
   const lanIp = body?.lanIp || "";
   const sshHost = body?.ssh?.host || "";
   const target = sshHost || lanIp;
+  if (!target && body?.isLocal) return null;
   if (!target) return "lanIp or ssh.host is required";
   if (!isAllowedTargetHost(target)) {
     return `Invalid or disallowed host: ${target}`;
