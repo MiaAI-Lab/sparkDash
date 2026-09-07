@@ -10,17 +10,25 @@ import { SparkRegistry } from "./sparks/SparkRegistry.js";
 import { SparkMonitor } from "./sparks/SparkMonitor.js";
 import { sshExec, sshTest, llmTest, comfyTest } from "./collectors/ssh.js";
 import { comfyCancelJob } from "./collectors/comfyActions.js";
-import { validateSparkTarget, createRateLimiter, isAllowedTargetHost } from "./validate.js";
+import {
+  validateSparkTarget,
+  createRateLimiter,
+  assertAllowedTarget,
+  validateDecodeBudget,
+  validatePrefillBudget,
+} from "./validate.js";
 import { authorizeUpgrade, configuredToken, createAuthMiddleware, requireRemoteAuth } from "./auth.js";
 import { getSettings, updateSettings, loadSettings } from "./settings.js";
 import { broadcastForLanIp, effectiveMac, normalizeMac, sendWol } from "./wol.js";
 import {
   decodeBenchManager,
   DECODE_BENCH_DEFAULTS,
+  normalizeConcurrencies,
 } from "./collectors/DecodeBench.js";
 import {
   prefillBenchManager,
   PREFILL_BENCH_DEFAULTS,
+  normalizeContextSizes,
 } from "./collectors/PrefillBench.js";
 import { showcaseManager } from "./collectors/ShowcaseManager.js";
 import { llmProbeHost } from "./collectors/llmHost.js";
@@ -100,15 +108,19 @@ function resolveLlmApiKey(spark, port) {
  * @param {number[]} configuredPorts
  * @param {object} body
  */
-function benchHttpTarget(spark, configuredPorts, body) {
+async function benchHttpTarget(spark, configuredPorts, body) {
   const hostRaw = body?.host != null ? String(body.host).trim() : "";
   if (hostRaw) {
     const parsed = parseLlmTargetInput(hostRaw, body?.port, body?.tls);
-    if (!isAllowedTargetHost(parsed.host)) {
-      const err = new Error(`Invalid or disallowed host: ${parsed.host}`);
-      err.status = 400;
+    const extra = extraBenchmarkHosts();
+    if (!extra.has(parsed.host)) {
+      const err = new Error(
+        `Remote benchmark host ${parsed.host} is not allowlisted. Add it to SPARKDASH_BENCH_HOSTS or use a saved Spark LLM target.`
+      );
+      err.status = 403;
       throw err;
     }
+    await assertAllowedTarget(parsed.host, extra);
     return {
       port: parsed.port,
       host: parsed.host,
@@ -154,8 +166,55 @@ function benchHttpTarget(spark, configuredPorts, body) {
   };
 }
 
-// Rate-limit ephemeral + registered connectivity tests (per client IP)
+function extraBenchmarkHosts() {
+  return new Set(
+    String(process.env.SPARKDASH_BENCH_HOSTS || "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean)
+  );
+}
+
+function fleetTargetHosts() {
+  const hosts = new Set();
+  for (const spark of registry.sparks) {
+    if (spark.lanIp) hosts.add(spark.lanIp);
+    if (spark.ssh?.host) hosts.add(spark.ssh.host);
+  }
+  return hosts;
+}
+
+async function assertFleetTarget(body) {
+  const validationError = validateSparkTarget(body);
+  if (validationError) {
+    const err = new Error(validationError);
+    err.status = 400;
+    throw err;
+  }
+  const sshHost = body?.ssh?.host || "";
+  const lanIp = body?.lanIp || "";
+  const target = sshHost || lanIp;
+  const allowed = fleetTargetHosts();
+  if (target) allowed.add(target);
+  if (lanIp) allowed.add(lanIp);
+  if (target) await assertAllowedTarget(target, allowed);
+  if (lanIp && lanIp !== target) await assertAllowedTarget(lanIp, allowed);
+}
+
+function principalKey(req) {
+  return req.principal?.id || clientKey(req);
+}
+
+function rejectLimited(res, message) {
+  return res.status(429).json({ error: message });
+}
+
 const allowTest = createRateLimiter(20, 60_000);
+const allowDestructive = createRateLimiter(10, 60_000);
+const allowBench = createRateLimiter(6, 60_000);
+const allowGlobalDestructive = createRateLimiter(30, 60_000);
+const benchCooldown = createRateLimiter(2, 60_000);
+const MAX_ACTIVE_BENCH_JOBS = 2;
 
 // ─── Spark registry ──────────────────────────────────────
 const registry = new SparkRegistry();
@@ -242,8 +301,8 @@ app.get("/api/sparks", (_req, res) => {
 // Ephemeral connectivity test — does not persist or start a monitor
 app.post("/api/sparks/test", async (req, res) => {
   try {
-    if (!allowTest(clientKey(req))) {
-      return res.status(429).json({ error: "Too many test requests; try again shortly" });
+    if (!allowTest(principalKey(req)) || !allowGlobalDestructive(clientKey(req))) {
+      return rejectLimited(res, "Too many test requests; try again shortly");
     }
     const body = req.body || {};
     const validationError = validateSparkTarget(body);
@@ -407,8 +466,8 @@ app.get("/api/sparks/:id/metrics", (req, res) => {
 // Test SSH + LLM connectivity for a registered Spark.
 // Optional body.ssh.password is ALWAYS saved (even if the host is down).
 app.post("/api/sparks/:id/test", async (req, res) => {
-  if (!allowTest(clientKey(req))) {
-    return res.status(429).json({ error: "Too many test requests; try again shortly" });
+  if (!allowTest(principalKey(req)) || !allowGlobalDestructive(clientKey(req))) {
+    return rejectLimited(res, "Too many test requests; try again shortly");
   }
   try {
     const body = req.body || {};
@@ -443,8 +502,8 @@ app.post("/api/sparks/:id/test", async (req, res) => {
 
 // Cancel a ComfyUI job (running interrupt and/or pending dequeue).
 app.post("/api/sparks/:id/comfy/cancel", async (req, res) => {
-  if (!allowTest(clientKey(req))) {
-    return res.status(429).json({ error: "Too many requests; try again shortly" });
+  if (!allowDestructive(principalKey(req)) || !allowGlobalDestructive(clientKey(req))) {
+    return rejectLimited(res, "Too many cancellation requests; try again shortly");
   }
   try {
     const spark = registry.getSpark(req.params.id);
@@ -878,7 +937,16 @@ app.get("/api/sparks/:id/llm/daily", (req, res) => {
  * promptType is structured | prose | code | json (default structured).
  * Returns immediately with a bench job; poll GET for progress/results.
  */
-app.post("/api/sparks/:id/llm/bench", (req, res) => {
+app.post("/api/sparks/:id/llm/bench", async (req, res) => {
+  if (!allowBench(principalKey(req)) || !allowGlobalDestructive(clientKey(req))) {
+    return rejectLimited(res, "Too many benchmark requests; try again shortly");
+  }
+  if (!benchCooldown(principalKey(req))) {
+    return rejectLimited(res, "Benchmark cooldown is active; wait before starting another job");
+  }
+  if (decodeBenchManager.activeCount() + prefillBenchManager.activeCount() >= MAX_ACTIVE_BENCH_JOBS) {
+    return res.status(429).json({ error: "Global active benchmark cap reached; wait for a job to finish" });
+  }
   const spark = registry.getSpark(req.params.id);
   if (!spark) return res.status(404).json({ error: "Spark not found" });
   if (spark.workerNode) {
@@ -901,11 +969,16 @@ app.post("/api/sparks/:id/llm/bench", (req, res) => {
 
   let target;
   try {
-    target = benchHttpTarget(spark, ports, req.body || {});
+    target = await benchHttpTarget(spark, ports, req.body || {});
   } catch (err) {
     return res.status(err.status || 400).json({ error: err.message });
   }
   const port = target.port;
+  try {
+    validateDecodeBudget(normalizeConcurrencies(req.body?.concurrencies), req.body?.maxTokens ?? 400);
+  } catch (err) {
+    return res.status(err.status || 429).json({ error: err.message });
+  }
 
   // Resolve model id for this port from live snapshot when possible
   let modelId = req.body?.modelId || null;
@@ -1042,7 +1115,16 @@ app.delete("/api/sparks/:id/llm/bench/:benchId", (req, res) => {
  * POST body: { port?, contextSizes: number[] }
  * Returns 202 job; poll GET for progress/results.
  */
-app.post("/api/sparks/:id/llm/prefill-bench", (req, res) => {
+app.post("/api/sparks/:id/llm/prefill-bench", async (req, res) => {
+  if (!allowBench(principalKey(req)) || !allowGlobalDestructive(clientKey(req))) {
+    return rejectLimited(res, "Too many benchmark requests; try again shortly");
+  }
+  if (!benchCooldown(principalKey(req))) {
+    return rejectLimited(res, "Benchmark cooldown is active; wait before starting another job");
+  }
+  if (decodeBenchManager.activeCount() + prefillBenchManager.activeCount() >= MAX_ACTIVE_BENCH_JOBS) {
+    return res.status(429).json({ error: "Global active benchmark cap reached; wait for a job to finish" });
+  }
   const spark = registry.getSpark(req.params.id);
   if (!spark) return res.status(404).json({ error: "Spark not found" });
   if (spark.workerNode) {
@@ -1065,11 +1147,16 @@ app.post("/api/sparks/:id/llm/prefill-bench", (req, res) => {
 
   let target;
   try {
-    target = benchHttpTarget(spark, ports, req.body || {});
+    target = await benchHttpTarget(spark, ports, req.body || {});
   } catch (err) {
     return res.status(err.status || 400).json({ error: err.message });
   }
   const port = target.port;
+  try {
+    validatePrefillBudget(normalizeContextSizes(req.body?.contextSizes));
+  } catch (err) {
+    return res.status(err.status || 429).json({ error: err.message });
+  }
 
   let modelId = req.body?.modelId || null;
   if (!modelId && !target.custom && monitor) {
