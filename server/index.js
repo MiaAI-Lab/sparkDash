@@ -11,6 +11,7 @@ import { SparkMonitor } from "./sparks/SparkMonitor.js";
 import { sshExec, sshTest, llmTest, comfyTest } from "./collectors/ssh.js";
 import { comfyCancelJob } from "./collectors/comfyActions.js";
 import { validateSparkTarget, createRateLimiter, isAllowedTargetHost } from "./validate.js";
+import { authorizeUpgrade, configuredToken, createAuthMiddleware, requireRemoteAuth } from "./auth.js";
 import { getSettings, updateSettings, loadSettings } from "./settings.js";
 import { broadcastForLanIp, effectiveMac, normalizeMac, sendWol } from "./wol.js";
 import {
@@ -224,6 +225,7 @@ const app = express();
 const server = createServer(app);
 
 app.use(express.json());
+app.use(createAuthMiddleware());
 
 function clientKey(req) {
   return req.ip || req.socket?.remoteAddress || "unknown";
@@ -264,14 +266,14 @@ app.post("/api/sparks/test", async (req, res) => {
         password: body.ssh?.password,
       },
     };
-    if (!spark.lanIp && !spark.ssh.host) {
+    if (!spark.lanIp && !spark.ssh.host && !spark.isLocal) {
       return res.status(400).json({ error: "lanIp or ssh.host required" });
     }
     const llmPort = resolveLlmPort(spark);
     const comfyPort = resolveComfyPort(spark);
     const [sshResult, llmResult, comfyResult] = await Promise.all([
-      spark.isLocal ? Promise.resolve({ ok: true, message: "local (skipped SSH)" }) : sshTest(spark),
-      llmTest(spark, llmPort),
+      spark.isLocal ? Promise.resolve({ ok: true, message: "local collectors" }) : sshTest(spark),
+      body.llmMonitoring === false ? Promise.resolve({ ok: true, message: "disabled", skipped: true }) : llmTest(spark, llmPort),
       spark.comfyMonitoring
         ? comfyTest(spark, comfyPort)
         : Promise.resolve({ ok: true, message: "disabled", skipped: true }),
@@ -281,7 +283,7 @@ app.post("/api/sparks/test", async (req, res) => {
       ssh: sshResult,
       llm: llmResult,
       comfy: comfyResult,
-      ok: sshResult.ok || llmResult.ok || (comfyResult.ok && !comfyResult.skipped),
+      ok: [sshResult, llmResult, comfyResult].every((result) => result.ok || result.skipped),
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -420,8 +422,8 @@ app.post("/api/sparks/:id/test", async (req, res) => {
     if (!spark) return res.status(404).json({ error: "Spark not found" });
 
     const [sshResult, llmResult, comfyResult] = await Promise.all([
-      spark.isLocal ? Promise.resolve({ ok: true, message: "local (skipped SSH)" }) : sshTest(spark),
-      llmTest(spark, resolveLlmPort(spark)),
+      spark.isLocal ? Promise.resolve({ ok: true, message: "local collectors" }) : sshTest(spark),
+      spark.llmMonitoring === false ? Promise.resolve({ ok: true, message: "disabled", skipped: true }) : llmTest(spark, resolveLlmPort(spark)),
       spark.comfyMonitoring
         ? comfyTest(spark, resolveComfyPort(spark))
         : Promise.resolve({ ok: true, message: "disabled", skipped: true }),
@@ -431,7 +433,7 @@ app.post("/api/sparks/:id/test", async (req, res) => {
       ssh: sshResult,
       llm: llmResult,
       comfy: comfyResult,
-      ok: sshResult.ok || llmResult.ok || (comfyResult.ok && !comfyResult.skipped),
+      ok: [sshResult, llmResult, comfyResult].every((result) => result.ok || result.skipped),
       hasPassword: registry.hasPassword(req.params.id),
     });
   } catch (err) {
@@ -1513,7 +1515,11 @@ app.get("*splat", (_req, res) => {
 });
 
 // ─── WebSocket ──────────────────────────────────────────
-const wss = new WebSocketServer({ server, path: "/ws" });
+const wss = new WebSocketServer({
+  server,
+  path: "/ws",
+  verifyClient: ({ req }, done) => done(authorizeUpgrade(req)),
+});
 wss.on("connection", (ws) => {
   console.log("[ws] client connected");
   // Send the initial snapshot through the same path the broadcast uses so the
@@ -1602,14 +1608,11 @@ startBroadcast();
 server.listen(PORT, BIND_HOST, () => {
   console.log(`[sparkDash] server listening on http://${BIND_HOST}:${PORT}`);
   console.log(`[sparkDash] WebSocket endpoint ws://${BIND_HOST}:${PORT}/ws`);
-  const isLoopback =
-    BIND_HOST === "localhost" || BIND_HOST === "::1" || /^127\./.test(BIND_HOST);
-  if (isLoopback) {
-    console.log("[sparkDash] localhost-only; set BIND_HOST=0.0.0.0 (or a LAN IP) to allow remote access");
-  } else {
-    console.warn(
-      `[sparkDash] WARNING: bound to ${BIND_HOST} — reachable on the LAN. This dashboard is unauthenticated and can SSH into and power off your Sparks; restrict access at the network/firewall layer.`
-    );
+  const remote = requireRemoteAuth(BIND_HOST);
+  const tokenConfigured = Boolean(configuredToken());
+  console.log(`[sparkDash] bind=${BIND_HOST} auth=${tokenConfigured ? "bearer" : remote ? "required-missing" : "loopback-open"}`);
+  if (remote && !tokenConfigured) {
+    console.warn("[sparkDash] WARNING: remote bind without SPARKDASH_TOKEN — mutations and telemetry will fail closed until a token is set.");
   }
   startAllMonitors();
   fleetEnergyRuntime.start();

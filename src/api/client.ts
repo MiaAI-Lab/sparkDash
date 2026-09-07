@@ -19,6 +19,11 @@ import type {
 } from "./types";
 
 const BASE = "";
+const TOKEN = (typeof localStorage !== "undefined" && localStorage.getItem("sparkdashToken")) || "";
+
+function authHeaders(): Record<string, string> {
+  return TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {};
+}
 
 // ─── Generic fetch wrapper ────────────────────────────────
 async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
@@ -29,7 +34,7 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
   if (opts?.body) headers["Content-Type"] = "application/json";
   const res = await fetch(`${BASE}${path}`, {
     ...opts,
-    headers: { ...headers, ...(opts?.headers as Record<string, string> | undefined) },
+    headers: { ...headers, ...authHeaders(), ...(opts?.headers as Record<string, string> | undefined) },
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));

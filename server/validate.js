@@ -100,7 +100,9 @@ export function validateSparkTarget(body) {
   const lanIp = body?.lanIp || "";
   const sshHost = body?.ssh?.host || "";
   const target = sshHost || lanIp;
-  if (!target) return "lanIp or ssh.host is required";
+  if (!target) {
+    return body?.isLocal ? null : "lanIp or ssh.host is required";
+  }
   if (!isAllowedTargetHost(target)) {
     return `Invalid or disallowed host: ${target}`;
   }
@@ -119,14 +121,22 @@ export function validateSparkTarget(body) {
  * @param {number} maxRequests
  * @param {number} windowMs
  */
-export function createRateLimiter(maxRequests, windowMs) {
+export function createRateLimiter(maxRequests, windowMs, maxKeys = 1024) {
   /** @type {Map<string, number[]>} */
   const hits = new Map();
 
   return function rateLimit(key) {
     const now = Date.now();
+    for (const [existing, times] of hits) {
+      const kept = times.filter((t) => now - t < windowMs);
+      if (kept.length === 0) hits.delete(existing);
+      else hits.set(existing, kept);
+    }
+    if (hits.size >= maxKeys && !hits.has(key)) {
+      const oldest = hits.keys().next().value;
+      hits.delete(oldest);
+    }
     let times = hits.get(key) || [];
-    times = times.filter((t) => now - t < windowMs);
     if (times.length >= maxRequests) {
       hits.set(key, times);
       return false;
