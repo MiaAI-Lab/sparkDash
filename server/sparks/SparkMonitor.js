@@ -1,6 +1,9 @@
 import fs from "fs";
 import path from "path";
-import { SystemCollector } from "../collectors/SystemCollector.js";
+import {
+  SystemCollector,
+  collectionWasSuccessful,
+} from "../collectors/SystemCollector.js";
 import { LlmProbe } from "../collectors/LlmProbe.js";
 import { ComfyProbe } from "../collectors/ComfyProbe.js";
 import { HermesProbe } from "../collectors/HermesProbe.js";
@@ -104,6 +107,7 @@ export class SparkMonitor {
       tailscale: null,
     };
     this._lastUpdate = {};
+    this._metricCollectionSuccessful = { gpu: false, cpu: false };
 
     // Hardware summary: kind "spark" uses the static DGX Spark specs; kind
     // "host" (dedicated GPU Linux box) detects real hardware once in the
@@ -131,7 +135,8 @@ export class SparkMonitor {
     /** @type {ReturnType<typeof setInterval> | null} */
     this._tailscaleIntervalId = null;
     this._running = false;
-    /** @type {Record<string, boolean>} in-flight domain guards */
+    this._runGeneration = 0;
+    /** @type {Record<string, boolean | symbol>} in-flight domain guards */
     this._inflight = {};
   }
 
@@ -142,6 +147,10 @@ export class SparkMonitor {
     const prevComfyPort = this._comfyPort(this.spark);
     const wasHermes = this._hermesMonitoringEnabled(this.spark);
     const wasTailscale = this._tailscaleMonitoringEnabled(this.spark);
+    this.collector.invalidatePendingCollections();
+    this._runGeneration += 1;
+    this._inflight = {};
+    this._metricCollectionSuccessful = { gpu: false, cpu: false };
     this.spark = spark;
     this.collector.spark = spark;
 
@@ -390,6 +399,7 @@ export class SparkMonitor {
   /** Start background polling. */
   start() {
     if (this._running) return;
+    this._runGeneration += 1;
     this._running = true;
     this._stopped = false;
     this._poll();
@@ -410,6 +420,9 @@ export class SparkMonitor {
 
   /** Stop background polling. */
   stop() {
+    this.collector.invalidatePendingCollections();
+    this._runGeneration += 1;
+    this._metricCollectionSuccessful = { gpu: false, cpu: false };
     this._running = false;
     this._stopped = true;
     for (const id of this._intervals) clearInterval(id);
@@ -504,36 +517,42 @@ export class SparkMonitor {
   // ─── Liveness ─────────────────────────────────────────────
   async _checkOnline() {
     if (!this._running || this._inflight.online) return;
-    this._inflight.online = true;
+    const runGeneration = this._runGeneration;
+    const checkToken = Symbol("online");
+    this._inflight.online = checkToken;
+    const isCurrentRun = () =>
+      this._running && this._runGeneration === runGeneration;
     try {
       if (this.spark.isLocal) {
         await this.collector.pingHost();
       } else {
         const result = await sshTest(this.spark);
-        // Re-check after the (up to 10s) SSH await — `stop()` may have fired
-        // mid-flight (removeSpark / updateSpark). Bail before mutating state or
-        // running into a stopped registry entry.
-        if (!this._running) return;
+        if (!isCurrentRun()) return;
         if (!result.ok) throw new Error(result.message);
       }
-      if (!this._running) return;
-      this.online = true;
-      this.lastOnlineOk = Date.now();
+      if (!isCurrentRun()) return;
 
       // Collect system uptime
+      let uptimeSeconds = this._uptimeSeconds;
       try {
-        this._uptimeSeconds = await this._readUptime();
+        uptimeSeconds = await this._readUptime();
       } catch {
         // Non-fatal — uptime stays at previous value or null
       }
+      if (!isCurrentRun()) return;
+      this.online = true;
+      this.lastOnlineOk = Date.now();
+      this._uptimeSeconds = uptimeSeconds;
     } catch {
-      if (!this._running) return;
+      if (!isCurrentRun()) return;
       if (!this.lastOnlineOk || Date.now() - this.lastOnlineOk > ONLINE_GRACE_MS) {
         this.online = false;
         this._uptimeSeconds = null;
       }
     } finally {
-      this._inflight.online = false;
+      if (this._inflight.online === checkToken) {
+        this._inflight.online = false;
+      }
     }
   }
 
@@ -564,7 +583,9 @@ export class SparkMonitor {
     if (domain === "comfy" && !this._comfyMonitoringEnabled()) return;
     if (domain === "hermes" && !this._hermesMonitoringEnabled()) return;
     if (domain === "tailscale" && !this._tailscaleMonitoringEnabled()) return;
-    this._inflight[domain] = true;
+    const runGeneration = this._runGeneration;
+    const pollToken = Symbol(domain);
+    this._inflight[domain] = pollToken;
     try {
       let result;
       switch (domain) {
@@ -607,13 +628,15 @@ export class SparkMonitor {
       // isn't user-visible (monitors.delete already happened) but it's a
       // latent class of bug worth killing, and a replaced monitor could
       // otherwise race the tail-end await onto the wrong object.
-      if (!this._running) return;
+      if (!this._running || this._runGeneration !== runGeneration) return;
       switch (domain) {
         case "gpu":
           this._metrics.gpu = result;
+          this._metricCollectionSuccessful.gpu = collectionWasSuccessful(result);
           break;
         case "cpu":
           this._metrics.cpu = result;
+          this._metricCollectionSuccessful.cpu = collectionWasSuccessful(result);
           break;
         case "ram":
           this._metrics.ram = result;
@@ -656,34 +679,39 @@ export class SparkMonitor {
       }
       this._lastUpdate[domain] = Date.now();
     } catch (err) {
+      if (
+        this._running &&
+        this._runGeneration === runGeneration &&
+        (domain === "gpu" || domain === "cpu")
+      ) {
+        this._metricCollectionSuccessful[domain] = false;
+      }
       console.error(`[SparkMonitor] ${this.spark.id} ${domain} poll error:`, err.message);
     } finally {
-      this._inflight[domain] = false;
+      if (this._inflight[domain] === pollToken) {
+        this._inflight[domain] = false;
+      }
     }
   }
 
   /** Manually refresh a single domain, bypassing auto-poll guards. */
   async refreshDomain(domain) {
-    if (this._inflight[domain]) return;
-    this._inflight[domain] = true;
+    if (domain !== "storage") return this._pollDomain(domain);
+    if (!this._running || this._inflight[domain]) return;
+    const runGeneration = this._runGeneration;
+    const refreshToken = Symbol(domain);
+    this._inflight[domain] = refreshToken;
     try {
-      let result;
-      switch (domain) {
-        case "storage":
-          result = await this.collector.collectStorage();
-          break;
-        default:
-          // Fall back to _pollDomain for other domains
-          this._inflight[domain] = false;
-          return this._pollDomain(domain);
-      }
-      if (!this._running) return;
+      const result = await this.collector.collectStorage();
+      if (!this._running || this._runGeneration !== runGeneration) return;
       this._metrics.storage = result;
       this._lastUpdate[domain] = Date.now();
     } catch (err) {
       console.error(`[SparkMonitor] ${this.spark.id} ${domain} refresh error:`, err.message);
     } finally {
-      this._inflight[domain] = false;
+      if (this._inflight[domain] === refreshToken) {
+        this._inflight[domain] = false;
+      }
     }
   }
 
@@ -829,4 +857,3 @@ export class SparkMonitor {
     };
   }
 }
-
