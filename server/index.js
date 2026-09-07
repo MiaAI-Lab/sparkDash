@@ -26,6 +26,7 @@ import { llmProbeHost } from "./collectors/llmHost.js";
 import { onceClose, resolveLlmHttpTarget } from "./collectors/llmTunnel.js";
 import { formatLlmBaseUrl, parseLlmTargetInput } from "../src/shared/llmTarget.js";
 import { llmDaily } from "./collectors/LlmDaily.js";
+import { closeLlmStreamAgent } from "./collectors/LlmStreaming.js";
 import { compareSemver, getLatestRelease } from "./collectors/HermesReleases.js";
 import { FLEET_ENERGY_JSON_PATH } from "./config.js";
 import { FleetEnergyTracker } from "./energy/FleetEnergyTracker.js";
@@ -1620,7 +1621,7 @@ server.listen(PORT, BIND_HOST, () => {
 
 // ─── Graceful shutdown ─────────────────────────────────
 let _shuttingDown = false;
-function shutdown(signal) {
+async function shutdown(signal) {
   if (_shuttingDown) return;
   _shuttingDown = true;
   console.log(`[sparkDash] ${signal} received, shutting down…`);
@@ -1642,6 +1643,10 @@ function shutdown(signal) {
     console.error("[sparkDash] failed to flush LLM daily history:", err.message);
   }
   const energyPersistenceSucceeded = fleetEnergyRuntime.stop();
+  const streamAgentClosedGracefully = await closeLlmStreamAgent();
+  if (!streamAgentClosedGracefully) {
+    console.warn("[sparkDash] LLM dispatcher close timed out; destroyed open sockets");
+  }
   try {
     if (broadcastTimer) {
       clearInterval(broadcastTimer);

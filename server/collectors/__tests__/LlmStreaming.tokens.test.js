@@ -4,6 +4,7 @@
  */
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
+import { getEventListeners } from "node:events";
 import {
   applyThinkingFlags,
   coerceThinkingFlag,
@@ -12,7 +13,30 @@ import {
   estimateTokenCount,
   round2,
   describeStreamFetchError,
+  sleep,
+  closeLlmStreamAgent,
 } from "../LlmStreaming.js";
+
+test("sleep removes its abort listener after normal completion", async () => {
+  const controller = new AbortController();
+  for (let i = 0; i < 25; i += 1) await sleep(0, controller.signal);
+  assert.equal(getEventListeners(controller.signal, "abort").length, 0);
+});
+
+test("sleep rejects promptly on abort and removes its listener", async () => {
+  const controller = new AbortController();
+  const pending = sleep(10_000, controller.signal);
+  controller.abort();
+  await assert.rejects(pending, { name: "AbortError" });
+  assert.equal(getEventListeners(controller.signal, "abort").length, 0);
+});
+
+test("shared LLM dispatcher cleanup is idempotent", async () => {
+  const first = closeLlmStreamAgent();
+  const second = closeLlmStreamAgent();
+  assert.equal(first, second);
+  assert.equal(await first, true);
+});
 
 test("estimateTokenCount: empty → 0", () => {
   assert.equal(estimateTokenCount(""), 0);
