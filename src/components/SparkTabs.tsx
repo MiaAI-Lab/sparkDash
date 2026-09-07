@@ -101,14 +101,14 @@ const TabLabelButton = memo(
     id,
     name,
     online,
-    active,
+    isActive,
     onSelect,
     onEdit,
   }: {
     id: string;
     name: string;
     online: boolean;
-    active: boolean;
+    isActive: boolean;
     onSelect: (id: string) => void;
     onEdit?: (id: string) => void;
   }) {
@@ -118,7 +118,7 @@ const TabLabelButton = memo(
         onClick={() => onSelect(id)}
         onDoubleClick={() => onEdit?.(id)}
         className="pill-label"
-        aria-current={active ? "page" : undefined}
+        aria-current={isActive ? "page" : undefined}
       >
         <span
           className={`inline-block h-2 w-2 shrink-0 rounded-full ${
@@ -133,7 +133,7 @@ const TabLabelButton = memo(
     prev.id === next.id &&
     prev.name === next.name &&
     prev.online === next.online &&
-    prev.active === next.active &&
+    prev.isActive === next.isActive &&
     prev.onSelect === next.onSelect &&
     prev.onEdit === next.onEdit
 );
@@ -185,7 +185,7 @@ function TabChrome({
         id={spark.id}
         name={spark.name}
         online={spark.online}
-        active={isActive}
+        isActive={isActive}
         onSelect={onSelect}
         onEdit={onEdit}
       />
@@ -286,6 +286,8 @@ export function SparkTabs({
           className="icon-circle"
           onClick={() => setMobileMenuOpen((v) => !v)}
           aria-label="Select Spark"
+          aria-expanded={mobileMenuOpen}
+          aria-controls="mobile-spark-menu"
           title="Select Spark"
         >
           <HamburgerIcon className="h-4 w-4" />
@@ -481,11 +483,12 @@ function MobileSparkMenu({
   if (!isOpen) return null;
 
   return (
-    <div ref={menuRef} className="mobile-spark-menu" role="menu">
+    <div id="mobile-spark-menu" ref={menuRef} className="mobile-spark-menu" role="menu">
       <button
         type="button"
         role="menuitem"
         className={`mobile-menu-item ${activeId === OVERVIEW_ID ? "is-active" : ""}`}
+        aria-current={activeId === OVERVIEW_ID ? "page" : undefined}
         onClick={() => handleItemClick(OVERVIEW_ID)}
       >
         <GridIcon className="h-3.5 w-3.5" />
@@ -497,6 +500,7 @@ function MobileSparkMenu({
           type="button"
           role="menuitem"
           className={`mobile-menu-item ${activeId === spark.id ? "is-active" : ""}`}
+          aria-current={activeId === spark.id ? "page" : undefined}
           onClick={() => handleItemClick(spark.id)}
         >
           <span
