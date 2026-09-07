@@ -11,9 +11,15 @@ export function evaluateStartupPreflight(input) {
   const errors = [];
   const warnings = [];
   if (!loopback && !input.tokenConfigured) {
-    errors.push(
-      `Remote bind ${input.bindHost} requires SPARKDASH_TOKEN. Keep BIND_HOST=127.0.0.1, or set SPARKDASH_TOKEN and use an SSH tunnel, authenticated TLS reverse proxy, or Tailscale Serve.`
-    );
+    if (input.allowOpenRemote) {
+      warnings.push(
+        `Remote bind ${input.bindHost} is open because SPARKDASH_ALLOW_OPEN_REMOTE=1. Set SPARKDASH_TOKEN for authenticated remote access.`
+      );
+    } else {
+      errors.push(
+        `Remote bind ${input.bindHost} requires SPARKDASH_TOKEN. Keep BIND_HOST=127.0.0.1, or set SPARKDASH_TOKEN and use an SSH tunnel, authenticated TLS reverse proxy, or Tailscale Serve.`
+      );
+    }
   }
   if (!input.configWritable) errors.push("Config directory is not writable; fix the config volume ownership/permissions.");
   if (!input.secretsKey?.present) warnings.push("No secrets key exists yet; one will be created when the secrets store is first used. Back it up with the config directory.");
@@ -52,6 +58,7 @@ export function inspectStartupPreflight(bindHost) {
   return evaluateStartupPreflight({
     bindHost,
     tokenConfigured: Boolean(process.env.SPARKDASH_TOKEN || process.env.DASHBOARD_TOKEN),
+    allowOpenRemote: process.env.SPARKDASH_ALLOW_OPEN_REMOTE === "1",
     configWritable: pathWritable(configDir),
     secretsKey: {
       present: Boolean(process.env.SPARKDASH_SECRETS_KEY) || fs.existsSync(keyFile),

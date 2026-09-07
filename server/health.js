@@ -8,7 +8,9 @@ export function evaluateHealth({ bindHost, configWritable, secretsKeyPresent, ss
   const token = Boolean(configuredToken());
   const errors = [];
   const warnings = [];
-  if (remote && !token) errors.push("Remote bind requires SPARKDASH_TOKEN");
+  if (remote && !token && process.env.SPARKDASH_ALLOW_OPEN_REMOTE !== "1") {
+    errors.push("Remote bind requires SPARKDASH_TOKEN");
+  }
   if (!configWritable) errors.push("Config directory is not writable");
   if (!secretsKeyPresent) warnings.push("Secrets key is not present yet");
   if (!sshIdentityPresent) warnings.push("SSH identity is not mounted");

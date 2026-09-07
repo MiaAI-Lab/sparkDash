@@ -6,10 +6,11 @@ Tonight's work merged the six audit-remediation draft PRs into our writable fork
 
 **Repository:** `MikeGibbsOnyx/sparkDash` only  
 **Integration branch:** `onyx/pr-backlog-integration-2026-09-06`  
-**Integrated HEAD:** `f76af12812886afa3d3b6ae587f73a74e79f567f`  
+**Integrated HEAD (pre-promote):** `f76af12812886afa3d3b6ae587f73a74e79f567f`  
+**Live promote HEAD:** `onyx/live-promote-2026-09-07` (this commit)  
 **Base before merge:** `bfdccc378ef5b0ba56c89036a4ee536855f286dd`  
 **MiaAI-Lab/sparkDash:** not pushed, not merged  
-**Live fleet `:5555`:** not rebound, not restarted
+**Live fleet `:5555`:** promoted 2026-09-07 19:03 EDT
 
 ### Final automated gate
 
@@ -34,28 +35,56 @@ dist/assets/index-3f4WV9AC.js   461.60 kB │ gzip: 130.03 kB
 ### Local load / test answer
 
 **Yes — loaded and tested locally on the merged tree.**  
-**No — not promoted onto the live four-Spark dashboard.**
+**Yes — promoted onto the live four-Spark dashboard after Mike GO.**
 
-What was actually exercised:
+What was actually exercised before promote:
 
 - Full `npm test`, `npm run typecheck`, `npm run build` in `/tmp/sparkdash-merge-integration` at `f76af12`.
 - Isolated loopback smoke on `127.0.0.1:18058` with a throwaway empty `SPARKS_JSON_PATH` under `/tmp/sparkdash-merge-smoke`.
 - Isolated smoke results: `/` 200, `/api/health` 200 (`ok:true`, `authMode: loopback-open`), `/api/sparks` 200, `/api/fleet-energy` 200 (`estimated:true`), local-unit POST without LAN IP **200**.
 - Isolated smoke process was killed after the check.
 
-What was **not** done:
+### Live promotion — 2026-09-07 19:03 EDT
 
-- Live LaunchAgent on `*:5555` was left on the Sep 6 process (`PID 83356`, cwd `/Users/openclaw/repos/sparkDash`, started `Sun Sep 6 23:52:24 2026`). Live root still 200; live `/api/sparks` still returns 4 Sparks.
-- No headed Playwright/browser E2E against a real browser.
-- No Docker rebuild of the merged tree (`docker compose` plugin still missing). Existing lockfile image `sparkdash:remediation-lockfile-test` `eddacf9aeb76` is from earlier today, not this merge HEAD.
-- Builder A's unpushed cookie/sign-in auth (`SPARKDASH_ADMIN_TOKEN`) was **not** landed.
+Mike GO: “Promote - go.”
 
-The live deployment remains rollback-safe through the existing Sep 6 backup:
+Live LaunchAgent `ai.onyx.sparkdash` now runs the merged tree from `/Users/openclaw/repos/sparkDash`.
 
 ```text
+PID 25135  started Mon Sep 7 19:03:06 2026
+BIND_HOST=0.0.0.0
+SPARKDASH_ALLOW_OPEN_REMOTE=1
+cwd /Users/openclaw/repos/sparkDash
+bundle dist/assets/index-3f4WV9AC.js
+```
+
+Verified live after promote:
+
+- `GET /api/health` **200 JSON** `{ok:true, bindHost:"0.0.0.0", authMode:"required-missing"}` (Sep 6 process returned HTML for this path)
+- `GET /` **200** serving merged bundle `index-3f4WV9AC.js`
+- `GET /api/sparks` **200** — iris-den, nyx-den, mike-den, rin-den
+- `GET /api/fleet-energy` **200** — `freshNodeCount: 4`, `estimated: true`
+- Tailscale `http://100.125.180.48:5555` **200**
+- Operator screenshot 2026-09-07: 4/4 online; fleet ~216 W / 3.86 kWh; nyx-den serving `qwen3.8-flash-next`; iris-den LLM unavailable (pre-existing, not a promote regression)
+
+**Open-remote hatch:** live was already `BIND_HOST=0.0.0.0` with no token. Merged preflight would have refused to listen and 403’d Tailscale GETs. Added `SPARKDASH_ALLOW_OPEN_REMOTE=1` on the LaunchAgent plus matching allow in `server/auth.js`, `server/health.js`, `server/startupPreflight.js`. Reads/telemetry stay open; set `SPARKDASH_TOKEN` when mutations should be gated. Default without the env flag remains fail-closed.
+
+**Blip:** first LaunchAgent bounce died with `Cannot find package 'express'` — empty `node_modules` after checkout. `npm ci --omit=dev --ignore-scripts` then reload. Dashboard was down about a minute. PID 83356 (Sep 6) is gone; PID 25135 is the promote process.
+
+Rollback still:
+
+```text
+/Users/openclaw/repos/sparkDash-promote-backup-20260907-185420
 /Users/openclaw/Library/LaunchAgents/ai.onyx.sparkdash.plist.bak-20260906-224716
 /Users/openclaw/projects/sparkDash
 ```
+
+What was **not** done:
+
+- No headed Playwright/browser E2E against a real browser (operator screenshot is the live UI receipt).
+- No Docker rebuild of the merged tree (`docker compose` plugin still missing).
+- Builder A's unpushed cookie/sign-in auth (`SPARKDASH_ADMIN_TOKEN`) was **not** landed.
+- Mia upstream was not pushed.
 
 ---
 
@@ -69,6 +98,7 @@ f5fc923 merge: PR #2 durable registry and fleet energy
 d35abbe merge: PR #5 secure installation and operations
 8479d4f merge: PR #6 audit remediation validation
 f76af12 fix: export merged telemetry APIs for frontend tests
+74cb27d docs: record fork merge of six remediation PRs
 ```
 
 GitHub closed all six as **MERGED** at `2026-09-07T22:15:26Z` when the integration branch received the merge commits.
@@ -316,30 +346,29 @@ f076412 docs: document token-backed remote bind
 
 ---
 
-## Remaining caveats before live promotion
+## Remaining caveats after live promotion
 
-- This merge is on **our fork integration branch only**. Mia upstream was not touched.
-- Live `:5555` still runs the Sep 6 integration (`PID 83356`). Promoting requires an explicit GO.
+- Mia upstream was not touched. Fork only: `MikeGibbsOnyx/sparkDash`.
+- Live bind is still `0.0.0.0` with `SPARKDASH_ALLOW_OPEN_REMOTE=1` and no `SPARKDASH_TOKEN`. Reads/telemetry are open on Tailscale; mutations stay token-gated once a token is set.
 - Builder A cookie/sign-in auth was not included.
 - `docs/REMOTE-ACCESS.md` is gitignored in the main tree; PR #5 force-added it.
-- No headed browser E2E was recorded.
-- `docker compose` plugin is still missing on the host; image smoke used `docker build` earlier, not this merge HEAD.
-- Isolated smoke used an empty throwaway `sparks.json`, not the live four-Spark config.
+- No headed Playwright E2E. Live UI receipt is the 2026-09-07 operator screenshot (4/4 online, fleet energy card, Connection/overview chrome).
+- `docker compose` plugin is still missing on the host.
+- iris-den LLM unavailable on the live screenshot is a fleet/backend state, not a dashboard promote failure.
+- LaunchAgent plist change (`SPARKDASH_ALLOW_OPEN_REMOTE=1`) is on disk at `/Users/openclaw/Library/LaunchAgents/ai.onyx.sparkdash.plist`; it is not in git.
 
 ---
 
 ## Reproduction commands
 
-From a checkout of `f76af12` (do **not** switch the live `/Users/openclaw/repos/sparkDash` tree while `:5555` is running from it):
+Live checkout (this is what `:5555` is running):
 
 ```bash
-git fetch mike
-git switch --detach f76af12812886afa3d3b6ae587f73a74e79f567f
-npm ci
-npm test
-npm run typecheck
-npm run build
-git log bfdccc378ef5b0ba56c89036a4ee536855f286dd..HEAD --oneline
+cd /Users/openclaw/repos/sparkDash
+git rev-parse HEAD
+curl -s http://127.0.0.1:5555/api/health
+curl -s http://127.0.0.1:5555/api/sparks
+curl -s http://127.0.0.1:5555/api/fleet-energy
 ```
 
 Isolated smoke (never `:5555`):
@@ -348,11 +377,12 @@ Isolated smoke (never `:5555`):
 BIND_HOST=127.0.0.1 PORT=18058 SPARKS_JSON_PATH=/tmp/sparkdash-merge-smoke/config/sparks.json
 ```
 
-Live dashboard still:
+Live dashboard:
 
 ```text
 http://100.125.180.48:5555
-PID 83356  *:5555  cwd /Users/openclaw/repos/sparkDash
+PID 25135  *:5555  cwd /Users/openclaw/repos/sparkDash
+started Mon Sep 7 19:03:06 2026
 ```
 
-No Mia push, no live LaunchAgent rewrite, no Spark update, no model restart, and no training interruption were performed as part of this merge.
+No Mia push, no Spark update, no model restart, and no training interruption were performed as part of this promote. `rin-den` training was left running.

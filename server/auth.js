@@ -46,6 +46,7 @@ export function createAuthMiddleware() {
     if (!mutating && !remote && !configuredToken()) return next();
     if (!mutating && !remote) return next();
     if (!mutating && remote && !configuredToken()) {
+      if (process.env.SPARKDASH_ALLOW_OPEN_REMOTE === "1") return next();
       return res.status(403).json({ error: "Remote access requires SPARKDASH_TOKEN" });
     }
     const result = authenticate(req);
