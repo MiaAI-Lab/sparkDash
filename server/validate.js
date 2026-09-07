@@ -1,3 +1,6 @@
+import dns from "node:dns/promises";
+import net from "node:net";
+
 /**
  * Input validation for Spark targets (host / user / lanIp).
  * Keeps SSRF-ish footguns smaller on an otherwise unauthenticated LAN dashboard.
@@ -23,9 +26,68 @@ export function isValidHostname(host) {
   );
 }
 
-/** Accept IPv4 or hostname for SSH / LLM targets. */
+/** Accept IPv4, IPv6, or hostname for SSH / LLM targets. */
 export function isValidHost(host) {
-  return isValidIPv4(host) || isValidHostname(host);
+  return typeof host === "string" && (net.isIP(host) !== 0 || isValidHostname(host));
+}
+
+function normalizedHost(host) {
+  const value = String(host || "").trim().toLowerCase();
+  return value.startsWith("[") && value.endsWith("]") ? value.slice(1, -1) : value;
+}
+
+export function isForbiddenAddress(address) {
+  const host = normalizedHost(address);
+  const family = net.isIP(host);
+  if (family === 4) {
+    const [a, b] = host.split(".").map(Number);
+    return a === 0 || (a === 169 && b === 254) || a >= 224;
+  }
+  if (family === 6) {
+    if (host === "::" || host.startsWith("ff")) return true;
+    const first = parseInt(host.split(":", 1)[0] || "0", 16);
+    if ((first & 0xffc0) === 0xfe80) return true;
+    if (host.startsWith("::ffff:")) return isForbiddenAddress(host.slice(7));
+    return false;
+  }
+  return false;
+}
+
+/** Resolve an administrator-allowlisted target and reject unsafe DNS answers. */
+export async function assertAllowedTarget(host, allowedHosts, { lookup = dns.lookup } = {}) {
+  const target = normalizedHost(host);
+  const allowed = new Set([...allowedHosts].map(normalizedHost));
+  if (!allowed.has(target)) {
+    const err = new Error(`Target ${target || "(empty)"} is not in the administrator allowlist`);
+    err.status = 403;
+    throw err;
+  }
+  let addresses;
+  if (net.isIP(target)) {
+    addresses = [{ address: target }];
+  } else {
+    try {
+      addresses = await lookup(target, { all: true, verbatim: true });
+    } catch (cause) {
+      const err = new Error(`Could not resolve allowed target ${target}`);
+      err.status = 400;
+      err.cause = cause;
+      throw err;
+    }
+  }
+  if (!Array.isArray(addresses) || addresses.length === 0) {
+    const err = new Error(`Allowed target ${target} resolved to no addresses`);
+    err.status = 400;
+    throw err;
+  }
+  const resolved = [...new Set(addresses.map((entry) => normalizedHost(entry.address)))];
+  const forbidden = resolved.find(isForbiddenAddress);
+  if (forbidden) {
+    const err = new Error(`Target ${target} resolved to forbidden address ${forbidden}`);
+    err.status = 403;
+    throw err;
+  }
+  return resolved;
 }
 
 /**
@@ -56,15 +118,7 @@ export function classifyHostScope(host) {
  */
 export function isAllowedTargetHost(host) {
   if (!isValidHost(host)) return false;
-  if (!isValidIPv4(host)) return true;
-  const [a, b] = host.split(".").map(Number);
-  // link-local / APIPA (includes 169.254.169.254 metadata)
-  if (a === 169 && b === 254) return false;
-  // unspecified
-  if (a === 0) return false;
-  // multicast / reserved
-  if (a >= 224) return false;
-  return true;
+  return !isForbiddenAddress(host);
 }
 
 /** OpenSSH-safe username. */
@@ -117,32 +171,55 @@ export function validateSparkTarget(body) {
 }
 
 /**
- * Simple per-IP sliding window rate limiter for sensitive routes.
- * @param {number} maxRequests
- * @param {number} windowMs
+ * Bounded per-key sliding-window limiter. Expired keys are removed on access;
+ * new keys fail closed while the configured key ceiling is occupied.
  */
-export function createRateLimiter(maxRequests, windowMs, maxKeys = 1024) {
+export function createRateLimiter(maxRequests, windowMs, options = {}) {
   /** @type {Map<string, number[]>} */
   const hits = new Map();
+  const maxKeys = Math.max(1, Number(options.maxKeys) || 1024);
+  const nowFn = typeof options.now === "function" ? options.now : Date.now;
 
-  return function rateLimit(key) {
-    const now = Date.now();
-    for (const [existing, times] of hits) {
-      const kept = times.filter((t) => now - t < windowMs);
-      if (kept.length === 0) hits.delete(existing);
-      else hits.set(existing, kept);
+  function rateLimit(key) {
+    const now = nowFn();
+    for (const [storedKey, times] of hits) {
+      const live = times.filter((t) => now - t < windowMs);
+      if (live.length) hits.set(storedKey, live);
+      else hits.delete(storedKey);
     }
-    if (hits.size >= maxKeys && !hits.has(key)) {
-      const oldest = hits.keys().next().value;
-      hits.delete(oldest);
-    }
-    let times = hits.get(key) || [];
-    if (times.length >= maxRequests) {
-      hits.set(key, times);
-      return false;
-    }
+    if (!hits.has(key) && hits.size >= maxKeys) return false;
+    const times = hits.get(key) || [];
+    if (times.length >= maxRequests) return false;
     times.push(now);
     hits.set(key, times);
     return true;
-  };
+  }
+  rateLimit.size = () => hits.size;
+  return rateLimit;
+}
+
+export function validateDecodeBudget(concurrencies, maxTokens, limit = 131_072) {
+  const work = (Array.isArray(concurrencies) ? concurrencies : []).reduce(
+    (total, value) => total + Number(value || 0) * Number(maxTokens || 0),
+    0
+  );
+  if (!Number.isFinite(work) || work <= 0 || work > limit) {
+    const err = new Error(`Decode benchmark exceeds the ${limit}-token work budget`);
+    err.status = 429;
+    throw err;
+  }
+  return work;
+}
+
+export function validatePrefillBudget(contextSizes, limit = 600_000) {
+  const work = (Array.isArray(contextSizes) ? contextSizes : []).reduce(
+    (total, value) => total + Number(value || 0),
+    0
+  );
+  if (!Number.isFinite(work) || work <= 0 || work > limit) {
+    const err = new Error(`Prefill benchmark exceeds the ${limit}-token work budget`);
+    err.status = 429;
+    throw err;
+  }
+  return work;
 }
