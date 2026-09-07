@@ -543,8 +543,16 @@ export interface SparksListResponse {
 
 export interface SparkTestResponse {
   id: string;
+  capabilities: Array<{
+    id: "host" | "llm" | "comfy" | "hermes" | "tailnet";
+    label: string;
+    status: "pass" | "fail" | "skipped";
+    required: boolean;
+    message: string;
+    recovery: string | null;
+  }>;
   ssh: { ok: boolean; message: string };
-  llm: { ok: boolean; message: string };
+  llm: { ok: boolean; message: string; skipped?: boolean };
   comfy?: { ok: boolean; message: string; skipped?: boolean };
   ok: boolean;
 }

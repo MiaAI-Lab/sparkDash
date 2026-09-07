@@ -8,10 +8,11 @@ import {
   testSparkConfig,
   updateSpark,
 } from "../api/client";
-import type { SparkConfig, SparkRole } from "../api/types";
+import type { SparkConfig, SparkRole, SparkTestResponse } from "../api/types";
 import { resolveSparkRole } from "../api/sparkRole";
 import { useModalPresence } from "../hooks/useModalPresence";
 import { InfoIcon } from "./ui/icons";
+import { ConnectivityResult } from "./ui/ConnectivityResult";
 
 interface EditSparkDialogProps {
   open: boolean;
@@ -50,7 +51,7 @@ export function EditSparkDialog({
   const [loading, setLoading] = useState(false);
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [testResult, setTestResult] = useState<SparkTestResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [savedPasswordNote, setSavedPasswordNote] = useState<string | null>(null);
 
@@ -123,7 +124,7 @@ export function EditSparkDialog({
   };
 
   const needsPassword =
-    config?.ssh.auth === "pass" && !config.ssh.hasPassword && !password;
+    !config?.isLocal && config?.ssh.auth === "pass" && !config.ssh.hasPassword && !password;
 
   /** Persist password immediately (host can be offline). */
   const persistPasswordIfEntered = async () => {
@@ -141,11 +142,8 @@ export function EditSparkDialog({
 
   const handleTest = async () => {
     if (!config) return;
-    if (config.ssh.auth === "pass" && !config.ssh.hasPassword && !password) {
-      setTestResult({
-        ok: false,
-        message: "Enter the SSH password first — it will be saved even if the host is down.",
-      });
+    if (!config.isLocal && config.ssh.auth === "pass" && !config.ssh.hasPassword && !password) {
+      setError("Enter the SSH password first — it will be saved even if the host is down.");
       return;
     }
     setTesting(true);
@@ -180,7 +178,10 @@ export function EditSparkDialog({
         config.ssh?.user !== savedConfig.ssh?.user ||
         config.ssh?.auth !== savedConfig.ssh?.auth ||
         (config.kind ?? "spark") !== (savedConfig.kind ?? "spark") ||
+        config.role !== savedConfig.role ||
+        Boolean(config.llmMonitoring) !== Boolean(savedConfig.llmMonitoring) ||
         Boolean(config.comfyMonitoring) !== Boolean(savedConfig.comfyMonitoring) ||
+        Boolean(config.hermesMonitoring) !== Boolean(savedConfig.hermesMonitoring) ||
         Boolean(config.tailscaleMonitoring) !== Boolean(savedConfig.tailscaleMonitoring) ||
         (config.comfyPort ?? 8188) !== (savedConfig.comfyPort ?? 8188);
 
@@ -195,26 +196,10 @@ export function EditSparkDialog({
           })
         : await testSpark(config.id);
 
-      const parts: string[] = [];
-      if (result.ssh.ok) parts.push("SSH ✓");
-      else parts.push(`SSH ✗ ${result.ssh.message}`);
-      if (result.llm.ok) parts.push("LLM ✓");
-      else parts.push(`LLM ✗ ${result.llm.message}`);
-      if (result.comfy && !result.comfy.skipped) {
-        if (result.comfy.ok) parts.push("ComfyUI ✓");
-        else parts.push(`ComfyUI ✗ ${result.comfy.message}`);
-      }
-      setTestResult({
-        ok: result.ok,
-        message: result.ok
-          ? parts.length
-            ? `Connection successful (${parts.join(" · ")})`
-            : "Connection successful"
-          : `${parts.join(" | ")} — password is still saved for when the host is back.`,
-      });
+      setTestResult(result);
       if (password) setPassword("");
     } catch (err: unknown) {
-      setTestResult({ ok: false, message: err instanceof Error ? err.message : String(err) });
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setTesting(false);
     }
@@ -222,7 +207,7 @@ export function EditSparkDialog({
 
   const handleSave = async () => {
     if (!config) return;
-    if (config.ssh.auth === "pass" && !config.ssh.hasPassword && !password) {
+    if (!config.isLocal && config.ssh.auth === "pass" && !config.ssh.hasPassword && !password) {
       setError("Password required for password-auth Sparks (saved encrypted, host can be offline).");
       return;
     }
@@ -331,13 +316,20 @@ export function EditSparkDialog({
               </div>
 
               <div>
-                <label className="mb-1 block text-xs text-muted">LAN IP</label>
+                <label className="mb-1 block text-xs text-muted">
+                  LAN IP {config.isLocal ? "(optional — browser links and Wake-on-LAN)" : "(required)"}
+                </label>
                 <input
                   type="text"
                   value={config.lanIp}
                   onChange={(e) => update({ lanIp: e.target.value })}
                   className="w-full rounded border border-border bg-surface-elevated px-3 py-1.5 text-xs text-text outline-none focus:border-accent"
                 />
+                {config.isLocal && !config.lanIp && (
+                  <p className="mt-1 text-[10px] text-muted">
+                    Local metrics still work. Open links and directed Wake-on-LAN need a LAN IP.
+                  </p>
+                )}
               </div>
 
               {config.kind !== "host" && (
@@ -643,15 +635,7 @@ export function EditSparkDialog({
             </div>
           )}
 
-          {testResult && (
-            <div
-              className={`mt-3 rounded px-3 py-2 text-xs ${
-                testResult.ok ? "bg-success/20 text-success" : "bg-danger/20 text-danger"
-              }`}
-            >
-              {testResult.message}
-            </div>
-          )}
+          {testResult && <ConnectivityResult result={testResult} />}
 
           {error && (
             <div className="mt-3 rounded bg-danger/20 px-3 py-2 text-xs text-danger">{error}</div>
@@ -671,7 +655,7 @@ export function EditSparkDialog({
             <button
               type="button"
               onClick={handleTest}
-              disabled={testing || loading || !config?.lanIp || needsPassword}
+              disabled={testing || loading || (!config?.isLocal && !config?.lanIp) || needsPassword}
               className="rounded border border-border bg-surface-elevated px-3 py-1.5 text-xs text-muted hover:bg-surface-hover disabled:opacity-50"
             >
               {testing ? "Testing..." : "Test"}
@@ -686,7 +670,7 @@ export function EditSparkDialog({
             <button
               type="button"
               onClick={handleSave}
-              disabled={saving || loading || !config?.name || !config?.lanIp || needsPassword}
+              disabled={saving || loading || !config?.name || (!config?.isLocal && !config?.lanIp) || needsPassword}
               className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50"
             >
               {saving ? "Saving..." : "Save"}
