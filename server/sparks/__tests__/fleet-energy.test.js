@@ -958,6 +958,24 @@ test("head output-token deltas accumulate while counter resets establish a new b
   almostEqual(snapshot.whPerOutputToken24h, observedWh / 65);
 });
 
+test("Wh per output token excludes token intervals without full-fleet power coverage", () => {
+  const tracker = new FleetEnergyTracker(noTimerOptions());
+  tracker.record(fleetSnapshots(100, { outputTokens: 100 }), 0);
+
+  const partial = fleetSnapshots(100, { outputTokens: 200 });
+  partial[3].telemetryFresh = false;
+  tracker.record(partial, 2_000);
+  let snapshot = tracker.snapshot(2_000);
+  assert.equal(snapshot.outputTokens24h, 100);
+  assert.equal(snapshot.whPerOutputToken24h, null);
+
+  tracker.record(fleetSnapshots(100, { outputTokens: 250 }), 4_000);
+  tracker.record(fleetSnapshots(100, { outputTokens: 300 }), 6_000);
+  snapshot = tracker.snapshot(6_000);
+  assert.equal(snapshot.outputTokens24h, 200);
+  almostEqual(snapshot.whPerOutputToken24h, ((400 * 2_000) / 3_600_000) / 50);
+});
+
 test("a short unavailable token-source gap preserves the baseline", () => {
   const tracker = new FleetEnergyTracker(noTimerOptions());
   tracker.record(fleetSnapshots(100, { outputTokens: 1_000 }), 0);
