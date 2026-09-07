@@ -1537,6 +1537,7 @@ let _lastBroadcastPayload = null;
 function buildSnapshotPayload() {
   return JSON.stringify({
     type: "snapshot",
+    generatedAt: Date.now(),
     sparks: orderedSnapshots(),
     refreshInterval: getSettings().pollIntervalMs,
   });

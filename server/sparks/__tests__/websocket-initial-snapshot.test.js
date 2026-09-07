@@ -71,7 +71,9 @@ test("a new WebSocket client receives its initial snapshot without rebroadcastin
   const a = new WebSocket(`ws://127.0.0.1:${port}/ws`);
   t.after(() => a.close());
   await once(a, "open");
-  assert.equal(JSON.parse(await nextMessage(a)).type, "snapshot");
+  const first = JSON.parse(await nextMessage(a));
+  assert.equal(first.type, "snapshot");
+  assert.equal(Number.isFinite(first.generatedAt), true);
 
   const noExtraForA = expectNoMessage(a);
   const b = new WebSocket(`ws://127.0.0.1:${port}/ws`);
