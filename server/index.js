@@ -27,6 +27,12 @@ import { onceClose, resolveLlmHttpTarget } from "./collectors/llmTunnel.js";
 import { formatLlmBaseUrl, parseLlmTargetInput } from "../src/shared/llmTarget.js";
 import { llmDaily } from "./collectors/LlmDaily.js";
 import { compareSemver, getLatestRelease } from "./collectors/HermesReleases.js";
+import { FLEET_ENERGY_JSON_PATH } from "./config.js";
+import { FleetEnergyTracker } from "./energy/FleetEnergyTracker.js";
+import {
+  createFleetEnergyRuntime,
+  registerFleetEnergyRoute,
+} from "./energy/FleetEnergyRuntime.js";
 
 dotenv.config();
 
@@ -153,6 +159,11 @@ const allowTest = createRateLimiter(20, 60_000);
 // ─── Spark registry ──────────────────────────────────────
 const registry = new SparkRegistry();
 
+const fleetEnergyTracker = new FleetEnergyTracker({
+  nodeIds: registry.sparkIds,
+  filePath: FLEET_ENERGY_JSON_PATH,
+});
+
 // ─── Monitor map ─────────────────────────────────────────
 const monitors = new Map();
 
@@ -202,6 +213,12 @@ function orderedSnapshots() {
     .map((m) => m.snapshot());
 }
 
+const fleetEnergyRuntime = createFleetEnergyRuntime({
+  tracker: fleetEnergyTracker,
+  orderedSnapshots,
+  monitors,
+});
+
 // ─── Express app ─────────────────────────────────────────
 const app = express();
 const server = createServer(app);
@@ -213,6 +230,8 @@ function clientKey(req) {
 }
 
 // ─── REST API ────────────────────────────────────────────
+registerFleetEnergyRoute(app, fleetEnergyTracker);
+
 // Never return SSH passwords in any response
 app.get("/api/sparks", (_req, res) => {
   res.json({ sparks: registry.publicSparks });
@@ -1593,6 +1612,7 @@ server.listen(PORT, BIND_HOST, () => {
     );
   }
   startAllMonitors();
+  fleetEnergyRuntime.start();
 });
 
 // ─── Graceful shutdown ─────────────────────────────────
@@ -1618,6 +1638,7 @@ function shutdown(signal) {
   } catch (err) {
     console.error("[sparkDash] failed to flush LLM daily history:", err.message);
   }
+  const energyPersistenceSucceeded = fleetEnergyRuntime.stop();
   try {
     if (broadcastTimer) {
       clearInterval(broadcastTimer);
@@ -1641,7 +1662,7 @@ function shutdown(signal) {
     /* ignore */
   }
   wss.close();
-  server.close(() => process.exit(0));
+  server.close(() => process.exit(energyPersistenceSucceeded ? 0 : 1));
   // Safety net: if server.close hangs (lingering keep-alive), force-exit.
   setTimeout(() => process.exit(1), 3000).unref();
 }
