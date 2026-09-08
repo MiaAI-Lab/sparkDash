@@ -9,7 +9,7 @@ import { ComfyProbe } from "../collectors/ComfyProbe.js";
 import { HermesProbe } from "../collectors/HermesProbe.js";
 import { TailscaleProbe } from "../collectors/TailscaleProbe.js";
 import { llmDaily } from "../collectors/LlmDaily.js";
-import { sshTest, sshExec } from "../collectors/ssh.js";
+import { sshExec } from "../collectors/ssh.js";
 import {
   POLL_INTERVAL_GPU,
   POLL_INTERVAL_CPU,
@@ -522,22 +522,27 @@ export class SparkMonitor {
     this._inflight.online = checkToken;
     const isCurrentRun = () =>
       this._running && this._runGeneration === runGeneration;
+    const local = this.spark.isLocal;
+    let uptimeSeconds = this._uptimeSeconds;
     try {
-      if (this.spark.isLocal) {
+      if (local) {
         await this.collector.pingHost();
-      } else {
-        const result = await sshTest(this.spark);
         if (!isCurrentRun()) return;
-        if (!result.ok) throw new Error(result.message);
-      }
-      if (!isCurrentRun()) return;
-
-      // Collect system uptime
-      let uptimeSeconds = this._uptimeSeconds;
-      try {
+        this.online = true;
+        this.lastOnlineOk = Date.now();
+        // Non-fatal — uptime stays at its previous value or null
+        try {
+          uptimeSeconds = await this._readUptime();
+        } catch {
+          /* ignore */
+        }
+      } else {
+        // One SSH round trip, not two. Reading /proc/uptime already proves the
+        // session came up, so the separate `echo ok` probe told us nothing the
+        // uptime read doesn't — and on a remote Spark every probe is a full
+        // login, which is the expensive half of this loop.
         uptimeSeconds = await this._readUptime();
-      } catch {
-        // Non-fatal — uptime stays at previous value or null
+        // The generation gate below (after the await) is the commit guard.
       }
       if (!isCurrentRun()) return;
       this.online = true;
