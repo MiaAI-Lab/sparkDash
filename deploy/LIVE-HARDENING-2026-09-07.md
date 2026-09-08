@@ -35,7 +35,7 @@ Idempotent and cheap on the happy path (one import probe, one stat).
 
 ### 2. Watchdog (`scripts/watchdog.sh` + `ai.onyx.sparkdash-watchdog.plist`)
 
-Probes `http://127.0.0.1:5555/health` every 60s (LaunchAgent
+Probes `http://127.0.0.1:5555/api/health` every 60s (LaunchAgent
 `StartInterval=60`). State machine (marker files under
 `~/Library/Logs/`):
 
@@ -68,7 +68,7 @@ launchctl bootout gui/$(id -u)/ai.onyx.sparkdash 2>/dev/null
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.onyx.sparkdash.plist
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.onyx.sparkdash-watchdog.plist
 launchctl kickstart -k gui/$(id -u)/ai.onyx.sparkdash
-curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:5555/health   # 200
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:5555/api/health   # 200
 ```
 
 ## Verification evidence (2026-09-07, isolated clone on port 5599)
