@@ -33,9 +33,17 @@ log "previous SHA $(git rev-parse --short HEAD)"
 git checkout --quiet --detach "$SHA"
 
 # --- 2. Install prod deps ------------------------------------------------------
-log "npm ci --omit=dev --ignore-scripts"
-npm ci --omit=dev --ignore-scripts --no-audit --no-fund >/dev/null 2>&1 || \
+# Post-checkout hardening (promote-night failure mode): the checkout can land
+# with node_modules wiped. Probe the actual runtime imports, not just the dir.
+runtime_deps_ok() {
+  ( cd "$REPO_DIR" && "$NODE_BIN" -e 'import("express").then(async () => { await import("ws"); await import("undici"); await import("dotenv"); })' ) >/dev/null 2>&1
+}
+if ! runtime_deps_ok; then
+  log "runtime deps missing after checkout — npm ci --omit=dev --ignore-scripts"
+fi
+runtime_deps_ok || npm ci --omit=dev --ignore-scripts --no-audit --no-fund >/dev/null 2>&1 || \
   die "npm ci failed"
+runtime_deps_ok || die "deps still missing after npm ci"
 
 # Frontend build tools are devDeps; keep node_modules complete for the build,
 # then prune. dist/ is what the server serves.

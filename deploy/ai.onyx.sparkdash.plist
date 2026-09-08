@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>ai.onyx.sparkdash</string>
+
+    <!-- Start through the runtime guard: it repairs node_modules / dist
+         (post-checkout wipe) BEFORE exec'ing the real server, so launchd
+         never thrashes on ERR_MODULE_NOT_FOUND. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/openclaw/repos/sparkDash/scripts/ensure-runtime.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/openclaw/repos/sparkDash</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/Users/openclaw/.local/bin:/Users/openclaw/.hermes/node/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>HOME</key>
+        <string>/Users/openclaw</string>
+        <key>NODE_ENV</key>
+        <string>production</string>
+        <key>NODE_BIN</key>
+        <string>/Users/openclaw/.hermes/node/bin/node</string>
+        <key>BIND_HOST</key>
+        <string>0.0.0.0</string>
+        <key>SPARKDASH_ALLOW_OPEN_REMOTE</key>
+        <string>1</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- KeepAlive=true (not SuccessfulExit=false): a SIGKILL/SIGSEGV death or
+         a guard that exits non-zero after a failed npm ci BOTH get restarted.
+         ThrottleInterval=10 prevents <10s crash-loop spinning during promote. -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>StandardOutPath</key>
+    <string>/Users/openclaw/Library/Logs/sparkdash.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/openclaw/Library/Logs/sparkdash.err.log</string>
+</dict>
+</plist>
