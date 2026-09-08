@@ -12,6 +12,9 @@ interface OverviewPageProps {
   sparks: SparkSnapshot[];
   hideOffline?: boolean;
   hideWorkers?: boolean;
+  showFleetEnergy?: boolean;
+  showFleetExceptions?: boolean;
+  showOverviewSearch?: boolean;
   temperatureUnit?: "celsius" | "fahrenheit";
   onSelectSpark?: (id: string) => void;
 }
@@ -392,6 +395,9 @@ export function OverviewPage({
   sparks,
   hideOffline = false,
   hideWorkers = false,
+  showFleetEnergy = false,
+  showFleetExceptions = false,
+  showOverviewSearch = false,
   temperatureUnit = "celsius",
   onSelectSpark,
 }: OverviewPageProps) {
@@ -400,10 +406,10 @@ export function OverviewPage({
   const withoutWorkers = hideWorkers ? sparks.filter((s) => !isWorkerSpark(s)) : sparks;
   const visibleSparks = withoutWorkers.filter((spark) => {
     if (hideOffline && !spark.online) return false;
-    if (query && !spark.name.toLowerCase().includes(query.toLowerCase())) return false;
-    if (statusFilter === "online" && !spark.online) return false;
-    if (statusFilter === "offline" && spark.online) return false;
-    if (statusFilter === "issues" && spark.online && !spark.metrics.storage.some((disk) => disk.percentage >= 90)) return false;
+    if (showOverviewSearch && query && !spark.name.toLowerCase().includes(query.toLowerCase())) return false;
+    if (showOverviewSearch && statusFilter === "online" && !spark.online) return false;
+    if (showOverviewSearch && statusFilter === "offline" && spark.online) return false;
+    if (showOverviewSearch && statusFilter === "issues" && spark.online && !spark.metrics.storage.some((disk) => disk.percentage >= 90)) return false;
     return true;
   });
   const hiddenWorkerCount = hideWorkers ? sparks.filter(isWorkerSpark).length : 0;
@@ -560,8 +566,8 @@ export function OverviewPage({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--density-overview-rhythm)" }}>
-      <FleetEnergyCard nodeCount={sparks.length} />
-      <FleetAlertStrip sparks={sparks} onSelect={onSelectSpark} />
+      {showFleetEnergy ? <FleetEnergyCard nodeCount={sparks.length} /> : null}
+      {showFleetExceptions ? <FleetAlertStrip sparks={sparks} onSelect={onSelectSpark} /> : null}
       <div className="flex flex-wrap items-end justify-between gap-6">
         <h1
           className="font-normal leading-tight tracking-tight text-text-strong"
@@ -664,6 +670,7 @@ export function OverviewPage({
           )}
         </div>
       </div>
+      {showOverviewSearch ? (
       <div className="flex flex-wrap gap-2" role="search" aria-label="Filter fleet units">
         <input
           value={query}
@@ -684,6 +691,7 @@ export function OverviewPage({
           <option value="issues">Issues</option>
         </select>
       </div>
+      ) : null}
       <ConfirmShutdownDialog
         open={shutdownOpen}
         onClose={() => setShutdownOpen(false)}

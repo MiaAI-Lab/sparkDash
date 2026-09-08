@@ -40,3 +40,27 @@ test("sshCommandSpec: missing user throws", () => {
     /SSH config missing/
   );
 });
+
+test("sshCommandSpec: commands share one master connection", () => {
+  const spec = sshCommandSpec(keySpark, { remoteArgv: ["cat /proc/uptime"] });
+  const dash = spec.args.indexOf("--");
+  const master = spec.args.indexOf("ControlMaster=auto");
+  const controlPath = spec.args.find((a) => a.startsWith("ControlPath="));
+  const persist = spec.args.find((a) => a.startsWith("ControlPersist="));
+  assert.ok(master >= 0 && master < dash);
+  // The literal must be a SHORT already-expanded path: execFile hands the
+  // value to ssh without shell/template expansion, and the LOCAL socket name
+  // must fit sun_path (~104 bytes on macOS). %C stays expanded-by-hand.
+  const cpValue = controlPath?.slice("ControlPath=".length);
+  assert.ok(cpValue && cpValue.startsWith("/tmp/sparkdash-"), `controlPath: ${controlPath}`);
+  assert.ok(!cpValue.includes("%"));
+  assert.ok(cpValue.length < 104, `control path too long: ${cpValue.length}`);
+  assert.equal(persist, "ControlPersist=300");
+});
+
+test("sshCommandSpec: multiplex:false opts out (tunnels own their connection)", () => {
+  const spec = sshCommandSpec(keySpark, { multiplex: false, extraSshArgs: ["-N"] });
+  assert.ok(spec.args.includes("ControlMaster=no"));
+  assert.ok(spec.args.includes("ControlPath=none"));
+  assert.ok(!spec.args.includes("ControlMaster=auto"));
+});

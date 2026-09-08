@@ -21,6 +21,12 @@ const DEFAULTS = Object.freeze({
   benchDebugTraces: false,
   /** Layout density — compact (default) or comfortable. */
   density: "compact",
+  /** Overview Fleet Energy card. Off by default. */
+  showFleetEnergy: false,
+  /** Overview active fleet exceptions strip. Off by default. */
+  showFleetExceptions: false,
+  /** Overview search + status filter row. Off by default. */
+  showOverviewSearch: false,
 });
 
 /** @type {typeof DEFAULTS} */
@@ -41,6 +47,9 @@ function _clampSettings(settings) {
   s.hideWorkers = Boolean(s.hideWorkers);
   // Ensure benchDebugTraces is boolean
   s.benchDebugTraces = Boolean(s.benchDebugTraces);
+  s.showFleetEnergy = Boolean(s.showFleetEnergy);
+  s.showFleetExceptions = Boolean(s.showFleetExceptions);
+  s.showOverviewSearch = Boolean(s.showOverviewSearch);
   // Ensure temperatureUnit is valid
   if (s.temperatureUnit !== "celsius" && s.temperatureUnit !== "fahrenheit") {
     s.temperatureUnit = DEFAULTS.temperatureUnit;

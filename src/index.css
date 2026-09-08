@@ -363,12 +363,21 @@ input:disabled {
 .pill-nav {
   display: flex;
   align-items: center;
+  /* Wrap onto further rows once the tabs no longer fit: the pills are
+     `shrink-0`/nowrap, so without this they spill past the nav (and the
+     viewport) as soon as there are more Sparks than fit on one line. */
+  flex-wrap: wrap;
   gap: 4px;
   background: var(--color-surface-elevated);
   padding: 5px 6px;
-  border-radius: 50px;
+  /* 23px == fully rounded at the 45.5px single-row height (the browser clamps
+     it to half the height), and keeps sane corners once the nav is 2+ rows. */
+  border-radius: 23px;
   box-shadow: var(--shadow-card);
-  flex: 1 1 auto;
+  /* Zero basis so the header's own flex-wrap never breaks the nav (and the
+     right-hand controls) onto extra header lines — the nav takes the space
+     that is left and wraps its tabs internally instead. */
+  flex: 1 1 0;
   min-width: 0;
 }
 

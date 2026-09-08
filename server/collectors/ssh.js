@@ -8,7 +8,15 @@
 import { execFile } from "child_process";
 import crypto from "crypto";
 import fs from "fs";
-import { COMFY_PORT, COMFY_PROBE_TIMEOUT_MS, SSH_CONNECT_TIMEOUT } from "../config.js";
+import os from "os";
+import path from "path";
+import {
+  COMFY_PORT,
+  COMFY_PROBE_TIMEOUT_MS,
+  SSH_CONNECT_TIMEOUT,
+  SSH_CONTROL_PERSIST,
+  SSH_MULTIPLEX,
+} from "../config.js";
 import { isAllowedTargetHost, isValidSshUser } from "../validate.js";
 import { llmProbeHost } from "./llmHost.js";
 
@@ -143,14 +151,63 @@ function sshpassAvailable() {
 }
 
 /**
+ * `-o` flags that let every poll ride an already-authenticated connection.
+ *
+ * Without them each collector tick pays for a fresh TCP connect, key exchange
+ * and authentication. At the default cadence a single remote Spark takes 217
+ * of those per minute, and on password auth the KDF alone dominates the cost —
+ * the login is far more expensive than the `cat /proc/meminfo` it carries.
+ * With a shared master, the first command connects and the rest open a channel
+ * on the socket that is already up.
+ *
+ * Control-path length is the trap: the socket name is created LOCALLY, so the
+ * whole literal (directory + expanded hash) must stay under the ~104-byte
+ * sun_path limit (108 on Linux). macOS hands every process a ~60-char
+ * per-user $TMPDIR, so os.tmpdir() + the literal `%C` template — which execFile
+ * passes to ssh WITHOUT shell expansion, quotes and all — blew past the limit
+ * and every remote collector died with `unix_listener: path ... too long`.
+ *
+ * Fix: expand %C ourselves — same formula OpenSSH uses (SHA1 of
+ * "local host:user:remote host:port", hex) — and hang the socket off a short
+ * fixed /tmp dir instead of $TMPDIR. A master that died leaves a stale socket
+ * behind; `ControlMaster=auto` notices, reconnects, and replaces it.
+ *
+ * @param {{ targetHost: string, user: string }} remote
+ * @returns {string[]}
+ */
+function multiplexOpts({ targetHost, user }) {
+  if (!SSH_MULTIPLEX) return ["-o", "ControlMaster=no", "-o", "ControlPath=none"];
+  const localHost = os.hostname();
+  const hash = crypto
+    .createHash("sha1")
+    .update(`${localHost}:${user}:${targetHost}:22`)
+    .digest("hex");
+  // /tmp/sparkdash-<40 hex> = 60 chars — under the limit on every platform,
+  // including macOS's short-sun_path world.
+  const controlPath = path.join("/tmp", `sparkdash-${hash}`);
+  return [
+    "-o",
+    "ControlMaster=auto",
+    "-o",
+    `ControlPath=${controlPath}`,
+    "-o",
+    `ControlPersist=${SSH_CONTROL_PERSIST}`,
+  ];
+}
+
+/**
  * Build file/args/env for an ssh (or sshpass) invocation. No shell interpolation.
  *
  * `extraSshArgs` sit after the shared ConnectTimeout / StrictHostKeyChecking
  * options and before `-- user@host`. `remoteArgv` is the remote command (omit
  * for `-N` tunnels).
  *
+ * Pass `multiplex: false` for invocations that need a connection of their own
+ * — a `-N` port forward has to own its channel so that killing the process
+ * tears the forward down with it.
+ *
  * @param {object} spark
- * @param {{ extraSshArgs?: string[], remoteArgv?: string[] }} [opts]
+ * @param {{ extraSshArgs?: string[], remoteArgv?: string[], multiplex?: boolean }} [opts]
  * @returns {{ file: string, args: string[], env: NodeJS.ProcessEnv, targetHost: string }}
  */
 export function sshCommandSpec(spark, opts = {}) {
@@ -180,8 +237,21 @@ export function sshCommandSpec(spark, opts = {}) {
   ];
 
   const remote = `${user}@${targetHost}`;
-  const multiplex = sshMultiplexConfig(spark, targetHost, user, auth, password);
-  const multiplexOpts = multiplex?.args || [];
+  const multiplex =
+    opts.multiplex === false || !SSH_MULTIPLEX
+      ? null
+      : sshMultiplexConfig(spark, targetHost, user, auth, password);
+  // ControlPath selection (three tiers):
+  //   - multiplex:false / SSH_MULTIPLEX=0 (tunnels, picky sshd): own connection.
+  //   - #83 global master: %C-hashed socket shared per host/user/port, so
+  //     different sparks and collectors on the same Spark share one login.
+  //   - credential-isolated digest socket (main): only when the global master
+  //     is off but a control-persist was configured — password records with the
+  //     same host/user must never share an authenticated transport.
+  const controlOpts =
+    opts.multiplex === false || !SSH_MULTIPLEX
+      ? ["-o", "ControlMaster=no", "-o", "ControlPath=none"]
+      : multiplexOpts({ targetHost, user });
   // `--` stops option parsing before destination.
   let file;
   let args;
@@ -215,7 +285,7 @@ export function sshCommandSpec(spark, opts = {}) {
       "-e",
       "ssh",
       ...baseOpts,
-      ...multiplexOpts,
+      ...controlOpts,
       ...extraSshArgs,
       "--",
       remote,
@@ -224,7 +294,7 @@ export function sshCommandSpec(spark, opts = {}) {
   } else {
     // Key-based SSH (default) — BatchMode prevents hanging on missing keys
     file = "ssh";
-    args = [...baseOpts, ...multiplexOpts, "-o", "BatchMode=yes"];
+    args = [...baseOpts, ...controlOpts, "-o", "BatchMode=yes"];
     const identityFile = process.env.SSH_IDENTITY_FILE;
     if (identityFile) {
       args.push("-i", identityFile);

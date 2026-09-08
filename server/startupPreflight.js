@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { HOST_PATHS, SPARKS_JSON_PATH } from "./config.js";
+import { allowOpenRemote } from "./auth.js";
 
 export function isLoopbackHost(host) {
   return host === "localhost" || host === "::1" || /^127\./.test(host || "");
@@ -58,7 +59,7 @@ export function inspectStartupPreflight(bindHost) {
   return evaluateStartupPreflight({
     bindHost,
     tokenConfigured: Boolean(process.env.SPARKDASH_TOKEN || process.env.DASHBOARD_TOKEN),
-    allowOpenRemote: process.env.SPARKDASH_ALLOW_OPEN_REMOTE === "1",
+    allowOpenRemote: allowOpenRemote(),
     configWritable: pathWritable(configDir),
     secretsKey: {
       present: Boolean(process.env.SPARKDASH_SECRETS_KEY) || fs.existsSync(keyFile),
