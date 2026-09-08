@@ -198,17 +198,17 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
                 <button
                   type="button"
                   role="switch"
-                  aria-checked={settings.showOverviewSearch !== false}
+                  aria-checked={Boolean(settings.showOverviewSearch)}
                   onClick={() =>
-                    update({ showOverviewSearch: settings.showOverviewSearch === false })
+                    update({ showOverviewSearch: !settings.showOverviewSearch })
                   }
                   className={`toggle-track relative mt-0.5 inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
-                    settings.showOverviewSearch !== false ? "is-on" : ""
+                    settings.showOverviewSearch ? "is-on" : ""
                   }`}
                 >
                   <span
                     className={`toggle-dot inline-block h-4 w-4 transform rounded-full shadow transition-transform ${
-                      settings.showOverviewSearch !== false ? "translate-x-4" : "translate-x-0"
+                      settings.showOverviewSearch ? "translate-x-4" : "translate-x-0"
                     }`}
                   />
                 </button>
@@ -216,7 +216,7 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
                   <span className="block text-text">Show search and status filters</span>
                   <span className="mt-0.5 block text-[10px] leading-snug text-muted">
                     Overview “Search up to 12 units” field and status dropdown
-                    (All / Online / Offline / Issues). One switch for both.
+                    (All / Online / Offline / Issues). One switch for both. Off by default.
                   </span>
                 </span>
               </label>

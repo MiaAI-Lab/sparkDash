@@ -353,7 +353,7 @@ function DashboardApp() {
               hideWorkers={hideWorkers}
               showFleetEnergy={settings?.showFleetEnergy ?? false}
               showFleetExceptions={settings?.showFleetExceptions ?? false}
-              showOverviewSearch={settings?.showOverviewSearch ?? true}
+              showOverviewSearch={settings?.showOverviewSearch ?? false}
               temperatureUnit={settings?.temperatureUnit ?? "celsius"}
               onSelectSpark={navigate}
             />

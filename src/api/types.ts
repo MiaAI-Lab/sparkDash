@@ -560,7 +560,7 @@ export interface Settings {
   showFleetEnergy: boolean;
   /** Overview active fleet exceptions strip. Off by default. */
   showFleetExceptions: boolean;
-  /** Overview search field + status filter. On by default. */
+  /** Overview search field + status filter. Off by default. */
   showOverviewSearch: boolean;
 }
 

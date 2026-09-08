@@ -25,8 +25,8 @@ const DEFAULTS = Object.freeze({
   showFleetEnergy: false,
   /** Overview active fleet exceptions strip. Off by default. */
   showFleetExceptions: false,
-  /** Overview search + status filter row. On by default. */
-  showOverviewSearch: true,
+  /** Overview search + status filter row. Off by default. */
+  showOverviewSearch: false,
 });
 
 /** @type {typeof DEFAULTS} */
@@ -49,9 +49,7 @@ function _clampSettings(settings) {
   s.benchDebugTraces = Boolean(s.benchDebugTraces);
   s.showFleetEnergy = Boolean(s.showFleetEnergy);
   s.showFleetExceptions = Boolean(s.showFleetExceptions);
-  s.showOverviewSearch = typeof s.showOverviewSearch === "boolean"
-    ? s.showOverviewSearch
-    : DEFAULTS.showOverviewSearch;
+  s.showOverviewSearch = Boolean(s.showOverviewSearch);
   // Ensure temperatureUnit is valid
   if (s.temperatureUnit !== "celsius" && s.temperatureUnit !== "fahrenheit") {
     s.temperatureUnit = DEFAULTS.temperatureUnit;

@@ -397,7 +397,7 @@ export function OverviewPage({
   hideWorkers = false,
   showFleetEnergy = false,
   showFleetExceptions = false,
-  showOverviewSearch = true,
+  showOverviewSearch = false,
   temperatureUnit = "celsius",
   onSelectSpark,
 }: OverviewPageProps) {
