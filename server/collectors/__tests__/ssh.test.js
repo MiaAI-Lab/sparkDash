@@ -48,7 +48,13 @@ test("sshCommandSpec: commands share one master connection", () => {
   const controlPath = spec.args.find((a) => a.startsWith("ControlPath="));
   const persist = spec.args.find((a) => a.startsWith("ControlPersist="));
   assert.ok(master >= 0 && master < dash);
-  assert.ok(controlPath && controlPath.endsWith("sparkdash-%C"));
+  // The literal must be a SHORT already-expanded path: execFile hands the
+  // value to ssh without shell/template expansion, and the LOCAL socket name
+  // must fit sun_path (~104 bytes on macOS). %C stays expanded-by-hand.
+  const cpValue = controlPath?.slice("ControlPath=".length);
+  assert.ok(cpValue && cpValue.startsWith("/tmp/sparkdash-"), `controlPath: ${controlPath}`);
+  assert.ok(!cpValue.includes("%"));
+  assert.ok(cpValue.length < 104, `control path too long: ${cpValue.length}`);
   assert.equal(persist, "ControlPersist=300");
 });
 
