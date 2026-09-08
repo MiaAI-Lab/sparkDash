@@ -351,6 +351,9 @@ function DashboardApp() {
               sparks={displaySparks}
               hideOffline={settings?.autoHideOffline ?? false}
               hideWorkers={hideWorkers}
+              showFleetEnergy={settings?.showFleetEnergy ?? false}
+              showFleetExceptions={settings?.showFleetExceptions ?? false}
+              showOverviewSearch={settings?.showOverviewSearch ?? true}
               temperatureUnit={settings?.temperatureUnit ?? "celsius"}
               onSelectSpark={navigate}
             />

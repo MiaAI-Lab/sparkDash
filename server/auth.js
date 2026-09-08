@@ -13,6 +13,13 @@ export function requireRemoteAuth(bindHost) {
   return !isLoopbackBind(bindHost);
 }
 
+/** Unset/empty/"1" allow a tokenless remote bind. Set "0" to fail closed. */
+export function allowOpenRemote() {
+  const v = process.env.SPARKDASH_ALLOW_OPEN_REMOTE;
+  if (v == null || v === "") return true;
+  return v === "1";
+}
+
 function tokensEqual(left, right) {
   const a = Buffer.from(String(left));
   const b = Buffer.from(String(right));
@@ -46,7 +53,7 @@ export function createAuthMiddleware() {
     if (!mutating && !remote && !configuredToken()) return next();
     if (!mutating && !remote) return next();
     if (!mutating && remote && !configuredToken()) {
-      if (process.env.SPARKDASH_ALLOW_OPEN_REMOTE === "1") return next();
+      if (allowOpenRemote()) return next();
       return res.status(403).json({ error: "Remote access requires SPARKDASH_TOKEN" });
     }
     const result = authenticate(req);

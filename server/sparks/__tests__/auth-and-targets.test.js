@@ -1,11 +1,26 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { authenticate, configuredToken, requireRemoteAuth } from "../../auth.js";
+import { allowOpenRemote, authenticate, configuredToken, requireRemoteAuth } from "../../auth.js";
 import { createRateLimiter, validateSparkTarget } from "../../validate.js";
 
 test("loopback bind does not require a remote token", () => {
   assert.equal(requireRemoteAuth("127.0.0.1"), false);
   assert.equal(requireRemoteAuth("0.0.0.0"), true);
+});
+
+test("open remote bind is on by default and off when SPARKDASH_ALLOW_OPEN_REMOTE=0", () => {
+  const previous = process.env.SPARKDASH_ALLOW_OPEN_REMOTE;
+  try {
+    delete process.env.SPARKDASH_ALLOW_OPEN_REMOTE;
+    assert.equal(allowOpenRemote(), true);
+    process.env.SPARKDASH_ALLOW_OPEN_REMOTE = "1";
+    assert.equal(allowOpenRemote(), true);
+    process.env.SPARKDASH_ALLOW_OPEN_REMOTE = "0";
+    assert.equal(allowOpenRemote(), false);
+  } finally {
+    if (previous == null) delete process.env.SPARKDASH_ALLOW_OPEN_REMOTE;
+    else process.env.SPARKDASH_ALLOW_OPEN_REMOTE = previous;
+  }
 });
 
 test("bearer authentication rejects a wrong token", () => {

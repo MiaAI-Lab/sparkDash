@@ -192,6 +192,93 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
               </label>
             </div>
 
+            {/* Overview search + status */}
+            <div>
+              <label className="flex items-start gap-3 text-xs text-muted">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={settings.showOverviewSearch !== false}
+                  onClick={() =>
+                    update({ showOverviewSearch: settings.showOverviewSearch === false })
+                  }
+                  className={`toggle-track relative mt-0.5 inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                    settings.showOverviewSearch !== false ? "is-on" : ""
+                  }`}
+                >
+                  <span
+                    className={`toggle-dot inline-block h-4 w-4 transform rounded-full shadow transition-transform ${
+                      settings.showOverviewSearch !== false ? "translate-x-4" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+                <span>
+                  <span className="block text-text">Show search and status filters</span>
+                  <span className="mt-0.5 block text-[10px] leading-snug text-muted">
+                    Overview “Search up to 12 units” field and status dropdown
+                    (All / Online / Offline / Issues). One switch for both.
+                  </span>
+                </span>
+              </label>
+            </div>
+
+            {/* Fleet Energy */}
+            <div>
+              <label className="flex items-start gap-3 text-xs text-muted">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={Boolean(settings.showFleetEnergy)}
+                  onClick={() => update({ showFleetEnergy: !settings.showFleetEnergy })}
+                  className={`toggle-track relative mt-0.5 inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                    settings.showFleetEnergy ? "is-on" : ""
+                  }`}
+                >
+                  <span
+                    className={`toggle-dot inline-block h-4 w-4 transform rounded-full shadow transition-transform ${
+                      settings.showFleetEnergy ? "translate-x-4" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+                <span>
+                  <span className="block text-text">Show Fleet Energy</span>
+                  <span className="mt-0.5 block text-[10px] leading-snug text-muted">
+                    Overview card with rolling fleet power estimates. Off by default.
+                  </span>
+                </span>
+              </label>
+            </div>
+
+            {/* Fleet exceptions */}
+            <div>
+              <label className="flex items-start gap-3 text-xs text-muted">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={Boolean(settings.showFleetExceptions)}
+                  onClick={() =>
+                    update({ showFleetExceptions: !settings.showFleetExceptions })
+                  }
+                  className={`toggle-track relative mt-0.5 inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                    settings.showFleetExceptions ? "is-on" : ""
+                  }`}
+                >
+                  <span
+                    className={`toggle-dot inline-block h-4 w-4 transform rounded-full shadow transition-transform ${
+                      settings.showFleetExceptions ? "translate-x-4" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+                <span>
+                  <span className="block text-text">Show active fleet exceptions</span>
+                  <span className="mt-0.5 block text-[10px] leading-snug text-muted">
+                    Overview strip for offline hosts, GPU throttle, disk, LLM, and
+                    Tailnet alerts. Off by default.
+                  </span>
+                </span>
+              </label>
+            </div>
+
             {/* Benchmark debug traces */}
             <div>
               <label className="flex items-start gap-3 text-xs text-muted">

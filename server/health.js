@@ -1,14 +1,14 @@
 import fs from "fs";
 import path from "path";
 import { HOST_PATHS, SPARKS_JSON_PATH } from "./config.js";
-import { configuredToken, requireRemoteAuth } from "./auth.js";
+import { allowOpenRemote, configuredToken, requireRemoteAuth } from "./auth.js";
 
 export function evaluateHealth({ bindHost, configWritable, secretsKeyPresent, sshIdentityPresent }) {
   const remote = requireRemoteAuth(bindHost);
   const token = Boolean(configuredToken());
   const errors = [];
   const warnings = [];
-  if (remote && !token && process.env.SPARKDASH_ALLOW_OPEN_REMOTE !== "1") {
+  if (remote && !token && !allowOpenRemote()) {
     errors.push("Remote bind requires SPARKDASH_TOKEN");
   }
   if (!configWritable) errors.push("Config directory is not writable");
