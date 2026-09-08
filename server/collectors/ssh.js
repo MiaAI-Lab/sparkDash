@@ -160,16 +160,31 @@ function sshpassAvailable() {
  * With a shared master, the first command connects and the rest open a channel
  * on the socket that is already up.
  *
- * `%C` hashes (local host, user, host, port) into a fixed-length name, so the
- * socket path can never grow past the ~104 byte sun_path limit no matter how
- * long the hostname is. A master that died leaves a stale socket behind;
- * `ControlMaster=auto` notices, reconnects, and replaces it.
+ * Control-path length is the trap: the socket name is created LOCALLY, so the
+ * whole literal (directory + expanded hash) must stay under the ~104-byte
+ * sun_path limit (108 on Linux). macOS hands every process a ~60-char
+ * per-user $TMPDIR, so os.tmpdir() + the literal `%C` template — which execFile
+ * passes to ssh WITHOUT shell expansion, quotes and all — blew past the limit
+ * and every remote collector died with `unix_listener: path ... too long`.
  *
+ * Fix: expand %C ourselves — same formula OpenSSH uses (SHA1 of
+ * "local host:user:remote host:port", hex) — and hang the socket off a short
+ * fixed /tmp dir instead of $TMPDIR. A master that died leaves a stale socket
+ * behind; `ControlMaster=auto` notices, reconnects, and replaces it.
+ *
+ * @param {{ targetHost: string, user: string }} remote
  * @returns {string[]}
  */
-function multiplexOpts() {
+function multiplexOpts({ targetHost, user }) {
   if (!SSH_MULTIPLEX) return ["-o", "ControlMaster=no", "-o", "ControlPath=none"];
-  const controlPath = path.join(os.tmpdir(), "sparkdash-%C");
+  const localHost = os.hostname();
+  const hash = crypto
+    .createHash("sha1")
+    .update(`${localHost}:${user}:${targetHost}:22`)
+    .digest("hex");
+  // /tmp/sparkdash-<40 hex> = 60 chars — under the limit on every platform,
+  // including macOS's short-sun_path world.
+  const controlPath = path.join("/tmp", `sparkdash-${hash}`);
   return [
     "-o",
     "ControlMaster=auto",
@@ -236,7 +251,7 @@ export function sshCommandSpec(spark, opts = {}) {
   const controlOpts =
     opts.multiplex === false || !SSH_MULTIPLEX
       ? ["-o", "ControlMaster=no", "-o", "ControlPath=none"]
-      : multiplexOpts();
+      : multiplexOpts({ targetHost, user });
   // `--` stops option parsing before destination.
   let file;
   let args;
