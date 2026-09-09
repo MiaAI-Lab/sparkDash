@@ -107,6 +107,7 @@ export function classifyHostScope(host) {
   if (a === 10) return "lan";
   if (a === 172 && b >= 16 && b <= 31) return "lan";
   if (a === 192 && b === 168) return "lan";
+  if (a === 100 && b >= 64 && b <= 127) return "lan"; // Tailscale CGNAT (100.64.0.0/10)
   if (a === 169 && b === 254) return "lan";
   if (a === 0 || a >= 224) return "unknown";
   return "public";

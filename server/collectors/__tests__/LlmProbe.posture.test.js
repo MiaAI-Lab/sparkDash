@@ -22,6 +22,15 @@ test("classifyHostScope: RFC1918 + link-local → lan", () => {
   assert.equal(classifyHostScope("169.254.1.1"), "lan");
 });
 
+test("classifyHostScope: Tailscale CGNAT (100.64.0.0/10) → lan", () => {
+  assert.equal(classifyHostScope("100.64.0.1"), "lan");
+  assert.equal(classifyHostScope("100.89.38.120"), "lan");
+  assert.equal(classifyHostScope("100.127.255.254"), "lan");
+  // Just outside the CGNAT block → public
+  assert.equal(classifyHostScope("100.63.0.1"), "public");
+  assert.equal(classifyHostScope("100.128.0.1"), "public");
+});
+
 test("classifyHostScope: public IPv4 → public", () => {
   assert.equal(classifyHostScope("8.8.8.8"), "public");
   assert.equal(classifyHostScope("1.1.1.1"), "public");
