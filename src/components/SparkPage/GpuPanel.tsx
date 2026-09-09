@@ -1,4 +1,4 @@
-import type { CpuMetrics, GpuMetrics } from "../../api/types";
+import type { GpuMetrics } from "../../api/types";
 import { Sparkline } from "../ui/Sparkline";
 import { Panel } from "../ui/Panel";
 import { ActivityIcon } from "../ui/icons";
@@ -7,8 +7,6 @@ import { useMetricsHistoryTail } from "../../hooks/metricsStore";
 
 interface GpuPanelProps {
   gpu: GpuMetrics | null;
-  /** When set and temperature > 0, show a CPU temp row (DGX Spark pages). */
-  cpu?: CpuMetrics | null;
   sparkId: string;
   temperatureUnit: "celsius" | "fahrenheit";
   className?: string;
@@ -45,10 +43,9 @@ function MetricRow({
   );
 }
 
-export function GpuPanel({ gpu, cpu, sparkId, temperatureUnit, className }: GpuPanelProps) {
+export function GpuPanel({ gpu, sparkId, temperatureUnit, className }: GpuPanelProps) {
   const tempHistory = useMetricsHistoryTail(sparkId, "gpu.temp");
   const usageHistory = useMetricsHistoryTail(sparkId, "gpu.usage");
-  const cpuTempHistory = useMetricsHistoryTail(sparkId, "cpu.temp");
 
   const temperature = gpu?.temperature ?? 0;
   const displayTemp = temperatureUnit === "fahrenheit" ? celsiusToFahrenheit(temperature) : temperature;
@@ -61,23 +58,10 @@ export function GpuPanel({ gpu, cpu, sparkId, temperatureUnit, className }: GpuP
   const vramTotal = gpu?.vram?.total ?? 0;
   const vramPct = gpu?.vram?.percentage ?? 0;
 
-  const cpuTemperature = cpu?.temperature ?? 0;
-  const cpuDisplayTemp =
-    temperatureUnit === "fahrenheit" ? celsiusToFahrenheit(cpuTemperature) : cpuTemperature;
-  const cpuTempLabel =
-    temperatureUnit === "fahrenheit" ? `${cpuDisplayTemp}°F` : `${cpuDisplayTemp}°C`;
-
   const tempColor =
     temperature > 85
       ? "var(--color-danger)"
       : temperature > 65
-        ? "var(--color-warning)"
-        : "var(--color-accent)";
-  // GB10 junction bands (warn 85 / crit 95) — idle CPU sits ~70°C, so GPU 65/85 would pin amber.
-  const cpuTempColor =
-    cpuTemperature > 95
-      ? "var(--color-danger)"
-      : cpuTemperature > 85
         ? "var(--color-warning)"
         : "var(--color-accent)";
 
@@ -101,14 +85,6 @@ export function GpuPanel({ gpu, cpu, sparkId, temperatureUnit, className }: GpuP
         spark={<Sparkline data={tempHistory} color={tempColor} width={180} />}
         value={<span className="text-text-strong">{tempLabel}</span>}
       />
-      {cpuTemperature > 0 && (
-        <MetricRow
-          label="CPU"
-          color={cpuTempColor}
-          spark={<Sparkline data={cpuTempHistory} color={cpuTempColor} width={180} />}
-          value={<span className="text-text-strong">{cpuTempLabel}</span>}
-        />
-      )}
       <div className="flex justify-between text-sm">
         <span className="text-muted">GPU Power</span>
         <span className="font-tabular text-sm text-text">
