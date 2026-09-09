@@ -706,14 +706,12 @@ export function OverviewPage({
       {showFleetEnergy ? <FleetEnergyCard nodeCount={sparks.length} /> : null}
       {showFleetExceptions ? <FleetAlertStrip sparks={sparks} onSelect={onSelectSpark} /> : null}
       <div className="flex flex-wrap items-end justify-between gap-6">
-        {variant !== "gauges" && (
-          <h1
-            className="font-normal leading-tight tracking-tight text-text-strong"
-            style={{ fontSize: "var(--density-overview-title)" }}
-          >
-            Overview
-          </h1>
-        )}
+        <h1
+          className="font-normal leading-tight tracking-tight text-text-strong"
+          style={{ fontSize: "var(--density-overview-title)" }}
+        >
+          Overview
+        </h1>
         <div className="flex flex-wrap items-end justify-end gap-3">
           {batchMsg && (
             <span className={`text-[11px] ${batchMsg.tone === "ok" ? "text-success" : "text-danger"}`}>
