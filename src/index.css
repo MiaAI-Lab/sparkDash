@@ -926,7 +926,20 @@ input[type="checkbox"] {
 .bench-overlay.is-open .bench-overlay__scrim {
   opacity: 1;
 }
+.settings-overlay {
+  align-items: flex-end;
+  overflow: hidden;
+}
+@media (min-width: 640px) {
+  .settings-overlay {
+    align-items: center;
+  }
+}
 .settings-panel {
+  display: flex;
+  flex-direction: column;
+  max-height: min(94dvh, 100%);
+  overflow: hidden;
   transform: translateY(10px) scale(0.97);
   opacity: 0;
   transition: transform 0.26s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.22s ease;
@@ -937,6 +950,12 @@ input[type="checkbox"] {
   box-shadow: var(--shadow-shell);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+}
+@media (max-width: 639px) {
+  .settings-panel {
+    max-height: 94dvh;
+    border-radius: 1.1rem 1.1rem 0 0;
+  }
 }
 :root .settings-panel,
 [data-theme="light"] .settings-panel {
