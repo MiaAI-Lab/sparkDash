@@ -117,7 +117,7 @@ export function SpeedGauge({ label, value, max, fallbackScale = false }: SpeedGa
     <div className="relative flex flex-col items-center gap-0.5">
       <span className="text-[11px] font-bold uppercase tracking-wide text-text">{label}</span>
       <svg
-        viewBox="-4 0 140 96"
+        viewBox="-10 0 140 96"
         className="block h-auto w-full"
         aria-hidden="true"
       >
