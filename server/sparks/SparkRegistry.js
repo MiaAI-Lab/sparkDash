@@ -618,6 +618,12 @@ export class SparkRegistry {
       /** ComfyUI HTTP port (default 8188). */
       comfyPort: this._normalizeComfyPort(config.comfyPort),
       /**
+       * Optional vLLM serving capacity (--max-num-seqs) used by the serving
+       * lanes widget on the Alt-overview tab. null = unknown (widget falls
+       * back to run+wait).
+       */
+      maxNumSeqs: this._normalizeMaxNumSeqs(config.maxNumSeqs),
+      /**
        * Opt-in tailnet presence via `tailscale status --json` (default false).
        */
       tailscaleMonitoring: Boolean(config.tailscaleMonitoring),
@@ -637,6 +643,14 @@ export class SparkRegistry {
     const n = typeof value === "string" ? parseInt(value, 10) : Number(value);
     if (Number.isInteger(n) && n >= 1 && n <= 65535) return n;
     return 8188;
+  }
+
+  /** Normalize vLLM max-num-seqs to an int in 1–512, or null when unset. */
+  _normalizeMaxNumSeqs(value) {
+    if (value == null || value === "") return null;
+    const n = typeof value === "string" ? parseInt(value, 10) : Number(value);
+    if (Number.isInteger(n) && n >= 1 && n <= 512) return n;
+    return null;
   }
 
   /** Normalize role; legacy workerNode=true → worker. */

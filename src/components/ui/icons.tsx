@@ -253,3 +253,14 @@ export function CompactIcon({ className = "" }: { className?: string }) {
     </svg>
   );
 }
+
+/** Speedometer: half-dial arc with a needle. */
+export function GaugeIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg {...baseProps(className)}>
+      <path d="M4 14a8 8 0 1 1 16 0" />
+      <line x1="12" y1="14" x2="15.5" y2="8.5" />
+      <circle cx="12" cy="14" r="1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}

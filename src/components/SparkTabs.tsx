@@ -19,8 +19,8 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { SparkSnapshot } from "../api/types";
-import { PlusIcon, GridIcon } from "./ui/icons";
-import { OVERVIEW_ID } from "../constants";
+import { PlusIcon, GridIcon, GaugeIcon } from "./ui/icons";
+import { OVERVIEW_ID, GAUGES_ID } from "../constants";
 
 interface SparkTabsProps {
   sparks: SparkSnapshot[];
@@ -333,6 +333,7 @@ export function SparkTabs({
     return (
       <nav className="pill-nav" aria-label="Sparks">
         <OverviewTab isActive={activeId === OVERVIEW_ID} onSelect={onSelect} />
+        <GaugesTab isActive={activeId === GAUGES_ID} onSelect={onSelect} />
         {sparks.map((spark) => (
           <div key={spark.id} className="shrink-0">
             <TabChrome
@@ -358,6 +359,7 @@ export function SparkTabs({
     >
       <nav className="pill-nav" aria-label="Sparks">
         <OverviewTab isActive={activeId === OVERVIEW_ID} onSelect={onSelect} />
+        <GaugesTab isActive={activeId === GAUGES_ID} onSelect={onSelect} />
         {/* rect (not horizontal-list) strategy: .pill-nav wraps onto several
             rows once there are more Sparks than fit one line, and the
             horizontal strategy only ever shifts items along X. */}
@@ -420,6 +422,29 @@ function OverviewTab({
       >
         <GridIcon className="h-3.5 w-3.5" />
         Overview
+      </button>
+    </div>
+  );
+}
+
+function GaugesTab({
+  isActive,
+  onSelect,
+}: {
+  isActive: boolean;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <div className="shrink-0">
+      <button
+        type="button"
+        onClick={() => onSelect(GAUGES_ID)}
+        className={`pill-item ${isActive ? "is-active" : ""}`}
+        aria-current={isActive ? "page" : undefined}
+        title="tok/s speedometer view"
+      >
+        <GaugeIcon className="h-3.5 w-3.5" />
+        Alt-overview
       </button>
     </div>
   );
@@ -496,6 +521,16 @@ function MobileSparkMenu({
       >
         <GridIcon className="h-3.5 w-3.5" />
         Overview
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        className={`mobile-menu-item ${activeId === GAUGES_ID ? "is-active" : ""}`}
+        aria-current={activeId === GAUGES_ID ? "page" : undefined}
+        onClick={() => handleItemClick(GAUGES_ID)}
+      >
+        <GaugeIcon className="h-3.5 w-3.5" />
+        Alt-overview
       </button>
       {sparks.map((spark) => (
         <button
