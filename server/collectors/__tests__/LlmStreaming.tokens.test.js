@@ -5,6 +5,8 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { getEventListeners } from "node:events";
+import http from "node:http";
+import { Agent, fetch as undiciFetch } from "undici";
 import {
   applyThinkingFlags,
   coerceThinkingFlag,
@@ -15,6 +17,7 @@ import {
   describeStreamFetchError,
   sleep,
   closeLlmStreamAgent,
+  runStreamingRequest,
 } from "../LlmStreaming.js";
 
 test("sleep removes its abort listener after normal completion", async () => {
@@ -29,6 +32,58 @@ test("sleep rejects promptly on abort and removes its listener", async () => {
   controller.abort();
   await assert.rejects(pending, { name: "AbortError" });
   assert.equal(getEventListeners(controller.signal, "abort").length, 0);
+});
+
+test("undici Agent works with undici fetch (not Node global fetch)", async () => {
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { "Content-Type": "text/event-stream" });
+    res.end();
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+  const url = `http://127.0.0.1:${port}/`;
+  const agent = new Agent({ headersTimeout: 0, bodyTimeout: 0 });
+  try {
+    const viaUndici = await undiciFetch(url, { dispatcher: agent });
+    assert.equal(viaUndici.status, 200);
+    await viaUndici.body?.cancel?.();
+  } finally {
+    await agent.close();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("runStreamingRequest reaches an OpenAI SSE endpoint", async () => {
+  const server = http.createServer((req, res) => {
+    let raw = "";
+    req.on("data", (c) => {
+      raw += c;
+    });
+    req.on("end", () => {
+      assert.match(raw, /"stream":true/);
+      res.writeHead(200, { "Content-Type": "text/event-stream" });
+      res.write(
+        'data: {"id":"t","model":"test","choices":[{"index":0,"delta":{"content":"hi"}}]}\n\n'
+      );
+      res.write(
+        'data: {"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5},"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n'
+      );
+      res.end("data: [DONE]\n\n");
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+  try {
+    const result = await runStreamingRequest(
+      `http://127.0.0.1:${port}/v1/chat/completions`,
+      { model: "test", messages: [{ role: "user", content: "hi" }], stream: true },
+      AbortSignal.timeout(5_000)
+    );
+    assert.equal(result.error, null);
+    assert.ok(result.completionTokens >= 1);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
 });
 
 test("shared LLM dispatcher cleanup is idempotent", async () => {
