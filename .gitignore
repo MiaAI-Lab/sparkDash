@@ -1,7 +1,10 @@
 node_modules/
 dist/
 .env
+docker-compose.override.yml
+ssh-config-local
 sparks.json
+config/settings.json
 config/sparks-secrets.json
 config/.secrets-key
 config/bench-history.json
