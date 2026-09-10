@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useSnapshot } from "./hooks/useSnapshot";
 import { useAppRoute, useRoute } from "./hooks/useRoute";
-import { fetchSparks, reorderSparks, fetchSettings } from "./api/client";
+import { fetchSparks, reorderSparks, fetchSettings, updateSettings } from "./api/client";
 import { SparkTabs } from "./components/SparkTabs";
 import { AddSparkDialog } from "./components/AddSparkDialog";
 import { EditSparkDialog } from "./components/EditSparkDialog";
@@ -14,9 +14,10 @@ import { SettingsDialog } from "./components/SettingsDialog";
 import { GearIcon, BoltIcon } from "./components/ui/icons";
 import { ConnectionBanner } from "./components/ui/ConnectionBanner";
 import { ErrorBanner } from "./components/ui/ErrorBanner";
-import { OVERVIEW_ID } from "./constants";
+import { OVERVIEW_ID, GAUGES_ID } from "./constants";
 import type { Settings, SparkSnapshot } from "./api/types";
 import { isWorkerSpark } from "./api/sparkRole";
+import { ShareModeProvider, useShareMode } from "./hooks/shareMode";
 
 /** Keep hidden worker ids in their original slots when the visible tabs are reordered. */
 function mergeTabOrderKeepingHidden(
@@ -141,6 +142,7 @@ function DashboardApp() {
   const [showSettings, setShowSettings] = useState(false);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const shareMode = useShareMode();
   /** Used when WS is down so add/delete still updates the tab bar */
   const [fallbackSparks, setFallbackSparks] = useState<SparkSnapshot[]>([]);
   const staleAfterMs = Math.max(10_000, 3 * (refreshInterval ?? 2_000));
@@ -183,6 +185,7 @@ function DashboardApp() {
 
 
   const isOverview = activeId === OVERVIEW_ID;
+  const isGauges = activeId === GAUGES_ID;
   const hideWorkers = settings?.hideWorkers ?? false;
   const hiddenWorkerIds = useMemo(() => {
     if (!hideWorkers) return new Set<string>();
@@ -196,7 +199,7 @@ function DashboardApp() {
     () => (hideWorkers ? displaySparks.filter((s) => !hiddenWorkerIds.has(s.id)) : displaySparks),
     [displaySparks, hideWorkers, hiddenWorkerIds]
   );
-  const displayActive = isOverview
+  const displayActive = isOverview || isGauges
     ? null
     : displaySparks.find((s) => s.id === activeId) || displaySparks[0] || activeSpark || null;
 
@@ -218,6 +221,17 @@ function DashboardApp() {
   const handleSettingsSaved = useCallback((s: Settings) => {
     setSettings(s);
   }, []);
+
+  /** Persist per-Spark manual gauge scale maxima (edited from Alt-overview). */
+  const handleGaugeScales = useCallback(
+    (sparkId: string, scales: { gen: number | null; prefill: number | null }) => {
+      const current = settings?.gaugeScales ?? {};
+      updateSettings({ gaugeScales: { ...current, [sparkId]: scales } })
+        .then(setSettings)
+        .catch((err) => console.error("Failed to save gauge scales:", err));
+    },
+    [settings]
+  );
 
   // Apply layout density (comfortable/compact) from persisted settings.
   useEffect(() => {
@@ -273,10 +287,17 @@ function DashboardApp() {
           );
         })
       );
-      if (configs.length && activeId !== OVERVIEW_ID && !configs.some((c) => c.id === activeId)) {
+      if (
+        configs.length &&
+        activeId !== OVERVIEW_ID &&
+        activeId !== GAUGES_ID &&
+        !configs.some((c) => c.id === activeId)
+      ) {
         setActiveId(configs[0].id);
       }
-      if (configs.length === 0 && activeId !== OVERVIEW_ID) setActiveId(null);
+      if (configs.length === 0 && activeId !== OVERVIEW_ID && activeId !== GAUGES_ID) {
+        setActiveId(null);
+      }
     } catch (err) {
       console.error("Failed to refresh sparks:", err);
       setActionError(
@@ -344,10 +365,19 @@ function DashboardApp() {
           now={telemetryNow}
           stale={telemetryStale}
         />
+        {shareMode && (
+          <div
+            className="rounded border border-warning/40 bg-warning/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-warning"
+            role="status"
+          >
+            Share mode — identifiers redacted
+          </div>
+        )}
         <ErrorBanner message={actionError} onDismiss={() => setActionError(null)} />
         <main className={telemetryStale || !connected ? "telemetry-stale" : undefined}>
-          {isOverview ? (
+          {isOverview || isGauges ? (
             <OverviewPage
+              variant={isGauges ? "gauges" : "overview"}
               sparks={displaySparks}
               hideOffline={settings?.autoHideOffline ?? false}
               hideWorkers={hideWorkers}
@@ -356,6 +386,8 @@ function DashboardApp() {
               showOverviewSearch={settings?.showOverviewSearch ?? false}
               temperatureUnit={settings?.temperatureUnit ?? "celsius"}
               onSelectSpark={navigate}
+              gaugeScales={settings?.gaugeScales ?? {}}
+              onGaugeScalesChange={handleGaugeScales}
             />
           ) : displayActive ? (
             <SparkPage
@@ -413,10 +445,15 @@ function DashboardApp() {
 
 function App() {
   const route = useAppRoute();
-  if (route.mode === "showcase" && route.showcaseSparkId) {
-    return <ShowcasePage sparkId={route.showcaseSparkId} />;
-  }
-  return <DashboardApp />;
+  return (
+    <ShareModeProvider>
+      {route.mode === "showcase" && route.showcaseSparkId ? (
+        <ShowcasePage sparkId={route.showcaseSparkId} />
+      ) : (
+        <DashboardApp />
+      )}
+    </ShareModeProvider>
+  );
 }
 
 export default App;

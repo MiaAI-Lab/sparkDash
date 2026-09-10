@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useRef, useState } from "react";
-import { OVERVIEW_ID } from "../constants";
+import { OVERVIEW_ID, GAUGES_ID } from "../constants";
 
 export type RouteMode = "app" | "showcase";
 
@@ -41,6 +41,7 @@ export function useAppRoute(): AppRoute {
  *
  * URL scheme:
  *   /             → Overview
+ *   /gauges       → Alt-overview (Overview cards with tok/s dials)
  *   /spark/:id    → Spark detail page
  *   /showcase/:id → full-screen showcase (handled separately via useAppRoute)
  *
@@ -63,6 +64,8 @@ export function useRoute(
     const match = path.match(/^\/spark\/([^/]+)/);
     if (match) {
       setActiveId(match[1]);
+    } else if (path === "/gauges") {
+      setActiveId(GAUGES_ID);
     } else if (path !== "/spark") {
       setActiveId(OVERVIEW_ID);
     }
@@ -74,7 +77,7 @@ export function useRoute(
       const path = window.location.pathname;
       if (path.startsWith("/showcase/")) return;
       const match = path.match(/^\/spark\/([^/]+)/);
-      setActiveId(match ? match[1] : OVERVIEW_ID);
+      setActiveId(match ? match[1] : path === "/gauges" ? GAUGES_ID : OVERVIEW_ID);
     };
     window.addEventListener("popstate", handler);
     return () => window.removeEventListener("popstate", handler);
@@ -83,7 +86,12 @@ export function useRoute(
   // Wrapped navigate function — updates URL + internal state
   const navigate = useCallback(
     (id: string | null) => {
-      const url = id && id !== OVERVIEW_ID ? `/spark/${encodeURIComponent(id)}` : "/";
+      let url = "/";
+      if (id && id !== OVERVIEW_ID && id !== GAUGES_ID) {
+        url = `/spark/${encodeURIComponent(id)}`;
+      } else if (id === GAUGES_ID) {
+        url = "/gauges";
+      }
       window.history.pushState(null, "", url);
       setActiveId(id);
     },

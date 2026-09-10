@@ -73,6 +73,11 @@ export interface SparkConfig {
   /** ComfyUI HTTP port (default 8188). */
   comfyPort?: number;
   /**
+   * Optional vLLM serving capacity (--max-num-seqs) used by the serving
+   * lanes widget on the Alt-overview tab.
+   */
+  maxNumSeqs?: number | null;
+  /**
    * Opt-in: Hermes Agent CLI (nousresearch/hermes-agent) is installed on this
    * machine. When enabled, sparkDash checks for Hermes updates and can run
    * `hermes update` for you via SSH.
@@ -307,6 +312,8 @@ export interface LlmMetrics {
   requestsWaiting?: number | null;
   /** vLLM time-to-first-token p95 in seconds. null when unavailable. */
   ttftP95Seconds?: number | null;
+  /** Mean decode (generation) time per completed request over the last 15 m, from vLLM histogram sum/count deltas. null when the window has no completions or the backend is not vLLM. */
+  avgDecodeSeconds?: number | null;
   /** Live recent-window mean TTFT (seconds) from vLLM histogram sum/count deltas. null when unavailable. */
   ttftSeconds?: number | null;
   /** vLLM cumulative preemption count. null when unavailable. */
@@ -508,6 +515,8 @@ export interface SparkSnapshot {
   comfyMonitoring?: boolean;
   /** ComfyUI HTTP port (default 8188) */
   comfyPort?: number;
+  /** Configured vLLM --max-num-seqs, or null when unknown (serving lanes auto-size). */
+  maxNumSeqs?: number | null;
   /** Whether tailnet presence is probed (opt-in; all roles) */
   tailscaleMonitoring?: boolean;
   /** Hermes Agent update monitoring state (present in every snapshot). */
@@ -562,6 +571,11 @@ export interface Settings {
   showFleetExceptions: boolean;
   /** Overview search field + status filter. Off by default. */
   showOverviewSearch: boolean;
+  /**
+   * Per-Spark manual gauge scale maxima (tok/s) for the Alt-overview dials.
+   * Empty/null values defer to the model-keyed scale (MODEL_SCALES).
+   */
+  gaugeScales: Record<string, { gen?: number | null; prefill?: number | null }>;
 }
 
 export interface SparksListResponse {

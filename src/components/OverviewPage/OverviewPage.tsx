@@ -4,9 +4,15 @@ import { isWorkerSpark, resolveSparkRole } from "../../api/sparkRole";
 import { shutdownAllSparks, updateAllHermes, wakeAllSparks } from "../../api/client";
 import { ConfirmShutdownDialog } from "../ConfirmShutdownDialog";
 import { MetricBar } from "../ui/MetricBar";
+import { Sparkline } from "../ui/Sparkline";
+import { displayNodeName, describeTrend, scaleForModel, DISPLAY } from "../../config/display.js";
+import { useMetricsHistoryTail, useSparkLastSeen } from "../../hooks/metricsStore";
+import { aliasForModel, aliasForNode, useShareMode } from "../../hooks/shareMode";
+import { SpeedGauge } from "../ui/SpeedGauge";
+import { ServingLanes } from "../SparkPage/ServingLanes";
 import { FleetEnergyCard } from "./FleetEnergyCard";
 import { FleetAlertStrip } from "./FleetAlertStrip";
-import { ActivityIcon, PowerOffIcon, PowerOnIcon, RotateIcon } from "../ui/icons";
+import { ActivityIcon, GearIcon, PowerOffIcon, PowerOnIcon, RotateIcon } from "../ui/icons";
 
 interface OverviewPageProps {
   sparks: SparkSnapshot[];
@@ -17,15 +23,16 @@ interface OverviewPageProps {
   showOverviewSearch?: boolean;
   temperatureUnit?: "celsius" | "fahrenheit";
   onSelectSpark?: (id: string) => void;
+  /** "gauges" renders the same cards with tok/s speedometers (Gauges tab). */
+  variant?: "overview" | "gauges";
+  /** Per-Spark manual gauge scale maxima (from server settings, Addendum E). */
+  gaugeScales?: Record<string, { gen?: number | null; prefill?: number | null }>;
+  /** Persist a Spark's manual gauge scale maxima to server settings. */
+  onGaugeScalesChange?: (sparkId: string, scales: { gen: number | null; prefill: number | null }) => void;
 }
 
 function celsiusToFahrenheit(c: number): number {
   return Math.round(c * 9 / 5 + 32);
-}
-
-function formatMb(mb: number): string {
-  if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
-  return `${Math.round(mb)} MB`;
 }
 
 /** Format a storage value in MB, stripping trailing ".0" and optionally omitting the unit. */
@@ -84,15 +91,50 @@ function SparkCard({
   headSparkName,
   temperatureUnit,
   onSelect,
+  tokDisplay = "stats",
+  gaugeScales = null,
+  onGaugeScalesChange,
 }: {
   spark: SparkSnapshot;
   headSparkName?: string | null;
   temperatureUnit: "celsius" | "fahrenheit";
   onSelect?: (id: string) => void;
+  /** "gauges" swaps the tok/s numbers for prefill/gen speedometer dials. */
+  tokDisplay?: "stats" | "gauges";
+  /** This Spark's manual gauge scale maxima (tok/s); null/empty per dial =
+   *  defer to the model-keyed scale (MODEL_SCALES). */
+  gaugeScales?: { gen?: number | null; prefill?: number | null } | null;
+  onGaugeScalesChange?: (scales: { gen: number | null; prefill: number | null }) => void;
 }) {
   const gpu = spark.metrics.gpu;
   const um = spark.metrics.unifiedMemory;
   const online = spark.online;
+  // Share-safe mode (§5.8): identifiers never enter the DOM — host and model
+  // names render as session-stable aliases, capacity as percentages only.
+  const shareMode = useShareMode();
+  const nodeName = shareMode ? aliasForNode(spark.id) : displayNodeName(spark.name);
+  const displayModel = (modelId: string | null | undefined) =>
+    shareMode ? aliasForModel(modelId) : (modelId ?? "unknown");
+
+  // Data freshness (§5.5 / I-5): `online` asserts host reachability only —
+  // metric currency is measured from the last WS frame that carried this
+  // spark. Ticks at 1 Hz so `updated Ns ago` counts visibly.
+  const lastSeen = useSparkLastSeen(spark.id);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const ageS =
+    lastSeen != null && online ? Math.max(0, Math.round((nowMs - lastSeen) / 1000)) : null;
+  const stale = ageS != null && ageS > DISPLAY.STALE_AFTER_S;
+  const dead = ageS != null && ageS > DISPLAY.DEAD_AFTER_S;
+
+  // Trend histories for the fixed-domain sparklines (§5.1): 5-min window at
+  // the 2 s telemetry cadence, same ring-buffer infrastructure as GpuPanel.
+  const tempHistory = useMetricsHistoryTail(spark.id, "gpu.temp");
+  const usageHistory = useMetricsHistoryTail(spark.id, "gpu.usage");
+  const cpuTempHistory = useMetricsHistoryTail(spark.id, "cpu.temp");
 
   const usage = gpu?.usage ?? 0;
   const tempRaw = gpu?.temperature ?? 0;
@@ -101,23 +143,22 @@ function SparkCard({
   const vramPct = gpu?.vram?.percentage ?? um?.percentage ?? 0;
   const vramUsed = gpu?.vram?.used ?? um?.used ?? 0;
   const vramTotal = gpu?.vram?.total ?? um?.total ?? 0;
-  const vramAvail = gpu?.vram?.available ?? um?.available ?? 0;
 
-  // Temperature bar: cool → success, warm → warning, hot → danger
-  const tempBarColor =
-    tempRaw > 85 ? "bg-danger" : tempRaw > 65 ? "bg-warning" : tempRaw > 40 ? "bg-accent" : "bg-success";
-  // Usage bar: accent for moderate, warning high, danger critical
-  const usageBarColor = usage > 85 ? "bg-danger" : usage > 60 ? "bg-warning" : "bg-accent";
-  // VRAM allocation: accent normal → warning/danger as it fills
-  const vramBarColor = vramPct > 85 ? "bg-danger" : vramPct > 60 ? "bg-warning" : "bg-accent";
+  // Utilisation is never risk-coloured (I-3): usage is always neutral accent;
+  // temperature is neutral accent with the warn band + throttle rule drawn
+  // inside its fixed-domain sparkline. Only capacity (VRAM/storage fullness)
+  // takes warn/risk, via explicit MetricBar thresholds.
+  const tempTrend = describeTrend(tempHistory, 0.5);
+  const usageTrend = describeTrend(usageHistory, 2); // %/min
+  const vramBarColor = "bg-accent";
 
   return (
     <div
-      className="overview-card flex flex-col"
+      className="overview-card flex h-full flex-col"
       style={{
         padding: "var(--density-card-pad)",
         gap: "var(--density-card-gap)",
-        ...(online ? {} : { opacity: 0.6 }),
+        ...(online && !stale ? {} : { opacity: 0.6 }),
       }}
     >
       {/* Card header */}
@@ -132,10 +173,10 @@ function SparkCard({
               onClick={() => onSelect(spark.id)}
               className="text-left font-inherit text-inherit hover:underline"
             >
-              {spark.name}
+              {nodeName}
             </button>
           ) : (
-            spark.name
+            nodeName
           )}
         </span>
         {(() => {
@@ -146,9 +187,11 @@ function SparkCard({
             role === "head"
               ? "Cluster head Spark"
               : role === "worker"
-                ? spark.workerLabel?.trim()
-                  ? `${spark.workerLabel.trim()} · distributed LLM worker`
-                  : "Distributed LLM worker"
+                ? shareMode
+                  ? "Distributed LLM worker"
+                  : spark.workerLabel?.trim()
+                    ? `${spark.workerLabel.trim()} · distributed LLM worker`
+                    : "Distributed LLM worker"
                 : spark.llmMonitoring === false
                   ? "Standalone — LLM monitoring off"
                   : "Standalone Spark";
@@ -196,6 +239,22 @@ function SparkCard({
         <span className="text-[10px] uppercase tracking-wide text-muted">
           {online ? "online" : "offline"}
         </span>
+        {ageS != null &&
+          (stale ? (
+            <span
+              className="shrink-0 rounded bg-warning/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning"
+              title="No telemetry received within the stale threshold — metrics may be old"
+            >
+              STALE · {ageS}s ago
+            </span>
+          ) : (
+            <span
+              className="text-[10px] uppercase tracking-wide text-muted"
+              title="Time since the last telemetry frame for this node"
+            >
+              updated {ageS}s ago
+            </span>
+          ))}
       </div>
 
       {!online || !gpu ? (
@@ -207,13 +266,19 @@ function SparkCard({
       ) : (
         <>
           {/* Three headline bars: GPU alloc, Temp, Usage */}
-          <div className="flex flex-col gap-3.5">
+          <div className="flex flex-col gap-1.5">
             <MetricBar
               label="VRAM"
               value={vramUsed}
               max={vramTotal}
               color={vramBarColor}
-              caption={vramTotal > 0 ? `${fmtStorage(vramUsed, false)} / ${fmtStorage(vramTotal, true)}` : "—"}
+              caption={
+                vramTotal > 0
+                  ? shareMode
+                    ? `${Math.round(vramPct)}% used`
+                    : `${fmtStorage(vramUsed, false)} / ${fmtStorage(vramTotal, true)}`
+                  : "—"
+              }
             />
             {spark.kind === "host" && (() => {
               // Non-Spark hosts: system RAM is separate from discrete VRAM.
@@ -228,37 +293,71 @@ function SparkCard({
                   value={rUsed}
                   max={rTotal}
                   color={ramBarColor}
-                  caption={rTotal > 0 ? `${fmtStorage(rUsed, false)} / ${fmtStorage(rTotal, true)}` : "—"}
+                  caption={
+                    rTotal > 0
+                      ? shareMode
+                        ? `${rPct}% used`
+                        : `${fmtStorage(rUsed, false)} / ${fmtStorage(rTotal, true)}`
+                      : "—"
+                  }
                 />
               );
             })()}
-            <MetricBar
-              label={
-                spark.kind === "host" || (spark.metrics.cpu?.temperature ?? 0) > 0
-                  ? "GPU"
-                  : "Temperature"
-              }
-              value={displayTemp}
-              max={temperatureUnit === "fahrenheit" ? 212 : 100}
-              color={tempBarColor}
-              caption={tempLabel}
-            />
+            {/* Temperature — trend is a sparkline, not a bar (§5.1): fixed
+                20–95 °C domain, warn band, throttle rule. */}
+            <div className="mt-1.5 space-y-0.5">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-xs text-muted">
+                  {spark.kind === "host" || (spark.metrics.cpu?.temperature ?? 0) > 0
+                    ? "GPU"
+                    : "Temperature"}
+                </span>
+                <span className="font-tabular text-sm text-text">{tempLabel}</span>
+              </div>
+              <Sparkline
+                data={tempHistory}
+                domain={DISPLAY.TEMP_DOMAIN_C}
+                width={300}
+                height={26}
+                fullWidth
+                warnBand={[DISPLAY.TEMP_WARN_C, DISPLAY.TEMP_DOMAIN_C[1]]}
+                axisLabel={`axis 20–95 °C, warn ≥ ${DISPLAY.TEMP_WARN_C} °C`}
+                summary={
+                  tempTrend
+                    ? `GPU temperature ${displayTemp} degrees Celsius, ${tempTrend} over the last 5 minutes`
+                    : `GPU temperature ${displayTemp} degrees Celsius`
+                }
+              />
+            </div>
             {(spark.metrics.cpu?.temperature ?? 0) > 0 && (() => {
               const cpuRaw = spark.metrics.cpu?.temperature ?? 0;
               const cpuDisplay =
                 temperatureUnit === "fahrenheit" ? celsiusToFahrenheit(cpuRaw) : cpuRaw;
               const cpuLabel =
                 temperatureUnit === "fahrenheit" ? `${cpuDisplay}°F` : `${cpuDisplay}°C`;
-              const cpuBarColor =
-                cpuRaw > 95 ? "bg-danger" : cpuRaw > 85 ? "bg-warning" : cpuRaw > 50 ? "bg-accent" : "bg-success";
+              const cpuTrend = describeTrend(cpuTempHistory, 0.5);
               return (
-                <MetricBar
-                  label="CPU"
-                  value={cpuDisplay}
-                  max={temperatureUnit === "fahrenheit" ? 212 : 100}
-                  color={cpuBarColor}
-                  caption={cpuLabel}
-                />
+                <div className="space-y-0.5">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-xs text-muted">CPU</span>
+                    <span className="font-tabular text-sm text-text">{cpuLabel}</span>
+                  </div>
+                  {/* Same fixed 20–95 °C domain as the GPU line (I-1): the
+                      two temperature lines are directly comparable. */}
+                  <Sparkline
+                    data={cpuTempHistory}
+                    domain={DISPLAY.TEMP_DOMAIN_C}
+                    width={300}
+                    height={26}
+                    fullWidth
+                    axisLabel="axis 20–95 °C"
+                    summary={
+                      cpuTrend
+                        ? `CPU temperature ${cpuDisplay} degrees Celsius, ${cpuTrend} over the last 5 minutes`
+                        : `CPU temperature ${cpuDisplay} degrees Celsius`
+                    }
+                  />
+                </div>
               );
             })()}
             {gpu?.throttle?.thermal && (
@@ -269,28 +368,34 @@ function SparkCard({
                 Thermal throttle
               </div>
             )}
-            <MetricBar
-              label="Usage"
-              value={usage}
-              max={100}
-              color={usageBarColor}
-              caption={`${usage}%`}
-            />
+            {/* Usage — utilisation is never risk-coloured (I-3). */}
+            <div className="space-y-0.5">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-xs text-muted">Usage</span>
+                <span className="font-tabular text-sm text-text">{usage}%</span>
+              </div>
+              <Sparkline
+                data={usageHistory}
+                domain={DISPLAY.USAGE_DOMAIN}
+                width={300}
+                height={26}
+                fullWidth
+                axisLabel="axis 0–100 %"
+                summary={
+                  usageTrend
+                    ? `GPU usage ${usage} percent, ${usageTrend} over the last 5 minutes`
+                    : `GPU usage ${usage} percent`
+                }
+              />
+            </div>
           </div>
 
           {/* Secondary stats */}
-          <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2.5 border-t border-border pt-3.5">
+          <div className="mt-2.5 grid grid-cols-2 gap-x-4 gap-y-2.5 border-t border-border pt-2">
             <MiniStat
               label="GPU Power"
-              value={`${gpu?.power?.draw ?? 0}W / ${gpu?.power?.limit ?? 0}W`}
+              value={`${(gpu?.power?.draw ?? 0).toFixed(1)} W / ${Math.round(gpu?.power?.limit ?? 0)} W`}
             />
-            {vramAvail > 0 && (
-              <MiniStat
-                label="Available"
-                value={formatMb(vramAvail)}
-                tone={vramAvail < 4096 ? "danger" : vramAvail < 16384 ? "warning" : "accent"}
-              />
-            )}
             {(() => {
               // Find the root disk by label "/" (the collector maps the host
               // root mount to that label). Fall back to the GB10 partition name
@@ -302,7 +407,7 @@ function SparkCard({
                 return (
                   <MiniStat
                     label="Storage"
-                    value={`${fmtStorage(rootDisk.used, false)} / ${fmtStorage(rootDisk.total, true)}`}
+                    value={shareMode ? `${rootDisk.percentage}%` : `${fmtStorage(rootDisk.used, false)} / ${fmtStorage(rootDisk.total, true)}`}
                     tone={rootDisk.percentage > 85 ? "danger" : rootDisk.percentage > 60 ? "warning" : "default"}
                     bold={false}
                   />
@@ -318,26 +423,18 @@ function SparkCard({
               // mirror > generic fallback. Derived never shows a stale model:
               // the backend nulls it when the head is unresolvable/offline.
               if (role === "worker") {
-                const label =
-                  spark.workerLabel?.trim() || spark.workerDerivedLabel?.trim() || "distributed";
-                const title = headSparkName
-                  ? `${label} · worker of ${headSparkName}`
-                  : `${label} · distributed LLM worker`;
-                return (
-                  <MiniStat
-                    label="Worker"
-                    value={label}
-                    tone="accent"
-                    title={title}
-                    wrap
-                  />
-                );
+                // Worker model/head identity is carried by the workload
+                // section below ("CLUSTER WORKER — metrics served by …");
+                // no secondary-stat row here keeps every card the same height.
+                return null;
               }
 
               // Head / Standalone: same as before — live backend + model id.
               const llmArr = spark.metrics.llm;
               const llm = Array.isArray(llmArr) ? llmArr.find((l) => l.available) : null;
               if (!llm) return null;
+              // Gauges tab: the model id is the section header above the dials.
+              if (tokDisplay === "gauges") return null;
               return (
                 <MiniStat
                   label={
@@ -353,9 +450,9 @@ function SparkCard({
                               ? "q27"
                               : llm.backend ?? "LLM"
                   }
-                  value={llm.modelId ?? "unknown"}
+                  value={displayModel(llm.modelId)}
                   tone="accent"
-                  title={llm.modelId ?? undefined}
+                  title={displayModel(llm.modelId)}
                   wrap
                 />
               );
@@ -364,10 +461,126 @@ function SparkCard({
 
           {(() => {
             const role = resolveSparkRole(spark);
-            if (role === "worker") return null;
+            // Addendum D.2: a TP worker holding VRAM with no local API is not
+            // "no workload" — it is running the model, with telemetry served
+            // by the head. Distinct third state, never NO WORKLOAD MONITORED
+            // and never an empty card (AT-18).
+            if (role === "worker") {
+              const headName = shareMode
+                ? spark.workerHeadId
+                  ? aliasForNode(spark.workerHeadId)
+                  : null
+                : headSparkName
+                  ? displayNodeName(headSparkName)
+                  : null;
+              const hint =
+                "This node runs model shards with no local API; its workload telemetry is reported by the cluster head.";
+              return (
+                <div className="mt-3.5 border-t border-border pt-3">
+                  <p className="text-[11px] uppercase tracking-wide text-muted" title={hint}>
+                    {headName
+                      ? `CLUSTER WORKER — metrics served by ${headName} (head)`
+                      : "CLUSTER WORKER — metrics served by the cluster head"}
+                    <span className="sr-only"> {hint}</span>
+                  </p>
+                </div>
+              );
+            }
             const llmArr = spark.metrics.llm;
             const llm = Array.isArray(llmArr) ? llmArr.find((l) => l.available) : null;
-            if (!llm) return null;
+            // Section skeleton / empty states (§5.4, I-4): the workload
+            // section never disappears. Zero tok/s renders as 0; *missing*
+            // telemetry renders an explicit placeholder. `dead` (> 60 s
+            // without a frame) forces the placeholder even though a stale
+            // snapshot is still cached.
+            if (!llm || dead) {
+              const placeholder = dead
+                ? "NO DATA — exporter not reporting"
+                : spark.llmMonitoring === false
+                  ? "NO WORKLOAD MONITORED"
+                  : vramPct > 0
+                    ? "VRAM allocated — no monitored workload"
+                    : "NO DATA — exporter not reporting";
+              const hint =
+                !dead && spark.llmMonitoring === false
+                  ? "LLM monitoring is disabled for this node."
+                  : "Zero tok/s would be a real reading; this placeholder means no telemetry arrived at all.";
+              return (
+                <div className="mt-3.5 border-t border-border pt-3">
+                  <p className="text-[11px] uppercase tracking-wide text-muted" title={hint}>
+                    {placeholder}
+                    <span aria-hidden="true" className="ml-1 cursor-help text-[10px]">?</span>
+                    <span className="sr-only"> {hint}</span>
+                  </p>
+                </div>
+              );
+            }
+            if (tokDisplay === "gauges") {
+              // Scale precedence (Addendum E): per-Spark manual override >
+              // model-keyed MODEL_SCALES > badged FALLBACK_SCALE. Empty
+              // override values defer to the model-keyed scale per dial.
+              const modelScale = scaleForModel(llm.modelId);
+              const genOverride = gaugeScales?.gen ?? null;
+              const prefillOverride = gaugeScales?.prefill ?? null;
+              const genScale = genOverride ?? modelScale.gen;
+              const prefillScale = prefillOverride ?? modelScale.prefill;
+              const backendLabel =
+                llm.backend === "vllm"
+                  ? "vLLM"
+                  : llm.backend === "ds4"
+                    ? "ds4"
+                    : llm.backend === "sglang"
+                      ? "sgLang"
+                      : llm.backend === "exl3"
+                        ? "EXL3"
+                        : llm.backend === "llama.cpp"
+                          ? "llama.cpp"
+                          : (llm.backend ?? "LLM");
+              return (
+                <div className="mt-3.5 border-t border-border pt-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span
+                      className="min-w-0 truncate text-[14px] font-semibold text-text"
+                      title={displayModel(llm.modelId)}
+                    >
+                      {backendLabel}: {displayModel(llm.modelId)}
+                    </span>
+                    {/* Share-safe mode (I-8): the settings gear is capability,
+                        removed from the DOM, not disabled. */}
+                    {!shareMode && (
+                      <GaugeScaleButton scales={gaugeScales} onChange={onGaugeScalesChange} />
+                    )}
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <SpeedGauge
+                      label="Prefill"
+                      value={llm.prefillTps}
+                      max={prefillScale}
+                    />
+                    <SpeedGauge
+                      label="Generation"
+                      value={llm.generationTps}
+                      max={genScale}
+                    />
+                  </div>
+                  {(genOverride == null || prefillOverride == null) && modelScale.isFallback && (
+                    <div className="mt-1 text-center">
+                      <span
+                        className="rounded bg-warning/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-warning"
+                        title="This model is not in MODEL_SCALES and has no manual override — rendering at the fallback scale. Set it with the gear above, or add a measured entry in src/config/display.js."
+                      >
+                        Default Scale
+                      </span>
+                    </div>
+                  )}
+                  <div className="mt-1">
+                    {llm.backend === "vllm" && (
+                      <ServingLanes llm={llm} maxNumSeqs={spark.maxNumSeqs ?? null} />
+                    )}
+                  </div>
+                </div>
+              );
+            }
             return (
               <div className="mt-3.5 grid grid-cols-2 gap-2 border-t border-border pt-3">
                 <div className="text-center">
@@ -391,6 +604,66 @@ function SparkCard({
   );
 }
 
+/** Gear popover that edits one Spark's manual gauge scale maxima (tok/s).
+ *  Empty value = defer to the model-keyed scale (MODEL_SCALES). */
+function GaugeScaleButton({
+  scales,
+  onChange,
+}: {
+  scales?: { gen?: number | null; prefill?: number | null } | null;
+  onChange?: (scales: { gen: number | null; prefill: number | null }) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const gen = scales?.gen ?? null;
+  const prefill = scales?.prefill ?? null;
+
+  const update = (kind: "gen" | "prefill", raw: string) => {
+    const n = raw === "" ? null : Number(raw);
+    const v = n != null && Number.isFinite(n) && n > 0 ? n : null;
+    onChange?.({ gen: kind === "gen" ? v : gen, prefill: kind === "prefill" ? v : prefill });
+  };
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-label="Gauge scale settings"
+        title="Gauge scale settings"
+        className={`shrink-0 rounded p-1 transition-colors hover:bg-surface-hover ${open ? "text-accent" : "text-muted"}`}
+      >
+        <GearIcon className="h-3.5 w-3.5" />
+      </button>
+      {open && (
+        <div className="panel absolute right-0 top-full z-20 mt-1 w-56 space-y-2.5 p-3">
+          <p className="text-[11px] text-muted">
+            Fixed dial scale for this machine, in tok/s. Leave empty to use the model-keyed
+            scale. At or past the max the pointer pins and turns amber.
+          </p>
+          {(
+            [
+              ["Generation", "gen", gen],
+              ["Prefill", "prefill", prefill],
+            ] as const
+          ).map(([label, kind, value]) => (
+            <label key={kind} className="block text-[11px] text-muted">
+              {label} max (tok/s)
+              <input
+                type="number"
+                min={1}
+                value={value ?? ""}
+                placeholder="model scale"
+                onChange={(e) => update(kind, e.target.value)}
+                className="mt-0.5 w-full rounded-md border border-border bg-surface-elevated px-2 py-1 font-tabular text-[12px] text-text"
+              />
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function OverviewPage({
   sparks,
   hideOffline = false,
@@ -400,7 +673,11 @@ export function OverviewPage({
   showOverviewSearch = false,
   temperatureUnit = "celsius",
   onSelectSpark,
+  variant = "overview",
+  gaugeScales = {},
+  onGaugeScalesChange,
 }: OverviewPageProps) {
+  const shareMode = useShareMode();
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "online" | "offline" | "issues">("all");
   const withoutWorkers = hideWorkers ? sparks.filter((s) => !isWorkerSpark(s)) : sparks;
@@ -611,7 +888,7 @@ export function OverviewPage({
               </div>
             </div>
           )}
-          {sparks.length > 0 && (
+          {sparks.length > 0 && !shareMode && (
             <div className="flex flex-wrap items-center justify-end gap-1.5">
               {hermesMonitoredCount > 0 && (
                 <button
@@ -717,6 +994,9 @@ export function OverviewPage({
             }
             temperatureUnit={temperatureUnit}
             onSelect={onSelectSpark}
+            tokDisplay={variant === "gauges" ? "gauges" : "stats"}
+            gaugeScales={gaugeScales?.[spark.id] ?? null}
+            onGaugeScalesChange={(scales) => onGaugeScalesChange?.(spark.id, scales)}
           />
         ))}
       </div>
