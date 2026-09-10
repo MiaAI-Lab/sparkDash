@@ -311,7 +311,9 @@ export function BenchmarkDialog({
     });
   };
 
+  const startLockRef = useRef(false);
   const handleStart = async () => {
+    if (startLockRef.current) return;
     if (selected.length === 0) {
       setError("Select at least one concurrency level");
       return;
@@ -321,6 +323,7 @@ export function BenchmarkDialog({
       setError("Max tokens must be an integer between 64 and 2048");
       return;
     }
+    startLockRef.current = true;
     setStarting(true);
     setError(null);
     setJob(null);
@@ -340,6 +343,7 @@ export function BenchmarkDialog({
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
+      startLockRef.current = false;
       setStarting(false);
     }
   };

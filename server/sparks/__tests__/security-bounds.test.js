@@ -55,6 +55,16 @@ test("rate limiter storage is TTL-bounded and enforces a global key ceiling", ()
   assert.equal(limit.size(), 1);
 });
 
+test("rate limiter peek does not consume a slot", () => {
+  const limit = createRateLimiter(1, 10_000);
+  assert.equal(limit("a", true), true);
+  assert.equal(limit("a", true), true);
+  assert.equal(limit.size(), 0);
+  assert.equal(limit("a"), true);
+  assert.equal(limit("a", true), false);
+  assert.equal(limit("a"), false);
+});
+
 test("benchmark budgets cap total requested work", () => {
   assert.equal(validateDecodeBudget([1, 2, 4], 400, 3_000), 2_800);
   assert.throws(() => validateDecodeBudget([16, 32], 2_048, 50_000), /work budget/);

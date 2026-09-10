@@ -215,10 +215,34 @@ function rejectLimited(res, message) {
 
 const allowTest = createRateLimiter(20, 60_000);
 const allowDestructive = createRateLimiter(10, 60_000);
-const allowBench = createRateLimiter(6, 60_000);
+/** Decode + prefill starts per principal (retries that 400/409 do not count). */
+const allowBench = createRateLimiter(20, 60_000);
 const allowGlobalDestructive = createRateLimiter(30, 60_000);
-const benchCooldown = createRateLimiter(2, 60_000);
+/** Anti double-submit only; per-Spark mutex + MAX_ACTIVE_BENCH_JOBS cap load. */
+const benchCooldown = createRateLimiter(1, 3_000);
 const MAX_ACTIVE_BENCH_JOBS = 2;
+
+/** Consume bench-start quota only when every limiter would allow it. */
+function consumeBenchStartQuota(req, res) {
+  const key = principalKey(req);
+  const ip = clientKey(req);
+  if (!allowBench(key, true)) {
+    rejectLimited(res, "Too many benchmark requests; try again shortly");
+    return false;
+  }
+  if (!benchCooldown(key, true)) {
+    rejectLimited(res, "Benchmark cooldown is active; wait before starting another job");
+    return false;
+  }
+  if (!allowGlobalDestructive(ip, true)) {
+    rejectLimited(res, "Too many requests; try again shortly");
+    return false;
+  }
+  allowBench(key);
+  benchCooldown(key);
+  allowGlobalDestructive(ip);
+  return true;
+}
 
 // ─── Spark registry ──────────────────────────────────────
 const registry = new SparkRegistry();
@@ -948,12 +972,6 @@ app.get("/api/sparks/:id/llm/daily", (req, res) => {
  * Returns immediately with a bench job; poll GET for progress/results.
  */
 app.post("/api/sparks/:id/llm/bench", async (req, res) => {
-  if (!allowBench(principalKey(req)) || !allowGlobalDestructive(clientKey(req))) {
-    return rejectLimited(res, "Too many benchmark requests; try again shortly");
-  }
-  if (!benchCooldown(principalKey(req))) {
-    return rejectLimited(res, "Benchmark cooldown is active; wait before starting another job");
-  }
   if (decodeBenchManager.activeCount() + prefillBenchManager.activeCount() >= MAX_ACTIVE_BENCH_JOBS) {
     return res.status(429).json({ error: "Global active benchmark cap reached; wait for a job to finish" });
   }
@@ -1004,6 +1022,7 @@ app.post("/api/sparks/:id/llm/bench", async (req, res) => {
   }
 
   try {
+    if (!consumeBenchStartQuota(req, res)) return;
     const benchDebug = Boolean(getSettings().benchDebugTraces);
     const job = decodeBenchManager.start({
       sparkId: spark.id,
@@ -1126,12 +1145,6 @@ app.delete("/api/sparks/:id/llm/bench/:benchId", (req, res) => {
  * Returns 202 job; poll GET for progress/results.
  */
 app.post("/api/sparks/:id/llm/prefill-bench", async (req, res) => {
-  if (!allowBench(principalKey(req)) || !allowGlobalDestructive(clientKey(req))) {
-    return rejectLimited(res, "Too many benchmark requests; try again shortly");
-  }
-  if (!benchCooldown(principalKey(req))) {
-    return rejectLimited(res, "Benchmark cooldown is active; wait before starting another job");
-  }
   if (decodeBenchManager.activeCount() + prefillBenchManager.activeCount() >= MAX_ACTIVE_BENCH_JOBS) {
     return res.status(429).json({ error: "Global active benchmark cap reached; wait for a job to finish" });
   }
@@ -1181,6 +1194,7 @@ app.post("/api/sparks/:id/llm/prefill-bench", async (req, res) => {
   }
 
   try {
+    if (!consumeBenchStartQuota(req, res)) return;
     const job = prefillBenchManager.start({
       sparkId: spark.id,
       lanIp: llmProbeHost(spark),

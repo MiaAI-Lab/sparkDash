@@ -180,7 +180,11 @@ export function createRateLimiter(maxRequests, windowMs, options = {}) {
   const maxKeys = Math.max(1, Number(options.maxKeys) || 1024);
   const nowFn = typeof options.now === "function" ? options.now : Date.now;
 
-  function rateLimit(key) {
+  /**
+   * @param {string} key
+   * @param {boolean} [peek] when true, report whether a consume would succeed without recording a hit
+   */
+  function rateLimit(key, peek = false) {
     const now = nowFn();
     for (const [storedKey, times] of hits) {
       const live = times.filter((t) => now - t < windowMs);
@@ -190,8 +194,10 @@ export function createRateLimiter(maxRequests, windowMs, options = {}) {
     if (!hits.has(key) && hits.size >= maxKeys) return false;
     const times = hits.get(key) || [];
     if (times.length >= maxRequests) return false;
-    times.push(now);
-    hits.set(key, times);
+    if (!peek) {
+      times.push(now);
+      hits.set(key, times);
+    }
     return true;
   }
   rateLimit.size = () => hits.size;
