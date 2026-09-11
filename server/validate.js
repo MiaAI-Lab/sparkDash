@@ -204,7 +204,9 @@ export function createRateLimiter(maxRequests, windowMs, options = {}) {
   return rateLimit;
 }
 
-export function validateDecodeBudget(concurrencies, maxTokens, limit = 131_072) {
+export const DECODE_BENCH_WORK_LIMIT = 262_144;
+
+export function validateDecodeBudget(concurrencies, maxTokens, limit = DECODE_BENCH_WORK_LIMIT) {
   const work = (Array.isArray(concurrencies) ? concurrencies : []).reduce(
     (total, value) => total + Number(value || 0) * Number(maxTokens || 0),
     0

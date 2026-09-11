@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   assertAllowedTarget,
   createRateLimiter,
+  DECODE_BENCH_WORK_LIMIT,
   validateDecodeBudget,
   validatePrefillBudget,
 } from "../../validate.js";
@@ -68,6 +69,10 @@ test("rate limiter peek does not consume a slot", () => {
 test("benchmark budgets cap total requested work", () => {
   assert.equal(validateDecodeBudget([1, 2, 4], 400, 3_000), 2_800);
   assert.throws(() => validateDecodeBudget([16, 32], 2_048, 50_000), /work budget/);
+  // Full UI sweep (1–32) at maxTokens=2048 must fit the default cap — #93.
+  const fullSweep = [1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 24, 32];
+  assert.equal(validateDecodeBudget(fullSweep, 2048), 123 * 2048);
+  assert.ok(123 * 2048 <= DECODE_BENCH_WORK_LIMIT);
   assert.equal(validatePrefillBudget([1_024, 8_192], 10_000), 9_216);
   assert.throws(() => validatePrefillBudget([128_000, 256_000, 300_000], 600_000), /work budget/);
 });
