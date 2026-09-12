@@ -1,11 +1,66 @@
 import fs from "fs";
 import path from "path";
-import { HOST_PATHS, GPU_MEMORY_JSON_PATH, DGX_SPARK, HARDWARE_DEFAULTS, POLL_INTERVAL_NVERR } from "../config.js";
+import { HOST_PATHS, GPU_MEMORY_JSON_PATH, GPU_CLOCK_LOCK_UNIT, DGX_SPARK, HARDWARE_DEFAULTS, POLL_INTERVAL_NVERR } from "../config.js";
 import { normalizeMac, WOL_INTERFACE } from "../wol.js";
 import { sshExec } from "./ssh.js";
 
 const NVERR_JOURNAL_CMD =
   'journalctl -k --no-pager -q --grep=NV_ERR_NO_MEMORY 2>/dev/null | grep -c NV_ERR_NO_MEMORY || true';
+
+/**
+ * Clock caps (CPU max_perf / GPU -lgc lock) change rarely, so cache the parsed
+ * result for this long instead of re-reading sysfs / the unit file every poll.
+ */
+const CLOCK_CAPS_CACHE_TTL_MS = 60_000;
+
+/**
+ * Parse the CPU clock-cap sysfs dump (one `cpuN:max_perf:cpuinfo_max_freq`
+ * line per core) into per-frequency-domain caps. A domain is "capped" when its
+ * max_perf ceiling is below the hardware max (cpuinfo_max_freq).
+ * Exported for tests.
+ * @param {string} raw
+ * @returns {Array<{label: string, capMHz: number, maxMHz: number, capped: boolean}>}
+ */
+export function parseCpuClockCaps(raw) {
+  const domains = new Map();
+  for (const line of String(raw ?? "").split("\n")) {
+    const m = line.trim().match(/^cpu(\d+):(\d+):(\d+)$/);
+    if (!m) continue;
+    const capKhz = Number(m[2]);
+    const maxKhz = Number(m[3]);
+    if (!Number.isFinite(capKhz) || !Number.isFinite(maxKhz) || maxKhz <= 0) continue;
+    if (!domains.has(maxKhz)) domains.set(maxKhz, { maxKhz, capKhz });
+    else {
+      // A domain's max_perf is uniform across its cores; keep the strictest.
+      const d = domains.get(maxKhz);
+      if (capKhz < d.capKhz) d.capKhz = capKhz;
+    }
+  }
+  return [...domains.values()]
+    .sort((a, b) => b.maxKhz - a.maxKhz)
+    .map((d) => ({
+      label: d.maxKhz >= 3_000_000 ? "X925" : d.maxKhz >= 2_000_000 ? "A725" : `${Math.round(d.maxKhz / 1000)} MHz`,
+      capMHz: Math.round(d.capKhz / 1000),
+      maxMHz: Math.round(d.maxKhz / 1000),
+      capped: d.capKhz < d.maxKhz,
+    }));
+}
+
+/**
+ * Parse a `gpu-clock-lock.service` unit file (or raw text) for an
+ * `nvidia-smi -lgc MIN,MAX` clock lock. Returns null when no lock is present.
+ * Exported for tests.
+ * @param {string} raw
+ * @returns {{minMHz: number, maxMHz: number} | null}
+ */
+export function parseGpuClockLock(raw) {
+  const m = String(raw ?? "").match(/-lgc\s+(\d+)\s*,\s*(\d+)/);
+  if (!m) return null;
+  const minMHz = Number(m[1]);
+  const maxMHz = Number(m[2]);
+  if (!Number.isFinite(minMHz) || !Number.isFinite(maxMHz) || maxMHz <= 0) return null;
+  return { minMHz, maxMHz };
+}
 
 /**
  * Parse `grep -c` stdout into a non-negative integer. Exported for tests.
@@ -65,6 +120,8 @@ export class SystemCollector {
     this._hardwareInfo = null;
     /** Cached NVRM NV_ERR_NO_MEMORY count (slow journal scan). */
     this._nvErrCache = { count: 0, at: 0 };
+    /** Cached clock caps (CPU max_perf domains + GPU -lgc lock). */
+    this._clockCapsCache = { at: 0, cpuDomains: null, gpuLock: null };
   }
 
   /** Collect GPU metrics (temperature, usage, power, VRAM). */
@@ -111,11 +168,107 @@ export class SystemCollector {
         this.lastCpuUsagePct = cpuPercentage;
       }
       const cpuData = { usage: cpuPercentage, temperature: temp, ...power };
+      cpuData.clockCaps = (await this._getClockCaps()).cpuDomains;
       return tagCollectionResult(cpuData, this._isSuccessfulCpuCollection(cpuData));
     } catch (err) {
       console.error(`[SystemCollector] CPU error for ${this.spark.id}:`, err.message);
       return tagCollectionResult(this._defaultCpu(), false);
     }
+  }
+
+  /**
+   * Read the active clock caps: per-domain CPU max_perf ceilings and the GPU
+   * -lgc lock. These change rarely, so the result is cached for
+   * CLOCK_CAPS_CACHE_TTL_MS and shared across the parallel CPU/GPU polls via an
+   * in-flight guard. Returns { cpuDomains, gpuLock } (either may be null).
+   */
+  async _getClockCaps() {
+    const now = Date.now();
+    const c = this._clockCapsCache;
+    if (c.at && now - c.at < CLOCK_CAPS_CACHE_TTL_MS && (c.cpuDomains || c.gpuLock)) {
+      return c;
+    }
+    if (this._clockCapsInFlight) return this._clockCapsInFlight;
+    this._clockCapsInFlight = (async () => {
+      let cpuDomains = null;
+      let gpuLock = null;
+      try {
+        if (this.spark.isLocal) {
+          cpuDomains = parseCpuClockCaps(await this._readLocalCpuCapDump());
+          gpuLock = parseGpuClockLock(await this._readLocalGpuLockUnit());
+        } else {
+          const out = await sshExec(this.spark, this._buildRemoteClockCapsCommand());
+          const [cpuDump, lockUnit] = out.split("---");
+          cpuDomains = parseCpuClockCaps(cpuDump);
+          gpuLock = parseGpuClockLock(lockUnit);
+        }
+      } catch (err) {
+        console.error(`[SystemCollector] clock caps error for ${this.spark.id}:`, err.message);
+      }
+      return { at: Date.now(), cpuDomains, gpuLock };
+    })();
+    try {
+      return await this._clockCapsInFlight;
+    } finally {
+      this._clockCapsInFlight = null;
+    }
+  }
+
+  /** Local: dump `cpuN:max_perf:cpuinfo_max_freq` for every core. */
+  async _readLocalCpuCapDump() {
+    const cpuDir = path.join(HOST_PATHS.SYS, "devices/system/cpu");
+    let entries = [];
+    try {
+      entries = fs.readdirSync(cpuDir);
+    } catch {
+      return "";
+    }
+    const lines = [];
+    for (const e of entries) {
+      if (!/^cpu\d+$/.test(e)) continue;
+      const cap = this._readSysFile(path.join(cpuDir, e, "cpufreq/max_perf"));
+      const max = this._readSysFile(path.join(cpuDir, e, "cpufreq/cpuinfo_max_freq"));
+      if (cap != null && max != null) lines.push(`${e}:${cap.trim()}:${max.trim()}`);
+    }
+    return lines.join("\n");
+  }
+
+  /**
+   * Local: read the GPU clock-lock unit (source of the -lgc lock). The path is
+   * configurable via GPU_CLOCK_LOCK_UNIT (default: the common
+   * gpu-clock-lock.service convention) because nvidia-smi does not expose the
+   * active lock range — the unit file is the only reliable source of the
+   * intended value.
+   */
+  async _readLocalGpuLockUnit() {
+    const p = path.join(HOST_PATHS.ROOT, GPU_CLOCK_LOCK_UNIT);
+    try {
+      return fs.readFileSync(p, "utf-8");
+    } catch {
+      return "";
+    }
+  }
+
+  _readSysFile(p) {
+    try {
+      return fs.readFileSync(p, "utf-8");
+    } catch {
+      return null;
+    }
+  }
+
+  /** Remote: one command that dumps CPU caps then the GPU lock unit. */
+  _buildRemoteClockCapsCommand() {
+    // GPU_CLOCK_LOCK_UNIT is an operator-supplied host path; single-quote it so
+    // spaces/globs in the path don't break the remote shell.
+    const unitPath = `'${String(GPU_CLOCK_LOCK_UNIT).replace(/'/g, "'\\''")}'`;
+    return [
+      // Command substitution strips sysfs trailing newlines so each core is one
+      // `cpuN:max_perf:cpuinfo_max_freq` line (echo -n + cat splits them).
+      "for d in /sys/devices/system/cpu/cpu*/cpufreq; do n=${d#/sys/devices/system/cpu/}; n=${n%/cpufreq}; echo \"$n:$(cat $d/max_perf 2>/dev/null):$(cat $d/cpuinfo_max_freq 2>/dev/null)\"; done",
+      "echo '---'",
+      `cat ${unitPath} 2>/dev/null || true`,
+    ].join("; ");
   }
 
   _isSuccessfulGpuCollection(gpu) {
@@ -241,6 +394,7 @@ export class SystemCollector {
       processes,
       throttle: gpu.throttle,
       nvErrNoMemory: await this._nvErrNoMemory(),
+      clockLock: (await this._getClockCaps()).gpuLock,
     };
   }
 
@@ -290,8 +444,9 @@ export class SystemCollector {
       const apps = this._parseComputeApps(raw);
       this.nvidiaComputeAppsCache.clear();
       for (const app of apps) {
-        this.nvidiaComputeAppsCache.set(app.pid, { name: app.name, vramMB: app.vramMB });
-        computeSum += app.vramMB;
+        const vramMB = Number.isFinite(app.vramMB) ? app.vramMB : 0;
+        this.nvidiaComputeAppsCache.set(app.pid, { name: app.name, vramMB });
+        computeSum += vramMB;
       }
       computeAppsQueried = true;
       // Prefer live compute-apps for used (including 0 = cleared).
@@ -1035,8 +1190,9 @@ export class SystemCollector {
       this.nvidiaComputeAppsCache.clear();
       let computeSum = 0;
       for (const app of apps) {
-        this.nvidiaComputeAppsCache.set(app.pid, { name: app.name, vramMB: app.vramMB });
-        computeSum += app.vramMB;
+        const vramMB = Number.isFinite(app.vramMB) ? app.vramMB : 0;
+        this.nvidiaComputeAppsCache.set(app.pid, { name: app.name, vramMB });
+        computeSum += vramMB;
       }
       if ((used == null || used === 0) && computeSum > 0) used = computeSum;
 
@@ -1079,6 +1235,7 @@ export class SystemCollector {
         processes,
         throttle: gpu.throttle,
         nvErrNoMemory: await this._nvErrNoMemory(),
+        clockLock: (await this._getClockCaps()).gpuLock,
       };
     } catch (err) {
       console.error(`[SystemCollector] Remote GPU error for ${this.spark.id}:`, err.message);
@@ -1144,6 +1301,7 @@ export class SystemCollector {
         temperature: this._parseSensorTemp(tempOut),
         draw: Math.round(draw * 10) / 10,
         tdp: Math.round(tdp),
+        clockCaps: (await this._getClockCaps()).cpuDomains,
       };
     } catch (err) {
       console.error(`[SystemCollector] Remote CPU error for ${this.spark.id}:`, err.message);

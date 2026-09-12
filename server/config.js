@@ -22,6 +22,15 @@ const LLM_DAILY_JSON_PATH =
 const FLEET_ENERGY_JSON_PATH =
   process.env.FLEET_ENERGY_JSON_PATH || path.join(ROOT, "config", "fleet-energy.json");
 
+/**
+ * Host-side path of the systemd unit that locks GPU clocks (`nvidia-smi -lgc`).
+ * nvidia-smi does not expose the active lock range, so the unit file is the
+ * source of truth for the GPU "Clock Cap" display. Absolute host path; set
+ * GPU_CLOCK_LOCK_UNIT to point at a differently-named unit.
+ */
+const GPU_CLOCK_LOCK_UNIT =
+  process.env.GPU_CLOCK_LOCK_UNIT || "/etc/systemd/system/gpu-clock-lock.service";
+
 // ─── LLM / Comfy probe timeouts ──────────────────────────
 const LLM_PROBE_TIMEOUT_MS = 3000;
 const COMFY_PROBE_TIMEOUT_MS = parseInt(process.env.COMFY_PROBE_TIMEOUT_MS || "3000", 10);
@@ -106,6 +115,7 @@ const HOST_PATHS = {
 export {
   SPARKS_JSON_PATH,
   GPU_MEMORY_JSON_PATH,
+  GPU_CLOCK_LOCK_UNIT,
   SPARKS_SECRETS_PATH,
   SECRETS_KEY_PATH,
   LLM_DAILY_JSON_PATH,
