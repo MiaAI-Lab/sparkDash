@@ -117,9 +117,21 @@ export function GpuPanel({ gpu, sparkId, temperatureUnit, className }: GpuPanelP
               ? "bg-warning"
               : "bg-accent";
         const pct = t?.smClockPct;
+        // When a clock cap is set, the bar's full scale becomes the cap (not
+        // the hardware max) so it reflects the headroom that actually exists.
+        const clockLock = gpu?.clockLock ?? null;
+        const capMax = clockLock?.maxMHz ?? null;
+        const denomMHz =
+          capMax != null && t?.smClockMaxMHz != null
+            ? Math.min(capMax, t.smClockMaxMHz)
+            : t?.smClockMaxMHz ?? null;
+        const barPct =
+          t?.smClockMHz != null && denomMHz != null && denomMHz > 0
+            ? (t.smClockMHz / denomMHz) * 100
+            : pct;
         const clockCaption =
-          t?.smClockMHz != null && t?.smClockMaxMHz != null
-            ? `${t.smClockMHz} / ${t.smClockMaxMHz} MHz`
+          t?.smClockMHz != null && denomMHz != null
+            ? `${t.smClockMHz} / ${denomMHz} MHz`
             : pct != null
               ? `${pct}%`
               : "—";
@@ -133,6 +145,19 @@ export function GpuPanel({ gpu, sparkId, temperatureUnit, className }: GpuPanelP
                 {chipLabel}
               </span>
             </div>
+            {clockLock != null && (
+              <div className="flex items-center justify-between gap-2 text-sm">
+                <span className="text-muted">Clock Cap</span>
+                <span className="font-tabular text-sm text-text-strong">
+                  {/* -lgc MIN,MAX: a 0 min means "no floor" and MIN==MAX is a
+                      single pinned value — both collapse to just the max.
+                      Show the range only when a real floor is locked. */}
+                  {clockLock.minMHz > 0 && clockLock.minMHz !== clockLock.maxMHz
+                    ? `${clockLock.minMHz}–${clockLock.maxMHz} MHz`
+                    : `${capMax} MHz`}
+                </span>
+              </div>
+            )}
             <div className="flex items-baseline justify-between gap-2">
               <span className="text-[10px] uppercase tracking-wide text-muted">SM clock</span>
               <span className="font-tabular text-xs text-text">{clockCaption}</span>
@@ -141,7 +166,7 @@ export function GpuPanel({ gpu, sparkId, temperatureUnit, className }: GpuPanelP
               <div
                 className={`h-full rounded-full transition-[width] duration-300 ease-out ${barColor}`}
                 style={{
-                  width: `${pct != null ? Math.min(100, Math.max(0, pct)) : 0}%`,
+                  width: `${barPct != null ? Math.min(100, Math.max(0, barPct)) : 0}%`,
                 }}
               />
             </div>
