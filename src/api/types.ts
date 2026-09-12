@@ -221,6 +221,9 @@ export interface GpuMetrics {
    * one-GPU DGX Spark has exactly one entry here mirroring them.
    */
   gpus?: GpuDevice[];
+
+  /** Active `nvidia-smi -lgc` graphics clock lock, when one is set. */
+  clockLock?: { minMHz: number; maxMHz: number } | null;
 }
 
 /** One physical GPU as reported by nvidia-smi (`index,name,uuid`). */
@@ -238,11 +241,25 @@ export interface GpuDevice {
 }
 
 // ─── CPU metrics ─────────────────────────────────────────
+/** One CPU frequency domain (cluster) and its active max_perf ceiling. */
+export interface CpuClockCap {
+  /** Cluster label, e.g. "X925" (performance) or "A725" (efficiency). */
+  label: string;
+  /** Active max_perf ceiling in MHz. */
+  capMHz: number;
+  /** Hardware maximum (cpuinfo_max_freq) in MHz. */
+  maxMHz: number;
+  /** True when the ceiling is below the hardware max (a cap is in effect). */
+  capped: boolean;
+}
+
 export interface CpuMetrics {
   usage: number;
   temperature: number;
   draw: number;
   tdp: number;
+  /** Active per-domain CPU clock caps (max_perf). Absent when unreadable. */
+  clockCaps?: CpuClockCap[] | null;
 }
 
 // ─── RAM metrics ─────────────────────────────────────────

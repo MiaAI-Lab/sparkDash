@@ -54,6 +54,7 @@ export function CpuPanel({ cpu, hardware, sparkId, temperatureUnit, className }:
   const temperature = cpu?.temperature ?? 0;
   const draw = cpu?.draw ?? 0;
   const tdp = cpu?.tdp ?? 0;
+  const clockCaps = cpu?.clockCaps ?? null;
 
   const displayTemp =
     temperatureUnit === "fahrenheit" ? celsiusToFahrenheit(temperature) : temperature;
@@ -96,6 +97,19 @@ export function CpuPanel({ cpu, hardware, sparkId, temperatureUnit, className }:
           {draw}W{tdp > 0 ? ` / ${tdp}W` : ""}
         </span>
       </div>
+      {clockCaps && clockCaps.length > 0 && (
+        <div className="flex justify-between text-sm">
+          <span className="text-muted">Clock Cap</span>
+          <span className="font-tabular text-sm text-text">
+            {clockCaps.map((d) => (
+              <span key={d.label} className={d.capped ? "text-text-strong" : "text-muted"}>
+                {d.label} {d.capped ? `${d.capMHz} / ${d.maxMHz}` : d.maxMHz} MHz
+                {clockCaps.length > 1 ? " · " : ""}
+              </span>
+            ))}
+          </span>
+        </div>
+      )}
       {model && (
         <div className="flex justify-between border-t border-border pt-3 text-xs">
           <span className="text-muted">Model</span>
