@@ -22,7 +22,10 @@ import { decodeBenchManager } from "./DecodeBench.js";
 import {
   PREFILL_CONTEXT_SIZES,
   PREFILL_DEFAULT_CONTEXT_SIZES,
+  PREFILL_MAX_CONTEXT_SIZE,
+  PREFILL_MIN_CONTEXT_SIZE,
   formatContextSize,
+  parseContextSize,
 } from "../../src/shared/prefillBench.js";
 import { formatLlmBaseUrl } from "../../src/shared/llmTarget.js";
 
@@ -38,10 +41,9 @@ const ACTIVE_PATH =
   process.env.PREFILL_BENCH_ACTIVE_PATH ||
   path.join(ROOT, "config", "prefill-bench-active.json");
 
-/** Canonical sizes (tokens). 300k is the top of the sweep. */
+/** Preset chip sizes (tokens). Custom integers in 256–300k are also allowed. */
 export const ALLOWED_CONTEXT_SIZES = PREFILL_CONTEXT_SIZES;
 export const DEFAULT_CONTEXT_SIZES = PREFILL_DEFAULT_CONTEXT_SIZES;
-const ALLOWED_SET = new Set(ALLOWED_CONTEXT_SIZES);
 
 const WARMUP_TARGET_TOKENS = 512;
 const GEN_MAX_TOKENS = 8;
@@ -79,9 +81,9 @@ export function normalizeContextSizes(raw) {
   if (!Array.isArray(raw)) return [];
   const out = [];
   for (const v of raw) {
-    const n = typeof v === "string" ? parseInt(v, 10) : Number(v);
-    if (!Number.isInteger(n) || !ALLOWED_SET.has(n)) continue;
-    if (!out.includes(n)) out.push(n);
+    const n = parseContextSize(v);
+    if (n == null || out.includes(n)) continue;
+    out.push(n);
   }
   out.sort((a, b) => a - b);
   return out;
@@ -458,7 +460,7 @@ export class PrefillBenchManager {
     const contextSizes = normalizeContextSizes(rawSizes);
     if (!contextSizes.length) {
       const err = new Error(
-        "Select at least one context size (1k–300k)"
+        `Select at least one context size (${PREFILL_MIN_CONTEXT_SIZE}–${PREFILL_MAX_CONTEXT_SIZE.toLocaleString()} tokens)`
       );
       err.status = 400;
       throw err;
@@ -646,4 +648,6 @@ export const prefillBenchManager = new PrefillBenchManager();
 export const PREFILL_BENCH_DEFAULTS = {
   allowedContextSizes: [...ALLOWED_CONTEXT_SIZES],
   defaultContextSizes: [...DEFAULT_CONTEXT_SIZES],
+  minContextSize: PREFILL_MIN_CONTEXT_SIZE,
+  maxContextSize: PREFILL_MAX_CONTEXT_SIZE,
 };

@@ -790,6 +790,8 @@ export interface PrefillBenchJob {
 export interface PrefillBenchDefaults {
   allowedContextSizes: number[];
   defaultContextSizes: number[];
+  minContextSize?: number;
+  maxContextSize?: number;
 }
 
 export interface PrefillBenchListResponse {

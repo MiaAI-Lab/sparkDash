@@ -292,6 +292,13 @@ input:disabled {
   height: var(--spark-h, 16px);
 }
 
+/* sm:p-8 is too much outer page padding; keep the class, use p-4 scale. */
+@media (width >= 40rem) {
+  .sm\:p-8 {
+    padding: calc(var(--spacing) * 4);
+  }
+}
+
 /* ─── Dashboard shell (floating console) ──────────────── */
 .dashboard-shell {
   max-width: 1440px;
@@ -1295,6 +1302,16 @@ input[type="checkbox"] {
 .bench-conc-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.bench-custom-size {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.55rem;
+}
+.bench-custom-size .bench-input {
+  width: 7.5rem;
 }
 
 .bench-input {

@@ -12,7 +12,10 @@ import { useModalPresence } from "../../hooks/useModalPresence";
 import {
   PREFILL_CONTEXT_SIZES,
   PREFILL_DEFAULT_CONTEXT_SIZES,
+  PREFILL_MAX_CONTEXT_SIZE,
+  PREFILL_MIN_CONTEXT_SIZE,
   formatContextSize,
+  parseContextSize,
 } from "../../shared/prefillBench.js";
 import { formatLlmBaseUrl } from "../../shared/llmTarget.js";
 
@@ -149,6 +152,7 @@ export function PrefillBenchDialog({
   remoteTarget = null,
 }: PrefillBenchDialogProps) {
   const [selected, setSelected] = useState<number[]>(() => defaultSelected(contextLength));
+  const [customDraft, setCustomDraft] = useState("");
   const [job, setJob] = useState<PrefillBenchJob | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
@@ -227,6 +231,7 @@ export function PrefillBenchDialog({
   useEffect(() => {
     if (!open) {
       stopPoll();
+      setCustomDraft("");
       return;
     }
     let cancelled = false;
@@ -290,6 +295,28 @@ export function PrefillBenchDialog({
       return [...prev, n].sort((a, b) => a - b);
     });
   };
+
+  const addCustomSize = () => {
+    if (isRunning || starting) return;
+    const n = parseContextSize(customDraft);
+    if (n == null) {
+      setError(
+        `Custom size must be an integer between ${PREFILL_MIN_CONTEXT_SIZE.toLocaleString()} and ${PREFILL_MAX_CONTEXT_SIZE.toLocaleString()} tokens`
+      );
+      return;
+    }
+    if (!sizeFits(n)) {
+      setError(
+        `Custom size exceeds model context (${contextLength?.toLocaleString()} tokens)`
+      );
+      return;
+    }
+    setError(null);
+    setSelected((prev) => (prev.includes(n) ? prev : [...prev, n].sort((a, b) => a - b)));
+    setCustomDraft("");
+  };
+
+  const customSizes = selected.filter((n) => !PREFILL_CONTEXT_SIZES.includes(n));
 
   const startLockRef = useRef(false);
   const handleStart = async () => {
@@ -442,7 +469,7 @@ export function PrefillBenchDialog({
               <div className="bench-field">
                 <div className="bench-field__head">
                   <h3 className="bench-sheet__section-title">Context size</h3>
-                  <p className="bench-sheet__hint">{ctxHint}</p>
+                  <p className="bench-sheet__hint">{ctxHint} Type a custom token count to add it.</p>
                 </div>
                 <div className="bench-conc-grid" role="group" aria-label="Context sizes">
                   {PREFILL_CONTEXT_SIZES.map((n: number) => {
@@ -465,6 +492,53 @@ export function PrefillBenchDialog({
                       </button>
                     );
                   })}
+                  {customSizes.map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      disabled={isRunning || starting}
+                      title={`${n.toLocaleString()} tokens — click to remove`}
+                      onClick={() => toggleSize(n)}
+                      className="bench-conc-btn is-on"
+                    >
+                      {formatContextSize(n)}
+                    </button>
+                  ))}
+                </div>
+                <div className="bench-custom-size">
+                  <label htmlFor="prefill-custom-size" className="sr-only">
+                    Custom context size in tokens
+                  </label>
+                  <input
+                    id="prefill-custom-size"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    disabled={isRunning || starting}
+                    value={customDraft}
+                    placeholder="Custom"
+                    aria-label="Custom context size in tokens"
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      if (raw === "" || /^\d+$/.test(raw)) setCustomDraft(raw);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addCustomSize();
+                      }
+                    }}
+                    className="bench-input"
+                    size={8}
+                  />
+                  <button
+                    type="button"
+                    className="bench-btn bench-btn--ghost"
+                    disabled={isRunning || starting || customDraft.trim() === ""}
+                    onClick={addCustomSize}
+                  >
+                    Add
+                  </button>
                 </div>
               </div>
             </section>
