@@ -89,7 +89,7 @@ test("_probeIsSglang: prefers /server_info and skips deprecated /get_server_info
   assert.deepEqual(hits, ["/server_info"]);
 });
 
-test("probe: prefers /server_info and /model_info over deprecated aliases", async () => {
+test("probe: prefers current SGLang endpoints while retaining the served model ID", async () => {
   const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 30000);
   probe.serverIsOpenAI = true;
   probe.backendType = "sglang";
@@ -135,7 +135,8 @@ test("probe: prefers /server_info and /model_info over deprecated aliases", asyn
   };
   const snap = await probe.probe();
   assert.equal(snap.backend, "sglang");
-  assert.equal(snap.modelId, "org/ShortName");
+  assert.equal(snap.modelId, "org/model");
+  assert.equal(snap.modelPath, "org/ShortName");
   assert.equal(hits.includes("/get_server_info"), false);
   assert.equal(hits.includes("/get_model_info"), false);
   assert.equal(hits.includes("/server_info"), true);
@@ -547,4 +548,53 @@ test("_applySglangPrefillSplit does not clobber server_info tok/s", () => {
   assert.equal(probe.prefillTps, 100);
   assert.equal(probe.lastTokenCounts.output, 150);
   assert.equal(probe.cachedPrefillTps, 0); // first split sample seeds
+});
+
+test("probe: SGLang keeps the served model ID when native info uses a local path", async () => {
+  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 8888);
+  probe.serverIsOpenAI = true;
+  probe.backendType = "sglang";
+  probe.authOpen = true;
+  probe._lastDetectAt = Date.now();
+  probe._fetch = async (url) => {
+    const u = String(url);
+    if (u.endsWith("/v1/models")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: [
+            {
+              id: "qwen3.8-27b-sglang",
+              owned_by: "sglang",
+              max_model_len: 262144,
+            },
+          ],
+        }),
+      };
+    }
+    if (u.endsWith("/get_server_info")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ model_path: "/model", context_length: 262144 }),
+      };
+    }
+    if (u.endsWith("/get_model_info")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ model_path: "/model" }),
+      };
+    }
+    if (u.endsWith("/metrics") || u.endsWith("/model_info")) {
+      return { ok: false, status: 404, json: async () => ({}), text: async () => "" };
+    }
+    return { ok: false, status: 404, json: async () => ({}), text: async () => "" };
+  };
+
+  const snap = await probe.probe();
+  assert.equal(snap.modelId, "qwen3.8-27b-sglang");
+  assert.equal(snap.modelPath, "/model");
+  assert.equal(snap.contextLength, 262144);
 });
