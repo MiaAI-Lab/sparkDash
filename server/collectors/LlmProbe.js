@@ -444,6 +444,7 @@ export class LlmProbe {
     // Model info from /v1/models — 401/403 means protected; other failure = down
     let modelsOk = false;
     let owned = null;
+    let servedModelId = null;
     try {
       const modelsRes = await this._fetch(`${this.baseUrl}/v1/models`);
       const auth = this._noteAuthStatus(modelsRes.status);
@@ -454,7 +455,8 @@ export class LlmProbe {
         modelsOk = true;
         const modelsData = await modelsRes.json();
         const model = modelsData?.data?.[0];
-        this.modelId = normalizeModelId(model?.id || null);
+        servedModelId = normalizeModelId(model?.id || null);
+        this.modelId = servedModelId;
         // Drop HF hub cache paths from modelPath if /v1/models id was a cache dir
         if (isHfHubCachePath(model?.id)) this.modelPath = null;
         // ds4-server uses context_length; vLLM uses max_model_len
@@ -527,6 +529,9 @@ export class LlmProbe {
         /* metrics optional */
       }
       await this._enrichSglangModelInfo();
+      // Native SGLang endpoints expose the storage path (often just `/model`).
+      // Keep that as modelPath, but show/use the client-facing served model ID.
+      if (servedModelId) this.modelId = servedModelId;
       return this._getSnapshot();
     }
 
