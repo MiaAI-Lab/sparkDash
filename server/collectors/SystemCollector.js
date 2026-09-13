@@ -532,7 +532,7 @@ export class SystemCollector {
   /**
    * Check whether the privileged helper is installed and allowed by sudo
    * (cheap SSH probe). The probe exercises EXACTLY the scoped grant shipped
-   * by scripts/install-clock-helper.sh — an argumentless run of the helper
+   * by scripts/sparkdash-clock-addon/install-clock-helper.sh — an argumentless run of the helper
    * binary — never `sudo -n true`, which no scoped sudoers file permits.
    * Returns { available, checked, reason }.
    */
@@ -859,7 +859,7 @@ export class SystemCollector {
       }
       // The ExecStart list is shell syntax (redirections), so systemd must run
       // it through /bin/sh — byte-identical to the helper's persist path
-      // (scripts/sparkdash-set-clock cpu_unit_body). No single quotes can ever
+      // (scripts/sparkdash-clock-addon/sparkdash-set-clock cpu_unit_body). No single quotes can ever
       // occur in these commands (echo/cat paths + integers only).
       execLine = `/bin/sh -c '${parts.join("; ")}'`;
     }

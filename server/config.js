@@ -40,7 +40,7 @@ const CPU_CLOCK_CAP_UNIT =
 
 /**
  * Privileged host helper that applies + persists clock caps (installed by
- * scripts/install-clock-helper.sh). Invoked over SSH with passwordless sudo
+ * scripts/sparkdash-clock-addon/install-clock-helper.sh). Invoked over SSH with passwordless sudo
  * (scoped sudoers drop-in); see the Clock control section in README.md.
  */
 const SPARKDASH_CLOCK_BIN =

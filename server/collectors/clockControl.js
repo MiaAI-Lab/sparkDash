@@ -5,14 +5,15 @@
  * exit-code interpretation. Exported for tests.
  */
 
-/** The privileged host helper (installed by scripts/install-clock-helper.sh). */
+/** The privileged host helper (installed by scripts/sparkdash-clock-addon/install-clock-helper.sh). */
 export const CLOCK_HELPER_BIN = "/usr/local/bin/sparkdash-set-clock";
 
 /**
  * Sentinels for the helper availability probe. The sudoers grant shipped by
- * scripts/install-clock-helper.sh allows ONLY the bare helper binary (no
- * arguments), so the probe must exercise exactly that command — a
- * `sudo -n true` pre-check can never succeed on a correctly provisioned host.
+ * scripts/sparkdash-clock-addon/install-clock-helper.sh grants this binary
+ * (any argv). The probe still uses an argumentless run so we do not apply a
+ * cap just to check install — a `sudo -n true` pre-check can never succeed
+ * on a correctly provisioned host.
  * The argumentless probe makes the helper print its usage line and exit 1,
  * which proves sudo allowed it; a sudo refusal carries no usage line.
  * Tokens (never sudo's own wording) keep the three causes distinct.
@@ -405,7 +406,7 @@ export function interpretHelperProbe(out) {
       available: false,
       checked: true,
       reason:
-        "passwordless sudo for the clock helper is not configured — run scripts/install-clock-helper.sh",
+        "passwordless sudo for the clock helper is not configured — run scripts/sparkdash-clock-addon/install-clock-helper.sh",
     };
   }
   return {
@@ -430,13 +431,13 @@ export function interpretHelperExit(err) {
   if (/missing \S*sparkdash-set-clock/.test(msg)) {
     return {
       status: 423,
-      reason: "clock helper not installed — run scripts/install-clock-helper.sh on the host",
+      reason: "clock helper not installed — run scripts/sparkdash-clock-addon/install-clock-helper.sh on the host",
     };
   }
   if (msg.includes(HELPER_REFUSED_SENTINEL)) {
     return {
       status: 423,
-      reason: "passwordless sudo for the clock helper is not configured — run scripts/install-clock-helper.sh",
+      reason: "passwordless sudo for the clock helper is not configured — run scripts/sparkdash-clock-addon/install-clock-helper.sh",
     };
   }
   if (/timed out|connection refused|unreachable|no route|ECONNREFUSED|ETIMEDOUT/i.test(msg)) {

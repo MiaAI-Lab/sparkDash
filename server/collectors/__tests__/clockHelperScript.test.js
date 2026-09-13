@@ -1,4 +1,4 @@
-// Helper-behaviour tests for scripts/sparkdash-set-clock (Gate 3).
+// Helper-behaviour tests for scripts/sparkdash-clock-addon/sparkdash-set-clock (Gate 3).
 //
 // The helper is exercised with a stubbed sysfs tree under a temp dir (via the
 // SPARKDASH_CPU_SYS / SPARKDASH_UNIT_DIR test hooks; sudo's env reset means a

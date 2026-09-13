@@ -529,7 +529,7 @@ export function EditSparkDialog({
                   <span>Allow clock control</span>
                   <span
                     className="inline-flex shrink-0 cursor-help text-muted hover:text-text"
-                    title="When enabled, the Clock Cap rows in the GPU/CPU panels become editable: set a CPU or GPU clock cap within the hardware range, apply it live and/or persist it to the boot unit. Requires a one-time helper install on the host (scripts/install-clock-helper.sh). Default off."
+                    title="When enabled, the Clock Cap rows in the GPU/CPU panels become editable: set a CPU or GPU clock cap within the hardware range, apply it live and/or persist it to the boot unit. Requires a one-time helper install on the host (scripts/sparkdash-clock-addon/install-clock-helper.sh). Default off."
                     aria-label="Allow setting CPU and GPU clock caps from the dashboard."
                   >
                     <InfoIcon className="h-3.5 w-3.5" />
@@ -538,7 +538,7 @@ export function EditSparkDialog({
               </div>
               <p className="mt-1 text-[10px] text-muted">
                 One-time setup on the unit: run{" "}
-                <code className="rounded bg-surface-elevated px-1">scripts/install-clock-helper.sh</code>{" "}
+                <code className="rounded bg-surface-elevated px-1">scripts/sparkdash-clock-addon/install-clock-helper.sh</code>{" "}
                 (installs a root helper plus a scoped passwordless-sudo rule). No password is
                 stored or asked for in sparkDash.
               </p>

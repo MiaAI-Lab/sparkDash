@@ -235,9 +235,13 @@ Env (optional): `POLL_INTERVAL_TAILSCALE` (default `30000`), `TAILSCALE_PROBE_TI
 
 ---
 
-## Clock control
+## Clock control (opt-in add-on)
 
-sparkDash can **optionally** let you set CPU and GPU clock caps from the dashboard. The **Clock Cap** rows in the GPU and CPU panels become clickable: pick a value inside the hardware-legal range (slider + number input, presets included), then either apply it for this boot only or save it to the boot unit so it survives reboot.
+**Not core.** Lives under `scripts/sparkdash-clock-addon/`. sparkDash stays a
+dashboard until you install the host helper, keep the sudoers drop-in, and
+enable **Allow clock control** on that Spark.
+
+The **Clock Cap** rows in the GPU and CPU panels become clickable: pick a value inside the hardware-legal range (slider + number input, presets included), then either apply it for this boot only or save it to the boot unit so it survives reboot.
 
 ### What is supported
 
@@ -258,12 +262,12 @@ sparkDash never asks for a password or sudo prompt. Privileged work happens thro
 
 ```bash
 # One-time, on the Spark host (as a sudo-capable user):
-sudo ./scripts/install-clock-helper.sh
+sudo ./scripts/sparkdash-clock-addon/install-clock-helper.sh
 ```
 
-The installer copies `scripts/sparkdash-set-clock` to `/usr/local/bin/` and adds `/etc/sudoers.d/sparkdash-clock`, validated with `visudo -c`, allowing **only** that binary to run without a password (`NOPASSWD: /usr/local/bin/sparkdash-set-clock`). It never touches `/etc/sudoers` and grants no other sudo rights.
+The installer copies `scripts/sparkdash-clock-addon/sparkdash-set-clock` to `/usr/local/bin/` and adds `/etc/sudoers.d/sparkdash-clock`, validated with `visudo -c`. That rule is **this binary only**. In sudoers, listing a command with no argv means **any argv** for that binary — not “argumentless only.” The helper still parses a tight flag set. It never touches `/etc/sudoers` and grants no other sudo rights.
 
-Because the sudoers rule allows the binary with **no arguments**, helper availability is probed by exercising exactly that granted command: the dashboard first checks the binary exists (`test -x` — missing → "not installed") and then runs `sudo -n <helper>` argumentless. The helper prints its usage line and exits 1, which proves sudo allowed the run; a sudo refusal exits 1 **without** the usage line and is reported as "passwordless sudo not configured" (HTTP 423 with the installer hint). The API always names the real cause.
+Availability is probed with an argumentless `sudo -n <helper>` so a check cannot apply a cap: the helper prints usage and exits 1. A sudo refusal exits 1 **without** the usage line (HTTP 423 + installer hint). The API always names the real cause.
 
 On a **local** Spark (dashboard container running privileged on the same machine), sparkDash falls back to the container's own root path: live caps go through the container's rw `/sys` and `nvidia-smi`, and persistence goes through `nsenter` into the host mount namespace. Which path was used is reported in the API response (`source`: `helper` or `container`).
 
@@ -552,7 +556,7 @@ Choice is stored in `localStorage`.
 | `npm run docker:dev` | Dev Compose |
 | `npm run docker:dev:build` | Dev Compose with rebuild |
 | `./deploy.sh` | Recreate container; `--build`, `--frontend` flags |
-| `sudo ./scripts/install-clock-helper.sh` | One-time install of the clock helper + scoped sudoers rule on a Spark host |
+| `sudo ./scripts/sparkdash-clock-addon/install-clock-helper.sh` | One-time install of the clock helper + scoped sudoers rule on a Spark host |
 
 ---
 

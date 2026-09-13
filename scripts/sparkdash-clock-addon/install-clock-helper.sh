@@ -10,8 +10,9 @@
 #   1. /usr/local/bin/sparkdash-set-clock  (root-owned, 0755)
 #   2. /etc/sudoers.d/sparkdash-clock      (scoped NOPASSWD for that binary only)
 #
-# The sudoers drop-in is validated with visudo -c BEFORE installation and is
-# limited to exactly one command — never blanket sudo, never /etc/sudoers.
+# The sudoers drop-in is validated with visudo -c BEFORE installation.
+# A command listed with no argv matches ANY argv for that binary (sudoers
+# semantics). Scope is “this helper only”, not “argumentless only”.
 set -eu
 
 HELLO_SRC="$(dirname "$0")/sparkdash-set-clock"
@@ -28,14 +29,13 @@ else
   exit 1
 fi
 
-# 2. Scoped sudoers drop-in. Percent-escape nothing: the rule grants exactly
-#    one command with no arguments and no runas aliases.
+# 2. Scoped sudoers drop-in: this binary only (any argv). Not blanket sudo.
 TMP=$(mktemp /tmp/sparkdash-clock.XXXXXX)
 trap 'rm -f "$TMP"' EXIT
 cat > "$TMP" <<SUDOERS
 # Managed by sparkDash install-clock-helper.sh — scoped clock-control grant.
-# Allows the SSH user group to run ONLY the sparkDash clock helper with
-# passwordless sudo. Remove this file to revoke clock control.
+# Passwordless sudo for THIS binary only (any argv — sudoers default).
+# Remove this file to revoke clock control.
 %sudo ALL=(root) NOPASSWD: $HELLO_DST
 SUDOERS
 

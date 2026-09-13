@@ -181,9 +181,9 @@ test("validateClockCapRequest tolerates a missing/undefined body", () => {
 
 // ─── Helper argv (D4) ─────────────────────────────────────
 //
-// The shipped sudoers grant is ONE argumentless command
-// (`NOPASSWD: /usr/local/bin/sparkdash-set-clock`), so the chain must never
-// gate on `sudo -n true` — no scoped sudoers file permits it.
+// The shipped sudoers grant is this binary (`NOPASSWD: …/sparkdash-set-clock`).
+// A no-argv sudoers line matches any argv. The chain must never gate on
+// `sudo -n true` — no scoped sudoers file permits that.
 
 test("buildClockHelperArgv probes the granted binary argumentlessly with distinct 127/126 exits", () => {
   const cmd = buildClockHelperArgv({ domain: "gpu", maxMHz: 2200, persist: true });
