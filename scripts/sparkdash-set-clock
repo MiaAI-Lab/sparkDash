@@ -24,11 +24,12 @@ CPU_SYS=${SPARKDASH_CPU_SYS:-/sys/devices/system/cpu}
 UNIT_DIR=${SPARKDASH_UNIT_DIR:-/etc/systemd/system}
 CPU_UNIT=$UNIT_DIR/cpu-clock-cap.service
 GPU_UNIT=$UNIT_DIR/gpu-clock-lock.service
-SMI=/usr/bin/nvidia-smi
+SMI=${SPARKDASH_SMI:-/usr/bin/nvidia-smi}
 
-# Test hooks only: SPARKDASH_CPU_SYS / SPARKDASH_UNIT_DIR redirect the sysfs
-# and unit paths. Under the shipped scoped sudoers grant sudo resets the
-# environment, so a remote invocation always uses the real /sys and /etc.
+# Test hooks only: SPARKDASH_CPU_SYS / SPARKDASH_UNIT_DIR / SPARKDASH_SMI
+# redirect the sysfs, unit, and nvidia-smi paths. Under the shipped scoped
+# sudoers grant sudo resets the environment, so a remote invocation always
+# uses the real /sys, /etc, and /usr/bin/nvidia-smi.
 DOMAIN=""
 MAX_MHZ=""
 UNLOCK=0
@@ -91,7 +92,7 @@ write_core() {
   cpu_n=$1
   khz=$2
   unlock=$3
-  base="/sys/devices/system/cpu/$cpu_n/cpufreq"
+  base="$CPU_SYS/$cpu_n/cpufreq"
   if [ "$unlock" -eq 1 ]; then
     khz=$(cat "$base/cpuinfo_max_freq" 2>/dev/null || true)
     [ -n "$khz" ] || { echo "cannot read cpuinfo_max_freq for $cpu_n" >&2; return 1; }
@@ -150,7 +151,8 @@ cpu_apply() {
 
 # unit_exec_line DOMAIN UNLOCK KHZ → the ExecStart command list for that
 # domain's cores. Shared by the unit generator so both persist paths emit the
-# same per-core command shape.
+# same per-core command shape: `cmd; cmd` — no leading/trailing separators,
+# exactly matching SystemCollector._persistClockUnitLocal's parts.join("; ").
 unit_exec_line() {
   d=$1
   unlock=$2
@@ -159,10 +161,11 @@ unit_exec_line() {
   for c in $(cores_for "$d"); do
     base="$CPU_SYS/$c/cpufreq"
     if [ "$unlock" -eq 1 ]; then
-      cmds="$cmds cat $base/cpuinfo_max_freq > $base/max_perf;"
+      cmd="cat $base/cpuinfo_max_freq > $base/max_perf"
     else
-      cmds="$cmds echo $khz > $base/max_perf;"
+      cmd="echo $khz > $base/max_perf"
     fi
+    if [ -z "$cmds" ]; then cmds="$cmd"; else cmds="$cmds; $cmd"; fi
   done
   printf '%s' "$cmds"
 }
@@ -189,9 +192,9 @@ cpu_unit_body() {
       case "$khz" in
         ''|*[!0-9]*) continue ;;  # unreadable → omit rather than guess
       esac
-      sibling_cmds="$sibling_cmds echo $khz > $base/max_perf;"
+      if [ -z "$sibling_cmds" ]; then sibling_cmds="echo $khz > $base/max_perf"; else sibling_cmds="$sibling_cmds; echo $khz > $base/max_perf"; fi
     done
-    cmds="$cmds$sibling_cmds"
+    if [ -n "$sibling_cmds" ]; then cmds="$cmds; $sibling_cmds"; fi
   fi
   # The ExecStart list is shell syntax (redirections), so systemd must run it
   # through /bin/sh — same wrapping as the container persist path. Blank lines
