@@ -154,26 +154,6 @@ export function GpuPanel({
                 {chipLabel}
               </span>
             </div>
-            {clockLock != null && (
-              <div className="flex items-center justify-between gap-2 text-sm">
-                <span className="text-muted">Clock Cap</span>
-                <ClockCapControl
-                  sparkId={sparkId}
-                  domain="gpu"
-                  currentMHz={capMax}
-                  display={
-                    /* -lgc MIN,MAX: a 0 min means "no floor" and MIN==MAX is a
-                       single pinned value — both collapse to just the max.
-                       Show the range only when a real floor is locked. */
-                    clockLock.minMHz > 0 && clockLock.minMHz !== clockLock.maxMHz
-                      ? `${clockLock.minMHz}–${clockLock.maxMHz} MHz`
-                      : `${capMax} MHz`
-                  }
-                  enabled={Boolean(clockControlEnabled)}
-                  disabledReason="Clock control is disabled for this Spark (enable it in Edit Spark)"
-                />
-              </div>
-            )}
             <div className="flex items-baseline justify-between gap-2">
               <span className="text-[10px] uppercase tracking-wide text-muted">SM clock</span>
               <span className="font-tabular text-xs text-text">{clockCaption}</span>
@@ -186,6 +166,31 @@ export function GpuPanel({
                 }}
               />
             </div>
+            {/* Clock Cap row sits below the SM clock bar (item 5): reads
+                [Clock Cap] [Modify] [chip]. Shown when a boot lock exists OR
+                the operator opted in, so the closed state is never ambiguous —
+                an absent cap renders the "No cap set" chip (item 4). */}
+            {(clockLock != null || clockControlEnabled) && (
+              <div className="flex items-center justify-between gap-2 text-sm">
+                <span className="text-muted">Clock Cap</span>
+                <ClockCapControl
+                  sparkId={sparkId}
+                  domain="gpu"
+                  currentMHz={capMax}
+                  display={
+                    /* -lgc MIN,MAX: a 0 min means "no floor" and MIN==MAX is a
+                       single pinned value — both collapse to just the max.
+                       Show the range only when a real floor is locked. */
+                    clockLock != null && clockLock.minMHz > 0 && clockLock.minMHz !== clockLock.maxMHz
+                      ? `${clockLock.minMHz}–${clockLock.maxMHz} MHz`
+                      : undefined
+                  }
+                  chipTitle="read from the boot unit; this driver reports no live lock state"
+                  enabled={Boolean(clockControlEnabled)}
+                  disabledReason="Clock control is disabled for this Spark (enable it in Edit Spark)"
+                />
+              </div>
+            )}
           </div>
         );
       })()}

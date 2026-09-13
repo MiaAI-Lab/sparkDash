@@ -351,3 +351,157 @@ test("remove-cap persist writes each edited core's cpuinfo_max_freq and keeps th
   assert.match(cmd, /cat \/sys\/devices\/system\/cpu\/cpu0\/cpufreq\/cpuinfo_max_freq > \/sys\/devices\/system\/cpu\/cpu0\/cpufreq\/max_perf/);
   assert.match(cmd, /echo 2600000 > \/sys\/devices\/system\/cpu\/cpu5\/cpufreq\/max_perf/);
 });
+
+// ─── item 6: requested-vs-applied honesty on the apply paths ────────────────
+
+function sshStubCollector(out) {
+  const c = localCollector();
+  // Force the helper path to "succeed" with a captured stdout by intercepting
+  // the module-level sshExec via the instance-level seam the tests use.
+  c.__sshOut = out;
+  return c;
+}
+
+test("a GPU apply whose stdout shows a snapped set-to reports asked vs applied", async () => {
+  const c = localCollector();
+  // Container path: nvidia-smi answers with the driver's truth (1976) for a
+  // requested 2000 — the response must carry BOTH and flag snapped.
+  const cmds = [];
+  c._exec = async (cmd) => {
+    cmds.push(cmd);
+    return "GPU clocks set to (0, 1976)";
+  };
+  const res = await c._applyClockCapLocal("gpu", 2000, false, [], null, 2000);
+  assert.equal(res.ok, true);
+  assert.equal(res.requestedMHz, 2000);
+  assert.equal(res.appliedMHz, 1976);
+  assert.equal(res.snapped, true);
+  assert.ok(res.warnings.some((w) => /accepted 1976 MHz for a request of 2000/.test(w)));
+  // D5 override records the APPLIED value, never the requested one.
+  assert.equal(c._clockCapsOverride.gpu, 1976);
+});
+
+test("a GPU apply the driver echoed verbatim is not flagged as snapped", async () => {
+  const c = localCollector();
+  c._exec = async () => "GPU clocks set to (0, 2200)";
+  const res = await c._applyClockCapLocal("gpu", 2200, false, [], null, 2200);
+  assert.equal(res.appliedMHz, 2200);
+  assert.equal(res.snapped, false);
+  assert.ok(!res.warnings.some((w) => /accepted .* for a request/.test(w)));
+});
+
+test("a GPU apply with no confirmation line reports the request WITH an explicit warning", async () => {
+  const c = localCollector();
+  // Silence must never be rendered as a confirmation (amendment: the UI must
+  // never report a value that was not actually written).
+  c._exec = async () => "All done.";
+  const res = await c._applyClockCapLocal("gpu", 2200, false, [], null, 2200);
+  assert.equal(res.appliedMHz, 2200);
+  assert.equal(res.snapped, false);
+  assert.ok(
+    res.warnings.some((w) => /could not be read back from the hardware/.test(w)),
+    `expected a verification warning, got ${JSON.stringify(res.warnings)}`
+  );
+});
+
+test("a CPU apply reads back sysfs: a clamped max_perf reports the observed value", async () => {
+  const c = localCollector();
+  c._cpuDomainCores = () => ["cpu5", "cpu6"];
+  const fsMod = await import("node:fs");
+  const origWrite = fsMod.default.writeFileSync;
+  const origRead = c._readSysFile.bind(c);
+  // The driver clamps our 2000000 request down to its 1976000 table entry.
+  const written = new Map();
+  fsMod.default.writeFileSync = (p, data) => written.set(String(p), String(data));
+  c._readSysFile = (p) =>
+    /max_perf/.test(p) ? "1976000\n" : origRead(p);
+  try {
+    const res = await c._applyClockCapLocal("cpu-little", 2000, false, [], null, 2000);
+    assert.equal(res.ok, true);
+    assert.equal(res.requestedMHz, 2000);
+    assert.equal(res.appliedMHz, 1976);
+    assert.equal(res.snapped, true);
+    assert.equal(written.get("/sys/devices/system/cpu/cpu5/cpufreq/max_perf"), "2000000\n");
+    assert.ok(res.warnings.some((w) => /accepted 1976 MHz for a request of 2000/.test(w)));
+    assert.equal(c._clockCapsOverride["cpu-little"], 1976);
+  } finally {
+    fsMod.default.writeFileSync = origWrite;
+  }
+});
+
+test("a CPU apply whose read-back matches the request is not flagged", async () => {
+  const c = localCollector();
+  c._cpuDomainCores = () => ["cpu0"];
+  const fsMod = await import("node:fs");
+  const origWrite = fsMod.default.writeFileSync;
+  fsMod.default.writeFileSync = () => {};
+  try {
+    c._readSysFile = (p) => (/max_perf/.test(p) ? "2808000\n" : null);
+    const res = await c._applyClockCapLocal("cpu-big", 2808, false, [], null, 2808);
+    assert.equal(res.appliedMHz, 2808);
+    assert.equal(res.snapped, false);
+    assert.ok(!res.warnings.some((w) => /read back/.test(w)));
+  } finally {
+    fsMod.default.writeFileSync = origWrite;
+  }
+});
+
+test("_verifyAppliedClockCap prefers the driver's confirmation over any read", async () => {
+  const c = localCollector();
+  c._cpuDomainCores = () => ["cpu0"];
+  c._readSysFile = () => "9999000\n"; // a read-back that must LOSE to stdout
+  assert.equal(await c._verifyAppliedClockCap("cpu-big", "GPU clocks set to (0, 1976)"), 1976);
+  // GPU without a confirmation line has NO trustworthy source on this driver
+  // (there is no Locked Clocks section; the unit file is desired state): null.
+  c.spark = { id: "t", kind: "spark", isLocal: true };
+  assert.equal(await c._verifyAppliedClockCap("gpu", "All done."), null);
+  // A remote unit has no sysfs view at all — must not read local files.
+  const r = new SystemCollector({ id: "r", kind: "spark", isLocal: false });
+  r._cpuDomainCores = () => ["cpu0"];
+  assert.equal(await r._verifyAppliedClockCap("cpu-big", "no confirmation here"), null);
+});
+
+test("the helper-path response carries the additive honesty fields (backward compatible)", async () => {
+  const c = localCollector();
+  // Drive the helper's stdout through the class SSH seam (the module-level
+  // sshExec binding is read-only ESM and cannot be monkey-patched).
+  c._sshExec = async () => "GPU clocks set to (0, 1976)\nAll done.";
+  const res = await c.applyClockCap(
+    { domain: "gpu", maxMHz: 2000, persist: false },
+    { hardMinMHz: 0, hardMaxMHz: 3003 }
+  );
+  assert.equal(res.ok, true);
+  assert.equal(res.source, "helper");
+  assert.equal(res.requestedMHz, 2000);
+  assert.equal(res.appliedMHz, 1976, "the driver said 1976 — that is what must be reported");
+  assert.equal(res.snapped, true);
+  // Additive only: every pre-existing field keeps its meaning.
+  assert.equal(typeof res.persisted, "boolean");
+  assert.equal(res.bootUnit, null);
+  assert.ok(Array.isArray(res.warnings));
+  assert.ok(res.warnings.some((w) => /accepted 1976 MHz for a request of 2000/.test(w)));
+  // D5 override records what the driver confirmed, not what was requested.
+  assert.equal(c._clockCapsOverride.gpu, 1976);
+});
+
+test("clamping happens BEFORE the request is echoed back (requestedMHz = post-clamp)", async () => {
+  const c = localCollector();
+  c._cpuDomainCores = () => ["cpu0"];
+  const fsMod = await import("node:fs");
+  const origWrite = fsMod.default.writeFileSync;
+  fsMod.default.writeFileSync = () => {};
+  try {
+    c._readSysFile = (p) => (/max_perf/.test(p) ? "2808000\n" : null);
+    const res = await c.applyClockCap(
+      { domain: "cpu-big", maxMHz: 9999, persist: false },
+      { hardMinMHz: 338, hardMaxMHz: 2808 }
+    );
+    // The clamp is part of the request the hardware was asked for.
+    assert.equal(res.requestedMHz, 9999, "requestedMHz reports what the operator asked");
+    assert.equal(res.appliedMHz, 2808, "the server clamped to the hardware ceiling");
+    assert.equal(res.snapped, true);
+    assert.ok(res.warnings.some((w) => /clamped/.test(w)));
+  } finally {
+    fsMod.default.writeFileSync = origWrite;
+  }
+});
