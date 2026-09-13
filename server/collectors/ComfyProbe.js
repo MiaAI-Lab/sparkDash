@@ -241,6 +241,8 @@ export class ComfyProbe {
     this._modelsCache = null;
     /** @type {{ lastJob: object | null, durationsMs: number[], fetchedAt: number } | null} */
     this._historyCache = null;
+    /** Peak VRAM bytes while a job is running. Reset when idle. */
+    this._vramPeak = 0;
   }
 
   setTarget(spark, port) {
@@ -337,6 +339,14 @@ export class ComfyProbe {
         devicesRaw[0] && typeof devicesRaw[0] === "object" && devicesRaw[0].type != null
           ? String(devicesRaw[0].type)
           : null;
+      const firstDev = devicesRaw[0] && typeof devicesRaw[0] === "object" ? devicesRaw[0] : {};
+      const vramTotal = numOrNull(firstDev.vram_total ?? firstDev.vramTotal);
+      const vramUsed = numOrNull(firstDev.vram_used ?? firstDev.vramUsed);
+      if (busy && vramUsed != null) {
+        this._vramPeak = Math.max(this._vramPeak || 0, vramUsed);
+      } else if (!busy) {
+        this._vramPeak = 0;
+      }
 
       let progress = this._progress.getProgress();
       // Time-based estimate when no live WS progress
@@ -371,6 +381,9 @@ export class ComfyProbe {
         version: system.comfyui_version != null ? String(system.comfyui_version) : null,
         pytorchVersion: system.pytorch_version != null ? String(system.pytorch_version) : null,
         deviceType,
+        vramUsed,
+        vramTotal,
+        vramPeak: busy ? this._vramPeak || vramUsed : null,
         queueRunning: runningJobs.length,
         queuePending: pendingJobs.length,
         activeJob: cleanJob(activeJob),
@@ -535,6 +548,9 @@ export class ComfyProbe {
       version: null,
       pytorchVersion: null,
       deviceType: null,
+      vramUsed: null,
+      vramTotal: null,
+      vramPeak: null,
       queueRunning: 0,
       queuePending: 0,
       activeJob: null,
