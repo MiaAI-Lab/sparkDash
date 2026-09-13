@@ -5,8 +5,11 @@ import {
   clampClockCap,
   buildClockCapDomains,
   buildClockHelperArgv,
+  expandCpuToken,
   interpretHelperExit,
   parseCpuClockBounds,
+  parseCpuCoreMaxKhz,
+  parseCpuBootUnitDefaults,
   parseDefaultApplicationsGraphicsClock,
   validateClockCapRequest,
 } from "../clockControl.js";
@@ -23,7 +26,7 @@ const CPU_DUMP_BOUNDS = [
   "cpu5:1378000:3900000",
   "cpu6:1378000:3900000",
   "cpu9:1378000:3900000",
-  "cpu10:1378000:3900000",
+  "cpu10:338000:2808000",
   "cpu15:1378000:3900000",
   "cpu19:1378000:3900000",
 ].join("\n");
@@ -253,4 +256,78 @@ test("buildClockCapDomains reports unwritable with a reason when the helper is m
     assert.equal(d.writable, false);
     assert.match(d.reason, /helper not installed/);
   }
+});
+
+// ─── D7: boot-default presets, parsed from the real boot units ─────────────
+
+test("expandCpuToken expands systemd brace ranges and passes single cores", () => {
+  assert.deepEqual(expandCpuToken("cpu5"), ["cpu5"]);
+  assert.deepEqual(expandCpuToken("cpu{5..9,15..19}"), [
+    "cpu5",
+    "cpu6",
+    "cpu7",
+    "cpu8",
+    "cpu9",
+    "cpu15",
+    "cpu16",
+    "cpu17",
+    "cpu18",
+    "cpu19",
+  ]);
+  assert.deepEqual(expandCpuToken("cpu{0..4,10..14}").length, 10);
+  assert.deepEqual(expandCpuToken("garbage"), []);
+  assert.deepEqual(expandCpuToken("cpu{20..5}"), []); // inverted range
+  assert.deepEqual(expandCpuToken("cpu{0..99999}"), []); // absurd range rejected
+});
+
+test("parseCpuBootUnitDefaults maps the measured boot unit onto the discovered domains", () => {
+  // The unit actually installed on spark-1 (brace ranges, kHz values).
+  const unit = [
+    "ExecStart=/bin/sh -c ' echo 2600000 > /sys/devices/system/cpu/cpu{5..9,15..19}/cpufreq/max_perf; echo 2808000 > /sys/devices/system/cpu/cpu{0..4,10..14}/cpufreq/max_perf'",
+  ].join("\n");
+  const defaults = parseCpuBootUnitDefaults(unit, parseCpuCoreMaxKhz(CPU_DUMP_BOUNDS));
+  // Domain ids follow the existing convention (≥3 MHz group = cpu-big): the
+  // 3900000 kHz cores (cpu5+) are cpu-big, the 2808000 kHz cores cpu-little.
+  assert.equal(defaults["cpu-big"], 2600);
+  assert.equal(defaults["cpu-little"], 2808);
+});
+
+test("parseCpuBootUnitDefaults also handles explicit per-core echoes and skips unknown cores", () => {
+  const unit = [
+    "ExecStart=/bin/sh -c 'echo 2600000 > /sys/devices/system/cpu/cpu5/cpufreq/max_perf; echo 2808000 > /sys/devices/system/cpu/cpu0/cpufreq/max_perf; echo 9999000 > /sys/devices/system/cpu/cpu42/cpufreq/max_perf'",
+  ].join("\n");
+  const defaults = parseCpuBootUnitDefaults(unit, parseCpuCoreMaxKhz(CPU_DUMP_BOUNDS));
+  // cpu42 is not in the discovered map → skipped, not guessed.
+  assert.deepEqual(defaults, { "cpu-big": 2600, "cpu-little": 2808 });
+});
+
+test("buildClockCapDomains exposes Boot default presets from the parsed units", () => {
+  const domains = buildClockCapDomains({
+    cpuDomains: [
+      { label: "X925", capMHz: 2808, maxMHz: 3900, capped: true },
+      { label: "A725", capMHz: 2600, maxMHz: 2808, capped: true },
+    ],
+    gpuLock: { minMHz: 0, maxMHz: 2200 },
+    cpuBounds: parseCpuClockBounds(CPU_DUMP_BOUNDS),
+    gpuCeilingMHz: 3003,
+    helperAvailable: true,
+    helperChecked: true,
+    cpuBootDefaults: { "cpu-big": 2808, "cpu-little": 2600 },
+    gpuBootDefaultMHz: 2200,
+  });
+  const big = domains.find((d) => d.id === "cpu-big");
+  assert.deepEqual(big.presets, [
+    { label: "Boot default", value: 2808 },
+    { label: "No cap", value: 3900 },
+  ]);
+  const little = domains.find((d) => d.id === "cpu-little");
+  assert.deepEqual(little.presets, [
+    { label: "Boot default", value: 2600 },
+    { label: "No cap", value: 2808 },
+  ]);
+  const gpu = domains.find((d) => d.id === "gpu");
+  assert.deepEqual(gpu.presets, [
+    { label: "Boot default", value: 2200 },
+    { label: "No cap", value: null },
+  ]);
 });

@@ -195,6 +195,78 @@ export function interpretHelperExit(err) {
 }
 
 /**
+ * Parse a `cpuN:cpuinfo_min_freq:cpuinfo_max_freq` bounds dump into a
+ * core → maxKhz map (the domain membership key: cores are grouped by their
+ * cpuinfo_max_freq, never by hardcoded indices).
+ * @param {string} raw
+ * @returns {Map<string, number>}
+ */
+export function parseCpuCoreMaxKhz(raw) {
+  const byCore = new Map();
+  for (const line of String(raw ?? "").split("\n")) {
+    const m = line.trim().match(/^cpu(\d+):(\d+):(\d+)$/);
+    if (!m) continue;
+    const maxKhz = Number(m[3]);
+    if (!Number.isFinite(maxKhz) || maxKhz <= 0) continue;
+    byCore.set(`cpu${m[1]}`, maxKhz);
+  }
+  return byCore;
+}
+
+/**
+ * Expand a sysfs cpu token from a systemd unit ExecStart: `cpu5` → [cpu5],
+ * `cpu{5..9,15..19}` → [cpu5..cpu9, cpu15..cpu19]. Returns [] for anything
+ * unparsable (we never guess core identities).
+ * @param {string} token
+ * @returns {string[]}
+ */
+export function expandCpuToken(token) {
+  const m = String(token ?? "").match(/^cpu\{(.+)\}$/);
+  if (!m) return /^cpu\d+$/.test(String(token ?? "")) ? [String(token)] : [];
+  const out = [];
+  for (const part of m[1].split(",")) {
+    const range = part.match(/^(\d+)\.\.(\d+)$/);
+    if (range) {
+      const lo = Number(range[1]);
+      const hi = Number(range[2]);
+      if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi < lo || hi - lo > 1024) continue;
+      for (let i = lo; i <= hi; i++) out.push(`cpu${i}`);
+    } else if (/^\d+$/.test(part)) {
+      out.push(`cpu${part}`);
+    }
+  }
+  return out;
+}
+
+/**
+ * Parse the CPU boot unit (cpu-clock-cap.service) ExecStart into per-domain
+ * boot-default MHz values — the "Boot defaults" preset of D7, derived from
+ * what the unit actually installs (never hardcoded). Handles both explicit
+ * per-core echoes and systemd brace-range forms. A core whose cpuinfo_max_freq
+ * is unknown is skipped. Values are kHz in the unit → MHz out.
+ * @param {string} raw unit file text
+ * @param {Map<string, number>} coreMaxKhz core → cpuinfo_max_freq (kHz)
+ * @returns {{ 'cpu-big'?: number, 'cpu-little'?: number }}
+ */
+export function parseCpuBootUnitDefaults(raw, coreMaxKhz) {
+  const out = {};
+  const text = String(raw ?? "");
+  const re = /echo\s+(\d+)\s*>\s*\/sys\/devices\/system\/cpu\/([^\s/]+)\/cpufreq\/max_perf/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const khz = Number(m[1]);
+    if (!Number.isFinite(khz) || khz <= 0) continue;
+    for (const cpuN of expandCpuToken(m[2])) {
+      const maxKhz = coreMaxKhz?.get(cpuN);
+      if (!maxKhz) continue;
+      const id = maxKhz >= 3_000_000 ? "cpu-big" : "cpu-little";
+      out[id] = Math.round(khz / 1000);
+    }
+  }
+  return out;
+}
+
+/**
  * Map a live read (cpuDomains + gpuLock from _getClockCaps) plus discovered
  * bounds into the client-facing ClockCapDomain list (D1). `writable` mirrors
  * the apply paths: local units are writable via the container root path;
@@ -209,9 +281,12 @@ export function buildClockCapDomains({
   gpuCeilingMHz,
   helperAvailable,
   helperChecked,
+  cpuBootDefaults,
+  gpuBootDefaultMHz,
 }) {
   const out = [];
   const helperUp = helperChecked ? Boolean(helperAvailable) : false;
+  const bootDefaults = cpuBootDefaults || {};
 
   // CPU domains — big first (sorted max desc by both parsers).
   const bounds = Array.isArray(cpuBounds) ? cpuBounds : [];
@@ -223,6 +298,11 @@ export function buildClockCapDomains({
     // fall back to the bounds identity so the row still renders honestly.
     const capMHz = live && live.maxMHz === Math.round(b.maxKhz / 1000) ? live.capMHz : null;
     const id = b.maxKhz >= 3_000_000 ? "cpu-big" : "cpu-little";
+    // D7 presets: Boot default (what the boot unit installs, when readable)
+    // and No cap (= this domain's hardware maximum).
+    const presets = [];
+    if (bootDefaults[id] != null) presets.push({ label: "Boot default", value: bootDefaults[id] });
+    presets.push({ label: "No cap", value: Math.round(b.maxKhz / 1000) });
     out.push({
       id,
       label: CLOCK_DOMAIN_LABELS[id],
@@ -230,9 +310,7 @@ export function buildClockCapDomains({
       hardMinMHz: Math.round(b.minKhz / 1000),
       hardMaxMHz: Math.round(b.maxKhz / 1000),
       stepMHz: 25,
-      presets: [
-        { label: "No cap", value: Math.round(b.maxKhz / 1000) },
-      ],
+      presets,
       unitPath: "/etc/systemd/system/cpu-clock-cap.service",
       writable: helperUp,
       reason: helperUp ? undefined : "clock helper not installed on the host",
@@ -241,6 +319,9 @@ export function buildClockCapDomains({
 
   // GPU domain.
   if (gpuCeilingMHz != null) {
+    const presets = [];
+    if (gpuBootDefaultMHz != null) presets.push({ label: "Boot default", value: gpuBootDefaultMHz });
+    presets.push({ label: "No cap", value: null });
     out.push({
       id: "gpu",
       label: CLOCK_DOMAIN_LABELS.gpu,
@@ -248,7 +329,7 @@ export function buildClockCapDomains({
       hardMinMHz: 0,
       hardMaxMHz: gpuCeilingMHz,
       stepMHz: 25,
-      presets: [{ label: "No cap", value: null }],
+      presets,
       unitPath: "/etc/systemd/system/gpu-clock-lock.service",
       writable: helperUp,
       reason: helperUp ? undefined : "clock helper not installed on the host",

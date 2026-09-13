@@ -124,13 +124,15 @@ test("_getClockBounds falls back to GPU_CLOCK_MAX_MHZ with source=fallback on un
   assert.equal(b.gpuCeilingMHz, 3003); // documented default
 });
 
-test("remote bounds command dumps min/max freqs then -q -d CLOCK", () => {
+test("remote bounds command dumps min/max freqs, -q -d CLOCK, then both boot units", () => {
   const c = new SystemCollector({ id: "t", kind: "spark", isLocal: false });
   const cmd = c._buildRemoteClockBoundsCommand();
   assert.match(cmd, /cpuinfo_min_freq/);
   assert.match(cmd, /cpuinfo_max_freq/);
   assert.match(cmd, /nvidia-smi -q -d CLOCK/);
-  assert.equal((cmd.match(/echo '---'/g) || []).length, 1);
+  assert.match(cmd, /cpu-clock-cap\.service/);
+  assert.match(cmd, /gpu-clock-lock\.service/);
+  assert.equal((cmd.match(/echo '---'/g) || []).length, 3);
 });
 
 // ─── D4: apply paths ──────────────────────────────────────
