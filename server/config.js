@@ -32,6 +32,13 @@ const GPU_CLOCK_LOCK_UNIT =
   process.env.GPU_CLOCK_LOCK_UNIT || "/etc/systemd/system/gpu-clock-lock.service";
 
 /**
+ * Boot unit that persists the CPU clock caps (both domains share it).
+ * Overridable for non-standard installs, mirroring GPU_CLOCK_LOCK_UNIT.
+ */
+const CPU_CLOCK_CAP_UNIT =
+  process.env.CPU_CLOCK_CAP_UNIT || "/etc/systemd/system/cpu-clock-cap.service";
+
+/**
  * Privileged host helper that applies + persists clock caps (installed by
  * scripts/install-clock-helper.sh). Invoked over SSH with passwordless sudo
  * (scoped sudoers drop-in); see the Clock control section in README.md.
@@ -132,6 +139,7 @@ export {
   SPARKS_JSON_PATH,
   GPU_MEMORY_JSON_PATH,
   GPU_CLOCK_LOCK_UNIT,
+  CPU_CLOCK_CAP_UNIT,
   SPARKDASH_CLOCK_BIN,
   GPU_CLOCK_MAX_MHZ,
   SPARKS_SECRETS_PATH,
