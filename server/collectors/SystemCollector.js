@@ -32,6 +32,13 @@ export class SystemCollector {
 
     // Cached hardware info
     this._hardwareInfo = null;
+
+    // TTL caches for the local collection path (observer-cost trims):
+    // topology that does not change on a 2s cadence is re-resolved lazily.
+    /** { at, map } — `ip -4 addr show` output, 30s TTL */
+    this._ipMapCache = null;
+    /** { at, iface } — default-route interface, 30s TTL */
+    this._defaultIfaceCache = null;
   }
 
   /** Collect GPU metrics (temperature, usage, power, VRAM). */
@@ -471,11 +478,10 @@ export class SystemCollector {
    *      These report package/core junction temps. We take the HOTTEST input
    *      (thermal margin matters more than averaging).
    *   2. Fallback to a generic CPU-compatible zone. GB10/DGX Spark (ARM) has
-   *      no coretemp/k10temp — only an `acpitz` board/case zone, which is NOT a
-   *      CPU temp. To avoid reporting a misleading "CPU temp", acpitz is only
-   *      used as a last-resort and the hottest zone is selected (previously we
-   *      blindly took the first `temp*_input`, which on GB10 was the hottest
-   *      board zone — the source of the "84°C CPU" reports).
+   *      no coretemp/k10temp; the value read is an acpitz board/case zone — a
+   *      genuine SoC/board temperature, not a CPU core temp. We still report
+   *      it so the panel can label it honestly ("SoC temp") instead of hiding
+   *      it.
    *
    * @returns {Promise<number>} degrees Celsius, or 0 when no usable sensor.
    */
@@ -792,8 +798,17 @@ export class SystemCollector {
     return interfaces;
   }
 
-  /** Build a map of interface name → IPv4 address from `ip -4 addr show` in the host netns. */
+  /**
+   * Map of interface name → IPv4 address. Address topology changes on the
+   * scale of minutes, not poll ticks — cached for 30s to avoid a
+   * `nsenter sh -c ip -4 addr show` fork every 2s. An empty map is never
+   * cached, so a transient failure retries on the next tick.
+   */
   async _getInterfaceIpMap() {
+    const now = Date.now();
+    if (this._ipMapCache && this._ipMapCache.map.size > 0 && now - this._ipMapCache.at < 30_000) {
+      return this._ipMapCache.map;
+    }
     const map = new Map();
     try {
       const output = await this._execOnHostNet("ip -4 addr show 2>/dev/null");
@@ -814,6 +829,7 @@ export class SystemCollector {
     } catch {
       // IP collection is optional
     }
+    this._ipMapCache = { at: now, map };
     return map;
   }
 
@@ -871,29 +887,44 @@ export class SystemCollector {
     return /^(lo|docker|br-|veth|virbr|zt|tun|wg|tailscale)/.test(name);
   }
 
+  /**
+   * Default-route interface. Cached 30s (VPN/metric re-fleetes settle within
+   * a poll or two); the route file costs an `nsenter --net cat` fork per
+   * read, and the answer is static in practice. Null is not cached.
+   */
   async _getDefaultNetworkInterface() {
+    const now = Date.now();
+    if (this._defaultIfaceCache && now - this._defaultIfaceCache.at < 30_000) {
+      return this._defaultIfaceCache.iface;
+    }
+    let iface = null;
     try {
       const raw = await this._readHostNetFile("route");
       const lines = raw.split("\n");
       for (const line of lines) {
         const parts = line.trim().split(/\s+/);
         if (parts.length >= 11 && parts[1] === "00000000" && (parseInt(parts[3], 16) & 1)) {
-          return parts[0];
+          iface = parts[0];
+          break;
         }
       }
     } catch {}
-    // Fallback: first non-virtual
-    try {
-      const raw = await this._readHostNetFile("dev");
-      const lines = raw.split("\n").slice(2);
-      for (const line of lines) {
-        const parts = line.trim().split(/[\s:]+/);
-        if (parts.length >= 1 && !this._isVirtualNetworkInterface(parts[0])) {
-          return parts[0];
+    if (!iface) {
+      // Fallback: first non-virtual
+      try {
+        const raw = await this._readHostNetFile("dev");
+        const lines = raw.split("\n").slice(2);
+        for (const line of lines) {
+          const parts = line.trim().split(/[\s:]+/);
+          if (parts.length >= 1 && !this._isVirtualNetworkInterface(parts[0])) {
+            iface = parts[0];
+            break;
+          }
         }
-      }
-    } catch {}
-    return null;
+      } catch {}
+    }
+    if (iface) this._defaultIfaceCache = { at: now, iface };
+    return iface;
   }
 
   async _getNetworkLinkSpeedMbps(iface) {
@@ -964,83 +995,100 @@ export class SystemCollector {
   }
 
   // ─── Remote collection via SSH ────────────────────────────
+  /*
+   * Bundle design: every fast domain (gpu/cpu/ram/network/unified memory)
+   * used to issue its own sshExec — a separate SSH round-trip per domain per
+   * poll cycle. `collectRemoteBundle()` runs the SAME commands on the target
+   * in one exec, separated by a token that cannot occur in metric output;
+   * each section is then fed to the unchanged per-domain parser. The
+   * standalone `_getRemote*` methods remain for single-domain refreshes and
+   * tests.
+   */
+  static BUNDLE_SEP = "###SPARKDASH-BUNDLE###";
+
+  _buildRemoteGpuCommand() {
+    return [
+      "nvidia-smi --query-gpu=temperature.gpu,utilization.gpu,power.draw,power.limit,clocks.current.sm,clocks.max.sm,clocks_throttle_reasons.hw_thermal_slowdown,clocks_throttle_reasons.sw_thermal_slowdown,clocks_throttle_reasons.hw_slowdown,clocks_throttle_reasons.sw_power_cap --format=csv,noheader,nounits 2>/dev/null",
+      "echo '---'",
+      "nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader,nounits 2>/dev/null",
+      "echo '---'",
+      "nvidia-smi --query-compute-apps=pid,process_name,used_gpu_memory --format=csv,noheader,nounits 2>/dev/null",
+      "echo '---'",
+      "grep -E 'MemTotal|MemAvailable' /proc/meminfo 2>/dev/null",
+    ].join("; ");
+  }
+
+  _parseRemoteGpu(output) {
+    const sections = String(output).split("---");
+    const gpuOut = sections[0]?.trim() || "";
+    const memFields = sections[1]?.trim() || "";
+    const computeOut = sections[2]?.trim() || "";
+    const meminfoOut = sections[3]?.trim() || "";
+
+    const gpu = this._parseGpuLine(gpuOut);
+
+    // Parse memory.used / memory.total from nvidia-smi (may be [N/A] on GB10)
+    let used = null;
+    let total = null;
+    const memLine = memFields.split("\n").filter(Boolean)[0] || "";
+    const memParts = memLine.split(",").map((s) => s.trim());
+    used = this._parseSmiNumber(memParts[0]);
+    total = this._parseSmiNumber(memParts[1]);
+
+    const apps = this._parseComputeApps(computeOut);
+    this.nvidiaComputeAppsCache.clear();
+    let computeSum = 0;
+    for (const app of apps) {
+      this.nvidiaComputeAppsCache.set(app.pid, { name: app.name, vramMB: app.vramMB });
+      computeSum += app.vramMB;
+    }
+    if ((used == null || used === 0) && computeSum > 0) used = computeSum;
+
+    // Unified-memory pool: prefer MemTotal (OS-visible) so VRAM and Unified
+    // Memory panels share the same base. Available = MemAvailable (real free).
+    const totalMatch = meminfoOut.match(/MemTotal:\s+(\d+)\s+kB/);
+    const availMatch = meminfoOut.match(/MemAvailable:\s+(\d+)\s+kB/);
+    const memTotalMB = totalMatch ? Math.round(parseInt(totalMatch[1]) / 1024) : 0;
+    let availableMB = availMatch ? Math.round(parseInt(availMatch[1]) / 1024) : 0;
+
+    const usedMB = Math.round(used || 0);
+    let totalMB = Math.round(total || 0);
+    if (this.spark.kind === "host") {
+      // Discrete GPU VRAM: trust nvidia-smi's memory.total; free VRAM = total − used.
+      if (totalMB <= 0 && memTotalMB > 0) totalMB = memTotalMB;
+      else if (totalMB <= 0) totalMB = DGX_SPARK.MEMORY_HBM_SIZE_GB * 1024; // Convert to MB
+      if (totalMB > 0 && usedMB > 0) availableMB = Math.max(0, totalMB - usedMB);
+    } else {
+      // GB10 shared HBM pool: prefer the OS-visible pool (MemTotal) as the total,
+      // fall back to nvidia-smi, then the hardware spec (HBM) only if nothing known.
+      if (memTotalMB > 0) totalMB = memTotalMB;
+      else if (totalMB <= 0) totalMB = DGX_SPARK.MEMORY_HBM_SIZE_GB * 1024; // Convert to MB
+    }
+    const percentage = totalMB > 0 ? Math.round((usedMB / totalMB) * 100) : 0;
+
+    // Rough system power estimate: GPU draw + 20W CX7/peripherals
+    const systemDraw = Math.round(gpu.powerDraw + 20);
+
+    // Top 5 GPU processes by VRAM usage
+    const processes = Array.from(this.nvidiaComputeAppsCache.entries())
+      .map(([pid, info]) => ({ pid, name: info.name, vramMB: info.vramMB }))
+      .sort((a, b) => b.vramMB - a.vramMB)
+      .slice(0, 5);
+
+    return {
+      temperature: gpu.temperature,
+      usage: gpu.usage,
+      power: { draw: gpu.powerDraw, limit: gpu.powerLimit, systemDraw },
+      vram: { used: usedMB, total: totalMB, percentage, available: availableMB },
+      processes,
+      throttle: gpu.throttle,
+    };
+  }
+
   async _getRemoteGpu() {
     try {
-      const cmd = [
-        "nvidia-smi --query-gpu=temperature.gpu,utilization.gpu,power.draw,power.limit,clocks.current.sm,clocks.max.sm,clocks_throttle_reasons.hw_thermal_slowdown,clocks_throttle_reasons.sw_thermal_slowdown,clocks_throttle_reasons.hw_slowdown,clocks_throttle_reasons.sw_power_cap --format=csv,noheader,nounits 2>/dev/null",
-        "echo '---'",
-        "nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader,nounits 2>/dev/null",
-        "echo '---'",
-        "nvidia-smi --query-compute-apps=pid,process_name,used_gpu_memory --format=csv,noheader,nounits 2>/dev/null",
-        "echo '---'",
-        "grep -E 'MemTotal|MemAvailable' /proc/meminfo 2>/dev/null",
-      ].join("; ");
-
-      const output = await sshExec(this.spark, cmd);
-      const sections = output.split("---");
-      const gpuOut = sections[0]?.trim() || "";
-      const memFields = sections[1]?.trim() || "";
-      const computeOut = sections[2]?.trim() || "";
-      const meminfoOut = sections[3]?.trim() || "";
-
-      const gpu = this._parseGpuLine(gpuOut);
-
-      // Parse memory.used / memory.total from nvidia-smi (may be [N/A] on GB10)
-      let used = null;
-      let total = null;
-      const memLine = memFields.split("\n").filter(Boolean)[0] || "";
-      const memParts = memLine.split(",").map((s) => s.trim());
-      used = this._parseSmiNumber(memParts[0]);
-      total = this._parseSmiNumber(memParts[1]);
-
-      const apps = this._parseComputeApps(computeOut);
-      this.nvidiaComputeAppsCache.clear();
-      let computeSum = 0;
-      for (const app of apps) {
-        this.nvidiaComputeAppsCache.set(app.pid, { name: app.name, vramMB: app.vramMB });
-        computeSum += app.vramMB;
-      }
-      if ((used == null || used === 0) && computeSum > 0) used = computeSum;
-
-      // Unified-memory pool: prefer MemTotal (OS-visible) so VRAM and Unified
-      // Memory panels share the same base. Available = MemAvailable (real free).
-      const totalMatch = meminfoOut.match(/MemTotal:\s+(\d+)\s+kB/);
-      const availMatch = meminfoOut.match(/MemAvailable:\s+(\d+)\s+kB/);
-      const memTotalMB = totalMatch ? Math.round(parseInt(totalMatch[1]) / 1024) : 0;
-      let availableMB = availMatch ? Math.round(parseInt(availMatch[1]) / 1024) : 0;
-
-      const usedMB = Math.round(used || 0);
-      let totalMB = Math.round(total || 0);
-      if (this.spark.kind === "host") {
-        // Discrete GPU VRAM: trust nvidia-smi's memory.total; free VRAM = total − used.
-        if (totalMB <= 0 && memTotalMB > 0) totalMB = memTotalMB;
-        else if (totalMB <= 0) totalMB = DGX_SPARK.MEMORY_HBM_SIZE_GB * 1024; // Convert to MB
-        if (totalMB > 0 && usedMB > 0) availableMB = Math.max(0, totalMB - usedMB);
-      } else {
-        // GB10 shared HBM pool: prefer the OS-visible pool (MemTotal) as the total,
-        // fall back to nvidia-smi, then the hardware spec (HBM) only if nothing known.
-        if (memTotalMB > 0) totalMB = memTotalMB;
-        else if (totalMB <= 0) totalMB = DGX_SPARK.MEMORY_HBM_SIZE_GB * 1024; // Convert to MB
-      }
-      const percentage = totalMB > 0 ? Math.round((usedMB / totalMB) * 100) : 0;
-
-      // Rough system power estimate: GPU draw + 20W CX7/peripherals
-      const systemDraw = Math.round(gpu.powerDraw + 20);
-
-      // Top 5 GPU processes by VRAM usage
-      const processes = Array.from(this.nvidiaComputeAppsCache.entries())
-        .map(([pid, info]) => ({ pid, name: info.name, vramMB: info.vramMB }))
-        .sort((a, b) => b.vramMB - a.vramMB)
-        .slice(0, 5);
-
-      return {
-        temperature: gpu.temperature,
-        usage: gpu.usage,
-        power: { draw: gpu.powerDraw, limit: gpu.powerLimit, systemDraw },
-        vram: { used: usedMB, total: totalMB, percentage, available: availableMB },
-        processes,
-        throttle: gpu.throttle,
-      };
+      const output = await sshExec(this.spark, this._buildRemoteGpuCommand());
+      return this._parseRemoteGpu(output);
     } catch (err) {
       console.error(`[SystemCollector] Remote GPU error for ${this.spark.id}:`, err.message);
       return this._defaultGpu();
@@ -1065,34 +1113,36 @@ export class SystemCollector {
     ].join("; ");
   }
 
+  _parseRemoteCpu(output) {
+    const sections = String(output).split("---");
+    const statOut = sections[0]?.trim() || "";
+    const cpuinfoOut = sections[1]?.trim() || "";
+    const tempOut = sections[2] || "";
+
+    const cpuStat = this._parseCPUUsage(statOut);
+    const totalDiff = cpuStat.total - (this.lastCpuStat?.total || cpuStat.total);
+    const usedDiff = cpuStat.used - (this.lastCpuStat?.used || cpuStat.used);
+    const usage = totalDiff > 0 ? Math.round((usedDiff / totalDiff) * 100) : 0;
+    this.lastCpuStat = cpuStat;
+
+    // ARM/Neoverse power estimation
+    const isArm = /CPU architecture:\s*[89]|aarch64|ARMv[89]|armv[89]/i.test(cpuinfoOut);
+    const tdp = isArm ? 65 : 185;
+    const idleWatts = tdp * 0.08;
+    const draw = idleWatts + (tdp - idleWatts) * Math.min(usage / 100, 1);
+
+    return {
+      usage,
+      temperature: this._parseSensorTemp(tempOut),
+      draw: Math.round(draw * 10) / 10,
+      tdp: Math.round(tdp),
+    };
+  }
+
   async _getRemoteCpu(sshExecutor = sshExec) {
     try {
-      const cmd = this._buildRemoteCpuCommand();
-
-      const output = await sshExecutor(this.spark, cmd);
-      const sections = output.split("---");
-      const statOut = sections[0]?.trim() || "";
-      const cpuinfoOut = sections[1]?.trim() || "";
-      const tempOut = sections[2] || "";
-
-      const cpuStat = this._parseCPUUsage(statOut);
-      const totalDiff = cpuStat.total - (this.lastCpuStat?.total || cpuStat.total);
-      const usedDiff = cpuStat.used - (this.lastCpuStat?.used || cpuStat.used);
-      const usage = totalDiff > 0 ? Math.round((usedDiff / totalDiff) * 100) : 0;
-      this.lastCpuStat = cpuStat;
-
-      // ARM/Neoverse power estimation
-      const isArm = /CPU architecture:\s*[89]|aarch64|ARMv[89]|armv[89]/i.test(cpuinfoOut);
-      const tdp = isArm ? 65 : 185;
-      const idleWatts = tdp * 0.08;
-      const draw = idleWatts + (tdp - idleWatts) * Math.min(usage / 100, 1);
-
-      return {
-        usage,
-        temperature: this._parseSensorTemp(tempOut),
-        draw: Math.round(draw * 10) / 10,
-        tdp: Math.round(tdp),
-      };
+      const output = await sshExecutor(this.spark, this._buildRemoteCpuCommand());
+      return this._parseRemoteCpu(output);
     } catch (err) {
       console.error(`[SystemCollector] Remote CPU error for ${this.spark.id}:`, err.message);
       return this._defaultCpu();
@@ -1117,20 +1167,28 @@ export class SystemCollector {
     return 0;
   }
 
+  _buildRemoteRamCommand() {
+    return "grep -E 'MemTotal|MemAvailable' /proc/meminfo 2>/dev/null";
+  }
+
+  _parseRemoteRam(output) {
+    const text = String(output);
+    const totalMatch = text.match(/MemTotal:\s+(\d+)\s+kB/);
+    const availMatch = text.match(/MemAvailable:\s+(\d+)\s+kB/);
+    const totalKB = totalMatch ? parseInt(totalMatch[1]) : 0;
+    const availKB = availMatch ? parseInt(availMatch[1]) : 0;
+    const usedKB = totalKB - availKB;
+    return {
+      used: Math.round(usedKB / 1024),
+      total: Math.round(totalKB / 1024),
+      percentage: totalKB > 0 ? Math.round((usedKB / totalKB) * 100) : 0,
+    };
+  }
+
   async _getRemoteRam() {
     try {
-      const cmd = "grep -E 'MemTotal|MemAvailable' /proc/meminfo 2>/dev/null";
-      const output = await sshExec(this.spark, cmd);
-      const totalMatch = output.match(/MemTotal:\s+(\d+)\s+kB/);
-      const availMatch = output.match(/MemAvailable:\s+(\d+)\s+kB/);
-      const totalKB = totalMatch ? parseInt(totalMatch[1]) : 0;
-      const availKB = availMatch ? parseInt(availMatch[1]) : 0;
-      const usedKB = totalKB - availKB;
-      return {
-        used: Math.round(usedKB / 1024),
-        total: Math.round(totalKB / 1024),
-        percentage: totalKB > 0 ? Math.round((usedKB / totalKB) * 100) : 0,
-      };
+      const output = await sshExec(this.spark, this._buildRemoteRamCommand());
+      return this._parseRemoteRam(output);
     } catch (err) {
       console.error(`[SystemCollector] Remote RAM error for ${this.spark.id}:`, err.message);
       return this._defaultRam();
@@ -1191,174 +1249,234 @@ export class SystemCollector {
     }
   }
 
+  _buildRemoteNetworkCommand() {
+    return [
+      "cat /proc/net/dev 2>/dev/null",
+      "echo '---'",
+      "cat /proc/net/route 2>/dev/null",
+      "echo '---'",
+      "ip -4 addr show 2>/dev/null",
+      "echo '---'",
+      // Collect operstate for all non-virtual interfaces in one go
+      "for d in /sys/class/net/*/operstate; do echo \"$(basename $(dirname $d)):$(cat $d)\"; done",
+      "echo '---'",
+      // WoL MAC for the primary LAN NIC on DGX Spark
+      `cat /sys/class/net/${WOL_INTERFACE}/address 2>/dev/null || true`,
+      "echo '---'",
+      // Link speed for EVERY interface in the same exec — the parser picks
+      // the resolved primary. This used to be a SECOND ssh round-trip per
+      // network poll (primary iface name was only known after parsing).
+      "for d in /sys/class/net/*/speed; do echo \"$(basename $(dirname $d)):$(cat $d 2>/dev/null)\"; done",
+    ].join("; ");
+  }
+
+  _parseRemoteNetwork(output) {
+    const sections = String(output).split("---");
+    const devOut = sections[0]?.trim() || "";
+    const routeOut = sections[1]?.trim() || "";
+    const ipOut = sections[2]?.trim() || "";
+    const operstateOut = sections[3]?.trim() || "";
+    const wolMac = normalizeMac(sections[4]?.trim() || "");
+    const speedOut = sections[5]?.trim() || "";
+
+    // Parse operstate lines ("enP7s7:up")
+    const operstateMap = new Map();
+    for (const line of operstateOut.split("\n")) {
+      const idx = line.indexOf(":");
+      if (idx > 0) {
+        operstateMap.set(line.slice(0, idx), line.slice(idx + 1).trim().toLowerCase());
+      }
+    }
+
+    // Parse "iface:speed" lines (speed may be empty or -1 when no link)
+    const speedMap = new Map();
+    for (const line of speedOut.split("\n")) {
+      const idx = line.indexOf(":");
+      if (idx > 0) speedMap.set(line.slice(0, idx), line.slice(idx + 1).trim());
+    }
+
+    // Parse IP addresses
+    const ipMap = new Map();
+    const ipBlocks = ipOut.split(/\n(?=\d+:\s+)/);
+    for (const block of ipBlocks) {
+      const first = block.split("\n")[0];
+      const m = first.match(/^\d+:\s+(\S+):/);
+      if (!m) continue;
+      const iface = m[1];
+      const ipMatch = block.match(/inet\s+([\d.]+)/);
+      if (ipMatch) {
+        ipMap.set(iface, ipMatch[1]);
+      }
+    }
+
+    // Parse /proc/net/dev
+    const lines = devOut.split("\n").slice(2);
+    const now = Date.now();
+    const interfaces = [];
+
+    for (const line of lines) {
+      const parts = line.trim().split(/[\s:]+/);
+      if (parts.length < 17) continue;
+      const iface = parts[0];
+      if (this._isVirtualNetworkInterface(iface)) continue;
+      const rxBytes = parseInt(parts[1]) || 0;
+      const txBytes = parseInt(parts[9]) || 0;
+      const last = this.lastNetworkStats.get(iface) || { rxBytes, txBytes, time: now };
+      const dtSec = (now - last.time) / 1000;
+      const rxSpeed = dtSec > 0 ? (rxBytes - last.rxBytes) / dtSec : 0;
+      const txSpeed = dtSec > 0 ? (txBytes - last.txBytes) / dtSec : 0;
+      this.lastNetworkStats.set(iface, { rxBytes, txBytes, time: now });
+      interfaces.push({
+        name: iface,
+        rxSpeed: Math.max(0, Math.round(rxSpeed)),
+        txSpeed: Math.max(0, Math.round(txSpeed)),
+        ip: ipMap.get(iface) || null,
+        operstate: operstateMap.get(iface) || "unknown",
+        disabled: false,
+      });
+    }
+
+    const tagged = this._tagDisabledInterfaces(interfaces);
+
+    // Parse /proc/net/route for default interface
+    let primaryInterface = null;
+    const routeLines = routeOut.split("\n");
+    for (const line of routeLines) {
+      const parts = line.trim().split(/\s+/);
+      if (parts.length >= 11 && parts[1] === "00000000" && (parseInt(parts[3], 16) & 1)) {
+        primaryInterface = parts[0];
+        break;
+      }
+    }
+
+    if (primaryInterface && (this.spark.disabledInterfaces || []).includes(primaryInterface)) {
+      const alt = tagged.find((i) => !i.disabled);
+      primaryInterface = alt?.name ?? primaryInterface;
+    }
+
+    let linkSpeedMbps = null;
+    if (primaryInterface) {
+      const n = parseInt(speedMap.get(primaryInterface) ?? "", 10);
+      if (Number.isFinite(n) && n > 0) linkSpeedMbps = n;
+    }
+
+    return { primaryInterface, linkSpeedMbps, interfaces: tagged, wolMac };
+  }
+
   async _getRemoteNetwork() {
     try {
-      const cmd = [
-        "cat /proc/net/dev 2>/dev/null",
-        "echo '---'",
-        "cat /proc/net/route 2>/dev/null",
-        "echo '---'",
-        "ip -4 addr show 2>/dev/null",
-        "echo '---'",
-        // Collect operstate for all non-virtual interfaces in one go
-        "for d in /sys/class/net/*/operstate; do echo \"$(basename $(dirname $d)):$(cat $d)\"; done",
-        "echo '---'",
-        // WoL MAC for the primary LAN NIC on DGX Spark
-        `cat /sys/class/net/${WOL_INTERFACE}/address 2>/dev/null || true`,
-      ].join("; ");
-
-      const output = await sshExec(this.spark, cmd);
-      const sections = output.split("---");
-      const devOut = sections[0]?.trim() || "";
-      const routeOut = sections[1]?.trim() || "";
-      const ipOut = sections[2]?.trim() || "";
-      const operstateOut = sections[3]?.trim() || "";
-      const wolMac = normalizeMac(sections[4]?.trim() || "");
-
-      // Parse operstate lines ("enP7s7:up")
-      const operstateMap = new Map();
-      for (const line of operstateOut.split("\n")) {
-        const idx = line.indexOf(":");
-        if (idx > 0) {
-          operstateMap.set(line.slice(0, idx), line.slice(idx + 1).trim().toLowerCase());
-        }
-      }
-
-      // Parse IP addresses
-      const ipMap = new Map();
-      const ipBlocks = ipOut.split(/\n(?=\d+:\s+)/);
-      for (const block of ipBlocks) {
-        const first = block.split("\n")[0];
-        const m = first.match(/^\d+:\s+(\S+):/);
-        if (!m) continue;
-        const iface = m[1];
-        const ipMatch = block.match(/inet\s+([\d.]+)/);
-        if (ipMatch) {
-          ipMap.set(iface, ipMatch[1]);
-        }
-      }
-
-      // Parse /proc/net/dev
-      const lines = devOut.split("\n").slice(2);
-      const now = Date.now();
-      const interfaces = [];
-
-      for (const line of lines) {
-        const parts = line.trim().split(/[\s:]+/);
-        if (parts.length < 17) continue;
-        const iface = parts[0];
-        if (this._isVirtualNetworkInterface(iface)) continue;
-        const rxBytes = parseInt(parts[1]) || 0;
-        const txBytes = parseInt(parts[9]) || 0;
-        const last = this.lastNetworkStats.get(iface) || { rxBytes, txBytes, time: now };
-        const dtSec = (now - last.time) / 1000;
-        const rxSpeed = dtSec > 0 ? (rxBytes - last.rxBytes) / dtSec : 0;
-        const txSpeed = dtSec > 0 ? (txBytes - last.txBytes) / dtSec : 0;
-        this.lastNetworkStats.set(iface, { rxBytes, txBytes, time: now });
-        interfaces.push({
-          name: iface,
-          rxSpeed: Math.max(0, Math.round(rxSpeed)),
-          txSpeed: Math.max(0, Math.round(txSpeed)),
-          ip: ipMap.get(iface) || null,
-          operstate: operstateMap.get(iface) || "unknown",
-          disabled: false,
-        });
-      }
-
-      const tagged = this._tagDisabledInterfaces(interfaces);
-
-      // Parse /proc/net/route for default interface
-      let primaryInterface = null;
-      const routeLines = routeOut.split("\n");
-      for (const line of routeLines) {
-        const parts = line.trim().split(/\s+/);
-        if (parts.length >= 11 && parts[1] === "00000000" && (parseInt(parts[3], 16) & 1)) {
-          primaryInterface = parts[0];
-          break;
-        }
-      }
-
-      if (primaryInterface && (this.spark.disabledInterfaces || []).includes(primaryInterface)) {
-        const alt = tagged.find((i) => !i.disabled);
-        primaryInterface = alt?.name ?? primaryInterface;
-      }
-
-      let linkSpeedMbps = null;
-      if (primaryInterface) {
-        try {
-          // Interface name is from the kernel; still keep it to safe chars
-          if (/^[a-zA-Z0-9._-]+$/.test(primaryInterface)) {
-            const speedRaw = await sshExec(
-              this.spark,
-              `cat /sys/class/net/${primaryInterface}/speed 2>/dev/null || true`
-            );
-            const n = parseInt(String(speedRaw).trim(), 10);
-            if (Number.isFinite(n) && n > 0) linkSpeedMbps = n;
-          }
-        } catch {
-          /* link speed optional */
-        }
-      }
-
-      return { primaryInterface, linkSpeedMbps, interfaces: tagged, wolMac };
+      const output = await sshExec(this.spark, this._buildRemoteNetworkCommand());
+      return this._parseRemoteNetwork(output);
     } catch (err) {
       console.error(`[SystemCollector] Remote Network error for ${this.spark.id}:`, err.message);
       return this._defaultNetwork();
     }
   }
 
+  _buildRemoteUnifiedMemoryCommand() {
+    return [
+      "grep -E 'MemTotal|MemAvailable' /proc/meminfo 2>/dev/null",
+      "echo '---'",
+      "nvidia-smi --query-compute-apps=pid,process_name,used_gpu_memory --format=csv,noheader,nounits 2>/dev/null",
+    ].join("; ");
+  }
+
+  _parseRemoteUnifiedMemory(output) {
+    const sections = String(output).split("---");
+    const memOut = sections[0]?.trim() || "";
+    const computeOut = sections[1]?.trim() || "";
+
+    const totalMatch = memOut.match(/MemTotal:\s+(\d+)\s+kB/);
+    const availMatch = memOut.match(/MemAvailable:\s+(\d+)\s+kB/);
+    const totalKB = totalMatch ? parseInt(totalMatch[1]) : 0;
+    const availKB = availMatch ? parseInt(availMatch[1]) : 0;
+    const totalMB = Math.round(totalKB / 1024);
+
+    // GPU memory from nvidia-smi compute apps (pid,process_name,used_gpu_memory)
+    let gpuUsedMB = 0;
+    const computeApps = computeOut.trim().split("\n").filter(Boolean);
+    for (const line of computeApps) {
+      const parts = line.split(",").map((s) => s.trim());
+      const vramMB = parseFloat(parts[2]) || 0;
+      gpuUsedMB += vramMB;
+    }
+    gpuUsedMB = Math.round(gpuUsedMB);
+
+    // CPU memory = total - available - GPU
+    const systemUsedKB = totalKB - availKB;
+    const cpuUsedKB = Math.max(0, systemUsedKB - (gpuUsedMB * 1024));
+    const cpuUsedMB = Math.round(cpuUsedKB / 1024);
+
+    const usedMB = gpuUsedMB + cpuUsedMB;
+    const percentage = totalMB > 0 ? Math.round((usedMB / totalMB) * 100) : 0;
+    const oomRisk = percentage > 85 ? "high" : percentage > 60 ? "medium" : "low";
+
+    return {
+      total: totalMB,
+      gpuUsed: gpuUsedMB,
+      cpuUsed: cpuUsedMB,
+      used: usedMB,
+      available: Math.round(availKB / 1024),
+      percentage,
+      oomRisk,
+      bandwidth: { current: 0, peak: 400 },
+    };
+  }
+
   async _getRemoteUnifiedMemory() {
     try {
-      const cmd = [
-        "grep -E 'MemTotal|MemAvailable' /proc/meminfo 2>/dev/null",
-        "echo '---'",
-        "nvidia-smi --query-compute-apps=pid,process_name,used_gpu_memory --format=csv,noheader,nounits 2>/dev/null",
-      ].join("; ");
-
-      const output = await sshExec(this.spark, cmd);
-      const sections = output.split("---");
-      const memOut = sections[0]?.trim() || "";
-      const computeOut = sections[1]?.trim() || "";
-
-      const totalMatch = memOut.match(/MemTotal:\s+(\d+)\s+kB/);
-      const availMatch = memOut.match(/MemAvailable:\s+(\d+)\s+kB/);
-      const totalKB = totalMatch ? parseInt(totalMatch[1]) : 0;
-      const availKB = availMatch ? parseInt(availMatch[1]) : 0;
-      const totalMB = Math.round(totalKB / 1024);
-
-      // GPU memory from nvidia-smi compute apps (pid,process_name,used_gpu_memory)
-      let gpuUsedMB = 0;
-      const computeApps = computeOut.trim().split("\n").filter(Boolean);
-      for (const line of computeApps) {
-        const parts = line.split(",").map((s) => s.trim());
-        const vramMB = parseFloat(parts[2]) || 0;
-        gpuUsedMB += vramMB;
-      }
-      gpuUsedMB = Math.round(gpuUsedMB);
-
-      // CPU memory = total - available - GPU
-      const systemUsedKB = totalKB - availKB;
-      const cpuUsedKB = Math.max(0, systemUsedKB - (gpuUsedMB * 1024));
-      const cpuUsedMB = Math.round(cpuUsedKB / 1024);
-
-      const usedMB = gpuUsedMB + cpuUsedMB;
-      const percentage = totalMB > 0 ? Math.round((usedMB / totalMB) * 100) : 0;
-      const oomRisk = percentage > 85 ? "high" : percentage > 60 ? "medium" : "low";
-
-      return {
-        total: totalMB,
-        gpuUsed: gpuUsedMB,
-        cpuUsed: cpuUsedMB,
-        used: usedMB,
-        available: Math.round(availKB / 1024),
-        percentage,
-        oomRisk,
-        bandwidth: { current: 0, peak: 400 },
-      };
+      const output = await sshExec(this.spark, this._buildRemoteUnifiedMemoryCommand());
+      return this._parseRemoteUnifiedMemory(output);
     } catch (err) {
       console.error(`[SystemCollector] Remote Unified Memory error for ${this.spark.id}:`, err.message);
       return this._defaultUnifiedMemory();
     }
+  }
+
+  /**
+   * ONE SSH exec per poll cycle covering cpu, ram, network, unified memory
+   * (and GPU when monitored). Each domain command runs on the target exactly
+   * as in the standalone path; the block separator is echoed between them.
+   * A block the remote could not produce degrades to that domain's default,
+   * independently — identical to today's per-domain try/catch. A *transport*
+   * failure REJECTS (the spark is unreachable; metrics keep their last values
+   * and the liveness check marks it offline, as before).
+   *
+   * @returns {Promise<{cpu:object, ram:object, network:object, unifiedMemory:object, gpu?:object}>}
+   */
+  async collectRemoteBundle() {
+    const domains = [
+      { key: "cpu", build: () => this._buildRemoteCpuCommand(), parse: (t) => this._parseRemoteCpu(t), fallback: () => this._defaultCpu() },
+      { key: "ram", build: () => this._buildRemoteRamCommand(), parse: (t) => this._parseRemoteRam(t), fallback: () => this._defaultRam() },
+      { key: "network", build: () => this._buildRemoteNetworkCommand(), parse: (t) => this._parseRemoteNetwork(t), fallback: () => this._defaultNetwork() },
+      { key: "unifiedMemory", build: () => this._buildRemoteUnifiedMemoryCommand(), parse: (t) => this._parseRemoteUnifiedMemory(t), fallback: () => this._defaultUnifiedMemory() },
+    ];
+    if (this.spark.gpuMonitoring !== false) {
+      domains.push({ key: "gpu", build: () => this._buildRemoteGpuCommand(), parse: (t) => this._parseRemoteGpu(t), fallback: () => this._defaultGpu() });
+    }
+    const sep = SystemCollector.BUNDLE_SEP;
+    const cmd = domains.map((d) => d.build()).join(`; echo '${sep}'; `);
+    const output = await sshExec(this.spark, cmd);
+
+    // Split by whole-line separator token (line-wise: no regex escaping,
+    // and metric data can never contain the token as its own line).
+    const blocks = [[]];
+    for (const line of String(output).split("\n")) {
+      if (line.trim() === sep) blocks.push([]);
+      else blocks[blocks.length - 1].push(line);
+    }
+
+    const result = {};
+    domains.forEach((d, i) => {
+      const text = (blocks[i] || []).join("\n");
+      try {
+        result[d.key] = d.parse(text);
+      } catch (err) {
+        console.error(`[SystemCollector] Remote ${d.key} bundle parse error for ${this.spark.id}:`, err.message);
+        result[d.key] = d.fallback();
+      }
+    });
+    return result;
   }
 
   // ─── Host namespace / Docker helpers ──────────────────────

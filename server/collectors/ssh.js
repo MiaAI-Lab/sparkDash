@@ -7,9 +7,39 @@
  */
 import { execFile } from "child_process";
 import fs from "fs";
+import os from "os";
 import { COMFY_PORT, COMFY_PROBE_TIMEOUT_MS, SSH_CONNECT_TIMEOUT } from "../config.js";
 import { isAllowedTargetHost, isValidSshUser } from "../validate.js";
 import { llmProbeHost } from "./llmHost.js";
+
+// ─── SSH connection multiplexing (OpenSSH ControlMaster) ─────────────
+// Without a shared master, EVERY sshExec is a fresh TCP+KEX+auth handshake —
+// ~6 connections per spark per 2s poll cycle — which burned ~1.4 cores of
+// the dashboard host just measuring the cluster (the observer effect that
+// corrupted idle-CPU stats). With ControlMaster=auto the first exec per
+// target spawns a persisted master; every later exec is a channel open over
+// it (~1-3 ms, no crypto). hostExec's streaming spawner shares the same
+// builder and benefits identically.
+//   ControlPath %C = hashed host/port/user/target — collision-free, length-safe.
+//   ControlPersist=120s keeps masters alive across monitor pause→resume cycles.
+//   ServerAliveInterval=30 detects dead remotes so a stale master is recycled
+//   within one keepalive window instead of hanging until command timeout.
+// Stale-socket fallback: if the socket is dead, ssh warns and reconnects
+// directly, transparently re-establishing the master — execFile only looks
+// at the exit code, and stderr noise never reaches callers.
+const SSH_SOCKET_DIR = `${os.tmpdir().replace(/\/$/, "")}/sparkdash-ssh`;
+let _sshSocketDirReady = false;
+function ensureSshSocketDir() {
+  if (_sshSocketDirReady) return SSH_SOCKET_DIR;
+  try {
+    fs.mkdirSync(SSH_SOCKET_DIR, { recursive: true, mode: 0o700 });
+    _sshSocketDirReady = true;
+  } catch {
+    // /tmp unusable → degrade to non-multiplexed connections rather than fail.
+    return null;
+  }
+  return SSH_SOCKET_DIR;
+}
 
 // Detect sshpass without shelling out to `which` on every cold call —
 // checking PATH entries directly is faster and avoids spawning a shell.
@@ -96,6 +126,17 @@ export function buildSshInvocation(spark, cmd) {
     "-o",
     "StrictHostKeyChecking=accept-new",
   ];
+  // Multiplex over one persisted master per target (see SSH_SOCKET_DIR).
+  const sockDir = ensureSshSocketDir();
+  if (sockDir) {
+    baseOpts.push(
+      "-o", "ControlMaster=auto",
+      "-o", `ControlPath=${sockDir}/%C`,
+      "-o", "ControlPersist=120",
+      "-o", "ServerAliveInterval=30",
+      "-o", "ServerAliveCountMax=2"
+    );
+  }
 
   const remote = `${user}@${targetHost}`;
   // Remote command as a single argument — ssh does not invoke a local shell for it

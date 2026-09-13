@@ -361,12 +361,7 @@ export class SparkMonitor {
     this._paused = false;
     this._stopped = false;
     this._poll();
-    this._intervals.push(setInterval(() => this._pollDomain("gpu"), POLL_INTERVAL_GPU));
-    this._intervals.push(setInterval(() => this._pollDomain("cpu"), POLL_INTERVAL_CPU));
-    this._intervals.push(setInterval(() => this._pollDomain("network"), POLL_INTERVAL_NETWORK));
-    this._intervals.push(setInterval(() => this._pollDomain("storage"), POLL_INTERVAL_STORAGE));
-    this._intervals.push(setInterval(() => this._pollDomain("ram"), POLL_INTERVAL_CPU));
-    this._intervals.push(setInterval(() => this._pollDomain("memory"), POLL_INTERVAL_BANDWIDTH));
+    this._intervals.push(...this._installSystemTimers());
     this._restartLlmPollInterval();
     this._restartComfyPollInterval();
     this._restartHermesPollInterval();
@@ -402,6 +397,33 @@ export class SparkMonitor {
     return this._paused;
   }
 
+  /**
+   * Fast-domain poll timers. LOCAL sparks read /proc + sysfs directly (cheap
+   * fs reads + occasional nsenter) so each domain keeps its own cadence.
+   * REMOTE sparks collapse gpu/cpu/ram/network/unified-memory into ONE
+   * bundled SSH exec per cycle (`collectRemoteBundle`) — previously five
+   * separate sshExec round-trips every 2s, which burned ~1.4 cores of the
+   * dashboard host in handshake crypto alone and corrupted idle stats.
+   * Storage stays on its own slower cadence; cadence overrides via
+   * POLL_INTERVAL_* env vars apply to the local path.
+   */
+  _installSystemTimers() {
+    const ivs = [];
+    if (this.spark.isLocal) {
+      ivs.push(setInterval(() => this._pollDomain("gpu"), POLL_INTERVAL_GPU));
+      ivs.push(setInterval(() => this._pollDomain("cpu"), POLL_INTERVAL_CPU));
+      ivs.push(setInterval(() => this._pollDomain("network"), POLL_INTERVAL_NETWORK));
+      ivs.push(setInterval(() => this._pollDomain("storage"), POLL_INTERVAL_STORAGE));
+      ivs.push(setInterval(() => this._pollDomain("ram"), POLL_INTERVAL_CPU));
+      ivs.push(setInterval(() => this._pollDomain("memory"), POLL_INTERVAL_BANDWIDTH));
+    } else {
+      // gpu/cpu/ram/network/memory in one exec; storage separately (5s cadence).
+      ivs.push(setInterval(() => this._pollSystem(), POLL_INTERVAL_CPU));
+      ivs.push(setInterval(() => this._pollDomain("storage"), POLL_INTERVAL_STORAGE));
+    }
+    return ivs;
+  }
+
   /** Pause polling (spark's graphs visible to no client). Timers cleared, cache kept. */
   pause() {
     if (this._paused || !this._running) return;
@@ -415,13 +437,7 @@ export class SparkMonitor {
     if (!this._paused || !this._running) return;
     this._paused = false;
     this._poll();
-    this._storeIntervals([
-      setInterval(() => this._pollDomain("gpu"), POLL_INTERVAL_GPU),
-      setInterval(() => this._pollDomain("cpu"), POLL_INTERVAL_CPU),
-      setInterval(() => this._pollDomain("network"), POLL_INTERVAL_NETWORK),
-      setInterval(() => this._pollDomain("storage"), POLL_INTERVAL_STORAGE),
-      setInterval(() => this._pollDomain("ram"), POLL_INTERVAL_CPU),
-      setInterval(() => this._pollDomain("memory"), POLL_INTERVAL_BANDWIDTH),
+    this._storeIntervals([...this._installSystemTimers(),
       setInterval(() => this._checkOnline(), POLL_INTERVAL_LIVENESS),
     ]);
     // Restore opt-in domain timers (LLM / ComfyUI / Hermes) with the same
@@ -556,17 +572,21 @@ export class SparkMonitor {
     if (!this._running || this._paused) return;
     await Promise.all([
       this._checkOnline(),
-      this._pollDomain("gpu"),
-      this._pollDomain("cpu"),
-      this._pollDomain("network"),
+      this.spark.isLocal
+        ? [
+            this._pollDomain("gpu"),
+            this._pollDomain("cpu"),
+            this._pollDomain("network"),
+            this._pollDomain("ram"),
+            this._pollDomain("memory"),
+          ]
+        : [this._pollSystem()],
       this._pollDomain("storage"),
-      this._pollDomain("ram"),
-      this._pollDomain("memory"),
       this._pollDomain("llm"),
       this._pollDomain("comfy"),
       this._pollDomain("hermes"),
       this._pollDomain("tailscale"),
-    ]);
+    ].flat());
   }
 
   async _pollDomain(domain) {
@@ -676,9 +696,59 @@ export class SparkMonitor {
     }
   }
 
+  /**
+   * Remote sparks: one SSH exec refreshes cpu + ram + network + unified
+   * memory + gpu together. Transport failure aborts the whole cycle and the
+   * metrics keep their last values (liveness handles offline); a domain the
+   * target could not report falls back to that domain's default inside the
+   * collector, exactly like the old per-domain polls.
+   */
+  async _pollSystem() {
+    if (!this._running || this._paused || this._inflight.system) return;
+    this._inflight.system = true;
+    try {
+      const bundle = await this.collector.collectRemoteBundle();
+      if (!this._running) return;
+      const now = Date.now();
+      this._metrics.cpu = bundle.cpu;
+      this._lastUpdate.cpu = now;
+      this._metrics.ram = bundle.ram;
+      this._lastUpdate.ram = now;
+      this._metrics.unifiedMemory = bundle.unifiedMemory;
+      this._lastUpdate.memory = now;
+      if (bundle.network) {
+        this._metrics.network = bundle.network;
+        this._lastUpdate.network = now;
+        if (bundle.network.wolMac && this._onWolMac) {
+          try {
+            this._onWolMac(this.spark.id, bundle.network.wolMac);
+          } catch (err) {
+            console.error(`[SparkMonitor] ${this.spark.id} wolMac persist error:`, err.message);
+          }
+        }
+      }
+      if (bundle.gpu && this._gpuMonitoringEnabled()) {
+        this._metrics.gpu = bundle.gpu;
+        this._lastUpdate.gpu = now;
+      }
+    } catch (err) {
+      console.error(`[SparkMonitor] ${this.spark.id} system bundle poll error:`, err.message);
+    } finally {
+      this._inflight.system = false;
+    }
+  }
+
   /** Manually refresh a single domain, bypassing auto-poll guards. */
   async refreshDomain(domain) {
     if (this._inflight[domain]) return;
+    // Remote sparks: the five fast domains share the bundled exec — refreshing
+    // any one of them refreshes the whole bundle (one exec, fresher result).
+    if (
+      !this.spark.isLocal &&
+      ["gpu", "cpu", "ram", "network", "memory"].includes(domain)
+    ) {
+      return this._pollSystem();
+    }
     this._inflight[domain] = true;
     try {
       let result;
