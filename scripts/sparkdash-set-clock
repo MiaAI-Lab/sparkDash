@@ -1,0 +1,177 @@
+#!/bin/sh
+# sparkdash-set-clock — privileged clock-cap helper for sparkDash.
+#
+# Runs ON THE DGX SPARK HOST as root (installed by install-clock-helper.sh,
+# invoked by the sparkDash container over SSH with passwordless sudo scoped to
+# exactly this binary). Applies a CPU or GPU clock cap live, and optionally
+# persists it to the boot systemd unit so it survives reboot.
+#
+# Usage:
+#   sparkdash-set-clock --domain cpu-big|cpu-little|gpu
+#                       (--max-mhz <int> | --unlock)
+#                       (--persist | --no-persist)
+#
+# Exit codes:
+#   0 ok · 1 usage/invalid · 2 out of range · 3 unsupported domain · 4 sysfs I/O failure
+set -eu
+
+CPU_UNIT=/etc/systemd/system/cpu-clock-cap.service
+GPU_UNIT=/etc/systemd/system/gpu-clock-lock.service
+SMI=/usr/bin/nvidia-smi
+
+DOMAIN=""
+MAX_MHZ=""
+UNLOCK=0
+PERSIST=0
+
+usage() {
+  echo "usage: $0 --domain cpu-big|cpu-little|gpu (--max-mhz <int>|--unlock) (--persist|--no-persist)" >&2
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --domain) [ $# -ge 2 ] || usage; DOMAIN="$2"; shift 2 ;;
+    --max-mhz) [ $# -ge 2 ] || usage; MAX_MHZ="$2"; shift 2 ;;
+    --unlock) UNLOCK=1; shift ;;
+    --persist) PERSIST=1; shift ;;
+    --no-persist) PERSIST=0; shift ;;
+    *) usage ;;
+  esac
+done
+
+[ -n "$DOMAIN" ] || usage
+case "$DOMAIN" in
+  gpu|cpu-big|cpu-little) ;;
+  *) echo "unsupported domain: $DOMAIN" >&2; exit 3 ;;
+esac
+
+if [ "$UNLOCK" -eq 0 ]; then
+  case "$MAX_MHZ" in
+    ''|*[!0-9]*) usage ;;
+  esac
+fi
+
+# ─── helpers ──────────────────────────────────────────────
+
+# cores_for DOMAIN → space-separated cpuN list, grouped by cpuinfo_max_freq
+# (never hardcoded indices; scaling_available_frequencies does not exist on
+# this platform).
+cores_for() {
+  d=$1
+  for c in /sys/devices/system/cpu/cpu[0-9]*; do
+    [ -d "$c/cpufreq" ] || continue
+    max=$(cat "$c/cpufreq/cpuinfo_max_freq" 2>/dev/null || true)
+    [ -n "$max" ] || continue
+    case "$d" in
+      cpu-big) [ "$max" -ge 3000000 ] || continue ;;
+      cpu-little) [ "$max" -lt 3000000 ] || continue ;;
+    esac
+    basename "$c"
+  done
+}
+
+# Write max_perf for one core. Un_lock=1 writes the core's own hardware max.
+write_core() {
+  cpu_n=$1
+  khz=$2
+  unlock=$3
+  base="/sys/devices/system/cpu/$cpu_n/cpufreq"
+  if [ "$unlock" -eq 1 ]; then
+    khz=$(cat "$base/cpuinfo_max_freq" 2>/dev/null || true)
+    [ -n "$khz" ] || { echo "cannot read cpuinfo_max_freq for $cpu_n" >&2; return 1; }
+  fi
+  echo "$khz" > "$base/max_perf" || { echo "max_perf write failed for $cpu_n" >&2; return 1; }
+}
+
+# ─── GPU ──────────────────────────────────────────────────
+
+gpu_apply() {
+  if [ "$UNLOCK" -eq 1 ]; then
+    "$SMI" -rgc
+  else
+    "$SMI" -lgc "0,$MAX_MHZ"
+  fi
+}
+
+gpu_unit_body() {
+  if [ "$UNLOCK" -eq 1 ]; then
+    exec_line="$SMI -rgc"
+  else
+    exec_line="$SMI -lgc 0,$MAX_MHZ"
+  fi
+  cat <<UNIT
+[Unit]
+Description=Lock NVIDIA GPU graphics clocks to user range
+After=nvidia-persistenced.service
+
+[Service]
+Type=oneshot
+ExecStart=$exec_line
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+}
+
+# ─── CPU ──────────────────────────────────────────────────
+
+cpu_apply() {
+  cores=$(cores_for "$DOMAIN")
+  [ -n "$cores" ] || { echo "no cores found for domain $DOMAIN" >&2; return 2; }
+  # sysfs max_perf is in kHz; the request is MHz. Unlock lets each core write
+  # its own cpuinfo_max_freq.
+  khz=""
+  if [ "$UNLOCK" -eq 0 ]; then
+    khz=$((MAX_MHZ * 1000))
+  fi
+  rc=0
+  for cpu_n in $cores; do
+    write_core "$cpu_n" "$khz" "$UNLOCK" || rc=1
+  done
+  return $rc
+}
+
+cpu_unit_body() {
+  cores=$(cores_for "$DOMAIN" | tr '\n' ' ')
+  if [ "$UNLOCK" -eq 1 ]; then
+    # Remove-cap at boot: every core gets its own hardware maximum.
+    exec_line="for c in $cores; do cat /sys/devices/system/cpu/\$c/cpufreq/cpuinfo_max_freq > /sys/devices/system/cpu/\$c/cpufreq/max_perf; done"
+  else
+    khz=$((MAX_MHZ * 1000))
+    exec_line="for c in $cores; do echo $khz > /sys/devices/system/cpu/\$c/cpufreq/max_perf; done"
+  fi
+  # One unit per CPU domain; the helper writes only that domain's cores.
+  cat <<UNIT
+[Unit]
+Description=sparkDash $DOMAIN clock cap
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c '$exec_line'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+}
+
+# ─── persist + run ────────────────────────────────────────
+
+if [ "$PERSIST" -eq 1 ]; then
+  case "$DOMAIN" in
+    gpu) UNIT=$GPU_UNIT; gpu_unit_body > "$UNIT.tmp" ;;
+    *) UNIT=$CPU_UNIT; cpu_unit_body > "$UNIT.tmp" ;;
+  esac
+  chmod 644 "$UNIT.tmp"
+  # Validate then atomically move into place (systemd refuses world-writable units).
+  mv "$UNIT.tmp" "$UNIT"
+  systemctl daemon-reload
+fi
+
+case "$DOMAIN" in
+  gpu) gpu_apply ;;
+  *) cpu_apply ;;
+esac

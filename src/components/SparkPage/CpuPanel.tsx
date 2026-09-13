@@ -3,12 +3,15 @@ import { Sparkline } from "../ui/Sparkline";
 import { Panel } from "../ui/Panel";
 import { CpuIcon } from "../ui/icons";
 import { useMetricsHistoryTail } from "../../hooks/metricsStore";
+import { ClockCapControl } from "./ClockCapControl";
 
 interface CpuPanelProps {
   cpu: CpuMetrics | null;
   hardware?: HardwareInfo | null;
   sparkId: string;
   temperatureUnit: "celsius" | "fahrenheit";
+  /** Opt-in: Clock Cap rows become editable (default false). */
+  clockControlEnabled?: boolean;
   className?: string;
 }
 
@@ -46,7 +49,14 @@ function MetricRow({
  * this panel makes that visible at the device level. For non-Spark GPU
  * hosts it covers the discrete CPU.
  */
-export function CpuPanel({ cpu, hardware, sparkId, temperatureUnit, className }: CpuPanelProps) {
+export function CpuPanel({
+  cpu,
+  hardware,
+  sparkId,
+  temperatureUnit,
+  clockControlEnabled,
+  className,
+}: CpuPanelProps) {
   const usageHistory = useMetricsHistoryTail(sparkId, "cpu.usage");
   const tempHistory = useMetricsHistoryTail(sparkId, "cpu.temp");
 
@@ -98,15 +108,32 @@ export function CpuPanel({ cpu, hardware, sparkId, temperatureUnit, className }:
         </span>
       </div>
       {clockCaps && clockCaps.length > 0 && (
-        <div className="flex justify-between text-sm">
+        <div className="flex items-center justify-between text-sm">
           <span className="text-muted">Clock Cap</span>
-          <span className="font-tabular text-sm text-text">
-            {clockCaps.map((d) => (
-              <span key={d.label} className={d.capped ? "text-text-strong" : "text-muted"}>
-                {d.label} {d.capped ? `${d.capMHz} / ${d.maxMHz}` : d.maxMHz} MHz
-                {clockCaps.length > 1 ? " · " : ""}
-              </span>
-            ))}
+          <span className="font-tabular text-sm">
+            {clockCaps.map((d, i) => {
+              // Domain id mirrors the server's rule (≥3 GHz group = big).
+              const domainId = d.maxMHz >= 3000 ? "cpu-big" : "cpu-little";
+              const label = d.capped ? `${d.capMHz} / ${d.maxMHz}` : `${d.maxMHz}`;
+              return (
+                <span key={d.label}>
+                  <span className={d.capped ? "text-text-strong" : "text-muted"}>
+                    {d.label}{" "}
+                  </span>
+                  <ClockCapControl
+                    sparkId={sparkId}
+                    domain={domainId}
+                    currentMHz={d.capMHz}
+                    display={`${label} MHz`}
+                    enabled={Boolean(clockControlEnabled)}
+                    disabledReason="Clock control is disabled for this Spark (enable it in Edit Spark)"
+                  />
+                  {clockCaps.length > 1 && i < clockCaps.length - 1 ? (
+                    <span className="text-muted"> · </span>
+                  ) : null}
+                </span>
+              );
+            })}
           </span>
         </div>
       )}
