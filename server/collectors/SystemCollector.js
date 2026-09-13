@@ -568,10 +568,11 @@ export class SystemCollector {
    * Never claims persistence it did not perform, and never reports a value
    * that was not actually observed on the hardware when an observation was
    * possible (item 6, requested-vs-applied honesty):
-   *  - GPU: nvidia-smi's own "GPU clocks set to (min, max)" / "Clocks set to
-   *    (0, 1976)" confirmation on the apply stdout (helper and container
-   *    paths) is the driver's truth — the driver silently quantises -lgc
-   *    requests (a requested 2000 can land on 1976).
+   *  - GPU: nvidia-smi's own set-to confirmation on the apply stdout (helper
+   *    and container paths) is the driver's truth — the REAL line is
+   *    `GPU clocks set to "(gpuClkMin 0, gpuClkMax 2200)" for GPU …` and the
+   *    driver silently quantises -lgc requests (a requested 2000 can land on
+   *    1976). Bare-paren shapes stay accepted for compatibility.
    *  - CPU: each max_perf write is read back; the strictest observed value
    *    becomes appliedMHz.
    *  - When no observation was possible, appliedMHz stays the requested
@@ -594,33 +595,50 @@ export class SystemCollector {
       helperBin: SPARKDASH_CLOCK_BIN,
     });
     try {
-      const helperOut = await this._sshExec(this.spark, helperCmd, { timeoutMs: 12000 });
-      const verified = await this._verifyAppliedClockCap(domain, helperOut);
-      const finalMHz = verified == null ? appliedMHz : verified;
-      if (verified == null && appliedMHz != null) {
-        warnings.push(
-          "the applied value could not be read back from the hardware; it is reported as requested"
-        );
+      let helperOut = await this._sshExec(this.spark, helperCmd, { timeoutMs: 12000 });
+      // Positive completion gate: the GPU helper ends nvidia-smi's transcript
+      // with "All done." — an apply without it is unfinished work, not a
+      // success. CPU domains are silent by design (sysfs writes only), and
+      // GPU removal (-rgc) prints the completion line with no set-to line.
+      // Gating out throws, which interpretHelperExit maps to 502 so the
+      // container path below can observe or refuse for itself.
+      if (domain !== "gpu" || isClockHelperDoneReply(helperOut)) {
+        // A removal has no value to verify — skip the read-back entirely so a
+        // CPU sysfs echo of the hardware maximum can never masquerade as the
+        // "confirmed" cap (the container path applies the same rule).
+        const verified = appliedMHz == null ? null : await this._verifyAppliedClockCap(domain, helperOut);
+        // The driver's confirmation (when observed) is the applied truth; a
+        // removal (maxMHz:null) holds no cap — there is nothing to verify
+        // and nothing to quantify, so no honesty warnings fire for it.
+        const finalMHz = verified == null ? appliedMHz : verified;
+        if (appliedMHz != null) {
+          if (verified == null) {
+            warnings.push(
+              "the applied value could not be read back from the hardware; it is reported as requested"
+            );
+          }
+          if (verified != null && verified !== appliedMHz) {
+            warnings.push(
+              `the driver accepted ${verified} MHz for a request of ${appliedMHz} MHz (it quantises clock requests to its own table)`
+            );
+          }
+        }
+        if (persist) this._clockCapsOverride = {}; // persisted → drop all volatile state
+        else if (domain === "gpu") this._clockCapsOverride.gpu = finalMHz;
+        else this._clockCapsOverride[domain] = finalMHz;
+        return {
+          ok: true,
+          domain,
+          requestedMHz,
+          appliedMHz: finalMHz,
+          snapped: requestedMHz != null && finalMHz !== requestedMHz,
+          persisted: Boolean(persist),
+          bootUnit: persist ? CLOCK_DOMAIN_UNIT[domain] ?? null : null,
+          source: "helper",
+          warnings,
+        };
       }
-      if (finalMHz !== appliedMHz) {
-        warnings.push(
-          `the driver accepted ${finalMHz} MHz for a request of ${appliedMHz} MHz (it quantises clock requests to its own table)`
-        );
-      }
-      if (persist) this._clockCapsOverride = {}; // persisted → drop all volatile state
-      else if (domain === "gpu") this._clockCapsOverride.gpu = finalMHz;
-      else this._clockCapsOverride[domain] = finalMHz;
-      return {
-        ok: true,
-        domain,
-        requestedMHz,
-        appliedMHz: finalMHz,
-        snapped: finalMHz != null && requestedMHz != null && finalMHz !== requestedMHz,
-        persisted: Boolean(persist),
-        bootUnit: persist ? CLOCK_DOMAIN_UNIT[domain] ?? null : null,
-        source: "helper",
-        warnings,
-      };
+      throw new Error("clock helper did not finish (no completion line in its output)");
     } catch (helperErr) {
       const interpreted = interpretHelperExit(helperErr);
       // Local fallback (D4 secondary): the container runs as root with a rw
@@ -709,15 +727,17 @@ export class SystemCollector {
     // Determine the value the hardware ACTUALLY holds now (item 6).
     let finalMHz = appliedMHz;
     let verified = false;
-    if (domain === "gpu") {
-      if (appliedMHz == null) {
-        verified = true; // -rgc succeeded; no cap remains, nothing to compare
-      } else {
-        const confirmed = parseGpuSetClocksReply(smiOut);
-        if (confirmed != null) {
-          finalMHz = confirmed;
-          verified = true;
-        }
+    if (appliedMHz == null) {
+      // A removal (maxMHz:null) holds no cap — nothing to verify and nothing
+      // to quantify. A CPU read-back after a removal just echoes the hardware
+      // maximum each core was written with (never an "accepted" value), and
+      // `-rgc` prints no set-to line at all.
+      verified = true;
+    } else if (domain === "gpu") {
+      const confirmed = parseGpuSetClocksReply(smiOut);
+      if (confirmed != null) {
+        finalMHz = confirmed;
+        verified = true;
       }
     } else if (readBackKhz.length) {
       // Strictest observed ceiling across the domain's cores is what applies.
@@ -729,7 +749,7 @@ export class SystemCollector {
         "the applied value could not be read back from the hardware; it is reported as requested"
       );
     }
-    if (finalMHz !== appliedMHz) {
+    if (appliedMHz != null && finalMHz !== appliedMHz) {
       warnings.push(
         `the hardware accepted ${finalMHz} MHz for a request of ${appliedMHz} MHz (it quantises clock requests to its own table)`
       );
@@ -761,7 +781,8 @@ export class SystemCollector {
    * Read back the value the hardware ACTUALLY holds for a domain after an
    * apply (item 6 — requested-vs-applied honesty). Sources of truth, in
    * order: the driver's own confirmation line on the apply transcript
-   * (`GPU clocks set to (0, 1976)` / `Clocks set to (0, 1976)`), then a
+   * (`GPU clocks set to "(gpuClkMin 0, gpuClkMax 2200)" for GPU …`, with the
+   * bare-paren shapes kept for compatibility), then a
    * sysfs read-back for CPU domains on a local unit. The boot unit file is
    * the DESIRED state, never an observation — it is deliberately not used
    * here. Returns the MHz in effect, or null when no observation was

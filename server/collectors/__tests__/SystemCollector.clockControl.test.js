@@ -484,6 +484,181 @@ test("the helper-path response carries the additive honesty fields (backward com
   assert.equal(c._clockCapsOverride.gpu, 1976);
 });
 
+// ─── journal ground truth: the shape nvidia-smi actually prints ─────────────
+// Captured read-only from the spark-1 systemd journal (gpu-clock-lock.service
+// running `nvidia-smi -lgc 0,2200`, driver 580.173.02). The REAL confirmation
+// is double-quoted and carries gpuClkMin/gpuClkMax labels — the bare
+// "(0, 1976)" fixtures above are reconstructions no driver has been observed
+// to print.
+const JOURNAL_SET_TO_1976 = 'GPU clocks set to "(gpuClkMin 0, gpuClkMax 1976)" for GPU 0000000F:01:00.0';
+const JOURNAL_SET_TO_2200 = 'GPU clocks set to "(gpuClkMin 0, gpuClkMax 2200)" for GPU 0000000F:01:00.0';
+const JOURNAL_DONE = "All done.";
+
+test("a REAL GPU confirmation that differs from the request reports both values (container path)", async () => {
+  const c = localCollector();
+  c._exec = async () => `${JOURNAL_SET_TO_1976}\n${JOURNAL_DONE}`;
+  const res = await c._applyClockCapLocal("gpu", 2000, false, [], null, 2000);
+  assert.equal(res.ok, true);
+  assert.equal(res.requestedMHz, 2000);
+  assert.equal(res.appliedMHz, 1976, "the driver's quoted gpuClkMax is the applied truth");
+  assert.equal(res.snapped, true);
+  assert.ok(res.warnings.some((w) => /accepted 1976 MHz for a request of 2000/.test(w)));
+  // D5 override records the APPLIED value, never the requested one.
+  assert.equal(c._clockCapsOverride.gpu, 1976);
+});
+
+test("a REAL GPU confirmation matching the request carries no verification warning (container path)", async () => {
+  const c = localCollector();
+  c._exec = async () => `${JOURNAL_SET_TO_2200}\n${JOURNAL_DONE}`;
+  const res = await c._applyClockCapLocal("gpu", 2200, false, [], null, 2200);
+  assert.equal(res.appliedMHz, 2200);
+  assert.equal(res.snapped, false);
+  // The confirmation WAS readable — silence about verification only.
+  assert.ok(
+    !res.warnings.some((w) => /could not be read back from the hardware/.test(w)),
+    `no verification warning expected, got ${JSON.stringify(res.warnings)}`
+  );
+});
+
+test("a REAL helper transcript drives the full honesty response (helper path, end to end)", async () => {
+  const c = localCollector();
+  c._sshExec = async (spark, cmd) => {
+    assert.match(String(cmd), /--domain .gpu. --max-mhz 2000/);
+    return `${JOURNAL_SET_TO_1976}\n${JOURNAL_DONE}`;
+  };
+  // Hermetic: if the helper gate ever wrongly rejects this transcript, the
+  // container fallback must fail HERE — never against real nvidia-smi.
+  c._exec = async (cmd) => {
+    throw new Error(`container fallback must not run when the helper succeeds: ${cmd}`);
+  };
+  const res = await c.applyClockCap(
+    { domain: "gpu", maxMHz: 2000, persist: false },
+    { hardMinMHz: 0, hardMaxMHz: 3003 }
+  );
+  assert.equal(res.ok, true);
+  assert.equal(res.source, "helper");
+  assert.equal(res.requestedMHz, 2000);
+  assert.equal(res.appliedMHz, 1976, "the driver's quoted gpuClkMax is the applied truth");
+  assert.equal(res.snapped, true);
+  assert.ok(res.warnings.some((w) => /accepted 1976 MHz for a request of 2000/.test(w)));
+  assert.ok(!res.warnings.some((w) => /could not be read back/.test(w)));
+  assert.equal(c._clockCapsOverride.gpu, 1976);
+});
+
+test("a GPU apply transcript without the completion line is not accepted as helper success (done gate)", async () => {
+  const c = localCollector();
+  // The set-to line alone, with the "All done." completion missing: an
+  // unfinished helper run. The gate must route it to the container fallback
+  // (stubbed below) — never report source:"helper" for an incomplete apply.
+  c._sshExec = async () => JOURNAL_SET_TO_1976;
+  c._exec = async () => `${JOURNAL_SET_TO_1976}\n${JOURNAL_DONE}`;
+  const res = await c.applyClockCap(
+    { domain: "gpu", maxMHz: 2000, persist: false },
+    { hardMinMHz: 0, hardMaxMHz: 3003 }
+  );
+  assert.equal(res.ok, true);
+  assert.equal(
+    res.source,
+    "container",
+    "an incomplete helper transcript must not be reported as a helper success"
+  );
+});
+
+// ─── cap removal (maxMHz:null): no value to verify, nothing to quantify ─────
+
+test("CPU cap removal via the container path reports the removal without a bogus warning", async () => {
+  const c = localCollector();
+  c._cpuDomainCores = () => ["cpu5", "cpu6"];
+  const fsMod = await import("node:fs");
+  const origWrite = fsMod.default.writeFileSync;
+  const writes = [];
+  fsMod.default.writeFileSync = (p, data) => writes.push({ p: String(p), data: String(data) });
+  try {
+    // cppc_cpufreq keeps the core's hardware maximum: reading max_perf back
+    // after the removal write just echoes the max we wrote — that read must
+    // never be reported as the hardware "accepting" a value.
+    c._readSysFile = (p) => (/cpufreq/.test(p) ? "2808000\n" : null);
+    const res = await c._applyClockCapLocal("cpu-little", null, false, [], null, null);
+    assert.equal(res.ok, true);
+    assert.equal(res.requestedMHz, null);
+    assert.equal(res.appliedMHz, null, "a removal holds no cap — appliedMHz is honestly null");
+    assert.equal(res.snapped, false);
+    assert.ok(
+      !res.warnings.some((w) => /accepted .* for a request/.test(w)),
+      `no bogus quantisation warning, got ${JSON.stringify(res.warnings)}`
+    );
+    assert.ok(!res.warnings.some((w) => /read back/.test(w)));
+    assert.deepEqual(
+      writes.map((w) => w.data),
+      ["2808000\n", "2808000\n"]
+    );
+  } finally {
+    fsMod.default.writeFileSync = origWrite;
+  }
+});
+
+test("CPU cap removal via the helper path reports the removal without a bogus warning", async () => {
+  const c = localCollector();
+  // The CPU helper is silent on success: no set-to line, no completion line.
+  c._sshExec = async () => "";
+  // No real sysfs anywhere: the stub feeds the (pre-fix) verification read.
+  c._cpuDomainCores = () => ["cpu5"];
+  c._readSysFile = (p) => (/cpufreq/.test(p) ? "2808000\n" : null);
+  const res = await c.applyClockCap(
+    { domain: "cpu-little", maxMHz: null, persist: false },
+    { hardMinMHz: 1378, hardMaxMHz: 3900 }
+  );
+  assert.equal(res.ok, true);
+  assert.equal(res.source, "helper");
+  assert.equal(res.requestedMHz, null);
+  assert.equal(res.appliedMHz, null, "a removal holds no cap — appliedMHz is honestly null");
+  assert.equal(res.snapped, false);
+  assert.ok(
+    !res.warnings.some((w) => /accepted .* for a request/.test(w)),
+    `no bogus quantisation warning, got ${JSON.stringify(res.warnings)}`
+  );
+  assert.ok(!res.warnings.some((w) => /read back/.test(w)));
+});
+
+test("GPU cap removal via the helper path stays silent about verification (no cap to observe)", async () => {
+  const c = localCollector();
+  // --unlock runs nvidia-smi -rgc: per the same journal that captured the
+  // -lgc output, the completion line prints but no set-to line does.
+  c._sshExec = async () => JOURNAL_DONE;
+  const res = await c.applyClockCap(
+    { domain: "gpu", maxMHz: null, persist: false },
+    { hardMinMHz: 0, hardMaxMHz: 3003 }
+  );
+  assert.equal(res.ok, true);
+  assert.equal(res.source, "helper");
+  assert.equal(res.appliedMHz, null);
+  assert.equal(res.snapped, false);
+  assert.ok(
+    !res.warnings.some((w) => /read back/.test(w)),
+    `no verification warning on removal, got ${JSON.stringify(res.warnings)}`
+  );
+  assert.ok(!res.warnings.some((w) => /accepted .* for a request/.test(w)));
+  // D5: the removal clears any recorded GPU lock.
+  assert.equal(c._clockCapsOverride.gpu, null);
+});
+
+test("GPU cap removal via the container path stays silent about verification", async () => {
+  const c = localCollector();
+  const cmds = [];
+  c._exec = async (cmd) => {
+    cmds.push(cmd);
+    return "";
+  };
+  const res = await c._applyClockCapLocal("gpu", null, false, [], null, null);
+  assert.equal(res.ok, true);
+  assert.match(cmds[0], /-rgc/);
+  assert.equal(res.appliedMHz, null);
+  assert.equal(res.snapped, false);
+  assert.ok(!res.warnings.some((w) => /read back/.test(w)));
+  assert.ok(!res.warnings.some((w) => /accepted .* for a request/.test(w)));
+  assert.equal(c._clockCapsOverride.gpu, null);
+});
+
 test("clamping happens BEFORE the request is echoed back (requestedMHz = post-clamp)", async () => {
   const c = localCollector();
   c._cpuDomainCores = () => ["cpu0"];
