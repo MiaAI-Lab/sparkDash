@@ -186,24 +186,32 @@ export function ClockCapControl({
 
   return (
     <>
-      <button
-        type="button"
-        className={`${CHIP_BUTTON} ${className ?? ""}`}
-        title="Change the clock cap"
-        aria-haspopup="dialog"
-        onClick={() => setOpen(true)}
-      >
-        Modify
-      </button>
-      <button
-        type="button"
-        className={`${CHIP_BUTTON} font-tabular`}
-        title={chipTitle ?? "Click to change the clock cap"}
-        aria-haspopup="dialog"
-        onClick={() => setOpen(true)}
-      >
-        {chipText}
-      </button>
+      {/* The closed state is ONE right-aligned unit: [Modify][value chip].
+          Wrapping the two buttons in a flex group (instead of a bare fragment)
+          keeps them together at the row's right edge, and the fixed-width chip
+          pins the Modify button to the same x-position on every row — so the
+          two CPU cluster rows (Big / Little) line up regardless of label or
+          chip-text width. */}
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          className={`${CHIP_BUTTON} ${className ?? ""}`}
+          title="Change the clock cap"
+          aria-haspopup="dialog"
+          onClick={() => setOpen(true)}
+        >
+          Modify
+        </button>
+        <button
+          type="button"
+          className={`${CHIP_BUTTON} w-28 whitespace-nowrap text-center font-tabular`}
+          title={chipTitle ?? "Click to change the clock cap"}
+          aria-haspopup="dialog"
+          onClick={() => setOpen(true)}
+        >
+          {chipText}
+        </button>
+      </div>
 
       {mounted &&
         createPortal(
@@ -242,33 +250,53 @@ export function ClockCapControl({
                       </p>
                     ))}
 
-                    {/* One value, two controls (item 2): both write the same
-                        state. The range input is the 200 MHz grid; the number
-                        input accepts any value in the hardware range and is
-                        never snapped to the grid. */}
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="range"
-                        min={grid?.min ?? bounds.hardMinMHz}
-                        max={grid?.max ?? bounds.hardMaxMHz}
-                        step={grid?.step ?? bounds.stepMHz}
-                        value={value ?? grid?.min ?? bounds.hardMaxMHz}
-                        onChange={(e) => setValue(clamp(Number(e.target.value)))}
-                        aria-label="Clock cap in MHz (200 MHz grid)"
-                        className="min-w-0 flex-1"
-                      />
-                      <input
-                        type="number"
-                        min={bounds.hardMinMHz}
-                        max={bounds.hardMaxMHz}
-                        value={value ?? ""}
-                        onChange={(e) => {
-                          const n = parseInt(e.target.value, 10);
-                          setValue(Number.isFinite(n) ? clamp(n) : null);
-                        }}
-                        aria-label="Clock cap in MHz"
-                        className="w-20 rounded border border-border bg-surface-elevated px-2 py-1 text-right font-tabular text-xs text-text outline-none focus:border-accent"
-                      />
+                    {/* One value, TWO separate visual elements (item 2): the
+                        slider (200 MHz grid) and the manual-entry field (any
+                        value in the hardware range, never snapped). They share
+                        one state, so moving either updates the other — but each
+                        reads as its own labelled control, not one combined
+                        widget. */}
+                    <div className="space-y-3">
+                      <div>
+                        <label
+                          htmlFor={`clock-slider-${titleId}`}
+                          className="mb-1 block text-[10px] uppercase tracking-wide text-muted"
+                        >
+                          Slider (200 MHz grid)
+                        </label>
+                        <input
+                          id={`clock-slider-${titleId}`}
+                          type="range"
+                          min={grid?.min ?? bounds.hardMinMHz}
+                          max={grid?.max ?? bounds.hardMaxMHz}
+                          step={grid?.step ?? bounds.stepMHz}
+                          value={value ?? grid?.min ?? bounds.hardMaxMHz}
+                          onChange={(e) => setValue(clamp(Number(e.target.value)))}
+                          aria-label="Clock cap in MHz (200 MHz grid)"
+                          className="w-full"
+                        />
+                      </div>
+                      <div>
+                        <label
+                          htmlFor={`clock-entry-${titleId}`}
+                          className="mb-1 block text-[10px] uppercase tracking-wide text-muted"
+                        >
+                          Manual entry (MHz)
+                        </label>
+                        <input
+                          id={`clock-entry-${titleId}`}
+                          type="number"
+                          min={bounds.hardMinMHz}
+                          max={bounds.hardMaxMHz}
+                          value={value ?? ""}
+                          onChange={(e) => {
+                            const n = parseInt(e.target.value, 10);
+                            setValue(Number.isFinite(n) ? clamp(n) : null);
+                          }}
+                          aria-label="Clock cap in MHz"
+                          className="w-full rounded border border-border bg-surface-elevated px-2 py-1 text-right font-tabular text-xs text-text outline-none focus:border-accent"
+                        />
+                      </div>
                     </div>
 
                     {/* Candidate chips: exactly the 200-grid values inside the
