@@ -98,6 +98,24 @@ describe("ClockCapControl", () => {
     }
   });
 
+  it("closed state: Modify + chip are ONE right-aligned group so Modify stays put (item 5)", () => {
+    const { container } = render(
+      <ClockCapControl sparkId="spark-test" domain="gpu" currentMHz={2200} />
+    );
+    const modify = container.querySelector('button[title="Change the clock cap"]');
+    const chip = Array.from(container.querySelectorAll("button")).find(
+      (b) => b.textContent !== "Modify"
+    )!;
+    // Both buttons share ONE parent (the flex group), so they move as a unit at
+    // the row's right edge — the Modify button no longer floats between the
+    // label and the chip, and its x-position is pinned across rows.
+    expect(modify!.parentElement).toBe(chip.parentElement);
+    // The chip has a fixed width, so its left edge (and therefore Modify's
+    // right edge) is constant regardless of the chip text ("2200 MHz" vs
+    // "No cap set") — the two CPU cluster rows line up.
+    expect(chip.className).toMatch(/w-28/);
+  });
+
   it("renders 'No cap set' when no cap is active (item 4)", () => {
     const { container } = render(
       <ClockCapControl sparkId="spark-test" domain="gpu" currentMHz={null} />
@@ -153,6 +171,23 @@ describe("ClockCapControl", () => {
     expect(number_.getAttribute("min")).toBe("0");
     expect(number_.getAttribute("max")).toBe("3003");
     expect(number_.hasAttribute("step")).toBe(false);
+  });
+
+  it("slider and manual entry are SEPARATE labelled elements, not one combined widget (item 2)", async () => {
+    const { dialog } = await openDialog();
+    await flush();
+    const range = dialog!.querySelector('input[type="range"]') as HTMLInputElement;
+    const number_ = dialog!.querySelector('input[type="number"]') as HTMLInputElement;
+    // Each control has its own <label> (not just an aria-label), so they read
+    // as two distinct elements.
+    const sliderLabel = dialog!.querySelector('label[for="clock-slider-' + range.id.slice("clock-slider-".length) + '"]');
+    expect(sliderLabel).not.toBeNull();
+    expect(sliderLabel!.textContent).toContain("Slider");
+    const entryLabel = dialog!.querySelector('label[for="clock-entry-' + number_.id.slice("clock-entry-".length) + '"]');
+    expect(entryLabel).not.toBeNull();
+    expect(entryLabel!.textContent).toContain("Manual entry");
+    // They are NOT siblings in one flex row — each sits in its own block.
+    expect(range.parentElement).not.toBe(number_.parentElement);
   });
 
   it("moving the range input updates the number input (one value, two controls)", async () => {
