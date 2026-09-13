@@ -36,15 +36,23 @@ function makeSysfs(root, cores) {
  */
 function runHelper(cpuRoot, args, opts = {}) {
   const unitDir = opts.unitDir ?? path.join(cpuRoot, "..", "units");
-  // Stub systemctl (the helper ends a persist with `daemon-reload`); the stub
-  // dir rides on PATH like the scoped-sudo fixtures in clockControl.test.js.
+  // Stub systemctl (the helper ends a persist with `daemon-reload`) and
+  // nvidia-smi (the GPU persist writes the unit before `gpu_apply` runs it);
+  // both stubs ride on PATH like the scoped-sudo fixtures in
+  // clockControl.test.js.
   const stubDir = path.join(path.dirname(cpuRoot), "stub-bin");
   fs.mkdirSync(stubDir, { recursive: true });
-  const systemctl = path.join(stubDir, "systemctl");
-  if (!fs.existsSync(systemctl)) {
-    fs.writeFileSync(systemctl, "#!/bin/sh\nexit 0\n");
-    fs.chmodSync(systemctl, 0o755);
+  for (const [name, body] of [
+    ["systemctl", "#!/bin/sh\nexit 0\n"],
+    ["nvidia-smi", "#!/bin/sh\nexit 0\n"],
+  ]) {
+    const p = path.join(stubDir, name);
+    if (!fs.existsSync(p)) {
+      fs.writeFileSync(p, body);
+      fs.chmodSync(p, 0o755);
+    }
   }
+  const smiPath = path.join(stubDir, "nvidia-smi");
   const stdout = execFileSync("sh", [HELPER, ...args], {
     encoding: "utf8",
     env: {
@@ -52,98 +60,109 @@ function runHelper(cpuRoot, args, opts = {}) {
       PATH: `${stubDir}:${process.env.PATH}`,
       SPARKDASH_CPU_SYS: cpuRoot,
       SPARKDASH_UNIT_DIR: unitDir,
+      SPARKDASH_SMI: smiPath,
     },
   });
-  return { stdout };
+  return { stdout, smiPath, unitDir };
 }
 
 // ─── The sibling must survive a single-domain persist ───────────────────────
+// Domain convention (inherited from parseCpuClockCaps, accepted in review):
+// cores with cpuinfo_max_freq >= 3 MHz are "cpu-big" (the X925 group, whose
+// curated boot cap is 2600000 kHz on spark-1); the 2808000 group is
+// "cpu-little".
 
-test("a cpu-big persist preserves the sibling little domain's max_perf lines", (t) => {
+test("a cpu-little persist preserves the sibling big domain's max_perf lines", (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clock-helper-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const cpuRoot = makeSysfs(dir, {
-    cpu0: { maxKhz: 2808000, perfKhz: 2808000 },
-    cpu1: { maxKhz: 2808000, perfKhz: 2808000 },
-    cpu5: { maxKhz: 3900000, perfKhz: 2600000 }, // curated sibling cap
-    cpu6: { maxKhz: 3900000, perfKhz: 2600000 },
+    cpu0: { maxKhz: 3900000, perfKhz: 2600000 }, // cpu-big, curated cap
+    cpu1: { maxKhz: 3900000, perfKhz: 2600000 },
+    cpu5: { maxKhz: 2808000, perfKhz: 2808000 }, // cpu-little, at own max
+    cpu6: { maxKhz: 2808000, perfKhz: 2808000 },
   });
   const unitDir = path.join(dir, "units");
   fs.mkdirSync(unitDir);
 
-  runHelper(cpuRoot, ["--domain", "cpu-big", "--max-mhz", "2808", "--persist"]);
+  runHelper(cpuRoot, ["--domain", "cpu-little", "--max-mhz", "2400", "--persist"]);
 
   const unit = fs.readFileSync(path.join(unitDir, "cpu-clock-cap.service"), "utf8");
   // Edited domain carries the requested value…
-  assert.match(unit, /echo 2808000 > \S*cpu0\/cpufreq\/max_perf/);
-  assert.match(unit, /echo 2808000 > \S*cpu1\/cpufreq\/max_perf/);
+  assert.match(unit, /echo 2400000 > \S*cpu5\/cpufreq\/max_perf/);
+  assert.match(unit, /echo 2400000 > \S*cpu6\/cpufreq\/max_perf/);
   // …and the sibling's current live cap is NOT deleted.
-  assert.match(unit, /echo 2600000 > \S*cpu5\/cpufreq\/max_perf/);
-  assert.match(unit, /echo 2600000 > \S*cpu6\/cpufreq\/max_perf/);
+  assert.match(unit, /echo 2600000 > \S*cpu0\/cpufreq\/max_perf/);
+  assert.match(unit, /echo 2600000 > \S*cpu1\/cpufreq\/max_perf/);
 });
 
-test("a cpu-big persist with unreadable sibling max_perf omits those cores (no guesses)", (t) => {
+test("a persist with unreadable sibling max_perf omits those cores (no guesses)", (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clock-helper-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const cpuRoot = makeSysfs(dir, {
-    cpu0: { maxKhz: 2808000, perfKhz: 2808000 },
-    cpu5: { maxKhz: 3900000, perfKhz: null }, // unreadable sibling max_perf
+    cpu0: { maxKhz: 3900000, perfKhz: null }, // cpu-big sibling: unreadable
+    cpu5: { maxKhz: 2808000, perfKhz: 2808000 },
   });
   const unitDir = path.join(dir, "units");
   fs.mkdirSync(unitDir);
 
-  runHelper(cpuRoot, ["--domain", "cpu-big", "--max-mhz", "2600", "--persist"]);
+  runHelper(cpuRoot, ["--domain", "cpu-little", "--max-mhz", "2600", "--persist"]);
 
   const unit = fs.readFileSync(path.join(unitDir, "cpu-clock-cap.service"), "utf8");
-  assert.match(unit, /echo 2600000 > \S*cpu0\/cpufreq\/max_perf/);
-  assert.doesNotMatch(unit, /cpu5\/cpufreq\/max_perf/);
+  assert.match(unit, /echo 2600000 > \S*cpu5\/cpufreq\/max_perf/);
+  assert.doesNotMatch(unit, /cpu0\/cpufreq\/max_perf/);
 });
 
 test("a remove-cap (unlock) persist keeps the sibling and restores own hardware max", (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clock-helper-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const cpuRoot = makeSysfs(dir, {
-    cpu0: { maxKhz: 2808000, perfKhz: 2200000 },
-    cpu5: { maxKhz: 3900000, perfKhz: 2600000 },
+    cpu0: { maxKhz: 3900000, perfKhz: 2600000 }, // cpu-big, capped
+    cpu5: { maxKhz: 2808000, perfKhz: 2200000 }, // cpu-little, capped
   });
   const unitDir = path.join(dir, "units");
   fs.mkdirSync(unitDir);
 
-  runHelper(cpuRoot, ["--domain", "cpu-big", "--unlock", "--persist"]);
+  runHelper(cpuRoot, ["--domain", "cpu-little", "--unlock", "--persist"]);
 
   const unit = fs.readFileSync(path.join(unitDir, "cpu-clock-cap.service"), "utf8");
-  assert.match(unit, /cat \S*cpu0\/cpufreq\/cpuinfo_max_freq > \S*cpu0\/cpufreq\/max_perf/);
-  assert.match(unit, /echo 2600000 > \S*cpu5\/cpufreq\/max_perf/);
+  assert.match(unit, /cat \S*cpu5\/cpufreq\/cpuinfo_max_freq > \S*cpu5\/cpufreq\/max_perf/);
+  assert.match(unit, /echo 2600000 > \S*cpu0\/cpufreq\/max_perf/);
 });
 
 test("the helper and the container persist path emit the same CPU ExecStart for one request", (t) => {
-  // Same stub topology the SystemCollector persist tests use.
+  // Stub topology mirrors the SystemCollector persist fixtures (LIVE_DOMAINS):
+  // cpu-big = the 3900000 group capped at 2600000; cpu-little = 2808000 group.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clock-helper-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const cpuRoot = makeSysfs(dir, {
-    cpu0: { maxKhz: 2808000, perfKhz: 2808000 },
-    cpu1: { maxKhz: 2808000, perfKhz: 2808000 },
-    cpu10: { maxKhz: 2808000, perfKhz: 2808000 },
-    cpu5: { maxKhz: 3900000, perfKhz: 2600000 },
-    cpu6: { maxKhz: 3900000, perfKhz: 2600000 },
+    cpu0: { maxKhz: 3900000, perfKhz: 2600000 },
+    cpu1: { maxKhz: 3900000, perfKhz: 2600000 },
+    cpu10: { maxKhz: 3900000, perfKhz: 2600000 },
+    cpu5: { maxKhz: 2808000, perfKhz: 2808000 },
+    cpu6: { maxKhz: 2808000, perfKhz: 2808000 },
   });
   const unitDir = path.join(dir, "units");
   fs.mkdirSync(unitDir);
 
-  // 1. Helper path: persist cpu-big 2808 while the sibling sits at 2600.
-  runHelper(cpuRoot, ["--domain", "cpu-big", "--max-mhz", "2808", "--persist"]);
+  // 1. Helper path: persist cpu-little 2808 while the sibling sits at 2600.
+  runHelper(cpuRoot, ["--domain", "cpu-little", "--max-mhz", "2808", "--persist"]);
   const helperUnit = fs.readFileSync(path.join(unitDir, "cpu-clock-cap.service"), "utf8");
   const helperExec = helperUnit.match(/^ExecStart=(.+)$/m)[1];
 
   // 2. Container path: identical request, sibling values from live max_perf.
   //    Mirror the collector's own command construction (the captured payload's
-  //    ExecStart) instead of stubbing node:fs module-wide.
-  const sibling = ["cpu5", "cpu6"]; // numeric order, as _cpuDomainCores returns
+  //    ExecStart) instead of stubbing node:fs module-wide. Cores in numeric
+  //    order per domain, as _cpuDomainCores returns them. The sysfs root is
+  //    substituted with the stub root: on a real host CPU_SYS defaults to
+  //    /sys/devices/system/cpu (exactly what the container path writes), the
+  //    test hook redirects only the root, so equality here means the command
+  //    SHAPE — and the full unit byte-for-byte — is identical.
   const parts = [
-    `echo 2808000 > /sys/devices/system/cpu/cpu0/cpufreq/max_perf`,
-    `echo 2808000 > /sys/devices/system/cpu/cpu1/cpufreq/max_perf`,
-    `echo 2808000 > /sys/devices/system/cpu/cpu10/cpufreq/max_perf`,
-    ...sibling.map((c) => `echo 2600000 > /sys/devices/system/cpu/${c}/cpufreq/max_perf`),
+    `echo 2808000 > ${cpuRoot}/cpu5/cpufreq/max_perf`,
+    `echo 2808000 > ${cpuRoot}/cpu6/cpufreq/max_perf`,
+    `echo 2600000 > ${cpuRoot}/cpu0/cpufreq/max_perf`,
+    `echo 2600000 > ${cpuRoot}/cpu1/cpufreq/max_perf`,
+    `echo 2600000 > ${cpuRoot}/cpu10/cpufreq/max_perf`,
   ];
   const containerExec = `/bin/sh -c '${parts.join("; ")}'`;
   assert.equal(helperExec, containerExec);
@@ -170,15 +189,15 @@ test("cpu_apply writes max_perf for the edited domain only and returns success",
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clock-helper-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const cpuRoot = makeSysfs(dir, {
-    cpu0: { maxKhz: 2808000, perfKhz: 2808000 },
-    cpu5: { maxKhz: 3900000, perfKhz: 2600000 },
+    cpu0: { maxKhz: 3900000, perfKhz: 2600000 }, // cpu-big (edited)
+    cpu5: { maxKhz: 2808000, perfKhz: 2808000 }, // cpu-little (sibling)
   });
 
-  runHelper(cpuRoot, ["--domain", "cpu-little", "--max-mhz", "2400", "--no-persist"]);
+  runHelper(cpuRoot, ["--domain", "cpu-big", "--max-mhz", "2400", "--no-persist"]);
 
-  assert.equal(fs.readFileSync(path.join(cpuRoot, "cpu5", "cpufreq", "max_perf"), "utf8").trim(), "2400000");
+  assert.equal(fs.readFileSync(path.join(cpuRoot, "cpu0", "cpufreq", "max_perf"), "utf8").trim(), "2400000");
   // Sibling untouched by the live apply.
-  assert.equal(fs.readFileSync(path.join(cpuRoot, "cpu0", "cpufreq", "max_perf"), "utf8").trim(), "2808000");
+  assert.equal(fs.readFileSync(path.join(cpuRoot, "cpu5", "cpufreq", "max_perf"), "utf8").trim(), "2808000");
 });
 
 test("an argumentless invocation prints its usage and exits 1 (the probe contract)", (t) => {
@@ -203,10 +222,10 @@ test("a GPU persist emits the real gpu-clock-lock.service body", (t) => {
   const unitDir = path.join(dir, "units");
   fs.mkdirSync(unitDir);
 
-  runHelper(cpuRoot, ["--domain", "gpu", "--max-mhz", "2200", "--persist"]);
+  const { smiPath } = runHelper(cpuRoot, ["--domain", "gpu", "--max-mhz", "2200", "--persist"]);
 
   const unit = fs.readFileSync(path.join(unitDir, "gpu-clock-lock.service"), "utf8");
-  assert.match(unit, /^ExecStart=\/usr\/bin\/nvidia-smi -lgc 0,2200$/m);
+  assert.match(unit, new RegExp(`^ExecStart=${smiPath.replace(/[/\\]/g, "\\$&")} -lgc 0,2200$`, "m"));
   assert.match(unit, /^Description=Lock NVIDIA GPU graphics clocks to user range$/m);
 });
 
