@@ -310,10 +310,13 @@ export class SystemCollector {
   }
 
   /**
-   * Drop overrides that a fresh successful read makes redundant — either
-   * because the read converged to the override (applied value now visible) or
-   * because it diverged (the fresh read is the current truth; e.g. another
-   * operator or a reboot changed the value).
+   * Drop overrides that a fresh successful read makes redundant, per domain:
+   * CPU live caps ARE the sysfs read itself, so any fresh CPU read (converged
+   * or diverged) supersedes the override. GPU is different — the read source
+   * is the boot unit file, which a live-only `-lgc` does not change — so a GPU
+   * override survives until a read actually reports the overridden value
+   * (converged). Dropping it earlier would make the UI lie after the cache
+   * TTL expires (D5).
    */
   _dropConvergedOverrides(fresh) {
     const o = this._clockCapsOverride;
@@ -323,7 +326,11 @@ export class SystemCollector {
         delete o[this._cpuDomainId(d.maxMHz)];
       }
     }
-    if (fresh.ok) delete o.gpu;
+    if (fresh.ok && Object.prototype.hasOwnProperty.call(o, "gpu")) {
+      const want = o.gpu;
+      const have = fresh.gpuLock ? fresh.gpuLock.maxMHz : null;
+      if (want === have) delete o.gpu;
+    }
   }
 
   /** Read the active clock caps, merging volatile overrides over the result. */
@@ -628,12 +635,44 @@ export class SystemCollector {
     let execLine;
     if (domain === "gpu") {
       execLine = appliedMHz == null ? `${smi} -rgc` : `${smi} -lgc 0,${appliedMHz}`;
-    } else if (appliedMHz == null) {
-      // Remove-cap at boot: every core gets its own hardware maximum.
-      execLine =
-        "for d in /sys/devices/system/cpu/cpu*/cpufreq; do cat $d/cpuinfo_max_freq > $d/max_perf; done";
     } else {
-      execLine = `for d in /sys/devices/system/cpu/cpu*/cpufreq; do echo ${appliedMHz * 1000} > $d/max_perf; done`;
+      // Both CPU domains share ONE boot unit (cpu-clock-cap.service), so a
+      // single-domain Save must carry the sibling domain too or it would
+      // clobber the sibling's boot cap. The sibling keeps its current
+      // effective value: its volatile override when a live-only apply is in
+      // flight, else its live max_perf right now.
+      //
+      // Explicit per-core commands — NO shell loop variables. systemd expands
+      // $VAR in ExecStart (unset → empty), so a unit file must never contain
+      // a bare `$c` inside `sh -c`.
+      const cores = this._cpuDomainCores(domain);
+      if (!cores.length) throw new Error("no CPU cores discovered for this domain");
+      const parts = [];
+      for (const cpuN of cores) {
+        const base = `/sys/devices/system/cpu/${cpuN}/cpufreq`;
+        parts.push(
+          appliedMHz == null
+            ? `cat ${base}/cpuinfo_max_freq > ${base}/max_perf`
+            : `echo ${appliedMHz * 1000} > ${base}/max_perf`
+        );
+      }
+      const siblingId = domain === "cpu-big" ? "cpu-little" : "cpu-big";
+      const siblingOverride = this._clockCapsOverride?.[siblingId];
+      for (const cpuN of this._cpuDomainCores(siblingId)) {
+        let khz = null;
+        if (Number.isInteger(siblingOverride)) khz = siblingOverride * 1000;
+        else {
+          const raw = this._readSysFile(
+            path.join(HOST_PATHS.SYS, "devices/system/cpu", cpuN, "cpufreq/max_perf")
+          );
+          if (raw != null && /^\d+$/.test(raw.trim())) khz = raw.trim();
+        }
+        // Unreadable sibling core → leave it out rather than guess a value.
+        if (khz != null) {
+          parts.push(`echo ${khz} > /sys/devices/system/cpu/${cpuN}/cpufreq/max_perf`);
+        }
+      }
+      execLine = parts.join("; ");
     }
     const script = [
       "set -eu",

@@ -135,13 +135,19 @@ cpu_apply() {
 
 cpu_unit_body() {
   cores=$(cores_for "$DOMAIN" | tr '\n' ' ')
-  if [ "$UNLOCK" -eq 1 ]; then
-    # Remove-cap at boot: every core gets its own hardware maximum.
-    exec_line="for c in $cores; do cat /sys/devices/system/cpu/\$c/cpufreq/cpuinfo_max_freq > /sys/devices/system/cpu/\$c/cpufreq/max_perf; done"
-  else
-    khz=$((MAX_MHZ * 1000))
-    exec_line="for c in $cores; do echo $khz > /sys/devices/system/cpu/\$c/cpufreq/max_perf; done"
-  fi
+  # Explicit per-core commands in the unit file — NO shell loop variables.
+  # systemd expands $VAR in ExecStart (unset -> empty), so a unit file must
+  # never carry a bare `$c` inside `sh -c`.
+  cmds=""
+  for c in $cores; do
+    base="/sys/devices/system/cpu/$c/cpufreq"
+    if [ "$UNLOCK" -eq 1 ]; then
+      cmds="$cmds cat $base/cpuinfo_max_freq > $base/max_perf;"
+    else
+      cmds="$cmds echo $((MAX_MHZ * 1000)) > $base/max_perf;"
+    fi
+  done
+  [ -n "$cmds" ] || { echo "no cores found for domain $DOMAIN" >&2; return 2; }
   # One unit per CPU domain; the helper writes only that domain's cores.
   cat <<UNIT
 [Unit]
@@ -150,7 +156,7 @@ After=multi-user.target
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c '$exec_line'
+ExecStart=/bin/sh -c '$cmds'
 RemainAfterExit=yes
 
 [Install]
