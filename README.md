@@ -247,7 +247,7 @@ sparkDash can **optionally** let you set CPU and GPU clock caps from the dashboa
 | **Hardware-bounded** | Bounds are discovered at runtime — CPU domains from `cpuinfo_min_freq`/`cpuinfo_max_freq` (grouped by domain: X925 big cores / A725 little cores), GPU ceiling from the `nvidia-smi -q -d CLOCK` *Default Applications Clock → Graphics* value. Nothing is hardcoded |
 | **Two CPU domains** | The big (X925) and little (A725) core groups can be capped independently — each core in a domain gets the same `max_perf` value |
 | **Remove the cap** | A "No cap" preset (or clearing the value) restores each core's own hardware maximum (CPU) or removes the `nvidia-smi` lock with `-rgc` (GPU) |
-| **Apply vs Save** | **Apply (this boot only)** writes the cap now and warns that it reverts on reboot; **Save** also rewrites the boot systemd unit (`cpu-clock-cap.service` / `gpu-clock-lock.service`) and runs `daemon-reload`, so it persists |
+| **Apply vs Save** | **Apply (this boot only)** writes the cap now and warns that it reverts on reboot; **Save** also rewrites the boot systemd unit (`cpu-clock-cap.service` / `gpu-clock-lock.service`) and runs `daemon-reload`, so it persists. Both CPU domains share one unit, so a single-domain Save regenerates the sibling domain's lines too (from its current live cap) rather than wiping them — byte-identical whether the host helper or the container path does the writing |
 | **Presets** | "No cap" (= the domain's hardware maximum) per domain; a boot-default revert is just saving the values the boot unit currently installs |
 | **Honest state** | A live-only apply is reported as such (with a "reverts on reboot" warning) and is shown in the UI until a fresh read converges — the dashboard never claims a persisted value it did not write |
 | **Rate limited** | Applies go through the same destructive-action rate limiter as job cancellation |
@@ -262,6 +262,8 @@ sudo ./scripts/install-clock-helper.sh
 ```
 
 The installer copies `scripts/sparkdash-set-clock` to `/usr/local/bin/` and adds `/etc/sudoers.d/sparkdash-clock`, validated with `visudo -c`, allowing **only** that binary to run without a password (`NOPASSWD: /usr/local/bin/sparkdash-set-clock`). It never touches `/etc/sudoers` and grants no other sudo rights.
+
+Because the sudoers rule allows the binary with **no arguments**, helper availability is probed by exercising exactly that granted command: the dashboard first checks the binary exists (`test -x` — missing → "not installed") and then runs `sudo -n <helper>` argumentless. The helper prints its usage line and exits 1, which proves sudo allowed the run; a sudo refusal exits 1 **without** the usage line and is reported as "passwordless sudo not configured" (HTTP 423 with the installer hint). The API always names the real cause.
 
 On a **local** Spark (dashboard container running privileged on the same machine), sparkDash falls back to the container's own root path: live caps go through the container's rw `/sys` and `nvidia-smi`, and persistence goes through `nsenter` into the host mount namespace. Which path was used is reported in the API response (`source`: `helper` or `container`).
 
