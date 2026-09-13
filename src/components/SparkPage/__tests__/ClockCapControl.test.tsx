@@ -415,7 +415,7 @@ describe("ClockCapControl", () => {
   });
 
   it("shows a load error when the bounds request fails (e.g. helper missing)", async () => {
-    mockGet.mockRejectedValueOnce(new Error("clock helper not installed — run scripts/install-clock-helper.sh on the host"));
+    mockGet.mockRejectedValueOnce(new Error("clock helper not installed — run scripts/sparkdash-clock-addon/install-clock-helper.sh on the host"));
     const { dialog } = await openDialog();
     await flush();
     expect(dialog!.textContent).toContain("install-clock-helper.sh");
