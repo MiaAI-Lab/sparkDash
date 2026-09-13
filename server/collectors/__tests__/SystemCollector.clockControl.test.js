@@ -76,6 +76,27 @@ test("clearClockCapsOverride drops all volatile state (hot config)", async () =>
   assert.deepEqual(c._clockCapsOverride, {});
 });
 
+test("a gpu live-only override survives a diverging unit-file read (D5)", async () => {
+  const c = localCollector();
+  // A live-only -lgc apply is invisible to the unit file: until a read
+  // actually reports the applied value, the override must keep the UI honest.
+  c._clockCapsOverride.gpu = 2400;
+  c._readLocalCpuCapDump = async () => "cpu0:2808000:2808000\ncpu5:2600000:3900000";
+  c._readLocalGpuLockUnit = async () => "-lgc 0,2200"; // unit still says 2200
+  await c._getClockCaps();
+  assert.equal(c._clockCapsOverride.gpu, 2400);
+});
+
+test("a gpu override drops once a fresh read converges to it", async () => {
+  const c = localCollector();
+  c._clockCapsOverride.gpu = 2400;
+  c._readLocalCpuCapDump = async () => "cpu0:2808000:2808000\ncpu5:2600000:3900000";
+  c._readLocalGpuLockUnit = async () => "-lgc 0,2400";
+  c._clockCapsCache = { at: 0, cpuDomains: null, gpuLock: null }; // force fresh read
+  await c._getClockCaps();
+  assert.ok(!Object.prototype.hasOwnProperty.call(c._clockCapsOverride, "gpu"));
+});
+
 // ─── D8: bounds discovery ─────────────────────────────────
 
 test("_getClockBounds parses cpu bounds and the GPU ceiling from smi output", async () => {
@@ -255,4 +276,76 @@ test("remote unit with no helper fails without attempting the container path", a
   // transport error, a remote unit must never report source:"container".
   assert.equal(res.ok, false);
   assert.notEqual(res.source, "container");
+});
+
+// ─── shared boot unit: a one-domain Save must preserve the sibling ─────────
+
+const BIG_CORES = ["cpu0", "cpu1"];
+const LITTLE_CORES = ["cpu5", "cpu6"];
+
+function persistCapturingCollector(overrides = {}, siblingReads = {}) {
+  const c = localCollector();
+  c._cpuDomainCores = (d) => (d === "cpu-big" ? BIG_CORES : LITTLE_CORES);
+  c._clockCapsOverride = { ...overrides };
+  c._readSysFile = (p) => {
+    for (const [cpuN, val] of Object.entries(siblingReads)) {
+      if (p.includes(`/${cpuN}/cpufreq/max_perf`)) return val;
+    }
+    return null;
+  };
+  let captured = "";
+  c._exec = async (cmd) => {
+    captured = cmd;
+    return "";
+  };
+  c._captured = () => captured;
+  return c;
+}
+
+test("persisting one CPU domain carries the sibling domain's live values", async () => {
+  // Both domains share cpu-clock-cap.service; saving only cpu-big must not
+  // clobber cpu-little's boot cap (2600000 kHz live right now).
+  const c = persistCapturingCollector({}, { cpu5: "2600000\n", cpu6: "2600000\n" });
+  await c._persistClockUnitLocal("cpu-big", 2808);
+  const cmd = c._captured();
+  assert.match(cmd, /echo 2808000 > \/sys\/devices\/system\/cpu\/cpu0\/cpufreq\/max_perf/);
+  assert.match(cmd, /echo 2808000 > \/sys\/devices\/system\/cpu\/cpu1\/cpufreq\/max_perf/);
+  assert.match(cmd, /echo 2600000 > \/sys\/devices\/system\/cpu\/cpu5\/cpufreq\/max_perf/);
+  assert.match(cmd, /echo 2600000 > \/sys\/devices\/system\/cpu\/cpu6\/cpufreq\/max_perf/);
+});
+
+test("persisted sibling value prefers its volatile override over the live read", async () => {
+  const c = persistCapturingCollector(
+    { "cpu-little": 2400 },
+    { cpu5: "2600000\n", cpu6: "2600000\n" }
+  );
+  await c._persistClockUnitLocal("cpu-big", 2808);
+  const cmd = c._captured();
+  assert.match(cmd, /echo 2400000 > \/sys\/devices\/system\/cpu\/cpu5\/cpufreq\/max_perf/);
+  assert.match(cmd, /echo 2400000 > \/sys\/devices\/system\/cpu\/cpu6\/cpufreq\/max_perf/);
+  assert.doesNotMatch(cmd, /echo 2600000 >/);
+});
+
+test("persisted sibling cores with unreadable max_perf are omitted (no guesses)", async () => {
+  const c = persistCapturingCollector({}, {});
+  await c._persistClockUnitLocal("cpu-big", 2808);
+  const cmd = c._captured();
+  assert.doesNotMatch(cmd, /cpu5/);
+  assert.doesNotMatch(cmd, /cpu6/);
+});
+
+test("persisted unit ExecStart contains no shell loop variables (systemd $ expansion)", async () => {
+  const c = persistCapturingCollector({}, { cpu5: "2600000\n", cpu6: "2600000\n" });
+  await c._persistClockUnitLocal("cpu-big", 2808);
+  assert.doesNotMatch(c._captured(), /\$c\b/);
+  await c._persistClockUnitLocal("cpu-big", null);
+  assert.doesNotMatch(c._captured(), /\$c\b/);
+});
+
+test("remove-cap persist writes each edited core's cpuinfo_max_freq and keeps the sibling", async () => {
+  const c = persistCapturingCollector({}, { cpu5: "2600000\n", cpu6: "2600000\n" });
+  await c._persistClockUnitLocal("cpu-big", null);
+  const cmd = c._captured();
+  assert.match(cmd, /cat \/sys\/devices\/system\/cpu\/cpu0\/cpufreq\/cpuinfo_max_freq > \/sys\/devices\/system\/cpu\/cpu0\/cpufreq\/max_perf/);
+  assert.match(cmd, /echo 2600000 > \/sys\/devices\/system\/cpu\/cpu5\/cpufreq\/max_perf/);
 });

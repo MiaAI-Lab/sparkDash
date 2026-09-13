@@ -1,11 +1,11 @@
 import { act } from "react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { ClockCapControl } from "./ClockCapControl";
-import { render, flush } from "../testing/render";
-import { getClockCapBounds, setClockCap } from "../../api/client";
-import type { ClockCapBoundsResponse } from "../../api/types";
+import { ClockCapControl } from "../ClockCapControl";
+import { render, flush } from "../../../testing/render";
+import { getClockCapBounds, setClockCap } from "../../../api/client";
+import type { ClockCapBoundsResponse } from "../../../api/types";
 
-vi.mock("../../api/client", () => ({
+vi.mock("../../../api/client", () => ({
   getClockCapBounds: vi.fn(),
   setClockCap: vi.fn(),
 }));
