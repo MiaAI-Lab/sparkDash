@@ -11,6 +11,10 @@ import { SparkMonitor } from "./sparks/SparkMonitor.js";
 import { sshExec } from "./collectors/ssh.js";
 import { comfyCancelJob } from "./collectors/comfyActions.js";
 import {
+  buildClockCapDomains,
+  validateClockCapRequest,
+} from "./collectors/clockControl.js";
+import {
   validateSparkTarget,
   createRateLimiter,
   assertAllowedTarget,
@@ -330,6 +334,7 @@ app.post("/api/sparks/test", async (req, res) => {
       comfyPort: resolveComfyPort(body),
       comfyMonitoring: Boolean(body.comfyMonitoring),
       hermesMonitoring: Boolean(body.hermesMonitoring),
+      clockControlEnabled: Boolean(body.clockControlEnabled),
       tailscaleMonitoring: Boolean(body.tailscaleMonitoring),
       ssh: {
         host: body.ssh?.host || body.lanIp || "",
@@ -532,6 +537,103 @@ app.post("/api/sparks/:id/comfy/cancel", async (req, res) => {
     res.json({ success: result.ok, ...result });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Clock control (opt-in per Spark; see README "Clock control") ─────────
+
+// Discover the hardware-legal ranges: CPU domains from cpuinfo_min/max_freq,
+// GPU ceiling from `nvidia-smi -q -d CLOCK` Default Applications Clock.
+app.get("/api/sparks/:id/clocks/bounds", async (req, res) => {
+  try {
+    const spark = registry.getSpark(req.params.id);
+    if (!spark) return res.status(404).json({ error: "Spark not found" });
+    if (!spark.clockControlEnabled) {
+      return res
+        .status(403)
+        .json({ error: "Clock control is disabled for this Spark (enable it in Edit Spark)" });
+    }
+    const monitor = monitors.get(req.params.id);
+    if (!monitor) return res.status(404).json({ error: "Spark not found" });
+    const collector = monitor.collector;
+    const [bounds, caps, helper] = await Promise.all([
+      collector._getClockBounds(),
+      collector._getClockCaps(),
+      collector.checkClockHelper(),
+    ]);
+    const domains = buildClockCapDomains({
+      cpuDomains: caps.cpuDomains,
+      gpuLock: caps.gpuLock,
+      cpuBounds: bounds.cpuBounds,
+      gpuCeilingMHz: bounds.gpuCeilingMHz,
+      helperAvailable: helper.available,
+      helperChecked: helper.checked,
+    });
+    res.json({ ok: true, sparkId: spark.id, domains, helper });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Apply a cap: live and/or persisted. Clamping/validation is server-side and
+// mandatory (D2) — browser-supplied bounds are never trusted.
+app.post("/api/sparks/:id/clocks", async (req, res) => {
+  if (!allowDestructive(principalKey(req)) || !allowGlobalDestructive(clientKey(req))) {
+    return rejectLimited(res, "Too many clock-cap requests; try again shortly");
+  }
+  try {
+    const spark = registry.getSpark(req.params.id);
+    if (!spark) return res.status(404).json({ error: "Spark not found" });
+    if (!spark.clockControlEnabled) {
+      return res
+        .status(403)
+        .json({ error: "Clock control is disabled for this Spark (enable it in Edit Spark)" });
+    }
+    const monitor = monitors.get(req.params.id);
+    if (!monitor) return res.status(404).json({ error: "Spark not found" });
+    const collector = monitor.collector;
+
+    // Re-read live hardware bounds server-side; never trust client bounds (D2).
+    const bounds = await collector._getClockBounds();
+    const validation = validateClockCapRequest(
+      req.body,
+      (bounds.cpuBounds || []).map((b) => ({
+        id: b.maxKhz >= 3_000_000 ? "cpu-big" : "cpu-little",
+        hardMinMHz: Math.round(b.minKhz / 1000),
+        hardMaxMHz: Math.round(b.maxKhz / 1000),
+      })).concat(
+        bounds.gpuCeilingMHz != null
+          ? [{ id: "gpu", hardMinMHz: 0, hardMaxMHz: bounds.gpuCeilingMHz }]
+          : []
+      )
+    );
+    if (!validation.ok) {
+      return res.status(400).json({ ok: false, error: validation.error });
+    }
+
+    const domainBounds = (bounds.cpuBounds || []).map((b) => ({
+      id: b.maxKhz >= 3_000_000 ? "cpu-big" : "cpu-little",
+      hardMinMHz: Math.round(b.minKhz / 1000),
+      hardMaxMHz: Math.round(b.maxKhz / 1000),
+    }));
+    const live = domainBounds.concat(
+      bounds.gpuCeilingMHz != null
+        ? [{ id: "gpu", hardMinMHz: 0, hardMaxMHz: bounds.gpuCeilingMHz }]
+        : []
+    );
+    const target = live.find((d) => d.id === validation.value.domain);
+    const result = await collector.applyClockCap(validation.value, {
+      hardMinMHz: target?.hardMinMHz,
+      hardMaxMHz: target?.hardMaxMHz,
+    });
+    if (!result.ok) {
+      return res.status(result.status || 500).json({ ok: false, error: result.reason });
+    }
+    // Push the fresh cap state to clients right away instead of next poll.
+    forceBroadcast();
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 

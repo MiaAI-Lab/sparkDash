@@ -1,11 +1,34 @@
 import fs from "fs";
 import path from "path";
-import { HOST_PATHS, GPU_MEMORY_JSON_PATH, GPU_CLOCK_LOCK_UNIT, DGX_SPARK, HARDWARE_DEFAULTS, POLL_INTERVAL_NVERR } from "../config.js";
+import { HOST_PATHS, GPU_MEMORY_JSON_PATH, GPU_CLOCK_LOCK_UNIT, DGX_SPARK, HARDWARE_DEFAULTS, POLL_INTERVAL_NVERR, SPARKDASH_CLOCK_BIN, GPU_CLOCK_MAX_MHZ } from "../config.js";
 import { normalizeMac, WOL_INTERFACE } from "../wol.js";
 import { sshExec } from "./ssh.js";
+import {
+  buildClockHelperArgv,
+  clampClockCap,
+  interpretHelperExit,
+  parseCpuClockBounds,
+  parseDefaultApplicationsGraphicsClock,
+} from "./clockControl.js";
 
 const NVERR_JOURNAL_CMD =
   'journalctl -k --no-pager -q --grep=NV_ERR_NO_MEMORY 2>/dev/null | grep -c NV_ERR_NO_MEMORY || true';
+
+/**
+ * Boot units each clock domain persists to (host paths). Both CPU domains
+ * share one unit (cpu-clock-cap.service writes per-core values for both);
+ * the GPU lock has its own.
+ */
+const CLOCK_DOMAIN_UNIT = {
+  "cpu-big": "cpu-clock-cap.service",
+  "cpu-little": "cpu-clock-cap.service",
+  gpu: "gpu-clock-lock.service",
+};
+
+/** Single-quote a value for `sh -c` consumption (same idiom as the remote caps command). */
+function shQuote(s) {
+  return `'${String(s).replace(/'/g, "'\\''")}'`;
+}
 
 /**
  * Clock caps (CPU max_perf / GPU -lgc lock) change rarely, so cache the parsed
@@ -122,6 +145,15 @@ export class SystemCollector {
     this._nvErrCache = { count: 0, at: 0 };
     /** Cached clock caps (CPU max_perf domains + GPU -lgc lock). */
     this._clockCapsCache = { at: 0, cpuDomains: null, gpuLock: null };
+    /** Cached bounds read (CPU min/max per domain + GPU Default Apps ceiling). */
+    this._clockBoundsCache = { at: 0, cpuBounds: null, gpuCeilingMHz: null };
+    /**
+     * Volatile overrides (D5): live-only applies that a unit-file read cannot
+     * see. Shape { 'cpu-big'?: number, 'cpu-little'?: number, gpu?: number|null }
+     * (gpu null = lock removed). Merged over the read values in _getClockCaps;
+     * dropped once a fresh read converges, or on hot config re-registration.
+     */
+    this._clockCapsOverride = {};
   }
 
   /** Collect GPU metrics (temperature, usage, power, VRAM). */
@@ -173,44 +205,6 @@ export class SystemCollector {
     } catch (err) {
       console.error(`[SystemCollector] CPU error for ${this.spark.id}:`, err.message);
       return tagCollectionResult(this._defaultCpu(), false);
-    }
-  }
-
-  /**
-   * Read the active clock caps: per-domain CPU max_perf ceilings and the GPU
-   * -lgc lock. These change rarely, so the result is cached for
-   * CLOCK_CAPS_CACHE_TTL_MS and shared across the parallel CPU/GPU polls via an
-   * in-flight guard. Returns { cpuDomains, gpuLock } (either may be null).
-   */
-  async _getClockCaps() {
-    const now = Date.now();
-    const c = this._clockCapsCache;
-    if (c.at && now - c.at < CLOCK_CAPS_CACHE_TTL_MS && (c.cpuDomains || c.gpuLock)) {
-      return c;
-    }
-    if (this._clockCapsInFlight) return this._clockCapsInFlight;
-    this._clockCapsInFlight = (async () => {
-      let cpuDomains = null;
-      let gpuLock = null;
-      try {
-        if (this.spark.isLocal) {
-          cpuDomains = parseCpuClockCaps(await this._readLocalCpuCapDump());
-          gpuLock = parseGpuClockLock(await this._readLocalGpuLockUnit());
-        } else {
-          const out = await sshExec(this.spark, this._buildRemoteClockCapsCommand());
-          const [cpuDump, lockUnit] = out.split("---");
-          cpuDomains = parseCpuClockCaps(cpuDump);
-          gpuLock = parseGpuClockLock(lockUnit);
-        }
-      } catch (err) {
-        console.error(`[SystemCollector] clock caps error for ${this.spark.id}:`, err.message);
-      }
-      return { at: Date.now(), cpuDomains, gpuLock };
-    })();
-    try {
-      return await this._clockCapsInFlight;
-    } finally {
-      this._clockCapsInFlight = null;
     }
   }
 
@@ -269,6 +263,426 @@ export class SystemCollector {
       "echo '---'",
       `cat ${unitPath} 2>/dev/null || true`,
     ].join("; ");
+  }
+
+  // ─── Clock control (bounds, apply, volatile overrides) ────
+
+  /** Hot config re-registration: forget live-only overrides (D5). */
+  clearClockCapsOverride() {
+    this._clockCapsOverride = {};
+  }
+
+  /**
+   * Domain id for a parsed cap row (MHz values — same rule as
+   * parseCpuClockCaps' labels, which test maxKhz ≥ 3,000,000; here maxMHz
+   * ≥ 3000). The 3.9 GHz Cortex-X925 group is "cpu-big".
+   */
+  _cpuDomainId(maxMHz) {
+    return maxMHz >= 3000 ? "cpu-big" : "cpu-little";
+  }
+
+  /**
+   * Merge volatile overrides (D5) over a read result so a live-only apply is
+   * not contradicted by the CLOCK_CAPS_CACHE_TTL_MS cache. Never mutates the
+   * cache; the returned copy carries the override values.
+   */
+  _mergeClockCapsOverride(c) {
+    const o = this._clockCapsOverride || {};
+    const hasCpu = o["cpu-big"] != null || o["cpu-little"] != null;
+    const hasGpu = Object.prototype.hasOwnProperty.call(o, "gpu");
+    if (!hasCpu && !hasGpu) return c;
+    const cpuDomains = c.cpuDomains ? c.cpuDomains.map((d) => ({ ...d })) : null;
+    if (cpuDomains && hasCpu) {
+      for (const d of cpuDomains) {
+        const v = o[this._cpuDomainId(d.maxMHz)];
+        if (v != null) {
+          d.capMHz = v;
+          d.capped = v < d.maxMHz;
+        }
+      }
+    }
+    let gpuLock = c.gpuLock ? { ...c.gpuLock } : null;
+    if (hasGpu) {
+      const v = o.gpu;
+      gpuLock = v == null ? null : { minMHz: 0, maxMHz: v };
+    }
+    return { at: c.at, cpuDomains, gpuLock, ok: c.ok };
+  }
+
+  /**
+   * Drop overrides that a fresh successful read makes redundant — either
+   * because the read converged to the override (applied value now visible) or
+   * because it diverged (the fresh read is the current truth; e.g. another
+   * operator or a reboot changed the value).
+   */
+  _dropConvergedOverrides(fresh) {
+    const o = this._clockCapsOverride;
+    if (!o || Object.keys(o).length === 0) return;
+    if (fresh.ok && Array.isArray(fresh.cpuDomains)) {
+      for (const d of fresh.cpuDomains) {
+        delete o[this._cpuDomainId(d.maxMHz)];
+      }
+    }
+    if (fresh.ok) delete o.gpu;
+  }
+
+  /** Read the active clock caps, merging volatile overrides over the result. */
+  async _getClockCaps() {
+    const now = Date.now();
+    const c = this._clockCapsCache;
+    if (c.at && now - c.at < CLOCK_CAPS_CACHE_TTL_MS && (c.cpuDomains || c.gpuLock)) {
+      return this._mergeClockCapsOverride(c);
+    }
+    if (this._clockCapsInFlight) return this._clockCapsInFlight;
+    this._clockCapsInFlight = (async () => {
+      let cpuDomains = null;
+      let gpuLock = null;
+      let ok = false;
+      try {
+        if (this.spark.isLocal) {
+          cpuDomains = parseCpuClockCaps(await this._readLocalCpuCapDump());
+          gpuLock = parseGpuClockLock(await this._readLocalGpuLockUnit());
+        } else {
+          const out = await sshExec(this.spark, this._buildRemoteClockCapsCommand());
+          const [cpuDump, lockUnit] = out.split("---");
+          cpuDomains = parseCpuClockCaps(cpuDump);
+          gpuLock = parseGpuClockLock(lockUnit);
+        }
+        ok = true;
+      } catch (err) {
+        console.error(`[SystemCollector] clock caps error for ${this.spark.id}:`, err.message);
+      }
+      this._clockCapsCache = { at: Date.now(), cpuDomains, gpuLock, ok };
+      this._dropConvergedOverrides(this._clockCapsCache);
+      return this._mergeClockCapsOverride(this._clockCapsCache);
+    })();
+    try {
+      return await this._clockCapsInFlight;
+    } finally {
+      this._clockCapsInFlight = null;
+    }
+  }
+
+  /**
+   * Discover hardware bounds (D8): CPU domains from cpuinfo_min/max_freq and
+   * the GPU graphics ceiling from `nvidia-smi -q -d CLOCK` "Default
+   * Applications Clock". Cached with the same TTL + in-flight guard idiom as
+   * _getClockCaps. Returns { cpuBounds: [{minKhz,maxKhz}] | null,
+   * gpuCeilingMHz: number|null, gpuCeilingSource: 'smi'|'fallback'|null }.
+   */
+  async _getClockBounds() {
+    const now = Date.now();
+    const c = this._clockBoundsCache;
+    if (c.at && now - c.at < CLOCK_CAPS_CACHE_TTL_MS && (c.cpuBounds || c.gpuCeilingMHz != null)) {
+      return c;
+    }
+    if (this._clockBoundsInFlight) return this._clockBoundsInFlight;
+    this._clockBoundsInFlight = (async () => {
+      let cpuBounds = null;
+      let gpuCeilingMHz = null;
+      let gpuCeilingSource = null;
+      try {
+        if (this.spark.isLocal) {
+          // Reuse the caps dump: max_perf is column 2 in the read shape but
+          // bounds come from cpuinfo_min/max_freq, so dump min:max explicitly.
+          cpuBounds = parseCpuClockBounds(await this._readLocalCpuBoundsDump());
+          gpuCeilingMHz = parseDefaultApplicationsGraphicsClock(
+            await this._nvidiaSmi("-q -d CLOCK")
+          );
+        } else {
+          const out = await sshExec(
+            this.spark,
+            this._buildRemoteClockBoundsCommand(),
+            { timeoutMs: 12000 }
+          );
+          const parts = out.split("---");
+          cpuBounds = parseCpuClockBounds(parts[0] || "");
+          gpuCeilingMHz = parseDefaultApplicationsGraphicsClock(parts[1] || "");
+        }
+        if (gpuCeilingMHz == null) {
+          gpuCeilingMHz = GPU_CLOCK_MAX_MHZ;
+          gpuCeilingSource = "fallback";
+        } else {
+          gpuCeilingSource = "smi";
+        }
+      } catch (err) {
+        console.error(`[SystemCollector] clock bounds error for ${this.spark.id}:`, err.message);
+      }
+      const result = { at: Date.now(), cpuBounds, gpuCeilingMHz, gpuCeilingSource };
+      this._clockBoundsCache = result;
+      return result;
+    })();
+    try {
+      return await this._clockBoundsInFlight;
+    } finally {
+      this._clockBoundsInFlight = null;
+    }
+  }
+
+  /** Local: dump `cpuN:cpuinfo_min_freq:cpuinfo_max_freq` for every core. */
+  async _readLocalCpuBoundsDump() {
+    const cpuDir = path.join(HOST_PATHS.SYS, "devices/system/cpu");
+    let entries = [];
+    try {
+      entries = fs.readdirSync(cpuDir);
+    } catch {
+      return "";
+    }
+    const lines = [];
+    for (const e of entries) {
+      if (!/^cpu\d+$/.test(e)) continue;
+      const min = this._readSysFile(path.join(cpuDir, e, "cpufreq/cpuinfo_min_freq"));
+      const max = this._readSysFile(path.join(cpuDir, e, "cpufreq/cpuinfo_max_freq"));
+      if (min != null && max != null) lines.push(`${e}:${min.trim()}:${max.trim()}`);
+    }
+    return lines.join("\n");
+  }
+
+  /** Remote: one command that dumps CPU min/max freqs then `-q -d CLOCK`. */
+  _buildRemoteClockBoundsCommand() {
+    return [
+      "for d in /sys/devices/system/cpu/cpu*/cpufreq; do n=${d#/sys/devices/system/cpu/}; n=${n%/cpufreq}; echo \"$n:$(cat $d/cpuinfo_min_freq 2>/dev/null):$(cat $d/cpuinfo_max_freq 2>/dev/null)\"; done",
+      "echo '---'",
+      "nvidia-smi -q -d CLOCK 2>/dev/null || true",
+    ].join("; ");
+  }
+
+  /**
+   * Which apply paths this Spark can use right now (D4). 'helper' = the
+   * privileged host helper over SSH (all units); 'container' = the container's
+   * own root path (local privileged container only). Null when neither applies.
+   */
+  _clockControlPaths() {
+    const paths = [];
+    if (this.spark.isLocal) paths.push("helper", "container");
+    else paths.push("helper");
+    return paths;
+  }
+
+  /**
+   * Check whether the privileged helper is installed and runnable (cheap SSH
+   * probe). Returns { available, checked, reason }.
+   */
+  async checkClockHelper() {
+    if (this._clockHelperState && Date.now() - this._clockHelperState.at < 30_000) {
+      return this._clockHelperState.state;
+    }
+    this._clockHelperState = { at: Date.now(), state: null }; // in-flight marker
+    const probe = `test -x ${SPARKDASH_CLOCK_BIN} && sudo -n true && echo ok || echo no`;
+    let state;
+    try {
+      const out = await sshExec(this.spark, probe, { timeoutMs: 8000 });
+      state = String(out).includes("ok")
+        ? { available: true, checked: true }
+        : { available: false, checked: true, reason: "clock helper not installed on the host" };
+    } catch (err) {
+      state = {
+        available: false,
+        checked: true,
+        reason: `unreachable over SSH: ${err.message || String(err)}`,
+      };
+    }
+    this._clockHelperState = { at: Date.now(), state };
+    return state;
+  }
+
+  /**
+   * Apply a clock cap (D4). Tries the SSH helper first; for local units falls
+   * back to the container's own root path. Returns the D1 response body:
+   * { ok, domain, appliedMHz, persisted, bootUnit, source, warnings } or
+   * { ok:false, status, reason } on failure. Never claims persistence it did
+   * not perform.
+   *
+   * @param {{ domain: string, maxMHz: number | null, persist: boolean }} req
+   * @param {{ hardMinMHz?: number, hardMaxMHz?: number }} [bounds] live bounds
+   *        for clamping (server-side, mandatory — D2)
+   */
+  async applyClockCap(req, bounds = {}) {
+    const warnings = [];
+    const { domain, maxMHz, persist } = req;
+    const appliedMHz =
+      maxMHz == null ? null : clampClockCap(maxMHz, bounds.hardMinMHz, bounds.hardMaxMHz, { warnings });
+
+    // Primary: privileged helper over SSH (mirrors the shutdown feature).
+    const helperCmd = buildClockHelperArgv({ domain, maxMHz: appliedMHz, persist });
+    try {
+      await sshExec(this.spark, helperCmd, { timeoutMs: 12000 });
+      if (persist) this._clockCapsOverride = {}; // persisted → drop all volatile state
+      else if (domain === "gpu") this._clockCapsOverride.gpu = appliedMHz;
+      else this._clockCapsOverride[domain] = appliedMHz;
+      return {
+        ok: true,
+        domain,
+        appliedMHz,
+        persisted: Boolean(persist),
+        bootUnit: persist ? CLOCK_DOMAIN_UNIT[domain] ?? null : null,
+        source: "helper",
+        warnings,
+      };
+    } catch (helperErr) {
+      const interpreted = interpretHelperExit(helperErr);
+      // Local fallback (D4 secondary): the container runs as root with a rw
+      // /sys and nvidia-smi; live apply needs no sudo at all. Persistence goes
+      // through nsenter into the host mount namespace.
+      if (this.spark.isLocal && (interpreted.status === 423 || interpreted.status === 502)) {
+        try {
+          return await this._applyClockCapLocal(domain, appliedMHz, persist, warnings, helperErr);
+        } catch (localErr) {
+          return {
+            ok: false,
+            status: 502,
+            reason: `helper failed (${interpreted.reason}); local fallback failed (${localErr.message || localErr})`,
+          };
+        }
+      }
+      return { ok: false, status: interpreted.status, reason: interpreted.reason };
+    }
+  }
+
+  /**
+   * Local container-root apply path (D4 secondary). Live: write max_perf /
+   * nvidia-smi -lgc|-rgc through the container's own (rw, privileged) view —
+   * the container's /sys is the host sysfs remounted rw, NOT the read-only
+   * /host/sys bind. Persist: nsenter into the host mount namespace and
+   * rewrite the boot unit there (no systemctl in the container).
+   */
+  async _applyClockCapLocal(domain, appliedMHz, persist, warnings, helperErr) {
+    let bootUnit = null;
+    if (domain === "gpu") {
+      const smi = this._nvidiaSmiPath || "nvidia-smi";
+      if (appliedMHz == null) {
+        await this._exec(`${smi} -rgc`);
+      } else {
+        await this._exec(`${smi} -lgc 0,${appliedMHz}`);
+      }
+      bootUnit = CLOCK_DOMAIN_UNIT.gpu;
+    } else {
+      const cores = this._cpuDomainCores(domain);
+      if (!cores.length) {
+        throw new Error("no CPU cores discovered for this domain");
+      }
+      // Remove-cap = write each core's own hardware maximum (never a 0 sentinel).
+      // Container /sys (rw) — not HOST_PATHS.SYS, which is the ro host bind.
+      const cpuDir = "/sys/devices/system/cpu";
+      for (const cpuN of cores) {
+        const p = path.join(cpuDir, cpuN, "cpufreq/max_perf");
+        try {
+          if (appliedMHz == null) {
+            const max = this._readSysFile(path.join(cpuDir, cpuN, "cpufreq/cpuinfo_max_freq"));
+            if (max == null) throw new Error(`cannot read cpuinfo_max_freq for ${cpuN}`);
+            fs.writeFileSync(p, `${max.trim()}\n`);
+          } else {
+            fs.writeFileSync(p, `${appliedMHz * 1000}\n`);
+          }
+        } catch (err) {
+          throw new Error(`max_perf write failed for ${cpuN}: ${err.message}`);
+        }
+      }
+      bootUnit = CLOCK_DOMAIN_UNIT[domain];
+    }
+
+    let persisted = false;
+    if (persist) {
+      try {
+        await this._persistClockUnitLocal(domain, appliedMHz);
+        persisted = true;
+      } catch (err) {
+        warnings.push(
+          `applied live but could not persist the boot unit: ${err.message || err} — reverts on reboot`
+        );
+      }
+    } else {
+      warnings.push("applied this boot only — reverts on reboot");
+    }
+
+    // Record the volatile override so the UI shows the truth until a fresh
+    // read converges (D5). Only for values the unit-file read cannot see.
+    if (!persisted) {
+      if (domain === "gpu") this._clockCapsOverride.gpu = appliedMHz;
+      else this._clockCapsOverride[domain] = appliedMHz;
+    } else {
+      this._clockCapsOverride = {};
+    }
+
+    return {
+      ok: true,
+      domain,
+      appliedMHz,
+      persisted,
+      bootUnit,
+      source: "container",
+      warnings,
+    };
+  }
+
+  /**
+   * Persist through nsenter into the host mount namespace (D4): rewrite the
+   * boot unit's ExecStart for the requested value, then daemon-reload. The
+   * script travels on the helper's stdin (`sh -s`), so it needs no remote
+   * shell quoting — values are interpolated only as verified integers or
+   * fixed unit paths.
+   */
+  async _persistClockUnitLocal(domain, appliedMHz) {
+    const unit = CLOCK_DOMAIN_UNIT[domain] || CLOCK_DOMAIN_UNIT["cpu-big"];
+    const smi = this._nvidiaSmiPath || "nvidia-smi";
+    let execLine;
+    if (domain === "gpu") {
+      execLine = appliedMHz == null ? `${smi} -rgc` : `${smi} -lgc 0,${appliedMHz}`;
+    } else if (appliedMHz == null) {
+      // Remove-cap at boot: every core gets its own hardware maximum.
+      execLine =
+        "for d in /sys/devices/system/cpu/cpu*/cpufreq; do cat $d/cpuinfo_max_freq > $d/max_perf; done";
+    } else {
+      execLine = `for d in /sys/devices/system/cpu/cpu*/cpufreq; do echo ${appliedMHz * 1000} > $d/max_perf; done`;
+    }
+    const script = [
+      "set -eu",
+      `cat > /etc/systemd/system/${unit} <<'UNIT'`,
+      "[Unit]",
+      `Description=sparkDash ${domain} clock cap`,
+      "After=nvidia-persistenced.service",
+      "",
+      "[Service]",
+      "Type=oneshot",
+      `ExecStart=${execLine}`,
+      "RemainAfterExit=yes",
+      "",
+      "[Install]",
+      "WantedBy=multi-user.target",
+      "UNIT",
+      "systemctl daemon-reload",
+    ].join("\n");
+    await this._exec(
+      `nsenter --mount=/host/proc/1/ns/mnt -- sh -s <<'SPARKDASH_UNIT_SCRIPT'\n${script}\nSPARKDASH_UNIT_SCRIPT`
+    );
+  }
+
+  /**
+   * Core names (cpuN) for a CPU domain, discovered from the bounds dump —
+   * never hardcoded indices. Empty when nothing is readable.
+   */
+  _cpuDomainCores(domain) {
+    const cpuDir = path.join(HOST_PATHS.SYS, "devices/system/cpu");
+    let entries = [];
+    try {
+      entries = fs.readdirSync(cpuDir);
+    } catch {
+      return [];
+    }
+    const byDomain = new Map(); // maxKhz → [cpuN...]
+    for (const e of entries) {
+      if (!/^cpu\d+$/.test(e)) continue;
+      const max = this._readSysFile(path.join(cpuDir, e, "cpufreq/cpuinfo_max_freq"));
+      if (max == null) continue;
+      const maxKhz = parseInt(max.trim(), 10);
+      if (!Number.isFinite(maxKhz)) continue;
+      const id = maxKhz >= 3_000_000 ? "cpu-big" : "cpu-little";
+      if (!byDomain.has(id)) byDomain.set(id, []);
+      byDomain.get(id).push(e);
+    }
+    const cores = byDomain.get(domain) || [];
+    // cpu0 < cpu1 < … < cpu10 numeric order for a stable unit file.
+    return cores.sort((a, b) => parseInt(a.slice(3), 10) - parseInt(b.slice(3), 10));
   }
 
   _isSuccessfulGpuCollection(gpu) {

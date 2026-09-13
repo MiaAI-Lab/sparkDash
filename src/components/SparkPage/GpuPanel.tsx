@@ -4,11 +4,14 @@ import { Panel } from "../ui/Panel";
 import { ActivityIcon } from "../ui/icons";
 import { MetricBar } from "../ui/MetricBar";
 import { useMetricsHistoryTail } from "../../hooks/metricsStore";
+import { ClockCapControl } from "./ClockCapControl";
 
 interface GpuPanelProps {
   gpu: GpuMetrics | null;
   sparkId: string;
   temperatureUnit: "celsius" | "fahrenheit";
+  /** Opt-in: the Clock Cap row becomes editable (default false). */
+  clockControlEnabled?: boolean;
   className?: string;
 }
 
@@ -43,7 +46,13 @@ function MetricRow({
   );
 }
 
-export function GpuPanel({ gpu, sparkId, temperatureUnit, className }: GpuPanelProps) {
+export function GpuPanel({
+  gpu,
+  sparkId,
+  temperatureUnit,
+  clockControlEnabled,
+  className,
+}: GpuPanelProps) {
   const tempHistory = useMetricsHistoryTail(sparkId, "gpu.temp");
   const usageHistory = useMetricsHistoryTail(sparkId, "gpu.usage");
 
@@ -148,14 +157,21 @@ export function GpuPanel({ gpu, sparkId, temperatureUnit, className }: GpuPanelP
             {clockLock != null && (
               <div className="flex items-center justify-between gap-2 text-sm">
                 <span className="text-muted">Clock Cap</span>
-                <span className="font-tabular text-sm text-text-strong">
-                  {/* -lgc MIN,MAX: a 0 min means "no floor" and MIN==MAX is a
-                      single pinned value — both collapse to just the max.
-                      Show the range only when a real floor is locked. */}
-                  {clockLock.minMHz > 0 && clockLock.minMHz !== clockLock.maxMHz
-                    ? `${clockLock.minMHz}–${clockLock.maxMHz} MHz`
-                    : `${capMax} MHz`}
-                </span>
+                <ClockCapControl
+                  sparkId={sparkId}
+                  domain="gpu"
+                  currentMHz={capMax}
+                  display={
+                    /* -lgc MIN,MAX: a 0 min means "no floor" and MIN==MAX is a
+                       single pinned value — both collapse to just the max.
+                       Show the range only when a real floor is locked. */
+                    clockLock.minMHz > 0 && clockLock.minMHz !== clockLock.maxMHz
+                      ? `${clockLock.minMHz}–${clockLock.maxMHz} MHz`
+                      : `${capMax} MHz`
+                  }
+                  enabled={Boolean(clockControlEnabled)}
+                  disabledReason="Clock control is disabled for this Spark (enable it in Edit Spark)"
+                />
               </div>
             )}
             <div className="flex items-baseline justify-between gap-2">
