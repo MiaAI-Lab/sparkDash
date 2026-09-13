@@ -424,12 +424,18 @@ export class SparkMonitor {
     return ivs;
   }
 
-  /** Pause polling (spark's graphs visible to no client). Timers cleared, cache kept. */
+  /**
+   * Pause HW polling (spark's graphs visible to no client). System/GPU
+   * timers are cleared, but the LLM (vLLM) probe KEEPS polling — its cards
+   * must stay live even when the machine's HW graphs are scrolled out of
+   * view, and the probe is a cheap HTTP fetch, not SSH.
+   */
   pause() {
     if (this._paused || !this._running) return;
     this._paused = true;
     this._clearIntervals();
-    console.log(`[SparkMonitor] ${this.spark.id} paused (not visible to any client)`);
+    this._restartLlmPollInterval();
+    console.log(`[SparkMonitor] ${this.spark.id} paused HW polling (not visible to any client)`);
   }
 
   /** Resume polling (WS client connected). Restores all timers. */
@@ -590,7 +596,9 @@ export class SparkMonitor {
   }
 
   async _pollDomain(domain) {
-    if (!this._running || this._paused || this._inflight[domain]) return;
+    // "llm" is exempt from the pause: the vLLM probe must keep updating
+    // even while the spark's HW graphs are out of every client's viewport.
+    if (!this._running || (this._paused && domain !== "llm") || this._inflight[domain]) return;
     // Skip storage auto-poll when disabled for this spark
     if (domain === "storage" && this.spark.storagePollDisabled) return;
     // Worker nodes: no local LLM API
