@@ -153,6 +153,10 @@ export class SparkMonitor {
     this._metricCollectionSuccessful = { gpu: false, cpu: false };
     this.spark = spark;
     this.collector.spark = spark;
+    // Clock-cap volatile overrides (D5) describe the PREVIOUS config's apply
+    // path; a hot re-registration (possible target change) must not keep
+    // reporting them. Optional call: test doubles may lack the collector API.
+    this.collector.clearClockCapsOverride?.();
 
     // Rebuild LLM probe map — add new ports, remove stale ones, update existing
     const ports = this._llmMonitoringEnabled() ? this._llmPorts() : [];

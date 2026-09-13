@@ -569,6 +569,11 @@ export interface SparkSnapshot {
   comfyMonitoring?: boolean;
   /** ComfyUI HTTP port (default 8188) */
   comfyPort?: number;
+  /**
+   * Opt-in: the Clock Cap rows in the GPU/CPU panels become editable
+   * (default false; requires the one-time helper install on the host).
+   */
+  clockControlEnabled?: boolean;
   /** Whether tailnet presence is probed (opt-in; all roles) */
   tailscaleMonitoring?: boolean;
   /** Hermes Agent update monitoring state (present in every snapshot). */
