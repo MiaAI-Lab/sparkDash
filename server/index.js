@@ -568,8 +568,16 @@ app.get("/api/sparks/:id/clocks/bounds", async (req, res) => {
       gpuCeilingMHz: bounds.gpuCeilingMHz,
       helperAvailable: helper.available,
       helperChecked: helper.checked,
+      cpuBootDefaults: bounds.cpuBootDefaults || {},
+      gpuBootDefaultMHz: bounds.gpuBootDefaultMHz ?? null,
     });
-    res.json({ ok: true, sparkId: spark.id, domains, helper });
+    const warnings = [];
+    if (bounds.gpuCeilingSource === "fallback") {
+      warnings.push(
+        `GPU ceiling could not be read from nvidia-smi; using the documented fallback ${bounds.gpuCeilingMHz} MHz (GPU_CLOCK_MAX_MHZ)`
+      );
+    }
+    res.json({ ok: true, sparkId: spark.id, domains, helper, warnings });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

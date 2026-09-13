@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { HOST_PATHS, GPU_MEMORY_JSON_PATH, GPU_CLOCK_LOCK_UNIT, DGX_SPARK, HARDWARE_DEFAULTS, POLL_INTERVAL_NVERR, SPARKDASH_CLOCK_BIN, GPU_CLOCK_MAX_MHZ } from "../config.js";
+import { HOST_PATHS, GPU_MEMORY_JSON_PATH, GPU_CLOCK_LOCK_UNIT, CPU_CLOCK_CAP_UNIT, DGX_SPARK, HARDWARE_DEFAULTS, POLL_INTERVAL_NVERR, SPARKDASH_CLOCK_BIN, GPU_CLOCK_MAX_MHZ } from "../config.js";
 import { normalizeMac, WOL_INTERFACE } from "../wol.js";
 import { sshExec } from "./ssh.js";
 import {
@@ -8,6 +8,8 @@ import {
   clampClockCap,
   interpretHelperExit,
   parseCpuClockBounds,
+  parseCpuCoreMaxKhz,
+  parseCpuBootUnitDefaults,
   parseDefaultApplicationsGraphicsClock,
 } from "./clockControl.js";
 
@@ -146,7 +148,13 @@ export class SystemCollector {
     /** Cached clock caps (CPU max_perf domains + GPU -lgc lock). */
     this._clockCapsCache = { at: 0, cpuDomains: null, gpuLock: null };
     /** Cached bounds read (CPU min/max per domain + GPU Default Apps ceiling). */
-    this._clockBoundsCache = { at: 0, cpuBounds: null, gpuCeilingMHz: null };
+    this._clockBoundsCache = {
+      at: 0,
+      cpuBounds: null,
+      gpuCeilingMHz: null,
+      cpuBootDefaults: null,
+      gpuBootDefaultMHz: null,
+    };
     /**
      * Volatile overrides (D5): live-only applies that a unit-file read cannot
      * see. Shape { 'cpu-big'?: number, 'cpu-little'?: number, gpu?: number|null }
@@ -373,14 +381,21 @@ export class SystemCollector {
   /**
    * Discover hardware bounds (D8): CPU domains from cpuinfo_min/max_freq and
    * the GPU graphics ceiling from `nvidia-smi -q -d CLOCK` "Default
-   * Applications Clock". Cached with the same TTL + in-flight guard idiom as
-   * _getClockCaps. Returns { cpuBounds: [{minKhz,maxKhz}] | null,
-   * gpuCeilingMHz: number|null, gpuCeilingSource: 'smi'|'fallback'|null }.
+   * Applications Clock". Also reads the boot units for the D7 "Boot default"
+   * presets (what the units actually install — never hardcoded). Cached with
+   * the same TTL + in-flight guard idiom as _getClockCaps. Returns
+   * { at, cpuBounds: [{minKhz,maxKhz}] | null, gpuCeilingMHz: number|null,
+   * gpuCeilingSource: 'smi'|'fallback'|null, cpuBootDefaults:
+   * {'cpu-big'?:number,'cpu-little'?:number}|null, gpuBootDefaultMHz: number|null }.
    */
   async _getClockBounds() {
     const now = Date.now();
     const c = this._clockBoundsCache;
-    if (c.at && now - c.at < CLOCK_CAPS_CACHE_TTL_MS && (c.cpuBounds || c.gpuCeilingMHz != null)) {
+    if (
+      c.at &&
+      now - c.at < CLOCK_CAPS_CACHE_TTL_MS &&
+      (c.cpuBounds || c.gpuCeilingMHz != null)
+    ) {
       return c;
     }
     if (this._clockBoundsInFlight) return this._clockBoundsInFlight;
@@ -388,14 +403,27 @@ export class SystemCollector {
       let cpuBounds = null;
       let gpuCeilingMHz = null;
       let gpuCeilingSource = null;
+      let cpuBootDefaults = null;
+      let gpuBootDefaultMHz = null;
       try {
         if (this.spark.isLocal) {
           // Reuse the caps dump: max_perf is column 2 in the read shape but
           // bounds come from cpuinfo_min/max_freq, so dump min:max explicitly.
-          cpuBounds = parseCpuClockBounds(await this._readLocalCpuBoundsDump());
+          const boundsDump = await this._readLocalCpuBoundsDump();
+          cpuBounds = parseCpuClockBounds(boundsDump);
           gpuCeilingMHz = parseDefaultApplicationsGraphicsClock(
             await this._nvidiaSmi("-q -d CLOCK")
           );
+          // D7 boot-default presets: parse the installed boot units against
+          // the discovered core→domain map. Read-path only; a missing unit
+          // simply omits the preset.
+          const coreMaxKhz = parseCpuCoreMaxKhz(boundsDump);
+          cpuBootDefaults = parseCpuBootUnitDefaults(
+            this._readLocalBootUnit(CPU_CLOCK_CAP_UNIT),
+            coreMaxKhz
+          );
+          gpuBootDefaultMHz =
+            parseGpuClockLock(this._readLocalBootUnit(GPU_CLOCK_LOCK_UNIT))?.maxMHz ?? null;
         } else {
           const out = await sshExec(
             this.spark,
@@ -405,6 +433,10 @@ export class SystemCollector {
           const parts = out.split("---");
           cpuBounds = parseCpuClockBounds(parts[0] || "");
           gpuCeilingMHz = parseDefaultApplicationsGraphicsClock(parts[1] || "");
+          const coreMaxKhz = parseCpuCoreMaxKhz(parts[0] || "");
+          cpuBootDefaults = parseCpuBootUnitDefaults(parts[2] || "", coreMaxKhz);
+          gpuBootDefaultMHz =
+            parseGpuClockLock(parts[3] || "")?.maxMHz ?? null;
         }
         if (gpuCeilingMHz == null) {
           gpuCeilingMHz = GPU_CLOCK_MAX_MHZ;
@@ -415,7 +447,7 @@ export class SystemCollector {
       } catch (err) {
         console.error(`[SystemCollector] clock bounds error for ${this.spark.id}:`, err.message);
       }
-      const result = { at: Date.now(), cpuBounds, gpuCeilingMHz, gpuCeilingSource };
+      const result = { at: Date.now(), cpuBounds, gpuCeilingMHz, gpuCeilingSource, cpuBootDefaults, gpuBootDefaultMHz };
       this._clockBoundsCache = result;
       return result;
     })();
@@ -423,6 +455,15 @@ export class SystemCollector {
       return await this._clockBoundsInFlight;
     } finally {
       this._clockBoundsInFlight = null;
+    }
+  }
+
+  /** Read a boot unit through the container's host-root bind (read path). */
+  _readLocalBootUnit(hostPath) {
+    try {
+      return fs.readFileSync(path.join(HOST_PATHS.ROOT, hostPath), "utf-8");
+    } catch {
+      return "";
     }
   }
 
@@ -445,12 +486,18 @@ export class SystemCollector {
     return lines.join("\n");
   }
 
-  /** Remote: one command that dumps CPU min/max freqs then `-q -d CLOCK`. */
+  /** Remote: dump CPU min/max freqs, `-q -d CLOCK`, then both boot units. */
   _buildRemoteClockBoundsCommand() {
+    const cpuUnit = `'${String(CPU_CLOCK_CAP_UNIT).replace(/'/g, "'\\''")}'`;
+    const gpuUnit = `'${String(GPU_CLOCK_LOCK_UNIT).replace(/'/g, "'\\''")}'`;
     return [
       "for d in /sys/devices/system/cpu/cpu*/cpufreq; do n=${d#/sys/devices/system/cpu/}; n=${n%/cpufreq}; echo \"$n:$(cat $d/cpuinfo_min_freq 2>/dev/null):$(cat $d/cpuinfo_max_freq 2>/dev/null)\"; done",
       "echo '---'",
       "nvidia-smi -q -d CLOCK 2>/dev/null || true",
+      "echo '---'",
+      `cat ${cpuUnit} 2>/dev/null || true`,
+      "echo '---'",
+      `cat ${gpuUnit} 2>/dev/null || true`,
     ].join("; ");
   }
 

@@ -271,6 +271,8 @@ export interface ClockCapBoundsResponse {
   sparkId: string;
   domains: ClockCapDomain[];
   helper: { available: boolean; checked: boolean; reason?: string };
+  /** Non-fatal caveats, e.g. the GPU ceiling came from the documented fallback. */
+  warnings?: string[];
 }
 
 /** POST /api/sparks/:id/clocks response (200 shape). */

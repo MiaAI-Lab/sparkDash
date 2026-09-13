@@ -48,6 +48,7 @@ export function ClockCapControl({
 }: ClockCapControlProps) {
   const [open, setOpen] = useState(false);
   const [bounds, setBounds] = useState<ClockCapDomain | null>(null);
+  const [boundsWarnings, setBoundsWarnings] = useState<string[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [value, setValue] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
@@ -72,11 +73,13 @@ export function ClockCapControl({
     openedRef.current = true;
     setLoaded(false);
     setLoadError(null);
+    setBoundsWarnings([]);
     getClockCapBounds(sparkId)
       .then((res: ClockCapBoundsResponse) => {
         const d = res.domains.find((x) => x.id === domain) ?? null;
         setBounds(d);
         setValue(d?.currentMHz ?? d?.hardMaxMHz ?? null);
+        setBoundsWarnings(res.warnings ?? []);
         setLoaded(true);
         if (!d) setLoadError(`Domain ${domain} is not available on this Spark`);
       })
@@ -172,6 +175,11 @@ export function ClockCapControl({
                       Hardware range: {rangeInfo}. Current: {currentMHz != null ? `${currentMHz} MHz` : "no cap value reported"}
                       {bounds.unitPath ? ` · boot unit ${bounds.unitPath}` : ""}
                     </p>
+                    {boundsWarnings.map((w) => (
+                      <p key={w} className="text-warning">
+                        {w}
+                      </p>
+                    ))}
 
                     <div className="flex items-center gap-3">
                       <input
