@@ -562,28 +562,116 @@ export class SystemCollector {
   }
 
   /**
-   * Estimate CPU power draw from a usage fraction (0–1).
+   * Fold one package-energy counter sample into `lastRaplReading` and return
+   * measured watts over the elapsed window, plus the platform power limit if
+   * the kernel exposes one (as `constraint_0_power_limit_uw`).
    *
-   * `usageFraction` is the CPU usage measured at the caller's `/proc/stat` read
-   * — compute it once and pass it here to avoid racing `lastCpuStat` (the
-   * earlier implementation re-read `/proc/stat` in parallel with `collectCpu()`
-   * and produced an idle reading on the first poll).
+   * Counters WRAP: package-0 on a ~2 W idle desktop rolls over
+   * max_energy_range_uj (≈2.6e11 uJ here) in about a day and a half, so a
+   * negative delta is corrected by one range (a still-negative result means
+   * the counter RESET — e.g. driver reload — and becomes a new baseline).
+   * Windows shorter than 0.5 s are too coarse to divide; the first poll has
+   * no baseline. Callers then fall back to the usage-fraction estimate.
    *
-   * ARM/Neoverse chips use the GB10 65W TDP. Non-ARM hosts fall back to the
-   * generic 185W TDP — never 0/0, which previously rendered the panel as
-   * "0W / 0W", indistinguishable from "no CPU present."
+   * @param {{energyUj?:number, maxRangeUj?:number, limitUw?:number, now?:number}} s
+   * @returns {{watts:number|null, tdpW:number|null}}
+   */
+  _raplSample(s) {
+    const now = s.now ?? Date.now();
+    const out = { watts: null, tdpW: null };
+    if (Number.isFinite(s.limitUw) && s.limitUw > 0) out.tdpW = s.limitUw / 1e6;
+    if (!Number.isFinite(s.energyUj) || s.energyUj < 0) return out;
+
+    const prev = this.lastRaplReading;
+    this.lastRaplReading = { energyUj: s.energyUj, maxRangeUj: s.maxRangeUj, at: now };
+    if (!prev) return out;
+
+    const dtSec = (now - prev.at) / 1000;
+    if (!(dtSec >= 0.5)) return out;
+
+    let dUj = s.energyUj - prev.energyUj;
+    if (dUj < 0) dUj += Number.isFinite(prev.maxRangeUj) ? prev.maxRangeUj : Number.MAX_SAFE_INTEGER;
+    if (dUj < 0 || !Number.isFinite(dUj)) return out; // counter reset — new baseline only
+    out.watts = Math.round((dUj / 1e6 / dtSec) * 10) / 10;
+    return out;
+  }
+
+  /**
+   * Measured package power for the LOCAL spark via intel RAPL. The dashboard
+   * container is privileged, so `energy_uj` and the constraint files are
+   * readable even where an unprivileged host shell sees EACCES. Domain
+   * discovery: top-level `intel-rapl:N` powercap dirs, preferring the one
+   * named "package-0". Returns null when this host has no RAPL.
+   */
+  async _getRaplPackagePower() {
+    const base = path.join(HOST_PATHS.SYS, "class/powercap");
+    let entries;
+    try {
+      entries = fs.readdirSync(base).filter((e) => /^intel-rapl:\d+$/.test(e));
+    } catch {
+      return null;
+    }
+    let chosen = null;
+    for (const e of entries) {
+      try {
+        const name = fs.readFileSync(path.join(base, e, "name"), "utf-8").trim();
+        if (name === "package-0") { chosen = e; break; }
+        if (!chosen) chosen = e;
+      } catch { /* raced teardown — ignore */ }
+    }
+    if (!chosen) return null;
+    const readNum = async (file) => {
+      try {
+        const v = parseFloat(await this._readHostFile(`/sys/class/powercap/${chosen}/${file}`));
+        return Number.isFinite(v) ? v : undefined;
+      } catch {
+        return undefined;
+      }
+    };
+    const energyUj = await readNum("energy_uj");
+    if (energyUj === undefined) return null;
+    // Older kernels spelled the rollover bound max_energy_uj and exposed the
+    // limit as constraint_0_power_limit_uj (µJ per 1 s window ≡ µW); newer
+    // ones use *_range_uj / *_uw (already µW — do NOT rescale those).
+    const maxRangeUj = (await readNum("max_energy_range_uj")) ?? (await readNum("max_energy_uj"));
+    let limitUw = await readNum("constraint_0_power_limit_uw");
+    if (limitUw === undefined) {
+      const limitUj = await readNum("constraint_0_power_limit_uj");
+      if (limitUj !== undefined) limitUw = limitUj * 1e6;
+    }
+    return this._raplSample({ energyUj, maxRangeUj, limitUw });
+  }
+
+  /**
+   * CPU package power draw.
    *
-   * @param {number} [usageFraction]  0–1 CPU usage fraction. Omitted == use the
-   *   last measured percentage (used by GPU system-draw estimate).
+   * Preferred: MEASURED intel RAPL package-0 watts (source "rapl") with the
+   * platform PL1 as the denominator. Fallback: linear estimate from the
+   * usage fraction (source "estimate") — ARM/Neoverse (GB10) uses 65 W, other
+   * hosts the generic 185 W TDP; never 0/0, which previously rendered the
+   * panel as "0W / 0W", indistinguishable from "no CPU present."
+   *
+   * `usageFraction` is the CPU usage measured at the caller's `/proc/stat`
+   * read — compute it once and pass it here to avoid racing `lastCpuStat`
+   * (the earlier implementation re-read /proc/stat in parallel with
+   * collectCpu() and produced an idle reading on the first poll).
+   *
+   * @param {number} [usageFraction]  0–1 CPU usage fraction. Omitted == use
+   *   the last measured percentage (used by GPU system-draw estimate).
    */
   async _getCPUPower(usageFraction) {
+    const measured = await this._getRaplPackagePower();
+    if (measured?.watts != null) {
+      const tdp = measured.tdpW ?? (await this._isArm() ? 65 : HARDWARE_DEFAULTS.CPU_TDP_FALLBACK);
+      return { draw: measured.watts, tdp: Math.round(tdp), source: "rapl" };
+    }
     const isArm = await this._isArm();
-    const tdp = isArm ? 65 : HARDWARE_DEFAULTS.CPU_TDP_FALLBACK;
+    const tdp = measured?.tdpW ?? (isArm ? 65 : HARDWARE_DEFAULTS.CPU_TDP_FALLBACK);
     let frac = typeof usageFraction === "number" ? usageFraction : this.lastCpuUsagePct / 100;
     if (!Number.isFinite(frac) || frac < 0) frac = 0;
     const idleWatts = tdp * 0.08;
     const draw = idleWatts + (tdp - idleWatts) * Math.min(frac, 1);
-    return { draw: Math.round(draw * 10) / 10, tdp: Math.round(tdp) };
+    return { draw: Math.round(draw * 10) / 10, tdp: Math.round(tdp), source: "estimate" };
   }
 
   // ─── RAM helpers ─────────────────────────────────────────
@@ -1097,9 +1185,11 @@ export class SystemCollector {
 
   /**
    * One SSH round trip: /proc/stat, CPU arch, then the same hwmon-then-thermal
-   * sensor dump local `_getCPUTemperature()` uses. `|| true` on the thermal
-   * glob keeps a missing zone from failing the whole CPU poll (sshExec treats
-   * any non-zero exit as a hard error).
+   * sensor dump local `_getCPUTemperature()` uses, then the intel-RAPL
+   * package-0 counter triple (energy / rollover bound / PL1 limit — empty on
+   * GB10, which then keeps the estimate path). `|| true` on the optional
+   * globs keeps a missing zone from failing the whole CPU poll (sshExec
+   * treats any non-zero exit as a hard error).
    */
   _buildRemoteCpuCommand() {
     return [
@@ -1110,6 +1200,12 @@ export class SystemCollector {
       // GB10 also exposes nvme/mlx5 sensors; the name allowlist keeps those out.
       'for h in /sys/class/hwmon/*; do n=$(cat "$h/name" 2>/dev/null); case "$n" in coretemp|k10temp|zenpower|acpitz) for t in "$h"/temp*_input; do cat "$t" 2>/dev/null; break; done;; esac; done',
       "cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null || true",
+      "echo '---'",
+      "cat /sys/class/powercap/intel-rapl:0/energy_uj 2>/dev/null || true",
+      "echo '---'",
+      "cat /sys/class/powercap/intel-rapl:0/max_energy_range_uj 2>/dev/null; cat /sys/class/powercap/intel-rapl:0/max_energy_uj 2>/dev/null || true",
+      "echo '---'",
+      "cat /sys/class/powercap/intel-rapl:0/constraint_0_power_limit_uw 2>/dev/null || cat /sys/class/powercap/intel-rapl:0/constraint_0_power_limit_uj 2>/dev/null | awk '{print $1*1000000}' || true",
     ].join("; ");
   }
 
@@ -1125,9 +1221,34 @@ export class SystemCollector {
     const usage = totalDiff > 0 ? Math.round((usedDiff / totalDiff) * 100) : 0;
     this.lastCpuStat = cpuStat;
 
+    // Measured RAPL when the target exposes package-0 (empty sections on
+    // GB10 → falls through to the estimate, exactly as before).
+    const num = (s) => {
+      const v = parseFloat(String(s ?? "").trim().split("\n")[0]);
+      return Number.isFinite(v) ? v : undefined;
+    };
+    const limitRaw = num(sections[5]);
+    const measured = this._raplSample({
+      energyUj: num(sections[3]),
+      maxRangeUj: num(sections[4]),
+      limitUw: limitRaw === undefined || limitRaw === 0 ? undefined : limitRaw,
+    });
+
+    if (measured.watts != null) {
+      const isArm = /CPU architecture:\s*[89]|aarch64|ARMv[89]|armv[89]/i.test(cpuinfoOut);
+      const tdp = measured.tdpW ?? (isArm ? 65 : 185);
+      return {
+        usage,
+        temperature: this._parseSensorTemp(tempOut),
+        draw: measured.watts,
+        tdp: Math.round(tdp),
+        source: "rapl",
+      };
+    }
+
     // ARM/Neoverse power estimation
     const isArm = /CPU architecture:\s*[89]|aarch64|ARMv[89]|armv[89]/i.test(cpuinfoOut);
-    const tdp = isArm ? 65 : 185;
+    const tdp = measured.tdpW ?? (isArm ? 65 : 185);
     const idleWatts = tdp * 0.08;
     const draw = idleWatts + (tdp - idleWatts) * Math.min(usage / 100, 1);
 
@@ -1136,6 +1257,7 @@ export class SystemCollector {
       temperature: this._parseSensorTemp(tempOut),
       draw: Math.round(draw * 10) / 10,
       tdp: Math.round(tdp),
+      source: "estimate",
     };
   }
 

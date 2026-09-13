@@ -78,7 +78,7 @@ function mockSysfs({ names = {}, temps = {}, zones = {} } = {}) {
   };
 }
 
-test("remote CPU command always includes the sensor dump", () => {
+test("remote CPU command includes the sensor dump and the RAPL triple", () => {
   const spark = new SystemCollector({ id: "spark-test", kind: "spark" });
   const host = new SystemCollector({ id: "host-test", kind: "host" });
   const sparkCmd = spark._buildRemoteCpuCommand();
@@ -87,7 +87,10 @@ test("remote CPU command always includes the sensor dump", () => {
   assert.match(sparkCmd, /coretemp\|k10temp\|zenpower\|acpitz/);
   assert.match(sparkCmd, /thermal_zone\*\/temp/);
   assert.match(sparkCmd, /\|\| true$/);
-  assert.equal((sparkCmd.match(/echo '---'/g) || []).length, 2);
+  // stat / cpuinfo / temps / rapl energy / rapl max-range / rapl PL1
+  assert.equal((sparkCmd.match(/echo '---'/g) || []).length, 5);
+  assert.match(sparkCmd, /powercap\/intel-rapl:0\/energy_uj/);
+  assert.match(sparkCmd, /constraint_0_power_limit_uw/);
 });
 
 test("remote CPU collection returns temperature for DGX Spark nodes", async () => {
@@ -96,18 +99,70 @@ test("remote CPU collection returns temperature for DGX Spark nodes", async () =
     assert.equal(spark.id, "spark-test");
     assert.match(command, /coretemp\|k10temp\|zenpower\|acpitz/);
     assert.match(command, /thermal_zone\*\/temp/);
-    assert.equal((command.match(/echo '---'/g) || []).length, 2);
+    // GB10: the three RAPL sections come back EMPTY — estimate path must survive.
     return [
       "cpu 100 0 40 860 0 0 0 0",
       "---",
       "CPU architecture: 8",
       "---",
       "70900",
+      "---",
+      "",
+      "---",
+      "",
+      "---",
+      "",
     ].join("\n");
   });
 
   assert.equal(result.temperature, 70.9);
   assert.equal(result.tdp, 65);
+  assert.equal(result.source, "estimate");
+});
+
+test("remote CPU collection reports measured RAPL package watts", async () => {
+  const collector = new SystemCollector({ id: "x86-test", kind: "host" });
+  const now = Date.now();
+  let call = 0;
+  const exec = async () => {
+    call++;
+    // 50 mJ elapsed between the two 1s-apart samples → 50 W, PL1 65 W.
+    const energy = call === 1 ? 1_000_000_000 : 1_050_000_000;
+    return [
+      call === 1 ? "cpu 100 0 40 860 0 0 0 0" : "cpu 200 0 80 1720 0 0 0 0",
+      "---",
+      "model name  : Intel Core i3-10100",
+      "---",
+      "61000",
+      "---",
+      String(energy),
+      "---",
+      "262143328850",
+      "---",
+      "65000000",
+    ].join("\n");
+  };
+  // Force both samples into a ≥0.5s window via a fake clock.
+  const realNow = Date.now;
+  Date.now = () => now + (call === 0 ? 0 : call === 1 ? 0 : 1000);
+  try {
+    const first = await collector._getRemoteCpu(exec);
+    assert.equal(first.source, "estimate", "first poll has no baseline window");
+    const second = await collector._getRemoteCpu(exec);
+    assert.equal(second.source, "rapl");
+    assert.equal(second.draw, 50);
+    assert.equal(second.tdp, 65, "PL1 from constraint_0_power_limit_uw");
+  } finally {
+    Date.now = realNow;
+  }
+});
+
+test("RAPL counter wrap is corrected by max_energy_range", () => {
+  const collector = Object.create(SystemCollector.prototype);
+  collector.lastRaplReading = { energyUj: 262_141_128_850, maxRangeUj: 262_143_328_850, at: 1_000 };
+  const s = collector._raplSample({ energyUj: 1_000_000, maxRangeUj: 262_143_328_850, now: 3_000 });
+  // delta = 1e6 − 262_141_128_850 + range = 3_200_000 uJ over 2 s = 1.6 W
+  assert.equal(s.watts, 1.6);
 });
 
 test("converts millidegrees to Celsius", () => {
