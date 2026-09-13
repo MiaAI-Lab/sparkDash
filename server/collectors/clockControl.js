@@ -9,6 +9,21 @@
 export const CLOCK_HELPER_BIN = "/usr/local/bin/sparkdash-set-clock";
 
 /**
+ * Sentinels for the helper availability probe. The sudoers grant shipped by
+ * scripts/install-clock-helper.sh allows ONLY the bare helper binary (no
+ * arguments), so the probe must exercise exactly that command — a
+ * `sudo -n true` pre-check can never succeed on a correctly provisioned host.
+ * The argumentless probe makes the helper print its usage line and exit 1,
+ * which proves sudo allowed it; a sudo refusal carries no usage line.
+ * Tokens (never sudo's own wording) keep the three causes distinct.
+ */
+export const HELPER_PROBE_OK = "sparkdash-helper-ok";
+export const HELPER_PROBE_REFUSED = "sparkdash-helper-refused";
+export const HELPER_PROBE_MISSING = "sparkdash-helper-missing";
+/** Sentinel the apply argv emits when sudo refuses the argumentless probe. */
+export const HELPER_REFUSED_SENTINEL = "sparkdash-probe-sentinel";
+
+/**
  * Last-resort GPU graphics ceiling when `nvidia-smi -q -d CLOCK` is
  * unparseable. Documented constant (see config.js GPU_CLOCK_MAX_MHZ).
  */
@@ -141,10 +156,19 @@ export function validateClockCapRequest(body, domains) {
 }
 
 /**
- * Build the SSH command that runs the privileged clock helper (D4). Mirrors
- * SHUTDOWN_REMOTE_CMD in server/index.js: verify the helper exists (exit 127),
- * verify passwordless sudo (exit 126), then invoke it. Distinct exit codes let
- * the UI name the real cause instead of a generic failure.
+ * Build the SSH command that runs the privileged clock helper (D4).
+ *
+ * The shipped sudoers grant is a single argumentless command
+ * (`NOPASSWD: /usr/local/bin/sparkdash-set-clock`), so the chain never uses
+ * `sudo -n true` — it would always fail (exit 126) on a correctly provisioned
+ * box and the helper could never run. Instead:
+ *   1. verify the helper exists and is executable (exit 127 when not);
+ *   2. probe by running the granted command EXACTLY as sudoers allows it —
+ *      argumentless. The helper prints its usage line and exits 1, which
+ *      proves sudo allowed it; sudo's own refusals ("a password is required",
+ *      "not allowed") also exit 1 but carry no usage line, and only those hit
+ *      the sentinel + exit 126.
+ * Distinct exit codes let the UI name the real cause.
  * @param {{ domain: string, maxMHz: number | null, persist: boolean }} req
  * @param {{ helperBin?: string }} [opts]
  */
@@ -153,7 +177,9 @@ export function buildClockHelperArgv(req, opts = {}) {
   const q = (s) => `'${String(s).replace(/'/g, "'\\''")}'`;
   const args = [
     `test -x ${helperBin} || { echo "missing ${helperBin}" >&2; exit 127; }`,
-    `sudo -n true || { echo "sudo -n required for ${helperBin}" >&2; exit 126; }`,
+    `out=$(sudo -n ${helperBin} 2>&1); rc=$?; ` +
+      `if [ "$rc" -ne 0 ] && ! printf '%s' "$out" | grep -q '^usage:'; then ` +
+      `echo "${HELPER_REFUSED_SENTINEL}: sudo -n refused for ${helperBin}" >&2; exit 126; fi`,
   ];
   const parts = [`sudo -n ${helperBin}`, `--domain ${q(req.domain)}`];
   if (req.maxMHz == null) {
@@ -167,22 +193,67 @@ export function buildClockHelperArgv(req, opts = {}) {
 }
 
 /**
+ * Availability probe for SystemCollector.checkClockHelper — exercises exactly
+ * the scoped grant (argumentless sudo of the helper binary). Always exits 0
+ * and reports one of the HELPER_PROBE_* tokens on stdout, so the caller can
+ * distinguish missing-binary from sudo-refused from available without
+ * depending on sudo's message wording.
+ * @param {{ helperBin?: string }} [opts]
+ * @returns {string}
+ */
+export function buildHelperProbeCommand(opts = {}) {
+  const helperBin = opts.helperBin || CLOCK_HELPER_BIN;
+  return [
+    `test -x ${helperBin} || { echo "${HELPER_PROBE_MISSING}"; exit 0; }`,
+    `out=$(sudo -n ${helperBin} 2>&1); rc=$?`,
+    `if [ "$rc" -eq 0 ] || printf '%s' "$out" | grep -q '^usage:'; then echo "${HELPER_PROBE_OK}"; else echo "${HELPER_PROBE_REFUSED}"; fi`,
+  ].join("; ");
+}
+
+/**
+ * Classify the availability probe's stdout (see buildHelperProbeCommand).
+ * @param {string} out
+ * @returns {{ available: boolean, checked: boolean, reason?: string }}
+ */
+export function interpretHelperProbe(out) {
+  const lines = String(out ?? "")
+    .split("\n")
+    .map((s) => s.trim());
+  if (lines.includes(HELPER_PROBE_OK)) return { available: true, checked: true };
+  if (lines.includes(HELPER_PROBE_REFUSED)) {
+    return {
+      available: false,
+      checked: true,
+      reason:
+        "passwordless sudo for the clock helper is not configured — run scripts/install-clock-helper.sh",
+    };
+  }
+  return {
+    available: false,
+    checked: true,
+    reason: "clock helper not installed on the host",
+  };
+}
+
+/**
  * Interpret the SSH/helper failure and return the HTTP status + UI-facing
- * cause. D4/D1: 127 → helper not installed (423 with install hint), 126 →
- * passwordless sudo missing (423), transport timeouts → 503, everything else
- * → 502.
+ * cause. Anchored on the sentinel strings the argv builder emits — NEVER on
+ * bare numbers in the message (a helper log that merely mentions 127 or 126,
+ * e.g. an nvidia-smi id or a frequency, must not be misclassified). 127 →
+ * helper not installed (423 with install hint), probe refusal → passwordless
+ * sudo missing (423), transport timeouts → 503, everything else → 502.
  * @param {unknown} err SSH error (message carries stderr from sshExec)
  * @returns {{ status: number, reason: string }}
  */
 export function interpretHelperExit(err) {
   const msg = String((err && err.message) || err || "");
-  if (/\b127\b|missing .*sparkdash-set-clock/.test(msg)) {
+  if (/missing \S*sparkdash-set-clock/.test(msg)) {
     return {
       status: 423,
       reason: "clock helper not installed — run scripts/install-clock-helper.sh on the host",
     };
   }
-  if (/\b126\b|sudo -n required/.test(msg)) {
+  if (msg.includes(HELPER_REFUSED_SENTINEL)) {
     return {
       status: 423,
       reason: "passwordless sudo for the clock helper is not configured — run scripts/install-clock-helper.sh",
@@ -272,7 +343,7 @@ export function parseCpuBootUnitDefaults(raw, coreMaxKhz) {
  * the apply paths: local units are writable via the container root path;
  * remote units need the provisioned helper.
  * @param {object} p
- * @returns {Array<{id: string, label: string, currentMHz: number|null, hardMinMHz: number, hardMaxMHz: number, stepMHz: number, presets: number[], unitPath: string|null, writable: boolean, reason?: string}>}
+ * @returns {Array<{id: string, label: string, currentMHz: number|null, hardMinMHz: number, hardMaxMHz: number, stepMHz: number, presets: Array<{label: string, value: number|null}>, unitPath: string|null, writable: boolean, reason?: string}>}
  */
 export function buildClockCapDomains({
   cpuDomains,
@@ -281,11 +352,15 @@ export function buildClockCapDomains({
   gpuCeilingMHz,
   helperAvailable,
   helperChecked,
+  helperReason,
   cpuBootDefaults,
   gpuBootDefaultMHz,
 }) {
   const out = [];
   const helperUp = helperChecked ? Boolean(helperAvailable) : false;
+  // The probe names the REAL cause (helper missing vs sudo not configured vs
+  // unreachable) — never overwrite it with the generic "not installed" text.
+  const helperDownReason = helperReason || "clock helper not installed on the host";
   const bootDefaults = cpuBootDefaults || {};
 
   // CPU domains — big first (sorted max desc by both parsers).
@@ -313,7 +388,7 @@ export function buildClockCapDomains({
       presets,
       unitPath: "/etc/systemd/system/cpu-clock-cap.service",
       writable: helperUp,
-      reason: helperUp ? undefined : "clock helper not installed on the host",
+      reason: helperUp ? undefined : helperDownReason,
     });
   }
 
@@ -332,7 +407,7 @@ export function buildClockCapDomains({
       presets,
       unitPath: "/etc/systemd/system/gpu-clock-lock.service",
       writable: helperUp,
-      reason: helperUp ? undefined : "clock helper not installed on the host",
+      reason: helperUp ? undefined : helperDownReason,
     });
   }
 
