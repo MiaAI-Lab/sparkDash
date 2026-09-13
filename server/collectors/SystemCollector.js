@@ -13,6 +13,9 @@ import {
   parseCpuCoreMaxKhz,
   parseCpuBootUnitDefaults,
   parseDefaultApplicationsGraphicsClock,
+  parseGpuGraphicsCeilingMHz,
+  parseGpuSetClocksReply,
+  isClockHelperDoneReply,
 } from "./clockControl.js";
 
 const NVERR_JOURNAL_CMD =
@@ -283,6 +286,15 @@ export class SystemCollector {
   }
 
   /**
+   * The SSH seam for the clock-control apply path. Production delegates to
+   * the module-level sshExec; tests may stub it to drive the helper-path
+   * response without a transport.
+   */
+  async _sshExec(spark, cmd, options) {
+    return sshExec(spark, cmd, options);
+  }
+
+  /**
    * Domain id for a parsed cap row (MHz values — same rule as
    * parseCpuClockCaps' labels, which test maxKhz ≥ 3,000,000; here maxMHz
    * ≥ 3000). The 3.9 GHz Cortex-X925 group is "cpu-big".
@@ -382,8 +394,10 @@ export class SystemCollector {
 
   /**
    * Discover hardware bounds (D8): CPU domains from cpuinfo_min/max_freq and
-   * the GPU graphics ceiling from `nvidia-smi -q -d CLOCK` "Default
-   * Applications Clock". Also reads the boot units for the D7 "Boot default"
+   * the GPU graphics ceiling from `nvidia-smi -q -d CLOCK` "Max Clocks"
+   * (fallback chain Applications Clocks → Default Applications Clocks →
+   * GPU_CLOCK_MAX_MHZ — the Default value is the boot default boost point,
+   * never the ceiling). Also reads the boot units for the D7 "Boot default"
    * presets (what the units actually install — never hardcoded). Cached with
    * the same TTL + in-flight guard idiom as _getClockCaps. Returns
    * { at, cpuBounds: [{minKhz,maxKhz}] | null, gpuCeilingMHz: number|null,
@@ -413,7 +427,7 @@ export class SystemCollector {
           // bounds come from cpuinfo_min/max_freq, so dump min:max explicitly.
           const boundsDump = await this._readLocalCpuBoundsDump();
           cpuBounds = parseCpuClockBounds(boundsDump);
-          gpuCeilingMHz = parseDefaultApplicationsGraphicsClock(
+          gpuCeilingMHz = parseGpuGraphicsCeilingMHz(
             await this._nvidiaSmi("-q -d CLOCK")
           );
           // D7 boot-default presets: parse the installed boot units against
@@ -434,7 +448,7 @@ export class SystemCollector {
           );
           const parts = out.split("---");
           cpuBounds = parseCpuClockBounds(parts[0] || "");
-          gpuCeilingMHz = parseDefaultApplicationsGraphicsClock(parts[1] || "");
+          gpuCeilingMHz = parseGpuGraphicsCeilingMHz(parts[1] || "");
           const coreMaxKhz = parseCpuCoreMaxKhz(parts[0] || "");
           cpuBootDefaults = parseCpuBootUnitDefaults(parts[2] || "", coreMaxKhz);
           gpuBootDefaultMHz =
@@ -549,9 +563,20 @@ export class SystemCollector {
   /**
    * Apply a clock cap (D4). Tries the SSH helper first; for local units falls
    * back to the container's own root path. Returns the D1 response body:
-   * { ok, domain, appliedMHz, persisted, bootUnit, source, warnings } or
-   * { ok:false, status, reason } on failure. Never claims persistence it did
-   * not perform.
+   * { ok, domain, requestedMHz, appliedMHz, snapped, persisted, bootUnit,
+   *   source, warnings } or { ok:false, status, reason } on failure.
+   * Never claims persistence it did not perform, and never reports a value
+   * that was not actually observed on the hardware when an observation was
+   * possible (item 6, requested-vs-applied honesty):
+   *  - GPU: nvidia-smi's own "GPU clocks set to (min, max)" / "Clocks set to
+   *    (0, 1976)" confirmation on the apply stdout (helper and container
+   *    paths) is the driver's truth — the driver silently quantises -lgc
+   *    requests (a requested 2000 can land on 1976).
+   *  - CPU: each max_perf write is read back; the strictest observed value
+   *    becomes appliedMHz.
+   *  - When no observation was possible, appliedMHz stays the requested
+   *    (post-clamp) value and the response carries an explicit
+   *    "could not be verified" warning instead of a silent pass.
    *
    * @param {{ domain: string, maxMHz: number | null, persist: boolean }} req
    * @param {{ hardMinMHz?: number, hardMaxMHz?: number }} [bounds] live bounds
@@ -560,6 +585,7 @@ export class SystemCollector {
   async applyClockCap(req, bounds = {}) {
     const warnings = [];
     const { domain, maxMHz, persist } = req;
+    const requestedMHz = maxMHz == null ? null : Number(maxMHz);
     const appliedMHz =
       maxMHz == null ? null : clampClockCap(maxMHz, bounds.hardMinMHz, bounds.hardMaxMHz, { warnings });
 
@@ -568,14 +594,28 @@ export class SystemCollector {
       helperBin: SPARKDASH_CLOCK_BIN,
     });
     try {
-      await sshExec(this.spark, helperCmd, { timeoutMs: 12000 });
+      const helperOut = await this._sshExec(this.spark, helperCmd, { timeoutMs: 12000 });
+      const verified = await this._verifyAppliedClockCap(domain, helperOut);
+      const finalMHz = verified == null ? appliedMHz : verified;
+      if (verified == null && appliedMHz != null) {
+        warnings.push(
+          "the applied value could not be read back from the hardware; it is reported as requested"
+        );
+      }
+      if (finalMHz !== appliedMHz) {
+        warnings.push(
+          `the driver accepted ${finalMHz} MHz for a request of ${appliedMHz} MHz (it quantises clock requests to its own table)`
+        );
+      }
       if (persist) this._clockCapsOverride = {}; // persisted → drop all volatile state
-      else if (domain === "gpu") this._clockCapsOverride.gpu = appliedMHz;
-      else this._clockCapsOverride[domain] = appliedMHz;
+      else if (domain === "gpu") this._clockCapsOverride.gpu = finalMHz;
+      else this._clockCapsOverride[domain] = finalMHz;
       return {
         ok: true,
         domain,
-        appliedMHz,
+        requestedMHz,
+        appliedMHz: finalMHz,
+        snapped: finalMHz != null && requestedMHz != null && finalMHz !== requestedMHz,
         persisted: Boolean(persist),
         bootUnit: persist ? CLOCK_DOMAIN_UNIT[domain] ?? null : null,
         source: "helper",
@@ -588,7 +628,7 @@ export class SystemCollector {
       // through nsenter into the host mount namespace.
       if (this.spark.isLocal && (interpreted.status === 423 || interpreted.status === 502)) {
         try {
-          return await this._applyClockCapLocal(domain, appliedMHz, persist, warnings, helperErr);
+          return await this._applyClockCapLocal(domain, appliedMHz, persist, warnings, helperErr, requestedMHz);
         } catch (localErr) {
           return {
             ok: false,
@@ -608,14 +648,18 @@ export class SystemCollector {
    * /host/sys bind. Persist: nsenter into the host mount namespace and
    * rewrite the boot unit there (no systemctl in the container).
    */
-  async _applyClockCapLocal(domain, appliedMHz, persist, warnings, helperErr) {
+  async _applyClockCapLocal(domain, appliedMHz, persist, warnings, helperErr, requestedMHz = null) {
     let bootUnit = null;
+    // Honesty tracking (item 6): the driver's own confirmation line and the
+    // per-core read-back of what sysfs actually accepted.
+    let smiOut = "";
+    const readBackKhz = [];
     if (domain === "gpu") {
       const smi = this._nvidiaSmiPath || "nvidia-smi";
       if (appliedMHz == null) {
         await this._exec(`${smi} -rgc`);
       } else {
-        await this._exec(`${smi} -lgc 0,${appliedMHz}`);
+        smiOut = await this._exec(`${smi} -lgc 0,${appliedMHz}`);
       }
       bootUnit = CLOCK_DOMAIN_UNIT.gpu;
     } else {
@@ -639,6 +683,11 @@ export class SystemCollector {
         } catch (err) {
           throw new Error(`max_perf write failed for ${cpuN}: ${err.message}`);
         }
+        // Read back what sysfs kept. cppc_cpufreq clamps writes to its own
+        // table, so the file may not echo the value we pushed.
+        const back = this._readSysFile(p);
+        const n = back != null ? parseInt(String(back).trim(), 10) : NaN;
+        if (Number.isFinite(n) && n > 0) readBackKhz.push(n);
       }
       bootUnit = CLOCK_DOMAIN_UNIT[domain];
     }
@@ -657,11 +706,40 @@ export class SystemCollector {
       warnings.push("applied this boot only — reverts on reboot");
     }
 
+    // Determine the value the hardware ACTUALLY holds now (item 6).
+    let finalMHz = appliedMHz;
+    let verified = false;
+    if (domain === "gpu") {
+      if (appliedMHz == null) {
+        verified = true; // -rgc succeeded; no cap remains, nothing to compare
+      } else {
+        const confirmed = parseGpuSetClocksReply(smiOut);
+        if (confirmed != null) {
+          finalMHz = confirmed;
+          verified = true;
+        }
+      }
+    } else if (readBackKhz.length) {
+      // Strictest observed ceiling across the domain's cores is what applies.
+      finalMHz = Math.round(Math.min(...readBackKhz) / 1000);
+      verified = true;
+    }
+    if (!verified && appliedMHz != null) {
+      warnings.push(
+        "the applied value could not be read back from the hardware; it is reported as requested"
+      );
+    }
+    if (finalMHz !== appliedMHz) {
+      warnings.push(
+        `the hardware accepted ${finalMHz} MHz for a request of ${appliedMHz} MHz (it quantises clock requests to its own table)`
+      );
+    }
+
     // Record the volatile override so the UI shows the truth until a fresh
     // read converges (D5). Only for values the unit-file read cannot see.
     if (!persisted) {
-      if (domain === "gpu") this._clockCapsOverride.gpu = appliedMHz;
-      else this._clockCapsOverride[domain] = appliedMHz;
+      if (domain === "gpu") this._clockCapsOverride.gpu = finalMHz;
+      else this._clockCapsOverride[domain] = finalMHz;
     } else {
       this._clockCapsOverride = {};
     }
@@ -669,12 +747,43 @@ export class SystemCollector {
     return {
       ok: true,
       domain,
-      appliedMHz,
+      requestedMHz,
+      appliedMHz: finalMHz,
+      snapped: finalMHz !== requestedMHz,
       persisted,
       bootUnit,
       source: "container",
       warnings,
     };
+  }
+
+  /**
+   * Read back the value the hardware ACTUALLY holds for a domain after an
+   * apply (item 6 — requested-vs-applied honesty). Sources of truth, in
+   * order: the driver's own confirmation line on the apply transcript
+   * (`GPU clocks set to (0, 1976)` / `Clocks set to (0, 1976)`), then a
+   * sysfs read-back for CPU domains on a local unit. The boot unit file is
+   * the DESIRED state, never an observation — it is deliberately not used
+   * here. Returns the MHz in effect, or null when no observation was
+   * possible (the caller then reports the request verbatim with an
+   * explicit verification warning — never a fabricated confirmation).
+   */
+  async _verifyAppliedClockCap(domain, applyStdout) {
+    const confirmed = parseGpuSetClocksReply(applyStdout);
+    if (domain === "gpu") return confirmed; // stdout is the only truth here
+    if (confirmed != null) return confirmed;
+    if (!this.spark.isLocal) return null; // no sysfs view of a remote host
+    const cores = this._cpuDomainCores(domain);
+    const vals = [];
+    for (const cpuN of cores) {
+      const raw = this._readSysFile(
+        path.join(HOST_PATHS.SYS, "devices/system/cpu", cpuN, "cpufreq/max_perf")
+      );
+      if (raw == null) continue;
+      const n = parseInt(String(raw).trim(), 10);
+      if (Number.isFinite(n) && n > 0) vals.push(n);
+    }
+    return vals.length ? Math.round(Math.min(...vals) / 1000) : null;
   }
 
   /**

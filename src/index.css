@@ -1041,6 +1041,16 @@ input[type="checkbox"] {
 .modal-sheet--wide {
   max-width: 40rem;
 }
+/* Clock-cap dialog gets its own room (item 1): the candidate chip grid and
+   the two-control row need more width than every other sheet in the app.
+   The base .modal-sheet (28rem) stays intact for all other dialogs; the
+   max-height guard plus .modal-sheet__body's overflow-y:auto keep short
+   viewports scrollable (the mobile sheet variant is bottom-anchored). */
+.modal-sheet--clock {
+  max-width: 36rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
 
 .modal-sheet__header {
   flex-shrink: 0;

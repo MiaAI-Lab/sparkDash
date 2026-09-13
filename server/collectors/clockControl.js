@@ -23,11 +23,15 @@ export const HELPER_PROBE_MISSING = "sparkdash-helper-missing";
 /** Sentinel the apply argv emits when sudo refuses the argumentless probe. */
 export const HELPER_REFUSED_SENTINEL = "sparkdash-probe-sentinel";
 
-/**
- * Last-resort GPU graphics ceiling when `nvidia-smi -q -d CLOCK` is
- * unparseable. Documented constant (see config.js GPU_CLOCK_MAX_MHZ).
- */
+/** The editable clock domains (D1). */
 export const CLOCK_DOMAIN_IDS = ["cpu-big", "cpu-little", "gpu"];
+
+/** Grid step of the candidate values offered to the operator (item 2/3). */
+export const CLOCK_CANDIDATE_STEP_MHZ = 200;
+
+/** Band of the hardware ceiling the candidate grid is limited to (item 3). */
+export const CLOCK_CANDIDATE_BAND_LO = 0.30;
+export const CLOCK_CANDIDATE_BAND_HI = 0.8;
 
 /** Human labels per domain id. */
 export const CLOCK_DOMAIN_LABELS = {
@@ -66,13 +70,77 @@ export function parseCpuClockBounds(raw) {
 }
 
 /**
- * Parse the GPU graphics ceiling out of `nvidia-smi -q -d CLOCK`: the
- * "Default Applications Clock" section's "Graphics" value in MHz. Measured
- * GB10 output is `Default Applications Clock : Graphics : 3003 MHz`. Falls
- * back to null when the transcript does not contain a parseable value — the
- * caller then applies the documented GPU_CLOCK_MAX_MHZ fallback.
+ * Parse the GPU graphics CEILING out of `nvidia-smi -q -d CLOCK`.
+ * The ceiling is the "Graphics" value of the "Max Clocks" section — the
+ * hardware limit. Fallback chain when it is absent/unparseable:
+ * "Applications Clocks" → "Default Applications Clocks" → null (the caller
+ * then applies the documented GPU_CLOCK_MAX_MHZ fallback).
+ *
+ * "Default Applications Clocks" must NOT be used as the ceiling: it is the
+ * driver's boot-default boost point (2418 on the measured GB10), not the
+ * hardware limit (3003) — using it would make 2600/2800/3000 unreachable.
+ *
+ * Format quirk (measured, driver 580.173.02): section headers are indent-4
+ * lines WITHOUT a trailing colon; keys are indent-8 `Name<pad>: value` lines
+ * with the colon in a fixed column. The parser therefore anchors on the
+ * exact header line and scans only its strictly-deeper-indented children, so
+ * the live transient "Clocks" section (Graphics 2184) can never win.
  * @param {string} raw
  * @returns {number | null} MHz
+ */
+export function parseGpuGraphicsCeilingMHz(raw) {
+  const text = String(raw ?? "");
+  const sections = scanNvidiaSmiClockSections(text);
+  for (const header of ["max clock", "applications clock", "default applications clock"]) {
+    const rows = sections.get(header);
+    if (!rows) continue;
+    for (const v of rows) {
+      if (v > 0) return v;
+    }
+  }
+  return null;
+}
+
+/** Index an `-q -d CLOCK` transcript into Map<sectionHeader, graphicsMHz[]>. */
+function scanNvidiaSmiClockSections(text) {
+  const sections = new Map();
+  let current = null;
+  let currentIndent = 0;
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+    const indent = line.length - line.trimStart().length;
+    const key = line.trim().match(/^([A-Za-z][A-Za-z0-9 _]*?)\s*:\s*(.+?)\s*$/);
+    if (key && indent > currentIndent && current) {
+      if (/^(Graphics|SM|Memory|Video)$/i.test(key[1])) {
+        const m = key[2].match(/^(\d+)\s*MHz$/i);
+        if (m) {
+          const v = Number(m[1]);
+          if (!sections.has(current)) sections.set(current, []);
+          sections.get(current).push(Number.isFinite(v) ? v : null);
+        }
+      }
+      continue;
+    }
+    const header = line.trim().match(/^(Max Customer Boost Clocks|Default Applications Clocks?|Applications Clocks?|Max Clocks?|Clocks)$/);
+    if (header) {
+      // Canonical key: some drivers print singular ("Default Applications
+      // Clock"), the live GB10 prints plural — key on a case-folded,
+      // trailing-s-stripped form so lookups match both.
+      current = header[1].toLowerCase().replace(/s$/, "");
+      currentIndent = indent;
+    } else {
+      current = null;
+    }
+  }
+  return sections;
+}
+
+/**
+ * @deprecated Reads "Default Applications Clocks → Graphics" — the driver's
+ * boot DEFAULT boost point (2418 on the measured box), NOT the hardware
+ * ceiling. It is no longer used for the slider range; see
+ * parseGpuGraphicsCeilingMHz. Kept (and reported) for tests/callers that
+ * still want the boot-default datapoint.
  */
 export function parseDefaultApplicationsGraphicsClock(raw) {
   const text = String(raw ?? "");
@@ -84,6 +152,106 @@ export function parseDefaultApplicationsGraphicsClock(raw) {
   if (!m) return null;
   const n = Number(m[1]);
   return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * The 200 MHz grid a domain's control operates on (items 2 + 3). The band is
+ * [0.30, 0.80] of the domain's hardware ceiling:
+ *   lo = max(alignUp(hardMinMHz), alignUp(0.30 * hardMaxMHz))
+ *   hi = alignDown(0.80 * hardMaxMHz)
+ * with alignUp(x)=ceil(x/200)*200 and alignDown(x)=floor(x/200)*200.
+ * `values` is the candidate chip row — exactly those grid values inside the
+ * band. NO hardware detenting: `--query-supported-clocks=graphics` prints
+ * [N/A] on this driver, so there is no table to consult — pure arithmetic.
+ *
+ * Degenerate/empty band (e.g. a floor above the band ceiling) → fall back to
+ * the plain hard bounds with no candidate chips, rather than crash or offer
+ * an unreachable range.
+ * @param {number} hardMinMHz @param {number} hardMaxMHz
+ * @returns {{min:number, max:number, step:number, values:number[], bandApplied:boolean}}
+ */
+export function clockGrid(hardMinMHz, hardMaxMHz) {
+  const step = CLOCK_CANDIDATE_STEP_MHZ;
+  const alignUp = (x) => Math.ceil(x / step) * step;
+  const alignDown = (x) => Math.floor(x / step) * step;
+  const ok =
+    Number.isFinite(hardMinMHz) && Number.isFinite(hardMaxMHz) && hardMaxMHz > 0 && hardMaxMHz >= hardMinMHz;
+  if (ok) {
+    const lo = Math.max(alignUp(hardMinMHz), alignUp(CLOCK_CANDIDATE_BAND_LO * hardMaxMHz));
+    const hi = alignDown(CLOCK_CANDIDATE_BAND_HI * hardMaxMHz);
+    if (Number.isFinite(lo) && Number.isFinite(hi) && lo <= hi) {
+      const values = [];
+      for (let v = lo; v <= hi; v += step) values.push(v);
+      if (values.length) return { min: lo, max: hi, step, values, bandApplied: true };
+    }
+    // Degenerate band: plain hard bounds aligned to the grid for the slider,
+    // and NO candidate chips — chips are by definition the grid values inside
+    // the band, and this domain has none.
+    const fMin = alignUp(hardMinMHz);
+    const fMax = alignDown(hardMaxMHz);
+    if (Number.isFinite(fMin) && Number.isFinite(fMax) && fMin <= fMax) {
+      return { min: fMin, max: fMax, step, values: [], bandApplied: false };
+    }
+    return { min: hardMinMHz, max: hardMaxMHz, step, values: [], bandApplied: false };
+  }
+  return {
+    min: Number.isFinite(hardMinMHz) ? hardMinMHz : 0,
+    max: Number.isFinite(hardMaxMHz) ? hardMaxMHz : 0,
+    step,
+    values: [],
+    bandApplied: false,
+  };
+}
+
+/**
+ * Clock candidate values the operator may pick (item 3): the 200 MHz grid
+ * inside the [0.30, 0.80]-of-ceiling band. e.g. gpu hardMax 3003 →
+ * [1000, 1200, 1400, 1600, 1800, 2000, 2200, 2400]. Empty for a degenerate
+ * band (see clockGrid's fallback).
+ * @param {number} hardMinMHz @param {number} hardMaxMHz
+ * @returns {number[]} ascending
+ */
+export function candidateClockValues(hardMinMHz, hardMaxMHz) {
+  return clockGrid(hardMinMHz, hardMaxMHz).values;
+}
+
+/**
+ * The client-facing grid shape (src/api/types.ts ClockCapDomain.grid):
+ * the same arithmetic as clockGrid() with the candidate list named
+ * `candidates`, plus `bandApplied` so the UI can tell a real band from the
+ * degenerate fallback. Pure data; contains no behaviour.
+ */
+export function clientClockGrid(hardMinMHz, hardMaxMHz) {
+  const g = clockGrid(hardMinMHz, hardMaxMHz);
+  return {
+    min: g.min,
+    max: g.max,
+    step: g.step,
+    candidates: g.values,
+    bandApplied: g.bandApplied,
+  };
+}
+
+/**
+ * Parse the value the driver ACTUALLY accepted from an `-lgc` apply stdout
+ * (item 6, honesty). Measured shapes: `GPU clocks set to (min, max)` from the
+ * helper / container path and the nvidia-smi line `Clocks set to (0, 1976)`.
+ * A request for 2000 that prints 1976 was quantised by the driver — the UI
+ * must report both numbers. Returns null when the transcript carries no
+ * set-to line (caller then reports the request with a verification warning).
+ * @param {string} stdout
+ * @returns {number | null} the max MHz the driver confirmed
+ */
+export function parseGpuSetClocksReply(stdout) {
+  const m = String(stdout ?? "").match(/set to\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)/i);
+  if (!m) return null;
+  const v = Number(m[2]);
+  return Number.isFinite(v) && v > 0 ? v : null;
+}
+
+/** True when the apply transcript shows the helper finished its work. */
+export function isClockHelperDoneReply(stdout) {
+  return /(^|\n)\s*All done\.\s*$/i.test(String(stdout ?? ""));
 }
 
 /**
@@ -378,13 +546,16 @@ export function buildClockCapDomains({
     const presets = [];
     if (bootDefaults[id] != null) presets.push({ label: "Boot default", value: bootDefaults[id] });
     presets.push({ label: "No cap", value: Math.round(b.maxKhz / 1000) });
+    const hardMinMHz = Math.round(b.minKhz / 1000);
+    const hardMaxMHz = Math.round(b.maxKhz / 1000);
     out.push({
       id,
       label: CLOCK_DOMAIN_LABELS[id],
       currentMHz: capMHz,
-      hardMinMHz: Math.round(b.minKhz / 1000),
-      hardMaxMHz: Math.round(b.maxKhz / 1000),
+      hardMinMHz,
+      hardMaxMHz,
       stepMHz: 25,
+      grid: clientClockGrid(hardMinMHz, hardMaxMHz),
       presets,
       unitPath: "/etc/systemd/system/cpu-clock-cap.service",
       writable: helperUp,
@@ -404,6 +575,7 @@ export function buildClockCapDomains({
       hardMinMHz: 0,
       hardMaxMHz: gpuCeilingMHz,
       stepMHz: 25,
+      grid: clientClockGrid(0, gpuCeilingMHz),
       presets,
       unitPath: "/etc/systemd/system/gpu-clock-lock.service",
       writable: helperUp,

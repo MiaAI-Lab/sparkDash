@@ -255,6 +255,19 @@ export interface ClockCapDomain {
   hardMinMHz: number;
   hardMaxMHz: number;
   stepMHz: number;
+  /**
+   * Pure 200 MHz grid for the range input + candidate chips (item 2/3),
+   * limited to the [0.30, 0.80]-of-ceiling band. `candidates` are the grid
+   * values inside the band; an empty list means the band was degenerate and
+   * the control falls back to the plain hard bounds. Additive field.
+   */
+  grid?: {
+    min: number;
+    max: number;
+    step: number;
+    candidates: number[];
+    bandApplied?: boolean;
+  };
   /** Named presets, e.g. { label: "No cap", value: 3900 }. */
   presets: Array<{ label: string; value: number | null }>;
   /** Boot unit this domain persists to (host path), when known. */
@@ -279,7 +292,17 @@ export interface ClockCapBoundsResponse {
 export interface ClockCapResponse {
   ok: boolean;
   domain: string;
+  /** What the operator asked for (post server-side clamp), null = remove cap. */
+  requestedMHz?: number | null;
+  /**
+   * What the hardware was OBSERVED to hold after the apply. When an
+   * observation was impossible it equals the request and the response
+   * carries an explicit "could not be verified" warning — it never claims
+   * an unobserved confirmation.
+   */
   appliedMHz: number | null;
+  /** True when the driver/driver-table applied something other than asked. */
+  snapped?: boolean;
   persisted: boolean;
   bootUnit: string | null;
   source: "helper" | "container";

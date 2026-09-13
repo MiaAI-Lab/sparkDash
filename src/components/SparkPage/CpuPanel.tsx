@@ -108,33 +108,32 @@ export function CpuPanel({
         </span>
       </div>
       {clockCaps && clockCaps.length > 0 && (
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-muted">Clock Cap</span>
-          <span className="font-tabular text-sm">
-            {clockCaps.map((d, i) => {
-              // Domain id mirrors the server's rule (≥3 GHz group = big).
-              const domainId = d.maxMHz >= 3000 ? "cpu-big" : "cpu-little";
-              const label = d.capped ? `${d.capMHz} / ${d.maxMHz}` : `${d.maxMHz}`;
-              return (
-                <span key={d.label}>
-                  <span className={d.capped ? "text-text-strong" : "text-muted"}>
-                    {d.label}{" "}
-                  </span>
-                  <ClockCapControl
-                    sparkId={sparkId}
-                    domain={domainId}
-                    currentMHz={d.capMHz}
-                    display={`${label} MHz`}
-                    enabled={Boolean(clockControlEnabled)}
-                    disabledReason="Clock control is disabled for this Spark (enable it in Edit Spark)"
-                  />
-                  {clockCaps.length > 1 && i < clockCaps.length - 1 ? (
-                    <span className="text-muted"> · </span>
-                  ) : null}
+        <div className="space-y-1.5">
+          {/* One row per frequency cluster (item 5): [label] [Modify] [chip],
+              each on its own line so the two clusters never share a cramped
+              row. The chip is the same visual family as the Throttle OK chip. */}
+          {clockCaps.map((d) => {
+            // Domain id mirrors the server's rule (≥3 GHz group = big).
+            const domainId = d.maxMHz >= 3000 ? "cpu-big" : "cpu-little";
+            return (
+              <div
+                key={d.label}
+                className="flex items-center justify-between gap-2 text-sm"
+              >
+                <span className="text-muted">
+                  Clock Cap <span className="text-text">{d.label}</span>
                 </span>
-              );
-            })}
-          </span>
+                <ClockCapControl
+                  sparkId={sparkId}
+                  domain={domainId}
+                  currentMHz={d.capped ? d.capMHz : null}
+                  display={d.capped ? `${d.capMHz} MHz` : undefined}
+                  enabled={Boolean(clockControlEnabled)}
+                  disabledReason="Clock control is disabled for this Spark (enable it in Edit Spark)"
+                />
+              </div>
+            );
+          })}
         </div>
       )}
       {model && (

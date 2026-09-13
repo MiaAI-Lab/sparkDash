@@ -14,6 +14,9 @@ import {
   buildClockCapDomains,
   buildClockHelperArgv,
   buildHelperProbeCommand,
+  candidateClockValues,
+  clockGrid,
+  clientClockGrid,
   expandCpuToken,
   interpretHelperExit,
   interpretHelperProbe,
@@ -21,6 +24,9 @@ import {
   parseCpuCoreMaxKhz,
   parseCpuBootUnitDefaults,
   parseDefaultApplicationsGraphicsClock,
+  parseGpuGraphicsCeilingMHz,
+  parseGpuSetClocksReply,
+  isClockHelperDoneReply,
   validateClockCapRequest,
 } from "../clockControl.js";
 
@@ -435,4 +441,207 @@ test("buildClockCapDomains exposes Boot default presets from the parsed units", 
     { label: "Boot default", value: 2200 },
     { label: "No cap", value: null },
   ]);
+});
+
+// ─── GPU ceiling field (amendment #1: Max Clocks, NOT Default Applications) ──
+
+/**
+ * Orchestrator-pinned transcript, captured 2026-09-13 13:15 CEST on the live
+ * box (driver 580.173.02, GPU 0000000F:01:00.0). Do not hit the live box
+ * from tests — this fixture is the measurement. Format quirk: section headers
+ * are indent-4 with NO trailing colon; keys are indent-8 with the colon in a
+ * fixed padded column. The full dump has no "Locked Clocks" section.
+ */
+const SMI_Q_CLOCK_PINNED = [
+  "    Clocks",
+  "        Graphics            : 2184 MHz",
+  "        SM                  : 2184 MHz",
+  "        Memory              : N/A",
+  "        Video               : 1846 MHz",
+  "    Applications Clocks",
+  "        Graphics            : 2418 MHz",
+  "    Default Applications Clocks",
+  "        Graphics            : 2418 MHz",
+  "    Max Clocks",
+  "        Graphics            : 3003 MHz",
+  "        SM                  : 3003 MHz",
+  "        Memory              : N/A",
+  "        Video               : 3003 MHz",
+  "    Max Customer Boost Clocks",
+  "        Graphics            : N/A",
+].join("\n");
+
+test("the GPU ceiling is Max Clocks → Graphics (3003), not the live sample nor the apps default", () => {
+  // The ceiling the dial must use.
+  assert.equal(parseGpuGraphicsCeilingMHz(SMI_Q_CLOCK_PINNED), 3003);
+  // The two decoys in the SAME transcript: the live transient sample (2184)
+  // and the boot-default boost point (2418) must NEVER define the range.
+  assert.notEqual(parseGpuGraphicsCeilingMHz(SMI_Q_CLOCK_PINNED), 2184);
+  assert.notEqual(parseGpuGraphicsCeilingMHz(SMI_Q_CLOCK_PINNED), 2418);
+  // The deprecated reader still reports the boot-default datapoint (2418) —
+  // it is a legitimate reported value, it is just not a ceiling.
+  assert.equal(parseDefaultApplicationsGraphicsClock(SMI_Q_CLOCK_PINNED), 2418);
+});
+
+test("the live 'Clocks' section can never win the ceiling parse (header anchoring)", () => {
+  // A transcript where ONLY the live transient block is present must not be
+  // mistaken for a ceiling — a parser anchoring on the bare word "Clocks"
+  // would return 2184 here.
+  assert.equal(
+    parseGpuGraphicsCeilingMHz(["    Clocks", "        Graphics            : 2184 MHz"].join("\n")),
+    null
+  );
+  // Ordering attack: the transient block first, Max Clocks last — still 3003.
+  assert.equal(parseGpuGraphicsCeilingMHz(SMI_Q_CLOCK_PINNED), 3003);
+  // Reversed order in the dump must not change the answer.
+  const reversed = SMI_Q_CLOCK_PINNED.split("\n")
+    .filter((l) => /^\s{4}\S/.test(l))
+    .reverse()
+    .join("\n");
+  const withChildren =
+    "    Max Clocks\n        Graphics            : 3003 MHz\n" +
+    "    Clocks\n        Graphics            : 2184 MHz\n";
+  assert.equal(parseGpuGraphicsCeilingMHz(withChildren), 3003);
+});
+
+test("ceiling fallback chain: Max → Applications → Default Applications → null", () => {
+  assert.equal(
+    parseGpuGraphicsCeilingMHz("    Applications Clocks\n        Graphics            : 2418 MHz"),
+    2418
+  );
+  assert.equal(
+    parseGpuGraphicsCeilingMHz("    Default Applications Clocks\n        Graphics            : 2400 MHz"),
+    2400
+  );
+  assert.equal(parseGpuGraphicsCeilingMHz(""), null);
+  assert.equal(parseGpuGraphicsCeilingMHz(null), null);
+  assert.equal(
+    parseGpuGraphicsCeilingMHz("    Max Clocks\n        Graphics            : N/A"),
+    null
+  );
+});
+
+test("the singular header spelling some drivers print is accepted", () => {
+  assert.equal(
+    parseGpuGraphicsCeilingMHz("    Max Clock\n        Graphics                       : 3003 MHz"),
+    3003
+  );
+});
+
+// ─── Candidate grid (items 2/3, amendment #2 verbatim fixtures) ─────────────
+
+test("candidate grid for the measured GPU ceiling 3003 is the pinned list", () => {
+  assert.deepEqual(candidateClockValues(0, 3003), [
+    1000, 1200, 1400, 1600, 1800, 2000, 2200, 2400,
+  ]);
+});
+
+test("candidate grid for the measured 2808 MHz cluster ceiling is the pinned list", () => {
+  // hardMin 338 / hardMax 2808 = the A725 group on this silicon.
+  assert.deepEqual(candidateClockValues(338, 2808), [
+    1000, 1200, 1400, 1600, 1800, 2000, 2200,
+  ]);
+});
+
+test("candidate grid for the measured 3900 MHz cluster ceiling is the pinned list", () => {
+  // hardMin 1378 / hardMax 3900 = the X925 group on this silicon.
+  assert.deepEqual(candidateClockValues(1378, 3900), [
+    1400, 1600, 1800, 2000, 2200, 2400, 2600, 2800, 3000,
+  ]);
+});
+
+test("the grid is the pure 200 table — no hardware detenting, no table lookup", () => {
+  // --query-supported-clocks=graphics prints [N/A] on this driver; the grid
+  // must be arithmetic only. Any alignment onto a hardware table would make
+  // these values uneven — they must stay exact multiples of 200.
+  for (const [lo, hi] of [[0, 3003], [338, 2808], [1378, 3900]]) {
+    for (const v of candidateClockValues(lo, hi)) {
+      assert.equal(v % 200, 0);
+      assert.ok(v >= 0.3 * hi - 200 && v <= 0.8 * hi + 200);
+    }
+  }
+  const g = clockGrid(0, 3003);
+  assert.equal(g.step, 200);
+  assert.equal(g.min, 1000); // alignUp(max(alignUp(0), alignUp(0.30*3003=900.9)))
+  assert.equal(g.max, 2400); // alignDown(0.80*3003 = 2402.4)
+  assert.equal(g.bandApplied, true);
+});
+
+test("band edges: the grid starts at the first 200 step ≥ 30% and ends at the last ≤ 80%", () => {
+  // Ceiling 1000 → band [300, 800] → 400,600,800 (300 aligns up to 400).
+  assert.deepEqual(candidateClockValues(0, 1000), [400, 600, 800]);
+  // Ceiling 999 → alignUp(299.7)=400, alignDown(799.2)=600 → 400,600.
+  assert.deepEqual(candidateClockValues(0, 999), [400, 600]);
+});
+
+test("a degenerate band falls back to the plain hard bounds and offers no chips", () => {
+  // hardMin above the 80% band ceiling → no grid values inside the band.
+  const g = clockGrid(1000, 1200); // band hi = alignDown(960) = 800 < lo 1200
+  assert.equal(g.bandApplied, false);
+  assert.deepEqual(g.values, []); // no candidate chips to offer
+  assert.ok(g.min <= g.max); // the slider still has a legal range
+  assert.deepEqual(g, { min: 1000, max: 1200, step: 200, values: [], bandApplied: false });
+  // Garbage input must not crash the dialog either.
+  const bad = clockGrid(Number.NaN, 3003);
+  assert.equal(bad.min, 0);
+  assert.equal(bad.max, 3003);
+  assert.deepEqual(bad.values, []);
+  assert.deepEqual(candidateClockValues(0, 0), []);
+});
+
+test("clientClockGrid is the wire shape the dialog consumes", () => {
+  const g = clientClockGrid(0, 3003);
+  assert.deepEqual(Object.keys(g).sort(), ["bandApplied", "candidates", "max", "min", "step"]);
+  assert.equal(g.min, 1000);
+  assert.equal(g.max, 2400);
+  assert.equal(g.step, 200);
+  assert.equal(g.bandApplied, true);
+  assert.deepEqual(g.candidates, [1000, 1200, 1400, 1600, 1800, 2000, 2200, 2400]);
+});
+
+test("buildClockCapDomains puts the 200 grid on the wire for every domain", () => {
+  const domains = buildClockCapDomains({
+    cpuDomains: [
+      { label: "X925", capMHz: 2600, maxMHz: 3900, capped: true },
+      { label: "A725", capMHz: 2808, maxMHz: 2808, capped: false },
+    ],
+    gpuLock: { minMHz: 0, maxMHz: 2200 },
+    cpuBounds: parseCpuClockBounds(CPU_DUMP_BOUNDS),
+    gpuCeilingMHz: 3003,
+    helperAvailable: true,
+    helperChecked: true,
+  });
+  const gpu = domains.find((d) => d.id === "gpu");
+  assert.deepEqual(gpu.grid.candidates, [1000, 1200, 1400, 1600, 1800, 2000, 2200, 2400]);
+  // Domain ids follow the shipped convention (≥3 GHz group = cpu-big = X925).
+  const x925 = domains.find((d) => d.maxKhz === 3900000 || d.hardMaxMHz === 3900);
+  assert.deepEqual(x925.grid.candidates, [1400, 1600, 1800, 2000, 2200, 2400, 2600, 2800, 3000]);
+  const a725 = domains.find((d) => d.hardMaxMHz === 2808);
+  assert.deepEqual(a725.grid.candidates, [1000, 1200, 1400, 1600, 1800, 2000, 2200]);
+  // The named specials stay on `presets` — candidates must not be confused
+  // with them, and neither list may absorb the other.
+  assert.deepEqual(gpu.presets.map((p) => p.label), ["No cap"]);
+});
+
+// ─── requested-vs-applied honesty (item 6) ──────────────────────────────────
+
+test("parseGpuSetClocksReply reads the value the driver actually accepted", () => {
+  // The measured quantisation: a requested 2000 that the driver set to 1976.
+  assert.equal(parseGpuSetClocksReply("GPU clocks set to (0, 1976)"), 1976);
+  assert.equal(parseGpuSetClocksReply("Clocks set to (0, 2200)"), 2200);
+  assert.equal(parseGpuSetClocksReply("GPU clocks set to (1000, 2200)"), 2200);
+  // Shapes that carry no confirmation must return null, NOT a guess — the
+  // caller reports the request verbatim with an explicit warning instead.
+  assert.equal(parseGpuSetClocksReply("All done."), null);
+  assert.equal(parseGpuSetClocksReply(""), null);
+  assert.equal(parseGpuSetClocksReply(null), null);
+  assert.equal(parseGpuSetClocksReply("set to (0, 0)"), null);
+  assert.equal(parseGpuSetClocksReply("ERROR: not supported"), null);
+});
+
+test("isClockHelperDoneReply recognises the helper's completion line", () => {
+  assert.equal(isClockHelperDoneReply("GPU clocks set to (0, 1976)\nAll done."), true);
+  assert.equal(isClockHelperDoneReply("All done."), true);
+  assert.equal(isClockHelperDoneReply("usage: sparkdash-set-clock ..."), false);
+  assert.equal(isClockHelperDoneReply(""), false);
 });
