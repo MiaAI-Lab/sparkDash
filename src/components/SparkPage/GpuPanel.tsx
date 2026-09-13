@@ -1,16 +1,17 @@
-import type { CpuMetrics, GpuMetrics } from "../../api/types";
+import type { GpuMetrics } from "../../api/types";
 import { Sparkline } from "../ui/Sparkline";
 import { Panel } from "../ui/Panel";
 import { ActivityIcon } from "../ui/icons";
 import { MetricBar } from "../ui/MetricBar";
 import { useMetricsHistoryTail } from "../../hooks/metricsStore";
+import { ClockCapControl } from "./ClockCapControl";
 
 interface GpuPanelProps {
   gpu: GpuMetrics | null;
-  /** When set and temperature > 0, show a CPU temp row (DGX Spark pages). */
-  cpu?: CpuMetrics | null;
   sparkId: string;
   temperatureUnit: "celsius" | "fahrenheit";
+  /** Opt-in: the Clock Cap row becomes editable (default false). */
+  clockControlEnabled?: boolean;
   className?: string;
 }
 
@@ -45,10 +46,15 @@ function MetricRow({
   );
 }
 
-export function GpuPanel({ gpu, cpu, sparkId, temperatureUnit, className }: GpuPanelProps) {
+export function GpuPanel({
+  gpu,
+  sparkId,
+  temperatureUnit,
+  clockControlEnabled,
+  className,
+}: GpuPanelProps) {
   const tempHistory = useMetricsHistoryTail(sparkId, "gpu.temp");
   const usageHistory = useMetricsHistoryTail(sparkId, "gpu.usage");
-  const cpuTempHistory = useMetricsHistoryTail(sparkId, "cpu.temp");
 
   const temperature = gpu?.temperature ?? 0;
   const displayTemp = temperatureUnit === "fahrenheit" ? celsiusToFahrenheit(temperature) : temperature;
@@ -61,23 +67,10 @@ export function GpuPanel({ gpu, cpu, sparkId, temperatureUnit, className }: GpuP
   const vramTotal = gpu?.vram?.total ?? 0;
   const vramPct = gpu?.vram?.percentage ?? 0;
 
-  const cpuTemperature = cpu?.temperature ?? 0;
-  const cpuDisplayTemp =
-    temperatureUnit === "fahrenheit" ? celsiusToFahrenheit(cpuTemperature) : cpuTemperature;
-  const cpuTempLabel =
-    temperatureUnit === "fahrenheit" ? `${cpuDisplayTemp}°F` : `${cpuDisplayTemp}°C`;
-
   const tempColor =
     temperature > 85
       ? "var(--color-danger)"
       : temperature > 65
-        ? "var(--color-warning)"
-        : "var(--color-accent)";
-  // GB10 junction bands (warn 85 / crit 95) — idle CPU sits ~70°C, so GPU 65/85 would pin amber.
-  const cpuTempColor =
-    cpuTemperature > 95
-      ? "var(--color-danger)"
-      : cpuTemperature > 85
         ? "var(--color-warning)"
         : "var(--color-accent)";
 
@@ -101,14 +94,6 @@ export function GpuPanel({ gpu, cpu, sparkId, temperatureUnit, className }: GpuP
         spark={<Sparkline data={tempHistory} color={tempColor} width={180} />}
         value={<span className="text-text-strong">{tempLabel}</span>}
       />
-      {cpuTemperature > 0 && (
-        <MetricRow
-          label="CPU"
-          color={cpuTempColor}
-          spark={<Sparkline data={cpuTempHistory} color={cpuTempColor} width={180} />}
-          value={<span className="text-text-strong">{cpuTempLabel}</span>}
-        />
-      )}
       <div className="flex justify-between text-sm">
         <span className="text-muted">GPU Power</span>
         <span className="font-tabular text-sm text-text">
@@ -141,9 +126,21 @@ export function GpuPanel({ gpu, cpu, sparkId, temperatureUnit, className }: GpuP
               ? "bg-warning"
               : "bg-accent";
         const pct = t?.smClockPct;
+        // When a clock cap is set, the bar's full scale becomes the cap (not
+        // the hardware max) so it reflects the headroom that actually exists.
+        const clockLock = gpu?.clockLock ?? null;
+        const capMax = clockLock?.maxMHz ?? null;
+        const denomMHz =
+          capMax != null && t?.smClockMaxMHz != null
+            ? Math.min(capMax, t.smClockMaxMHz)
+            : t?.smClockMaxMHz ?? null;
+        const barPct =
+          t?.smClockMHz != null && denomMHz != null && denomMHz > 0
+            ? (t.smClockMHz / denomMHz) * 100
+            : pct;
         const clockCaption =
-          t?.smClockMHz != null && t?.smClockMaxMHz != null
-            ? `${t.smClockMHz} / ${t.smClockMaxMHz} MHz`
+          t?.smClockMHz != null && denomMHz != null
+            ? `${t.smClockMHz} / ${denomMHz} MHz`
             : pct != null
               ? `${pct}%`
               : "—";
@@ -157,6 +154,26 @@ export function GpuPanel({ gpu, cpu, sparkId, temperatureUnit, className }: GpuP
                 {chipLabel}
               </span>
             </div>
+            {clockLock != null && (
+              <div className="flex items-center justify-between gap-2 text-sm">
+                <span className="text-muted">Clock Cap</span>
+                <ClockCapControl
+                  sparkId={sparkId}
+                  domain="gpu"
+                  currentMHz={capMax}
+                  display={
+                    /* -lgc MIN,MAX: a 0 min means "no floor" and MIN==MAX is a
+                       single pinned value — both collapse to just the max.
+                       Show the range only when a real floor is locked. */
+                    clockLock.minMHz > 0 && clockLock.minMHz !== clockLock.maxMHz
+                      ? `${clockLock.minMHz}–${clockLock.maxMHz} MHz`
+                      : `${capMax} MHz`
+                  }
+                  enabled={Boolean(clockControlEnabled)}
+                  disabledReason="Clock control is disabled for this Spark (enable it in Edit Spark)"
+                />
+              </div>
+            )}
             <div className="flex items-baseline justify-between gap-2">
               <span className="text-[10px] uppercase tracking-wide text-muted">SM clock</span>
               <span className="font-tabular text-xs text-text">{clockCaption}</span>
@@ -165,7 +182,7 @@ export function GpuPanel({ gpu, cpu, sparkId, temperatureUnit, className }: GpuP
               <div
                 className={`h-full rounded-full transition-[width] duration-300 ease-out ${barColor}`}
                 style={{
-                  width: `${pct != null ? Math.min(100, Math.max(0, pct)) : 0}%`,
+                  width: `${barPct != null ? Math.min(100, Math.max(0, barPct)) : 0}%`,
                 }}
               />
             </div>

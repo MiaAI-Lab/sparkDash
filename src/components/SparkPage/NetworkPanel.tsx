@@ -9,6 +9,7 @@ interface NetworkPanelProps {
   sparkId: string;
   disabledInterfaces: string[];
   onDisabledChange: (interfaces: string[]) => void;
+  className?: string;
 }
 
 function formatSpeed(bytesPerSec: number): string {
@@ -42,6 +43,7 @@ export function NetworkPanel({
   sparkId,
   disabledInterfaces,
   onDisabledChange,
+  className,
 }: NetworkPanelProps) {
   const [showSettings, setShowSettings] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -79,7 +81,7 @@ export function NetworkPanel({
       title="Network"
       accent
       icon={<NetworkIcon />}
-      className="panel-network"
+      className={`panel-network ${className ?? ""}`}
       actions={
         <button
           type="button"

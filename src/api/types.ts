@@ -79,6 +79,12 @@ export interface SparkConfig {
    */
   hermesMonitoring?: boolean;
   /**
+   * Opt-in: allow setting CPU/GPU clock caps from the dashboard (Clock Cap
+   * rows become editable; applied live and/or persisted via the privileged
+   * host helper). Default false.
+   */
+  clockControlEnabled?: boolean;
+  /**
    * Report tailnet presence via `tailscale status --json` (default false; all roles).
    */
   tailscaleMonitoring?: boolean;
@@ -213,14 +219,71 @@ export interface GpuMetrics {
   throttle?: GpuThrottle | null;
   /** Kernel NVRM NV_ERR_NO_MEMORY count since boot (cached ~60s). */
   nvErrNoMemory?: number;
+  /** Active `nvidia-smi -lgc` graphics clock lock, when one is set. */
+  clockLock?: { minMHz: number; maxMHz: number } | null;
 }
 
 // ─── CPU metrics ─────────────────────────────────────────
+/** One CPU frequency domain (cluster) and its active max_perf ceiling. */
+export interface CpuClockCap {
+  /** Cluster label, e.g. "X925" (performance) or "A725" (efficiency). */
+  label: string;
+  /** Active max_perf ceiling in MHz. */
+  capMHz: number;
+  /** Hardware maximum (cpuinfo_max_freq) in MHz. */
+  maxMHz: number;
+  /** True when the ceiling is below the hardware max (a cap is in effect). */
+  capped: boolean;
+}
+
 export interface CpuMetrics {
   usage: number;
   temperature: number;
   draw: number;
   tdp: number;
+  /** Active per-domain CPU clock caps (max_perf). Absent when unreadable. */
+  clockCaps?: CpuClockCap[] | null;
+}
+
+// ─── Clock control (opt-in per Spark) ────────────────────
+/** One editable clock-cap domain with its hardware-legal range. */
+export interface ClockCapDomain {
+  id: "cpu-big" | "cpu-little" | "gpu";
+  label: string;
+  /** Active cap in MHz (null when the read path has no value for it). */
+  currentMHz: number | null;
+  hardMinMHz: number;
+  hardMaxMHz: number;
+  stepMHz: number;
+  /** Named presets, e.g. { label: "No cap", value: 3900 }. */
+  presets: Array<{ label: string; value: number | null }>;
+  /** Boot unit this domain persists to (host path), when known. */
+  unitPath: string | null;
+  /** True when at least one apply path (helper or container) can run now. */
+  writable: boolean;
+  /** Why the domain is not writable, when writable is false. */
+  reason?: string;
+}
+
+/** GET /api/sparks/:id/clocks/bounds response. */
+export interface ClockCapBoundsResponse {
+  ok: boolean;
+  sparkId: string;
+  domains: ClockCapDomain[];
+  helper: { available: boolean; checked: boolean; reason?: string };
+  /** Non-fatal caveats, e.g. the GPU ceiling came from the documented fallback. */
+  warnings?: string[];
+}
+
+/** POST /api/sparks/:id/clocks response (200 shape). */
+export interface ClockCapResponse {
+  ok: boolean;
+  domain: string;
+  appliedMHz: number | null;
+  persisted: boolean;
+  bootUnit: string | null;
+  source: "helper" | "container";
+  warnings: string[];
 }
 
 // ─── RAM metrics ─────────────────────────────────────────
@@ -508,6 +571,11 @@ export interface SparkSnapshot {
   comfyMonitoring?: boolean;
   /** ComfyUI HTTP port (default 8188) */
   comfyPort?: number;
+  /**
+   * Opt-in: the Clock Cap rows in the GPU/CPU panels become editable
+   * (default false; requires the one-time helper install on the host).
+   */
+  clockControlEnabled?: boolean;
   /** Whether tailnet presence is probed (opt-in; all roles) */
   tailscaleMonitoring?: boolean;
   /** Hermes Agent update monitoring state (present in every snapshot). */

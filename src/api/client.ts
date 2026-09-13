@@ -1,4 +1,6 @@
 import type {
+  ClockCapBoundsResponse,
+  ClockCapResponse,
   DecodeBenchJob,
   DecodeBenchListResponse,
   FleetEnergy,
@@ -134,6 +136,23 @@ export function cancelComfyJob(
   return apiFetch(`/api/sparks/${encodeURIComponent(sparkId)}/comfy/cancel`, {
     method: "POST",
     body: JSON.stringify({ promptId }),
+  });
+}
+
+// ─── Clock control (opt-in per Spark) ─────────────────────
+/** Discover the hardware-legal clock-cap ranges for one Spark. */
+export function getClockCapBounds(id: string): Promise<ClockCapBoundsResponse> {
+  return apiFetch(`/api/sparks/${encodeURIComponent(id)}/clocks/bounds`);
+}
+
+/** Apply a clock cap (maxMHz null = remove the cap). */
+export function setClockCap(
+  id: string,
+  body: { domain: string; maxMHz: number | null; persist: boolean }
+): Promise<ClockCapResponse> {
+  return apiFetch(`/api/sparks/${encodeURIComponent(id)}/clocks`, {
+    method: "POST",
+    body: JSON.stringify(body),
   });
 }
 

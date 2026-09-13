@@ -5,6 +5,7 @@ import { updateSpark, refreshSparkMetric, addLlmPort, removeLlmPort } from "../.
 import { SparkHeader } from "./SparkHeader";
 import { SparkActions } from "./SparkActions";
 import { GpuPanel } from "./GpuPanel";
+import { CpuPanel } from "./CpuPanel";
 import { RamPanel } from "./RamPanel";
 import { StoragePanel } from "./StoragePanel";
 import { NetworkPanel } from "./NetworkPanel";
@@ -228,66 +229,54 @@ export function SparkPage({ spark, temperatureUnit, onEdit }: SparkPageProps) {
           style={{ marginTop: "var(--density-page-gap)" }}
         />
         {resourcesOpen && (
-          <>
-            {spark.kind === "host" ? (
-              /* Hosts: GPU spans the full left column; RAM → Network → Storage [→ Tailnet] stack in the right column */
-              <>
-                <GpuPanel
-                  gpu={metrics.gpu}
-                  sparkId={spark.id}
-                  temperatureUnit={temperatureUnit}
-                  className={tailscaleOn ? "md:row-span-4" : "md:row-span-3"}
-                />
-                <RamPanel
-                  ram={metrics.ram}
-                  cpu={metrics.cpu}
-                  sparkId={spark.id}
-                  temperatureUnit={temperatureUnit}
-                />
-                <NetworkPanel
-                  network={metrics.network}
-                  sparkId={spark.id}
-                  disabledInterfaces={disabledInterfaces}
-                  onDisabledChange={setDisabledInterfaces}
-                />
-                <StoragePanel
-                  storage={metrics.storage}
-                  sparkId={spark.id}
-                  disabledDevices={disabledDevices}
-                  onDisabledChange={setDisabledDevices}
-                  storagePollDisabled={storagePollDisabled}
-                  onStoragePollModeChange={handleStoragePollModeChange}
-                />
-                {tailscaleOn && <TailscalePanel tailscale={metrics.tailscale ?? null} />}
-              </>
-            ) : (
-              /* Resources layout: GPU spans the full left column; Storage + Network [+ Tailnet] stack in the right column */
-              <>
-                <GpuPanel
-                  gpu={metrics.gpu}
-                  cpu={metrics.cpu}
-                  sparkId={spark.id}
-                  temperatureUnit={temperatureUnit}
-                  className={tailscaleOn ? "md:row-span-3" : "md:row-span-2"}
-                />
-                <StoragePanel
-                  storage={metrics.storage}
-                  sparkId={spark.id}
-                  disabledDevices={disabledDevices}
-                  onDisabledChange={setDisabledDevices}
-                  storagePollDisabled={storagePollDisabled}
-                  onStoragePollModeChange={handleStoragePollModeChange}
-                />
-                <NetworkPanel
-                  network={metrics.network}
-                  sparkId={spark.id}
-                  disabledInterfaces={disabledInterfaces}
-                  onDisabledChange={setDisabledInterfaces}
-                />
-                {tailscaleOn && <TailscalePanel tailscale={metrics.tailscale ?? null} />}
-              </>
-            )}
-          </>
+          /* Two independent columns so panels take natural heights (no row-stretch
+             dead space). Left: GPU + CPU stacked (CPU sits directly under GPU).
+             Right: the rest, stacked independently. */
+          <div
+            className="md:col-span-2 grid grid-cols-1 md:grid-cols-2"
+            style={{ gap: "var(--density-page-gap)" }}
+          >
+            <div className="flex flex-col" style={{ gap: "var(--density-page-gap)" }}>
+              <GpuPanel
+                gpu={metrics.gpu}
+                sparkId={spark.id}
+                temperatureUnit={temperatureUnit}
+                clockControlEnabled={Boolean(spark.clockControlEnabled)}
+              />
+              {/* grow: fill the gap so the left column's bottom aligns with the right */}
+              <CpuPanel
+                cpu={metrics.cpu}
+                hardware={spark.hardware}
+                sparkId={spark.id}
+                temperatureUnit={temperatureUnit}
+                clockControlEnabled={Boolean(spark.clockControlEnabled)}
+                className="grow"
+              />
+            </div>
+            <div className="flex flex-col" style={{ gap: "var(--density-page-gap)" }}>
+              {spark.kind === "host" && <RamPanel ram={metrics.ram} sparkId={spark.id} />}
+              <StoragePanel
+                storage={metrics.storage}
+                sparkId={spark.id}
+                disabledDevices={disabledDevices}
+                onDisabledChange={setDisabledDevices}
+                storagePollDisabled={storagePollDisabled}
+                onStoragePollModeChange={handleStoragePollModeChange}
+              />
+              {/* grow: the right column's bottom panel fills the gap (Network, or
+                  Tailnet when it's the last one) so both columns end at the same height */}
+              <NetworkPanel
+                network={metrics.network}
+                sparkId={spark.id}
+                disabledInterfaces={disabledInterfaces}
+                onDisabledChange={setDisabledInterfaces}
+                className={tailscaleOn ? undefined : "grow"}
+              />
+              {tailscaleOn && (
+                <TailscalePanel tailscale={metrics.tailscale ?? null} className="grow" />
+              )}
+            </div>
+          </div>
         )}
         {/*
           Services layout:
