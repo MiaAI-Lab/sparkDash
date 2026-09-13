@@ -639,6 +639,33 @@ test("parseGpuSetClocksReply reads the value the driver actually accepted", () =
   assert.equal(parseGpuSetClocksReply("ERROR: not supported"), null);
 });
 
+test("parseGpuSetClocksReply reads the REAL nvidia-smi -lgc confirmation (journal ground truth)", () => {
+  // Verbatim stdout captured read-only from the spark-1 systemd journal
+  // (gpu-clock-lock.service running `nvidia-smi -lgc 0,2200`, driver
+  // 580.173.02). The REAL confirmation is double-quoted and carries
+  // gpuClkMin/gpuClkMax labels — the bare "(0, 1976)" shape above is a
+  // reconstruction that no driver version has been observed to print.
+  const REAL = 'GPU clocks set to "(gpuClkMin 0, gpuClkMax 2200)" for GPU 0000000F:01:00.0';
+  assert.equal(parseGpuSetClocksReply(REAL), 2200);
+  // The measured quantisation example in the real shape: anchor on the MAX.
+  assert.equal(
+    parseGpuSetClocksReply('GPU clocks set to "(gpuClkMin 0, gpuClkMax 1976)" for GPU 0000000F:01:00.0'),
+    1976
+  );
+  // A non-zero min must never win over the max.
+  assert.equal(
+    parseGpuSetClocksReply('GPU clocks set to "(gpuClkMin 1000, gpuClkMax 2200)" for GPU 0000000F:01:00.0'),
+    2200
+  );
+  // The full journal transcript (set-to line + completion) yields the max.
+  assert.equal(parseGpuSetClocksReply(`${REAL}\nAll done.`), 2200);
+  // A gpuClkMax of 0 is not a confirmation.
+  assert.equal(
+    parseGpuSetClocksReply('GPU clocks set to "(gpuClkMin 0, gpuClkMax 0)" for GPU 0000000F:01:00.0'),
+    null
+  );
+});
+
 test("isClockHelperDoneReply recognises the helper's completion line", () => {
   assert.equal(isClockHelperDoneReply("GPU clocks set to (0, 1976)\nAll done."), true);
   assert.equal(isClockHelperDoneReply("All done."), true);

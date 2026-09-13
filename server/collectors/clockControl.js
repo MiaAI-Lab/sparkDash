@@ -234,16 +234,28 @@ export function clientClockGrid(hardMinMHz, hardMaxMHz) {
 
 /**
  * Parse the value the driver ACTUALLY accepted from an `-lgc` apply stdout
- * (item 6, honesty). Measured shapes: `GPU clocks set to (min, max)` from the
- * helper / container path and the nvidia-smi line `Clocks set to (0, 1976)`.
+ * (item 6, honesty). The REAL confirmation (journal capture of
+ * gpu-clock-lock.service, driver 580.173.02) is double-quoted and labelled:
+ *   GPU clocks set to "(gpuClkMin 0, gpuClkMax 2200)" for GPU 0000000F:01:00.0
  * A request for 2000 that prints 1976 was quantised by the driver — the UI
- * must report both numbers. Returns null when the transcript carries no
- * set-to line (caller then reports the request with a verification warning).
+ * must report both numbers. The generic bare-paren shapes (`GPU clocks set
+ * to (0, 1976)` / `Clocks set to (0, 1976)`) stay accepted. Both shapes
+ * anchor on the MAX value — the min must never win. Returns null when the
+ * transcript carries no set-to line (caller then reports the request with a
+ * verification warning).
  * @param {string} stdout
  * @returns {number | null} the max MHz the driver confirmed
  */
 export function parseGpuSetClocksReply(stdout) {
-  const m = String(stdout ?? "").match(/set to\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)/i);
+  const text = String(stdout ?? "");
+  // Real driver shape: double-quoted, gpuClkMin/gpuClkMax-labelled.
+  const real = text.match(/set to\s*"?\(\s*gpuClkMin\s+\d+\s*,\s*gpuClkMax\s+(\d+)\s*\)"?/i);
+  if (real) {
+    const v = Number(real[1]);
+    return Number.isFinite(v) && v > 0 ? v : null;
+  }
+  // Generic bare-paren shape.
+  const m = text.match(/set to\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)/i);
   if (!m) return null;
   const v = Number(m[2]);
   return Number.isFinite(v) && v > 0 ? v : null;
