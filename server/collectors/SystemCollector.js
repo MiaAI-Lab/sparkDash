@@ -5,8 +5,10 @@ import { normalizeMac, WOL_INTERFACE } from "../wol.js";
 import { sshExec } from "./ssh.js";
 import {
   buildClockHelperArgv,
+  buildHelperProbeCommand,
   clampClockCap,
   interpretHelperExit,
+  interpretHelperProbe,
   parseCpuClockBounds,
   parseCpuCoreMaxKhz,
   parseCpuBootUnitDefaults,
@@ -514,21 +516,25 @@ export class SystemCollector {
   }
 
   /**
-   * Check whether the privileged helper is installed and runnable (cheap SSH
-   * probe). Returns { available, checked, reason }.
+   * Check whether the privileged helper is installed and allowed by sudo
+   * (cheap SSH probe). The probe exercises EXACTLY the scoped grant shipped
+   * by scripts/install-clock-helper.sh — an argumentless run of the helper
+   * binary — never `sudo -n true`, which no scoped sudoers file permits.
+   * Returns { available, checked, reason }.
    */
   async checkClockHelper() {
     if (this._clockHelperState && Date.now() - this._clockHelperState.at < 30_000) {
       return this._clockHelperState.state;
     }
     this._clockHelperState = { at: Date.now(), state: null }; // in-flight marker
-    const probe = `test -x ${SPARKDASH_CLOCK_BIN} && sudo -n true && echo ok || echo no`;
     let state;
     try {
-      const out = await sshExec(this.spark, probe, { timeoutMs: 8000 });
-      state = String(out).includes("ok")
-        ? { available: true, checked: true }
-        : { available: false, checked: true, reason: "clock helper not installed on the host" };
+      const out = await sshExec(
+        this.spark,
+        buildHelperProbeCommand({ helperBin: SPARKDASH_CLOCK_BIN }),
+        { timeoutMs: 8000 }
+      );
+      state = interpretHelperProbe(out);
     } catch (err) {
       state = {
         available: false,
@@ -558,7 +564,9 @@ export class SystemCollector {
       maxMHz == null ? null : clampClockCap(maxMHz, bounds.hardMinMHz, bounds.hardMaxMHz, { warnings });
 
     // Primary: privileged helper over SSH (mirrors the shutdown feature).
-    const helperCmd = buildClockHelperArgv({ domain, maxMHz: appliedMHz, persist });
+    const helperCmd = buildClockHelperArgv({ domain, maxMHz: appliedMHz, persist }, {
+      helperBin: SPARKDASH_CLOCK_BIN,
+    });
     try {
       await sshExec(this.spark, helperCmd, { timeoutMs: 12000 });
       if (persist) this._clockCapsOverride = {}; // persisted → drop all volatile state
@@ -719,14 +727,20 @@ export class SystemCollector {
           parts.push(`echo ${khz} > /sys/devices/system/cpu/${cpuN}/cpufreq/max_perf`);
         }
       }
-      execLine = parts.join("; ");
+      // The ExecStart list is shell syntax (redirections), so systemd must run
+      // it through /bin/sh — byte-identical to the helper's persist path
+      // (scripts/sparkdash-set-clock cpu_unit_body). No single quotes can ever
+      // occur in these commands (echo/cat paths + integers only).
+      execLine = `/bin/sh -c '${parts.join("; ")}'`;
     }
     const script = [
       "set -eu",
       `cat > /etc/systemd/system/${unit} <<'UNIT'`,
       "[Unit]",
-      `Description=sparkDash ${domain} clock cap`,
-      "After=nvidia-persistenced.service",
+      domain === "gpu"
+        ? "Description=Lock NVIDIA GPU graphics clocks to user range"
+        : "Description=sparkDash CPU clock cap (big + little domains)",
+      domain === "gpu" ? "After=nvidia-persistenced.service" : "After=multi-user.target",
       "",
       "[Service]",
       "Type=oneshot",

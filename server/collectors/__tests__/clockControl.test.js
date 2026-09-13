@@ -1,12 +1,22 @@
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
   CLOCK_DOMAIN_IDS,
+  HELPER_PROBE_MISSING,
+  HELPER_PROBE_OK,
+  HELPER_PROBE_REFUSED,
+  HELPER_REFUSED_SENTINEL,
   clampClockCap,
   buildClockCapDomains,
   buildClockHelperArgv,
+  buildHelperProbeCommand,
   expandCpuToken,
   interpretHelperExit,
+  interpretHelperProbe,
   parseCpuClockBounds,
   parseCpuCoreMaxKhz,
   parseCpuBootUnitDefaults,
@@ -164,13 +174,21 @@ test("validateClockCapRequest tolerates a missing/undefined body", () => {
 });
 
 // ─── Helper argv (D4) ─────────────────────────────────────
+//
+// The shipped sudoers grant is ONE argumentless command
+// (`NOPASSWD: /usr/local/bin/sparkdash-set-clock`), so the chain must never
+// gate on `sudo -n true` — no scoped sudoers file permits it.
 
-test("buildClockHelperArgv mirrors SHUTDOWN_REMOTE_CMD shape with distinct 127/126 exits", () => {
+test("buildClockHelperArgv probes the granted binary argumentlessly with distinct 127/126 exits", () => {
   const cmd = buildClockHelperArgv({ domain: "gpu", maxMHz: 2200, persist: true });
   assert.match(cmd, /^test -x \/usr\/local\/bin\/sparkdash-set-clock \|\| \{ echo "missing/);
   assert.match(cmd, /exit 127; \}/);
-  assert.match(cmd, /sudo -n true \|\| \{ echo "sudo -n required/);
-  assert.match(cmd, /exit 126; \}/);
+  // Availability probe = the granted command itself, argumentless; a sudo
+  // refusal (no usage line, nonzero rc) hits the sentinel + exit 126.
+  assert.match(cmd, /out=\$\(sudo -n \/usr\/local\/bin\/sparkdash-set-clock 2>&1\); rc=\$\?/);
+  assert.doesNotMatch(cmd, /sudo -n true/);
+  assert.match(cmd, new RegExp(`echo "${HELPER_REFUSED_SENTINEL}: sudo -n refused`));
+  assert.match(cmd, /exit 126; fi/);
   assert.match(cmd, /sudo -n \/usr\/local\/bin\/sparkdash-set-clock --domain 'gpu' --max-mhz 2200 --persist$/);
 });
 
@@ -184,18 +202,105 @@ test("buildClockHelperArgv single-quotes the domain", () => {
   assert.match(cmd, /--domain 'cpu-big'/);
 });
 
+// ─── Availability probe (exercises exactly the scoped grant) ────────────────
+
+/** Usage-printing stub with the real helper's argv semantics (lines 27-30). */
+function makeFakeHelper(dir) {
+  const p = path.join(dir, "sparkdash-set-clock");
+  fs.writeFileSync(
+    p,
+    "#!/bin/sh\necho 'usage: sparkdash-set-clock --domain cpu-big|cpu-little|gpu (--max-mhz <int>|--unlock) (--persist|--no-persist)' >&2\nexit 1\n"
+  );
+  fs.chmodSync(p, 0o755);
+  return p;
+}
+
+/** sudo stub enforcing the SCOPED grant: only `-n <bin>` with no args. */
+function makeScopedSudo(dir, allowedBin, { alwaysRefuse = false } = {}) {
+  const p = path.join(dir, "sudo");
+  const body = alwaysRefuse
+    ? `#!/bin/sh\necho "sudo: a password is required" >&2\nexit 1\n`
+    : `#!/bin/sh
+[ "\$1" = "-n" ] || { echo "sudo: a password is required" >&2; exit 1; }
+[ "\$#" -eq 2 ] && [ "\$2" = "${allowedBin}" ] || { echo "sudo: a password is required" >&2; exit 1; }
+exec "\$2"
+`;
+  fs.writeFileSync(p, body);
+  fs.chmodSync(p, 0o755);
+  return p;
+}
+
+function runProbe(probeCmd, dir) {
+  return execFileSync("sh", ["-c", probeCmd], {
+    encoding: "utf8",
+    env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
+  });
+}
+
+test("probe reports available under ONLY the scoped grant (no unrestricted NOPASSWD true)", (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clock-probe-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const helper = makeFakeHelper(dir);
+  makeScopedSudo(dir, helper); // refuses everything except the argumentless helper
+  const probeCmd = buildHelperProbeCommand({ helperBin: helper });
+  assert.ok(!probeCmd.includes("sudo -n true"), "the probe must not depend on `sudo -n true`");
+  assert.equal(runProbe(probeCmd, dir).trim(), HELPER_PROBE_OK);
+  assert.deepEqual(interpretHelperProbe(HELPER_PROBE_OK), {
+    available: true,
+    checked: true,
+  });
+});
+
+test("probe reports the provisioning hint when sudo refuses the granted command", (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clock-probe-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const helper = makeFakeHelper(dir);
+  makeScopedSudo(dir, helper, { alwaysRefuse: true });
+  const out = runProbe(buildHelperProbeCommand({ helperBin: helper }), dir).trim();
+  assert.equal(out, HELPER_PROBE_REFUSED);
+  const state = interpretHelperProbe(out);
+  assert.equal(state.available, false);
+  assert.match(state.reason, /passwordless sudo/);
+  // ...and the apply-path classifier maps the refusal sentinel to the SAME cause.
+  const interpreted = interpretHelperExit(
+    new Error(`SSH to 1.2.3.4 failed: ${HELPER_REFUSED_SENTINEL}: sudo -n refused\nexit 126`)
+  );
+  assert.equal(interpreted.status, 423);
+  assert.match(interpreted.reason, /passwordless sudo/);
+});
+
+test("probe reports not-installed when the binary is absent", (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clock-probe-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  makeScopedSudo(dir, path.join(dir, "nope")); // sudo present, helper missing
+  const out = runProbe(buildHelperProbeCommand({ helperBin: path.join(dir, "nope") }), dir).trim();
+  assert.equal(out, HELPER_PROBE_MISSING);
+  const state = interpretHelperProbe(out);
+  assert.equal(state.available, false);
+  assert.match(state.reason, /not installed/);
+});
+
 // ─── Exit-code interpretation (D4) ────────────────────────
 
-test("interpretHelperExit maps 127 to 423 with an install hint", () => {
-  const out = interpretHelperExit(new Error("SSH to 1.2.3.4 failed: missing /usr/local/bin/sparkdash-set-clock\nexit 127"));
+test("interpretHelperExit maps the missing-binary sentinel to 423 with an install hint", () => {
+  const out = interpretHelperExit(
+    new Error("SSH to 1.2.3.4 failed: missing /usr/local/bin/sparkdash-set-clock\nexit 127")
+  );
   assert.equal(out.status, 423);
   assert.match(out.reason, /install-clock-helper\.sh/);
 });
 
-test("interpretHelperExit maps 126 to 423 with a sudoers hint", () => {
-  const out = interpretHelperExit(new Error("SSH to 1.2.3.4 failed: sudo -n required for /usr/local/bin/sparkdash-set-clock\nexit 126"));
-  assert.equal(out.status, 423);
-  assert.match(out.reason, /passwordless sudo/);
+test("interpretHelperExit anchors on sentinels, never on bare numbers in the message", () => {
+  // A helper failure that merely MENTIONS 126/127 (a device id, a frequency)
+  // must NOT be mislabelled as not-installed / not-provisioned.
+  const noisy = new Error(
+    "SSH to 1.2.3.4 failed: nvidia-smi: GPU 127 at 126 MHz failed; exited with code 1"
+  );
+  const out = interpretHelperExit(noisy);
+  assert.equal(out.status, 502);
+  assert.doesNotMatch(out.reason, /not installed|passwordless sudo/);
+  // An external exit 126 with no sentinel is a generic 502, not a sudo claim.
+  assert.equal(interpretHelperExit(new Error("cmd exited with code 126")).status, 502);
 });
 
 test("interpretHelperExit maps transport timeouts to 503 and anything else to 502", () => {

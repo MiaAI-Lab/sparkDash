@@ -13,12 +13,22 @@
 #
 # Exit codes:
 #   0 ok · 1 usage/invalid · 2 out of range · 3 unsupported domain · 4 sysfs I/O failure
+#
+# Availability probing: the scoped sudoers grant allows ONLY an argumentless
+# run of this binary. An argumentless invocation prints the usage line and
+# exits 1 — that is exactly what the dashboard's probe expects ("installed and
+# sudo-allowed"); a sudo refusal exits 1 without the usage line.
 set -eu
 
-CPU_UNIT=/etc/systemd/system/cpu-clock-cap.service
-GPU_UNIT=/etc/systemd/system/gpu-clock-lock.service
+CPU_SYS=${SPARKDASH_CPU_SYS:-/sys/devices/system/cpu}
+UNIT_DIR=${SPARKDASH_UNIT_DIR:-/etc/systemd/system}
+CPU_UNIT=$UNIT_DIR/cpu-clock-cap.service
+GPU_UNIT=$UNIT_DIR/gpu-clock-lock.service
 SMI=/usr/bin/nvidia-smi
 
+# Test hooks only: SPARKDASH_CPU_SYS / SPARKDASH_UNIT_DIR redirect the sysfs
+# and unit paths. Under the shipped scoped sudoers grant sudo resets the
+# environment, so a remote invocation always uses the real /sys and /etc.
 DOMAIN=""
 MAX_MHZ=""
 UNLOCK=0
@@ -42,7 +52,9 @@ done
 
 [ -n "$DOMAIN" ] || usage
 case "$DOMAIN" in
-  gpu|cpu-big|cpu-little) ;;
+  gpu) OTHER_DOMAIN="" ;;
+  cpu-big) OTHER_DOMAIN="cpu-little" ;;
+  cpu-little) OTHER_DOMAIN="cpu-big" ;;
   *) echo "unsupported domain: $DOMAIN" >&2; exit 3 ;;
 esac
 
@@ -56,10 +68,12 @@ fi
 
 # cores_for DOMAIN → space-separated cpuN list, grouped by cpuinfo_max_freq
 # (never hardcoded indices; scaling_available_frequencies does not exist on
-# this platform).
+# this platform). Reads from $CPU_SYS. Cores are numerically sorted so the
+# generated unit is deterministic and byte-identical to the container persist
+# path (glob order would put cpu10 before cpu2).
 cores_for() {
   d=$1
-  for c in /sys/devices/system/cpu/cpu[0-9]*; do
+  for c in "$CPU_SYS"/cpu[0-9]*; do
     [ -d "$c/cpufreq" ] || continue
     max=$(cat "$c/cpufreq/cpuinfo_max_freq" 2>/dev/null || true)
     [ -n "$max" ] || continue
@@ -67,8 +81,9 @@ cores_for() {
       cpu-big) [ "$max" -ge 3000000 ] || continue ;;
       cpu-little) [ "$max" -lt 3000000 ] || continue ;;
     esac
-    basename "$c"
-  done
+    n=${c##*/cpu}
+    printf '%010d %s\n' "$n" "${c##*/}"
+  done | sort | cut -d' ' -f2
 }
 
 # Write max_perf for one core. Un_lock=1 writes the core's own hardware max.
@@ -133,25 +148,57 @@ cpu_apply() {
   return $rc
 }
 
+# unit_exec_line DOMAIN UNLOCK KHZ → the ExecStart command list for that
+# domain's cores. Shared by the unit generator so both persist paths emit the
+# same per-core command shape.
+unit_exec_line() {
+  d=$1
+  unlock=$2
+  khz=$3
+  cmds=""
+  for c in $(cores_for "$d"); do
+    base="$CPU_SYS/$c/cpufreq"
+    if [ "$unlock" -eq 1 ]; then
+      cmds="$cmds cat $base/cpuinfo_max_freq > $base/max_perf;"
+    else
+      cmds="$cmds echo $khz > $base/max_perf;"
+    fi
+  done
+  printf '%s' "$cmds"
+}
+
 cpu_unit_body() {
-  cores=$(cores_for "$DOMAIN" | tr '\n' ' ')
+  # Both CPU domains share ONE boot unit (cpu-clock-cap.service), so a
+  # single-domain Save MUST regenerate the sibling domain too — reading each
+  # sibling core's current max_perf and omitting cores whose value is
+  # unreadable (same no-guess rule as the container persist path in
+  # SystemCollector._persistClockUnitLocal). Otherwise a Save on cpu-big
+  # would silently delete cpu-little's boot cap and that core would boot at
+  # hardware maximum.
+  #
   # Explicit per-core commands in the unit file — NO shell loop variables.
   # systemd expands $VAR in ExecStart (unset -> empty), so a unit file must
   # never carry a bare `$c` inside `sh -c`.
-  cmds=""
-  for c in $cores; do
-    base="/sys/devices/system/cpu/$c/cpufreq"
-    if [ "$UNLOCK" -eq 1 ]; then
-      cmds="$cmds cat $base/cpuinfo_max_freq > $base/max_perf;"
-    else
-      cmds="$cmds echo $((MAX_MHZ * 1000)) > $base/max_perf;"
-    fi
-  done
+  cmds=$(unit_exec_line "$DOMAIN" "$UNLOCK" "$((MAX_MHZ * 1000))")
   [ -n "$cmds" ] || { echo "no cores found for domain $DOMAIN" >&2; return 2; }
-  # One unit per CPU domain; the helper writes only that domain's cores.
+  if [ -n "$OTHER_DOMAIN" ]; then
+    sibling_cmds=""
+    for c in $(cores_for "$OTHER_DOMAIN"); do
+      base="$CPU_SYS/$c/cpufreq"
+      khz=$(cat "$base/max_perf" 2>/dev/null || true)
+      case "$khz" in
+        ''|*[!0-9]*) continue ;;  # unreadable → omit rather than guess
+      esac
+      sibling_cmds="$sibling_cmds echo $khz > $base/max_perf;"
+    done
+    cmds="$cmds$sibling_cmds"
+  fi
+  # The ExecStart list is shell syntax (redirections), so systemd must run it
+  # through /bin/sh — same wrapping as the container persist path. Blank lines
+  # below match SystemCollector._persistClockUnitLocal byte for byte.
   cat <<UNIT
 [Unit]
-Description=sparkDash $DOMAIN clock cap
+Description=sparkDash CPU clock cap (big + little domains)
 After=multi-user.target
 
 [Service]

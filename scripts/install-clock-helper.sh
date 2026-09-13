@@ -44,4 +44,5 @@ visudo -c -f "$TMP" >/dev/null
 install -m 0440 "$TMP" "$SUDOERS_DST"
 
 echo "installed $HELLO_DST and $SUDOERS_DST"
-echo "verify from the dashboard host: ssh <user>@<host> 'sudo -n $HELLO_DST --help'"
+echo "verify from the dashboard host: ssh <user>@<host> 'sudo -n $HELLO_DST'"
+echo "  expected output: the helper usage line (sudo allowed the argumentless run)"

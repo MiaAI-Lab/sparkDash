@@ -568,6 +568,7 @@ app.get("/api/sparks/:id/clocks/bounds", async (req, res) => {
       gpuCeilingMHz: bounds.gpuCeilingMHz,
       helperAvailable: helper.available,
       helperChecked: helper.checked,
+      helperReason: helper.reason,
       cpuBootDefaults: bounds.cpuBootDefaults || {},
       gpuBootDefaultMHz: bounds.gpuBootDefaultMHz ?? null,
     });
