@@ -79,6 +79,12 @@ export interface SparkConfig {
    */
   hermesMonitoring?: boolean;
   /**
+   * Opt-in: allow setting CPU/GPU clock caps from the dashboard (Clock Cap
+   * rows become editable; applied live and/or persisted via the privileged
+   * host helper). Default false.
+   */
+  clockControlEnabled?: boolean;
+  /**
    * Report tailnet presence via `tailscale status --json` (default false; all roles).
    */
   tailscaleMonitoring?: boolean;
@@ -237,6 +243,45 @@ export interface CpuMetrics {
   tdp: number;
   /** Active per-domain CPU clock caps (max_perf). Absent when unreadable. */
   clockCaps?: CpuClockCap[] | null;
+}
+
+// ─── Clock control (opt-in per Spark) ────────────────────
+/** One editable clock-cap domain with its hardware-legal range. */
+export interface ClockCapDomain {
+  id: "cpu-big" | "cpu-little" | "gpu";
+  label: string;
+  /** Active cap in MHz (null when the read path has no value for it). */
+  currentMHz: number | null;
+  hardMinMHz: number;
+  hardMaxMHz: number;
+  stepMHz: number;
+  /** Named presets, e.g. { label: "No cap", value: 3900 }. */
+  presets: Array<{ label: string; value: number | null }>;
+  /** Boot unit this domain persists to (host path), when known. */
+  unitPath: string | null;
+  /** True when at least one apply path (helper or container) can run now. */
+  writable: boolean;
+  /** Why the domain is not writable, when writable is false. */
+  reason?: string;
+}
+
+/** GET /api/sparks/:id/clocks/bounds response. */
+export interface ClockCapBoundsResponse {
+  ok: boolean;
+  sparkId: string;
+  domains: ClockCapDomain[];
+  helper: { available: boolean; checked: boolean; reason?: string };
+}
+
+/** POST /api/sparks/:id/clocks response (200 shape). */
+export interface ClockCapResponse {
+  ok: boolean;
+  domain: string;
+  appliedMHz: number | null;
+  persisted: boolean;
+  bootUnit: string | null;
+  source: "helper" | "container";
+  warnings: string[];
 }
 
 // ─── RAM metrics ─────────────────────────────────────────

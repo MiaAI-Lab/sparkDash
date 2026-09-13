@@ -241,6 +241,7 @@ export function SparkPage({ spark, temperatureUnit, onEdit }: SparkPageProps) {
                 gpu={metrics.gpu}
                 sparkId={spark.id}
                 temperatureUnit={temperatureUnit}
+                clockControlEnabled={Boolean(spark.clockControlEnabled)}
               />
               {/* grow: fill the gap so the left column's bottom aligns with the right */}
               <CpuPanel
@@ -248,6 +249,7 @@ export function SparkPage({ spark, temperatureUnit, onEdit }: SparkPageProps) {
                 hardware={spark.hardware}
                 sparkId={spark.id}
                 temperatureUnit={temperatureUnit}
+                clockControlEnabled={Boolean(spark.clockControlEnabled)}
                 className="grow"
               />
             </div>
