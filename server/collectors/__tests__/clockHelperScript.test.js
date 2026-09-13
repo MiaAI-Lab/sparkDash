@@ -13,7 +13,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 const ROOT = path.resolve(import.meta.dirname, "../../..");
-const HELPER = path.join(ROOT, "scripts", "sparkdash-set-clock");
+const HELPER = path.join(ROOT, "scripts", "sparkdash-clock-addon", "sparkdash-set-clock");
 
 /** Build a stub sysfs tree: cores → {maxKhz (cpuinfo_max_freq), perf (max_perf)}. */
 function makeSysfs(root, cores) {
