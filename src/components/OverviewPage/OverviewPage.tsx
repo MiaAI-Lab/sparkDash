@@ -8,6 +8,7 @@ import { ActivityIcon, PowerOffIcon, PowerOnIcon, RotateIcon } from "../ui/icons
 import { AiProxyPanel } from "./AiProxyPanel";
 import { DevEnginePanel } from "./DevEnginePanel";
 import { ModelLauncherPanel } from "./ModelLauncher/ModelLauncherPanel";
+import { AutoPowerPanel } from "./AutoPowerPanel";
 import { useSparkGraphRef } from "../../hooks/sparkVisibility";
 
 interface OverviewPageProps {
@@ -556,6 +557,7 @@ export function OverviewPage({ sparks, hideOffline = false, temperatureUnit = "c
         </div>
         {/* Full-width: direct child of the page column, not the 2-col grid. */}
         {showModelLauncher && <ModelLauncherPanel models={models} connected={connected} />}
+        <AutoPowerPanel />
         <div className="panel mx-auto mt-4 max-w-md p-8 text-center">
           <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-accent-soft text-accent">
             <ActivityIcon className="h-5 w-5" />
@@ -584,6 +586,7 @@ export function OverviewPage({ sparks, hideOffline = false, temperatureUnit = "c
       </div>
       {/* Full-width: direct child of the page column, not the 2-col grid. */}
       {showModelLauncher && <ModelLauncherPanel models={models} connected={connected} />}
+      <AutoPowerPanel />
       <div className="flex flex-wrap items-end justify-between gap-6">
         <h1
           className="font-normal leading-tight tracking-tight text-text-strong"

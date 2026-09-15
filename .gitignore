@@ -19,6 +19,8 @@ config/models.json
 config/models-active.json
 config/scheduler.json
 config/model-scheduler-state.json
+config/autopower.json
+config/autopower-state.json
 *.log
 .DS_Store
 docs/

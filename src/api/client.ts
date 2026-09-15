@@ -3,6 +3,8 @@ import type {
   AiProxyObserverUrl,
   AiProxyStats,
   AiProxyStream,
+  AutoPowerConfig,
+  AutoPowerStatus,
   DecodeBenchJob,
   DecodeBenchListResponse,
   DevEnginePlan,
@@ -534,6 +536,27 @@ export function fetchDevEngineWebuiUrl(): Promise<DevEngineWebuiUrl> {
   return apiFetch("/api/dev-engine/webui-url");
 }
 
+// ─── Spark AutoPower ─────────────────────────────────────
+// Full-width Overview card: idle-watch + auto-wake of the spark fleet.
+// Polled (same pattern as DevEnginePanel), not part of the WS snapshot.
+
+/** Live status + config. */
+export function fetchAutoPower(): Promise<AutoPowerStatus> {
+  return apiFetch("/api/autopower");
+}
+
+/** Merge a config patch — also the on/off button ({ enabled }). */
+export function updateAutoPowerConfig(
+  patch: Partial<AutoPowerConfig> & {
+    watch?: Partial<AutoPowerConfig["watch"]>;
+    wake?: Partial<AutoPowerConfig["wake"]>;
+  }
+): Promise<{ config: AutoPowerConfig }> {
+  return apiFetch("/api/autopower/config", {
+    method: "PUT",
+    body: JSON.stringify(patch),
+  });
+}
 // ─── Global settings ──────────────────────────────────────
 export function fetchSettings(): Promise<Settings> {
   return apiFetch("/api/settings");

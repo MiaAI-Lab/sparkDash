@@ -125,6 +125,18 @@ const MODEL_SCHEDULER_TZ = process.env.MODEL_SCHEDULER_TZ || "Europe/Prague";
  */
 const MODEL_HOST_USER = process.env.MODEL_HOST_USER || "pavelkubicek";
 
+// ─── Spark AutoPower (idle-shutdown + scheduled wake for the spark fleet) ───
+/** Idle/watch/wake schedule (same file idiom as SCHEDULER_JSON_PATH). */
+const AUTOPOWER_JSON_PATH =
+  process.env.AUTOPOWER_JSON_PATH || path.join(ROOT, "config", "autopower.json");
+/** Last-idle / last-action state (survives restarts). */
+const AUTOPOWER_STATE_PATH =
+  process.env.AUTOPOWER_STATE_PATH || path.join(ROOT, "config", "autopower-state.json");
+/** AutoPower tick cadence — same rhythm as the model scheduler. */
+const AUTOPOWER_TICK_MS = parseInt(process.env.AUTOPOWER_TICK_MS || "30000", 10);
+/** Explicit AutoPower timezone — same DST rationale as MODEL_SCHEDULER_TZ. */
+const AUTOPOWER_TZ = process.env.AUTOPOWER_TZ || MODEL_SCHEDULER_TZ;
+
 export {
   SPARKS_JSON_PATH,
   GPU_MEMORY_JSON_PATH,
@@ -164,4 +176,8 @@ export {
   MODEL_SCHEDULER_TICK_MS,
   MODEL_SCHEDULER_TZ,
   MODEL_HOST_USER,
+  AUTOPOWER_JSON_PATH,
+  AUTOPOWER_STATE_PATH,
+  AUTOPOWER_TICK_MS,
+  AUTOPOWER_TZ,
 };

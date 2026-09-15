@@ -1040,3 +1040,72 @@ export interface DevEngineSlotsConfig {
 export interface DevEngineWebuiUrl {
   url: string;
 }
+// ─── Spark AutoPower ───────────────────────────────────────
+/** One watch span (single per day type, "HH:MM", end ≤ start wraps past midnight). */
+export interface AutoPowerWindow {
+  start: string;
+  end: string;
+}
+
+/** Persisted AutoPower config (mirrors config/autopower.json). */
+export interface AutoPowerConfig {
+  enabled: boolean;
+  tz: string;
+  idleTimeoutMin: number;
+  watch: { weekday: AutoPowerWindow[]; weekend: AutoPowerWindow[] };
+  /** "HH:MM" or null = no auto-wake for that day type. */
+  wake: { weekday: string | null; weekend: string | null };
+}
+
+/** Probe snapshot of the two idleness sources. */
+export interface AutoPowerSources {
+  at: number;
+  proxy: { ok: boolean; streams?: number; requests?: number; error?: string };
+  engine: {
+    ok: boolean;
+    slotsUsed?: number;
+    ticketsActive?: number;
+    plansActive?: number;
+    error?: string;
+  };
+}
+
+/** One action result (a shutdown or a WoL per spark). */
+export interface AutoPowerActionResult {
+  id: string;
+  ok: boolean;
+  message?: string;
+  mac?: string | null;
+  error?: string;
+}
+
+/** Persisted decision. */
+export interface AutoPowerDecision {
+  action: string;
+  reason: string;
+}
+
+/** GET /api/autopower — full live status (polled, not WS). */
+export interface AutoPowerStatus {
+  config: AutoPowerConfig;
+  dayType: "weekday" | "weekend";
+  clock: string;
+  watching: boolean;
+  window: { start: string; end: string; label: string } | null;
+  targets: { id: string; name: string; online: boolean }[];
+  sources: AutoPowerSources | null;
+  idleSince: number | null;
+  idleMin: number | null;
+  shutdownInMs: number | null;
+  lastBusyAt: number | null;
+  lastBusyReason: string | null;
+  lastShutdownAt: number | null;
+  nextWakeAt: number | null;
+  lastAction: {
+    at: number;
+    kind: "wake" | "shutdown";
+    reason: string;
+    results: AutoPowerActionResult[];
+  } | null;
+  lastDecision: AutoPowerDecision | null;
+}

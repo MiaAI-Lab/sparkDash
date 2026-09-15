@@ -14,6 +14,10 @@ import { validateSparkTarget, createRateLimiter } from "./validate.js";
 import { getSettings, updateSettings, loadSettings } from "./settings.js";
 import { broadcastForLanIp, effectiveMac, normalizeMac, sendWol } from "./wol.js";
 import { initiateSparkShutdown, shutdownErrorStatus } from "./shutdown.js";
+import { AutoPowerManager } from "./autopower/AutoPowerManager.js";
+import { createAutoPowerProbe } from "./autopower/probe.js";
+import { registerAutoPowerRoutes } from "./autopower/autopowerRoutes.js";
+import { loadAutoPowerConfig, getAutoPowerConfig } from "./autopower/store.js";
 import {
   decodeBenchManager,
   DECODE_BENCH_DEFAULTS,
@@ -1559,6 +1563,31 @@ const modelLauncher = initModelLauncher({
   getSpark: (id) => registry.getSpark(id),
 });
 registerModelRoutes(app, modelLauncher, { forceBroadcast });
+// ─── Spark AutoPower (idle shutdown + scheduled wake) ───
+// Watches the AI proxy (in-flight requests) and the dev engine (slots,
+// tickets, plan runs). After AUTOPOWER idle minutes of verified quiet inside
+// the configured watch span it shuts the remote Sparks down; at the wake time
+// it wakes them again. Head goes down last / up first: the proxy lives on it.
+const autoPower = new AutoPowerManager({
+  probe: createAutoPowerProbe({ aiProxyFetch, devEngineFetch }),
+  // Only the remote Sparks — the dashboard host itself is never touched.
+  getSparks: () => registry.sparks.filter((s) => s.kind === "spark" && !s.isLocal),
+  isOnline: (id) => Boolean(monitors.get(id)?.online),
+  shutdownSpark: (spark) => initiateSparkShutdown(spark),
+  wakeSpark: (spark) => {
+    const cleanMac = effectiveMac(spark);
+    if (!cleanMac) {
+      return Promise.reject(
+        new Error(`No MAC address for ${spark.name} (wake it once manually / set an override)`)
+      );
+    }
+    return sendWol(cleanMac, broadcastForLanIp(spark.lanIp));
+  },
+  onAction: (id, kind) =>
+    grantActionGrace(id, kind === "wake" ? WAKE_GRACE_MS : SHUTDOWN_GRACE_MS),
+  getConfig: getAutoPowerConfig,
+});
+registerAutoPowerRoutes(app, autoPower);
 
 // ─── Static files (built frontend) ───────────────────────
 const distDir = path.join(ROOT, "dist");
@@ -1737,6 +1766,7 @@ function restartBroadcast() {
 // ─── Start ───────────────────────────────────────────────
 loadSettings();
 loadSchedulerConfig();
+loadAutoPowerConfig();
 startBroadcast();
 
 server.listen(PORT, BIND_HOST, () => {
@@ -1755,6 +1785,8 @@ server.listen(PORT, BIND_HOST, () => {
   // Model launcher probe + scheduler timers. Deliberately not tied to
   // updateMonitorStates(): the night shift must run with zero tabs open.
   modelLauncher.startTimers();
+  // AutoPower shares the "night shift" rationale: it must run with zero tabs open.
+  autoPower.start();
 });
 
 // ─── Graceful shutdown ─────────────────────────────────
@@ -1785,6 +1817,7 @@ function shutdown(signal) {
   // never take someone's running model with it.
   try {
     modelLauncher.stopTimers();
+    autoPower.stop();
     modelLauncher.interruptAll(
       "Interrupted — sparkDash restarted while the script was running (the script and any container it started keep running on its Spark)"
     );
