@@ -7,6 +7,7 @@
 import { LLM_PROBE_TIMEOUT_MS } from "../config.js";
 import { classifyHostScope } from "../validate.js";
 import { llmProbeHost } from "./llmHost.js";
+import { applyTokenBank } from "../tokenBank.js";
 
 const FAIL_RESET_THRESHOLD = 3;
 const REDETECT_INTERVAL_MS = 60_000;
@@ -1565,6 +1566,15 @@ export class LlmProbe {
       cachedPrefillTps: this.cachedPrefillTps,
       uncachedPrefillTps: this.uncachedPrefillTps,
       totalOutputTokens: this.totalOutputTokens,
+      ...(() => {
+        try {
+          const id = this.spark?.id != null ? String(this.spark.id) : "unknown";
+          const bank = applyTokenBank(`${id}:${this.port}`, this.totalOutputTokens);
+          return { outputTokensLifetime: bank.lifetime, outputTokensBanked: bank.banked };
+        } catch {
+          return { outputTokensLifetime: this.totalOutputTokens, outputTokensBanked: 0 };
+        }
+      })(),
       kvCacheUsage: this.kvCacheUsage,
       requestsRunning: this.requestsRunning,
       requestsWaiting: this.requestsWaiting,
@@ -1595,6 +1605,8 @@ export class LlmProbe {
       cachedPrefillTps: null,
       uncachedPrefillTps: null,
       totalOutputTokens: 0,
+      outputTokensLifetime: 0,
+      outputTokensBanked: 0,
       kvCacheUsage: null,
       requestsRunning: null,
       requestsWaiting: null,

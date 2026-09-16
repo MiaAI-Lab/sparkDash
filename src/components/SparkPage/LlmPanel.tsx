@@ -14,6 +14,7 @@ import { PrefillBenchDialog } from "./PrefillBenchDialog";
 import { LlmDailyChart } from "./LlmDailyChart";
 import { parseLlmTargetInput } from "../../shared/llmTarget.js";
 import { LlmTrendChart } from "./LlmTrendChart";
+import { formatLiveStrip } from "../../lib/liveStrip";
 
 interface LlmPanelProps {
   llm: LlmMetrics | null;
@@ -444,6 +445,7 @@ export function LlmPanel({
 
   const generationTps = llm?.generationTps ?? 0;
   const prefillTps = llm?.prefillTps ?? 0;
+  const liveStrip = formatLiveStrip(llm?.requestsRunning, generationTps);
   const showPrefillSplit = llm?.cachedPrefillTps != null || llm?.uncachedPrefillTps != null;
   const cachedPrefillTps = llm?.cachedPrefillTps ?? 0;
   const uncachedPrefillTps = llm?.uncachedPrefillTps ?? 0;
@@ -711,6 +713,16 @@ export function LlmPanel({
                 )}
               </div>
             </div>
+          </div>
+          <div
+            className={`font-tabular text-[11px] ${liveStrip ? "text-accent" : "text-muted"}`}
+            title="In-flight decode this poll — not a sticky last_gen gauge"
+          >
+            {liveStrip ?? "idle — no in-flight decode"}
+          </div>
+          <div className="text-[10px] text-muted" title="Live engine counter plus banked totals from prior process lives">
+            lifetime {Math.round(llm?.outputTokensLifetime ?? 0).toLocaleString()} tok
+            {llm?.outputTokensBanked ? ` (banked ${Math.round(llm.outputTokensBanked).toLocaleString()})` : ""}
           </div>
           <div
             className="flex items-center justify-between"

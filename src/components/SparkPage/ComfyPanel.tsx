@@ -311,6 +311,19 @@ export function ComfyPanel({
                 {comfy.deviceType}
               </span>
             ) : null}
+            {comfy?.vramUsed != null && comfy?.vramTotal != null ? (
+              <span
+                className="text-muted"
+                title="Comfy /system_stats VRAM. Peak is high-water while a job is running."
+              >
+                VRAM {(comfy.vramUsed / 1e9).toFixed(1)}/{(comfy.vramTotal / 1e9).toFixed(1)} GB
+                {comfy.vramPeak != null ? ` · peak ${(comfy.vramPeak / 1e9).toFixed(1)}` : ""}
+              </span>
+            ) : (
+              <span className="text-muted" title="Peak is high-water while a job is running">
+                VRAM — (peak while rendering)
+              </span>
+            )}
             {comfy?.pytorchVersion ? (
               <span className="text-muted" title="PyTorch version">
                 torch {comfy.pytorchVersion}
