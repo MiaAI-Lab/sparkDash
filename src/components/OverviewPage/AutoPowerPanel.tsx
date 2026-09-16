@@ -244,7 +244,7 @@ export function AutoPowerPanel({
           />
         }
         className="flex flex-col"
-        bodyClassName="flex flex-1 flex-col space-y-2"
+        bodyClassName="flex flex-1 flex-col"
         actions={
           <div className="flex flex-wrap items-center justify-end gap-1.5">
             {/* Chip-state switch + chip buttons — the Model Launcher header kit. */}
@@ -277,8 +277,8 @@ export function AutoPowerPanel({
           </div>
         }
       >
-        <p className={`text-[11px] leading-snug ${headline.tone}`}>{headline.text}</p>
-        {toggleErr && <p className="text-[11px] text-danger">{toggleErr}</p>}
+        <p className={`text-sm leading-snug mb-[10px] ${headline.tone}`}>{headline.text}</p>
+        {toggleErr && <p className="text-[11px] text-danger mb-[10px]">{toggleErr}</p>}
 
         <div className="flex flex-wrap items-center gap-1.5">
           {/* Live counts come from the two widgets (published on their own
