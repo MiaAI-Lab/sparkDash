@@ -277,7 +277,7 @@ export function AutoPowerPanel({
           </div>
         }
       >
-        <p className={`text-sm leading-snug mb-[10px] ${headline.tone}`}>{headline.text}</p>
+        <p className={`text-[14px] leading-snug mb-[10px] ${headline.tone}`}>{headline.text}</p>
         {toggleErr && <p className="text-[11px] text-danger mb-[10px]">{toggleErr}</p>}
 
         <div className="flex flex-wrap items-center gap-1.5">
