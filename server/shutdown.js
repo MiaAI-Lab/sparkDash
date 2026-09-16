@@ -32,7 +32,10 @@ const SHUTDOWN_BIN = "/usr/local/bin/spark-shutdown";
  */
 const SHUTDOWN_REMOTE_CMD = [
   `test -x ${SHUTDOWN_BIN} || { echo "missing ${SHUTDOWN_BIN}" >&2; exit 127; }`,
-  `sudo -n true || { echo "sudo -n required for ${SHUTDOWN_BIN}" >&2; exit 126; }`,
+  // Command-scoped passwordless check: a narrow sudoers rule covering only
+  // SHUTDOWN_BIN passes; the old global `sudo -n true` gate locked out exactly
+  // that (safer) configuration.
+  `sudo -n -l ${SHUTDOWN_BIN} >/dev/null 2>&1 || { echo "passwordless sudo permission missing for ${SHUTDOWN_BIN}" >&2; exit 126; }`,
   `nohup sudo -n ${SHUTDOWN_BIN} >/dev/null 2>&1 &`,
   `sleep 0.3`,
   `exit 0`,
