@@ -6,6 +6,8 @@ import type { AutoPowerStatus } from "../../api/types";
 import { Panel } from "../ui/Panel";
 import { GearIcon, MoonStarIcon, RotateIcon } from "../ui/icons";
 import type { DayType } from "../../shared/modelSchedules";
+import type { EngineLive, IdleFeed, ProxyLive } from "../../shared/idleCounts";
+import { liveBusyReasons } from "../../shared/idleCounts";
 
 const DAY_LABEL: Record<DayType, string> = { weekday: "Workdays", weekend: "Weekend" };
 
@@ -118,13 +120,26 @@ function SourceBadge({
  * Watches the AI proxy (in-flight requests) and the dev engine (slots,
  * tickets, plan runs). After the configured idle span of verified quiet
  * inside the watch window, the remote Sparks are shut down; at the wake
- * time a WoL magic packet brings them back. The card renders only what the
- * server decided — every judgement lives server-side.
+ * time a WoL magic packet brings them back. The shutdown DECISION is made
+ * server-side on its own 30 s tick (it must fire with no browser open).
+ *
+ * The displayed live counts, though, are NOT queried here — they are
+ * published by the AI Proxy / Dev Engine panels on their own 5 s poll
+ * (lifted to OverviewPage), so this card shows exactly what those widgets
+ * show, with zero timing skew between them.
  *
  * Header actions and the settings modal follow the Model Launcher:
  * bordered-chip buttons, a chip-state switch, and a modal-sheet dialog.
  */
-export function AutoPowerPanel() {
+export function AutoPowerPanel({
+  proxyIdle,
+  engineIdle,
+}: {
+  /** AI Proxy panel's latest published counts (null until its first poll). */
+  proxyIdle?: ProxyLive | null;
+  /** Dev Engine panel's latest published counts (null until its first poll). */
+  engineIdle?: EngineLive | null;
+} = {}) {
   const [status, setStatus] = useState<AutoPowerStatus | null | undefined>(undefined);
   const [now, setNow] = useState(() => Date.now());
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -145,7 +160,8 @@ export function AutoPowerPanel() {
 
   // Local countdown clock (payloads carry absolute epochs; this only renders).
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 15_000);
+    // 5 s: matches the widgets' publish cadence so "updated Ns ago" stays exact.
+    const t = setInterval(() => setNow(Date.now()), 5_000);
     return () => clearInterval(t);
   }, []);
 
@@ -184,6 +200,10 @@ export function AutoPowerPanel() {
   const enabled = config.enabled;
   const decision = status.lastDecision?.action ?? null;
 
+  // Live counters mirrored from the two widgets (see header comment).
+  const feed: IdleFeed = { proxy: proxyIdle ?? null, engine: engineIdle ?? null };
+  const liveAt = Math.max(proxyIdle?.at ?? 0, engineIdle?.at ?? 0);
+
   // Headline — a quiet one-liner (Model Launcher whisper style), never a banner.
   let headline: { text: string; tone: string };
   if (!enabled) {
@@ -199,7 +219,7 @@ export function AutoPowerPanel() {
       tone: "text-warning",
     };
   } else if (decision === "busy") {
-    headline = { text: `busy — ${status.lastBusyReason ?? "activity"}`, tone: "text-muted" };
+    headline = { text: `busy — ${liveBusyReasons(feed)[0] ?? status.lastBusyReason ?? "activity"}`, tone: "text-muted" };
   } else {
     headline = {
       text: `next watch: ${DAY_LABEL[status.dayType].toLowerCase()} ${
@@ -261,26 +281,50 @@ export function AutoPowerPanel() {
         {toggleErr && <p className="text-[11px] text-danger">{toggleErr}</p>}
 
         <div className="flex flex-wrap items-center gap-1.5">
+          {/* Live counts come from the two widgets (published on their own
+              5 s poll, lifted to OverviewPage). Server sources is the fallback
+              when the panels are unmounted, so the badge is never blind. */}
           <SourceBadge
             name="AI proxy"
-            ok={status.sources?.proxy.ok ?? null}
+            ok={proxyIdle ? proxyIdle.ok : (status.sources?.proxy.ok ?? null)}
             detail={
-              status.sources?.proxy.ok
-                ? `${(status.sources.proxy.streams ?? 0) + (status.sources.proxy.requests ?? 0)} req`
+              (proxyIdle ? proxyIdle.ok : status.sources?.proxy.ok)
+                ? `${((proxyIdle?.streams ?? status.sources?.proxy.streams) ?? 0) + ((proxyIdle?.requests ?? status.sources?.proxy.requests) ?? 0)} req`
                 : undefined
             }
-            error={status.sources?.proxy.error}
+            error={
+              proxyIdle && !proxyIdle.ok
+                ? "unreachable (from AI Proxy panel)"
+                : !proxyIdle && status.sources?.proxy.ok === false
+                  ? status.sources?.proxy.error
+                  : undefined
+            }
           />
           <SourceBadge
             name="Dev engine"
-            ok={status.sources?.engine.ok ?? null}
+            ok={engineIdle ? engineIdle.ok : (status.sources?.engine.ok ?? null)}
             detail={
-              status.sources?.engine.ok
-                ? `${status.sources.engine.slotsUsed ?? 0} slots · ${status.sources.engine.ticketsActive ?? 0} tickets · ${status.sources.engine.plansActive ?? 0} plans`
+              (engineIdle ? engineIdle.ok : status.sources?.engine.ok)
+                ? `${(engineIdle?.slotsUsed ?? status.sources?.engine.slotsUsed) ?? 0} slots · ${(engineIdle?.ticketsActive ?? status.sources?.engine.ticketsActive) ?? 0} tickets · ${(engineIdle?.plansActive ?? status.sources?.engine.plansActive) ?? 0} plans`
                 : undefined
             }
-            error={status.sources?.engine.error}
+            error={
+              engineIdle && !engineIdle.ok
+                ? "unreachable (from Dev Engine panel)"
+                : !engineIdle && status.sources?.engine.ok === false
+                  ? status.sources?.engine.error
+                  : undefined
+            }
           />
+          {liveAt > 0 && (
+            <span
+              className="text-[11px] text-muted"
+              title={`Live counts mirrored from the AI Proxy / Dev Engine panels (own 5 s poll), updated ${whenLabel(liveAt, now)}`}
+            >
+              updated{" "}
+              <span className="font-tabular">{Math.max(0, Math.round((now - liveAt) / 1000))}s ago</span>
+            </span>
+          )}
           {status.targets.map((t) => (
             <span
               key={t.id}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   fetchDevEnginePlans,
   fetchDevEngineRunningTasks,
@@ -7,6 +7,7 @@ import {
   fetchDevEngineTickets,
   fetchDevEngineWebuiUrl,
 } from "../../api/client";
+import type { EngineLive } from "../../shared/idleCounts";
 import type {
   DevEnginePlan,
   DevEngineRunningTask,
@@ -319,7 +320,12 @@ function RunningTaskRow({ task, onOpen }: { task: DevEngineRunningTask; onOpen: 
  * whole row (or the header action) jumps to the engine's web UI.
  * Polls the bridge every POLL_MS. Offline/graceful when the engine is down.
  */
-export function DevEnginePanel() {
+export function DevEnginePanel({
+  onIdleCounts,
+}: {
+  /** Publish this poll's live idle counts so AutoPower can display them without re-querying. */
+  onIdleCounts?: (counts: EngineLive) => void;
+} = {}) {
   const [status, setStatus] = useState<DevEngineStatus | null>(null);
   const [tickets, setTickets] = useState<DevEngineTicket[]>([]);
   const [plans, setPlans] = useState<DevEnginePlan[]>([]);
@@ -328,6 +334,9 @@ export function DevEnginePanel() {
   const [error, setError] = useState<string | null>(null);
   const [webuiUrl, setWebuiUrl] = useState<string | null>(null);
   const [slotsOpen, setSlotsOpen] = useState(false);
+  // Kept in a ref: the poll loop runs in a deps-less effect.
+  const idleRef = useRef(onIdleCounts);
+  idleRef.current = onIdleCounts;
 
   useEffect(() => {
     let cancelled = false;
@@ -366,6 +375,16 @@ export function DevEnginePanel() {
         setSlots(sc);
       }
       setError(saw ? null : "Dev engine unreachable — no data");
+      // Publish for AutoPower. plansActive uses the DECISION definition
+      // (queued/processing/creating_ticket) — a failed plan is terminal, so it
+      // is listed in this panel but must not read as busy to AutoPower.
+      idleRef.current?.({
+        ok: s != null && p != null,
+        slotsUsed: s?.slots_used ?? 0,
+        ticketsActive: s?.tickets_active ?? 0,
+        plansActive: (p ?? []).filter((pl) => pl.status === "queued" || pl.status === "processing" || pl.status === "creating_ticket").length,
+        at: Date.now(),
+      });
       if (!cancelled) timer = setTimeout(poll, POLL_MS);
     }
 

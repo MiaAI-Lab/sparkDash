@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   fetchAiProxyActiveRequests,
   fetchAiProxyObserverUrl,
@@ -13,6 +13,7 @@ import type {
   AiProxyStream,
 } from "../../api/types";
 import type { LlmMetrics } from "../../api/types";
+import type { ProxyLive } from "../../shared/idleCounts";
 import { Panel } from "../ui/Panel";
 import { ChartIcon, ExternalLinkIcon, PowerOffIcon } from "../ui/icons";
 import { AiProxyDetailDialog } from "./AiProxyDetailDialog";
@@ -165,7 +166,14 @@ function RequestRow({
  * of the cluster LLMs) so it can show the same tok/s + prefill as the spark
  * boxes — the spark boxes' own footer is hidden via CSS.
  */
-export function AiProxyPanel({ llmMetrics }: { llmMetrics?: LlmMetrics[] }) {
+export function AiProxyPanel({
+  llmMetrics,
+  onIdleCounts,
+}: {
+  llmMetrics?: LlmMetrics[];
+  /** Publish this poll's live idle counts so AutoPower can display them without re-querying. */
+  onIdleCounts?: (counts: ProxyLive) => void;
+}) {
   const [streams, setStreams] = useState<AiProxyStream[]>([]);
   const [requests, setRequests] = useState<AiProxyActiveRequest[]>([]);
   const [stats, setStats] = useState<AiProxyStats | null>(null);
@@ -175,6 +183,9 @@ export function AiProxyPanel({ llmMetrics }: { llmMetrics?: LlmMetrics[] }) {
   const [observerUrl, setObserverUrl] = useState<string | null>(null);
   // Re-render on each poll so age labels stay current between polls.
   const [, forceTick] = useState(0);
+  // Kept in a ref: the poll loop runs in a deps-less effect.
+  const idleRef = useRef(onIdleCounts);
+  idleRef.current = onIdleCounts;
 
   useEffect(() => {
     let cancelled = false;
@@ -203,6 +214,13 @@ export function AiProxyPanel({ llmMetrics }: { llmMetrics?: LlmMetrics[] }) {
         setStats(st);
       }
       setError(saw ? null : "AI proxy unreachable — no data");
+      // Publish for AutoPower: exact numbers this widget is showing right now.
+      idleRef.current?.({
+        ok: s != null && r != null,
+        streams: s?.length ?? 0,
+        requests: r?.length ?? 0,
+        at: Date.now(),
+      });
       forceTick((t) => t + 1);
       if (!cancelled) timer = setTimeout(poll, POLL_MS);
     }
