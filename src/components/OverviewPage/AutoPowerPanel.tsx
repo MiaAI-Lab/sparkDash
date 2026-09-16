@@ -301,7 +301,7 @@ export function AutoPowerPanel({
             }
           />
           <SourceBadge
-            name="Dev engine"
+            name="Spark Dev Engine"
             ok={engineIdle ? engineIdle.ok : (status.sources?.engine.ok ?? null)}
             detail={
               (engineIdle ? engineIdle.ok : status.sources?.engine.ok)
