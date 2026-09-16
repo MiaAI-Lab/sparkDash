@@ -72,7 +72,7 @@ function ClockInput({
       onBlur={(e) => onChange(normalizeClock(e.target.value) ?? e.target.value)}
       title="24-hour clock with minute precision, e.g. 08:00 (not 8 AM). End ≤ start wraps past midnight."
       aria-label={label}
-      className={`w-[4.5rem] shrink-0 rounded border bg-surface-elevated px-1.5 py-0.5 font-tabular text-xs text-text outline-none placeholder:text-muted/60 focus:border-accent ${
+      className={`min-w-0 flex-1 rounded border bg-surface-elevated px-2 py-1 font-tabular text-xs text-text outline-none placeholder:text-muted/60 focus:border-accent ${
         invalid ? "border-danger" : "border-border"
       }`}
     />
@@ -483,17 +483,17 @@ function AutoPowerSettingsDialog({
 
         <div className="modal-sheet__body space-y-4">
           <div className="flex items-center gap-2 rounded-md border border-border bg-surface-elevated px-3 py-2">
-            <span className="text-xs text-text">Shut down after</span>
+            <span className="shrink-0 text-xs text-text">Shut down after</span>
             <input
               type="text"
               inputMode="numeric"
               maxLength={3}
               value={idleMin}
               onChange={(e) => setIdleMin(e.target.value.replace(/\D/g, ""))}
-              className="w-12 shrink-0 rounded border border-border bg-surface px-2 py-1 text-center font-tabular text-xs text-text outline-none focus:border-accent"
+              className="min-w-0 flex-1 rounded border bg-surface px-2 py-1 text-center font-tabular text-xs text-text outline-none focus:border-accent"
               aria-label="Idle timeout in minutes"
             />
-            <span className="text-xs text-muted">minutes idle</span>
+            <span className="shrink-0 text-xs text-muted">minutes idle</span>
           </div>
 
           {(Object.keys(DAY_LABEL) as DayType[]).map((day) => (
