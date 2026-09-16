@@ -9,8 +9,12 @@ services:
     # always: come back after host reboot even if the container was stopped
     # before shutdown (unlike unless-stopped, which stays down after a manual stop).
     restart: always
-    # Auto-restart Node when ./server files change (no image rebuild)
-    command: ["node", "--watch", "server/index.js"]
+    # Plain node (NOT --watch): a --watch child crash leaves the container
+    # "running" with nothing listening — an invisible outage (seen in prod).
+    # A crashed single process exits the container; `restart: always`
+    # relaunches it fresh and the loop is visible in ps/logs.
+    # Server edits apply on `docker compose restart` (code is bind-mounted).
+    command: ["node", "server/index.js"]
     # Host network so local LLM probes reach loopback-bound servers
     # (ds4-server / start.sh default --host 127.0.0.1). Bridge NAT cannot
     # reach the host's 127.0.0.1, and LAN-IP probes miss loopback binds.
@@ -20,7 +24,7 @@ services:
     # (otherwise local VRAM falls back to minute-old config/gpu-memory.json).
     pid: host
     volumes:
-      # Live server code — edits apply after --watch reloads the process
+      # Live server code — edits apply on container restart
       - ./server:/app/server
       # Prompt catalog imported by DecodeBench / Showcase (not under ./server)
       - ./src/shared:/app/src/shared:ro
