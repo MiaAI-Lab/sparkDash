@@ -72,7 +72,7 @@ function ClockInput({
       onBlur={(e) => onChange(normalizeClock(e.target.value) ?? e.target.value)}
       title="24-hour clock with minute precision, e.g. 08:00 (not 8 AM). End ≤ start wraps past midnight."
       aria-label={label}
-      className={`w-[4.5rem] rounded border bg-surface-elevated px-1.5 py-0.5 font-tabular text-xs text-text outline-none placeholder:text-muted/60 focus:border-accent ${
+      className={`w-[4.5rem] shrink-0 rounded border bg-surface-elevated px-1.5 py-0.5 font-tabular text-xs text-text outline-none placeholder:text-muted/60 focus:border-accent ${
         invalid ? "border-danger" : "border-border"
       }`}
     />
@@ -482,52 +482,58 @@ function AutoPowerSettingsDialog({
         </header>
 
         <div className="modal-sheet__body space-y-4">
-          <div className="flex items-center justify-between rounded-md border border-border bg-surface-elevated px-3 py-2">
+          <div className="flex items-center gap-2 rounded-md border border-border bg-surface-elevated px-3 py-2">
             <span className="text-xs text-text">Shut down after</span>
-            <label className="flex items-center gap-1.5 text-xs text-muted">
-              <input
-                type="text"
-                inputMode="numeric"
-                maxLength={3}
-                value={idleMin}
-                onChange={(e) => setIdleMin(e.target.value.replace(/\D/g, ""))}
-                className="w-12 rounded border border-border bg-surface-elevated px-1.5 py-0.5 font-tabular text-xs text-text outline-none focus:border-accent"
-                aria-label="Idle timeout in minutes"
-              />
-              minutes idle
-            </label>
+            <input
+              type="text"
+              inputMode="numeric"
+              maxLength={3}
+              value={idleMin}
+              onChange={(e) => setIdleMin(e.target.value.replace(/\D/g, ""))}
+              className="w-12 shrink-0 rounded border border-border bg-surface px-2 py-1 text-center font-tabular text-xs text-text outline-none focus:border-accent"
+              aria-label="Idle timeout in minutes"
+            />
+            <span className="text-xs text-muted">minutes idle</span>
           </div>
 
           {(Object.keys(DAY_LABEL) as DayType[]).map((day) => (
-            <div key={day} className="space-y-2 rounded-md border border-border bg-surface-elevated p-3">
+            <div key={day} className="space-y-2.5 rounded-md border border-border bg-surface-elevated p-3">
               <p className="text-[11px] uppercase tracking-wide text-muted">{DAY_LABEL[day]}</p>
-              <div className="flex items-center gap-2 text-[11px] text-muted">
-                <span className="w-12 shrink-0">watch</span>
-                <ClockInput
-                  value={watch[day].start}
-                  onChange={(v) => setWatch((w) => ({ ...w, [day]: { ...w[day], start: v } }))}
-                  label={`${DAY_LABEL[day]} watch start`}
-                  invalid={triedSave ? badRequiredClock(watch[day].start) : badClock(watch[day].start)}
-                />
-                →
-                <ClockInput
-                  value={watch[day].end}
-                  onChange={(v) => setWatch((w) => ({ ...w, [day]: { ...w[day], end: v } }))}
-                  label={`${DAY_LABEL[day]} watch end`}
-                  invalid={triedSave ? badRequiredClock(watch[day].end) : badClock(watch[day].end)}
-                />
-                <span className="text-[10px]">quiet-watch window; end ≤ start wraps midnight</span>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="w-12 shrink-0 text-[11px] text-muted">watch</span>
+                  <ClockInput
+                    value={watch[day].start}
+                    onChange={(v) => setWatch((w) => ({ ...w, [day]: { ...w[day], start: v } }))}
+                    label={`${DAY_LABEL[day]} watch start`}
+                    invalid={triedSave ? badRequiredClock(watch[day].start) : badClock(watch[day].start)}
+                  />
+                  <span className="shrink-0 text-[11px] text-muted">→</span>
+                  <ClockInput
+                    value={watch[day].end}
+                    onChange={(v) => setWatch((w) => ({ ...w, [day]: { ...w[day], end: v } }))}
+                    label={`${DAY_LABEL[day]} watch end`}
+                    invalid={triedSave ? badRequiredClock(watch[day].end) : badClock(watch[day].end)}
+                  />
+                </div>
+                <p className="mt-1 pl-[3.5rem] text-[10px] leading-snug text-muted">
+                  Quiet-watch window; end ≤ start wraps past midnight.
+                </p>
               </div>
-              <div className="flex items-center gap-2 text-[11px] text-muted">
-                <span className="w-12 shrink-0">wake</span>
-                <ClockInput
-                  value={wake[day]}
-                  onChange={(v) => setWake((w) => ({ ...w, [day]: v }))}
-                  label={`${DAY_LABEL[day]} wake time`}
-                  placeholder="none"
-                  invalid={badClock(wake[day])}
-                />
-                <span className="text-[10px]">Wake-on-LAN; empty = no auto-wake</span>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="w-12 shrink-0 text-[11px] text-muted">wake</span>
+                  <ClockInput
+                    value={wake[day]}
+                    onChange={(v) => setWake((w) => ({ ...w, [day]: v }))}
+                    label={`${DAY_LABEL[day]} wake time`}
+                    placeholder="none"
+                    invalid={badClock(wake[day])}
+                  />
+                </div>
+                <p className="mt-1 pl-[3.5rem] text-[10px] leading-snug text-muted">
+                  Wake-on-LAN; empty = no auto-wake.
+                </p>
               </div>
             </div>
           ))}
