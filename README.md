@@ -34,6 +34,7 @@ It also supports **non-Spark units**: any Linux machine with an NVIDIA GPU (e.g.
 - [ComfyUI monitoring](#comfyui-monitoring)
 - [Hermes Agent monitoring](#hermes-agent-monitoring)
 - [Tailnet monitoring](#tailnet-monitoring)
+- [Glance integration](#glance-integration)
 - [Full changelog](./CHANGELOG.md)
 - [Quick start](#quick-start)
 - [Architecture](#architecture)
@@ -230,6 +231,40 @@ Asked of **each node about itself**. Peer state is never the verdict. The probe 
 | `tailscaleMonitoring` | `false` | Run `tailscale status --json` and show the Tailnet card |
 
 Env (optional): `POLL_INTERVAL_TAILSCALE` (default `30000`), `TAILSCALE_PROBE_TIMEOUT_MS` (default `8000`).
+
+---
+
+## Glance integration
+
+[Glance](https://github.com/glanceapp/glance) can show the cluster on a self-hosted dashboard with the
+community widget
+[`sparkdash-dgx-cluster`](https://github.com/glanceapp/community-widgets/tree/main/widgets/sparkdash-dgx-cluster)
+(contributed by [@linxichen](https://github.com/linxichen)). One `custom-api` card renders GPU
+temperature/usage, VRAM, generation tok/s, KV-cache usage and uptime for a head node plus one worker,
+reading `/api/sparks/:id/metrics` directly:
+
+```yaml
+- type: custom-api
+  title: sparkDash · DGX Cluster
+  cache: 30s
+  url: ${SPARKDASH_HEAD_URL}
+  subrequests:
+    node2:
+      url: ${SPARKDASH_NODE2_URL}
+  options:
+    dashboardUrl: ${SPARKDASH_DASHBOARD_URL}
+  template: |
+    # paste the template from the widget's README
+```
+
+| Variable | Value |
+|----------|-------|
+| `SPARKDASH_HEAD_URL` | Metrics URL of one unit — `https://sparkdash.example.com/api/sparks/<id>/metrics` |
+| `SPARKDASH_NODE2_URL` | Metrics URL of a second unit. For a single Spark, drop the `subrequests` map and the widget's second node block |
+| `SPARKDASH_DASHBOARD_URL` | Dashboard base URL, used for the card's title link |
+
+Like the rest of the dashboard on loopback, `/api/sparks/:id/metrics` is unauthenticated by design —
+read [Security](#security) before exposing it beyond a trusted network.
 
 ---
 
