@@ -562,6 +562,8 @@ export interface Settings {
   showFleetExceptions: boolean;
   /** Overview search field + status filter. Off by default. */
   showOverviewSearch: boolean;
+  /** Benchmark dialogs offer "Copy image" — a PNG share card of the results. */
+  benchShareImage: boolean;
 }
 
 export interface SparksListResponse {

@@ -396,6 +396,7 @@ Gear icon in the header, or `GET`/`PUT` `/api/settings`:
 | Auto-hide offline | false | Hide offline Sparks on Overview |
 | Hide worker nodes | false | Hide Worker-role Sparks from Overview and the tab bar |
 | Temperature unit | Celsius | Display GPU temperature in °C or °F |
+| Benchmark share image | false | Turns the decode/prefill **Copy results** button into a split button: the label still copies the text summary, and the caret on its right offers **Copy as text** / **Copy as image** (the share card) on hover or click |
 
 ### Environment variables
 

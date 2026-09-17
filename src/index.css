@@ -1640,6 +1640,37 @@ input[type="checkbox"] {
     justify-content: flex-end;
   }
 }
+/* Split copy button: the group takes the slot of a single button (same flex
+   behaviour at every width), the label fills it and the caret attaches to its
+   right edge — the footer layout is unchanged. */
+.bench-copy-group {
+  flex: 1 1 0;
+}
+@media (min-width: 640px) {
+  .bench-copy-group {
+    flex: 0 0 auto;
+  }
+}
+.bench-copy-group > .bench-btn {
+  flex: 0 0 auto;
+}
+.bench-copy-group > .bench-btn:first-child {
+  flex: 1 1 auto;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.bench-copy-caret {
+  /* Flex centres the chevron: as inline content it rides the text baseline and
+     sits off-centre in a button this wide. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.9rem;
+  padding: 0.45rem 0.35rem;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
 .bench-btn--ghost {
   border-color: var(--color-border);
   background: transparent;

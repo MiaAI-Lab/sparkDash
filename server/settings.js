@@ -27,6 +27,8 @@ const DEFAULTS = Object.freeze({
   showFleetExceptions: false,
   /** Overview search + status filter row. Off by default. */
   showOverviewSearch: false,
+  /** Benchmark dialogs offer "Copy image" (PNG share card). Off by default. */
+  benchShareImage: false,
 });
 
 /** @type {typeof DEFAULTS} */

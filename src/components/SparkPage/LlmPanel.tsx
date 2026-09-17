@@ -18,9 +18,13 @@ import { LlmTrendChart } from "./LlmTrendChart";
 interface LlmPanelProps {
   llm: LlmMetrics | null;
   sparkId: string;
+  /** Unit display name — lands on the benchmark share card. */
+  sparkName?: string;
   llmPort: number;
   llmPorts?: number[];
   hasApiKey?: boolean;
+  /** Show "Copy image" in the benchmark dialogs (Settings, off by default). */
+  shareImage?: boolean;
   onRemovePort?: (port: number) => void;
   className?: string;
 }
@@ -379,9 +383,11 @@ function MetricInfoTip({
 export function LlmPanel({
   llm,
   sparkId,
+  sparkName,
   llmPort,
   llmPorts,
   hasApiKey = false,
+  shareImage = false,
   onRemovePort,
   className,
 }: LlmPanelProps) {
@@ -1006,6 +1012,8 @@ export function LlmPanel({
         llmPort={llmPort}
         modelId={remoteTarget ? null : llm?.modelId ?? null}
         remoteTarget={remoteTarget}
+        shareImage={shareImage}
+        sparkName={sparkName ?? null}
       />
       <PrefillBenchDialog
         open={prefillBenchOpen}
@@ -1015,6 +1023,8 @@ export function LlmPanel({
         modelId={remoteTarget ? null : llm?.modelId ?? null}
         contextLength={remoteTarget ? null : llm?.contextLength ?? null}
         remoteTarget={remoteTarget}
+        shareImage={shareImage}
+        sparkName={sparkName ?? null}
       />
     </Panel>
   );
