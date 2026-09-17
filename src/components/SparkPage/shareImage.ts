@@ -137,3 +137,24 @@ export async function copyCardImage(
   (deps.download ?? defaultDownload)(png, fileName);
   return "downloaded";
 }
+
+/**
+ * Render the card to a blob URL the caller can show as an image.
+ *
+ * This is the way out for a page that cannot write an image to the clipboard at
+ * all — plain http on a LAN IP, where `navigator.clipboard.write` does not exist
+ * and the legacy `execCommand("copy")` puts markup, not a bitmap, on the
+ * pasteboard (verified against the OS clipboard: HTML arrives, no PNG). Showing
+ * the PNG lets the *browser's* own affordances do the work: right-click → Copy
+ * Image, drag it into a post, or save it.
+ *
+ * The caller owns the URL and should revoke it when the image is gone.
+ */
+export async function renderCardObjectUrl(
+  model: ShareCardModel,
+  deps: ShareImageDeps = {}
+): Promise<string | null> {
+  const png = await renderShareCardPng(model, deps);
+  if (!png) return null;
+  return URL.createObjectURL(png);
+}

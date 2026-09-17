@@ -7,11 +7,12 @@ import { act } from "react";
 import { render } from "../../testing/render";
 import type { ShareCardModel } from "./benchShareCard";
 import { BenchCopyButton } from "./BenchCopyButton";
-import { canCopyImages, copyCardImage, copyTextOnly } from "./shareImage";
+import { canCopyImages, copyCardImage, copyTextOnly, renderCardObjectUrl } from "./shareImage";
 
 vi.mock("./shareImage", () => ({
   copyTextOnly: vi.fn(async () => {}),
   copyCardImage: vi.fn(async () => "copied"),
+  renderCardObjectUrl: vi.fn(async () => "blob:card"),
   // Default: a secure context, so the menu offers the clipboard.
   canCopyImages: vi.fn(() => true),
 }));
@@ -56,6 +57,7 @@ afterEach(() => {
   vi.mocked(copyTextOnly).mockClear();
   vi.mocked(copyCardImage).mockClear();
   vi.mocked(canCopyImages).mockReturnValue(true);
+  vi.mocked(renderCardObjectUrl).mockResolvedValue("blob:card");
 });
 
 describe("with the share image off", () => {
@@ -140,24 +142,50 @@ describe("with the share image on", () => {
     expect(menuEl()).toBeTruthy();
   });
 
-  it("offers a download instead when the page has no image clipboard", async () => {
+  it("shows the card in the page when the browser has no image clipboard", async () => {
+    const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    vi.mocked(canCopyImages).mockReturnValue(false);
+    const { root } = mount(true);
+    click(root.querySelector('[aria-haspopup="menu"]')!);
+    // Plain http on a LAN IP is not a secure context, so no page can write an
+    // image to the clipboard there; the card goes on screen instead, where the
+    // browser's own right-click Copy Image and drag-out work.
+    expect(menuItems()).toEqual(["Copy as text", "Show card", "Download PNG"]);
+
+    const item = Array.from(document.querySelectorAll('[role="menuitem"]')).find(
+      (el) => (el.textContent || "").trim() === "Show card"
+    )!;
+    await act(async () => (item as HTMLButtonElement).click());
+    expect(renderCardObjectUrl).toHaveBeenCalledTimes(1);
+    expect(copyCardImage).not.toHaveBeenCalled();
+    expect(byText(root, "Card shown")).toBeTruthy();
+
+    const img = document.querySelector('[role="dialog"] img') as HTMLImageElement | null;
+    expect(img?.getAttribute("src")).toBe("blob:card");
+    expect(document.body.textContent).toContain("Right-click");
+
+    // Close puts the blob URL out of its misery.
+    const close = Array.from(document.querySelectorAll('[role="dialog"] button')).find(
+      (b) => (b.textContent || "").trim() === "Close"
+    )!;
+    await act(async () => (close as HTMLButtonElement).click());
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(revoke).toHaveBeenCalledWith("blob:card");
+    revoke.mockRestore();
+  });
+
+  it("still lets the card be downloaded where it cannot be copied", async () => {
     vi.mocked(canCopyImages).mockReturnValue(false);
     vi.mocked(copyCardImage).mockResolvedValueOnce("downloaded");
     const { root } = mount(true);
     click(root.querySelector('[aria-haspopup="menu"]')!);
-    // Plain http on a LAN IP is not a secure context, so the browser exposes no
-    // image clipboard; the item must say what it will actually do.
-    expect(menuItems()).toEqual(["Copy as text", "Download PNG"]);
-
     const item = Array.from(document.querySelectorAll('[role="menuitem"]')).find(
       (el) => (el.textContent || "").trim() === "Download PNG"
     )!;
     await act(async () => (item as HTMLButtonElement).click());
-    expect(copyCardImage).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.any(String),
-      { writeClipboard: null }
-    );
+    expect(copyCardImage).toHaveBeenCalledWith(expect.anything(), expect.any(String), {
+      writeClipboard: null,
+    });
     expect(byText(root, "PNG saved")).toBeTruthy();
   });
 
