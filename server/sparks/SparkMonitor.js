@@ -153,6 +153,10 @@ export class SparkMonitor {
     this._metricCollectionSuccessful = { gpu: false, cpu: false };
     this.spark = spark;
     this.collector.spark = spark;
+    // Clock-cap volatile overrides (D5) describe the PREVIOUS config's apply
+    // path; a hot re-registration (possible target change) must not keep
+    // reporting them. Optional call: test doubles may lack the collector API.
+    this.collector.clearClockCapsOverride?.();
 
     // Rebuild LLM probe map — add new ports, remove stale ones, update existing
     const ports = this._llmMonitoringEnabled() ? this._llmPorts() : [];
@@ -475,6 +479,10 @@ export class SparkMonitor {
             .filter((n) => Number.isInteger(n)),
       comfyMonitoring: comfyOn,
       comfyPort: this._comfyPort(),
+      // Opt-in clock control flag — the UI gate (ClockCapControl) reads this
+      // off the WS snapshot, so it MUST ride along like comfyMonitoring or the
+      // toggle in Edit Spark can never reach the browser.
+      clockControlEnabled: Boolean(this.spark.clockControlEnabled),
       tailscaleMonitoring: tailscaleOn,
       hermes: this._hermes,
       hardware: this._hardwareSummary,
