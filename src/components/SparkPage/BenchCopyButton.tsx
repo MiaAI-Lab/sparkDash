@@ -11,9 +11,9 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { createPortal } from "react-dom";
 import { ChevronDownIcon } from "../ui/icons";
 import { shareCardFileName, type ShareCardModel } from "./benchShareCard";
-import { canCopyImages, copyCardImage, copyTextOnly } from "./shareImage";
+import { canCopyImages, copyCardImage, copyTextOnly, renderCardObjectUrl } from "./shareImage";
 
-type CopyState = "idle" | "working" | "text" | "image" | "downloaded";
+type CopyState = "idle" | "working" | "text" | "image" | "downloaded" | "shown";
 
 interface BenchCopyButtonProps {
   /** Plain-text summary — what the button itself copies. */
@@ -35,6 +35,8 @@ function stateLabel(state: CopyState, shareImage: boolean): string {
       return "Image copied!";
     case "downloaded":
       return "PNG saved";
+    case "shown":
+      return "Card shown";
     case "text":
       // Off, this is the copy button as it always was.
       return shareImage ? "Copied text!" : "Copied!";
@@ -62,6 +64,8 @@ export function BenchCopyButton({
   const [menuOpen, setMenuOpen] = useState(false);
   /** Fixed-position coordinates, measured when the menu opens. */
   const [anchor, setAnchor] = useState<{ top: number; right: number } | null>(null);
+  /** Blob URL of the card when it is on screen (insecure contexts only). */
+  const [preview, setPreview] = useState<string | null>(null);
   const resetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const groupRef = useRef<HTMLSpanElement | null>(null);
@@ -74,6 +78,11 @@ export function BenchCopyButton({
     },
     []
   );
+
+  // The preview owns a blob URL; release it when it goes away.
+  useEffect(() => () => {
+    if (preview) URL.revokeObjectURL(preview);
+  }, [preview]);
 
   /**
    * Anchor the menu under the button. The menu is portalled out of the dialog
@@ -115,10 +124,12 @@ export function BenchCopyButton({
     };
   }, [menuOpen, placeMenu]);
 
-  // Close on an outside click, and on Escape before the dialog sees it.
+  // Close the menu on an outside click, and take Escape before the dialog does:
+  // Escape closes the card preview first, then the menu, and never the dialog.
   useEffect(() => {
-    if (!menuOpen) return;
+    if (!menuOpen && !preview) return;
     const onPointerDown = (e: MouseEvent) => {
+      if (!menuOpen) return;
       const target = e.target as Node;
       if (groupRef.current?.contains(target) || menuRef.current?.contains(target)) return;
       setMenuOpen(false);
@@ -127,7 +138,8 @@ export function BenchCopyButton({
       if (e.key !== "Escape") return;
       // Capture phase: the dialog also listens for Escape and would close.
       e.stopPropagation();
-      setMenuOpen(false);
+      if (preview) closePreview();
+      else setMenuOpen(false);
     };
     document.addEventListener("mousedown", onPointerDown);
     document.addEventListener("keydown", onKeyDown, true);
@@ -135,7 +147,7 @@ export function BenchCopyButton({
       document.removeEventListener("mousedown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown, true);
     };
-  }, [menuOpen]);
+  }, [menuOpen, preview]);
 
   const flash = (next: CopyState) => {
     setState(next);
@@ -159,8 +171,8 @@ export function BenchCopyButton({
     if (state === "working") return;
     setState("working");
     const card = buildCard();
-    // No clipboard image support: skip the attempt and go straight to the
-    // download, so the button does what its label says.
+    // No clipboard image support: skip an attempt the browser will reject and
+    // go straight to the download, so the button does what its label says.
     const outcome = await copyCardImage(
       card,
       shareCardFileName(card, kind),
@@ -172,6 +184,43 @@ export function BenchCopyButton({
       setState("idle");
       onError("Could not copy the image to the clipboard");
     }
+  };
+
+  /**
+   * Show the card as an image, in the page. On a page with no image clipboard
+   * this is the only route to a real image on the pasteboard: the browser's own
+   * right-click → Copy Image and drag-out both work from what is on screen.
+   * A popup would be the other option, but popups get blocked (and cannot be
+   * verified from here), and an in-page image is draggable anyway.
+   */
+  const showImage = async () => {
+    setMenuOpen(false);
+    if (state === "working") return;
+    setState("working");
+    const url = await renderCardObjectUrl(buildCard());
+    if (!url) {
+      setState("idle");
+      onError("Could not render the card image");
+      return;
+    }
+    setPreview(url);
+    flash("shown");
+  };
+
+  const closePreview = () => {
+    setPreview((url) => {
+      if (url) URL.revokeObjectURL(url);
+      return null;
+    });
+  };
+
+  const downloadPreview = () => {
+    const link = document.createElement("a");
+    link.href = preview ?? "";
+    link.download = shareCardFileName(buildCard(), kind);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
   };
 
   const openMenu = () => {
@@ -224,7 +273,9 @@ export function BenchCopyButton({
         aria-expanded={menuOpen}
         aria-label="Copy format"
         title={
-          imageClipboard ? "Copy as text or as an image" : "Copy as text, or download the image"
+          imageClipboard
+            ? "Copy as text or as an image"
+            : "Copy as text, or show or download the image"
         }
         disabled={state === "working"}
         onMouseEnter={openMenu}
@@ -261,19 +312,74 @@ export function BenchCopyButton({
             >
               Copy as text
             </button>
-            <button
-              type="button"
-              role="menuitem"
-              className="block w-full rounded px-2 py-1.5 text-left text-[11px] text-muted transition-colors hover:bg-surface-hover hover:text-text"
-              onClick={() => void copyImage()}
-              title={
-                imageClipboard
-                  ? undefined
-                  : "This page is not a secure context, so the browser offers no image clipboard — the card downloads instead. Serve over HTTPS (e.g. Tailscale Serve) or use localhost to copy it."
-              }
-            >
-              {imageClipboard ? "Copy as image" : "Download PNG"}
-            </button>
+            {imageClipboard ? (
+              <button
+                type="button"
+                role="menuitem"
+                className="block w-full rounded px-2 py-1.5 text-left text-[11px] text-muted transition-colors hover:bg-surface-hover hover:text-text"
+                onClick={() => void copyImage()}
+              >
+                Copy as image
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="block w-full rounded px-2 py-1.5 text-left text-[11px] text-muted transition-colors hover:bg-surface-hover hover:text-text"
+                  onClick={() => void showImage()}
+                  title="This page is served over http on a LAN address, where a page cannot write images to the clipboard. The card is shown as an image instead — right-click → Copy Image, or drag it into your post."
+                >
+                  Show card
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="block w-full rounded px-2 py-1.5 text-left text-[11px] text-muted transition-colors hover:bg-surface-hover hover:text-text"
+                  onClick={() => void copyImage()}
+                >
+                  Download PNG
+                </button>
+              </>
+            )}
+          </span>,
+          document.body
+        )}
+      {preview &&
+        createPortal(
+          <span
+            role="dialog"
+            aria-label="Benchmark share card"
+            className="fixed inset-0 z-[10000] flex flex-col items-center justify-center gap-3 bg-black/75 p-5"
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) closePreview();
+            }}
+          >
+            {/* eslint-disable-next-line jsx-a11y/alt-text -- alt text is on the img below */}
+            <img
+              src={preview}
+              alt="Benchmark result card — right-click to copy it"
+              className="max-h-[68vh] max-w-full rounded-lg border border-border shadow-card"
+            />
+            <span className="flex max-w-lg flex-col items-center gap-2">
+              <span className="text-center text-[11px] leading-snug text-white/85">
+                Right-click → <strong>Copy Image</strong>, or drag the card straight into your post.
+                Browsers only let a page write images to the clipboard over HTTPS or localhost, which
+                this page is not — so the image is here for your browser to copy.
+              </span>
+              <span className="flex gap-2">
+                <button
+                  type="button"
+                  className="bench-btn bench-btn--ghost"
+                  onClick={downloadPreview}
+                >
+                  Download PNG
+                </button>
+                <button type="button" className="bench-btn bench-btn--primary" onClick={closePreview}>
+                  Close
+                </button>
+              </span>
+            </span>
           </span>,
           document.body
         )}
