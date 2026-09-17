@@ -26,6 +26,7 @@ Format: version sections are listed newest first.
 - **Tailscale addresses classified as public ([#89](https://github.com/MiaAI-Lab/sparkDash/pull/89))** — `100.64.0.0/10`, where a tailnet lives, now reads as LAN on the endpoint-exposure indicator.
 - **SGLang served model ID ([#95](https://github.com/MiaAI-Lab/sparkDash/pull/95))** — the panel and the bench requests use the id from `/v1/models` (what the server accepts), keeping the native storage path on `modelPath`.
 - **Remote SSH session churn** — collectors reuse an authenticated SSH transport instead of creating a full SSH/PAM login for every metric poll. `SSH_CONTROL_PERSIST_SECONDS=0` restores one connection per command if needed.
+- **Shutdown controls ([#90](https://github.com/MiaAI-Lab/sparkDash/issues/90))** — three separate failures on the shutdown path: a local unit in Docker called the host helper from inside the container (no sudo there) instead of entering the host mount namespace; the remote command joined its lines with `;`, so the backgrounded line ended in `&;` and the shell rejected the whole script before running anything; and the authorization probe was `sudo -n true`, which a sudoers rule scoped to the helper does not authorize. The probe is now the helper's own `--check` (see the README contract), with `sudo -n true` kept as a fallback for broader sudo setups. A local unit whose helper or `nsenter` is missing now reports the error instead of logging success.
 
 ---
 
