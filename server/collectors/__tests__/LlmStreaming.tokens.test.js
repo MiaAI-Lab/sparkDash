@@ -18,6 +18,7 @@ import {
   sleep,
   closeLlmStreamAgent,
   runStreamingRequest,
+  readServerGenerationTokens,
 } from "../LlmStreaming.js";
 
 test("sleep removes its abort listener after normal completion", async () => {
@@ -180,4 +181,54 @@ test("describeStreamFetchError maps undici 5-minute idle timeouts", () => {
     "Request aborted or timed out"
   );
   assert.equal(describeStreamFetchError({ message: "ECONNRESET" }), "ECONNRESET");
+});
+
+/**
+ * Serve a /metrics body on a throwaway port and read the generation counter.
+ * @param {string} metricsBody
+ */
+async function readTokensFromMetrics(metricsBody) {
+  const server = http.createServer((req, res) => {
+    if (req.url === "/metrics") {
+      res.writeHead(200, { "Content-Type": "text/plain" });
+      res.end(metricsBody);
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+  try {
+    return await readServerGenerationTokens(`http://127.0.0.1:${port}`);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+}
+
+test("readServerGenerationTokens prefers SGLang's live decode counter over the finish-only total", async () => {
+  // Real SGLang: generation_tokens_total is only bumped when a request finishes,
+  // so sampling it during a run reads a flat line. The per-interval
+  // realtime_tokens_total{mode="decode"} is the live one.
+  const tokens = await readTokensFromMetrics(
+    [
+      "sglang:generation_tokens_total{is_streaming=\"true\"} 472000",
+      "sglang:generation_tokens_total{is_streaming=\"false\"} 18158",
+      'sglang:realtime_tokens_total{mode="decode"} 500123',
+      'sglang:realtime_tokens_total{mode="prefill_compute"} 9534464',
+      'sglang:realtime_tokens_total{mode="prefill_cache"} 20569856',
+    ].join("\n") + "\n"
+  );
+  // decode only — the prefill modes must not be added in
+  assert.equal(tokens, 500123);
+});
+
+test("readServerGenerationTokens falls back to the cumulative SGLang counter", async () => {
+  const tokens = await readTokensFromMetrics(
+    [
+      "sglang:generation_tokens_total{is_streaming=\"true\"} 472000",
+      "sglang:generation_tokens_total{is_streaming=\"false\"} 18158",
+    ].join("\n") + "\n"
+  );
+  assert.equal(tokens, 490158);
 });

@@ -151,7 +151,17 @@ export async function readServerGenerationTokens(baseUrl, opts = {}) {
         /^vllm:generation_tokens_total(?:\{[^}]*\})?\s+([\d.eE+-]+)\s*$/gm
       );
       if (vllm != null) return vllm;
+      // SGLang — the per-interval `realtime_tokens_total{mode="decode"}` first:
+      // generation_tokens_total only moves when a request *finishes*, so a live
+      // sampler differencing it reads 0 for the whole run. The mode label is
+      // required — summing every mode would add the prefill counters in.
       const sglang =
+        fromSeries(
+          /^sglang:realtime_tokens_total\{[^}]*\bmode="decode"[^}]*\}\s+([\d.eE+-]+)\s*$/gm
+        ) ??
+        fromSeries(
+          /^sglang_realtime_tokens_total\{[^}]*\bmode="decode"[^}]*\}\s+([\d.eE+-]+)\s*$/gm
+        ) ??
         fromSeries(
           /^sglang:generation_tokens_total(?:\{[^}]*\})?\s+([\d.eE+-]+)\s*$/gm
         ) ??

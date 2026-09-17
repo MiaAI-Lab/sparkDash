@@ -525,9 +525,9 @@ Each configured LLM port gets its own `LlmProbe` instance running in parallel. P
 - **ds4-server** (Entrpi/ds4-on-spark) — `/v1/models` (`owned_by: ds4.c`) + Prometheus `ds4_*` token counters for live tok/s
 - **EXL3** (ExLlamaV3 `tools/serve_openai.py`) — `/v1/models` (`owned_by: exl3`) or `/health` `{ok, busy}`; live tok/s from `/health` cumulative counters
 - **q27** (signalnine/q27 engine) — `/v1/models` (`owned_by: q27`) or Prometheus `q27_*` series; live tok/s from `q27_*_processed` counter diffs (completion-based totals as fallback), exact computed-only prefill with the cached/uncached split doubling as the prefix-cache hit rate, TTFT/E2E/ITL p95 histograms, and constant-0 preemptions (FIFO admission, no wait queue)
-- **vLLM / sglang** — `/v1/models`; sglang via `/server_info` (`last_gen_throughput` when metrics off; `/get_server_info` fallback), vLLM via Prometheus `/metrics` counters (scientific notation supported)
+- **vLLM / sglang** — `/v1/models`; sglang live rates from the Prometheus `realtime_tokens_total` modes (`decode`, `prefill_compute`, `prefill_cache`) when metrics are on, falling back to `/server_info` (`last_gen_throughput`, `/get_server_info` alias) when metrics are off; vLLM via Prometheus `/metrics` counters (scientific notation supported)
 
-Rates are derived from per-probe cumulative counter diffs (or SGLang sticky throughput while it moves). Multiple ports can be added or removed at runtime without restarting the monitor.
+Rates are derived from per-probe cumulative counter diffs — for SGLang that means the per-interval `realtime_tokens_total` series, because its `*_tokens_total` counters only advance when a request *finishes* (or SGLang sticky throughput while it moves, when metrics are off). Multiple ports can be added or removed at runtime without restarting the monitor.
 
 Live probes still use the LAN IP on remote units. **Decode and prefill benches** try that same HTTP target first; if it is closed they open an SSH local-forward onto the remote’s `127.0.0.1` so loopback-bound servers (ds4 `start.sh` default) can still be measured. The tunnel is torn down when the job finishes or is cancelled.
 

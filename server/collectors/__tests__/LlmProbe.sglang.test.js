@@ -496,7 +496,7 @@ test("probe: /v1/loads inflight keeps last_gen on the first sample", async () =>
   assert.equal(snap.requestsWaiting, 1);
 });
 
-test("_applySglangMetrics: cached_tokens_total vs prompt_tokens_total", () => {
+test("_applySglangMetrics: cumulative fallback split is disjoint (cached + computed = prompt)", () => {
   const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 30000);
   probe._applySglangMetrics(
     [
@@ -507,30 +507,42 @@ test("_applySglangMetrics: cached_tokens_total vs prompt_tokens_total", () => {
     ].join("\n") + "\n",
     2
   );
-  assert.equal(probe.cachedPrefillTps, 0);
+  assert.equal(probe.cachedPrefillTps, 0); // first split sample seeds
   assert.equal(probe.uncachedPrefillTps, 0);
 
   probe._applySglangMetrics(
     [
       "sglang:generation_tokens_total 30",
-      "sglang:prompt_tokens_total 140",
-      'sglang:cached_tokens_total{cache_source="device"} 80',
-      'sglang:cached_tokens_total{cache_source="host"} 80',
+      "sglang:prompt_tokens_total 160",
+      'sglang:cached_tokens_total{cache_source="device"} 60',
+      'sglang:cached_tokens_total{cache_source="host"} 60',
       "sglang:num_running_reqs 1",
     ].join("\n") + "\n",
     2
   );
   assert.equal(probe.generationTps, 10); // (30-10)/2
-  assert.equal(probe.prefillTps, 20); // (140-100)/2
-  assert.equal(probe.uncachedPrefillTps, 20);
+  assert.equal(probe.prefillTps, 30); // (160-100)/2
   // device L1 only — do not sum HiCache host/storage layers
-  assert.equal(probe.cachedPrefillTps, 20); // (80-40)/2
+  assert.equal(probe.cachedPrefillTps, 10); // (60-40)/2
+  // prompt_tokens_total counts the whole prompt, so the computed part is the
+  // remainder: ((160-60) - (100-40)) / 2 — not the prompt rate itself
+  assert.equal(probe.uncachedPrefillTps, 20);
+  assert.equal(probe.cachedPrefillTps + probe.uncachedPrefillTps, probe.prefillTps);
+  assert.equal(probe.prefixCacheHitRate, 0.375); // 60 / (60 + 100)
 });
 
 /**
- * SGLang server that exposes Prometheus counters but no total_* on /server_info
- * (issue #99 build), with /v1/loads as the load signal.
- * @param {{ prompt: number, gen: number, cached?: number, running?: number }} state
+ * SGLang /metrics mock exposing Prometheus counters but no total_* on
+ * /server_info (issue #99 build), with /v1/loads as the load signal.
+ *
+ * `prompt` / `gen` / `cached` are the cumulative counters. Real SGLang only
+ * bumps them in observe_one_finished_request(), i.e. at request completion, so
+ * they cannot drive a live rate — pass `realtime` to add the per-interval
+ * `realtime_tokens_total` series a current build publishes, or omit it to
+ * emulate an older build and exercise the counter fallback.
+ *
+ * @param {{ prompt: number, gen: number, cached?: number, running?: number,
+ *   realtime?: { decode: number, compute: number, cache: number } }} state
  */
 function sglangCountersMock(state) {
   const body = (payload) => ({
@@ -555,17 +567,25 @@ function sglangCountersMock(state) {
       return body({ loads: [{ num_running_reqs: state.running ?? 0, num_waiting_reqs: 0 }] });
     }
     if (u.endsWith("/metrics")) {
+      const lines = [
+        `sglang:prompt_tokens_total ${state.prompt}`,
+        `sglang:generation_tokens_total ${state.gen}`,
+        `sglang:cached_tokens_total{cache_source="device"} ${state.cached ?? 0}`,
+        `sglang:num_running_reqs ${state.running ?? 0}`,
+      ];
+      const rt = state.realtime;
+      if (rt) {
+        lines.push(
+          `sglang:realtime_tokens_total{engine_type="unified",mode="decode"} ${rt.decode}`,
+          `sglang:realtime_tokens_total{engine_type="unified",mode="prefill_compute"} ${rt.compute}`,
+          `sglang:realtime_tokens_total{engine_type="unified",mode="prefill_cache"} ${rt.cache}`
+        );
+      }
       return {
         ok: true,
         status: 200,
         json: async () => ({}),
-        text: async () =>
-          [
-            `sglang:prompt_tokens_total ${state.prompt}`,
-            `sglang:generation_tokens_total ${state.gen}`,
-            `sglang:cached_tokens_total{cache_source="device"} ${state.cached ?? 0}`,
-            `sglang:num_running_reqs ${state.running ?? 0}`,
-          ].join("\n") + "\n",
+        text: async () => lines.join("\n") + "\n",
       };
     }
     return { ok: false, status: 404, json: async () => ({}), text: async () => "" };
@@ -662,7 +682,7 @@ test("probe: server_info totals stay authoritative over Prometheus counters", as
   assert.equal(snap.prefillTps, 100); // (300-100)/2 — not the Prometheus counters
 });
 
-test("_applySglangPrefillSplit does not clobber server_info tok/s", () => {
+test("_applySglangPrefillSplit keeps server_info tok/s on the counter fallback", () => {
   const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 30000);
   probe.lastTokenCounts = { input: 100, output: 50 };
   probe._applySglangServerInfo(
@@ -732,4 +752,112 @@ test("probe: SGLang keeps the served model ID when native info uses a local path
   assert.equal(snap.modelId, "qwen3.8-27b-sglang");
   assert.equal(snap.modelPath, "/model");
   assert.equal(snap.contextLength, 262144);
+});
+
+test("probe: SGLang live tok/s reads realtime_tokens_total, not the finish-only counters", async () => {
+  // Real SGLang shape: the cumulative counters sit still for the whole stream
+  // (they are only bumped when a request finishes) while the per-interval
+  // realtime series move. Differencing the counters is what used to show 0 for
+  // the entire stream and then one spike on completion.
+  const state = {
+    prompt: 248_000,
+    gen: 472_000,
+    cached: 20_000,
+    running: 1,
+    realtime: { decode: 5000, compute: 900, cache: 100 },
+  };
+  const probe = sglangCounterProbe(state);
+  await probe.probe(); // seed the realtime baseline
+
+  // 2s of streaming: 70 decoded tokens, 3000 computed + 1000 cached prefill tokens.
+  state.realtime = { decode: 5070, compute: 3900, cache: 1100 };
+  probe.lastProbeTime = Date.now() - 2000;
+  const snap = await probe.probe();
+
+  assert.equal(snap.generationTps, 35); // 70 / 2 — was 0 before the fix
+  assert.equal(snap.uncachedPrefillTps, 1500); // 3000 / 2
+  assert.equal(snap.cachedPrefillTps, 500); // 1000 / 2
+  assert.equal(snap.prefillTps, 2000); // computed + cached
+  assert.equal(snap.prefixCacheHitRate, 0.25); // 1000 / (3000 + 1000)
+  assert.equal(snap.totalOutputTokens, 472_000); // lifetime total still from the counter
+});
+
+test("probe: SGLang live tok/s returns to 0 when realtime_tokens_total stops moving", async () => {
+  const state = {
+    prompt: 1000,
+    gen: 500,
+    running: 1,
+    realtime: { decode: 100, compute: 200, cache: 50 },
+  };
+  const probe = sglangCounterProbe(state);
+  await probe.probe();
+
+  state.realtime = { decode: 140, compute: 260, cache: 60 };
+  probe.lastProbeTime = Date.now() - 2000;
+  assert.equal((await probe.probe()).generationTps, 20);
+
+  // Engine idle: nothing moves, load signal drops.
+  state.running = 0;
+  probe.lastProbeTime = Date.now() - 2000;
+  const idle = await probe.probe();
+  assert.equal(idle.generationTps, 0);
+  assert.equal(idle.prefillTps, 0);
+  assert.equal(idle.cachedPrefillTps, 0);
+  assert.equal(idle.uncachedPrefillTps, 0);
+});
+
+test("probe: first realtime sample seeds instead of reporting a lifetime rate", async () => {
+  const probe = sglangCounterProbe({
+    prompt: 228_000,
+    gen: 65_000,
+    running: 0,
+    realtime: { decode: 900_000, compute: 3_000_000, cache: 7_000_000 },
+  });
+
+  const first = await probe.probe();
+  assert.equal(first.generationTps, 0); // no baseline yet
+  assert.equal(first.prefillTps, 0);
+});
+
+test("probe: SGLang falls back to the cumulative counters when realtime series are absent", async () => {
+  // Older builds publish no realtime_tokens_total; the finish-only counters are
+  // then the only source, and the differencing fallback still applies.
+  const state = { prompt: 1000, gen: 500, running: 1 };
+  const probe = sglangCounterProbe(state);
+  await probe.probe();
+
+  state.prompt += 400;
+  state.gen += 200;
+  probe.lastProbeTime = Date.now() - 2000;
+  const snap = await probe.probe();
+  assert.equal(snap.generationTps, 100);
+  assert.equal(snap.prefillTps, 200);
+});
+
+test("_applySglangPrefillSplit prefers live prefill rates over server_info totals", () => {
+  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 30000);
+  probe.lastTokenCounts = { input: 100, output: 50 };
+  probe._applySglangServerInfo(
+    { total_input_tokens: 300, total_output_tokens: 150 },
+    2
+  );
+  assert.equal(probe.generationTps, 50);
+  assert.equal(probe.prefillTps, 100);
+
+  const live = (decode, compute, cache) =>
+    [
+      `sglang:realtime_tokens_total{mode="decode"} ${decode}`,
+      `sglang:realtime_tokens_total{mode="prefill_compute"} ${compute}`,
+      `sglang:realtime_tokens_total{mode="prefill_cache"} ${cache}`,
+    ].join("\n") + "\n";
+
+  probe._applySglangPrefillSplit(live(1000, 500, 200), 2); // seed
+  probe._applySglangPrefillSplit(live(1400, 900, 300), 2);
+
+  assert.equal(probe.generationTps, 50); // still owned by /server_info, not the live decode series
+  assert.equal(probe.prefillTps, 250); // live computed (200) + cached (50), not the totals
+  assert.equal(probe.uncachedPrefillTps, 200); // (900-500)/2
+  assert.equal(probe.cachedPrefillTps, 50); // (300-200)/2
+  assert.equal(probe.prefixCacheHitRate, 0.2); // 50 / (200 + 50)
+  assert.equal(probe.lastTokenCounts.output, 150); // untouched
 });
