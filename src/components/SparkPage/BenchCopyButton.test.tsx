@@ -7,11 +7,13 @@ import { act } from "react";
 import { render } from "../../testing/render";
 import type { ShareCardModel } from "./benchShareCard";
 import { BenchCopyButton } from "./BenchCopyButton";
-import { copyCardImage, copyTextOnly } from "./shareImage";
+import { canCopyImages, copyCardImage, copyTextOnly } from "./shareImage";
 
 vi.mock("./shareImage", () => ({
   copyTextOnly: vi.fn(async () => {}),
   copyCardImage: vi.fn(async () => "copied"),
+  // Default: a secure context, so the menu offers the clipboard.
+  canCopyImages: vi.fn(() => true),
 }));
 
 const card: ShareCardModel = {
@@ -53,6 +55,7 @@ const click = (el: Element) => act(() => (el as HTMLButtonElement).click());
 afterEach(() => {
   vi.mocked(copyTextOnly).mockClear();
   vi.mocked(copyCardImage).mockClear();
+  vi.mocked(canCopyImages).mockReturnValue(true);
 });
 
 describe("with the share image off", () => {
@@ -135,6 +138,27 @@ describe("with the share image on", () => {
 
     hover(caret);
     expect(menuEl()).toBeTruthy();
+  });
+
+  it("offers a download instead when the page has no image clipboard", async () => {
+    vi.mocked(canCopyImages).mockReturnValue(false);
+    vi.mocked(copyCardImage).mockResolvedValueOnce("downloaded");
+    const { root } = mount(true);
+    click(root.querySelector('[aria-haspopup="menu"]')!);
+    // Plain http on a LAN IP is not a secure context, so the browser exposes no
+    // image clipboard; the item must say what it will actually do.
+    expect(menuItems()).toEqual(["Copy as text", "Download PNG"]);
+
+    const item = Array.from(document.querySelectorAll('[role="menuitem"]')).find(
+      (el) => (el.textContent || "").trim() === "Download PNG"
+    )!;
+    await act(async () => (item as HTMLButtonElement).click());
+    expect(copyCardImage).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.any(String),
+      { writeClipboard: null }
+    );
+    expect(byText(root, "PNG saved")).toBeTruthy();
   });
 
   it("copies text from the menu as well", async () => {

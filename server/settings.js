@@ -27,8 +27,12 @@ const DEFAULTS = Object.freeze({
   showFleetExceptions: false,
   /** Overview search + status filter row. Off by default. */
   showOverviewSearch: false,
-  /** Benchmark dialogs offer "Copy image" (PNG share card). Off by default. */
-  benchShareImage: false,
+  /**
+   * Benchmark dialogs offer the share-card format. On by default: the extra
+   * control is one caret next to a button that already copies, and anyone who
+   * does not want it can turn it off here (see the README's settings table).
+   */
+  benchShareImage: true,
 });
 
 /** @type {typeof DEFAULTS} */

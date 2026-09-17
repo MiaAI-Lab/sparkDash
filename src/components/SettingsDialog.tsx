@@ -244,8 +244,9 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
                 <span>
                   <span className="block text-text">Benchmark share image</span>
                   <span className="mt-0.5 block text-[10px] leading-snug text-muted">
-                    Adds <em>Copy image</em> to the decode and prefill dialogs: the results as a PNG
-                    card for sharing. Off by default.
+                    On by default. The decode/prefill <em>Copy results</em> button gains a caret with
+                    <em> Copy as text</em> / <em>Copy as image</em> (a share card). Turn it off to keep
+                    the plain text button.
                   </span>
                 </span>
               </label>

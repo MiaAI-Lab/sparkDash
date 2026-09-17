@@ -11,7 +11,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { createPortal } from "react-dom";
 import { ChevronDownIcon } from "../ui/icons";
 import { shareCardFileName, type ShareCardModel } from "./benchShareCard";
-import { copyCardImage, copyTextOnly } from "./shareImage";
+import { canCopyImages, copyCardImage, copyTextOnly } from "./shareImage";
 
 type CopyState = "idle" | "working" | "text" | "image" | "downloaded";
 
@@ -57,6 +57,8 @@ export function BenchCopyButton({
   onError,
 }: BenchCopyButtonProps) {
   const [state, setState] = useState<CopyState>("idle");
+  /** Secure context? Without it the card can only be downloaded. */
+  const imageClipboard = shareImage && canCopyImages();
   const [menuOpen, setMenuOpen] = useState(false);
   /** Fixed-position coordinates, measured when the menu opens. */
   const [anchor, setAnchor] = useState<{ top: number; right: number } | null>(null);
@@ -157,7 +159,13 @@ export function BenchCopyButton({
     if (state === "working") return;
     setState("working");
     const card = buildCard();
-    const outcome = await copyCardImage(card, shareCardFileName(card, kind));
+    // No clipboard image support: skip the attempt and go straight to the
+    // download, so the button does what its label says.
+    const outcome = await copyCardImage(
+      card,
+      shareCardFileName(card, kind),
+      imageClipboard ? {} : { writeClipboard: null }
+    );
     if (outcome === "copied") flash("image");
     else if (outcome === "downloaded") flash("downloaded");
     else {
@@ -215,7 +223,9 @@ export function BenchCopyButton({
         aria-haspopup="menu"
         aria-expanded={menuOpen}
         aria-label="Copy format"
-        title="Copy as text or as an image"
+        title={
+          imageClipboard ? "Copy as text or as an image" : "Copy as text, or download the image"
+        }
         disabled={state === "working"}
         onMouseEnter={openMenu}
         // Open only: hovering already opens it, so a click that toggled shut
@@ -256,8 +266,13 @@ export function BenchCopyButton({
               role="menuitem"
               className="block w-full rounded px-2 py-1.5 text-left text-[11px] text-muted transition-colors hover:bg-surface-hover hover:text-text"
               onClick={() => void copyImage()}
+              title={
+                imageClipboard
+                  ? undefined
+                  : "This page is not a secure context, so the browser offers no image clipboard — the card downloads instead. Serve over HTTPS (e.g. Tailscale Serve) or use localhost to copy it."
+              }
             >
-              Copy as image
+              {imageClipboard ? "Copy as image" : "Download PNG"}
             </button>
           </span>,
           document.body

@@ -92,6 +92,24 @@ export function renderShareCardPng(
   }
 }
 
+/**
+ * Whether this page can put an *image* on the clipboard at all.
+ *
+ * `navigator.clipboard.write` exists only in a secure context — HTTPS or
+ * localhost. The default Docker install is reached over plain http on a LAN IP,
+ * where the property is missing entirely, so the card can only be downloaded
+ * there. Text still copies in that case, because it falls back to the legacy
+ * `execCommand("copy")` path, which has no image equivalent.
+ */
+export function canCopyImages(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    window.isSecureContext === true &&
+    typeof ClipboardItem !== "undefined" &&
+    typeof navigator.clipboard?.write === "function"
+  );
+}
+
 export type CardCopyOutcome = "copied" | "downloaded" | "failed";
 
 /**
