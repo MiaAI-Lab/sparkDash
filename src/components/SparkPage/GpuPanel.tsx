@@ -1,4 +1,4 @@
-import type { CpuMetrics, GpuMetrics } from "../../api/types";
+import type { CpuMetrics, GpuDevice, GpuMetrics } from "../../api/types";
 import { Sparkline } from "../ui/Sparkline";
 import { Panel } from "../ui/Panel";
 import { ActivityIcon } from "../ui/icons";
@@ -16,6 +16,24 @@ interface GpuPanelProps {
 
 function celsiusToFahrenheit(c: number): number {
   return Math.round(c * 9 / 5 + 32);
+}
+
+/** "NVIDIA GeForce RTX 5080" → "RTX 5080" for the per-card rows. */
+function shortGpuName(name: string | null): string {
+  if (!name) return "";
+  return name.replace(/^NVIDIA\s+(GeForce\s+)?/i, "");
+}
+
+function throttleChip(reason: string | undefined): { label: string; className: string } {
+  const r = reason ?? "ok";
+  const label = r === "thermal" ? "Thermal" : r === "power" ? "Power" : r === "hw" ? "HW" : "OK";
+  const className =
+    r === "thermal"
+      ? "border-danger/40 bg-danger/15 text-danger"
+      : r === "power" || r === "hw"
+        ? "border-warning/40 bg-warning/15 text-warning"
+        : "border-border bg-surface-elevated text-muted";
+  return { label, className };
 }
 
 function formatMb(mb: number): string {
@@ -45,6 +63,79 @@ function MetricRow({
   );
 }
 
+function tempColorFor(celsius: number, idle = "var(--color-text)"): string {
+  return celsius > 85 ? "var(--color-danger)" : celsius > 65 ? "var(--color-warning)" : idle;
+}
+
+/** One physical GPU on a multi-card host: name, throttle chip, usage/temp sparklines, VRAM. */
+function GpuDeviceRow({
+  device: d,
+  sparkId,
+  temperatureUnit,
+}: {
+  device: GpuDevice;
+  sparkId: string;
+  temperatureUnit: "celsius" | "fahrenheit";
+}) {
+  const usageHistory = useMetricsHistoryTail(sparkId, `gpu.${d.index}.usage`);
+  const tempHistory = useMetricsHistoryTail(sparkId, `gpu.${d.index}.temp`);
+  const temp = temperatureUnit === "fahrenheit" ? celsiusToFahrenheit(d.temperature) : d.temperature;
+  const tempLabel = temperatureUnit === "fahrenheit" ? `${temp}°F` : `${temp}°C`;
+  const tempColor = tempColorFor(d.temperature, "var(--color-accent)");
+  const chip = throttleChip(d.throttle?.reason);
+  const short = shortGpuName(d.name);
+  return (
+    <div className="space-y-1.5" title={d.throttle?.detail ?? undefined}>
+      <div className="flex items-center justify-between gap-2 text-xs">
+        <span className="min-w-0 truncate font-medium text-text" title={d.name ?? undefined}>
+          GPU {d.index}
+          {short ? ` · ${short}` : ""}
+        </span>
+        <span
+          className={`rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${chip.className}`}
+        >
+          {chip.label}
+        </span>
+      </div>
+      <div className="flex items-center justify-between gap-2 text-xs">
+        <span className="text-muted">Usage</span>
+        <div className="flex items-center gap-2">
+          <Sparkline data={usageHistory} color="var(--color-accent)" width={84} height={16} />
+          <span className="font-tabular text-text">{d.usage}%</span>
+        </div>
+      </div>
+      <div className="flex items-center justify-between gap-2 text-xs">
+        <span className="text-muted">Temperature</span>
+        <div className="flex items-center gap-2">
+          <Sparkline data={tempHistory} color={tempColor} width={84} height={16} />
+          <span className="font-tabular" style={{ color: tempColor }}>{tempLabel}</span>
+        </div>
+      </div>
+      <div className="flex justify-between gap-2 text-xs">
+        <span className="text-muted">Power</span>
+        <span className="font-tabular text-text">
+          {d.power.draw}W / {d.power.limit}W
+        </span>
+      </div>
+      {d.vram.total > 0 ? (
+        <MetricBar
+          label="VRAM"
+          value={d.vram.used}
+          max={d.vram.total}
+          caption={`${formatMb(d.vram.used).replace(/ (GB|MB)$/, "")} / ${formatMb(d.vram.total)}`}
+        />
+      ) : (
+        <div className="flex justify-between text-xs">
+          <span className="text-muted">VRAM</span>
+          <span className="font-tabular text-text">
+            {d.vram.used > 0 ? `${formatMb(d.vram.used)} used` : "—"}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function GpuPanel({ gpu, cpu, sparkId, temperatureUnit, className }: GpuPanelProps) {
   const tempHistory = useMetricsHistoryTail(sparkId, "gpu.temp");
   const usageHistory = useMetricsHistoryTail(sparkId, "gpu.usage");
@@ -60,6 +151,8 @@ export function GpuPanel({ gpu, cpu, sparkId, temperatureUnit, className }: GpuP
   const vramUsed = gpu?.vram?.used ?? 0;
   const vramTotal = gpu?.vram?.total ?? 0;
   const vramPct = gpu?.vram?.percentage ?? 0;
+  const devices = gpu?.gpus ?? [];
+  const multiGpu = devices.length > 1;
 
   const cpuTemperature = cpu?.temperature ?? 0;
   const cpuDisplayTemp =
@@ -110,7 +203,7 @@ export function GpuPanel({ gpu, cpu, sparkId, temperatureUnit, className }: GpuP
         />
       )}
       <div className="flex justify-between text-sm">
-        <span className="text-muted">GPU Power</span>
+        <span className="text-muted">{multiGpu ? "GPU Power (all cards)" : "GPU Power"}</span>
         <span className="font-tabular text-sm text-text">
           {powerDraw}W / {powerLimit}W
         </span>
@@ -173,13 +266,30 @@ export function GpuPanel({ gpu, cpu, sparkId, temperatureUnit, className }: GpuP
         );
       })()}
 
+      {/* Per-card breakdown — only when the host has more than one GPU */}
+      {multiGpu && (
+        <div className="space-y-3 border-t border-border pt-3">
+          <div className="text-[10px] uppercase tracking-wide text-muted">
+            {devices.length} GPUs
+          </div>
+          {devices.map((d) => (
+            <GpuDeviceRow
+              key={d.uuid ?? d.index}
+              device={d}
+              sparkId={sparkId}
+              temperatureUnit={temperatureUnit}
+            />
+          ))}
+        </div>
+      )}
+
       {/* GPU-allocated memory (portion of the unified pool held by GPU compute apps) */}
       {gpu && (
         <div className="space-y-2 border-t border-border pt-3">
           {vramTotal > 0 ? (
             <>
               <MetricBar
-                label="VRAM"
+                label={multiGpu ? "VRAM (all cards)" : "VRAM"}
                 value={vramUsed}
                 max={vramTotal}
                 caption={vramTotal > 0 ? `${formatMb(vramUsed).replace(/ (GB|MB)$/, "")} / ${formatMb(vramTotal)}` : "—"}
