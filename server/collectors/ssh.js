@@ -8,13 +8,10 @@
 import { execFile } from "child_process";
 import crypto from "crypto";
 import fs from "fs";
-import os from "os";
-import path from "path";
 import {
   COMFY_PORT,
   COMFY_PROBE_TIMEOUT_MS,
   SSH_CONNECT_TIMEOUT,
-  SSH_CONTROL_PERSIST,
   SSH_MULTIPLEX,
 } from "../config.js";
 import { isAllowedTargetHost, isValidSshUser } from "../validate.js";
@@ -24,12 +21,17 @@ import { llmProbeHost } from "./llmHost.js";
 // checking PATH entries directly is faster and avoids spawning a shell.
 let _sshpassAvailable = null;
 const _multiplexStates = new Map();
+// Keep the private directory short even on macOS, where TMPDIR can already
+// consume most of a Unix socket's 104-byte path limit.
 const _controlDir = fs.mkdtempSync("/tmp/sparkdash-ssh-");
 const _controlSalt = crypto.randomBytes(32);
 fs.chmodSync(_controlDir, 0o700);
 
 function controlPersistSeconds() {
-  const configured = Number.parseInt(process.env.SSH_CONTROL_PERSIST_SECONDS ?? "60", 10);
+  const configured = Number.parseInt(
+    process.env.SSH_CONTROL_PERSIST_SECONDS ?? process.env.SSH_CONTROL_PERSIST ?? "60",
+    10
+  );
   return Number.isFinite(configured) ? Math.min(3600, Math.max(0, configured)) : 60;
 }
 
@@ -151,51 +153,6 @@ function sshpassAvailable() {
 }
 
 /**
- * `-o` flags that let every poll ride an already-authenticated connection.
- *
- * Without them each collector tick pays for a fresh TCP connect, key exchange
- * and authentication. At the default cadence a single remote Spark takes 217
- * of those per minute, and on password auth the KDF alone dominates the cost —
- * the login is far more expensive than the `cat /proc/meminfo` it carries.
- * With a shared master, the first command connects and the rest open a channel
- * on the socket that is already up.
- *
- * Control-path length is the trap: the socket name is created LOCALLY, so the
- * whole literal (directory + expanded hash) must stay under the ~104-byte
- * sun_path limit (108 on Linux). macOS hands every process a ~60-char
- * per-user $TMPDIR, so os.tmpdir() + the literal `%C` template — which execFile
- * passes to ssh WITHOUT shell expansion, quotes and all — blew past the limit
- * and every remote collector died with `unix_listener: path ... too long`.
- *
- * Fix: expand %C ourselves — same formula OpenSSH uses (SHA1 of
- * "local host:user:remote host:port", hex) — and hang the socket off a short
- * fixed /tmp dir instead of $TMPDIR. A master that died leaves a stale socket
- * behind; `ControlMaster=auto` notices, reconnects, and replaces it.
- *
- * @param {{ targetHost: string, user: string }} remote
- * @returns {string[]}
- */
-function multiplexOpts({ targetHost, user }) {
-  if (!SSH_MULTIPLEX) return ["-o", "ControlMaster=no", "-o", "ControlPath=none"];
-  const localHost = os.hostname();
-  const hash = crypto
-    .createHash("sha1")
-    .update(`${localHost}:${user}:${targetHost}:22`)
-    .digest("hex");
-  // /tmp/sparkdash-<40 hex> = 60 chars — under the limit on every platform,
-  // including macOS's short-sun_path world.
-  const controlPath = path.join("/tmp", `sparkdash-${hash}`);
-  return [
-    "-o",
-    "ControlMaster=auto",
-    "-o",
-    `ControlPath=${controlPath}`,
-    "-o",
-    `ControlPersist=${SSH_CONTROL_PERSIST}`,
-  ];
-}
-
-/**
  * Build file/args/env for an ssh (or sshpass) invocation. No shell interpolation.
  *
  * `extraSshArgs` sit after the shared ConnectTimeout / StrictHostKeyChecking
@@ -241,17 +198,11 @@ export function sshCommandSpec(spark, opts = {}) {
     opts.multiplex === false || !SSH_MULTIPLEX
       ? null
       : sshMultiplexConfig(spark, targetHost, user, auth, password);
-  // ControlPath selection (three tiers):
-  //   - multiplex:false / SSH_MULTIPLEX=0 (tunnels, picky sshd): own connection.
-  //   - #83 global master: %C-hashed socket shared per host/user/port, so
-  //     different sparks and collectors on the same Spark share one login.
-  //   - credential-isolated digest socket (main): only when the global master
-  //     is off but a control-persist was configured — password records with the
-  //     same host/user must never share an authenticated transport.
+  // The readiness gate and command must use the same socket and persistence.
+  // Explicitly disable both creating and joining a master when reuse is off,
+  // including when a user's ssh_config enables multiplexing independently.
   const controlOpts =
-    opts.multiplex === false || !SSH_MULTIPLEX
-      ? ["-o", "ControlMaster=no", "-o", "ControlPath=none"]
-      : multiplexOpts({ targetHost, user });
+    multiplex?.args ?? ["-o", "ControlMaster=no", "-o", "ControlPath=none"];
   // `--` stops option parsing before destination.
   let file;
   let args;
