@@ -16,6 +16,7 @@ import type {
 import { isLlmMonitoringEnabled } from "../../api/sparkRole";
 import { BoltIcon } from "../ui/icons";
 import { TerminalCard } from "./TerminalCard";
+import { LiveRequestsPanel, type LiveCounts } from "./LiveRequestsPanel";
 import {
   PROMPT_TYPES,
   pickShowcasePrompts,
@@ -189,7 +190,7 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
   const [prompts, setPrompts] = useState<string[]>(() =>
     pickShowcasePrompts(DEFAULT_PROMPT_TYPE, 4)
   );
-  const [terminalCount, setTerminalCount] = useState(4);
+  const [terminalCount, setTerminalCount] = useState(8);   // F723: eight lanes on the 3090s/agents — default to 8 windows
   const [port, setPort] = useState(8888);
   const [modelId, setModelId] = useState<string | null>(() => readModelQuery());
   const [maxTokens, setMaxTokens] = useState(DEFAULT_MAX_TOKENS);
@@ -207,6 +208,48 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
   const [aggregatePeakTps, setAggregatePeakTps] = useState(0);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [liveOpen, setLiveOpen] = useState(false);
+  const [liveCounts, setLiveCounts] = useState<LiveCounts>({ prefill: 0, output: 0, running: 0 });
+  const [engine, setEngine] = useState<{
+    generationTps?: number | null;
+    prefillTps?: number | null;
+    requestsRunning?: number | null;
+    requestsWaiting?: number | null;
+    kvCacheUsage?: number | null;
+    prefixCacheHitRate?: number | null;
+  } | null>(null);
+  // Engine-side numbers for the model header while Live is ON (same snapshot the LLM panel uses).
+  useEffect(() => {
+    if (!liveOpen || !sparkId) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const tick = async () => {
+      if (cancelled) return;
+      try {
+        const snap = await fetchSparkMetrics(sparkId);
+        const llmList = Array.isArray(snap?.metrics?.llm) ? snap.metrics.llm : [];
+        const llm = llmList.find((m) => m?.available && m?.modelId) || llmList[0];
+        if (!cancelled && llm) {
+          setEngine({
+            generationTps: llm.generationTps,
+            prefillTps: llm.prefillTps,
+            requestsRunning: llm.requestsRunning,
+            requestsWaiting: llm.requestsWaiting,
+            kvCacheUsage: llm.kvCacheUsage,
+            prefixCacheHitRate: llm.prefixCacheHitRate,
+          });
+        }
+      } catch {
+        /* keep last */
+      }
+      timer = setTimeout(tick, 2000);
+    };
+    void tick();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [liveOpen, sparkId]);
   const [history, setHistory] = useState<ShowcaseHistorySummary[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [viewingHistory, setViewingHistory] = useState(false);
@@ -989,6 +1032,14 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
                 </button>
                 <button
                   type="button"
+                  className={`showcase-btn showcase-btn--ghost${liveOpen ? " is-active" : ""}`}
+                  onClick={() => setLiveOpen((o) => !o)}
+                  title="Show the actual requests hitting the engine — every agent and app, IN and OUT — in the terminals above instead of the sample prompts"
+                >
+                  {liveOpen ? "Live: ON" : "Live requests"}
+                </button>
+                <button
+                  type="button"
                   className="showcase-btn showcase-btn--ghost"
                   onClick={() => setBarVisible(false)}
                   title="Hide controls"
@@ -1121,9 +1172,47 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
       )}
 
       {modelId ? (
-        <header className="showcase-model-header" title={modelId}>
-          <span className="showcase-model-header__label">Model</span>
-          <h1 className="showcase-model-header__name">{modelId}</h1>
+        <header className={`showcase-model-header${liveOpen ? " showcase-model-header--live" : ""}`} title={modelId}>
+          {liveOpen && (
+            <div className="live-stats live-stats--left" aria-label="engine throughput">
+              <div className={`live-stat${(engine?.prefillTps ?? 0) > 0 ? " is-hot" : ""}`}>
+                <span className="live-stat__n">{engine?.prefillTps != null ? Math.round(engine.prefillTps).toLocaleString() : "—"}</span>
+                <span className="live-stat__k">prefill tok/s</span>
+              </div>
+              <div className={`live-stat${(engine?.generationTps ?? 0) > 0 ? " is-hot" : ""}`}>
+                <span className="live-stat__n">{engine?.generationTps != null ? Math.round(engine.generationTps).toLocaleString() : "—"}</span>
+                <span className="live-stat__k">output tok/s</span>
+              </div>
+              <div className={`live-stat live-stat--total${(engine?.requestsRunning ?? liveCounts.running) ? " is-hot" : ""}`}>
+                <span className="live-stat__n">{engine?.requestsRunning ?? liveCounts.running}</span>
+                <span className="live-stat__k">sessions running</span>
+              </div>
+            </div>
+          )}
+          <div className="showcase-model-header__center">
+            <span className="showcase-model-header__label">Model</span>
+            <h1 className="showcase-model-header__name">{modelId}</h1>
+          </div>
+          {liveOpen && (
+            <div className="live-stats live-stats--right" aria-label="engine state">
+              <div className={`live-stat${liveCounts.prefill ? " is-hot" : ""}`}>
+                <span className="live-stat__n">{liveCounts.prefill}</span>
+                <span className="live-stat__k">in prefill</span>
+              </div>
+              <div className={`live-stat${liveCounts.output ? " is-hot" : ""}`}>
+                <span className="live-stat__n">{liveCounts.output}</span>
+                <span className="live-stat__k">generating</span>
+              </div>
+              <div className={`live-stat${(engine?.requestsWaiting ?? 0) > 0 ? " is-hot" : ""}`}>
+                <span className="live-stat__n">{engine?.requestsWaiting ?? "—"}</span>
+                <span className="live-stat__k">waiting</span>
+              </div>
+              <div className={`live-stat live-stat--total${(engine?.kvCacheUsage ?? 0) > 0.5 ? " is-hot" : ""}`}>
+                <span className="live-stat__n">{engine?.kvCacheUsage != null ? `${Math.round(engine.kvCacheUsage * 100)}%` : "—"}</span>
+                <span className="live-stat__k">kv cache{engine?.prefixCacheHitRate != null ? ` · ${Math.round(engine.prefixCacheHitRate * 100)}% prefix hit` : ""}</span>
+              </div>
+            </div>
+          )}
         </header>
       ) : null}
 
@@ -1202,11 +1291,14 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
         </div>
       )}
 
+      {liveOpen && <LiveRequestsPanel sparkId={sparkId} terminalCount={terminalCount} onCounts={setLiveCounts} engineWaiting={engine?.requestsWaiting ?? null} />}
+
       <div
         className="showcase-grid"
         style={{
           ["--showcase-cols" as string]: String(gridCols),
           ["--showcase-rows" as string]: String(gridRows),
+          display: liveOpen ? "none" : undefined,
         }}
       >
         {displayStreams.map((s) => (
