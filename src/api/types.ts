@@ -73,6 +73,11 @@ export interface SparkConfig {
   /** ComfyUI HTTP port (default 8188). */
   comfyPort?: number;
   /**
+   * Optional vLLM serving capacity (--max-num-seqs) for the serving lanes
+   * widget. Unset/null = unknown (widget falls back to run+wait total).
+   */
+  maxNumSeqs?: number | null;
+  /**
    * Opt-in: Hermes Agent CLI (nousresearch/hermes-agent) is installed on this
    * machine. When enabled, sparkDash checks for Hermes updates and can run
    * `hermes update` for you via SSH.
@@ -273,6 +278,8 @@ export interface UnifiedMemoryMetrics {
   used: number;
   available: number;
   percentage: number;
+  /** Cumulative count of NV_ERR_NO_MEMORY kernel driver errors. */
+  nvErrNoMemory: number;
   oomRisk: "low" | "medium" | "high";
   bandwidth: {
     current: number;
@@ -315,6 +322,8 @@ export interface LlmMetrics {
   prefixCacheHitRate?: number | null;
   /** vLLM end-to-end request latency p95 in seconds. null when unavailable. */
   e2eP95Seconds?: number | null;
+  /** vLLM mean decode (generation) time per completed request, seconds. null when unavailable. */
+  avgDecodeSeconds?: number | null;
   /** vLLM inter-token latency p95 in seconds. null when unavailable. */
   itlP95Seconds?: number | null;
   /** vLLM speculative/MTP acceptance rate (accepted/drafted, 0–1). null when unavailable. */
@@ -508,6 +517,11 @@ export interface SparkSnapshot {
   comfyMonitoring?: boolean;
   /** ComfyUI HTTP port (default 8188) */
   comfyPort?: number;
+  /**
+   * Optional vLLM serving capacity (--max-num-seqs) for the serving lanes
+   * widget. Unset/null = unknown (widget falls back to run+wait total).
+   */
+  maxNumSeqs?: number | null;
   /** Whether tailnet presence is probed (opt-in; all roles) */
   tailscaleMonitoring?: boolean;
   /** Hermes Agent update monitoring state (present in every snapshot). */
@@ -562,6 +576,11 @@ export interface Settings {
   showFleetExceptions: boolean;
   /** Overview search field + status filter. Off by default. */
   showOverviewSearch: boolean;
+  /**
+   * Per-Spark manual gauge scale maxima (tok/s) for the Alt-overview dials.
+   * Empty/null values defer to the model-keyed scale (MODEL_SCALES).
+   */
+  gaugeScales: Record<string, { gen?: number | null; prefill?: number | null }>;
   /** Benchmark dialogs offer "Copy image" — a PNG share card of the results. */
   benchShareImage: boolean;
 }

@@ -37,6 +37,9 @@ const historyValues = new Map<string, readonly number[]>();
 /** Cached last-N views — refreshed whenever the full series is replaced. */
 const historyTails = new Map<string, readonly number[]>();
 const sparkMap = new Map<string, SparkSnapshot>();
+/** Per-spark ingest timestamp (ms) of the most recent WS frame carrying it —
+ *  the data-freshness signal for §5.5 (`updated Ns ago`, STALE, DEAD). */
+const lastSeenAt = new Map<string, number>();
 const listeners = new Set<() => void>();
 
 const EMPTY: readonly number[] = Object.freeze([] as number[]);
@@ -114,6 +117,7 @@ export function ingestSnapshots(sparks: SparkSnapshot[], at = Date.now()): void 
   for (const s of sparks) {
     alive.add(s.id);
     sparkMap.set(s.id, s);
+    lastSeenAt.set(s.id, at);
     if (!s.online) continue; // don't record zero-samples for offline hosts
     const m = s.metrics;
     if (m.gpu) {
@@ -175,6 +179,16 @@ export function ingestSnapshots(sparks: SparkSnapshot[], at = Date.now()): void 
 /** Read the latest cached snapshot for a spark (subscribe via useSpark). */
 export function getSpark(id: string): SparkSnapshot | undefined {
   return sparkMap.get(id);
+}
+
+/** Ingest timestamp (ms) of the most recent WS frame that carried this spark. */
+export function getSparkLastSeen(id: string): number | undefined {
+  return lastSeenAt.get(id);
+}
+
+/** Subscribe to one spark's last-seen ingest timestamp (re-renders on every frame). */
+export function useSparkLastSeen(id: string): number | undefined {
+  return useSyncExternalStore(subscribeMetrics, () => lastSeenAt.get(id));
 }
 
 /** @internal getSnapshot for useMetricsHistory — stable ref per key. */
@@ -252,4 +266,5 @@ export function _resetStore(): void {
   historyValues.clear();
   historyTails.clear();
   sparkMap.clear();
+  lastSeenAt.clear();
 }

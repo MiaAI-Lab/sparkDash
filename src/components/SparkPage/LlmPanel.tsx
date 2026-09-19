@@ -13,7 +13,9 @@ import { BenchmarkDialog } from "./BenchmarkDialog";
 import { PrefillBenchDialog } from "./PrefillBenchDialog";
 import { LlmDailyChart } from "./LlmDailyChart";
 import { parseLlmTargetInput } from "../../shared/llmTarget.js";
+import { scaleForModel, fmtSeconds, DISPLAY } from "../../config/display.js";
 import { LlmTrendChart } from "./LlmTrendChart";
+import { useShareMode, aliasForModel } from "../../hooks/shareMode";
 
 interface LlmPanelProps {
   llm: LlmMetrics | null;
@@ -434,6 +436,7 @@ export function LlmPanel({
   }, []);
   /** Which vLLM metric info tip is open (kvCache | requests | ttftP95 | preempts). */
   const [metricInfoId, setMetricInfoId] = useState<string | null>(null);
+  const shareMode = useShareMode();
   const engineInfoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearEngineInfoTimer = useCallback(() => {
@@ -450,6 +453,9 @@ export function LlmPanel({
 
   const generationTps = llm?.generationTps ?? 0;
   const prefillTps = llm?.prefillTps ?? 0;
+  // Fixed gauge/sparkline scale for the served model (I-2′) — same key on
+  // every node serving the same model, fallback badged DEFAULT SCALE.
+  const modelScale = scaleForModel(llm?.modelId);
   const showPrefillSplit = llm?.cachedPrefillTps != null || llm?.uncachedPrefillTps != null;
   const cachedPrefillTps = llm?.cachedPrefillTps ?? 0;
   const uncachedPrefillTps = llm?.uncachedPrefillTps ?? 0;
@@ -538,26 +544,28 @@ export function LlmPanel({
               <span>Remove</span>
             </button>
           )}
-          <button
-            type="button"
-            title={showSettings ? "Done" : "LLM settings"}
-            onClick={() => {
-              if (showSettings) {
-                setPortDraft(String(llmPort));
-                setApiKeyDraft("");
-                setClearApiKey(false);
-                setSaveError(null);
-              }
-              setShowSettings(!showSettings);
-            }}
-            disabled={saving}
-            className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted transition-colors hover:bg-surface-hover disabled:opacity-50 ${
-              showSettings ? "bg-surface-elevated text-text" : ""
-            }`}
-          >
-            <GearIcon />
-            <span>{showSettings ? "Done" : "Settings"}</span>
-          </button>
+          {!shareMode && (
+            <button
+              type="button"
+              title={showSettings ? "Done" : "LLM settings"}
+              onClick={() => {
+                if (showSettings) {
+                  setPortDraft(String(llmPort));
+                  setApiKeyDraft("");
+                  setClearApiKey(false);
+                  setSaveError(null);
+                }
+                setShowSettings(!showSettings);
+              }}
+              disabled={saving}
+              className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted transition-colors hover:bg-surface-hover disabled:opacity-50 ${
+                showSettings ? "bg-surface-elevated text-text" : ""
+              }`}
+            >
+              <GearIcon />
+              <span>{showSettings ? "Done" : "Settings"}</span>
+            </button>
+          )}
         </div>
       }
     >
@@ -687,14 +695,15 @@ export function LlmPanel({
             {llm?.modelId && (
               <span
                 className="min-w-0 flex-1 whitespace-normal break-words text-xs leading-snug text-text [overflow-wrap:anywhere]"
-                title={llm.modelId}
+                title={shareMode ? aliasForModel(llm.modelId) : llm.modelId}
               >
-                {llm.modelId}
+                {shareMode ? aliasForModel(llm.modelId) : llm.modelId}
               </span>
             )}
             <span className="shrink-0 font-tabular text-[10px] text-muted">:{llmPort}</span>
           </div>
           {llm?.modelPath &&
+            !shareMode &&
             llm.modelPath !== llm.modelId &&
             !llm.modelPath.includes("models--") && (
             <div className="-mt-1.5 truncate text-[10px] text-muted" title={llm.modelPath}>
@@ -705,14 +714,14 @@ export function LlmPanel({
           <div className="flex items-center justify-between">
             <span className="text-xs text-muted">Generation tok/s</span>
             <div className="flex items-center gap-2">
-              <Sparkline data={genHistory} color="var(--color-accent)" height={24} />
+              <Sparkline data={genHistory} domain={[0, modelScale.gen]} color="var(--color-accent)" height={24} axisLabel={`axis 0–${modelScale.gen} tok/s`} summary={`Generation rate ${Math.round(generationTps)} tokens per second over the last 5 minutes`} />
               <div className="text-right">
                 <div className="font-tabular text-sm font-semibold text-accent">
-                  {generationTps.toFixed(1)}
+                  {Math.round(generationTps)}
                 </div>
                 {genAvg != null && (
                   <div className="font-tabular text-[9px] text-muted">
-                    avg {genAvg >= 100 ? genAvg.toFixed(0) : genAvg.toFixed(1)}
+                    avg {Math.round(genAvg)}
                   </div>
                 )}
               </div>
@@ -724,14 +733,14 @@ export function LlmPanel({
           >
             <span className="text-xs text-muted">Prefill tok/s</span>
             <div className="flex items-center gap-2">
-              <Sparkline data={prefillHistory} color="var(--color-text)" height={24} />
+              <Sparkline data={prefillHistory} domain={[0, modelScale.prefill]} color="var(--color-text)" height={24} axisLabel={`axis 0–${modelScale.prefill} tok/s`} summary={`Prefill rate ${Math.round(prefillTps)} tokens per second over the last 5 minutes`} />
               <div className="text-right">
                 <div className="font-tabular text-sm font-semibold text-text">
-                  {prefillTps.toFixed(1)}
+                  {Math.round(prefillTps)}
                 </div>
                 {prefillAvg != null && (
                   <div className="font-tabular text-[9px] text-muted">
-                    avg {prefillAvg >= 100 ? prefillAvg.toFixed(0) : prefillAvg.toFixed(1)}
+                    avg {Math.round(prefillAvg)}
                   </div>
                 )}
               </div>
@@ -745,14 +754,14 @@ export function LlmPanel({
               >
                 <span className="text-xs text-muted">Cached prefill tok/s</span>
                 <div className="flex items-center gap-2">
-                  <Sparkline data={cachedPrefillHistory} color="var(--color-muted)" height={24} />
+                  <Sparkline data={cachedPrefillHistory} domain={[0, modelScale.prefill]} color="var(--color-muted)" height={24} axisLabel={`axis 0–${modelScale.prefill} tok/s`} summary={`Cached prefill rate ${Math.round(cachedPrefillTps)} tokens per second over the last 5 minutes`} />
                   <div className="text-right">
                     <div className="font-tabular text-sm font-semibold text-muted">
-                      {cachedPrefillTps.toFixed(1)}
+                      {Math.round(cachedPrefillTps)}
                     </div>
                     {cachedPrefillAvg != null && (
                       <div className="font-tabular text-[9px] text-muted">
-                        avg {cachedPrefillAvg >= 100 ? cachedPrefillAvg.toFixed(0) : cachedPrefillAvg.toFixed(1)}
+                        avg {Math.round(cachedPrefillAvg)}
                       </div>
                     )}
                   </div>
@@ -764,14 +773,14 @@ export function LlmPanel({
               >
                 <span className="text-xs text-muted">Uncached prefill tok/s</span>
                 <div className="flex items-center gap-2">
-                  <Sparkline data={uncachedPrefillHistory} color="var(--color-text)" height={24} />
+                  <Sparkline data={uncachedPrefillHistory} domain={[0, modelScale.prefill]} color="var(--color-text)" height={24} axisLabel={`axis 0–${modelScale.prefill} tok/s`} summary={`Uncached prefill rate ${Math.round(uncachedPrefillTps)} tokens per second over the last 5 minutes`} />
                   <div className="text-right">
                     <div className="font-tabular text-sm font-semibold text-text">
-                      {uncachedPrefillTps.toFixed(1)}
+                      {Math.round(uncachedPrefillTps)}
                     </div>
                     {uncachedPrefillAvg != null && (
                       <div className="font-tabular text-[9px] text-muted">
-                        avg {uncachedPrefillAvg >= 100 ? uncachedPrefillAvg.toFixed(0) : uncachedPrefillAvg.toFixed(1)}
+                        avg {Math.round(uncachedPrefillAvg)}
                       </div>
                     )}
                   </div>
@@ -905,15 +914,16 @@ export function LlmPanel({
                 </div>
               </div>
               <div className="space-y-0.5">
+                {/* Aggregate windows are always labelled (§5.5, AT-7). */}
                 <MetricInfoTip
                   id="ttftP95"
-                  label="TTFT p95"
+                  label={`TTFT p95 · ${DISPLAY.AGG_WINDOW_S / 60}m`}
                   text={VLLM_METRIC_INFO.ttftP95}
                   openId={metricInfoId}
                   setOpenId={setMetricInfoId}
                 />
                 <div className="font-tabular text-sm text-text">
-                  {llm.ttftP95Seconds != null ? `${llm.ttftP95Seconds.toFixed(3)}s` : "—"}
+                  {llm.ttftP95Seconds != null ? fmtSeconds(llm.ttftP95Seconds) : "—"}
                 </div>
               </div>
               <div className="space-y-0.5">
@@ -953,26 +963,26 @@ export function LlmPanel({
               <div className="space-y-0.5">
                 <MetricInfoTip
                   id="e2eP95"
-                  label="E2E p95"
+                  label={`E2E p95 · ${DISPLAY.AGG_WINDOW_S / 60}m`}
                   text={VLLM_METRIC_INFO.e2eP95}
                   openId={metricInfoId}
                   setOpenId={setMetricInfoId}
                   align="right"
                 />
                 <div className="font-tabular text-sm text-text">
-                  {llm.e2eP95Seconds != null ? `${llm.e2eP95Seconds.toFixed(3)}s` : "—"}
+                  {llm.e2eP95Seconds != null ? fmtSeconds(llm.e2eP95Seconds) : "—"}
                 </div>
               </div>
               <div className="space-y-0.5">
                 <MetricInfoTip
                   id="itlP95"
-                  label="ITL p95"
+                  label={`ITL p95 · ${DISPLAY.AGG_WINDOW_S / 60}m`}
                   text={VLLM_METRIC_INFO.itlP95}
                   openId={metricInfoId}
                   setOpenId={setMetricInfoId}
                 />
                 <div className="font-tabular text-sm text-text">
-                  {llm.itlP95Seconds != null ? `${llm.itlP95Seconds.toFixed(3)}s` : "—"}
+                  {llm.itlP95Seconds != null ? fmtSeconds(llm.itlP95Seconds) : "—"}
                 </div>
               </div>
               <div className="space-y-0.5">

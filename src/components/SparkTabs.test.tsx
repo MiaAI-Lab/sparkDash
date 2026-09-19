@@ -19,7 +19,9 @@ describe("SparkTabs accessibility and scale", () => {
     );
     const current = container.querySelector('[aria-current="page"]');
     expect(current?.textContent).toContain("Spark b");
-    expect(container.querySelectorAll(".pill-item-with-handle, .pill-item")).toHaveLength(3);
+    // Overview + Alt-overview pills alongside the sortable Spark tabs:
+    // 2 static pill-items + one per sortable Spark.
+    expect(container.querySelectorAll(".pill-item-with-handle, .pill-item")).toHaveLength(4);
   });
 
   it("keeps 4/8/12-node desktop navigation in a horizontally overflowable nav", () => {
@@ -46,7 +48,8 @@ describe("SparkTabs accessibility and scale", () => {
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     act(() => toggle.click());
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(document.querySelectorAll('[role="menuitem"]')).toHaveLength(14);
+    // 12 sparks + Overview + Alt-overview + Add Spark.
+    expect(document.querySelectorAll('[role="menuitem"]')).toHaveLength(15);
     expect(document.querySelector('#mobile-spark-menu [aria-current="page"]')?.textContent).toContain("Spark m3");
   });
 });

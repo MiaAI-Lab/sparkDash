@@ -3,6 +3,7 @@ import type { SparkSnapshot } from "../../api/types";
 import { shutdownSpark, wakeSpark } from "../../api/client";
 import { ConfirmShutdownDialog } from "../ConfirmShutdownDialog";
 import { openHermesUpdateDialog } from "../../hooks/useHermesUpdateDialog";
+import { useShareMode } from "../../hooks/shareMode";
 import { EditIcon, PowerOffIcon, PowerOnIcon, RotateIcon } from "../ui/icons";
 
 interface SparkActionsProps {
@@ -23,6 +24,10 @@ export function SparkActions({ spark, onEdit, className }: SparkActionsProps) {
   const [powerLoading, setPowerLoading] = useState(false);
   const [powerMsg, setPowerMsg] = useState<{ text: string; tone: "ok" | "err" } | null>(null);
   const [shutdownOpen, setShutdownOpen] = useState(false);
+  // Share-safe mode (§5.8, I-8): power/edit controls are REMOVED from the
+  // DOM — capability denial, not a disabled state.
+  const shareMode = useShareMode();
+  if (shareMode) return null;
 
   const hermes = spark.hermes;
   const hermesRunning = hermes?.status === "running";

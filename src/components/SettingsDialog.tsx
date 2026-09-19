@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { fetchSettings, updateSettings } from "../api/client";
 import type { Settings } from "../api/types";
 import { useModalPresence } from "../hooks/useModalPresence";
+import { useShareMode, useSetShareMode } from "../hooks/shareMode";
 import packageJson from "../../package.json";
 
 interface SettingsDialogProps {
@@ -28,6 +29,8 @@ const POLL_PRESETS = [
 ];
 
 export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) {
+  const shareMode = useShareMode();
+  const setShareMode = useSetShareMode();
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -394,6 +397,36 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
                   <span className="block text-text">Compact UI</span>
                   <span className="mt-0.5 block text-[10px] leading-snug text-muted">
                     Tighter spacing, smaller radius, and reduced font size — fits more Sparks on a single screen.
+                  </span>
+                </span>
+              </label>
+            </div>
+
+            {/* Share-safe mode — in-memory only, never persisted (§5.8). Also
+                available via the ?share=1 URL param. */}
+            <div>
+              <label className="flex items-start gap-3 text-xs text-muted">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={shareMode}
+                  onClick={() => setShareMode(!shareMode)}
+                  className={`toggle-track relative mt-0.5 inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                    shareMode ? "is-on" : ""
+                  }`}
+                >
+                  <span
+                    className={`toggle-dot inline-block h-4 w-4 transform rounded-full shadow transition-transform ${
+                      shareMode ? "translate-x-4" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+                <span>
+                  <span className="block text-text">Share-safe mode</span>
+                  <span className="mt-0.5 block text-[10px] leading-snug text-muted">
+                    Aliases host and model names, hides IPs, paths, and capacity totals, and removes
+                    power and edit controls. Session-only — never saved. Use <code>?share=1</code> in
+                    the URL for a screenshot-safe link.
                   </span>
                 </span>
               </label>
