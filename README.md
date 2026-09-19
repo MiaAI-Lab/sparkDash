@@ -51,11 +51,9 @@ It also supports **non-Spark units**: any Linux machine with an NVIDIA GPU (e.g.
 
 ## Latest version changelog
 
-### Version 1.8.7 — local build on upstream 1.8.6
-- **Fleet storage tiers** — fleet **Storage** view: disks classified **Hot / Warm / Cold**, model inventory, resident-vs-CX7-fabric placement
-- **NV_ERR_NO_MEMORY counter** — per-Spark kernel-driver error count (host journal / SSH) with a reset baseline in the GPU panel
-- Includes upstream **1.8.6** — prefill benchmark (1k–300k context sweep) and DGX Spark CPU temperature
-
+### Version 1.8.6 — prefill benchmark
+- **Prefill benchmark** on the LLM card: sweep context sizes from 1k to 300k, report prefill tok/s (`prompt_tokens` ÷ TTFT) and TTFT. Unique prefix per size so prefix-cache does not inflate later runs. Timeouts scale with size (up to 45 min).
+- **CPU temperature** on remote Sparks (Overview bar + GPU panel row when above 0°C).
 
 Full history: [CHANGELOG.md](./CHANGELOG.md)
 
@@ -87,7 +85,6 @@ Full history: [CHANGELOG.md](./CHANGELOG.md)
 | **Secrets** | SSH passwords AES-256-GCM encrypted; never in `sparks.json` or API responses |
 | **Docker-first** | Single privileged container for host metrics; prod and dev Compose files |
 | **Hot config** | Add / edit / remove / reorder Sparks from the UI with no process restart |
-| **Storage tiers** | Fleet **Storage** view — disks classified **Hot / Warm / Cold** (NAS/nfs/cifs vs local), model inventory, and resident-vs-CX7-fabric placement |
 
 ---
 
@@ -425,7 +422,6 @@ Copy `.env.example` to `.env` if needed:
 | `POLL_INTERVAL_NVERR` | `60000` | Kernel journal scan for NVRM `NV_ERR_NO_MEMORY` (ms) |
 | `HERMES_UPDATE_TIMEOUT_MS` | `600000` | Hard timeout for running `hermes update` over SSH (ms) |
 | `POLL_INTERVAL_LIVENESS` | `5000` | Online/SSH liveness check (ms) |
-| `POLL_INTERVAL_MODELS` | `30000` | Model inventory / tier scan (ms) |
 | `SPARKDASH_SECRETS_KEY` | _(auto)_ | Passphrase or 64-char hex for secret encryption |
 | `HOST_PROC_PATH` | `/host/proc` | Host proc mount inside container |
 | `HOST_SYS_PATH` | `/host/sys` | Host sys mount |
@@ -533,15 +529,7 @@ Each configured LLM port gets its own `LlmProbe` instance running in parallel. P
 
 Rates are derived from per-probe cumulative counter diffs (or SGLang sticky throughput while it moves). Multiple ports can be added or removed at runtime without restarting the monitor.
 
-Live probes still use the LAN IP on remote units. **Decode and prefill benches** try that same HTTP target first; if it is closed they open an SSH local-forward onto the remote's `127.0.0.1` so loopback-bound servers (ds4 `start.sh` default) can still be measured. The tunnel is torn down when the job finishes or is cancelled.
-
-### Storage tiers & model placement
-
-Each mounted disk is assigned a tier — **Hot** (root NVMe), **Warm** (other local disks), or **Cold** (NAS: `/mnt/modelshelf`, `/media`, `/Volumes`, `/mnt`, or any `cifs`/`smb`/`nfs` mount). Per-Spark `tierPaths` in `config/sparks.json` override the heuristic per mount. The collector scans the configured model directories (grouped by tier via `modelDirs`) for weight files (`.safetensors`, `.gguf`, `.bin`, `.pt`, `.pth`, `.ckpt`) and reports each model by name, size, and tier.
-
-The scan looks **one directory level deep**: each immediate child of a `modelDirs` entry counts as a model if it is a loose weight file or a subdirectory whose immediate children include a weight file. Point `modelDirs` at the directory whose *direct* children are your models. HF-hub-style nesting (`models--org--name/snapshots/<ref>/*.safetensors`, or `~/models/hf/<family>/*.safetensors`) is two levels deep, so use the outer family dir (e.g. `~/models/hf`), not the parent, as the `modelDirs` root.
-
-A model is **resident** on the Sparks holding a local copy. Because a peer with the model loaded in its LLM probe (matched by name) serves it to the fleet over the CX7/ConnectX fabric, such a Spark is shown as placing the model **over the fabric** even with no local copy. The fleet **Storage** view rolls these up per tier and lists every model with its resident and fabric placement.
+Live probes still use the LAN IP on remote units. **Decode and prefill benches** try that same HTTP target first; if it is closed they open an SSH local-forward onto the remote’s `127.0.0.1` so loopback-bound servers (ds4 `start.sh` default) can still be measured. The tunnel is torn down when the job finishes or is cancelled.
 
 ---
 

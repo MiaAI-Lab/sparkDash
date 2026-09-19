@@ -94,12 +94,10 @@ test("catalog prompts exist for text, structural, and mixed pickers", () => {
 test("DecodeBench uses the lab structured protocol at temperature 0, thinking off", () => {
   // 1.8.3 moved DecodeBench off the Showcase structural catalog + fill-to-max
   // and onto the lab structured protocol (count 1 -> 200); 1.8.4 added the
-  // output-type picker; the fork adds dedicated decode prompts that strip
-  // fill/force fields before sending.
+  // output-type picker. These assertions still referenced the removed API.
   assert.match(benchSrc, /pickDecodeBenchPrompts\(/);
   assert.match(benchSrc, /decodeBenchPromptForType\(/);
   assert.match(benchSrc, /normalizeDecodeBenchType\(/);
-  assert.match(benchSrc, /stripFillForceFields/);
   assert.match(benchSrc, /temperature:\s*0/);
   assert.match(benchSrc, /top_p:\s*1/);
   assert.match(benchSrc, /applyThinkingFlags\(body,\s*modelId,\s*false\)/);

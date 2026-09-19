@@ -8,14 +8,13 @@ import { EditSparkDialog } from "./components/EditSparkDialog";
 import { SparkPage } from "./components/SparkPage/SparkPage";
 import { HermesUpdateDialog } from "./components/SparkPage/HermesUpdateDialog";
 import { OverviewPage } from "./components/OverviewPage/OverviewPage";
-import { FleetStoragePage } from "./components/FleetStoragePage/FleetStoragePage";
 import { ShowcasePage } from "./components/ShowcasePage/ShowcasePage";
 import { ThemeSwitch } from "./components/ThemeSwitch";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { GearIcon, BoltIcon } from "./components/ui/icons";
 import { ConnectionBanner } from "./components/ui/ConnectionBanner";
 import { ErrorBanner } from "./components/ui/ErrorBanner";
-import { OVERVIEW_ID, FLEET_STORAGE_ID, GAUGES_ID } from "./constants";
+import { OVERVIEW_ID, GAUGES_ID } from "./constants";
 import type { Settings, SparkSnapshot } from "./api/types";
 import { isWorkerSpark } from "./api/sparkRole";
 import { ShareModeProvider, useShareMode } from "./hooks/shareMode";
@@ -118,7 +117,6 @@ function placeholderSnapshot(
       cpu: null,
       ram: null,
       storage: [],
-      models: [],
       network: null,
       unifiedMemory: null,
       llm: [],
@@ -189,7 +187,6 @@ function DashboardApp() {
 
 
   const isOverview = activeId === OVERVIEW_ID;
-  const isFleetStorage = activeId === FLEET_STORAGE_ID;
   const isGauges = activeId === GAUGES_ID;
   const hideWorkers = settings?.hideWorkers ?? false;
   const hiddenWorkerIds = useMemo(() => {
@@ -389,9 +386,7 @@ function DashboardApp() {
         )}
         <ErrorBanner message={actionError} onDismiss={() => setActionError(null)} />
         <main className={telemetryStale || !connected ? "telemetry-stale" : undefined}>
-          {isFleetStorage ? (
-            <FleetStoragePage sparks={displaySparks} />
-          ) : isOverview || isGauges ? (
+          {isOverview || isGauges ? (
             <OverviewPage
               variant={isGauges ? "gauges" : "overview"}
               sparks={displaySparks}

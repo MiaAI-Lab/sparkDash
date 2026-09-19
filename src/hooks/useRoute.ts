@@ -1,11 +1,10 @@
 import { useEffect, useCallback, useRef, useState } from "react";
-import { OVERVIEW_ID, FLEET_STORAGE_ID, GAUGES_ID } from "../constants";
+import { OVERVIEW_ID, GAUGES_ID } from "../constants";
 
 export type RouteMode = "app" | "showcase";
 
 /** Map a pathname to an active tab id (Overview or a Spark), or null. */
 function activeIdFromPath(pathname: string): string | null {
-  if (pathname === "/storage") return FLEET_STORAGE_ID;
   if (pathname === "/gauges") return GAUGES_ID;
   const spark = pathname.match(/^\/spark\/([^/]+)/);
   return spark ? decodeURIComponent(spark[1]) : OVERVIEW_ID;
@@ -51,7 +50,6 @@ export function useAppRoute(): AppRoute {
  * URL scheme:
  *   /             → Overview
  *   /gauges       → Gauges (Overview cards with tok/s dials)
- *   /storage      → Fleet model storage
  *   /spark/:id    → Spark detail page
  *   /showcase/:id → full-screen showcase (handled separately via useAppRoute)
  *
@@ -89,7 +87,6 @@ export function useRoute(
     (id: string | null) => {
       let url = "/";
       if (id === GAUGES_ID) url = "/gauges";
-      else if (id === FLEET_STORAGE_ID) url = "/storage";
       else if (id && id !== OVERVIEW_ID) url = `/spark/${encodeURIComponent(id)}`;
       window.history.pushState(null, "", url);
       setActiveId(id);

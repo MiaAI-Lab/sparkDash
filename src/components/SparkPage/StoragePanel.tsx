@@ -3,7 +3,6 @@ import type { StorageMetrics } from "../../api/types";
 import { updateDisabledDevices, refreshSparkMetric, updateSpark } from "../../api/client";
 import { Panel } from "../ui/Panel";
 import { DiskIcon, GearIcon, RotateIcon } from "../ui/icons";
-import { useShareMode } from "../../hooks/shareMode";
 
 interface StoragePanelProps {
   storage: StorageMetrics[];
@@ -24,24 +23,6 @@ function formatBytesPerSec(bps: number): string {
 function formatGb(mb: number): string {
   if (mb >= 1024) return `${(mb / 1024).toFixed(0)} GB`;
   return `${Math.round(mb)} MB`;
-}
-
-function TierBadge({ tier }: { tier?: "hot" | "warm" | "cold" }) {
-  if (tier !== "hot" && tier !== "warm" && tier !== "cold") return null;
-  const label = tier === "hot" ? "Hot" : tier === "warm" ? "Warm" : "Cold";
-  const cls =
-    tier === "hot"
-      ? "bg-accent text-black"
-      : tier === "warm"
-        ? "bg-warning text-black"
-        : "bg-muted text-black";
-  return (
-    <span
-      className={`inline-block shrink-0 rounded px-1 py-px text-[9px] font-medium uppercase tracking-wide ${cls}`}
-    >
-      {label}
-    </span>
-  );
 }
 
 function MetricBar({ value, max }: { value: number; max: number }) {
@@ -114,7 +95,6 @@ export function StoragePanel({
   const [showSettings, setShowSettings] = useState(false);
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const shareMode = useShareMode();
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -167,14 +147,12 @@ export function StoragePanel({
             <RotateIcon className={`h-3 w-3 ${refreshing ? "animate-spin" : ""}`} />
             <span>{refreshing ? "Refreshing…" : "Refresh"}</span>
           </button>
-          {!shareMode && (
-            <SettingsButton
-              active={showSettings}
-              onClick={() => setShowSettings(!showSettings)}
-              disabled={saving}
-              label="Storage"
-            />
-          )}
+          <SettingsButton
+            active={showSettings}
+            onClick={() => setShowSettings(!showSettings)}
+            disabled={saving}
+            label="Storage"
+          />
         </div>
       }
     >
@@ -234,21 +212,18 @@ export function StoragePanel({
                   <div key={`${disk.device}:${disk.label}`} className="space-y-1.5">
                     <div className="flex items-baseline justify-between">
                       <div className="flex min-w-0 items-center gap-2">
-                        <span className="truncate text-xs text-text">{shareMode ? "disk" : disk.label}</span>
-                        <TierBadge tier={disk.tier} />
-                        {!shareMode && (
-                          <span className="shrink-0 font-tabular text-xs text-muted">{disk.device}</span>
-                        )}
+                        <span className="truncate text-xs text-text">{disk.label}</span>
+                        <span className="shrink-0 font-tabular text-xs text-muted">{disk.device}</span>
                       </div>
                       <span className="shrink-0 font-tabular text-xs text-text-strong">{pct}%</span>
                     </div>
                     <MetricBar value={disk.used} max={disk.total} />
                     <div className="flex items-center justify-between text-xs">
                       <span className="font-tabular text-muted">
-                        {shareMode ? `${pct}% used` : `${formatGb(disk.used)} / ${formatGb(disk.total)}`}
+                        {formatGb(disk.used)} / {formatGb(disk.total)}
                       </span>
                       <span className="font-tabular text-muted">
-                        {shareMode ? `${100 - pct}% free` : `${formatGb(disk.available)} free`}
+                        {formatGb(disk.available)} free
                       </span>
                     </div>
                     <div className="flex items-center justify-end gap-3 text-[10px]">

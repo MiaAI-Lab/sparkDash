@@ -19,8 +19,8 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { SparkSnapshot } from "../api/types";
-import { PlusIcon, GridIcon, DiskIcon, GaugeIcon } from "./ui/icons";
-import { OVERVIEW_ID, FLEET_STORAGE_ID, GAUGES_ID } from "../constants";
+import { PlusIcon, GridIcon, GaugeIcon } from "./ui/icons";
+import { OVERVIEW_ID, GAUGES_ID } from "../constants";
 import { displayNodeName } from "../config/display.js";
 import { aliasForNode, useShareMode } from "../hooks/shareMode";
 
@@ -339,7 +339,6 @@ export function SparkTabs({
       <nav className="pill-nav" aria-label="Sparks">
         <OverviewTab isActive={activeId === OVERVIEW_ID} onSelect={onSelect} />
         <GaugesTab isActive={activeId === GAUGES_ID} onSelect={onSelect} />
-        <FleetStorageTab isActive={activeId === FLEET_STORAGE_ID} onSelect={onSelect} />
         {sparks.map((spark) => (
           <div key={spark.id} className="shrink-0">
             <TabChrome
@@ -366,7 +365,6 @@ export function SparkTabs({
       <nav className="pill-nav" aria-label="Sparks">
         <OverviewTab isActive={activeId === OVERVIEW_ID} onSelect={onSelect} />
         <GaugesTab isActive={activeId === GAUGES_ID} onSelect={onSelect} />
-        <FleetStorageTab isActive={activeId === FLEET_STORAGE_ID} onSelect={onSelect} />
         {/* rect (not horizontal-list) strategy: .pill-nav wraps onto several
             rows once there are more Sparks than fit one line, and the
             horizontal strategy only ever shifts items along X. */}
@@ -456,28 +454,6 @@ function GaugesTab({
   );
 }
 
-function FleetStorageTab({
-  isActive,
-  onSelect,
-}: {
-  isActive: boolean;
-  onSelect: (id: string) => void;
-}) {
-  return (
-    <div className="shrink-0">
-      <button
-        type="button"
-        onClick={() => onSelect(FLEET_STORAGE_ID)}
-        className={`pill-item ${isActive ? "is-active" : ""}`}
-        title="Fleet model storage tiers"
-      >
-        <DiskIcon className="h-3.5 w-3.5" />
-        Storage
-      </button>
-    </div>
-  );
-}
-
 /* ─── Mobile dropdown menu ────────────────────────────── */
 
 function MobileSparkMenu({
@@ -559,15 +535,6 @@ function MobileSparkMenu({
       >
         <GaugeIcon className="h-3.5 w-3.5" />
         Alt-overview
-      </button>
-      <button
-        type="button"
-        role="menuitem"
-        className={`mobile-menu-item ${activeId === FLEET_STORAGE_ID ? "is-active" : ""}`}
-        onClick={() => handleItemClick(FLEET_STORAGE_ID)}
-      >
-        <DiskIcon className="h-3.5 w-3.5" />
-        Storage
       </button>
       {sparks.map((spark) => (
         <button

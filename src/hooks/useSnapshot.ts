@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { SparkSnapshot, WsSnapshot } from "../api/types";
 import { ingestSnapshots } from "./metricsStore";
-import { OVERVIEW_ID, FLEET_STORAGE_ID, GAUGES_ID } from "../constants";
+import { OVERVIEW_ID, GAUGES_ID } from "../constants";
 
 const TOKEN = (typeof localStorage !== "undefined" && localStorage.getItem("sparkdashToken")) || "";
 const WS_URL = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/ws${TOKEN ? `?token=${encodeURIComponent(TOKEN)}` : ""}`;
@@ -62,7 +62,7 @@ export function useSnapshot() {
           // is still valid (Overview and the other reserved views are
           // always valid).
           setActiveId((prev) => {
-            if (prev === OVERVIEW_ID || prev === FLEET_STORAGE_ID || prev === GAUGES_ID) return prev;
+            if (prev === OVERVIEW_ID || prev === GAUGES_ID) return prev;
             if (prev && msg.sparks.some((s) => s.id === prev)) return prev;
             return OVERVIEW_ID;
           });

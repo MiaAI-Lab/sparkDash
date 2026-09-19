@@ -41,7 +41,7 @@ services:
       # default-named key (id_ed25519 / id_rsa). A custom name like
       # id_ed25519_shared must be mounted *as* id_ed25519, or set
       # SSH_IDENTITY_FILE to the path inside the container.
-      - ${HOME}/.ssh/id_ed25519:/root/.ssh/id_ed25519:ro
+      # - ${HOME}/.ssh/id_ed25519:/root/.ssh/id_ed25519:ro
     environment:
       # Secure default: host-networked service listens only on loopback.
       # See docs/REMOTE-ACCESS.md; direct non-loopback binds fail closed.

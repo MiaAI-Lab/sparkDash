@@ -2,18 +2,7 @@
   "pollIntervalMs": 1000,
   "defaultLlmPort": 8888,
   "autoHideOffline": false,
-  "hideWorkers": false,
   "temperatureUnit": "celsius",
   "benchDebugTraces": false,
-  "density": "compact",
-  "gaugeScales": {
-    "gx10": {
-      "gen": 100,
-      "prefill": 1000
-    },
-    "gx12": {
-      "gen": 500,
-      "prefill": 5000
-    }
-  }
+  "density": "compact"
 }

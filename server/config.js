@@ -60,8 +60,6 @@ const HERMES_UPDATE_TIMEOUT_MS = parseInt(
   process.env.HERMES_UPDATE_TIMEOUT_MS || "600000",
   10
 );
-// Model-inventory scan cadence (heavier dir walk than storage; keep slow).
-const POLL_INTERVAL_MODELS = parseInt(process.env.POLL_INTERVAL_MODELS || "30000", 10);
 
 // ─── Port ────────────────────────────────────────────────
 const PORT = parseInt(process.env.PORT || "5555", 10);
@@ -105,18 +103,6 @@ const HOST_PATHS = {
   ROOT: process.env.HOST_ROOT_PATH || "/host/root",
 };
 
-// ─── Model tier storage ──────────────────────────────────
-// Classifies each Spark storage device into hot/warm/cold. These are the
-// self-contained defaults; a Spark can override them via `tierPaths`.
-const TIER_DEFAULTS = {
-  /** Cold = the shared library/NAS. Matched by fstype or by mount prefix. */
-  COLD_FSTYPES: ["cifs", "smb", "smb3", "nfs", "nfs4"],
-  COLD_MOUNT_PREFIXES: ["/mnt/modelshelf", "/media", "/Volumes", "/mnt"],
-};
-
-/** Weight file extensions that make a directory count as a model. */
-const WEIGHT_EXTENSIONS = new Set([".safetensors", ".gguf", ".bin", ".pt", ".pth", ".ckpt"]);
-
 export {
   SPARKS_JSON_PATH,
   GPU_MEMORY_JSON_PATH,
@@ -142,7 +128,6 @@ export {
   POLL_INTERVAL_LIVENESS,
   POLL_INTERVAL_HERMES,
   HERMES_UPDATE_TIMEOUT_MS,
-  POLL_INTERVAL_MODELS,
   PORT,
   LLM_PORT,
   COMFY_PORT,
@@ -150,7 +135,5 @@ export {
   UNIT_CONVERSION,
   HARDWARE_DEFAULTS,
   HOST_PATHS,
-  TIER_DEFAULTS,
-  WEIGHT_EXTENSIONS,
   ROOT,
 };
