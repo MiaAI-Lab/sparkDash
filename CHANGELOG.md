@@ -10,13 +10,21 @@ Format: version sections are listed newest first.
 ## [Unreleased]
 
 ### Added
+- **Custom prefill size** — type any token count from 256–300k in the prefill benchmark (plus the preset chips).
 - **q27 LLM backend** — detect signalnine/q27 via `/v1/models` ownership or `q27_*` Prometheus series; report backend-aware decode/prefill rates and inference-health telemetry.
 - **Hide worker nodes** — Settings toggle. Worker-role Sparks drop off Overview cards and the tab bar (the open worker tab stays). Direct URLs and batch Wake / Shutdown / Hermes still include them.
 - **On-demand Remote bench** — a **Remote** button next to decode/prefill opens a host + port (HTTPS) field. Paste a Tailscale URL such as `https://name.ts.net/v1/models`; nothing is probed until you run Decode or Prefill against it.
 - **Decode / prefill benches on remote Sparks** — if the remote LLM is not reachable on its LAN IP (loopback-only bind), sparkDash opens an SSH local-forward to `127.0.0.1:<port>` for the job. Bench buttons stay on the LLM card even when the live probe shows no model.
+- **Benchmark share image** — the decode/prefill **Copy results** button is now a split button: the label copies the text summary as before, and the caret on its right offers **Copy as text** / **Copy as image** on hover or click. The image is a 1200×675-or-taller card drawn in the app's dark palette with the sparkDash mark, the unit, the model, one row per level and the same legend the dialog shows. On by default (Settings → **Benchmark share image** turns it off, restoring the plain text button); it copies where the page has an image clipboard — HTTPS or localhost — and otherwise downloads the PNG, and says so in the menu rather than pretending.
 
 ### Fixed
+- **Decode bench “Too many benchmark requests”** — start quota was 6/min stacked with a 2/min cooldown, and failed retries still burned the quota. Starts are now 20/min, cooldown is 3s (double-click only), and 400/409 responses do not count.
+- **Decode bench 24×/32× work budget ([#93](https://github.com/MiaAI-Lab/sparkDash/issues/93))** — the post-1.8.6 security cap (131k total tokens) rejected a full concurrency sweep at 2048 max tokens. The cap is 262k so every advertised level fits.
 - **Prefill bench still dying at ~5 min** — Node undici aborts streams with no headers/body after 300s. Long prefills now use an Agent with those idle timeouts disabled; the per-size AbortSignal remains the bound.
+- **SGLang live Prefill tok/s latching ([#99](https://github.com/MiaAI-Lab/sparkDash/issues/99))** — the poll picked its Prometheus applier from the *displayed* rates, so a non-zero prefill kept selecting the cache-split path (which by design never writes `prefillTps`) and the value could not return to 0. Which applier runs now depends on whether `/server_info` carries `total_*` counters on that poll. The token baseline is also seeded outside the rate window, so the first poll after a restart no longer turns the engine's lifetime prompt counter into a rate.
+- **`SPARKDASH_TOKEN` never reached the container ([#86](https://github.com/MiaAI-Lab/sparkDash/pull/86))** — the compose file did not pass it through, so a `BIND_HOST=0.0.0.0` install failed closed no matter what `.env` said. The empty default still reads as "no token".
+- **Tailscale addresses classified as public ([#89](https://github.com/MiaAI-Lab/sparkDash/pull/89))** — `100.64.0.0/10`, where a tailnet lives, now reads as LAN on the endpoint-exposure indicator.
+- **SGLang served model ID ([#95](https://github.com/MiaAI-Lab/sparkDash/pull/95))** — the panel and the bench requests use the id from `/v1/models` (what the server accepts), keeping the native storage path on `modelPath`.
 - **Remote SSH session churn** — collectors reuse an authenticated SSH transport instead of creating a full SSH/PAM login for every metric poll. `SSH_CONTROL_PERSIST_SECONDS=0` restores one connection per command if needed.
 
 ---

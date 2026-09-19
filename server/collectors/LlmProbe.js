@@ -135,6 +135,15 @@ export class LlmProbe {
     this._lastDetectAt = 0;
     /** @type {{ value: number, liveUntil: number } | null} */
     this._sglangStickyTps = null;
+    /** Whether this poll's /server_info carried total_input/output_tokens. */
+    this._sglangTotalsPolled = false;
+    /**
+     * Series that seeded `lastTokenCounts` — "server_info" or "prometheus".
+     * They count the same work under different names, so a hand-off re-seeds
+     * the baseline instead of differencing across the two.
+     * @type {"server_info" | "prometheus" | null}
+     */
+    this._sglangTokenSource = null;
   }
 
   /**
@@ -458,6 +467,7 @@ export class LlmProbe {
     // Model info from /v1/models — 401/403 means protected; other failure = down
     let modelsOk = false;
     let owned = null;
+    let servedModelId = null;
     try {
       const modelsRes = await this._fetch(`${this.baseUrl}/v1/models`);
       const auth = this._noteAuthStatus(modelsRes.status);
@@ -468,7 +478,8 @@ export class LlmProbe {
         modelsOk = true;
         const modelsData = await modelsRes.json();
         const model = modelsData?.data?.[0];
-        this.modelId = normalizeModelId(model?.id || null);
+        servedModelId = normalizeModelId(model?.id || null);
+        this.modelId = servedModelId;
         // Drop HF hub cache paths from modelPath if /v1/models id was a cache dir
         if (isHfHubCachePath(model?.id)) this.modelPath = null;
         // ds4-server uses context_length; vLLM uses max_model_len
@@ -513,6 +524,7 @@ export class LlmProbe {
     // SGLang: native info endpoints. Skip on known vLLM/ds4 to avoid 404 spam.
     // Prefer /server_info — /get_server_info is a deprecated alias that logs every poll.
     if (this.backendType === "sglang" || this.backendType == null) {
+      this._sglangTotalsPolled = false;
       const sgData = await this._fetchSglangJson(SGLANG_SERVER_INFO_PATHS);
       if (sgData) {
         this.backendType = "sglang";
@@ -528,19 +540,24 @@ export class LlmProbe {
 
     if (this.backendType === "sglang") {
       // Prometheus is optional (--enable-metrics). Do not mix those counters
-      // into lastTokenCounts when server-info already produced live rates.
+      // into lastTokenCounts when this poll's server-info totals own them.
+      // Gate on which series answered, never on the displayed rates: a live
+      // rate keeps the split path selected forever, and the split path is not
+      // allowed to clear prefillTps — the value then latches (#99).
       try {
         const metricsRes = await this._fetch(`${this.baseUrl}/metrics`);
         if (metricsRes.ok) {
           const txt = await metricsRes.text();
-          const idle = this.generationTps === 0 && this.prefillTps === 0;
-          if (idle) this._applySglangMetrics(txt, dtSec);
-          else this._applySglangPrefillSplit(txt, dtSec);
+          if (this._sglangTotalsPolled) this._applySglangPrefillSplit(txt, dtSec);
+          else this._applySglangMetrics(txt, dtSec);
         }
       } catch {
         /* metrics optional */
       }
       await this._enrichSglangModelInfo();
+      // Native SGLang endpoints expose the storage path (often just `/model`).
+      // Keep that as modelPath, but show/use the client-facing served model ID.
+      if (servedModelId) this.modelId = servedModelId;
       return this._getSnapshot();
     }
 
@@ -990,6 +1007,8 @@ export class LlmProbe {
         this.lastTokenCounts.input = input;
         this.lastTokenCounts.output = output;
         this.totalOutputTokens = output;
+        this._sglangTotalsPolled = true;
+        this._sglangTokenSource = "server_info";
         if (dtSec > 0 && dtSec < 10) {
           this.generationTps = Math.max(0, Math.round((deltaOut / dtSec) * 100) / 100);
           this._setPrefillTps(deltaIn / dtSec, deltaOut > 0);
@@ -1183,18 +1202,25 @@ export class LlmProbe {
       return;
     }
 
-    if (dtSec > 0 && dtSec < 10) {
+    // Difference only against our own baseline; after a server-info hand-off
+    // the first sample seeds instead of reporting the gap between two series.
+    const ownsBaseline = this._sglangTokenSource !== "server_info";
+    if (ownsBaseline && dtSec > 0 && dtSec < 10) {
       const deltaOut = gen - this.lastTokenCounts.output;
       this.generationTps = Math.max(0, Math.round((deltaOut / dtSec) * 100) / 100);
       if (prompt != null) {
         const deltaIn = prompt - this.lastTokenCounts.input;
         this._setPrefillTps(deltaIn / dtSec, deltaOut > 0);
-        this.lastTokenCounts.input = prompt;
       } else if (deltaOut <= 0) {
         this.prefillTps = 0;
       }
     }
+    // Seed outside the rate window too: on the first poll after a restart the
+    // window is unusable, and a stale 0 baseline would turn the engine's
+    // lifetime prompt counter into a rate on the next poll (#99).
     this.lastTokenCounts.output = gen;
+    if (prompt != null) this.lastTokenCounts.input = prompt;
+    this._sglangTokenSource = "prometheus";
     this.totalOutputTokens = gen;
 
     const running =

@@ -395,6 +395,7 @@ function DashboardApp() {
             <SparkPage
               spark={displayActive}
               temperatureUnit={settings?.temperatureUnit ?? "celsius"}
+              benchShareImage={settings?.benchShareImage ?? false}
               onEdit={() => setEditId(displayActive.id)}
             />
           ) : (

@@ -89,7 +89,7 @@ test("_probeIsSglang: prefers /server_info and skips deprecated /get_server_info
   assert.deepEqual(hits, ["/server_info"]);
 });
 
-test("probe: prefers /server_info and /model_info over deprecated aliases", async () => {
+test("probe: prefers current SGLang endpoints while retaining the served model ID", async () => {
   const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 30000);
   probe.serverIsOpenAI = true;
   probe.backendType = "sglang";
@@ -135,7 +135,8 @@ test("probe: prefers /server_info and /model_info over deprecated aliases", asyn
   };
   const snap = await probe.probe();
   assert.equal(snap.backend, "sglang");
-  assert.equal(snap.modelId, "org/ShortName");
+  assert.equal(snap.modelId, "org/model");
+  assert.equal(snap.modelPath, "org/ShortName");
   assert.equal(hits.includes("/get_server_info"), false);
   assert.equal(hits.includes("/get_model_info"), false);
   assert.equal(hits.includes("/server_info"), true);
@@ -526,6 +527,141 @@ test("_applySglangMetrics: cached_tokens_total vs prompt_tokens_total", () => {
   assert.equal(probe.cachedPrefillTps, 20); // (80-40)/2
 });
 
+/**
+ * SGLang server that exposes Prometheus counters but no total_* on /server_info
+ * (issue #99 build), with /v1/loads as the load signal.
+ * @param {{ prompt: number, gen: number, cached?: number, running?: number }} state
+ */
+function sglangCountersMock(state) {
+  const body = (payload) => ({
+    ok: true,
+    status: 200,
+    json: async () => payload,
+    text: async () => JSON.stringify(payload),
+  });
+  return async (url) => {
+    const u = String(url);
+    if (u.endsWith("/v1/models")) {
+      return body({ data: [{ id: "org/model", owned_by: "sglang", max_model_len: 8192 }] });
+    }
+    if (u.endsWith("/server_info")) {
+      return body({
+        model_path: "org/model",
+        context_length: 8192,
+        internal_states: [{ last_gen_throughput: 0 }],
+      });
+    }
+    if (u.endsWith("/v1/loads")) {
+      return body({ loads: [{ num_running_reqs: state.running ?? 0, num_waiting_reqs: 0 }] });
+    }
+    if (u.endsWith("/metrics")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({}),
+        text: async () =>
+          [
+            `sglang:prompt_tokens_total ${state.prompt}`,
+            `sglang:generation_tokens_total ${state.gen}`,
+            `sglang:cached_tokens_total{cache_source="device"} ${state.cached ?? 0}`,
+            `sglang:num_running_reqs ${state.running ?? 0}`,
+          ].join("\n") + "\n",
+      };
+    }
+    return { ok: false, status: 404, json: async () => ({}), text: async () => "" };
+  };
+}
+
+function sglangCounterProbe(state) {
+  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 30000);
+  probe.serverIsOpenAI = true;
+  probe.backendType = "sglang";
+  probe.authOpen = true;
+  probe._lastDetectAt = Date.now();
+  probe._fetch = sglangCountersMock(state);
+  return probe;
+}
+
+test("probe: SGLang prefill tok/s returns to 0 once the engine goes idle (#99)", async () => {
+  const state = { prompt: 1000, gen: 500, running: 0 };
+  const probe = sglangCounterProbe(state);
+
+  await probe.probe(); // seed baselines
+
+  // Busy window: 400 prompt + 200 generation tokens in 2s.
+  state.prompt += 400;
+  state.gen += 200;
+  state.running = 1;
+  probe.lastProbeTime = Date.now() - 2000;
+  const busy = await probe.probe();
+  assert.equal(busy.prefillTps, 200);
+  assert.equal(busy.generationTps, 100);
+
+  // Engine idle again: counters frozen, nothing running.
+  state.running = 0;
+  for (const _ of [1, 2]) {
+    probe.lastProbeTime = Date.now() - 2000;
+    await probe.probe();
+  }
+  const idle = await probe.probe();
+  assert.equal(idle.generationTps, 0);
+  assert.equal(idle.prefillTps, 0);
+});
+
+test("probe: first SGLang poll seeds the prompt baseline, not a lifetime spike (#99)", async () => {
+  const probe = sglangCounterProbe({ prompt: 228_000, gen: 65_000, running: 0 });
+
+  await probe.probe(); // fresh probe — dtSec is far outside the window
+
+  probe.lastProbeTime = Date.now() - 2000;
+  const snap = await probe.probe(); // idle engine, counters unchanged
+  assert.equal(snap.prefillTps, 0); // not lifetimePrompt / dtSec = 114000
+  assert.equal(snap.generationTps, 0);
+});
+
+test("probe: server_info totals stay authoritative over Prometheus counters", async () => {
+  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 30000);
+  probe.serverIsOpenAI = true;
+  probe.backendType = "sglang";
+  probe.authOpen = true;
+  probe._lastDetectAt = Date.now();
+  probe.lastTokenCounts = { input: 100, output: 50 };
+  const json = (payload) => ({
+    ok: true,
+    status: 200,
+    json: async () => payload,
+    text: async () => JSON.stringify(payload),
+  });
+  probe._fetch = async (url) => {
+    const u = String(url);
+    if (u.endsWith("/v1/models")) {
+      return json({ data: [{ id: "org/model", owned_by: "sglang", max_model_len: 8192 }] });
+    }
+    if (u.endsWith("/server_info")) {
+      return json({ model_path: "org/model", total_input_tokens: 300, total_output_tokens: 150 });
+    }
+    if (u.endsWith("/metrics")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({}),
+        text: async () =>
+          [
+            "sglang:prompt_tokens_total 999999",
+            "sglang:generation_tokens_total 999999",
+            'sglang:cached_tokens_total{cache_source="device"} 80',
+          ].join("\n") + "\n",
+      };
+    }
+    return { ok: false, status: 404, json: async () => ({}), text: async () => "" };
+  };
+
+  probe.lastProbeTime = Date.now() - 2000;
+  const snap = await probe.probe();
+  assert.equal(snap.generationTps, 50); // (150-50)/2 from server_info
+  assert.equal(snap.prefillTps, 100); // (300-100)/2 — not the Prometheus counters
+});
+
 test("_applySglangPrefillSplit does not clobber server_info tok/s", () => {
   const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 30000);
   probe.lastTokenCounts = { input: 100, output: 50 };
@@ -547,4 +683,53 @@ test("_applySglangPrefillSplit does not clobber server_info tok/s", () => {
   assert.equal(probe.prefillTps, 100);
   assert.equal(probe.lastTokenCounts.output, 150);
   assert.equal(probe.cachedPrefillTps, 0); // first split sample seeds
+});
+
+test("probe: SGLang keeps the served model ID when native info uses a local path", async () => {
+  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 8888);
+  probe.serverIsOpenAI = true;
+  probe.backendType = "sglang";
+  probe.authOpen = true;
+  probe._lastDetectAt = Date.now();
+  probe._fetch = async (url) => {
+    const u = String(url);
+    if (u.endsWith("/v1/models")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: [
+            {
+              id: "qwen3.8-27b-sglang",
+              owned_by: "sglang",
+              max_model_len: 262144,
+            },
+          ],
+        }),
+      };
+    }
+    if (u.endsWith("/get_server_info")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ model_path: "/model", context_length: 262144 }),
+      };
+    }
+    if (u.endsWith("/get_model_info")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ model_path: "/model" }),
+      };
+    }
+    if (u.endsWith("/metrics") || u.endsWith("/model_info")) {
+      return { ok: false, status: 404, json: async () => ({}), text: async () => "" };
+    }
+    return { ok: false, status: 404, json: async () => ({}), text: async () => "" };
+  };
+
+  const snap = await probe.probe();
+  assert.equal(snap.modelId, "qwen3.8-27b-sglang");
+  assert.equal(snap.modelPath, "/model");
+  assert.equal(snap.contextLength, 262144);
 });

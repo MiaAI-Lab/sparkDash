@@ -91,16 +91,17 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
 
   return (
     <div
-      className={`settings-overlay fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4${
+      className={`settings-overlay fixed inset-0 z-50 flex justify-center bg-black/55 p-0 sm:p-4${
         visible ? " is-open" : ""
       }`}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="settings-panel w-full max-w-sm p-6">
-        <h2 className="mb-4 text-sm font-semibold text-text-strong">Settings</h2>
+      <div className="settings-panel w-full max-w-sm">
+        <h2 className="shrink-0 px-6 pt-6 text-sm font-semibold text-text-strong">Settings</h2>
 
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-4">
         {loading && <p className="text-xs text-muted">Loading…</p>}
 
         {settings && !loading && (
@@ -220,6 +221,35 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
                   <span className="mt-0.5 block text-[10px] leading-snug text-muted">
                     Overview “Search up to 12 units” field and status dropdown
                     (All / Online / Offline / Issues). One switch for both. Off by default.
+                  </span>
+                </span>
+              </label>
+            </div>
+
+            {/* Benchmark share image */}
+            <div>
+              <label className="flex items-start gap-3 text-xs text-muted">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={Boolean(settings.benchShareImage)}
+                  onClick={() => update({ benchShareImage: !settings.benchShareImage })}
+                  className={`toggle-track relative mt-0.5 inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                    settings.benchShareImage ? "is-on" : ""
+                  }`}
+                >
+                  <span
+                    className={`toggle-dot inline-block h-4 w-4 transform rounded-full shadow transition-transform ${
+                      settings.benchShareImage ? "translate-x-4" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+                <span>
+                  <span className="block text-text">Benchmark share image</span>
+                  <span className="mt-0.5 block text-[10px] leading-snug text-muted">
+                    On by default. The decode/prefill <em>Copy results</em> button gains a caret with
+                    <em> Copy as text</em> / <em>Copy as image</em> (a share card). Turn it off to keep
+                    the plain text button.
                   </span>
                 </span>
               </label>
@@ -405,7 +435,7 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
         )}
 
         {/* Links */}
-        <div className="mt-5 flex items-center gap-3 border-t border-border pt-3">
+        <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-border pt-3">
           <span className="text-[10px] text-muted">sparkDash v{packageJson.version}</span>
           <span className="text-border-strong text-[10px]">·</span>
           <a
@@ -426,16 +456,19 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
             GitHub MiaAI-Lab
           </a>
         </div>
+        </div>
 
         {error && (
-          <div className="mt-3 rounded bg-danger/20 px-3 py-2 text-xs text-danger">{error}</div>
+          <div className="shrink-0 px-6 pt-1 text-xs">
+            <div className="rounded bg-danger/20 px-3 py-2 text-danger">{error}</div>
+          </div>
         )}
 
-        <div className="mt-5 flex justify-end gap-2">
+        <div className="flex shrink-0 justify-end gap-2 border-t border-border bg-inherit px-6 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
           <button
             type="button"
             onClick={onClose}
-            className="rounded border border-border bg-surface-elevated px-3 py-1.5 text-xs text-muted hover:bg-surface-hover"
+            className="min-h-11 rounded border border-border bg-surface-elevated px-3 py-1.5 text-xs text-muted hover:bg-surface-hover"
           >
             Cancel
           </button>
@@ -443,7 +476,7 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
             type="button"
             onClick={handleSave}
             disabled={saving || !settings || !dirty}
-            className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+            className="min-h-11 rounded bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50"
           >
             {saving ? "Saving..." : "Save"}
           </button>

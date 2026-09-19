@@ -609,6 +609,8 @@ export interface Settings {
    * Empty/null values defer to the model-keyed scale (MODEL_SCALES).
    */
   gaugeScales: Record<string, { gen?: number | null; prefill?: number | null }>;
+  /** Benchmark dialogs offer "Copy image" — a PNG share card of the results. */
+  benchShareImage: boolean;
 }
 
 export interface SparksListResponse {
@@ -837,6 +839,8 @@ export interface PrefillBenchJob {
 export interface PrefillBenchDefaults {
   allowedContextSizes: number[];
   defaultContextSizes: number[];
+  minContextSize?: number;
+  maxContextSize?: number;
 }
 
 export interface PrefillBenchListResponse {

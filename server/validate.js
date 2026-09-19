@@ -107,6 +107,7 @@ export function classifyHostScope(host) {
   if (a === 10) return "lan";
   if (a === 172 && b >= 16 && b <= 31) return "lan";
   if (a === 192 && b === 168) return "lan";
+  if (a === 100 && b >= 64 && b <= 127) return "lan"; // Tailscale CGNAT (100.64.0.0/10)
   if (a === 169 && b === 254) return "lan";
   if (a === 0 || a >= 224) return "unknown";
   return "public";
@@ -180,7 +181,11 @@ export function createRateLimiter(maxRequests, windowMs, options = {}) {
   const maxKeys = Math.max(1, Number(options.maxKeys) || 1024);
   const nowFn = typeof options.now === "function" ? options.now : Date.now;
 
-  function rateLimit(key) {
+  /**
+   * @param {string} key
+   * @param {boolean} [peek] when true, report whether a consume would succeed without recording a hit
+   */
+  function rateLimit(key, peek = false) {
     const now = nowFn();
     for (const [storedKey, times] of hits) {
       const live = times.filter((t) => now - t < windowMs);
@@ -190,15 +195,19 @@ export function createRateLimiter(maxRequests, windowMs, options = {}) {
     if (!hits.has(key) && hits.size >= maxKeys) return false;
     const times = hits.get(key) || [];
     if (times.length >= maxRequests) return false;
-    times.push(now);
-    hits.set(key, times);
+    if (!peek) {
+      times.push(now);
+      hits.set(key, times);
+    }
     return true;
   }
   rateLimit.size = () => hits.size;
   return rateLimit;
 }
 
-export function validateDecodeBudget(concurrencies, maxTokens, limit = 131_072) {
+export const DECODE_BENCH_WORK_LIMIT = 262_144;
+
+export function validateDecodeBudget(concurrencies, maxTokens, limit = DECODE_BENCH_WORK_LIMIT) {
   const work = (Array.isArray(concurrencies) ? concurrencies : []).reduce(
     (total, value) => total + Number(value || 0) * Number(maxTokens || 0),
     0

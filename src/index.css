@@ -305,6 +305,13 @@ input:disabled {
   height: var(--spark-h, 16px);
 }
 
+/* sm:p-8 is too much outer page padding; keep the class, use p-4 scale. */
+@media (width >= 40rem) {
+  .sm\:p-8 {
+    padding: calc(var(--spacing) * 4);
+  }
+}
+
 /* ─── Dashboard shell (floating console) ──────────────── */
 .dashboard-shell {
   max-width: 1440px;
@@ -939,7 +946,20 @@ input[type="checkbox"] {
 .bench-overlay.is-open .bench-overlay__scrim {
   opacity: 1;
 }
+.settings-overlay {
+  align-items: flex-end;
+  overflow: hidden;
+}
+@media (min-width: 640px) {
+  .settings-overlay {
+    align-items: center;
+  }
+}
 .settings-panel {
+  display: flex;
+  flex-direction: column;
+  max-height: min(94dvh, 100%);
+  overflow: hidden;
   transform: translateY(10px) scale(0.97);
   opacity: 0;
   transition: transform 0.26s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.22s ease;
@@ -950,6 +970,12 @@ input[type="checkbox"] {
   box-shadow: var(--shadow-shell);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+}
+@media (max-width: 639px) {
+  .settings-panel {
+    max-height: 94dvh;
+    border-radius: 1.1rem 1.1rem 0 0;
+  }
 }
 :root .settings-panel,
 [data-theme="light"] .settings-panel {
@@ -1291,6 +1317,16 @@ input[type="checkbox"] {
   cursor: not-allowed;
 }
 
+.bench-custom-size {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.55rem;
+}
+.bench-custom-size .bench-input {
+  width: 7.5rem;
+}
+
 .bench-input {
   display: block;
   box-sizing: border-box;
@@ -1617,6 +1653,37 @@ input[type="checkbox"] {
     justify-content: flex-end;
   }
 }
+/* Split copy button: the group takes the slot of a single button (same flex
+   behaviour at every width), the label fills it and the caret attaches to its
+   right edge — the footer layout is unchanged. */
+.bench-copy-group {
+  flex: 1 1 0;
+}
+@media (min-width: 640px) {
+  .bench-copy-group {
+    flex: 0 0 auto;
+  }
+}
+.bench-copy-group > .bench-btn {
+  flex: 0 0 auto;
+}
+.bench-copy-group > .bench-btn:first-child {
+  flex: 1 1 auto;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.bench-copy-caret {
+  /* Flex centres the chevron: as inline content it rides the text baseline and
+     sits off-centre in a button this wide. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.9rem;
+  padding: 0.45rem 0.35rem;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
 .bench-btn--ghost {
   border-color: var(--color-border);
   background: transparent;

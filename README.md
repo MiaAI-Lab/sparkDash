@@ -399,6 +399,7 @@ Gear icon in the header, or `GET`/`PUT` `/api/settings`:
 | Auto-hide offline | false | Hide offline Sparks on Overview |
 | Hide worker nodes | false | Hide Worker-role Sparks from Overview and the tab bar |
 | Temperature unit | Celsius | Display GPU temperature in °C or °F |
+| Benchmark share image | true | Decode/prefill **Copy results** becomes a split button: the label copies the text summary, the caret offers **Copy as text** / **Copy as image** on hover or click. Turn it off to keep the plain button. The image copies where the page has an image clipboard (HTTPS or localhost); over plain http on a LAN IP the card downloads instead |
 
 ### Environment variables
 

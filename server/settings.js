@@ -27,12 +27,18 @@ const DEFAULTS = Object.freeze({
   showFleetExceptions: false,
   /** Overview search + status filter row. Off by default. */
   showOverviewSearch: false,
-  /**
+    /**
    * Per-Spark manual gauge scale maxima: { [sparkId]: { gen, prefill } } in
    * tok/s (Addendum E). An empty entry defers to the model-keyed scale in
    * src/config/display.js MODEL_SCALES.
    */
   gaugeScales: {},
+  /**
+   * Benchmark dialogs offer the share-card format. On by default: the extra
+   * control is one caret next to a button that already copies, and anyone who
+   * does not want it can turn it off here (see the README's settings table).
+   */
+  benchShareImage: true,
 });
 
 /** @type {typeof DEFAULTS} */

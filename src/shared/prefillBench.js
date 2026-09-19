@@ -8,6 +8,10 @@ export const PREFILL_CONTEXT_SIZES = [
 
 export const PREFILL_DEFAULT_CONTEXT_SIZES = [4096, 8192, 16384, 32768];
 
+/** Inclusive bounds for preset chips and typed custom sizes. */
+export const PREFILL_MIN_CONTEXT_SIZE = 256;
+export const PREFILL_MAX_CONTEXT_SIZE = 300_000;
+
 const SIZE_LABELS = new Map([
   [1024, "1k"],
   [2048, "2k"],
@@ -20,6 +24,22 @@ const SIZE_LABELS = new Map([
   [262144, "256k"],
   [300000, "300k"],
 ]);
+
+/**
+ * @param {unknown} raw
+ * @returns {number | null}
+ */
+export function parseContextSize(raw) {
+  const n = typeof raw === "string" ? parseInt(raw.trim(), 10) : Number(raw);
+  if (
+    !Number.isInteger(n) ||
+    n < PREFILL_MIN_CONTEXT_SIZE ||
+    n > PREFILL_MAX_CONTEXT_SIZE
+  ) {
+    return null;
+  }
+  return n;
+}
 
 /** @param {number} tokens */
 export function formatContextSize(tokens) {

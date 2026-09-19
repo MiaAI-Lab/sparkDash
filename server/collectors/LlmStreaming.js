@@ -5,7 +5,7 @@
  * (not stream EOF), so trailing usage/[DONE] latency does not drag the rate down.
  */
 
-import { Agent } from "undici";
+import { Agent, fetch as undiciFetch } from "undici";
 
 /** Response headers worth keeping for request correlation / debugging. */
 const DEBUG_HEADER_RE =
@@ -19,6 +19,10 @@ export const CONTENT_PREVIEW_CHARS = 160;
  * not produced a first token (or even response headers) by then is aborted
  * even when PrefillBench's own timer is 30–45 minutes. 0 disables those idle
  * cuts; the caller AbortSignal still bounds the request.
+ *
+ * Must use undici's own `fetch` with this Agent. Node 22's global fetch is a
+ * different undici build; passing an npm Agent as `dispatcher` fails immediately
+ * with UND_ERR_INVALID_ARG ("fetch failed").
  */
 export const LLM_STREAM_AGENT = new Agent({
   headersTimeout: 0,
@@ -556,7 +560,7 @@ async function runStreamingRequestOnce(
     const key = apiKey != null ? String(apiKey).trim() : "";
     if (key) headers.Authorization = `Bearer ${key}`;
 
-    const response = await fetch(url, {
+    const response = await undiciFetch(url, {
       method: "POST",
       headers,
       body: JSON.stringify(body),
