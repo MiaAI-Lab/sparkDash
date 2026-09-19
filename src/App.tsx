@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useSnapshot } from "./hooks/useSnapshot";
 import { useAppRoute, useRoute } from "./hooks/useRoute";
-import { fetchSparks, reorderSparks, fetchSettings, updateSettings } from "./api/client";
+import { fetchSparks, reorderSparks, fetchSettings, updateSettings, updateSpark } from "./api/client";
 import { SparkTabs } from "./components/SparkTabs";
 import { AddSparkDialog } from "./components/AddSparkDialog";
 import { EditSparkDialog } from "./components/EditSparkDialog";
@@ -306,6 +306,20 @@ function DashboardApp() {
     }
   }, [sparks, activeId, setActiveId]);
 
+  /** Persist a Spark's vLLM serving-lane capacity (edited from Alt-overview). */
+  const handleMaxNumSeqs = useCallback(
+    (sparkId: string, maxNumSeqs: number | null) => {
+      updateSpark(sparkId, { maxNumSeqs })
+        .then(() => refreshFromApi())
+        .catch((err) =>
+          setActionError(
+            `Failed to save serving lanes: ${err instanceof Error ? err.message : String(err)}`
+          )
+        );
+    },
+    [refreshFromApi]
+  );
+
   const handleReorder = useCallback(
     async (orderedIds: string[]) => {
       const next = mergeTabOrderKeepingHidden(displaySparks, orderedIds, hiddenWorkerIds);
@@ -390,6 +404,7 @@ function DashboardApp() {
               onSelectSpark={navigate}
               gaugeScales={settings?.gaugeScales ?? {}}
               onGaugeScalesChange={handleGaugeScales}
+              onMaxNumSeqsChange={handleMaxNumSeqs}
             />
           ) : displayActive ? (
             <SparkPage

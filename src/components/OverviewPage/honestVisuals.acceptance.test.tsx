@@ -6,6 +6,7 @@
  * Library, matching the existing suite.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { act } from "react";
 import type { LlmMetrics, SparkSnapshot } from "../../api/types";
 import { makeSpark } from "../../testing/fixtures";
 import { render } from "../../testing/render";
@@ -355,5 +356,69 @@ describe("AT-12 injection (T2, display half)", () => {
     expect(container.querySelectorAll("img")).toHaveLength(0);
     expect(container.textContent).toContain(payload); // literal, escaped text
     expect((window as unknown as { __pwned?: unknown }).__pwned).toBeUndefined();
+  });
+});
+
+describe("Gauge gear: serving-lane capacity (max-num-seqs)", () => {
+  const setNativeValue = (input: HTMLInputElement, value: string) => {
+    const setter = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype,
+      "value"
+    )!.set!;
+    setter.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  };
+
+  it("vLLM card exposes the configured capacity in the gear popover and persists edits", () => {
+    const spark = makeNode(
+      "lanes-a",
+      { maxNumSeqs: 6 },
+      [makeLlm({ backend: "vllm", requestsRunning: 2 })]
+    );
+    const onMaxNumSeqsChange = vi.fn();
+    const { container } = render(
+      <OverviewPage
+        sparks={[spark]}
+        variant="gauges"
+        onMaxNumSeqsChange={onMaxNumSeqsChange}
+      />
+    );
+    const card = cards(container)[0];
+
+    // Serving lanes render against the configured capacity.
+    expect(card.textContent).toContain("2/6");
+
+    act(() => {
+      const gear = [...card.querySelectorAll("button")].find(
+        (b) => b.getAttribute("title") === "Gauge scale settings"
+      )!;
+      gear.click();
+    });
+    const input = container.querySelector<HTMLInputElement>(
+      '[aria-label="vLLM max-num-seqs"]'
+    );
+    expect(input).not.toBeNull();
+    expect(input!.value).toBe("6");
+
+    // Editing persists through the same 1–512 / null normalization as
+    // EditSparkDialog (empty = auto).
+    act(() => setNativeValue(input!, "4"));
+    expect(onMaxNumSeqsChange).toHaveBeenCalledWith("lanes-a", 4);
+    act(() => setNativeValue(input!, ""));
+    expect(onMaxNumSeqsChange).toHaveBeenCalledWith("lanes-a", null);
+  });
+
+  it("non-vLLM card omits the serving-lanes input", () => {
+    const spark = makeNode("lanes-b", {}, [makeLlm({ backend: "exl3" })]);
+    const { container } = render(<OverviewPage sparks={[spark]} variant="gauges" />);
+    const card = cards(container)[0];
+
+    act(() => {
+      const gear = [...card.querySelectorAll("button")].find(
+        (b) => b.getAttribute("title") === "Gauge scale settings"
+      )!;
+      gear.click();
+    });
+    expect(container.querySelector('[aria-label="vLLM max-num-seqs"]')).toBeNull();
   });
 });
