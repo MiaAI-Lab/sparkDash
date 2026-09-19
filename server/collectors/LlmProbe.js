@@ -132,6 +132,14 @@ export class LlmProbe {
      * @type {"server_info" | "prometheus" | null}
      */
     this._sglangTokenSource = null;
+    /**
+     * Previous sample of SGLang's `realtime_tokens_total`, per mode. Unlike
+     * prompt/generation_tokens_total (bumped only when a request finishes), this
+     * series is republished every scheduler log interval, so differencing it
+     * gives a live rate. See `_applySglangRealtimeRates`.
+     * @type {{ decode: number | null, compute: number | null, cache: number | null } | null}
+     */
+    this._sglangRealtimeTotals = null;
   }
 
   /**
@@ -268,6 +276,7 @@ export class LlmProbe {
     this.lastTtftCount = null;
     this.lastIterSum = null;
     this._sglangStickyTps = null;
+    this._sglangRealtimeTotals = null;
   }
 
   /** Note auth from an HTTP status on an unauthenticated probe request. */
@@ -1149,6 +1158,93 @@ export class LlmProbe {
   }
 
   /**
+   * Sum one mode of SGLang's `realtime_tokens_total` across label sets.
+   * Accepts both the `sglang:` and `sglang_` exposition prefixes.
+   * @param {string} txt
+   * @param {"decode" | "prefill_compute" | "prefill_cache"} mode
+   * @returns {number | null}
+   */
+  _sglangRealtimeMode(txt, mode) {
+    return (
+      this._getPromMetricLabeled(txt, "sglang:realtime_tokens_total", "mode", mode) ??
+      this._getPromMetricLabeled(txt, "sglang_realtime_tokens_total", "mode", mode)
+    );
+  }
+
+  /**
+   * Write the cached / computed prefill split from a pair of live rates.
+   * Cached and computed are disjoint, so they sum to the prefill total, and
+   * their ratio is the windowed prefix-cache hit rate (the definition SGLang
+   * itself uses for `sglang:cache_hit_rate`).
+   * @param {number|null} cachedTps
+   * @param {number|null} computedTps
+   */
+  _setSglangPrefillSplitTps(cachedTps, computedTps) {
+    if (cachedTps == null || computedTps == null) {
+      this.cachedPrefillTps = null;
+      this.uncachedPrefillTps = null;
+      return;
+    }
+    const cached = Math.max(0, cachedTps);
+    const computed = Math.max(0, computedTps);
+    this.cachedPrefillTps = Math.round(cached * 100) / 100;
+    this.uncachedPrefillTps = Math.round(computed * 100) / 100;
+    const total = cached + computed;
+    this.prefixCacheHitRate =
+      total > 0 ? Math.round((cached / total) * 10000) / 10000 : null;
+  }
+
+  /**
+   * Live token rates from SGLang's `realtime_tokens_total`.
+   *
+   * SGLang increments `prompt_tokens_total` / `generation_tokens_total` only in
+   * `observe_one_finished_request()`, i.e. once per *finished* request: a panel
+   * differencing those reads 0 tok/s for the whole stream and then one spike
+   * when the request lands. `realtime_tokens_total` is republished every
+   * scheduler log interval with mode=decode / prefill_compute / prefill_cache,
+   * so it follows an in-flight stream and drops back to 0 on its own once the
+   * engine idles.
+   *
+   * The modes are disjoint: prefill_compute is the computed (uncached) part and
+   * prefill_cache the prefix-cache hit part, so they sum to the prefill total.
+   *
+   * @param {string} txt Prometheus exposition body
+   * @param {number} dtSec Seconds since the previous poll
+   * @param {{ setGeneration?: boolean }} [opts] Leave `setGeneration` false on
+   *   the /server_info path, which owns the generation rate from its own totals.
+   * @returns {boolean} true when the live series answered — the caller can then
+   *   skip the cumulative-counter fallback
+   */
+  _applySglangRealtimeRates(txt, dtSec, opts = {}) {
+    const { setGeneration = true } = opts;
+    const decode = this._sglangRealtimeMode(txt, "decode");
+    const compute = this._sglangRealtimeMode(txt, "prefill_compute");
+    const cache = this._sglangRealtimeMode(txt, "prefill_cache");
+    if (decode == null && compute == null && cache == null) return false;
+
+    const prev = this._sglangRealtimeTotals;
+    this._sglangRealtimeTotals = { decode, compute, cache };
+    // The cumulative baseline only feeds the fallback path; drop it so a hand-
+    // back to the counters re-seeds instead of differencing across sources.
+    this.lastPrefillKinds = null;
+    if (prev == null || !(dtSec > 0 && dtSec < 10)) return true;
+
+    const perSec = (now, before) =>
+      now == null || before == null ? null : Math.max(0, (now - before) / dtSec);
+    if (setGeneration) {
+      const genRate = perSec(decode, prev.decode);
+      if (genRate != null) this.generationTps = Math.round(genRate * 100) / 100;
+    }
+    const computeRate = perSec(compute, prev.compute);
+    const cacheRate = perSec(cache, prev.cache);
+    if (computeRate != null && cacheRate != null) {
+      this._setSglangPrefillSplitTps(cacheRate, computeRate);
+      this.prefillTps = Math.round((computeRate + cacheRate) * 100) / 100;
+    }
+    return true;
+  }
+
+  /**
    * Apply SGLang Prometheus /metrics (--enable-metrics).
    * Supports both `sglang:` and `sglang_` prefixes.
    * @param {string} txt
@@ -1161,11 +1257,16 @@ export class LlmProbe {
     const prompt =
       this._getPromMetric(txt, "sglang:prompt_tokens_total") ??
       this._getPromMetric(txt, "sglang_prompt_tokens_total");
+    // Live rates first: `realtime_tokens_total` is republished every scheduler
+    // log interval, while the *_tokens_total counters only move when a request
+    // finishes. The counters stay the source for the lifetime total below.
+    const live = this._applySglangRealtimeRates(txt, dtSec);
+
     if (gen == null) {
       const gauge =
         this._getPromMetric(txt, "sglang:gen_throughput") ??
         this._getPromMetric(txt, "sglang_gen_throughput");
-      if (gauge != null) {
+      if (gauge != null && !live) {
         this.generationTps = Math.max(0, Math.round(gauge * 100) / 100);
       }
       return;
@@ -1174,7 +1275,7 @@ export class LlmProbe {
     // Difference only against our own baseline; after a server-info hand-off
     // the first sample seeds instead of reporting the gap between two series.
     const ownsBaseline = this._sglangTokenSource !== "server_info";
-    if (ownsBaseline && dtSec > 0 && dtSec < 10) {
+    if (!live && ownsBaseline && dtSec > 0 && dtSec < 10) {
       const deltaOut = gen - this.lastTokenCounts.output;
       this.generationTps = Math.max(0, Math.round((deltaOut / dtSec) * 100) / 100);
       if (prompt != null) {
@@ -1200,23 +1301,33 @@ export class LlmProbe {
       this.slotsActive = Math.round(running);
     }
 
-    const cached = this._sglangCachedTokens(txt);
-    if (cached != null && prompt != null) {
-      this._setPrefillSplitRates(cached, prompt, dtSec);
+    // Cumulative fallback for builds without `realtime_tokens_total`.
+    // `prompt_tokens_total` is the whole prompt, so the computed part is the
+    // remainder after the cached tokens (disjoint pair, as the other backends
+    // pass it).
+    if (!live) {
+      const cached = this._sglangCachedTokens(txt);
+      if (cached != null && prompt != null) {
+        this._setPrefillSplitRates(cached, Math.max(0, prompt - cached), dtSec);
+      }
     }
   }
 
   /**
-   * Cache split only — does not touch generation/prefill lastTokenCounts.
+   * Prefill rates and cache split only — leaves the generation rate and
+   * lastTokenCounts to the /server_info totals that own them on this path.
    * Prefers cache_source="device" so HiCache L1/L2/L3 labels are not summed.
    */
   _applySglangPrefillSplit(txt, dtSec) {
+    if (this._applySglangRealtimeRates(txt, dtSec, { setGeneration: false })) {
+      return;
+    }
     const prompt =
       this._getPromMetric(txt, "sglang:prompt_tokens_total") ??
       this._getPromMetric(txt, "sglang_prompt_tokens_total");
     const cached = this._sglangCachedTokens(txt);
     if (cached != null && prompt != null) {
-      this._setPrefillSplitRates(cached, prompt, dtSec);
+      this._setPrefillSplitRates(cached, Math.max(0, prompt - cached), dtSec);
     }
   }
 
