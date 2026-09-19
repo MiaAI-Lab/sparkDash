@@ -131,7 +131,7 @@ export function LiveRequestsPanel({ sparkId, terminalCount, onCounts, engineWait
       if (cancelled) return;
       if (!paused) {
         try {
-          const r = await fetch(`/api/sparks/${encodeURIComponent(sparkId)}/llm/live-requests?n=${Math.max(terminalCount, 8) + 24}&tail=6000`);
+          const r = await fetch(`/api/sparks/${encodeURIComponent(sparkId)}/llm/live-requests?n=${Math.max(terminalCount, 8) + 60}&tail=6000`);
           const j = (await r.json()) as LivePayload;
           if (!cancelled) {
             // A transient tap/proxy hiccup must not blank the board: keep the last good payload
@@ -168,8 +168,13 @@ export function LiveRequestsPanel({ sparkId, terminalCount, onCounts, engineWait
   const slots = useMemo(() => {
     const active = [...(data?.active ?? [])].sort((a, b) => a.t0 - b.t0);
     const recent = (data?.recent ?? []).filter((r) => !active.some((a) => a.id === r.id));
+    // Health probes ("ok", "2+2", one message, a few tokens) must not push real conversations off the
+    // board: fill finished slots with substantive requests first, probes only if room remains.
+    const isProbe = (r: LiveReq) => (r.n_messages ?? 0) <= 1 && (r.out_tokens ?? 0) <= 8 && (r.prompt_chars ?? 0) < 200;
+    const substantive = recent.filter((r) => !isProbe(r));
+    const probes = recent.filter(isProbe);
     const n = Math.min(32, Math.max(terminalCount, active.length));
-    return [...active, ...recent].slice(0, n);
+    return [...active, ...substantive, ...probes].slice(0, n);
   }, [data, terminalCount]);
 
   // Phase per in-flight request. The tap knows "no token yet" vs "streaming"; the engine knows how
