@@ -279,6 +279,33 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
               </label>
             </div>
 
+            {/* LLM Token Totals */}
+            <div>
+              <label className="flex items-start gap-3 text-xs text-muted">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={Boolean(settings.showLlmTokenTotals)}
+                  onClick={() => update({ showLlmTokenTotals: !settings.showLlmTokenTotals })}
+                  className={`toggle-track relative mt-0.5 inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                    settings.showLlmTokenTotals ? "is-on" : ""
+                  }`}
+                >
+                  <span
+                    className={`toggle-dot inline-block h-4 w-4 transform rounded-full shadow transition-transform ${
+                      settings.showLlmTokenTotals ? "translate-x-4" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+                <span>
+                  <span className="block text-text">Show LLM Token Totals</span>
+                  <span className="mt-0.5 block text-[10px] leading-snug text-muted">
+                    Overview card with cumulative prompt/generated tokens per model. Off by default.
+                  </span>
+                </span>
+              </label>
+            </div>
+
             {/* Fleet exceptions */}
             <div>
               <label className="flex items-start gap-3 text-xs text-muted">
