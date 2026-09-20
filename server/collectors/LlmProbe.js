@@ -100,6 +100,8 @@ export class LlmProbe {
 
     // Cumulative total output tokens (generation) as reported by the LLM server
     this.totalOutputTokens = 0;
+    /** Cumulative total prompt (prefill) tokens as reported by the LLM server. LOCAL (llm-token-totals). */
+    this.totalPromptTokens = null;
 
     // vLLM inference metrics from /metrics (null when not vLLM / missing series)
     // Metric names follow stock vLLM Prometheus exposition (versions may differ).
@@ -251,6 +253,7 @@ export class LlmProbe {
     this.slotsActive = 0;
     this.slotsTotal = 0;
     this.totalOutputTokens = 0;
+    this.totalPromptTokens = null;
     this.kvCacheUsage = null;
     this.requestsRunning = null;
     this.requestsWaiting = null;
@@ -623,6 +626,7 @@ export class LlmProbe {
       if (prefilled != null) this.lastTokenCounts.input = prefilled;
       this.lastTokenCounts.output = decoded;
       this.totalOutputTokens = decoded;
+      if (prefilled != null) this.totalPromptTokens = prefilled;
     } else {
       // No counters — fall back to window gauges only while something is in flight
       const gaugeGen = this._getPromMetric(txt, "ds4_decode_tok_s");
@@ -719,6 +723,7 @@ export class LlmProbe {
       if (computed != null) this.lastTokenCounts.input = computed;
       this.lastTokenCounts.output = decoded;
       this.totalOutputTokens = decoded;
+      if (computed != null) this.totalPromptTokens = computed;
     }
 
     const inflight = this._getPromMetric(txt, "q27_requests_inflight");
@@ -829,6 +834,7 @@ export class LlmProbe {
     if (Number.isFinite(prompt)) this.lastTokenCounts.input = prompt;
     this.lastTokenCounts.output = completion;
     this.totalOutputTokens = completion;
+    if (Number.isFinite(prompt)) this.totalPromptTokens = prompt;
   }
 
   /**
@@ -847,6 +853,7 @@ export class LlmProbe {
       this.lastTokenCounts.input = promptTokens;
       this.lastTokenCounts.output = genTokens;
       this.totalOutputTokens = genTokens;
+      this.totalPromptTokens = promptTokens;
       const ttftSum = this._getVllmMetric(txt, "time_to_first_token_seconds_sum");
       const deltaIter =
         iterSum != null && this.lastIterSum != null ? iterSum - this.lastIterSum : 0;
@@ -976,6 +983,7 @@ export class LlmProbe {
         this.lastTokenCounts.input = input;
         this.lastTokenCounts.output = output;
         this.totalOutputTokens = output;
+        this.totalPromptTokens = input;
         this._sglangTotalsPolled = true;
         this._sglangTokenSource = "server_info";
         if (dtSec > 0 && dtSec < 10) {
@@ -1191,6 +1199,7 @@ export class LlmProbe {
     if (prompt != null) this.lastTokenCounts.input = prompt;
     this._sglangTokenSource = "prometheus";
     this.totalOutputTokens = gen;
+    this.totalPromptTokens = prompt ?? null;
 
     const running =
       this._getPromMetric(txt, "sglang:num_running_reqs") ??
@@ -1297,6 +1306,7 @@ export class LlmProbe {
           }
 
           this.totalOutputTokens = totalDecoded;
+          this.totalPromptTokens = promptedSum;
           this.generationTps = Math.max(0, Math.round(totalGen * 100) / 100);
           this._setPrefillTps(totalPrefill, totalGen > 0);
           if (sawCache) this._setPrefillSplitRates(cachedSum, promptedSum, dtSec);
@@ -1570,6 +1580,7 @@ export class LlmProbe {
       cachedPrefillTps: this.cachedPrefillTps,
       uncachedPrefillTps: this.uncachedPrefillTps,
       totalOutputTokens: this.totalOutputTokens,
+      totalPromptTokens: this.totalPromptTokens ?? null,
       kvCacheUsage: this.kvCacheUsage,
       requestsRunning: this.requestsRunning,
       requestsWaiting: this.requestsWaiting,
