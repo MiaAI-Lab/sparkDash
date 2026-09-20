@@ -12,6 +12,7 @@ import {
 import { BenchmarkDialog } from "./BenchmarkDialog";
 import { PrefillBenchDialog } from "./PrefillBenchDialog";
 import { LlmDailyChart } from "./LlmDailyChart";
+import { LlmTokenTotals } from "./LlmTokenTotals";
 import { parseLlmTargetInput } from "../../shared/llmTarget.js";
 import { LlmTrendChart } from "./LlmTrendChart";
 
@@ -678,6 +679,7 @@ export function LlmPanel({
             onRemotePrefill={openRemotePrefill}
           />
           <LlmDailyChart sparkId={sparkId} llmPort={llmPort} />
+          <LlmTokenTotals sparkId={sparkId} llmPort={llmPort} />
         </div>
       ) : (
         <div className="space-y-3">
@@ -1002,6 +1004,7 @@ export function LlmPanel({
             onRemoteDecode={openRemoteDecode}
             onRemotePrefill={openRemotePrefill}
           />
+          <LlmTokenTotals sparkId={sparkId} llmPort={llmPort} />
         </div>
       )}
 

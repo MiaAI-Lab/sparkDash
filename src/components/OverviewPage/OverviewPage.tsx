@@ -6,6 +6,7 @@ import { ConfirmShutdownDialog } from "../ConfirmShutdownDialog";
 import { MetricBar } from "../ui/MetricBar";
 import { FleetEnergyCard } from "./FleetEnergyCard";
 import { FleetAlertStrip } from "./FleetAlertStrip";
+import { FleetTokenTotals } from "./FleetTokenTotals";
 import { ActivityIcon, PowerOffIcon, PowerOnIcon, RotateIcon } from "../ui/icons";
 
 interface OverviewPageProps {
@@ -15,6 +16,8 @@ interface OverviewPageProps {
   showFleetEnergy?: boolean;
   showFleetExceptions?: boolean;
   showOverviewSearch?: boolean;
+  /** Overview LLM token totals card (cumulative tokens per model). */
+  showLlmTokenTotals?: boolean;
   temperatureUnit?: "celsius" | "fahrenheit";
   onSelectSpark?: (id: string) => void;
 }
@@ -398,6 +401,7 @@ export function OverviewPage({
   showFleetEnergy = false,
   showFleetExceptions = false,
   showOverviewSearch = false,
+  showLlmTokenTotals = false,
   temperatureUnit = "celsius",
   onSelectSpark,
 }: OverviewPageProps) {
@@ -700,6 +704,7 @@ export function OverviewPage({
         description={`Gracefully shut down all ${onlineShutdownCount} online Spark${onlineShutdownCount === 1 ? "" : "s"}? Offline nodes will be skipped.`}
         confirmLabel="Shut down all"
       />
+      {showLlmTokenTotals ? <FleetTokenTotals /> : null}
       <div className="overview-page grid sm:grid-cols-2 lg:grid-cols-3" style={{ gap: "var(--density-page-gap)" }}>
         {visibleSparks.length === 0 && (
           <p className="panel p-6 text-sm text-muted sm:col-span-2 lg:col-span-3">
