@@ -215,7 +215,12 @@ async def pump_upstream_to_client(reader, writer, state):
             body, complete = dec.feed(data)
             if dec.head and cur.get("http") is None: cur["http"] = dec.head
             if cur.get("stream"):
-                if body and cur.get("t_first") is None: cur["t_first"] = time.time()
+                if body and cur.get("t_first") is None:
+                    cur["t_first"] = time.time()
+                    # the prompt has been read: credit the prefill window NOW, not when the (possibly
+                    # minutes-long) stream ends — otherwise long generations never make it into the window
+                    pt = cur.get("prompt_tokens") or (int(cur["prompt_chars"] / 3.8) if cur.get("prompt_chars") else 0)
+                    if pt: PREFILL_WIN.append((cur["t_first"], pt))
                 linebuf += body
                 while b"\n" in linebuf:
                     line, linebuf = linebuf.split(b"\n", 1); _apply_sse(cur, line.strip())
@@ -234,7 +239,38 @@ async def pump_upstream_to_client(reader, writer, state):
         try: writer.close()
         except Exception: pass
 
-PREFILL_WIN = collections.deque()   # (t_first_or_end, prompt_tokens) for the rolling prefill-throughput figure
+PREFILL_WIN = collections.deque()   # (t_first_or_end, prompt_tokens) for the rolling prefill-throughput figure (tap-side)
+
+# Engine-authoritative prefill window: vLLM's /metrics counters sampled every 2 s. prompt_tokens_total only
+# advances when a request's prefill finishes, so a 60 s window over the counter is the true "prompt tokens
+# read per second" (it also sees requests that bypass the tap, e.g. loopback clients).
+ENGINE_WIN = collections.deque()    # (t, prompt_tokens_total, prefills_finished_total)
+ENGINE_WIN_S = 60
+
+def _metric(text, name):
+    m = re.search(r"^%s(?:\{[^}]*\})? (\S+)" % re.escape(name), text, re.M)
+    return float(m.group(1)) if m else None
+
+async def poll_engine():
+    while True:
+        try:
+            r, w = await asyncio.open_connection(*UPSTREAM)
+            w.write(b"GET /metrics HTTP/1.0\r\nHost: engine\r\n\r\n"); await w.drain()
+            text = (await asyncio.wait_for(r.read(), 5)).decode(errors="replace"); w.close()
+            pt = _metric(text, "vllm:prompt_tokens_total")
+            pc = _metric(text, "vllm:request_prefill_time_seconds_count") or 0
+            if pt is not None:
+                now = time.time(); ENGINE_WIN.append((now, pt, pc))
+                while len(ENGINE_WIN) > 2 and ENGINE_WIN[1][0] <= now - ENGINE_WIN_S: ENGINE_WIN.popleft()
+        except Exception: pass
+        await asyncio.sleep(2)
+
+def engine_prefill_60s():
+    """(tok/s over the sampled window, prefills finished in it, window length in s) or None when no samples."""
+    if len(ENGINE_WIN) < 2: return None
+    (t0, p0, c0), (t1, p1, c1) = ENGINE_WIN[0], ENGINE_WIN[-1]
+    span = max(1e-3, t1 - t0)
+    return round((p1 - p0) / span), int(c1 - c0), round(span)
 
 def _finish(rec):
     rec["t_end"] = time.time()
@@ -249,7 +285,7 @@ def _finish(rec):
         t_pref_end = rec.get("t_first") if rec.get("stream") and rec.get("t_first") else rec["t_end"]
         dur = max(0.05, (t_pref_end - rec["t0"]) - (0 if rec.get("stream") else (rec.get("out_tokens") or 0) / 20.0))
         rec["prefill_tok_s"] = round(pt / dur)
-        PREFILL_WIN.append((t_pref_end, pt))
+        if not rec.get("stream"): PREFILL_WIN.append((t_pref_end, pt))   # streams were credited at first token
     if rec.get("out_tokens") is None and rec.get("stream"): rec["out_tokens"] = max(0, rec["chunks"] - 1)
     if rec.get("stream") and rec.get("t_first") and rec.get("out_tokens"):
         dt = rec["t_end"] - rec["t_first"]
@@ -287,9 +323,18 @@ async def api(reader, writer):
                     if r.get(k) and len(r[k]) > tail: r[k] = r[k][-tail:]
                 return r
             while PREFILL_WIN and PREFILL_WIN[0][0] < now - 60: PREFILL_WIN.popleft()
-            pref60 = round(sum(p for _, p in PREFILL_WIN) / 60.0)
+            tap60 = round(sum(p for _, p in PREFILL_WIN) / 60.0)
+            eng = engine_prefill_60s()
+            stats = {**STATS, "uptime": round(now - STATS["started"]), "draining": DRAINING,
+                     "prefill_tok_s_60s_tap": tap60, "prefill_requests_60s_tap": len(PREFILL_WIN)}
+            if eng:   # engine counters win when we have them
+                # tok/s from the engine counter; the prefill COUNT from the tap (credited at first token) because
+                # vLLM's request_prefill_time_seconds_count only moves when the whole request finishes
+                stats.update(prefill_tok_s_60s=eng[0], prefill_requests_60s=len(PREFILL_WIN), prefills_finished_60s_engine=eng[1], prefill_window_s=eng[2], prefill_source="engine")
+            else:
+                stats.update(prefill_tok_s_60s=tap60, prefill_requests_60s=len(PREFILL_WIN), prefill_window_s=min(60, round(now - STATS["started"])), prefill_source="tap")
             body = json.dumps({"now": now, "active": [slim(r) for r in active], "recent": [slim(r) for r in list(RING)[:int(_q(path, "n", 60))]],
-                               "stats": {**STATS, "uptime": round(now - STATS["started"]), "prefill_tok_s_60s": pref60, "prefill_requests_60s": len(PREFILL_WIN)}}, default=str).encode()
+                               "stats": stats}, default=str).encode()
             resp = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: %d\r\nConnection: close\r\n\r\n" % len(body) + body
         elif path.startswith("/req/"):
             rid = int(re.search(r"/req/(\d+)", path).group(1))
@@ -314,12 +359,28 @@ async def api(reader, writer):
 def _q(path, key, default):
     m = re.search(r"[?&]" + key + r"=(\d+)", path); return int(m.group(1)) if m else default
 
+DRAINING = False
+DRAIN_MAX_S = int(os.environ.get("TAP_DRAIN_MAX_S", "900"))
+
 async def main():
+    global DRAINING
     s1 = await asyncio.start_server(handle_client, "0.0.0.0", LISTEN_PORT, backlog=256)
     s2 = await asyncio.start_server(api, "0.0.0.0", API_PORT)
     print(f"glm-tap: relay :{LISTEN_PORT} -> {UPSTREAM[0]}:{UPSTREAM[1]}; api :{API_PORT}", flush=True)
-    async with s1, s2:
-        await asyncio.gather(s1.serve_forever(), s2.serve_forever())
+    stop = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT): loop.add_signal_handler(sig, stop.set)
+    poller = asyncio.create_task(poll_engine())
+    await stop.wait()
+    # Graceful drain (F743): a restart must not cut the streams in flight. Stop accepting (the unit's
+    # ExecStop has already dropped the REDIRECT rules, so new clients reach the engine directly), keep the
+    # API up so the board can see "draining", and exit once every relayed request has finished.
+    DRAINING = True; s1.close(); await s1.wait_closed()
+    t0 = time.time()
+    while ACTIVE and time.time() - t0 < DRAIN_MAX_S:
+        print(f"glm-tap: draining, {len(ACTIVE)} in flight", flush=True); await asyncio.sleep(5)
+    print(f"glm-tap: drained in {round(time.time() - t0)} s, {len(ACTIVE)} cut", flush=True)
+    poller.cancel(); s2.close()
 
 if __name__ == "__main__":
     asyncio.run(main())

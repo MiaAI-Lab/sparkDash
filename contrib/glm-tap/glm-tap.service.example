@@ -11,7 +11,12 @@ ExecStart=/usr/bin/python3 /opt/glm-tap/glm-tap.py
 # (LAN NIC, tailscale0, ...). Loopback and any interface not listed are untouched; if the tap dies the
 # rules go with it (ExecStopPost) and clients reach the engine directly.
 ExecStartPost=/bin/sh -c 'sleep 1; for i in ${TAP_IFACES:-eth0}; do iptables -t nat -C PREROUTING -i $i -p tcp --dport 8888 -j REDIRECT --to-ports 8889 2>/dev/null || iptables -t nat -I PREROUTING 1 -i $i -p tcp --dport 8888 -j REDIRECT --to-ports 8889; done'
+# Stop = drop the redirect first (new clients go straight to the engine), then ask the tap to drain: it stops
+# accepting, finishes relaying every stream in flight (up to TAP_DRAIN_MAX_S, default 900 s) and exits.
+# A restart therefore never cuts a conversation; requests that start during the drain are simply untapped.
+ExecStop=/bin/sh -c 'for i in ${TAP_IFACES:-eth0}; do while iptables -t nat -D PREROUTING -i $i -p tcp --dport 8888 -j REDIRECT --to-ports 8889 2>/dev/null; do :; done; done; kill -TERM $MAINPID'
 ExecStopPost=/bin/sh -c 'for i in ${TAP_IFACES:-eth0}; do while iptables -t nat -D PREROUTING -i $i -p tcp --dport 8888 -j REDIRECT --to-ports 8889 2>/dev/null; do :; done; done'
+TimeoutStopSec=960
 PermissionsStartOnly=true
 Restart=always
 RestartSec=2

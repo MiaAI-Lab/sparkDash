@@ -223,13 +223,13 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
   // The prefill tok/s figure is a 60 s trailing window kept by the tap; it is only a real number once the
   // tap has been up 60 s. Pin the tap's start instant (from its reported uptime) and tick once a second so
   // the tile can count down to the moment the window is full, independent of the poll cadence.
-  const tapStartedAtRef = useRef<number | null>(null);
+  const tapStartedAtRef = useRef<number | null>(null); // = the instant the window started filling
   const [nowTick, setNowTick] = useState(() => Date.now());
   useEffect(() => {
-    if (liveCounts.tapUptime == null) { tapStartedAtRef.current = null; return; }
-    const est = Date.now() - liveCounts.tapUptime * 1000;
-    if (tapStartedAtRef.current == null || Math.abs(tapStartedAtRef.current - est) > 2000) tapStartedAtRef.current = est;
-  }, [liveCounts.tapUptime]);
+    if (liveCounts.prefillWindowS == null) { tapStartedAtRef.current = null; return; }
+    const est = Date.now() - liveCounts.prefillWindowS * 1000;
+    if (tapStartedAtRef.current == null || Math.abs(tapStartedAtRef.current - est) > 3000) tapStartedAtRef.current = est;
+  }, [liveCounts.prefillWindowS]);
   useEffect(() => {
     if (!liveOpen) return;
     const id = window.setInterval(() => setNowTick(Date.now()), 1000);

@@ -49,7 +49,14 @@ type LivePayload = {
   now?: number;
   active?: LiveReq[];
   recent?: LiveReq[];
-  stats?: { requests: number; chat: number; errors: number; uptime: number; prefill_tok_s_60s?: number; prefill_requests_60s?: number };
+  stats?: {
+    requests: number; chat: number; errors: number; uptime: number;
+    prefill_tok_s_60s?: number; prefill_requests_60s?: number;
+    /** seconds of engine-counter samples behind prefill_tok_s_60s (the figure is a full 60 s window once this reaches 60) */
+    prefill_window_s?: number;
+    prefill_source?: "engine" | "tap";
+    draining?: boolean;
+  };
 };
 
 let CLIENT_NAMES: Record<string, string> = {};
@@ -88,8 +95,8 @@ export interface LiveCounts {
   prefillTokS60?: number;
   /** requests whose prefill finished inside that 60 s window (0 = the figure is a true zero, not "no data") */
   prefillReq60?: number;
-  /** seconds since the tap started — the 60 s window is only full once this passes 60 */
-  tapUptime?: number;
+  /** seconds of samples behind prefillTokS60 — the figure is a full 60 s window once this reaches 60 */
+  prefillWindowS?: number;
   /** mean seconds the currently queued requests have been waiting for an engine slot (null when nothing is queued) */
   queuedAvgWaitS?: number | null;
   /** prompt tokens of the requests currently in prefill (usage when known, else chars ÷ 3.8) */
@@ -227,11 +234,11 @@ export function LiveRequestsPanel({ sparkId, terminalCount, onCounts, engineWait
       running: inFlight,
       prefillTokS60: data?.stats?.prefill_tok_s_60s,
       prefillReq60: data?.stats?.prefill_requests_60s,
-      tapUptime: data?.stats?.uptime,
+      prefillWindowS: data?.stats?.prefill_window_s ?? (data?.stats ? Math.min(60, data.stats.uptime) : undefined),
       queuedAvgWaitS,
       prefillTokens,
     });
-  }, [prefillN, outputN, inFlight, onCounts, data?.stats?.prefill_tok_s_60s, data?.stats?.prefill_requests_60s, data?.stats?.uptime, queuedAvgWaitS, prefillTokens]);
+  }, [prefillN, outputN, inFlight, onCounts, data?.stats?.prefill_tok_s_60s, data?.stats?.prefill_requests_60s, data?.stats?.prefill_window_s, data?.stats?.uptime, queuedAvgWaitS, prefillTokens]);
 
   return (
     <>
