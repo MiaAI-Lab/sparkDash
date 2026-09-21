@@ -86,6 +86,10 @@ export interface LiveCounts {
   running: number;
   /** prompt tokens read by the engine over the last 60 s ÷ 60 (from the tap's usage records) */
   prefillTokS60?: number;
+  /** requests whose prefill finished inside that 60 s window (0 = the figure is a true zero, not "no data") */
+  prefillReq60?: number;
+  /** seconds since the tap started — the 60 s window is only full once this passes 60 */
+  tapUptime?: number;
 }
 
 export interface LiveRequestsPanelProps {
@@ -205,8 +209,15 @@ export function LiveRequestsPanel({ sparkId, terminalCount, onCounts, engineWait
   const prefillN = (data?.active ?? []).filter((r) => r.status === "prefill" || (r.status === "streaming" && !r.chunks)).length;
   const outputN = inFlight - prefillN;
   useEffect(() => {
-    onCounts?.({ prefill: prefillN, output: outputN, running: inFlight, prefillTokS60: data?.stats?.prefill_tok_s_60s });
-  }, [prefillN, outputN, inFlight, onCounts, data?.stats?.prefill_tok_s_60s]);
+    onCounts?.({
+      prefill: prefillN,
+      output: outputN,
+      running: inFlight,
+      prefillTokS60: data?.stats?.prefill_tok_s_60s,
+      prefillReq60: data?.stats?.prefill_requests_60s,
+      tapUptime: data?.stats?.uptime,
+    });
+  }, [prefillN, outputN, inFlight, onCounts, data?.stats?.prefill_tok_s_60s, data?.stats?.prefill_requests_60s, data?.stats?.uptime]);
 
   return (
     <>

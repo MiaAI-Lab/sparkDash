@@ -8,6 +8,7 @@ import {
   useMetricsHistory,
   useMetricsHistoryTail,
   avgPositive,
+  SPARKLINE_TAIL,
 } from "../../hooks/metricsStore";
 import { BenchmarkDialog } from "./BenchmarkDialog";
 import { PrefillBenchDialog } from "./PrefillBenchDialog";
@@ -727,7 +728,12 @@ export function LlmPanel({
             className="flex items-center justify-between"
             title="Headline = mean of the last ~60 s of non-zero samples; 'now' = the instantaneous gauge; 'hit' = prefix-cache hit rate (cached prompt tokens cost almost no prefill compute, which is why 'now' sits near 0 on a busy engine). Tokens/sec while the engine is reading the prompt and building KV cache — before the first output token. Opening a saved chat in the UI does not hit the GPU; send (or regenerate) so the history is sent as the prompt. Prefix-cache hits do little compute, so this can stay ~0. Long cold prefills show here until decode starts."
           >
-            <span className="text-xs text-muted">Prefill tok/s · 60 s</span>
+            <span className="text-xs text-muted">
+              Prefill tok/s · 60 s
+              {prefillHistory.length < SPARKLINE_TAIL && (
+                <span className="ml-1 text-[10px]">· fills in {(SPARKLINE_TAIL - prefillHistory.length) * 2}s</span>
+              )}
+            </span>
             <div className="flex items-center gap-2">
               <Sparkline data={prefillHistory} color="var(--color-text)" height={24} />
               <div className="text-right">

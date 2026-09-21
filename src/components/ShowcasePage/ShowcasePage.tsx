@@ -1175,9 +1175,37 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
         <header className={`showcase-model-header${liveOpen ? " showcase-model-header--live" : ""}`} title={modelId}>
           {liveOpen && (
             <div className="live-stats live-stats--left" aria-label="engine throughput">
-              <div className={`live-stat${(liveCounts.prefillTokS60 ?? 0) > 0 ? " is-hot" : ""}`} title="prompt tokens read by the engine over the last 60 s, ÷ 60 — from the tap's usage records (vLLM's own gauge only ticks when a request finishes prefill, so it reads 0 between them)">
-                <span className="live-stat__n">{liveCounts.prefillTokS60 != null ? Math.round(liveCounts.prefillTokS60).toLocaleString() : (engine?.prefillTps ?? 0) > 0 ? Math.round(engine!.prefillTps!).toLocaleString() : "—"}</span>
-                <span className="live-stat__k">prefill tok/s · 60 s</span>
+              <div className={`live-stat${(liveCounts.prefillTokS60 ?? 0) > 0 ? " is-hot" : ""}`} title="prompt tokens read by the engine over the last 60 s, ÷ 60 — from the tap's usage records (vLLM's own gauge only ticks when a request finishes prefill, so it reads 0 between them). While the tap's 60 s window is still filling the tile counts down to the first usable figure.">
+                {(() => {
+                  const secsLeft = liveCounts.tapUptime != null ? Math.max(0, 60 - Math.floor(liveCounts.tapUptime)) : 0;
+                  if (liveCounts.prefillTokS60 == null) {
+                    // no tap data at all — fall back to the engine's own (instantaneous) gauge
+                    return (
+                      <>
+                        <span className="live-stat__n">{(engine?.prefillTps ?? 0) > 0 ? Math.round(engine!.prefillTps!).toLocaleString() : "—"}</span>
+                        <span className="live-stat__k">prefill tok/s · engine gauge</span>
+                      </>
+                    );
+                  }
+                  if (!liveCounts.prefillReq60 && secsLeft > 0) {
+                    return (
+                      <>
+                        <span className="live-stat__n">{secsLeft}s</span>
+                        <span className="live-stat__k">prefill tok/s · window fills in</span>
+                      </>
+                    );
+                  }
+                  return (
+                    <>
+                      <span className="live-stat__n">{Math.round(liveCounts.prefillTokS60).toLocaleString()}</span>
+                      <span className="live-stat__k">
+                        {liveCounts.prefillReq60
+                          ? `prefill tok/s · 60 s · ${liveCounts.prefillReq60} prefill${liveCounts.prefillReq60 === 1 ? "" : "s"}`
+                          : "prefill tok/s · none finished in 60 s"}
+                      </span>
+                    </>
+                  );
+                })()}
               </div>
               <div className={`live-stat live-stat--green${(engine?.generationTps ?? 0) > 0 ? " is-hot" : ""}`}>
                 <span className="live-stat__n">{engine?.generationTps != null ? Math.round(engine.generationTps).toLocaleString() : "—"}</span>
