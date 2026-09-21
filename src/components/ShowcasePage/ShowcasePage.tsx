@@ -210,6 +210,22 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [liveOpen, setLiveOpen] = useState(false);
   const [liveCounts, setLiveCounts] = useState<LiveCounts>({ prefill: 0, output: 0, running: 0 });
+  // The prefill tok/s figure is a 60 s trailing window kept by the tap; it is only a real number once the
+  // tap has been up 60 s. Pin the tap's start instant (from its reported uptime) and tick once a second so
+  // the tile can count down to the moment the window is full, independent of the poll cadence.
+  const tapStartedAtRef = useRef<number | null>(null);
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    if (liveCounts.tapUptime == null) { tapStartedAtRef.current = null; return; }
+    const est = Date.now() - liveCounts.tapUptime * 1000;
+    if (tapStartedAtRef.current == null || Math.abs(tapStartedAtRef.current - est) > 2000) tapStartedAtRef.current = est;
+  }, [liveCounts.tapUptime]);
+  useEffect(() => {
+    if (!liveOpen) return;
+    const id = window.setInterval(() => setNowTick(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [liveOpen]);
+  const prefillWindowSecsLeft = tapStartedAtRef.current == null ? 0 : Math.max(0, Math.ceil(60 - (nowTick - tapStartedAtRef.current) / 1000));
   const [engine, setEngine] = useState<{
     generationTps?: number | null;
     prefillTps?: number | null;
@@ -1177,7 +1193,7 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
             <div className="live-stats live-stats--left" aria-label="engine throughput">
               <div className={`live-stat${(liveCounts.prefillTokS60 ?? 0) > 0 ? " is-hot" : ""}`} title="prompt tokens read by the engine over the last 60 s, ÷ 60 — from the tap's usage records (vLLM's own gauge only ticks when a request finishes prefill, so it reads 0 between them). While the tap's 60 s window is still filling the tile counts down to the first usable figure.">
                 {(() => {
-                  const secsLeft = liveCounts.tapUptime != null ? Math.max(0, 60 - Math.floor(liveCounts.tapUptime)) : 0;
+                  const secsLeft = prefillWindowSecsLeft;
                   if (liveCounts.prefillTokS60 == null) {
                     // no tap data at all — fall back to the engine's own (instantaneous) gauge
                     return (
@@ -1187,22 +1203,18 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
                       </>
                     );
                   }
-                  if (!liveCounts.prefillReq60 && secsLeft > 0) {
+                  if (secsLeft > 0) {
                     return (
                       <>
                         <span className="live-stat__n">{secsLeft}s</span>
-                        <span className="live-stat__k">prefill tok/s · window fills in</span>
+                        <span className="live-stat__k">prefill tok/s · ready in</span>
                       </>
                     );
                   }
                   return (
                     <>
                       <span className="live-stat__n">{Math.round(liveCounts.prefillTokS60).toLocaleString()}</span>
-                      <span className="live-stat__k">
-                        {liveCounts.prefillReq60
-                          ? `prefill tok/s · 60 s · ${liveCounts.prefillReq60} prefill${liveCounts.prefillReq60 === 1 ? "" : "s"}`
-                          : "prefill tok/s · none finished in 60 s"}
-                      </span>
+                      <span className="live-stat__k">prefill tok/s · 60 s{liveCounts.prefillReq60 ? ` · ${liveCounts.prefillReq60} prefill${liveCounts.prefillReq60 === 1 ? "" : "s"}` : ""}</span>
                     </>
                   );
                 })()}
