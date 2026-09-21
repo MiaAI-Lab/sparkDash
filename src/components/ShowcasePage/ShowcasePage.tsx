@@ -183,6 +183,10 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
+function fmtTok(n: number): string {
+  return n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
+}
+
 function fmtWait(s: number): string {
   if (s < 60) return `${Math.round(s)}s`;
   const m = Math.floor(s / 60);
@@ -1226,9 +1230,9 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
                 })()}
               </div>
               {liveCounts.prefillTokS60 != null && prefillWindowSecsLeft === 0 && (
-                <div className={`live-stat${liveCounts.prefillReq60 ? " is-hot" : ""}`} title="how many requests finished their prefill inside the last 60 s — the sample the prefill tok/s figure is built from">
-                  <span className="live-stat__n">{liveCounts.prefillReq60 ?? 0}</span>
-                  <span className="live-stat__k">prefills · 60 s</span>
+                <div className={`live-stat${liveCounts.prefill ? " is-hot" : ""}`} title={`requests the engine is reading right now (same count as the yellow tile) and the prompt tokens they add up to; ${liveCounts.prefillReq60 ?? 0} prefill${liveCounts.prefillReq60 === 1 ? "" : "s"} finished inside the last 60 s — those are what the tok/s figure is built from`}>
+                  <span className="live-stat__n">{liveCounts.prefill}</span>
+                  <span className="live-stat__k">prefills · {fmtTok(liveCounts.prefillTokens ?? 0)} tok</span>
                 </div>
               )}
               <div className={`live-stat live-stat--green${(engine?.generationTps ?? 0) > 0 ? " is-hot" : ""}`}>

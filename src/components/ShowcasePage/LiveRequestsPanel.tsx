@@ -92,6 +92,8 @@ export interface LiveCounts {
   tapUptime?: number;
   /** mean seconds the currently queued requests have been waiting for an engine slot (null when nothing is queued) */
   queuedAvgWaitS?: number | null;
+  /** prompt tokens of the requests currently in prefill (usage when known, else chars ÷ 3.8) */
+  prefillTokens?: number;
 }
 
 export interface LiveRequestsPanelProps {
@@ -212,8 +214,12 @@ export function LiveRequestsPanel({ sparkId, terminalCount, onCounts, engineWait
   const gridCols = optimalGridCols(Math.max(1, slots.length));
   const gridRows = Math.max(1, Math.ceil(Math.max(1, slots.length) / gridCols));
   const inFlight = data?.active?.length ?? 0;
-  const prefillN = (data?.active ?? []).filter((r) => r.status === "prefill" || (r.status === "streaming" && !r.chunks)).length;
-  const outputN = inFlight - prefillN;
+  // Phase counts use the same classifier as the borders, so the header tiles and the yellow/green
+  // boxes on screen always agree; queued requests are NOT counted as "in prefill" (the red tile has them).
+  const inPrefill = (data?.active ?? []).filter((r) => phaseOf(r) === "prefill");
+  const prefillN = inPrefill.length;
+  const outputN = (data?.active ?? []).filter((r) => phaseOf(r) === "generating").length;
+  const prefillTokens = inPrefill.reduce((acc, r) => acc + (r.prompt_tokens ?? (r.prompt_chars ? Math.round(r.prompt_chars / 3.8) : 0)), 0);
   useEffect(() => {
     onCounts?.({
       prefill: prefillN,
@@ -223,8 +229,9 @@ export function LiveRequestsPanel({ sparkId, terminalCount, onCounts, engineWait
       prefillReq60: data?.stats?.prefill_requests_60s,
       tapUptime: data?.stats?.uptime,
       queuedAvgWaitS,
+      prefillTokens,
     });
-  }, [prefillN, outputN, inFlight, onCounts, data?.stats?.prefill_tok_s_60s, data?.stats?.prefill_requests_60s, data?.stats?.uptime, queuedAvgWaitS]);
+  }, [prefillN, outputN, inFlight, onCounts, data?.stats?.prefill_tok_s_60s, data?.stats?.prefill_requests_60s, data?.stats?.uptime, queuedAvgWaitS, prefillTokens]);
 
   return (
     <>
