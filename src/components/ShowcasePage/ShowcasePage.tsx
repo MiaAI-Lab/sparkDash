@@ -1175,9 +1175,9 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
         <header className={`showcase-model-header${liveOpen ? " showcase-model-header--live" : ""}`} title={modelId}>
           {liveOpen && (
             <div className="live-stats live-stats--left" aria-label="engine throughput">
-              <div className={`live-stat${(engine?.prefillTps ?? 0) > 0 ? " is-hot" : ""}`}>
-                <span className="live-stat__n">{engine?.prefillTps != null ? Math.round(engine.prefillTps).toLocaleString() : "—"}</span>
-                <span className="live-stat__k">prefill tok/s</span>
+              <div className={`live-stat${(liveCounts.prefillTokS60 ?? 0) > 0 ? " is-hot" : ""}`} title="prompt tokens read by the engine over the last 60 s, ÷ 60 — from the tap's usage records (vLLM's own gauge only ticks when a request finishes prefill, so it reads 0 between them)">
+                <span className="live-stat__n">{liveCounts.prefillTokS60 != null ? Math.round(liveCounts.prefillTokS60).toLocaleString() : (engine?.prefillTps ?? 0) > 0 ? Math.round(engine!.prefillTps!).toLocaleString() : "—"}</span>
+                <span className="live-stat__k">prefill tok/s · 60 s</span>
               </div>
               <div className={`live-stat${(engine?.generationTps ?? 0) > 0 ? " is-hot" : ""}`}>
                 <span className="live-stat__n">{engine?.generationTps != null ? Math.round(engine.generationTps).toLocaleString() : "—"}</span>
@@ -1209,7 +1209,11 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
               </div>
               <div className={`live-stat live-stat--total${(engine?.kvCacheUsage ?? 0) > 0.5 ? " is-hot" : ""}`}>
                 <span className="live-stat__n">{engine?.kvCacheUsage != null ? `${Math.round(engine.kvCacheUsage * 100)}%` : "—"}</span>
-                <span className="live-stat__k">kv cache{engine?.prefixCacheHitRate != null ? ` · ${Math.round(engine.prefixCacheHitRate * 100)}% prefix hit` : ""}</span>
+                <span className="live-stat__k">kv cache</span>
+              </div>
+              <div className={`live-stat live-stat--total${(engine?.prefixCacheHitRate ?? 0) > 0 ? " is-hot" : ""}`}>
+                <span className="live-stat__n">{engine?.prefixCacheHitRate != null ? `${Math.round(engine.prefixCacheHitRate * 100)}%` : "—"}</span>
+                <span className="live-stat__k">prefix hit</span>
               </div>
             </div>
           )}

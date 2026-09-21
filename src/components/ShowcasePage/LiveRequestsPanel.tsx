@@ -19,6 +19,8 @@ type LiveReq = {
   thinking?: boolean | null;
   effort?: string | null;
   prompt_chars?: number;
+  prompt_tokens?: number;
+  prefill_tok_s?: number;
   last_user?: string;
   last_role?: string | null;
   status: string;
@@ -47,7 +49,7 @@ type LivePayload = {
   now?: number;
   active?: LiveReq[];
   recent?: LiveReq[];
-  stats?: { requests: number; chat: number; errors: number; uptime: number };
+  stats?: { requests: number; chat: number; errors: number; uptime: number; prefill_tok_s_60s?: number; prefill_requests_60s?: number };
 };
 
 let CLIENT_NAMES: Record<string, string> = {};
@@ -82,6 +84,8 @@ export interface LiveCounts {
   prefill: number;
   output: number;
   running: number;
+  /** prompt tokens read by the engine over the last 60 s ÷ 60 (from the tap's usage records) */
+  prefillTokS60?: number;
 }
 
 export interface LiveRequestsPanelProps {
@@ -165,18 +169,6 @@ export function LiveRequestsPanel({ sparkId, terminalCount, onCounts, engineWait
   // most recent finished ones, up to the terminal count chosen in the bar above.
   // Continuous auto-sizing (F723): never hide a session that is in flight — the grid grows past the
   // terminal-count baseline while the engine is busy and shrinks back as requests finish.
-  const slots = useMemo(() => {
-    const active = [...(data?.active ?? [])].sort((a, b) => a.t0 - b.t0);
-    const recent = (data?.recent ?? []).filter((r) => !active.some((a) => a.id === r.id));
-    // Health probes ("ok", "2+2", one message, a few tokens) must not push real conversations off the
-    // board: fill finished slots with substantive requests first, probes only if room remains.
-    const isProbe = (r: LiveReq) => (r.n_messages ?? 0) <= 1 && (r.out_tokens ?? 0) <= 8 && (r.prompt_chars ?? 0) < 200;
-    const substantive = recent.filter((r) => !isProbe(r));
-    const probes = recent.filter(isProbe);
-    const n = Math.min(32, Math.max(terminalCount, active.length));
-    return [...active, ...substantive, ...probes].slice(0, n);
-  }, [data, terminalCount]);
-
   // Phase per in-flight request. The tap knows "no token yet" vs "streaming"; the engine knows how
   // many requests are still waiting for a slot — those are the NEWEST no-token requests.
   const phaseOf = useMemo(() => {
@@ -192,14 +184,29 @@ export function LiveRequestsPanel({ sparkId, terminalCount, onCounts, engineWait
     };
   }, [data, engineWaiting]);
 
+  const slots = useMemo(() => {
+    // Reading order = life cycle: queued (red) first, then prefill (yellow), then generating (green),
+    // each group in the order received; a request bumps down the screen as it advances, and finished
+    // (gray) ones sit at the bottom. Health probes ("ok", "2+2") fill leftover slots last.
+    const active = [...(data?.active ?? [])].sort((a, b) => a.t0 - b.t0);
+    const rank = (r: LiveReq) => (phaseOf(r) === "queued" ? 0 : phaseOf(r) === "prefill" ? 1 : 2);
+    active.sort((a, b) => rank(a) - rank(b) || a.t0 - b.t0);
+    const recent = (data?.recent ?? []).filter((r) => !active.some((a) => a.id === r.id));
+    const isProbe = (r: LiveReq) => (r.n_messages ?? 0) <= 1 && (r.out_tokens ?? 0) <= 8 && (r.prompt_chars ?? 0) < 200;
+    const substantive = recent.filter((r) => !isProbe(r));
+    const probes = recent.filter(isProbe);
+    const n = Math.min(32, Math.max(terminalCount, active.length));
+    return [...active, ...substantive, ...probes].slice(0, n);
+  }, [data, terminalCount, phaseOf]);
+
   const gridCols = optimalGridCols(Math.max(1, slots.length));
   const gridRows = Math.max(1, Math.ceil(Math.max(1, slots.length) / gridCols));
   const inFlight = data?.active?.length ?? 0;
   const prefillN = (data?.active ?? []).filter((r) => r.status === "prefill" || (r.status === "streaming" && !r.chunks)).length;
   const outputN = inFlight - prefillN;
   useEffect(() => {
-    onCounts?.({ prefill: prefillN, output: outputN, running: inFlight });
-  }, [prefillN, outputN, inFlight, onCounts]);
+    onCounts?.({ prefill: prefillN, output: outputN, running: inFlight, prefillTokS60: data?.stats?.prefill_tok_s_60s });
+  }, [prefillN, outputN, inFlight, onCounts, data?.stats?.prefill_tok_s_60s]);
 
   return (
     <>
@@ -247,6 +254,8 @@ export function LiveRequestsPanel({ sparkId, terminalCount, onCounts, engineWait
             `${r.n_messages ?? "?"} msgs${r.n_tool_results ? ` · ${r.n_tool_results} tool results` : ""}`,
             r.tools ? `${r.tools} tools` : null,
             r.thinking != null ? `thinking ${r.thinking ? "on" : "off"}${r.effort ? `/${r.effort}` : ""}` : null,
+            r.prompt_tokens != null ? `${r.prompt_tokens >= 1000 ? `${(r.prompt_tokens / 1000).toFixed(r.prompt_tokens >= 10000 ? 0 : 1)}k` : r.prompt_tokens} tok in` : null,
+            r.prefill_tok_s ? `prefill ${r.prefill_tok_s.toLocaleString()} tok/s` : null,
             r.out_tokens != null ? `${r.out_tokens} tok out` : null,
             r.ttft != null ? `ttft ${r.ttft}s` : null,
             r.wall != null ? `${r.wall}s` : live ? `${Math.round(r.elapsed ?? 0)}s` : null,

@@ -183,6 +183,7 @@ def _apply_sse(rec, line):
     if ch.get("finish_reason"): rec["finish"] = ch["finish_reason"]
     u = j.get("usage")
     if u and u.get("completion_tokens") is not None: rec["out_tokens"] = u["completion_tokens"]
+    if u and u.get("prompt_tokens") is not None: rec["prompt_tokens"] = u["prompt_tokens"]
     rec["chunks"] += 1
 
 def _apply_json(rec, body):
@@ -196,6 +197,7 @@ def _apply_json(rec, body):
     if ch.get("finish_reason"): rec["finish"] = ch["finish_reason"]
     u = j.get("usage") or {}
     if u.get("completion_tokens") is not None: rec["out_tokens"] = u["completion_tokens"]
+    if u.get("prompt_tokens") is not None: rec["prompt_tokens"] = u["prompt_tokens"]
     if j.get("error"): rec["error"] = str(j["error"])[:300]
 
 async def pump_upstream_to_client(reader, writer, state):
@@ -232,8 +234,19 @@ async def pump_upstream_to_client(reader, writer, state):
         try: writer.close()
         except Exception: pass
 
+PREFILL_WIN = collections.deque()   # (t_first_or_end, prompt_tokens) for the rolling prefill-throughput figure
+
 def _finish(rec):
     rec["t_end"] = time.time()
+    pt = rec.get("prompt_tokens")
+    if pt is None and rec.get("prompt_chars"): pt = int(rec["prompt_chars"] / 3.8); rec["prompt_tokens_est"] = True
+    ok = rec.get("status") == "done" and (rec.get("t_first") is not None or not rec.get("stream"))
+    if pt and ok:
+        # streams: prompt was read by first token; non-stream: by the end minus the decode time (≈ out_tokens / 20 tok/s)
+        t_pref_end = rec.get("t_first") if rec.get("stream") and rec.get("t_first") else rec["t_end"]
+        dur = max(0.05, (t_pref_end - rec["t0"]) - (0 if rec.get("stream") else (rec.get("out_tokens") or 0) / 20.0))
+        rec["prefill_tok_s"] = round(pt / dur)
+        PREFILL_WIN.append((t_pref_end, pt))
     if rec.get("status") != "disconnected": rec["status"] = "done"
     if rec.get("out_tokens") is None and rec.get("stream"): rec["out_tokens"] = max(0, rec["chunks"] - 1)
     if rec.get("stream") and rec.get("t_first") and rec.get("out_tokens"):
@@ -271,8 +284,10 @@ async def api(reader, writer):
                 for k in ("out_text", "reasoning_text"):
                     if r.get(k) and len(r[k]) > tail: r[k] = r[k][-tail:]
                 return r
+            while PREFILL_WIN and PREFILL_WIN[0][0] < now - 60: PREFILL_WIN.popleft()
+            pref60 = round(sum(p for _, p in PREFILL_WIN) / 60.0)
             body = json.dumps({"now": now, "active": [slim(r) for r in active], "recent": [slim(r) for r in list(RING)[:int(_q(path, "n", 60))]],
-                               "stats": {**STATS, "uptime": round(now - STATS["started"])}}, default=str).encode()
+                               "stats": {**STATS, "uptime": round(now - STATS["started"]), "prefill_tok_s_60s": pref60, "prefill_requests_60s": len(PREFILL_WIN)}}, default=str).encode()
             resp = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: %d\r\nConnection: close\r\n\r\n" % len(body) + body
         elif path.startswith("/req/"):
             rid = int(re.search(r"/req/(\d+)", path).group(1))

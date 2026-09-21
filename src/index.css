@@ -2674,3 +2674,5 @@ html {
 .live-slot--queued .showcase-term__status, .live-slot--prefill .showcase-term__status { text-transform: uppercase; }
 .live-slot--queued .showcase-term__status { color: #fca5a5; }
 .live-slot--prefill .showcase-term__status { color: #fcd34d; }
+.live-stat.is-held { opacity: 0.72; }
+.live-stat.is-held .live-stat__n { text-shadow: none; }
