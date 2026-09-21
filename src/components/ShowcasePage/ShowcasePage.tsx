@@ -183,6 +183,12 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
+function fmtWait(s: number): string {
+  if (s < 60) return `${Math.round(s)}s`;
+  const m = Math.floor(s / 60);
+  return `${m}m ${Math.round(s - m * 60).toString().padStart(2, "0")}s`;
+}
+
 export function ShowcasePage({ sparkId }: ShowcasePageProps) {
   const [spark, setSpark] = useState<SparkConfig | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -1239,6 +1245,12 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
                 <span className="live-stat__n">{engine?.requestsWaiting ?? "—"}</span>
                 <span className="live-stat__k">waiting</span>
               </div>
+              {(engine?.requestsWaiting ?? 0) > 0 && liveCounts.queuedAvgWaitS != null && (
+                <div className="live-stat live-stat--red is-hot" title="mean time the queued requests have been waiting for an engine slot (from the tap's arrival times) — only shown while there is a queue">
+                  <span className="live-stat__n">{fmtWait(liveCounts.queuedAvgWaitS)}</span>
+                  <span className="live-stat__k">avg wait</span>
+                </div>
+              )}
               <div className={`live-stat live-stat--yellow${liveCounts.prefill ? " is-hot" : ""}`}>
                 <span className="live-stat__n">{liveCounts.prefill}</span>
                 <span className="live-stat__k">in prefill</span>

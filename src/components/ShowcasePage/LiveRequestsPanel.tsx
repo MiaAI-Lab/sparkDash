@@ -90,6 +90,8 @@ export interface LiveCounts {
   prefillReq60?: number;
   /** seconds since the tap started — the 60 s window is only full once this passes 60 */
   tapUptime?: number;
+  /** mean seconds the currently queued requests have been waiting for an engine slot (null when nothing is queued) */
+  queuedAvgWaitS?: number | null;
 }
 
 export interface LiveRequestsPanelProps {
@@ -175,10 +177,13 @@ export function LiveRequestsPanel({ sparkId, terminalCount, onCounts, engineWait
   // terminal-count baseline while the engine is busy and shrinks back as requests finish.
   // Phase per in-flight request. The tap knows "no token yet" vs "streaming"; the engine knows how
   // many requests are still waiting for a slot — those are the NEWEST no-token requests.
-  const phaseOf = useMemo(() => {
+  const { phaseOf, queuedAvgWaitS } = useMemo(() => {
     const noToken = (data?.active ?? []).filter((r) => !r.chunks).sort((a, b) => b.t0 - a.t0);
-    const queuedIds = new Set(noToken.slice(0, Math.max(0, engineWaiting ?? 0)).map((r) => r.id));
-    return (r: LiveReq): "queued" | "prefill" | "generating" | "done" | "cancelled" => {
+    const queued = noToken.slice(0, Math.max(0, engineWaiting ?? 0));
+    const queuedIds = new Set(queued.map((r) => r.id));
+    const nowS = Date.now() / 1000;
+    const queuedAvgWaitS = queued.length ? queued.reduce((acc, r) => acc + (nowS - r.t0), 0) / queued.length : null;
+    const phaseOf = (r: LiveReq): "queued" | "prefill" | "generating" | "done" | "cancelled" => {
       if (r.status === "streaming" || r.status === "prefill") {
         if (r.chunks) return "generating";
         return queuedIds.has(r.id) ? "queued" : "prefill";
@@ -186,6 +191,7 @@ export function LiveRequestsPanel({ sparkId, terminalCount, onCounts, engineWait
       if (r.status === "done") return "done";
       return "cancelled";
     };
+    return { phaseOf, queuedAvgWaitS };
   }, [data, engineWaiting]);
 
   const slots = useMemo(() => {
@@ -216,8 +222,9 @@ export function LiveRequestsPanel({ sparkId, terminalCount, onCounts, engineWait
       prefillTokS60: data?.stats?.prefill_tok_s_60s,
       prefillReq60: data?.stats?.prefill_requests_60s,
       tapUptime: data?.stats?.uptime,
+      queuedAvgWaitS,
     });
-  }, [prefillN, outputN, inFlight, onCounts, data?.stats?.prefill_tok_s_60s, data?.stats?.prefill_requests_60s, data?.stats?.uptime]);
+  }, [prefillN, outputN, inFlight, onCounts, data?.stats?.prefill_tok_s_60s, data?.stats?.prefill_requests_60s, data?.stats?.uptime, queuedAvgWaitS]);
 
   return (
     <>
