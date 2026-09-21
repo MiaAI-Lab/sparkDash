@@ -404,6 +404,11 @@ export function LlmPanel({
   const uncachedFull = useMetricsHistory(sparkId, `llm:${llmPort}.prefillUncached`);
   const genAvg = useMemo(() => avgPositive(genFull), [genFull]);
   const prefillAvg = useMemo(() => avgPositive(prefillFull), [prefillFull]);
+  // 60-s positive-sample average (sparkline tail ≈ 1 min at the 2 s poll). The
+  // instantaneous gauge is ~0 most of the time on a busy engine because 85-90 %
+  // of prompt tokens are prefix-cache hits and prompt_tokens_total only advances
+  // when a prefill finishes — the short average is the number a human can read.
+  const prefill60 = useMemo(() => avgPositive(prefillHistory), [prefillHistory]);
   const cachedPrefillAvg = useMemo(() => avgPositive(cachedFull), [cachedFull]);
   const uncachedPrefillAvg = useMemo(() => avgPositive(uncachedFull), [uncachedFull]);
   const [showSettings, setShowSettings] = useState(false);
@@ -720,14 +725,24 @@ export function LlmPanel({
           </div>
           <div
             className="flex items-center justify-between"
-            title="Tokens/sec while the engine is reading the prompt and building KV cache — before the first output token. Opening a saved chat in the UI does not hit the GPU; send (or regenerate) so the history is sent as the prompt. Prefix-cache hits do little compute, so this can stay ~0. Long cold prefills show here until decode starts."
+            title="Headline = mean of the last ~60 s of non-zero samples; 'now' = the instantaneous gauge; 'hit' = prefix-cache hit rate (cached prompt tokens cost almost no prefill compute, which is why 'now' sits near 0 on a busy engine). Tokens/sec while the engine is reading the prompt and building KV cache — before the first output token. Opening a saved chat in the UI does not hit the GPU; send (or regenerate) so the history is sent as the prompt. Prefix-cache hits do little compute, so this can stay ~0. Long cold prefills show here until decode starts."
           >
-            <span className="text-xs text-muted">Prefill tok/s</span>
+            <span className="text-xs text-muted">Prefill tok/s · 60 s</span>
             <div className="flex items-center gap-2">
               <Sparkline data={prefillHistory} color="var(--color-text)" height={24} />
               <div className="text-right">
                 <div className="font-tabular text-sm font-semibold text-text">
-                  {prefillTps.toFixed(1)}
+                  {prefill60 != null
+                    ? prefill60 >= 100
+                      ? prefill60.toFixed(0)
+                      : prefill60.toFixed(1)
+                    : prefillTps.toFixed(1)}
+                </div>
+                <div className="font-tabular text-[9px] text-muted">
+                  now {prefillTps >= 100 ? prefillTps.toFixed(0) : prefillTps.toFixed(1)}
+                  {llm?.prefixCacheHitRate != null && (
+                    <> · hit {(llm.prefixCacheHitRate * 100).toFixed(0)}%</>
+                  )}
                 </div>
                 {prefillAvg != null && (
                   <div className="font-tabular text-[9px] text-muted">
