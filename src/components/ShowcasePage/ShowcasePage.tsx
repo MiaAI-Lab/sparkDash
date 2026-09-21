@@ -1220,11 +1220,17 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
                   return (
                     <>
                       <span className="live-stat__n">{Math.round(liveCounts.prefillTokS60).toLocaleString()}</span>
-                      <span className="live-stat__k">prefill tok/s · 60 s{liveCounts.prefillReq60 ? ` · ${liveCounts.prefillReq60} prefill${liveCounts.prefillReq60 === 1 ? "" : "s"}` : ""}</span>
+                      <span className="live-stat__k">prefill tok/s · 60 s</span>
                     </>
                   );
                 })()}
               </div>
+              {liveCounts.prefillTokS60 != null && prefillWindowSecsLeft === 0 && (
+                <div className={`live-stat${liveCounts.prefillReq60 ? " is-hot" : ""}`} title="how many requests finished their prefill inside the last 60 s — the sample the prefill tok/s figure is built from">
+                  <span className="live-stat__n">{liveCounts.prefillReq60 ?? 0}</span>
+                  <span className="live-stat__k">prefills · 60 s</span>
+                </div>
+              )}
               <div className={`live-stat live-stat--green${(engine?.generationTps ?? 0) > 0 ? " is-hot" : ""}`}>
                 <span className="live-stat__n">{engine?.generationTps != null ? Math.round(engine.generationTps).toLocaleString() : "—"}</span>
                 <span className="live-stat__k">output tok/s</span>
