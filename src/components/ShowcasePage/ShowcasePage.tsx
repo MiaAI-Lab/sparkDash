@@ -1179,7 +1179,7 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
                 <span className="live-stat__n">{liveCounts.prefillTokS60 != null ? Math.round(liveCounts.prefillTokS60).toLocaleString() : (engine?.prefillTps ?? 0) > 0 ? Math.round(engine!.prefillTps!).toLocaleString() : "—"}</span>
                 <span className="live-stat__k">prefill tok/s · 60 s</span>
               </div>
-              <div className={`live-stat${(engine?.generationTps ?? 0) > 0 ? " is-hot" : ""}`}>
+              <div className={`live-stat live-stat--green${(engine?.generationTps ?? 0) > 0 ? " is-hot" : ""}`}>
                 <span className="live-stat__n">{engine?.generationTps != null ? Math.round(engine.generationTps).toLocaleString() : "—"}</span>
                 <span className="live-stat__k">output tok/s</span>
               </div>
@@ -1195,17 +1195,17 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
           </div>
           {liveOpen && (
             <div className="live-stats live-stats--right" aria-label="engine state">
-              <div className={`live-stat${liveCounts.prefill ? " is-hot" : ""}`}>
+              <div className={`live-stat live-stat--red${(engine?.requestsWaiting ?? 0) > 0 ? " is-hot" : ""}`}>
+                <span className="live-stat__n">{engine?.requestsWaiting ?? "—"}</span>
+                <span className="live-stat__k">waiting</span>
+              </div>
+              <div className={`live-stat live-stat--yellow${liveCounts.prefill ? " is-hot" : ""}`}>
                 <span className="live-stat__n">{liveCounts.prefill}</span>
                 <span className="live-stat__k">in prefill</span>
               </div>
-              <div className={`live-stat${liveCounts.output ? " is-hot" : ""}`}>
+              <div className={`live-stat live-stat--green${liveCounts.output ? " is-hot" : ""}`}>
                 <span className="live-stat__n">{liveCounts.output}</span>
                 <span className="live-stat__k">generating</span>
-              </div>
-              <div className={`live-stat${(engine?.requestsWaiting ?? 0) > 0 ? " is-hot" : ""}`}>
-                <span className="live-stat__n">{engine?.requestsWaiting ?? "—"}</span>
-                <span className="live-stat__k">waiting</span>
               </div>
               <div className={`live-stat live-stat--total${(engine?.kvCacheUsage ?? 0) > 0.5 ? " is-hot" : ""}`}>
                 <span className="live-stat__n">{engine?.kvCacheUsage != null ? `${Math.round(engine.kvCacheUsage * 100)}%` : "—"}</span>

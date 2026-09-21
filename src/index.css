@@ -2676,3 +2676,14 @@ html {
 .live-slot--prefill .showcase-term__status { color: #fcd34d; }
 .live-stat.is-held { opacity: 0.72; }
 .live-stat.is-held .live-stat__n { text-shadow: none; }
+
+/* ── Live stat tiles: full box borders + phase colours (F738) ─────────────── */
+.live-stat { border: 1px solid rgba(251, 191, 36, 0.35); }
+.live-stat--total { border-left: 1px solid rgba(251, 191, 36, 0.35); padding-left: 10px; }
+.live-stat--red { color: #f87171; border-color: rgba(248, 113, 113, 0.45); }
+.live-stat--red.is-hot { background: rgba(248, 113, 113, 0.12); }
+.live-stat--red .live-stat__n { text-shadow: 0 0 12px rgba(248, 113, 113, 0.4); }
+.live-stat--yellow { color: #fbbf24; border-color: rgba(251, 191, 36, 0.45); }
+.live-stat--green { color: #4ade80; border-color: rgba(74, 222, 128, 0.45); }
+.live-stat--green.is-hot { background: rgba(74, 222, 128, 0.12); }
+.live-stat--green .live-stat__n { text-shadow: 0 0 12px rgba(74, 222, 128, 0.4); }
