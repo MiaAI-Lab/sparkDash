@@ -240,14 +240,16 @@ def _finish(rec):
     rec["t_end"] = time.time()
     pt = rec.get("prompt_tokens")
     if pt is None and rec.get("prompt_chars"): pt = int(rec["prompt_chars"] / 3.8); rec["prompt_tokens_est"] = True
-    ok = rec.get("status") == "done" and (rec.get("t_first") is not None or not rec.get("stream"))
+    # Settle the final status FIRST (the prefill figure below keys off it): only a request
+    # that actually finished counts — aborted/disconnected ones produce the 141k-tok/s artefact.
+    if rec.get("status") not in ("disconnected", "aborted"): rec["status"] = "done"
+    ok = rec["status"] == "done" and (rec.get("t_first") is not None or not rec.get("stream"))
     if pt and ok:
         # streams: prompt was read by first token; non-stream: by the end minus the decode time (≈ out_tokens / 20 tok/s)
         t_pref_end = rec.get("t_first") if rec.get("stream") and rec.get("t_first") else rec["t_end"]
         dur = max(0.05, (t_pref_end - rec["t0"]) - (0 if rec.get("stream") else (rec.get("out_tokens") or 0) / 20.0))
         rec["prefill_tok_s"] = round(pt / dur)
         PREFILL_WIN.append((t_pref_end, pt))
-    if rec.get("status") != "disconnected": rec["status"] = "done"
     if rec.get("out_tokens") is None and rec.get("stream"): rec["out_tokens"] = max(0, rec["chunks"] - 1)
     if rec.get("stream") and rec.get("t_first") and rec.get("out_tokens"):
         dt = rec["t_end"] - rec["t_first"]
