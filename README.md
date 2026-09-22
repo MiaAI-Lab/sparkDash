@@ -446,9 +446,31 @@ Copy `.env.example` to `.env` if needed:
 
 ### Power controls (shutdown / Wake-on-LAN)
 
-- **Shutdown** (per Spark or **Shutdown All** on Overview) runs over SSH:  
-  `sudo -n /usr/local/bin/spark-shutdown`  
-  Install that script on each Spark and allow passwordless sudo for it only.
+- **Shutdown** (per Spark or **Shutdown All** on Overview) runs the host helper
+  `/usr/local/bin/spark-shutdown` with passwordless sudo. The helper contract is
+  two invocations:
+
+  | Invocation | Expected behaviour |
+  |------------|--------------------|
+  | `spark-shutdown` | Schedule the graceful shutdown |
+  | `spark-shutdown --check` | Print an acknowledgement, exit 0, change nothing |
+
+  `--check` is what proves authorization before anything is scheduled, so a
+  sudoers rule scoped to the helper is enough:
+
+  ```
+  sparky ALL=(root) NOPASSWD: /usr/local/bin/spark-shutdown
+  ```
+
+  A helper without `--check` still works when sudo is granted more broadly (the
+  authorization probe falls back to `sudo -n true`), but a rule limited to the
+  helper path needs `--check` support.
+- On a **local unit**, the helper runs on the Spark itself. When the dashboard
+  is in Docker that means the invocation first enters the host mount namespace
+  (`nsenter --mount=/host/proc/1/ns/mnt -- sudo -n …`), using the same
+  `HOST_PROC_PATH` mount and `privileged: true` the collectors already need. A
+  bare-host install calls `sudo` directly. The helper always resolves against
+  the **host** filesystem, so it does not need to exist inside the container.
 - **Wake** / **Wake All** send a UDP magic packet (port 9). The MAC is taken from the **enP7s7** interface automatically while the Spark is online (persisted as `detectedMacAddress`). Optionally set a **MAC override** in Edit Spark. Broadcast is derived as `/24` from LAN IP, or `255.255.255.255` if LAN IP is missing.
 - Batch shutdown only targets **online** Sparks; offline nodes are skipped.
 - Power APIs are mutations: on loopback they follow the local-trust model; a remote bind requires `SPARKDASH_TOKEN`.
