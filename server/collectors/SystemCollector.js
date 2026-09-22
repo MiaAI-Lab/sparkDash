@@ -213,9 +213,11 @@ export class SystemCollector {
   // ─── GPU helpers ─────────────────────────────────────────
   async _getGPUAll() {
     const gpuOut = await this._nvidiaSmi(
-      "--query-gpu=temperature.gpu,utilization.gpu,power.draw,power.limit,clocks.current.sm,clocks.max.sm,clocks_throttle_reasons.hw_thermal_slowdown,clocks_throttle_reasons.sw_thermal_slowdown,clocks_throttle_reasons.hw_slowdown,clocks_throttle_reasons.sw_power_cap --format=csv,noheader,nounits"
+      "--query-gpu=temperature.gpu,utilization.gpu,power.draw,power.limit,clocks.current.sm,clocks.max.sm,clocks_throttle_reasons.hw_thermal_slowdown,clocks_throttle_reasons.sw_thermal_slowdown,clocks_throttle_reasons.hw_slowdown,clocks_throttle_reasons.sw_power_cap,index,name,uuid --format=csv,noheader,nounits"
     );
-    const gpu = this._parseGpuLine(gpuOut);
+    const devices = this._parseGpuLines(gpuOut);
+    const gpu = this._aggregateGpuDevices(devices);
+    this._lastVramPerDevice = [];
     const vram = await this._queryNvidiaVram();
 
     // Estimate total system power: GPU draw + CPU draw + ~20W CX7/peripherals
@@ -227,11 +229,9 @@ export class SystemCollector {
     systemDraw += 20; // CX7 NIC + peripherals estimate
     systemDraw = Math.round(systemDraw);
 
-    // Top 5 GPU processes by VRAM usage
-    const processes = Array.from(this.nvidiaComputeAppsCache.entries())
-      .map(([pid, info]) => ({ pid, name: info.name, vramMB: info.vramMB }))
-      .sort((a, b) => b.vramMB - a.vramMB)
-      .slice(0, 5);
+    // Top 5 GPU processes by VRAM usage (a PID spanning several GPUs is summed)
+    const apps = this._cachedApps();
+    const processes = this._topProcesses(apps);
 
     return {
       temperature: gpu.temperature,
@@ -241,6 +241,7 @@ export class SystemCollector {
       processes,
       throttle: gpu.throttle,
       nvErrNoMemory: await this._nvErrNoMemory(),
+      gpus: this._buildGpuDevices(devices, this._lastVramPerDevice ?? [], apps, vram),
     };
   }
 
@@ -267,10 +268,9 @@ export class SystemCollector {
       const memOut = await this._nvidiaSmi(
         "--query-gpu=memory.used,memory.total --format=csv,noheader,nounits"
       );
-      const line = memOut.trim().split("\n").filter(Boolean)[0] || "";
-      const parts = line.split(",").map((s) => s.trim());
-      used = this._parseSmiNumber(parts[0]);
-      total = this._parseSmiNumber(parts[1]);
+      const perDevice = this._parseVramLines(memOut);
+      this._lastVramPerDevice = perDevice;
+      ({ used, total } = this._sumVram(perDevice));
     } catch {
       /* memory.* often N/A on GB10 */
     }
@@ -285,12 +285,17 @@ export class SystemCollector {
         computeOut != null
           ? computeOut
           : await this._nvidiaSmi(
-              "--query-compute-apps=pid,process_name,used_gpu_memory --format=csv,noheader,nounits"
+              "--query-compute-apps=pid,process_name,used_gpu_memory,gpu_uuid --format=csv,noheader,nounits"
             );
       const apps = this._parseComputeApps(raw);
       this.nvidiaComputeAppsCache.clear();
       for (const app of apps) {
-        this.nvidiaComputeAppsCache.set(app.pid, { name: app.name, vramMB: app.vramMB });
+        this.nvidiaComputeAppsCache.set(this._computeAppKey(app), {
+          pid: app.pid,
+          name: app.name,
+          vramMB: app.vramMB,
+          gpuUuid: app.gpuUuid ?? null,
+        });
         computeSum += app.vramMB;
       }
       computeAppsQueried = true;
@@ -319,7 +324,7 @@ export class SystemCollector {
               ? proc.name.trim()
               : "unknown";
           if (!Number.isInteger(pid) || pid <= 0 || vramMB == null) continue;
-          this.nvidiaComputeAppsCache.set(pid, { name, vramMB });
+          this.nvidiaComputeAppsCache.set(pid, { pid, name, vramMB, gpuUuid: null });
         }
         if ((used == null || used === 0) && this.nvidiaComputeAppsCache.size > 0) {
           let sum = 0;
@@ -369,9 +374,56 @@ export class SystemCollector {
     return Number.isFinite(n) ? n : null;
   }
 
-  _parseGpuLine(output) {
-    const lines = output.trim().split("\n").filter(Boolean);
-    if (!lines[0]) {
+  /**
+   * Parse every line of the `--query-gpu` output — one per physical GPU.
+   * Fields 0-9 are the metrics; 10-12 (`index,name,uuid`) identify the card.
+   * Returns [] when nvidia-smi printed nothing.
+   */
+  _parseGpuLines(output) {
+    const lines = String(output ?? "").trim().split("\n").filter(Boolean);
+    return lines.map((line, i) => {
+      const parts = line.split(",").map((s) => s.trim());
+      const temperature = parseFloat(parts[0]) || 0;
+      const usage = parseFloat(parts[1]) || 0;
+      const powerDraw = parseFloat(parts[2]) || 0;
+      const powerLimit = this._parseSmiNumber(parts[3]) ?? 120;
+      const smClockMHz = this._parseSmiNumber(parts[4]);
+      const smClockMaxMHz = this._parseSmiNumber(parts[5]);
+      const hwThermal = this._parseSmiActive(parts[6]);
+      const swThermal = this._parseSmiActive(parts[7]);
+      const hwSlowdown = this._parseSmiActive(parts[8]);
+      const powerCap = this._parseSmiActive(parts[9]);
+      const index = this._parseSmiNumber(parts[10]) ?? i;
+      const name = parts[11] && !/^\[?n\/a\]?$/i.test(parts[11]) ? parts[11] : null;
+      const uuid = parts[12] && /^GPU-/i.test(parts[12]) ? parts[12] : null;
+      return {
+        index,
+        name,
+        uuid,
+        temperature,
+        usage,
+        powerDraw,
+        powerLimit,
+        throttle: this._buildThrottle({
+          hwThermal,
+          swThermal,
+          hwSlowdown,
+          powerCap,
+          smClockMHz,
+          smClockMaxMHz,
+        }),
+      };
+    });
+  }
+
+  /**
+   * Fold per-GPU readings into the single `gpu` object the rest of the app
+   * consumes: hottest temperature, busiest card's usage, summed power, and
+   * the throttle state of the first card that is actually throttling.
+   * A one-GPU box (every DGX Spark) is unchanged by this.
+   */
+  _aggregateGpuDevices(devices) {
+    if (!devices.length) {
       return {
         temperature: 0,
         usage: 0,
@@ -380,31 +432,114 @@ export class SystemCollector {
         throttle: this._defaultThrottle(),
       };
     }
-    const parts = lines[0].split(",").map((s) => s.trim());
-    const temperature = parseFloat(parts[0]) || 0;
-    const usage = parseFloat(parts[1]) || 0;
-    const powerDraw = parseFloat(parts[2]) || 0;
-    const powerLimit = this._parseSmiNumber(parts[3]) ?? 120;
-    const smClockMHz = this._parseSmiNumber(parts[4]);
-    const smClockMaxMHz = this._parseSmiNumber(parts[5]);
-    const hwThermal = this._parseSmiActive(parts[6]);
-    const swThermal = this._parseSmiActive(parts[7]);
-    const hwSlowdown = this._parseSmiActive(parts[8]);
-    const powerCap = this._parseSmiActive(parts[9]);
+    const worst = devices.find((d) => d.throttle?.active) ?? devices[0];
+    const round2 = (n) => Math.round(n * 100) / 100;
     return {
-      temperature,
-      usage,
-      powerDraw,
-      powerLimit,
-      throttle: this._buildThrottle({
-        hwThermal,
-        swThermal,
-        hwSlowdown,
-        powerCap,
-        smClockMHz,
-        smClockMaxMHz,
-      }),
+      temperature: Math.max(...devices.map((d) => d.temperature)),
+      usage: Math.max(...devices.map((d) => d.usage)),
+      powerDraw: round2(devices.reduce((sum, d) => sum + d.powerDraw, 0)),
+      powerLimit: round2(devices.reduce((sum, d) => sum + d.powerLimit, 0)),
+      throttle: worst.throttle,
     };
+  }
+
+  /** Aggregate view of `--query-gpu` output (all GPUs folded into one). */
+  _parseGpuLine(output) {
+    return this._aggregateGpuDevices(this._parseGpuLines(output));
+  }
+
+  /** Parse `--query-gpu=memory.used,memory.total` — one line per GPU; N/A → null. */
+  _parseVramLines(output) {
+    return String(output ?? "")
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => {
+        const parts = line.split(",").map((s) => s.trim());
+        return { used: this._parseSmiNumber(parts[0]), total: this._parseSmiNumber(parts[1]) };
+      });
+  }
+
+  /** Sum per-GPU VRAM; stays null when no card reported a number (GB10 says N/A). */
+  _sumVram(perDevice) {
+    let used = null;
+    let total = null;
+    for (const d of perDevice) {
+      if (d.used != null) used = (used ?? 0) + d.used;
+      if (d.total != null) total = (total ?? 0) + d.total;
+    }
+    return { used, total };
+  }
+
+  /**
+   * Cache key for a compute app. One PID can hold memory on several GPUs
+   * (llama.cpp with a layer split does), so the key carries the GPU uuid.
+   */
+  _computeAppKey(app) {
+    return app.gpuUuid ? `${app.pid}:${app.gpuUuid}` : String(app.pid);
+  }
+
+  /** Flatten the compute-apps cache back into a list. */
+  _cachedApps() {
+    return Array.from(this.nvidiaComputeAppsCache.entries()).map(([key, info]) => ({
+      pid: info.pid ?? parseInt(String(key), 10) ?? 0,
+      name: info.name,
+      vramMB: info.vramMB || 0,
+      gpuUuid: info.gpuUuid ?? null,
+    }));
+  }
+
+  /** Top processes by VRAM, merged per PID across GPUs (sorted descending). */
+  _topProcesses(apps, limit = 5) {
+    const byPid = new Map();
+    for (const app of apps) {
+      const cur = byPid.get(app.pid);
+      if (cur) cur.vramMB += app.vramMB;
+      else byPid.set(app.pid, { pid: app.pid, name: app.name, vramMB: app.vramMB });
+    }
+    return Array.from(byPid.values())
+      .sort((a, b) => b.vramMB - a.vramMB)
+      .slice(0, limit);
+  }
+
+  /**
+   * Per-GPU metrics for multi-card hosts. `perDeviceVram` lines are in the same
+   * order as `devices` (nvidia-smi prints both by index). When a card reports
+   * no memory numbers (unified-memory GB10) it inherits the aggregate `vram`.
+   */
+  _buildGpuDevices(devices, perDeviceVram, apps, aggregateVram) {
+    return devices.map((d, i) => {
+      const own = d.uuid ? apps.filter((a) => a.gpuUuid === d.uuid) : [];
+      const mem = perDeviceVram[i] ?? { used: null, total: null };
+      let vram;
+      if (mem.total == null || devices.length === 1) {
+        vram = { ...aggregateVram };
+      } else {
+        let used = mem.used;
+        if ((used == null || used === 0) && own.length) {
+          used = own.reduce((sum, a) => sum + a.vramMB, 0);
+        }
+        const usedMB = Math.round(used || 0);
+        const totalMB = Math.round(mem.total);
+        vram = {
+          used: usedMB,
+          total: totalMB,
+          percentage: totalMB > 0 ? Math.round((usedMB / totalMB) * 100) : 0,
+          available: Math.max(0, totalMB - usedMB),
+        };
+      }
+      return {
+        index: d.index,
+        name: d.name,
+        uuid: d.uuid,
+        temperature: d.temperature,
+        usage: d.usage,
+        power: { draw: d.powerDraw, limit: d.powerLimit },
+        vram,
+        throttle: d.throttle,
+        processes: this._topProcesses(own),
+      };
+    });
   }
 
   /** Parse nvidia-smi Active / Not Active fields. */
@@ -485,11 +620,13 @@ export class SystemCollector {
     return lines
       .map((line) => {
         const parts = line.split(",").map((s) => s.trim());
-        // Format: pid,process_name,used_gpu_memory
+        // Format: pid,process_name,used_gpu_memory[,gpu_uuid]
+        const gpuUuid = parts[3] && /^GPU-/i.test(parts[3]) ? parts[3] : null;
         return {
           pid: parseInt(parts[0]) || 0,
           name: parts[1] || "unknown",
           vramMB: this._parseSmiNumber(parts[2]) || 0,
+          gpuUuid,
         };
       })
       .filter((a) => a.pid > 0);
@@ -1005,11 +1142,11 @@ export class SystemCollector {
   async _getRemoteGpu() {
     try {
       const cmd = [
-        "nvidia-smi --query-gpu=temperature.gpu,utilization.gpu,power.draw,power.limit,clocks.current.sm,clocks.max.sm,clocks_throttle_reasons.hw_thermal_slowdown,clocks_throttle_reasons.sw_thermal_slowdown,clocks_throttle_reasons.hw_slowdown,clocks_throttle_reasons.sw_power_cap --format=csv,noheader,nounits 2>/dev/null",
+        "nvidia-smi --query-gpu=temperature.gpu,utilization.gpu,power.draw,power.limit,clocks.current.sm,clocks.max.sm,clocks_throttle_reasons.hw_thermal_slowdown,clocks_throttle_reasons.sw_thermal_slowdown,clocks_throttle_reasons.hw_slowdown,clocks_throttle_reasons.sw_power_cap,index,name,uuid --format=csv,noheader,nounits 2>/dev/null",
         "echo '---'",
         "nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader,nounits 2>/dev/null",
         "echo '---'",
-        "nvidia-smi --query-compute-apps=pid,process_name,used_gpu_memory --format=csv,noheader,nounits 2>/dev/null",
+        "nvidia-smi --query-compute-apps=pid,process_name,used_gpu_memory,gpu_uuid --format=csv,noheader,nounits 2>/dev/null",
         "echo '---'",
         "grep -E 'MemTotal|MemAvailable' /proc/meminfo 2>/dev/null",
       ].join("; ");
@@ -1021,21 +1158,24 @@ export class SystemCollector {
       const computeOut = sections[2]?.trim() || "";
       const meminfoOut = sections[3]?.trim() || "";
 
-      const gpu = this._parseGpuLine(gpuOut);
+      const devices = this._parseGpuLines(gpuOut);
+      const gpu = this._aggregateGpuDevices(devices);
 
-      // Parse memory.used / memory.total from nvidia-smi (may be [N/A] on GB10)
-      let used = null;
-      let total = null;
-      const memLine = memFields.split("\n").filter(Boolean)[0] || "";
-      const memParts = memLine.split(",").map((s) => s.trim());
-      used = this._parseSmiNumber(memParts[0]);
-      total = this._parseSmiNumber(memParts[1]);
+      // Parse memory.used / memory.total from nvidia-smi, one line per GPU
+      // (may be [N/A] on GB10); the aggregate is the sum across cards.
+      const perDeviceVram = this._parseVramLines(memFields);
+      let { used, total } = this._sumVram(perDeviceVram);
 
       const apps = this._parseComputeApps(computeOut);
       this.nvidiaComputeAppsCache.clear();
       let computeSum = 0;
       for (const app of apps) {
-        this.nvidiaComputeAppsCache.set(app.pid, { name: app.name, vramMB: app.vramMB });
+        this.nvidiaComputeAppsCache.set(this._computeAppKey(app), {
+          pid: app.pid,
+          name: app.name,
+          vramMB: app.vramMB,
+          gpuUuid: app.gpuUuid ?? null,
+        });
         computeSum += app.vramMB;
       }
       if ((used == null || used === 0) && computeSum > 0) used = computeSum;
@@ -1065,20 +1205,20 @@ export class SystemCollector {
       // Rough system power estimate: GPU draw + 20W CX7/peripherals
       const systemDraw = Math.round(gpu.powerDraw + 20);
 
-      // Top 5 GPU processes by VRAM usage
-      const processes = Array.from(this.nvidiaComputeAppsCache.entries())
-        .map(([pid, info]) => ({ pid, name: info.name, vramMB: info.vramMB }))
-        .sort((a, b) => b.vramMB - a.vramMB)
-        .slice(0, 5);
+      // Top 5 GPU processes by VRAM usage (a PID spanning several GPUs is summed)
+      const cachedApps = this._cachedApps();
+      const processes = this._topProcesses(cachedApps);
+      const vram = { used: usedMB, total: totalMB, percentage, available: availableMB };
 
       return {
         temperature: gpu.temperature,
         usage: gpu.usage,
         power: { draw: gpu.powerDraw, limit: gpu.powerLimit, systemDraw },
-        vram: { used: usedMB, total: totalMB, percentage, available: availableMB },
+        vram,
         processes,
         throttle: gpu.throttle,
         nvErrNoMemory: await this._nvErrNoMemory(),
+        gpus: this._buildGpuDevices(devices, perDeviceVram, cachedApps, vram),
       };
     } catch (err) {
       console.error(`[SystemCollector] Remote GPU error for ${this.spark.id}:`, err.message);
@@ -1496,10 +1636,7 @@ export class SystemCollector {
         coresParsed = Number.isInteger(n) && n > 0 ? n : null;
       }
 
-      const smiLine = smiOut.split("\n").find(Boolean) || "";
-      const smiParts = smiLine.split(",").map((s) => s.trim());
-      const gpuChip = smiParts[0] || null;
-      const cudaDriver = smiParts[1] || null;
+      const { gpuChip, gpuCount, cudaDriver } = this._describeGpus(smiOut);
 
       const modelMatch = cpuinfo.match(/model name\s*:\s*(.+)/i);
       const cpuModel = modelMatch ? modelMatch[1].trim() : null;
@@ -1516,12 +1653,37 @@ export class SystemCollector {
         cpuCores,
         totalMemoryGB,
         gpuChip,
+        gpuCount,
         cudaDriver,
         storageModel: null,
       };
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Header label from `--query-gpu=name,driver_version` (one line per card):
+   * one card → its name; identical cards → "2× NVIDIA GeForce RTX 5080";
+   * mixed cards → "NVIDIA GeForce RTX 5080 + RTX 5060 Ti" (vendor prefix once).
+   */
+  _describeGpus(smiOut) {
+    const rows = String(smiOut ?? "")
+      .split("\n")
+      .map((line) => line.split(",").map((s) => s.trim()))
+      .filter((parts) => parts[0]);
+    if (!rows.length) return { gpuChip: null, gpuCount: 0, cudaDriver: null };
+    const names = rows.map((r) => r[0]);
+    const cudaDriver = rows[0][1] || null;
+    if (names.length === 1) return { gpuChip: names[0], gpuCount: 1, cudaDriver };
+    if (names.every((n) => n === names[0])) {
+      return { gpuChip: `${names.length}× ${names[0]}`, gpuCount: names.length, cudaDriver };
+    }
+    const prefix = /^NVIDIA\s+(GeForce\s+|RTX\s+(?=[A-Z]))?/i;
+    const label = names
+      .map((n, i) => (i === 0 ? n : n.replace(prefix, "")))
+      .join(" + ");
+    return { gpuChip: label, gpuCount: names.length, cudaDriver };
   }
 
   /**
@@ -1636,6 +1798,7 @@ export class SystemCollector {
       processes: [],
       throttle: this._defaultThrottle(),
       nvErrNoMemory: 0,
+      gpus: [],
     };
   }
 

@@ -168,6 +168,8 @@ export interface HardwareInfo {
   cpuCores: number | null;
   totalMemoryGB: number | null;
   gpuChip: string | null;
+  /** Number of physical GPUs behind `gpuChip` (absent on DGX Spark units). */
+  gpuCount?: number;
   cudaDriver: string | null;
   storageModel: string | null;
 }
@@ -213,6 +215,26 @@ export interface GpuMetrics {
   throttle?: GpuThrottle | null;
   /** Kernel NVRM NV_ERR_NO_MEMORY count since boot (cached ~60s). */
   nvErrNoMemory?: number;
+  /**
+   * Per-physical-GPU breakdown for multi-card hosts. The fields above stay the
+   * fleet-wide aggregate (hottest / busiest card, summed power and VRAM), so a
+   * one-GPU DGX Spark has exactly one entry here mirroring them.
+   */
+  gpus?: GpuDevice[];
+}
+
+/** One physical GPU as reported by nvidia-smi (`index,name,uuid`). */
+export interface GpuDevice {
+  index: number;
+  name: string | null;
+  uuid: string | null;
+  temperature: number;
+  usage: number;
+  power: { draw: number; limit: number };
+  vram: { used: number; total: number; percentage: number; available: number };
+  throttle?: GpuThrottle | null;
+  /** Processes holding memory on this card only. */
+  processes?: Array<{ pid: number; name: string; vramMB: number }>;
 }
 
 // ─── CPU metrics ─────────────────────────────────────────
