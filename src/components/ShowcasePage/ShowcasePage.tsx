@@ -16,6 +16,7 @@ import type {
 import { isLlmMonitoringEnabled } from "../../api/sparkRole";
 import { BoltIcon } from "../ui/icons";
 import { TerminalCard } from "./TerminalCard";
+import { LiveRequestsPanel, type LiveCounts } from "./LiveRequestsPanel";
 import {
   PROMPT_TYPES,
   pickShowcasePrompts,
@@ -182,6 +183,16 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
+function fmtTok(n: number): string {
+  return n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
+}
+
+function fmtWait(s: number): string {
+  if (s < 60) return `${Math.round(s)}s`;
+  const m = Math.floor(s / 60);
+  return `${m}m ${Math.round(s - m * 60).toString().padStart(2, "0")}s`;
+}
+
 export function ShowcasePage({ sparkId }: ShowcasePageProps) {
   const [spark, setSpark] = useState<SparkConfig | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -189,7 +200,7 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
   const [prompts, setPrompts] = useState<string[]>(() =>
     pickShowcasePrompts(DEFAULT_PROMPT_TYPE, 4)
   );
-  const [terminalCount, setTerminalCount] = useState(4);
+  const [terminalCount, setTerminalCount] = useState(8);   // F723: eight lanes on the 3090s/agents — default to 8 windows
   const [port, setPort] = useState(8888);
   const [modelId, setModelId] = useState<string | null>(() => readModelQuery());
   const [maxTokens, setMaxTokens] = useState(DEFAULT_MAX_TOKENS);
@@ -207,6 +218,64 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
   const [aggregatePeakTps, setAggregatePeakTps] = useState(0);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [liveOpen, setLiveOpen] = useState(false);
+  const [liveCounts, setLiveCounts] = useState<LiveCounts>({ prefill: 0, output: 0, running: 0 });
+  // The prefill tok/s figure is a 60 s trailing window kept by the tap; it is only a real number once the
+  // tap has been up 60 s. Pin the tap's start instant (from its reported uptime) and tick once a second so
+  // the tile can count down to the moment the window is full, independent of the poll cadence.
+  const tapStartedAtRef = useRef<number | null>(null); // = the instant the window started filling
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    if (liveCounts.prefillWindowS == null) { tapStartedAtRef.current = null; return; }
+    const est = Date.now() - liveCounts.prefillWindowS * 1000;
+    if (tapStartedAtRef.current == null || Math.abs(tapStartedAtRef.current - est) > 3000) tapStartedAtRef.current = est;
+  }, [liveCounts.prefillWindowS]);
+  useEffect(() => {
+    if (!liveOpen) return;
+    const id = window.setInterval(() => setNowTick(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [liveOpen]);
+  const prefillWindowSecsLeft = tapStartedAtRef.current == null ? 0 : Math.max(0, Math.ceil(60 - (nowTick - tapStartedAtRef.current) / 1000));
+  const [engine, setEngine] = useState<{
+    generationTps?: number | null;
+    prefillTps?: number | null;
+    requestsRunning?: number | null;
+    requestsWaiting?: number | null;
+    kvCacheUsage?: number | null;
+    prefixCacheHitRate?: number | null;
+  } | null>(null);
+  // Engine-side numbers for the model header while Live is ON (same snapshot the LLM panel uses).
+  useEffect(() => {
+    if (!liveOpen || !sparkId) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const tick = async () => {
+      if (cancelled) return;
+      try {
+        const snap = await fetchSparkMetrics(sparkId);
+        const llmList = Array.isArray(snap?.metrics?.llm) ? snap.metrics.llm : [];
+        const llm = llmList.find((m) => m?.available && m?.modelId) || llmList[0];
+        if (!cancelled && llm) {
+          setEngine({
+            generationTps: llm.generationTps,
+            prefillTps: llm.prefillTps,
+            requestsRunning: llm.requestsRunning,
+            requestsWaiting: llm.requestsWaiting,
+            kvCacheUsage: llm.kvCacheUsage,
+            prefixCacheHitRate: llm.prefixCacheHitRate,
+          });
+        }
+      } catch {
+        /* keep last */
+      }
+      timer = setTimeout(tick, 2000);
+    };
+    void tick();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [liveOpen, sparkId]);
   const [history, setHistory] = useState<ShowcaseHistorySummary[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [viewingHistory, setViewingHistory] = useState(false);
@@ -989,6 +1058,14 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
                 </button>
                 <button
                   type="button"
+                  className={`showcase-btn showcase-btn--ghost${liveOpen ? " is-active" : ""}`}
+                  onClick={() => setLiveOpen((o) => !o)}
+                  title="Show the actual requests hitting the engine — every agent and app, IN and OUT — in the terminals above instead of the sample prompts"
+                >
+                  {liveOpen ? "Live: ON" : "Live requests"}
+                </button>
+                <button
+                  type="button"
                   className="showcase-btn showcase-btn--ghost"
                   onClick={() => setBarVisible(false)}
                   title="Hide controls"
@@ -1121,9 +1198,87 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
       )}
 
       {modelId ? (
-        <header className="showcase-model-header" title={modelId}>
-          <span className="showcase-model-header__label">Model</span>
-          <h1 className="showcase-model-header__name">{modelId}</h1>
+        <header className={`showcase-model-header${liveOpen ? " showcase-model-header--live" : ""}`} title={modelId}>
+          {liveOpen && (
+            <div className="live-stats live-stats--left" aria-label="engine throughput">
+              <div className={`live-stat${(liveCounts.prefillTokS60 ?? 0) > 0 ? " is-hot" : ""}`} title="prompt tokens read by the engine over the last 60 s, ÷ 60 — from the tap's usage records (vLLM's own gauge only ticks when a request finishes prefill, so it reads 0 between them). While the tap's 60 s window is still filling the tile counts down to the first usable figure.">
+                {(() => {
+                  const secsLeft = prefillWindowSecsLeft;
+                  if (liveCounts.prefillTokS60 == null) {
+                    // no tap data at all — fall back to the engine's own (instantaneous) gauge
+                    return (
+                      <>
+                        <span className="live-stat__n">{(engine?.prefillTps ?? 0) > 0 ? Math.round(engine!.prefillTps!).toLocaleString() : "—"}</span>
+                        <span className="live-stat__k">prefill tok/s · engine gauge</span>
+                      </>
+                    );
+                  }
+                  if (secsLeft > 0) {
+                    return (
+                      <>
+                        <span className="live-stat__n">{secsLeft}s</span>
+                        <span className="live-stat__k">prefill tok/s · ready in</span>
+                      </>
+                    );
+                  }
+                  return (
+                    <>
+                      <span className="live-stat__n">{Math.round(liveCounts.prefillTokS60).toLocaleString()}</span>
+                      <span className="live-stat__k">prefill tok/s · 60 s</span>
+                    </>
+                  );
+                })()}
+              </div>
+              {liveCounts.prefillTokS60 != null && prefillWindowSecsLeft === 0 && (
+                <div className={`live-stat${liveCounts.prefill ? " is-hot" : ""}`} title={`requests the engine is reading right now (same count as the yellow tile) and the prompt tokens they add up to; ${liveCounts.prefillReq60 ?? 0} prefill${liveCounts.prefillReq60 === 1 ? "" : "s"} finished inside the last 60 s — those are what the tok/s figure is built from`}>
+                  <span className="live-stat__n">{liveCounts.prefill}</span>
+                  <span className="live-stat__k">prefills · {fmtTok(liveCounts.prefillTokens ?? 0)} tok</span>
+                </div>
+              )}
+              <div className={`live-stat live-stat--green${(engine?.generationTps ?? 0) > 0 ? " is-hot" : ""}`}>
+                <span className="live-stat__n">{engine?.generationTps != null ? Math.round(engine.generationTps).toLocaleString() : "—"}</span>
+                <span className="live-stat__k">output tok/s</span>
+              </div>
+              <div className={`live-stat live-stat--total${(engine?.requestsRunning ?? liveCounts.running) ? " is-hot" : ""}`}>
+                <span className="live-stat__n">{engine?.requestsRunning ?? liveCounts.running}</span>
+                <span className="live-stat__k">sessions running</span>
+              </div>
+            </div>
+          )}
+          <div className="showcase-model-header__center">
+            <span className="showcase-model-header__label">Model</span>
+            <h1 className="showcase-model-header__name">{modelId}</h1>
+          </div>
+          {liveOpen && (
+            <div className="live-stats live-stats--right" aria-label="engine state">
+              <div className={`live-stat live-stat--red${(engine?.requestsWaiting ?? 0) > 0 ? " is-hot" : ""}`}>
+                <span className="live-stat__n">{engine?.requestsWaiting ?? "—"}</span>
+                <span className="live-stat__k">waiting</span>
+              </div>
+              {(engine?.requestsWaiting ?? 0) > 0 && liveCounts.queuedAvgWaitS != null && (
+                <div className="live-stat live-stat--red is-hot" title="mean time the queued requests have been waiting for an engine slot (from the tap's arrival times) — only shown while there is a queue">
+                  <span className="live-stat__n">{fmtWait(liveCounts.queuedAvgWaitS)}</span>
+                  <span className="live-stat__k">avg wait</span>
+                </div>
+              )}
+              <div className={`live-stat live-stat--yellow${liveCounts.prefill ? " is-hot" : ""}`}>
+                <span className="live-stat__n">{liveCounts.prefill}</span>
+                <span className="live-stat__k">in prefill</span>
+              </div>
+              <div className={`live-stat live-stat--green${liveCounts.output ? " is-hot" : ""}`}>
+                <span className="live-stat__n">{liveCounts.output}</span>
+                <span className="live-stat__k">generating</span>
+              </div>
+              <div className={`live-stat live-stat--total${(engine?.kvCacheUsage ?? 0) > 0.5 ? " is-hot" : ""}`}>
+                <span className="live-stat__n">{engine?.kvCacheUsage != null ? `${Math.round(engine.kvCacheUsage * 100)}%` : "—"}</span>
+                <span className="live-stat__k">kv cache</span>
+              </div>
+              <div className={`live-stat live-stat--total${(engine?.prefixCacheHitRate ?? 0) > 0 ? " is-hot" : ""}`}>
+                <span className="live-stat__n">{engine?.prefixCacheHitRate != null ? `${Math.round(engine.prefixCacheHitRate * 100)}%` : "—"}</span>
+                <span className="live-stat__k">prefix hit</span>
+              </div>
+            </div>
+          )}
         </header>
       ) : null}
 
@@ -1202,11 +1357,14 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
         </div>
       )}
 
+      {liveOpen && <LiveRequestsPanel sparkId={sparkId} terminalCount={terminalCount} onCounts={setLiveCounts} engineWaiting={engine?.requestsWaiting ?? null} />}
+
       <div
         className="showcase-grid"
         style={{
           ["--showcase-cols" as string]: String(gridCols),
           ["--showcase-rows" as string]: String(gridRows),
+          display: liveOpen ? "none" : undefined,
         }}
       >
         {displayStreams.map((s) => (

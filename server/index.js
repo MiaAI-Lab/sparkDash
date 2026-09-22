@@ -1353,6 +1353,72 @@ app.get("/api/sparks/:id/llm/showcase", (req, res) => {
   });
 });
 
+/** Live engine traffic (contrib/glm-tap): per-Spark `tapPort` in sparks.json (default 8890), and an
+ *  optional `config/live-clients.json` = { "10.0.0.5": "workstation · alice", ... } to label client IPs. */
+const LIVE_TAP_DEFAULT_PORT = Number(process.env.SPARKDASH_TAP_PORT) || 8890;
+let _liveClientNamesCache = { at: 0, map: {} };
+function liveClientNames() {
+  if (Date.now() - _liveClientNamesCache.at < 30_000) return _liveClientNamesCache.map;
+  let map = {};
+  try {
+    const p = path.join(process.cwd(), "config", "live-clients.json");
+    if (fs.existsSync(p)) map = JSON.parse(fs.readFileSync(p, "utf8")) || {};
+  } catch {
+    map = {};
+  }
+  _liveClientNamesCache = { at: Date.now(), map };
+  return map;
+}
+
+/**
+ * Live engine traffic — what the model is ACTUALLY being asked right now (F717, 2026-09-19).
+ * Source: the glm-tap relay on the Spark head (`~/bin/glm-tap.py`, JSON on :8890), which sits in
+ * front of the engine's :8888 and records every real request from every consumer (agents + apps),
+ * not the showcase's sample prompts. Returns { available:false } when the Spark has no tap.
+ */
+app.get("/api/sparks/:id/llm/live-requests", async (req, res) => {
+  const spark = registry.getSpark(req.params.id);
+  if (!spark) return res.status(404).json({ error: "Spark not found" });
+  const host = spark.lanIp || spark.ssh?.host;
+  if (!host) return res.json({ available: false, reason: "no host address" });
+  const tapPort = Number(spark.tapPort) || LIVE_TAP_DEFAULT_PORT;
+  const n = Math.min(200, Math.max(1, Number(req.query.n) || 60));
+  const tail = Math.min(24000, Math.max(200, Number(req.query.tail) || 4000));
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 4000);
+  try {
+    const r = await fetch(`http://${host}:${tapPort}/recent?n=${n}&tail=${tail}`, { signal: ctrl.signal });
+    if (!r.ok) return res.json({ available: false, reason: `tap http ${r.status}` });
+    const body = await r.json();
+    res.json({ available: true, host, tapPort, clientNames: liveClientNames(), ...body });
+  } catch (err) {
+    res.json({ available: false, reason: err?.name === "AbortError" ? "tap timeout" : String(err?.message || err) });
+  } finally {
+    clearTimeout(timer);
+  }
+});
+
+/** One live request in full — its carried conversation (history) + the current output (F720). */
+app.get("/api/sparks/:id/llm/live-requests/:reqId", async (req, res) => {
+  const spark = registry.getSpark(req.params.id);
+  if (!spark) return res.status(404).json({ error: "Spark not found" });
+  const host = spark.lanIp || spark.ssh?.host;
+  const tapPort = Number(spark.tapPort) || LIVE_TAP_DEFAULT_PORT;
+  const reqId = Number(req.params.reqId);
+  if (!host || !Number.isFinite(reqId)) return res.status(400).json({ error: "bad request" });
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 4000);
+  try {
+    const r = await fetch(`http://${host}:${tapPort}/req/${reqId}`, { signal: ctrl.signal });
+    if (!r.ok) return res.status(502).json({ error: `tap http ${r.status}` });
+    res.json(await r.json());
+  } catch (err) {
+    res.status(502).json({ error: String(err?.message || err) });
+  } finally {
+    clearTimeout(timer);
+  }
+});
+
 /** Clear finished showcase history for a Spark. Does not cancel a running session. */
 app.delete("/api/sparks/:id/llm/showcase", (req, res) => {
   const spark = registry.getSpark(req.params.id);
