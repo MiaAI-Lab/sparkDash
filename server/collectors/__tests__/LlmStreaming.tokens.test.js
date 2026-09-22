@@ -86,6 +86,47 @@ test("runStreamingRequest reaches an OpenAI SSE endpoint", async () => {
   }
 });
 
+test("runStreamingRequest parses LF and CRLF events across HTTP chunks", async () => {
+  for (const ending of ["\n", "\r\n"]) {
+    const deltas = [];
+    const server = http.createServer(async (req, res) => {
+      req.resume();
+      res.writeHead(200, { "Content-Type": "text/event-stream" });
+      const events = [
+        { choices: [{ delta: { content: "hello " } }] },
+        { choices: [{ delta: { content: "world" } }] },
+        { usage: { prompt_tokens: 7, completion_tokens: 5 }, choices: [] },
+      ];
+      for (const event of events) {
+        const frame = `data: ${JSON.stringify(event)}${ending}${ending}`;
+        // Split the blank-line delimiter, including between CR and LF.
+        res.write(frame.slice(0, -1));
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        res.write(frame.slice(-1));
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      res.end(`data: [DONE]${ending}${ending}`);
+    });
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const result = await runStreamingRequest(
+        `http://127.0.0.1:${server.address().port}/v1/chat/completions`,
+        { stream: true }, AbortSignal.timeout(5_000),
+        { collectContent: true, onDelta: (delta) => deltas.push(delta.text) }
+      );
+      assert.equal(result.error, null);
+      assert.equal(result.completionTokens, 5, JSON.stringify(ending));
+      assert.equal(result.prefillTokens, 7);
+      assert.equal(result.content, "hello world");
+      assert.deepEqual(deltas, ["hello ", "world"]);
+      assert.ok(result.decodeTps > 0);
+    } finally {
+      server.closeAllConnections();
+      await new Promise((resolve) => server.close(resolve));
+    }
+  }
+});
+
 test("shared LLM dispatcher cleanup is idempotent", async () => {
   const first = closeLlmStreamAgent();
   const second = closeLlmStreamAgent();
