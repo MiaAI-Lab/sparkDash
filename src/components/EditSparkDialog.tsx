@@ -183,6 +183,7 @@ export function EditSparkDialog({
         Boolean(config.comfyMonitoring) !== Boolean(savedConfig.comfyMonitoring) ||
         Boolean(config.hermesMonitoring) !== Boolean(savedConfig.hermesMonitoring) ||
         Boolean(config.tailscaleMonitoring) !== Boolean(savedConfig.tailscaleMonitoring) ||
+        Boolean(config.clockControlEnabled) !== Boolean(savedConfig.clockControlEnabled) ||
         (config.comfyPort ?? 8188) !== (savedConfig.comfyPort ?? 8188);
 
       const result = formDirty
@@ -239,6 +240,7 @@ export function EditSparkDialog({
         })(),
         hermesMonitoring: Boolean(config.hermesMonitoring),
         tailscaleMonitoring: Boolean(config.tailscaleMonitoring),
+        clockControlEnabled: Boolean(config.clockControlEnabled),
         ssh: {
           host: config.ssh.host || config.lanIp,
           user: config.ssh.user,
@@ -515,6 +517,31 @@ export function EditSparkDialog({
                   </span>
                 </label>
               </div>
+
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                <label className="flex min-w-0 items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(config.clockControlEnabled)}
+                    onChange={(e) => update({ clockControlEnabled: e.target.checked })}
+                    className="rounded border-border"
+                  />
+                  <span>Allow clock control</span>
+                  <span
+                    className="inline-flex shrink-0 cursor-help text-muted hover:text-text"
+                    title="When enabled, the Clock Cap rows in the GPU/CPU panels become editable: set a CPU or GPU clock cap within the hardware range, apply it live and/or persist it to the boot unit. Requires a one-time helper install on the host (scripts/install-clock-helper.sh). Default off."
+                    aria-label="Allow setting CPU and GPU clock caps from the dashboard."
+                  >
+                    <InfoIcon className="h-3.5 w-3.5" />
+                  </span>
+                </label>
+              </div>
+              <p className="mt-1 text-[10px] text-muted">
+                One-time setup on the unit: run{" "}
+                <code className="rounded bg-surface-elevated px-1">scripts/install-clock-helper.sh</code>{" "}
+                (installs a root helper plus a scoped passwordless-sudo rule). No password is
+                stored or asked for in sparkDash.
+              </p>
 
               {role === "worker" && (
                 <div className="space-y-3">
