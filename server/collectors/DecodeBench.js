@@ -33,6 +33,7 @@ import {
   normalizeDecodeBenchType,
   DECODE_BENCH_DEFAULT_TYPE,
   DECODE_BENCH_TYPES,
+  DECODE_CODE_WARMUP_PROMPT,
 } from "../../src/shared/llmPrompts.js";
 import { formatLlmBaseUrl } from "../../src/shared/llmTarget.js";
 
@@ -123,7 +124,9 @@ function decodeRequestBody(modelId, prompt, maxTokens) {
  */
 async function warmupDecode({ baseUrl, modelId, abortSignal, apiKey, debug = false, promptType = DECODE_BENCH_DEFAULT_TYPE }) {
   const url = `${baseUrl}/v1/chat/completions`;
-  const warmupPrompt = decodeBenchPromptForType(promptType);
+  const kind = normalizeDecodeBenchType(promptType);
+  const warmupPrompt =
+    kind === "code" ? DECODE_CODE_WARMUP_PROMPT : decodeBenchPromptForType(kind);
   const body = decodeRequestBody(modelId, warmupPrompt, WARMUP_MAX_TOKENS);
   const ctrl = new AbortController();
   const onParentAbort = () => ctrl.abort();

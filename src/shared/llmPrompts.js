@@ -55,17 +55,68 @@ export const DECODE_PROSE_PROMPT =
   "Write a detailed step-by-step explanation of how a hash map works, " +
   "including collision handling, resizing, and time complexity. Be thorough.";
 
-/** High-accept code: repeated identical-shape helpers (not an essay with `def`). */
-export const DECODE_CODE_PROMPT =
-  "Output only Python source code. No comments, no docstrings, no markdown fences. " +
-  "Write functions clamp_00 through clamp_49. Each function is exactly:\n" +
-  "def clamp_NN(x, lo=0, hi=1):\n" +
-  "    if x < lo:\n" +
-  "        return lo\n" +
-  "    if x > hi:\n" +
-  "        return hi\n" +
-  "    return x\n" +
-  "Change only the function name suffix (00, 01, … 49). One blank line between functions. No other text.";
+const CODE_TASK_TAIL =
+  "Output only Python source. No comments, no docstrings, no markdown fences. " +
+  "Then add tests and the helpers this needs. Keep writing code.";
+
+/**
+ * One real Python task per concurrent code stream. The name is the first line
+ * so the prompts do not share a prefix-cache block. Same language and similar
+ * length so a concurrency sweep compares batching, not unrelated workloads.
+ * @param {string} name
+ * @param {string} spec
+ */
+function codeTask(name, spec) {
+  return `${name}\n${spec}\n${CODE_TASK_TAIL}`;
+}
+
+/** Distinct code workloads. C1 is the first; higher concurrency takes the next tasks. */
+export const DECODE_CODE_TASKS = [
+  codeTask("binary_search", "def binary_search(nums, target) -> int: index of target in a sorted list, or -1."),
+  codeTask("merge_sort", "def merge_sort(nums) -> list: stable sort of a list of ints, returning a new list."),
+  codeTask("lru_cache", "class LRUCache: get(key) and put(key, value) with a fixed capacity, evicting the least recently used."),
+  codeTask("token_bucket", "class TokenBucket: allow(n) consumes n tokens refilled at a fixed rate, else returns False."),
+  codeTask("ring_buffer", "class RingBuffer: push and pop over a fixed-capacity array, raising on overflow and underflow."),
+  codeTask("dijkstra", "def dijkstra(graph, src) -> dict: shortest path weights from src on a non-negative weighted graph."),
+  codeTask("edit_distance", "def edit_distance(a, b) -> int: Levenshtein distance between two strings."),
+  codeTask("semver_cmp", "def semver_cmp(a, b) -> int: compare dotted numeric versions, negative if a < b."),
+  codeTask("url_parse", "def url_parse(url) -> dict: scheme, host, port, path, and query pairs. No extra libraries."),
+  codeTask("json_pointer", "def json_pointer(doc, pointer) -> object: follow an RFC 6901 pointer, or None if missing."),
+  codeTask("glob_match", "def glob_match(pattern, text) -> bool: * and ? wildcards, no character classes."),
+  codeTask("csv_parse", "def csv_parse(text) -> list: rows of fields, honoring double-quoted commas and escaped quotes."),
+  codeTask("rle", "def rle_encode(s) -> str and rle_decode(s) -> str: run-length encoding of single-byte runs."),
+  codeTask("top_k", "def top_k(nums, k) -> list: the k largest ints, unordered, using a bounded heap."),
+  codeTask("interval_merge", "def merge_intervals(spans) -> list: merge overlapping [start, end] pairs."),
+  codeTask("topo_sort", "def topo_sort(nodes, edges) -> list: a valid order, or None if the graph has a cycle."),
+  codeTask("bloom_filter", "class BloomFilter: add(item) and might_contain(item) with two hash functions over a bit array."),
+  codeTask("moving_average", "class MovingAverage: next(x) returns the mean of the last window values."),
+  codeTask("retry_backoff", "def backoff_delays(attempts, base_ms, cap_ms) -> list: exponential delays clipped at the cap."),
+  codeTask("base64_encode", "def b64_encode(data) -> str and b64_decode(text) -> bytes: standard base64, no libraries."),
+  codeTask("expr_eval", "def eval_expr(text) -> int: evaluate non-negative ints with + - * / and parentheses."),
+  codeTask("histogram_percentile", "def percentile(samples, p) -> float: nearest-rank percentile of a list of numbers."),
+  codeTask("redact_secrets", "def redact(text) -> str: replace AWS-looking keys and password= values with ***. Keep the rest."),
+  codeTask("chunk_text", "def chunk_text(text, size) -> list: split into chunks of at most size chars, breaking on spaces when possible."),
+  codeTask("route_match", "def route_match(pattern, path) -> dict or None: /users/:id style params."),
+  codeTask("crc32", "def crc32(data) -> int: IEEE CRC-32 of a bytes object."),
+  codeTask("fixed_window", "class FixedWindow: allow() is True up to limit events per window_s, else False."),
+  codeTask("diff_lines", "def diff_lines(a, b) -> list: line diff as equal/delete/insert ops using a simple LCS."),
+  codeTask("infix_postfix", "def infix_to_postfix(tokens) -> list: shunting-yard for + - * / and parentheses."),
+  codeTask("consistent_hash", "class ConsistentHash: add_node, remove_node, and get_node(key) on a ring of virtual nodes."),
+  codeTask("utf8_decode", "def utf8_decode(data) -> str: decode UTF-8 bytes, replacing invalid sequences with U+FFFD."),
+  codeTask("dependency_closure", "def closure(root, deps) -> list: packages reachable from root, each name once, in visit order."),
+];
+
+/** C1 code prompt. Concurrent waves use the rest of DECODE_CODE_TASKS. */
+export const DECODE_CODE_PROMPT = DECODE_CODE_TASKS[0];
+
+/**
+ * JIT warmup for the code type. Not one of the measured tasks, so a concurrent
+ * wave does not inherit a prefix-cache hit on stream 1.
+ */
+export const DECODE_CODE_WARMUP_PROMPT = codeTask(
+  "warmup_noop",
+  "def warmup_noop(x): return x unchanged."
+);
 
 /**
  * JSON/YAML-ish catalog (Showcase structural #0). Labels an output shape only —
@@ -98,7 +149,7 @@ export const DECODE_BENCH_TYPE_META = [
   {
     id: "code",
     label: "Code",
-    hint: "clamp_00…clamp_49 Python helpers — code-shaped, no comments",
+    hint: "Distinct Python tasks per stream — different prefixes, no comments",
   },
   {
     id: "json",
@@ -178,15 +229,35 @@ export function pickShowcasePrompts(type, count) {
 }
 
 /**
- * Decode-bench prompts for a workload type. Concurrent streams get a unique
- * suffix so they do not share a prefix-cache block; C1 is the exact prompt.
+ * Concurrent code streams are different tasks, each starting with its own name
+ * so they do not share a prefix. Past the catalog, a leading stream id keeps
+ * the next copy from matching the first.
+ * @param {number} n
+ * @returns {string[]}
+ */
+function pickDecodeCodePrompts(n) {
+  const out = [];
+  const size = DECODE_CODE_TASKS.length;
+  for (let i = 0; i < n; i++) {
+    const task = DECODE_CODE_TASKS[i % size];
+    const cycle = Math.floor(i / size);
+    out.push(cycle === 0 ? task : `[stream ${i + 1}]\n${task}`);
+  }
+  return out;
+}
+
+/**
+ * Decode-bench prompts for a workload type. Code uses one real task per stream.
+ * Other types share one prompt; concurrent streams get a unique suffix so they
+ * do not share a prefix-cache block. C1 is the exact prompt.
  * @param {number} count
  * @param {unknown} [type]
  * @returns {string[]}
  */
 export function pickDecodeBenchPrompts(count, type) {
-  const base = decodeBenchPromptForType(type);
   const n = Math.max(1, Math.floor(count));
+  if (normalizeDecodeBenchType(type) === "code") return pickDecodeCodePrompts(n);
+  const base = decodeBenchPromptForType(type);
   if (n <= 1) return [base];
   const out = [];
   for (let i = 0; i < n; i++) {

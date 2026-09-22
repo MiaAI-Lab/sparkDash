@@ -29,6 +29,13 @@ Format: version sections are listed newest first.
 
 ---
 
+## [1.8.7] — 2026-09-22
+
+### Changed
+- **Decode bench code concurrency** — each concurrent code stream is a different Python task (binary search, LRU, …), starting with its own name so the prompts do not share a prefix. The code warmup is a separate `warmup_noop` prompt, so stream 1 is not a cache hit of the warmup. Concurrency 1 is `binary_search`.
+
+---
+
 ## [1.8.6] — 2026-09-01
 
 ### Added
