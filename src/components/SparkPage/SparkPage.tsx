@@ -11,6 +11,7 @@ import { NetworkPanel } from "./NetworkPanel";
 import { TailscalePanel } from "./TailscalePanel";
 import { LlmPanel } from "./LlmPanel";
 import { ComfyPanel } from "./ComfyPanel";
+import { FabricPanel } from "./FabricPanel";
 import { ChevronDownIcon } from "../ui/icons";
 
 interface SparkPageProps {
@@ -116,6 +117,20 @@ export function SparkPage({
       writeSectionOpen(SECTION_OPEN_KEYS.services, next);
       return next;
     });
+  }, []);
+
+  const collapseAll = useCallback(() => {
+    setResourcesOpen(false);
+    setServicesOpen(false);
+    writeSectionOpen(SECTION_OPEN_KEYS.resources, false);
+    writeSectionOpen(SECTION_OPEN_KEYS.services, false);
+  }, []);
+
+  const expandAll = useCallback(() => {
+    setResourcesOpen(true);
+    setServicesOpen(true);
+    writeSectionOpen(SECTION_OPEN_KEYS.resources, true);
+    writeSectionOpen(SECTION_OPEN_KEYS.services, true);
   }, []);
 
   // Sync when spark data changes (WS push)
@@ -229,6 +244,22 @@ export function SparkPage({
         onEdit={onEdit}
         className="flex flex-wrap items-center justify-end gap-2 px-1 py-1 sm:hidden"
       />
+      <div className="flex flex-wrap items-center justify-end gap-2 px-1">
+        <button
+          type="button"
+          onClick={collapseAll}
+          className="rounded border border-accent px-3 py-1 text-xs text-accent hover:bg-accent/10"
+        >
+          Collapse all
+        </button>
+        <button
+          type="button"
+          onClick={expandAll}
+          className="rounded border border-accent px-3 py-1 text-xs text-accent hover:bg-accent/10"
+        >
+          Expand all
+        </button>
+      </div>
       <div className="spark-page grid grid-cols-1 md:grid-cols-2" style={{ gap: "var(--density-page-gap)" }}>
         <SectionHeading
           title="Resources"
@@ -391,6 +422,7 @@ export function SparkPage({
               ))}
           </>
         )}
+        <FabricPanel note={(spark as { fabricNote?: string }).fabricNote ?? null} />
       </div>
     </div>
   );
