@@ -29,6 +29,13 @@ Format: version sections are listed newest first.
 
 ---
 
+## [1.8.8] — 2026-09-22
+
+### Fixed
+- **SGLang overview tok/s stuck at 0** — `generation_tokens_total` on current SGLang builds only moves when a request finishes, so the live rate was 0 for the whole decode and then one spiked poll. Overview now uses `gen_throughput` while a request is running.
+
+---
+
 ## [1.8.7] — 2026-09-22
 
 ### Changed

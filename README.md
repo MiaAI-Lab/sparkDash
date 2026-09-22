@@ -51,8 +51,8 @@ It also supports **non-Spark units**: any Linux machine with an NVIDIA GPU (e.g.
 
 ## Latest version changelog
 
-### Version 1.8.7 — real concurrent code bench
-- **Decode bench Code** runs a different Python task on each concurrent stream (binary search, LRU, and so on). Each task starts with its own name, so the streams do not share a prefix cache. Concurrency 1 is binary search. Warmup uses a separate `warmup_noop` prompt.
+### Version 1.8.8 — SGLang live tok/s
+- **Overview tok/s on SGLang** follows `gen_throughput` while a request is running. The completion counter on current builds only moves when the request finishes, so the card stayed at 0 for the whole decode.
 
 Full history: [CHANGELOG.md](./CHANGELOG.md)
 

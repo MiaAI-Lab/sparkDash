@@ -527,6 +527,52 @@ test("_applySglangMetrics: cached_tokens_total vs prompt_tokens_total", () => {
   assert.equal(probe.cachedPrefillTps, 20); // (80-40)/2
 });
 
+test("SGLang gen_throughput is the live rate while generation_tokens_total is flat", () => {
+  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 30000);
+  probe.lastTokenCounts = { input: 100, output: 2924 };
+  probe._sglangTokenSource = "prometheus";
+  probe._applySglangMetrics(
+    [
+      "sglang:generation_tokens_total 2924",
+      "sglang:prompt_tokens_total 100",
+      "sglang:num_running_reqs 1",
+      'sglang:gen_throughput{tp_rank="0"} 36.22',
+      'sglang:gen_throughput{tp_rank="1"} 36.22',
+    ].join("\n") + "\n",
+    2
+  );
+  assert.equal(probe.generationTps, 36.22);
+
+  probe._applySglangMetrics(
+    [
+      "sglang:generation_tokens_total 3324",
+      "sglang:prompt_tokens_total 100",
+      "sglang:num_running_reqs 0",
+      "sglang:gen_throughput 0",
+    ].join("\n") + "\n",
+    2
+  );
+  assert.equal(probe.generationTps, 0);
+});
+
+test("SGLang uses /v1/loads gen_throughput when the Prometheus gauge is absent", () => {
+  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 30000);
+  probe.lastTokenCounts = { input: 10, output: 10 };
+  probe._sglangTokenSource = "prometheus";
+  probe._sglangLoadGenTps = 41.5;
+  probe.requestsRunning = 1;
+  probe.slotsActive = 1;
+  probe._applySglangMetrics(
+    [
+      "sglang:generation_tokens_total 10",
+      "sglang:prompt_tokens_total 10",
+      "sglang:num_running_reqs 1",
+    ].join("\n") + "\n",
+    2
+  );
+  assert.equal(probe.generationTps, 41.5);
+});
+
 /**
  * SGLang server that exposes Prometheus counters but no total_* on /server_info
  * (issue #99 build), with /v1/loads as the load signal.
