@@ -237,3 +237,44 @@ test("a storage refresh from an earlier run cannot commit or clear a restarted r
   assert.equal(monitor._inflight.storage, false);
   monitor.stop();
 });
+
+// ─── snapshot contract: the opt-in clockControlEnabled flag (Gate 1) ────────
+// The UI gate (ClockCapControl via SparkPage) reads spark.clockControlEnabled
+// off the WS snapshot, so snapshot() MUST carry the flag — a component test
+// fed the prop directly cannot catch this class of break.
+
+test("snapshot carries clockControlEnabled: true when the Spark config opts in", () => {
+  const monitor = new SparkMonitor({ ...spark(), clockControlEnabled: true });
+  const snap = monitor.snapshot();
+  assert.equal(snap.clockControlEnabled, true);
+  monitor.stop();
+});
+
+test("snapshot carries clockControlEnabled: false for a default (opted-out) config", () => {
+  const monitor = new SparkMonitor(spark());
+  const snap = monitor.snapshot();
+  assert.equal(snap.clockControlEnabled, false);
+  monitor.stop();
+});
+
+test("snapshot coerces a truthy/non-boolean flag value like the registry normalizer", () => {
+  const monitor = new SparkMonitor({ ...spark(), clockControlEnabled: "yes" });
+  assert.equal(monitor.snapshot().clockControlEnabled, true);
+  const off = new SparkMonitor({ ...spark(), clockControlEnabled: 0 });
+  assert.equal(off.snapshot().clockControlEnabled, false);
+  monitor.stop();
+  off.stop();
+});
+
+test("snapshot rides next to the sibling opt-in flags (comfyMonitoring contract)", () => {
+  const monitor = new SparkMonitor({
+    ...spark(),
+    comfyMonitoring: true,
+    clockControlEnabled: true,
+  });
+  const snap = monitor.snapshot();
+  for (const key of ["comfyMonitoring", "clockControlEnabled", "tailscaleMonitoring"]) {
+    assert.ok(Object.prototype.hasOwnProperty.call(snap, key), `snapshot must carry ${key}`);
+  }
+  monitor.stop();
+});
