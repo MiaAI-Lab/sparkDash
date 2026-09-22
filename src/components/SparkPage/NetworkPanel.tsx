@@ -3,6 +3,7 @@ import type { NetworkMetrics } from "../../api/types";
 import { updateDisabledInterfaces } from "../../api/client";
 import { Panel } from "../ui/Panel";
 import { NetworkIcon, GearIcon } from "../ui/icons";
+import { useShareMode } from "../../hooks/shareMode";
 
 interface NetworkPanelProps {
   network: NetworkMetrics | null;
@@ -45,6 +46,7 @@ export function NetworkPanel({
 }: NetworkPanelProps) {
   const [showSettings, setShowSettings] = useState(false);
   const [saving, setSaving] = useState(false);
+  const shareMode = useShareMode();
 
   const interfaces = network?.interfaces ?? [];
   const primary = network?.primaryInterface ?? null;
@@ -81,18 +83,20 @@ export function NetworkPanel({
       icon={<NetworkIcon />}
       className="panel-network"
       actions={
-        <button
-          type="button"
-          title={showSettings ? "Done" : "Interface settings"}
-          onClick={() => setShowSettings(!showSettings)}
-          disabled={saving}
-          className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted transition-colors hover:bg-surface-hover disabled:opacity-50 ${
-            showSettings ? "bg-surface-elevated text-text" : ""
-          }`}
-        >
-          <GearIcon />
-          <span>{showSettings ? "Done" : "Settings"}</span>
-        </button>
+        !shareMode ? (
+          <button
+            type="button"
+            title={showSettings ? "Done" : "Interface settings"}
+            onClick={() => setShowSettings(!showSettings)}
+            disabled={saving}
+            className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted transition-colors hover:bg-surface-hover disabled:opacity-50 ${
+              showSettings ? "bg-surface-elevated text-text" : ""
+            }`}
+          >
+            <GearIcon />
+            <span>{showSettings ? "Done" : "Settings"}</span>
+          </button>
+        ) : undefined
       }
     >
       {showSettings ? (
@@ -153,7 +157,7 @@ export function NetworkPanel({
                   >
                     <span className={`flex items-center gap-2 text-xs ${isPrimary ? "text-text-strong" : "text-text"}`}>
                       {iface.ip ? (
-                        <span className="font-tabular truncate">{iface.ip}</span>
+                        <span className="font-tabular truncate">{shareMode ? "•••" : iface.ip}</span>
                       ) : (
                         <span className="truncate">{iface.name}</span>
                       )}

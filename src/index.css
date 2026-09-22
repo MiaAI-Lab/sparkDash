@@ -15,12 +15,12 @@
   --color-text-strong: #000000;
   --color-muted: #5a5748;
   --color-muted-strong: #3a3728;
-  --color-accent: #e8a830;
-  --color-accent-hover: #d49820;
+  --color-accent: #8a6508; /* AA on light surfaces (was #e8a830 @ 1.9:1) */
+  --color-accent-hover: #7a5a06;
   --color-accent-soft: rgba(232, 168, 48, 0.15);
-  --color-danger: #c44;
-  --color-warning: #c89020;
-  --color-success: #2d9d78;
+  --color-danger: #b03030; /* AA (was #c44 @ 4.2:1) */
+  --color-warning: #a34d00; /* AA, hue-distinct from accent (was #c89020 @ 2.5:1) */
+  --color-success: #1f7a5c; /* AA (was #2d9d78 @ 3.0:1) */
   --color-grid: rgba(0, 0, 0, 0.04);
 
   --toggle-track-off: #55514a;
@@ -89,12 +89,12 @@
   --color-text-strong: #000000;
   --color-muted: #5a5a5a;
   --color-muted-strong: #3a3a3a;
-  --color-accent: #e8a830;
-  --color-accent-hover: #d49820;
+  --color-accent: #8a6508; /* AA on light surfaces (was #e8a830 @ 1.9:1) */
+  --color-accent-hover: #7a5a06;
   --color-accent-soft: rgba(232, 168, 48, 0.15);
-  --color-danger: #c44;
-  --color-warning: #c89020;
-  --color-success: #2d9d78;
+  --color-danger: #b03030; /* AA (was #c44 @ 4.2:1) */
+  --color-warning: #a34d00; /* AA, hue-distinct from accent (was #c89020 @ 2.5:1) */
+  --color-success: #1f7a5c; /* AA (was #2d9d78 @ 3.0:1) */
   --color-grid: rgba(0, 0, 0, 0.04);
 
   --toggle-track-off: #505050;
@@ -220,6 +220,19 @@
 }
 
 /* ─── Base styles ─────────────────────────────────────── */
+/* Visually-hidden but screen-reader-available (I-6 text equivalents). */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 html {
   color-scheme: light;
   font-size: var(--density-root-font, 121%);

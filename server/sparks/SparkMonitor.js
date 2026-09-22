@@ -475,6 +475,7 @@ export class SparkMonitor {
             .filter((n) => Number.isInteger(n)),
       comfyMonitoring: comfyOn,
       comfyPort: this._comfyPort(),
+      maxNumSeqs: this.spark.maxNumSeqs ?? null,
       tailscaleMonitoring: tailscaleOn,
       hermes: this._hermes,
       hardware: this._hardwareSummary,

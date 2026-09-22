@@ -183,7 +183,8 @@ export function EditSparkDialog({
         Boolean(config.comfyMonitoring) !== Boolean(savedConfig.comfyMonitoring) ||
         Boolean(config.hermesMonitoring) !== Boolean(savedConfig.hermesMonitoring) ||
         Boolean(config.tailscaleMonitoring) !== Boolean(savedConfig.tailscaleMonitoring) ||
-        (config.comfyPort ?? 8188) !== (savedConfig.comfyPort ?? 8188);
+        (config.comfyPort ?? 8188) !== (savedConfig.comfyPort ?? 8188) ||
+        (config.maxNumSeqs ?? null) !== (savedConfig.maxNumSeqs ?? null);
 
       const result = formDirty
         ? await testSparkConfig({
@@ -237,6 +238,7 @@ export function EditSparkDialog({
           const n = Number(config.comfyPort);
           return Number.isInteger(n) && n >= 1 && n <= 65535 ? n : 8188;
         })(),
+        maxNumSeqs: config.maxNumSeqs ?? null,
         hermesMonitoring: Boolean(config.hermesMonitoring),
         tailscaleMonitoring: Boolean(config.tailscaleMonitoring),
         ssh: {
@@ -470,6 +472,42 @@ export function EditSparkDialog({
                       }
                     }}
                     className="w-14 border-0 bg-transparent px-0.5 py-0.5 text-center font-tabular text-xs text-inherit outline-none focus:rounded focus:bg-surface-elevated focus:ring-1 focus:ring-accent disabled:cursor-not-allowed"
+                  />
+                </div>
+              </div>
+
+              {/* vLLM serving capacity for the serving lanes widget. */}
+              <div className="flex items-center gap-2 text-xs text-muted">
+                <span>vLLM lanes</span>
+                <span
+                  className="inline-flex shrink-0 cursor-help text-muted hover:text-text"
+                  title="Serving capacity (--max-num-seqs) of the vLLM server on this machine. Drives the lane boxes in the LLM card's serving lanes widget. Leave empty to auto-size from running + waiting requests."
+                  aria-label="vLLM max-num-seqs used by the serving lanes widget."
+                >
+                  <InfoIcon className="h-3.5 w-3.5" />
+                </span>
+                <div className="ml-auto flex items-center gap-1 font-tabular text-text" title="vLLM --max-num-seqs (empty = auto)">
+                  <span className="select-none text-muted" aria-hidden>
+                    max-num-seqs
+                  </span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={512}
+                    inputMode="numeric"
+                    aria-label="vLLM max-num-seqs"
+                    value={config.maxNumSeqs ?? ""}
+                    onChange={(e) => {
+                      if (e.target.value === "") {
+                        update({ maxNumSeqs: null });
+                        return;
+                      }
+                      const n = parseInt(e.target.value, 10);
+                      if (Number.isInteger(n) && n >= 1 && n <= 512) {
+                        update({ maxNumSeqs: n });
+                      }
+                    }}
+                    className="w-14 border-0 bg-transparent px-0.5 py-0.5 text-center font-tabular text-xs text-inherit outline-none focus:rounded focus:bg-surface-elevated focus:ring-1 focus:ring-accent"
                   />
                 </div>
               </div>
