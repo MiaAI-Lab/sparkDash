@@ -4,13 +4,14 @@ import { NetworkIcon } from "../ui/icons";
 
 interface TailscalePanelProps {
   tailscale: TailscaleMetrics | null;
+  className?: string;
 }
 
 /**
  * Tailnet presence for one unit. The failure mode is "healthy on the LAN,
  * invisible off it" — every other panel is LAN-fed and looks fine.
  */
-export function TailscalePanel({ tailscale }: TailscalePanelProps) {
+export function TailscalePanel({ tailscale, className }: TailscalePanelProps) {
   const online = tailscale?.online ?? null;
   const health = tailscale?.health ?? [];
   const available = Boolean(tailscale?.available);
@@ -25,7 +26,7 @@ export function TailscalePanel({ tailscale }: TailscalePanelProps) {
         : { label: "unknown", cls: "text-muted" };
 
   return (
-    <Panel title="Tailnet" accent={offTailnet} icon={<NetworkIcon />}>
+    <Panel title="Tailnet" accent={offTailnet} icon={<NetworkIcon />} className={className}>
       <div className="mb-3 flex items-center gap-2 text-xs">
         <span className="text-muted">Status</span>
         <span className={`font-tabular font-medium ${status.cls}`}>{status.label}</span>
