@@ -587,6 +587,8 @@ async function runStreamingRequestOnce(
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
+      // Normalize the accumulated buffer so CRLF split across chunks also works.
+      buffer = buffer.replace(/\r\n/g, "\n");
 
       // SSE events are separated by blank lines
       let sep;
