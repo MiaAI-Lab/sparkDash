@@ -418,6 +418,17 @@ seed-and-diff (deploy scripts idempotent); e2e (dashboard + node-agent wired, PR
 
 ## 6. Running log
 
+**2026-09-22 ~21:35 EDT** — Batch 1B DONE (commit 7258098). Worker 1B delivered
+agent/catalog/{recipes,memory,services}.js + config/recipes.example.json + tests
+(40/40 pass). Ruling on worker's `ruling-needed:`: TEST_PLAN known-answer #2 expected
+makeRoom=[{tts,5000}] was infeasible for its own inputs (deficit=17120; tts frees 5000
+→ 27880 < 40000). Worker correctly implemented greedy largest-first over stoppable
+services → [{llm,50000,"stoppable"}]. TEST_PLAN updated with corrected expected value
++ two additional known-answers (infeasible, needed-excluded). Latent note: active=true
+for every running LLM recipe — with two LLMs on different ports both report active;
+kept as-is (per-port active) until Batch 4B UI needs a single-active view.
+Batch 1A still running (collectors).
+
 **2026-09-22 ~11:16 EDT** — Batch 0 in progress. Planning docs written. Seam contracts
 (shared/types.ts, api.schema.json, recipe.schema.json) written. Repo scaffolding
 (agent/package.json, agent/main.js) written. Committing Batch 0.

@@ -41,9 +41,11 @@
 
 | Batch | Spawn | Status | Commits | Notes |
 |---|---|---|---|---|
-| 0 | in-house | DONE | (pending) | Planning docs + seam contracts + scaffolding |
-| 1A | — | PENDING | — | Node-agent collectors + telemetry + http + versions |
-| 1B | — | PENDING | — | Recipe catalog + memory budgeting |
+| 0 | in-house | DONE | 05e27fa | Planning docs + seam contracts + scaffolding |
+| 1A | 2026-09-22 20:50 | DONE | 16a6b3d | Node-agent collectors + telemetry + http + versions; 101/101 tests pass; live smoke on Narthex |
+| 1B | 2026-09-22 20:50 | DONE | 7258098 | Recipe catalog + memory budgeting; 40/40 tests pass |
+| 2A | 2026-09-22 22:30 | PENDING | — | Docker actions + audit log |
+| 2B | 2026-09-22 22:30 | PENDING | — | Systemd actions + LLM switch |
 
 ## Gate Findings Log
 

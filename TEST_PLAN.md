@@ -96,8 +96,16 @@ ContainerInfo, ActionResponse, Recipe).
   → expected MemoryBudget {free: 100, used: 80, available: 20, makeRoom: []}
 - Memory (make-room): free = 100 GB, services = [{name: "llm-tp1", footprint: 50},
   {name: "comfy", footprint: 30}, {name: "tts", footprint: 10}], want = 40 GB
-  → expected makeRoom = [{name: "tts", footprint: 10}, {name: "comfy", footprint: 30}]
-  (stop tts + comfy to free 40 GB)
+  → expected makeRoom = [{name: "comfy", footprint: 30}, {name: "tts", footprint: 10}]
+  (stop comfy + tts to free 40 GB; greedy largest-first over stoppable services)
+- Memory (make-room, infeasible): totalMB=122880, usedMB=100000, freeMB=22880,
+  services=[{name: "llm", footprintMB: 50000, running: true, needed: false},
+            {name: "tts", footprintMB: 5000, running: true, needed: false}], wantMB=40000
+  → deficit=17120, expected makeRoom = [{serviceName: "llm", freesMB: 50000, reason: "stoppable"}]
+  (greedy largest-first; llm alone covers the deficit)
+- Memory (make-room, needed-excluded): same as above but llm needed=true
+  → expected makeRoom = [{serviceName: "tts", freesMB: 5000, reason: "stoppable"}]
+  (only tts is stoppable; plan is best-effort even if it doesn't fully cover the deficit)
 - Services: recipes = [{name: "llm-tp1", engine: "sglang", port: 8080}], live = {8080: "up"}
   → expected ServiceInstance[] = [{name: "llm-tp1", status: "running", port: 8080}]
 
