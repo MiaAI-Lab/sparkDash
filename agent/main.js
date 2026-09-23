@@ -1,12 +1,12 @@
 /**
  * sparkdash-node-agent — entry point.
  *
- * Runs on each DGX Spark (and Narthex). Provides local telemetry, live versions,
- * service catalog, memory budgeting, and actions over a local HTTP API (default
- * port 30091, next to the hasso5703 cockpit's 30090).
+ * Runs on each DGX Spark (and Narthex). Provides local telemetry, live
+ * versions, service catalog, memory budgeting, and actions over a local HTTP
+ * API (default port 30091, next to the hasso5703 cockpit's 30090).
  *
- * Batch 0: scaffolding. Wires up collectors + HTTP + actions as batches land:
- *   - Batch 1A: agent/collectors/ + agent/telemetry.js + agent/http.js
+ * Batches landed so far:
+ *   - Batch 1A: agent/collectors/ + agent/telemetry.js + agent/http.js — LANDED
  *   - Batch 1B: agent/catalog/ (recipes.js, memory.js, services.js) — LANDED
  *   - Batch 2A: agent/actions/docker.js + agent/actions/audit.js
  *   - Batch 2B: agent/actions/systemd.js + agent/actions/llm-switch.js
@@ -19,19 +19,21 @@
  *   NODE_AGENT_PORT   — HTTP port (default 30091)
  *   NODE_AGENT_BIND   — bind address (default 0.0.0.0)
  *   NODE_AGENT_TOKEN  — optional bearer token for the local HTTP API
- *   NODE_ID           — node id (default: hostname)
- *   NODE_NAME         — node name (default: hostname)
- *   NODE_LAN_IP       — node LAN IP (default: first non-loopback)
+ *   NODE_ID           — node id (default: hostname, "unknown" when unset)
+ *   NODE_NAME         — node name (default: hostname, "unknown" when unset)
+ *   NODE_LAN_IP       — node LAN IP (default: first non-loopback IPv4)
+ *   LLM_PORTS         — comma-separated LLM server ports to probe (default "8080")
+ *   NODE_COMFY_PORT   — ComfyUI port (default 8188; 0 = no ComfyUI probe)
  *   RECIPES_PATH      — path to recipes.json (default: <agent>/config/recipes.json,
  *                       fallback to <agent>/config/recipes.example.json when the
  *                       default is missing; an explicitly set RECIPES_PATH that
  *                       is missing degrades to an empty catalog, not the example)
- *   AGENT_VERSION     — agent version string (default: from package.json)
  */
 
-import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   loadRecipes,
@@ -42,6 +44,8 @@ import {
 } from "./catalog/recipes.js";
 import { computeMemoryBudget } from "./catalog/memory.js";
 import { listServices } from "./catalog/services.js";
+import { createHttpServer } from "./http.js";
+import { collectTelemetry } from "./telemetry.js";
 
 // Catalog seam — re-exported so Worker 1A (telemetry) and 2A/2B (actions) can
 // import from agent/main.js or the catalog modules directly (same code).
@@ -56,19 +60,62 @@ const EXAMPLE_RECIPES = path.join(AGENT_DIR, "config", "recipes.example.json");
 export const AGENT_VERSION = "0.1.0";
 
 /**
+ * Parse a comma-separated port list into unique valid port numbers.
+ * @param {string | number | Array<string | number> | null | undefined} raw
+ * @returns {number[]}
+ */
+export function parsePortList(raw) {
+  if (raw == null) return [];
+  const items = Array.isArray(raw)
+    ? raw.map(String)
+    : String(raw).split(",").map((s) => s.trim()).filter(Boolean);
+  const seen = new Set();
+  /** @type {number[]} */
+  const out = [];
+  for (const item of items) {
+    const n = Number(String(item).trim());
+    if (Number.isInteger(n) && n >= 1 && n <= 65535 && !seen.has(n)) {
+      seen.add(n);
+      out.push(n);
+    }
+  }
+  return out;
+}
+
+/**
+ * First non-loopback IPv4 address, or "127.0.0.1" when none.
+ * @returns {string}
+ */
+export function detectLanIp() {
+  try {
+    for (const list of Object.values(os.networkInterfaces())) {
+      for (const item of list || []) {
+        if (item.family === "IPv4" && !item.internal) return item.address;
+      }
+    }
+  } catch {
+    /* fall through */
+  }
+  return "127.0.0.1";
+}
+
+/**
  * Build the node identity from env vars.
  * @param {object} [env]
- * @returns {{nodeId: string, nodeName: string, lanIp: string, port: number, bind: string, token: string|null}}
+ * @returns {{nodeId: string, nodeName: string, lanIp: string, port: number, bind: string, token: string|null, llmPorts: number[], comfyPort: number|null}}
  */
 export function readNodeIdentity(env = process.env) {
   const hostname = env.HOSTNAME || "unknown";
+  const comfyPort = parsePortList(env.NODE_COMFY_PORT || "8188");
   return {
     nodeId: env.NODE_ID || hostname,
     nodeName: env.NODE_NAME || hostname,
-    lanIp: env.NODE_LAN_IP || "127.0.0.1",
+    lanIp: env.NODE_LAN_IP || detectLanIp(),
     port: Number(env.NODE_AGENT_PORT || 30091),
     bind: env.NODE_AGENT_BIND || "0.0.0.0",
     token: env.NODE_AGENT_TOKEN || null,
+    llmPorts: parsePortList(env.LLM_PORTS || "8080"),
+    comfyPort: comfyPort.length > 0 ? comfyPort[0] : null,
   };
 }
 
@@ -133,9 +180,9 @@ export function resetCatalog() {
 /**
  * Build the node agent.
  *
- * Batch 1B: attaches the catalog seam consumed by Batch 1A (telemetry) and
- * 2A/2B (actions): recipe accessors, memory budgeting pre-filled with this
- * node's identity, and the recipe↔live-state join.
+ * Batch 1A + 1B: attaches the catalog seam (recipes, memory budgeting,
+ * service registry) and the telemetry HTTP server (collectTelemetry over
+ * agent/collectors/).
  * @param {object} [opts]
  * @returns {{
  *   identity: object,
@@ -148,13 +195,26 @@ export function resetCatalog() {
  *     computeMemoryBudget: (totalMB: number, usedMB: number, services: object[], wantMB: number, opts?: object) => object,
  *     listServices: (liveState?: object) => object[]
  *   },
- *   start: () => Promise<void>,
+ *   start: () => Promise<{port:number, address:string}>,
  *   stop: () => Promise<void>
  * }}
  */
 export function createNodeAgent(opts = {}) {
   const identity = readNodeIdentity(opts.env);
   const catalog = loadCatalog(opts.env, { force: Boolean(opts.reloadCatalog) });
+  const httpServer = createHttpServer(
+    () =>
+      collectTelemetry(
+        identity.nodeId,
+        identity.nodeName,
+        identity.lanIp,
+        identity.llmPorts,
+        identity.comfyPort
+      ),
+    identity.port,
+    identity.bind,
+    { agentVersion: AGENT_VERSION, token: identity.token }
+  );
   return {
     identity,
     catalog: {
@@ -173,17 +233,37 @@ export function createNodeAgent(opts = {}) {
       listServices: (liveState) => listServices(catalog.recipes, liveState),
     },
     start() {
-      // Batch 1A: start the HTTP server on identity.port
-      return Promise.resolve();
+      return httpServer.start().then((addr) => {
+        console.log(
+          JSON.stringify(
+            {
+              event: "node-agent up",
+              agentVersion: AGENT_VERSION,
+              nodeId: identity.nodeId,
+              nodeName: identity.nodeName,
+              lanIp: identity.lanIp,
+              port: addr.port,
+              bind: identity.bind,
+              llmPorts: identity.llmPorts,
+              comfyPort: identity.comfyPort,
+              catalogPath: catalog.path,
+              recipeCount: catalog.recipes.length,
+            },
+            null,
+            2
+          )
+        );
+        return addr;
+      });
     },
     stop() {
-      // Batch 1A: stop the HTTP server
-      return Promise.resolve();
+      return httpServer.stop();
     },
   };
 }
 
-// Allow `node main.js` to run as a smoke test (identity + catalog summary).
+// `node main.js` runs for real: start the HTTP server, then print identity +
+// catalog summary (Batch 0 behavior) + signal-driven graceful shutdown.
 const isDirectRun =
   process.argv[1] && import.meta.url.endsWith(process.argv[1].split("/").pop());
 if (isDirectRun) {
@@ -210,4 +290,18 @@ if (isDirectRun) {
       2
     )
   );
+  const agent = createNodeAgent();
+  agent.start().catch((err) => {
+    console.error("[node-agent] failed to start:", err);
+    process.exit(1);
+  });
+  for (const sig of ["SIGTERM", "SIGINT"]) {
+    process.on(sig, () => {
+      console.log(`[node-agent] ${sig} received, shutting down`);
+      agent
+        .stop()
+        .then(() => process.exit(0))
+        .catch(() => process.exit(1));
+    });
+  }
 }

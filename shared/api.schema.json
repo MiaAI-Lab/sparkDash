@@ -3,7 +3,7 @@
   "title": "NodeAgentSnapshot",
   "description": "Seam contract for the node-agent /telemetry response. The node agent is the PRODUCER; the dashboard server and frontend are CONSUMERS. Every batch that produces or consumes this shape validates against this schema.",
   "type": "object",
-  "required": ["nodeId", "nodeName", "lanIp", "agentVersion", "online", "uptimeSeconds", "gpu", "cpu", "mem", "disk", "net", "containers", "versions", "services", "memory", "", "requests", "topology", "polledAt"],
+  "required": ["nodeId", "nodeName", "lanIp", "agentVersion", "online", "uptimeSeconds", "gpu", "cpu", "mem", "disk", "net", "containers", "versions", "services", "memory", "requests", "topology", "polledAt"],
   "properties": {
     "nodeId": { "type": "string", "description": "Node id (matches registry id)." },
     "nodeName": { "type": "string", "description": "Node name (human-readable)." },
@@ -161,7 +161,7 @@
     },
     "TopologyInfo": {
       "type": ["object", "null"],
-      "required": ["nodeId", "role", "rank", "groupId", "headId", "", "polledAt"],
+      "required": ["nodeId", "role", "rank", "groupId", "headId", "links", "polledAt"],
       "properties": {
         "nodeId": { "type": "string" },
         "role": { "type": "string", "enum": ["head", "worker", "standalone"] },
