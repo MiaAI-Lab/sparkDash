@@ -1,0 +1,58 @@
+# sparkDash multi-Spark dashboard — deployment compose
+#
+# Two services:
+#   - sparkdash:    the dashboard server (aggregates all node agents)
+#   - node-agent:   the per-node agent (run ONE copy per Spark / per host)
+#
+# NOTE: node-agent is a per-machine service. On a fleet of N Sparks, run
+# node-agent on each host (via deploy/install-node-agent.sh or this compose
+# file), and run sparkdash once on the dashboard host (Narthex).
+#
+# Both use host networking: the node agent must see the host's GPU/disk/proc
+# and LAN interfaces; the dashboard must reach node agents on their LAN IPs.
+# Under network_mode: host the `ports:` keys are ignored by Docker (host
+# network = direct port binding); they are kept as documentation of which
+# host port each service owns.
+
+services:
+  sparkdash:
+    image: airhamer/sparkdash:latest
+    # Built from this repo: `docker build -t airhamer/sparkdash:latest .`
+    container_name: sparkdash
+    restart: always
+    network_mode: host
+    ports:
+      # Documented only (ignored under host network): dashboard HTTP port.
+      - "5555:5555"
+    volumes:
+      # Node registry + per-node config the dashboard server reads.
+      - ./config:/app/config
+    environment:
+      # Where the dashboard reads its node registry (server/fleet/registry.js).
+      - NODES_JSON_PATH=/app/config/nodes.json
+      # Optional auth for the dashboard HTTP API.
+      - SPARKDASH_TOKEN=${SPARKDASH_TOKEN:-}
+    depends_on: []
+
+  node-agent:
+    image: airhamer/sparkdash-node-agent:latest
+    # Built from this repo:
+    #   docker build -t airhamer/sparkdash-node-agent:latest -f deploy/Dockerfile.node-agent .
+    container_name: sparkdash-node-agent
+    restart: always
+    network_mode: host
+    ports:
+      # Documented only (ignored under host network): node-agent HTTP port.
+      - "30091:30091"
+    volumes:
+      # Per-node recipe catalog (config/recipes.json).
+      - ./agent/config:/app/agent/config
+    environment:
+      # Node-agent HTTP port + bind (agent/main.js: readNodeIdentity).
+      - NODE_AGENT_PORT=30091
+      - NODE_AGENT_BIND=0.0.0.0
+      # Recipe catalog inside the container (agent/config/recipes.json).
+      - RECIPES_PATH=/app/agent/config/recipes.json
+      # Optional bearer token for the node-agent HTTP API.
+      - NODE_AGENT_TOKEN=${NODE_AGENT_TOKEN:-}
+    depends_on: []
