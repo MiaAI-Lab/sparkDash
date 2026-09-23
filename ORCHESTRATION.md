@@ -48,8 +48,8 @@
 | 2B | 2026-09-22 22:30 | DONE | a5a97f8 | Systemd actions + LLM switch; 57 tests; 183/183 full suite |
 | 3A | 2026-09-23 07:40 | DONE | 1399835 | Node registry + fleet connection; 48 tests |
 | 3B | 2026-09-23 07:40 | DONE | 9849245 | Requests aggregation + topology; 15 tests; 63/63 full fleet suite |
-| 4A | 2026-09-23 08:40 | PENDING | — | Overview/fleet + per-node detail + roles/RoCE diagram |
-| 4B | 2026-09-23 08:40 | PENDING | — | Service Manager tab + requests viz + memory budgeting UI |
+| 4A | 2026-09-23 08:40 | DONE | 1a6e503 | FleetCard/FleetPage/NodeDetail/RoceDiagram/TopologyPage; 16 tests |
+|  4B | 2026-09-23 08:40 | DONE | c999c92 | ServiceManager/Requests UI + timeAgo; 26 tests; 96/96 frontend suite |
 
 ## Gate Findings Log
 

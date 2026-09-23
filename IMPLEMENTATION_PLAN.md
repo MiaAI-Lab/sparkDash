@@ -418,6 +418,15 @@ seed-and-diff (deploy scripts idempotent); e2e (dashboard + node-agent wired, PR
 
 ## 6. Running log
 
+**2026-09-23 ~10:15 EDT** — Batch 4 DONE (commits 1a6e503 + c999c92). Worker 4A
+delivered FleetCard/FleetPage/NodeDetail/RoceDiagram/TopologyPage + 16 tests.
+Worker 4B delivered ServiceCard/ServiceManagerPage/MoryBudget/RequestStatCard/
+RequestsPage + timeAog.ts + 26 tests. Gate: typecheck clean (tsc --noEmit exit 0),
+96/96 frontend tests × 3 runs (19 files). 4B also repaired a Batch 0 seam syntax
+defect (missing `export interface ActionResponse {` line in shared/types.ts) —
+committed in c999c92, disclosed as syntax repair (no semantic change).
+Batch 5 dispatched (media services catalog + deploy/docs/PR prep).
+
 **2026-09-23 ~08:40 EDT** — Batch 3 DONE (commits 1399835 + 9849245). Worker 3A
 delivered server/fleet/{registry,connection}.js + tests (48 tests). Worker 3B
 delivered server/fleet/{aggregate,topology}.js + tests (15 tests). Gate: 63/63
