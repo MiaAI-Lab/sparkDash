@@ -418,6 +418,19 @@ seed-and-diff (deploy scripts idempotent); e2e (dashboard + node-agent wired, PR
 
 ## 6. Running log
 
+**2026-09-23 ~10:53 EDT** — Batch 5 DONE (commits 5fb17ab + b1ad8e8). Worker 5A
+delivered agent/catalog/media.js + config/media-recipes.json + media.test.js
+(22 tests). Worker 5B delivered deploy/{docker-compose,Dockerfile.node-agent,
+install-node-agent.sh,PR-DESCRIPTION,README}.md + docs/{NODE-AGENT,DEPLOYMENT}.md
++ updated docker-compose.yml/.env.example. Gate: 205/205 agent tests × 3, 96/96
+frontend tests, bash -n + shellcheck clean, docker compose config exit 0.
+Ruling on 5A's `ruling-needed:`: media-recipes.json left untracked (matches
+.gitignore:35 — per-node recipe files are live config, not source); recipes.example.json
+tracked as the reference. Footprint double-count (video+image share one ComfyUI
+container, each declares 40000 MB) noted — computeMemoryBudget sums 80000 MB when
+both show running; acceptable for v1 (one container, two recipe entries).
+Batch 6 dispatched (full TEST_PLAN + live 3-Spark verification + PR to MiaAI-Lab).
+
 **2026-09-23 ~10:15 EDT** — Batch 4 DONE (commits 1a6e503 + c999c92). Worker 4A
 delivered FleetCard/FleetPage/NodeDetail/RoceDiagram/TopologyPage + 16 tests.
 Worker 4B delivered ServiceCard/ServiceManagerPage/MoryBudget/RequestStatCard/

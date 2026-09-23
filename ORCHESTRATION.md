@@ -50,6 +50,8 @@
 | 3B | 2026-09-23 07:40 | DONE | 9849245 | Requests aggregation + topology; 15 tests; 63/63 full fleet suite |
 | 4A | 2026-09-23 08:40 | DONE | 1a6e503 | FleetCard/FleetPage/NodeDetail/RoceDiagram/TopologyPage; 16 tests |
 |  4B | 2026-09-23 08:40 | DONE | c999c92 | ServiceManager/Requests UI + timeAgo; 26 tests; 96/96 frontend suite |
+| 5A | 2026-09-23 10:20 | DONE | 5fb17ab | Media catalog (video/image/tts/stt/voice) + media-recipes.json; 22 tests |
+| 5B | 2026-09-23 10:20 | DONE | b1ad8e8 | Deploy compose/Dockerfile/install script + docs + PR prep; 10 files |
 
 ## Gate Findings Log
 
