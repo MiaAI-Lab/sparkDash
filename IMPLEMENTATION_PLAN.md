@@ -418,6 +418,15 @@ seed-and-diff (deploy scripts idempotent); e2e (dashboard + node-agent wired, PR
 
 ## 6. Running log
 
+**2026-09-23 ~07:45 EDT** — Batch 2 DONE (commits 0cfc831 + a5a97f8). Worker 2A
+delivered agent/actions/{docker,audit,index}.js + tests (126 tests). Worker 2B
+delivered agent/actions/{systemd,llm-switch}.js + tests (57 tests). Gate: 183/183
+full agent suite pass, 3× runs, index.js merged (22 exports, no collisions).
+Ruling on 2B's F1: canary states map to ActionResponse.status per shared/types.ts
+(ready→success, loading→running, wedged/stopped→failure) — no types.ts change
+needed; Batch 5B will formalize if UI needs "loading" verbatim. Batch 3 dispatched
+(node registry + fleet connection, requests aggregation + topology).
+
 **2026-09-22 ~21:35 EDT** — Batch 1B DONE (commit 7258098). Worker 1B delivered
 agent/catalog/{recipes,memory,services}.js + config/recipes.example.json + tests
 (40/40 pass). Ruling on worker's `ruling-needed:`: TEST_PLAN known-answer #2 expected

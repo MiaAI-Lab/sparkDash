@@ -44,8 +44,10 @@
 | 0 | in-house | DONE | 05e27fa | Planning docs + seam contracts + scaffolding |
 | 1A | 2026-09-22 20:50 | DONE | 16a6b3d | Node-agent collectors + telemetry + http + versions; 101/101 tests pass; live smoke on Narthex |
 | 1B | 2026-09-22 20:50 | DONE | 7258098 | Recipe catalog + memory budgeting; 40/40 tests pass |
-| 2A | 2026-09-22 22:30 | PENDING | — | Docker actions + audit log |
-| 2B | 2026-09-22 22:30 | PENDING | — | Systemd actions + LLM switch |
+| 2A | 2026-09-22 22:30 | DONE | 0cfc831 | Docker actions + audit log; 126 tests (with 2B) |
+| 2B | 2026-09-22 22:30 | DONE | a5a97f8 | Systemd actions + LLM switch; 57 tests; 183/183 full suite |
+| 3A | 2026-09-23 07:40 | PENDING | — | Node registry + fleet connection |
+| 3B | 2026-09-23 07:40 | PENDING | — | Requests aggregation + topology |
 
 ## Gate Findings Log
 

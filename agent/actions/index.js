@@ -1,14 +1,17 @@
 /**
- * index.js — public API of the node-agent actions layer (Batch 2A).
+ * index.js — public API of the node-agent actions layer.
  *
- * Re-exports the docker actions and the audit log so the HTTP wiring
- * (agent/http.js POST /actions + GET /audit, landed by the orchestrator
- * after Batches 2A + 2B) can import one path:
+ * Re-exports all action modules so the HTTP wiring (agent/http.js
+ * POST /actions + GET /audit) can import one path:
  *
  *   import { startContainer, stopContainer, restartContainer,
- *            removeContainer, appendAudit, readAudit } from "./actions/index.js";
+ *            removeContainer, appendAudit, readAudit, startUnit,
+ *            stopUnit, restartUnit, canaryProbe, switchLlm } from
+ *            "./actions/index.js";
  *
- * Batch 2B (systemd + LLM switch) adds its modules to this file.
+ * Batch 2A: docker.js + audit.js. Batch 2B: systemd.js + llm-switch.js.
  */
 export * from "./docker.js";
 export * from "./audit.js";
+export * from "./systemd.js";
+export * from "./llm-switch.js";
