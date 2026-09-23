@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RecipeFile",
+  "description": "Seam contract for per-node recipe files (config/recipes.json). A recipe is a declarative description of a service that CAN run on this node: model, engine, image, ports, memory footprint. The node agent validates recipes against this schema. Batch 1B (recipes.js) is the producer of the validator; Batches 2A/2B (actions) and 5A (media) consume it.",
+  "type": "object",
+  "required": ["version", "nodeId", "recipes"],
+  "properties": {
+    "version": { "type": "number", "description": "Schema version. Currently 1." },
+    "nodeId": { "type": "string", "description": "Node id this recipe file applies to." },
+    "recipes": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/Recipe" }
+    }
+  },
+  "definitions": {
+    "Recipe": {
+      "type": "object",
+      "required": ["name", "kind", "engine", "port", "image", "footprintMB"],
+      "properties": {
+        "name": { "type": "string", "description": "Unique service name, e.g. 'llm-tp1', 'comfyui', 'tts'.", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$" },
+        "kind": { "type": "string", "enum": ["llm", "image", "video", "tts", "stt", "voice", "other"] },
+        "engine": { "type": "string", "description": "Engine: sglang / vllm / comfyui / qwen3-tts / qwen3-asr / matrix-voip / other." },
+        "port": { "type": "number", "minimum": 1, "maximum": 65535, "description": "Port this service listens on." },
+        "image": { "type": "string", "description": "Docker image reference, e.g. 'lmsysorg/sglang:v1.2.0'." },
+        "imageDigest": { "type": ["string", "null"], "description": "Optional pinned digest (sha256:...).", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "modelId": { "type": ["string", "null"], "description": "Model id as served, e.g. 'qwen3.8-27b'. null for non-LLM." },
+        "modelPath": { "type": ["string", "null"], "description": "Model path / checkpoint, e.g. 'RadixArk/Qwen3.8-27B-NVFP4'." },
+        "modelRevision": { "type": ["string", "null"], "description": "Model revision (git sha) when pinned." },
+        "quantization": { "type": ["string", "null"], "description": "nvfp4 / fp8 / bf16 / other." },
+        "contextLength": { "type": ["number", "null"], "description": "Context length in tokens." },
+        "memFraction": { "type": ["number", "null"], "minimum": 0, "maximum": 1, "description": "mem_fraction_static (sglang) or gpu_memory_utilization (vllm)." },
+        "tpSize": { "type": ["number", "null"], "minimum": 1, "description": "Tensor-parallel size." },
+        "footprintMB": { "type": "number", "minimum": 0, "description": "Expected memory footprint in MB (for budgeting)." },
+        "containerName": { "type": ["string", "null"], "description": "Docker container name (when known)." },
+        "systemdUnit": { "type": ["string", "null"], "description": "systemd unit name (when managed by systemd instead of docker)." },
+        "env": { "type": "object", "description": "Env vars for the service. Keys are var names, values are strings.", "additionalProperties": { "type": "string" } },
+        "args": { "type": "array", "items": { "type": "string" }, "description": "Extra CLI args for the engine." },
+        "dependsOn": { "type": "array", "items": { "type": "string" }, "description": "Names of other recipes this one depends on (must be running first)." },
+        "description": { "type": ["string", "null"], "description": "Human-readable description." }
+      }
+    }
+  }
+}

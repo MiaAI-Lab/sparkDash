@@ -28,3 +28,14 @@ HANDOFF.md
 HANDOFF-HERMES.md
 handoff.md
 test/
+
+# ─── Multi-Spark Dashboard: node agent ───────────────────────
+# Per-node recipe files (live config, not source)
+agent/config/recipes.json
+agent/config/media-recipes.json
+# Audit log (append-only, per-node)
+agent/config/audit.log
+# Node-agent runtime state
+agent/state/
+# Node-agent Docker image build context (not committed)
+agent/Dockerfile.build

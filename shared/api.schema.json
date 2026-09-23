@@ -1,0 +1,176 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "NodeAgentSnapshot",
+  "description": "Seam contract for the node-agent /telemetry response. The node agent is the PRODUCER; the dashboard server and frontend are CONSUMERS. Every batch that produces or consumes this shape validates against this schema.",
+  "type": "object",
+  "required": ["nodeId", "nodeName", "lanIp", "agentVersion", "online", "uptimeSeconds", "gpu", "cpu", "mem", "disk", "net", "containers", "versions", "services", "memory", "", "requests", "topology", "polledAt"],
+  "properties": {
+    "nodeId": { "type": "string", "description": "Node id (matches registry id)." },
+    "nodeName": { "type": "string", "description": "Node name (human-readable)." },
+    "lanIp": { "type": "string", "description": "Node LAN IP." },
+    "agentVersion": { "type": "string", "description": "Node agent version." },
+    "online": { "type": "boolean" },
+    "uptimeSeconds": { "type": ["number", "null"] },
+    "gpu": { "$ref": "#/definitions/GpuMetrics" },
+    "cpu": { "$ref": "#/definitions/CpuMetrics" },
+    "mem": { "$ref": "#/definitions/MemMetrics" },
+    "disk": { "type": "array", "items": { "$ref": "#/definitions/DiskMetrics" } },
+    "net": { "type": "array", "items": { "$ref": "#/definitions/NetMetrics" } },
+    "containers": { "type": "array", "items": { "$ref": "#/definitions/ContainerInfo" } },
+    "versions": { "type": "array", "items": { "$ref": "#/definitions/VersionInfo" } },
+    "services": { "type": "array", "items": { "$ref": "#/definitions/ServiceInstance" } },
+    "memory": { "$ref": "#/definitions/MemoryBudget" },
+    "requests": { "$ref": "#/definitions/RequestStats" },
+    "topology": { "$ref": "#/definitions/TopologyInfo" },
+    "polledAt": { "type": "number", "description": "ms epoch" }
+  },
+  "definitions": {
+    "GpuMetrics": {
+      "type": ["object", "null"],
+      "required": ["temperature", "usage", "powerDraw", "powerLimit", "vramUsedMB", "vramTotalMB", "vramPercentage", "vramAvailableMB", "processes"],
+      "properties": {
+        "temperature": { "type": "number" },
+        "usage": { "type": "number", "minimum": 0, "maximum": 100 },
+        "powerDraw": { "type": "number" },
+        "powerLimit": { "type": "number" },
+        "vramUsedMB": { "type": "number" },
+        "vramTotalMB": { "type": "number" },
+        "vramPercentage": { "type": "number", "minimum": 0, "maximum": 100 },
+        "vramAvailableMB": { "type": "number" },
+        "processes": { "type": "array", "maxItems": 5, "items": { "type": "object", "required": ["pid", "name", "vramMB"], "properties": { "pid": { "type": "number" }, "name": { "type": "string" }, "vramMB": { "type": "number" } } } }
+      }
+    },
+    "CpuMetrics": {
+      "type": ["object", "null"],
+      "required": ["usage", "temperature", "draw", "tdp"],
+      "properties": {
+        "usage": { "type": "number", "minimum": 0, "maximum": 100 },
+        "temperature": { "type": "number" },
+        "draw": { "type": "number" },
+        "tdp": { "type": "number" }
+      }
+    },
+    "MemMetrics": {
+      "type": ["object", "null"],
+      "required": ["usedMB", "totalMB", "availableMB", "percentage"],
+      "properties": {
+        "usedMB": { "type": "number" },
+        "totalMB": { "type": "number" },
+        "availableMB": { "type": "number" },
+        "percentage": { "type": "number", "minimum": 0, "maximum": 100 }
+      }
+    },
+    "DiskMetrics": {
+      "type": "object",
+      "required": ["device", "mount", "usedMB", "totalMB", "availableMB", "percentage"],
+      "properties": {
+        "device": { "type": "string" },
+        "mount": { "type": "string" },
+        "usedMB": { "type": "number" },
+        "totalMB": { "type": "number" },
+        "availableMB": { "type": "number" },
+        "percentage": { "type": "number", "minimum": 0, "maximum": 100 }
+      }
+    },
+    "NetMetrics": {
+      "type": "object",
+      "required": ["iface", "ip", "rxSpeed", "txSpeed", "linkSpeedMbps"],
+      "properties": {
+        "iface": { "type": "string" },
+        "ip": { "type": ["string", "null"] },
+        "rxSpeed": { "type": "number" },
+        "txSpeed": { "type": "number" },
+        "linkSpeedMbps": { "type": ["number", "null"] }
+      }
+    },
+    "ContainerInfo": {
+      "type": "object",
+      "required": ["name", "image", "imageDigest", "status", "uptimeSeconds", "ports", "memUsedMB", "memLimitMB", "cpuPercent"],
+      "properties": {
+        "name": { "type": "string" },
+        "image": { "type": "string" },
+        "imageDigest": { "type": ["string", "null"] },
+        "status": { "type": "string", "enum": ["running", "stopped", "paused", "exited"] },
+        "uptimeSeconds": { "type": ["number", "null"] },
+        "ports": { "type": "array", "items": { "type": "string" } },
+        "memUsedMB": { "type": ["number", "null"] },
+        "memLimitMB": { "type": ["number", "null"] },
+        "cpuPercent": { "type": ["number", "null"] }
+      }
+    },
+    "VersionInfo": {
+      "type": "object",
+      "required": ["serviceName", "kind", "engine", "engineVersion", "modelId", "modelPath", "modelRevision", "quantization", "contextLength", "memFraction", "tpSize", "port", "state", "polledAt"],
+      "properties": {
+        "serviceName": { "type": "string" },
+        "kind": { "type": "string", "enum": ["llm", "image", "video", "tts", "stt", "voice", "other"] },
+        "engine": { "type": "string" },
+        "engineVersion": { "type": ["string", "null"] },
+        "modelId": { "type": ["string", "null"] },
+        "modelPath": { "type": ["string", "null"] },
+        "modelRevision": { "type": ["string", "null"] },
+        "quantization": { "type": ["string", "null"] },
+        "contextLength": { "type": ["number", "null"] },
+        "memFraction": { "type": ["number", "null"] },
+        "tpSize": { "type": ["number", "null"] },
+        "port": { "type": "number" },
+        "state": { "type": "string", "enum": ["running", "stopped", "loading", "wedged", "unknown"] },
+        "polledAt": { "type": "number" }
+      }
+    },
+    "ServiceInstance": {
+      "type": "object",
+      "required": ["name", "kind", "engine", "port", "status", "modelId", "engineVersion", "footprintMB", "active", "polledAt"],
+      "properties": {
+        "name": { "type": "string" },
+        "kind": { "type": "string", "enum": ["llm", "image", "video", "tts", "stt", "voice", "other"] },
+        "engine": { "type": "string" },
+        "port": { "type": "number" },
+        "status": { "type": "string", "enum": ["running", "stopped", "loading", "wedged", "unknown"] },
+        "modelId": { "type": ["string", "null"] },
+        "engineVersion": { "type": ["string", "null"] },
+        "footprintMB": { "type": "number" },
+        "active": { "type": "boolean" },
+        "polledAt": { "type": "number" }
+      }
+    },
+    "MemoryBudget": {
+      "type": ["object", "null"],
+      "required": ["nodeId", "totalMB", "usedMB", "freeMB", "servicesUsedMB", "otherUsedMB", "services", "makeRoom", "needMakeRoom", "polledAt"],
+      "properties": {
+        "nodeId": { "type": "string" },
+        "totalMB": { "type": "number" },
+        "usedMB": { "type": "number" },
+        "freeMB": { "type": "number" },
+        "servicesUsedMB": { "type": "number" },
+        "otherUsedMB": { "type": "number" },
+        "services": { "type": "array", "items": { "type": "object", "required": ["name", "kind", "footprintMB", "running", "needed"], "properties": { "name": { "type": "string" }, "kind": { "type": "string" }, "footprintMB": { "type": "number" }, "running": { "type": "boolean" }, "needed": { "type": "boolean" } } } },
+        "makeRoom": { "type": "array", "items": { "type": "object", "required": ["serviceName", "freesMB", "reason"], "properties": { "serviceName": { "type": "string" }, "freesMB": { "type": "number" }, "reason": { "type": "string" } } } },
+        "needMakeRoom": { "type": "boolean" },
+        "polledAt": { "type": "number" }
+      }
+    },
+    "RequestStats": {
+      "type": ["object", "null"],
+      "required": ["nodeId", "stats", "polledAt"],
+      "properties": {
+        "nodeId": { "type": "string" },
+        "stats": { "type": "array", "items": { "type": "object", "required": ["modelId", "engine", "nodeId", "port", "queued", "running", "finished", "polledAt"], "properties": { "modelId": { "type": "string" }, "engine": { "type": "string" }, "nodeId": { "type": "string" }, "port": { "type": "number" }, "queued": { "type": "number" }, "running": { "type": "number" }, "finished": { "type": "number" }, "polledAt": { "type": "number" } } } },
+        "polledAt": { "type": "number" }
+      }
+    },
+    "TopologyInfo": {
+      "type": ["object", "null"],
+      "required": ["nodeId", "role", "rank", "groupId", "headId", "", "polledAt"],
+      "properties": {
+        "nodeId": { "type": "string" },
+        "role": { "type": "string", "enum": ["head", "worker", "standalone"] },
+        "rank": { "type": ["number", "null"] },
+        "groupId": { "type": ["string", "null"] },
+        "headId": { "type": ["string", "null"] },
+        "links": { "type": "array", "items": { "type": "object", "required": ["from", "to", "speedMbps", "transport", "up"], "properties": { "from": { "type": "string" }, "to": { "type": "string" }, "fromIf": { "type": ["string", "null"] }, "toIf": { "type": ["string", "null"] }, "speedMbps": { "type": ["number", "null"] }, "transport": { "type": "string", "enum": ["roce", "tcp"] }, "up": { "type": "boolean" } } } },
+        "polledAt": { "type": "number" }
+      }
+    }
+  }
+}
