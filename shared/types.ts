@@ -403,6 +403,7 @@ export interface ActionRequest {
 /**
  * One action response, returned by the node agent's POST /actions endpoint.
  */
+export interface ActionResponse {
   /** Action id (matches request). */
   actionId: string;
   /** Service name. */
