@@ -1,0 +1,27 @@
+# sparkDash node-agent — Dockerfile
+#
+# Multi-stage build for the per-node agent (agent/main.js). No npm deps to
+# install today (zero-dependency, Node built-ins only), but the builder stage
+# keeps the standard npm-install shape so adding a dependency later is a
+# one-line change in agent/package.json, not a Dockerfile restructure.
+#
+# Build from the repo root:
+#   docker build -t airhamer/sparkdash-node-agent:latest -f deploy/Dockerfile.node-agent .
+
+# ── Stage 1: builder — install production deps ─────────────────────────────
+FROM node:18-slim AS builder
+WORKDIR /app
+COPY agent/package.json .
+COPY agent/ ./agent/
+RUN npm install --production
+
+# ── Stage 2: runtime — lean image, copy built tree ─────────────────────────
+FROM node:18-slim
+WORKDIR /app
+COPY --from=builder /app ./
+# Documented only; the container runs under network_mode: host (see
+# deploy/docker-compose.yml / install script), so this does not bind a port.
+EXPOSE 30091
+# Non-root so a misbehaving action handler can't trivially write host config.
+USER node
+CMD ["node", "agent/main.js"]

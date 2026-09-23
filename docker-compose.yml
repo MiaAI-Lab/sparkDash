@@ -1,3 +1,12 @@
+# Two services:
+#   sparkdash    — the multi-Spark dashboard (run once on the dashboard host,
+#                  e.g. Narthex). Polls every node agent; see deploy/docker-compose.yml
+#                  for the standalone variant that uses a prebuilt image.
+#   node-agent   — the per-node agent (run once PER SPARK; on the dashboard host
+#                  it monitors that host). Exposes telemetry/catalog/actions on
+#                  :30091. Installed on a Spark via deploy/install-node-agent.sh.
+# Both use host networking: the node agent must see host GPU/disk/proc, and the
+# dashboard must reach node agents on their LAN IPs.
 services:
   sparkdash:
     build:
@@ -56,3 +65,37 @@ services:
       - HOST_ROOT_PATH=/host/root
       - SSH_CONTROL_PERSIST_SECONDS=${SSH_CONTROL_PERSIST_SECONDS:-60}
       - SSH_IDENTITY_FILE=${SSH_IDENTITY_FILE:-}
+      # Node registry the fleet connection manager polls (server/fleet/registry.js)
+      - NODES_JSON_PATH=/app/config/nodes.json
+
+  # ── Per-node agent: one container per Spark. Mirrors deploy/docker-compose.yml
+  # (image-based variant there; here it builds agent/ into a lean node:18-slim
+  # image — no deps today, builder stage kept for forward-compat).
+  node-agent:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.node-agent
+      platforms:
+        - linux/arm64
+    container_name: sparkdash-node-agent
+    restart: always
+    # Host network: agent reports this host's GPU/disk/net and must bind
+    # :30091 directly (LAN clients reach <host-ip>:30091; bridge NAT would
+    # hide the real LAN IP).
+    network_mode: host
+    volumes:
+      # Per-node recipe catalog. The repo ships agent/config/recipes.example.json;
+      # add agent/config/recipes.json to override (the agent falls back to the
+      # example when the default is missing — agent/main.js resolveRecipesPath).
+      - ./agent/config:/app/agent/config:ro
+    environment:
+      # Node-agent HTTP port + bind (agent/main.js: readNodeIdentity).
+      - NODE_AGENT_PORT=30091
+      - NODE_AGENT_BIND=0.0.0.0
+      # Recipe catalog path inside the container.
+      - RECIPES_PATH=/app/agent/config/recipes.json
+      # Optional bearer token for the agent's local HTTP API.
+      - NODE_AGENT_TOKEN=${NODE_AGENT_TOKEN:-}
+      # Identity: defaults to hostname when unset.
+      - NODE_ID=${NODE_ID:-}
+      - NODE_NAME=${NODE_NAME:-}
