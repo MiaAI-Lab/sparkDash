@@ -80,7 +80,7 @@ function finiteCount(v) {
  * older probe without totalPromptTokens support is fine — only the output
  * counter is mandatory) are skipped.
  * @param {Array<unknown>} snapshots
- * @returns {Array<{ sparkId: string, port: number, modelId: string|null, output: number, prompt: number|null }>}
+ * @returns {Array<{ sparkId: string, port: number, modelId: string|null, output: number, prompt: number|null, cached: number|null }>}
  */
 export function extractTokenObservations(snapshots) {
   const rows = [];
@@ -100,9 +100,10 @@ export function extractTokenObservations(snapshots) {
       const output = finiteCount(entry.totalOutputTokens);
       if (output == null) continue;
       const prompt = entry.totalPromptTokens == null ? null : finiteCount(entry.totalPromptTokens);
+      const cached = entry.totalCachedTokens == null ? null : finiteCount(entry.totalCachedTokens);
       const rawModel = typeof entry.modelId === "string" ? entry.modelId.trim() : "";
       const modelId = rawModel ? rawModel.slice(0, MODEL_ID_MAX_LEN) : null;
-      rows.push({ sparkId, port, modelId, output, prompt });
+      rows.push({ sparkId, port, modelId, output, prompt, cached });
     }
   }
   return rows;
@@ -145,9 +146,13 @@ export class LlmTokenLedger {
       if (value.models && typeof value.models === "object") {
         for (const [modelId, row] of Object.entries(value.models)) {
           if (!row || typeof row !== "object") continue;
+          const promptTokens = Math.max(0, Math.round(Number(row.promptTokens) || 0));
+          const cachedTokens = Math.max(0, Math.round(Number(row.cachedTokens) || 0));
           models[modelId] = {
-            promptTokens: Math.max(0, Math.round(Number(row.promptTokens) || 0)),
+            promptTokens,
             completionTokens: Math.max(0, Math.round(Number(row.completionTokens) || 0)),
+            // Older files have no cached split; clamp to the prompt bucket.
+            cachedTokens: Math.min(cachedTokens, promptTokens),
             lastSeenAt: Number(row.lastSeenAt) || 0,
           };
         }
@@ -158,6 +163,7 @@ export class LlmTokenLedger {
         counters: {
           output: finiteCount(value.counters?.output),
           prompt: value.counters?.prompt == null ? null : finiteCount(value.counters.prompt),
+          cached: value.counters?.cached == null ? null : finiteCount(value.counters.cached),
         },
         models,
       };
@@ -169,9 +175,12 @@ export class LlmTokenLedger {
           const dayModels = {};
           for (const [mId, r] of Object.entries(dayVal)) {
             if (!r || typeof r !== "object") continue;
+            const promptTokens = Math.max(0, Math.round(Number(r.promptTokens) || 0));
+            const cachedTokens = Math.max(0, Math.round(Number(r.cachedTokens) || 0));
             dayModels[mId] = {
-              promptTokens: Math.max(0, Math.round(Number(r.promptTokens) || 0)),
+              promptTokens,
               completionTokens: Math.max(0, Math.round(Number(r.completionTokens) || 0)),
+              cachedTokens: Math.min(cachedTokens, promptTokens),
             };
           }
           daily[dayKey] = dayModels;
@@ -223,7 +232,7 @@ export class LlmTokenLedger {
         series = {
           updatedAt: 0,
           lastModelId: null,
-          counters: { output: null, prompt: null },
+          counters: { output: null, prompt: null, cached: null },
           models: {},
         };
         this._data.series[key] = series;
@@ -238,6 +247,7 @@ export class LlmTokenLedger {
       if (series.counters.output == null) {
         series.counters.output = obs.output;
         series.counters.prompt = obs.prompt;
+        series.counters.cached = obs.cached;
         series.updatedAt = now;
         changed = true;
         continue;
@@ -248,8 +258,13 @@ export class LlmTokenLedger {
         obs.prompt != null && series.counters.prompt != null
           ? obs.prompt - series.counters.prompt
           : null;
+      let dCached =
+        obs.cached != null && series.counters.cached != null
+          ? obs.cached - series.counters.cached
+          : null;
       series.counters.output = obs.output;
       series.counters.prompt = obs.prompt;
+      series.counters.cached = obs.cached;
       series.updatedAt = now;
 
       // Counter went backwards or jumped implausibly → engine restarted or a
@@ -261,24 +276,39 @@ export class LlmTokenLedger {
       if (dIn != null && (dIn < 0 || dIn > MAX_CREDITABLE_DELTA)) {
         dIn = null;
       }
+      if (dCached != null && (dCached < 0 || dCached > MAX_CREDITABLE_DELTA)) {
+        dCached = null;
+      }
 
       if (dOut > 0 || (dIn != null && dIn > 0)) {
         let row = series.models[modelId];
         if (!row) {
-          row = { promptTokens: 0, completionTokens: 0, lastSeenAt: now };
+          row = { promptTokens: 0, completionTokens: 0, cachedTokens: 0, lastSeenAt: now };
           series.models[modelId] = row;
         }
         if (dOut > 0) addTokensTo(row, "completionTokens", dOut);
         if (dIn != null && dIn > 0) addTokensTo(row, "promptTokens", dIn);
+        if (dCached != null && dCached > 0) addTokensTo(row, "cachedTokens", dCached);
+        // Keep cached ⊆ prompt: a bigger cached delta means the backend
+        // backfilled cache stats for older traffic (or counted buckets
+        // slightly differently). Absorb the excess into the prompt bucket.
+        if (row.cachedTokens > row.promptTokens) {
+          addTokensTo(row, "promptTokens", row.cachedTokens - row.promptTokens);
+        }
         row.lastSeenAt = now;
 
         // Same deltas into the per-UTC-day buckets that power range queries.
         if (!series.daily || typeof series.daily !== "object") series.daily = {};
         const dayKey = utcDateKey(now);
         const day = series.daily[dayKey] || (series.daily[dayKey] = {});
-        const dayRow = day[modelId] || (day[modelId] = { promptTokens: 0, completionTokens: 0 });
+        const dayRow =
+          day[modelId] || (day[modelId] = { promptTokens: 0, completionTokens: 0, cachedTokens: 0 });
         if (dOut > 0) addTokensTo(dayRow, "completionTokens", dOut);
         if (dIn != null && dIn > 0) addTokensTo(dayRow, "promptTokens", dIn);
+        if (dCached != null && dCached > 0) addTokensTo(dayRow, "cachedTokens", dCached);
+        if (dayRow.cachedTokens > dayRow.promptTokens) {
+          addTokensTo(dayRow, "promptTokens", dayRow.cachedTokens - dayRow.promptTokens);
+        }
         changed = true;
       }
     }
@@ -337,6 +367,7 @@ export class LlmTokenLedger {
           modelId,
           promptTokens: row.promptTokens || 0,
           completionTokens: row.completionTokens || 0,
+          cachedTokens: row.cachedTokens || 0,
           lastSeenAt: row.lastSeenAt || 0,
         }));
       } else {
@@ -346,9 +377,11 @@ export class LlmTokenLedger {
         for (const dateKey of Object.keys(s.daily || {}).sort().reverse()) {
           if (!wanted.has(dateKey)) continue;
           for (const [modelId, row] of Object.entries(s.daily[dateKey])) {
-            const acc = agg.get(modelId) || { promptTokens: 0, completionTokens: 0 };
+            const acc =
+              agg.get(modelId) || { promptTokens: 0, completionTokens: 0, cachedTokens: 0 };
             acc.promptTokens = addTokens(acc.promptTokens, row.promptTokens || 0);
             acc.completionTokens = addTokens(acc.completionTokens, row.completionTokens || 0);
+            acc.cachedTokens = addTokens(acc.cachedTokens, row.cachedTokens || 0);
             agg.set(modelId, acc);
           }
         }
@@ -356,6 +389,7 @@ export class LlmTokenLedger {
           modelId,
           promptTokens: row.promptTokens,
           completionTokens: row.completionTokens,
+          cachedTokens: Math.min(row.cachedTokens, row.promptTokens),
           lastSeenAt: null,
         }));
       }
@@ -369,8 +403,9 @@ export class LlmTokenLedger {
         (acc, row) => ({
           promptTokens: addTokens(acc.promptTokens, row.promptTokens),
           completionTokens: addTokens(acc.completionTokens, row.completionTokens),
+          cachedTokens: addTokens(acc.cachedTokens || 0, row.cachedTokens),
         }),
-        { promptTokens: 0, completionTokens: 0 }
+        { promptTokens: 0, completionTokens: 0, cachedTokens: 0 }
       );
       series.push({
         sparkId: key.slice(0, sep),

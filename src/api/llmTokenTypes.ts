@@ -8,6 +8,8 @@ export interface LlmTokenModelTotals {
   modelId: string;
   promptTokens: number;
   completionTokens: number;
+  /** Prefix-cache served subset of promptTokens (0 when the backend does not report the split). */
+  cachedTokens: number;
   lastSeenAt: number;
 }
 
@@ -17,7 +19,7 @@ export interface LlmTokenSeriesTotals {
   port: number;
   updatedAt: number | null;
   lastModelId: string | null;
-  totals: { promptTokens: number; completionTokens: number };
+  totals: { promptTokens: number; completionTokens: number; cachedTokens: number };
   models: LlmTokenModelTotals[];
 }
 

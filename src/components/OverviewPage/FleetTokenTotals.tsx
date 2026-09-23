@@ -22,23 +22,31 @@ const RANGE_OPTIONS: Array<{ value: LlmTokenRange; label: string }> = [
 /** Aggregate per-series model rows into one fleet-wide per-model table. */
 export function aggregateModelTotals(
   series: LlmTokenSeriesTotals[]
-): { rows: Array<{ modelId: string; promptTokens: number; completionTokens: number; sparkCount: number }>; totalPrompt: number; totalCompletion: number } {
+): {
+  rows: Array<{ modelId: string; promptTokens: number; cachedTokens: number; completionTokens: number; sparkCount: number }>;
+  totalPrompt: number;
+  totalCached: number;
+  totalCompletion: number;
+} {
   const byModel = new Map<
     string,
-    { promptTokens: number; completionTokens: number; sparks: Set<string> }
+    { promptTokens: number; cachedTokens: number; completionTokens: number; sparks: Set<string> }
   >();
   let totalPrompt = 0;
+  let totalCached = 0;
   let totalCompletion = 0;
   for (const s of Array.isArray(series) ? series : []) {
     for (const row of Array.isArray(s.models) ? s.models : []) {
       const entry =
         byModel.get(row.modelId) ??
-        { promptTokens: 0, completionTokens: 0, sparks: new Set<string>() };
+        { promptTokens: 0, cachedTokens: 0, completionTokens: 0, sparks: new Set<string>() };
       entry.promptTokens = addTokens(entry.promptTokens, row.promptTokens || 0);
+      entry.cachedTokens = addTokens(entry.cachedTokens, row.cachedTokens || 0);
       entry.completionTokens = addTokens(entry.completionTokens, row.completionTokens || 0);
       entry.sparks.add(s.sparkId);
       byModel.set(row.modelId, entry);
       totalPrompt = addTokens(totalPrompt, row.promptTokens || 0);
+      totalCached = addTokens(totalCached, row.cachedTokens || 0);
       totalCompletion = addTokens(totalCompletion, row.completionTokens || 0);
     }
   }
@@ -46,6 +54,7 @@ export function aggregateModelTotals(
     .map(([modelId, entry]) => ({
       modelId,
       promptTokens: entry.promptTokens,
+      cachedTokens: Math.min(entry.cachedTokens, entry.promptTokens),
       completionTokens: entry.completionTokens,
       sparkCount: entry.sparks.size,
     }))
@@ -53,7 +62,7 @@ export function aggregateModelTotals(
       (a, b) =>
         b.completionTokens + b.promptTokens - (a.completionTokens + a.promptTokens)
     );
-  return { rows, totalPrompt, totalCompletion };
+  return { rows, totalPrompt, totalCached: Math.min(totalCached, totalPrompt), totalCompletion };
 }
 
 export function FleetTokenTotals() {
@@ -81,7 +90,7 @@ export function FleetTokenTotals() {
 
   if (!series || series.length === 0) return null;
 
-  const { rows, totalPrompt, totalCompletion } = aggregateModelTotals(series);
+  const { rows, totalPrompt, totalCached, totalCompletion } = aggregateModelTotals(series);
   // Count only endpoints with token data in the selected period, not all configured ones.
   const activeEndpoints = series.filter((s) => s.models.length > 0).length;
   if (rows.length === 0 && range === "all") return null;
@@ -116,6 +125,8 @@ export function FleetTokenTotals() {
           Cumulative tokens by model, whole fleet
         </span>
         <span className="shrink-0 whitespace-nowrap text-[10px] text-muted">
+          <span className="inline-block w-14 text-right">Cached</span>
+
           <span className="inline-block w-14 text-right">Prefill</span>
 
           <span className="inline-block w-16 text-right">Generated</span>
@@ -129,7 +140,7 @@ export function FleetTokenTotals() {
           <div
             key={row.modelId}
             className="flex items-center justify-between gap-2 text-[11px]"
-            title={`${row.promptTokens.toLocaleString()} prefill · ${row.completionTokens.toLocaleString()} generated · ${row.sparkCount} Spark${row.sparkCount === 1 ? "" : "s"}`}
+            title={`${row.promptTokens.toLocaleString()} prompt · ${row.cachedTokens.toLocaleString()} cached · ${(row.promptTokens - row.cachedTokens).toLocaleString()} prefill · ${row.completionTokens.toLocaleString()} generated · ${row.sparkCount} Spark${row.sparkCount === 1 ? "" : "s"}`}
           >
             <span className="min-w-0 flex-1 truncate text-text" title={row.modelId}>
               {row.modelId}
@@ -139,9 +150,13 @@ export function FleetTokenTotals() {
             </span>
             <span className="shrink-0 font-tabular text-muted">
               <span className="inline-block w-14 text-right">
-                {formatTokensCompact(row.promptTokens)}
+                {row.cachedTokens > 0 ? formatTokensCompact(row.cachedTokens) : "—"}
               </span>
-              
+
+              <span className="inline-block w-14 text-right">
+                {formatTokensCompact(row.promptTokens - row.cachedTokens)}
+              </span>
+
               <span className="inline-block w-16 text-right text-text">
                 {formatTokensCompact(row.completionTokens)}
               </span>
@@ -154,9 +169,13 @@ export function FleetTokenTotals() {
         <span className="uppercase tracking-wide text-muted">Total</span>
         <span className="font-tabular">
           <span className="inline-block w-14 text-right text-muted">
-            {formatTokensCompact(totalPrompt)}
+            {totalCached > 0 ? formatTokensCompact(totalCached) : "—"}
           </span>
-          
+
+          <span className="inline-block w-14 text-right text-muted">
+            {formatTokensCompact(totalPrompt - totalCached)}
+          </span>
+
           <span className="inline-block w-16 text-right text-sm font-semibold text-text-strong">
             {formatTokensCompact(totalCompletion)}
           </span>
