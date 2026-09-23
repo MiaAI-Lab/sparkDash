@@ -10,7 +10,7 @@
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "test": "npm run test:server && npm run test:frontend",
-    "test:server": "node --test server/collectors/__tests__/*.test.js server/sparks/__tests__/*.test.js",
+    "test:server": "node --test server/collectors/__tests__/*.test.js server/sparks/__tests__/*.test.js server/llmtokens/__tests__/*.test.js",
     "test:frontend": "vitest run",
     "preview": "vite preview",
     "start": "node server/index.js",

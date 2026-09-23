@@ -175,6 +175,8 @@ test("_applyQ27Metrics: live processed counters drive real-time rates", () => {
   probe.lastTokenCounts = { input: 150, output: 400 }; // seeded baseline
   probe._applyQ27Metrics(Q27_LIVE_METRICS, 2);
   assert.equal(probe.totalOutputTokens, 400);
+  assert.equal(probe.totalPromptTokens, 200); // computed 150 + cached 50 = full prompt
+  assert.equal(probe.totalCachedTokens, 50);
   assert.equal(probe.generationTps, 0); // first sample seeds the baseline
   assert.equal(probe.requestsRunning, 1);
 
