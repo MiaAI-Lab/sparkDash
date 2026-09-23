@@ -1,0 +1,100 @@
+{
+  "nodes": [
+    {
+      "id": "gx10-1c2c",
+      "name": "GX10 Head (1c2c)",
+      "endpoint": "192.168.50.226:30091",
+      "lanIp": "192.168.50.226",
+      "role": "head",
+      "rank": 0,
+      "groupId": "tp2",
+      "headId": null,
+      "links": [
+        {
+          "from": "gx10-1c2c",
+          "to": "gx10-102c",
+          "fromIf": "enp1s0f1np1",
+          "toIf": "enp1s0f0np0",
+          "speedMbps": 200000,
+          "transport": "roce",
+          "up": true
+        },
+        {
+          "from": "gx10-1c2c",
+          "to": "gx10-25ed",
+          "fromIf": "enp1s0f2np1",
+          "toIf": "enp1s0f0np0",
+          "speedMbps": 200000,
+          "transport": "roce",
+          "up": true
+        }
+      ],
+      "agentPort": 30091,
+      "isLocal": false
+    },
+    {
+      "id": "gx10-102c",
+      "name": "GX10 Worker (102c)",
+      "endpoint": "192.168.50.102:30091",
+      "lanIp": "192.168.50.102",
+      "role": "worker",
+      "rank": 1,
+      "groupId": "tp2",
+      "headId": "gx10-1c2c",
+      "links": [
+        {
+          "from": "gx10-102c",
+          "to": "gx10-1c2c",
+          "fromIf": "enp1s0f0np0",
+          "toIf": "enp1s0f1np1",
+          "speedMbps": 200000,
+          "transport": "roce",
+          "up": true
+        },
+        {
+          "from": "gx10-102c",
+          "to": "gx10-25ed",
+          "fromIf": "enp1s0f1np0",
+          "toIf": "enp1s0f0np0",
+          "speedMbps": 200000,
+          "transport": "roce",
+          "up": true
+        }
+      ],
+      "agentPort": 30091,
+      "isLocal": false
+    },
+    {
+      "id": "gx10-25ed",
+      "name": "GX10 Worker (25ed)",
+      "endpoint": "192.168.50.254:30091",
+      "lanIp": "192.168.50.254",
+      "role": "worker",
+      "rank": 2,
+      "groupId": "tp2",
+      "headId": "gx10-1c2c",
+      "links": [
+        {
+          "from": "gx10-25ed",
+          "to": "gx10-1c2c",
+          "fromIf": "enp1s0f0np0",
+          "toIf": "enp1s0f2np1",
+          "speedMbps": 200000,
+          "transport": "roce",
+          "up": true
+        },
+        {
+          "from": "gx10-25ed",
+          "to": "gx10-102c",
+          "fromIf": "enp1s0f0np0",
+          "toIf": "enp1s0f1np0",
+          "speedMbps": 200000,
+          "transport": "roce",
+          "up": true
+        }
+      ],
+      "agentPort": 30091,
+      "isLocal": false
+    }
+  ]
+}
