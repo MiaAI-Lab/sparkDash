@@ -299,6 +299,8 @@ export interface LlmMetrics {
   uncachedPrefillTps?: number | null;
   /** Cumulative total output (generation) tokens as reported by the LLM server */
   totalOutputTokens: number;
+  /** Cumulative cached (prefix-cache served) prompt tokens. null when the backend does not expose the split. */
+  totalCachedTokens: number | null;
   /** Cumulative total prompt (prefill) tokens as reported by the LLM server. null when the backend does not expose it. */
   totalPromptTokens: number | null;
   /** vLLM KV cache usage fraction (0–1). null when backend !== vllm or unreachable. */

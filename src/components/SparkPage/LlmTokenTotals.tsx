@@ -81,6 +81,8 @@ export function LlmTokenTotals({ sparkId, llmPort }: { sparkId: string; llmPort:
             ))}
           </select>
           <span className="shrink-0 whitespace-nowrap text-[10px] text-muted">
+            <span className="inline-block w-14 text-right">Cached</span>
+
             <span className="inline-block w-14 text-right">Prefill</span>
 
             <span className="inline-block w-16 text-right">Generated</span>
@@ -97,7 +99,7 @@ export function LlmTokenTotals({ sparkId, llmPort }: { sparkId: string; llmPort:
             <div
               key={row.modelId}
               className="flex items-center justify-between gap-2 text-[11px]"
-              title={`${row.promptTokens.toLocaleString()} prefill · ${row.completionTokens.toLocaleString()} generated${seen ? ` · ${seen} ago` : ""}`}
+              title={`${row.promptTokens.toLocaleString()} prompt · ${row.cachedTokens.toLocaleString()} cached · ${(row.promptTokens - row.cachedTokens).toLocaleString()} prefill · ${row.completionTokens.toLocaleString()} generated${seen ? ` · ${seen} ago` : ""}`}
             >
               <span
                 className="min-w-0 flex-1 truncate text-text"
@@ -107,9 +109,13 @@ export function LlmTokenTotals({ sparkId, llmPort }: { sparkId: string; llmPort:
               </span>
               <span className="shrink-0 font-tabular text-muted">
                 <span className="inline-block w-14 text-right">
-                  {formatTokensCompact(row.promptTokens)}
+                  {row.cachedTokens > 0 ? formatTokensCompact(row.cachedTokens) : "—"}
                 </span>
-                
+
+                <span className="inline-block w-14 text-right">
+                  {formatTokensCompact(row.promptTokens - row.cachedTokens)}
+                </span>
+
                 <span className="inline-block w-16 text-right text-text">
                   {formatTokensCompact(row.completionTokens)}
                 </span>

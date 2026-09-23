@@ -88,7 +88,8 @@ test("_applyExl3Health: counter diffs → tok/s; idle → 0", () => {
     2
   );
   assert.equal(probe.totalOutputTokens, 50);
-  assert.equal(probe.totalPromptTokens, 100);
+  assert.equal(probe.totalPromptTokens, 100); // EXL3 has no cached split
+  assert.equal(probe.totalCachedTokens, null);
   assert.equal(probe.contextLength, 65536);
   assert.equal(probe.slotsActive, 1);
 

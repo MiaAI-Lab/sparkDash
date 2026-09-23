@@ -18,8 +18,8 @@ function tmpLedger() {
   return new LlmTokenLedger(path.join(dir, "llm-token-totals.json"));
 }
 
-function obs(sparkId, port, modelId, output, prompt) {
-  return { sparkId, port, modelId, output, prompt };
+function obs(sparkId, port, modelId, output, prompt, cached) {
+  return { sparkId, port, modelId, output, prompt, cached: cached ?? null };
 }
 
 test("extractTokenObservations: aligns metrics.llm with llmPorts and skips invalid rows", () => {
@@ -46,6 +46,7 @@ test("extractTokenObservations: aligns metrics.llm with llmPorts and skips inval
     modelId: "org/model-a",
     output: 100,
     prompt: 500,
+    cached: null,
   });
   assert.deepEqual(rows[1], {
     sparkId: "spark-b",
@@ -53,6 +54,7 @@ test("extractTokenObservations: aligns metrics.llm with llmPorts and skips inval
     modelId: null,
     output: 7,
     prompt: null,
+    cached: null,
   });
 });
 
@@ -151,6 +153,66 @@ test("LlmTokenLedger: daily buckets credit deltas and serve ranged snapshots", (
 
   // Invalid range falls back to lifetime.
   assert.equal(ledger.snapshot("nonsense", d2).range, "all");
+});
+
+test("LlmTokenLedger: cached tokens credit as a subset of prompt", () => {
+  const ledger = tmpLedger();
+  const t0 = 1_730_000_000_000;
+  ledger.record([obs("spark-a", 8888, "org/a", 100, 1000, 600)], t0); // seed
+  ledger.record([obs("spark-a", 8888, "org/a", 150, 2000, 1400)], t0 + 10_000);
+  const s = ledger.snapshot().series[0];
+  assert.equal(s.models[0].promptTokens, 1000);
+  assert.equal(s.models[0].cachedTokens, 800); // 1400 - 600
+  assert.equal(s.models[0].completionTokens, 50);
+  assert.equal(s.totals.cachedTokens, 800);
+  assert.ok(s.models[0].cachedTokens <= s.models[0].promptTokens);
+});
+
+test("LlmTokenLedger: cached delta clamps to prompt delta (no over-credit)", () => {
+  const ledger = tmpLedger();
+  const t0 = 1_730_000_000_000;
+  ledger.record([obs("spark-a", 8888, "org/a", 100, 1000, 600)], t0);
+  // Cached jumped far more than prompt — excess must not exceed the prompt bucket.
+  ledger.record([obs("spark-a", 8888, "org/a", 150, 1100, 3000)], t0 + 10_000);
+  const s = ledger.snapshot().series[0];
+  assert.equal(s.models[0].promptTokens, 2400); // 100 + excess absorbed
+  assert.equal(s.models[0].cachedTokens, 2400);
+  assert.ok(s.models[0].cachedTokens <= s.models[0].promptTokens);
+});
+
+test("LlmTokenLedger: backends without the split keep cachedTokens at 0", () => {
+  const ledger = tmpLedger();
+  const t0 = 1_730_000_000_000;
+  ledger.record([obs("spark-a", 8888, "org/a", 100, 1000)], t0); // no cached field
+  ledger.record([obs("spark-a", 8888, "org/a", 150, 2000)], t0 + 10_000);
+  const s = ledger.snapshot().series[0];
+  assert.equal(s.models[0].cachedTokens, 0);
+  assert.equal(s.models[0].promptTokens, 1000);
+});
+
+test("LlmTokenLedger: daily buckets carry the cached split", () => {
+  const ledger = tmpLedger();
+  const d1 = Date.UTC(2026, 9, 28, 12, 0, 0);
+  ledger.record([obs("spark-a", 8888, "org/a", 100, 1000, 400)], d1);
+  ledger.record([obs("spark-a", 8888, "org/a", 150, 2000, 900)], d1 + 60_000);
+  const today = ledger.snapshot("today", d1 + 120_000).series[0];
+  assert.equal(today.models[0].promptTokens, 1000);
+  assert.equal(today.models[0].cachedTokens, 500);
+});
+
+test("LlmTokenLedger: persistence round-trips the cached split", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "llm-tokens-"));
+  const file = path.join(dir, "llm-token-totals.json");
+  const t0 = 1_730_000_000_000;
+  const first = new LlmTokenLedger(file);
+  first.record([obs("spark-a", 8888, "org/a", 100, 1000, 600)], t0);
+  first.record([obs("spark-a", 8888, "org/a", 150, 2000, 1400)], t0 + 60_000);
+  first.close();
+  const second = new LlmTokenLedger(file);
+  second.record([obs("spark-a", 8888, "org/a", 200, 2500, 1700)], t0 + 120_000);
+  const s = second.snapshot().series[0];
+  assert.equal(s.models[0].promptTokens, 1500);
+  assert.equal(s.models[0].cachedTokens, 1100);
 });
 
 test("normalizeLlmTokenRange: accepts the documented keys only", () => {
