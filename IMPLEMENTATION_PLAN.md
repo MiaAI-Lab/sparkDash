@@ -418,6 +418,19 @@ seed-and-diff (deploy scripts idempotent); e2e (dashboard + node-agent wired, PR
 
 ## 6. Running log
 
+**2026-09-23 ~08:40 EDT** — Batch 3 DONE (commits 1399835 + 9849245). Worker 3A
+delivered server/fleet/{registry,connection}.js + tests (48 tests). Worker 3B
+delivered server/fleet/{aggregate,topology}.js + tests (15 tests). Gate: 63/63
+full fleet suite pass, 3× runs. Node registry (loadNodes/saveNodes/getNode/
+listNodes/addNode/updateNode/removeNode, atomic persistence, ENOENT→[] graceful
+degradation, id regex validation). Fleet connection manager (createFleetConnection,
+poll loop over /telemetry, Map cache, online/offline status, onSnapshot/onStatus
+callbacks, graceful degradation). Requests aggregation (aggregateRequests →
+byModel/byEngine/byMachine, null requests skip). Topology model (buildTopology →
+TopologyInfo[] + RoCE link dedup). config/nodes.example.json (3 nodes). Batch 4
+dispatched (Overview/fleet + per-node detail + roles/RoCE diagram, Service Manager
+tab + requests viz + memory budgeting UI).
+
 **2026-09-23 ~07:45 EDT** — Batch 2 DONE (commits 0cfc831 + a5a97f8). Worker 2A
 delivered agent/actions/{docker,audit,index}.js + tests (126 tests). Worker 2B
 delivered agent/actions/{systemd,llm-switch}.js + tests (57 tests). Gate: 183/183

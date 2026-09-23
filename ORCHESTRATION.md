@@ -46,8 +46,10 @@
 | 1B | 2026-09-22 20:50 | DONE | 7258098 | Recipe catalog + memory budgeting; 40/40 tests pass |
 | 2A | 2026-09-22 22:30 | DONE | 0cfc831 | Docker actions + audit log; 126 tests (with 2B) |
 | 2B | 2026-09-22 22:30 | DONE | a5a97f8 | Systemd actions + LLM switch; 57 tests; 183/183 full suite |
-| 3A | 2026-09-23 07:40 | PENDING | — | Node registry + fleet connection |
-| 3B | 2026-09-23 07:40 | PENDING | — | Requests aggregation + topology |
+| 3A | 2026-09-23 07:40 | DONE | 1399835 | Node registry + fleet connection; 48 tests |
+| 3B | 2026-09-23 07:40 | DONE | 9849245 | Requests aggregation + topology; 15 tests; 63/63 full fleet suite |
+| 4A | 2026-09-23 08:40 | PENDING | — | Overview/fleet + per-node detail + roles/RoCE diagram |
+| 4B | 2026-09-23 08:40 | PENDING | — | Service Manager tab + requests viz + memory budgeting UI |
 
 ## Gate Findings Log
 
