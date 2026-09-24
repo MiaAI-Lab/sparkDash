@@ -24,8 +24,10 @@ function energy(overrides: Partial<FleetEnergy> = {}): FleetEnergy {
     energy31dKwh: 40,
     whPerOutputToken24h: 0.0123,
     outputTokens24h: 100,
-    coverage24hMs: 86_400_000 * 2,
+    coverage24hMs: 86_400_000,
+    coverage24hWindowMs: 86_400_000,
     coverage31dMs: 0,
+    coverage31dWindowMs: 86_400_000 * 31,
     nodeCoverage24hMs: {},
     nodeCoverage31dMs: {},
     hourlyWatts24h: Array.from({ length: 24 }, (_, hour) => (hour % 4 === 0 ? null : 100 + hour)),
@@ -39,10 +41,36 @@ describe("FleetEnergyCard states", () => {
     const { container } = render(<FleetEnergyCard nodeCount={2} />);
     await flush();
     expect(container.textContent).toContain("Estimated, not wall-metered");
+    // coverage24hMs is full-fleet wall-clock coverage capped at DAY_MS, so a
+    // full window must read 100.0% regardless of node count.
+    expect(container.textContent).toContain("24h coverage 100.0%");
     expect(container.textContent).toContain("240 W");
     expect(container.textContent).toContain("0.0123 Wh/token");
     const bars = [...container.querySelectorAll("[aria-label] span")];
     expect(bars.filter((bar) => (bar as HTMLElement).style.height === "0px" || (bar as HTMLElement).style.height === "0")).toHaveLength(6);
+  });
+
+  it("reads coverage from the server-provided window, independent of fleet size", async () => {
+    // Full fleet wall-clock coverage over the server's window is 100% at any
+    // node count — the window is time, not node-time.
+    for (const nodeCount of [1, 2, 32]) {
+      fetchEnergy.mockResolvedValue(
+        energy({ freshNodeCount: nodeCount, currentNodeIds: Array.from({ length: nodeCount }, (_, i) => `n${i}`), trackedNodeIds: Array.from({ length: nodeCount }, (_, i) => `n${i}`) })
+      );
+      const { container } = render(<FleetEnergyCard nodeCount={nodeCount} />);
+      await flush();
+      expect(container.textContent).toContain("24h coverage 100.0%");
+    }
+    // Half the window reads 50% at any fleet size too.
+    fetchEnergy.mockResolvedValue(energy({ coverage24hMs: 43_200_000 }));
+    const three = render(<FleetEnergyCard nodeCount={3} />);
+    await flush();
+    expect(three.container.textContent).toContain("24h coverage 50.0%");
+    // Older servers without coverage24hWindowMs fall back to the 24h window.
+    fetchEnergy.mockResolvedValue(energy({ coverage24hWindowMs: undefined }));
+    const legacy = render(<FleetEnergyCard nodeCount={2} />);
+    await flush();
+    expect(legacy.container.textContent).toContain("24h coverage 100.0%");
   });
 
   it("explains empty, partial, membership-changed, and fetch-error states", async () => {
