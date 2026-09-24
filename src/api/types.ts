@@ -538,7 +538,10 @@ export interface FleetEnergy {
   whPerOutputToken24h: number | null;
   outputTokens24h: number;
   coverage24hMs: number;
+  /** Window coverage24hMs is measured over (server-owned; fleet-size independent). */
+  coverage24hWindowMs?: number;
   coverage31dMs: number;
+  coverage31dWindowMs?: number;
   nodeCoverage24hMs: Record<string, number>;
   nodeCoverage31dMs: Record<string, number>;
   hourlyWatts24h: Array<number | null>;

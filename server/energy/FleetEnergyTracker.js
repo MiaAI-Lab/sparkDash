@@ -591,7 +591,13 @@ export class FleetEnergyTracker {
           : null,
       outputTokens24h: last24h.outputTokens,
       coverage24hMs: last24h.fleetCoverageMs,
+      /** Window these coverage figures are measured over — clients must not
+       *  assume the window length. Fleet coverage is wall-clock time during
+       *  which every node was fresh, so it is capped by this window, not by
+       *  window × nodeCount (per-node totals live in nodeCoverage*Ms). */
+      coverage24hWindowMs: DAY_MS,
       coverage31dMs: last31d.fleetCoverageMs,
+      coverage31dWindowMs: RETENTION_MS,
       nodeCoverage24hMs: last24h.nodeCoverageMs,
       nodeCoverage31dMs: last31d.nodeCoverageMs,
       hourlyWatts24h: this._membershipChanged
