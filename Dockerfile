@@ -22,7 +22,11 @@ COPY package.json package-lock.json* ./
 RUN npm ci --no-audit --no-fund \
   || (echo "npm ci failed once — retrying…" && npm cache clean --force && npm ci --no-audit --no-fund)
 
-# Copy source and build
+# Copy source and build. VITE_HISTORY_HOURS sets the frontend metrics-history
+# retention window (see src/hooks/metricsStore.ts); override via
+# `docker compose build --build-arg VITE_HISTORY_HOURS=4` or the env in compose.
+ARG VITE_HISTORY_HOURS=8
+ENV VITE_HISTORY_HOURS=${VITE_HISTORY_HOURS}
 COPY . .
 RUN npm run build
 
@@ -57,6 +61,7 @@ COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/package-lock.json ./package-lock.json
 COPY --from=builder /app/server ./server
 COPY --from=builder /app/src/shared ./src/shared
+COPY --from=builder /app/src/components/ShowcasePage/showcasePrompts.ts ./src/components/ShowcasePage/showcasePrompts.ts
 COPY --from=builder /app/config ./config
 
 # Volume for persistent sparks.json

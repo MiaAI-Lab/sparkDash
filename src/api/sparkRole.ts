@@ -11,6 +11,13 @@ export function resolveSparkRole(spark: {
   return spark.workerNode ? "worker" : "standalone";
 }
 
+export function isWorkerSpark(spark: {
+  role?: SparkRole | string | null;
+  workerNode?: boolean | null;
+}): boolean {
+  return resolveSparkRole(spark) === "worker";
+}
+
 /**
  * Whether this Spark should probe/show the local LLM API.
  * Workers: never. Head: always. Standalone: llmMonitoring (default true).

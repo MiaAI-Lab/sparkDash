@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>ai.onyx.sparkdash-watchdog</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/openclaw/repos/sparkDash/scripts/watchdog.sh</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/Users/openclaw/.local/bin:/Users/openclaw/.hermes/node/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>HOME</key>
+        <string>/Users/openclaw</string>
+        <key>SPARKDASH_HEALTH_URL</key>
+        <string>http://127.0.0.1:5555/api/health</string>
+        <key>WATCHDOG_OK_BODY</key>
+        <string>"ok":true</string>
+    </dict>
+
+    <!-- Probe every 60s. 3 consecutive failures => kickstart + alert.
+         Alerts land in ~/Library/Logs/sparkdash-alerts.log (fleet tailable). -->
+    <key>StartInterval</key>
+    <integer>60</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>StandardOutPath</key>
+    <string>/Users/openclaw/Library/Logs/sparkdash-watchdog.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/openclaw/Library/Logs/sparkdash-watchdog.err.log</string>
+</dict>
+</plist>

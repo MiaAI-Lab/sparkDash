@@ -5,12 +5,72 @@
  * (not stream EOF), so trailing usage/[DONE] latency does not drag the rate down.
  */
 
+import { Agent, fetch as undiciFetch } from "undici";
+
 /** Response headers worth keeping for request correlation / debugging. */
 const DEBUG_HEADER_RE =
   /^(x-request-id|x-stainless-|server|date|content-type|openai-|x-envoy-|cf-ray|request-id)$/i;
 
 /** Truncate streamed content previews stored for debugging. */
 export const CONTENT_PREVIEW_CHARS = 160;
+
+/**
+ * Undici's default headersTimeout/bodyTimeout is 300s. A 256k prefill that has
+ * not produced a first token (or even response headers) by then is aborted
+ * even when PrefillBench's own timer is 30–45 minutes. 0 disables those idle
+ * cuts; the caller AbortSignal still bounds the request.
+ *
+ * Must use undici's own `fetch` with this Agent. Node 22's global fetch is a
+ * different undici build; passing an npm Agent as `dispatcher` fails immediately
+ * with UND_ERR_INVALID_ARG ("fetch failed").
+ */
+export const LLM_STREAM_AGENT = new Agent({
+  headersTimeout: 0,
+  bodyTimeout: 0,
+});
+
+let streamAgentClosePromise = null;
+
+/** Close the shared dispatcher once, destroying it if graceful close stalls. */
+export function closeLlmStreamAgent(timeoutMs = 2_000) {
+  if (streamAgentClosePromise) return streamAgentClosePromise;
+  streamAgentClosePromise = (async () => {
+    let timer;
+    try {
+      await Promise.race([
+        LLM_STREAM_AGENT.close(),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error("dispatcher close timed out")), timeoutMs);
+        }),
+      ]);
+      return true;
+    } catch {
+      LLM_STREAM_AGENT.destroy();
+      return false;
+    } finally {
+      clearTimeout(timer);
+    }
+  })();
+  return streamAgentClosePromise;
+}
+
+/** Map fetch/undici failures to a short UI string. */
+export function describeStreamFetchError(err) {
+  if (!err) return "Request failed";
+  const code = err.code || err.cause?.code;
+  if (
+    code === "UND_ERR_HEADERS_TIMEOUT" ||
+    code === "UND_ERR_BODY_TIMEOUT" ||
+    err.name === "HeadersTimeoutError" ||
+    err.name === "BodyTimeoutError"
+  ) {
+    return `HTTP idle timeout (${code || err.name}): no data from the LLM for 5 minutes`;
+  }
+  if (err.name === "AbortError" || err.name === "TimeoutError") {
+    return "Request aborted or timed out";
+  }
+  return err.message || String(err);
+}
 
 export function round2(n) {
   return Math.round(n * 100) / 100;
@@ -34,9 +94,14 @@ export function sleep(ms, signal) {
       reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
       return;
     }
-    const t = setTimeout(resolve, ms);
+    const cleanup = () => signal?.removeEventListener("abort", onAbort);
+    const t = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, ms);
     const onAbort = () => {
       clearTimeout(t);
+      cleanup();
       reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
     };
     if (signal) {
@@ -94,6 +159,16 @@ export async function readServerGenerationTokens(baseUrl, opts = {}) {
           /^sglang_generation_tokens_total(?:\{[^}]*\})?\s+([\d.eE+-]+)\s*$/gm
         );
       if (sglang != null) return sglang;
+      // q27 (signalnine/q27 engine) — live processed counter first, then the
+      // completion-based per-api total (same preference as LlmProbe).
+      const q27 =
+        fromSeries(
+          /^q27_decode_tokens_processed_total(?:\{[^}]*\})?\s+([\d.eE+-]+)\s*$/gm
+        ) ??
+        fromSeries(
+          /^q27_decode_tokens_total(?:\{[^}]*\})?\s+([\d.eE+-]+)\s*$/gm
+        );
+      if (q27 != null) return q27;
     }
   } catch {
     /* try next */
@@ -485,11 +560,12 @@ async function runStreamingRequestOnce(
     const key = apiKey != null ? String(apiKey).trim() : "";
     if (key) headers.Authorization = `Bearer ${key}`;
 
-    const response = await fetch(url, {
+    const response = await undiciFetch(url, {
       method: "POST",
       headers,
       body: JSON.stringify(body),
       signal,
+      dispatcher: LLM_STREAM_AGENT,
     });
 
     httpStatus = response.status;
@@ -594,11 +670,7 @@ async function runStreamingRequestOnce(
       }
     }
   } catch (err) {
-    if (err?.name === "AbortError") {
-      error = "Request aborted or timed out";
-    } else {
-      error = err?.message || String(err);
-    }
+    error = describeStreamFetchError(err);
   }
 
   const tEnd = performance.now();

@@ -51,9 +51,8 @@ It also supports **non-Spark units**: any Linux machine with an NVIDIA GPU (e.g.
 
 ## Latest version changelog
 
-### Version 1.8.6 — prefill benchmark
-- **Prefill benchmark** on the LLM card: sweep context sizes from 1k to 300k, report prefill tok/s (`prompt_tokens` ÷ TTFT) and TTFT. Unique prefix per size so prefix-cache does not inflate later runs. Timeouts scale with size (up to 45 min).
-- **CPU temperature** on remote Sparks (Overview bar + GPU panel row when above 0°C).
+### Version 1.8.8 — SGLang live tok/s
+- **Overview tok/s on SGLang** follows `gen_throughput` while a request is running. The completion counter on current builds only moves when the request finishes, so the card stayed at 0 for the whole decode.
 
 Full history: [CHANGELOG.md](./CHANGELOG.md)
 
@@ -67,20 +66,20 @@ Full history: [CHANGELOG.md](./CHANGELOG.md)
 | **Non-Spark GPU hosts** | Linux boxes with a dedicated NVIDIA GPU are first-class units: same `nvidia-smi` collectors over SSH, detected hardware summary, and separate **RAM** / **VRAM** panels. Detail page: GPU (left) + **RAM → Network → Storage** (right column); Overview cards show RAM and VRAM bars |
 | **Live streaming** | WebSocket metrics with configurable poll intervals; central history store for sparklines across tab switches |
 | **Local + remote** | Host metrics via sysfs/proc/`nvidia-smi`; remotes over SSH (key or password) |
-| **LLM probe** | Auto-detects llama.cpp, vLLM, sglang, ds4-server, or EXL3; live decode/prefill tok/s; cached vs uncached prefill on ds4, llama.cpp, and SGLang; **daily peak** history on the LLM card |
+| **LLM probe** | Auto-detects llama.cpp, vLLM, sglang, ds4-server, EXL3, or q27; live decode/prefill tok/s; cached vs uncached prefill on ds4, llama.cpp, SGLang, and q27; **daily peak** history on the LLM card |
 | **ComfyUI** | Opt-in probe: queue/jobs, progress, cancel, Open link, inventory, overview chip |
 | **Hermes Agent** | Opt-in per unit: background update check (10 min), status badges, one-click or batch `hermes update` |
 | **Tailnet** | Opt-in probe: flags a unit that is healthy on the LAN but off its tailnet |
-| **Decode benchmark** | Multi-concurrency streaming decode tok/s; type picker (Structured / Prose / Code / JSON); lab protocol (temp 0, thinking off); persisted last run |
-| **Prefill benchmark** | Context-size sweep (1k–300k) of prefill tok/s and TTFT; unique prefix per size; persisted last run |
+| **Decode benchmark** | Multi-concurrency streaming decode tok/s; type picker (Structured / Prose / Code / JSON). Code is a different Python task per stream. Lab protocol (temp 0, thinking off); persisted last run. Remote units: LAN HTTP, or SSH tunnel to loopback. **Remote** button for an on-demand HTTPS/host:port target |
+| **Prefill benchmark** | Context-size sweep (1k–300k) of prefill tok/s and TTFT; unique prefix per size; persisted last run. Same remote targeting as decode |
 | **Prompt Showcase** | Full-page multi-terminal LLM streaming demo (up to 32 prompts) with live tok/s and copy-out |
-| **vLLM health** | KV cache %, run/wait queue, TTFT/E2E/ITL p95, preemptions, prefix cache, MTP accept from Prometheus `/metrics` |
+| **LLM inference health** | KV cache %, run/wait queue, TTFT/E2E/ITL p95, preemptions, prefix cache, MTP accept from Prometheus `/metrics` (vLLM and q27; q27 FIFO-queues so the Requests tile reads “N run” without a wait gauge) |
 | **Multiple LLM ports** | Monitor several LLM servers on different ports simultaneously — each gets its own panel with independent backend detection and metrics |
 | **Model Launcher** | One-click start/stop/restart/logs of model repos from Overview — each card runs on its **assigned Spark** over SSH (machine-agnostic dashboard), with a time-window scheduler guaranteeing one model at a time |
 | **GPU processes** | See the top GPU processes by VRAM usage directly in the GPU panel, including process name and memory allocation |
 | **Spark uptime** | System uptime displayed inline on each Spark header for at-a-glance availability |
 | **Power controls** | Graceful shutdown (SSH host script) and Wake-on-LAN; batch actions on Overview |
-| **Spark roles** | **Head** / **Worker** / **Standalone** — worker label + head link; standalone can disable LLM monitoring |
+| **Spark roles** | **Head** / **Worker** / **Standalone** — worker label + head link; standalone can disable LLM monitoring; optional hide workers from Overview and tabs |
 | **Unified memory** | GB10 128 GB LPDDR5X pool (~273 GB/s), GPU/CPU split, bandwidth via `nvidia-smi dmon`. Non-Spark hosts show discrete **VRAM** (nvidia-smi) and system **RAM** separately |
 | **Themes** | Dark, light, cool white, OLED — neutral palettes, persisted in `localStorage` |
 | **Secrets** | SSH passwords AES-256-GCM encrypted; never in `sparks.json` or API responses |
@@ -255,7 +254,7 @@ Env (optional): `MODEL_REPOS_BASE` (allowlist base for card dirs — as the path
 git clone https://github.com/MiaAI-Lab/sparkDash.git
 cd sparkDash
 
-# Production (Docker)
+# Production (Docker; loopback-only by default)
 docker compose up --build -d
 
 # Or development (host, with hot reload)
@@ -263,8 +262,16 @@ npm install
 npm run dev
 ```
 
-- **Docker**: open **http://&lt;host-ip&gt;:5555** (arm64 image, auto-restart, host mounts for GPU/metrics access)
+- **Docker**: open **http://127.0.0.1:5555** on the host (arm64 image, auto-restart, host mounts for GPU/metrics access)
 - **Dev**: Vite on **http://localhost:5173** (proxies API/WS to Express)
+
+For another computer, keep the server on loopback and use an SSH tunnel:
+
+```bash
+ssh -N -L 5555:127.0.0.1:5555 user@sparkdash-host
+```
+
+Then open `http://127.0.0.1:5555` on that computer. For shared access, use an authenticated TLS reverse proxy, Tailscale Serve, or set `BIND_HOST=0.0.0.0` **and** `SPARKDASH_TOKEN`. Direct LAN bind without a token fails closed. Previous `http://<host-ip>:5555` installs must migrate.
 
 For development with Docker (source-mounted, HMR):
 ```bash
@@ -360,6 +367,7 @@ sparkDash/
 | DELETE | `/api/sparks/:id` | Remove Spark and drain monitor |
 | PUT | `/api/sparks/order` | Persist tab order |
 | GET | `/api/sparks/:id/metrics` | One-shot metrics snapshot |
+| GET | `/api/fleet-energy` | Estimated fleet watts, rolling energy, coverage, and Wh/output-token |
 | POST | `/api/sparks/test` | Ephemeral SSH + LLM (+ Comfy if enabled) test (no persist) |
 | POST | `/api/sparks/:id/test` | Connectivity test (can save password) |
 | POST | `/api/sparks/:id/comfy/cancel` | Cancel ComfyUI job by `promptId` |
@@ -377,7 +385,16 @@ sparkDash/
 | PUT | `/api/settings` | Update global settings |
 | WS | `/ws` | Real-time metrics stream |
 
-There is no authentication on the HTTP/WebSocket API. Run sparkDash only on a trusted network (or behind your own reverse proxy with auth).
+There is no application authentication on the HTTP/WebSocket API. sparkDash therefore binds to loopback and refuses direct LAN binding. Use an SSH tunnel, authenticated TLS reverse proxy, or Tailscale Serve; see [Remote access](./docs/REMOTE-ACCESS.md).
+
+`/api/fleet-energy` samples the configured fleet independently every two seconds. It estimates
+each node as GPU board draw + a CPU utilization model (5.2–65 W) + 23 W of memory/network/base
+overhead, clamped to the DGX Spark power envelope. Current and hourly fleet watts require fresh,
+simultaneous telemetry from every node; coverage fields make gaps explicit. Minute buckets are
+persisted at mode `0600` for rolling 24-hour and 31-day windows. Wh/output-token is reported when
+exactly one configured node has role `head` and exposes a monotonic LLM output-token counter.
+These values are estimates, not wall-meter measurements. Restart sparkDash after changing fleet
+membership so the persisted series has one stable node set.
 
 ---
 
@@ -392,7 +409,9 @@ Gear icon in the header, or `GET`/`PUT` `/api/settings`:
 | Poll interval | 2000 ms | WebSocket broadcast interval (minimum 1000 ms) |
 | Default LLM port | 8888 | Default for new Sparks |
 | Auto-hide offline | false | Hide offline Sparks on Overview |
+| Hide worker nodes | false | Hide Worker-role Sparks from Overview and the tab bar |
 | Temperature unit | Celsius | Display GPU temperature in °C or °F |
+| Benchmark share image | true | Decode/prefill **Copy results** becomes a split button: the label copies the text summary, the caret offers **Copy as text** / **Copy as image** on hover or click. Turn it off to keep the plain button. The image copies where the page has an image clipboard (HTTPS or localhost); over plain http on a LAN IP the card downloads instead |
 
 ### Environment variables
 
@@ -400,7 +419,8 @@ Copy `.env.example` to `.env` if needed:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BIND_HOST` | `127.0.0.1` | HTTP and WebSocket listen address. Loopback by default — the dashboard exposes SSH + power controls, so set a LAN IP (or `0.0.0.0`) to allow remote access. |
+| `BIND_HOST` | `127.0.0.1` | HTTP and WebSocket listen address. Non-loopback bind requires `SPARKDASH_TOKEN`. |
+| `SPARKDASH_TOKEN` | _(empty)_ | Bearer token required for mutations and remote telemetry when not on loopback. |
 | `PORT` | `5555` | HTTP + WebSocket listen port |
 | `LLM_PORT` | `8888` | Default LLM probe port |
 | `COMFY_PORT` | `8188` | Default ComfyUI probe port |
@@ -414,6 +434,7 @@ Copy `.env.example` to `.env` if needed:
 | `POLL_INTERVAL_HERMES` | `600000` | Hermes Agent update check poll (ms) |
 | `POLL_INTERVAL_TAILSCALE` | `30000` | Tailnet probe poll (ms) |
 | `TAILSCALE_PROBE_TIMEOUT_MS` | `8000` | Timeout for `tailscale status --json` (ms) |
+| `POLL_INTERVAL_NVERR` | `60000` | Kernel journal scan for NVRM `NV_ERR_NO_MEMORY` (ms) |
 | `HERMES_UPDATE_TIMEOUT_MS` | `600000` | Hard timeout for running `hermes update` over SSH (ms) |
 | `POLL_INTERVAL_LIVENESS` | `5000` | Online/SSH liveness check (ms) |
 | `SPARKDASH_SECRETS_KEY` | _(auto)_ | Passphrase or 64-char hex for secret encryption |
@@ -427,12 +448,13 @@ Copy `.env.example` to `.env` if needed:
 | `MODEL_SCHEDULER_TZ` | `Europe/Prague` | Time zone for scheduler windows (DST-safe) |
 | `AI_PROXY_HOST` | _(loopback)_ | Host running the AI proxy (:3001) when it is **not** the dashboard machine |
 | `DEV_ENGINE_API_HOST` / `DEV_ENGINE_WEBUI_HOST` | _(loopback)_ | Host running the Spark Dev Engine API (:10000) / Web UI (:10001) |
+| `SSH_CONTROL_PERSIST_SECONDS` | `60` | Reuse authenticated SSH transports for remote collectors. Set to `0` to disable multiplexing. |
+| `FLEET_ENERGY_JSON_PATH` | `config/fleet-energy.json` | Rolling fleet-energy persistence path |
 
-> The listener defaults to `127.0.0.1` (loopback) so the dashboard — which can SSH into and
-> power off your Sparks — isn't reachable on the LAN by default. Set `BIND_HOST` to the host's
-> LAN IP (or `0.0.0.0`) to reach it from another machine. The provided `docker-compose.yml`
-> (`network_mode: host`) sets `BIND_HOST=0.0.0.0` explicitly (prod and `docker-compose.dev.yml`); restrict access at the network
-> layer, or set `127.0.0.1` when running behind a reverse proxy.
+> The listener and both Compose files default to `127.0.0.1`. Existing Docker users who opened
+> `http://<host-ip>:5555` must migrate to an SSH tunnel, authenticated reverse proxy, Tailscale
+> Serve, or `BIND_HOST=0.0.0.0 SPARKDASH_TOKEN=...`. Recovery:
+> `BIND_HOST=127.0.0.1 docker compose up -d --force-recreate`.
 
 ### Adding a unit
 
@@ -440,8 +462,8 @@ Copy `.env.example` to `.env` if needed:
 2. Choose **Unit type**:
    - **NVIDIA DGX Spark** — the default; hardware summary shows DGX Spark specs and the CX7 IP field is available.
    - **Dedicated GPU host** — any Linux machine with an NVIDIA GPU. It is monitored exactly like a Spark (SSH + `nvidia-smi`) but is **not** reported as a DGX Spark: the header shows a detected hardware summary (GPU model, CPU, RAM) instead of fixed GB10 specs, and the page shows separate **RAM** and **VRAM** panels (VRAM from `nvidia-smi`, RAM from system memory). On the unit page, RAM → Network → Storage stack in the right column with GPU filling the left column.
-3. Set **Name**, **LAN IP** (required), optional **CX7 IP** (Sparks only), **SSH user**, and auth (key or password). LAN IP is probed from the sparkDash host. Key auth in Docker needs a key mounted into the container (see Quick start). Wake-on-LAN MAC is auto-read from **enP7s7** when online (optional override in Edit).
-4. **Test Connection** for SSH + LLM reachability.
+3. Set **Name** and choose whether this is **This host**. Local units do not require a LAN IP or SSH; their optional LAN IP enables browser links and directed Wake-on-LAN. Remote units require a LAN IP/host, SSH user, and key or password. Key auth in Docker needs a key mounted into the container (see Quick start).
+4. **Test** shows pass/fail/skipped for host collectors/SSH and each enabled service (LLM, ComfyUI, Hermes Agent, Tailnet). Every enabled capability must pass; disable an unavailable optional service before saving if it should not be monitored.
 5. Save — a tab appears and metrics start streaming.
 
 ### Power controls (shutdown / Wake-on-LAN)
@@ -467,7 +489,7 @@ Copy `.env.example` to `.env` if needed:
   The response still lands seconds before the host actually goes down.
 - **Wake** / **Wake All** send a UDP magic packet (port 9). The MAC is taken from the **enP7s7** interface automatically while the Spark is online (persisted as `detectedMacAddress`). Optionally set a **MAC override** in Edit Spark. Broadcast is derived as `/24` from LAN IP, or `255.255.255.255` if LAN IP is missing.
 - Batch shutdown only targets **online** Sparks; offline nodes are skipped.
-- Same trust model as the rest of the API: **do not expose port 5555** beyond a trusted network — power actions are not separately authenticated.
+- Power APIs are mutations: on loopback they follow the local-trust model; a remote bind requires `SPARKDASH_TOKEN`.
 
 ### Themes
 
@@ -492,7 +514,9 @@ Choice is stored in `localStorage`.
 - **Target validation** rejects clearly unsafe IPv4 targets (link-local `169.254.0.0/16`, `0.0.0.0/8`, multicast/reserved ≥ 224). Private, loopback, and public addresses are allowed so LAN and remote Sparks work.
 - SSH and HTTP probes use short timeouts (about 5 s SSH connect, 3 s HTTP) so a hung host cannot stall the poll loop.
 - Prefer **SSH keys** over passwords. In Docker, mount the private key into `/root/.ssh` (see Quick start); passwords are the only SSH secret the app stores itself.
-- Treat the dashboard as **LAN-trusted**: the API is intentionally unauthenticated for ease of use on a private network. That includes **power APIs** (shutdown / Wake-on-LAN): anyone who can reach the dashboard can request fleet power actions.
+- Loopback installs remain local-trust. Remote bind (`BIND_HOST` not loopback) requires `SPARKDASH_TOKEN` for mutations and WebSocket telemetry and fails closed without it.
+- One-off remote benchmark hosts must be listed in `SPARKDASH_BENCH_HOSTS`.
+- Tested operator capacity for this remediation: **12 units**.
 
 
 ---
@@ -520,7 +544,7 @@ Choice is stored in `localStorage`.
 
 ### Local vs remote Sparks
 
-One `SystemCollector` path for both modes. When `spark.isLocal` is true, metrics come from host sysfs/proc and `nvidia-smi` (often via nsenter into the host namespace). Remote Sparks wrap the same commands in a shared `sshExec()` helper (key agent or `sshpass`). For `kind: "host"` units, actual hardware (GPU model, driver version, CPU, RAM) is detected once and cached in place of the static DGX Spark specs, and GPU VRAM comes straight from `nvidia-smi` while system RAM is read from `/proc/meminfo`.
+One `SystemCollector` path for both modes. When `spark.isLocal` is true, metrics come from host sysfs/proc and `nvidia-smi` (often via nsenter into the host namespace). Remote Sparks wrap the same commands in a shared `sshExec()` helper (key agent or `sshpass`). The helper reuses an authenticated OpenSSH transport by default so frequent metric polls do not create a new SSH/PAM login lifecycle each time. Set `SSH_CONTROL_PERSIST_SECONDS=0` to disable reuse. For `kind: "host"` units, actual hardware (GPU model, driver version, CPU, RAM) is detected once and cached in place of the static DGX Spark specs, and GPU VRAM comes straight from `nvidia-smi` while system RAM is read from `/proc/meminfo`.
 
 ### Graceful degradation
 
@@ -536,9 +560,13 @@ Each configured LLM port gets its own `LlmProbe` instance running in parallel. P
 
 - **llama.cpp** — `/slots` for live decode rates; model from `/props`
 - **ds4-server** (Entrpi/ds4-on-spark) — `/v1/models` (`owned_by: ds4.c`) + Prometheus `ds4_*` token counters for live tok/s
+- **EXL3** (ExLlamaV3 `tools/serve_openai.py`) — `/v1/models` (`owned_by: exl3`) or `/health` `{ok, busy}`; live tok/s from `/health` cumulative counters
+- **q27** (signalnine/q27 engine) — `/v1/models` (`owned_by: q27`) or Prometheus `q27_*` series; live tok/s from `q27_*_processed` counter diffs (completion-based totals as fallback), exact computed-only prefill with the cached/uncached split doubling as the prefix-cache hit rate, TTFT/E2E/ITL p95 histograms, and constant-0 preemptions (FIFO admission, no wait queue)
 - **vLLM / sglang** — `/v1/models`; sglang via `/server_info` (`last_gen_throughput` when metrics off; `/get_server_info` fallback), vLLM via Prometheus `/metrics` counters (scientific notation supported)
 
 Rates are derived from per-probe cumulative counter diffs (or SGLang sticky throughput while it moves). Multiple ports can be added or removed at runtime without restarting the monitor.
+
+Live probes still use the LAN IP on remote units. **Decode and prefill benches** try that same HTTP target first; if it is closed they open an SSH local-forward onto the remote’s `127.0.0.1` so loopback-bound servers (ds4 `start.sh` default) can still be measured. The tunnel is torn down when the job finishes or is cancelled.
 
 ---
 

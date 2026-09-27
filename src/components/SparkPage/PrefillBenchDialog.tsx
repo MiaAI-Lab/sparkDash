@@ -7,13 +7,19 @@ import {
   listPrefillBench,
   startPrefillBench,
 } from "../../api/client";
-import type { PrefillBenchJob } from "../../api/types";
+import type { PrefillBenchJob, LlmBenchTarget } from "../../api/types";
 import { useModalPresence } from "../../hooks/useModalPresence";
+import { BenchCopyButton } from "./BenchCopyButton";
+import { buildPrefillShareCard, shareCardFileName } from "./benchShareCard";
 import {
   PREFILL_CONTEXT_SIZES,
   PREFILL_DEFAULT_CONTEXT_SIZES,
+  PREFILL_MAX_CONTEXT_SIZE,
+  PREFILL_MIN_CONTEXT_SIZE,
   formatContextSize,
+  parseContextSize,
 } from "../../shared/prefillBench.js";
+import { formatLlmBaseUrl } from "../../shared/llmTarget.js";
 
 interface PrefillBenchDialogProps {
   open: boolean;
@@ -22,6 +28,11 @@ interface PrefillBenchDialogProps {
   llmPort: number;
   modelId: string | null;
   contextLength: number | null;
+  remoteTarget?: LlmBenchTarget | null;
+  /** Settings → Benchmark share image: the copy button also carries the card. */
+  shareImage?: boolean;
+  /** Unit display name for the share-card header. */
+  sparkName?: string | null;
 }
 
 function useEscape(onClose: () => void, enabled: boolean) {
@@ -144,15 +155,19 @@ export function PrefillBenchDialog({
   llmPort,
   modelId,
   contextLength,
+  remoteTarget = null,
+  shareImage = false,
+  sparkName = null,
 }: PrefillBenchDialogProps) {
   const [selected, setSelected] = useState<number[]>(() => defaultSelected(contextLength));
+  const [customDraft, setCustomDraft] = useState("");
   const [job, setJob] = useState<PrefillBenchJob | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [loadingLast, setLoadingLast] = useState(false);
-  const [copied, setCopied] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const benchPort = remoteTarget?.port ?? llmPort;
 
   const stopPoll = useCallback(() => {
     if (pollRef.current != null) {
@@ -178,7 +193,7 @@ export function PrefillBenchDialog({
             if (j.status !== "running") stopPoll();
           })
           .catch((err: Error) => {
-            void listPrefillBench(sparkId, llmPort)
+            void listPrefillBench(sparkId, benchPort)
               .then((data) => {
                 if (data.active) {
                   setJob(data.active);
@@ -217,18 +232,19 @@ export function PrefillBenchDialog({
           });
       }, 800);
     },
-    [sparkId, llmPort, stopPoll]
+    [sparkId, benchPort, stopPoll]
   );
 
   useEffect(() => {
     if (!open) {
       stopPoll();
+      setCustomDraft("");
       return;
     }
     let cancelled = false;
     setLoadingLast(true);
     setError(null);
-    void listPrefillBench(sparkId, llmPort)
+    void listPrefillBench(sparkId, benchPort)
       .then((data) => {
         if (cancelled) return;
         if (data.active) {
@@ -263,7 +279,7 @@ export function PrefillBenchDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, sparkId, llmPort, contextLength, startPolling, stopPoll]);
+  }, [open, sparkId, benchPort, contextLength, startPolling, stopPoll]);
 
   useEffect(() => () => stopPoll(), [stopPoll]);
   useEffect(
@@ -287,26 +303,55 @@ export function PrefillBenchDialog({
     });
   };
 
+  const addCustomSize = () => {
+    if (isRunning || starting) return;
+    const n = parseContextSize(customDraft);
+    if (n == null) {
+      setError(
+        `Custom size must be an integer between ${PREFILL_MIN_CONTEXT_SIZE.toLocaleString()} and ${PREFILL_MAX_CONTEXT_SIZE.toLocaleString()} tokens`
+      );
+      return;
+    }
+    if (!sizeFits(n)) {
+      setError(
+        `Custom size exceeds model context (${contextLength?.toLocaleString()} tokens)`
+      );
+      return;
+    }
+    setError(null);
+    setSelected((prev) => (prev.includes(n) ? prev : [...prev, n].sort((a, b) => a - b)));
+    setCustomDraft("");
+  };
+
+  const customSizes = selected.filter((n) => !PREFILL_CONTEXT_SIZES.includes(n));
+
+  const startLockRef = useRef(false);
   const handleStart = async () => {
+    if (startLockRef.current) return;
     const sizes = selected.filter(sizeFits);
     if (sizes.length === 0) {
       setError("Select at least one context size that fits this model");
       return;
     }
+    startLockRef.current = true;
     setStarting(true);
     setError(null);
     setJob(null);
     try {
       const started = await startPrefillBench(sparkId, {
-        port: llmPort,
+        port: benchPort,
         contextSizes: sizes,
         modelId: modelId || undefined,
+        ...(remoteTarget
+          ? { host: remoteTarget.host, tls: remoteTarget.tls }
+          : {}),
       });
       setJob(started);
       startPolling(started.benchId);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
+      startLockRef.current = false;
       setStarting(false);
     }
   };
@@ -328,35 +373,11 @@ export function PrefillBenchDialog({
     setError(null);
   };
 
-  const handleCopyResults = async () => {
-    if (!job || job.results.length === 0) return;
-    const text = buildShareText(job, modelId);
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-      } else {
-        const ta = document.createElement("textarea");
-        ta.value = text;
-        ta.style.position = "fixed";
-        ta.style.opacity = "0";
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand("copy");
-        document.body.removeChild(ta);
-      }
-      setCopied(true);
-      if (copyResetRef.current != null) clearTimeout(copyResetRef.current);
-      copyResetRef.current = setTimeout(() => setCopied(false), 1800);
-    } catch {
-      setError("Could not copy results to clipboard");
-    }
-  };
-
   const handleClear = async () => {
     if (!job || job.status === "running") return;
     setError(null);
     try {
-      await clearPrefillBenchHistory(sparkId, llmPort);
+      await clearPrefillBenchHistory(sparkId, benchPort);
       stopPoll();
       setJob(null);
     } catch (err: unknown) {
@@ -405,7 +426,9 @@ export function PrefillBenchDialog({
               Prefill benchmark
             </h2>
             <p className="bench-sheet__subtitle">
-              Port {llmPort}
+              {remoteTarget
+                ? formatLlmBaseUrl(remoteTarget)
+                : `Port ${llmPort}`}
               {modelId ? ` · ${modelId}` : ""}
             </p>
           </div>
@@ -429,7 +452,7 @@ export function PrefillBenchDialog({
               <div className="bench-field">
                 <div className="bench-field__head">
                   <h3 className="bench-sheet__section-title">Context size</h3>
-                  <p className="bench-sheet__hint">{ctxHint}</p>
+                  <p className="bench-sheet__hint">{ctxHint} Type a custom token count to add it.</p>
                 </div>
                 <div className="bench-conc-grid" role="group" aria-label="Context sizes">
                   {PREFILL_CONTEXT_SIZES.map((n: number) => {
@@ -452,6 +475,53 @@ export function PrefillBenchDialog({
                       </button>
                     );
                   })}
+                  {customSizes.map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      disabled={isRunning || starting}
+                      title={`${n.toLocaleString()} tokens — click to remove`}
+                      onClick={() => toggleSize(n)}
+                      className="bench-conc-btn is-on"
+                    >
+                      {formatContextSize(n)}
+                    </button>
+                  ))}
+                </div>
+                <div className="bench-custom-size">
+                  <label htmlFor="prefill-custom-size" className="sr-only">
+                    Custom context size in tokens
+                  </label>
+                  <input
+                    id="prefill-custom-size"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    disabled={isRunning || starting}
+                    value={customDraft}
+                    placeholder="Custom"
+                    aria-label="Custom context size in tokens"
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      if (raw === "" || /^\d+$/.test(raw)) setCustomDraft(raw);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addCustomSize();
+                      }
+                    }}
+                    className="bench-input"
+                    size={8}
+                  />
+                  <button
+                    type="button"
+                    className="bench-btn bench-btn--ghost"
+                    disabled={isRunning || starting || customDraft.trim() === ""}
+                    onClick={addCustomSize}
+                  >
+                    Add
+                  </button>
                 </div>
               </div>
             </section>
@@ -557,14 +627,20 @@ export function PrefillBenchDialog({
                 </button>
               )}
               {job.results.length > 0 && (
-                <button
-                  type="button"
-                  className="bench-btn bench-btn--ghost"
-                  onClick={() => void handleCopyResults()}
-                  title="Copy a plain-text summary to the clipboard"
-                >
-                  {copied ? "Copied!" : "Copy results"}
-                </button>
+                <BenchCopyButton
+                  text={buildShareText(job, modelId)}
+                  buildCard={() =>
+                    buildPrefillShareCard(job, {
+                      llmPort: benchPort,
+                      modelId,
+                      sparkName,
+                      remoteHost: remoteTarget?.host ?? null,
+                    })
+                  }
+                  kind="prefill"
+                  shareImage={shareImage}
+                  onError={setError}
+                />
               )}
               <button type="button" className="bench-btn bench-btn--ghost" onClick={handleNewRun}>
                 New run

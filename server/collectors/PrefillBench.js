@@ -22,8 +22,12 @@ import { decodeBenchManager } from "./DecodeBench.js";
 import {
   PREFILL_CONTEXT_SIZES,
   PREFILL_DEFAULT_CONTEXT_SIZES,
+  PREFILL_MAX_CONTEXT_SIZE,
+  PREFILL_MIN_CONTEXT_SIZE,
   formatContextSize,
+  parseContextSize,
 } from "../../src/shared/prefillBench.js";
+import { formatLlmBaseUrl } from "../../src/shared/llmTarget.js";
 
 export { formatContextSize };
 
@@ -37,10 +41,9 @@ const ACTIVE_PATH =
   process.env.PREFILL_BENCH_ACTIVE_PATH ||
   path.join(ROOT, "config", "prefill-bench-active.json");
 
-/** Canonical sizes (tokens). 300k is the top of the sweep. */
+/** Preset chip sizes (tokens). Custom integers in 256–300k are also allowed. */
 export const ALLOWED_CONTEXT_SIZES = PREFILL_CONTEXT_SIZES;
 export const DEFAULT_CONTEXT_SIZES = PREFILL_DEFAULT_CONTEXT_SIZES;
-const ALLOWED_SET = new Set(ALLOWED_CONTEXT_SIZES);
 
 const WARMUP_TARGET_TOKENS = 512;
 const GEN_MAX_TOKENS = 8;
@@ -78,9 +81,9 @@ export function normalizeContextSizes(raw) {
   if (!Array.isArray(raw)) return [];
   const out = [];
   for (const v of raw) {
-    const n = typeof v === "string" ? parseInt(v, 10) : Number(v);
-    if (!Number.isInteger(n) || !ALLOWED_SET.has(n)) continue;
-    if (!out.includes(n)) out.push(n);
+    const n = parseContextSize(v);
+    if (n == null || out.includes(n)) continue;
+    out.push(n);
   }
   out.sort((a, b) => a - b);
   return out;
@@ -197,6 +200,7 @@ function publicJob(job) {
       job.completedAt != null
         ? job.completedAt - job.startedAt
         : Date.now() - job.startedAt,
+    owner: job.owner || null,
   };
 }
 
@@ -215,6 +219,10 @@ export class PrefillBenchManager {
     this.activePath = activePath;
     this._loadHistory();
     this._recoverInterruptedActive();
+  }
+
+  activeCount() {
+    return this.activeBySpark.size;
   }
 
   getJob(benchId) {
@@ -379,6 +387,12 @@ export class PrefillBenchManager {
       } catch {
         /* ignore */
       }
+      try {
+        job._closeTarget?.();
+      } catch {
+        /* ignore */
+      }
+      job._closeTarget = null;
       job.status = "failed";
       job.error = reason;
       job.progress.message = "Interrupted";
@@ -411,6 +425,11 @@ export class PrefillBenchManager {
    *   modelId: string | null,
    *   contextSizes: number[],
    *   apiKey?: string | null,
+   *   resolveTarget?: (ctx: { onStatus?: Function, signal?: AbortSignal }) => Promise<{
+   *     host: string, port: number, tls?: boolean, via?: string, close: () => void
+   *   }>,
+   *   host?: string | null,
+   *   tls?: boolean,
    * }} opts
    */
   start(opts) {
@@ -421,6 +440,10 @@ export class PrefillBenchManager {
       modelId,
       contextSizes: rawSizes,
       apiKey = null,
+      resolveTarget = null,
+      host: rawHost = null,
+      tls: rawTls = false,
+      owner = null,
     } = opts;
 
     if (this.activeBySpark.has(sparkId)) {
@@ -437,7 +460,7 @@ export class PrefillBenchManager {
     const contextSizes = normalizeContextSizes(rawSizes);
     if (!contextSizes.length) {
       const err = new Error(
-        "Select at least one context size (1k–300k)"
+        `Select at least one context size (${PREFILL_MIN_CONTEXT_SIZE}–${PREFILL_MAX_CONTEXT_SIZE.toLocaleString()} tokens)`
       );
       err.status = 400;
       throw err;
@@ -462,6 +485,9 @@ export class PrefillBenchManager {
         port: p,
         modelId: modelId || null,
         contextSizes,
+        ...(rawHost
+          ? { host: String(rawHost).trim(), tls: Boolean(rawTls) }
+          : {}),
       },
       progress: {
         currentContext: null,
@@ -473,6 +499,9 @@ export class PrefillBenchManager {
       error: null,
       _abort: abort,
       _apiKey: apiKey != null && String(apiKey).trim() ? String(apiKey).trim() : null,
+      _resolveTarget: typeof resolveTarget === "function" ? resolveTarget : null,
+      _closeTarget: null,
+      owner: owner ? { id: owner.id, via: owner.via } : null,
     };
 
     this.jobs.set(benchId, job);
@@ -496,10 +525,33 @@ export class PrefillBenchManager {
   }
 
   async _runJob(job, lanIp) {
-    const baseUrl = `http://${lanIp}:${job.config.port}`;
+    let host = lanIp;
+    let port = job.config.port;
+    let tls = Boolean(job.config.tls);
     try {
+      if (typeof job._resolveTarget === "function") {
+        job.progress.message = "Connecting to LLM…";
+        this._checkpointActive();
+        const target = await job._resolveTarget({
+          onStatus: (msg) => {
+            if (typeof msg === "string" && msg) job.progress.message = msg;
+            this._checkpointActive();
+          },
+          signal: job._abort.signal,
+        });
+        host = target?.host || host;
+        port = Number.isInteger(target?.port) ? target.port : port;
+        if (target?.tls != null) tls = Boolean(target.tls);
+        job._closeTarget = typeof target?.close === "function" ? target.close : null;
+        if (target?.via === "ssh-tunnel") {
+          job.progress.message = "Warming up via SSH tunnel…";
+        }
+      }
+      const baseUrl = formatLlmBaseUrl({ host, port, tls });
       if (!job._abort.signal.aborted) {
-        job.progress.message = "Warming up…";
+        if (!String(job.progress.message || "").startsWith("Warming up")) {
+          job.progress.message = "Warming up…";
+        }
         this._checkpointActive();
         await warmupPrefill({
           baseUrl,
@@ -567,6 +619,12 @@ export class PrefillBenchManager {
         }
       }
     } finally {
+      try {
+        job._closeTarget?.();
+      } catch {
+        /* ignore */
+      }
+      job._closeTarget = null;
       if (job.completedAt == null) job.completedAt = Date.now();
       this.activeBySpark.delete(job.sparkId);
       this._pushHistory(job);
@@ -590,4 +648,6 @@ export const prefillBenchManager = new PrefillBenchManager();
 export const PREFILL_BENCH_DEFAULTS = {
   allowedContextSizes: [...ALLOWED_CONTEXT_SIZES],
   defaultContextSizes: [...DEFAULT_CONTEXT_SIZES],
+  minContextSize: PREFILL_MIN_CONTEXT_SIZE,
+  maxContextSize: PREFILL_MAX_CONTEXT_SIZE,
 };

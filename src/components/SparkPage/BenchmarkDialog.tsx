@@ -7,8 +7,11 @@ import {
   listDecodeBench,
   startDecodeBench,
 } from "../../api/client";
-import type { DecodeBenchJob, DecodeBenchPromptType } from "../../api/types";
+import type { DecodeBenchJob, DecodeBenchPromptType, LlmBenchTarget } from "../../api/types";
 import { useModalPresence } from "../../hooks/useModalPresence";
+import { BenchCopyButton } from "./BenchCopyButton";
+import { buildDecodeShareCard, shareCardFileName } from "./benchShareCard";
+import { formatLlmBaseUrl } from "../../shared/llmTarget.js";
 import {
   DECODE_BENCH_DEFAULT_TYPE,
   DECODE_BENCH_TYPE_META,
@@ -27,6 +30,11 @@ interface BenchmarkDialogProps {
   sparkId: string;
   llmPort: number;
   modelId: string | null;
+  remoteTarget?: LlmBenchTarget | null;
+  /** Settings → Benchmark share image: the copy button also carries the card. */
+  shareImage?: boolean;
+  /** Unit display name for the share-card header. */
+  sparkName?: string | null;
 }
 
 function useEscape(onClose: () => void, enabled: boolean) {
@@ -152,6 +160,9 @@ export function BenchmarkDialog({
   sparkId,
   llmPort,
   modelId,
+  remoteTarget = null,
+  shareImage = false,
+  sparkName = null,
 }: BenchmarkDialogProps) {
   const [selected, setSelected] = useState<number[]>([...DEFAULT_SELECTED]);
   const [maxTokensDraft, setMaxTokensDraft] = useState(String(DEFAULT_MAX_TOKENS));
@@ -160,9 +171,9 @@ export function BenchmarkDialog({
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [loadingLast, setLoadingLast] = useState(false);
-  const [copied, setCopied] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const benchPort = remoteTarget?.port ?? llmPort;
 
   const stopPoll = useCallback(() => {
     if (pollRef.current != null) {
@@ -207,7 +218,7 @@ export function BenchmarkDialog({
           .catch((err: Error) => {
             // Server --watch / restart can drop the in-memory job for a moment.
             // Recover via list, or show a clear interrupt message instead of a bare 404.
-            void listDecodeBench(sparkId, llmPort)
+            void listDecodeBench(sparkId, benchPort)
               .then((data) => {
                 if (data.active) {
                   setJob(data.active);
@@ -246,7 +257,7 @@ export function BenchmarkDialog({
           });
       }, 800);
     },
-    [sparkId, llmPort, stopPoll]
+    [sparkId, benchPort, stopPoll]
   );
 
   useEffect(() => {
@@ -258,7 +269,7 @@ export function BenchmarkDialog({
     setError(null);
     let cancelled = false;
     setLoadingLast(true);
-    listDecodeBench(sparkId, llmPort)
+    listDecodeBench(sparkId, benchPort)
       .then((data) => {
         if (cancelled) return;
         if (data.active) {
@@ -285,7 +296,7 @@ export function BenchmarkDialog({
       cancelled = true;
       stopPoll();
     };
-  }, [open, sparkId, llmPort, stopPoll, startPolling, applyJobConfig]);
+  }, [open, sparkId, benchPort, stopPoll, startPolling, applyJobConfig]);
 
   useEffect(() => () => stopPoll(), [stopPoll]);
 
@@ -307,7 +318,9 @@ export function BenchmarkDialog({
     });
   };
 
+  const startLockRef = useRef(false);
   const handleStart = async () => {
+    if (startLockRef.current) return;
     if (selected.length === 0) {
       setError("Select at least one concurrency level");
       return;
@@ -317,22 +330,27 @@ export function BenchmarkDialog({
       setError("Max tokens must be an integer between 64 and 2048");
       return;
     }
+    startLockRef.current = true;
     setStarting(true);
     setError(null);
     setJob(null);
     try {
       const started = await startDecodeBench(sparkId, {
-        port: llmPort,
+        port: benchPort,
         concurrencies: selected,
         maxTokens,
         modelId: modelId || undefined,
         promptType,
+        ...(remoteTarget
+          ? { host: remoteTarget.host, tls: remoteTarget.tls }
+          : {}),
       });
       setJob(started);
       startPolling(started.benchId);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
+      startLockRef.current = false;
       setStarting(false);
     }
   };
@@ -354,35 +372,11 @@ export function BenchmarkDialog({
     setError(null);
   };
 
-  const handleCopyResults = async () => {
-    if (!job || job.results.length === 0) return;
-    const text = buildShareText(job, modelId);
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-      } else {
-        const ta = document.createElement("textarea");
-        ta.value = text;
-        ta.style.position = "fixed";
-        ta.style.opacity = "0";
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand("copy");
-        document.body.removeChild(ta);
-      }
-      setCopied(true);
-      if (copyResetRef.current != null) clearTimeout(copyResetRef.current);
-      copyResetRef.current = setTimeout(() => setCopied(false), 1800);
-    } catch {
-      setError("Could not copy results to clipboard");
-    }
-  };
-
   const handleClear = async () => {
     if (!job || job.status === "running") return;
     setError(null);
     try {
-      await clearDecodeBenchHistory(sparkId, llmPort);
+      await clearDecodeBenchHistory(sparkId, benchPort);
       stopPoll();
       setJob(null);
     } catch (err: unknown) {
@@ -428,7 +422,9 @@ export function BenchmarkDialog({
               Decode benchmark
             </h2>
             <p className="bench-sheet__subtitle">
-              Port {llmPort}
+              {remoteTarget
+                ? formatLlmBaseUrl(remoteTarget)
+                : `Port ${llmPort}`}
               {modelId ? ` · ${modelId}` : ""}
             </p>
           </div>
@@ -636,14 +632,20 @@ export function BenchmarkDialog({
                 </button>
               )}
               {job.results.length > 0 && (
-                <button
-                  type="button"
-                  className="bench-btn bench-btn--ghost"
-                  onClick={() => void handleCopyResults()}
-                  title="Copy a plain-text summary to the clipboard"
-                >
-                  {copied ? "Copied!" : "Copy results"}
-                </button>
+                <BenchCopyButton
+                  text={buildShareText(job, modelId)}
+                  buildCard={() =>
+                    buildDecodeShareCard(job, {
+                      llmPort: benchPort,
+                      modelId,
+                      sparkName,
+                      remoteHost: remoteTarget?.host ?? null,
+                    })
+                  }
+                  kind="decode"
+                  shareImage={shareImage}
+                  onError={setError}
+                />
               )}
               <button type="button" className="bench-btn bench-btn--ghost" onClick={handleNewRun}>
                 New run

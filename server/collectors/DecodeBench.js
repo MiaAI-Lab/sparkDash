@@ -33,7 +33,9 @@ import {
   normalizeDecodeBenchType,
   DECODE_BENCH_DEFAULT_TYPE,
   DECODE_BENCH_TYPES,
+  DECODE_CODE_WARMUP_PROMPT,
 } from "../../src/shared/llmPrompts.js";
+import { formatLlmBaseUrl } from "../../src/shared/llmTarget.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -122,7 +124,9 @@ function decodeRequestBody(modelId, prompt, maxTokens) {
  */
 async function warmupDecode({ baseUrl, modelId, abortSignal, apiKey, debug = false, promptType = DECODE_BENCH_DEFAULT_TYPE }) {
   const url = `${baseUrl}/v1/chat/completions`;
-  const warmupPrompt = decodeBenchPromptForType(promptType);
+  const kind = normalizeDecodeBenchType(promptType);
+  const warmupPrompt =
+    kind === "code" ? DECODE_CODE_WARMUP_PROMPT : decodeBenchPromptForType(kind);
   const body = decodeRequestBody(modelId, warmupPrompt, WARMUP_MAX_TOKENS);
   const ctrl = new AbortController();
   const onParentAbort = () => ctrl.abort();
@@ -437,6 +441,10 @@ export class DecodeBenchManager {
     this._recoverInterruptedActive();
   }
 
+  activeCount() {
+    return this.activeBySpark.size;
+  }
+
   getJob(benchId) {
     const job = this.jobs.get(benchId);
     if (job) return publicJob(job);
@@ -635,6 +643,12 @@ export class DecodeBenchManager {
       } catch {
         /* ignore */
       }
+      try {
+        job._closeTarget?.();
+      } catch {
+        /* ignore */
+      }
+      job._closeTarget = null;
       job.status = "failed";
       job.error = reason;
       job.progress.message = "Interrupted";
@@ -671,6 +685,11 @@ export class DecodeBenchManager {
    *   debug?: boolean,
    *   sampleHardware?: (() => Promise<object | null> | object | null) | null,
    *   apiKey?: string | null,
+   *   resolveTarget?: (ctx: { onStatus?: Function, signal?: AbortSignal }) => Promise<{
+   *     host: string, port: number, tls?: boolean, via?: string, close: () => void
+   *   }>,
+   *   host?: string | null,
+   *   tls?: boolean,
    * }} opts
    */
   start(opts) {
@@ -685,6 +704,10 @@ export class DecodeBenchManager {
       debug = false,
       sampleHardware = null,
       apiKey = null,
+      resolveTarget = null,
+      host: rawHost = null,
+      tls: rawTls = false,
+      owner = null,
     } = opts;
 
     if (this.activeBySpark.has(sparkId)) {
@@ -733,6 +756,9 @@ export class DecodeBenchManager {
         maxTokens,
         promptType,
         ...(debugOn ? { debug: true } : {}),
+        ...(rawHost
+          ? { host: String(rawHost).trim(), tls: Boolean(rawTls) }
+          : {}),
       },
       progress: {
         currentConcurrency: null,
@@ -747,6 +773,9 @@ export class DecodeBenchManager {
       _apiKey: apiKey != null && String(apiKey).trim() ? String(apiKey).trim() : null,
       _sampleHardware:
         debugOn && typeof sampleHardware === "function" ? sampleHardware : null,
+      _resolveTarget: typeof resolveTarget === "function" ? resolveTarget : null,
+      _closeTarget: null,
+      owner: owner ? { id: owner.id, via: owner.via } : null,
     };
 
     this.jobs.set(benchId, job);
@@ -772,11 +801,34 @@ export class DecodeBenchManager {
   }
 
   async _runJob(job, lanIp) {
-    const baseUrl = `http://${lanIp}:${job.config.port}`;
     const debug = Boolean(job._debug);
+    let host = lanIp;
+    let port = job.config.port;
+    let tls = Boolean(job.config.tls);
     try {
+      if (typeof job._resolveTarget === "function") {
+        job.progress.message = "Connecting to LLM…";
+        this._checkpointActive();
+        const target = await job._resolveTarget({
+          onStatus: (msg) => {
+            if (typeof msg === "string" && msg) job.progress.message = msg;
+            this._checkpointActive();
+          },
+          signal: job._abort.signal,
+        });
+        host = target?.host || host;
+        port = Number.isInteger(target?.port) ? target.port : port;
+        if (target?.tls != null) tls = Boolean(target.tls);
+        job._closeTarget = typeof target?.close === "function" ? target.close : null;
+        if (target?.via === "ssh-tunnel") {
+          job.progress.message = "Warming up via SSH tunnel…";
+        }
+      }
+      const baseUrl = formatLlmBaseUrl({ host, port, tls });
       if (!job._abort.signal.aborted) {
-        job.progress.message = "Warming up…";
+        if (!String(job.progress.message || "").startsWith("Warming up")) {
+          job.progress.message = "Warming up…";
+        }
         this._checkpointActive();
         await warmupDecode({
           baseUrl,
@@ -854,6 +906,12 @@ export class DecodeBenchManager {
         }
       }
     } finally {
+      try {
+        job._closeTarget?.();
+      } catch {
+        /* ignore */
+      }
+      job._closeTarget = null;
       if (job.completedAt == null) job.completedAt = Date.now();
       this.activeBySpark.delete(job.sparkId);
       this._pushHistory(job);
@@ -871,6 +929,8 @@ export class DecodeBenchManager {
     this._saveHistory();
   }
 }
+
+export { ALLOWED_CONCURRENCIES, DEFAULT_MAX_TOKENS, normalizeConcurrencies };
 
 function normalizeConcurrencies(raw) {
   if (!Array.isArray(raw)) return [];
@@ -899,6 +959,7 @@ function publicJob(job) {
       job.completedAt != null
         ? job.completedAt - job.startedAt
         : Date.now() - job.startedAt,
+    owner: job.owner || null,
   };
 }
 

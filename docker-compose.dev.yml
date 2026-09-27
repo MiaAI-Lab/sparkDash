@@ -29,7 +29,8 @@ services:
     # (otherwise local VRAM falls back to minute-old config/gpu-memory.json).
     pid: host
     environment:
-      - BIND_HOST=0.0.0.0
+      - BIND_HOST=${BIND_HOST:-127.0.0.1}
+      - SPARKDASH_ALLOW_OPEN_REMOTE=${SPARKDASH_ALLOW_OPEN_REMOTE:-1}
       - PORT=5555
       - LLM_PORT=8888
       # Spark Dev Engine integration ports (API + Web UI)
@@ -45,3 +46,5 @@ services:
       - MODEL_REPOS_BASE=/home/pavelkubicek/cluster/docker
       # Operator local timezone — scheduler windows must not drift with UTC.
       - TZ=Europe/Prague
+      - SSH_CONTROL_PERSIST_SECONDS=${SSH_CONTROL_PERSIST_SECONDS:-60}
+      - SSH_IDENTITY_FILE=${SSH_IDENTITY_FILE:-}

@@ -8,6 +8,8 @@ import {
   DECODE_STRUCTURED_PROMPT,
   DECODE_PROSE_PROMPT,
   DECODE_CODE_PROMPT,
+  DECODE_CODE_TASKS,
+  DECODE_CODE_WARMUP_PROMPT,
   DECODE_JSON_PROMPT,
   DECODE_BENCH_DEFAULT_TYPE,
   pickShowcasePrompts,
@@ -56,7 +58,8 @@ test("decode bench types pick fixed prompts (structured default)", () => {
   assert.equal(decodeBenchPromptForType("prose"), DECODE_PROSE_PROMPT);
   assert.match(DECODE_PROSE_PROMPT, /hash map works/);
   assert.equal(decodeBenchPromptForType("code"), DECODE_CODE_PROMPT);
-  assert.match(DECODE_CODE_PROMPT, /clamp_00 through clamp_49/);
+  assert.equal(DECODE_CODE_PROMPT, DECODE_CODE_TASKS[0]);
+  assert.match(DECODE_CODE_PROMPT, /binary_search/);
   assert.match(DECODE_CODE_PROMPT, /No comments/);
   assert.doesNotMatch(DECODE_CODE_PROMPT, /JSON schema|response_format|xgrammar/i);
   assert.equal(decodeBenchPromptForType("json"), DECODE_JSON_PROMPT);
@@ -67,9 +70,35 @@ test("decode bench types pick fixed prompts (structured default)", () => {
   const codeMany = pickDecodeBenchPrompts(3, "code");
   assert.equal(codeMany.length, 3);
   assert.equal(new Set(codeMany).size, 3);
+  assert.deepEqual(codeMany, DECODE_CODE_TASKS.slice(0, 3));
+  const firstLines = codeMany.map((p) => p.split("\n")[0]);
+  assert.equal(new Set(firstLines).size, 3);
   for (const p of codeMany) {
-    assert.match(p, /clamp_00 through clamp_49/);
+    assert.match(p, /No comments/);
+    assert.doesNotMatch(p, /\(stream /);
   }
+});
+
+test("concurrent code tasks stay distinct through the catalog and past it", () => {
+  assert.equal(DECODE_CODE_TASKS.length, 32);
+  const heads = DECODE_CODE_TASKS.map((p) => p.split("\n")[0]);
+  assert.equal(new Set(heads).size, heads.length);
+  assert.equal(new Set(DECODE_CODE_TASKS).size, DECODE_CODE_TASKS.length);
+  for (const p of DECODE_CODE_TASKS) {
+    assert.match(p, /^[a-z0-9_]+\n/);
+    assert.match(p, /No comments/);
+  }
+  assert.ok(DECODE_CODE_WARMUP_PROMPT.startsWith("warmup_noop\n"));
+  assert.equal(DECODE_CODE_TASKS.includes(DECODE_CODE_WARMUP_PROMPT), false);
+
+  const wave = pickDecodeBenchPrompts(32, "code");
+  assert.deepEqual(wave, DECODE_CODE_TASKS);
+
+  const wrapped = pickDecodeBenchPrompts(33, "code");
+  assert.equal(wrapped[0], DECODE_CODE_TASKS[0]);
+  assert.ok(wrapped[32].startsWith("[stream 33]\n"));
+  assert.ok(wrapped[32].endsWith(DECODE_CODE_TASKS[0]));
+  assert.notEqual(wrapped[32].split("\n")[0], wrapped[0].split("\n")[0]);
 });
 
 test("concurrent structural streams are unique until the catalog wraps", () => {

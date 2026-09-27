@@ -30,9 +30,12 @@ test("formatContextSize uses compact labels", () => {
   assert.equal(formatContextSize(262144), "256k");
 });
 
-test("normalizeContextSizes sorts, uniques, and drops unknowns", () => {
+test("normalizeContextSizes sorts, uniques, and accepts custom integers", () => {
   assert.deepEqual(normalizeContextSizes([8192, 1024, 8192, 99, "4096"]), [
     1024, 4096, 8192,
+  ]);
+  assert.deepEqual(normalizeContextSizes([12000, 256, 300000, 300001]), [
+    256, 12000, 300000,
   ]);
   assert.deepEqual(normalizeContextSizes("nope"), []);
   assert.deepEqual(normalizeContextSizes([]), []);

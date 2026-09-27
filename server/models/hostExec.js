@@ -10,7 +10,7 @@
  * Spark decides — the dashboard itself is machine-agnostic):
  *
  *  - `kind: "ssh"` (the normal path): `sshpass -e ssh … user@host '<cmd>'`,
- *    invocation built by the shared `buildSshInvocation` so auth handling can
+ *    invocation built by the shared `sshCommandSpec` so auth handling can
  *    never drift from the collectors' `sshExec`. Killing = SIGTERM/SIGKILL to
  *    the local ssh process group; the remote sshd tears the session down with
  *    it, and containers already handed to dockerd survive (same ownership
@@ -38,7 +38,7 @@ import path from "path";
 import { spawn } from "child_process";
 import { HOST_PATHS, MODEL_HOST_USER } from "../config.js";
 import { chooseLocalInvocation } from "../collectors/HermesProbe.js";
-import { buildSshInvocation } from "../collectors/ssh.js";
+import { sshCommandSpec } from "../collectors/ssh.js";
 
 /** Host mount namespace path, or null when running directly on a host (dev). */
 export function hostMountNs() {
@@ -343,7 +343,7 @@ export function spawnOnTarget(target, cmd, opts = {}) {
   }
   if (target.kind === "local") return spawnOnHost(cmd, opts);
   try {
-    const inv = buildSshInvocation(target.spark, cmd);
+    const inv = sshCommandSpec(target.spark, { remoteArgv: [cmd] });
     return spawnStreaming(inv.file, inv.args, { ...inv.env, TERM: "dumb" }, opts);
   } catch (err) {
     return Promise.resolve({

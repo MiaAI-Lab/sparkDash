@@ -1,12 +1,15 @@
 import fs from "fs";
 import path from "path";
-import { SystemCollector } from "../collectors/SystemCollector.js";
+import {
+  SystemCollector,
+  collectionWasSuccessful,
+} from "../collectors/SystemCollector.js";
 import { LlmProbe } from "../collectors/LlmProbe.js";
 import { ComfyProbe } from "../collectors/ComfyProbe.js";
 import { HermesProbe } from "../collectors/HermesProbe.js";
 import { TailscaleProbe } from "../collectors/TailscaleProbe.js";
 import { llmDaily } from "../collectors/LlmDaily.js";
-import { sshTest, sshExec } from "../collectors/ssh.js";
+import { sshExec } from "../collectors/ssh.js";
 import {
   POLL_INTERVAL_GPU,
   POLL_INTERVAL_CPU,
@@ -33,13 +36,18 @@ const ONLINE_GRACE_MS = 10000;
 export class SparkMonitor {
   /**
    * @param {object} spark
-   * @param {{ onWolMac?: (sparkId: string, mac: string) => void }} [options]
+   * @param {{ onWolMac?: (sparkId: string, mac: string) => void, onHermesChange?: () => void, resolveHeadModelId?: ((headId: string) => string | null) }} [options]
    */
   constructor(spark, options = {}) {
     this.spark = spark;
     this._onWolMac = typeof options.onWolMac === "function" ? options.onWolMac : null;
     this._onHermesChange =
       typeof options.onHermesChange === "function" ? options.onHermesChange : null;
+    // Resolver for worker derived label: maps a head spark id to its live
+    // LLM model id (or null when unknown). Wired by index.js from the monitor
+    // map; never writes back to registry config (derived display only).
+    this._resolveHeadModelId =
+      typeof options.resolveHeadModelId === "function" ? options.resolveHeadModelId : null;
     this.collector = new SystemCollector(spark);
 
     // One LlmProbe per port — none when LLM monitoring is off
@@ -100,6 +108,7 @@ export class SparkMonitor {
       tailscale: null,
     };
     this._lastUpdate = {};
+    this._metricCollectionSuccessful = { gpu: false, cpu: false };
 
     // Hardware summary: kind "spark" uses the static DGX Spark specs; kind
     // "host" (dedicated GPU Linux box) detects real hardware once in the
@@ -127,7 +136,8 @@ export class SparkMonitor {
     /** @type {ReturnType<typeof setInterval> | null} */
     this._tailscaleIntervalId = null;
     this._running = false;
-    /** @type {Record<string, boolean>} in-flight domain guards */
+    this._runGeneration = 0;
+    /** @type {Record<string, boolean | symbol>} in-flight domain guards */
     this._inflight = {};
   }
 
@@ -138,6 +148,10 @@ export class SparkMonitor {
     const prevComfyPort = this._comfyPort(this.spark);
     const wasHermes = this._hermesMonitoringEnabled(this.spark);
     const wasTailscale = this._tailscaleMonitoringEnabled(this.spark);
+    this.collector.invalidatePendingCollections();
+    this._runGeneration += 1;
+    this._inflight = {};
+    this._metricCollectionSuccessful = { gpu: false, cpu: false };
     this.spark = spark;
     this.collector.spark = spark;
 
@@ -229,6 +243,50 @@ export class SparkMonitor {
     if (role === "worker") return false;
     if (role === "head") return true;
     return spark?.llmMonitoring !== false;
+  }
+
+  /**
+   * Live LLM model id from this monitor's own probes (first non-empty
+   * modelId on an AVAILABLE entry across ports), or null when unknown /
+   * offline / protected. Protected/auth-failure snapshots can retain a
+   * previous modelId with available:false — those entries are skipped so a
+   * dead or locked head never yields a stale model (fail-closed).
+   * @returns {string | null}
+   */
+  headLlmModelId() {
+    const llm = this._metrics?.llm;
+    if (!Array.isArray(llm)) return null;
+    for (const entry of llm) {
+      if (entry?.available !== true) continue;
+      const id = typeof entry?.modelId === "string" ? entry.modelId.trim() : "";
+      if (id) return id;
+    }
+    return null;
+  }
+
+  /**
+   * Derived worker label: mirror the head's live served model. Display-only —
+   * never written back to registry config. Non-null only when ALL hold:
+   * role is worker, workerHeadId points at another spark, and the resolver
+   * yields a non-empty model id. A hand-written workerLabel (non-empty) is a
+   * manual override and takes display priority in the frontend; it does not
+   * suppress this derived value.
+   * @returns {string | null}
+   */
+  workerDerivedLabel() {
+    const spark = this.spark || {};
+    const role = spark.role || (spark.workerNode ? "worker" : "standalone");
+    if (role !== "worker") return null;
+    const headId = typeof spark.workerHeadId === "string" ? spark.workerHeadId.trim() : "";
+    if (!headId || headId === spark.id) return null;
+    if (typeof this._resolveHeadModelId !== "function") return null;
+    let model = null;
+    try {
+      model = this._resolveHeadModelId(headId);
+    } catch {
+      return null;
+    }
+    return typeof model === "string" && model.trim() ? model.trim() : null;
   }
 
   /** Start or clear the LLM poll timer based on monitoring flag. */
@@ -357,6 +415,7 @@ export class SparkMonitor {
   /** Start background polling. */
   start() {
     if (this._running) return;
+    this._runGeneration += 1;
     this._running = true;
     this._paused = false;
     this._stopped = false;
@@ -373,6 +432,9 @@ export class SparkMonitor {
 
   /** Stop background polling. */
   stop() {
+    this.collector.invalidatePendingCollections();
+    this._runGeneration += 1;
+    this._metricCollectionSuccessful = { gpu: false, cpu: false };
     this._running = false;
     this._stopped = true;
     for (const id of this._intervals) clearInterval(id);
@@ -487,6 +549,9 @@ export class SparkMonitor {
       role: this.spark.role || (this.spark.workerNode ? "worker" : "standalone"),
       workerLabel: this.spark.workerLabel || null,
       workerHeadId: this.spark.workerHeadId || null,
+      // Derived display label (head model mirror). Raw workerLabel above is
+      // untouched — frontend prefers a non-empty manual label over this.
+      workerDerivedLabel: this.workerDerivedLabel(),
       llmMonitoring: this._llmMonitoringEnabled(),
       gpuMonitoring: this._gpuMonitoringEnabled(),
       llmPort: ports[0] ?? LLM_PORT,
@@ -539,37 +604,50 @@ export class SparkMonitor {
 
   // ─── Liveness ─────────────────────────────────────────────
   async _checkOnline() {
+    // Pause (off-screen) skips the liveness loop entirely; the generation
+    // gate below guards a check that resolves after stop()/restart().
     if (!this._running || this._paused || this._inflight.online) return;
-    this._inflight.online = true;
+    const runGeneration = this._runGeneration;
+    const checkToken = Symbol("online");
+    this._inflight.online = checkToken;
+    const isCurrentRun = () =>
+      this._running && this._runGeneration === runGeneration;
+    const local = this.spark.isLocal;
+    let uptimeSeconds = this._uptimeSeconds;
     try {
-      if (this.spark.isLocal) {
+      if (local) {
         await this.collector.pingHost();
+        if (!isCurrentRun()) return;
+        this.online = true;
+        this.lastOnlineOk = Date.now();
+        // Non-fatal — uptime stays at its previous value or null
+        try {
+          uptimeSeconds = await this._readUptime();
+        } catch {
+          /* ignore */
+        }
       } else {
-        const result = await sshTest(this.spark);
-        // Re-check after the (up to 10s) SSH await — `stop()` may have fired
-        // mid-flight (removeSpark / updateSpark). Bail before mutating state or
-        // running into a stopped registry entry.
-        if (!this._running) return;
-        if (!result.ok) throw new Error(result.message);
+        // One SSH round trip, not two. Reading /proc/uptime already proves the
+        // session came up, so the separate `echo ok` probe told us nothing the
+        // uptime read doesn't — and on a remote Spark every probe is a full
+        // login, which is the expensive half of this loop.
+        uptimeSeconds = await this._readUptime();
+        // The generation gate below (after the await) is the commit guard.
       }
-      if (!this._running) return;
+      if (!isCurrentRun()) return;
       this.online = true;
       this.lastOnlineOk = Date.now();
-
-      // Collect system uptime
-      try {
-        this._uptimeSeconds = await this._readUptime();
-      } catch {
-        // Non-fatal — uptime stays at previous value or null
-      }
+      this._uptimeSeconds = uptimeSeconds;
     } catch {
-      if (!this._running) return;
+      if (!isCurrentRun()) return;
       if (!this.lastOnlineOk || Date.now() - this.lastOnlineOk > ONLINE_GRACE_MS) {
         this.online = false;
         this._uptimeSeconds = null;
       }
     } finally {
-      this._inflight.online = false;
+      if (this._inflight.online === checkToken) {
+        this._inflight.online = false;
+      }
     }
   }
 
@@ -606,7 +684,10 @@ export class SparkMonitor {
     if (domain === "comfy" && !this._comfyMonitoringEnabled()) return;
     if (domain === "hermes" && !this._hermesMonitoringEnabled()) return;
     if (domain === "gpu" && !this._gpuMonitoringEnabled()) return;
-    this._inflight[domain] = true;
+    if (domain === "tailscale" && !this._tailscaleMonitoringEnabled()) return;
+    const runGeneration = this._runGeneration;
+    const pollToken = Symbol(domain);
+    this._inflight[domain] = pollToken;
     try {
       let result;
       switch (domain) {
@@ -649,13 +730,15 @@ export class SparkMonitor {
       // isn't user-visible (monitors.delete already happened) but it's a
       // latent class of bug worth killing, and a replaced monitor could
       // otherwise race the tail-end await onto the wrong object.
-      if (!this._running) return;
+      if (!this._running || this._runGeneration !== runGeneration) return;
       switch (domain) {
         case "gpu":
           this._metrics.gpu = result;
+          this._metricCollectionSuccessful.gpu = collectionWasSuccessful(result);
           break;
         case "cpu":
           this._metrics.cpu = result;
+          this._metricCollectionSuccessful.cpu = collectionWasSuccessful(result);
           break;
         case "ram":
           this._metrics.ram = result;
@@ -698,9 +781,18 @@ export class SparkMonitor {
       }
       this._lastUpdate[domain] = Date.now();
     } catch (err) {
+      if (
+        this._running &&
+        this._runGeneration === runGeneration &&
+        (domain === "gpu" || domain === "cpu")
+      ) {
+        this._metricCollectionSuccessful[domain] = false;
+      }
       console.error(`[SparkMonitor] ${this.spark.id} ${domain} poll error:`, err.message);
     } finally {
-      this._inflight[domain] = false;
+      if (this._inflight[domain] === pollToken) {
+        this._inflight[domain] = false;
+      }
     }
   }
 
@@ -748,7 +840,6 @@ export class SparkMonitor {
 
   /** Manually refresh a single domain, bypassing auto-poll guards. */
   async refreshDomain(domain) {
-    if (this._inflight[domain]) return;
     // Remote sparks: the five fast domains share the bundled exec — refreshing
     // any one of them refreshes the whole bundle (one exec, fresher result).
     if (
@@ -757,25 +848,22 @@ export class SparkMonitor {
     ) {
       return this._pollSystem();
     }
-    this._inflight[domain] = true;
+    if (domain !== "storage") return this._pollDomain(domain);
+    if (!this._running || this._inflight[domain]) return;
+    const runGeneration = this._runGeneration;
+    const refreshToken = Symbol(domain);
+    this._inflight[domain] = refreshToken;
     try {
-      let result;
-      switch (domain) {
-        case "storage":
-          result = await this.collector.collectStorage();
-          break;
-        default:
-          // Fall back to _pollDomain for other domains
-          this._inflight[domain] = false;
-          return this._pollDomain(domain);
-      }
-      if (!this._running) return;
+      const result = await this.collector.collectStorage();
+      if (!this._running || this._runGeneration !== runGeneration) return;
       this._metrics.storage = result;
       this._lastUpdate[domain] = Date.now();
     } catch (err) {
       console.error(`[SparkMonitor] ${this.spark.id} ${domain} refresh error:`, err.message);
     } finally {
-      this._inflight[domain] = false;
+      if (this._inflight[domain] === refreshToken) {
+        this._inflight[domain] = false;
+      }
     }
   }
 
@@ -921,4 +1009,3 @@ export class SparkMonitor {
     };
   }
 }
-

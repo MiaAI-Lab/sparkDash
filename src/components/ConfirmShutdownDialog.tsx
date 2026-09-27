@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useModalPresence } from "../hooks/useModalPresence";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 import { PowerOffIcon } from "./ui/icons";
 
 const CONFIRM_PHRASE = "poweroff";
@@ -39,6 +40,7 @@ export function ConfirmShutdownDialog({
   const inputRef = useRef<HTMLInputElement>(null);
   const titleId = useId();
   const { mounted, visible } = useModalPresence(open);
+  const trapRef = useFocusTrap(mounted);
 
   useEscape(open && !submitting, onClose);
 
@@ -87,6 +89,7 @@ export function ConfirmShutdownDialog({
       }}
     >
       <div
+        ref={trapRef}
         className="modal-sheet max-w-md"
         role="dialog"
         aria-modal="true"

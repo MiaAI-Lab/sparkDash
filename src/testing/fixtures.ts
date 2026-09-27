@@ -1,0 +1,63 @@
+import type { SparkSnapshot } from "../api/types";
+
+export function makeSpark(id = "spark-1", online = true): SparkSnapshot {
+  return {
+    id,
+    name: `Spark ${id}`,
+    kind: "spark",
+    online,
+    uptime: online ? 100 : null,
+    role: "standalone",
+    workerNode: false,
+    llmMonitoring: true,
+    comfyMonitoring: false,
+    tailscaleMonitoring: false,
+    llmPort: 8888,
+    llmPorts: [8888],
+    disabledDevices: [],
+    disabledInterfaces: [],
+    hermes: {
+      monitoring: false,
+      installed: null,
+      version: null,
+      updateAvailable: null,
+      behindCommits: null,
+      checkedAt: null,
+      status: "idle",
+      startedAt: null,
+      finishedAt: null,
+      error: null,
+    },
+    hardware: {
+      device: "NVIDIA DGX Spark",
+      cpuModel: "fixture",
+      cpuCores: 20,
+      totalMemoryGB: 128,
+      gpuChip: "GB10",
+      cudaDriver: null,
+      storageModel: null,
+    },
+    metrics: {
+      gpu: online ? {
+        usage: 42,
+        temperature: 55,
+        vram: { used: 1024, total: 4096, available: 3072, percentage: 25 },
+        power: { draw: 50, limit: 100 },
+      } : null,
+      cpu: online ? { usage: 25, temperature: 45 } : null,
+      ram: online ? { used: 2048, total: 8192, available: 6144, percentage: 25 } : null,
+      storage: [],
+      network: null,
+      unifiedMemory: null,
+      llm: online ? [{
+        available: true,
+        backend: "vllm",
+        modelId: "fixture-model",
+        generationTps: 20,
+        prefillTps: 200,
+      }] : [],
+      comfy: null,
+      tailscale: null,
+    },
+  } as unknown as SparkSnapshot;
+}

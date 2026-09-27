@@ -1,20 +1,30 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-import type { LlmMetrics } from "../../api/types";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import type { LlmMetrics, LlmBenchTarget } from "../../api/types";
 import { setLlmApiKey, updateLlmPort, updateLlmPorts } from "../../api/client";
 import { Sparkline } from "../ui/Sparkline";
 import { Panel } from "../ui/Panel";
 import { BotIcon, GearIcon, InfoIcon } from "../ui/icons";
-import { useMetricsHistoryTail } from "../../hooks/metricsStore";
+import {
+  useMetricsHistory,
+  useMetricsHistoryTail,
+  avgPositive,
+} from "../../hooks/metricsStore";
 import { BenchmarkDialog } from "./BenchmarkDialog";
 import { PrefillBenchDialog } from "./PrefillBenchDialog";
 import { LlmDailyChart } from "./LlmDailyChart";
+import { parseLlmTargetInput } from "../../shared/llmTarget.js";
+import { LlmTrendChart } from "./LlmTrendChart";
 
 interface LlmPanelProps {
   llm: LlmMetrics | null;
   sparkId: string;
+  /** Unit display name — lands on the benchmark share card. */
+  sparkName?: string;
   llmPort: number;
   llmPorts?: number[];
   hasApiKey?: boolean;
+  /** Show "Copy image" in the benchmark dialogs (Settings, off by default). */
+  shareImage?: boolean;
   onRemovePort?: (port: number) => void;
   className?: string;
 }
@@ -25,18 +35,239 @@ const VLLM_METRIC_INFO = {
   requests:
     "Run = requests actively generating on the GPU. Wait = accepted but not yet scheduled (capacity or constraints). Growing wait with high KV cache usually means the server is overloaded.",
   ttftP95:
-    "95th percentile time-to-first-token from vLLM’s history of requests: how long “slow” requests wait until the first output token. Spikes mean queueing, long prefills, or cold paths—not average decode speed.",
+    "95th percentile time-to-first-token from the engine’s request history: how long “slow” requests wait until the first output token. Spikes mean queueing, long prefills, or cold paths—not average decode speed.",
   preempts:
     "Cumulative times the engine paused a running request to free KV cache for others. Rising under load signals memory pressure; zero is normal when the server is comfortable.",
   prefixCache:
     "Lifetime fraction of prefix-cache lookups that hit (hits ÷ queries). Higher means more prompt reuse and less prefill work; — when the series is missing or unused.",
   e2eP95:
-    "95th percentile end-to-end request latency from vLLM’s history: arrival until the request finishes. Includes queue wait, prefill, and decode—not just token generation speed.",
+    "95th percentile end-to-end request latency from the engine’s request history: arrival until the request finishes. Includes queue wait, prefill, and decode—not just token generation speed.",
   itlP95:
-    "95th percentile inter-token latency (time between successive output tokens) from vLLM’s history. Spikes mean decode stalls or contention; lower is smoother streaming.",
+    "95th percentile inter-token latency (time between successive output tokens) from the engine’s request history. Spikes mean decode stalls or contention; lower is smoother streaming.",
   mtpAccept:
     "Lifetime speculative / MTP acceptance rate (accepted draft tokens ÷ drafted tokens). Higher means speculative decoding is paying off; — when speculation is off or unused.",
 } as const;
+
+const LAUNCHER_BTN =
+  "rounded border border-border bg-surface-elevated px-3 py-1.5 text-xs font-medium text-text transition-colors hover:border-accent hover:bg-accent-soft";
+const REMOTE_STORAGE_KEY = "sparkdash.remote-bench-target";
+
+function readStoredRemote(): { host: string; port: string; tls: boolean } {
+  try {
+    const raw = localStorage.getItem(REMOTE_STORAGE_KEY);
+    if (!raw) return { host: "", port: "443", tls: true };
+    const v = JSON.parse(raw) as { host?: string; port?: number; tls?: boolean };
+    return {
+      host: typeof v.host === "string" ? v.host : "",
+      port: v.port != null ? String(v.port) : "443",
+      tls: v.tls !== false,
+    };
+  } catch {
+    return { host: "", port: "443", tls: true };
+  }
+}
+
+/** Decode / prefill / Showcase launchers — shown even when the live probe is empty
+ *  (remote loopback-bound servers can still be benched via SSH tunnel). */
+function LlmLaunchers({
+  sparkId,
+  llmPort,
+  modelId,
+  onDecode,
+  onPrefill,
+  onRemoteDecode,
+  onRemotePrefill,
+}: {
+  sparkId: string;
+  llmPort: number;
+  modelId?: string | null;
+  onDecode: () => void;
+  onPrefill: () => void;
+  onRemoteDecode: (target: LlmBenchTarget) => void;
+  onRemotePrefill: (target: LlmBenchTarget) => void;
+}) {
+  const [remoteOpen, setRemoteOpen] = useState(false);
+  const [hostDraft, setHostDraft] = useState(() => readStoredRemote().host);
+  const [portDraft, setPortDraft] = useState(() => readStoredRemote().port);
+  const [tls, setTls] = useState(() => readStoredRemote().tls);
+  const [remoteError, setRemoteError] = useState<string | null>(null);
+
+  const persist = (t: LlmBenchTarget) => {
+    try {
+      localStorage.setItem(REMOTE_STORAGE_KEY, JSON.stringify(t));
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const applyHostBlur = () => {
+    if (!hostDraft.trim()) return;
+    try {
+      const p = parseLlmTargetInput(hostDraft, portDraft, tls);
+      setHostDraft(p.host);
+      setPortDraft(String(p.port));
+      setTls(p.tls);
+      setRemoteError(null);
+    } catch {
+      /* leave as typed until Run */
+    }
+  };
+
+  const launchRemote = (kind: "decode" | "prefill") => {
+    try {
+      const p = parseLlmTargetInput(hostDraft, portDraft, tls);
+      persist(p);
+      setHostDraft(p.host);
+      setPortDraft(String(p.port));
+      setTls(p.tls);
+      setRemoteError(null);
+      if (kind === "decode") onRemoteDecode(p);
+      else onRemotePrefill(p);
+    } catch (err: unknown) {
+      setRemoteError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  return (
+    <div className="border-t border-border pt-3 space-y-2">
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={onDecode}
+          className={`${LAUNCHER_BTN} min-w-0 flex-1`}
+          title="Runs against this Spark’s LLM. Remote units use LAN HTTP, or an SSH tunnel to loopback if the server only listens on 127.0.0.1."
+        >
+          Run decode benchmark
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setRemoteOpen((v) => !v);
+            setRemoteError(null);
+          }}
+          className={`shrink-0 rounded border px-2.5 py-1.5 text-[10px] font-medium uppercase tracking-wide transition-colors ${
+            remoteOpen
+              ? "border-accent bg-accent-soft text-accent"
+              : "border-border bg-surface-elevated text-muted hover:border-accent hover:text-accent"
+          }`}
+          aria-expanded={remoteOpen}
+          title="On-demand bench against a typed host (HTTPS Tailscale, LAN IP, …). Not probed until you run."
+        >
+          Remote
+        </button>
+      </div>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={onPrefill}
+          className={`${LAUNCHER_BTN} min-w-0 flex-1`}
+          title="Runs against this Spark’s LLM. Remote units use LAN HTTP, or an SSH tunnel to loopback if the server only listens on 127.0.0.1."
+        >
+          Run prefill benchmark
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setRemoteOpen((v) => !v);
+            setRemoteError(null);
+          }}
+          className={`shrink-0 rounded border px-2.5 py-1.5 text-[10px] font-medium uppercase tracking-wide transition-colors ${
+            remoteOpen
+              ? "border-accent bg-accent-soft text-accent"
+              : "border-border bg-surface-elevated text-muted hover:border-accent hover:text-accent"
+          }`}
+          aria-expanded={remoteOpen}
+          title="On-demand bench against a typed host (HTTPS Tailscale, LAN IP, …). Not probed until you run."
+        >
+          Remote
+        </button>
+      </div>
+      {remoteOpen && (
+        <div className="space-y-2 rounded border border-border bg-surface-elevated p-2">
+          <p className="text-[10px] leading-snug text-muted">
+            On-demand endpoint. Paste a URL or type host + port — nothing is probed until you run.
+          </p>
+          <label className="block space-y-1">
+            <span className="text-[10px] uppercase tracking-wide text-muted">Host</span>
+            <input
+              type="text"
+              value={hostDraft}
+              onChange={(e) => setHostDraft(e.target.value)}
+              onBlur={applyHostBlur}
+              placeholder="https://name.tailxxxxx.ts.net/v1/models"
+              spellCheck={false}
+              autoCapitalize="off"
+              autoCorrect="off"
+              className="w-full rounded-md border border-border bg-surface px-2 py-1.5 font-tabular text-xs text-text outline-none focus:border-accent"
+            />
+          </label>
+          <div className="flex items-end gap-2">
+            <label className="min-w-0 flex-1 space-y-1">
+              <span className="text-[10px] uppercase tracking-wide text-muted">Port</span>
+              <input
+                type="number"
+                min={1}
+                max={65535}
+                inputMode="numeric"
+                value={portDraft}
+                onChange={(e) => setPortDraft(e.target.value)}
+                className="w-full rounded-md border border-border bg-surface px-2 py-1.5 font-tabular text-xs text-text outline-none focus:border-accent"
+              />
+            </label>
+            <label className="flex shrink-0 items-center gap-1.5 pb-1.5 text-[10px] text-muted">
+              <input
+                type="checkbox"
+                checked={tls}
+                onChange={(e) => {
+                  const next = e.target.checked;
+                  setTls(next);
+                  if (next && portDraft === "8888") setPortDraft("443");
+                  if (!next && portDraft === "443") setPortDraft("8888");
+                }}
+                className="h-3.5 w-3.5 accent-[var(--color-accent)]"
+              />
+              HTTPS
+            </label>
+          </div>
+          {remoteError && <p className="text-[10px] text-danger">{remoteError}</p>}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => launchRemote("decode")}
+              className={`${LAUNCHER_BTN} flex-1`}
+            >
+              Decode
+            </button>
+            <button
+              type="button"
+              onClick={() => launchRemote("prefill")}
+              className={`${LAUNCHER_BTN} flex-1`}
+            >
+              Prefill
+            </button>
+          </div>
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={() => {
+          const params = new URLSearchParams();
+          if (llmPort) params.set("port", String(llmPort));
+          if (modelId) params.set("model", modelId);
+          const q = params.toString() ? `?${params.toString()}` : "";
+          window.open(
+            `/showcase/${encodeURIComponent(sparkId)}${q}`,
+            "_blank",
+            "noopener,noreferrer"
+          );
+        }}
+        className={`${LAUNCHER_BTN} w-full`}
+      >
+        Showcase
+      </button>
+    </div>
+  );
+}
 
 /** Backend badge — neutral surfaces with a single accent dot. No blue/purple. */
 function BackendBadge({ backend }: { backend: string | null }) {
@@ -48,6 +279,7 @@ function BackendBadge({ backend }: { backend: string | null }) {
     sglang: "sgLang",
     ds4: "ds4",
     exl3: "EXL3",
+    q27: "q27",
   };
 
   return (
@@ -151,9 +383,11 @@ function MetricInfoTip({
 export function LlmPanel({
   llm,
   sparkId,
+  sparkName,
   llmPort,
   llmPorts,
   hasApiKey = false,
+  shareImage = false,
   onRemovePort,
   className,
 }: LlmPanelProps) {
@@ -162,6 +396,16 @@ export function LlmPanel({
   const prefillHistory = useMetricsHistoryTail(sparkId, `llm:${llmPort}.prefill`);
   const cachedPrefillHistory = useMetricsHistoryTail(sparkId, `llm:${llmPort}.prefillCached`);
   const uncachedPrefillHistory = useMetricsHistoryTail(sparkId, `llm:${llmPort}.prefillUncached`);
+
+  // Full series (~1 h) for running averages over busy (>0) samples only.
+  const genFull = useMetricsHistory(sparkId, `llm:${llmPort}.tps`);
+  const prefillFull = useMetricsHistory(sparkId, `llm:${llmPort}.prefill`);
+  const cachedFull = useMetricsHistory(sparkId, `llm:${llmPort}.prefillCached`);
+  const uncachedFull = useMetricsHistory(sparkId, `llm:${llmPort}.prefillUncached`);
+  const genAvg = useMemo(() => avgPositive(genFull), [genFull]);
+  const prefillAvg = useMemo(() => avgPositive(prefillFull), [prefillFull]);
+  const cachedPrefillAvg = useMemo(() => avgPositive(cachedFull), [cachedFull]);
+  const uncachedPrefillAvg = useMemo(() => avgPositive(uncachedFull), [uncachedFull]);
   const [showSettings, setShowSettings] = useState(false);
   const [portDraft, setPortDraft] = useState(String(llmPort));
   const [apiKeyDraft, setApiKeyDraft] = useState("");
@@ -171,6 +415,23 @@ export function LlmPanel({
   const [engineInfoOpen, setEngineInfoOpen] = useState(false);
   const [benchOpen, setBenchOpen] = useState(false);
   const [prefillBenchOpen, setPrefillBenchOpen] = useState(false);
+  const [remoteTarget, setRemoteTarget] = useState<LlmBenchTarget | null>(null);
+  const openRemoteDecode = useCallback((target: LlmBenchTarget) => {
+    setRemoteTarget(target);
+    setBenchOpen(true);
+  }, []);
+  const openRemotePrefill = useCallback((target: LlmBenchTarget) => {
+    setRemoteTarget(target);
+    setPrefillBenchOpen(true);
+  }, []);
+  const openLocalDecode = useCallback(() => {
+    setRemoteTarget(null);
+    setBenchOpen(true);
+  }, []);
+  const openLocalPrefill = useCallback(() => {
+    setRemoteTarget(null);
+    setPrefillBenchOpen(true);
+  }, []);
   /** Which vLLM metric info tip is open (kvCache | requests | ttftP95 | preempts). */
   const [metricInfoId, setMetricInfoId] = useState<string | null>(null);
   const engineInfoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -407,26 +668,16 @@ export function LlmPanel({
                 : `No model loaded on :${llmPort}`}
             </p>
           </div>
-          <div className="border-t border-border pt-3 space-y-2">
-            <button
-              type="button"
-              onClick={() => {
-                const params = new URLSearchParams();
-                if (llmPort) params.set("port", String(llmPort));
-                const q = params.toString() ? `?${params.toString()}` : "";
-                window.open(
-                  `/showcase/${encodeURIComponent(sparkId)}${q}`,
-                  "_blank",
-                  "noopener,noreferrer"
-                );
-              }}
-              className="w-full rounded border border-border bg-surface-elevated px-3 py-1.5 text-xs font-medium text-text transition-colors hover:border-accent hover:bg-accent-soft"
-              title="Open prompt showcase (works offline to view history or prepare a run)"
-            >
-              Showcase
-            </button>
-            <LlmDailyChart sparkId={sparkId} llmPort={llmPort} />
-          </div>
+          <LlmLaunchers
+            sparkId={sparkId}
+            llmPort={llmPort}
+            modelId={llm?.modelId}
+            onDecode={openLocalDecode}
+            onPrefill={openLocalPrefill}
+            onRemoteDecode={openRemoteDecode}
+            onRemotePrefill={openRemotePrefill}
+          />
+          <LlmDailyChart sparkId={sparkId} llmPort={llmPort} />
         </div>
       ) : (
         <div className="space-y-3">
@@ -455,10 +706,17 @@ export function LlmPanel({
             <span className="shrink-0 text-xs text-muted">Generation tok/s</span>
             <div className="flex items-center gap-3">
               <Sparkline data={genHistory} color="var(--color-accent)" height={24} width={160} />
-              {/* Fixed-width (≥7ch incl. ".0") so the digit column doesn't jump around */}
-              <span className="inline-block min-w-[7ch] text-right font-tabular text-3xl font-bold text-accent">
-                {generationTps.toFixed(1)}
-              </span>
+              <div className="text-right">
+                {/* Fixed-width (≥7ch incl. ".0") so the digit column doesn't jump around */}
+                <div className="min-w-[7ch] font-tabular text-3xl font-bold leading-none text-accent">
+                  {generationTps.toFixed(1)}
+                </div>
+                {genAvg != null && (
+                  <div className="font-tabular text-[9px] text-muted">
+                    avg {genAvg >= 100 ? genAvg.toFixed(0) : genAvg.toFixed(1)}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
           <div
@@ -468,10 +726,17 @@ export function LlmPanel({
             <span className="text-xs text-muted">Prefill tok/s</span>
             <div className="flex items-center gap-3">
               <Sparkline data={prefillHistory} color="var(--color-text)" height={24} width={160} />
-              {/* Fixed-width (≥7ch incl. ".0") so the digit column doesn't jump around */}
-              <span className="inline-block min-w-[7ch] text-right font-tabular text-3xl font-bold text-text">
-                {prefillTps.toFixed(1)}
-              </span>
+              <div className="text-right">
+                {/* Fixed-width (≥7ch incl. ".0") so the digit column doesn't jump around */}
+                <div className="min-w-[7ch] font-tabular text-3xl font-bold leading-none text-text">
+                  {prefillTps.toFixed(1)}
+                </div>
+                {prefillAvg != null && (
+                  <div className="font-tabular text-[9px] text-muted">
+                    avg {prefillAvg >= 100 ? prefillAvg.toFixed(0) : prefillAvg.toFixed(1)}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
           {showPrefillSplit && (
@@ -483,9 +748,16 @@ export function LlmPanel({
                 <span className="text-xs text-muted">Cached prefill tok/s</span>
                 <div className="flex items-center gap-2">
                   <Sparkline data={cachedPrefillHistory} color="var(--color-muted)" height={24} />
-                  <span className="font-tabular text-sm font-semibold text-muted">
-                    {cachedPrefillTps.toFixed(1)}
-                  </span>
+                  <div className="text-right">
+                    <div className="font-tabular text-sm font-semibold text-muted">
+                      {cachedPrefillTps.toFixed(1)}
+                    </div>
+                    {cachedPrefillAvg != null && (
+                      <div className="font-tabular text-[9px] text-muted">
+                        avg {cachedPrefillAvg >= 100 ? cachedPrefillAvg.toFixed(0) : cachedPrefillAvg.toFixed(1)}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
               <div
@@ -495,14 +767,22 @@ export function LlmPanel({
                 <span className="text-xs text-muted">Uncached prefill tok/s</span>
                 <div className="flex items-center gap-2">
                   <Sparkline data={uncachedPrefillHistory} color="var(--color-text)" height={24} />
-                  <span className="font-tabular text-sm font-semibold text-text">
-                    {uncachedPrefillTps.toFixed(1)}
-                  </span>
+                  <div className="text-right">
+                    <div className="font-tabular text-sm font-semibold text-text">
+                      {uncachedPrefillTps.toFixed(1)}
+                    </div>
+                    {uncachedPrefillAvg != null && (
+                      <div className="font-tabular text-[9px] text-muted">
+                        avg {uncachedPrefillAvg >= 100 ? uncachedPrefillAvg.toFixed(0) : uncachedPrefillAvg.toFixed(1)}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </>
           )}
 
+          <LlmTrendChart sparkId={sparkId} llmPort={llmPort} />
           <LlmDailyChart sparkId={sparkId} llmPort={llmPort} />
 
           <div className="grid grid-cols-4 gap-2 border-t border-border pt-3">
@@ -581,7 +861,7 @@ export function LlmPanel({
             </div>
           </div>
 
-          {llm?.backend === "vllm" && (
+          {llm && (llm.backend === "vllm" || llm.backend === "q27") && (
             <div className="grid grid-cols-2 gap-2 border-t border-border pt-3 sm:grid-cols-4">
               <div className="space-y-0.5">
                 <MetricInfoTip
@@ -617,8 +897,12 @@ export function LlmPanel({
                   align="right"
                 />
                 <div className="font-tabular text-sm text-text">
-                  {llm.requestsRunning != null && llm.requestsWaiting != null
-                    ? `${Math.round(llm.requestsRunning)} run / ${Math.round(llm.requestsWaiting)} wait`
+                  {llm.requestsRunning != null
+                    ? `${Math.round(llm.requestsRunning)} run${
+                        llm.requestsWaiting != null
+                          ? ` / ${Math.round(llm.requestsWaiting)} wait`
+                          : ""
+                      }`
                     : "—"}
                 </div>
               </div>
@@ -652,7 +936,7 @@ export function LlmPanel({
             </div>
           )}
 
-          {llm?.backend === "vllm" && (
+          {llm && (llm.backend === "vllm" || llm.backend === "q27") && (
             <div className="grid grid-cols-2 gap-2 border-t border-border pt-3 sm:grid-cols-4">
               <div className="space-y-0.5">
                 <MetricInfoTip
@@ -711,39 +995,15 @@ export function LlmPanel({
             </div>
           )}
 
-          <div className="border-t border-border pt-3 space-y-2">
-            <button
-              type="button"
-              onClick={() => setBenchOpen(true)}
-              className="w-full rounded border border-border bg-surface-elevated px-3 py-1.5 text-xs font-medium text-text transition-colors hover:border-accent hover:bg-accent-soft"
-            >
-              Run decode benchmark
-            </button>
-            <button
-              type="button"
-              onClick={() => setPrefillBenchOpen(true)}
-              className="w-full rounded border border-border bg-surface-elevated px-3 py-1.5 text-xs font-medium text-text transition-colors hover:border-accent hover:bg-accent-soft"
-            >
-              Run prefill benchmark
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                const params = new URLSearchParams();
-                if (llmPort) params.set("port", String(llmPort));
-                if (llm?.modelId) params.set("model", llm.modelId);
-                const q = params.toString() ? `?${params.toString()}` : "";
-                window.open(
-                  `/showcase/${encodeURIComponent(sparkId)}${q}`,
-                  "_blank",
-                  "noopener,noreferrer"
-                );
-              }}
-              className="w-full rounded border border-border bg-surface-elevated px-3 py-1.5 text-xs font-medium text-text transition-colors hover:border-accent hover:bg-accent-soft"
-            >
-              Showcase
-            </button>
-          </div>
+          <LlmLaunchers
+            sparkId={sparkId}
+            llmPort={llmPort}
+            modelId={llm?.modelId}
+            onDecode={openLocalDecode}
+            onPrefill={openLocalPrefill}
+            onRemoteDecode={openRemoteDecode}
+            onRemotePrefill={openRemotePrefill}
+          />
         </div>
       )}
 
@@ -752,15 +1012,21 @@ export function LlmPanel({
         onClose={() => setBenchOpen(false)}
         sparkId={sparkId}
         llmPort={llmPort}
-        modelId={llm?.modelId ?? null}
+        modelId={remoteTarget ? null : llm?.modelId ?? null}
+        remoteTarget={remoteTarget}
+        shareImage={shareImage}
+        sparkName={sparkName ?? null}
       />
       <PrefillBenchDialog
         open={prefillBenchOpen}
         onClose={() => setPrefillBenchOpen(false)}
         sparkId={sparkId}
         llmPort={llmPort}
-        modelId={llm?.modelId ?? null}
-        contextLength={llm?.contextLength ?? null}
+        modelId={remoteTarget ? null : llm?.modelId ?? null}
+        contextLength={remoteTarget ? null : llm?.contextLength ?? null}
+        remoteTarget={remoteTarget}
+        shareImage={shareImage}
+        sparkName={sparkName ?? null}
       />
     </Panel>
   );

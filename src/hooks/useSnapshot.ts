@@ -5,7 +5,8 @@ import { ingestSnapshots } from "./metricsStore";
 import { getVisibleSparkIds, subscribeSparkVisibility } from "./sparkVisibility";
 import { OVERVIEW_ID } from "../constants";
 
-const WS_URL = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/ws`;
+const TOKEN = (typeof localStorage !== "undefined" && localStorage.getItem("sparkdashToken")) || "";
+const WS_URL = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/ws${TOKEN ? `?token=${encodeURIComponent(TOKEN)}` : ""}`;
 const RECONNECT_DELAY = 2000;
 
 /**
@@ -16,6 +17,10 @@ export function useSnapshot() {
   const [sparks, setSparks] = useState<SparkSnapshot[]>([]);
   const [models, setModels] = useState<ModelsSnapshot | null>(null);
   const [connected, setConnected] = useState(false);
+  const [lastValidSnapshotAt, setLastValidSnapshotAt] = useState<number | null>(null);
+  const [snapshotGeneratedAt, setSnapshotGeneratedAt] = useState<number | null>(null);
+  const [snapshotError, setSnapshotError] = useState<string | null>(null);
+  const [refreshInterval, setRefreshInterval] = useState<number | null>(null);
   const [activeId, setActiveId] = useState<string | null>(OVERVIEW_ID);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -58,7 +63,8 @@ export function useSnapshot() {
     wsRef.current = ws;
 
     ws.onopen = () => {
-      setConnected(true);
+      // A socket alone is not healthy; wait for one valid snapshot.
+      setConnected(false);
       console.log("[ws] connected");
       // New socket resets server-side state to "watching everything";
       // force a fresh report of the real visible set.
@@ -69,9 +75,10 @@ export function useSnapshot() {
     ws.onmessage = (ev) => {
       try {
         const msg: WsSnapshot = JSON.parse(ev.data);
-        if (msg.type === "snapshot") {
+        if (msg.type === "snapshot" && Array.isArray(msg.sparks)) {
+          const receivedAt = Date.now();
           // Feed the central history store (8b) before notifying React state.
-          ingestSnapshots(msg.sparks);
+          ingestSnapshots(msg.sparks, msg.generatedAt ?? receivedAt);
           setSparks(msg.sparks);
           // Keep a stable reference while the launcher block is unchanged: the
           // spark half of the payload changes every tick and would otherwise
@@ -82,8 +89,28 @@ export function useSnapshot() {
             modelsRef.current = serialized;
             setModels(nextModels);
           }
+          setConnected(true);
+          setLastValidSnapshotAt(receivedAt);
+          setSnapshotGeneratedAt(
+            Number.isFinite(msg.generatedAt) ? Number(msg.generatedAt) : null
+          );
+          setRefreshInterval(
+            Number.isFinite(msg.refreshInterval) ? Number(msg.refreshInterval) : null
+          );
+          setSnapshotError(null);
+          // Default to the Overview tab; keep the current selection if it
+          // is still valid (Overview is always valid).
+          setActiveId((prev) => {
+            if (prev === OVERVIEW_ID) return OVERVIEW_ID;
+            if (prev && msg.sparks.some((s) => s.id === prev)) return prev;
+            return OVERVIEW_ID;
+          });
+        } else {
+          setSnapshotError("The server sent an invalid telemetry payload.");
         }
-      } catch {}
+      } catch {
+        setSnapshotError("The server sent malformed telemetry data.");
+      }
     };
 
     ws.onclose = () => {
@@ -130,5 +157,9 @@ export function useSnapshot() {
     activeId,
     setActiveId,
     activeSpark,
+    lastValidSnapshotAt,
+    snapshotGeneratedAt,
+    snapshotError,
+    refreshInterval,
   };
 }

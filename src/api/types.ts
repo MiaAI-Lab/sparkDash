@@ -216,6 +216,8 @@ export interface GpuMetrics {
   processes?: Array<{ pid: number; name: string; vramMB: number }>;
   /** NVIDIA clock throttle / thermal slowdown state from nvidia-smi. */
   throttle?: GpuThrottle | null;
+  /** Kernel NVRM NV_ERR_NO_MEMORY count since boot (cached ~60s). */
+  nvErrNoMemory?: number;
 }
 
 // ─── CPU metrics ─────────────────────────────────────────
@@ -286,7 +288,7 @@ export interface UnifiedMemoryMetrics {
 // ─── LLM metrics ─────────────────────────────────────────
 export interface LlmMetrics {
   available: boolean;
-  backend: "vllm" | "llama.cpp" | "sglang" | "ds4" | "exl3" | null;
+  backend: "vllm" | "llama.cpp" | "sglang" | "ds4" | "exl3" | "q27" | null;
   modelId: string | null;
   modelPath: string | null;
   contextLength: number | null;
@@ -310,6 +312,8 @@ export interface LlmMetrics {
   requestsWaiting?: number | null;
   /** vLLM time-to-first-token p95 in seconds. null when unavailable. */
   ttftP95Seconds?: number | null;
+  /** Live recent-window mean TTFT (seconds) from vLLM histogram sum/count deltas. null when unavailable. */
+  ttftSeconds?: number | null;
   /** vLLM cumulative preemption count. null when unavailable. */
   preemptionsTotal?: number | null;
   /** vLLM prefix-cache hit rate (hits/queries, 0–1). null when unavailable. */
@@ -489,6 +493,12 @@ export interface SparkSnapshot {
   workerNode?: boolean;
   /** Optional cluster/model label when role is worker */
   workerLabel?: string | null;
+  /**
+   * Derived worker label: live mirror of the head's served model id.
+   * Display-only (never written to config). A non-empty manual workerLabel
+   * takes priority over this in the UI.
+   */
+  workerDerivedLabel?: string | null;
   /** Optional head Spark id when role is worker */
   workerHeadId?: string | null;
   /** Standalone: whether LLM is probed (head always true, worker always false) */
@@ -516,6 +526,8 @@ export interface SparkSnapshot {
 // ─── WebSocket envelope ───────────────────────────────────
 export interface WsSnapshot {
   type: "snapshot";
+  /** Server generation time; optional while clients and servers roll independently. */
+  generatedAt?: number;
   sparks: SparkSnapshot[];
   refreshInterval: number;
   /**
@@ -525,11 +537,32 @@ export interface WsSnapshot {
   models?: import("./modelTypes").ModelsSnapshot | null;
 }
 
+export interface FleetEnergy {
+  estimated: boolean;
+  membershipChanged: boolean;
+  restartRequired: boolean;
+  trackedNodeIds: string[];
+  currentNodeIds: string[];
+  freshNodeCount: number;
+  currentWatts30s: number | null;
+  energy24hKwh: number | null;
+  energy31dKwh: number | null;
+  whPerOutputToken24h: number | null;
+  outputTokens24h: number;
+  coverage24hMs: number;
+  coverage31dMs: number;
+  nodeCoverage24hMs: Record<string, number>;
+  nodeCoverage31dMs: Record<string, number>;
+  hourlyWatts24h: Array<number | null>;
+}
+
 // ─── API responses ────────────────────────────────────────
 export interface Settings {
   pollIntervalMs: number;
   defaultLlmPort: number;
   autoHideOffline: boolean;
+  /** Hide worker-role Sparks from Overview cards and the tab bar. */
+  hideWorkers: boolean;
   temperatureUnit: "celsius" | "fahrenheit";
   /** Persist prompts / HTTP traces / GPU samples on decode benchmark runs. */
   benchDebugTraces: boolean;
@@ -537,6 +570,14 @@ export interface Settings {
   density: "comfortable" | "compact";
   /** Show the Model Launcher panel on the Overview page. */
   showModelLauncher?: boolean;
+  /** Overview Fleet Energy card. Off by default. */
+  showFleetEnergy: boolean;
+  /** Overview active fleet exceptions strip. Off by default. */
+  showFleetExceptions: boolean;
+  /** Overview search field + status filter. Off by default. */
+  showOverviewSearch: boolean;
+  /** Benchmark dialogs offer "Copy image" — a PNG share card of the results. */
+  benchShareImage: boolean;
 }
 
 export interface SparksListResponse {
@@ -545,8 +586,16 @@ export interface SparksListResponse {
 
 export interface SparkTestResponse {
   id: string;
+  capabilities: Array<{
+    id: "host" | "llm" | "comfy" | "hermes" | "tailnet";
+    label: string;
+    status: "pass" | "fail" | "skipped";
+    required: boolean;
+    message: string;
+    recovery: string | null;
+  }>;
   ssh: { ok: boolean; message: string };
-  llm: { ok: boolean; message: string };
+  llm: { ok: boolean; message: string; skipped?: boolean };
   comfy?: { ok: boolean; message: string; skipped?: boolean };
   ok: boolean;
 }
@@ -559,6 +608,13 @@ export interface ApiError {
 /** Output-shape label for decode bench prompts (not guided decoding). */
 export type DecodeBenchPromptType = "structured" | "prose" | "code" | "json";
 
+/** On-demand remote LLM endpoint for decode/prefill benches. */
+export interface LlmBenchTarget {
+  host: string;
+  port: number;
+  tls: boolean;
+}
+
 export interface DecodeBenchConfig {
   port: number;
   modelId: string | null;
@@ -566,6 +622,9 @@ export interface DecodeBenchConfig {
   maxTokens: number;
   /** Output-shape label only — not guided decoding / JSON schema. */
   promptType?: DecodeBenchPromptType;
+  /** On-demand remote host (Tailscale HTTPS, etc.). */
+  host?: string;
+  tls?: boolean;
 }
 
 export interface DecodeBenchStreamResult {
@@ -697,6 +756,9 @@ export interface StartDecodeBenchRequest {
   modelId?: string | null;
   /** Output type: structured (default), prose, code, json. Prompt only. */
   promptType?: DecodeBenchPromptType;
+  /** On-demand remote LLM host (hostname or URL). Skips this Spark's LAN/SSH path. */
+  host?: string;
+  tls?: boolean;
 }
 
 // ─── LLM prefill benchmark ───────────────────────────────
@@ -704,6 +766,8 @@ export interface PrefillBenchConfig {
   port: number;
   modelId: string | null;
   contextSizes: number[];
+  host?: string;
+  tls?: boolean;
 }
 
 export interface PrefillBenchSizeResult {
@@ -742,6 +806,8 @@ export interface PrefillBenchJob {
 export interface PrefillBenchDefaults {
   allowedContextSizes: number[];
   defaultContextSizes: number[];
+  minContextSize?: number;
+  maxContextSize?: number;
 }
 
 export interface PrefillBenchListResponse {
@@ -755,6 +821,8 @@ export interface StartPrefillBenchRequest {
   port?: number;
   contextSizes: number[];
   modelId?: string | null;
+  host?: string;
+  tls?: boolean;
 }
 
 // ─── LLM Prompt Showcase ─────────────────────────────────

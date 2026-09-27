@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { resolveRunTarget, spawnOnTarget, buildScriptCommand, shQuote } from "../hostExec.js";
-import { buildSshInvocation } from "../../collectors/ssh.js";
+import { sshCommandSpec } from "../../collectors/ssh.js";
 
 // ─── resolveRunTarget: the model's Spark is the machine ───
 const SPARK = {
@@ -48,10 +48,10 @@ test("a Spark that is neither SSH-configured nor local is refused", () => {
   assert.match(t.error, /no SSH host\/user/);
 });
 
-// ─── buildSshInvocation: argv/env contract ─────────────────
+// ─── sshCommandSpec: argv/env contract ─────────────────
 test("key auth: bare ssh, BatchMode, `--` then user@host and the raw command", () => {
   const spark = { id: "s", ssh: { host: "10.0.0.5", user: "mia", auth: "key" } };
-  const { file, args, env } = buildSshInvocation(spark, "echo ok");
+  const { file, args, env } = sshCommandSpec(spark, { remoteArgv: ["echo ok"] });
   assert.equal(file, "ssh");
   assert.ok(args.includes("BatchMode=yes"));
   assert.deepEqual(args.slice(-3), ["--", "mia@10.0.0.5", "echo ok"]);
@@ -62,7 +62,7 @@ test("password auth: sshpass -e, password ONLY in env — never argv", () => {
   const spark = { id: "s", ssh: { host: "10.0.0.5", user: "mia", auth: "pass", password: "sekret" } };
   let inv;
   try {
-    inv = buildSshInvocation(spark, "echo ok");
+    inv = sshCommandSpec(spark, { remoteArgv: ["echo ok"] });
   } catch (err) {
     // Host without sshpass installed: the guard itself is the contract.
     assert.match(err.message, /sshpass is not installed/);
@@ -75,9 +75,16 @@ test("password auth: sshpass -e, password ONLY in env — never argv", () => {
 });
 
 test("missing host/user config throws with the spark id", () => {
-  assert.throws(() => buildSshInvocation({ id: "broken", ssh: {} }, "ls"), /broken/);
   assert.throws(
-    () => buildSshInvocation({ id: "s", ssh: { host: "10.0.0.5", user: "u", auth: "pass" } }, "ls"),
+    () => sshCommandSpec({ id: "broken", ssh: {} }, { remoteArgv: ["ls"] }),
+    /broken/
+  );
+  assert.throws(
+    () =>
+      sshCommandSpec(
+        { id: "s", ssh: { host: "10.0.0.5", user: "u", auth: "pass" } },
+        { remoteArgv: ["ls"] }
+      ),
     /no password is set/
   );
 });

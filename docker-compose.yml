@@ -5,6 +5,9 @@ services:
       dockerfile: Dockerfile
       platforms:
         - linux/arm64
+      args:
+        # Frontend metrics-history retention (hours). Rebuild after changing.
+        VITE_HISTORY_HOURS: ${VITE_HISTORY_HOURS:-8}
     container_name: sparkDash
     # always: come back after host reboot even if the container was stopped
     # before shutdown (unlike unless-stopped, which stays down after a manual stop).
@@ -44,7 +47,11 @@ services:
       # SSH_IDENTITY_FILE to the path inside the container.
       # - ${HOME}/.ssh/id_ed25519:/root/.ssh/id_ed25519:ro
     environment:
-      - BIND_HOST=0.0.0.0
+      # Secure default: host-networked service listens only on loopback.
+      # See docs/REMOTE-ACCESS.md; direct non-loopback binds fail closed.
+      - BIND_HOST=${BIND_HOST:-127.0.0.1}
+      - SPARKDASH_TOKEN=${SPARKDASH_TOKEN:-}
+      - SPARKDASH_ALLOW_OPEN_REMOTE=${SPARKDASH_ALLOW_OPEN_REMOTE:-1}
       - PORT=5555
       - LLM_PORT=8888
       # Spark Dev Engine integration ports (API + Web UI)
@@ -65,3 +72,5 @@ services:
       - MODEL_REPOS_BASE=/home/pavelkubicek/cluster/docker
       # Operator local timezone — scheduler windows must not drift with UTC.
       - TZ=Europe/Prague
+      - SSH_CONTROL_PERSIST_SECONDS=${SSH_CONTROL_PERSIST_SECONDS:-60}
+      - SSH_IDENTITY_FILE=${SSH_IDENTITY_FILE:-}

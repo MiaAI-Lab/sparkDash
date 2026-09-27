@@ -18,12 +18,24 @@ const SECRETS_KEY_PATH =
 /** Daily LLM tok/s rollups (gitignored). */
 const LLM_DAILY_JSON_PATH =
   process.env.LLM_DAILY_JSON_PATH || path.join(ROOT, "config", "llm-daily.json");
+/** Rolling fleet energy estimates (gitignored; written atomically at mode 0600). */
+const FLEET_ENERGY_JSON_PATH =
+  process.env.FLEET_ENERGY_JSON_PATH || path.join(ROOT, "config", "fleet-energy.json");
 
 // ─── LLM / Comfy probe timeouts ──────────────────────────
 const LLM_PROBE_TIMEOUT_MS = 3000;
 const COMFY_PROBE_TIMEOUT_MS = parseInt(process.env.COMFY_PROBE_TIMEOUT_MS || "3000", 10);
 const TAILSCALE_PROBE_TIMEOUT_MS = parseInt(process.env.TAILSCALE_PROBE_TIMEOUT_MS || "8000", 10);
 const SSH_CONNECT_TIMEOUT = 5; // seconds
+// Reuse one authenticated SSH connection per Spark instead of dialing a new one
+// for every collector tick. Set SSH_MULTIPLEX=0 to go back to one connection
+// per command (e.g. an sshd with `MaxSessions 1`).
+const SSH_MULTIPLEX = process.env.SSH_MULTIPLEX !== "0";
+// How long an idle master connection lingers, in seconds. Long enough that the
+// slowest loop (Hermes, 10 min) still finds it up would keep a socket open for
+// hours; 5 minutes covers every metric domain and lets a rebooted Spark drop
+// its socket quickly.
+const SSH_CONTROL_PERSIST = process.env.SSH_CONTROL_PERSIST || "300";
 
 // ─── Poll intervals (milliseconds) ───────────────────────
 const POLL_INTERVAL_GPU = parseInt(process.env.POLL_INTERVAL_GPU || "2000", 10);
@@ -34,6 +46,8 @@ const POLL_INTERVAL_LLM = parseInt(process.env.POLL_INTERVAL_LLM || "2000", 10);
 const POLL_INTERVAL_COMFY = parseInt(process.env.POLL_INTERVAL_COMFY || "2000", 10);
 // Tailnet membership changes slowly; each poll is an SSH round-trip.
 const POLL_INTERVAL_TAILSCALE = parseInt(process.env.POLL_INTERVAL_TAILSCALE || "30000", 10);
+// Kernel journal scan for NV_ERR_NO_MEMORY — not on the 2s GPU loop.
+const POLL_INTERVAL_NVERR = parseInt(process.env.POLL_INTERVAL_NVERR || "60000", 10);
 // dmon -c 1 -d 1 blocks ~1s; default 2s avoids stacking with in-flight guards
 const POLL_INTERVAL_BANDWIDTH = parseInt(process.env.POLL_INTERVAL_BANDWIDTH || "2000", 10);
 // Dedicated liveness (sshTest / local ping) cadence — not a metric domain.
@@ -143,10 +157,13 @@ export {
   SPARKS_SECRETS_PATH,
   SECRETS_KEY_PATH,
   LLM_DAILY_JSON_PATH,
+  FLEET_ENERGY_JSON_PATH,
   LLM_PROBE_TIMEOUT_MS,
   COMFY_PROBE_TIMEOUT_MS,
   TAILSCALE_PROBE_TIMEOUT_MS,
   SSH_CONNECT_TIMEOUT,
+  SSH_MULTIPLEX,
+  SSH_CONTROL_PERSIST,
   POLL_INTERVAL_GPU,
   POLL_INTERVAL_CPU,
   POLL_INTERVAL_NETWORK,
@@ -154,6 +171,7 @@ export {
   POLL_INTERVAL_LLM,
   POLL_INTERVAL_COMFY,
   POLL_INTERVAL_TAILSCALE,
+  POLL_INTERVAL_NVERR,
   POLL_INTERVAL_BANDWIDTH,
   POLL_INTERVAL_LIVENESS,
   POLL_INTERVAL_HERMES,

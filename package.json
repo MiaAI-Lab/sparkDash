@@ -1,7 +1,7 @@
 {
   "name": "sparkdash",
-  "version": "1.8.6",
-  "description": "sparkDash \u2014 Multi-DGX Spark Monitoring Dashboard",
+  "version": "1.8.8",
+  "description": "sparkDash — Multi-DGX Spark Monitoring Dashboard",
   "type": "module",
   "scripts": {
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
@@ -9,7 +9,9 @@
     "dev:client": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "test": "node --test server/collectors/__tests__/*.test.js server/sparks/__tests__/*.test.js server/models/__tests__/*.test.js server/autopower/__tests__/*.test.js",
+    "test": "npm run test:server && npm run test:frontend",
+    "test:server": "node --test server/collectors/__tests__/*.test.js server/sparks/__tests__/*.test.js server/models/__tests__/*.test.js server/autopower/__tests__/*.test.js",
+    "test:frontend": "vitest run",
     "preview": "vite preview",
     "start": "node server/index.js",
     "docker:up": "docker compose up -d",
@@ -34,6 +36,7 @@
   "dependencies": {
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "undici": "^8.9.0",
     "ws": "^8.21.0"
   },
   "devDependencies": {
@@ -49,11 +52,13 @@
     "@vitejs/plugin-react": "^6.0.3",
     "autoprefixer": "^10.5.2",
     "concurrently": "^10.0.3",
+    "jsdom": "^30.0.1",
     "postcss": "^8.5.19",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "tailwindcss": "^4.3.2",
     "typescript": "^7.0.2",
-    "vite": "^8.1.4"
+    "vite": "^8.1.4",
+    "vitest": "^5.0.0"
   }
 }
