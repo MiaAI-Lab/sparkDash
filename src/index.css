@@ -335,32 +335,16 @@ input:disabled {
   box-shadow: var(--shadow-shell);
 }
 
+/* Live-telemetry reconnect notice + page dimming are disabled.
+   The WebSocket reconnects silently on tab re-focus; showing a banner and
+   fading the page over every reconnect was distracting. */
 .connection-banner {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0 0 16px;
-  padding: 10px 14px;
-  border: 1px solid color-mix(in srgb, var(--color-warning) 45%, var(--color-border));
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--color-warning) 10%, var(--color-surface-elevated));
-  color: var(--color-text);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.connection-banner-dot {
-  width: 8px;
-  height: 8px;
-  flex: 0 0 auto;
-  border-radius: 999px;
-  background: var(--color-warning);
+  display: none;
 }
 
 .telemetry-stale {
-  opacity: 0.72;
-  filter: saturate(0.65);
-  transition: opacity 160ms ease, filter 160ms ease;
+  opacity: 1;
+  filter: none;
 }
 
 @media (max-width: 700px) {
