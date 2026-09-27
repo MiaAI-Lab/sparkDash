@@ -496,7 +496,58 @@ test("probe: /v1/loads inflight keeps last_gen on the first sample", async () =>
   assert.equal(snap.requestsWaiting, 1);
 });
 
-test("_applySglangMetrics: cached_tokens_total vs prompt_tokens_total", () => {
+test("_applySglangMetrics: prefill = cached + computed, not prompt totals", () => {
+  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 30000);
+  // Warm turn: the prompt counter grows by 500, but only 100 of those tokens
+  // were computed and 300 came from cache; the tile follows the split, while
+  // the prompt counter alone would have reported (500)/2.
+  probe._applySglangMetrics(
+    [
+      "sglang:generation_tokens_total 10",
+      "sglang:prompt_tokens_total 1000",
+      'sglang:realtime_tokens_total{mode="prefill_compute"} 500',
+      'sglang:realtime_tokens_total{mode="prefill_cache"} 9000',
+      "sglang:num_running_reqs 1",
+    ].join("\n") + "\n",
+    2
+  );
+  assert.equal(probe.cachedPrefillTps, 0);
+  assert.equal(probe.uncachedPrefillTps, 0);
+
+  probe._applySglangMetrics(
+    [
+      "sglang:generation_tokens_total 30",
+      "sglang:prompt_tokens_total 1500",
+      'sglang:realtime_tokens_total{mode="prefill_compute"} 600',
+      'sglang:realtime_tokens_total{mode="prefill_cache"} 9300',
+      "sglang:num_running_reqs 1",
+    ].join("\n") + "\n",
+    2
+  );
+  assert.equal(probe.generationTps, 10); // (30-10)/2
+  assert.equal(probe.prefillTps, 200); // cached 150 + computed 50
+  assert.equal(probe.uncachedPrefillTps, 50); // (600-500)/2
+  assert.equal(probe.cachedPrefillTps, 150); // (9300-9000)/2
+  assert.equal(probe.prefixCacheHitRate, 0.9394); // 9300/(9300+600)
+
+  // Decode-only window: nothing was pre-filled, an unrelated request still
+  // runs — the tile must be 0, not the held 200 from the previous window.
+  probe._applySglangMetrics(
+    [
+      "sglang:generation_tokens_total 50",
+      "sglang:prompt_tokens_total 1500",
+      'sglang:realtime_tokens_total{mode="prefill_compute"} 600',
+      'sglang:realtime_tokens_total{mode="prefill_cache"} 9300',
+      "sglang:num_running_reqs 1",
+    ].join("\n") + "\n",
+    2
+  );
+  assert.equal(probe.prefillTps, 0);
+  assert.equal(probe.uncachedPrefillTps, 0);
+  assert.equal(probe.cachedPrefillTps, 0);
+});
+
+test("_applySglangMetrics: prompt − cached fallback without per-mode counters", () => {
   const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 30000);
   probe._applySglangMetrics(
     [
@@ -521,8 +572,8 @@ test("_applySglangMetrics: cached_tokens_total vs prompt_tokens_total", () => {
     2
   );
   assert.equal(probe.generationTps, 10); // (30-10)/2
-  assert.equal(probe.prefillTps, 20); // (140-100)/2
-  assert.equal(probe.uncachedPrefillTps, 20);
+  assert.equal(probe.prefillTps, 20); // cached 20 + computed 0 — all new prompt tokens hit
+  assert.equal(probe.uncachedPrefillTps, 0);
   // device L1 only — do not sum HiCache host/storage layers
   assert.equal(probe.cachedPrefillTps, 20); // (80-40)/2
 });
