@@ -448,6 +448,7 @@ Copy `.env.example` to `.env` if needed:
 | `MODEL_SCHEDULER_TZ` | `Europe/Prague` | Time zone for scheduler windows (DST-safe) |
 | `AI_PROXY_HOST` | _(loopback)_ | Host running the AI proxy (:3001) when it is **not** the dashboard machine |
 | `DEV_ENGINE_API_HOST` / `DEV_ENGINE_WEBUI_HOST` | _(loopback)_ | Host running the Spark Dev Engine API (:10000) / Web UI (:10001) |
+| `AUTOPOWER_FEATURE` | _(off)_ | Spark AutoPower master switch. `1` re-enables the whole feature: Overview panel, idle-shutdown ticks and scheduled wakes; off hides the panel, never arms the timer and rejects the config/tick routes |
 | `SSH_CONTROL_PERSIST_SECONDS` | `60` | Reuse authenticated SSH transports for remote collectors. Set to `0` to disable multiplexing. |
 | `FLEET_ENERGY_JSON_PATH` | `config/fleet-energy.json` | Rolling fleet-energy persistence path |
 

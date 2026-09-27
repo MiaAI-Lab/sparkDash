@@ -143,6 +143,10 @@ export function AutoPowerPanel({
   const [status, setStatus] = useState<AutoPowerStatus | null | undefined>(undefined);
   const [now, setNow] = useState(() => Date.now());
   const [dialogOpen, setDialogOpen] = useState(false);
+  // Master feature switch (server/config.js AUTOPOWER_FEATURE): when the
+  // server reports feature:false the panel drops out of the dashboard
+  // entirely and every timer stops — the feature sleeps until re-enabled.
+  const featureOff = status?.feature === false;
 
   const refresh = useCallback(async () => {
     try {
@@ -153,17 +157,19 @@ export function AutoPowerPanel({
   }, []);
 
   useEffect(() => {
+    if (featureOff) return;
     void refresh();
     const t = setInterval(() => void refresh(), POLL_MS);
     return () => clearInterval(t);
-  }, [refresh]);
+  }, [refresh, featureOff]);
 
   // Local countdown clock (payloads carry absolute epochs; this only renders).
   useEffect(() => {
+    if (featureOff) return;
     // 5 s: matches the widgets' publish cadence so "updated Ns ago" stays exact.
     const t = setInterval(() => setNow(Date.now()), 5_000);
     return () => clearInterval(t);
-  }, []);
+  }, [featureOff]);
 
   const [toggleErr, setToggleErr] = useState<string | null>(null);
 
@@ -179,6 +185,7 @@ export function AutoPowerPanel({
   }, [status, refresh]);
 
   // ── Degrade states ────────────────────────────────────────
+  if (featureOff) return null;
   if (status === undefined) {
     return (
       <Panel title="Spark AutoPower" accent>

@@ -47,7 +47,7 @@ import { compareSemver, getLatestRelease } from "./collectors/HermesReleases.js"
 import { initModelLauncher } from "./models/ModelLauncher.js";
 import { registerModelRoutes } from "./models/modelRoutes.js";
 import { loadSchedulerConfig } from "./models/schedulerStore.js";
-import { FLEET_ENERGY_JSON_PATH } from "./config.js";
+import { AUTOPOWER_FEATURE, FLEET_ENERGY_JSON_PATH } from "./config.js";
 import { FleetEnergyTracker } from "./energy/FleetEnergyTracker.js";
 import {
   createFleetEnergyRuntime,
@@ -2005,8 +2005,9 @@ if (!startupPreflight.fatal) {
     // Model launcher probe + scheduler timers. Deliberately not tied to
     // updateMonitorStates(): the night shift must run with zero tabs open.
     modelLauncher.startTimers();
-    // AutoPower shares the "night shift" rationale: it must run with zero tabs open.
-    autoPower.start();
+    // AutoPower shares the "night shift" rationale: it must run with zero tabs
+    // open — but only while the feature switch (AUTOPOWER_FEATURE) is on.
+    if (AUTOPOWER_FEATURE) autoPower.start();
   });
 } else {
   process.exitCode = 1;

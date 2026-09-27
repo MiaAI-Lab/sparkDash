@@ -1156,6 +1156,8 @@ export interface AutoPowerDecision {
 /** GET /api/autopower — full live status (polled, not WS). */
 export interface AutoPowerStatus {
   config: AutoPowerConfig;
+  /** Master feature switch (server AUTOPOWER_FEATURE). false = panel hidden, automation inert. */
+  feature?: boolean;
   dayType: "weekday" | "weekend";
   clock: string;
   watching: boolean;

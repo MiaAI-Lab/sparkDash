@@ -150,6 +150,15 @@ const AUTOPOWER_STATE_PATH =
 const AUTOPOWER_TICK_MS = parseInt(process.env.AUTOPOWER_TICK_MS || "30000", 10);
 /** Explicit AutoPower timezone — same DST rationale as MODEL_SCHEDULER_TZ. */
 const AUTOPOWER_TZ = process.env.AUTOPOWER_TZ || MODEL_SCHEDULER_TZ;
+/**
+ * MASTER FEATURE SWITCH. False (the default) makes the entire AutoPower
+ * feature inert and invisible: the Overview panel renders nothing and stops
+ * polling, the tick timer never arms, and the config/tick routes reject.
+ * The implementation is untouched — bring it back with `AUTOPOWER_FEATURE=1`
+ * in the environment (docker-compose / .env). Flip to `true` here to hard-enable.
+ */
+const AUTOPOWER_FEATURE =
+  process.env.AUTOPOWER_FEATURE === "1" || process.env.AUTOPOWER_FEATURE === "true";
 
 export {
   SPARKS_JSON_PATH,
@@ -198,4 +207,5 @@ export {
   AUTOPOWER_STATE_PATH,
   AUTOPOWER_TICK_MS,
   AUTOPOWER_TZ,
+  AUTOPOWER_FEATURE,
 };
