@@ -19,8 +19,10 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { SparkSnapshot } from "../api/types";
-import { PlusIcon, GridIcon } from "./ui/icons";
-import { OVERVIEW_ID } from "../constants";
+import { PlusIcon, GridIcon, GaugeIcon } from "./ui/icons";
+import { OVERVIEW_ID, GAUGES_ID } from "../constants";
+import { displayNodeName } from "../config/display.js";
+import { aliasForNode, useShareMode } from "../hooks/shareMode";
 
 interface SparkTabsProps {
   sparks: SparkSnapshot[];
@@ -161,6 +163,9 @@ function TabChrome({
   isDragging?: boolean;
   isOverlay?: boolean;
 }) {
+  // Share-safe mode (§5.8): tab labels alias the hostname.
+  const shareMode = useShareMode();
+  const label = shareMode ? aliasForNode(spark.id) : spark.name;
   return (
     <div
       className={[
@@ -176,14 +181,14 @@ function TabChrome({
         type="button"
         className="pill-handle"
         title="Drag to reorder"
-        aria-label={`Reorder ${spark.name}`}
+        aria-label={`Reorder ${label}`}
         {...dragHandleProps}
       >
         <GripIcon />
       </button>
       <TabLabelButton
         id={spark.id}
-        name={spark.name}
+        name={label}
         online={spark.online}
         isActive={isActive}
         onSelect={onSelect}
@@ -333,6 +338,7 @@ export function SparkTabs({
     return (
       <nav className="pill-nav" aria-label="Sparks">
         <OverviewTab isActive={activeId === OVERVIEW_ID} onSelect={onSelect} />
+        <GaugesTab isActive={activeId === GAUGES_ID} onSelect={onSelect} />
         {sparks.map((spark) => (
           <div key={spark.id} className="shrink-0">
             <TabChrome
@@ -358,6 +364,7 @@ export function SparkTabs({
     >
       <nav className="pill-nav" aria-label="Sparks">
         <OverviewTab isActive={activeId === OVERVIEW_ID} onSelect={onSelect} />
+        <GaugesTab isActive={activeId === GAUGES_ID} onSelect={onSelect} />
         {/* rect (not horizontal-list) strategy: .pill-nav wraps onto several
             rows once there are more Sparks than fit one line, and the
             horizontal strategy only ever shifts items along X. */}
@@ -425,6 +432,28 @@ function OverviewTab({
   );
 }
 
+function GaugesTab({
+  isActive,
+  onSelect,
+}: {
+  isActive: boolean;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <div className="shrink-0">
+      <button
+        type="button"
+        onClick={() => onSelect(GAUGES_ID)}
+        className={`pill-item ${isActive ? "is-active" : ""}`}
+        title="tok/s speedometer view"
+      >
+        <GaugeIcon className="h-3.5 w-3.5" />
+        Alt-overview
+      </button>
+    </div>
+  );
+}
+
 /* ─── Mobile dropdown menu ────────────────────────────── */
 
 function MobileSparkMenu({
@@ -443,6 +472,7 @@ function MobileSparkMenu({
   onClose: () => void;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
+  const shareMode = useShareMode();
 
   const handleItemClick = useCallback(
     (id: string) => {
@@ -497,6 +527,15 @@ function MobileSparkMenu({
         <GridIcon className="h-3.5 w-3.5" />
         Overview
       </button>
+      <button
+        type="button"
+        role="menuitem"
+        className={`mobile-menu-item ${activeId === GAUGES_ID ? "is-active" : ""}`}
+        onClick={() => handleItemClick(GAUGES_ID)}
+      >
+        <GaugeIcon className="h-3.5 w-3.5" />
+        Alt-overview
+      </button>
       {sparks.map((spark) => (
         <button
           key={spark.id}
@@ -511,7 +550,7 @@ function MobileSparkMenu({
               spark.online ? "bg-success" : "bg-danger"
             }`}
           />
-          {spark.name}
+          {shareMode ? aliasForNode(spark.id) : displayNodeName(spark.name)}
         </button>
       ))}
       <button

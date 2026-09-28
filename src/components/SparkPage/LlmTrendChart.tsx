@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { HISTORY_MAX, useMetricsHistory, useTimedMetricsHistory, avgPositive } from "../../hooks/metricsStore";
 import type { TimedSample } from "../../hooks/ringBuffer";
+import { fmtSeconds } from "../../config/display.js";
 
 const VIEW_W = 300;
 const VIEW_H = 64;
@@ -171,7 +172,7 @@ export function LlmTrendChart({
         <span>
           TTFT avg{" "}
           <span className="font-tabular text-xs text-muted">
-            {ttftAvg != null ? `${ttftAvg.toFixed(3)}s` : "—"}
+            {ttftAvg != null ? fmtSeconds(ttftAvg) : "—"}
           </span>
         </span>
         <span className="text-[9px]">avg over busy samples only</span>

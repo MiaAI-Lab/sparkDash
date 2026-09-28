@@ -1,5 +1,7 @@
 import type { SparkSnapshot } from "../../api/types";
 import { resolveSparkRole } from "../../api/sparkRole";
+import { displayNodeName } from "../../config/display.js";
+import { aliasForNode, useShareMode } from "../../hooks/shareMode";
 import { SparkActions } from "./SparkActions";
 
 interface SparkHeaderProps {
@@ -23,6 +25,9 @@ export function SparkHeader({ spark, onEdit }: SparkHeaderProps) {
   const { hardware } = spark;
   const online = spark.online;
   const hermes = spark.hermes;
+  // Share-safe mode (§5.8): real identifiers never enter the DOM.
+  const shareMode = useShareMode();
+  const nodeName = shareMode ? aliasForNode(spark.id) : displayNodeName(spark.name);
 
   return (
     <div
@@ -36,7 +41,7 @@ export function SparkHeader({ spark, onEdit }: SparkHeaderProps) {
         />
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <h2 className="truncate text-base font-semibold text-text-strong">{spark.name}</h2>
+            <h2 className="truncate text-base font-semibold text-text-strong">{nodeName}</h2>
             {(() => {
               const role = resolveSparkRole(spark);
               const text =
@@ -50,8 +55,9 @@ export function SparkHeader({ spark, onEdit }: SparkHeaderProps) {
                       ? "Standalone — LLM monitoring off"
                       : "Standalone — local LLM API";
               // Manual override first, then derived head-model mirror.
+              // Share mode: derived labels can mirror a model name — hide them.
               const workerLabel =
-                role === "worker"
+                !shareMode && role === "worker"
                   ? spark.workerLabel?.trim() || spark.workerDerivedLabel?.trim() || null
                   : null;
               return (
