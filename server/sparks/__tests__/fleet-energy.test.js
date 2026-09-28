@@ -621,8 +621,8 @@ test("estimator prefers the system power rail with utilization augmentation", ()
   // 38 W + 0 + 5.2 ≈ 43 W against a 45 W wall measurement.
   almostEqual(at(38, 0), 43.2);
   // Inference-resident: the rail stays ~42 W while utilization carries the
-  // load — 42 + 65.8 + 14.768 ≈ 123 W/node.
-  almostEqual(at(42, 94, 16), 42 + (70 * 94) / 100 + 5.2 + ((65 - 5.2) * 16) / 100);
+  // load — 42 + 58.28 + 14.768 ≈ 115 W/node (wall-fitted augmentation).
+  almostEqual(at(42, 94, 16), 42 + (62 * 94) / 100 + 5.2 + ((65 - 5.2) * 16) / 100);
   // A zero or missing rail is not sensor data: the synthetic model remains.
   almostEqual(at(0, 94), 10 + 5.2 + 23);
   almostEqual(at(undefined, 94), 10 + 5.2 + 23);

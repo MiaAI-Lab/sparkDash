@@ -16,6 +16,15 @@ const MAX_NODE_WH_PER_MINUTE = 4;
 // floor (a CPU-package-sensor host idles near 12-20 W), so validation only
 // guards against implausibly low junk, not against the previous model.
 const MIN_NODE_WATTS = 10;
+
+/**
+ * Wall-calibrated load augmentation (2026-09-28, two wall passes): the
+ * SoC system power rail tracks idle (~42 W rail vs 45 W wall) but
+ * under-reports inference power; the deficit scales with GPU utilization.
+ * 70 W over-shot the wall by ~13 W fleet-wide at 94 % resident utilization.
+ */
+const GPU_UTIL_AUGMENTATION_WATTS = 62;
+
 const PERSISTENCE_RELATIVE_TOLERANCE = 1e-9;
 const UNSUPPORTED_DIRECTORY_FSYNC_CODES = new Set(["EINVAL", "ENOTSUP", "EISDIR", "EBADF"]);
 
@@ -200,9 +209,9 @@ function writeStateAtomically(filePath, contents, fileSystem) {
  *
  * Calibrated against wall meters on the live fleet (2026-09-28):
  * DGX Spark deep-idle ≈ 45 W (system power rail ≈ 38-42 W), inference-
- * resident ≈ 110-125 W/node while the system rail still reads ~42 W —
+ * resident ≈ 105-115 W/node while the system rail still reads ~42 W —
  * the rail misses the power the load adds, so GPU utilization carries
- * the augmentation term.
+ * the augmentation term (see GPU_UTIL_AUGMENTATION_WATTS).
  */
 export function estimateNodeWatts(snapshot) {
   if (snapshot?.telemetryFresh !== true) return null;
@@ -214,11 +223,16 @@ export function estimateNodeWatts(snapshot) {
   const cpuWatts = 5.2 + ((65 - 5.2) * clamp(cpuUsage, 0, 100)) / 100;
 
   // Preferred signal: the SoC system power sensor, augmented for the load
-  // power the rail under-reports (up to 70 W at full GPU utilization).
+  // power the rail under-reports (up to GPU_UTIL_AUGMENTATION_WATTS at full
+  // GPU utilization).
   const systemDraw = gpu?.power?.systemDraw;
   if (validNonnegative(systemDraw) && systemDraw > 0) {
     const gpuUtil = clamp(gpu?.usage ?? 0, 0, 100);
-    return clamp(systemDraw + (70 * gpuUtil) / 100 + cpuWatts, 0, 240);
+    return clamp(
+      systemDraw + (GPU_UTIL_AUGMENTATION_WATTS * gpuUtil) / 100 + cpuWatts,
+      0,
+      240
+    );
   }
 
   const gpuDraw = gpu?.power?.draw;
