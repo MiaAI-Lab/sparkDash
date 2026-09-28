@@ -280,6 +280,7 @@ function BackendBadge({ backend }: { backend: string | null }) {
     ds4: "ds4",
     exl3: "EXL3",
     q27: "q27",
+    tensorfold: "TensorFold",
   };
 
   return (
