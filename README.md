@@ -42,6 +42,7 @@ It also supports **non-Spark units**: any Linux machine with an NVIDIA GPU (e.g.
 - [REST API](#rest-api)
 - [Configuration](#configuration)
 - [Security](#security)
+- [Install as an app (PWA)](#install-as-an-app-pwa)
 - [Scripts](#scripts)
 - [How it works](#how-it-works)
 - [Contributing](#contributing)
@@ -526,6 +527,39 @@ Choice is stored in `localStorage`.
 - One-off remote benchmark hosts must be listed in `SPARKDASH_BENCH_HOSTS`.
 - Tested operator capacity for this remediation: **12 units**.
 
+---
+
+## Install as an app (PWA)
+
+sparkDash ships a web app manifest and a service worker, so you can install it — desktop: the install icon in the address bar or the ⋮ menu → *Install sparkDash*; Android: the same menu → *Add to Home screen*. Installed, it opens in its own window and reuses its shell offline.
+
+### The HTTPS rule
+
+Install and the service worker only run in a **secure context**. Browsers treat these as secure:
+
+- `https://…` — any real TLS origin.
+- `http://localhost` and `http://127.0.0.1` — **loopback is always secure**, so the SSH-tunnel path in [Remote access](./docs/REMOTE-ACCESS.md) (`http://127.0.0.1:5555`) installs with no certificate at all.
+
+A LAN hostname over plain HTTP — for example `http://dell.lan:5555` — is **not** a secure context: no install button appears and `navigator.serviceWorker` is unavailable, so none of this activates. That is a browser policy, not a sparkDash limitation.
+
+### Installing over plain HTTP without a certificate
+
+1. **Give it a real HTTPS origin (recommended).** Put sparkDash behind [Tailscale Serve](https://tailscale.com/kb/1312/serve) or an authenticating HTTPS reverse proxy, per [Remote access](./docs/REMOTE-ACCESS.md). This also satisfies the token/authentication expectations the app has for remote binds.
+2. **Tell Chrome to trust the plain-HTTP origin (per-machine workaround, no HTTPS).** On the desktop or Android Chrome/Edge that will run the app, open `chrome://flags/#unsafely-treat-insecure-origin-as-secure`, add `http://dell.lan:5555`, enable it, relaunch. The origin is then treated as secure, the service worker registers, and the install prompt appears. Caveats: it is a development flag — scoped to that browser profile, may reset on update, is **not** honored by iOS Safari, and it silences the "not secure" warning for that origin, so use it only on a network you trust.
+
+### What the offline shell does
+
+The service worker caches the static app shell (HTML, hashed build assets, icons, manifest). Offline, the last-loaded dashboard still opens. **Live GPU / power / LLM numbers and the WebSocket stream are never served from cache** — `/api/*` and `/ws` always go to the network, so you get a connection error rather than a stale reading pretending to be live.
+
+### Regenerating icons
+
+App icons are rasterized from `assets/bolt.svg` by a dependency-free script (it also runs automatically before every `npm run build`):
+
+```bash
+node scripts/make-icons.mjs   # writes public/icons/*.png
+```
+
+Edit `BOLT` and the colors at the top of that file to change the icon.
 
 ---
 

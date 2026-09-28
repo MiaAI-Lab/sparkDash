@@ -1,5 +1,8 @@
 node_modules/
 dist/
+# PWA app icons are rasterized from assets/bolt.svg by scripts/make-icons.mjs
+# (runs automatically via the npm "prebuild" hook). Commit the generator, not output.
+public/icons/
 .env
 sparks.json
 config/sparks-secrets.json
