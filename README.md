@@ -551,15 +551,19 @@ A LAN hostname over plain HTTP — for example `http://dell.lan:5555` — is **n
 
 The service worker caches the static app shell (HTML, hashed build assets, icons, manifest). Offline, the last-loaded dashboard still opens. **Live GPU / power / LLM numbers and the WebSocket stream are never served from cache** — `/api/*` and `/ws` always go to the network, so you get a connection error rather than a stale reading pretending to be live.
 
+### Launch splash
+
+A branded boot screen is inlined in `index.html`, so it paints with the very first frame — before the JS bundle and app CSS download. It reads the saved theme from `localStorage` (via the same pre-paint script that stops the real app from flashing the wrong colors) and recolors its bolt, glow and wordmark to match dark, light, white, or OLED. `main.tsx` fades it out once React has committed a painted frame. The manifest installs **standalone** and uses the same `display_override` (`standalone`, `minimal-ui`, `browser`) as the sibling dashboards on this host, so launch behaviour stays consistent across them.
+
 ### Regenerating icons
 
-App icons are rasterized from `assets/bolt.svg` by a dependency-free script (it also runs automatically before every `npm run build`):
+App icons are rasterized from `assets/bolt.svg` by a dependency-free script (it also runs automatically before every `npm run build`): the launcher / `any` / `maskable` PNGs plus a scalable `icon-any.svg` use the dark theme's accent with a soft radial glow:
 
 ```bash
 node scripts/make-icons.mjs   # writes public/icons/*.png
 ```
 
-Edit `BOLT` and the colors at the top of that file to change the icon.
+Edit `BOLT` and the palette constants at the top of that file to change the icon.
 
 ---
 
