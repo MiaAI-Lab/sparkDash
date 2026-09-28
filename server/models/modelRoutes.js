@@ -11,6 +11,7 @@
  * registry also rejects the reserved id set, belt and braces).
  */
 import { isValidModelId } from "./ModelRegistry.js";
+import { certainlyDown } from "./ModelProbe.js";
 import {
   scheduleWindows,
   resolveActiveWindow,
@@ -242,37 +243,54 @@ export function registerModelRoutes(app, launcher, hooks = {}) {
 
   // ─── Actions ────────────────────────────────────────────
   /**
-   * Start. Returns 202 { jobId } and stops any *other* running model first, in
-   * the same job, so the transcript shows the incumbent's stop.sh followed by
-   * the target's start.sh and exactly one container ends up running.
+   * Start / restart — exclusive. Returns 202 { jobId } and stops any *other*
+   * model first, in the same job, so the transcript shows the incumbent's
+   * stop.sh followed by the target's script and exactly one container ends up
+   * running. Restart gets the same treatment: a restart.sh that runs while
+   * another kit holds :8000 dies on that kit's port validation instead of
+   * doing its job.
+   *
+   * The incumbent list is fail-closed and computed from a FRESH probe: a
+   * cached tick can be stale by the whole probe interval, and a model whose
+   * verdict is merely unknown (docker ps died, LAN probe timed out,
+   * container-name drift) still holds the GPU and the port. Unless the probe
+   * PROVED a model down, its stop.sh runs first — idempotent and cheap; a
+   * skipped live incumbent is the double-book this path exists to prevent.
    */
-  app.post("/api/models/:id/start", (req, res) => {
-    const model = models().getModel(req.params.id);
-    if (!model) return res.status(404).json({ error: "Model not found" });
-    try {
-      const status = launcher.status();
-      const others = models()
-        .models.filter((m) => m.id !== model.id && status[m.id]?.running)
-        .map((m) => m.id);
-      const result = launcher.jobs.startExclusive(model.id, others, {
-        source: req.body?.source || "manual",
-      });
-      // A human clicked: the choice outranks the schedule until the next boundary.
-      launcher.scheduler.noteManual(model.id);
-      broadcast();
-      res.status(202).json({ jobId: result.jobId, status: "running", stopping: others });
-    } catch (e) {
-      err(res, e);
-    }
-  });
+  function exclusiveAction(action) {
+    return async (req, res) => {
+      const model = models().getModel(req.params.id);
+      if (!model) return res.status(404).json({ error: "Model not found" });
+      try {
+        await launcher.refresh({ forcePorts: "all" });
+        const status = launcher.status();
+        const others = models()
+          .models.filter((m) => m.id !== model.id && !certainlyDown(status[m.id], m))
+          .map((m) => m.id);
+        const result = launcher.jobs.startExclusive(model.id, others, {
+          source: req.body?.source || "manual",
+          action,
+        });
+        // A human clicked: the choice outranks the schedule until the next boundary.
+        launcher.scheduler.noteManual(model.id);
+        broadcast();
+        res.status(202).json({ jobId: result.jobId, status: "running", stopping: others });
+      } catch (e) {
+        err(res, e);
+      }
+    };
+  }
 
-  for (const action of ["stop", "restart", "logs"]) {
+  app.post("/api/models/:id/start", exclusiveAction("start"));
+  app.post("/api/models/:id/restart", exclusiveAction("restart"));
+
+  for (const action of ["stop", "logs"]) {
     app.post(`/api/models/:id/${action}`, (req, res) => {
       const model = models().getModel(req.params.id);
       if (!model) return res.status(404).json({ error: "Model not found" });
       try {
         const result = launcher.jobs.start(model.id, action, { source: req.body?.source || "manual" });
-        if (action !== "logs") launcher.scheduler.noteManual(model.id);
+        if (action === "stop") launcher.scheduler.noteManual(model.id);
         broadcast();
         res.status(202).json(result);
       } catch (e) {

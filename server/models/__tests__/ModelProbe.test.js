@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { portsNeedingProbe, buildModelStatus, probeModels } from "../ModelProbe.js";
+import { portsNeedingProbe, buildModelStatus, probeModels, certainlyDown } from "../ModelProbe.js";
 
 // Three kits, one port — the real config shape of this deployment.
 const QWEN = { id: "qwen", name: "Qwen", container: "vllm-fn", port: 8000 };
@@ -214,4 +214,19 @@ test("probed port answered while another container owns it → held by other", (
   assert.equal(st.qwen.running, true); // container proves it
   assert.equal(st.glm.running, false);
   assert.match(st.glm.error, /answering but held by Qwen/);
+});
+
+// ─── certainlyDown: the exclusive-start incumbent filter ───
+test("certainlyDown trusts only a docker-confirmed miss AND a non-serving port", () => {
+  const st = (over) => ({ running: false, containerUp: null, portUp: null, portChecked: false, ...over });
+  assert.equal(certainlyDown(null, QWEN), false, "never probed → assume it holds the GPU");
+  assert.equal(certainlyDown(st({ containerUp: null, portUp: false }), QWEN), false, "docker unknown is no proof");
+  assert.equal(certainlyDown(st({ containerUp: false, portUp: null }), QWEN), false, "port verdict unknown is no proof");
+  assert.equal(certainlyDown(st({ running: true }), QWEN), false, "up is never down");
+  assert.equal(certainlyDown(st({ containerUp: false, portUp: false }), QWEN), true, "both signals said no");
+  // held-by-another-container: portChecked false, portUp false, container
+  // confirmed absent — the port question WAS answered, elsewhere.
+  assert.equal(certainlyDown(st({ containerUp: false, portUp: false, portChecked: false }), QWEN), true);
+  // no port configured: nothing can contradict the confirmed container miss
+  assert.equal(certainlyDown(st({ containerUp: false, portUp: null }), { id: "x", port: null }), true);
 });

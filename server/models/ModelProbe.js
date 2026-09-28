@@ -45,6 +45,11 @@ function upk(portKey) {
  * List running container names on one target with one command.
  * Returns null on failure (dockerd unreachable / SSH down / nsenter missing)
  * so callers can distinguish "not running" from "unknown".
+ * A non-zero exit is ALWAYS unknown, even with partial stdout: a `docker ps`
+ * that died mid-print would otherwise report the truncated list as the truth,
+ * and a container that dropped out of the tail of that output reads as
+ * *confirmed* down — which is exactly how an exclusive Start ends up skipping
+ * the incumbent's stop and colliding on its port.
  * @param {ReturnType<import("./hostExec.js").resolveRunTarget>} [target]
  * @returns {Promise<Set<string>|null>}
  */
@@ -52,7 +57,7 @@ export async function listRunningContainers(target = LOCAL_TARGET) {
   const res = await execOnTarget(target, "docker ps --format '{{.Names}}' 2>/dev/null", {
     timeoutMs: 6000,
   });
-  if (res.error || (res.code !== 0 && !res.stdout)) return null;
+  if (res.error || res.code !== 0) return null;
   return new Set(
     res.stdout
       .split("\n")
@@ -204,6 +209,31 @@ export function buildModelStatus(models, result) {
     };
   }
   return out;
+}
+
+/**
+ * Did a probe verdict PROVE the model is down? Only when both signals said a
+ * hard no: `docker ps` answered (containerUp is the confirmed false, not the
+ * unknown null) and the model's container was NOT in the list, and the port is
+ * not serving it either — refused, unchecked-with-no-verdict, or held by
+ * another model's confirmed container.
+ *
+ * This is the incumbent filter for the exclusive Start/Restart: everything
+ * that is not *provably* down must be stopped first. Uncertainty reads as
+ * incumbent on purpose — a model invisible to docker (container-name drift) or
+ * invisible to the LAN probe (loopback bind, 3 s timeout under load) still
+ * holds the GPU and the port, and skipping its stop is the exact failure that
+ * makes the new kit's own port validation the only guard. Stopping an
+ * already-stopped model costs one cheap idempotent stop.sh.
+ *
+ * @param {{running?: boolean, containerUp?: boolean|null, portUp?: boolean|null}|null|undefined} st
+ * @param {{port?: number|null}} model
+ */
+export function certainlyDown(st, model) {
+  if (!st || st.running !== false) return false;
+  if (st.containerUp !== false) return false; // docker unknown → no proof
+  if (model?.port == null) return true; // no port left to contradict the container miss
+  return st.portUp === false; // null = unknown verdict → not proof
 }
 
 /**

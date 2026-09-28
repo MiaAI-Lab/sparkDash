@@ -586,28 +586,40 @@ export class ModelJobManager {
   }
 
   /**
-   * Start a model while another one holds the GPU: run the incumbent's stop.sh
-   * first, then the target's start.sh, in ONE job so the transcript tells the
-   * whole story ("Qwen's stop.sh, then GLM's start.sh") and the single-mutating
-   * slot is never released between the two steps. When the two live on
-   * different Sparks the chain becomes one command per machine, run in order.
+   * Run a start/restart of one model while others may hold the GPU/port: run
+   * every incumbent's stop.sh first, then the target's script, in ONE job so
+   * the transcript tells the whole story ("Qwen's stop.sh, then GLM's
+   * start.sh") and the single-mutating slot is never released between the two
+   * steps. When the two live on different Sparks the chain becomes one
+   * command per machine, run in order.
+   *
+   * The caller picks stopFirstIds fail-closed (everything not PROVEN down), so
+   * a listed model that cannot be stopped — unregistered, no stop script,
+   * unplaceable Spark — must fail the WHOLE job, not be skipped: silently not
+   * stopping an incumbent double-books the GPU/port and surfaces as the new
+   * kit's own port validation, the only guard left standing.
    * @param {string} targetId
    * @param {string[]} stopFirstIds
-   * @param {{ source?: string }} [meta]
+   * @param {{ source?: string, action?: "start"|"restart" }} [meta]
    */
   startExclusive(targetId, stopFirstIds = [], meta = {}) {
+    const action = meta.action === "restart" ? "restart" : "start";
     const active = this.activeJob();
     if (active) throw err409(`A ${active.action} job is already running for ${active.model}`);
     const target = this.getModel(targetId);
     if (!target) throw err400(`Model ${targetId} not found`);
-    if (!target.startScript) throw err400(`Model ${targetId} has no start script configured`);
+    const targetScript = action === "restart" ? target.restartScript : target.startScript;
+    if (!targetScript) throw err400(`Model ${targetId} has no ${action} script configured`);
 
     const steps = [];
     for (const id of stopFirstIds) {
       const m = this.getModel(id);
-      if (!m?.stopScript) continue;
-      // A step that cannot be placed must fail the WHOLE start, not be
-      // skipped: silently not stopping the incumbent double-books the GPU.
+      if (!m) throw err400(`Model ${id} selected to stop is no longer registered`);
+      if (!m.stopScript) {
+        throw err400(
+          `Model ${m.name || id} may be running but has no stop script — stop it by hand or configure its stop script before starting on top of it`
+        );
+      }
       const t = resolveRunTarget(m, this.getSpark);
       if (t.kind === null) throw err400(t.error);
       steps.push({
@@ -624,11 +636,11 @@ export class ModelJobManager {
     steps.push({
       target: targetRun,
       dir: target.dir,
-      script: target.startScript,
-      args: Array.isArray(target.startArgs) ? target.startArgs : [],
-      label: `start ${target.name || targetId}`,
+      script: targetScript,
+      args: action === "start" && Array.isArray(target.startArgs) ? target.startArgs : [],
+      label: `${action} ${target.name || targetId}`,
       modelId: targetId,
-      action: "start",
+      action,
     });
 
     // One mutating job that *is* the chain; the job's model is the target.
@@ -641,7 +653,7 @@ export class ModelJobManager {
       if (last && last.target.key === s.target.key) last.steps.push(s);
       else chunks.push({ target: s.target, steps: [s] });
     }
-    const job = this._createJob(target, "start", meta, { chained: stopFirstIds.length > 0 });
+    const job = this._createJob(target, action, { ...meta, chained: stopFirstIds.length > 0 });
     job.transcript.append(
       steps.map((s) => `$ ${s.label}: ./${s.script}${s.args?.length ? ` ${s.args.join(" ")}` : ""}   [${s.dir}]`).join("\n") + "\n"
     );
@@ -663,10 +675,16 @@ export class ModelJobManager {
 
   /**
    * A model just became ready (container up / port answering). `start.sh`
-   * normally ends in `docker logs -f` and would otherwise hold the single
-   * mutating slot until the job timeout, blocking every other model and the
-   * scheduler. Readiness is the real end-of-job signal, so stop the tail:
-   * containers are owned by dockerd and survive the kill.
+   * (and a chained `restart.sh`) normally ends in `docker logs -f` and would
+   * otherwise hold the single mutating slot until the job timeout, blocking
+   * every other model and the scheduler. Readiness is the real end-of-job
+   * signal, so stop the tail: containers are owned by dockerd and survive the
+   * kill.
+   *
+   * A restart job releases only once the model was observed DOWN during the
+   * job (markRestartSawDown): its own old container answers the port while the
+   * chain is still mid-flight, and releasing on that stale readiness would
+   * kill the wrapper before the restart script ever ran.
    * Returns true when a job was released.
    * @param {string} modelId
    */
@@ -674,7 +692,8 @@ export class ModelJobManager {
     let released = false;
     for (const job of this.jobs.values()) {
       if (job.modelId !== modelId || job.status !== "running") continue;
-      if (job.action !== "start") continue;
+      if (job.action !== "start" && job.action !== "restart") continue;
+      if (job.action === "restart" && !job.sawDown) continue;
       job.transcript.append(
         `\n[ready] model is serving — ending the log tail (the container keeps running)\n`
       );
@@ -688,5 +707,19 @@ export class ModelJobManager {
       released = true;
     }
     return released;
+  }
+
+  /**
+   * Arm running restart jobs so a later ready verdict may release them: the
+   * first tick that finds the target not up proves the old container is gone,
+   * so the next "serving" observation belongs to the freshly restarted one.
+   * @param {string} modelId
+   */
+  markRestartSawDown(modelId) {
+    for (const job of this.jobs.values()) {
+      if (job.modelId === modelId && job.status === "running" && job.action === "restart") {
+        job.sawDown = true;
+      }
+    }
   }
 }

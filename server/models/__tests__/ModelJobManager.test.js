@@ -103,3 +103,25 @@ test("SSH passwords reach the transport only — never job payloads or checkpoin
   // The target itself (secret-bearing) lives only on the spawn chunk.
   assert.equal(spawned[0].chunks[0].target.spark.ssh.password, "sekretA");
 });
+
+// ─── exclusive restart ───────────────────────────────────
+test("an exclusive restart chains the incumbent stop before the target's restart.sh", () => {
+  const qwen = { ...QWEN, restartScript: "restart.sh" };
+  const glm = { ...QWEN, id: "glm", name: "GLM", restartScript: "glm-restart.sh" };
+  const { m, spawned } = makeManager([glm, qwen]);
+  const r = m.startExclusive("glm", ["qwen"], { action: "restart" });
+  assert.equal(r.status, "running");
+  const { chunks } = spawned[0];
+  assert.equal(chunks.length, 1, "same Spark → one chain");
+  assert.match(chunks[0].cmd, /stop Qwen/);
+  assert.match(chunks[0].cmd, /glm-restart\.sh/);
+  assert.equal(m.getLatest("glm").action, "restart");
+});
+
+test("an exclusive start fails the chain when an incumbent has no stop script (fail closed)", () => {
+  const nostop = { ...QWEN, id: "nostop", stopScript: null };
+  const glm = { ...QWEN, id: "glm", startScript: "g.sh" };
+  const { m, spawned } = makeManager([glm, nostop]);
+  assert.throws(() => m.startExclusive("glm", ["nostop"]), /no stop script/);
+  assert.equal(spawned.length, 0);
+});

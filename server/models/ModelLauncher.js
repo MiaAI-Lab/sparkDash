@@ -61,6 +61,8 @@ export class ModelLauncher {
     /** @type {ReturnType<typeof setInterval>|null} */
     this._probeTimer = null;
     this._probing = false;
+    /** @type {Promise<unknown>} the in-flight (or last) refresh pass */
+    this._pass = Promise.resolve();
     this._lastProbeOkAt = null;
     // Registry edits change both the card list and the scheduler's windows.
     this.registry.onChange(() => {
@@ -134,11 +136,27 @@ export class ModelLauncher {
    * all (see portsNeedingProbe). Two cases still need live port answers:
    *  - a mutating job in flight — readiness is the port flipping up while the
    *    container exists but is still loading weights → force that port;
-   *  - the manual Refresh button → force every port once.
+   *  - the manual Refresh button, and the Start/Restart click, which must not
+   *    pick incumbents off a cached tick.
+   * A forced pass never piggybacks on an in-flight pass: it waits for that one
+   * to settle, then runs once more. A second collision takes the latest
+   * verdict instead of queueing behind a wedged target forever.
    */
   async refresh(opts = {}) {
-    if (this._probing) return this._status;
+    if (this._probing) {
+      if (opts.forcePorts !== "all" || opts._waited) return this._status;
+      await this._pass.catch(() => {});
+      return this.refresh({ ...opts, _waited: true });
+    }
     this._probing = true;
+    this._pass = this._probeOnce(opts).finally(() => {
+      this._probing = false;
+    });
+    return this._pass;
+  }
+
+  /** The actual pass behind refresh(). Never throws. */
+  async _probeOnce(opts) {
     try {
       const models = this.registry.models;
       if (!models.length) {
@@ -168,17 +186,21 @@ export class ModelLauncher {
       // the container exists but before it answers /v1/models. During a job
       // the port is force-probed so this stays honest; a port whose verdict
       // came from docker (portChecked false) must never release the slot.
+      // A restart chain arms on the first DOWN observation — its own old
+      // container serving mid-chain is not the finish signal.
       for (const m of models) {
         const st = next[m.id];
-        if (!st?.running || st.portChecked === false) continue;
+        if (!st?.running) {
+          this.jobs.markRestartSawDown(m.id);
+          continue;
+        }
+        if (st.portChecked === false) continue;
         const readySignal = m.port != null ? st.portUp : st.containerUp;
         if (readySignal === true) this.jobs.releaseReadyStart(m.id);
       }
       if (changed) this._notify();
     } catch (err) {
       console.warn("[ModelLauncher] probe failed:", err?.message || err);
-    } finally {
-      this._probing = false;
     }
     return this._status;
   }
