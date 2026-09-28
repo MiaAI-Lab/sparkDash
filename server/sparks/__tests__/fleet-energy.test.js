@@ -606,20 +606,26 @@ test("registered fleet-energy GET is read-only and serves the exact contract", a
   }
 });
 
-test("estimator models CPU at 0, 50, and 100 percent without using systemDraw", () => {
-  const atCpu = (usage) =>
+test("estimator prefers the system power rail with utilization augmentation", () => {
+  const at = (systemDraw, gpuUsage, cpuUsage = 0) =>
     estimateNodeWatts({
       online: true,
       telemetryFresh: true,
       metrics: {
-        gpu: { power: { draw: 10, systemDraw: 999 } },
-        cpu: { usage },
+        gpu: { power: { draw: 10, systemDraw }, usage: gpuUsage },
+        cpu: { usage: cpuUsage },
       },
     });
 
-  almostEqual(atCpu(0), 38.2);
-  almostEqual(atCpu(50), 68.1);
-  almostEqual(atCpu(100), 98);
+  // Wall anchors (2026-09-28 calibration): deep idle reads the rail only —
+  // 38 W + 0 + 5.2 ≈ 43 W against a 45 W wall measurement.
+  almostEqual(at(38, 0), 43.2);
+  // Inference-resident: the rail stays ~42 W while utilization carries the
+  // load — 42 + 65.8 + 14.768 ≈ 123 W/node.
+  almostEqual(at(42, 94, 16), 42 + (70 * 94) / 100 + 5.2 + ((65 - 5.2) * 16) / 100);
+  // A zero or missing rail is not sensor data: the synthetic model remains.
+  almostEqual(at(0, 94), 10 + 5.2 + 23);
+  almostEqual(at(undefined, 94), 10 + 5.2 + 23);
 });
 
 test("estimator clamps CPU usage and total node power", () => {
@@ -638,6 +644,15 @@ test("estimator applies the CPU-only model only when GPU monitoring is off", () 
   almostEqual(
     estimateNodeWatts({ ...cpuOnly, metrics: { gpu: null, cpu: { usage: 0 } } }),
     28.2
+  );
+  // CPU package sensor + 12 W board base wins over the utilization curve:
+  // 8 W idle draw + 12 base = the 20 W wall anchor.
+  almostEqual(
+    estimateNodeWatts({
+      ...cpuOnly,
+      metrics: { gpu: null, cpu: { usage: 50, draw: 8 } },
+    }),
+    20
   );
   // A board draw stays authoritative even on CPU-only-licensed nodes.
   almostEqual(

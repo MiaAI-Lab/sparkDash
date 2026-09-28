@@ -387,14 +387,18 @@ sparkDash/
 
 There is no application authentication on the HTTP/WebSocket API. sparkDash therefore binds to loopback and refuses direct LAN binding. Use an SSH tunnel, authenticated TLS reverse proxy, or Tailscale Serve; see [Remote access](./docs/REMOTE-ACCESS.md).
 
-`/api/fleet-energy` samples the configured fleet independently every two seconds. It estimates
-each node as GPU board draw + a CPU utilization model (5.2–65 W) + 23 W of memory/network/base
-overhead, clamped to the DGX Spark power envelope. Current and hourly fleet watts require fresh,
-simultaneous telemetry from every node; coverage fields make gaps explicit. Minute buckets are
-persisted at mode `0600` for rolling 24-hour and 31-day windows. Wh/output-token is reported when
-exactly one configured node has role `head` and exposes a monotonic LLM output-token counter.
-These values are estimates, not wall-meter measurements. Restart sparkDash after changing fleet
-membership so the persisted series has one stable node set.
+`/api/fleet-energy` samples the configured fleet independently every two seconds. Sparks are
+estimated from the SoC system power rail plus a GPU-utilization augmentation and the CPU model
+(5.2–65 W); nodes without a system rail fall back to board draw + CPU model + 23 W base. Hosts
+configured with `gpuMonitoring: false` are estimated from the CPU package sensor + 12 W board
+base (or the utilization curve where no sensor exists). All models are clamped to the DGX Spark
+power envelope and calibrated against wall meters (spark ≈ 45 W idle, host ≈ 20 W idle).
+`currentWatts30s` sums the newest certified sample per node inside a 30-second window — partial
+coverage reduces the sum, it does not blank it; hourly and coverage fields keep simultaneous
+full-fleet semantics. Minute buckets are persisted at mode `0600` for rolling 24-hour and 31-day
+windows. Wh/output-token is reported when exactly one configured node has role `head` and exposes
+a monotonic LLM output-token counter. These values remain estimates, not wall-meter readings.
+Restart sparkDash after changing fleet membership so the persisted series has one stable node set.
 
 ---
 
