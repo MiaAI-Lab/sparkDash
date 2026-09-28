@@ -184,6 +184,7 @@ const APPROVED_RESPONSE_FIELDS = [
   "nodeCoverage24hMs",
   "nodeCoverage31dMs",
   "hourlyWatts24h",
+  "alwaysSampling",
 ];
 
 function assertNullableFiniteNumber(value) {
@@ -195,6 +196,7 @@ function assertFleetEnergyResponseContract(response) {
   assert.equal(typeof response.estimated, "boolean");
   assert.equal(typeof response.membershipChanged, "boolean");
   assert.equal(typeof response.restartRequired, "boolean");
+  assert.equal(typeof response.alwaysSampling, "boolean");
   assert.equal(Array.isArray(response.trackedNodeIds), true);
   assert.equal(Array.isArray(response.currentNodeIds), true);
   for (const field of [
@@ -388,9 +390,19 @@ test("the energy sampler keeps every monitor polling without a browser client", 
     ]),
     now: () => 50_000,
   });
-  // The tick drives resume() unconditionally; SparkMonitor's own guard makes
-  // it a no-op unless paused — so visibility pausing can never starve the
-  // 24 h series again.
+  // The tick drives resume() while keep-awake is on; SparkMonitor's own
+  // guard makes it a no-op unless paused — visibility pausing can never
+  // starve the 24 h series again.
+  assert.deepEqual(resumed, ["node-a", "node-b"]);
+  // With keep-awake off, visibility pausing keeps its original meaning and
+  // the sampler never touches the monitors.
+  runFleetEnergySamplerTick({
+    tracker: { record: () => "recorded" },
+    orderedSnapshots: () => [],
+    monitors: new Map([["node-a", { resume: () => resumed.push("node-a!") }]]),
+    keepAwake: false,
+    now: () => 50_000,
+  });
   assert.deepEqual(resumed, ["node-a", "node-b"]);
 });
 
@@ -412,6 +424,7 @@ test("fleet-energy handler returns the exact empty tracker response contract", (
   assert.equal(response.membershipChanged, false);
   assert.deepEqual(response.trackedNodeIds, CANONICAL_NODE_IDS);
   assert.deepEqual(response.currentNodeIds, CANONICAL_NODE_IDS);
+  assert.equal(response.alwaysSampling, true);
 });
 
 test("fleet-energy handler returns the exact populated tracker response contract", () => {
@@ -432,6 +445,20 @@ test("fleet-energy handler returns the exact populated tracker response contract
   assert.ok(response.whPerOutputToken24h > 0);
   assert.equal(response.outputTokens24h, 20);
   assert.equal(response.hourlyWatts24h.some(Number.isFinite), true);
+});
+
+test("fleet-energy handler reports the keep-awake switch state", () => {
+  const createFleetEnergyHandler = runtimeFunction("createFleetEnergyHandler");
+  const tracker = new FleetEnergyTracker({
+    ...noTimerOptions(),
+    now: () => Date.UTC(2026, 7, 23, 12, 34, 0),
+  });
+  let response;
+  createFleetEnergyHandler(tracker, () => false)({}, {
+    json: (value) => (response = value),
+  });
+  assertFleetEnergyResponseContract(response);
+  assert.equal(response.alwaysSampling, false);
 });
 
 test("fleet-energy membership changes invalidate aggregates until restart", () => {

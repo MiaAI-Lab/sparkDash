@@ -397,8 +397,10 @@ power envelope and calibrated against wall meters (spark ≈ 45 W idle, host ≈
 coverage reduces the sum, it does not blank it; hourly and coverage fields keep simultaneous
 full-fleet semantics. Minute buckets are persisted at mode `0600` for rolling 24-hour and 31-day
 windows. Wh/output-token is reported when exactly one configured node has role `head` and exposes
-a monotonic LLM output-token counter. These values remain estimates, not wall-meter readings.
-Restart sparkDash after changing fleet membership so the persisted series has one stable node set.
+a monotonic LLM output-token counter. These values remain estimates, not wall-meter
+readings. Restart sparkDash after changing fleet membership so the persisted series
+has one stable node set. The card's **24/7** switch (`energyAlwaysSampling`) decides
+whether the sampler keeps polling nodes when no browser tab is open.
 
 ---
 
@@ -416,6 +418,7 @@ Gear icon in the header, or `GET`/`PUT` `/api/settings`:
 | Hide worker nodes | false | Hide Worker-role Sparks from Overview and the tab bar |
 | Temperature unit | Celsius | Display GPU temperature in °C or °F |
 | Benchmark share image | true | Decode/prefill **Copy results** becomes a split button: the label copies the text summary, the caret offers **Copy as text** / **Copy as image** on hover or click. Turn it off to keep the plain button. The image copies where the page has an image clipboard (HTTPS or localhost); over plain http on a LAN IP the card downloads instead |
+| Fleet energy 24/7 (`energyAlwaysSampling`) | true | Keep hardware polling alive for the energy sampler even with no dashboard tab open, so the 24 h / 31 d series fills overnight. Off reverts to visibility-gated sampling: coverage pauses while no client watches the fleet. Toggled live from the **24/7** switch on the Fleet Energy card; reported as `alwaysSampling` on `/api/fleet-energy` |
 
 ### Environment variables
 

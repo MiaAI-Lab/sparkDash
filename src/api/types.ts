@@ -554,6 +554,8 @@ export interface FleetEnergy {
   nodeCoverage24hMs: Record<string, number>;
   nodeCoverage31dMs: Record<string, number>;
   hourlyWatts24h: Array<number | null>;
+  /** Sampler keeps node polling alive with no dashboard tab open. */
+  alwaysSampling: boolean;
 }
 
 // ─── API responses ────────────────────────────────────────
@@ -572,6 +574,8 @@ export interface Settings {
   showModelLauncher?: boolean;
   /** Overview Fleet Energy card. Off by default. */
   showFleetEnergy: boolean;
+  /** Fleet energy: keep sampling with no browser tab open (on by default). */
+  energyAlwaysSampling?: boolean;
   /** Overview active fleet exceptions strip. Off by default. */
   showFleetExceptions: boolean;
   /** Overview search field + status filter. Off by default. */

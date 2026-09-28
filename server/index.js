@@ -318,10 +318,14 @@ function orderedSnapshots() {
     .map((m) => m.snapshot());
 }
 
+/** The Fleet Energy card's keep-awake switch; drives sampler and UI alike. */
+const isFleetEnergyKeepAwake = () => getSettings().energyAlwaysSampling !== false;
+
 const fleetEnergyRuntime = createFleetEnergyRuntime({
   tracker: fleetEnergyTracker,
   orderedSnapshots,
   monitors,
+  isKeepAwake: isFleetEnergyKeepAwake,
 });
 
 // ─── Express app ─────────────────────────────────────────
@@ -551,7 +555,7 @@ app.get("/api/dev-engine/webui-url", (req, res) => {
 });
 
 // ─── REST API ────────────────────────────────────────────
-registerFleetEnergyRoute(app, fleetEnergyTracker);
+registerFleetEnergyRoute(app, fleetEnergyTracker, isFleetEnergyKeepAwake);
 
 // Never return SSH passwords in any response
 app.get("/api/sparks", (_req, res) => {
@@ -710,6 +714,10 @@ app.put("/api/settings", (req, res) => {
   try {
     const patch = req.body || {};
     const newSettings = updateSettings(patch);
+    // Flipping the sampler's keep-awake switch re-evaluates who needs HW
+    // polling right now: off without a watching client pauses immediately
+    // instead of waiting for the next WS event.
+    if ("energyAlwaysSampling" in patch) updateMonitorStates();
     // If poll interval changed, restart the broadcast timer
     if (patch.pollIntervalMs != null) {
       restartBroadcast();
