@@ -55,8 +55,12 @@ export function hasFreshPowerTelemetry(snapshot, monitor, atMs) {
 }
 
 /**
- * Record one independent energy sample. Only the shallow clones passed to the
- * tracker receive telemetryFresh; normal REST and WebSocket snapshots remain unchanged.
+ * Record one independent energy sample. The sampler is a permanent viewer:
+ * visibility-based pausing exists so idle clients don't pay for graph
+ * polling, but the 24 h series needs the telemetry itself, so paused
+ * monitors are resumed each tick (idempotent; no-op unless paused). Only
+ * the shallow clones passed to the tracker receive telemetryFresh; normal
+ * REST and WebSocket snapshots remain unchanged.
  */
 export function runFleetEnergySamplerTick({
   tracker,
@@ -65,6 +69,7 @@ export function runFleetEnergySamplerTick({
   now = Date.now,
 }) {
   const atMs = now();
+  for (const monitor of monitors?.values?.() ?? []) monitor?.resume?.();
   const snapshots = orderedSnapshots();
   const trackerInputs = snapshots.map((snapshot) => ({
     ...snapshot,

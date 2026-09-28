@@ -376,6 +376,24 @@ test("one fleet-energy sampler tick records decorated clones without changing no
   assert.equal(Object.hasOwn(snapshots[1], "telemetryFresh"), false);
 });
 
+test("the energy sampler keeps every monitor polling without a browser client", () => {
+  const runFleetEnergySamplerTick = runtimeFunction("runFleetEnergySamplerTick");
+  const resumed = [];
+  runFleetEnergySamplerTick({
+    tracker: { record: () => "recorded" },
+    orderedSnapshots: () => [],
+    monitors: new Map([
+      ["node-a", { resume: () => resumed.push("node-a") }],
+      ["node-b", { resume: () => resumed.push("node-b") }],
+    ]),
+    now: () => 50_000,
+  });
+  // The tick drives resume() unconditionally; SparkMonitor's own guard makes
+  // it a no-op unless paused — so visibility pausing can never starve the
+  // 24 h series again.
+  assert.deepEqual(resumed, ["node-a", "node-b"]);
+});
+
 test("fleet-energy handler returns the exact empty tracker response contract", () => {
   const createFleetEnergyHandler = runtimeFunction("createFleetEnergyHandler");
   const tracker = new FleetEnergyTracker({
