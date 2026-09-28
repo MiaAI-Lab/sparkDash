@@ -7,6 +7,9 @@ import { AddSparkDialog } from "./components/AddSparkDialog";
 import { EditSparkDialog } from "./components/EditSparkDialog";
 import { SparkPage } from "./components/SparkPage/SparkPage";
 import { HermesUpdateDialog } from "./components/SparkPage/HermesUpdateDialog";
+import { ModelCommandDialog } from "./components/OverviewPage/ModelLauncher/ModelCommandDialog";
+import { ModelScheduleDialog } from "./components/OverviewPage/ModelLauncher/ModelScheduleDialog";
+import { ModelEditDialog } from "./components/OverviewPage/ModelLauncher/ModelEditDialog";
 import { OverviewPage } from "./components/OverviewPage/OverviewPage";
 import { ShowcasePage } from "./components/ShowcasePage/ShowcasePage";
 import { ThemeSwitch } from "./components/ThemeSwitch";
@@ -50,6 +53,7 @@ function placeholderSnapshot(
     workerLabel?: string | null;
     workerHeadId?: string | null;
     llmMonitoring?: boolean;
+    gpuMonitoring?: boolean;
     comfyMonitoring?: boolean;
     comfyPort?: number;
     tailscaleMonitoring?: boolean;
@@ -85,6 +89,7 @@ function placeholderSnapshot(
         : role === "head"
           ? true
           : roleFields?.llmMonitoring !== false,
+    gpuMonitoring: roleFields?.gpuMonitoring !== false,
     comfyMonitoring: Boolean(roleFields?.comfyMonitoring),
     comfyPort: roleFields?.comfyPort ?? 8188,
     tailscaleMonitoring: Boolean(roleFields?.tailscaleMonitoring),
@@ -126,6 +131,7 @@ function placeholderSnapshot(
 function DashboardApp() {
   const {
     sparks,
+    models,
     activeId,
     setActiveId,
     activeSpark,
@@ -243,6 +249,7 @@ function DashboardApp() {
               workerLabel: c.workerLabel ?? existing.workerLabel,
               workerHeadId: c.workerHeadId ?? existing.workerHeadId,
               llmMonitoring: c.llmMonitoring ?? existing.llmMonitoring,
+              gpuMonitoring: c.gpuMonitoring ?? existing.gpuMonitoring,
               comfyMonitoring: c.comfyMonitoring ?? existing.comfyMonitoring,
               comfyPort: c.comfyPort ?? existing.comfyPort,
               tailscaleMonitoring: c.tailscaleMonitoring ?? existing.tailscaleMonitoring,
@@ -265,6 +272,7 @@ function DashboardApp() {
               workerLabel: c.workerLabel,
               workerHeadId: c.workerHeadId,
               llmMonitoring: c.llmMonitoring,
+              gpuMonitoring: c.gpuMonitoring,
               comfyMonitoring: c.comfyMonitoring,
               comfyPort: c.comfyPort,
               tailscaleMonitoring: c.tailscaleMonitoring,
@@ -356,6 +364,9 @@ function DashboardApp() {
               showOverviewSearch={settings?.showOverviewSearch ?? false}
               temperatureUnit={settings?.temperatureUnit ?? "celsius"}
               onSelectSpark={navigate}
+              models={models}
+              showModelLauncher={settings?.showModelLauncher !== false}
+              connected={connected}
             />
           ) : displayActive ? (
             <SparkPage
@@ -380,6 +391,10 @@ function DashboardApp() {
         </main>
       </div>
       <HermesUpdateDialog />
+      {/* Model launcher dialogs — mounted once, opened via their module stores. */}
+      <ModelCommandDialog />
+      <ModelScheduleDialog />
+      <ModelEditDialog />
       <AddSparkDialog
         open={showAdd}
         onClose={() => setShowAdd(false)}

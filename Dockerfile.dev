@@ -13,6 +13,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     openssh-client sshpass procps util-linux iproute2 gcc g++ make python3 \
     && rm -rf /var/lib/apt/lists/*
 
+# Timezone: align scheduler/daily jobs with operator local time (Europe/Prague).
+ENV TZ=Europe/Prague
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo "$TZ" > /etc/timezone
+
 # Copy package files and install
 COPY package.json package-lock.json* ./
 RUN npm ci

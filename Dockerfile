@@ -46,6 +46,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     openssh-client sshpass procps util-linux iproute2 \
     && rm -rf /var/lib/apt/lists/*
 
+# Timezone: scheduler windows and daily jobs must align with operator local
+# time (Europe/Prague), not the image-default UTC. Setting TZ + /etc/localtime
+# so both Node (honors TZ) and tools reading /etc/localtime agree.
+ENV TZ=Europe/Prague
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo "$TZ" > /etc/timezone
+
 WORKDIR /app
 
 # Copy built frontend, pruned deps, and server

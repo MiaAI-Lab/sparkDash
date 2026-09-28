@@ -27,7 +27,7 @@ function formatGb(mb: number): string {
 
 function MetricBar({ value, max }: { value: number; max: number }) {
   const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0;
-  const barColor = pct > 85 ? "bg-danger" : pct > 60 ? "bg-warning" : "bg-accent";
+  const barColor = pct > 95 ? "bg-danger" : "bg-bar-ram";
   return (
     <div className="h-1.5 overflow-hidden rounded-full bg-border">
       <div

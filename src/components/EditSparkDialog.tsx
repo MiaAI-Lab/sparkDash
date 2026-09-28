@@ -239,6 +239,7 @@ export function EditSparkDialog({
         })(),
         hermesMonitoring: Boolean(config.hermesMonitoring),
         tailscaleMonitoring: Boolean(config.tailscaleMonitoring),
+        gpuMonitoring: config.gpuMonitoring !== false,
         ssh: {
           host: config.ssh.host || config.lanIp,
           user: config.ssh.user,
@@ -496,6 +497,29 @@ export function EditSparkDialog({
                 <code className="rounded bg-surface-elevated px-1">hermes update</code> on this
                 machine via SSH.
               </p>
+
+              <label className="flex items-center gap-2 text-xs text-muted">
+                <input
+                  type="checkbox"
+                  checked={config.gpuMonitoring !== false}
+                  onChange={(e) => update({ gpuMonitoring: e.target.checked })}
+                  className="rounded border-border"
+                />
+                <span>GPU monitoring</span>
+                <span
+                  className="inline-flex shrink-0 cursor-help text-muted hover:text-text"
+                  title="When enabled, collect GPU/VRAM/Usage via nvidia-smi and show the GPU panel. Turn off for machines without an NVIDIA GPU (plain Linux servers)."
+                  aria-label="Enable GPU, VRAM, and usage monitoring via nvidia-smi."
+                >
+                  <InfoIcon className="h-3.5 w-3.5" />
+                </span>
+              </label>
+              {config.gpuMonitoring === false && (
+                <p className="mt-1 text-[10px] text-muted">
+                  Machine has no NVIDIA GPU — nvidia-smi polling is skipped and the
+                  GPU / VRAM / Usage sections are hidden.
+                </p>
+              )}
 
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
                 <label className="flex min-w-0 items-center gap-2">

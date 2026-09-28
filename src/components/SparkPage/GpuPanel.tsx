@@ -61,6 +61,9 @@ export function GpuPanel({ gpu, cpu, sparkId, temperatureUnit, className }: GpuP
   const vramTotal = gpu?.vram?.total ?? 0;
   const vramPct = gpu?.vram?.percentage ?? 0;
 
+  // GPU usage — cyan, red from 90% (matches the dashboard overview card)
+  const usageColor = usage >= 90 ? "var(--color-danger)" : "var(--color-bar-usage)";
+
   const cpuTemperature = cpu?.temperature ?? 0;
   const cpuDisplayTemp =
     temperatureUnit === "fahrenheit" ? celsiusToFahrenheit(cpuTemperature) : cpuTemperature;
@@ -68,11 +71,11 @@ export function GpuPanel({ gpu, cpu, sparkId, temperatureUnit, className }: GpuP
     temperatureUnit === "fahrenheit" ? `${cpuDisplayTemp}°F` : `${cpuDisplayTemp}°C`;
 
   const tempColor =
-    temperature > 85
+    temperature >= 73
       ? "var(--color-danger)"
-      : temperature > 65
+      : temperature >= 68
         ? "var(--color-warning)"
-        : "var(--color-accent)";
+        : "var(--color-success)";
   // GB10 junction bands (warn 85 / crit 95) — idle CPU sits ~70°C, so GPU 65/85 would pin amber.
   const cpuTempColor =
     cpuTemperature > 95
@@ -91,8 +94,8 @@ export function GpuPanel({ gpu, cpu, sparkId, temperatureUnit, className }: GpuP
     >
       <MetricRow
         label="Usage"
-        color="var(--color-accent)"
-        spark={<Sparkline data={usageHistory} color="var(--color-accent)" width={180} />}
+        color={usageColor}
+        spark={<Sparkline data={usageHistory} color={usageColor} width={180} />}
         value={<span className="text-text-strong">{usage}%</span>}
       />
       <MetricRow
@@ -137,9 +140,7 @@ export function GpuPanel({ gpu, cpu, sparkId, temperatureUnit, className }: GpuP
         const barColor =
           reason === "thermal"
             ? "bg-danger"
-            : reason === "power" || reason === "hw"
-              ? "bg-warning"
-              : "bg-accent";
+            : "bg-bar";
         const pct = t?.smClockPct;
         const clockCaption =
           t?.smClockMHz != null && t?.smClockMaxMHz != null
@@ -182,6 +183,7 @@ export function GpuPanel({ gpu, cpu, sparkId, temperatureUnit, className }: GpuP
                 label="VRAM"
                 value={vramUsed}
                 max={vramTotal}
+                color="bg-bar-vram"
                 caption={vramTotal > 0 ? `${formatMb(vramUsed).replace(/ (GB|MB)$/, "")} / ${formatMb(vramTotal)}` : "—"}
               />
               {gpu.vram.available > 0 && (

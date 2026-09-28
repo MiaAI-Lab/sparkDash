@@ -626,6 +626,12 @@ export class SparkRegistry {
        * the SparkMonitor checks for updates and allows one-click `hermes update`.
        */
       hermesMonitoring: Boolean(config.hermesMonitoring),
+      /**
+       * Opt-out: machines without an NVIDIA GPU (plain Linux servers) set this
+       * to false — the collector skips nvidia-smi polling entirely and the UI
+       * hides the GPU / VRAM / Usage metrics for the machine (default true).
+       */
+      gpuMonitoring: config.gpuMonitoring !== false,
       disabledDevices: Array.isArray(config.disabledDevices) ? config.disabledDevices : [],
       disabledInterfaces: Array.isArray(config.disabledInterfaces) ? config.disabledInterfaces : [],
       storagePollDisabled: Boolean(config.storagePollDisabled),

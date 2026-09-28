@@ -33,6 +33,7 @@ export function RamPanel({ ram, cpu, sparkId, temperatureUnit, className }: RamP
   const used = ram?.used ?? 0;
   const total = ram?.total ?? 0;
   const percentage = ram?.percentage ?? 0;
+  const ramBarColor = percentage > 95 ? "bg-danger" : percentage > 75 ? "bg-warning" : "bg-bar-ram";
 
   const temperature = cpu?.temperature ?? 0;
   const displayTemp =
@@ -59,6 +60,7 @@ export function RamPanel({ ram, cpu, sparkId, temperatureUnit, className }: RamP
             label="RAM"
             value={used}
             max={total}
+            color={ramBarColor}
             caption={
               total > 0
                 ? `${formatMb(used).replace(/ (GB|MB)$/, "")} / ${formatMb(total)}`

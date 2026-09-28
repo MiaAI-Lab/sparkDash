@@ -21,8 +21,16 @@ const DEFAULTS = Object.freeze({
   benchDebugTraces: false,
   /** Layout density — compact (default) or comfortable. */
   density: "compact",
+  /** Show the Model Launcher panel on the Overview page. */
+  showModelLauncher: true,
   /** Overview Fleet Energy card. Off by default. */
   showFleetEnergy: false,
+  /**
+   * Fleet energy keeps hardware polling alive with no browser tab open so
+   * the 24 h / 31 d series fills overnight. Off reverts to visibility-gated
+   * sampling: coverage pauses when no dashboard watches the fleet.
+   */
+  energyAlwaysSampling: true,
   /** Overview active fleet exceptions strip. Off by default. */
   showFleetExceptions: false,
   /** Overview search + status filter row. Off by default. */
@@ -54,6 +62,7 @@ function _clampSettings(settings) {
   // Ensure benchDebugTraces is boolean
   s.benchDebugTraces = Boolean(s.benchDebugTraces);
   s.showFleetEnergy = Boolean(s.showFleetEnergy);
+  s.energyAlwaysSampling = Boolean(s.energyAlwaysSampling);
   s.showFleetExceptions = Boolean(s.showFleetExceptions);
   s.showOverviewSearch = Boolean(s.showOverviewSearch);
   // Ensure temperatureUnit is valid

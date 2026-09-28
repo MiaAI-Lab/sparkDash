@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { fetchFleetEnergy } from "../../api/client";
+import { fetchFleetEnergy, updateSettings } from "../../api/client";
 import type { FleetEnergy } from "../../api/types";
 
 const DAY_MS = 86_400_000;
@@ -11,6 +11,7 @@ function number(value: number | null, digits = 2): string {
 export function FleetEnergyCard({ nodeCount }: { nodeCount: number }) {
   const [data, setData] = useState<FleetEnergy | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [switchBusy, setSwitchBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -21,6 +22,26 @@ export function FleetEnergyCard({ nodeCount }: { nodeCount: number }) {
     const timer = window.setInterval(load, 10_000);
     return () => { cancelled = true; window.clearInterval(timer); };
   }, []);
+
+  // The server owns this flag (settings.energyAlwaysSampling) and reports it
+  // on every /api/fleet-energy poll, so the switch can never drift from the
+  // sampler's real state for more than one refresh cycle.
+  const alwaysSampling = data?.alwaysSampling ?? true;
+  const toggleSampling = async () => {
+    if (!data || switchBusy) return;
+    const previous = data;
+    const next = !alwaysSampling;
+    setData({ ...data, alwaysSampling: next });
+    setSwitchBusy(true);
+    try {
+      await updateSettings({ energyAlwaysSampling: next });
+    } catch (err) {
+      setData(previous);
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSwitchBusy(false);
+    }
+  };
 
   const coverage = data && nodeCount > 0
     ? Math.min(100, (data.coverage24hMs / (DAY_MS * nodeCount)) * 100)
@@ -44,7 +65,25 @@ export function FleetEnergyCard({ nodeCount }: { nodeCount: number }) {
           <h2 id="fleet-energy-title" className="text-sm font-semibold text-text-strong">Fleet Energy</h2>
           <p className="text-[10px] text-muted">Estimated, not wall-metered · 24h coverage {coverage.toFixed(1)}%</p>
         </div>
-        <span className="text-xs text-muted">{data ? `${data.freshNodeCount}/${nodeCount} fresh` : "—"}</span>
+        <div className="flex items-center gap-2">
+          <label className="flex items-center gap-1.5 text-[10px] text-muted" title={alwaysSampling
+            ? "24/7 sampling ON: nodes keep being polled even when no dashboard tab is open, so the 24 h series fills overnight."
+            : "24/7 sampling OFF: telemetry (and the 24 h series) pauses while no dashboard tab watches the fleet."}>
+            <span>24/7</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={alwaysSampling}
+              aria-label="Keep sampling with no dashboard open"
+              disabled={!data || switchBusy}
+              onClick={() => void toggleSampling()}
+              className={`toggle-track relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${alwaysSampling ? "is-on" : ""}`}
+            >
+              <span className={`toggle-dot inline-block h-4 w-4 transform rounded-full shadow transition-transform ${alwaysSampling ? "translate-x-4" : "translate-x-0"}`} />
+            </button>
+          </label>
+          <span className="text-xs text-muted">{data ? `${data.freshNodeCount}/${nodeCount} fresh` : "—"}</span>
+        </div>
       </div>
       {state && <p className="mt-3 rounded bg-warning/10 px-3 py-2 text-xs text-warning" role="status">{state}</p>}
       <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">

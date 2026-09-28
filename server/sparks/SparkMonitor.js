@@ -25,6 +25,7 @@ import {
   COMFY_PORT,
   HOST_PATHS,
 } from "../config.js";
+import { getSettings } from "../settings.js";
 
 const ONLINE_GRACE_MS = 10000;
 
@@ -339,6 +340,16 @@ export class SparkMonitor {
     return Boolean(spark?.tailscaleMonitoring);
   }
 
+  /**
+   * Machines without an NVIDIA GPU (plain Linux servers) set gpuMonitoring
+   * to false in the config: no nvidia-smi polling, GPU metrics read null in
+   * the snapshot, and the UI hides the GPU / VRAM / Usage sections (default true).
+   * @param {object} [spark]
+   */
+  _gpuMonitoringEnabled(spark = this.spark) {
+    return spark?.gpuMonitoring !== false;
+  }
+
   /** Start or clear the tailnet poll timer based on monitoring flag. */
   _restartTailscalePollInterval() {
     if (this._tailscaleIntervalId != null) {
@@ -396,19 +407,20 @@ export class SparkMonitor {
     return [LLM_PORT];
   }
 
+  /** Resolve the LLM poll interval from settings (falls back to config default). */
+  _llmPollInterval() {
+    return getSettings().pollIntervalMs || POLL_INTERVAL_LLM;
+  }
+
   /** Start background polling. */
   start() {
     if (this._running) return;
     this._runGeneration += 1;
     this._running = true;
+    this._paused = false;
     this._stopped = false;
     this._poll();
-    this._intervals.push(setInterval(() => this._pollDomain("gpu"), POLL_INTERVAL_GPU));
-    this._intervals.push(setInterval(() => this._pollDomain("cpu"), POLL_INTERVAL_CPU));
-    this._intervals.push(setInterval(() => this._pollDomain("network"), POLL_INTERVAL_NETWORK));
-    this._intervals.push(setInterval(() => this._pollDomain("storage"), POLL_INTERVAL_STORAGE));
-    this._intervals.push(setInterval(() => this._pollDomain("ram"), POLL_INTERVAL_CPU));
-    this._intervals.push(setInterval(() => this._pollDomain("memory"), POLL_INTERVAL_BANDWIDTH));
+    this._intervals.push(...this._installSystemTimers());
     this._restartLlmPollInterval();
     this._restartComfyPollInterval();
     this._restartHermesPollInterval();
@@ -442,6 +454,81 @@ export class SparkMonitor {
     console.log(`[SparkMonitor] ${this.spark.id} stopped`);
   }
 
+  /** True while timers are cleared (viewport-hidden or no clients). */
+  isPaused() {
+    return this._paused;
+  }
+
+  /**
+   * Fast-domain poll timers. LOCAL sparks read /proc + sysfs directly (cheap
+   * fs reads + occasional nsenter) so each domain keeps its own cadence.
+   * REMOTE sparks collapse gpu/cpu/ram/network/unified-memory into ONE
+   * bundled SSH exec per cycle (`collectRemoteBundle`) — previously five
+   * separate sshExec round-trips every 2s, which burned ~1.4 cores of the
+   * dashboard host in handshake crypto alone and corrupted idle stats.
+   * Storage stays on its own slower cadence; cadence overrides via
+   * POLL_INTERVAL_* env vars apply to the local path.
+   */
+  _installSystemTimers() {
+    const ivs = [];
+    if (this.spark.isLocal) {
+      ivs.push(setInterval(() => this._pollDomain("gpu"), POLL_INTERVAL_GPU));
+      ivs.push(setInterval(() => this._pollDomain("cpu"), POLL_INTERVAL_CPU));
+      ivs.push(setInterval(() => this._pollDomain("network"), POLL_INTERVAL_NETWORK));
+      ivs.push(setInterval(() => this._pollDomain("storage"), POLL_INTERVAL_STORAGE));
+      ivs.push(setInterval(() => this._pollDomain("ram"), POLL_INTERVAL_CPU));
+      ivs.push(setInterval(() => this._pollDomain("memory"), POLL_INTERVAL_BANDWIDTH));
+    } else {
+      // gpu/cpu/ram/network/memory in one exec; storage separately (5s cadence).
+      ivs.push(setInterval(() => this._pollSystem(), POLL_INTERVAL_CPU));
+      ivs.push(setInterval(() => this._pollDomain("storage"), POLL_INTERVAL_STORAGE));
+    }
+    return ivs;
+  }
+
+  /**
+   * Pause HW polling (spark's graphs visible to no client). System/GPU
+   * timers are cleared, but the LLM (vLLM) probe KEEPS polling — its cards
+   * must stay live even when the machine's HW graphs are scrolled out of
+   * view, and the probe is a cheap HTTP fetch, not SSH.
+   */
+  pause() {
+    if (this._paused || !this._running) return;
+    this._paused = true;
+    this._clearIntervals();
+    this._restartLlmPollInterval();
+    console.log(`[SparkMonitor] ${this.spark.id} paused HW polling (not visible to any client)`);
+  }
+
+  /** Resume polling (WS client connected). Restores all timers. */
+  resume() {
+    if (!this._paused || !this._running) return;
+    this._paused = false;
+    this._poll();
+    this._storeIntervals([...this._installSystemTimers(),
+      setInterval(() => this._checkOnline(), POLL_INTERVAL_LIVENESS),
+    ]);
+    // Restore opt-in domain timers (LLM / ComfyUI / Hermes) with the same
+    // interval-ID tracking as start(), so later updateConfig() flips don't
+    // double-poll or leak stale timers after a pause→resume cycle.
+    this._restartLlmPollInterval();
+    this._restartComfyPollInterval();
+    this._restartHermesPollInterval();
+    console.log(`[SparkMonitor] ${this.spark.id} resumed`);
+  }
+
+  /** Store interval IDs for later cleanup. */
+  _storeIntervals(intervals) {
+    this._clearIntervals();
+    this._intervals = intervals;
+  }
+
+  /** Clear all interval timers. */
+  _clearIntervals() {
+    for (const id of this._intervals) clearInterval(id);
+    this._intervals = [];
+  }
+
   /** Return a full snapshot of this Spark's metrics. */
   snapshot() {
     const ports = this._llmMonitoringEnabled() ? this._llmPorts() : [];
@@ -466,6 +553,7 @@ export class SparkMonitor {
       // untouched — frontend prefers a non-empty manual label over this.
       workerDerivedLabel: this.workerDerivedLabel(),
       llmMonitoring: this._llmMonitoringEnabled(),
+      gpuMonitoring: this._gpuMonitoringEnabled(),
       llmPort: ports[0] ?? LLM_PORT,
       llmPorts: ports,
       llmApiKeyPorts: Array.isArray(this.spark.llmApiKeyPorts)
@@ -486,7 +574,7 @@ export class SparkMonitor {
         // measured values are unchanged. The frontend does not consume a
         // metrics timestamp; the WS receive time can serve if one is ever
         // needed.
-        gpu: this._metrics.gpu,
+        gpu: this._gpuMonitoringEnabled() ? this._metrics.gpu : null,
         cpu: this._metrics.cpu,
         ram: this._metrics.ram,
         storage: this._metrics.storage,
@@ -516,7 +604,9 @@ export class SparkMonitor {
 
   // ─── Liveness ─────────────────────────────────────────────
   async _checkOnline() {
-    if (!this._running || this._inflight.online) return;
+    // Pause (off-screen) skips the liveness loop entirely; the generation
+    // gate below guards a check that resolves after stop()/restart().
+    if (!this._running || this._paused || this._inflight.online) return;
     const runGeneration = this._runGeneration;
     const checkToken = Symbol("online");
     this._inflight.online = checkToken;
@@ -563,30 +653,37 @@ export class SparkMonitor {
 
   // ─── Polling ──────────────────────────────────────────────
   async _poll() {
-    if (!this._running) return;
+    if (!this._running || this._paused) return;
     await Promise.all([
       this._checkOnline(),
-      this._pollDomain("gpu"),
-      this._pollDomain("cpu"),
-      this._pollDomain("network"),
+      this.spark.isLocal
+        ? [
+            this._pollDomain("gpu"),
+            this._pollDomain("cpu"),
+            this._pollDomain("network"),
+            this._pollDomain("ram"),
+            this._pollDomain("memory"),
+          ]
+        : [this._pollSystem()],
       this._pollDomain("storage"),
-      this._pollDomain("ram"),
-      this._pollDomain("memory"),
       this._pollDomain("llm"),
       this._pollDomain("comfy"),
       this._pollDomain("hermes"),
       this._pollDomain("tailscale"),
-    ]);
+    ].flat());
   }
 
   async _pollDomain(domain) {
-    if (!this._running || this._inflight[domain]) return;
+    // "llm" is exempt from the pause: the vLLM probe must keep updating
+    // even while the spark's HW graphs are out of every client's viewport.
+    if (!this._running || (this._paused && domain !== "llm") || this._inflight[domain]) return;
     // Skip storage auto-poll when disabled for this spark
     if (domain === "storage" && this.spark.storagePollDisabled) return;
     // Worker nodes: no local LLM API
     if (domain === "llm" && !this._llmMonitoringEnabled()) return;
     if (domain === "comfy" && !this._comfyMonitoringEnabled()) return;
     if (domain === "hermes" && !this._hermesMonitoringEnabled()) return;
+    if (domain === "gpu" && !this._gpuMonitoringEnabled()) return;
     if (domain === "tailscale" && !this._tailscaleMonitoringEnabled()) return;
     const runGeneration = this._runGeneration;
     const pollToken = Symbol(domain);
@@ -699,8 +796,66 @@ export class SparkMonitor {
     }
   }
 
+  /**
+   * Remote sparks: one SSH exec refreshes cpu + ram + network + unified
+   * memory + gpu together. Transport failure aborts the whole cycle and the
+   * metrics keep their last values (liveness handles offline); a domain the
+   * target could not report falls back to that domain's default inside the
+   * collector, exactly like the old per-domain polls.
+   */
+  async _pollSystem() {
+    if (!this._running || this._paused || this._inflight.system) return;
+    this._inflight.system = true;
+    try {
+      const bundle = await this.collector.collectRemoteBundle();
+      if (!this._running) return;
+      const now = Date.now();
+      this._metrics.cpu = bundle.cpu;
+      this._metricCollectionSuccessful.cpu = collectionWasSuccessful(bundle.cpu);
+      this._lastUpdate.cpu = now;
+      this._metrics.ram = bundle.ram;
+      this._lastUpdate.ram = now;
+      this._metrics.unifiedMemory = bundle.unifiedMemory;
+      this._lastUpdate.memory = now;
+      if (bundle.network) {
+        this._metrics.network = bundle.network;
+        this._lastUpdate.network = now;
+        if (bundle.network.wolMac && this._onWolMac) {
+          try {
+            this._onWolMac(this.spark.id, bundle.network.wolMac);
+          } catch (err) {
+            console.error(`[SparkMonitor] ${this.spark.id} wolMac persist error:`, err.message);
+          }
+        }
+      }
+      if (bundle.gpu && this._gpuMonitoringEnabled()) {
+        this._metrics.gpu = bundle.gpu;
+        this._metricCollectionSuccessful.gpu = collectionWasSuccessful(bundle.gpu);
+        this._lastUpdate.gpu = now;
+      }
+    } catch (err) {
+      // Transport failure: nothing in this bundle was collected, so drop
+      // power-telemetry provenance exactly like a rejected per-domain poll.
+      if (this._running) {
+        this._metricCollectionSuccessful.cpu = false;
+        this._metricCollectionSuccessful.gpu = false;
+      }
+      console.error(`[SparkMonitor] ${this.spark.id} system bundle poll error:`, err.message);
+    } finally {
+      this._inflight.system = false;
+    }
+  }
+
   /** Manually refresh a single domain, bypassing auto-poll guards. */
   async refreshDomain(domain) {
+    // Remote sparks: the five fast domains share the bundled exec — refreshing
+    // any one of them refreshes the whole bundle (one exec, fresher result).
+    if (
+      !this.spark.isLocal &&
+      ["gpu", "cpu", "ram", "network", "memory"].includes(domain)
+    ) {
+      return this._pollSystem();
+    }
     if (domain !== "storage") return this._pollDomain(domain);
     if (!this._running || this._inflight[domain]) return;
     const runGeneration = this._runGeneration;
@@ -842,7 +997,7 @@ export class SparkMonitor {
   _staticHardwareSummary(spark) {
     if (spark?.kind === "host") {
       return {
-        device: "Linux GPU host",
+        device: spark?.gpuMonitoring === false ? "Linux server" : "Linux GPU host",
         cpuModel: null,
         cpuCores: null,
         totalMemoryGB: null,

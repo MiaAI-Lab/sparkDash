@@ -5,6 +5,7 @@ import { updateSpark, refreshSparkMetric, addLlmPort, removeLlmPort } from "../.
 import { SparkHeader } from "./SparkHeader";
 import { SparkActions } from "./SparkActions";
 import { GpuPanel } from "./GpuPanel";
+import { CpuPanel } from "./CpuPanel";
 import { RamPanel } from "./RamPanel";
 import { StoragePanel } from "./StoragePanel";
 import { NetworkPanel } from "./NetworkPanel";
@@ -12,6 +13,7 @@ import { TailscalePanel } from "./TailscalePanel";
 import { LlmPanel } from "./LlmPanel";
 import { ComfyPanel } from "./ComfyPanel";
 import { ChevronDownIcon } from "../ui/icons";
+import { useSparkPinned } from "../../hooks/sparkVisibility";
 
 interface SparkPageProps {
   spark: SparkSnapshot;
@@ -85,6 +87,8 @@ export function SparkPage({
   onEdit,
 }: SparkPageProps) {
   const { metrics } = spark;
+  // Every panel on this page renders this spark's data — keep it polling.
+  useSparkPinned(spark.id);
   const [disabledDevices, setDisabledDevices] = useState<string[]>(spark.disabledDevices || []);
   const [disabledInterfaces, setDisabledInterfaces] = useState<string[]>(
     spark.disabledInterfaces || []
@@ -238,7 +242,35 @@ export function SparkPage({
         />
         {resourcesOpen && (
           <>
-            {spark.kind === "host" ? (
+            {spark.gpuMonitoring === false ? (
+              /* GPU-less machine: CPU usage (+ temp) & RAM → Network → Storage [→ Tailnet]; no GPU panel */
+              <>
+                <CpuPanel
+                  cpu={metrics.cpu}
+                  ram={metrics.ram}
+                  unifiedMemory={metrics.unifiedMemory}
+                  sparkId={spark.id}
+                  temperatureUnit={temperatureUnit}
+                  tempLabel="CPU temp"
+                  className="md:col-span-2"
+                />
+                <NetworkPanel
+                  network={metrics.network}
+                  sparkId={spark.id}
+                  disabledInterfaces={disabledInterfaces}
+                  onDisabledChange={setDisabledInterfaces}
+                />
+                <StoragePanel
+                  storage={metrics.storage}
+                  sparkId={spark.id}
+                  disabledDevices={disabledDevices}
+                  onDisabledChange={setDisabledDevices}
+                  storagePollDisabled={storagePollDisabled}
+                  onStoragePollModeChange={handleStoragePollModeChange}
+                />
+                {tailscaleOn && <TailscalePanel tailscale={metrics.tailscale ?? null} />}
+              </>
+            ) : spark.kind === "host" ? (
               /* Hosts: GPU spans the full left column; RAM → Network → Storage [→ Tailnet] stack in the right column */
               <>
                 <GpuPanel
@@ -270,8 +302,16 @@ export function SparkPage({
                 {tailscaleOn && <TailscalePanel tailscale={metrics.tailscale ?? null} />}
               </>
             ) : (
-              /* Resources layout: GPU spans the full left column; Storage + Network [+ Tailnet] stack in the right column */
+              /* Resources layout: full-width CPU & RAM first, then GPU spans the
+                 full left column; Storage + Network [+ Tailnet] stack in the right column */
               <>
+                <CpuPanel
+                  cpu={metrics.cpu}
+                  ram={metrics.ram}
+                  unifiedMemory={metrics.unifiedMemory}
+                  sparkId={spark.id}
+                  className="md:col-span-2"
+                />
                 <GpuPanel
                   gpu={metrics.gpu}
                   cpu={metrics.cpu}

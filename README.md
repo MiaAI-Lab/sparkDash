@@ -42,6 +42,7 @@ It also supports **non-Spark units**: any Linux machine with an NVIDIA GPU (e.g.
 - [REST API](#rest-api)
 - [Configuration](#configuration)
 - [Security](#security)
+- [Install as an app (PWA)](#install-as-an-app-pwa)
 - [Scripts](#scripts)
 - [How it works](#how-it-works)
 - [Contributing](#contributing)
@@ -75,6 +76,7 @@ Full history: [CHANGELOG.md](./CHANGELOG.md)
 | **Prompt Showcase** | Full-page multi-terminal LLM streaming demo (up to 32 prompts) with live tok/s and copy-out |
 | **LLM inference health** | KV cache %, run/wait queue, TTFT/E2E/ITL p95, preemptions, prefix cache, MTP accept from Prometheus `/metrics` (vLLM and q27; q27 FIFO-queues so the Requests tile reads “N run” without a wait gauge) |
 | **Multiple LLM ports** | Monitor several LLM servers on different ports simultaneously — each gets its own panel with independent backend detection and metrics |
+| **Model Launcher** | One-click start/stop/restart/logs of model repos from Overview — each card runs on its **assigned Spark** over SSH (machine-agnostic dashboard), with a time-window scheduler guaranteeing one model at a time |
 | **GPU processes** | See the top GPU processes by VRAM usage directly in the GPU panel, including process name and memory allocation |
 | **Spark uptime** | System uptime displayed inline on each Spark header for at-a-glance availability |
 | **Power controls** | Graceful shutdown (SSH host script) and Wake-on-LAN; batch actions on Overview |
@@ -232,6 +234,21 @@ Env (optional): `POLL_INTERVAL_TAILSCALE` (default `30000`), `TAILSCALE_PROBE_TI
 
 ---
 
+## Model Launcher
+
+The Overview page carries one card per model repo (Qwen / DeepSeek / GLM kits on this deployment). Start / Stop / Restart / Logs run the repo's own `start.sh` / `stop.sh` / … and the live transcript streams into a modal with cancel. A time-window scheduler (weekday/weekend windows, explicit `TZ`) enforces exactly one model at a time and self-heals.
+
+**Machine-agnostic by design** — every card names the Spark where its repo actually lives:
+
+- `sparkId` (required for any action, chosen in the card's gear → edit dialog) decides where the scripts run. Everything executes there over the Spark's existing SSH connection — the same `sshpass`/key auth the monitors use, passwords from the encrypted store. The dashboard's own machine needs no repos, no docker, no GPU.
+- Liveness is probed the same way: `docker ps` on the assigned Spark, `/v1/models` against that Spark's probe host (its LAN IP — loopback binds are only visible from the machine itself).
+- An exclusive stop→start across two Sparks runs one chained command per machine, in order (stop the incumbent's Spark first); job timeout caps the whole job; cancelling kills the SSH session, and containers already handed to `dockerd` keep running.
+- Config values (`dir`, script names, args, container) pass a strict allowlist server-side and are single-quote-shielded on the wire, so a config value can never become shell syntax.
+
+Env (optional): `MODEL_REPOS_BASE` (allowlist base for card dirs — as the path looks **on the target Sparks**), `MODEL_JOB_TIMEOUT_MS` (`1800000`), `MODEL_PROBE_INTERVAL_MS` (`5000`), `MODEL_SCHEDULER_TICK_MS` (`30000`), `MODEL_SCHEDULER_TZ` (`Europe/Prague`).
+
+---
+
 ## Quick start
 
 ```bash
@@ -371,14 +388,20 @@ sparkDash/
 
 There is no application authentication on the HTTP/WebSocket API. sparkDash therefore binds to loopback and refuses direct LAN binding. Use an SSH tunnel, authenticated TLS reverse proxy, or Tailscale Serve; see [Remote access](./docs/REMOTE-ACCESS.md).
 
-`/api/fleet-energy` samples the configured fleet independently every two seconds. It estimates
-each node as GPU board draw + a CPU utilization model (5.2–65 W) + 23 W of memory/network/base
-overhead, clamped to the DGX Spark power envelope. Current and hourly fleet watts require fresh,
-simultaneous telemetry from every node; coverage fields make gaps explicit. Minute buckets are
-persisted at mode `0600` for rolling 24-hour and 31-day windows. Wh/output-token is reported when
-exactly one configured node has role `head` and exposes a monotonic LLM output-token counter.
-These values are estimates, not wall-meter measurements. Restart sparkDash after changing fleet
-membership so the persisted series has one stable node set.
+`/api/fleet-energy` samples the configured fleet independently every two seconds. Sparks are
+estimated from the SoC system power rail plus a GPU-utilization augmentation and the CPU model
+(5.2–65 W); nodes without a system rail fall back to board draw + CPU model + 23 W base. Hosts
+configured with `gpuMonitoring: false` are estimated from the CPU package sensor + 12 W board
+base (or the utilization curve where no sensor exists). All models are clamped to the DGX Spark
+power envelope and calibrated against wall meters (spark ≈ 45 W idle, host ≈ 20 W idle).
+`currentWatts30s` sums the newest certified sample per node inside a 30-second window — partial
+coverage reduces the sum, it does not blank it; hourly and coverage fields keep simultaneous
+full-fleet semantics. Minute buckets are persisted at mode `0600` for rolling 24-hour and 31-day
+windows. Wh/output-token is reported when exactly one configured node has role `head` and exposes
+a monotonic LLM output-token counter. These values remain estimates, not wall-meter
+readings. Restart sparkDash after changing fleet membership so the persisted series
+has one stable node set. The card's **24/7** switch (`energyAlwaysSampling`) decides
+whether the sampler keeps polling nodes when no browser tab is open.
 
 ---
 
@@ -396,6 +419,7 @@ Gear icon in the header, or `GET`/`PUT` `/api/settings`:
 | Hide worker nodes | false | Hide Worker-role Sparks from Overview and the tab bar |
 | Temperature unit | Celsius | Display GPU temperature in °C or °F |
 | Benchmark share image | true | Decode/prefill **Copy results** becomes a split button: the label copies the text summary, the caret offers **Copy as text** / **Copy as image** on hover or click. Turn it off to keep the plain button. The image copies where the page has an image clipboard (HTTPS or localhost); over plain http on a LAN IP the card downloads instead |
+| Fleet energy 24/7 (`energyAlwaysSampling`) | true | Keep hardware polling alive for the energy sampler even with no dashboard tab open, so the 24 h / 31 d series fills overnight. Off reverts to visibility-gated sampling: coverage pauses while no client watches the fleet. Toggled live from the **24/7** switch on the Fleet Energy card; reported as `alwaysSampling` on `/api/fleet-energy` |
 
 ### Environment variables
 
@@ -426,6 +450,13 @@ Copy `.env.example` to `.env` if needed:
 | `HOST_SYS_PATH` | `/host/sys` | Host sys mount |
 | `HOST_ROOT_PATH` | `/host/root` | Host root mount |
 | `SSH_IDENTITY_FILE` | _(unset)_ | Path **inside the process** to a private key (`ssh -i`). Use when the bind-mount is not a default OpenSSH name. |
+| `MODEL_REPOS_BASE` | `/home/pavelkubicek/cluster/docker` | Allowlist base for Model Launcher card dirs — the path **as it exists on the target Sparks** |
+| `MODEL_JOB_TIMEOUT_MS` | `1800000` | Hard cap for one start/stop/restart job (ms); caps the whole cross-Spark chain |
+| `MODEL_PROBE_INTERVAL_MS` | `5000` | Model liveness probe cadence (ms) |
+| `MODEL_SCHEDULER_TZ` | `Europe/Prague` | Time zone for scheduler windows (DST-safe) |
+| `AI_PROXY_HOST` | _(loopback)_ | Host running the AI proxy (:3001) when it is **not** the dashboard machine |
+| `DEV_ENGINE_API_HOST` / `DEV_ENGINE_WEBUI_HOST` | _(loopback)_ | Host running the Spark Dev Engine API (:10000) / Web UI (:10001) |
+| `AUTOPOWER_FEATURE` | _(off)_ | Spark AutoPower master switch. `1` re-enables the whole feature: Overview panel, idle-shutdown ticks and scheduled wakes; off hides the panel, never arms the timer and rejects the config/tick routes |
 | `SSH_CONTROL_PERSIST_SECONDS` | `60` | Reuse authenticated SSH transports for remote collectors. Set to `0` to disable multiplexing. |
 | `FLEET_ENERGY_JSON_PATH` | `config/fleet-energy.json` | Rolling fleet-energy persistence path |
 
@@ -446,9 +477,25 @@ Copy `.env.example` to `.env` if needed:
 
 ### Power controls (shutdown / Wake-on-LAN)
 
-- **Shutdown** (per Spark or **Shutdown All** on Overview) runs over SSH:  
-  `sudo -n /usr/local/bin/spark-shutdown`  
-  Install that script on each Spark and allow passwordless sudo for it only.
+- **Shutdown** (per Spark or **Shutdown All** on Overview):
+  - **Remote Sparks** run over SSH: a guard verifies the host script and passwordless
+    sudo, then backgrounds `sudo -n /usr/local/bin/spark-shutdown` so SSH returns before
+    the host dies. Provision each remote once with (set `USER` to that Spark's SSH user;
+    you will be prompted for its password once):
+
+    ```bash
+    ssh -t USER@SPARK_IP 'sudo sh -c "printf \"#!/bin/sh\nexec systemctl poweroff\n\" > /usr/local/bin/spark-shutdown && chmod 0755 /usr/local/bin/spark-shutdown && echo \"USER ALL=(ALL) NOPASSWD: /usr/local/bin/spark-shutdown\" > /etc/sudoers.d/spark-shutdown && chmod 0440 /etc/sudoers.d/spark-shutdown && visudo -cf /etc/sudoers.d/spark-shutdown && echo PROVISIONED"'
+    ```
+
+  - **Local (dashboard) Spark**: inside the provided Docker container (privileged,
+    `pid: host`) the server powers off the host through host systemd directly —
+    `nsenter -t 1 -m -- systemctl poweroff` — no script and no sudo needed in the
+    container. Run on a bare host (`npm run dev`, no Docker) it falls back to the same
+    `sudo -n /usr/local/bin/spark-shutdown` contract, so install the script there too.
+- **Honest acknowledgement** — both shutdown routes wait a short ack window (~1.5 s)
+  after *requesting* the power-off, so a missing script, a sudo that wants a password,
+  or a missing binary comes back as a real error instead of a fake “Shutdown initiated”.
+  The response still lands seconds before the host actually goes down.
 - **Wake** / **Wake All** send a UDP magic packet (port 9). The MAC is taken from the **enP7s7** interface automatically while the Spark is online (persisted as `detectedMacAddress`). Optionally set a **MAC override** in Edit Spark. Broadcast is derived as `/24` from LAN IP, or `255.255.255.255` if LAN IP is missing.
 - Batch shutdown only targets **online** Sparks; offline nodes are skipped.
 - Power APIs are mutations: on loopback they follow the local-trust model; a remote bind requires `SPARKDASH_TOKEN`.
@@ -480,6 +527,39 @@ Choice is stored in `localStorage`.
 - One-off remote benchmark hosts must be listed in `SPARKDASH_BENCH_HOSTS`.
 - Tested operator capacity for this remediation: **12 units**.
 
+---
+
+## Install as an app (PWA)
+
+sparkDash ships a web app manifest and a service worker, so you can install it — desktop: the install icon in the address bar or the ⋮ menu → *Install sparkDash*; Android: the same menu → *Add to Home screen*. Installed, it opens in its own window and reuses its shell offline.
+
+### The HTTPS rule
+
+Install and the service worker only run in a **secure context**. Browsers treat these as secure:
+
+- `https://…` — any real TLS origin.
+- `http://localhost` and `http://127.0.0.1` — **loopback is always secure**, so the SSH-tunnel path in [Remote access](./docs/REMOTE-ACCESS.md) (`http://127.0.0.1:5555`) installs with no certificate at all.
+
+A LAN hostname over plain HTTP — for example `http://dell.lan:5555` — is **not** a secure context: no install button appears and `navigator.serviceWorker` is unavailable, so none of this activates. That is a browser policy, not a sparkDash limitation.
+
+### Installing over plain HTTP without a certificate
+
+1. **Give it a real HTTPS origin (recommended).** Put sparkDash behind [Tailscale Serve](https://tailscale.com/kb/1312/serve) or an authenticating HTTPS reverse proxy, per [Remote access](./docs/REMOTE-ACCESS.md). This also satisfies the token/authentication expectations the app has for remote binds.
+2. **Tell Chrome to trust the plain-HTTP origin (per-machine workaround, no HTTPS).** On the desktop or Android Chrome/Edge that will run the app, open `chrome://flags/#unsafely-treat-insecure-origin-as-secure`, add `http://dell.lan:5555`, enable it, relaunch. The origin is then treated as secure, the service worker registers, and the install prompt appears. Caveats: it is a development flag — scoped to that browser profile, may reset on update, is **not** honored by iOS Safari, and it silences the "not secure" warning for that origin, so use it only on a network you trust.
+
+### What the offline shell does
+
+The service worker caches the static app shell (HTML, hashed build assets, icons, manifest). Offline, the last-loaded dashboard still opens. **Live GPU / power / LLM numbers and the WebSocket stream are never served from cache** — `/api/*` and `/ws` always go to the network, so you get a connection error rather than a stale reading pretending to be live.
+
+### Regenerating icons
+
+App icons are rasterized from `assets/bolt.svg` by a dependency-free script (it also runs automatically before every `npm run build`):
+
+```bash
+node scripts/make-icons.mjs   # writes public/icons/*.png
+```
+
+Edit `BOLT` and the colors at the top of that file to change the icon.
 
 ---
 

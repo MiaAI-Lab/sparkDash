@@ -1,0 +1,641 @@
+{
+  "spark2-lan": [
+    {
+      "benchId": "1772c93b-d7d2-426c-b201-332054afed48",
+      "sparkId": "spark2-lan",
+      "status": "cancelled",
+      "startedAt": 1786959248570,
+      "completedAt": 1786959263610,
+      "config": {
+        "port": 3004,
+        "modelId": "ai-proxy-vision:latest",
+        "concurrencies": [
+          1
+        ],
+        "maxTokens": 512
+      },
+      "progress": {
+        "currentConcurrency": 1,
+        "completedLevels": 0,
+        "totalLevels": 1,
+        "message": "Cancelled"
+      },
+      "results": [],
+      "error": "Cancelled by user",
+      "durationMs": 15040
+    }
+  ],
+  "spark1-lan": [
+    {
+      "benchId": "d671930b-43dd-4923-90d5-f273cadd324c",
+      "sparkId": "spark1-lan",
+      "status": "completed",
+      "startedAt": 1788817955460,
+      "completedAt": 1788817991468,
+      "config": {
+        "port": 8000,
+        "modelId": "deepseek-v4-flash-vision-exp",
+        "concurrencies": [
+          1,
+          2
+        ],
+        "maxTokens": 400,
+        "promptType": "prose"
+      },
+      "progress": {
+        "currentConcurrency": null,
+        "completedLevels": 2,
+        "totalLevels": 2,
+        "message": "Done"
+      },
+      "results": [
+        {
+          "concurrency": 1,
+          "streamsOk": 1,
+          "streamsFailed": 0,
+          "meanDecodeTps": 24.72,
+          "medianDecodeTps": 24.72,
+          "minDecodeTps": 24.72,
+          "maxDecodeTps": 24.72,
+          "meanTtftMs": 347.33,
+          "medianTtftMs": 347.33,
+          "aggregateDecodeTps": 24.72,
+          "meanPrefillTps": 92.13,
+          "medianPrefillTps": 92.13,
+          "aggregatePrefillTps": 92.13,
+          "totalPrefillTokens": 32,
+          "totalDecodeTokens": 399,
+          "totalCompletionTokens": 400,
+          "durationMs": 16491.17,
+          "error": null,
+          "streams": [
+            {
+              "index": 0,
+              "ttftContentMs": 347.33,
+              "reasoningChunks": 0,
+              "ttftMs": 347.33,
+              "decodeTps": 24.72,
+              "decodeTokens": 399,
+              "completionTokens": 400,
+              "prefillTps": 92.13,
+              "prefillTokens": 32,
+              "totalMs": 16490.69,
+              "error": null
+            }
+          ],
+          "model": "deepseek-v4-flash-vision-exp"
+        },
+        {
+          "concurrency": 2,
+          "streamsOk": 2,
+          "streamsFailed": 0,
+          "meanDecodeTps": 24.53,
+          "medianDecodeTps": 24.53,
+          "minDecodeTps": 23.37,
+          "maxDecodeTps": 25.68,
+          "meanTtftMs": 389.77,
+          "medianTtftMs": 389.77,
+          "aggregateDecodeTps": 46.75,
+          "meanPrefillTps": 100.06,
+          "medianPrefillTps": 100.06,
+          "aggregatePrefillTps": 199.93,
+          "totalPrefillTokens": 78,
+          "totalDecodeTokens": 798,
+          "totalCompletionTokens": 800,
+          "durationMs": 17460.34,
+          "error": null,
+          "streams": [
+            {
+              "index": 0,
+              "ttftContentMs": 390.07,
+              "reasoningChunks": 0,
+              "ttftMs": 390.07,
+              "decodeTps": 23.37,
+              "decodeTokens": 399,
+              "completionTokens": 400,
+              "prefillTps": 99.98,
+              "prefillTokens": 39,
+              "totalMs": 17459.74,
+              "error": null
+            },
+            {
+              "index": 1,
+              "ttftContentMs": 389.47,
+              "reasoningChunks": 0,
+              "ttftMs": 389.47,
+              "decodeTps": 25.68,
+              "decodeTokens": 399,
+              "completionTokens": 400,
+              "prefillTps": 100.14,
+              "prefillTokens": 39,
+              "totalMs": 15929.67,
+              "error": null
+            }
+          ],
+          "model": "deepseek-v4-flash-vision-exp"
+        }
+      ],
+      "error": null,
+      "durationMs": 36008
+    },
+    {
+      "benchId": "131cfef6-2a6c-48d4-9b3d-ff07aae9adfe",
+      "sparkId": "spark1-lan",
+      "status": "cancelled",
+      "startedAt": 1788817943954,
+      "completedAt": 1788817947571,
+      "config": {
+        "port": 8000,
+        "modelId": "deepseek-v4-flash-vision-exp",
+        "concurrencies": [
+          1,
+          2,
+          8
+        ],
+        "maxTokens": 400,
+        "promptType": "structured"
+      },
+      "progress": {
+        "currentConcurrency": 1,
+        "completedLevels": 0,
+        "totalLevels": 3,
+        "message": "Cancelled"
+      },
+      "results": [],
+      "error": "Cancelled by user",
+      "durationMs": 3617
+    },
+    {
+      "benchId": "a7f42f43-cb7c-4a9d-a6a5-767ea7524a47",
+      "sparkId": "spark1-lan",
+      "status": "completed",
+      "startedAt": 1788292819385,
+      "completedAt": 1788292884168,
+      "config": {
+        "port": 8000,
+        "modelId": "benchmark-model",
+        "concurrencies": [
+          1,
+          2,
+          8,
+          16
+        ],
+        "maxTokens": 400,
+        "promptType": "prose"
+      },
+      "progress": {
+        "currentConcurrency": null,
+        "completedLevels": 4,
+        "totalLevels": 4,
+        "message": "Done"
+      },
+      "results": [
+        {
+          "concurrency": 1,
+          "streamsOk": 1,
+          "streamsFailed": 0,
+          "meanDecodeTps": 50.63,
+          "medianDecodeTps": 50.63,
+          "minDecodeTps": 50.63,
+          "maxDecodeTps": 50.63,
+          "meanTtftMs": 406.62,
+          "medianTtftMs": 406.62,
+          "aggregateDecodeTps": 50.63,
+          "meanPrefillTps": 95.91,
+          "medianPrefillTps": 95.91,
+          "aggregatePrefillTps": 95.91,
+          "totalPrefillTokens": 39,
+          "totalDecodeTokens": 399,
+          "totalCompletionTokens": 400,
+          "durationMs": 8288.43,
+          "error": null,
+          "streams": [
+            {
+              "index": 0,
+              "ttftContentMs": 406.62,
+              "reasoningChunks": 0,
+              "ttftMs": 406.62,
+              "decodeTps": 50.63,
+              "decodeTokens": 399,
+              "completionTokens": 400,
+              "prefillTps": 95.91,
+              "prefillTokens": 39,
+              "totalMs": 8287.81,
+              "error": null
+            }
+          ],
+          "model": "benchmark-model"
+        },
+        {
+          "concurrency": 2,
+          "streamsOk": 2,
+          "streamsFailed": 0,
+          "meanDecodeTps": 42.85,
+          "medianDecodeTps": 42.85,
+          "minDecodeTps": 42.57,
+          "maxDecodeTps": 43.12,
+          "meanTtftMs": 392.91,
+          "medianTtftMs": 392.91,
+          "aggregateDecodeTps": 85.15,
+          "meanPrefillTps": 117.07,
+          "medianPrefillTps": 117.07,
+          "aggregatePrefillTps": 234,
+          "totalPrefillTokens": 92,
+          "totalDecodeTokens": 798,
+          "totalCompletionTokens": 800,
+          "durationMs": 9765.5,
+          "error": null,
+          "streams": [
+            {
+              "index": 0,
+              "ttftContentMs": 393,
+              "reasoningChunks": 0,
+              "ttftMs": 393,
+              "decodeTps": 42.57,
+              "decodeTokens": 399,
+              "completionTokens": 400,
+              "prefillTps": 117.05,
+              "prefillTokens": 46,
+              "totalMs": 9765.31,
+              "error": null
+            },
+            {
+              "index": 1,
+              "ttftContentMs": 392.81,
+              "reasoningChunks": 0,
+              "ttftMs": 392.81,
+              "decodeTps": 43.12,
+              "decodeTokens": 399,
+              "completionTokens": 400,
+              "prefillTps": 117.1,
+              "prefillTokens": 46,
+              "totalMs": 9646.13,
+              "error": null
+            }
+          ],
+          "model": "benchmark-model"
+        },
+        {
+          "concurrency": 8,
+          "streamsOk": 8,
+          "streamsFailed": 0,
+          "meanDecodeTps": 27.95,
+          "medianDecodeTps": 27.93,
+          "minDecodeTps": 27.21,
+          "maxDecodeTps": 28.87,
+          "meanTtftMs": 388.8,
+          "medianTtftMs": 388.76,
+          "aggregateDecodeTps": 217.71,
+          "meanPrefillTps": 118.32,
+          "medianPrefillTps": 118.33,
+          "aggregatePrefillTps": 944.46,
+          "totalPrefillTokens": 368,
+          "totalDecodeTokens": 3192,
+          "totalCompletionTokens": 3200,
+          "durationMs": 15051.23,
+          "error": null,
+          "streams": [
+            {
+              "index": 0,
+              "ttftContentMs": 389.37,
+              "reasoningChunks": 0,
+              "ttftMs": 389.37,
+              "decodeTps": 27.36,
+              "decodeTokens": 399,
+              "completionTokens": 400,
+              "prefillTps": 118.14,
+              "prefillTokens": 46,
+              "totalMs": 14971.89,
+              "error": null
+            },
+            {
+              "index": 1,
+              "ttftContentMs": 388.95,
+              "reasoningChunks": 0,
+              "ttftMs": 388.95,
+              "decodeTps": 28.22,
+              "decodeTokens": 399,
+              "completionTokens": 400,
+              "prefillTps": 118.27,
+              "prefillTokens": 46,
+              "totalMs": 14525.71,
+              "error": null
+            },
+            {
+              "index": 2,
+              "ttftContentMs": 389.03,
+              "reasoningChunks": 0,
+              "ttftMs": 389.03,
+              "decodeTps": 27.21,
+              "decodeTokens": 399,
+              "completionTokens": 400,
+              "prefillTps": 118.24,
+              "prefillTokens": 46,
+              "totalMs": 15050.51,
+              "error": null
+            },
+            {
+              "index": 3,
+              "ttftContentMs": 388.82,
+              "reasoningChunks": 0,
+              "ttftMs": 388.82,
+              "decodeTps": 28.87,
+              "decodeTokens": 399,
+              "completionTokens": 400,
+              "prefillTps": 118.31,
+              "prefillTokens": 46,
+              "totalMs": 14207.17,
+              "error": null
+            },
+            {
+              "index": 4,
+              "ttftContentMs": 388.69,
+              "reasoningChunks": 0,
+              "ttftMs": 388.69,
+              "decodeTps": 28.03,
+              "decodeTokens": 399,
+              "completionTokens": 400,
+              "prefillTps": 118.35,
+              "prefillTokens": 46,
+              "totalMs": 14625.62,
+              "error": null
+            },
+            {
+              "index": 5,
+              "ttftContentMs": 388.7,
+              "reasoningChunks": 0,
+              "ttftMs": 388.7,
+              "decodeTps": 28.87,
+              "decodeTokens": 399,
+              "completionTokens": 400,
+              "prefillTps": 118.34,
+              "prefillTokens": 46,
+              "totalMs": 14207.18,
+              "error": null
+            },
+            {
+              "index": 6,
+              "ttftContentMs": 388.66,
+              "reasoningChunks": 0,
+              "ttftMs": 388.66,
+              "decodeTps": 27.22,
+              "decodeTokens": 399,
+              "completionTokens": 400,
+              "prefillTps": 118.36,
+              "prefillTokens": 46,
+              "totalMs": 15049.7,
+              "error": null
+            },
+            {
+              "index": 7,
+              "ttftContentMs": 388.17,
+              "reasoningChunks": 0,
+              "ttftMs": 388.17,
+              "decodeTps": 27.83,
+              "decodeTokens": 399,
+              "completionTokens": 400,
+              "prefillTps": 118.51,
+              "prefillTokens": 46,
+              "totalMs": 14725.72,
+              "error": null
+            }
+          ],
+          "model": "benchmark-model"
+        },
+        {
+          "concurrency": 16,
+          "streamsOk": 16,
+          "streamsFailed": 0,
+          "meanDecodeTps": 28.03,
+          "medianDecodeTps": 28.12,
+          "minDecodeTps": 25.92,
+          "maxDecodeTps": 29.32,
+          "meanTtftMs": 7717.69,
+          "medianTtftMs": 7408.59,
+          "aggregateDecodeTps": 215.95,
+          "meanPrefillTps": 62.65,
+          "medianPrefillTps": 62.56,
+          "aggregatePrefillTps": 46.99,
+          "totalPrefillTokens": 759,
+          "totalDecodeTokens": 6384,
+          "totalCompletionTokens": 6400,
+          "durationMs": 29947.54,
+          "error": null,
+          "streams": [
+            {
+              "index": 0,
+              "ttftContentMs": 385.8,
+              "reasoningChunks": 0,
+              "ttftMs": 385.8,
+              "decodeTps": 27.83,
+              "decodeTokens": 399,
+              "completionTokens": 400,
+              "prefillTps": 121.83,
+              "prefillTokens": 47,
+              "totalMs": 14722.22,
+              "error": null
+            },
+            {
+              "index": 1,
+              "ttftContentMs": 384.99,
+              "reasoningChunks": 0,
+              "ttftMs": 384.99,
+              "decodeTps": 25.92,
+              "decodeTokens": 399,
+              "completionTokens": 400,
+              "prefillTps": 122.08,
+              "prefillTokens": 47,
+              "totalMs": 15781.27,
+              "error": null
+            },
+            {
+              "index": 2,
+              "ttftContentMs": 384.7,
+              "reasoningChunks": 0,
+              "ttftMs": 384.7,
+              "decodeTps": 28.75,
+              "decodeTokens": 399,
+              "completionTokens": 400,
+              "prefillTps": 122.17,
+              "prefillTokens": 47,
+              "totalMs": 14265.43,
+              "error": null
+            },
+            {
+              "index": 3,
+              "ttftContentMs": 384.83,
+              "reasoningChunks": 0,
+              "ttftMs": 384.83,
+              "decodeTps": 28.74,
+              "decodeTokens": 399,
+              "completionTokens": 400,
+              "prefillTps": 122.13,
+              "prefillTokens": 47,
+              "totalMs": 14265.71,
+              "error": null
+            },
+            {
+              "index": 4,
+              "ttftContentMs": 384.83,
+              "reasoningChunks": 0,
+              "ttftMs": 384.83,
+              "decodeTps": 29.07,
+              "decodeTokens": 399,
+              "completionTokens": 400,
+              "prefillTps": 122.13,
+              "prefillTokens": 47,
+              "totalMs": 14110,
+              "error": null
+            },
+            {
+              "index": 5,
+              "ttftContentMs": 384.95,
+              "reasoningChunks": 0,
+              "ttftMs": 384.95,
+              "decodeTps": 29.32,
+              "decodeTokens": 399,
+              "completionTokens": 400,
+              "prefillTps": 122.09,
+              "prefillTokens": 47,
+              "totalMs": 13995.34,
+              "error": null
+            },
+            {
+              "index": 6,
+              "ttftContentMs": 384.93,
+              "reasoningChunks": 0,
+              "ttftMs": 384.93,
+              "decodeTps": 27.83,
+              "decodeTokens": 399,
+              "completionTokens": 400,
+              "prefillTps": 122.1,
+              "prefillTokens": 47,
+              "totalMs": 14720.94,
+              "error": null
+            },
+            {
+              "index": 7,
+              "ttftContentMs": 384.11,
+              "reasoningChunks": 0,
+              "ttftMs": 384.11,
+              "decodeTps": 26.91,
+              "decodeTokens": 399,
+              "completionTokens": 400,
+              "prefillTps": 122.36,
+              "prefillTokens": 47,
+              "totalMs": 15212.21,
+              "error": null
+            },
+            {
+              "index": 8,
+              "ttftContentMs": 14431.38,
+              "reasoningChunks": 0,
+              "ttftMs": 14431.38,
+              "decodeTps": 28.52,
+              "decodeTokens": 399,
+              "completionTokens": 400,
+              "prefillTps": 3.26,
+              "prefillTokens": 47,
+              "totalMs": 28423.31,
+              "error": null
+            },
+            {
+              "index": 9,
+              "ttftContentMs": 14595.48,
+              "reasoningChunks": 0,
+              "ttftMs": 14595.48,
+              "decodeTps": 27.35,
+              "decodeTokens": 399,
+              "completionTokens": 400,
+              "prefillTps": 3.29,
+              "prefillTokens": 48,
+              "totalMs": 29182.47,
+              "error": null
+            },
+            {
+              "index": 10,
+              "ttftContentMs": 14720.31,
+              "reasoningChunks": 0,
+              "ttftMs": 14720.31,
+              "decodeTps": 28.41,
+              "decodeTokens": 399,
+              "completionTokens": 400,
+              "prefillTps": 3.26,
+              "prefillTokens": 48,
+              "totalMs": 28767.23,
+              "error": null
+            },
+            {
+              "index": 11,
+              "ttftContentMs": 14720.72,
+              "reasoningChunks": 0,
+              "ttftMs": 14720.72,
+              "decodeTps": 27.59,
+              "decodeTokens": 399,
+              "completionTokens": 400,
+              "prefillTps": 3.26,
+              "prefillTokens": 48,
+              "totalMs": 29182.56,
+              "error": null
+            },
+            {
+              "index": 12,
+              "ttftContentMs": 15107.7,
+              "reasoningChunks": 0,
+              "ttftMs": 15107.7,
+              "decodeTps": 27.49,
+              "decodeTokens": 399,
+              "completionTokens": 400,
+              "prefillTps": 3.18,
+              "prefillTokens": 48,
+              "totalMs": 29621.14,
+              "error": null
+            },
+            {
+              "index": 13,
+              "ttftContentMs": 15107.42,
+              "reasoningChunks": 0,
+              "ttftMs": 15107.42,
+              "decodeTps": 27.49,
+              "decodeTokens": 399,
+              "completionTokens": 400,
+              "prefillTps": 3.18,
+              "prefillTokens": 48,
+              "totalMs": 29621.15,
+              "error": null
+            },
+            {
+              "index": 14,
+              "ttftContentMs": 15570.83,
+              "reasoningChunks": 0,
+              "ttftMs": 15570.83,
+              "decodeTps": 28.4,
+              "decodeTokens": 399,
+              "completionTokens": 400,
+              "prefillTps": 3.08,
+              "prefillTokens": 48,
+              "totalMs": 29620.7,
+              "error": null
+            },
+            {
+              "index": 15,
+              "ttftContentMs": 16150,
+              "reasoningChunks": 0,
+              "ttftMs": 16150,
+              "decodeTps": 28.92,
+              "decodeTokens": 399,
+              "completionTokens": 400,
+              "prefillTps": 2.97,
+              "prefillTokens": 48,
+              "totalMs": 29945.37,
+              "error": null
+            }
+          ],
+          "model": "benchmark-model"
+        }
+      ],
+      "error": null,
+      "durationMs": 64783
+    }
+  ]
+}

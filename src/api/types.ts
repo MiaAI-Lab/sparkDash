@@ -67,6 +67,11 @@ export interface SparkConfig {
    */
   llmMonitoring?: boolean;
   /**
+   * Opt-out: machines without an NVIDIA GPU set this to false — GPU/VRAM/Usage
+   * metrics are not collected and the GPU sections are hidden (default true).
+   */
+  gpuMonitoring?: boolean;
+  /**
    * Probe local ComfyUI and show the ComfyUI card (default false; all roles).
    */
   comfyMonitoring?: boolean;
@@ -498,6 +503,8 @@ export interface SparkSnapshot {
   workerHeadId?: string | null;
   /** Standalone: whether LLM is probed (head always true, worker always false) */
   llmMonitoring?: boolean;
+  /** Standalone/LLM flag sibling: false hides GPU/VRAM/Usage for GPU-less machines */
+  gpuMonitoring?: boolean;
   /** LLM server port (first port, for backward compat) */
   llmPort: number;
   /** All LLM server ports configured for this Spark */
@@ -523,6 +530,11 @@ export interface WsSnapshot {
   generatedAt?: number;
   sparks: SparkSnapshot[];
   refreshInterval: number;
+  /**
+   * Model launcher block (server/models). Optional so a server without the
+   * launcher still satisfies the type; every consumer must null-check it.
+   */
+  models?: import("./modelTypes").ModelsSnapshot | null;
 }
 
 export interface FleetEnergy {
@@ -542,6 +554,8 @@ export interface FleetEnergy {
   nodeCoverage24hMs: Record<string, number>;
   nodeCoverage31dMs: Record<string, number>;
   hourlyWatts24h: Array<number | null>;
+  /** Sampler keeps node polling alive with no dashboard tab open. */
+  alwaysSampling: boolean;
 }
 
 // ─── API responses ────────────────────────────────────────
@@ -556,8 +570,12 @@ export interface Settings {
   benchDebugTraces: boolean;
   /** Layout density — compact (default) or comfortable. */
   density: "comfortable" | "compact";
+  /** Show the Model Launcher panel on the Overview page. */
+  showModelLauncher?: boolean;
   /** Overview Fleet Energy card. Off by default. */
   showFleetEnergy: boolean;
+  /** Fleet energy: keep sampling with no browser tab open (on by default). */
+  energyAlwaysSampling?: boolean;
   /** Overview active fleet exceptions strip. Off by default. */
   showFleetExceptions: boolean;
   /** Overview search field + status filter. Off by default. */
@@ -905,4 +923,263 @@ export interface ShowcaseListResponse {
 export interface ShowcaseStartResponse {
   sessionId: string;
   status: "running";
+}
+
+// ─── AI Proxy (via sparkDash bridge) ─────────────────────
+/**
+ * The AI proxy is a proprietary integration that sparkDash talks to via its
+ * observer API on the loopback host. All fields mirror the proxy payloads;
+ * keep this types file as the single source of truth for the UI.
+ */
+
+/** One active streaming request as reported by the observer. */
+export interface AiProxyStream {
+  id: string;
+  startTime: number;
+  method: string;
+  url: string;
+  model: string | null;
+  targetPort: number;
+  requestBody?: { messages?: Array<{ role?: string; content?: unknown }> } | null;
+  /** Number of SSE chunks received. null when unavailable. */
+  chunksReceived?: number | null;
+  /** Output text chars so far (0 = still prefill/reasoning). */
+  textLength?: number | null;
+  /** Reasoning text chars so far. */
+  thinkingLength?: number | null;
+  /** Preview of the answer text so far. */
+  textPreview?: string | null;
+  /** Preview of the reasoning text so far. */
+  thinkingPreview?: string | null;
+  /** Tool-call payload chars so far. */
+  toolCallsChars?: number | null;
+  /** When the stream last updated (ms epoch). */
+  lastUpdated?: number | null;
+  /** Seconds elapsed since the stream started. */
+  elapsed?: number | null;
+}
+
+/** One active non-streaming request as reported by the observer. */
+export interface AiProxyActiveRequest {
+  id: string;
+  startTime: number;
+  method: string;
+  url: string;
+  model: string | null;
+  targetPort: number;
+  requestBody?: { messages?: Array<{ role?: string; content?: unknown }> } | null;
+}
+
+/** Totals for a statistics bucket. */
+export interface AiProxyTotals {
+  request_count: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  /** Input tokens served from the prompt cache (prefix-cache hits). Absent on older proxy builds. */
+  cached_tokens?: number;
+}
+
+/** One model row in the statistics breakdown. */
+export interface AiProxyModelStat {
+  model: string;
+  request_count: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  /** Input tokens served from the prompt cache. Absent on older proxy builds. */
+  cached_tokens?: number;
+}
+
+/** One day+model row in the daily breakdown. */
+export interface AiProxyDailyStat {
+  period: string;
+  model: string;
+  request_count: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  /** Input tokens served from the prompt cache. Absent on older proxy builds. */
+  cached_tokens?: number;
+}
+
+export interface AiProxyStats {
+  totals: AiProxyTotals;
+  byModel: AiProxyModelStat[];
+  daily: AiProxyDailyStat[];
+}
+
+/** Response for the observer-url helper. */
+export interface AiProxyObserverUrl {
+  url: string;
+}
+
+// ─── Spark Dev Engine (via sparkDash bridge) ───────────────
+/**
+ * The Spark Dev Engine runs on the loopback host: API on port 10000, Web UI
+ * on port 10001. sparkDash talks to it via a bridge so the browser never needs
+ * CORS. All fields mirror the engine payloads.
+ */
+
+/** Scheduler status as reported by the engine. */
+export interface DevEngineStatus {
+  running: boolean;
+  paused: boolean;
+  slots_used: number;
+  slots_total: number;
+  tickets_active: number;
+  tickets_completed: number;
+  tickets_failed: number;
+  plans_completed: number;
+  model_online: boolean;
+  model_last_check: string | null;
+  model_offline_since: string | null;
+}
+
+/** One ticket summary as reported by the engine. */
+export interface DevEngineTicket {
+  ticket_id: string;
+  name: string;
+  status: "queued" | "in_progress" | "review" | "completed" | "failed";
+  tasks_total: number;
+  tasks_done: number;
+  tasks_running: number;
+  tasks_validating: number;
+  tasks_reviewing: number;
+  tasks_fixing: number;
+  tasks_validation_fixing: number;
+  tasks_failed: number;
+  tasks_skipped?: number;
+  pr_url: string | null;
+  pr_state: "open" | "merged" | "closed" | "unknown";
+  created_at: string;
+  completed_at: string | null;
+  iteration: number;
+  iterations_completed: number;
+  error_message: string | null;
+  warnings: string[];
+  redirect_to: string | null;
+}
+
+/**
+ * One active plan (a plan-generation run) as reported by /api/plans.
+ * `plan_id` may already carry the `PLAN-` prefix; the engine's ticket mirror is
+ * `PLAN-${plan_id}` when the prefix is missing.
+ */
+export interface DevEnginePlan {
+  plan_id: string;
+  name: string;
+  status: "queued" | "processing" | "creating_ticket" | "completed" | "failed";
+  repo_url: string | null;
+  base_branch: string | null;
+  created_at: string;
+  completed_at: string | null;
+  generated_ticket_id: string | null;
+  error_message: string | null;
+  base_id: string | null;
+  iteration: number;
+  target_ticket_id: string | null;
+  submission_id: string | null;
+  /** Length of the plan markdown, reported by the bridge instead of `content`. */
+  content_length: number;
+}
+
+/** One currently-running task enriched with ticket info. */
+export interface DevEngineRunningTask {
+  task_id: string;
+  name: string;
+  status: string;
+  attempt: number;
+  max_attempts: number;
+  ticket_id: string;
+  ticket_name: string;
+  ticket_status: string;
+  iteration: number;
+  started_at: string | null;
+}
+
+/** Slots configuration. */
+export interface DevEngineSlotsConfig {
+  daytime_concurrency: number;
+  nighttime_enabled: boolean;
+  nighttime_concurrency: number;
+  nighttime_start_hour: number;
+  nighttime_end_hour: number;
+  effective_concurrency: number;
+}
+
+/** Response for the webui-url helper. */
+export interface DevEngineWebuiUrl {
+  url: string;
+}
+// ─── Spark AutoPower ───────────────────────────────────────
+/** One watch span (single per day type, "HH:MM", end ≤ start wraps past midnight). */
+export interface AutoPowerWindow {
+  start: string;
+  end: string;
+}
+
+/** Persisted AutoPower config (mirrors config/autopower.json). */
+export interface AutoPowerConfig {
+  enabled: boolean;
+  tz: string;
+  idleTimeoutMin: number;
+  watch: { weekday: AutoPowerWindow[]; weekend: AutoPowerWindow[] };
+  /** "HH:MM" or null = no auto-wake for that day type. */
+  wake: { weekday: string | null; weekend: string | null };
+}
+
+/** Probe snapshot of the two idleness sources. */
+export interface AutoPowerSources {
+  at: number;
+  proxy: { ok: boolean; streams?: number; requests?: number; error?: string };
+  engine: {
+    ok: boolean;
+    slotsUsed?: number;
+    ticketsActive?: number;
+    plansActive?: number;
+    error?: string;
+  };
+}
+
+/** One action result (a shutdown or a WoL per spark). */
+export interface AutoPowerActionResult {
+  id: string;
+  ok: boolean;
+  message?: string;
+  mac?: string | null;
+  error?: string;
+}
+
+/** Persisted decision. */
+export interface AutoPowerDecision {
+  action: string;
+  reason: string;
+}
+
+/** GET /api/autopower — full live status (polled, not WS). */
+export interface AutoPowerStatus {
+  config: AutoPowerConfig;
+  /** Master feature switch (server AUTOPOWER_FEATURE). false = panel hidden, automation inert. */
+  feature?: boolean;
+  dayType: "weekday" | "weekend";
+  clock: string;
+  watching: boolean;
+  window: { start: string; end: string; label: string } | null;
+  targets: { id: string; name: string; online: boolean }[];
+  sources: AutoPowerSources | null;
+  idleSince: number | null;
+  idleMin: number | null;
+  shutdownInMs: number | null;
+  lastBusyAt: number | null;
+  lastBusyReason: string | null;
+  lastShutdownAt: number | null;
+  nextWakeAt: number | null;
+  lastAction: {
+    at: number;
+    kind: "wake" | "shutdown";
+    reason: string;
+    results: AutoPowerActionResult[];
+  } | null;
+  lastDecision: AutoPowerDecision | null;
 }

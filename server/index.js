@@ -21,6 +21,11 @@ import { authorizeUpgrade, configuredToken, createAuthMiddleware, requireRemoteA
 import { inspectHealth } from "./health.js";
 import { getSettings, updateSettings, loadSettings } from "./settings.js";
 import { broadcastForLanIp, effectiveMac, normalizeMac, sendWol } from "./wol.js";
+import { initiateSparkShutdown, shutdownErrorStatus } from "./shutdown.js";
+import { AutoPowerManager } from "./autopower/AutoPowerManager.js";
+import { createAutoPowerProbe } from "./autopower/probe.js";
+import { registerAutoPowerRoutes } from "./autopower/autopowerRoutes.js";
+import { loadAutoPowerConfig, getAutoPowerConfig } from "./autopower/store.js";
 import {
   decodeBenchManager,
   DECODE_BENCH_DEFAULTS,
@@ -38,7 +43,11 @@ import { formatLlmBaseUrl, parseLlmTargetInput } from "../src/shared/llmTarget.j
 import { llmDaily } from "./collectors/LlmDaily.js";
 import { closeLlmStreamAgent } from "./collectors/LlmStreaming.js";
 import { compareSemver, getLatestRelease } from "./collectors/HermesReleases.js";
-import { FLEET_ENERGY_JSON_PATH } from "./config.js";
+// ─── Model launcher (isolated module — see server/models/ModelLauncher.js) ───
+import { initModelLauncher } from "./models/ModelLauncher.js";
+import { registerModelRoutes } from "./models/modelRoutes.js";
+import { loadSchedulerConfig } from "./models/schedulerStore.js";
+import { AUTOPOWER_FEATURE, FLEET_ENERGY_JSON_PATH } from "./config.js";
 import { FleetEnergyTracker } from "./energy/FleetEnergyTracker.js";
 import {
   createFleetEnergyRuntime,
@@ -60,6 +69,9 @@ const BIND_HOST = process.env.BIND_HOST || "127.0.0.1";
 const PORT = parseInt(process.env.PORT || "5555", 10);
 const LLM_PORT = parseInt(process.env.LLM_PORT || "8888", 10);
 const COMFY_PORT = parseInt(process.env.COMFY_PORT || "8188", 10);
+const AI_PROXY_PORT = parseInt(process.env.AI_PROXY_PORT || "3001", 10);
+const DEV_ENGINE_API_PORT = parseInt(process.env.DEV_ENGINE_API_PORT || "10000", 10);
+const DEV_ENGINE_WEBUI_PORT = parseInt(process.env.DEV_ENGINE_WEBUI_PORT || "10001", 10);
 
 /** Per-spark LLM HTTP port (1–65535), else env default. */
 function resolveLlmPort(sparkOrPort) {
@@ -275,10 +287,15 @@ function startMonitor(spark) {
   });
   monitors.set(spark.id, monitor);
   monitor.start();
+  // A spark registered into a partially-hidden UI must obey the current
+  // viewport set immediately, not after the next visibility change.
+  updateMonitorStates();
 }
 
 // ─── Stop and remove monitor for a Spark ─────────────────
 function stopMonitor(id) {
+  clearTimeout(actionGraceTimers.get(id));
+  actionGraceTimers.delete(id);
   const monitor = monitors.get(id);
   if (monitor) {
     monitor.stop();
@@ -301,10 +318,14 @@ function orderedSnapshots() {
     .map((m) => m.snapshot());
 }
 
+/** The Fleet Energy card's keep-awake switch; drives sampler and UI alike. */
+const isFleetEnergyKeepAwake = () => getSettings().energyAlwaysSampling !== false;
+
 const fleetEnergyRuntime = createFleetEnergyRuntime({
   tracker: fleetEnergyTracker,
   orderedSnapshots,
   monitors,
+  isKeepAwake: isFleetEnergyKeepAwake,
 });
 
 // ─── Express app ─────────────────────────────────────────
@@ -322,8 +343,219 @@ function clientKey(req) {
   return req.ip || req.socket?.remoteAddress || "unknown";
 }
 
+// ─── AI Proxy bridge ─────────────────────────────────────
+// Proxies the (proprietary) AI proxy's observer API through the sparkDash
+// server so the browser never needs CORS and the integration stays self-
+// contained. Routes are unauthenticated like the rest of the LAN dashboard.
+// *_HOST env vars name the machine the service actually runs on (deployment
+// config — same convention as MODEL_REPOS_BASE); unset means co-located with
+// the dashboard, which keeps the loopback defaults for single-host installs.
+const AI_PROXY_HOST = process.env.AI_PROXY_HOST || "";
+const AI_PROXY_BASE = `http://${AI_PROXY_HOST || "127.0.0.1"}:${AI_PROXY_PORT}`;
+const AI_PROXY_TIMEOUT_MS = 5000;
+
+async function aiProxyFetch(path, init) {
+  const res = await fetch(`${AI_PROXY_BASE}${path}`, {
+    ...init,
+    signal: AbortSignal.timeout(AI_PROXY_TIMEOUT_MS),
+  });
+  const text = await res.text();
+  let json;
+  try {
+    json = text ? JSON.parse(text) : {};
+  } catch {
+    json = {};
+  }
+  return { status: res.status, json };
+}
+
+/**
+ * Shared handler for GET endpoints that forward to the observer API.
+ * On any upstream failure responds 502 so the UI can show a graceful
+ * offline state instead of a generic fetch error.
+ */
+async function aiProxyGet(req, res, path) {
+  try {
+    const query = new URLSearchParams(req.query);
+    const qs = query.toString() ? `?${query.toString()}` : "";
+    const { status, json } = await aiProxyFetch(`${path}${qs}`, { method: "GET" });
+    res.status(status).json(json);
+  } catch (err) {
+    res.status(502).json({ error: `AI proxy unreachable (${err.message || String(err)})` });
+  }
+}
+
+app.get("/api/ai-proxy/streams", (req, res) => {
+  void aiProxyGet(req, res, "/observer/api/streaming");
+});
+
+app.get("/api/ai-proxy/active-requests", (req, res) => {
+  void aiProxyGet(req, res, "/observer/api/active-requests");
+});
+
+app.get("/api/ai-proxy/statistics", (req, res) => {
+  void aiProxyGet(req, res, "/observer/api/statistics");
+});
+
+/** Kill a streaming request by id. */
+app.post("/api/ai-proxy/cancel/:id", async (req, res) => {
+  try {
+    const id = encodeURIComponent(String(req.params.id));
+    const { status, json } = await aiProxyFetch(`/observer/api/cancel/${id}`, {
+      method: "POST",
+    });
+    res.status(status).json(json);
+  } catch (err) {
+    res.status(502).json({ error: `AI proxy unreachable (${err.message || String(err)})` });
+  }
+});
+
+/** Cancel a non-streaming request by id. */
+app.post("/api/ai-proxy/cancel-request/:id", async (req, res) => {
+  try {
+    const id = encodeURIComponent(String(req.params.id));
+    const { status, json } = await aiProxyFetch(`/observer/api/cancel-request/${id}`, {
+      method: "POST",
+    });
+    res.status(status).json(json);
+  } catch (err) {
+    res.status(502).json({ error: `AI proxy unreachable (${err.message || String(err)})` });
+  }
+});
+
+/**
+ * Resolve the request's origin hostname (domain-agnostic): builds a base
+ * URL pointing at the host the dashboard is served from, so links work under
+ * any domain/IP, not just localhost.
+ */
+function requestBaseUrl(req, port) {
+  const host = req.headers.host || "localhost";
+  // Strip a trailing :port (but not IPv6 brackets) — hostname only.
+  const hostname = host.startsWith("[") ? host.split("]")[0] + "]" : host.split(":")[0];
+  const proto = req.headers["x-forwarded-proto"] || req.protocol || "http";
+  return `${proto}://${hostname}:${port}`;
+}
+
+/**
+ * Browser-facing base URL for an integrated service. When its host is
+ * configured (service runs on another machine), the link must point THERE —
+ * the dashboard's own host would be a dead port. Unconfigured = co-located:
+ * derive from the request so LAN/domain access keeps working.
+ */
+function integrationBaseUrl(req, host, port) {
+  if (!host) return requestBaseUrl(req, port);
+  const proto = req.headers["x-forwarded-proto"] || req.protocol || "http";
+  return `${proto}://${host}:${port}`;
+}
+
+/**
+ * Base observer URL for "jump to proxy" links. With AI_PROXY_HOST set the
+ * proxy lives on another machine and the link must carry that hostname;
+ * otherwise the proxy is co-located and the request's own hostname applies.
+ */
+app.get("/api/ai-proxy/observer-url", (req, res) => {
+  res.json({ url: `${integrationBaseUrl(req, AI_PROXY_HOST, AI_PROXY_PORT)}/observer` });
+});
+
+// ─── Spark Dev Engine bridge ─────────────────────────────
+// Proxies the Spark Dev Engine REST API (port 10000) through the sparkDash
+// server so the browser never needs CORS. Like the AI proxy bridge, routes are
+// unauthenticated like the rest of the LAN dashboard. On any upstream failure
+// respond 502 so the UI can show a graceful offline state.
+const DEV_ENGINE_API_HOST = process.env.DEV_ENGINE_API_HOST || "";
+const DEV_ENGINE_WEBUI_HOST = process.env.DEV_ENGINE_WEBUI_HOST || "";
+const DEV_ENGINE_API_BASE = `http://${DEV_ENGINE_API_HOST || "127.0.0.1"}:${DEV_ENGINE_API_PORT}`;
+const DEV_ENGINE_TIMEOUT_MS = 5000;
+
+async function devEngineFetch(path, init) {
+  const res = await fetch(`${DEV_ENGINE_API_BASE}${path}`, {
+    ...init,
+    signal: AbortSignal.timeout(DEV_ENGINE_TIMEOUT_MS),
+  });
+  const text = await res.text();
+  let json;
+  try {
+    json = text ? JSON.parse(text) : {};
+  } catch {
+    json = {};
+  }
+  return { status: res.status, json };
+}
+
+async function devEngineGet(req, res, path) {
+  try {
+    const query = new URLSearchParams(req.query);
+    const qs = query.toString() ? `?${query.toString()}` : "";
+    const { status, json } = await devEngineFetch(`${path}${qs}`, { method: "GET" });
+    res.status(status).json(json);
+  } catch (err) {
+    res.status(502).json({ error: `Dev engine unreachable (${err.message || String(err)})` });
+  }
+}
+
+async function devEnginePost(req, res, path) {
+  try {
+    const { status, json } = await devEngineFetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req.body ?? {}),
+    });
+    res.status(status).json(json);
+  } catch (err) {
+    res.status(502).json({ error: `Dev engine unreachable (${err.message || String(err)})` });
+  }
+}
+
+app.get("/api/dev-engine/status", (req, res) => {
+  void devEngineGet(req, res, "/api/status");
+});
+
+app.get("/api/dev-engine/tickets", (req, res) => {
+  void devEngineGet(req, res, "/api/tickets");
+});
+
+/**
+ * Active plans (plan generation runs that have not produced a ticket yet).
+ * The engine returns the full plan markdown in `content`; the dashboard only
+ * needs the summary fields, so it is dropped here and replaced with
+ * `content_length` to keep the 5s poll small.
+ */
+app.get("/api/dev-engine/plans", async (req, res) => {
+  try {
+    const query = new URLSearchParams(req.query);
+    const qs = query.toString() ? `?${query.toString()}` : "";
+    const { status, json } = await devEngineFetch(`/api/plans${qs}`, { method: "GET" });
+    const slim = Array.isArray(json)
+      ? json.map(({ content, ...rest }) => ({
+          ...rest,
+          content_length: typeof content === "string" ? content.length : 0,
+        }))
+      : json;
+    res.status(status).json(slim);
+  } catch (err) {
+    res.status(502).json({ error: `Dev engine unreachable (${err.message || String(err)})` });
+  }
+});
+
+app.get("/api/dev-engine/running-tasks", (req, res) => {
+  void devEngineGet(req, res, "/api/running-tasks");
+});
+
+app.get("/api/dev-engine/slots-config", (req, res) => {
+  void devEngineGet(req, res, "/api/slots-config");
+});
+
+app.post("/api/dev-engine/slots-config", (req, res) => {
+  void devEnginePost(req, res, "/api/slots-config");
+});
+
+/** Web UI base URL for "jump to engine" links — configured host, else request origin. */
+app.get("/api/dev-engine/webui-url", (req, res) => {
+  res.json({ url: integrationBaseUrl(req, DEV_ENGINE_WEBUI_HOST, DEV_ENGINE_WEBUI_PORT) });
+});
+
 // ─── REST API ────────────────────────────────────────────
-registerFleetEnergyRoute(app, fleetEnergyTracker);
+registerFleetEnergyRoute(app, fleetEnergyTracker, isFleetEnergyKeepAwake);
 
 // Never return SSH passwords in any response
 app.get("/api/sparks", (_req, res) => {
@@ -482,6 +714,10 @@ app.put("/api/settings", (req, res) => {
   try {
     const patch = req.body || {};
     const newSettings = updateSettings(patch);
+    // Flipping the sampler's keep-awake switch re-evaluates who needs HW
+    // polling right now: off without a watching client pauses immediately
+    // instead of waiting for the next WS event.
+    if ("energyAlwaysSampling" in patch) updateMonitorStates();
     // If poll interval changed, restart the broadcast timer
     if (patch.pollIntervalMs != null) {
       restartBroadcast();
@@ -495,6 +731,9 @@ app.put("/api/settings", (req, res) => {
 app.get("/api/sparks/:id/metrics", (req, res) => {
   const monitor = monitors.get(req.params.id);
   if (!monitor) return res.status(404).json({ error: "Spark not found" });
+  // REST snapshot consumers (e.g. the standalone showcase page with no WS
+  // tab open) get a short grace so they read a fresh poll, not a stale cache.
+  if (monitor.isPaused()) grantActionGrace(req.params.id, METRICS_GRACE_MS);
   res.json(monitor.snapshot());
 });
 
@@ -1410,79 +1649,12 @@ app.delete("/api/sparks/:id/llm/showcase/:sessionId", (req, res) => {
 });
 
 // ─── Power management ────────────────────────────────────
-// Shutdown uses host script: sudo -n /usr/local/bin/spark-shutdown (passwordless).
+// Shutdown helpers live in server/shutdown.js: remote Sparks run the host script
+// over SSH (sudo -n /usr/local/bin/spark-shutdown, passwordless), the local Spark
+// reaches host systemd via nsenter when running inside the sparkDash container.
+// Wake-on-LAN helper is server/wol.js.
 // These routes are unauthenticated like the rest of the LAN dashboard — do not
 // expose port 5555 beyond a trusted network.
-
-const SHUTDOWN_BIN = "/usr/local/bin/spark-shutdown";
-/**
- * Remote: verify script + passwordless sudo, then background shutdown so SSH
- * returns before the host dies. Failures before backgrounding surface to the UI.
- */
-const SHUTDOWN_REMOTE_CMD = [
-  `test -x ${SHUTDOWN_BIN} || { echo "missing ${SHUTDOWN_BIN}" >&2; exit 127; }`,
-  `sudo -n true || { echo "sudo -n required for ${SHUTDOWN_BIN}" >&2; exit 126; }`,
-  `nohup sudo -n ${SHUTDOWN_BIN} >/dev/null 2>&1 &`,
-  `sleep 0.3`,
-  `exit 0`,
-].join("; ");
-
-function shutdownErrorStatus(msg) {
-  if (/timed out|connection refused|unreachable|no route|ECONNREFUSED|ETIMEDOUT/i.test(msg)) {
-    return 503;
-  }
-  return 500;
-}
-
-/**
- * Only treat "host dropped the SSH session mid-shutdown" as success.
- * Connect timeouts / auth / missing script must remain real errors.
- */
-function isBenignShutdownSshError(msg) {
-  return /ECONNRESET|Connection reset|broken pipe|Connection closed by remote|closed by remote host|Connection to .* closed/i.test(
-    String(msg || "")
-  );
-}
-
-/**
- * Kick off graceful shutdown. Always aims to return quickly so the browser
- * gets a real JSON response instead of "Failed to fetch" when the SSH session
- * drops as the host powers off.
- */
-function initiateSparkShutdown(spark) {
-  if (spark.isLocal) {
-    return new Promise((resolve, reject) => {
-      try {
-        const child = spawn("sudo", ["-n", SHUTDOWN_BIN], {
-          detached: true,
-          stdio: "ignore",
-        });
-        child.on("error", (err) => {
-          const msg = err.message || String(err);
-          if (/ENOENT|not found/i.test(msg)) {
-            reject(new Error(`${SHUTDOWN_BIN} not found on this host`));
-          } else {
-            reject(new Error(msg));
-          }
-        });
-        child.unref();
-        resolve("Shutdown initiated");
-      } catch (err) {
-        reject(err);
-      }
-    });
-  }
-
-  return sshExec(spark, SHUTDOWN_REMOTE_CMD, { timeoutMs: 8000 })
-    .then(() => "Shutdown initiated")
-    .catch((err) => {
-      const msg = err.message || String(err);
-      if (isBenignShutdownSshError(msg)) {
-        return "Shutdown initiated";
-      }
-      throw err;
-    });
-}
 
 /** Batch routes first so they never collide with /:id/* if routing changes. */
 app.post("/api/sparks/shutdown-all", async (_req, res) => {
@@ -1500,20 +1672,15 @@ app.post("/api/sparks/shutdown-all", async (_req, res) => {
       continue;
     }
     try {
-      // Local dashboard host: acknowledge before power-off kills this process.
-      if (spark.isLocal) {
-        results.push({ id: spark.id, ok: true, message: "Shutdown initiated" });
-        setImmediate(() => {
-          void initiateSparkShutdown(spark).catch((err) => {
-            console.error(`[shutdown-all] local ${spark.id}:`, err.message);
-          });
-        });
-        continue;
-      }
-      await initiateSparkShutdown(spark);
-      results.push({ id: spark.id, ok: true });
+      // The local Spark resolves after the ack window (power-off queued, host
+      // still up for a few seconds), so this loop and the JSON response finish.
+      const message = await initiateSparkShutdown(spark);
+      results.push({ id: spark.id, ok: true, message });
+      grantActionGrace(spark.id, SHUTDOWN_GRACE_MS);
     } catch (err) {
-      results.push({ id: spark.id, ok: false, error: err.message || String(err) });
+      const msg = err.message || String(err);
+      console.warn(`[shutdown-all] ${spark.id} failed: ${msg}`);
+      results.push({ id: spark.id, ok: false, error: msg });
     }
   }
   res.json({ success: true, results });
@@ -1535,6 +1702,7 @@ app.post("/api/sparks/wake-all", async (_req, res) => {
       const broadcast = broadcastForLanIp(spark.lanIp);
       const sent = await sendWol(cleanMac, broadcast);
       results.push({ id: spark.id, ok: true, mac: sent.mac, broadcast: sent.broadcast });
+      grantActionGrace(spark.id, WAKE_GRACE_MS);
     } catch (err) {
       results.push({ id: spark.id, ok: false, error: err.message || String(err) });
     }
@@ -1547,23 +1715,13 @@ app.post("/api/sparks/:id/shutdown", async (req, res) => {
     const spark = registry.getSpark(req.params.id);
     if (!spark) return res.status(404).json({ error: "Spark not found" });
 
-    // Local: send JSON first, then power off — otherwise the process dies mid-response
-    // and the UI shows "Failed to fetch".
-    if (spark.isLocal) {
-      res.json({ success: true, message: "Shutdown initiated" });
-      setImmediate(() => {
-        void initiateSparkShutdown(spark).catch((err) => {
-          console.error(`[shutdown] local ${spark.id}:`, err.message);
-        });
-      });
-      return;
-    }
-
     try {
       const message = await initiateSparkShutdown(spark);
       res.json({ success: true, message, output: message });
+      grantActionGrace(req.params.id, SHUTDOWN_GRACE_MS);
     } catch (err) {
       const msg = err.message || String(err);
+      console.warn(`[shutdown] ${spark.id} failed: ${msg}`);
       res.status(shutdownErrorStatus(msg)).json({
         error: shutdownErrorStatus(msg) === 503 ? `Spark unreachable: ${msg}` : msg,
       });
@@ -1595,6 +1753,7 @@ app.post("/api/sparks/:id/wake", async (req, res) => {
     const broadcast = broadcastForLanIp(spark.lanIp);
     try {
       const sent = await sendWol(cleanMac, broadcast);
+      grantActionGrace(req.params.id, WAKE_GRACE_MS);
       res.json({
         success: true,
         message: `Magic packet sent to ${sent.mac} via ${sent.broadcast}`,
@@ -1608,6 +1767,45 @@ app.post("/api/sparks/:id/wake", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ─── Model launcher (Overview panel: start/stop model repos on their Sparks) ───
+// Registered before the static handler; every path is /api-scoped. The
+// forceBroadcast reference is a hoisted function declaration below, so the
+// launcher can push job/probe/scheduler changes to clients immediately
+// instead of waiting for the next poll tick. getSpark hands the launcher the
+// live SparkRegistry lookup (including the encrypted-at-rest SSH password) —
+// model scripts run on the Spark assigned to each card, over SSH, so the
+// dashboard itself is machine-agnostic.
+const modelLauncher = initModelLauncher({
+  onStatusChange: () => forceBroadcast(),
+  getSpark: (id) => registry.getSpark(id),
+});
+registerModelRoutes(app, modelLauncher, { forceBroadcast });
+// ─── Spark AutoPower (idle shutdown + scheduled wake) ───
+// Watches the AI proxy (in-flight requests) and the dev engine (slots,
+// tickets, plan runs). After AUTOPOWER idle minutes of verified quiet inside
+// the configured watch span it shuts the remote Sparks down; at the wake time
+// it wakes them again. Head goes down last / up first: the proxy lives on it.
+const autoPower = new AutoPowerManager({
+  probe: createAutoPowerProbe({ aiProxyFetch, devEngineFetch }),
+  // Only the remote Sparks — the dashboard host itself is never touched.
+  getSparks: () => registry.sparks.filter((s) => s.kind === "spark" && !s.isLocal),
+  isOnline: (id) => Boolean(monitors.get(id)?.online),
+  shutdownSpark: (spark) => initiateSparkShutdown(spark),
+  wakeSpark: (spark) => {
+    const cleanMac = effectiveMac(spark);
+    if (!cleanMac) {
+      return Promise.reject(
+        new Error(`No MAC address for ${spark.name} (wake it once manually / set an override)`)
+      );
+    }
+    return sendWol(cleanMac, broadcastForLanIp(spark.lanIp));
+  },
+  onAction: (id, kind) =>
+    grantActionGrace(id, kind === "wake" ? WAKE_GRACE_MS : SHUTDOWN_GRACE_MS),
+  getConfig: getAutoPowerConfig,
+});
+registerAutoPowerRoutes(app, autoPower);
 
 // ─── Static files (built frontend) ───────────────────────
 const distDir = path.join(ROOT, "dist");
@@ -1631,8 +1829,63 @@ const wss = new WebSocketServer({
   path: "/ws",
   verifyClient: ({ req }, done) => done(authorizeUpgrade(req)),
 });
+
+/** Active WS clients — zero means nothing renders, so nothing polls. */
+let activeClientCount = 0;
+
+/**
+ * Per-client viewport set (client sends {type:"visibility",sparks:[ids]}).
+ * null = never reported → treat as watching everything, which keeps
+ * pre-visibility clients and the connect→first-report window behaving
+ * exactly like before.
+ */
+function clientWatches(client, id) {
+  return client._visibleIds == null || client._visibleIds.has(id);
+}
+
+/**
+ * Action grace: after WoL / shutdown the machine's transition must stay
+ * observable even while its overview card is scrolled out of view.
+ * id -> Timeout; presence keeps that monitor polling regardless of viewport.
+ */
+const actionGraceTimers = new Map();
+const WAKE_GRACE_MS = 4 * 60_000; // WoL → BIOS → boot → sshd
+const SHUTDOWN_GRACE_MS = 90_000; // watch the offline transition
+const METRICS_GRACE_MS = 60_000; // REST snapshot consumers (showcase page)
+
+function grantActionGrace(id, ms) {
+  clearTimeout(actionGraceTimers.get(id));
+  actionGraceTimers.set(
+    id,
+    setTimeout(() => {
+      actionGraceTimers.delete(id);
+      updateMonitorStates();
+    }, ms)
+  );
+  updateMonitorStates();
+}
+
+function updateMonitorStates() {
+  for (const [id, monitor] of monitors) {
+    // Grace outranks everything (wake/shutdown/metrics consumers may act with
+    // zero open tabs); otherwise a monitor polls only while some live client
+    // can actually see its graphs.
+    const watched =
+      actionGraceTimers.has(id) ||
+      (activeClientCount > 0 &&
+        [...wss.clients].some((c) => clientWatches(c, id)));
+    if (watched) monitor.resume();
+    else monitor.pause();
+  }
+}
+
 wss.on("connection", (ws) => {
-  console.log("[ws] client connected");
+  activeClientCount++;
+  ws._visibleIds = null;
+  console.log(`[ws] client connected (${activeClientCount} active)`);
+  // Resume polling now that a client is watching (until its first report
+  // narrows the set below).
+  updateMonitorStates();
   // This snapshot belongs only to the new client. Broadcasting it would add a
   // duplicate history sample to every existing dashboard whenever a tab opens.
   try {
@@ -1640,8 +1893,23 @@ wss.on("connection", (ws) => {
   } catch {
     // The close handler will clean up a client that disappears during connect.
   }
+  ws.on("message", (data) => {
+    let msg;
+    try {
+      msg = JSON.parse(String(data));
+    } catch {
+      return;
+    }
+    if (!msg || msg.type !== "visibility") return;
+    ws._visibleIds = Array.isArray(msg.sparks)
+      ? new Set(msg.sparks.filter((s) => typeof s === "string"))
+      : null; // malformed → conservative "watching everything"
+    updateMonitorStates();
+  });
   ws.on("close", () => {
-    console.log("[ws] client disconnected");
+    activeClientCount = Math.max(0, activeClientCount - 1);
+    console.log(`[ws] client disconnected (${activeClientCount} active)`);
+    updateMonitorStates();
   });
 });
 
@@ -1656,6 +1924,11 @@ function buildSnapshotPayload() {
     generatedAt: Date.now(),
     sparks: orderedSnapshots(),
     refreshInterval: getSettings().pollIntervalMs,
+    // Model launcher block, namespaced under one key so the merge surface
+    // stays a single added property. Contains no Date.now()-derived value
+    // (see ModelLauncher.snapshotPayload) so this string stays byte-identical
+    // between ticks and the diff cache below keeps skipping idle broadcasts.
+    models: modelLauncher.snapshotPayload(),
   });
 }
 
@@ -1718,6 +1991,9 @@ function restartBroadcast() {
 
 // ─── Start ───────────────────────────────────────────────
 loadSettings();
+loadSchedulerConfig();
+loadAutoPowerConfig();
+
 const startupPreflight = inspectStartupPreflight(BIND_HOST);
 logStartupPreflight(startupPreflight, BIND_HOST, PORT);
 
@@ -1734,6 +2010,12 @@ if (!startupPreflight.fatal) {
     }
     startAllMonitors();
     fleetEnergyRuntime.start();
+    // Model launcher probe + scheduler timers. Deliberately not tied to
+    // updateMonitorStates(): the night shift must run with zero tabs open.
+    modelLauncher.startTimers();
+    // AutoPower shares the "night shift" rationale: it must run with zero tabs
+    // open — but only while the feature switch (AUTOPOWER_FEATURE) is on.
+    if (AUTOPOWER_FEATURE) autoPower.start();
   });
 } else {
   process.exitCode = 1;
@@ -1761,6 +2043,18 @@ async function shutdown(signal) {
     llmDaily.flush();
   } catch (err) {
     console.error("[sparkDash] failed to flush LLM daily history:", err.message);
+  }
+  // Finalize model jobs so polls after a --watch/reload don't 404. Does NOT
+  // touch the Sparks' scripts or containers — a restart of the dashboard must
+  // never take someone's running model with it.
+  try {
+    modelLauncher.stopTimers();
+    autoPower.stop();
+    modelLauncher.interruptAll(
+      "Interrupted — sparkDash restarted while the script was running (the script and any container it started keep running on its Spark)"
+    );
+  } catch (err) {
+    console.error("[sparkDash] failed to finalize model jobs:", err.message);
   }
   const energyPersistenceSucceeded = fleetEnergyRuntime.stop();
   const streamAgentClosedGracefully = await closeLlmStreamAgent();

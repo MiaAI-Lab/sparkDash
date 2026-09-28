@@ -29,34 +29,52 @@ function wasCollectionSuccessful(monitor, domain) {
   return monitor?._metricCollectionSuccessful?.[domain] === true;
 }
 
-/** Determine whether a normal SparkMonitor snapshot has current usable power telemetry. */
+/**
+ * Determine whether a normal SparkMonitor snapshot has current usable power
+ * telemetry. Nodes explicitly configured with `gpuMonitoring: false` have no
+ * board-draw signal to wait for, so fresh, successfully collected CPU
+ * telemetry alone certifies them (estimateNodeWatts applies the CPU-only model).
+ */
 export function hasFreshPowerTelemetry(snapshot, monitor, atMs) {
-  const gpu = snapshot?.metrics?.gpu;
+  if (snapshot?.online !== true) return false;
   const cpu = snapshot?.metrics?.cpu;
-  return (
-    snapshot?.online === true &&
-    wasCollectionSuccessful(monitor, "gpu") &&
+  const cpuFresh =
     wasCollectionSuccessful(monitor, "cpu") &&
-    hasFreshTimestamp(monitor?._lastUpdate?.gpu, atMs) &&
     hasFreshTimestamp(monitor?._lastUpdate?.cpu, atMs) &&
-    !isDefaultGpuResult(gpu) &&
     !isDefaultCpuResult(cpu) &&
-    Number.isFinite(gpu?.power?.draw) &&
-    Number.isFinite(cpu?.usage)
+    Number.isFinite(cpu?.usage);
+  if (!cpuFresh) return false;
+  if (snapshot?.gpuMonitoring === false) return true;
+  const gpu = snapshot?.metrics?.gpu;
+  return (
+    wasCollectionSuccessful(monitor, "gpu") &&
+    hasFreshTimestamp(monitor?._lastUpdate?.gpu, atMs) &&
+    !isDefaultGpuResult(gpu) &&
+    Number.isFinite(gpu?.power?.draw)
   );
 }
 
 /**
- * Record one independent energy sample. Only the shallow clones passed to the
- * tracker receive telemetryFresh; normal REST and WebSocket snapshots remain unchanged.
+ * Record one independent energy sample. When keep-awake is on the sampler
+ * acts as a permanent viewer: visibility-based pausing exists so idle
+ * clients don't pay for graph polling, but the 24 h series needs the
+ * telemetry itself, so paused monitors are resumed each tick (idempotent;
+ * no-op unless paused). With keep-awake off, pausing keeps its original
+ * meaning and coverage simply stops while no browser watches the fleet.
+ * Only the shallow clones passed to the tracker receive telemetryFresh;
+ * normal REST and WebSocket snapshots remain unchanged.
  */
 export function runFleetEnergySamplerTick({
   tracker,
   orderedSnapshots,
   monitors,
+  keepAwake = true,
   now = Date.now,
 }) {
   const atMs = now();
+  if (keepAwake) {
+    for (const monitor of monitors?.values?.() ?? []) monitor?.resume?.();
+  }
   const snapshots = orderedSnapshots();
   const trackerInputs = snapshots.map((snapshot) => ({
     ...snapshot,
@@ -69,14 +87,20 @@ export function runFleetEnergySamplerTick({
   return tracker.record(trackerInputs, atMs);
 }
 
-/** Build the read-only Express handler around the tracker's canonical contract. */
-export function createFleetEnergyHandler(tracker) {
-  return (_req, res) => res.json(tracker.snapshot());
+/**
+ * Build the read-only Express handler around the tracker's canonical
+ * contract. The sampler's keep-awake switch is reported as
+ * `alwaysSampling` so the dashboard renders the server's real state
+ * without a second settings round-trip.
+ */
+export function createFleetEnergyHandler(tracker, isKeepAwake = () => true) {
+  return (_req, res) =>
+    res.json({ ...tracker.snapshot(), alwaysSampling: isKeepAwake() ? true : false });
 }
 
 /** Register the read-only fleet-energy endpoint. */
-export function registerFleetEnergyRoute(app, tracker) {
-  return app.get("/api/fleet-energy", createFleetEnergyHandler(tracker));
+export function registerFleetEnergyRoute(app, tracker, isKeepAwake) {
+  return app.get("/api/fleet-energy", createFleetEnergyHandler(tracker, isKeepAwake));
 }
 
 /** Preserve startup ordering without coupling the sampler to server or WS state. */
@@ -98,6 +122,7 @@ export function createFleetEnergyRuntime({
   tracker,
   orderedSnapshots,
   monitors,
+  isKeepAwake = () => true,
   now = Date.now,
   setIntervalFn = setInterval,
   clearIntervalFn = clearInterval,
@@ -119,7 +144,13 @@ export function createFleetEnergyRuntime({
   const sample = () => {
     if (stopped) return;
     try {
-      runFleetEnergySamplerTick({ tracker, orderedSnapshots, monitors, now });
+      runFleetEnergySamplerTick({
+        tracker,
+        orderedSnapshots,
+        monitors,
+        keepAwake: isKeepAwake(),
+        now,
+      });
     } catch (error) {
       reportError("fleet energy sample error", error);
     }

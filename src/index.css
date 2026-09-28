@@ -21,6 +21,11 @@
   --color-danger: #c44;
   --color-warning: #c89020;
   --color-success: #2d9d78;
+  --color-bar: #5b8dd9; /* soft blue progress fill */
+  --color-bar-temp: #cf7d1a; /* warm orange for temperatures */
+  --color-bar-ram: #3b82d6; /* blue for RAM */
+  --color-bar-usage: #2aa198; /* teal/cyan for GPU usage, distinct from RAM blue */
+  --color-bar-vram: #8b5cf6; /* purple for VRAM */
   --color-grid: rgba(0, 0, 0, 0.04);
 
   --toggle-track-off: #55514a;
@@ -43,28 +48,34 @@
   --shell-gradient: linear-gradient(180deg, var(--color-surface) 0%, #ede8da 100%);
 }
 
+/* ─── Dark theme (GitHub Dark Mode palette) ─────────────── */
 [data-theme="dark"] {
-  --color-base: #0a0a0a;
-  --color-surface: #1a1a1a;
-  --color-surface-elevated: #262626;
-  --color-surface-hover: #303030;
-  --color-border: #353535;
-  --color-border-strong: #4a4a4a;
-  --color-text: #e4e4e4;
+  --color-base: #0d1117;
+  --color-surface: #161b22;
+  --color-surface-elevated: #1c2128;
+  --color-surface-hover: #21262d;
+  --color-border: #30363d;
+  --color-border-strong: #484f58;
+  --color-text: #c9d1d9;
   --color-text-strong: #ffffff;
-  --color-muted: #8a8a8a;
-  --color-muted-strong: #b8b8b8;
-  --color-accent: #e8a830;
-  --color-accent-hover: #f0b840;
-  --color-accent-soft: rgba(232, 168, 48, 0.16);
-  --color-danger: #e5594d;
-  --color-warning: #e0a838;
-  --color-success: #4dbf91;
+  --color-muted: #8b949e;
+  --color-muted-strong: #b1bac4;
+  --color-accent: #58a6ff;
+  --color-accent-hover: #79c0ff;
+  --color-accent-soft: rgba(88, 166, 255, 0.15);
+  --color-danger: #f85149;
+  --color-warning: #d29922;
+  --color-success: #3fb950;
+  --color-bar: #58a6ff; /* GitHub blue progress fill */
+  --color-bar-temp: #d29922; /* warm amber for temperatures */
+  --color-bar-ram: #58a6ff; /* blue for RAM */
+  --color-bar-usage: #39c5cf; /* cyan for GPU usage, distinct from RAM blue */
+  --color-bar-vram: #bc8cff; /* purple for VRAM */
   --color-grid: rgba(255, 255, 255, 0.04);
 
-  --toggle-track-off: #3a3a3a;
+  --toggle-track-off: #30363d;
   --toggle-track-on: var(--color-accent);
-  --toggle-dot: #e4e4e4;
+  --toggle-dot: #ffffff;
 
   --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--color-border);
   --shadow-card-hover: 0 6px 20px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--color-border-strong);
@@ -73,8 +84,8 @@
   --color-surface-glass: color-mix(in srgb, var(--color-surface) 72%, transparent);
   --color-card-glass: color-mix(in srgb, var(--color-surface-elevated) 60%, transparent);
 
-  --body-gradient: linear-gradient(160deg, #0a0a0a 0%, #111111 40%, #181818 100%);
-  --shell-gradient: linear-gradient(180deg, var(--color-surface) 0%, #121212 100%);
+  --body-gradient: linear-gradient(160deg, #0d1117 0%, #10151c 40%, #141920 100%);
+  --shell-gradient: linear-gradient(180deg, var(--color-surface) 0%, #0d1117 100%);
 }
 
 /* ─── White theme (neutral, no warm tones) ──────────────── */
@@ -95,6 +106,11 @@
   --color-danger: #c44;
   --color-warning: #c89020;
   --color-success: #2d9d78;
+  --color-bar: #5b8dd9; /* soft blue progress fill */
+  --color-bar-temp: #cf7d1a; /* warm orange for temperatures */
+  --color-bar-ram: #3b82d6; /* blue for RAM */
+  --color-bar-usage: #2aa198; /* teal/cyan for GPU usage, distinct from RAM blue */
+  --color-bar-vram: #8b5cf6; /* purple for VRAM */
   --color-grid: rgba(0, 0, 0, 0.04);
 
   --toggle-track-off: #505050;
@@ -133,6 +149,11 @@
   --color-danger: #e5594d;
   --color-warning: #e0a838;
   --color-success: #4dbf91;
+  --color-bar: #79c0ff; /* GitHub light blue progress fill */
+  --color-bar-temp: #e0a838; /* warm amber for temperatures */
+  --color-bar-ram: #79c0ff; /* light blue for RAM */
+  --color-bar-usage: #39c5cf; /* cyan for GPU usage, distinct from RAM blue */
+  --color-bar-vram: #bc8cff; /* purple for VRAM */
   --color-grid: rgba(255, 255, 255, 0.04);
 
   --toggle-track-off: #2a2a2a;
@@ -217,6 +238,11 @@
   --color-danger: var(--color-danger);
   --color-warning: var(--color-warning);
   --color-success: var(--color-success);
+  --color-bar: var(--color-bar);
+  --color-bar-temp: var(--color-bar-temp);
+  --color-bar-ram: var(--color-bar-ram);
+  --color-bar-usage: var(--color-bar-usage);
+  --color-bar-vram: var(--color-bar-vram);
 }
 
 /* ─── Base styles ─────────────────────────────────────── */
@@ -309,32 +335,16 @@ input:disabled {
   box-shadow: var(--shadow-shell);
 }
 
+/* Live-telemetry reconnect notice + page dimming are disabled.
+   The WebSocket reconnects silently on tab re-focus; showing a banner and
+   fading the page over every reconnect was distracting. */
 .connection-banner {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0 0 16px;
-  padding: 10px 14px;
-  border: 1px solid color-mix(in srgb, var(--color-warning) 45%, var(--color-border));
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--color-warning) 10%, var(--color-surface-elevated));
-  color: var(--color-text);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.connection-banner-dot {
-  width: 8px;
-  height: 8px;
-  flex: 0 0 auto;
-  border-radius: 999px;
-  background: var(--color-warning);
+  display: none;
 }
 
 .telemetry-stale {
-  opacity: 0.72;
-  filter: saturate(0.65);
-  transition: opacity 160ms ease, filter 160ms ease;
+  opacity: 1;
+  filter: none;
 }
 
 @media (max-width: 700px) {
@@ -363,6 +373,15 @@ input:disabled {
   }
   .overview-page {
     gap: 0 !important;
+    /* Below the sm breakpoint there is no grid-template-columns, so the single
+       implicit track sizes to max-content and the panels overflow the
+       viewport. Pin the track to the grid width so they shrink to fit. */
+    grid-template-columns: minmax(0, 1fr);
+  }
+  /* Panels (AI Proxy, Dev Engine) need the same spacing between rows as
+     the spark cards on single-column mobile layouts. */
+  .overview-page > .panel + .panel {
+    margin-top: 20px;
   }
 }
 
@@ -695,12 +714,21 @@ input[type="checkbox"] {
 .overview-card:hover {
   box-shadow: var(--shadow-card-hover);
   border-color: var(--color-border-strong);
-  transform: translateY(-1px);
+}
+
+/* Per-Spark tok/s + prefill footer is mirrored into the AI Proxy panel
+   (max token usage) at the top of the dashboard; hide the original in the
+   spark cards without touching the component markup. */
+.overview-tps-footer {
+  display: none;
 }
 
 /* ─── Pulse / glow accents ─────────────────────────────── */
 .dot-glow-success {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-success) 20%, transparent);
+}
+.dot-glow-danger {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-danger) 20%, transparent);
 }
 .dot-glow-accent {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 20%, transparent);
@@ -1046,7 +1074,20 @@ input[type="checkbox"] {
   }
 }
 .modal-sheet--wide {
-  max-width: 40rem;
+  max-width: 50rem;
+}
+@media (min-width: 640px) {
+  .modal-sheet--wide {
+    max-height: min(92dvh, 56rem);
+  }
+}
+.modal-sheet--command {
+  max-width: 80rem;
+}
+@media (min-width: 640px) {
+  .modal-sheet--command {
+    max-height: min(92dvh, 56rem);
+  }
 }
 
 .modal-sheet__header {

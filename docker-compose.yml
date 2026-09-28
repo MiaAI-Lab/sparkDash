@@ -12,8 +12,12 @@ services:
     # always: come back after host reboot even if the container was stopped
     # before shutdown (unlike unless-stopped, which stays down after a manual stop).
     restart: always
-    # Auto-restart Node when ./server files change (no image rebuild)
-    command: ["node", "--watch", "server/index.js"]
+    # Plain node (NOT --watch): a --watch child crash leaves the container
+    # "running" with nothing listening — an invisible outage (seen in prod).
+    # A crashed single process exits the container; `restart: always`
+    # relaunches it fresh and the loop is visible in ps/logs.
+    # Server edits apply on `docker compose restart` (code is bind-mounted).
+    command: ["node", "server/index.js"]
     # Host network so local LLM probes reach loopback-bound servers
     # (ds4-server / start.sh default --host 127.0.0.1). Bridge NAT cannot
     # reach the host's 127.0.0.1, and LAN-IP probes miss loopback binds.
@@ -23,7 +27,7 @@ services:
     # (otherwise local VRAM falls back to minute-old config/gpu-memory.json).
     pid: host
     volumes:
-      # Live server code — edits apply after --watch reloads the process
+      # Live server code — edits apply on container restart
       - ./server:/app/server
       # Prompt catalog imported by DecodeBench / Showcase (not under ./server)
       - ./src/shared:/app/src/shared:ro
@@ -50,9 +54,23 @@ services:
       - SPARKDASH_ALLOW_OPEN_REMOTE=${SPARKDASH_ALLOW_OPEN_REMOTE:-1}
       - PORT=5555
       - LLM_PORT=8888
+      # Spark Dev Engine integration ports (API + Web UI)
+      - DEV_ENGINE_API_PORT=10000
+      - DEV_ENGINE_WEBUI_PORT=10001
+      # The AI proxy still runs on spark1, NOT on the dashboard host (currently
+      # dell.lan) — loopback here would be the wrong machine. The Spark Dev
+      # Engine moved to dell.lan (the dashboard host), so its *_HOST vars stay
+      # unset: loopback fetch + request-derived webui link, as co-located.
+      - AI_PROXY_HOST=spark1.lan
       - NODE_ENV=production
       - HOST_PROC_PATH=/host/proc
       - HOST_SYS_PATH=/host/sys
       - HOST_ROOT_PATH=/host/root
+      # Model Launcher card dirs are allowlisted against this base — the path
+      # as it exists ON THE TARGET SPARKS (scripts run there via SSH), not in
+      # this container. Set it once per deployment / fleet.
+      - MODEL_REPOS_BASE=/home/pavelkubicek/cluster/docker
+      # Operator local timezone — scheduler windows must not drift with UTC.
+      - TZ=Europe/Prague
       - SSH_CONTROL_PERSIST_SECONDS=${SSH_CONTROL_PERSIST_SECONDS:-60}
       - SSH_IDENTITY_FILE=${SSH_IDENTITY_FILE:-}

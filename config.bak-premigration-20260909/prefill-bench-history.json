@@ -1,0 +1,53 @@
+{
+  "spark1-lan": [
+    {
+      "benchId": "7ad122d2-858c-40b3-b357-b37a1502e70a",
+      "sparkId": "spark1-lan",
+      "status": "completed",
+      "startedAt": 1788817919521,
+      "completedAt": 1788817928266,
+      "config": {
+        "port": 8000,
+        "modelId": "deepseek-v4-flash-vision-exp",
+        "contextSizes": [
+          4096,
+          8192
+        ]
+      },
+      "progress": {
+        "currentContext": null,
+        "completedLevels": 2,
+        "totalLevels": 2,
+        "message": "Done"
+      },
+      "results": [
+        {
+          "targetTokens": 4096,
+          "promptTokens": 4115,
+          "promptChars": 16383,
+          "prefillTps": 1495,
+          "ttftMs": 2752.5,
+          "ttftContentMs": 2752.5,
+          "completionTokens": 2,
+          "durationMs": 2859.49,
+          "model": "deepseek-v4-flash-vision-exp",
+          "error": null
+        },
+        {
+          "targetTokens": 8192,
+          "promptTokens": 8211,
+          "promptChars": 32767,
+          "prefillTps": 1621.29,
+          "ttftMs": 5064.49,
+          "ttftContentMs": 5064.49,
+          "completionTokens": 2,
+          "durationMs": 5174.88,
+          "model": "deepseek-v4-flash-vision-exp",
+          "error": null
+        }
+      ],
+      "error": null,
+      "durationMs": 8745
+    }
+  ]
+}

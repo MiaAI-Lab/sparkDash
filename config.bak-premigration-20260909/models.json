@@ -1,0 +1,85 @@
+{
+  "models": [
+    {
+      "id": "qwen-38-flash-next",
+      "name": "Qwen3.8 Flash Next NVFP4",
+      "dir": "/home/pavelkubicek/cluster/docker/Qwen3.8-Flash-Next-Dual-DGX-Sparks",
+      "startScript": "start.sh",
+      "stopScript": "stop.sh",
+      "restartScript": "restart.sh",
+      "logsScript": null,
+      "startArgs": [],
+      "container": "vllm-fn",
+      "port": 8000,
+      "position": 1,
+      "description": "2× DGX Spark · vLLM dual-node (TP=2) — container vllm-fn",
+      "apiPath": null,
+      "repoUrl": "https://github.com/MiaAI-Lab/Qwen3.8-Flash-Next-Dual-DGX-Sparks",
+      "schedule": {
+        "enabled": true,
+        "weekday": [
+          {
+            "start": "08:40",
+            "end": "18:00"
+          }
+        ],
+        "weekend": []
+      },
+      "schedulerEligible": true
+    },
+    {
+      "id": "deepseek-v4-dspark",
+      "name": "DeepSeek-V4 Flash DSpark",
+      "dir": "/home/pavelkubicek/cluster/docker/DeepSeek-v4-Flash-DSpark-2x-DGX-Spark",
+      "startScript": "start-deepseek-v4-flash-dspark.sh",
+      "stopScript": "stop-deepseek-v4-flash-dspark.sh",
+      "restartScript": "restart-deepseek-v4-flash-dspark.sh",
+      "logsScript": "logs-deepseek-v4-flash-dspark.sh",
+      "startArgs": [],
+      "container": "deepseek-v4-flash-vllm-dspark-1",
+      "port": 8000,
+      "position": 2,
+      "description": "2× DGX Spark · vLLM DSpark dual node (TP=2)",
+      "apiPath": null,
+      "repoUrl": "https://github.com/MiaAI-Lab/DeepSeek-v4-Flash-DSpark-2x-DGX-Spark",
+      "schedule": {
+        "enabled": true,
+        "weekday": [
+          {
+            "start": "18:00",
+            "end": "08:40"
+          }
+        ],
+        "weekend": [
+          {
+            "start": "00:00",
+            "end": "00:00"
+          }
+        ]
+      },
+      "schedulerEligible": true
+    },
+    {
+      "id": "glm-53-exl3",
+      "name": "GLM-5.3 Flash EXL3",
+      "dir": "/home/pavelkubicek/cluster/docker/GLM-5.3-Flash-EXL3-2x-DGX-Sparks",
+      "startScript": "start.sh",
+      "stopScript": "stop.sh",
+      "restartScript": "restart.sh",
+      "logsScript": null,
+      "startArgs": [],
+      "container": "glm53-exl3-head",
+      "port": 8000,
+      "position": 3,
+      "description": "2× DGX Spark · EXL3 dual node (TP=2)",
+      "apiPath": null,
+      "repoUrl": "https://github.com/MiaAI-Lab/GLM-5.3-Flash-EXL3-2x-DGX-Sparks",
+      "schedule": {
+        "enabled": false,
+        "weekday": [],
+        "weekend": []
+      },
+      "schedulerEligible": false
+    }
+  ]
+}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import type { SparkSnapshot } from "../../api/types";
+import type { EngineLive, ProxyLive } from "../../shared/idleCounts";
+import type { LlmMetrics, SparkSnapshot, WsSnapshot } from "../../api/types";
 import { isWorkerSpark, resolveSparkRole } from "../../api/sparkRole";
 import { shutdownAllSparks, updateAllHermes, wakeAllSparks } from "../../api/client";
 import { ConfirmShutdownDialog } from "../ConfirmShutdownDialog";
@@ -7,6 +8,11 @@ import { MetricBar } from "../ui/MetricBar";
 import { FleetEnergyCard } from "./FleetEnergyCard";
 import { FleetAlertStrip } from "./FleetAlertStrip";
 import { ActivityIcon, PowerOffIcon, PowerOnIcon, RotateIcon } from "../ui/icons";
+import { AiProxyPanel } from "./AiProxyPanel";
+import { DevEnginePanel } from "./DevEnginePanel";
+import { ModelLauncherPanel } from "./ModelLauncher/ModelLauncherPanel";
+import { AutoPowerPanel } from "./AutoPowerPanel";
+import { useSparkGraphRef } from "../../hooks/sparkVisibility";
 
 interface OverviewPageProps {
   sparks: SparkSnapshot[];
@@ -17,6 +23,22 @@ interface OverviewPageProps {
   showOverviewSearch?: boolean;
   temperatureUnit?: "celsius" | "fahrenheit";
   onSelectSpark?: (id: string) => void;
+  /** Model launcher block from the WS snapshot (undefined until it arrives). */
+  models?: WsSnapshot["models"];
+  /** Hide the Model Launcher panel (Settings). */
+  showModelLauncher?: boolean;
+  /** WS connection state (passed to the launcher's status line). */
+  connected?: boolean;
+}
+
+/** Gather available LLM metrics across all sparks (for the AI Proxy panel). */
+function aggregateLlm(sparks: SparkSnapshot[]) {
+  const metrics: LlmMetrics[] = [];
+  for (const s of sparks) {
+    const llm = s.metrics?.llm;
+    if (Array.isArray(llm)) metrics.push(...(llm as LlmMetrics[]));
+  }
+  return metrics;
 }
 
 function celsiusToFahrenheit(c: number): number {
@@ -92,8 +114,12 @@ function SparkCard({
 }) {
   const gpu = spark.metrics.gpu;
   const um = spark.metrics.unifiedMemory;
+  const gpuMonitored = spark.gpuMonitoring !== false;
   const online = spark.online;
+  // Polling pauses server-side while the card's graphs are off-screen.
+  const cardRef = useSparkGraphRef(spark.id);
 
+  const cpuUsage = spark.metrics.cpu?.usage ?? 0;
   const usage = gpu?.usage ?? 0;
   const tempRaw = gpu?.temperature ?? 0;
   const displayTemp = temperatureUnit === "fahrenheit" ? celsiusToFahrenheit(tempRaw) : tempRaw;
@@ -103,16 +129,17 @@ function SparkCard({
   const vramTotal = gpu?.vram?.total ?? um?.total ?? 0;
   const vramAvail = gpu?.vram?.available ?? um?.available ?? 0;
 
-  // Temperature bar: cool → success, warm → warning, hot → danger
+  // Temperature bar: <68°C green, 68–73°C orange, 73°C+ red
   const tempBarColor =
-    tempRaw > 85 ? "bg-danger" : tempRaw > 65 ? "bg-warning" : tempRaw > 40 ? "bg-accent" : "bg-success";
-  // Usage bar: accent for moderate, warning high, danger critical
-  const usageBarColor = usage > 85 ? "bg-danger" : usage > 60 ? "bg-warning" : "bg-accent";
-  // VRAM allocation: accent normal → warning/danger as it fills
-  const vramBarColor = vramPct > 85 ? "bg-danger" : vramPct > 60 ? "bg-warning" : "bg-accent";
+    tempRaw >= 73 ? "bg-danger" : tempRaw >= 68 ? "bg-warning" : "bg-success";
+  // Usage bar: cyan, red from 90%+
+  const usageBarColor = usage >= 90 ? "bg-danger" : "bg-bar-usage";
+  // VRAM allocation: purple, red only at critical
+  const vramBarColor = vramPct > 95 ? "bg-danger" : "bg-bar-vram";
 
   return (
     <div
+      ref={cardRef}
       className="overview-card flex flex-col"
       style={{
         padding: "var(--density-card-pad)",
@@ -198,7 +225,7 @@ function SparkCard({
         </span>
       </div>
 
-      {!online || !gpu ? (
+  {!online || (!gpu && gpuMonitored) ? (
         <div className="flex h-[120px] items-center justify-center">
           <span className="text-[13px] text-muted">
             {online ? "Waiting for metrics…" : "Host unreachable"}
@@ -206,22 +233,16 @@ function SparkCard({
         </div>
       ) : (
         <>
-          {/* Three headline bars: GPU alloc, Temp, Usage */}
+          {/* Three headline bars: RAM, GPU alloc, Temp, Usage */}
           <div className="flex flex-col gap-3.5">
-            <MetricBar
-              label="VRAM"
-              value={vramUsed}
-              max={vramTotal}
-              color={vramBarColor}
-              caption={vramTotal > 0 ? `${fmtStorage(vramUsed, false)} / ${fmtStorage(vramTotal, true)}` : "—"}
-            />
-            {spark.kind === "host" && (() => {
-              // Non-Spark hosts: system RAM is separate from discrete VRAM.
+            {(() => {
+              // System RAM — always shown on the dashboard (crucial when we
+              // track more than just VRAM). Separate from discrete VRAM.
               const ram = spark.metrics.ram;
               const rUsed = ram?.used ?? 0;
               const rTotal = ram?.total ?? 0;
               const rPct = rTotal > 0 ? Math.round((rUsed / rTotal) * 100) : 0;
-              const ramBarColor = rPct > 85 ? "bg-danger" : rPct > 60 ? "bg-warning" : "bg-accent";
+              const ramBarColor = rPct > 95 ? "bg-danger" : rPct > 75 ? "bg-warning" : "bg-bar-ram";
               return (
                 <MetricBar
                   label="RAM"
@@ -232,17 +253,28 @@ function SparkCard({
                 />
               );
             })()}
-            <MetricBar
-              label={
-                spark.kind === "host" || (spark.metrics.cpu?.temperature ?? 0) > 0
-                  ? "GPU"
-                  : "Temperature"
-              }
-              value={displayTemp}
-              max={temperatureUnit === "fahrenheit" ? 212 : 100}
-              color={tempBarColor}
-              caption={tempLabel}
-            />
+            {gpuMonitored && (
+              <MetricBar
+                label="VRAM"
+                value={vramUsed}
+                max={vramTotal}
+                color={vramBarColor}
+                caption={vramTotal > 0 ? `${fmtStorage(vramUsed, false)} / ${fmtStorage(vramTotal, true)}` : "—"}
+              />
+            )}
+            {gpuMonitored && (
+              <MetricBar
+                label={
+                  spark.kind === "host" || (spark.metrics.cpu?.temperature ?? 0) > 0
+                    ? "GPU"
+                    : "Temperature"
+                }
+                value={displayTemp}
+                max={temperatureUnit === "fahrenheit" ? 212 : 100}
+                color={tempBarColor}
+                caption={tempLabel}
+              />
+            )}
             {(spark.metrics.cpu?.temperature ?? 0) > 0 && (() => {
               const cpuRaw = spark.metrics.cpu?.temperature ?? 0;
               const cpuDisplay =
@@ -250,7 +282,7 @@ function SparkCard({
               const cpuLabel =
                 temperatureUnit === "fahrenheit" ? `${cpuDisplay}°F` : `${cpuDisplay}°C`;
               const cpuBarColor =
-                cpuRaw > 95 ? "bg-danger" : cpuRaw > 85 ? "bg-warning" : cpuRaw > 50 ? "bg-accent" : "bg-success";
+                cpuRaw >= 73 ? "bg-danger" : cpuRaw >= 68 ? "bg-warning" : "bg-success";
               return (
                 <MetricBar
                   label="CPU"
@@ -269,28 +301,38 @@ function SparkCard({
                 Thermal throttle
               </div>
             )}
-            <MetricBar
-              label="Usage"
-              value={usage}
-              max={100}
-              color={usageBarColor}
-              caption={`${usage}%`}
-            />
+            {gpuMonitored && (
+              <MetricBar
+                label="Usage"
+                value={usage}
+                max={100}
+                color={usageBarColor}
+                caption={`${usage}%`}
+              />
+            )}
+            {!gpuMonitored && (
+              <MetricBar
+                label="Usage - CPU"
+                value={cpuUsage}
+                max={100}
+                color={cpuUsage >= 90 ? "bg-danger" : "bg-bar-usage"}
+                caption={`${cpuUsage}%`}
+              />
+            )}
           </div>
 
           {/* Secondary stats */}
           <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2.5 border-t border-border pt-3.5">
-            <MiniStat
-              label="GPU Power"
-              value={`${gpu?.power?.draw ?? 0}W / ${gpu?.power?.limit ?? 0}W`}
-            />
-            {vramAvail > 0 && (
+            {gpuMonitored && (
               <MiniStat
-                label="Available"
-                value={formatMb(vramAvail)}
-                tone={vramAvail < 4096 ? "danger" : vramAvail < 16384 ? "warning" : "accent"}
+                label="GPU Power"
+                value={`${gpu?.power?.draw ?? 0}W / ${gpu?.power?.limit ?? 0}W`}
               />
             )}
+            <MiniStat
+              label="CPU Power"
+              value={`${spark.metrics.cpu?.draw ?? 0}W / ${spark.metrics.cpu?.tdp ?? 0}W`}
+            />
             {(() => {
               // Find the root disk by label "/" (the collector maps the host
               // root mount to that label). Fall back to the GB10 partition name
@@ -310,7 +352,7 @@ function SparkCard({
               }
               return null;
             })()}
-            {(() => {
+{(() => {
               const role = resolveSparkRole(spark);
 
               // Workers have no local LLM API — show cluster/model label instead.
@@ -334,7 +376,7 @@ function SparkCard({
                 );
               }
 
-              // Head / Standalone: same as before — live backend + model id.
+              // Head / Standalone: live backend + model id (Requests moved to footer).
               const llmArr = spark.metrics.llm;
               const llm = Array.isArray(llmArr) ? llmArr.find((l) => l.available) : null;
               if (!llm) return null;
@@ -369,7 +411,7 @@ function SparkCard({
             const llm = Array.isArray(llmArr) ? llmArr.find((l) => l.available) : null;
             if (!llm) return null;
             return (
-              <div className="mt-3.5 grid grid-cols-2 gap-2 border-t border-border pt-3">
+              <div className="overview-tps-footer mt-3.5 grid grid-cols-2 gap-2 border-t border-border pt-3">
                 <div className="text-center">
                   <span className="font-tabular text-[28px] font-bold leading-none text-text-strong">
                     {llm.generationTps.toFixed(0)}
@@ -400,6 +442,9 @@ export function OverviewPage({
   showOverviewSearch = false,
   temperatureUnit = "celsius",
   onSelectSpark,
+  models,
+  showModelLauncher = true,
+  connected = false,
 }: OverviewPageProps) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "online" | "offline" | "issues">("all");
@@ -418,6 +463,11 @@ export function OverviewPage({
   const [shutdownOpen, setShutdownOpen] = useState(false);
   /** Spark ids we started a batch Hermes update on; drives the live progress bar. */
   const [batchRun, setBatchRun] = useState<string[] | null>(null);
+  // Live idle counts published by the AI Proxy / Dev Engine panels on their own
+  // 5 s poll (AiProxyPanel / DevEnginePanel call these every cycle). AutoPower
+  // displays THESE — the same numbers, the same cadence, never a third query.
+  const [proxyIdle, setProxyIdle] = useState<ProxyLive | null>(null);
+  const [engineIdle, setEngineIdle] = useState<EngineLive | null>(null);
 
   const onlineShutdownCount = sparks.filter((s) => s.online).length;
   const hermesMonitoredCount = sparks.filter((s) => s.hermes?.monitoring).length;
@@ -552,12 +602,21 @@ export function OverviewPage({
         ? "Auto-hide is enabled and no Sparks are currently online."
         : "Click the + tab to add a DGX Spark unit.";
     return (
-      <div className="panel mx-auto mt-16 max-w-md p-8 text-center">
-        <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-accent-soft text-accent">
-          <ActivityIcon className="h-5 w-5" />
+      <div style={{ display: "flex", flexDirection: "column", gap: "var(--density-overview-rhythm)" }}>
+        <div className="overview-page grid sm:grid-cols-2" style={{ gap: "var(--density-page-gap)" }}>
+          <AiProxyPanel onIdleCounts={setProxyIdle} />
+          <DevEnginePanel onIdleCounts={setEngineIdle} />
         </div>
-        <h2 className="text-sm font-semibold text-text-strong">{title}</h2>
-        <p className="mt-1 text-xs text-muted">{detail}</p>
+        {/* Full-width: direct child of the page column, not the 2-col grid. */}
+        {showModelLauncher && <ModelLauncherPanel models={models} connected={connected} />}
+        <AutoPowerPanel proxyIdle={proxyIdle} engineIdle={engineIdle} />
+        <div className="panel mx-auto mt-4 max-w-md p-8 text-center">
+          <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-accent-soft text-accent">
+            <ActivityIcon className="h-5 w-5" />
+          </div>
+          <h2 className="text-sm font-semibold text-text-strong">{title}</h2>
+          <p className="mt-1 text-xs text-muted">{detail}</p>
+        </div>
       </div>
     );
   }
@@ -566,6 +625,14 @@ export function OverviewPage({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--density-overview-rhythm)" }}>
+      {/* Panels first — AI Proxy + Spark Dev Engine */}
+      <div className="overview-page grid sm:grid-cols-2" style={{ gap: "var(--density-page-gap)" }}>
+        <AiProxyPanel llmMetrics={aggregateLlm(sparks)} onIdleCounts={setProxyIdle} />
+        <DevEnginePanel onIdleCounts={setEngineIdle} />
+      </div>
+      {/* Full-width: direct child of the page column, not the 2-col grid. */}
+      {showModelLauncher && <ModelLauncherPanel models={models} connected={connected} />}
+      <AutoPowerPanel proxyIdle={proxyIdle} engineIdle={engineIdle} />
       {showFleetEnergy ? <FleetEnergyCard nodeCount={sparks.length} /> : null}
       {showFleetExceptions ? <FleetAlertStrip sparks={sparks} onSelect={onSelectSpark} /> : null}
       <div className="flex flex-wrap items-end justify-between gap-6">
@@ -602,7 +669,7 @@ export function OverviewPage({
               <div className="h-1 w-36 overflow-hidden rounded-full bg-border">
                 <div
                   className={`h-full rounded-full transition-[width] duration-300 ease-out ${
-                    batchProg.failed > 0 ? "bg-danger" : "bg-accent"
+                    batchProg.failed > 0 ? "bg-danger" : "bg-bar"
                   }`}
                   style={{
                     width: `${batchProg.total > 0 ? Math.round((batchProg.done / batchProg.total) * 100) : 0}%`,

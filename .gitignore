@@ -1,5 +1,8 @@
 node_modules/
 dist/
+# PWA app icons are rasterized from assets/bolt.svg by scripts/make-icons.mjs
+# (runs automatically via the npm "prebuild" hook). Commit the generator, not output.
+public/icons/
 .env
 sparks.json
 config/sparks-secrets.json
@@ -15,6 +18,14 @@ config/.fleet-energy.json.*.tmp
 config/gpu-memory.json
 config/gpu-memory.json.*
 config/bench-exports/
+# Model launcher state (registry / scheduler config / job + override state).
+# Same convention as sparks.json: machine-local runtime data, never committed.
+config/models.json
+config/models-active.json
+config/scheduler.json
+config/model-scheduler-state.json
+config/autopower.json
+config/autopower-state.json
 *.log
 .DS_Store
 docs/

@@ -702,12 +702,13 @@ export function LlmPanel({
             </div>
           )}
 
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-muted">Generation tok/s</span>
-            <div className="flex items-center gap-2">
-              <Sparkline data={genHistory} color="var(--color-accent)" height={24} />
+          <div className="flex items-center justify-between gap-4">
+            <span className="shrink-0 text-xs text-muted">Generation tok/s</span>
+            <div className="flex items-center gap-3">
+              <Sparkline data={genHistory} color="var(--color-accent)" height={24} width={160} />
               <div className="text-right">
-                <div className="font-tabular text-sm font-semibold text-accent">
+                {/* Fixed-width (≥7ch incl. ".0") so the digit column doesn't jump around */}
+                <div className="min-w-[7ch] font-tabular text-3xl font-bold leading-none text-accent">
                   {generationTps.toFixed(1)}
                 </div>
                 {genAvg != null && (
@@ -723,10 +724,11 @@ export function LlmPanel({
             title="Tokens/sec while the engine is reading the prompt and building KV cache — before the first output token. Opening a saved chat in the UI does not hit the GPU; send (or regenerate) so the history is sent as the prompt. Prefix-cache hits do little compute, so this can stay ~0. Long cold prefills show here until decode starts."
           >
             <span className="text-xs text-muted">Prefill tok/s</span>
-            <div className="flex items-center gap-2">
-              <Sparkline data={prefillHistory} color="var(--color-text)" height={24} />
+            <div className="flex items-center gap-3">
+              <Sparkline data={prefillHistory} color="var(--color-text)" height={24} width={160} />
               <div className="text-right">
-                <div className="font-tabular text-sm font-semibold text-text">
+                {/* Fixed-width (≥7ch incl. ".0") so the digit column doesn't jump around */}
+                <div className="min-w-[7ch] font-tabular text-3xl font-bold leading-none text-text">
                   {prefillTps.toFixed(1)}
                 </div>
                 {prefillAvg != null && (

@@ -453,7 +453,7 @@ export class LlmProbe {
     const dtSec = (now - this.lastProbeTime) / 1000;
     this.lastProbeTime = now;
 
-    // Model info from /v1/models — 401/403 means protected; other failure = down
+    // ── Fetch /v1/models (required) + /metrics in parallel ──
     let modelsOk = false;
     let owned = null;
     let servedModelId = null;

@@ -1,8 +1,9 @@
 {
-  "pollIntervalMs": 1000,
-  "defaultLlmPort": 8888,
+  "pollIntervalMs": 2000,
+  "defaultLlmPort": 8000,
   "autoHideOffline": false,
   "temperatureUnit": "celsius",
   "benchDebugTraces": false,
-  "density": "compact"
+  "density": "comfortable",
+  "showModelLauncher": true
 }

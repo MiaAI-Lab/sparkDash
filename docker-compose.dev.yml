@@ -33,9 +33,18 @@ services:
       - SPARKDASH_ALLOW_OPEN_REMOTE=${SPARKDASH_ALLOW_OPEN_REMOTE:-1}
       - PORT=5555
       - LLM_PORT=8888
+      # Spark Dev Engine integration ports (API + Web UI)
+      - DEV_ENGINE_API_PORT=10000
+      - DEV_ENGINE_WEBUI_PORT=10001
+      # AI proxy lives on spark1; dev engine is co-located (see docker-compose.yml)
+      - AI_PROXY_HOST=spark1.lan
       - NODE_ENV=development
       - HOST_PROC_PATH=/host/proc
       - HOST_SYS_PATH=/host/sys
       - HOST_ROOT_PATH=/host/root
+      # Model Launcher allowlist base on the target Sparks (see docker-compose.yml)
+      - MODEL_REPOS_BASE=/home/pavelkubicek/cluster/docker
+      # Operator local timezone — scheduler windows must not drift with UTC.
+      - TZ=Europe/Prague
       - SSH_CONTROL_PERSIST_SECONDS=${SSH_CONTROL_PERSIST_SECONDS:-60}
       - SSH_IDENTITY_FILE=${SSH_IDENTITY_FILE:-}

@@ -1,15 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 import { FleetEnergyCard } from "./FleetEnergyCard";
 import { flush, render } from "../../testing/render";
-import type { FleetEnergy } from "../../api/types";
+import type { FleetEnergy, Settings } from "../../api/types";
 
 vi.mock("../../api/client", () => ({
   fetchFleetEnergy: vi.fn(),
+  updateSettings: vi.fn(),
 }));
 
-import { fetchFleetEnergy } from "../../api/client";
+import { fetchFleetEnergy, updateSettings } from "../../api/client";
 
 const fetchEnergy = vi.mocked(fetchFleetEnergy);
+const updateSettingsMock = vi.mocked(updateSettings);
 
 function energy(overrides: Partial<FleetEnergy> = {}): FleetEnergy {
   return {
@@ -29,6 +31,7 @@ function energy(overrides: Partial<FleetEnergy> = {}): FleetEnergy {
     nodeCoverage24hMs: {},
     nodeCoverage31dMs: {},
     hourlyWatts24h: Array.from({ length: 24 }, (_, hour) => (hour % 4 === 0 ? null : 100 + hour)),
+    alwaysSampling: true,
     ...overrides,
   };
 }
@@ -65,5 +68,21 @@ describe("FleetEnergyCard states", () => {
     const failed = render(<FleetEnergyCard nodeCount={2} />);
     await flush();
     expect(failed.container.textContent).toContain("Energy telemetry unavailable: disk write failed");
+  });
+
+  it("renders and toggles the 24/7 keep-sampling switch", async () => {
+    fetchEnergy.mockResolvedValue(energy({ alwaysSampling: false }));
+    updateSettingsMock.mockResolvedValue(
+      { energyAlwaysSampling: true } as unknown as Settings
+    );
+    const { container } = render(<FleetEnergyCard nodeCount={2} />);
+    await flush();
+    const sw = container.querySelector('[role="switch"]') as HTMLButtonElement;
+    expect(sw.getAttribute("aria-checked")).toBe("false");
+    sw.click();
+    await flush();
+    expect(updateSettingsMock).toHaveBeenCalledWith({ energyAlwaysSampling: true });
+    // Optimistic until the next server poll confirms the flip.
+    expect(sw.getAttribute("aria-checked")).toBe("true");
   });
 });
