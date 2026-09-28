@@ -4,23 +4,6 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>sparkDash — Multi-DGX Spark Monitoring Dashboard</title>
-
-  <!-- Pre-paint theme: apply the saved theme before the bundle loads so neither
-       the boot splash nor the app flashes the wrong colors. Mirrors ThemeSwitch's
-       storage key/validity in src/components/ThemeSwitch.tsx. -->
-  <script>
-    (function () {
-      var valid = ["white", "light", "dark", "oled"];
-      var t = "dark";
-      try {
-        var s = localStorage.getItem("sparkdash-theme");
-        if (s && valid.indexOf(s) !== -1) t = s;
-      } catch (e) {}
-      document.documentElement.setAttribute("data-theme", t);
-      document.documentElement.style.colorScheme = t === "light" || t === "white" ? "light" : "dark";
-    })();
-  </script>
-
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23e8a830' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M13 2L3 14h9l-1 8 10-12h-9l1-8z'/></svg>" />
   <meta name="description" content="Live monitoring and control for NVIDIA DGX Spark fleets: GPU, thermal, power, LLM inference and benchmarks." />
   <meta name="theme-color" content="#0d1117" />
@@ -30,110 +13,9 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-title" content="sparkDash" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-
-  <!-- Boot splash: inline styles + markup so it paints with the very first frame,
-       before the ~160 kB JS bundle and app CSS arrive. main.tsx fades it out.
-       Selectors key on [data-theme] on <html> (set by the pre-paint script). -->
-  <style>
-    .boot {
-      position: fixed;
-      inset: 0;
-      z-index: 9999;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 22px;
-      font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
-      background: linear-gradient(160deg, #0d1117 0%, #10151c 40%, #141920 100%);
-      color: #e6edf3;
-      --boot-accent: #58a6ff;
-      --boot-glow: rgba(88, 166, 255, 0.55);
-      transition: opacity 0.5s ease, transform 0.5s ease;
-    }
-    [data-theme="light"] .boot {
-      background: linear-gradient(160deg, #c5c3bc 0%, #c2bfb6 40%, #ccc8be 100%);
-      color: #14130f;
-      --boot-accent: #e8a830;
-      --boot-glow: rgba(232, 168, 48, 0.5);
-    }
-    [data-theme="white"] .boot {
-      background: linear-gradient(160deg, #c8c8c8 0%, #c4c4c4 40%, #cccccc 100%);
-      color: #111111;
-      --boot-accent: #e8a830;
-      --boot-glow: rgba(232, 168, 48, 0.5);
-    }
-    [data-theme="oled"] .boot {
-      background: linear-gradient(160deg, #000000 0%, #000000 40%, #050505 100%);
-      color: #f0f6fc;
-      --boot-accent: #e8a830;
-      --boot-glow: rgba(232, 168, 48, 0.45);
-    }
-    .boot__bolt {
-      width: 96px;
-      height: 96px;
-      color: var(--boot-accent);
-      filter: drop-shadow(0 0 26px var(--boot-glow));
-      animation: boot-pulse 2.6s ease-in-out infinite;
-    }
-    .boot__bolt path { fill: currentColor; }
-    .boot__word {
-      font-size: 26px;
-      font-weight: 600;
-      letter-spacing: -0.01em;
-      user-select: none;
-    }
-    .boot__word b { color: var(--boot-accent); font-weight: 600; }
-    .boot__tag {
-      font-size: 12px;
-      font-weight: 500;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-      opacity: 0.45;
-    }
-    @keyframes boot-pulse {
-      0%, 100% { transform: scale(1); opacity: 0.92; }
-      50% { transform: scale(1.045); opacity: 1; }
-    }
-    .boot--hide {
-      opacity: 0;
-      transform: scale(1.04);
-      pointer-events: none;
-      animation: none;
-    }
-    @media (prefers-reduced-motion: reduce) {
-      .boot__bolt { animation: none; }
-      .boot { transition: opacity 0.3s ease; }
-    }
-  </style>
 </head>
 <body>
-  <div class="boot" id="boot" role="status" aria-label="Loading sparkDash">
-    <svg class="boot__bolt" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-    </svg>
-    <div class="boot__word">spark<b>Dash</b></div>
-    <div class="boot__tag">DGX&nbsp;Spark&nbsp;Console</div>
-  </div>
-
   <div id="root"></div>
-  <script>
-    // main.tsx fades the boot splash once React has painted. The 12 s fallback is
-    // inline (not in the bundle) so the splash can never strand on-screen if the
-    // module fails to load or execute (e.g. a hard-offline cold start).
-    (function () {
-      var done = false;
-      window.__hideSplash = function () {
-        if (done) return;
-        done = true;
-        var el = document.getElementById("boot");
-        if (!el) return;
-        el.classList.add("boot--hide");
-        setTimeout(function () { el.remove(); }, 600);
-      };
-      setTimeout(window.__hideSplash, 12000);
-    })();
-  </script>
   <script type="module" src="/src/main.tsx"></script>
 </body>
 </html>

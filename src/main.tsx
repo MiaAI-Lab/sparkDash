@@ -3,24 +3,10 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
 
-// Defined by the inline boot script in index.html; fades the splash away.
-declare global {
-  interface Window {
-    __hideSplash?: () => void;
-  }
-}
-
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <App />
   </StrictMode>,
-);
-
-// Reveal the app once it has actually painted: wait two animation frames (a
-// committed frame is on-screen) plus a ~450 ms minimum, so the boot splash reads
-// as a deliberate transition rather than a strobe.
-requestAnimationFrame(() =>
-  requestAnimationFrame(() => window.setTimeout(() => window.__hideSplash?.(), 450)),
 );
 
 // Register the PWA service worker for offline app shell + installability.

@@ -3,11 +3,11 @@
 // This is a LIVE telemetry dashboard. GPU/power/LLM numbers and WebSocket
 // streams must never be served from cache: a stale reading presented as live is
 // worse than an offline error. So the SW caches only the static app shell
-// (index.html + hashed /assets + manifest) and passes every API call,
+// (index.html + hashed /assets + /icons + manifest) and passes every API call,
 // WebSocket connection, and non-GET request straight to the network untouched.
 //
 // Cache key bumped on deploy-invalidating changes; activate purges old versions.
-const VERSION = "sparkdash-v2";
+const VERSION = "sparkdash-v1";
 const SHELL = "shell-" + VERSION;
 const WORK = "work-" + VERSION;
 
@@ -48,10 +48,7 @@ self.addEventListener("fetch", (event) => {
   }
 
   // Immutable hashed build assets: cache-first, then network, then store.
-  // /icons/ are fixed-name (non-hashed) so they stay out here — a cache-first
-  // rule would serve stale icons after a regeneration; they fall through to the
-  // network-first handler below instead.
-  if (url.pathname.startsWith("/assets/")) {
+  if (url.pathname.startsWith("/assets/") || url.pathname.startsWith("/icons/")) {
     event.respondWith(
       caches.match(req).then(
         (hit) =>
