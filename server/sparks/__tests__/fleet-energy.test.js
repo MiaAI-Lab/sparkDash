@@ -253,6 +253,46 @@ test("power telemetry freshness accepts current and 10-second-old real monitor s
   );
 });
 
+test("power telemetry freshness certifies CPU-only nodes when GPU monitoring is off", () => {
+  const hasFreshPowerTelemetry = runtimeFunction("hasFreshPowerTelemetry");
+  const now = 50_000;
+  const cpuOnlyMonitor = monitorWithCollectionState({ cpuAt: now, gpuAt: undefined });
+  const cpuOnly = realShapeSnapshot("node-a", { gpuMonitoring: false });
+  cpuOnly.metrics.gpu = null;
+
+  assert.equal(hasFreshPowerTelemetry(cpuOnly, cpuOnlyMonitor, now), true);
+  assert.equal(
+    hasFreshPowerTelemetry(
+      cpuOnly,
+      monitorWithCollectionState({ cpuAt: now - 10_001, gpuAt: undefined }),
+      now
+    ),
+    false,
+    "the CPU freshness window applies to CPU-only nodes too"
+  );
+  assert.equal(
+    hasFreshPowerTelemetry(
+      cpuOnly,
+      monitorWithCollectionState({ cpuAt: now, gpuAt: undefined, cpuSuccessful: false }),
+      now
+    ),
+    false
+  );
+  assert.equal(
+    hasFreshPowerTelemetry(
+      realShapeSnapshot("node-a", { gpuMonitoring: false, online: false }),
+      cpuOnlyMonitor,
+      now
+    ),
+    false
+  );
+  assert.equal(
+    hasFreshPowerTelemetry(realShapeSnapshot(), cpuOnlyMonitor, now),
+    false,
+    "monitoring-enabled nodes must not drop the GPU requirement"
+  );
+});
+
 test("power telemetry freshness rejects liveness, clock, default-result, and power-input failures", () => {
   const hasFreshPowerTelemetry = runtimeFunction("hasFreshPowerTelemetry");
   const now = 50_000;
@@ -588,6 +628,38 @@ test("estimator clamps CPU usage and total node power", () => {
   assert.equal(estimateNodeWatts(nodeSnapshot("node-a", { gpuDraw: 500 })), 240);
 });
 
+test("estimator applies the CPU-only model only when GPU monitoring is off", () => {
+  const cpuOnly = {
+    telemetryFresh: true,
+    gpuMonitoring: false,
+    metrics: { gpu: null, cpu: { usage: 50 } },
+  };
+  almostEqual(estimateNodeWatts(cpuOnly), 5.2 + ((65 - 5.2) * 50) / 100 + 23);
+  almostEqual(
+    estimateNodeWatts({ ...cpuOnly, metrics: { gpu: null, cpu: { usage: 0 } } }),
+    28.2
+  );
+  // A board draw stays authoritative even on CPU-only-licensed nodes.
+  almostEqual(
+    estimateNodeWatts({
+      telemetryFresh: true,
+      gpuMonitoring: false,
+      metrics: { gpu: { power: { draw: 10 } }, cpu: { usage: 0 } },
+    }),
+    38.2
+  );
+  assert.equal(
+    estimateNodeWatts({ ...cpuOnly, gpuMonitoring: undefined }),
+    null,
+    "without the explicit opt-out there is no license to guess from CPU alone"
+  );
+  assert.equal(estimateNodeWatts({ ...cpuOnly, telemetryFresh: false }), null);
+  assert.equal(
+    estimateNodeWatts({ ...cpuOnly, metrics: { gpu: null, cpu: { usage: Number.NaN } } }),
+    null
+  );
+});
+
 test("estimator requires explicit telemetryFresh true", () => {
   const onlineOnly = nodeSnapshot("node-a", { online: true });
   delete onlineOnly.telemetryFresh;
@@ -667,7 +739,7 @@ test("a disappearing node cannot invent a ramp when it reappears", () => {
   almostEqual(tracker.snapshot(6_000).energy24hKwh, (200 * 2_000) / 3_600_000 / 1000);
 });
 
-test("full-fleet samples drive the arithmetic 30 second mean and simultaneous coverage", () => {
+test("currentWatts30s sums the newest certified watts of every node in the window", () => {
   const tracker = new FleetEnergyTracker(noTimerOptions());
   tracker.record(fleetSnapshots(100), 0);
   tracker.record(fleetSnapshots(200), 2_000);
@@ -676,7 +748,10 @@ test("full-fleet samples drive the arithmetic 30 second mean and simultaneous co
 
   const snapshot = tracker.snapshot(6_000);
   assert.equal(snapshot.freshNodeCount, 4);
-  almostEqual(snapshot.currentWatts30s, (400 + 800 + 960) / 3);
+  // Newest per-node watts (all four at the 240 W envelope — watts=300
+  // requests are clamped) — no averaging across stale samples, and partial
+  // coverage no longer suppresses the value.
+  assert.equal(snapshot.currentWatts30s, 960);
   assert.equal(snapshot.coverage24hMs, 2_000);
   assert.equal(snapshot.coverage31dMs, 2_000);
   assert.deepEqual(snapshot.nodeCoverage24hMs, {
@@ -688,12 +763,18 @@ test("full-fleet samples drive the arithmetic 30 second mean and simultaneous co
   assert.deepEqual(Object.keys(snapshot.nodeCoverage31dMs), CANONICAL_NODE_IDS);
 });
 
-test("currentWatts30s excludes stale full-fleet samples and is null without any", () => {
+test("currentWatts30s sums only nodes with a fresh certified sample and is null without any", () => {
   const tracker = new FleetEnergyTracker(noTimerOptions());
   assert.equal(tracker.snapshot(0).currentWatts30s, null);
   tracker.record(fleetSnapshots(100), 0);
   tracker.record(fleetSnapshots(200), 31_000);
   assert.equal(tracker.snapshot(31_000).currentWatts30s, 800);
+
+  // Partial coverage: node-d stops reporting; its newest sample expires from
+  // the 30 s window while the remaining three keep summing, then all expire.
+  tracker.record(fleetSnapshots(200).slice(0, 3), 33_000);
+  assert.equal(tracker.snapshot(62_000).currentWatts30s, 600);
+  assert.equal(tracker.snapshot(70_000).currentWatts30s, null);
 });
 
 test("a backward wall-clock step clears live baselines without recounting prior intervals", () => {

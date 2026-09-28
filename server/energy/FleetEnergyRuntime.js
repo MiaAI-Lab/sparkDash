@@ -29,20 +29,28 @@ function wasCollectionSuccessful(monitor, domain) {
   return monitor?._metricCollectionSuccessful?.[domain] === true;
 }
 
-/** Determine whether a normal SparkMonitor snapshot has current usable power telemetry. */
+/**
+ * Determine whether a normal SparkMonitor snapshot has current usable power
+ * telemetry. Nodes explicitly configured with `gpuMonitoring: false` have no
+ * board-draw signal to wait for, so fresh, successfully collected CPU
+ * telemetry alone certifies them (estimateNodeWatts applies the CPU-only model).
+ */
 export function hasFreshPowerTelemetry(snapshot, monitor, atMs) {
-  const gpu = snapshot?.metrics?.gpu;
+  if (snapshot?.online !== true) return false;
   const cpu = snapshot?.metrics?.cpu;
-  return (
-    snapshot?.online === true &&
-    wasCollectionSuccessful(monitor, "gpu") &&
+  const cpuFresh =
     wasCollectionSuccessful(monitor, "cpu") &&
-    hasFreshTimestamp(monitor?._lastUpdate?.gpu, atMs) &&
     hasFreshTimestamp(monitor?._lastUpdate?.cpu, atMs) &&
-    !isDefaultGpuResult(gpu) &&
     !isDefaultCpuResult(cpu) &&
-    Number.isFinite(gpu?.power?.draw) &&
-    Number.isFinite(cpu?.usage)
+    Number.isFinite(cpu?.usage);
+  if (!cpuFresh) return false;
+  if (snapshot?.gpuMonitoring === false) return true;
+  const gpu = snapshot?.metrics?.gpu;
+  return (
+    wasCollectionSuccessful(monitor, "gpu") &&
+    hasFreshTimestamp(monitor?._lastUpdate?.gpu, atMs) &&
+    !isDefaultGpuResult(gpu) &&
+    Number.isFinite(gpu?.power?.draw)
   );
 }
 

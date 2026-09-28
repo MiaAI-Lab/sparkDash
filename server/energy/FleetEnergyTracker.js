@@ -11,7 +11,6 @@ const MAX_COMPLETED_BUCKETS = 44_640;
 const MAX_GAP_MS = 10_000;
 const CURRENT_WINDOW_MS = 30_000;
 const DEFAULT_FLUSH_INTERVAL_MS = 30_000;
-const MAX_RECENT_SAMPLES = 10_000;
 const MAX_NODE_WH_PER_MINUTE = 4;
 const MIN_NODE_WATTS = 28.2;
 const PERSISTENCE_RELATIVE_TOLERANCE = 1e-9;
@@ -192,23 +191,31 @@ function writeStateAtomically(filePath, contents, fileSystem) {
 /**
  * Estimate a node's whole-system draw from raw GPU and CPU telemetry.
  *
- * Callers must explicitly mark combined GPU/CPU telemetry fresh. Liveness alone
- * is insufficient because SparkMonitor can retain stale domain values.
+ * Callers must explicitly mark combined GPU/CPU telemetry fresh. Liveness
+ * alone is insufficient because SparkMonitor can retain stale domain
+ * values. Nodes with `gpuMonitoring: false` estimate from CPU telemetry
+ * only (see hasFreshPowerTelemetry for the matching gate).
  */
 export function estimateNodeWatts(snapshot) {
   const gpuDraw = snapshot?.metrics?.gpu?.power?.draw;
   const cpuUsage = snapshot?.metrics?.cpu?.usage;
-  if (
-    snapshot?.telemetryFresh !== true ||
-    !validNonnegative(gpuDraw) ||
-    !Number.isFinite(cpuUsage)
-  ) {
+  if (snapshot?.telemetryFresh !== true || !Number.isFinite(cpuUsage)) {
     return null;
   }
 
   const boundedCpuUsage = clamp(cpuUsage, 0, 100);
   const cpuWatts = 5.2 + ((65 - 5.2) * boundedCpuUsage) / 100;
-  return clamp(gpuDraw + cpuWatts + 23, 0, 240);
+  if (validNonnegative(gpuDraw)) {
+    return clamp(gpuDraw + cpuWatts + 23, 0, 240);
+  }
+  // No board draw: legitimate only for nodes explicitly configured with
+  // gpuMonitoring off (hasFreshPowerTelemetry then certifies CPU alone).
+  // The model is CPU + base overhead — 28.2 W at idle, matching the
+  // per-node floor used for bucket validation.
+  if (snapshot?.gpuMonitoring === false) {
+    return clamp(cpuWatts + 23, 0, 240);
+  }
+  return null;
 }
 
 export class FleetEnergyTracker {
@@ -241,7 +248,7 @@ export class FleetEnergyTracker {
     this._integrationHighWaterMs = null;
     this._tokenCounter = null;
     this._tokenNeedsRebase = false;
-    this._recentFullFleetSamples = [];
+    this._recentNodeSamples = new Map();
     this._latestFreshNodeCount = 0;
     this._latestRecordAt = null;
     this._membershipChanged = false;
@@ -280,7 +287,7 @@ export class FleetEnergyTracker {
     this._currentNodeIds = normalized;
     this._membershipChanged = !unchanged;
     if (this._membershipChanged) {
-      this._recentFullFleetSamples = [];
+      this._recentNodeSamples.clear();
       this._latestFreshNodeCount = 0;
     }
     return this._membershipChanged;
@@ -376,11 +383,10 @@ export class FleetEnergyTracker {
 
   _pruneRecentSamples(atMs) {
     const cutoff = atMs - CURRENT_WINDOW_MS;
-    this._recentFullFleetSamples = this._recentFullFleetSamples.filter(
-      (sample) => sample.atMs >= cutoff && sample.atMs <= atMs
-    );
-    if (this._recentFullFleetSamples.length > MAX_RECENT_SAMPLES) {
-      this._recentFullFleetSamples = this._recentFullFleetSamples.slice(-MAX_RECENT_SAMPLES);
+    for (const [id, sample] of this._recentNodeSamples) {
+      if (sample.atMs < cutoff || sample.atMs > atMs) {
+        this._recentNodeSamples.delete(id);
+      }
     }
   }
 
@@ -423,7 +429,7 @@ export class FleetEnergyTracker {
       this._tokenNeedsRebase = true;
       this._nodeBaselines.clear();
       this._fleetBaseline = null;
-      this._recentFullFleetSamples = [];
+      this._recentNodeSamples.clear();
       this._latestFreshNodeCount = 0;
     }
 
@@ -459,6 +465,10 @@ export class FleetEnergyTracker {
       }
       this._nodeBaselines.set(id, { atMs: timestamp, watts });
     }
+    // Current-watts view: keep the newest certified watts for each node.
+    for (const [id, watts] of validNodes) {
+      this._recentNodeSamples.set(id, { atMs: timestamp, watts });
+    }
 
     let hasFullFleetInterval = false;
     if (this.nodeIds.length > 0 && validNodes.size === this.nodeIds.length) {
@@ -479,7 +489,6 @@ export class FleetEnergyTracker {
         integratedAtTimestamp = true;
       }
       this._fleetBaseline = { atMs: timestamp, watts: fleetWatts };
-      this._recentFullFleetSamples.push({ atMs: timestamp, watts: fleetWatts });
     } else {
       this._fleetBaseline = null;
     }
@@ -562,10 +571,13 @@ export class FleetEnergyTracker {
     this._prune(safeTimestamp);
     const last24h = this._window(safeTimestamp, DAY_MS);
     const last31d = this._window(safeTimestamp, RETENTION_MS);
-    const sampleCount = this._recentFullFleetSamples.length;
-    const currentWatts30s = sampleCount > 0
-      ? this._recentFullFleetSamples.reduce((sum, sample) => sum + sample.watts, 0) / sampleCount
-      : null;
+    // Partial coverage is honest here: sum the newest certified watts of
+    // whatever nodes hold a sample inside the 30-second window. Null only
+    // when no node qualifies; freshNodeCount states how many nodes sum in.
+    let currentWatts30s = null;
+    for (const sample of this._recentNodeSamples.values()) {
+      currentWatts30s = (currentWatts30s ?? 0) + sample.watts;
+    }
     const latestRecordAgeMs =
       this._latestRecordAt === null ? null : safeTimestamp - this._latestRecordAt;
     const freshNodeCount =
