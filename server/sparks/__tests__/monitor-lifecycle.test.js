@@ -7,6 +7,7 @@ import {
   SystemCollector,
   collectionWasSuccessful,
 } from "../../collectors/SystemCollector.js";
+import { hasFreshPowerTelemetry } from "../../energy/FleetEnergyRuntime.js";
 
 function spark() {
   return {
@@ -236,4 +237,54 @@ test("a storage refresh from an earlier run cannot commit or clear a restarted r
   assert.deepEqual(monitor.snapshot().metrics.storage, [{ mount: "/current" }]);
   assert.equal(monitor._inflight.storage, false);
   monitor.stop();
+});
+
+function validCpu() {
+  return { usage: 20, temperature: 41, draw: 12.5, tdp: 65 };
+}
+
+function remoteSpark() {
+  return { ...spark(), isLocal: false, gpuMonitoring: true };
+}
+
+function bundle(cpu, gpu) {
+  return { cpu, ram: { total: 128, used: 40 }, unifiedMemory: {}, network: null, gpu };
+}
+
+test("remote bundle poll commits the gpu/cpu provenance the fleet-energy sampler requires", async () => {
+  const monitor = new SparkMonitor(remoteSpark());
+  monitor._running = true;
+  monitor.online = true;
+
+  monitor.collector.collectRemoteBundle = async () =>
+    bundle(tagged(validCpu()), tagged(validGpu()));
+  await monitor._pollSystem();
+  assert.deepEqual(monitor._metricCollectionSuccessful, { gpu: true, cpu: true });
+  assert.equal(hasFreshPowerTelemetry(monitor.snapshot(), monitor, Date.now()), true);
+
+  // Real non-zero values explicitly tagged unsuccessful (partial remote
+  // report) must NOT pass: timestamps alone cannot certify provenance.
+  monitor.collector.collectRemoteBundle = async () =>
+    bundle(tagged(validCpu(), false), tagged(validGpu(43), false));
+  await monitor._pollSystem();
+  assert.deepEqual(monitor._metricCollectionSuccessful, { gpu: false, cpu: false });
+  assert.equal(hasFreshPowerTelemetry(monitor.snapshot(), monitor, Date.now()), false);
+});
+
+test("a failed bundle transport clears power-telemetry provenance", async (t) => {
+  t.mock.method(console, "error", () => {});
+  const monitor = new SparkMonitor(remoteSpark());
+  monitor._running = true;
+
+  monitor.collector.collectRemoteBundle = async () =>
+    bundle(tagged(validCpu()), tagged(validGpu()));
+  await monitor._pollSystem();
+  assert.deepEqual(monitor._metricCollectionSuccessful, { gpu: true, cpu: true });
+
+  monitor.collector.collectRemoteBundle = async () => {
+    throw new Error("ssh transport timeout");
+  };
+  await monitor._pollSystem();
+  assert.deepEqual(monitor._metricCollectionSuccessful, { gpu: false, cpu: false });
+  assert.equal(monitor._inflight.system, false, "the guard must release on transport failure");
 });

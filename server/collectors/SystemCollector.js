@@ -1670,13 +1670,13 @@ export class SystemCollector {
    */
   async collectRemoteBundle() {
     const domains = [
-      { key: "cpu", build: () => this._buildRemoteCpuCommand(), parse: (t) => this._parseRemoteCpu(t), fallback: () => this._defaultCpu() },
+      { key: "cpu", build: () => this._buildRemoteCpuCommand(), parse: (t) => this._parseRemoteCpu(t), fallback: () => this._defaultCpu(), successful: (v) => this._isSuccessfulCpuCollection(v) },
       { key: "ram", build: () => this._buildRemoteRamCommand(), parse: (t) => this._parseRemoteRam(t), fallback: () => this._defaultRam() },
       { key: "network", build: () => this._buildRemoteNetworkCommand(), parse: (t) => this._parseRemoteNetwork(t), fallback: () => this._defaultNetwork() },
       { key: "unifiedMemory", build: () => this._buildRemoteUnifiedMemoryCommand(), parse: (t) => this._parseRemoteUnifiedMemory(t), fallback: () => this._defaultUnifiedMemory() },
     ];
     if (this.spark.gpuMonitoring !== false) {
-      domains.push({ key: "gpu", build: () => this._buildRemoteGpuCommand(), parse: (t) => this._parseRemoteGpu(t), fallback: () => this._defaultGpu() });
+      domains.push({ key: "gpu", build: () => this._buildRemoteGpuCommand(), parse: (t) => this._parseRemoteGpu(t), fallback: () => this._defaultGpu(), successful: (v) => this._isSuccessfulGpuCollection(v) });
     }
     const sep = SystemCollector.BUNDLE_SEP;
     const cmd = domains.map((d) => d.build()).join(`; echo '${sep}'; `);
@@ -1693,12 +1693,19 @@ export class SystemCollector {
     const result = {};
     domains.forEach((d, i) => {
       const text = (blocks[i] || []).join("\n");
+      let value;
       try {
-        result[d.key] = d.parse(text);
+        value = d.parse(text);
       } catch (err) {
         console.error(`[SystemCollector] Remote ${d.key} bundle parse error for ${this.spark.id}:`, err.message);
-        result[d.key] = d.fallback();
+        value = d.fallback();
       }
+      // A domain with a success predicate (cpu/gpu) carries the same
+      // provenance tag as the standalone collect* paths: a fallback default
+      // fails its own predicate, so parse failures are tagged unsuccessful.
+      result[d.key] = d.successful
+        ? tagCollectionResult(value, d.successful(value))
+        : value;
     });
     return result;
   }

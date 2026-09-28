@@ -811,6 +811,7 @@ export class SparkMonitor {
       if (!this._running) return;
       const now = Date.now();
       this._metrics.cpu = bundle.cpu;
+      this._metricCollectionSuccessful.cpu = collectionWasSuccessful(bundle.cpu);
       this._lastUpdate.cpu = now;
       this._metrics.ram = bundle.ram;
       this._lastUpdate.ram = now;
@@ -829,9 +830,16 @@ export class SparkMonitor {
       }
       if (bundle.gpu && this._gpuMonitoringEnabled()) {
         this._metrics.gpu = bundle.gpu;
+        this._metricCollectionSuccessful.gpu = collectionWasSuccessful(bundle.gpu);
         this._lastUpdate.gpu = now;
       }
     } catch (err) {
+      // Transport failure: nothing in this bundle was collected, so drop
+      // power-telemetry provenance exactly like a rejected per-domain poll.
+      if (this._running) {
+        this._metricCollectionSuccessful.cpu = false;
+        this._metricCollectionSuccessful.gpu = false;
+      }
       console.error(`[SparkMonitor] ${this.spark.id} system bundle poll error:`, err.message);
     } finally {
       this._inflight.system = false;
