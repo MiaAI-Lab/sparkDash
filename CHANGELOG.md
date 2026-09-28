@@ -10,6 +10,7 @@ Format: version sections are listed newest first.
 ## [Unreleased]
 
 ### Added
+- **TensorFold LLM backend** — detected from `/v1/models` (`owned_by: tensorfold`), labeled on the LLM card and Overview. Live tok/s reads cumulative token totals from `/health` when the server publishes them; stock TensorFold does not yet, so it shows 0 tok/s until it does. Benches and showcase work as on any OpenAI-compatible server.
 - **Custom prefill size** — type any token count from 256–300k in the prefill benchmark (plus the preset chips).
 - **q27 LLM backend** — detect signalnine/q27 via `/v1/models` ownership or `q27_*` Prometheus series; report backend-aware decode/prefill rates and inference-health telemetry.
 - **Hide worker nodes** — Settings toggle. Worker-role Sparks drop off Overview cards and the tab bar (the open worker tab stays). Direct URLs and batch Wake / Shutdown / Hermes still include them.

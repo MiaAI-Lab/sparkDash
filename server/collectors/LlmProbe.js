@@ -66,7 +66,7 @@ export class LlmProbe {
     this.baseUrl = `http://${llmProbeHost(spark)}:${port}`;
 
     // State
-    this.backendType = null; // 'vllm' | 'llama.cpp' | 'sglang' | 'ds4' | 'exl3' | 'q27' | null
+    this.backendType = null; // 'vllm' | 'llama.cpp' | 'sglang' | 'ds4' | 'exl3' | 'q27' | 'tensorfold' | null
     this.serverIsOpenAI = null; // true = OpenAI-compatible
     /** Whether /v1/models (or /slots) answered without credentials. null = unknown. */
     this.authOpen = null;
@@ -298,7 +298,8 @@ export class LlmProbe {
       this.backendType !== "sglang" &&
       this.backendType !== "ds4" &&
       this.backendType !== "exl3" &&
-      this.backendType !== "q27"
+      this.backendType !== "q27" &&
+      this.backendType !== "tensorfold"
     ) {
       const slotUrl = `${this.baseUrl}/slots`;
       try {
@@ -345,9 +346,9 @@ export class LlmProbe {
   }
 
   /**
-   * Classify an OpenAI-compatible server: ds4, SGLang, EXL3, q27, or vLLM (default).
+   * Classify an OpenAI-compatible server: ds4, SGLang, EXL3, q27, TensorFold, or vLLM (default).
    * @param {unknown} ownedBy
-   * @returns {Promise<"ds4" | "sglang" | "exl3" | "q27" | "vllm">}
+   * @returns {Promise<"ds4" | "sglang" | "exl3" | "q27" | "tensorfold" | "vllm">}
    */
   async _classifyOpenAIBackend(ownedBy) {
     if (typeof ownedBy === "string") {
@@ -356,6 +357,8 @@ export class LlmProbe {
       if (/exl3/i.test(ownedBy)) return "exl3";
       // q27's /v1/models reports owned_by: "q27" (signalnine/q27 engine).
       if (/q27/i.test(ownedBy)) return "q27";
+      // TensorFold (ashhart/TensorFold) reports owned_by: "tensorfold" on both MLX and CUDA servers.
+      if (/tensorfold/i.test(ownedBy)) return "tensorfold";
     }
     if (await this._probeIsDs4()) return "ds4";
     if (await this._probeIsSglang()) return "sglang";
@@ -489,7 +492,26 @@ export class LlmProbe {
         this.backendType = "sglang";
       } else if (/exl3/i.test(owned) && this.backendType !== "ds4") {
         this.backendType = "exl3";
+      } else if (/tensorfold/i.test(owned) && this.backendType !== "ds4") {
+        this.backendType = "tensorfold";
       }
+    }
+
+    // TensorFold: no Prometheus. /health carries cumulative token totals when the
+    // server publishes them; without them tok/s stays 0 rather than guessing.
+    if (this.backendType === "tensorfold") {
+      try {
+        const healthRes = await this._fetch(`${this.baseUrl}/health`);
+        if (healthRes.ok) {
+          const health = await healthRes.json().catch(() => null);
+          this._applyTensorFoldHealth(health, dtSec);
+        } else {
+          this._applyTensorFoldHealth(null, dtSec);
+        }
+      } catch {
+        this._applyTensorFoldHealth(null, dtSec);
+      }
+      return this._getSnapshot();
     }
 
     // EXL3 serve_openai.py: live tok/s from /health cumulative counters (no Prometheus).
@@ -832,6 +854,21 @@ export class LlmProbe {
     if (Number.isFinite(prompt)) this.lastTokenCounts.input = prompt;
     this.lastTokenCounts.output = completion;
     this.totalOutputTokens = completion;
+  }
+
+  /**
+   * Apply TensorFold GET /health. Same counter contract as EXL3 (`prompt_tokens_total`,
+   * `completion_tokens_total`, optional `busy` / `context_length`). The MLX server's
+   * `max_batch_size` sizes the slot tile; the CUDA server's `{ok: true}` has no counters,
+   * so rates read 0 instead of a made-up number.
+   * @param {Record<string, unknown> | null} data
+   * @param {number} dtSec
+   */
+  _applyTensorFoldHealth(data, dtSec) {
+    const health = data && typeof data === "object" && !Array.isArray(data) ? data : {};
+    this._applyExl3Health(health, dtSec);
+    const batch = Number(health.max_batch_size);
+    if (Number.isFinite(batch) && batch > 0) this.slotsTotal = Math.round(batch);
   }
 
   /**
