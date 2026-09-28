@@ -9,6 +9,10 @@ Format: version sections are listed newest first.
 
 ## [Unreleased]
 
+---
+
+## [1.8.9] — 2026-09-28
+
 ### Added
 - **TensorFold LLM backend** — detected from `/v1/models` (`owned_by: tensorfold`), labeled on the LLM card and Overview. Live tok/s reads cumulative token totals from `/health` when the server publishes them; stock TensorFold does not yet, so it shows 0 tok/s until it does. Benches and showcase work as on any OpenAI-compatible server.
 - **Custom prefill size** — type any token count from 256–300k in the prefill benchmark (plus the preset chips).
