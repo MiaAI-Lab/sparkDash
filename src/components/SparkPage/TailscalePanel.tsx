@@ -1,6 +1,7 @@
 import type { TailscaleMetrics } from "../../api/types";
 import { Panel } from "../ui/Panel";
 import { NetworkIcon } from "../ui/icons";
+import { useShareMode } from "../../hooks/shareMode";
 
 interface TailscalePanelProps {
   tailscale: TailscaleMetrics | null;
@@ -11,6 +12,7 @@ interface TailscalePanelProps {
  * invisible off it" — every other panel is LAN-fed and looks fine.
  */
 export function TailscalePanel({ tailscale }: TailscalePanelProps) {
+  const shareMode = useShareMode();
   const online = tailscale?.online ?? null;
   const health = tailscale?.health ?? [];
   const available = Boolean(tailscale?.available);
@@ -54,8 +56,8 @@ export function TailscalePanel({ tailscale }: TailscalePanelProps) {
       )}
 
       <div className="space-y-2">
-        {tailscale?.tailscaleIp && <Row label="IP" value={tailscale.tailscaleIp} tabular />}
-        {tailscale?.hostName && <Row label="Host" value={tailscale.hostName} />}
+        {tailscale?.tailscaleIp && <Row label="IP" value={shareMode ? "•••" : tailscale.tailscaleIp} tabular />}
+        {tailscale?.hostName && <Row label="Host" value={shareMode ? "•••" : tailscale.hostName} />}
         {tailscale?.relay && <Row label="Relay" value={tailscale.relay} />}
         {tailscale?.keyExpired && <Row label="Key" value="EXPIRED — needs re-auth" danger />}
         {tailscale?.version && <Row label="Version" value={tailscale.version} tabular />}

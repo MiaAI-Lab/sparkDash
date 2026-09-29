@@ -27,6 +27,12 @@ const DEFAULTS = Object.freeze({
   showFleetExceptions: false,
   /** Overview search + status filter row. Off by default. */
   showOverviewSearch: false,
+    /**
+   * Per-Spark manual gauge scale maxima: { [sparkId]: { gen, prefill } } in
+   * tok/s (Addendum E). An empty entry defers to the model-keyed scale in
+   * src/config/display.js MODEL_SCALES.
+   */
+  gaugeScales: {},
   /**
    * Benchmark dialogs offer the share-card format. On by default: the extra
    * control is one caret next to a button that already copies, and anyone who
@@ -63,6 +69,19 @@ function _clampSettings(settings) {
   // Ensure density is valid
   if (s.density !== "comfortable" && s.density !== "compact") {
     s.density = DEFAULTS.density;
+  }
+  // Sanitize gaugeScales — per-Spark { gen, prefill } positive numbers or null
+  // (null = defer to the model-keyed scale).
+  if (s.gaugeScales == null || typeof s.gaugeScales !== "object" || Array.isArray(s.gaugeScales)) {
+    s.gaugeScales = {};
+  } else {
+    const num = (x) => (typeof x === "number" && Number.isFinite(x) && x > 0 ? x : null);
+    const clean = {};
+    for (const [id, v] of Object.entries(s.gaugeScales)) {
+      if (!v || typeof v !== "object" || Array.isArray(v)) continue;
+      clean[id] = { gen: num(v.gen), prefill: num(v.prefill) };
+    }
+    s.gaugeScales = clean;
   }
   return s;
 }
