@@ -1261,6 +1261,29 @@ export class LlmProbe {
   }
 
   /**
+   * Cumulative prefill tokens that actually did compute (cache misses).
+   * Prefers the per-mode counters; falls back to prompt − cached when only the
+   * plain prompt counter exists. Kept separate from prompt_tokens_total, which
+   * also counts cache-served tokens (the bulk of a warm session).
+   * @param {string} txt
+   * @returns {number | null}
+   */
+  _sglangPrefillComputeTokens(txt) {
+    const direct =
+      this._getPromMetricLabeled(txt, "sglang:realtime_tokens_total", "mode", "prefill_compute") ??
+      this._getPromMetricLabeled(txt, "sglang_realtime_tokens_total", "mode", "prefill_compute") ??
+      this._getPromMetricLabeled(txt, "sglang:prefill_effective_tokens_total", "mode", "input") ??
+      this._getPromMetricLabeled(txt, "sglang_prefill_effective_tokens_total", "mode", "input");
+    if (direct != null) return direct;
+    const prompt =
+      this._getPromMetric(txt, "sglang:prompt_tokens_total") ??
+      this._getPromMetric(txt, "sglang_prompt_tokens_total");
+    const cached = this._sglangCachedTokens(txt);
+    if (prompt != null && cached != null) return Math.max(0, prompt - cached);
+    return null;
+  }
+
+  /**
    * Apply SGLang Prometheus /metrics (--enable-metrics).
    * Supports both `sglang:` and `sglang_` prefixes.
    * @param {string} txt
@@ -1288,6 +1311,14 @@ export class LlmProbe {
       return;
     }
 
+    // Prefill accounting: the tile counts every prompt token taken in this
+    // window — cache-served + computed — and the split rows below break it
+    // down. The per-mode counters are exact; prompt_tokens_total alone cannot
+    // tell the two apart (it also folds in host/storage hits), so it is the
+    // fallback for builds without the realtime series.
+    const prefillCompute = this._sglangPrefillComputeTokens(txt);
+    const cached = this._sglangCachedTokens(txt);
+
     // Difference only against our own baseline; after a server-info hand-off
     // the first sample seeds instead of reporting the gap between two series.
     const ownsBaseline = this._sglangTokenSource !== "server_info";
@@ -1305,10 +1336,11 @@ export class LlmProbe {
       } else {
         this.generationTps = Math.max(0, Math.round((deltaOut / dtSec) * 100) / 100);
       }
-      if (prompt != null) {
+      if (prefillCompute == null && prompt != null) {
+        // No per-mode counters: the prompt counter is the only total we have.
         const deltaIn = prompt - this.lastTokenCounts.input;
-        this._setPrefillTps(deltaIn / dtSec, deltaOut > 0);
-      } else if (deltaOut <= 0) {
+        this.prefillTps = Math.max(0, Math.round((deltaIn / dtSec) * 100) / 100);
+      } else if (prefillCompute == null && deltaOut <= 0) {
         this.prefillTps = 0;
       }
     }
@@ -1324,9 +1356,20 @@ export class LlmProbe {
     const cachedNow = this._sglangCachedTokens(txt);
     if (cachedNow != null) this.totalCachedTokens = cachedNow;
 
-    const cached = this._sglangCachedTokens(txt);
-    if (cached != null && prompt != null) {
-      this._setPrefillSplitRates(cached, prompt, dtSec);
+    // The tile reads cache-served + computed; the split rows below show the
+    // two parts. Poll-window rates, not latches: a window that prefilled
+    // nothing reads 0 even while unrelated requests are still decoding
+    // (holding the last value here kept a stale number on screen for hours).
+    if (prefillCompute != null && cached != null) {
+      this._setPrefillSplitRates(cached, prefillCompute, dtSec);
+      if (
+        canDiff &&
+        this.uncachedPrefillTps != null &&
+        this.cachedPrefillTps != null
+      ) {
+        const total = this.uncachedPrefillTps + this.cachedPrefillTps;
+        this.prefillTps = Math.max(0, Math.round(total * 100) / 100);
+      }
     }
   }
 
@@ -1335,18 +1378,18 @@ export class LlmProbe {
    * Prefers cache_source="device" so HiCache L1/L2/L3 labels are not summed.
    */
   _applySglangPrefillSplit(txt, dtSec) {
-    const prompt =
-      this._getPromMetric(txt, "sglang:prompt_tokens_total") ??
-      this._getPromMetric(txt, "sglang_prompt_tokens_total");
+    const compute = this._sglangPrefillComputeTokens(txt);
     const cached = this._sglangCachedTokens(txt);
     if (cached != null) this.totalCachedTokens = cached;
-    if (cached != null && prompt != null) {
-      this._setPrefillSplitRates(cached, prompt, dtSec);
+    if (compute != null && cached != null) {
+      this._setPrefillSplitRates(cached, compute, dtSec);
     }
   }
 
   _sglangCachedTokens(txt) {
     return (
+      this._getPromMetricLabeled(txt, "sglang:realtime_tokens_total", "mode", "prefill_cache") ??
+      this._getPromMetricLabeled(txt, "sglang_realtime_tokens_total", "mode", "prefill_cache") ??
       this._getPromMetricLabeled(txt, "sglang:cached_tokens_total", "cache_source", "device") ??
       this._getPromMetricLabeled(txt, "sglang_cached_tokens_total", "cache_source", "device") ??
       this._getPromMetricMax(txt, "sglang:cached_tokens_total") ??
