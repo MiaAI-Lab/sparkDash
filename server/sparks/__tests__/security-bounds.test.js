@@ -5,6 +5,7 @@ import {
   assertAllowedTarget,
   createRateLimiter,
   DECODE_BENCH_WORK_LIMIT,
+  isAllowedTargetHost,
   validateDecodeBudget,
   validatePrefillBudget,
 } from "../../validate.js";
@@ -42,6 +43,19 @@ test("target policy handles IPv4 and IPv6 forbidden ranges", async () => {
   await assert.rejects(assertAllowedTarget("fe80::1", allowed), /forbidden address/);
   await assert.rejects(assertAllowedTarget("ff02::1", allowed), /forbidden address/);
   await assert.rejects(assertAllowedTarget("::", allowed), /forbidden address/);
+});
+
+test("IPv4-mapped metadata is rejected when the address is written in hex", () => {
+  assert.equal(isAllowedTargetHost("169.254.169.254"), false);
+  assert.equal(isAllowedTargetHost("::ffff:169.254.169.254"), false);
+  assert.equal(isAllowedTargetHost("::ffff:a9fe:a9fe"), false);
+  assert.equal(isAllowedTargetHost("0:0:0:0:0:ffff:a9fe:a9fe"), false);
+  assert.equal(isAllowedTargetHost("::FFFF:A9FE:A9FE"), false);
+  assert.equal(isAllowedTargetHost("::ffff:0:0"), false);
+  assert.equal(isAllowedTargetHost("::ffff:e000:1"), false);
+  assert.equal(isAllowedTargetHost("::ffff:a00:1"), true);
+  assert.equal(isAllowedTargetHost("::ffff:c0a8:101"), true);
+  assert.equal(isAllowedTargetHost("10.0.0.1"), true);
 });
 
 test("rate limiter storage is TTL-bounded and enforces a global key ceiling", () => {
