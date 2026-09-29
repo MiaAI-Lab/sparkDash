@@ -223,6 +223,35 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
               </label>
             </div>
 
+            {/* Benchmark share image */}
+            <div>
+              <label className="flex items-start gap-3 text-xs text-muted">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={Boolean(settings.benchShareImage)}
+                  onClick={() => update({ benchShareImage: !settings.benchShareImage })}
+                  className={`toggle-track relative mt-0.5 inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                    settings.benchShareImage ? "is-on" : ""
+                  }`}
+                >
+                  <span
+                    className={`toggle-dot inline-block h-4 w-4 transform rounded-full shadow transition-transform ${
+                      settings.benchShareImage ? "translate-x-4" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+                <span>
+                  <span className="block text-text">Benchmark share image</span>
+                  <span className="mt-0.5 block text-[10px] leading-snug text-muted">
+                    On by default. The decode/prefill <em>Copy results</em> button gains a caret with
+                    <em> Copy as text</em> / <em>Copy as image</em> (a share card). Turn it off to keep
+                    the plain text button.
+                  </span>
+                </span>
+              </label>
+            </div>
+
             {/* Fleet Energy */}
             <div>
               <label className="flex items-start gap-3 text-xs text-muted">

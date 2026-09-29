@@ -1,7 +1,6 @@
 import express from "express";
 import { createServer } from "http";
 import { WebSocketServer } from "ws";
-import { spawn } from "child_process";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -21,6 +20,7 @@ import { authorizeUpgrade, configuredToken, createAuthMiddleware, requireRemoteA
 import { inspectHealth } from "./health.js";
 import { getSettings, updateSettings, loadSettings } from "./settings.js";
 import { broadcastForLanIp, effectiveMac, normalizeMac, sendWol } from "./wol.js";
+import { remoteShutdownCommand, spawnLocalShutdown } from "./shutdown.js";
 import {
   decodeBenchManager,
   DECODE_BENCH_DEFAULTS,
@@ -1410,22 +1410,14 @@ app.delete("/api/sparks/:id/llm/showcase/:sessionId", (req, res) => {
 });
 
 // ─── Power management ────────────────────────────────────
-// Shutdown uses host script: sudo -n /usr/local/bin/spark-shutdown (passwordless).
+// Shutdown uses the host script /usr/local/bin/spark-shutdown (see server/shutdown.js
+// for the local host-namespace drop and the remote command string).
 // These routes are unauthenticated like the rest of the LAN dashboard — do not
 // expose port 5555 beyond a trusted network.
 
-const SHUTDOWN_BIN = "/usr/local/bin/spark-shutdown";
-/**
- * Remote: verify script + passwordless sudo, then background shutdown so SSH
- * returns before the host dies. Failures before backgrounding surface to the UI.
- */
-const SHUTDOWN_REMOTE_CMD = [
-  `test -x ${SHUTDOWN_BIN} || { echo "missing ${SHUTDOWN_BIN}" >&2; exit 127; }`,
-  `sudo -n true || { echo "sudo -n required for ${SHUTDOWN_BIN}" >&2; exit 126; }`,
-  `nohup sudo -n ${SHUTDOWN_BIN} >/dev/null 2>&1 &`,
-  `sleep 0.3`,
-  `exit 0`,
-].join("; ");
+/** Remote: verify script + passwordless sudo, then background shutdown so SSH
+ * returns before the host dies. Failures before backgrounding surface to the UI. */
+const SHUTDOWN_REMOTE_CMD = remoteShutdownCommand();
 
 function shutdownErrorStatus(msg) {
   if (/timed out|connection refused|unreachable|no route|ECONNREFUSED|ETIMEDOUT/i.test(msg)) {
@@ -1451,26 +1443,7 @@ function isBenignShutdownSshError(msg) {
  */
 function initiateSparkShutdown(spark) {
   if (spark.isLocal) {
-    return new Promise((resolve, reject) => {
-      try {
-        const child = spawn("sudo", ["-n", SHUTDOWN_BIN], {
-          detached: true,
-          stdio: "ignore",
-        });
-        child.on("error", (err) => {
-          const msg = err.message || String(err);
-          if (/ENOENT|not found/i.test(msg)) {
-            reject(new Error(`${SHUTDOWN_BIN} not found on this host`));
-          } else {
-            reject(new Error(msg));
-          }
-        });
-        child.unref();
-        resolve("Shutdown initiated");
-      } catch (err) {
-        reject(err);
-      }
-    });
+    return spawnLocalShutdown();
   }
 
   return sshExec(spark, SHUTDOWN_REMOTE_CMD, { timeoutMs: 8000 })

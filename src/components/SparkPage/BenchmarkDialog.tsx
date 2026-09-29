@@ -9,6 +9,8 @@ import {
 } from "../../api/client";
 import type { DecodeBenchJob, DecodeBenchPromptType, LlmBenchTarget } from "../../api/types";
 import { useModalPresence } from "../../hooks/useModalPresence";
+import { BenchCopyButton } from "./BenchCopyButton";
+import { buildDecodeShareCard, shareCardFileName } from "./benchShareCard";
 import { formatLlmBaseUrl } from "../../shared/llmTarget.js";
 import {
   DECODE_BENCH_DEFAULT_TYPE,
@@ -29,6 +31,10 @@ interface BenchmarkDialogProps {
   llmPort: number;
   modelId: string | null;
   remoteTarget?: LlmBenchTarget | null;
+  /** Settings → Benchmark share image: the copy button also carries the card. */
+  shareImage?: boolean;
+  /** Unit display name for the share-card header. */
+  sparkName?: string | null;
 }
 
 function useEscape(onClose: () => void, enabled: boolean) {
@@ -155,6 +161,8 @@ export function BenchmarkDialog({
   llmPort,
   modelId,
   remoteTarget = null,
+  shareImage = false,
+  sparkName = null,
 }: BenchmarkDialogProps) {
   const [selected, setSelected] = useState<number[]>([...DEFAULT_SELECTED]);
   const [maxTokensDraft, setMaxTokensDraft] = useState(String(DEFAULT_MAX_TOKENS));
@@ -163,7 +171,6 @@ export function BenchmarkDialog({
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [loadingLast, setLoadingLast] = useState(false);
-  const [copied, setCopied] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const benchPort = remoteTarget?.port ?? llmPort;
@@ -363,30 +370,6 @@ export function BenchmarkDialog({
     stopPoll();
     setJob(null);
     setError(null);
-  };
-
-  const handleCopyResults = async () => {
-    if (!job || job.results.length === 0) return;
-    const text = buildShareText(job, modelId);
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-      } else {
-        const ta = document.createElement("textarea");
-        ta.value = text;
-        ta.style.position = "fixed";
-        ta.style.opacity = "0";
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand("copy");
-        document.body.removeChild(ta);
-      }
-      setCopied(true);
-      if (copyResetRef.current != null) clearTimeout(copyResetRef.current);
-      copyResetRef.current = setTimeout(() => setCopied(false), 1800);
-    } catch {
-      setError("Could not copy results to clipboard");
-    }
   };
 
   const handleClear = async () => {
@@ -649,14 +632,20 @@ export function BenchmarkDialog({
                 </button>
               )}
               {job.results.length > 0 && (
-                <button
-                  type="button"
-                  className="bench-btn bench-btn--ghost"
-                  onClick={() => void handleCopyResults()}
-                  title="Copy a plain-text summary to the clipboard"
-                >
-                  {copied ? "Copied!" : "Copy results"}
-                </button>
+                <BenchCopyButton
+                  text={buildShareText(job, modelId)}
+                  buildCard={() =>
+                    buildDecodeShareCard(job, {
+                      llmPort: benchPort,
+                      modelId,
+                      sparkName,
+                      remoteHost: remoteTarget?.host ?? null,
+                    })
+                  }
+                  kind="decode"
+                  shareImage={shareImage}
+                  onError={setError}
+                />
               )}
               <button type="button" className="bench-btn bench-btn--ghost" onClick={handleNewRun}>
                 New run

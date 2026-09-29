@@ -9,13 +9,19 @@ Format: version sections are listed newest first.
 
 ## [Unreleased]
 
+---
+
+## [1.8.9] — 2026-09-28
+
 ### Added
 - **Multi-GPU hosts** — a dedicated GPU host with several NVIDIA cards now reports every card: the header names them all (`NVIDIA GeForce RTX 5080 + RTX 5060 Ti`), the GPU panel adds a block per card, and the API exposes `gpu.gpus[]`. `metrics.gpu` keeps its shape as the all-cards aggregate, so single-GPU units, including every DGX Spark, are unchanged.
+- **TensorFold LLM backend** — detected from `/v1/models` (`owned_by: tensorfold`), labeled on the LLM card and Overview. Live tok/s reads cumulative token totals from `/health` when the server publishes them; stock TensorFold does not yet, so it shows 0 tok/s until it does. Benches and showcase work as on any OpenAI-compatible server.
 - **Custom prefill size** — type any token count from 256–300k in the prefill benchmark (plus the preset chips).
 - **q27 LLM backend** — detect signalnine/q27 via `/v1/models` ownership or `q27_*` Prometheus series; report backend-aware decode/prefill rates and inference-health telemetry.
 - **Hide worker nodes** — Settings toggle. Worker-role Sparks drop off Overview cards and the tab bar (the open worker tab stays). Direct URLs and batch Wake / Shutdown / Hermes still include them.
 - **On-demand Remote bench** — a **Remote** button next to decode/prefill opens a host + port (HTTPS) field. Paste a Tailscale URL such as `https://name.ts.net/v1/models`; nothing is probed until you run Decode or Prefill against it.
 - **Decode / prefill benches on remote Sparks** — if the remote LLM is not reachable on its LAN IP (loopback-only bind), sparkDash opens an SSH local-forward to `127.0.0.1:<port>` for the job. Bench buttons stay on the LLM card even when the live probe shows no model.
+- **Benchmark share image** — the decode/prefill **Copy results** button is now a split button: the label copies the text summary as before, and the caret on its right offers **Copy as text** / **Copy as image** on hover or click. The image is a 1200×675-or-taller card drawn in the app's dark palette with the sparkDash mark, the unit, the model, one row per level and the same legend the dialog shows. On by default (Settings → **Benchmark share image** turns it off, restoring the plain text button); it copies where the page has an image clipboard — HTTPS or localhost — and otherwise downloads the PNG, and says so in the menu rather than pretending.
 
 ### Fixed
 - **GPU process VRAM on multi-GPU hosts** — the compute-apps cache was keyed by PID, so a process holding memory on two cards (llama.cpp with a layer split) showed only the last card's share. Entries are keyed by PID + GPU uuid and the process list sums a PID across cards.
@@ -23,7 +29,25 @@ Format: version sections are listed newest first.
 - **Decode bench 24×/32× work budget ([#93](https://github.com/MiaAI-Lab/sparkDash/issues/93))** — the post-1.8.6 security cap (131k total tokens) rejected a full concurrency sweep at 2048 max tokens. The cap is 262k so every advertised level fits.
 - **Prefill bench still dying at ~5 min** — Node undici aborts streams with no headers/body after 300s. Long prefills now use an Agent with those idle timeouts disabled; the per-size AbortSignal remains the bound.
 - **SGLang live Prefill tok/s latching ([#99](https://github.com/MiaAI-Lab/sparkDash/issues/99))** — the poll picked its Prometheus applier from the *displayed* rates, so a non-zero prefill kept selecting the cache-split path (which by design never writes `prefillTps`) and the value could not return to 0. Which applier runs now depends on whether `/server_info` carries `total_*` counters on that poll. The token baseline is also seeded outside the rate window, so the first poll after a restart no longer turns the engine's lifetime prompt counter into a rate.
+- **`SPARKDASH_TOKEN` never reached the container ([#86](https://github.com/MiaAI-Lab/sparkDash/pull/86))** — the compose file did not pass it through, so a `BIND_HOST=0.0.0.0` install failed closed no matter what `.env` said. The empty default still reads as "no token".
+- **Tailscale addresses classified as public ([#89](https://github.com/MiaAI-Lab/sparkDash/pull/89))** — `100.64.0.0/10`, where a tailnet lives, now reads as LAN on the endpoint-exposure indicator.
+- **SGLang served model ID ([#95](https://github.com/MiaAI-Lab/sparkDash/pull/95))** — the panel and the bench requests use the id from `/v1/models` (what the server accepts), keeping the native storage path on `modelPath`.
 - **Remote SSH session churn** — collectors reuse an authenticated SSH transport instead of creating a full SSH/PAM login for every metric poll. `SSH_CONTROL_PERSIST_SECONDS=0` restores one connection per command if needed.
+- **Shutdown controls ([#90](https://github.com/MiaAI-Lab/sparkDash/issues/90))** — three separate failures on the shutdown path: a local unit in Docker called the host helper from inside the container (no sudo there) instead of entering the host mount namespace; the remote command joined its lines with `;`, so the backgrounded line ended in `&;` and the shell rejected the whole script before running anything; and the authorization probe was `sudo -n true`, which a sudoers rule scoped to the helper does not authorize. The probe is now the helper's own `--check` (see the README contract), with `sudo -n true` kept as a fallback for broader sudo setups. A local unit whose helper or `nsenter` is missing now reports the error instead of logging success.
+
+---
+
+## [1.8.8] — 2026-09-22
+
+### Fixed
+- **SGLang overview tok/s stuck at 0** — `generation_tokens_total` on current SGLang builds only moves when a request finishes, so the live rate was 0 for the whole decode and then one spiked poll. Overview now uses `gen_throughput` while a request is running.
+
+---
+
+## [1.8.7] — 2026-09-22
+
+### Changed
+- **Decode bench code concurrency** — each concurrent code stream is a different Python task (binary search, LRU, …), starting with its own name so the prompts do not share a prefix. The code warmup is a separate `warmup_noop` prompt, so stream 1 is not a cache hit of the warmup. Concurrency 1 is `binary_search`.
 
 ---
 

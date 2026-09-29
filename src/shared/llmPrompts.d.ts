@@ -4,6 +4,8 @@ export const FILL_TO_MAX_SUFFIX: string;
 export const DECODE_STRUCTURED_PROMPT: string;
 export const DECODE_PROSE_PROMPT: string;
 export const DECODE_CODE_PROMPT: string;
+export const DECODE_CODE_TASKS: string[];
+export const DECODE_CODE_WARMUP_PROMPT: string;
 export const DECODE_JSON_PROMPT: string;
 export const DECODE_BENCH_TYPES: readonly ["structured", "prose", "code", "json"];
 export const DECODE_BENCH_DEFAULT_TYPE: "structured";

@@ -351,7 +351,9 @@ function SparkCard({
                             ? "EXL3"
                             : llm.backend === "q27"
                               ? "q27"
-                              : llm.backend ?? "LLM"
+                              : llm.backend === "tensorfold"
+                                ? "TensorFold"
+                                : llm.backend ?? "LLM"
                   }
                   value={llm.modelId ?? "unknown"}
                   tone="accent"
