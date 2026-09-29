@@ -82,6 +82,28 @@ test("_applyTensorFoldHealth: counter diffs → tok/s; idle → 0", () => {
     2
   );
   assert.equal(probe.generationTps, 0);
+  // No cached_tokens_total → the cached counter stays null (pre-0.5.0 build).
+  assert.equal(probe.totalCachedTokens, null);
+});
+
+test("_applyTensorFoldHealth: 0.5.0 health maps cached_tokens_total", () => {
+  const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888);
+  probe._applyTensorFoldHealth(
+    {
+      ok: true, busy: true, backend: "tensorfold",
+      prompt_tokens_total: 1000, completion_tokens_total: 200, cached_tokens_total: 640,
+      context_length: 262144,
+    },
+    2
+  );
+  assert.equal(probe.totalPromptTokens, 1000);
+  assert.equal(probe.totalCachedTokens, 640);
+  assert.equal(probe.contextLength, 262144);
+  // Cumulative counters are sticky across cycles: a health body without the
+  // fields (e.g. the MLX shape, or a transient gap) leaves them untouched.
+  probe._applyTensorFoldHealth({ ok: true }, 2);
+  assert.equal(probe.totalCachedTokens, 640);
+  assert.equal(probe.totalPromptTokens, 1000);
 });
 
 test("_applyTensorFoldHealth: MLX health sizes the slot tile; null health is safe", () => {
