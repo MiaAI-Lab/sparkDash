@@ -14,6 +14,7 @@ config/fleet-energy.json
 config/.fleet-energy.json.*.tmp
 config/gpu-memory.json
 config/gpu-memory.json.*
+config/token-bank.json
 config/bench-exports/
 *.log
 .DS_Store

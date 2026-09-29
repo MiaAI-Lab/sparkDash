@@ -299,6 +299,9 @@ export interface LlmMetrics {
   uncachedPrefillTps?: number | null;
   /** Cumulative total output (generation) tokens as reported by the LLM server */
   totalOutputTokens: number;
+  /** Live + banked generation tokens (survives engine restart). */
+  outputTokensLifetime?: number;
+  outputTokensBanked?: number;
   /** vLLM KV cache usage fraction (0–1). null when backend !== vllm or unreachable. */
   kvCacheUsage?: number | null;
   /** vLLM running request count. null when unavailable. */
@@ -411,6 +414,10 @@ export interface ComfyMetrics {
   pytorchVersion: string | null;
   /** Primary device type from /system_stats (e.g. cpu, cuda) — not VRAM. */
   deviceType?: string | null;
+  vramUsed?: number | null;
+  vramTotal?: number | null;
+  /** High-water VRAM while a job is running. */
+  vramPeak?: number | null;
   queueRunning: number;
   queuePending: number;
   /** Currently executing job, if any. */
