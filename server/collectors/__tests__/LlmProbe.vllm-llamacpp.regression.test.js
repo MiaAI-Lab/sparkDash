@@ -104,6 +104,7 @@ test("vLLM probe: counter diffs + tiles; skips get_server_info when known vllm",
   assert.equal(snap.kvCacheUsage, 0.42);
   assert.equal(snap.preemptionsTotal, 3);
   assert.equal(snap.prefixCacheHitRate, 0.5);
+  assert.equal(snap.totalCachedTokens, 10); // prefix_cache_hits_total is token-granular
   assert.equal(snap.mtpAcceptanceRate, 0.8);
   assert.equal(snap.available, true);
   assert.ok(!hits.some((h) => h.includes("get_server_info")));
@@ -304,6 +305,7 @@ test("llama.cpp probe: n_prompt_tokens_cache → cached vs uncached prefill", as
   };
   const snap = await probe.probe();
   assert.equal(snap.prefillTps, 10); // processed (25-5)/2
+  assert.equal(snap.totalCachedTokens, 40); // n_prompt_tokens_cache cumulative
   assert.equal(snap.uncachedPrefillTps, 10); // (25-5)/2
   assert.equal(snap.cachedPrefillTps, 15); // (40-10)/2
 });

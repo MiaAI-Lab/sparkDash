@@ -316,6 +316,8 @@ test("_applySglangServerInfo: prefers total_* counter diffs over last_gen", () =
   assert.equal(probe.generationTps, 50); // (150-50)/2
   assert.equal(probe.prefillTps, 100); // (300-100)/2
   assert.equal(probe.totalOutputTokens, 150);
+  assert.equal(probe.totalPromptTokens, 300);
+  assert.equal(probe.totalCachedTokens, null); // server_info without total_cached_tokens
 });
 
 test("probe: modern sglang without totals still reports last_gen tok/s", async () => {
