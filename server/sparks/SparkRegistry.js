@@ -626,6 +626,12 @@ export class SparkRegistry {
        * the SparkMonitor checks for updates and allows one-click `hermes update`.
        */
       hermesMonitoring: Boolean(config.hermesMonitoring),
+      /**
+       * Opt-in: allow setting CPU/GPU clock caps on this unit from the
+       * dashboard (applied live and/or persisted via the privileged host
+       * helper or the local container root path). Default false.
+       */
+      clockControlEnabled: Boolean(config.clockControlEnabled),
       disabledDevices: Array.isArray(config.disabledDevices) ? config.disabledDevices : [],
       disabledInterfaces: Array.isArray(config.disabledInterfaces) ? config.disabledInterfaces : [],
       storagePollDisabled: Boolean(config.storagePollDisabled),
