@@ -109,6 +109,28 @@ test("LlmTokenLedger: fallback keeps last known model when probe omits modelId",
   assert.equal(s.lastModelId, "org/a");
 });
 
+test("LlmTokenLedger: a missing model id warns on the second sample, not the first", () => {
+  const ledger = tmpLedger();
+  const warnings = [];
+  const orig = console.warn;
+  console.warn = (...args) => warnings.push(args.join(" "));
+  try {
+    const t0 = 1_730_000_000_000;
+    ledger.record([obs("spark-a", 8888, "org/a", 100, 0)], t0);
+    ledger.record([obs("spark-a", 8888, null, 140, 10)], t0 + 5_000);
+    assert.equal(warnings.length, 0);
+    ledger.record([obs("spark-a", 8888, null, 180, 20)], t0 + 10_000);
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /spark-a:8888/);
+    assert.match(warnings[0], /org\/a/);
+    ledger.record([obs("spark-a", 8888, "org/b", 200, 30)], t0 + 15_000);
+    assert.equal(warnings.length, 1);
+    assert.equal(ledger.snapshot().series[0].lastModelId, "org/b");
+  } finally {
+    console.warn = orig;
+  }
+});
+
 test("LlmTokenLedger: counter reset (engine restart) re-seeds without crediting", () => {
   const ledger = tmpLedger();
   const t0 = 1_730_000_000_000;

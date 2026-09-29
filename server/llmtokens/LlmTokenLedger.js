@@ -123,6 +123,8 @@ export class LlmTokenLedger {
     this._data = { version: 1, series: {} };
     this._dirty = false;
     this._flushTimer = null;
+    /** Consecutive samples that credited the previous model because the probe omitted modelId. */
+    this._fallbackStreak = new Map();
     this._load();
   }
 
@@ -240,8 +242,21 @@ export class LlmTokenLedger {
 
       // Attribute to the model the server reports now; when the probe could not
       // name one, stick to the series' last known model (never lose attribution).
+      // One missing sample is normal. A streak means the probe cannot name the
+      // model, so the previous model may be receiving tokens it did not serve.
       const modelId = obs.modelId ?? series.lastModelId ?? UNKNOWN_MODEL;
-      if (obs.modelId) series.lastModelId = obs.modelId;
+      if (obs.modelId) {
+        series.lastModelId = obs.modelId;
+        this._fallbackStreak.delete(key);
+      } else if (series.lastModelId) {
+        const streak = (this._fallbackStreak.get(key) || 0) + 1;
+        this._fallbackStreak.set(key, streak);
+        if (streak === 2) {
+          console.warn(
+            `[llm-tokens] ${key} has no model id for ${streak} samples; crediting ${series.lastModelId}`
+          );
+        }
+      }
 
       // First observation after start/reload only seeds the baseline.
       if (series.counters.output == null) {
