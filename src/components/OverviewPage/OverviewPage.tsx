@@ -8,6 +8,7 @@ import { FleetEnergyCard } from "./FleetEnergyCard";
 import { FleetAlertStrip } from "./FleetAlertStrip";
 import { FleetTokenTotals } from "./FleetTokenTotals";
 import { ActivityIcon, PowerOffIcon, PowerOnIcon, RotateIcon } from "../ui/icons";
+import { formatMb } from "../../shared/formatBytes";
 
 interface OverviewPageProps {
   sparks: SparkSnapshot[];
@@ -26,10 +27,7 @@ function celsiusToFahrenheit(c: number): number {
   return Math.round(c * 9 / 5 + 32);
 }
 
-function formatMb(mb: number): string {
-  if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
-  return `${Math.round(mb)} MB`;
-}
+
 
 /** Format a storage value in MB, stripping trailing ".0" and optionally omitting the unit. */
 function fmtStorage(mb: number, unit: boolean): string {

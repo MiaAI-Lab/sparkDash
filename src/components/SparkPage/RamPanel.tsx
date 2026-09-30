@@ -4,16 +4,12 @@ import { Panel } from "../ui/Panel";
 import { MemoryIcon } from "../ui/icons";
 import { MetricBar } from "../ui/MetricBar";
 import { useMetricsHistoryTail } from "../../hooks/metricsStore";
+import { formatMb } from "../../shared/formatBytes";
 
 interface RamPanelProps {
   ram: RamMetrics | null;
   sparkId: string;
   className?: string;
-}
-
-function formatMb(mb: number): string {
-  if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
-  return `${Math.round(mb)} MB`;
 }
 
 /**
