@@ -11,6 +11,7 @@ import type { DecodeBenchJob, DecodeBenchPromptType, LlmBenchTarget } from "../.
 import { useModalPresence } from "../../hooks/useModalPresence";
 import { BenchCopyButton } from "./BenchCopyButton";
 import { buildDecodeShareCard, shareCardFileName } from "./benchShareCard";
+import { formatDuration } from "../../shared/formatDuration";
 import { formatLlmBaseUrl } from "../../shared/llmTarget.js";
 import {
   DECODE_BENCH_DEFAULT_TYPE,
@@ -58,15 +59,6 @@ function useBodyScrollLock(locked: boolean) {
       document.body.style.overflow = prev;
     };
   }, [locked]);
-}
-
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${Math.round(ms)} ms`;
-  const s = ms / 1000;
-  if (s < 60) return `${s.toFixed(1)} s`;
-  const m = Math.floor(s / 60);
-  const rem = s - m * 60;
-  return `${m}m ${rem.toFixed(0)}s`;
 }
 
 function statusLabel(status: DecodeBenchJob["status"]): string {

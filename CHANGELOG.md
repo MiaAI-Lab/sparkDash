@@ -9,6 +9,9 @@ Format: version sections are listed newest first.
 
 ## [Unreleased]
 
+### Fixed
+- **Benchmark duration.** A run of 119.5 seconds was labeled `1m 60s` on the decode dialog, the prefill dialog, and the share card. It now reads `2m 0s`. 59.95 seconds was `60.0 s` and is now `1m 0s`. A 27.8 second run is unchanged.
+
 ---
 
 ## [1.8.9] — 2026-09-28
