@@ -4,6 +4,7 @@ import { Panel } from "../ui/Panel";
 import { ActivityIcon } from "../ui/icons";
 import { MetricBar } from "../ui/MetricBar";
 import { useMetricsHistoryTail } from "../../hooks/metricsStore";
+import { formatMb } from "../../shared/formatBytes";
 
 interface GpuPanelProps {
   gpu: GpuMetrics | null;
@@ -32,11 +33,6 @@ function throttleChip(reason: string | undefined): { label: string; className: s
         ? "border-warning/40 bg-warning/15 text-warning"
         : "border-border bg-surface-elevated text-muted";
   return { label, className };
-}
-
-function formatMb(mb: number): string {
-  if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
-  return `${Math.round(mb)} MB`;
 }
 
 function MetricRow({

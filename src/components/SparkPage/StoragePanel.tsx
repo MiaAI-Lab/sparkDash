@@ -3,6 +3,7 @@ import type { StorageMetrics } from "../../api/types";
 import { updateDisabledDevices, refreshSparkMetric, updateSpark } from "../../api/client";
 import { Panel } from "../ui/Panel";
 import { DiskIcon, GearIcon, RotateIcon } from "../ui/icons";
+import { formatBytesPerSec, formatGb } from "../../shared/formatBytes";
 
 interface StoragePanelProps {
   storage: StorageMetrics[];
@@ -11,18 +12,6 @@ interface StoragePanelProps {
   onDisabledChange: (devices: string[]) => void;
   storagePollDisabled?: boolean;
   onStoragePollModeChange?: (disabled: boolean) => void;
-}
-
-function formatBytesPerSec(bps: number): string {
-  if (bps >= 1024 * 1024 * 1024) return `${(bps / 1024 / 1024 / 1024).toFixed(1)} GB/s`;
-  if (bps >= 1024 * 1024) return `${(bps / 1024 / 1024).toFixed(1)} MB/s`;
-  if (bps >= 1024) return `${(bps / 1024).toFixed(1)} KB/s`;
-  return `${bps} B/s`;
-}
-
-function formatGb(mb: number): string {
-  if (mb >= 1024) return `${(mb / 1024).toFixed(0)} GB`;
-  return `${Math.round(mb)} MB`;
 }
 
 function MetricBar({ value, max }: { value: number; max: number }) {
