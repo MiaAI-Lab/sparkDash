@@ -8,6 +8,7 @@
  * function of the bench job, so every number and label is unit-testable
  * without a real canvas context.
  */
+import { formatDuration } from "../../shared/formatDuration";
 import { decodeBenchTypeLabel } from "../../shared/llmPrompts.js";
 import { formatContextSize } from "../../shared/prefillBench.js";
 import type { DecodeBenchJob, PrefillBenchJob } from "../../api/types";
@@ -99,15 +100,6 @@ export function shareCardStatus(
 function formatTtft(ms: number): string {
   if (!Number.isFinite(ms)) return "—";
   return ms >= 1000 ? `${(ms / 1000).toFixed(2)}s` : `${Math.round(ms)}ms`;
-}
-
-function formatDuration(ms: number | null | undefined): string {
-  if (ms == null || !Number.isFinite(ms)) return "—";
-  if (ms < 1000) return `${Math.round(ms)} ms`;
-  const s = ms / 1000;
-  if (s < 60) return `${s.toFixed(1)} s`;
-  const m = Math.floor(s / 60);
-  return `${m}m ${(s - m * 60).toFixed(0)}s`;
 }
 
 /** `Port 8888 · org/model`, or the remote host when the run used one. */
