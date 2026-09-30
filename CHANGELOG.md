@@ -10,6 +10,7 @@ Format: version sections are listed newest first.
 ## [Unreleased]
 
 ### Fixed
+- **Byte rates and memory sizes.** A transfer of 1023.95 KiB/s was labeled `1024.0 KB/s`, and 1023.5 MiB of RAM was labeled `1024 MB`. Both roll into the next unit: `1.0 MB/s` and `1.0 GB`. A 512 MB reading stays `512 MB`.
 - **Benchmark duration.** A run of 119.5 seconds was labeled `1m 60s` on the decode dialog, the prefill dialog, and the share card. It now reads `2m 0s`. 59.95 seconds was `60.0 s` and is now `1m 0s`. A 27.8 second run is unchanged.
 
 ---
