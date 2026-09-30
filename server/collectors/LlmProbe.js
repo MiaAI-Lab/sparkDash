@@ -903,6 +903,10 @@ export class LlmProbe {
   _applyTensorFoldHealth(data, dtSec) {
     const health = data && typeof data === "object" && !Array.isArray(data) ? data : {};
     this._applyExl3Health(health, dtSec);
+    // TensorFold 0.5.0 (cuda/health.py) publishes cumulative cached prompt tokens
+    // alongside the EXL3-style counters; older builds omit it (stays null).
+    const cached = Number(health.cached_tokens_total);
+    if (Number.isFinite(cached) && cached >= 0) this.totalCachedTokens = cached;
     const batch = Number(health.max_batch_size);
     if (Number.isFinite(batch) && batch > 0) this.slotsTotal = Math.round(batch);
   }
