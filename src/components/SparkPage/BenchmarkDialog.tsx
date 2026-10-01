@@ -36,6 +36,10 @@ interface BenchmarkDialogProps {
   shareImage?: boolean;
   /** Unit display name for the share-card header. */
   sparkName?: string | null;
+  /** Probe backend id for the share card's engine chip. */
+  engine?: string | null;
+  /** Probe exposure/auth posture for the share-card chip. */
+  posture?: { label: string; level: "ok" | "warn" | "danger" } | null;
 }
 
 function useEscape(onClose: () => void, enabled: boolean) {
@@ -155,6 +159,8 @@ export function BenchmarkDialog({
   remoteTarget = null,
   shareImage = false,
   sparkName = null,
+  engine = null,
+  posture = null,
 }: BenchmarkDialogProps) {
   const [selected, setSelected] = useState<number[]>([...DEFAULT_SELECTED]);
   const [maxTokensDraft, setMaxTokensDraft] = useState(String(DEFAULT_MAX_TOKENS));
@@ -631,6 +637,8 @@ export function BenchmarkDialog({
                       llmPort: benchPort,
                       modelId,
                       sparkName,
+                      engine,
+                      posture,
                       remoteHost: remoteTarget?.host ?? null,
                     })
                   }

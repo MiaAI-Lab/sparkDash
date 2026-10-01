@@ -10,6 +10,7 @@
  */
 import { formatDuration } from "../../shared/formatDuration";
 import { decodeBenchTypeLabel } from "../../shared/llmPrompts.js";
+import { backendLabel } from "../../shared/llmBackends.js";
 import { formatContextSize } from "../../shared/prefillBench.js";
 import type { DecodeBenchJob, PrefillBenchJob } from "../../api/types";
 
@@ -20,7 +21,7 @@ export const SHARE_CARD_MIN_HEIGHT = 675;
 /** Canvas element scale — 2× keeps the PNG crisp when X scales it down. */
 export const SHARE_CARD_SCALE = 2;
 
-export type ShareCardTone = "ok" | "warn" | "bad" | "muted";
+export type ShareCardTone = "ok" | "warn" | "bad" | "muted" | "accent";
 
 export interface ShareCardRow {
   /** Concurrency (`×1`) or context size (`32k`). */
@@ -36,12 +37,20 @@ export interface ShareCardRow {
   tone: ShareCardTone;
 }
 
+/** Small pills on the card, mirroring the LLM panel's badges. */
+export interface ShareCardChip {
+  label: string;
+  tone: ShareCardTone;
+}
+
 export interface ShareCardModel {
   brand: string;
   /** Unit name, right-aligned on the brand line. Empty when unknown. */
   host: string;
   title: string;
   subtitle: string;
+  /** Engine + exposure, as the LLM panel shows them. Empty when unknown. */
+  chips: ShareCardChip[];
   status: { label: string; tone: ShareCardTone };
   meta: string;
   columns: { load: string; primary: string; secondary: string };
@@ -55,6 +64,10 @@ export interface ShareCardModel {
 export interface ShareCardSource {
   llmPort: number;
   modelId: string | null;
+  /** Backend id from the probe (`tensorfold`, `sglang`, …). */
+  engine?: string | null;
+  /** Probe exposure/auth posture, as shown on the LLM panel. */
+  posture?: { label: string; level: "ok" | "warn" | "danger" } | null;
   /** Unit display name, when the caller knows it. */
   sparkName?: string | null;
   /** Remote bench host (hostname / URL) instead of this Spark's LAN path. */
@@ -102,6 +115,23 @@ function formatTtft(ms: number): string {
   return ms >= 1000 ? `${(ms / 1000).toFixed(2)}s` : `${Math.round(ms)}ms`;
 }
 
+/**
+ * The engine and exposure pills, in the panel's own words and colours: the
+ * backend label in the accent tone, the posture in its level's tone.
+ */
+export function shareCardChips(src: ShareCardSource): ShareCardChip[] {
+  const chips: ShareCardChip[] = [];
+  const engine = backendLabel(src.engine);
+  if (engine) chips.push({ label: engine, tone: "accent" });
+  if (src.posture?.label) {
+    chips.push({
+      label: src.posture.label,
+      tone: src.posture.level === "ok" ? "ok" : src.posture.level === "warn" ? "warn" : "bad",
+    });
+  }
+  return chips;
+}
+
 /** `Port 8888 · org/model`, or the remote host when the run used one. */
 export function shareCardSubtitle(src: ShareCardSource): string {
   const target = src.remoteHost ? src.remoteHost : `Port ${src.llmPort}`;
@@ -143,6 +173,7 @@ export function buildDecodeShareCard(
     host: src.sparkName || "",
     title: "Decode benchmark",
     subtitle: shareCardSubtitle(src),
+    chips: shareCardChips(src),
     status: shareCardStatus(job.status),
     meta: `${decodeBenchTypeLabel(job.config?.promptType)} · ${job.config?.maxTokens ?? "?"} tok · ${
       concurrencies.length ? `${concurrencies.join(", ")} conc` : "—"
@@ -191,6 +222,7 @@ export function buildPrefillShareCard(
     host: src.sparkName || "",
     title: "Prefill benchmark",
     subtitle: shareCardSubtitle(src),
+    chips: shareCardChips(src),
     status: shareCardStatus(job.status),
     meta: `${sizes.length ? `${sizes.map(formatContextSize).join(", ")} ctx` : "—"}${
       job.durationMs != null ? ` · ${formatDuration(job.durationMs)}` : ""
@@ -215,6 +247,7 @@ export type ShareCardContext = Pick<
   | "closePath"
   | "moveTo"
   | "lineTo"
+  | "arc"
   | "fill"
   | "stroke"
   | "fillRect"
@@ -266,7 +299,8 @@ const FONT_STACK =
   'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
 
 const PAD = 56;
-const HEADER_BLOCK = 274;
+const HEADER_BLOCK = 318;
+const CHIP_HEIGHT = 30;
 const PANEL_HEADER_HEIGHT = 44;
 const PANEL_ROW_HEIGHT = 84;
 const LEGEND_BLOCK = 130;
@@ -283,6 +317,8 @@ function toneColor(tone: ShareCardTone): string {
       return PALETTE.warning;
     case "bad":
       return PALETTE.danger;
+    case "accent":
+      return PALETTE.accent;
     default:
       return PALETTE.muted;
   }
@@ -322,6 +358,36 @@ function drawBolt(ctx: ShareCardContext, x: number, y: number, size: number): vo
   ctx.lineWidth = 2;
   ctx.stroke();
   ctx.restore();
+}
+
+/**
+ * One badge: rounded pill, tone at 16% behind, tone for dot and text — the same
+ * recipe as `.llm-badge` / `.llm-posture--*` in the app.
+ */
+function drawChip(
+  ctx: ShareCardContext,
+  x: number,
+  y: number,
+  chip: ShareCardChip
+): number {
+  ctx.save();
+  ctx.font = font(600, 19);
+  const textWidth = ctx.measureText(chip.label).width;
+  const width = textWidth + 46;
+  const tone = toneColor(chip.tone);
+  ctx.fillStyle = `${tone}29`;
+  ctx.beginPath();
+  ctx.roundRect(x, y, width, CHIP_HEIGHT, CHIP_HEIGHT / 2);
+  ctx.fill();
+  ctx.fillStyle = tone;
+  ctx.beginPath();
+  ctx.arc(x + 18, y + CHIP_HEIGHT / 2, 3.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText(chip.label, x + 28, y + CHIP_HEIGHT / 2 + 1);
+  ctx.restore();
+  return width;
 }
 
 function drawPill(
@@ -384,8 +450,16 @@ export function paintShareCard(ctx: ShareCardContext, model: ShareCardModel): vo
   ctx.font = font(400, 24);
   ctx.fillText(fitText(ctx, model.subtitle, inner), PAD, PAD + 120);
 
+  // Engine + exposure pills, on their own row like the panel's badge row
+  let chipX = PAD;
+  const chipY = PAD + 140;
+  model.chips.forEach((chip) => {
+    const width = drawChip(ctx, chipX, chipY, chip);
+    chipX += width + 10;
+  });
+
   // Status pill + run meta
-  const statusY = PAD + 154;
+  const statusY = PAD + 198;
   const pillWidth = drawPill(ctx, PAD, statusY, model.status.label, model.status.tone);
   ctx.fillStyle = PALETTE.text;
   ctx.font = font(400, 24);

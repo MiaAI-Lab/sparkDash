@@ -22,6 +22,7 @@ const card: ShareCardModel = {
   host: "spark-38bd",
   title: "Decode benchmark",
   subtitle: "Port 8888",
+  chips: [],
   status: { label: "COMPLETED", tone: "ok" },
   meta: "Prose · 400 tok",
   columns: { load: "Load", primary: "Aggregate", secondary: "Stream" },

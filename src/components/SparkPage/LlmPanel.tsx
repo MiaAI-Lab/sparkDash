@@ -14,6 +14,7 @@ import { PrefillBenchDialog } from "./PrefillBenchDialog";
 import { LlmDailyChart } from "./LlmDailyChart";
 import { LlmTokenTotals } from "./LlmTokenTotals";
 import { parseLlmTargetInput } from "../../shared/llmTarget.js";
+import { backendLabel } from "../../shared/llmBackends.js";
 import { LlmTrendChart } from "./LlmTrendChart";
 
 interface LlmPanelProps {
@@ -272,22 +273,13 @@ function LlmLaunchers({
 
 /** Backend badge — neutral surfaces with a single accent dot. No blue/purple. */
 function BackendBadge({ backend }: { backend: string | null }) {
-  if (!backend) return <span className="text-xs text-muted">No backend</span>;
-
-  const labels: Record<string, string> = {
-    vllm: "vLLM",
-    "llama.cpp": "llama.cpp",
-    sglang: "sgLang",
-    ds4: "ds4",
-    exl3: "EXL3",
-    q27: "q27",
-    tensorfold: "TensorFold",
-  };
+  const label = backendLabel(backend);
+  if (!label) return <span className="text-xs text-muted">No backend</span>;
 
   return (
     <span className="llm-badge">
       <span className="h-1.5 w-1.5 rounded-full bg-accent" />
-      {labels[backend] || backend}
+      {label}
     </span>
   );
 }
@@ -1018,6 +1010,8 @@ export function LlmPanel({
         remoteTarget={remoteTarget}
         shareImage={shareImage}
         sparkName={sparkName ?? null}
+        engine={remoteTarget ? null : llm?.backend ?? null}
+        posture={remoteTarget ? null : llm?.posture ?? null}
       />
       <PrefillBenchDialog
         open={prefillBenchOpen}
@@ -1029,6 +1023,8 @@ export function LlmPanel({
         remoteTarget={remoteTarget}
         shareImage={shareImage}
         sparkName={sparkName ?? null}
+        engine={remoteTarget ? null : llm?.backend ?? null}
+        posture={remoteTarget ? null : llm?.posture ?? null}
       />
     </Panel>
   );
