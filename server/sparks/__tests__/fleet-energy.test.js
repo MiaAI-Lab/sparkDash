@@ -1251,6 +1251,47 @@ test("reload migrates legacy version-one state when its node keys match the conf
   assert.deepEqual(migrated.nodeIds, CANONICAL_NODE_IDS);
 });
 
+test("reload archives state from another fleet scope instead of letting the next flush overwrite it", (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sparkdash-energy-scope-archive-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const filePath = path.join(dir, "fleet-energy.json");
+  const oldIds = CANONICAL_NODE_IDS.slice(0, 3);
+  const coverageMs = Object.fromEntries(oldIds.map((id) => [id, 2_000]));
+  const nodeWh = Object.fromEntries(oldIds.map((id) => [id, (100 * 2_000) / 3_600_000]));
+  const previous = JSON.stringify({
+    version: 1,
+    nodeIds: oldIds,
+    savedAt: 2_000,
+    integrationHighWaterMs: 2_000,
+    buckets: [{
+      minuteStartMs: 0,
+      nodeWh,
+      nodeCoverageMs: coverageMs,
+      fleetWattMs: 300 * 2_000,
+      fleetCoverageMs: 2_000,
+      outputTokens: 25,
+    }],
+  });
+  fs.writeFileSync(filePath, previous);
+
+  const tracker = new FleetEnergyTracker({
+    filePath,
+    now: () => 4_000,
+    setIntervalFn: () => 1,
+    clearIntervalFn: () => {},
+  });
+  assert.equal(tracker.snapshot(4_000).coverage24hMs, 0);
+  const archivePath = path.join(dir, "fleet-energy.scope-2000.json");
+  assert.equal(fs.readFileSync(archivePath, "utf8"), previous);
+  assert.equal(fs.existsSync(filePath), false);
+
+  tracker.record(fleetSnapshots(100), 4_000);
+  tracker.record(fleetSnapshots(100), 6_000);
+  assert.equal(tracker.flush(), true);
+  assert.deepEqual(JSON.parse(fs.readFileSync(filePath, "utf8")).nodeIds, CANONICAL_NODE_IDS);
+  assert.equal(fs.readFileSync(archivePath, "utf8"), previous);
+});
+
 test("reload does not restore ephemeral freshness or current-power samples", (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sparkdash-energy-ephemeral-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));

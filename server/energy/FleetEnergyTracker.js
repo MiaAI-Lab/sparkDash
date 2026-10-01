@@ -606,19 +606,40 @@ export class FleetEnergyTracker {
     };
   }
 
+  /**
+   * A state file from another fleet scope is not loaded (its aggregates would not be truthful for this fleet),
+   * but it is kept: renamed beside the live file so the next flush cannot overwrite that history.
+   */
+  _archiveOutOfScopeState(raw) {
+    const stamp = validNonnegativeSafeInteger(raw?.savedAt) ? raw.savedAt : Math.floor(this._now());
+    const parsed = path.parse(this.filePath);
+    const archivePath = path.join(parsed.dir, `${parsed.name}.scope-${stamp}${parsed.ext}`);
+    try {
+      if (this._fs.existsSync(archivePath)) return;
+      this._fs.renameSync(this.filePath, archivePath);
+      console.warn(
+        `[FleetEnergyTracker] fleet membership changed; previous energy history kept at ${archivePath}`
+      );
+    } catch (error) {
+      console.warn(`[FleetEnergyTracker] unable to archive ${this.filePath}: ${error.message}`);
+    }
+  }
+
   _load() {
     if (!this.filePath) return;
     try {
       const raw = JSON.parse(this._fs.readFileSync(this.filePath, "utf8"));
       const legacyNodeIds = !Object.prototype.hasOwnProperty.call(raw || {}, "nodeIds");
+      if (raw?.version !== FILE_VERSION || !Array.isArray(raw.buckets)) {
+        return;
+      }
       if (
-        raw?.version !== FILE_VERSION ||
-        !Array.isArray(raw.buckets) ||
-        (!legacyNodeIds &&
-          (!Array.isArray(raw.nodeIds) ||
-            raw.nodeIds.length !== this.nodeIds.length ||
-            raw.nodeIds.some((id) => !this._nodeIdSet.has(id))))
+        !legacyNodeIds &&
+        (!Array.isArray(raw.nodeIds) ||
+          raw.nodeIds.length !== this.nodeIds.length ||
+          raw.nodeIds.some((id) => !this._nodeIdSet.has(id)))
       ) {
+        this._archiveOutOfScopeState(raw);
         return;
       }
 
