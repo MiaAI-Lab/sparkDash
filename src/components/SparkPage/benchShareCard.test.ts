@@ -17,6 +17,7 @@ import {
   type ShareCardModel,
 } from "./benchShareCard";
 import { copyCardImage, copyTextOnly, renderShareCardPng } from "./shareImage";
+import { backendLabel } from "../../shared/llmBackends.js";
 
 /** Minimal decode result factory — only the fields the card reads. */
 function decodeResult(over: Partial<DecodeBenchJob["results"][number]> = {}) {
@@ -120,6 +121,7 @@ function fakeContext(
     closePath: () => {
       if (current.length) current = [...current, current[0]];
     },
+    arc: vi.fn(),
     moveTo: (x: number, y: number) => {
       current = [[x, y]];
     },
@@ -203,6 +205,47 @@ describe("share card model", () => {
     );
   });
 
+  it("carries the engine and exposure chips the panel shows", () => {
+    const card = buildDecodeShareCard(
+      decodeJob(),
+      {
+        llmPort: 8888,
+        modelId: "GLM-5.3-Flash-EXL3",
+        engine: "tensorfold",
+        posture: { label: "Open · Local", level: "ok" },
+      },
+      Date.UTC(2026, 8, 17)
+    );
+    expect(card.chips).toEqual([
+      { label: "TensorFold", tone: "accent" },
+      { label: "Open · Local", tone: "ok" },
+    ]);
+
+    // Absent probe data leaves the row empty rather than inventing a chip.
+    const bare = buildDecodeShareCard(decodeJob(), { llmPort: 8888, modelId: null });
+    expect(bare.chips).toEqual([]);
+
+    // A warned/dangerous posture keeps its level's colour.
+    const warned = buildDecodeShareCard(decodeJob(), {
+      llmPort: 8888,
+      modelId: null,
+      engine: "vllm",
+      posture: { label: "Open · Public", level: "danger" },
+    });
+    expect(warned.chips).toEqual([
+      { label: "vLLM", tone: "accent" },
+      { label: "Open · Public", tone: "bad" },
+    ]);
+  });
+
+  it("labels backends the same way the LLM panel does", () => {
+    expect(backendLabel("tensorfold")).toBe("TensorFold");
+    expect(backendLabel("sglang")).toBe("sgLang");
+    expect(backendLabel("exl3")).toBe("EXL3");
+    expect(backendLabel("something-new")).toBe("something-new");
+    expect(backendLabel(null)).toBeNull();
+  });
+
   it("labels every job status", () => {
     expect(shareCardStatus("completed")).toEqual({ label: "COMPLETED", tone: "ok" });
     expect(shareCardStatus("running")).toEqual({ label: "RUNNING", tone: "warn" });
@@ -238,7 +281,13 @@ describe("share card painter", () => {
   it("draws the header, one line per row, the legend and the footer", () => {
     const card = buildDecodeShareCard(
       decodeJob({ results: [decodeResult({ concurrency: 1 }), decodeResult({ concurrency: 2 })] }),
-      { llmPort: 8888, modelId: "DeepSeek-v4.1-Flash-EXL3", sparkName: "spark-38bd" }
+      {
+        llmPort: 8888,
+        modelId: "DeepSeek-v4.1-Flash-EXL3",
+        sparkName: "spark-38bd",
+        engine: "tensorfold",
+        posture: { label: "Open · Local", level: "ok" },
+      }
     );
     const ctx = fakeContext();
     paintShareCard(ctx, card);
@@ -255,6 +304,9 @@ describe("share card painter", () => {
     expect(ctx.texts).toContain("×2");
     expect(ctx.texts.filter((t) => t === "tok/s")).toHaveLength(4); // two rows × agg + stream
     expect(ctx.texts).toContain(card.legend);
+    // Chips are painted, not just carried in the model.
+    expect(ctx.texts).toContain("TensorFold");
+    expect(ctx.texts).toContain("Open · Local");
     expect(ctx.texts).toContain("github.com/MiaAI-Lab/sparkDash");
     // Background covers the whole card.
     expect(ctx.fillRects[0]).toEqual([0, 0, SHARE_CARD_WIDTH, shareCardHeight(card)]);

@@ -34,6 +34,10 @@ interface PrefillBenchDialogProps {
   shareImage?: boolean;
   /** Unit display name for the share-card header. */
   sparkName?: string | null;
+  /** Probe backend id for the share card's engine chip. */
+  engine?: string | null;
+  /** Probe exposure/auth posture for the share-card chip. */
+  posture?: { label: string; level: "ok" | "warn" | "danger" } | null;
 }
 
 function useEscape(onClose: () => void, enabled: boolean) {
@@ -150,6 +154,8 @@ export function PrefillBenchDialog({
   remoteTarget = null,
   shareImage = false,
   sparkName = null,
+  engine = null,
+  posture = null,
 }: PrefillBenchDialogProps) {
   const [selected, setSelected] = useState<number[]>(() => defaultSelected(contextLength));
   const [customDraft, setCustomDraft] = useState("");
@@ -626,6 +632,8 @@ export function PrefillBenchDialog({
                       llmPort: benchPort,
                       modelId,
                       sparkName,
+                      engine,
+                      posture,
                       remoteHost: remoteTarget?.host ?? null,
                     })
                   }
