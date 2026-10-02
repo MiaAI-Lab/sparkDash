@@ -351,7 +351,7 @@ export class SystemCollector {
       // Free VRAM = total − used (unlike the shared pool, GPU memory is dedicated).
       if (totalMB <= 0 && memTotalMB > 0) totalMB = memTotalMB;
       else if (totalMB <= 0) totalMB = DGX_SPARK.MEMORY_HBM_SIZE_GB * 1024; // Convert to MB
-      if (totalMB > 0 && usedMB > 0) availableMB = Math.max(0, totalMB - usedMB);
+      if (totalMB > 0) availableMB = Math.max(0, totalMB - usedMB);
     } else {
       // GB10 shared HBM pool: prefer the OS-visible pool (MemTotal) as the total,
       // fall back to nvidia-smi, then the hardware spec (HBM) only if nothing known.
@@ -1139,7 +1139,7 @@ export class SystemCollector {
   }
 
   // ─── Remote collection via SSH ────────────────────────────
-  async _getRemoteGpu() {
+  async _getRemoteGpu(executor = sshExec) {
     try {
       const cmd = [
         "nvidia-smi --query-gpu=temperature.gpu,utilization.gpu,power.draw,power.limit,clocks.current.sm,clocks.max.sm,clocks_throttle_reasons.hw_thermal_slowdown,clocks_throttle_reasons.sw_thermal_slowdown,clocks_throttle_reasons.hw_slowdown,clocks_throttle_reasons.sw_power_cap,index,name,uuid --format=csv,noheader,nounits 2>/dev/null",
@@ -1151,7 +1151,7 @@ export class SystemCollector {
         "grep -E 'MemTotal|MemAvailable' /proc/meminfo 2>/dev/null",
       ].join("; ");
 
-      const output = await sshExec(this.spark, cmd);
+      const output = await executor(this.spark, cmd);
       const sections = output.split("---");
       const gpuOut = sections[0]?.trim() || "";
       const memFields = sections[1]?.trim() || "";
@@ -1193,7 +1193,7 @@ export class SystemCollector {
         // Discrete GPU VRAM: trust nvidia-smi's memory.total; free VRAM = total − used.
         if (totalMB <= 0 && memTotalMB > 0) totalMB = memTotalMB;
         else if (totalMB <= 0) totalMB = DGX_SPARK.MEMORY_HBM_SIZE_GB * 1024; // Convert to MB
-        if (totalMB > 0 && usedMB > 0) availableMB = Math.max(0, totalMB - usedMB);
+        if (totalMB > 0) availableMB = Math.max(0, totalMB - usedMB);
       } else {
         // GB10 shared HBM pool: prefer the OS-visible pool (MemTotal) as the total,
         // fall back to nvidia-smi, then the hardware spec (HBM) only if nothing known.
