@@ -633,6 +633,9 @@ test("integration splits energy and coverage at UTC minute boundaries", (t) => {
     load: false,
     setIntervalFn: () => 1,
     clearIntervalFn: () => {},
+    // flush() prunes against the clock; pin it to the fixture's timeline or the
+    // buckets age out of the 31-day retention once the wall clock passes ~2026-09-23.
+    now: () => minute + 61_000,
   });
 
   tracker.record([nodeSnapshot("node-a", { watts: 100 })], minute + 59_000);
