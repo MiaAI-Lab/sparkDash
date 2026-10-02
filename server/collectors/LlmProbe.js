@@ -907,6 +907,15 @@ export class LlmProbe {
     // alongside the EXL3-style counters; older builds omit it (stays null).
     const cached = Number(health.cached_tokens_total);
     if (Number.isFinite(cached) && cached >= 0) this.totalCachedTokens = cached;
+    // The CUDA server also reports its stream pool and live request count; the
+    // EXL3 rules above only know a single busy flag (a 0/1 slot tile).
+    const streamsMax = Number(health.streams?.max);
+    if (Number.isFinite(streamsMax) && streamsMax > 0) this.slotsTotal = Math.round(streamsMax);
+    const running = Number(health.requests_running);
+    if (Number.isFinite(running) && running >= 0) {
+      this.requestsRunning = running;
+      this.slotsActive = Math.min(running, this.slotsTotal);
+    }
     const batch = Number(health.max_batch_size);
     if (Number.isFinite(batch) && batch > 0) this.slotsTotal = Math.round(batch);
   }
