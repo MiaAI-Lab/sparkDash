@@ -176,9 +176,13 @@ export function isValidSparkId(id) {
 
 /**
  * Validate fields used for SSH/LLM probes. Returns null if ok, else error message.
- * @param {{ lanIp?: string, ssh?: { host?: string, user?: string } }} body
+ * @param {{ lanIp?: string, llmHost?: string, ssh?: { host?: string, user?: string } }} body
  */
 export function validateSparkTarget(body) {
+  const llmHost = typeof body?.llmHost === "string" ? body.llmHost.trim() : body?.llmHost;
+  if (llmHost != null && llmHost !== "" && !isAllowedTargetHost(llmHost)) {
+    return `Invalid or disallowed llmHost: ${llmHost}`;
+  }
   const lanIp = body?.lanIp || "";
   const sshHost = body?.ssh?.host || "";
   const target = sshHost || lanIp;

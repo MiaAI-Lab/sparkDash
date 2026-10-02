@@ -53,3 +53,16 @@ test("rate limiter expires stale keys instead of growing forever", () => {
   while (Date.now() - started < 30) { /* wait out the window */ }
   assert.equal(allow("a"), true);
 });
+
+test("llmHost validates for remote and hostless local Sparks", () => {
+  for (const base of [{ lanIp: "spark-head" }, { isLocal: true }]) {
+    assert.equal(validateSparkTarget({ ...base, llmHost: "192.168.0.64" }), null);
+    assert.equal(validateSparkTarget({ ...base, llmHost: " 192.168.0.64 " }), null);
+    assert.equal(validateSparkTarget({ ...base, llmHost: " " }), null);
+    assert.equal(validateSparkTarget({ ...base, llmHost: null }), null);
+    assert.equal(validateSparkTarget({ ...base, llmHost: "" }), null);
+    for (const llmHost of ["169.254.169.254", "http://bad", "bad;host", 123]) {
+      assert.match(validateSparkTarget({ ...base, llmHost }), /llmHost/);
+    }
+  }
+});
