@@ -15,6 +15,11 @@ test("roles derive workerNode and llmMonitoring", () => {
   assert.equal(n({ role: "standalone", llmMonitoring: false }).llmMonitoring, false);
 });
 
+test("llmHost is retained independently of lanIp", () => {
+  assert.equal(n({ lanIp: "spark-head", llmHost: " 192.168.1.160 " }).llmHost, "192.168.1.160");
+  assert.equal(n({ llmHost: "   " }).llmHost, null);
+});
+
 test("comfyMonitoring is opt-in for all roles; comfyPort defaults to 8188", () => {
   assert.equal(n({ role: "head" }).comfyMonitoring, false);
   assert.equal(n({ role: "worker" }).comfyMonitoring, false);

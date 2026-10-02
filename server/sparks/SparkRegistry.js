@@ -588,6 +588,11 @@ export class SparkRegistry {
       /** Unit type: spark (DGX Spark) or host (dedicated GPU Linux box). */
       kind: config.kind === "host" ? "host" : "spark",
       lanIp: config.lanIp || "",
+      /** Optional pinned HTTP target for LLM probes/actions; SSH still uses ssh.host. */
+      llmHost:
+        typeof config.llmHost === "string" && config.llmHost.trim()
+          ? config.llmHost.trim()
+          : null,
       cx7Ip: config.cx7Ip || null,
       /** Optional user override for Wake-on-LAN. Empty → use detectedMacAddress. */
       macAddress: config.macAddress || null,

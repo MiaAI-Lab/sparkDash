@@ -9,6 +9,9 @@ Format: version sections are listed newest first.
 
 ## [Unreleased]
 
+### Added
+- **Per-Spark `llmHost`.** A Spark's config can name the host the LLM probes and benchmarks talk to, separate from `lanIp` and `ssh.host`. This is for a serving cluster whose SSH or display name does not reach the API (for example, the head of a multi-Spark model that serves on another address). Empty keeps today's behavior: `127.0.0.1` for the local Spark, otherwise `lanIp`. The value is checked like the other target hosts, and `POST /api/sparks/:id/refresh/llm` re-probes the LLM after a change.
+
 ### Fixed
 - **Byte rates and memory sizes.** A transfer of 1023.95 KiB/s was labeled `1024.0 KB/s`, and 1023.5 MiB of RAM or VRAM was labeled `1024 MB` on the device panels and the Overview card. Both roll into the next unit: `1.0 MB/s` and `1.0 GB`. A 512 MB reading stays `512 MB`.
 - **Benchmark duration.** A run of 119.5 seconds was labeled `1m 60s` on the decode dialog, the prefill dialog, and the share card. It now reads `2m 0s`. 59.95 seconds was `60.0 s` and is now `1m 0s`. A 27.8 second run is unchanged.

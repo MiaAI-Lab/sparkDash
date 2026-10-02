@@ -11,10 +11,15 @@
  * Requires the dashboard process to share the host network namespace when
  * running in Docker (see docker-compose `network_mode: host`).
  *
- * @param {{ isLocal?: boolean, lanIp?: string } | null | undefined} spark
+ * `llmHost` pins the HTTP target when a Spark's SSH/display hostname resolves
+ * to more than one machine (for example, a multi-node serving cluster).
+ *
+ * @param {{ isLocal?: boolean, lanIp?: string, llmHost?: string } | null | undefined} spark
  * @returns {string}
  */
 export function llmProbeHost(spark) {
+  const configured = spark?.llmHost != null ? String(spark.llmHost).trim() : "";
+  if (configured) return configured;
   if (spark?.isLocal) return "127.0.0.1";
   const ip = spark?.lanIp != null ? String(spark.lanIp).trim() : "";
   return ip;

@@ -16,7 +16,20 @@ test("llmProbeHost: remote → lanIp", () => {
   );
 });
 
+test("llmProbeHost: explicit llmHost pins remote HTTP independently of SSH host", () => {
+  assert.equal(
+    llmProbeHost({ isLocal: false, lanIp: "spark-572d", llmHost: "192.168.1.160" }),
+    "192.168.1.160"
+  );
+});
+
 test("llmProbeHost: missing lanIp → empty string", () => {
   assert.equal(llmProbeHost({ isLocal: false }), "");
   assert.equal(llmProbeHost(null), "");
+});
+
+test("llmProbeHost: trimmed override precedes local loopback; blank falls back", () => {
+  assert.equal(llmProbeHost({ isLocal: true, llmHost: " 192.168.0.64 " }), "192.168.0.64");
+  assert.equal(llmProbeHost({ isLocal: true, llmHost: " " }), "127.0.0.1");
+  assert.equal(llmProbeHost({ lanIp: "spark-head", llmHost: " " }), "spark-head");
 });
