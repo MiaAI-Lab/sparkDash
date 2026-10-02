@@ -237,3 +237,15 @@ test("a storage refresh from an earlier run cannot commit or clear a restarted r
   assert.equal(monitor._inflight.storage, false);
   monitor.stop();
 });
+
+test("manual llm refresh invokes the probe and publishes its result", async () => {
+  const monitor = new SparkMonitor({ ...spark(), llmMonitoring: true });
+  monitor._running = true;
+  let calls = 0;
+  const result = { available: false };
+  monitor.llmProbes = new Map([[8888, { port: 8888, probe: async () => { calls++; return result; } }]]);
+  await monitor.refreshDomain("llm");
+  assert.equal(calls, 1);
+  assert.equal(monitor._metrics.llm.length, 1);
+  assert.equal(monitor._metrics.llm[0].available, false);
+});

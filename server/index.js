@@ -557,6 +557,7 @@ app.post("/api/sparks/test", async (req, res) => {
       id: body.id || "ephemeral-test",
       name: body.name || "test",
       lanIp: body.lanIp || "",
+      llmHost: body.llmHost,
       cx7Ip: body.cx7Ip || null,
       isLocal: Boolean(body.isLocal),
       role: body.role,
@@ -623,6 +624,8 @@ app.patch("/api/sparks/:id", (req, res) => {
     // Only validate host fields if they are being updated
     if (
       body.lanIp != null ||
+      body.llmHost != null ||
+      body.isLocal != null ||
       body.ssh?.host != null ||
       body.ssh?.user != null ||
       body.ssh?.port != null
@@ -632,6 +635,8 @@ app.patch("/api/sparks/:id", (req, res) => {
       const merged = {
         isLocal: body.isLocal ?? existing.isLocal,
         lanIp: body.lanIp ?? existing.lanIp,
+        llmHost: body.llmHost ?? existing.llmHost,
+        isLocal: body.isLocal ?? existing.isLocal,
         ssh: { ...existing.ssh, ...(body.ssh || {}) },
       };
       const validationError = validateSparkTarget(merged);
@@ -920,8 +925,8 @@ app.post("/api/sparks/:id/refresh/:domain", async (req, res) => {
     const monitor = monitors.get(req.params.id);
     if (!monitor) return res.status(404).json({ error: "Spark not found" });
     const { domain } = req.params;
-    if (domain !== "storage") {
-      return res.status(400).json({ error: "Only 'storage' domain is supported" });
+    if (domain !== "storage" && domain !== "llm") {
+      return res.status(400).json({ error: "Only 'storage' and 'llm' domains are supported" });
     }
     await monitor.refreshDomain(domain);
     forceBroadcast();

@@ -196,12 +196,16 @@ export function normalizeSshPort(value) {
 
 /**
  * Validate fields used for SSH/LLM probes. Returns null if ok, else error message.
- * @param {{ lanIp?: string, ssh?: { host?: string, user?: string, port?: unknown } }} body
+ * @param {{ lanIp?: string, llmHost?: string, ssh?: { host?: string, user?: string, port?: unknown } }} body
  */
 export function validateSparkTarget(body) {
   const user = body?.ssh?.user;
   if (user != null && user !== "" && !isValidSshUser(user)) {
     return "Invalid SSH user (allowed: letters, digits, . _ -)";
+  }
+  const llmHost = typeof body?.llmHost === "string" ? body.llmHost.trim() : body?.llmHost;
+  if (llmHost != null && llmHost !== "" && !isAllowedTargetHost(llmHost)) {
+    return `Invalid or disallowed llmHost: ${llmHost}`;
   }
   const lanIp = body?.lanIp || "";
   const sshHost = body?.ssh?.host || "";
