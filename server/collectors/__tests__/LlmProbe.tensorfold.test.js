@@ -113,3 +113,37 @@ test("_applyTensorFoldHealth: MLX health sizes the slot tile; null health is saf
   assert.doesNotThrow(() => probe._applyTensorFoldHealth(null, 2));
   assert.equal(probe.generationTps, 0);
 });
+
+/** CUDA 0.5.0 /health with concurrency fields, captured from a 4-stream server. */
+const CUDA_HEALTH = {
+  ok: true, backend: "tensorfold", busy: false, requests_running: 0, requests_total: 308,
+  prompt_tokens_total: 6061036, completion_tokens_total: 198107, cached_tokens_total: 5391872,
+  streams: { decoding: 0, prefilling: 0, max: 4, filling: 0, paused: 0 },
+  context_length: 1048576,
+};
+
+test("_applyTensorFoldHealth: CUDA stream pool sizes the slot tile, requests_running fills it", () => {
+  const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888);
+  probe._applyTensorFoldHealth({ ...CUDA_HEALTH, busy: true, requests_running: 3 }, 2);
+  assert.equal(probe.slotsTotal, 4);
+  assert.equal(probe.slotsActive, 3);
+  assert.equal(probe.requestsRunning, 3);
+  probe._applyTensorFoldHealth(CUDA_HEALTH, 2);
+  assert.equal(probe.slotsActive, 0);
+  assert.equal(probe.requestsRunning, 0);
+});
+
+test("_applyTensorFoldHealth: more running requests than streams caps active slots at the pool", () => {
+  const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888);
+  probe._applyTensorFoldHealth({ ...CUDA_HEALTH, busy: true, requests_running: 6 }, 2);
+  assert.equal(probe.slotsActive, 4);
+  assert.equal(probe.requestsRunning, 6);
+});
+
+test("_applyTensorFoldHealth: health without concurrency fields keeps the busy flag", () => {
+  const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888);
+  probe._applyTensorFoldHealth({ ok: true, busy: true, prompt_tokens_total: 1, completion_tokens_total: 1 }, 2);
+  assert.equal(probe.slotsTotal, 1);
+  assert.equal(probe.slotsActive, 1);
+  assert.equal(probe.requestsRunning, 1);
+});
