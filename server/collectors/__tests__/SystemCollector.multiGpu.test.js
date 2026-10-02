@@ -112,3 +112,20 @@ test("_describeGpus: header label for one, identical, and mixed cards", () => {
   assert.equal(mixed.gpuCount, 2);
   assert.deepEqual(c._describeGpus(""), { gpuChip: null, gpuCount: 0, cudaDriver: null });
 });
+
+test("_getRemoteGpu: an idle discrete host reports free VRAM as total, not system RAM", async () => {
+  // Both cards idle: nvidia-smi says 0 MiB used and nothing holds memory.
+  // Free VRAM must be total − 0, not the host's MemAvailable.
+  const c = new SystemCollector({ id: "t", kind: "host", host: "10.0.0.2", lanIp: "10.0.0.2" });
+  c._nvErrNoMemory = async () => 0;
+  const output = [
+    GPU_LINES,
+    "0, 16303\n0, 16311",
+    "",
+    "MemTotal:       65536000 kB\nMemAvailable:   40000000 kB",
+  ].join("\n---\n");
+  const gpu = await c._getRemoteGpu(async () => output);
+  assert.equal(gpu.vram.used, 0);
+  assert.equal(gpu.vram.total, 32614);
+  assert.equal(gpu.vram.available, 32614);
+});
