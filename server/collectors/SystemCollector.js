@@ -777,7 +777,19 @@ export class SystemCollector {
     try {
       output = await this._execOnHost("lsblk -P -no NAME,SIZE,MOUNTPOINT,FSTYPE 2>/dev/null");
     } catch {
-      output = await this._exec("lsblk -P -no NAME,SIZE,MOUNTPOINT,FSTYPE 2>/dev/null");
+      // Container lsblk fails outright (rootless /sys lacks /sys/dev/block),
+      // so chroot into the bind-mounted host root — same mount table, so
+      // /sys and /proc there are the host's and lsblk works.
+      try {
+        if (fs.existsSync(HOST_PATHS.ROOT)) {
+          output = await this._exec(
+            `chroot ${HOST_PATHS.ROOT} lsblk -P -no NAME,SIZE,MOUNTPOINT,FSTYPE 2>/dev/null`
+          );
+        }
+      } catch {}
+      if (!output.trim()) {
+        output = await this._exec("lsblk -P -no NAME,SIZE,MOUNTPOINT,FSTYPE 2>/dev/null").catch(() => "");
+      }
     }
     const lines = output.trim().split("\n").filter(Boolean);
     const disks = [];
@@ -1001,12 +1013,18 @@ export class SystemCollector {
     const netNs = path.join(HOST_PATHS.PROC, "1", "ns", "net");
     const { execFile } = await import("child_process");
     const args = ["--mount=" + mntNs, "--net=" + netNs, "--", "sh", "-c", cmd];
-    return new Promise((resolve, reject) => {
-      execFile("nsenter", args, { timeout: 8000 }, (err, stdout) => {
-        if (err) return reject(err);
-        resolve(String(stdout).trim());
+    try {
+      return await new Promise((resolve, reject) => {
+        execFile("nsenter", args, { timeout: 8000 }, (err, stdout) => {
+          if (err) return reject(err);
+          resolve(String(stdout).trim());
+        });
       });
-    });
+    } catch {
+      // Rootless Docker EPERM (see _execOnHost): with network_mode: host the
+      // container's own netns IS the host's, so plain exec sees the same data.
+      return this._exec(cmd);
+    }
   }
 
   /** Read operstate for an interface from sysfs. */
@@ -1575,22 +1593,26 @@ export class SystemCollector {
     const { execFile } = await import("child_process");
     const args = ["--mount=" + mntNs];
     args.push("--", "sh", "-c", cmd);
-    return new Promise((resolve, reject) => {
-      execFile("nsenter", args, { timeout: 8000 }, (err, stdout) => {
-        if (err) return reject(err);
-        resolve(String(stdout).trim());
+    try {
+      return await new Promise((resolve, reject) => {
+        execFile("nsenter", args, { timeout: 8000 }, (err, stdout) => {
+          if (err) return reject(err);
+          resolve(String(stdout).trim());
+        });
       });
-    });
+    } catch {
+      // Rootless Docker cannot enter the host mount ns (EPERM on
+      // /proc/1/ns/mnt). The compose file mounts nvidia-smi, /proc and /sys
+      // as the documented fallback — run in the container instead.
+      return this._exec(cmd);
+    }
   }
 
   /** nvidia-smi via host namespaces when available (fixes missing libnvidia-ml in Docker). */
   async _nvidiaSmi(smiArgs) {
     const smi = this._nvidiaSmiPath || "nvidia-smi";
     const cmd = `${smi} ${smiArgs} 2>/dev/null`;
-    if (this._hasHostProc()) {
-      return this._execOnHost(cmd);
-    }
-    return this._exec(cmd);
+    return this._execOnHost(cmd);
   }
 
   /**
@@ -1696,17 +1718,22 @@ export class SystemCollector {
       const netNs = path.join(HOST_PATHS.PROC, "1", "ns", "net");
       if (fs.existsSync(netNs)) {
         const { execFile } = await import("child_process");
-        return new Promise((resolve, reject) => {
-          execFile(
-            "nsenter",
-            ["--net=" + netNs, "--", "cat", `/proc/net/${relPath}`],
-            { timeout: 5000 },
-            (err, stdout) => {
-              if (err) return reject(err);
-              resolve(String(stdout));
-            }
-          );
-        });
+        try {
+          return await new Promise((resolve, reject) => {
+            execFile(
+              "nsenter",
+              ["--net=" + netNs, "--", "cat", `/proc/net/${relPath}`],
+              { timeout: 5000 },
+              (err, stdout) => {
+                if (err) return reject(err);
+                resolve(String(stdout));
+              }
+            );
+          });
+        } catch {
+          // Rootless Docker EPERM on the host netns: with network_mode: host
+          // the container's /proc/net is the host's — fall through to it.
+        }
       }
     }
     return fs.readFileSync(`/proc/net/${relPath}`, "utf-8");
