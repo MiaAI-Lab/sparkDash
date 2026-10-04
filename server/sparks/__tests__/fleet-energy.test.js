@@ -633,6 +633,11 @@ test("integration splits energy and coverage at UTC minute boundaries", (t) => {
     load: false,
     setIntervalFn: () => 1,
     clearIntervalFn: () => {},
+    // Inject the clock like the sibling tests above. Without this, flush() falls
+    // back to the real Date.now() and prunes against it, so these fixed-date
+    // buckets were silently discarded once they aged past RETENTION_MS (31 days)
+    // and the assertion below saw an empty bucket list.
+    now: () => minute + 61_000,
   });
 
   tracker.record([nodeSnapshot("node-a", { watts: 100 })], minute + 59_000);
