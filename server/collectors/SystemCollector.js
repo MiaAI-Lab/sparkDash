@@ -159,7 +159,10 @@ export class SystemCollector {
 
   /** Collect RAM metrics. */
   async collectRam() {
-    if (!this.spark.isLocal) return this._getRemoteRam();
+    if (!this.spark.isLocal) {
+      if (this.isMac) return this._getRemoteRamMac();
+      return this._getRemoteRam();
+    }
     try {
       return await this._getRamUsage();
     } catch (err) {
@@ -170,7 +173,10 @@ export class SystemCollector {
 
   /** Collect storage metrics per mount. */
   async collectStorage() {
-    if (!this.spark.isLocal) return this._getRemoteStorage();
+    if (!this.spark.isLocal) {
+      if (this.isMac) return this._getRemoteStorageMac();
+      return this._getRemoteStorage();
+    }
     try {
       return await this._getDiskUsage();
     } catch (err) {
@@ -1380,6 +1386,129 @@ export class SystemCollector {
     } catch (err) {
       console.error(`[SystemCollector] Remote Storage error for ${this.spark.id}:`, err.message);
       return [];
+    }
+  }
+
+  /**
+   * macOS units (platform: "darwin"): /proc is absent, so Linux commands are
+   * replaced with darwin equivalents. All other kinds are unaffected.
+   */
+  get isMac() {
+    return this.spark.platform === "darwin";
+  }
+
+  /** macOS RAM via sysctl + memory_pressure (one SSH round trip). */
+  async _getRemoteRamMac() {
+    try {
+      const output = await sshExec(
+        this.spark,
+        "sysctl -n hw.memsize; memory_pressure -Q 2>/dev/null | grep -i 'memory free percentage' || vm_stat 2>/dev/null | head -4",
+      );
+      const lines = output.trim().split("\n");
+      const totalBytes = parseInt(lines[0], 10) || 0;
+      const totalMB = Math.round(totalBytes / 1024 / 1024);
+      // Prefer the free-percentage line; fall back to vm_stat free pages.
+      let availableMB = 0;
+      const pctLine = lines.find((l) => /memory free percentage/i.test(l));
+      const pctMatch = pctLine?.match(/([\d.]+)%/);
+      if (pctMatch && totalMB > 0) {
+        availableMB = Math.round((totalMB * parseFloat(pctMatch[1])) / 100);
+      } else {
+        const freeMatch = output.match(/free.*?:\s+(\d+)(?:\.\d+)?\s*\(?/i);
+        const freePages = freeMatch ? parseInt(freeMatch[1], 10) : 0;
+        availableMB = Math.round((freePages * 16384) / 1024 / 1024); // 16KiB pages (arm64)
+      }
+      const usedMB = totalMB > 0 ? Math.max(0, totalMB - availableMB) : 0;
+      return {
+        used: usedMB,
+        total: totalMB,
+        percentage: totalMB > 0 ? Math.round((usedMB / totalMB) * 100) : 0,
+      };
+    } catch (err) {
+      console.error(`[SystemCollector] Remote macOS RAM error for ${this.spark.id}:`, err.message);
+      return this._defaultRam();
+    }
+  }
+
+  /** macOS storage: BSD df has no -x excludes; filter by mount/type instead. */
+  async _getRemoteStorageMac() {
+    try {
+      const output = await sshExec(this.spark, "df -k 2>/dev/null");
+      const lines = output.trim().split("\n").slice(1); // skip header
+      const disks = [];
+      const disabledDevices = this.spark.disabledDevices || [];
+      const PSEUDO = new Set(["devfs", "autofs", "apfs", "tmpfs", "overlay"]);
+      for (const line of lines) {
+        const parts = line.split(/\s+/);
+        // BSD df (no -T): Filesystem 1024-blocks Used Available Capacity iused ifree %iused Mounted (9 cols)
+        // GNU df -T: Filesystem Type 1024-blocks Used Available Capacity Mounted (7 cols)
+        if (parts.length < 6) continue;
+        const isTyped = /^[a-z]+$/.test(parts[1] || "");
+        let fsys, type, size, used, avail, pct, mountRest;
+        if (isTyped) {
+          [fsys, type, size, used, avail, pct, ...mountRest] = parts;
+        } else {
+          // 9-col BSD: parts = fs,1024blocks,used,avail,cap,iused,ifree,%iused,mount
+          if (parts.length < 9) continue;
+          [fsys, size, used, avail, pct, , , , ...mountRest] = parts;
+          type = "apfs";
+        }
+        const mount = mountRest.join(" ") || "/";
+        if (PSEUDO.has((type || "").toLowerCase()) && type !== "apfs") continue;
+        if (mount === "/boot/efi" || mount.includes("/snap") || /^\/System\/Volumes\//.test(mount)) continue;
+        if (!mount.startsWith("/") || mount === "/dev") continue;
+        const device = fsys.split("/").pop() || fsys;
+        const isDisabled =
+          disabledDevices.includes(device) || disabledDevices.includes(mount);
+        disks.push({
+          device,
+          label: mount,
+          used: Math.round(parseInt(used) / 1024),
+          total: Math.round(parseInt(size) / 1024),
+          available: Math.round(parseInt(avail) / 1024),
+          percentage: parseInt(pct) || 0,
+          readSpeed: 0,
+          writeSpeed: 0,
+          disabled: isDisabled,
+        });
+      }
+      return disks;
+    } catch (err) {
+      console.error(`[SystemCollector] Remote macOS Storage error for ${this.spark.id}:`, err.message);
+      return [];
+    }
+  }
+
+  /**
+   * macOS model inventory (presence only, no serving probe): ollama tags +
+   * ~/models/* sizes. Enables the dashboard to show what a Mac host holds.
+   */
+  async collectMacModels() {
+    if (!this.isMac || this.spark.isLocal) return null;
+    try {
+      const output = await sshExec(
+        this.spark,
+        "ollama list 2>/dev/null || $HOME/.ollama/bin/ollama list 2>/dev/null || /usr/local/bin/ollama list 2>/dev/null || /opt/homebrew/bin/ollama list 2>/dev/null; echo '---'; du -sh $HOME/models/* 2>/dev/null",
+      );
+      const sections = output.split("---");
+      const ollama = [];
+      for (const line of (sections[0] || "").trim().split("\n").slice(1)) {
+        const toks = line.trim().split(/\s+/);
+        if (toks.length >= 4 && toks[0] !== "NAME" && !toks[0].startsWith("/")) {
+          ollama.push({ tag: toks[0], size: toks[2] });
+        }
+      }
+      const filesystem = [];
+      for (const line of (sections[1] || "").trim().split("\n")) {
+        const toks = line.trim().split(/\s+/);
+        if (toks.length === 2 && toks[1].startsWith("/Users/")) {
+          filesystem.push({ path: toks[1], size: toks[0] });
+        }
+      }
+      return { ollama, filesystem };
+    } catch (err) {
+      console.error(`[SystemCollector] macOS model inventory error for ${this.spark.id}:`, err.message);
+      return null;
     }
   }
 

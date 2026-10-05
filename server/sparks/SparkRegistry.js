@@ -587,6 +587,12 @@ export class SparkRegistry {
       name: config.name || config.id,
       /** Unit type: spark (DGX Spark) or host (dedicated GPU Linux box). */
       kind: config.kind === "host" ? "host" : "spark",
+      /**
+       * Optional OS platform override for SSH-collected units: "darwin" for
+       * macOS hosts (Mac Studio etc.). Absent/"linux" keeps the existing
+       * /proc-based collectors. See SystemCollector isMac.
+       */
+      platform: config.platform === "darwin" ? "darwin" : "linux",
       lanIp: config.lanIp || "",
       cx7Ip: config.cx7Ip || null,
       /** Optional user override for Wake-on-LAN. Empty → use detectedMacAddress. */
