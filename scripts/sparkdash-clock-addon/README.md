@@ -18,8 +18,9 @@ sudo ./scripts/sparkdash-clock-addon/install-clock-helper.sh
 
 ## Privilege facts
 
-`NOPASSWD: /usr/local/bin/sparkdash-set-clock` with **no argv list** means
-sudo allows **that binary with any arguments**. It is not “argumentless only.”
+The sudoers grant is **argv-pinned**: only the bare binary (install probe —
+prints usage, changes nothing) and `--domain cpu-big|cpu-little|gpu …` forms
+are allowed. Not `%sudo`, not any-argv: unknown flags never match the pin.
 The helper itself still accepts only `--domain` / `--max-mhz` / `--unlock` /
 `--persist` | `--no-persist`.
 

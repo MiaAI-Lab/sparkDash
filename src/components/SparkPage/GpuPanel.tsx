@@ -278,11 +278,9 @@ export function GpuPanel({
                 }}
               />
             </div>
-            {/* Clock Cap row sits below the SM clock bar (item 5): reads
-                [Clock Cap] [Modify] [chip]. Shown when a boot lock exists OR
-                the operator opted in, so the closed state is never ambiguous —
-                an absent cap renders the "No cap set" chip (item 4). */}
-            {(clockLock != null || clockControlEnabled) && (
+            {/* Real-estate rule (Mia): only occupy a row when a cap is
+                actually set. No permanent placeholder rows. */}
+            {clockLock != null && (
               <div className="flex items-center justify-between gap-2 text-sm">
                 <span className="text-muted">Clock Cap</span>
                 <ClockCapControl

@@ -8,11 +8,13 @@
 #
 # Installs:
 #   1. /usr/local/bin/sparkdash-set-clock  (root-owned, 0755)
-#   2. /etc/sudoers.d/sparkdash-clock      (scoped NOPASSWD for that binary only)
+#   2. /etc/sudoers.d/sparkdash-clock      (scoped NOPASSWD, pinned argv)
 #
 # The sudoers drop-in is validated with visudo -c BEFORE installation.
-# A command listed with no argv matches ANY argv for that binary (sudoers
-# semantics). Scope is “this helper only”, not “argumentless only”.
+# Review requirement (PR #98): the grant is NOT `%sudo ... NOPASSWD: <bin>`
+# with an open argv — that let every sudo user run the helper with any
+# argument it accepts. Here the grant is pinned to the exact argv prefixes
+# the server sends, so no other flag (and no flagless run) is possible.
 set -eu
 
 HELLO_SRC="$(dirname "$0")/sparkdash-set-clock"
@@ -29,14 +31,26 @@ else
   exit 1
 fi
 
-# 2. Scoped sudoers drop-in: this binary only (any argv). Not blanket sudo.
+# 2. Scoped sudoers drop-in: this binary only, pinned argv prefixes.
+#    Each line authorizes exactly one domain with any of the server's value
+#    flags after it. The bare binary is allowed solely for the install probe
+#    (it prints usage and exits 1 — it changes nothing). Unknown long flags
+#    (--persist-path etc.) can never be introduced: they don't match a pin.
 TMP=$(mktemp /tmp/sparkdash-clock.XXXXXX)
 trap 'rm -f "$TMP"' EXIT
 cat > "$TMP" <<SUDOERS
 # Managed by sparkDash install-clock-helper.sh — scoped clock-control grant.
-# Passwordless sudo for THIS binary only (any argv — sudoers default).
+# Pinned argv: the invoking user may run ONLY these domain-prefixed forms.
 # Remove this file to revoke clock control.
-%sudo ALL=(root) NOPASSWD: $HELLO_DST
+Cmnd_Alias SPARKDASH_CLOCK_CMDS = \\
+  $HELLO_DST, \\
+  $HELLO_DST --domain cpu-big *, \\
+  $HELLO_DST --domain cpu-little *, \\
+  $HELLO_DST --domain gpu *, \\
+  $HELLO_DST --domain cpu-big, \\
+  $HELLO_DST --domain cpu-little, \\
+  $HELLO_DST --domain gpu
+ALL ALL=(root) NOPASSWD: SPARKDASH_CLOCK_CMDS
 SUDOERS
 
 # Validate before installing; never leave a broken sudoers file behind.
@@ -44,5 +58,5 @@ visudo -c -f "$TMP" >/dev/null
 install -m 0440 "$TMP" "$SUDOERS_DST"
 
 echo "installed $HELLO_DST and $SUDOERS_DST"
-echo "verify from the dashboard host: ssh <user>@<host> 'sudo -n $HELLO_DST'"
-echo "  expected output: the helper usage line (sudo allowed the argumentless run)"
+echo "verify from the dashboard host: ssh <user>@<host> 'sudo -n $HELLO_DST --domain gpu --unlock --no-persist'"
+echo "  expected output: the helper's success/usage output (sudo allowed the pinned argv)"

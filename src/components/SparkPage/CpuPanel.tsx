@@ -107,7 +107,9 @@ export function CpuPanel({
           {draw}W{tdp > 0 ? ` / ${tdp}W` : ""}
         </span>
       </div>
-      {clockCaps && clockCaps.length > 0 && (
+      {/* Real-estate rule (Mia): clock-cap rows only exist when clock control
+          is enabled for this Spark. No permanent rows when the feature is off. */}
+      {clockControlEnabled && clockCaps && clockCaps.length > 0 && (
         <div className="space-y-1.5">
           {/* One row per frequency cluster (item 5): [label] [Modify] [chip],
               each on its own line so the two clusters never share a cramped
