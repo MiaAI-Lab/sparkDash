@@ -9,6 +9,7 @@ import { FleetAlertStrip } from "./FleetAlertStrip";
 import { FleetTokenTotals } from "./FleetTokenTotals";
 import { ActivityIcon, PowerOffIcon, PowerOnIcon, RotateIcon } from "../ui/icons";
 import { formatMb } from "../../shared/formatBytes";
+import { backendLabel } from "../../shared/llmBackends.js";
 
 interface OverviewPageProps {
   sparks: SparkSnapshot[];
@@ -341,21 +342,7 @@ function SparkCard({
               if (!llm) return null;
               return (
                 <MiniStat
-                  label={
-                    llm.backend === "vllm"
-                      ? "vLLM"
-                      : llm.backend === "ds4"
-                        ? "ds4"
-                        : llm.backend === "sglang"
-                          ? "sgLang"
-                          : llm.backend === "exl3"
-                            ? "EXL3"
-                            : llm.backend === "q27"
-                              ? "q27"
-                              : llm.backend === "tensorfold"
-                                ? "TensorFold"
-                                : llm.backend ?? "LLM"
-                  }
+                  label={backendLabel(llm.backend) ?? "LLM"}
                   value={llm.modelId ?? "unknown"}
                   tone="accent"
                   title={llm.modelId ?? undefined}

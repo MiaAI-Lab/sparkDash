@@ -305,14 +305,15 @@ export interface UnifiedMemoryMetrics {
 // ─── LLM metrics ─────────────────────────────────────────
 export interface LlmMetrics {
   available: boolean;
-  backend: "vllm" | "llama.cpp" | "sglang" | "ds4" | "exl3" | "q27" | "tensorfold" | null;
+  backend: "vllm" | "llama.cpp" | "sglang" | "ds4" | "exl3" | "q27" | "tensorfold" | "freetoken" | null;
   modelId: string | null;
   modelPath: string | null;
   contextLength: number | null;
   /** GPU memory utilization for the LLM engine (0–1), e.g. 0.9. Only from vLLM internal info. */
   gpuMemoryUtilization: number | null;
   slotsActive: number;
-  slotsTotal: number;
+  /** Request capacity when reported by the backend; null when unavailable. */
+  slotsTotal: number | null;
   generationTps: number;
   prefillTps: number;
   /** Live cached-prefill tok/s when the backend splits kinds (ds4, llama.cpp, sglang). */
@@ -333,7 +334,7 @@ export interface LlmMetrics {
   requestsWaiting?: number | null;
   /** vLLM time-to-first-token p95 in seconds. null when unavailable. */
   ttftP95Seconds?: number | null;
-  /** Live recent-window mean TTFT (seconds) from vLLM histogram sum/count deltas. null when unavailable. */
+  /** Mean TTFT (seconds): vLLM histogram deltas or FreeToken's recent request history. null when unavailable. */
   ttftSeconds?: number | null;
   /** vLLM cumulative preemption count. null when unavailable. */
   preemptionsTotal?: number | null;

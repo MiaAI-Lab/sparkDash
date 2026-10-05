@@ -38,6 +38,8 @@ const VLLM_METRIC_INFO = {
     "Run = requests actively generating on the GPU. Wait = accepted but not yet scheduled (capacity or constraints). Growing wait with high KV cache usually means the server is overloaded.",
   ttftP95:
     "95th percentile time-to-first-token from the engine’s request history: how long “slow” requests wait until the first output token. Spikes mean queueing, long prefills, or cold paths—not average decode speed.",
+  ttftMean:
+    "Mean time-to-first-token across FreeToken’s recent request records with a TTFT measurement. This is an average, not a 95th percentile; — when no measurement is available.",
   preempts:
     "Cumulative times the engine paused a running request to free KV cache for others. Rising under load signals memory pressure; zero is normal when the server is comfortable.",
   prefixCache:
@@ -715,7 +717,9 @@ export function LlmPanel({
           </div>
           <div
             className="flex items-center justify-between"
-            title="Prompt tokens/sec taken in during the last poll window — cache-served + computed; the rows below split that total into the two parts. Opening a saved chat in the UI does not hit the GPU; send (or regenerate) so the history is sent as the prompt. Cached prefill does little GPU work; uncached prefill is what builds KV cache."
+            title={llm?.backend === "freetoken"
+              ? "Prompt tokens/sec over FreeToken’s native five-second sliding window. This window is independent of the dashboard polling interval."
+              : "Prompt tokens/sec taken in during the last poll window — cache-served + computed; the rows below split that total into the two parts. Opening a saved chat in the UI does not hit the GPU; send (or regenerate) so the history is sent as the prompt. Cached prefill does little GPU work; uncached prefill is what builds KV cache."}
           >
             <span className="text-xs text-muted">Prefill tok/s</span>
             <div className="flex items-center gap-2">
@@ -854,7 +858,7 @@ export function LlmPanel({
             </div>
           </div>
 
-          {llm && (llm.backend === "vllm" || llm.backend === "q27") && (
+          {llm && (llm.backend === "vllm" || llm.backend === "q27" || llm.backend === "freetoken") && (
             <div className="grid grid-cols-2 gap-2 border-t border-border pt-3 sm:grid-cols-4">
               <div className="space-y-0.5">
                 <MetricInfoTip
@@ -884,7 +888,9 @@ export function LlmPanel({
                 <MetricInfoTip
                   id="requests"
                   label="Requests"
-                  text={VLLM_METRIC_INFO.requests}
+                  text={llm.backend === "freetoken"
+                    ? "Current in-flight FreeToken requests. Queue length is not reported, so no wait count is inferred."
+                    : VLLM_METRIC_INFO.requests}
                   openId={metricInfoId}
                   setOpenId={setMetricInfoId}
                   align="right"
@@ -901,14 +907,16 @@ export function LlmPanel({
               </div>
               <div className="space-y-0.5">
                 <MetricInfoTip
-                  id="ttftP95"
-                  label="TTFT p95"
-                  text={VLLM_METRIC_INFO.ttftP95}
+                  id={llm.backend === "freetoken" ? "ttftMean" : "ttftP95"}
+                  label={llm.backend === "freetoken" ? "TTFT avg" : "TTFT p95"}
+                  text={llm.backend === "freetoken" ? VLLM_METRIC_INFO.ttftMean : VLLM_METRIC_INFO.ttftP95}
                   openId={metricInfoId}
                   setOpenId={setMetricInfoId}
                 />
                 <div className="font-tabular text-sm text-text">
-                  {llm.ttftP95Seconds != null ? `${llm.ttftP95Seconds.toFixed(3)}s` : "—"}
+                  {llm.backend === "freetoken"
+                    ? llm.ttftSeconds != null ? `${llm.ttftSeconds.toFixed(3)}s` : "—"
+                    : llm.ttftP95Seconds != null ? `${llm.ttftP95Seconds.toFixed(3)}s` : "—"}
                 </div>
               </div>
               <div className="space-y-0.5">
@@ -929,7 +937,7 @@ export function LlmPanel({
             </div>
           )}
 
-          {llm && (llm.backend === "vllm" || llm.backend === "q27") && (
+          {llm && (llm.backend === "vllm" || llm.backend === "q27" || llm.backend === "freetoken") && (
             <div className="grid grid-cols-2 gap-2 border-t border-border pt-3 sm:grid-cols-4">
               <div className="space-y-0.5">
                 <MetricInfoTip
@@ -949,7 +957,9 @@ export function LlmPanel({
                 <MetricInfoTip
                   id="e2eP95"
                   label="E2E p95"
-                  text={VLLM_METRIC_INFO.e2eP95}
+                  text={llm.backend === "freetoken"
+                    ? "95th percentile request duration in FreeToken’s recent request records. This is not a time-to-first-token percentile."
+                    : VLLM_METRIC_INFO.e2eP95}
                   openId={metricInfoId}
                   setOpenId={setMetricInfoId}
                   align="right"

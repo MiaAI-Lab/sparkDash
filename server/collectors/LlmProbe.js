@@ -66,7 +66,7 @@ export class LlmProbe {
     this.baseUrl = `http://${llmProbeHost(spark)}:${port}`;
 
     // State
-    this.backendType = null; // 'vllm' | 'llama.cpp' | 'sglang' | 'ds4' | 'exl3' | 'q27' | 'tensorfold' | null
+    this.backendType = null; // 'vllm' | 'llama.cpp' | 'sglang' | 'ds4' | 'exl3' | 'q27' | 'tensorfold' | 'freetoken' | null
     this.serverIsOpenAI = null; // true = OpenAI-compatible
     /** Whether /v1/models (or /slots) answered without credentials. null = unknown. */
     this.authOpen = null;
@@ -309,7 +309,8 @@ export class LlmProbe {
       this.backendType !== "ds4" &&
       this.backendType !== "exl3" &&
       this.backendType !== "q27" &&
-      this.backendType !== "tensorfold"
+      this.backendType !== "tensorfold" &&
+      this.backendType !== "freetoken"
     ) {
       const slotUrl = `${this.baseUrl}/slots`;
       try {
@@ -356,12 +357,13 @@ export class LlmProbe {
   }
 
   /**
-   * Classify an OpenAI-compatible server: ds4, SGLang, EXL3, q27, TensorFold, or vLLM (default).
+   * Classify an OpenAI-compatible server: FreeToken, ds4, SGLang, EXL3, q27, TensorFold, or vLLM (default).
    * @param {unknown} ownedBy
-   * @returns {Promise<"ds4" | "sglang" | "exl3" | "q27" | "tensorfold" | "vllm">}
+   * @returns {Promise<"freetoken" | "ds4" | "sglang" | "exl3" | "q27" | "tensorfold" | "vllm">}
    */
   async _classifyOpenAIBackend(ownedBy) {
     if (typeof ownedBy === "string") {
+      if (/freetoken/i.test(ownedBy)) return "freetoken";
       if (/ds4/i.test(ownedBy)) return "ds4";
       if (/sglang/i.test(ownedBy)) return "sglang";
       if (/exl3/i.test(ownedBy)) return "exl3";
@@ -370,11 +372,56 @@ export class LlmProbe {
       // TensorFold (ashhart/TensorFold) reports owned_by: "tensorfold" on both MLX and CUDA servers.
       if (/tensorfold/i.test(ownedBy)) return "tensorfold";
     }
+    if (await this._probeIsFreeToken()) return "freetoken";
     if (await this._probeIsDs4()) return "ds4";
     if (await this._probeIsSglang()) return "sglang";
     if (await this._probeIsExl3()) return "exl3";
     if (await this._probeIsQ27()) return "q27";
     return "vllm";
+  }
+
+  /** True only for the stable FreeToken GET /v1/stats object contract. */
+  async _probeIsFreeToken() {
+    try {
+      const res = await this._fetch(`${this.baseUrl}/v1/stats`);
+      if (!res.ok) return false;
+      const data = await res.json().catch(() => null);
+      return LlmProbe._statsLookLikeFreeToken(data);
+    } catch {
+      return false;
+    }
+  }
+
+  /** @param {unknown} data */
+  static _statsLookLikeFreeToken(data) {
+    if (!data || typeof data !== "object" || Array.isArray(data)) return false;
+    const isObject = (value) => value && typeof value === "object" && !Array.isArray(value);
+    const has = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
+    const finiteNonNegative = (value) =>
+      typeof value === "number" && Number.isFinite(value) && value >= 0;
+    const nonNegativeInteger = (value) => finiteNonNegative(value) && Number.isInteger(value);
+    const throughput = data.throughput;
+    const requests = data.requests;
+    return Boolean(
+      typeof data.instance_id === "string" &&
+        data.instance_id.length > 0 &&
+        isObject(throughput) &&
+        has(throughput, "decode_tps") &&
+        has(throughput, "prefill_tps") &&
+        finiteNonNegative(throughput.decode_tps) &&
+        finiteNonNegative(throughput.prefill_tps) &&
+        isObject(requests) &&
+        has(requests, "active") &&
+        has(requests, "completed") &&
+        has(requests, "prompt_tokens_total") &&
+        has(requests, "completion_tokens_total") &&
+        nonNegativeInteger(requests.active) &&
+        nonNegativeInteger(requests.completed) &&
+        nonNegativeInteger(requests.prompt_tokens_total) &&
+        nonNegativeInteger(requests.completion_tokens_total) &&
+        (data.model == null || isObject(data.model)) &&
+        (data.kv == null || isObject(data.kv))
+    );
   }
 
   /**
@@ -497,13 +544,38 @@ export class LlmProbe {
 
     // Self-heal backend from owned_by before branching (cheap, no extra HTTP)
     if (typeof owned === "string") {
-      if (/ds4/i.test(owned)) this.backendType = "ds4";
+      if (/freetoken/i.test(owned)) this.backendType = "freetoken";
+      else if (/ds4/i.test(owned)) this.backendType = "ds4";
       else if (/sglang/i.test(owned) && this.backendType !== "ds4") {
         this.backendType = "sglang";
       } else if (/exl3/i.test(owned) && this.backendType !== "ds4") {
         this.backendType = "exl3";
       } else if (/tensorfold/i.test(owned) && this.backendType !== "ds4") {
         this.backendType = "tensorfold";
+      }
+    }
+
+    // FreeToken publishes its own live 5-second gauges. Do not derive rates
+    // from lifetime counters: restarts and short requests are normal here.
+    if (this.backendType === "freetoken") {
+      try {
+        const statsRes = await this._fetch(`${this.baseUrl}/v1/stats`);
+        const auth = this._noteAuthStatus(statsRes.status);
+        if (auth === "auth") {
+          this._clearFreeTokenStats();
+          return this._getSnapshot();
+        }
+        if (auth !== "ok") throw new Error(`FreeToken /v1/stats HTTP ${statsRes.status}`);
+        const stats = await statsRes.json().catch(() => null);
+        if (!LlmProbe._statsLookLikeFreeToken(stats)) {
+          throw new Error("FreeToken /v1/stats malformed");
+        }
+        this.backendType = "freetoken";
+        this._applyFreeTokenStats(stats);
+        return this._getSnapshot();
+      } catch (err) {
+        this._clearFreeTokenStats();
+        throw err;
       }
     }
 
@@ -836,6 +908,78 @@ export class LlmProbe {
     const specAccept = this._getPromMetric(txt, "q27_spec_accept_ratio");
     this.mtpAcceptanceRate =
       specAccept != null ? Math.round(specAccept * 10000) / 10000 : null;
+  }
+
+  _clearFreeTokenStats() {
+    this.generationTps = 0;
+    this.prefillTps = 0;
+    this.cachedPrefillTps = null;
+    this.uncachedPrefillTps = null;
+    this.gpuMemoryUtilization = null;
+    this.slotsActive = 0;
+    this.slotsTotal = null;
+    this.totalOutputTokens = 0;
+    this.totalPromptTokens = null;
+    this.totalCachedTokens = null;
+    this.kvCacheUsage = null;
+    this.requestsRunning = null;
+    this.requestsWaiting = null;
+    this.ttftP95Seconds = null;
+    this.ttftSeconds = null;
+    this.preemptionsTotal = null;
+    this.prefixCacheHitRate = null;
+    this.e2eP95Seconds = null;
+    this.itlP95Seconds = null;
+    this.mtpAcceptanceRate = null;
+  }
+
+  /**
+   * Apply FreeToken GET /v1/stats. Throughput values are independent recent
+   * sliding-window gauges, so they remain meaningful after active reaches zero.
+   * @param {Record<string, unknown>} data
+   */
+  _applyFreeTokenStats(data) {
+    const finiteNonNegative = (value) =>
+      typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+    const throughput = data.throughput;
+    const requests = data.requests;
+    const kv = data.kv;
+    const model = data.model || {};
+    const decodeTps = finiteNonNegative(throughput.decode_tps);
+    const prefillTps = finiteNonNegative(throughput.prefill_tps);
+    const active = finiteNonNegative(requests.active);
+    const promptTotal = finiteNonNegative(requests.prompt_tokens_total);
+    const completionTotal = finiteNonNegative(requests.completion_tokens_total);
+    const ttftMeanMs = finiteNonNegative(requests.ttft_mean_ms);
+    const p95Ms = finiteNonNegative(requests.p95_ms);
+    const ctx = finiteNonNegative(model.ctx);
+    const usedPages = kv && typeof kv === "object" && !Array.isArray(kv) ? finiteNonNegative(kv.used_pages) : null;
+    const totalPages = kv && typeof kv === "object" && !Array.isArray(kv) ? finiteNonNegative(kv.total_pages) : null;
+
+    this.generationTps = decodeTps ?? 0;
+    this.prefillTps = prefillTps ?? 0;
+    this.cachedPrefillTps = null;
+    this.uncachedPrefillTps = null;
+    this.gpuMemoryUtilization = null;
+    this.requestsRunning = active == null ? null : Math.round(active);
+    this.requestsWaiting = null;
+    this.slotsActive = active == null ? 0 : Math.round(active);
+    this.slotsTotal = null;
+    this.totalOutputTokens = completionTotal ?? 0;
+    this.totalPromptTokens = promptTotal;
+    this.totalCachedTokens = null;
+    this.kvCacheUsage =
+      usedPages != null && totalPages != null && totalPages > 0 && usedPages <= totalPages
+        ? Math.round((usedPages / totalPages) * 10000) / 10000
+        : null;
+    if (ctx != null && ctx > 0) this.contextLength = Math.round(ctx);
+    this.ttftP95Seconds = null;
+    this.ttftSeconds = ttftMeanMs != null && ttftMeanMs > 0 ? Math.round(ttftMeanMs) / 1000 : null;
+    this.preemptionsTotal = null;
+    this.prefixCacheHitRate = null;
+    this.e2eP95Seconds = p95Ms != null && p95Ms > 0 ? Math.round(p95Ms) / 1000 : null;
+    this.itlP95Seconds = null;
+    this.mtpAcceptanceRate = null;
   }
 
   /**
