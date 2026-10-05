@@ -113,3 +113,53 @@ test("_applyTensorFoldHealth: MLX health sizes the slot tile; null health is saf
   assert.doesNotThrow(() => probe._applyTensorFoldHealth(null, 2));
   assert.equal(probe.generationTps, 0);
 });
+
+test("_applyTensorFoldHealth: CUDA 0.6.0 streams size the slot tile and count busy slots", () => {
+  const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8000);
+  // Shape captured from TensorFold 0.6.0 CUDA (GLM-5.3-Flash-EXL3, TP=2), 3 of 4 streams busy.
+  probe._applyTensorFoldHealth(
+    {
+      ok: true,
+      backend: "tensorfold",
+      busy: true,
+      requests_running: 3,
+      prompt_tokens_total: 398995528,
+      completion_tokens_total: 3872412,
+      cached_tokens_total: 384257664,
+      streams: { decoding: 3, prefilling: 0, max: 4, filling: 0, paused: 0 },
+      context_length: 1048576,
+    },
+    2
+  );
+  assert.equal(probe.slotsTotal, 4);
+  assert.equal(probe.slotsActive, 3);
+  assert.equal(probe.requestsRunning, 3);
+
+  // Without requests_running, fall back to decoding + prefilling.
+  probe._applyTensorFoldHealth(
+    { ok: true, busy: true, streams: { decoding: 1, prefilling: 1, max: 4 } },
+    2
+  );
+  assert.equal(probe.slotsTotal, 4);
+  assert.equal(probe.slotsActive, 2);
+
+  // A null requests_running is missing, not 0 busy.
+  probe._applyTensorFoldHealth(
+    { ok: true, busy: true, requests_running: null, streams: { decoding: 2, max: 4 } },
+    2
+  );
+  assert.equal(probe.slotsActive, 2);
+
+  // Idle server: 0 of 4, not 0 of 1.
+  probe._applyTensorFoldHealth(
+    {
+      ok: true,
+      busy: false,
+      requests_running: 0,
+      streams: { decoding: 0, prefilling: 0, max: 4 },
+    },
+    2
+  );
+  assert.equal(probe.slotsTotal, 4);
+  assert.equal(probe.slotsActive, 0);
+});

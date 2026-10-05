@@ -895,8 +895,9 @@ export class LlmProbe {
   /**
    * Apply TensorFold GET /health. Same counter contract as EXL3 (`prompt_tokens_total`,
    * `completion_tokens_total`, optional `busy` / `context_length`). The MLX server's
-   * `max_batch_size` sizes the slot tile; the CUDA server's `{ok: true}` has no counters,
-   * so rates read 0 instead of a made-up number.
+   * `max_batch_size` sizes the slot tile, and so does the CUDA 0.6.0 server's
+   * `streams.max`; the older CUDA server's `{ok: true}` has no counters, so rates
+   * read 0 instead of a made-up number.
    * @param {Record<string, unknown> | null} data
    * @param {number} dtSec
    */
@@ -909,6 +910,31 @@ export class LlmProbe {
     if (Number.isFinite(cached) && cached >= 0) this.totalCachedTokens = cached;
     const batch = Number(health.max_batch_size);
     if (Number.isFinite(batch) && batch > 0) this.slotsTotal = Math.round(batch);
+    // TensorFold 0.6.0 CUDA serves several streams at once: `streams.max` is the
+    // slot count and `requests_running` the busy ones. The EXL3 path above only
+    // knows a single `busy` flag, which would pin the tile at 1/1.
+    const streams =
+      health.streams && typeof health.streams === "object" && !Array.isArray(health.streams)
+        ? health.streams
+        : {};
+    const max = Number(streams.max);
+    if (Number.isFinite(max) && max > 0) this.slotsTotal = Math.round(max);
+    // null must not read as 0 busy streams (Number(null) === 0).
+    const count = (v) => (v == null ? NaN : Number(v));
+    let running = count(health.requests_running);
+    if (!Number.isFinite(running)) {
+      const decoding = count(streams.decoding);
+      const prefilling = count(streams.prefilling);
+      if (Number.isFinite(decoding) || Number.isFinite(prefilling)) {
+        running =
+          (Number.isFinite(decoding) ? decoding : 0) +
+          (Number.isFinite(prefilling) ? prefilling : 0);
+      }
+    }
+    if (Number.isFinite(running) && running >= 0) {
+      this.requestsRunning = Math.round(running);
+      this.slotsActive = Math.round(running);
+    }
   }
 
   /**
