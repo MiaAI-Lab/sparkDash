@@ -36,6 +36,7 @@ It also supports **non-Spark units**: any Linux machine with an NVIDIA GPU (e.g.
 - [ComfyUI monitoring](#comfyui-monitoring)
 - [Hermes Agent monitoring](#hermes-agent-monitoring)
 - [Tailnet monitoring](#tailnet-monitoring)
+- [Alerts](#alerts)
 - [Full changelog](./CHANGELOG.md)
 - [Quick start](#quick-start)
 - [Architecture](#architecture)
@@ -237,6 +238,51 @@ Env (optional): `POLL_INTERVAL_TAILSCALE` (default `30000`), `TAILSCALE_PROBE_TI
 
 ---
 
+## Alerts
+
+Opt-in (default **off**). The server checks a set of rules after every fleet snapshot and sends a notification when an alert fires and when it resolves — whether or not a dashboard is open. Turn it on in **Settings → Alerts…**.
+
+Timing works like Prometheus: a condition has to hold for the rule's **for** duration before the alert fires (until then it is *pending*), and a firing alert resolves only after the condition has stayed clear for the same duration, so a value hovering on a threshold does not page on every crossing. A unit that goes offline holds its other alerts as they are instead of resolving them.
+
+### Rules
+
+| Rule | Fires when | For | Severity |
+|------|-----------|-----|----------|
+| Unit offline | Liveness (SSH or local) fails | 60 s | critical |
+| GPU temperature | Hottest GPU ≥ 85 °C / ≥ 95 °C | 2 min | warning / critical |
+| GPU throttling | Thermal, hardware or power-cap slowdown active | 60 s | critical (power cap: warning) |
+| Memory headroom | GB10: `unifiedMemory.available` < 8 GB / < 4 GB · discrete GPU: VRAM total − used < 2 GB / < 1 GB (per card on multi-GPU hosts) — the same thresholds as the VRAM bar | 2 min | warning / critical |
+| Disk usage | A monitored filesystem ≥ 90 % / ≥ 95 % | 5 min | warning / critical |
+| LLM endpoint unavailable | An endpoint on a head or standalone unit stops answering after sparkDash has seen it serving | 2 min | warning |
+| KV cache nearly full | `kvCacheUsage` ≥ 90 % (vLLM, q27, SGLang, TensorFold) | 2 min | warning |
+
+Every rule can be switched off, and its thresholds and duration changed, in the dialog.
+
+### Channels
+
+Add any number of channels, each with a name, a URL, a minimum severity (*Warning +* or *Critical only*) and an on/off switch. **Send test** posts one test message and shows the result inline.
+
+| Type | What is sent |
+|------|--------------|
+| `ntfy` | `POST` plain text to the topic URL with `Title`, `Priority` (5 critical, 4 warning, 3 resolved) and `Tags` headers — ntfy.sh or self-hosted |
+| `discord` | Discord webhook JSON: `content` plus one embed per alert (mentions disabled) |
+| `slack` | Slack incoming-webhook JSON `{ "text": … }` |
+| `webhook` | Generic JSON `{ source, status, severity, title, reminder, sentAt, alerts: [{ status, severity, rule, ruleName, unit, unitId, summary, startsAt, endsAt, value }] }` |
+
+Alerts that fire or resolve in the same evaluation are grouped into one message per channel. **Remind while still firing** (off by default) repeats firing alerts every 1 h / 4 h / 12 h / 24 h. A channel that fails is retried with the next notification; the failure is shown on the channel in the dialog and logged at most once per channel every five minutes.
+
+Example — phone notifications with [ntfy](https://ntfy.sh):
+
+1. Install the ntfy app and subscribe to a topic name nobody will guess, e.g. `sparkdash-7f3k9q`.
+2. **Settings → Alerts…** → turn on **Server alerts** → **Add channel**: type `ntfy`, URL `https://ntfy.sh/sparkdash-7f3k9q` (or your own server's URL).
+3. **Save**, then **Send test** — the phone shows "sparkDash test notification".
+
+### Where the configuration lives
+
+`config/alerts.json` (override with `ALERTS_JSON_PATH`), written at mode `0600`: rule overrides, channels, and the set of firing alerts, so an alert's start time survives a restart. Channel URLs are credentials — the API never returns them whole (`https://ntfy.sh…3k9q`: scheme, host and the last four characters), and saving with the masked value unchanged keeps the stored URL. While alerts are on, the WebSocket snapshot carries `alerts.active` and the Overview exceptions strip (Settings → *Show active fleet exceptions*) shows the server's alerts with their real durations.
+
+---
+
 ## Quick start
 
 ```bash
@@ -372,6 +418,10 @@ sparkDash/
 | GET | `/api/sparks/:id/llm/daily` | Daily busy decode/prefill tok/s (`port`, `days`) |
 | POST | `/api/sparks/:id/llm/bench` | Start decode benchmark (202); poll/cancel/clear on the same path |
 | POST | `/api/sparks/:id/llm/prefill-bench` | Start prefill + TTFT context sweep (202); poll/cancel/clear on the same path |
+| GET | `/api/alerts` | `{ enabled, active, pending, recent }` — firing / pending alerts and the last 200 events |
+| GET | `/api/alerts/config` | Alert rules, channels (URLs masked), repeat interval |
+| PUT | `/api/alerts/config` | Update rules / channels / repeat interval (validated) |
+| POST | `/api/alerts/test` | Send a test message to `{ channelId }` |
 | GET | `/api/settings` | Global settings |
 | PUT | `/api/settings` | Update global settings |
 | WS | `/ws` | Real-time metrics stream |
@@ -403,6 +453,7 @@ Gear icon in the header, or `GET`/`PUT` `/api/settings`:
 | Hide worker nodes | false | Hide Worker-role Sparks from Overview and the tab bar |
 | Temperature unit | Celsius | Display GPU temperature in °C or °F |
 | Benchmark share image | true | Decode/prefill **Copy results** becomes a split button: the label copies the text summary, the caret offers **Copy as text** / **Copy as image** on hover or click. Turn it off to keep the plain button. The image copies where the page has an image clipboard (HTTPS or localhost); over plain http on a LAN IP the card downloads instead |
+| Alerts | false | Server-side alert rules with ntfy / Discord / Slack / webhook notifications — **Settings → Alerts…**; see [Alerts](#alerts) |
 | Detailed VRAM breakdown | true | The VRAM bar on the Overview cards and the GPU panel is split by what holds the memory — LLM engine (largest GPU process while an endpoint is serving), system/CPU (GB10 unified pool), other GPU use — over a free track, and turns amber/red on low free memory (GB10: under 8 / 4 GB; discrete GPU: under 2 / 1 GB) rather than on a high percentage. Hover or focus for the breakdown, including the engine's KV fill where the backend reports it. Turn it off for the single percentage bar |
 
 ### Environment variables
@@ -437,6 +488,7 @@ Copy `.env.example` to `.env` if needed:
 | `SSH_IDENTITY_FILE` | _(unset)_ | Path **inside the process** to a private key (`ssh -i`). Use when the bind-mount is not a default OpenSSH name. |
 | `SSH_CONTROL_PERSIST_SECONDS` | `60` | Idle SSH transport persistence in seconds, capped at `3600`. Set to `0` to disable multiplexing. |
 | `FLEET_ENERGY_JSON_PATH` | `config/fleet-energy.json` | Rolling fleet-energy persistence path |
+| `ALERTS_JSON_PATH` | `config/alerts.json` | Alert rules, notification channels and the firing set (mode `0600`) |
 
 For compatibility, `SSH_CONTROL_PERSIST` is accepted as a seconds-based fallback when `SSH_CONTROL_PERSIST_SECONDS` is unset. The existing `SSH_MULTIPLEX=0` switch also disables reuse. SSH tunnels always use an independent connection.
 

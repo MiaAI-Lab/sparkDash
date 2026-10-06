@@ -31,3 +31,10 @@ test("showVramBreakdown turns off and is stored as a boolean", () => {
   assert.equal(updateSettings({ showVramBreakdown: 1 }).showVramBreakdown, true);
   assert.equal(loadSettings().showVramBreakdown, true);
 });
+
+test("alertsEnabled defaults off and is stored as a boolean", () => {
+  fs.writeFileSync(process.env.SETTINGS_JSON_PATH, JSON.stringify({ density: "compact" }));
+  assert.equal(loadSettings().alertsEnabled, false);
+  assert.equal(updateSettings({ alertsEnabled: "yes" }).alertsEnabled, true);
+  assert.equal(updateSettings({ alertsEnabled: 0 }).alertsEnabled, false);
+});
