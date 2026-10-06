@@ -192,3 +192,12 @@ test("patchSpark: pointing a unit at another host drops its stored secrets", () 
   r.patchSpark(SPARK_ID, { lanIp: "10.0.0.10", ssh: { password: "pw-new" } });
   assert.equal(r.getSpark(SPARK_ID).ssh.password, "pw-new");
 });
+
+test("patchSpark: a new SSH host drops the LLM API keys (bench tunnel endpoint)", () => {
+  const r = loadRegistry([8888], { "8888": TEST_KEY }, { reset: true });
+  r.patchSpark(SPARK_ID, { ssh: { user: "other" } }); // same host, same LLM
+  assert.equal(r.hasLlmApiKey(SPARK_ID, 8888), true);
+  r.patchSpark(SPARK_ID, { ssh: { host: "10.0.0.9" } });
+  assert.equal(r.getSpark(SPARK_ID).lanIp, "127.0.0.1");
+  assert.equal(r.hasLlmApiKey(SPARK_ID, 8888), false);
+});
