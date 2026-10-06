@@ -362,6 +362,11 @@ export interface LlmMetrics {
    * Does not claim process bind address.
    */
   posture?: LlmPosture | null;
+  /**
+   * Epoch ms of the last poll in which this endpoint generated or prefilled
+   * tokens. Server memory only: null after a sparkDash restart until traffic.
+   */
+  lastActiveAt?: number | null;
   error: string | null;
 }
 
