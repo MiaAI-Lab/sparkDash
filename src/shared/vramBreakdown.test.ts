@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { backendLabel } from "./llmBackends.js";
 import {
   HEADROOM_THRESHOLDS_MB,
   computeVramBreakdown,
@@ -195,7 +196,7 @@ describe("computeVramBreakdown", () => {
     expect(b.systemMB).toBeNull();
     expect(b.freeMB).toBe(3_275);
     expect(b.tone).toBe("ok");
-    expect(b.kv).toEqual({ usage: 0.05, poolGb: 10.729, weightsGb: 71.066, backend: "sgLang" });
+    expect(b.kv).toEqual({ usage: 0.05, poolGb: 10.729, weightsGb: 71.066, backend: backendLabel("sglang") });
     expect(legendItems(b).map((i) => `${i.label} ${i.gb}`)).toEqual([
       "Engine 91.7",
       "Other 0.7",
