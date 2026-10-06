@@ -12,20 +12,23 @@ import { llmDaily } from "../collectors/LlmDaily.js";
 import { HealthEvaluator } from "../health/HealthEvaluator.js";
 import { sshExec } from "../collectors/ssh.js";
 import {
-  POLL_INTERVAL_GPU,
-  POLL_INTERVAL_CPU,
-  POLL_INTERVAL_NETWORK,
   POLL_INTERVAL_STORAGE,
-  POLL_INTERVAL_LLM,
-  POLL_INTERVAL_COMFY,
-  POLL_INTERVAL_BANDWIDTH,
   POLL_INTERVAL_LIVENESS,
   POLL_INTERVAL_HERMES,
   POLL_INTERVAL_TAILSCALE,
   LLM_PORT,
   COMFY_PORT,
   HOST_PATHS,
+  resolveFastPollIntervals,
 } from "../config.js";
+
+/**
+ * Domains on a timer of their own that follow Settings → Poll interval
+ * (unless pinned by env — see resolveFastPollIntervals). LLM and ComfyUI follow
+ * it too but are armed only while their monitoring is on. Storage, liveness,
+ * Tailnet, Hermes and the NV_ERR journal scan keep their own cadences.
+ */
+const FAST_TIMER_DOMAINS = ["gpu", "cpu", "network", "ram", "memory"];
 
 /**
  * Liveness retry schedule. Network failures widen gradually — a rebooting host
@@ -93,7 +96,8 @@ const HEALTH_LABELS = {
 export class SparkMonitor {
   /**
    * @param {object} spark
-   * @param {{ onWolMac?: (sparkId: string, mac: string) => void, onHermesChange?: () => void, resolveHeadModelId?: ((headId: string) => string | null) }} [options]
+   * @param {{ onWolMac?: (sparkId: string, mac: string) => void, onHermesChange?: () => void, resolveHeadModelId?: ((headId: string) => string | null), pollIntervalMs?: number }} [options]
+   *   pollIntervalMs: Settings → Poll interval; drives the fast collector timers.
    */
   constructor(spark, options = {}) {
     this.spark = spark;
@@ -208,6 +212,10 @@ export class SparkMonitor {
     }
 
     // Timers
+    /** Per-domain cadence for the fast collectors (ms). */
+    this._fastIntervals = resolveFastPollIntervals(options.pollIntervalMs);
+    /** @type {Record<string, ReturnType<typeof setInterval>>} fast domain → timer */
+    this._domainTimers = {};
     this._intervals = [];
     /** @type {ReturnType<typeof setInterval> | null} */
     this._llmIntervalId = null;
@@ -385,8 +393,7 @@ export class SparkMonitor {
       this._llmIntervalId = null;
     }
     if (this._llmMonitoringEnabled() && this._running) {
-      this._llmIntervalId = setInterval(() => this._pollDomain("llm"), POLL_INTERVAL_LLM);
-      this._intervals.push(this._llmIntervalId);
+      this._llmIntervalId = this._armDomainTimer("llm");
       void this._pollDomain("llm");
     }
   }
@@ -414,8 +421,7 @@ export class SparkMonitor {
       this._comfyIntervalId = null;
     }
     if (this._comfyMonitoringEnabled() && this._running) {
-      this._comfyIntervalId = setInterval(() => this._pollDomain("comfy"), POLL_INTERVAL_COMFY);
-      this._intervals.push(this._comfyIntervalId);
+      this._comfyIntervalId = this._armDomainTimer("comfy");
       void this._pollDomain("comfy");
     }
   }
@@ -513,6 +519,44 @@ export class SparkMonitor {
     return [LLM_PORT];
   }
 
+  /** Repeating poll of one domain at its current cadence; tracked for stop(). */
+  _armDomainTimer(domain) {
+    const id = setInterval(() => this._pollDomain(domain), this._fastIntervals[domain]);
+    this._intervals.push(id);
+    return id;
+  }
+
+  _clearTimer(id) {
+    clearInterval(id);
+    this._intervals = this._intervals.filter((other) => other !== id);
+  }
+
+  /**
+   * Apply a new Settings → Poll interval. Only timers whose cadence actually
+   * changes are re-armed, and nothing else is touched: in-flight guards, the
+   * run generation, liveness backoff and the offline pause all carry over, so
+   * a poll already running is neither duplicated nor discarded.
+   * @param {number} pollIntervalMs
+   */
+  setPollInterval(pollIntervalMs) {
+    const prev = this._fastIntervals;
+    this._fastIntervals = resolveFastPollIntervals(pollIntervalMs);
+    if (!this._running) return;
+    for (const domain of FAST_TIMER_DOMAINS) {
+      if (prev[domain] === this._fastIntervals[domain]) continue;
+      if (this._domainTimers[domain] != null) this._clearTimer(this._domainTimers[domain]);
+      this._domainTimers[domain] = this._armDomainTimer(domain);
+    }
+    if (this._llmIntervalId != null && prev.llm !== this._fastIntervals.llm) {
+      this._clearTimer(this._llmIntervalId);
+      this._llmIntervalId = this._armDomainTimer("llm");
+    }
+    if (this._comfyIntervalId != null && prev.comfy !== this._fastIntervals.comfy) {
+      this._clearTimer(this._comfyIntervalId);
+      this._comfyIntervalId = this._armDomainTimer("comfy");
+    }
+  }
+
   /** Start background polling. */
   start() {
     if (this._running) return;
@@ -520,12 +564,10 @@ export class SparkMonitor {
     this._running = true;
     this._stopped = false;
     this._poll();
-    this._intervals.push(setInterval(() => this._pollDomain("gpu"), POLL_INTERVAL_GPU));
-    this._intervals.push(setInterval(() => this._pollDomain("cpu"), POLL_INTERVAL_CPU));
-    this._intervals.push(setInterval(() => this._pollDomain("network"), POLL_INTERVAL_NETWORK));
+    for (const domain of FAST_TIMER_DOMAINS) {
+      this._domainTimers[domain] = this._armDomainTimer(domain);
+    }
     this._intervals.push(setInterval(() => this._pollDomain("storage"), POLL_INTERVAL_STORAGE));
-    this._intervals.push(setInterval(() => this._pollDomain("ram"), POLL_INTERVAL_CPU));
-    this._intervals.push(setInterval(() => this._pollDomain("memory"), POLL_INTERVAL_BANDWIDTH));
     this._restartLlmPollInterval();
     this._restartComfyPollInterval();
     this._restartHermesPollInterval();
@@ -544,6 +586,7 @@ export class SparkMonitor {
     this._stopped = true;
     for (const id of this._intervals) clearInterval(id);
     this._intervals = [];
+    this._domainTimers = {};
     this._llmIntervalId = null;
     this._comfyIntervalId = null;
     this._hermesIntervalId = null;

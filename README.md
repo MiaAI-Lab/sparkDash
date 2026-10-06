@@ -466,7 +466,7 @@ Gear icon in the header, or `GET`/`PUT` `/api/settings`:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| Poll interval | 2000 ms | WebSocket broadcast interval (minimum 1000 ms) |
+| Poll interval | 2000 ms | How often every unit is polled for GPU, CPU/RAM, network, memory bandwidth, LLM and ComfyUI metrics, and how often the dashboard is pushed an update (minimum 1000 ms). Remote units are polled over SSH, so 1 s costs the most. Memory bandwidth (`nvidia-smi dmon`, which blocks ~1 s) never goes below 2 s. Storage, liveness, Tailnet, Hermes and the `NV_ERR` scan keep their own cadences. A `POLL_INTERVAL_*` env var, when set, pins its domain instead |
 | Default LLM port | 8888 | Default for new Sparks |
 | Auto-hide offline | false | Hide offline Sparks on Overview |
 | Hide worker nodes | false | Hide Worker-role Sparks from Overview and the tab bar |
@@ -487,13 +487,13 @@ Copy `.env.example` to `.env` if needed:
 | `PORT` | `5555` | HTTP + WebSocket listen port |
 | `LLM_PORT` | `8888` | Default LLM probe port |
 | `COMFY_PORT` | `8188` | Default ComfyUI probe port |
-| `POLL_INTERVAL_GPU` | `2000` | GPU poll (ms) |
-| `POLL_INTERVAL_COMFY` | `2000` | ComfyUI probe poll (ms) |
-| `POLL_INTERVAL_CPU` | `2000` | CPU / RAM poll (ms) |
-| `POLL_INTERVAL_NETWORK` | `2000` | Network poll (ms) |
+| `POLL_INTERVAL_GPU` | _(setting)_ | GPU poll (ms). Unset: follows **Settings → Poll interval**; set: pins GPU polling regardless of the setting |
+| `POLL_INTERVAL_COMFY` | _(setting)_ | ComfyUI probe poll (ms); same rule |
+| `POLL_INTERVAL_CPU` | _(setting)_ | CPU / RAM poll (ms); same rule |
+| `POLL_INTERVAL_NETWORK` | _(setting)_ | Network poll (ms); same rule |
 | `POLL_INTERVAL_STORAGE` | `5000` | Storage poll (ms) |
-| `POLL_INTERVAL_LLM` | `2000` | LLM probe poll (ms) |
-| `POLL_INTERVAL_BANDWIDTH` | `2000` | Memory bandwidth / dmon poll (ms) |
+| `POLL_INTERVAL_LLM` | _(setting)_ | LLM probe poll (ms); same rule |
+| `POLL_INTERVAL_BANDWIDTH` | _(setting, ≥ 2000)_ | Memory bandwidth / dmon poll (ms); same rule, and when it follows the setting it never drops below 2000 |
 | `POLL_INTERVAL_HERMES` | `600000` | Hermes Agent update check poll (ms) |
 | `POLL_INTERVAL_TAILSCALE` | `30000` | Tailnet probe poll (ms) |
 | `TAILSCALE_PROBE_TIMEOUT_MS` | `8000` | Timeout for `tailscale status --json` (ms) |

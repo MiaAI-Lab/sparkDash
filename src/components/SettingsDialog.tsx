@@ -176,7 +176,7 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
 
           {settings && !loading && (
             <>
-              <SettingRow title="Refresh rate" help="How often metrics are polled.">
+              <SettingRow title="Refresh rate" help="How often every unit is polled for GPU, CPU, memory, network and LLM metrics, and how often the dashboard updates. Remote units are polled over SSH, so 1s costs the most; storage and liveness keep their own slower checks.">
                 <div className="seg" role="radiogroup" aria-label="Poll interval">
                   {POLL_PRESETS.map((preset) => (
                     <button
