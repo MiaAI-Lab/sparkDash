@@ -43,12 +43,17 @@ import {
 } from "./llmtokens/LlmTokenRuntime.js";
 import { closeLlmStreamAgent } from "./collectors/LlmStreaming.js";
 import { compareSemver, getLatestRelease } from "./collectors/HermesReleases.js";
-import { FLEET_ENERGY_JSON_PATH } from "./config.js";
+import { FLEET_ENERGY_JSON_PATH, METRICS_HISTORY_JSON_PATH } from "./config.js";
 import { FleetEnergyTracker } from "./energy/FleetEnergyTracker.js";
 import {
   createFleetEnergyRuntime,
   registerFleetEnergyRoute,
 } from "./energy/FleetEnergyRuntime.js";
+import { MetricsHistory } from "./history/MetricsHistory.js";
+import {
+  createMetricsHistoryRuntime,
+  registerMetricsHistoryRoute,
+} from "./history/MetricsHistoryRuntime.js";
 import { testSparkConnectivity } from "./connectivity.js";
 import { inspectStartupPreflight, logStartupPreflight } from "./startupPreflight.js";
 import { PROMETHEUS_CONTENT_TYPE, renderPrometheusMetrics } from "./prometheus.js";
@@ -317,6 +322,16 @@ const fleetEnergyRuntime = createFleetEnergyRuntime({
   monitors,
 });
 
+// Per-unit metrics history (opt-in setting; reads it every tick, so no restart).
+const metricsHistory = new MetricsHistory({ filePath: METRICS_HISTORY_JSON_PATH });
+const metricsHistoryEnabled = () => getSettings().metricsHistory === true;
+const metricsHistoryRuntime = createMetricsHistoryRuntime({
+  store: metricsHistory,
+  orderedSnapshots,
+  monitors,
+  isEnabled: metricsHistoryEnabled,
+});
+
 // Cumulative prompt/generated token totals per model (per-UTC-day buckets for range queries).
 const llmTokenRuntime = createLlmTokenRuntime({ ledger: llmTokenLedger, orderedSnapshots });
 
@@ -343,6 +358,11 @@ function clientKey(req) {
 // ─── REST API ────────────────────────────────────────────
 registerFleetEnergyRoute(app, fleetEnergyTracker);
 registerLlmTokenTotalsRoute(app, llmTokenLedger);
+registerMetricsHistoryRoute(app, {
+  store: metricsHistory,
+  hasUnit: (id) => registry.getSpark(id) !== null,
+  isEnabled: metricsHistoryEnabled,
+});
 
 // Never return SSH passwords in any response
 app.get("/api/sparks", (_req, res) => {
@@ -1757,6 +1777,7 @@ if (!startupPreflight.fatal) {
     startAllMonitors();
     fleetEnergyRuntime.start();
     llmTokenRuntime.start();
+    metricsHistoryRuntime.start();
   });
 } else {
   process.exitCode = 1;
@@ -1786,6 +1807,7 @@ async function shutdown(signal) {
     console.error("[sparkDash] failed to flush LLM daily history:", err.message);
   }
   llmTokenRuntime.stop();
+  metricsHistoryRuntime.stop();
   const energyPersistenceSucceeded = fleetEnergyRuntime.stop();
   const streamAgentClosedGracefully = await closeLlmStreamAgent();
   if (!streamAgentClosedGracefully) {

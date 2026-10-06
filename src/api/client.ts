@@ -7,6 +7,8 @@ import type {
   HermesUpdatesResponse,
   LlmMetrics,
   LlmDailyResponse,
+  MetricsHistoryRange,
+  MetricsHistoryResponse,
   Settings,
   ShowcaseListResponse,
   ShowcaseSessionState,
@@ -67,6 +69,14 @@ export function fetchLlmDaily(
 ): Promise<LlmDailyResponse> {
   const q = new URLSearchParams({ port: String(port), days: String(days) });
   return apiFetch(`/api/sparks/${encodeURIComponent(id)}/llm/daily?${q.toString()}`);
+}
+
+/** Server-side metrics history for one unit (opt-in `metricsHistory` setting). */
+export function fetchMetricsHistory(
+  id: string,
+  range: MetricsHistoryRange
+): Promise<MetricsHistoryResponse> {
+  return apiFetch(`/api/sparks/${encodeURIComponent(id)}/history?range=${range}`);
 }
 
 export function addSpark(config: SparkConfig): Promise<{ success: boolean; spark: SparkConfig }> {

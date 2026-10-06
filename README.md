@@ -406,6 +406,7 @@ sparkDash/
 | PUT | `/api/sparks/order` | Persist tab order |
 | GET | `/api/sparks/:id/metrics` | One-shot metrics snapshot |
 | GET | `/api/fleet-energy` | Estimated fleet watts, rolling energy, coverage, and Wh/output-token |
+| GET | `/api/sparks/:id/history` | Metrics history (`range` = `1h`, `6h`, `24h`, `7d`, `30d`); `{ enabled: false }` unless the setting is on |
 | POST | `/api/sparks/test` | Ephemeral SSH + LLM (+ Comfy if enabled) test (no persist) |
 | POST | `/api/sparks/:id/test` | Connectivity test (can save password) |
 | POST | `/api/sparks/:id/comfy/cancel` | Cancel ComfyUI job by `promptId` |
@@ -435,6 +436,23 @@ exactly one configured node has role `head` and exposes a monotonic LLM output-t
 These values are estimates, not wall-meter measurements. Restart sparkDash after changing fleet
 membership so the persisted series has one stable node set.
 
+#### Metrics history
+
+Off by default (**Settings → Metrics history**, `metricsHistory`). When on, the server samples every
+unit every 2 seconds — GPU util / temperature / power, memory used and free (a GB10's unified-pool
+headroom, a discrete card's free VRAM), CPU util / temperature, RAM used on hosts, network rx/tx on
+the primary interface, and per LLM endpoint decode tok/s, prefill tok/s and KV fill — and keeps it in
+three tiers: raw samples for the last 60 minutes (memory only), 1-minute buckets for 48 hours and
+15-minute buckets for 30 days. Each bucket stores avg, max and sample count (and min for free memory).
+Offline periods and values a unit did not report are gaps, not zeros. Tiers 1–2 are written to
+`config/metrics-history.json` (override with `METRICS_HISTORY_JSON_PATH`) every 60 seconds and on
+shutdown, mode `0600`. With every bucket full the file is about 0.9 MB per unit plus 0.25 MB per LLM
+endpoint — ~3 MB for a three-unit fleet, ~22 MB for 20 units — and retention keeps it there; removing a
+unit drops its history on the next write. `GET /api/sparks/:id/history?range=…` answers 1h from raw
+samples in 10 s steps, 6h and 24h from the 1-minute tier, 7d and 30d from the 15-minute tier (merged
+into wider steps so a response stays under ~500 points per series). The unit page shows it in a
+collapsible **History** section. Turning the setting off stops recording and keeps the file.
+
 ---
 
 ## Configuration
@@ -451,6 +469,7 @@ Gear icon in the header, or `GET`/`PUT` `/api/settings`:
 | Hide worker nodes | false | Hide Worker-role Sparks from Overview and the tab bar |
 | Temperature unit | Celsius | Display GPU temperature in °C or °F |
 | Benchmark share image | true | Decode/prefill **Copy results** becomes a split button: the label copies the text summary, the caret offers **Copy as text** / **Copy as image** on hover or click. Turn it off to keep the plain button. The image copies where the page has an image clipboard (HTTPS or localhost); over plain http on a LAN IP the card downloads instead |
+| Metrics history | false | Record each unit's GPU, CPU, memory, network and LLM rates on the server for 30 days and chart them in a **History** section on the unit page (1h · 6h · 24h · 7d · 30d, shared crosshair). See [Metrics history](#metrics-history) for storage and size |
 | Detailed VRAM breakdown | true | The VRAM bar on the Overview cards and the GPU panel is split by what holds the memory — LLM engine (largest GPU process while an endpoint is serving), system/CPU (GB10 unified pool), other GPU use — over a free track, and turns amber/red on low free memory (GB10: under 8 / 4 GB; discrete GPU: under 2 / 1 GB) rather than on a high percentage. Hover or focus for the breakdown, including the engine's KV fill where the backend reports it. Turn it off for the single percentage bar |
 | Prometheus metrics | false | Serve `GET /metrics` for Prometheus / Grafana (see [Prometheus](#prometheus)); `404` while off |
 
@@ -486,6 +505,7 @@ Copy `.env.example` to `.env` if needed:
 | `SSH_IDENTITY_FILE` | _(unset)_ | Path **inside the process** to a private key (`ssh -i`). Use when the bind-mount is not a default OpenSSH name. |
 | `SSH_CONTROL_PERSIST_SECONDS` | `60` | Idle SSH transport persistence in seconds, capped at `3600`. Set to `0` to disable multiplexing. |
 | `FLEET_ENERGY_JSON_PATH` | `config/fleet-energy.json` | Rolling fleet-energy persistence path |
+| `METRICS_HISTORY_JSON_PATH` | `config/metrics-history.json` | Metrics history persistence path (only written while the setting is on) |
 
 For compatibility, `SSH_CONTROL_PERSIST` is accepted as a seconds-based fallback when `SSH_CONTROL_PERSIST_SECONDS` is unset. The existing `SSH_MULTIPLEX=0` switch also disables reuse. SSH tunnels always use an independent connection.
 

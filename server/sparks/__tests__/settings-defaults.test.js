@@ -39,3 +39,10 @@ test("prometheusExport is opt-in and stored as a boolean", () => {
   assert.equal(loadSettings().prometheusExport, true);
   assert.equal(updateSettings({ prometheusExport: 0 }).prometheusExport, false);
 });
+
+test("metricsHistory defaults off and is stored as a boolean", () => {
+  fs.writeFileSync(process.env.SETTINGS_JSON_PATH, JSON.stringify({ density: "compact" }));
+  assert.equal(loadSettings().metricsHistory, false);
+  assert.equal(updateSettings({ metricsHistory: "yes" }).metricsHistory, true);
+  assert.equal(updateSettings({ metricsHistory: 0 }).metricsHistory, false);
+});

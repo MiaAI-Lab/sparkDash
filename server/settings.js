@@ -47,6 +47,12 @@ const DEFAULTS = Object.freeze({
    * Off by default: when off the path answers 404.
    */
   prometheusExport: false,
+  /**
+   * Record per-unit GPU / CPU / memory / network / LLM history on the server
+   * (config/metrics-history.json, 30 days) and chart it on the unit page.
+   * Off by default: off records nothing and writes no file.
+   */
+  metricsHistory: false,
 });
 
 /** @type {typeof DEFAULTS} */
@@ -73,6 +79,7 @@ function _clampSettings(settings) {
   s.showLlmTokenTotals = Boolean(s.showLlmTokenTotals);
   s.showVramBreakdown = Boolean(s.showVramBreakdown);
   s.prometheusExport = Boolean(s.prometheusExport);
+  s.metricsHistory = Boolean(s.metricsHistory);
   // Ensure temperatureUnit is valid
   if (s.temperatureUnit !== "celsius" && s.temperatureUnit !== "fahrenheit") {
     s.temperatureUnit = DEFAULTS.temperatureUnit;
