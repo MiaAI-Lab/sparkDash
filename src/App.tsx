@@ -355,14 +355,17 @@ function DashboardApp() {
               showFleetExceptions={settings?.showFleetExceptions ?? false}
               showOverviewSearch={settings?.showOverviewSearch ?? false}
               showLlmTokenTotals={settings?.showLlmTokenTotals ?? false}
+              showVramBreakdown={settings?.showVramBreakdown ?? true}
               temperatureUnit={settings?.temperatureUnit ?? "celsius"}
               onSelectSpark={navigate}
             />
           ) : displayActive ? (
             <SparkPage
               spark={displayActive}
+              fleet={displaySparks}
               temperatureUnit={settings?.temperatureUnit ?? "celsius"}
               benchShareImage={settings?.benchShareImage ?? false}
+              showVramBreakdown={settings?.showVramBreakdown ?? true}
               onEdit={() => setEditId(displayActive.id)}
             />
           ) : (

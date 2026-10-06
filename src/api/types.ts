@@ -607,6 +607,11 @@ export interface Settings {
   showLlmTokenTotals: boolean;
   /** Benchmark dialogs offer "Copy image" — a PNG share card of the results. */
   benchShareImage: boolean;
+  /**
+   * VRAM bars split by engine / system / free and judged by headroom. On by
+   * default (server DEFAULTS and the UI's pre-load fallback both say true).
+   */
+  showVramBreakdown: boolean;
 }
 
 export interface SparksListResponse {

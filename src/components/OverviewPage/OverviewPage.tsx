@@ -4,11 +4,18 @@ import { isWorkerSpark, resolveSparkRole } from "../../api/sparkRole";
 import { shutdownAllSparks, updateAllHermes, wakeAllSparks } from "../../api/client";
 import { ConfirmShutdownDialog } from "../ConfirmShutdownDialog";
 import { MetricBar } from "../ui/MetricBar";
+import { VramBreakdownBar } from "../ui/VramBreakdownBar";
 import { FleetEnergyCard } from "./FleetEnergyCard";
 import { FleetAlertStrip } from "./FleetAlertStrip";
 import { FleetTokenTotals } from "./FleetTokenTotals";
 import { ActivityIcon, PowerOffIcon, PowerOnIcon, RotateIcon } from "../ui/icons";
 import { formatMb } from "../../shared/formatBytes";
+import {
+  computeVramBreakdown,
+  headroomMiniStatTone,
+  vramContextFor,
+  type VramBreakdownContext,
+} from "../../shared/vramBreakdown";
 
 interface OverviewPageProps {
   sparks: SparkSnapshot[];
@@ -19,6 +26,8 @@ interface OverviewPageProps {
   showOverviewSearch?: boolean;
   /** Overview LLM token totals card (cumulative tokens per model). */
   showLlmTokenTotals?: boolean;
+  /** VRAM bar split by engine / system / free, judged by headroom. On by default. */
+  showVramBreakdown?: boolean;
   temperatureUnit?: "celsius" | "fahrenheit";
   onSelectSpark?: (id: string) => void;
 }
@@ -83,11 +92,14 @@ function MiniStat({
 function SparkCard({
   spark,
   headSparkName,
+  vramContext = null,
   temperatureUnit,
   onSelect,
 }: {
   spark: SparkSnapshot;
   headSparkName?: string | null;
+  /** Breakdown inputs (see `vramContextFor`); null keeps the plain VRAM bar. */
+  vramContext?: VramBreakdownContext | null;
   temperatureUnit: "celsius" | "fahrenheit";
   onSelect?: (id: string) => void;
 }) {
@@ -111,6 +123,8 @@ function SparkCard({
   const usageBarColor = usage > 85 ? "bg-danger" : usage > 60 ? "bg-warning" : "bg-accent";
   // VRAM allocation: accent normal → warning/danger as it fills
   const vramBarColor = vramPct > 85 ? "bg-danger" : vramPct > 60 ? "bg-warning" : "bg-accent";
+  const breakdown =
+    gpu && vramContext ? computeVramBreakdown(gpu.vram, gpu.processes, vramContext) : null;
 
   return (
     <div
@@ -209,13 +223,20 @@ function SparkCard({
         <>
           {/* Three headline bars: GPU alloc, Temp, Usage */}
           <div className="flex flex-col gap-3.5">
-            <MetricBar
-              label="VRAM"
-              value={vramUsed}
-              max={vramTotal}
-              color={vramBarColor}
-              caption={vramTotal > 0 ? `${fmtStorage(vramUsed, false)} / ${fmtStorage(vramTotal, true)}` : "—"}
-            />
+            {breakdown ? (
+              <VramBreakdownBar
+                label={breakdown.systemMB != null ? "Unified memory" : "VRAM"}
+                breakdown={breakdown}
+              />
+            ) : (
+              <MetricBar
+                label="VRAM"
+                value={vramUsed}
+                max={vramTotal}
+                color={vramBarColor}
+                caption={vramTotal > 0 ? `${fmtStorage(vramUsed, false)} / ${fmtStorage(vramTotal, true)}` : "—"}
+              />
+            )}
             {spark.kind === "host" && (() => {
               // Non-Spark hosts: system RAM is separate from discrete VRAM.
               const ram = spark.metrics.ram;
@@ -285,12 +306,20 @@ function SparkCard({
               label="GPU Power"
               value={`${gpu?.power?.draw ?? 0}W / ${gpu?.power?.limit ?? 0}W`}
             />
-            {vramAvail > 0 && (
+            {breakdown ? (
               <MiniStat
                 label="Available"
-                value={formatMb(vramAvail)}
-                tone={vramAvail < 4096 ? "danger" : vramAvail < 16384 ? "warning" : "accent"}
+                value={formatMb(breakdown.freeMB)}
+                tone={headroomMiniStatTone(breakdown.tone)}
               />
+            ) : (
+              vramAvail > 0 && (
+                <MiniStat
+                  label="Available"
+                  value={formatMb(vramAvail)}
+                  tone={vramAvail < 4096 ? "danger" : vramAvail < 16384 ? "warning" : "accent"}
+                />
+              )
             )}
             {(() => {
               // Find the root disk by label "/" (the collector maps the host
@@ -402,6 +431,7 @@ export function OverviewPage({
   showFleetExceptions = false,
   showOverviewSearch = false,
   showLlmTokenTotals = false,
+  showVramBreakdown = true,
   temperatureUnit = "celsius",
   onSelectSpark,
 }: OverviewPageProps) {
@@ -720,6 +750,7 @@ export function OverviewPage({
                 ? sparks.find((s) => s.id === spark.workerHeadId)?.name ?? null
                 : null
             }
+            vramContext={showVramBreakdown ? vramContextFor(spark, sparks) : null}
             temperatureUnit={temperatureUnit}
             onSelect={onSelectSpark}
           />
