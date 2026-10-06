@@ -3,11 +3,22 @@ import { Sparkline } from "../ui/Sparkline";
 import { Panel } from "../ui/Panel";
 import { ActivityIcon } from "../ui/icons";
 import { MetricBar } from "../ui/MetricBar";
+import { VramBreakdownBar } from "../ui/VramBreakdownBar";
 import { useMetricsHistoryTail } from "../../hooks/metricsStore";
 import { formatMb } from "../../shared/formatBytes";
+import {
+  computeVramBreakdown,
+  headroomTextClass,
+  type VramBreakdownContext,
+} from "../../shared/vramBreakdown";
 
 interface GpuPanelProps {
   gpu: GpuMetrics | null;
+  /**
+   * Draw the VRAM bars as an engine / system / free breakdown judged by
+   * headroom (Settings → Detailed VRAM breakdown). null: the plain bar.
+   */
+  vramContext?: VramBreakdownContext | null;
   sparkId: string;
   temperatureUnit: "celsius" | "fahrenheit";
   className?: string;
@@ -64,13 +75,23 @@ function tempColorFor(celsius: number, idle = "var(--color-text)"): string {
 /** One physical GPU on a multi-card host: name, throttle chip, usage/temp sparklines, VRAM. */
 function GpuDeviceRow({
   device: d,
+  vramContext,
   sparkId,
   temperatureUnit,
 }: {
   device: GpuDevice;
+  vramContext: VramBreakdownContext | null;
   sparkId: string;
   temperatureUnit: "celsius" | "fahrenheit";
 }) {
+  // One card's own VRAM and processes; its KV pool is not knowable per card.
+  const breakdown = vramContext
+    ? computeVramBreakdown(d.vram, d.processes, {
+        model: "discrete",
+        unified: null,
+        serving: vramContext.serving,
+      })
+    : null;
   const usageHistory = useMetricsHistoryTail(sparkId, `gpu.${d.index}.usage`);
   const tempHistory = useMetricsHistoryTail(sparkId, `gpu.${d.index}.temp`);
   const temp = temperatureUnit === "fahrenheit" ? celsiusToFahrenheit(d.temperature) : d.temperature;
@@ -111,7 +132,9 @@ function GpuDeviceRow({
           {d.power.draw}W / {d.power.limit}W
         </span>
       </div>
-      {d.vram.total > 0 ? (
+      {breakdown ? (
+        <VramBreakdownBar label="VRAM" breakdown={breakdown} showLegend />
+      ) : d.vram.total > 0 ? (
         <MetricBar
           label="VRAM"
           value={d.vram.used}
@@ -130,7 +153,13 @@ function GpuDeviceRow({
   );
 }
 
-export function GpuPanel({ gpu, sparkId, temperatureUnit, className }: GpuPanelProps) {
+export function GpuPanel({
+  gpu,
+  vramContext = null,
+  sparkId,
+  temperatureUnit,
+  className,
+}: GpuPanelProps) {
   const tempHistory = useMetricsHistoryTail(sparkId, "gpu.temp");
   const usageHistory = useMetricsHistoryTail(sparkId, "gpu.usage");
 
@@ -143,9 +172,10 @@ export function GpuPanel({ gpu, sparkId, temperatureUnit, className }: GpuPanelP
 
   const vramUsed = gpu?.vram?.used ?? 0;
   const vramTotal = gpu?.vram?.total ?? 0;
-  const vramPct = gpu?.vram?.percentage ?? 0;
   const devices = gpu?.gpus ?? [];
   const multiGpu = devices.length > 1;
+  const breakdown =
+    gpu && vramContext ? computeVramBreakdown(gpu.vram, gpu.processes, vramContext) : null;
 
   const tempColor =
     temperature > 85
@@ -248,6 +278,7 @@ export function GpuPanel({ gpu, sparkId, temperatureUnit, className }: GpuPanelP
             <GpuDeviceRow
               key={d.uuid ?? d.index}
               device={d}
+              vramContext={vramContext}
               sparkId={sparkId}
               temperatureUnit={temperatureUnit}
             />
@@ -258,7 +289,27 @@ export function GpuPanel({ gpu, sparkId, temperatureUnit, className }: GpuPanelP
       {/* GPU-allocated memory (portion of the unified pool held by GPU compute apps) */}
       {gpu && (
         <div className="space-y-2 border-t border-border pt-3">
-          {vramTotal > 0 ? (
+          {breakdown ? (
+            <>
+              <VramBreakdownBar
+                label={
+                  multiGpu
+                    ? "VRAM (all cards)"
+                    : breakdown.systemMB != null
+                      ? "Unified memory"
+                      : "VRAM"
+                }
+                breakdown={breakdown}
+                showLegend
+              />
+              <div className="flex justify-between text-xs">
+                <span className="text-muted">Available</span>
+                <span className={`font-tabular ${headroomTextClass(breakdown.tone)}`}>
+                  {formatMb(breakdown.freeMB)}
+                </span>
+              </div>
+            </>
+          ) : vramTotal > 0 ? (
             <>
               <MetricBar
                 label={multiGpu ? "VRAM (all cards)" : "VRAM"}
