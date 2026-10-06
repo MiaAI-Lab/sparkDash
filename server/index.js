@@ -6,6 +6,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import { SparkRegistry } from "./sparks/SparkRegistry.js";
+import { MqttPublisher } from "./sparks/MqttPublisher.js";
 import { SparkMonitor } from "./sparks/SparkMonitor.js";
 import { sshExec } from "./collectors/ssh.js";
 import { comfyCancelJob } from "./collectors/comfyActions.js";
@@ -251,6 +252,16 @@ function consumeBenchStartQuota(req, res) {
 
 // ─── Spark registry ──────────────────────────────────────
 const registry = new SparkRegistry();
+
+// ─── MQTT fan-controller publisher (sparkfan) ────────────
+const mqttPublisher = process.env.MQTT_URL
+  ? new MqttPublisher({
+      url: process.env.MQTT_URL,
+      username: process.env.MQTT_USERNAME,
+      password: process.env.MQTT_PASSWORD,
+      base: process.env.MQTT_BASE,
+    })
+  : null;
 
 const fleetEnergyTracker = new FleetEnergyTracker({
   nodeIds: registry.sparkIds,
@@ -1674,6 +1685,7 @@ function broadcastPayload(payload) {
 function forceBroadcast() {
   const payload = buildSnapshotPayload();
   _lastBroadcastPayload = payload;
+  mqttPublisher?.publishSnapshots(payload);
   broadcastPayload(payload);
 }
 
@@ -1685,6 +1697,7 @@ function startBroadcast() {
     // A 1s poll that produces identical snapshots becomes free for idle tabs.
     if (_lastBroadcastPayload !== null && payload === _lastBroadcastPayload) return;
     _lastBroadcastPayload = payload;
+    mqttPublisher?.publishSnapshots(payload);
     broadcastPayload(payload);
   }, interval);
 }
