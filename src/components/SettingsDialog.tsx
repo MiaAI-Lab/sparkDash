@@ -126,6 +126,11 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
                   </button>
                 ))}
               </div>
+              <p className="mt-1 text-[10px] leading-snug text-muted">
+                How often every unit is polled for GPU, CPU, memory, network and LLM metrics, and how
+                often the dashboard updates. Remote units are polled over SSH, so 1s costs the most;
+                storage and liveness keep their own slower checks.
+              </p>
             </div>
 
             {/* Default LLM port */}
