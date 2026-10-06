@@ -279,6 +279,8 @@ function startMonitor(spark) {
     // Returns null when the head is unknown/offline/model-less so workers
     // never display a stale model. Display-only; never writes to config.
     resolveHeadModelId: (headId) => monitors.get(headId)?.headLlmModelId() ?? null,
+    // Settings → Poll interval drives the collectors, not just the broadcast.
+    pollIntervalMs: getSettings().pollIntervalMs,
   });
   monitors.set(spark.id, monitor);
   monitor.start();
@@ -498,8 +500,12 @@ app.put("/api/settings", (req, res) => {
   try {
     const patch = req.body || {};
     const newSettings = updateSettings(patch);
-    // If poll interval changed, restart the broadcast timer
+    // Poll interval changed: re-arm the running monitors' collector timers
+    // (in place — no restart, no lost backoff state) and the broadcast timer.
     if (patch.pollIntervalMs != null) {
+      for (const monitor of monitors.values()) {
+        monitor.setPollInterval(newSettings.pollIntervalMs);
+      }
       restartBroadcast();
     }
     res.json(newSettings);
