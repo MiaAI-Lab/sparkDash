@@ -241,6 +241,10 @@ export interface GpuDevice {
 export interface CpuMetrics {
   usage: number;
   temperature: number;
+  /** What the temperature reading is: "CPU", or "ACPI"/"SoC" for a board zone. */
+  temperatureLabel?: string | null;
+  /** Raw sensor name behind the reading (e.g. "acpitz", "coretemp"). */
+  temperatureSource?: string | null;
   draw: number;
   tdp: number;
 }
