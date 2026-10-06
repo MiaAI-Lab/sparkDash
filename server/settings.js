@@ -35,6 +35,13 @@ const DEFAULTS = Object.freeze({
    * does not want it can turn it off here (see the README's settings table).
    */
   benchShareImage: true,
+  /**
+   * VRAM bars on the Overview cards and the GPU panel split memory into LLM
+   * engine / system / other / free and judge severity by absolute headroom.
+   * On by default; off restores the single percentage-coloured bar. The UI
+   * falls back to the same value before settings load — keep the two in step.
+   */
+  showVramBreakdown: true,
 });
 
 /** @type {typeof DEFAULTS} */
@@ -59,6 +66,7 @@ function _clampSettings(settings) {
   s.showFleetExceptions = Boolean(s.showFleetExceptions);
   s.showOverviewSearch = Boolean(s.showOverviewSearch);
   s.showLlmTokenTotals = Boolean(s.showLlmTokenTotals);
+  s.showVramBreakdown = Boolean(s.showVramBreakdown);
   // Ensure temperatureUnit is valid
   if (s.temperatureUnit !== "celsius" && s.temperatureUnit !== "fahrenheit") {
     s.temperatureUnit = DEFAULTS.temperatureUnit;
