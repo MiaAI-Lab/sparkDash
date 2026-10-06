@@ -112,6 +112,10 @@ export class LlmProbe {
     // vLLM inference metrics from /metrics (null when not vLLM / missing series)
     // Metric names follow stock vLLM Prometheus exposition (versions may differ).
     this.kvCacheUsage = null; // 0–1 fraction
+    /** Engine KV cache pool size in GB (SGLang only). null when not reported. */
+    this.kvCacheGb = null;
+    /** Engine model weights resident in GPU memory, GB (SGLang only). null when not reported. */
+    this.weightsGb = null;
     this.requestsRunning = null;
     this.requestsWaiting = null;
     this.ttftP95Seconds = null;
@@ -264,6 +268,8 @@ export class LlmProbe {
     this.totalPromptTokens = null;
     this.totalCachedTokens = null;
     this.kvCacheUsage = null;
+    this.kvCacheGb = null;
+    this.weightsGb = null;
     this.requestsRunning = null;
     this.requestsWaiting = null;
     this.ttftP95Seconds = null;
@@ -507,6 +513,11 @@ export class LlmProbe {
       }
     }
 
+    // Engine pool sizes: only SGLang reports them, and it re-reads them every
+    // poll below, so a size never outlives the payload it came from.
+    this.kvCacheGb = null;
+    this.weightsGb = null;
+
     // TensorFold: no Prometheus. /health carries cumulative token totals when the
     // server publishes them; without them tok/s stays 0 rather than guessing.
     if (this.backendType === "tensorfold") {
@@ -560,6 +571,8 @@ export class LlmProbe {
     }
 
     if (this.backendType === "sglang") {
+      // KV fill comes from /metrics only; unknown when that poll misses it.
+      this.kvCacheUsage = null;
       // Prometheus is optional (--enable-metrics). Do not mix those counters
       // into lastTokenCounts when this poll's server-info totals own them.
       // Gate on which series answered, never on the displayed rates: a live
@@ -569,6 +582,7 @@ export class LlmProbe {
         const metricsRes = await this._fetch(`${this.baseUrl}/metrics`);
         if (metricsRes.ok) {
           const txt = await metricsRes.text();
+          this._applySglangKvMetrics(txt);
           if (this._sglangTotalsPolled) this._applySglangPrefillSplit(txt, dtSec);
           else this._applySglangMetrics(txt, dtSec);
         }
@@ -935,6 +949,14 @@ export class LlmProbe {
       this.requestsRunning = Math.round(running);
       this.slotsActive = Math.round(running);
     }
+    // 0.6.0 CUDA sizes its KV pool in tokens: `pool_tokens` in all,
+    // `pool_free_tokens` not held by a request (kept prompts count as held).
+    const pool = count(health.pool_tokens);
+    const poolFree = count(health.pool_free_tokens);
+    if (Number.isFinite(pool) && pool > 0 && Number.isFinite(poolFree) && poolFree >= 0) {
+      const used = 1 - Math.min(poolFree, pool) / pool;
+      this.kvCacheUsage = Math.round(used * 10000) / 10000;
+    }
   }
 
   /**
@@ -1013,7 +1035,10 @@ export class LlmProbe {
     }
 
     this.requestsWaiting = this._getVllmMetric(txt, "num_requests_waiting");
-    this.kvCacheUsage = this._getVllmMetric(txt, "kv_cache_usage_perc");
+    // Older vLLM (V0 engine) names the same gauge gpu_cache_usage_perc.
+    this.kvCacheUsage =
+      this._getVllmMetric(txt, "kv_cache_usage_perc") ??
+      this._getVllmMetric(txt, "gpu_cache_usage_perc");
     this.preemptionsTotal = this._getVllmMetric(txt, "num_preemptions_total");
 
     const ttftHist = this._parseVllmHistogram(txt, "vllm:time_to_first_token_seconds");
@@ -1053,6 +1078,12 @@ export class LlmProbe {
    * @param {number} dtSec
    */
   _applySglangServerInfo(sgData, dtSec) {
+    // Where the engine's memory went: model weights and the KV pool it
+    // pre-allocated at start-up (GB, from the first scheduler that reports).
+    const mem = LlmProbe._sglangMemoryUsage(sgData);
+    this.weightsGb = LlmProbe._positiveNumber(mem?.weight);
+    this.kvCacheGb = LlmProbe._positiveNumber(mem?.kvcache);
+
     // Prefer true max context (context_length / max_total_tokens). Do NOT use
     // max_total_num_tokens — that is the KV-cache pool budget across concurrent
     // sequences and is often ~2× the configured context (showed 2.1M for a 1M run).
@@ -1108,6 +1139,45 @@ export class LlmProbe {
     // unless /v1/loads (or /get_load) says requests are in flight.
     const lastGen = LlmProbe._sglangLastGenThroughput(sgData);
     this.generationTps = this._sglangStickyThroughput(lastGen, this._sglangInflight());
+  }
+
+  /**
+   * `internal_states[i].memory_usage` = `{ weight, kvcache, graph, … }` in GB.
+   * @param {Record<string, unknown>} sgData
+   * @returns {Record<string, unknown> | null}
+   */
+  static _sglangMemoryUsage(sgData) {
+    const states = sgData?.internal_states;
+    if (!Array.isArray(states)) return null;
+    for (const st of states) {
+      const mem = st && typeof st === "object" ? st.memory_usage : null;
+      if (mem && typeof mem === "object" && !Array.isArray(mem)) return mem;
+    }
+    return null;
+  }
+
+  /**
+   * KV pool fill (and its size, when /server_info did not give one) from
+   * SGLang /metrics. `token_usage` is the share of the pool held by running
+   * requests; builds without it get kv_used_tokens / max_total_num_tokens.
+   * Max, not sum: tensor-parallel ranks each report the same pool.
+   * @param {string} txt
+   */
+  _applySglangKvMetrics(txt) {
+    const series = (name) =>
+      this._getPromMetricMax(txt, `sglang:${name}`) ??
+      this._getPromMetricMax(txt, `sglang_${name}`);
+    let usage = series("token_usage");
+    if (usage == null) {
+      const used = series("kv_used_tokens");
+      const total = series("max_total_num_tokens");
+      if (used != null && total != null && total > 0) usage = used / total;
+    }
+    this.kvCacheUsage =
+      usage != null && usage >= 0 ? Math.round(Math.min(1, usage) * 10000) / 10000 : null;
+    if (this.kvCacheGb == null) {
+      this.kvCacheGb = LlmProbe._positiveNumber(series("kv_cache_memory_usage_gb"));
+    }
   }
 
   /** True when SGLang load probe reported running or waiting requests. */
@@ -1773,6 +1843,8 @@ export class LlmProbe {
       totalPromptTokens: this.totalPromptTokens ?? null,
       totalCachedTokens: this.totalCachedTokens ?? null,
       kvCacheUsage: this.kvCacheUsage,
+      kvCacheGb: this.kvCacheGb,
+      weightsGb: this.weightsGb,
       requestsRunning: this.requestsRunning,
       requestsWaiting: this.requestsWaiting,
       ttftP95Seconds: this.ttftP95Seconds,
@@ -1804,6 +1876,8 @@ export class LlmProbe {
       totalOutputTokens: 0,
       totalCachedTokens: null,
       kvCacheUsage: null,
+      kvCacheGb: null,
+      weightsGb: null,
       requestsRunning: null,
       requestsWaiting: null,
       ttftP95Seconds: null,

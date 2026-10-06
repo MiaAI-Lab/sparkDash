@@ -163,3 +163,48 @@ test("_applyTensorFoldHealth: CUDA 0.6.0 streams size the slot tile and count bu
   assert.equal(probe.slotsTotal, 4);
   assert.equal(probe.slotsActive, 0);
 });
+
+test("_applyTensorFoldHealth: CUDA 0.6.0 KV pool tokens give the KV fill", () => {
+  const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888);
+  // spark-1, TensorFold 0.6.0 CUDA, idle with 32 kept prompts.
+  probe._applyTensorFoldHealth(
+    {
+      ok: true,
+      backend: "tensorfold",
+      busy: false,
+      requests_running: 0,
+      streams: { decoding: 0, prefilling: 0, max: 4, filling: 0, paused: 0 },
+      pool_tokens: 2387968,
+      pool_free_tokens: 2256896,
+      kept_prompts: 32,
+    },
+    2
+  );
+  assert.equal(probe.kvCacheUsage, 0.0549); // 1 − 2256896 / 2387968
+  assert.equal(probe.kvCacheGb, null); // no GB split from TensorFold
+  assert.equal(probe.weightsGb, null);
+
+  // No pool fields (MLX / older CUDA): unknown, not 0 %.
+  probe._applyTensorFoldHealth({ ok: true, busy: false }, 2);
+  assert.equal(probe.kvCacheUsage, null);
+  // A null pool_free_tokens is missing, not a full pool.
+  probe._applyTensorFoldHealth({ ok: true, pool_tokens: 1000, pool_free_tokens: null }, 2);
+  assert.equal(probe.kvCacheUsage, null);
+});
+
+test("probe: tensorfold snapshot carries kvCacheUsage and null pool sizes", async () => {
+  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 8888);
+  probe._fetch = async (url) => {
+    const u = String(url);
+    if (u.endsWith("/v1/models")) return jsonRes(CUDA_MODELS);
+    if (u.endsWith("/health")) {
+      return jsonRes({ ok: true, pool_tokens: 2387968, pool_free_tokens: 2256896 });
+    }
+    return notFound();
+  };
+  const snap = await probe.probe();
+  assert.equal(snap.backend, "tensorfold");
+  assert.equal(snap.kvCacheUsage, 0.0549);
+  assert.equal(snap.kvCacheGb, null);
+  assert.equal(snap.weightsGb, null);
+});

@@ -832,3 +832,98 @@ test("probe: SGLang keeps the served model ID when native info uses a local path
   assert.equal(snap.modelPath, "/model");
   assert.equal(snap.contextLength, 262144);
 });
+
+/** Captured from SGLang on the RTX PRO 6000 host (qwen38-exl3-ple8, idle, warm radix cache). */
+const SGLANG_KV_LABELS =
+  'engine_type="unified",model_name="qwen38-exl3-ple8",moe_ep_rank="0",pp_rank="0",tp_rank="0"';
+const SGLANG_KV_METRICS =
+  [
+    `sglang:max_total_num_tokens{${SGLANG_KV_LABELS}} 1.499968e+06`,
+    `sglang:kv_cache_memory_usage_gb{${SGLANG_KV_LABELS}} 10.729261010885239`,
+    `sglang:token_usage{${SGLANG_KV_LABELS}} 0.0`,
+    `sglang:kv_available_tokens{${SGLANG_KV_LABELS}} 1.07968e+06`,
+    `sglang:kv_evictable_tokens{${SGLANG_KV_LABELS}} 420288.0`,
+    `sglang:kv_used_tokens{${SGLANG_KV_LABELS}} 0.0`,
+  ].join("\n") + "\n";
+const SGLANG_MEMORY_USAGE = {
+  weight: 71.066,
+  kvcache: 10.729,
+  startup_available: 3.33,
+  token_capacity: 1499968,
+  token_capacity_swa: null,
+  graph: { prefill: 0.0, decode: 0.0, target_verify: 0.527 },
+};
+
+function sglangPoolProbe({ serverInfo, metrics }) {
+  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 30000);
+  probe.serverIsOpenAI = true;
+  probe.backendType = "sglang";
+  probe.authOpen = true;
+  probe._lastDetectAt = Date.now();
+  const hits = [];
+  const json = (payload) => ({
+    ok: true,
+    status: 200,
+    json: async () => payload,
+    text: async () => JSON.stringify(payload),
+  });
+  probe._fetch = async (url) => {
+    const u = String(url);
+    hits.push(u.slice(u.lastIndexOf("/")));
+    if (u.endsWith("/v1/models")) {
+      return json({ data: [{ id: "qwen38-exl3-ple8", owned_by: "sglang" }] });
+    }
+    if (u.endsWith("/server_info")) return json(serverInfo);
+    if (u.endsWith("/metrics") && metrics != null) {
+      return { ok: true, status: 200, json: async () => ({}), text: async () => metrics };
+    }
+    return { ok: false, status: 404, json: async () => ({}), text: async () => "" };
+  };
+  return { probe, hits };
+}
+
+test("probe: SGLang reports KV fill and the weight / KV pool split from the payloads it already reads", async () => {
+  const { probe, hits } = sglangPoolProbe({
+    serverInfo: {
+      model_path: "/model",
+      internal_states: [{ last_gen_throughput: 0, memory_usage: SGLANG_MEMORY_USAGE }],
+    },
+    metrics: SGLANG_KV_METRICS,
+  });
+  const snap = await probe.probe();
+  assert.equal(snap.kvCacheUsage, 0); // token_usage, not the evictable radix share
+  assert.equal(snap.weightsGb, 71.066);
+  assert.equal(snap.kvCacheGb, 10.729); // /server_info wins over the Prometheus gauge
+  assert.equal(hits.filter((h) => h === "/server_info").length, 1);
+  assert.equal(hits.filter((h) => h === "/metrics").length, 1);
+});
+
+test("probe: SGLang without token_usage or memory_usage falls back to token counts and the GB gauge", async () => {
+  const metrics = SGLANG_KV_METRICS.replace(/^sglang:token_usage.*\n/m, "").replace(
+    /^sglang:kv_used_tokens\{[^}]*\} 0\.0$/m,
+    `sglang:kv_used_tokens{${SGLANG_KV_LABELS}} 374992.0`
+  );
+  const { probe } = sglangPoolProbe({
+    serverInfo: { model_path: "/model", internal_states: [{ last_gen_throughput: 0 }] },
+    metrics,
+  });
+  const snap = await probe.probe();
+  assert.equal(snap.kvCacheUsage, 0.25); // 374992 / 1499968
+  assert.equal(snap.kvCacheGb, 10.729261010885239);
+  assert.equal(snap.weightsGb, null);
+});
+
+test("probe: SGLang without /metrics leaves KV fill unknown, not stale", async () => {
+  const { probe } = sglangPoolProbe({
+    serverInfo: {
+      model_path: "/model",
+      internal_states: [{ last_gen_throughput: 0, memory_usage: SGLANG_MEMORY_USAGE }],
+    },
+    metrics: null,
+  });
+  probe.kvCacheUsage = 0.9; // left over from an earlier poll
+  const snap = await probe.probe();
+  assert.equal(snap.kvCacheUsage, null);
+  assert.equal(snap.weightsGb, 71.066);
+  assert.equal(snap.kvCacheGb, 10.729);
+});
