@@ -297,6 +297,19 @@ export function cancelShowcase(
   });
 }
 
+/**
+ * Fire-and-forget cancel sent while the page unloads (pagehide/beforeunload).
+ * `keepalive` lets the request outlive the tab; it carries the same bearer
+ * token as every other API call, or a token-protected server rejects it and
+ * the session keeps running.
+ */
+export function cancelShowcaseBeacon(id: string, sessionId: string): void {
+  const url = `${BASE}/api/sparks/${encodeURIComponent(id)}/llm/showcase/${encodeURIComponent(sessionId)}`;
+  void fetch(url, { method: "DELETE", keepalive: true, headers: authHeaders() }).catch(() => {
+    /* the page is going away — nothing to report to */
+  });
+}
+
 /** Clear finished showcase history for a Spark. */
 export function clearShowcaseHistory(
   id: string
