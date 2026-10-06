@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { fetchLlmTokenTotals } from "../../api/llmTokenClient";
 import { addTokens, formatTokensCompact } from "../../shared/tokenFormat";
 import type { LlmTokenRange, LlmTokenSeriesTotals } from "../../api/llmTokenTypes";
+import { LEDGER_HINT, LEDGER_TITLE } from "../SparkPage/tokenTotalsCopy";
 
 const POLL_MS = 60_000;
 
@@ -121,8 +122,8 @@ export function FleetTokenTotals() {
         </div>
       </div>
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[10px] text-muted">
-          Cumulative tokens by model, whole fleet
+        <span className="text-[10px] text-muted" title={LEDGER_TITLE}>
+          {LEDGER_HINT}, whole fleet
         </span>
         <span className="shrink-0 whitespace-nowrap text-[10px] text-muted">
           <span className="inline-block w-14 text-right">Cached</span>
