@@ -387,6 +387,7 @@ function DashboardApp() {
               temperatureUnit={settings?.temperatureUnit ?? "celsius"}
               benchShareImage={settings?.benchShareImage ?? false}
               showVramBreakdown={settings?.showVramBreakdown ?? true}
+              metricsHistory={settings?.metricsHistory ?? false}
               onEdit={() => setEditId(displayActive.id)}
             />
           ) : (
