@@ -3,6 +3,7 @@ import { SPARKS_JSON_PATH, LLM_PORT } from "../config.js";
 import { loadSecrets, saveSecrets } from "../secretsStore.js";
 import { atomicWrite } from "../util/atomicWrite.js";
 import { isValidSparkId } from "../validate.js";
+import { llmProbeHost } from "../collectors/llmHost.js";
 
 /**
  * SparkRegistry — loads, persists, and emits change events for the Spark list.
@@ -161,8 +162,12 @@ export class SparkRegistry {
     };
     const nextSparks = [...this._sparks];
     nextSparks[idx] = this._normalizeConfig(updated);
+    // Secrets belong to the host they were entered for.
+    const sshTarget = (s) => [s.isLocal, s.ssh.user, s.ssh.host || s.lanIp].join(" ");
     this._save(nextSparks);
     try {
+      if (sshTarget(nextSparks[idx]) !== sshTarget(prev)) this._storePassword(id, "");
+      if (llmProbeHost(nextSparks[idx]) !== llmProbeHost(prev)) this.pruneLlmApiKeys(id, []);
       if (hasPasswordUpdate) this._storePassword(id, passwordUpdate);
     } catch (err) {
       this._save(this._sparks);

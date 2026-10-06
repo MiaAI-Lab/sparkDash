@@ -179,3 +179,16 @@ test("patchSpark: a body without llmPorts never touches keys", () => {
   assert.deepEqual(r.llmApiKeyPorts(SPARK_ID), [8888]);
   assert.equal(r.getSpark(SPARK_ID).name, "renamed");
 });
+
+test("patchSpark: pointing a unit at another host drops its stored secrets", () => {
+  const r = loadRegistry([8888], { "8888": TEST_KEY }, { reset: true });
+  r.setPassword(SPARK_ID, "pw-test");
+  r.patchSpark(SPARK_ID, { lanIp: "127.0.0.1", ssh: { user: "root" } }); // Edit resends unchanged fields
+  assert.equal(r.hasPassword(SPARK_ID), true);
+  assert.equal(r.hasLlmApiKey(SPARK_ID, 8888), true);
+  r.patchSpark(SPARK_ID, { lanIp: "10.0.0.9" });
+  assert.equal(r.hasPassword(SPARK_ID), false);
+  assert.equal(r.hasLlmApiKey(SPARK_ID, 8888), false);
+  r.patchSpark(SPARK_ID, { lanIp: "10.0.0.10", ssh: { password: "pw-new" } });
+  assert.equal(r.getSpark(SPARK_ID).ssh.password, "pw-new");
+});
