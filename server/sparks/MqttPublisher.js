@@ -11,15 +11,39 @@ const LOG_THROTTLE_MS = 60_000;
  */
 export class MqttPublisher {
   constructor({ url, username, password, base = "sparkfan" }) {
-    this.base = base || "sparkfan";
     this.lastSent = new Map(); // sparkId -> Date.now() of last publish
     this.lastLog = 0;
+    this._connect({ url, username, password, base });
+  }
+
+  _connect({ url, username, password, base }) {
+    this.base = base || "sparkfan";
     this.client = mqtt.connect(url, {
       username: username || undefined,
       password: password || undefined,
       reconnectPeriod: 5000,
     });
     this.client.on("error", (err) => this._log(`mqtt error: ${err.message}`));
+  }
+
+  /** Hot-reconfigure: drop the current connection, reconnect with new settings. */
+  reconfigure({ url, username, password, base }) {
+    try {
+      this.client.end(true);
+    } catch {
+      /* ignore */
+    }
+    this.lastSent.clear();
+    this._connect({ url, username, password, base });
+  }
+
+  /** Close the connection ( MQTT disabled). */
+  close() {
+    try {
+      this.client.end(true);
+    } catch {
+      /* ignore */
+    }
   }
 
   /**

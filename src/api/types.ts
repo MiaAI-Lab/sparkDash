@@ -594,6 +594,12 @@ export interface Settings {
   showLlmTokenTotals: boolean;
   /** Benchmark dialogs offer "Copy image" — a PNG share card of the results. */
   benchShareImage: boolean;
+  /** ── MQTT fan controller (sparkfan) ── */
+  mqttEnabled: boolean;
+  mqttUrl: string;
+  mqttUsername: string;
+  mqttPassword: string;
+  mqttTopicBase: string;
 }
 
 export interface SparksListResponse {

@@ -254,14 +254,63 @@ function consumeBenchStartQuota(req, res) {
 const registry = new SparkRegistry();
 
 // ─── MQTT fan-controller publisher (sparkfan) ────────────
-const mqttPublisher = process.env.MQTT_URL
-  ? new MqttPublisher({
-      url: process.env.MQTT_URL,
-      username: process.env.MQTT_USERNAME,
-      password: process.env.MQTT_PASSWORD,
-      base: process.env.MQTT_BASE,
-    })
-  : null;
+// Configured from the Settings UI (server/settings.js). Env MQTT_URL acts as a
+// one-time bootstrap seed for backwards compatibility.
+function mqttPublisherFromSettings() {
+  const s = getSettings();
+  if (!s.mqttEnabled || !s.mqttUrl) return null;
+  return new MqttPublisher({
+    url: s.mqttUrl,
+    username: s.mqttUsername,
+    password: s.mqttPassword,
+    base: s.mqttTopicBase,
+  });
+}
+
+let mqttPublisher = (() => {
+  // Legacy env bootstrap: seed settings once, then settings UI is authoritative.
+  if (process.env.MQTT_URL && !getSettings().mqttUrl) {
+    try {
+      updateSettings({
+        mqttEnabled: true,
+        mqttUrl: process.env.MQTT_URL,
+        mqttUsername: process.env.MQTT_USERNAME || "",
+        mqttPassword: process.env.MQTT_PASSWORD || "",
+        mqttTopicBase: process.env.MQTT_BASE || "sparkfan",
+      });
+      console.log("[mqtt] seeded settings from MQTT_* env vars");
+    } catch (err) {
+      console.error("[mqtt] env seed failed:", err.message);
+    }
+  }
+  return mqttPublisherFromSettings();
+})();
+
+/** Apply mqtt* settings changes (called after PUT /api/settings). */
+function mqttReconfigureFromSettings() {
+  const next = (() => {
+    const s = getSettings();
+    if (!s.mqttEnabled || !s.mqttUrl) return null;
+    return {
+      url: s.mqttUrl,
+      username: s.mqttUsername,
+      password: s.mqttPassword,
+      base: s.mqttTopicBase,
+    };
+  })();
+  try {
+    if (!next) {
+      mqttPublisher?.close();
+      mqttPublisher = null;
+    } else if (mqttPublisher) {
+      mqttPublisher.reconfigure(next);
+    } else {
+      mqttPublisher = new MqttPublisher(next);
+    }
+  } catch (err) {
+    console.error("[mqtt] reconfigure failed:", err.message);
+  }
+}
 
 const fleetEnergyTracker = new FleetEnergyTracker({
   nodeIds: registry.sparkIds,
@@ -505,6 +554,14 @@ app.put("/api/settings", (req, res) => {
     // If poll interval changed, restart the broadcast timer
     if (patch.pollIntervalMs != null) {
       restartBroadcast();
+    }
+    // Hot-apply fan-controller publisher changes
+    if (
+      ["mqttEnabled", "mqttUrl", "mqttUsername", "mqttPassword", "mqttTopicBase"].some(
+        (k) => patch[k] !== undefined
+      )
+    ) {
+      mqttReconfigureFromSettings();
     }
     res.json(newSettings);
   } catch (err) {

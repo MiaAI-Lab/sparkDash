@@ -425,6 +425,78 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
                 </span>
               </label>
             </div>
+
+            {/* MQTT fan controller (sparkfan) */}
+            <div>
+              <label className="flex items-start gap-3 text-xs text-muted">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={settings.mqttEnabled}
+                  onClick={() => update({ mqttEnabled: !settings.mqttEnabled })}
+                  className={`toggle-track relative mt-0.5 inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                    settings.mqttEnabled ? "is-on" : ""
+                  }`}
+                >
+                  <span
+                    className={`toggle-dot inline-block h-4 w-4 transform rounded-full shadow transition-transform ${
+                      settings.mqttEnabled ? "translate-x-4" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+                <span>
+                  <span className="block text-text">MQTT fan controller</span>
+                  <span className="mt-0.5 block text-[10px] leading-snug text-muted">
+                    Publish per-Spark temperatures for the sparkfan ESP32 controller.
+                  </span>
+                </span>
+              </label>
+              {settings.mqttEnabled && (
+                <div className="mt-2 space-y-2">
+                  <div>
+                    <label className="mb-1 block text-xs text-muted">Broker URL</label>
+                    <input
+                      type="text"
+                      value={settings.mqttUrl}
+                      onChange={(e) => update({ mqttUrl: e.target.value })}
+                      placeholder="mqtt://192.168.1.20:1883"
+                      className="w-full rounded border border-border bg-surface-elevated px-3 py-1.5 text-xs text-text outline-none focus:border-accent"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-muted">Username</label>
+                    <input
+                      type="text"
+                      value={settings.mqttUsername}
+                      onChange={(e) => update({ mqttUsername: e.target.value })}
+                      className="w-full rounded border border-border bg-surface-elevated px-3 py-1.5 text-xs text-text outline-none focus:border-accent"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-muted">Password</label>
+                    <input
+                      type="password"
+                      value={settings.mqttPassword}
+                      onChange={(e) => update({ mqttPassword: e.target.value })}
+                      className="w-full rounded border border-border bg-surface-elevated px-3 py-1.5 text-xs text-text outline-none focus:border-accent"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-muted">Topic base</label>
+                    <input
+                      type="text"
+                      value={settings.mqttTopicBase}
+                      onChange={(e) => update({ mqttTopicBase: e.target.value })}
+                      placeholder="sparkfan"
+                      className="w-full rounded border border-border bg-surface-elevated px-3 py-1.5 text-xs text-text outline-none focus:border-accent"
+                    />
+                    <p className="mt-1 text-[10px] text-muted">
+                      Publishes sparkfan/temps/&lt;id&gt; when the base is “sparkfan”
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
 

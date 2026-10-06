@@ -35,6 +35,15 @@ const DEFAULTS = Object.freeze({
    * does not want it can turn it off here (see the README's settings table).
    */
   benchShareImage: true,
+  /** ── MQTT fan controller (sparkfan) ─────────────────────── */
+  /** Master switch; requires mqttUrl. */
+  mqttEnabled: false,
+  /** Broker URL, e.g. mqtt://192.168.1.20:1883. */
+  mqttUrl: "",
+  mqttUsername: "",
+  mqttPassword: "",
+  /** Topic root: <base>/temps/<sparkId>. */
+  mqttTopicBase: "sparkfan",
 });
 
 /** @type {typeof DEFAULTS} */
@@ -67,6 +76,15 @@ function _clampSettings(settings) {
   if (s.density !== "comfortable" && s.density !== "compact") {
     s.density = DEFAULTS.density;
   }
+  // MQTT fan controller strings: trim; empty base falls back to default.
+  s.mqttEnabled = Boolean(s.mqttEnabled);
+  s.mqttUrl = typeof s.mqttUrl === "string" ? s.mqttUrl.trim() : "";
+  s.mqttUsername = typeof s.mqttUsername === "string" ? s.mqttUsername : "";
+  s.mqttPassword = typeof s.mqttPassword === "string" ? s.mqttPassword : "";
+  s.mqttTopicBase =
+    typeof s.mqttTopicBase === "string" && s.mqttTopicBase.trim()
+      ? s.mqttTopicBase.trim()
+      : DEFAULTS.mqttTopicBase;
   return s;
 }
 
