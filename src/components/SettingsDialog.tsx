@@ -4,6 +4,7 @@ import { clearToken, getToken, onTokenChange, requestTokenPrompt } from "../api/
 import type { Settings } from "../api/types";
 import { useModalPresence } from "../hooks/useModalPresence";
 import { AlertsDialog } from "./AlertsDialog";
+import { BrowserAlertsSettings } from "./BrowserAlertsSettings";
 import packageJson from "../../package.json";
 
 interface SettingsDialogProps {
@@ -445,6 +446,9 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
                 Alerts…
               </button>
             </div>
+
+            {/* Browser alerts — per browser, saved on click */}
+            <BrowserAlertsSettings />
 
             {/* Benchmark debug traces */}
             <div>

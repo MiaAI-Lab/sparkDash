@@ -1,5 +1,7 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useSnapshot } from "./hooks/useSnapshot";
+import { useFleetAlerts } from "./hooks/useFleetAlerts";
+import { useBrowserAlerts } from "./hooks/useBrowserAlerts";
 import { useAppRoute, useRoute } from "./hooks/useRoute";
 import { fetchSparks, reorderSparks, fetchSettings, fetchHealth } from "./api/client";
 import { SparkTabs } from "./components/SparkTabs";
@@ -186,6 +188,11 @@ function DashboardApp() {
     if (live === orderOverride.join("\0")) setOrderOverride(null);
   }, [liveSparks, orderOverride]);
 
+
+  // Tab badge + desktop notifications (both opt-in, per browser). Live
+  // snapshots only: placeholders from the REST fallback are all "offline".
+  const fleetAlerts = useFleetAlerts(sparks, settings?.alertsEnabled ?? false, serverAlerts);
+  useBrowserAlerts(fleetAlerts.rows, fleetAlerts.ready && settings != null, fleetAlerts.source);
 
   const isOverview = activeId === OVERVIEW_ID;
   const hideWorkers = settings?.hideWorkers ?? false;

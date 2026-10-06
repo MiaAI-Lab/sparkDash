@@ -322,6 +322,10 @@ Example — phone notifications with [ntfy](https://ntfy.sh):
 2. **Settings → Alerts…** → turn on **Server alerts** → **Add channel**: type `ntfy`, URL `https://ntfy.sh/sparkdash-7f3k9q` (or your own server's URL).
 3. **Save**, then **Send test** — the phone shows "sparkDash test notification".
 
+### In the browser
+
+**Settings → Browser alerts** (per browser, both off by default): **Tab badge** shows the number of active alerts in the tab title — `(2) sparkDash` — with a red (critical) or amber dot on the icon; **Desktop notifications** pops a notification when an alert starts firing while the page is open. They follow the server's alerts when Alerts is on, and the Overview exceptions otherwise. Browsers only allow notifications on HTTPS or localhost — on a plain-HTTP LAN address, use an SSH tunnel, Tailscale Serve or an HTTPS proxy, or an ntfy channel.
+
 ### Where the configuration lives
 
 `config/alerts.json` (override with `ALERTS_JSON_PATH`), written at mode `0600`: rule overrides, channels, and the set of firing alerts, so an alert's start time survives a restart. Channel URLs are credentials — the API never returns them whole (`https://ntfy.sh…3k9q`: scheme, host and the last four characters), and saving with the masked value unchanged keeps the stored URL. While alerts are on, the WebSocket snapshot carries `alerts.active` and the Overview exceptions strip (Settings → *Show active fleet exceptions*) shows the server's alerts with their real durations.
