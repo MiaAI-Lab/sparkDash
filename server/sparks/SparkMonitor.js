@@ -26,6 +26,55 @@ import {
   HOST_PATHS,
 } from "../config.js";
 
+/**
+ * Liveness retry schedule. Network failures widen gradually — a rebooting host
+ * comes back on its own. Credential failures get a handful of quick attempts
+ * and then effectively stop: they are a configuration problem, and hammering a
+ * host that keeps refusing us is exactly how one mistyped unit produced ~60k
+ * failed logins a day. The slow tail is kept so the unit recovers by itself
+ * when the fix happens on the *remote* side (an authorized_keys entry added
+ * there never touches this install), and editing the unit resets the count so
+ * a local fix retries immediately.
+ */
+const LIVENESS_BACKOFF_MS = [5_000, 15_000, 30_000, 60_000];
+/** Quick attempts before a credential failure is treated as "stopped". */
+const LIVENESS_AUTH_ATTEMPTS = 5;
+/** Safety-net cadence once those attempts are spent: ~96 logins a day, not 60k. */
+const LIVENESS_AUTH_IDLE_MS = 15 * 60_000;
+
+/** True when the liveness error is a credential problem, not a network one. */
+export function isSshAuthFailure(message) {
+  return /permission denied|publickey|password|authentication/i.test(String(message || ""));
+}
+
+/** How long to wait before the next liveness attempt. */
+export function nextLivenessDelayMs(failures, reason) {
+  if (isSshAuthFailure(reason)) {
+    if (failures >= LIVENESS_AUTH_ATTEMPTS) return LIVENESS_AUTH_IDLE_MS;
+    return LIVENESS_BACKOFF_MS[Math.min(Math.max(failures, 1), LIVENESS_BACKOFF_MS.length) - 1];
+  }
+  const index = Math.min(Math.max(failures, 1), LIVENESS_BACKOFF_MS.length) - 1;
+  return LIVENESS_BACKOFF_MS[index];
+}
+
+/** True once credential failures have used up their quick attempts. */
+export function sshAuthGaveUp(failures) {
+  return failures >= LIVENESS_AUTH_ATTEMPTS;
+}
+
+/** Short, human-readable liveness failure for the UI. */
+export function livenessReason(err) {
+  const raw = String(err?.message || err || "").trim();
+  if (!raw) return "unreachable";
+  if (/timed out|timeout|ETIMEDOUT/i.test(raw)) return "connection timed out";
+  if (/ECONNREFUSED|refused/i.test(raw)) return "connection refused";
+  if (/EHOSTUNREACH|no route|ENETUNREACH/i.test(raw)) return "no route to host";
+  if (isSshAuthFailure(raw)) {
+    return "SSH authentication failed — check the key or user for this unit";
+  }
+  return raw.split("\n")[0].slice(0, 140);
+}
+
 const ONLINE_GRACE_MS = 10000;
 
 /**
@@ -90,6 +139,14 @@ export class SparkMonitor {
     // Online status from dedicated liveness checks (not metric poll success)
     this.online = false;
     this.lastOnlineOk = 0;
+    /** Why liveness last failed — surfaced so a broken unit is diagnosable. */
+    this.offlineReason = null;
+    /** Consecutive liveness failures, used for the retry backoff. */
+    this._livenessFailures = 0;
+    /** Earliest timestamp for the next liveness attempt (0 = now). */
+    this._nextLivenessAt = 0;
+    /** Whether collector polls are currently suspended (logged once). */
+    this._pollsPaused = false;
 
     // System uptime seconds (from /proc/uptime), null when offline
     this._uptimeSeconds = null;
@@ -142,6 +199,11 @@ export class SparkMonitor {
 
   /** Hot-update config without tearing down poll loops / rate baselines. */
   updateConfig(spark) {
+    // A unit edit is the user telling us something changed — most often the key
+    // or user — so the credential backoff starts over and the next liveness
+    // attempt is immediate.
+    this._livenessFailures = 0;
+    this._nextLivenessAt = 0;
     const wasLlm = this._llmMonitoringEnabled(this.spark);
     const wasComfy = this._comfyMonitoringEnabled(this.spark);
     const prevComfyPort = this._comfyPort(this.spark);
@@ -452,6 +514,8 @@ export class SparkMonitor {
       name: this.spark.name,
       kind: this.spark.kind || "spark",
       online: this.online,
+      /** Last liveness failure, or null. "offline" with no reason is a bug. */
+      offlineReason: this.online ? null : this.offlineReason,
       uptime: this._uptimeSeconds,
       lanIp: this.spark.lanIp || "",
       isLocal: Boolean(this.spark.isLocal),
@@ -517,6 +581,9 @@ export class SparkMonitor {
   // ─── Liveness ─────────────────────────────────────────────
   async _checkOnline() {
     if (!this._running || this._inflight.online) return;
+    // Backoff gate: a unit that keeps refusing us is probed on a widening
+    // schedule (see _scheduleNextLiveness) instead of every 5 seconds forever.
+    if (Date.now() < this._nextLivenessAt) return;
     const runGeneration = this._runGeneration;
     const checkToken = Symbol("online");
     this._inflight.online = checkToken;
@@ -545,11 +612,23 @@ export class SparkMonitor {
         // The generation gate below (after the await) is the commit guard.
       }
       if (!isCurrentRun()) return;
+      const wasOffline = !this.online;
       this.online = true;
+      this.offlineReason = null;
+      this._livenessFailures = 0;
+      this._nextLivenessAt = 0;
       this.lastOnlineOk = Date.now();
       this._uptimeSeconds = uptimeSeconds;
-    } catch {
+      void wasOffline;
+    } catch (err) {
       if (!isCurrentRun()) return;
+      this._livenessFailures += 1;
+      const reason = livenessReason(err);
+      this.offlineReason =
+        isSshAuthFailure(reason) && sshAuthGaveUp(this._livenessFailures)
+          ? `${reason} (paused after ${this._livenessFailures} attempts — edit the unit to retry now)`
+          : reason;
+      this._nextLivenessAt = Date.now() + nextLivenessDelayMs(this._livenessFailures, this.offlineReason);
       if (!this.lastOnlineOk || Date.now() - this.lastOnlineOk > ONLINE_GRACE_MS) {
         this.online = false;
         this._uptimeSeconds = null;
@@ -581,6 +660,24 @@ export class SparkMonitor {
 
   async _pollDomain(domain) {
     if (!this._running || this._inflight[domain]) return;
+    // A remote unit that just failed liveness is unreachable for everything —
+    // metrics, tunnels, SSH commands. Polling it anyway is how one broken unit
+    // produced ~60k failed SSH logins a day: every domain interval fired, every
+    // attempt failed, nothing backed off. Local units are exempt (their checks
+    // read /proc and /sys and are cheap and honest about partial failures).
+    if (!this.spark.isLocal && !this.online) {
+      if (!this._pollsPaused) {
+        this._pollsPaused = true;
+        console.log(
+          `[SparkMonitor] ${this.spark.id}: unreachable (${this.offlineReason || "no liveness"}) — pausing collector polls`
+        );
+      }
+      return;
+    }
+    if (this._pollsPaused) {
+      this._pollsPaused = false;
+      console.log(`[SparkMonitor] ${this.spark.id}: reachable again — resuming collector polls`);
+    }
     // Skip storage auto-poll when disabled for this spark
     if (domain === "storage" && this.spark.storagePollDisabled) return;
     // Worker nodes: no local LLM API

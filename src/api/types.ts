@@ -497,6 +497,8 @@ export interface SparkMetrics {
 export interface SparkSnapshot {
   id: string;
   name: string;
+  /** Why the last liveness check failed, when offline. null/absent when online. */
+  offlineReason?: string | null;
   /** Unit type: spark (DGX Spark) or host (dedicated GPU Linux box). */
   kind?: "spark" | "host";
   online: boolean;
