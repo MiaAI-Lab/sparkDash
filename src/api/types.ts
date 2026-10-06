@@ -329,8 +329,15 @@ export interface LlmMetrics {
   totalCachedTokens: number | null;
   /** Cumulative total prompt (prefill) tokens as reported by the LLM server. null when the backend does not expose it. */
   totalPromptTokens: number | null;
-  /** vLLM KV cache usage fraction (0–1). null when backend !== vllm or unreachable. */
+  /**
+   * Share of the engine's KV cache pool held by requests (0–1): vLLM, q27,
+   * SGLang (`token_usage`) and TensorFold (`pool_tokens`). null when unknown.
+   */
   kvCacheUsage?: number | null;
+  /** Engine KV cache pool size in GB (SGLang). null when the backend does not report it. */
+  kvCacheGb?: number | null;
+  /** Engine model weights resident in GPU memory, GB (SGLang). null when not reported. */
+  weightsGb?: number | null;
   /** vLLM running request count. null when unavailable. */
   requestsRunning?: number | null;
   /** vLLM waiting request count. null when unavailable. */
