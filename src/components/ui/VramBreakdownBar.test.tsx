@@ -112,6 +112,49 @@ describe("VramBreakdownBar", () => {
     expect(tip.hidden).toBe(true);
   });
 
+  it("closes when something else takes over while the pointer stays still", () => {
+    const { container } = render(<VramBreakdownBar label="VRAM" breakdown={spark1()} />);
+    const { group, tip } = parts(container);
+    const hover = () =>
+      act(() => {
+        group.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+      });
+
+    // A dialog opens (from the keyboard, or a prompt on its own) and takes focus:
+    // no mouseleave ever fires, so focus moving outside has to close it.
+    const dialogButton = document.createElement("button");
+    document.body.appendChild(dialogButton);
+    hover();
+    expect(tip.hidden).toBe(false);
+    act(() => dialogButton.focus());
+    expect(tip.hidden).toBe(true);
+
+    // A press inside the bar keeps it; a press anywhere else closes it.
+    hover();
+    act(() => {
+      group.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    });
+    expect(tip.hidden).toBe(false);
+    act(() => {
+      dialogButton.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    });
+    expect(tip.hidden).toBe(true);
+
+    // Scrolling or leaving the window closes it too.
+    hover();
+    act(() => {
+      window.dispatchEvent(new Event("scroll"));
+    });
+    expect(tip.hidden).toBe(true);
+    hover();
+    act(() => {
+      window.dispatchEvent(new Event("blur"));
+    });
+    expect(tip.hidden).toBe(true);
+
+    dialogButton.remove();
+  });
+
   it("lists SGLang's weights and KV pool, and says when a backend reports no KV fill", () => {
     const sg = render(
       <VramBreakdownBar
