@@ -41,13 +41,32 @@ export class MqttPublisher {
           m?.gpu?.temperature,
           ...(Array.isArray(m?.gpu?.gpus) ? m.gpu.gpus.map((g) => g?.temperature) : []),
         ]);
-        if (cpuC === null && gpuC === null) continue;
+        const cpuUsage = numOrNull(m?.cpu?.usage);
+        const gpuUsage = numOrNull(m?.gpu?.usage);
+        // systemDraw: GPU + CPU + fixed NIC/peripheral estimate (W)
+        const powerW = numOrNull(m?.gpu?.power?.systemDraw);
+        const vramPct = numOrNull(m?.gpu?.vram?.percentage);
+        const gpus = Array.isArray(m?.gpu?.gpus)
+          ? m.gpu.gpus
+              .map((g) => ({
+                ...(Number.isFinite(g?.temperature) ? { t: g.temperature } : {}),
+                ...(Number.isFinite(g?.usage) ? { u: g.usage } : {}),
+                ...(Number.isFinite(g?.power?.draw) ? { p: g.power.draw } : {}),
+              }))
+              .filter((g) => "t" in g || "u" in g || "p" in g)
+          : [];
+        if (cpuC === null && gpuC === null && powerW === null) continue;
         const last = this.lastSent.get(id) ?? 0;
         if (now - last < RATE_LIMIT_MS) continue;
         this.lastSent.set(id, now);
         const body = {};
         if (cpuC !== null) body.cpu_c = cpuC;
         if (gpuC !== null) body.gpu_c = gpuC;
+        if (cpuUsage !== null) body.cpu_usage = cpuUsage;
+        if (gpuUsage !== null) body.gpu_usage = gpuUsage;
+        if (powerW !== null) body.power_w = powerW;
+        if (vramPct !== null) body.vram_pct = vramPct;
+        if (gpus.length) body.gpus = gpus;
         this.client.publish(`${this.base}/temps/${id}`, JSON.stringify(body), {
           retain: true,
           qos: 0,
