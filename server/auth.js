@@ -1,4 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
+import { isIP } from "node:net";
+import os from "node:os";
 
 export function configuredToken() {
   const token = process.env.SPARKDASH_TOKEN || process.env.DASHBOARD_TOKEN || "";
@@ -18,6 +20,83 @@ export function allowOpenRemote() {
   const v = process.env.SPARKDASH_ALLOW_OPEN_REMOTE;
   if (v == null || v === "") return true;
   return v === "1";
+}
+
+/** This machine's own name, without the `.local` macOS appends to it. */
+const SELF_NAME = os.hostname().toLowerCase().replace(/\.local$/, "");
+let tailscaleName = "";
+
+/** This machine's Tailscale MagicDNS name (`Self.DNSName`), so Tailscale Serve needs no setup. */
+export function setTailscaleName(dnsName) {
+  tailscaleName = String(dnsName || "").toLowerCase().replace(/\.$/, "");
+}
+
+function parseUrl(value) {
+  try {
+    return new URL(value);
+  } catch {
+    return null;
+  }
+}
+
+/** Names that only reach this machine: neither a DNS-rebinding page nor another site can use them. */
+function isOwnName(name) {
+  if (name === "localhost" || name.endsWith(".localhost") || name === "[::1]") return true;
+  if (isIP(name) === 4 && name.startsWith("127.")) return true;
+  if (name === SELF_NAME || name === `${SELF_NAME}.local` || (tailscaleName && name === tailscaleName)) return true;
+  const extra = (process.env.SPARKDASH_ALLOWED_HOSTS || "").split(",");
+  return extra.some((h) => parseUrl(`http://${h.trim()}`)?.hostname === name);
+}
+
+/** A rebinding page has to use the attacker's own name, so any IP literal is a safe Host too. */
+function isAllowedHost(name) {
+  return isOwnName(name) || isIP(name.replace(/^\[(.*)\]$/, "$1")) !== 0;
+}
+
+/**
+ * On a loopback bind, the name a browser request is refused for, or "" to let it through.
+ * Origin must match the request's own Host (same-origin) or be one of our own names, for a
+ * proxy that rewrites Host to 127.0.0.1. A request without Host or Origin is not a browser's.
+ */
+function refusedName(req) {
+  if (requireRemoteAuth(process.env.BIND_HOST || "127.0.0.1")) return "";
+  // Neither a rebinding page nor another site can know the token.
+  if (configuredToken() && authenticate(req).ok) return "";
+  const { host, origin } = req.headers || {};
+  const hostUrl = host ? parseUrl(`http://${host}`) : null;
+  if (host && !(hostUrl && isAllowedHost(hostUrl.hostname))) return hostUrl?.hostname || String(host).slice(0, 100);
+  if (!origin) return "";
+  const originUrl = parseUrl(origin);
+  if (originUrl && (originUrl.host === hostUrl?.host || isOwnName(originUrl.hostname))) return "";
+  return originUrl?.hostname || String(origin).slice(0, 100);
+}
+
+const refusedLoggedAt = new Map();
+
+/** Name the refused host at most once an hour, so the operator sees exactly what to allow. */
+function logRefused(name) {
+  const now = Date.now();
+  if (now - (refusedLoggedAt.get(name) ?? -Infinity) < 60 * 60 * 1000) return;
+  if (refusedLoggedAt.size >= 100) refusedLoggedAt.clear();
+  refusedLoggedAt.set(name, now);
+  console.warn(
+    `[sparkDash] refused a request for ${JSON.stringify(name)} on a loopback bind. If that is how you reach this dashboard, add it to SPARKDASH_ALLOWED_HOSTS.`
+  );
+}
+
+function refuse(req, res, name) {
+  logRefused(name);
+  if (req.method === "GET" && /text\/html/.test(req.headers?.accept || "")) {
+    const shown = name.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+    return res
+      .status(403)
+      .type("html")
+      .send(
+        `<!doctype html><title>sparkDash: host not allowed</title><p>sparkDash does not answer to <b>${shown}</b>.</p>` +
+          `<p>If that is how you reach this dashboard, such as a reverse proxy or a custom domain, add it to <code>SPARKDASH_ALLOWED_HOSTS</code> (comma-separated) and restart sparkDash.</p>`
+      );
+  }
+  return res.status(403).json({ error: `sparkDash does not answer to ${name} (add it to SPARKDASH_ALLOWED_HOSTS if that is this dashboard's address)` });
 }
 
 function tokensEqual(left, right) {
@@ -61,6 +140,8 @@ export function authenticate(req) {
 
 export function createAuthMiddleware() {
   return function authMiddleware(req, res, next) {
+    const refused = refusedName(req);
+    if (refused) return refuse(req, res, refused);
     const method = (req.method || "GET").toUpperCase();
     const mutating = method !== "GET" && method !== "HEAD" && method !== "OPTIONS";
     const remote = requireRemoteAuth(process.env.BIND_HOST || "127.0.0.1");
@@ -90,6 +171,11 @@ export function authStatus(req) {
 }
 
 export function authorizeUpgrade(req) {
+  const refused = refusedName(req);
+  if (refused) {
+    logRefused(refused);
+    return false;
+  }
   const remote = requireRemoteAuth(process.env.BIND_HOST || "127.0.0.1");
   if (!remote && !configuredToken()) return true;
   return authenticate(req).ok;
