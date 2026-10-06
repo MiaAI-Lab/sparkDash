@@ -21,6 +21,12 @@
   --color-danger: #c44;
   --color-warning: #c89020;
   --color-success: #2d9d78;
+  /* Memory categories on the VRAM breakdown bar. Hues, not severity: they
+     stay clear of the amber accent/warning, the red danger and the green
+     success, and each holds >= 3.4:1 against the card in every theme. */
+  --color-mem-engine: #0891b2;
+  --color-mem-system: #6d28d9;
+  --color-mem-other: #8a8478;
   --color-grid: rgba(0, 0, 0, 0.04);
 
   --toggle-track-off: #55514a;
@@ -60,6 +66,9 @@
   --color-danger: #e5594d;
   --color-warning: #e0a838;
   --color-success: #4dbf91;
+  --color-mem-engine: #3fd0e4;
+  --color-mem-system: #8f6ff0;
+  --color-mem-other: #9aa3af;
   --color-grid: rgba(255, 255, 255, 0.04);
 
   --toggle-track-off: #3a3a3a;
@@ -95,6 +104,9 @@
   --color-danger: #c44;
   --color-warning: #c89020;
   --color-success: #2d9d78;
+  --color-mem-engine: #0891b2;
+  --color-mem-system: #6d28d9;
+  --color-mem-other: #8a8a8a;
   --color-grid: rgba(0, 0, 0, 0.04);
 
   --toggle-track-off: #505050;
@@ -133,6 +145,9 @@
   --color-danger: #e5594d;
   --color-warning: #e0a838;
   --color-success: #4dbf91;
+  --color-mem-engine: #3fd0e4;
+  --color-mem-system: #8f6ff0;
+  --color-mem-other: #9aa3af;
   --color-grid: rgba(255, 255, 255, 0.04);
 
   --toggle-track-off: #2a2a2a;
@@ -285,6 +300,18 @@ input:disabled {
 /* Dynamic metric bars — width via --bar-pct only */
 .metric-bar-fill {
   width: var(--bar-pct, 0%);
+}
+
+/* VRAM breakdown bar segments (see src/shared/vramBreakdown.ts) */
+.mem-seg-engine {
+  background-color: var(--color-mem-engine);
+}
+.mem-seg-system {
+  background-color: var(--color-mem-system);
+}
+.mem-seg-other,
+.mem-seg-gpu {
+  background-color: var(--color-mem-other);
 }
 
 .sparkline-box {
@@ -538,6 +565,54 @@ input:disabled {
 .icon-circle:hover {
   background: var(--color-surface-hover);
   color: var(--color-text);
+}
+
+/* ─── Open-access warning chip (header right) ─────────── */
+.open-access {
+  position: relative;
+}
+.open-access-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-warning) 45%, var(--color-border));
+  background: color-mix(in srgb, var(--color-warning) 12%, var(--color-surface-elevated));
+  color: var(--color-warning);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.open-access-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+}
+.open-access-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 50;
+  width: min(280px, calc(100vw - 32px));
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-elevated);
+  box-shadow: var(--shadow-shell);
+  color: var(--color-text);
+  font-size: 12px;
+  line-height: 1.45;
+  animation: menu-fade-in 0.12s ease-out;
+}
+.open-access-dismiss {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--color-muted-strong);
+  text-decoration: underline;
 }
 
 /* ─── Logo pill (sparkDash brand) ──────────────────────── */

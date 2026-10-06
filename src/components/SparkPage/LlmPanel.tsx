@@ -13,9 +13,12 @@ import { BenchmarkDialog } from "./BenchmarkDialog";
 import { PrefillBenchDialog } from "./PrefillBenchDialog";
 import { LlmDailyChart } from "./LlmDailyChart";
 import { LlmTokenTotals } from "./LlmTokenTotals";
+import { ENGINE_GENERATED_LABEL, ENGINE_GENERATED_TITLE } from "./tokenTotalsCopy";
 import { parseLlmTargetInput } from "../../shared/llmTarget.js";
 import { backendLabel } from "../../shared/llmBackends.js";
 import { LlmTrendChart } from "./LlmTrendChart";
+import { engineStateLabel } from "./llmEngineState";
+import { idleLabel, isLlmIdle } from "../../shared/llmIdle";
 
 interface LlmPanelProps {
   llm: LlmMetrics | null;
@@ -448,6 +451,10 @@ export function LlmPanel({
   const cachedPrefillTps = llm?.cachedPrefillTps ?? 0;
   const uncachedPrefillTps = llm?.uncachedPrefillTps ?? 0;
   const available = llm?.available ?? false;
+  // While nothing is flowing, say when the endpoint last served.
+  const idleNote = available && isLlmIdle({ generationTps, prefillTps })
+    ? idleLabel(llm?.lastActiveAt)
+    : null;
 
   // Keep draft in sync when server pushes a different port (other tab / reload)
   useEffect(() => {
@@ -698,7 +705,14 @@ export function LlmPanel({
           )}
 
           <div className="flex items-center justify-between">
-            <span className="text-xs text-muted">Generation tok/s</span>
+            <div className="flex min-w-0 flex-col">
+              <span className="text-xs text-muted">Generation tok/s</span>
+              {idleNote && (
+                <span className="text-[10px] text-muted opacity-80" data-llm-idle>
+                  {idleNote}
+                </span>
+              )}
+            </div>
             <div className="flex items-center gap-2">
               <Sparkline data={genHistory} color="var(--color-accent)" height={24} />
               <div className="text-right">
@@ -836,17 +850,26 @@ export function LlmPanel({
                   )}
                 </button>
               </div>
-              <div className="font-tabular text-sm text-text">
-                {llm?.gpuMemoryUtilization != null
-                  ? llm.gpuMemoryUtilization === 0
-                    ? "Sleeping"
-                    : "Active"
-                  : "—"}
-              </div>
+              {(() => {
+                const engine = engineStateLabel(llm);
+                return (
+                  <div
+                    className={`font-tabular text-sm ${engine.muted ? "text-muted" : "text-text"}`}
+                    title={engine.title}
+                  >
+                    {engine.text}
+                  </div>
+                );
+              })()}
             </div>
             <div className="space-y-0.5">
-              <div className="text-[10px] uppercase tracking-wide text-muted">Total Generated</div>
-              <div className="font-tabular text-sm text-text">
+              <div
+                className="text-[10px] uppercase tracking-wide text-muted"
+                title={ENGINE_GENERATED_TITLE}
+              >
+                {ENGINE_GENERATED_LABEL}
+              </div>
+              <div className="font-tabular text-sm text-text" title={ENGINE_GENERATED_TITLE}>
                 {llm && llm.totalOutputTokens > 0
                   ? llm.totalOutputTokens.toLocaleString()
                   : "—"}

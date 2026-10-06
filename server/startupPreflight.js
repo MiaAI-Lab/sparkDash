@@ -14,7 +14,7 @@ export function evaluateStartupPreflight(input) {
   if (!loopback && !input.tokenConfigured) {
     if (input.allowOpenRemote) {
       warnings.push(
-        `Remote bind ${input.bindHost} is open because SPARKDASH_ALLOW_OPEN_REMOTE=1. Set SPARKDASH_TOKEN for authenticated remote access.`
+        `Remote bind ${input.bindHost} is open: anyone who can reach it can change settings and power units off, because SPARKDASH_TOKEN is not set and SPARKDASH_ALLOW_OPEN_REMOTE is unset or 1. Set SPARKDASH_TOKEN for authenticated remote access, or SPARKDASH_ALLOW_OPEN_REMOTE=0 to refuse to start without one.`
       );
     } else {
       errors.push(
@@ -31,7 +31,13 @@ export function evaluateStartupPreflight(input) {
   if (!input.localCollectors?.available) warnings.push("Local host metrics are unavailable; verify /proc and /sys host mounts.");
   return {
     fatal: errors.length > 0,
-    authMode: loopback ? "loopback-only" : input.tokenConfigured ? "bearer" : "required-missing",
+    authMode: loopback
+      ? "loopback-only"
+      : input.tokenConfigured
+        ? "bearer"
+        : input.allowOpenRemote
+          ? "open-remote"
+          : "required-missing",
     errors,
     warnings,
   };

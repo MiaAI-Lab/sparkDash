@@ -6,9 +6,10 @@ import { allowOpenRemote, configuredToken, requireRemoteAuth } from "./auth.js";
 export function evaluateHealth({ bindHost, configWritable, secretsKeyPresent, sshIdentityPresent }) {
   const remote = requireRemoteAuth(bindHost);
   const token = Boolean(configuredToken());
+  const openRemote = remote && !token && allowOpenRemote();
   const errors = [];
   const warnings = [];
-  if (remote && !token && !allowOpenRemote()) {
+  if (remote && !token && !openRemote) {
     errors.push("Remote bind requires SPARKDASH_TOKEN");
   }
   if (!configWritable) errors.push("Config directory is not writable");
@@ -17,7 +18,9 @@ export function evaluateHealth({ bindHost, configWritable, secretsKeyPresent, ss
   return {
     ok: errors.length === 0,
     bindHost,
-    authMode: token ? "bearer" : remote ? "required-missing" : "loopback-open",
+    // "open-remote": reachable off-host with no token — anyone on the network can
+    // mutate. "required-missing": SPARKDASH_ALLOW_OPEN_REMOTE=0 made it fail closed.
+    authMode: token ? "bearer" : !remote ? "loopback-open" : openRemote ? "open-remote" : "required-missing",
     errors,
     warnings,
   };

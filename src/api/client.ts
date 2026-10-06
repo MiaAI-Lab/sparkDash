@@ -2,6 +2,7 @@ import type {
   DecodeBenchJob,
   DecodeBenchListResponse,
   FleetEnergy,
+  HealthResponse,
   HermesBatchUpdateResponse,
   HermesUpdatesResponse,
   LlmMetrics,
@@ -18,13 +19,9 @@ import type {
   PrefillBenchListResponse,
   StartPrefillBenchRequest,
 } from "./types";
+import { authHeaders, reportAuthRequired } from "./authToken";
 
 const BASE = "";
-const TOKEN = (typeof localStorage !== "undefined" && localStorage.getItem("sparkdashToken")) || "";
-
-function authHeaders(): Record<string, string> {
-  return TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {};
-}
 
 // ─── Generic fetch wrapper ────────────────────────────────
 async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
@@ -38,6 +35,8 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
     headers: { ...headers, ...authHeaders(), ...(opts?.headers as Record<string, string> | undefined) },
   });
   if (!res.ok) {
+    // The server wants a token we do not have (or ours is stale): ask for one.
+    if (res.status === 401) reportAuthRequired();
     const body = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(body.error || `HTTP ${res.status}`);
   }
@@ -297,6 +296,19 @@ export function cancelShowcase(
   });
 }
 
+/**
+ * Fire-and-forget cancel sent while the page unloads (pagehide/beforeunload).
+ * `keepalive` lets the request outlive the tab; it carries the same bearer
+ * token as every other API call, or a token-protected server rejects it and
+ * the session keeps running.
+ */
+export function cancelShowcaseBeacon(id: string, sessionId: string): void {
+  const url = `${BASE}/api/sparks/${encodeURIComponent(id)}/llm/showcase/${encodeURIComponent(sessionId)}`;
+  void fetch(url, { method: "DELETE", keepalive: true, headers: authHeaders() }).catch(() => {
+    /* the page is going away — nothing to report to */
+  });
+}
+
 /** Clear finished showcase history for a Spark. */
 export function clearShowcaseHistory(
   id: string
@@ -429,6 +441,12 @@ export function wakeAllSparks(): Promise<BatchPowerResult> {
 /** Per-Spark update preview (release + pending commits + resolved view). */
 export function fetchHermesUpdates(id: string): Promise<HermesUpdatesResponse> {
   return apiFetch(`/api/sparks/${encodeURIComponent(id)}/hermes/updates`);
+}
+
+// ─── Health ───────────────────────────────────────────────
+/** Server health and auth posture (bind host, authMode). */
+export function fetchHealth(): Promise<HealthResponse> {
+  return apiFetch("/api/health");
 }
 
 // ─── Global settings ──────────────────────────────────────

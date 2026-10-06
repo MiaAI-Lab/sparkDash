@@ -30,6 +30,7 @@ import path from "path";
 import { execFile } from "child_process";
 import { HOST_PATHS, HERMES_UPDATE_TIMEOUT_MS } from "../config.js";
 import { sshExec } from "./ssh.js";
+import { isValidSshUser } from "../validate.js";
 import { parsePendingCommits } from "./HermesReleases.js";
 
 const HERMES_MISSING = "__HERMES_MISSING__";
@@ -227,6 +228,13 @@ export class HermesProbe {
 
   /** Run a command on the Spark: SSH for remote, host drop + nsenter for local. */
   async _run(cmd, timeoutMs) {
+    // The SSH user is spliced into these scripts (/home/<user>/...), and for a
+    // local unit they run as root in the host namespace. The API validates it,
+    // but a sparks.json written before that check never went through it.
+    const user = this.spark.ssh?.user;
+    if (user != null && user !== "" && !isValidSshUser(user)) {
+      throw new Error("Invalid SSH user for Hermes (allowed: letters, digits, . _ -)");
+    }
     if (this.spark.isLocal) return this._execLocal(cmd, timeoutMs);
     return sshExec(this.spark, cmd, { timeoutMs });
   }

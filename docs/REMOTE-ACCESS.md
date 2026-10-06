@@ -27,6 +27,8 @@ Keep `BIND_HOST=127.0.0.1` and publish the loopback service through one of these
 
 The front door must proxy both `/api/*` and `/ws`, preserve WebSocket upgrades, and require authentication for every path. TLS without authentication is not sufficient.
 
+Tailscale Serve needs nothing more. Behind a reverse proxy on a custom domain, list that domain in `SPARKDASH_ALLOWED_HOSTS` (comma-separated); a loopback bind refuses other sites and names it does not recognise, and the refusal page says which name to add.
+
 Direct `BIND_HOST=0.0.0.0` requires `SPARKDASH_TOKEN`. Without a token, remote bind fails closed for mutations and WebSocket telemetry. A firewall-only or “trusted LAN” deployment is not a supported substitute.
 
 ## Existing Docker installations

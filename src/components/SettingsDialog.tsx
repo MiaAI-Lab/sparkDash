@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { fetchSettings, updateSettings } from "../api/client";
+import { clearToken, getToken, onTokenChange, requestTokenPrompt } from "../api/authToken";
 import type { Settings } from "../api/types";
 import { useModalPresence } from "../hooks/useModalPresence";
 import packageJson from "../../package.json";
@@ -33,8 +34,11 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
+  const [tokenSet, setTokenSet] = useState(() => getToken() !== "");
 
   useEscape(onClose);
+
+  useEffect(() => onTokenChange((token) => setTokenSet(token !== "")), []);
 
   useEffect(() => {
     if (!open) {
@@ -247,6 +251,37 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
                     On by default. The decode/prefill <em>Copy results</em> button gains a caret with
                     <em> Copy as text</em> / <em>Copy as image</em> (a share card). Turn it off to keep
                     the plain text button.
+                  </span>
+                </span>
+              </label>
+            </div>
+
+            {/* VRAM breakdown */}
+            <div>
+              <label className="flex items-start gap-3 text-xs text-muted">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={settings.showVramBreakdown ?? true}
+                  onClick={() =>
+                    update({ showVramBreakdown: !(settings.showVramBreakdown ?? true) })
+                  }
+                  className={`toggle-track relative mt-0.5 inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                    settings.showVramBreakdown ?? true ? "is-on" : ""
+                  }`}
+                >
+                  <span
+                    className={`toggle-dot inline-block h-4 w-4 transform rounded-full shadow transition-transform ${
+                      settings.showVramBreakdown ?? true ? "translate-x-4" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+                <span>
+                  <span className="block text-text">Detailed VRAM breakdown</span>
+                  <span className="mt-0.5 block text-[10px] leading-snug text-muted">
+                    On by default. VRAM bars split memory into LLM engine, system and free, and turn
+                    amber or red on low free memory rather than on a high percentage. Turn it off for
+                    the single percentage bar.
                   </span>
                 </span>
               </label>
@@ -499,6 +534,43 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
             </div>
           </div>
         )}
+
+        {/* Access token — outside the settings block: a rejected token is
+            exactly when settings fail to load, and this is how to fix it. */}
+        <div className={settings && !loading ? "mt-4" : undefined}>
+          <div className="flex items-start justify-between gap-3 text-xs">
+            <span>
+              <span className="block text-text">Access token</span>
+              <span className="mt-0.5 block text-[10px] leading-snug text-muted">
+                Sent to servers that set SPARKDASH_TOKEN. Stored in this browser only.
+              </span>
+            </span>
+            <span
+              className={`shrink-0 text-[10px] font-medium ${tokenSet ? "text-text" : "text-muted"}`}
+              data-testid="access-token-state"
+            >
+              {tokenSet ? "Set" : "Not set"}
+            </span>
+          </div>
+          <div className="mt-1.5 flex gap-2">
+            <button
+              type="button"
+              onClick={() => requestTokenPrompt()}
+              className="rounded border border-border bg-surface-elevated px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-surface-hover"
+            >
+              Change
+            </button>
+            {tokenSet && (
+              <button
+                type="button"
+                onClick={() => clearToken()}
+                className="rounded border border-border bg-surface-elevated px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-surface-hover"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
 
         {/* Links */}
         <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-border pt-3">

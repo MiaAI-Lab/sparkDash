@@ -22,6 +22,7 @@ test("remote bind without a token is healthy by default", () => {
   try {
     const health = evaluateHealth({ bindHost: "0.0.0.0", configWritable: true, secretsKeyPresent: true, sshIdentityPresent: true });
     assert.equal(health.ok, true);
+    assert.equal(health.authMode, "open-remote");
   } finally {
     if (previousToken != null) process.env.SPARKDASH_TOKEN = previousToken;
     else delete process.env.SPARKDASH_TOKEN;
@@ -38,11 +39,25 @@ test("remote bind without a token is not healthy when open remote is disabled", 
   try {
     const health = evaluateHealth({ bindHost: "0.0.0.0", configWritable: true, secretsKeyPresent: true, sshIdentityPresent: true });
     assert.equal(health.ok, false);
+    assert.equal(health.authMode, "required-missing");
     assert.match(health.errors.join(" "), /SPARKDASH_TOKEN/);
   } finally {
     if (previousToken != null) process.env.SPARKDASH_TOKEN = previousToken;
     else delete process.env.SPARKDASH_TOKEN;
     if (previousAllow != null) process.env.SPARKDASH_ALLOW_OPEN_REMOTE = previousAllow;
     else delete process.env.SPARKDASH_ALLOW_OPEN_REMOTE;
+  }
+});
+
+test("remote bind with a token reports bearer", () => {
+  const previousToken = process.env.SPARKDASH_TOKEN;
+  process.env.SPARKDASH_TOKEN = "secret";
+  try {
+    const health = evaluateHealth({ bindHost: "0.0.0.0", configWritable: true, secretsKeyPresent: true, sshIdentityPresent: true });
+    assert.equal(health.ok, true);
+    assert.equal(health.authMode, "bearer");
+  } finally {
+    if (previousToken != null) process.env.SPARKDASH_TOKEN = previousToken;
+    else delete process.env.SPARKDASH_TOKEN;
   }
 });

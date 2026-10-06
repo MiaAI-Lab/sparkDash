@@ -22,7 +22,7 @@ function MetricRow({
   value,
   color = "var(--color-accent)",
 }: {
-  label: string;
+  label: React.ReactNode;
   spark: React.ReactNode;
   value: React.ReactNode;
   color?: string;
@@ -85,7 +85,25 @@ export function CpuPanel({ cpu, hardware, sparkId, temperatureUnit, className }:
         value={<span className="text-text-strong">{usage}%</span>}
       />
       <MetricRow
-        label="Temperature"
+        // GB10 exposes no CPU package sensor, so the reading is an ACPI/SoC zone:
+        // say so rather than letting the tile claim it is the CPU (#142).
+        label={
+          <span
+            title={
+              cpu?.temperatureSource
+                ? `Reading from ${cpu.temperatureSource} — ${
+                    cpu.temperatureLabel === "CPU"
+                      ? "the CPU package sensor"
+                      : "an ACPI/board thermal zone, not a CPU package sensor"
+                  }`
+                : undefined
+            }
+          >
+            {cpu?.temperatureLabel && cpu.temperatureLabel !== "CPU"
+              ? `Temperature (${cpu.temperatureLabel})`
+              : "Temperature"}
+          </span>
+        }
         color={tempColor}
         spark={<Sparkline data={tempHistory} color={tempColor} width={180} />}
         value={<span className="text-text-strong">{tempLabel}</span>}

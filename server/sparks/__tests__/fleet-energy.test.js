@@ -633,6 +633,9 @@ test("integration splits energy and coverage at UTC minute boundaries", (t) => {
     load: false,
     setIntervalFn: () => 1,
     clearIntervalFn: () => {},
+    // flush() prunes against the clock; pin it to the fixture's timeline or the
+    // buckets age out of the 31-day retention once the wall clock passes ~2026-09-23.
+    now: () => minute + 61_000,
   });
 
   tracker.record([nodeSnapshot("node-a", { watts: 100 })], minute + 59_000);
@@ -1022,32 +1025,61 @@ test("token observation gaps over 10 seconds and source changes rebase", () => {
   assert.equal(tracker.snapshot(16_001).outputTokens24h, 20);
 });
 
-test("token source requires exactly one canonical head and ignores noncanonical heads", () => {
-  const tracker = new FleetEnergyTracker(noTimerOptions());
-  const withIntruder = fleetSnapshots(100, { outputTokens: 100 });
-  withIntruder.push(
-    nodeSnapshot("spark-intruder", { role: "head", outputTokens: 9_000 })
-  );
-  tracker.record(withIntruder, 0);
-  const withIntruderAgain = fleetSnapshots(100, { outputTokens: 120 });
-  withIntruderAgain.push(
-    nodeSnapshot("spark-intruder", { role: "head", outputTokens: 9_100 })
-  );
-  tracker.record(withIntruderAgain, 2_000);
-
-  const duplicateHeads = fleetSnapshots(100, { outputTokens: 999 });
-  duplicateHeads[1].role = "head";
-  duplicateHeads[1].llmPorts = [8000];
-  duplicateHeads[1].metrics.llm = [
-    { available: true, totalOutputTokens: 500 },
+function mixedFleet({ a, b, c, d8000, d8001, intruder }) {
+  return [
+    nodeSnapshot("node-a", { role: "head", outputTokens: a }),
+    nodeSnapshot("node-b", { role: "worker", outputTokens: b }),
+    nodeSnapshot("node-c", { role: "head", outputTokens: c }),
+    nodeSnapshot("node-d", {
+      role: "standalone",
+      llmPorts: [8000, 8001],
+      llmEntries: [
+        { available: true, totalOutputTokens: d8000 },
+        { available: true, totalOutputTokens: d8001 },
+      ],
+    }),
+    nodeSnapshot("spark-intruder", { role: "head", outputTokens: intruder }),
   ];
-  tracker.record(duplicateHeads, 4_000);
-  tracker.record(fleetSnapshots(100, { outputTokens: 130 }), 6_000);
+}
 
-  assert.equal(tracker.snapshot(6_000).outputTokens24h, 30);
+test("output tokens sum every head and standalone endpoint, never workers or untracked nodes", () => {
+  const tracker = new FleetEnergyTracker(noTimerOptions());
+  tracker.record(mixedFleet({ a: 100, b: 5_000, c: 200, d8000: 300, d8001: 400, intruder: 9_000 }), 0);
+  tracker.record(mixedFleet({ a: 110, b: 6_000, c: 220, d8000: 330, d8001: 440, intruder: 9_900 }), 2_000);
+
+  const snapshot = tracker.snapshot(2_000);
+  // 10 + 20 + 30 + 40. A worker fronts its head's engine, so its counter
+  // would double the pair; a node outside the tracked fleet never counts.
+  assert.equal(snapshot.outputTokens24h, 100);
+  almostEqual(snapshot.whPerOutputToken24h, ((400 * 2_000) / 3_600_000) / 100);
 });
 
-test("token source ignores unavailable siblings but rejects ambiguous available entries", () => {
+test("Wh per output token divides only energy recorded since token sources were first seen", () => {
+  const tracker = new FleetEnergyTracker(noTimerOptions());
+  // Ten minutes of energy with no endpoint in view: the state an upgrade
+  // inherits from a build whose token source never matched the fleet.
+  for (let at = 0; at <= 10 * MINUTE_MS; at += 10_000) tracker.record(fleetSnapshots(100), at);
+  tracker.record(fleetSnapshots(100, { outputTokens: 100 }), 10 * MINUTE_MS + 10_000);
+  tracker.record(fleetSnapshots(100, { outputTokens: 150 }), 10 * MINUTE_MS + 20_000);
+
+  const snapshot = tracker.snapshot(10 * MINUTE_MS + 20_000);
+  almostEqual(snapshot.energy24hKwh, (400 * (10 * MINUTE_MS + 20_000)) / 3_600_000 / 1000);
+  // Tracking began in the minute starting at 10:00, so only 20 s of energy count.
+  almostEqual(snapshot.whPerOutputToken24h, ((400 * 20_000) / 3_600_000) / 50);
+});
+
+test("one endpoint's counter reset rebases only that endpoint", () => {
+  const tracker = new FleetEnergyTracker(noTimerOptions());
+  tracker.record(mixedFleet({ a: 100, c: 1_000, d8000: 0, d8001: 0 }), 0);
+  tracker.record(mixedFleet({ a: 150, c: 1_100, d8000: 0, d8001: 0 }), 2_000);
+  tracker.record(mixedFleet({ a: 20, c: 1_200, d8000: 0, d8001: 0 }), 4_000);
+  tracker.record(mixedFleet({ a: 30, c: 1_210, d8000: 0, d8001: 0 }), 6_000);
+
+  // a: +50, restart, +10; c: +100, +100, +10.
+  assert.equal(tracker.snapshot(6_000).outputTokens24h, 270);
+});
+
+test("token source ignores unavailable siblings and counts each available endpoint separately", () => {
   const tracker = new FleetEnergyTracker(noTimerOptions());
   const first = fleetSnapshots(100, { outputTokens: 100 });
   first[0].llmPorts = [7000, 8000, 9000];
@@ -1067,18 +1099,24 @@ test("token source ignores unavailable siblings but rejects ambiguous available 
   ];
   tracker.record(second, 2_000);
 
-  const ambiguous = fleetSnapshots(100, { outputTokens: 110 });
-  ambiguous[0].llmPorts = [8000, 9000];
-  ambiguous[0].metrics.llm = [
+  const twoEngines = fleetSnapshots(100, { outputTokens: 110 });
+  twoEngines[0].llmPorts = [8000, 9000];
+  twoEngines[0].metrics.llm = [
     { available: true, totalOutputTokens: 130 },
     { available: true, totalOutputTokens: 5 },
   ];
-  tracker.record(ambiguous, 4_000);
+  tracker.record(twoEngines, 4_000);
 
-  const afterAmbiguous = fleetSnapshots(100, { outputTokens: 140 });
-  tracker.record(afterAmbiguous, 6_000);
+  const bothAdvance = fleetSnapshots(100, { outputTokens: 140 });
+  bothAdvance[0].llmPorts = [8000, 9000];
+  bothAdvance[0].metrics.llm = [
+    { available: true, totalOutputTokens: 140 },
+    { available: true, totalOutputTokens: 15 },
+  ];
+  tracker.record(bothAdvance, 6_000);
 
-  assert.equal(tracker.snapshot(6_000).outputTokens24h, 40);
+  // 8000: +20, +10, +10; 9000 baselines at 5, then +10.
+  assert.equal(tracker.snapshot(6_000).outputTokens24h, 50);
 });
 
 test("token source requires a matching safe-integer llmPorts entry and counter", () => {
@@ -1179,7 +1217,7 @@ test("hourly graph returns 24 scalar means oldest-to-newest with nulls for empty
   almostEqual(hourly.at(-1), 400);
 });
 
-test("persistence reload preserves aggregates, token baseline, and does not backfill downtime", (t) => {
+test("persistence reload preserves aggregates, rebases tokens, and does not backfill downtime", (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sparkdash-energy-reload-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const filePath = path.join(dir, "fleet-energy.json");
@@ -1190,19 +1228,23 @@ test("persistence reload preserves aggregates, token baseline, and does not back
   first.record(fleetSnapshots(100, { outputTokens: 100 }), now);
   first.record(fleetSnapshots(100, { outputTokens: 150 }), now + 2_000);
   assert.equal(first.flush(), true);
-  assert.deepEqual(JSON.parse(fs.readFileSync(filePath, "utf8")).tokenCounter, {
-    headId: "node-a",
-    port: 8000,
-    totalOutputTokens: 150,
-    observedAtMs: now + 2_000,
-  });
+  // A reload always rebases every token counter, so none is persisted.
+  const persisted = JSON.parse(fs.readFileSync(filePath, "utf8"));
+  assert.equal("tokenCounter" in persisted, false);
+  assert.equal("tokenCounters" in persisted, false);
   const before = first.snapshot(now + 2_000);
+
+  // Even a restart inside the 10 s gap window counts nothing across it.
+  const quick = new FleetEnergyTracker({ filePath, now: () => now + 4_000, ...timerOptions });
+  quick.record(fleetSnapshots(100, { outputTokens: 170 }), now + 4_000);
+  assert.equal(quick.snapshot(now + 4_000).outputTokens24h, 50);
 
   now += HOUR_MS;
   const second = new FleetEnergyTracker({ filePath, now: () => now, ...timerOptions });
   const loaded = second.snapshot(now);
   almostEqual(loaded.energy24hKwh, before.energy24hKwh);
   assert.equal(loaded.outputTokens24h, 50);
+  almostEqual(loaded.whPerOutputToken24h, before.whPerOutputToken24h);
 
   second.record(fleetSnapshots(100, { outputTokens: 175 }), now);
   assert.equal(second.snapshot(now).outputTokens24h, 50);
@@ -1210,6 +1252,66 @@ test("persistence reload preserves aggregates, token baseline, and does not back
   second.record(fleetSnapshots(100, { outputTokens: 180 }), now + 2_000);
   assert.equal(second.snapshot(now + 2_000).outputTokens24h, 55);
   almostEqual(second.snapshot(now + 2_000).energy24hKwh, before.energy24hKwh + 0.8 / 3_600);
+});
+
+test("reload ignores a future or misaligned token-tracking start", (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sparkdash-energy-tracked-since-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const filePath = path.join(dir, "fleet-energy.json");
+  const now = Date.UTC(2026, 7, 23, 12, 0, 0);
+  const timerOptions = { setIntervalFn: () => 1, clearIntervalFn: () => {} };
+
+  for (const tokensTrackedSinceMs of [now + HOUR_MS, now - 1_234]) {
+    fs.writeFileSync(
+      filePath,
+      JSON.stringify({ version: 1, nodeIds: CANONICAL_NODE_IDS, tokensTrackedSinceMs, buckets: [] })
+    );
+    const tracker = new FleetEnergyTracker({ filePath, now: () => now, ...timerOptions });
+    tracker.record(fleetSnapshots(100, { outputTokens: 100 }), now);
+    tracker.record(fleetSnapshots(100, { outputTokens: 150 }), now + 2_000);
+    almostEqual(tracker.snapshot(now + 2_000).whPerOutputToken24h, ((400 * 2_000) / 3_600_000) / 50);
+  }
+});
+
+test("reload archives state from another fleet scope instead of letting the next flush overwrite it", (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sparkdash-energy-scope-archive-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const filePath = path.join(dir, "fleet-energy.json");
+  const oldIds = CANONICAL_NODE_IDS.slice(0, 3);
+  const coverageMs = Object.fromEntries(oldIds.map((id) => [id, 2_000]));
+  const nodeWh = Object.fromEntries(oldIds.map((id) => [id, (100 * 2_000) / 3_600_000]));
+  const previous = JSON.stringify({
+    version: 1,
+    nodeIds: oldIds,
+    savedAt: 2_000,
+    integrationHighWaterMs: 2_000,
+    buckets: [{
+      minuteStartMs: 0,
+      nodeWh,
+      nodeCoverageMs: coverageMs,
+      fleetWattMs: 300 * 2_000,
+      fleetCoverageMs: 2_000,
+      outputTokens: 25,
+    }],
+  });
+  fs.writeFileSync(filePath, previous);
+
+  const tracker = new FleetEnergyTracker({
+    filePath,
+    now: () => 4_000,
+    setIntervalFn: () => 1,
+    clearIntervalFn: () => {},
+  });
+  assert.equal(tracker.snapshot(4_000).coverage24hMs, 0);
+  const archivePath = path.join(dir, "fleet-energy.scope-2000.json");
+  assert.equal(fs.readFileSync(archivePath, "utf8"), previous);
+  assert.equal(fs.existsSync(filePath), false);
+
+  tracker.record(fleetSnapshots(100), 4_000);
+  tracker.record(fleetSnapshots(100), 6_000);
+  assert.equal(tracker.flush(), true);
+  assert.deepEqual(JSON.parse(fs.readFileSync(filePath, "utf8")).nodeIds, CANONICAL_NODE_IDS);
+  assert.equal(fs.readFileSync(archivePath, "utf8"), previous);
 });
 
 test("reload migrates legacy version-one state when its node keys match the configured fleet", (t) => {
