@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { _resetStore, getMetricHistorySamples } from "./metricsStore";
 import { useSnapshot } from "./useSnapshot";
 import { makeSpark } from "../testing/fixtures";
+import { onAuthRequired, setToken } from "../api/authToken";
 import { flush, render } from "../testing/render";
 
 class MockSocket {
@@ -64,6 +65,7 @@ describe("useSnapshot connection lifecycle", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    localStorage.removeItem("sparkdashToken");
   });
 
   it("stays disconnected until a valid snapshot, then recovers after disconnect and malformed data", async () => {
@@ -100,5 +102,62 @@ describe("useSnapshot connection lifecycle", () => {
     await flush();
     expect(readProbe()).toMatchObject({ connected: true, error: null });
     expect(readProbe().last).toBeGreaterThanOrEqual(50_000);
+  });
+
+  it("reconnects with the new ?token= as soon as a token is saved", async () => {
+    render(<Probe />);
+    const first = MockSocket.instances[0];
+    expect(first.url).toBe("ws://localhost:5555/ws");
+
+    act(() => setToken("a b/c"));
+    expect(MockSocket.instances).toHaveLength(2);
+    expect(MockSocket.instances[1].url).toBe("ws://localhost:5555/ws?token=a%20b%2Fc");
+    // The replaced socket must not schedule a second reconnect of its own.
+    act(() => first.close());
+    act(() => vi.advanceTimersByTime(5000));
+    expect(MockSocket.instances).toHaveLength(2);
+  });
+
+  it("asks for a token once when the server refuses the socket for it", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ tokenRequired: true, authenticated: false }), { status: 200 })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const reasons: string[] = [];
+    const off = onAuthRequired((r) => reasons.push(r));
+    try {
+      render(<Probe />);
+      act(() => MockSocket.instances[0].close());
+      await flush();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledWith("/api/auth/status", { headers: {} });
+      expect(reasons).toEqual(["rejected"]);
+
+      // Retries with the same (missing) token do not re-ask every 2 seconds.
+      act(() => vi.advanceTimersByTime(2000));
+      act(() => MockSocket.instances[1].close());
+      await flush();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      off();
+    }
+  });
+
+  it("does not prompt when the socket drops for another reason", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ tokenRequired: false, authenticated: true }), { status: 200 })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const reasons: string[] = [];
+    const off = onAuthRequired((r) => reasons.push(r));
+    try {
+      render(<Probe />);
+      act(() => MockSocket.instances[0].close());
+      await flush();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(reasons).toEqual([]);
+    } finally {
+      off();
+    }
   });
 });

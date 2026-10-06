@@ -11,6 +11,8 @@ import { OverviewPage } from "./components/OverviewPage/OverviewPage";
 import { ShowcasePage } from "./components/ShowcasePage/ShowcasePage";
 import { ThemeSwitch } from "./components/ThemeSwitch";
 import { SettingsDialog } from "./components/SettingsDialog";
+import { AccessTokenPrompt } from "./components/AccessTokenDialog";
+import { onTokenChange } from "./api/authToken";
 import { GearIcon, BoltIcon } from "./components/ui/icons";
 import { ConnectionBanner } from "./components/ui/ConnectionBanner";
 import { ErrorBanner } from "./components/ui/ErrorBanner";
@@ -204,15 +206,24 @@ function DashboardApp() {
     if (sparks.length > 0) setFallbackSparks([]);
   }, [sparks]);
 
-  // Fetch global settings on mount
+  // Fetch global settings on mount, and again when a new access token is
+  // saved (the first load may have been refused for the missing token).
   useEffect(() => {
-    fetchSettings()
-      .then(setSettings)
-      .catch((err) =>
-        setActionError(
-          `Could not load settings: ${err instanceof Error ? err.message : String(err)}. Reload to retry.`
-        )
-      );
+    const load = (afterTokenChange: boolean) =>
+      fetchSettings()
+        .then((s) => {
+          setSettings(s);
+          if (afterTokenChange) setActionError(null);
+        })
+        .catch((err) =>
+          setActionError(
+            `Could not load settings: ${err instanceof Error ? err.message : String(err)}. Reload to retry.`
+          )
+        );
+    void load(false);
+    return onTokenChange((token) => {
+      if (token) void load(true);
+    });
   }, []);
 
   const handleSettingsSaved = useCallback((s: Settings) => {
@@ -415,10 +426,16 @@ function DashboardApp() {
 
 function App() {
   const route = useAppRoute();
-  if (route.mode === "showcase" && route.showcaseSparkId) {
-    return <ShowcasePage sparkId={route.showcaseSparkId} />;
-  }
-  return <DashboardApp />;
+  return (
+    <>
+      {route.mode === "showcase" && route.showcaseSparkId ? (
+        <ShowcasePage sparkId={route.showcaseSparkId} />
+      ) : (
+        <DashboardApp />
+      )}
+      <AccessTokenPrompt />
+    </>
+  );
 }
 
 export default App;

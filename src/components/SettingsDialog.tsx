@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { fetchSettings, updateSettings } from "../api/client";
+import { clearToken, getToken, onTokenChange, requestTokenPrompt } from "../api/authToken";
 import type { Settings } from "../api/types";
 import { useModalPresence } from "../hooks/useModalPresence";
 import packageJson from "../../package.json";
@@ -33,8 +34,11 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
+  const [tokenSet, setTokenSet] = useState(() => getToken() !== "");
 
   useEscape(onClose);
+
+  useEffect(() => onTokenChange((token) => setTokenSet(token !== "")), []);
 
   useEffect(() => {
     if (!open) {
@@ -427,6 +431,43 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
             </div>
           </div>
         )}
+
+        {/* Access token — outside the settings block: a rejected token is
+            exactly when settings fail to load, and this is how to fix it. */}
+        <div className={settings && !loading ? "mt-4" : undefined}>
+          <div className="flex items-start justify-between gap-3 text-xs">
+            <span>
+              <span className="block text-text">Access token</span>
+              <span className="mt-0.5 block text-[10px] leading-snug text-muted">
+                Sent to servers that set SPARKDASH_TOKEN. Stored in this browser only.
+              </span>
+            </span>
+            <span
+              className={`shrink-0 text-[10px] font-medium ${tokenSet ? "text-text" : "text-muted"}`}
+              data-testid="access-token-state"
+            >
+              {tokenSet ? "Set" : "Not set"}
+            </span>
+          </div>
+          <div className="mt-1.5 flex gap-2">
+            <button
+              type="button"
+              onClick={() => requestTokenPrompt()}
+              className="rounded border border-border bg-surface-elevated px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-surface-hover"
+            >
+              Change
+            </button>
+            {tokenSet && (
+              <button
+                type="button"
+                onClick={() => clearToken()}
+                className="rounded border border-border bg-surface-elevated px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-surface-hover"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
 
         {/* Links */}
         <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-border pt-3">

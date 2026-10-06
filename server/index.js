@@ -16,7 +16,7 @@ import {
   validateDecodeBudget,
   validatePrefillBudget,
 } from "./validate.js";
-import { authorizeUpgrade, configuredToken, createAuthMiddleware, requireRemoteAuth } from "./auth.js";
+import { authStatus, authorizeUpgrade, configuredToken, createAuthMiddleware, requireRemoteAuth } from "./auth.js";
 import { inspectHealth } from "./health.js";
 import { getSettings, updateSettings, loadSettings } from "./settings.js";
 import { broadcastForLanIp, effectiveMac, normalizeMac, sendWol } from "./wol.js";
@@ -320,6 +320,11 @@ const app = express();
 const server = createServer(app);
 
 app.use(express.json());
+// Registered ahead of the auth middleware: a remote browser holding no token
+// (or a stale one) must still be able to learn that it needs one.
+app.get("/api/auth/status", (req, res) => {
+  res.json(authStatus(req));
+});
 app.use(createAuthMiddleware());
 
 app.get("/api/health", (_req, res) => {
