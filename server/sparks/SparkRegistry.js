@@ -166,6 +166,8 @@ export class SparkRegistry {
     // remote unit's SSH host, through the bench tunnel.
     const sshTarget = (s) => [s.isLocal, s.ssh.user, s.ssh.host || s.lanIp].join(" ");
     const llmTarget = (s) => [llmProbeHost(s), !s.isLocal && (s.ssh.host || s.lanIp)].join(" ");
+    const prevPasswords = this._passwords;
+    const prevLlmApiKeys = this._llmApiKeys;
     this._save(nextSparks);
     try {
       if (sshTarget(nextSparks[idx]) !== sshTarget(prev)) this._storePassword(id, "");
@@ -173,6 +175,12 @@ export class SparkRegistry {
       if (hasPasswordUpdate) this._storePassword(id, passwordUpdate);
     } catch (err) {
       this._save(this._sparks);
+      // The unit is back on its old host, so its secrets come back too.
+      if (this._passwords !== prevPasswords || this._llmApiKeys !== prevLlmApiKeys) {
+        this._saveSecrets(prevPasswords, prevLlmApiKeys);
+        this._passwords = prevPasswords;
+        this._llmApiKeys = prevLlmApiKeys;
+      }
       throw err;
     }
     this._sparks = nextSparks;
