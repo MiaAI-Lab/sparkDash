@@ -44,6 +44,10 @@ test("local units may omit LAN IP while remote units still require a host", () =
   assert.equal(validateSparkTarget({ lanIp: "192.168.1.20" }), null);
 });
 
+test("local units get the same SSH user check as remote ones", () => {
+  assert.match(validateSparkTarget({ isLocal: true, ssh: { user: "a;b" } }), /Invalid SSH user/);
+});
+
 test("rate limiter expires stale keys instead of growing forever", () => {
   const allow = createRateLimiter(2, 20);
   assert.equal(allow("a"), true);
