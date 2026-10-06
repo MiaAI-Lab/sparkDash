@@ -146,10 +146,17 @@ test("credential failures stop after a few attempts and say what to do", async (
   }
 
   // Four quick attempts (5s/15s/30s/60s), then effectively stopped: ~15 minutes
-  // apart is 96 logins a day instead of 60,000.
-  assert.deepEqual(waits.slice(0, 4), [5_000, 15_000, 30_000, 60_000]);
-  assert.equal(waits[4], 15 * 60_000);
-  assert.equal(waits[5], 15 * 60_000);
+  // apart is 96 logins a day instead of 60,000. The schedule is asserted with
+  // slack: each wait is measured as Date.now() + delay - Date.now(), so the
+  // difference carries however long the call took (1ms of drift was enough to
+  // make the exact comparison flake in the full suite).
+  const expected = [5_000, 15_000, 30_000, 60_000, 15 * 60_000, 15 * 60_000];
+  waits.forEach((wait, index) => {
+    assert.ok(
+      wait >= expected[index] && wait < expected[index] + 1_000,
+      `attempt ${index + 1}: expected ~${expected[index]}ms, got ${wait}ms`
+    );
+  });
   assert.equal(sshAuthGaveUp(4), false);
   assert.equal(sshAuthGaveUp(5), true);
   assert.match(monitor.offlineReason, /paused after \d+ attempts/);
