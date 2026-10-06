@@ -2,6 +2,7 @@ import type {
   DecodeBenchJob,
   DecodeBenchListResponse,
   FleetEnergy,
+  HealthResponse,
   HermesBatchUpdateResponse,
   HermesUpdatesResponse,
   LlmMetrics,
@@ -440,6 +441,12 @@ export function wakeAllSparks(): Promise<BatchPowerResult> {
 /** Per-Spark update preview (release + pending commits + resolved view). */
 export function fetchHermesUpdates(id: string): Promise<HermesUpdatesResponse> {
   return apiFetch(`/api/sparks/${encodeURIComponent(id)}/hermes/updates`);
+}
+
+// ─── Health ───────────────────────────────────────────────
+/** Server health and auth posture (bind host, authMode). */
+export function fetchHealth(): Promise<HealthResponse> {
+  return apiFetch("/api/health");
 }
 
 // ─── Global settings ──────────────────────────────────────
