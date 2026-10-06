@@ -19,6 +19,7 @@ export default defineConfig({
     },
     proxy: {
       "/api": "http://127.0.0.1:5555",
+      "/metrics": "http://127.0.0.1:5555",
       "/ws": {
         target: "ws://127.0.0.1:5555",
         ws: true,

@@ -42,6 +42,11 @@ const DEFAULTS = Object.freeze({
    * falls back to the same value before settings load — keep the two in step.
    */
   showVramBreakdown: true,
+  /**
+   * Serve GET /metrics in Prometheus text format for an external scraper.
+   * Off by default: when off the path answers 404.
+   */
+  prometheusExport: false,
 });
 
 /** @type {typeof DEFAULTS} */
@@ -67,6 +72,7 @@ function _clampSettings(settings) {
   s.showOverviewSearch = Boolean(s.showOverviewSearch);
   s.showLlmTokenTotals = Boolean(s.showLlmTokenTotals);
   s.showVramBreakdown = Boolean(s.showVramBreakdown);
+  s.prometheusExport = Boolean(s.prometheusExport);
   // Ensure temperatureUnit is valid
   if (s.temperatureUnit !== "celsius" && s.temperatureUnit !== "fahrenheit") {
     s.temperatureUnit = DEFAULTS.temperatureUnit;

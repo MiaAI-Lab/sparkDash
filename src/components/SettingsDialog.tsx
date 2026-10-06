@@ -406,6 +406,37 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
               </label>
             </div>
 
+            {/* Prometheus export */}
+            <div>
+              <label className="flex items-start gap-3 text-xs text-muted">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={Boolean(settings.prometheusExport)}
+                  onClick={() => update({ prometheusExport: !settings.prometheusExport })}
+                  className={`toggle-track relative mt-0.5 inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                    settings.prometheusExport ? "is-on" : ""
+                  }`}
+                >
+                  <span
+                    className={`toggle-dot inline-block h-4 w-4 transform rounded-full shadow transition-transform ${
+                      settings.prometheusExport ? "translate-x-4" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+                <span className="min-w-0">
+                  <span className="block text-text">Prometheus metrics</span>
+                  <span className="mt-0.5 block text-[10px] leading-snug text-muted">
+                    Serves every unit's metrics for Prometheus / Grafana to scrape at{" "}
+                    <code className="break-all font-mono text-text">
+                      {`${window.location.origin}/metrics`}
+                    </code>
+                    . Off by default.
+                  </span>
+                </span>
+              </label>
+            </div>
+
             {/* Temperature unit */}
             <div>
               <label className="text-xs text-muted">Temperature unit</label>

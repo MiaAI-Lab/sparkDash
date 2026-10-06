@@ -51,6 +51,7 @@ import {
 } from "./energy/FleetEnergyRuntime.js";
 import { testSparkConnectivity } from "./connectivity.js";
 import { inspectStartupPreflight, logStartupPreflight } from "./startupPreflight.js";
+import { PROMETHEUS_CONTENT_TYPE, renderPrometheusMetrics } from "./prometheus.js";
 
 dotenv.config();
 
@@ -1603,6 +1604,32 @@ app.post("/api/sparks/:id/wake", async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// ─── Prometheus exposition (opt-in) ──────────────────────
+// Registered after the auth middleware (a token-protected install needs the
+// scraper's bearer token) and before the SPA fallback, which would otherwise
+// answer /metrics with index.html.
+app.get("/metrics", (_req, res) => {
+  res.set("Cache-Control", "no-store");
+  if (!getSettings().prometheusExport) {
+    return res
+      .status(404)
+      .type("text")
+      .send("Prometheus export is off. Enable it in Settings → Prometheus metrics.\n");
+  }
+  const entries = registry.sparkIds
+    .map((id) => monitors.get(id))
+    .filter(Boolean)
+    .map((monitor) => ({
+      snapshot: monitor.snapshot(),
+      // Per-domain provenance: a failed GPU/CPU read is zero-filled, not real.
+      collected: { ...monitor._metricCollectionSuccessful },
+    }));
+  // res.end, not res.send: send() reorders the media type parameters; keep the
+  // header exactly as the exposition format spells it.
+  res.setHeader("Content-Type", PROMETHEUS_CONTENT_TYPE);
+  res.end(renderPrometheusMetrics(entries));
 });
 
 // ─── Static files (built frontend) ───────────────────────

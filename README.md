@@ -36,6 +36,7 @@ It also supports **non-Spark units**: any Linux machine with an NVIDIA GPU (e.g.
 - [ComfyUI monitoring](#comfyui-monitoring)
 - [Hermes Agent monitoring](#hermes-agent-monitoring)
 - [Tailnet monitoring](#tailnet-monitoring)
+- [Prometheus](#prometheus)
 - [Full changelog](./CHANGELOG.md)
 - [Quick start](#quick-start)
 - [Architecture](#architecture)
@@ -237,6 +238,52 @@ Env (optional): `POLL_INTERVAL_TAILSCALE` (default `30000`), `TAILSCALE_PROBE_TI
 
 ---
 
+## Prometheus
+
+Opt-in (default **off**). **Settings → Prometheus metrics** serves every unit's metrics at `GET /metrics` in the Prometheus text format (0.0.4), so Prometheus, VictoriaMetrics or Grafana Agent can scrape sparkDash and keep history beyond what the dashboard shows. While the setting is off the path answers `404`.
+
+`/metrics` goes through the same auth as the REST API: open on a loopback install, and on a remote bind with `SPARKDASH_TOKEN` set it needs the token as a bearer header.
+
+```yaml
+scrape_configs:
+  - job_name: sparkdash
+    scrape_interval: 15s
+    static_configs:
+      - targets: ["sparkdash.lan:5555"]
+    # Only when SPARKDASH_TOKEN is set on a non-loopback bind:
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/sparkdash.token
+```
+
+The exporter reads the snapshot sparkDash already holds, so scraping adds no SSH or nvidia-smi calls; values are as fresh as the poll interval. Names follow node_exporter / DCGM-exporter practice: base units (bytes, seconds, °C, watts, 0–1 ratios), `_total` only on counters. Every series carries `unit` (the unit id), `unit_name`, `kind` (`spark` / `host`) and `role` (`head` / `worker` / `standalone`). Memory and disk sizes are collected in MiB and converted to bytes.
+
+| Family | Type | Extra labels | Notes |
+|--------|------|--------------|-------|
+| `sparkdash_up` | gauge | | 1 when the unit answered its last liveness check. An unreachable unit exports `sparkdash_up 0` and nothing else |
+| `sparkdash_uptime_seconds` | gauge | | Host uptime |
+| `sparkdash_gpu_info` | gauge | `gpu`, `name`, `uuid` | Always 1 |
+| `sparkdash_gpu_utilization_ratio` | gauge | `gpu` | 0–1 |
+| `sparkdash_gpu_temperature_celsius` | gauge | `gpu` | |
+| `sparkdash_gpu_power_watts`, `sparkdash_gpu_power_limit_watts` | gauge | `gpu` | |
+| `sparkdash_gpu_memory_used_bytes`, `sparkdash_gpu_memory_total_bytes` | gauge | `gpu` | GB10: the GPU's share of / the whole unified pool |
+| `sparkdash_gpu_throttled` | gauge | `gpu`, `reason` | 1 while clocks are limited for `thermal`, `power` or `hw` |
+| `sparkdash_memory_available_bytes` | gauge | | Headroom for GPU work: unified-pool `MemAvailable` on a GB10, free VRAM on a discrete GPU |
+| `sparkdash_cpu_utilization_ratio` | gauge | | 0–1 |
+| `sparkdash_cpu_temperature_celsius` | gauge | `sensor` | A GB10 has no CPU package sensor; `sensor="acpitz"` says it is a board zone |
+| `sparkdash_ram_used_bytes`, `sparkdash_ram_total_bytes` | gauge | | |
+| `sparkdash_network_receive_bytes_per_second`, `…_transmit_bytes_per_second` | gauge | `interface` | Interfaces hidden in sparkDash are skipped |
+| `sparkdash_disk_used_bytes`, `…_available_bytes`, `…_total_bytes` | gauge | `mount`, `device` | Devices hidden in sparkDash are skipped |
+| `sparkdash_llm_up` | gauge | `port`, `backend`, `model` | One per LLM endpoint (head and standalone units) |
+| `sparkdash_llm_generation_tokens_per_second`, `sparkdash_llm_prefill_tokens_per_second` | gauge | `port`, `backend`, `model` | |
+| `sparkdash_llm_kv_cache_usage_ratio` | gauge | `port`, `backend`, `model` | Where the backend reports it |
+| `sparkdash_llm_requests_running`, `sparkdash_llm_requests_waiting` | gauge | `port`, `backend`, `model` | Where the backend reports it |
+| `sparkdash_llm_generated_tokens_total`, `sparkdash_llm_prompt_tokens_total`, `sparkdash_llm_cached_prompt_tokens_total` | counter | `port`, `backend`, `model` | The engine's own lifetime counters — they reset when the engine restarts, which `rate()` handles |
+
+Unknown is left out rather than written as zero: a failed GPU read, a sensor that does not exist, or a field the LLM backend does not publish produces no sample.
+
+---
+
 ## Quick start
 
 ```bash
@@ -372,6 +419,7 @@ sparkDash/
 | GET | `/api/sparks/:id/llm/daily` | Daily busy decode/prefill tok/s (`port`, `days`) |
 | POST | `/api/sparks/:id/llm/bench` | Start decode benchmark (202); poll/cancel/clear on the same path |
 | POST | `/api/sparks/:id/llm/prefill-bench` | Start prefill + TTFT context sweep (202); poll/cancel/clear on the same path |
+| GET | `/metrics` | Prometheus exposition (opt-in, see [Prometheus](#prometheus)) |
 | GET | `/api/settings` | Global settings |
 | PUT | `/api/settings` | Update global settings |
 | WS | `/ws` | Real-time metrics stream |
@@ -404,6 +452,7 @@ Gear icon in the header, or `GET`/`PUT` `/api/settings`:
 | Temperature unit | Celsius | Display GPU temperature in °C or °F |
 | Benchmark share image | true | Decode/prefill **Copy results** becomes a split button: the label copies the text summary, the caret offers **Copy as text** / **Copy as image** on hover or click. Turn it off to keep the plain button. The image copies where the page has an image clipboard (HTTPS or localhost); over plain http on a LAN IP the card downloads instead |
 | Detailed VRAM breakdown | true | The VRAM bar on the Overview cards and the GPU panel is split by what holds the memory — LLM engine (largest GPU process while an endpoint is serving), system/CPU (GB10 unified pool), other GPU use — over a free track, and turns amber/red on low free memory (GB10: under 8 / 4 GB; discrete GPU: under 2 / 1 GB) rather than on a high percentage. Hover or focus for the breakdown, including the engine's KV fill where the backend reports it. Turn it off for the single percentage bar |
+| Prometheus metrics | false | Serve `GET /metrics` for Prometheus / Grafana (see [Prometheus](#prometheus)); `404` while off |
 
 ### Environment variables
 
