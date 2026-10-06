@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import type { SparkSnapshot } from "../../api/types";
+import type { LlmMetrics, SparkSnapshot } from "../../api/types";
 import { isWorkerSpark, resolveSparkRole } from "../../api/sparkRole";
+import { idleLabel, isLlmIdle } from "../../shared/llmIdle";
 import { shutdownAllSparks, updateAllHermes, wakeAllSparks } from "../../api/client";
 import { ConfirmShutdownDialog } from "../ConfirmShutdownDialog";
 import { MetricBar } from "../ui/MetricBar";
@@ -76,6 +77,46 @@ function MiniStat({
       >
         {value}
       </span>
+    </div>
+  );
+}
+
+/**
+ * Live decode / prefill rates under an LLM card. While both are zero the two
+ * big "0"s carry no information, so they give way to one muted line saying
+ * when the endpoint last served. The rate row stays in the layout (hidden) so
+ * the card keeps the same height either way.
+ */
+function LlmRateFooter({ llm }: { llm: LlmMetrics }) {
+  const idle = isLlmIdle(llm);
+  return (
+    <div className="relative mt-3.5 border-t border-border pt-3">
+      <div
+        className={`grid grid-cols-2 gap-2 ${idle ? "invisible" : ""}`}
+        aria-hidden={idle || undefined}
+        data-llm-rates
+      >
+        <div className="text-center">
+          <span className="font-tabular text-[28px] font-bold leading-none text-text-strong">
+            {llm.generationTps.toFixed(0)}
+          </span>
+          <span className="text-sm font-normal text-muted"> tok/s</span>
+        </div>
+        <div className="border-l border-border text-center">
+          <span className="font-tabular text-[28px] font-bold leading-none text-text-strong">
+            {llm.prefillTps.toFixed(0)}
+          </span>
+          <span className="text-sm font-normal text-muted"> prefill</span>
+        </div>
+      </div>
+      {idle && (
+        <div
+          className="absolute inset-x-0 bottom-0 top-3 flex items-center justify-center text-[13px] text-muted"
+          data-llm-idle
+        >
+          {idleLabel(llm.lastActiveAt)}
+        </div>
+      )}
     </div>
   );
 }
@@ -371,22 +412,7 @@ function SparkCard({
             const llmArr = spark.metrics.llm;
             const llm = Array.isArray(llmArr) ? llmArr.find((l) => l.available) : null;
             if (!llm) return null;
-            return (
-              <div className="mt-3.5 grid grid-cols-2 gap-2 border-t border-border pt-3">
-                <div className="text-center">
-                  <span className="font-tabular text-[28px] font-bold leading-none text-text-strong">
-                    {llm.generationTps.toFixed(0)}
-                  </span>
-                  <span className="text-sm font-normal text-muted"> tok/s</span>
-                </div>
-                <div className="border-l border-border text-center">
-                  <span className="font-tabular text-[28px] font-bold leading-none text-text-strong">
-                    {llm.prefillTps.toFixed(0)}
-                  </span>
-                  <span className="text-sm font-normal text-muted"> prefill</span>
-                </div>
-              </div>
-            );
+            return <LlmRateFooter llm={llm} />;
           })()}
         </>
       )}

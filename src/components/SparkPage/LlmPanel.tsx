@@ -16,6 +16,7 @@ import { LlmTokenTotals } from "./LlmTokenTotals";
 import { parseLlmTargetInput } from "../../shared/llmTarget.js";
 import { backendLabel } from "../../shared/llmBackends.js";
 import { LlmTrendChart } from "./LlmTrendChart";
+import { idleLabel, isLlmIdle } from "../../shared/llmIdle";
 
 interface LlmPanelProps {
   llm: LlmMetrics | null;
@@ -448,6 +449,10 @@ export function LlmPanel({
   const cachedPrefillTps = llm?.cachedPrefillTps ?? 0;
   const uncachedPrefillTps = llm?.uncachedPrefillTps ?? 0;
   const available = llm?.available ?? false;
+  // While nothing is flowing, say when the endpoint last served.
+  const idleNote = available && isLlmIdle({ generationTps, prefillTps })
+    ? idleLabel(llm?.lastActiveAt)
+    : null;
 
   // Keep draft in sync when server pushes a different port (other tab / reload)
   useEffect(() => {
@@ -698,7 +703,14 @@ export function LlmPanel({
           )}
 
           <div className="flex items-center justify-between">
-            <span className="text-xs text-muted">Generation tok/s</span>
+            <div className="flex min-w-0 flex-col">
+              <span className="text-xs text-muted">Generation tok/s</span>
+              {idleNote && (
+                <span className="text-[10px] text-muted opacity-80" data-llm-idle>
+                  {idleNote}
+                </span>
+              )}
+            </div>
             <div className="flex items-center gap-2">
               <Sparkline data={genHistory} color="var(--color-accent)" height={24} />
               <div className="text-right">

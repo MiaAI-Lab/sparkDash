@@ -165,6 +165,12 @@ export class SparkMonitor {
     };
     this._lastUpdate = {};
     this._metricCollectionSuccessful = { gpu: false, cpu: false };
+    /**
+     * Last poll (epoch ms) in which each LLM port generated or prefilled
+     * tokens. In-memory only — null again after a restart until traffic.
+     * @type {Map<number, number>}
+     */
+    this._llmLastActiveAt = new Map();
 
     // Hardware summary: kind "spark" uses the static DGX Spark specs; kind
     // "host" (dedicated GPU Linux box) detects real hardware once in the
@@ -441,6 +447,34 @@ export class SparkMonitor {
       this._intervals.push(this._hermesIntervalId);
       void this._pollDomain("hermes");
     }
+  }
+
+  /**
+   * Record which LLM ports served tokens in this poll and return the probe
+   * results with `lastActiveAt` (epoch ms, or null if never seen serving
+   * since the server started) on each entry. Ports no longer probed are
+   * forgotten so a re-added port does not resurface an old timestamp.
+   * @param {Array<{ port: number }>} probes  same order as `results`
+   * @param {Array<Record<string, unknown>>} results
+   */
+  _stampLlmLastActive(probes, results) {
+    const now = Date.now();
+    const ports = new Set();
+    const stamped = results.map((entry, i) => {
+      const port = probes[i]?.port;
+      if (port == null || !entry || typeof entry !== "object") return entry;
+      ports.add(port);
+      const gen = Number(entry.generationTps);
+      const pre = Number(entry.prefillTps);
+      if ((Number.isFinite(gen) && gen > 0) || (Number.isFinite(pre) && pre > 0)) {
+        this._llmLastActiveAt.set(port, now);
+      }
+      return { ...entry, lastActiveAt: this._llmLastActiveAt.get(port) ?? null };
+    });
+    for (const port of this._llmLastActiveAt.keys()) {
+      if (!ports.has(port)) this._llmLastActiveAt.delete(port);
+    }
+    return stamped;
   }
 
   /** Returns array of LLM ports from spark config. */
@@ -760,9 +794,9 @@ export class SparkMonitor {
           this._metrics.unifiedMemory = result;
           break;
         case "llm":
-          this._metrics.llm = result;
           {
             const probes = Array.from(this.llmProbes.values());
+            this._metrics.llm = this._stampLlmLastActive(probes, result);
             for (let i = 0; i < result.length; i++) {
               const probe = probes[i];
               if (probe) llmDaily.record(this.spark.id, probe.port, result[i]);
