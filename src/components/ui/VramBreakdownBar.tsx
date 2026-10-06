@@ -1,4 +1,4 @@
-import { useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { formatMb } from "../../shared/formatBytes";
 import {
   headroomTextClass,
@@ -68,7 +68,10 @@ function TipRow({
  * VRAM bar split by what holds the memory — LLM engine, system/CPU (unified
  * pool), other GPU use — over a free track. Colour says category; the only
  * severity is the headroom figure in the header. Hover or keyboard focus opens
- * a breakdown; Escape closes it.
+ * a breakdown; Escape closes it. It also closes when something else takes
+ * over — a press or focus outside the bar, a scroll, the window losing focus —
+ * because a dialog that opens under a still pointer never fires mouseleave and
+ * would otherwise leave the breakdown hanging behind it.
  */
 export function VramBreakdownBar({ label, breakdown: b, showLegend = false }: VramBreakdownBarProps) {
   const tipId = useId();
@@ -76,6 +79,34 @@ export function VramBreakdownBar({ label, breakdown: b, showLegend = false }: Vr
   const [focus, setFocus] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   const open = (hover || focus) && !dismissed;
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const outside = (target: EventTarget | null) =>
+      !(target instanceof Node && rootRef.current?.contains(target));
+    const close = () => {
+      setHover(false);
+      setFocus(false);
+      setDismissed(false);
+    };
+    const onPointerDown = (e: PointerEvent) => {
+      if (outside(e.target)) close();
+    };
+    const onFocusIn = (e: FocusEvent) => {
+      if (outside(e.target)) close();
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("focusin", onFocusIn, true);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("blur", close);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("focusin", onFocusIn, true);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("blur", close);
+    };
+  }, [open]);
   const kvFull = kvNearlyFull(b);
   const kvPct = b.kv?.usage != null ? `${Math.round(b.kv.usage * 100)}%` : null;
   const items = legendItems(b);
@@ -83,6 +114,7 @@ export function VramBreakdownBar({ label, breakdown: b, showLegend = false }: Vr
 
   return (
     <div
+      ref={rootRef}
       className="relative space-y-1 rounded-sm outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
       tabIndex={0}
       role="group"
