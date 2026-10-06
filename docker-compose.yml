@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
       platforms:
-        - linux/arm64
+        - linux/x86_64
       args:
         # Frontend metrics-history retention (hours). Rebuild after changing.
         VITE_HISTORY_HOURS: ${VITE_HISTORY_HOURS:-8}
