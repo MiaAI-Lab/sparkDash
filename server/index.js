@@ -421,6 +421,7 @@ app.patch("/api/sparks/:id", (req, res) => {
       const existing = registry.getSpark(req.params.id);
       if (!existing) return res.status(404).json({ error: "Spark not found" });
       const merged = {
+        isLocal: body.isLocal ?? existing.isLocal,
         lanIp: body.lanIp ?? existing.lanIp,
         ssh: { ...existing.ssh, ...(body.ssh || {}) },
       };
