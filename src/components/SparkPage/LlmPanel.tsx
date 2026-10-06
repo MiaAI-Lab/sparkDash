@@ -13,6 +13,7 @@ import { BenchmarkDialog } from "./BenchmarkDialog";
 import { PrefillBenchDialog } from "./PrefillBenchDialog";
 import { LlmDailyChart } from "./LlmDailyChart";
 import { LlmTokenTotals } from "./LlmTokenTotals";
+import { ENGINE_GENERATED_LABEL, ENGINE_GENERATED_TITLE } from "./tokenTotalsCopy";
 import { parseLlmTargetInput } from "../../shared/llmTarget.js";
 import { backendLabel } from "../../shared/llmBackends.js";
 import { LlmTrendChart } from "./LlmTrendChart";
@@ -845,8 +846,13 @@ export function LlmPanel({
               </div>
             </div>
             <div className="space-y-0.5">
-              <div className="text-[10px] uppercase tracking-wide text-muted">Total Generated</div>
-              <div className="font-tabular text-sm text-text">
+              <div
+                className="text-[10px] uppercase tracking-wide text-muted"
+                title={ENGINE_GENERATED_TITLE}
+              >
+                {ENGINE_GENERATED_LABEL}
+              </div>
+              <div className="font-tabular text-sm text-text" title={ENGINE_GENERATED_TITLE}>
                 {llm && llm.totalOutputTokens > 0
                   ? llm.totalOutputTokens.toLocaleString()
                   : "—"}

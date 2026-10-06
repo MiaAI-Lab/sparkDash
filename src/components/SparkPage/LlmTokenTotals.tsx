@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { fetchLlmTokenTotals } from "../../api/llmTokenClient";
 import { formatTokensCompact } from "../../shared/tokenFormat";
 import type { LlmTokenRange, LlmTokenSeriesTotals } from "../../api/llmTokenTypes";
+import { LEDGER_HINT, LEDGER_TITLE } from "./tokenTotalsCopy";
 
 const POLL_MS = 60_000;
 
@@ -63,8 +64,11 @@ export function LlmTokenTotals({ sparkId, llmPort }: { sparkId: string; llmPort:
   return (
     <div className="border-t border-border pt-3 space-y-1.5">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[10px] uppercase tracking-wide text-muted">
-          Total tokens by model
+        <span className="min-w-0" title={LEDGER_TITLE}>
+          <span className="block text-[10px] uppercase tracking-wide text-muted">
+            Total tokens by model
+          </span>
+          <span className="block text-[10px] text-muted">{LEDGER_HINT}</span>
         </span>
         <div className="flex items-center gap-2">
           <select
