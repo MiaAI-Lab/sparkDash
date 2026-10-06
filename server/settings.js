@@ -53,6 +53,12 @@ const DEFAULTS = Object.freeze({
    * Off by default: off records nothing and writes no file.
    */
   metricsHistory: false,
+  /**
+   * Server-side alert rules and notifications (config/alerts.json). Off by
+   * default: while off the engine is not evaluated, nothing is sent and
+   * nothing is written.
+   */
+  alertsEnabled: false,
 });
 
 /** @type {typeof DEFAULTS} */
@@ -80,6 +86,7 @@ function _clampSettings(settings) {
   s.showVramBreakdown = Boolean(s.showVramBreakdown);
   s.prometheusExport = Boolean(s.prometheusExport);
   s.metricsHistory = Boolean(s.metricsHistory);
+  s.alertsEnabled = Boolean(s.alertsEnabled);
   // Ensure temperatureUnit is valid
   if (s.temperatureUnit !== "celsius" && s.temperatureUnit !== "fahrenheit") {
     s.temperatureUnit = DEFAULTS.temperatureUnit;

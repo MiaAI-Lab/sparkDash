@@ -46,3 +46,10 @@ test("metricsHistory defaults off and is stored as a boolean", () => {
   assert.equal(updateSettings({ metricsHistory: "yes" }).metricsHistory, true);
   assert.equal(updateSettings({ metricsHistory: 0 }).metricsHistory, false);
 });
+
+test("alertsEnabled defaults off and is stored as a boolean", () => {
+  fs.writeFileSync(process.env.SETTINGS_JSON_PATH, JSON.stringify({ density: "compact" }));
+  assert.equal(loadSettings().alertsEnabled, false);
+  assert.equal(updateSettings({ alertsEnabled: "yes" }).alertsEnabled, true);
+  assert.equal(updateSettings({ alertsEnabled: 0 }).alertsEnabled, false);
+});

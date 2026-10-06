@@ -136,6 +136,7 @@ function DashboardApp() {
     lastValidSnapshotAt,
     snapshotError,
     refreshInterval,
+    serverAlerts,
   } = useSnapshot();
   const [telemetryNow, setTelemetryNow] = useState(Date.now());
   const navigate = useRoute(setActiveId);
@@ -374,6 +375,8 @@ function DashboardApp() {
               hideWorkers={hideWorkers}
               showFleetEnergy={settings?.showFleetEnergy ?? false}
               showFleetExceptions={settings?.showFleetExceptions ?? false}
+              alertsEnabled={settings?.alertsEnabled ?? false}
+              serverAlerts={serverAlerts}
               showOverviewSearch={settings?.showOverviewSearch ?? false}
               showLlmTokenTotals={settings?.showLlmTokenTotals ?? false}
               showVramBreakdown={settings?.showVramBreakdown ?? true}

@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { fetchSettings, updateSettings } from "../api/client";
 import { clearToken, getToken, onTokenChange, requestTokenPrompt } from "../api/authToken";
 import type { Settings } from "../api/types";
 import { useModalPresence } from "../hooks/useModalPresence";
+import { AlertsDialog } from "./AlertsDialog";
 import packageJson from "../../package.json";
 
 interface SettingsDialogProps {
@@ -35,13 +36,19 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [tokenSet, setTokenSet] = useState(() => getToken() !== "");
+  const [showAlerts, setShowAlerts] = useState(false);
 
-  useEscape(onClose);
+  // While the Alerts dialog is open on top, Escape belongs to it alone.
+  const closeOnEscape = useCallback(() => {
+    if (!showAlerts) onClose();
+  }, [showAlerts, onClose]);
+  useEscape(closeOnEscape);
 
   useEffect(() => onTokenChange((token) => setTokenSet(token !== "")), []);
 
   useEffect(() => {
     if (!open) {
+      setShowAlerts(false);
       setSettings(null);
       setError(null);
       setDirty(false);
@@ -71,6 +78,13 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
     setDirty(true);
   };
 
+  // The Alerts dialog saves its master switch on its own; mirror it here
+  // without marking Settings dirty, so a later Save does not undo it.
+  const handleAlertsSettings = (saved: Settings) => {
+    setSettings((prev) => (prev ? { ...prev, alertsEnabled: saved.alertsEnabled } : prev));
+    onSaved(saved);
+  };
+
   const handleSave = async () => {
     if (!settings) return;
     setSaving(true);
@@ -92,14 +106,20 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
 
   return (
     <div
-      className={`settings-overlay fixed inset-0 z-50 flex justify-center bg-black/55 p-0 sm:p-4${
+      className={`settings-overlay fixed inset-0 z-50 flex justify-center p-0 sm:p-4${
         visible ? " is-open" : ""
-      }`}
+      }${showAlerts ? " bg-transparent" : " bg-black/55"}`}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="settings-panel w-full max-w-sm">
+      {/* The Alerts dialog replaces this panel rather than stacking on it; the
+          panel stays mounted (hidden) so unsaved edits survive the round trip. */}
+      <div
+        className={`settings-panel w-full max-w-sm${showAlerts ? " invisible" : ""}`}
+        aria-hidden={showAlerts || undefined}
+        data-settings-panel
+      >
         <h2 className="shrink-0 px-6 pt-6 text-sm font-semibold text-text-strong">Settings</h2>
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-4">
@@ -405,6 +425,27 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
               </label>
             </div>
 
+            {/* Server alerts — its own dialog */}
+            <div className="flex items-start justify-between gap-3 text-xs">
+              <span>
+                <span className="block text-text">Alerts</span>
+                <span className="mt-0.5 block text-[10px] leading-snug text-muted">
+                  Server-side rules (offline, temperature, memory headroom, disk, LLM…) with
+                  ntfy, Discord, Slack or webhook notifications.{" "}
+                  <span data-testid="alerts-state" className={settings.alertsEnabled ? "text-text" : undefined}>
+                    {settings.alertsEnabled ? "On" : "Off"}
+                  </span>
+                </span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowAlerts(true)}
+                className="shrink-0 rounded border border-border bg-surface-elevated px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-surface-hover"
+              >
+                Alerts…
+              </button>
+            </div>
+
             {/* Benchmark debug traces */}
             <div>
               <label className="flex items-start gap-3 text-xs text-muted">
@@ -613,6 +654,11 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
           </button>
         </div>
       </div>
+      <AlertsDialog
+        open={showAlerts}
+        onClose={() => setShowAlerts(false)}
+        onSettingsSaved={handleAlertsSettings}
+      />
     </div>
   );
 }

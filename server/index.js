@@ -43,7 +43,7 @@ import {
 } from "./llmtokens/LlmTokenRuntime.js";
 import { closeLlmStreamAgent } from "./collectors/LlmStreaming.js";
 import { compareSemver, getLatestRelease } from "./collectors/HermesReleases.js";
-import { FLEET_ENERGY_JSON_PATH, METRICS_HISTORY_JSON_PATH } from "./config.js";
+import { ALERTS_JSON_PATH, FLEET_ENERGY_JSON_PATH, METRICS_HISTORY_JSON_PATH } from "./config.js";
 import { FleetEnergyTracker } from "./energy/FleetEnergyTracker.js";
 import {
   createFleetEnergyRuntime,
@@ -55,6 +55,7 @@ import {
   registerMetricsHistoryRoute,
 } from "./history/MetricsHistoryRuntime.js";
 import { testSparkConnectivity } from "./connectivity.js";
+import { createAlertsRuntime, registerAlertRoutes } from "./alerts/runtime.js";
 import { inspectStartupPreflight, logStartupPreflight } from "./startupPreflight.js";
 import { PROMETHEUS_CONTENT_TYPE, renderPrometheusMetrics } from "./prometheus.js";
 
@@ -332,6 +333,13 @@ const metricsHistoryRuntime = createMetricsHistoryRuntime({
   isEnabled: metricsHistoryEnabled,
 });
 
+// Server-side alert rules + notifications. Opt-in (settings.alertsEnabled):
+// while off, tick() returns before evaluating, sending or writing anything.
+const alertsRuntime = createAlertsRuntime({
+  filePath: ALERTS_JSON_PATH,
+  isEnabled: () => getSettings().alertsEnabled === true,
+});
+
 // Cumulative prompt/generated token totals per model (per-UTC-day buckets for range queries).
 const llmTokenRuntime = createLlmTokenRuntime({ ledger: llmTokenLedger, orderedSnapshots });
 
@@ -363,6 +371,7 @@ registerMetricsHistoryRoute(app, {
   hasUnit: (id) => registry.getSpark(id) !== null,
   isEnabled: metricsHistoryEnabled,
 });
+registerAlertRoutes(app, alertsRuntime);
 
 // Never return SSH passwords in any response
 app.get("/api/sparks", (_req, res) => {
@@ -1693,13 +1702,17 @@ let broadcastTimer = null;
 let _lastBroadcastPayload = null;
 
 /** Build the snapshot payload string. Centralized so broadcast + refresh share it. */
-function buildSnapshotPayload() {
-  return JSON.stringify({
+function buildSnapshotPayload(sparks = orderedSnapshots()) {
+  const payload = {
     type: "snapshot",
     generatedAt: Date.now(),
-    sparks: orderedSnapshots(),
+    sparks,
     refreshInterval: getSettings().pollIntervalMs,
-  });
+  };
+  // Only while alerts are on: the key's absence tells the UI to derive its own.
+  const alerts = alertsRuntime.snapshotBlock();
+  if (alerts) payload.alerts = alerts;
+  return JSON.stringify(payload);
 }
 
 /**
@@ -1741,7 +1754,11 @@ function forceBroadcast() {
 function startBroadcast() {
   const interval = getSettings().pollIntervalMs;
   broadcastTimer = setInterval(() => {
-    const payload = buildSnapshotPayload();
+    const sparks = orderedSnapshots();
+    // Alert rules run once per fleet snapshot, before it goes out, so the
+    // payload carries the alerts this very snapshot produced.
+    alertsRuntime.tick(sparks);
+    const payload = buildSnapshotPayload(sparks);
     // Skip the broadcast entirely when nothing changed since the last tick.
     // A 1s poll that produces identical snapshots becomes free for idle tabs.
     if (_lastBroadcastPayload !== null && payload === _lastBroadcastPayload) return;
@@ -1775,6 +1792,7 @@ if (!startupPreflight.fatal) {
       console.warn("[sparkDash] WARNING: remote bind without SPARKDASH_TOKEN is OPEN — anyone who can reach this port can change settings and power units off. Set SPARKDASH_TOKEN to require a token.");
     }
     startAllMonitors();
+    alertsRuntime.start();
     fleetEnergyRuntime.start();
     llmTokenRuntime.start();
     metricsHistoryRuntime.start();

@@ -1,6 +1,14 @@
 import { resolveSparkRole } from "../api/sparkRole";
 import type { LlmMetrics, SparkRole } from "../api/types";
 import { backendLabel } from "./llmBackends.js";
+import {
+  HEADROOM_THRESHOLDS_MB,
+  headroomFreeMB,
+  headroomTone,
+  memoryModelFor,
+  type HeadroomTone,
+  type MemoryModel,
+} from "./memoryHeadroom.js";
 
 /**
  * GPU memory broken down by what holds it, and judged by how much is left.
@@ -14,37 +22,13 @@ import { backendLabel } from "./llmBackends.js";
  * whether the next allocation fails or the OOM killer runs.
  */
 
-/** GB10 shares one pool between CPU and GPU; a discrete card has its own VRAM. */
-export type MemoryModel = "unified" | "discrete";
-
-export type HeadroomTone = "ok" | "low" | "critical";
-
-/**
- * Free memory below which the headroom turns amber (`low`) or red (`critical`),
- * in MB. A unified pool also feeds the OS and every CPU process, so it needs a
- * larger cushion than dedicated VRAM, which only a new GPU allocation can use.
- */
-export const HEADROOM_THRESHOLDS_MB: Readonly<
-  Record<MemoryModel, { readonly low: number; readonly critical: number }>
-> = Object.freeze({
-  unified: Object.freeze({ low: 8 * 1024, critical: 4 * 1024 }),
-  discrete: Object.freeze({ low: 2 * 1024, critical: 1 * 1024 }),
-});
+// The memory model, thresholds and classification live in memoryHeadroom.js so
+// the server's alert rules judge headroom with the same numbers as this bar.
+export { HEADROOM_THRESHOLDS_MB, headroomTone, memoryModelFor };
+export type { HeadroomTone, MemoryModel };
 
 /** The engine's own KV pool is nearly full at this fill: requests queue or get preempted. */
 export const KV_NEARLY_FULL = 0.9;
-
-export function memoryModelFor(kind: string | null | undefined): MemoryModel {
-  return kind === "host" ? "discrete" : "unified";
-}
-
-/** Classify free memory (MB) against the thresholds for this memory model. */
-export function headroomTone(freeMB: number, model: MemoryModel): HeadroomTone {
-  const t = HEADROOM_THRESHOLDS_MB[model];
-  if (!Number.isFinite(freeMB) || freeMB < t.critical) return "critical";
-  if (freeMB < t.low) return "low";
-  return "ok";
-}
 
 /**
  * MiniStat tone for an "Available" figure judged by `headroomTone`. Plenty of
@@ -244,22 +228,17 @@ export function computeVramBreakdown(
   let totalMB: number;
   let gpuUsedMB: number;
   let systemMB: number | null;
-  let freeMB: number;
   if (um && umTotal != null && umTotal > 0) {
     totalMB = umTotal;
     gpuUsedMB = Math.max(0, finite(um.gpuUsed) ?? 0);
     systemMB = Math.max(0, finite(um.cpuUsed) ?? 0);
-    freeMB = Math.max(0, finite(um.available) ?? totalMB - gpuUsedMB - systemMB);
   } else {
     totalMB = finite(vram?.total) ?? 0;
     if (totalMB <= 0) return null;
     gpuUsedMB = Math.max(0, finite(vram?.used) ?? 0);
     systemMB = null;
-    freeMB =
-      ctx.model === "unified"
-        ? Math.max(0, finite(vram?.available) ?? totalMB - gpuUsedMB)
-        : Math.max(0, totalMB - gpuUsedMB);
   }
+  const freeMB = headroomFreeMB(ctx.model, um, vram) ?? 0;
 
   const largest = ctx.serving && gpuUsedMB > 0 ? largestProcess(processes) : null;
   const engine: VramEngineInfo | null = largest

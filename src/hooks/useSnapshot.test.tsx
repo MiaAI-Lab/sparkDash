@@ -40,6 +40,7 @@ function Probe() {
         error: snapshot.snapshotError,
         last: snapshot.lastValidSnapshotAt,
         count: snapshot.sparks.length,
+        alerts: snapshot.serverAlerts?.map((a) => a.key) ?? null,
       })}
     </pre>
   );
@@ -102,6 +103,26 @@ describe("useSnapshot connection lifecycle", () => {
     await flush();
     expect(readProbe()).toMatchObject({ connected: true, error: null });
     expect(readProbe().last).toBeGreaterThanOrEqual(50_000);
+  });
+
+  it("exposes the server's alerts only while the payload carries them", async () => {
+    render(<Probe />);
+    const socket = MockSocket.instances[0];
+    act(() => socket.open());
+    act(() => socket.emit({ type: "snapshot", refreshInterval: 2000, sparks: [makeSpark("alpha")] }));
+    await flush();
+    expect(readProbe().alerts).toBeNull();
+    act(() => socket.emit({
+      type: "snapshot",
+      refreshInterval: 2000,
+      sparks: [makeSpark("alpha")],
+      alerts: { active: [{ key: "unit_offline:alpha" }] },
+    }));
+    await flush();
+    expect(readProbe().alerts).toEqual(["unit_offline:alpha"]);
+    act(() => socket.emit({ type: "snapshot", refreshInterval: 2000, sparks: [makeSpark("alpha")] }));
+    await flush();
+    expect(readProbe().alerts).toBeNull();
   });
 
   it("reconnects with the new ?token= as soon as a token is saved", async () => {
