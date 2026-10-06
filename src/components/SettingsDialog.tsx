@@ -266,6 +266,12 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
                 onChange={(v) => update({ showVramBreakdown: v })}
               />
               <ToggleRow
+                title="Prometheus metrics"
+                help={`Serves every unit's metrics for Prometheus / Grafana to scrape at ${window.location.origin}/metrics. Off by default.`}
+                checked={Boolean(settings.prometheusExport)}
+                onChange={(v) => update({ prometheusExport: v })}
+              />
+              <ToggleRow
                 title="Show Fleet Energy"
                 help="Overview card with rolling fleet power estimates. The full Fleet energy page is always available from the sidebar."
                 checked={Boolean(settings.showFleetEnergy)}
