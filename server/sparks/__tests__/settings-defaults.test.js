@@ -31,3 +31,11 @@ test("showVramBreakdown turns off and is stored as a boolean", () => {
   assert.equal(updateSettings({ showVramBreakdown: 1 }).showVramBreakdown, true);
   assert.equal(loadSettings().showVramBreakdown, true);
 });
+
+test("prometheusExport is opt-in and stored as a boolean", () => {
+  fs.writeFileSync(process.env.SETTINGS_JSON_PATH, JSON.stringify({ density: "compact" }));
+  assert.equal(loadSettings().prometheusExport, false);
+  assert.equal(updateSettings({ prometheusExport: "yes" }).prometheusExport, true);
+  assert.equal(loadSettings().prometheusExport, true);
+  assert.equal(updateSettings({ prometheusExport: 0 }).prometheusExport, false);
+});

@@ -632,6 +632,8 @@ export interface Settings {
    * default (server DEFAULTS and the UI's pre-load fallback both say true).
    */
   showVramBreakdown: boolean;
+  /** Serve GET /metrics in Prometheus text format. Off by default (404 when off). */
+  prometheusExport: boolean;
 }
 
 export interface SparksListResponse {
