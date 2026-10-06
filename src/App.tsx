@@ -52,6 +52,7 @@ function placeholderSnapshot(
     llmMonitoring?: boolean;
     comfyMonitoring?: boolean;
     comfyPort?: number;
+    clockControlEnabled?: boolean;
     tailscaleMonitoring?: boolean;
     kind?: "spark" | "host";
   }
@@ -87,6 +88,7 @@ function placeholderSnapshot(
           : roleFields?.llmMonitoring !== false,
     comfyMonitoring: Boolean(roleFields?.comfyMonitoring),
     comfyPort: roleFields?.comfyPort ?? 8188,
+    clockControlEnabled: Boolean(roleFields?.clockControlEnabled),
     tailscaleMonitoring: Boolean(roleFields?.tailscaleMonitoring),
     hermes: {
       monitoring: false,
@@ -245,6 +247,7 @@ function DashboardApp() {
               llmMonitoring: c.llmMonitoring ?? existing.llmMonitoring,
               comfyMonitoring: c.comfyMonitoring ?? existing.comfyMonitoring,
               comfyPort: c.comfyPort ?? existing.comfyPort,
+              clockControlEnabled: c.clockControlEnabled ?? existing.clockControlEnabled,
               tailscaleMonitoring: c.tailscaleMonitoring ?? existing.tailscaleMonitoring,
               disabledDevices: c.disabledDevices || existing.disabledDevices,
               disabledInterfaces: c.disabledInterfaces || existing.disabledInterfaces,
@@ -267,6 +270,7 @@ function DashboardApp() {
               llmMonitoring: c.llmMonitoring,
               comfyMonitoring: c.comfyMonitoring,
               comfyPort: c.comfyPort,
+              clockControlEnabled: c.clockControlEnabled,
               tailscaleMonitoring: c.tailscaleMonitoring,
               kind: c.kind,
             }

@@ -5,11 +5,14 @@ import { ActivityIcon } from "../ui/icons";
 import { MetricBar } from "../ui/MetricBar";
 import { useMetricsHistoryTail } from "../../hooks/metricsStore";
 import { formatMb } from "../../shared/formatBytes";
+import { ClockCapControl } from "./ClockCapControl";
 
 interface GpuPanelProps {
   gpu: GpuMetrics | null;
   sparkId: string;
   temperatureUnit: "celsius" | "fahrenheit";
+  /** Opt-in: the Clock Cap row becomes editable (default false). */
+  clockControlEnabled?: boolean;
   className?: string;
 }
 
@@ -130,7 +133,13 @@ function GpuDeviceRow({
   );
 }
 
-export function GpuPanel({ gpu, sparkId, temperatureUnit, className }: GpuPanelProps) {
+export function GpuPanel({
+  gpu,
+  sparkId,
+  temperatureUnit,
+  clockControlEnabled,
+  className,
+}: GpuPanelProps) {
   const tempHistory = useMetricsHistoryTail(sparkId, "gpu.temp");
   const usageHistory = useMetricsHistoryTail(sparkId, "gpu.usage");
 
@@ -206,9 +215,21 @@ export function GpuPanel({ gpu, sparkId, temperatureUnit, className }: GpuPanelP
               ? "bg-warning"
               : "bg-accent";
         const pct = t?.smClockPct;
+        // When a clock cap is set, the bar's full scale becomes the cap (not
+        // the hardware max) so it reflects the headroom that actually exists.
+        const clockLock = gpu?.clockLock ?? null;
+        const capMax = clockLock?.maxMHz ?? null;
+        const denomMHz =
+          capMax != null && t?.smClockMaxMHz != null
+            ? Math.min(capMax, t.smClockMaxMHz)
+            : t?.smClockMaxMHz ?? null;
+        const barPct =
+          t?.smClockMHz != null && denomMHz != null && denomMHz > 0
+            ? (t.smClockMHz / denomMHz) * 100
+            : pct;
         const clockCaption =
-          t?.smClockMHz != null && t?.smClockMaxMHz != null
-            ? `${t.smClockMHz} / ${t.smClockMaxMHz} MHz`
+          t?.smClockMHz != null && denomMHz != null
+            ? `${t.smClockMHz} / ${denomMHz} MHz`
             : pct != null
               ? `${pct}%`
               : "—";
@@ -222,6 +243,29 @@ export function GpuPanel({ gpu, sparkId, temperatureUnit, className }: GpuPanelP
                 {chipLabel}
               </span>
             </div>
+            {/* Real-estate rule: show the Clock Cap row only when clock control
+                is enabled for this Spark AND a lock is actually set. Never a
+                permanent disabled row. */}
+            {clockLock != null && clockControlEnabled && (
+              <div className="flex items-center justify-between gap-2 text-sm">
+                <span className="text-muted">Clock Cap</span>
+                <ClockCapControl
+                  sparkId={sparkId}
+                  domain="gpu"
+                  currentMHz={capMax}
+                  display={
+                    /* -lgc MIN,MAX: a 0 min means "no floor" and MIN==MAX is a
+                       single pinned value — both collapse to just the max.
+                       Show the range only when a real floor is locked. */
+                    clockLock.minMHz > 0 && clockLock.minMHz !== clockLock.maxMHz
+                      ? `${clockLock.minMHz}–${clockLock.maxMHz} MHz`
+                      : `${capMax} MHz`
+                  }
+                  enabled={Boolean(clockControlEnabled)}
+                  disabledReason="Clock control is disabled for this Spark (enable it in Edit Spark)"
+                />
+              </div>
+            )}
             <div className="flex items-baseline justify-between gap-2">
               <span className="text-[10px] uppercase tracking-wide text-muted">SM clock</span>
               <span className="font-tabular text-xs text-text">{clockCaption}</span>
@@ -230,10 +274,33 @@ export function GpuPanel({ gpu, sparkId, temperatureUnit, className }: GpuPanelP
               <div
                 className={`h-full rounded-full transition-[width] duration-300 ease-out ${barColor}`}
                 style={{
-                  width: `${pct != null ? Math.min(100, Math.max(0, pct)) : 0}%`,
+                  width: `${barPct != null ? Math.min(100, Math.max(0, barPct)) : 0}%`,
                 }}
               />
             </div>
+            {/* Real-estate rule (Mia): only occupy a row when a cap is
+                actually set. No permanent placeholder rows. */}
+            {clockLock != null && (
+              <div className="flex items-center justify-between gap-2 text-sm">
+                <span className="text-muted">Clock Cap</span>
+                <ClockCapControl
+                  sparkId={sparkId}
+                  domain="gpu"
+                  currentMHz={capMax}
+                  display={
+                    /* -lgc MIN,MAX: a 0 min means "no floor" and MIN==MAX is a
+                       single pinned value — both collapse to just the max.
+                       Show the range only when a real floor is locked. */
+                    clockLock != null && clockLock.minMHz > 0 && clockLock.minMHz !== clockLock.maxMHz
+                      ? `${clockLock.minMHz}–${clockLock.maxMHz} MHz`
+                      : undefined
+                  }
+                  chipTitle="read from the boot unit; this driver reports no live lock state"
+                  enabled={Boolean(clockControlEnabled)}
+                  disabledReason="Clock control is disabled for this Spark (enable it in Edit Spark)"
+                />
+              </div>
+            )}
           </div>
         );
       })()}

@@ -3,12 +3,15 @@ import { Sparkline } from "../ui/Sparkline";
 import { Panel } from "../ui/Panel";
 import { CpuIcon } from "../ui/icons";
 import { useMetricsHistoryTail } from "../../hooks/metricsStore";
+import { ClockCapControl } from "./ClockCapControl";
 
 interface CpuPanelProps {
   cpu: CpuMetrics | null;
   hardware?: HardwareInfo | null;
   sparkId: string;
   temperatureUnit: "celsius" | "fahrenheit";
+  /** Opt-in: Clock Cap rows become editable (default false). */
+  clockControlEnabled?: boolean;
   className?: string;
 }
 
@@ -46,7 +49,14 @@ function MetricRow({
  * this panel makes that visible at the device level. For non-Spark GPU
  * hosts it covers the discrete CPU.
  */
-export function CpuPanel({ cpu, hardware, sparkId, temperatureUnit, className }: CpuPanelProps) {
+export function CpuPanel({
+  cpu,
+  hardware,
+  sparkId,
+  temperatureUnit,
+  clockControlEnabled,
+  className,
+}: CpuPanelProps) {
   const usageHistory = useMetricsHistoryTail(sparkId, "cpu.usage");
   const tempHistory = useMetricsHistoryTail(sparkId, "cpu.temp");
 
@@ -54,6 +64,7 @@ export function CpuPanel({ cpu, hardware, sparkId, temperatureUnit, className }:
   const temperature = cpu?.temperature ?? 0;
   const draw = cpu?.draw ?? 0;
   const tdp = cpu?.tdp ?? 0;
+  const clockCaps = cpu?.clockCaps ?? null;
 
   const displayTemp =
     temperatureUnit === "fahrenheit" ? celsiusToFahrenheit(temperature) : temperature;
@@ -96,6 +107,37 @@ export function CpuPanel({ cpu, hardware, sparkId, temperatureUnit, className }:
           {draw}W{tdp > 0 ? ` / ${tdp}W` : ""}
         </span>
       </div>
+      {/* Real-estate rule (Mia): clock-cap rows only exist when clock control
+          is enabled for this Spark. No permanent rows when the feature is off. */}
+      {clockControlEnabled && clockCaps && clockCaps.length > 0 && (
+        <div className="space-y-1.5">
+          {/* One row per frequency cluster (item 5): [label] [Modify] [chip],
+              each on its own line so the two clusters never share a cramped
+              row. The chip is the same visual family as the Throttle OK chip. */}
+          {clockCaps.map((d) => {
+            // Domain id mirrors the server's rule (≥3 GHz group = big).
+            const domainId = d.maxMHz >= 3000 ? "cpu-big" : "cpu-little";
+            return (
+              <div
+                key={d.label}
+                className="flex items-center justify-between gap-2 text-sm"
+              >
+                <span className="text-muted">
+                  Clock Cap <span className="text-text">{d.label}</span>
+                </span>
+                <ClockCapControl
+                  sparkId={sparkId}
+                  domain={domainId}
+                  currentMHz={d.capped ? d.capMHz : null}
+                  display={d.capped ? `${d.capMHz} MHz` : undefined}
+                  enabled={Boolean(clockControlEnabled)}
+                  disabledReason="Clock control is disabled for this Spark (enable it in Edit Spark)"
+                />
+              </div>
+            );
+          })}
+        </div>
+      )}
       {model && (
         <div className="flex justify-between border-t border-border pt-3 text-xs">
           <span className="text-muted">Model</span>

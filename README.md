@@ -11,7 +11,7 @@
   <a href="https://x.com/MiaAI_lab" target="_blank" style="display:inline-block;margin:0 8px;vertical-align:middle;"><img src="https://img.shields.io/badge/Follow%20me%20on%20X-000000?style=for-the-badge&logo=x&logoColor=white" alt="Follow Mia on X" height="28" style="height:28px;width:auto;vertical-align:middle;border:0;" /></a>
 </p>
 
-<p align="center"><sub>macOS (darwin) SSH collectors authored by <a href="https://github.com/MikeGibbsOnyx">C. Michael Gibbs</a> and <a href="https://x.com/nyxvoss_ai">Nyx Voss</a> (Onyx AI Labs) — <a href="https://github.com/MikeGibbsOnyx/sparkDash/commits?author=MikeGibbsOnyx">commits</a>. sparkDash by <a href="https://github.com/MiaAI-Lab">Mia's AI Lab</a>.</sub></p>
+<p align="center"><sub>macOS (darwin) SSH collectors and the opt-in clock-cap add-on authored by <a href="https://github.com/MikeGibbsOnyx">C. Michael Gibbs</a> and <a href="https://x.com/nyxvoss_ai">Nyx Voss</a> (Onyx AI Labs) — <a href="https://github.com/MikeGibbsOnyx/sparkDash/commits?author=MikeGibbsOnyx">commits</a>. sparkDash by <a href="https://github.com/MiaAI-Lab">Mia's AI Lab</a>.</sub></p>
 
 sparkDash is a real-time web dashboard for one or more **NVIDIA DGX Spark (GB10)** machines in a single browser window. It streams GPU, CPU, unified memory, storage, network, and local LLM metrics — and lets you add, edit, reorder, or remove Sparks from the UI without restarts or code changes.
 
@@ -36,6 +36,7 @@ It also supports **non-Spark units**: any Linux machine with an NVIDIA GPU (e.g.
 - [ComfyUI monitoring](#comfyui-monitoring)
 - [Hermes Agent monitoring](#hermes-agent-monitoring)
 - [Tailnet monitoring](#tailnet-monitoring)
+- [Clock control](#clock-control)
 - [Full changelog](./CHANGELOG.md)
 - [Quick start](#quick-start)
 - [Architecture](#architecture)
@@ -83,6 +84,7 @@ Full history: [CHANGELOG.md](./CHANGELOG.md)
 | **Multi-GPU hosts** | A dedicated GPU host with several NVIDIA cards reports each one: the header names every card, the GPU panel adds a block per card (throttle chip, usage and temperature sparklines, power, VRAM bar) and the API exposes `gpu.gpus[]`. The headline `gpu` numbers stay an aggregate of all cards, so Overview cards and alerts need no change |
 | **Spark uptime** | System uptime displayed inline on each Spark header for at-a-glance availability |
 | **Power controls** | Graceful shutdown (SSH host script) and Wake-on-LAN; batch actions on Overview |
+| **Clock control** | Opt-in per unit: click the Clock Cap row in the GPU/CPU panels to set a CPU (X925 / A725) or GPU cap within the discovered hardware range; apply live or persist to the boot unit. One-time helper install, no password in the UI |
 | **Spark roles** | **Head** / **Worker** / **Standalone** — worker label + head link; standalone can disable LLM monitoring; optional hide workers from Overview and tabs |
 | **Unified memory** | GB10 128 GB LPDDR5X pool (~273 GB/s), GPU/CPU split, bandwidth via `nvidia-smi dmon`. Non-Spark hosts show discrete **VRAM** (nvidia-smi) and system **RAM** separately |
 | **Themes** | Dark, light, cool white, OLED — neutral palettes, persisted in `localStorage` |
@@ -237,6 +239,59 @@ Env (optional): `POLL_INTERVAL_TAILSCALE` (default `30000`), `TAILSCALE_PROBE_TI
 
 ---
 
+## Clock control (opt-in add-on)
+
+**Not core.** Lives under `scripts/sparkdash-clock-addon/`. sparkDash stays a
+dashboard until you install the host helper, keep the sudoers drop-in, and
+enable **Allow clock control** on that Spark.
+
+The **Clock Cap** rows in the GPU and CPU panels become clickable: pick a value inside the hardware-legal range (slider + number input, presets included), then either apply it for this boot only or save it to the boot unit so it survives reboot.
+
+### What is supported
+
+| Capability | Details |
+|------------|---------|
+| **Opt-in per Spark** | `clockControlEnabled` (default **off**) in **Edit Spark**; the routes answer 403 while off |
+| **Hardware-bounded** | Bounds are discovered at runtime — CPU domains from `cpuinfo_min_freq`/`cpuinfo_max_freq` (grouped by domain: X925 big cores / A725 little cores), GPU ceiling from the `nvidia-smi -q -d CLOCK` *Default Applications Clock → Graphics* value. Nothing is hardcoded |
+| **Two CPU domains** | The big (X925) and little (A725) core groups can be capped independently — each core in a domain gets the same `max_perf` value |
+| **Remove the cap** | A "No cap" preset (or clearing the value) restores each core's own hardware maximum (CPU) or removes the `nvidia-smi` lock with `-rgc` (GPU) |
+| **Apply vs Save** | **Apply (this boot only)** writes the cap now and warns that it reverts on reboot; **Save** also rewrites the boot systemd unit (`cpu-clock-cap.service` / `gpu-clock-lock.service`) and runs `daemon-reload`, so it persists. Both CPU domains share one unit, so a single-domain Save regenerates the sibling domain's lines too (from its current live cap) rather than wiping them — byte-identical whether the host helper or the container path does the writing |
+| **Presets** | "No cap" (= the domain's hardware maximum) per domain; a boot-default revert is just saving the values the boot unit currently installs |
+| **Honest state** | A live-only apply is reported as such (with a "reverts on reboot" warning) and is shown in the UI until a fresh read converges — the dashboard never claims a persisted value it did not write |
+| **Rate limited** | Applies go through the same destructive-action rate limiter as job cancellation |
+
+### Privilege model (no password in the UI)
+
+sparkDash never asks for a password or sudo prompt. Privileged work happens through a tiny root helper on the Spark host, invoked over SSH with a **scoped** passwordless-sudo rule — the same shape as the shutdown feature:
+
+```bash
+# One-time, on the Spark host (as a sudo-capable user):
+sudo ./scripts/sparkdash-clock-addon/install-clock-helper.sh
+```
+
+The installer copies `scripts/sparkdash-clock-addon/sparkdash-set-clock` to `/usr/local/bin/` and adds `/etc/sudoers.d/sparkdash-clock`, validated with `visudo -c`. That rule is **this binary only**. In sudoers, listing a command with no argv means **any argv** for that binary — not “argumentless only.” The helper still parses a tight flag set. It never touches `/etc/sudoers` and grants no other sudo rights.
+
+Availability is probed with an argumentless `sudo -n <helper>` so a check cannot apply a cap: the helper prints usage and exits 1. A sudo refusal exits 1 **without** the usage line (HTTP 423 + installer hint). The API always names the real cause.
+
+On a **local** Spark (dashboard container running privileged on the same machine), sparkDash falls back to the container's own root path: live caps go through the container's rw `/sys` and `nvidia-smi`, and persistence goes through `nsenter` into the host mount namespace. Which path was used is reported in the API response (`source`: `helper` or `container`).
+
+### Config fields (persisted on the Spark)
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `clockControlEnabled` | `false` | Make the Clock Cap rows editable and enable the clock API routes for this unit |
+
+Env (optional): `SPARKDASH_CLOCK_BIN` (default `/usr/local/bin/sparkdash-set-clock`), `GPU_CLOCK_MAX_MHZ` (last-resort GPU ceiling used only when `-q -d CLOCK` is unparseable; the parsed value always wins), `GPU_CLOCK_LOCK_UNIT`.
+
+### Related API
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/sparks/:id/clocks/bounds` | Discovered per-domain ranges, current caps, presets, and helper availability |
+| POST | `/api/sparks/:id/clocks` | Apply/persist a cap: `{ "domain": "gpu", "maxMHz": 2200, "persist": true }` — `maxMHz: null` removes the cap |
+
+---
+
 ## Quick start
 
 ```bash
@@ -360,6 +415,8 @@ sparkDash/
 | POST | `/api/sparks/test` | Ephemeral SSH + LLM (+ Comfy if enabled) test (no persist) |
 | POST | `/api/sparks/:id/test` | Connectivity test (can save password) |
 | POST | `/api/sparks/:id/comfy/cancel` | Cancel ComfyUI job by `promptId` |
+| GET | `/api/sparks/:id/clocks/bounds` | Clock-cap domains with discovered hardware ranges (opt-in) |
+| POST | `/api/sparks/:id/clocks` | Apply / persist a CPU or GPU clock cap (opt-in) |
 | PUT | `/api/sparks/:id/password` | Save SSH password (works offline) |
 | PUT | `/api/sparks/:id/disabled-devices` | Hide storage devices (hot) |
 | PUT | `/api/sparks/:id/disabled-interfaces` | Hide network interfaces (hot) |
@@ -528,6 +585,7 @@ Choice is stored in `localStorage`.
 | `npm run docker:dev` | Dev Compose |
 | `npm run docker:dev:build` | Dev Compose with rebuild |
 | `./deploy.sh` | Recreate container; `--build`, `--frontend` flags |
+| `sudo ./scripts/sparkdash-clock-addon/install-clock-helper.sh` | One-time install of the clock helper + scoped sudoers rule on a Spark host |
 
 ---
 
