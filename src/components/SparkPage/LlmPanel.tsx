@@ -16,6 +16,7 @@ import { LlmTokenTotals } from "./LlmTokenTotals";
 import { parseLlmTargetInput } from "../../shared/llmTarget.js";
 import { backendLabel } from "../../shared/llmBackends.js";
 import { LlmTrendChart } from "./LlmTrendChart";
+import { engineStateLabel } from "./llmEngineState";
 
 interface LlmPanelProps {
   llm: LlmMetrics | null;
@@ -836,13 +837,17 @@ export function LlmPanel({
                   )}
                 </button>
               </div>
-              <div className="font-tabular text-sm text-text">
-                {llm?.gpuMemoryUtilization != null
-                  ? llm.gpuMemoryUtilization === 0
-                    ? "Sleeping"
-                    : "Active"
-                  : "—"}
-              </div>
+              {(() => {
+                const engine = engineStateLabel(llm);
+                return (
+                  <div
+                    className={`font-tabular text-sm ${engine.muted ? "text-muted" : "text-text"}`}
+                    title={engine.title}
+                  >
+                    {engine.text}
+                  </div>
+                );
+              })()}
             </div>
             <div className="space-y-0.5">
               <div className="text-[10px] uppercase tracking-wide text-muted">Total Generated</div>

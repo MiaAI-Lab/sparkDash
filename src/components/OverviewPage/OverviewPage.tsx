@@ -8,7 +8,7 @@ import { FleetEnergyCard } from "./FleetEnergyCard";
 import { FleetAlertStrip } from "./FleetAlertStrip";
 import { FleetTokenTotals } from "./FleetTokenTotals";
 import { ActivityIcon, PowerOffIcon, PowerOnIcon, RotateIcon } from "../ui/icons";
-import { formatMb } from "../../shared/formatBytes";
+import { formatDiskSize, formatMb } from "../../shared/formatBytes";
 
 interface OverviewPageProps {
   sparks: SparkSnapshot[];
@@ -207,7 +207,7 @@ function SparkCard({
         </div>
       ) : (
         <>
-          {/* Three headline bars: GPU alloc, Temp, Usage */}
+          {/* Headline bars: VRAM, (RAM), GPU temp, (CPU temp), GPU util */}
           <div className="flex flex-col gap-3.5">
             <MetricBar
               label="VRAM"
@@ -234,11 +234,7 @@ function SparkCard({
               );
             })()}
             <MetricBar
-              label={
-                spark.kind === "host" || (spark.metrics.cpu?.temperature ?? 0) > 0
-                  ? "GPU"
-                  : "Temperature"
-              }
+              label="GPU temp"
               value={displayTemp}
               max={temperatureUnit === "fahrenheit" ? 212 : 100}
               color={tempBarColor}
@@ -254,7 +250,7 @@ function SparkCard({
                 cpuRaw > 95 ? "bg-danger" : cpuRaw > 85 ? "bg-warning" : cpuRaw > 50 ? "bg-accent" : "bg-success";
               return (
                 <MetricBar
-                  label="CPU"
+                  label="CPU temp"
                   value={cpuDisplay}
                   max={temperatureUnit === "fahrenheit" ? 212 : 100}
                   color={cpuBarColor}
@@ -271,7 +267,7 @@ function SparkCard({
               </div>
             )}
             <MetricBar
-              label="Usage"
+              label="GPU util"
               value={usage}
               max={100}
               color={usageBarColor}
@@ -303,7 +299,8 @@ function SparkCard({
                 return (
                   <MiniStat
                     label="Storage"
-                    value={`${fmtStorage(rootDisk.used, false)} / ${fmtStorage(rootDisk.total, true)}`}
+                    value={`${formatDiskSize(rootDisk.used)} / ${formatDiskSize(rootDisk.total)}`}
+                    title={`${fmtStorage(rootDisk.used, true)} of ${fmtStorage(rootDisk.total, true)} used (${Math.round(rootDisk.percentage)}%)`}
                     tone={rootDisk.percentage > 85 ? "danger" : rootDisk.percentage > 60 ? "warning" : "default"}
                     bold={false}
                   />
@@ -347,7 +344,7 @@ function SparkCard({
                       : llm.backend === "ds4"
                         ? "ds4"
                         : llm.backend === "sglang"
-                          ? "sgLang"
+                          ? "SGLang"
                           : llm.backend === "exl3"
                             ? "EXL3"
                             : llm.backend === "q27"
