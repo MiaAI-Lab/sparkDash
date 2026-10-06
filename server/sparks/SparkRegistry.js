@@ -162,12 +162,14 @@ export class SparkRegistry {
     };
     const nextSparks = [...this._sparks];
     nextSparks[idx] = this._normalizeConfig(updated);
-    // Secrets belong to the host they were entered for.
+    // Secrets belong to the host they were entered for. LLM keys also reach a
+    // remote unit's SSH host, through the bench tunnel.
     const sshTarget = (s) => [s.isLocal, s.ssh.user, s.ssh.host || s.lanIp].join(" ");
+    const llmTarget = (s) => [llmProbeHost(s), !s.isLocal && (s.ssh.host || s.lanIp)].join(" ");
     this._save(nextSparks);
     try {
       if (sshTarget(nextSparks[idx]) !== sshTarget(prev)) this._storePassword(id, "");
-      if (llmProbeHost(nextSparks[idx]) !== llmProbeHost(prev)) this.pruneLlmApiKeys(id, []);
+      if (llmTarget(nextSparks[idx]) !== llmTarget(prev)) this.pruneLlmApiKeys(id, []);
       if (hasPasswordUpdate) this._storePassword(id, passwordUpdate);
     } catch (err) {
       this._save(this._sparks);
