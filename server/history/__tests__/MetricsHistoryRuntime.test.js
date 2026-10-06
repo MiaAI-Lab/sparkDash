@@ -9,6 +9,7 @@ import {
   HISTORY_FLUSH_INTERVAL_MS,
   HISTORY_SAMPLE_INTERVAL_MS,
   MAX_DOMAIN_AGE_MS,
+  maxDomainAgeMs,
   createMetricsHistoryRuntime,
   monitorFreshness,
   registerMetricsHistoryRoute,
@@ -141,6 +142,26 @@ test("stale or failed collections are not values", () => {
   assert.equal(fresh("network"), false, "stale");
   assert.equal(fresh("llm"), false, "never collected");
   assert.equal(monitorFreshness(undefined, at)("gpu"), true);
+});
+
+test("the staleness window follows the monitor's current poll interval", () => {
+  const at = T0;
+  // Settings → Poll interval 10 s: a 20 s old reading is still the latest poll.
+  const slow = { gpu: 10_000, cpu: 10_000, network: 10_000, ram: 10_000, memory: 10_000, llm: 10_000, comfy: 10_000 };
+  assert.equal(maxDomainAgeMs(slow), 30_000);
+  const fresh = monitorFreshness(
+    {
+      _fastIntervals: slow,
+      _metricCollectionSuccessful: { gpu: true, cpu: true },
+      _lastUpdate: { gpu: at - 20_000, cpu: at - 31_000 },
+    },
+    at
+  );
+  assert.equal(fresh("gpu"), true, "within three 10 s polls");
+  assert.equal(fresh("cpu"), false, "older than three 10 s polls");
+  // 1 s polling never shrinks the window below 15 s; no bookkeeping → env window.
+  assert.equal(maxDomainAgeMs({ gpu: 1_000, memory: 2_000 }), 15_000);
+  assert.equal(maxDomainAgeMs(undefined), MAX_DOMAIN_AGE_MS);
 });
 
 // ─── Route ────────────────────────────────────────────────

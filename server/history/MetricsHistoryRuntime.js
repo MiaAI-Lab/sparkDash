@@ -34,8 +34,23 @@ export const MAX_DOMAIN_AGE_MS = Math.max(
 );
 
 /**
+ * The staleness window for one monitor. Settings → Poll interval re-arms its
+ * collectors at runtime (SparkMonitor._fastIntervals), so a fixed window would
+ * call every 10 s poll stale; three of the monitor's current intervals, never
+ * under 15 s. Without that bookkeeping, fall back to the env-based window.
+ * @param {Record<string, number> | undefined} intervals
+ */
+export function maxDomainAgeMs(intervals) {
+  const values = intervals
+    ? Object.values(intervals).filter((v) => Number.isFinite(v) && v > 0)
+    : [];
+  if (values.length === 0) return MAX_DOMAIN_AGE_MS;
+  return Math.max(15_000, 3 * Math.max(...values));
+}
+
+/**
  * `isFresh(domain)` for extractSample, from a SparkMonitor's bookkeeping: the
- * domain was collected within MAX_DOMAIN_AGE_MS, and for GPU / CPU the last
+ * domain was collected within maxDomainAgeMs(), and for GPU / CPU the last
  * collection succeeded (a failed one returns all zeros). No monitor → trust
  * the snapshot (tests, or a monitor that is being replaced).
  */
@@ -49,7 +64,7 @@ export function monitorFreshness(monitor, atMs) {
       return false;
     }
     const at = monitor._lastUpdate?.[domain];
-    return Number.isFinite(at) && atMs - at <= MAX_DOMAIN_AGE_MS;
+    return Number.isFinite(at) && atMs - at <= maxDomainAgeMs(monitor._fastIntervals);
   };
 }
 
