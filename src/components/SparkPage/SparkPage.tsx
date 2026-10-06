@@ -12,6 +12,7 @@ import { NetworkPanel } from "./NetworkPanel";
 import { TailscalePanel } from "./TailscalePanel";
 import { LlmPanel } from "./LlmPanel";
 import { ComfyPanel } from "./ComfyPanel";
+import { HistorySection } from "./HistorySection";
 import { ChevronDownIcon } from "../ui/icons";
 import { vramContextFor } from "../../shared/vramBreakdown";
 
@@ -24,12 +25,15 @@ interface SparkPageProps {
   benchShareImage?: boolean;
   /** GPU panel VRAM bar split by engine / system / free (Settings, on by default). */
   showVramBreakdown?: boolean;
+  /** Server-side metrics history section (Settings, off by default). */
+  metricsHistory?: boolean;
   onEdit?: () => void;
 }
 
 const SECTION_OPEN_KEYS = {
   resources: "sparkdash.ui.section.resources",
   services: "sparkdash.ui.section.services",
+  history: "sparkdash.ui.section.history",
 } as const;
 
 function readSectionOpen(key: string, fallback = true): boolean {
@@ -90,6 +94,7 @@ export function SparkPage({
   temperatureUnit,
   benchShareImage = false,
   showVramBreakdown = true,
+  metricsHistory = false,
   onEdit,
 }: SparkPageProps) {
   const { metrics } = spark;
@@ -110,6 +115,10 @@ export function SparkPage({
     readSectionOpen(SECTION_OPEN_KEYS.services, true)
   );
 
+  const [historyOpen, setHistoryOpen] = useState(() =>
+    readSectionOpen(SECTION_OPEN_KEYS.history, true)
+  );
+
   const toggleResources = useCallback(() => {
     setResourcesOpen((prev) => {
       const next = !prev;
@@ -122,6 +131,14 @@ export function SparkPage({
     setServicesOpen((prev) => {
       const next = !prev;
       writeSectionOpen(SECTION_OPEN_KEYS.services, next);
+      return next;
+    });
+  }, []);
+
+  const toggleHistory = useCallback(() => {
+    setHistoryOpen((prev) => {
+      const next = !prev;
+      writeSectionOpen(SECTION_OPEN_KEYS.history, next);
       return next;
     });
   }, []);
@@ -385,6 +402,24 @@ export function SparkPage({
                 </button>
               ))}
           </>
+        )}
+        {metricsHistory && (
+          <SectionHeading
+            title="History"
+            open={historyOpen}
+            onToggle={toggleHistory}
+            style={{ marginTop: "var(--density-page-gap)" }}
+          />
+        )}
+        {/* Mounted only while open: it polls the server every 30 s. */}
+        {metricsHistory && historyOpen && (
+          <HistorySection
+            key={spark.id}
+            sparkId={spark.id}
+            kind={spark.kind}
+            temperatureUnit={temperatureUnit}
+            className="md:col-span-2"
+          />
         )}
       </div>
     </div>

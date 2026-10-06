@@ -42,6 +42,12 @@ const DEFAULTS = Object.freeze({
    * falls back to the same value before settings load — keep the two in step.
    */
   showVramBreakdown: true,
+  /**
+   * Record per-unit GPU / CPU / memory / network / LLM history on the server
+   * (config/metrics-history.json, 30 days) and chart it on the unit page.
+   * Off by default: off records nothing and writes no file.
+   */
+  metricsHistory: false,
 });
 
 /** @type {typeof DEFAULTS} */
@@ -67,6 +73,7 @@ function _clampSettings(settings) {
   s.showOverviewSearch = Boolean(s.showOverviewSearch);
   s.showLlmTokenTotals = Boolean(s.showLlmTokenTotals);
   s.showVramBreakdown = Boolean(s.showVramBreakdown);
+  s.metricsHistory = Boolean(s.metricsHistory);
   // Ensure temperatureUnit is valid
   if (s.temperatureUnit !== "celsius" && s.temperatureUnit !== "fahrenheit") {
     s.temperatureUnit = DEFAULTS.temperatureUnit;
