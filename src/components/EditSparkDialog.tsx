@@ -207,7 +207,13 @@ export function EditSparkDialog({
 
   const handleSave = async () => {
     if (!config) return;
-    if (!config.isLocal && config.ssh.auth === "pass" && !config.ssh.hasPassword && !password) {
+    // The server drops the saved password when the SSH target changes.
+    const sshTargetChanged =
+      savedConfig != null &&
+      (config.isLocal !== savedConfig.isLocal ||
+        (config.ssh.host || config.lanIp) !== (savedConfig.ssh?.host || savedConfig.lanIp) ||
+        config.ssh.user !== savedConfig.ssh?.user);
+    if (!config.isLocal && config.ssh.auth === "pass" && (!config.ssh.hasPassword || sshTargetChanged) && !password) {
       setError("Password required for password-auth Sparks (saved encrypted, host can be offline).");
       return;
     }
@@ -215,7 +221,7 @@ export function EditSparkDialog({
     setError(null);
     try {
       // Save password first so it is never lost if the rest of the update fails
-      if (password) {
+      if (password && !sshTargetChanged) {
         await persistPasswordIfEntered();
       }
 
@@ -243,6 +249,7 @@ export function EditSparkDialog({
           host: config.ssh.host || config.lanIp,
           user: config.ssh.user,
           auth: config.ssh.auth,
+          ...(password && sshTargetChanged ? { password } : {}),
         },
       };
       await updateSpark(config.id, patch);
