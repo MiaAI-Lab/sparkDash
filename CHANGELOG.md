@@ -10,6 +10,7 @@ Format: version sections are listed newest first.
 ## [Unreleased]
 
 ### Fixed
+- **Fleet Energy efficiency on fleets with more than one serving node.** Wh/token counted output tokens only when the fleet had exactly one head with one available endpoint, so two clusters, or a cluster plus a standalone node, recorded no tokens and the card read `— Wh/token`. Every available endpoint on a head or standalone node is now its own counter (workers are skipped, so a cluster counts once), and the figure divides only energy recorded since a token source was first seen, so the first day after upgrading does not read high.
 - **Byte rates and memory sizes.** A transfer of 1023.95 KiB/s was labeled `1024.0 KB/s`, and 1023.5 MiB of RAM or VRAM was labeled `1024 MB` on the device panels and the Overview card. Both roll into the next unit: `1.0 MB/s` and `1.0 GB`. A 512 MB reading stays `512 MB`.
 - **Benchmark duration.** A run of 119.5 seconds was labeled `1m 60s` on the decode dialog, the prefill dialog, and the share card. It now reads `2m 0s`. 59.95 seconds was `60.0 s` and is now `1m 0s`. A 27.8 second run is unchanged.
 - **TensorFold slots on CUDA.** A TensorFold 0.6.0 CUDA server with 3 of its 4 streams busy showed `1 / 1` on the LLM card's Slots tile. The tile now reads `streams.max` and `requests_running` from `/health` (or `streams.decoding` + `streams.prefilling` when `requests_running` is missing) and shows `3 / 4`. MLX servers still size it from `max_batch_size`, and a `/health` without these fields keeps the previous `1 / 1`.
