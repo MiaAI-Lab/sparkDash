@@ -18,13 +18,9 @@ import type {
   PrefillBenchListResponse,
   StartPrefillBenchRequest,
 } from "./types";
+import { authHeaders, reportAuthRequired } from "./authToken";
 
 const BASE = "";
-const TOKEN = (typeof localStorage !== "undefined" && localStorage.getItem("sparkdashToken")) || "";
-
-function authHeaders(): Record<string, string> {
-  return TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {};
-}
 
 // ─── Generic fetch wrapper ────────────────────────────────
 async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
@@ -38,6 +34,8 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
     headers: { ...headers, ...authHeaders(), ...(opts?.headers as Record<string, string> | undefined) },
   });
   if (!res.ok) {
+    // The server wants a token we do not have (or ours is stale): ask for one.
+    if (res.status === 401) reportAuthRequired();
     const body = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(body.error || `HTTP ${res.status}`);
   }

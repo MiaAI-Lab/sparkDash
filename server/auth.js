@@ -31,8 +31,22 @@ export function extractBearer(req) {
   const header = req.headers?.authorization || "";
   const match = /^Bearer\s+(.+)$/i.exec(header);
   if (match) return match[1].trim();
-  const query = req.query?.token;
+  const query = req.query ? req.query.token : queryTokenFromUrl(req.url);
   return typeof query === "string" ? query.trim() : "";
+}
+
+/**
+ * The WebSocket upgrade hands verifyClient a raw IncomingMessage — Express has
+ * not parsed it, so there is no req.query. Read `?token=` from the URL itself,
+ * or the browser's socket (which cannot set headers) is always refused.
+ */
+function queryTokenFromUrl(url) {
+  if (typeof url !== "string" || !url.includes("?")) return "";
+  try {
+    return new URL(url, "http://localhost").searchParams.get("token") || "";
+  } catch {
+    return "";
+  }
 }
 
 export function authenticate(req) {
@@ -60,6 +74,19 @@ export function createAuthMiddleware() {
     if (!result.ok) return res.status(result.status).json({ error: result.error });
     next();
   };
+}
+
+/**
+ * What the UI needs to know before it asks for a token, and nothing more.
+ * `tokenRequired` is true exactly when a configured token gates the WebSocket
+ * upgrade and mutations (authorizeUpgrade / createAuthMiddleware both fall
+ * through to authenticate(), which only checks once a token is set).
+ * `authenticated` says whether this request's bearer/`?token=` would pass.
+ * The token itself is never part of the response.
+ */
+export function authStatus(req) {
+  const tokenRequired = Boolean(configuredToken());
+  return { tokenRequired, authenticated: authenticate(req).ok };
 }
 
 export function authorizeUpgrade(req) {
