@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useSnapshot } from "./hooks/useSnapshot";
 import { useAppRoute, useRoute } from "./hooks/useRoute";
-import { fetchSparks, reorderSparks, fetchSettings } from "./api/client";
+import { fetchSparks, reorderSparks, fetchSettings, fetchHealth } from "./api/client";
 import { SparkTabs } from "./components/SparkTabs";
 import { AddSparkDialog } from "./components/AddSparkDialog";
 import { EditSparkDialog } from "./components/EditSparkDialog";
@@ -10,12 +10,13 @@ import { HermesUpdateDialog } from "./components/SparkPage/HermesUpdateDialog";
 import { OverviewPage } from "./components/OverviewPage/OverviewPage";
 import { ShowcasePage } from "./components/ShowcasePage/ShowcasePage";
 import { ThemeSwitch } from "./components/ThemeSwitch";
+import { OpenAccessChip } from "./components/OpenAccessChip";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { GearIcon, BoltIcon } from "./components/ui/icons";
 import { ConnectionBanner } from "./components/ui/ConnectionBanner";
 import { ErrorBanner } from "./components/ui/ErrorBanner";
 import { OVERVIEW_ID } from "./constants";
-import type { Settings, SparkSnapshot } from "./api/types";
+import type { AuthMode, Settings, SparkSnapshot } from "./api/types";
 import { isWorkerSpark } from "./api/sparkRole";
 
 /** Keep hidden worker ids in their original slots when the visible tabs are reordered. */
@@ -140,6 +141,7 @@ function DashboardApp() {
   const [editId, setEditId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [authMode, setAuthMode] = useState<AuthMode | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   /** Used when WS is down so add/delete still updates the tab bar */
   const [fallbackSparks, setFallbackSparks] = useState<SparkSnapshot[]>([]);
@@ -213,6 +215,13 @@ function DashboardApp() {
           `Could not load settings: ${err instanceof Error ? err.message : String(err)}. Reload to retry.`
         )
       );
+  }, []);
+
+  // Auth posture once on load — drives the "Open access" header warning.
+  useEffect(() => {
+    fetchHealth()
+      .then((h) => setAuthMode(h.authMode))
+      .catch(() => setAuthMode(null));
   }, []);
 
   const handleSettingsSaved = useCallback((s: Settings) => {
@@ -325,6 +334,7 @@ function DashboardApp() {
             onReorder={handleReorder}
           />
           <div className="ml-auto flex items-center gap-2.5">
+            <OpenAccessChip authMode={authMode} />
             <button
               type="button"
               onClick={() => setShowSettings(true)}

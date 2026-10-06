@@ -580,6 +580,21 @@ export interface FleetEnergy {
 }
 
 // ─── API responses ────────────────────────────────────────
+/**
+ * How the server authenticates requests (GET /api/health).
+ * "open-remote" — bound off loopback with no SPARKDASH_TOKEN: anyone who can reach it can mutate.
+ * "required-missing" — the same bind with SPARKDASH_ALLOW_OPEN_REMOTE=0, failing closed.
+ */
+export type AuthMode = "bearer" | "loopback-open" | "open-remote" | "required-missing";
+
+export interface HealthResponse {
+  ok: boolean;
+  bindHost: string;
+  authMode: AuthMode;
+  errors: string[];
+  warnings: string[];
+}
+
 export interface Settings {
   pollIntervalMs: number;
   defaultLlmPort: number;
