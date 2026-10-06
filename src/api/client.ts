@@ -1,4 +1,9 @@
 import type {
+  AlertsConfig,
+  AlertsConfigUpdate,
+  AlertsResponse,
+  AlertChannel,
+  AlertTestResult,
   DecodeBenchJob,
   DecodeBenchListResponse,
   FleetEnergy,
@@ -458,5 +463,32 @@ export function updateSettings(patch: Partial<Settings>): Promise<Settings> {
   return apiFetch("/api/settings", {
     method: "PUT",
     body: JSON.stringify(patch),
+  });
+}
+
+// ─── Alerts ──────────────────────────────────────────────
+export function fetchAlerts(): Promise<AlertsResponse> {
+  return apiFetch("/api/alerts");
+}
+
+export function fetchAlertsConfig(): Promise<AlertsConfig> {
+  return apiFetch("/api/alerts/config");
+}
+
+export function updateAlertsConfig(update: AlertsConfigUpdate): Promise<AlertsConfig> {
+  return apiFetch("/api/alerts/config", {
+    method: "PUT",
+    body: JSON.stringify(update),
+  });
+}
+
+/**
+ * Send one test message. With `channel`, the unsaved draft is tested (a masked
+ * URL resolves against `channelId` on the server).
+ */
+export function testAlertChannel(channelId: string | undefined, channel?: AlertChannel): Promise<AlertTestResult> {
+  return apiFetch("/api/alerts/test", {
+    method: "POST",
+    body: JSON.stringify({ channelId, channel }),
   });
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { SparkSnapshot } from "../../api/types";
+import type { AlertInstance, SparkSnapshot } from "../../api/types";
 import { isWorkerSpark, resolveSparkRole } from "../../api/sparkRole";
 import { shutdownAllSparks, updateAllHermes, wakeAllSparks } from "../../api/client";
 import { ConfirmShutdownDialog } from "../ConfirmShutdownDialog";
@@ -23,6 +23,9 @@ interface OverviewPageProps {
   hideWorkers?: boolean;
   showFleetEnergy?: boolean;
   showFleetExceptions?: boolean;
+  /** Server alerts on: the exceptions strip shows `serverAlerts` instead of deriving its own. */
+  alertsEnabled?: boolean;
+  serverAlerts?: AlertInstance[] | null;
   showOverviewSearch?: boolean;
   /** Overview LLM token totals card (cumulative tokens per model). */
   showLlmTokenTotals?: boolean;
@@ -426,6 +429,8 @@ export function OverviewPage({
   hideWorkers = false,
   showFleetEnergy = false,
   showFleetExceptions = false,
+  alertsEnabled = false,
+  serverAlerts = null,
   showOverviewSearch = false,
   showLlmTokenTotals = false,
   showVramBreakdown = true,
@@ -598,7 +603,7 @@ export function OverviewPage({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--density-overview-rhythm)" }}>
       {showFleetEnergy ? <FleetEnergyCard nodeCount={sparks.length} /> : null}
-      {showFleetExceptions ? <FleetAlertStrip sparks={sparks} onSelect={onSelectSpark} /> : null}
+      {showFleetExceptions ? <FleetAlertStrip sparks={sparks} onSelect={onSelectSpark} alertsEnabled={alertsEnabled} serverAlerts={serverAlerts} /> : null}
       <div className="flex flex-wrap items-end justify-between gap-6">
         <h1
           className="font-normal leading-tight tracking-tight text-text-strong"

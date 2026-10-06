@@ -42,6 +42,12 @@ const DEFAULTS = Object.freeze({
    * falls back to the same value before settings load — keep the two in step.
    */
   showVramBreakdown: true,
+  /**
+   * Server-side alert rules and notifications (config/alerts.json). Off by
+   * default: while off the engine is not evaluated, nothing is sent and
+   * nothing is written.
+   */
+  alertsEnabled: false,
 });
 
 /** @type {typeof DEFAULTS} */
@@ -67,6 +73,7 @@ function _clampSettings(settings) {
   s.showOverviewSearch = Boolean(s.showOverviewSearch);
   s.showLlmTokenTotals = Boolean(s.showLlmTokenTotals);
   s.showVramBreakdown = Boolean(s.showVramBreakdown);
+  s.alertsEnabled = Boolean(s.alertsEnabled);
   // Ensure temperatureUnit is valid
   if (s.temperatureUnit !== "celsius" && s.temperatureUnit !== "fahrenheit") {
     s.temperatureUnit = DEFAULTS.temperatureUnit;

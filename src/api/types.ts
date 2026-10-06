@@ -567,6 +567,109 @@ export interface WsSnapshot {
   generatedAt?: number;
   sparks: SparkSnapshot[];
   refreshInterval: number;
+  /** Server-side alerts — present only while `alertsEnabled` is on. */
+  alerts?: { active: AlertInstance[] };
+}
+
+// ─── Server-side alerts ───────────────────────────────────
+export type AlertSeverity = "warning" | "critical";
+
+/** One pending or firing alert (GET /api/alerts, WS `alerts.active`). */
+export interface AlertInstance {
+  /** `${ruleId}:${unitId}` or `${ruleId}:${unitId}:${sub}` (disk, port, card). */
+  key: string;
+  ruleId: string;
+  ruleName: string;
+  unitId: string;
+  unitName: string;
+  severity: AlertSeverity;
+  /** Highest severity reached while firing (a resolved alert is routed by it). */
+  peakSeverity?: AlertSeverity;
+  state: "pending" | "firing";
+  summary: string;
+  value: number | null;
+  /** Epoch ms the condition first held — survives a server restart. */
+  startsAt: number;
+  /** Epoch ms the alert went from pending to firing. */
+  firingAt: number | null;
+}
+
+/** One firing / resolved transition (newest first in `recent`). */
+export interface AlertEvent {
+  id: number;
+  at: number;
+  status: "firing" | "resolved";
+  key: string;
+  ruleId: string;
+  ruleName: string;
+  unitId: string;
+  unitName: string;
+  severity: AlertSeverity;
+  summary: string;
+  value: number | null;
+  startsAt: number;
+  endsAt: number | null;
+}
+
+export interface AlertsResponse {
+  enabled: boolean;
+  active: AlertInstance[];
+  pending: AlertInstance[];
+  recent: AlertEvent[];
+}
+
+export interface AlertRuleField {
+  key: string;
+  label: string;
+  unit: string;
+  min: number;
+  max: number;
+}
+
+/** A built-in rule as GET /api/alerts/config describes it. */
+export interface AlertRule {
+  id: string;
+  name: string;
+  description: string;
+  /** Includes `enabled` and `forSec` plus the rule's thresholds. */
+  defaults: Record<string, number | boolean>;
+  fields: AlertRuleField[];
+  /** Only the values the user changed. */
+  overrides: Record<string, number | boolean>;
+}
+
+export type AlertChannelType = "ntfy" | "discord" | "slack" | "webhook";
+
+export interface AlertChannel {
+  /** Absent on a channel added in the dialog and not yet saved. */
+  id?: string;
+  name: string;
+  type: AlertChannelType;
+  /** Masked by the server (`https://ntfy.sh…ab12`); send it back unchanged to keep it. */
+  url: string;
+  enabled: boolean;
+  minSeverity: AlertSeverity;
+  status?: { lastSentAt: number | null; lastError: string | null; lastErrorAt: number | null };
+}
+
+export interface AlertsConfig {
+  enabled: boolean;
+  /** 0 = no reminders while an alert keeps firing. */
+  repeatIntervalMin: number;
+  rules: AlertRule[];
+  channels: AlertChannel[];
+}
+
+export interface AlertsConfigUpdate {
+  repeatIntervalMin?: number;
+  rules?: Record<string, Record<string, number | boolean>>;
+  channels?: AlertChannel[];
+}
+
+export interface AlertTestResult {
+  ok: boolean;
+  status?: number;
+  error?: string;
 }
 
 export interface FleetEnergy {
@@ -632,6 +735,8 @@ export interface Settings {
    * default (server DEFAULTS and the UI's pre-load fallback both say true).
    */
   showVramBreakdown: boolean;
+  /** Server-side alert rules and notifications (Settings → Alerts). Off by default. */
+  alertsEnabled: boolean;
 }
 
 export interface SparksListResponse {
