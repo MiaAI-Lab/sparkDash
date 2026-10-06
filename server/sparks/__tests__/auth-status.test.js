@@ -1,8 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { authStatus, authorizeUpgrade, createAuthMiddleware } from "../../auth.js";
+import os from "node:os";
+import { authStatus, authorizeUpgrade, createAuthMiddleware, setTailscaleName } from "../../auth.js";
 
-const ENV_KEYS = ["SPARKDASH_TOKEN", "DASHBOARD_TOKEN", "BIND_HOST", "SPARKDASH_ALLOW_OPEN_REMOTE"];
+const ENV_KEYS = ["SPARKDASH_TOKEN", "DASHBOARD_TOKEN", "BIND_HOST", "SPARKDASH_ALLOW_OPEN_REMOTE", "SPARKDASH_ALLOWED_HOSTS"];
 
 function withEnv(env, fn) {
   const saved = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
@@ -104,4 +105,133 @@ test("tokenRequired mirrors exactly when the WebSocket upgrade and mutations dem
       }
     });
   }
+});
+
+/** A browser's request: Host, plus Origin on an API call or WebSocket. */
+function browser(host, { origin, method = "GET", bearer, accept } = {}) {
+  const headers = { host };
+  if (origin) headers.origin = origin;
+  if (bearer) headers.authorization = `Bearer ${bearer}`;
+  if (accept) headers.accept = accept;
+  return { method, headers, query: {} };
+}
+
+test("a loopback bind keeps working with no setup and refuses cross-site and rebound requests", () => {
+  withEnv({ BIND_HOST: "127.0.0.1" }, () => {
+    for (const host of ["localhost:5555", "127.0.0.1:5555", "[::1]:5555"]) {
+      const origin = `http://${host}`;
+      assert.equal(passesMiddleware(browser(host)), true, `page ${host}`);
+      assert.equal(passesMiddleware(browser(host, { origin, method: "POST" })), true, `API ${host}`);
+      assert.equal(authorizeUpgrade(browser(host, { origin })), true, `WebSocket ${host}`);
+    }
+    // Vite dev server opened on a LAN IP proxies with the browser's Host and Origin.
+    const lan = "192.168.1.50:5173";
+    assert.equal(passesMiddleware(browser(lan, { origin: `http://${lan}`, method: "POST" })), true);
+    assert.equal(authorizeUpgrade(browser(lan, { origin: `http://${lan}` })), true);
+
+    // Cross-site POST /api/sparks/wake-all and WebSocket.
+    const evil = "https://evil.example";
+    assert.equal(passesMiddleware(browser("127.0.0.1:5555", { origin: evil, method: "POST" })), false);
+    assert.equal(authorizeUpgrade(browser("127.0.0.1:5555", { origin: evil })), false);
+    // A page served from a bare IP is another site too.
+    assert.equal(passesMiddleware(browser("127.0.0.1:5555", { origin: "http://203.0.113.7", method: "POST" })), false);
+    assert.equal(passesMiddleware(browser("127.0.0.1:5555", { origin: "null", method: "POST" })), false);
+
+    // DNS rebinding: same-origin with the attacker's own name.
+    const rebound = "rebound.example:5555";
+    assert.equal(passesMiddleware(browser(rebound)), false);
+    assert.equal(passesMiddleware(browser(rebound, { origin: `http://${rebound}`, method: "POST" })), false);
+    assert.equal(authorizeUpgrade(browser(rebound, { origin: `http://${rebound}` })), false);
+  });
+});
+
+test("the derived allowlist: IP literals, *.localhost, this machine's name and its Tailscale name", () => {
+  const self = os.hostname().toLowerCase().replace(/\.local$/, "");
+  withEnv({ BIND_HOST: "127.0.0.1" }, () => {
+    for (const host of ["10.0.0.5:5555", "[fe80::1]:5555", "dash.localhost:5555", `${self.toUpperCase()}:5555`, `${self}.local`]) {
+      assert.equal(passesMiddleware(browser(host, { origin: `http://${host}`, method: "POST" })), true, host);
+    }
+    // Look-alikes are the attacker's names.
+    for (const host of ["127.evil.example", "localhost.evil.example", `${self}.evil.example`]) {
+      assert.equal(passesMiddleware(browser(host)), false, host);
+    }
+
+    const serve = "spark-1.tail1234.ts.net";
+    assert.equal(passesMiddleware(browser(serve, { origin: `https://${serve}` })), false);
+    try {
+      setTailscaleName(`${serve}.`);
+      assert.equal(passesMiddleware(browser(serve)), true);
+      assert.equal(passesMiddleware(browser(serve, { origin: `https://${serve}`, method: "POST" })), true);
+      assert.equal(authorizeUpgrade(browser(serve, { origin: `https://${serve}` })), true);
+    } finally {
+      setTailscaleName("");
+    }
+  });
+});
+
+test("SPARKDASH_ALLOWED_HOSTS admits a custom proxy domain, also as the Origin when the proxy rewrites Host", () => {
+  const proxied = (origin) => browser("127.0.0.1:5555", { origin, method: "POST" });
+  withEnv({ BIND_HOST: "127.0.0.1" }, () => {
+    assert.equal(passesMiddleware(browser("dash.example.com")), false);
+    assert.equal(passesMiddleware(proxied("https://dash.example.com")), false);
+  });
+  withEnv({ BIND_HOST: "127.0.0.1", SPARKDASH_ALLOWED_HOSTS: " Dash.Example.com:443, other.example" }, () => {
+    assert.equal(passesMiddleware(browser("dash.example.com")), true);
+    assert.equal(passesMiddleware(proxied("https://dash.example.com")), true);
+    assert.equal(authorizeUpgrade(browser("127.0.0.1:5555", { origin: "https://dash.example.com" })), true);
+    assert.equal(passesMiddleware(proxied("https://evil.example")), false);
+  });
+});
+
+test("a valid token skips the Host check; a wrong one does not", () => {
+  withEnv({ BIND_HOST: "127.0.0.1", SPARKDASH_TOKEN: "s3cret" }, () => {
+    const rebound = "rebound.example:5555";
+    assert.equal(passesMiddleware(browser(rebound, { bearer: "s3cret" })), true);
+    assert.equal(authorizeUpgrade({ url: "/ws?token=s3cret", headers: { host: rebound, origin: `http://${rebound}` } }), true);
+    assert.equal(passesMiddleware(browser(rebound, { bearer: "wrong" })), false);
+    assert.equal(authorizeUpgrade({ url: "/ws?token=wrong", headers: { host: rebound } }), false);
+  });
+});
+
+test("a refused browser navigation gets a page naming the host; an API call gets JSON", () => {
+  const refusal = (request) => {
+    const sent = {};
+    const res = {
+      status(code) {
+        sent.status = code;
+        return this;
+      },
+      type(type) {
+        sent.type = type;
+        return this;
+      },
+      send(body) {
+        sent.body = body;
+      },
+      json(body) {
+        sent.json = body;
+      },
+    };
+    createAuthMiddleware()(request, res, () => {});
+    return sent;
+  };
+  withEnv({ BIND_HOST: "127.0.0.1" }, () => {
+    const page = refusal(browser("rebound.example:5555", { accept: "text/html,application/xhtml+xml,*/*;q=0.8" }));
+    assert.equal(page.status, 403);
+    assert.equal(page.type, "html");
+    assert.match(page.body, /<b>rebound\.example<\/b>/);
+    assert.match(page.body, /SPARKDASH_ALLOWED_HOSTS/);
+
+    const api = refusal(browser("rebound.example:5555", { accept: "application/json" }));
+    assert.equal(api.status, 403);
+    assert.match(api.json.error, /rebound\.example.*SPARKDASH_ALLOWED_HOSTS/);
+  });
+});
+
+test("a non-loopback bind is unaffected by Host and Origin", () => {
+  withEnv({ BIND_HOST: "0.0.0.0" }, () => {
+    assert.equal(passesMiddleware(browser("rebound.example:5555")), true);
+    assert.equal(passesMiddleware(browser("10.0.0.5:5555", { origin: "https://evil.example", method: "POST" })), true);
+    assert.equal(authorizeUpgrade(browser("10.0.0.5:5555", { origin: "https://evil.example" })), true);
+  });
 });

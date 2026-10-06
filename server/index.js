@@ -16,7 +16,7 @@ import {
   validateDecodeBudget,
   validatePrefillBudget,
 } from "./validate.js";
-import { authStatus, authorizeUpgrade, createAuthMiddleware } from "./auth.js";
+import { authStatus, authorizeUpgrade, createAuthMiddleware, isLoopbackBind, setTailscaleName } from "./auth.js";
 import { inspectHealth } from "./health.js";
 import { getSettings, updateSettings, loadSettings } from "./settings.js";
 import { broadcastForLanIp, effectiveMac, normalizeMac, sendWol } from "./wol.js";
@@ -50,6 +50,7 @@ import {
   registerFleetEnergyRoute,
 } from "./energy/FleetEnergyRuntime.js";
 import { testSparkConnectivity } from "./connectivity.js";
+import { TailscaleProbe } from "./collectors/TailscaleProbe.js";
 import { inspectStartupPreflight, logStartupPreflight } from "./startupPreflight.js";
 
 dotenv.config();
@@ -1713,6 +1714,14 @@ logStartupPreflight(startupPreflight, BIND_HOST, PORT);
 
 if (!startupPreflight.fatal) {
   startBroadcast();
+  if (isLoopbackBind(BIND_HOST)) {
+    // Learn this machine's MagicDNS name (via the host namespace in Docker) so Tailscale Serve
+    // needs no SPARKDASH_ALLOWED_HOSTS entry; re-checked now and then in case tailscaled starts later.
+    const learnTailscaleName = () =>
+      new TailscaleProbe({ isLocal: true }).probe().then(({ dnsName }) => dnsName && setTailscaleName(dnsName));
+    learnTailscaleName();
+    setInterval(learnTailscaleName, 10 * 60 * 1000).unref();
+  }
   server.listen(PORT, BIND_HOST, () => {
     console.log(`[sparkDash] server listening on http://${BIND_HOST}:${PORT}`);
     console.log(`[sparkDash] WebSocket endpoint ws://${BIND_HOST}:${PORT}/ws`);
