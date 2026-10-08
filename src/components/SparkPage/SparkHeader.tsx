@@ -51,7 +51,7 @@ export function SparkHeader({ spark, onEdit }: SparkHeaderProps) {
         <div className="sp-header__title">
           <span
             className={`sdot ${online ? "" : "sdot--bad"}`}
-            title={online ? "Online" : "Offline"}
+            title={online ? "Online" : spark.offlineReason ? `Offline — ${spark.offlineReason}` : "Offline"}
           />
           <h2>{spark.name}</h2>
           <div className="sp-tags">
@@ -65,6 +65,11 @@ export function SparkHeader({ spark, onEdit }: SparkHeaderProps) {
             )}
             {spark.isLocal && <Tag title="This dashboard runs on this machine">local</Tag>}
             {online && backend && <Tag tone="info">{backend}</Tag>}
+            {!online && spark.offlineReason && (
+              <Tag tone="bad" className="sp-tag-clip" title={`Offline — ${spark.offlineReason}`}>
+                {spark.offlineReason}
+              </Tag>
+            )}
             {online && spark.uptime != null && (
               <Tag title={`Uptime: ${formatUptime(spark.uptime)}`}>up {formatUptime(spark.uptime)}</Tag>
             )}

@@ -115,6 +115,20 @@ test("HermesProbe update reports failure when the binary is missing", async () =
   assert.match(res.error, /not found/);
 });
 
+test("HermesProbe never runs a script for an SSH user that would break out of it", async () => {
+  // A unit saved before the API validated local units' SSH users.
+  const probe = new HermesProbe({ id: "s", isLocal: true, ssh: { user: "x; touch /tmp/pwned #" } });
+  let ran = false;
+  probe._execLocal = async () => {
+    ran = true;
+    return "";
+  };
+  await assert.rejects(probe._run("echo hi", 1000), /Invalid SSH user/);
+  const status = await probe.check();
+  assert.equal(ran, false, "nothing reached the shell");
+  assert.match(status.error ?? "", /Invalid SSH user/);
+});
+
 test("parseHostPasswd resolves the host user identity", () => {
   const passwd =
     "root:x:0:0:root:/root:/bin/bash\n" +

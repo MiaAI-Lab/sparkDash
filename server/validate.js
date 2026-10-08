@@ -199,6 +199,10 @@ export function normalizeSshPort(value) {
  * @param {{ lanIp?: string, ssh?: { host?: string, user?: string, port?: unknown } }} body
  */
 export function validateSparkTarget(body) {
+  const user = body?.ssh?.user;
+  if (user != null && user !== "" && !isValidSshUser(user)) {
+    return "Invalid SSH user (allowed: letters, digits, . _ -)";
+  }
   const lanIp = body?.lanIp || "";
   const sshHost = body?.ssh?.host || "";
   const target = sshHost || lanIp;
@@ -210,10 +214,6 @@ export function validateSparkTarget(body) {
   }
   if (lanIp && !isAllowedTargetHost(lanIp)) {
     return `Invalid or disallowed lanIp: ${lanIp}`;
-  }
-  const user = body?.ssh?.user;
-  if (user != null && user !== "" && !isValidSshUser(user)) {
-    return "Invalid SSH user (allowed: letters, digits, . _ -)";
   }
   if (body?.ssh && Object.prototype.hasOwnProperty.call(body.ssh, "port")) {
     const raw = body.ssh.port;

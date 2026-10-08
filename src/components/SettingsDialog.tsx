@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { fetchSettings, updateSettings } from "../api/client";
+import { clearToken, getToken, onTokenChange, requestTokenPrompt } from "../api/authToken";
 import type { Settings } from "../api/types";
 import { useModalPresence } from "../hooks/useModalPresence";
 import packageJson from "../../package.json";
@@ -70,8 +71,11 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [theme, setTheme] = useState<ThemeId>(readTheme);
+  const [tokenSet, setTokenSet] = useState(() => getToken() !== "");
 
   useEscape(onClose);
+
+  useEffect(() => onTokenChange((token) => setTokenSet(token !== "")), []);
 
   useEffect(() => {
     if (!open) {
@@ -279,6 +283,12 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
                 onChange={(v) => update({ benchShareImage: v })}
               />
               <ToggleRow
+                title="Detailed VRAM breakdown"
+                help="VRAM bars split memory into LLM engine, system and free, and turn amber or red on low free memory rather than on a high percentage. Turn it off for the single percentage bar."
+                checked={settings.showVramBreakdown ?? true}
+                onChange={(v) => update({ showVramBreakdown: v })}
+              />
+              <ToggleRow
                 title="Show Fleet Energy"
                 help="Overview card with rolling fleet power estimates. The full Fleet energy page is always available from the sidebar."
                 checked={Boolean(settings.showFleetEnergy)}
@@ -338,6 +348,24 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
               />
             </>
           )}
+
+          {/* Outside the settings block: a rejected token is exactly when settings fail to load. */}
+          <SettingRow
+            title="Access token"
+            help="Sent to servers that set SPARKDASH_TOKEN. Stored in this browser only."
+          >
+            <div className="set-price">
+              <span data-testid="access-token-state">{tokenSet ? "Set" : "Not set"}</span>
+              <button type="button" className="btn btn--sm" onClick={() => requestTokenPrompt()}>
+                Change
+              </button>
+              {tokenSet ? (
+                <button type="button" className="btn btn--sm btn--ghost" onClick={() => clearToken()}>
+                  Clear
+                </button>
+              ) : null}
+            </div>
+          </SettingRow>
 
           <div className="settings-links">
             <span>sparkDash v{packageJson.version}</span>

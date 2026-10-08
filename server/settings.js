@@ -39,6 +39,13 @@ const DEFAULTS = Object.freeze({
   energyPricePerKwh: null,
   /** Currency symbol shown next to the estimated cost. */
   energyCurrency: "$",
+  /**
+   * VRAM bars on the Overview cards and the GPU panel split memory into LLM
+   * engine / system / other / free and judge severity by absolute headroom.
+   * On by default; off restores the single percentage-coloured bar. The UI
+   * falls back to the same value before settings load — keep the two in step.
+   */
+  showVramBreakdown: true,
 });
 
 /** @type {typeof DEFAULTS} */
@@ -70,6 +77,7 @@ function _clampSettings(settings) {
     typeof s.energyCurrency === "string" && s.energyCurrency.trim() && s.energyCurrency.trim().length <= 4
       ? s.energyCurrency.trim()
       : DEFAULTS.energyCurrency;
+  s.showVramBreakdown = Boolean(s.showVramBreakdown);
   // Ensure temperatureUnit is valid
   if (s.temperatureUnit !== "celsius" && s.temperatureUnit !== "fahrenheit") {
     s.temperatureUnit = DEFAULTS.temperatureUnit;

@@ -242,7 +242,7 @@ describe("share card model", () => {
 
   it("labels backends the same way the LLM panel does", () => {
     expect(backendLabel("tensorfold")).toBe("TensorFold");
-    expect(backendLabel("sglang")).toBe("sgLang");
+    expect(backendLabel("sglang")).toBe("SGLang");
     expect(backendLabel("exl3")).toBe("EXL3");
     expect(backendLabel("something-new")).toBe("something-new");
     expect(backendLabel(null)).toBeNull();

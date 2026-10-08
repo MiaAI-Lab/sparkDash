@@ -71,7 +71,24 @@ export function CpuPanel({ cpu, hardware, sparkId, temperatureUnit, className }:
           <TrendLine data={usageHistory} height={36} color="var(--color-accent)" min={0} max={100} />
         </div>
         <div className="sp-metric">
-          <span className="eyebrow">Temperature</span>
+          <span
+            className="eyebrow"
+            // GB10 exposes no CPU package sensor, so the reading is an ACPI/SoC zone:
+            // say so rather than letting the tile claim it is the CPU (#142).
+            title={
+              cpu?.temperatureSource
+                ? `Reading from ${cpu.temperatureSource} — ${
+                    cpu.temperatureLabel === "CPU"
+                      ? "the CPU package sensor"
+                      : "an ACPI/board thermal zone, not a CPU package sensor"
+                  }`
+                : undefined
+            }
+          >
+            {cpu?.temperatureLabel && cpu.temperatureLabel !== "CPU"
+              ? `Temperature (${cpu.temperatureLabel})`
+              : "Temperature"}
+          </span>
           <div className="big-num sp-big-md">
             {displayTemp}
             <small>{temperatureUnit === "fahrenheit" ? "°F" : "°C"}</small>

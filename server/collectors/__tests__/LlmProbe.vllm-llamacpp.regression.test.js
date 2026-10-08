@@ -104,12 +104,26 @@ test("vLLM probe: counter diffs + tiles; skips get_server_info when known vllm",
   assert.equal(snap.kvCacheUsage, 0.42);
   assert.equal(snap.kvCacheTokens, null);
   assert.equal(snap.kvCacheTokensAvailable, null);
+  assert.equal(snap.kvCacheGb, null); // vLLM reports no pool size
+  assert.equal(snap.weightsGb, null);
   assert.equal(snap.preemptionsTotal, 3);
   assert.equal(snap.prefixCacheHitRate, 0.5);
   assert.equal(snap.totalCachedTokens, 10); // prefix_cache_hits_total is token-granular
   assert.equal(snap.mtpAcceptanceRate, 0.8);
   assert.equal(snap.available, true);
   assert.ok(!hits.some((h) => h.includes("get_server_info")));
+});
+
+test("vLLM: older gpu_cache_usage_perc stands in for kv_cache_usage_perc", () => {
+  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 8000);
+  const legacy = VLLM_METRICS.replace("vllm:kv_cache_usage_perc", "vllm:gpu_cache_usage_perc");
+  probe._applyVllmMetrics(legacy, 2);
+  assert.equal(probe.kvCacheUsage, 0.42);
+  // The current name wins when both are exposed.
+  probe._applyVllmMetrics(VLLM_METRICS + 'vllm:gpu_cache_usage_perc{engine="0"} 0.99\n', 2);
+  assert.equal(probe.kvCacheUsage, 0.42);
+  probe._applyVllmMetrics(VLLM_METRICS.replace(/^vllm:kv_cache_usage_perc.*\n/m, ""), 2);
+  assert.equal(probe.kvCacheUsage, null);
 });
 
 test("vLLM idle: flat counters → 0 tok/s (not sticky gauge logic)", async () => {

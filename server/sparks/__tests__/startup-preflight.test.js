@@ -25,6 +25,7 @@ test("startup preflight permits loopback and fails closed on direct LAN binding"
     localCollectors: { available: true },
   });
   assert.equal(exposed.fatal, true);
+  assert.equal(exposed.authMode, "required-missing");
   assert.match(exposed.errors.join(" "), /SPARKDASH_TOKEN|loopback|reverse proxy|Tailscale/i);
 
   const authed = evaluateStartupPreflight({
@@ -37,6 +38,25 @@ test("startup preflight permits loopback and fails closed on direct LAN binding"
   });
   assert.equal(authed.fatal, false);
   assert.equal(authed.authMode, "bearer");
+});
+
+test("startup preflight says plainly when a tokenless remote bind is left open", () => {
+  const open = evaluateStartupPreflight({
+    bindHost: "0.0.0.0",
+    tokenConfigured: false,
+    allowOpenRemote: true,
+    configWritable: true,
+    secretsKey: { present: true, source: "file" },
+    sshIdentity: { configured: false },
+    localCollectors: { available: true },
+  });
+  assert.equal(open.fatal, false);
+  assert.equal(open.authMode, "open-remote");
+  const warning = open.warnings.find((w) => w.includes("0.0.0.0"));
+  assert.ok(warning, "expected an open-bind warning");
+  assert.match(warning, /is open/);
+  assert.match(warning, /SPARKDASH_ALLOW_OPEN_REMOTE is unset or 1/);
+  assert.match(warning, /SPARKDASH_TOKEN/);
 });
 
 test("Compose files default to loopback and do not hard-code 0.0.0.0", async () => {

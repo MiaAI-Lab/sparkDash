@@ -6,12 +6,23 @@ import { Ring } from "../ui/Ring";
 import { Tag, type TagTone } from "../ui/Tag";
 import { ActivityIcon } from "../ui/icons";
 import { MetricBar } from "../ui/MetricBar";
+import { VramBreakdownBar } from "../ui/VramBreakdownBar";
 import { useMetricsHistoryTail } from "../../hooks/metricsStore";
 import { formatMb } from "../../shared/formatBytes";
 import { GpuHistoryChart, GPU_CHART_WINDOWS } from "./GpuHistoryChart";
+import {
+  computeVramBreakdown,
+  headroomTextClass,
+  type VramBreakdownContext,
+} from "../../shared/vramBreakdown";
 
 interface GpuPanelProps {
   gpu: GpuMetrics | null;
+  /**
+   * Draw the VRAM bars as an engine / system / free breakdown judged by
+   * headroom (Settings → Detailed VRAM breakdown). null: the plain bar.
+   */
+  vramContext?: VramBreakdownContext | null;
   sparkId: string;
   temperatureUnit: "celsius" | "fahrenheit";
   /** GPU chip name for the title (e.g. "GB10"). */
@@ -56,13 +67,23 @@ function tempColorFor(celsius: number, idle = "var(--color-text)"): string {
 /** One physical GPU on a multi-card host: name, throttle chip, usage/temp sparklines, VRAM. */
 function GpuDeviceRow({
   device: d,
+  vramContext,
   sparkId,
   temperatureUnit,
 }: {
   device: GpuDevice;
+  vramContext: VramBreakdownContext | null;
   sparkId: string;
   temperatureUnit: "celsius" | "fahrenheit";
 }) {
+  // One card's own VRAM and processes; its KV pool is not knowable per card.
+  const breakdown = vramContext
+    ? computeVramBreakdown(d.vram, d.processes, {
+        model: "discrete",
+        unified: null,
+        serving: vramContext.serving,
+      })
+    : null;
   const usageHistory = useMetricsHistoryTail(sparkId, `gpu.${d.index}.usage`);
   const tempHistory = useMetricsHistoryTail(sparkId, `gpu.${d.index}.temp`);
   const temp = temperatureUnit === "fahrenheit" ? celsiusToFahrenheit(d.temperature) : d.temperature;
@@ -99,7 +120,9 @@ function GpuDeviceRow({
           {d.power.draw}W / {d.power.limit}W
         </span>
       </div>
-      {d.vram.total > 0 ? (
+      {breakdown ? (
+        <VramBreakdownBar label="VRAM" breakdown={breakdown} showLegend />
+      ) : d.vram.total > 0 ? (
         <MetricBar
           label="VRAM"
           value={d.vram.used}
@@ -120,6 +143,7 @@ function GpuDeviceRow({
 
 export function GpuPanel({
   gpu,
+  vramContext = null,
   sparkId,
   temperatureUnit,
   chip,
@@ -141,6 +165,8 @@ export function GpuPanel({
   const vramTotal = gpu?.vram?.total ?? 0;
   const devices = gpu?.gpus ?? [];
   const multiGpu = devices.length > 1;
+  const breakdown =
+    gpu && vramContext ? computeVramBreakdown(gpu.vram, gpu.processes, vramContext) : null;
 
   const t = gpu?.throttle;
   const thermal = t?.reason === "thermal";
@@ -230,6 +256,7 @@ export function GpuPanel({
               <GpuDeviceRow
                 key={d.uuid ?? d.index}
                 device={d}
+                vramContext={vramContext}
                 sparkId={sparkId}
                 temperatureUnit={temperatureUnit}
               />
@@ -241,7 +268,27 @@ export function GpuPanel({
       {/* GPU-allocated memory (shown here only when the Unified memory panel is not) */}
       {gpu && !hideMemory && (
         <div className="sp-section">
-          {vramTotal > 0 ? (
+          {breakdown ? (
+            <>
+              <VramBreakdownBar
+                label={
+                  multiGpu
+                    ? "VRAM (all cards)"
+                    : breakdown.systemMB != null
+                      ? "Unified memory"
+                      : "VRAM"
+                }
+                breakdown={breakdown}
+                showLegend
+              />
+              <div className="sp-row">
+                <span className="text-muted">Available</span>
+                <span className={`mono ${headroomTextClass(breakdown.tone)}`}>
+                  {formatMb(breakdown.freeMB)}
+                </span>
+              </div>
+            </>
+          ) : vramTotal > 0 ? (
             <>
               <MetricBar
                 label={multiGpu ? "VRAM (all cards)" : "VRAM"}

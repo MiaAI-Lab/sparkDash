@@ -15,12 +15,17 @@ import { ComfyPanel } from "./ComfyPanel";
 import { LlmModelsPanel } from "./LlmModelsPanel";
 import { UnifiedMemoryPanel } from "./UnifiedMemoryPanel";
 import "../../styles/spark.css";
+import { vramContextFor } from "../../shared/vramBreakdown";
 
 interface SparkPageProps {
   spark: SparkSnapshot;
+  /** Every unit's snapshot — lets a worker find its head's LLM endpoint. */
+  fleet?: SparkSnapshot[];
   temperatureUnit: "celsius" | "fahrenheit";
   /** Show "Copy image" in the benchmark dialogs (Settings, off by default). */
   benchShareImage?: boolean;
+  /** GPU panel VRAM bar split by engine / system / free (Settings, on by default). */
+  showVramBreakdown?: boolean;
   onEdit?: () => void;
 }
 
@@ -37,8 +42,10 @@ function Item({ order, children }: { order: number; children: ReactNode }) {
 
 export function SparkPage({
   spark,
+  fleet,
   temperatureUnit,
   benchShareImage = false,
+  showVramBreakdown = true,
   onEdit,
 }: SparkPageProps) {
   const { metrics } = spark;
@@ -218,6 +225,7 @@ export function SparkPage({
             <Item order={1}>
               <GpuPanel
                 gpu={metrics.gpu}
+                vramContext={showVramBreakdown ? vramContextFor(spark, fleet) : null}
                 sparkId={spark.id}
                 temperatureUnit={temperatureUnit}
                 chip={spark.hardware.gpuChip}

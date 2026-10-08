@@ -243,11 +243,10 @@ export interface GpuDevice {
 export interface CpuMetrics {
   usage: number;
   temperature: number;
-  /**
-   * Hwmon that produced `temperature`. `acpitz` on GB10 is the SoC package
-   * (ACPI TSOC), not a CPU die.
-   */
-  temperatureSource?: "coretemp" | "k10temp" | "zenpower" | "acpitz" | "thermal" | null;
+  /** What the temperature reading is: "CPU", or "ACPI"/"SoC" for a board zone. */
+  temperatureLabel?: string | null;
+  /** Raw sensor name behind the reading (e.g. "acpitz", "coretemp"). */
+  temperatureSource?: string | null;
   draw: number;
   tdp: number;
 }
@@ -332,7 +331,10 @@ export interface LlmMetrics {
   totalCachedTokens: number | null;
   /** Cumulative total prompt (prefill) tokens as reported by the LLM server. null when the backend does not expose it. */
   totalPromptTokens: number | null;
-  /** vLLM KV cache usage fraction (0–1). null when backend !== vllm or unreachable. */
+  /**
+   * Share of the engine's KV cache pool held by requests (0–1): vLLM, q27,
+   * SGLang (`token_usage`) and TensorFold (`pool_tokens`). null when unknown.
+   */
   kvCacheUsage?: number | null;
   /** Allocated KV-cache pool in tokens (vLLM `cache_config_info`). null when unknown. */
   kvCacheTokens?: number | null;
@@ -340,6 +342,10 @@ export interface LlmMetrics {
   kvCacheTokensAvailable?: number | null;
   /** Allocated KV-cache pool in bytes. null when unknown. */
   kvCacheMemoryBytes?: number | null;
+  /** Engine KV cache pool size in GB (SGLang). null when the backend does not report it. */
+  kvCacheGb?: number | null;
+  /** Engine model weights resident in GPU memory, GB (SGLang). null when not reported. */
+  weightsGb?: number | null;
   /** vLLM running request count. null when unavailable. */
   requestsRunning?: number | null;
   /** vLLM waiting request count. null when unavailable. */
@@ -364,6 +370,11 @@ export interface LlmMetrics {
    * Does not claim process bind address.
    */
   posture?: LlmPosture | null;
+  /**
+   * Epoch ms of the last poll in which this endpoint generated or prefilled
+   * tokens. Server memory only: null after a sparkDash restart until traffic.
+   */
+  lastActiveAt?: number | null;
   error: string | null;
 }
 
@@ -510,6 +521,8 @@ export interface SparkMetrics {
 export interface SparkSnapshot {
   id: string;
   name: string;
+  /** Why the last liveness check failed, when offline. null/absent when online. */
+  offlineReason?: string | null;
   /** Unit type: spark (DGX Spark) or host (dedicated GPU Linux box). */
   kind?: "spark" | "host";
   online: boolean;
@@ -587,6 +600,21 @@ export interface FleetEnergy {
 }
 
 // ─── API responses ────────────────────────────────────────
+/**
+ * How the server authenticates requests (GET /api/health).
+ * "open-remote" — bound off loopback with no SPARKDASH_TOKEN: anyone who can reach it can mutate.
+ * "required-missing" — the same bind with SPARKDASH_ALLOW_OPEN_REMOTE=0, failing closed.
+ */
+export type AuthMode = "bearer" | "loopback-open" | "open-remote" | "required-missing";
+
+export interface HealthResponse {
+  ok: boolean;
+  bindHost: string;
+  authMode: AuthMode;
+  errors: string[];
+  warnings: string[];
+}
+
 export interface Settings {
   pollIntervalMs: number;
   defaultLlmPort: number;
@@ -611,6 +639,11 @@ export interface Settings {
   energyPricePerKwh: number | null;
   /** Currency symbol shown with cost estimates. */
   energyCurrency: string;
+  /**
+   * VRAM bars split by engine / system / free and judged by headroom. On by
+   * default (server DEFAULTS and the UI's pre-load fallback both say true).
+   */
+  showVramBreakdown: boolean;
 }
 
 export interface SparksListResponse {

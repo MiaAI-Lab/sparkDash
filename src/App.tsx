@@ -2,7 +2,7 @@ import { BenchIcon } from "./components/bench/BenchIcon";
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useSnapshot } from "./hooks/useSnapshot";
 import { useAppRoute, useRoute } from "./hooks/useRoute";
-import { fetchSparks, reorderSparks, fetchSettings } from "./api/client";
+import { fetchSparks, reorderSparks, fetchSettings, fetchHealth } from "./api/client";
 import { AppSidebar } from "./components/shell/AppSidebar";
 import { MobileTabBar } from "./components/shell/MobileTabBar";
 import { CommandPalette, type PaletteCommand } from "./components/shell/CommandPalette";
@@ -14,6 +14,7 @@ import { HermesUpdateDialog } from "./components/SparkPage/HermesUpdateDialog";
 import { OverviewPage } from "./components/OverviewPage/OverviewPage";
 import { ShowcasePage } from "./components/ShowcasePage/ShowcasePage";
 import { ThemeSwitch } from "./components/ThemeSwitch";
+import { OpenAccessChip } from "./components/OpenAccessChip";
 import { SettingsDialog } from "./components/SettingsDialog";
 import {
   GearIcon,
@@ -45,7 +46,9 @@ import { EnergyPage } from "./components/EnergyPage/EnergyPage";
 import { ActivityPage } from "./components/ActivityPage/ActivityPage";
 import { BenchPage } from "./components/bench/BenchPage";
 import { BENCH_SPARK_KEY, BENCH_TYPES } from "./components/bench/benchCatalog";
-import type { Settings, SparkSnapshot } from "./api/types";
+import type { AuthMode, Settings, SparkSnapshot } from "./api/types";
+import { AccessTokenPrompt } from "./components/AccessTokenDialog";
+import { onTokenChange } from "./api/authToken";
 import { isWorkerSpark } from "./api/sparkRole";
 
 /** Keep hidden worker ids in their original slots when the visible tabs are reordered. */
@@ -189,6 +192,7 @@ function DashboardApp() {
     });
   }, []);
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [authMode, setAuthMode] = useState<AuthMode | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   /** Used when WS is down so add/delete still updates the tab bar */
   const [fallbackSparks, setFallbackSparks] = useState<SparkSnapshot[]>([]);
@@ -255,15 +259,31 @@ function DashboardApp() {
     if (sparks.length > 0) setFallbackSparks([]);
   }, [sparks]);
 
-  // Fetch global settings on mount
+  // Fetch global settings on mount, and again when a new access token is
+  // saved (the first load may have been refused for the missing token).
   useEffect(() => {
-    fetchSettings()
-      .then(setSettings)
-      .catch((err) =>
-        setActionError(
-          `Could not load settings: ${err instanceof Error ? err.message : String(err)}. Reload to retry.`
-        )
-      );
+    const load = (afterTokenChange: boolean) =>
+      fetchSettings()
+        .then((s) => {
+          setSettings(s);
+          if (afterTokenChange) setActionError(null);
+        })
+        .catch((err) =>
+          setActionError(
+            `Could not load settings: ${err instanceof Error ? err.message : String(err)}. Reload to retry.`
+          )
+        );
+    void load(false);
+    return onTokenChange((token) => {
+      if (token) void load(true);
+    });
+  }, []);
+
+  // Auth posture once on load — drives the "Open access" header warning.
+  useEffect(() => {
+    fetchHealth()
+      .then((h) => setAuthMode(h.authMode))
+      .catch(() => setAuthMode(null));
   }, []);
 
   const handleSettingsSaved = useCallback((s: Settings) => {
@@ -481,6 +501,7 @@ function DashboardApp() {
             <ThemeSwitch />
           </header>
           <div className="app-content">
+            <OpenAccessChip authMode={authMode} />
             <ConnectionBanner
               connected={connected}
               lastValidSnapshotAt={lastValidSnapshotAt}
@@ -507,6 +528,7 @@ function DashboardApp() {
                   showFleetExceptions={settings?.showFleetExceptions ?? false}
                   showOverviewSearch={settings?.showOverviewSearch ?? false}
                   showLlmTokenTotals={settings?.showLlmTokenTotals ?? true}
+                  showVramBreakdown={settings?.showVramBreakdown ?? true}
                   temperatureUnit={settings?.temperatureUnit ?? "celsius"}
                   onSelectSpark={navigate}
                   onNavigate={navigate}
@@ -514,6 +536,8 @@ function DashboardApp() {
               ) : displayActive ? (
                 <SparkPage
                   spark={displayActive}
+                  fleet={displaySparks}
+                  showVramBreakdown={settings?.showVramBreakdown ?? true}
                   temperatureUnit={settings?.temperatureUnit ?? "celsius"}
                   benchShareImage={settings?.benchShareImage ?? false}
                   onEdit={() => setEditId(displayActive.id)}
@@ -579,10 +603,16 @@ function DashboardApp() {
 
 function App() {
   const route = useAppRoute();
-  if (route.mode === "showcase" && route.showcaseSparkId) {
-    return <ShowcasePage sparkId={route.showcaseSparkId} />;
-  }
-  return <DashboardApp />;
+  return (
+    <>
+      {route.mode === "showcase" && route.showcaseSparkId ? (
+        <ShowcasePage sparkId={route.showcaseSparkId} />
+      ) : (
+        <DashboardApp />
+      )}
+      <AccessTokenPrompt />
+    </>
+  );
 }
 
 export default App;

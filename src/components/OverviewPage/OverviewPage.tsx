@@ -14,6 +14,7 @@ import { ActivityFeed } from "./ActivityFeed";
 import { shutdownWarnings } from "./fleetStats";
 import { ActivityIcon, PowerOffIcon, PowerOnIcon, RotateIcon } from "../ui/icons";
 import { formatMb } from "../../shared/formatBytes";
+import { vramContextFor } from "../../shared/vramBreakdown";
 import "../../styles/overview.css";
 
 /** The worker's configured head, else the fleet's only head when that is unambiguous. */
@@ -32,6 +33,8 @@ interface OverviewPageProps {
   showOverviewSearch?: boolean;
   /** Overview LLM token totals card (cumulative tokens per model). */
   showLlmTokenTotals?: boolean;
+  /** VRAM bar split by engine / system / free, judged by headroom. On by default. */
+  showVramBreakdown?: boolean;
   temperatureUnit?: "celsius" | "fahrenheit";
   onSelectSpark?: (id: string) => void;
   /** Open a dedicated page (Token totals, Fleet energy, Activity). */
@@ -46,6 +49,7 @@ export function OverviewPage({
   showFleetExceptions = false,
   showOverviewSearch = false,
   showLlmTokenTotals = true,
+  showVramBreakdown = true,
   temperatureUnit = "celsius",
   onSelectSpark,
   onNavigate,
@@ -345,6 +349,7 @@ export function OverviewPage({
               key={spark.id}
               spark={spark}
               headSpark={headFor(spark, sparks)}
+              vramContext={showVramBreakdown ? vramContextFor(spark, sparks) : null}
               temperatureUnit={temperatureUnit}
               onSelect={onSelectSpark}
             />

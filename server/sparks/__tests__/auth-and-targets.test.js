@@ -62,6 +62,10 @@ test("SSH port is optional and must be an integer from 1 to 65535", () => {
   );
 });
 
+test("local units get the same SSH user check as remote ones", () => {
+  assert.match(validateSparkTarget({ isLocal: true, ssh: { user: "a;b" } }), /Invalid SSH user/);
+});
+
 test("rate limiter expires stale keys instead of growing forever", () => {
   const allow = createRateLimiter(2, 20);
   assert.equal(allow("a"), true);

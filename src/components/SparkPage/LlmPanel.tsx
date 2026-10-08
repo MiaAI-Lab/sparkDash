@@ -17,10 +17,13 @@ import { PrefillBenchDialog } from "./PrefillBenchDialog";
 import { QualityBenchDialog } from "./QualityBenchDialog";
 import { LlmDailyChart } from "./LlmDailyChart";
 import { LlmTokenTotals } from "./LlmTokenTotals";
+import { ENGINE_GENERATED_LABEL, ENGINE_GENERATED_TITLE } from "./tokenTotalsCopy";
 import { parseLlmTargetInput } from "../../shared/llmTarget.js";
 import { backendLabel } from "../../shared/llmBackends.js";
 import { LlmTrendChart } from "./LlmTrendChart";
 import type { BenchKind } from "./BenchSwitcher";
+import { engineStateLabel } from "./llmEngineState";
+import { idleLabel, isLlmIdle } from "../../shared/llmIdle";
 
 interface LlmPanelProps {
   llm: LlmMetrics | null;
@@ -423,6 +426,10 @@ export function LlmPanel({
   const cachedPrefillTps = llm?.cachedPrefillTps ?? 0;
   const uncachedPrefillTps = llm?.uncachedPrefillTps ?? 0;
   const available = llm?.available ?? false;
+  // While nothing is flowing, say when the endpoint last served.
+  const idleNote = available && isLlmIdle({ generationTps, prefillTps })
+    ? idleLabel(llm?.lastActiveAt)
+    : null;
 
   // Keep draft in sync when server pushes a different port (other tab / reload)
   useEffect(() => {
@@ -717,6 +724,11 @@ export function LlmPanel({
               </div>
               <TrendLine data={genHistory} height={44} color="var(--color-accent)" />
               {genAvg != null && <span className="sp-avg mono">avg {fmtAvg(genAvg)}</span>}
+              {idleNote && (
+                <span className="sp-avg" data-llm-idle>
+                  {idleNote}
+                </span>
+              )}
             </div>
             <div
               className="sp-metric"
@@ -797,9 +809,14 @@ export function LlmPanel({
               <span>Context</span>
             </div>
             <div className="sp-tile">
-              <b>
-                {llm?.gpuMemoryUtilization != null ? (llm.gpuMemoryUtilization === 0 ? "Sleeping" : "Active") : "—"}
-              </b>
+              {(() => {
+                const engine = engineStateLabel(llm);
+                return (
+                  <b className={engine.muted ? "text-muted" : undefined} title={engine.title}>
+                    {engine.text}
+                  </b>
+                );
+              })()}
               <div className="sp-tile__label">
                 <span>Engine</span>
                 <button
@@ -828,9 +845,9 @@ export function LlmPanel({
                 </button>
               </div>
             </div>
-            <div className="sp-tile">
+            <div className="sp-tile" title={ENGINE_GENERATED_TITLE}>
               <b>{llm && llm.totalOutputTokens > 0 ? llm.totalOutputTokens.toLocaleString() : "—"}</b>
-              <span>Total generated</span>
+              <span>{ENGINE_GENERATED_LABEL}</span>
             </div>
           </div>
 

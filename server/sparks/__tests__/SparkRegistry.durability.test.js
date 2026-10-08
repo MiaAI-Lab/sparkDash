@@ -52,6 +52,26 @@ test("failed update preserves prior in-memory state and emits nothing", () => {
   assert.deepEqual(events, []);
 });
 
+test("failed update after a host change keeps the saved secrets", () => {
+  const r = registry();
+  r.setLlmApiKey("existing", 8888, "sk-test-0000");
+  const saveSecrets = r._saveSecrets.bind(r);
+  r._saveSecrets = (passwords, llmApiKeys) => {
+    if (passwords.get("existing") === "new-password") throw new Error("injected secrets write failure");
+    saveSecrets(passwords, llmApiKeys);
+  };
+
+  assert.throws(
+    () => r.updateSpark("existing", { lanIp: "127.0.0.2", ssh: { password: "new-password" } }),
+    /injected secrets write failure/
+  );
+  for (const s of [r, new SparkRegistry()]) {
+    assert.equal(s.getSpark("existing").lanIp, "127.0.0.1");
+    assert.equal(s.getSpark("existing").ssh.password, "test-password");
+    assert.equal(s.hasLlmApiKey("existing", 8888), true);
+  }
+});
+
 test("failed remove preserves registry entry, secrets, and listeners", () => {
   const r = registry();
   const events = [];

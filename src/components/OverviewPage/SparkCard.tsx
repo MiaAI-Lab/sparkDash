@@ -3,9 +3,11 @@ import type { SparkSnapshot } from "../../api/types";
 import { resolveSparkRole } from "../../api/sparkRole";
 import { wakeSpark } from "../../api/client";
 import { backendLabel } from "../../shared/llmBackends";
-import { formatMb } from "../../shared/formatBytes";
+import { formatDiskSize, formatMb } from "../../shared/formatBytes";
 import { useMetricsHistoryTail } from "../../hooks/metricsStore";
 import { Tag } from "../ui/Tag";
+import { VramBreakdownBar } from "../ui/VramBreakdownBar";
+import { computeVramBreakdown, headroomTextClass, type VramBreakdownContext } from "../../shared/vramBreakdown";
 import { TrendLine } from "../ui/TrendLine";
 import { ImageIcon, PowerOnIcon } from "../ui/icons";
 import { formatCtx } from "./fleetStats";
@@ -63,12 +65,15 @@ function Bar({
 export function SparkCard({
   spark,
   headSpark,
+  vramContext = null,
   temperatureUnit,
   onSelect,
 }: {
   spark: SparkSnapshot;
   /** The head this worker serves for (workers only). */
   headSpark?: SparkSnapshot | null;
+  /** Breakdown inputs (see `vramContextFor`); null keeps the plain VRAM bar. */
+  vramContext?: VramBreakdownContext | null;
   temperatureUnit: Unit;
   onSelect?: (id: string) => void;
 }) {
@@ -95,6 +100,7 @@ export function SparkCard({
   const memUsed = gpu?.vram?.used ?? um?.used ?? 0;
   const memTotal = gpu?.vram?.total ?? um?.total ?? 0;
   const memAvail = gpu?.vram?.available ?? um?.available ?? 0;
+  const breakdown = gpu && vramContext ? computeVramBreakdown(gpu.vram, gpu.processes, vramContext) : null;
   const throttle = gpu?.throttle;
   const slowed = !!(throttle?.thermal || throttle?.hwSlowdown);
   const hot = slowed || tempRaw >= 80;
@@ -253,13 +259,23 @@ export function SparkCard({
         <>
           <div className="ov-sc__body">
             <div className="ov-sc__stats">
-              <Bar
-                label={gpu.vram?.total ? "VRAM" : "Unified memory"}
-                caption={memTotal > 0 ? `${fmtStorage(memUsed, false)} / ${fmtStorage(memTotal, true)}` : "—"}
-                pct={memPct}
-                color={memColor}
-                sub={memTotal > 0 && memAvail > 0 ? { label: "Available", value: formatMb(memAvail) } : null}
-              />
+              {breakdown ? (
+                <div>
+                  <VramBreakdownBar label={breakdown.systemMB != null ? "Unified memory" : "VRAM"} breakdown={breakdown} />
+                  <div className="ov-sub">
+                    <span>Available</span>
+                    <b className={`mono ${headroomTextClass(breakdown.tone)}`}>{formatMb(breakdown.freeMB)}</b>
+                  </div>
+                </div>
+              ) : (
+                <Bar
+                  label={gpu.vram?.total ? "VRAM" : "Unified memory"}
+                  caption={memTotal > 0 ? `${fmtStorage(memUsed, false)} / ${fmtStorage(memTotal, true)}` : "—"}
+                  pct={memPct}
+                  color={memColor}
+                  sub={memTotal > 0 && memAvail > 0 ? { label: "Available", value: formatMb(memAvail) } : null}
+                />
+              )}
               <Bar label="GPU" caption={`${Math.round(usage)}%`} pct={usage} color={ringColor} />
               {spark.kind === "host" && spark.metrics.ram?.total ? (
                 <Bar
@@ -328,8 +344,11 @@ export function SparkCard({
             <div className="ov-foot">
               <div className="ov-kv">
                 <span>Storage</span>
-                <b className="mono">
-                  {fmtStorage(rootDisk.used, false)} / {fmtStorage(rootDisk.total, true)}
+                <b
+                  className="mono"
+                  title={`${fmtStorage(rootDisk.used, true)} of ${fmtStorage(rootDisk.total, true)} used (${Math.round(rootDisk.percentage)}%)`}
+                >
+                  {formatDiskSize(rootDisk.used)} / {formatDiskSize(rootDisk.total)}
                 </b>
               </div>
               <div className="ov-kv">

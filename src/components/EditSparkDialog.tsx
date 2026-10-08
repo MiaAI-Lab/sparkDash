@@ -128,6 +128,14 @@ export function EditSparkDialog({
   const needsPassword =
     !config?.isLocal && config?.ssh.auth === "pass" && !config.ssh.hasPassword && !password;
 
+  // The server drops the saved password when the SSH target changes.
+  const sshTargetChanged =
+    config != null &&
+    savedConfig != null &&
+    (config.isLocal !== savedConfig.isLocal ||
+      (config.ssh.host || config.lanIp) !== (savedConfig.ssh?.host || savedConfig.lanIp) ||
+      config.ssh.user !== savedConfig.ssh?.user);
+
   /** Persist password immediately (host can be offline). */
   const persistPasswordIfEntered = async () => {
     if (!config || !password) return false;
@@ -200,7 +208,8 @@ export function EditSparkDialog({
         : await testSpark(config.id);
 
       setTestResult(result);
-      if (password) setPassword("");
+      // Keep it for Save when the SSH target changed (the edit has to resend it).
+      if (password && !sshTargetChanged) setPassword("");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -210,7 +219,7 @@ export function EditSparkDialog({
 
   const handleSave = async () => {
     if (!config) return;
-    if (!config.isLocal && config.ssh.auth === "pass" && !config.ssh.hasPassword && !password) {
+    if (!config.isLocal && config.ssh.auth === "pass" && (!config.ssh.hasPassword || sshTargetChanged) && !password) {
       setError("Password required for password-auth Sparks (saved encrypted, host can be offline).");
       return;
     }
@@ -218,7 +227,7 @@ export function EditSparkDialog({
     setError(null);
     try {
       // Save password first so it is never lost if the rest of the update fails
-      if (password) {
+      if (password && !sshTargetChanged) {
         await persistPasswordIfEntered();
       }
 
@@ -250,6 +259,7 @@ export function EditSparkDialog({
             const n = Number(config.ssh.port);
             return Number.isInteger(n) && n >= 1 && n <= 65535 ? n : 22;
           })(),
+          ...(password && sshTargetChanged ? { password } : {}),
         },
       };
       await updateSpark(config.id, patch);

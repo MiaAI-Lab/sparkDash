@@ -3,6 +3,7 @@ import { SPARKS_JSON_PATH, LLM_PORT } from "../config.js";
 import { loadSecrets, saveSecrets } from "../secretsStore.js";
 import { atomicWrite } from "../util/atomicWrite.js";
 import { isValidSparkId, normalizeSshPort } from "../validate.js";
+import { llmProbeHost } from "../collectors/llmHost.js";
 
 /**
  * SparkRegistry — loads, persists, and emits change events for the Spark list.
@@ -161,11 +162,25 @@ export class SparkRegistry {
     };
     const nextSparks = [...this._sparks];
     nextSparks[idx] = this._normalizeConfig(updated);
+    // Secrets belong to the host they were entered for. LLM keys also reach a
+    // remote unit's SSH host, through the bench tunnel.
+    const sshTarget = (s) => [s.isLocal, s.ssh.user, s.ssh.host || s.lanIp].join(" ");
+    const llmTarget = (s) => [llmProbeHost(s), !s.isLocal && (s.ssh.host || s.lanIp)].join(" ");
+    const prevPasswords = this._passwords;
+    const prevLlmApiKeys = this._llmApiKeys;
     this._save(nextSparks);
     try {
+      if (sshTarget(nextSparks[idx]) !== sshTarget(prev)) this._storePassword(id, "");
+      if (llmTarget(nextSparks[idx]) !== llmTarget(prev)) this.pruneLlmApiKeys(id, []);
       if (hasPasswordUpdate) this._storePassword(id, passwordUpdate);
     } catch (err) {
       this._save(this._sparks);
+      // The unit is back on its old host, so its secrets come back too.
+      if (this._passwords !== prevPasswords || this._llmApiKeys !== prevLlmApiKeys) {
+        this._saveSecrets(prevPasswords, prevLlmApiKeys);
+        this._passwords = prevPasswords;
+        this._llmApiKeys = prevLlmApiKeys;
+      }
       throw err;
     }
     this._sparks = nextSparks;
