@@ -320,9 +320,49 @@ test("LlmTokenRuntime: tick pulls observations via orderedSnapshots and route re
   const routes = [];
   const app = { get: (p, h) => routes.push({ p, h }) };
   registerLlmTokenTotalsRoute(app, ledger);
-  assert.equal(routes.length, 1);
-  assert.equal(routes[0].p, "/api/llm-token-totals");
+  assert.deepEqual(routes.map((r) => r.p), ["/api/llm-token-totals/history", "/api/llm-token-totals"]);
   let sent = null;
-  routes[0].h({}, { json: (v) => (sent = v) });
+  routes[1].h({}, { json: (v) => (sent = v) });
   assert.equal(sent.series[0].sparkId, "spark-a");
+  let hist = null;
+  routes[0].h({}, { json: (v) => (hist = v) });
+  assert.ok(Array.isArray(hist.day) && Array.isArray(hist.hour));
+});
+
+test("LlmTokenLedger.history: day and hour rows carry the same credited deltas, oldest first", () => {
+  const ledger = tmpLedger();
+  const obs = (output, prompt, cached) => [
+    { sparkId: "s1", port: 8888, modelId: "m/a", output, prompt, cached },
+  ];
+  const t0 = Date.UTC(2026, 9, 6, 23, 50); // 23:50 UTC on Oct 6
+  ledger.record(obs(100, 1000, 200), t0); // baseline only
+  ledger.record(obs(150, 1500, 400), t0 + 5 * 60_000); // 23:55 -> Oct 6 / hour 23
+  ledger.record(obs(170, 1600, 400), t0 + 20 * 60_000); // 00:10 -> Oct 7 / hour 00
+  const h = ledger.history(t0 + 30 * 60_000);
+  assert.deepEqual(h.day.map((r) => [r.t, r.completionTokens, r.promptTokens, r.cachedTokens]), [
+    ["2026-10-06", 50, 500, 200],
+    ["2026-10-07", 20, 100, 0],
+  ]);
+  assert.deepEqual(h.hour.map((r) => r.t), ["2026-10-06T23", "2026-10-07T00"]);
+  assert.equal(h.firstDay, "2026-10-06");
+  assert.equal(h.retention.hours, 72);
+  assert.equal(h.day[0].sparkId, "s1");
+  assert.equal(h.day[0].port, 8888);
+});
+
+test("LlmTokenLedger: hourly buckets are pruned to 72 hours and survive a save/load round trip", () => {
+  const ledger = tmpLedger();
+  const base = Date.UTC(2026, 0, 1, 0, 0);
+  let out = 0;
+  ledger.record([{ sparkId: "s1", port: 1, modelId: "m", output: out, prompt: 0, cached: 0 }], base);
+  for (let h = 1; h <= 100; h++) {
+    out += 10;
+    ledger.record([{ sparkId: "s1", port: 1, modelId: "m", output: out, prompt: 0, cached: 0 }], base + h * 3_600_000);
+  }
+  const hours = ledger.history(base + 100 * 3_600_000).hour;
+  assert.equal(hours.length, 72);
+  assert.equal(hours.at(-1).completionTokens, 10);
+  ledger.flush();
+  const reloaded = new LlmTokenLedger(ledger.filePath);
+  assert.equal(reloaded.history().hour.length, 72);
 });

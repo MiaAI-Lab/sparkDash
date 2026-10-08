@@ -11,4 +11,20 @@ test("local unit accepts a blank LAN IP while remote units remain strict", () =>
   const local = registry._normalizeConfig({ id: "local", name: "Local", isLocal: true, lanIp: "", ssh: {} });
   assert.equal(local.lanIp, "");
   assert.equal(local.ssh.host, "");
+  assert.equal(local.ssh.port, 22);
+
+  const custom = registry._normalizeConfig({
+    id: "remote",
+    name: "Remote",
+    lanIp: "192.168.1.20",
+    ssh: { port: "2222" },
+  });
+  assert.equal(custom.ssh.port, 2222);
+  const invalid = registry._normalizeConfig({
+    id: "remote",
+    name: "Remote",
+    lanIp: "192.168.1.20",
+    ssh: { port: "nope" },
+  });
+  assert.equal(invalid.ssh.port, 22);
 });

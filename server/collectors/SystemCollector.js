@@ -110,7 +110,12 @@ export class SystemCollector {
         this.lastCpuStat = usage;
         this.lastCpuUsagePct = cpuPercentage;
       }
-      const cpuData = { usage: cpuPercentage, temperature: temp, ...power };
+      const cpuData = {
+        usage: cpuPercentage,
+        temperature: temp,
+        temperatureSource: this._lastCpuTempSource,
+        ...power,
+      };
       return tagCollectionResult(cpuData, this._isSuccessfulCpuCollection(cpuData));
     } catch (err) {
       console.error(`[SystemCollector] CPU error for ${this.spark.id}:`, err.message);
@@ -357,7 +362,7 @@ export class SystemCollector {
       // Free VRAM = total − used (unlike the shared pool, GPU memory is dedicated).
       if (totalMB <= 0 && memTotalMB > 0) totalMB = memTotalMB;
       else if (totalMB <= 0) totalMB = DGX_SPARK.MEMORY_HBM_SIZE_GB * 1024; // Convert to MB
-      if (totalMB > 0 && usedMB > 0) availableMB = Math.max(0, totalMB - usedMB);
+      if (totalMB > 0) availableMB = Math.max(0, totalMB - usedMB);
     } else {
       // GB10 shared HBM pool: prefer the OS-visible pool (MemTotal) as the total,
       // fall back to nvidia-smi, then the hardware spec (HBM) only if nothing known.
@@ -679,6 +684,7 @@ export class SystemCollector {
   }
 
   async _getCPUTemperature() {
+    this._lastCpuTempSource = null;
     // Try hwmon sysfs first
     try {
       const hwmonDir = path.join(HOST_PATHS.SYS, "class/hwmon");
@@ -692,7 +698,10 @@ export class SystemCollector {
               const tempFiles = fs.readdirSync(path.join(hwmonDir, entry)).filter((f) => f.startsWith("temp") && f.endsWith("_input"));
               if (tempFiles.length > 0) {
                 const tempRaw = parseInt(fs.readFileSync(path.join(hwmonDir, entry, tempFiles[0]), "utf-8").trim());
-                if (tempRaw > 0 && tempRaw < 200000) return tempRaw / 1000;
+                if (tempRaw > 0 && tempRaw < 200000) {
+                  this._lastCpuTempSource = name;
+                  return tempRaw / 1000;
+                }
               }
             }
           }
@@ -709,7 +718,10 @@ export class SystemCollector {
           const tempFile = path.join(thermalDir, zone, "temp");
           if (fs.existsSync(tempFile)) {
             const temp = parseInt(fs.readFileSync(tempFile, "utf-8").trim());
-            if (temp > 0 && temp < 200000) return temp / 1000;
+            if (temp > 0 && temp < 200000) {
+              this._lastCpuTempSource = "thermal";
+              return temp / 1000;
+            }
           }
         }
       }
@@ -1145,7 +1157,7 @@ export class SystemCollector {
   }
 
   // ─── Remote collection via SSH ────────────────────────────
-  async _getRemoteGpu() {
+  async _getRemoteGpu(executor = sshExec) {
     try {
       const cmd = [
         "nvidia-smi --query-gpu=temperature.gpu,utilization.gpu,power.draw,power.limit,clocks.current.sm,clocks.max.sm,clocks_throttle_reasons.hw_thermal_slowdown,clocks_throttle_reasons.sw_thermal_slowdown,clocks_throttle_reasons.hw_slowdown,clocks_throttle_reasons.sw_power_cap,index,name,uuid --format=csv,noheader,nounits 2>/dev/null",
@@ -1157,7 +1169,7 @@ export class SystemCollector {
         "grep -E 'MemTotal|MemAvailable' /proc/meminfo 2>/dev/null",
       ].join("; ");
 
-      const output = await sshExec(this.spark, cmd);
+      const output = await executor(this.spark, cmd);
       const sections = output.split("---");
       const gpuOut = sections[0]?.trim() || "";
       const memFields = sections[1]?.trim() || "";
@@ -1199,7 +1211,7 @@ export class SystemCollector {
         // Discrete GPU VRAM: trust nvidia-smi's memory.total; free VRAM = total − used.
         if (totalMB <= 0 && memTotalMB > 0) totalMB = memTotalMB;
         else if (totalMB <= 0) totalMB = DGX_SPARK.MEMORY_HBM_SIZE_GB * 1024; // Convert to MB
-        if (totalMB > 0 && usedMB > 0) availableMB = Math.max(0, totalMB - usedMB);
+        if (totalMB > 0) availableMB = Math.max(0, totalMB - usedMB);
       } else {
         // GB10 shared HBM pool: prefer the OS-visible pool (MemTotal) as the total,
         // fall back to nvidia-smi, then the hardware spec (HBM) only if nothing known.
@@ -1245,7 +1257,7 @@ export class SystemCollector {
       "cat /proc/cpuinfo | grep -E 'CPU architecture|aarch64' | head -1",
       "echo '---'",
       // GB10 also exposes nvme/mlx5 sensors; the name allowlist keeps those out.
-      'for h in /sys/class/hwmon/*; do n=$(cat "$h/name" 2>/dev/null); case "$n" in coretemp|k10temp|zenpower|acpitz) for t in "$h"/temp*_input; do cat "$t" 2>/dev/null; break; done;; esac; done',
+      'for h in /sys/class/hwmon/*; do n=$(cat "$h/name" 2>/dev/null); case "$n" in coretemp|k10temp|zenpower|acpitz) for t in "$h"/temp*_input; do printf "%s %s\\n" "$n" "$(cat "$t" 2>/dev/null)"; break; done; break;; esac; done',
       "cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null || true",
     ].join("; ");
   }
@@ -1285,9 +1297,11 @@ export class SystemCollector {
       const idleWatts = tdp * 0.08;
       const draw = idleWatts + (tdp - idleWatts) * Math.min(usage / 100, 1);
 
+      const sensor = this._parseRemoteCpuTemp(tempOut);
       return {
         usage,
-        temperature: this._parseSensorTemp(tempOut),
+        temperature: sensor.temperature,
+        temperatureSource: sensor.temperatureSource,
         draw: Math.round(draw * 10) / 10,
         tdp: Math.round(tdp),
       };
@@ -1305,6 +1319,29 @@ export class SystemCollector {
    * @param {string} raw
    * @returns {number} degrees Celsius, or 0
    */
+  /**
+   * Remote sensor dump: `name millidegrees` from hwmon when the allowlist
+   * matched, otherwise bare millidegree lines from thermal zones.
+   * `acpitz` on GB10 is ACPI zone 0 (TSOC), not a CPU die.
+   * @param {string} raw
+   * @returns {{ temperature: number, temperatureSource: string | null }}
+   */
+  _parseRemoteCpuTemp(raw) {
+    for (const line of String(raw).split("\n")) {
+      const named = line.trim().match(/^(coretemp|k10temp|zenpower|acpitz)\s+(\d+)$/);
+      if (!named) continue;
+      const millidegrees = parseInt(named[2], 10);
+      if (millidegrees > 0 && millidegrees < 200000) {
+        return {
+          temperature: Math.round((millidegrees / 1000) * 10) / 10,
+          temperatureSource: named[1],
+        };
+      }
+    }
+    const temperature = this._parseSensorTemp(raw);
+    return { temperature, temperatureSource: temperature > 0 ? "thermal" : null };
+  }
+
   _parseSensorTemp(raw) {
     for (const line of String(raw).split("\n")) {
       const millidegrees = parseInt(line.trim(), 10);
@@ -1932,7 +1969,7 @@ export class SystemCollector {
   }
 
   _defaultCpu() {
-    return { usage: 0, temperature: 0, draw: 0, tdp: 0 };
+    return { usage: 0, temperature: 0, temperatureSource: null, draw: 0, tdp: 0 };
   }
 
   _defaultRam() {

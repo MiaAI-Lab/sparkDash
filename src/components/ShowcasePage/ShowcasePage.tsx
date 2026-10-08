@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import "../../styles/showcase.css";
 import {
   cancelShowcase,
   clearShowcaseHistory,
@@ -15,6 +16,7 @@ import type {
 } from "../../api/types";
 import { isLlmMonitoringEnabled } from "../../api/sparkRole";
 import { BoltIcon } from "../ui/icons";
+import { ThemeSwitch } from "../ThemeSwitch";
 import { TerminalCard } from "./TerminalCard";
 import {
   PROMPT_TYPES,
@@ -238,7 +240,7 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
     }
     return prompts.map((p, i) => ({
       streamId: String(i),
-      label: p.replace(/\s+/g, " ").trim().slice(0, 40),
+      label: p.replace(/\s+/g, " ").trim().slice(0, 120),
       prompt: p,
       status: "pending",
       content: "",
@@ -995,6 +997,7 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
                 >
                   Hide
                 </button>
+                <ThemeSwitch />
               </div>
             </div>
           </div>
@@ -1216,6 +1219,7 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
             status={s.status}
             liveTokPerSec={s.liveTokPerSec}
             peakTokPerSec={s.peakTokPerSec}
+            tokenCount={s.tokenCount}
             content={s.content}
             reasoning={s.reasoning}
             error={s.error}

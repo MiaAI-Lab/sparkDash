@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import "../../styles/dialogs.css";
 import {
   cancelPrefillBench,
   clearPrefillBenchHistory,
@@ -10,6 +11,8 @@ import {
 import type { PrefillBenchJob, LlmBenchTarget } from "../../api/types";
 import { useModalPresence } from "../../hooks/useModalPresence";
 import { BenchCopyButton } from "./BenchCopyButton";
+import { BenchSwitcher, type BenchKind } from "./BenchSwitcher";
+import { XIcon } from "../ui/icons";
 import { buildPrefillShareCard, shareCardFileName } from "./benchShareCard";
 import {
   PREFILL_CONTEXT_SIZES,
@@ -19,12 +22,17 @@ import {
   formatContextSize,
   parseContextSize,
 } from "../../shared/prefillBench.js";
+import { HistoryTable, PageCard, PageEmpty, PageLayout } from "../bench/sparkdash/pageParts";
+import { prefillHistoryRow } from "../bench/sparkdash/historyRows";
 import { formatDuration } from "../../shared/formatDuration";
 import { formatLlmBaseUrl } from "../../shared/llmTarget.js";
 
 interface PrefillBenchDialogProps {
-  open: boolean;
-  onClose: () => void;
+  /** Modal only; the page variant is always open. */
+  open?: boolean;
+  onClose?: () => void;
+  /** "page" renders the same content inline (no overlay, close button or switcher). */
+  variant?: "modal" | "page";
   sparkId: string;
   llmPort: number;
   modelId: string | null;
@@ -38,6 +46,8 @@ interface PrefillBenchDialogProps {
   engine?: string | null;
   /** Probe exposure/auth posture for the share-card chip. */
   posture?: { label: string; level: "ok" | "warn" | "danger" } | null;
+  /** Switch to another benchmark dialog (Decode / Prefill / Quality). Switcher hidden when omitted. */
+  onSwitchBench?: (kind: BenchKind) => void;
 }
 
 function useEscape(onClose: () => void, enabled: boolean) {
@@ -106,9 +116,21 @@ function buildShareText(job: PrefillBenchJob, modelId: string | null): string {
   return [head, "", ...lines].join("\n");
 }
 
-function ResultRow({ r }: { r: PrefillBenchJob["results"][number] }) {
+function prefillTitle(r: PrefillBenchJob["results"][number]): string | undefined {
+  if (!r.method) return undefined;
+  const how =
+    r.method === "server"
+      ? "server-reported prompt timing"
+      : `tokens ÷ (TTFT − ${Math.round(r.overheadMs ?? 0)} ms overhead)`;
+  const parts = [`Prefill: ${how}`, `median of ${r.samples ?? 1}`];
+  if (r.cachedTokens) parts.push(`${r.cachedTokens.toLocaleString()} cached tokens excluded`);
+  return parts.join(" · ");
+}
+
+function ResultRow({ r, max }: { r: PrefillBenchJob["results"][number]; max: number }) {
+  const pct = max > 0 ? Math.max(2, Math.round((r.prefillTps / max) * 100)) : 0;
   return (
-    <article className="bench-result-row" title={r.error || undefined}>
+    <article className="bench-result-row" title={r.error || prefillTitle(r)}>
       <div className="bench-result-row__load">
         <span className="bench-result-row__badge">{formatContextSize(r.targetTokens)}</span>
         <div className="bench-result-row__facts">
@@ -140,13 +162,18 @@ function ResultRow({ r }: { r: PrefillBenchJob["results"][number] }) {
           </span>
         </div>
       </div>
+
+      <div className="bench-result-row__bar" aria-hidden>
+        <i style={{ width: `${pct}%` }} />
+      </div>
     </article>
   );
 }
 
 export function PrefillBenchDialog({
-  open,
-  onClose,
+  open: openProp = true,
+  onClose = () => {},
+  variant = "modal",
   sparkId,
   llmPort,
   modelId,
@@ -156,7 +183,11 @@ export function PrefillBenchDialog({
   sparkName = null,
   engine = null,
   posture = null,
+  onSwitchBench,
 }: PrefillBenchDialogProps) {
+  const isPage = variant === "page";
+  const open = isPage || openProp;
+  const [history, setHistory] = useState<PrefillBenchJob[]>([]);
   const [selected, setSelected] = useState<number[]>(() => defaultSelected(contextLength));
   const [customDraft, setCustomDraft] = useState("");
   const [job, setJob] = useState<PrefillBenchJob | null>(null);
@@ -175,10 +206,20 @@ export function PrefillBenchDialog({
   }, []);
 
   const isRunning = job?.status === "running";
+  // A saved run belongs to the model it ran against, which may not be the one loaded now (or any).
+  const resultModelId = job?.config?.modelId || modelId;
   const { mounted, visible } = useModalPresence(open);
 
-  useEscape(onClose, open && !starting);
-  useBodyScrollLock(mounted);
+  useEscape(onClose, open && !starting && !isPage);
+  useBodyScrollLock(mounted && !isPage);
+
+  const refreshHistory = useCallback(() => {
+    void listPrefillBench(sparkId, benchPort)
+      .then((data) => setHistory(data.history ?? []))
+      .catch(() => {
+        /* history is optional */
+      });
+  }, [sparkId, benchPort]);
 
   const startPolling = useCallback(
     (benchId: string) => {
@@ -188,7 +229,10 @@ export function PrefillBenchDialog({
           .then((j) => {
             setJob(j);
             setError(null);
-            if (j.status !== "running") stopPoll();
+            if (j.status !== "running") {
+              stopPoll();
+              refreshHistory();
+            }
           })
           .catch((err: Error) => {
             void listPrefillBench(sparkId, benchPort)
@@ -230,7 +274,7 @@ export function PrefillBenchDialog({
           });
       }, 800);
     },
-    [sparkId, benchPort, stopPoll]
+    [sparkId, benchPort, stopPoll, refreshHistory]
   );
 
   useEffect(() => {
@@ -245,6 +289,7 @@ export function PrefillBenchDialog({
     void listPrefillBench(sparkId, benchPort)
       .then((data) => {
         if (cancelled) return;
+        setHistory(data.history ?? []);
         if (data.active) {
           setJob(data.active);
           if (Array.isArray(data.active.config?.contextSizes)) {
@@ -324,6 +369,27 @@ export function PrefillBenchDialog({
   const customSizes = selected.filter((n) => !PREFILL_CONTEXT_SIZES.includes(n));
 
   const startLockRef = useRef(false);
+
+  // Page only: a run started from the Spark page's dialog (or another tab) shows up here too.
+  useEffect(() => {
+    if (!isPage) return;
+    const t = setInterval(() => {
+      if (pollRef.current != null || startLockRef.current) return;
+      void listPrefillBench(sparkId, benchPort)
+        .then((data) => {
+          setHistory(data.history ?? []);
+          if (data.active?.status === "running" && pollRef.current == null && !startLockRef.current) {
+            setJob(data.active);
+            startPolling(data.active.benchId);
+          }
+        })
+        .catch(() => {
+          /* next tick */
+        });
+    }, 5000);
+    return () => clearInterval(t);
+  }, [isPage, sparkId, benchPort, startPolling]);
+
   const handleStart = async () => {
     if (startLockRef.current) return;
     const sizes = selected.filter(sizeFits);
@@ -346,6 +412,7 @@ export function PrefillBenchDialog({
       });
       setJob(started);
       startPolling(started.benchId);
+      if (isPage) refreshHistory();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -378,9 +445,18 @@ export function PrefillBenchDialog({
       await clearPrefillBenchHistory(sparkId, benchPort);
       stopPoll();
       setJob(null);
+      setHistory([]);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     }
+  };
+
+  const handleView = (id: string) => {
+    const found = history.find((h) => h.benchId === id);
+    if (!found || isRunning) return;
+    stopPoll();
+    setError(null);
+    setJob(found);
   };
 
   if (!mounted) return null;
@@ -394,57 +470,16 @@ export function PrefillBenchDialog({
         )
       : 0;
 
-  const showConfig = (!job || job.status === "running") && !loadingLast;
+  const maxPrefill = job ? Math.max(0, ...job.results.map((r) => r.prefillTps)) : 0;
+  const showConfig = (isPage || !job || job.status === "running") && !loadingLast;
   const showResults = job && job.status !== "running";
   const ctxHint =
     contextLength != null && contextLength > 0
       ? `Model context ${formatContextSize(contextLength)} — larger sizes are disabled.`
       : "Unique-prefix prompts; TTFT is time to first token. 128k–300k can take tens of minutes.";
 
-  const dialog = (
-    <div className={`bench-overlay${visible ? " is-open" : ""}`} role="presentation">
-      <button
-        type="button"
-        className="bench-overlay__scrim"
-        aria-label="Close dialog"
-        onClick={() => {
-          if (!isRunning) onClose();
-        }}
-      />
-
-      <div
-        className="bench-sheet"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="prefill-bench-title"
-      >
-        <header className="bench-sheet__header">
-          <div className="bench-sheet__header-text">
-            <h2 id="prefill-bench-title" className="bench-sheet__title">
-              Prefill benchmark
-            </h2>
-            <p className="bench-sheet__subtitle">
-              {remoteTarget
-                ? formatLlmBaseUrl(remoteTarget)
-                : `Port ${llmPort}`}
-              {modelId ? ` · ${modelId}` : ""}
-            </p>
-          </div>
-          <button
-            type="button"
-            className="bench-sheet__close"
-            onClick={onClose}
-            aria-label="Close"
-          >
-            ✕
-          </button>
-        </header>
-
-        <div className="bench-sheet__body">
-          {loadingLast && !job && (
-            <p className="bench-sheet__hint">Loading last results…</p>
-          )}
-
+  const configNode = (
+    <>
           {showConfig && (
             <section className="bench-sheet__section">
               <div className="bench-field">
@@ -525,8 +560,10 @@ export function PrefillBenchDialog({
             </section>
           )}
 
-          {error && <p className="bench-sheet__error">{error}</p>}
-
+    </>
+  );
+  const progressNode = (
+    <>
           {job && job.status === "running" && (
             <section className="bench-sheet__section">
               <div className="bench-progress">
@@ -556,13 +593,17 @@ export function PrefillBenchDialog({
                 <div className="bench-results">
                   <div className="bench-results__caption">Completed sizes</div>
                   {job.results.map((r) => (
-                    <ResultRow key={r.targetTokens} r={r} />
+                    <ResultRow key={r.targetTokens} r={r} max={maxPrefill} />
                   ))}
                 </div>
               )}
             </section>
           )}
 
+    </>
+  );
+  const resultsNode = (
+    <>
           {showResults && (
             <section className="bench-sheet__section">
               <div className="bench-status-row">
@@ -587,7 +628,7 @@ export function PrefillBenchDialog({
                     </span>
                   </div>
                   {job.results.map((r) => (
-                    <ResultRow key={r.targetTokens} r={r} />
+                    <ResultRow key={r.targetTokens} r={r} max={maxPrefill} />
                   ))}
                 </div>
               )}
@@ -601,6 +642,152 @@ export function PrefillBenchDialog({
               )}
             </section>
           )}
+    </>
+  );
+
+  const copyButton =
+    job && job.results.length > 0 ? (
+      <BenchCopyButton
+        text={buildShareText(job, resultModelId)}
+        buildCard={() =>
+          buildPrefillShareCard(job, {
+            llmPort: benchPort,
+            modelId: resultModelId,
+            sparkName,
+            engine,
+            posture,
+            remoteHost: remoteTarget?.host ?? null,
+          })
+        }
+        kind="prefill"
+        shareImage={shareImage}
+        onError={setError}
+      />
+    ) : null;
+
+  if (isPage) {
+    return (
+      <PageLayout
+        config={
+          <>
+            {loadingLast && !job && <p className="bench-sheet__hint">Loading last results…</p>}
+            {configNode}
+          </>
+        }
+        runBar={
+          isRunning ? (
+            <button type="button" className="btn" onClick={() => void handleCancel()}>
+              Cancel run
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="btn btn--primary"
+              onClick={() => void handleStart()}
+              disabled={starting || selected.filter(sizeFits).length === 0}
+            >
+              {starting ? "Starting…" : "Run benchmark"}
+            </button>
+          )
+        }
+      >
+        {error && <p className="bench-sheet__error">{error}</p>}
+        {isRunning && <PageCard title="Progress">{progressNode}</PageCard>}
+        {showResults && (
+          <PageCard
+            title="Results"
+            tools={
+              <>
+                {copyButton}
+                {job.results.length > 0 && (
+                  <button
+                    type="button"
+                    className="btn btn--sm btn--ghost"
+                    onClick={() => void handleClear()}
+                    title="Clear saved results for this port"
+                  >
+                    Clear history
+                  </button>
+                )}
+              </>
+            }
+          >
+            {resultsNode}
+          </PageCard>
+        )}
+        {!job && !loadingLast && (
+          <PageEmpty title="No runs yet">
+            Choose the context sizes to test, then run. Each size sends a unique prompt and reports prefill tok/s and
+            time to first token.
+          </PageEmpty>
+        )}
+        {history.length > 0 && (
+          <PageCard title={`History · ${history.length}`}>
+            <HistoryTable
+              rows={history.map(prefillHistoryRow)}
+              activeId={job?.benchId ?? null}
+              labelHeader="Context sizes"
+              onView={handleView}
+              busy={isRunning || starting}
+            />
+          </PageCard>
+        )}
+      </PageLayout>
+    );
+  }
+
+  const dialog = (
+    <div className={`bench-overlay${visible ? " is-open" : ""}`} role="presentation">
+      <button
+        type="button"
+        className="bench-overlay__scrim"
+        aria-label="Close dialog"
+        onClick={() => {
+          if (!isRunning) onClose();
+        }}
+      />
+
+      <div
+        className="bench-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="prefill-bench-title"
+      >
+        <header className="bench-sheet__header">
+          <div className="bench-sheet__header-text">
+            <h2 id="prefill-bench-title" className="bench-sheet__title">
+              Prefill benchmark
+            </h2>
+            <p className="bench-sheet__subtitle">
+              {remoteTarget
+                ? formatLlmBaseUrl(remoteTarget)
+                : `Port ${llmPort}`}
+              {resultModelId ? ` · ${resultModelId}` : ""}
+            </p>
+          </div>
+          <BenchSwitcher active="prefill" onSwitch={onSwitchBench} disabled={isRunning || starting} />
+          <button
+            type="button"
+            className="bench-sheet__close"
+            onClick={onClose}
+            aria-label="Close"
+          >
+            <XIcon className="h-4 w-4" />
+          </button>
+        </header>
+
+        <div className="bench-sheet__body">
+          {loadingLast && !job && (
+            <p className="bench-sheet__hint">Loading last results…</p>
+          )}
+
+          {configNode}
+
+          {error && <p className="bench-sheet__error">{error}</p>}
+
+          {progressNode}
+
+          {resultsNode}
         </div>
 
         <footer className="bench-sheet__footer">
@@ -626,11 +813,11 @@ export function PrefillBenchDialog({
               )}
               {job.results.length > 0 && (
                 <BenchCopyButton
-                  text={buildShareText(job, modelId)}
+                  text={buildShareText(job, resultModelId)}
                   buildCard={() =>
                     buildPrefillShareCard(job, {
                       llmPort: benchPort,
-                      modelId,
+                      modelId: resultModelId,
                       sparkName,
                       engine,
                       posture,
@@ -642,11 +829,11 @@ export function PrefillBenchDialog({
                   onError={setError}
                 />
               )}
-              <button type="button" className="bench-btn bench-btn--ghost" onClick={handleNewRun}>
-                New run
-              </button>
-              <button type="button" className="bench-btn bench-btn--primary" onClick={onClose}>
+              <button type="button" className="bench-btn bench-btn--ghost" onClick={onClose}>
                 Done
+              </button>
+              <button type="button" className="bench-btn bench-btn--primary" onClick={handleNewRun}>
+                Run again
               </button>
             </>
           ) : (

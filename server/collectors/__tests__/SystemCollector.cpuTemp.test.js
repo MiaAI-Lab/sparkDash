@@ -29,12 +29,19 @@ test("remote CPU collection returns temperature for DGX Spark nodes", async () =
       "---",
       "CPU architecture: 8",
       "---",
-      "70900",
+      "acpitz 70900",
     ].join("\n");
   });
 
   assert.equal(result.temperature, 70.9);
+  assert.equal(result.temperatureSource, "acpitz");
   assert.equal(result.tdp, 65);
+});
+
+test("remote CPU temperature names an x86 die sensor", () => {
+  const sensor = c._parseRemoteCpuTemp("coretemp 45200\n");
+  assert.equal(sensor.temperature, 45.2);
+  assert.equal(sensor.temperatureSource, "coretemp");
 });
 
 test("converts millidegrees to Celsius", () => {

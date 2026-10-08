@@ -5,6 +5,8 @@ export interface TerminalCardProps {
   status: string;
   liveTokPerSec: number;
   peakTokPerSec: number;
+  /** Tokens generated so far by this stream (shown in the header). */
+  tokenCount?: number;
   content: string;
   reasoning: string;
   error: string | null;
@@ -32,6 +34,7 @@ export function TerminalCard({
   status,
   liveTokPerSec,
   peakTokPerSec,
+  tokenCount,
   content,
   reasoning,
   error,
@@ -41,8 +44,15 @@ export function TerminalCard({
   const bodyRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
   const [reasoningOpen, setReasoningOpen] = useState(true);
+  const reasoningTouched = useRef(false);
   const hasReasoning = Boolean(reasoning);
   const scrollKey = `${reasoning.length}:${content.length}:${error ?? ""}`;
+
+  // Fold the reasoning away once the answer starts, unless the user toggled it.
+  const answerStarted = content.length > 0;
+  useEffect(() => {
+    if (answerStarted && !reasoningTouched.current) setReasoningOpen(false);
+  }, [answerStarted]);
 
   useEffect(() => {
     const el = bodyRef.current;
@@ -61,6 +71,9 @@ export function TerminalCard({
           {label || "Terminal"}
         </span>
         <span className={`showcase-term__status ${statusClass(status)}`}>{status}</span>
+        {tokenCount != null && tokenCount > 0 && (
+          <span className="showcase-term__tokens font-tabular">{tokenCount.toLocaleString()} tokens</span>
+        )}
         <span
           className="showcase-term__tps font-tabular"
           title={
@@ -113,9 +126,12 @@ export function TerminalCard({
               type="button"
               className="showcase-term__reasoning-toggle"
               aria-expanded={reasoningOpen}
-              onClick={() => setReasoningOpen((o) => !o)}
+              onClick={() => {
+                reasoningTouched.current = true;
+                setReasoningOpen((o) => !o);
+              }}
             >
-              {reasoningOpen ? "▾" : "▸"} Thinking
+              {reasoningOpen ? "▾" : "▸"} Reasoning
               <span className="showcase-term__reasoning-meta">
                 {reasoning.length.toLocaleString()} chars
               </span>

@@ -1,0 +1,63 @@
+/* Streamed shell output (LLM start / stop). Follows the theme via the --term-* tokens. */
+.live-term {
+  position: relative;
+  margin: 0;
+  min-height: 140px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 12px;
+  background: var(--color-term);
+  color: var(--term-text);
+  font-family: "Geist Mono Variable", "Geist Mono", ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 4;
+}
+.live-term--tall {
+  max-height: none;
+  height: 100%;
+}
+.live-term__note {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--term-dim);
+  font-style: italic;
+}
+.live-term__cursor {
+  display: inline-block;
+  width: 7px;
+  height: 13px;
+  margin-left: 2px;
+  vertical-align: -2px;
+  background: var(--color-accent);
+  animation: live-term-blink 1s steps(2) infinite;
+}
+@keyframes live-term-blink {
+  50% {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-term__cursor {
+    animation: none;
+  }
+}
+.term-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(1100px, 100%);
+  height: min(80vh, 760px);
+}
+.term-modal .live-term {
+  flex: 1;
+  max-height: none;
+}
+.term-modal__body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}

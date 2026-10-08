@@ -1756,3 +1756,48 @@ test("bucket pruning remains correct after a backward clock inserts an older min
   const saved = JSON.parse(fs.readFileSync(filePath, "utf8"));
   assert.deepEqual(saved.buckets.map((bucket) => bucket.minuteStartMs), [30 * MINUTE_MS]);
 });
+
+test("fleet-energy history returns oldest-first hourly rows whose energy matches the snapshot", () => {
+  const now = Date.UTC(2026, 7, 23, 12, 34, 0);
+  const tracker = new FleetEnergyTracker({ ...noTimerOptions(), now: () => now });
+  // Two hours of steady 100 W per node (400 W fleet), sampled every 2 s at the edges of each stretch.
+  for (let t = now - 2 * HOUR_MS; t <= now; t += 2_000) {
+    tracker.record(fleetSnapshots(100, { outputTokens: Math.floor((t - (now - 2 * HOUR_MS)) / 1000) }), t);
+  }
+  const history = tracker.history(now);
+  assert.equal(history.estimated, true);
+  assert.deepEqual(history.nodeIds, CANONICAL_NODE_IDS);
+  assert.equal(history.retentionMs, 31 * DAY_MS);
+  assert.ok(history.hourly.length >= 2);
+  const times = history.hourly.map((r) => r.t);
+  assert.deepEqual(times, [...times].sort((a, b) => a - b));
+  for (const row of history.hourly) {
+    assert.equal(row.t % HOUR_MS, 0, "rows are keyed by UTC hour start");
+    assert.deepEqual(Object.keys(row.nodeWh), [...CANONICAL_NODE_IDS]);
+  }
+  const fullHour = history.hourly.find((r) => r.fleetCoverageMs >= HOUR_MS - 5_000);
+  assert.ok(fullHour, "one complete hour exists");
+  almostEqual(fullHour.avgWatts, 400, 0.5);
+  almostEqual(fullHour.fleetEnergyWh, 400, 1);
+  // Summing every hour reproduces the 24 h kWh in the snapshot (both read the same minute buckets).
+  const totalKwh = history.hourly.reduce((sum, r) => sum + r.fleetEnergyWh, 0) / 1000;
+  const snap = tracker.snapshot(now);
+  assert.ok(Math.abs(totalKwh - snap.energy24hKwh) < 0.02, `${totalKwh} vs ${snap.energy24hKwh}`);
+});
+
+test("fleet-energy history is empty (not misleading) after a membership change, and via the route", () => {
+  const now = Date.UTC(2026, 7, 23, 12, 34, 0);
+  const tracker = new FleetEnergyTracker({ ...noTimerOptions(), now: () => now });
+  tracker.record(fleetSnapshots(100), now - 2_000);
+  tracker.record(fleetSnapshots(100), now);
+  assert.ok(tracker.history(now).hourly.length >= 1);
+  tracker.invalidateMembership([...CANONICAL_NODE_IDS, "node-e"]);
+  const changed = tracker.history(now);
+  assert.equal(changed.membershipChanged, true);
+  assert.deepEqual(changed.hourly, []);
+
+  const registerFleetEnergyRoute = runtimeFunction("registerFleetEnergyRoute");
+  const routes = [];
+  registerFleetEnergyRoute({ get: (p, h) => routes.push({ p, h }) }, tracker);
+  assert.deepEqual(routes.map((r) => r.p), ["/api/fleet-energy/history", "/api/fleet-energy"]);
+});

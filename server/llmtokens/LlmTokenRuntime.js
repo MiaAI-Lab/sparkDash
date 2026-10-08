@@ -23,8 +23,9 @@ export function createLlmTokenTotalsHandler(ledger) {
     res.json(ledger.snapshot(normalizeLlmTokenRange(req?.query?.range)));
 }
 
-/** Register the read-only token-totals endpoint. */
+/** Register the read-only token-totals endpoints (lifetime/range totals + the detailed history). */
 export function registerLlmTokenTotalsRoute(app, ledger) {
+  app.get("/api/llm-token-totals/history", (_req, res) => res.json(ledger.history()));
   return app.get("/api/llm-token-totals", createLlmTokenTotalsHandler(ledger));
 }
 

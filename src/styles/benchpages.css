@@ -1,0 +1,336 @@
+/* sparkDash benchmark pages (Decode / Prefill / Quality). Scoped under .bp.
+   The bench dialogs' own rules (dialogs.css) are written for the modal sheet; the
+   overrides below re-skin the same markup as page cards. */
+.bp {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* ─── Target bar ─── */
+.bp-target {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+}
+.bp-target__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+}
+.bp .bp-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.bp .bp-field--grow {
+  flex: 1 1 18rem;
+}
+.bp .bp-field--grow input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.bp .bp-remote {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+}
+.bp .bp-remote input[type="number"] {
+  width: 6rem;
+}
+.bp .bp-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--color-text);
+}
+.bp .bp-hint {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--color-muted);
+}
+.bp .bp-notice {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-text);
+}
+.bp .bp-notice--warn {
+  border: 1px solid color-mix(in srgb, var(--color-warning) 35%, transparent);
+  background: color-mix(in srgb, var(--color-warning) 10%, transparent);
+}
+.bp .bp-notice.bench-sheet__error {
+  color: var(--color-danger);
+}
+
+/* Inputs: same look as inside the dialogs. */
+.bp :is(input[type="text"], input[type="number"], input[type="password"], select) {
+  min-height: 2.25rem;
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 10px;
+  background: var(--color-surface-elevated);
+  color: var(--color-text);
+  font-size: 0.8125rem;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.bp :is(input, select):focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-soft);
+}
+.bp :is(input, select):disabled {
+  opacity: 0.55;
+}
+
+/* ─── Two-column body ─── */
+.bp-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+@media (min-width: 1200px) {
+  .bp-grid {
+    grid-template-columns: minmax(340px, 440px) minmax(0, 1fr);
+  }
+}
+.bp-config {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+  min-width: 0;
+}
+@media (min-width: 1200px) {
+  .bp .bp-config {
+    position: sticky;
+    top: 16px;
+  }
+}
+.bp-runbar {
+  display: flex;
+  gap: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--color-border);
+}
+.bp-runbar .btn {
+  flex: 1 1 auto;
+  min-height: 2.4rem;
+}
+.bp-main {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.bp-main > .bench-sheet__error {
+  margin: 0;
+}
+
+/* Config controls sized for the narrower column. */
+.bp .bp-config .bench-conc-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.bp .bp-config .bench-type-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+@media (max-width: 1199px) and (min-width: 640px) {
+  .bp .bp-config .bench-conc-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+  .bp .bp-config .bench-type-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+.bp .bp-config .bench-sheet__section {
+  gap: 18px;
+}
+.bp .bp-config .bench-input,
+.bp .bp-config .bench-input--wide {
+  width: 100%;
+}
+
+/* ─── Cards ─── */
+.bp-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  min-width: 0;
+}
+.bp-card__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+.bp-card__tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.bp .bp-card__tools .bench-copy-group {
+  flex: 0 0 auto;
+}
+.bp .bp-card__tools .bench-btn {
+  flex: 0 0 auto;
+  min-width: 0;
+  min-height: 2rem;
+  padding: 0.3rem 0.8rem;
+  font-size: 12.5px;
+}
+.bp-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 44px 24px;
+  text-align: center;
+  border-style: dashed;
+}
+.bp-empty strong {
+  font-size: 15px;
+  color: var(--color-text-strong);
+}
+.bp-empty p {
+  max-width: 46ch;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--color-muted);
+}
+
+/* ─── History table ─── */
+.bp-table-wrap {
+  overflow-x: auto;
+  margin: 0 -4px;
+}
+.bp-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.bp-table th {
+  padding: 6px 10px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+.bp-table td {
+  padding: 9px 10px;
+  border-top: 1px solid var(--color-border);
+  vertical-align: middle;
+  color: var(--color-text);
+}
+.bp-table tr.is-active td {
+  background: var(--color-accent-soft);
+}
+.bp-table .bp-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.bp-table .bp-num strong {
+  display: block;
+  color: var(--color-text-strong);
+}
+.bp-table .bp-num small {
+  display: block;
+  font-size: 11px;
+  color: var(--color-muted);
+}
+.bp-table .bp-nowrap {
+  white-space: nowrap;
+}
+.bp-table .bp-clip {
+  max-width: 16rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bp-table .bp-status {
+  margin-left: 8px;
+  padding: 1px 7px;
+  font-size: 11px;
+}
+.bp-table .bp-row-actions {
+  text-align: right;
+  white-space: nowrap;
+}
+.bp-table .bp-row-actions .btn + .btn {
+  margin-left: 6px;
+}
+
+/* Dialog content inside a card needs no extra chrome. */
+.bp .bp-card .bench-sheet__section {
+  gap: 14px;
+}
+.bp .bp-card .bench-sheet__error {
+  margin: 0;
+}
+
+@media (max-width: 639px) {
+  .bp-target,
+  .bp-config,
+  .bp-card {
+    padding: 14px;
+  }
+  .bp-table .bp-clip {
+    max-width: 8rem;
+  }
+  .bp-table .bp-model,
+  .bp-table .bp-num small {
+    display: none;
+  }
+  .bp-table .bp-row-actions {
+    white-space: normal;
+  }
+  .bp-table .bp-row-actions .btn {
+    margin: 2px 0 2px 6px;
+  }
+}
+
+/* Quality's score + bars row needs a wide card; stack it until there is room. */
+@media (max-width: 1499px) {
+  .bp .q-cmp {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Remote target without a host yet: the page is visible but locked. */
+.bp-pending {
+  opacity: 0.5;
+  filter: saturate(0.6);
+  user-select: none;
+}
+
+/* Stacked page layout (Quality): setup on top at full width, results below */
+.bp-grid--stacked {
+  grid-template-columns: minmax(0, 1fr);
+}
+.bp .bp-grid--stacked .bp-config {
+  position: static;
+}
+/* Concurrency, label and the Run button share one row */
+.bp .bp-grid--stacked .bp-config {
+  gap: 14px;
+}
+.bp .bp-grid--stacked .bp-config .bench-type-grid {
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+}

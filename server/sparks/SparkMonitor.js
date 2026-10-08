@@ -42,6 +42,13 @@ export class SparkMonitor {
     this._onWolMac = typeof options.onWolMac === "function" ? options.onWolMac : null;
     this._onHermesChange =
       typeof options.onHermesChange === "function" ? options.onHermesChange : null;
+    // Fleet event log sink: ({ type, severity, message, data? }) => void.
+    // Only state *transitions* are reported (never the first baseline sample).
+    this._onEvent = typeof options.onEvent === "function" ? options.onEvent : null;
+    /** @type {boolean | null} null until the first liveness result (baseline). */
+    this._prevOnline = null;
+    /** @type {boolean | null} null until the first successful GPU sample. */
+    this._prevThermal = null;
     // Resolver for worker derived label: maps a head spark id to its live
     // LLM model id (or null when unknown). Wired by index.js from the monitor
     // map; never writes back to registry config (derived display only).
@@ -514,6 +521,43 @@ export class SparkMonitor {
     return Number.isFinite(secs) ? Math.floor(secs) : null;
   }
 
+  /** Report an event to the fleet log; never throws into the poll loop. */
+  _emit(event) {
+    if (!this._onEvent) return;
+    try {
+      this._onEvent({ sparkId: this.spark.id, sparkName: this.spark.name || this.spark.id, ...event });
+    } catch (err) {
+      console.error(`[SparkMonitor] ${this.spark.id} event error:`, err?.message);
+    }
+  }
+
+  _noteOnline(next) {
+    const prev = this._prevOnline;
+    this._prevOnline = next;
+    if (prev == null || prev === next) return;
+    const name = this.spark.name || this.spark.id;
+    this._emit(
+      next
+        ? { type: "spark.online", severity: "success", message: `${name} came online` }
+        : { type: "spark.offline", severity: "warn", message: `${name} went offline` }
+    );
+  }
+
+  _noteThrottle(gpu) {
+    if (!collectionWasSuccessful(gpu)) return;
+    const thermal = gpu?.throttle?.reason === "thermal" && Boolean(gpu?.throttle?.active);
+    const prev = this._prevThermal;
+    this._prevThermal = thermal;
+    if (prev == null || prev === thermal) return;
+    const name = this.spark.name || this.spark.id;
+    const temp = Number.isFinite(gpu?.temperature) ? ` (${Math.round(gpu.temperature)}°C)` : "";
+    this._emit(
+      thermal
+        ? { type: "gpu.throttle.thermal", severity: "warn", message: `${name} started thermal throttling${temp}` }
+        : { type: "gpu.throttle.cleared", severity: "success", message: `${name} stopped thermal throttling${temp}` }
+    );
+  }
+
   // ─── Liveness ─────────────────────────────────────────────
   async _checkOnline() {
     if (!this._running || this._inflight.online) return;
@@ -548,11 +592,13 @@ export class SparkMonitor {
       this.online = true;
       this.lastOnlineOk = Date.now();
       this._uptimeSeconds = uptimeSeconds;
+      this._noteOnline(true);
     } catch {
       if (!isCurrentRun()) return;
       if (!this.lastOnlineOk || Date.now() - this.lastOnlineOk > ONLINE_GRACE_MS) {
         this.online = false;
         this._uptimeSeconds = null;
+        this._noteOnline(false);
       }
     } finally {
       if (this._inflight.online === checkToken) {
@@ -638,6 +684,7 @@ export class SparkMonitor {
         case "gpu":
           this._metrics.gpu = result;
           this._metricCollectionSuccessful.gpu = collectionWasSuccessful(result);
+          this._noteThrottle(result);
           break;
         case "cpu":
           this._metrics.cpu = result;
@@ -748,6 +795,18 @@ export class SparkMonitor {
     if (!result.error && this._hermes.status !== "running") {
       this._hermes.status = "idle";
     }
+    if (prev.updateAvailable === false && result.updateAvailable === true) {
+      const name = this.spark.name || this.spark.id;
+      const n = Number.isFinite(result.behindCommits) && result.behindCommits > 0
+        ? ` (${result.behindCommits} commit${result.behindCommits === 1 ? "" : "s"} behind)`
+        : "";
+      this._emit({
+        type: "hermes.update.available",
+        severity: "info",
+        message: `Hermes update available on ${name}${n}`,
+        data: { version: result.version ?? null },
+      });
+    }
     if (changed) this._notifyHermesChange();
   }
 
@@ -785,6 +844,11 @@ export class SparkMonitor {
             error: null,
             finishedAt: res.finishedAt ?? Date.now(),
           };
+          this._emit({
+            type: "hermes.update.success",
+            severity: "success",
+            message: `Hermes updated on ${this.spark.name || this.spark.id}${res.version ? ` to ${res.version}` : ""}`,
+          });
           // Refresh update availability right away (don't wait for the next poll).
           try {
             const check = await this.hermesProbe.check();
@@ -809,6 +873,11 @@ export class SparkMonitor {
             error: res?.error || res?.output?.slice(-400) || "hermes update failed",
             finishedAt: res?.finishedAt ?? Date.now(),
           };
+          this._emit({
+            type: "hermes.update.error",
+            severity: "error",
+            message: `Hermes update failed on ${this.spark.name || this.spark.id}`,
+          });
         }
       } catch (err) {
         if (!this._running) return;
@@ -818,6 +887,11 @@ export class SparkMonitor {
           error: err instanceof Error ? err.message : String(err),
           finishedAt: Date.now(),
         };
+        this._emit({
+          type: "hermes.update.error",
+          severity: "error",
+          message: `Hermes update failed on ${this.spark.name || this.spark.id}`,
+        });
       }
       this._notifyHermesChange();
     })();

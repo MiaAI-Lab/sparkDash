@@ -13,6 +13,8 @@ interface MetricBarProps {
   caption?: string;
   /** Optional second caption line shown below the bar. */
   subCaption?: string;
+  /** Tooltip for a label that is easy to misread. */
+  title?: string;
 }
 
 /**
@@ -26,17 +28,18 @@ export function MetricBar({
   color = "bg-accent",
   caption,
   subCaption,
+  title,
 }: MetricBarProps) {
   const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0;
   const barColor = bandColor(pct, color);
 
   return (
-    <div className="space-y-1">
+    <div className="metric-bar space-y-1.5">
       <div className="flex items-baseline justify-between gap-2">
-        <span className="text-xs text-muted">{label}</span>
-        <span className="font-tabular text-sm text-text">{caption ?? `${pct}%`}</span>
+        <span className="text-[12.5px] text-muted" title={title}>{label}</span>
+        <span className="mono text-[12.5px] font-medium text-text-strong">{caption ?? `${pct}%`}</span>
       </div>
-      <div className="h-1.5 overflow-hidden rounded-full bg-border">
+      <div className="h-1.5 overflow-hidden rounded-full bg-surface-hover">
         <div
           className={`metric-bar-fill h-full rounded-full transition-[width] duration-300 ease-out ${barColor}`}
           style={{ ["--bar-pct" as string]: `${pct}%` }}

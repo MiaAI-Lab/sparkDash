@@ -21,7 +21,7 @@ interface BenchCopyButtonProps {
   /** Builds the share card lazily; only called when an image is requested. */
   buildCard: () => ShareCardModel;
   /** Which benchmark the card came from — used for the download name. */
-  kind: "decode" | "prefill";
+  kind: "decode" | "prefill" | "quality";
   /** Settings → Benchmark share image: adds the format menu to the button. */
   shareImage: boolean;
   onError: (message: string) => void;
@@ -347,40 +347,38 @@ export function BenchCopyButton({
         )}
       {preview &&
         createPortal(
-          <span
+          <div
             role="dialog"
+            aria-modal="true"
             aria-label="Benchmark share card"
-            className="fixed inset-0 z-[10000] flex flex-col items-center justify-center gap-3 bg-black/75 p-5"
+            className="card-preview"
             onMouseDown={(e) => {
               if (e.target === e.currentTarget) closePreview();
             }}
           >
-            {/* eslint-disable-next-line jsx-a11y/alt-text -- alt text is on the img below */}
-            <img
-              src={preview}
-              alt="Benchmark result card — right-click to copy it"
-              className="max-h-[68vh] max-w-full rounded-lg border border-border shadow-card"
-            />
-            <span className="flex max-w-lg flex-col items-center gap-2">
-              <span className="text-center text-[11px] leading-snug text-white/85">
-                Right-click → <strong>Copy Image</strong>, or drag the card straight into your post.
-                Browsers only let a page write images to the clipboard over HTTPS or localhost, which
-                this page is not — so the image is here for your browser to copy.
-              </span>
-              <span className="flex gap-2">
-                <button
-                  type="button"
-                  className="bench-btn bench-btn--ghost"
-                  onClick={downloadPreview}
-                >
+            <div className="card-preview__panel">
+              <div className="card-preview__head">
+                <h2>Share card</h2>
+                <button type="button" className="icon-circle" onClick={closePreview} aria-label="Close share card">
+                  ✕
+                </button>
+              </div>
+              {/* eslint-disable-next-line jsx-a11y/alt-text -- alt text is on the img below */}
+              <img src={preview} alt="Benchmark result card — right-click to copy it" className="card-preview__img" />
+              <p className="card-preview__hint">
+                Right-click → <strong>Copy Image</strong>, or drag the card into your post. Browsers only let a page copy
+                images over HTTPS or localhost, so the card is shown here for your browser to copy.
+              </p>
+              <div className="card-preview__actions">
+                <button type="button" className="btn" onClick={downloadPreview}>
                   Download PNG
                 </button>
-                <button type="button" className="bench-btn bench-btn--primary" onClick={closePreview}>
+                <button type="button" className="btn btn--primary" onClick={closePreview}>
                   Close
                 </button>
-              </span>
-            </span>
-          </span>,
+              </div>
+            </div>
+          </div>,
           document.body
         )}
     </span>

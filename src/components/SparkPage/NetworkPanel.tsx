@@ -3,7 +3,16 @@ import type { NetworkMetrics } from "../../api/types";
 import { updateDisabledInterfaces } from "../../api/client";
 import { Panel } from "../ui/Panel";
 import { NetworkIcon, GearIcon } from "../ui/icons";
+import { TrendLine } from "../ui/TrendLine";
+import { Tag } from "../ui/Tag";
 import { formatBytesPerSec } from "../../shared/formatBytes";
+import { useLocalSeries } from "./useLocalSeries";
+
+/** "12.3 MB/s" → big number + unit for the headline readout. */
+function splitRate(bps: number): { value: string; unit: string } {
+  const [value, ...unit] = formatBytesPerSec(bps).split(" ");
+  return { value, unit: unit.join(" ") };
+}
 
 interface NetworkPanelProps {
   network: NetworkMetrics | null;
@@ -18,17 +27,9 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
     <button
       type="button"
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${
-        checked ? "bg-accent" : "bg-border"
-      }`}
+      className={`sp-toggle ${checked ? "is-on" : ""}`}
       aria-pressed={checked}
-    >
-      <span
-        className={`inline-block h-3 w-3 rounded-full bg-white shadow transition-transform ${
-          checked ? "translate-x-3.5" : "translate-x-0.5"
-        }`}
-      />
-    </button>
+    />
   );
 }
 
@@ -70,21 +71,30 @@ export function NetworkPanel({
   const primaryVisible =
     primary && !disabledInterfaces.includes(primary) ? primary : null;
 
+  // Headline rates: the primary adapter, else the sum of every visible adapter.
+  const primaryRows = visible.filter((i) => i.name === primaryVisible);
+  const headline = primaryRows.length > 0 ? primaryRows : visible;
+  const rx = headline.reduce((a, i) => a + (i.rxSpeed || 0), 0);
+  const tx = headline.reduce((a, i) => a + (i.txSpeed || 0), 0);
+  const rxHistory = useLocalSeries(`${sparkId}:rx`, rx, network);
+  const txHistory = useLocalSeries(`${sparkId}:tx`, tx, network);
+  const rxFmt = splitRate(rx);
+  const txFmt = splitRate(tx);
+
   return (
     <Panel
       title="Network"
       accent
       icon={<NetworkIcon />}
       className={`panel-network ${className ?? ""}`}
+      bodyClassName="sp-stack"
       actions={
         <button
           type="button"
           title={showSettings ? "Done" : "Interface settings"}
           onClick={() => setShowSettings(!showSettings)}
           disabled={saving}
-          className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted transition-colors hover:bg-surface-hover disabled:opacity-50 ${
-            showSettings ? "bg-surface-elevated text-text" : ""
-          }`}
+          className={`btn btn--sm btn--ghost ${showSettings ? "is-on" : ""}`}
         >
           <GearIcon />
           <span>{showSettings ? "Done" : "Settings"}</span>
@@ -92,10 +102,10 @@ export function NetworkPanel({
       }
     >
       {showSettings ? (
-        <div className="space-y-2">
-          <p className="mb-1 text-[10px] text-muted">Toggle adapters to monitor:</p>
+        <div className="sp-stack">
+          <p className="sp-hint">Toggle adapters to monitor:</p>
           {interfaces.length === 0 ? (
-            <p className="text-xs text-muted">No interfaces discovered</p>
+            <p className="sp-muted">No interfaces discovered</p>
           ) : (
             interfaces.map((iface) => {
               const isDisabled =
@@ -103,15 +113,11 @@ export function NetworkPanel({
               return (
                 <div
                   key={iface.name}
-                  className="flex items-center justify-between rounded-md border border-border bg-surface-elevated px-3 py-2"
+                  className="sp-list-row"
                 >
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className="truncate text-xs text-text">{iface.name}</span>
-                    {primary === iface.name && (
-                      <span className="shrink-0 rounded bg-accent-soft px-1 text-[9px] font-medium uppercase tracking-wide text-accent">
-                        primary
-                      </span>
-                    )}
+                  <div className="sp-list-row__main">
+                    <span className="sp-clip">{iface.name}</span>
+                    {primary === iface.name && <Tag tone="acc">primary</Tag>}
                   </div>
                   <Toggle checked={!isDisabled} onChange={(on) => handleToggle(iface.name, !on)} />
                 </div>
@@ -121,42 +127,47 @@ export function NetworkPanel({
         </div>
       ) : (
         <>
+          <div className="sp-decode">
+            <div className="sp-metric">
+              <span className="eyebrow">Download</span>
+              <div className="big-num sp-big-md">
+                {rxFmt.value}
+                <small>{rxFmt.unit}</small>
+              </div>
+              <TrendLine data={rxHistory} height={36} color="var(--color-success)" />
+            </div>
+            <div className="sp-metric">
+              <span className="eyebrow">Upload</span>
+              <div className="big-num sp-big-md">
+                {txFmt.value}
+                <small>{txFmt.unit}</small>
+              </div>
+              <TrendLine data={txHistory} height={36} color="var(--color-violet)" />
+            </div>
+          </div>
           {primaryVisible && (
-            <div className="mb-3 flex items-center gap-2 text-xs">
+            <div className="sp-row">
               <span className="text-muted">Primary</span>
-              <span className="font-tabular text-text-strong">{primaryVisible}</span>
-              {linkSpeed != null && (
-                <span className="ml-auto chip py-0.5">{linkSpeed} Mbps</span>
-              )}
+              <span className="sp-chips">
+                <span className="mono text-text">{primaryVisible}</span>
+                {linkSpeed != null && <Tag>{linkSpeed} Mbps</Tag>}
+              </span>
             </div>
           )}
-          <div className="space-y-2">
+          <div className="sp-list">
             {visible.length === 0 ? (
-              <p className="text-xs text-muted">
+              <p className="sp-muted">
                 {interfaces.length === 0 ? "No interfaces" : "All adapters hidden — open settings"}
               </p>
             ) : (
               visible.map((iface) => {
                 const isPrimary = iface.name === primary;
                 return (
-                  <div
-                    key={iface.name}
-                    className={`flex flex-col gap-0.5 sm:flex-row sm:items-center sm:justify-between rounded-md border px-3 py-2 ${
-                      isPrimary
-                        ? "border-accent/40 bg-accent-soft"
-                        : "border-border bg-surface-elevated"
-                    }`}
-                  >
-                    <span className={`flex items-center gap-2 text-xs ${isPrimary ? "text-text-strong" : "text-text"}`}>
-                      {iface.ip ? (
-                        <span className="font-tabular truncate">{iface.ip}</span>
-                      ) : (
-                        <span className="truncate">{iface.name}</span>
-                      )}
-                    </span>
-                    <span className="font-tabular text-xs text-text">
+                  <div key={iface.name} className={`sp-list-row ${isPrimary ? "is-primary" : ""}`}>
+                    <span className="mono sp-clip">{iface.ip || iface.name}</span>
+                    <span className="mono sp-nowrap">
                       <span className="text-accent">↑</span> {formatBytesPerSec(iface.txSpeed)}
-                      <span className="mx-1.5 text-border">·</span>
+                      <span className="sp-sep">·</span>
                       <span className="text-accent">↓</span> {formatBytesPerSec(iface.rxSpeed)}
                     </span>
                   </div>

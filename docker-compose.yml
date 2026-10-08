@@ -6,7 +6,9 @@ services:
       platforms:
         - linux/arm64
       args:
-        # Frontend metrics-history retention (hours). Rebuild after changing.
+        # Frontend metrics-history retention (hours). Baked in when the frontend is
+        # built: for host builds set VITE_HISTORY_HOURS in the shell that runs
+        # `npm run build`; this arg only matters if you build the image itself.
         VITE_HISTORY_HOURS: ${VITE_HISTORY_HOURS:-8}
     container_name: sparkDash
     # always: come back after host reboot even if the container was stopped
@@ -27,6 +29,12 @@ services:
       - ./server:/app/server
       # Prompt catalog imported by DecodeBench / Showcase (not under ./server)
       - ./src/shared:/app/src/shared:ro
+      - ./src/components/ShowcasePage/showcasePrompts.ts:/app/src/components/ShowcasePage/showcasePrompts.ts:ro
+      # Built frontend, served straight from the host. Rebuild it on the host
+      # (`npm run build`, or `npm run build:watch` to do it on every save) and just
+      # refresh the browser; the container and image are not touched.
+      # The directory must exist before `docker compose up` (run `npm run build` once).
+      - ./dist:/app/dist:ro
       # Mount host filesystem for local Spark metrics
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro

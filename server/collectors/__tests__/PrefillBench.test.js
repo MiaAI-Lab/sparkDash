@@ -12,7 +12,10 @@ import {
   PrefillBenchManager,
   buildPrefillPrompt,
   formatContextSize,
+  medianOf,
   normalizeContextSizes,
+  rateFromSample,
+  repeatsForSize,
   timeoutMsForSize,
 } from "../PrefillBench.js";
 
@@ -89,4 +92,29 @@ test("PrefillBenchManager.start rejects empty sizes and overlapping jobs", () =>
       }),
     /already running/i
   );
+});
+
+test("rateFromSample prefers server timings, subtracts overhead and cached tokens", () => {
+  const base = { promptTokens: 8000, ttftMs: 2000, cachedTokens: 0, serverPromptMs: null, serverPromptN: null };
+  assert.equal(rateFromSample(base, 0).tps, 4000);
+  assert.equal(rateFromSample(base, 500).tps, round(8000 / 1.5));
+  assert.equal(rateFromSample({ ...base, cachedTokens: 4000 }, 0).tps, 2000);
+  assert.equal(rateFromSample({ ...base, serverPromptMs: 1000, serverPromptN: 8000 }, 500).method, "server");
+  assert.equal(rateFromSample({ ...base, serverPromptMs: 1000, serverPromptN: 8000 }, 500).tps, 8000);
+  // oversized overhead never removes more than 80% of the TTFT
+  assert.equal(rateFromSample(base, 99999).tps, 20000);
+  assert.equal(rateFromSample({ ...base, ttftMs: 0 }, 0).tps, 0);
+});
+
+function round(n) {
+  return Math.round(n * 100) / 100;
+}
+
+test("repeatsForSize and medianOf", () => {
+  assert.equal(repeatsForSize(4096), 3);
+  assert.equal(repeatsForSize(65536), 2);
+  assert.equal(repeatsForSize(262144), 1);
+  assert.equal(medianOf([3, 1, 2]), 2);
+  assert.equal(medianOf([1, 2, 3, 4]), 2.5);
+  assert.equal(medianOf([]), 0);
 });

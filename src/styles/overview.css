@@ -1,0 +1,722 @@
+/* Overview (Fleet) screen. Everything is scoped under .ov so it wins over legacy rules. */
+
+.ov {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+/* Page title + batch actions */
+.ov .ov-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px 24px;
+}
+.ov .ov-title h1 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  color: var(--color-text-strong);
+}
+.ov .ov-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--color-muted);
+}
+.ov .ov-meta > span:not(:first-child):not(.tag)::before {
+  content: "\00b7";
+  margin-right: 10px;
+}
+.ov .ov-btns {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.ov .ov-btn--pending {
+  border-color: color-mix(in srgb, var(--color-warning) 40%, transparent);
+  color: var(--color-warning);
+}
+.ov .ov-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 99px;
+  background: var(--color-warning);
+  color: var(--color-on-accent);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+.ov .ov-batchmsg {
+  font-size: 12px;
+}
+.ov .ov-batchmsg.is-ok {
+  color: var(--color-success);
+}
+.ov .ov-batchmsg.is-err {
+  color: var(--color-danger);
+}
+.ov .ov-prog {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+.ov .ov-prog__label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.ov .ov-prog__x {
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+.ov .ov-prog__x:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+}
+.ov .ov-prog__track {
+  width: 144px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: var(--color-surface-hover);
+}
+.ov .ov-prog__fill {
+  height: 100%;
+  border-radius: 99px;
+  background: var(--color-accent);
+  transition: width 0.3s ease-out;
+}
+.ov .ov-prog__fill.is-err {
+  background: var(--color-danger);
+}
+
+/* Alert strips */
+.ov .ov-alerts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ov .ov-alert__text {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+}
+.ov .ov-alert__text small {
+  display: block;
+  margin-top: 2px;
+  font-size: 12.5px;
+  color: var(--color-muted);
+}
+.ov .ov-alert--bad {
+  border-color: color-mix(in srgb, var(--color-danger) 38%, transparent);
+  background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+}
+.ov .ov-alert--bad > svg {
+  color: var(--color-danger);
+}
+
+/* KPI tiles */
+.ov .ov-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+.ov .ov-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 16px 18px;
+}
+.ov .ov-kpi__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 16px;
+}
+.ov .ov-kpi__foot {
+  min-height: 34px;
+  display: flex;
+  align-items: flex-end;
+  font-size: 12.5px;
+  color: var(--color-muted);
+}
+.ov .ov-delta {
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.ov .ov-delta.is-up {
+  color: var(--color-success);
+}
+.ov .ov-delta.is-down {
+  color: var(--color-danger);
+}
+
+/* Two-column layout */
+.ov .ov-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+.ov .ov-sparks {
+  display: grid;
+  /* Fixed-size cards that wrap, instead of two huge cards stretched across the page. */
+  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+  gap: 12px;
+  /* Cards in a row share one height; the footer is pinned to the bottom (see .ov-foot). */
+  align-items: stretch;
+  min-width: 0;
+}
+.ov .ov-side {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 12px;
+  /* Cards that share a row share one height. */
+  align-items: stretch;
+  min-width: 0;
+}
+.ov .ov-empty {
+  grid-column: 1 / -1;
+  padding: 24px;
+  font-size: 14px;
+  color: var(--color-muted);
+}
+
+/* Search row */
+.ov .ov-search {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ov .ov-input {
+  min-height: 40px;
+  min-width: 13rem;
+  flex: 1;
+  padding: 0 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 10px;
+  background: var(--color-surface-elevated);
+  color: var(--color-text);
+  font-size: 13px;
+}
+.ov .ov-input--select {
+  flex: none;
+  min-width: 0;
+}
+.ov .ov-input:focus {
+  border-color: var(--color-accent);
+  outline: none;
+}
+
+/* Spark card */
+.ov .ov-sc {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px;
+  transition: border-color 0.2s ease, box-shadow 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.ov .ov-sc.is-link {
+  cursor: pointer;
+}
+.ov .ov-sc.is-off {
+  opacity: 0.62;
+}
+.ov .ov-sc.is-hot {
+  border-color: color-mix(in srgb, var(--color-warning) 45%, transparent);
+}
+.ov .ov-sc__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.ov .ov-sc__name {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--color-text-strong);
+}
+.ov .ov-sc__ip {
+  margin-left: auto;
+  flex: none;
+  font-size: 12px;
+  color: var(--color-faint, var(--color-muted));
+}
+.ov .ov-sc__off {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 6px 0 4px;
+  font-size: 14px;
+  color: var(--color-muted);
+}
+.ov .ov-sc__msg {
+  font-size: 12px;
+}
+/* One compact line under Storage: what this Spark serves (or its worker role). */
+.ov .ov-modelrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 9px 12px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 28%, var(--color-border));
+  border-radius: 12px;
+  background: linear-gradient(
+    100deg,
+    color-mix(in srgb, var(--color-accent) 14%, transparent),
+    color-mix(in srgb, var(--color-accent) 4%, transparent) 70%
+  );
+  font-size: 13px;
+}
+.ov .ov-modelrow--empty {
+  visibility: hidden;
+}
+.ov .ov-modelrow code {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: "Geist Mono Variable", "Geist Mono", ui-monospace, monospace;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.ov .ov-modelrow__ctx {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+  font-family: "Geist Mono Variable", "Geist Mono", ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--color-muted);
+}
+.ov .ov-sc__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+}
+.ov .ov-sc__stats {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.ov .ov-lbl {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+  font-size: 12.5px;
+  color: var(--color-muted);
+}
+.ov .ov-lbl b {
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+.ov .ov-bar {
+  display: flex;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: var(--color-surface-hover);
+}
+.ov .ov-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+  transition: width 0.3s ease-out;
+}
+.ov .ov-tps {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border);
+}
+.ov .ov-tps > div {
+  min-width: 0;
+}
+.ov .ov-tps__num {
+  margin-top: 6px;
+  font-size: 24px;
+}
+.ov .ov-tps__trend {
+  margin-top: 6px;
+}
+.ov .ov-launch {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  border: 1px dashed color-mix(in srgb, var(--color-accent) 40%, var(--color-border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-accent) 4%, transparent);
+  text-align: center;
+  cursor: default;
+}
+.ov .ov-launch__icon {
+  width: 24px;
+  height: 24px;
+  color: var(--color-accent);
+}
+.ov .ov-launch__head {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 650;
+  color: var(--color-text);
+  cursor: pointer;
+}
+.ov .ov-launch__head:hover {
+  border-color: var(--color-accent);
+}
+.ov .ov-launch__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.ov .ov-launch__hint {
+  max-width: 28ch;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.ov .ov-launch__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ov .ov-launch__list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 10px;
+  border-radius: 10px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  text-align: left;
+}
+.ov .ov-launch__name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+}
+.ov .ov-launch__port {
+  flex: none;
+  font-size: 11px;
+  color: var(--color-muted);
+}
+.ov .ov-launch__more {
+  display: flex;
+  gap: 4px;
+}
+.ov .ov-launch__err {
+  font-size: 12px;
+  color: var(--color-danger);
+}
+.ov .ov-launch__spin {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: ov-launch-spin 0.9s linear infinite;
+}
+@keyframes ov-launch-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ov .ov-launch__spin {
+    animation: none;
+  }
+}
+.ov .ov-foot {
+  margin-top: auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-border);
+}
+.ov .ov-kv {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--color-muted);
+}
+.ov .ov-kv b {
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--color-text);
+}
+.ov .ov-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ov .ov-chips:not(:empty) {
+  margin-top: auto;
+}
+.ov .ov-chips:not(:empty) + .ov-foot {
+  margin-top: 0;
+}
+.ov .ov-chips:empty {
+  display: none;
+}
+
+/* Side cards */
+.ov .ov-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  padding: 18px;
+}
+.ov .ov-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.ov .ov-card__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  color: var(--color-text-strong);
+}
+.ov .ov-card__tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ov .ov-card__sub {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.ov .ov-note {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-warning) 11%, transparent);
+  color: var(--color-warning);
+  font-size: 12.5px;
+}
+.ov .ov-select {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 8px;
+  background: var(--color-surface-elevated);
+  color: var(--color-text);
+  font-size: 12px;
+}
+.ov .ov-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 64px;
+}
+.ov .ov-bars > span {
+  flex: 1;
+  min-width: 0;
+  border-radius: 3px 3px 0 0;
+  background: color-mix(in srgb, var(--color-accent) 45%, transparent);
+}
+.ov .ov-bars > span.is-now {
+  background: var(--color-accent);
+}
+.ov .ov-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: -6px;
+  font-size: 11px;
+  color: var(--color-muted);
+}
+.ov .ov-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border);
+}
+.ov .ov-stats dt {
+  font-size: 11px;
+  color: var(--color-muted);
+}
+.ov .ov-stats dd {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--color-text);
+}
+.ov .ov-seg--gen,
+.ov .ov-leg--gen {
+  --c: var(--color-accent);
+  background: var(--color-accent);
+}
+.ov .ov-seg--cached,
+.ov .ov-leg--cached {
+  --c: var(--color-info);
+  background: var(--color-info);
+}
+.ov .ov-seg--comp,
+.ov .ov-leg--comp {
+  --c: var(--color-violet);
+  background: var(--color-violet);
+}
+.ov .legend > span {
+  background: none;
+}
+.ov .ov-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ov .ov-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 54px 54px 58px;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+}
+.ov .ov-row--total {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border);
+}
+.ov .ov-row__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text);
+}
+.ov .ov-row__x {
+  margin-left: 6px;
+  font-size: 10px;
+  color: var(--color-muted);
+}
+.ov .ov-row__num {
+  text-align: right;
+  color: var(--color-muted);
+}
+.ov .ov-row__num--strong {
+  color: var(--color-text-strong);
+}
+.ov .ov-row--head .ov-row__num,
+.ov .ov-row--head .ov-row__name {
+  font-size: 10px;
+}
+
+/* Responsive */
+@media (max-width: 1100px) {
+  .ov .ov-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ov .ov-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 700px) {
+  .ov .ov-title h1 {
+    font-size: 24px;
+  }
+  .ov .ov-btns {
+    justify-content: flex-start;
+  }
+  .ov .ov-kpis {
+    gap: 10px;
+  }
+  .ov .ov-kpi {
+    padding: 14px;
+  }
+  .ov .ov-kpi .big-num {
+    font-size: 26px;
+  }
+  .ov .ov-alert {
+    flex-wrap: wrap;
+  }
+  .ov .ov-sc {
+    padding: 14px;
+  }
+  .ov .ov-sc__body {
+    gap: 12px;
+  }
+}
+
+/* Small line under a bar (e.g. available GPU memory). */
+.ov .ov-sub {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--color-muted);
+}
+.ov .ov-sub b {
+  font-weight: 550;
+  color: var(--color-text);
+}

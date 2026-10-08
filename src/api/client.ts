@@ -1,9 +1,19 @@
 import type {
+  ActivityEvent,
+  ActivityEventsPage,
+  EnergyHistory,
+  TokenHistory,
   DecodeBenchJob,
   DecodeBenchListResponse,
   FleetEnergy,
   HermesBatchUpdateResponse,
   HermesUpdatesResponse,
+  LauncherAction,
+  LauncherJob,
+  LauncherJobRead,
+  LauncherListResponse,
+  LlmLauncher,
+  LlmLauncherInput,
   LlmMetrics,
   LlmDailyResponse,
   Settings,
@@ -17,6 +27,9 @@ import type {
   PrefillBenchJob,
   PrefillBenchListResponse,
   StartPrefillBenchRequest,
+  QualityBenchJob,
+  QualityBenchListResponse,
+  StartQualityBenchRequest,
 } from "./types";
 
 const BASE = "";
@@ -51,6 +64,45 @@ export function fetchSparks(): Promise<{ sparks: SparkConfig[] }> {
 
 export function fetchFleetEnergy(): Promise<FleetEnergy> {
   return apiFetch("/api/fleet-energy");
+}
+
+/** Fleet activity log, newest first. */
+export async function fetchEvents(opts?: {
+  limit?: number;
+  sparkId?: string;
+  sinceId?: number;
+}): Promise<ActivityEvent[]> {
+  const q = new URLSearchParams();
+  if (opts?.limit != null) q.set("limit", String(opts.limit));
+  if (opts?.sparkId) q.set("sparkId", opts.sparkId);
+  if (opts?.sinceId != null) q.set("sinceId", String(opts.sinceId));
+  const qs = q.toString();
+  const res = await apiFetch<{ events: ActivityEvent[] }>(`/api/events${qs ? `?${qs}` : ""}`);
+  return Array.isArray(res.events) ? res.events : [];
+}
+
+/** One page of the fleet activity log (newest first). `beforeId` loads older events. */
+export function fetchEventsPage(opts?: {
+  limit?: number;
+  sparkId?: string;
+  beforeId?: number;
+}): Promise<ActivityEventsPage> {
+  const q = new URLSearchParams();
+  if (opts?.limit != null) q.set("limit", String(opts.limit));
+  if (opts?.sparkId) q.set("sparkId", opts.sparkId);
+  if (opts?.beforeId != null) q.set("beforeId", String(opts.beforeId));
+  const qs = q.toString();
+  return apiFetch(`/api/events${qs ? `?${qs}` : ""}`);
+}
+
+/** Daily (35 d) and hourly (72 h) token buckets per Spark / port / model. */
+export function fetchTokenHistory(): Promise<TokenHistory> {
+  return apiFetch("/api/llm-token-totals/history");
+}
+
+/** Hourly fleet energy for up to 31 days, per node. */
+export function fetchEnergyHistory(): Promise<EnergyHistory> {
+  return apiFetch("/api/fleet-energy/history");
 }
 
 /** Latest metrics snapshot for one Spark (includes per-port LLM modelId). */
@@ -259,6 +311,52 @@ export function clearPrefillBenchHistory(
   return apiFetch(`/api/sparks/${id}/llm/prefill-bench${q}`, { method: "DELETE" });
 }
 
+// ─── LLM quality benchmark ────────────────────────────
+export function startQualityBench(
+  id: string,
+  body: StartQualityBenchRequest
+): Promise<QualityBenchJob> {
+  return apiFetch(`/api/sparks/${id}/llm/quality-bench`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+/** Full run (with per-item rows) — active or from history. */
+export function getQualityBench(
+  id: string,
+  benchId: string
+): Promise<QualityBenchJob> {
+  return apiFetch(`/api/sparks/${id}/llm/quality-bench/${benchId}`);
+}
+
+export function listQualityBench(
+  id: string,
+  port?: number
+): Promise<QualityBenchListResponse> {
+  const q =
+    port != null && Number.isInteger(port) ? `?port=${encodeURIComponent(port)}` : "";
+  return apiFetch(`/api/sparks/${id}/llm/quality-bench${q}`);
+}
+
+export function cancelQualityBench(
+  id: string,
+  benchId: string
+): Promise<QualityBenchJob> {
+  return apiFetch(`/api/sparks/${id}/llm/quality-bench/${benchId}`, {
+    method: "DELETE",
+  });
+}
+
+export function clearQualityBenchHistory(
+  id: string,
+  port?: number
+): Promise<{ success: boolean }> {
+  const q =
+    port != null && Number.isInteger(port) ? `?port=${encodeURIComponent(port)}` : "";
+  return apiFetch(`/api/sparks/${id}/llm/quality-bench${q}`, { method: "DELETE" });
+}
+
 // ─── LLM Prompt Showcase ──────────────────────────────
 /** Start a concurrent prompt showcase (returns 202 session). */
 export function startShowcase(
@@ -441,4 +539,165 @@ export function updateSettings(patch: Partial<Settings>): Promise<Settings> {
     method: "PUT",
     body: JSON.stringify(patch),
   });
+}
+
+// ─── LLM launchers (register a directory, run its start.sh / stop.sh) ───
+const launchersBase = (sparkId: string) => `/api/sparks/${encodeURIComponent(sparkId)}/llm-launchers`;
+
+/** List a Spark's registered models. `withStatus` adds one SSH round trip for running/stopped. */
+export function fetchLaunchers(sparkId: string, withStatus = false): Promise<LauncherListResponse> {
+  return apiFetch(`${launchersBase(sparkId)}${withStatus ? "?status=1" : ""}`);
+}
+
+export function addLauncher(sparkId: string, input: LlmLauncherInput): Promise<{ launcher: LlmLauncher }> {
+  return apiFetch(launchersBase(sparkId), { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updateLauncher(
+  sparkId: string,
+  launcherId: string,
+  input: Partial<LlmLauncherInput>
+): Promise<{ launcher: LlmLauncher }> {
+  return apiFetch(`${launchersBase(sparkId)}/${encodeURIComponent(launcherId)}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export function removeLauncher(sparkId: string, launcherId: string): Promise<{ success: boolean }> {
+  return apiFetch(`${launchersBase(sparkId)}/${encodeURIComponent(launcherId)}`, { method: "DELETE" });
+}
+
+/** Start the model's start.sh, run its stop.sh, or re-open its running output. Returns the job to follow. */
+export function runLauncher(sparkId: string, launcherId: string, action: LauncherAction): Promise<{ job: LauncherJob }> {
+  return apiFetch(`${launchersBase(sparkId)}/${encodeURIComponent(launcherId)}/${action}`, { method: "POST" });
+}
+
+/** Lines of a job after `since` (a sequence number), plus the unfinished last line. */
+export function readLauncherJob(sparkId: string, jobId: string, since = 0): Promise<LauncherJobRead> {
+  return apiFetch(`${launchersBase(sparkId)}/jobs/${encodeURIComponent(jobId)}?since=${since}`);
+}
+
+/** Stop watching the active job. A start script keeps running on the Spark. */
+export function cancelLauncherJob(sparkId: string): Promise<{ success: boolean }> {
+  return apiFetch(`${launchersBase(sparkId)}/jobs/active`, { method: "DELETE" });
+}
+
+// ─── Tool Eval ───────────────────────────────────────────
+import type {
+  ToolEvalInstallRead,
+  ToolEvalJob,
+  ToolEvalPreviewResponse,
+  ToolEvalProbeResponse,
+  ToolEvalRun,
+  ToolEvalRunList,
+  ToolEvalRunRequest,
+  ToolEvalSpec,
+  ToolEvalStatus,
+  ToolEvalStreamRead,
+} from "./types";
+import { ToolEvalApiError } from "./types";
+
+const teBase = (sparkId: string) => `/api/sparks/${encodeURIComponent(sparkId)}/tool-eval`;
+
+/** Like apiFetch, but keeps the status code, the `errors[]` list and the busy job of a failed response. */
+async function teFetch<T>(path: string, opts?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = { ...authHeaders() };
+  if (opts?.body) headers["Content-Type"] = "application/json";
+  const res = await fetch(`${BASE}${path}`, { ...opts, headers: { ...headers, ...(opts?.headers as Record<string, string> | undefined) } });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}) as Record<string, unknown>);
+    throw new ToolEvalApiError(
+      (typeof body.error === "string" && body.error) || res.statusText || `HTTP ${res.status}`,
+      res.status,
+      Array.isArray(body.errors) ? body.errors.filter((e: unknown): e is string => typeof e === "string") : [],
+      (body.active as ToolEvalJob | undefined) ?? null
+    );
+  }
+  return res.json();
+}
+
+const post = (body?: unknown): RequestInit => ({ method: "POST", body: JSON.stringify(body ?? {}) });
+
+export function fetchToolEvalSpec(): Promise<ToolEvalSpec> {
+  return teFetch("/api/tool-eval/spec");
+}
+
+export function fetchToolEvalStatus(sparkId: string): Promise<ToolEvalStatus> {
+  return teFetch(`${teBase(sparkId)}/status`);
+}
+
+export function fetchToolEvalInstallCommand(sparkId: string, extras: string[], upgrade: boolean): Promise<{ command: string }> {
+  const q = new URLSearchParams({ extras: extras.join(",") });
+  if (upgrade) q.set("upgrade", "1");
+  return teFetch(`${teBase(sparkId)}/install-command?${q}`);
+}
+
+export function startToolEvalInstall(sparkId: string, extras: string[], upgrade: boolean): Promise<{ job: ToolEvalJob; command: string }> {
+  return teFetch(`${teBase(sparkId)}/install`, post({ extras, upgrade }));
+}
+
+export function readToolEvalInstall(sparkId: string, lineSince: number): Promise<ToolEvalInstallRead> {
+  return teFetch(`${teBase(sparkId)}/install/stream?lineSince=${lineSince}`);
+}
+
+export function previewToolEval(sparkId: string, req: ToolEvalRunRequest): Promise<ToolEvalPreviewResponse> {
+  return teFetch(`${teBase(sparkId)}/preview`, post(req));
+}
+
+export function probeToolEval(sparkId: string, options: Record<string, unknown>, port?: number): Promise<ToolEvalProbeResponse> {
+  return teFetch(`${teBase(sparkId)}/probe`, post({ options, port }));
+}
+
+export function fetchToolEvalRuns(sparkId: string, type?: string): Promise<ToolEvalRunList> {
+  return teFetch(`${teBase(sparkId)}/runs${type ? `?type=${encodeURIComponent(type)}` : ""}`);
+}
+
+export function startToolEvalRun(sparkId: string, req: ToolEvalRunRequest): Promise<{ run: ToolEvalRun; job: ToolEvalJob }> {
+  return teFetch(`${teBase(sparkId)}/runs`, post(req));
+}
+
+export function fetchToolEvalRun(sparkId: string, runId: string): Promise<{ run: ToolEvalRun; job: ToolEvalJob | null }> {
+  return teFetch(`${teBase(sparkId)}/runs/${encodeURIComponent(runId)}`);
+}
+
+export function readToolEvalRun(sparkId: string, runId: string, lineSince = 0, eventSince = 0): Promise<ToolEvalStreamRead> {
+  return teFetch(`${teBase(sparkId)}/runs/${encodeURIComponent(runId)}/stream?lineSince=${lineSince}&eventSince=${eventSince}`);
+}
+
+export function attachToolEvalRun(sparkId: string, runId: string): Promise<{ job: ToolEvalJob }> {
+  return teFetch(`${teBase(sparkId)}/runs/${encodeURIComponent(runId)}/attach`, post());
+}
+
+export function stopToolEvalRun(sparkId: string, runId: string): Promise<{ success: boolean; output?: string }> {
+  return teFetch(`${teBase(sparkId)}/runs/${encodeURIComponent(runId)}/stop`, post());
+}
+
+export function refreshToolEvalRun(sparkId: string, runId: string): Promise<{ state: { state: string; exitCode?: number }; run: ToolEvalRun | null }> {
+  return teFetch(`${teBase(sparkId)}/runs/${encodeURIComponent(runId)}/refresh`, post());
+}
+
+export function fetchToolEvalResult(sparkId: string, runId: string): Promise<{ run: ToolEvalRun | null; result: unknown }> {
+  return teFetch(`${teBase(sparkId)}/runs/${encodeURIComponent(runId)}/result`);
+}
+
+export function deleteToolEvalRun(sparkId: string, runId: string): Promise<{ success: boolean }> {
+  return teFetch(`${teBase(sparkId)}/runs/${encodeURIComponent(runId)}`, { method: "DELETE" });
+}
+
+/** Stop watching the live job; a benchmark run keeps going on the Spark. */
+export function cancelToolEvalWatch(sparkId: string): Promise<{ success: boolean }> {
+  return teFetch(`${teBase(sparkId)}/watch`, { method: "DELETE" });
+}
+
+/** Recent GPU history kept by the server (parallel arrays, oldest first; `p` is null where power was unknown). */
+export interface GpuHistoryResponse {
+  t: number[];
+  u: number[];
+  c: number[];
+  p: Array<number | null>;
+}
+
+export function getGpuHistory(sparkId: string, windowMs: number): Promise<GpuHistoryResponse> {
+  return apiFetch<GpuHistoryResponse>(`/api/sparks/${encodeURIComponent(sparkId)}/gpu-history?windowMs=${Math.round(windowMs)}`);
 }

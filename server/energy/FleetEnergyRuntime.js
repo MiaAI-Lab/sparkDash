@@ -76,6 +76,7 @@ export function createFleetEnergyHandler(tracker) {
 
 /** Register the read-only fleet-energy endpoint. */
 export function registerFleetEnergyRoute(app, tracker) {
+  app.get("/api/fleet-energy/history", (_req, res) => res.json(tracker.history()));
   return app.get("/api/fleet-energy", createFleetEnergyHandler(tracker));
 }
 

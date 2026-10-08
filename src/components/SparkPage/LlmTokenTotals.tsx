@@ -61,9 +61,9 @@ export function LlmTokenTotals({ sparkId, llmPort }: { sparkId: string; llmPort:
   if (rows.length === 0 && range === "all") return null;
 
   return (
-    <div className="border-t border-border pt-3 space-y-1.5">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[10px] uppercase tracking-wide text-muted">
+    <div className="sp-section">
+      <div className="sp-section__head">
+        <span className="eyebrow">
           Total tokens by model
         </span>
         <div className="flex items-center gap-2">
@@ -71,8 +71,7 @@ export function LlmTokenTotals({ sparkId, llmPort }: { sparkId: string; llmPort:
             value={range}
             onChange={(e) => setRange(e.target.value as LlmTokenRange)}
             aria-label="Token totals time range"
-            className="rounded border border-border bg-surface-elevated text-text"
-            style={{ height: "20px", padding: "0 4px", fontSize: "9px", width: "auto" }}
+            className="sp-select"
           >
             {RANGE_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -80,7 +79,7 @@ export function LlmTokenTotals({ sparkId, llmPort }: { sparkId: string; llmPort:
               </option>
             ))}
           </select>
-          <span className="shrink-0 whitespace-nowrap text-[10px] text-muted">
+          <span className="sp-tok-cols">
             <span className="inline-block w-14 text-right">Cached</span>
 
             <span className="inline-block w-14 text-right">Prefill</span>
@@ -89,9 +88,9 @@ export function LlmTokenTotals({ sparkId, llmPort }: { sparkId: string; llmPort:
           </span>
         </div>
       </div>
-      <div className="space-y-1">
+      <div className="sp-tok-rows">
         {rows.length === 0 ? (
-          <p className="text-[11px] text-muted">No tokens recorded in this period.</p>
+          <p className="sp-muted">No tokens recorded in this period.</p>
         ) : (
           rows.map((row) => {
           const seen = age(row.lastSeenAt);

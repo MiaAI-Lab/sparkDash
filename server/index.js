@@ -11,6 +11,7 @@ import { sshExec } from "./collectors/ssh.js";
 import { comfyCancelJob } from "./collectors/comfyActions.js";
 import {
   validateSparkTarget,
+  normalizeSshPort,
   createRateLimiter,
   assertAllowedTarget,
   validateDecodeBudget,
@@ -31,6 +32,11 @@ import {
   PREFILL_BENCH_DEFAULTS,
   normalizeContextSizes,
 } from "./collectors/PrefillBench.js";
+import {
+  qualityBenchManager,
+  QUALITY_BENCH_DEFAULTS,
+  normalizeQualityOptions,
+} from "./collectors/QualityBench.js";
 import { showcaseManager } from "./collectors/ShowcaseManager.js";
 import { llmProbeHost } from "./collectors/llmHost.js";
 import { onceClose, resolveLlmHttpTarget } from "./collectors/llmTunnel.js";
@@ -45,6 +51,14 @@ import { closeLlmStreamAgent } from "./collectors/LlmStreaming.js";
 import { compareSemver, getLatestRelease } from "./collectors/HermesReleases.js";
 import { FLEET_ENERGY_JSON_PATH } from "./config.js";
 import { FleetEnergyTracker } from "./energy/FleetEnergyTracker.js";
+import { EventLog } from "./events/EventLog.js";
+import { GpuHistory } from "./metrics/GpuHistory.js";
+import { LauncherStore } from "./llmlaunch/LauncherStore.js";
+import { LauncherManager } from "./llmlaunch/LauncherManager.js";
+import { ToolEvalStore } from "./tooleval/ToolEvalStore.js";
+import { ToolEvalManager } from "./tooleval/ToolEvalManager.js";
+import { registerToolEvalRoutes } from "./tooleval/routes.js";
+import { benchEvent } from "./events/eventFormat.js";
 import {
   createFleetEnergyRuntime,
   registerFleetEnergyRoute,
@@ -227,6 +241,15 @@ const allowGlobalDestructive = createRateLimiter(30, 60_000);
 const benchCooldown = createRateLimiter(1, 3_000);
 const MAX_ACTIVE_BENCH_JOBS = 2;
 
+/** Running decode + prefill + quality jobs across all Sparks. */
+function activeBenchJobCount() {
+  return (
+    decodeBenchManager.activeCount() +
+    prefillBenchManager.activeCount() +
+    qualityBenchManager.activeCount()
+  );
+}
+
 /** Consume bench-start quota only when every limiter would allow it. */
 function consumeBenchStartQuota(req, res) {
   const key = principalKey(req);
@@ -257,6 +280,75 @@ const fleetEnergyTracker = new FleetEnergyTracker({
   filePath: FLEET_ENERGY_JSON_PATH,
 });
 
+// ─── Fleet event log ─────────────────────────────────────
+const eventLog = new EventLog({
+  file: process.env.EVENTS_JSON_PATH || path.join(ROOT, "config", "events.json"),
+  // The Activity page browses history, so keep far more than the Overview card shows.
+  max: 2000,
+});
+
+// ─── GPU history (so a fresh page can draw the last hours at once) ─────
+const gpuHistory = new GpuHistory({
+  file: process.env.GPU_HISTORY_JSON_PATH || path.join(ROOT, "config", "gpu-history.json"),
+});
+const GPU_HISTORY_SAMPLE_MS = 2000;
+function sampleGpuHistory() {
+  try {
+    for (const snap of orderedSnapshots()) {
+      const gpu = snap?.metrics?.gpu;
+      if (!snap?.online || !gpu) continue;
+      const draw = gpu.power?.draw;
+      const limit = gpu.power?.limit;
+      const powerPct = Number.isFinite(draw) && Number.isFinite(limit) && limit > 0 ? Math.min(100, (draw / limit) * 100) : null;
+      gpuHistory.record(snap.id, Date.now(), gpu.usage, gpu.temperature, powerPct);
+    }
+  } catch {
+    /* sampling must never break the server */
+  }
+}
+const gpuHistoryTimer = setInterval(sampleGpuHistory, GPU_HISTORY_SAMPLE_MS);
+gpuHistoryTimer.unref?.();
+gpuHistory.start();
+
+/** Record an event; never throws (callers sit in poll loops and routes). */
+function recordEvent(event) {
+  try {
+    const name = event.sparkName ?? registry.getSpark(event.sparkId)?.name ?? event.sparkId ?? null;
+    return eventLog.record({ ...event, sparkName: name });
+  } catch {
+    return null;
+  }
+}
+
+for (const [mgr] of [[decodeBenchManager], [prefillBenchManager], [qualityBenchManager]]) {
+  mgr.setEventSink((kind, job) => {
+    const name = registry.getSpark(job.sparkId)?.name || job.sparkId;
+    const ev = benchEvent(kind, job, name);
+    if (ev) recordEvent({ ...ev, sparkId: job.sparkId, sparkName: name });
+  });
+}
+
+// ─── User-registered LLM launchers (start.sh / stop.sh) ──
+const launcherStore = new LauncherStore({
+  file: process.env.LLM_LAUNCHERS_JSON_PATH || path.join(ROOT, "config", "llm-launchers.json"),
+});
+const launcherManager = new LauncherManager({
+  store: launcherStore,
+  onEvent: (event) => recordEvent(event),
+});
+const allowLaunch = createRateLimiter(20, 60_000);
+
+// ─── Tool Eval (tool-eval-bench on a Spark) ──────────────
+const toolEvalStore = new ToolEvalStore({
+  file: process.env.TOOL_EVAL_RUNS_PATH || path.join(ROOT, "config", "tool-eval-runs.json"),
+  resultsDir: process.env.TOOL_EVAL_RESULTS_DIR || path.join(ROOT, "config", "tool-eval-results"),
+});
+const toolEvalManager = new ToolEvalManager({
+  store: toolEvalStore,
+  onEvent: (event) => recordEvent(event),
+});
+const allowToolEval = createRateLimiter(30, 60_000);
+
 // ─── Monitor map ─────────────────────────────────────────
 const monitors = new Map();
 
@@ -273,6 +365,7 @@ function startMonitor(spark) {
     },
     // Hermes check / update results must not wait for the next broadcast tick.
     onHermesChange: () => forceBroadcast(),
+    onEvent: recordEvent,
     // Worker derived label: resolve a head id to its live LLM model id.
     // Returns null when the head is unknown/offline/model-less so workers
     // never display a stale model. Display-only; never writes to config.
@@ -322,6 +415,24 @@ const server = createServer(app);
 app.use(express.json());
 app.use(createAuthMiddleware());
 
+/** Fleet event log, newest first. Query: limit, sparkId, sinceId. */
+app.get("/api/events", (req, res) => {
+  const limit = Number.parseInt(String(req.query.limit ?? ""), 10);
+  const sinceId = Number.parseInt(String(req.query.sinceId ?? ""), 10);
+  const beforeId = Number.parseInt(String(req.query.beforeId ?? ""), 10);
+  const sparkId = typeof req.query.sparkId === "string" && req.query.sparkId ? req.query.sparkId : undefined;
+  res.json({
+    events: eventLog.list({
+      limit: Number.isFinite(limit) ? limit : 50,
+      sparkId,
+      sinceId: Number.isFinite(sinceId) ? sinceId : undefined,
+      beforeId: Number.isFinite(beforeId) ? beforeId : undefined,
+    }),
+    // Lets the page know whether "load older" can return anything.
+    oldestId: eventLog.oldestId?.() ?? null,
+  });
+});
+
 app.get("/api/health", (_req, res) => {
   res.json(inspectHealth(process.env.BIND_HOST || "127.0.0.1"));
 });
@@ -369,6 +480,7 @@ app.post("/api/sparks/test", async (req, res) => {
         user: body.ssh?.user || "root",
         auth: body.ssh?.auth === "pass" ? "pass" : "key",
         password: body.ssh?.password,
+        port: normalizeSshPort(body.ssh?.port) ?? 22,
       },
     };
     if (!spark.isLocal && !spark.lanIp && !spark.ssh.host) {
@@ -400,6 +512,13 @@ app.post("/api/sparks", (req, res) => {
     const spark = registry.addSpark(req.body);
     fleetEnergyTracker.invalidateMembership(registry.sparkIds);
     startMonitor(spark);
+    recordEvent({
+      type: "spark.added",
+      severity: "info",
+      sparkId: spark.id,
+      sparkName: spark.name,
+      message: `${spark.name || spark.id} was added`,
+    });
     res.json({ success: true, spark: registry.toPublic(spark) });
   } catch (err) {
     res.status(err.status || 400).json({ error: err.message });
@@ -410,7 +529,12 @@ app.patch("/api/sparks/:id", (req, res) => {
   try {
     const body = req.body || {};
     // Only validate host fields if they are being updated
-    if (body.lanIp != null || body.ssh?.host != null || body.ssh?.user != null) {
+    if (
+      body.lanIp != null ||
+      body.ssh?.host != null ||
+      body.ssh?.user != null ||
+      body.ssh?.port != null
+    ) {
       const existing = registry.getSpark(req.params.id);
       if (!existing) return res.status(404).json({ error: "Spark not found" });
       const merged = {
@@ -462,6 +586,15 @@ app.delete("/api/sparks/:id", (req, res) => {
     if (!removed) return res.status(404).json({ error: "Spark not found" });
     fleetEnergyTracker.invalidateMembership(registry.sparkIds);
     stopMonitor(req.params.id);
+    launcherManager.removeSpark(req.params.id);
+    toolEvalManager.removeSpark(req.params.id);
+    recordEvent({
+      type: "spark.removed",
+      severity: "info",
+      sparkId: req.params.id,
+      sparkName: removed?.name || req.params.id,
+      message: `${removed?.name || req.params.id} was removed`,
+    });
     res.json({ success: true, removed });
   } catch (err) {
     res.status(err.status || 400).json({ error: err.message });
@@ -499,6 +632,13 @@ app.put("/api/settings", (req, res) => {
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
+});
+
+// Recent GPU utilization / temperature / power % for one Spark (parallel arrays), newest last.
+app.get("/api/sparks/:id/gpu-history", (req, res) => {
+  if (!registry.getSpark(req.params.id)) return res.status(404).json({ error: "Spark not found" });
+  const windowMs = Math.min(8 * 3600_000, Math.max(60_000, Number(req.query.windowMs) || 8 * 3600_000));
+  res.json(gpuHistory.get(req.params.id, Date.now() - windowMs));
 });
 
 app.get("/api/sparks/:id/metrics", (req, res) => {
@@ -542,6 +682,103 @@ app.post("/api/sparks/:id/test", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+registerToolEvalRoutes(app, {
+  registry,
+  manager: toolEvalManager,
+  store: toolEvalStore,
+  allowRun: allowToolEval,
+  principalKey,
+  rejectLimited,
+});
+
+// ─── LLM launchers: register a directory with start.sh / stop.sh and run it ───
+// The API only ever executes the registered start/stop script names inside the
+// registered directory (see llmlaunch/validate.js); it never runs a free-form command.
+
+function launcherContext(req, res) {
+  const spark = registry.getSpark(req.params.id);
+  if (!spark) {
+    res.status(404).json({ error: "Spark not found" });
+    return null;
+  }
+  return spark;
+}
+
+app.get("/api/sparks/:id/llm-launchers", async (req, res) => {
+  const spark = launcherContext(req, res);
+  if (!spark) return;
+  const launchers = launcherStore.list(spark.id);
+  const body = {
+    launchers,
+    job: launcherManager.latestJob(spark.id) ? launcherManager.summary(launcherManager.latestJob(spark.id)) : null,
+  };
+  // Status needs one SSH round trip, so it is opt-in (the panel asks once on open and after each job).
+  if (req.query.status === "1") body.statuses = await launcherManager.statuses(spark, launchers);
+  res.json(body);
+});
+
+app.post("/api/sparks/:id/llm-launchers", (req, res) => {
+  const spark = launcherContext(req, res);
+  if (!spark) return;
+  const result = launcherStore.add(spark.id, req.body);
+  if (!result.ok) return res.status(400).json({ error: result.error });
+  res.status(201).json({ launcher: result.launcher });
+});
+
+app.put("/api/sparks/:id/llm-launchers/:lid", (req, res) => {
+  const spark = launcherContext(req, res);
+  if (!spark) return;
+  const result = launcherStore.update(spark.id, req.params.lid, req.body);
+  if (!result.ok) return res.status(result.notFound ? 404 : 400).json({ error: result.error });
+  res.json({ launcher: result.launcher });
+});
+
+app.delete("/api/sparks/:id/llm-launchers/jobs/active", (req, res) => {
+  const spark = launcherContext(req, res);
+  if (!spark) return;
+  res.json({ success: launcherManager.cancel(spark.id) });
+});
+
+app.delete("/api/sparks/:id/llm-launchers/:lid", (req, res) => {
+  const spark = launcherContext(req, res);
+  if (!spark) return;
+  const active = launcherManager.activeJob(spark.id);
+  if (active && active.launcherId === req.params.lid) {
+    return res.status(409).json({ error: "A job is running for this model. Cancel it first." });
+  }
+  if (!launcherStore.remove(spark.id, req.params.lid)) return res.status(404).json({ error: "Model not found" });
+  res.json({ success: true });
+});
+
+app.get("/api/sparks/:id/llm-launchers/jobs/:jobId", (req, res) => {
+  const spark = launcherContext(req, res);
+  if (!spark) return;
+  const since = Number.parseInt(String(req.query.since ?? "0"), 10);
+  const read = launcherManager.readJob(spark.id, req.params.jobId, Number.isFinite(since) ? since : 0);
+  if (!read) return res.status(404).json({ error: "Job not found (it may have been replaced by a newer one)" });
+  res.json(read);
+});
+
+for (const action of ["start", "stop", "attach"]) {
+  app.post(`/api/sparks/:id/llm-launchers/:lid/${action}`, (req, res) => {
+    const spark = launcherContext(req, res);
+    if (!spark) return;
+    const launcher = launcherStore.get(spark.id, req.params.lid);
+    if (!launcher) return res.status(404).json({ error: "Model not found" });
+    if (action !== "attach" && !allowLaunch(principalKey(req))) {
+      return rejectLimited(res, "Too many start/stop requests; try again shortly");
+    }
+    const result = launcherManager.startJob(spark, launcher, action);
+    if (!result.ok) {
+      return res.status(409).json({
+        error: `Another job is running on this Spark (${result.active.action} ${result.active.launcherName}). Wait for it or cancel it first.`,
+        active: result.active,
+      });
+    }
+    res.status(202).json({ job: result.job });
+  });
+}
 
 // Cancel a ComfyUI job (running interrupt and/or pending dequeue).
 app.post("/api/sparks/:id/comfy/cancel", async (req, res) => {
@@ -981,7 +1218,7 @@ app.get("/api/sparks/:id/llm/daily", (req, res) => {
  * Returns immediately with a bench job; poll GET for progress/results.
  */
 app.post("/api/sparks/:id/llm/bench", async (req, res) => {
-  if (decodeBenchManager.activeCount() + prefillBenchManager.activeCount() >= MAX_ACTIVE_BENCH_JOBS) {
+  if (activeBenchJobCount() >= MAX_ACTIVE_BENCH_JOBS) {
     return res.status(429).json({ error: "Global active benchmark cap reached; wait for a job to finish" });
   }
   const spark = registry.getSpark(req.params.id);
@@ -997,6 +1234,9 @@ app.post("/api/sparks/:id/llm/bench", async (req, res) => {
   }
   if (prefillBenchManager.getActive(spark.id)) {
     return res.status(409).json({ error: "A prefill benchmark is already running for this Spark" });
+  }
+  if (qualityBenchManager.getActive(spark.id)) {
+    return res.status(409).json({ error: "A quality benchmark is already running for this Spark" });
   }
 
   const monitor = monitors.get(req.params.id);
@@ -1154,7 +1394,7 @@ app.delete("/api/sparks/:id/llm/bench/:benchId", (req, res) => {
  * Returns 202 job; poll GET for progress/results.
  */
 app.post("/api/sparks/:id/llm/prefill-bench", async (req, res) => {
-  if (decodeBenchManager.activeCount() + prefillBenchManager.activeCount() >= MAX_ACTIVE_BENCH_JOBS) {
+  if (activeBenchJobCount() >= MAX_ACTIVE_BENCH_JOBS) {
     return res.status(429).json({ error: "Global active benchmark cap reached; wait for a job to finish" });
   }
   const spark = registry.getSpark(req.params.id);
@@ -1170,6 +1410,9 @@ app.post("/api/sparks/:id/llm/prefill-bench", async (req, res) => {
   }
   if (decodeBenchManager.getActive(spark.id)) {
     return res.status(409).json({ error: "A decode benchmark is already running for this Spark" });
+  }
+  if (qualityBenchManager.getActive(spark.id)) {
+    return res.status(409).json({ error: "A quality benchmark is already running for this Spark" });
   }
 
   const monitor = monitors.get(req.params.id);
@@ -1276,6 +1519,141 @@ app.delete("/api/sparks/:id/llm/prefill-bench/:benchId", (req, res) => {
   const spark = registry.getSpark(req.params.id);
   if (!spark) return res.status(404).json({ error: "Spark not found" });
   const job = prefillBenchManager.cancel(spark.id, req.params.benchId);
+  if (!job) return res.status(404).json({ error: "Benchmark not found" });
+  res.json(job);
+});
+
+/**
+ * Quality bench — fixed deterministic suite (qa, reason, arith, track, gsm8k, mmlu, follow, long).
+ *
+ * POST body: { port?, categories?, longSizes?, longItems?, concurrency?, label?, modelId?, host?, tls? }
+ * Returns 202 job; poll GET :benchId. GET collection returns active, last (full)
+ * and history summaries (no per-item rows; fetch a run by id to compare).
+ */
+app.post("/api/sparks/:id/llm/quality-bench", async (req, res) => {
+  if (activeBenchJobCount() >= MAX_ACTIVE_BENCH_JOBS) {
+    return res.status(429).json({ error: "Global active benchmark cap reached; wait for a job to finish" });
+  }
+  const spark = registry.getSpark(req.params.id);
+  if (!spark) return res.status(404).json({ error: "Spark not found" });
+  if (spark.workerNode) {
+    return res.status(400).json({ error: "Worker nodes do not expose a local LLM API" });
+  }
+  if (spark.llmMonitoring === false) {
+    return res.status(400).json({ error: "LLM monitoring is disabled for this Spark" });
+  }
+  if (showcaseManager.getActive(spark.id)) {
+    return res.status(409).json({ error: "A prompt showcase is already running for this Spark" });
+  }
+  if (decodeBenchManager.getActive(spark.id)) {
+    return res.status(409).json({ error: "A decode benchmark is already running for this Spark" });
+  }
+  if (prefillBenchManager.getActive(spark.id)) {
+    return res.status(409).json({ error: "A prefill benchmark is already running for this Spark" });
+  }
+
+  const monitor = monitors.get(req.params.id);
+  const ports = Array.isArray(spark.llmPorts) && spark.llmPorts.length
+    ? spark.llmPorts
+    : [resolveLlmPort(spark)];
+
+  let target;
+  try {
+    target = await benchHttpTarget(spark, ports, req.body || {});
+  } catch (err) {
+    return res.status(err.status || 400).json({ error: err.message });
+  }
+  const port = target.port;
+  const options = normalizeQualityOptions(req.body || {});
+  if (!options.categories.length) {
+    return res.status(400).json({ error: "Select at least one category" });
+  }
+
+  // Model id + context length from the live probe; the job falls back to /v1/models.
+  let modelId = req.body?.modelId || null;
+  let contextLength = null;
+  if (!target.custom && monitor) {
+    const snap = monitor.snapshot();
+    const llmList = Array.isArray(snap?.metrics?.llm) ? snap.metrics.llm : [];
+    const portIndex = ports.indexOf(port);
+    const llm =
+      (portIndex >= 0 ? llmList[portIndex] : null) ||
+      llmList.find((m) => m?.available) ||
+      llmList[0];
+    if (!modelId) modelId = llm?.modelId || null;
+    contextLength = llm?.contextLength ?? null;
+  }
+
+  try {
+    if (!consumeBenchStartQuota(req, res)) return;
+    const job = qualityBenchManager.start({
+      sparkId: spark.id,
+      lanIp: llmProbeHost(spark),
+      port,
+      modelId,
+      contextLength,
+      ...options,
+      apiKey: target.apiKey,
+      host: target.host,
+      tls: target.tls,
+      resolveTarget: target.resolveTarget,
+    });
+    res.status(202).json(job);
+  } catch (err) {
+    const status = err.status || 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+app.get("/api/sparks/:id/llm/quality-bench", (req, res) => {
+  const spark = registry.getSpark(req.params.id);
+  if (!spark) return res.status(404).json({ error: "Spark not found" });
+  const portRaw = req.query.port;
+  const port =
+    portRaw != null && portRaw !== ""
+      ? parseInt(String(portRaw), 10)
+      : null;
+  const p = Number.isInteger(port) ? port : null;
+  res.json({
+    active: qualityBenchManager.getActive(spark.id),
+    last: qualityBenchManager.getLast(spark.id, p),
+    history: qualityBenchManager.getHistorySummaries(spark.id),
+    defaults: QUALITY_BENCH_DEFAULTS,
+  });
+});
+
+app.delete("/api/sparks/:id/llm/quality-bench", (req, res) => {
+  const spark = registry.getSpark(req.params.id);
+  if (!spark) return res.status(404).json({ error: "Spark not found" });
+  if (qualityBenchManager.getActive(spark.id)) {
+    return res.status(409).json({ error: "Cannot clear history while a benchmark is running" });
+  }
+  const portRaw = req.query.port ?? req.body?.port;
+  const port =
+    portRaw != null && portRaw !== ""
+      ? parseInt(String(portRaw), 10)
+      : null;
+  qualityBenchManager.clearHistory(
+    spark.id,
+    Number.isInteger(port) ? port : null
+  );
+  res.json({ success: true });
+});
+
+app.get("/api/sparks/:id/llm/quality-bench/:benchId", (req, res) => {
+  const spark = registry.getSpark(req.params.id);
+  if (!spark) return res.status(404).json({ error: "Spark not found" });
+  const job = qualityBenchManager.getJob(req.params.benchId);
+  if (!job || job.sparkId !== spark.id) {
+    return res.status(404).json({ error: "Benchmark not found" });
+  }
+  res.json(job);
+});
+
+app.delete("/api/sparks/:id/llm/quality-bench/:benchId", (req, res) => {
+  const spark = registry.getSpark(req.params.id);
+  if (!spark) return res.status(404).json({ error: "Spark not found" });
+  const job = qualityBenchManager.cancel(spark.id, req.params.benchId);
   if (!job) return res.status(404).json({ error: "Benchmark not found" });
   res.json(job);
 });
@@ -1451,19 +1829,44 @@ function isBenignShutdownSshError(msg) {
  * drops as the host powers off.
  */
 function initiateSparkShutdown(spark) {
+  const noteShutdown = () => {
+    recordEvent({
+      type: "power.shutdown",
+      severity: "warn",
+      sparkId: spark.id,
+      sparkName: spark.name,
+      message: `Shutdown requested for ${spark.name || spark.id}`,
+    });
+    eventLog.flush(); // the local host may power off right after this
+  };
   if (spark.isLocal) {
+    noteShutdown();
     return spawnLocalShutdown();
   }
 
   return sshExec(spark, SHUTDOWN_REMOTE_CMD, { timeoutMs: 8000 })
-    .then(() => "Shutdown initiated")
+    .then(() => {
+      noteShutdown();
+      return "Shutdown initiated";
+    })
     .catch((err) => {
       const msg = err.message || String(err);
       if (isBenignShutdownSshError(msg)) {
+        noteShutdown();
         return "Shutdown initiated";
       }
       throw err;
     });
+}
+
+function noteWake(spark) {
+  recordEvent({
+    type: "power.wake",
+    severity: "info",
+    sparkId: spark.id,
+    sparkName: spark.name,
+    message: `Wake-on-LAN sent to ${spark.name || spark.id}`,
+  });
 }
 
 /** Batch routes first so they never collide with /:id/* if routing changes. */
@@ -1504,6 +1907,15 @@ app.post("/api/sparks/shutdown-all", async (_req, res) => {
 app.post("/api/sparks/wake-all", async (_req, res) => {
   const results = [];
   for (const spark of registry.sparks) {
+    if (spark.kind !== "host") {
+      results.push({
+        id: spark.id,
+        ok: false,
+        skipped: true,
+        error: "DGX Spark does not support Wake-on-LAN",
+      });
+      continue;
+    }
     const cleanMac = effectiveMac(spark);
     if (!cleanMac) {
       results.push({
@@ -1516,6 +1928,7 @@ app.post("/api/sparks/wake-all", async (_req, res) => {
     try {
       const broadcast = broadcastForLanIp(spark.lanIp);
       const sent = await sendWol(cleanMac, broadcast);
+      noteWake(spark);
       results.push({ id: spark.id, ok: true, mac: sent.mac, broadcast: sent.broadcast });
     } catch (err) {
       results.push({ id: spark.id, ok: false, error: err.message || String(err) });
@@ -1559,6 +1972,11 @@ app.post("/api/sparks/:id/wake", async (req, res) => {
   try {
     const spark = registry.getSpark(req.params.id);
     if (!spark) return res.status(404).json({ error: "Spark not found" });
+    if (spark.kind !== "host") {
+      return res.status(400).json({
+        error: "DGX Spark does not support Wake-on-LAN. The onboard NIC does not wake from a magic packet.",
+      });
+    }
 
     // Body mac > user override > auto-detected enP7s7
     const cleanMac = normalizeMac(req.body?.mac) || effectiveMac(spark);
@@ -1577,6 +1995,7 @@ app.post("/api/sparks/:id/wake", async (req, res) => {
     const broadcast = broadcastForLanIp(spark.lanIp);
     try {
       const sent = await sendWol(cleanMac, broadcast);
+      noteWake(spark);
       res.json({
         success: true,
         message: `Magic packet sent to ${sent.mac} via ${sent.broadcast}`,
@@ -1737,8 +2156,28 @@ async function shutdown(signal) {
     prefillBenchManager.interruptAll(
       "Interrupted — server restarted while the benchmark was running"
     );
+    qualityBenchManager.interruptAll(
+      "Interrupted — server restarted while the benchmark was running"
+    );
   } catch (err) {
     console.error("[sparkDash] failed to finalize benchmarks:", err.message);
+  }
+  try {
+    launcherManager.shutdown();
+    toolEvalManager.shutdown();
+  } catch (err) {
+    console.error("[sparkDash] failed to stop launcher watchers:", err.message);
+  }
+  try {
+    eventLog.flush();
+  } catch (err) {
+    console.error("[sparkDash] failed to flush event log:", err.message);
+  }
+  try {
+    clearInterval(gpuHistoryTimer);
+    gpuHistory.stop();
+  } catch (err) {
+    console.error("[sparkDash] failed to flush GPU history:", err.message);
   }
   try {
     llmDaily.flush();

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import "../../styles/dialogs.css";
 import {
   cancelDecodeBench,
   clearDecodeBenchHistory,
@@ -10,7 +11,12 @@ import {
 import type { DecodeBenchJob, DecodeBenchPromptType, LlmBenchTarget } from "../../api/types";
 import { useModalPresence } from "../../hooks/useModalPresence";
 import { BenchCopyButton } from "./BenchCopyButton";
+import { BenchSwitcher, type BenchKind } from "./BenchSwitcher";
+import { XIcon } from "../ui/icons";
 import { buildDecodeShareCard, shareCardFileName } from "./benchShareCard";
+import { HistoryTable, PageCard, PageEmpty, PageLayout } from "../bench/sparkdash/pageParts";
+import { decodeHistoryRow } from "../bench/sparkdash/historyRows";
+import { LiveTps } from "../bench/sparkdash/LiveTps";
 import { formatDuration } from "../../shared/formatDuration";
 import { formatLlmBaseUrl } from "../../shared/llmTarget.js";
 import {
@@ -26,8 +32,11 @@ const DEFAULT_MAX_TOKENS = 400;
 const DEFAULT_PROMPT_TYPE: DecodeBenchPromptType = DECODE_BENCH_DEFAULT_TYPE;
 
 interface BenchmarkDialogProps {
-  open: boolean;
-  onClose: () => void;
+  /** Modal only; the page variant is always open. */
+  open?: boolean;
+  onClose?: () => void;
+  /** "page" renders the same content inline (no overlay, close button or switcher). */
+  variant?: "modal" | "page";
   sparkId: string;
   llmPort: number;
   modelId: string | null;
@@ -40,6 +49,10 @@ interface BenchmarkDialogProps {
   engine?: string | null;
   /** Probe exposure/auth posture for the share-card chip. */
   posture?: { label: string; level: "ok" | "warn" | "danger" } | null;
+  /** Switch to another benchmark dialog (Decode / Prefill / Quality). Switcher hidden when omitted. */
+  onSwitchBench?: (kind: BenchKind) => void;
+  /** The engine's current generation tok/s (monitor reading); shown live while a run is in flight. */
+  liveTps?: number | null;
 }
 
 function useEscape(onClose: () => void, enabled: boolean) {
@@ -109,7 +122,12 @@ function buildShareText(job: DecodeBenchJob, modelId: string | null): string {
   return [head, "", ...lines].join("\n");
 }
 
-function ResultRow({ r }: { r: DecodeBenchJob["results"][number] }) {
+function resultAgg(r: DecodeBenchJob["results"][number]): number {
+  return r.aggregateDecodeTps > 0 ? r.aggregateDecodeTps : r.meanDecodeTps;
+}
+
+function ResultRow({ r, max }: { r: DecodeBenchJob["results"][number]; max: number }) {
+  const pct = max > 0 ? Math.max(2, Math.round((resultAgg(r) / max) * 100)) : 0;
   return (
     <article className="bench-result-row" title={r.error || undefined}>
       <div className="bench-result-row__load">
@@ -146,13 +164,18 @@ function ResultRow({ r }: { r: DecodeBenchJob["results"][number] }) {
           </span>
         </div>
       </div>
+
+      <div className="bench-result-row__bar" aria-hidden>
+        <i style={{ width: `${pct}%` }} />
+      </div>
     </article>
   );
 }
 
 export function BenchmarkDialog({
-  open,
-  onClose,
+  open: openProp = true,
+  onClose = () => {},
+  variant = "modal",
   sparkId,
   llmPort,
   modelId,
@@ -161,7 +184,12 @@ export function BenchmarkDialog({
   sparkName = null,
   engine = null,
   posture = null,
+  onSwitchBench,
+  liveTps = null,
 }: BenchmarkDialogProps) {
+  const isPage = variant === "page";
+  const open = isPage || openProp;
+  const [history, setHistory] = useState<DecodeBenchJob[]>([]);
   const [selected, setSelected] = useState<number[]>([...DEFAULT_SELECTED]);
   const [maxTokensDraft, setMaxTokensDraft] = useState(String(DEFAULT_MAX_TOKENS));
   const [promptType, setPromptType] = useState<DecodeBenchPromptType>(DEFAULT_PROMPT_TYPE);
@@ -181,11 +209,21 @@ export function BenchmarkDialog({
   }, []);
 
   const isRunning = job?.status === "running";
+  // A saved run belongs to the model it ran against, which may not be the one loaded now (or any).
+  const resultModelId = job?.config?.modelId || job?.results?.find((r) => r.model)?.model || modelId;
 
   const { mounted, visible } = useModalPresence(open);
 
-  useEscape(onClose, open && !starting);
-  useBodyScrollLock(mounted);
+  useEscape(onClose, open && !starting && !isPage);
+  useBodyScrollLock(mounted && !isPage);
+
+  const refreshHistory = useCallback(() => {
+    void listDecodeBench(sparkId, benchPort)
+      .then((data) => setHistory(data.history ?? []))
+      .catch(() => {
+        /* history is optional */
+      });
+  }, [sparkId, benchPort]);
 
   const applyJobConfig = useCallback((j: DecodeBenchJob) => {
     if (Array.isArray(j.config?.concurrencies) && j.config.concurrencies.length > 0) {
@@ -211,7 +249,10 @@ export function BenchmarkDialog({
           .then((j) => {
             setJob(j);
             setError(null);
-            if (j.status !== "running") stopPoll();
+            if (j.status !== "running") {
+              stopPoll();
+              refreshHistory();
+            }
           })
           .catch((err: Error) => {
             // Server --watch / restart can drop the in-memory job for a moment.
@@ -255,7 +296,7 @@ export function BenchmarkDialog({
           });
       }, 800);
     },
-    [sparkId, benchPort, stopPoll]
+    [sparkId, benchPort, stopPoll, refreshHistory]
   );
 
   useEffect(() => {
@@ -270,6 +311,7 @@ export function BenchmarkDialog({
     listDecodeBench(sparkId, benchPort)
       .then((data) => {
         if (cancelled) return;
+        setHistory(data.history ?? []);
         if (data.active) {
           setJob(data.active);
           applyJobConfig(data.active);
@@ -317,6 +359,28 @@ export function BenchmarkDialog({
   };
 
   const startLockRef = useRef(false);
+
+  // Page only: a run started from the Spark page's dialog (or another tab) shows up here too.
+  useEffect(() => {
+    if (!isPage) return;
+    const t = setInterval(() => {
+      if (pollRef.current != null || startLockRef.current) return;
+      void listDecodeBench(sparkId, benchPort)
+        .then((data) => {
+          setHistory(data.history ?? []);
+          if (data.active?.status === "running" && pollRef.current == null && !startLockRef.current) {
+            setJob(data.active);
+            applyJobConfig(data.active);
+            startPolling(data.active.benchId);
+          }
+        })
+        .catch(() => {
+          /* next tick */
+        });
+    }, 5000);
+    return () => clearInterval(t);
+  }, [isPage, sparkId, benchPort, applyJobConfig, startPolling]);
+
   const handleStart = async () => {
     if (startLockRef.current) return;
     if (selected.length === 0) {
@@ -345,6 +409,7 @@ export function BenchmarkDialog({
       });
       setJob(started);
       startPolling(started.benchId);
+      if (isPage) refreshHistory();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -377,9 +442,18 @@ export function BenchmarkDialog({
       await clearDecodeBenchHistory(sparkId, benchPort);
       stopPoll();
       setJob(null);
+      setHistory([]);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     }
+  };
+
+  const handleView = (id: string) => {
+    const found = history.find((h) => h.benchId === id);
+    if (!found || isRunning) return;
+    stopPoll();
+    setError(null);
+    setJob(found);
   };
 
   if (!mounted) return null;
@@ -393,54 +467,12 @@ export function BenchmarkDialog({
         )
       : 0;
 
-  const showConfig = (!job || job.status === "running") && !loadingLast;
+  const maxAgg = job ? Math.max(0, ...job.results.map(resultAgg)) : 0;
+  const showConfig = (isPage || !job || job.status === "running") && !loadingLast;
   const showResults = job && job.status !== "running";
 
-  const dialog = (
-    <div className={`bench-overlay${visible ? " is-open" : ""}`} role="presentation">
-      {/* Scrim — click to close when not running */}
-      <button
-        type="button"
-        className="bench-overlay__scrim"
-        aria-label="Close dialog"
-        onClick={() => {
-          if (!isRunning) onClose();
-        }}
-      />
-
-      <div
-        className="bench-sheet"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="bench-title"
-      >
-        <header className="bench-sheet__header">
-          <div className="bench-sheet__header-text">
-            <h2 id="bench-title" className="bench-sheet__title">
-              Decode benchmark
-            </h2>
-            <p className="bench-sheet__subtitle">
-              {remoteTarget
-                ? formatLlmBaseUrl(remoteTarget)
-                : `Port ${llmPort}`}
-              {modelId ? ` · ${modelId}` : ""}
-            </p>
-          </div>
-          <button
-            type="button"
-            className="bench-sheet__close"
-            onClick={onClose}
-            aria-label="Close"
-          >
-            ✕
-          </button>
-        </header>
-
-        <div className="bench-sheet__body">
-          {loadingLast && !job && (
-            <p className="bench-sheet__hint">Loading last results…</p>
-          )}
-
+  const configNode = (
+    <>
           {showConfig && (
             <section className="bench-sheet__section">
               <div className="bench-field">
@@ -529,8 +561,10 @@ export function BenchmarkDialog({
             </section>
           )}
 
-          {error && <p className="bench-sheet__error">{error}</p>}
-
+    </>
+  );
+  const progressNode = (
+    <>
           {job && job.status === "running" && (
             <section className="bench-sheet__section">
               <div className="bench-progress">
@@ -559,17 +593,22 @@ export function BenchmarkDialog({
                   <p className="bench-sheet__hint">{job.progress.message}</p>
                 ) : null}
               </div>
+              <LiveTps tps={liveTps} active />
               {job.results.length > 0 && (
                 <div className="bench-results">
                   <div className="bench-results__caption">Completed levels</div>
                   {job.results.map((r) => (
-                    <ResultRow key={r.concurrency} r={r} />
+                    <ResultRow key={r.concurrency} r={r} max={maxAgg} />
                   ))}
                 </div>
               )}
             </section>
           )}
 
+    </>
+  );
+  const resultsNode = (
+    <>
           {showResults && (
             <section className="bench-sheet__section">
               <div className="bench-status-row">
@@ -597,7 +636,7 @@ export function BenchmarkDialog({
                     </span>
                   </div>
                   {job.results.map((r) => (
-                    <ResultRow key={r.concurrency} r={r} />
+                    <ResultRow key={r.concurrency} r={r} max={maxAgg} />
                   ))}
                 </div>
               )}
@@ -610,6 +649,153 @@ export function BenchmarkDialog({
               )}
             </section>
           )}
+    </>
+  );
+
+  const copyButton =
+    job && job.results.length > 0 ? (
+      <BenchCopyButton
+        text={buildShareText(job, resultModelId)}
+        buildCard={() =>
+          buildDecodeShareCard(job, {
+            llmPort: benchPort,
+            modelId: resultModelId,
+            sparkName,
+            engine,
+            posture,
+            remoteHost: remoteTarget?.host ?? null,
+          })
+        }
+        kind="decode"
+        shareImage={shareImage}
+        onError={setError}
+      />
+    ) : null;
+
+  if (isPage) {
+    return (
+      <PageLayout
+        config={
+          <>
+            {loadingLast && !job && <p className="bench-sheet__hint">Loading last results…</p>}
+            {configNode}
+          </>
+        }
+        runBar={
+          isRunning ? (
+            <button type="button" className="btn" onClick={() => void handleCancel()}>
+              Cancel run
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="btn btn--primary"
+              onClick={() => void handleStart()}
+              disabled={starting || selected.length === 0}
+            >
+              {starting ? "Starting…" : "Run benchmark"}
+            </button>
+          )
+        }
+      >
+        {error && <p className="bench-sheet__error">{error}</p>}
+        {isRunning && <PageCard title="Progress">{progressNode}</PageCard>}
+        {showResults && (
+          <PageCard
+            title="Results"
+            tools={
+              <>
+                {copyButton}
+                {job.results.length > 0 && (
+                  <button
+                    type="button"
+                    className="btn btn--sm btn--ghost"
+                    onClick={() => void handleClear()}
+                    title="Clear saved results for this port"
+                  >
+                    Clear history
+                  </button>
+                )}
+              </>
+            }
+          >
+            {resultsNode}
+          </PageCard>
+        )}
+        {!job && !loadingLast && (
+          <PageEmpty title="No runs yet">
+            Pick a prompt type and concurrency levels, then run. Each level opens that many parallel streams and
+            reports aggregate and per-stream decode tok/s.
+          </PageEmpty>
+        )}
+        {history.length > 0 && (
+          <PageCard title={`History · ${history.length}`}>
+            <HistoryTable
+              rows={history.map(decodeHistoryRow)}
+              activeId={job?.benchId ?? null}
+              labelHeader="Concurrency"
+              onView={handleView}
+              busy={isRunning || starting}
+            />
+          </PageCard>
+        )}
+      </PageLayout>
+    );
+  }
+
+  const dialog = (
+    <div className={`bench-overlay${visible ? " is-open" : ""}`} role="presentation">
+      {/* Scrim — click to close when not running */}
+      <button
+        type="button"
+        className="bench-overlay__scrim"
+        aria-label="Close dialog"
+        onClick={() => {
+          if (!isRunning) onClose();
+        }}
+      />
+
+      <div
+        className="bench-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="bench-title"
+      >
+        <header className="bench-sheet__header">
+          <div className="bench-sheet__header-text">
+            <h2 id="bench-title" className="bench-sheet__title">
+              Decode benchmark
+            </h2>
+            <p className="bench-sheet__subtitle">
+              {remoteTarget
+                ? formatLlmBaseUrl(remoteTarget)
+                : `Port ${llmPort}`}
+              {resultModelId ? ` · ${resultModelId}` : ""}
+            </p>
+          </div>
+          <BenchSwitcher active="decode" onSwitch={onSwitchBench} disabled={isRunning || starting} />
+          <button
+            type="button"
+            className="bench-sheet__close"
+            onClick={onClose}
+            aria-label="Close"
+          >
+            <XIcon className="h-4 w-4" />
+          </button>
+        </header>
+
+        <div className="bench-sheet__body">
+          {loadingLast && !job && (
+            <p className="bench-sheet__hint">Loading last results…</p>
+          )}
+
+          {configNode}
+
+          {error && <p className="bench-sheet__error">{error}</p>}
+
+          {progressNode}
+
+          {resultsNode}
         </div>
 
         <footer className="bench-sheet__footer">
@@ -631,11 +817,11 @@ export function BenchmarkDialog({
               )}
               {job.results.length > 0 && (
                 <BenchCopyButton
-                  text={buildShareText(job, modelId)}
+                  text={buildShareText(job, resultModelId)}
                   buildCard={() =>
                     buildDecodeShareCard(job, {
                       llmPort: benchPort,
-                      modelId,
+                      modelId: resultModelId,
                       sparkName,
                       engine,
                       posture,
@@ -647,11 +833,11 @@ export function BenchmarkDialog({
                   onError={setError}
                 />
               )}
-              <button type="button" className="bench-btn bench-btn--ghost" onClick={handleNewRun}>
-                New run
-              </button>
-              <button type="button" className="bench-btn bench-btn--primary" onClick={onClose}>
+              <button type="button" className="bench-btn bench-btn--ghost" onClick={onClose}>
                 Done
+              </button>
+              <button type="button" className="bench-btn bench-btn--primary" onClick={handleNewRun}>
+                Run again
               </button>
             </>
           ) : (

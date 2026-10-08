@@ -1,5 +1,6 @@
+import { withPageTransition } from "./pageTransition";
 import { useEffect, useCallback, useRef, useState } from "react";
-import { OVERVIEW_ID } from "../constants";
+import { idToPath, pathToId } from "../constants";
 
 export type RouteMode = "app" | "showcase";
 
@@ -40,9 +41,11 @@ export function useAppRoute(): AppRoute {
  * useRoute — syncs the browser URL path with the active spark ID.
  *
  * URL scheme:
- *   /             → Overview
- *   /spark/:id    → Spark detail page
- *   /showcase/:id → full-screen showcase (handled separately via useAppRoute)
+ *   /                      → Overview
+ *   /tokens /energy /activity → dedicated fleet pages
+ *   /spark/:id             → Spark detail page
+ *   /spark/:id/tool-eval   → Tool Eval page for that Spark
+ *   /showcase/:id          → full-screen showcase (handled separately via useAppRoute)
  *
  * Call `navigate(id)` to switch views — it updates both the URL and
  * the internal activeId state. Back/forward buttons work via popstate.
@@ -56,25 +59,17 @@ export function useRoute(
   useEffect(() => {
     if (initialised.current) return;
     initialised.current = true;
-
-    const path = window.location.pathname;
-    if (path.startsWith("/showcase/")) return;
-
-    const match = path.match(/^\/spark\/([^/]+)/);
-    if (match) {
-      setActiveId(match[1]);
-    } else if (path !== "/spark") {
-      setActiveId(OVERVIEW_ID);
-    }
+    const id = pathToId(window.location.pathname);
+    if (id === null) return; // /showcase/... is handled outside the app shell
+    if (window.location.pathname === "/spark") return;
+    setActiveId(id);
   }, [setActiveId]);
 
   // Sync back/forward navigation
   useEffect(() => {
     const handler = () => {
-      const path = window.location.pathname;
-      if (path.startsWith("/showcase/")) return;
-      const match = path.match(/^\/spark\/([^/]+)/);
-      setActiveId(match ? match[1] : OVERVIEW_ID);
+      const id = pathToId(window.location.pathname);
+      if (id !== null) withPageTransition(() => setActiveId(id));
     };
     window.addEventListener("popstate", handler);
     return () => window.removeEventListener("popstate", handler);
@@ -83,9 +78,8 @@ export function useRoute(
   // Wrapped navigate function — updates URL + internal state
   const navigate = useCallback(
     (id: string | null) => {
-      const url = id && id !== OVERVIEW_ID ? `/spark/${encodeURIComponent(id)}` : "/";
-      window.history.pushState(null, "", url);
-      setActiveId(id);
+      window.history.pushState(null, "", idToPath(id));
+      withPageTransition(() => setActiveId(id));
     },
     [setActiveId]
   );

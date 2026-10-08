@@ -14,7 +14,7 @@ import {
   SSH_CONNECT_TIMEOUT,
   SSH_MULTIPLEX,
 } from "../config.js";
-import { isAllowedTargetHost, isValidSshUser } from "../validate.js";
+import { isAllowedTargetHost, isValidSshUser, normalizeSshPort } from "../validate.js";
 import { llmProbeHost } from "./llmHost.js";
 
 // Detect sshpass without shelling out to `which` on every cold call —
@@ -45,13 +45,16 @@ function ensureControlDir() {
  * only in the digest so two password records cannot share an authenticated
  * transport; the secret itself is never exposed in argv or the socket path.
  */
-export function sshMultiplexConfig(spark, targetHost, user, auth, password) {
+export function sshMultiplexConfig(spark, targetHost, user, auth, password, port = 22) {
   const persistSeconds = controlPersistSeconds();
   if (persistSeconds === 0) return null;
 
   ensureControlDir();
   const identityFile = process.env.SSH_IDENTITY_FILE || "default";
-  const isolationKey = [spark.id, user, targetHost, auth || "key", identityFile, password || ""].join("\0");
+  const sshPort = normalizeSshPort(port) ?? 22;
+  const isolationKey = [spark.id, user, targetHost, String(sshPort), auth || "key", identityFile, password || ""].join(
+    "\0"
+  );
   const digest = crypto
     .createHash("sha256")
     .update(_controlSalt)
@@ -165,13 +168,14 @@ function sshpassAvailable() {
  *
  * @param {object} spark
  * @param {{ extraSshArgs?: string[], remoteArgv?: string[], multiplex?: boolean }} [opts]
- * @returns {{ file: string, args: string[], env: NodeJS.ProcessEnv, targetHost: string }}
+ * @returns {{ file: string, args: string[], env: NodeJS.ProcessEnv, targetHost: string, sshPort: number }}
  */
 export function sshCommandSpec(spark, opts = {}) {
   const extraSshArgs = Array.isArray(opts.extraSshArgs) ? opts.extraSshArgs : [];
   const remoteArgv = Array.isArray(opts.remoteArgv) ? opts.remoteArgv : [];
   const { host, user, auth, password } = spark?.ssh || {};
   const targetHost = host || spark?.lanIp;
+  const sshPort = normalizeSshPort(spark?.ssh?.port) ?? 22;
 
   if (!targetHost || !user) {
     throw new Error(`SSH config missing for ${spark?.id}: host=${targetHost}, user=${user}`);
@@ -191,13 +195,15 @@ export function sshCommandSpec(spark, opts = {}) {
     `ConnectTimeout=${SSH_CONNECT_TIMEOUT}`,
     "-o",
     "StrictHostKeyChecking=accept-new",
+    "-p",
+    String(sshPort),
   ];
 
   const remote = `${user}@${targetHost}`;
   const multiplex =
     opts.multiplex === false || !SSH_MULTIPLEX
       ? null
-      : sshMultiplexConfig(spark, targetHost, user, auth, password);
+      : sshMultiplexConfig(spark, targetHost, user, auth, password, sshPort);
   // The readiness gate and command must use the same socket and persistence.
   // Explicitly disable both creating and joining a master when reuse is off,
   // including when a user's ssh_config enables multiplexing independently.
@@ -253,7 +259,7 @@ export function sshCommandSpec(spark, opts = {}) {
     args.push(...extraSshArgs, "--", remote, ...remoteArgv);
   }
 
-  return { file, args, env, targetHost, multiplex };
+  return { file, args, env, targetHost, multiplex, sshPort };
 }
 
 /**
@@ -272,7 +278,7 @@ export async function sshExec(spark, cmd, options = {}) {
     throw new Error("SSH command must be a non-empty string");
   }
 
-  const { file, args, env, targetHost, multiplex } = sshCommandSpec(spark, {
+  const { file, args, env, targetHost, multiplex, sshPort } = sshCommandSpec(spark, {
     remoteArgv: [cmd],
   });
 
@@ -281,7 +287,7 @@ export async function sshExec(spark, cmd, options = {}) {
       execFile(file, execArgs, { timeout: timeoutMs, env, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
         if (err) {
           const msg = stderr?.trim() || err.message;
-          reject(new Error(`SSH to ${targetHost} failed: ${msg}`));
+          reject(new Error(`SSH to ${targetHost}:${sshPort} failed: ${msg}`));
         } else {
           resolve(String(stdout).trim());
         }

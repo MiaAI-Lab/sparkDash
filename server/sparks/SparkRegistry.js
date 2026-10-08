@@ -2,7 +2,7 @@ import fs from "fs";
 import { SPARKS_JSON_PATH, LLM_PORT } from "../config.js";
 import { loadSecrets, saveSecrets } from "../secretsStore.js";
 import { atomicWrite } from "../util/atomicWrite.js";
-import { isValidSparkId } from "../validate.js";
+import { isValidSparkId, normalizeSshPort } from "../validate.js";
 
 /**
  * SparkRegistry — loads, persists, and emits change events for the Spark list.
@@ -390,6 +390,12 @@ export class SparkRegistry {
       .sort((a, b) => a - b);
   }
 
+  /** The saved Bearer key for one LLM port (server-side use only; never returned by the API). */
+  getLlmApiKey(id, port) {
+    const key = this._llmApiKeys.get(id)?.[String(port)];
+    return key && String(key).trim() ? String(key) : null;
+  }
+
   hasLlmApiKey(id, port) {
     const ports = this._llmApiKeys.get(id);
     if (!ports) return false;
@@ -577,6 +583,8 @@ export class SparkRegistry {
       host: sshIn.host || "",
       user: sshIn.user || "root",
       auth: sshIn.auth === "pass" ? "pass" : "key",
+      /** TCP port for SSH. Missing or invalid values fall back to 22. */
+      port: normalizeSshPort(sshIn.port) ?? 22,
     };
     const llmPorts = this._normalizeLlmPorts(config.llmPorts ?? config.llmPort);
     const role = this._normalizeRole(config);

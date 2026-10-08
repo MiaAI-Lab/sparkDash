@@ -21,20 +21,24 @@ const DEFAULTS = Object.freeze({
   benchDebugTraces: false,
   /** Layout density — compact (default) or comfortable. */
   density: "compact",
-  /** Overview Fleet Energy card. Off by default. */
-  showFleetEnergy: false,
+  /** Overview Fleet Energy card. On by default. */
+  showFleetEnergy: true,
   /** Overview active fleet exceptions strip. Off by default. */
   showFleetExceptions: false,
   /** Overview search + status filter row. Off by default. */
   showOverviewSearch: false,
-  /** Overview LLM token totals card (cumulative tokens per model). Off by default. */
-  showLlmTokenTotals: false,
+  /** Overview LLM token totals card (cumulative tokens per model). On by default. */
+  showLlmTokenTotals: true,
   /**
    * Benchmark dialogs offer the share-card format. On by default: the extra
    * control is one caret next to a button that already copies, and anyone who
    * does not want it can turn it off here (see the README's settings table).
    */
   benchShareImage: true,
+  /** Electricity price per kWh, used to show estimated cost on the Fleet energy page. null = hide cost. */
+  energyPricePerKwh: null,
+  /** Currency symbol shown next to the estimated cost. */
+  energyCurrency: "$",
 });
 
 /** @type {typeof DEFAULTS} */
@@ -59,6 +63,13 @@ function _clampSettings(settings) {
   s.showFleetExceptions = Boolean(s.showFleetExceptions);
   s.showOverviewSearch = Boolean(s.showOverviewSearch);
   s.showLlmTokenTotals = Boolean(s.showLlmTokenTotals);
+  // Electricity price: a non-negative finite number, otherwise "not set".
+  const price = s.energyPricePerKwh == null || s.energyPricePerKwh === "" ? null : Number(s.energyPricePerKwh);
+  s.energyPricePerKwh = Number.isFinite(price) && price >= 0 && price <= 100 ? price : null;
+  s.energyCurrency =
+    typeof s.energyCurrency === "string" && s.energyCurrency.trim() && s.energyCurrency.trim().length <= 4
+      ? s.energyCurrency.trim()
+      : DEFAULTS.energyCurrency;
   // Ensure temperatureUnit is valid
   if (s.temperatureUnit !== "celsius" && s.temperatureUnit !== "fahrenheit") {
     s.temperatureUnit = DEFAULTS.temperatureUnit;

@@ -49,8 +49,26 @@ const WARMUP_TARGET_TOKENS = 512;
 const GEN_MAX_TOKENS = 8;
 const HISTORY_LIMIT = 10;
 
-/** `" the"` is typically one BPE token (~4 chars). */
-const FILLER_UNIT = " the";
+/**
+ * Common short English words, each one BPE token with a leading space in the
+ * mainstream tokenizers. Cycled in a fixed pseudo-random order so the filler is
+ * less degenerate than one repeated token (attention/MoE routing look closer
+ * to real text) while the token count stays ~1 per word.
+ */
+const FILLER_WORDS =
+  "the of and to in is you that it he was for on are as with his they at be this have from or one had by word but not what all were we when your can said there use an each which she do how their if will up other about out many then them these so some her would make like him into time".split(
+    " "
+  );
+
+function fillerText(count) {
+  const words = new Array(count);
+  let state = 0x2545f491;
+  for (let i = 0; i < count; i += 1) {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    words[i] = FILLER_WORDS[(state >>> 8) % FILLER_WORDS.length];
+  }
+  return " " + words.join(" ");
+}
 
 /**
  * Unique-prefix prompt aimed at `targetTokens` (estimateTokenCount / 4 chars).
@@ -64,7 +82,48 @@ export function buildPrefillPrompt(targetTokens, salt) {
   const footer = "\nReply OK.";
   const reserved = estimateTokenCount(header + footer);
   const fillTokens = Math.max(1, n - reserved);
-  return header + FILLER_UNIT.repeat(fillTokens) + footer;
+  return header + fillerText(fillTokens) + footer;
+}
+
+/** Tiny prompt used to measure fixed per-request overhead (network, queue, first decode step). */
+const CALIBRATION_TOKENS = 16;
+const CALIBRATION_SAMPLES = 3;
+
+/** Samples per size: big contexts take minutes each, so they get fewer repeats. */
+export function repeatsForSize(tokens) {
+  const n = Number(tokens) || 0;
+  if (n <= 32768) return 3;
+  if (n <= 131072) return 2;
+  return 1;
+}
+
+export function medianOf(nums) {
+  const v = nums.filter((x) => Number.isFinite(x)).sort((a, b) => a - b);
+  if (!v.length) return 0;
+  const mid = v.length >> 1;
+  return v.length % 2 ? v[mid] : (v[mid - 1] + v[mid]) / 2;
+}
+
+/**
+ * Turn one raw sample into a prefill rate.
+ *  - "server": the backend reported its own prompt-processing time (llama.cpp `timings`).
+ *  - "ttft": prompt tokens actually computed (cache hits excluded) over TTFT minus the
+ *    calibrated fixed overhead. The correction is capped so a noisy calibration cannot
+ *    remove more than 80% of the measured TTFT.
+ * @param {{ promptTokens: number, ttftMs: number, cachedTokens: number, serverPromptMs: number | null, serverPromptN: number | null }} s
+ * @param {number} overheadMs
+ */
+export function rateFromSample(s, overheadMs = 0) {
+  if (s.serverPromptMs > 0 && s.serverPromptN > 0) {
+    return {
+      tps: round2((s.serverPromptN / s.serverPromptMs) * 1000),
+      method: "server",
+    };
+  }
+  const computed = Math.max(0, (s.promptTokens || 0) - (s.cachedTokens || 0));
+  if (!(s.ttftMs > 0) || computed <= 0) return { tps: 0, method: "ttft" };
+  const effectiveMs = Math.max(s.ttftMs - Math.max(0, overheadMs), s.ttftMs * 0.2);
+  return { tps: round2((computed / effectiveMs) * 1000), method: "ttft" };
 }
 
 /**
@@ -158,6 +217,9 @@ async function runPrefillSize({
       promptTokens: result.prefillTokens || 0,
       promptChars,
       prefillTps: result.prefillTps || 0,
+      cachedTokens: result.cachedPromptTokens || 0,
+      serverPromptMs: result.serverPromptMs ?? null,
+      serverPromptN: result.serverPromptN ?? null,
       ttftMs: result.ttftMs || 0,
       ttftContentMs: result.ttftContentMs ?? null,
       completionTokens: result.completionTokens || 0,
@@ -171,18 +233,107 @@ async function runPrefillSize({
   }
 }
 
-async function warmupPrefill({ baseUrl, modelId, abortSignal, apiKey }) {
+async function warmupPrefill({
+  baseUrl,
+  modelId,
+  abortSignal,
+  apiKey,
+  tokens = WARMUP_TARGET_TOKENS,
+}) {
   try {
     await runPrefillSize({
       baseUrl,
       modelId,
-      targetTokens: WARMUP_TARGET_TOKENS,
+      targetTokens: tokens,
       abortSignal,
       apiKey,
     });
   } catch {
     /* best-effort */
   }
+}
+
+/** Median TTFT of a few tiny prompts = fixed overhead that is not prefill work. */
+async function calibrateOverhead({ baseUrl, modelId, abortSignal, apiKey }) {
+  const ttfts = [];
+  for (let i = 0; i < CALIBRATION_SAMPLES; i += 1) {
+    if (abortSignal?.aborted) break;
+    try {
+      const r = await runPrefillSize({
+        baseUrl,
+        modelId,
+        targetTokens: CALIBRATION_TOKENS,
+        abortSignal,
+        apiKey,
+      });
+      if (!r.error && r.ttftMs > 0) ttfts.push(r.ttftMs);
+    } catch {
+      /* best-effort */
+    }
+  }
+  return ttfts.length ? round2(medianOf(ttfts)) : 0;
+}
+
+/**
+ * Several samples for one size; reports the median-rate sample's fields.
+ * @param {(msg: string) => void} [onSample]
+ */
+async function runPrefillMeasured(opts, overheadMs, onSample) {
+  const repeats = repeatsForSize(opts.targetTokens);
+  const good = [];
+  let lastErr = null;
+  let firstFail = null;
+  for (let i = 0; i < repeats; i += 1) {
+    if (opts.abortSignal?.aborted) break;
+    if (repeats > 1 && onSample) onSample(i + 1, repeats);
+    const sample = await runPrefillSize(opts);
+    if (sample.error) {
+      lastErr = sample;
+      if (!firstFail) firstFail = sample;
+      break; // a failing size will not get better on retry; keep the time budget
+    }
+    good.push({ sample, ...rateFromSample(sample, overheadMs) });
+  }
+  if (!good.length) {
+    return {
+      ...(lastErr || {
+        targetTokens: opts.targetTokens,
+        promptTokens: 0,
+        promptChars: 0,
+        prefillTps: 0,
+        ttftMs: 0,
+        ttftContentMs: null,
+        completionTokens: 0,
+        durationMs: 0,
+        model: null,
+        error: "Cancelled",
+      }),
+      prefillTps: 0,
+      method: "ttft",
+      cachedTokens: 0,
+      samples: 0,
+      overheadMs,
+    };
+  }
+  good.sort((a, b) => a.tps - b.tps);
+  const pick = good[(good.length - 1) >> 1];
+  const { sample } = pick;
+  return {
+    targetTokens: sample.targetTokens,
+    promptTokens: sample.promptTokens,
+    promptChars: sample.promptChars,
+    prefillTps: round2(medianOf(good.map((g) => g.tps))),
+    method: pick.method,
+    cachedTokens: sample.cachedTokens,
+    samples: good.length,
+    overheadMs,
+    ttftMs: round2(medianOf(good.map((g) => g.sample.ttftMs))),
+    ttftContentMs: sample.ttftContentMs,
+    completionTokens: sample.completionTokens,
+    durationMs: round2(good.reduce((t, g) => t + g.sample.durationMs, 0)),
+    model: sample.model,
+    error: null,
+  };
 }
 
 function publicJob(job) {
@@ -217,8 +368,24 @@ export class PrefillBenchManager {
     this.historyBySpark = new Map();
     this.historyPath = historyPath;
     this.activePath = activePath;
+    /** @type {((kind: string, job: object) => void) | null} */
+    this._onEvent = null;
     this._loadHistory();
     this._recoverInterruptedActive();
+  }
+
+  /** Optional sink invoked once when a job reaches completed/failed/cancelled. */
+  setEventSink(fn) {
+    this._onEvent = typeof fn === "function" ? fn : null;
+  }
+
+  _emitFinished(job) {
+    if (!this._onEvent) return;
+    try {
+      this._onEvent("prefill", job);
+    } catch {
+      /* event recording must never break the bench */
+    }
   }
 
   activeCount() {
@@ -548,12 +715,29 @@ export class PrefillBenchManager {
         }
       }
       const baseUrl = formatLlmBaseUrl({ host, port, tls });
+      let overheadMs = 0;
       if (!job._abort.signal.aborted) {
         if (!String(job.progress.message || "").startsWith("Warming up")) {
           job.progress.message = "Warming up…";
         }
         this._checkpointActive();
         await warmupPrefill({
+          baseUrl,
+          modelId: job.config.modelId,
+          abortSignal: job._abort.signal,
+          apiKey: job._apiKey,
+        });
+        // Second warmup at a mid size so kernel/graph compilation for larger
+        // shapes does not land in the first measured row.
+        await warmupPrefill({
+          tokens: 4096,
+          baseUrl,
+          modelId: job.config.modelId,
+          abortSignal: job._abort.signal,
+          apiKey: job._apiKey,
+        });
+        job.progress.message = "Calibrating…";
+        overheadMs = await calibrateOverhead({
           baseUrl,
           modelId: job.config.modelId,
           abortSignal: job._abort.signal,
@@ -575,13 +759,19 @@ export class PrefillBenchManager {
         job.progress.message = `Prefilling ${formatContextSize(size)}…`;
         this._checkpointActive();
 
-        const row = await runPrefillSize({
-          baseUrl,
-          modelId: job.config.modelId,
-          targetTokens: size,
-          abortSignal: job._abort.signal,
-          apiKey: job._apiKey,
-        });
+        const row = await runPrefillMeasured(
+          {
+            baseUrl,
+            modelId: job.config.modelId,
+            targetTokens: size,
+            abortSignal: job._abort.signal,
+            apiKey: job._apiKey,
+          },
+          overheadMs,
+          (i, n) => {
+            job.progress.message = `Prefilling ${formatContextSize(size)} (run ${i}/${n})…`;
+          }
+        );
 
         if (job._abort.signal.aborted) {
           if (job.status === "running") {
@@ -629,6 +819,7 @@ export class PrefillBenchManager {
       this.activeBySpark.delete(job.sparkId);
       this._pushHistory(job);
       this._checkpointActive();
+      this._emitFinished(job);
     }
   }
 
