@@ -50,7 +50,7 @@ import {
 } from "./llmtokens/LlmTokenRuntime.js";
 import { closeLlmStreamAgent } from "./collectors/LlmStreaming.js";
 import { compareSemver, getLatestRelease } from "./collectors/HermesReleases.js";
-import { FLEET_ENERGY_JSON_PATH } from "./config.js";
+import { FLEET_ENERGY_JSON_PATH, FLEET_ENERGY_MONTHLY_JSON_PATH } from "./config.js";
 import { FleetEnergyTracker } from "./energy/FleetEnergyTracker.js";
 import { EventLog } from "./events/EventLog.js";
 import { GpuHistory, deviceReadings } from "./metrics/GpuHistory.js";
@@ -290,6 +290,7 @@ const registry = new SparkRegistry();
 const fleetEnergyTracker = new FleetEnergyTracker({
   nodeIds: registry.sparkIds,
   filePath: FLEET_ENERGY_JSON_PATH,
+  monthlyFilePath: FLEET_ENERGY_MONTHLY_JSON_PATH,
 });
 
 // ─── Fleet event log ─────────────────────────────────────

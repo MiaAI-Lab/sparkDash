@@ -2,6 +2,7 @@ import type {
   ActivityEvent,
   ActivityEventsPage,
   EnergyHistory,
+  MonthlyEnergy,
   TokenHistory,
   DecodeBenchJob,
   DecodeBenchListResponse,
@@ -130,6 +131,11 @@ export function fetchTokenHistory(): Promise<TokenHistory> {
 /** Hourly fleet energy for up to 31 days, per node. */
 export function fetchEnergyHistory(): Promise<EnergyHistory> {
   return apiFetch("/api/fleet-energy/history");
+}
+
+/** Permanent per-month fleet energy (survives resets, restarts and fleet changes). */
+export function fetchMonthlyEnergy(): Promise<MonthlyEnergy> {
+  return apiFetch("/api/fleet-energy/monthly");
 }
 
 /** Latest metrics snapshot for one Spark (includes per-port LLM modelId). */

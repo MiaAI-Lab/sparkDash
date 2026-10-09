@@ -24,6 +24,9 @@ const LLM_TOKEN_JSON_PATH =
 /** Rolling fleet energy estimates (gitignored; written atomically at mode 0600). */
 const FLEET_ENERGY_JSON_PATH =
   process.env.FLEET_ENERGY_JSON_PATH || path.join(ROOT, "config", "fleet-energy.json");
+/** Permanent monthly energy roll-up (gitignored; survives resets and fleet changes). */
+const FLEET_ENERGY_MONTHLY_JSON_PATH =
+  process.env.FLEET_ENERGY_MONTHLY_JSON_PATH || path.join(ROOT, "config", "fleet-energy-monthly.json");
 
 // ─── LLM / Comfy probe timeouts ──────────────────────────
 const LLM_PROBE_TIMEOUT_MS = 3000;
@@ -186,6 +189,7 @@ export {
   LLM_DAILY_JSON_PATH,
   LLM_TOKEN_JSON_PATH,
   FLEET_ENERGY_JSON_PATH,
+  FLEET_ENERGY_MONTHLY_JSON_PATH,
   LLM_PROBE_TIMEOUT_MS,
   COMFY_PROBE_TIMEOUT_MS,
   TAILSCALE_PROBE_TIMEOUT_MS,

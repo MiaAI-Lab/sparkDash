@@ -477,6 +477,7 @@ sparkDash/
 | GET | `/api/sparks/:id/metrics` | One-shot metrics snapshot |
 | GET | `/api/fleet-energy` | Estimated fleet watts, rolling energy, coverage, and Wh/output-token |
 | GET | `/api/fleet-energy/history` | Hourly / daily energy buckets for the Fleet energy page |
+| GET/DELETE | `/api/fleet-energy/monthly` | Permanent per-UTC-month energy totals; `DELETE` needs `?month=YYYY-MM` or `?all=true&confirm=delete-all-history` |
 | GET | `/api/llm-token-totals` · `/api/llm-token-totals/history` | Cumulative LLM tokens by model, and the hourly / daily history behind the Token totals page |
 | GET | `/api/sparks/:id/gpu-history` | Last hours of GPU utilization, temperature and power % (`windowMs`, up to 8 h; parallel arrays) |
 | GET | `/api/events` | Fleet event log (`limit`, `sparkId`, `sinceId`, `beforeId`; 2000 kept) |
@@ -511,6 +512,16 @@ persisted at mode `0600` for rolling 24-hour and 31-day windows. Wh/output-token
 `standalone` node (workers are skipped, since they front their head's engine).
 These values are estimates, not wall-meter measurements. Restart sparkDash after changing fleet
 membership so the persisted series has one stable node set.
+
+Finished minutes are also rolled up once into a permanent monthly archive
+(`config/fleet-energy-monthly.json`, read through `/api/fleet-energy/monthly`): per UTC month and
+node watt-hours and coverage, the fleet total, output tokens and Wh/output-token. A minute is added
+10 seconds after it ends, a stored watermark guarantees it is never counted twice, and the first
+start backfills from the existing 31-day file. The archive is not touched by **Reset…**, restarts or
+fleet membership changes (the previous scope's file is rolled up, after the same plausibility checks as a normal load, before it is set aside). Only
+`DELETE /api/fleet-energy/monthly` removes months (all of them only with `confirm=delete-all-history`). A clock that jumps ahead cannot hide later
+minutes: nothing is folded, and no watermark is kept, beyond the clock plus one day (a stored watermark
+beyond that is clamped back on load, totals unchanged).
 
 ---
 
@@ -564,6 +575,7 @@ Copy `.env.example` to `.env` if needed:
 | `SSH_IDENTITY_FILE` | _(unset)_ | Path **inside the process** to a private key (`ssh -i`). Use when the bind-mount is not a default OpenSSH name. |
 | `SSH_CONTROL_PERSIST_SECONDS` | `60` | Idle SSH transport persistence in seconds, capped at `3600`. Set to `0` to disable multiplexing. |
 | `FLEET_ENERGY_JSON_PATH` | `config/fleet-energy.json` | Rolling fleet-energy persistence path |
+| `FLEET_ENERGY_MONTHLY_JSON_PATH` | `config/fleet-energy-monthly.json` | Permanent monthly energy archive |
 
 For compatibility, `SSH_CONTROL_PERSIST` is accepted as a seconds-based fallback when `SSH_CONTROL_PERSIST_SECONDS` is unset. The existing `SSH_MULTIPLEX=0` switch also disables reuse. SSH tunnels always use an independent connection.
 

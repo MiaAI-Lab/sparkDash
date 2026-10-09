@@ -6,7 +6,9 @@ import type { EnergyHistory, FleetEnergy, Settings, SparkSnapshot } from "../../
 import { StackedBarChart, type BarBucket, type BarSeries } from "../ui/StackedBarChart";
 import { LineAreaChart, type LinePoint } from "../ui/LineAreaChart";
 import { Tag } from "../ui/Tag";
+import { MonthlyEnergy } from "./MonthlyEnergy";
 import {
+  NODE_COLORS,
   RANGE_DAYS,
   browserTzOffset,
   buildBuckets,
@@ -47,18 +49,6 @@ const RANGES: Array<{ id: EnergyRange; label: string; long: string }> = [
   { id: "7d", label: "7 d", long: "7 days" },
   { id: "14d", label: "14 d", long: "14 days" },
   { id: "31d", label: "31 d", long: "31 days" },
-];
-
-/** Node colours in stack order (largest consumer first). */
-const NODE_COLORS = [
-  "var(--color-accent)",
-  "var(--color-info)",
-  "var(--color-violet)",
-  "var(--color-success)",
-  "var(--color-warning)",
-  "var(--color-danger)",
-  "var(--color-muted-strong)",
-  "var(--color-faint)",
 ];
 
 const pct = (v: number, digits = 0) => `${(v * 100).toFixed(digits)}%`;
@@ -126,6 +116,7 @@ export function EnergyPage({
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [live, setLive] = useState<FleetEnergy | null>(null);
   const [range, setRange] = useState<EnergyRange>("24h");
+  const [monthlyReload, setMonthlyReload] = useState(0);
   const [sort, setSort] = useState<{ key: NodeSortKey; dir: "asc" | "desc" }>({ key: "kwh", dir: "desc" });
   const [copied, setCopied] = useState<"idle" | "ok" | "fail">("idle");
 
@@ -262,10 +253,11 @@ export function EnergyPage({
           <ClearMenu
             label="Reset…"
             choices={ENERGY_CLEAR}
-            note="Power keeps being recorded from now on. This can't be undone."
+            note="Power keeps being recorded from now on, and Monthly history is kept. This can't be undone."
             onRun={async (ms) => {
               const { removed } = await clearFleetEnergy(ms);
               await Promise.all([loadHistory(), loadLive()]);
+              setMonthlyReload((n) => n + 1);
               return removed;
             }}
           />
@@ -276,6 +268,7 @@ export function EnergyPage({
         </div>
       </div>
       {body}
+      <MonthlyEnergy nameOf={nameOf} price={price} currency={currency} reloadToken={monthlyReload} />
     </div>
   );
 }

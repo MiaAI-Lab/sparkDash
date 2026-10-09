@@ -27,6 +27,18 @@ export const browserTzOffset: TzOffsetFn = (ms) => -new Date(ms).getTimezoneOffs
 /** Fixed-offset helper, mostly for tests. */
 export const fixedTz = (minutes: number): TzOffsetFn => () => minutes;
 
+/** Node colours in stack order (largest consumer first). */
+export const NODE_COLORS = [
+  "var(--color-accent)",
+  "var(--color-info)",
+  "var(--color-violet)",
+  "var(--color-success)",
+  "var(--color-warning)",
+  "var(--color-danger)",
+  "var(--color-muted-strong)",
+  "var(--color-faint)",
+];
+
 /** Rows need at least this much coverage before an hour counts for "peak". */
 const MIN_PEAK_COVERAGE_MS = 10 * 60_000;
 
