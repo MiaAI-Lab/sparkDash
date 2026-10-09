@@ -376,6 +376,18 @@
   .sp-gpu-top__ring {
     grid-row: 1 / span 3;
   }
+  /* The ring is a fixed 140px; scale it down so the stats get the room. */
+  .sp-gpu-top__ring > div {
+    width: 116px !important;
+    height: 116px !important;
+  }
+  .sp-gpu-top__ring svg {
+    width: 100%;
+    height: 100%;
+  }
+  .sp-gpu-top__ring b {
+    font-size: 36px !important;
+  }
   .sp-stat {
     padding-left: 0;
     border-left: 0;
@@ -796,11 +808,30 @@
 /* ─── Narrow screens ──────────────────────────────────── */
 @media (max-width: 640px) {
   .sp-header__title h2 {
-    font-size: 24px;
+    font-size: 26px;
+    flex: 1 1 0;
   }
+  /* Name on its own line; role / engine / uptime tags wrap underneath. */
+  .sp-header__title .sp-tags {
+    flex: 1 0 100%;
+  }
+  .sp-header__meta {
+    margin-top: 6px;
+  }
+  /* Edit / Shut down as two equal, thumb-sized buttons. */
   .sp-mobile-actions {
-    justify-content: flex-start;
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
   }
+  .sp-mobile-actions > * {
+    justify-content: center;
+    min-height: 42px;
+  }
+  .sp .panel {
+    padding-inline: 16px;
+  }
+
   .sp-tiles {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

@@ -16,6 +16,7 @@ function fmt(n: number | null | undefined): string {
  * run to tens of thousands, so large values go compact (`50k tok/s`).
  */
 export function formatAxisMax(max: number): string {
+  if (max >= 1_000_000) return `${(max / 1_000_000).toFixed(1).replace(/\.0$/, "")}M tok/s`;
   if (max >= 10_000) return `${(max / 1000).toFixed(0)}k tok/s`;
   if (max >= 1_000) return `${(max / 1000).toFixed(1).replace(/\.0$/, "")}k tok/s`;
   return `${fmt(max)} tok/s`;
