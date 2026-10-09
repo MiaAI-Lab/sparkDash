@@ -132,7 +132,7 @@ describe("MobileTabBar sheet", () => {
   it("traps focus in the sheet and gives it back to the Sparks button on Escape", () => {
     const sparks = [makeSpark("a")];
     const { container } = render(
-      <MobileTabBar sparks={sparks} activeId={null} onSelect={() => {}} onAdd={() => {}} onOpenSearch={() => {}} onOpenSettings={() => {}} />
+      <MobileTabBar sparks={sparks} activeId={null} onSelect={() => {}} onAdd={() => {}} onOpenSettings={() => {}} />
     );
     const opener = [...container.querySelectorAll("button")].find((b) => b.textContent === "Sparks")!;
     opener.focus();
@@ -144,5 +144,24 @@ describe("MobileTabBar sheet", () => {
     });
     expect(document.querySelector(".sheet")).toBeNull();
     expect(document.activeElement).toBe(opener);
+  });
+
+  it("Stats opens Token totals and Fleet energy; Sparks no longer lists them; Showcase follows Prefill", () => {
+    const { container } = render(
+      <MobileTabBar sparks={[makeSpark("a")]} activeId={null} onSelect={() => {}} onAdd={() => {}} onOpenSettings={() => {}} />
+    );
+    const tab = (name: string) => [...container.querySelectorAll("button")].find((b) => b.textContent === name)!;
+    expect(tab("Search")).toBeUndefined();
+    act(() => tab("Stats").click());
+    let names = [...document.querySelectorAll(".sheet .rail-item__name")].map((n) => n.textContent);
+    expect(names).toEqual(["Token totals", "Fleet energy"]);
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    act(() => tab("Sparks").click());
+    names = [...document.querySelectorAll(".sheet .rail-item__name")].map((n) => n.textContent);
+    expect(names).not.toContain("Token totals");
+    expect(names).not.toContain("Fleet energy");
+    expect(names.indexOf("Showcase")).toBe(names.indexOf("Prefill") + 1);
   });
 });

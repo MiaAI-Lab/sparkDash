@@ -298,6 +298,14 @@ export function CheckIcon({ className = "" }: { className?: string }) {
   );
 }
 
+export function ChartIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg {...baseProps(className)}>
+      <path d="M4 20V10M10 20V4M16 20v-8M22 20H2" />
+    </svg>
+  );
+}
+
 export function AlertTriangleIcon({ className = "" }: { className?: string }) {
   return (
     <svg {...baseProps(className)}>

@@ -588,7 +588,6 @@ function DashboardApp() {
         activeId={displayActive?.id ?? activeId}
         onSelect={navigate}
         onAdd={() => setShowAdd(true)}
-        onOpenSearch={() => setShowPalette(true)}
         onOpenSettings={() => setShowSettings(true)}
       />
       <CommandPalette open={showPalette} onClose={() => setShowPalette(false)} commands={paletteCommands} />
