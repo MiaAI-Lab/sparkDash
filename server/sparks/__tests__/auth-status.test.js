@@ -64,7 +64,7 @@ test("tokened remote bind: the frontend shell and assets load without a token; a
     for (const path of ["/", "/assets/index-0FP2dord.js", "/tokens", "/favicon.ico"]) {
       assert.equal(passesMiddleware(req({ path })), true, `${path} should pass without a token`);
     }
-    for (const path of ["/api/sparks", "/api/settings", "/ws"]) {
+    for (const path of ["/api/sparks", "/api/settings", "/ws", "/metrics"]) {
       assert.equal(passesMiddleware(req({ path })), false, `${path} should be gated`);
       assert.equal(passesMiddleware(req({ path, bearer: "wrong" })), false, `${path} should reject a wrong token`);
       assert.equal(passesMiddleware(req({ path, bearer: "s3cret" })), true, `${path} should pass with the token`);
