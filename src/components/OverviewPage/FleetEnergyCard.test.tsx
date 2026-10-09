@@ -5,6 +5,8 @@ import type { FleetEnergy } from "../../api/types";
 
 vi.mock("../../api/client", () => ({
   fetchFleetEnergy: vi.fn(),
+  fetchRestartAvailable: vi.fn().mockResolvedValue({ available: false }),
+  restartServer: vi.fn(),
 }));
 
 import { fetchFleetEnergy } from "../../api/client";
