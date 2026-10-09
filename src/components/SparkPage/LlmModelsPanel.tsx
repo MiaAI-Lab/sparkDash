@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { LauncherAction, LauncherJob, LauncherRunState, LlmLauncher, SparkSnapshot } from "../../api/types";
-import { fetchLaunchers, removeLauncher, runLauncher } from "../../api/client";
+import { removeLauncher, runLauncher } from "../../api/client";
+import { fetchLaunchersCached, invalidateLaunchers, patchCachedStatus } from "../../hooks/launcherCache";
 import { useLauncherJob } from "../../hooks/useLauncherJob";
 import { useModalPresence } from "../../hooks/useModalPresence";
 import { LiveTerminal, terminalText } from "../ui/LiveTerminal";
@@ -128,7 +129,12 @@ type Confirm =
  * with a start.sh and a stop.sh. The scripts run there and their output streams
  * into the terminal below the list.
  */
-export function LlmModelsPanel({ spark, className }: { spark: SparkSnapshot; className?: string }) {
+export function LlmModelsPanel(props: { spark: SparkSnapshot; className?: string }) {
+  // Keyed by Spark: the page is reused when switching Sparks, and none of this state belongs to the next one.
+  return <LlmModelsPanelFor key={props.spark.id} {...props} />;
+}
+
+function LlmModelsPanelFor({ spark, className }: { spark: SparkSnapshot; className?: string }) {
   const sparkId = spark.id;
   const [launchers, setLaunchers] = useState<LlmLauncher[]>([]);
   const [statuses, setStatuses] = useState<Record<string, LauncherRunState>>({});
@@ -150,9 +156,10 @@ export function LlmModelsPanel({ spark, className }: { spark: SparkSnapshot; cla
   const online = spark.online;
 
   const refresh = useCallback(
-    async (withStatus = true) => {
+    async (force = false) => {
       try {
-        const res = await fetchLaunchers(sparkId, withStatus);
+        // Shared with the Overview cards: at most one SSH-backed request per Spark per few seconds.
+        const res = await fetchLaunchersCached(sparkId, { force });
         setLaunchers(res.launchers);
         if (res.statuses) setStatuses(res.statuses);
         setLoadError(null);
@@ -183,7 +190,7 @@ export function LlmModelsPanel({ spark, className }: { spark: SparkSnapshot; cla
   useEffect(() => {
     if (!online) return;
     const t = window.setInterval(() => {
-      if (!document.hidden) void refresh(true);
+      if (!document.hidden) void refresh();
     }, STATUS_REFRESH_MS);
     return () => window.clearInterval(t);
   }, [online, refresh]);
@@ -211,7 +218,10 @@ export function LlmModelsPanel({ spark, className }: { spark: SparkSnapshot; cla
     try {
       const res = await runLauncher(sparkId, launcherId, action);
       follow(res.job);
-      if (action === "start" || action === "attach") setStatuses((s) => ({ ...s, [launcherId]: "running" }));
+      if (action === "start" || action === "attach") {
+        patchCachedStatus(sparkId, launcherId, "running");
+        setStatuses((s) => ({ ...s, [launcherId]: "running" }));
+      }
       if (action === "attach" || autoShow) setTermOpen(true);
     } catch (e) {
       setQueuedStart(null);
@@ -234,6 +244,7 @@ export function LlmModelsPanel({ spark, className }: { spark: SparkSnapshot; cla
     setConfirm(null);
     try {
       await removeLauncher(sparkId, id);
+      invalidateLaunchers(sparkId);
       setLaunchers((ls) => ls.filter((x) => x.id !== id));
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e));
@@ -495,7 +506,10 @@ export function LlmModelsPanel({ spark, className }: { spark: SparkSnapshot; cla
         sparkName={spark.name}
         launcher={dialog.launcher}
         onClose={() => setDialog((d) => ({ ...d, open: false }))}
-        onSaved={() => void refresh(true)}
+        onSaved={() => {
+          invalidateLaunchers(sparkId);
+          void refresh(true);
+        }}
       />
       <TerminalModal
         open={expanded && Boolean(job)}

@@ -1,5 +1,6 @@
 import { createContext, useContext, type ReactNode } from "react";
 import type { SparkSnapshot } from "../../api/types";
+import { isWorkerSpark } from "../../api/sparkRole";
 
 /** The Sparks a benchmark page can run on, and how to switch between them (provided by BenchPage). */
 export interface BenchSparksValue {
@@ -30,10 +31,11 @@ export function SparkChips({ sparks, activeId, onSelect, extra, ariaLabel = "Spa
           className={`bench-runon__chip${activeId === s.id ? " is-on" : ""}`}
           aria-pressed={activeId === s.id}
           onClick={() => onSelect(s.id)}
-          title={s.online ? undefined : `${s.name} is offline`}
+          title={s.online ? (isWorkerSpark(s) ? `${s.name} is a worker: no local LLM, saved results only` : undefined) : `${s.name} is offline`}
         >
           <i className={`sdot ${s.online ? "" : "sdot--warn"}`} aria-hidden />
           {s.name}
+          {isWorkerSpark(s) ? <small className="bench-runon__tag">worker</small> : null}
         </button>
       ))}
       {extra}

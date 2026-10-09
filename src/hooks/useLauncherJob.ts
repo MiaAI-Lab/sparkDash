@@ -5,6 +5,14 @@ import type { LauncherJob } from "../api/types";
 export const MAX_TERMINAL_LINES = 5000;
 const POLL_MS = 700;
 
+/** The server answers 404 once a job has been replaced by a newer one (or the server restarted). */
+export function isJobGone(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e);
+  return /^HTTP 404\b|job not found/i.test(msg);
+}
+
+export const JOB_GONE_MESSAGE = "This job is no longer available on the server (a newer job replaced it, or the server restarted).";
+
 export interface JobLine {
   seq: number;
   text: string;
@@ -34,6 +42,19 @@ export function useLauncherJob(sparkId: string) {
   const runningId = job?.status === "running" ? job.id : null;
   const jobId = job?.id ?? null;
 
+  // The hook outlives a Spark switch when the page is reused: drop the old Spark's job at once.
+  const ownerRef = useRef(sparkId);
+  useEffect(() => {
+    if (ownerRef.current === sparkId) return;
+    ownerRef.current = sparkId;
+    sinceRef.current = 0;
+    setJob(null);
+    setLines([]);
+    setPartial("");
+    setTruncated(false);
+    setError(null);
+  }, [sparkId]);
+
   const apply = useCallback((read: Awaited<ReturnType<typeof readLauncherJob>>) => {
     sinceRef.current = Math.max(sinceRef.current, read.nextSeq);
     setLines((prev) => appendLines(prev, read.lines));
@@ -61,7 +82,7 @@ export function useLauncherJob(sparkId: string) {
         if (!cancelled) apply(read);
       })
       .catch((e: unknown) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+        if (!cancelled) setError(isJobGone(e) ? JOB_GONE_MESSAGE : e instanceof Error ? e.message : String(e));
       });
     return () => {
       cancelled = true;
@@ -82,6 +103,12 @@ export function useLauncherJob(sparkId: string) {
         if (read.job.status !== "running") return;
       } catch (e) {
         if (stopped) return;
+        if (isJobGone(e)) {
+          // Retrying cannot bring a replaced job back: stop and say so.
+          setError(JOB_GONE_MESSAGE);
+          setJob((j) => (j && j.id === runningId && j.status === "running" ? { ...j, status: "detached" } : j));
+          return;
+        }
         setError(e instanceof Error ? e.message : String(e));
       }
       timer = window.setTimeout(tick, POLL_MS);

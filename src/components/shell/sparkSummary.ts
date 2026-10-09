@@ -27,7 +27,7 @@ export function showcaseTarget(sparks: SparkSnapshot[]): SparkSnapshot | null {
   );
 }
 
-export function openShowcase(spark: SparkSnapshot) {
+export function showcaseUrl(spark: SparkSnapshot): string {
   const idx = Array.isArray(spark.metrics.llm) ? spark.metrics.llm.findIndex((l) => l.available) : -1;
   const llm = idx >= 0 ? spark.metrics.llm[idx] : null;
   const port = spark.llmPorts?.[idx] ?? spark.llmPort;
@@ -35,5 +35,9 @@ export function openShowcase(spark: SparkSnapshot) {
   if (port) params.set("port", String(port));
   if (llm?.modelId) params.set("model", llm.modelId);
   const q = params.toString() ? `?${params.toString()}` : "";
-  window.open(`/showcase/${encodeURIComponent(spark.id)}${q}`, "_blank", "noopener,noreferrer");
+  return `/showcase/${encodeURIComponent(spark.id)}${q}`;
+}
+
+export function openShowcase(spark: SparkSnapshot) {
+  window.open(showcaseUrl(spark), "_blank", "noopener,noreferrer");
 }

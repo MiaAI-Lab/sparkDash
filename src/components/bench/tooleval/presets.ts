@@ -102,6 +102,9 @@ export function simpleTemplates(type: string): SimpleTemplate[] {
 /** Where the run points, not how it runs: a custom URL or model never makes a template "custom". */
 export const TARGET_KEYS: ReadonlySet<string> = new Set(["base-url", "model"]);
 
+/** Settings the Simple view keeps across templates: the target, and how many trials to repeat. */
+export const KEPT_KEYS: ReadonlySet<string> = new Set([...TARGET_KEYS, "trials"]);
+
 const normValue = (v: unknown): string => (Array.isArray(v) ? v.join(" ") : String(v ?? "")).trim();
 
 /** Does the form currently hold exactly this template (and nothing else)? */
@@ -112,7 +115,7 @@ export function matchesTemplate(
   if (state.extraArgs.trim()) return false;
   const set = (v: unknown) => v !== undefined && v !== "" && v !== false && !(Array.isArray(v) && v.every((x) => !String(x).trim()));
   const keys = new Set([...Object.keys(state.values).filter((k) => set(state.values[k])), ...Object.keys(template.values).filter((k) => set(template.values[k]))]);
-  for (const k of TARGET_KEYS) keys.delete(k);
+  for (const k of KEPT_KEYS) keys.delete(k);
   for (const k of keys) {
     if (set(state.values[k]) !== set(template.values[k])) return false;
     if (normValue(state.values[k]) !== normValue(template.values[k]) && String(state.values[k]) !== String(template.values[k])) return false;
@@ -123,4 +126,9 @@ export function matchesTemplate(
     if (a !== b) return false;
   }
   return true;
+}
+
+/** The non-blank KEPT_KEYS values of a form: what survives picking a template or preset. */
+export function keptValues(values: Record<string, FieldValue>): Record<string, FieldValue> {
+  return Object.fromEntries([...KEPT_KEYS].filter((k) => String(values[k] ?? "").trim()).map((k) => [k, values[k]]));
 }

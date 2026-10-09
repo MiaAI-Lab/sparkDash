@@ -1,3 +1,5 @@
+import { AppLink } from "../ui/AppLink";
+import { TOKENS_ID, idToPath } from "../../constants";
 /**
  * FleetTokenTotals — Overview section with cumulative prompt/completion tokens
  * aggregated across all Sparks, grouped by model, plus a fleet-wide total.
@@ -121,9 +123,9 @@ export function FleetTokenTotals({ onOpenDetails }: { onOpenDetails?: () => void
             ))}
           </select>
           {onOpenDetails ? (
-            <button type="button" className="btn btn--sm btn--ghost" onClick={onOpenDetails}>
+            <AppLink href={idToPath(TOKENS_ID)} className="btn btn--sm btn--ghost" onNavigate={onOpenDetails}>
               Details
-            </button>
+            </AppLink>
           ) : null}
         </div>
       </div>

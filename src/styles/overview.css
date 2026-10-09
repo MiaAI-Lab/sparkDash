@@ -242,8 +242,35 @@
   transition: border-color 0.2s ease, box-shadow 0.28s cubic-bezier(0.22, 1, 0.36, 1),
     transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
 }
+.ov .ov-sc {
+  position: relative;
+}
 .ov .ov-sc.is-link {
   cursor: pointer;
+}
+/* Stretched link: the name button's ::after covers the card; other controls sit above it. */
+.ov .ov-sc__link {
+  all: unset;
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ov .ov-sc__link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+.ov .ov-sc__link:focus-visible::after {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+.ov .ov-sc :is(button, a, input, select):not(.ov-sc__link) {
+  position: relative;
+  z-index: 1;
 }
 .ov .ov-sc.is-off {
   opacity: 0.62;
@@ -719,4 +746,47 @@
 .ov .ov-sub b {
   font-weight: 550;
   color: var(--color-text);
+}
+
+/* "prefilling" placeholder: three dots rippling where the number would be */
+.ov-tps__dots {
+  display: inline-block;
+  width: 1.5em;
+  height: 0.35em;
+  margin-right: 0.35rem;
+  vertical-align: middle;
+  background: radial-gradient(circle, var(--color-info) 0 45%, transparent 50%) 0 50% / 33.3% 100% repeat-x;
+  animation: ov-dots 1.2s steps(3, end) infinite;
+}
+@keyframes ov-dots {
+  0% { clip-path: inset(0 100% 0 0); }
+  100% { clip-path: inset(0 0 0 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ov-tps__dots { animation: none; }
+}
+
+/* Worker cards: a quiet note, not a highlighted panel */
+.ov .ov-launch--worker {
+  gap: 4px;
+  min-height: 0;
+  border: 0;
+  background: none;
+  padding: 10px 0;
+}
+.ov .ov-launch--worker .eyebrow {
+  color: var(--color-muted);
+}
+.ov .ov-launch--worker .ov-launch__head {
+  padding: 2px 10px;
+  border-color: transparent;
+  background: var(--color-surface-hover);
+  font-size: 13px;
+  font-weight: 600;
+}
+.ov .ov-launch--worker .ov-launch__head:hover {
+  border-color: var(--color-border);
+}
+.ov .ov-launch--worker .ov-launch__hint {
+  font-size: 11.5px;
 }

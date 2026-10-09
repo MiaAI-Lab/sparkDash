@@ -328,6 +328,7 @@ export class SparkMonitor {
    * @returns {string | null}
    */
   headLlmModelId() {
+    if (!this.online) return null;
     const llm = this._metrics?.llm;
     if (!Array.isArray(llm)) return null;
     for (const entry of llm) {
@@ -690,14 +691,12 @@ export class SparkMonitor {
         // The generation gate below (after the await) is the commit guard.
       }
       if (!isCurrentRun()) return;
-      const wasOffline = !this.online;
       this.online = true;
       this.offlineReason = null;
       this._livenessFailures = 0;
       this._nextLivenessAt = 0;
       this.lastOnlineOk = Date.now();
       this._uptimeSeconds = uptimeSeconds;
-      void wasOffline;
       this._noteOnline(true);
     } catch (err) {
       if (!isCurrentRun()) return;
@@ -711,6 +710,7 @@ export class SparkMonitor {
       if (!this.lastOnlineOk || Date.now() - this.lastOnlineOk > ONLINE_GRACE_MS) {
         this.online = false;
         this._uptimeSeconds = null;
+        this._invalidateSshMetrics();
         this._noteOnline(false);
       }
     } finally {
@@ -718,6 +718,24 @@ export class SparkMonitor {
         this._inflight.online = false;
       }
     }
+  }
+
+  /**
+   * A remote unit stayed unreachable past the grace period: its SSH-backed
+   * cached metrics are stale, so replace them with the honest "no data"
+   * defaults instead of serving the last good reading indefinitely. HTTP-only
+   * domains (llm, comfy) keep polling and keep their own state.
+   */
+  _invalidateSshMetrics() {
+    if (this.spark.isLocal) return;
+    const c = this.collector;
+    this._metrics.gpu = c._defaultGpu();
+    this._metrics.cpu = c._defaultCpu();
+    this._metrics.ram = c._defaultRam();
+    this._metrics.storage = [];
+    this._metrics.network = c._defaultNetwork();
+    this._metrics.unifiedMemory = c._defaultUnifiedMemory();
+    this._metricCollectionSuccessful = { gpu: false, cpu: false };
   }
 
   // ─── Polling ──────────────────────────────────────────────
@@ -745,7 +763,10 @@ export class SparkMonitor {
     // produced ~60k failed SSH logins a day: every domain interval fired, every
     // attempt failed, nothing backed off. Local units are exempt (their checks
     // read /proc and /sys and are cheap and honest about partial failures).
-    if (!this.spark.isLocal && !this.online) {
+    // HTTP-only probes (LLM, ComfyUI) do not use SSH, so a failed SSH liveness
+    // check must not freeze them: the engine may be reachable on its own.
+    const sshBacked = domain !== "llm" && domain !== "comfy";
+    if (sshBacked && !this.spark.isLocal && !this.online) {
       if (!this._pollsPaused) {
         this._pollsPaused = true;
         console.log(
@@ -754,7 +775,7 @@ export class SparkMonitor {
       }
       return;
     }
-    if (this._pollsPaused) {
+    if (sshBacked && this._pollsPaused) {
       this._pollsPaused = false;
       console.log(`[SparkMonitor] ${this.spark.id}: reachable again — resuming collector polls`);
     }

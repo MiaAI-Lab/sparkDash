@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { SparkSnapshot, ToolEvalRun, ToolEvalRunRequest } from "../../../api/types";
 import "../../../styles/dialogs.css";
 import "../../../styles/tooleval.css";
@@ -6,12 +6,15 @@ import { ConfigForm } from "./ConfigForm";
 import { History } from "./History";
 import { useToolEvalPreview, useToolEvalRunner, useToolEvalSpec, useToolEvalStatus } from "./hooks";
 import { LiveRun } from "./LiveRun";
-import { buildRequest, emptyState, loadState, mapServerErrors, saveState, stateFromRun, validateState, type FormState } from "./options";
+import { apiKeyFor, buildRequest, loadState, mapServerErrors, saveState, stateFromRun, validateState, type FormState } from "./options";
 import { Notice, Skeleton } from "./parts";
 import { ResultPanel } from "./ResultPanel";
 import { RunCard } from "./RunCard";
 import { SetupCard } from "./SetupCard";
 import { SimpleConfig, defaultSimpleState } from "./SimpleConfig";
+import { Tabs, panelId, tabId } from "./Tabs";
+import { benchTypeById } from "../benchCatalog";
+import { benchId, idToPath } from "../../../constants";
 import { fmtNum } from "./format";
 
 type Tab = "run" | "results" | "history";
@@ -49,18 +52,22 @@ function ToolEvalBench({ type, spark }: { type: string; spark: SparkSnapshot }) 
     }
   };
   const [apiKey, setApiKey] = useState("");
+  // Simple view: test a custom URL instead of this Spark's model. Lives here, next to the key, so the two cannot disagree.
+  const [useUrl, setUseUrl] = useState(() => String(state.values["base-url"] ?? "").trim() !== "");
   const [tab, setTab] = useState<Tab>("run");
   const [viewedId, setViewedId] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
   const [settledRun, setSettledRun] = useState<ToolEvalRun | null>(null);
   const [starting, setStarting] = useState(false);
+  const uid = useId();
   const rootRef = useRef<HTMLDivElement>(null);
 
   const onSettled = useCallback((run: ToolEvalRun) => {
     setSettledRun(run);
     setViewedId(run.id);
     setVersion((v) => v + 1);
-    if (run.status === "completed") setTab("results");
+    // Only leave the Run tab; someone reading History or Results is not yanked away.
+    if (run.status === "completed") setTab((t) => (t === "run" ? "results" : t));
   }, []);
   const runner = useToolEvalRunner(spark.id, type, onSettled);
   const { followed } = runner;
@@ -78,24 +85,28 @@ function ToolEvalBench({ type, spark }: { type: string; spark: SparkSnapshot }) 
   const ports = spark.llmPorts && spark.llmPorts.length ? spark.llmPorts : spark.llmPort ? [spark.llmPort] : [8888];
   const port = state.port != null && ports.includes(state.port) ? state.port : ports[0];
 
+  // A typed key only ever goes with a custom base URL, never to the local server.
+  const sendKey = apiKeyFor(state, apiKey);
   const built = useMemo(() => (spec ? buildRequest(spec, type, state, "") : null), [spec, type, state]);
   const client = useMemo(() => (spec ? validateState(spec, type, state) : { fields: {}, form: [] }), [spec, type, state]);
   const clientOk = Object.keys(client.fields).length === 0 && client.form.length === 0;
-  const previewReq: ToolEvalRunRequest | null = built && clientOk ? { type, options: built.options, extraArgs: built.extraArgs, port: built.port, useSavedKey: apiKey ? false : undefined } : null;
+  const previewReq: ToolEvalRunRequest | null = built && clientOk ? { type, options: built.options, extraArgs: built.extraArgs, port: built.port, useSavedKey: sendKey ? false : undefined } : null;
   const preview = useToolEvalPreview(spark.id, previewReq);
   const server = useMemo(() => (spec ? mapServerErrors(spec, preview.errors) : { fields: {}, form: [] }), [spec, preview.errors]);
   const fieldErrors = { ...server.fields, ...client.fields };
   const formErrors = [...client.form, ...server.form];
 
-  const followedRunning = followed?.run.status === "running" && followed.job?.status === "running";
-  const busyReason = followedRunning ? "A run is already in progress on this Spark." : runner.active && runner.active.status === "running" && !followed ? "Another Tool Eval job is running on this Spark." : runner.busy ? "Another Tool Eval job is running on this Spark." : null;
+  // A run just started has no job for ~150 ms (until the first poll): it is already busy.
+  const followedStarting = followed?.run.status === "running" && !followed.job && runner.polling;
+  const followedRunning = (followed?.run.status === "running" && followed.job?.status === "running") || followedStarting;
+  const busyReason = followedRunning ? "A run is already in progress on this Spark." : runner.active && runner.active.status === "running" && !followed ? "Another Tool Eval Bench job is running on this Spark." : runner.busy ? "Another Tool Eval Bench job is running on this Spark." : null;
   const baseUrl = typeof built?.options["base-url"] === "string" ? (built.options["base-url"] as string) : `http://127.0.0.1:${port}`;
 
   const start = async () => {
     if (!spec) return;
-    const req = buildRequest(spec, type, state, apiKey);
+    const req = buildRequest(spec, type, state, sendKey);
     setStarting(true);
-    const ok = await runner.start({ type, options: req.options, extraArgs: req.extraArgs, port: req.port, useSavedKey: apiKey ? false : undefined });
+    const ok = await runner.start({ type, options: req.options, extraArgs: req.extraArgs, port: req.port, useSavedKey: sendKey ? false : undefined });
     setStarting(false);
     if (ok) {
       setSettledRun(null);
@@ -116,8 +127,10 @@ function ToolEvalBench({ type, spark }: { type: string; spark: SparkSnapshot }) 
   };
   const rerun = (run: ToolEvalRun) => {
     if (!spec) return;
-    setState(stateFromRun(spec, type, run));
+    const next = stateFromRun(spec, type, run);
+    setState(next);
     setApiKey("");
+    setUseUrl(Boolean(String(next.values["base-url"] ?? "").trim()));
     setTab("run");
     rootRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
   };
@@ -132,20 +145,26 @@ function ToolEvalBench({ type, spark }: { type: string; spark: SparkSnapshot }) 
   return (
     <div className="te" ref={rootRef}>
       {!spark.online ? <Notice tone="warn" title={`${spark.name} is offline`}>The tool runs on the Spark, so runs and checks need it online. You can still configure and review history.</Notice> : null}
+      {runner.elsewhere ? (
+        <Notice tone="info" title="Another Tool Eval Bench run is in progress on this Spark">
+          It belongs to the {benchTypeById(runner.elsewhere.type)?.label ?? runner.elsewhere.type ?? "other"} page, so it is not shown here.{" "}
+          <a href={idToPath(benchId(benchTypeById(runner.elsewhere.type)?.id ?? "tool-eval"))}>Open that page</a>
+        </Notice>
+      ) : null}
       <SetupCard spark={spark} spec={spec} status={status.status} loading={status.loading} error={status.error} reload={status.reload} busy={followedRunning} />
 
-      <div className="te-tabs" role="tablist" aria-label="Tool Eval sections">
-        <div className="seg">
-          <button type="button" role="tab" aria-selected={tab === "run"} onClick={() => setTab("run")}>
-            Configure and run
-          </button>
-          <button type="button" role="tab" aria-selected={tab === "results"} onClick={() => setTab("results")}>
-            Results
-          </button>
-          <button type="button" role="tab" aria-selected={tab === "history"} onClick={() => setTab("history")}>
-            History{runner.runs ? ` (${runner.runs.length})` : ""}
-          </button>
-        </div>
+      <div className="te-tabs">
+        <Tabs
+          prefix={uid}
+          label="Tool Eval Bench sections"
+          value={tab}
+          onChange={setTab}
+          items={[
+            { id: "run", label: "Configure and run" },
+            { id: "results", label: "Results" },
+            { id: "history", label: `History${runner.runs ? ` (${runner.runs.length})` : ""}` },
+          ]}
+        />
         {showStrip ? (
           <button type="button" className="te-strip" onClick={() => setTab("run")} aria-label="Run in progress, show progress">
             <span className="te-strip__dot" aria-hidden />
@@ -158,7 +177,7 @@ function ToolEvalBench({ type, spark }: { type: string; spark: SparkSnapshot }) 
       </div>
 
       {tab === "run" ? (
-        <div role="tabpanel" aria-label="Configure and run" className="te-run-tab">
+        <div role="tabpanel" id={panelId(uid, "run")} aria-labelledby={tabId(uid, "run")} className="te-run-tab">
           {followed ? (
             <LiveRun
               followed={followed}
@@ -169,7 +188,11 @@ function ToolEvalBench({ type, spark }: { type: string; spark: SparkSnapshot }) 
               onStop={() => void runner.stop(followed.run)}
               onStopWatching={() => void runner.stopWatching()}
               onAttach={(r) => void runner.attach(r)}
-              onRefresh={(r) => void runner.refresh(r).then(() => onSettled({ ...followed.run }))}
+              onRefresh={(r) =>
+                void runner.refreshRun(r).then((fresh) => {
+                  if (fresh && fresh.status !== "running") onSettled(fresh);
+                })
+              }
               onDismiss={runner.unfollow}
               onViewResult={openRun}
             />
@@ -189,18 +212,21 @@ function ToolEvalBench({ type, spark }: { type: string; spark: SparkSnapshot }) 
             <div className={view === "simple" ? "te-layout te-layout--even" : "te-layout"}>
               <section className="panel te-card te-card--form" aria-label="Configuration">
                 <div className="te-viewbar">
-                  <div className="seg" role="tablist" aria-label="Configuration view">
-                    <button type="button" role="tab" aria-selected={view === "simple"} className={view === "simple" ? "is-on" : ""} onClick={() => setView("simple")}>
-                      Simple
-                    </button>
-                    <button type="button" role="tab" aria-selected={view === "advanced"} className={view === "advanced" ? "is-on" : ""} onClick={() => setView("advanced")}>
-                      Advanced
-                    </button>
-                  </div>
+                  <Tabs
+                    prefix={`${uid}-view`}
+                    label="Configuration view"
+                    value={view}
+                    onChange={setView}
+                    items={[
+                      { id: "simple", label: "Simple" },
+                      { id: "advanced", label: "Advanced" },
+                    ]}
+                  />
                   <p>{view === "simple" ? "Pick a ready-made run." : "Every option the tool offers."}</p>
                 </div>
+                <div role="tabpanel" id={panelId(`${uid}-view`, view)} aria-labelledby={tabId(`${uid}-view`, view)}>
                 {view === "simple" ? (
-                  <SimpleConfig type={type} spark={spark} state={state} onChange={setState} ports={ports} port={port} onAdvanced={() => setView("advanced")} apiKey={apiKey} onApiKey={setApiKey} />
+                  <SimpleConfig type={type} spark={spark} state={state} onChange={setState} ports={ports} port={port} onAdvanced={() => setView("advanced")} apiKey={apiKey} onApiKey={setApiKey} useUrl={useUrl} onUseUrl={setUseUrl} />
                 ) : (
                   <ConfigForm
                     spec={spec}
@@ -214,6 +240,7 @@ function ToolEvalBench({ type, spark }: { type: string; spark: SparkSnapshot }) 
                     formErrors={formErrors}
                   />
                 )}
+                </div>
               </section>
               <RunCard
                 spark={spark}
@@ -237,7 +264,7 @@ function ToolEvalBench({ type, spark }: { type: string; spark: SparkSnapshot }) 
       ) : null}
 
       {tab === "results" ? (
-        <div role="tabpanel" aria-label="Results">
+        <div role="tabpanel" id={panelId(uid, "results")} aria-labelledby={tabId(uid, "results")}>
           {selectedRun ? (
             <section className="panel te-card te-card--result">
               <ResultPanel sparkId={spark.id} type={type} run={selectedRun} lines={resultLines} errorCode={resultError} version={version + (settledRun?.id === selectedRun.id ? 1 : 0)} />
@@ -255,7 +282,7 @@ function ToolEvalBench({ type, spark }: { type: string; spark: SparkSnapshot }) 
       ) : null}
 
       {tab === "history" ? (
-        <div role="tabpanel" aria-label="History">
+        <div role="tabpanel" id={panelId(uid, "history")} aria-labelledby={tabId(uid, "history")}>
           <History
             sparkId={spark.id}
             sparkName={spark.name}

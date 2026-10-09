@@ -176,29 +176,6 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
 
           {settings && !loading && (
             <>
-              <SettingRow title="Density" help="Fit more Sparks per screen with tighter spacing and smaller type.">
-                <div className="seg" role="radiogroup" aria-label="Density">
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={settings.density === "compact"}
-                    className={settings.density === "compact" ? "is-on" : ""}
-                    onClick={() => update({ density: "compact" })}
-                  >
-                    Compact
-                  </button>
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={settings.density !== "compact"}
-                    className={settings.density !== "compact" ? "is-on" : ""}
-                    onClick={() => update({ density: "comfortable" })}
-                  >
-                    Comfortable
-                  </button>
-                </div>
-              </SettingRow>
-
               <SettingRow title="Refresh rate" help="How often metrics are polled.">
                 <div className="seg" role="radiogroup" aria-label="Poll interval">
                   {POLL_PRESETS.map((preset) => (
@@ -354,10 +331,13 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
             title="Access token"
             help="Sent to servers that set SPARKDASH_TOKEN. Stored in this browser only."
           >
-            <div className="set-price">
-              <span data-testid="access-token-state">{tokenSet ? "Set" : "Not set"}</span>
+            <div className="set-token">
+              <span className={`set-token__state${tokenSet ? " is-set" : ""}`} data-testid="access-token-state">
+                <i aria-hidden />
+                {tokenSet ? "Set" : "Not set"}
+              </span>
               <button type="button" className="btn btn--sm" onClick={() => requestTokenPrompt()}>
-                Change
+                {tokenSet ? "Change" : "Add token"}
               </button>
               {tokenSet ? (
                 <button type="button" className="btn btn--sm btn--ghost" onClick={() => clearToken()}>
@@ -369,6 +349,10 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
 
           <div className="settings-links">
             <span>sparkDash v{packageJson.version}</span>
+            <span aria-hidden>·</span>
+            <a href="https://mia-ai.net/" target="_blank" rel="noopener noreferrer">
+              mia-ai.net
+            </a>
             <span aria-hidden>·</span>
             <a href="https://x.com/MiaAI_lab" target="_blank" rel="noopener noreferrer">
               𝕏 @MiaAI_lab

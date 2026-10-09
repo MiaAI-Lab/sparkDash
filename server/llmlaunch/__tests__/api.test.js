@@ -80,7 +80,7 @@ test("register, start, stream, stop and remove an LLM through the HTTP API", asy
   const { port, tmp } = await startServer(t);
   const created = await api(port, "/api/sparks", {
     method: "POST",
-    body: JSON.stringify({ id: "alpha", name: "alpha", lanIp: "127.0.0.1", isLocal: true, ssh: { host: "127.0.0.1", user: "spark", auth: "key" } }),
+    body: JSON.stringify({ id: "alpha", name: "alpha", lanIp: "127.0.0.1", isLocal: true, ssh: { host: "127.0.0.1", user: os.userInfo().username, auth: "key" } }),
   });
   assert.equal(created.status, 200);
 
@@ -95,7 +95,7 @@ test("register, start, stream, stop and remove an LLM through the HTTP API", asy
   const add = await api(port, base, { method: "POST", body: JSON.stringify({ name: "GLM 5.3", dir: llm, port: 8888 }) });
   assert.equal(add.status, 201);
   const lid = add.body.launcher.id;
-  assert.equal(lid, "glm-5-3");
+  assert.match(lid, /^glm-5-3-[0-9a-f]{6}$/);
 
   const listed = await api(port, `${base}?status=1`);
   assert.equal(listed.body.launchers.length, 1);

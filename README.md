@@ -17,15 +17,15 @@ sparkDash is a real-time web dashboard for one or more **NVIDIA DGX Spark (GB10)
 
 It also supports **non-Spark units**: any Linux machine with an NVIDIA GPU (e.g. a workstation with a dedicated RTX/L-series card) can be added as a **dedicated GPU host** and monitored the same way via SSH and `nvidia-smi`. For these units the dashboard correctly separates **RAM** (system memory) from **VRAM** (discrete GPU memory).
 
-<img src="./assets/screenshot.jpg" alt="sparkDash Overview page with multiple DGX Spark units, GPU metrics, and LLM status">
+<img src="./.github/screenshot.png" alt="sparkDash Overview page with multiple DGX Spark units, GPU metrics, and LLM status">
 
 ### LLM Prompt Showcase
 
-<a href="https://github.com/MiaAI-Lab/sparkDash/releases/download/media-showcase/llm-showcase.mp4">
-  <img src="./assets/llm-showcase.gif" alt="LLM Prompt Showcase — multi-terminal streaming demo (click for MP4)" width="100%">
+<a href="./.github/llm-showcase.mp4">
+  <img src="./.github/llm-showcase.gif" alt="LLM Prompt Showcase — multi-terminal streaming demo (click for MP4)" width="100%">
 </a>
 
-<p align="center"><sub><a href="https://github.com/MiaAI-Lab/sparkDash/releases/download/media-showcase/llm-showcase.mp4">Download MP4</a> · also in <code>assets/llm-showcase.mp4</code></sub></p>
+<p align="center"><sub><a href="./.github/llm-showcase.mp4">Watch the MP4</a></sub></p>
 
 ---
 
@@ -55,9 +55,12 @@ It also supports **non-Spark units**: any Linux machine with an NVIDIA GPU (e.g.
 
 ## Latest version changelog
 
-### Version 1.9.0 — Quality bench
-- **Quality** button on the LLM card runs a fixed, seeded quality suite against whatever the port is serving: QA, reasoning, arithmetic chains, state tracking, GSM8K maths and MMLU knowledge questions (fixed samples of the public test sets), and optional instruction following and long-context recall. One score per category plus an overall score.
-- **Compare with** any of the last 30 runs: per-category scores, identical replies, items only one run got right, and an exact McNemar p-value, so a quantization or KV-cache change reads as "within noise" or not. See [Quality bench](#quality-bench).
+### Version 2.0.0 — a new sparkDash
+- **New shell**: sidebar, command palette (Ctrl/⌘ K), four themes (White, Light, Dark, OLED), smooth page transitions and real links everywhere (right-click, new tab).
+- **Rebuilt Overview**: per-Spark cards with the model row, head/worker relations, a Model/System memory bar, and a launcher to load a model from the card.
+- **Benchmarks section**: Decode, Prefill, Quality and the new **Tool Eval Bench** (trials, side-by-side compare, one-click upgrade).
+- **Showcase** is now an in-app page with much smoother streaming; **Token totals**, **Fleet energy** and **Activity** get their own pages.
+- Start and stop your own LLMs from the dashboard; live prefill tok/s during long prefills; Quality bench with GSM8K and MMLU.
 
 Full history: [CHANGELOG.md](./CHANGELOG.md)
 
@@ -396,7 +399,8 @@ sparkDash/
 │   ├── secretsStore.js  Encrypted password persistence
 │   └── validate.js      Host/user validation (SSRF-minded)
 ├── config/              Runtime state (volume; secrets gitignored)
-├── assets/              Screenshots
+├── assets/              Logo (bolt.svg) and legacy media
+├── .github/             README screenshot and Showcase video
 ├── Dockerfile           Production multi-stage arm64
 ├── docker-compose.yml   Production
 ├── docker-compose.dev.yml

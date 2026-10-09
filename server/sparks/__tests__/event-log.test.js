@@ -43,6 +43,20 @@ test("dedupes same type+spark within 5s only", () => {
   assert.ok(log.record(ev("x")));
 });
 
+test("a real offline -> online -> offline flip inside 5s is not deduped", () => {
+  const c = clock();
+  const log = new EventLog({ now: c.now });
+  const e = (type, message) => ({ type, sparkId: "a", message });
+  assert.ok(log.record(e("spark.offline", "a went offline")));
+  c.t += 500;
+  assert.ok(log.record(e("spark.online", "a came online")));
+  c.t += 500;
+  assert.ok(log.record(e("spark.offline", "a went offline")));
+  c.t += 500;
+  assert.equal(log.record(e("spark.offline", "a went offline")), null);
+  assert.ok(log.record(e("spark.offline", "different text")));
+});
+
 test("persists, restores ids across restart, and tolerates corrupt files", () => {
   const file = tmp();
   const a = new EventLog({ file });

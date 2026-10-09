@@ -1,5 +1,5 @@
 import fs from "fs";
-import { atomicWrite } from "../util/atomicWrite.js";
+import { atomicWrite, quarantineCorrupt } from "../util/atomicWrite.js";
 
 const SEVERITIES = new Set(["info", "warn", "error", "success"]);
 const DEDUPE_MS = 5000;
@@ -26,6 +26,8 @@ export class EventLog {
     this._dirty = false;
     /** @type {Map<string, number>} dedupe key -> last ts */
     this._recent = new Map();
+    /** @type {Map<string, string>} sparkId -> dedupe key of its latest accepted event */
+    this._lastKeyBySpark = new Map();
     this._load();
   }
 
@@ -40,7 +42,8 @@ export class EventLog {
       this._events = valid.slice(-this.max);
       const maxId = valid.reduce((m, e) => Math.max(m, e.id), 0);
       this._nextId = Math.max(Number.isInteger(raw?.nextId) ? raw.nextId : 1, maxId + 1);
-    } catch {
+    } catch (err) {
+      if (err instanceof SyntaxError) quarantineCorrupt(this.file, "EventLog", err);
       this._events = [];
       this._nextId = 1;
     }
@@ -55,10 +58,14 @@ export class EventLog {
       if (!input || typeof input.type !== "string" || typeof input.message !== "string") return null;
       const ts = this._now();
       const sparkId = input.sparkId ?? null;
-      const key = `${input.type}\u0000${sparkId ?? ""}`;
+      const key = `${input.type}\u0000${sparkId ?? ""}\u0000${input.message}`;
       const last = this._recent.get(key);
-      if (last != null && ts - last < DEDUPE_MS && ts >= last) return null;
+      // Only a repeat counts as a duplicate: if another event for this spark
+      // landed in between (offline -> online -> offline), it is a real change.
+      const interleaved = this._lastKeyBySpark.get(sparkId ?? "") !== key;
+      if (!interleaved && last != null && ts - last < DEDUPE_MS && ts >= last) return null;
       this._recent.set(key, ts);
+      this._lastKeyBySpark.set(sparkId ?? "", key);
       if (this._recent.size > 500) {
         for (const [k, t] of this._recent) if (ts - t >= DEDUPE_MS) this._recent.delete(k);
       }

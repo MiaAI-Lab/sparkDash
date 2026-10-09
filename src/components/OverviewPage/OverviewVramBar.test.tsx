@@ -68,12 +68,9 @@ describe("Overview VRAM bar", () => {
     const headroom = bar.querySelector<HTMLElement>("[data-headroom]")!;
     expect(headroom.textContent).toBe("7.2 GB free");
     expect(headroom.className).toContain("text-warning");
-    // No legend on the card — the tooltip carries it.
-    expect(bar.querySelector("[data-legend]")).toBeNull();
-    // Available mini-stat agrees with the header (was red under 16 GB → amber now).
-    const avail = availableStat(card)!;
-    expect(avail.textContent).toBe("7.2 GB");
-    expect(avail.className).toContain("text-warning");
+    // The legend names each colour; the header already carries the free figure.
+    expect(bar.querySelector("[data-legend]")?.textContent).toContain("Model");
+    expect(availableStat(card)).toBeUndefined();
   });
 
   it("judges the RTX host by discrete headroom: 3.2 GB free is fine", () => {
@@ -85,7 +82,6 @@ describe("Overview VRAM bar", () => {
       Array.from(bar.querySelectorAll<HTMLElement>("[data-segment]")).map((s) => s.dataset.segment),
     ).toEqual(["engine", "other"]);
     expect(bar.querySelector("[data-headroom]")?.className).toContain("text-text");
-    expect(availableStat(card)?.className).toContain("text-text");
   });
 
   it("draws one GPU segment when no LLM endpoint is online", () => {

@@ -109,7 +109,8 @@ export function VramBreakdownBar({ label, breakdown: b, showLegend = false }: Vr
   }, [open]);
   const kvFull = kvNearlyFull(b);
   const kvPct = b.kv?.usage != null ? `${Math.round(b.kv.usage * 100)}%` : null;
-  const items = legendItems(b);
+  // Free is already the header's figure; the legend only names what holds the memory.
+  const items = legendItems(b).filter((it) => it.key !== "free");
   const pool = b.model === "unified" ? "Unified memory" : "VRAM";
 
   return (
@@ -160,15 +161,9 @@ export function VramBreakdownBar({ label, breakdown: b, showLegend = false }: Vr
             <span key={it.key} className="inline-flex items-center gap-1">
               {i > 0 ? <span aria-hidden>{" · "}</span> : null}
               {it.key !== "free" ? <Swatch kind={it.key} /> : null}
-              {it.label} {it.gb}
-              {i === items.length - 1 ? " GB" : ""}
+              {it.label} {it.gb} GB
             </span>
           ))}
-          {kvPct != null && (
-            <span className={`inline-flex items-center gap-1 ${kvFull ? "text-warning" : ""}`}>
-              <span aria-hidden>{" · "}</span>KV {kvPct}
-            </span>
-          )}
         </div>
       )}
       <div

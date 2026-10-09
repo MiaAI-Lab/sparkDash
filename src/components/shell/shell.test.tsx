@@ -1,6 +1,7 @@
 import { act } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { AppSidebar } from "./AppSidebar";
+import { AppSidebar, RAIL_KEYBOARD_CODES } from "./AppSidebar";
+import { MobileTabBar } from "./MobileTabBar";
 import { CommandPalette, filterCommands, fuzzyScore, type PaletteCommand } from "./CommandPalette";
 import { railSubLabel, showcaseTarget } from "./sparkSummary";
 import { makeSpark } from "../../testing/fixtures";
@@ -50,7 +51,6 @@ describe("AppSidebar", () => {
         activeId="b"
         onSelect={() => {}}
         onAdd={() => {}}
-        onEdit={() => {}}
         onOpenSettings={() => {}}
         onOpenSearch={() => {}}
         connected
@@ -63,5 +63,86 @@ describe("AppSidebar", () => {
 
   it("only offers the showcase when an online Spark has a reachable LLM", () => {
     expect(showcaseTarget([makeSpark("a", false)])).toBeNull();
+  });
+});
+
+describe("keyboard access", () => {
+  it("the rail's keyboard drag does not start on Enter or Space", () => {
+    expect(RAIL_KEYBOARD_CODES.start).not.toContain("Enter");
+    expect(RAIL_KEYBOARD_CODES.start).not.toContain("Space");
+    expect(RAIL_KEYBOARD_CODES.end).toContain("Enter");
+  });
+
+  it("Enter on a rail Spark is left to the link (not prevented by the drag sensor)", () => {
+    const onSelect = vi.fn();
+    const { container } = render(
+      <AppSidebar sparks={[makeSpark("a"), makeSpark("b")]} activeId={null} onSelect={onSelect} onAdd={() => {}} onReorder={() => {}} onOpenSettings={() => {}} onOpenSearch={() => {}} connected />
+    );
+    const btn = container.querySelector<HTMLAnchorElement>('nav[aria-label="Sparks"] a')!;
+    const ev = new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, cancelable: true });
+    act(() => {
+      btn.dispatchEvent(ev);
+    });
+    expect(ev.defaultPrevented).toBe(false);
+  });
+});
+
+describe("CommandPalette accessibility", () => {
+  const cmds = [cmd("a", "Overview"), cmd("b", "Energy")];
+  const input = () => document.querySelector<HTMLInputElement>('input[aria-label="Search commands"]')!;
+
+  it("points the input at the selected option and follows the arrow keys", () => {
+    render(<CommandPalette open onClose={() => {}} commands={cmds} />);
+    expect(input().getAttribute("role")).toBe("combobox");
+    expect(input().getAttribute("aria-controls")).toBe(document.querySelector('[role="listbox"]')!.id);
+    expect(input().getAttribute("aria-activedescendant")).toBe(document.querySelectorAll('[role="option"]')[0].id);
+    act(() => {
+      input().dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    });
+    expect(input().getAttribute("aria-activedescendant")).toBe(document.querySelectorAll('[role="option"]')[1].id);
+    expect(document.querySelectorAll('[role="option"]')[1].getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("ignores Enter while an IME is composing", () => {
+    const run = vi.fn();
+    render(<CommandPalette open onClose={() => {}} commands={[cmd("a", "Overview", "Go to", run)]} />);
+    act(() => {
+      input().dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, isComposing: true }));
+    });
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("moves focus into the dialog, makes the app inert, and restores both on close", () => {
+    const root = document.createElement("div");
+    root.id = "root";
+    const opener = document.createElement("button");
+    root.append(opener);
+    document.body.append(root);
+    opener.focus();
+    const { root: r } = render(<CommandPalette open commands={cmds} onClose={() => {}} />);
+    expect(document.activeElement).toBe(input());
+    expect(root.hasAttribute("inert")).toBe(true);
+    act(() => r.render(<CommandPalette open={false} commands={cmds} onClose={() => {}} />));
+    expect(root.hasAttribute("inert")).toBe(false);
+    expect(document.activeElement).toBe(opener);
+  });
+});
+
+describe("MobileTabBar sheet", () => {
+  it("traps focus in the sheet and gives it back to the Sparks button on Escape", () => {
+    const sparks = [makeSpark("a")];
+    const { container } = render(
+      <MobileTabBar sparks={sparks} activeId={null} onSelect={() => {}} onAdd={() => {}} onOpenSearch={() => {}} onOpenSettings={() => {}} />
+    );
+    const opener = [...container.querySelectorAll("button")].find((b) => b.textContent === "Sparks")!;
+    opener.focus();
+    act(() => opener.click());
+    const sheet = document.querySelector(".sheet")!;
+    expect(sheet.contains(document.activeElement)).toBe(true);
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(document.querySelector(".sheet")).toBeNull();
+    expect(document.activeElement).toBe(opener);
   });
 });

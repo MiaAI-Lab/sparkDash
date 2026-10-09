@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ToolEvalRun } from "../../../api/types";
 import { Tag } from "../../ui/Tag";
-import { compareGeneric, compareToolResults, configCaveats, normalizeForCompare, type Delta } from "./compare";
+import { compareGeneric, configCaveats, normalizeForCompare } from "./compare";
+import { SideBySide } from "./SideBySide";
 import { fmtDate, fmtDuration, fmtNum } from "./format";
 import { useToolEvalResult } from "./hooks";
 import { Notice, Skeleton } from "./parts";
@@ -137,27 +138,19 @@ export function History({ sparkId, sparkName, runs, error, followedId, viewedId,
         })}
       </ul>
       {picked.length === 1 ? <p className="te-faint">Select one more run to compare.</p> : null}
-      {pair ? <ComparePanel sparkId={sparkId} a={pair[0]} b={pair[1]} /> : null}
+      {pair ? <ComparePanel key={`${pair[0].id}:${pair[1].id}`} sparkId={sparkId} a={pair[0]} b={pair[1]} /> : null}
     </div>
   );
 }
 
-function DeltaCell({ d, suffix = "" }: { d: Delta; suffix?: string }) {
-  if (d.delta == null) return <span className="te-faint">–</span>;
-  const good = d.delta === 0 ? null : d.higherIsBetter ? d.delta > 0 : d.delta < 0;
-  return (
-    <span className={`te-delta ${good == null ? "" : good ? "is-good" : "is-bad"}`}>
-      {d.delta > 0 ? "+" : ""}
-      {fmtNum(d.delta, 1)}
-      {suffix}
-    </span>
-  );
-}
-
-const CHANGE_LABEL = { regression: "Regressed", improvement: "Improved", changed: "Changed", "only-a": "Only in earlier run", "only-b": "Only in later run" } as const;
-
 /** Two runs side by side: deltas, categories and changed scenarios (or changed metrics for other result types). */
 function ComparePanel({ sparkId, a, b }: { sparkId: string; a: ToolEvalRun; b: ToolEvalRun }) {
+  const [swapped, setSwapped] = useState(false);
+  const ref = useRef<HTMLElement>(null);
+  // Picking the second run opens the comparison: bring it into view.
+  useEffect(() => {
+    ref.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+  }, []);
   const ra = useToolEvalResult(sparkId, a.id);
   const rb = useToolEvalResult(sparkId, b.id);
   const caveats = configCaveats(a, b);
@@ -165,17 +158,13 @@ function ComparePanel({ sparkId, a, b }: { sparkId: string; a: ToolEvalRun; b: T
   const error = ra.error || rb.error;
   const na = ra.result ? normalizeForCompare(ra.result) : null;
   const nb = rb.result ? normalizeForCompare(rb.result) : null;
-  const tool = na && nb ? compareToolResults(na, nb) : null;
+  const tool = na && nb ? { a: swapped ? nb : na, b: swapped ? na : nb } : null;
   const generic = !tool && ra.result && rb.result ? compareGeneric(ra.result, rb.result) : null;
 
   return (
-    <section className="panel te-card te-compare" aria-label="Run comparison">
+    <section ref={ref} className="panel te-card te-compare" aria-label="Run comparison">
       <div className="te-card__head">
         <h2>Compare</h2>
-      </div>
-      <div className="te-compare__runs">
-        <div><span className="eyebrow">Earlier (A)</span><b>{a.label || fmtDate(a.startedAt)}</b><span className="te-faint">{a.model ?? "auto model"}</span></div>
-        <div><span className="eyebrow">Later (B)</span><b>{b.label || fmtDate(b.startedAt)}</b><span className="te-faint">{b.model ?? "auto model"}</span></div>
       </div>
       {caveats.length ? (
         <Notice tone="warn" title="These runs are not directly comparable">
@@ -191,61 +180,7 @@ function ComparePanel({ sparkId, a, b }: { sparkId: string; a: ToolEvalRun; b: T
       )}
       {loading ? <Skeleton lines={4} /> : null}
       {error ? <Notice tone="bad" title="A result could not be loaded">{error}</Notice> : null}
-      {tool ? (
-        <>
-          <div className="te-tablewrap">
-            <table className="te-table">
-              <thead>
-                <tr><th scope="col">Metric</th><th scope="col" className="is-num">A</th><th scope="col" className="is-num">B</th><th scope="col" className="is-num">Change</th></tr>
-              </thead>
-              <tbody>
-                {tool.headline.map((d) => (
-                  <tr key={d.label}>
-                    <th scope="row">{d.label}</th>
-                    <td className="is-num">{d.a != null ? fmtNum(d.a, 1) : "–"}</td>
-                    <td className="is-num">{d.b != null ? fmtNum(d.b, 1) : "–"}</td>
-                    <td className="is-num"><DeltaCell d={d} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {tool.categories.length ? (
-            <>
-              <h3>Categories</h3>
-              <ul className="te-catdeltas">
-                {tool.categories.map((c) => (
-                  <li key={c.id}>
-                    <span className="te-catbars__id">{c.id}</span>
-                    <span className="te-catbars__name">{c.name ?? CATEGORY_NAMES[c.id] ?? ""}</span>
-                    <span className="mono te-faint">{c.a != null ? `${Math.round(c.a)}%` : "–"} → {c.b != null ? `${Math.round(c.b)}%` : "–"}</span>
-                    <DeltaCell d={c} suffix=" pts" />
-                  </li>
-                ))}
-              </ul>
-            </>
-          ) : null}
-          <h3>
-            Scenarios that changed <span className="te-faint">({tool.changes.length}; {tool.unchanged} unchanged)</span>
-          </h3>
-          {tool.changes.length ? (
-            <ul className="te-changes">
-              {tool.changes.map((c) => (
-                <li key={c.id} className={`is-${c.kind}`}>
-                  <Tag tone={c.kind === "regression" ? "bad" : c.kind === "improvement" ? "good" : "neutral"}>{CHANGE_LABEL[c.kind]}</Tag>
-                  <span className="mono">{c.id}</span>
-                  <span className="te-scn-list__title">{c.title ?? ""}</span>
-                  <span className="te-faint">
-                    {c.from ?? "–"} → {c.to ?? "–"}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="te-empty">Every scenario ended with the same status in both runs.</p>
-          )}
-        </>
-      ) : null}
+      {tool ? <SideBySide a={tool.a} b={tool.b} runA={swapped ? b : a} runB={swapped ? a : b} onSwap={() => setSwapped((v) => !v)} /> : null}
       {generic ? (
         generic.changed.length ? (
           <div className="te-tablewrap">

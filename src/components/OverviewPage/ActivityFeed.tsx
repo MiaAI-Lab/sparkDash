@@ -1,3 +1,5 @@
+import { AppLink } from "../ui/AppLink";
+import { ACTIVITY_ID, idToPath } from "../../constants";
 import { useActivityEvents } from "../../hooks/useActivityEvents";
 import { formatRelativeTime, severityDotClass, splitMessage } from "./activityFormat";
 
@@ -55,13 +57,13 @@ export function ActivityFeed({ limit = 8, sparkId, onSelectSpark, onViewAll }: A
                   {before}
                   {name &&
                     (clickable ? (
-                      <button
-                        type="button"
+                      <AppLink
+                        href={idToPath(ev.sparkId as string)}
                         className="font-semibold text-text-strong hover:underline"
-                        onClick={() => onSelectSpark!(ev.sparkId as string)}
+                        onNavigate={() => onSelectSpark!(ev.sparkId as string)}
                       >
                         {name}
-                      </button>
+                      </AppLink>
                     ) : (
                       <strong className="font-semibold text-text-strong">{name}</strong>
                     ))}
@@ -73,9 +75,9 @@ export function ActivityFeed({ limit = 8, sparkId, onSelectSpark, onViewAll }: A
         </ul>
       )}
       {onViewAll ? (
-        <button type="button" className="btn btn--sm btn--ghost mt-2" onClick={onViewAll}>
+        <AppLink href={idToPath(ACTIVITY_ID)} className="btn btn--sm btn--ghost mt-2" onNavigate={onViewAll}>
           View all activity
-        </button>
+        </AppLink>
       ) : null}
     </section>
   );

@@ -67,8 +67,6 @@ export class LlmProbe {
 
     // State
     this.backendType = null; // 'vllm' | 'llama.cpp' | 'sglang' | 'ds4' | 'exl3' | 'q27' | 'tensorfold' | 'freetoken' | null
-    /** FreeToken `/v1/stats` instance_id. A change means the process restarted. */
-    this._freetokenInstanceId = null;
     this.serverIsOpenAI = null; // true = OpenAI-compatible
     /** Whether /v1/models (or /slots) answered without credentials. null = unknown. */
     this.authOpen = null;
@@ -94,6 +92,8 @@ export class LlmProbe {
     this._tensorfoldSeeded = false;
     /** Previous TensorFold `prefill_seconds_total`. null until a sample includes it. */
     this._tensorfoldPrefillSeconds = null;
+    this._tensorfoldLastPrefill = null;
+    this.prefillActive = false;
     /** Previous prefill counters by kind; null until first labeled sample. */
     this.lastPrefillKinds = null;
     /** Previous vLLM TTFT histogram `_sum` (seconds). null until first sample. */
@@ -265,7 +265,6 @@ export class LlmProbe {
   _resetDetection() {
     this.serverIsOpenAI = null;
     this.backendType = null;
-    this._freetokenInstanceId = null;
     this.authOpen = null;
     this.modelId = null;
     this.modelPath = null;
@@ -281,9 +280,7 @@ export class LlmProbe {
     this.totalPromptTokens = null;
     this.totalCachedTokens = null;
     this.kvCacheUsage = null;
-    this._clearKvPool();
-    this.kvCacheGb = null;
-    this.weightsGb = null;
+    this._clearEngineMemory();
     this.requestsRunning = null;
     this.requestsWaiting = null;
     this.ttftP95Seconds = null;
@@ -297,6 +294,8 @@ export class LlmProbe {
     this.lastTokenCounts = { input: 0, output: 0 };
     this._tensorfoldSeeded = false;
     this._tensorfoldPrefillSeconds = null;
+    this._tensorfoldLastPrefill = null;
+    this.prefillActive = false;
     this.lastPrefillKinds = null;
     this.lastTtftSum = null;
     this.lastTtftCount = null;
@@ -565,6 +564,8 @@ export class LlmProbe {
     }
 
     if (this.backendType === "freetoken") {
+      // FreeToken reports no engine memory split; never keep another engine's.
+      this._clearEngineMemory();
       try {
         const statsRes = await this._fetch(`${this.baseUrl}/v1/stats`);
         if (!statsRes.ok) {
@@ -579,10 +580,9 @@ export class LlmProbe {
       return this._getSnapshot();
     }
 
-    // Engine pool sizes: only SGLang reports them, and it re-reads them every
-    // poll below, so a size never outlives the payload it came from.
-    this.kvCacheGb = null;
-    this.weightsGb = null;
+    // Engine pool sizes: only SGLang and vLLM report them, and they re-read
+    // them every poll below, so a size never outlives the payload it came from.
+    this._clearEngineMemory();
 
     // TensorFold: no Prometheus. /health carries cumulative token totals when the
     // server publishes them; without them tok/s stays 0 rather than guessing.
@@ -594,7 +594,8 @@ export class LlmProbe {
           this._applyTensorFoldHealth(health, dtSec);
           this._applyTensorFoldLive(health);
           // Newer builds report live rates in /health but cumulative totals only on Prometheus /metrics.
-          if (!Number.isFinite(Number(health?.completion_tokens_total))) await this._applyTensorFoldMetrics();
+          const totalRaw = health?.completion_tokens_total;
+          if (totalRaw == null || !Number.isFinite(Number(totalRaw))) await this._applyTensorFoldMetrics();
         } else {
           this._applyTensorFoldHealth(null, dtSec);
         }
@@ -985,6 +986,7 @@ export class LlmProbe {
     this.kvCacheUsage = null;
     this.kvCacheTokens = null;
     this.kvCacheTokensAvailable = null;
+    this.kvCacheMemoryBytes = null;
     this.ttftSeconds = null;
     this.ttftP95Seconds = null;
     this.e2eP95Seconds = null;
@@ -1006,11 +1008,9 @@ export class LlmProbe {
       return;
     }
     const stats = /** @type {Record<string, any>} */ (data);
-    const instanceId = stats.instance_id == null ? null : String(stats.instance_id);
     // Rates come from FreeToken's window, not from differencing these totals,
     // so a restart (new instance_id, or counters that went backwards) cannot
     // spike tok/s. The new totals are adopted as-is.
-    this._freetokenInstanceId = instanceId;
 
     const decode = Number(stats.throughput.decode_tps);
     const prefill = Number(stats.throughput.prefill_tps);
@@ -1082,8 +1082,11 @@ export class LlmProbe {
    */
   _applyTensorFoldHealth(data, dtSec) {
     const health = data && typeof data === "object" && !Array.isArray(data) ? data : {};
-    const prompt = Number(health.prompt_tokens_total);
-    const completion = Number(health.completion_tokens_total);
+    // A prompt is being processed right now (no live rate exists for it, see below).
+    this.prefillActive = Number(health.streams?.prefilling) > 0;
+    // Number(null) is 0: a null counter means "absent", not "zero".
+    const prompt = health.prompt_tokens_total == null ? NaN : Number(health.prompt_tokens_total);
+    const completion = health.completion_tokens_total == null ? NaN : Number(health.completion_tokens_total);
     const prefillSec = Number(health.prefill_seconds_total);
     if (Number.isFinite(completion) && !this._tensorfoldSeeded) {
       if (Number.isFinite(prompt)) this.lastTokenCounts.input = prompt;
@@ -1143,8 +1146,17 @@ export class LlmProbe {
     if (!(dtSec > 0 && dtSec < 10)) return;
     const dSec = prefillSec - prevPrefillSec;
     const dIn = prompt - prevIn;
-    this.prefillTps =
-      dSec > 0 && dIn > 0 ? Math.max(0, Math.round((dIn / dSec) * 100) / 100) : 0;
+    if (dSec > 0 && dIn > 0) {
+      // A request just finished: its average prefill rate. TensorFold publishes token and time
+      // totals only for finished requests, so nothing is measurable while a long prefill runs;
+      // keep the last finished rate on screen for a while instead of flashing to 0.
+      this._tensorfoldLastPrefill = { tps: Math.max(0, Math.round((dIn / dSec) * 100) / 100), at: Date.now() };
+      this.prefillTps = this._tensorfoldLastPrefill.tps;
+    } else if (this._tensorfoldLastPrefill && Date.now() - this._tensorfoldLastPrefill.at < 20_000) {
+      this.prefillTps = this._tensorfoldLastPrefill.tps;
+    } else {
+      this.prefillTps = 0;
+    }
     this._tensorfoldPrefillSeconds = prefillSec;
   }
 
@@ -1767,7 +1779,7 @@ export class LlmProbe {
 
   // ─── llama.cpp native path ────────────────────────────────
   async _probeLlamaCpp() {
-    this._clearKvPool();
+    this._clearEngineMemory();
     const now = Date.now();
     const dtSec = (now - this.lastProbeTime) / 1000;
     this.lastProbeTime = now;
@@ -1951,6 +1963,13 @@ export class LlmProbe {
       }
     }
     return found ? sum : null;
+  }
+
+  /** Drop every engine memory figure: the KV pool and the weights/KV GB split. */
+  _clearEngineMemory() {
+    this._clearKvPool();
+    this.kvCacheGb = null;
+    this.weightsGb = null;
   }
 
   /** Drop a previously observed KV pool (other backends do not expose one). */
@@ -2144,6 +2163,7 @@ export class LlmProbe {
       slotsTotal: this.slotsTotal,
       generationTps: this.generationTps,
       prefillTps: this.prefillTps,
+      prefillActive: this.prefillActive === true,
       cachedPrefillTps: this.cachedPrefillTps,
       uncachedPrefillTps: this.uncachedPrefillTps,
       totalOutputTokens: this.totalOutputTokens,
@@ -2181,6 +2201,7 @@ export class LlmProbe {
       slotsTotal: 0,
       generationTps: 0,
       prefillTps: 0,
+      prefillActive: false,
       cachedPrefillTps: null,
       uncachedPrefillTps: null,
       totalOutputTokens: 0,

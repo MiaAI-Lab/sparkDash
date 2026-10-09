@@ -12,7 +12,7 @@ import { formatDuration } from "../../shared/formatDuration";
 import { decodeBenchTypeLabel } from "../../shared/llmPrompts.js";
 import { backendLabel } from "../../shared/llmBackends.js";
 import { formatContextSize } from "../../shared/prefillBench.js";
-import { QUALITY_CATEGORIES, QUALITY_CATEGORY_LABELS } from "../../shared/qualityBench.js";
+import { QUALITY_CATEGORIES, QUALITY_CATEGORY_LABELS, checkQualityComparable } from "../../shared/qualityBench.js";
 import type { DecodeBenchJob, PrefillBenchJob, QualityBenchJob } from "../../api/types";
 
 /** Fixed width; height grows with the number of result rows. */
@@ -228,19 +228,21 @@ export function buildPrefillShareCard(
     .slice()
     .sort((a, b) => a.targetTokens - b.targetTokens)
     .map<ShareCardRow>((r) => {
-      const failed = r.prefillTps <= 0;
+      const failed = Boolean(r.error) || r.prefillTps <= 0;
+      const partial = !failed && r.samples != null && r.samplesRequested != null && r.samples < r.samplesRequested;
+      const flags = [partial ? `${r.samples}/${r.samplesRequested} samples` : null, !failed && r.lowConfidence ? "low confidence" : null].filter(Boolean);
       return {
         load: formatContextSize(r.targetTokens),
         detail: failed
-          ? r.error || "failed"
+          ? r.error || "No prefill rate was measured"
           : `TTFT ${formatTtft(r.ttftMs)} · ${
               r.promptTokens > 0 ? `${r.promptTokens.toLocaleString("en-US")} tokens` : "—"
-            }`,
+            }${flags.length ? ` · ${flags.join(", ")}` : ""}`,
         primary: failed ? "—" : r.prefillTps.toFixed(1),
         secondary: failed ? "—" : formatTtft(r.ttftMs),
         primaryUnit: "tok/s",
         secondaryUnit: "",
-        tone: failed ? "bad" : "ok",
+        tone: failed ? "bad" : partial || r.lowConfidence ? "warn" : "ok",
       };
     });
 
@@ -257,7 +259,8 @@ export function buildPrefillShareCard(
     }`,
     columns: { load: "Context", primary: "Prefill", secondary: "TTFT" },
     rows,
-    legend: "Prefill — prompt tokens ÷ time to first token. TTFT — time to first token.",
+    legend:
+      "Prefill — server prompt timing, else tokens ÷ (TTFT − request overhead), cache hits excluded. TTFT — time to first token. Median-rate sample.",
     footer: "github.com/MiaAI-Lab/sparkDash",
     generatedAt: now,
   };
@@ -273,6 +276,8 @@ export function buildQualityShareCard(
   src: ShareCardSource,
   now: number = Date.now()
 ): ShareCardModel {
+  // Runs from different suite/scoring versions are not comparable: show the plain card.
+  if (compare && !checkQualityComparable(job, compare).ok) compare = null;
   const rows: ShareCardRow[] = [];
   for (const cat of QUALITY_CATEGORIES) {
     const s = job.results?.categories?.[cat];
@@ -281,7 +286,7 @@ export function buildQualityShareCard(
     const delta = s.pct != null && other?.pct != null ? Math.round((s.pct - other.pct) * 10) / 10 : null;
     rows.push({
       load: QUALITY_CATEGORY_LABELS[cat],
-      detail: `${s.passed}/${s.total} items`,
+      detail: `${s.passed}/${s.scored ?? s.total} items${s.errors > 0 ? ` · ${s.errors} error${s.errors === 1 ? "" : "s"}` : ""}`,
       primary: s.pct == null ? "—" : s.pct.toFixed(1),
       secondary: delta == null ? "" : `${delta > 0 ? "+" : ""}${delta.toFixed(1)}`,
       primaryUnit: "%",

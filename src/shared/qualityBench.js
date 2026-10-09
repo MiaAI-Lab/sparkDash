@@ -51,31 +51,73 @@ export function mcnemarExactP(b, c) {
   return Math.min(1, 2 * sum);
 }
 
+/** Versions stored in a run's config; runs saved before they existed were suite 1 / scoring 1. */
+function versionsOf(run) {
+  const c = run?.config ?? {};
+  return {
+    suite: Number.isFinite(Number(c.suiteVersion)) && Number(c.suiteVersion) > 0 ? Number(c.suiteVersion) : 1,
+    scoring: Number.isFinite(Number(c.scoringVersion)) && Number(c.scoringVersion) > 0 ? Number(c.scoringVersion) : 1,
+  };
+}
+
 /**
- * Pair two quality runs by item id, per category.
+ * Can two runs be paired item-by-item? Different suite versions mean different items/seeds under
+ * the same ids; different scoring versions mean the same reply can pass in one and fail in the
+ * other. Both make a McNemar table meaningless, so comparison is refused.
+ * @returns {{ ok: boolean, reason: string | null }}
+ */
+export function checkQualityComparable(a, b) {
+  if (!a || !b) return { ok: true, reason: null };
+  const va = versionsOf(a);
+  const vb = versionsOf(b);
+  if (va.suite !== vb.suite) {
+    return {
+      ok: false,
+      reason: `These runs used different item sets (suite v${va.suite} vs v${vb.suite}), so items with the same id are not the same question. Re-run one of them to compare.`,
+    };
+  }
+  if (va.scoring !== vb.scoring) {
+    return {
+      ok: false,
+      reason: `These runs were scored by different rules (scoring v${va.scoring} vs v${vb.scoring}), so a pass in one is not a pass in the other. Re-run one of them to compare.`,
+    };
+  }
+  return { ok: true, reason: null };
+}
+
+/**
+ * Pair two quality runs by item id, per category. Pairs where either side hit a request error or
+ * timeout (`error` set) are left out of the table and counted in `excluded`: the model never
+ * answered, so they are neither passes nor failures. Returns [] when the runs are not comparable
+ * (see checkQualityComparable).
  *
- * @param {{ results?: { categories?: Record<string, { passed: number, total: number, pct: number | null }>, items?: Array<{ id: string, category: string, ok: boolean, hash?: string | null }> } } | null} a
+ * @param {{ config?: object, results?: { categories?: Record<string, { passed: number, total: number, pct: number | null }>, items?: Array<{ id: string, category: string, ok: boolean, error?: string | null, hash?: string | null }> } } | null} a
  * @param {typeof a} b
  * @returns {Array<{
  *   category: string,
  *   pctA: number | null, pctB: number | null,
- *   paired: number, identical: number, bothOk: number, bothFail: number,
+ *   paired: number, excluded: number, identical: number, bothOk: number, bothFail: number,
  *   onlyA: number, onlyB: number, p: number, withinNoise: boolean,
  * }>}
  */
 export function compareQualityRuns(a, b) {
+  if (!checkQualityComparable(a, b).ok) return [];
   const itemsA = Array.isArray(a?.results?.items) ? a.results.items : [];
   const itemsB = Array.isArray(b?.results?.items) ? b.results.items : [];
   const byIdB = new Map(itemsB.map((it) => [it.id, it]));
-  /** @type {Map<string, { paired: number, identical: number, bothOk: number, bothFail: number, onlyA: number, onlyB: number }>} */
+  /** @type {Map<string, { paired: number, excluded: number, identical: number, bothOk: number, bothFail: number, onlyA: number, onlyB: number }>} */
   const acc = new Map();
   for (const ia of itemsA) {
     const ib = byIdB.get(ia.id);
     if (!ib || ia.category !== ib.category) continue;
     let row = acc.get(ia.category);
     if (!row) {
-      row = { paired: 0, identical: 0, bothOk: 0, bothFail: 0, onlyA: 0, onlyB: 0 };
+      row = { paired: 0, excluded: 0, identical: 0, bothOk: 0, bothFail: 0, onlyA: 0, onlyB: 0 };
       acc.set(ia.category, row);
+    }
+    if (ia.error || ib.error) {
+      row.excluded += 1;
+      continue;
     }
     row.paired += 1;
     if (ia.hash && ib.hash && ia.hash === ib.hash) row.identical += 1;

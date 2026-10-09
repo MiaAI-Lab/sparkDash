@@ -1,5 +1,5 @@
 import { BenchIcon } from "../bench/BenchIcon";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import {
   DndContext,
   KeyboardSensor,
@@ -17,19 +17,19 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import type { SparkSnapshot } from "../../api/types";
-import { ACTIVITY_ID, ENERGY_ID, OVERVIEW_ID, TOKENS_ID } from "../../constants";
+import type { AuthMode, SparkSnapshot } from "../../api/types";
+import { ACTIVITY_ID, ENERGY_ID, OVERVIEW_ID, SHOWCASE_ID, TOKENS_ID, benchId, idToPath } from "../../constants";
 import { BENCH_TYPES } from "../bench/benchCatalog";
-import { BoltIcon, ChevronDownIcon, EditIcon, GearIcon, GlobeIcon, GridIcon, ListIcon, PanelLeftIcon, PlusIcon, SearchIcon, TerminalIcon, TokensIcon, XLogoIcon } from "../ui/icons";
+import { BoltIcon, ChevronDownIcon, GearIcon, GithubIcon, GlobeIcon, GridIcon, ListIcon, PanelLeftIcon, PlusIcon, SearchIcon, TerminalIcon, TokensIcon, XLogoIcon } from "../ui/icons";
+import { OpenAccessChip } from "../OpenAccessChip";
 import { ThemeSwitch } from "../ThemeSwitch";
-import { isThrottling, openShowcase, railSubLabel, showcaseTarget } from "./sparkSummary";
+import { isThrottling, railSubLabel } from "./sparkSummary";
 
 interface AppSidebarProps {
   sparks: SparkSnapshot[];
   activeId: string | null;
   onSelect: (id: string) => void;
   onAdd: () => void;
-  onEdit: (id: string) => void;
   onReorder?: (orderedIds: string[]) => void;
   onOpenSettings: () => void;
   onOpenSearch: () => void;
@@ -39,9 +39,28 @@ interface AppSidebarProps {
   connected: boolean;
   /** Poll interval in ms for the footer caption. */
   refreshInterval?: number | null;
+  /** Server auth posture; an open remote bind shows a gentle note above the credit line. */
+  authMode?: AuthMode | null;
   /** Hide the sidebar (a strip with a show button stays behind). */
   onCollapse?: () => void;
 }
+
+/**
+ * Keyboard drag on the rail: M picks a Spark up. The default Enter/Space start would swallow the
+ * very keys that activate the Spark's button, so keyboard users could not open a Spark at all.
+ * Once lifted, arrows move it and Enter/Space drop it, Escape cancels.
+ */
+export const RAIL_KEYBOARD_CODES = {
+  start: ["KeyM"],
+  cancel: ["Escape"],
+  end: ["Space", "Enter"],
+};
+
+const RAIL_ANNOUNCEMENTS = {
+  screenReaderInstructions: {
+    draggable: "Press Enter to open this Spark. To reorder it, press M, use the arrow keys to move it, then Enter to drop it or Escape to cancel.",
+  },
+};
 
 function dotClass(spark: SparkSnapshot): string {
   if (!spark.online) return "sdot sdot--off";
@@ -49,16 +68,23 @@ function dotClass(spark: SparkSnapshot): string {
   return "sdot";
 }
 
+/** Plain left-click navigates in-app; modified clicks and the context menu keep normal link behaviour. */
+function inApp(go: () => void) {
+  return (e: MouseEvent<HTMLAnchorElement>) => {
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    go();
+  };
+}
+
 function RailSpark({
   spark,
   isActive,
   onSelect,
-  onEdit,
 }: {
   spark: SparkSnapshot;
   isActive: boolean;
   onSelect: (id: string) => void;
-  onEdit: (id: string) => void;
 }) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
     useSortable({ id: spark.id });
@@ -68,34 +94,22 @@ function RailSpark({
       style={{ transform: CSS.Transform.toString(transform), transition, zIndex: isDragging ? 10 : undefined, opacity: isDragging ? 0.6 : 1 }}
       className={`rail-item ${isActive ? "is-active" : ""}`}
     >
-      <button
-        type="button"
+      <a
+        href={idToPath(spark.id)}
+        draggable={false}
         ref={setActivatorNodeRef}
         {...attributes}
         {...listeners}
-        className="flex min-w-0 flex-1 items-center gap-2.5 border-0 bg-transparent p-0 text-left text-inherit"
-        onClick={() => onSelect(spark.id)}
-        onDoubleClick={() => onEdit(spark.id)}
+        className="flex min-w-0 flex-1 items-center gap-2.5 border-0 bg-transparent p-0 text-left text-inherit no-underline"
+        onClick={inApp(() => onSelect(spark.id))}
         aria-current={isActive ? "page" : undefined}
         aria-roledescription="sortable"
-        title={`${spark.name}${spark.online ? "" : " (offline)"}. Drag to reorder.`}
+        title={`${spark.name}${spark.online ? "" : " (offline)"}. Drag to reorder (keyboard: M).`}
       >
         <i className={dotClass(spark)} aria-hidden />
         <span className="rail-item__name">{spark.name}</span>
-      </button>
+      </a>
       <span className="rail-item__sub">{railSubLabel(spark)}</span>
-      <span className="rail-item__tools">
-        <button
-          type="button"
-          className="rail-tool"
-          title={`Edit ${spark.name}`}
-          aria-label={`Edit ${spark.name}`}
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={() => onEdit(spark.id)}
-        >
-          <EditIcon className="h-3 w-3" />
-        </button>
-      </span>
     </div>
   );
 }
@@ -106,7 +120,6 @@ export function AppSidebar({
   activeId,
   onSelect,
   onAdd,
-  onEdit,
   onReorder,
   onOpenSettings,
   onOpenSearch,
@@ -114,6 +127,7 @@ export function AppSidebar({
   onSelectBench,
   connected,
   refreshInterval,
+  authMode = null,
   onCollapse,
 }: AppSidebarProps) {
   const [items, setItems] = useState<string[]>(() => sparks.map((s) => s.id));
@@ -144,10 +158,9 @@ export function AppSidebar({
   const ordered = items.map((id) => byId.get(id)).filter(Boolean) as SparkSnapshot[];
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates, keyboardCodes: RAIL_KEYBOARD_CODES })
   );
   const canReorder = Boolean(onReorder) && sparks.length > 1;
-  const showcase = showcaseTarget(sparks);
 
   const handleDragEnd = (event: DragEndEvent) => {
     setDragging(false);
@@ -164,14 +177,24 @@ export function AppSidebar({
   return (
     <aside className="app-side" aria-label="Fleet navigation">
       <div className="side-head">
-        <button type="button" className="brand" onClick={() => onSelect(OVERVIEW_ID)} aria-label="sparkDash overview">
+        <a
+          href={idToPath(OVERVIEW_ID)}
+          className="brand"
+          aria-label="sparkDash overview"
+          onClick={(e) => {
+            // Plain click navigates in-app; modifier clicks and the context menu keep the normal link behaviour.
+            if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+            e.preventDefault();
+            onSelect(OVERVIEW_ID);
+          }}
+        >
           <span className="brand__mark">
             <BoltIcon className="h-[17px] w-[17px]" />
           </span>
           <span>
             spark<span className="brand__dash">Dash</span>
           </span>
-        </button>
+        </a>
         {onCollapse ? (
           <button type="button" className="icon-circle side-toggle" onClick={onCollapse} title="Hide sidebar (Ctrl+B)" aria-label="Hide sidebar">
             <PanelLeftIcon className="h-3.5 w-3.5" />
@@ -197,6 +220,7 @@ export function AppSidebar({
         {canReorder ? (
           <DndContext
             sensors={sensors}
+            accessibility={RAIL_ANNOUNCEMENTS}
             collisionDetection={closestCenter}
             onDragStart={() => setDragging(true)}
             onDragEnd={handleDragEnd}
@@ -205,7 +229,7 @@ export function AppSidebar({
             <SortableContext items={items} strategy={verticalListSortingStrategy}>
               <nav className="rail-list" aria-label="Sparks">
                 {ordered.map((s) => (
-                  <RailSpark key={s.id} spark={s} isActive={activeId === s.id} onSelect={onSelect} onEdit={onEdit} />
+                  <RailSpark key={s.id} spark={s} isActive={activeId === s.id} onSelect={onSelect} />
                 ))}
               </nav>
             </SortableContext>
@@ -214,22 +238,16 @@ export function AppSidebar({
           <nav className="rail-list" aria-label="Sparks">
             {sparks.map((s) => (
               <div key={s.id} className={`rail-item ${activeId === s.id ? "is-active" : ""}`}>
-                <button
-                  type="button"
-                  className="flex min-w-0 flex-1 items-center gap-2.5 border-0 bg-transparent p-0 text-left text-inherit"
-                  onClick={() => onSelect(s.id)}
-                  onDoubleClick={() => onEdit(s.id)}
+                <a
+                  href={idToPath(s.id)}
+                  className="flex min-w-0 flex-1 items-center gap-2.5 border-0 bg-transparent p-0 text-left text-inherit no-underline"
+                  onClick={inApp(() => onSelect(s.id))}
                   aria-current={activeId === s.id ? "page" : undefined}
                 >
                   <i className={dotClass(s)} aria-hidden />
                   <span className="rail-item__name">{s.name}</span>
-                </button>
+                </a>
                 <span className="rail-item__sub">{railSubLabel(s)}</span>
-                <span className="rail-item__tools">
-                  <button type="button" className="rail-tool" aria-label={`Edit ${s.name}`} onClick={() => onEdit(s.id)}>
-                    <EditIcon className="h-3 w-3" />
-                  </button>
-                </span>
               </div>
             ))}
           </nav>
@@ -242,52 +260,51 @@ export function AppSidebar({
       <div>
         <div className="rail-label">Workspace</div>
         <nav className="rail-list">
-          <button
-            type="button"
+          <a
+            href={idToPath(OVERVIEW_ID)}
             className={`rail-item ${activeId === OVERVIEW_ID ? "is-active" : ""}`}
-            onClick={() => onSelect(OVERVIEW_ID)}
+            onClick={inApp(() => onSelect(OVERVIEW_ID))}
             aria-current={activeId === OVERVIEW_ID ? "page" : undefined}
           >
             <GridIcon className="h-4 w-4" />
             <span className="rail-item__name">Overview</span>
-          </button>
-          <button
-            type="button"
+          </a>
+          <a
+            href={idToPath(TOKENS_ID)}
             className={`rail-item ${activeId === TOKENS_ID ? "is-active" : ""}`}
-            onClick={() => onSelect(TOKENS_ID)}
+            onClick={inApp(() => onSelect(TOKENS_ID))}
             aria-current={activeId === TOKENS_ID ? "page" : undefined}
           >
             <TokensIcon className="h-4 w-4" />
             <span className="rail-item__name">Token totals</span>
-          </button>
-          <button
-            type="button"
+          </a>
+          <a
+            href={idToPath(ENERGY_ID)}
             className={`rail-item ${activeId === ENERGY_ID ? "is-active" : ""}`}
-            onClick={() => onSelect(ENERGY_ID)}
+            onClick={inApp(() => onSelect(ENERGY_ID))}
             aria-current={activeId === ENERGY_ID ? "page" : undefined}
           >
             <BoltIcon className="h-4 w-4" />
             <span className="rail-item__name">Fleet energy</span>
-          </button>
-          <button
-            type="button"
+          </a>
+          <a
+            href={idToPath(ACTIVITY_ID)}
             className={`rail-item ${activeId === ACTIVITY_ID ? "is-active" : ""}`}
-            onClick={() => onSelect(ACTIVITY_ID)}
+            onClick={inApp(() => onSelect(ACTIVITY_ID))}
             aria-current={activeId === ACTIVITY_ID ? "page" : undefined}
           >
             <ListIcon className="h-4 w-4" />
             <span className="rail-item__name">Activity</span>
-          </button>
-          <button
-            type="button"
-            className="rail-item disabled:opacity-50"
-            disabled={!showcase}
-            onClick={() => showcase && openShowcase(showcase)}
-            title={showcase ? `Open the prompt showcase on ${showcase.name}` : "Needs an online Spark with a reachable LLM"}
+          </a>
+          <a
+            href={idToPath(SHOWCASE_ID)}
+            className={`rail-item ${activeId === SHOWCASE_ID ? "is-active" : ""}`}
+            onClick={inApp(() => onSelect(SHOWCASE_ID))}
+            aria-current={activeId === SHOWCASE_ID ? "page" : undefined}
           >
             <TerminalIcon className="h-4 w-4" />
             <span className="rail-item__name">Showcase</span>
-          </button>
+          </a>
         </nav>
       </div>
 
@@ -306,16 +323,16 @@ export function AppSidebar({
           <nav className="rail-list" id="rail-benchmarks" aria-label="Benchmarks" hidden={!(benchOpen || benchType != null)}>
             {BENCH_TYPES.map((b) => (
               <div key={b.id}>
-                <button
-                  type="button"
+                <a
+                  href={idToPath(benchId(b.id))}
                   className={`rail-item rail-item--compact ${benchType === b.id ? "is-active" : ""}`}
-                  onClick={() => onSelectBench(b.id)}
+                  onClick={inApp(() => onSelectBench(b.id))}
                   aria-current={benchType === b.id ? "page" : undefined}
                   title={b.blurb}
                 >
                   <BenchIcon id={b.id} className="h-3.5 w-3.5" />
                   <span className="rail-item__name">{b.label}</span>
-                </button>
+                </a>
               </div>
             ))}
           </nav>
@@ -336,11 +353,15 @@ export function AppSidebar({
           <i className={`sdot ${connected ? "" : "sdot--warn"}`} aria-hidden />
           <span>{connected ? `Live${refreshInterval ? ` · ${Math.round(refreshInterval / 100) / 10} s poll` : ""}` : "Reconnecting…"}</span>
         </div>
+        <OpenAccessChip authMode={authMode} />
         <div className="rail-credit">
           <span>by Mia&apos;s AI Lab</span>
           <span className="rail-credit__links">
             <a href="https://mia-ai.net/" target="_blank" rel="noopener noreferrer" title="Mia's AI Lab website" aria-label="Mia's AI Lab website">
               <GlobeIcon className="h-3.5 w-3.5" />
+            </a>
+            <a href="https://github.com/MiaAI-Lab/sparkDash" target="_blank" rel="noopener noreferrer" title="sparkDash on GitHub" aria-label="sparkDash on GitHub">
+              <GithubIcon className="h-3.5 w-3.5" />
             </a>
             <a href="https://x.com/MiaAI_lab" target="_blank" rel="noopener noreferrer" title="Mia's AI Lab on X" aria-label="Mia's AI Lab on X">
               <XLogoIcon className="h-3 w-3" />

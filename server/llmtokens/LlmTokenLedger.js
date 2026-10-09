@@ -31,7 +31,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { atomicWrite } from "../util/atomicWrite.js";
+import { atomicWrite, quarantineCorrupt } from "../util/atomicWrite.js";
 import { addTokens, addTokensTo } from "../../src/shared/tokenFormat.js";
 import { LLM_TOKEN_JSON_PATH } from "../config.js";
 
@@ -173,7 +173,8 @@ export class LlmTokenLedger {
       const raw = JSON.parse(fs.readFileSync(this.filePath, "utf8"));
       if (!raw || typeof raw !== "object" || !raw.series || typeof raw.series !== "object") return;
       this._data = { version: 1, series: this._sanitize(raw.series) };
-    } catch {
+    } catch (err) {
+      if (err instanceof SyntaxError) quarantineCorrupt(this.filePath, "LlmTokenLedger", err);
       this._data = { version: 1, series: {} };
     }
   }

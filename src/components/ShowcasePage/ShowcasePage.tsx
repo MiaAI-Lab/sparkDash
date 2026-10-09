@@ -19,6 +19,7 @@ import { isLlmMonitoringEnabled } from "../../api/sparkRole";
 import { BoltIcon } from "../ui/icons";
 import { ThemeSwitch } from "../ThemeSwitch";
 import { TerminalCard } from "./TerminalCard";
+import { TrendLine } from "../ui/TrendLine";
 import {
   PROMPT_TYPES,
   pickShowcasePrompts,
@@ -72,6 +73,8 @@ function optimalGridCols(n: number): number {
 
 interface ShowcasePageProps {
   sparkId: string;
+  /** Rendered inside the dashboard shell: no brand or theme switch, sized to the page. */
+  embedded?: boolean;
 }
 
 interface LocalStream {
@@ -185,7 +188,7 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
-export function ShowcasePage({ sparkId }: ShowcasePageProps) {
+export function ShowcasePage({ sparkId, embedded = false }: ShowcasePageProps) {
   const [spark, setSpark] = useState<SparkConfig | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [promptType, setPromptType] = useState<ShowcasePromptType>(DEFAULT_PROMPT_TYPE);
@@ -295,6 +298,20 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
     if (aggregateTps <= 0) return;
     setAggregatePeakTps((prev) => (aggregateTps > prev ? aggregateTps : prev));
   }, [aggregateTps]);
+
+  // A short history of the aggregate rate for the hero sparkline (one sample per ~400 ms).
+  const [aggHistory, setAggHistory] = useState<number[]>([]);
+  const aggLatest = useRef(0);
+  aggLatest.current = aggregateTps;
+  useEffect(() => {
+    setAggHistory([]);
+  }, [sessionId]);
+  useEffect(() => {
+    const t = window.setInterval(() => {
+      if (aggLatest.current > 0) setAggHistory((h) => [...h.slice(-79), aggLatest.current]);
+    }, 400);
+    return () => window.clearInterval(t);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -721,6 +738,17 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
     };
   }, [sparkId, sessionStatus]);
 
+  // Leaving the page (embedded in the shell) must not leave the model generating for nobody.
+  const leaveRef = useRef<{ sparkId: string }>({ sparkId });
+  leaveRef.current = { sparkId };
+  useEffect(
+    () => () => {
+      const sid = sessionIdRef.current;
+      if (embedded && sid) cancelShowcaseBeacon(leaveRef.current.sparkId, sid);
+    },
+    [embedded]
+  );
+
   useEffect(
     () => () => {
       stopPolling();
@@ -731,7 +759,7 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
 
   if (loadError) {
     return (
-      <div className="showcase-page">
+      <div className={`showcase-page${embedded ? " showcase-page--embedded" : ""}`}>
         <div className="showcase-page__empty">
           <h1>Showcase</h1>
           <p>{loadError}</p>
@@ -742,7 +770,7 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
 
   if (!spark) {
     return (
-      <div className="showcase-page">
+      <div className={`showcase-page${embedded ? " showcase-page--embedded" : ""}`}>
         <div className="showcase-page__empty">
           <p>Loading…</p>
         </div>
@@ -768,7 +796,7 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
     n >= 10_000 ? `${(n / 1000).toFixed(1)}k` : n.toLocaleString();
 
   return (
-    <div className="showcase-page">
+    <div className={`showcase-page${embedded ? " showcase-page--embedded" : ""}`}>
       {!barVisible ? (
         <div className="showcase-config-peek">
           <div className="showcase-config__title">
@@ -997,7 +1025,7 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
                 >
                   Hide
                 </button>
-                <ThemeSwitch />
+                {embedded ? null : <ThemeSwitch />}
               </div>
             </div>
           </div>
@@ -1143,6 +1171,11 @@ export function ShowcasePage({ sparkId }: ShowcasePageProps) {
                   peak {aggregatePeakTps.toFixed(0)}
                 </span>
               )}
+            {aggHistory.length > 2 && (
+              <span className="showcase-metrics__spark" aria-hidden>
+                <TrendLine data={aggHistory} height={34} color="var(--color-accent)" min={0} />
+              </span>
+            )}
           </div>
           {runFinished && sessionAvgTps > 0 && (
             <>

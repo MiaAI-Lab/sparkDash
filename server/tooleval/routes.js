@@ -5,7 +5,7 @@ import { publicSpec } from "./spec.js";
 
 /** Benchmark pages served by the tool-eval-bench engine. */
 export const TOOL_EVAL_TYPES = {
-  "tool-eval": "Tool Eval",
+  "tool-eval": "Tool Eval Bench",
   throughput: "Throughput benchmark",
   "spec-decode": "Speculative decoding benchmark",
   "context-pressure": "Context pressure",
@@ -90,7 +90,15 @@ export function registerToolEvalRoutes(app, { registry, manager, store, allowRun
   app.get(`${base}/status`, async (req, res) => {
     const spark = sparkOr404(req, res);
     if (!spark) return;
+    if (!allowRun(principalKey(req))) return rejectLimited(res, "Too many requests; try again shortly");
     res.json(await manager.status(spark));
+  });
+
+  app.get(`${base}/update-check`, async (req, res) => {
+    const spark = sparkOr404(req, res);
+    if (!spark) return;
+    if (!allowRun(principalKey(req))) return rejectLimited(res, "Too many requests; try again shortly");
+    res.json(await manager.checkUpdate(spark));
   });
 
   app.get(`${base}/install-command`, (req, res) => {
@@ -104,7 +112,7 @@ export function registerToolEvalRoutes(app, { registry, manager, store, allowRun
     if (!allowRun(principalKey(req))) return rejectLimited(res, "Too many requests; try again shortly");
     const extras = Array.isArray(req.body?.extras) ? req.body.extras.filter((e) => ALLOWED_EXTRAS.includes(e)) : [];
     const result = manager.install(spark, { extras, upgrade: req.body?.upgrade === true });
-    if (!result.ok) return res.status(409).json({ error: "Another Tool Eval job is running on this Spark", active: result.active });
+    if (!result.ok) return res.status(409).json({ error: "Another Tool Eval Bench job is running on this Spark", active: result.active });
     res.status(202).json({ job: manager.summary(result.job), command: installCommandLine({ extras, upgrade: req.body?.upgrade === true }) });
   });
 
@@ -187,11 +195,16 @@ export function registerToolEvalRoutes(app, { registry, manager, store, allowRun
     };
     // Stored before the job starts: a job that fails at once (e.g. an incomplete SSH config) settles
     // this record itself, and it must already exist for that to happen.
-    store.add(run);
+    const evicted = store.add(run);
+    // Runs pushed out of the index lose their files on the Spark too (best effort, not awaited).
+    for (const old of Array.isArray(evicted) ? evicted : []) {
+      const owner = registry.getSpark(old.sparkId);
+      if (owner?.online) void manager.removeRemote(owner, old.id);
+    }
     const started = manager.startRun(spark, { run, argv, env: prepared.built.env });
     if (!started.ok) {
       store.remove(run.id);
-      return res.status(409).json({ error: "Another Tool Eval job is running on this Spark. Wait for it or stop it first.", active: started.active });
+      return res.status(409).json({ error: "Another Tool Eval Bench job is running on this Spark. Wait for it or stop it first.", active: started.active });
     }
     res.status(202).json({ run: store.get(run.id) ?? run, job: manager.summary(started.job) });
   });
@@ -223,8 +236,9 @@ export function registerToolEvalRoutes(app, { registry, manager, store, allowRun
     if (!spark) return;
     const run = runOr404(req, res, spark);
     if (!run) return;
+    if (!allowRun(principalKey(req))) return rejectLimited(res, "Too many requests; try again shortly");
     const result = manager.attachRun(spark, run);
-    if (!result.ok) return res.status(409).json({ error: "Another Tool Eval job is running on this Spark", active: result.active });
+    if (!result.ok) return res.status(409).json({ error: "Another Tool Eval Bench job is running on this Spark", active: result.active });
     res.status(202).json({ job: manager.summary(result.job) });
   });
 
@@ -277,9 +291,26 @@ export function registerToolEvalRoutes(app, { registry, manager, store, allowRun
     if (!spark) return;
     const run = runOr404(req, res, spark);
     if (!run) return;
+    if (!allowRun(principalKey(req))) return rejectLimited(res, "Too many requests; try again shortly");
     const live = manager.activeJob(spark.id);
+    const force = req.query.force === "1" || req.query.force === "true";
     if (run.status === "running" || (live && live.id === run.id && live.kind === "run")) {
-      return res.status(409).json({ error: "Stop the run before deleting it." });
+      // A run that cannot be reached (Spark offline, or the check fails) must not stay undeletable.
+      let state = "unknown";
+      if (spark.online) {
+        try {
+          state = (await manager.checkRun(spark, run.id)).state;
+        } catch {
+          state = "unknown";
+        }
+      }
+      if (state === "running" && !force) {
+        return res.status(409).json({ error: "Stop the run before deleting it." });
+      }
+      if (!force && state === "unknown" && spark.online) {
+        return res.status(409).json({ error: "Could not confirm the run has ended. Stop it, or delete again with force.", canForce: true });
+      }
+      if (live && live.id === run.id) manager.cancelWatch(spark.id);
     }
     await manager.deleteRun(spark.online ? spark : null, run.id);
     res.json({ success: true });

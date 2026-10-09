@@ -1,5 +1,51 @@
 import { useEffect, useRef, useState } from "react";
 
+/**
+ * Reveals `target` smoothly instead of in the lumps the network delivers it in.
+ * A frame loop chases the target: the further behind it is, the faster it moves
+ * (exponential catch-up), with a small floor so slow streams still flow. When the
+ * stream is over it drains quickly. A card opened on finished text shows it at once.
+ */
+export function useSmoothText(target: string, live: boolean): string {
+  const [shown, setShown] = useState(() => (live ? 0 : target.length));
+  const pos = useRef(live ? 0 : target.length);
+  const latest = useRef({ target, live });
+  latest.current = { target, live };
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (reduce) {
+      pos.current = target.length;
+      setShown(target.length);
+      return;
+    }
+    let raf = 0;
+    let last = performance.now();
+    const tick = (now: number) => {
+      const dt = Math.min(0.1, Math.max(0.001, (now - last) / 1000));
+      last = now;
+      const { target: t, live: l } = latest.current;
+      if (pos.current > t.length) pos.current = t.length; // text was replaced by something shorter
+      const backlog = t.length - pos.current;
+      if (backlog > 0) {
+        const tau = l ? 0.5 : 0.07;
+        const floor = l ? 28 : 600; // chars/s: slow streams keep moving, finished ones drain fast
+        pos.current = Math.min(t.length, pos.current + Math.max(backlog * (1 - Math.exp(-dt / tau)), floor * dt));
+        let n = Math.floor(pos.current);
+        const c = t.charCodeAt(n - 1);
+        if (c >= 0xd800 && c <= 0xdbff) n -= 1; // never cut a surrogate pair
+        setShown((prev) => (prev === n ? prev : n));
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return shown >= target.length ? target : target.slice(0, shown);
+}
+
 export interface TerminalCardProps {
   label: string;
   status: string;
@@ -46,13 +92,29 @@ export function TerminalCard({
   const [reasoningOpen, setReasoningOpen] = useState(true);
   const reasoningTouched = useRef(false);
   const hasReasoning = Boolean(reasoning);
-  const scrollKey = `${reasoning.length}:${content.length}:${error ?? ""}`;
+  const streaming = status === "streaming" || status === "pending";
+  const shownContent = useSmoothText(content, streaming);
+  const shownReasoning = useSmoothText(reasoning, streaming);
+  const typing = shownContent.length < content.length || shownReasoning.length < reasoning.length;
+  const scrollKey = `${shownReasoning.length}:${shownContent.length}:${error ?? ""}`;
 
-  // Fold the reasoning away once the answer starts, unless the user toggled it.
-  const answerStarted = content.length > 0;
+  // Reasoning opens by itself while the model is thinking and folds away once the answer
+  // shows (unless the user toggled it). A new run in the same card starts open again.
+  const answerStarted = shownContent.length > 0;
+  const thinking = streaming && !answerStarted;
+  useEffect(() => {
+    if (thinking) {
+      reasoningTouched.current = false;
+      setReasoningOpen(true);
+    }
+  }, [thinking]);
   useEffect(() => {
     if (answerStarted && !reasoningTouched.current) setReasoningOpen(false);
   }, [answerStarted]);
+  useEffect(() => {
+    // Reasoning text arriving while the card is folded (e.g. a second reasoning phase before any answer).
+    if (hasReasoning && thinking && !reasoningTouched.current) setReasoningOpen(true);
+  }, [hasReasoning, thinking]);
 
   useEffect(() => {
     const el = bodyRef.current;
@@ -65,8 +127,9 @@ export function TerminalCard({
   const empty = !content && !reasoning;
 
   return (
-    <article className="showcase-term">
+    <article className="showcase-term" data-status={status}>
       <header className="showcase-term__header">
+        <span className="showcase-term__dot" aria-hidden />
         <span className="showcase-term__label" title={label}>
           {label || "Terminal"}
         </span>
@@ -137,12 +200,15 @@ export function TerminalCard({
               </span>
             </button>
             {reasoningOpen && (
-              <pre className="showcase-term__reasoning-text">{reasoning}</pre>
+              <pre className="showcase-term__reasoning-text">{shownReasoning}</pre>
             )}
           </div>
         )}
         {content ? (
-          <pre className="showcase-term__answer">{content}</pre>
+          <pre className="showcase-term__answer">
+            {shownContent}
+            {(streaming || typing) && <span className="showcase-term__caret" aria-hidden />}
+          </pre>
         ) : (
           !empty && status === "streaming" && !hasReasoning && (
             <pre className="showcase-term__answer">…</pre>

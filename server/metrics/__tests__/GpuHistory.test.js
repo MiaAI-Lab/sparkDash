@@ -52,3 +52,24 @@ test("a corrupt or missing file starts empty", () => {
   assert.deepEqual(new GpuHistory({ file }).get("a").t, []);
   assert.deepEqual(new GpuHistory({ file: tmpFile() }).get("a").t, []);
 });
+
+test("a corrupt file is moved aside so the next save cannot destroy it", () => {
+  const file = tmpFile();
+  fs.writeFileSync(file, "{not json");
+  new GpuHistory({ file });
+  assert.equal(fs.existsSync(file), false);
+  const dir = path.dirname(file);
+  assert.ok(fs.readdirSync(dir).some((n) => n.startsWith("h.json.corrupt-")));
+});
+
+test("flush prunes series with no samples left in the window", () => {
+  const file = tmpFile();
+  let now = 1_000_000;
+  const h = new GpuHistory({ file, maxAgeMs: 100_000, minGapMs: 1, now: () => now });
+  h.record("gone", now, 1, 1, 1);
+  now += 500_000;
+  h.record("kept", now, 1, 1, 1);
+  h.flush();
+  const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+  assert.deepEqual(Object.keys(saved.sparks), ["kept"]);
+});

@@ -72,7 +72,7 @@ describe("GpuPanel VRAM", () => {
     const bar = container.querySelector<HTMLElement>("[data-vram-breakdown]")!;
     expect(bar.textContent).toContain("Unified memory");
     expect(bar.querySelector("[data-legend]")?.textContent).toBe(
-      "Engine 98.6 · System 15.8 · Free 7.2 GB · KV 5%",
+      "Model 98.6 GB · System 15.8 GB",
     );
     const availLabel = Array.from(container.querySelectorAll("span")).find(
       (s) => s.textContent === "Available",
@@ -97,10 +97,10 @@ describe("GpuPanel VRAM", () => {
     const bars = Array.from(container.querySelectorAll<HTMLElement>("[data-vram-breakdown]"));
     expect(bars).toHaveLength(3); // two cards + the all-cards aggregate
     const [card0, card1, all] = bars;
-    expect(card0.querySelector("[data-legend]")?.textContent).toBe("Engine 14.9 · Free 1.0 GB");
+    expect(card0.querySelector("[data-legend]")?.textContent).toBe("Model 14.9 GB");
     expect(card0.querySelector("[data-headroom]")?.className).toContain("text-danger"); // 1003 MB < 1 GB
     expect(card1.querySelector("[data-legend]")?.textContent).toBe(
-      "Engine 14.0 · Other 0.5 · Free 1.5 GB",
+      "Model 14.0 GB · Other 0.5 GB",
     );
     expect(card1.querySelector('[role="tooltip"]')?.textContent).not.toContain("KV");
     expect(all.textContent).toContain("VRAM (all cards)");

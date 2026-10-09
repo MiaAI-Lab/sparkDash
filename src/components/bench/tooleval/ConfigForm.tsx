@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import type { SparkSnapshot, ToolEvalArgSpec, ToolEvalSpec } from "../../../api/types";
 import { Field } from "./Fields";
+import { keptValues } from "./presets";
+import { TrialsRow } from "./TrialsRow";
 import { SUITES, advancedFields, countSet, groupFields, presetsFor, typeConfig, applyPreset, emptyState, type FieldValue, type FormState } from "./options";
 
 interface ConfigFormProps {
@@ -63,7 +65,7 @@ export function ConfigForm({ spec, type, spark, state, onChange, apiKey, onApiKe
               onClick={() => {
                 setActivePreset(p.id);
                 const next = applyPreset(type, p);
-                onChange({ ...next, port: state.port, extraArgs: state.extraArgs });
+                onChange({ ...next, values: { ...next.values, ...keptValues(state.values) }, port: state.port, extraArgs: state.extraArgs });
               }}
             >
               {p.label}
@@ -87,6 +89,7 @@ export function ConfigForm({ spec, type, spark, state, onChange, apiKey, onApiKe
         </div>
       </div>
       {activePreset ? <p className="te-preset-help">{presets.find((p) => p.id === activePreset)?.help}</p> : null}
+      {type === "tool-eval" ? <TrialsRow state={state} onChange={onChange} disabled={disabled} /> : null}
 
       {formErrors.length ? (
         <ul className="te-form-errors" role="alert">
@@ -165,7 +168,7 @@ export function ConfigForm({ spec, type, spark, state, onChange, apiKey, onApiKe
                     </label>
                     <input id="te-f-api-key" type="password" autoComplete="new-password" value={apiKey} onChange={(e) => onApiKey(e.target.value)} placeholder={hasSavedKey ? "Using the key saved for this port" : "Leave empty to use the saved key"} disabled={disabled} />
                     <p className="field-hint">
-                      Empty uses the key saved for this Spark&apos;s port (if one is saved){hasSavedKey ? ", and one is saved for this port" : ""}. A typed key is sent to the Spark through its environment for this run only and is never stored in this browser.
+                      Empty uses the key saved for this Spark&apos;s port (if one is saved){hasSavedKey ? ", and one is saved for this port" : ""}. A typed key is only sent together with a base URL, and then goes to the Spark through its environment for this run only and is never stored in this browser.
                     </p>
                   </div>
                 </>

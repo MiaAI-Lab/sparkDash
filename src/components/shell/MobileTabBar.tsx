@@ -1,10 +1,12 @@
 import { BenchIcon } from "../bench/BenchIcon";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { useFocusTrap } from "../../hooks/useFocusTrap";
+import { useInertBackground } from "../../hooks/useInertBackground";
 import type { SparkSnapshot } from "../../api/types";
-import { ACTIVITY_ID, ENERGY_ID, OVERVIEW_ID, TOKENS_ID, benchId, benchTypeOf, isPageId } from "../../constants";
+import { ACTIVITY_ID, ENERGY_ID, OVERVIEW_ID, SHOWCASE_ID, TOKENS_ID, benchId, benchTypeOf, isPageId } from "../../constants";
 import { BENCH_TYPES } from "../bench/benchCatalog";
-import { BoltIcon, GearIcon, GridIcon, ListIcon, PlusIcon, SearchIcon, ServerIcon, TokensIcon } from "../ui/icons";
+import { BoltIcon, GearIcon, GridIcon, ListIcon, PlusIcon, SearchIcon, ServerIcon, TerminalIcon, TokensIcon } from "../ui/icons";
 import { isThrottling, railSubLabel } from "./sparkSummary";
 
 interface MobileTabBarProps {
@@ -19,6 +21,8 @@ interface MobileTabBarProps {
 /** Floating bottom tab bar for narrow screens (the fleet rail is hidden there). */
 export function MobileTabBar({ sparks, activeId, onSelect, onAdd, onOpenSearch, onOpenSettings }: MobileTabBarProps) {
   const [sheet, setSheet] = useState(false);
+  const trapRef = useFocusTrap(sheet);
+  useInertBackground(sheet);
   const onSpark = activeId != null && !isPageId(activeId);
   // Escape closes the sheet, like every other dialog.
   useEffect(() => {
@@ -57,12 +61,13 @@ export function MobileTabBar({ sparks, activeId, onSelect, onAdd, onOpenSearch, 
                 if (e.target === e.currentTarget) setSheet(false);
               }}
             >
-              <div className="sheet" role="dialog" aria-modal="true" aria-label="Choose a Spark">
+              <div ref={trapRef} className="sheet" role="dialog" aria-modal="true" aria-label="Choose a Spark">
                 <div className="rail-list">
                   {([
                     [TOKENS_ID, "Token totals", <TokensIcon key="t" className="h-4 w-4" />],
                     [ENERGY_ID, "Fleet energy", <BoltIcon key="e" className="h-4 w-4" />],
                     [ACTIVITY_ID, "Activity", <ListIcon key="a" className="h-4 w-4" />],
+                    [SHOWCASE_ID, "Showcase", <TerminalIcon key="s" className="h-4 w-4" />],
                   ] as const).map(([id, label, icon]) => (
                     <button
                       key={id}

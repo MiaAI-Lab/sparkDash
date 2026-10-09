@@ -1014,6 +1014,19 @@
   color: var(--color-muted);
   line-height: 1.2;
 }
+.bench-result-row__note {
+  flex: 1 1 100%;
+  order: 8;
+  margin: 0;
+  font-size: 0.6875rem;
+  line-height: 1.4;
+  color: var(--color-muted);
+  overflow-wrap: anywhere;
+}
+.bench-result-row__note.is-error {
+  order: 9;
+  color: var(--color-danger);
+}
 .bench-legend {
   margin: 0;
   font-size: 0.6875rem;
@@ -1551,6 +1564,7 @@
 }
 .q-info {
   margin-top: 4px;
+  scroll-margin: 72px 0 96px;
   padding: 14px 16px;
   border: 1px solid var(--color-border);
   border-radius: 12px;
@@ -1736,4 +1750,36 @@
   font-size: 0.5em;
   font-weight: 500;
   color: var(--color-muted);
+}
+
+/* Settings → Access token */
+.set-token {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.set-token__state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--color-surface-hover);
+  color: var(--color-muted-strong);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.set-token__state i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-faint, var(--color-muted));
+}
+.set-token__state.is-set {
+  background: color-mix(in srgb, var(--color-success) 14%, transparent);
+  color: var(--color-success);
+}
+.set-token__state.is-set i {
+  background: var(--color-success);
 }

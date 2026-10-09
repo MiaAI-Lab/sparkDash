@@ -57,10 +57,13 @@ export class ToolEvalStore {
 
   add(run) {
     this.runs.unshift({ ...run });
+    let evicted = [];
     if (this.runs.length > MAX_RUNS) {
-      for (const old of this.runs.splice(MAX_RUNS)) this._dropResult(old.id);
+      evicted = this.runs.splice(MAX_RUNS);
+      for (const old of evicted) this._dropResult(old.id);
     }
     this._save();
+    return evicted;
   }
 
   update(id, patch) {
@@ -100,7 +103,7 @@ export class ToolEvalStore {
   }
 
   saveResult(id, jsonText) {
-    if (!isValidRunId(id)) return false;
+    if (!isValidRunId(id) || !this.runs.some((r) => r.id === id)) return false;
     fs.mkdirSync(this.resultsDir, { recursive: true });
     atomicWrite(this._resultPath(id), zlib.gzipSync(Buffer.from(jsonText, "utf8")), 0o644);
     return true;

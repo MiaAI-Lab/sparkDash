@@ -54,7 +54,7 @@ describe("ActivityFeed", () => {
     await flush();
     expect(container.textContent).toContain("started thermal throttling (84°C)");
     expect(container.textContent).toContain("2m");
-    container.querySelector("button")!.click();
+    container.querySelector("a")!.click();
     expect(onSelect).toHaveBeenCalledWith("s3");
     expect(container.querySelectorAll("li")).toHaveLength(2);
   });

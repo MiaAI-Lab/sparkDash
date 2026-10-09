@@ -52,9 +52,12 @@ export class LauncherStore {
     if (list.length >= MAX_LAUNCHERS_PER_SPARK) {
       return { ok: false, error: `At most ${MAX_LAUNCHERS_PER_SPARK} models per Spark` };
     }
-    const base = slugify(norm.value.name);
-    let id = base;
-    while (list.some((l) => l.id === id)) id = `${base}-${crypto.randomBytes(2).toString("hex")}`;
+    // Always add a random suffix: ids name state files on the Spark (pid / log / exit), so a
+    // removed model's name must never map back onto an old pid or log.
+    const base = slugify(norm.value.name).slice(0, 40);
+    let id;
+    do id = `${base}-${crypto.randomBytes(3).toString("hex")}`;
+    while (list.some((l) => l.id === id));
     const launcher = { id, ...norm.value, createdAt: Date.now() };
     this.data[sparkId] = [...list, launcher];
     this._save();

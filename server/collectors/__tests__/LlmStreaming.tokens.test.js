@@ -127,6 +127,65 @@ test("runStreamingRequest parses LF and CRLF events across HTTP chunks", async (
   }
 });
 
+/** One-shot SSE server emitting the given events, then [DONE]. */
+async function withSse(events, fn) {
+  const server = http.createServer((req, res) => {
+    req.resume();
+    res.writeHead(200, { "Content-Type": "text/event-stream" });
+    for (const e of events) res.write(`data: ${JSON.stringify(e)}\n\n`);
+    res.end("data: [DONE]\n\n");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    return await fn(`http://127.0.0.1:${server.address().port}/v1/chat/completions`);
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
+}
+
+test("runStreamingRequest reads usage.prompt_tokens_details.cached_tokens", async () => {
+  const r = await withSse(
+    [
+      { choices: [{ delta: { content: "ok" } }] },
+      { usage: { prompt_tokens: 1000, completion_tokens: 2, prompt_tokens_details: { cached_tokens: 640 } }, choices: [] },
+    ],
+    (url) => runStreamingRequest(url, { stream: true }, AbortSignal.timeout(5_000))
+  );
+  assert.equal(r.error, null);
+  assert.equal(r.prefillTokens, 1000);
+  assert.equal(r.cachedPromptTokens, 640);
+  assert.equal(r.serverPromptMs, null);
+  assert.equal(r.serverPromptN, null);
+});
+
+test("runStreamingRequest reads llama.cpp timings (prompt_ms, prompt_n, cache_n)", async () => {
+  const r = await withSse(
+    [
+      { choices: [{ delta: { content: "ok" } }], timings: { prompt_n: 800, prompt_ms: 400, cache_n: 200 } },
+      { usage: { prompt_tokens: 1000, completion_tokens: 2, prompt_tokens_details: { cached_tokens: 100 } }, choices: [] },
+    ],
+    (url) => runStreamingRequest(url, { stream: true }, AbortSignal.timeout(5_000))
+  );
+  assert.equal(r.serverPromptMs, 400);
+  assert.equal(r.serverPromptN, 800);
+  // the larger of the two cache figures wins
+  assert.equal(r.cachedPromptTokens, 200);
+});
+
+test("runStreamingRequest ignores malformed or empty timings and cached_tokens", async () => {
+  const r = await withSse(
+    [
+      { choices: [{ delta: { content: "ok" } }], timings: { prompt_n: 0, prompt_ms: "x", cache_n: -3 } },
+      { usage: { prompt_tokens: 10, completion_tokens: 1, prompt_tokens_details: { cached_tokens: "n/a" } }, choices: [] },
+    ],
+    (url) => runStreamingRequest(url, { stream: true }, AbortSignal.timeout(5_000))
+  );
+  assert.equal(r.serverPromptMs, null);
+  assert.equal(r.serverPromptN, null);
+  assert.equal(r.cachedPromptTokens, 0);
+});
+
 test("shared LLM dispatcher cleanup is idempotent", async () => {
   const first = closeLlmStreamAgent();
   const second = closeLlmStreamAgent();

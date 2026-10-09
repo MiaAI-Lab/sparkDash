@@ -4,7 +4,7 @@ import type { AuthMode } from "../api/types";
 export const OPEN_ACCESS_DISMISSED_KEY = "sparkdash.ui.openAccessDismissed";
 
 const EXPLANATION =
-  "Anyone who can reach this address can change settings and power units off. Set SPARKDASH_TOKEN on the server to require a token.";
+  "This dashboard is reachable from your network without a token, so anyone on it can change settings. Set SPARKDASH_TOKEN on the server to require one.";
 
 function readDismissed(): boolean {
   try {

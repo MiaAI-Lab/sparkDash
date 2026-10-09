@@ -55,7 +55,7 @@ export function SparkHeader({ spark, onEdit }: SparkHeaderProps) {
           />
           <h2>{spark.name}</h2>
           <div className="sp-tags">
-            <Tag tone="acc" title={roleTitle}>
+            <Tag className="tag--role" tone="acc" title={roleTitle}>
               {roleText}
             </Tag>
             {workerLabel && (

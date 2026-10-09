@@ -7,6 +7,7 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import { SparkRegistry } from "./sparks/SparkRegistry.js";
 import { SparkMonitor } from "./sparks/SparkMonitor.js";
+import { collectionWasSuccessful } from "./collectors/SystemCollector.js";
 import { sshExec } from "./collectors/ssh.js";
 import { comfyCancelJob } from "./collectors/comfyActions.js";
 import {
@@ -17,7 +18,7 @@ import {
   validateDecodeBudget,
   validatePrefillBudget,
 } from "./validate.js";
-import { authStatus, authorizeUpgrade, createAuthMiddleware, isLoopbackBind, setTailscaleName } from "./auth.js";
+import { authStatus, authorizeUpgrade, createAuthMiddleware, createHostGuardMiddleware, isLoopbackBind, setTailscaleName } from "./auth.js";
 import { inspectHealth } from "./health.js";
 import { getSettings, updateSettings, loadSettings } from "./settings.js";
 import { broadcastForLanIp, effectiveMac, normalizeMac, sendWol } from "./wol.js";
@@ -255,6 +256,13 @@ function activeBenchJobCount() {
 
 /** Consume bench-start quota only when every limiter would allow it. */
 function consumeBenchStartQuota(req, res) {
+  // Re-check the global cap here: routes check it up front, then await DNS /
+  // target resolution, so two concurrent requests could both have passed. This
+  // runs synchronously right before the manager's start(), closing that window.
+  if (activeBenchJobCount() >= MAX_ACTIVE_BENCH_JOBS) {
+    res.status(429).json({ error: "Global active benchmark cap reached; wait for a job to finish" });
+    return false;
+  }
   const key = principalKey(req);
   const ip = clientKey(req);
   if (!allowBench(key, true)) {
@@ -299,7 +307,8 @@ function sampleGpuHistory() {
   try {
     for (const snap of orderedSnapshots()) {
       const gpu = snap?.metrics?.gpu;
-      if (!snap?.online || !gpu) continue;
+      // Require a real collection: a default/failed GPU result would record a fabricated 0 C / 0 %.
+      if (!snap?.online || !gpu || !collectionWasSuccessful(gpu)) continue;
       const draw = gpu.power?.draw;
       const limit = gpu.power?.limit;
       const powerPct = Number.isFinite(draw) && Number.isFinite(limit) && limit > 0 ? Math.min(100, (draw / limit) * 100) : null;
@@ -340,6 +349,39 @@ const launcherManager = new LauncherManager({
   onEvent: (event) => recordEvent(event),
 });
 const allowLaunch = createRateLimiter(20, 60_000);
+/** Launcher status reads and attach each cost an SSH exec. */
+const allowLaunchProbe = createRateLimiter(60, 60_000);
+const LAUNCHER_STATUS_TTL_MS = 10_000;
+/** @type {Map<string, { at: number, sig: string, value?: unknown, pending?: Promise<unknown> }>} */
+const launcherStatusCache = new Map();
+
+/** Launcher statuses per Spark: cached ~10 s, concurrent callers share one SSH exec. */
+async function cachedLauncherStatuses(spark, launchers) {
+  const latest = launcherManager.latestJob(spark.id);
+  const sig = JSON.stringify([launchers.map((l) => l.id ?? l.name), latest?.id ?? null]);
+  const busy = Boolean(launcherManager.activeJob(spark.id));
+  const hit = launcherStatusCache.get(spark.id);
+  if (hit && hit.sig === sig && !busy) {
+    if (hit.pending) return hit.pending;
+    if (Date.now() - hit.at < LAUNCHER_STATUS_TTL_MS) return hit.value;
+  }
+  const entry = { at: Date.now(), sig };
+  const pending = Promise.resolve(launcherManager.statuses(spark, launchers)).then(
+    (value) => {
+      entry.value = value;
+      entry.at = Date.now();
+      delete entry.pending;
+      return value;
+    },
+    (err) => {
+      if (launcherStatusCache.get(spark.id) === entry) launcherStatusCache.delete(spark.id);
+      throw err;
+    }
+  );
+  entry.pending = pending;
+  launcherStatusCache.set(spark.id, entry);
+  return pending;
+}
 
 // ─── Tool Eval (tool-eval-bench on a Spark) ──────────────
 const toolEvalStore = new ToolEvalStore({
@@ -418,7 +460,7 @@ const server = createServer(app);
 app.use(express.json());
 // Registered ahead of the auth middleware: a remote browser holding no token
 // (or a stale one) must still be able to learn that it needs one.
-app.get("/api/auth/status", (req, res) => {
+app.get("/api/auth/status", createHostGuardMiddleware(), (req, res) => {
   res.json(authStatus(req));
 });
 app.use(createAuthMiddleware());
@@ -596,6 +638,8 @@ app.delete("/api/sparks/:id", (req, res) => {
     fleetEnergyTracker.invalidateMembership(registry.sparkIds);
     stopMonitor(req.params.id);
     launcherManager.removeSpark(req.params.id);
+    launcherStatusCache.delete(req.params.id);
+    gpuHistory.remove(req.params.id);
     toolEvalManager.removeSpark(req.params.id);
     recordEvent({
       type: "spark.removed",
@@ -723,23 +767,30 @@ app.get("/api/sparks/:id/llm-launchers", async (req, res) => {
     job: launcherManager.latestJob(spark.id) ? launcherManager.summary(launcherManager.latestJob(spark.id)) : null,
   };
   // Status needs one SSH round trip, so it is opt-in (the panel asks once on open and after each job).
-  if (req.query.status === "1") body.statuses = await launcherManager.statuses(spark, launchers);
+  if (req.query.status === "1") {
+    if (!allowLaunchProbe(principalKey(req))) {
+      return rejectLimited(res, "Too many status requests; try again shortly");
+    }
+    body.statuses = await cachedLauncherStatuses(spark, launchers);
+  }
   res.json(body);
 });
 
 app.post("/api/sparks/:id/llm-launchers", (req, res) => {
   const spark = launcherContext(req, res);
   if (!spark) return;
+  launcherStatusCache.delete(spark.id);
   const result = launcherStore.add(spark.id, req.body);
   if (!result.ok) return res.status(400).json({ error: result.error });
   res.status(201).json({ launcher: result.launcher });
 });
 
-app.put("/api/sparks/:id/llm-launchers/:lid", (req, res) => {
+app.put("/api/sparks/:id/llm-launchers/:lid", async (req, res) => {
   const spark = launcherContext(req, res);
   if (!spark) return;
-  const result = launcherStore.update(spark.id, req.params.lid, req.body);
-  if (!result.ok) return res.status(result.notFound ? 404 : 400).json({ error: result.error });
+  launcherStatusCache.delete(spark.id);
+  const result = await launcherManager.updateLauncher(spark, req.params.lid, req.body);
+  if (!result.ok) return res.status(result.notFound ? 404 : result.conflict ? 409 : 400).json({ error: result.error });
   res.json({ launcher: result.launcher });
 });
 
@@ -749,14 +800,16 @@ app.delete("/api/sparks/:id/llm-launchers/jobs/active", (req, res) => {
   res.json({ success: launcherManager.cancel(spark.id) });
 });
 
-app.delete("/api/sparks/:id/llm-launchers/:lid", (req, res) => {
+app.delete("/api/sparks/:id/llm-launchers/:lid", async (req, res) => {
   const spark = launcherContext(req, res);
   if (!spark) return;
   const active = launcherManager.activeJob(spark.id);
   if (active && active.launcherId === req.params.lid) {
     return res.status(409).json({ error: "A job is running for this model. Cancel it first." });
   }
-  if (!launcherStore.remove(spark.id, req.params.lid)) return res.status(404).json({ error: "Model not found" });
+  launcherStatusCache.delete(spark.id);
+  const removed = await launcherManager.removeLauncher(spark, req.params.lid);
+  if (!removed.ok) return res.status(removed.notFound ? 404 : removed.conflict ? 409 : 400).json({ error: removed.error });
   res.json({ success: true });
 });
 
@@ -775,7 +828,8 @@ for (const action of ["start", "stop", "attach"]) {
     if (!spark) return;
     const launcher = launcherStore.get(spark.id, req.params.lid);
     if (!launcher) return res.status(404).json({ error: "Model not found" });
-    if (action !== "attach" && !allowLaunch(principalKey(req))) {
+    const limiter = action === "attach" ? allowLaunchProbe : allowLaunch;
+    if (!limiter(principalKey(req))) {
       return rejectLimited(res, "Too many start/stop requests; try again shortly");
     }
     const result = launcherManager.startJob(spark, launcher, action);
@@ -1442,6 +1496,7 @@ app.post("/api/sparks/:id/llm/prefill-bench", async (req, res) => {
     return res.status(err.status || 429).json({ error: err.message });
   }
 
+  let contextLength = null;
   let modelId = req.body?.modelId || null;
   if (!modelId && !target.custom && monitor) {
     const snap = monitor.snapshot();
@@ -1452,11 +1507,13 @@ app.post("/api/sparks/:id/llm/prefill-bench", async (req, res) => {
       llmList.find((m) => m?.available) ||
       llmList[0];
     modelId = llm?.modelId || null;
+    contextLength = Number(llm?.contextLength) > 0 ? Number(llm.contextLength) : null;
   }
 
   try {
     if (!consumeBenchStartQuota(req, res)) return;
     const job = prefillBenchManager.start({
+      contextLength,
       sparkId: spark.id,
       lanIp: llmProbeHost(spark),
       port,
@@ -1626,7 +1683,7 @@ app.get("/api/sparks/:id/llm/quality-bench", (req, res) => {
   res.json({
     active: qualityBenchManager.getActive(spark.id),
     last: qualityBenchManager.getLast(spark.id, p),
-    history: qualityBenchManager.getHistorySummaries(spark.id),
+    history: qualityBenchManager.getHistorySummaries(spark.id, p),
     defaults: QUALITY_BENCH_DEFAULTS,
   });
 });
@@ -2036,14 +2093,35 @@ app.get("*splat", (_req, res) => {
   res.sendFile(indexHtml);
 });
 
+// ─── Process-level safety net ─────────────────────────────
+// Transient socket / probe errors (a reset connection, a rejected fire-and-forget
+// promise) must be logged, not take the whole dashboard down. Programmer errors
+// still surface in the log with a stack.
+process.on("unhandledRejection", (reason) => {
+  console.error("[process] unhandled rejection:", reason instanceof Error ? reason.stack || reason.message : reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("[process] uncaught exception:", err?.stack || err);
+});
+
 // ─── WebSocket ──────────────────────────────────────────
 const wss = new WebSocketServer({
   server,
   path: "/ws",
+  // The dashboard only ever receives; clients send nothing meaningful.
+  maxPayload: 64 * 1024,
   verifyClient: ({ req }, done) => done(authorizeUpgrade(req)),
+});
+wss.on("error", (err) => {
+  console.error("[ws] server error:", err?.message);
 });
 wss.on("connection", (ws) => {
   console.log("[ws] client connected");
+  // A malformed frame or reset socket emits "error" on the socket; without a
+  // listener that is an uncaught exception that kills the process.
+  ws.on("error", (err) => {
+    console.warn("[ws] client error:", err?.message);
+  });
   // This snapshot belongs only to the new client. Broadcasting it would add a
   // duplicate history sample to every existing dashboard whenever a tab opens.
   try {

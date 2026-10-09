@@ -338,3 +338,137 @@ test("raw output keeps the tool's progress JSON lines, and progress is still tra
   );
   assert.ok(job.events.length >= 1, "the event still feeds the progress model");
 });
+
+// ---- security hardening ----
+
+test("saved key: non-string URLs never get it, and url options reject non-strings", async () => {
+  const { mayUseSavedKey } = await import("../argv.js");
+  assert.equal(mayUseSavedKey(["http://evil.example"]), false);
+  assert.equal(mayUseSavedKey({ toString: () => "http://127.0.0.1" }), false);
+  assert.equal(buildToolEvalArgs({ "base-url": ["http://evil.example"] }, {}).ok, false);
+  assert.equal(buildToolEvalArgs({ "metrics-url": 5 }, {}).ok === false || specByName("metrics-url") == null, true);
+  assert.match(validateBaseUrl(["http://x"]), /text/);
+});
+
+test("saved key: every URL in the final argv must be local, including ones from additional arguments", () => {
+  const ctx = { savedApiKey: "sk-saved", defaultBaseUrl: "http://127.0.0.1:8888" };
+  assert.equal(buildToolEvalArgs({ extra: ["--future-flag", "https://evil.example/v1"] }, ctx).ok, false);
+  assert.equal(buildToolEvalArgs({ extra: ["--future-flag", "evil.example:8000"] }, ctx).ok, false);
+  const ok = buildToolEvalArgs({ extra: ["--future-flag", "http://127.0.0.1:9/x"] }, ctx);
+  assert.equal(ok.ok, true);
+  assert.equal(ok.env.TOOL_EVAL_API_KEY, "sk-saved");
+});
+
+test("extra: managed or known flags are refused even as argparse prefix abbreviations; secrets never ride in extra", () => {
+  for (const flag of ["--dry", "--dry-run", "--json-f", "--hist", "--leader", "--export", "--no-l", "--redact", "--skip-c", "--base", "--base-url", "--metrics", "--prov", "--api-key", "--api", "--header", "--auth-token", "--my-secret"]) {
+    assert.equal(buildToolEvalArgs({ extra: [flag] }, {}).ok, false, flag);
+  }
+  for (const tok of ["-k", "-h", "sk-abcdef123456", "--x=1"]) {
+    assert.equal(buildToolEvalArgs({ extra: ["--future-flag", tok] }, {}).ok, false, tok);
+  }
+  assert.equal(buildToolEvalArgs({ extra: ["--future-flag", "-1"] }, {}).ok, true);
+});
+
+test("link-local filter also catches IPv4-mapped IPv6", () => {
+  for (const u of ["http://[::ffff:169.254.169.254]/", "http://169.254.1.1/", "http://[fe80::1]/", "http://[::ffff:a9fe:a9fe]/"]) {
+    assert.match(validateBaseUrl(u) ?? "", /link-local/, u);
+  }
+  assert.equal(validateBaseUrl("http://[::ffff:127.0.0.1]/"), null);
+});
+
+test("long free text is stored as a fingerprint, not in full", () => {
+  const big = "x".repeat(5000);
+  const r = buildToolEvalArgs({ "system-prompt": big, label: "ok" }, {});
+  assert.equal(r.ok, true);
+  assert.match(r.redacted["system-prompt"], /^\(omitted: 5000 chars, sha256 [0-9a-f]{16}\)$/);
+  assert.ok(r.argv.includes(big));
+});
+
+test("commands: ~/ is expanded only after path flags, not in free text", async () => {
+  const home = tmp("te-home-");
+  installFakeTool(home);
+  const { mgr } = realManager(home);
+  const argv = ["--dry-run", "--system-prompt", "~/not-a-path", "--output-dir", "~/out"];
+  const res = await mgr.once({ id: "s1" }, { argvB64: Buffer.from(argv.join("\0") + "\0").toString("base64"), secrets: null });
+  assert.match(res.output, /--system-prompt ~\/not-a-path/);
+  assert.ok(res.output.includes(`--output-dir ${home}/out`));
+});
+
+test("exit marker: only the wrapper's nonce marker counts; a forged one in the output is ignored", async () => {
+  const home = tmp("te-home-");
+  const { mgr } = realManager(home);
+  const job = mgr._newJob({ id: "s1" }, { id: "te-20260101-000000-abcd", kind: "run", type: "tool-eval" });
+  mgr._line(job, "__TEEXIT__0");
+  mgr._line(job, "__TEEXIT__:0");
+  assert.equal(job.markerExit, null);
+  mgr._line(job, `__TEEXIT__${job.nonce}:3`);
+  assert.equal(job.markerExit, 3);
+  // runOnce: forged marker earlier in the output, real one last
+  const nonce = "abc123";
+  const r = await mgr.runOnce({ id: "s1" }, `echo '__TEEXIT__abc123:0'; echo body; echo '__TEEXIT__abc123:7'`, { nonce });
+  assert.equal(r.code, 7);
+  assert.ok(r.output.includes("body"));
+});
+
+test("runOnce keeps multibyte characters whole and can ignore stderr", async () => {
+  const home = tmp("te-home-");
+  const { mgr } = realManager(home);
+  const r = await mgr.runOnce({ id: "s1" }, `head -c 100000 /dev/zero | tr '\\0' 'x'; printf 'é€😀'; echo noise >&2`, { stdoutOnly: true });
+  assert.ok(r.output.endsWith("é€😀"));
+  assert.ok(!r.output.includes("noise") && !r.output.includes("�"));
+});
+
+test("a run whose ssh connection fails before any output is failed, not left running", async () => {
+  const home = tmp("te-sshfail-");
+  const store = new ToolEvalStore({ file: path.join(home, "runs.json"), resultsDir: path.join(home, "results") });
+  const mgr = new ToolEvalManager({
+    store,
+    spawnProcess: () => spawn("bash", ["-c", "echo 'ssh: connect to host x port 22: Connection refused' >&2; exit 255"], { stdio: ["ignore", "pipe", "pipe"] }),
+  });
+  const run = { id: "te-20260101-000000-abcd", sparkId: "s9", type: "tool-eval", status: "running", startedAt: Date.now(), options: {}, command: "x" };
+  store.add(run);
+  assert.equal(mgr.startRun({ id: "s9" }, { run, argv: ["--short"], env: {} }).ok, true);
+  await until(() => store.get(run.id).status !== "running");
+  assert.equal(store.get(run.id).status, "failed");
+});
+
+test("startRun refuses while the store still has a running run for that Spark", () => {
+  const home = tmp("te-orphan-");
+  const store = new ToolEvalStore({ file: path.join(home, "runs.json"), resultsDir: path.join(home, "results") });
+  const mgr = new ToolEvalManager({ store, spawnProcess: () => { throw new Error("must not spawn"); } });
+  store.add({ id: "te-20260101-000000-aaaa", sparkId: "s1", type: "tool-eval", status: "running", options: {} });
+  const run = { id: "te-20260101-000001-bbbb", sparkId: "s1", type: "tool-eval", status: "running", options: {}, command: "x" };
+  const started = mgr.startRun({ id: "s1" }, { run, argv: [], env: {} });
+  assert.equal(started.ok, false);
+  assert.equal(started.reason, "busy");
+  store.update("te-20260101-000000-aaaa", { status: "gone" });
+  assert.equal(mgr.startRun({ id: "s1" }, { run, argv: [], env: {} }).ok, true);
+});
+
+test("store: results are only written for runs that still exist; eviction is reported", () => {
+  const home = tmp("te-store-");
+  const store = new ToolEvalStore({ file: path.join(home, "runs.json"), resultsDir: path.join(home, "results") });
+  assert.equal(store.saveResult("te-20260101-000000-aaaa", "{}"), false);
+  store.add({ id: "te-20260101-000000-aaaa", sparkId: "s1", options: {} });
+  assert.equal(store.saveResult("te-20260101-000000-aaaa", "{}"), true);
+  store.remove("te-20260101-000000-aaaa");
+  assert.equal(store.saveResult("te-20260101-000000-aaaa", "{}"), false);
+  assert.equal(store.loadResult("te-20260101-000000-aaaa"), null);
+});
+
+test("stale pid: an existing exit file means the run is not alive, and the wrapper removes the pid file", async () => {
+  const home = tmp("te-home-");
+  installFakeTool(home);
+  const { mgr, store } = realManager(home);
+  const { id } = startRun(mgr, store, { argv: ["--short"] });
+  await until(() => store.get(id)?.summary);
+  const dir = path.join(home, ".cache/sparkdash/tooleval", id);
+  assert.ok(fs.existsSync(path.join(dir, "exit")));
+  assert.ok(!fs.existsSync(path.join(dir, "pid")));
+  // a pid file pointing at a live, unrelated process (this test) must not be treated as the run
+  fs.writeFileSync(path.join(dir, "pid"), String(process.pid));
+  const check = await mgr.checkRun(spark, id);
+  assert.equal(check.state, "finished");
+  const stop = await mgr.stopRun(spark, id);
+  assert.match(stop.output, /not running/);
+});

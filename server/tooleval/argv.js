@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { ARG_SPEC, specByName } from "./spec.js";
 
 /**
@@ -11,7 +12,11 @@ import { ARG_SPEC, specByName } from "./spec.js";
  */
 
 const MAX_TEXT = 32 * 1024;
-const LINK_LOCAL = /^(169\.254\.|fe80:|\[fe80:)/i;
+// Link-local v4/v6, including IPv4-mapped forms (URL() turns [::ffff:169.254.1.1] into [::ffff:a9fe:101]).
+const LINK_LOCAL = /^(169\.254\.|fe[89ab][0-9a-f]:|\[fe[89ab][0-9a-f]:|\[(0{1,4}:){0,5}:{1,2}ffff:(169\.254\.|a9fe:))/i;
+/** Values that look like credentials never ride in "additional arguments". */
+const SECRETISH_VALUE = /^(sk-|pk-|ghp_|gho_|github_pat_|hf_|xox[a-z]-|AKIA|eyJ|bearer)/i;
+const SECRETISH_FLAG = /(key|token|secret|passw|auth|cookie|credential|bearer|header|session)/i;
 const SAFE_EXTRA_VALUE = /^[A-Za-z0-9._:/@+=,~%-]{1,300}$/;
 const SAFE_EXTRA_FLAG = /^--[a-z0-9][a-z0-9-]{0,60}$/;
 /** Flags the server controls; a user may not pass them, not even through "additional arguments". */
@@ -19,6 +24,17 @@ const MANAGED = new Set([
   "json", "json-file", "no-live", "version", "probe", "dry-run", "history", "leaderboard", "export", "export-output",
   "compare", "redact-url", "spec-live", "decision-live", "spec-live-interval", "decision-live-interval", "skip-coherence",
 ]);
+
+/**
+ * argparse accepts any unambiguous PREFIX of a long option (--dry for --dry-run), so a flag is
+ * refused when it equals or abbreviates any option sparkDash knows or manages, and when its name
+ * suggests it carries a credential. Only flags unrelated to every known option pass.
+ */
+const KNOWN_FLAGS = [...new Set([...ARG_SPEC.map((s) => s.name), ...MANAGED, "help"])];
+export function isReservedFlag(name) {
+  if (SECRETISH_FLAG.test(name)) return true;
+  return KNOWN_FLAGS.some((k) => k === name || k.startsWith(name));
+}
 
 const hasBad = (s) => /[\0\r\n]/.test(s);
 
@@ -31,6 +47,7 @@ function validatePath(v, label) {
 }
 
 export function validateBaseUrl(v, label = "URL") {
+  if (typeof v !== "string") return `${label} must be text`;
   let u;
   try {
     u = new URL(v);
@@ -82,7 +99,7 @@ function validateOne(spec, value) {
     case "path":
       return validatePath(value, label);
     case "url":
-      return validateBaseUrl(value, label);
+      return typeof value === "string" ? validateBaseUrl(value, label) : `${label} must be text`;
     case "json": {
       if (typeof value !== "string" || !value.trim() || value.length > (spec.maxLen ?? 4000) || value.includes("\0")) {
         return `${label} must be a JSON object`;
@@ -122,6 +139,20 @@ function isBlank(v) {
   return v === undefined || v === null || v === "" || v === false || (Array.isArray(v) && v.length === 0);
 }
 
+/**
+ * Long free-text values (system prompt, backend kwargs, ...) are not kept in the run index:
+ * a short fingerprint stands in so the index stays small and the record stays comparable.
+ */
+const STORE_MAX = 1024;
+function compactForStore(value) {
+  if (typeof value !== "string" || value.length <= STORE_MAX) return value;
+  const h = crypto.createHash("sha256").update(value).digest("hex").slice(0, 16);
+  return `(omitted: ${value.length} chars, sha256 ${h})`;
+}
+
+/** An argv item that is, or looks like, a URL (scheme://... or host:port). */
+const URLISH = /^[a-z][a-z0-9+.-]*:\/\/|^[A-Za-z0-9.-]+:\d+(\/|$)/i;
+
 /** Display form of the command line with secrets masked (safe to show and to store). */
 function displayCommand(argv) {
   return ["tool-eval-bench", ...argv.map((a) => (/^[A-Za-z0-9._:/@+=,~%-]+$/.test(a) ? a : `'${a.replace(/'/g, "'\\''").slice(0, 120)}${a.length > 120 ? "…" : ""}'`))].join(" ");
@@ -153,7 +184,7 @@ export function buildToolEvalArgs(options, ctx = {}) {
       errors.push(err);
       continue;
     }
-    redacted[spec.name] = spec.secret ? "(hidden)" : value;
+    redacted[spec.name] = spec.secret ? "(hidden)" : compactForStore(value);
     if (spec.secret && spec.kind === "repeat") continue; // header values go through the environment
     switch (spec.kind) {
       case "bool":
@@ -183,17 +214,6 @@ export function buildToolEvalArgs(options, ctx = {}) {
     else argv.push("--base-url", ctx.defaultBaseUrl);
   }
 
-  // API key: typed in the form, else the key saved for the port. Env only.
-  const typedKey = opts["api-key"];
-  if (!isBlank(typedKey)) {
-    if (typeof typedKey !== "string" || hasBad(typedKey) || typedKey.length > 1000) errors.push("API key has an invalid format");
-    else env.TOOL_EVAL_API_KEY = typedKey;
-    redacted["api-key"] = "(hidden)";
-  } else if (ctx.savedApiKey) {
-    env.TOOL_EVAL_API_KEY = ctx.savedApiKey;
-    redacted["api-key"] = "(saved key)";
-  }
-
   // Mutually exclusive prompt sources.
   if (!isBlank(opts["system-prompt"]) && !isBlank(opts["system-prompt-file"])) {
     errors.push("Use either the system prompt text or the system prompt file, not both");
@@ -215,13 +235,33 @@ export function buildToolEvalArgs(options, ctx = {}) {
     }
     if (tok.startsWith("--")) {
       if (!SAFE_EXTRA_FLAG.test(tok)) errors.push(`Additional argument "${tok.slice(0, 40)}" is not a valid flag`);
-      else if (MANAGED.has(tok.slice(2))) errors.push(`${tok} is controlled by sparkDash and cannot be set here`);
+      else if (isReservedFlag(tok.slice(2))) errors.push(`${tok} is controlled by sparkDash (or looks like it) and cannot be set here`);
       else argv.push(tok);
+    } else if (/^-/.test(tok) && !/^-\d+(\.\d+)?$/.test(tok)) {
+      errors.push(`Additional argument "${tok.slice(0, 40)}" is not allowed`);
     } else if (!SAFE_EXTRA_VALUE.test(tok)) {
       errors.push(`Additional argument "${tok.slice(0, 40)}" has unsupported characters`);
+    } else if (SECRETISH_VALUE.test(tok)) {
+      errors.push("Additional arguments must not carry secrets (use the API key field)");
     } else argv.push(tok);
   }
   if (extra.length) redacted.extra = extra.slice(0, 40);
+
+  // API key: typed in the form, else the key saved for the port. Env only. The saved key goes
+  // out only when EVERY URL in the final argv (options and "additional arguments" alike) is local.
+  const typedKey = opts["api-key"];
+  if (!isBlank(typedKey)) {
+    if (typeof typedKey !== "string" || hasBad(typedKey) || typedKey.length > 1000) errors.push("API key has an invalid format");
+    else env.TOOL_EVAL_API_KEY = typedKey;
+    redacted["api-key"] = "(hidden)";
+  } else if (ctx.savedApiKey) {
+    if (argv.some((a) => URLISH.test(a) && !mayUseSavedKey(a))) {
+      errors.push("The saved API key can only be used with this Spark's own server; type a key to use another URL");
+    } else {
+      env.TOOL_EVAL_API_KEY = ctx.savedApiKey;
+      redacted["api-key"] = "(saved key)";
+    }
+  }
 
   if (errors.length) return { ok: false, errors: [...new Set(errors)] };
   return { ok: true, argv, env, display: displayCommand(argv), redacted };
@@ -238,7 +278,9 @@ export function splitExtraArgs(line) {
  * port must never be sent to a custom endpoint someone else operates.
  */
 export function mayUseSavedKey(baseUrl) {
-  if (typeof baseUrl !== "string" || !baseUrl.trim()) return true;
+  if (baseUrl === undefined || baseUrl === null || baseUrl === "") return true;
+  if (typeof baseUrl !== "string") return false;
+  if (!baseUrl.trim()) return true;
   try {
     const u = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(baseUrl.trim()) ? baseUrl.trim() : `http://${baseUrl.trim()}`);
     return u.hostname === "127.0.0.1" || u.hostname === "localhost" || u.hostname === "[::1]";

@@ -1,3 +1,5 @@
+import { AppLink } from "../ui/AppLink";
+import { ENERGY_ID, idToPath } from "../../constants";
 import { useEffect, useState } from "react";
 import { fetchFleetEnergy } from "../../api/client";
 import type { FleetEnergy } from "../../api/types";
@@ -50,9 +52,9 @@ export function FleetEnergyCard({ nodeCount, onOpenDetails }: { nodeCount: numbe
         <div className="ov-card__tools">
           <span className="tag">{data ? `${data.freshNodeCount}/${nodeCount} fresh` : "\u2014"}</span>
           {onOpenDetails ? (
-            <button type="button" className="btn btn--sm btn--ghost" onClick={onOpenDetails}>
+            <AppLink href={idToPath(ENERGY_ID)} className="btn btn--sm btn--ghost" onNavigate={onOpenDetails}>
               Details
-            </button>
+            </AppLink>
           ) : null}
         </div>
       </div>

@@ -1,14 +1,15 @@
-import { useState, type KeyboardEvent } from "react";
+import { memo, useState } from "react";
 import type { SparkSnapshot } from "../../api/types";
 import { resolveSparkRole } from "../../api/sparkRole";
+import { usableHead } from "../../shared/sparkHead";
 import { wakeSpark } from "../../api/client";
 import { backendLabel } from "../../shared/llmBackends";
 import { formatDiskSize, formatMb } from "../../shared/formatBytes";
-import { useMetricsHistoryTail } from "../../hooks/metricsStore";
 import { Tag } from "../ui/Tag";
+import { AppLink } from "../ui/AppLink";
+import { idToPath } from "../../constants";
 import { VramBreakdownBar } from "../ui/VramBreakdownBar";
-import { computeVramBreakdown, headroomTextClass, type VramBreakdownContext } from "../../shared/vramBreakdown";
-import { TrendLine } from "../ui/TrendLine";
+import { computeVramBreakdown, type VramBreakdownContext } from "../../shared/vramBreakdown";
 import { ImageIcon, PowerOnIcon } from "../ui/icons";
 import { formatCtx } from "./fleetStats";
 import { ModelLauncher } from "./ModelLauncher";
@@ -62,7 +63,7 @@ function Bar({
   );
 }
 
-export function SparkCard({
+function SparkCardImpl({
   spark,
   headSpark,
   vramContext = null,
@@ -84,9 +85,6 @@ export function SparkCard({
   const llmList = Array.isArray(spark.metrics.llm) ? spark.metrics.llm : [];
   const llmIdx = llmList.findIndex((l) => l.available);
   const llm = llmIdx >= 0 ? llmList[llmIdx] : null;
-  const portKey = spark.llmPorts?.[llmIdx] != null ? spark.llmPorts[llmIdx] : Math.max(0, llmIdx);
-  const decodeTrend = useMetricsHistoryTail(spark.id, `llm:${portKey}.tps`);
-  const prefillTrend = useMetricsHistoryTail(spark.id, `llm:${portKey}.prefill`);
   const [wakeMsg, setWakeMsg] = useState<string | null>(null);
   const [waking, setWaking] = useState(false);
 
@@ -142,20 +140,14 @@ export function SparkCard({
     }
   }
 
-  function onKey(e: KeyboardEvent<HTMLDivElement>) {
-    if (e.target !== e.currentTarget) return;
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      onSelect?.(spark.id);
-    }
-  }
-
   // Model box content: workers show their label, others the live backend + model.
   let modelEyebrowRight: string | null = null;
   let modelText: string | null = null;
   let modelTitle: string | undefined;
   const headName = headSpark?.name ?? null;
-  const headLlmList = Array.isArray(headSpark?.metrics.llm) ? headSpark.metrics.llm : [];
+  // An offline head's last LLM reading is stale: do not present it as the worker's live model.
+  const liveHead = usableHead(headSpark);
+  const headLlmList = Array.isArray(liveHead?.metrics.llm) ? liveHead.metrics.llm : [];
   const headLlm = headLlmList.find((l) => l.available) ?? null;
   if (role === "worker") {
     // Prefer the head's live model; fall back to the configured / mirrored worker label.
@@ -220,18 +212,21 @@ export function SparkCard({
   );
 
   return (
-    <div
-      className={`overview-card ov-sc ${online ? "" : "is-off"} ${hot && online ? "is-hot" : ""} ${onSelect ? "is-link" : ""}`}
-      role={onSelect ? "button" : undefined}
-      tabIndex={onSelect ? 0 : undefined}
-      aria-label={onSelect ? `Open ${spark.name}` : undefined}
-      onClick={onSelect ? () => onSelect(spark.id) : undefined}
-      onKeyDown={onSelect ? onKey : undefined}
-    >
+    <div className={`overview-card ov-sc ${online ? "" : "is-off"} ${hot && online ? "is-hot" : ""} ${onSelect ? "is-link" : ""}`}>
       <div className="ov-sc__head">
         <i className={`sdot ${!online ? "sdot--off" : hot ? "sdot--warn" : ""}`} aria-label={online ? "online" : "offline"} />
-        <h3 className="ov-sc__name">{spark.name}</h3>
-        <Tag tone={role === "head" ? "acc" : "neutral"} title={roleTitle}>{roleText}</Tag>
+        <h3 className="ov-sc__name">
+          {onSelect ? (
+            // Stretched link: this button's ::after covers the whole card (overview.css), so the card
+            // is clickable without being a button that contains buttons.
+            <AppLink href={idToPath(spark.id)} className="ov-sc__link" onNavigate={() => onSelect(spark.id)} title={`Open ${spark.name}`}>
+              {spark.name}
+            </AppLink>
+          ) : (
+            spark.name
+          )}
+        </h3>
+        <Tag className="tag--role" tone={role === "head" ? "acc" : "neutral"} title={roleTitle}>{roleText}</Tag>
         {spark.lanIp ? <span className="ov-sc__ip mono">{spark.lanIp}</span> : null}
       </div>
 
@@ -243,10 +238,7 @@ export function SparkCard({
               type="button"
               className="btn btn--primary btn--sm"
               disabled={waking}
-              onClick={(e) => {
-                e.stopPropagation();
-                void onWake();
-              }}
+              onClick={() => void onWake()}
             >
               <PowerOnIcon className="h-3.5 w-3.5" />
               Wake up
@@ -260,13 +252,11 @@ export function SparkCard({
           <div className="ov-sc__body">
             <div className="ov-sc__stats">
               {breakdown ? (
-                <div>
-                  <VramBreakdownBar label={breakdown.systemMB != null ? "Unified memory" : "VRAM"} breakdown={breakdown} />
-                  <div className="ov-sub">
-                    <span>Available</span>
-                    <b className={`mono ${headroomTextClass(breakdown.tone)}`}>{formatMb(breakdown.freeMB)}</b>
-                  </div>
-                </div>
+                <VramBreakdownBar
+                  label={breakdown.systemMB != null ? "Unified memory" : "VRAM"}
+                  breakdown={breakdown}
+                  showLegend
+                />
               ) : (
                 <Bar
                   label={gpu.vram?.total ? "VRAM" : "Unified memory"}
@@ -299,18 +289,15 @@ export function SparkCard({
             <div className="ov-launch ov-launch--worker">
               <div className="eyebrow">Worker of</div>
               {headSpark ? (
-                <button
-                  type="button"
+                <AppLink
+                  href={idToPath(headSpark.id)}
                   className="ov-launch__head"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onSelect?.(headSpark.id);
-                  }}
+                  onNavigate={() => onSelect?.(headSpark.id)}
                   title={`Open ${headSpark.name}`}
                 >
                   <i className={`sdot ${headSpark.online ? "" : "sdot--off"}`} aria-hidden />
                   {headSpark.name}
-                </button>
+                </AppLink>
               ) : (
                 <div className="ov-launch__title">Head not set</div>
               )}
@@ -330,12 +317,17 @@ export function SparkCard({
               <div>
                 <div className="eyebrow">Decode</div>
                 <div className="big-num ov-tps__num">{llm.generationTps.toFixed(1)}<small>tok/s</small></div>
-                <TrendLine data={decodeTrend} height={30} color={hot ? "var(--color-warning)" : "var(--color-accent)"} min={0} className="ov-tps__trend" />
               </div>
               <div>
                 <div className="eyebrow">Prefill</div>
-                <div className="big-num ov-tps__num">{Math.round(llm.prefillTps).toLocaleString()}<small>tok/s</small></div>
-                <TrendLine data={prefillTrend} height={30} color="var(--color-info)" min={0} className="ov-tps__trend" />
+                {llm.prefillActive && llm.prefillTps <= 0 ? (
+                  <div className="big-num ov-tps__num ov-tps__num--live" title="A prompt is being processed. The engine reports its speed only when the request finishes.">
+                    <span className="ov-tps__dots" aria-hidden />
+                    <small>prefilling</small>
+                  </div>
+                ) : (
+                  <div className="big-num ov-tps__num">{Math.round(llm.prefillTps).toLocaleString()}<small>tok/s</small></div>
+                )}
               </div>
             </div>
           ) : null}
@@ -374,3 +366,6 @@ export function SparkCard({
     </div>
   );
 }
+
+/** Memoised: the Overview re-renders on every keystroke in its search and on each snapshot. */
+export const SparkCard = memo(SparkCardImpl);

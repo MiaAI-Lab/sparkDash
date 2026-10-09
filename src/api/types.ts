@@ -321,6 +321,8 @@ export interface LlmMetrics {
   slotsTotal: number;
   generationTps: number;
   prefillTps: number;
+  /** A prompt is being processed right now. With no live rate available (TensorFold reports totals only for finished requests) the UI says "prefilling" instead of 0. */
+  prefillActive?: boolean;
   /** Live cached-prefill tok/s when the backend splits kinds (ds4, llama.cpp, sglang). */
   cachedPrefillTps?: number | null;
   /** Live uncached/computed prefill tok/s when split is available. */
@@ -832,6 +834,8 @@ export interface PrefillBenchConfig {
   port: number;
   modelId: string | null;
   contextSizes: number[];
+  /** Model context the run was started against (null/absent when unknown). */
+  contextLength?: number | null;
   host?: string;
   tls?: boolean;
 }
@@ -845,8 +849,14 @@ export interface PrefillBenchSizeResult {
   method?: "server" | "ttft";
   /** Prompt tokens served from the prefix cache (excluded from the rate). */
   cachedTokens?: number;
-  /** Samples the reported median is based on. */
+  /** Successful samples (the reported values are the median-rate one). */
   samples?: number;
+  /** Samples the size asked for; samples < samplesRequested means a partial row (see `notice`). */
+  samplesRequested?: number;
+  /** The TTFT-method rate leans heavily on the overhead calibration (overhead > 30% of TTFT). */
+  lowConfidence?: boolean;
+  /** Why a row is partial (some samples failed or were cancelled). */
+  notice?: string;
   /** Fixed per-request overhead subtracted from TTFT, ms. */
   overheadMs?: number;
   ttftMs: number;
@@ -908,6 +918,8 @@ export interface QualityBenchConfig {
   /** Model context from the live probe or `/v1/models` (null when unknown). */
   contextLength: number | null;
   suiteVersion: number;
+  /** Scoring-rule version; runs with different values are not comparable. Absent on old runs (= 1). */
+  scoringVersion?: number;
   categories: QualityCategory[];
   longSizes: number[];
   longItems: number;
@@ -939,8 +951,12 @@ export interface QualityItemResult {
 }
 
 export interface QualityCategorySummary {
+  /** Passed among scored items (request errors/timeouts excluded). */
   passed: number;
+  /** Every item run, errors included. */
   total: number;
+  /** Items that got an answer (total − errors); pct = passed / scored. Absent on old runs. */
+  scored?: number;
   pct: number | null;
   errors: number;
   meanCompletionTokens: number;
@@ -1275,6 +1291,16 @@ export interface ToolEvalStatus {
   pythonVersion: string | null;
   workDir: string | null;
   error: string | null;
+}
+
+export interface ToolEvalUpdateCheck {
+  installed: boolean;
+  installedCommit?: string | null;
+  latestCommit?: string | null;
+  latestDate?: string | null;
+  /** null when it cannot be told (no commit in the installed version, or GitHub did not answer). */
+  upToDate?: boolean | null;
+  error?: string | null;
 }
 
 export type ToolEvalRunStatus = "running" | "completed" | "failed" | "stopped" | "gone";

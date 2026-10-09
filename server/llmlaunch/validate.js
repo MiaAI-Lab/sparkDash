@@ -3,10 +3,14 @@
  * stop.sh). Everything that reaches a shell is checked against a strict
  * allow-list here, so the command builders can embed values in single quotes
  * without any escaping: no quotes, spaces, `$`, backticks or `..` get through.
+ * Whether the directory is inside the user's home, and the ownership / permission
+ * checks on the directory and script, are enforced on the Spark itself right before
+ * execution (see commands.js check_script), because only the Spark knows its home.
  */
 
 const DIR_RE = /^(~\/|\/)[A-Za-z0-9._@+=,/-]*$/;
-const SCRIPT_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+// Must end in .sh: stops a launcher from naming an arbitrary executable (reboot, ...).
+const SCRIPT_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,60}\.sh$/;
 const ID_RE = /^[a-z0-9][a-z0-9-]{0,47}$/;
 
 export const MAX_LAUNCHERS_PER_SPARK = 24;
@@ -25,7 +29,7 @@ export function validateDir(dir) {
 
 export function validateScriptName(name, label) {
   if (typeof name !== "string" || !SCRIPT_RE.test(name)) {
-    return `${label} must be a file name like start.sh (letters, digits, . _ -)`;
+    return `${label} must be a file name ending in .sh, like start.sh (letters, digits, . _ -)`;
   }
   return null;
 }

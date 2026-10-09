@@ -12,8 +12,19 @@
 
 import { readFileSync } from "node:fs";
 import { QUALITY_CATEGORIES } from "../../src/shared/qualityBench.js";
+import { qualityLongFitsContext } from "../../src/shared/contextFit.js";
 
+/** Item generation (prompts, ids, seeds). Bump when the item set changes. */
 export const SUITE_VERSION = 1;
+/**
+ * Scoring rules (parsers, QA modes). Bump whenever a change could flip an item's pass/fail for the
+ * same reply; stored in each run's config so compareQualityRuns can refuse to pair runs scored by
+ * different rules.
+ *   1: original parsers
+ *   2: strict QA 'last number' (no lead-with-answer fallback), negation-aware word mode,
+ *      case-insensitive / suffix-tolerant Answer parsing (MMLU, GSM8K/arith/track)
+ */
+export const SCORING_VERSION = 2;
 /** Fixed `seed` field sent with every request (servers that honour it stay reproducible). */
 export const REQUEST_SEED = 1234;
 
@@ -128,7 +139,16 @@ function gcd(a, b) {
   return a;
 }
 
-function qaItem(id, prompt, accept, mode = "substring", maxTokens = QA_MIN_TOKENS) {
+/** How a QA reply is judged, from the shape of the accepted answer. */
+function qaModeFor(accept) {
+  const a = String(accept[0]);
+  if (/^-?[\d,]*\.?\d+$/.test(a)) return "number";
+  if (/^\d+\s*,\s*\d+(\s*,\s*\d+)*$/.test(a)) return "list";
+  return "word";
+}
+
+function qaItem(id, prompt, accept, mode = null, maxTokens = QA_MIN_TOKENS) {
+  mode = mode && mode !== "substring" ? mode : qaModeFor(accept);
   return {
     id,
     category: "qa",
@@ -142,7 +162,7 @@ function qaItem(id, prompt, accept, mode = "substring", maxTokens = QA_MIN_TOKEN
 
 function genQa() {
   const items = QA_FIXED.map(([q, accept, max], i) =>
-    qaItem(`qa-fixed-${pad2(i + 1)}`, q, accept, "substring", max)
+    qaItem(`qa-fixed-${pad2(i + 1)}`, q, accept, null, max)
   );
   const rng = rngFor("qa");
 
@@ -171,7 +191,7 @@ function genQa() {
     const ch = pick(rng, [...w]);
     const n = [...w].filter((x) => x === ch).length;
     items.push(
-      qaItem(`qa-count-${pad2(i)}`, `How many times does the letter '${ch}' appear in the word '${w}'? Number only.`, [String(n)], "exact")
+      qaItem(`qa-count-${pad2(i)}`, `How many times does the letter '${ch}' appear in the word '${w}'? Number only.`, [String(n)])
     );
   }
   for (let i = 1; i <= 15; i++) {
@@ -188,9 +208,12 @@ function genQa() {
       ])
     );
   }
+  const usedBin = new Set();
   for (let i = 1; i <= 10; i++) {
-    const n = randint(rng, 20, 255);
-    items.push(qaItem(`qa-bin-${pad2(i)}`, `What is the binary representation of ${n}? Digits only.`, [n.toString(2)], "exact"));
+    let n = randint(rng, 20, 255);
+    while (usedBin.has(n)) n = randint(rng, 20, 255);
+    usedBin.add(n);
+    items.push(qaItem(`qa-bin-${pad2(i)}`, `What is the binary representation of ${n}? Digits only.`, [n.toString(2)]));
   }
   const base = Date.UTC(2020, 0, 1);
   const span = Math.round((Date.UTC(2030, 11, 31) - base) / 86_400_000);
@@ -200,14 +223,14 @@ function genQa() {
     const d1 = new Date(d0.getTime() + k * 86_400_000);
     const iso = (d) => d.toISOString().slice(0, 10);
     items.push(
-      qaItem(`qa-date-${pad2(i)}`, `What date is ${k} days after ${iso(d0)}? Answer in YYYY-MM-DD format only.`, [iso(d1)])
+      qaItem(`qa-date-${pad2(i)}`, `What date is ${k} days after ${iso(d0)}? Answer in YYYY-MM-DD format only.`, [iso(d1)], "date")
     );
   }
   for (let i = 1; i <= 15; i++) {
     const a = randint(rng, 2, 30);
     const b = randint(rng, 2, 30);
     const l = (a * b) / gcd(a, b);
-    items.push(qaItem(`qa-lcm-${pad2(i)}`, `What is the least common multiple of ${a} and ${b}? Number only.`, [String(l)], "exact"));
+    items.push(qaItem(`qa-lcm-${pad2(i)}`, `What is the least common multiple of ${a} and ${b}? Number only.`, [String(l)]));
   }
   return items;
 }
@@ -282,8 +305,11 @@ const FOLLOW_KEYWORDS = ["river", "garden", "window", "balance", "pattern", "jou
 const FOLLOW_FORBIDDEN = ["very", "really", "thing", "good", "just", "also"];
 const FOLLOW_ENDINGS = ["Is there anything else I can help with?", "That is all for now.", "Thank you for reading."];
 
-const wordsOf = (t) => t.trim().split(/\s+/).filter(Boolean);
-const wordRe = (w, flags = "i") => new RegExp(`\\b${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, flags);
+// Markdown markers ("*", "***", "<<T>>" on its own) are not words: only tokens with a letter or digit count.
+const wordsOf = (t) => t.trim().split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w));
+// Word boundary that treats "_" as punctuation, so _garden_ still counts as garden.
+const wordRe = (w, flags = "i") =>
+  new RegExp(`(?<![\\p{L}\\p{N}])${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\p{L}\\p{N}])`, flags + "u");
 
 /**
  * Rules are plain data (so a checkpointed job survives a JSON round trip); `followCheck`
@@ -350,7 +376,7 @@ export function followCheck(rule, t) {
     case "max-words":
       return wordsOf(t).length < rule.n;
     case "bullets":
-      return t.split(/\r?\n/).filter((l) => /^\s*[*-]\s/.test(l)).length === rule.n && !/^\s*\d+[.)]\s/m.test(t);
+      return t.split(/\r?\n/).filter((l) => /^\s*\*\s/.test(l)).length === rule.n && !/^\s*\d+[.)]\s/m.test(t);
     case "paragraphs": {
       const parts = t.split(/\r?\n\s*\*{3}\s*\r?\n/).map((x) => x.trim());
       return parts.length === rule.n && parts.every(Boolean);
@@ -515,7 +541,7 @@ function genTrack() {
 // Item ids carry the original test-split index, so a run can be traced back to the dataset.
 
 const GSM8K_MAX_TOKENS = 8192;
-const MMLU_MAX_TOKENS = 512;
+const MMLU_MAX_TOKENS = 1024;
 const DATA_DIR = new URL("./data/", import.meta.url);
 
 /** @param {string} name */
@@ -661,7 +687,10 @@ export function longSizesForContext(sizes, contextLength) {
   if (!Number.isFinite(ctx) || ctx <= 0) return { run: [...sizes], skipped: [] };
   const run = [];
   const skipped = [];
-  for (const s of sizes) (s + LONG_MAX_TOKENS <= ctx ? run : skipped).push(s);
+  // Sizes are nominal (0.72 words/token). Real prompts run ~1.0x (o200k) to ~1.2x (cl100k/Llama-3)
+  // of that, more on small-vocab tokenizers, so keep 20% headroom or the request is a 400.
+  // Same rule as the dialog (src/shared/contextFit.js): 20% headroom + the reply budget.
+  for (const s of sizes) (qualityLongFitsContext(s, ctx) ? run : skipped).push(s);
   return { run, skipped };
 }
 
@@ -710,27 +739,138 @@ export function lastInteger(text) {
   return m[m.length - 1].replace(/^0+(?=\d)/, "");
 }
 
-export function scoreQa(item, reply) {
-  const text = visibleAnswer(reply);
-  if (item.mode === "exact") {
-    const got = lastInteger(text);
-    const want = String(item.accept[0]).replace(/^0+(?=\d)/, "");
-    return { ok: got != null && got === want };
+/**
+ * Numbers in a reply, in order. Thousands commas are folded in ("1,234"), a minus counts only
+ * when it is a sign (not the dash in "2024-01-01"), and a list like "1, 2, 3" is three numbers.
+ */
+export function numbersIn(text) {
+  const out = [];
+  const re = /-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?/g;
+  let m;
+  const s = String(text ?? "");
+  while ((m = re.exec(s))) {
+    let tok = m[0];
+    const prev = m.index > 0 ? s[m.index - 1] : "";
+    if (tok.startsWith("-") && /[\w]/.test(prev)) tok = tok.slice(1);
+    // "1,2,4" is a list, not 12,4: a comma group only counts as thousands when it is exactly 3 digits.
+    const n = Number(tok.replace(/,/g, ""));
+    if (Number.isFinite(n)) out.push(n);
   }
-  const lower = text.toLowerCase();
-  return { ok: item.accept.some((a) => lower.includes(String(a).toLowerCase())) };
+  return out;
 }
 
-const NUM = String.raw`(-?\d{1,3}(?:,\d{3})+|-?\d+)`;
-// `[*\s]*` tolerates markdown bold around the label and the numbers.
-const REASON_RE = /answer[*\s]*:[*\s]*(-?\d+)[*\s]*,[*\s]*(-?\d+)/gi;
-const SINGLE_RE = new RegExp(String.raw`answer[*\s]*:[*\s$]*${NUM}`, "gi");
+/**
+ * QA scoring. The reply must *commit* to the answer, not merely mention it:
+ *  - number: the last number in the reply is the answer ("1391" and "391 or 5" fail).
+ *  - date: the last YYYY-MM-DD in the reply is the answer.
+ *  - list: the last N integers, in order, are the sorted list.
+ *  - word: the answer appears as a whole word in a short reply (a hedge or an essay fails).
+ * Legacy "substring"/"exact" modes are kept for saved items.
+ */
+const HEDGE_RE = /\b(?:or|maybe|perhaps|either)\b|\d\s*\/\s*\d/i;
+
+const NEG_BEFORE = new Set([
+  "not", "no", "never", "neither", "nor", "without", "except", "unlike", "than", "isn't", "wasn't", "aren't",
+  "don't", "doesn't", "didn't", "can't", "cannot", "won't", "wouldn't", "shouldn't", "hardly",
+]);
+const NEG_AFTER_1 = new Set(["isn't", "wasn't", "aren't", "wrong", "incorrect", "false", "untrue"]);
+
+/**
+ * True when a negation/hedge sits next to tokens[i]: "not canberra", "no, not yes" before it, or
+ * "canberra is wrong / isn't" after it. "Canberra, not Sydney" is a correct reply and is allowed.
+ */
+function negatedAt(tokens, i, wants) {
+  for (let k = Math.max(0, i - 2); k < i; k++) if (NEG_BEFORE.has(tokens[k]) && !wants.includes(tokens[k])) return true;
+  const t1 = tokens[i + 1];
+  const t2 = tokens[i + 2];
+  if (t1 && NEG_AFTER_1.has(t1)) return true;
+  if (t1 && ["is", "was", "are"].includes(t1) && t2 && (t2 === "not" || NEG_AFTER_1.has(t2))) return true;
+  return false;
+}
+
+export function scoreQa(item, reply) {
+  const text = visibleAnswer(reply);
+  const want = item.accept.map(String);
+  switch (item.mode) {
+    case "number": {
+      const nums = numbersIn(text);
+      const target = want.map((w) => Number(w.replace(/,/g, "")));
+      const got = nums.length ? nums[nums.length - 1] : null;
+      // Strict: the *last* number commits. A reply that leads with the right number and then
+      // corrects itself ("391. Correction: I made an error, it is 5") must fail.
+      return { ok: got != null && target.includes(got) };
+    }
+    case "date": {
+      const all = text.match(/\d{4}-\d{2}-\d{2}/g);
+      return { ok: Boolean(all) && all[all.length - 1] === want[0] };
+    }
+    case "list": {
+      const nums = want[0].match(/\d+/g).map(Number);
+      const got = (text.match(/\d+/g) ?? []).map(Number);
+      const tail = got.slice(-nums.length);
+      return { ok: got.length >= nums.length && tail.every((n, i) => n === nums[i]) };
+    }
+    case "word": {
+      const tokens = text.toLowerCase().match(/[a-z0-9']+/g) ?? [];
+      if (tokens.length === 0) return { ok: false };
+      const wants = want.map((w) => w.toLowerCase());
+      // An occurrence of the answer only counts when no negation sits right next to it
+      // ("Not canberra", "No, not yes", "canberra is wrong").
+      const clean = (i) => wants.includes(tokens[i]) && !negatedAt(tokens, i, wants);
+      const hits = tokens.map((t, i) => (wants.includes(t) ? i : -1)).filter((i) => i >= 0);
+      const named = hits.length > 0 && hits.every(clean);
+      // Short reply that names it, or a longer one that *ends* on it / puts it in the last bold span.
+      if (tokens.length <= 15 && !HEDGE_RE.test(text) && named) return { ok: true };
+      const bold = [...text.matchAll(/\*\*([^*]+)\*\*/g)].pop();
+      const boldTokens = bold ? (bold[1].toLowerCase().match(/[a-z0-9']+/g) ?? []) : [];
+      const endsOn = clean(tokens.length - 1) || (boldTokens.length === 1 && wants.includes(boldTokens[0]) && !negatedAt(boldTokens, 0, wants));
+      return { ok: endsOn };
+    }
+    case "exact": {
+      const got = lastInteger(text);
+      const w = want[0].replace(/^0+(?=\d)/, "");
+      return { ok: got != null && got === w };
+    }
+    default: {
+      const lower = text.toLowerCase();
+      return { ok: want.some((a) => lower.includes(a.toLowerCase())) };
+    }
+  }
+}
+
+// A number: thousands groups must be exactly three digits; decimals allowed (they are then
+// compared as numbers, so "1200.9" is not 1200 and "1200.0" is).
+const NUM_TOKEN = String.raw`-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?`;
+// The label, then the rest of that line. The remainder must be *only* the answer (markdown, $,
+// backticks and a trailing period tolerated), so "1200 or 1201" and "32, 33" do not pass.
+const ANSWER_LINE_RE = /answer[*\s]*:[*\s$€£`]*([^\n]*)/gi;
+const WRAP = String.raw`[*\s$€£\`_]*`;
+// Single-number answers also take a unit suffix ("25%", "18 dollars", "12 square feet", "5 km/h"),
+// but never a second value or a hedge ("1200 or 1201", "5 is wrong"). Non-breaking/narrow spaces
+// count as thousands separators ("1\u202f234").
+const SUFFIX_STOP = String.raw`(?:or|and|to|vs|but|then|maybe|perhaps|is|are|was|not|no|wrong|incorrect)`;
+const SUFFIX_WORD = String.raw`(?!${SUFFIX_STOP}\b)[A-Za-z]+`;
+const SINGLE_NUM = String.raw`-?(?:\d{1,3}(?:[,\u00a0\u202f]\d{3})+|\d+)(?:\.\d+)?`;
+const SINGLE_FULL = new RegExp(
+  String.raw`^${WRAP}(${SINGLE_NUM})${WRAP}(?:%|\s*${SUFFIX_WORD}(?:[ /-]${SUFFIX_WORD}){0,2})?${WRAP}\.?${WRAP}$`,
+  "i"
+);
+const PAIR_FULL = new RegExp(String.raw`^${WRAP}(${NUM_TOKEN})${WRAP},${WRAP}(${NUM_TOKEN})${WRAP}\.?${WRAP}$`);
+
+/** Remainder of the last 'Answer:' line in the visible reply, or null. */
+function lastAnswerRemainder(text) {
+  let last = null;
+  for (const m of visibleAnswer(text).matchAll(ANSWER_LINE_RE)) last = m;
+  return last ? last[1] : null;
+}
+
+const toNum = (tok) => Number(tok.replace(/[,\u00a0\u202f]/g, ""));
 
 /** @returns {{ jar: number, box: number } | null} */
 export function parseReasonAnswer(text) {
-  let last = null;
-  for (const m of visibleAnswer(text).matchAll(REASON_RE)) last = m;
-  return last ? { jar: Number(last[1]), box: Number(last[2]) } : null;
+  const rest = lastAnswerRemainder(text);
+  const m = rest == null ? null : rest.match(PAIR_FULL);
+  return m ? { jar: toNum(m[1]), box: toNum(m[2]) } : null;
 }
 
 export function scoreReason(item, reply) {
@@ -738,21 +878,58 @@ export function scoreReason(item, reply) {
   return {
     ok: got != null && got.jar === item.expected.jar && got.box === item.expected.box,
     parsed: got ? `${got.jar}, ${got.box}` : null,
+    labeled: lastAnswerRemainder(reply) != null,
   };
 }
 
-/** Last 'Answer: N' (markdown + thousands commas allowed) as a Number, or null. */
+/** Last 'Answer: N' line as a Number (markdown, $ and thousands commas allowed), or null. */
 export function parseSingleAnswer(text) {
-  let last = null;
-  for (const m of visibleAnswer(text).matchAll(SINGLE_RE)) last = m;
-  if (!last) return null;
-  const n = Number(last[1].replace(/,/g, ""));
+  const rest = lastAnswerRemainder(text);
+  const m = rest == null ? null : rest.match(SINGLE_FULL);
+  if (!m) return null;
+  const n = toNum(m[1]);
   return Number.isFinite(n) ? n : null;
 }
 
 export function scoreSingle(item, reply) {
   const got = parseSingleAnswer(reply);
-  return { ok: got != null && got === item.expected, parsed: got != null ? String(got) : null };
+  return {
+    ok: got != null && got === item.expected,
+    parsed: got != null ? String(got) : null,
+    labeled: lastAnswerRemainder(reply) != null,
+  };
+}
+
+/**
+ * @returns {{ ok: boolean, correct: number, total: number, stale: number }}
+ */
+const LONG_OLD_RE = /\b(was|were|originally|previously|formerly|initially|earlier|old|original|replaced|changed from|instead of)\b/i;
+
+/**
+ * Code the reply gives for `name`, or null. Per line, the text after a name runs to the next
+ * animal's name (so "a: 1, b: 2" works); parenthetical asides ("(was 48213)") are dropped, and a
+ * clause that only says what the code *used to be* ("otter was originally 48213") is ignored.
+ */
+function longCodeFor(lines, name, allNames) {
+  const nameRe = new RegExp(`\\b${name}\\b`, "ig");
+  const others = new RegExp(`\\b(?:${allNames.filter((n) => n !== name).join("|")})\\b`, "i");
+  let got = null;
+  for (const line of lines) {
+    nameRe.lastIndex = 0;
+    let m;
+    while ((m = nameRe.exec(line))) {
+      let seg = line.slice(m.index + m[0].length);
+      const next = seg.search(others);
+      if (next >= 0) seg = seg.slice(0, next);
+      seg = seg.replace(/\([^)]*\)/g, " ");
+      const codes = seg.match(/\b\d{5}\b/g);
+      if (!codes) continue;
+      const before = seg.slice(0, seg.search(/\b\d{5}\b/));
+      if (LONG_OLD_RE.test(before) && !/->|→|=>|now|updated|corrected|changed to/i.test(seg)) continue;
+      got = codes[codes.length - 1];
+    }
+  }
+  return got;
 }
 
 /**
@@ -760,17 +937,11 @@ export function scoreSingle(item, reply) {
  */
 export function scoreLong(item, reply) {
   const lines = visibleAnswer(reply).split(/\r?\n/);
+  const names = item.facts.map((f) => f.name);
   let correct = 0;
   let stale = 0;
   for (const f of item.facts) {
-    const nameRe = new RegExp(`\\b${f.name}\\b`, "i");
-    let got = null;
-    for (const line of lines) {
-      if (!nameRe.test(line)) continue;
-      const after = line.slice(line.search(nameRe));
-      const codes = after.match(/\b\d{5}\b/g);
-      if (codes) got = codes[codes.length - 1];
-    }
+    const got = longCodeFor(lines, f.name, names);
     const latest = f.corrected || f.code;
     if (got === latest) correct += 1;
     else if (f.corrected && got === f.code) stale += 1;
@@ -781,25 +952,57 @@ export function scoreLong(item, reply) {
 
 export function scoreFollow(item, reply) {
   const text = visibleAnswer(reply);
+  // Rules like max-words or forbid hold trivially for nothing: an empty reply is a failure.
+  if (!text.trim()) return { ok: false, passed: 0, total: item.rules.length };
   const passed = item.rules.filter((r) => followCheck(r, text)).length;
   return { ok: passed === item.rules.length, passed, total: item.rules.length };
 }
 
-const MMLU_RE = /answer[*\s]*:[*\s]*\(?([ABCD])\b/gi;
+// A line that commits to a letter: "Answer: B", "ANSWER: B", "**Answer: (B)**", "The correct answer
+// is (B) foo", "Answer: B. Paris". The label is case-insensitive; a bare letter must be uppercase
+// (so "Answer: a cat" is not A) and be followed by the end of the line or punctuation (so
+// "Answer: A cat" is not A). A parenthesised letter may be followed by anything. Either way a
+// hedge after it ("B or C", "B, C", "B / C") is rejected.
+const MMLU_LABEL_RE = /\banswer\b[*\s]*(?::|is)/i;
+const MMLU_LINE_RE =
+  /\banswer\b[*\s]*(?::|is)[*\s"'`_]*(?:(?:option|choice)\s+)?(?:\(([ABCDabcd])\)|([ABCD])(?![A-Za-z0-9]))[*\s"'`_]*(.*)$/i;
+const MMLU_HEDGE_AFTER_RE =
+  /^[\s,;/&]*(?:or|and|\/|&)\b|^\s*[,;/&]\s*(?:\(?[ABCDabcd]\)?(?![A-Za-z0-9])|but|though|however|also|maybe|perhaps)/i;
 
-/** Last 'Answer: X' letter, else a reply that is just a letter ("B", "(c)", "D."), else null. */
+function mmluLetter(line) {
+  const m = line.match(MMLU_LINE_RE);
+  if (!m) return null;
+  const paren = m[1] != null;
+  // The 'i' flag makes ([ABCD]) match lowercase too; re-impose uppercase for the bare form.
+  const letter = m[1] ?? m[2];
+  if (!paren && letter !== letter.toUpperCase()) return null;
+  const rest = m[3] ?? "";
+  if (MMLU_HEDGE_AFTER_RE.test(rest)) return null;
+  // Bare letter: only the end of the line or punctuation may follow ("B. Paris", "B) Paris", "B - Paris").
+  if (!paren && rest.trim() && !/^[.):,;\-\u2013\u2014!]/.test(rest.trimStart())) return null;
+  return letter.toUpperCase();
+}
+
+/**
+ * The last line that commits to a letter, else a final line that is just a letter ("B", "**C**",
+ * "(d)", "D."), else null.
+ */
 export function parseMmluAnswer(text) {
-  const vis = visibleAnswer(text);
+  const lines = visibleAnswer(text).split(/\r?\n/);
   let last = null;
-  for (const m of vis.matchAll(MMLU_RE)) last = m;
-  if (last) return last[1].toUpperCase();
-  const bare = vis.trim().match(/^\(?([ABCD])\)?[.):]?$/i);
+  for (const line of lines) {
+    const l = mmluLetter(line);
+    if (l) last = l;
+  }
+  if (last) return last;
+  const final = [...lines].reverse().find((l) => l.trim());
+  const bare = final?.match(/^[*\s(]*([ABCDabcd])[*\s).:]*$/);
   return bare ? bare[1].toUpperCase() : null;
 }
 
 export function scoreMmlu(item, reply) {
   const got = parseMmluAnswer(reply);
-  return { ok: got === item.expected, parsed: got };
+  return { ok: got === item.expected, parsed: got, labeled: MMLU_LABEL_RE.test(visibleAnswer(reply)) };
 }
 
 /** Score any item. */
@@ -825,7 +1028,8 @@ export function scoreItem(item, reply) {
 }
 
 /**
- * Per-category summary + overall (mean of category percentages).
+ * Per-category summary + overall (mean of category percentages). Rows with `error` are excluded
+ * from `passed`/`scored`/`pct` (see `errors`); `total` is every row.
  * @param {Array<{ category: string, ok: boolean, completionTokens?: number, finishReason?: string | null, longCorrect?: number, longTotal?: number, longStale?: number, error?: string | null }>} rows
  */
 export function summarize(rows) {
@@ -834,10 +1038,15 @@ export function summarize(rows) {
   for (const r of rows) {
     const c =
       categories[r.category] ||
-      (categories[r.category] = { passed: 0, total: 0, pct: null, errors: 0, completionTokens: 0, hitMaxTokens: 0 });
+      (categories[r.category] = { passed: 0, total: 0, scored: 0, pct: null, errors: 0, completionTokens: 0, hitMaxTokens: 0 });
     c.total += 1;
-    if (r.ok) c.passed += 1;
+    // A request error / timeout says nothing about the model: it is reported (errors) but
+    // neither counts as a failure nor sits in the pct denominator.
     if (r.error) c.errors += 1;
+    else {
+      c.scored += 1;
+      if (r.ok) c.passed += 1;
+    }
     c.completionTokens += Number(r.completionTokens) || 0;
     if (r.finishReason === "length") c.hitMaxTokens += 1;
     if (r.category === "long") {
@@ -848,7 +1057,7 @@ export function summarize(rows) {
   }
   const pcts = [];
   for (const c of Object.values(categories)) {
-    c.pct = c.total ? Math.round((c.passed / c.total) * 1000) / 10 : null;
+    c.pct = c.scored ? Math.round((c.passed / c.scored) * 1000) / 10 : null;
     c.meanCompletionTokens = c.total ? Math.round(c.completionTokens / c.total) : 0;
     delete c.completionTokens;
     if (c.pct != null) pcts.push(c.pct);

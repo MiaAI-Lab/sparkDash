@@ -166,7 +166,7 @@ function LlmLaunchers({
             ["decode", "Decode", `Decode benchmark: generation speed at rising concurrency, on this Spark. ${localHint}`],
             ["prefill", "Prefill", `Prefill benchmark: prompt processing speed and time to first token, on this Spark. ${localHint}`],
             ["quality", "Quality", "Quality suite (QA, reasoning, arithmetic, state tracking, GSM8K, MMLU) against this port's model. Compare runs across models, quantizations and KV-cache formats."],
-            ["tool-eval", "Tool Eval", "Benchmark this model's tool calling."],
+            ["tool-eval", "Tool Eval Bench", "Benchmark this model's tool calling."],
           ] as const
         ).map(([type, label, title]) => (
           <button
@@ -736,8 +736,17 @@ export function LlmPanel({
             >
               <span className="eyebrow">Prefill</span>
               <div className="big-num sp-big-lg">
-                {fmtTps(prefillTps)}
-                <small>tok/s</small>
+                {llm?.prefillActive && prefillTps <= 0 ? (
+                  <>
+                    <span className="ov-tps__dots" aria-hidden />
+                    <small title="A prompt is being processed. The engine reports its speed only when the request finishes.">prefilling</small>
+                  </>
+                ) : (
+                  <>
+                    {fmtTps(prefillTps)}
+                    <small>tok/s</small>
+                  </>
+                )}
               </div>
               <TrendLine data={prefillHistory} height={44} color="var(--color-info)" />
               {prefillAvg != null && <span className="sp-avg mono">avg {fmtAvg(prefillAvg)}</span>}

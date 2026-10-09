@@ -17,7 +17,7 @@ describe("OpenAccessChip", () => {
     expect(button?.title).toContain("SPARKDASH_TOKEN");
     act(() => button!.click());
     expect(container.querySelector('[role="dialog"]')?.textContent).toContain(
-      "can change settings and power units off"
+      "reachable from your network without a token"
     );
   });
 

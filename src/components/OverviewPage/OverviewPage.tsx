@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { SparkSnapshot } from "../../api/types";
 import { isWorkerSpark } from "../../api/sparkRole";
 import { shutdownAllSparks, updateAllHermes, wakeAllSparks } from "../../api/client";
@@ -8,21 +8,14 @@ import { FleetAlertStrip } from "./FleetAlertStrip";
 import { FleetTokenTotals } from "./FleetTokenTotals";
 import { FleetKpis } from "./FleetKpis";
 import { ACTIVITY_ID, ENERGY_ID, TOKENS_ID } from "../../constants";
-import { resolveSparkRole } from "../../api/sparkRole";
 import { SparkCard } from "./SparkCard";
 import { ActivityFeed } from "./ActivityFeed";
 import { shutdownWarnings } from "./fleetStats";
 import { ActivityIcon, PowerOffIcon, PowerOnIcon, RotateIcon } from "../ui/icons";
 import { formatMb } from "../../shared/formatBytes";
 import { vramContextFor } from "../../shared/vramBreakdown";
+import { makeHeadResolver } from "../../shared/sparkHead";
 import "../../styles/overview.css";
-
-/** The worker's configured head, else the fleet's only head when that is unambiguous. */
-function headFor(spark: SparkSnapshot, all: SparkSnapshot[]): SparkSnapshot | null {
-  if (spark.workerHeadId) return all.find((s) => s.id === spark.workerHeadId) ?? null;
-  const heads = all.filter((s) => s.id !== spark.id && resolveSparkRole(s) === "head");
-  return heads.length === 1 ? heads[0] : null;
-}
 
 interface OverviewPageProps {
   sparks: SparkSnapshot[];
@@ -56,15 +49,35 @@ export function OverviewPage({
 }: OverviewPageProps) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "online" | "offline" | "issues">("all");
-  const withoutWorkers = hideWorkers ? sparks.filter((s) => !isWorkerSpark(s)) : sparks;
-  const visibleSparks = withoutWorkers.filter((spark) => {
-    if (hideOffline && !spark.online) return false;
-    if (showOverviewSearch && query && !spark.name.toLowerCase().includes(query.toLowerCase())) return false;
-    if (showOverviewSearch && statusFilter === "online" && !spark.online) return false;
-    if (showOverviewSearch && statusFilter === "offline" && spark.online) return false;
-    if (showOverviewSearch && statusFilter === "issues" && spark.online && !spark.metrics.storage.some((disk) => disk.percentage >= 90)) return false;
-    return true;
-  });
+  const withoutWorkers = useMemo(
+    () => (hideWorkers ? sparks.filter((s) => !isWorkerSpark(s)) : sparks),
+    [sparks, hideWorkers]
+  );
+  // Stable between renders that change nothing it depends on (a keystroke elsewhere, a dialog).
+  const visibleSparks = useMemo(
+    () =>
+      withoutWorkers.filter((spark) => {
+        if (hideOffline && !spark.online) return false;
+        if (showOverviewSearch && query && !spark.name.toLowerCase().includes(query.toLowerCase())) return false;
+        if (showOverviewSearch && statusFilter === "online" && !spark.online) return false;
+        if (showOverviewSearch && statusFilter === "offline" && spark.online) return false;
+        if (showOverviewSearch && statusFilter === "issues" && spark.online && !spark.metrics.storage.some((disk) => disk.percentage >= 90)) return false;
+        return true;
+      }),
+    [withoutWorkers, hideOffline, showOverviewSearch, query, statusFilter]
+  );
+  // Head lookup and VRAM contexts for the whole fleet in one pass (not one scan per card).
+  const cardContext = useMemo(() => {
+    const resolveHead = makeHeadResolver(sparks);
+    const byId = new Map<string, { head: SparkSnapshot | null; vram: ReturnType<typeof vramContextFor> | null }>();
+    for (const spark of sparks) {
+      byId.set(spark.id, {
+        head: resolveHead(spark),
+        vram: showVramBreakdown ? vramContextFor(spark, sparks, resolveHead) : null,
+      });
+    }
+    return byId;
+  }, [sparks, showVramBreakdown]);
   const hiddenWorkerCount = hideWorkers ? sparks.filter(isWorkerSpark).length : 0;
   const [batchLoading, setBatchLoading] = useState(false);
   const [batchMsg, setBatchMsg] = useState<{ text: string; tone: "ok" | "err" } | null>(null);
@@ -344,18 +357,21 @@ export function OverviewPage({
           {visibleSparks.length === 0 && (
             <p className="panel ov-empty">No units match the current search and status filters.</p>
           )}
-          {visibleSparks.map((spark) => (
-            <SparkCard
-              key={spark.id}
-              spark={spark}
-              headSpark={headFor(spark, sparks)}
-              vramContext={showVramBreakdown ? vramContextFor(spark, sparks) : null}
-              temperatureUnit={temperatureUnit}
-              onSelect={onSelectSpark}
-            />
-          ))}
+          {visibleSparks.map((spark) => {
+            const ctx = cardContext.get(spark.id);
+            return (
+              <SparkCard
+                key={spark.id}
+                spark={spark}
+                headSpark={ctx?.head ?? null}
+                vramContext={ctx?.vram ?? null}
+                temperatureUnit={temperatureUnit}
+                onSelect={onSelectSpark}
+              />
+            );
+          })}
         </div>
-        <FleetKpis sparks={visibleSparks} />
+        <FleetKpis sparks={visibleSparks} snapshotKey={sparks} />
         <div className="ov-side">
           {showFleetEnergy ? <FleetEnergyCard nodeCount={sparks.length} onOpenDetails={onNavigate ? () => onNavigate(ENERGY_ID) : undefined} /> : null}
           {showLlmTokenTotals ? <FleetTokenTotals onOpenDetails={onNavigate ? () => onNavigate(TOKENS_ID) : undefined} /> : null}

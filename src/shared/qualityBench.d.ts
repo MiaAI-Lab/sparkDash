@@ -18,6 +18,8 @@ export interface QualityCompareRow {
   pctA: number | null;
   pctB: number | null;
   paired: number;
+  /** Pairs left out because either run hit a request error / timeout. */
+  excluded: number;
   identical: number;
   bothOk: number;
   bothFail: number;
@@ -28,9 +30,10 @@ export interface QualityCompareRow {
 }
 
 export interface QualityComparable {
+  config?: { suiteVersion?: number; scoringVersion?: number } | null;
   results?: {
     categories?: Partial<Record<string, { passed: number; total: number; pct: number | null }>>;
-    items?: Array<{ id: string; category: string; ok: boolean; hash?: string | null }>;
+    items?: Array<{ id: string; category: string; ok: boolean; error?: string | null; hash?: string | null }>;
   } | null;
 }
 
@@ -38,3 +41,8 @@ export function compareQualityRuns(
   a: QualityComparable | null,
   b: QualityComparable | null
 ): QualityCompareRow[];
+
+export function checkQualityComparable(
+  a: QualityComparable | null,
+  b: QualityComparable | null
+): { ok: boolean; reason: string | null };

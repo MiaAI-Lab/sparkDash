@@ -61,6 +61,10 @@ export function LiveRun({ followed, polling, pollError, actionError, scenarioMod
   const listRef = useRef<HTMLUListElement | null>(null);
   const pinnedRef = useRef(true);
   const scenarioCount = p?.scenarios.length ?? 0;
+  // A new run starts pinned to the newest scenario again, whatever the last one's scroll position was.
+  useEffect(() => {
+    pinnedRef.current = true;
+  }, [run.id]);
   useEffect(() => {
     const el = listRef.current;
     if (el && pinnedRef.current) el.scrollTop = el.scrollHeight;
@@ -112,7 +116,7 @@ export function LiveRun({ followed, polling, pollError, actionError, scenarioMod
           className={`te-bar ${pct == null && running ? "is-indeterminate" : ""}`}
           role="progressbar"
           aria-valuemin={0}
-          aria-valuemax={total ?? 100}
+          aria-valuemax={total || undefined}
           aria-valuenow={pct == null ? undefined : done}
           aria-valuetext={total ? `${done} of ${total} scenarios` : phaseText}
         >
@@ -197,7 +201,10 @@ export function LiveRun({ followed, polling, pollError, actionError, scenarioMod
 
       {scenarioMode && p && p.scenarios.length ? (
         <ul
-          ref={listRef}
+          ref={(el) => {
+            if (el && listRef.current !== el) pinnedRef.current = true; // a freshly mounted list starts pinned
+            listRef.current = el;
+          }}
           className={`te-scn-list${running ? " is-live" : ""}`}
           aria-label="Scenarios so far"
           onScroll={(e) => {

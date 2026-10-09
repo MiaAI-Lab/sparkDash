@@ -9,6 +9,15 @@ export interface Delta {
   delta: number | null;
   /** true: a bigger number is better. false: smaller is better. */
   higherIsBetter: boolean;
+  /** Decimals that make a real change visible (0 for counts, more for 0-1 scales). */
+  digits: number;
+}
+
+/** Decimals to show a change between a and b: counts get 0, 0-1 ratios 3, anything else 1. */
+export function deltaDigits(a: number | null, b: number | null, count = false): number {
+  if (count) return 0;
+  const scale = Math.max(Math.abs(a ?? 0), Math.abs(b ?? 0));
+  return scale > 0 && scale <= 1 ? 3 : 1;
 }
 
 export interface ScenarioChange {
@@ -20,33 +29,52 @@ export interface ScenarioChange {
   kind: "regression" | "improvement" | "changed" | "only-a" | "only-b";
 }
 
+/** One scenario across both runs; `same` rows are the ones that did not change. */
+export interface ScenarioRow {
+  id: string;
+  title: string | null;
+  category: string | null;
+  from: ScenarioStatus | null;
+  to: ScenarioStatus | null;
+  kind: ScenarioChange["kind"] | "same";
+}
+
 export interface ToolCompare {
   headline: Delta[];
   categories: (Delta & { id: string; name: string | null })[];
+  /** Every scenario of either run, in id order. */
+  rows: ScenarioRow[];
+  /** Only the rows that differ, worst first. */
   changes: ScenarioChange[];
   unchanged: number;
+  /** Whether each side carries per-scenario data at all (a result may have only category scores). */
+  hasScenarios: { a: boolean; b: boolean };
 }
 
 const RANK: Record<ScenarioStatus, number> = { pass: 3, partial: 2, fail: 1, other: 0 };
 
-const d = (label: string, a: number | null, b: number | null, higherIsBetter = true): Delta => ({
+const d = (label: string, a: number | null, b: number | null, higherIsBetter = true, count = false): Delta => ({
   label,
   a,
   b,
   delta: a != null && b != null ? b - a : null,
   higherIsBetter,
+  digits: deltaDigits(a, b, count),
 });
 
 /** Compare two tool-call results: `a` is the baseline, `b` the newer one. */
 export function compareToolResults(a: NormToolResult, b: NormToolResult): ToolCompare {
+  const hasScenarios = { a: a.scenarios.length > 0, b: b.scenarios.length > 0 };
+  // Counts come from scenarios: a side without any has no counts, not zero of everything.
+  const cnt = (n: NormToolResult, has: boolean, k: "pass" | "partial" | "fail") => (has ? n.counts[k] : null);
   const headline = [
     d("Score", a.score, b.score),
     d("Deployability", a.deployability, b.deployability),
     d("Responsiveness", a.responsiveness, b.responsiveness),
-    d("Passed", a.counts.pass, b.counts.pass),
-    d("Partial", a.counts.partial, b.counts.partial, true),
-    d("Failed", a.counts.fail, b.counts.fail, false),
-    d("Safety warnings", a.safety.length, b.safety.length, false),
+    d("Passed", cnt(a, hasScenarios.a, "pass"), cnt(b, hasScenarios.b, "pass"), true, true),
+    d("Partial", cnt(a, hasScenarios.a, "partial"), cnt(b, hasScenarios.b, "partial"), true, true),
+    d("Failed", cnt(a, hasScenarios.a, "fail"), cnt(b, hasScenarios.b, "fail"), false, true),
+    d("Safety warnings", a.safety.length, b.safety.length, false, true),
   ];
   const ids = [...new Set([...a.categories.map((c) => c.id), ...b.categories.map((c) => c.id)])].sort();
   const categories = ids.map((id) => {
@@ -56,22 +84,22 @@ export function compareToolResults(a: NormToolResult, b: NormToolResult): ToolCo
   });
   const mapA = new Map(a.scenarios.map((s) => [s.id, s]));
   const mapB = new Map(b.scenarios.map((s) => [s.id, s]));
-  const changes: ScenarioChange[] = [];
-  let unchanged = 0;
+  const rows: ScenarioRow[] = [];
   for (const id of new Set([...mapA.keys(), ...mapB.keys()])) {
     const sa = mapA.get(id);
     const sb = mapB.get(id);
-    const base = { id, title: sb?.title ?? sa?.title ?? null, category: sb?.category ?? sa?.category ?? null };
-    if (sa && !sb) changes.push({ ...base, from: sa.status, to: null, kind: "only-a" });
-    else if (!sa && sb) changes.push({ ...base, from: null, to: sb.status, kind: "only-b" });
-    else if (sa && sb) {
-      if (sa.status === sb.status) unchanged += 1;
-      else changes.push({ ...base, from: sa.status, to: sb.status, kind: RANK[sb.status] < RANK[sa.status] ? "regression" : RANK[sb.status] > RANK[sa.status] ? "improvement" : "changed" });
-    }
+    const base = { id, title: sb?.title ?? sa?.title ?? null, category: sb?.category ?? sa?.category ?? null, from: sa?.status ?? null, to: sb?.status ?? null };
+    let kind: ScenarioRow["kind"];
+    if (sa && !sb) kind = "only-a";
+    else if (!sa && sb) kind = "only-b";
+    else if (sa && sb) kind = sa.status === sb.status ? "same" : RANK[sb.status] < RANK[sa.status] ? "regression" : RANK[sb.status] > RANK[sa.status] ? "improvement" : "changed";
+    else continue;
+    rows.push({ ...base, kind });
   }
+  rows.sort((x, y) => x.id.localeCompare(y.id, undefined, { numeric: true }));
   const order = { regression: 0, improvement: 1, changed: 2, "only-a": 3, "only-b": 4 } as const;
-  changes.sort((x, y) => order[x.kind] - order[y.kind] || x.id.localeCompare(y.id, undefined, { numeric: true }));
-  return { headline, categories, changes, unchanged };
+  const changes = rows.filter((r): r is ScenarioChange => r.kind !== "same").sort((x, y) => order[x.kind] - order[y.kind] || x.id.localeCompare(y.id, undefined, { numeric: true }));
+  return { headline, categories, rows, changes, unchanged: rows.length - changes.length, hasScenarios };
 }
 
 export interface MetricChange {

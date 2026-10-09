@@ -1,7 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId } from "react";
 import type { SparkSnapshot } from "../../../api/types";
 import { applyPreset, countSet, emptyState, type FormState } from "./options";
-import { TARGET_KEYS, matchesTemplate, simpleTemplates } from "./presets";
+import { TrialsRow } from "./TrialsRow";
+import { onRovingKeyDown } from "./a11y";
+import { KEPT_KEYS, keptValues, matchesTemplate, simpleTemplates } from "./presets";
+import { Tabs, panelId, tabId } from "./Tabs";
 
 interface SimpleConfigProps {
   type: string;
@@ -13,24 +16,27 @@ interface SimpleConfigProps {
   onAdvanced: () => void;
   apiKey: string;
   onApiKey: (key: string) => void;
+  /** Custom-URL target mode; owned by the page so it stays in step with the API key. */
+  useUrl: boolean;
+  onUseUrl: (useUrl: boolean) => void;
 }
 
 /**
  * The Simple view: pick a ready-made run and go. Everything else lives under Advanced,
  * which shows every option the tool has.
  */
-export function SimpleConfig({ type, spark, state, onChange, ports, port, onAdvanced, apiKey, onApiKey }: SimpleConfigProps) {
+export function SimpleConfig({ type, spark, state, onChange, ports, port, onAdvanced, apiKey, onApiKey, useUrl, onUseUrl: setUseUrl }: SimpleConfigProps) {
   const templates = simpleTemplates(type);
   const active = templates.find((t) => matchesTemplate(state, t)) ?? null;
-  const tweaks = countSet(state) - [...TARGET_KEYS].filter((k) => String(state.values[k] ?? "").trim()).length;
+  const tweaks = countSet(state) - [...KEPT_KEYS].filter((k) => String(state.values[k] ?? "").trim()).length;
   const custom = !active && (tweaks > 0 || type === "accuracy");
   // Test the model on this Spark, or any OpenAI-compatible URL the Spark can reach.
-  const [useUrl, setUseUrl] = useState(() => String(state.values["base-url"] ?? "").trim() !== "");
+  const uid = useId();
   const baseUrl = String(state.values["base-url"] ?? "");
   // A re-run or restored form can bring a URL in from outside.
   useEffect(() => {
     if (baseUrl.trim()) setUseUrl(true);
-  }, [baseUrl]);
+  }, [baseUrl, setUseUrl]);
   const modelName = String(state.values["model"] ?? "");
   const setTarget = (url: boolean) => {
     setUseUrl(url);
@@ -49,7 +55,7 @@ export function SimpleConfig({ type, spark, state, onChange, ports, port, onAdva
     if (!t) return;
     // A template replaces the options but keeps which Spark port is being tested.
     const next = applyPreset(type, t);
-    const keep = Object.fromEntries([...TARGET_KEYS].filter((k) => String(state.values[k] ?? "").trim()).map((k) => [k, state.values[k]]));
+    const keep = keptValues(state.values);
     onChange({ ...next, values: { ...next.values, ...keep }, port: state.port });
   };
 
@@ -58,15 +64,18 @@ export function SimpleConfig({ type, spark, state, onChange, ports, port, onAdva
       <div className="te-simple__target">
         <div className="te-simple__target-head">
           <span className="eyebrow">Testing</span>
-          <div className="seg" role="tablist" aria-label="What to test">
-            <button type="button" role="tab" aria-selected={!useUrl} className={!useUrl ? "is-on" : ""} onClick={() => setTarget(false)}>
-              Model on {spark.name}
-            </button>
-            <button type="button" role="tab" aria-selected={useUrl} className={useUrl ? "is-on" : ""} onClick={() => setTarget(true)}>
-              Custom URL
-            </button>
-          </div>
+          <Tabs
+            prefix={uid}
+            label="What to test"
+            value={useUrl ? "url" : "local"}
+            onChange={(v) => setTarget(v === "url")}
+            items={[
+              { id: "local", label: `Model on ${spark.name}` },
+              { id: "url", label: "Custom URL" },
+            ]}
+          />
         </div>
+        <div role="tabpanel" id={panelId(uid, useUrl ? "url" : "local")} aria-labelledby={tabId(uid, useUrl ? "url" : "local")}>
         {useUrl ? (
           <div className="te-simple__url">
             <label className="te-simple__field te-simple__field--grow">
@@ -116,15 +125,18 @@ export function SimpleConfig({ type, spark, state, onChange, ports, port, onAdva
             ) : null}
           </>
         )}
+        </div>
       </div>
 
       <div className="te-simple__cards" role="radiogroup" aria-label="Ready-made runs">
-        {templates.map((t) => (
+        {templates.map((t, i) => (
           <button
             key={t.id}
             type="button"
             role="radio"
             aria-checked={active?.id === t.id}
+            tabIndex={(active ? active.id === t.id : i === 0) ? 0 : -1}
+            onKeyDown={(e) => onRovingKeyDown(e, "radio", (n) => pick(templates[n].id))}
             className={`te-simple__card${active?.id === t.id ? " is-on" : ""}`}
             onClick={() => pick(t.id)}
           >
@@ -136,6 +148,8 @@ export function SimpleConfig({ type, spark, state, onChange, ports, port, onAdva
           </button>
         ))}
       </div>
+
+      {type === "tool-eval" ? <TrialsRow state={state} onChange={onChange} /> : null}
 
       {custom ? (
         <p className="te-simple__custom">

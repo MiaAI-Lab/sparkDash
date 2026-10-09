@@ -10,7 +10,22 @@
  * the program, so they never appear on any command line.
  */
 
+import { ARG_SPEC } from "./spec.js";
+
 export const TE_EXIT = "__TEEXIT__";
+/** The exit marker for one program: `__TEEXIT__<nonce>:<code>`. The nonce is per run and only the wrapper knows it. */
+export const exitToken = (nonce = "") => `${TE_EXIT}${nonce}:`;
+
+/** Flags whose NEXT argument is a path on the Spark, where a leading "~/" means $HOME. */
+const PATH_FLAGS = ["--json-file", ...ARG_SPEC.filter((s) => s.kind === "path" || s.name === "scenario-pack").map((s) => s.flag)];
+const PATH_CASE = PATH_FLAGS.join("|");
+/** bash: expand "~/" only for the argument right after a path flag (never in free text such as a system prompt). */
+const EXPAND_HOME = `
+for ((i=1;i<\${#ARGS[@]};i++)); do
+  case "\${ARGS[$((i-1))]}" in ${PATH_CASE})
+    case "\${ARGS[$i]}" in "~/"*) ARGS[$i]="$HOME/\${ARGS[$i]#\\~/}";; esac;;
+  esac
+done`;
 export const RUN_ROOT = "$HOME/.cache/sparkdash/tooleval";
 export const WORK_DIR = "$HOME/.local/share/sparkdash/tool-eval";
 /** Where the tool is expected (uv tool install puts it in ~/.local/bin). */
@@ -43,7 +58,10 @@ export function secretsPayload(env) {
 }
 
 const HELPERS = `
-alive() { kill -0 -- "-$PID" 2>/dev/null || kill -0 "$PID" 2>/dev/null; }
+# A pid only counts while the run has not written its exit file and the process still looks like our wrapper
+# (guards against a recycled pid being mistaken for, or signalled as, the run).
+ours() { [ -r "/proc/$PID/cmdline" ] || return 0; tr '\\0' ' ' < "/proc/$PID/cmdline" 2>/dev/null | grep -qF -- "$X"; }
+alive() { [ "$PID" != 0 ] || return 1; [ -f "$X" ] && return 1; { kill -0 "$PID" 2>/dev/null || kill -0 -- "-$PID" 2>/dev/null; } || return 1; ours; }
 # Follow events (stderr JSONL) and output together; tail prints a "==> file <==" header whenever the source changes.
 follow() {
   tail -n "$1" -F "$E" "$L" 2>/dev/null &
@@ -65,36 +83,38 @@ PID=$(cat "$P" 2>/dev/null || echo 0)
 }
 
 /** Start a run (detached) and follow it. `argvB64` is the NUL-joined argument list, base64. */
-export function buildRunProgram({ runId, argvB64, displayLine }) {
+export function buildRunProgram({ runId, argvB64, displayLine, nonce = "" }) {
+  const TX = exitToken(nonce);
   const displayB64 = Buffer.from(displayLine, "utf8").toString("base64");
   return wrap(`
 ${READ_SECRETS}
 ${PATH_LINE}
 ${dirs(runId)}
 ${HELPERS}
-BIN=$(command -v tool-eval-bench) || { echo "[sparkdash] tool-eval-bench is not installed on this Spark. Use Set up on the Tool Eval page to install it."; echo "${TE_EXIT}127"; exit 0; }
-if [ "$PID" != 0 ] && alive; then echo "[sparkdash] this run is already running"; echo "${TE_EXIT}-1"; exit 0; fi
+BIN=$(command -v tool-eval-bench) || { echo "[sparkdash] tool-eval-bench is not installed on this Spark. Use Set up on the Tool Eval page to install it."; echo "${TX}127"; exit 0; }
+if [ "$PID" != 0 ] && alive; then echo "[sparkdash] this run is already running"; echo "${TX}-1"; exit 0; fi
 mapfile -d '' -t ARGS < <(printf %s '${argvB64}' | base64 -d)
-for i in "\${!ARGS[@]}"; do case "\${ARGS[$i]}" in "~/"*) ARGS[$i]="$HOME/\${ARGS[$i]#\\~/}";; esac; done
+${EXPAND_HOME}
 cd "$WD" || exit 1
 rm -f "$X" "$R"; : > "$L"; : > "$E"
 printf '[sparkdash] %s\\n' "$(printf %s '${displayB64}' | base64 -d)" >> "$L"
-setsid bash -c 'X="$1"; shift; "$@"; echo $? > "$X"' _ "$X" "$BIN" "\${ARGS[@]}" >> "$L" 2>> "$E" < /dev/null &
+setsid bash -c 'X="$1"; P="$2"; shift 2; "$@"; echo $? > "$X"; rm -f "$P"' _ "$X" "$P" "$BIN" "\${ARGS[@]}" >> "$L" 2>> "$E" < /dev/null &
 PID=$!
 echo "$PID" > "$P"
 follow "+1"
-echo "${TE_EXIT}$(cat "$X" 2>/dev/null || echo -1)"
+echo "${TX}$(cat "$X" 2>/dev/null || echo -1)"
 `);
 }
 
 /** Re-open the output of a run that is running (or finished). */
-export function buildAttachProgram({ runId }) {
+export function buildAttachProgram({ runId, nonce = "" }) {
+  const TX = exitToken(nonce);
   return wrap(`
 ${dirs(runId)}
 ${HELPERS}
-[ -f "$L" ] || { echo "[sparkdash] no output was recorded for this run on the Spark"; echo "${TE_EXIT}-1"; exit 0; }
+[ -f "$L" ] || { echo "[sparkdash] no output was recorded for this run on the Spark"; echo "${TX}-1"; exit 0; }
 if [ "$PID" != 0 ] && alive; then follow "+1"; else tail -n +1 "$E" "$L" 2>/dev/null; fi
-echo "${TE_EXIT}$(cat "$X" 2>/dev/null || echo -1)"
+echo "${TX}$(cat "$X" 2>/dev/null || echo -1)"
 `);
 }
 
@@ -114,16 +134,17 @@ if alive; then kill -KILL -- "-$PID" 2>/dev/null || kill -KILL "$PID" 2>/dev/nul
 }
 
 /** One-shot (non-detached) tool call with argv from the same encoding, e.g. --probe / --dry-run / --version. */
-export function buildOnceProgram({ argvB64, wantStdin = false }) {
+export function buildOnceProgram({ argvB64, wantStdin = false, nonce = "" }) {
+  const TX = exitToken(nonce);
   return wrap(`
 ${wantStdin ? READ_SECRETS : ""}
 ${PATH_LINE}
-BIN=$(command -v tool-eval-bench) || { echo "tool-eval-bench is not installed"; echo "${TE_EXIT}127"; exit 0; }
+BIN=$(command -v tool-eval-bench) || { echo "tool-eval-bench is not installed"; echo "${TX}127"; exit 0; }
 mapfile -d '' -t ARGS < <(printf %s '${argvB64}' | base64 -d)
-for i in "\${!ARGS[@]}"; do case "\${ARGS[$i]}" in "~/"*) ARGS[$i]="$HOME/\${ARGS[$i]#\\~/}";; esac; done
+${EXPAND_HOME}
 mkdir -p "${WORK_DIR}" && cd "${WORK_DIR}" || exit 1
 timeout 90 "$BIN" "\${ARGS[@]}" 2>&1 < /dev/null
-echo "${TE_EXIT}$?"
+echo "${TX}$?"
 `);
 }
 
@@ -140,25 +161,52 @@ echo "WORKDIR=${WORK_DIR}"
 `);
 }
 
+/** The latest commit of the tool's default branch on GitHub, read from the Spark (it has the internet access the install needs). */
+export function buildUpdateCheckProgram() {
+  return wrap(`
+if command -v python3 >/dev/null 2>&1; then
+python3 - <<'PY'
+import json, urllib.request
+req = urllib.request.Request(
+    "https://api.github.com/repos/SeraphimSerapis/tool-eval-bench/commits/HEAD",
+    headers={"User-Agent": "sparkdash", "Accept": "application/vnd.github+json"},
+)
+try:
+    with urllib.request.urlopen(req, timeout=15) as r:
+        d = json.load(r)
+    print("LATEST=" + str(d.get("sha", "")))
+    print("LATEST_DATE=" + str(((d.get("commit") or {}).get("committer") or {}).get("date", "")))
+except Exception as e:
+    print("ERROR=" + str(e)[:200])
+PY
+else
+  echo "ERROR=python3 is not installed on this Spark"
+fi
+`);
+}
+
 export const INSTALL_SOURCE = "git+https://github.com/SeraphimSerapis/tool-eval-bench.git";
 export const ALLOWED_EXTRAS = ["perf", "hf"];
 
 /** The install / upgrade command line, shown to the user before they confirm. */
 export function installCommandLine({ extras = [], upgrade = false } = {}) {
   const ex = extras.filter((e) => ALLOWED_EXTRAS.includes(e));
-  if (upgrade) return "uv tool upgrade tool-eval-bench";
   const target = ex.length ? `tool-eval-bench[${ex.join(",")}] @ ${INSTALL_SOURCE}` : INSTALL_SOURCE;
-  return `uv tool install --force "${target}"`;
+  const reinstall = `uv tool install --force "${target}"`;
+  // `uv tool upgrade` only knows tools that uv itself installed; a copy put there by pip/pipx makes it
+  // fail with "is not installed". In that case fall back to a reinstall from GitHub, which takes over.
+  return upgrade ? `uv tool upgrade tool-eval-bench || ${reinstall}` : reinstall;
 }
 
-export function buildInstallProgram({ extras = [], upgrade = false } = {}) {
+export function buildInstallProgram({ extras = [], upgrade = false, nonce = "" } = {}) {
+  const TX = exitToken(nonce);
   const cmd = installCommandLine({ extras, upgrade });
   return wrap(`
 ${PATH_LINE}
-command -v uv >/dev/null 2>&1 || { echo "[sparkdash] uv is not installed on this Spark."; echo "[sparkdash] Install it first (https://docs.astral.sh/uv/), then retry."; echo "${TE_EXIT}127"; exit 0; }
+command -v uv >/dev/null 2>&1 || { echo "[sparkdash] uv is not installed on this Spark."; echo "[sparkdash] Install it first (https://docs.astral.sh/uv/), then retry."; echo "${TX}127"; exit 0; }
 echo "[sparkdash] $ ${cmd.replace(/"/g, '\\"')}"
-${cmd} 2>&1 < /dev/null
-echo "${TE_EXIT}$?"
+{ ${cmd}; } 2>&1 < /dev/null
+echo "${TX}$?"
 `);
 }
 

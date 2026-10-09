@@ -145,6 +145,12 @@ function toApiValue(spec: ToolEvalArgSpec, v: FieldValue | undefined): unknown {
   }
 }
 
+/** The key that will actually be sent: only with a non-blank custom base URL. */
+export function apiKeyFor(state: Pick<FormState, "values">, apiKey: string): string {
+  const url = state.values["base-url"];
+  return apiKey && typeof url === "string" && url.trim() ? apiKey : "";
+}
+
 export interface BuiltRequest {
   options: Record<string, unknown>;
   extraArgs: string;
@@ -162,7 +168,8 @@ export function buildRequest(spec: ToolEvalSpec, type: string, state: FormState,
   }
   for (const [name, on] of Object.entries(typeConfig(type).forced)) if (on) options[name] = true;
   if (type === "accuracy") for (const s of state.suites) options[`${s}-only`] = true;
-  if (apiKey) options["api-key"] = apiKey;
+  // A typed key belongs to the custom endpoint: with no base URL the run goes to the local server, which must never see it.
+  if (apiKey && options["base-url"] !== undefined) options["api-key"] = apiKey;
   const out: BuiltRequest = { options, extraArgs: state.extraArgs.trim() };
   if (state.port != null) out.port = state.port;
   return out;
@@ -173,6 +180,8 @@ export function validateField(spec: ToolEvalArgSpec, v: FieldValue | undefined):
   if (isBlank(v)) return null;
   const label = spec.label;
   const s = typeof v === "string" ? v.trim() : "";
+  // Whitespace-only text is dropped by toApiValue, so it is not an error either.
+  if (typeof v === "string" && !s) return null;
   switch (spec.kind) {
     case "int":
     case "float": {
@@ -293,6 +302,8 @@ export function stateFromRun(spec: ToolEvalSpec, type: string, run: Pick<ToolEva
     }
     if (arg.kind === "secret" || managed.has(arg.name) || raw === "(hidden)" || raw === "(saved key)") continue;
     if (arg.secret) continue; // header values are not stored
+    // Large values (system prompt, backend kwargs) are stored as an "(omitted: …)" placeholder: never reload that as the value.
+    if (typeof raw === "string" && raw.startsWith("(omitted:")) continue;
     if (arg.kind === "bool") state.values[arg.name] = raw === true;
     else if (arg.kind === "repeat") state.values[arg.name] = Array.isArray(raw) ? raw.map(String) : [String(raw)];
     else if (arg.kind === "list") state.values[arg.name] = arg.choices ? (Array.isArray(raw) ? raw.map(String) : []) : Array.isArray(raw) ? raw.join(" ") : String(raw);
@@ -330,7 +341,7 @@ export function loadState(type: string): FormState | null {
     const raw = localStorage.getItem(storageKey(type));
     if (!raw) return null;
     const p = JSON.parse(raw) as Partial<FormState>;
-    if (!p || typeof p !== "object" || typeof p.values !== "object" || p.values === null) return null;
+    if (!p || typeof p !== "object" || typeof p.values !== "object" || p.values === null || Array.isArray(p.values)) return null;
     const base = emptyState(type);
     return {
       values: p.values as Record<string, FieldValue>,

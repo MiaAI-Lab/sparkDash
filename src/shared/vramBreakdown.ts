@@ -1,6 +1,7 @@
 import { resolveSparkRole } from "../api/sparkRole";
 import type { LlmMetrics, SparkRole } from "../api/types";
 import { backendLabel } from "./llmBackends.js";
+import { makeHeadResolver, usableHead, type HeadResolver } from "./sparkHead";
 
 /**
  * GPU memory broken down by what holds it, and judged by how much is left.
@@ -82,16 +83,15 @@ function availableEndpoints(unit: ServingUnitLike | undefined): Endpoint[] {
   return Array.isArray(llm) ? llm.filter((l) => l?.available) : [];
 }
 
-/** The unit whose LLM API speaks for this unit's GPU: itself, or a worker's head. */
+/** The unit whose LLM API speaks for this unit's GPU: itself, or a worker's online head. */
 function servingSource(
   unit: ServingUnitLike,
   fleet: readonly ServingUnitLike[] | null | undefined,
+  resolveHead?: HeadResolver<ServingUnitLike>,
 ): ServingUnitLike | null {
   if (resolveSparkRole(unit) !== "worker") return unit;
-  const headId = unit.workerHeadId;
-  if (!headId || !Array.isArray(fleet)) return null;
-  const head = fleet.find((s) => s.id === headId);
-  return head && head.online !== false ? head : null;
+  if (!Array.isArray(fleet)) return null;
+  return usableHead((resolveHead ?? makeHeadResolver(fleet))(unit));
 }
 
 /**
@@ -104,8 +104,9 @@ function servingSource(
 export function isLlmServing(
   unit: ServingUnitLike,
   fleet: readonly ServingUnitLike[] | null | undefined,
+  resolveHead?: HeadResolver<ServingUnitLike>,
 ): boolean {
-  return availableEndpoints(servingSource(unit, fleet) ?? undefined).length > 0;
+  return availableEndpoints(servingSource(unit, fleet, resolveHead) ?? undefined).length > 0;
 }
 
 /**
@@ -117,8 +118,9 @@ export function isLlmServing(
 export function servingEndpoint(
   unit: ServingUnitLike,
   fleet: readonly ServingUnitLike[] | null | undefined,
+  resolveHead?: HeadResolver<ServingUnitLike>,
 ): Endpoint | null {
-  const live = availableEndpoints(servingSource(unit, fleet) ?? undefined);
+  const live = availableEndpoints(servingSource(unit, fleet, resolveHead) ?? undefined);
   return live.length === 1 ? live[0] : null;
 }
 
@@ -163,13 +165,15 @@ export interface VramBreakdownContext {
 export function vramContextFor(
   unit: ServingUnitLike & { metrics?: { unifiedMemory?: UnifiedMemoryLike | null } | null },
   fleet: readonly ServingUnitLike[] | null | undefined,
+  /** Pass `makeHeadResolver(fleet)` when building contexts for a whole fleet (avoids rescans). */
+  resolveHead?: HeadResolver<ServingUnitLike>,
 ): VramBreakdownContext {
   const model = memoryModelFor(unit.kind);
   return {
     model,
     unified: model === "unified" ? unit.metrics?.unifiedMemory ?? null : null,
-    serving: isLlmServing(unit, fleet),
-    endpoint: servingEndpoint(unit, fleet),
+    serving: isLlmServing(unit, fleet, resolveHead),
+    endpoint: servingEndpoint(unit, fleet, resolveHead),
   };
 }
 
@@ -208,6 +212,10 @@ export interface VramBreakdown {
 
 const finite = (n: unknown): number | null =>
   typeof n === "number" && Number.isFinite(n) ? n : null;
+
+function hasProcesses(processes: readonly GpuProcessLike[] | null | undefined): boolean {
+  return Array.isArray(processes) && processes.length > 0;
+}
 
 function largestProcess(processes: readonly GpuProcessLike[] | null | undefined) {
   if (!Array.isArray(processes)) return null;
@@ -265,12 +273,15 @@ export function computeVramBreakdown(
   const engine: VramEngineInfo | null = largest
     ? { name: largest.name, pid: largest.pid, mb: Math.min(largest.vramMB, gpuUsedMB) }
     : null;
+  // Serving, but no process list to name the engine (a worker's shard, a container): the
+  // GPU memory is still the model's, so colour it as such instead of as anonymous "GPU".
+  const wholeGpuIsModel = ctx.serving && gpuUsedMB > 0 && !engine && !hasProcesses(processes);
   const otherMB = Math.max(0, gpuUsedMB - (engine?.mb ?? 0));
 
   const segments: VramSegment[] = [];
   if (engine) segments.push({ key: "engine", mb: engine.mb });
   if (systemMB != null) segments.push({ key: "system", mb: systemMB });
-  segments.push({ key: engine ? "other" : "gpu", mb: otherMB });
+  segments.push({ key: engine ? "other" : wholeGpuIsModel ? "engine" : "gpu", mb: otherMB });
 
   const ep = engine ? ctx.endpoint ?? null : null;
   const kv: VramKvInfo | null = ep
@@ -297,7 +308,7 @@ export function computeVramBreakdown(
 }
 
 export const SEGMENT_LABELS: Readonly<Record<VramSegmentKey, string>> = Object.freeze({
-  engine: "Engine",
+  engine: "Model",
   system: "System",
   other: "Other",
   gpu: "GPU",

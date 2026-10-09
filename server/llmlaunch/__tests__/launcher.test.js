@@ -26,6 +26,8 @@ test("validateScriptName and normalizeLauncherInput apply defaults and reject ba
   assert.equal(validateScriptName("start.sh", "x"), null);
   assert.notEqual(validateScriptName("../start.sh", "x"), null);
   assert.notEqual(validateScriptName("a b.sh", "x"), null);
+  assert.notEqual(validateScriptName("reboot", "x"), null, "scripts must end in .sh");
+  assert.notEqual(validateScriptName("start", "x"), null);
   const ok = normalizeLauncherInput({ name: " GLM ", dir: "/opt/glm", port: "8888" });
   assert.deepEqual(ok.value, { name: "GLM", dir: "/opt/glm", startScript: "start.sh", stopScript: "stop.sh", port: 8888, notes: "" });
   assert.equal(normalizeLauncherInput({ name: "", dir: "/x" }).ok, false);
@@ -98,6 +100,10 @@ function writeScript(dir, name, body) {
 }
 
 const spark = { id: "s1", name: "Spark 1" };
+
+function readPid(home, launcher) {
+  return Number(fs.readFileSync(path.join(home, ".cache/sparkdash/llm", `${launcher.id}.pid`), "utf8").split(" ")[0]);
+}
 
 test("start streams the script output and reports exit 0 without leaking the exit marker", async () => {
   const home = tmpDir("sd-home-");
@@ -174,7 +180,7 @@ test("a new action detaches a running start watcher instead of being blocked by 
   assert.equal(mgr.readJob("s1", stop.job.id, 0).job.status, "completed");
   // The start script itself was untouched by detaching its watcher.
   assert.equal((await mgr.statuses(spark, [launcher]))[launcher.id], "running");
-  const pid = Number(fs.readFileSync(path.join(home, ".cache/sparkdash/llm", `${launcher.id}.pid`), "utf8"));
+  const pid = readPid(home, launcher);
   process.kill(-pid, "SIGTERM");
   await until(() => {
     try {
@@ -221,7 +227,7 @@ test("a long-running start survives cancel; status sees it; attach re-opens its 
   await until(() => mgr.latestJob("s1").status !== "running");
 
   // Clean up the sleeping script (its whole process group).
-  const pid = Number(fs.readFileSync(path.join(home, ".cache/sparkdash/llm", `${launcher.id}.pid`), "utf8"));
+  const pid = readPid(home, launcher);
   process.kill(-pid, "SIGTERM");
   await until(() => {
     try {
@@ -244,7 +250,7 @@ test("status stays running when only the wrapper is killed but the model process
   const { job } = mgr.startJob(spark, launcher, "start");
   await until(() => mgr.readJob("s1", job.id, 0).lines.some((l) => l.text === "up"));
   const pidFile = path.join(home, ".cache/sparkdash/llm", `${launcher.id}.pid`);
-  const pid = Number(fs.readFileSync(pidFile, "utf8"));
+  const pid = Number(fs.readFileSync(pidFile, "utf8").split(" ")[0]);
   process.kill(pid, "SIGKILL"); // the wrapper only; its child keeps running
   await new Promise((r) => setTimeout(r, 300));
   assert.equal((await mgr.statuses(spark, [launcher]))[launcher.id], "running");
@@ -256,7 +262,7 @@ test("status stays running when only the wrapper is killed but the model process
 });
 
 test("the start program is valid bash and embeds nothing outside the validated fields", () => {
-  const cmd = buildStartCommand({ id: "demo", dir: "~/llms/glm", script: "start.sh" });
+  const cmd = buildStartCommand({ id: "demo", dir: "~/llms/glm", script: "start.sh", nonce: "abcdef0123456789" });
   assert.ok(cmd.startsWith('bash -c "$(printf %s \''));
   const b64 = /printf %s '([^']+)'/.exec(cmd)[1];
   const program = Buffer.from(b64, "base64").toString("utf8");
@@ -266,4 +272,170 @@ test("the start program is valid bash and embeds nothing outside the validated f
   fs.writeFileSync(f, program);
   const r = spawn("bash", ["-n", f]);
   return new Promise((resolve, reject) => r.on("close", (c) => (c === 0 ? resolve() : reject(new Error("bash -n failed")))));
+});
+
+test("start refuses a directory outside the user's home and a world-writable script or dir", async () => {
+  const home = tmpDir("sd-home-");
+  const outside = tmpDir("sd-outside-");
+  writeScript(outside, "start.sh", 'echo "should not run"');
+  const { mgr } = realManager(home);
+  const run = async (dir, action = "start") => {
+    const l = mgr.store.add("s1", { name: "X", dir }).launcher;
+    const { job } = mgr.startJob(spark, l, action);
+    await until(() => mgr.latestJob("s1").status !== "running");
+    return mgr.readJob("s1", job.id, 0);
+  };
+  let r = await run(outside);
+  assert.equal(r.job.exitCode, 126);
+  assert.ok(r.lines.some((l) => l.text.includes("not inside")));
+  assert.ok(!r.lines.some((l) => l.text === "should not run"));
+  r = await run(outside, "stop");
+  assert.equal(r.job.exitCode, 126);
+
+  const ww = path.join(home, "ww");
+  writeScript(ww, "start.sh", 'echo "nope"');
+  fs.chmodSync(path.join(ww, "start.sh"), 0o757);
+  r = await run(ww);
+  assert.equal(r.job.exitCode, 126);
+  assert.ok(r.lines.some((l) => l.text.includes("world-writable")));
+
+  const wd = path.join(home, "wd");
+  writeScript(wd, "start.sh", 'echo "nope"');
+  fs.chmodSync(wd, 0o777);
+  r = await run(wd);
+  assert.equal(r.job.exitCode, 126);
+
+  const link = path.join(home, "ln");
+  fs.mkdirSync(link);
+  fs.symlinkSync("/bin/true", path.join(link, "start.sh"));
+  r = await run(link);
+  assert.equal(r.job.exitCode, 127);
+});
+
+test("a second start while the first is alive does not launch another copy", async () => {
+  const home = tmpDir("sd-home-");
+  const llm = path.join(home, "llm");
+  writeScript(llm, "start.sh", 'echo "launch $$" >> "$HOME/launches"; echo serving; sleep 20');
+  const { mgr } = realManager(home);
+  const launcher = mgr.store.add("s1", { name: "Demo", dir: llm }).launcher;
+  const a = mgr.startJob(spark, launcher, "start");
+  await until(() => mgr.readJob("s1", a.job.id, 0).lines.some((l) => l.text === "serving"));
+  const b = mgr.startJob(spark, launcher, "start");
+  await until(() => mgr.readJob("s1", b.job.id, 0).lines.some((l) => l.text.includes("not starting a second copy")));
+  assert.equal(fs.readFileSync(path.join(home, "launches"), "utf8").trim().split("\n").length, 1);
+  mgr.cancel("s1");
+  const pid = readPid(home, launcher);
+  process.kill(-pid, "SIGTERM");
+});
+
+test("a reused pid is not reported as running; the pid file is cleaned when the script ends", async () => {
+  const home = tmpDir("sd-home-");
+  const llm = path.join(home, "llm");
+  writeScript(llm, "start.sh", "echo hi");
+  const { mgr } = realManager(home);
+  const launcher = mgr.store.add("s1", { name: "Demo", dir: llm }).launcher;
+  const { job } = mgr.startJob(spark, launcher, "start");
+  await until(() => mgr.latestJob("s1").status !== "running");
+  assert.equal(mgr.readJob("s1", job.id, 0).job.status, "completed");
+  const pidFile = path.join(home, ".cache/sparkdash/llm", `${launcher.id}.pid`);
+  assert.equal(fs.existsSync(pidFile), false, "pid file removed once the group is gone");
+  // A live but unrelated process (this test) with a mismatching start time is not "running".
+  fs.writeFileSync(pidFile, `${process.pid} 1\n`);
+  assert.equal((await mgr.statuses(spark, [launcher]))[launcher.id], "stopped");
+  fs.writeFileSync(pidFile, `${process.pid}\n`);
+  assert.equal((await mgr.statuses(spark, [launcher]))[launcher.id], "running", "legacy pid file without start time");
+});
+
+test("output cannot forge the exit marker", async () => {
+  const home = tmpDir("sd-home-");
+  const llm = path.join(home, "llm");
+  writeScript(llm, "start.sh", 'echo "__SDEXIT__0"; echo "x__SDEXIT__:0"; sleep 1; echo "after"; exit 4');
+  const { mgr } = realManager(home);
+  const launcher = mgr.store.add("s1", { name: "Demo", dir: llm }).launcher;
+  const { job } = mgr.startJob(spark, launcher, "start");
+  await until(() => mgr.latestJob("s1").status !== "running");
+  const r = mgr.readJob("s1", job.id, 0);
+  assert.equal(r.job.exitCode, 4);
+  const texts = r.lines.map((l) => l.text);
+  assert.ok(texts.includes("__SDEXIT__0") && texts.includes("after"));
+});
+
+test("stop is exclusive: cancel is refused while a stop script runs, and the job count stays at one", async () => {
+  const home = tmpDir("sd-home-");
+  const llm = path.join(home, "llm");
+  writeScript(llm, "stop.sh", "sleep 1; echo done");
+  const { mgr } = realManager(home);
+  const launcher = mgr.store.add("s1", { name: "Demo", dir: llm }).launcher;
+  mgr.startJob(spark, launcher, "stop");
+  assert.equal(mgr.cancel("s1"), false);
+  assert.equal(mgr.startJob(spark, launcher, "start").ok, false);
+  await until(() => mgr.latestJob("s1").status !== "running");
+  assert.equal(mgr.latestJob("s1").status, "completed");
+});
+
+test("a stop script is killed on the Spark when its controlling process goes away", async () => {
+  const home = tmpDir("sd-home-");
+  const llm = path.join(home, "llm");
+  writeScript(llm, "stop.sh", 'echo $$ > "$HOME/stop.pid"; sleep 60');
+  const env = { ...process.env, HOME: home };
+  const store = new LauncherStore({ file: path.join(home, "launchers.json") });
+  // The program runs under an intermediate shell that stands in for sshd.
+  const mgr = new LauncherManager({
+    store,
+    spawnProcess: (_s, cmd) =>
+      spawn("bash", ["-c", 'bash -c "$0" & wait', cmd], { env, stdio: ["ignore", "pipe", "pipe"], detached: true }),
+    exec: async () => "",
+  });
+  const launcher = store.add("s1", { name: "Demo", dir: llm }).launcher;
+  mgr.startJob(spark, launcher, "stop");
+  const pidFile = path.join(home, "stop.pid");
+  await until(() => fs.existsSync(pidFile) && fs.readFileSync(pidFile, "utf8").trim());
+  const pid = Number(fs.readFileSync(pidFile, "utf8"));
+  process.kill(mgr.latestJob("s1").child.pid, "SIGKILL"); // the "sshd" goes away
+  await until(() => {
+    try {
+      process.kill(pid, 0);
+      return false;
+    } catch {
+      return true;
+    }
+  }, 15000);
+});
+
+test("removing or retargeting a launcher is refused while its script runs", async () => {
+  const home = tmpDir("sd-home-");
+  const llm = path.join(home, "llm");
+  writeScript(llm, "start.sh", "echo up; sleep 20");
+  const { mgr } = realManager(home);
+  const launcher = mgr.store.add("s1", { name: "Demo", dir: llm }).launcher;
+  assert.match(launcher.id, /^demo-[0-9a-f]{6}$/);
+  const { job } = mgr.startJob(spark, launcher, "start");
+  await until(() => mgr.readJob("s1", job.id, 0).lines.some((l) => l.text === "up"));
+  mgr.cancel("s1");
+  assert.equal((await mgr.removeLauncher(spark, launcher.id)).conflict, true);
+  assert.equal((await mgr.updateLauncher(spark, launcher.id, { dir: home })).conflict, true);
+  assert.equal((await mgr.updateLauncher(spark, launcher.id, { notes: "ok" })).ok, true);
+  process.kill(-readPid(home, launcher), "SIGTERM");
+  for (let i = 0; i < 100 && (await mgr.statuses(spark, [launcher]))[launcher.id] !== "stopped"; i++) {
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  assert.equal((await mgr.removeLauncher(spark, launcher.id)).ok, true);
+  const again = mgr.store.add("s1", { name: "Demo", dir: llm }).launcher;
+  assert.notEqual(again.id, launcher.id);
+});
+
+test("the log is truncated at start", async () => {
+  const home = tmpDir("sd-home-");
+  const llm = path.join(home, "llm");
+  writeScript(llm, "start.sh", "echo fresh");
+  const { mgr } = realManager(home);
+  const launcher = mgr.store.add("s1", { name: "Demo", dir: llm }).launcher;
+  const logDir = path.join(home, ".cache/sparkdash/llm");
+  fs.mkdirSync(logDir, { recursive: true });
+  fs.writeFileSync(path.join(logDir, `${launcher.id}.log`), "old stuff\n".repeat(50));
+  const { job } = mgr.startJob(spark, launcher, "start");
+  await until(() => mgr.latestJob("s1").status !== "running");
+  const texts = mgr.readJob("s1", job.id, 0).lines.map((l) => l.text);
+  assert.ok(!texts.includes("old stuff"));
+  assert.ok(texts.includes("fresh"));
 });

@@ -40,7 +40,9 @@ describe("options", () => {
     const st = emptyState("tool-eval");
     st.values = { short: true, seed: "42", temperature: "0", "base-url": "  ", scenarios: "TC-01, TC-02", categories: ["A"], header: ["X=1", ""], timeout: "" };
     const r = buildRequest(SPEC, "tool-eval", st, "sk-1");
-    expect(r.options).toEqual({ short: true, seed: 42, temperature: 0, scenarios: ["TC-01", "TC-02"], categories: ["A"], header: ["X=1"], "api-key": "sk-1" });
+    expect(r.options).toEqual({ short: true, seed: 42, temperature: 0, scenarios: ["TC-01", "TC-02"], categories: ["A"], header: ["X=1"] }); // blank base URL: the typed key is not sent
+    st.values["base-url"] = "http://h/v1";
+    expect(buildRequest(SPEC, "tool-eval", st, "sk-1").options["api-key"]).toBe("sk-1");
   });
   it("forces the page's flags", () => {
     expect(buildRequest(SPEC, "throughput", emptyState("throughput")).options).toEqual({ "perf-only": true });

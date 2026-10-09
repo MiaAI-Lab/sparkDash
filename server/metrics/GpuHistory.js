@@ -1,5 +1,5 @@
 import fs from "fs";
-import { atomicWrite } from "../util/atomicWrite.js";
+import { atomicWrite, quarantineCorrupt } from "../util/atomicWrite.js";
 
 const DEFAULT_MAX_AGE_MS = 8 * 60 * 60 * 1000;
 const DEFAULT_MIN_GAP_MS = 1500;
@@ -47,8 +47,8 @@ export class GpuHistory {
         }
         if (out.t.length) this._series.set(id, out);
       }
-    } catch {
-      /* no file yet, or unreadable: start empty */
+    } catch (err) {
+      if (err instanceof SyntaxError) quarantineCorrupt(this.file, "GpuHistory", err);
     }
   }
 
@@ -81,6 +81,20 @@ export class GpuHistory {
     }
   }
 
+  /** Trim every series to the retention window and drop series left without samples. */
+  _prune(now) {
+    const cutoff = now - this.maxAgeMs;
+    for (const [id, s] of this._series) {
+      let k = 0;
+      while (k < s.t.length && s.t[k] < cutoff) k++;
+      if (k > 0) for (const key of ["t", "u", "c", "p"]) s[key].splice(0, k);
+      if (!s.t.length) {
+        this._series.delete(id);
+        this._dirty = true;
+      }
+    }
+  }
+
   /** Readings newer than `sinceMs` (ms epoch). Arrays are parallel; `p` may hold nulls. */
   get(sparkId, sinceMs = 0) {
     const s = this._series.get(sparkId);
@@ -102,7 +116,9 @@ export class GpuHistory {
   }
 
   flush() {
-    if (!this.file || !this._dirty) return;
+    if (!this.file) return;
+    this._prune(this._now());
+    if (!this._dirty) return;
     try {
       const sparks = {};
       for (const [id, s] of this._series) sparks[id] = s;

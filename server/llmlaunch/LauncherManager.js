@@ -6,7 +6,7 @@ import { HOST_PATHS } from "../config.js";
 import { sshCommandSpec, sshExec } from "../collectors/ssh.js";
 import { chooseLocalInvocation } from "../collectors/HermesProbe.js";
 import {
-  EXIT_MARKER,
+  exitPrefix,
   buildAttachCommand,
   buildStartCommand,
   buildStatusCommand,
@@ -93,6 +93,8 @@ function resolveLocalInvocation(spark, cmd) {
     currentUid: typeof process.getuid === "function" ? process.getuid() : -1,
     user: spark.ssh?.user,
     cmd,
+    // Launcher scripts must never run as the dashboard's (root) user: refuse instead.
+    requireDrop: true,
   });
 }
 
@@ -217,16 +219,18 @@ export class LauncherManager {
     }
     let cmd;
     let maxMs;
+    const nonce = crypto.randomBytes(12).toString("hex");
     if (action === "start") {
-      cmd = buildStartCommand({ id: launcher.id, dir: launcher.dir, script: launcher.startScript });
+      cmd = buildStartCommand({ id: launcher.id, dir: launcher.dir, script: launcher.startScript, nonce });
       maxMs = START_WATCH_MAX_MS;
     } else if (action === "attach") {
-      cmd = buildAttachCommand({ id: launcher.id });
+      cmd = buildAttachCommand({ id: launcher.id, nonce });
       maxMs = START_WATCH_MAX_MS;
     } else {
-      cmd = buildStopCommand({ dir: launcher.dir, script: launcher.stopScript });
+      cmd = buildStopCommand({ dir: launcher.dir, script: launcher.stopScript, nonce });
       maxMs = STOP_MAX_MS;
     }
+    const markerPrefix = exitPrefix(nonce);
 
     const job = {
       id: crypto.randomBytes(6).toString("hex"),
@@ -251,19 +255,21 @@ export class LauncherManager {
     this.jobs.set(spark.id, job);
 
     const push = (text) => {
-      // The exit marker is protocol, not output.
-      const idx = text.indexOf(EXIT_MARKER);
-      if (idx >= 0) {
-        const n = Number.parseInt(text.slice(idx + EXIT_MARKER.length), 10);
+      // The exit marker is protocol, not output: only a line that STARTS with this job's
+      // random nonce counts, so script output can not forge or end the job early.
+      if (text.startsWith(markerPrefix)) {
+        const n = Number.parseInt(text.slice(markerPrefix.length), 10);
         job.markerExit = Number.isFinite(n) ? n : -1;
-        text = text.slice(0, idx);
-        if (!text) return;
+        // The marker is preceded by a newline that may have produced an empty line.
+        if (job.lines.length && job.lines[job.lines.length - 1].text === "") job.lines.pop();
+        return;
       }
       job.seq += 1;
       job.lines.push({ seq: job.seq, text });
       if (job.lines.length > MAX_LINES) {
-        job.lines.splice(0, job.lines.length - MAX_LINES);
-        job.dropped += 1;
+        const over = job.lines.length - MAX_LINES;
+        job.lines.splice(0, over);
+        job.dropped += over;
       }
     };
 
@@ -378,6 +384,9 @@ export class LauncherManager {
   cancel(sparkId) {
     const job = this.activeJob(sparkId);
     if (!job) return false;
+    // A stop script is real work in flight: it stays exclusive until it ends (or times out),
+    // so the UI can not offer Start while stop.sh is still running on the Spark.
+    if (job.action === "stop") return false;
     job.cancelled = true;
     this._kill(job);
     return true;
@@ -391,6 +400,36 @@ export class LauncherManager {
         this._kill(job);
       }
     }
+  }
+
+  /** True when the launcher's script (process group) is alive on the Spark. */
+  async isLive(spark, launcher) {
+    return (await this.statuses(spark, [launcher]))[launcher.id] === "running";
+  }
+
+  /** Remove a launcher unless its script is still running (that would orphan it). */
+  async removeLauncher(spark, launcherId) {
+    const launcher = this.store.get(spark.id, launcherId);
+    if (!launcher) return { ok: false, notFound: true, error: "Model not found" };
+    if (await this.isLive(spark, launcher)) {
+      return { ok: false, conflict: true, error: "This model is still running. Stop it first, then remove it." };
+    }
+    this.store.remove(spark.id, launcherId);
+    return { ok: true };
+  }
+
+  /** Update a launcher; changing dir / scripts is refused while its script is running. */
+  async updateLauncher(spark, launcherId, input) {
+    const launcher = this.store.get(spark.id, launcherId);
+    if (!launcher) return { ok: false, notFound: true, error: "Model not found" };
+    const body = input && typeof input === "object" ? input : {};
+    const changesTarget = ["dir", "startScript", "stopScript"].some(
+      (k) => body[k] !== undefined && body[k] !== launcher[k]
+    );
+    if (changesTarget && (await this.isLive(spark, launcher))) {
+      return { ok: false, conflict: true, error: "This model is still running. Stop it before changing its directory or scripts." };
+    }
+    return this.store.update(spark.id, launcherId, input);
   }
 
   removeSpark(sparkId) {

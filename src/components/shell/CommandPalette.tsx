@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { useFocusTrap } from "../../hooks/useFocusTrap";
+import { useInertBackground } from "../../hooks/useInertBackground";
 import { SearchIcon } from "../ui/icons";
 
 export interface PaletteCommand {
@@ -41,6 +43,9 @@ export function filterCommands(commands: PaletteCommand[], query: string): Palet
     .map((x) => x.c);
 }
 
+const LIST_ID = "palette-list";
+const optionId = (i: number) => `palette-option-${i}`;
+
 interface CommandPaletteProps {
   open: boolean;
   onClose: () => void;
@@ -54,13 +59,15 @@ export function CommandPalette({ open, onClose, commands }: CommandPaletteProps)
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const trapRef = useFocusTrap(open);
+  useInertBackground(open);
+
   const results = useMemo(() => filterCommands(commands, query), [commands, query]);
 
   useEffect(() => {
     if (open) {
       setQuery("");
       setSel(0);
-      requestAnimationFrame(() => inputRef.current?.focus());
     }
   }, [open]);
 
@@ -79,6 +86,8 @@ export function CommandPalette({ open, onClose, commands }: CommandPaletteProps)
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
+    // An IME is still composing (Enter confirms the candidate): leave every key to it.
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setSel((i) => Math.min(results.length - 1, i + 1));
@@ -102,7 +111,7 @@ export function CommandPalette({ open, onClose, commands }: CommandPaletteProps)
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="palette" role="dialog" aria-modal="true" aria-label="Command palette" onKeyDown={onKeyDown}>
+      <div ref={trapRef} className="palette" role="dialog" aria-modal="true" aria-label="Command palette" onKeyDown={onKeyDown}>
         <div className="palette__input">
           <SearchIcon className="h-4 w-4" />
           <input
@@ -112,12 +121,17 @@ export function CommandPalette({ open, onClose, commands }: CommandPaletteProps)
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Jump to a Spark, run an action, open settings…"
             aria-label="Search commands"
+            role="combobox"
+            aria-expanded="true"
+            aria-controls={LIST_ID}
+            aria-autocomplete="list"
+            aria-activedescendant={results.length > 0 ? optionId(Math.min(sel, results.length - 1)) : undefined}
             autoComplete="off"
             spellCheck={false}
           />
           <span className="kbd">Esc</span>
         </div>
-        <div className="palette__list" ref={listRef} role="listbox">
+        <div className="palette__list" ref={listRef} role="listbox" id={LIST_ID} aria-label="Commands">
           {results.length === 0 ? (
             <div className="palette__empty">No match for “{query}”.</div>
           ) : (
@@ -125,21 +139,23 @@ export function CommandPalette({ open, onClose, commands }: CommandPaletteProps)
               const header = cmd.group !== lastGroup ? cmd.group : null;
               lastGroup = cmd.group;
               return (
-                <div key={cmd.id}>
-                  {header ? <div className="palette__group">{header}</div> : null}
-                  <button
-                    type="button"
+                <div key={cmd.id} role="presentation">
+                  {header ? <div className="palette__group" role="presentation">{header}</div> : null}
+                  {/* Options are not tab stops: the input keeps focus and points at the selected one. */}
+                  <div
                     role="option"
+                    id={optionId(i)}
                     aria-selected={i === sel}
                     data-idx={i}
                     className={`palette__item ${i === sel ? "is-sel" : ""}`}
+                    onMouseDown={(e) => e.preventDefault()}
                     onMouseMove={() => setSel(i)}
                     onClick={() => run(cmd)}
                   >
                     <span className="grid h-5 w-5 place-items-center text-muted">{cmd.icon}</span>
                     <span className="min-w-0 truncate">{cmd.label}</span>
                     {cmd.hint ? <small>{cmd.hint}</small> : null}
-                  </button>
+                  </div>
                 </div>
               );
             })

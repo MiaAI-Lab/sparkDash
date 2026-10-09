@@ -18,9 +18,10 @@ import { useModalPresence } from "../../hooks/useModalPresence";
 import { BenchCopyButton } from "./BenchCopyButton";
 import { BenchSwitcher, type BenchKind } from "./BenchSwitcher";
 import { buildQualityShareCard } from "./benchShareCard";
-import { deltaPts, disagreements, formatDelta, overallVerdict } from "./qualityCompare";
+import { deltaPts, disagreements, formatDelta, formatP, overallVerdict, sharedOverallDelta } from "./qualityCompare";
 import { CheckIcon, XIcon } from "../ui/icons";
 import { Ring } from "../ui/Ring";
+import { qualityLongFitsContext } from "../../shared/contextFit.js";
 import {
   QUALITY_CATEGORIES,
   QUALITY_CATEGORY_LABELS,
@@ -32,6 +33,7 @@ import {
   QUALITY_LONG_SIZES,
   QUALITY_MAX_CONCURRENCY,
   QUALITY_MAX_LONG_ITEMS,
+  checkQualityComparable,
   compareQualityRuns,
   type QualityCompareRow,
 } from "../../shared/qualityBench.js";
@@ -128,12 +130,6 @@ function pct(v: number | null | undefined): string {
   return v == null ? "—" : `${v.toFixed(1)}%`;
 }
 
-function formatP(p: number): string {
-  if (p >= 0.995) return "1.00";
-  if (p < 0.001) return "<0.001";
-  return p.toFixed(3);
-}
-
 function runLabel(job: QualityBenchJob): string {
   const when = new Date(job.startedAt).toLocaleString(undefined, {
     month: "short",
@@ -183,7 +179,7 @@ function buildShareText(
     if (!s) continue;
     const notes = categoryNotes(cat, s);
     lines.push(
-      `${QUALITY_CATEGORY_LABELS[cat].padEnd(20)} ${`${s.passed}/${s.total}`.padStart(7)}  ${pct(s.pct).padStart(6)}${notes ? `  · ${notes}` : ""}`
+      `${QUALITY_CATEGORY_LABELS[cat].padEnd(20)} ${`${s.passed}/${s.scored ?? s.total}`.padStart(7)}  ${pct(s.pct).padStart(6)}${notes ? `  · ${notes}` : ""}`
     );
   }
   if (job.results.skippedLongSizes?.length) {
@@ -192,6 +188,8 @@ function buildShareText(
   if (compareJob && compareRows.length) {
     lines.push("");
     lines.push(`Compared with: ${runLabel(compareJob)}`);
+    const verdict = overallVerdict(compareRows);
+    if (verdict) lines.push(`Overall: ${verdict.text}`);
     for (const r of compareRows) {
       lines.push(
         `${QUALITY_CATEGORY_LABELS[r.category].padEnd(20)} ${pct(r.pctA).padStart(6)} vs ${pct(r.pctB).padStart(6)}  identical ${r.identical}/${r.paired}  only-this ${r.onlyA}  only-other ${r.onlyB}  p=${formatP(r.p)}  ${verdictLine(r)}`
@@ -200,7 +198,7 @@ function buildShareText(
   }
   lines.push("");
   lines.push(
-    `temp 0 · seed fixed · suite v${job.config.suiteVersion} · ${job.status} in ${formatDuration(job.durationMs)}`
+    `temp 0 · seed fixed · suite v${job.config.suiteVersion}${job.config.scoringVersion != null ? ` · scoring v${job.config.scoringVersion}` : ""} · ${job.status} in ${formatDuration(job.durationMs)}`
   );
   return lines.join("\n");
 }
@@ -226,7 +224,7 @@ function CategoryTable({ job }: { job: QualityBenchJob }) {
               <tr key={cat}>
                 <td className="q-cat-table__name">{QUALITY_CATEGORY_LABELS[cat]}</td>
                 <td className="is-num">
-                  {s.passed}/{s.total}
+                  {s.passed}/{s.scored ?? s.total}
                 </td>
                 <td className="is-num is-strong">{pct(s.pct)}</td>
                 <td className="q-cat-table__note">{categoryNotes(cat, s)}</td>
@@ -260,7 +258,10 @@ function ScoreCard({
   compareRows: QualityCompareRow[];
 }) {
   const overall = job.results.overallPct;
-  const delta = compareJob ? deltaPts(overall, compareJob.results?.overallPct) : null;
+  // Overall means over different category sets are not comparable: use the shared categories.
+  const shared = compareJob ? sharedOverallDelta(job, compareJob) : null;
+  const delta = shared?.delta ?? null;
+  const totalCats = Object.keys(job.results.categories ?? {}).length;
   const verdict = compareJob ? overallVerdict(compareRows) : null;
   return (
     <div className="q-side">
@@ -277,6 +278,7 @@ function ScoreCard({
         {delta != null && (
           <div className={`q-delta${delta > 0 ? " is-up" : delta < 0 ? " is-down" : ""}`}>
             {delta === 0 ? "Same score" : formatDelta(delta)} vs other run
+            {shared && shared.categories < totalCats ? ` · ${shared.categories} shared categor${shared.categories === 1 ? "y" : "ies"}` : ""}
           </div>
         )}
         {verdict && (
@@ -348,7 +350,7 @@ function CategoryBars({
               <div className="q-cat__name">
                 {QUALITY_CATEGORY_LABELS[cat]}
                 <small>
-                  {s.passed}/{s.total} items
+                  {s.passed}/{s.scored ?? s.total} items
                 </small>
               </div>
               <div className="q-cat__pair">
@@ -388,8 +390,8 @@ function CategoryBars({
 function DisagreementTable({ job, compareJob }: { job: QualityBenchJob; compareJob: QualityBenchJob }) {
   const rows = useMemo(() => disagreements(job, compareJob), [job, compareJob]);
   const paired = useMemo(() => {
-    const ids = new Set((compareJob.results?.items ?? []).map((it) => it.id));
-    return (job.results?.items ?? []).filter((it) => ids.has(it.id)).length;
+    const ok = new Set((compareJob.results?.items ?? []).filter((it) => !it.error).map((it) => it.id));
+    return (job.results?.items ?? []).filter((it) => !it.error && ok.has(it.id)).length;
   }, [job, compareJob]);
   const onlyA = rows.filter((r) => r.okA).length;
   const onlyB = rows.length - onlyA;
@@ -457,6 +459,7 @@ function ItemTable({ job }: { job: QualityBenchJob }) {
               key={f}
               type="button"
               onClick={() => setFilter(f)}
+              aria-pressed={filter === f}
               className={`rounded border px-2 py-0.5 text-[10px] uppercase tracking-wide ${
                 filter === f
                   ? "border-accent bg-accent-soft text-accent"
@@ -480,8 +483,11 @@ function ItemTable({ job }: { job: QualityBenchJob }) {
               {shown.map((it) => (
                 <tr key={it.id} className="border-t border-border align-top">
                   <td className="whitespace-nowrap py-1 pr-2 font-tabular text-muted">{it.id}</td>
-                  <td className={`py-1 pr-2 font-semibold ${it.ok ? "text-success" : "text-danger"}`}>
-                    {it.ok ? "✓" : "✗"}
+                  <td
+                    className={`py-1 pr-2 font-semibold ${it.ok ? "text-success" : it.error ? "text-muted" : "text-danger"}`}
+                    title={it.error ? "Request error — not scored" : undefined}
+                  >
+                    {it.ok ? "✓" : it.error ? "err" : "✗"}
                   </td>
                   <td className="py-1 break-words text-text [overflow-wrap:anywhere]">
                     {it.error ? <span className="text-danger">{it.error}</span> : it.excerpt}
@@ -531,6 +537,15 @@ export function QualityBenchDialog({
   const [error, setError] = useState<string | null>(null);
   // Which category's "How it works" panel is open.
   const [infoFor, setInfoFor] = useState<QualityCategory | null>(null);
+  const infoRef = useRef<HTMLDivElement | null>(null);
+  // The panel sits below the whole grid; on a one-column phone layout that is off screen.
+  useEffect(() => {
+    if (!infoFor) return;
+    const el = infoRef.current;
+    if (!el || typeof el.scrollIntoView !== "function") return;
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    el.scrollIntoView({ block: "nearest", behavior: reduce ? "auto" : "smooth" });
+  }, [infoFor]);
   const [starting, setStarting] = useState(false);
   const [loadingLast, setLoadingLast] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -628,7 +643,8 @@ export function QualityBenchDialog({
           if (Array.isArray(c?.longSizes) && c.longSizes.length) setLongSizes(c.longSizes);
           if (c?.longItems) setLongItems(String(c.longItems));
           if (c?.concurrency) setConcurrency(String(c.concurrency));
-          setLabel(c?.label ?? "");
+          // A finished run's label belongs to that run; a new run starts blank.
+          setLabel(current.status === "running" ? (c?.label ?? "") : "");
           if (current.status === "running") startPolling(current.benchId);
         } else {
           setJob(null);
@@ -665,12 +681,16 @@ export function QualityBenchDialog({
     };
   }, [sparkId, compareId]);
 
+  // Only the run picked in "compare with" counts (a stale compareJob must not leak into the card or text).
+  const activeCompare = compareJob && compareJob.benchId === compareId ? compareJob : null;
   const compareRows = useMemo(
-    () => (job && compareJob ? compareQualityRuns(job, compareJob) : []),
-    [job, compareJob]
+    () => (job && activeCompare ? compareQualityRuns(job, activeCompare) : []),
+    [job, activeCompare]
   );
+  const comparable = useMemo(() => checkQualityComparable(job, activeCompare), [job, activeCompare]);
 
-  const sizeFits = (n: number) => contextLength == null || contextLength <= 0 || n + 512 <= contextLength;
+  // Same rule as the server (src/shared/contextFit.js): 1.2x headroom plus the reply budget.
+  const sizeFits = (n: number) => qualityLongFitsContext(n, contextLength);
   const toggleCategory = (c: QualityCategory) => {
     if (isRunning || starting) return;
     setCategories((prev) => {
@@ -883,7 +903,7 @@ export function QualityBenchDialog({
                   })}
                 </div>
                 {infoFor ? (
-                  <div className="q-info" id="q-info-panel" role="region" aria-label={`How ${QUALITY_CATEGORY_LABELS[infoFor]} works`}>
+                  <div className="q-info" id="q-info-panel" ref={infoRef} role="region" aria-label={`How ${QUALITY_CATEGORY_LABELS[infoFor]} works`}>
                     <div className="q-info__head">
                       <b>{QUALITY_CATEGORY_LABELS[infoFor]}: how it works</b>
                       <button type="button" className="btn btn--sm btn--ghost" onClick={() => setInfoFor(null)}>
@@ -1006,7 +1026,7 @@ export function QualityBenchDialog({
             <section className="bench-sheet__section">
               <div className="bench-progress">
                 <div className="bench-progress__row">
-                  <span className="bench-progress__status">
+                  <span className="bench-progress__status" role="status" aria-live="polite">
                     Running
                     {job.progress.currentCategory
                       ? ` · ${QUALITY_CATEGORY_LABELS[job.progress.currentCategory]} ${job.progress.categoryDone}/${job.progress.categoryTotal}`
@@ -1016,7 +1036,15 @@ export function QualityBenchDialog({
                     {job.progress.done}/{job.progress.total || "…"} · {formatDuration(job.durationMs)}
                   </span>
                 </div>
-                <div className="bench-progress__track">
+                <div
+                  className="bench-progress__track"
+                  role="progressbar"
+                  aria-label="Quality benchmark progress"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.min(100, progressPct)}
+                  aria-valuetext={`${job.progress.done} of ${job.progress.total || "?"} items`}
+                >
                   <div className="bench-progress__fill" style={{ width: `${Math.min(100, progressPct)}%` }} />
                 </div>
                 {job.progress.message ? <p className="bench-sheet__hint">{job.progress.message}</p> : null}
@@ -1057,14 +1085,15 @@ export function QualityBenchDialog({
               )}
 
               {(() => {
-                const cmp = compareJob && compareJob.benchId === compareId ? compareJob : null;
+                const cmp = activeCompare;
                 return (
                   <>
                     <div className="q-cmp">
-                      <ScoreCard job={job} compareJob={cmp} compareRows={cmp ? compareRows : []} />
-                      <CategoryBars job={job} compareJob={cmp} compareRows={cmp ? compareRows : []} />
+                      <ScoreCard job={job} compareJob={cmp && comparable.ok ? cmp : null} compareRows={cmp ? compareRows : []} />
+                      <CategoryBars job={job} compareJob={cmp && comparable.ok ? cmp : null} compareRows={cmp ? compareRows : []} />
                     </div>
-                    {cmp && compareRows.length === 0 && (
+                    {cmp && !comparable.ok && <p className="bench-sheet__error">{comparable.reason}</p>}
+                    {cmp && comparable.ok && compareRows.length === 0 && (
                       <p className="bench-sheet__hint">No shared items between these runs.</p>
                     )}
                     {cmp && compareRows.length > 0 && <DisagreementTable job={job} compareJob={cmp} />}
@@ -1083,7 +1112,8 @@ export function QualityBenchDialog({
 
               <p className="bench-legend">
                 <strong>Score</strong> — items passed. <strong>p</strong> — exact McNemar test on items only one
-                run got right; p ≥ 0.05 means the difference is within noise.
+                run got right; p ≥ 0.05 means the difference is within noise. Items with a request error or timeout
+                are not scored and are left out of the comparison.
               </p>
             </section>
           )}
@@ -1093,9 +1123,9 @@ export function QualityBenchDialog({
   const copyButton =
     job && hasItems ? (
       <BenchCopyButton
-        text={buildShareText(job, compareJob, compareRows)}
+        text={buildShareText(job, activeCompare, compareRows)}
         buildCard={() =>
-          buildQualityShareCard(job, compareJob && compareJob.benchId === compareId ? compareJob : null, {
+          buildQualityShareCard(job, activeCompare, {
             llmPort: benchPort,
             modelId: job.config.modelId || modelId,
             sparkName,
@@ -1225,9 +1255,9 @@ export function QualityBenchDialog({
               </button>
               {hasItems && (
                 <BenchCopyButton
-                  text={buildShareText(job, compareJob, compareRows)}
+                  text={buildShareText(job, activeCompare, compareRows)}
                   buildCard={() =>
-                    buildQualityShareCard(job, compareJob && compareJob.benchId === compareId ? compareJob : null, {
+                    buildQualityShareCard(job, activeCompare, {
                       llmPort: benchPort,
                       modelId: job.config.modelId || modelId,
                       sparkName,

@@ -231,6 +231,8 @@ export function useToolEvalRunner(sparkId: string, type: string, onSettled: (run
   const [pollError, setPollError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState<ToolEvalJob | null>(null);
+  /** A run of another page type is active on this Spark (not followed here). */
+  const [elsewhere, setElsewhere] = useState<{ id: string; type: string | null } | null>(null);
   const lineRef = useRef(0);
   const eventRef = useRef(0);
   const settledRef = useRef(onSettled);
@@ -267,7 +269,9 @@ export function useToolEvalRunner(sparkId: string, type: string, onSettled: (run
       if (r.active && (r.active.kind === "run" || r.active.kind === "attach")) {
         const known = r.runs.find((x) => x.id === r.active?.id);
         const run = known ?? (await fetchToolEvalRun(sparkId, r.active.id).then((x) => x.run).catch(() => null));
-        if (!off && run) follow(run);
+        if (off) return;
+        if (run && run.type === type) follow(run);
+        else setElsewhere({ id: r.active.id, type: run?.type ?? r.active.type });
         return;
       }
       const stale = r.runs.find((x) => x.status === "running");
@@ -283,7 +287,7 @@ export function useToolEvalRunner(sparkId: string, type: string, onSettled: (run
     return () => {
       off = true;
     };
-  }, [sparkId, reloadRuns, follow]);
+  }, [sparkId, type, reloadRuns, follow]);
 
   // Poll the followed run.
   useEffect(() => {
@@ -393,14 +397,23 @@ export function useToolEvalRunner(sparkId: string, type: string, onSettled: (run
     },
     [sparkId, run, follow]
   );
-  const refresh = useCallback(
-    async (r: ToolEvalRun) => {
-      const ok = await run(() => refreshToolEvalRun(sparkId, r.id));
+  /** Ask the Spark whether a run has finished; resolves with the refreshed run (null when the call failed). */
+  const refreshRun = useCallback(
+    async (r: ToolEvalRun): Promise<ToolEvalRun | null> => {
+      let fresh: ToolEvalRun | null = null;
+      const ok = await run(async () => {
+        fresh = (await refreshToolEvalRun(sparkId, r.id)).run;
+      });
       await reloadRuns();
-      return ok;
+      if (ok && fresh) {
+        const next: ToolEvalRun = fresh;
+        setFollowed((p) => (p?.run.id === r.id ? { ...p, run: next } : p));
+      }
+      return ok ? fresh : null;
     },
     [sparkId, run, reloadRuns]
   );
+  const refresh = useCallback(async (r: ToolEvalRun) => (await refreshRun(r)) !== null, [refreshRun]);
   const remove = useCallback(
     async (r: ToolEvalRun) => {
       const ok = await run(() => deleteToolEvalRun(sparkId, r.id));
@@ -430,6 +443,8 @@ export function useToolEvalRunner(sparkId: string, type: string, onSettled: (run
     stopWatching,
     attach,
     refresh,
+    refreshRun,
+    elsewhere,
     remove,
     clearError: () => setActionError(null),
   };
@@ -444,21 +459,28 @@ export interface ResultState {
 }
 
 export function useToolEvalResult(sparkId: string, runId: string | null, version = 0): ResultState & { reload: () => void } {
-  const [state, setState] = useState<ResultState>({ loading: false, error: null, result: null, run: null });
+  const [state, setState] = useState<ResultState & { forId: string | null }>({ loading: false, error: null, result: null, run: null, forId: null });
   const [attempt, setAttempt] = useState(0);
+  const shownFor = useRef<string | null>(null);
   useEffect(() => {
     if (!runId) {
-      setState({ loading: false, error: null, result: null, run: null });
+      shownFor.current = null;
+      setState({ loading: false, error: null, result: null, run: null, forId: null });
       return;
     }
     let off = false;
-    setState((s) => ({ ...s, loading: true, error: null }));
+    // A different run must never show the previous run's result while loading; a reload of the same run keeps it.
+    const same = shownFor.current === runId;
+    shownFor.current = runId;
+    setState((s) => (same ? { ...s, loading: true, error: null } : { loading: true, error: null, result: null, run: null, forId: runId }));
     fetchToolEvalResult(sparkId, runId)
-      .then((r) => !off && setState({ loading: false, error: null, result: r.result, run: r.run }))
-      .catch((e) => !off && setState({ loading: false, error: msg(e), result: null, run: null }));
+      .then((r) => !off && setState({ loading: false, error: null, result: r.result, run: r.run, forId: runId }))
+      .catch((e) => !off && setState({ loading: false, error: msg(e), result: null, run: null, forId: runId }));
     return () => {
       off = true;
     };
   }, [sparkId, runId, version, attempt]);
-  return { ...state, reload: () => setAttempt((n) => n + 1) };
+  // Until the effect has switched to a new run, never hand out the previous run's result.
+  const out: ResultState = !runId || state.forId === runId ? state : { loading: true, error: null, result: null, run: null };
+  return { loading: out.loading, error: out.error, result: out.result, run: out.run, reload: () => setAttempt((n) => n + 1) };
 }

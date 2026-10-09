@@ -52,7 +52,7 @@ describe("VramBreakdownBar", () => {
     expect(headroom.textContent).toBe("7.2 GB free");
     expect(headroom.className).toContain("text-warning");
     expect(container.querySelector("[data-legend]")?.textContent).toBe(
-      "Engine 98.6 · System 15.8 · Free 7.2 GB · KV 5%",
+      "Model 98.6 GB · System 15.8 GB",
     );
   });
 
@@ -61,13 +61,14 @@ describe("VramBreakdownBar", () => {
     expect(container.querySelector("[data-legend]")).toBeNull();
   });
 
-  it("marks a nearly full KV pool amber in the legend", () => {
+  it("keeps KV out of the legend and marks a nearly full pool amber in the breakdown", () => {
     const { container } = render(
       <VramBreakdownBar label="VRAM" breakdown={spark1(0.93)} showLegend />,
     );
-    const legend = container.querySelector("[data-legend]")!;
-    const kv = Array.from(legend.querySelectorAll("span")).find((s) => s.textContent?.includes("KV 93%"));
-    expect(kv?.className).toContain("text-warning");
+    expect(container.querySelector("[data-legend]")!.textContent).not.toContain("KV");
+    const tip = container.querySelector('[role="tooltip"]')!;
+    const row = Array.from(tip.querySelectorAll("span")).find((s) => s.textContent === "93%");
+    expect(row?.className).toContain("text-warning");
   });
 
   it("opens the breakdown on keyboard focus, describes the bar with it, and closes on Escape", () => {

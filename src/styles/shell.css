@@ -69,6 +69,8 @@ body {
   border: 0;
   background: none;
   color: var(--color-text-strong);
+  text-decoration: none;
+  cursor: pointer;
   font-size: 16px;
   font-weight: 650;
   letter-spacing: -0.01em;
@@ -158,43 +160,6 @@ body {
 }
 .rail-item.is-active .rail-item__sub {
   color: var(--color-accent-text);
-}
-/* The edit button overlays the right-hand label on hover; nothing changes size, so the row never jumps. */
-.rail-item__tools {
-  position: absolute;
-  top: 50%;
-  right: 8px;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding-left: 6px;
-  transform: translateY(-50%);
-  background: var(--color-surface-hover);
-  opacity: 0;
-  pointer-events: none;
-}
-.rail-item:hover .rail-item__tools,
-.rail-item:focus-within .rail-item__tools {
-  opacity: 1;
-  pointer-events: auto;
-}
-.rail-item:hover .rail-item__sub,
-.rail-item:focus-within .rail-item__sub {
-  opacity: 0;
-}
-.rail-tool {
-  display: grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  border: 0;
-  border-radius: 6px;
-  background: none;
-  color: var(--color-muted);
-}
-.rail-tool:hover {
-  background: var(--color-surface);
-  color: var(--color-text);
 }
 .rail-foot {
   position: sticky;
@@ -390,6 +355,7 @@ body {
   color: var(--color-text);
   font-size: 14px;
   text-align: left;
+  cursor: pointer;
 }
 .palette__item.is-sel {
   background: var(--color-surface-hover);
@@ -849,13 +815,28 @@ body {
   display: none;
 }
 @media (min-width: 901px) {
-  .app-shell--side-hidden {
-    grid-template-columns: 52px minmax(0, 1fr);
+  /* Hide / show: the column glides between the full rail and the slim strip while the rail
+     slides and fades out and the strip fades in. Both stay mounted so it can animate both ways. */
+  .app-shell {
+    transition: grid-template-columns 0.42s cubic-bezier(0.22, 1, 0.36, 1);
   }
-  .app-shell--side-hidden .app-side {
-    display: none;
+  .app-shell > .app-side,
+  .app-shell > .side-strip {
+    grid-column: 1;
+    grid-row: 1;
   }
-  .app-shell--side-hidden .side-strip {
+  .app-shell > .app-main {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .app-side {
+    overflow-x: hidden;
+    transition: opacity 0.22s ease, transform 0.42s cubic-bezier(0.22, 1, 0.36, 1), visibility 0s linear 0s;
+  }
+  .app-side > * {
+    min-width: 224px;
+  }
+  .side-strip {
     position: sticky;
     top: 0;
     align-self: start;
@@ -865,6 +846,33 @@ body {
     height: 100vh;
     border-right: 1px solid var(--color-border);
     background: color-mix(in srgb, var(--color-surface) 55%, var(--color-base));
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.25s ease 0.12s, visibility 0s linear 0.4s;
+  }
+  .app-shell--side-hidden {
+    grid-template-columns: 52px minmax(0, 1fr);
+  }
+  .app-shell--side-hidden .app-side {
+    opacity: 0;
+    transform: translateX(-28px);
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.18s ease, transform 0.42s cubic-bezier(0.22, 1, 0.36, 1), visibility 0s linear 0.42s;
+  }
+  .app-shell--side-hidden .side-strip {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transition: opacity 0.25s ease 0.18s, visibility 0s linear 0s;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-shell,
+  .app-side,
+  .side-strip {
+    transition: none !important;
   }
 }
 
@@ -895,4 +903,26 @@ body {
 .rail-credit__links a:hover {
   background: var(--color-surface-hover);
   color: var(--color-text-strong);
+}
+
+.bench-runon__tag {
+  margin-left: 6px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+a.rail-item {
+  text-decoration: none;
+  color: inherit;
+}
+
+/* Role badges (head / worker / standalone): capitals, a little larger */
+.tag.tag--role {
+  padding: 3px 11px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }

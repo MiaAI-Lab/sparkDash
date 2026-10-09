@@ -612,6 +612,7 @@ import type {
   ToolEvalRunRequest,
   ToolEvalSpec,
   ToolEvalStatus,
+  ToolEvalUpdateCheck,
   ToolEvalStreamRead,
 } from "./types";
 import { ToolEvalApiError } from "./types";
@@ -643,6 +644,10 @@ export function fetchToolEvalSpec(): Promise<ToolEvalSpec> {
 
 export function fetchToolEvalStatus(sparkId: string): Promise<ToolEvalStatus> {
   return teFetch(`${teBase(sparkId)}/status`);
+}
+
+export function fetchToolEvalUpdateCheck(sparkId: string): Promise<ToolEvalUpdateCheck> {
+  return teFetch(`${teBase(sparkId)}/update-check`);
 }
 
 export function fetchToolEvalInstallCommand(sparkId: string, extras: string[], upgrade: boolean): Promise<{ command: string }> {

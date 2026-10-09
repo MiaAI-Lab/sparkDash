@@ -1,7 +1,8 @@
 import crypto from "crypto";
+import { StringDecoder } from "node:string_decoder";
 import { defaultSpawn, LineSplitter } from "../llmlaunch/LauncherManager.js";
 import {
-  TE_EXIT,
+  exitToken,
   buildAttachProgram,
   buildCheckProgram,
   buildDeleteRunProgram,
@@ -10,6 +11,7 @@ import {
   buildReadResultProgram,
   buildRunProgram,
   buildStatusProgram,
+  buildUpdateCheckProgram,
   buildStopProgram,
   secretsPayload,
 } from "./commands.js";
@@ -20,6 +22,10 @@ const RUN_WATCH_MAX_MS = 12 * 60 * 60 * 1000;
 const INSTALL_MAX_MS = 20 * 60 * 1000;
 const ONCE_TIMEOUT_MS = 120_000;
 const KILL_GRACE_MS = 3000;
+const MAX_ONCE_BYTES = 40 * 1024 * 1024;
+const MAX_LINE_CHARS = 64 * 1024;
+const newNonce = () => crypto.randomBytes(9).toString("hex");
+const escapeRe = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** Fold one JSONL progress event from the tool into the live progress summary. Pure. */
 export function reduceProgress(prev, ev) {
@@ -131,6 +137,8 @@ export class ToolEvalManager {
     this.now = now;
     /** @type {Map<string, object>} sparkId -> latest job */
     this.jobs = new Map();
+    /** @type {Map<string, Promise<any>>} in-flight Spark calls (status, result capture) */
+    this._inflight = new Map();
   }
 
   summary(job) {
@@ -156,8 +164,12 @@ export class ToolEvalManager {
     return this.jobs.get(sparkId) ?? null;
   }
 
-  /** Run a short program to completion and collect its output (probe, dry-run, status, …). */
-  runOnce(spark, cmd, { stdin = null, timeoutMs = ONCE_TIMEOUT_MS } = {}) {
+  /**
+   * Run a short program to completion and collect its output (probe, dry-run, status, ...).
+   * `nonce`: the per-run marker nonce the program prints its exit code with (last marker line wins).
+   * `stdoutOnly`: ignore stderr (ssh noise) so the output is exactly what the program printed.
+   */
+  runOnce(spark, cmd, { stdin = null, timeoutMs = ONCE_TIMEOUT_MS, nonce = "", stdoutOnly = false } = {}) {
     return new Promise((resolve) => {
       let child;
       try {
@@ -167,12 +179,24 @@ export class ToolEvalManager {
         return;
       }
       let out = "";
+      let size = 0;
       let timedOut = false;
-      const cap = (b) => {
-        if (out.length < 40 * 1024 * 1024) out += b.toString("utf8");
+      let overflow = false;
+      const mk = (collect) => {
+        const dec = new StringDecoder("utf8");
+        return (b) => {
+          if (!collect || overflow) return;
+          size += b.length;
+          if (size > MAX_ONCE_BYTES) {
+            overflow = true;
+            this._killGroup(child);
+            return;
+          }
+          out += dec.write(b);
+        };
       };
-      child.stdout?.on("data", cap);
-      child.stderr?.on("data", cap);
+      child.stdout?.on("data", mk(true));
+      child.stderr?.on("data", mk(!stdoutOnly));
       const timer = setTimeout(() => {
         timedOut = true;
         this._killGroup(child);
@@ -184,13 +208,25 @@ export class ToolEvalManager {
       });
       child.on("close", (code) => {
         clearTimeout(timer);
-        const m = new RegExp(`${TE_EXIT}(-?\\d+)`).exec(out);
-        const exit = m ? Number.parseInt(m[1], 10) : code;
+        let exit = code;
+        let output = out;
+        if (nonce) {
+          const token = exitToken(nonce);
+          const re = new RegExp(`(?:^|\\n)${escapeRe(token)}(-?\\d+)[ \\t]*(?=\\n|$)`, "g");
+          let m;
+          let last = null;
+          while ((m = re.exec(out))) last = m;
+          if (last) {
+            exit = Number.parseInt(last[1], 10);
+            output = out.slice(0, last.index);
+          }
+        }
         resolve({
-          ok: !timedOut && exit === 0,
+          ok: !timedOut && !overflow && exit === 0,
           code: exit,
-          output: out.replace(new RegExp(`${TE_EXIT}-?\\d+\\s*$`), "").trimEnd(),
-          error: timedOut ? "The Spark did not answer in time" : null,
+          output: output.trimEnd(),
+          error: overflow ? "The output was too large to read" : timedOut ? "The Spark did not answer in time" : null,
+          overflow,
         });
       });
       if (stdin != null && child.stdin) {
@@ -201,8 +237,23 @@ export class ToolEvalManager {
   }
 
   /** Is the tool installed on this Spark? */
-  async status(spark) {
-    const res = await this.runOnce(spark, buildStatusProgram(), { timeoutMs: 40_000 });
+  status(spark) {
+    return this._once(`status:${spark.id}`, () => this._status(spark));
+  }
+
+  /** Share one in-flight Spark call between concurrent callers with the same key. */
+  _once(key, fn) {
+    const hit = this._inflight.get(key);
+    if (hit) return hit;
+    const p = Promise.resolve()
+      .then(fn)
+      .finally(() => this._inflight.delete(key));
+    this._inflight.set(key, p);
+    return p;
+  }
+
+  async _status(spark) {
+    const res = await this.runOnce(spark, buildStatusProgram(), { timeoutMs: 40_000, stdoutOnly: true });
     const kv = {};
     for (const line of res.output.split("\n")) {
       const i = line.indexOf("=");
@@ -221,10 +272,43 @@ export class ToolEvalManager {
     };
   }
 
+  /** Is a newer commit of the tool on GitHub than the installed one? Asked from the Spark, so it needs no internet here. */
+  checkUpdate(spark) {
+    return this._once(`update:${spark.id}`, () => this._checkUpdate(spark));
+  }
+
+  async _checkUpdate(spark) {
+    const status = await this.status(spark);
+    if (!status.installed) return { installed: false, error: null };
+    const m = /\+g([0-9a-f]{7,40})/i.exec(status.version ?? "");
+    const installedCommit = m ? m[1].toLowerCase() : null;
+    const res = await this.runOnce(spark, buildUpdateCheckProgram(), { timeoutMs: 40_000, stdoutOnly: true });
+    const kv = {};
+    for (const line of res.output.split("\n")) {
+      const i = line.indexOf("=");
+      if (i > 0) kv[line.slice(0, i)] = line.slice(i + 1).trim();
+    }
+    const latest = /^[0-9a-f]{40}$/i.test(kv.LATEST ?? "") ? kv.LATEST.toLowerCase() : null;
+    if (!latest) {
+      return { installed: true, installedCommit, latestCommit: null, latestDate: null, upToDate: null, error: kv.ERROR || res.error || "GitHub did not answer from the Spark." };
+    }
+    return {
+      installed: true,
+      installedCommit,
+      latestCommit: latest,
+      latestDate: kv.LATEST_DATE || null,
+      // The installed version carries a short commit hash; unknown when it carries none (a release build).
+      upToDate: installedCommit ? latest.startsWith(installedCommit) : null,
+      error: null,
+    };
+  }
+
   /** `--probe` / `--dry-run` / any non-run tool call, synchronous. */
   async once(spark, { argvB64, secrets }) {
     const wantStdin = secrets != null;
-    return this.runOnce(spark, buildOnceProgram({ argvB64, wantStdin }), {
+    const nonce = newNonce();
+    return this.runOnce(spark, buildOnceProgram({ argvB64, wantStdin, nonce }), {
+      nonce,
       stdin: wantStdin ? secrets : null,
       timeoutMs: 100_000,
     });
@@ -248,6 +332,8 @@ export class ToolEvalManager {
       progress: emptyProgress(),
       splitter: new LineSplitter(),
       src: "O",
+      nonce: newNonce(),
+      stdoutSeen: false,
       markerExit: null,
       cancelled: false,
       timedOut: false,
@@ -259,6 +345,8 @@ export class ToolEvalManager {
 
   _feed(job, chunk) {
     for (const line of job.splitter.feed(chunk)) this._line(job, line);
+    // A single unterminated line must not grow without bound.
+    if (job.splitter.partial.length > MAX_LINE_CHARS) this._line(job, `${job.splitter.flush().slice(0, MAX_LINE_CHARS)} [line truncated]`);
   }
 
   _line(job, line) {
@@ -273,9 +361,12 @@ export class ToolEvalManager {
       return;
     }
     job.skipBlank = false;
-    const at = line.indexOf(TE_EXIT);
+    // The marker carries a per-run nonce only the wrapper knows, so output from the tool (or a model)
+    // cannot forge it; the last occurrence wins.
+    const token = exitToken(job.nonce);
+    const at = line.lastIndexOf(token);
     if (at >= 0) {
-      const n = Number.parseInt(line.slice(at + TE_EXIT.length), 10);
+      const n = Number.parseInt(line.slice(at + token.length), 10);
       job.markerExit = Number.isFinite(n) ? n : -1;
       line = line.slice(0, at);
       if (!line) return;
@@ -307,8 +398,13 @@ export class ToolEvalManager {
       return job;
     }
     job.child = child;
-    child.stdout?.on("data", (b) => this._feed(job, b.toString("utf8")));
-    child.stderr?.on("data", (b) => this._feed(job, b.toString("utf8")));
+    const outDec = new StringDecoder("utf8");
+    const errDec = new StringDecoder("utf8");
+    child.stdout?.on("data", (b) => {
+      job.stdoutSeen = true;
+      this._feed(job, outDec.write(b));
+    });
+    child.stderr?.on("data", (b) => this._feed(job, errDec.write(b)));
     child.on("error", (err) => this._finish(job, spark, { error: err.message }));
     child.on("close", (code) => this._finish(job, spark, { code }));
     if (stdin != null && child.stdin) {
@@ -349,10 +445,13 @@ export class ToolEvalManager {
   startRun(spark, { run, argv, env }) {
     const busy = this.activeJob(spark.id);
     if (busy && busy.kind !== "attach") return { ok: false, reason: "busy", active: this.summary(busy) };
+    // A run whose watcher ended (detached, cancelled, failed watch) may still be running on the Spark.
+    const orphan = this.store.list({ sparkId: spark.id }).find((r) => r.status === "running" && r.id !== run.id);
+    if (orphan) return { ok: false, reason: "busy", active: { id: orphan.id, sparkId: spark.id, kind: "run", type: orphan.type, status: "running" } };
     if (busy) this._detach(busy, spark);
     const argvB64 = Buffer.from(argv.join("\0") + "\0", "utf8").toString("base64");
-    const cmd = buildRunProgram({ runId: run.id, argvB64, displayLine: run.command });
     const job = this._newJob(spark, { id: run.id, kind: "run", type: run.type });
+    const cmd = buildRunProgram({ runId: run.id, argvB64, displayLine: run.command, nonce: job.nonce });
     this._startJob(spark, job, cmd, { stdin: secretsPayload(env), maxMs: RUN_WATCH_MAX_MS });
     this.onEvent({
       type: "tooleval.run.started",
@@ -373,7 +472,7 @@ export class ToolEvalManager {
       this._detach(busy, spark);
     }
     const job = this._newJob(spark, { id: run.id, kind: "attach", type: run.type });
-    this._startJob(spark, job, buildAttachProgram({ runId: run.id }), { maxMs: RUN_WATCH_MAX_MS });
+    this._startJob(spark, job, buildAttachProgram({ runId: run.id, nonce: job.nonce }), { maxMs: RUN_WATCH_MAX_MS });
     return { ok: true, job };
   }
 
@@ -382,7 +481,7 @@ export class ToolEvalManager {
     if (busy && busy.kind !== "attach") return { ok: false, reason: "busy", active: this.summary(busy) };
     if (busy) this._detach(busy, spark);
     const job = this._newJob(spark, { id: `install-${crypto.randomBytes(3).toString("hex")}`, kind: "install", type: null });
-    this._startJob(spark, job, buildInstallProgram({ extras, upgrade }), { maxMs: INSTALL_MAX_MS });
+    this._startJob(spark, job, buildInstallProgram({ extras, upgrade, nonce: job.nonce }), { maxMs: INSTALL_MAX_MS });
     return { ok: true, job };
   }
 
@@ -431,6 +530,10 @@ export class ToolEvalManager {
       job.status = "stopped";
     } else if (job.exitCode != null) {
       job.status = "failed";
+    } else if (job.kind !== "attach" && job.markerExit == null && !job.stdoutSeen && code != null && code !== 0) {
+      // The connection (ssh exit 255) or the shell failed before the program printed anything: nothing started.
+      job.status = "failed";
+      job.error = `Could not reach the Spark or start the run (exit ${code}).`;
     } else {
       // The connection ended before the tool's exit code was seen: the run itself may still be alive.
       job.status = job.kind === "install" ? "failed" : "detached";
@@ -479,8 +582,13 @@ export class ToolEvalManager {
   }
 
   /** Pull result.json from the Spark, cache it locally, and store its headline numbers. */
-  async captureResult(spark, runId) {
-    const res = await this.runOnce(spark, buildReadResultProgram({ runId }), { timeoutMs: 90_000 });
+  captureResult(spark, runId) {
+    return this._once(`result:${spark.id}:${runId}`, () => this._captureResult(spark, runId));
+  }
+
+  async _captureResult(spark, runId) {
+    const res = await this.runOnce(spark, buildReadResultProgram({ runId }), { timeoutMs: 90_000, stdoutOnly: true });
+    if (res.overflow) return { ok: false, reason: "too-big" };
     const text = res.output.trim();
     if (!text || text === "__NORESULT__") return { ok: false, reason: "no-result" };
     if (text.startsWith("__TOOBIG__")) return { ok: false, reason: "too-big" };
@@ -490,14 +598,16 @@ export class ToolEvalManager {
     } catch {
       return { ok: false, reason: "invalid-json" };
     }
-    this.store.saveResult(runId, text);
+    // The run may have been deleted while the file was being read: do not resurrect its cache.
+    if (!this.store.get(runId)) return { ok: false, reason: "deleted" };
+    if (!this.store.saveResult(runId, text)) return { ok: false, reason: "deleted" };
     this.store.update(runId, { resultCached: true, summary: summarizeResult(parsed) });
     return { ok: true };
   }
 
   /** Settle a run whose watcher was lost: is it still alive, or how did it end? */
   async checkRun(spark, runId) {
-    const res = await this.runOnce(spark, buildCheckProgram({ runId }), { timeoutMs: 40_000 });
+    const res = await this.runOnce(spark, buildCheckProgram({ runId }), { timeoutMs: 40_000, stdoutOnly: true });
     const out = res.output.trim().split("\n").pop() ?? "";
     if (out === "ALIVE") return { state: "running" };
     if (out === "GONE") {
@@ -515,10 +625,16 @@ export class ToolEvalManager {
     return { state: "finished", exitCode: code };
   }
 
+  /** Remove the run's files on the Spark, best effort. */
+  async removeRemote(spark, runId) {
+    if (spark) await this.runOnce(spark, buildDeleteRunProgram({ runId }), { timeoutMs: 40_000, stdoutOnly: true }).catch(() => {});
+  }
+
   /** Remove the run's files on the Spark (best effort) and forget it locally. */
   async deleteRun(spark, runId) {
-    if (spark) await this.runOnce(spark, buildDeleteRunProgram({ runId }), { timeoutMs: 40_000 }).catch(() => {});
-    return this.store.remove(runId);
+    const removed = this.store.remove(runId);
+    await this.removeRemote(spark, runId);
+    return removed;
   }
 
   readJob(sparkId, jobId, { lineSince = 0, eventSince = 0 } = {}) {

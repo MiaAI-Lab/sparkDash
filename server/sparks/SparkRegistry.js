@@ -1,7 +1,7 @@
 import fs from "fs";
 import { SPARKS_JSON_PATH, LLM_PORT } from "../config.js";
 import { loadSecrets, saveSecrets } from "../secretsStore.js";
-import { atomicWrite } from "../util/atomicWrite.js";
+import { atomicWrite, quarantineCorrupt } from "../util/atomicWrite.js";
 import { isValidSparkId, normalizeSshPort } from "../validate.js";
 import { llmProbeHost } from "../collectors/llmHost.js";
 
@@ -286,6 +286,7 @@ export class SparkRegistry {
         this._save();
       } else {
         console.error("[SparkRegistry] Failed to load sparks.json:", err.message);
+        if (err instanceof SyntaxError) quarantineCorrupt(SPARKS_JSON_PATH, "SparkRegistry", err);
         this._sparks = [];
       }
     }

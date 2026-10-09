@@ -1,15 +1,22 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { LauncherRunState, LlmLauncher, SparkSnapshot } from "../../api/types";
-import { fetchLaunchers, runLauncher } from "../../api/client";
+import { runLauncher } from "../../api/client";
+import { fetchLaunchersCached, getCachedLaunchers, invalidateLaunchers, patchCachedStatus } from "../../hooks/launcherCache";
 import { LlmLauncherDialog } from "../SparkPage/LlmLauncherDialog";
 import { PlusIcon } from "../ui/icons";
 
 const REFRESH_MS = 30_000;
+/** Status re-check after a Start, once the script has had time to bring the engine up. */
+const AFTER_START_MS = 2_500;
 const MAX_ROWS = 3;
 
 /**
  * Fills an idle Spark card: start one of the models registered for this Spark
  * (the Models panel's start.sh launchers) or register a first one.
+ *
+ * The list and statuses come from the shared launcher cache (one SSH-backed request per Spark
+ * at most every few seconds, however many cards or panels ask), so a card that remounts
+ * when the LLM flaps shows the last known state at once instead of probing again.
  */
 export function ModelLauncher({
   spark,
@@ -22,31 +29,50 @@ export function ModelLauncher({
   busy?: string | null;
 }) {
   const sparkId = spark.id;
-  const [launchers, setLaunchers] = useState<LlmLauncher[] | null>(null);
-  const [statuses, setStatuses] = useState<Record<string, LauncherRunState>>({});
+  const initial = getCachedLaunchers(sparkId);
+  const [launchers, setLaunchers] = useState<LlmLauncher[] | null>(initial?.launchers ?? null);
+  const [statuses, setStatuses] = useState<Record<string, LauncherRunState>>(initial?.statuses ?? {});
   const [failed, setFailed] = useState(false);
   const [starting, setStarting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [override, setOverride] = useState(false);
+  /** Ignores results that arrive after unmount or a Spark switch. */
+  const aliveRef = useRef(true);
+  const afterStartTimer = useRef<number | undefined>(undefined);
 
-  const refresh = useCallback(async () => {
-    try {
-      const res = await fetchLaunchers(sparkId, true);
-      setLaunchers(res.launchers);
-      setStatuses(res.statuses ?? {});
-      setFailed(false);
-    } catch {
-      setFailed(true);
-    }
-  }, [sparkId]);
+  const refresh = useCallback(
+    async (force = false) => {
+      try {
+        const res = await fetchLaunchersCached(sparkId, { force });
+        if (!aliveRef.current) return;
+        setLaunchers(res.launchers);
+        setStatuses(res.statuses ?? {});
+        setFailed(false);
+        setError(null);
+      } catch {
+        if (aliveRef.current) setFailed(true);
+      }
+    },
+    [sparkId]
+  );
 
   useEffect(() => {
+    aliveRef.current = true;
     void refresh();
     const t = window.setInterval(() => {
       if (!document.hidden) void refresh();
     }, REFRESH_MS);
-    return () => window.clearInterval(t);
+    const onVisible = () => {
+      if (!document.hidden) void refresh();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      aliveRef.current = false;
+      window.clearInterval(t);
+      window.clearTimeout(afterStartTimer.current);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [refresh]);
 
   async function start(l: LlmLauncher) {
@@ -54,16 +80,20 @@ export function ModelLauncher({
     setStarting(l.id);
     try {
       await runLauncher(sparkId, l.id, "start");
+      if (!aliveRef.current) return;
+      // Not followed from here (the Spark page shows the output); just keep the status honest.
+      patchCachedStatus(sparkId, l.id, "running");
       setStatuses((s) => ({ ...s, [l.id]: "running" }));
-      window.setTimeout(() => void refresh(), 2500);
+      invalidateLaunchers(sparkId);
+      window.clearTimeout(afterStartTimer.current);
+      afterStartTimer.current = window.setTimeout(() => void refresh(true), AFTER_START_MS);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (aliveRef.current) setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setStarting(null);
+      if (aliveRef.current) setStarting(null);
     }
   }
 
-  const stop = (e: { stopPropagation: () => void }) => e.stopPropagation();
   const loading = launchers?.find((l) => statuses[l.id] === "running") ?? null;
   const shown = launchers?.slice(0, MAX_ROWS) ?? [];
   const more = (launchers?.length ?? 0) - shown.length;
@@ -80,7 +110,7 @@ export function ModelLauncher({
         </div>
         <div className="ov-launch__hint">The start script is running; the model appears here once it serves.</div>
         {onOpen ? (
-          <button type="button" className="btn btn--sm" onClick={(e) => { stop(e); onOpen(sparkId); }}>
+          <button type="button" className="btn btn--sm" onClick={() => onOpen(sparkId)}>
             View output
           </button>
         ) : null}
@@ -96,11 +126,11 @@ export function ModelLauncher({
         <div className="ov-launch__hint">{busy}. Starting another model now could run out of memory.</div>
         <div className="ov-launch__more">
           {onOpen ? (
-            <button type="button" className="btn btn--sm" onClick={(e) => { stop(e); onOpen(sparkId); }}>
+            <button type="button" className="btn btn--sm" onClick={() => onOpen(sparkId)}>
               Open Spark
             </button>
           ) : null}
-          <button type="button" className="btn btn--sm btn--ghost" onClick={(e) => { stop(e); setOverride(true); }}>
+          <button type="button" className="btn btn--sm btn--ghost" onClick={() => setOverride(true)}>
             Start anyway…
           </button>
         </div>
@@ -111,7 +141,7 @@ export function ModelLauncher({
       <>
         <div className="ov-launch__title">No model loaded</div>
         <div className="ov-launch__hint">Add a model folder (start.sh / stop.sh) to start it from here.</div>
-        <button type="button" className="btn btn--sm btn--primary" onClick={(e) => { stop(e); setAdding(true); }}>
+        <button type="button" className="btn btn--sm btn--primary" onClick={() => setAdding(true)}>
           <PlusIcon className="h-3.5 w-3.5" />
           Add a model
         </button>
@@ -131,7 +161,7 @@ export function ModelLauncher({
                 type="button"
                 className="btn btn--sm btn--primary"
                 disabled={starting != null}
-                onClick={(e) => { stop(e); void start(l); }}
+                onClick={() => void start(l)}
               >
                 {starting === l.id ? "Starting…" : "Start"}
               </button>
@@ -140,11 +170,11 @@ export function ModelLauncher({
         </ul>
         <div className="ov-launch__more">
           {more > 0 && onOpen ? (
-            <button type="button" className="btn btn--sm btn--ghost" onClick={(e) => { stop(e); onOpen(sparkId); }}>
+            <button type="button" className="btn btn--sm btn--ghost" onClick={() => onOpen(sparkId)}>
               +{more} more
             </button>
           ) : null}
-          <button type="button" className="btn btn--sm btn--ghost" onClick={(e) => { stop(e); setAdding(true); }}>
+          <button type="button" className="btn btn--sm btn--ghost" onClick={() => setAdding(true)}>
             <PlusIcon className="h-3.5 w-3.5" />
             Add model
           </button>
@@ -153,10 +183,14 @@ export function ModelLauncher({
     );
   }
 
+  // No stopPropagation here: the card is not itself clickable (its name is the link), and
+  // swallowing key events would break the global Ctrl+K / Ctrl+B shortcuts and Escape in the dialog.
   return (
-    <div className="ov-launch" onClick={stop} onKeyDown={stop}>
-      {body}
-      {error ? <div className="ov-launch__err" role="alert">{error}</div> : null}
+    <>
+      <div className="ov-launch">
+        {body}
+        {error ? <div className="ov-launch__err" role="alert">{error}</div> : null}
+      </div>
       <LlmLauncherDialog
         open={adding}
         sparkId={sparkId}
@@ -164,9 +198,10 @@ export function ModelLauncher({
         onClose={() => setAdding(false)}
         onSaved={() => {
           setAdding(false);
-          void refresh();
+          invalidateLaunchers(sparkId);
+          void refresh(true);
         }}
       />
-    </div>
+    </>
   );
 }

@@ -7,6 +7,7 @@ import {
 } from "../../../shared/llmTarget.js";
 import { Tag } from "../../ui/Tag";
 import { PageEmpty } from "./pageParts";
+import { isWorkerSpark } from "../../../api/sparkRole";
 import { SparkChips, useBenchSparks } from "../SparkChips";
 import { useStickyHeight } from "./useStickyHeight";
 
@@ -154,13 +155,20 @@ export function BenchTargetFrame({
         endpoint. Saved runs below are still readable.
       </p>
     );
+  } else if (isWorkerSpark(spark)) {
+    notice = (
+      <p className="bp-notice bp-notice--warn">
+        <strong>{spark.name} is a worker</strong> and serves no LLM of its own, so
+        nothing can run here. Saved runs below are still readable.
+      </p>
+    );
   } else if (!reachable) {
     notice = (
       <p className="bp-notice bp-notice--warn">
         <strong>No reachable LLM on port {llmPort}.</strong>{" "}
         {llm?.error ? `${llm.error}. ` : ""}Start a model on this Spark (Models
         panel on its page), check the LLM port in its settings, or switch the
-        target to Remote.
+        target to Remote. Saved runs below are still readable.
       </p>
     );
   }

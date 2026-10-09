@@ -22,6 +22,7 @@ import { decodeBenchManager } from "./DecodeBench.js";
 import { prefillBenchManager, timeoutMsForSize } from "./PrefillBench.js";
 import {
   REQUEST_SEED,
+  SCORING_VERSION,
   SUITE_VERSION,
   buildLongPrompt,
   generateSuite,
@@ -208,7 +209,10 @@ export async function runQualityItem({ baseUrl, modelId, item, abortSignal, apiK
     } else if (item.category === "follow") {
       row.detail = `${s.passed}/${s.total} rules`;
     } else if ("parsed" in s) {
-      row.detail = s.parsed == null ? "no 'Answer:' line" : `parsed ${s.parsed}`;
+      // "no 'Answer:' line" only when the reply truly has none; a present-but-unreadable line
+      // (e.g. "Answer: five", "Answer: B or C") says so.
+      if (s.parsed != null) row.detail = `parsed ${s.parsed}`;
+      else row.detail = s.labeled === false ? "no 'Answer:' line" : "could not read the 'Answer:' line";
     }
     return row;
   } finally {
@@ -229,7 +233,21 @@ function summaryOf(job) {
   };
 }
 
-function publicJob(job) {
+/**
+ * @param {object} job
+ * @param {{ full?: boolean }} [opts] full = include per-item rows. A running job omits them by
+ *   default (the dialog polls every second; the rows are only needed once it finishes).
+ */
+function publicJob(job, { full = job.status !== "running" } = {}) {
+  const results =
+    full || !job.results
+      ? job.results
+      : {
+          categories: job.results.categories,
+          overallPct: job.results.overallPct,
+          skippedLongSizes: job.results.skippedLongSizes,
+          itemCount: job.results.items?.length ?? 0,
+        };
   return {
     benchId: job.benchId,
     sparkId: job.sparkId,
@@ -238,7 +256,7 @@ function publicJob(job) {
     completedAt: job.completedAt,
     config: { ...job.config },
     progress: { ...job.progress },
-    results: job.results,
+    results,
     error: job.error,
     durationMs:
       job.completedAt != null ? job.completedAt - job.startedAt : Date.now() - job.startedAt,
@@ -263,6 +281,10 @@ export class QualityBenchManager {
     /** @type {((kind: string, job: object) => void) | null} */
     this._onEvent = null;
     this._lastCheckpoint = 0;
+    this._pendingActive = null;
+    this._checkpointTimer = null;
+    this._activeWriting = false;
+    this._activeSyncEpoch = 0;
     this._loadHistory();
     this._recoverInterruptedActive();
   }
@@ -285,9 +307,10 @@ export class QualityBenchManager {
     return this.activeBySpark.size;
   }
 
-  getJob(benchId) {
+  /** @param {{ full?: boolean }} [opts] full: include per-item rows even while running */
+  getJob(benchId, opts = {}) {
     const job = this.jobs.get(benchId);
-    if (job) return publicJob(job);
+    if (job) return publicJob(job, opts.full ? { full: true } : undefined);
     for (const list of this.historyBySpark.values()) {
       const found = list.find((j) => j.benchId === benchId);
       if (found) return found;
@@ -377,7 +400,6 @@ export class QualityBenchManager {
       if (interrupted.completedAt && interrupted.startedAt) {
         interrupted.durationMs = interrupted.completedAt - interrupted.startedAt;
       }
-      this.jobs.set(interrupted.benchId, interrupted);
       this._pushHistory(interrupted);
       changed = true;
       console.warn(`[QualityBench] recovered interrupted job ${interrupted.benchId} on ${interrupted.sparkId}`);
@@ -400,6 +422,9 @@ export class QualityBenchManager {
   }
 
   _writeActiveFile(jobs) {
+    // Supersedes any queued/in-flight async snapshot.
+    this._activeSyncEpoch += 1;
+    this._pendingActive = null;
     try {
       atomicWrite(this.activePath, JSON.stringify({ jobs }), 0o600);
     } catch (err) {
@@ -407,16 +432,71 @@ export class QualityBenchManager {
     }
   }
 
-  /** @param {boolean} [force] skip the throttle (status changes, category boundaries) */
-  _checkpointActive(force = true) {
-    const now = Date.now();
-    if (!force && now - this._lastCheckpoint < CHECKPOINT_INTERVAL_MS) return;
-    this._lastCheckpoint = now;
+  _runningSnapshots() {
     const running = [];
     for (const job of this.jobs.values()) {
-      if (job.status === "running") running.push(publicJob(job));
+      if (job.status === "running") running.push(publicJob(job, { full: true }));
     }
-    this._writeActiveFile(running);
+    return running;
+  }
+
+  /**
+   * Persist the running jobs. `force` (status changes, category boundaries, finish) writes
+   * synchronously; the per-item checkpoints are throttled and written off the event loop.
+   * @param {boolean} [force] skip the throttle
+   */
+  _checkpointActive(force = true) {
+    const now = Date.now();
+    if (!force && now - this._lastCheckpoint < CHECKPOINT_INTERVAL_MS) {
+      // Trailing edge: the latest rows still get written once the interval has passed.
+      if (!this._checkpointTimer) {
+        this._checkpointTimer = setTimeout(() => {
+          this._checkpointTimer = null;
+          this._checkpointActive(false);
+        }, CHECKPOINT_INTERVAL_MS - (now - this._lastCheckpoint) + 5);
+        this._checkpointTimer.unref?.();
+      }
+      return;
+    }
+    this._lastCheckpoint = now;
+    if (force) {
+      this._writeActiveFile(this._runningSnapshots());
+      return;
+    }
+    const running = this._runningSnapshots();
+    if (running.length) this._writeActiveFileAsync(running);
+  }
+
+  _writeActiveFileAsync(jobs) {
+    // One write in flight; a newer snapshot replaces any queued one.
+    this._pendingActive = jobs;
+    if (this._activeWriting) return;
+    this._activeWriting = true;
+    const tmp = `${this.activePath}.${process.pid}.async.tmp`;
+    const pump = async () => {
+      try {
+        while (this._pendingActive) {
+          const snap = this._pendingActive;
+          this._pendingActive = null;
+          // A synchronous write (finish/interrupt) may have cleared the file since: skip stale data.
+          if (this._activeSyncEpoch !== epoch) break;
+          await fs.promises.mkdir(path.dirname(this.activePath), { recursive: true });
+          await fs.promises.writeFile(tmp, JSON.stringify({ jobs: snap }), { mode: 0o600 });
+          if (this._activeSyncEpoch !== epoch) {
+            await fs.promises.unlink(tmp).catch(() => {});
+            break;
+          }
+          await fs.promises.rename(tmp, this.activePath);
+        }
+      } catch (err) {
+        console.warn("[QualityBench] failed to save active jobs:", err?.message || err);
+        await fs.promises.unlink(tmp).catch(() => {});
+      } finally {
+        this._activeWriting = false;
+      }
+    };
+    const epoch = this._activeSyncEpoch;
+    void pump();
   }
 
   interruptAll(reason = "Interrupted — server shutting down") {
@@ -439,7 +519,7 @@ export class QualityBenchManager {
       job.progress.currentCategory = null;
       job.completedAt = Date.now();
       this._finalizeResults(job);
-      this.activeBySpark.delete(job.sparkId);
+      if (this.activeBySpark.get(job.sparkId) === job.benchId) this.activeBySpark.delete(job.sparkId);
       this._pushHistory(job);
     }
     this._writeActiveFile([]);
@@ -520,6 +600,7 @@ export class QualityBenchManager {
         modelId: modelId || null,
         contextLength: Number.isFinite(ctx) && ctx > 0 ? Math.round(ctx) : null,
         suiteVersion: SUITE_VERSION,
+        scoringVersion: SCORING_VERSION,
         ...settings,
         ...(rawHost ? { host: String(rawHost).trim(), tls: Boolean(rawTls) } : {}),
       },
@@ -554,13 +635,26 @@ export class QualityBenchManager {
 
   cancel(sparkId, benchId) {
     const job = this.jobs.get(benchId);
-    if (!job || job.sparkId !== sparkId) return null;
+    if (!job) {
+      // Finished jobs are pruned from `jobs`; answer from history.
+      const done = this.getHistory(sparkId).find((j) => j.benchId === benchId);
+      return done || null;
+    }
+    if (job.sparkId !== sparkId) return null;
     if (job.status !== "running") return publicJob(job);
     job._abort.abort();
     job.progress.message = "Cancelling…";
     return publicJob(job);
   }
 
+  /** Refresh the category summary only (cheap; per item). */
+  _updateSummary(job) {
+    const { categories, overallPct } = summarize(job.results.items);
+    job.results.categories = categories;
+    job.results.overallPct = overallPct;
+  }
+
+  /** Sort rows into suite order and summarize — once, when the job ends. */
   _finalizeResults(job) {
     const order = new Map((job._suiteOrder || []).map((id, i) => [id, i]));
     job.results.items.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
@@ -652,7 +746,7 @@ export class QualityBenchManager {
             } else {
               consecutiveErrors = 0;
             }
-            this._finalizeResults(job);
+            this._updateSummary(job);
             this._checkpointActive(false);
           }
         };
@@ -697,16 +791,19 @@ export class QualityBenchManager {
       job._closeTarget = null;
       if (job.completedAt == null) job.completedAt = Date.now();
       this._finalizeResults(job);
-      this.activeBySpark.delete(job.sparkId);
+      // Only release the Spark if it still points at this job.
+      if (this.activeBySpark.get(job.sparkId) === job.benchId) this.activeBySpark.delete(job.sparkId);
       this._pushHistory(job);
       this._checkpointActive();
       this._emitFinished(job);
+      // History now holds the finished run; drop the live job (and its AbortController etc.).
+      this.jobs.delete(job.benchId);
     }
   }
 
   _pushHistory(job) {
     const list = this.historyBySpark.get(job.sparkId) || [];
-    const pub = publicJob(job);
+    const pub = publicJob(job, { full: true });
     const existing = list.findIndex((j) => j.benchId === pub.benchId);
     if (existing >= 0) list.splice(existing, 1);
     list.unshift(pub);

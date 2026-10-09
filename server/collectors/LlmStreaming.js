@@ -637,7 +637,7 @@ async function runStreamingRequestOnce(
               usagePromptTokens = Number(json.usage.prompt_tokens);
             }
             const cached = Number(json.usage.prompt_tokens_details?.cached_tokens);
-            if (Number.isFinite(cached) && cached > 0) cachedPromptTokens = cached;
+            if (Number.isFinite(cached) && cached > 0) cachedPromptTokens = Math.max(cachedPromptTokens, cached);
           }
           if (json.timings && typeof json.timings === "object") {
             const ms = Number(json.timings.prompt_ms);

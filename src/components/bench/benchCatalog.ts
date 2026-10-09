@@ -21,7 +21,7 @@ export const BENCH_TYPES: readonly BenchType[] = [
   { id: "decode", label: "Decode", blurb: "Generation speed (tokens/s) at rising concurrency.", engine: "sparkdash", family: "sparkDash" },
   { id: "prefill", label: "Prefill", blurb: "Prompt processing speed and time to first token across context sizes.", engine: "sparkdash", family: "sparkDash" },
   { id: "quality", label: "Quality", blurb: "A fixed, seeded quality suite to compare models, quantisations and KV-cache formats.", engine: "sparkdash", family: "sparkDash" },
-  { id: "tool-eval", label: "Tool Eval", blurb: "Tool-calling quality across 69 deterministic scenarios (selection, parameters, multi-step, safety).", engine: "tool-eval", family: "Tool Eval Bench" },
+  { id: "tool-eval", label: "Tool Eval Bench", blurb: "Tool-calling quality across 69 deterministic scenarios (selection, parameters, multi-step, safety).", engine: "tool-eval", family: "Tool Eval Bench" },
 ];
 
 const BY_ID = new Map(BENCH_TYPES.map((b) => [b.id, b]));

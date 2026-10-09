@@ -118,12 +118,22 @@ function asRows(v: unknown): { key: string | null; value: unknown }[] {
   return [];
 }
 
+/**
+ * Category scores come in several shapes. Unambiguous ones are converted per category:
+ * points / max_points (preferred when both exist), a `percent`/`percentage`/`pct` key, or a `ratio` key (x100).
+ * A bare number, or a `score`/`final_score` key, could be a 0-1 ratio or a 0-100 percent; it is read as a
+ * ratio only when EVERY such value in the result lies within 0..1 and at least one is not an integer
+ * (so a real 1% next to 0% stays 1%, while 0.82, 0.5, 1 means a ratio).
+ */
 export function normalizeCategories(scores: unknown): NormCategory[] {
   const src = pick(scores, ["category_scores", "categories", "category_results", "by_category"]);
   const out: NormCategory[] = [];
+  const ambiguous = new Set<NormCategory>();
   for (const { key, value } of asRows(src)) {
     if (isNum(value)) {
-      out.push({ id: categoryLetter(key) ?? key ?? "?", name: null, percent: value <= 1 && value >= 0 ? value * 100 : value, points: null, maxPoints: null, raw: value });
+      const cat: NormCategory = { id: categoryLetter(key) ?? key ?? "?", name: null, percent: value, points: null, maxPoints: null, raw: value };
+      ambiguous.add(cat);
+      out.push(cat);
       continue;
     }
     if (!isObj(value)) continue;
@@ -131,18 +141,32 @@ export function normalizeCategories(scores: unknown): NormCategory[] {
     const letter = categoryLetter(rawId) ?? categoryLetter(key);
     const points = pickNum(value, ["points", "earned", "earned_points", "score_points", "total_points"]);
     const maxPoints = pickNum(value, ["max_points", "max", "possible", "max_score", "possible_points"]);
-    let percent = pickNum(value, ["percent", "percentage", "pct", "score", "final_score", "ratio"]);
-    if (percent == null && points != null && maxPoints) percent = (points / maxPoints) * 100;
-    else if (percent != null && percent <= 1 && pick(value, ["ratio"]) != null) percent *= 100;
+    let percent: number | null = null;
+    let vague = false;
+    if (points != null && maxPoints) percent = (points / maxPoints) * 100;
+    else {
+      const explicit = pickNum(value, ["percent", "percentage", "pct"]);
+      const ratio = pickNum(value, ["ratio"]);
+      const loose = pickNum(value, ["score", "final_score"]);
+      if (explicit != null) percent = explicit;
+      else if (ratio != null) percent = ratio * 100;
+      else if (loose != null) (percent = loose), (vague = true);
+    }
     const named = pickStr(value, ["label", "category_name", "title", "name", "description"]);
-    out.push({
+    const cat: NormCategory = {
       id: letter ?? rawId,
       name: named && named !== letter && categoryLetter(named) !== named ? named.replace(/^[A-P]\s*[-–:.)]\s*/i, "") : null,
       percent,
       points,
       maxPoints,
       raw: value,
-    });
+    };
+    if (vague) ambiguous.add(cat);
+    out.push(cat);
+  }
+  const vals = [...ambiguous].map((c) => c.percent).filter(isNum);
+  if (vals.length && vals.every((v) => v >= 0 && v <= 1) && vals.some((v) => !Number.isInteger(v))) {
+    for (const c of ambiguous) if (isNum(c.percent)) c.percent *= 100;
   }
   return out.sort((a, b) => a.id.localeCompare(b.id));
 }

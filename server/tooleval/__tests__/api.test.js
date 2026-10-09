@@ -80,7 +80,7 @@ test("Tool Eval over HTTP: spec, status, preview, validation, a streamed run, it
   const { port } = await startServer(t);
   const created = await api(port, "/api/sparks", {
     method: "POST",
-    body: JSON.stringify({ id: "alpha", name: "alpha", lanIp: "127.0.0.1", isLocal: true, ssh: { host: "127.0.0.1", user: "spark", auth: "key" } }),
+    body: JSON.stringify({ id: "alpha", name: "alpha", lanIp: "127.0.0.1", isLocal: true, ssh: { host: "127.0.0.1", user: os.userInfo().username, auth: "key" } }),
   });
   assert.equal(created.status, 200);
   const base = "/api/sparks/alpha/tool-eval";

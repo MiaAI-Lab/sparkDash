@@ -189,25 +189,89 @@ test("reason: expected jar / per-box match the story arithmetic", () => {
 
 // ─── Scoring ─────────────────────────────────────────────
 
-test("qa scoring: substring (case-insensitive) and exact last-integer", () => {
-  const sub = { category: "qa", mode: "substring", accept: ["canberra"] };
-  assert.equal(scoreQa(sub, "The capital is Canberra.").ok, true);
-  assert.equal(scoreQa(sub, "Sydney").ok, false);
-  const multi = { category: "qa", mode: "substring", accept: ["1048576", "1,048,576"] };
-  assert.equal(scoreQa(multi, "1,048,576").ok, true);
-  const exact = { category: "qa", mode: "exact", accept: ["4"] };
-  assert.equal(scoreQa(exact, "There are 4").ok, true);
-  assert.equal(scoreQa(exact, "Counting 1, 2, 3, 4 — so 4.").ok, true);
-  assert.equal(scoreQa(exact, "4 letters? no wait, 3").ok, false);
-  assert.equal(scoreQa(exact, "14").ok, false);
-  assert.equal(scoreQa(exact, "none").ok, false);
-  const bin = { category: "qa", mode: "exact", accept: ["1101"] };
-  assert.equal(scoreQa(bin, "0b1101").ok, true);
-  assert.equal(scoreQa(bin, "01101").ok, true);
-  // Leftover think tags are not scored.
-  assert.equal(scoreQa(sub, "<think>canberra? maybe</think>Sydney").ok, false);
-  assert.equal(visibleAnswer("<think>abc"), "");
+test("qa scoring: the reply must commit to the answer, not mention it", () => {
+  const num = { category: "qa", mode: "number", accept: ["391"] };
+  assert.equal(scoreQa(num, "391").ok, true);
+  assert.equal(scoreQa(num, "**391**").ok, true);
+  assert.equal(scoreQa(num, "17 * 23 = 391.").ok, true);
+  assert.equal(scoreQa(num, "1391").ok, false); // superstring
+  assert.equal(scoreQa(num, "391 or 5").ok, false); // hedge: last number is 5
+  assert.equal(scoreQa(num, "none").ok, false);
+  const big = { category: "qa", mode: "number", accept: ["1048576", "1,048,576"] };
+  assert.equal(scoreQa(big, "1,048,576").ok, true);
+  const neg = { category: "qa", mode: "number", accept: ["-1234", "-1,234"] };
+  assert.equal(scoreQa(neg, "-1234").ok, true);
+  assert.equal(scoreQa(neg, "1234").ok, false); // sign matters
+  const dec = { category: "qa", mode: "number", accept: ["0.3"] };
+  assert.equal(scoreQa(dec, "0.3").ok, true);
+  assert.equal(scoreQa(dec, "0.30000000000000004").ok, false);
+
+  const word = { category: "qa", mode: "word", accept: ["canberra"] };
+  assert.equal(scoreQa(word, "The capital is Canberra.").ok, true);
+  assert.equal(scoreQa(word, "Sydney").ok, false);
+  assert.equal(scoreQa({ ...word, accept: ["au"] }, "Australia").ok, false); // whole word only
+  assert.equal(scoreQa({ ...word, accept: ["au"] }, "Au").ok, true);
+  assert.equal(scoreQa({ ...word, accept: ["yes"] }, "Eyes").ok, false);
+  assert.equal(scoreQa({ ...word, accept: ["dlofrosnet"] }, "`dlofrosnet`").ok, true);
+  assert.equal(scoreQa({ ...word, accept: ["dlofrosnet"] }, "dlofrosne").ok, false);
+  assert.equal(scoreQa(word, "word ".repeat(30) + "canberra").ok, true); // long, but it ends on the answer
+  assert.equal(scoreQa(word, "canberra " + "word ".repeat(30)).ok, false); // an essay that merely mentions it
+  assert.equal(scoreQa(word, "Canberra or Sydney").ok, false); // hedge
+  assert.equal(scoreQa({ ...word, accept: ["yrassecen"] }, "y-r-a-s-s-e-c-e-n so it is **yrassecen**").ok, true);
+  // Strict 'last number' rule: leading with the answer then adding numbers does not commit.
+  assert.equal(scoreQa({ category: "qa", mode: "number", accept: ["3"] }, "3 The list has three elements, 1, [2, 3] and 4.").ok, false);
+  assert.equal(scoreQa({ category: "qa", mode: "number", accept: ["391"] }, "391. Correction: I made an error, it is 5").ok, false);
+  assert.equal(scoreQa({ category: "qa", mode: "number", accept: ["3"] }, "3 or 4, then 5").ok, false);
+  assert.equal(scoreQa(word, "<think>canberra? maybe</think>Sydney").ok, false);
+
+  const list = { category: "qa", mode: "list", accept: ["1, 2, 4, 7, 9"] };
+  assert.equal(scoreQa(list, "1, 2, 4, 7, 9").ok, true);
+  assert.equal(scoreQa(list, "Sorted: 1,2,4,7,9.").ok, true);
+  assert.equal(scoreQa(list, "11, 2, 4, 7, 9").ok, false);
+  assert.equal(scoreQa(list, "9, 7, 4, 2, 1").ok, false);
+
+  const date = { category: "qa", mode: "date", accept: ["2024-03-01"] };
+  assert.equal(scoreQa(date, "2024-03-01").ok, true);
+  assert.equal(scoreQa(date, "2024-03-01 or 2024-03-02").ok, false);
+
+  // legacy saved modes still score
+  assert.equal(scoreQa({ category: "qa", mode: "exact", accept: ["4"] }, "Counting 1, 2, 3, 4 — so 4.").ok, true);
+  assert.equal(scoreQa({ category: "qa", mode: "exact", accept: ["1101"] }, "0b1101").ok, true);
 });
+
+test("qa suite: unique prompts, answers verified independently, own answer always passes", () => {
+  const items = generateSuite({ categories: ["qa"] });
+  assert.equal(items.length, 150);
+  assert.equal(new Set(items.map((i) => i.id)).size, items.length);
+  assert.equal(new Set(items.map((i) => i.prompt)).size, items.length);
+  const gcd = (a, b) => (b ? gcd(b, a % b) : a);
+  for (const it of items) {
+    for (const a of it.accept) assert.equal(scoreItem(it, a).ok, true, `${it.id} rejects its own answer ${a}`);
+    let m;
+    if ((m = it.prompt.match(/appear in the word '(\w+)'/))) {
+      const ch = it.prompt.match(/letter '(.)'/)[1];
+      assert.equal(String([...m[1]].filter((c) => c === ch).length), it.accept[0], it.id);
+    }
+    if ((m = it.prompt.match(/least common multiple of (\d+) and (\d+)/))) {
+      assert.equal(String((+m[1] * +m[2]) / gcd(+m[1], +m[2])), it.accept[0], it.id);
+    }
+    if (it.id.startsWith("qa-bin") && (m = it.prompt.match(/representation of (\d+)/))) {
+      assert.equal((+m[1]).toString(2), it.accept[0], it.id);
+    }
+    if ((m = it.prompt.match(/What date is (\d+) days after (\S+)\?/))) {
+      assert.equal(new Date(Date.parse(m[2]) + m[1] * 864e5).toISOString().slice(0, 10), it.accept[0], it.id);
+    }
+    if ((m = it.prompt.match(/^What is (\d+) \* (\d+)\?/))) assert.equal(+it.accept[0], m[1] * m[2], it.id);
+    if ((m = it.prompt.match(/^What is (\d+) \+ (\d+) - (\d+)\?/))) assert.equal(+it.accept[0], +m[1] + +m[2] - +m[3], it.id);
+    if ((m = it.prompt.match(/^Reverse the string '(\w+)'/))) assert.equal(it.accept[0], [...m[1]].reverse().join(""), it.id);
+  }
+  // No item can be passed by mentioning its answer inside a longer number or a hedge.
+  for (const it of items.filter((i) => i.mode === "number")) {
+    assert.equal(scoreItem(it, `1${it.accept[0]}`).ok, false, `${it.id} superstring`);
+    assert.equal(scoreItem(it, `${it.accept[0]} or 7777777`).ok, false, `${it.id} hedge`);
+  }
+});
+
 
 test("reason scoring: last 'Answer: J, B', markdown tolerated, content only", () => {
   assert.deepEqual(parseReasonAnswer("blah\nAnswer: 3, 77"), { jar: 3, box: 77 });
@@ -510,4 +574,118 @@ test("end-to-end: fake server, perfect answers except one, long size skipped by 
   } finally {
     server.close();
   }
+});
+
+test("single and pair answers must be exactly the answer line (no hedges, no truncated decimals)", () => {
+  const one = { category: "arith", expected: 1200 };
+  const pass = ["Answer: 1200", "**Answer: 1200**", "Answer: $1,200", "Answer: 1200.0", "Answer: 1200.", "Answer: `1200`", "work\nAnswer: 5\nAnswer: 1200"];
+  const fail = ["Answer: 1200.9", "Answer: 1200 or 1201", "Answer: 1200,5", "Answer: 1,23", "Answer: 1200 / 1300", "The answer is 1200", "<think>Answer: 1200</think>Answer: 0"];
+  for (const r of pass) assert.equal(scoreItem(one, r).ok, true, r);
+  for (const r of fail) assert.equal(scoreItem(one, r).ok, false, r);
+  const two = { category: "reason", expected: { jar: 3, box: 77 } };
+  for (const r of ["Answer: 3, 77", "**Answer: 3, 77**", "Answer: 3,77", "Answer: 3, 77."]) assert.equal(scoreItem(two, r).ok, true, r);
+  for (const r of ["Answer: 3, 77, 4", "Answer: 3, 77.5", "Answer: 3, 77 or 3, 78", "Answer: 77, 3"]) assert.equal(scoreItem(two, r).ok, false, r);
+});
+
+test("follow: an empty reply never passes, markdown markers are not words, underscores are not word characters", () => {
+  const trivial = { category: "follow", rules: [{ kind: "max-words", n: 50 }, { kind: "forbid", w: ["very"] }] };
+  assert.equal(scoreItem(trivial, "").ok, false);
+  assert.equal(scoreItem(trivial, "<think>x</think>").ok, false);
+  assert.equal(scoreItem(trivial, "short and fine").ok, true);
+  const bullets = { category: "follow", rules: [{ kind: "bullets", n: 3 }, { kind: "max-words", n: 7 }] };
+  assert.equal(scoreItem(bullets, "* a\n* b\n* c").ok, true); // 3 words, not 6
+  assert.equal(scoreItem({ category: "follow", rules: [{ kind: "bullets", n: 2 }] }, "- a\n- b").ok, false);
+  assert.equal(scoreItem({ category: "follow", rules: [{ kind: "include", w: ["garden"] }] }, "a _garden_ path").ok, true);
+  assert.equal(scoreItem({ category: "follow", rules: [{ kind: "forbid", w: ["very"] }] }, "a _very_ path").ok, false);
+});
+
+test("long: corrections phrased naturally still score as correct, several names on one line work", () => {
+  const item = {
+    category: "long",
+    facts: [
+      { name: "otter", code: "48213", corrected: "90471" },
+      { name: "heron", code: "11111", corrected: null },
+      { name: "lynx", code: "22222", corrected: null },
+    ],
+  };
+  assert.deepEqual(scoreLong(item, "otter: 90471 (was 48213)\nheron: 11111\nlynx: 22222"), { ok: true, correct: 3, total: 3, stale: 0 });
+  assert.equal(scoreLong(item, "otter: 90471\nheron: 11111\nlynx: 22222\nNote: otter was originally 48213").ok, true);
+  assert.equal(scoreLong(item, "otter: 90471, heron: 11111, lynx: 22222").ok, true);
+  assert.equal(scoreLong(item, "otter: 48213 -> 90471\nheron: 11111\nlynx: 22222").ok, true);
+  const stale = scoreLong(item, "otter: 48213\nheron: 11111\nlynx: 22222");
+  assert.equal(stale.ok, false);
+  assert.equal(stale.stale, 1);
+});
+
+test("long sizes keep 20% headroom for tokenizers that need more tokens than nominal", () => {
+  assert.deepEqual(longSizesForContext([65536], 70000), { run: [], skipped: [65536] });
+  assert.deepEqual(longSizesForContext([65536], 131072), { run: [65536], skipped: [] });
+});
+
+test("MMLU: commits to a letter at the end of a line; hedges, articles and mid-prose mentions do not count", () => {
+  const ok = { "The answer is (B)": "B", "The answer is B.": "B", "Answer: Option C": "C", "**Answer: D**": "D", "Answer: `A`": "A", "reasoning\n\n**C**": "C", "Answer: B\nNote: the answer: a classic result.": "B" };
+  for (const [r, want] of Object.entries(ok)) assert.equal(parseMmluAnswer(r), want, r);
+  for (const r of ["Answer: a cat", "Answer: A or B", "Answer: B/C", "Answer: A, but also B", "Answer is probably C because"]) {
+    assert.equal(parseMmluAnswer(r), null, r);
+  }
+});
+
+test("scoring version is exported and bumped past the original parsers", async () => {
+  const { SCORING_VERSION, SUITE_VERSION } = await import("../qualitySuite.js");
+  assert.ok(SCORING_VERSION >= 2);
+  assert.equal(typeof SUITE_VERSION, "number");
+});
+
+test("MMLU parser takes case-insensitive labels and trailing text after the letter", () => {
+  for (const r of ["Answer: B. Paris", "ANSWER: B", "The correct answer is (B) foo", "answer: (c) because", "**Answer:** B) Paris", "Answer: D - Paris"]) {
+    assert.ok(parseMmluAnswer(r), r);
+  }
+  assert.equal(parseMmluAnswer("Answer: B. Paris"), "B");
+  assert.equal(parseMmluAnswer("ANSWER: C"), "C");
+  assert.equal(parseMmluAnswer("The correct answer is (B) foo"), "B");
+  for (const r of ["Answer: A cat", "Answer: B Paris", "Answer: A or B", "Answer: (A) or (B)"]) assert.equal(parseMmluAnswer(r), null, r);
+  // detail message distinguishes a missing label from an unreadable one
+  assert.equal(scoreItem({ category: "mmlu", expected: "B" }, "I do not know").labeled, false);
+  assert.equal(scoreItem({ category: "mmlu", expected: "B" }, "Answer: A or B").labeled, true);
+});
+
+test("GSM8K / single answers accept %, currency, unit suffixes and thousands separators", () => {
+  const g = (n) => ({ category: "gsm8k", expected: n });
+  for (const [r, n] of [
+    ["Answer: 25%", 25],
+    ["Answer: 18 dollars", 18],
+    ["ANSWER: $1,234.50", 1234.5],
+    ["answer: 12 square feet.", 12],
+    ["**Answer:** 1,234 dollars", 1234],
+    ["Answer: 1\u202f234", 1234],
+  ]) assert.equal(scoreItem(g(n), r).ok, true, r);
+  for (const r of ["Answer: 5 or 6", "Answer: 32, 33", "Answer: 5 is wrong"]) assert.equal(parseSingleAnswer(r), null, r);
+  assert.equal(scoreItem(g(5), "Answer: five").labeled, true);
+  assert.equal(scoreItem(g(5), "it is 5").labeled, false);
+});
+
+test("QA word mode rejects negation next to the token", () => {
+  const word = { category: "qa", mode: "word", accept: ["canberra"] };
+  assert.equal(scoreQa(word, "Not canberra").ok, false);
+  assert.equal(scoreQa(word, "Canberra is wrong").ok, false);
+  assert.equal(scoreQa(word, "Canberra, not Sydney").ok, true);
+  assert.equal(scoreQa({ ...word, accept: ["yes"] }, "No, not yes").ok, false);
+  assert.equal(scoreQa({ ...word, accept: ["yes"] }, "Yes").ok, true);
+  assert.equal(scoreQa({ ...word, accept: ["no"] }, "No").ok, true);
+});
+
+test("summarize excludes request errors from passed/pct and reports them", () => {
+  const { categories, overallPct } = summarize([
+    { category: "qa", ok: true },
+    { category: "qa", ok: false },
+    { category: "qa", ok: false, error: "Timed out" },
+    { category: "qa", ok: false, error: "HTTP 500" },
+    { category: "mmlu", ok: false, error: "x" },
+  ]);
+  assert.equal(categories.qa.total, 4);
+  assert.equal(categories.qa.scored, 2);
+  assert.equal(categories.qa.errors, 2);
+  assert.equal(categories.qa.pct, 50);
+  assert.equal(categories.mmlu.pct, null);
+  assert.equal(overallPct, 50);
 });

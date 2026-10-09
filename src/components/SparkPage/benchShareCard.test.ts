@@ -1,12 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import boltSvg from "../../../assets/bolt.svg?raw";
-import type { DecodeBenchJob, PrefillBenchJob } from "../../api/types";
+import type { DecodeBenchJob, PrefillBenchJob, QualityBenchJob } from "../../api/types";
 import {
   BOLT_POINTS,
   SHARE_CARD_MIN_HEIGHT,
   SHARE_CARD_WIDTH,
   buildDecodeShareCard,
   buildPrefillShareCard,
+  buildQualityShareCard,
   detectShareCardTheme,
   paintShareCard,
   shareCardBarFractions,
@@ -198,6 +199,43 @@ describe("share card model", () => {
       secondary: "6.64s",
       secondaryUnit: "",
     });
+  });
+
+  it("prefill card states the real method and flags failed, partial and low-confidence rows", () => {
+    const base = prefillJob().results[0];
+    const job = prefillJob({
+      results: [
+        { ...base, targetTokens: 1024, prefillTps: 0, error: "The whole prompt was served from the prefix cache" },
+        { ...base, targetTokens: 32768, samples: 1, samplesRequested: 3, lowConfidence: true },
+      ],
+    });
+    const card = buildPrefillShareCard(job, { llmPort: 8888, modelId: "m" });
+    expect(card.legend).toMatch(/server prompt timing/);
+    expect(card.legend).not.toMatch(/prompt tokens ÷ time to first token/);
+    expect(card.rows[0]).toMatchObject({ detail: "The whole prompt was served from the prefix cache", tone: "bad", primary: "—" });
+    expect(card.rows[1].detail).toContain("1/3 samples, low confidence");
+    expect(card.rows[1].tone).toBe("warn");
+  });
+
+  it("quality card scores against answered items and drops the delta for incomparable runs", () => {
+    const mk = (scoring: number, passed: number, errors: number, pct: number) =>
+      ({
+        status: "completed",
+        durationMs: 1,
+        config: { label: "", suiteVersion: 1, scoringVersion: scoring },
+        results: {
+          overallPct: pct,
+          skippedLongSizes: [],
+          items: [],
+          categories: { qa: { passed, total: 10, scored: 10 - errors, errors, pct, meanCompletionTokens: 1, hitMaxTokens: 0 } },
+        },
+      }) as unknown as QualityBenchJob;
+    const a = mk(2, 4, 2, 50);
+    const same = buildQualityShareCard(a, mk(2, 5, 0, 50), { llmPort: 1, modelId: null });
+    expect(same.rows[0].detail).toBe("4/8 items · 2 errors");
+    const diff = buildQualityShareCard(a, mk(1, 5, 0, 40), { llmPort: 1, modelId: null });
+    expect(diff.rows[0].secondary).toBe("");
+    expect(diff.columns.secondary).toBe("");
   });
 
   it("falls back to the port alone when the model is unknown, and to the remote host when used", () => {

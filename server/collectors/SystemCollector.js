@@ -1404,36 +1404,13 @@ export class SystemCollector {
   }
 
   /**
-   * First plausible temperature from a remote sensor dump (raw millidegrees,
-   * one per line, highest priority first). Same accept range as local
-   * `_getCPUTemperature()`; returns 0 when nothing is readable.
+   * First plausible temperature from a bare millidegree dump (one per line,
+   * highest priority first). Same accept range as local `_getCPUTemperature()`;
+   * returns 0 when nothing is readable.
    *
    * @param {string} raw
    * @returns {number} degrees Celsius, or 0
    */
-  /**
-   * Remote sensor dump: `name millidegrees` from hwmon when the allowlist
-   * matched, otherwise bare millidegree lines from thermal zones.
-   * `acpitz` on GB10 is ACPI zone 0 (TSOC), not a CPU die.
-   * @param {string} raw
-   * @returns {{ temperature: number, temperatureSource: string | null }}
-   */
-  _parseRemoteCpuTemp(raw) {
-    for (const line of String(raw).split("\n")) {
-      const named = line.trim().match(/^(coretemp|k10temp|zenpower|acpitz)\s+(\d+)$/);
-      if (!named) continue;
-      const millidegrees = parseInt(named[2], 10);
-      if (millidegrees > 0 && millidegrees < 200000) {
-        return {
-          temperature: Math.round((millidegrees / 1000) * 10) / 10,
-          temperatureSource: named[1],
-        };
-      }
-    }
-    const temperature = this._parseSensorTemp(raw);
-    return { temperature, temperatureSource: temperature > 0 ? "thermal" : null };
-  }
-
   _parseSensorTemp(raw) {
     for (const line of String(raw).split("\n")) {
       const millidegrees = parseInt(line.trim(), 10);

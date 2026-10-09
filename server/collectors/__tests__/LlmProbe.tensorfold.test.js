@@ -287,3 +287,23 @@ test("probe: tensorfold snapshot carries kvCacheUsage and null pool sizes", asyn
   assert.equal(snap.kvCacheGb, null);
   assert.equal(snap.weightsGb, null);
 });
+
+test("_applyTensorFoldHealth: prefillActive follows streams.prefilling and the last finished rate is held", () => {
+  const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888);
+  const h = (prompt, sec, prefilling) => ({
+    prompt_tokens_total: prompt,
+    completion_tokens_total: 10,
+    prefill_seconds_total: sec,
+    streams: { prefilling, decoding: 0, max: 8 },
+  });
+  probe._applyTensorFoldHealth(h(1000, 10, 0), 2); // seeds
+  probe._applyTensorFoldHealth(h(3000, 12, 0), 2); // 2000 tokens in 2 s
+  assert.equal(probe.prefillTps, 1000);
+  assert.equal(probe.prefillActive, false);
+  probe._applyTensorFoldHealth(h(3000, 12, 1), 2); // a new long prefill: totals do not move
+  assert.equal(probe.prefillActive, true);
+  assert.equal(probe.prefillTps, 1000); // held, not 0
+  probe._tensorfoldLastPrefill.at -= 60_000;
+  probe._applyTensorFoldHealth(h(3000, 12, 1), 2);
+  assert.equal(probe.prefillTps, 0);
+});

@@ -17,18 +17,25 @@ function readStored(): string | null {
  */
 export function useBenchSpark(sparks: readonly SparkSnapshot[]) {
   const [stored, setStored] = useState<string | null>(readStored);
-  const eligible = useMemo(() => sparks.filter((s) => !isWorkerSpark(s)), [sparks]);
+  // Every Spark stays selectable so its saved results can be read even when it has no LLM now
+  // (workers included); runnable ones come first and are preferred as the default.
+  const eligible = useMemo(
+    () => [...sparks].sort((a, b) => Number(isWorkerSpark(a)) - Number(isWorkerSpark(b))),
+    [sparks]
+  );
 
   const spark = useMemo(() => {
-    const pool = eligible.length ? eligible : sparks;
+    const pool = eligible.filter((s) => !isWorkerSpark(s));
+    const all = eligible;
     return (
-      pool.find((s) => s.id === stored) ??
+      all.find((s) => s.id === stored) ??
       pool.find((s) => s.online && Array.isArray(s.metrics.llm) && s.metrics.llm.some((l) => l.available)) ??
       pool.find((s) => s.online) ??
       pool[0] ??
+      all[0] ??
       null
     );
-  }, [eligible, sparks, stored]);
+  }, [eligible, stored]);
 
   const select = useCallback((id: string) => {
     setStored(id);
@@ -39,5 +46,5 @@ export function useBenchSpark(sparks: readonly SparkSnapshot[]) {
     }
   }, []);
 
-  return { spark, select, eligible: eligible.length ? eligible : [...sparks] };
+  return { spark, select, eligible };
 }

@@ -45,9 +45,10 @@ test("remote CPU collection returns temperature for DGX Spark nodes", async () =
 });
 
 test("remote CPU temperature names an x86 die sensor", () => {
-  const sensor = c._parseRemoteCpuTemp("coretemp 45200\n");
+  const sensor = pick(c._parseSensorCandidates("coretemp 45200\n"));
   assert.equal(sensor.temperature, 45.2);
   assert.equal(sensor.temperatureSource, "coretemp");
+  assert.equal(sensor.temperatureLabel, "CPU");
 });
 
 test("converts millidegrees to Celsius", () => {

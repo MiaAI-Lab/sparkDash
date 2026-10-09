@@ -48,15 +48,29 @@ const DEFAULTS = Object.freeze({
   showVramBreakdown: true,
 });
 
+const POLL_INTERVAL_MIN_MS = 500;
+const POLL_INTERVAL_MAX_MS = 60_000;
+
+/** Keep only known setting keys. */
+function _whitelist(obj) {
+  const out = {};
+  if (!obj || typeof obj !== "object") return out;
+  for (const k of Object.keys(DEFAULTS)) {
+    if (Object.prototype.hasOwnProperty.call(obj, k)) out[k] = obj[k];
+  }
+  return out;
+}
+
 /** @type {typeof DEFAULTS} */
 let _settings = { ...DEFAULTS };
 
 function _clampSettings(settings) {
   const s = { ...settings };
-  // Clamp poll interval to 1000ms minimum
-  if (typeof s.pollIntervalMs !== "number" || s.pollIntervalMs < 1000) {
-    s.pollIntervalMs = 1000;
+  // Clamp poll interval to a sane range (a huge value would overflow setInterval to 1 ms).
+  if (typeof s.pollIntervalMs !== "number" || !Number.isFinite(s.pollIntervalMs)) {
+    s.pollIntervalMs = DEFAULTS.pollIntervalMs;
   }
+  s.pollIntervalMs = Math.min(POLL_INTERVAL_MAX_MS, Math.max(POLL_INTERVAL_MIN_MS, Math.round(s.pollIntervalMs)));
   // Clamp LLM port to 1–65535
   if (typeof s.defaultLlmPort !== "number" || s.defaultLlmPort < 1 || s.defaultLlmPort > 65535) {
     s.defaultLlmPort = DEFAULTS.defaultLlmPort;
@@ -94,7 +108,7 @@ export function loadSettings() {
   try {
     const raw = fs.readFileSync(SETTINGS_PATH, "utf-8");
     const parsed = JSON.parse(raw);
-    _settings = _clampSettings({ ...DEFAULTS, ...parsed });
+    _settings = _clampSettings({ ...DEFAULTS, ..._whitelist(parsed) });
   } catch (err) {
     if (err.code === "ENOENT") {
       _settings = { ...DEFAULTS };
@@ -129,7 +143,7 @@ export function getSettings() {
  * @returns {typeof DEFAULTS}
  */
 export function updateSettings(patch) {
-  const merged = _clampSettings({ ..._settings, ...patch });
+  const merged = _clampSettings({ ..._settings, ..._whitelist(patch) });
   _settings = merged;
   saveSettings();
   return { ..._settings };
