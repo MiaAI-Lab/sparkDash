@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { SparkSnapshot } from "../../api/types";
 import { isWorkerSpark } from "../../api/sparkRole";
-import { shutdownAllSparks, updateAllHermes, wakeAllSparks } from "../../api/client";
-import { ConfirmShutdownDialog } from "../ConfirmShutdownDialog";
+import { updateAllHermes, wakeAllSparks } from "../../api/client";
+import { ShutdownAll } from "../ShutdownAll";
 import { FleetEnergyCard } from "./FleetEnergyCard";
 import { FleetAlertStrip } from "./FleetAlertStrip";
 import { FleetTokenTotals } from "./FleetTokenTotals";
@@ -10,8 +10,7 @@ import { FleetKpis } from "./FleetKpis";
 import { ACTIVITY_ID, ENERGY_ID, TOKENS_ID } from "../../constants";
 import { SparkCard } from "./SparkCard";
 import { ActivityFeed } from "./ActivityFeed";
-import { shutdownWarnings } from "./fleetStats";
-import { ActivityIcon, PowerOffIcon, PowerOnIcon, RotateIcon } from "../ui/icons";
+import { ActivityIcon, PowerOnIcon, RotateIcon } from "../ui/icons";
 import { formatMb } from "../../shared/formatBytes";
 import { vramContextFor } from "../../shared/vramBreakdown";
 import { makeHeadResolver } from "../../shared/sparkHead";
@@ -81,7 +80,6 @@ export function OverviewPage({
   const hiddenWorkerCount = hideWorkers ? sparks.filter(isWorkerSpark).length : 0;
   const [batchLoading, setBatchLoading] = useState(false);
   const [batchMsg, setBatchMsg] = useState<{ text: string; tone: "ok" | "err" } | null>(null);
-  const [shutdownOpen, setShutdownOpen] = useState(false);
   /** Spark ids we started a batch Hermes update on; drives the live progress bar. */
   const [batchRun, setBatchRun] = useState<string[] | null>(null);
 
@@ -155,33 +153,6 @@ export function OverviewPage({
     }
   }
 
-  async function handleShutdownAll() {
-    if (onlineShutdownCount === 0) return;
-    setBatchLoading(true);
-    setBatchMsg(null);
-    try {
-      const res = await shutdownAllSparks();
-      const ok = res.results.filter((r) => r.ok).length;
-      const fail = res.results.filter((r) => !r.ok && !r.skipped).length;
-      const skipped = res.results.filter((r) => r.skipped).length;
-      const parts = [`${ok} shut down`];
-      if (fail) parts.push(`${fail} failed`);
-      if (skipped) parts.push(`${skipped} skipped`);
-      setBatchMsg({
-        text: parts.join(", "),
-        tone: fail === 0 ? "ok" : "err",
-      });
-    } catch (err: unknown) {
-      setBatchMsg({
-        text: err instanceof Error ? err.message : "Batch shutdown failed",
-        tone: "err",
-      });
-    } finally {
-      setBatchLoading(false);
-      setTimeout(() => setBatchMsg(null), 6000);
-    }
-  }
-
   async function handleWakeAll() {
     setBatchLoading(true);
     setBatchMsg(null);
@@ -230,7 +201,6 @@ export function OverviewPage({
 
   const onlineCount = visibleSparks.filter((s) => s.online).length;
   const memTotalMb = sparks.reduce((n, s) => n + (s.metrics.gpu?.vram?.total || s.metrics.unifiedMemory?.total || 0), 0);
-  const warnings = shutdownWarnings(sparks);
 
   return (
     <div className="ov">
@@ -302,16 +272,7 @@ export function OverviewPage({
                   Wake all
                 </button>
               )}
-              <button
-                type="button"
-                onClick={() => setShutdownOpen(true)}
-                disabled={batchLoading || onlineShutdownCount === 0}
-                title="Shut down all online Sparks"
-                className="btn btn--danger"
-              >
-                <PowerOffIcon className="h-3.5 w-3.5" />
-                Shut down all
-              </button>
+              <ShutdownAll sparks={sparks} className="ov-shutdown" />
             </>
           )}
         </div>
@@ -341,16 +302,6 @@ export function OverviewPage({
           </select>
         </div>
       ) : null}
-
-      <ConfirmShutdownDialog
-        open={shutdownOpen}
-        onClose={() => setShutdownOpen(false)}
-        onConfirm={handleShutdownAll}
-        title="Shutdown All"
-        description={`Gracefully shut down all ${onlineShutdownCount} online Spark${onlineShutdownCount === 1 ? "" : "s"}? Offline nodes will be skipped.`}
-        confirmLabel="Shut down all"
-        warnings={warnings}
-      />
 
       <div className="ov-grid">
         <div className="ov-sparks">

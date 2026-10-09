@@ -411,6 +411,18 @@ body {
   background: var(--color-accent-soft);
   color: var(--color-accent-text);
 }
+.sheet-power {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 6px;
+}
+.sheet-power__btn {
+  flex: 1 1 auto;
+  justify-content: center;
+}
+
 .sheet-overlay {
   position: fixed;
   inset: 0;
@@ -448,6 +460,11 @@ body {
   }
   .app-mobile-only {
     display: flex;
+  }
+  /* "Shut down all" moves into the Sparks sheet on phones. */
+  .btn.ov-shutdown,
+  .ov-btns .ov-batchmsg {
+    display: none;
   }
   .search-trigger {
     width: auto;

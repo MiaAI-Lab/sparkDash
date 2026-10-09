@@ -8,6 +8,7 @@ import { ACTIVITY_ID, ENERGY_ID, OVERVIEW_ID, SHOWCASE_ID, TOKENS_ID, benchId, b
 import { BENCH_TYPES } from "../bench/benchCatalog";
 import { BoltIcon, GearIcon, GridIcon, ListIcon, PlusIcon, SearchIcon, ServerIcon, TerminalIcon, TokensIcon } from "../ui/icons";
 import { isThrottling, railSubLabel } from "./sparkSummary";
+import { ShutdownAll } from "../ShutdownAll";
 
 interface MobileTabBarProps {
   sparks: SparkSnapshot[];
@@ -128,6 +129,12 @@ export function MobileTabBar({ sparks, activeId, onSelect, onAdd, onOpenSearch, 
                     <PlusIcon className="h-4 w-4" />
                     <span className="rail-item__name">Add Spark / GPU host</span>
                   </button>
+                  <div className="rail-label rail-label--spaced">
+                    <span>Fleet</span>
+                  </div>
+                  <div className="sheet-power">
+                    <ShutdownAll sparks={sparks} className="sheet-power__btn" />
+                  </div>
                 </div>
               </div>
             </div>,

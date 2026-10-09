@@ -14,6 +14,7 @@ Format: version sections are listed newest first.
 - **Kernel errors become Activity events.** The GPU collector now reads NVIDIA **Xid errors** and kernel **OOM-killer kills** from the journal (one cached scan per minute; `gpu.kernelErrors` = `{ xid, oomKills, lastXid }`). When a counter rises, Activity records an event (new **Health** category) and the node shows a critical finding for the next hour. The first reading after a restart is only a baseline, so old errors since boot do not raise an alert.
 - **Clear Activity history.** A **Clear history…** button on the Activity page deletes events older than 7 days, older than 24 hours, or everything, after an in-place confirmation (new `DELETE /api/events?olderThanMs=`; omit the parameter to delete all). Event ids keep counting up, so nothing already on screen is reused.
 - **Reset Token totals and Fleet energy.** A **Reset…** button on each page. Fleet energy can delete minutes older than 7 days, older than 24 hours, or everything (`DELETE /api/fleet-energy?olderThanMs=`; power keeps being recorded afterwards). Token totals can reset all Sparks or just one (`DELETE /api/llm-token-totals?sparkId=`): counted totals and the daily/hourly history are zeroed while each engine's counter baseline is kept, so counting restarts from now instead of re-adding what the engine already served. Each asks for confirmation first.
+- **Mobile: "Shut down all" lives in the Sparks sheet.** On phones the button moved from the Overview header into the Sparks menu (new "Fleet" section), with the same confirmation. Desktop is unchanged. The flow is now one shared component.
 - Health findings also write Activity events when they appear and when they clear (`health.*`).
 
 ---
@@ -75,6 +76,7 @@ A major release: a redesigned application shell, a rebuilt Overview, a Benchmark
 - **Documentation** (README, CODEBASE.md) updated for all of the above.
 
 ### Fixed
+- **Mobile tab bar is docked to the bottom edge** instead of floating above it, with a solid background so content no longer shows through.
 - **Prefill tok/s showed 0 most of the time.** See *Live prefill tok/s* above; the displayed rate is also now clamped to physically plausible values.
 - **Tool Eval Bench: failed or stuck upgrades.** `uv tool upgrade` failed with "not installed" for tools not installed by uv, the "Force reinstall" checkbox had no effect, and the panel sat on "Done. Checking the install…" after success. All three are fixed; results from older runs with omitted-option placeholders reload correctly.
 - **Review of the 2.0 features.** A multi-agent review found and fixed issues across the WebSocket error path (a socket error could escape), GPU-history guards on bad input, launcher routes (editing or removing a launcher that is running now answers 409 instead of corrupting state), Showcase/Prefill streaming edge cases, atomic file writes, and several accessibility problems in the Tool Eval Bench tabs and dialogs (focus handling, inert background behind modals, labelled controls).
