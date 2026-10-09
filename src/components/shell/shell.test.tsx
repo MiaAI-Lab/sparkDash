@@ -1,5 +1,5 @@
 import { act } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppSidebar, RAIL_KEYBOARD_CODES } from "./AppSidebar";
 import { MobileTabBar } from "./MobileTabBar";
 import { CommandPalette, filterCommands, fuzzyScore, type PaletteCommand } from "./CommandPalette";
@@ -129,6 +129,9 @@ describe("CommandPalette accessibility", () => {
 });
 
 describe("MobileTabBar sheet", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
   it("traps focus in the sheet and gives it back to the Sparks button on Escape", () => {
     const sparks = [makeSpark("a")];
     const { container } = render(
@@ -142,6 +145,9 @@ describe("MobileTabBar sheet", () => {
     act(() => {
       document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     });
+    // The sheet slides down first, then unmounts.
+    expect(document.querySelector(".sheet.is-leaving")).not.toBeNull();
+    act(() => vi.advanceTimersByTime(400));
     expect(document.querySelector(".sheet")).toBeNull();
     expect(document.activeElement).toBe(opener);
   });
@@ -158,6 +164,7 @@ describe("MobileTabBar sheet", () => {
     act(() => {
       document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     });
+    act(() => vi.advanceTimersByTime(400));
     act(() => tab("Sparks").click());
     names = [...document.querySelectorAll(".sheet .rail-item__name")].map((n) => n.textContent);
     expect(names).not.toContain("Token totals");

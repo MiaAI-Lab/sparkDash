@@ -1,5 +1,5 @@
 import { BenchIcon } from "../bench/BenchIcon";
-import { Fragment, useEffect, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useFocusTrap } from "../../hooks/useFocusTrap";
 import { useInertBackground } from "../../hooks/useInertBackground";
@@ -9,6 +9,9 @@ import { BENCH_TYPES } from "../bench/benchCatalog";
 import { BoltIcon, ChartIcon, GearIcon, GridIcon, ListIcon, PlusIcon, ServerIcon, TerminalIcon, TokensIcon } from "../ui/icons";
 import { isThrottling, railSubLabel } from "./sparkSummary";
 import { ShutdownAll } from "../ShutdownAll";
+
+/** Keep in sync with the sheet-out animation in shell.css. */
+const SHEET_LEAVE_MS = 240;
 
 interface MobileTabBarProps {
   sparks: SparkSnapshot[];
@@ -22,7 +25,28 @@ interface MobileTabBarProps {
 export function MobileTabBar({ sparks, activeId, onSelect, onAdd, onOpenSettings }: MobileTabBarProps) {
   const [sheetKind, setSheetKind] = useState<"sparks" | "stats" | null>(null);
   const sheet = sheetKind != null;
-  const setSheet = (open: boolean) => setSheetKind(open ? "sparks" : null);
+  // Closing plays a slide-down first; the sheet unmounts when it has finished.
+  const [leaving, setLeaving] = useState(false);
+  const leaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(leaveTimer.current), []);
+  const openSheet = (kind: "sparks" | "stats") => {
+    clearTimeout(leaveTimer.current);
+    setLeaving(false);
+    setSheetKind(kind);
+  };
+  const setSheet = (open: boolean) => {
+    if (open) return openSheet("sparks");
+    if (leaving) return;
+    if (typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+      setSheetKind(null);
+      return;
+    }
+    setLeaving(true);
+    leaveTimer.current = setTimeout(() => {
+      setSheetKind(null);
+      setLeaving(false);
+    }, SHEET_LEAVE_MS);
+  };
   const trapRef = useFocusTrap(sheet);
   useInertBackground(sheet);
   const onSpark = activeId != null && !isPageId(activeId);
@@ -35,6 +59,10 @@ export function MobileTabBar({ sparks, activeId, onSelect, onAdd, onOpenSettings
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [sheet]);
+  // Which tab the sliding highlight sits under (-1 hides it, e.g. while on a Settings dialog).
+  const statsActive = activeId === TOKENS_ID || activeId === ENERGY_ID || activeId === ACTIVITY_ID;
+  const tabIndex =
+    sheetKind === "sparks" ? 1 : sheetKind === "stats" ? 2 : activeId === OVERVIEW_ID ? 0 : onSpark ? 1 : statsActive ? 2 : -1;
   const pageButton = (id: string, label: string, icon: ReactNode, compact = false) => (
     <button
       key={id}
@@ -51,20 +79,20 @@ export function MobileTabBar({ sparks, activeId, onSelect, onAdd, onOpenSettings
   );
   return (
     <>
-      <nav className="tabbar" aria-label="Primary">
-        <button type="button" className={activeId === OVERVIEW_ID ? "is-active" : ""} aria-current={activeId === OVERVIEW_ID ? "page" : undefined} onClick={() => onSelect(OVERVIEW_ID)}>
+      <nav className="tabbar" aria-label="Primary" data-tab={tabIndex}>
+        <button type="button" className={tabIndex === 0 ? "is-active" : ""} aria-current={activeId === OVERVIEW_ID ? "page" : undefined} onClick={() => onSelect(OVERVIEW_ID)}>
           <GridIcon className="h-[18px] w-[18px]" />
           Overview
         </button>
-        <button type="button" className={onSpark || sheetKind === "sparks" ? "is-active" : ""} aria-current={onSpark ? "page" : undefined} onClick={() => setSheet(true)} aria-haspopup="dialog">
+        <button type="button" className={tabIndex === 1 ? "is-active" : ""} aria-current={onSpark ? "page" : undefined} onClick={() => setSheet(true)} aria-haspopup="dialog">
           <ServerIcon className="h-[18px] w-[18px]" />
           Sparks
         </button>
         <button
           type="button"
-          className={sheetKind === "stats" || activeId === TOKENS_ID || activeId === ENERGY_ID || activeId === ACTIVITY_ID ? "is-active" : ""}
+          className={tabIndex === 2 ? "is-active" : ""}
           aria-current={activeId === TOKENS_ID || activeId === ENERGY_ID || activeId === ACTIVITY_ID ? "page" : undefined}
-          onClick={() => setSheetKind("stats")}
+          onClick={() => openSheet("stats")}
           aria-haspopup="dialog"
         >
           <ChartIcon className="h-[18px] w-[18px]" />
@@ -78,12 +106,12 @@ export function MobileTabBar({ sparks, activeId, onSelect, onAdd, onOpenSettings
       {sheet
         ? createPortal(
             <div
-              className="sheet-overlay"
+              className={`sheet-overlay ${leaving ? "is-leaving" : ""}`}
               onMouseDown={(e) => {
                 if (e.target === e.currentTarget) setSheet(false);
               }}
             >
-              <div ref={trapRef} className="sheet" role="dialog" aria-modal="true" aria-label={sheetKind === "stats" ? "Stats" : "Choose a Spark"}>
+              <div ref={trapRef} className={`sheet ${leaving ? "is-leaving" : ""}`} role="dialog" aria-modal="true" aria-label={sheetKind === "stats" ? "Stats" : "Choose a Spark"}>
                 <div className="rail-list">
                   {sheetKind === "stats" ? (
                     ([

@@ -16,6 +16,7 @@ Format: version sections are listed newest first.
 - **Reset Token totals and Fleet energy.** A **Reset…** button on each page. Fleet energy can delete minutes older than 7 days, older than 24 hours, or everything (`DELETE /api/fleet-energy?olderThanMs=`; power keeps being recorded afterwards). Token totals can reset all Sparks or just one (`DELETE /api/llm-token-totals?sparkId=`): counted totals and the daily/hourly history are zeroed while each engine's counter baseline is kept, so counting restarts from now instead of re-adding what the engine already served. Each asks for confirmation first.
 - **Mobile: "Shut down all" lives in the Sparks sheet.** On phones the button moved from the Overview header into the Sparks menu (new "Fleet" section), with the same confirmation. Desktop is unchanged. The flow is now one shared component.
 - **Mobile: Stats tab.** The bottom bar's Search tab became **Stats**, which opens Token totals, Fleet energy and Activity (search stays one tap away in the top bar). Those pages left the Sparks menu, and Showcase now sits under Benchmarks, right after Prefill.
+- **Mobile navigation feels like iOS.** The active-tab highlight is one pill that slides between tabs on a spring curve, tabs shrink slightly under your finger and the active icon pops, and the Sparks / Stats sheets slide up from the bottom with a fading backdrop and slide back down when closed. All of it is off with reduced motion.
 - Health findings also write Activity events when they appear and when they clear (`health.*`).
 
 ### Fixed
