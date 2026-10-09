@@ -10,5 +10,8 @@ apply to the code written for those versions, which remains part of this
 codebase. Contributions made while the project was MIT-licensed are included
 under that license's permission to sublicense.
 
+Third-party components, fonts, icons and data (including the Geist fonts under the SIL
+Open Font License 1.1) are listed in THIRD_PARTY_NOTICES.md.
+
 Third-party data bundled in server/collectors/data/ (GSM8K, MMLU) is covered
 by its own MIT notices, see server/collectors/data/NOTICE.md.

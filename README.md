@@ -50,6 +50,7 @@ It also supports **non-Spark units**: any Linux machine with an NVIDIA GPU (e.g.
 - [How it works](#how-it-works)
 - [Contributing](#contributing)
 - [License](#license)
+- [Acknowledgements](#acknowledgements)
 
 ---
 
@@ -663,6 +664,18 @@ Versions up to 1.9.0 were released under the MIT License ([LICENSE-MIT](./LICENS
 
 ## Acknowledgements
 
-- Built for the **NVIDIA DGX Spark (GB10)** on ARM64
-- Rebuilt from a legacy multi-unit dashboard with a single shared Spark model (no copy-pasted “Spark N” code paths)
-- LLM probe behavior refined from production monitoring experience
+sparkDash is built and maintained by [Mia's AI Lab](https://mia-ai.net/).
+
+**Contributors.** Thank you to everyone who sent code, fixes and ideas:
+[@MikeGibbsOnyx](https://github.com/MikeGibbsOnyx), [@Lesilva](https://github.com/Lesilva), [@vincenzopalazzo](https://github.com/vincenzopalazzo), [@Acermax](https://github.com/Acermax), [@danielkuykendall23-boop](https://github.com/danielkuykendall23-boop), [@0xdfi](https://github.com/0xdfi), [@BHCC2025](https://github.com/BHCC2025), [@ayylemao](https://github.com/ayylemao), [@SashaMIT](https://github.com/SashaMIT), [@krunkosaurus](https://github.com/krunkosaurus), [@andrei-dotdna](https://github.com/andrei-dotdna), [@0xWhiteMage](https://github.com/0xWhiteMage), [@kesslerio](https://github.com/kesslerio), [@nkavassalis](https://github.com/nkavassalis), [@Olyno](https://github.com/Olyno), [@willy92wins](https://github.com/willy92wins) and [@saitakarcesme](https://github.com/saitakarcesme), and to everyone who reported issues. The full list is on the [contributors page](https://github.com/MiaAI-Lab/sparkDash/graphs/contributors).
+The [`sparkdash-dgx-cluster`](https://github.com/glanceapp/community-widgets/tree/main/widgets/sparkdash-dgx-cluster) Glance widget was contributed by [@linxichen](https://github.com/linxichen).
+
+**Projects and data sparkDash builds on**
+- [tool-eval-bench](https://github.com/SeraphimSerapis/tool-eval-bench) by SeraphimSerapis (MIT) powers **Tool Eval Bench**. It adapts the scenario methodology of ToolCall-15 by stevibe (MIT) and credits the Typed Decisions dataset from the LocalLLaMA organization (Apache 2.0).
+- **GSM8K** (OpenAI, MIT) and **MMLU** (Dan Hendrycks, MIT) supply the maths and knowledge questions in the Quality bench. The instruction-following category is inspired by **IFEval** (Zhou et al., Google).
+- [Hermes Agent](https://github.com/nousresearch/hermes-agent) by Nous Research can be monitored and updated from sparkDash.
+- The health findings were inspired by [spark-doctor](https://github.com/joeynyc/spark-doctor) by joeynyc (MIT). No code from it is used.
+- Fonts: [Geist and Geist Mono](https://github.com/vercel/geist-font) by Vercel (SIL Open Font License 1.1). The bolt in the logo follows the "zap" icon from [Feather](https://github.com/feathericons/feather) (MIT).
+- Built with [React](https://react.dev/), [Vite](https://vitejs.dev/), [Tailwind CSS](https://tailwindcss.com/), [Express](https://expressjs.com/), [ws](https://github.com/websockets/ws), [undici](https://github.com/nodejs/undici), [dnd kit](https://dndkit.com/) and [dotenv](https://github.com/motdotla/dotenv). Licenses and copyright notices are in [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
+
+Built for the **NVIDIA DGX Spark (GB10)** on ARM64.
