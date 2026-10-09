@@ -68,12 +68,9 @@ describe("Overview VRAM bar", () => {
     const headroom = bar.querySelector<HTMLElement>("[data-headroom]")!;
     expect(headroom.textContent).toBe("7.2 GB free");
     expect(headroom.className).toContain("text-warning");
-    // No legend on the card — the tooltip carries it.
-    expect(bar.querySelector("[data-legend]")).toBeNull();
-    // Available mini-stat agrees with the header (was red under 16 GB → amber now).
-    const avail = availableStat(card)!;
-    expect(avail.textContent).toBe("7.2 GB");
-    expect(avail.className).toContain("text-warning");
+    // The legend names each colour; the header already carries the free figure.
+    expect(bar.querySelector("[data-legend]")?.textContent).toContain("Model");
+    expect(availableStat(card)).toBeUndefined();
   });
 
   it("judges the RTX host by discrete headroom: 3.2 GB free is fine", () => {
@@ -85,7 +82,6 @@ describe("Overview VRAM bar", () => {
       Array.from(bar.querySelectorAll<HTMLElement>("[data-segment]")).map((s) => s.dataset.segment),
     ).toEqual(["engine", "other"]);
     expect(bar.querySelector("[data-headroom]")?.className).toContain("text-text");
-    expect(availableStat(card)?.className).toContain("text-text");
   });
 
   it("draws one GPU segment when no LLM endpoint is online", () => {
@@ -109,37 +105,23 @@ describe("Overview VRAM bar", () => {
     expect(bar.querySelector('[data-segment="gpu"]')).not.toBeNull();
   });
 
-  it("with the setting off, renders exactly today's single threshold bar and Available tone", () => {
+  it("with the setting off, renders the single threshold bar", () => {
     const { container } = render(<OverviewPage sparks={[spark1()]} showVramBreakdown={false} />);
     const card = cards(container)[0];
     expect(card.querySelector("[data-vram-breakdown]")).toBeNull();
     expect(card.querySelector("[data-segment]")).toBeNull();
 
-    // The card's first bar block is byte-for-byte the MetricBar main renders.
-    const expected = render(
-      <MetricBar label="VRAM" value={101_008} max={124_610} color="bg-accent" caption="98.6 / 121.7 GB" />,
-    ).container.firstElementChild!.outerHTML;
-    const vramBlock = Array.from(card.querySelectorAll("span"))
-      .find((s) => s.textContent === "VRAM")!
-      .closest(".space-y-1")!;
-    expect(vramBlock.outerHTML).toBe(expected);
-    expect(vramBlock.querySelector(".metric-bar-fill")?.className).toContain("bg-warning"); // 81%
-
-    // Old Available rule: < 16384 MB warning, < 4096 danger.
-    const avail = availableStat(card)!;
-    expect(avail.textContent).toBe("7.2 GB");
-    expect(avail.className).toContain("text-warning");
+    const bar = card.querySelector<HTMLElement>('[role="progressbar"][aria-label="VRAM"]')!;
+    expect(bar.getAttribute("aria-valuenow")).toBe("81");
+    // Plain Available line, no headroom tone.
+    expect(availableStat(card)!.textContent).toBe("7.2 GB");
   });
 
-  it("with the setting off, the RTX host keeps its red bar and red Available", () => {
+  it("with the setting off, the RTX host keeps its red bar", () => {
     const { container } = render(<OverviewPage sparks={[rtxHost()]} showVramBreakdown={false} />);
     const card = cards(container)[0];
     expect(card.querySelector("[data-vram-breakdown]")).toBeNull();
-    const fill = Array.from(card.querySelectorAll("span"))
-      .find((s) => s.textContent === "VRAM")!
-      .closest(".space-y-1")!
-      .querySelector(".metric-bar-fill");
-    expect(fill?.className).toContain("bg-danger");
-    expect(availableStat(card)?.className).toContain("text-danger");
+    const fill = card.querySelector<HTMLElement>('[role="progressbar"][aria-label="VRAM"] > i')!;
+    expect(fill.getAttribute("style")).toContain("var(--color-danger)");
   });
 });

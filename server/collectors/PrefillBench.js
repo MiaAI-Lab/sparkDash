@@ -28,6 +28,7 @@ import {
   parseContextSize,
 } from "../../src/shared/prefillBench.js";
 import { formatLlmBaseUrl } from "../../src/shared/llmTarget.js";
+import { prefillFitsContext } from "../../src/shared/contextFit.js";
 
 export { formatContextSize };
 
@@ -48,9 +49,31 @@ export const DEFAULT_CONTEXT_SIZES = PREFILL_DEFAULT_CONTEXT_SIZES;
 const WARMUP_TARGET_TOKENS = 512;
 const GEN_MAX_TOKENS = 8;
 const HISTORY_LIMIT = 10;
+/** The overhead correction never removes more than this share of the measured TTFT. */
+export const MAX_OVERHEAD_CORRECTION = 0.5;
+/** Above this overhead share of TTFT the corrected rate is mostly calibration, so the row is flagged. */
+export const LOW_CONFIDENCE_OVERHEAD_SHARE = 0.3;
 
-/** `" the"` is typically one BPE token (~4 chars). */
-const FILLER_UNIT = " the";
+/**
+ * Common short English words, each one BPE token with a leading space in the
+ * mainstream tokenizers. Cycled in a fixed pseudo-random order so the filler is
+ * less degenerate than one repeated token (attention/MoE routing look closer
+ * to real text) while the token count stays ~1 per word.
+ */
+const FILLER_WORDS =
+  "the of and to in is you that it he was for on are as with his they at be this have from or one had by word but not what all were we when your can said there use an each which she do how their if will up other about out many then them these so some her would make like him into time".split(
+    " "
+  );
+
+function fillerText(count) {
+  const words = new Array(count);
+  let state = 0x2545f491;
+  for (let i = 0; i < count; i += 1) {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    words[i] = FILLER_WORDS[(state >>> 8) % FILLER_WORDS.length];
+  }
+  return " " + words.join(" ");
+}
 
 /**
  * Unique-prefix prompt aimed at `targetTokens` (estimateTokenCount / 4 chars).
@@ -64,7 +87,67 @@ export function buildPrefillPrompt(targetTokens, salt) {
   const footer = "\nReply OK.";
   const reserved = estimateTokenCount(header + footer);
   const fillTokens = Math.max(1, n - reserved);
-  return header + FILLER_UNIT.repeat(fillTokens) + footer;
+  return header + fillerText(fillTokens) + footer;
+}
+
+/** Tiny prompt used to measure fixed per-request overhead (network, queue, first decode step). */
+const CALIBRATION_TOKENS = 16;
+const CALIBRATION_SAMPLES = 3;
+
+/** Samples per size: big contexts take minutes each, so they get fewer repeats. */
+export function repeatsForSize(tokens) {
+  const n = Number(tokens) || 0;
+  if (n <= 32768) return 3;
+  if (n <= 131072) return 2;
+  return 1;
+}
+
+export function medianOf(nums) {
+  const v = nums.filter((x) => Number.isFinite(x)).sort((a, b) => a - b);
+  if (!v.length) return 0;
+  const mid = v.length >> 1;
+  return v.length % 2 ? v[mid] : (v[mid - 1] + v[mid]) / 2;
+}
+
+/**
+ * Turn one raw sample into a prefill rate.
+ *  - "server": the backend reported its own prompt-processing time (llama.cpp `timings`).
+ *  - "ttft": prompt tokens actually computed (cache hits excluded) over TTFT minus the
+ *    calibrated fixed overhead. The correction is capped at 50% of the TTFT (so the rate is
+ *    inflated at most 2x by a noisy calibration), and when the overhead is more than 30% of the
+ *    TTFT the sample is flagged `lowConfidence`: the number leans on the calibration, not the run.
+ * `reason` explains a zero rate (nothing computed / no TTFT).
+ * @param {{ promptTokens: number, ttftMs: number, cachedTokens: number, serverPromptMs: number | null, serverPromptN: number | null }} s
+ * @param {number} overheadMs
+ * @returns {{ tps: number, method: "server" | "ttft", lowConfidence: boolean, reason?: string }}
+ */
+export function rateFromSample(s, overheadMs = 0) {
+  if (s.serverPromptMs > 0 && s.serverPromptN > 0) {
+    return {
+      tps: round2((s.serverPromptN / s.serverPromptMs) * 1000),
+      method: "server",
+      lowConfidence: false,
+    };
+  }
+  const computed = Math.max(0, (s.promptTokens || 0) - (s.cachedTokens || 0));
+  if (!(s.ttftMs > 0)) {
+    return { tps: 0, method: "ttft", lowConfidence: false, reason: "No first token was streamed back, so no prefill time was measured" };
+  }
+  if (computed <= 0) {
+    return {
+      tps: 0,
+      method: "ttft",
+      lowConfidence: false,
+      reason: "The whole prompt was served from the prefix cache, so no prefill was measured",
+    };
+  }
+  const overhead = Math.max(0, overheadMs);
+  const effectiveMs = Math.max(s.ttftMs - overhead, s.ttftMs * (1 - MAX_OVERHEAD_CORRECTION));
+  return {
+    tps: round2((computed / effectiveMs) * 1000),
+    method: "ttft",
+    lowConfidence: overhead > s.ttftMs * LOW_CONFIDENCE_OVERHEAD_SHARE,
+  };
 }
 
 /**
@@ -149,21 +232,30 @@ async function runPrefillSize({
     const timeoutErr = timedOut
       ? `Timed out after ${Math.round(timeoutMs / 1000)}s waiting for first token at ${formatContextSize(targetTokens)}`
       : null;
-    const ok =
-      !timedOut &&
-      !result.error &&
-      (result.prefillTokens > 0 || result.ttftMs > 0);
+    // A usable sample needs a streamed first token, or the server's own prompt timing. Token
+    // counts from `usage` alone (ttftMs == 0) are not a measurement.
+    const hasTiming = result.ttftMs > 0 || result.serverPromptMs > 0;
+    const ok = !timedOut && !result.error && hasTiming;
     return {
       targetTokens,
       promptTokens: result.prefillTokens || 0,
       promptChars,
       prefillTps: result.prefillTps || 0,
+      cachedTokens: result.cachedPromptTokens || 0,
+      serverPromptMs: result.serverPromptMs ?? null,
+      serverPromptN: result.serverPromptN ?? null,
       ttftMs: result.ttftMs || 0,
       ttftContentMs: result.ttftContentMs ?? null,
       completionTokens: result.completionTokens || 0,
       durationMs,
       model: result.model || modelId || null,
-      error: ok ? null : timeoutErr || result.error || "No first token",
+      error: ok
+        ? null
+        : timeoutErr ||
+          result.error ||
+          (result.prefillTokens > 0
+            ? "Server reported prompt tokens but streamed no first token, so TTFT could not be measured"
+            : "No first token"),
     };
   } finally {
     clearTimeout(timeout);
@@ -171,18 +263,137 @@ async function runPrefillSize({
   }
 }
 
-async function warmupPrefill({ baseUrl, modelId, abortSignal, apiKey }) {
+async function warmupPrefill({
+  baseUrl,
+  modelId,
+  abortSignal,
+  apiKey,
+  tokens = WARMUP_TARGET_TOKENS,
+}) {
   try {
     await runPrefillSize({
       baseUrl,
       modelId,
-      targetTokens: WARMUP_TARGET_TOKENS,
+      targetTokens: tokens,
       abortSignal,
       apiKey,
     });
   } catch {
     /* best-effort */
   }
+}
+
+/** Median TTFT of a few tiny prompts = fixed overhead that is not prefill work. */
+async function calibrateOverhead({ baseUrl, modelId, abortSignal, apiKey }) {
+  const ttfts = [];
+  for (let i = 0; i < CALIBRATION_SAMPLES; i += 1) {
+    if (abortSignal?.aborted) break;
+    try {
+      const r = await runPrefillSize({
+        baseUrl,
+        modelId,
+        targetTokens: CALIBRATION_TOKENS,
+        abortSignal,
+        apiKey,
+      });
+      if (!r.error && r.ttftMs > 0) ttfts.push(r.ttftMs);
+    } catch {
+      /* best-effort */
+    }
+  }
+  return ttfts.length ? round2(medianOf(ttfts)) : 0;
+}
+
+/**
+ * Several samples for one size. Field semantics (kept consistent on purpose):
+ *  - promptTokens / ttftMs / cachedTokens / completionTokens / ttftContentMs / method are the
+ *    values of ONE sample, the median-rate sample (lower middle for an even count), so
+ *    tokens ÷ TTFT stays consistent with the displayed prefillTps (= that sample's rate).
+ *  - durationMs is total wall time over every attempted sample, failures included.
+ *  - samples = successful samples, samplesRequested = what the size asked for; samples <
+ *    samplesRequested means the row is partial and `notice` says why.
+ *  - error is set only when no sample succeeded; it always carries a reason.
+ *  - lowConfidence: any counted sample leaned heavily on the overhead calibration.
+ * @param {(i: number, n: number) => void} [onSample]
+ */
+export async function runPrefillMeasured(opts, overheadMs, onSample, sampleFn = runPrefillSize) {
+  const repeats = repeatsForSize(opts.targetTokens);
+  const good = [];
+  let lastErr = null;
+  let firstFail = null;
+  let totalDurationMs = 0;
+  for (let i = 0; i < repeats; i += 1) {
+    if (opts.abortSignal?.aborted) break;
+    if (repeats > 1 && onSample) onSample(i + 1, repeats);
+    const sample = await sampleFn(opts);
+    totalDurationMs += Number(sample.durationMs) || 0;
+    if (!sample.error) {
+      const rate = rateFromSample(sample, overheadMs);
+      if (rate.tps > 0) {
+        good.push({ sample, ...rate });
+        continue;
+      }
+      // Returned fine but yields no rate (fully cached prompt, no TTFT): a failed sample with a reason.
+      sample.error = rate.reason || "No prefill rate could be computed";
+    }
+    lastErr = sample;
+    if (!firstFail) firstFail = sample;
+    break; // a failing size will not get better on retry; keep the time budget
+  }
+  if (!good.length) {
+    return {
+      ...(lastErr || {
+        targetTokens: opts.targetTokens,
+        promptTokens: 0,
+        promptChars: 0,
+        prefillTps: 0,
+        ttftMs: 0,
+        ttftContentMs: null,
+        completionTokens: 0,
+        durationMs: 0,
+        model: null,
+        error: "Cancelled",
+      }),
+      prefillTps: 0,
+      method: "ttft",
+      cachedTokens: lastErr?.cachedTokens ?? 0,
+      samples: 0,
+      samplesRequested: repeats,
+      lowConfidence: false,
+      overheadMs,
+      durationMs: round2(totalDurationMs),
+      error: lastErr ? lastErr.error || "No first token" : "Cancelled",
+    };
+  }
+  good.sort((a, b) => a.tps - b.tps);
+  const pick = good[(good.length - 1) >> 1];
+  const { sample } = pick;
+  /** @type {string | null} */
+  let notice = null;
+  if (firstFail) {
+    notice = `${good.length} of ${repeats} samples succeeded (${firstFail.error}); later repeats were skipped`;
+  } else if (good.length < repeats && opts.abortSignal?.aborted) {
+    notice = `${good.length} of ${repeats} samples completed before the run was cancelled`;
+  }
+  return {
+    targetTokens: sample.targetTokens,
+    promptTokens: sample.promptTokens,
+    promptChars: sample.promptChars,
+    prefillTps: pick.tps,
+    method: pick.method,
+    cachedTokens: sample.cachedTokens,
+    samples: good.length,
+    samplesRequested: repeats,
+    lowConfidence: good.some((g) => g.lowConfidence),
+    ...(notice ? { notice } : {}),
+    overheadMs,
+    ttftMs: sample.ttftMs,
+    ttftContentMs: sample.ttftContentMs,
+    completionTokens: sample.completionTokens,
+    durationMs: round2(totalDurationMs),
+    model: sample.model,
+    error: null,
+  };
 }
 
 function publicJob(job) {
@@ -217,8 +428,24 @@ export class PrefillBenchManager {
     this.historyBySpark = new Map();
     this.historyPath = historyPath;
     this.activePath = activePath;
+    /** @type {((kind: string, job: object) => void) | null} */
+    this._onEvent = null;
     this._loadHistory();
     this._recoverInterruptedActive();
+  }
+
+  /** Optional sink invoked once when a job reaches completed/failed/cancelled. */
+  setEventSink(fn) {
+    this._onEvent = typeof fn === "function" ? fn : null;
+  }
+
+  _emitFinished(job) {
+    if (!this._onEvent) return;
+    try {
+      this._onEvent("prefill", job);
+    } catch {
+      /* event recording must never break the bench */
+    }
   }
 
   activeCount() {
@@ -334,7 +561,6 @@ export class PrefillBenchManager {
       if (interrupted.completedAt && interrupted.startedAt) {
         interrupted.durationMs = interrupted.completedAt - interrupted.startedAt;
       }
-      this.jobs.set(interrupted.benchId, interrupted);
       this._pushHistory(interrupted);
       changed = true;
       console.warn(
@@ -398,7 +624,7 @@ export class PrefillBenchManager {
       job.progress.message = "Interrupted";
       job.progress.currentContext = null;
       job.completedAt = Date.now();
-      this.activeBySpark.delete(job.sparkId);
+      if (this.activeBySpark.get(job.sparkId) === job.benchId) this.activeBySpark.delete(job.sparkId);
       this._pushHistory(job);
     }
     this._writeActiveFile([]);
@@ -439,6 +665,7 @@ export class PrefillBenchManager {
       port,
       modelId,
       contextSizes: rawSizes,
+      contextLength = null,
       apiKey = null,
       resolveTarget = null,
       host: rawHost = null,
@@ -473,6 +700,7 @@ export class PrefillBenchManager {
       throw err;
     }
 
+    const ctx = Number(contextLength);
     const benchId = randomUUID();
     const abort = new AbortController();
     const job = {
@@ -485,6 +713,7 @@ export class PrefillBenchManager {
         port: p,
         modelId: modelId || null,
         contextSizes,
+        contextLength: Number.isFinite(ctx) && ctx > 0 ? Math.round(ctx) : null,
         ...(rawHost
           ? { host: String(rawHost).trim(), tls: Boolean(rawTls) }
           : {}),
@@ -517,7 +746,11 @@ export class PrefillBenchManager {
 
   cancel(sparkId, benchId) {
     const job = this.jobs.get(benchId);
-    if (!job || job.sparkId !== sparkId) return null;
+    if (!job) {
+      // Finished jobs are pruned from `jobs`; answer from history.
+      return this.getHistory(sparkId).find((j) => j.benchId === benchId) || null;
+    }
+    if (job.sparkId !== sparkId) return null;
     if (job.status !== "running") return publicJob(job);
     job._abort.abort();
     job.progress.message = "Cancelling…";
@@ -548,12 +781,29 @@ export class PrefillBenchManager {
         }
       }
       const baseUrl = formatLlmBaseUrl({ host, port, tls });
+      let overheadMs = 0;
       if (!job._abort.signal.aborted) {
         if (!String(job.progress.message || "").startsWith("Warming up")) {
           job.progress.message = "Warming up…";
         }
         this._checkpointActive();
         await warmupPrefill({
+          baseUrl,
+          modelId: job.config.modelId,
+          abortSignal: job._abort.signal,
+          apiKey: job._apiKey,
+        });
+        // Second warmup at a mid size so kernel/graph compilation for larger
+        // shapes does not land in the first measured row.
+        await warmupPrefill({
+          tokens: 4096,
+          baseUrl,
+          modelId: job.config.modelId,
+          abortSignal: job._abort.signal,
+          apiKey: job._apiKey,
+        });
+        job.progress.message = "Calibrating…";
+        overheadMs = await calibrateOverhead({
           baseUrl,
           modelId: job.config.modelId,
           abortSignal: job._abort.signal,
@@ -571,17 +821,48 @@ export class PrefillBenchManager {
           break;
         }
 
+        if (!prefillFitsContext(size, job.config.contextLength)) {
+          // Same rule the dialog uses to disable the chip; a stale/other client still gets a clear row.
+          job.results.push({
+            targetTokens: size,
+            promptTokens: 0,
+            promptChars: 0,
+            prefillTps: 0,
+            method: "ttft",
+            cachedTokens: 0,
+            samples: 0,
+            samplesRequested: repeatsForSize(size),
+            lowConfidence: false,
+            overheadMs,
+            ttftMs: 0,
+            ttftContentMs: null,
+            completionTokens: 0,
+            durationMs: 0,
+            model: null,
+            error: `Skipped: ${formatContextSize(size)} plus template and reply does not fit the model context (${job.config.contextLength.toLocaleString()} tokens)`,
+          });
+          job.progress.completedLevels += 1;
+          this._checkpointActive();
+          continue;
+        }
+
         job.progress.currentContext = size;
         job.progress.message = `Prefilling ${formatContextSize(size)}…`;
         this._checkpointActive();
 
-        const row = await runPrefillSize({
-          baseUrl,
-          modelId: job.config.modelId,
-          targetTokens: size,
-          abortSignal: job._abort.signal,
-          apiKey: job._apiKey,
-        });
+        const row = await runPrefillMeasured(
+          {
+            baseUrl,
+            modelId: job.config.modelId,
+            targetTokens: size,
+            abortSignal: job._abort.signal,
+            apiKey: job._apiKey,
+          },
+          overheadMs,
+          (i, n) => {
+            job.progress.message = `Prefilling ${formatContextSize(size)} (run ${i}/${n})…`;
+          }
+        );
 
         if (job._abort.signal.aborted) {
           if (job.status === "running") {
@@ -626,9 +907,13 @@ export class PrefillBenchManager {
       }
       job._closeTarget = null;
       if (job.completedAt == null) job.completedAt = Date.now();
-      this.activeBySpark.delete(job.sparkId);
+      // Only release the Spark if it still points at this job.
+      if (this.activeBySpark.get(job.sparkId) === job.benchId) this.activeBySpark.delete(job.sparkId);
       this._pushHistory(job);
       this._checkpointActive();
+      this._emitFinished(job);
+      // History holds the finished run; drop the live job.
+      this.jobs.delete(job.benchId);
     }
   }
 

@@ -263,3 +263,209 @@ export function CompactIcon({ className = "" }: { className?: string }) {
     </svg>
   );
 }
+/* ─── Redesign additions ──────────────────────────────── */
+
+export function SearchIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg {...baseProps(className)}>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.5-3.5" />
+    </svg>
+  );
+}
+
+export function ChevronRightIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg {...baseProps(className)}>
+      <path d="m9 6 6 6-6 6" />
+    </svg>
+  );
+}
+
+export function XIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg {...baseProps(className)}>
+      <path d="M6 6l12 12M18 6 6 18" />
+    </svg>
+  );
+}
+
+export function CheckIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg {...baseProps(className)}>
+      <path d="m5 12 5 5 9-10" />
+    </svg>
+  );
+}
+
+export function ChartIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg {...baseProps(className)}>
+      <path d="M4 20V10M10 20V4M16 20v-8M22 20H2" />
+    </svg>
+  );
+}
+
+export function AlertTriangleIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg {...baseProps(className)}>
+      <path d="M12 3 2 20h20z" />
+      <path d="M12 10v4M12 17h.01" />
+    </svg>
+  );
+}
+
+export function FlaskIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg {...baseProps(className)}>
+      <path d="M9 3h6M10 3v6L4.5 19a1.5 1.5 0 0 0 1.3 2h12.4a1.5 1.5 0 0 0 1.3-2L14 9V3" />
+    </svg>
+  );
+}
+
+export function TerminalIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg {...baseProps(className)}>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="m7 10 3 2-3 2M12 15h5" />
+    </svg>
+  );
+}
+
+export function ImageIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg {...baseProps(className)}>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <circle cx="9" cy="10" r="1.5" />
+      <path d="m21 16-5-5-9 9" />
+    </svg>
+  );
+}
+
+export function ExpandIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg {...baseProps(className)}>
+      <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+    </svg>
+  );
+}
+
+export function ServerIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg {...baseProps(className)}>
+      <rect x="3" y="4" width="18" height="7" rx="2" />
+      <rect x="3" y="13" width="18" height="7" rx="2" />
+      <path d="M7 7.5h.01M7 16.5h.01" />
+    </svg>
+  );
+}
+
+export function GripVerticalIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden className={className}>
+      <circle cx="4" cy="3" r="1" />
+      <circle cx="8" cy="3" r="1" />
+      <circle cx="4" cy="6" r="1" />
+      <circle cx="8" cy="6" r="1" />
+      <circle cx="4" cy="9" r="1" />
+      <circle cx="8" cy="9" r="1" />
+    </svg>
+  );
+}
+
+export function TokensIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg {...baseProps(className)}>
+      <path d="M12 2 3 7l9 5 9-5-9-5Z" />
+      <path d="m3 12 9 5 9-5" />
+      <path d="m3 17 9 5 9-5" />
+    </svg>
+  );
+}
+
+export function ListIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg {...baseProps(className)}>
+      <path d="M8 6h13M8 12h13M8 18h13" />
+      <path d="M3 6h.01M3 12h.01M3 18h.01" />
+    </svg>
+  );
+}
+
+/** Speedometer: generation speed (Decode bench). */
+export function GaugeIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg {...baseProps(className)}>
+      <path d="M4.9 19a9 9 0 1 1 14.2 0" />
+      <path d="m12 14 4-5" />
+      <circle cx="12" cy="14" r="1" />
+    </svg>
+  );
+}
+
+/** Lines flowing into a bar: prompt processing (Prefill bench). */
+export function PrefillIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg {...baseProps(className)}>
+      <path d="M3 7h8M3 12h8M3 17h8" />
+      <path d="m14 8 4 4-4 4" />
+      <path d="M21 5v14" />
+    </svg>
+  );
+}
+
+/** Check inside a ring: answer quality (Quality bench). */
+export function QualityIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg {...baseProps(className)}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="m8 12.5 2.8 2.8L16 9.5" />
+    </svg>
+  );
+}
+
+/** Wrench: tool calling (Tool Eval bench). */
+export function WrenchIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg {...baseProps(className)}>
+      <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.8-3.8a6 6 0 0 1-7.9 7.9l-6.9 6.9a2.1 2.1 0 0 1-3-3l6.9-6.9a6 6 0 0 1 7.9-7.9z" />
+    </svg>
+  );
+}
+
+/** Window with a left panel: show / hide the sidebar. */
+export function PanelLeftIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg {...baseProps(className)}>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M9 4v16" />
+    </svg>
+  );
+}
+
+/** Globe: a website link. */
+export function GlobeIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg {...baseProps(className)}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12h18M12 3c2.6 2.7 3.9 5.7 3.9 9s-1.3 6.3-3.9 9c-2.6-2.7-3.9-5.7-3.9-9S9.4 5.7 12 3z" />
+    </svg>
+  );
+}
+
+/** The X (formerly Twitter) mark. */
+export function GithubIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg width={14} height={14} viewBox="0 0 24 24" fill="currentColor" aria-hidden className={className}>
+      <path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.52-1.33-1.28-1.69-1.28-1.69-1.05-.71.08-.7.08-.7 1.15.08 1.76 1.19 1.76 1.19 1.03 1.76 2.7 1.25 3.36.96.1-.75.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.78 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.42-2.69 5.39-5.25 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5z" />
+    </svg>
+  );
+}
+
+export function XLogoIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg width={14} height={14} viewBox="0 0 24 24" fill="currentColor" aria-hidden className={className}>
+      <path d="M18.244 2H21.5l-7.1 8.12L22.8 22h-6.55l-5.13-6.7L5.2 22H1.94l7.6-8.68L1.5 2h6.72l4.64 6.13L18.244 2zm-1.14 18h1.8L7.3 3.9H5.37L17.1 20z" />
+    </svg>
+  );
+}

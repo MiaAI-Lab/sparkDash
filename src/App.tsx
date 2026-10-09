@@ -1,24 +1,58 @@
+import { BenchIcon } from "./components/bench/BenchIcon";
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useSnapshot } from "./hooks/useSnapshot";
 import { useAppRoute, useRoute } from "./hooks/useRoute";
+import { useSmoothWheel } from "./hooks/useSmoothWheel";
 import { fetchSparks, reorderSparks, fetchSettings, fetchHealth } from "./api/client";
-import { SparkTabs } from "./components/SparkTabs";
+import { AppSidebar } from "./components/shell/AppSidebar";
+import { MobileTabBar } from "./components/shell/MobileTabBar";
+import { CommandPalette, type PaletteCommand } from "./components/shell/CommandPalette";
+import { openShowcase, showcaseTarget } from "./components/shell/sparkSummary";
 import { AddSparkDialog } from "./components/AddSparkDialog";
 import { EditSparkDialog } from "./components/EditSparkDialog";
 import { SparkPage } from "./components/SparkPage/SparkPage";
 import { HermesUpdateDialog } from "./components/SparkPage/HermesUpdateDialog";
 import { OverviewPage } from "./components/OverviewPage/OverviewPage";
 import { ShowcasePage } from "./components/ShowcasePage/ShowcasePage";
+import { ShowcaseView } from "./components/ShowcasePage/ShowcaseView";
 import { ThemeSwitch } from "./components/ThemeSwitch";
-import { OpenAccessChip } from "./components/OpenAccessChip";
 import { SettingsDialog } from "./components/SettingsDialog";
-import { AccessTokenPrompt } from "./components/AccessTokenDialog";
-import { onTokenChange } from "./api/authToken";
-import { GearIcon, BoltIcon } from "./components/ui/icons";
+import {
+  GearIcon,
+  GridIcon,
+  PlusIcon,
+  EditIcon,
+  SearchIcon,
+  TerminalIcon,
+  SunIcon,
+  ServerIcon,
+  BoltIcon,
+  ListIcon,
+  PanelLeftIcon,
+  TokensIcon,
+} from "./components/ui/icons";
 import { ConnectionBanner } from "./components/ui/ConnectionBanner";
 import { ErrorBanner } from "./components/ui/ErrorBanner";
-import { OVERVIEW_ID } from "./constants";
+import {
+  ACTIVITY_ID,
+  SHOWCASE_ID,
+  ENERGY_ID,
+  OVERVIEW_ID,
+  TOKENS_ID,
+  benchId,
+  benchTypeOf,
+  idToPath,
+  isPageId,
+  isStaleSparkId,
+} from "./constants";
+import { TokensPage } from "./components/TokensPage/TokensPage";
+import { EnergyPage } from "./components/EnergyPage/EnergyPage";
+import { ActivityPage } from "./components/ActivityPage/ActivityPage";
+import { BenchPage } from "./components/bench/BenchPage";
+import { BENCH_SPARK_KEY, BENCH_TYPES } from "./components/bench/benchCatalog";
 import type { AuthMode, Settings, SparkSnapshot } from "./api/types";
+import { AccessTokenPrompt } from "./components/AccessTokenDialog";
+import { onTokenChange } from "./api/authToken";
 import { isWorkerSpark } from "./api/sparkRole";
 
 /** Keep hidden worker ids in their original slots when the visible tabs are reordered. */
@@ -128,20 +162,41 @@ function placeholderSnapshot(
 
 function DashboardApp() {
   const {
-    sparks,
+    sparks: snapSparks,
     activeId,
     setActiveId,
-    activeSpark,
+    activeSpark: liveActive,
     connected,
     lastValidSnapshotAt,
     snapshotError,
     refreshInterval,
   } = useSnapshot();
+  const sparks = snapSparks;
+  const activeSpark = liveActive;
   const [telemetryNow, setTelemetryNow] = useState(Date.now());
-  const navigate = useRoute(setActiveId);
+  const { navigate, replace } = useRoute(setActiveId);
   const [showAdd, setShowAdd] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  // Desktop sidebar can be hidden to give the page the full width; remembered per browser.
+  const [sideHidden, setSideHidden] = useState(() => {
+    try {
+      return localStorage.getItem("sparkdash.sidebar.hidden") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleSidebar = useCallback(() => {
+    setSideHidden((v) => {
+      const next = !v;
+      try {
+        localStorage.setItem("sparkdash.sidebar.hidden", next ? "1" : "0");
+      } catch {
+        /* storage blocked: it still toggles for this session */
+      }
+      return next;
+    });
+  }, []);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [authMode, setAuthMode] = useState<AuthMode | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -187,6 +242,8 @@ function DashboardApp() {
 
 
   const isOverview = activeId === OVERVIEW_ID;
+  const onPage = isPageId(activeId);
+  const benchType = benchTypeOf(activeId);
   const hideWorkers = settings?.hideWorkers ?? false;
   const hiddenWorkerIds = useMemo(() => {
     if (!hideWorkers) return new Set<string>();
@@ -200,9 +257,22 @@ function DashboardApp() {
     () => (hideWorkers ? displaySparks.filter((s) => !hiddenWorkerIds.has(s.id)) : displaySparks),
     [displaySparks, hideWorkers, hiddenWorkerIds]
   );
-  const displayActive = isOverview
+  // No silent fallback to another Spark: that would show it under a URL that names a different one.
+  const displayActive = onPage
     ? null
-    : displaySparks.find((s) => s.id === activeId) || displaySparks[0] || activeSpark || null;
+    : displaySparks.find((s) => s.id === activeId) || activeSpark || null;
+  const fleetLoaded = lastValidSnapshotAt != null || fallbackSparks.length > 0;
+  const staleSpark = isStaleSparkId(
+    activeId,
+    displaySparks.map((s) => s.id),
+    fleetLoaded
+  );
+
+  // The active Spark is gone (deleted, renamed id, bad deep link): fix the URL to the Overview
+  // in place, so Back does not return to a page that no longer exists.
+  useEffect(() => {
+    if (staleSpark) replace(OVERVIEW_ID);
+  }, [staleSpark, replace]);
 
   useEffect(() => {
     if (sparks.length > 0) setFallbackSparks([]);
@@ -239,12 +309,11 @@ function DashboardApp() {
     setSettings(s);
   }, []);
 
-  // Apply layout density (comfortable/compact) from persisted settings.
+  // One layout density: compact. (The old per-browser "comfortable" option is gone, so a saved
+  // value from before cannot leave anyone on a layout they can no longer change.)
   useEffect(() => {
-    if (settings?.density) {
-      document.documentElement.setAttribute("data-density", settings.density);
-    }
-  }, [settings?.density]);
+    document.documentElement.setAttribute("data-density", "compact");
+  }, []);
 
   const refreshFromApi = useCallback(async () => {
     try {
@@ -293,17 +362,14 @@ function DashboardApp() {
           );
         })
       );
-      if (configs.length && activeId !== OVERVIEW_ID && !configs.some((c) => c.id === activeId)) {
-        setActiveId(configs[0].id);
-      }
-      if (configs.length === 0 && activeId !== OVERVIEW_ID) setActiveId(null);
+      if (isStaleSparkId(activeId, configs.map((c) => c.id), true)) replace(OVERVIEW_ID);
     } catch (err) {
       console.error("Failed to refresh sparks:", err);
       setActionError(
         `Could not refresh Sparks: ${err instanceof Error ? err.message : String(err)}. Previous data remains visible.`
       );
     }
-  }, [sparks, activeId, setActiveId]);
+  }, [sparks, activeId, replace]);
 
   const handleReorder = useCallback(
     async (orderedIds: string[]) => {
@@ -322,88 +388,209 @@ function DashboardApp() {
     [displaySparks, hiddenWorkerIds]
   );
 
+  const [showPalette, setShowPalette] = useState(false);
+
+  // Deep components (e.g. the LLM panel's "Tool Eval" button) navigate without prop drilling.
+  useEffect(() => {
+    const onNav = (e: Event) => {
+      const detail = (e as CustomEvent<string | { id: string; spark?: string }>).detail;
+      const id = typeof detail === "string" ? detail : detail?.id;
+      const spark = typeof detail === "object" ? detail?.spark : undefined;
+      if (spark) {
+        try {
+          localStorage.setItem(BENCH_SPARK_KEY, spark);
+        } catch {
+          /* private mode */
+        }
+      }
+      if (typeof id === "string" && id) navigate(id);
+    };
+    window.addEventListener("sparkdash:navigate", onNav);
+    return () => window.removeEventListener("sparkdash:navigate", onNav);
+  }, [navigate]);
+
+  // Ctrl/⌘ K opens the palette from anywhere.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setShowPalette((v) => !v);
+      } else if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "b") {
+        // Not while typing in a field, where Ctrl+B may mean something else.
+        const t = e.target as HTMLElement | null;
+        if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+        e.preventDefault();
+        toggleSidebar();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [toggleSidebar]);
+
+  const paletteCommands = useMemo<PaletteCommand[]>(() => {
+    const cmds: PaletteCommand[] = [
+      { id: "nav:overview", group: "Go to", label: "Overview", hint: "Fleet", icon: <GridIcon className="h-4 w-4" />, keywords: "home fleet", run: () => navigate(OVERVIEW_ID) },
+    ];
+    cmds.push(
+      { id: "nav:tokens", group: "Go to", label: "Token totals", hint: "Page", icon: <TokensIcon className="h-4 w-4" />, keywords: "llm tokens generated prompt cached usage", run: () => navigate(TOKENS_ID) },
+      { id: "nav:energy", group: "Go to", label: "Fleet energy", hint: "Page", icon: <BoltIcon className="h-4 w-4" />, keywords: "power kwh watts cost electricity", run: () => navigate(ENERGY_ID) },
+      { id: "nav:showcase", group: "Go to", label: "Showcase", hint: "Page", icon: <TerminalIcon className="h-4 w-4" />, keywords: "prompts terminals stream demo", run: () => navigate(SHOWCASE_ID) },
+      { id: "nav:activity", group: "Go to", label: "Activity", hint: "Page", icon: <ListIcon className="h-4 w-4" />, keywords: "events log history recent", run: () => navigate(ACTIVITY_ID) }
+    );
+    for (const s of displaySparks) {
+      cmds.push({
+        id: `nav:${s.id}`,
+        group: "Go to",
+        label: s.name,
+        hint: s.online ? "online" : "offline",
+        icon: <ServerIcon className="h-4 w-4" />,
+        keywords: `spark ${s.id}`,
+        run: () => navigate(s.id),
+      });
+    }
+    for (const b of BENCH_TYPES) {
+      cmds.push({
+        id: `bench:${b.id}`,
+        group: "Benchmarks",
+        label: `${b.label} benchmark`,
+        hint: b.family,
+        icon: <BenchIcon id={b.id} className="h-4 w-4" />,
+        keywords: `bench benchmark ${b.blurb}`,
+        run: () => navigate(benchId(b.id)),
+      });
+    }
+    cmds.push({ id: "act:add", group: "Actions", label: "Add a Spark or GPU host", icon: <PlusIcon className="h-4 w-4" />, keywords: "new register connect", run: () => setShowAdd(true) });
+    const sc = showcaseTarget(displaySparks);
+    if (sc) {
+      cmds.push({ id: "act:showcase", group: "Actions", label: `Open showcase on ${sc.name} in a new window`, icon: <TerminalIcon className="h-4 w-4" />, keywords: "demo streams terminals", run: () => openShowcase(sc) });
+    }
+    if (displayActive) {
+      cmds.push({ id: "act:edit", group: "Actions", label: `Edit ${displayActive.name}`, icon: <EditIcon className="h-4 w-4" />, keywords: "settings role ports", run: () => setEditId(displayActive.id) });
+    }
+    cmds.push(
+      { id: "act:theme", group: "Actions", label: "Switch theme", hint: "white · light · dark · oled", icon: <SunIcon className="h-4 w-4" />, keywords: "appearance dark light", run: () => window.dispatchEvent(new Event("sparkdash:cycle-theme")) },
+      { id: "act:sidebar", group: "Actions", label: "Show or hide the sidebar", icon: <PanelLeftIcon className="h-4 w-4" />, keywords: "collapse expand navigation rail menu", run: toggleSidebar },
+      { id: "act:settings", group: "Actions", label: "Open settings", icon: <GearIcon className="h-4 w-4" />, keywords: "preferences density refresh", run: () => setShowSettings(true) }
+    );
+    return cmds;
+  }, [displaySparks, displayActive, navigate, toggleSidebar]);
+
   return (
-    <div className="min-h-screen p-0 text-text sm:p-8">
-      <div className="dashboard-shell">
-        <header className="flex flex-wrap items-center gap-3" style={{ marginBottom: "var(--density-header-gap)" }}>
-          <button
-            type="button"
-            onClick={() => navigate(OVERVIEW_ID)}
-            className="logo-pill"
-          >
-            <BoltIcon className="h-3.5 w-3.5 text-accent" />
-            <span>
-              spark<span className="logo-pill-dash">Dash</span>
-            </span>
+    <div className="min-h-screen text-text">
+      <div className={`app-shell${sideHidden ? " app-shell--side-hidden" : ""}`}>
+        <AppSidebar
+          onCollapse={toggleSidebar}
+          sparks={tabSparks}
+          activeId={displayActive?.id ?? activeId}
+          onSelect={navigate}
+          onAdd={() => setShowAdd(true)}
+          onReorder={handleReorder}
+          onOpenSettings={() => setShowSettings(true)}
+          onOpenSearch={() => setShowPalette(true)}
+          benchType={benchType}
+          onSelectBench={(type) => navigate(benchId(type))}
+          connected={connected}
+          refreshInterval={refreshInterval}
+          authMode={authMode}
+        />
+        <div className="side-strip" aria-hidden={!sideHidden}>
+          <button type="button" className="icon-circle" onClick={toggleSidebar} tabIndex={sideHidden ? 0 : -1} title="Show sidebar (Ctrl+B)" aria-label="Show sidebar">
+            <PanelLeftIcon className="h-3.5 w-3.5" />
           </button>
-          <SparkTabs
-            sparks={tabSparks}
-            activeId={displayActive?.id ?? activeId}
-            onSelect={navigate}
-            onAdd={() => setShowAdd(true)}
-            onEdit={(id) => setEditId(id)}
-            onReorder={handleReorder}
-          />
-          <div className="ml-auto flex items-center gap-2.5">
-            <OpenAccessChip authMode={authMode} />
-            <button
-              type="button"
-              onClick={() => setShowSettings(true)}
-              className="icon-circle"
-              title="Settings"
-              aria-label="Settings"
+        </div>
+        <div className="app-main">
+          {/* Phone-only bar: on larger screens search and theme live in the sidebar. */}
+          <header className="app-topbar">
+            <a
+              href={idToPath(OVERVIEW_ID)}
+              className="brand"
+              aria-label="sparkDash overview"
+              onClick={(e) => {
+                if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                e.preventDefault();
+                navigate(OVERVIEW_ID);
+              }}
             >
-              <GearIcon className="h-4 w-4" />
+              <span className="brand__mark">
+                <BoltIcon className="h-[17px] w-[17px]" />
+              </span>
+              <span>
+                spark<span className="brand__dash">Dash</span>
+              </span>
+            </a>
+            <button type="button" className="search-trigger" onClick={() => setShowPalette(true)} aria-label="Open command palette">
+              <SearchIcon className="h-4 w-4" />
             </button>
             <ThemeSwitch />
+          </header>
+          <div className={`app-content${activeId === SHOWCASE_ID ? " app-content--wide" : ""}`}>
+            <ConnectionBanner
+              connected={connected}
+              lastValidSnapshotAt={lastValidSnapshotAt}
+              snapshotError={snapshotError}
+              now={telemetryNow}
+              stale={telemetryStale}
+            />
+            <ErrorBanner message={actionError} onDismiss={() => setActionError(null)} />
+            <main className={telemetryStale || !connected ? "telemetry-stale" : undefined}>
+              {activeId === TOKENS_ID ? (
+                <TokensPage sparks={displaySparks} onSelectSpark={navigate} />
+              ) : activeId === ENERGY_ID ? (
+                <EnergyPage sparks={displaySparks} settings={settings} onSelectSpark={navigate} />
+              ) : activeId === ACTIVITY_ID ? (
+                <ActivityPage sparks={displaySparks} onSelectSpark={navigate} />
+              ) : activeId === SHOWCASE_ID ? (
+                <ShowcaseView sparks={displaySparks} />
+              ) : benchType ? (
+                <BenchPage type={benchType} sparks={displaySparks} benchShareImage={settings?.benchShareImage ?? false} />
+              ) : isOverview ? (
+                <OverviewPage
+                  sparks={displaySparks}
+                  hideOffline={settings?.autoHideOffline ?? false}
+                  hideWorkers={hideWorkers}
+                  showFleetEnergy={settings?.showFleetEnergy ?? true}
+                  showFleetExceptions={settings?.showFleetExceptions ?? false}
+                  showOverviewSearch={settings?.showOverviewSearch ?? false}
+                  showLlmTokenTotals={settings?.showLlmTokenTotals ?? true}
+                  showVramBreakdown={settings?.showVramBreakdown ?? true}
+                  temperatureUnit={settings?.temperatureUnit ?? "celsius"}
+                  onSelectSpark={navigate}
+                  onNavigate={navigate}
+                />
+              ) : displayActive ? (
+                <SparkPage
+                  spark={displayActive}
+                  fleet={displaySparks}
+                  showVramBreakdown={settings?.showVramBreakdown ?? true}
+                  temperatureUnit={settings?.temperatureUnit ?? "celsius"}
+                  benchShareImage={settings?.benchShareImage ?? false}
+                  onEdit={() => setEditId(displayActive.id)}
+                />
+              ) : !fleetLoaded || staleSpark ? null : (
+                <div className="panel mx-auto mt-16 max-w-md p-8 text-center">
+                  <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-accent-soft text-accent">
+                    <PlusIcon className="h-5 w-5" />
+                  </div>
+                  <h2 className="text-sm font-semibold text-text-strong">No Spark registered</h2>
+                  <p className="mt-1 text-xs text-muted">Add a DGX Spark or GPU host to start monitoring.</p>
+                  <button type="button" className="btn btn--primary mt-4" onClick={() => setShowAdd(true)}>
+                    <PlusIcon className="h-3.5 w-3.5" />
+                    Add Spark
+                  </button>
+                </div>
+              )}
+            </main>
           </div>
-        </header>
-        <ConnectionBanner
-          connected={connected}
-          lastValidSnapshotAt={lastValidSnapshotAt}
-          snapshotError={snapshotError}
-          now={telemetryNow}
-          stale={telemetryStale}
-        />
-        <ErrorBanner message={actionError} onDismiss={() => setActionError(null)} />
-        <main className={telemetryStale || !connected ? "telemetry-stale" : undefined}>
-          {isOverview ? (
-            <OverviewPage
-              sparks={displaySparks}
-              hideOffline={settings?.autoHideOffline ?? false}
-              hideWorkers={hideWorkers}
-              showFleetEnergy={settings?.showFleetEnergy ?? false}
-              showFleetExceptions={settings?.showFleetExceptions ?? false}
-              showOverviewSearch={settings?.showOverviewSearch ?? false}
-              showLlmTokenTotals={settings?.showLlmTokenTotals ?? false}
-              showVramBreakdown={settings?.showVramBreakdown ?? true}
-              temperatureUnit={settings?.temperatureUnit ?? "celsius"}
-              onSelectSpark={navigate}
-            />
-          ) : displayActive ? (
-            <SparkPage
-              spark={displayActive}
-              fleet={displaySparks}
-              temperatureUnit={settings?.temperatureUnit ?? "celsius"}
-              benchShareImage={settings?.benchShareImage ?? false}
-              showVramBreakdown={settings?.showVramBreakdown ?? true}
-              onEdit={() => setEditId(displayActive.id)}
-            />
-          ) : (
-            <div className="panel mx-auto mt-16 max-w-md p-8 text-center">
-              <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-accent-soft text-accent">
-                <span className="text-lg leading-none">+</span>
-              </div>
-              <h2 className="text-sm font-semibold text-text-strong">No Spark registered</h2>
-              <p className="mt-1 text-xs text-muted">
-                Click the&nbsp;
-                <span className="rounded border border-border bg-surface-elevated px-1 py-0.5 text-text">+</span>
-                &nbsp;tab to add a DGX Spark unit.
-              </p>
-            </div>
-          )}
-        </main>
+        </div>
       </div>
+      <MobileTabBar
+        sparks={tabSparks}
+        activeId={displayActive?.id ?? activeId}
+        onSelect={navigate}
+        onAdd={() => setShowAdd(true)}
+        onOpenSettings={() => setShowSettings(true)}
+      />
+      <CommandPalette open={showPalette} onClose={() => setShowPalette(false)} commands={paletteCommands} />
       <HermesUpdateDialog />
       <AddSparkDialog
         open={showAdd}
@@ -439,6 +626,7 @@ function DashboardApp() {
 
 function App() {
   const route = useAppRoute();
+  useSmoothWheel();
   return (
     <>
       {route.mode === "showcase" && route.showcaseSparkId ? (

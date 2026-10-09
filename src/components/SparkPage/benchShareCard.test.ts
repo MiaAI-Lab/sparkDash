@@ -1,13 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 import boltSvg from "../../../assets/bolt.svg?raw";
-import type { DecodeBenchJob, PrefillBenchJob } from "../../api/types";
+import type { DecodeBenchJob, PrefillBenchJob, QualityBenchJob } from "../../api/types";
 import {
   BOLT_POINTS,
   SHARE_CARD_MIN_HEIGHT,
   SHARE_CARD_WIDTH,
   buildDecodeShareCard,
   buildPrefillShareCard,
+  buildQualityShareCard,
+  detectShareCardTheme,
   paintShareCard,
+  shareCardBarFractions,
   shareCardDate,
   shareCardFileName,
   shareCardHeight,
@@ -198,6 +201,43 @@ describe("share card model", () => {
     });
   });
 
+  it("prefill card states the real method and flags failed, partial and low-confidence rows", () => {
+    const base = prefillJob().results[0];
+    const job = prefillJob({
+      results: [
+        { ...base, targetTokens: 1024, prefillTps: 0, error: "The whole prompt was served from the prefix cache" },
+        { ...base, targetTokens: 32768, samples: 1, samplesRequested: 3, lowConfidence: true },
+      ],
+    });
+    const card = buildPrefillShareCard(job, { llmPort: 8888, modelId: "m" });
+    expect(card.legend).toMatch(/server prompt timing/);
+    expect(card.legend).not.toMatch(/prompt tokens ÷ time to first token/);
+    expect(card.rows[0]).toMatchObject({ detail: "The whole prompt was served from the prefix cache", tone: "bad", primary: "—" });
+    expect(card.rows[1].detail).toContain("1/3 samples, low confidence");
+    expect(card.rows[1].tone).toBe("warn");
+  });
+
+  it("quality card scores against answered items and drops the delta for incomparable runs", () => {
+    const mk = (scoring: number, passed: number, errors: number, pct: number) =>
+      ({
+        status: "completed",
+        durationMs: 1,
+        config: { label: "", suiteVersion: 1, scoringVersion: scoring },
+        results: {
+          overallPct: pct,
+          skippedLongSizes: [],
+          items: [],
+          categories: { qa: { passed, total: 10, scored: 10 - errors, errors, pct, meanCompletionTokens: 1, hitMaxTokens: 0 } },
+        },
+      }) as unknown as QualityBenchJob;
+    const a = mk(2, 4, 2, 50);
+    const same = buildQualityShareCard(a, mk(2, 5, 0, 50), { llmPort: 1, modelId: null });
+    expect(same.rows[0].detail).toBe("4/8 items · 2 errors");
+    const diff = buildQualityShareCard(a, mk(1, 5, 0, 40), { llmPort: 1, modelId: null });
+    expect(diff.rows[0].secondary).toBe("");
+    expect(diff.columns.secondary).toBe("");
+  });
+
   it("falls back to the port alone when the model is unknown, and to the remote host when used", () => {
     expect(shareCardSubtitle({ llmPort: 8888, modelId: null })).toBe("Port 8888");
     expect(shareCardSubtitle({ llmPort: 8888, modelId: "m", remoteHost: "spark.tailnet.ts.net" })).toBe(
@@ -292,7 +332,9 @@ describe("share card painter", () => {
     const ctx = fakeContext();
     paintShareCard(ctx, card);
 
-    expect(ctx.texts).toContain("sparkDash");
+    // Two-tone wordmark, as in the sidebar logo.
+    expect(ctx.texts).toContain("spark");
+    expect(ctx.texts).toContain("Dash");
     expect(ctx.texts).toContain("spark-38bd");
     expect(ctx.texts).toContain("Decode benchmark");
     expect(ctx.texts).toContain("Port 8888 · DeepSeek-v4.1-Flash-EXL3");
@@ -312,10 +354,10 @@ describe("share card painter", () => {
     expect(ctx.fillRects[0]).toEqual([0, 0, SHARE_CARD_WIDTH, shareCardHeight(card)]);
   });
 
-  it("strokes the repo's brand mark next to the wordmark", () => {
+  it("draws the brand tile with the bolt outlined in the on-accent colour", () => {
     const ctx = fakeContext();
     paintShareCard(ctx, buildDecodeShareCard(decodeJob(), { llmPort: 8888, modelId: null }));
-    const bolt = ctx.strokes.find((s) => s.color.startsWith("#e8a830"));
+    const bolt = ctx.strokes.find((s) => s.color.startsWith("#1c1404"));
     expect(bolt).toBeDefined();
     // Start point, the five interior vertices, and the closing repeat.
     expect(bolt!.points).toHaveLength(BOLT_POINTS.length + 1);
@@ -341,6 +383,76 @@ describe("share card painter", () => {
     const ctx = fakeContext(30); // wide glyphs so everything overflows
     paintShareCard(ctx, card);
     expect(ctx.texts.some((t) => t.endsWith("…"))).toBe(true);
+  });
+});
+
+describe("share card themes", () => {
+  const card = () => buildDecodeShareCard(decodeJob(), { llmPort: 8888, modelId: "m" });
+
+  /** Every colour the painter assigns, in order. */
+  function fillColors(theme: "dark" | "light" | "white") {
+    const colors: string[] = [];
+    const ctx = fakeContext();
+    let fill = "";
+    Object.defineProperty(ctx, "fillStyle", {
+      get: () => fill,
+      set: (v) => {
+        fill = String(v);
+        colors.push(fill);
+      },
+    });
+    paintShareCard(ctx, card(), theme);
+    return colors;
+  }
+
+  it("paints the dark card with the app's dark tokens and the light card with its light tokens", () => {
+    const dark = fillColors("dark");
+    const light = fillColors("light");
+    expect(dark[0]).toBe("#0a0c0f"); // page background
+    expect(dark).toContain("#12151a"); // panel
+    expect(light[0]).toBe("#dce0e7");
+    expect(light).toContain("#ffffff"); // panel
+    expect(light).not.toContain("#0a0c0f");
+    expect(dark).not.toContain("#dce0e7");
+  });
+
+  it("paints the White theme's card on its own lighter page colour, not the Light theme's", () => {
+    const white = fillColors("white");
+    expect(white[0]).toBe("#f3f4f6");
+    expect(white).toContain("#ffffff");
+    expect(white).not.toContain("#dce0e7");
+  });
+
+  it("uses the darker amber for numbers on the light card so they stay readable", () => {
+    expect(fillColors("light")).toContain("#8c5a00");
+    expect(fillColors("dark")).toContain("#f4b942");
+  });
+
+  it("defaults to the dark card", () => {
+    const ctx = fakeContext();
+    paintShareCard(ctx, card());
+    expect(ctx.fillRects[0]).toEqual([0, 0, SHARE_CARD_WIDTH, shareCardHeight(card())]);
+  });
+
+  it("follows the active app theme: Dark and OLED are dark, Light is light, White is its own near-white card, unknown is dark", () => {
+    const set = (t: string | null) =>
+      t === null ? document.documentElement.removeAttribute("data-theme") : document.documentElement.setAttribute("data-theme", t);
+    try {
+      for (const [theme, expected] of [["dark", "dark"], ["oled", "dark"], ["light", "light"], ["white", "white"], ["weird", "dark"], [null, "dark"]] as const) {
+        set(theme);
+        expect(detectShareCardTheme()).toBe(expected);
+      }
+    } finally {
+      set("dark");
+    }
+  });
+
+  it("sizes the bars under the rows relative to the largest headline number, or omits them", () => {
+    const row = (primary: string) => ({ load: "×1", detail: "", primary, secondary: "1", primaryUnit: "tok/s", secondaryUnit: "tok/s", tone: "ok" as const });
+    expect(shareCardBarFractions([row("50.0"), row("25.0"), row("12.5")])).toEqual([1, 0.5, 0.25]);
+    expect(shareCardBarFractions([row("1,200"), row("600")])).toEqual([1, 0.5]);
+    expect(shareCardBarFractions([row("50"), row("—")])).toBeNull();
+    expect(shareCardBarFractions([])).toBeNull();
   });
 });
 
@@ -416,5 +528,60 @@ describe("copy formats", () => {
     });
     expect(outcome).toBe("failed");
     expect(download).not.toHaveBeenCalled();
+  });
+});
+
+describe("quality share card", () => {
+  const qJob = (overrides = {}) =>
+    ({
+      benchId: "b",
+      status: "completed",
+      durationMs: 60_000,
+      config: { label: "fp8" },
+      results: {
+        overallPct: 91.2,
+        categories: {
+          qa: { passed: 45, total: 50, pct: 90, errors: 0 },
+          gsm8k: { passed: 10, total: 20, pct: 50, errors: 0 },
+        },
+        items: [],
+      },
+      ...overrides,
+    }) as never;
+
+  it("carries an overall ring and one tile per category, with item totals", async () => {
+    const { buildQualityShareCard } = await import("./benchShareCard");
+    const m = buildQualityShareCard(qJob(), null, { llmPort: 8888, modelId: "m" }, 0);
+    expect(m.quality?.overall).toBe(91.2);
+    expect(m.quality?.tiles.map((t) => [t.label, t.pct, t.detail])).toEqual([
+      ["QA", 90, "45/50 items"],
+      ["GSM8K", 50, "10/20 items"],
+    ]);
+    expect(m.quality?.summary).toBe("2 categories · 70 items · 1m 0s");
+    expect([m.quality?.modelName, m.quality?.target, m.quality?.runLabel]).toEqual(["m", "Port 8888", "fp8"]);
+  });
+
+  it("shows the points change against a compared run", async () => {
+    const { buildQualityShareCard } = await import("./benchShareCard");
+    const other = qJob({ results: { overallPct: 80, categories: { qa: { passed: 40, total: 50, pct: 80, errors: 0 }, gsm8k: { passed: 10, total: 20, pct: 50, errors: 0 } }, items: [] } });
+    const m = buildQualityShareCard(qJob(), other, { llmPort: 8888, modelId: null }, 0);
+    expect(m.quality?.tiles.map((t) => t.delta)).toEqual([10, 0]);
+  });
+
+  it("is painted as tiles, grows with the number of categories, and colours by score band", async () => {
+    const { buildQualityShareCard, qualityTierColor } = await import("./benchShareCard");
+    const m = buildQualityShareCard(qJob(), null, { llmPort: 8888, modelId: "m" }, 0);
+    const ctx = fakeContext();
+    paintShareCard(ctx, m, "light");
+    expect(ctx.texts).toContain("Quality benchmark");
+    expect(ctx.texts).toContain("90.0");
+    expect(ctx.texts).toContain("50.0");
+    expect(ctx.texts).not.toContain("CATEGORY");
+    expect(ctx.texts).toContain("m"); // the model under test is the headline of the hero panel
+    expect(shareCardHeight(m)).toBeGreaterThanOrEqual(675);
+    const bigger = { ...m, quality: { ...m.quality!, tiles: Array.from({ length: 8 }, () => m.quality!.tiles[0]) } };
+    expect(shareCardHeight(bigger)).toBeGreaterThan(shareCardHeight(m));
+    const P = { success: "g", accent: "a", danger: "r", muted: "m" };
+    expect([95, 90, 89.9, 70, 69.9, null].map((v) => qualityTierColor(P, v))).toEqual(["g", "g", "a", "a", "r", "m"]);
   });
 });

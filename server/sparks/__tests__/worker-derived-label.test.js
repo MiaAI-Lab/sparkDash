@@ -4,8 +4,11 @@ import { SparkMonitor } from "../SparkMonitor.js";
 
 // Real instances, never started (no timers / no I/O in constructors).
 // Head metrics are injected to simulate probe results.
-const head = (id = "h") =>
-  new SparkMonitor({ id, name: id, kind: "spark", role: "head", lanIp: "10.0.0.1" });
+const head = (id = "h") => {
+  const m = new SparkMonitor({ id, name: id, kind: "spark", role: "head", lanIp: "10.0.0.1" });
+  m.online = true;
+  return m;
+};
 
 const worker = (partial = {}, options = {}) =>
   new SparkMonitor(
@@ -108,4 +111,11 @@ test("all entries unavailable yields no derived label", () => {
   assert.equal(h.headLlmModelId(), null);
   const w = withHead(worker(), h);
   assert.equal(w.snapshot().workerDerivedLabel, null);
+});
+
+test("an offline head yields no model id even with a cached available entry", () => {
+  const h = head();
+  h._metrics.llm = [{ available: true, modelId: "stale" }];
+  h.online = false;
+  assert.equal(h.headLlmModelId(), null);
 });

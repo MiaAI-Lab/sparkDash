@@ -1,5 +1,6 @@
-import { useEffect, useCallback, useRef, useState } from "react";
-import { OVERVIEW_ID } from "../constants";
+import { withPageTransition } from "./pageTransition";
+import { useEffect, useCallback, useMemo, useState } from "react";
+import { idToPath, pathToId } from "../constants";
 
 export type RouteMode = "app" | "showcase";
 
@@ -36,59 +37,52 @@ export function useAppRoute(): AppRoute {
   return route;
 }
 
+export interface RouteActions {
+  /** Switch view: pushes a history entry, runs the page transition and scrolls to the top. */
+  navigate: (id: string | null) => void;
+  /** Switch view without adding a history entry (correcting a URL that no longer fits). */
+  replace: (id: string | null) => void;
+}
+
 /**
  * useRoute — syncs the browser URL path with the active spark ID.
  *
  * URL scheme:
- *   /             → Overview
- *   /spark/:id    → Spark detail page
- *   /showcase/:id → full-screen showcase (handled separately via useAppRoute)
+ *   /                      → Overview
+ *   /tokens /energy /activity → dedicated fleet pages
+ *   /spark/:id             → Spark detail page
+ *   /bench/:type           → benchmark page
+ *   /showcase/:id          → full-screen showcase (handled separately via useAppRoute)
  *
- * Call `navigate(id)` to switch views — it updates both the URL and
- * the internal activeId state. Back/forward buttons work via popstate.
+ * The initial id comes from `initialActiveId()` in constants (pass it to the state's initialiser).
+ * `navigate(id)` updates the URL and the active id; Back/forward work via popstate.
  */
-export function useRoute(
-  setActiveId: (id: string | null) => void
-): (id: string | null) => void {
-  // Read initial activeId from the URL on mount
-  const initialised = useRef(false);
-
-  useEffect(() => {
-    if (initialised.current) return;
-    initialised.current = true;
-
-    const path = window.location.pathname;
-    if (path.startsWith("/showcase/")) return;
-
-    const match = path.match(/^\/spark\/([^/]+)/);
-    if (match) {
-      setActiveId(match[1]);
-    } else if (path !== "/spark") {
-      setActiveId(OVERVIEW_ID);
-    }
-  }, [setActiveId]);
-
-  // Sync back/forward navigation
+export function useRoute(setActiveId: (id: string | null) => void): RouteActions {
+  // Sync back/forward navigation (the browser restores the scroll position itself)
   useEffect(() => {
     const handler = () => {
-      const path = window.location.pathname;
-      if (path.startsWith("/showcase/")) return;
-      const match = path.match(/^\/spark\/([^/]+)/);
-      setActiveId(match ? match[1] : OVERVIEW_ID);
+      const id = pathToId(window.location.pathname);
+      if (id !== null) withPageTransition(() => setActiveId(id));
     };
     window.addEventListener("popstate", handler);
     return () => window.removeEventListener("popstate", handler);
   }, [setActiveId]);
 
-  // Wrapped navigate function — updates URL + internal state
   const navigate = useCallback(
     (id: string | null) => {
-      const url = id && id !== OVERVIEW_ID ? `/spark/${encodeURIComponent(id)}` : "/";
-      window.history.pushState(null, "", url);
+      window.history.pushState(null, "", idToPath(id));
+      withPageTransition(() => setActiveId(id), { scrollTop: true });
+    },
+    [setActiveId]
+  );
+
+  const replace = useCallback(
+    (id: string | null) => {
+      window.history.replaceState(null, "", idToPath(id));
       setActiveId(id);
     },
     [setActiveId]
   );
 
-  return navigate;
+  return useMemo(() => ({ navigate, replace }), [navigate, replace]);
 }

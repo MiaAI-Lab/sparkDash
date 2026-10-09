@@ -34,7 +34,11 @@ function host(overrides: { cpuTemp?: number; kind?: "spark" | "host" } = {}): Sp
 
 /** Bar labels in render order. */
 function barLabels(container: HTMLElement): string[] {
-  return [...container.querySelectorAll(".space-y-1 > div:first-child > span:first-child")].map(
+  return [
+    ...container.querySelectorAll(
+      ".ov-lbl > span:first-child, .space-y-1 > div:first-child > span:first-child"
+    ),
+  ].map(
     (el) => el.textContent ?? ""
   );
 }
@@ -42,13 +46,13 @@ function barLabels(container: HTMLElement): string[] {
 describe("Overview card", () => {
   it("names each bar for what it measures", () => {
     const { container } = render(<OverviewPage sparks={[host({ cpuTemp: 51 })]} />);
-    expect(barLabels(container)).toEqual(["VRAM", "RAM", "GPU temp", "CPU temp", "GPU util"]);
+    expect(barLabels(container)).toEqual(["VRAM", "GPU", "RAM", "GPU temp", "GPU power"]);
   });
 
   it("calls the temperature bar GPU temp even without a CPU sensor", () => {
     // A GB10 has no CPU package sensor; this used to read "Temperature".
     const { container } = render(<OverviewPage sparks={[host({ kind: "spark" })]} />);
-    expect(barLabels(container)).toEqual(["VRAM", "GPU temp", "GPU util"]);
+    expect(barLabels(container)).toEqual(["VRAM", "GPU", "GPU temp", "GPU power"]);
   });
 
   it("fits a 1.8 TB root disk in the Storage mini-stat", () => {
@@ -61,7 +65,8 @@ describe("Overview card", () => {
 
   it("calls SGLang by its name", () => {
     const { container } = render(<OverviewPage sparks={[host()]} />);
-    expect(container.textContent).toContain("SGLang");
-    expect(container.textContent).not.toContain("sgLang");
+    // The engine name rides in the model row's tooltip.
+    expect(container.querySelector('[title*="SGLang"]')).not.toBeNull();
+    expect(container.innerHTML).not.toContain("sgLang");
   });
 });

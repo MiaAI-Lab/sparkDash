@@ -618,6 +618,66 @@ export class FleetEnergyTracker {
   }
 
   /**
+   * Hourly rows for the detailed energy page, oldest first (UTC hour starts, all retained
+   * minute buckets). The client regroups them into days / its local day boundaries.
+   * Per row: per-node Wh and coverage, fleet average watts over the covered time,
+   * fleet Wh, and the output tokens seen (for efficiency). Hours with no coverage are omitted.
+   */
+  history(atMs = undefined) {
+    const timestamp = this._time(atMs);
+    const now = Number.isFinite(timestamp) ? timestamp : (this._latestRecordAt ?? 0);
+    this._prune(now);
+    const byHour = new Map();
+    for (const bucket of this._buckets.values()) {
+      const hourStart = Math.floor(bucket.minuteStartMs / HOUR_MS) * HOUR_MS;
+      let row = byHour.get(hourStart);
+      if (!row) {
+        row = {
+          nodeWh: nodeValues(this.nodeIds),
+          nodeCoverageMs: nodeValues(this.nodeIds),
+          fleetWattMs: 0,
+          fleetCoverageMs: 0,
+          outputTokens: 0,
+          coveredOutputTokens: 0,
+        };
+        byHour.set(hourStart, row);
+      }
+      for (const id of this.nodeIds) {
+        row.nodeWh[id] += bucket.nodeWh[id];
+        row.nodeCoverageMs[id] += bucket.nodeCoverageMs[id];
+      }
+      row.fleetWattMs += bucket.fleetWattMs;
+      row.fleetCoverageMs += bucket.fleetCoverageMs;
+      row.outputTokens += bucket.outputTokens;
+      row.coveredOutputTokens += bucket.coveredOutputTokens;
+    }
+    const round = (n, d = 3) => Math.round(n * 10 ** d) / 10 ** d;
+    const hourly = this._membershipChanged
+      ? []
+      : [...byHour.entries()]
+          .sort(([a], [b]) => a - b)
+          .filter(([, row]) => Object.values(row.nodeCoverageMs).some((ms) => ms > 0))
+          .map(([t, row]) => ({
+            t,
+            nodeWh: Object.fromEntries(Object.entries(row.nodeWh).map(([id, wh]) => [id, round(wh)])),
+            nodeCoverageMs: row.nodeCoverageMs,
+            avgWatts: row.fleetCoverageMs > 0 ? round(row.fleetWattMs / row.fleetCoverageMs, 1) : null,
+            fleetEnergyWh: round(row.fleetWattMs / 3_600_000),
+            fleetCoverageMs: row.fleetCoverageMs,
+            outputTokens: row.outputTokens,
+            coveredOutputTokens: row.coveredOutputTokens,
+          }));
+    return {
+      estimated: true,
+      membershipChanged: this._membershipChanged,
+      generatedAt: now,
+      retentionMs: RETENTION_MS,
+      nodeIds: [...this.nodeIds],
+      hourly,
+    };
+  }
+
+  /**
    * A state file from another fleet scope is not loaded (its aggregates would not be truthful for this fleet),
    * but it is kept: renamed beside the live file so the next flush cannot overwrite that history.
    */
@@ -796,6 +856,39 @@ export class FleetEnergyTracker {
       if (error?.code === "ENOENT") return;
       console.warn(`[FleetEnergyTracker] unable to load ${this.filePath}: ${error.message}`);
     }
+  }
+
+  /**
+   * Delete recorded history: everything, or only minutes older than `olderThanMs`.
+   * Power baselines are kept, so integration carries on from the next sample.
+   * @returns {number} how many minute buckets were removed
+   */
+  clear({ olderThanMs } = {}) {
+    const all = !(Number.isFinite(olderThanMs) && olderThanMs > 0);
+    const cutoff = all ? Infinity : this._now() - olderThanMs;
+    let removed = 0;
+    for (const minuteStartMs of [...this._buckets.keys()]) {
+      if (minuteStartMs < cutoff) {
+        this._buckets.delete(minuteStartMs);
+        removed++;
+      }
+    }
+    this._latestBucketStart = this._buckets.size
+      ? Math.max(...this._buckets.keys())
+      : null;
+    if (all) this._tokensTrackedSinceMs = null;
+    else if (this._tokensTrackedSinceMs !== null && this._tokensTrackedSinceMs < cutoff) {
+      this._tokensTrackedSinceMs = this._buckets.size ? Math.min(...this._buckets.keys()) : null;
+    }
+    if (removed > 0) {
+      this._dirty = true;
+      try {
+        this.flush();
+      } catch (error) {
+        console.error(`[FleetEnergyTracker] persist error: ${error.message}`);
+      }
+    }
+    return removed;
   }
 
   flush() {

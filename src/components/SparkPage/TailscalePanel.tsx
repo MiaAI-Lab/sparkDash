@@ -1,5 +1,6 @@
 import type { TailscaleMetrics } from "../../api/types";
 import { Panel } from "../ui/Panel";
+import { Tag } from "../ui/Tag";
 import { NetworkIcon } from "../ui/icons";
 
 interface TailscalePanelProps {
@@ -17,30 +18,35 @@ export function TailscalePanel({ tailscale, className }: TailscalePanelProps) {
   const available = Boolean(tailscale?.available);
   const offTailnet = available && online === false;
 
-  const status = !available
-    ? { label: "unknown", cls: "text-muted" }
+  const status: { label: string; tone: "neutral" | "good" | "bad" } = !available
+    ? { label: "unknown", tone: "neutral" }
     : online === true
-      ? { label: "online", cls: "text-accent" }
+      ? { label: "online", tone: "good" }
       : online === false
-        ? { label: "OFF TAILNET", cls: "text-danger" }
-        : { label: "unknown", cls: "text-muted" };
+        ? { label: "OFF TAILNET", tone: "bad" }
+        : { label: "unknown", tone: "neutral" };
 
   return (
-    <Panel title="Tailnet" accent={offTailnet} icon={<NetworkIcon />} className={className}>
-      <div className="mb-3 flex items-center gap-2 text-xs">
-        <span className="text-muted">Status</span>
-        <span className={`font-tabular font-medium ${status.cls}`}>{status.label}</span>
-        {tailscale?.backendState && (
-          <span className="ml-auto chip py-0.5">{tailscale.backendState}</span>
-        )}
-      </div>
+    <Panel
+      title="Tailnet"
+      accent={offTailnet}
+      icon={<NetworkIcon />}
+      className={className}
+      bodyClassName="sp-stack"
+      actions={
+        <>
+          <Tag tone={status.tone}>{status.label}</Tag>
+          {tailscale?.backendState && <Tag>{tailscale.backendState}</Tag>}
+        </>
+      }
+    >
 
       {health.length > 0 && (
-        <div className="mb-2 space-y-1">
+        <div className="sp-stack sp-stack--tight">
           {health.map((msg) => (
             <p
               key={msg}
-              className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-[11px] text-text"
+              className="sp-callout sp-callout--bad"
             >
               {msg}
             </p>
@@ -49,19 +55,19 @@ export function TailscalePanel({ tailscale, className }: TailscalePanelProps) {
       )}
 
       {tailscale?.error && (
-        <p className="mb-2 rounded-md border border-border bg-surface-elevated px-3 py-2 text-[11px] text-muted">
+        <p className="sp-callout">
           {tailscale.error}
         </p>
       )}
 
-      <div className="space-y-2">
+      <div className="sp-list">
         {tailscale?.tailscaleIp && <Row label="IP" value={tailscale.tailscaleIp} tabular />}
         {tailscale?.hostName && <Row label="Host" value={tailscale.hostName} />}
         {tailscale?.relay && <Row label="Relay" value={tailscale.relay} />}
         {tailscale?.keyExpired && <Row label="Key" value="EXPIRED — needs re-auth" danger />}
         {tailscale?.version && <Row label="Version" value={tailscale.version} tabular />}
         {!available && !tailscale?.error && (
-          <p className="text-xs text-muted">Waiting for first poll…</p>
+          <p className="sp-muted">Waiting for first poll…</p>
         )}
       </div>
     </Panel>
@@ -80,10 +86,10 @@ function Row({
   danger?: boolean;
 }) {
   return (
-    <div className="flex items-center justify-between rounded-md border border-border bg-surface-elevated px-3 py-2">
-      <span className="text-xs text-muted">{label}</span>
+    <div className="sp-list-row">
+      <span className="sp-muted">{label}</span>
       <span
-        className={`truncate text-xs ${tabular ? "font-tabular" : ""} ${
+        className={`sp-clip ${tabular ? "mono" : ""} ${
           danger ? "text-danger" : "text-text"
         }`}
       >

@@ -437,8 +437,24 @@ export class DecodeBenchManager {
     this.historyBySpark = new Map();
     this.historyPath = historyPath;
     this.activePath = activePath;
+    /** @type {((kind: string, job: object) => void) | null} */
+    this._onEvent = null;
     this._loadHistory();
     this._recoverInterruptedActive();
+  }
+
+  /** Optional sink invoked once when a job reaches completed/failed/cancelled. */
+  setEventSink(fn) {
+    this._onEvent = typeof fn === "function" ? fn : null;
+  }
+
+  _emitFinished(job) {
+    if (!this._onEvent) return;
+    try {
+      this._onEvent("decode", job);
+    } catch {
+      /* event recording must never break the bench */
+    }
   }
 
   activeCount() {
@@ -916,6 +932,7 @@ export class DecodeBenchManager {
       this.activeBySpark.delete(job.sparkId);
       this._pushHistory(job);
       this._checkpointActive();
+      this._emitFinished(job);
     }
   }
 

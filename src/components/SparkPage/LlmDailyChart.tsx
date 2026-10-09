@@ -16,6 +16,7 @@ function fmt(n: number | null | undefined): string {
  * run to tens of thousands, so large values go compact (`50k tok/s`).
  */
 export function formatAxisMax(max: number): string {
+  if (max >= 1_000_000) return `${(max / 1_000_000).toFixed(1).replace(/\.0$/, "")}M tok/s`;
   if (max >= 10_000) return `${(max / 1000).toFixed(0)}k tok/s`;
   if (max >= 1_000) return `${(max / 1000).toFixed(1).replace(/\.0$/, "")}k tok/s`;
   return `${fmt(max)} tok/s`;
@@ -122,12 +123,10 @@ export function LlmDailyChart({
   };
 
   return (
-    <div className="border-t border-border pt-3 space-y-1.5">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[10px] uppercase tracking-wide text-muted">
-          Daily peak tok/s
-        </span>
-        <span className="text-[10px] text-muted">
+    <div className="sp-section">
+      <div className="sp-section__head">
+        <span className="eyebrow">Daily peak tok/s</span>
+        <span className="sp-muted">
           <span className="text-accent">decode</span> ·{" "}
           <span className="text-text opacity-60">{prefillName}</span> · own scales · 14d
         </span>

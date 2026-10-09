@@ -78,6 +78,25 @@ test("sshCommandSpec: commands use the private socket and persistence from their
   assert.deepEqual(controlOptions(next), controlOptions(spec));
 });
 
+test("sshCommandSpec: SSH port defaults to 22 and a custom port isolates the master", () => {
+  const def = sshCommandSpec(keySpark, { remoteArgv: ["echo ok"] });
+  const custom = sshCommandSpec(
+    { ...keySpark, ssh: { ...keySpark.ssh, port: 2222 } },
+    { remoteArgv: ["echo ok"] }
+  );
+  const portArg = (spec) => {
+    const dash = spec.args.indexOf("--");
+    const p = spec.args.indexOf("-p");
+    assert.ok(p >= 0 && p < dash);
+    return spec.args[p + 1];
+  };
+  assert.equal(portArg(def), "22");
+  assert.equal(portArg(custom), "2222");
+  assert.equal(custom.sshPort, 2222);
+  const controlPath = (spec) => spec.args.find((arg) => arg.startsWith("ControlPath="));
+  assert.notEqual(controlPath(def), controlPath(custom));
+});
+
 test("sshCommandSpec: multiplex:false opts out (tunnels own their connection)", () => {
   const spec = sshCommandSpec(keySpark, { multiplex: false, extraSshArgs: ["-N"] });
   assert.ok(spec.args.includes("ControlMaster=no"));

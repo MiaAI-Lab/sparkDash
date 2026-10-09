@@ -1,11 +1,15 @@
+import { useState } from "react";
 import type { GpuDevice, GpuMetrics } from "../../api/types";
 import { Sparkline } from "../ui/Sparkline";
 import { Panel } from "../ui/Panel";
+import { Ring } from "../ui/Ring";
+import { Tag, type TagTone } from "../ui/Tag";
 import { ActivityIcon } from "../ui/icons";
 import { MetricBar } from "../ui/MetricBar";
 import { VramBreakdownBar } from "../ui/VramBreakdownBar";
 import { useMetricsHistoryTail } from "../../hooks/metricsStore";
 import { formatMb } from "../../shared/formatBytes";
+import { GpuHistoryChart, GPU_CHART_WINDOWS } from "./GpuHistoryChart";
 import {
   computeVramBreakdown,
   headroomTextClass,
@@ -21,6 +25,13 @@ interface GpuPanelProps {
   vramContext?: VramBreakdownContext | null;
   sparkId: string;
   temperatureUnit: "celsius" | "fahrenheit";
+  /** GPU chip name for the title (e.g. "GB10"). */
+  chip?: string | null;
+  /**
+   * Hide the VRAM bar and process list — set when the Unified memory panel
+   * (which shows both) sits right below this one.
+   */
+  hideMemory?: boolean;
   className?: string;
 }
 
@@ -34,38 +45,19 @@ function shortGpuName(name: string | null): string {
   return name.replace(/^NVIDIA\s+(GeForce\s+)?/i, "");
 }
 
-function throttleChip(reason: string | undefined): { label: string; className: string } {
+function throttleTag(reason: string | undefined): { label: string; tone: TagTone } {
   const r = reason ?? "ok";
-  const label = r === "thermal" ? "Thermal" : r === "power" ? "Power" : r === "hw" ? "HW" : "OK";
-  const className =
-    r === "thermal"
-      ? "border-danger/40 bg-danger/15 text-danger"
-      : r === "power" || r === "hw"
-        ? "border-warning/40 bg-warning/15 text-warning"
-        : "border-border bg-surface-elevated text-muted";
-  return { label, className };
+  if (r === "thermal") return { label: "Thermal throttle", tone: "bad" };
+  if (r === "power") return { label: "Power cap", tone: "neutral" };
+  if (r === "hw") return { label: "HW slowdown", tone: "warn" };
+  if (r === "unknown") return { label: "Throttled", tone: "warn" };
+  return { label: "No throttle", tone: "good" };
 }
 
-function MetricRow({
-  label,
-  spark,
-  value,
-  color = "var(--color-accent)",
-}: {
-  label: string;
-  spark: React.ReactNode;
-  value: React.ReactNode;
-  color?: string;
-}) {
-  return (
-    <div className="flex items-center justify-between text-sm">
-      <span className="text-muted">{label}</span>
-      <div className="flex items-center gap-3">
-        <span style={{ color }}>{spark}</span>
-        <span className="font-tabular text-sm font-semibold text-text">{value}</span>
-      </div>
-    </div>
-  );
+function tempTag(celsius: number): { label: string; tone: TagTone } {
+  if (celsius > 85) return { label: "Hot", tone: "bad" };
+  if (celsius > 65) return { label: "Warm", tone: "warn" };
+  return { label: "Normal", tone: "good" };
 }
 
 function tempColorFor(celsius: number, idle = "var(--color-text)"): string {
@@ -97,20 +89,16 @@ function GpuDeviceRow({
   const temp = temperatureUnit === "fahrenheit" ? celsiusToFahrenheit(d.temperature) : d.temperature;
   const tempLabel = temperatureUnit === "fahrenheit" ? `${temp}°F` : `${temp}°C`;
   const tempColor = tempColorFor(d.temperature, "var(--color-accent)");
-  const chip = throttleChip(d.throttle?.reason);
+  const chip = throttleTag(d.throttle?.reason);
   const short = shortGpuName(d.name);
   return (
-    <div className="space-y-1.5" title={d.throttle?.detail ?? undefined}>
+    <div className="sp-device space-y-1.5" title={d.throttle?.detail ?? undefined}>
       <div className="flex items-center justify-between gap-2 text-xs">
         <span className="min-w-0 truncate font-medium text-text" title={d.name ?? undefined}>
           GPU {d.index}
           {short ? ` · ${short}` : ""}
         </span>
-        <span
-          className={`rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${chip.className}`}
-        >
-          {chip.label}
-        </span>
+        <Tag tone={chip.tone}>{chip.label}</Tag>
       </div>
       <div className="flex items-center justify-between gap-2 text-xs">
         <span className="text-muted">Usage</span>
@@ -158,17 +146,20 @@ export function GpuPanel({
   vramContext = null,
   sparkId,
   temperatureUnit,
+  chip,
+  hideMemory = false,
   className,
 }: GpuPanelProps) {
-  const tempHistory = useMetricsHistoryTail(sparkId, "gpu.temp");
-  const usageHistory = useMetricsHistoryTail(sparkId, "gpu.usage");
+  const [windowId, setWindowId] = useState<(typeof GPU_CHART_WINDOWS)[number]["id"]>("30m");
+  const windowMs = GPU_CHART_WINDOWS.find((w) => w.id === windowId)?.ms ?? GPU_CHART_WINDOWS[0].ms;
 
   const temperature = gpu?.temperature ?? 0;
   const displayTemp = temperatureUnit === "fahrenheit" ? celsiusToFahrenheit(temperature) : temperature;
-  const tempLabel = temperatureUnit === "fahrenheit" ? `${displayTemp}°F` : `${displayTemp}°C`;
+  const tempUnit = temperatureUnit === "fahrenheit" ? "°F" : "°C";
   const usage = gpu?.usage ?? 0;
   const powerDraw = gpu?.power?.draw ?? 0;
   const powerLimit = gpu?.power?.limit ?? 0;
+  const systemDraw = gpu?.power?.systemDraw;
 
   const vramUsed = gpu?.vram?.used ?? 0;
   const vramTotal = gpu?.vram?.total ?? 0;
@@ -177,118 +168,106 @@ export function GpuPanel({
   const breakdown =
     gpu && vramContext ? computeVramBreakdown(gpu.vram, gpu.processes, vramContext) : null;
 
-  const tempColor =
-    temperature > 85
-      ? "var(--color-danger)"
-      : temperature > 65
-        ? "var(--color-warning)"
-        : "var(--color-accent)";
+  const t = gpu?.throttle;
+  const thermal = t?.reason === "thermal";
+  const throttle = throttleTag(t?.reason);
+  const temp = tempTag(temperature);
+  const ringColor = thermal ? "var(--color-danger)" : "var(--color-accent)";
+  const clock =
+    t?.smClockMHz != null
+      ? { value: (t.smClockMHz / 1000).toFixed(2), unit: "GHz" }
+      : t?.smClockPct != null
+        ? { value: String(Math.round(t.smClockPct)), unit: "%" }
+        : { value: "—", unit: "" };
 
   return (
     <Panel
-      title="GPU"
-      accent
+      title={chip ? `GPU · ${chip}` : "GPU"}
       icon={<ActivityIcon />}
       className={`panel-gpu ${className ?? ""}`}
-      bodyClassName="space-y-3"
+      bodyClassName="sp-stack"
+      actions={
+        <div className="seg" role="group" aria-label="Chart window">
+          {GPU_CHART_WINDOWS.map((w) => (
+            <button
+              key={w.id}
+              type="button"
+              className={w.id === windowId ? "is-on" : ""}
+              aria-pressed={w.id === windowId}
+              onClick={() => setWindowId(w.id)}
+            >
+              {w.label}
+            </button>
+          ))}
+        </div>
+      }
     >
-      <MetricRow
-        label="Usage"
-        color="var(--color-accent)"
-        spark={<Sparkline data={usageHistory} color="var(--color-accent)" width={180} />}
-        value={<span className="text-text-strong">{usage}%</span>}
-      />
-      <MetricRow
-        label="Temperature"
-        color={tempColor}
-        spark={<Sparkline data={tempHistory} color={tempColor} width={180} />}
-        value={<span className="text-text-strong">{tempLabel}</span>}
-      />
-      <div className="flex justify-between text-sm">
-        <span className="text-muted">{multiGpu ? "GPU Power (all cards)" : "GPU Power"}</span>
-        <span className="font-tabular text-sm text-text">
-          {powerDraw}W / {powerLimit}W
-        </span>
+      <div className="sp-gpu-top">
+        <Ring
+          value={usage}
+          size={140}
+          strokeWidth={11}
+          color={ringColor}
+          label={`${usage}%`}
+          caption="utilization"
+          className="sp-gpu-top__ring"
+        />
+        <div className="sp-stat">
+          <span className="eyebrow">Temperature</span>
+          <div className="big-num">
+            {displayTemp}
+            <small>{tempUnit}</small>
+          </div>
+          <Tag tone={temp.tone}>{temp.label}</Tag>
+        </div>
+        <div className="sp-stat">
+          <span className="eyebrow">{multiGpu ? "Power (all cards)" : "Power draw"}</span>
+          <div className="big-num">
+            {powerDraw}
+            <small>{powerLimit > 0 ? `/ ${powerLimit} W` : "W"}</small>
+          </div>
+          {systemDraw != null && systemDraw > 0 ? (
+            <span className="sp-stat__sub mono">System ≈ {systemDraw} W</span>
+          ) : null}
+        </div>
+        <div className="sp-stat" title={t?.detail ?? undefined}>
+          <span className="eyebrow">SM clock</span>
+          <div className="big-num">
+            {clock.value}
+            <small>{clock.unit}</small>
+          </div>
+          <Tag tone={throttle.tone}>{throttle.label}</Tag>
+        </div>
       </div>
 
-      {/* NVIDIA throttle / thermal slowdown + SM clock headroom */}
-      {(() => {
-        const t = gpu?.throttle;
-        const reason = t?.reason ?? "ok";
-        const chipLabel =
-          reason === "thermal"
-            ? "Thermal"
-            : reason === "power"
-              ? "Power"
-              : reason === "hw"
-                ? "HW"
-                : "OK";
-        const chipClass =
-          reason === "thermal"
-            ? "border-danger/40 bg-danger/15 text-danger"
-            : reason === "power" || reason === "hw"
-              ? "border-warning/40 bg-warning/15 text-warning"
-              : "border-border bg-surface-elevated text-muted";
-        const barColor =
-          reason === "thermal"
-            ? "bg-danger"
-            : reason === "power" || reason === "hw"
-              ? "bg-warning"
-              : "bg-accent";
-        const pct = t?.smClockPct;
-        const clockCaption =
-          t?.smClockMHz != null && t?.smClockMaxMHz != null
-            ? `${t.smClockMHz} / ${t.smClockMaxMHz} MHz`
-            : pct != null
-              ? `${pct}%`
-              : "—";
-        return (
-          <div className="space-y-1.5" title={t?.detail ?? undefined}>
-            <div className="flex items-center justify-between gap-2 text-sm">
-              <span className="text-muted">Throttle</span>
-              <span
-                className={`rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${chipClass}`}
-              >
-                {chipLabel}
-              </span>
-            </div>
-            <div className="flex items-baseline justify-between gap-2">
-              <span className="text-[10px] uppercase tracking-wide text-muted">SM clock</span>
-              <span className="font-tabular text-xs text-text">{clockCaption}</span>
-            </div>
-            <div className="h-1.5 overflow-hidden rounded-full bg-border">
-              <div
-                className={`h-full rounded-full transition-[width] duration-300 ease-out ${barColor}`}
-                style={{
-                  width: `${pct != null ? Math.min(100, Math.max(0, pct)) : 0}%`,
-                }}
-              />
-            </div>
-          </div>
-        );
-      })()}
+      <GpuHistoryChart sparkId={sparkId} gpu={gpu} windowMs={windowMs} />
+      <div className="legend">
+        <span className="c-accent">GPU utilization %</span>
+        <span className="c-violet">Power % of limit</span>
+        <span className="c-info">Temperature °C</span>
+      </div>
 
       {/* Per-card breakdown — only when the host has more than one GPU */}
       {multiGpu && (
-        <div className="space-y-3 border-t border-border pt-3">
-          <div className="text-[10px] uppercase tracking-wide text-muted">
-            {devices.length} GPUs
+        <div className="sp-section">
+          <div className="eyebrow">{devices.length} GPUs</div>
+          <div className="sp-devices">
+            {devices.map((d) => (
+              <GpuDeviceRow
+                key={d.uuid ?? d.index}
+                device={d}
+                vramContext={vramContext}
+                sparkId={sparkId}
+                temperatureUnit={temperatureUnit}
+              />
+            ))}
           </div>
-          {devices.map((d) => (
-            <GpuDeviceRow
-              key={d.uuid ?? d.index}
-              device={d}
-              vramContext={vramContext}
-              sparkId={sparkId}
-              temperatureUnit={temperatureUnit}
-            />
-          ))}
         </div>
       )}
 
-      {/* GPU-allocated memory (portion of the unified pool held by GPU compute apps) */}
-      {gpu && (
-        <div className="space-y-2 border-t border-border pt-3">
+      {/* GPU-allocated memory (shown here only when the Unified memory panel is not) */}
+      {gpu && !hideMemory && (
+        <div className="sp-section">
           {breakdown ? (
             <>
               <VramBreakdownBar
@@ -302,9 +281,9 @@ export function GpuPanel({
                 breakdown={breakdown}
                 showLegend
               />
-              <div className="flex justify-between text-xs">
+              <div className="sp-row">
                 <span className="text-muted">Available</span>
-                <span className={`font-tabular ${headroomTextClass(breakdown.tone)}`}>
+                <span className={`mono ${headroomTextClass(breakdown.tone)}`}>
                   {formatMb(breakdown.freeMB)}
                 </span>
               </div>
@@ -315,21 +294,20 @@ export function GpuPanel({
                 label={multiGpu ? "VRAM (all cards)" : "VRAM"}
                 value={vramUsed}
                 max={vramTotal}
-                caption={vramTotal > 0 ? `${formatMb(vramUsed).replace(/ (GB|MB)$/, "")} / ${formatMb(vramTotal)}` : "—"}
+                color="bg-info"
+                caption={`${formatMb(vramUsed).replace(/ (GB|MB)$/, "")} / ${formatMb(vramTotal)}`}
               />
               {gpu.vram.available > 0 && (
-                <div className="flex justify-between text-xs">
+                <div className="sp-row">
                   <span className="text-muted">Available</span>
-                  <span className="font-tabular text-text">{formatMb(gpu.vram.available)}</span>
+                  <span className="mono text-text">{formatMb(gpu.vram.available)}</span>
                 </div>
               )}
             </>
           ) : (
-            <div className="flex justify-between text-xs">
+            <div className="sp-row">
               <span className="text-muted">VRAM</span>
-              <span className="font-tabular text-text">
-                {vramUsed > 0 ? `${formatMb(vramUsed)} used` : "—"}
-              </span>
+              <span className="mono text-text">{vramUsed > 0 ? `${formatMb(vramUsed)} used` : "—"}</span>
             </div>
           )}
         </div>
@@ -337,37 +315,48 @@ export function GpuPanel({
 
       {(gpu?.nvErrNoMemory ?? 0) > 0 && (
         <div
-          className="flex items-center justify-between text-sm"
+          className="sp-row"
           title="NVRM kernel NV_ERR_NO_MEMORY lines since boot (journal). GPU memory allocation failures under pressure."
         >
-          <span className="text-muted">NV_ERR_NO_MEMORY</span>
-          <span className="font-tabular text-sm font-semibold text-danger">
-            {gpu?.nvErrNoMemory}
-          </span>
+          <span className="text-muted">GPU memory allocation errors since boot</span>
+          <span className="mono font-semibold text-danger">{gpu?.nvErrNoMemory}</span>
         </div>
       )}
 
       {/* Top GPU processes by VRAM usage */}
-      {gpu && gpu.processes && gpu.processes.length > 0 && (
-        <div className="space-y-1.5 border-t border-border pt-3">
-          <div className="text-[10px] uppercase tracking-wide text-muted">Processes</div>
-          {gpu.processes.map((proc) => (
-            <div key={proc.pid} className="flex items-center justify-between gap-2 text-xs">
-              <div className="flex min-w-0 flex-1 items-baseline gap-1.5">
-                <span className="min-w-0 truncate text-text" title={`${proc.name} (PID ${proc.pid})`}>
-                  {proc.name}
-                </span>
-                <span className="shrink-0 font-tabular text-[10px] text-muted">
-                  {proc.pid}
-                </span>
-              </div>
-              <span className="shrink-0 font-tabular text-text">
-                {formatMb(proc.vramMB)}
-              </span>
-            </div>
-          ))}
-        </div>
+      {gpu && !hideMemory && gpu.processes && gpu.processes.length > 0 && (
+        <GpuProcessTable processes={gpu.processes} />
       )}
     </Panel>
+  );
+}
+
+/** Per-process memory table (PID · process · memory). Shared with the Unified memory panel. */
+export function GpuProcessTable({
+  processes,
+}: {
+  processes: NonNullable<GpuMetrics["processes"]>;
+}) {
+  return (
+    <table className="sp-table">
+      <thead>
+        <tr>
+          <th>PID</th>
+          <th>Process</th>
+          <th className="r">Memory</th>
+        </tr>
+      </thead>
+      <tbody>
+        {processes.map((proc) => (
+          <tr key={proc.pid}>
+            <td className="mono">{proc.pid}</td>
+            <td title={`${proc.name} (PID ${proc.pid})`}>
+              <span className="sp-table__name">{proc.name}</span>
+            </td>
+            <td className="r mono">{formatMb(proc.vramMB)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }

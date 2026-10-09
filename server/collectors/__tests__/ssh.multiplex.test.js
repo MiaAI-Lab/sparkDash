@@ -22,6 +22,13 @@ test("isolates password credentials without exposing them", () => {
   assert.equal(first.args.join(" ").includes("secret-one"), false);
 });
 
+test("isolates different SSH ports on the same host", () => {
+  const spark = { id: "test" };
+  const standard = sshMultiplexConfig(spark, "192.168.1.2", "user", "key", null, 22);
+  const custom = sshMultiplexConfig(spark, "192.168.1.2", "user", "key", null, 2222);
+  assert.notEqual(standard.key, custom.key);
+});
+
 test("supports disable and clamps excessive persistence", () => {
   process.env.SSH_CONTROL_PERSIST_SECONDS = "0";
   assert.equal(sshMultiplexConfig({ id: "s" }, "10.0.0.1", "u", "key", null), null);

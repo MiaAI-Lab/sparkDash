@@ -1,8 +1,8 @@
 import fs from "fs";
 import { SPARKS_JSON_PATH, LLM_PORT } from "../config.js";
 import { loadSecrets, saveSecrets } from "../secretsStore.js";
-import { atomicWrite } from "../util/atomicWrite.js";
-import { isValidSparkId } from "../validate.js";
+import { atomicWrite, quarantineCorrupt } from "../util/atomicWrite.js";
+import { isValidSparkId, normalizeSshPort } from "../validate.js";
 import { llmProbeHost } from "../collectors/llmHost.js";
 
 /**
@@ -286,6 +286,7 @@ export class SparkRegistry {
         this._save();
       } else {
         console.error("[SparkRegistry] Failed to load sparks.json:", err.message);
+        if (err instanceof SyntaxError) quarantineCorrupt(SPARKS_JSON_PATH, "SparkRegistry", err);
         this._sparks = [];
       }
     }
@@ -403,6 +404,12 @@ export class SparkRegistry {
       .map((p) => parseInt(p, 10))
       .filter((n) => Number.isInteger(n) && n >= 1 && n <= 65535)
       .sort((a, b) => a - b);
+  }
+
+  /** The saved Bearer key for one LLM port (server-side use only; never returned by the API). */
+  getLlmApiKey(id, port) {
+    const key = this._llmApiKeys.get(id)?.[String(port)];
+    return key && String(key).trim() ? String(key) : null;
   }
 
   hasLlmApiKey(id, port) {
@@ -592,6 +599,8 @@ export class SparkRegistry {
       host: sshIn.host || "",
       user: sshIn.user || "root",
       auth: sshIn.auth === "pass" ? "pass" : "key",
+      /** TCP port for SSH. Missing or invalid values fall back to 22. */
+      port: normalizeSshPort(sshIn.port) ?? 22,
     };
     const llmPorts = this._normalizeLlmPorts(config.llmPorts ?? config.llmPort);
     const role = this._normalizeRole(config);

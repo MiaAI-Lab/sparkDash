@@ -8,7 +8,8 @@ import {
   closeHermesUpdateDialog,
   useHermesUpdateDialog,
 } from "../../hooks/useHermesUpdateDialog";
-import { ExternalLinkIcon, RotateIcon } from "../ui/icons";
+import { ExternalLinkIcon, RotateIcon, XIcon } from "../ui/icons";
+import "../../styles/dialogs.css";
 
 function useEscape(enabled: boolean, onClose: () => void) {
   useEffect(() => {
@@ -258,7 +259,7 @@ function PendingCommitsList({ upd }: { upd: HermesUpdatesResponse }) {
   const pending = upd.pending;
   const commits = pending?.commits ?? [];
   return (
-    <div className="max-h-[45vh] overflow-y-auto rounded-md border border-border bg-surface-elevated/40 p-3">
+    <div className="hermes-notes">
       <ul className="space-y-1.5">
         {commits.map((c) => (
           <li key={c.sha} className="flex items-start gap-2 text-xs leading-relaxed text-muted">
@@ -358,15 +359,26 @@ export function HermesUpdateDialog() {
         aria-modal="true"
         aria-labelledby="hermes-update-dialog-title"
       >
-        <div className="modal-sheet__header" id="hermes-update-dialog-title">
-          <div className="flex items-center gap-2">
-            <RotateIcon className="h-4 w-4 shrink-0 text-accent" />
-            <span>Update Hermes Agent</span>
+        <div className="modal-sheet__header">
+          <div className="modal-sheet__heading">
+            <h2 className="modal-sheet__title" id="hermes-update-dialog-title">
+              <RotateIcon className="h-4 w-4 shrink-0 text-accent" />
+              Update Hermes Agent
+            </h2>
+            <p className="modal-sheet__sub">
+              {target?.sparkName}
+              {target?.currentVersion ? ` · installed v${target.currentVersion}` : ""}
+            </p>
           </div>
-          <p className="mt-1 text-[11px] font-normal text-muted">
-            {target?.sparkName}
-            {target?.currentVersion ? ` · installed v${target.currentVersion}` : ""}
-          </p>
+          <button
+            type="button"
+            className="modal-sheet__close"
+            onClick={closeHermesUpdateDialog}
+            disabled={updating}
+            aria-label="Close"
+          >
+            <XIcon className="h-4 w-4" />
+          </button>
         </div>
 
         <div className="modal-sheet__body">
@@ -378,7 +390,7 @@ export function HermesUpdateDialog() {
           )}
 
           {error && !loading && (
-            <div className="rounded-md border border-danger/35 bg-danger/10 px-3 py-2.5">
+            <div className="danger-box">
               <p className="text-[11px] font-medium text-danger">
                 Couldn't load the changelog. You can still update.
               </p>
@@ -397,7 +409,7 @@ export function HermesUpdateDialog() {
                       )
                       .finally(() => setLoading(false));
                   }}
-                  className="rounded-md border border-border bg-surface-elevated px-2.5 py-1 text-[11px] text-muted hover:bg-surface-hover hover:text-text"
+                  className="btn btn--sm"
                 >
                   Retry
                 </button>
@@ -417,7 +429,7 @@ export function HermesUpdateDialog() {
           {upd && !loading && upd.view === "commits" && upd.pending?.commits?.length ? (
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="rounded bg-accent/15 px-1.5 py-0.5 font-tabular text-[11px] font-medium text-accent">
+                <span className="tag tag--acc">
                   {upd.pending.count} commit{upd.pending.count === 1 ? "" : "s"} behind main
                 </span>
                 {upd.installedVersion && (
@@ -452,7 +464,7 @@ export function HermesUpdateDialog() {
                 </p>
               ) : null}
               <div className="flex flex-wrap items-center gap-2">
-                <span className="rounded bg-accent/15 px-1.5 py-0.5 font-tabular text-[11px] font-medium text-accent">
+                <span className="tag tag--acc">
                   {targetName}
                 </span>
                 {target?.currentVersion && (
@@ -476,7 +488,7 @@ export function HermesUpdateDialog() {
                   <ExternalLinkIcon className="h-3 w-3" />
                 </a>
               </div>
-              <div className="max-h-[45vh] overflow-y-auto rounded-md border border-border bg-surface-elevated/40 p-3">
+              <div className="hermes-notes">
                 {upd.release.body ? (
                   <ChangelogBody body={upd.release.body} />
                 ) : (
@@ -485,7 +497,7 @@ export function HermesUpdateDialog() {
               </div>
             </div>
           ) : upd && !loading ? (
-            <div className="rounded-md border border-danger/35 bg-danger/10 px-3 py-2.5">
+            <div className="danger-box">
               <p className="text-[11px] font-medium text-danger">
                 Couldn't determine what this update contains. You can still update.
               </p>
@@ -506,7 +518,7 @@ export function HermesUpdateDialog() {
               type="button"
               onClick={closeHermesUpdateDialog}
               disabled={updating}
-              className="rounded-md border border-border bg-surface-elevated px-3 py-1.5 text-xs text-muted transition-colors hover:bg-surface-hover hover:text-text disabled:opacity-50"
+              className="btn btn--ghost"
             >
               Cancel
             </button>
@@ -514,7 +526,7 @@ export function HermesUpdateDialog() {
               type="button"
               onClick={() => void handleUpdateNow()}
               disabled={updating}
-              className="flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+              className="btn btn--primary"
             >
               {updating ? (
                 <>

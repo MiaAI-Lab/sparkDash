@@ -124,7 +124,11 @@ describe("isLlmServing / servingEndpoint", () => {
     expect(isLlmServing(worker(), [head(false, true)])).toBe(false);
     expect(isLlmServing(worker(), [head(true, false)])).toBe(false);
     expect(isLlmServing(worker("spark-9"), [head(true, true)])).toBe(false);
-    expect(isLlmServing(worker(null), [head(true, true)])).toBe(false);
+    // No head configured: the fleet's only head stands in, but two heads are ambiguous.
+    expect(isLlmServing(worker(null), [head(true, true)])).toBe(true);
+    expect(
+      isLlmServing(worker(null), [head(true, true), { ...head(true, true), id: "spark-3" }]),
+    ).toBe(false);
     expect(isLlmServing(worker(), undefined)).toBe(false);
   });
 
@@ -159,7 +163,7 @@ describe("computeVramBreakdown", () => {
     expect(b.tone).toBe("low");
     expect(b.kv).toEqual({ usage: 0.0549, poolGb: null, weightsGb: null, backend: "TensorFold" });
     expect(legendItems(b).map((i) => `${i.label} ${i.gb}`)).toEqual([
-      "Engine 98.6",
+      "Model 98.6",
       "System 15.8",
       "Free 7.2",
     ]);
@@ -198,7 +202,7 @@ describe("computeVramBreakdown", () => {
     expect(b.tone).toBe("ok");
     expect(b.kv).toEqual({ usage: 0.05, poolGb: 10.729, weightsGb: 71.066, backend: backendLabel("sglang") });
     expect(legendItems(b).map((i) => `${i.label} ${i.gb}`)).toEqual([
-      "Engine 91.7",
+      "Model 91.7",
       "Other 0.7",
       "Free 3.2",
     ]);

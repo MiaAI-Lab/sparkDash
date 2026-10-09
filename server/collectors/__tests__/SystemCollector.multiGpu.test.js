@@ -96,6 +96,21 @@ test("_buildGpuDevices: a lone GB10 (memory N/A) inherits the aggregate VRAM", (
   assert.deepEqual(gpus[0].vram, aggregate);
 });
 
+test("_getRemoteGpu: an idle discrete host reports free VRAM as total, not system RAM", async () => {
+  const c = new SystemCollector({ id: "t", kind: "host", host: "10.0.0.2", lanIp: "10.0.0.2" });
+  c._nvErrNoMemory = async () => 0;
+  const output = [
+    GPU_LINES,
+    "0, 16303\n0, 16311",
+    "",
+    "MemTotal:       65536000 kB\nMemAvailable:   40000000 kB",
+  ].join("\n---\n");
+  const gpu = await c._getRemoteGpu(async () => output);
+  assert.equal(gpu.vram.used, 0);
+  assert.equal(gpu.vram.total, 32614);
+  assert.equal(gpu.vram.available, 32614);
+});
+
 test("_describeGpus: header label for one, identical, and mixed cards", () => {
   const c = collector();
   assert.deepEqual(c._describeGpus("NVIDIA GeForce RTX 5080, 595.84"), {

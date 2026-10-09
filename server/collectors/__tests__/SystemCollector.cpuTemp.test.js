@@ -37,10 +37,18 @@ test("remote CPU collection returns temperature for DGX Spark nodes", async () =
   });
 
   assert.equal(result.temperature, 70.9);
+  assert.equal(result.temperatureSource, "acpitz");
   assert.equal(result.tdp, 65);
   // GB10 exposes no CPU package sensor, and the card must not claim otherwise.
   assert.equal(result.temperatureLabel, "ACPI");
   assert.equal(result.temperatureSource, "acpitz");
+});
+
+test("remote CPU temperature names an x86 die sensor", () => {
+  const sensor = pick(c._parseSensorCandidates("coretemp 45200\n"));
+  assert.equal(sensor.temperature, 45.2);
+  assert.equal(sensor.temperatureSource, "coretemp");
+  assert.equal(sensor.temperatureLabel, "CPU");
 });
 
 test("converts millidegrees to Celsius", () => {

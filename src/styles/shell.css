@@ -1,0 +1,1053 @@
+/* ─────────────────────────────────────────────────────────
+   sparkDash redesign — shell + shared UI primitives.
+   Loaded after index.css so these rules win at equal specificity.
+   Tokens come from the theme blocks in index.css.
+   ───────────────────────────────────────────────────────── */
+
+html {
+  background: var(--color-base);
+  /* Reserve the scrollbar's space, so a page that grows past the screen (opening a panel) does not shift sideways. */
+  scrollbar-gutter: stable;
+}
+body {
+  background: var(--color-base);
+}
+
+/* ─── App shell: fleet rail + main column ─────────────── */
+.app-shell {
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr);
+  min-height: 100vh;
+}
+.app-side {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 18px 12px 14px;
+  overflow-y: auto;
+  border-right: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-surface) 55%, var(--color-base));
+}
+.app-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.app-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: none; /* phones only; see the media query at the bottom */
+  align-items: center;
+  gap: 14px;
+  padding: 10px var(--density-shell-pad);
+  border-bottom: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-base) 82%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+.app-content {
+  width: 100%;
+  max-width: 1600px;
+  margin-inline: auto;
+  padding: var(--density-shell-pad);
+}
+.app-mobile-only {
+  display: none;
+}
+
+/* Brand */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 8px;
+  border: 0;
+  background: none;
+  color: var(--color-text-strong);
+  text-decoration: none;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+.brand__mark {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+.brand__dash {
+  font-weight: 450;
+  color: var(--color-muted);
+}
+
+/* Rail navigation */
+.rail-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+.rail-label button {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 0;
+  background: none;
+  color: var(--color-muted);
+}
+.rail-label button:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+}
+.rail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.rail-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--color-muted-strong);
+  font-size: 13.5px;
+  font-weight: 500;
+  text-align: left;
+  transition: background 0.12s, color 0.12s;
+}
+.rail-item:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+}
+.rail-item.is-active {
+  background: var(--color-surface-hover);
+  color: var(--color-text-strong);
+  box-shadow: inset 2px 0 0 var(--color-accent);
+}
+.rail-item__name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rail-item__sub {
+  font-family: "Geist Mono Variable", "Geist Mono", ui-monospace, monospace;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-muted);
+}
+.rail-item.is-active .rail-item__sub {
+  color: var(--color-accent-text);
+}
+.rail-foot {
+  position: sticky;
+  bottom: -14px;
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-block: 8px 14px;
+  background: color-mix(in srgb, var(--color-surface) 55%, var(--color-base));
+}
+/* Sections keep their natural height; the rail scrolls instead of squashing them. */
+.app-side > * {
+  flex-shrink: 0;
+}
+.rail-label--toggle {
+  width: 100%;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.rail-label--toggle:hover {
+  color: var(--color-text);
+}
+.rail-settings {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rail-settings .rail-list {
+  flex: 1;
+  min-width: 0;
+}
+.rail-settings .icon-circle {
+  flex: none;
+}
+.rail-conn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  font-size: 12px;
+  color: var(--color-muted);
+}
+
+/* Status dots */
+.sdot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-success) 16%, transparent);
+}
+.sdot--off {
+  background: var(--color-muted);
+  box-shadow: none;
+  opacity: 0.6;
+}
+.sdot--warn {
+  background: var(--color-warning);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-warning) 16%, transparent);
+}
+.sdot--bad {
+  background: var(--color-danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-danger) 16%, transparent);
+}
+
+/* ─── Search trigger (opens the command palette) ──────── */
+.search-trigger {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  width: min(320px, 40vw);
+  padding: 7px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface);
+  color: var(--color-muted);
+  font-size: 13px;
+  text-align: left;
+}
+.search-trigger:hover {
+  border-color: var(--color-border-strong);
+  color: var(--color-text);
+}
+.side-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.side-tools .search-trigger {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  margin-left: 0;
+}
+.side-tools .search-trigger > span:not(.kbd) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.side-tools .icon-circle {
+  flex: none;
+}
+/* The rail is a fixed 248px, so the shortcut hint is dropped: with larger text it would
+   force "Jump to…" and "Ctrl K" onto two lines. Ctrl K still opens the palette. */
+.side-tools .kbd {
+  display: none;
+}
+
+.kbd {
+  flex: none;
+  white-space: nowrap;
+  margin-left: auto;
+  padding: 1px 6px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 5px;
+  font-family: "Geist Mono Variable", "Geist Mono", ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--color-muted);
+}
+
+/* ─── Command palette ─────────────────────────────────── */
+.palette-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 14vh 16px 16px;
+  background: var(--color-overlay);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+}
+.palette {
+  width: 100%;
+  max-width: 600px;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 18px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-shell);
+}
+.palette__input {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-muted);
+}
+.palette__input input[type="text"],
+.palette__input input[type="search"] {
+  flex: 1;
+  border: 0;
+  background: none;
+  padding: 0;
+  font-size: 15px;
+  color: var(--color-text-strong);
+  outline: none;
+}
+.palette__list {
+  overflow-y: auto;
+  padding: 8px;
+}
+.palette__group {
+  padding: 10px 10px 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+.palette__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--color-text);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+.palette__item.is-sel {
+  background: var(--color-surface-hover);
+  box-shadow: inset 2px 0 0 var(--color-accent);
+}
+.palette__item small {
+  margin-left: auto;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+.palette__empty {
+  padding: 28px 16px;
+  text-align: center;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+.palette__foot {
+  display: flex;
+  gap: 16px;
+  padding: 9px 16px;
+  border-top: 1px solid var(--color-border);
+  font-size: 11.5px;
+  color: var(--color-muted);
+}
+
+/* ─── Mobile tab bar ──────────────────────────────────── */
+.tabbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  display: none;
+  grid-template-columns: repeat(4, 1fr);
+  padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+}
+.tabbar {
+  --tab: 0;
+}
+.tabbar[data-tab="0"] { --tab: 0; }
+.tabbar[data-tab="1"] { --tab: 1; }
+.tabbar[data-tab="2"] { --tab: 2; }
+.tabbar[data-tab="3"] { --tab: 3; }
+/* The highlight is one pill that slides under the active tab, like iOS. */
+.tabbar::before {
+  content: "";
+  position: absolute;
+  top: 6px;
+  bottom: calc(6px + env(safe-area-inset-bottom, 0px));
+  left: 8px;
+  width: calc((100% - 16px) / 4);
+  border-radius: 16px;
+  background: var(--color-accent-soft);
+  transform: translateX(calc(var(--tab) * 100%));
+  transition: transform 0.42s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.2s ease;
+  pointer-events: none;
+}
+.tabbar[data-tab="-1"]::before {
+  opacity: 0;
+}
+.tabbar button {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 7px 0;
+  border: 0;
+  border-radius: 16px;
+  background: none;
+  color: var(--color-muted);
+  font-size: 10.5px;
+  font-weight: 500;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: color 0.25s ease, transform 0.22s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.tabbar button svg {
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.tabbar button:active {
+  transform: scale(0.9);
+  transition-duration: 0.08s;
+}
+.tabbar button.is-active {
+  color: var(--color-accent-text);
+}
+.tabbar button.is-active svg {
+  transform: scale(1.1);
+}
+
+/* Sheets slide up from the bottom edge and slide back down. */
+@keyframes sheet-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+@keyframes sheet-down {
+  from { transform: translateY(0); }
+  to { transform: translateY(100%); }
+}
+@keyframes sheet-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes sheet-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+.sheet-overlay {
+  animation: sheet-fade-in 0.28s ease both;
+}
+.sheet {
+  animation: sheet-up 0.45s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+.sheet-overlay.is-leaving {
+  animation: sheet-fade-out 0.24s ease both;
+}
+.sheet.is-leaving {
+  animation: sheet-down 0.24s cubic-bezier(0.4, 0, 1, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tabbar::before,
+  .tabbar button,
+  .tabbar button svg {
+    transition: none;
+  }
+  .sheet-overlay,
+  .sheet,
+  .sheet-overlay.is-leaving,
+  .sheet.is-leaving {
+    animation: none;
+  }
+}
+.sheet-power {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 6px;
+}
+.sheet-power__btn {
+  flex: 1 1 auto;
+  justify-content: center;
+}
+
+.sheet-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9990;
+  display: flex;
+  align-items: flex-end;
+  background: var(--color-overlay);
+}
+.sheet {
+  width: 100%;
+  max-height: 78vh;
+  overflow-y: auto;
+  padding: 14px 12px calc(20px + env(safe-area-inset-bottom, 0px));
+  border: 1px solid var(--color-border-strong);
+  border-radius: 22px 22px 0 0;
+  background: var(--color-surface);
+}
+
+@media (max-width: 900px) {
+  .app-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .app-side {
+    display: none;
+  }
+  .app-topbar {
+    display: flex;
+    padding-inline: 16px;
+  }
+  .app-content {
+    padding: 16px 16px calc(84px + env(safe-area-inset-bottom, 0px));
+  }
+  .tabbar {
+    display: grid;
+  }
+  .app-mobile-only {
+    display: flex;
+  }
+  /* "Shut down all" moves into the Sparks sheet on phones. */
+  .btn.ov-shutdown,
+  .ov-btns .ov-batchmsg {
+    display: none;
+  }
+  .search-trigger {
+    width: auto;
+    margin-left: auto;
+    padding: 8px 10px;
+  }
+  .search-trigger span,
+  .search-trigger .kbd {
+    display: none;
+  }
+}
+
+/* ─── Surfaces ────────────────────────────────────────── */
+.panel {
+  border-radius: var(--radius-panel);
+  border: 1px solid var(--color-border);
+  background-color: var(--color-surface);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.panel:hover {
+  border-color: var(--color-border);
+}
+.panel-accent::before {
+  display: none;
+}
+.panel-title {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  text-transform: none;
+  color: var(--color-text-strong);
+}
+.panel-title svg {
+  color: var(--color-muted);
+}
+.overview-card {
+  border-radius: var(--radius-panel);
+  border: 1px solid var(--color-border);
+  background-color: var(--color-surface);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.overview-card:hover {
+  border-color: var(--color-border-strong);
+  box-shadow: var(--shadow-card-hover);
+  transform: none;
+}
+.icon-circle {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  box-shadow: none;
+}
+.icon-circle:hover {
+  border-color: var(--color-border-strong);
+}
+
+/* ─── Shared primitives used across pages ─────────────── */
+.eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+.big-num {
+  font-size: 34px;
+  line-height: 1;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-strong);
+}
+.big-num small {
+  margin-left: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--color-muted);
+}
+.mono {
+  font-family: "Geist Mono Variable", "Geist Mono", ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Tag (status / role / info pill) */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 9px;
+  border-radius: 99px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  background: var(--color-surface-hover);
+  color: var(--color-muted-strong);
+}
+.tag--good {
+  background: color-mix(in srgb, var(--color-success) 14%, transparent);
+  color: var(--color-success);
+}
+.tag--warn {
+  background: color-mix(in srgb, var(--color-warning) 14%, transparent);
+  color: var(--color-warning);
+}
+.tag--bad {
+  background: color-mix(in srgb, var(--color-danger) 14%, transparent);
+  color: var(--color-danger);
+}
+.tag--acc {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-text);
+}
+.tag--info {
+  background: color-mix(in srgb, var(--color-info) 14%, transparent);
+  color: var(--color-info);
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 13px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 10px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background 0.12s, border-color 0.12s, opacity 0.12s;
+}
+.btn:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+}
+.btn:disabled {
+  opacity: 0.5;
+}
+.btn--primary {
+  border-color: transparent;
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  font-weight: 600;
+}
+.btn--primary:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+.btn--ghost {
+  background: transparent;
+}
+.btn--danger {
+  border-color: color-mix(in srgb, var(--color-danger) 40%, transparent);
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
+}
+.btn--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-danger) 20%, transparent);
+}
+.btn--sm {
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12.5px;
+}
+
+/* Segmented control */
+.seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface-elevated);
+}
+.seg > button {
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--color-muted);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.seg > button:hover {
+  color: var(--color-text);
+}
+.seg > button.is-on,
+.seg > button[aria-pressed="true"],
+.seg > button[aria-selected="true"] {
+  background: var(--color-surface-hover);
+  color: var(--color-text-strong);
+  box-shadow: 0 0 0 1px var(--color-border-strong);
+}
+
+/* Alert strip */
+.alert-strip {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border: 1px solid color-mix(in srgb, var(--color-warning) 35%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--color-warning) 11%, transparent);
+  color: var(--color-text);
+}
+.alert-strip > svg {
+  color: var(--color-warning);
+}
+
+/* Stacked memory bar etc. */
+.seg-bar {
+  display: flex;
+  gap: 2px;
+  height: 10px;
+}
+.seg-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+}
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.legend > span::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 3px;
+  background: var(--c, var(--color-muted));
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* Units next to a big number ("/ 120 W", "tok/s") stay on the number's line. */
+.big-num small {
+  white-space: nowrap;
+}
+
+.rail-label--spaced {
+  padding-top: 10px;
+}
+.page-stub {
+  padding: 8px 0;
+}
+
+/* ─── Dedicated page header (Token totals, Fleet energy, Activity, Tool Eval) ─── */
+.page-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px 20px;
+  margin-bottom: 18px;
+}
+.page-head h1 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+  color: var(--color-text-strong);
+}
+.page-head__sub {
+  margin-top: 4px;
+  max-width: 70ch;
+  font-size: 13.5px;
+  color: var(--color-muted);
+}
+.page-head__tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ─── Benchmark pages ─── */
+.rail-item--compact {
+  padding-block: 6px;
+  font-size: 13px;
+}
+.rail-list[hidden] {
+  display: none;
+}
+
+/* "Run on" Spark picker under a benchmark page's title */
+.bench-runon {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: -4px 0 16px;
+}
+.bench-runon__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.bench-runon__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-muted-strong);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+.bench-runon__chip:hover {
+  border-color: var(--color-border-strong);
+  color: var(--color-text);
+}
+.bench-runon__chip.is-on {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+  color: var(--color-text-strong);
+}
+.bench-runon__none {
+  font-size: 13px;
+  color: var(--color-muted);
+}
+
+/* Ring gauge: start the arc at 12 o'clock and ease changes */
+.ui-ring {
+  transform: rotate(-90deg);
+}
+.ui-ring__arc {
+  transition: stroke-dashoffset 0.4s ease, stroke 0.3s ease;
+}
+
+/* Sidebar hide / show (desktop) */
+.side-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.side-toggle {
+  flex: none;
+}
+.side-strip {
+  display: none;
+}
+@media (min-width: 901px) {
+  /* Hide / show: the column glides between the full rail and the slim strip while the rail
+     slides and fades out and the strip fades in. Both stay mounted so it can animate both ways. */
+  .app-shell {
+    transition: grid-template-columns 0.42s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .app-shell > .app-side,
+  .app-shell > .side-strip {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .app-shell > .app-main {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .app-side {
+    overflow-x: hidden;
+    transition: opacity 0.22s ease, transform 0.42s cubic-bezier(0.22, 1, 0.36, 1), visibility 0s linear 0s;
+  }
+  .app-side > * {
+    min-width: 224px;
+  }
+  .side-strip {
+    position: sticky;
+    top: 0;
+    align-self: start;
+    display: flex;
+    justify-content: center;
+    padding-top: 18px;
+    height: 100vh;
+    border-right: 1px solid var(--color-border);
+    background: color-mix(in srgb, var(--color-surface) 55%, var(--color-base));
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.25s ease 0.12s, visibility 0s linear 0.4s;
+  }
+  .app-shell--side-hidden {
+    grid-template-columns: 52px minmax(0, 1fr);
+  }
+  .app-shell--side-hidden .app-side {
+    opacity: 0;
+    transform: translateX(-28px);
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.18s ease, transform 0.42s cubic-bezier(0.22, 1, 0.36, 1), visibility 0s linear 0.42s;
+  }
+  .app-shell--side-hidden .side-strip {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transition: opacity 0.25s ease 0.18s, visibility 0s linear 0s;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-shell,
+  .app-side,
+  .side-strip {
+    transition: none !important;
+  }
+}
+
+/* Sidebar credit line */
+.rail-credit {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 6px;
+  font-size: 11.5px;
+  color: var(--color-muted);
+}
+.rail-credit__links {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.rail-credit__links a {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  color: var(--color-muted);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.rail-credit__links a:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-strong);
+}
+
+.bench-runon__tag {
+  margin-left: 6px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+a.rail-item {
+  text-decoration: none;
+  color: inherit;
+}
+
+/* Role badges (head / worker / standalone): capitals, a little larger */
+.tag.tag--role {
+  padding: 3px 11px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* ── Health findings (Spark page) ────────────────────────── */
+.health-list {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 14px;
+}
+.health-item {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--color-warning) 45%, transparent);
+  background: color-mix(in srgb, var(--color-warning) 9%, var(--surface, transparent));
+}
+.health-item--critical {
+  border-color: color-mix(in srgb, var(--color-danger) 55%, transparent);
+  background: color-mix(in srgb, var(--color-danger) 10%, var(--surface, transparent));
+}
+.health-item__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+.health-item__detail {
+  margin-top: 6px;
+  font-size: 13px;
+}
+.health-item__hint {
+  margin-top: 4px;
+  font-size: 12.5px;
+  opacity: 0.75;
+}

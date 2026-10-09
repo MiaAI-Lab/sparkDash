@@ -15,15 +15,17 @@ function sparkWithRates(generationTps: number, prefillTps: number, lastActiveAt:
 describe("Overview LLM footer", () => {
   it("shows both rates, zeros included, while the endpoint is idle", () => {
     const { container } = render(<OverviewPage sparks={[sparkWithRates(0, 0, NOW - 60_000)]} />);
-    expect(container.textContent).toContain("0 tok/s");
-    expect(container.textContent).toContain("0 prefill");
+    const text = container.textContent ?? "";
+    expect(text).toMatch(/Decode0\.0tok\/s/);
+    expect(text).toMatch(/Prefill0tok\/s/);
     expect(container.textContent).not.toContain("Idle");
   });
 
   it("shows the live rates while it is serving", () => {
     const { container } = render(<OverviewPage sparks={[sparkWithRates(20, 350, NOW)]} />);
-    expect(container.textContent).toContain("20 tok/s");
-    expect(container.textContent).toContain("350 prefill");
+    const text = container.textContent ?? "";
+    expect(text).toMatch(/Decode20\.0tok\/s/);
+    expect(text).toMatch(/Prefill350tok\/s/);
   });
 });
 

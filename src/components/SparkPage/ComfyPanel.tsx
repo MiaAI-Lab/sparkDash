@@ -2,6 +2,7 @@ import { useState, useCallback, type MouseEvent } from "react";
 import type { ComfyJob, ComfyMetrics, ComfyProgress } from "../../api/types";
 import { cancelComfyJob } from "../../api/client";
 import { Panel } from "../ui/Panel";
+import { Tag } from "../ui/Tag";
 import { ComfyIcon, ExternalLinkIcon } from "../ui/icons";
 
 interface ComfyPanelProps {
@@ -112,9 +113,9 @@ function ProgressBar({ progress }: { progress: ComfyProgress }) {
         </span>
         {detail ? <span className="font-tabular text-text">{detail}</span> : null}
       </div>
-      <div className="h-1.5 overflow-hidden rounded-full bg-border">
+      <div className="sp-bar">
         <div
-          className="h-full rounded-full bg-accent transition-[width] duration-300"
+          className="sp-bar__fill bg-accent"
           style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
         />
       </div>
@@ -143,21 +144,13 @@ function JobBlock({
   const models = job.models ?? [];
 
   return (
-    <div className="space-y-2 rounded-md border border-border bg-surface-elevated/40 px-3 py-2.5">
+    <div className="sp-job">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span
-              className={`llm-badge ${variant === "running" ? "" : "opacity-80"}`}
-              title={job.id}
-            >
-              <span
-                className={`h-1.5 w-1.5 rounded-full ${
-                  variant === "running" ? "bg-accent" : "bg-muted"
-                }`}
-              />
+            <Tag tone={variant === "running" ? "acc" : "neutral"} title={job.id}>
               {variant === "running" ? "Running" : "Queued"}
-            </span>
+            </Tag>
             {elapsed ? (
               <span className="font-tabular text-[11px] text-muted">{elapsed}</span>
             ) : null}
@@ -176,7 +169,7 @@ function JobBlock({
             type="button"
             onClick={onCancel}
             disabled={cancelling}
-            className="shrink-0 rounded border border-border px-2 py-0.5 text-[11px] text-muted transition-colors hover:border-danger hover:text-danger disabled:opacity-50"
+            className="btn btn--sm btn--danger shrink-0"
           >
             {cancelling ? "…" : variant === "running" ? "Cancel" : "Remove"}
           </button>
@@ -262,8 +255,7 @@ export function ComfyPanel({
       title="ComfyUI"
       icon={<ComfyIcon />}
       className={`panel-comfy ${className}`}
-      bodyClassName="space-y-3"
-      accent
+      bodyClassName="sp-stack"
       actions={
         <div className="flex items-center gap-2">
           <span className="font-tabular text-[11px] text-muted" title="Probe port">
@@ -275,7 +267,7 @@ export function ComfyPanel({
             rel="noopener noreferrer"
             onClick={handleOpenComfy}
             title={`Open ComfyUI at ${openUrl} (must be reachable from your browser)`}
-            className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[11px] text-muted transition-colors hover:border-accent hover:text-accent"
+            className="btn btn--sm"
           >
             <ExternalLinkIcon className="h-3 w-3" />
             Open
@@ -297,10 +289,7 @@ export function ComfyPanel({
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-2 text-xs">
-            <span className="llm-badge">
-              <span className="h-1.5 w-1.5 rounded-full bg-accent" />
-              Online
-            </span>
+            <Tag tone="good">Online</Tag>
             {comfy?.version ? (
               <span className="text-muted" title="ComfyUI version">
                 v{comfy.version}
@@ -333,7 +322,7 @@ export function ComfyPanel({
             />
           ) : (
             <div className="space-y-2">
-              <div className="rounded-md border border-dashed border-border px-3 py-3 text-sm text-muted">
+              <div className="sp-idle">
                 Idle — no running job
               </div>
               {lastJob ? (
@@ -397,7 +386,7 @@ export function ComfyPanel({
 
           {modelsInstalled &&
           (modelsInstalled.checkpoints.length > 0 || modelsInstalled.loras.length > 0) ? (
-            <div className="border-t border-border pt-2">
+            <div className="sp-section">
               <button
                 type="button"
                 onClick={() => setModelsOpen((o) => !o)}

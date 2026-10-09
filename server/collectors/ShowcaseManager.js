@@ -13,6 +13,7 @@ import { fileURLToPath } from "url";
 import { atomicWrite } from "../util/atomicWrite.js";
 import { decodeBenchManager } from "./DecodeBench.js";
 import { prefillBenchManager } from "./PrefillBench.js";
+import { qualityBenchManager } from "./QualityBench.js";
 import {
   applyThinkingFlags,
   coerceThinkingFlag,
@@ -327,6 +328,11 @@ export class ShowcaseManager {
     }
     if (prefillBenchManager.getActive(sparkId)) {
       const err = new Error("A prefill benchmark is already running for this Spark");
+      err.status = 409;
+      throw err;
+    }
+    if (qualityBenchManager.getActive(sparkId)) {
+      const err = new Error("A quality benchmark is already running for this Spark");
       err.status = 409;
       throw err;
     }

@@ -7,6 +7,31 @@ import { sshExec } from "./ssh.js";
 const NVERR_JOURNAL_CMD =
   'journalctl -k --no-pager -q --grep=NV_ERR_NO_MEMORY 2>/dev/null | grep -c NV_ERR_NO_MEMORY || true';
 
+// One journal pass for kernel-level GPU / memory trouble: NVIDIA Xid errors and
+// OOM-killer kills. Output: "xid=<n> oom=<n>" then the latest Xid line (if any).
+const KERNEL_ERRORS_CMD =
+  "x=$(journalctl -k --no-pager -q --grep='NVRM: Xid' 2>/dev/null | grep 'NVRM: Xid' || true); " +
+  "o=$(journalctl -k --no-pager -q --grep='Out of memory: Killed process|oom-kill:' 2>/dev/null | grep -c -E 'Out of memory: Killed process|oom-kill:' || true); " +
+  'echo "xid=$(printf \'%s\' "$x" | grep -c . || true) oom=${o:-0}"; printf \'%s\\n\' "$x" | tail -1';
+
+/**
+ * Parse KERNEL_ERRORS_CMD output. Exported for tests. Returns null when the
+ * output has no counters (journal unreadable), so callers keep the last value.
+ * @param {unknown} raw
+ * @returns {{ xid: number, oomKills: number, lastXid: string|null } | null}
+ */
+export function parseKernelErrors(raw) {
+  const lines = String(raw ?? "").split("\n");
+  const m = /xid=(\d+)\s+oom=(\d+)/.exec(lines[0] ?? "");
+  if (!m) return null;
+  const xid = Number.parseInt(m[1], 10);
+  const oomKills = Number.parseInt(m[2], 10);
+  const lastLine = (lines[1] ?? "").trim();
+  const code = /Xid \([^)]*\):\s*(\d+)/.exec(lastLine);
+  const lastXid = xid > 0 && lastLine ? (code ? `Xid ${code[1]}` : lastLine.replace(/[^\x20-\x7e]/g, "").slice(0, 80)) : null;
+  return { xid, oomKills, lastXid };
+}
+
 /**
  * Parse `grep -c` stdout into a non-negative integer. Exported for tests.
  * @param {unknown} raw
@@ -65,6 +90,8 @@ export class SystemCollector {
     this._hardwareInfo = null;
     /** Cached NVRM NV_ERR_NO_MEMORY count (slow journal scan). */
     this._nvErrCache = { count: 0, at: 0 };
+    /** Cached kernel error counters (Xid / OOM kills), same slow cadence. */
+    this._kernelErrCache = { value: null, at: 0 };
   }
 
   /** Collect GPU metrics (temperature, usage, power, VRAM). */
@@ -253,6 +280,7 @@ export class SystemCollector {
       processes,
       throttle: gpu.throttle,
       nvErrNoMemory: await this._nvErrNoMemory(),
+      kernelErrors: await this._kernelErrors(),
       gpus: this._buildGpuDevices(devices, this._lastVramPerDevice ?? [], apps, vram),
     };
   }
@@ -363,7 +391,7 @@ export class SystemCollector {
       // Free VRAM = total − used (unlike the shared pool, GPU memory is dedicated).
       if (totalMB <= 0 && memTotalMB > 0) totalMB = memTotalMB;
       else if (totalMB <= 0) totalMB = DGX_SPARK.MEMORY_HBM_SIZE_GB * 1024; // Convert to MB
-      if (totalMB > 0 && usedMB > 0) availableMB = Math.max(0, totalMB - usedMB);
+      if (totalMB > 0) availableMB = Math.max(0, totalMB - usedMB);
     } else {
       // GB10 shared HBM pool: prefer the OS-visible pool (MemTotal) as the total,
       // fall back to nvidia-smi, then the hardware spec (HBM) only if nothing known.
@@ -1223,7 +1251,7 @@ export class SystemCollector {
   }
 
   // ─── Remote collection via SSH ────────────────────────────
-  async _getRemoteGpu() {
+  async _getRemoteGpu(executor = sshExec) {
     try {
       const cmd = [
         "nvidia-smi --query-gpu=temperature.gpu,utilization.gpu,power.draw,power.limit,clocks.current.sm,clocks.max.sm,clocks_throttle_reasons.hw_thermal_slowdown,clocks_throttle_reasons.sw_thermal_slowdown,clocks_throttle_reasons.hw_slowdown,clocks_throttle_reasons.sw_power_cap,index,name,uuid --format=csv,noheader,nounits 2>/dev/null",
@@ -1235,7 +1263,7 @@ export class SystemCollector {
         "grep -E 'MemTotal|MemAvailable' /proc/meminfo 2>/dev/null",
       ].join("; ");
 
-      const output = await sshExec(this.spark, cmd);
+      const output = await executor(this.spark, cmd);
       const sections = output.split("---");
       const gpuOut = sections[0]?.trim() || "";
       const memFields = sections[1]?.trim() || "";
@@ -1277,7 +1305,7 @@ export class SystemCollector {
         // Discrete GPU VRAM: trust nvidia-smi's memory.total; free VRAM = total − used.
         if (totalMB <= 0 && memTotalMB > 0) totalMB = memTotalMB;
         else if (totalMB <= 0) totalMB = DGX_SPARK.MEMORY_HBM_SIZE_GB * 1024; // Convert to MB
-        if (totalMB > 0 && usedMB > 0) availableMB = Math.max(0, totalMB - usedMB);
+        if (totalMB > 0) availableMB = Math.max(0, totalMB - usedMB);
       } else {
         // GB10 shared HBM pool: prefer the OS-visible pool (MemTotal) as the total,
         // fall back to nvidia-smi, then the hardware spec (HBM) only if nothing known.
@@ -1302,6 +1330,7 @@ export class SystemCollector {
         processes,
         throttle: gpu.throttle,
         nvErrNoMemory: await this._nvErrNoMemory(),
+        kernelErrors: await this._kernelErrors(),
         gpus: this._buildGpuDevices(devices, perDeviceVram, cachedApps, vram),
       };
     } catch (err) {
@@ -1404,9 +1433,9 @@ export class SystemCollector {
   }
 
   /**
-   * First plausible temperature from a remote sensor dump (raw millidegrees,
-   * one per line, highest priority first). Same accept range as local
-   * `_getCPUTemperature()`; returns 0 when nothing is readable.
+   * First plausible temperature from a bare millidegree dump (one per line,
+   * highest priority first). Same accept range as local `_getCPUTemperature()`;
+   * returns 0 when nothing is readable.
    *
    * @param {string} raw
    * @returns {number} degrees Celsius, or 0
@@ -2000,6 +2029,30 @@ export class SystemCollector {
    * Cached for POLL_INTERVAL_NVERR — never on the 2s GPU/memory loop uncached.
    * @returns {Promise<number>}
    */
+  /** Xid / OOM-kill counters since boot (cached; journal scans are slow). null when unreadable. */
+  async _kernelErrors() {
+    const now = Date.now();
+    if (this._kernelErrCache.at > 0 && now - this._kernelErrCache.at < POLL_INTERVAL_NVERR) {
+      return this._kernelErrCache.value;
+    }
+    try {
+      let out;
+      if (this.spark.isLocal) {
+        out = this._hasHostProc()
+          ? await this._execOnHost(KERNEL_ERRORS_CMD)
+          : await this._exec(KERNEL_ERRORS_CMD);
+      } else {
+        out = await sshExec(this.spark, KERNEL_ERRORS_CMD, { timeoutMs: 8000 });
+      }
+      const parsed = parseKernelErrors(out);
+      if (parsed) this._kernelErrCache = { value: parsed, at: now };
+      else this._kernelErrCache.at = now;
+    } catch {
+      this._kernelErrCache.at = now;
+    }
+    return this._kernelErrCache.value;
+  }
+
   async _nvErrNoMemory() {
     const now = Date.now();
     if (this._nvErrCache.at > 0 && now - this._nvErrCache.at < POLL_INTERVAL_NVERR) {

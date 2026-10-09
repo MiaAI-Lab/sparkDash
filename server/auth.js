@@ -138,6 +138,18 @@ export function authenticate(req) {
   return { ok: true, mode: "bearer" };
 }
 
+/**
+ * Loopback Host/Origin (DNS-rebinding) check on its own, for routes that must
+ * answer before token auth (such as /api/auth/status).
+ */
+export function createHostGuardMiddleware() {
+  return function hostGuard(req, res, next) {
+    const refused = refusedName(req);
+    if (refused) return refuse(req, res, refused);
+    next();
+  };
+}
+
 export function createAuthMiddleware() {
   return function authMiddleware(req, res, next) {
     const refused = refusedName(req);

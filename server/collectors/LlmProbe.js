@@ -66,7 +66,7 @@ export class LlmProbe {
     this.baseUrl = `http://${llmProbeHost(spark)}:${port}`;
 
     // State
-    this.backendType = null; // 'vllm' | 'llama.cpp' | 'sglang' | 'ds4' | 'exl3' | 'q27' | 'tensorfold' | null
+    this.backendType = null; // 'vllm' | 'llama.cpp' | 'sglang' | 'ds4' | 'exl3' | 'q27' | 'tensorfold' | 'freetoken' | null
     this.serverIsOpenAI = null; // true = OpenAI-compatible
     /** Whether /v1/models (or /slots) answered without credentials. null = unknown. */
     this.authOpen = null;
@@ -88,6 +88,12 @@ export class LlmProbe {
     // Per-slot rate tracking (for llama.cpp native path)
     this.slotState = new Map();
     this.lastTokenCounts = { input: 0, output: 0 };
+    /** TensorFold: first /health sample with counters seeds the baseline (lifetime total is not a rate). */
+    this._tensorfoldSeeded = false;
+    /** Previous TensorFold `prefill_seconds_total`. null until a sample includes it. */
+    this._tensorfoldPrefillSeconds = null;
+    this._tensorfoldLastPrefill = null;
+    this.prefillActive = false;
     /** Previous prefill counters by kind; null until first labeled sample. */
     this.lastPrefillKinds = null;
     /** Previous vLLM TTFT histogram `_sum` (seconds). null until first sample. */
@@ -112,6 +118,12 @@ export class LlmProbe {
     // vLLM inference metrics from /metrics (null when not vLLM / missing series)
     // Metric names follow stock vLLM Prometheus exposition (versions may differ).
     this.kvCacheUsage = null; // 0–1 fraction
+    /** Allocated KV-cache pool, tokens (vLLM `cache_config_info`). */
+    this.kvCacheTokens = null;
+    /** Free tokens in that pool. null until both pool size and usage are known. */
+    this.kvCacheTokensAvailable = null;
+    /** Allocated KV-cache pool, bytes. */
+    this.kvCacheMemoryBytes = null;
     /** Engine KV cache pool size in GB (SGLang only). null when not reported. */
     this.kvCacheGb = null;
     /** Engine model weights resident in GPU memory, GB (SGLang only). null when not reported. */
@@ -268,8 +280,7 @@ export class LlmProbe {
     this.totalPromptTokens = null;
     this.totalCachedTokens = null;
     this.kvCacheUsage = null;
-    this.kvCacheGb = null;
-    this.weightsGb = null;
+    this._clearEngineMemory();
     this.requestsRunning = null;
     this.requestsWaiting = null;
     this.ttftP95Seconds = null;
@@ -281,6 +292,10 @@ export class LlmProbe {
     this.mtpAcceptanceRate = null;
     this.slotState.clear();
     this.lastTokenCounts = { input: 0, output: 0 };
+    this._tensorfoldSeeded = false;
+    this._tensorfoldPrefillSeconds = null;
+    this._tensorfoldLastPrefill = null;
+    this.prefillActive = false;
     this.lastPrefillKinds = null;
     this.lastTtftSum = null;
     this.lastTtftCount = null;
@@ -362,9 +377,9 @@ export class LlmProbe {
   }
 
   /**
-   * Classify an OpenAI-compatible server: ds4, SGLang, EXL3, q27, TensorFold, or vLLM (default).
+   * Classify an OpenAI-compatible server: ds4, SGLang, EXL3, q27, TensorFold, FreeToken, or vLLM (default).
    * @param {unknown} ownedBy
-   * @returns {Promise<"ds4" | "sglang" | "exl3" | "q27" | "tensorfold" | "vllm">}
+   * @returns {Promise<"ds4" | "sglang" | "exl3" | "q27" | "tensorfold" | "freetoken" | "vllm">}
    */
   async _classifyOpenAIBackend(ownedBy) {
     if (typeof ownedBy === "string") {
@@ -375,12 +390,45 @@ export class LlmProbe {
       if (/q27/i.test(ownedBy)) return "q27";
       // TensorFold (ashhart/TensorFold) reports owned_by: "tensorfold" on both MLX and CUDA servers.
       if (/tensorfold/i.test(ownedBy)) return "tensorfold";
+      // FreeToken reports owned_by: "FreeToken".
+      if (/freetoken/i.test(ownedBy)) return "freetoken";
     }
     if (await this._probeIsDs4()) return "ds4";
     if (await this._probeIsSglang()) return "sglang";
     if (await this._probeIsExl3()) return "exl3";
     if (await this._probeIsQ27()) return "q27";
+    if (await this._probeIsFreeToken()) return "freetoken";
     return "vllm";
+  }
+
+  /**
+   * True when `/v1/stats` matches FreeToken's throughput + lifetime token contract.
+   * A bare JSON object is not enough.
+   */
+  async _probeIsFreeToken() {
+    try {
+      const res = await this._fetch(`${this.baseUrl}/v1/stats`);
+      if (!res.ok) return false;
+      const data = await res.json().catch(() => null);
+      return LlmProbe._statsLookLikeFreeToken(data);
+    } catch {
+      return false;
+    }
+  }
+
+  /** @param {unknown} data */
+  static _statsLookLikeFreeToken(data) {
+    if (!data || typeof data !== "object" || Array.isArray(data)) return false;
+    const throughput = data.throughput;
+    const requests = data.requests;
+    if (!throughput || typeof throughput !== "object" || Array.isArray(throughput)) return false;
+    if (!requests || typeof requests !== "object" || Array.isArray(requests)) return false;
+    return (
+      Number.isFinite(Number(throughput.decode_tps)) &&
+      Number.isFinite(Number(throughput.prefill_tps)) &&
+      Number.isFinite(Number(requests.prompt_tokens_total)) &&
+      Number.isFinite(Number(requests.completion_tokens_total))
+    );
   }
 
   /**
@@ -510,13 +558,31 @@ export class LlmProbe {
         this.backendType = "exl3";
       } else if (/tensorfold/i.test(owned) && this.backendType !== "ds4") {
         this.backendType = "tensorfold";
+      } else if (/freetoken/i.test(owned) && this.backendType !== "ds4") {
+        this.backendType = "freetoken";
       }
     }
 
-    // Engine pool sizes: only SGLang reports them, and it re-reads them every
-    // poll below, so a size never outlives the payload it came from.
-    this.kvCacheGb = null;
-    this.weightsGb = null;
+    if (this.backendType === "freetoken") {
+      // FreeToken reports no engine memory split; never keep another engine's.
+      this._clearEngineMemory();
+      try {
+        const statsRes = await this._fetch(`${this.baseUrl}/v1/stats`);
+        if (!statsRes.ok) {
+          this._clearFreeTokenRates();
+        } else {
+          const stats = await statsRes.json().catch(() => null);
+          this._applyFreeTokenStats(stats);
+        }
+      } catch {
+        this._clearFreeTokenRates();
+      }
+      return this._getSnapshot();
+    }
+
+    // Engine pool sizes: only SGLang and vLLM report them, and they re-read
+    // them every poll below, so a size never outlives the payload it came from.
+    this._clearEngineMemory();
 
     // TensorFold: no Prometheus. /health carries cumulative token totals when the
     // server publishes them; without them tok/s stays 0 rather than guessing.
@@ -526,6 +592,10 @@ export class LlmProbe {
         if (healthRes.ok) {
           const health = await healthRes.json().catch(() => null);
           this._applyTensorFoldHealth(health, dtSec);
+          this._applyTensorFoldLive(health);
+          // Newer builds report live rates in /health but cumulative totals only on Prometheus /metrics.
+          const totalRaw = health?.completion_tokens_total;
+          if (totalRaw == null || !Number.isFinite(Number(totalRaw))) await this._applyTensorFoldMetrics();
         } else {
           this._applyTensorFoldHealth(null, dtSec);
         }
@@ -733,6 +803,7 @@ export class LlmProbe {
 
     // Clear tiles that are vLLM-histogram-specific (no ds4 equivalent yet)
     this.kvCacheUsage = null;
+    this._clearKvPool();
     this.requestsWaiting = null;
     this.ttftP95Seconds = null;
     this.ttftSeconds = null;
@@ -803,6 +874,7 @@ export class LlmProbe {
     if (slotsTotal != null) this.slotsTotal = Math.round(slotsTotal);
 
     this.kvCacheUsage = this._getPromMetric(txt, "q27_kv_usage_perc");
+    this._clearKvPool();
     this.requestsWaiting = null; // not exposed: q27 FIFO-queues, no wait gauge
     // q27 never preempts (FIFO admission) — the server exposes a constant-0
     // counter, so the Preempts tile reads 0 instead of "—".
@@ -869,6 +941,7 @@ export class LlmProbe {
     this.slotsActive = busy ? 1 : 0;
     this.slotsTotal = 1;
     this.kvCacheUsage = null;
+    this._clearKvPool();
     this.requestsWaiting = null;
     this.ttftP95Seconds = null;
     this.ttftSeconds = null;
@@ -906,17 +979,125 @@ export class LlmProbe {
     if (Number.isFinite(prompt)) this.totalPromptTokens = prompt;
   }
 
+  /** Drop live FreeToken rates after a failed or empty `/v1/stats`. Totals stay. */
+  _clearFreeTokenRates() {
+    this.generationTps = 0;
+    this.prefillTps = 0;
+    this.kvCacheUsage = null;
+    this.kvCacheTokens = null;
+    this.kvCacheTokensAvailable = null;
+    this.kvCacheMemoryBytes = null;
+    this.ttftSeconds = null;
+    this.ttftP95Seconds = null;
+    this.e2eP95Seconds = null;
+    this.requestsWaiting = null;
+    this.preemptionsTotal = null;
+  }
+
   /**
-   * Apply TensorFold GET /health. Same counter contract as EXL3 (`prompt_tokens_total`,
-   * `completion_tokens_total`, optional `busy` / `context_length`). The MLX server's
-   * `max_batch_size` sizes the slot tile, and so does the CUDA 0.6.0 server's
-   * `streams.max`; the older CUDA server's `{ok: true}` has no counters, so rates
-   * read 0 instead of a made-up number.
+   * Apply FreeToken GET /v1/stats.
+   * `throughput.*_tps` is already a 5s sliding window (0 when idle), so it is
+   * not differenced. `requests.ttft_mean_ms` is a mean. `requests.p95_ms` is
+   * end-to-end request latency, not TTFT p95. Queue length, slot capacity, and
+   * preemptions are not in the payload and stay unset.
+   * @param {unknown} data
+   */
+  _applyFreeTokenStats(data) {
+    if (!LlmProbe._statsLookLikeFreeToken(data)) {
+      this._clearFreeTokenRates();
+      return;
+    }
+    const stats = /** @type {Record<string, any>} */ (data);
+    // Rates come from FreeToken's window, not from differencing these totals,
+    // so a restart (new instance_id, or counters that went backwards) cannot
+    // spike tok/s. The new totals are adopted as-is.
+
+    const decode = Number(stats.throughput.decode_tps);
+    const prefill = Number(stats.throughput.prefill_tps);
+    this.generationTps = Math.max(0, Math.round(decode * 100) / 100);
+    this.prefillTps = Math.max(0, Math.round(prefill * 100) / 100);
+
+    const requests = stats.requests;
+    const active = Number(requests.active);
+    this.requestsRunning = Number.isFinite(active) && active >= 0 ? Math.round(active) : null;
+    // No concurrency capacity in /v1/stats. Do not invent a slot total from `active`.
+    this.slotsActive = 0;
+    this.slotsTotal = 0;
+    this.requestsWaiting = null;
+    this.preemptionsTotal = null;
+    this.ttftP95Seconds = null;
+
+    const prompt = Number(requests.prompt_tokens_total);
+    const completion = Number(requests.completion_tokens_total);
+    if (Number.isFinite(prompt) && prompt >= 0) this.totalPromptTokens = prompt;
+    if (Number.isFinite(completion) && completion >= 0) this.totalOutputTokens = completion;
+
+    const ttftMeanMs = Number(requests.ttft_mean_ms);
+    this.ttftSeconds =
+      Number.isFinite(ttftMeanMs) && ttftMeanMs >= 0
+        ? Math.round((ttftMeanMs / 1000) * 1000) / 1000
+        : null;
+    const p95Ms = Number(requests.p95_ms);
+    this.e2eP95Seconds =
+      Number.isFinite(p95Ms) && p95Ms >= 0 ? Math.round((p95Ms / 1000) * 1000) / 1000 : null;
+
+    const kv = stats.kv;
+    if (
+      kv &&
+      typeof kv === "object" &&
+      Number(kv.total_pages) > 0 &&
+      Number.isFinite(Number(kv.used_pages))
+    ) {
+      const total = Number(kv.total_pages);
+      const used = Math.max(0, Number(kv.used_pages));
+      this.kvCacheUsage = Math.round((Math.min(used, total) / total) * 1000) / 1000;
+      const page = Number(kv.page_size);
+      if (Number.isFinite(page) && page > 0) {
+        this.kvCacheTokens = Math.round(total * page);
+        this.kvCacheTokensAvailable = Math.max(0, Math.round((total - used) * page));
+      } else {
+        this.kvCacheTokens = null;
+        this.kvCacheTokensAvailable = null;
+      }
+    } else {
+      this.kvCacheUsage = null;
+      this.kvCacheTokens = null;
+      this.kvCacheTokensAvailable = null;
+    }
+
+    const ctx = Number(stats.model?.ctx);
+    if (Number.isFinite(ctx) && ctx > 0) this.contextLength = Math.round(ctx);
+    if (stats.model?.id) applyModelRef(this, stats.model.id);
+  }
+
+  /**
+   * Apply TensorFold GET /health.
+   * Live decode tok/s is the completion-counter diff (idle → 0). The first sample
+   * only seeds the baseline. Prefill tok/s uses `prefill_seconds_total` when the
+   * server sends it (prompt tokens ÷ actual prefill time), otherwise the EXL3
+   * poll-window diff. `{ok: true}` with no counters stays at 0.
+   * CUDA 0.6.0 sizes the slot tile from `streams.max`; MLX uses `max_batch_size`.
    * @param {Record<string, unknown> | null} data
    * @param {number} dtSec
    */
   _applyTensorFoldHealth(data, dtSec) {
     const health = data && typeof data === "object" && !Array.isArray(data) ? data : {};
+    // A prompt is being processed right now (no live rate exists for it, see below).
+    this.prefillActive = Number(health.streams?.prefilling) > 0;
+    // Number(null) is 0: a null counter means "absent", not "zero".
+    const prompt = health.prompt_tokens_total == null ? NaN : Number(health.prompt_tokens_total);
+    const completion = health.completion_tokens_total == null ? NaN : Number(health.completion_tokens_total);
+    const prefillSec = Number(health.prefill_seconds_total);
+    if (Number.isFinite(completion) && !this._tensorfoldSeeded) {
+      if (Number.isFinite(prompt)) this.lastTokenCounts.input = prompt;
+      this.lastTokenCounts.output = completion;
+      if (Number.isFinite(prefillSec)) this._tensorfoldPrefillSeconds = prefillSec;
+      this._tensorfoldSeeded = true;
+      this.generationTps = 0;
+      this.prefillTps = 0;
+    }
+    const prevIn = this.lastTokenCounts.input;
+    const prevPrefillSec = this._tensorfoldPrefillSeconds;
     this._applyExl3Health(health, dtSec);
     // TensorFold 0.5.0 (cuda/health.py) publishes cumulative cached prompt tokens
     // alongside the EXL3-style counters; older builds omit it (stays null).
@@ -956,6 +1137,85 @@ export class LlmProbe {
     if (Number.isFinite(pool) && pool > 0 && Number.isFinite(poolFree) && poolFree >= 0) {
       const used = 1 - Math.min(poolFree, pool) / pool;
       this.kvCacheUsage = Math.round(used * 10000) / 10000;
+    }
+    if (!Number.isFinite(prefillSec) || !Number.isFinite(prompt)) return;
+    if (prevPrefillSec == null) {
+      this._tensorfoldPrefillSeconds = prefillSec;
+      return;
+    }
+    if (!(dtSec > 0 && dtSec < 10)) return;
+    const dSec = prefillSec - prevPrefillSec;
+    const dIn = prompt - prevIn;
+    if (dSec > 0 && dIn > 0) {
+      // A request just finished: its average prefill rate. TensorFold publishes token and time
+      // totals only for finished requests, so nothing is measurable while a long prefill runs;
+      // keep the last finished rate on screen for a while instead of flashing to 0.
+      this._tensorfoldLastPrefill = { tps: Math.max(0, Math.round((dIn / dSec) * 100) / 100), at: Date.now() };
+      this.prefillTps = this._tensorfoldLastPrefill.tps;
+    } else if (this._tensorfoldLastPrefill && Date.now() - this._tensorfoldLastPrefill.at < 20_000) {
+      this.prefillTps = this._tensorfoldLastPrefill.tps;
+    } else {
+      this.prefillTps = 0;
+    }
+    this._tensorfoldPrefillSeconds = prefillSec;
+  }
+
+  /**
+   * Newer TensorFold builds put the server's own live rates in /health:
+   * `live: { decode_tokens_per_second, prefill_tokens_per_second, connections, waiting }`.
+   * Those are used as-is (no counter diff needed). Older builds have no `live` block.
+   * @param {Record<string, unknown> | null} data
+   */
+  _applyTensorFoldLive(data) {
+    const live = data && typeof data === "object" ? data.live : null;
+    if (!live || typeof live !== "object" || Array.isArray(live)) return;
+    const rate = (v) => {
+      const n = v == null ? NaN : Number(v);
+      return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : null;
+    };
+    const decode = rate(live.decode_tokens_per_second);
+    const prefill = rate(live.prefill_tokens_per_second);
+    if (decode != null) this.generationTps = decode;
+    if (prefill != null) this.prefillTps = prefill;
+    const waiting = live.waiting == null ? NaN : Number(live.waiting);
+    if (Number.isFinite(waiting) && waiting >= 0) this.requestsWaiting = Math.round(waiting);
+    const conns = live.connections == null ? NaN : Number(live.connections);
+    if (Number.isFinite(conns) && conns >= 0 && !(this.requestsRunning > 0)) {
+      this.requestsRunning = Math.round(conns);
+      this.slotsActive = Math.round(conns);
+    }
+  }
+
+  /**
+   * TensorFold Prometheus /metrics (`tensorfold:*`): cumulative token totals (finished requests),
+   * running / waiting requests and the MTP draft acceptance rate. Best effort: a miss changes nothing.
+   */
+  async _applyTensorFoldMetrics() {
+    let txt;
+    try {
+      const res = await this._fetch(`${this.baseUrl}/metrics`);
+      if (!res.ok) return;
+      txt = await res.text();
+    } catch {
+      return;
+    }
+    if (typeof txt !== "string" || !txt.includes("tensorfold:")) return;
+    const m = (name) => this._getPromMetric(txt, `tensorfold:${name}`);
+    const gen = m("generation_tokens_total");
+    const prompt = m("prompt_tokens_total");
+    if (Number.isFinite(gen) && gen >= 0) this.totalOutputTokens = gen;
+    if (Number.isFinite(prompt) && prompt >= 0) this.totalPromptTokens = prompt;
+    const running = m("requests_running");
+    if (Number.isFinite(running) && running >= 0) {
+      this.requestsRunning = Math.round(running);
+      this.slotsActive = Math.round(running);
+    }
+    const waiting = m("requests_waiting");
+    if (Number.isFinite(waiting) && waiting >= 0) this.requestsWaiting = Math.round(waiting);
+    const drafted = m("mtp_drafted_total");
+    const accepted = m("mtp_accepted_total");
+    if (Number.isFinite(drafted) && drafted > 0 && Number.isFinite(accepted)) {
+      this.mtpAcceptanceRate = Math.max(0, Math.min(1, accepted / drafted));
     }
   }
 
@@ -1039,6 +1299,7 @@ export class LlmProbe {
     this.kvCacheUsage =
       this._getVllmMetric(txt, "kv_cache_usage_perc") ??
       this._getVllmMetric(txt, "gpu_cache_usage_perc");
+    this._applyVllmKvPool(txt);
     this.preemptionsTotal = this._getVllmMetric(txt, "num_preemptions_total");
 
     const ttftHist = this._parseVllmHistogram(txt, "vllm:time_to_first_token_seconds");
@@ -1078,6 +1339,7 @@ export class LlmProbe {
    * @param {number} dtSec
    */
   _applySglangServerInfo(sgData, dtSec) {
+    this._clearKvPool();
     // Where the engine's memory went: model weights and the KV pool it
     // pre-allocated at start-up (GB, from the first scheduler that reports).
     const mem = LlmProbe._sglangMemoryUsage(sgData);
@@ -1390,6 +1652,7 @@ export class LlmProbe {
    * @param {number} dtSec
    */
   _applySglangMetrics(txt, dtSec) {
+    this._clearKvPool();
     const gen =
       this._getPromMetric(txt, "sglang:generation_tokens_total") ??
       this._getPromMetric(txt, "sglang_generation_tokens_total");
@@ -1516,6 +1779,7 @@ export class LlmProbe {
 
   // ─── llama.cpp native path ────────────────────────────────
   async _probeLlamaCpp() {
+    this._clearEngineMemory();
     const now = Date.now();
     const dtSec = (now - this.lastProbeTime) / 1000;
     this.lastProbeTime = now;
@@ -1670,6 +1934,68 @@ export class LlmProbe {
 
   _getVllmMetric(body, name) {
     return this._getPromMetric(body, `vllm:${name}`);
+  }
+
+  /**
+   * Sum a numeric Prometheus label across every series of `name`.
+   * vLLM publishes the KV pool on the info series `vllm:cache_config_info`
+   * (value is always 1; `kv_cache_size_tokens` / `kv_cache_memory_bytes` are labels).
+   * @param {string} body
+   * @param {string} name
+   * @param {string} label
+   * @returns {number | null}
+   */
+  _sumPromLabel(body, name, label) {
+    const escName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const escLabel = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(`^${escName}\\{([^}]*)\\}\\s+[\\d.eE+-]+\\s*$`, "gm");
+    const labelRe = new RegExp(`(?:^|,)\\s*${escLabel}="([^"]*)"`);
+    let sum = 0;
+    let found = false;
+    let m;
+    while ((m = re.exec(body)) !== null) {
+      const lm = labelRe.exec(m[1]);
+      if (!lm) continue;
+      const v = Number(lm[1]);
+      if (Number.isFinite(v) && v > 0) {
+        sum += v;
+        found = true;
+      }
+    }
+    return found ? sum : null;
+  }
+
+  /** Drop every engine memory figure: the KV pool and the weights/KV GB split. */
+  _clearEngineMemory() {
+    this._clearKvPool();
+    this.kvCacheGb = null;
+    this.weightsGb = null;
+  }
+
+  /** Drop a previously observed KV pool (other backends do not expose one). */
+  _clearKvPool() {
+    this.kvCacheTokens = null;
+    this.kvCacheTokensAvailable = null;
+    this.kvCacheMemoryBytes = null;
+  }
+
+  /**
+   * vLLM KV-cache pool from `cache_config_info` plus the usage gauge.
+   * Free tokens = pool × (1 − usage). Usage is clamped to 0–1 so a
+   * multi-engine sum cannot drive the free count negative.
+   * @param {string} txt
+   */
+  _applyVllmKvPool(txt) {
+    const tokens = this._sumPromLabel(txt, "vllm:cache_config_info", "kv_cache_size_tokens");
+    const bytes = this._sumPromLabel(txt, "vllm:cache_config_info", "kv_cache_memory_bytes");
+    this.kvCacheTokens = tokens;
+    this.kvCacheMemoryBytes = bytes;
+    if (tokens != null && this.kvCacheUsage != null && Number.isFinite(this.kvCacheUsage)) {
+      const used = Math.min(1, Math.max(0, this.kvCacheUsage));
+      this.kvCacheTokensAvailable = Math.max(0, Math.round(tokens * (1 - used)));
+    } else {
+      this.kvCacheTokensAvailable = null;
+    }
   }
 
   /**
@@ -1837,12 +2163,16 @@ export class LlmProbe {
       slotsTotal: this.slotsTotal,
       generationTps: this.generationTps,
       prefillTps: this.prefillTps,
+      prefillActive: this.prefillActive === true,
       cachedPrefillTps: this.cachedPrefillTps,
       uncachedPrefillTps: this.uncachedPrefillTps,
       totalOutputTokens: this.totalOutputTokens,
       totalPromptTokens: this.totalPromptTokens ?? null,
       totalCachedTokens: this.totalCachedTokens ?? null,
       kvCacheUsage: this.kvCacheUsage,
+      kvCacheTokens: this.kvCacheTokens,
+      kvCacheTokensAvailable: this.kvCacheTokensAvailable,
+      kvCacheMemoryBytes: this.kvCacheMemoryBytes,
       kvCacheGb: this.kvCacheGb,
       weightsGb: this.weightsGb,
       requestsRunning: this.requestsRunning,
@@ -1871,11 +2201,15 @@ export class LlmProbe {
       slotsTotal: 0,
       generationTps: 0,
       prefillTps: 0,
+      prefillActive: false,
       cachedPrefillTps: null,
       uncachedPrefillTps: null,
       totalOutputTokens: 0,
       totalCachedTokens: null,
       kvCacheUsage: null,
+      kvCacheTokens: null,
+      kvCacheTokensAvailable: null,
+      kvCacheMemoryBytes: null,
       kvCacheGb: null,
       weightsGb: null,
       requestsRunning: null,
