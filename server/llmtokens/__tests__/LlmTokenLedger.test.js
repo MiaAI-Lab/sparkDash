@@ -318,7 +318,7 @@ test("LlmTokenRuntime: tick pulls observations via orderedSnapshots and route re
   assert.equal(s.models[0].completionTokens, 5); // second tick: 20 - 15
 
   const routes = [];
-  const app = { get: (p, h) => routes.push({ p, h }) };
+  const app = { get: (p, h) => routes.push({ p, h }), delete: () => {} };
   registerLlmTokenTotalsRoute(app, ledger);
   assert.deepEqual(routes.map((r) => r.p), ["/api/llm-token-totals/history", "/api/llm-token-totals"]);
   let sent = null;
@@ -365,4 +365,23 @@ test("LlmTokenLedger: hourly buckets are pruned to 72 hours and survive a save/l
   ledger.flush();
   const reloaded = new LlmTokenLedger(ledger.filePath);
   assert.equal(reloaded.history().hour.length, 72);
+});
+
+test("reset() zeroes totals and history, per Spark or for all, and keeps counter baselines", () => {
+  const ledger = tmpLedger();
+  const t0 = Date.UTC(2026, 8, 1, 10, 0, 0);
+  ledger.record([obs("a", 8000, "m1", 100, 1000), obs("b", 8000, "m2", 50, 500)], t0);
+  ledger.record([obs("a", 8000, "m1", 160, 1400), obs("b", 8000, "m2", 80, 700)], t0 + 15_000);
+  const total = (id) => ledger.snapshot("all").series.find((s) => s.sparkId === id)?.models.reduce((n, m) => n + m.completionTokens, 0) ?? 0;
+  assert.equal(total("a"), 60);
+  assert.equal(total("b"), 30);
+  assert.equal(ledger.reset({ sparkId: "a" }), 1);
+  assert.equal(total("a"), 0);
+  assert.equal(total("b"), 30, "other Sparks are untouched");
+  // The engine counter kept its baseline: only the new 40 tokens are credited, not all 200.
+  ledger.record([obs("a", 8000, "m1", 200, 1500)], t0 + 30_000);
+  assert.equal(total("a"), 40);
+  assert.equal(ledger.reset(), 2);
+  assert.equal(total("b"), 0);
+  assert.equal(ledger.reset(), 0);
 });

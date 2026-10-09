@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
-import { fetchTokenHistory } from "../../api/client";
+import { fetchTokenHistory, resetTokenTotals } from "../../api/client";
+import { ClearMenu, type ClearChoice } from "../ui/ClearMenu";
 import { fetchLlmTokenTotals } from "../../api/llmTokenClient";
 import type { LlmTokenSeriesTotals } from "../../api/llmTokenTypes";
 import type { SparkSnapshot, TokenHistory } from "../../api/types";
@@ -98,6 +99,13 @@ export function TokensPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[];
   }, [copyMsg]);
 
   const sparkNames = useMemo(() => new Map(sparks.map((s) => [s.id, s.name])), [sparks]);
+  const tokenResetChoices = useMemo<ClearChoice<string | undefined>[]>(
+    () => [
+      { id: "all", label: "All Sparks", ask: "Reset the token totals of every Spark?", arg: undefined },
+      ...sparks.map((s) => ({ id: s.id, label: s.name, ask: `Reset the token totals of ${s.name}?`, arg: s.id })),
+    ],
+    [sparks]
+  );
   const sparkName = useCallback((id: string) => sparkNames.get(id) || id, [sparkNames]);
   const knownSpark = useCallback((id: string) => sparkNames.has(id), [sparkNames]);
 
@@ -202,6 +210,16 @@ export function TokensPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[];
               </button>
             ))}
           </div>
+          <ClearMenu
+            label="Reset…"
+            choices={tokenResetChoices}
+            note="Counting restarts from zero; the engines themselves are not touched. This can't be undone."
+            onRun={async (id) => {
+              const { removed } = await resetTokenTotals(id);
+              setTick((t) => t + 1);
+              return removed;
+            }}
+          />
           <button type="button" className="btn btn--sm" onClick={copyCsv} disabled={!view || view.inRange.length === 0}>
             Copy CSV
           </button>

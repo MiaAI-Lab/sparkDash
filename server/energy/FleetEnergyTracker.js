@@ -858,6 +858,39 @@ export class FleetEnergyTracker {
     }
   }
 
+  /**
+   * Delete recorded history: everything, or only minutes older than `olderThanMs`.
+   * Power baselines are kept, so integration carries on from the next sample.
+   * @returns {number} how many minute buckets were removed
+   */
+  clear({ olderThanMs } = {}) {
+    const all = !(Number.isFinite(olderThanMs) && olderThanMs > 0);
+    const cutoff = all ? Infinity : this._now() - olderThanMs;
+    let removed = 0;
+    for (const minuteStartMs of [...this._buckets.keys()]) {
+      if (minuteStartMs < cutoff) {
+        this._buckets.delete(minuteStartMs);
+        removed++;
+      }
+    }
+    this._latestBucketStart = this._buckets.size
+      ? Math.max(...this._buckets.keys())
+      : null;
+    if (all) this._tokensTrackedSinceMs = null;
+    else if (this._tokensTrackedSinceMs !== null && this._tokensTrackedSinceMs < cutoff) {
+      this._tokensTrackedSinceMs = this._buckets.size ? Math.min(...this._buckets.keys()) : null;
+    }
+    if (removed > 0) {
+      this._dirty = true;
+      try {
+        this.flush();
+      } catch (error) {
+        console.error(`[FleetEnergyTracker] persist error: ${error.message}`);
+      }
+    }
+    return removed;
+  }
+
   flush() {
     if (!this.filePath || !this._dirty) return false;
     const now = this._now();

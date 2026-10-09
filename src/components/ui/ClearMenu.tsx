@@ -1,22 +1,31 @@
 import { useEffect, useRef, useState } from "react";
+import "../../styles/clearmenu.css";
 
-const DAY = 86_400_000;
-const CHOICES = [
-  { id: "7d", label: "Older than 7 days", ms: 7 * DAY, ask: "Delete events older than 7 days?" },
-  { id: "24h", label: "Older than 24 hours", ms: DAY, ask: "Delete events older than 24 hours?" },
-  { id: "all", label: "Everything", ms: undefined, ask: "Delete the whole activity history?" },
-] as const;
+export interface ClearChoice<T = number | string | undefined> {
+  id: string;
+  label: string;
+  /** Confirmation question shown before anything is deleted. */
+  ask: string;
+  /** Passed to onRun. */
+  arg: T;
+}
 
-/** "Clear history" menu: pick a range, confirm in place, then the server deletes it. */
-export function ClearHistory({
-  onClear,
+/** Menu button: pick what to delete, confirm in place, then run it. `onRun` resolves to the number removed. */
+export function ClearMenu<T>({
+  label,
+  choices,
+  onRun,
   disabled,
+  note = "This can't be undone.",
 }: {
-  onClear: (olderThanMs?: number) => Promise<number>;
+  label: string;
+  choices: readonly ClearChoice<T>[];
+  onRun: (arg: T) => Promise<number>;
   disabled?: boolean;
+  note?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [pick, setPick] = useState<(typeof CHOICES)[number] | null>(null);
+  const [pick, setPick] = useState<ClearChoice<T> | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const root = useRef<HTMLSpanElement>(null);
@@ -53,7 +62,7 @@ export function ClearHistory({
     if (!pick || busy) return;
     setBusy(true);
     try {
-      const n = await onClear(pick.ms);
+      const n = await onRun(pick.arg);
       setMsg({ ok: true, text: n === 0 ? "Nothing to delete" : `Deleted ${n} event${n === 1 ? "" : "s"}` });
       setOpen(false);
       setPick(null);
@@ -77,14 +86,14 @@ export function ClearHistory({
           setPick(null);
         }}
       >
-        Clear history…
+        {label}
       </button>
       {open ? (
         <div className="ac-clear__menu" role="menu">
           {pick ? (
             <div className="ac-clear__confirm">
               <p>{pick.ask}</p>
-              <p className="ac-clear__note">This can't be undone.</p>
+              <p className="ac-clear__note">{note}</p>
               <div className="ac-clear__row">
                 <button type="button" className="btn btn--sm" onClick={() => setPick(null)} disabled={busy}>
                   Cancel
@@ -95,7 +104,7 @@ export function ClearHistory({
               </div>
             </div>
           ) : (
-            CHOICES.map((c) => (
+            choices.map((c) => (
               <button key={c.id} type="button" role="menuitem" className="ac-clear__item" onClick={() => setPick(c)}>
                 {c.label}
               </button>

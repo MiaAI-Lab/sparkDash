@@ -1,0 +1,50 @@
+/* ── Clear history menu ──────────────────────────────────── */
+.ac-clear {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.ac-clear__menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  min-width: 220px;
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--color-surface-elevated, #14171f);
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  box-shadow: 0 18px 50px rgb(0 0 0 / 0.35);
+}
+.ac-clear__item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+}
+.ac-clear__item:hover,
+.ac-clear__item:focus-visible {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+.ac-clear__confirm {
+  padding: 8px 10px;
+  font-size: 13.5px;
+}
+.ac-clear__note {
+  margin-top: 4px;
+  font-size: 12px;
+  opacity: 0.65;
+}
+.ac-clear__row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}

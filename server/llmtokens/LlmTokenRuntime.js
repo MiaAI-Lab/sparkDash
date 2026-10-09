@@ -26,6 +26,11 @@ export function createLlmTokenTotalsHandler(ledger) {
 /** Register the read-only token-totals endpoints (lifetime/range totals + the detailed history). */
 export function registerLlmTokenTotalsRoute(app, ledger) {
   app.get("/api/llm-token-totals/history", (_req, res) => res.json(ledger.history()));
+  // Reset the counted totals and history; optional ?sparkId= limits it to one Spark.
+  app.delete("/api/llm-token-totals", (req, res) => {
+    const sparkId = typeof req.query?.sparkId === "string" && req.query.sparkId ? req.query.sparkId : undefined;
+    res.json({ removed: ledger.reset({ sparkId }) });
+  });
   return app.get("/api/llm-token-totals", createLlmTokenTotalsHandler(ledger));
 }
 

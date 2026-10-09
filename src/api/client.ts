@@ -86,6 +86,18 @@ export function clearEvents(olderThanMs?: number): Promise<{ removed: number }> 
   return apiFetch(`/api/events${qs}`, { method: "DELETE" });
 }
 
+/** Delete recorded fleet energy: everything, or only minutes older than `olderThanMs`. */
+export function clearFleetEnergy(olderThanMs?: number): Promise<{ removed: number }> {
+  const qs = olderThanMs != null ? `?olderThanMs=${Math.floor(olderThanMs)}` : "";
+  return apiFetch(`/api/fleet-energy${qs}`, { method: "DELETE" });
+}
+
+/** Reset counted token totals and history (all Sparks, or one). */
+export function resetTokenTotals(sparkId?: string): Promise<{ removed: number }> {
+  const qs = sparkId ? `?sparkId=${encodeURIComponent(sparkId)}` : "";
+  return apiFetch(`/api/llm-token-totals${qs}`, { method: "DELETE" });
+}
+
 /** One page of the fleet activity log (newest first). `beforeId` loads older events. */
 export function fetchEventsPage(opts?: {
   limit?: number;

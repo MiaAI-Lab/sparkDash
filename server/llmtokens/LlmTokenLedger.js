@@ -216,6 +216,29 @@ export class LlmTokenLedger {
     return out;
   }
 
+  /**
+   * Reset the counted totals and daily/hourly history, for every series or one Spark's.
+   * The engines' own counters are kept as baselines, so the next sample credits only new
+   * tokens instead of re-adding everything the engine has served since it started.
+   * @param {{ sparkId?: string }} [opts]
+   * @returns {number} how many model rows were removed
+   */
+  reset({ sparkId } = {}) {
+    let removed = 0;
+    for (const [key, series] of Object.entries(this._data.series)) {
+      if (sparkId && !key.startsWith(`${sparkId}:`)) continue;
+      removed += Object.keys(series.models || {}).length;
+      series.models = {};
+      delete series.daily;
+      delete series.hourly;
+    }
+    if (removed > 0) {
+      this._dirty = true;
+      this.flush();
+    }
+    return removed;
+  }
+
   _scheduleFlush() {
     if (this._flushTimer) return;
     this._flushTimer = setTimeout(() => {

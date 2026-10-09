@@ -3,7 +3,7 @@ import type { SparkSnapshot } from "../../api/types";
 import { StackedBarChart, type BarBucket, type BarSeries } from "../ui/StackedBarChart";
 import { RotateIcon, SearchIcon, XIcon } from "../ui/icons";
 import { EventRow } from "./EventRow";
-import { ClearHistory } from "./ClearHistory";
+import { ClearMenu } from "../ui/ClearMenu";
 import {
   CATEGORIES, EMPTY_FILTER, NO_SPARK, SEVERITIES, SEVERITY_LABEL, countByCategory, countBySeverity, countBySpark,
   eventsPerDay, exportText, filterEvents, groupByDay, isFilterActive, sparkOptions, summarize,
@@ -11,6 +11,13 @@ import {
 } from "./activityStats";
 import { useActivityFeed } from "./useActivityFeed";
 import "../../styles/activity.css";
+
+const DAY_MS = 86_400_000;
+const ACTIVITY_CLEAR = [
+  { id: "7d", label: "Older than 7 days", ask: "Delete events older than 7 days?", arg: 7 * DAY_MS },
+  { id: "24h", label: "Older than 24 hours", ask: "Delete events older than 24 hours?", arg: DAY_MS },
+  { id: "all", label: "Everything", ask: "Delete the whole activity history?", arg: undefined },
+] as const;
 
 const SERIES: readonly BarSeries[] = [
   { id: "error", label: "Errors", color: "var(--color-danger)" },
@@ -287,7 +294,12 @@ export function ActivityPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[
           <button type="button" className="btn btn--sm" onClick={() => void copyAll()} disabled={visible.length === 0}>
             Copy as text
           </button>
-          <ClearHistory onClear={feed.clear} disabled={feed.status !== "ready"} />
+          <ClearMenu
+            label="Clear history…"
+            choices={ACTIVITY_CLEAR}
+            onRun={feed.clear}
+            disabled={feed.status !== "ready"}
+          />
           <span className={`ac-toast${copyMsg ? (copyMsg.ok ? " is-ok" : " is-err") : ""}`} role="status" aria-live="polite">
             {copyMsg?.text}
           </span>

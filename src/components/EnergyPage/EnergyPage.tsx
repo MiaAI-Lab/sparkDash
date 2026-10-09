@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { fetchEnergyHistory, fetchFleetEnergy } from "../../api/client";
+import { clearFleetEnergy, fetchEnergyHistory, fetchFleetEnergy } from "../../api/client";
+import { ClearMenu } from "../ui/ClearMenu";
 import type { EnergyHistory, FleetEnergy, Settings, SparkSnapshot } from "../../api/types";
 import { StackedBarChart, type BarBucket, type BarSeries } from "../ui/StackedBarChart";
 import { LineAreaChart, type LinePoint } from "../ui/LineAreaChart";
@@ -29,6 +30,13 @@ import {
   type RangeWindow,
 } from "./energyStats";
 import "../../styles/energy.css";
+
+const DAY_MS = 86_400_000;
+const ENERGY_CLEAR = [
+  { id: "7d", label: "Older than 7 days", ask: "Delete energy history older than 7 days?", arg: 7 * DAY_MS },
+  { id: "24h", label: "Older than 24 hours", ask: "Delete energy history older than 24 hours?", arg: DAY_MS },
+  { id: "all", label: "Everything", ask: "Delete all recorded energy history?", arg: undefined },
+] as const;
 
 const HISTORY_POLL_MS = 60_000;
 const LIVE_POLL_MS = 15_000;
@@ -249,6 +257,16 @@ export function EnergyPage({
               </button>
             ))}
           </div>
+          <ClearMenu
+            label="Reset…"
+            choices={ENERGY_CLEAR}
+            note="Power keeps being recorded from now on. This can't be undone."
+            onRun={async (ms) => {
+              const { removed } = await clearFleetEnergy(ms);
+              await Promise.all([loadHistory(), loadLive()]);
+              return removed;
+            }}
+          />
           <button type="button" className="btn btn--ghost btn--sm" onClick={() => void copyCsv()} disabled={!model || model.inRange.length === 0}>
             {copied === "ok" ? "Copied" : copied === "fail" ? "Copy failed" : "Copy CSV"}
           </button>

@@ -77,6 +77,15 @@ export function createFleetEnergyHandler(tracker) {
 /** Register the read-only fleet-energy endpoint. */
 export function registerFleetEnergyRoute(app, tracker) {
   app.get("/api/fleet-energy/history", (_req, res) => res.json(tracker.history()));
+  // Delete recorded history. Query: olderThanMs (omit to delete everything).
+  app.delete("/api/fleet-energy", (req, res) => {
+    const raw = req.query?.olderThanMs;
+    const olderThanMs = raw == null || raw === "" ? undefined : Number(raw);
+    if (olderThanMs !== undefined && (!Number.isFinite(olderThanMs) || olderThanMs <= 0)) {
+      return res.status(400).json({ error: "olderThanMs must be a positive number" });
+    }
+    return res.json({ removed: tracker.clear({ olderThanMs }) });
+  });
   return app.get("/api/fleet-energy", createFleetEnergyHandler(tracker));
 }
 

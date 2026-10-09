@@ -562,7 +562,7 @@ test("registered fleet-energy GET is read-only and serves the exact contract", a
   assert.equal(response.energy24hKwh, null);
   assert.deepEqual(response.hourlyWatts24h, Array(24).fill(null));
 
-  for (const method of ["POST", "PUT", "DELETE"]) {
+  for (const method of ["POST", "PUT"]) {
     const mutation = await fetch(endpoint, {
       method,
     });
@@ -1798,6 +1798,27 @@ test("fleet-energy history is empty (not misleading) after a membership change, 
 
   const registerFleetEnergyRoute = runtimeFunction("registerFleetEnergyRoute");
   const routes = [];
-  registerFleetEnergyRoute({ get: (p, h) => routes.push({ p, h }) }, tracker);
+  registerFleetEnergyRoute({ get: (p, h) => routes.push({ p, h }), delete: () => {} }, tracker);
   assert.deepEqual(routes.map((r) => r.p), ["/api/fleet-energy/history", "/api/fleet-energy"]);
+});
+
+test("clear() deletes old energy minutes or everything and keeps recording", () => {
+  const now = Date.UTC(2026, 7, 23, 12, 34, 0);
+  const tracker = new FleetEnergyTracker({ ...noTimerOptions(), now: () => now });
+  tracker.record(fleetSnapshots(100), now - 3 * DAY_MS);
+  tracker.record(fleetSnapshots(100), now - 3 * DAY_MS + 5_000);
+  tracker.record(fleetSnapshots(100), now - 30 * MINUTE_MS);
+  tracker.record(fleetSnapshots(100), now - 30 * MINUTE_MS + 5_000);
+  const kwh = () => tracker.history().hourly.reduce((n, r) => n + Object.values(r.nodeWh ?? r.nodeKwh ?? {}).reduce((a, b) => a + b, 0), 0);
+  assert.ok(kwh() > 0);
+  const removedOld = tracker.clear({ olderThanMs: DAY_MS });
+  assert.ok(removedOld >= 1);
+  assert.equal(tracker.clear({ olderThanMs: DAY_MS }), 0);
+  assert.ok(kwh() > 0, "recent minutes survive");
+  assert.ok(tracker.clear() >= 1);
+  assert.equal(kwh(), 0);
+  assert.equal(tracker.clear(), 0);
+  tracker.record(fleetSnapshots(100), now - 5_000);
+  tracker.record(fleetSnapshots(100), now);
+  assert.ok(kwh() > 0, "recording resumes after a reset");
 });
