@@ -285,6 +285,12 @@ export async function resolveLlmHttpTarget(spark, port, opts = {}) {
     if (ok) return direct;
   }
 
+  // llmHost points at a specific machine; a tunnel to the SSH host's loopback
+  // would reach whatever listens on that port there, not the configured server.
+  if (spark?.llmHost) {
+    throw new Error(`LLM on ${host}:${p} (llmHost) is not reachable from the dashboard`);
+  }
+
   try {
     return await openTunnel(spark, p, {
       signal: opts.signal,

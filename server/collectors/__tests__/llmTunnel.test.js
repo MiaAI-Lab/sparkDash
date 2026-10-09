@@ -208,3 +208,16 @@ test("openSshLlmTunnel reads ssh's stderr with a real encoding and returns once 
     server.close();
   }
 });
+
+test("resolveLlmHttpTarget: an unreachable llmHost never falls back to the SSH host's loopback", async () => {
+  let tunneled = 0;
+  await assert.rejects(
+    resolveLlmHttpTarget(
+      { isLocal: false, lanIp: "192.168.1.143", llmHost: "192.168.1.150", ssh: { host: "192.168.1.143", user: "mia", auth: "key" } },
+      8888,
+      { probe: async () => false, openTunnel: async () => { tunneled += 1; return {}; } }
+    ),
+    /llmHost/
+  );
+  assert.equal(tunneled, 0);
+});
