@@ -9,6 +9,7 @@ import {
   updateSpark,
 } from "../api/client";
 import type { SparkConfig, SparkRole, SparkTestResponse } from "../api/types";
+import { deviceKindNoun, editDeviceTitle } from "../shared/deviceKind";
 import { resolveSparkRole } from "../api/sparkRole";
 import { useModalPresence } from "../hooks/useModalPresence";
 import { InfoIcon } from "./ui/icons";
@@ -274,7 +275,7 @@ export function EditSparkDialog({
 
   const handleDelete = async () => {
     if (!config) return;
-    if (!confirm(`Remove Spark "${config.name}"? This cannot be undone.`)) return;
+    if (!confirm(`Remove ${deviceKindNoun(config.kind)} "${config.name}"? This cannot be undone.`)) return;
     setSaving(true);
     setError(null);
     try {
@@ -303,7 +304,7 @@ export function EditSparkDialog({
       >
         <div className="modal-sheet__header">
           <h2 className="modal-sheet__title" id="edit-spark-title">
-            Edit Spark
+            {editDeviceTitle(config?.kind)}
           </h2>
           <button type="button" className="modal-sheet__close" onClick={onClose} aria-label="Close">
             <XIcon className="h-4 w-4" />

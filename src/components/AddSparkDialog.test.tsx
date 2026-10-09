@@ -99,4 +99,42 @@ describe("AddSparkDialog keyboard contract", () => {
       })
     );
   });
+
+  it("labels the final button after the chosen unit type", async () => {
+    render(<AddSparkDialog open onClose={() => {}} onAdded={() => {}} />);
+    const setKind = (value: string) => {
+      const select = document.getElementById("add-spark-kind") as HTMLSelectElement;
+      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
+      setter?.call(select, value);
+      act(() => select.dispatchEvent(new Event("change", { bubbles: true })));
+    };
+    const setValue = (el: HTMLInputElement, value: string) => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      setter?.call(el, value);
+      act(() => el.dispatchEvent(new Event("input", { bubbles: true })));
+    };
+    const click = async (label: RegExp) => {
+      const button = Array.from(document.querySelectorAll("button")).find((b) => label.test(b.textContent ?? ""));
+      expect(button, String(label)).toBeDefined();
+      await act(async () => {
+        button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+    };
+    const buttons = () => Array.from(document.querySelectorAll("button")).map((b) => b.textContent);
+
+    setKind("host");
+    setValue(document.getElementById("add-spark-lan-ip") as HTMLInputElement, "192.168.1.60");
+    await click(/^Next: Role/);
+    setValue(document.getElementById("add-spark-name") as HTMLInputElement, "Workstation");
+    await click(/^Next: Services/);
+    expect(buttons()).toContain("Add GPU Host");
+    expect(buttons()).not.toContain("Add Spark");
+
+    await click(/^Back/);
+    await click(/^Back/);
+    setKind("spark");
+    await click(/^Next: Role/);
+    await click(/^Next: Services/);
+    expect(buttons()).toContain("Add Spark");
+  });
 });
