@@ -1,3 +1,4 @@
+import { RestartButton } from "../ui/RestartButton";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clearFleetEnergy, fetchEnergyHistory, fetchFleetEnergy } from "../../api/client";
 import { ClearMenu } from "../ui/ClearMenu";
@@ -210,6 +211,7 @@ export function EnergyPage({
             Sparks were added or removed since energy accounting started, so totals would no longer be comparable.
             Restart sparkDash to start a new accounting scope. Previous hourly history is withheld until then.
           </p>
+          <RestartButton />
         </section>
       );
     }

@@ -86,6 +86,16 @@ export function clearEvents(olderThanMs?: number): Promise<{ removed: number }> 
   return apiFetch(`/api/events${qs}`, { method: "DELETE" });
 }
 
+/** Whether this server can restart itself (Docker with a restart policy). */
+export function fetchRestartAvailable(): Promise<{ available: boolean }> {
+  return apiFetch("/api/restart");
+}
+
+/** Ask the server to restart; Docker brings it back a few seconds later. */
+export function restartServer(): Promise<{ restarting: boolean }> {
+  return apiFetch("/api/restart", { method: "POST" });
+}
+
 /** Delete recorded fleet energy: everything, or only minutes older than `olderThanMs`. */
 export function clearFleetEnergy(olderThanMs?: number): Promise<{ removed: number }> {
   const qs = olderThanMs != null ? `?olderThanMs=${Math.floor(olderThanMs)}` : "";

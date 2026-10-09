@@ -493,6 +493,36 @@ app.delete("/api/events", (req, res) => {
   res.json({ removed: eventLog.clear({ olderThanMs }) });
 });
 
+/**
+ * In-app restart. Only offered inside the Docker container, where the node --watch
+ * supervisor is PID 1 and the compose file's `restart: always` brings the container
+ * back; anywhere else exiting would simply stop the server.
+ */
+const restartSupported = () => {
+  try {
+    if (!fs.existsSync("/.dockerenv")) return false;
+    // The container may share the host PID namespace, so look for the supervisor by command line.
+    return fs.readFileSync(`/proc/${process.ppid}/cmdline`, "utf8").split("\0").includes("--watch");
+  } catch {
+    return false;
+  }
+};
+
+app.get("/api/restart", (_req, res) => {
+  res.json({ available: restartSupported() });
+});
+
+app.post("/api/restart", (_req, res) => {
+  if (!restartSupported()) {
+    return res.status(409).json({ error: "Restart is only available when sparkDash runs in Docker with restart: always" });
+  }
+  console.log("[sparkDash] restart requested from the UI");
+  res.json({ restarting: true });
+  // Stopping the supervisor makes the child shut down gracefully (SIGTERM) and
+  // lets Docker's restart policy start a fresh container.
+  res.on("finish", () => setTimeout(() => process.kill(process.ppid, "SIGTERM"), 200).unref());
+});
+
 app.get("/api/health", (_req, res) => {
   res.json(inspectHealth(process.env.BIND_HOST || "127.0.0.1"));
 });

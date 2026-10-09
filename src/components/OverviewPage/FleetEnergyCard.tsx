@@ -1,3 +1,4 @@
+import { RestartButton } from "../ui/RestartButton";
 import { AppLink } from "../ui/AppLink";
 import { ENERGY_ID, idToPath } from "../../constants";
 import { useEffect, useState } from "react";
@@ -59,6 +60,7 @@ export function FleetEnergyCard({ nodeCount, onOpenDetails }: { nodeCount: numbe
         </div>
       </div>
       {state && <p className="ov-note" role="status">{state}</p>}
+      {data?.membershipChanged && !error ? <RestartButton /> : null}
       <div>
         <div className="big-num">{number(data?.energy24hKwh ?? null)}<small>kWh / 24 h</small></div>
         <div className="ov-card__sub mono">Estimated, not wall-metered · 24h coverage {coverage.toFixed(1)}%</div>
