@@ -9,6 +9,7 @@ import { ComfyProbe } from "../collectors/ComfyProbe.js";
 import { HermesProbe } from "../collectors/HermesProbe.js";
 import { TailscaleProbe } from "../collectors/TailscaleProbe.js";
 import { llmDaily } from "../collectors/LlmDaily.js";
+import { HealthEvaluator } from "../health/HealthEvaluator.js";
 import { sshExec } from "../collectors/ssh.js";
 import {
   POLL_INTERVAL_GPU,
@@ -81,6 +82,14 @@ const ONLINE_GRACE_MS = 10000;
  * SparkMonitor — one per Spark. Owns collectors + rate state + poll loop.
  * Exposes snapshot() for WebSocket pushed payload.
  */
+const HEALTH_LABELS = {
+  thermal: "GPU temperature",
+  "low-power": "GPU power draw",
+  memory: "Unified memory",
+  concurrency: "Model concurrency",
+  "link-speed": "Network link speed",
+};
+
 export class SparkMonitor {
   /**
    * @param {object} spark
@@ -98,6 +107,10 @@ export class SparkMonitor {
     this._prevOnline = null;
     /** @type {boolean | null} null until the first successful GPU sample. */
     this._prevThermal = null;
+    /** Health rules + their sample-streak state; findings go out in snapshot().health. */
+    this._healthEval = new HealthEvaluator();
+    this._health = [];
+    this._prevHealthIds = null;
     // Resolver for worker derived label: maps a head spark id to its live
     // LLM model id (or null when unknown). Wired by index.js from the monitor
     // map; never writes back to registry config (derived display only).
@@ -583,6 +596,7 @@ export class SparkMonitor {
       comfyPort: this._comfyPort(),
       tailscaleMonitoring: tailscaleOn,
       hermes: this._hermes,
+      health: this._health,
       hardware: this._hardwareSummary,
       metrics: {
         // NOTE: no `timestamp` here on purpose. The broadcast path skips
@@ -640,6 +654,43 @@ export class SparkMonitor {
         ? { type: "spark.online", severity: "success", message: `${name} came online` }
         : { type: "spark.offline", severity: "warn", message: `${name} went offline` }
     );
+  }
+
+  /** Re-run the health rules, emit events for changes (never for the first baseline). */
+  _updateHealth(domain = "other") {
+    try {
+      const ev = this._healthEval;
+      const findings = ev.evaluate(
+        {
+          gpu: this._metrics.gpu,
+          unifiedMemory: this._metrics.unifiedMemory,
+          network: this._metrics.network,
+          llm: this._metrics.llm,
+        },
+        domain
+      );
+      this._health = findings;
+      const name = this.spark.name || this.spark.id;
+      for (const e of ev.pendingEvents) this._emit(e);
+      const ids = new Set(findings.map((f) => f.id));
+      const prev = this._prevHealthIds;
+      this._prevHealthIds = ids;
+      if (prev == null) return;
+      for (const f of findings) {
+        if (prev.has(f.id) || f.id === "xid" || f.id === "oom") continue;
+        this._emit({
+          type: `health.${f.id}`,
+          severity: f.severity === "critical" ? "error" : "warn",
+          message: `${name}: ${f.title} — ${f.detail}`,
+        });
+      }
+      for (const id of prev) {
+        if (ids.has(id) || id === "xid" || id === "oom") continue;
+        this._emit({ type: "health.cleared", severity: "success", message: `${name}: ${HEALTH_LABELS[id] ?? id} is back to normal` });
+      }
+    } catch (err) {
+      console.error(`[SparkMonitor] ${this.spark.id} health error:`, err?.message);
+    }
   }
 
   _noteThrottle(gpu) {
@@ -837,6 +888,7 @@ export class SparkMonitor {
           this._metrics.gpu = result;
           this._metricCollectionSuccessful.gpu = collectionWasSuccessful(result);
           this._noteThrottle(result);
+          this._updateHealth("gpu");
           break;
         case "cpu":
           this._metrics.cpu = result;
@@ -847,6 +899,7 @@ export class SparkMonitor {
           break;
         case "network":
           this._metrics.network = result;
+          this._updateHealth();
           if (result?.wolMac && this._onWolMac) {
             try {
               this._onWolMac(this.spark.id, result.wolMac);
@@ -860,11 +913,13 @@ export class SparkMonitor {
           break;
         case "memory":
           this._metrics.unifiedMemory = result;
+          this._updateHealth();
           break;
         case "llm":
           {
             const probes = Array.from(this.llmProbes.values());
             this._metrics.llm = this._stampLlmLastActive(probes, result);
+            this._updateHealth();
             for (let i = 0; i < result.length; i++) {
               const probe = probes[i];
               if (probe) llmDaily.record(this.spark.id, probe.port, result[i]);

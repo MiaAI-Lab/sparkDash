@@ -926,3 +926,35 @@ a.rail-item {
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
+
+/* ── Health findings (Spark page) ────────────────────────── */
+.health-list {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 14px;
+}
+.health-item {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--color-warning) 45%, transparent);
+  background: color-mix(in srgb, var(--color-warning) 9%, var(--surface, transparent));
+}
+.health-item--critical {
+  border-color: color-mix(in srgb, var(--color-danger) 55%, transparent);
+  background: color-mix(in srgb, var(--color-danger) 10%, var(--surface, transparent));
+}
+.health-item__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+.health-item__detail {
+  margin-top: 6px;
+  font-size: 13px;
+}
+.health-item__hint {
+  margin-top: 4px;
+  font-size: 12.5px;
+  opacity: 0.75;
+}

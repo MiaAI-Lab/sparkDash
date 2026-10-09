@@ -7,6 +7,15 @@ Format: version sections are listed newest first.
 
 ---
 
+## [Unreleased]
+
+### Added
+- **Health findings per Spark.** The server now runs a small set of explainable rules over metrics it already collects and reports them as `health[]` on each Spark snapshot (`server/health/HealthEvaluator.js`). Overview cards show the active findings as chips (details and what to try in the tooltip) and the Spark page lists them in full: **GPU running hot** (85 °C warn, 90 °C critical), **GPU stuck in a low-power state** (≥ 90 % utilisation but under 15 W for 5 samples in a row; normal decode draw does not trigger it), **unified memory running low** (under 4 GB available warns, under 1.5 GB is critical), **several models loaded while memory is busy**, and **network link slower than 1 Gb/s**.
+- **Kernel errors become Activity events.** The GPU collector now reads NVIDIA **Xid errors** and kernel **OOM-killer kills** from the journal (one cached scan per minute; `gpu.kernelErrors` = `{ xid, oomKills, lastXid }`). When a counter rises, Activity records an event (new **Health** category) and the node shows a critical finding for the next hour. The first reading after a restart is only a baseline, so old errors since boot do not raise an alert.
+- Health findings also write Activity events when they appear and when they clear (`health.*`).
+
+---
+
 ## [2.0.0] — 2026-10-09
 
 A major release: a redesigned application shell, a rebuilt Overview, a Benchmarks section with a new Tool Eval Bench, in-app Showcase, launchers for your own models, fleet-wide Token totals / Energy / Activity pages, a rewritten Quality bench, and a long list of correctness and security fixes. Everything under **Added**, **Changed** and **Fixed** below ships in 2.0.0.

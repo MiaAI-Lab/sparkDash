@@ -3,6 +3,7 @@ import type { SparkSnapshot } from "../../api/types";
 import { isLlmMonitoringEnabled } from "../../api/sparkRole";
 import { updateSpark, refreshSparkMetric, addLlmPort, removeLlmPort } from "../../api/client";
 import { SparkHeader } from "./SparkHeader";
+import { HealthList } from "../ui/HealthFindings";
 import { SparkActions } from "./SparkActions";
 import { GpuPanel } from "./GpuPanel";
 import { CpuPanel } from "./CpuPanel";
@@ -216,6 +217,7 @@ export function SparkPage({
       <SparkHeader spark={spark} onEdit={onEdit} />
       {/* Mobile-only action row (Update Hermes / Edit / Power) — desktop keeps them in the header. */}
       <SparkActions spark={spark} onEdit={onEdit} className="sp-mobile-actions flex sm:hidden" />
+      {spark.online ? <HealthList findings={spark.health} /> : null}
 
       {(
         /* Two independent columns (xl+): hardware on the left, services + I/O on the

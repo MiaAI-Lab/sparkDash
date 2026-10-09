@@ -790,3 +790,13 @@
 .ov .ov-launch--worker .ov-launch__hint {
   font-size: 11.5px;
 }
+
+/* ── Health findings (cards) ─────────────────────────────── */
+.health-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: -4px 0 10px;
+  position: relative;
+  z-index: 1;
+}

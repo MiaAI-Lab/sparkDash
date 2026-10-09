@@ -6,6 +6,7 @@ import { wakeSpark } from "../../api/client";
 import { backendLabel } from "../../shared/llmBackends";
 import { formatDiskSize, formatMb } from "../../shared/formatBytes";
 import { Tag } from "../ui/Tag";
+import { HealthChips } from "../ui/HealthFindings";
 import { AppLink } from "../ui/AppLink";
 import { idToPath } from "../../constants";
 import { VramBreakdownBar } from "../ui/VramBreakdownBar";
@@ -229,6 +230,8 @@ function SparkCardImpl({
         <Tag className="tag--role" tone={role === "head" ? "acc" : "neutral"} title={roleTitle}>{roleText}</Tag>
         {spark.lanIp ? <span className="ov-sc__ip mono">{spark.lanIp}</span> : null}
       </div>
+
+      {online ? <HealthChips findings={spark.health} /> : null}
 
       {!online || !gpu ? (
         <div className="ov-sc__off">
