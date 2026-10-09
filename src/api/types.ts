@@ -238,11 +238,14 @@ export interface GpuMetrics {
   gpus?: GpuDevice[];
 }
 
-/** One physical GPU as reported by nvidia-smi (`index,name,uuid`). */
+/** One physical GPU: from nvidia-smi (`index,name,uuid`) or, for Intel Arc, sysfs. */
 export interface GpuDevice {
   index: number;
   name: string | null;
+  /** NVIDIA GPU uuid; null for other vendors. */
   uuid: string | null;
+  /** Absent on payloads from servers older than Intel support; treat as "nvidia". */
+  vendor?: "nvidia" | "intel";
   temperature: number;
   usage: number;
   power: { draw: number; limit: number };
@@ -250,6 +253,10 @@ export interface GpuDevice {
   throttle?: GpuThrottle | null;
   /** Processes holding memory on this card only. */
   processes?: Array<{ pid: number; name: string; vramMB: number }>;
+  /** Intel only: fan speed in rpm, null when the card has no fan sensor. */
+  fanRpm?: number | null;
+  /** Intel only: "debugfs" = measured VRAM use; "pci-bar" = total only, used is unknown (shown as 0). */
+  vramSource?: "debugfs" | "pci-bar";
 }
 
 // ─── CPU metrics ─────────────────────────────────────────

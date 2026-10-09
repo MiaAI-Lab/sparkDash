@@ -21,6 +21,29 @@ const LINK_MIN_MBPS = 1000;
 
 const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
+/**
+ * The GPU thresholds below are tuned for NVIDIA cards. Other vendors (Intel Arc
+ * today) stay in the displayed panel and the power totals but are not judged
+ * here: their temperature, utilisation and power-cap behaviour differ, so the
+ * rules are fed from the NVIDIA devices only. A host with no per-device list
+ * (older snapshot shape) or only NVIDIA cards gets the aggregate unchanged.
+ * Returns null when the host has GPUs but none are NVIDIA.
+ */
+function nvidiaView(gpu) {
+  const devices = Array.isArray(gpu?.gpus) ? gpu.gpus : null;
+  if (!devices || devices.every((d) => (d?.vendor ?? "nvidia") === "nvidia")) return gpu;
+  const nv = devices.filter((d) => (d?.vendor ?? "nvidia") === "nvidia");
+  if (!nv.length) return gpu?.kernelErrors ? { kernelErrors: gpu.kernelErrors } : null;
+  const max = (key) => Math.max(...nv.map((d) => num(d[key]) ?? 0));
+  const draw = nv.reduce((sum, d) => sum + (num(d.power?.draw) ?? 0), 0);
+  return {
+    ...gpu,
+    temperature: max("temperature"),
+    usage: max("usage"),
+    power: { ...gpu.power, draw: Math.round(draw * 100) / 100 },
+  };
+}
+
 export class HealthEvaluator {
   constructor({ now = Date.now } = {}) {
     this._now = now;
@@ -41,7 +64,7 @@ export class HealthEvaluator {
     this.pendingEvents = [];
     const out = [];
     try {
-      const gpu = metrics?.gpu ?? null;
+      const gpu = nvidiaView(metrics?.gpu ?? null);
       const mem = metrics?.unifiedMemory ?? null;
       const net = metrics?.network ?? null;
       const llm = Array.isArray(metrics?.llm) ? metrics.llm : [];
