@@ -340,6 +340,14 @@ If the key file has a non-default name (e.g. `id_ed25519_shared`), mount it **as
 
 ---
 
+### Running it on a machine that is not a Spark
+
+The dashboard does not have to run on a Spark. Every unit, including the machine running the dashboard, can be monitored over SSH, so you can run sparkDash on any Linux box (an x86 mini PC, a NAS, a VM) and add all your Sparks as remote units.
+
+- The shipped `Dockerfile` and `docker-compose.yml` target arm64 DGX Spark hosts (platform pin and `aarch64` NVIDIA library mounts). On x86 either edit those lines or run it bare: `npm install && npm run build && npm start` (Node 22).
+- Add each Spark with **Add Spark** using its LAN IP and an SSH user. The machine running the dashboard does not need a GPU; skip adding it as a unit.
+- An x86 Docker build is untested. Reports and PRs are welcome.
+
 ## Architecture
 
 Design principle: **one Spark model, N instances**. Every unit is a record in `config/sparks.json` with a `kind` field (`spark` or `host`). The same `SparkMonitor`, `SystemCollector`, and `LlmProbe` code runs for all of them. Adding a unit is a config change, not a code change.
