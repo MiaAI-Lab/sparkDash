@@ -330,7 +330,8 @@ export class LlmProbe {
       this.backendType !== "ds4" &&
       this.backendType !== "exl3" &&
       this.backendType !== "q27" &&
-      this.backendType !== "tensorfold"
+      this.backendType !== "tensorfold" &&
+      this.backendType !== "freetoken"
     ) {
       const slotUrl = `${this.baseUrl}/slots`;
       try {
