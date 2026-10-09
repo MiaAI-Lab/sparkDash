@@ -35,11 +35,12 @@ test("low power needs a streak of consecutive gpu samples and resets", () => {
   assert.deepEqual(h.evaluate(m, "other"), []);
 });
 
-test("memory: warn below 4 GB available, critical below 1.5 GB", () => {
+test("memory: warn below 3 GB available, critical below 1.5 GB", () => {
   const h = new HealthEvaluator();
   const mk = (available) => ({ unifiedMemory: { total: 124000, available, percentage: 97 } });
   assert.deepEqual(h.evaluate(mk(8000)), []);
-  assert.equal(h.evaluate(mk(3000))[0].severity, "warn");
+  assert.equal(h.evaluate(mk(2500))[0].severity, "warn");
+  assert.deepEqual(h.evaluate(mk(3500)), []);
   assert.equal(h.evaluate(mk(1000))[0].severity, "critical");
   assert.deepEqual(h.evaluate({ unifiedMemory: { total: 0, available: 0 } }), []);
 });
