@@ -1037,3 +1037,12 @@
 .sp-actions__lead {
   margin-right: auto;
 }
+.sp-chart__controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.sp-chart .legend {
+  margin-top: 6px;
+}

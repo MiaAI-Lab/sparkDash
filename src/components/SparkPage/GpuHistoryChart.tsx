@@ -1,8 +1,34 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { GpuMetrics } from "../../api/types";
 import { getGpuHistory } from "../../api/client";
-import { backfillHistory, useTimedMetricsHistory } from "../../hooks/metricsStore";
+import { backfillHistory, getMetricHistorySamples, useTimedMetricsHistory } from "../../hooks/metricsStore";
 import { seriesSegments, windowAxisLabels, type Pt } from "./chartMath";
+import {
+  GPU_METRICS,
+  chartSeriesSpecs,
+  parseGpuMetric,
+  parseGpuView,
+  type GpuMetric,
+  type GpuView,
+} from "./gpuChartView";
+
+const VIEW_KEY = "sparkdash.gpuChart.view";
+const METRIC_KEY = "sparkdash.gpuChart.metric";
+
+function readPref(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function writePref(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* a preference is a convenience */
+  }
+}
 
 export const GPU_CHART_WINDOWS = [
   { id: "30m", label: "30 min", ms: 30 * 60_000 },
@@ -33,6 +59,11 @@ function useServerBackfill(sparkId: string) {
         backfillHistory(sparkId, "gpu.usage", series(h.u));
         backfillHistory(sparkId, "gpu.temp", series(h.c));
         backfillHistory(sparkId, "gpu.powerPct", series(h.p));
+        for (const g of h.gpus ?? []) {
+          backfillHistory(sparkId, `gpu.${g.index}.usage`, series(g.u));
+          backfillHistory(sparkId, `gpu.${g.index}.temp`, series(g.c));
+          backfillHistory(sparkId, `gpu.${g.index}.powerPct`, series(g.p));
+        }
       })
       .catch(() => lastBackfill.delete(sparkId));
   }, [sparkId]);
@@ -55,7 +86,9 @@ function useWidth(): [React.RefObject<HTMLDivElement | null>, number] {
 
 interface Line {
   key: string;
+  label: string;
   color: string;
+  fill: boolean;
   segs: Pt[][];
 }
 
@@ -76,19 +109,33 @@ export function GpuHistoryChart({
   const power = useTimedMetricsHistory(sparkId, "gpu.powerPct");
   const [wrapRef, width] = useWidth();
 
+  // Cards of a multi-GPU host; a single card (or none) keeps the plain aggregate chart.
+  const indices = useMemo(() => (gpu?.gpus && gpu.gpus.length > 1 ? gpu.gpus.map((d) => d.index) : []), [gpu?.gpus]);
+  const multi = indices.length > 1;
+  const indexKey = indices.join(",");
+  const [viewRaw, setViewRaw] = useState<string | null>(() => readPref(VIEW_KEY));
+  const [metric, setMetric] = useState<GpuMetric>(() => parseGpuMetric(readPref(METRIC_KEY)));
+  const view: GpuView = multi ? parseGpuView(viewRaw, indices) : "combined";
+  const specs = useMemo(() => chartSeriesSpecs(view, metric, indices), [view, metric, indexKey]);
+
   const lines = useMemo<Line[]>(() => {
-    const endAt = Math.max(usage.at(-1)?.at ?? 0, temp.at(-1)?.at ?? 0, power.at(-1)?.at ?? 0);
-    if (!endAt) return [];
-    return [
-      { key: "usage", color: "var(--color-accent)", segs: seriesSegments(usage, windowMs, endAt) },
-      { key: "power", color: "var(--color-violet)", segs: seriesSegments(power, windowMs, endAt) },
-      { key: "temp", color: "var(--color-info)", segs: seriesSegments(temp, windowMs, endAt) },
-    ];
-  }, [usage, temp, power, windowMs]);
+    // The aggregate series change on every sample and on backfill, which is also when the per-card ones do.
+    void usage;
+    const all = specs.map((sp) => ({ sp, samples: getMetricHistorySamples(sparkId, sp.metric) }));
+    const end = Math.max(0, ...all.map((x) => x.samples.at(-1)?.at ?? 0));
+    if (!end) return [];
+    return all.map(({ sp, samples }) => ({
+      key: sp.key,
+      label: sp.label,
+      color: sp.color,
+      fill: sp.fill,
+      segs: seriesSegments(samples, windowMs, end),
+    }));
+  }, [specs, usage, sparkId, windowMs]);
 
   const endAt = useMemo(
-    () => Math.max(usage.at(-1)?.at ?? 0, temp.at(-1)?.at ?? 0, power.at(-1)?.at ?? 0),
-    [usage, temp, power]
+    () => Math.max(0, ...specs.map((sp) => getMetricHistorySamples(sparkId, sp.metric).at(-1)?.at ?? 0)),
+    [specs, usage, temp, power, sparkId]
   );
 
   const iw = width - PAD.l - PAD.r;
@@ -100,18 +147,74 @@ export function GpuHistoryChart({
   const [axA, axB] = windowAxisLabels(windowMs);
   const hasData = lines.some((l) => l.segs.some((s) => s.length > 1));
 
+  const pickView = (v: GpuView) => {
+    setViewRaw(String(v));
+    writePref(VIEW_KEY, String(v));
+  };
+  const pickMetric = (m: GpuMetric) => {
+    setMetric(m);
+    writePref(METRIC_KEY, m);
+  };
+  const viewOptions: Array<[GpuView, string]> = [["combined", "Combined"], ["all", "All GPUs"], ...indices.map((i): [GpuView, string] => [i, `GPU ${i}`])];
+  const controls = multi ? (
+    <div className="sp-chart__controls">
+      <div className="seg" role="group" aria-label="GPUs to plot">
+        {viewOptions.map(([v, label]) => (
+          <button
+            key={String(v)}
+            type="button"
+            className={v === view ? "is-on" : ""}
+            aria-pressed={v === view}
+            title={typeof v === "number" ? (gpu?.gpus?.find((d) => d.index === v)?.name ?? undefined) : undefined}
+            onClick={() => pickView(v)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {view === "all" && (
+        <div className="seg" role="group" aria-label="Metric to plot">
+          {GPU_METRICS.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              className={m.id === metric ? "is-on" : ""}
+              aria-pressed={m.id === metric}
+              onClick={() => pickMetric(m.id)}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  ) : null;
+  const legend = multi ? (
+    <div className="legend">
+      {specs.map((sp) => (
+        <span key={sp.key} style={{ "--c": sp.color } as React.CSSProperties}>
+          {sp.label}
+        </span>
+      ))}
+    </div>
+  ) : null;
+
   // Until two samples exist (history is collected while the page is open, and an idle
   // GPU sends few updates) show a short placeholder instead of a large empty plot.
   if (!hasData) {
     return (
-      <div className="sp-chart sp-chart--empty" ref={wrapRef}>
-        <p className="sp-chart__note">Collecting history. The chart fills in while this page is open.</p>
+      <div>
+        {controls}
+        <div className="sp-chart sp-chart--empty" ref={wrapRef}>
+          <p className="sp-chart__note">Collecting history. The chart fills in while this page is open.</p>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="sp-chart" ref={wrapRef}>
+      {controls}
       <svg
         width={width}
         height={HEIGHT}
@@ -150,7 +253,7 @@ export function GpuHistoryChart({
           now
         </text>
         {hasData &&
-          lines.map((l, li) =>
+          lines.map((l) =>
             l.segs
               .filter((s) => s.length > 1)
               .map((seg, si) => {
@@ -159,7 +262,7 @@ export function GpuHistoryChart({
                 const first = seg[0];
                 return (
                   <g key={`${l.key}-${si}`}>
-                    {li === 0 && (
+                    {l.fill && (
                       <path
                         d={`${path} L${xOf(last.at).toFixed(1)} ${yOf(0)} L${xOf(first.at).toFixed(1)} ${yOf(0)} Z`}
                         fill={`url(#${gradId})`}
@@ -174,6 +277,7 @@ export function GpuHistoryChart({
               })
           )}
       </svg>
+      {legend}
     </div>
   );
 }
