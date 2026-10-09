@@ -62,8 +62,8 @@ export function MobileTabBar({ sparks, activeId, onSelect, onAdd, onOpenSettings
         </button>
         <button
           type="button"
-          className={sheetKind === "stats" || activeId === TOKENS_ID || activeId === ENERGY_ID ? "is-active" : ""}
-          aria-current={activeId === TOKENS_ID || activeId === ENERGY_ID ? "page" : undefined}
+          className={sheetKind === "stats" || activeId === TOKENS_ID || activeId === ENERGY_ID || activeId === ACTIVITY_ID ? "is-active" : ""}
+          aria-current={activeId === TOKENS_ID || activeId === ENERGY_ID || activeId === ACTIVITY_ID ? "page" : undefined}
           onClick={() => setSheetKind("stats")}
           aria-haspopup="dialog"
         >
@@ -89,10 +89,10 @@ export function MobileTabBar({ sparks, activeId, onSelect, onAdd, onOpenSettings
                     ([
                       [TOKENS_ID, "Token totals", <TokensIcon key="t" className="h-4 w-4" />],
                       [ENERGY_ID, "Fleet energy", <BoltIcon key="e" className="h-4 w-4" />],
+                      [ACTIVITY_ID, "Activity", <ListIcon key="a" className="h-4 w-4" />],
                     ] as const).map(([id, label, icon]) => pageButton(id, label, icon))
                   ) : (
                     <>
-                  {pageButton(ACTIVITY_ID, "Activity", <ListIcon className="h-4 w-4" />)}
                   <div className="rail-label rail-label--spaced">
                     <span>Benchmarks</span>
                   </div>
