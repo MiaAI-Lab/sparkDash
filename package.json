@@ -33,7 +33,7 @@
   ],
   "author": "Mia'a AI Lab",
   "homepage": "https://x.com/MiaAI_lab",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "dependencies": {
     "dotenv": "^17.4.2",
     "express": "^5.2.1",

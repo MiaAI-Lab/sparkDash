@@ -4,7 +4,7 @@
   <img src="https://img.shields.io/badge/platform-arm64-2d9d78?style=flat-square" alt="Platform: ARM64">
   <img src="https://img.shields.io/badge/React-19-58c4dc?style=flat-square&logo=react" alt="React 19">
   <img src="https://img.shields.io/badge/Express-5-000000?style=flat-square&logo=express" alt="Express 5">
-  <img src="https://img.shields.io/badge/license-MIT-2d9d78?style=flat-square" alt="MIT License">
+  <img src="https://img.shields.io/badge/license-Apache%202.0-2d9d78?style=flat-square" alt="Apache License 2.0">
   <br>
   <sub>by <a href="https://x.com/MiaAI_lab">Mia'a AI Lab</a></sub>
   <br><br>
@@ -655,7 +655,9 @@ Contributions are welcome. Conventions:
 
 ## License
 
-[MIT](./LICENSE) — Copyright (c) 2026 Mia'a AI Lab
+[Apache License 2.0](./LICENSE) from version 2.0.0 onward. Copyright 2026 Mia's AI Lab. See [NOTICE](./NOTICE).
+
+Versions up to 1.9.0 were released under the MIT License ([LICENSE-MIT](./LICENSE-MIT)), and those releases stay MIT-licensed.
 
 ---
 

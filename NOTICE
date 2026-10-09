@@ -1,0 +1,14 @@
+sparkDash
+Copyright 2026 Mia's AI Lab
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE)
+from version 2.0.0 onward.
+
+Versions up to and including 1.9.0 were released under the MIT License. The MIT
+License text and its copyright notice are kept in LICENSE-MIT and continue to
+apply to the code written for those versions, which remains part of this
+codebase. Contributions made while the project was MIT-licensed are included
+under that license's permission to sublicense.
+
+Third-party data bundled in server/collectors/data/ (GSM8K, MMLU) is covered
+by its own MIT notices, see server/collectors/data/NOTICE.md.

@@ -73,6 +73,7 @@ A major release: a redesigned application shell, a rebuilt Overview, a Benchmark
 - **The LLM panel says when an idle endpoint last served** — while generation and prefill are both zero, a small muted note under Generation tok/s reads "Idle · last served 12m ago" (or just "Idle" when sparkDash has not seen the endpoint serve since it started). The server tracks the last poll with generation or prefill above zero per LLM port and exposes it as `lastActiveAt` (epoch ms, in memory only — null after a restart) on each `metrics.llm[]` entry. The Overview card footer keeps its live `tok/s` / `prefill` figures, zeros included.
 
 ### Changed
+- **License: Apache 2.0 from this version on.** sparkDash 2.0.0 and later are released under the Apache License 2.0 (`LICENSE`, plus a `NOTICE`). Versions up to 1.9.0 stay under the MIT License, whose text is kept in `LICENSE-MIT`.
 - **Settings: the Density option was removed.** Compact is the only layout.
 - **Access-token row** in Settings restyled (the "Not set" state is readable, with clear actions).
 - **Role badges** (HEAD / WORKER) are uppercase and larger; worker blocks on Overview cards are intentionally quieter than the head's.
