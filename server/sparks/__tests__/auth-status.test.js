@@ -21,9 +21,10 @@ function withEnv(env, fn) {
   }
 }
 
-function req({ bearer, query, method = "GET" } = {}) {
+function req({ bearer, query, method = "GET", path = "/api/sparks" } = {}) {
   return {
     method,
+    path,
     headers: bearer ? { authorization: `Bearer ${bearer}` } : {},
     query: query ? { token: query } : {},
   };
@@ -54,6 +55,20 @@ test("token configured: required, and only the right token authenticates", () =>
     assert.deepEqual(authStatus(req({ bearer: "s3cret" })), { tokenRequired: true, authenticated: true });
     // The WebSocket passes the token as ?token=, so the status must accept it too.
     assert.deepEqual(authStatus(req({ query: "s3cret" })), { tokenRequired: true, authenticated: true });
+  });
+});
+
+test("tokened remote bind: the frontend shell and assets load without a token; api and ws stay gated", () => {
+  withEnv({ SPARKDASH_TOKEN: "s3cret", BIND_HOST: "0.0.0.0" }, () => {
+    // The SPA cannot ask for the token until its shell and bundles are served.
+    for (const path of ["/", "/assets/index-0FP2dord.js", "/tokens", "/favicon.ico"]) {
+      assert.equal(passesMiddleware(req({ path })), true, `${path} should pass without a token`);
+    }
+    for (const path of ["/api/sparks", "/api/settings", "/ws"]) {
+      assert.equal(passesMiddleware(req({ path })), false, `${path} should be gated`);
+      assert.equal(passesMiddleware(req({ path, bearer: "wrong" })), false, `${path} should reject a wrong token`);
+      assert.equal(passesMiddleware(req({ path, bearer: "s3cret" })), true, `${path} should pass with the token`);
+    }
   });
 });
 
