@@ -1802,7 +1802,7 @@ test("fleet-energy history is empty (not misleading) after a membership change, 
   const registerFleetEnergyRoute = runtimeFunction("registerFleetEnergyRoute");
   const routes = [];
   registerFleetEnergyRoute({ get: (p, h) => routes.push({ p, h }), delete: () => {} }, tracker);
-  assert.deepEqual(routes.map((r) => r.p), ["/api/fleet-energy/history", "/api/fleet-energy"]);
+  assert.deepEqual(routes.map((r) => r.p), ["/api/fleet-energy/history", "/api/fleet-energy/monthly", "/api/fleet-energy"]);
 });
 
 test("clear() deletes old energy minutes or everything and keeps recording", () => {

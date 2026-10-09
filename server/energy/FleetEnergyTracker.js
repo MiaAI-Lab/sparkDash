@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
+import { writeStateAtomically } from "./atomicWrite.js";
+import { MonthlyEnergyArchive } from "./FleetEnergyMonthly.js";
 
 const FILE_VERSION = 1;
 const MINUTE_MS = 60_000;
@@ -15,7 +16,6 @@ const MAX_RECENT_SAMPLES = 10_000;
 const MAX_NODE_WH_PER_MINUTE = 4;
 const MIN_NODE_WATTS = 28.2;
 const PERSISTENCE_RELATIVE_TOLERANCE = 1e-9;
-const UNSUPPORTED_DIRECTORY_FSYNC_CODES = new Set(["EINVAL", "ENOTSUP", "EISDIR", "EBADF"]);
 
 function clamp(value, minimum, maximum) {
   return Math.max(minimum, Math.min(maximum, value));
@@ -95,6 +95,63 @@ function hasExactNodeKeys(value, nodeIds, nodeIdSet) {
 }
 
 /**
+ * Plausibility gate for a bucket read back from disk, shared by the live load and the
+ * roll-up of an out-of-scope file: per-node Wh within 4 Wh/min, 28.2-240 W bounds,
+ * coverage within a minute, token counts as safe integers. Returns a clean bucket for
+ * `nodeIds`, or null when anything is implausible.
+ */
+function restoreBucket(candidate, minuteStartMs, nodeIds) {
+  const nodeIdSet = new Set(nodeIds);
+  if (
+    !hasExactNodeKeys(candidate?.nodeWh, nodeIds, nodeIdSet) ||
+    !hasExactNodeKeys(candidate?.nodeCoverageMs, nodeIds, nodeIdSet)
+  ) {
+    return null;
+  }
+  const maximumFleetWatts = 240 * nodeIds.length;
+  const minimumFleetWatts = MIN_NODE_WATTS * nodeIds.length;
+  const bucket = emptyBucket(minuteStartMs, nodeIds);
+  for (const id of nodeIds) {
+    const nodeWh = candidate.nodeWh[id];
+    const nodeCoverageMs = candidate.nodeCoverageMs[id];
+    if (
+      !validNonnegative(nodeWh) ||
+      nodeWh > MAX_NODE_WH_PER_MINUTE ||
+      !validNonnegative(nodeCoverageMs) ||
+      nodeCoverageMs > MINUTE_MS ||
+      exceedsWithFloatingTolerance(nodeWh, (240 * nodeCoverageMs) / 3_600_000) ||
+      fallsBelowWithFloatingTolerance(nodeWh, (MIN_NODE_WATTS * nodeCoverageMs) / 3_600_000)
+    ) {
+      return null;
+    }
+    bucket.nodeWh[id] = nodeWh;
+    bucket.nodeCoverageMs[id] = nodeCoverageMs;
+  }
+  if (
+    !validNonnegative(candidate.fleetWattMs) ||
+    candidate.fleetWattMs > maximumFleetWatts * MINUTE_MS ||
+    !validNonnegative(candidate.fleetCoverageMs) ||
+    candidate.fleetCoverageMs > MINUTE_MS ||
+    exceedsWithFloatingTolerance(candidate.fleetWattMs, maximumFleetWatts * candidate.fleetCoverageMs) ||
+    fallsBelowWithFloatingTolerance(candidate.fleetWattMs, minimumFleetWatts * candidate.fleetCoverageMs) ||
+    exceedsWithFloatingTolerance(
+      candidate.fleetWattMs,
+      Object.values(bucket.nodeWh).reduce((sum, nodeWh) => sum + nodeWh, 0) * 3_600_000
+    ) ||
+    nodeIds.some((id) => exceedsWithFloatingTolerance(candidate.fleetCoverageMs, bucket.nodeCoverageMs[id])) ||
+    !validNonnegativeSafeInteger(candidate.outputTokens) ||
+    (candidate.coveredOutputTokens != null && !validNonnegativeSafeInteger(candidate.coveredOutputTokens))
+  ) {
+    return null;
+  }
+  bucket.fleetWattMs = candidate.fleetWattMs;
+  bucket.fleetCoverageMs = candidate.fleetCoverageMs;
+  bucket.outputTokens = candidate.outputTokens;
+  bucket.coveredOutputTokens = candidate.coveredOutputTokens ?? 0;
+  return bucket;
+}
+
+/**
  * One observation per available LLM endpoint on a tracked head or standalone
  * node, keyed `nodeId:port`. A fleet can run several clusters and standalone
  * engines at once, so every endpoint is its own counter. Workers are skipped:
@@ -127,60 +184,6 @@ function tokenObservations(snapshots, atMs, nodeIdSet) {
     }
   }
   return observations;
-}
-
-function writeStateAtomically(filePath, contents, fileSystem) {
-  const directory = path.dirname(filePath);
-  const temporaryPath = path.join(
-    directory,
-    `.${path.basename(filePath)}.${process.pid}.${randomUUID()}.tmp`
-  );
-  let temporaryFd = null;
-  let directoryFd = null;
-  let renamed = false;
-
-  fileSystem.mkdirSync(directory, { recursive: true });
-  try {
-    temporaryFd = fileSystem.openSync(temporaryPath, "wx", 0o600);
-    fileSystem.writeFileSync(temporaryFd, contents, { encoding: "utf8" });
-    fileSystem.fchmodSync(temporaryFd, 0o600);
-    fileSystem.fsyncSync(temporaryFd);
-    fileSystem.closeSync(temporaryFd);
-    temporaryFd = null;
-
-    fileSystem.renameSync(temporaryPath, filePath);
-    renamed = true;
-    fileSystem.chmodSync(filePath, 0o600);
-    const finalMode = fileSystem.statSync(filePath).mode & 0o777;
-    if (finalMode !== 0o600) {
-      throw new Error(`Failed to secure ${filePath}: expected mode 0600, got 0${finalMode.toString(8)}`);
-    }
-
-    try {
-      directoryFd = fileSystem.openSync(directory, "r");
-      fileSystem.fsyncSync(directoryFd);
-    } catch (error) {
-      if (!UNSUPPORTED_DIRECTORY_FSYNC_CODES.has(error?.code)) throw error;
-    } finally {
-      if (directoryFd !== null) fileSystem.closeSync(directoryFd);
-    }
-  } catch (error) {
-    if (temporaryFd !== null) {
-      try {
-        fileSystem.closeSync(temporaryFd);
-      } catch {
-        // Preserve the original persistence error.
-      }
-    }
-    if (!renamed) {
-      try {
-        fileSystem.unlinkSync(temporaryPath);
-      } catch {
-        // The temp may not have been created; never remove the prior target.
-      }
-    }
-    throw error;
-  }
 }
 
 /**
@@ -216,11 +219,11 @@ export class FleetEnergyTracker {
     clearIntervalFn = clearInterval,
     fileSystem = fs,
     writeState = writeStateAtomically,
+    monthlyFilePath = null,
+    monthly = null,
   } = {}) {
     this.nodeIds = Object.freeze(normalizeNodeIds(nodeIds));
     this._nodeIdSet = new Set(this.nodeIds);
-    this._minimumFleetWatts = MIN_NODE_WATTS * this.nodeIds.length;
-    this._maximumFleetWatts = 240 * this.nodeIds.length;
     this.filePath = filePath;
     this._now = typeof now === "function" ? now : () => Date.now();
     this._setInterval = setIntervalFn;
@@ -246,9 +249,17 @@ export class FleetEnergyTracker {
     this._membershipChanged = false;
     this._currentNodeIds = [...this.nodeIds];
     this._dirty = false;
+    this._lastFoldBoundary = null;
     this._flushTimer = null;
 
-    if (load) this._load();
+    // Permanent monthly roll-up; in memory only unless monthlyFilePath is set.
+    this.monthly =
+      monthly ?? new MonthlyEnergyArchive({ filePath: monthlyFilePath, now: this._now, fileSystem });
+
+    if (load) {
+      this._load();
+      this._foldClosedMinutes(this._now());
+    }
 
     const requestedFlushMs = Number.isFinite(flushIntervalMs) && flushIntervalMs > 0
       ? flushIntervalMs
@@ -508,7 +519,31 @@ export class FleetEnergyTracker {
     this._latestRecordAt = timestamp;
     this._dirty = true;
     this._prune(timestamp);
+    this._foldClosedMinutes(timestamp);
     return true;
+  }
+
+  /** Move finished minutes into the monthly archive (cheap unless a minute just closed). */
+  _foldClosedMinutes(atMs) {
+    const boundary = MonthlyEnergyArchive.closedBefore(atMs);
+    if (boundary === this._lastFoldBoundary) return;
+    this._lastFoldBoundary = boundary;
+    this.monthly.foldBuckets(this._buckets.values(), {
+      nowMs: atMs,
+      trackedSinceMs: this._tokensTrackedSinceMs,
+    });
+  }
+
+  /** Permanent per-month totals. A fold here only dirties the archive; the next tracker flush persists it. */
+  monthlySnapshot(atMs = undefined) {
+    const timestamp = this._time(atMs);
+    if (Number.isFinite(timestamp)) this._foldClosedMinutes(timestamp);
+    return this.monthly.snapshot(Number.isFinite(timestamp) ? timestamp : 0);
+  }
+
+  /** Explicit, separate from clear(): delete archived months (`month` or `all`). */
+  clearMonthly(options) {
+    return this.monthly.clear(options);
   }
 
   _window(atMs, windowMs, fromMs = null) {
@@ -694,6 +729,28 @@ export class FleetEnergyTracker {
     const parsed = path.parse(this.filePath);
     const archivePath = path.join(parsed.dir, `${parsed.name}.scope-${stamp}${parsed.ext}`);
     try {
+      // Same plausibility checks as _load, against the old file's own node set.
+      const oldNodeIds = normalizeNodeIds(raw?.nodeIds);
+      const seen = new Set();
+      const plausible = [];
+      for (const candidate of Array.isArray(raw?.buckets) ? raw.buckets : []) {
+        const minuteStartMs = candidate?.minuteStartMs;
+        if (!validNonnegativeSafeInteger(minuteStartMs) || minuteStartMs % MINUTE_MS !== 0 || seen.has(minuteStartMs)) {
+          continue;
+        }
+        seen.add(minuteStartMs);
+        const bucket = oldNodeIds.length > 0 ? restoreBucket(candidate, minuteStartMs, oldNodeIds) : null;
+        if (bucket) plausible.push(bucket);
+      }
+      this.monthly.foldBuckets(plausible, {
+        nowMs: this._now(),
+        trackedSinceMs: validNonnegativeSafeInteger(raw?.tokensTrackedSinceMs) ? raw.tokensTrackedSinceMs : null,
+      });
+      this.monthly.flush();
+    } catch (error) {
+      console.warn(`[FleetEnergyTracker] unable to roll up ${this.filePath}: ${error.message}`);
+    }
+    try {
       if (this._fs.existsSync(archivePath)) return;
       this._fs.renameSync(this.filePath, archivePath);
       console.warn(
@@ -738,74 +795,11 @@ export class FleetEnergyTracker {
           continue;
         }
         seenMinuteStarts.add(minuteStartMs);
-        if (
-          !hasExactNodeKeys(candidate.nodeWh, this.nodeIds, this._nodeIdSet) ||
-          !hasExactNodeKeys(candidate.nodeCoverageMs, this.nodeIds, this._nodeIdSet)
-        ) {
+        const bucket = restoreBucket(candidate, minuteStartMs, this.nodeIds);
+        if (!bucket) {
           rejectedBucket = true;
           continue;
         }
-        const bucket = emptyBucket(minuteStartMs, this.nodeIds);
-        let valid = true;
-        for (const id of this.nodeIds) {
-          const nodeWh = candidate?.nodeWh?.[id];
-          const nodeCoverageMs = candidate?.nodeCoverageMs?.[id];
-          if (
-            !validNonnegative(nodeWh) ||
-            nodeWh > MAX_NODE_WH_PER_MINUTE ||
-            !validNonnegative(nodeCoverageMs) ||
-            nodeCoverageMs > MINUTE_MS ||
-            exceedsWithFloatingTolerance(
-              nodeWh,
-              (240 * nodeCoverageMs) / 3_600_000
-            ) ||
-            fallsBelowWithFloatingTolerance(
-              nodeWh,
-              (MIN_NODE_WATTS * nodeCoverageMs) / 3_600_000
-            )
-          ) {
-            valid = false;
-            break;
-          }
-          bucket.nodeWh[id] = nodeWh;
-          bucket.nodeCoverageMs[id] = nodeCoverageMs;
-        }
-        if (
-          !valid ||
-          !validNonnegative(candidate.fleetWattMs) ||
-          candidate.fleetWattMs > this._maximumFleetWatts * MINUTE_MS ||
-          !validNonnegative(candidate.fleetCoverageMs) ||
-          candidate.fleetCoverageMs > MINUTE_MS ||
-          exceedsWithFloatingTolerance(
-            candidate.fleetWattMs,
-            this._maximumFleetWatts * candidate.fleetCoverageMs
-          ) ||
-          fallsBelowWithFloatingTolerance(
-            candidate.fleetWattMs,
-            this._minimumFleetWatts * candidate.fleetCoverageMs
-          ) ||
-          exceedsWithFloatingTolerance(
-            candidate.fleetWattMs,
-            Object.values(bucket.nodeWh).reduce((sum, nodeWh) => sum + nodeWh, 0) *
-              3_600_000
-          ) ||
-          this.nodeIds.some((id) =>
-            exceedsWithFloatingTolerance(
-              candidate.fleetCoverageMs,
-              bucket.nodeCoverageMs[id]
-            )
-          ) ||
-          !validNonnegativeSafeInteger(candidate.outputTokens) ||
-          (candidate.coveredOutputTokens != null &&
-            !validNonnegativeSafeInteger(candidate.coveredOutputTokens))
-        ) {
-          rejectedBucket = true;
-          continue;
-        }
-        bucket.fleetWattMs = candidate.fleetWattMs;
-        bucket.fleetCoverageMs = candidate.fleetCoverageMs;
-        bucket.outputTokens = candidate.outputTokens;
-        bucket.coveredOutputTokens = candidate.coveredOutputTokens ?? 0;
         this._buckets.set(minuteStartMs, bucket);
       }
       this._bucketsOrdered = true;
@@ -872,6 +866,8 @@ export class FleetEnergyTracker {
    * @returns {number} how many minute buckets were removed
    */
   clear({ olderThanMs } = {}) {
+    // Archive finished minutes first: a reset only empties the 31-day window.
+    this._foldClosedMinutes(this._now());
     const all = !(Number.isFinite(olderThanMs) && olderThanMs > 0);
     const cutoff = all ? Infinity : this._now() - olderThanMs;
     let removed = 0;
@@ -900,6 +896,12 @@ export class FleetEnergyTracker {
   }
 
   flush() {
+    try {
+      this._foldClosedMinutes(this._now());
+      this.monthly.flush();
+    } catch (error) {
+      console.error(`[FleetEnergyTracker] monthly persist error: ${error.message}`);
+    }
     if (!this.filePath || !this._dirty) return false;
     const now = this._now();
     if (Number.isFinite(now)) this._prune(now);
