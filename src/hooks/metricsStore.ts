@@ -156,6 +156,9 @@ export function ingestSnapshots(sparks: SparkSnapshot[], at = Date.now()): void 
         for (const d of m.gpu.gpus) {
           pushHistory(`${s.id}:gpu.${d.index}.usage`, d.usage, at);
           pushHistory(`${s.id}:gpu.${d.index}.temp`, d.temperature, at);
+          if (d.power && d.power.limit > 0) {
+            pushHistory(`${s.id}:gpu.${d.index}.powerPct`, Math.min(100, (d.power.draw / d.power.limit) * 100), at);
+          }
         }
       }
     }

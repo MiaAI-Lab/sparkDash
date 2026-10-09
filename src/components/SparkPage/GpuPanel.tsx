@@ -241,11 +241,13 @@ export function GpuPanel({
       </div>
 
       <GpuHistoryChart sparkId={sparkId} gpu={gpu} windowMs={windowMs} />
-      <div className="legend">
-        <span className="c-accent">GPU utilization %</span>
-        <span className="c-violet">Power % of limit</span>
-        <span className="c-info">Temperature °C</span>
-      </div>
+      {!multiGpu && (
+        <div className="legend">
+          <span className="c-accent">GPU utilization %</span>
+          <span className="c-violet">Power % of limit</span>
+          <span className="c-info">Temperature °C</span>
+        </div>
+      )}
 
       {/* Per-card breakdown — only when the host has more than one GPU */}
       {multiGpu && (

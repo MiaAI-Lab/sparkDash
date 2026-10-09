@@ -20,6 +20,7 @@ Format: version sections are listed newest first.
 - Health findings also write Activity events when they appear and when they clear (`health.*`).
 
 ### Fixed
+- **GPU history on hosts with several GPUs.** The main graph only ever showed the combined line (busiest card, hottest card, summed power), so a second card was invisible. The server now also keeps a history per card (`gpus[]` in `GET /api/sparks/:id/gpu-history`, existing fields unchanged), and with more than one GPU a toggle above the graph switches between **Combined**, **All GPUs** (one coloured line per card for utilization, power or temperature) and a single card. The choice is remembered. Single-GPU hosts look exactly as before.
 - **Spark page on phones.** The name sits on its own line with the role / engine / uptime tags underneath, Edit and Shut down are two equal thumb-sized buttons, panels use less side padding, the GPU ring is smaller so the temperature / power / clock stats get room, and the daily-peak axis shows `M tok/s` instead of an unreadable `44552k tok/s`.
 - **Mobile tab bar is docked to the bottom edge** instead of floating above it, with a solid background so content no longer shows through.
 
