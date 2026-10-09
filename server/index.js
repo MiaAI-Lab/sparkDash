@@ -638,7 +638,6 @@ app.patch("/api/sparks/:id", (req, res) => {
         isLocal: body.isLocal ?? existing.isLocal,
         lanIp: body.lanIp ?? existing.lanIp,
         llmHost: body.llmHost ?? existing.llmHost,
-        isLocal: body.isLocal ?? existing.isLocal,
         ssh: { ...existing.ssh, ...(body.ssh || {}) },
       };
       const validationError = validateSparkTarget(merged);
