@@ -17,6 +17,9 @@ Format: version sections are listed newest first.
 - **Mobile: "Shut down all" lives in the Sparks sheet.** On phones the button moved from the Overview header into the Sparks menu (new "Fleet" section), with the same confirmation. Desktop is unchanged. The flow is now one shared component.
 - Health findings also write Activity events when they appear and when they clear (`health.*`).
 
+### Fixed
+- **Mobile tab bar is docked to the bottom edge** instead of floating above it, with a solid background so content no longer shows through.
+
 ---
 
 ## [2.0.0] — 2026-10-09
@@ -76,7 +79,6 @@ A major release: a redesigned application shell, a rebuilt Overview, a Benchmark
 - **Documentation** (README, CODEBASE.md) updated for all of the above.
 
 ### Fixed
-- **Mobile tab bar is docked to the bottom edge** instead of floating above it, with a solid background so content no longer shows through.
 - **Prefill tok/s showed 0 most of the time.** See *Live prefill tok/s* above; the displayed rate is also now clamped to physically plausible values.
 - **Tool Eval Bench: failed or stuck upgrades.** `uv tool upgrade` failed with "not installed" for tools not installed by uv, the "Force reinstall" checkbox had no effect, and the panel sat on "Done. Checking the install…" after success. All three are fixed; results from older runs with omitted-option placeholders reload correctly.
 - **Review of the 2.0 features.** A multi-agent review found and fixed issues across the WebSocket error path (a socket error could escape), GPU-history guards on bad input, launcher routes (editing or removing a launcher that is running now answers 409 instead of corrupting state), Showcase/Prefill streaming edge cases, atomic file writes, and several accessibility problems in the Tool Eval Bench tabs and dialogs (focus handling, inert background behind modals, labelled controls).

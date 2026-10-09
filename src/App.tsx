@@ -171,20 +171,8 @@ function DashboardApp() {
     snapshotError,
     refreshInterval,
   } = useSnapshot();
-  // TEMP-DEMO-HEALTH: ?demoHealth=1 injects sample findings (UI only). Remove before commit.
-  const demo = typeof window !== "undefined" && new URLSearchParams(window.location.search).has("demoHealth");
-  const withDemo = <T extends { id: string; name: string }>(s: T, i: number): T =>
-    i === 0
-      ? { ...s, health: [
-          { id: "xid", severity: "critical", title: "NVIDIA Xid error", detail: "A GPU or driver error was logged by the kernel within the last hour (3 since boot). Latest: Xid 43.", hint: "Look up the Xid code in NVIDIA's Xid catalog. Repeated driver-class Xids point at hardware or a driver bug." },
-          { id: "thermal", severity: "warn", title: "GPU is running hot", detail: "86°C (warns at 85°C, critical at 90°C).", hint: "Check airflow and the room temperature, and that nothing blocks the vents." },
-          { id: "link-speed", severity: "warn", title: "Network link is slower than 1 Gb/s", detail: "enP7s7 negotiated 100 Mb/s.", hint: "Check the cable and the switch port." },
-        ] }
-      : i === 2
-        ? { ...s, health: [{ id: "memory", severity: "warn", title: "Unified memory is running low", detail: "3.2 GB available of 121 GB.", hint: "Stop a model you are not using, or lower the context length." }] }
-        : s;
-  const sparks = demo ? snapSparks.map(withDemo) : snapSparks;
-  const activeSpark = demo ? (sparks.find((x) => x.id === liveActive?.id) ?? liveActive) : liveActive;
+  const sparks = snapSparks;
+  const activeSpark = liveActive;
   const [telemetryNow, setTelemetryNow] = useState(Date.now());
   const { navigate, replace } = useRoute(setActiveId);
   const [showAdd, setShowAdd] = useState(false);
