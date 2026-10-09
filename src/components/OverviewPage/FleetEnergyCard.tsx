@@ -11,7 +11,16 @@ function number(value: number | null, digits = 2): string {
   return value == null ? "—" : value.toFixed(digits);
 }
 
-export function FleetEnergyCard({ nodeCount, onOpenDetails }: { nodeCount: number; onOpenDetails?: () => void }) {
+export function FleetEnergyCard({
+  nodeCount,
+  nodeNames,
+  onOpenDetails,
+}: {
+  nodeCount: number;
+  /** Display names by Spark id, used to say which nodes are missing. */
+  nodeNames?: Record<string, string>;
+  onOpenDetails?: () => void;
+}) {
   const [data, setData] = useState<FleetEnergy | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -32,6 +41,13 @@ export function FleetEnergyCard({ nodeCount, onOpenDetails }: { nodeCount: numbe
   const coverage = data && nodeCount > 0
     ? Math.min(100, (data.coverage24hMs / coverageWindowMs) * 100)
     : 0;
+  const stale = (data?.staleNodeIds ?? []).map((id) => nodeNames?.[id] ?? id);
+  const partialHelp =
+    data && !data.membershipChanged && data.freshNodeCount < nodeCount
+      ? `Energy is estimated from each node's live GPU and CPU readings. ${
+          stale.length ? `No fresh reading from: ${stale.join(", ")}. ` : ""
+        }A node that is offline, unreachable or not reporting power stops the fleet total from being measured for that time, so 24h coverage drops. It recovers by itself once the node reports again.`
+      : null;
   const state = error
     ? `Energy telemetry unavailable: ${error}`
     : data?.membershipChanged
@@ -59,7 +75,17 @@ export function FleetEnergyCard({ nodeCount, onOpenDetails }: { nodeCount: numbe
           ) : null}
         </div>
       </div>
-      {state && <p className="ov-note" role="status">{state}</p>}
+      {state && (
+        <p className="ov-note" role="status">
+          {state}
+          {partialHelp ? (
+            <>
+              {" "}
+              <span className="ov-help" tabIndex={0} role="img" aria-label={partialHelp} title={partialHelp}>ⓘ</span>
+            </>
+          ) : null}
+        </p>
+      )}
       {data?.membershipChanged && !error ? <RestartButton /> : null}
       <div>
         <div className="big-num">{number(data?.energy24hKwh ?? null)}<small>kWh / 24 h</small></div>

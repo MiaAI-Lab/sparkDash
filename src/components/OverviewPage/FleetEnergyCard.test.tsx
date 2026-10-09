@@ -86,6 +86,11 @@ describe("FleetEnergyCard states", () => {
     await flush();
     expect(partial.container.textContent).toContain("Partial coverage: 1/2");
 
+    fetchEnergy.mockResolvedValue(energy({ freshNodeCount: 1, staleNodeIds: ["b"] }));
+    const named = render(<FleetEnergyCard nodeCount={2} nodeNames={{ b: "Spark B" }} />);
+    await flush();
+    expect(named.container.querySelector(".ov-help")?.getAttribute("title")).toContain("No fresh reading from: Spark B");
+
     fetchEnergy.mockResolvedValue(energy({ membershipChanged: true, restartRequired: true }));
     const membership = render(<FleetEnergyCard nodeCount={2} />);
     await flush();

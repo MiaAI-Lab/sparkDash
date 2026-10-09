@@ -599,6 +599,8 @@ export interface FleetEnergy {
   trackedNodeIds: string[];
   currentNodeIds: string[];
   freshNodeCount: number;
+  /** Tracked nodes without a fresh power reading right now (offline or stale telemetry). */
+  staleNodeIds?: string[];
   currentWatts30s: number | null;
   energy24hKwh: number | null;
   energy31dKwh: number | null;

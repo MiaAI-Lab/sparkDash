@@ -839,3 +839,13 @@
   opacity: 0.7;
   padding-left: 4px;
 }
+
+.ov .ov-help {
+  display: inline-block;
+  cursor: help;
+  opacity: 0.75;
+}
+.ov .ov-help:hover,
+.ov .ov-help:focus-visible {
+  opacity: 1;
+}

@@ -241,6 +241,7 @@ export class FleetEnergyTracker {
     this._tokensTrackedSinceMs = null;
     this._recentFullFleetSamples = [];
     this._latestFreshNodeCount = 0;
+    this._latestFreshNodeIds = [];
     this._latestRecordAt = null;
     this._membershipChanged = false;
     this._currentNodeIds = [...this.nodeIds];
@@ -280,6 +281,7 @@ export class FleetEnergyTracker {
     if (this._membershipChanged) {
       this._recentFullFleetSamples = [];
       this._latestFreshNodeCount = 0;
+      this._latestFreshNodeIds = [];
     }
     return this._membershipChanged;
   }
@@ -433,6 +435,7 @@ export class FleetEnergyTracker {
       this._fleetBaseline = null;
       this._recentFullFleetSamples = [];
       this._latestFreshNodeCount = 0;
+      this._latestFreshNodeIds = [];
     }
 
     const byId = new Map();
@@ -501,6 +504,7 @@ export class FleetEnergyTracker {
 
     this._recordTokens(snapshots, timestamp, hasFullFleetInterval);
     this._latestFreshNodeCount = validNodes.size;
+    this._latestFreshNodeIds = [...validNodes.keys()];
     this._latestRecordAt = timestamp;
     this._dirty = true;
     this._prune(timestamp);
@@ -591,6 +595,10 @@ export class FleetEnergyTracker {
       trackedNodeIds: [...this.nodeIds],
       currentNodeIds: [...this._currentNodeIds],
       freshNodeCount: this._membershipChanged ? 0 : freshNodeCount,
+      // Tracked nodes that have no fresh power reading right now (offline or telemetry stale).
+      staleNodeIds: this._membershipChanged
+        ? []
+        : this.nodeIds.filter((id) => !(freshNodeCount > 0 && this._latestFreshNodeIds.includes(id))),
       currentWatts30s: this._membershipChanged ? null : currentWatts30s,
       energy24hKwh:
         !this._membershipChanged && last24h.hasObservedEnergy ? last24h.energyWh / 1000 : null,

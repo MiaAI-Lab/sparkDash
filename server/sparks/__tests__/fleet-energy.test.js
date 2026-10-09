@@ -174,6 +174,7 @@ const APPROVED_RESPONSE_FIELDS = [
   "trackedNodeIds",
   "currentNodeIds",
   "freshNodeCount",
+  "staleNodeIds",
   "currentWatts30s",
   "energy24hKwh",
   "energy31dKwh",
@@ -199,6 +200,7 @@ function assertFleetEnergyResponseContract(response) {
   assert.equal(typeof response.restartRequired, "boolean");
   assert.equal(Array.isArray(response.trackedNodeIds), true);
   assert.equal(Array.isArray(response.currentNodeIds), true);
+  assert.equal(Array.isArray(response.staleNodeIds), true);
   for (const field of [
     "freshNodeCount",
     "outputTokens24h",
@@ -372,6 +374,7 @@ test("fleet-energy handler returns the exact populated tracker response contract
 
   assertFleetEnergyResponseContract(response);
   assert.equal(response.freshNodeCount, 4);
+  assert.deepEqual(response.staleNodeIds, []);
   assert.equal(response.currentWatts30s, 400);
   assert.ok(response.energy24hKwh > 0);
   assert.ok(response.energy31dKwh > 0);
@@ -1821,4 +1824,17 @@ test("clear() deletes old energy minutes or everything and keeps recording", () 
   tracker.record(fleetSnapshots(100), now - 5_000);
   tracker.record(fleetSnapshots(100), now);
   assert.ok(kwh() > 0, "recording resumes after a reset");
+});
+
+test("snapshot names the tracked nodes that have no fresh power reading", () => {
+  const now = Date.UTC(2026, 7, 23, 12, 0, 0);
+  const tracker = new FleetEnergyTracker({ ...noTimerOptions(), now: () => now });
+  const offline = CANONICAL_NODE_IDS[2];
+  tracker.record(
+    CANONICAL_NODE_IDS.map((id) => nodeSnapshot(id, { watts: 100, telemetryFresh: id !== offline })),
+    now
+  );
+  const snap = tracker.snapshot(now);
+  assert.equal(snap.freshNodeCount, 3);
+  assert.deepEqual(snap.staleNodeIds, [offline]);
 });
