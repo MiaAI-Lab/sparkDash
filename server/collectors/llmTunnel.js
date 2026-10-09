@@ -174,7 +174,7 @@ export async function openSshLlmTunnel(spark, remotePort, opts = {}) {
     stdio: ["ignore", "ignore", "pipe"],
   });
   if (child.stderr) {
-    child.stderr.setEncoding("text");
+    child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk) => {
       stderr += String(chunk);
       if (stderr.length > 4000) stderr = stderr.slice(-2000);
