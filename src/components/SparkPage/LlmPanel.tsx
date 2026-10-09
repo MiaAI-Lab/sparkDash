@@ -885,6 +885,7 @@ export function LlmPanel({
         sparkId={sparkId}
         llmPort={llmPort}
         modelId={remoteTarget ? null : llm?.modelId ?? null}
+        models={remoteTarget || (available && llm?.backend === "llama.cpp") ? undefined : llm?.models}
         remoteTarget={remoteTarget}
         shareImage={shareImage}
         sparkName={sparkName ?? null}

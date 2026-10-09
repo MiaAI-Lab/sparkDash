@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import "../../styles/dialogs.css";
 import {
@@ -40,6 +40,8 @@ interface BenchmarkDialogProps {
   sparkId: string;
   llmPort: number;
   modelId: string | null;
+  /** Exact served request IDs; undefined for targets without model discovery. */
+  models?: string[];
   remoteTarget?: LlmBenchTarget | null;
   /** Settings → Benchmark share image: the copy button also carries the card. */
   shareImage?: boolean;
@@ -179,6 +181,7 @@ export function BenchmarkDialog({
   sparkId,
   llmPort,
   modelId,
+  models,
   remoteTarget = null,
   shareImage = false,
   sparkName = null,
@@ -200,6 +203,33 @@ export function BenchmarkDialog({
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const benchPort = remoteTarget?.port ?? llmPort;
+  const [selectedModel, setSelectedModel] = useState<string | null>(null);
+  const [modelNotice, setModelNotice] = useState<string | null>(null);
+  const selectionTargetRef = useRef<string | null>(null);
+  const selectionTarget = JSON.stringify([sparkId, llmPort, remoteTarget?.host, remoteTarget?.port, remoteTarget?.tls]);
+  const availableModels = useMemo(() => remoteTarget ? [] : [...new Set(
+    (models ?? []).filter((id) => typeof id === "string" && id.trim().length > 0)
+  )], [models, remoteTarget]);
+  const hasModelDiscovery = !remoteTarget && models !== undefined;
+  const modelSelectionValid = !hasModelDiscovery || (selectedModel !== null && availableModels.includes(selectedModel));
+
+  useEffect(() => {
+    if (!open) {
+      selectionTargetRef.current = null;
+      return;
+    }
+    const targetChanged = selectionTargetRef.current !== selectionTarget;
+    selectionTargetRef.current = selectionTarget;
+    if (!targetChanged && hasModelDiscovery && selectedModel && availableModels.includes(selectedModel)) return;
+    const next = hasModelDiscovery
+      ? (targetChanged && modelId && availableModels.includes(modelId) ? modelId : availableModels[0] ?? null)
+      : remoteTarget ? null : modelId;
+    if (targetChanged) setModelNotice(null);
+    else if (hasModelDiscovery && selectedModel && selectedModel !== next) {
+      setModelNotice(next ? `Selected model is no longer served. Switched to ${next}.` : "No models are currently served by this target.");
+    } else setModelNotice(null);
+    setSelectedModel(next);
+  }, [open, selectionTarget, hasModelDiscovery, availableModels, modelId, remoteTarget, selectedModel]);
 
   const stopPoll = useCallback(() => {
     if (pollRef.current != null) {
@@ -306,6 +336,7 @@ export function BenchmarkDialog({
       return;
     }
     setError(null);
+    setJob(null);
     let cancelled = false;
     setLoadingLast(true);
     listDecodeBench(sparkId, benchPort)
@@ -336,7 +367,7 @@ export function BenchmarkDialog({
       cancelled = true;
       stopPoll();
     };
-  }, [open, sparkId, benchPort, stopPoll, startPolling, applyJobConfig]);
+  }, [open, sparkId, benchPort, remoteTarget?.host, remoteTarget?.tls, stopPoll, startPolling, applyJobConfig]);
 
   useEffect(() => () => stopPoll(), [stopPoll]);
 
@@ -383,6 +414,10 @@ export function BenchmarkDialog({
 
   const handleStart = async () => {
     if (startLockRef.current) return;
+    if (!modelSelectionValid) {
+      setError("Select a currently served model before running the benchmark");
+      return;
+    }
     if (selected.length === 0) {
       setError("Select at least one concurrency level");
       return;
@@ -401,7 +436,7 @@ export function BenchmarkDialog({
         port: benchPort,
         concurrencies: selected,
         maxTokens,
-        modelId: modelId || undefined,
+        modelId: selectedModel || undefined,
         promptType,
         ...(remoteTarget
           ? { host: remoteTarget.host, tls: remoteTarget.tls }
@@ -475,6 +510,30 @@ export function BenchmarkDialog({
     <>
           {showConfig && (
             <section className="bench-sheet__section">
+              {availableModels.length > 1 && (
+                <div className="bench-field">
+                  <div className="bench-field__head">
+                    <label htmlFor="bench-model-select" className="bench-sheet__section-title">Model</label>
+                    <p className="bench-sheet__hint">Select which model the benchmark targets.</p>
+                  </div>
+                  <select
+                    id="bench-model-select"
+                    className="bench-select"
+                    value={selectedModel ?? ""}
+                    disabled={isRunning || starting}
+                    onChange={(e) => {
+                      setSelectedModel(e.target.value);
+                      setModelNotice(null);
+                    }}
+                  >
+                    {availableModels.map((id) => <option key={id} value={id}>{id}</option>)}
+                  </select>
+                </div>
+              )}
+              {modelNotice && availableModels.length > 0 && <p className="bench-sheet__hint" role="status">{modelNotice}</p>}
+              {hasModelDiscovery && availableModels.length === 0 && (
+                <p className="bench-sheet__hint" role="status">No models are currently served by this target.</p>
+              )}
               <div className="bench-field">
                 <div className="bench-field__head">
                   <h3 className="bench-sheet__section-title">Type</h3>
@@ -849,7 +908,7 @@ export function BenchmarkDialog({
                 type="button"
                 className="bench-btn bench-btn--primary"
                 onClick={() => void handleStart()}
-                disabled={starting || selected.length === 0}
+                disabled={starting || selected.length === 0 || !modelSelectionValid}
               >
                 {starting ? "Starting…" : "Run benchmark"}
               </button>

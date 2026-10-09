@@ -325,6 +325,8 @@ export interface LlmMetrics {
   backend: "vllm" | "llama.cpp" | "sglang" | "ds4" | "exl3" | "q27" | "tensorfold" | "freetoken" | null;
   modelId: string | null;
   modelPath: string | null;
+  /** Exact served request IDs from /v1/models, in response order. */
+  models?: string[];
   contextLength: number | null;
   /** GPU memory utilization for the LLM engine (0–1), e.g. 0.9. Only from vLLM internal info. */
   gpuMemoryUtilization: number | null;
