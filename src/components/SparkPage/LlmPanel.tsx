@@ -44,6 +44,8 @@ const VLLM_METRIC_INFO = {
     "Free tokens left in the engine’s KV-cache pool, over the allocated pool (tokens and memory). The pool is shared across concurrent requests and can be larger than one request’s max context. High usage (≥80% full) means little room for new or long contexts and often leads to queuing or preemptions.",
   requests:
     "Run = requests actively generating on the GPU. Wait = accepted but not yet scheduled (capacity or constraints). Growing wait with high KV cache usually means the server is overloaded.",
+  ttftMean:
+    "Mean time-to-first-token reported by FreeToken (a mean, not a percentile): how long requests wait until the first output token.",
   ttftP95:
     "95th percentile time-to-first-token from the engine’s request history: how long “slow” requests wait until the first output token. Spikes mean queueing, long prefills, or cold paths—not average decode speed.",
   preempts:
@@ -498,6 +500,9 @@ export function LlmPanel({
   const fmtTps = (n: number) => (n >= 1000 ? Math.round(n).toLocaleString() : n.toFixed(1));
   const fmtAvg = (n: number) => (n >= 100 ? n.toFixed(0) : n.toFixed(1));
   const isVllm = llm != null && (llm.backend === "vllm" || llm.backend === "q27");
+  // FreeToken reports KV use, active requests and a TTFT mean in /v1/stats; the tiles below are null-gated.
+  const isFreeToken = llm?.backend === "freetoken";
+  const showEngineTiles = isVllm || isFreeToken;
   const kvTone =
     llm?.kvCacheUsage == null
       ? ""
@@ -782,8 +787,8 @@ export function LlmPanel({
           )}
 
           <div className="sp-tiles">
-            {isVllm && kvValue != null && tile("kvCache", "KV cache", kvValue, { tone: kvTone, sub: kvSub || undefined })}
-            {isVllm &&
+            {showEngineTiles && kvValue != null && tile("kvCache", "KV cache", kvValue, { tone: kvTone, sub: kvSub || undefined })}
+            {showEngineTiles &&
               llm?.requestsRunning != null &&
               tile(
                 "requests",
@@ -791,16 +796,17 @@ export function LlmPanel({
                 `${Math.round(llm.requestsRunning)} / ${llm.requestsWaiting != null ? Math.round(llm.requestsWaiting) : "—"}`,
                 { align: "right" }
               )}
-            {isVllm && llm?.ttftP95Seconds != null && tile("ttftP95", "TTFT p95", `${Math.round(llm.ttftP95Seconds * 1000)} ms`)}
-            {isVllm &&
+            {isFreeToken && llm?.ttftSeconds != null && tile("ttftMean", "TTFT mean", `${Math.round(llm.ttftSeconds * 1000)} ms`)}
+            {showEngineTiles && llm?.ttftP95Seconds != null && tile("ttftP95", "TTFT p95", `${Math.round(llm.ttftP95Seconds * 1000)} ms`)}
+            {showEngineTiles &&
               llm?.preemptionsTotal != null &&
               tile("preempts", "Preempts", Math.round(llm.preemptionsTotal).toLocaleString(), { align: "right" })}
-            {isVllm &&
+            {showEngineTiles &&
               llm?.prefixCacheHitRate != null &&
               tile("prefixCache", "Prefix hit", `${(llm.prefixCacheHitRate * 100).toFixed(0)}%`)}
-            {isVllm && llm?.e2eP95Seconds != null && tile("e2eP95", "E2E p95", `${llm.e2eP95Seconds.toFixed(2)}s`, { align: "right" })}
-            {isVllm && llm?.itlP95Seconds != null && tile("itlP95", "Inter-token p95", `${Math.round(llm.itlP95Seconds * 1000)} ms`)}
-            {isVllm &&
+            {showEngineTiles && llm?.e2eP95Seconds != null && tile("e2eP95", "E2E p95", `${llm.e2eP95Seconds.toFixed(2)}s`, { align: "right" })}
+            {showEngineTiles && llm?.itlP95Seconds != null && tile("itlP95", "Inter-token p95", `${Math.round(llm.itlP95Seconds * 1000)} ms`)}
+            {showEngineTiles &&
               llm?.mtpAcceptanceRate != null &&
               tile("mtpAccept", "MTP accept", llm.mtpAcceptanceRate.toFixed(2), { align: "right" })}
             <div className="sp-tile">

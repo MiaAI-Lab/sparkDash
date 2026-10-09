@@ -103,3 +103,19 @@ test("probe: FreeToken stats failure clears rates and does not crash", async () 
   assert.equal(snap.generationTps, 0);
   assert.equal(snap.prefillTps, 0);
 });
+
+test("probe: a protected /v1/stats is noted as auth-required, rates cleared", async () => {
+  const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8000);
+  probe.backendType = "freetoken";
+  probe.serverIsOpenAI = true;
+  probe._fetch = async (url) => {
+    const u = String(url);
+    if (u.endsWith("/v1/models")) return jsonRes(MODELS);
+    if (u.endsWith("/v1/stats")) return jsonRes({ error: "unauthorized" }, 401);
+    return notFound();
+  };
+  probe.generationTps = 99;
+  const snap = await probe.probe();
+  assert.equal(probe.authOpen, false);
+  assert.equal(snap.generationTps, 0);
+});

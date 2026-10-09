@@ -581,6 +581,8 @@ export class LlmProbe {
       this._clearEngineMemory();
       try {
         const statsRes = await this._fetch(`${this.baseUrl}/v1/stats`);
+        // A protected /v1/stats is "needs a key", not "no data".
+        this._noteAuthStatus(statsRes.status);
         if (!statsRes.ok) {
           this._clearFreeTokenRates();
         } else {
