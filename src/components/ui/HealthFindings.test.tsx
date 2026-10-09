@@ -1,7 +1,7 @@
 import { render } from "../../testing/render";
 import { describe, expect, it } from "vitest";
 import type { HealthFinding } from "../../api/types";
-import { HealthChips, HealthList, sortFindings } from "./HealthFindings";
+import { HealthChips, HealthList, sortFindings, worstSeverity } from "./HealthFindings";
 
 const f = (id: HealthFinding["id"], severity: HealthFinding["severity"]): HealthFinding => ({
   id,
@@ -21,6 +21,12 @@ describe("HealthFindings", () => {
     expect(sortFindings(undefined)).toEqual([]);
   });
 
+  it("worstSeverity picks critical over warn", () => {
+    expect(worstSeverity([f("memory", "warn"), f("xid", "critical")])).toBe("critical");
+    expect(worstSeverity([f("memory", "warn")])).toBe("warn");
+    expect(worstSeverity([])).toBeNull();
+  });
+
   it("renders nothing when healthy", () => {
     expect(render(<HealthChips findings={[]} />).container.firstChild).toBeNull();
     expect(render(<HealthList findings={undefined} />).container.firstChild).toBeNull();
@@ -30,9 +36,9 @@ describe("HealthFindings", () => {
     const { container } = render(
       <HealthChips findings={[f("xid", "critical"), f("memory", "warn"), f("thermal", "warn"), f("oom", "critical")]} />
     );
-    const tags = [...container.querySelectorAll(".tag")];
-    expect(tags.map((t) => t.textContent)).toEqual(["T-oom", "T-xid", "+2 more"]);
-    expect(tags[1].getAttribute("title")).toBe("D-xid H-xid");
+    const rows = [...container.querySelectorAll(".health-row, .health-more")];
+    expect(rows.map((t) => t.textContent?.trim())).toEqual(["T-oom", "T-xid", "+2 more"]);
+    expect(rows[1].getAttribute("title")).toBe("D-xid H-xid");
   });
 
   it("the list shows title, evidence and what to try", () => {

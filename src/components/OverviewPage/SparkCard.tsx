@@ -6,7 +6,7 @@ import { wakeSpark } from "../../api/client";
 import { backendLabel } from "../../shared/llmBackends";
 import { formatDiskSize, formatMb } from "../../shared/formatBytes";
 import { Tag } from "../ui/Tag";
-import { HealthChips } from "../ui/HealthFindings";
+import { HealthChips, worstSeverity } from "../ui/HealthFindings";
 import { AppLink } from "../ui/AppLink";
 import { idToPath } from "../../constants";
 import { VramBreakdownBar } from "../ui/VramBreakdownBar";
@@ -213,9 +213,9 @@ function SparkCardImpl({
   );
 
   return (
-    <div className={`overview-card ov-sc ${online ? "" : "is-off"} ${hot && online ? "is-hot" : ""} ${onSelect ? "is-link" : ""}`}>
+    <div className={`overview-card ov-sc ${online ? "" : "is-off"} ${hot && online ? "is-hot" : ""} ${online && worstSeverity(spark.health) ? `is-health-${worstSeverity(spark.health)}` : ""} ${onSelect ? "is-link" : ""}`}>
       <div className="ov-sc__head">
-        <i className={`sdot ${!online ? "sdot--off" : hot ? "sdot--warn" : ""}`} aria-label={online ? "online" : "offline"} />
+        <i className={`sdot ${!online ? "sdot--off" : hot || worstSeverity(spark.health) ? "sdot--warn" : ""}`} aria-label={online ? "online" : "offline"} />
         <h3 className="ov-sc__name">
           {onSelect ? (
             // Stretched link: this button's ::after covers the whole card (overview.css), so the card

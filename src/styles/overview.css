@@ -792,11 +792,50 @@
 }
 
 /* ── Health findings (cards) ─────────────────────────────── */
-.health-chips {
-  display: flex;
-  flex-wrap: wrap;
+.ov .ov-sc.is-health-warn {
+  border-color: color-mix(in srgb, var(--color-warning) 50%, transparent);
+}
+.ov .ov-sc.is-health-critical {
+  border-color: color-mix(in srgb, var(--color-danger) 60%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-danger) 25%, transparent);
+}
+.health-strip {
+  display: grid;
   gap: 6px;
-  margin: -4px 0 10px;
+  margin: 2px 0 12px;
   position: relative;
   z-index: 1;
+}
+.health-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.25;
+  color: var(--color-warning);
+  background: color-mix(in srgb, var(--color-warning) 13%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-warning) 38%, transparent);
+  border-left-width: 4px;
+}
+.health-row--critical {
+  color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 14%, transparent);
+  border-color: color-mix(in srgb, var(--color-danger) 45%, transparent);
+  border-left-width: 4px;
+}
+.health-row__icon {
+  width: 17px;
+  height: 17px;
+  flex: none;
+}
+.health-row__text {
+  min-width: 0;
+}
+.health-more {
+  font-size: 12px;
+  opacity: 0.7;
+  padding-left: 4px;
 }

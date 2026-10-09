@@ -1,5 +1,6 @@
 import type { HealthFinding } from "../../api/types";
 import { Tag } from "./Tag";
+import { AlertTriangleIcon } from "./icons";
 
 const RANK = { critical: 0, warn: 1 } as const;
 
@@ -10,20 +11,31 @@ export function sortFindings(list: readonly HealthFinding[] | undefined): Health
   );
 }
 
-/** Compact chips for an Overview card: the title, the details in the tooltip. */
+/** "critical" | "warn" | null: the worst active finding, for tinting a card. */
+export function worstSeverity(list: readonly HealthFinding[] | undefined): HealthFinding["severity"] | null {
+  if (!list || list.length === 0) return null;
+  return list.some((f) => f.severity === "critical") ? "critical" : "warn";
+}
+
+/** Alert strip for an Overview card: icon + title per finding, details in the tooltip. */
 export function HealthChips({ findings }: { findings: readonly HealthFinding[] | undefined }) {
   const list = sortFindings(findings);
   if (list.length === 0) return null;
   const shown = list.slice(0, 2);
   const more = list.length - shown.length;
   return (
-    <div className="health-chips" role="status" aria-label="Health findings">
+    <div className="health-strip" role="status" aria-label="Health findings">
       {shown.map((f) => (
-        <Tag key={f.id} tone={f.severity === "critical" ? "bad" : "warn"} title={`${f.detail} ${f.hint}`}>
-          {f.title}
-        </Tag>
+        <div key={f.id} className={`health-row health-row--${f.severity}`} title={`${f.detail} ${f.hint}`}>
+          <AlertTriangleIcon className="health-row__icon" />
+          <span className="health-row__text">{f.title}</span>
+        </div>
       ))}
-      {more > 0 ? <Tag tone="neutral" title={list.slice(2).map((f) => f.title).join("\n")}>+{more} more</Tag> : null}
+      {more > 0 ? (
+        <div className="health-more" title={list.slice(2).map((f) => f.title).join("\n")}>
+          +{more} more
+        </div>
+      ) : null}
     </div>
   );
 }
