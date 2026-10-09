@@ -107,6 +107,34 @@ export class EventLog {
     return out.slice(-n).reverse();
   }
 
+  /**
+   * Delete history. With `olderThanMs`, only events at least that old go; without it, all of
+   * them. Ids keep counting up so pollers using `sinceId` never see old ids reused.
+   * @returns {number} how many events were removed
+   */
+  clear({ olderThanMs } = {}) {
+    try {
+      const before = this._events.length;
+      if (Number.isFinite(olderThanMs) && olderThanMs > 0) {
+        const cutoff = this._now() - olderThanMs;
+        this._events = this._events.filter((e) => e.ts >= cutoff);
+      } else {
+        this._events = [];
+      }
+      const removed = before - this._events.length;
+      if (removed > 0) {
+        this._recent.clear();
+        this._lastKeyBySpark.clear();
+        this._dirty = true;
+        this.flush();
+      }
+      return removed;
+    } catch (err) {
+      console.error("[EventLog] clear failed:", err?.message);
+      return 0;
+    }
+  }
+
   /** Id of the oldest retained event, or null when empty. */
   oldestId() {
     return this._events.length ? this._events[0].id : null;

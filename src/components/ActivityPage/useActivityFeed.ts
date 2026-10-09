@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { fetchEvents, fetchEventsPage } from "../../api/client";
+import { clearEvents, fetchEvents, fetchEventsPage } from "../../api/client";
 import type { ActivityEvent } from "../../api/types";
 import { mergeEvents } from "./activityStats";
 
@@ -126,6 +126,16 @@ export function useActivityFeed(onArrive?: (count: number) => void) {
     }
   }, [apply, loadingMore]);
 
+  /** Delete history on the server (all, or older than `olderThanMs`), then reload the page. */
+  const clear = useCallback(
+    async (olderThanMs?: number) => {
+      const res = await clearEvents(olderThanMs);
+      await load();
+      return res.removed;
+    },
+    [load]
+  );
+
   useEffect(() => {
     void load();
     return () => {
@@ -173,6 +183,7 @@ export function useActivityFeed(onArrive?: (count: number) => void) {
     error,
     reload: load,
     refresh: () => poll(true),
+    clear,
     refreshing,
     paused,
     pollError,

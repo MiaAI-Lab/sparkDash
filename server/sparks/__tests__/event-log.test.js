@@ -143,3 +143,25 @@ test("EventLog.list pages backwards with beforeId and reports the oldest retaine
   assert.equal(log.oldestId(), 1);
   assert.equal(new EventLog({ file: null }).oldestId(), null);
 });
+
+test("clear() removes all or only old events, keeps ids increasing and persists", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "evlog-"));
+  const file = path.join(dir, "events.json");
+  let t = 10_000_000;
+  const log = new EventLog({ file, max: 50, now: () => t });
+  log.record({ type: "a", message: "old", sparkId: "s1" });
+  t += 3 * 86_400_000;
+  log.record({ type: "b", message: "new", sparkId: "s1" });
+  assert.equal(log.clear({ olderThanMs: 86_400_000 }), 1);
+  assert.deepEqual(log.list({}).map((e) => e.message), ["new"]);
+  assert.equal(log.clear({ olderThanMs: 86_400_000 }), 0);
+  assert.equal(log.clear(), 1);
+  assert.deepEqual(log.list({}), []);
+  // an identical event right after a clear is recorded again (dedupe memory was reset)
+  const e = log.record({ type: "b", message: "new", sparkId: "s1" });
+  assert.ok(e && e.id === 3, "ids keep counting up");
+  log.flush();
+  const again = new EventLog({ file, max: 50 });
+  assert.deepEqual(again.list({}).map((x) => x.id), [3]);
+  fs.rmSync(dir, { recursive: true, force: true });
+});

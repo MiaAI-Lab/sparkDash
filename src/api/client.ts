@@ -80,6 +80,12 @@ export async function fetchEvents(opts?: {
   return Array.isArray(res.events) ? res.events : [];
 }
 
+/** Delete Activity history: everything, or only events older than `olderThanMs`. */
+export function clearEvents(olderThanMs?: number): Promise<{ removed: number }> {
+  const qs = olderThanMs != null ? `?olderThanMs=${Math.floor(olderThanMs)}` : "";
+  return apiFetch(`/api/events${qs}`, { method: "DELETE" });
+}
+
 /** One page of the fleet activity log (newest first). `beforeId` loads older events. */
 export function fetchEventsPage(opts?: {
   limit?: number;

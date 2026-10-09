@@ -483,6 +483,16 @@ app.get("/api/events", (req, res) => {
   });
 });
 
+/** Clear Activity history. Query: olderThanMs (omit to delete everything). */
+app.delete("/api/events", (req, res) => {
+  const raw = req.query.olderThanMs;
+  const olderThanMs = raw == null || raw === "" ? undefined : Number(raw);
+  if (olderThanMs !== undefined && (!Number.isFinite(olderThanMs) || olderThanMs <= 0)) {
+    return res.status(400).json({ error: "olderThanMs must be a positive number" });
+  }
+  res.json({ removed: eventLog.clear({ olderThanMs }) });
+});
+
 app.get("/api/health", (_req, res) => {
   res.json(inspectHealth(process.env.BIND_HOST || "127.0.0.1"));
 });

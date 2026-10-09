@@ -3,6 +3,7 @@ import type { SparkSnapshot } from "../../api/types";
 import { StackedBarChart, type BarBucket, type BarSeries } from "../ui/StackedBarChart";
 import { RotateIcon, SearchIcon, XIcon } from "../ui/icons";
 import { EventRow } from "./EventRow";
+import { ClearHistory } from "./ClearHistory";
 import {
   CATEGORIES, EMPTY_FILTER, NO_SPARK, SEVERITIES, SEVERITY_LABEL, countByCategory, countBySeverity, countBySpark,
   eventsPerDay, exportText, filterEvents, groupByDay, isFilterActive, sparkOptions, summarize,
@@ -286,6 +287,7 @@ export function ActivityPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[
           <button type="button" className="btn btn--sm" onClick={() => void copyAll()} disabled={visible.length === 0}>
             Copy as text
           </button>
+          <ClearHistory onClear={feed.clear} disabled={feed.status !== "ready"} />
           <span className={`ac-toast${copyMsg ? (copyMsg.ok ? " is-ok" : " is-err") : ""}`} role="status" aria-live="polite">
             {copyMsg?.text}
           </span>
