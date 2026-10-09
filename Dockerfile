@@ -50,6 +50,8 @@ WORKDIR /app
 
 # Copy built frontend, pruned deps, and server
 COPY --from=builder /app/dist ./dist
+# Second copy: compose bind-mounts ./dist over the one above, and an unbuilt host dir would hide it.
+COPY --from=builder /app/dist ./dist-baked
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/package-lock.json ./package-lock.json

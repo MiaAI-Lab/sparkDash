@@ -6,6 +6,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import { SparkRegistry } from "./sparks/SparkRegistry.js";
+import { resolveFrontendDir, FRONTEND_MISSING_MESSAGE } from "./frontendDir.js";
 import { SparkMonitor } from "./sparks/SparkMonitor.js";
 import { collectionWasSuccessful } from "./collectors/SystemCollector.js";
 import { sshExec } from "./collectors/ssh.js";
@@ -2156,19 +2157,21 @@ app.get("/metrics", (_req, res) => {
 });
 
 // ─── Static files (built frontend) ───────────────────────
-const distDir = path.join(ROOT, "dist");
-const indexHtml = path.join(distDir, "index.html");
-app.use(express.static(distDir));
+const staticByDir = new Map();
+app.use((req, res, next) => {
+  const dir = resolveFrontendDir(ROOT);
+  if (!dir) return next();
+  if (!staticByDir.has(dir)) staticByDir.set(dir, express.static(dir));
+  return staticByDir.get(dir)(req, res, next);
+});
 
 // ─── SPA fallback (Express v5 wildcard) ───────────────────
 app.get("*splat", (_req, res) => {
-  if (!fs.existsSync(indexHtml)) {
-    return res
-      .status(503)
-      .type("text")
-      .send("Frontend not built. Run `npm run build` or use `npm run dev`.");
+  const dir = resolveFrontendDir(ROOT);
+  if (!dir) {
+    return res.status(503).type("text").send(FRONTEND_MISSING_MESSAGE);
   }
-  res.sendFile(indexHtml);
+  res.sendFile(path.join(dir, "index.html"));
 });
 
 // ─── Process-level safety net ─────────────────────────────
