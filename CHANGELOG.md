@@ -20,6 +20,7 @@ Format: version sections are listed newest first.
 - Health findings also write Activity events when they appear and when they clear (`health.*`).
 
 ### Fixed
+- **Add / Edit dialog wording follows the unit type.** Choosing *Dedicated GPU host* now makes the final button read **Add GPU Host** (it always said *Add Spark*), and the Edit dialog title and the remove confirmation name the host the same way.
 - **Spark page on phones.** The name sits on its own line with the role / engine / uptime tags underneath, Edit and Shut down are two equal thumb-sized buttons, panels use less side padding, the GPU ring is smaller so the temperature / power / clock stats get room, and the daily-peak axis shows `M tok/s` instead of an unreadable `44552k tok/s`.
 - **Mobile tab bar is docked to the bottom edge** instead of floating above it, with a solid background so content no longer shows through.
 

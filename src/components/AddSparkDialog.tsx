@@ -14,6 +14,7 @@ import {
   validateConnect,
   type AddStep,
 } from "./addSparkSteps";
+import { addDeviceLabel } from "../shared/deviceKind";
 import { TestResultList } from "./TestResultList";
 import { resolveSparkRole } from "../api/sparkRole";
 import type { SparkRole } from "../api/types";
@@ -492,7 +493,7 @@ export function AddSparkDialog({ open, onClose, onAdded, defaultLlmPort = 8888 }
                 disabled={saving || !stepReady}
                 className="btn btn--primary"
               >
-                {saving ? "Saving..." : "Add Spark"}
+                {saving ? "Saving..." : addDeviceLabel(config.kind)}
               </button>
             )}
           </div>
