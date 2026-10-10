@@ -1015,7 +1015,8 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: var(--sp-gap);
-  align-items: stretch;
+  /* The Models list is taller than the memory and CPU cards: let each keep its own height. */
+  align-items: start;
 }
 
 /* Panel header actions sit on the right, also when they wrap under the title. */

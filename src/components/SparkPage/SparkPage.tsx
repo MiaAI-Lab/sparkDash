@@ -247,9 +247,10 @@ export function SparkPage({
                 />
                 {/* Dedicated hosts have system RAM instead of a unified pool: CPU and RAM side by side. */}
                 {spark.kind === "host" && <RamPanel ram={metrics.ram} sparkId={spark.id} />}
+                {/* Models is the third column of the row (Windows PCs have no launchers). */}
+                {spark.platform !== "windows" && modelsPanel}
               </div>
             </Item>
-            {spark.platform !== "windows" && <Item order={4}>{modelsPanel}</Item>}
           </div>
           <div className="sp-col">
             {view === "all" && showSvc && llmOn && primaryPort != null && (
