@@ -249,3 +249,28 @@ test("manual llm refresh invokes the probe and publishes its result", async () =
   assert.equal(monitor._metrics.llm.length, 1);
   assert.equal(monitor._metrics.llm[0].available, false);
 });
+
+test("lastSuccess only advances when a poll returns real data (a stuck collector stops moving)", async () => {
+  const monitor = new SparkMonitor(spark());
+  monitor._running = true;
+  monitor.collector.collectGpu = async () => tagged(validGpu());
+  monitor.collector.collectRam = async () => ({ used: 10, total: 100, percentage: 10 });
+  await monitor._pollDomain("gpu");
+  await monitor._pollDomain("ram");
+  const first = monitor.lastSuccess();
+  assert.ok(first.gpu > 0 && first.ram > 0);
+
+  // The collectors now answer with their zeroed defaults, as they do when the command fails.
+  await new Promise((r) => setTimeout(r, 5));
+  monitor.collector.collectGpu = async () => validGpu(); // untagged = not a successful collection
+  monitor.collector.collectRam = async () => ({ used: 0, total: 0, percentage: 0 });
+  await monitor._pollDomain("gpu");
+  await monitor._pollDomain("ram");
+  assert.deepEqual(monitor.lastSuccess(), first);
+  assert.ok(monitor._lastUpdate.gpu >= first.gpu); // the poll itself still ran
+
+  // lastSuccess is a copy, and never part of the snapshot (it would defeat the broadcast cache).
+  monitor.lastSuccess().gpu = 0;
+  assert.equal(monitor.lastSuccess().gpu, first.gpu);
+  assert.equal("collectedAt" in monitor.snapshot(), false);
+});

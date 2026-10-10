@@ -467,3 +467,21 @@ test("duplicate series are dropped rather than failing the scrape", () => {
   assert.equal(samplesOf(families, "sparkdash_up").length, 1);
   assert.equal(samplesOf(families, "sparkdash_disk_total_bytes").length, 1);
 });
+
+test("the last successful sample time of each collector is exported per unit", () => {
+  const unit = { ...gb10Head(), };
+  const text = renderPrometheusMetrics([
+    { snapshot: unit, collected: { gpu: true, cpu: true }, collectedAt: { gpu: 1_791_700_000_500, ram: 1_791_700_001_000, bad: -1, nan: NaN } },
+  ]);
+  const fam = parseExposition(text).get("sparkdash_collector_last_success_timestamp_seconds");
+  assert.equal(fam.type, "gauge");
+  const byCollector = Object.fromEntries(fam.samples.map((s) => [s.labels.collector, s.value]));
+  assert.deepEqual(byCollector, { gpu: 1_791_700_000.5, ram: 1_791_700_001 });
+  for (const sample of fam.samples) assert.equal(sample.labels.unit, "spark-1");
+});
+
+test("no collector series without a success, and none for an offline unit", () => {
+  assert.equal(parseExposition(renderPrometheusMetrics([gb10Head()])).has("sparkdash_collector_last_success_timestamp_seconds"), false);
+  const offline = parseExposition(renderPrometheusMetrics([{ snapshot: offlineUnit(), collectedAt: { gpu: 1_791_700_000_000 } }]));
+  assert.deepEqual([...offline.keys()], ["sparkdash_up"]);
+});

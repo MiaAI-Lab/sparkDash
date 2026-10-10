@@ -34,6 +34,11 @@ export const METRIC_FAMILIES = [
   },
   { name: "sparkdash_uptime_seconds", type: "gauge", help: "Host uptime from /proc/uptime." },
   {
+    name: "sparkdash_collector_last_success_timestamp_seconds",
+    type: "gauge",
+    help: "Unix time of the last poll of this collector (gpu, cpu, ram, memory, network, storage, llm, roce) that returned real data. A stuck collector stops advancing while sparkdash_up stays 1; alert on time() minus this. Absent until the first success.",
+  },
+  {
     name: "sparkdash_gpu_info",
     type: "gauge",
     help: "Always 1; carries the GPU's name and UUID as labels.",
@@ -250,9 +255,9 @@ function isDefaultCpu(cpu) {
  */
 function normalizeEntry(entry) {
   if (entry && typeof entry === "object" && entry.snapshot) {
-    return { snapshot: entry.snapshot, collected: entry.collected || {} };
+    return { snapshot: entry.snapshot, collected: entry.collected || {}, collectedAt: entry.collectedAt || {} };
   }
-  return { snapshot: entry, collected: {} };
+  return { snapshot: entry, collected: {}, collectedAt: {} };
 }
 
 function addGpu(samples, base, gpu) {
@@ -323,7 +328,7 @@ function addLlm(samples, base, snapshot) {
 }
 
 function addUnit(samples, entry) {
-  const { snapshot, collected } = normalizeEntry(entry);
+  const { snapshot, collected, collectedAt } = normalizeEntry(entry);
   if (!snapshot || typeof snapshot !== "object" || !snapshot.id) return;
   const base = {
     unit: snapshot.id,
@@ -335,6 +340,11 @@ function addUnit(samples, entry) {
   if (snapshot.online !== true) return;
 
   samples.add("sparkdash_uptime_seconds", base, snapshot.uptime);
+  for (const [collector, ms] of Object.entries(collectedAt)) {
+    if (finite(ms) && ms > 0) {
+      samples.add("sparkdash_collector_last_success_timestamp_seconds", { ...base, collector }, ms / 1000);
+    }
+  }
 
   const metrics = snapshot.metrics || {};
   const gpu = metrics.gpu;
@@ -399,7 +409,7 @@ function addUnit(samples, entry) {
 
 /**
  * Render the fleet as Prometheus text exposition format 0.0.4.
- * @param {Array<object | { snapshot: object, collected?: { gpu?: boolean, cpu?: boolean } }>} entries
+ * @param {Array<object | { snapshot: object, collected?: { gpu?: boolean, cpu?: boolean }, collectedAt?: Record<string, number> }>} entries
  *   unit snapshots (SparkMonitor#snapshot()), optionally wrapped with provenance
  * @returns {string}
  */

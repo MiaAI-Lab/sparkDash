@@ -191,6 +191,8 @@ export class SparkMonitor {
       tailscale: null,
     };
     this._lastUpdate = {};
+    /** domain → epoch ms of the last poll that returned real data (see _domainSucceeded). Not in snapshot(): it would defeat the broadcast cache. */
+    this._lastSuccess = {};
     this._metricCollectionSuccessful = { gpu: false, cpu: false };
     /**
      * Last poll (epoch ms) in which each LLM port generated or prefilled
@@ -744,6 +746,35 @@ export class SparkMonitor {
     }
   }
 
+  /**
+   * Did this poll return real data? Collectors catch their own errors and answer with
+   * zeroed defaults, so "the poll finished" says nothing about the data (a stuck
+   * nvidia-smi, an SSH session that logs in but cannot run the command).
+   */
+  _domainSucceeded(domain, result) {
+    switch (domain) {
+      case "gpu":
+      case "cpu":
+        return collectionWasSuccessful(result);
+      case "ram":
+      case "memory":
+        return Number(result?.total) > 0;
+      case "network":
+        return Array.isArray(result?.interfaces) && result.interfaces.length > 0;
+      case "storage":
+        return Array.isArray(result) && result.length > 0;
+      case "llm":
+        return Array.isArray(result); // an engine that is down is still a successful probe
+      default:
+        return false;
+    }
+  }
+
+  /** domain → epoch ms of the last poll that returned real data (for the Prometheus export). */
+  lastSuccess() {
+    return { ...this._lastSuccess };
+  }
+
   _noteThrottle(gpu) {
     if (!collectionWasSuccessful(gpu)) return;
     const thermal = gpu?.throttle?.reason === "thermal" && Boolean(gpu?.throttle?.active);
@@ -998,6 +1029,8 @@ export class SparkMonitor {
           break;
       }
       this._lastUpdate[domain] = Date.now();
+      if (this._domainSucceeded(domain, result)) this._lastSuccess[domain] = this._lastUpdate[domain];
+      if (domain === "network" && roce) this._lastSuccess.roce = this._lastUpdate[domain];
     } catch (err) {
       if (
         this._running &&

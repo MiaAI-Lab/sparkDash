@@ -417,6 +417,7 @@ The exporter reads the snapshot sparkDash already holds, so scraping adds no SSH
 |--------|------|--------------|-------|
 | `sparkdash_up` | gauge | | 1 when the unit answered its last liveness check. An unreachable unit exports `sparkdash_up 0` and nothing else |
 | `sparkdash_uptime_seconds` | gauge | | Host uptime |
+| `sparkdash_collector_last_success_timestamp_seconds` | gauge | `collector` | Unix time of the last poll of each collector (`gpu`, `cpu`, `ram`, `memory`, `network`, `storage`, `llm`, `roce`) that returned real data, not zeroed defaults. A stuck collector stops advancing while `sparkdash_up` stays 1, so alert on `time() - sparkdash_collector_last_success_timestamp_seconds > 60`. Absent until a collector has succeeded |
 | `sparkdash_gpu_info` | gauge | `gpu`, `name`, `uuid` | Always 1 |
 | `sparkdash_gpu_utilization_ratio` | gauge | `gpu` | 0–1 |
 | `sparkdash_gpu_temperature_celsius` | gauge | `gpu` | |

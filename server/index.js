@@ -2157,6 +2157,7 @@ app.get("/metrics", (_req, res) => {
       snapshot: monitor.snapshot(),
       // Per-domain provenance: a failed GPU/CPU read is zero-filled, not real.
       collected: { ...monitor._metricCollectionSuccessful },
+      collectedAt: monitor.lastSuccess(),
     }));
   // res.end, not res.send: send() reorders the media type parameters; keep the
   // header exactly as the exposition format spells it.
