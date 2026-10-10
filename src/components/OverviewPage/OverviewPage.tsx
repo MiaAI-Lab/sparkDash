@@ -304,7 +304,7 @@ export function OverviewPage({
       ) : null}
 
       <div className="ov-grid">
-        <div className="ov-sparks">
+        <div className="ov-sparks" data-count={visibleSparks.length}>
           {visibleSparks.length === 0 && (
             <p className="panel ov-empty">No units match the current search and status filters.</p>
           )}

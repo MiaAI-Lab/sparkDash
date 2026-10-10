@@ -184,12 +184,17 @@
 }
 .ov .ov-sparks {
   display: grid;
-  /* Fixed-size cards that wrap, instead of two huge cards stretched across the page. */
-  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+  /* Cards wrap at a minimum width. auto-fit drops the empty tracks, so a short first row
+     (e.g. two units on a wide screen) stretches to the full width of the row below it. */
+  grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
   gap: 12px;
   /* Cards in a row share one height; the footer is pinned to the bottom (see .ov-foot). */
   align-items: stretch;
   min-width: 0;
+}
+/* A single unit would stretch across the whole page; keep it card-sized. */
+.ov .ov-sparks[data-count="1"] {
+  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
 }
 .ov .ov-side {
   display: grid;
