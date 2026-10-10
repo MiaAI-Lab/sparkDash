@@ -629,7 +629,8 @@ export class SparkRegistry {
       macAddress: config.macAddress || null,
       /** Last MAC seen on enP7s7 (auto; not set via public PATCH). */
       detectedMacAddress: config.detectedMacAddress || null,
-      isLocal: Boolean(config.isLocal),
+      // A Windows PC is always reached over SSH (the local collectors read /proc).
+      isLocal: config.platform !== "windows" && Boolean(config.isLocal),
       ssh,
       llmPorts,
       role,

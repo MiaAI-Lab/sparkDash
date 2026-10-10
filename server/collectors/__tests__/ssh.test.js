@@ -197,11 +197,11 @@ test("explainSshFailure points Windows hosts at the Windows unit type and leaves
   assert.equal(explainSshFailure("Permission denied (publickey)."), "Permission denied (publickey).");
 });
 
-test("a Windows unit's command is sent as an encoded PowerShell argv", async () => {
-  const { powershellCommand } = await import("../windowsMetrics.js");
-  const spec = sshCommandSpec(
-    { id: "w", platform: "windows", lanIp: "10.0.0.5", ssh: { host: "10.0.0.5", user: "me", auth: "key" } },
-    { remoteArgv: [powershellCommand("echo ok")], multiplex: false }
-  );
-  assert.match(spec.args.at(-1), /^powershell .*-EncodedCommand /);
+test("a Windows unit's command is sent as an encoded PowerShell argv, others unchanged", async () => {
+  const { remoteArgvFor } = await import("../ssh.js");
+  const win = remoteArgvFor({ platform: "windows" }, "echo ok");
+  assert.equal(win.length, 1);
+  assert.match(win[0], /^powershell .*-EncodedCommand [A-Za-z0-9+/=]+$/);
+  assert.deepEqual(remoteArgvFor({ platform: "linux" }, "echo ok"), ["echo ok"]);
+  assert.deepEqual(remoteArgvFor({}, "echo ok"), ["echo ok"]);
 });

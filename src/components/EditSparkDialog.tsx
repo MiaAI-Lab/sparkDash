@@ -504,47 +504,51 @@ export function EditSparkDialog({
                 </div>
               </div>
 
-              <label className="check-row">
-                <input
-                  type="checkbox"
-                  checked={Boolean(config.hermesMonitoring)}
-                  onChange={(e) => update({ hermesMonitoring: e.target.checked })}
-                  
-                />
-                <span>Hermes Agent</span>
-                <span
-                  className="inline-flex shrink-0 cursor-help text-muted hover:text-text"
-                  title='Hermes Agent CLI is installed on this machine (nousresearch/hermes-agent). When enabled, sparkDash checks for updates (hermes update --check) and can run “hermes update” for you via SSH with one click.'
-                  aria-label='Hermes Agent CLI is installed on this machine; enable update monitoring and one-click updates.'
-                >
-                  <InfoIcon className="h-3.5 w-3.5" />
-                </span>
-              </label>
-              <p className="field-hint">
-                Checks for updates in the background (10 min) and adds an "Update Hermes" button
-                that runs{" "}
-                <code className="rounded bg-surface-elevated px-1">hermes update</code> on this
-                machine via SSH.
-              </p>
-
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
-                <label className="flex min-w-0 items-center gap-2">
+              {config.platform !== "windows" && (
+                <>
+                <label className="check-row">
                   <input
                     type="checkbox"
-                    checked={Boolean(config.tailscaleMonitoring)}
-                    onChange={(e) => update({ tailscaleMonitoring: e.target.checked })}
-                    
+                    checked={Boolean(config.hermesMonitoring)}
+                    onChange={(e) => update({ hermesMonitoring: e.target.checked })}
+                  
                   />
-                  <span>Tailnet monitoring</span>
+                  <span>Hermes Agent</span>
                   <span
                     className="inline-flex shrink-0 cursor-help text-muted hover:text-text"
-                    title="When enabled, run `tailscale status --json` on this host and show a Tailnet card. Catches a unit that is healthy on the LAN but has fallen off its tailnet. Requires the tailscale CLI. Default off."
-                    aria-label="Enable reporting this unit's tailnet presence."
+                    title='Hermes Agent CLI is installed on this machine (nousresearch/hermes-agent). When enabled, sparkDash checks for updates (hermes update --check) and can run “hermes update” for you via SSH with one click.'
+                    aria-label='Hermes Agent CLI is installed on this machine; enable update monitoring and one-click updates.'
                   >
                     <InfoIcon className="h-3.5 w-3.5" />
                   </span>
                 </label>
-              </div>
+                <p className="field-hint">
+                  Checks for updates in the background (10 min) and adds an "Update Hermes" button
+                  that runs{" "}
+                  <code className="rounded bg-surface-elevated px-1">hermes update</code> on this
+                  machine via SSH.
+                </p>
+
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                  <label className="flex min-w-0 items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(config.tailscaleMonitoring)}
+                      onChange={(e) => update({ tailscaleMonitoring: e.target.checked })}
+                    
+                    />
+                    <span>Tailnet monitoring</span>
+                    <span
+                      className="inline-flex shrink-0 cursor-help text-muted hover:text-text"
+                      title="When enabled, run `tailscale status --json` on this host and show a Tailnet card. Catches a unit that is healthy on the LAN but has fallen off its tailnet. Requires the tailscale CLI. Default off."
+                      aria-label="Enable reporting this unit's tailnet presence."
+                    >
+                      <InfoIcon className="h-3.5 w-3.5" />
+                    </span>
+                  </label>
+                </div>
+                </>
+              )}
 
               {role === "worker" && (
                 <div className="space-y-3">

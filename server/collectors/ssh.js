@@ -282,6 +282,11 @@ export function explainSshFailure(message) {
  * @param {{ timeoutMs?: number }} [options]
  * @returns {Promise<string>} - Trimmed stdout
  */
+/** The single remote argv for a command: PowerShell-encoded on Windows units, as written elsewhere. */
+export function remoteArgvFor(spark, cmd) {
+  return [spark?.platform === "windows" ? powershellCommand(cmd) : cmd];
+}
+
 export async function sshExec(spark, cmd, options = {}) {
   const timeoutMs =
     Number.isFinite(options.timeoutMs) && options.timeoutMs > 0 ? options.timeoutMs : 10000;
@@ -293,12 +298,12 @@ export async function sshExec(spark, cmd, options = {}) {
   // Windows OpenSSH hands the command to cmd.exe or PowerShell, never bash.
   const isWindows = spark?.platform === "windows";
   const { file, args, env, targetHost, multiplex, sshPort } = sshCommandSpec(spark, {
-    remoteArgv: [isWindows ? powershellCommand(cmd) : cmd],
+    remoteArgv: remoteArgvFor(spark, cmd),
   });
 
   const execute = (execArgs) =>
     new Promise((resolve, reject) => {
-      execFile(file, execArgs, { timeout: timeoutMs, env, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
+      const child = execFile(file, execArgs, { timeout: timeoutMs, env, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
         if (err) {
           const msg = stderr?.trim() || err.message;
           reject(new Error(`SSH to ${targetHost}:${sshPort} failed: ${explainSshFailure(msg)}`));
@@ -306,6 +311,8 @@ export async function sshExec(spark, cmd, options = {}) {
           resolve(String(stdout).trim());
         }
       });
+      // Windows PowerShell can wait for stdin to close; nothing is ever sent on it.
+      if (isWindows) child.stdin?.end();
     });
 
   if (multiplex) {

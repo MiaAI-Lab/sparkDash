@@ -1,4 +1,4 @@
-import { SystemCollector } from "./collectors/SystemCollector.js";
+import { SystemCollector, collectionWasSuccessful } from "./collectors/SystemCollector.js";
 import { HermesProbe } from "./collectors/HermesProbe.js";
 import { TailscaleProbe } from "./collectors/TailscaleProbe.js";
 import { comfyTest, llmTest, sshTest } from "./collectors/ssh.js";
@@ -74,7 +74,7 @@ export async function testSparkConnectivity(spark, { llmPort, comfyPort }) {
         if (!ssh.ok || spark.platform !== "windows") return ssh;
         // Windows: a shell alone is not enough, the collectors need nvidia-smi.
         const gpu = await new SystemCollector(spark).collectGpu();
-        return Number(gpu?.vram?.total) > 0
+        return collectionWasSuccessful(gpu)
           ? ssh
           : { ok: false, message: "SSH works, but nvidia-smi returned nothing on this Windows PC. Install the NVIDIA driver and make sure nvidia-smi.exe runs." };
       }

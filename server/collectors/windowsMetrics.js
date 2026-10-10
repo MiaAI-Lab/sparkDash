@@ -24,7 +24,7 @@ export function powershellCommand(script) {
 /** nvidia-smi: per-GPU stats, memory, compute apps. Same queries the Linux collector uses. */
 export const WINDOWS_GPU_SCRIPT = [
   ...PREAMBLE,
-  "$s=(Get-Command nvidia-smi).Source",
+  "$s=(Get-Command nvidia-smi|Select-Object -First 1).Source",
   "if(-not $s){$s=\"$env:ProgramFiles\\NVIDIA Corporation\\NVSMI\\nvidia-smi.exe\"}",
   "& $s '--query-gpu=temperature.gpu,utilization.gpu,power.draw,power.limit,clocks.current.sm,clocks.max.sm,clocks_throttle_reasons.hw_thermal_slowdown,clocks_throttle_reasons.sw_thermal_slowdown,clocks_throttle_reasons.hw_slowdown,clocks_throttle_reasons.sw_power_cap,index,name,uuid' '--format=csv,noheader,nounits' 2>$null",
   "'---'",
@@ -33,22 +33,34 @@ export const WINDOWS_GPU_SCRIPT = [
   "& $s '--query-compute-apps=pid,process_name,used_gpu_memory,gpu_uuid' '--format=csv,noheader,nounits' 2>$null",
   "'---'",
   "& $s '--query-gpu=name,driver_version' '--format=csv,noheader,nounits' 2>$null",
+  // A failed native command must not make powershell exit 1 (sshExec treats that as a dead host).
+  "exit 0",
 ].join("\n");
 
-/** Memory, uptime, CPU load, disks and network adapters in one round trip. */
+/**
+ * Memory, uptime, CPU load, disks and network adapters in one round trip.
+ * Fields are joined with a TAB (a volume label or adapter name may contain `|`);
+ * `-join` stringifies with the invariant culture, unlike `-f`, so a decimal
+ * never turns into `12,5`. Statistics and addresses are fetched once, not per adapter.
+ */
 export const WINDOWS_SYSTEM_SCRIPT = [
   ...PREAMBLE,
+  "$t=[char]9",
+  "function Cl($v){([string]$v) -replace '[\t\r\n]',' '}",
   "$o=Get-CimInstance Win32_OperatingSystem",
-  "'{0}|{1}|{2}' -f $o.TotalVisibleMemorySize,$o.FreePhysicalMemory,[int]((Get-Date)-$o.LastBootUpTime).TotalSeconds",
+  "@($o.TotalVisibleMemorySize,$o.FreePhysicalMemory,[int]((Get-Date)-$o.LastBootUpTime).TotalSeconds) -join $t",
   "'---'",
   "$p=@(Get-CimInstance Win32_Processor)",
-  "'{0}|{1}|{2}' -f ($p|Measure-Object LoadPercentage -Average).Average,$p[0].Name,($p|Measure-Object NumberOfLogicalProcessors -Sum).Sum",
+  "@(($p|Measure-Object LoadPercentage -Average).Average,(Cl $p[0].Name),($p|Measure-Object NumberOfLogicalProcessors -Sum).Sum) -join $t",
   "'---'",
-  "Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3'|%{'{0}|{1}|{2}|{3}' -f $_.DeviceID,$_.VolumeName,$_.Size,$_.FreeSpace}",
+  "Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3'|%{@((Cl $_.DeviceID),(Cl $_.VolumeName),$_.Size,$_.FreeSpace) -join $t}",
   "'---'",
   "(Get-NetRoute -DestinationPrefix '0.0.0.0/0'|Sort-Object RouteMetric|Select-Object -First 1).InterfaceAlias",
   "'---'",
-  "Get-NetAdapter|%{$a=$_;$t=Get-NetAdapterStatistics -Name $a.Name;$ip=(Get-NetIPAddress -InterfaceIndex $a.ifIndex -AddressFamily IPv4|Select-Object -First 1).IPAddress;'{0}|{1}|{2}|{3}|{4}|{5}|{6}' -f $a.Name,$a.Status,$a.ReceiveLinkSpeed,$t.ReceivedBytes,$t.SentBytes,$ip,$a.Virtual}",
+  "$st=@{};Get-NetAdapterStatistics|%{$st[$_.Name]=$_}",
+  "$ip=@{};Get-NetIPAddress -AddressFamily IPv4|%{if(-not $ip[$_.InterfaceIndex]){$ip[$_.InterfaceIndex]=$_.IPAddress}}",
+  "Get-NetAdapter|%{@((Cl $_.Name),$_.Status,$_.ReceiveLinkSpeed,$st[$_.Name].ReceivedBytes,$st[$_.Name].SentBytes,$ip[$_.ifIndex],$_.Virtual) -join $t}",
+  "exit 0",
 ].join("\n");
 
 const num = (value) => {
@@ -65,13 +77,13 @@ export function parseWindowsSystem(output) {
   const sections = String(output ?? "").split(/^---\s*$/m).map((s) => s.trim());
   const [mem = "", cpu = "", disks = "", route = "", nets = ""] = sections;
 
-  const [totalKB, freeKB, uptime] = mem.split("|").map(num);
-  const cpuParts = cpu.split("|");
+  const [totalKB, freeKB, uptime] = mem.split("\t").map(num);
+  const cpuParts = cpu.split("\t");
   const load = num(cpuParts[0]);
 
   const diskRows = [];
   for (const line of disks.split(/\r?\n/)) {
-    const [id, label, size, free] = line.trim().split("|");
+    const [id, label, size, free] = line.replace(/\r$/, "").split("\t");
     const total = num(size);
     const avail = num(free);
     if (!id || total == null || total <= 0 || avail == null) continue;
@@ -80,7 +92,7 @@ export function parseWindowsSystem(output) {
 
   const adapters = [];
   for (const line of nets.split(/\r?\n/)) {
-    const p = line.trim().split("|");
+    const p = line.replace(/\r$/, "").split("\t");
     if (p.length < 7 || !p[0]) continue;
     adapters.push({
       name: p[0],

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
-import { SystemCollector } from "../SystemCollector.js";
+import { SystemCollector, collectionWasSuccessful } from "../SystemCollector.js";
 import {
   WINDOWS_GPU_SCRIPT,
   WINDOWS_SYSTEM_SCRIPT,
@@ -21,18 +21,18 @@ const GPU_OUT = [
 ].join("\r\n");
 
 const SYSTEM_OUT = [
-  "33449080|18874368|93784",
+  "33449080\t18874368\t93784",
   "---",
-  "17|AMD Ryzen 9 7950X 16-Core Processor|32",
+  "17\tAMD Ryzen 9 7950X 16-Core Processor\t32",
   "---",
-  "C:|Windows|1000000000000|400000000000",
-  "D:||2000000000000|1500000000000",
+  "C:\tWindows\t1000000000000\t400000000000",
+  "D:\t\t2000000000000\t1500000000000",
   "---",
   "Ethernet",
   "---",
-  "Ethernet|Up|1000000000|5000000|3000000|192.168.1.122|False",
-  "Wi-Fi|Disconnected|0|0|0||False",
-  "vEthernet (WSL)|Up|10000000000|9|9|172.20.0.1|True",
+  "Ethernet\tUp\t1000000000\t5000000\t3000000\t192.168.1.122\tFalse",
+  "Wi-Fi\tDisconnected\t0\t0\t0\t\tFalse",
+  "vEthernet (WSL)\tUp\t10000000000\t9\t9\t172.20.0.1\tTrue",
 ].join("\r\n");
 
 function windowsCollector() {
@@ -71,6 +71,31 @@ test("parseWindowsSystem tolerates empty and partial output", () => {
   assert.equal(s.cpuLoad, null);
   assert.deepEqual(s.disks, []);
   assert.deepEqual(s.adapters, []);
+});
+
+test("a pipe or --- in a volume label or adapter name does not break parsing", () => {
+  const out = [
+    "1024\t512\t60",
+    "---",
+    "10\tCPU | Name\t8",
+    "---",
+    "E:\tA|B\t1000\t500",
+    "F:\t---\t2000\t1000",
+    "---",
+    "Eth|X",
+    "---",
+    "Eth|X\tUp\t1000000000\t10\t20\t10.0.0.2\tFalse",
+  ].join("\r\n");
+  const s = parseWindowsSystem(out);
+  assert.deepEqual(s.disks.map((d) => [d.id, d.label]), [["E:", "A|B"], ["F:", "---"]]);
+  assert.equal(s.adapters[0].name, "Eth|X");
+  assert.equal(s.adapters[0].ip, "10.0.0.2");
+  assert.equal(s.cpuName, "CPU | Name");
+});
+
+test("both scripts end with exit 0 so a failed native command is not read as a dead host", () => {
+  assert.match(WINDOWS_GPU_SCRIPT, /\nexit 0$/);
+  assert.match(WINDOWS_SYSTEM_SCRIPT, /\nexit 0$/);
 });
 
 test("GPU output is reshaped into the sections the shared Linux parser reads", () => {
@@ -125,7 +150,7 @@ test("network speeds come from the byte-counter delta between polls", async () =
   const before = c.lastNetworkStats.get("Ethernet");
   c.lastNetworkStats.set("Ethernet", { ...before, time: before.time - 2000 });
   c._windowsRun = async (key) =>
-    key === "gpu" ? GPU_OUT : SYSTEM_OUT.replace("Ethernet|Up|1000000000|5000000|3000000", "Ethernet|Up|1000000000|5002000|3001000");
+    key === "gpu" ? GPU_OUT : SYSTEM_OUT.replace("Ethernet\tUp\t1000000000\t5000000\t3000000", "Ethernet\tUp\t1000000000\t5002000\t3001000");
   const net = await c.collectNetwork();
   const eth = net.interfaces.find((i) => i.name === "Ethernet");
   assert.equal(eth.rxSpeed, 1000);
@@ -158,4 +183,21 @@ test("the registry keeps platform windows, forces a host unit and drops bash-onl
   assert.equal(spark.hermesMonitoring, false);
   assert.equal(spark.tailscaleMonitoring, false);
   assert.equal(registry._normalizeConfig({ id: "x", lanIp: "10.0.0.1" }).platform, "linux");
+});
+
+test("without nvidia-smi output the GPU collection is not successful (what the connection test checks)", async () => {
+  const c = windowsCollector();
+  assert.equal(collectionWasSuccessful(await c.collectGpu()), true);
+  c._windowsRun = async () => "";
+  assert.equal(collectionWasSuccessful(await c.collectGpu()), false);
+});
+
+test("an unfinished PowerShell call is reused however old, a finished one only for ~1.2 s", () => {
+  const c = new SystemCollector({ id: "w", platform: "windows", kind: "host", isLocal: false, ssh: { host: "10.0.0.5", user: "me" } });
+  const pending = Promise.resolve("pending");
+  c._windowsCache = new Map([["system", { at: Date.now() - 60_000, settled: false, promise: pending }]]);
+  assert.equal(c._windowsRun("system", "x"), pending);
+  const done = Promise.resolve("done");
+  c._windowsCache = new Map([["system", { at: Date.now() - 100, settled: true, promise: done }]]);
+  assert.equal(c._windowsRun("system", "x"), done);
 });

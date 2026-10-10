@@ -1844,13 +1844,23 @@ export class SystemCollector {
     const now = Date.now();
     this._windowsCache ??= new Map();
     const hit = this._windowsCache.get(key);
-    if (hit && now - hit.at < 1200) return hit.promise;
-    const promise = sshExec(this.spark, script, { timeoutMs: 15000 });
-    this._windowsCache.set(key, { at: now, promise });
-    promise.catch(() => {
-      if (this._windowsCache.get(key)?.promise === promise) this._windowsCache.delete(key);
-    });
-    return promise;
+    // An unfinished call is always reused (PowerShell starts slowly; never stack them),
+    // a finished one for ~1.2 s so every domain of one poll shares it.
+    if (hit && (!hit.settled || now - hit.at < 1200)) return hit.promise;
+    const entry = { at: now, settled: false, promise: null };
+    entry.promise = sshExec(this.spark, script, { timeoutMs: 15000 });
+    entry.promise.then(
+      () => {
+        entry.settled = true;
+        entry.at = Date.now();
+      },
+      () => {
+        entry.settled = true;
+        if (this._windowsCache.get(key) === entry) this._windowsCache.delete(key);
+      }
+    );
+    this._windowsCache.set(key, entry);
+    return entry.promise;
   }
 
   async _windowsSystem() {
