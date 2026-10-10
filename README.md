@@ -38,6 +38,8 @@ Monitored units run **Linux**, **macOS**, or **Windows** (a Windows PC with an N
 - [ComfyUI monitoring](#comfyui-monitoring)
 - [Hermes Agent monitoring](#hermes-agent-monitoring)
 - [Tailnet monitoring](#tailnet-monitoring)
+- [Tailscale Serve (HTTPS)](#tailscale-serve-https)
+- [Mobile PWA (install on a phone)](#mobile-pwa-install-on-a-phone)
 - [Glance integration](#glance-integration)
 - [Quality bench](#quality-bench)
 - [Prometheus](#prometheus)
@@ -243,6 +245,75 @@ Asked of **each node about itself**. Peer state is never the verdict. The probe 
 | `tailscaleMonitoring` | `false` | Run `tailscale status --json` and show the Tailnet card |
 
 Env (optional): `POLL_INTERVAL_TAILSCALE` (default `30000`), `TAILSCALE_PROBE_TIMEOUT_MS` (default `8000`).
+
+---
+
+## Tailscale Serve (HTTPS)
+
+Tailscale Serve publishes the loopback-only dashboard over HTTPS to your tailnet — no ports opened, no reverse proxy, and a real certificate (`https://<node>.<tailnet>.ts.net`). It is also the easiest way to satisfy the HTTPS requirement for the [Mobile PWA](#mobile-pwa-install-on-a-phone), which browsers refuse to install over plain HTTP.
+
+### One-time setup
+
+1. **Enable HTTPS certificates and Serve for the tailnet** (admin does this once):
+   open the approval link Tailscale prints on first use, or in the admin console enable
+   **HTTPS** (MagicDNS → HTTPS Certificates) and **Tailscale Serve**.
+2. On the sparkDash host, publish the dashboard (the dashboard must be running — Docker or `npm start`):
+
+   ```bash
+   sudo tailscale serve --bg --https=443 http://127.0.0.1:5555
+   ```
+
+   If the container binds a specific address instead of loopback, proxy that address
+   (check `docker logs sparkDash` for the `bind=` line), e.g.
+   `sudo tailscale serve --bg --https=443 http://100.x.y.z:5555`.
+3. Verify and get your URL:
+
+   ```bash
+   tailscale serve status
+   # https://your-node.your-tailnet.ts.net  ->  proxy http://127.0.0.1:5555
+   ```
+
+Notes:
+
+- The Tailscale hostname works with the default loopback bind — no `SPARKDASH_ALLOWED_HOSTS` entry needed (that list is only for custom reverse-proxy domains).
+- Access is **tailnet-only**. Any device signed in to the tailnet (phone, laptop) can open the URL; nobody else can. For public exposure use `tailscale funnel` and an authenticated front door (see [Remote access](./docs/REMOTE-ACCESS.md)) — but prefer keeping it tailnet-only.
+- The proxy forwards `/api/*` and `/ws` including WebSocket upgrades; nothing else to configure.
+- To remove it later: `sudo tailscale serve --https=443 off`.
+- Snap installs run Tailscale as root; if the plain command reports *Access denied*, use `sudo tailscale serve …`.
+
+---
+
+## Mobile PWA (install on a phone)
+
+sparkDash is a **PWA**: from a supported browser it installs to the home screen and runs fullscreen like a native app, with its own icon and no browser chrome.
+
+### What ships
+
+| File | Purpose |
+|------|---------|
+| `public/manifest.webmanifest` | App name, `standalone` display, theme/background colors (`#0a0c0f`), icons |
+| `public/icons/` | 192/512 px icons, `maskable` variants (Android adaptive icons), `apple-touch-icon.png` |
+| `public/sw.js` | Service worker: caches the app shell; **never** caches `/api/*` or `/ws` (live data always comes from the network) |
+| `src/components/shell/InstallPrompt.tsx` | In-app install banner (see below) |
+
+### Requirements
+
+- **HTTPS** is mandatory for install (or `localhost` for local testing). Use [Tailscale Serve](#tailscale-serve-https) or an authenticated TLS reverse proxy — a plain `http://<lan-ip>:5555` page cannot be installed.
+- The manifest and icons are static files served by the same Express server (`dist/` after `npm run build`); no extra configuration.
+
+### Installing
+
+The app shows its own banner when opened in a browser it can be installed from (hidden once installed, or after dismissing):
+
+- **Android / desktop Chrome:** an **Install** banner appears near the bottom of the page; tapping it opens the native confirm dialog. Also available in the ⋮ menu → *Install app* / *Add to Home screen*.
+- **iPhone / iPad (Safari):** iOS allows no programmatic prompt; the app shows a one-time hint, then: **Share ⬆︎ → Add to Home Screen → Add**.
+- The banner only appears on a fresh page load — reload once if you don't see it.
+
+After installing, the icon sits on the home screen and the dashboard opens fullscreen with live data whenever the device can reach the server (on the tailnet, with Tailscale connected).
+
+### Updating the installed app
+
+Service worker caching: hashed `assets/*` are cache-first (immutable), `index.html` and `/` are network-first with a cache fallback. After deploying a new build, the installed app picks it up on the next open; no manual cache clearing is needed. If you ever need to force it, bump the `CACHE` version in `public/sw.js`.
 
 ---
 
