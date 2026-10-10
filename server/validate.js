@@ -62,6 +62,20 @@ function mappedIpv4(host) {
   return `${nums[6] >> 8}.${nums[6] & 255}.${nums[7] >> 8}.${nums[7] & 255}`;
 }
 
+/**
+ * The dotted quad a URL parser (and inet_aton, which ssh uses) reads a host as,
+ * or null when it is not a numeric IPv4 spelling. "2852039166", "0xa9fea9fe",
+ * "0251.0376.0251.0376" and "169.254.43518" are all 169.254.169.254.
+ */
+function canonicalIpv4(host) {
+  try {
+    const parsed = new URL(`http://${host}`).hostname;
+    return net.isIP(parsed) === 4 ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 export function isForbiddenAddress(address) {
   const host = normalizedHost(address);
   const family = net.isIP(host);
@@ -77,7 +91,9 @@ export function isForbiddenAddress(address) {
     if (mapped) return isForbiddenAddress(mapped);
     return false;
   }
-  return false;
+  // Not a literal address as written, but it may still be one to the resolver.
+  const canonical = canonicalIpv4(host);
+  return canonical !== null && isForbiddenAddress(canonical);
 }
 
 /** Resolve an administrator-allowlisted target and reject unsafe DNS answers. */
