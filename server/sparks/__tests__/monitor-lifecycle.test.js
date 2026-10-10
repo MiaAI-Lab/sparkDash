@@ -274,3 +274,40 @@ test("lastSuccess only advances when a poll returns real data (a stuck collector
   assert.equal(monitor.lastSuccess().gpu, first.gpu);
   assert.equal("collectedAt" in monitor.snapshot(), false);
 });
+
+test("success rules per domain, and the snapshot carries no success timestamps", () => {
+  const monitor = new SparkMonitor(spark());
+  const ok = (domain, result) => monitor._domainSucceeded(domain, result);
+  assert.equal(ok("storage", [{ device: "x" }]), true);
+  assert.equal(ok("storage", []), false);
+  assert.equal(ok("network", { interfaces: [{ name: "eth0" }] }), true);
+  assert.equal(ok("network", { interfaces: [] }), false);
+  assert.equal(ok("memory", { total: 128 }), true);
+  assert.equal(ok("memory", { total: 0 }), false);
+  assert.equal(ok("llm", []), true); // an engine that is down is still a successful probe
+  assert.equal(ok("llm", undefined), false);
+  assert.equal(ok("hermes", {}), false);
+  const text = JSON.stringify(monitor.snapshot());
+  assert.equal(/lastSuccess|collectedAt|last_success/.test(text), false);
+});
+
+test("a domain that is no longer polled is not reported, and RoCE is stamped with its own sample time", async () => {
+  const monitor = new SparkMonitor({ ...spark(), llmMonitoring: true });
+  monitor._running = true;
+  monitor.collector.collectStorage = async () => [{ device: "nvme0", label: "/", used: 1, total: 2, available: 1, percentage: 50 }];
+  monitor.collector.collectNetwork = async () => ({ primaryInterface: "eth0", linkSpeedMbps: 1000, interfaces: [{ name: "eth0", rxSpeed: 0, txSpeed: 0, ip: "10.0.0.1", operstate: "up", disabled: false }], wolMac: null });
+  monitor.collector.collectRoce = async () => ({ available: true, sampledAt: 1234, devices: [] });
+  await monitor._pollDomain("storage");
+  await monitor._pollDomain("network");
+  assert.equal(monitor.lastSuccess().roce, 1234); // not Date.now()
+  assert.ok(monitor.lastSuccess().storage > 0);
+  monitor.spark.storagePollDisabled = true;
+  assert.equal("storage" in monitor.lastSuccess(), false);
+  monitor.spark.storagePollDisabled = false;
+  await monitor.refreshDomain("storage");
+  assert.ok(monitor.lastSuccess().storage > 0); // a manual refresh counts
+  monitor.spark.isLocal = false;
+  monitor._invalidateSshMetrics();
+  assert.equal("storage" in monitor.lastSuccess(), false);
+  assert.equal("network" in monitor.lastSuccess(), false);
+});

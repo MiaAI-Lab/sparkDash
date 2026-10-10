@@ -480,7 +480,7 @@ npm install
 npm run dev
 ```
 
-- **Docker**: open **http://127.0.0.1:5555** on the host (arm64 image, auto-restart, host mounts for GPU/metrics access). The compose file serves the frontend from the host's `./dist` when it has been built (`npm run build`) and from the copy baked into the image otherwise, so a fresh clone works; after `git pull` run `docker compose up --build -d` once
+- **Docker**: open **http://127.0.0.1:5555** on the host (arm64 image, auto-restart, host mounts for GPU/metrics access). The compose file serves the frontend from the host's `./dist` when it has been built (`npm run build`) and from the copy baked into the image otherwise, so a fresh clone works; a host build that is older than the image's copy is ignored, so after `git pull` one `docker compose up --build -d` is enough
 - **Dev**: Vite on **http://localhost:5173** (proxies API/WS to Express)
 
 For another computer, keep the server on loopback and use an SSH tunnel:
@@ -606,10 +606,11 @@ sparkDash/
 | GET | `/api/llm-token-totals` · `/api/llm-token-totals/history` | Cumulative LLM tokens by model, and the hourly / daily history behind the Token totals page |
 | GET | `/api/sparks/:id/gpu-history` | Last hours of GPU utilization, temperature and power % (`windowMs`, up to 8 h; parallel arrays) |
 | GET/POST | `/api/restart` | `GET` says whether the server can restart itself (Docker with a restart policy); `POST` shuts down cleanly so Docker starts it again |
-| DELETE | `/api/events` · `/api/fleet-energy` · `/api/llm-token-totals` | Clear Activity, Fleet energy or Token totals (`?olderThanMs=` where supported) |
+| DELETE | `/api/events` · `/api/fleet-energy` | Clear Activity or Fleet energy: everything, or only entries older than `?olderThanMs=` |
+| DELETE | `/api/llm-token-totals` | Reset Token totals (all Sparks, or one with `?sparkId=`) |
 | GET | `/api/health` · `/api/auth/status` | Bind / auth mode; whether a token is required and accepted |
 | POST | `/api/sparks/:id/shutdown` · `/wake` · `/api/sparks/shutdown-all` · `/wake-all` | Power controls (see [Power controls](#power-controls-shutdown--wake-on-lan)) |
-| POST | `/api/sparks/:id/refresh/:domain` | Re-poll one domain now (`storage`, `llm`, …) |
+| POST | `/api/sparks/:id/refresh/:domain` | Re-poll one domain now (`storage` or `llm` only) |
 | GET/POST/DELETE | `/api/sparks/:id/llm/showcase[/:sessionId]` | Prompt Showcase sessions |
 | GET | `/api/events` | Fleet event log (`limit`, `sparkId`, `sinceId`, `beforeId`; 2000 kept) |
 | GET/POST/PUT/DELETE | `/api/sparks/:id/llm-launchers[/:lid]` | Registered start.sh / stop.sh model launchers; `POST …/:lid/start` and `…/stop` run them, `GET …/jobs/:jobId` streams the shell output |
@@ -664,21 +665,20 @@ Gear icon in the header, or `GET`/`PUT` `/api/settings`:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| Poll interval | 2000 ms | How often every unit is polled for GPU, CPU/RAM, network, memory bandwidth, LLM and ComfyUI metrics, and how often the dashboard is pushed an update (minimum 1000 ms). Remote units are polled over SSH, so 1 s costs the most. Memory bandwidth (`nvidia-smi dmon`, which blocks ~1 s) never goes below 2 s. Storage, liveness, Tailnet, Hermes and the `NV_ERR` scan keep their own cadences. A `POLL_INTERVAL_*` env var, when set, pins its domain instead |
+| Refresh rate (`pollIntervalMs`) | 2000 ms | How often every unit is polled for GPU, CPU/RAM, network, memory bandwidth, LLM and ComfyUI metrics, and how often the dashboard is pushed an update (the dialog offers 1 s to 10 s; the server accepts 0.5 s to 60 s). Remote units are polled over SSH, so 1 s costs the most. Memory bandwidth (`nvidia-smi dmon`, which blocks ~1 s) never goes below 2 s. Storage, liveness, Tailnet, Hermes and the `NV_ERR` scan keep their own cadences. A `POLL_INTERVAL_*` env var, when set, pins its domain instead |
 | Default LLM port | 8888 | Default for new Sparks |
-| Auto-hide offline | false | Hide offline Sparks on Overview |
+| Hide offline Sparks | false | Hide offline Sparks on Overview |
 | Hide worker nodes | false | Hide Worker-role Sparks from Overview and the tab bar |
 | Temperature unit | Celsius | Display GPU temperature in °C or °F |
 | Time zone | Browser | Hour and day boundaries and labels on the Tokens, Energy and Activity charts (IANA name such as `Europe/Paris`; empty follows each browser). Daily token buckets and monthly energy stay UTC |
 | Benchmark share image | true | Decode/prefill **Copy results** becomes a split button: the label copies the text summary, the caret offers **Copy as text** / **Copy as image** on hover or click. Turn it off to keep the plain button. The image copies where the page has an image clipboard (HTTPS or localhost); over plain http on a LAN IP the card downloads instead |
 | Detailed VRAM breakdown | true | The VRAM bar on the Overview cards and the GPU panel is split by what holds the memory — LLM engine (largest GPU process while an endpoint is serving), system/CPU (GB10 unified pool), other GPU use — over a free track, and turns amber/red on low free memory (GB10: under 8 / 4 GB; discrete GPU: under 2 / 1 GB) rather than on a high percentage. Hover or focus for the breakdown, including the engine's KV fill where the backend reports it. Turn it off for the single percentage bar |
-| Show Fleet energy | true | Overview card with rolling fleet power estimates (the Fleet energy page is always in the sidebar) |
+| Show Fleet Energy | true | Overview card with rolling fleet power estimates (the Fleet energy page is always in the sidebar) |
 | Electricity price / currency | not set / `$` | Per kWh, for the estimated cost on the Fleet energy page; empty hides cost |
-| Show Token totals | true | Overview card with cumulative tokens per model |
-| Show fleet exceptions | false | Overview strip for offline units, throttling, disk and LLM alerts |
+| Show LLM Token Totals | true | Overview card with cumulative tokens per model |
+| Show active fleet exceptions | false | Overview strip for offline units, throttling, disk and LLM alerts |
 | Show search and status filters | false | Overview search field and status dropdown |
-| Compact UI | true | Tighter spacing (`density`: `compact` or `comfortable`) |
-| Debug traces for benchmarks | false | Store prompts, HTTP ids and GPU samples in bench history (larger files) |
+| Save benchmark debug traces | false | Store prompts, HTTP ids and GPU samples in bench history (larger files) |
 | Prometheus metrics | false | Serve `GET /metrics` for Prometheus / Grafana (see [Prometheus](#prometheus)); `404` while off |
 
 ### Environment variables
@@ -694,7 +694,7 @@ Copy `.env.example` to `.env` if needed:
 | `PORT` | `5555` | HTTP + WebSocket listen port |
 | `LLM_PORT` | `8888` | Default LLM probe port |
 | `COMFY_PORT` | `8188` | Default ComfyUI probe port |
-| `POLL_INTERVAL_GPU` | _(setting)_ | GPU poll (ms). Unset: follows **Settings → Poll interval**; set: pins GPU polling regardless of the setting |
+| `POLL_INTERVAL_GPU` | _(setting)_ | GPU poll (ms). Unset: follows **Settings → Refresh rate**; set: pins GPU polling regardless of the setting |
 | `POLL_INTERVAL_COMFY` | _(setting)_ | ComfyUI probe poll (ms); same rule |
 | `POLL_INTERVAL_CPU` | _(setting)_ | CPU / RAM poll (ms); same rule |
 | `POLL_INTERVAL_NETWORK` | _(setting)_ | Network poll (ms); same rule |
@@ -732,6 +732,7 @@ For compatibility, `SSH_CONTROL_PERSIST` is accepted as a seconds-based fallback
    - **Dedicated GPU host** — any Linux machine with an NVIDIA GPU. It is monitored exactly like a Spark (SSH + `nvidia-smi`) but is **not** reported as a DGX Spark: the header shows a detected hardware summary (GPU model, CPU, RAM) instead of fixed GB10 specs, and the page shows separate **RAM** and **VRAM** panels (VRAM from `nvidia-smi`, RAM from system memory). On the unit page, RAM → Network → Storage stack in the right column with GPU filling the left column. A host with **more than one GPU** needs nothing extra: every card `nvidia-smi` lists is collected, the header names them all, the GPU panel shows a block per card, and `metrics.gpu` stays the aggregate (hottest / busiest card, summed power and VRAM) with the per-card detail under `gpu.gpus[]`.
    - **Windows PC with an NVIDIA GPU** — a Windows machine with the OpenSSH Server and the NVIDIA driver; see [Windows PCs](#windows-pcs). Always a remote unit; no model launchers, CPU temperature or Hermes / Tailnet checks.
 3. Set **Name** and choose whether this is **This host**. Local units do not require a LAN IP or SSH; their optional LAN IP enables browser links. On a dedicated GPU host it also directs Wake-on-LAN. Remote units require a LAN IP/host, SSH user, and key or password. Key auth in Docker needs a key mounted into the container (see Quick start).
+   - **LLM host** (optional, `llmHost` in the unit's config): when the model API listens on one specific address of a multi-interface Spark, pin it here; probes and benchmarks then use it instead of the LAN IP (SSH keeps using the SSH host). An unreachable `llmHost` is never tunnelled to the SSH host's loopback.
 4. **Test** shows pass/fail/skipped for host collectors/SSH and each enabled service (LLM, ComfyUI, Hermes Agent, Tailnet). Every enabled capability must pass; disable an unavailable optional service before saving if it should not be monitored.
 5. Save — a tab appears and metrics start streaming.
 
@@ -769,7 +770,7 @@ For compatibility, `SSH_CONTROL_PERSIST` is accepted as a seconds-based fallback
 
 ### Themes
 
-Choose a theme in **Settings → Appearance** (or the moon button in the sidebar):
+Choose a theme in **Settings → Appearance** (or the sun / moon button in the sidebar):
 
 | Theme | Notes |
 |-------|--------|

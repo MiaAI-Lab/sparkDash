@@ -772,7 +772,11 @@ export class SparkMonitor {
 
   /** domain → epoch ms of the last poll that returned real data (for the Prometheus export). */
   lastSuccess() {
-    return { ...this._lastSuccess };
+    const out = { ...this._lastSuccess };
+    // A domain that is no longer polled must not age forever and trip a "stuck" alert.
+    if (this.spark.storagePollDisabled) delete out.storage;
+    if (!this._llmMonitoringEnabled()) delete out.llm;
+    return out;
   }
 
   _noteThrottle(gpu) {
@@ -862,6 +866,8 @@ export class SparkMonitor {
   _invalidateSshMetrics() {
     if (this.spark.isLocal) return;
     const c = this.collector;
+    // Their data is gone; the series must restart from the first fresh poll after recovery.
+    for (const key of ["gpu", "cpu", "ram", "memory", "network", "storage", "roce"]) delete this._lastSuccess[key];
     this._metrics.gpu = c._defaultGpu();
     this._metrics.cpu = c._defaultCpu();
     this._metrics.ram = c._defaultRam();
@@ -1030,7 +1036,9 @@ export class SparkMonitor {
       }
       this._lastUpdate[domain] = Date.now();
       if (this._domainSucceeded(domain, result)) this._lastSuccess[domain] = this._lastUpdate[domain];
-      if (domain === "network" && roce) this._lastSuccess.roce = this._lastUpdate[domain];
+      // RoCE keeps its last good sample through a few failed reads: stamp it with when it was
+      // actually read, so a stalled RoCE read ages instead of looking fresh.
+      if (domain === "network" && roce?.sampledAt) this._lastSuccess.roce = roce.sampledAt;
     } catch (err) {
       if (
         this._running &&
@@ -1059,6 +1067,7 @@ export class SparkMonitor {
       if (!this._running || this._runGeneration !== runGeneration) return;
       this._metrics.storage = result;
       this._lastUpdate[domain] = Date.now();
+      if (this._domainSucceeded(domain, result)) this._lastSuccess[domain] = this._lastUpdate[domain];
     } catch (err) {
       console.error(`[SparkMonitor] ${this.spark.id} ${domain} refresh error:`, err.message);
     } finally {

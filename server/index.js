@@ -68,7 +68,7 @@ import {
 import { testSparkConnectivity } from "./connectivity.js";
 import { TailscaleProbe } from "./collectors/TailscaleProbe.js";
 import { inspectStartupPreflight, logStartupPreflight } from "./startupPreflight.js";
-import { PROMETHEUS_CONTENT_TYPE, renderPrometheusMetrics } from "./prometheus.js";
+import { PROMETHEUS_CONTENT_TYPE, metricsEntries, renderPrometheusMetrics } from "./prometheus.js";
 
 dotenv.config();
 
@@ -2150,15 +2150,7 @@ app.get("/metrics", (_req, res) => {
       .type("text")
       .send("Prometheus export is off. Enable it in Settings → Prometheus metrics.\n");
   }
-  const entries = registry.sparkIds
-    .map((id) => monitors.get(id))
-    .filter(Boolean)
-    .map((monitor) => ({
-      snapshot: monitor.snapshot(),
-      // Per-domain provenance: a failed GPU/CPU read is zero-filled, not real.
-      collected: { ...monitor._metricCollectionSuccessful },
-      collectedAt: monitor.lastSuccess(),
-    }));
+  const entries = metricsEntries(registry.sparkIds.map((id) => monitors.get(id)));
   // res.end, not res.send: send() reorders the media type parameters; keep the
   // header exactly as the exposition format spells it.
   res.setHeader("Content-Type", PROMETHEUS_CONTENT_TYPE);

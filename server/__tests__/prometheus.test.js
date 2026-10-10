@@ -12,6 +12,7 @@ import {
   PROMETHEUS_CONTENT_TYPE,
   escapeLabelValue,
   formatValue,
+  metricsEntries,
   renderPrometheusMetrics,
 } from "../prometheus.js";
 
@@ -484,4 +485,18 @@ test("no collector series without a success, and none for an offline unit", () =
   assert.equal(parseExposition(renderPrometheusMetrics([gb10Head()])).has("sparkdash_collector_last_success_timestamp_seconds"), false);
   const offline = parseExposition(renderPrometheusMetrics([{ snapshot: offlineUnit(), collectedAt: { gpu: 1_791_700_000_000 } }]));
   assert.deepEqual([...offline.keys()], ["sparkdash_up"]);
+});
+
+test("metricsEntries wires each monitor's snapshot, provenance and success times into the export", () => {
+  const monitor = {
+    snapshot: () => gb10Head(),
+    _metricCollectionSuccessful: { gpu: true, cpu: true },
+    lastSuccess: () => ({ gpu: 1_791_700_000_000 }),
+  };
+  const entries = metricsEntries([monitor, undefined, null]);
+  assert.equal(entries.length, 1);
+  assert.deepEqual(entries[0].collectedAt, { gpu: 1_791_700_000_000 });
+  assert.deepEqual(entries[0].collected, { gpu: true, cpu: true });
+  const fam = parseExposition(renderPrometheusMetrics(entries)).get("sparkdash_collector_last_success_timestamp_seconds");
+  assert.equal(fam.samples[0].value, 1_791_700_000);
 });

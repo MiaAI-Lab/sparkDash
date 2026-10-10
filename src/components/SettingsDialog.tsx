@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { isValidTimeZone, listTimeZones } from "../shared/timeZone";
 import { fetchSettings, updateSettings } from "../api/client";
 import { clearToken, getToken, onTokenChange, requestTokenPrompt } from "../api/authToken";
@@ -107,10 +107,12 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
 
   const timeZones = useMemo(() => listTimeZones(), []);
   const [tzTouched, setTzTouched] = useState(false);
+  const [tzFocused, setTzFocused] = useState(false);
+  const tzInput = useRef<HTMLInputElement | null>(null);
   const browserTimeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC", []);
 
   // Say a zone is unknown only once the field has been left (not while "Eur" is half typed).
-  const tzInvalid = tzTouched && Boolean(settings?.timeZone) && !isValidTimeZone(settings?.timeZone);
+  const tzInvalid = tzTouched && !tzFocused && Boolean(settings?.timeZone) && !isValidTimeZone(settings?.timeZone);
 
   const update = (patch: Partial<Settings>) => {
     setSettings((prev) => (prev ? { ...prev, ...patch } : prev));
@@ -247,8 +249,13 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
                     autoComplete="off"
                     aria-invalid={tzInvalid}
                     aria-describedby="settings-time-zone-msg"
+                    ref={tzInput}
                     onChange={(e) => update({ timeZone: e.target.value })}
-                    onBlur={() => setTzTouched(true)}
+                    onFocus={() => setTzFocused(true)}
+                    onBlur={() => {
+                      setTzFocused(false);
+                      setTzTouched(true);
+                    }}
                     className="field-input"
                   />
                   <datalist id="settings-time-zones">
@@ -263,13 +270,14 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
                     onClick={() => {
                       update({ timeZone: "" });
                       setTzTouched(false);
+                      tzInput.current?.focus(); // the button disables itself: keep keyboard focus somewhere sensible
                     }}
                   >
                     Use browser
                   </button>
                 </div>
                 {/* One reserved line: the message appears after the field is left, and never moves anything. */}
-                <small id="settings-time-zone-msg" className="set-tz__msg" role={tzInvalid ? "alert" : undefined}>
+                <small id="settings-time-zone-msg" className="set-tz__msg" role="status" aria-live="polite">
                   {tzInvalid ? "Unknown time zone. Try Europe/Paris." : ""}
                 </small>
               </SettingRow>

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import fs from "node:fs";
 import path from "node:path";
-import { CONFIG_PATH_VARS, isolatedConfigEnv } from "./isolatedEnv.js";
+import { CONFIG_DIR_VARS, CONFIG_PATH_VARS, isolatedConfigEnv } from "./isolatedEnv.js";
 
 const SERVER = path.resolve(import.meta.dirname, "..");
 // Directories and binaries, not files under config/.
@@ -19,15 +19,15 @@ function sourceFiles(dir) {
 test("every config path variable the server reads can be isolated by tests", () => {
   const used = new Set();
   for (const file of sourceFiles(SERVER)) {
-    for (const m of fs.readFileSync(file, "utf8").matchAll(/process\.env\.([A-Z0-9_]*(?:_PATH|_FILE))\b/g)) used.add(m[1]);
+    for (const m of fs.readFileSync(file, "utf8").matchAll(/process\.env\.([A-Z0-9_]*(?:_PATH|_FILE|_DIR))\b/g)) used.add(m[1]);
   }
   for (const name of NOT_CONFIG_FILES) used.delete(name);
-  const missing = [...used].filter((name) => !CONFIG_PATH_VARS.includes(name));
+  const missing = [...used].filter((name) => !CONFIG_PATH_VARS.includes(name) && !CONFIG_DIR_VARS.includes(name));
   assert.deepEqual(missing, [], `add to CONFIG_PATH_VARS: ${missing.join(", ")}`);
 });
 
 test("isolatedConfigEnv keeps every file inside the given directory", () => {
   const env = isolatedConfigEnv("/tmp/x");
   for (const value of Object.values(env)) assert.ok(value.startsWith("/tmp/x/"), value);
-  assert.equal(Object.keys(env).length, CONFIG_PATH_VARS.length);
+  assert.equal(Object.keys(env).length, CONFIG_PATH_VARS.length + CONFIG_DIR_VARS.length);
 });

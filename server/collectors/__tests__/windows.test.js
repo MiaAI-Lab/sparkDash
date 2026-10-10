@@ -158,8 +158,9 @@ test("network speeds come from the byte-counter delta between polls", async () =
     key === "gpu" ? GPU_OUT : SYSTEM_OUT.replace("Ethernet\tUp\t1000000000\t5000000\t3000000", "Ethernet\tUp\t1000000000\t5002000\t3001000");
   const net = await c.collectNetwork();
   const eth = net.interfaces.find((i) => i.name === "Ethernet");
-  assert.equal(eth.rxSpeed, 1000);
-  assert.equal(eth.txSpeed, 500);
+  // The test baseline is 2 s in the past, measured against the real clock: allow scheduling jitter.
+  assert.ok(Math.abs(eth.rxSpeed - 1000) <= 10, `rx ${eth.rxSpeed}`);
+  assert.ok(Math.abs(eth.txSpeed - 500) <= 5, `tx ${eth.txSpeed}`);
 });
 
 test("a failing PowerShell call degrades to defaults instead of throwing", async () => {

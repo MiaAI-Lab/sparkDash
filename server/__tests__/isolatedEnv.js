@@ -30,12 +30,18 @@ export const CONFIG_PATH_VARS = [
   "EVENTS_JSON_PATH",
 ];
 
-/** Env entries mapping each config path variable to a file inside `dir`. */
+/** Variables that point at a directory the server writes into. */
+export const CONFIG_DIR_VARS = ["TOOL_EVAL_RESULTS_DIR"];
+
+/** Env entries mapping each config path variable to a file (or directory) inside `dir`. */
 export function isolatedConfigEnv(dir) {
-  return Object.fromEntries(
-    CONFIG_PATH_VARS.map((name) => [
-      name,
-      path.join(dir, name === "SECRETS_KEY_PATH" ? ".secrets-key" : name === "SPARKS_JSON_PATH" ? "sparks.json" : `${name.toLowerCase()}.json`),
-    ])
-  );
+  return {
+    ...Object.fromEntries(
+      CONFIG_PATH_VARS.map((name) => [
+        name,
+        path.join(dir, name === "SECRETS_KEY_PATH" ? ".secrets-key" : name === "SPARKS_JSON_PATH" ? "sparks.json" : `${name.toLowerCase()}.json`),
+      ])
+    ),
+    ...Object.fromEntries(CONFIG_DIR_VARS.map((name) => [name, path.join(dir, name.toLowerCase())])),
+  };
 }

@@ -418,3 +418,19 @@ export function renderPrometheusMetrics(entries) {
   for (const entry of entries || []) addUnit(samples, entry);
   return samples.render();
 }
+
+/**
+ * Entries for renderPrometheusMetrics from the running monitors: each unit's snapshot,
+ * which collections were real measurements, and when each collector last succeeded.
+ * @param {Iterable<any>} monitors SparkMonitor instances (null / undefined entries are skipped)
+ */
+export function metricsEntries(monitors) {
+  return [...monitors]
+    .filter(Boolean)
+    .map((monitor) => ({
+      snapshot: monitor.snapshot(),
+      // Per-domain provenance: a failed GPU/CPU read is zero-filled, not real.
+      collected: { ...monitor._metricCollectionSuccessful },
+      collectedAt: monitor.lastSuccess(),
+    }));
+}
