@@ -374,6 +374,8 @@ export interface UnifiedMemoryMetrics {
 export interface LlmMetrics {
   available: boolean;
   backend: "vllm" | "llama.cpp" | "sglang" | "ds4" | "exl3" | "q27" | "tensorfold" | "freetoken" | null;
+  /** How the monitor reaches the engine: its own address, or an SSH forward when only SSH gets there. */
+  via?: "direct" | "ssh-tunnel";
   modelId: string | null;
   modelPath: string | null;
   /** Exact served request IDs from /v1/models, in response order. */

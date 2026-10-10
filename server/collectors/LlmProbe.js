@@ -7,8 +7,15 @@
 import { LLM_PROBE_TIMEOUT_MS } from "../config.js";
 import { classifyHostScope } from "../validate.js";
 import { llmProbeHost } from "./llmHost.js";
+import { openSshLlmTunnel } from "./llmTunnel.js";
 
 const FAIL_RESET_THRESHOLD = 3;
+/** Direct failures in a row before the probe tries an SSH tunnel to the unit's loopback. */
+const TUNNEL_AFTER_FAILURES = 2;
+/** Failures in a row through the tunnel before it is dropped and the direct path retried. */
+const TUNNEL_DROP_AFTER_FAILURES = 5;
+const TUNNEL_RETRY_MIN_MS = 60_000;
+const TUNNEL_RETRY_MAX_MS = 15 * 60_000;
 const REDETECT_INTERVAL_MS = 60_000;
 /** Current SGLang names first. Deprecated aliases still work but log a warning per hit. */
 const SGLANG_SERVER_INFO_PATHS = ["/server_info", "/get_server_info"];
@@ -63,7 +70,16 @@ export class LlmProbe {
   constructor(spark, port = 8888) {
     this.spark = spark;
     this.port = port;
-    this.baseUrl = `http://${llmProbeHost(spark)}:${port}`;
+    /** The unit's own address; baseUrl switches to a local forward when only SSH reaches the engine. */
+    this._directBase = `http://${llmProbeHost(spark)}:${port}`;
+    this.baseUrl = this._directBase;
+    /** @type {{ port: number, close: () => void } | null} */
+    this._tunnel = null;
+    this._tunnelRetryAt = 0;
+    this._tunnelBackoffMs = TUNNEL_RETRY_MIN_MS;
+    this._tunnelOpening = false;
+    /** Replaceable in tests. */
+    this._openTunnel = openSshLlmTunnel;
 
     // State
     this.backendType = null; // 'vllm' | 'llama.cpp' | 'sglang' | 'ds4' | 'exl3' | 'q27' | 'tensorfold' | 'freetoken' | null
@@ -208,12 +224,16 @@ export class LlmProbe {
   /** Update probe port (and host from spark). Resets detection when the target changes. */
   setPort(port) {
     const next = Number(port);
-    const prevUrl = this.baseUrl;
+    const prevUrl = this._directBase;
     if (Number.isInteger(next) && next >= 1 && next <= 65535) {
       this.port = next;
     }
-    this.baseUrl = `http://${llmProbeHost(this.spark)}:${this.port}`;
-    if (this.baseUrl !== prevUrl) {
+    this._directBase = `http://${llmProbeHost(this.spark)}:${this.port}`;
+    if (this._directBase !== prevUrl) {
+      this._closeTunnel();
+      this._tunnelRetryAt = 0;
+      this._tunnelBackoffMs = TUNNEL_RETRY_MIN_MS;
+      this.baseUrl = this._directBase;
       this._resetDetection();
       this._lastDetectAt = 0;
       this._consecutiveFailures = 0;
@@ -222,6 +242,15 @@ export class LlmProbe {
 
   /** Probe the LLM server and return a snapshot. */
   async probe() {
+    const snap = await this._probeOnce();
+    // Only SSH may reach the engine (its port is not exposed): after repeated direct
+    // failures, forward a local port through the unit's SSH login and probe that.
+    if (!snap.available && (await this._maybeOpenTunnel())) return this._probeOnce();
+    this._maybeDropTunnel();
+    return snap;
+  }
+
+  async _probeOnce() {
     try {
       const shouldDetect =
         this.serverIsOpenAI === null ||
@@ -250,8 +279,76 @@ export class LlmProbe {
     }
   }
 
+  /** True when this unit can be reached over SSH but the engine's own address may not be. */
+  _canTunnel() {
+    const spark = this.spark;
+    return Boolean(
+      spark &&
+        !spark.isLocal &&
+        !spark.llmHost && // a pinned llmHost is a different machine: never tunnel to the SSH host's loopback
+        spark.platform !== "windows" &&
+        spark.ssh?.host &&
+        !this._tunnel &&
+        !this._tunnelOpening
+    );
+  }
+
+  async _maybeOpenTunnel() {
+    if (this._consecutiveFailures < TUNNEL_AFTER_FAILURES) return false;
+    if (!this._canTunnel() || Date.now() < this._tunnelRetryAt) return false;
+    this._tunnelOpening = true;
+    try {
+      const tunnel = await this._openTunnel(this.spark, this.port);
+      this._tunnel = tunnel;
+      this.baseUrl = `http://127.0.0.1:${tunnel.port}`;
+      this._resetDetection();
+      this._lastDetectAt = 0;
+      this._consecutiveFailures = 0;
+      return true;
+    } catch {
+      this._scheduleTunnelRetry();
+      return false;
+    } finally {
+      this._tunnelOpening = false;
+    }
+  }
+
+  /** Through the tunnel and still failing (engine down, or the tunnel died): fall back to direct. */
+  _maybeDropTunnel() {
+    if (this._tunnel && this._consecutiveFailures >= TUNNEL_DROP_AFTER_FAILURES) {
+      this._closeTunnel();
+      this._scheduleTunnelRetry();
+      this.baseUrl = this._directBase;
+      this._resetDetection();
+      this._lastDetectAt = 0;
+      this._consecutiveFailures = 0;
+    }
+  }
+
+  _scheduleTunnelRetry() {
+    this._tunnelRetryAt = Date.now() + this._tunnelBackoffMs;
+    this._tunnelBackoffMs = Math.min(this._tunnelBackoffMs * 2, TUNNEL_RETRY_MAX_MS);
+  }
+
+  _closeTunnel() {
+    const tunnel = this._tunnel;
+    this._tunnel = null;
+    try {
+      tunnel?.close();
+    } catch {
+      /* already gone */
+    }
+  }
+
+  /** Release the SSH forward (monitor stopped, port removed). */
+  dispose() {
+    this._closeTunnel();
+    this.baseUrl = this._directBase;
+  }
+
   _noteSuccess() {
     this._consecutiveFailures = 0;
+    if (this._tunnel) this._tunnelBackoffMs = TUNNEL_RETRY_MIN_MS;
     this.error = null;
   }
 
@@ -2169,6 +2266,7 @@ export class LlmProbe {
     const metricsLive = this.serverIsOpenAI !== null && this.authOpen !== false;
     return {
       available: metricsLive,
+      via: this._tunnel ? "ssh-tunnel" : "direct",
       backend: this.backendType,
       modelId: this.models.length > 1 ? this.models[0] : this.modelId || null,
       modelPath: this.modelPath || null,

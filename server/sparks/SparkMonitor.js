@@ -270,6 +270,9 @@ export class SparkMonitor {
         this.llmProbes.set(port, new LlmProbe(spark, port));
       }
     }
+    for (const [port, probe] of prevProbes) {
+      if (!this.llmProbes.has(port)) probe.dispose?.();
+    }
     if (!this._llmMonitoringEnabled()) {
       this._metrics.llm = [];
     }
@@ -599,6 +602,13 @@ export class SparkMonitor {
     this._hermesIntervalId = null;
     this._tailscaleIntervalId = null;
     this._inflight = {};
+    for (const probe of this.llmProbes.values()) {
+      try {
+        probe.dispose();
+      } catch {
+        /* ignore */
+      }
+    }
     if (this.comfyProbe) {
       try {
         this.comfyProbe.dispose();

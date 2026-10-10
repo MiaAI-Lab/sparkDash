@@ -561,9 +561,16 @@ export function LlmPanel({
       actions={
         <div className="sp-actions">
           {available && backend && (
-            <Tag tone="info" title={`Backend: ${backend}`}>
-              {backend} · :{llmPort}
-            </Tag>
+            <>
+              {llm?.via === "ssh-tunnel" && (
+                <Tag title="This engine's port is not reachable from the dashboard, so it is read through an SSH tunnel to the unit">
+                  via SSH
+                </Tag>
+              )}
+              <Tag tone="info" title={`Backend: ${backend}`}>
+                {backend} · :{llmPort}
+              </Tag>
+            </>
           )}
           {onRemovePort && (
             <button
