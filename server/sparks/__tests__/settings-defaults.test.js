@@ -39,3 +39,14 @@ test("prometheusExport is opt-in and stored as a boolean", () => {
   assert.equal(loadSettings().prometheusExport, true);
   assert.equal(updateSettings({ prometheusExport: 0 }).prometheusExport, false);
 });
+
+test("timeZone follows the browser by default, accepts IANA names and drops anything else", () => {
+  fs.writeFileSync(process.env.SETTINGS_JSON_PATH, JSON.stringify({ density: "compact" }));
+  assert.equal(loadSettings().timeZone, "");
+  assert.equal(updateSettings({ timeZone: "Europe/Paris" }).timeZone, "Europe/Paris");
+  assert.equal(updateSettings({ timeZone: " Asia/Kolkata " }).timeZone, "Asia/Kolkata");
+  assert.equal(updateSettings({ timeZone: "Not/AZone" }).timeZone, "");
+  assert.equal(updateSettings({ timeZone: 5 }).timeZone, "");
+  assert.equal(updateSettings({ timeZone: "x".repeat(80) }).timeZone, "");
+  assert.equal(updateSettings({ timeZone: "" }).timeZone, "");
+});

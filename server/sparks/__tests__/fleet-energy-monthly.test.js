@@ -354,3 +354,24 @@ test("a discarded bucket adds nothing to an existing month", () => {
   assert.equal(month.coveredOutputTokens, 0);
   assert.equal(month.fleetWh, 2);
 });
+
+test("an archive that cannot be read is left alone and not overwritten", () => {
+  const writes = [];
+  const renames = [];
+  const fileSystem = {
+    readFileSync: () => {
+      throw Object.assign(new Error("permission denied"), { code: "EACCES" });
+    },
+    renameSync: (...args) => renames.push(args),
+  };
+  const archive = new MonthlyEnergyArchive({
+    filePath: "/nonexistent/fleet-energy-monthly.json",
+    fileSystem,
+    writeState: (...args) => writes.push(args),
+  });
+  archive.foldBuckets([], { nowMs: Date.UTC(2026, 9, 10) });
+  archive._dirty = true;
+  assert.equal(archive.flush(), false);
+  assert.equal(writes.length, 0);
+  assert.equal(renames.length, 0);
+});

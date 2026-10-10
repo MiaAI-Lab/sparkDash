@@ -204,7 +204,7 @@ export class MonthlyEnergyArchive {
   }
 
   flush() {
-    if (!this.filePath || !this._dirty) return false;
+    if (!this.filePath || !this._dirty || this._persistDisabled) return false;
     const months = Object.fromEntries([...this._months.entries()].sort(([a], [b]) => (a < b ? -1 : 1)));
     const state = { version: FILE_VERSION, savedAt: this._now(), foldedThroughMs: this._foldedThroughMs, months };
     this._writeState(this.filePath, `${JSON.stringify(state)}\n`, this._fs);
@@ -214,11 +214,21 @@ export class MonthlyEnergyArchive {
 
   _load() {
     if (!this.filePath) return;
-    let raw;
+    let text;
     try {
-      raw = JSON.parse(this._fs.readFileSync(this.filePath, "utf8"));
+      text = this._fs.readFileSync(this.filePath, "utf8");
     } catch (error) {
       if (error?.code === "ENOENT") return;
+      // Not being able to READ a file (permissions, I/O) says nothing about its content:
+      // never move it aside, and never overwrite it from an empty archive.
+      this._persistDisabled = true;
+      console.warn(`[MonthlyEnergyArchive] cannot read ${this.filePath} (${error.code ?? error.message}); not persisting this run`);
+      return;
+    }
+    let raw;
+    try {
+      raw = JSON.parse(text);
+    } catch (error) {
       this._setAside(error);
       return;
     }

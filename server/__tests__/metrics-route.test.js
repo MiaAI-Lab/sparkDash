@@ -40,6 +40,7 @@ test("GET /metrics answers 404 while off and Prometheus text once enabled", asyn
       LLM_DAILY_JSON_PATH: path.join(tmp, "llm-daily.json"),
       LLM_TOKEN_JSON_PATH: path.join(tmp, "llm-token-totals.json"),
       FLEET_ENERGY_JSON_PATH: path.join(tmp, "fleet-energy.json"),
+      FLEET_ENERGY_MONTHLY_JSON_PATH: path.join(tmp, "fleet-energy-monthly.json"),
     },
     stdio: ["ignore", "pipe", "pipe"],
   });

@@ -16,6 +16,7 @@ config/llm-token-totals.json
 config/llm-token-totals.json.*
 config/fleet-energy.json
 config/fleet-energy-monthly.json*
+config/fleet-energy-monthly.unreadable-*
 config/.fleet-energy.json.*.tmp
 config/gpu-memory.json
 config/gpu-memory.json.*
