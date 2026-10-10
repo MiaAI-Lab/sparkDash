@@ -52,6 +52,23 @@ describe("FleetEnergyCard states", () => {
     expect(bars.filter((bar) => (bar as HTMLElement).style.height === "0px" || (bar as HTMLElement).style.height === "0")).toHaveLength(6);
   });
 
+  it("shows a fleet-scale efficiency to three significant digits", async () => {
+    // ~8 kWh over ~7.6M output tokens: fixed 4-decimal formatting rounded
+    // this to 0.0011, and a busier day to a single digit.
+    fetchEnergy.mockResolvedValue(energy({ whPerOutputToken24h: 0.0010537 }));
+    const { container } = render(<FleetEnergyCard nodeCount={2} />);
+    await flush();
+    expect(container.textContent).toContain("0.00105 Wh/token");
+  });
+
+  it("never switches a large efficiency to exponent notation", async () => {
+    // A nearly idle fleet that served a handful of tokens.
+    fetchEnergy.mockResolvedValue(energy({ whPerOutputToken24h: 2403.7 }));
+    const { container } = render(<FleetEnergyCard nodeCount={2} />);
+    await flush();
+    expect(container.textContent).toContain("2404 Wh/token");
+  });
+
   it("reads coverage from the server-provided window, independent of fleet size", async () => {
     // Full fleet wall-clock coverage over the server's window is 100% at any
     // node count — the window is time, not node-time.
