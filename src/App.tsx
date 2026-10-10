@@ -6,6 +6,7 @@ import { useSmoothWheel } from "./hooks/useSmoothWheel";
 import { fetchSparks, reorderSparks, fetchSettings, fetchHealth } from "./api/client";
 import { AppSidebar } from "./components/shell/AppSidebar";
 import { MobileTabBar } from "./components/shell/MobileTabBar";
+import { InstallPrompt } from "./components/shell/InstallPrompt";
 import { CommandPalette, type PaletteCommand } from "./components/shell/CommandPalette";
 import { openShowcase, showcaseTarget } from "./components/shell/sparkSummary";
 import { AddSparkDialog } from "./components/AddSparkDialog";
@@ -590,6 +591,7 @@ function DashboardApp() {
         onAdd={() => setShowAdd(true)}
         onOpenSettings={() => setShowSettings(true)}
       />
+      <InstallPrompt />
       <CommandPalette open={showPalette} onClose={() => setShowPalette(false)} commands={paletteCommands} />
       <HermesUpdateDialog />
       <AddSparkDialog
