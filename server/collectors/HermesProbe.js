@@ -27,6 +27,7 @@
  */
 import fs from "fs";
 import path from "path";
+import { scrubbedChildEnv } from "../llmlaunch/childEnv.js";
 import { execFile } from "child_process";
 import { HOST_PATHS, HERMES_UPDATE_TIMEOUT_MS } from "../config.js";
 import { sshExec } from "./ssh.js";
@@ -311,7 +312,7 @@ export class HermesProbe {
       execFile(
         file,
         args,
-        { timeout: timeoutMs, maxBuffer: 10 * 1024 * 1024 },
+        { env: scrubbedChildEnv(), timeout: timeoutMs, maxBuffer: 10 * 1024 * 1024 },
         (err, stdout) => {
           if (err) {
             return reject(new Error(String(stdout || "").trim() || err.message));
