@@ -5,6 +5,7 @@
  * Uses execFile + argv arrays (no shell interpolation of user/host/cmd).
  * Password auth uses sshpass -e (password via env), not -p on the command line.
  */
+import { powershellCommand } from "./windowsMetrics.js";
 import { execFile } from "child_process";
 import crypto from "crypto";
 import fs from "fs";
@@ -268,7 +269,7 @@ export function sshCommandSpec(spark, opts = {}) {
  */
 export function explainSshFailure(message) {
   if (/is not recognized as an internal or external command/i.test(message)) {
-    return `${message} (this looks like a Windows host. sparkDash monitors Linux and macOS units; for a Windows PC with an NVIDIA GPU, run an SSH server inside WSL2 and add the WSL address instead.)`;
+    return `${message} (this looks like a Windows host: set the Unit type to "Windows PC with an NVIDIA GPU" in the unit's settings.)`;
   }
   return message;
 }
@@ -289,8 +290,10 @@ export async function sshExec(spark, cmd, options = {}) {
     throw new Error("SSH command must be a non-empty string");
   }
 
+  // Windows OpenSSH hands the command to cmd.exe or PowerShell, never bash.
+  const isWindows = spark?.platform === "windows";
   const { file, args, env, targetHost, multiplex, sshPort } = sshCommandSpec(spark, {
-    remoteArgv: [cmd],
+    remoteArgv: [isWindows ? powershellCommand(cmd) : cmd],
   });
 
   const execute = (execArgs) =>
@@ -307,7 +310,7 @@ export async function sshExec(spark, cmd, options = {}) {
 
   if (multiplex) {
     const probeArgs = [...args];
-    probeArgs[probeArgs.length - 1] = "true";
+    probeArgs[probeArgs.length - 1] = isWindows ? powershellCommand("exit 0") : "true";
     await ensureMultiplexReady(multiplex, () => execute(probeArgs));
   }
   try {

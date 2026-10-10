@@ -9,7 +9,7 @@ import {
   updateSpark,
 } from "../api/client";
 import type { SparkConfig, SparkRole, SparkTestResponse } from "../api/types";
-import { deviceKindNoun, editDeviceTitle } from "../shared/deviceKind";
+import { deviceKindNoun, editDeviceTitle, UNIT_TYPE_OPTIONS, unitTypeOf, unitTypePatch, type UnitType } from "../shared/deviceKind";
 import { resolveSparkRole } from "../api/sparkRole";
 import { useModalPresence } from "../hooks/useModalPresence";
 import { InfoIcon } from "./ui/icons";
@@ -190,6 +190,7 @@ export function EditSparkDialog({
         config.ssh?.auth !== savedConfig.ssh?.auth ||
         (config.ssh?.port ?? 22) !== (savedConfig.ssh?.port ?? 22) ||
         (config.kind ?? "spark") !== (savedConfig.kind ?? "spark") ||
+        (config.platform ?? "linux") !== (savedConfig.platform ?? "linux") ||
         config.role !== savedConfig.role ||
         Boolean(config.llmMonitoring) !== Boolean(savedConfig.llmMonitoring) ||
         Boolean(config.comfyMonitoring) !== Boolean(savedConfig.comfyMonitoring) ||
@@ -235,6 +236,7 @@ export function EditSparkDialog({
       const patch: Partial<SparkConfig> = {
         name: config.name,
         kind: config.kind ?? "spark",
+        platform: config.platform ?? "linux",
         lanIp: config.lanIp,
         cx7Ip: config.cx7Ip,
         macAddress: config.macAddress || null,
@@ -319,11 +321,12 @@ export function EditSparkDialog({
               <div>
                 <label className="field-label">Unit type</label>
                 <select
-                  value={config.kind ?? "spark"}
-                  onChange={(e) => update({ kind: e.target.value as "spark" | "host" })}
+                  value={unitTypeOf(config)}
+                  onChange={(e) => update(unitTypePatch(e.target.value as UnitType, config))}
                 >
-                  <option value="spark">NVIDIA DGX Spark</option>
-                  <option value="host">Dedicated GPU host (Linux, nvidia-smi, not a Spark)</option>
+                  {UNIT_TYPE_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
                 </select>
               </div>
 
@@ -393,15 +396,16 @@ export function EditSparkDialog({
               </div>
               )}
 
-              <label className="check-row">
-                <input
-                  type="checkbox"
-                  checked={config.isLocal}
-                  onChange={(e) => update({ isLocal: e.target.checked })}
-                  
-                />
-                This host (local collectors — no SSH for metrics)
-              </label>
+              {config.platform !== "windows" && (
+                <label className="check-row">
+                  <input
+                    type="checkbox"
+                    checked={config.isLocal}
+                    onChange={(e) => update({ isLocal: e.target.checked })}
+                  />
+                  This host (local collectors — no SSH for metrics)
+                </label>
+              )}
 
               <div>
                 <label className="field-label field-label--row">

@@ -610,13 +610,14 @@ export class SparkRegistry {
       id: config.id,
       name: config.name || config.id,
       /** Unit type: spark (DGX Spark) or host (dedicated GPU Linux box). */
-      kind: config.kind === "host" ? "host" : "spark",
+      kind: config.kind === "host" || config.platform === "windows" ? "host" : "spark",
       /**
        * Optional OS platform override for SSH-collected units: "darwin" for
        * macOS hosts (Mac Studio etc.). Absent/"linux" keeps the existing
        * /proc-based collectors. See SystemCollector isMac.
        */
-      platform: config.platform === "darwin" ? "darwin" : "linux",
+      platform:
+        config.platform === "darwin" ? "darwin" : config.platform === "windows" ? "windows" : "linux",
       lanIp: config.lanIp || "",
       /** Optional pinned HTTP target for LLM probes/actions; SSH still uses ssh.host. */
       llmHost:
@@ -655,12 +656,13 @@ export class SparkRegistry {
       /**
        * Opt-in tailnet presence via `tailscale status --json` (default false).
        */
-      tailscaleMonitoring: Boolean(config.tailscaleMonitoring),
+      // Hermes and Tailnet probes are bash scripts; Windows units do not run them.
+      tailscaleMonitoring: config.platform !== "windows" && Boolean(config.tailscaleMonitoring),
       /**
        * Opt-in: Hermes Agent CLI is installed on this machine. When enabled,
        * the SparkMonitor checks for updates and allows one-click `hermes update`.
        */
-      hermesMonitoring: Boolean(config.hermesMonitoring),
+      hermesMonitoring: config.platform !== "windows" && Boolean(config.hermesMonitoring),
       disabledDevices: Array.isArray(config.disabledDevices) ? config.disabledDevices : [],
       disabledInterfaces: Array.isArray(config.disabledInterfaces) ? config.disabledInterfaces : [],
       storagePollDisabled: Boolean(config.storagePollDisabled),

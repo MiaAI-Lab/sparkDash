@@ -561,6 +561,8 @@ app.post("/api/sparks/test", async (req, res) => {
       lanIp: body.lanIp || "",
       llmHost: body.llmHost,
       cx7Ip: body.cx7Ip || null,
+      platform: body.platform === "windows" ? "windows" : body.platform === "darwin" ? "darwin" : "linux",
+      kind: body.platform === "windows" ? "host" : body.kind,
       isLocal: Boolean(body.isLocal),
       role: body.role,
       workerNode: Boolean(body.workerNode),
@@ -1963,7 +1965,8 @@ function initiateSparkShutdown(spark) {
     return spawnLocalShutdown();
   }
 
-  return sshExec(spark, SHUTDOWN_REMOTE_CMD, { timeoutMs: 8000 })
+  const shutdownCmd = spark.platform === "windows" ? "shutdown.exe /s /t 5 /c sparkDash" : SHUTDOWN_REMOTE_CMD;
+  return sshExec(spark, shutdownCmd, { timeoutMs: 8000 })
     .then(() => {
       noteShutdown();
       return "Shutdown initiated";

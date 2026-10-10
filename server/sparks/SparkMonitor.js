@@ -202,8 +202,7 @@ export class SparkMonitor {
     this._hardwareSummary = this._staticHardwareSummary(spark);
     this._stopped = false;
     if (spark?.kind === "host") {
-      void this.collector
-        .detectHardware()
+      void (spark.platform === "windows" ? this.collector.detectWindowsHardware() : this.collector.detectHardware())
         .then((detected) => {
           if (this._stopped || !detected) return;
           this._hardwareSummary = { ...this._hardwareSummary, ...detected };
@@ -665,6 +664,9 @@ export class SparkMonitor {
   // ─── Uptime helper ─────────────────────────────────────────
   /** Read system uptime from /proc/uptime (local or via SSH). */
   async _readUptime() {
+    if (this.spark.platform === "windows" && !this.spark.isLocal) {
+      return this.collector.readWindowsUptime();
+    }
     let content;
     if (this.spark.isLocal) {
       const mapped = path.join(HOST_PATHS.PROC, "uptime");
@@ -1166,7 +1168,7 @@ export class SparkMonitor {
   _staticHardwareSummary(spark) {
     if (spark?.kind === "host") {
       return {
-        device: "Linux GPU host",
+        device: spark.platform === "windows" ? "Windows GPU host" : "Linux GPU host",
         cpuModel: null,
         cpuCores: null,
         totalMemoryGB: null,

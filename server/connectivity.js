@@ -69,7 +69,15 @@ export async function testSparkConnectivity(spark, { llmPort, comfyPort }) {
   const enabled = new Set(plan.filter((capability) => capability.enabled).map((capability) => capability.id));
   const entries = await Promise.all([
     checked(async () => {
-      if (!spark.isLocal) return sshTest(spark);
+      if (!spark.isLocal) {
+        const ssh = await sshTest(spark);
+        if (!ssh.ok || spark.platform !== "windows") return ssh;
+        // Windows: a shell alone is not enough, the collectors need nvidia-smi.
+        const gpu = await new SystemCollector(spark).collectGpu();
+        return Number(gpu?.vram?.total) > 0
+          ? ssh
+          : { ok: false, message: "SSH works, but nvidia-smi returned nothing on this Windows PC. Install the NVIDIA driver and make sure nvidia-smi.exe runs." };
+      }
       await new SystemCollector(spark).pingHost();
       return { ok: true, message: "Host metrics are readable" };
     }).then((result) => ["host", result]),

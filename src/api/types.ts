@@ -9,6 +9,8 @@ export interface SparkConfig {
    *   just not a Spark). Real hardware is auto-detected once online.
    */
   kind?: "spark" | "host";
+  /** OS of an SSH-collected unit. Windows PCs are always "host" units with an NVIDIA GPU. */
+  platform?: "linux" | "darwin" | "windows";
   lanIp: string;
   cx7Ip?: string | null;
   /**

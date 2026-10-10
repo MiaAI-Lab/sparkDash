@@ -17,7 +17,7 @@ sparkDash is a real-time web dashboard for one or more **NVIDIA DGX Spark (GB10)
 
 It also supports **non-Spark units**: any Linux machine with an NVIDIA GPU (e.g. a workstation with a dedicated RTX/L-series card) can be added as a **dedicated GPU host** and monitored the same way via SSH and `nvidia-smi`. For these units the dashboard correctly separates **RAM** (system memory) from **VRAM** (discrete GPU memory).
 
-Monitored units must run **Linux** (or macOS, see below). A Windows PC with an NVIDIA GPU can be added by running an SSH server inside **WSL2** and adding the WSL address; Windows' own OpenSSH server (cmd.exe) is not supported.
+Monitored units run **Linux**, **macOS**, or **Windows** (a Windows PC with an NVIDIA GPU: choose *Windows PC with an NVIDIA GPU* as the unit type; see below).
 
 <img src="./.github/screenshot.png" alt="sparkDash Overview page with multiple DGX Spark units, GPU metrics, and LLM status">
 
@@ -388,6 +388,16 @@ docker compose -f docker-compose.dev.yml up --build
 If the key file has a non-default name (e.g. `id_ed25519_shared`), mount it **as** `id_ed25519`, or set `SSH_IDENTITY_FILE` to the path inside the container. Keep the file mode `600`. The unit that runs sparkDash itself should be added with **This host (local collectors — no SSH for metrics)**.
 
 ---
+
+### Windows PCs
+
+A Windows PC with an NVIDIA GPU can be monitored with no agent. On the PC:
+
+1. Install the **OpenSSH Server** (Settings → Apps → Optional features → *OpenSSH Server*), then start it and set it to start automatically: `Start-Service sshd; Set-Service sshd -StartupType Automatic` in an elevated PowerShell. Windows Firewall opens port 22 for it.
+2. Make sure the NVIDIA driver is installed (`nvidia-smi` works in a terminal).
+3. In sparkDash choose **Add Spark / GPU host**, set **Unit type** to *Windows PC with an NVIDIA GPU*, enter the PC's LAN IP and your Windows user (a password works; a key for an administrator account has to go in `C:\ProgramData\ssh\administrators_authorized_keys`).
+
+sparkDash then runs two short PowerShell scripts over SSH per poll (no files are installed): GPU temperature, utilisation, power, VRAM and GPU processes from `nvidia-smi`, and RAM, uptime, CPU load, disks (fixed drives) and network adapters from Windows' CIM classes. Shutdown works (`shutdown.exe /s`). Not available on Windows: CPU temperature (Windows exposes no unprivileged sensor; CPU power is estimated from load), automatic Wake-on-LAN MAC detection (enter the MAC by hand), Hermes and Tailnet checks, model launchers, and the kernel Xid/OOM events. LLM servers on the PC (llama.cpp, Ollama, LM Studio, vLLM) are probed over HTTP as for any unit; if the server only listens on `127.0.0.1`, benchmarks fall back to an SSH tunnel.
 
 ### Running it on a machine that is not a Spark
 

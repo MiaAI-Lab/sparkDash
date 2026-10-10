@@ -190,9 +190,18 @@ test("sshCommandSpec: the legacy global switch still disables reuse", () => {
   assert.equal(spec.multiplex, null);
 });
 
-test("explainSshFailure points Windows hosts at WSL2 and leaves other errors alone", () => {
+test("explainSshFailure points Windows hosts at the Windows unit type and leaves other errors alone", () => {
   const win = explainSshFailure("'true' is not recognized as an internal or external command, operable program or batch file.");
   assert.match(win, /Windows/);
-  assert.match(win, /WSL2/);
+  assert.match(win, /Windows PC with an NVIDIA GPU/);
   assert.equal(explainSshFailure("Permission denied (publickey)."), "Permission denied (publickey).");
+});
+
+test("a Windows unit's command is sent as an encoded PowerShell argv", async () => {
+  const { powershellCommand } = await import("../windowsMetrics.js");
+  const spec = sshCommandSpec(
+    { id: "w", platform: "windows", lanIp: "10.0.0.5", ssh: { host: "10.0.0.5", user: "me", auth: "key" } },
+    { remoteArgv: [powershellCommand("echo ok")], multiplex: false }
+  );
+  assert.match(spec.args.at(-1), /^powershell .*-EncodedCommand /);
 });
