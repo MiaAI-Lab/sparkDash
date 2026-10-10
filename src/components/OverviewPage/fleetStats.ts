@@ -5,12 +5,33 @@ export interface FleetTotals {
   online: number;
   /** Sum of generation tok/s across every available LLM endpoint. */
   decodeTps: number;
-  /** Sum of GPU power draw (W) across online units. */
+  /** Estimated whole-node draw (W) across online units; see `estimateNodeWatts`. */
   powerW: number;
   /** Unified memory / VRAM in use (MB) across online units. */
   memUsedMb: number;
   /** Unified memory / VRAM capacity (MB) across all units that report it. */
   memTotalMb: number;
+}
+
+/**
+ * Everything on a unit that is neither the GPU nor the CPU rail (SSD, NIC, fans,
+ * conversion loss), in watts. Same figure as `estimateNodeWatts` in
+ * server/energy/FleetEnergyTracker.js, so this tile and Fleet energy agree.
+ */
+export const NODE_OVERHEAD_W = 23;
+
+const isWatts = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v >= 0;
+
+/**
+ * Estimated whole-node draw (W): measured GPU rail + the server's CPU estimate +
+ * platform overhead. Null when the unit reports neither rail, so a unit without
+ * power telemetry is left out instead of counted as overhead alone.
+ */
+export function estimateNodeWatts(s: SparkSnapshot): number | null {
+  const gpu = s.metrics?.gpu?.power?.draw;
+  const cpu = s.metrics?.cpu?.draw;
+  if (!isWatts(gpu) && !isWatts(cpu)) return null;
+  return (isWatts(gpu) ? gpu : 0) + (isWatts(cpu) ? cpu : 0) + NODE_OVERHEAD_W;
 }
 
 /** Aggregate live fleet numbers from one snapshot list (pure). */
@@ -21,7 +42,7 @@ export function computeFleetTotals(sparks: readonly SparkSnapshot[]): FleetTotal
     t.memTotalMb += total;
     if (!s.online) continue;
     t.online += 1;
-    t.powerW += s.metrics?.gpu?.power?.draw ?? 0;
+    t.powerW += estimateNodeWatts(s) ?? 0;
     t.memUsedMb += s.metrics?.gpu?.vram?.used ?? s.metrics?.unifiedMemory?.used ?? 0;
     if (Array.isArray(s.metrics?.llm)) {
       for (const llm of s.metrics.llm) if (llm.available) t.decodeTps += llm.generationTps || 0;

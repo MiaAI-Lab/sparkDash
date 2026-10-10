@@ -103,25 +103,39 @@ describe("Overview panels can be hidden", () => {
   });
 });
 
-/** The big number on a fleet KPI tile, found by its label. */
-function kpiValue(container: HTMLElement, label: string): string {
-  const tile = [...container.querySelectorAll(".ov-kpi")].find(
+/** A fleet KPI tile, found by its label. */
+function kpiTile(container: HTMLElement, label: string): Element | undefined {
+  return [...container.querySelectorAll(".ov-kpi")].find(
     (el) => el.querySelector(".eyebrow")?.textContent === label
   );
-  return tile?.querySelector(".big-num")?.firstChild?.textContent ?? "";
+}
+
+/** The big number on a fleet KPI tile. */
+function kpiValue(container: HTMLElement, label: string): string {
+  return kpiTile(container, label)?.querySelector(".big-num")?.firstChild?.textContent ?? "";
 }
 
 describe("Overview fleet KPIs", () => {
   it("count the whole fleet, including workers hidden from the card list", () => {
-    const head = host(); // 80 W
+    const head = host(); // 80 W GPU
+    head.metrics.cpu!.draw = 10;
     const worker = structuredClone(host());
     worker.id = "worker-1";
     worker.name = "Worker 1";
     worker.role = "worker";
     worker.metrics.gpu!.power.draw = 120;
+    worker.metrics.cpu!.draw = 12;
     worker.metrics.llm = [];
 
     const { container } = render(<OverviewPage sparks={[head, worker]} hideWorkers />);
-    expect(kpiValue(container, "Fleet power")).toBe("200");
+    // Whole-node estimate per unit: GPU + CPU + 23 W platform overhead.
+    expect(kpiValue(container, "Fleet power")).toBe(String(80 + 10 + 23 + 120 + 12 + 23));
+  });
+
+  it("marks Fleet power as an estimate and says what it includes", () => {
+    const { container } = render(<OverviewPage sparks={[host()]} />);
+    const tag = kpiTile(container, "Fleet power")?.querySelector(".ov-delta");
+    expect(tag?.textContent).toBe("est.");
+    expect(tag?.getAttribute("title")).toMatch(/GPU \+ CPU \+ 23 W/);
   });
 });
