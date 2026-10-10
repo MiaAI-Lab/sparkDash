@@ -1046,3 +1046,58 @@
 .sp-chart .legend {
   margin-top: 6px;
 }
+
+/* RoCE / RDMA panel */
+.sp .sp-roce-port {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface-elevated);
+}
+.sp .sp-roce-port.is-down {
+  border-color: color-mix(in srgb, var(--color-danger) 45%, var(--color-border));
+}
+.sp .sp-roce-port__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.sp .sp-roce-port__rates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  font-size: 12px;
+}
+.sp .sp-roce-port__dscp {
+  font-size: 11px;
+}
+.sp .sp-roce-port__more summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.sp .sp-roce-table {
+  width: 100%;
+  margin-top: 6px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.sp .sp-roce-table td {
+  padding: 2px 0;
+}
+.sp .sp-roce-table td:nth-child(2),
+.sp .sp-roce-table td:nth-child(3) {
+  text-align: right;
+  padding-left: 12px;
+}
+.sp .sp-roce-table tr.is-rising td {
+  color: var(--color-warning);
+}
+.sp .sp-roce-idle {
+  margin: 0;
+  font-size: 12px;
+}

@@ -469,6 +469,14 @@ If the key file has a non-default name (e.g. `id_ed25519_shared`), mount it **as
 
 ---
 
+### RoCE / RDMA monitoring
+
+Spark units with RDMA devices (the CX7 ports) get a **RoCE / RDMA** panel on their page, with no switch integration and no root. Per port: link state and rate, MTU, RX/TX traffic, interface errors and drops, PFC priorities, QoS trust mode (PCP or DSCP) and the DSCP map, global pause settings, and the RDMA counters (out of buffer, sequence errors, ACK timeouts, ECN-marked packets, CNPs sent and handled) plus ethtool discards, CRC errors and pause frames, with the change since the last sample.
+
+Everything comes from the Spark itself: `/sys/class/infiniband`, `/sys/class/net`, `ethtool -S` / `-a` and `mlnx_qos -i`. The fast part (link, counters, traffic) is read about every 5 s; the slow part (ethtool counters, PFC and trust) every 30 s. Units without RDMA devices are skipped and re-checked every 10 minutes. The API exposes it as `metrics.roce` in `/api/sparks/:id/metrics`.
+
+Two health findings use it: **a RoCE link went down** (a port that was up, critical) and **RoCE is dropping packets** (loss counters such as `out_of_buffer`, sequence errors or port discards rising for three samples in a row). Ports that never came up are not reported. Switch telemetry (PFC and ECN statistics on the switch side) is not part of this; it could be added later as an optional integration.
+
 ### Windows PCs
 
 A Windows PC with an NVIDIA GPU can be monitored with no agent. On the PC:

@@ -51,6 +51,7 @@ export class HealthEvaluator {
       this._kernelErrors(gpu, out);
       this._concurrency(llm, mem, out);
       this._link(net, out);
+      this._roce(metrics?.roce ?? null, out);
     } catch {
       /* a rule bug must never break the poll loop */
     }
@@ -169,5 +170,35 @@ export class HealthEvaluator {
     });
   }
 }
+
+
+// RoCE rules (see collectors/roce.js). Kept out of the class body above for readability.
+const ROCE_LOSS_STREAK = 3;
+
+HealthEvaluator.prototype._roce = function roce(roce, out) {
+  const devices = Array.isArray(roce?.devices) ? roce.devices : [];
+  // A port that was up and is not any more. Ports that never came up (uncabled) are not a finding.
+  const down = devices.filter((d) => d.everActive && !d.active);
+  if (down.length > 0) {
+    out.push({
+      id: "roce-link",
+      severity: "critical",
+      title: down.length === 1 ? "A RoCE link went down" : `${down.length} RoCE links went down`,
+      detail: down.map((d) => `${d.netdev ?? d.name}: ${d.state ?? "unknown"}${d.physState ? ` (${d.physState})` : ""}`).join(", ") + ".",
+      hint: "Check the cable, the transceiver and the switch port. Tensor-parallel and NCCL traffic over this port stalls or falls back to another path.",
+    });
+  }
+  // Loss counters that keep rising across several samples in a row.
+  const lossy = devices.filter((d) => d.active && num(d.loss?.streak) !== null && d.loss.streak >= ROCE_LOSS_STREAK);
+  if (lossy.length > 0) {
+    out.push({
+      id: "roce-loss",
+      severity: "warn",
+      title: "RoCE is dropping packets",
+      detail: lossy.map((d) => `${d.netdev ?? d.name}: ${(d.loss.rising ?? []).join(", ") || "counters rising"}`).join("; ") + ".",
+      hint: "Rising out_of_buffer, sequence or ack-timeout errors point at congestion or a lossless-network (PFC/ECN) misconfiguration. Compare the PFC and trust settings on every Spark and on the switch.",
+    });
+  }
+};
 
 export default HealthEvaluator;

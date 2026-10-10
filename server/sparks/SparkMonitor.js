@@ -91,6 +91,8 @@ const HEALTH_LABELS = {
   memory: "Unified memory",
   concurrency: "Model concurrency",
   "link-speed": "Network link speed",
+  "roce-link": "RoCE link",
+  "roce-loss": "RoCE packet loss",
 };
 
 export class SparkMonitor {
@@ -182,6 +184,7 @@ export class SparkMonitor {
       ram: this.collector._defaultRam(),
       storage: [],
       network: this.collector._defaultNetwork(),
+      roce: null,
       unifiedMemory: this.collector._defaultUnifiedMemory(),
       llm: [],
       comfy: null,
@@ -654,6 +657,7 @@ export class SparkMonitor {
         ram: this._metrics.ram,
         storage: this._metrics.storage,
         network: this._metrics.network,
+        roce: this._metrics.roce ?? null,
         unifiedMemory: this._metrics.unifiedMemory,
         llm: this._metrics.llm,
         comfy: comfyOn ? this._metrics.comfy : null,
@@ -711,6 +715,7 @@ export class SparkMonitor {
           gpu: this._metrics.gpu,
           unifiedMemory: this._metrics.unifiedMemory,
           network: this._metrics.network,
+          roce: this._metrics.roce,
           llm: this._metrics.llm,
         },
         domain
@@ -831,6 +836,7 @@ export class SparkMonitor {
     this._metrics.ram = c._defaultRam();
     this._metrics.storage = [];
     this._metrics.network = c._defaultNetwork();
+    this._metrics.roce = null;
     this._metrics.unifiedMemory = c._defaultUnifiedMemory();
     this._metricCollectionSuccessful = { gpu: false, cpu: false };
   }
@@ -888,6 +894,7 @@ export class SparkMonitor {
     this._inflight[domain] = pollToken;
     try {
       let result;
+      let roce = null;
       switch (domain) {
         case "gpu":
           result = await this.collector.collectGpu();
@@ -900,6 +907,8 @@ export class SparkMonitor {
           break;
         case "network":
           result = await this.collector.collectNetwork();
+          // RoCE rides the network tick; it throttles itself and never fails the poll.
+          roce = await this.collector.collectRoce().catch(() => null);
           break;
         case "storage":
           result = await this.collector.collectStorage();
@@ -945,6 +954,7 @@ export class SparkMonitor {
           break;
         case "network":
           this._metrics.network = result;
+          this._metrics.roce = roce;
           this._updateHealth();
           if (result?.wolMac && this._onWolMac) {
             try {

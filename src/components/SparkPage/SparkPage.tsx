@@ -14,6 +14,7 @@ import { TailscalePanel } from "./TailscalePanel";
 import { LlmPanel } from "./LlmPanel";
 import { ComfyPanel } from "./ComfyPanel";
 import { LlmModelsPanel } from "./LlmModelsPanel";
+import { RocePanel } from "./RocePanel";
 import { UnifiedMemoryPanel } from "./UnifiedMemoryPanel";
 import "../../styles/spark.css";
 import { vramContextFor } from "../../shared/vramBreakdown";
@@ -282,6 +283,11 @@ export function SparkPage({
                 onDisabledChange={setDisabledInterfaces}
               />
             </Item>
+            {metrics.roce && metrics.roce.devices.length > 0 && (
+              <Item order={8.5}>
+                <RocePanel roce={metrics.roce} />
+              </Item>
+            )}
             {tailscaleOn && (
               <Item order={9}>
                 <TailscalePanel tailscale={metrics.tailscale ?? null} />

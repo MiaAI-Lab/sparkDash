@@ -81,6 +81,8 @@ const KNOWN_LABELS: Record<string, string> = {
   "health.memory": "Low memory",
   "health.concurrency": "Many models loaded",
   "health.link-speed": "Slow link",
+  "health.roce-link": "RoCE link down",
+  "health.roce-loss": "RoCE packet loss",
   "health.cleared": "Health OK",
   "power.shutdown": "Shutdown",
   "power.wake": "Wake",

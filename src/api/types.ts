@@ -199,7 +199,7 @@ export interface GpuThrottle {
 
 /** One health finding for a Spark (server rules in server/health/HealthEvaluator.js). */
 export interface HealthFinding {
-  id: "thermal" | "low-power" | "memory" | "xid" | "oom" | "concurrency" | "link-speed";
+  id: "thermal" | "low-power" | "memory" | "xid" | "oom" | "concurrency" | "link-speed" | "roce-link" | "roce-loss";
   severity: "warn" | "critical";
   title: string;
   detail: string;
@@ -304,6 +304,55 @@ export interface NetworkMetrics {
   interfaces: NetworkInterface[];
   /** MAC of enP7s7 when present (same value persisted as detectedMacAddress). */
   wolMac?: string | null;
+}
+
+// ─── RoCE / RDMA (server/collectors/roce.js) ──────────────
+export interface RoceQos {
+  /** "pcp" or "dscp" (mlnx_qos "Priority trust state"). */
+  trust: string | null;
+  /** Priorities with PFC enabled; [] means PFC is off everywhere; null when mlnx_qos is unavailable. */
+  pfcPriorities: number[] | null;
+  cableLen: number | null;
+  /** priority -> DSCP values, present in DSCP trust mode. */
+  dscpMap: Record<string, number[]> | null;
+}
+
+export interface RoceDevice {
+  /** RDMA device, e.g. "rocep1s0f0". */
+  name: string;
+  /** Its network interface, e.g. "enp1s0f0np0". */
+  netdev: string | null;
+  state: string | null;
+  physState: string | null;
+  active: boolean;
+  /** Was ACTIVE at some point while sparkDash watched; an uncabled port never is. */
+  everActive: boolean;
+  rateGbps: number | null;
+  linkLayer: string | null;
+  operstate: string | null;
+  mtu: number | null;
+  speedMbps: number | null;
+  rxBps: number | null;
+  txBps: number | null;
+  rxErrors: number | null;
+  txErrors: number | null;
+  rxDropped: number | null;
+  txDropped: number | null;
+  /** RDMA hw_counters, lifetime totals. */
+  counters: Record<string, number>;
+  /** Change since the previous sample. */
+  deltas: Record<string, number>;
+  loss: { rising: string[]; streak: number };
+  /** ethtool -S subset (discards, CRC, pause frames, per-priority). */
+  eth: Record<string, number> | null;
+  flowControl: { rx: boolean | null; tx: boolean | null } | null;
+  qos: RoceQos | null;
+}
+
+export interface RoceMetrics {
+  available: true;
+  sampledAt: number;
+  devices: RoceDevice[];
 }
 
 // ─── Unified memory metrics ──────────────────────────────
@@ -525,6 +574,8 @@ export interface SparkMetrics {
   ram: RamMetrics | null;
   storage: StorageMetrics[];
   network: NetworkMetrics | null;
+  /** RoCE / RDMA ports; null when the unit has no RDMA devices. */
+  roce?: RoceMetrics | null;
   unifiedMemory: UnifiedMemoryMetrics | null;
   /** Array of LLM metrics, one per configured port. Empty array when no ports. */
   llm: LlmMetrics[];
