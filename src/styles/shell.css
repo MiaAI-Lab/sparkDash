@@ -44,11 +44,24 @@ body {
   display: none; /* phones only; see the media query at the bottom */
   align-items: center;
   gap: 14px;
-  padding: 10px var(--density-shell-pad);
+  /* On a notched phone (and in the installed app, whose page runs under the status bar)
+     the bar starts below the safe area instead of sitting under the clock. */
+  padding: calc(10px + env(safe-area-inset-top, 0px)) max(var(--density-shell-pad), env(safe-area-inset-right, 0px)) 10px max(var(--density-shell-pad), env(safe-area-inset-left, 0px));
   border-bottom: 1px solid var(--color-border);
   background: color-mix(in srgb, var(--color-base) 82%, transparent);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+}
+/* The installed iOS app draws white status-bar text over the page; a dark strip behind
+   it keeps the clock readable in the light themes too. */
+:root[data-standalone="1"] .app-topbar::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: env(safe-area-inset-top, 0px);
+  background: #0a0c0f;
 }
 .app-content {
   width: 100%;
@@ -530,7 +543,7 @@ body {
   }
   .app-topbar {
     display: flex;
-    padding-inline: 16px;
+    padding-inline: max(16px, env(safe-area-inset-left, 0px)) max(16px, env(safe-area-inset-right, 0px));
   }
   .app-content {
     padding: 16px 16px calc(84px + env(safe-area-inset-bottom, 0px));
