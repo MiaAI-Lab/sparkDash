@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, type CSSProperties, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import type { SparkSnapshot } from "../../api/types";
 import { isLlmMonitoringEnabled } from "../../api/sparkRole";
 import { updateSpark, refreshSparkMetric, addLlmPort, removeLlmPort } from "../../api/client";
@@ -49,6 +50,7 @@ export function SparkPage({
   showVramBreakdown = true,
   onEdit,
 }: SparkPageProps) {
+  const { t } = useTranslation();
   const { metrics } = spark;
   const [disabledDevices, setDisabledDevices] = useState<string[]>(spark.disabledDevices || []);
   const [disabledInterfaces, setDisabledInterfaces] = useState<string[]>(
@@ -165,7 +167,7 @@ export function SparkPage({
           min={1}
           max={65535}
           inputMode="numeric"
-          placeholder="Port number"
+          placeholder={t("spark.port.placeholder", "Port number")}
           value={newPortDraft}
           onChange={(e) => setNewPortDraft(e.target.value)}
           onKeyDown={(e) => {
@@ -183,7 +185,7 @@ export function SparkPage({
           disabled={!newPortDraft.trim()}
           className="btn btn--sm btn--primary"
         >
-          Add
+          {t("common.action.add", "Add")}
         </button>
         <button
           type="button"
@@ -193,12 +195,12 @@ export function SparkPage({
           }}
           className="btn btn--sm"
         >
-          Cancel
+          {t("common.action.cancel", "Cancel")}
         </button>
       </div>
     ) : (
       <button type="button" onClick={() => setShowAddPort(true)} className="sp-add-port-btn">
-        + Add LLM port
+        {t("spark.port.add", "+ Add LLM port")}
       </button>
     )
   ) : null;

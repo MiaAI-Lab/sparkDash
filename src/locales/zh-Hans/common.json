@@ -13,7 +13,10 @@
     "back": "返回",
     "loading": "正在加载…",
     "test": "测试",
-    "testing": "正在测试..."
+    "testing": "正在测试...",
+    "edit": "编辑",
+    "add": "添加",
+    "shutDown": "关机"
   },
   "confirm": {
     "dangerZone": "危险操作 — {title}",

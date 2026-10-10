@@ -134,7 +134,59 @@
   "confirm": {
     "remove": "移除{noun}“{name}”？此操作无法撤销。"
   },
+  "roleTitle": {
+    "head": "集群主节点 — 本地 LLM API",
+    "worker": "分布式 LLM 工作节点 — 无本地模型；LLM 卡片已隐藏",
+    "standaloneOn": "独立 — 本地 LLM API",
+    "standaloneOff": "独立 — LLM 监控已关闭"
+  },
+  "header": {
+    "online": "在线",
+    "offline": "离线",
+    "offlineWithReason": "离线 — {reason}",
+    "localTag": "本地",
+    "localTitle": "此仪表盘运行在本机",
+    "uptimeTitle": "运行时间：{value}",
+    "uptimeLabel": "已运行 {value}",
+    "tailscale": "（tailscale）",
+    "hermesInstalled": "本机已安装 Hermes Agent {version}",
+    "hermesNotFound": "未找到 Hermes",
+    "hermesNotFoundTitle": "本机未找到 `hermes` 可执行文件（请检查安装路径或编辑 Spark）。",
+    "updateCheckFailed": "更新检查失败",
+    "updateCheckFailedTitle": "更新检查失败 — 将自动重试：{error}"
+  },
+  "warn": {
+    "llmBusy": "{count, plural, one {# 个进行中的 LLM 请求} other {# 个进行中的 LLM 请求}}",
+    "llmBusyPort": "{count, plural, one {# 个进行中的 LLM 请求} other {# 个进行中的 LLM 请求}}（端口 :{port}）",
+    "comfyJob": "ComfyUI 任务运行中",
+    "comfyJobNamed": "ComfyUI 任务运行中：{title}",
+    "hermesUpdate": "Hermes 更新进行中"
+  },
+  "port": {
+    "placeholder": "端口号",
+    "add": "+ 添加 LLM 端口"
+  },
   "action": {
-    "removing": "正在移除…"
+    "removing": "正在移除…",
+    "shutdownInitiated": "已开始关机",
+    "shutdownFailed": "关机失败",
+    "wakeSent": "已发送唤醒数据包",
+    "wakeFailed": "唤醒失败",
+    "hermesRunningTitle": "正在通过 SSH 在本机运行 `hermes update` — 可能需要几分钟。",
+    "hermesUpdating": "正在更新 Hermes…",
+    "hermesFailed": "Hermes 更新失败",
+    "update": "更新 Hermes",
+    "updateTitle": "通过 SSH 在本机运行 “hermes update”",
+    "updateTitleBehind": "通过 SSH 在本机运行 “hermes update”（落后 {count, plural, one {# 个提交} other {# 个提交}}）",
+    "updateTitleIdle": "打开 Hermes Agent 更新状态，并通过 SSH 在本机运行更新",
+    "behind": "{count, plural, one {落后 # 个提交} other {落后 # 个提交}}",
+    "updateAvailable": "有可用更新",
+    "shutdownTitle": "优雅关机（需要主机上存在 /usr/local/bin/spark-shutdown）",
+    "wake": "唤醒",
+    "wakeTitle": "Wake-on-LAN（在编辑 Spark 中设置 MAC 地址）",
+    "noWol": "不支持 Wake-on-LAN",
+    "noWolTitle": "DGX Spark 无法通过魔术数据包唤醒。板载网卡不支持 Wake-on-LAN。",
+    "confirmShutdownTitle": "关闭 {name}",
+    "confirmShutdownDesc": "优雅关闭 {name}？这将停止所有容器并关闭节点电源。"
   }
 }
