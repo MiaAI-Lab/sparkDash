@@ -16,7 +16,10 @@
     "testing": "正在测试...",
     "edit": "编辑",
     "add": "添加",
-    "shutDown": "关机"
+    "shutDown": "关机",
+    "done": "完成",
+    "settings": "设置",
+    "refresh": "刷新"
   },
   "confirm": {
     "dangerZone": "危险操作 — {title}",
