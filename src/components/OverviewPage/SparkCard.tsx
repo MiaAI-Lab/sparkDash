@@ -189,6 +189,11 @@ function SparkCardImpl({
           {throttle.smClockMHz ? ` · SM ${(throttle.smClockMHz / 1000).toFixed(1)} GHz` : ""}
         </Tag>
       ) : null}
+      {online && throttle?.clockCapMHz != null ? (
+        <Tag title="GPU clock locked with nvidia-smi -lgc">
+          Cap {(throttle.clockCapMHz / 1000).toFixed(1)} GHz
+        </Tag>
+      ) : null}
       {online && llmChip ? <Tag tone={(llm?.requestsRunning ?? llm?.slotsActive ?? 0) > 0 ? "good" : "neutral"}>{llmChip}</Tag> : null}
       {comfy !== undefined || spark.comfyMonitoring ? (
         !comfy?.available ? (

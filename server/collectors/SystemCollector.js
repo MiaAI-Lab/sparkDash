@@ -41,6 +41,36 @@ export function parseKernelErrors(raw) {
   return { xid, oomKills, lastXid };
 }
 
+// nvidia-smi / NVML cannot read back a `nvidia-smi -lgc` lock (no getter
+// exists; clocks.max.* is the hardware max). Whoever sets the lock drops a
+// one-line marker "<maxMHz> [<boot_id>]" so the dashboard can show it. A
+// boot_id that no longer matches means the box rebooted and the lock is gone.
+export const CLOCK_CAP_FILES = [
+  "/run/sparkdash/gpu-clock-cap",
+  "$HOME/.config/sparkdash/gpu-clock-cap",
+];
+const CLOCK_CAP_CMD =
+  `cat ${CLOCK_CAP_FILES.join(" ")} 2>/dev/null | head -1; cat /proc/sys/kernel/random/boot_id 2>/dev/null || true`;
+
+/**
+ * Parse CLOCK_CAP_CMD output (marker line, then the current boot_id).
+ * Exported for tests. Returns the locked max graphics clock in MHz, or null.
+ * @param {unknown} raw
+ * @returns {number|null}
+ */
+export function parseClockCap(raw) {
+  const lines = String(raw ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const capLine = lines.find((l) => /^\d+/.test(l));
+  if (!capLine) return null;
+  const [mhzRaw, markerBoot] = capLine.split(/\s+/);
+  const mhz = Number.parseInt(mhzRaw, 10);
+  if (!Number.isFinite(mhz) || mhz <= 0) return null;
+  const currentBoot = lines.filter((l) => uuid.test(l)).pop();
+  if (markerBoot && currentBoot && markerBoot.toLowerCase() !== currentBoot.toLowerCase()) return null;
+  return mhz;
+}
+
 /**
  * Parse `grep -c` stdout into a non-negative integer. Exported for tests.
  * @param {unknown} raw
@@ -118,7 +148,7 @@ export function parseAmdSmiMetrics(raw, limitRaw = null) {
   });
 }
 
-const REMOTE_GPU_SECTIONS = new Set(["NVIDIA", "NVIDIA_VRAM", "NVIDIA_APPS", "AMD", "AMD_LIMITS", "MEMINFO"]);
+const REMOTE_GPU_SECTIONS = new Set(["NVIDIA", "NVIDIA_VRAM", "NVIDIA_APPS", "AMD", "AMD_LIMITS", "MEMINFO", "CLOCK_CAP"]);
 
 /**
  * Split the remote GPU probe output into named sections. A section starts at a
@@ -497,13 +527,15 @@ export class SystemCollector {
 
   // ─── GPU helpers ─────────────────────────────────────────
   async _getGPUAll() {
-    const [gpuOut, amd] = await Promise.all([
+    const [gpuOut, amd, clockCapMHz] = await Promise.all([
       this._nvidiaSmi(
         "--query-gpu=temperature.gpu,utilization.gpu,power.draw,power.limit,clocks.current.sm,clocks.max.sm,clocks_throttle_reasons.hw_thermal_slowdown,clocks_throttle_reasons.sw_thermal_slowdown,clocks_throttle_reasons.hw_slowdown,clocks_throttle_reasons.sw_power_cap,index,name,uuid --format=csv,noheader,nounits"
       ).catch(() => ""),
       this._probeLocalAmd(),
+      this._readLocalClockCap(),
     ]);
     const nvidiaDevices = this._parseGpuLines(gpuOut);
+    this._applyClockCap(nvidiaDevices, clockCapMHz);
     const amdDevices = amd.devices;
     this._lastVramPerDevice = [];
     const nvidiaVram = nvidiaDevices.length ? await this._queryNvidiaVram() : { used: 0, total: 0, percentage: 0, available: 0 };
@@ -975,8 +1007,40 @@ export class SystemCollector {
       smClockMHz,
       smClockMaxMHz,
       smClockPct,
+      clockCapMHz: null,
       detail: details.length ? details.join(" · ") : "Clocks not limited",
     };
+  }
+
+  /** Stamp a `nvidia-smi -lgc` cap (MHz or null) onto each device's throttle. */
+  _applyClockCap(devices, capMHz) {
+    if (capMHz == null) return;
+    for (const d of devices) {
+      if (!d.throttle) continue;
+      d.throttle.clockCapMHz = capMHz;
+      const note = `Clock locked ≤ ${capMHz} MHz`;
+      d.throttle.detail =
+        d.throttle.detail === "Clocks not limited" ? note : `${d.throttle.detail} · ${note}`;
+    }
+  }
+
+  /** Local-host twin of CLOCK_CAP_CMD: read the marker and boot_id directly. */
+  async _readLocalClockCap() {
+    const home = process.env.HOME || "";
+    const files = CLOCK_CAP_FILES.map((f) => f.replace("$HOME", home));
+    let marker = "";
+    for (const f of files) {
+      try {
+        marker = (await fs.promises.readFile(f, "utf8")).split("\n")[0];
+        if (marker.trim()) break;
+      } catch {}
+    }
+    if (!marker.trim()) return null;
+    let boot = "";
+    try {
+      boot = await fs.promises.readFile("/proc/sys/kernel/random/boot_id", "utf8");
+    } catch {}
+    return parseClockCap(`${marker}\n${boot}`);
   }
 
   _defaultThrottle() {
@@ -1590,6 +1654,7 @@ export class SystemCollector {
         "if command -v nvidia-smi >/dev/null 2>&1; then printf '\\n__NVIDIA__\\n'; nvidia-smi --query-gpu=temperature.gpu,utilization.gpu,power.draw,power.limit,clocks.current.sm,clocks.max.sm,clocks_throttle_reasons.hw_thermal_slowdown,clocks_throttle_reasons.sw_thermal_slowdown,clocks_throttle_reasons.hw_slowdown,clocks_throttle_reasons.sw_power_cap,index,name,uuid --format=csv,noheader,nounits 2>/dev/null; printf '\\n__NVIDIA_VRAM__\\n'; nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader,nounits 2>/dev/null; printf '\\n__NVIDIA_APPS__\\n'; nvidia-smi --query-compute-apps=pid,process_name,used_gpu_memory,gpu_uuid --format=csv,noheader,nounits 2>/dev/null; fi",
         `${AMD_SMI_RESOLVER}; if [ -n "$amd_smi" ]; then printf '\\n__AMD__\\n'; "$amd_smi" metric -u -p -m -t --json 2>/dev/null; printf '\\n__AMD_LIMITS__\\n'; "$amd_smi" static -l --json 2>/dev/null; fi`,
         "printf '\\n__MEMINFO__\\n'; grep -E 'MemTotal|MemAvailable' /proc/meminfo 2>/dev/null",
+        `printf '\\n__CLOCK_CAP__\\n'; ${CLOCK_CAP_CMD}`,
       ].join("; ");
 
       const output = await executor(this.spark, cmd);
@@ -1605,9 +1670,11 @@ export class SystemCollector {
       const legacy = !("MEMINFO" in sections);
       const legacySections = legacy ? String(output).split("---") : [];
       const resolvedMeminfo = legacy ? (legacySections[3] || "").trim() : meminfoOut;
+      const clockCapOut = section("CLOCK_CAP");
       const cliDevices = this._parseGpuLines(legacy ? (legacySections[0] || "") : gpuOut, {
         source: this.isWindows ? "windows" : "nvidia",
       });
+      this._applyClockCap(cliDevices, parseClockCap(clockCapOut));
       const perDeviceVram = this._parseVramLines(legacy ? (legacySections[1] || "") : memFields);
       const apps = this._parseComputeApps(legacy ? (legacySections[2] || "") : computeOut);
       const amdDevices = legacy ? [] : parseAmdSmiMetrics(amdMetrics, amdLimits)
@@ -1616,7 +1683,6 @@ export class SystemCollector {
       const gpu = this._aggregateGpuDevices(gpuDevices);
       if (!gpuDevices.length) return this._defaultGpu();
       let { used: cliUsed, total: cliTotal } = this._sumVram(perDeviceVram);
-
       this.nvidiaComputeAppsCache.clear();
       let computeSum = 0;
       for (const app of apps) {

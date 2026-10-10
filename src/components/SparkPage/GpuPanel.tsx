@@ -244,6 +244,11 @@ export function GpuPanel({
             <small>{clock.unit}</small>
           </div>
           <Tag tone={throttle.tone}>{throttle.label}</Tag>
+          {t?.clockCapMHz != null ? (
+            <span className="sp-stat__sub mono" title="Locked with nvidia-smi -lgc">
+              cap {t.clockCapMHz} MHz
+            </span>
+          ) : null}
         </div>
       </div>
 

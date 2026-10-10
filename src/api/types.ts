@@ -198,6 +198,9 @@ export interface GpuThrottle {
   smClockMaxMHz: number | null;
   /** Current SM clock as % of max (0–100). null when clocks unavailable. */
   smClockPct: number | null;
+  /** Max graphics clock locked with `nvidia-smi -lgc` (MHz), from the sparkdash
+   *  gpu-clock-cap marker on the host. null/absent when no lock is recorded. */
+  clockCapMHz?: number | null;
   /** Human-readable active reasons (tooltip). */
   detail: string;
 }
