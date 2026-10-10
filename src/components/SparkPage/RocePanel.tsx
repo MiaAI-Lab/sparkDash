@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { RoceDevice, RoceMetrics } from "../../api/types";
 import { Panel } from "../ui/Panel";
 import { NetworkIcon } from "../ui/icons";
@@ -106,13 +107,51 @@ function PortRow({ d }: { d: RoceDevice }) {
   );
 }
 
-/** RoCE / RDMA ports of a unit (shown only when it has RDMA devices). */
+const OPEN_KEY = "sparkdash.roce.open";
+
+function readOpen(): boolean {
+  try {
+    return localStorage.getItem(OPEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** One line for the collapsed panel: link count, speeds, PFC, and whether loss is rising. */
+export function roceSummary(devices: RoceDevice[]): { text: string; tone: "good" | "warn" | "bad" | "neutral" } {
+  const up = devices.filter((d) => d.active);
+  const down = devices.filter((d) => d.everActive && !d.active);
+  const lossy = devices.filter((d) => d.loss.rising.length > 0);
+  const speeds = [...new Set(up.map((d) => d.speedMbps ?? (d.rateGbps != null ? d.rateGbps * 1000 : null)).filter((v): v is number => v != null))];
+  const pfcKnown = devices.filter((d) => d.qos?.pfcPriorities != null);
+  const pfcOn = pfcKnown.filter((d) => (d.qos?.pfcPriorities?.length ?? 0) > 0).length;
+  const parts = [
+    `${up.length}/${devices.length} up`,
+    speeds.length > 0 ? speeds.map((v) => `${v / 1000} Gb/s`).join(" / ") : null,
+    pfcKnown.length > 0 ? (pfcOn === 0 ? "PFC off" : `PFC on (${pfcOn}/${pfcKnown.length})`) : null,
+    lossy.length > 0 ? "loss rising" : down.length > 0 ? `${down.length} down` : "no loss",
+  ].filter(Boolean);
+  return { text: parts.join(" · "), tone: down.length > 0 ? "bad" : lossy.length > 0 ? "warn" : up.length === devices.length ? "good" : "neutral" };
+}
+
+/** RoCE / RDMA ports of a unit (shown only when it has RDMA devices). Collapsed by default. */
 export function RocePanel({ roce, className }: { roce: RoceMetrics | null | undefined; className?: string }) {
+  const [open, setOpen] = useState(readOpen);
   if (!roce || roce.devices.length === 0) return null;
   // Ports that never came up are not noise worth a row, but keep them reachable.
   const live = roce.devices.filter((d) => d.active || d.everActive);
   const idle = roce.devices.filter((d) => !d.active && !d.everActive);
-  const upCount = roce.devices.filter((d) => d.active).length;
+  const summary = roceSummary(roce.devices);
+  const toggle = () => {
+    setOpen((v) => {
+      try {
+        localStorage.setItem(OPEN_KEY, v ? "0" : "1");
+      } catch {
+        /* storage may be blocked */
+      }
+      return !v;
+    });
+  };
   return (
     <Panel
       title="RoCE / RDMA"
@@ -121,15 +160,32 @@ export function RocePanel({ roce, className }: { roce: RoceMetrics | null | unde
       className={`panel-roce ${className ?? ""}`}
       bodyClassName="sp-stack"
       hint="Link state, rate, traffic, drops and RDMA counters per port, read from sysfs, ethtool and mlnx_qos on the Spark itself."
-      actions={<Tag tone={upCount === roce.devices.length ? "good" : "neutral"}>{upCount}/{roce.devices.length} up</Tag>}
+      actions={
+        <button
+          type="button"
+          className={`btn btn--sm btn--ghost ${open ? "is-on" : ""}`}
+          aria-expanded={open}
+          aria-controls="roce-ports"
+          onClick={toggle}
+        >
+          {open ? "Hide ports" : "Show ports"}
+        </button>
+      }
     >
-      {live.map((d) => (
-        <PortRow key={d.name} d={d} />
-      ))}
-      {idle.length > 0 && (
-        <p className="sp-muted sp-roce-idle">
-          {idle.length} port{idle.length === 1 ? "" : "s"} not connected: {idle.map((d) => d.netdev ?? d.name).join(", ")}
-        </p>
+      <div className="sp-roce-summary">
+        <Tag tone={summary.tone}>{summary.text}</Tag>
+      </div>
+      {open && (
+        <div id="roce-ports" className="sp-stack">
+          {live.map((d) => (
+            <PortRow key={d.name} d={d} />
+          ))}
+          {idle.length > 0 && (
+            <p className="sp-muted sp-roce-idle">
+              {idle.length} port{idle.length === 1 ? "" : "s"} not connected: {idle.map((d) => d.netdev ?? d.name).join(", ")}
+            </p>
+          )}
+        </div>
       )}
     </Panel>
   );

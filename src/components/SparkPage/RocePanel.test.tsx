@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { act } from "react";
+import { beforeEach, describe, expect, it } from "vitest";
 import type { RoceDevice, RoceMetrics } from "../../api/types";
-import { RocePanel, pfcLabel } from "./RocePanel";
+import { RocePanel, pfcLabel, roceSummary } from "./RocePanel";
 import { render } from "../../testing/render";
 
 const device = (over: Partial<RoceDevice> = {}): RoceDevice => ({
@@ -32,7 +33,36 @@ const device = (over: Partial<RoceDevice> = {}): RoceDevice => ({
 
 const metrics = (devices: RoceDevice[]): RoceMetrics => ({ available: true, sampledAt: 1, devices });
 
+const openPanel = (container: HTMLElement) => {
+  const button = [...container.querySelectorAll("button")].find((b) => /show ports/i.test(b.textContent ?? ""));
+  act(() => button?.click());
+};
+
+beforeEach(() => {
+  try {
+    localStorage.removeItem("sparkdash.roce.open");
+  } catch {
+    /* ignore */
+  }
+});
+
 describe("RocePanel", () => {
+  it("is collapsed by default, shows a one-line summary and remembers being opened", () => {
+    const { container } = render(<RocePanel roce={metrics([device(), device({ name: "r2", netdev: "enp2" })])} />);
+    expect(container.textContent).toContain("2/2 up · 200 Gb/s · PFC off · loss rising");
+    expect(container.querySelector('[data-testid="roce-rocep1s0f0"]')).toBeNull();
+    openPanel(container);
+    expect(container.querySelector('[data-testid="roce-rocep1s0f0"]')).not.toBeNull();
+    expect(container.querySelector("[aria-expanded]")?.getAttribute("aria-expanded")).toBe("true");
+    const again = render(<RocePanel roce={metrics([device()])} />);
+    expect(again.container.querySelector('[data-testid="roce-rocep1s0f0"]')).not.toBeNull();
+  });
+
+  it("summarises a down link and a quiet fleet", () => {
+    expect(roceSummary([device({ loss: { rising: [], streak: 0 }, state: "DOWN", active: false })]).tone).toBe("bad");
+    expect(roceSummary([device({ loss: { rising: [], streak: 0 } })])).toEqual({ text: "1/1 up · 200 Gb/s · PFC off · no loss", tone: "good" });
+  });
+
   it("renders nothing without RDMA devices", () => {
     const { container } = render(<RocePanel roce={null} />);
     expect(container.textContent).toBe("");
@@ -41,6 +71,7 @@ describe("RocePanel", () => {
 
   it("shows link, speed, MTU, traffic, PFC and a rising-loss hint per port", () => {
     const { container } = render(<RocePanel roce={metrics([device()])} />);
+    openPanel(container);
     const text = container.textContent ?? "";
     expect(text).toContain("RoCE / RDMA");
     expect(text).toContain("enp1s0f0np0");
@@ -62,6 +93,7 @@ describe("RocePanel", () => {
     const down = device({ state: "DOWN", physState: "Disabled", active: false, rxBps: null, txBps: null });
     const idle = device({ name: "rocep9", netdev: "enp9", state: "DOWN", active: false, everActive: false });
     const { container } = render(<RocePanel roce={metrics([down, idle])} />);
+    openPanel(container);
     expect(container.querySelector('[data-testid="roce-rocep1s0f0"]')?.className).toContain("is-down");
     expect(container.textContent).toContain("1 port not connected: enp9");
     expect(container.textContent).toContain("0/2 up");

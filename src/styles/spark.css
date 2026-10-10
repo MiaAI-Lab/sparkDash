@@ -1015,8 +1015,8 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: var(--sp-gap);
-  /* The Models list is taller than the memory and CPU cards: let each keep its own height. */
-  align-items: start;
+  /* Cards of one row share a height (Models is the tall one). */
+  align-items: stretch;
 }
 
 /* Panel header actions sit on the right, also when they wrap under the title. */
@@ -1101,4 +1101,9 @@
 .sp .sp-roce-idle {
   margin: 0;
   font-size: 12px;
+}
+.sp .sp-roce-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
