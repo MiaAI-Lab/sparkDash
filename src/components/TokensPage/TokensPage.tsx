@@ -350,7 +350,7 @@ export function TokensPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[];
             </h2>
             <ul>
               <li>
-                Daily buckets are <b>UTC days</b>; hourly buckets are UTC hours shown in your local time.
+                Daily buckets are <b>UTC days</b>; hourly buckets are UTC hours shown in the time zone from Settings (browser default).
                 {data?.history.firstDay ? (
                   <>
                     {" "}

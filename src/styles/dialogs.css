@@ -1783,3 +1783,23 @@
 .set-token__state.is-set i {
   background: var(--color-success);
 }
+
+/* Settings → Time zone: input with suggestions, plus "Use browser". */
+.set-tz {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.set-tz .field-input {
+  width: 190px;
+  min-width: 0;
+}
+.set-tz .field-input[aria-invalid="true"] {
+  border-color: var(--color-danger);
+}
+.set-tz__err {
+  display: block;
+  margin-top: 4px;
+  color: var(--color-danger);
+}

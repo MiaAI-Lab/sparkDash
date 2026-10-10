@@ -7,6 +7,7 @@
  * served subset of prompt, computed = prompt - cached. total = generated + prompt.
  */
 import { addTokens, formatTokensCompact } from "../../shared/tokenFormat";
+import { tzOffsetMinutes } from "../../shared/timeZone";
 import type { TokenHistory, TokenHistoryRow } from "../../api/types";
 import type { LlmTokenSeriesTotals } from "../../api/llmTokenTypes";
 
@@ -121,7 +122,7 @@ export function bucketKeys(unit: BucketUnit, count: number, nowMs: number): stri
 }
 
 function tzOffset(ms: number, offsetMin?: number): number {
-  return offsetMin ?? -new Date(ms).getTimezoneOffset();
+  return offsetMin ?? tzOffsetMinutes(ms);
 }
 
 /**
@@ -136,7 +137,7 @@ export function bucketLabel(key: string, unit: BucketUnit, offsetMin?: number): 
     return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
   }
   const d = new Date(ms + tzOffset(ms, offsetMin) * 60_000);
-  return `${String(d.getUTCHours()).padStart(2, "0")}:00`;
+  return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
 }
 
 /** Tooltip heading: "Wed 7 Oct 2026 (UTC)" or "Wed 7 Oct, 14:00–15:00 (local)". */
@@ -149,8 +150,9 @@ export function bucketTitle(key: string, unit: BucketUnit, offsetMin?: number): 
   }
   const off = tzOffset(ms, offsetMin);
   const d = new Date(ms + off * 60_000);
-  const hh = (n: number) => `${String(n % 24).padStart(2, "0")}:00`;
-  return `${WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}, ${hh(d.getUTCHours())}–${hh(d.getUTCHours() + 1)} (local)`;
+  // Hour buckets are UTC hours, so a half-hour zone (India, Nepal...) starts them at :30 or :45.
+  const clock = (t: Date) => `${String(t.getUTCHours()).padStart(2, "0")}:${String(t.getUTCMinutes()).padStart(2, "0")}`;
+  return `${WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}, ${clock(d)}–${clock(new Date(d.getTime() + 3_600_000))} (local)`;
 }
 
 export interface RangeWindow {

@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { isValidTimeZone, listTimeZones } from "../shared/timeZone";
 import { fetchSettings, updateSettings } from "../api/client";
 import { clearToken, getToken, onTokenChange, requestTokenPrompt } from "../api/authToken";
 import type { Settings } from "../api/types";
@@ -103,6 +104,9 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
   }, [open]);
 
   const { mounted, visible } = useModalPresence(open);
+
+  const timeZones = useMemo(() => listTimeZones(), []);
+  const browserTimeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC", []);
 
   const update = (patch: Partial<Settings>) => {
     setSettings((prev) => (prev ? { ...prev, ...patch } : prev));
@@ -214,6 +218,41 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
                     °F
                   </button>
                 </div>
+              </SettingRow>
+
+              <SettingRow
+                title="Time zone"
+                help={`Hour and day boundaries and labels on the Tokens, Energy and Activity charts. Empty follows this browser (${browserTimeZone}). Daily token buckets and monthly energy totals stay UTC.`}
+                htmlFor="settings-time-zone"
+              >
+                <div className="set-tz">
+                  <input
+                    id="settings-time-zone"
+                    type="text"
+                    list="settings-time-zones"
+                    value={settings.timeZone ?? ""}
+                    placeholder="Browser default"
+                    title={`Empty follows this browser (${browserTimeZone})`}
+                    spellCheck={false}
+                    autoComplete="off"
+                    aria-invalid={Boolean(settings.timeZone) && !isValidTimeZone(settings.timeZone)}
+                    onChange={(e) => update({ timeZone: e.target.value })}
+                    className="field-input"
+                  />
+                  <datalist id="settings-time-zones">
+                    {timeZones.map((zone) => (
+                      <option key={zone} value={zone} />
+                    ))}
+                  </datalist>
+                  {settings.timeZone ? (
+                    <button type="button" className="btn btn--sm btn--ghost" onClick={() => update({ timeZone: "" })}>
+                      Use browser
+                    </button>
+                  ) : null}
+                </div>
+                {settings.timeZone && !isValidTimeZone(settings.timeZone) ? (
+                  <small className="set-tz__err" role="alert">Not a known time zone, for example Europe/Paris or America/New_York.</small>
+                ) : null}
               </SettingRow>
 
               <SettingRow

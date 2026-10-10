@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { setConfiguredTimeZone } from "../../shared/timeZone";
 import type { ActivityEvent } from "../../api/types";
 import {
   EMPTY_FILTER, NO_SPARK, categorize, countByCategory, countBySeverity, countBySpark, dayLabel, eventsPerDay,
@@ -133,6 +134,13 @@ describe("local days", () => {
   it("keys the calendar day in the given timezone", () => {
     expect(localDayKey(NOW, NY)).toBe("2026-10-07");
     expect(localDayKey(NOW, TOKYO)).toBe("2026-10-08");
+    // Without an explicit zone the Settings time zone applies.
+    setConfiguredTimeZone(TOKYO);
+    try {
+      expect(localDayKey(NOW)).toBe("2026-10-08");
+    } finally {
+      setConfiguredTimeZone(null);
+    }
     // 03:30 UTC is still the previous evening in New York
     expect(localDayKey(Date.UTC(2026, 9, 7, 3, 30), NY)).toBe("2026-10-06");
     expect(localDayKey(Date.UTC(2026, 9, 7, 3, 30), "UTC")).toBe("2026-10-07");

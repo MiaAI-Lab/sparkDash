@@ -1,4 +1,5 @@
 import { BenchIcon } from "./components/bench/BenchIcon";
+import { setConfiguredTimeZone } from "./shared/timeZone";
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useSnapshot } from "./hooks/useSnapshot";
 import { useAppRoute, useRoute } from "./hooks/useRoute";
@@ -246,6 +247,10 @@ function DashboardApp() {
   const onPage = isPageId(activeId);
   const benchType = benchTypeOf(activeId);
   const hideWorkers = settings?.hideWorkers ?? false;
+  // Charts read the time zone from a module value; set it before the pages render, and
+  // re-key <main> below so a change in Settings redraws them.
+  const chartTimeZone = settings?.timeZone ?? "";
+  setConfiguredTimeZone(chartTimeZone);
   const hiddenWorkerIds = useMemo(() => {
     if (!hideWorkers) return new Set<string>();
     return new Set(
@@ -533,7 +538,7 @@ function DashboardApp() {
               stale={telemetryStale}
             />
             <ErrorBanner message={actionError} onDismiss={() => setActionError(null)} />
-            <main className={telemetryStale || !connected ? "telemetry-stale" : undefined}>
+            <main key={chartTimeZone} className={telemetryStale || !connected ? "telemetry-stale" : undefined}>
               {activeId === TOKENS_ID ? (
                 <TokensPage sparks={displaySparks} onSelectSpark={navigate} />
               ) : activeId === ENERGY_ID ? (

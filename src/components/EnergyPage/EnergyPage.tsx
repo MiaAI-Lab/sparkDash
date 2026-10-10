@@ -1,4 +1,5 @@
 import { RestartButton } from "../ui/RestartButton";
+import { activeTimeZone } from "../../shared/timeZone";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clearFleetEnergy, fetchEnergyHistory, fetchFleetEnergy } from "../../api/client";
 import { ClearMenu } from "../ui/ClearMenu";
@@ -239,7 +240,7 @@ export function EnergyPage({
           <h1>Fleet energy</h1>
           <p className="page-head__sub">
             Estimated electricity use of your Sparks from GPU and CPU power telemetry. Not wall-metered.
-            {history ? <span className="mono en-updated"> Updated {new Date(history.generatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span> : null}
+            {history ? <span className="mono en-updated"> Updated {new Date(history.generatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", timeZone: activeTimeZone() })}</span> : null}
           </p>
         </div>
         <div className="page-head__tools">
@@ -546,7 +547,7 @@ function EnergyBody({
             <li><b>Gaps.</b> Hours with no telemetry are left out, never filled in. Coverage is the share of time every node reported fresh data; per-node coverage is in the table.</li>
             <li><b>Efficiency</b> only counts tokens and energy from time when all nodes were reporting.</li>
             <li><b>Retention.</b> Hourly history is kept for 31 days. Longer ranges show what exists so far.</li>
-            <li><b>Local time.</b> Hours and days follow this browser's time zone ({Intl.DateTimeFormat().resolvedOptions().timeZone}). Hourly rows are stored in UTC.</li>
+            <li><b>Local time.</b> Hours and days follow the time zone in Settings, or this browser's by default ({activeTimeZone()}). Hourly rows are stored in UTC.</li>
             <li><b>Membership.</b> Adding or removing a Spark starts a new accounting scope after a sparkDash restart.</li>
           </ul>
         </section>

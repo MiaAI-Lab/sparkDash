@@ -1,4 +1,5 @@
 import type { ActivityEvent } from "../../api/types";
+import { configuredTimeZone } from "../../shared/timeZone";
 
 /** Pure logic for the Activity page: categories, labels, filtering, counts, day grouping, export. */
 
@@ -195,10 +196,12 @@ export function sparkOptions(
 
 const dtfCache = new Map<string, Intl.DateTimeFormat>();
 function dtf(key: string, tz: string | undefined, opts: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
-  const k = `${key}|${tz ?? ""}`;
+  // No explicit zone: the Settings time zone, else the browser's.
+  const zone = tz ?? configuredTimeZone() ?? undefined;
+  const k = `${key}|${zone ?? ""}`;
   let f = dtfCache.get(k);
   if (!f) {
-    f = new Intl.DateTimeFormat("en-US", { ...opts, timeZone: tz });
+    f = new Intl.DateTimeFormat("en-US", { ...opts, timeZone: zone });
     dtfCache.set(k, f);
   }
   return f;

@@ -658,6 +658,8 @@ export interface Settings {
   showLlmTokenTotals: boolean;
   /** Benchmark dialogs offer "Copy image" — a PNG share card of the results. */
   benchShareImage: boolean;
+  /** IANA time zone for the Tokens, Energy and Activity charts; "" follows the browser. */
+  timeZone?: string;
   /** Electricity price per kWh for cost estimates on the energy page; null = not set. */
   energyPricePerKwh: number | null;
   /** Currency symbol shown with cost estimates. */
