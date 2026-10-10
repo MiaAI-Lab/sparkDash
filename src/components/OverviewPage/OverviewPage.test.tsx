@@ -102,3 +102,26 @@ describe("Overview panels can be hidden", () => {
     expect(container.querySelector(".ov-side")).toBeNull();
   });
 });
+
+/** The big number on a fleet KPI tile, found by its label. */
+function kpiValue(container: HTMLElement, label: string): string {
+  const tile = [...container.querySelectorAll(".ov-kpi")].find(
+    (el) => el.querySelector(".eyebrow")?.textContent === label
+  );
+  return tile?.querySelector(".big-num")?.firstChild?.textContent ?? "";
+}
+
+describe("Overview fleet KPIs", () => {
+  it("count the whole fleet, including workers hidden from the card list", () => {
+    const head = host(); // 80 W
+    const worker = structuredClone(host());
+    worker.id = "worker-1";
+    worker.name = "Worker 1";
+    worker.role = "worker";
+    worker.metrics.gpu!.power.draw = 120;
+    worker.metrics.llm = [];
+
+    const { container } = render(<OverviewPage sparks={[head, worker]} hideWorkers />);
+    expect(kpiValue(container, "Fleet power")).toBe("200");
+  });
+});
