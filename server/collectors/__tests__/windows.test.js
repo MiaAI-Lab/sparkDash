@@ -114,6 +114,7 @@ test("collectGpu on a Windows unit parses nvidia-smi and skips the Linux kernel-
   assert.equal(gpu.kernelErrors, null);
   assert.equal(gpu.nvErrNoMemory, 0);
   assert.equal(gpu.gpus.length, 1);
+  assert.deepEqual(gpu.processes, []); // the only process reports "[N/A]" memory under WDDM
 });
 
 test("CPU, RAM, storage, network and memory on a Windows unit", async () => {
@@ -140,6 +141,10 @@ test("CPU, RAM, storage, network and memory on a Windows unit", async () => {
   const mem = await c.collectUnifiedMemory();
   assert.equal(mem.total, 32665);
   assert.equal(mem.gpuUsed, 2048);
+  // Used RAM is 14233 MB: 2048 of it counted as GPU, the rest CPU; never above the total.
+  assert.equal(mem.cpuUsed, 32665 - 18432 - 2048);
+  assert.equal(mem.used, 32665 - 18432);
+  assert.ok(mem.percentage <= 100);
 
   assert.equal(await c.readWindowsUptime(), 93784);
 });

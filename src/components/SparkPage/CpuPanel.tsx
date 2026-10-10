@@ -33,8 +33,13 @@ export function CpuPanel({ cpu, hardware, sparkId, temperatureUnit, className }:
   const draw = cpu?.draw ?? 0;
   const tdp = cpu?.tdp ?? 0;
 
-  const displayTemp =
-    temperatureUnit === "fahrenheit" ? celsiusToFahrenheit(temperature) : temperature;
+  // No sensor (Windows exposes none without a driver): show a dash, not 0 °C.
+  const hasTemp = temperature > 0 || Boolean(cpu?.temperatureSource);
+  const displayTemp = !hasTemp
+    ? "—"
+    : temperatureUnit === "fahrenheit"
+      ? celsiusToFahrenheit(temperature)
+      : temperature;
 
   // GB10 SoC bands: the CPU complex derates in the mid-80s; x86 hosts run
   // hotter before throttling, so the danger band sits higher.
@@ -91,9 +96,9 @@ export function CpuPanel({ cpu, hardware, sparkId, temperatureUnit, className }:
           </span>
           <div className="big-num sp-big-md">
             {displayTemp}
-            <small>{temperatureUnit === "fahrenheit" ? "°F" : "°C"}</small>
+            {hasTemp && <small>{temperatureUnit === "fahrenheit" ? "°F" : "°C"}</small>}
           </div>
-          <TrendLine data={tempHistory} height={36} color={tempColor} />
+          {hasTemp && <TrendLine data={tempHistory} height={36} color={tempColor} />}
         </div>
       </div>
       <div className="sp-row">

@@ -544,6 +544,8 @@ export interface SparkSnapshot {
   offlineReason?: string | null;
   /** Unit type: spark (DGX Spark) or host (dedicated GPU Linux box). */
   kind?: "spark" | "host";
+  /** OS of an SSH-collected unit; Windows units have no model launchers or CPU temperature. */
+  platform?: "linux" | "darwin" | "windows";
   online: boolean;
   /** Uptime in seconds, or null when offline */
   uptime: number | null;

@@ -107,7 +107,9 @@ export class SystemCollector {
       const gpuData = this.spark.isLocal
         ? await this._getGPUAll()
         : this.isWindows
-          ? await this._getRemoteGpu(async () => windowsGpuAsLinuxOutput(await this._windowsRun("gpu", WINDOWS_GPU_SCRIPT)))
+          ? this._withoutUnmeteredProcesses(
+              await this._getRemoteGpu(async () => windowsGpuAsLinuxOutput(await this._windowsRun("gpu", WINDOWS_GPU_SCRIPT)))
+            )
           : await this._getRemoteGpu();
       return tagCollectionResult(gpuData, this._isSuccessfulGpuCollection(gpuData));
     } catch (err) {
@@ -1863,6 +1865,16 @@ export class SystemCollector {
     return entry.promise;
   }
 
+  /**
+   * Under WDDM nvidia-smi lists graphics processes (dwm.exe, explorer.exe...) without
+   * a memory figure. A process list of 0 MB entries says nothing, so keep only
+   * processes that report memory.
+   */
+  _withoutUnmeteredProcesses(gpu) {
+    if (Array.isArray(gpu?.processes)) gpu.processes = gpu.processes.filter((p) => p.vramMB > 0);
+    return gpu;
+  }
+
   async _windowsSystem() {
     return parseWindowsSystem(await this._windowsRun("system", WINDOWS_SYSTEM_SCRIPT));
   }
@@ -2002,12 +2014,16 @@ export class SystemCollector {
       const gpuUsedMB = Math.round(gpuUsed || 0);
       const totalMB = system.totalMB;
       const systemUsed = Math.max(0, totalMB - system.availableMB);
-      const usedMB = gpuUsedMB + systemUsed;
+      // Same arithmetic as the Linux remote path: the CPU share is what remains of
+      // the used RAM after the GPU's share, so the two never add up past the RAM total
+      // (a discrete card's VRAM is not system RAM).
+      const cpuUsedMB = Math.max(0, systemUsed - gpuUsedMB);
+      const usedMB = gpuUsedMB + cpuUsedMB;
       const percentage = totalMB > 0 ? Math.min(100, Math.round((usedMB / totalMB) * 100)) : 0;
       return {
         total: totalMB,
         gpuUsed: gpuUsedMB,
-        cpuUsed: systemUsed,
+        cpuUsed: cpuUsedMB,
         used: usedMB,
         available: system.availableMB,
         percentage,

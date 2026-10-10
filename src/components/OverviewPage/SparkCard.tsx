@@ -169,7 +169,7 @@ function SparkCardImpl({
     !llm && (memUsed >= 2048 || usage >= 10)
       ? `${formatMb(memUsed)} VRAM in use · GPU ${Math.round(usage)}%`
       : null;
-  const showLauncher = role !== "worker" && !llm && spark.llmMonitoring !== false;
+  const showLauncher = role !== "worker" && !llm && spark.llmMonitoring !== false && spark.platform !== "windows";
 
   const showTps = role !== "worker" && !!llm;
   const llmChip = llm

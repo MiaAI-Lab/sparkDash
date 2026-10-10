@@ -32,6 +32,7 @@ The version number is 2.0.0 plus 0.01 for each of the 30 issues and pull request
 - Health findings also write Activity events when they appear and when they clear (`health.*`).
 
 ### Fixed
+- **Windows units, first real-hardware pass.** Found on a Windows PC with an RTX 5090: the memory card no longer adds VRAM on top of RAM (it showed 100%), graphics processes with no memory figure (`dwm.exe`, `explorer.exe`) no longer fill the GPU process list, CPU temperature shows a dash instead of 0 °C, and model start/stop is not offered for Windows PCs (the Models panel and the Overview launcher are hidden, and the launcher API answers 400).
 - **Model launchers no longer inherit the dashboard's environment** ([#186](https://github.com/MiaAI-Lab/sparkDash/issues/186)). A start script run on the local Spark saw the container's `PORT=5555` and tried to bind sparkDash's own port. Launcher and Hermes scripts now get a clean environment without `PORT`, `LLM_PORT`, `BIND_HOST`, `NODE_ENV`, `SPARKDASH_*` (the access token included) and the host-path variables.
 - **A short first row of units stretches to the full width.** With two units on a wide screen the Overview's first row now fills the width of the row below instead of leaving empty columns. A single unit keeps its card size.
 - **A Windows host added as a Linux unit now gets a clear SSH error** instead of cmd.exe's "'true' is not recognized…", pointing at the *Windows PC with an NVIDIA GPU* unit type.

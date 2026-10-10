@@ -810,6 +810,11 @@ function launcherContext(req, res) {
     res.status(404).json({ error: "Spark not found" });
     return null;
   }
+  if (spark.platform === "windows") {
+    // Launchers run bash start/stop scripts; not supported on Windows PCs (yet).
+    res.status(400).json({ error: "Starting and stopping models from sparkDash is not supported on Windows PCs" });
+    return null;
+  }
   return spark;
 }
 

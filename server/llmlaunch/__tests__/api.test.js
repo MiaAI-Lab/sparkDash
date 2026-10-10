@@ -133,3 +133,15 @@ test("register, start, stream, stop and remove an LLM through the HTTP API", asy
   assert.equal((await api(port, base)).body.launchers.length, 0);
   assert.equal((await api(port, `${base}/${lid}/start`, { method: "POST" })).status, 404);
 });
+
+test("model launchers are refused for a Windows unit", async (t) => {
+  const { port } = await startServer(t);
+  const created = await api(port, "/api/sparks", {
+    method: "POST",
+    body: JSON.stringify({ id: "desk", name: "desk", platform: "windows", lanIp: "192.0.2.10", ssh: { host: "192.0.2.10", user: "me", auth: "key" } }),
+  });
+  assert.equal(created.status, 200);
+  const res = await api(port, "/api/sparks/desk/llm-launchers");
+  assert.equal(res.status, 400);
+  assert.match(res.body.error, /not supported on Windows/);
+});

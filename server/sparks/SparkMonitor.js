@@ -610,6 +610,7 @@ export class SparkMonitor {
       id: this.spark.id,
       name: this.spark.name,
       kind: this.spark.kind || "spark",
+      platform: this.spark.platform || "linux",
       online: this.online,
       /** Last liveness failure, or null. "offline" with no reason is a bug. */
       offlineReason: this.online ? null : this.offlineReason,

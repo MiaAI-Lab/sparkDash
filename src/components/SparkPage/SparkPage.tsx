@@ -246,7 +246,7 @@ export function SparkPage({
                 />
               </div>
             </Item>
-            <Item order={4}>{modelsPanel}</Item>
+            {spark.platform !== "windows" && <Item order={4}>{modelsPanel}</Item>}
             {spark.kind === "host" && (
               <Item order={6}>
                 <RamPanel ram={metrics.ram} sparkId={spark.id} />
