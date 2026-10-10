@@ -9,7 +9,12 @@ export interface SparkConfig {
    *   just not a Spark). Real hardware is auto-detected once online.
    */
   kind?: "spark" | "host";
-  /** OS of an SSH-collected unit. Windows PCs are always "host" units with an NVIDIA GPU. */
+  /**
+   * Optional OS platform override for SSH-collected units. "linux" (default)
+   * uses /proc + nvidia-smi, "darwin" macOS hosts, "windows" Windows hosts
+   * (PowerShell collectors; NVIDIA via nvidia-smi, AMD iGPUs via GPU
+   * performance counters).
+   */
   platform?: "linux" | "darwin" | "windows";
   lanIp: string;
   cx7Ip?: string | null;
@@ -372,8 +377,10 @@ export interface UnifiedMemoryMetrics {
 
 // ─── LLM metrics ─────────────────────────────────────────
 export interface LlmMetrics {
+  /** The LLM port this snapshot came from — lets the UI match panels to probes by port, not array position. */
+  port?: number;
   available: boolean;
-  backend: "vllm" | "llama.cpp" | "sglang" | "ds4" | "exl3" | "q27" | "tensorfold" | "freetoken" | null;
+  backend: "vllm" | "llama.cpp" | "sglang" | "lmstudio" | "ollama" | "ds4" | "exl3" | "q27" | "tensorfold" | "freetoken" | null;
   /** How the monitor reaches the engine: its own address, or an SSH forward when only SSH gets there. */
   via?: "direct" | "ssh-tunnel";
   modelId: string | null;

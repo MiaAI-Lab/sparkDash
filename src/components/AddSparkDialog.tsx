@@ -418,6 +418,12 @@ export function AddSparkDialog({ open, onClose, onAdded, defaultLlmPort = 8888 }
                     placeholder={String(defaultLlmPort)}
                   />
                   <p className="field-hint">Default: {defaultLlmPort}</p>
+                  <div role="group" aria-label="Server presets" className="preset-row">
+                    <span className="preset-label">Presets:</span>
+                    <button type="button" className="preset-btn" onClick={() => update({ llmPorts: [1234] })}>LM Studio :1234</button>
+                    <button type="button" className="preset-btn" onClick={() => update({ llmPorts: [11434] })}>Ollama :11434</button>
+                    <button type="button" className="preset-btn" onClick={() => update({ llmPorts: [8888] })}>TensorFold :8888</button>
+                  </div>
                 </div>
               ) : (
                 <p className="field-hint">Workers have no local LLM API, so no ports are probed.</p>

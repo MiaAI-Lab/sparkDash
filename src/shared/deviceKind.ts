@@ -11,7 +11,7 @@ export type UnitType = "spark" | "host" | "windows";
 export const UNIT_TYPE_OPTIONS: { value: UnitType; label: string }[] = [
   { value: "spark", label: "NVIDIA DGX Spark" },
   { value: "host", label: "Dedicated GPU host (Linux, nvidia-smi, not a Spark)" },
-  { value: "windows", label: "Windows PC with an NVIDIA GPU (OpenSSH, nvidia-smi)" },
+  { value: "windows", label: "Windows PC (NVIDIA GPU via nvidia-smi, or AMD iGPU e.g. Strix Halo)" },
 ];
 
 export function unitTypeOf(config: Pick<SparkConfig, "kind" | "platform">): UnitType {

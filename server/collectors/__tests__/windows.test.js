@@ -207,3 +207,35 @@ test("an unfinished PowerShell call is reused however old, a finished one only f
   c._windowsCache = new Map([["system", { at: Date.now() - 100, settled: true, promise: done }]]);
   assert.equal(c._windowsRun("system", "x"), done);
 });
+
+test("AMD-iGPU output (no nvidia-smi) parses through the same Linux-shaped sections", async () => {
+  const amdOut = [
+    "0,100,,0,0,0,,,,,0,AMD Radeon(TM) 8060S Graphics",
+    "---",
+    "73148,98304",
+    "---",
+    "---",
+    "AMD Radeon(TM) 8060S Graphics,32.0.31041.3013",
+    "---",
+    "MemTotal: 32538408 kB",
+    "MemAvailable: 7636648 kB",
+  ].join("\r\n");
+  const collector = new SystemCollector({ id: "desktop", platform: "windows", kind: "host", isLocal: false, ssh: { host: "100.10.10.10", user: "tester" } });
+  collector._windowsRun = async (key) => (key === "gpu" ? amdOut : "");
+  const gpu = await collector.collectGpu();
+  assert.equal(gpu.usage, 100);
+  assert.equal(gpu.temperature, 0); // AMD publishes no GPU temperature to Windows
+  assert.equal(gpu.power.draw, 0);
+  assert.equal(gpu.vram.used, 73148);
+  assert.equal(gpu.vram.total, 98304); // from the driver's reported memory size
+  assert.equal(gpu.vram.available, 98304 - 73148);
+  assert.equal(gpu.gpus.length, 1);
+  assert.deepEqual(gpu.processes, []);
+});
+
+test("WINDOWS_GPU_SCRIPT carries the AMD fallback and clamps engine utilization", () => {
+  assert.match(WINDOWS_GPU_SCRIPT, /GPUPerformanceCounters_GPUEngine/);
+  assert.match(WINDOWS_GPU_SCRIPT, /GPUAdapterMemory/);
+  assert.match(WINDOWS_GPU_SCRIPT, /\ -gt 100/);
+  assert.match(WINDOWS_GPU_SCRIPT, /qwMemorySize/);
+});

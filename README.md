@@ -17,7 +17,7 @@ sparkDash is a real-time web dashboard for one or more **NVIDIA DGX Spark (GB10)
 
 It also supports **non-Spark units**: any Linux machine with an NVIDIA GPU (e.g. a workstation with a dedicated RTX/L-series card) can be added as a **dedicated GPU host** and monitored the same way via SSH and `nvidia-smi`. For these units the dashboard correctly separates **RAM** (system memory) from **VRAM** (discrete GPU memory).
 
-Monitored units run **Linux**, **macOS**, or **Windows** (a Windows PC with an NVIDIA GPU: choose *Windows PC with an NVIDIA GPU* as the unit type; see below).
+Monitored units run **Linux**, **macOS**, or **Windows** (a Windows PC with an NVIDIA GPU — or an AMD-iGPU Windows host like a Strix Halo, whose GPU usage comes from Windows' GPU engine counters; see [Windows PCs](#windows-pcs)).
 
 <img src="./.github/screenshot.png" alt="sparkDash Overview page with multiple DGX Spark units, GPU metrics, and LLM status">
 
@@ -35,6 +35,7 @@ Monitored units run **Linux**, **macOS**, or **Windows** (a Windows PC with an N
 
 - [Latest version changelog](#latest-version-changelog)
 - [Features](#features)
+- [LLM server presets & backend auto-detection](#llm-server-presets--backend-auto-detection)
 - [ComfyUI monitoring](#comfyui-monitoring)
 - [Hermes Agent monitoring](#hermes-agent-monitoring)
 - [Tailnet monitoring](#tailnet-monitoring)
@@ -101,9 +102,11 @@ Full history: [CHANGELOG.md](./CHANGELOG.md)
 |------|----------------|
 | **Multi-unit** | Any number of units; each has a tabbed detail page plus a shared Overview |
 | **Non-Spark GPU hosts** | Linux boxes with a dedicated NVIDIA GPU are first-class units: same `nvidia-smi` collectors over SSH, detected hardware summary, and separate **RAM** / **VRAM** panels. Detail page: GPU (left) + **RAM → Network → Storage** (right column); Overview cards show RAM and VRAM bars |
+| **Windows hosts** | Windows machines with an AMD iGPU (Strix Halo and friends) are first-class units too: agentless PowerShell over OpenSSH, CPU/RAM/disks/network collectors, and GPU usage straight from the engine performance counters (reads like Task Manager). The Add/Edit wizard has a **Strix Halo / Windows host** unit type |
 | **Live streaming** | WebSocket metrics with configurable poll intervals; central history store for sparklines across tab switches |
 | **Local + remote** | Host metrics via sysfs/proc/`nvidia-smi`; remotes over SSH (key or password) |
-| **LLM probe** | Auto-detects llama.cpp, vLLM, sglang, ds4-server, EXL3, TensorFold, FreeToken, or q27; live decode/prefill tok/s; cached vs uncached prefill on ds4, llama.cpp, SGLang, and q27; **daily peak** history on the LLM card |
+| **LLM probe** | Auto-detects llama.cpp, vLLM, sglang, LM Studio, Ollama, ds4-server, EXL3, TensorFold, FreeToken, or q27; live decode/prefill tok/s — from Prometheus counters where the engine publishes them, otherwise measured with a lightweight streamed probe (LM Studio, Ollama); cached vs uncached prefill on ds4, llama.cpp, SGLang, and q27; **daily peak** history on the LLM card |
+| **LLM server presets** | One-click **LM Studio :1234** / **Ollama :11434** / **TensorFold :8888** presets in the Add wizard's LLM-ports step, the "+ Add LLM port" panel, and each LLM panel's settings (they fill the port number — they install nothing) |
 | **ComfyUI** | Opt-in probe: queue/jobs, progress, cancel, Open link, inventory, overview chip |
 | **Hermes Agent** | Opt-in per unit: background update check (10 min), status badges, one-click or batch `hermes update` |
 | **Tailnet** | Opt-in probe: flags a unit that is healthy on the LAN but off its tailnet |
@@ -122,7 +125,7 @@ Full history: [CHANGELOG.md](./CHANGELOG.md)
 | **Health findings** | Small explainable rules over metrics already collected: GPU running hot (85 / 90 °C), GPU stuck in a low-power state, unified memory low (under 3 GB warns, under 1.5 GB critical), NVIDIA **Xid** errors and kernel **OOM kills**, several models loaded while memory is busy, a link slower than 1 Gb/s, and RoCE link / loss. Shown as chips on the cards and in full on the unit page; changes are logged to **Activity** |
 | **Fleet pages** | **Token totals** (per model, hourly / daily history), **Fleet energy** (rolling 24 h / 31 d plus a permanent monthly archive, optional cost), and **Activity** (event log with filters). Each page can be cleared or reset from its **Clear / Reset…** menu |
 | **RoCE / RDMA** | Per-port link state and rate, traffic, drops, PFC and QoS (trust mode, DSCP), and RDMA counters, read from sysfs / ethtool / `mlnx_qos` on the Spark (see [RoCE / RDMA monitoring](#roce--rdma-monitoring)) |
-| **Windows PCs** | A Windows PC with an NVIDIA GPU is a first-class unit over the built-in OpenSSH server (see [Windows PCs](#windows-pcs)) |
+| **Windows PCs** | A Windows PC with an NVIDIA GPU is a first-class unit over the built-in OpenSSH server; an AMD-iGPU Windows host (Strix Halo) works too — its GPU usage comes from Windows' GPU engine counters (see [Windows PCs](#windows-pcs)) |
 | **Mobile + PWA** | A phone layout with a docked tab bar (Overview, Sparks, Stats, Settings); installable to the home screen over HTTPS (see [Mobile PWA](#mobile-pwa-install-on-a-phone)) |
 | **Time zone** | **Settings → Time zone** sets hour and day boundaries and labels on the Tokens, Energy and Activity charts, whatever device you view them on |
 | **Prometheus** | Opt-in `GET /metrics` export (see [Prometheus](#prometheus)) |
@@ -470,7 +473,40 @@ A Windows PC with an NVIDIA GPU can be monitored with no agent. On the PC:
 
 sparkDash then runs two short PowerShell scripts over SSH per poll (no files are installed): GPU temperature, utilisation, power, VRAM and GPU processes from `nvidia-smi`, and RAM, uptime, CPU load, disks (fixed drives) and network adapters from Windows' CIM classes. Shutdown works (`shutdown.exe /s`). Not available on Windows: CPU temperature (Windows exposes no unprivileged sensor; CPU power is estimated from load), automatic Wake-on-LAN MAC detection (enter the MAC by hand), Hermes and Tailnet checks, model launchers, and the kernel Xid/OOM events. LLM servers on the PC (llama.cpp, Ollama, LM Studio, vLLM) are probed over HTTP as for any unit; if the server only listens on `127.0.0.1`, benchmarks fall back to an SSH tunnel.
 
+**AMD-iGPU Windows hosts (Strix Halo)**: if `nvidia-smi` is absent, the same GPU script falls back to Windows' GPU Engine / GPU Adapter Memory performance counters — utilization is the busiest engine per physical adapter (three samples per poll, clamped to 100%), and memory comes from the adapter counters, with the total read from the driver's reported memory size (on a unified-memory iGPU this is the BIOS carve-out, e.g. 96 GB on a 128 GB Strix Halo; a MemTotal/MemAvailable fallback applies when the driver does not report it). The unit type is the same *Windows* option. AMD publishes no GPU temperature or power to Windows, so those read 0. The model launchers are bash/systemd and stay unsupported on Windows; HTTP probing and benchmarks work as usual.
+
 ---
+
+## LLM server presets & backend auto-detection
+
+### Server presets
+
+LM Studio (:1234), Ollama (:11434) and TensorFold (:8888) are one-click presets in three places — the Add wizard's LLM-ports step, the unit page's "+ Add LLM port" panel (clicking a preset adds the port immediately), and each LLM panel's settings (the preset fills the port field, then Save). Presets fill a **port number only**: they do not install, start or switch anything, and the dashboard will show a port as unavailable until a server actually answers there.
+
+### How each backend is detected
+
+| Engine | Signal |
+|--------|--------|
+| llama.cpp | `/slots` with per-slot timings |
+| vLLM | Prometheus `/metrics` (the default for OpenAI-compatible servers) |
+| SGLang | native `/server_info` / `/get_server_info` + `/model_info` |
+| LM Studio | `/api/v0/models` — model entries carry a load `state` (a contract no other engine has) |
+| Ollama | native `/api/tags` |
+| ds4-server | `ds4_*` Prometheus series |
+| EXL3 | `/health` with backend + token totals |
+| q27 | Prometheus exposition |
+| TensorFold | `owned_by` on `/v1/models`, totals from `/health` |
+| FreeToken | `/v1/stats` throughput contract |
+
+Detection is **positive-signature first**: some desktop engines (LM Studio) answer HTTP 200 with a JSON body on *every* path, which would trip naive heuristics ("does `/server_info` return JSON?" → SGLang, or the vLLM default). sparkDash probes each engine's unique endpoint and never lets a catch-all-200 server downgrade an identified backend.
+
+### Decode / prefill tok/s on engines without counters
+
+vLLM, SGLang and friends publish cumulative token counters, and the dashboard diffs them per poll. LM Studio and Ollama publish nothing — so sparkDash **measures** instead: once a minute it streams one tiny completion over a sizeable prompt. The spacing between streamed tokens gives decode tok/s (time-to-first-token excluded); TTFT over the known prompt size gives prefill tok/s. If the probe gets queued behind real traffic (large TTFT), that cycle's prefill is skipped rather than misreported. The displayed value is the engine's measured current speed, refreshed each interval — embedding models are never used as the probe model.
+
+### Multiple LLM ports
+
+Any unit can monitor several LLM servers on different ports at once; each port gets its own panel with independent backend detection, metrics and history. Panels are matched to their port explicitly, so adding, removing or switching ports never shows one port's data on another's panel.
 
 ## Quick start
 
@@ -843,7 +879,7 @@ If host memory remains low, compare Linux `MemAvailable` and per-process residen
 
 ### Windows units
 
-A unit with `platform: "windows"` is reached over the same SSH helper, but every command is a PowerShell script sent as `-EncodedCommand` (so it works whatever the OpenSSH server's default shell is). Two scripts per poll cover `nvidia-smi` and the CIM classes for RAM, CPU load, disks and adapters; their output is parsed into the same shapes the Linux collectors return. See [Windows PCs](#windows-pcs).
+A unit with `platform: "windows"` is reached over the same SSH helper, but every command is a PowerShell script sent as `-EncodedCommand` (so it works whatever the OpenSSH server's default shell is). Two scripts per poll cover the GPU (`nvidia-smi`, or the GPU Engine/Adapter Memory performance counters on an AMD iGPU) and the CIM classes for RAM, CPU load, disks and adapters; their output is parsed into the same shapes the Linux collectors return. See [Windows PCs](#windows-pcs).
 
 ### Graceful degradation
 
