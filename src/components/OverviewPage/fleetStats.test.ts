@@ -22,6 +22,15 @@ describe("fleetStats", () => {
     expect(b).toEqual([2, 3, 4]);
   });
 
+  it("tracks loaded endpoints whose decode rate is unknown without adding their placeholders", () => {
+    const unknown = spark({ metrics: { llm: [{ available: true, liveRatesAvailable: false, generationTps: 99 }] } });
+    expect(computeFleetTotals([unknown])).toMatchObject({ decodeTps: 0, decodeMeasuredEndpoints: 0, decodeUnknownEndpoints: 1 });
+    const measured = spark({ id: "b", metrics: { llm: [{ available: true, generationTps: 30 }] } });
+    expect(computeFleetTotals([unknown, measured])).toMatchObject({ decodeTps: 30, decodeMeasuredEndpoints: 1, decodeUnknownEndpoints: 1 });
+    unknown.online = false;
+    expect(computeFleetTotals([unknown, measured])).toMatchObject({ decodeTps: 30, decodeMeasuredEndpoints: 1, decodeUnknownEndpoints: 0 });
+  });
+
   it("computes trend delta only with enough samples", () => {
     expect(trendDeltaPct([1, 2, 3])).toBeNull();
     expect(trendDeltaPct([10, 10, 10, 10, 20, 20, 20, 20])).toBeCloseTo(100);

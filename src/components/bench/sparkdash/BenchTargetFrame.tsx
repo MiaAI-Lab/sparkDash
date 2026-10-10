@@ -44,7 +44,7 @@ export interface BenchTargetProps {
   engine: string | null;
   posture: { label: string; level: "ok" | "warn" | "danger" } | null;
   shareImage: boolean;
-  /** Live generation tok/s from the monitor; null for a Remote target. */
+  /** Live generation tok/s from the monitor; null when the target has no live rates. */
   liveTps: number | null;
 }
 
@@ -140,7 +140,7 @@ export function BenchTargetFrame({
     engine: useRemote ? null : (llm?.backend ?? null),
     posture: useRemote ? null : (llm?.posture ?? null),
     shareImage: benchShareImage,
-    liveTps: useRemote ? null : (llm?.generationTps ?? null),
+    liveTps: useRemote || !reachable || llm?.liveRatesAvailable === false ? null : (llm?.generationTps ?? null),
   };
 
   let notice: ReactNode = null;

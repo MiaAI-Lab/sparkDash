@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppSidebar, RAIL_KEYBOARD_CODES } from "./AppSidebar";
 import { MobileTabBar } from "./MobileTabBar";
 import { CommandPalette, filterCommands, fuzzyScore, type PaletteCommand } from "./CommandPalette";
-import { railSubLabel, showcaseTarget } from "./sparkSummary";
+import { primaryDecodeTps, railSubLabel, showcaseTarget } from "./sparkSummary";
 import { makeSpark } from "../../testing/fixtures";
 import { render } from "../../testing/render";
 
@@ -43,6 +43,16 @@ describe("CommandPalette", () => {
 });
 
 describe("AppSidebar", () => {
+  it("does not display an unknown Ollama rate as zero in the rail", () => {
+    const spark = makeSpark();
+    Object.assign(spark.metrics.llm[0], { backend: "ollama", liveRatesAvailable: false, generationTps: 0 });
+    expect(primaryDecodeTps(spark)).toBeNull();
+    expect(railSubLabel(spark)).toBe("—");
+    expect(showcaseTarget([spark])).toBe(spark);
+    spark.metrics.llm[0].liveRatesAvailable = true;
+    expect(primaryDecodeTps(spark)).toBe(0);
+    expect(railSubLabel(spark)).toBe("0.0");
+  });
   it("lists every Spark, marks the active one and shows an off label for offline units", () => {
     const sparks = [makeSpark("a"), makeSpark("b", false)];
     const { container } = render(

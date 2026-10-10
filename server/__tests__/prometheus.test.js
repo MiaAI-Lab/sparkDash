@@ -406,6 +406,38 @@ test("LLM endpoints: rates, counters, and nothing invented for a down or silent 
   }
 });
 
+test("unavailable live rates are omitted while model liveness is exported", () => {
+  const unit = gb10Head();
+  unit.metrics.llm[0].liveRatesAvailable = false;
+  const families = parseExposition(renderPrometheusMetrics([unit]));
+  assert.equal(families.has("sparkdash_llm_generation_tokens_per_second"), false);
+  assert.equal(families.has("sparkdash_llm_prefill_tokens_per_second"), false);
+  assert.equal(families.has("sparkdash_llm_up"), true);
+});
+
+test("LLM reachability remains up when a healthy Ollama endpoint has no resident model", () => {
+  const unit = gb10Head();
+  unit.metrics.llm[0] = {
+    available: false,
+    endpointReachable: true,
+    liveRatesAvailable: false,
+    backend: "ollama",
+    modelId: null,
+    generationTps: 0,
+    prefillTps: 0,
+    totalOutputTokens: null,
+  };
+  const labels = { unit: "spark-1", port: "8888", backend: "ollama" };
+  let families = parseExposition(renderPrometheusMetrics([unit]));
+  assert.equal(valueOf(families, "sparkdash_llm_up", labels), 1);
+  assert.equal(samplesOf(families, "sparkdash_llm_generation_tokens_per_second", labels).length, 0);
+  assert.equal(samplesOf(families, "sparkdash_llm_generated_tokens_total", labels).length, 0);
+
+  unit.metrics.llm[0].endpointReachable = false;
+  families = parseExposition(renderPrometheusMetrics([unit]));
+  assert.equal(valueOf(families, "sparkdash_llm_up", labels), 0);
+});
+
 test("a failed GPU read is not exported as zeros", () => {
   const families = parseExposition(
     renderPrometheusMetrics([{ snapshot: gb10Head(), collected: { gpu: false, cpu: true } }])

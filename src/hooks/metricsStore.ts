@@ -177,6 +177,7 @@ export function ingestSnapshots(sparks: SparkSnapshot[], at = Date.now()): void 
       const ports = s.llmPorts ?? [];
       for (let i = 0; i < m.llm.length; i++) {
         const llm = m.llm[i];
+        if (llm.available === false || llm.liveRatesAvailable === false) continue;
         const port = ports[i];
         const portKey = port != null ? `:${port}` : `:${i}`;
         pushHistory(`${s.id}:llm${portKey}.tps`, llm.generationTps, at);

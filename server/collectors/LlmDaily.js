@@ -144,7 +144,7 @@ export class LlmDailyStore {
    */
   record(sparkId, port, metrics, now = new Date()) {
     if (!sparkId || !Number.isInteger(port)) return;
-    if (!metrics || metrics.available === false) return;
+    if (!metrics || metrics.available === false || metrics.liveRatesAvailable === false) return;
 
     const key = seriesKey(sparkId, port);
     const date = utcDateKey(now);

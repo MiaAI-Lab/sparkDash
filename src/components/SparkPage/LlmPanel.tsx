@@ -428,8 +428,9 @@ export function LlmPanel({
   const cachedPrefillTps = llm?.cachedPrefillTps ?? 0;
   const uncachedPrefillTps = llm?.uncachedPrefillTps ?? 0;
   const available = llm?.available ?? false;
+  const liveRatesAvailable = llm?.liveRatesAvailable !== false;
   // While nothing is flowing, say when the endpoint last served.
-  const idleNote = available && isLlmIdle({ generationTps, prefillTps })
+  const idleNote = available && liveRatesAvailable && isLlmIdle({ generationTps, prefillTps })
     ? idleLabel(llm?.lastActiveAt)
     : null;
 
@@ -724,11 +725,11 @@ export function LlmPanel({
             <div className="sp-metric">
               <span className="eyebrow">Decode</span>
               <div className="big-num sp-big-lg">
-                {fmtTps(generationTps)}
+                {liveRatesAvailable ? fmtTps(generationTps) : "—"}
                 <small>tok/s</small>
               </div>
-              <TrendLine data={genHistory} height={44} color="var(--color-accent)" />
-              {genAvg != null && <span className="sp-avg mono">avg {fmtAvg(genAvg)}</span>}
+              {liveRatesAvailable && <TrendLine data={genHistory} height={44} color="var(--color-accent)" />}
+              {liveRatesAvailable && genAvg != null && <span className="sp-avg mono">avg {fmtAvg(genAvg)}</span>}
               {idleNote && (
                 <span className="sp-avg" data-llm-idle>
                   {idleNote}
@@ -748,15 +749,16 @@ export function LlmPanel({
                   </>
                 ) : (
                   <>
-                    {fmtTps(prefillTps)}
+                    {liveRatesAvailable ? fmtTps(prefillTps) : "—"}
                     <small>tok/s</small>
                   </>
                 )}
               </div>
-              <TrendLine data={prefillHistory} height={44} color="var(--color-info)" />
-              {prefillAvg != null && <span className="sp-avg mono">avg {fmtAvg(prefillAvg)}</span>}
+              {liveRatesAvailable && <TrendLine data={prefillHistory} height={44} color="var(--color-info)" />}
+              {liveRatesAvailable && prefillAvg != null && <span className="sp-avg mono">avg {fmtAvg(prefillAvg)}</span>}
             </div>
           </div>
+          {!liveRatesAvailable && <p className="sp-avg">Ollama reports loaded models but no live token rates. Use Decode benchmark to measure throughput.</p>}
           {showPrefillSplit && (
             <div className="sp-decode sp-decode--split">
               <div
@@ -861,7 +863,7 @@ export function LlmPanel({
               </div>
             </div>
             <div className="sp-tile" title={ENGINE_GENERATED_TITLE}>
-              <b>{llm && llm.totalOutputTokens > 0 ? llm.totalOutputTokens.toLocaleString() : "—"}</b>
+              <b>{llm?.totalOutputTokens != null && llm.totalOutputTokens > 0 ? llm.totalOutputTokens.toLocaleString() : "—"}</b>
               <span>{ENGINE_GENERATED_LABEL}</span>
             </div>
           </div>
@@ -897,7 +899,7 @@ export function LlmPanel({
         sparkName={sparkName ?? null}
         engine={remoteTarget ? null : llm?.backend ?? null}
         posture={remoteTarget ? null : llm?.posture ?? null}
-        liveTps={remoteTarget ? null : llm?.generationTps ?? null}
+        liveTps={remoteTarget || !liveRatesAvailable ? null : llm?.generationTps ?? null}
       />
       <PrefillBenchDialog
         open={openBench === "prefill"}

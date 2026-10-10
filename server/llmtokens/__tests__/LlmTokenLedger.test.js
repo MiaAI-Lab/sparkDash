@@ -74,6 +74,38 @@ test("LlmTokenLedger: seeds baseline on first observation, credits deltas after"
   assert.equal(s.totals.completionTokens, 100);
 });
 
+test("extractTokenObservations: loaded Ollama without counters is skipped, while measured zero is retained", () => {
+  const rows = extractTokenObservations([
+    {
+      id: "spark-a",
+      llmPorts: [11434, 8888],
+      metrics: {
+        llm: [
+          { available: true, backend: "ollama", modelId: "qwen3:8b", totalOutputTokens: null },
+          { available: true, modelId: "org/model", totalOutputTokens: 0, totalPromptTokens: 0 },
+        ],
+      },
+    },
+  ]);
+  assert.deepEqual(rows, [
+    { sparkId: "spark-a", port: 8888, modelId: "org/model", output: 0, prompt: 0, cached: null },
+  ]);
+});
+
+test("LlmTokenLedger: a null counter between measured samples preserves the baseline", () => {
+  const ledger = tmpLedger();
+  const t0 = 1_730_000_000_000;
+  const snapshots = (output) => [{
+    id: "spark-a",
+    llmPorts: [8888],
+    metrics: { llm: [{ available: true, modelId: "org/model", totalOutputTokens: output }] },
+  }];
+  ledger.record(extractTokenObservations(snapshots(100)), t0);
+  ledger.record(extractTokenObservations(snapshots(null)), t0 + 5_000);
+  ledger.record(extractTokenObservations(snapshots(130)), t0 + 10_000);
+  assert.equal(ledger.snapshot().series[0].totals.completionTokens, 30);
+});
+
 test("LlmTokenLedger: attributes deltas to the model active at each observation", () => {
   const ledger = tmpLedger();
   const t0 = 1_730_000_000_000;

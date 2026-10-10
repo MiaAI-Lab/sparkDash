@@ -304,10 +304,13 @@ function addLlm(samples, base, snapshot) {
       backend: entry.backend ?? null,
       model: entry.modelId ?? null,
     };
-    samples.add("sparkdash_llm_up", labels, entry.available === true ? 1 : 0);
+    const reachable = entry.endpointReachable ?? entry.available;
+    samples.add("sparkdash_llm_up", labels, reachable === true ? 1 : 0);
     if (entry.available !== true) return;
-    samples.add("sparkdash_llm_generation_tokens_per_second", labels, entry.generationTps);
-    samples.add("sparkdash_llm_prefill_tokens_per_second", labels, entry.prefillTps);
+    if (entry.liveRatesAvailable !== false) {
+      samples.add("sparkdash_llm_generation_tokens_per_second", labels, entry.generationTps);
+      samples.add("sparkdash_llm_prefill_tokens_per_second", labels, entry.prefillTps);
+    }
     samples.add("sparkdash_llm_kv_cache_usage_ratio", labels, entry.kvCacheUsage);
     samples.add("sparkdash_llm_requests_running", labels, entry.requestsRunning);
     samples.add("sparkdash_llm_requests_waiting", labels, entry.requestsWaiting);

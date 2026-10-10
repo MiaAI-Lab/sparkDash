@@ -25,6 +25,12 @@ function head(online: boolean): SparkSnapshot {
 }
 
 describe("SparkCard", () => {
+  it("shows missing rates instead of zero for a loaded Ollama model", () => {
+    const spark = makeSpark();
+    Object.assign(spark.metrics.llm[0], { backend: "ollama", liveRatesAvailable: false });
+    const { container } = render(<SparkCard spark={spark} temperatureUnit="celsius" />);
+    expect([...container.querySelectorAll(".ov-tps__num")].map((el) => el.textContent)).toEqual(["—tok/s", "—tok/s"]);
+  });
   it("is a plain container whose name is the only link; no interactive element nests another", () => {
     const onSelect = vi.fn();
     const { container } = render(<SparkCard spark={makeSpark("a")} temperatureUnit="celsius" onSelect={onSelect} />);
@@ -50,6 +56,13 @@ describe("SparkCard", () => {
   it("a worker shows its online head's model", () => {
     const { container } = render(<SparkCard spark={worker()} headSpark={head(true)} temperatureUnit="celsius" />);
     expect(container.textContent).toContain("big-model");
+  });
+
+  it("a worker describes a loaded Ollama model without a fabricated decode rate", () => {
+    const h = head(true);
+    Object.assign(h.metrics.llm[0], { backend: "ollama", liveRatesAvailable: false, generationTps: 0 });
+    const { container } = render(<SparkCard spark={worker()} headSpark={h} temperatureUnit="celsius" />);
+    expect(container.querySelector(".ov-launch__hint")?.textContent).toBe("Ollama · model loaded");
   });
 
   it("a worker does not show an offline head's stale model", () => {
