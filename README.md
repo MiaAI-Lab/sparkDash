@@ -63,13 +63,17 @@ Monitored units run **Linux**, **macOS**, or **Windows** (a Windows PC with an N
 
 ## Latest version changelog
 
-### Version 2.30.0
-- **Windows PCs as units**: a Windows PC with an NVIDIA GPU can be monitored over its built-in OpenSSH server (GPU, RAM, CPU load, disks, network, shutdown). See [Windows PCs](#windows-pcs).
+### Version 2.31.0
 - **RoCE / RDMA panel** for Sparks: link state and rate, traffic, drops, PFC and QoS settings and the RDMA counters per port, with two health findings (a link went down, packets being dropped). See [RoCE / RDMA monitoring](#roce--rdma-monitoring).
 - **Time zone setting** for the Tokens, Energy and Activity charts, so the 24 h charts line up with your local time.
+- **`/metrics`** now shows when each collector last returned real data, so a stuck GPU poll can be alerted on while SSH liveness still passes.
+- Spark page: Unified memory, CPU and Models share one row; CPU and RAM sit side by side on GPU hosts; the GPU history chart fills its panel; Windows PCs got a first real-hardware pass.
+
+### Version 2.30.0
+- **Windows PCs as units**: a Windows PC with an NVIDIA GPU can be monitored over its built-in OpenSSH server (GPU, RAM, CPU load, disks, network, shutdown). See [Windows PCs](#windows-pcs).
 - **Mobile app**: sparkDash installs as a PWA over HTTPS (for example Tailscale Serve).
 - **Monthly energy history** with a month/year view, **Prometheus `/metrics`** (opt-in), per-GPU graphs on multi-GPU hosts, a model picker in the decode benchmark, per-Spark `llmHost`, and **Restart sparkDash** from the UI after a fleet change.
-- The Settings poll interval now really sets the polling rate; the Fleet energy card explains partial coverage; CPU and RAM sit side by side on GPU hosts.
+- The Settings poll interval now really sets the polling rate; the Fleet energy card explains partial coverage.
 - Fixes: "Frontend not built" after a Docker upgrade, the SSH tunnel for benchmarks, model launchers inheriting `PORT=5555`, and a token-protected remote bind showing a blank page. Everything since 2.0.0 is in the [CHANGELOG](./CHANGELOG.md).
 
 ### Version 2.0.0 — a new sparkDash
