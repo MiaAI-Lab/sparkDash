@@ -1,10 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { SystemCollector } from "../SystemCollector.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { IntelSudoGate, IntelVramCache } from "../intelGpu.js";
+
+// The sudo debugfs read is opt-in; these tests run with it on (the off case is tested below).
+const settingsDir = fs.mkdtempSync(path.join(os.tmpdir(), "sparkdash-intel-settings-"));
+process.env.SETTINGS_JSON_PATH = path.join(settingsDir, "settings.json");
+const { SystemCollector } = await import("../SystemCollector.js");
+const { loadSettings, updateSettings } = await import("../../settings.js");
+loadSettings();
+updateSettings({ intelVramSudo: true });
 
 const NVIDIA_LINES = [
   "33, 0, 9.14, 360.00, 180, 3090, Not Active, Not Active, Not Active, Not Active, 0, NVIDIA GeForce RTX 5080, GPU-00000000-0000-0000-0000-000000000001",
@@ -321,4 +328,16 @@ test("_isSuccessfulGpuCollection: NVIDIA still needs a positive power limit", ()
   assert.equal(c._isSuccessfulGpuCollection({ ...base }), false);
   assert.equal(c._isSuccessfulGpuCollection({ ...base, power: { draw: 25, limit: 300 }, gpus: [{ vendor: "nvidia" }, { vendor: "intel" }] }), true);
   assert.equal(c._isSuccessfulGpuCollection({ ...base, power: { draw: 25, limit: NaN }, gpus: [{ vendor: "intel" }] }), false);
+});
+
+test("with intelVramSudo off (the default) the probe never uses sudo", async () => {
+  updateSettings({ intelVramSudo: false });
+  try {
+    const c = remote();
+    const cmds = [];
+    await c._getRemoteGpu(async (_s, cmd) => { cmds.push(cmd); return out(NV, probe("1000.00", 5000000000, 800000)); });
+    assert.ok(cmds.every((x) => x.includes("INTEL_SUDO=0")));
+  } finally {
+    updateSettings({ intelVramSudo: true });
+  }
 });

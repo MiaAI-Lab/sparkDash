@@ -50,3 +50,10 @@ test("timeZone follows the browser by default, accepts IANA names and drops anyt
   assert.equal(updateSettings({ timeZone: "x".repeat(80) }).timeZone, "");
   assert.equal(updateSettings({ timeZone: "" }).timeZone, "");
 });
+
+test("intelVramSudo is opt-in and stored as a boolean", () => {
+  fs.writeFileSync(process.env.SETTINGS_JSON_PATH, JSON.stringify({ density: "compact" }));
+  assert.equal(loadSettings().intelVramSudo, false);
+  assert.equal(updateSettings({ intelVramSudo: "yes" }).intelVramSudo, true);
+  assert.equal(updateSettings({ intelVramSudo: 0 }).intelVramSudo, false);
+});

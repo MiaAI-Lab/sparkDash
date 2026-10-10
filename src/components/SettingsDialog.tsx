@@ -338,6 +338,12 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
                 onChange={(v) => update({ prometheusExport: v })}
               />
               <ToggleRow
+                title="Intel Arc VRAM via sudo"
+                help="Reads exact Intel Arc VRAM use from root-only debugfs with sudo -n on each host. Off by default: VRAM then shows the PCI BAR size and nothing runs with sudo."
+                checked={Boolean(settings.intelVramSudo)}
+                onChange={(v) => update({ intelVramSudo: v })}
+              />
+              <ToggleRow
                 title="Show Fleet Energy"
                 help="Overview card with rolling fleet power estimates. The full Fleet energy page is always available from the sidebar."
                 checked={Boolean(settings.showFleetEnergy)}

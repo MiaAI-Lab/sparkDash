@@ -3,6 +3,7 @@ import path from "path";
 import { HOST_PATHS, GPU_MEMORY_JSON_PATH, DGX_SPARK, HARDWARE_DEFAULTS, POLL_INTERVAL_NVERR } from "../config.js";
 import { normalizeMac, WOL_INTERFACE } from "../wol.js";
 import { sshExec } from "./ssh.js";
+import { getSettings } from "../settings.js";
 import { RoceSampler } from "./roce.js";
 import {
   WINDOWS_GPU_SCRIPT,
@@ -657,7 +658,7 @@ export class SystemCollector {
     if (process.platform !== "linux") return "";
     if (!this._hasXeCard()) return "";
     try {
-      return await this._execOnHost(buildIntelProbeScript({ sudo: this._intelSudo.allowed, vram }));
+      return await this._execOnHost(buildIntelProbeScript({ sudo: this._intelSudo.allowed && getSettings().intelVramSudo, vram }));
     } catch {
       return "";
     }
@@ -1431,7 +1432,7 @@ export class SystemCollector {
         "echo '---'",
         "grep -E 'MemTotal|MemAvailable' /proc/meminfo 2>/dev/null",
         "echo '---'",
-        buildIntelProbeScript({ sudo: this._intelSudo.allowed, vram: vramRead }),
+        buildIntelProbeScript({ sudo: this._intelSudo.allowed && getSettings().intelVramSudo, vram: vramRead }),
       ].join("; ");
 
       const output = await executor(this.spark, cmd);

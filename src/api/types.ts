@@ -731,6 +731,8 @@ export interface Settings {
   showVramBreakdown: boolean;
   /** Serve GET /metrics in Prometheus text format. Off by default (404 when off). */
   prometheusExport: boolean;
+  /** Let the Intel (xe) probe read debugfs VRAM through sudo -n. Off by default. */
+  intelVramSudo: boolean;
 }
 
 export interface SparksListResponse {
