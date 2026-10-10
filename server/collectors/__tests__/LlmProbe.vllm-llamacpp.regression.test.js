@@ -484,3 +484,29 @@ vllm:time_to_first_token_seconds_sum{engine="0"} ${ttft}
   assert.equal(probe.cachedPrefillTps, 0);
   assert.equal(probe.uncachedPrefillTps, 0);
 });
+
+test("vLLM: the first poll after a detection reset only seeds the counters", async () => {
+  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 8000);
+  let metrics = VLLM_METRICS; // lifetime counters: 1000 prompt, 500 generated
+  probe._fetch = async (url) => {
+    const u = String(url);
+    if (u.endsWith("/v1/models")) return jsonRes({ data: [{ id: "m", max_model_len: 4096 }] });
+    if (u.endsWith("/metrics")) return textRes(metrics);
+    return jsonRes({}, 404);
+  };
+  // Three failed polls reset detection; each of them still advanced lastProbeTime.
+  probe.lastProbeTime = Date.now() - 2000;
+  probe._resetDetection();
+
+  const recovery = await probe.probe();
+  assert.equal(recovery.backend, "vllm");
+  assert.equal(recovery.generationTps, 0, "lifetime counters must not be read as two seconds of work");
+  assert.equal(recovery.prefillTps, 0);
+
+  // The poll after that measures normally: +400 generated and +200 prompt over 2 s.
+  probe.lastProbeTime = Date.now() - 2000;
+  metrics = VLLM_METRICS.replace("1000.0", "1200.0").replace("500.0", "900.0");
+  const next = await probe.probe();
+  assert.ok(Math.abs(next.generationTps - 200) < 5, `generationTps ${next.generationTps}`);
+  assert.ok(Math.abs(next.prefillTps - 100) < 5, `prefillTps ${next.prefillTps}`);
+});

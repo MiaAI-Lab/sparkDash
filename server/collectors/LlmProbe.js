@@ -425,6 +425,11 @@ export class LlmProbe {
     this.mtpAcceptanceRate = null;
     this.slotState.clear();
     this.lastTokenCounts = { input: 0, output: 0 };
+    // The counters restart from zero, so the next poll may only seed them. The
+    // per-backend `dtSec < 10` guards do that when the probe clock is zero too;
+    // failed polls keep advancing it, which is how lifetime totals used to be
+    // reported as one interval's worth of tokens.
+    this.lastProbeTime = 0;
     this._tensorfoldSeeded = false;
     this._tensorfoldPrefillSeconds = null;
     this._tensorfoldPrevCached = null;
