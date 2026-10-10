@@ -88,6 +88,8 @@ describe("keyboard access", () => {
 });
 
 describe("rail drag", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
   it("the click that follows a drop does not open the Spark, a later click does", () => {
     const onSelect = vi.fn();
     const { container } = render(
@@ -97,9 +99,35 @@ describe("rail drag", () => {
     act(() => markRailDrop());
     act(() => link.click());
     expect(onSelect).not.toHaveBeenCalled();
-    act(() => markRailDrop(Date.now() - 1000));
+    act(() => vi.advanceTimersByTime(500));
     act(() => link.click());
     expect(onSelect).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("rail drag native click", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+  it("cancels the link's default navigation even when the click is stopped at the document", () => {
+    const { container } = render(
+      <AppSidebar sparks={[makeSpark("a"), makeSpark("b")]} activeId={null} onSelect={() => {}} onAdd={() => {}} onReorder={() => {}} onOpenSettings={() => {}} onOpenSearch={() => {}} connected />
+    );
+    const link = container.querySelector<HTMLAnchorElement>('nav[aria-label="Sparks"] a')!;
+    // What dnd-kit does while a drag winds down.
+    const stop = (e: Event) => e.stopPropagation();
+    document.addEventListener("click", stop, true);
+    try {
+      act(() => markRailDrop());
+      const ev = new MouseEvent("click", { bubbles: true, cancelable: true });
+      link.dispatchEvent(ev);
+      expect(ev.defaultPrevented).toBe(true);
+      act(() => vi.advanceTimersByTime(500));
+      const later = new MouseEvent("click", { bubbles: true, cancelable: true });
+      link.dispatchEvent(later);
+      expect(later.defaultPrevented).toBe(false);
+    } finally {
+      document.removeEventListener("click", stop, true);
+    }
   });
 });
 

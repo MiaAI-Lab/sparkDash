@@ -70,12 +70,27 @@ function dotClass(spark: SparkSnapshot): string {
 
 /**
  * A drag ends on pointer-up over the very link that was lifted, and the browser then fires a click on
- * it. Without this the drop would also open the Spark. Clicks this soon after a drop are swallowed.
+ * it. dnd-kit stops that click at the document (capture phase), so React's onClick never sees it and
+ * the browser follows the link's href on its own. A window-level capture listener runs before dnd-kit's
+ * and cancels the default action for a moment after a drop.
  */
 const DROP_CLICK_GUARD_MS = 400;
 let lastDropAt = 0;
+let removeDropGuard: (() => void) | null = null;
 export function markRailDrop(now: number = Date.now()) {
   lastDropAt = now;
+  removeDropGuard?.();
+  if (typeof window === "undefined") return;
+  const onClick = (e: Event) => {
+    e.preventDefault();
+  };
+  window.addEventListener("click", onClick, true);
+  const timer = window.setTimeout(() => removeDropGuard?.(), DROP_CLICK_GUARD_MS);
+  removeDropGuard = () => {
+    window.removeEventListener("click", onClick, true);
+    window.clearTimeout(timer);
+    removeDropGuard = null;
+  };
 }
 export function clickFollowsRailDrop(now: number = Date.now()): boolean {
   return now - lastDropAt < DROP_CLICK_GUARD_MS;
