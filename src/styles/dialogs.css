@@ -1784,7 +1784,19 @@
   background: var(--color-success);
 }
 
-/* Settings → Time zone: input with suggestions, plus "Use browser". */
+/* Settings → Time zone: input with suggestions, plus "Use browser"; the error sits under them. */
+.settings-panel .set-row:has(.set-tz) {
+  flex-wrap: wrap;
+}
+.settings-panel .set-row:has(.set-tz) .set-row__text {
+  flex: 1 1 14rem;
+}
+.set-row__control:has(.set-tz) {
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  max-width: 100%;
+}
 .set-tz {
   display: flex;
   align-items: center;
@@ -1800,6 +1812,8 @@
 }
 .set-tz__err {
   display: block;
-  margin-top: 4px;
+  max-width: 22rem;
+  text-align: right;
+  white-space: normal;
   color: var(--color-danger);
 }
