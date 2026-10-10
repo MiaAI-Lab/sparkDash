@@ -29,7 +29,14 @@ self.addEventListener("fetch", (event) => {
   if (req.method !== "GET" || url.origin !== self.location.origin) return;
 
   // Live data: always network, never cache.
-  if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/ws")) return;
+  if (
+    url.pathname.startsWith("/api/") ||
+    url.pathname.startsWith("/ws") ||
+    url.pathname === "/metrics" ||
+    url.pathname === "/sw.js"
+  ) {
+    return;
+  }
 
   // Hashed build assets: cache-first (they're content-hashed, immutable).
   if (url.pathname.startsWith("/assets/")) {
