@@ -63,9 +63,9 @@ Monitored units run **Linux**, **macOS**, or **Windows** (a Windows PC with an N
 
 ### Version 2.30.0
 - **Windows PCs as units**: a Windows PC with an NVIDIA GPU can be monitored over its built-in OpenSSH server (GPU, RAM, CPU load, disks, network, shutdown). See [Windows PCs](#windows-pcs).
-- **Health findings** per Spark (hot GPU, low unified memory below 3 GB, Xid/OOM errors, slow links) shown as chips and in Activity; **Clear / Reset** for Activity, Fleet energy and Token totals; **Restart sparkDash** from the UI after a fleet change.
-- **Mobile**: installable PWA, a docked tab bar with iOS-style motion, a Stats tab (Token totals, Fleet energy, Activity), and a rebuilt Spark page.
-- **Monthly energy history**, **Prometheus `/metrics`** (opt-in), per-GPU graphs on multi-GPU hosts, a model picker in the decode benchmark, per-Spark `llmHost`, and the Settings poll interval now really sets the polling rate.
+- **Mobile app**: sparkDash installs as a PWA over HTTPS (for example Tailscale Serve).
+- **Monthly energy history** with a month/year view, **Prometheus `/metrics`** (opt-in), per-GPU graphs on multi-GPU hosts, a model picker in the decode benchmark, per-Spark `llmHost`, and **Restart sparkDash** from the UI after a fleet change.
+- The Settings poll interval now really sets the polling rate; the Fleet energy card explains partial coverage; CPU and RAM sit side by side on GPU hosts.
 - Fixes: "Frontend not built" after a Docker upgrade, the SSH tunnel for benchmarks, model launchers inheriting `PORT=5555`, and a token-protected remote bind showing a blank page. Everything since 2.0.0 is in the [CHANGELOG](./CHANGELOG.md).
 
 ### Version 2.0.0 — a new sparkDash
@@ -74,6 +74,8 @@ Monitored units run **Linux**, **macOS**, or **Windows** (a Windows PC with an N
 - **Benchmarks section**: Decode, Prefill, Quality and the new **Tool Eval Bench** (trials, side-by-side compare, one-click upgrade).
 - **Showcase** is now an in-app page with much smoother streaming; **Token totals**, **Fleet energy** and **Activity** get their own pages.
 - Start and stop your own LLMs from the dashboard; live prefill tok/s during long prefills; Quality bench with GSM8K and MMLU.
+- **Health findings** per Spark (hot GPU, low unified memory under 3 GB, Xid/OOM errors, slow links) and Activity events for them; **Clear / Reset** for Activity, Fleet energy and Token totals.
+- **Mobile**: docked tab bar with iOS-style motion, a Stats tab (Token totals, Fleet energy, Activity) and a rebuilt Spark page.
 
 Full history: [CHANGELOG.md](./CHANGELOG.md)
 
