@@ -9,6 +9,12 @@ Format: version sections are listed newest first.
 
 ## [Unreleased]
 
+---
+
+## [2.30.0] — 2026-10-10
+
+The version number is 2.0.0 plus 0.01 for each of the 30 issues and pull requests closed since 2.0.0 shipped.
+
 ### Added
 - **Install sparkDash as a mobile app (PWA).** Over HTTPS (for example Tailscale Serve) the dashboard installs to the home screen and runs fullscreen, with its own icon and an in-app install banner (iPhone gets the manual *Add to Home Screen* hint). A small service worker caches only the app shell; `/api`, `/ws` and `/metrics` always come from the network. README: *Tailscale Serve (HTTPS)* and *Mobile PWA*. Thanks @HassanEmam ([#188](https://github.com/MiaAI-Lab/sparkDash/pull/188)).
 - **Windows PCs as units.** A Windows PC with an NVIDIA GPU can be added over the built-in OpenSSH Server: choose *Windows PC with an NVIDIA GPU* as the unit type. Two PowerShell scripts per poll supply GPU (`nvidia-smi`), RAM, uptime, CPU load, disks and network adapters; shutdown works. No CPU temperature, automatic Wake-on-LAN MAC detection, Hermes/Tailnet checks or kernel-error events on Windows. The connection test also checks that `nvidia-smi` answers. See *Windows PCs* in the README. Needs a real Windows host to confirm; reports welcome.
@@ -26,6 +32,8 @@ Format: version sections are listed newest first.
 - Health findings also write Activity events when they appear and when they clear (`health.*`).
 
 ### Fixed
+- **Model launchers no longer inherit the dashboard's environment** ([#186](https://github.com/MiaAI-Lab/sparkDash/issues/186)). A start script run on the local Spark saw the container's `PORT=5555` and tried to bind sparkDash's own port. Launcher and Hermes scripts now get a clean environment without `PORT`, `LLM_PORT`, `BIND_HOST`, `NODE_ENV`, `SPARKDASH_*` (the access token included) and the host-path variables.
+- **A short first row of units stretches to the full width.** With two units on a wide screen the Overview's first row now fills the width of the row below instead of leaving empty columns. A single unit keeps its card size.
 - **A Windows host added as a Linux unit now gets a clear SSH error** instead of cmd.exe's "'true' is not recognized…", pointing at the *Windows PC with an NVIDIA GPU* unit type.
 - **"Frontend not built" after upgrading with Docker.** Compose mounts the host's `./dist` over the image's build, so a checkout that was never built with `npm run build` (or a fresh clone) showed an empty mount and a 503. The image now keeps a second copy (`dist-baked`) and the server uses it whenever `./dist` has no `index.html`; a host build takes over again without a restart. Rebuild the image once (`docker compose up --build -d`) to get the fallback. The message also now says how to fix it.
 - **FreeToken on the LLM panel.** The KV cache, Running, E2E p95 and a new **TTFT mean** tile now show for FreeToken servers, and a protected `/v1/stats` is reported as needing a key instead of as missing data (both found with the tests from [#144](https://github.com/MiaAI-Lab/sparkDash/pull/144), thanks @oscarlius).

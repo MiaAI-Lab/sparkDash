@@ -61,6 +61,13 @@ Monitored units run **Linux**, **macOS**, or **Windows** (a Windows PC with an N
 
 ## Latest version changelog
 
+### Version 2.30.0
+- **Windows PCs as units**: a Windows PC with an NVIDIA GPU can be monitored over its built-in OpenSSH server (GPU, RAM, CPU load, disks, network, shutdown). See [Windows PCs](#windows-pcs).
+- **Health findings** per Spark (hot GPU, low unified memory below 3 GB, Xid/OOM errors, slow links) shown as chips and in Activity; **Clear / Reset** for Activity, Fleet energy and Token totals; **Restart sparkDash** from the UI after a fleet change.
+- **Mobile**: installable PWA, a docked tab bar with iOS-style motion, a Stats tab (Token totals, Fleet energy, Activity), and a rebuilt Spark page.
+- **Monthly energy history**, **Prometheus `/metrics`** (opt-in), per-GPU graphs on multi-GPU hosts, a model picker in the decode benchmark, per-Spark `llmHost`, and the Settings poll interval now really sets the polling rate.
+- Fixes: "Frontend not built" after a Docker upgrade, the SSH tunnel for benchmarks, model launchers inheriting `PORT=5555`, and a token-protected remote bind showing a blank page. Everything since 2.0.0 is in the [CHANGELOG](./CHANGELOG.md).
+
 ### Version 2.0.0 — a new sparkDash
 - **New shell**: sidebar, command palette (Ctrl/⌘ K), four themes (White, Light, Dark, OLED), smooth page transitions and real links everywhere (right-click, new tab).
 - **Rebuilt Overview**: per-Spark cards with the model row, head/worker relations, a Model/System memory bar, and a launcher to load a model from the card.
