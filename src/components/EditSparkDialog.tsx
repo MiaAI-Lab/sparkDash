@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 import {
   deleteSpark,
   fetchSparks,
@@ -42,6 +43,7 @@ export function EditSparkDialog({
   onSaved,
   onDeleted,
 }: EditSparkDialogProps) {
+  const { t } = useTranslation();
   const [config, setConfig] = useState<SparkConfig | null>(null);
   /** Snapshot of the Spark config as last fetched from the server. Used to
    *  detect form-vs-saved divergence so Test can target what the user is
@@ -92,7 +94,7 @@ export function EditSparkDialog({
         const found = res.sparks.find((s) => s.id === sparkId) || null;
         setConfig(found);
         setSavedConfig(found);
-        if (!found) setError("Spark not found");
+        if (!found) setError(t("spark.error.notFound", "Spark not found"));
       })
       .catch((err: Error) => {
         if (!cancelled) setError(err.message);
@@ -103,7 +105,7 @@ export function EditSparkDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, sparkId]);
+  }, [open, sparkId, t]);
 
   if (!mounted) return null;
 
@@ -146,7 +148,9 @@ export function EditSparkDialog({
         ? { ...prev, ssh: { ...prev.ssh, hasPassword: true } }
         : prev
     );
-    setSavedPasswordNote("Password saved encrypted (works even while host is offline).");
+    setSavedPasswordNote(
+      t("spark.note.passwordSavedOffline", "Password saved encrypted (works even while host is offline).")
+    );
     setPassword(""); // clear field — keep as stored secret
     return true;
   };
@@ -154,7 +158,9 @@ export function EditSparkDialog({
   const handleTest = async () => {
     if (!config) return;
     if (!config.isLocal && config.ssh.auth === "pass" && !config.ssh.hasPassword && !password) {
-      setError("Enter the SSH password first — it will be saved even if the host is down.");
+      setError(
+        t("spark.error.enterPassword", "Enter the SSH password first — it will be saved even if the host is down.")
+      );
       return;
     }
     setTesting(true);
@@ -167,7 +173,7 @@ export function EditSparkDialog({
         setConfig((prev) =>
           prev ? { ...prev, ssh: { ...prev.ssh, hasPassword: true } } : prev
         );
-        setSavedPasswordNote("Password saved.");
+        setSavedPasswordNote(t("spark.note.passwordSaved", "Password saved."));
       }
 
       // Decide which route to hit. The registered route (`POST /api/sparks/:id/test`)
@@ -221,7 +227,12 @@ export function EditSparkDialog({
   const handleSave = async () => {
     if (!config) return;
     if (!config.isLocal && config.ssh.auth === "pass" && (!config.ssh.hasPassword || sshTargetChanged) && !password) {
-      setError("Password required for password-auth Sparks (saved encrypted, host can be offline).");
+      setError(
+        t(
+          "spark.error.passwordRequired",
+          "Password required for password-auth Sparks (saved encrypted, host can be offline)."
+        )
+      );
       return;
     }
     setSaving(true);
@@ -275,7 +286,8 @@ export function EditSparkDialog({
 
   const handleDelete = async () => {
     if (!config) return;
-    if (!confirm(`Remove ${deviceKindNoun(config.kind)} "${config.name}"? This cannot be undone.`)) return;
+    const noun = deviceKindNoun(config.kind);
+    if (!confirm(t("spark.confirm.remove", 'Remove {noun} "{name}"? This cannot be undone.', { noun, name: config.name }))) return;
     setSaving(true);
     setError(null);
     try {
@@ -306,29 +318,36 @@ export function EditSparkDialog({
           <h2 className="modal-sheet__title" id="edit-spark-title">
             {editDeviceTitle(config?.kind)}
           </h2>
-          <button type="button" className="modal-sheet__close" onClick={onClose} aria-label="Close">
+          <button
+            type="button"
+            className="modal-sheet__close"
+            onClick={onClose}
+            aria-label={t("common.action.close", "Close")}
+          >
             <XIcon className="h-4 w-4" />
           </button>
         </div>
 
         <div className="modal-sheet__body">
-          {loading && <p className="text-xs text-muted">Loading…</p>}
+          {loading && <p className="text-xs text-muted">{t("common.action.loading", "Loading…")}</p>}
 
           {config && !loading && (
             <div className="space-y-3">
               <div>
-                <label className="field-label">Unit type</label>
+                <label className="field-label">{t("spark.field.unitType", "Unit type")}</label>
                 <select
                   value={config.kind ?? "spark"}
                   onChange={(e) => update({ kind: e.target.value as "spark" | "host" })}
                 >
-                  <option value="spark">NVIDIA DGX Spark</option>
-                  <option value="host">Dedicated GPU host (Linux, nvidia-smi, not a Spark)</option>
+                  <option value="spark">{t("spark.kindOption.spark", "NVIDIA DGX Spark")}</option>
+                  <option value="host">
+                    {t("spark.kindOption.host", "Dedicated GPU host (Linux, nvidia-smi, not a Spark)")}
+                  </option>
                 </select>
               </div>
 
               <div>
-                <label className="field-label">Name</label>
+                <label className="field-label">{t("spark.field.name", "Name")}</label>
                 <input
                   type="text"
                   value={config.name}
@@ -338,11 +357,12 @@ export function EditSparkDialog({
 
               <div>
                 <label className="field-label">
-                  LAN IP {config.isLocal
+                  {t("spark.field.lanIp", "LAN IP")}{" "}
+                  {config.isLocal
                     ? config.kind === "host"
-                      ? "(optional — browser links and Wake-on-LAN)"
-                      : "(optional — browser links)"
-                    : "(required)"}
+                      ? t("spark.edit.lanIpOptWol", "(optional — browser links and Wake-on-LAN)")
+                      : t("spark.edit.lanIpOpt", "(optional — browser links)")
+                    : t("spark.field.required", "(required)")}
                 </label>
                 <input
                   type="text"
@@ -351,17 +371,22 @@ export function EditSparkDialog({
                 />
                 {config.isLocal && !config.lanIp && (
                   <p className="field-hint">
-                    Local metrics still work.
                     {config.kind === "host"
-                      ? " Open links and directed Wake-on-LAN need a LAN IP."
-                      : " Open links need a LAN IP. DGX Spark has no Wake-on-LAN."}
+                      ? t(
+                          "spark.hint.localMetricsHost",
+                          "Local metrics still work. Open links and directed Wake-on-LAN need a LAN IP."
+                        )
+                      : t(
+                          "spark.hint.localMetricsSpark",
+                          "Local metrics still work. Open links need a LAN IP. DGX Spark has no Wake-on-LAN."
+                        )}
                   </p>
                 )}
               </div>
 
               {config.kind !== "host" && (
                 <div>
-                  <label className="field-label">CX7 IP (optional)</label>
+                  <label className="field-label">{t("spark.field.cx7", "CX7 IP (optional)")}</label>
                   <input
                     type="text"
                     value={config.cx7Ip || ""}
@@ -373,7 +398,7 @@ export function EditSparkDialog({
               {config.kind === "host" && (
               <div>
                 <label className="field-label">
-                  MAC Address (Wake-on-LAN override)
+                  {t("spark.field.macAddress", "MAC Address (Wake-on-LAN override)")}
                 </label>
                 <input
                   type="text"
@@ -381,14 +406,21 @@ export function EditSparkDialog({
                   onChange={(e) => update({ macAddress: e.target.value || null })}
                   placeholder={
                     config.detectedMacAddress
-                      ? `Auto: ${config.detectedMacAddress}`
-                      : "Auto from enP7s7 when online"
+                      ? t("spark.field.macAuto", "Auto: {mac}", { mac: config.detectedMacAddress })
+                      : t("spark.field.macAutoHint", "Auto from enP7s7 when online")
                   }
                 />
                 <p className="field-hint">
                   {config.detectedMacAddress
-                    ? `Using enP7s7 automatically (${config.detectedMacAddress}). Leave blank to keep auto, or enter a different MAC.`
-                    : "Leave blank to use enP7s7 once the host has been online and detected."}
+                    ? t(
+                        "spark.hint.macDetected",
+                        "Using enP7s7 automatically ({mac}). Leave blank to keep auto, or enter a different MAC.",
+                        { mac: config.detectedMacAddress }
+                      )
+                    : t(
+                        "spark.hint.macUndetected",
+                        "Leave blank to use enP7s7 once the host has been online and detected."
+                      )}
                 </p>
               </div>
               )}
@@ -400,16 +432,22 @@ export function EditSparkDialog({
                   onChange={(e) => update({ isLocal: e.target.checked })}
                   
                 />
-                This host (local collectors — no SSH for metrics)
+                {t("spark.edit.thisHost", "This host (local collectors — no SSH for metrics)")}
               </label>
 
               <div>
                 <label className="field-label field-label--row">
-                  <span>Role</span>
+                  <span>{t("spark.field.role", "Role")}</span>
                   <span
                     className="inline-flex shrink-0 cursor-help text-muted hover:text-text"
-                    title="Head always monitors the local LLM. Standalone can opt in/out. Workers have no local API — the LLM card is hidden and ports are not probed."
-                    aria-label="Head always monitors the local LLM. Standalone can opt in or out. Workers hide the LLM card and do not probe ports."
+                    title={t(
+                      "spark.tip.role",
+                      "Head always monitors the local LLM. Standalone can opt in/out. Workers have no local API — the LLM card is hidden and ports are not probed."
+                    )}
+                    aria-label={t(
+                      "spark.tip.roleAria",
+                      "Head always monitors the local LLM. Standalone can opt in or out. Workers hide the LLM card and do not probe ports."
+                    )}
                   >
                     <InfoIcon className="h-3.5 w-3.5" />
                   </span>
@@ -418,9 +456,9 @@ export function EditSparkDialog({
                   value={role}
                   onChange={(e) => setRole(e.target.value as SparkRole)}
                 >
-                  <option value="head">Head</option>
-                  <option value="worker">Worker</option>
-                  <option value="standalone">Standalone</option>
+                  <option value="head">{t("spark.role.head", "Head")}</option>
+                  <option value="worker">{t("spark.role.worker", "Worker")}</option>
+                  <option value="standalone">{t("spark.role.standalone", "Standalone")}</option>
                 </select>
               </div>
 
@@ -432,11 +470,17 @@ export function EditSparkDialog({
                     onChange={(e) => update({ llmMonitoring: e.target.checked })}
                     
                   />
-                  <span>LLM monitoring</span>
+                  <span>{t("spark.field.llmMonitoring", "LLM monitoring")}</span>
                   <span
                     className="inline-flex shrink-0 cursor-help text-muted hover:text-text"
-                    title="When enabled, probe the local LLM API and show the LLM card on this Spark."
-                    aria-label="Enable probing the local LLM API and showing the LLM card."
+                    title={t(
+                      "spark.tip.llmMonitoring",
+                      "When enabled, probe the local LLM API and show the LLM card on this Spark."
+                    )}
+                    aria-label={t(
+                      "spark.tip.llmMonitoringAria",
+                      "Enable probing the local LLM API and showing the LLM card."
+                    )}
                   >
                     <InfoIcon className="h-3.5 w-3.5" />
                   </span>
@@ -456,11 +500,17 @@ export function EditSparkDialog({
                     }
                     
                   />
-                  <span>ComfyUI monitoring</span>
+                  <span>{t("spark.field.comfyMonitoring", "ComfyUI monitoring")}</span>
                   <span
                     className="inline-flex shrink-0 cursor-help text-muted hover:text-text"
-                    title="When enabled, probe ComfyUI on this host and show a ComfyUI card. Default port is 8188 — change the port value on the right if needed."
-                    aria-label="Enable probing ComfyUI and showing the ComfyUI card."
+                    title={t(
+                      "spark.tip.comfy",
+                      "When enabled, probe ComfyUI on this host and show a ComfyUI card. Default port is 8188 — change the port value on the right if needed."
+                    )}
+                    aria-label={t(
+                      "spark.tip.comfyAria",
+                      "Enable probing ComfyUI and showing the ComfyUI card."
+                    )}
                   >
                     <InfoIcon className="h-3.5 w-3.5" />
                   </span>
@@ -470,10 +520,10 @@ export function EditSparkDialog({
                   className={`ml-auto flex items-center gap-1 font-tabular ${
                     config.comfyMonitoring ? "text-text" : "pointer-events-none opacity-40"
                   }`}
-                  title="ComfyUI HTTP port (default 8188)"
+                  title={t("spark.tip.comfyPort", "ComfyUI HTTP port (default 8188)")}
                 >
                   <span className="select-none text-muted" aria-hidden>
-                    port
+                    {t("spark.field.port", "port")}
                   </span>
                   <input
                     type="number"
@@ -481,7 +531,7 @@ export function EditSparkDialog({
                     max={65535}
                     inputMode="numeric"
                     disabled={!config.comfyMonitoring}
-                    aria-label="ComfyUI port"
+                    aria-label={t("spark.field.comfyPort", "ComfyUI port")}
                     value={config.comfyPort ?? 8188}
                     onChange={(e) => {
                       const n = parseInt(e.target.value, 10);
@@ -507,20 +557,28 @@ export function EditSparkDialog({
                   onChange={(e) => update({ hermesMonitoring: e.target.checked })}
                   
                 />
-                <span>Hermes Agent</span>
+                <span>{t("spark.field.hermes", "Hermes Agent")}</span>
                 <span
                   className="inline-flex shrink-0 cursor-help text-muted hover:text-text"
-                  title='Hermes Agent CLI is installed on this machine (nousresearch/hermes-agent). When enabled, sparkDash checks for updates (hermes update --check) and can run “hermes update” for you via SSH with one click.'
-                  aria-label='Hermes Agent CLI is installed on this machine; enable update monitoring and one-click updates.'
+                  title={t(
+                    "spark.tip.hermes",
+                    "Hermes Agent CLI is installed on this machine (nousresearch/hermes-agent). When enabled, sparkDash checks for updates (hermes update --check) and can run “hermes update” for you via SSH with one click."
+                  )}
+                  aria-label={t(
+                    "spark.tip.hermesAria",
+                    "Hermes Agent CLI is installed on this machine; enable update monitoring and one-click updates."
+                  )}
                 >
                   <InfoIcon className="h-3.5 w-3.5" />
                 </span>
               </label>
               <p className="field-hint">
-                Checks for updates in the background (10 min) and adds an "Update Hermes" button
-                that runs{" "}
-                <code className="rounded bg-surface-elevated px-1">hermes update</code> on this
-                machine via SSH.
+                {t(
+                  "spark.hint.hermesBefore",
+                  'Checks for updates in the background (10 min) and adds an "Update Hermes" button that runs'
+                )}{" "}
+                <code className="rounded bg-surface-elevated px-1">hermes update</code>{" "}
+                {t("spark.hint.hermesAfter", "on this machine via SSH.")}
               </p>
 
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
@@ -531,11 +589,14 @@ export function EditSparkDialog({
                     onChange={(e) => update({ tailscaleMonitoring: e.target.checked })}
                     
                   />
-                  <span>Tailnet monitoring</span>
+                  <span>{t("spark.field.tailnet", "Tailnet monitoring")}</span>
                   <span
                     className="inline-flex shrink-0 cursor-help text-muted hover:text-text"
-                    title="When enabled, run `tailscale status --json` on this host and show a Tailnet card. Catches a unit that is healthy on the LAN but has fallen off its tailnet. Requires the tailscale CLI. Default off."
-                    aria-label="Enable reporting this unit's tailnet presence."
+                    title={t(
+                      "spark.tip.tailnet",
+                      "When enabled, run `tailscale status --json` on this host and show a Tailnet card. Catches a unit that is healthy on the LAN but has fallen off its tailnet. Requires the tailscale CLI. Default off."
+                    )}
+                    aria-label={t("spark.tip.tailnetAria", "Enable reporting this unit's tailnet presence.")}
                   >
                     <InfoIcon className="h-3.5 w-3.5" />
                   </span>
@@ -546,30 +607,35 @@ export function EditSparkDialog({
                 <div className="space-y-3">
                   <div>
                     <label className="field-label">
-                      Worker label (cluster / model)
+                      {t("spark.field.workerLabel", "Worker label (cluster / model)")}
                     </label>
                     <input
                       type="text"
                       value={config.workerLabel || ""}
                       onChange={(e) => update({ workerLabel: e.target.value || null })}
-                      placeholder="e.g. DeepSeek V4 Flash"
+                      placeholder={t("spark.field.workerLabelPlaceholder", "e.g. DeepSeek V4 Flash")}
                     />
                     <p className="field-hint">
-                      Shown on the overview card. Leave blank to show “distributed”.
+                      {t(
+                        "spark.hint.workerLabel",
+                        "Shown on the overview card. Leave blank to show “distributed”."
+                      )}
                     </p>
                   </div>
 
                   <div>
-                    <label className="field-label">Head Spark</label>
+                    <label className="field-label">{t("spark.field.headSpark", "Head Spark")}</label>
                     <select
                       value={config.workerHeadId || ""}
                       onChange={(e) => update({ workerHeadId: e.target.value || null })}
                     >
-                      <option value="">None</option>
+                      <option value="">{t("spark.field.none", "None")}</option>
                       {config.workerHeadId &&
                         !allSparks.some((s) => s.id === config.workerHeadId) && (
                           <option value={config.workerHeadId}>
-                            Missing spark ({config.workerHeadId})
+                            {t("spark.field.missingSpark", "Missing spark ({id})", {
+                              id: config.workerHeadId,
+                            })}
                           </option>
                         )}
                       {allSparks
@@ -577,7 +643,11 @@ export function EditSparkDialog({
                         .map((s) => {
                           const sRole = resolveSparkRole(s);
                           const suffix =
-                            sRole === "head" ? " (Head)" : sRole === "worker" ? " (Worker)" : "";
+                            sRole === "head"
+                              ? t("spark.field.suffixHead", " (Head)")
+                              : sRole === "worker"
+                                ? t("spark.field.suffixWorker", " (Worker)")
+                                : "";
                           return (
                             <option key={s.id} value={s.id}>
                               {s.name}{suffix}
@@ -586,7 +656,10 @@ export function EditSparkDialog({
                         })}
                     </select>
                     <p className="field-hint">
-                      Optional. Which Spark serves as the cluster head for this worker.
+                      {t(
+                        "spark.hint.headSpark",
+                        "Optional. Which Spark serves as the cluster head for this worker."
+                      )}
                     </p>
                   </div>
                 </div>
@@ -595,7 +668,7 @@ export function EditSparkDialog({
               {!config.isLocal && (
                 <>
                   <div>
-                    <label className="field-label">SSH User</label>
+                    <label className="field-label">{t("spark.field.sshUser", "SSH User")}</label>
                     <input
                       type="text"
                       value={config.ssh.user}
@@ -605,7 +678,7 @@ export function EditSparkDialog({
 
                   <div>
                     <label className="field-label" htmlFor="edit-spark-ssh-port">
-                      SSH Port
+                      {t("spark.field.sshPort", "SSH Port")}
                     </label>
                     <input
                       id="edit-spark-ssh-port"
@@ -621,22 +694,26 @@ export function EditSparkDialog({
                         });
                       }}
                     />
-                    <p className="field-hint">Default 22. Use this when sshd listens elsewhere.</p>
+                    <p className="field-hint">
+                      {t("spark.hint.sshPortEdit", "Default 22. Use this when sshd listens elsewhere.")}
+                    </p>
                   </div>
 
                   <div>
-                    <label className="field-label">SSH Auth</label>
+                    <label className="field-label">{t("spark.field.sshAuth", "SSH Auth")}</label>
                     <select
                       value={config.ssh.auth}
                       onChange={(e) => updateSsh({ auth: e.target.value as "key" | "pass" })}
                     >
-                      <option value="key">Key</option>
-                      <option value="pass">Password</option>
+                      <option value="key">{t("spark.field.authKey", "Key")}</option>
+                      <option value="pass">{t("spark.field.authPassword", "Password")}</option>
                     </select>
                     {config.ssh.auth === "key" && (
                       <p className="field-hint">
-                        SSH runs on the sparkDash host. Docker: mount a key at /root/.ssh/id_ed25519
-                        (or SSH_IDENTITY_FILE). IPs are from that host, not your laptop.
+                        {t(
+                          "spark.hint.sshKeyEdit",
+                          "SSH runs on the sparkDash host. Docker: mount a key at /root/.ssh/id_ed25519 (or SSH_IDENTITY_FILE). IPs are from that host, not your laptop."
+                        )}
                       </p>
                     )}
                   </div>
@@ -644,27 +721,34 @@ export function EditSparkDialog({
                   {config.ssh.auth === "pass" && (
                     <div>
                       <label className="field-label">
-                        SSH Password
+                        {t("spark.field.sshPassword", "SSH Password")}
                         {config.ssh.hasPassword
-                          ? " (leave blank to keep stored secret)"
-                          : " (required — saved even if host is offline)"}
+                          ? t("spark.field.sshPasswordKeep", " (leave blank to keep stored secret)")
+                          : t(
+                              "spark.field.sshPasswordRequired",
+                              " (required — saved even if host is offline)"
+                            )}
                       </label>
                       <input
                         type="password"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         autoComplete="new-password"
-                        placeholder={config.ssh.hasPassword ? "••••••••" : "Enter password"}
+                        placeholder={config.ssh.hasPassword ? "••••••••" : t("spark.field.enterPassword", "Enter password")}
                       />
                       {config.ssh.hasPassword ? (
                         <p className="field-hint">
-                          Password is stored encrypted on this server. Offline Sparks still keep it
-                          and reconnect automatically when back up.
+                          {t(
+                            "spark.hint.passwordStored",
+                            "Password is stored encrypted on this server. Offline Sparks still keep it and reconnect automatically when back up."
+                          )}
                         </p>
                       ) : (
                         <p className="field-hint is-warn">
-                          Enter once and Save (or Test). Stored encrypted — host does not need to be
-                          online.
+                          {t(
+                            "spark.hint.passwordWarn",
+                            "Enter once and Save (or Test). Stored encrypted — host does not need to be online."
+                          )}
                         </p>
                       )}
                       {savedPasswordNote && (
@@ -691,7 +775,9 @@ export function EditSparkDialog({
             disabled={saving || loading || !config}
             className="btn btn--danger"
           >
-            {saving ? "Removing…" : "Remove"}
+            {saving
+              ? t("spark.action.removing", "Removing…")
+              : t("common.action.remove", "Remove")}
           </button>
           <div className="modal-sheet__footer-actions">
             <button
@@ -700,14 +786,14 @@ export function EditSparkDialog({
               disabled={testing || loading || (!config?.isLocal && !config?.lanIp) || needsPassword}
               className="btn"
             >
-              {testing ? "Testing..." : "Test"}
+              {testing ? t("common.action.testing", "Testing...") : t("common.action.test", "Test")}
             </button>
             <button
               type="button"
               onClick={onClose}
               className="btn btn--ghost"
             >
-              Cancel
+              {t("common.action.cancel", "Cancel")}
             </button>
             <button
               type="button"
@@ -715,7 +801,7 @@ export function EditSparkDialog({
               disabled={saving || loading || !config?.name || (!config?.isLocal && !config?.lanIp) || needsPassword}
               className="btn btn--primary"
             >
-              {saving ? "Saving..." : "Save"}
+              {saving ? t("common.action.saving", "Saving...") : t("common.action.save", "Save")}
             </button>
           </div>
         </div>

@@ -1,0 +1,140 @@
+{
+  "kind": {
+    "spark": "Spark",
+    "host": "GPU 主机"
+  },
+  "addDevice": "添加{noun}",
+  "editDevice": "编辑{noun}",
+  "kindOption": {
+    "spark": "NVIDIA DGX Spark",
+    "host": "专用 GPU 主机（Linux、nvidia-smi，非 Spark）"
+  },
+  "step": {
+    "connect": "连接",
+    "role": "角色",
+    "services": "服务"
+  },
+  "validate": {
+    "lanIp": "远程主机必须填写 LAN IP",
+    "password": "SSH 认证方式为密码时，必须填写密码",
+    "name": "请为此设备命名"
+  },
+  "test": {
+    "allPassed": "所有必需能力均通过。",
+    "someFailed": "一项或多项必需能力未通过。",
+    "statePass": "通过",
+    "stateFail": "失败",
+    "stateSkipped": "已跳过"
+  },
+  "role": {
+    "standalone": "独立",
+    "standaloneHint": "运行自己的 LLM",
+    "head": "主节点",
+    "headHint": "领导一个集群",
+    "worker": "工作节点",
+    "workerHint": "仅分片，无本地 API"
+  },
+  "field": {
+    "unitType": "设备类型",
+    "name": "名称",
+    "namePlaceholder": "我的 Spark",
+    "lanIp": "LAN IP",
+    "required": "（必填）",
+    "cx7": "CX7 IP（可选）",
+    "macAddress": "MAC 地址（Wake-on-LAN 覆盖）",
+    "macAuto": "自动：{mac}",
+    "macAutoHint": "在线时自动从 enP7s7 获取",
+    "sshUser": "SSH 用户",
+    "sshPort": "SSH 端口",
+    "sshAuth": "SSH 认证",
+    "authKey": "密钥",
+    "authPassword": "密码",
+    "sshPassword": "SSH 密码",
+    "sshPasswordKeep": "（留空以保留已存储的密钥）",
+    "sshPasswordRequired": "（必填 — 即使主机离线也会保存）",
+    "enterPassword": "输入密码",
+    "role": "角色",
+    "llmMonitoring": "LLM 监控",
+    "comfyMonitoring": "ComfyUI 监控",
+    "comfyPort": "ComfyUI 端口",
+    "port": "端口",
+    "hermes": "Hermes Agent",
+    "tailnet": "Tailnet 监控",
+    "workerLabel": "工作节点标签（集群 / 模型）",
+    "workerLabelPlaceholder": "例如 DeepSeek V4 Flash",
+    "headSpark": "主节点 Spark",
+    "none": "无",
+    "missingSpark": "缺失的 Spark（{id}）",
+    "suffixHead": "（主节点）",
+    "suffixWorker": "（工作节点）"
+  },
+  "add": {
+    "title": "添加 Spark / GPU 主机",
+    "progress": "进度",
+    "thisHost": "此主机（本地采集器，指标不走 SSH）",
+    "lanIpOptWol": "（可选，浏览器链接和 Wake-on-LAN）",
+    "lanIpOpt": "（可选，浏览器链接）",
+    "sshPortHint": "默认端口 22。当 sshd 监听其他端口时请修改。",
+    "sshKeyHint": "SSH 在 sparkDash 主机上运行（而非你的浏览器）。在 Docker 中，将私钥挂载到 /root/.ssh/id_ed25519（见 docker-compose.yml）或设置 SSH_IDENTITY_FILE。IP 来自该主机的网络。将本机标记为“此主机”即可跳过 SSH。",
+    "sshPasswordHint": "在服务器上加密存储（不在 sparks.json 中，也不会由 API 返回）。可跨 Docker 重启保留。",
+    "testHint": "在添加前检查 SSH、硬件和 LLM。可选。",
+    "howUse": "你将如何使用它？",
+    "nameRequired": "名称（必填）",
+    "nameHint": "显示在侧边栏和总览中。",
+    "llmPorts": "LLM 端口（可选，以逗号分隔）",
+    "workersNoPorts": "工作节点没有本地 LLM API，因此不探测端口。",
+    "monitorComfy": "监控 ComfyUI",
+    "monitorComfyHint": "任务队列和实时进度。默认端口 8188。",
+    "monitorHermes": "监控 Hermes 更新",
+    "monitorHermesHint": "每 10 分钟检查一次新版本，并添加一个“更新 Hermes”按钮。",
+    "next": "下一步：{step}"
+  },
+  "edit": {
+    "thisHost": "此主机（本地采集器 — 指标不走 SSH）",
+    "lanIpOptWol": "（可选 — 浏览器链接和 Wake-on-LAN）",
+    "lanIpOpt": "（可选 — 浏览器链接）"
+  },
+  "hint": {
+    "localMetricsHost": "本地指标仍然可用。打开链接和定向 Wake-on-LAN 需要 LAN IP。",
+    "localMetricsSpark": "本地指标仍然可用。打开链接需要 LAN IP。DGX Spark 没有 Wake-on-LAN。",
+    "macDetected": "自动使用 enP7s7（{mac}）。留空以保持自动，或输入其他 MAC。",
+    "macUndetected": "留空即可在主机上线并被检测到后使用 enP7s7。",
+    "hermesBefore": "在后台检查更新（每 10 分钟），并添加一个“更新 Hermes”按钮，运行",
+    "hermesAfter": "，通过 SSH 在本机执行。",
+    "workerLabel": "显示在总览卡片上。留空则显示“分布式”。",
+    "headSpark": "可选。指定哪个 Spark 作为此工作节点的集群主节点。",
+    "sshPortEdit": "默认 22。当 sshd 监听其他端口时使用。",
+    "sshKeyEdit": "SSH 在 sparkDash 主机上运行。Docker：将密钥挂载到 /root/.ssh/id_ed25519（或 SSH_IDENTITY_FILE）。IP 来自该主机，而非你的笔记本电脑。",
+    "passwordStored": "密码加密存储在此服务器上。离线 Spark 仍会保留它，并在恢复上线后自动重连。",
+    "passwordWarn": "输入一次并保存（或测试）。加密存储 — 主机无需在线。",
+    "llmPortsDefault": "默认：{port}"
+  },
+  "tip": {
+    "role": "主节点始终监控本地 LLM。独立节点可选择是否监控。工作节点没有本地 API — 隐藏 LLM 卡片且不探测端口。",
+    "roleAria": "主节点始终监控本地 LLM。独立节点可选择是否监控。工作节点隐藏 LLM 卡片且不探测端口。",
+    "llmMonitoring": "启用后，探测本地 LLM API 并在此 Spark 上显示 LLM 卡片。",
+    "llmMonitoringAria": "启用探测本地 LLM API 并显示 LLM 卡片。",
+    "comfy": "启用后，在此主机上探测 ComfyUI 并显示 ComfyUI 卡片。默认端口为 8188 — 如需修改，请更改右侧的端口值。",
+    "comfyAria": "启用探测 ComfyUI 并显示 ComfyUI 卡片。",
+    "comfyPort": "ComfyUI HTTP 端口（默认 8188）",
+    "hermes": "本机已安装 Hermes Agent CLI（nousresearch/hermes-agent）。启用后，sparkDash 会检查更新（hermes update --check），并可通过 SSH 一键为你运行“hermes update”。",
+    "hermesAria": "本机已安装 Hermes Agent CLI；启用更新监控和一键更新。",
+    "tailnet": "启用后，在此主机上运行 `tailscale status --json` 并显示 Tailnet 卡片。可发现局域网内健康但已脱离 tailnet 的设备。需要 tailscale CLI。默认关闭。",
+    "tailnetAria": "启用上报此设备的 tailnet 状态。"
+  },
+  "error": {
+    "notFound": "未找到 Spark",
+    "enterPassword": "请先输入 SSH 密码 — 即使主机离线也会保存。",
+    "passwordRequired": "密码认证的 Spark 需要密码（加密保存，主机可离线）。"
+  },
+  "note": {
+    "passwordSavedOffline": "密码已加密保存（即使主机离线也有效）。",
+    "passwordSaved": "密码已保存。"
+  },
+  "confirm": {
+    "remove": "移除{noun}“{name}”？此操作无法撤销。"
+  },
+  "action": {
+    "removing": "正在移除…"
+  }
+}

@@ -214,5 +214,23 @@
     "start": "启动",
     "more": "还有 +{count} 个",
     "addModelShort": "添加模型"
+  },
+  "shutdown": {
+    "llmBusy": "{name}：{count, plural, one {# 个正在处理的 LLM 请求} other {# 个正在处理的 LLM 请求}}",
+    "comfyJob": "{name}：ComfyUI 任务正在运行",
+    "hermesUpdate": "{name}：Hermes 正在更新"
+  },
+  "shutdownAll": {
+    "title": "全部关机",
+    "button": "全部关机",
+    "confirmLabel": "全部关机",
+    "tooltip": "关闭所有在线 Spark",
+    "description": "优雅关闭全部 {count, plural, one {# 台在线 Spark} other {# 台在线 Spark}}？离线节点将被跳过。",
+    "error": "批量关机失败",
+    "result": {
+      "shutDown": "{count} 台已关闭",
+      "failed": "{count} 台失败",
+      "skipped": "{count} 台已跳过"
+    }
   }
 }
