@@ -205,3 +205,11 @@ test("a Windows unit's command is sent as an encoded PowerShell argv, others unc
   assert.deepEqual(remoteArgvFor({ platform: "linux" }, "echo ok"), ["echo ok"]);
   assert.deepEqual(remoteArgvFor({}, "echo ok"), ["echo ok"]);
 });
+
+test("explainSshFailure names the administrators_authorized_keys file for a refused key on a Windows unit only", () => {
+  const denied = "Permission denied (publickey,password,keyboard-interactive).";
+  const win = explainSshFailure(denied, { windows: true });
+  assert.match(win, /administrators_authorized_keys/);
+  assert.match(win, /Administrators and SYSTEM/);
+  assert.equal(explainSshFailure(denied), denied);
+});

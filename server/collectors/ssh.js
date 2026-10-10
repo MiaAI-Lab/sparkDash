@@ -266,10 +266,15 @@ export function sshCommandSpec(spark, opts = {}) {
 /**
  * A Windows OpenSSH server runs commands through cmd.exe, which has no `true`,
  * `cat` or `/proc`. Say so instead of leaving a cmd.exe error as the whole story.
+ * On a Windows unit, a refused key gets the administrator-account gotcha: sshd ignores
+ * ~/.ssh/authorized_keys for administrators.
  */
-export function explainSshFailure(message) {
+export function explainSshFailure(message, { windows = false } = {}) {
   if (/is not recognized as an internal or external command/i.test(message)) {
     return `${message} (this looks like a Windows host: set the Unit type to "Windows PC with an NVIDIA GPU" in the unit's settings.)`;
+  }
+  if (windows && /permission denied \(.*publickey/i.test(message)) {
+    return `${message} (if this Windows user is an administrator, sshd ignores ~/.ssh/authorized_keys and reads C:\\ProgramData\\ssh\\administrators_authorized_keys, which only Administrators and SYSTEM may write.)`;
   }
   return message;
 }
@@ -306,7 +311,7 @@ export async function sshExec(spark, cmd, options = {}) {
       const child = execFile(file, execArgs, { timeout: timeoutMs, env, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
         if (err) {
           const msg = stderr?.trim() || err.message;
-          reject(new Error(`SSH to ${targetHost}:${sshPort} failed: ${explainSshFailure(msg)}`));
+          reject(new Error(`SSH to ${targetHost}:${sshPort} failed: ${explainSshFailure(msg, { windows: isWindows })}`));
         } else {
           resolve(String(stdout).trim());
         }

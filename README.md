@@ -466,7 +466,15 @@ A Windows PC with an NVIDIA GPU can be monitored with no agent. On the PC:
 
 1. Install the **OpenSSH Server** (Settings → Apps → Optional features → *OpenSSH Server*), then start it and set it to start automatically: `Start-Service sshd; Set-Service sshd -StartupType Automatic` in an elevated PowerShell. Windows Firewall opens port 22 for it.
 2. Make sure the NVIDIA driver is installed (`nvidia-smi` works in a terminal).
-3. In sparkDash choose **Add Spark / GPU host**, set **Unit type** to *Windows PC with an NVIDIA GPU*, enter the PC's LAN IP and your Windows user (a password works; a key for an administrator account has to go in `C:\ProgramData\ssh\administrators_authorized_keys`).
+3. In sparkDash choose **Add Spark / GPU host**, set **Unit type** to *Windows PC with an NVIDIA GPU*, enter the PC's LAN IP and your Windows user (a password works; for key login see the administrator-account note below).
+
+**Keys work everywhere but this PC?** For a Windows user in the *Administrators* group, `sshd` ignores `~\.ssh\authorized_keys` and reads `C:\ProgramData\ssh\administrators_authorized_keys` instead, and refuses it unless only Administrators and SYSTEM can write to it. Put the public key in that file, then fix its permissions in an elevated PowerShell:
+
+```powershell
+icacls.exe "$env:ProgramData\ssh\administrators_authorized_keys" /inheritance:r /grant "Administrators:F" /grant "SYSTEM:F"
+```
+
+A refused key on a Windows unit also shows this hint in the connection error.
 
 sparkDash then runs two short PowerShell scripts over SSH per poll (no files are installed): GPU temperature, utilisation, power, VRAM and GPU processes from `nvidia-smi`, and RAM, uptime, CPU load, disks (fixed drives) and network adapters from Windows' CIM classes. Shutdown works (`shutdown.exe /s`). Not available on Windows: CPU temperature (Windows exposes no unprivileged sensor; CPU power is estimated from load), automatic Wake-on-LAN MAC detection (enter the MAC by hand), Hermes and Tailnet checks, model launchers, and the kernel Xid/OOM events. LLM servers on the PC (llama.cpp, Ollama, LM Studio, vLLM) are probed over HTTP as for any unit; if the server only listens on `127.0.0.1`, benchmarks fall back to an SSH tunnel.
 

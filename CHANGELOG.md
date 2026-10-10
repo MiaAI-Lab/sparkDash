@@ -9,6 +9,9 @@ Format: version sections are listed newest first.
 
 ## [Unreleased]
 
+### Fixed
+- **Windows PCs: "keys work everywhere but here".** The setup docs now explain that for an administrator account `sshd` ignores `~/.ssh/authorized_keys` and reads `C:\ProgramData\ssh\administrators_authorized_keys`, which only Administrators and SYSTEM may write (with the `icacls` command), and a refused key on a Windows unit adds the same hint to the connection error. Suggested by a user.
+
 ---
 
 ## [2.32.0] — 2026-10-10
