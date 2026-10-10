@@ -3,7 +3,7 @@ import { strict as assert } from "node:assert";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { sshCommandSpec } from "../ssh.js";
+import { sshCommandSpec, explainSshFailure } from "../ssh.js";
 
 beforeEach((t) => {
   for (const name of ["SSH_CONTROL_PERSIST_SECONDS", "SSH_CONTROL_PERSIST", "SSH_IDENTITY_FILE"]) {
@@ -188,4 +188,11 @@ test("sshCommandSpec: the legacy global switch still disables reuse", () => {
   }));
   assert.deepEqual(controlOptions(spec), ["ControlMaster=no", "ControlPath=none"]);
   assert.equal(spec.multiplex, null);
+});
+
+test("explainSshFailure points Windows hosts at WSL2 and leaves other errors alone", () => {
+  const win = explainSshFailure("'true' is not recognized as an internal or external command, operable program or batch file.");
+  assert.match(win, /Windows/);
+  assert.match(win, /WSL2/);
+  assert.equal(explainSshFailure("Permission denied (publickey)."), "Permission denied (publickey).");
 });

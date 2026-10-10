@@ -263,6 +263,17 @@ export function sshCommandSpec(spark, opts = {}) {
 }
 
 /**
+ * A Windows OpenSSH server runs commands through cmd.exe, which has no `true`,
+ * `cat` or `/proc`. Say so instead of leaving a cmd.exe error as the whole story.
+ */
+export function explainSshFailure(message) {
+  if (/is not recognized as an internal or external command/i.test(message)) {
+    return `${message} (this looks like a Windows host. sparkDash monitors Linux and macOS units; for a Windows PC with an NVIDIA GPU, run an SSH server inside WSL2 and add the WSL address instead.)`;
+  }
+  return message;
+}
+
+/**
  * Execute a command on a remote Spark via SSH.
  *
  * @param {Object} spark - Spark config object
@@ -287,7 +298,7 @@ export async function sshExec(spark, cmd, options = {}) {
       execFile(file, execArgs, { timeout: timeoutMs, env, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
         if (err) {
           const msg = stderr?.trim() || err.message;
-          reject(new Error(`SSH to ${targetHost}:${sshPort} failed: ${msg}`));
+          reject(new Error(`SSH to ${targetHost}:${sshPort} failed: ${explainSshFailure(msg)}`));
         } else {
           resolve(String(stdout).trim());
         }
