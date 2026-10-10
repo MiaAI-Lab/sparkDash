@@ -106,7 +106,11 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
   const { mounted, visible } = useModalPresence(open);
 
   const timeZones = useMemo(() => listTimeZones(), []);
+  const [tzTouched, setTzTouched] = useState(false);
   const browserTimeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC", []);
+
+  // Say a zone is unknown only once the field has been left (not while "Eur" is half typed).
+  const tzInvalid = tzTouched && Boolean(settings?.timeZone) && !isValidTimeZone(settings?.timeZone);
 
   const update = (patch: Partial<Settings>) => {
     setSettings((prev) => (prev ? { ...prev, ...patch } : prev));
@@ -229,6 +233,7 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
                 title="Time zone"
                 help={`Hour and day boundaries and labels on the Tokens, Energy and Activity charts. Empty follows this browser (${browserTimeZone}). Daily token buckets and monthly energy totals stay UTC.`}
                 htmlFor="settings-time-zone"
+                stack
               >
                 <div className="set-tz">
                   <input
@@ -240,8 +245,10 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
                     title={`Empty follows this browser (${browserTimeZone})`}
                     spellCheck={false}
                     autoComplete="off"
-                    aria-invalid={Boolean(settings.timeZone) && !isValidTimeZone(settings.timeZone)}
+                    aria-invalid={tzInvalid}
+                    aria-describedby="settings-time-zone-msg"
                     onChange={(e) => update({ timeZone: e.target.value })}
+                    onBlur={() => setTzTouched(true)}
                     className="field-input"
                   />
                   <datalist id="settings-time-zones">
@@ -249,15 +256,22 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
                       <option key={zone} value={zone} />
                     ))}
                   </datalist>
-                  {settings.timeZone ? (
-                    <button type="button" className="btn btn--sm btn--ghost" onClick={() => update({ timeZone: "" })}>
-                      Use browser
-                    </button>
-                  ) : null}
+                  <button
+                    type="button"
+                    className="btn btn--sm btn--ghost"
+                    disabled={!settings.timeZone}
+                    onClick={() => {
+                      update({ timeZone: "" });
+                      setTzTouched(false);
+                    }}
+                  >
+                    Use browser
+                  </button>
                 </div>
-                {settings.timeZone && !isValidTimeZone(settings.timeZone) ? (
-                  <small className="set-tz__err" role="alert">Not a known time zone, for example Europe/Paris or America/New_York.</small>
-                ) : null}
+                {/* One reserved line: the message appears after the field is left, and never moves anything. */}
+                <small id="settings-time-zone-msg" className="set-tz__msg" role={tzInvalid ? "alert" : undefined}>
+                  {tzInvalid ? "Unknown time zone. Try Europe/Paris." : ""}
+                </small>
               </SettingRow>
 
               <SettingRow
@@ -440,15 +454,18 @@ function SettingRow({
   title,
   help,
   htmlFor,
+  stack = false,
   children,
 }: {
   title: string;
   help?: string;
   htmlFor?: string;
+  /** Text above, control below (for controls that need room or show messages). */
+  stack?: boolean;
   children: React.ReactNode;
 }) {
   return (
-    <div className="set-row">
+    <div className={`set-row${stack ? " set-row--stack" : ""}`}>
       <div className="set-row__text">
         {htmlFor ? <label htmlFor={htmlFor}>{title}</label> : <span className="set-row__title">{title}</span>}
         {help && <small>{help}</small>}

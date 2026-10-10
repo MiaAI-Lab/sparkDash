@@ -1784,36 +1784,38 @@
   background: var(--color-success);
 }
 
-/* Settings → Time zone: input with suggestions, plus "Use browser"; the error sits under them. */
-.settings-panel .set-row:has(.set-tz) {
-  flex-wrap: wrap;
-}
-.settings-panel .set-row:has(.set-tz) .set-row__text {
-  flex: 1 1 14rem;
-}
-.set-row__control:has(.set-tz) {
+/* A row whose control sits under the text instead of beside it. */
+.set-row--stack {
   flex-direction: column;
-  align-items: flex-end;
-  gap: 4px;
-  max-width: 100%;
+  align-items: stretch;
+  gap: 0.5rem;
 }
+.set-row--stack .set-row__control {
+  flex-direction: column;
+  align-items: flex-start;
+  flex-shrink: 1;
+  gap: 4px;
+}
+
+/* Settings → Time zone: input with suggestions, plus "Use browser". The message line is
+   always reserved, so showing it never moves the field. */
 .set-tz {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-width: 0;
+  max-width: 100%;
 }
 .set-tz .field-input {
-  width: 190px;
+  width: min(16rem, 100%);
   min-width: 0;
 }
 .set-tz .field-input[aria-invalid="true"] {
   border-color: var(--color-danger);
 }
-.set-tz__err {
+.set-tz__msg {
   display: block;
-  max-width: 22rem;
-  text-align: right;
-  white-space: normal;
+  min-height: 1.4em;
+  font-size: 0.75rem;
+  line-height: 1.4;
   color: var(--color-danger);
 }
