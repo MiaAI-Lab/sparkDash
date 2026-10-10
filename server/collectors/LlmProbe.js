@@ -2267,8 +2267,10 @@ export class LlmProbe {
             const dPrompted = prompted - lastState.prompted;
             this.slotState.set(slotId, { decoded, prompted });
             if (dtSec > 0 && dtSec < 10) {
-              totalGen += dDecoded / dtSec;
-              totalPrefill += dPrompted / dtSec;
+              // Clamp per slot: a slot that begins a new request counts down
+              // (its counters restart) and must not cancel another slot's progress.
+              totalGen += Math.max(0, dDecoded) / dtSec;
+              totalPrefill += Math.max(0, dPrompted) / dtSec;
             }
           }
 
