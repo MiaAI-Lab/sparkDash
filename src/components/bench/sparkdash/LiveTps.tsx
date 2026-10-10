@@ -5,9 +5,9 @@ const SAMPLE_MS = 1000;
 const MAX_SAMPLES = 90;
 
 /**
- * Live generation tok/s while a decode run is in flight: the engine's own throughput
- * (as the monitor reads it), sampled once a second so the line moves smoothly between
- * polls. Renders nothing for a Remote target, where there is no live reading.
+ * Live generation tok/s while a decode run is in flight: the rate measured from the run's
+ * own streams, else the engine's throughput as the monitor reads it, sampled once a second
+ * so the line moves smoothly between polls. Renders nothing when neither exists.
  */
 export function LiveTps({ tps, active }: { tps: number | null | undefined; active: boolean }) {
   const [samples, setSamples] = useState<number[]>([]);

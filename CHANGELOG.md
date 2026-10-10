@@ -10,6 +10,7 @@ Format: version sections are listed newest first.
 ## [Unreleased]
 
 ### Fixed
+- **Decode benchmark: "Live generation" no longer shows 0 tok/s.** The live figure in the dialog was the engine's own reading, which is 0 on engines whose counters only move when a request finishes (TensorFold and EXL3 `/health` totals), and missing for a Remote target. It is now measured from the benchmark's own streams (tokens received across all streams over the last ~2 s, once a second; nothing is shown until the first token, not a 0 during prefill) and falls back to the engine reading only when there are no streams yet. Reported on a unit serving GLM-5.3-Flash on port 8093.
 - **Health findings no longer flap at a threshold.** A GPU hovering around 85 °C raised "running hot" and "back to normal" every minute and filled Activity with identical events. A finding now stays active for 90 s after its rule last raised it, so a reading that crosses a threshold back and forth produces one event and one "back to normal" when it has really settled. This applies to every health rule (temperature, memory, link speed, RoCE, concurrency).
 
 

@@ -861,6 +861,8 @@ export interface DecodeBenchProgress {
   completedLevels: number;
   totalLevels: number;
   message: string;
+  /** Generation tok/s measured from the streams of the running wave; null before the first token. */
+  liveTps?: number | null;
 }
 
 export interface DecodeBenchJob {

@@ -236,7 +236,58 @@ function streamPublicResult(r, index, prompt, reqMeta, debug = false) {
 }
 
 
-async function runConcurrencyWave({
+/**
+ * Live generation rate of a wave, measured from the streams themselves: tokens received
+ * across all streams over the last ~2 s, sampled every second. The engine's own live
+ * reading is 0 on backends whose counters only move when a request finishes (TensorFold
+ * and EXL3 `/health` totals), and does not exist for a Remote target. Calls `onLive(tps)`
+ * once a second while tokens flow, and `onLive(null)` when the wave ends.
+ */
+export function createLiveRate(streams, onLive, { now = () => performance.now(), intervalMs = 1000, windowMs = 2000 } = {}) {
+  const counts = new Array(streams).fill(0);
+  const samples = []; // [time, total]
+  let timer = null;
+  const total = () => counts.reduce((a, b) => a + b, 0);
+  const tick = () => {
+    const t = now();
+    samples.push([t, total()]);
+    // Start the window where tokens start: the prefill before the first token is not decode time.
+    while (samples.length > 2 && samples[1][1] === 0) samples.shift();
+    while (samples.length > 2 && t - samples[0][0] > windowMs) samples.shift();
+    const [t0, n0] = samples[0];
+    const [t1, n1] = samples[samples.length - 1];
+    // Nothing streamed yet (still prefilling): no reading, rather than a misleading 0.
+    if (t1 <= t0 || n1 === 0) return;
+    try {
+      onLive?.(Math.round(((n1 - n0) / ((t1 - t0) / 1000)) * 10) / 10);
+    } catch {
+      /* the display must never break a run */
+    }
+  };
+  if (typeof onLive === "function") {
+    samples.push([now(), 0]);
+    timer = setInterval(tick, intervalMs);
+    timer.unref?.();
+  }
+  return {
+    note(index, tokenCount) {
+      const n = Number(tokenCount);
+      if (Number.isFinite(n) && n >= 0) counts[index] = n;
+    },
+    tick,
+    stop() {
+      if (timer) clearInterval(timer);
+      timer = null;
+      try {
+        onLive?.(null);
+      } catch {
+        /* ignore */
+      }
+    },
+  };
+}
+
+export async function runConcurrencyWave({
   baseUrl,
   modelId,
   concurrency,
@@ -246,10 +297,12 @@ async function runConcurrencyWave({
   debug = false,
   apiKey = null,
   promptType = DECODE_BENCH_DEFAULT_TYPE,
+  onLive = null,
 }) {
   const url = `${baseUrl}/v1/chat/completions`;
   const prompts = pickBenchPrompts(concurrency, promptType);
   const reqMeta = { url, modelId, maxTokens };
+  const live = createLiveRate(concurrency, onLive);
 
   const wallStart = performance.now();
 
@@ -290,6 +343,7 @@ async function runConcurrencyWave({
       retryOnThinking400: true,
       thinking: false,
       apiKey,
+      onDelta: (d) => live.note(streamIndex, d?.tokenCount),
     };
 
     return (async () => {
@@ -327,6 +381,7 @@ async function runConcurrencyWave({
   try {
     results = await Promise.all(promises);
   } finally {
+    live.stop();
     clearTimeout(waveTimer);
     // Stop metrics / hardware polling as soon as streams finish
     hwPollAbort.abort();
@@ -879,6 +934,9 @@ export class DecodeBenchManager {
           debug,
           apiKey: job._apiKey,
           promptType: job.config.promptType,
+          onLive: (tps) => {
+            job.progress.liveTps = tps;
+          },
         });
 
         if (job._abort.signal.aborted) {

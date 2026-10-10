@@ -652,7 +652,7 @@ export function BenchmarkDialog({
                   <p className="bench-sheet__hint">{job.progress.message}</p>
                 ) : null}
               </div>
-              <LiveTps tps={liveTps} active />
+              <LiveTps tps={job.progress.liveTps ?? liveTps} active />
               {job.results.length > 0 && (
                 <div className="bench-results">
                   <div className="bench-results__caption">Completed levels</div>
