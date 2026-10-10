@@ -9,6 +9,10 @@ Format: version sections are listed newest first.
 
 ## [Unreleased]
 
+---
+
+## [2.32.0] — 2026-10-10
+
 ### Fixed
 - **Sidebar reorder** — dropping a Spark after dragging it no longer also opens it (the browser's click after the drop is ignored)
 - **TensorFold prefill tok/s no longer reads 100k+.** The rate divided every prompt token by the time spent computing, but an agent that re-sends a growing conversation gets ~95% of those tokens from the prefix cache (a 56k-token turn computed 2.7k tokens in 1.1 s and showed 49k tok/s, on another turn 146k). The probe now uses computed (uncached) tokens, from `cached_tokens_total`, and holds the last real rate when a prompt was fully cached. Builds that do not report the cached total still use the whole prompt. Reported on a unit serving GLM-5.3-Flash.

@@ -63,6 +63,12 @@ Monitored units run **Linux**, **macOS**, or **Windows** (a Windows PC with an N
 
 ## Latest version changelog
 
+### Version 2.32.0
+- **LLM panel**: an engine that only SSH can reach (a remote unit behind a NAT that forwards just SSH) is now monitored through an SSH forward, with a **via SSH** chip; TensorFold prefill tok/s counts only computed tokens, so prefix-cache hits no longer read as 100k+.
+- **Decode benchmark**: live generation tok/s is measured from the run's own streams, so it no longer shows 0.
+- **Health**: a finding is held for 90 s, so a reading sitting on a threshold does not flap and spam Activity.
+- **iPhone app**: the header clears the status bar and the home-screen icon is the logo. Dropping a Spark after dragging it in the sidebar no longer opens it.
+
 ### Version 2.31.0
 - **RoCE / RDMA panel** for Sparks: link state and rate, traffic, drops, PFC and QoS settings and the RDMA counters per port, with two health findings (a link went down, packets being dropped). See [RoCE / RDMA monitoring](#roce--rdma-monitoring).
 - **Time zone setting** for the Tokens, Energy and Activity charts, so the 24 h charts line up with your local time.
