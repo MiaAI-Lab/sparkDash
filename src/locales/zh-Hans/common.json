@@ -1,0 +1,7 @@
+{
+  "errors": {
+    "couldNotLoadSettings": "无法加载设置：{message}。请刷新页面重试。",
+    "couldNotRefreshSparks": "无法刷新 Spark：{message}。仍显示此前的数据。",
+    "couldNotSaveOrder": "无法保存 Spark 顺序：{message}。已恢复原有顺序。"
+  }
+}
