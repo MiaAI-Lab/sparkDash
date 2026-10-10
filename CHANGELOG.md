@@ -9,6 +9,10 @@ Format: version sections are listed newest first.
 
 ## [Unreleased]
 
+### Fixed
+- **Health findings no longer flap at a threshold.** A GPU hovering around 85 °C raised "running hot" and "back to normal" every minute and filled Activity with identical events. A finding now stays active for 90 s after its rule last raised it, so a reading that crosses a threshold back and forth produces one event and one "back to normal" when it has really settled. This applies to every health rule (temperature, memory, link speed, RoCE, concurrency).
+
+
 ---
 
 ## [2.31.0] — 2026-10-10

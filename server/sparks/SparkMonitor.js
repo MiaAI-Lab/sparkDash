@@ -85,6 +85,9 @@ const ONLINE_GRACE_MS = 10000;
  * SparkMonitor — one per Spark. Owns collectors + rate state + poll loop.
  * Exposes snapshot() for WebSocket pushed payload.
  */
+/** A finding stays this long after its rule last raised it, so a reading near a threshold does not flap. */
+export const HEALTH_CLEAR_HOLD_MS = 90_000;
+
 const HEALTH_LABELS = {
   thermal: "GPU temperature",
   "low-power": "GPU power draw",
@@ -722,14 +725,19 @@ export class SparkMonitor {
         },
         domain
       );
-      this._health = findings;
+      // A reading that hovers around a threshold (a GPU at 85 °C, memory near 3 GB) would
+      // raise and clear its finding every few seconds, and log an event each time. Keep a
+      // finding for HEALTH_CLEAR_HOLD_MS after the rule last raised it.
+      const now = this._healthNow();
+      const held = this._holdFindings(findings, now);
+      this._health = held;
       const name = this.spark.name || this.spark.id;
       for (const e of ev.pendingEvents) this._emit(e);
-      const ids = new Set(findings.map((f) => f.id));
+      const ids = new Set(held.map((f) => f.id));
       const prev = this._prevHealthIds;
       this._prevHealthIds = ids;
       if (prev == null) return;
-      for (const f of findings) {
+      for (const f of held) {
         if (prev.has(f.id) || f.id === "xid" || f.id === "oom") continue;
         this._emit({
           type: `health.${f.id}`,
@@ -744,6 +752,29 @@ export class SparkMonitor {
     } catch (err) {
       console.error(`[SparkMonitor] ${this.spark.id} health error:`, err?.message);
     }
+  }
+
+  /** Wall clock for the health hold; a method so tests can drive it. */
+  _healthNow() {
+    return Date.now();
+  }
+
+  /**
+   * Findings the rules raised now, plus those raised within the last HEALTH_CLEAR_HOLD_MS
+   * that no longer hold (shown with their last detail until the hold runs out).
+   */
+  _holdFindings(findings, now) {
+    this._healthSeen ??= new Map();
+    for (const f of findings) this._healthSeen.set(f.id, { finding: f, at: now });
+    const out = [...findings];
+    const present = new Set(findings.map((f) => f.id));
+    for (const [id, rec] of this._healthSeen) {
+      if (present.has(id)) continue;
+      // The kernel-error findings keep their own one-hour memory in the evaluator.
+      if (now - rec.at < HEALTH_CLEAR_HOLD_MS && id !== "xid" && id !== "oom") out.push(rec.finding);
+      else this._healthSeen.delete(id);
+    }
+    return out;
   }
 
   /**

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { SparkMonitor } from "../SparkMonitor.js";
+import { SparkMonitor, HEALTH_CLEAR_HOLD_MS } from "../SparkMonitor.js";
 import {
   COLLECTION_SUCCESS,
   SystemCollector,
@@ -310,4 +310,51 @@ test("a domain that is no longer polled is not reported, and RoCE is stamped wit
   monitor._invalidateSshMetrics();
   assert.equal("storage" in monitor.lastSuccess(), false);
   assert.equal("network" in monitor.lastSuccess(), false);
+});
+
+test("a GPU hovering at the warning threshold raises one event, not one per crossing", () => {
+  const monitor = new SparkMonitor(spark());
+  const events = [];
+  monitor._onEvent = (e) => events.push(e);
+  let now = 1_000_000;
+  monitor._healthNow = () => now;
+  const reading = (temperature) => {
+    monitor._metrics.gpu = { ...validGpu(temperature) };
+    monitor._updateHealth("gpu");
+  };
+
+  reading(70); // baseline: nothing yet, and no event for the first evaluation
+  assert.equal(events.length, 0);
+  // 20 minutes of a reading that flips between 84 and 85 every 20 s
+  for (let i = 0; i < 60; i++) {
+    now += 20_000;
+    reading(i % 2 === 0 ? 85 : 84);
+  }
+  const hot = events.filter((e) => e.type === "health.thermal");
+  const cleared = events.filter((e) => e.type === "health.cleared");
+  assert.equal(hot.length, 1);
+  assert.equal(cleared.length, 0);
+  assert.equal(monitor._health.some((f) => f.id === "thermal"), true);
+});
+
+test("a finding clears once its rule has stayed quiet for the hold time, and a new event follows a real second episode", () => {
+  const monitor = new SparkMonitor(spark());
+  const events = [];
+  monitor._onEvent = (e) => events.push(e);
+  let now = 1_000_000;
+  monitor._healthNow = () => now;
+  const reading = (temperature) => {
+    monitor._metrics.gpu = { ...validGpu(temperature) };
+    monitor._updateHealth("gpu");
+  };
+  reading(70);
+  now += 1000; reading(86); // episode 1 begins
+  now += 1000; reading(60);
+  now += HEALTH_CLEAR_HOLD_MS - 2000; reading(60);
+  assert.equal(monitor._health.some((f) => f.id === "thermal"), true); // still held
+  now += 3000; reading(60);
+  assert.equal(monitor._health.some((f) => f.id === "thermal"), false); // hold over
+  assert.equal(events.filter((e) => e.type === "health.cleared").length, 1);
+  now += 1000; reading(88); // episode 2
+  assert.equal(events.filter((e) => e.type === "health.thermal").length, 2);
 });
