@@ -201,3 +201,14 @@ test("patchSpark: a new SSH host drops the LLM API keys (bench tunnel endpoint)"
   assert.equal(r.getSpark(SPARK_ID).lanIp, "127.0.0.1");
   assert.equal(r.hasLlmApiKey(SPARK_ID, 8888), false);
 });
+
+test("the secrets file is written owner-only, also over an older world-readable one", () => {
+  const file = process.env.SPARKS_SECRETS_PATH;
+  // An install from before this change left the file 0644.
+  fs.writeFileSync(file, "{}\n", { mode: 0o644 });
+  fs.chmodSync(file, 0o644);
+
+  saveSecrets(new Map([[SPARK_ID, "synthetic-test-password"]]));
+
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+});

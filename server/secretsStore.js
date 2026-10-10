@@ -388,7 +388,9 @@ function writeSecretsFile({ secrets, llmApiKeys, alertChannels, helperTokens }) 
   const body = { version: 2, secrets, llmApiKeys };
   if (alertChannels && Object.keys(alertChannels).length > 0) body.alertChannels = alertChannels;
   if (helperTokens && Object.keys(helperTokens).length > 0) body.helperTokens = helperTokens;
-  atomicWrite(SPARKS_SECRETS_PATH, JSON.stringify(body, null, 2) + "\n", 0o644);
+  // Owner-only, like the key file beside it: with a passphrase key the
+  // ciphertext alone is enough for an offline guess.
+  atomicWrite(SPARKS_SECRETS_PATH, JSON.stringify(body, null, 2) + "\n", 0o600);
 }
 
 // ─── Alert channel URLs ──────────────────────────────────
