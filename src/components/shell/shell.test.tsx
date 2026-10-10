@@ -1,6 +1,6 @@
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AppSidebar, RAIL_KEYBOARD_CODES } from "./AppSidebar";
+import { AppSidebar, RAIL_KEYBOARD_CODES, markRailDrop } from "./AppSidebar";
 import { MobileTabBar } from "./MobileTabBar";
 import { CommandPalette, filterCommands, fuzzyScore, type PaletteCommand } from "./CommandPalette";
 import { railSubLabel, showcaseTarget } from "./sparkSummary";
@@ -84,6 +84,22 @@ describe("keyboard access", () => {
       btn.dispatchEvent(ev);
     });
     expect(ev.defaultPrevented).toBe(false);
+  });
+});
+
+describe("rail drag", () => {
+  it("the click that follows a drop does not open the Spark, a later click does", () => {
+    const onSelect = vi.fn();
+    const { container } = render(
+      <AppSidebar sparks={[makeSpark("a"), makeSpark("b")]} activeId={null} onSelect={onSelect} onAdd={() => {}} onReorder={() => {}} onOpenSettings={() => {}} onOpenSearch={() => {}} connected />
+    );
+    const link = container.querySelector<HTMLAnchorElement>('nav[aria-label="Sparks"] a')!;
+    act(() => markRailDrop());
+    act(() => link.click());
+    expect(onSelect).not.toHaveBeenCalled();
+    act(() => markRailDrop(Date.now() - 1000));
+    act(() => link.click());
+    expect(onSelect).toHaveBeenCalledTimes(1);
   });
 });
 

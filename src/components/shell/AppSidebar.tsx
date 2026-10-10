@@ -68,9 +68,26 @@ function dotClass(spark: SparkSnapshot): string {
   return "sdot";
 }
 
+/**
+ * A drag ends on pointer-up over the very link that was lifted, and the browser then fires a click on
+ * it. Without this the drop would also open the Spark. Clicks this soon after a drop are swallowed.
+ */
+const DROP_CLICK_GUARD_MS = 400;
+let lastDropAt = 0;
+export function markRailDrop(now: number = Date.now()) {
+  lastDropAt = now;
+}
+export function clickFollowsRailDrop(now: number = Date.now()): boolean {
+  return now - lastDropAt < DROP_CLICK_GUARD_MS;
+}
+
 /** Plain left-click navigates in-app; modified clicks and the context menu keep normal link behaviour. */
 function inApp(go: () => void) {
   return (e: MouseEvent<HTMLAnchorElement>) => {
+    if (clickFollowsRailDrop()) {
+      e.preventDefault();
+      return;
+    }
     if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     e.preventDefault();
     go();
@@ -163,6 +180,7 @@ export function AppSidebar({
   const canReorder = Boolean(onReorder) && sparks.length > 1;
 
   const handleDragEnd = (event: DragEndEvent) => {
+    markRailDrop();
     setDragging(false);
     const { active, over } = event;
     if (!over || active.id === over.id) return;
@@ -224,7 +242,10 @@ export function AppSidebar({
             collisionDetection={closestCenter}
             onDragStart={() => setDragging(true)}
             onDragEnd={handleDragEnd}
-            onDragCancel={() => setDragging(false)}
+            onDragCancel={() => {
+              markRailDrop();
+              setDragging(false);
+            }}
           >
             <SortableContext items={items} strategy={verticalListSortingStrategy}>
               <nav className="rail-list" aria-label="Sparks">
