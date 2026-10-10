@@ -66,7 +66,7 @@ export class LlmProbe {
     this.baseUrl = `http://${llmProbeHost(spark)}:${port}`;
 
     // State
-    this.backendType = null; // 'vllm' | 'llama.cpp' | 'sglang' | 'ds4' | 'exl3' | 'q27' | 'tensorfold' | 'freetoken' | null
+    this.backendType = null; // 'vllm' | 'llama.cpp' | 'sglang' | 'ds4' | 'exl3' | 'q27' | 'tensorfold' | 'freetoken' | 'ollama' | null
     this.serverIsOpenAI = null; // true = OpenAI-compatible
     /** Whether /v1/models (or /slots) answered without credentials. null = unknown. */
     this.authOpen = null;
@@ -334,7 +334,8 @@ export class LlmProbe {
       this.backendType !== "exl3" &&
       this.backendType !== "q27" &&
       this.backendType !== "tensorfold" &&
-      this.backendType !== "freetoken"
+      this.backendType !== "freetoken" &&
+      this.backendType !== "ollama"
     ) {
       const slotUrl = `${this.baseUrl}/slots`;
       try {
@@ -382,9 +383,9 @@ export class LlmProbe {
   }
 
   /**
-   * Classify an OpenAI-compatible server: ds4, SGLang, EXL3, q27, TensorFold, FreeToken, or vLLM (default).
+   * Classify an OpenAI-compatible server: ds4, SGLang, EXL3, q27, TensorFold, FreeToken, Ollama, or vLLM (default).
    * @param {unknown} ownedBy
-   * @returns {Promise<"ds4" | "sglang" | "exl3" | "q27" | "tensorfold" | "freetoken" | "vllm">}
+   * @returns {Promise<"ds4" | "sglang" | "exl3" | "q27" | "tensorfold" | "freetoken" | "ollama" | "vllm">}
    */
   async _classifyOpenAIBackend(ownedBy) {
     if (typeof ownedBy === "string") {
@@ -397,13 +398,62 @@ export class LlmProbe {
       if (/tensorfold/i.test(ownedBy)) return "tensorfold";
       // FreeToken reports owned_by: "FreeToken".
       if (/freetoken/i.test(ownedBy)) return "freetoken";
+      if (/^ollama$/i.test(ownedBy)) return "ollama";
     }
     if (await this._probeIsDs4()) return "ds4";
     if (await this._probeIsSglang()) return "sglang";
     if (await this._probeIsExl3()) return "exl3";
     if (await this._probeIsQ27()) return "q27";
     if (await this._probeIsFreeToken()) return "freetoken";
+    if (await this._probeIsOllama()) return "ollama";
+    if (typeof ownedBy === "string" && /^vllm$/i.test(ownedBy)) return "vllm";
+    // A failed identification request cannot prove the backend changed. Keep
+    // native residency authoritative until another backend is identified.
+    if (this.backendType === "ollama") return "ollama";
     return "vllm";
+  }
+
+  async _probeIsOllama() {
+    try {
+      const res = await this._fetch(`${this.baseUrl}/api/version`);
+      if (!res.ok) return false;
+      const data = await res.json();
+      return typeof data?.version === "string" && /^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/.test(data.version);
+    } catch {
+      return false;
+    }
+  }
+
+  async _probeOllama() {
+    // OpenAI /v1/models lists installed weights, not models resident in memory.
+    this.models = [];
+    this.modelId = null;
+    this.modelPath = null;
+    this.contextLength = null;
+    this.generationTps = 0;
+    this.prefillTps = 0;
+    this.prefillActive = false;
+    this.slotsActive = 0;
+    this.slotsTotal = 0;
+    this._clearEngineMemory();
+    for (const field of ["totalOutputTokens", "totalPromptTokens", "totalCachedTokens",
+      "cachedPrefillTps", "uncachedPrefillTps", "gpuMemoryUtilization", "kvCacheUsage",
+      "requestsRunning", "requestsWaiting", "ttftP95Seconds", "ttftSeconds",
+      "preemptionsTotal", "prefixCacheHitRate", "e2eP95Seconds", "itlP95Seconds", "mtpAcceptanceRate"])
+      this[field] = null;
+
+    const res = await this._fetch(`${this.baseUrl}/api/ps`);
+    if (this._noteAuthStatus(res.status) === "auth") return this._defaultLlm();
+    if (!res.ok) throw new Error("Ollama loaded-model probe failed");
+    const data = await res.json();
+    if (!Array.isArray(data?.models)) throw new Error("Invalid Ollama loaded-model response");
+    const residents = data.models.filter((model) =>
+      typeof (model?.name ?? model?.model) === "string" && (model.name ?? model.model).trim().length > 0);
+    this.models = [...new Set(residents.map((model) => model.name ?? model.model))];
+    this.modelId = this.models[0] ?? null;
+    const context = residents[0]?.context_length;
+    this.contextLength = Number.isSafeInteger(context) && context > 0 ? context : null;
+    return { ...this._getSnapshot(), available: this.models.length > 0, endpointReachable: true };
   }
 
   /**
@@ -521,6 +571,7 @@ export class LlmProbe {
 
   // ─── OpenAI-compatible path (vLLM/sglang/ds4) ────────────
   async _probeOpenAICompatible() {
+    if (this.backendType === "ollama") return this._probeOllama();
     const now = Date.now();
     const dtSec = (now - this.lastProbeTime) / 1000;
     this.lastProbeTime = now;
@@ -2169,6 +2220,7 @@ export class LlmProbe {
     const metricsLive = this.serverIsOpenAI !== null && this.authOpen !== false;
     return {
       available: metricsLive,
+      liveRatesAvailable: this.backendType !== "ollama",
       backend: this.backendType,
       modelId: this.models.length > 1 ? this.models[0] : this.modelId || null,
       modelPath: this.modelPath || null,
@@ -2209,6 +2261,8 @@ export class LlmProbe {
   _defaultLlm() {
     return {
       available: false,
+      endpointReachable: false,
+      liveRatesAvailable: this.backendType !== "ollama",
       backend: this.backendType,
       modelId: null,
       modelPath: null,
@@ -2222,7 +2276,7 @@ export class LlmProbe {
       prefillActive: false,
       cachedPrefillTps: null,
       uncachedPrefillTps: null,
-      totalOutputTokens: 0,
+      totalOutputTokens: this.backendType === "ollama" ? null : 0,
       totalCachedTokens: null,
       kvCacheUsage: null,
       kvCacheTokens: null,

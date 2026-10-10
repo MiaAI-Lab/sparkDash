@@ -373,10 +373,14 @@ export interface UnifiedMemoryMetrics {
 // ─── LLM metrics ─────────────────────────────────────────
 export interface LlmMetrics {
   available: boolean;
-  backend: "vllm" | "llama.cpp" | "sglang" | "ds4" | "exl3" | "q27" | "tensorfold" | "freetoken" | null;
+  /** Endpoint probe succeeded, independently of whether a model is resident. */
+  endpointReachable?: boolean;
+  backend: "vllm" | "llama.cpp" | "sglang" | "ds4" | "exl3" | "q27" | "tensorfold" | "freetoken" | "ollama" | null;
+  /** False when the backend does not expose live token rates (Ollama). */
+  liveRatesAvailable?: boolean;
   modelId: string | null;
   modelPath: string | null;
-  /** Exact served request IDs from /v1/models, in response order. */
+  /** Exact served request IDs; Ollama reports resident IDs from /api/ps. */
   models?: string[];
   contextLength: number | null;
   /** GPU memory utilization for the LLM engine (0–1), e.g. 0.9. Only from vLLM internal info. */
@@ -392,7 +396,7 @@ export interface LlmMetrics {
   /** Live uncached/computed prefill tok/s when split is available. */
   uncachedPrefillTps?: number | null;
   /** Cumulative total output (generation) tokens as reported by the LLM server */
-  totalOutputTokens: number;
+  totalOutputTokens: number | null;
   /** Cumulative cached (prefix-cache served) prompt tokens. null when the backend does not expose the split. */
   totalCachedTokens: number | null;
   /** Cumulative total prompt (prefill) tokens as reported by the LLM server. null when the backend does not expose it. */

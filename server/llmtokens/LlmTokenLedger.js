@@ -108,6 +108,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", ".
 const DEFAULT_LEDGER_PATH = LLM_TOKEN_JSON_PATH;
 
 function finiteCount(v) {
+  if (v == null) return null;
   const n = Number(v);
   return Number.isFinite(n) && n >= 0 ? n : null;
 }

@@ -851,6 +851,7 @@ Name, IP, SSH credentials, LLM port, and device/interface filters update the run
 
 Each configured LLM port gets its own `LlmProbe` instance running in parallel. Probes auto-detect backends:
 
+- **Ollama** — `/api/version` identifies the backend and `/api/ps` reports models currently loaded in memory, rather than the installed weights listed by `/v1/models`. No resident model means no model loaded. Native live token rates and lifetime counters are unavailable: the UI shows a dash, history and Prometheus omit those rates, and Decode benchmark can measure throughput. Register load/unload scripts as model launchers to control existing Ollama models.
 - **llama.cpp** — `/slots` for live decode rates; model from `/props`
 - **ds4-server** (Entrpi/ds4-on-spark) — `/v1/models` (`owned_by: ds4.c`) + Prometheus `ds4_*` token counters for live tok/s
 - **EXL3** (ExLlamaV3 `tools/serve_openai.py`) — `/v1/models` (`owned_by: exl3`) or `/health` `{ok, busy}`; live tok/s from `/health` cumulative counters

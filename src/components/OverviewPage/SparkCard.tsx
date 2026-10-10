@@ -150,6 +150,16 @@ function SparkCardImpl({
   const liveHead = usableHead(headSpark);
   const headLlmList = Array.isArray(liveHead?.metrics.llm) ? liveHead.metrics.llm : [];
   const headLlm = headLlmList.find((l) => l.available) ?? null;
+  let workerHint: string;
+  if (headLlm) {
+    workerHint = headLlm.liveRatesAvailable === false
+      ? `${backendLabel(headLlm.backend) ?? "LLM"} · model loaded`
+      : `${backendLabel(headLlm.backend) ?? headLlm.backend ?? "LLM"} · ${headLlm.generationTps.toFixed(1)} tok/s decode`;
+  } else if (headSpark) {
+    workerHint = headSpark.online ? "No model loaded on the head" : "Head is offline";
+  } else {
+    workerHint = "Pick its head in Edit Spark to see the model here";
+  }
   if (role === "worker") {
     // Prefer the head's live model; fall back to the configured / mirrored worker label.
     const label = headLlm?.modelId || spark.workerLabel?.trim() || spark.workerDerivedLabel?.trim() || null;
@@ -305,13 +315,7 @@ function SparkCardImpl({
                 <div className="ov-launch__title">Head not set</div>
               )}
               <div className="ov-launch__hint">
-                {headLlm
-                  ? `${backendLabel(headLlm.backend) ?? headLlm.backend ?? "LLM"} · ${headLlm.generationTps.toFixed(1)} tok/s decode`
-                  : headSpark
-                    ? headSpark.online
-                      ? "No model loaded on the head"
-                      : "Head is offline"
-                    : "Pick its head in Edit Spark to see the model here"}
+                {workerHint}
               </div>
             </div>
           ) : null}
@@ -319,7 +323,7 @@ function SparkCardImpl({
             <div className="ov-tps">
               <div>
                 <div className="eyebrow">Decode</div>
-                <div className="big-num ov-tps__num">{llm.generationTps.toFixed(1)}<small>tok/s</small></div>
+                <div className="big-num ov-tps__num" title={llm.liveRatesAvailable === false ? "Live token rates unavailable; use Decode benchmark" : undefined}>{llm.liveRatesAvailable === false ? "—" : llm.generationTps.toFixed(1)}<small>tok/s</small></div>
               </div>
               <div>
                 <div className="eyebrow">Prefill</div>
@@ -329,7 +333,7 @@ function SparkCardImpl({
                     <small>prefilling</small>
                   </div>
                 ) : (
-                  <div className="big-num ov-tps__num">{Math.round(llm.prefillTps).toLocaleString()}<small>tok/s</small></div>
+                  <div className="big-num ov-tps__num">{llm.liveRatesAvailable === false ? "—" : Math.round(llm.prefillTps).toLocaleString()}<small>tok/s</small></div>
                 )}
               </div>
             </div>

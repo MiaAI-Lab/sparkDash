@@ -4,7 +4,7 @@ import { isWorkerSpark } from "../../api/sparkRole";
 /** Live decode tok/s of the first reachable LLM on a Spark, or null. */
 export function primaryDecodeTps(spark: SparkSnapshot): number | null {
   const llm = Array.isArray(spark.metrics.llm) ? spark.metrics.llm.find((l) => l.available) : null;
-  return llm ? llm.generationTps : null;
+  return llm && llm.liveRatesAvailable !== false ? llm.generationTps : null;
 }
 
 /** Short label for the rail: tok/s when an LLM is live, otherwise a status word. */

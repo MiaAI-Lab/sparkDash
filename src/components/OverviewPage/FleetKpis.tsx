@@ -74,7 +74,7 @@ export function FleetKpis({
     const t = totalsRef.current;
     setTrends((prev) => {
       const next = {
-        decode: pushRolling(prev.decode, t.decodeTps),
+        decode: t.decodeUnknownEndpoints > 0 ? [] : pushRolling(prev.decode, t.decodeTps),
         power: pushRolling(prev.power, t.powerW),
         mem: pushRolling(prev.mem, t.memUsedMb / 1024),
       };
@@ -111,9 +111,14 @@ export function FleetKpis({
     <div className="ov-kpis">
       <Kpi
         label="Fleet decode"
-        value={totals.decodeTps.toFixed(1)}
+        value={totals.decodeUnknownEndpoints > 0 && totals.decodeMeasuredEndpoints === 0 ? "—" : totals.decodeTps.toFixed(1)}
         unit="tok/s"
-                trend={trends.decode}
+        trend={totals.decodeUnknownEndpoints === 0 ? trends.decode : undefined}
+        foot={totals.decodeUnknownEndpoints > 0
+          ? totals.decodeMeasuredEndpoints > 0
+            ? "Partial total · some live rates unavailable"
+            : "Live token rates unavailable"
+          : undefined}
         color="var(--color-accent)"
       />
       <Kpi
