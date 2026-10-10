@@ -135,6 +135,44 @@ test("_applyTensorFoldHealth: prefill tok/s uses prefill time, not the poll wind
   assert.equal(probe.slotsActive, 2);
 });
 
+test("_applyTensorFoldHealth: prefix-cache hits do not inflate prefill tok/s (real totals from a CUDA unit)", () => {
+  const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888);
+  const health = (over) => ({
+    ok: true,
+    busy: false,
+    backend: "tensorfold",
+    requests_running: 0,
+    prompt_tokens_total: 2_684_155,
+    completion_tokens_total: 58_903,
+    prefill_seconds_total: 450.1822,
+    cached_tokens_total: 1_560_000,
+    ...over,
+  });
+  probe._applyTensorFoldHealth(health(), 2); // baseline
+  // An agent turn: 56,180 prompt tokens in, 53,504 of them cache hits, 1.1455 s of prefill.
+  probe._applyTensorFoldHealth(
+    health({ prompt_tokens_total: 2_740_335, prefill_seconds_total: 451.3277, cached_tokens_total: 1_613_504 }),
+    2
+  );
+  // Computed tokens only: (56,180 - 53,504) / 1.1455 s, not 56,180 / 1.1455 s = 49,000.
+  assert.ok(Math.abs(probe.prefillTps - 2336.1) < 1, `prefillTps ${probe.prefillTps}`);
+
+  // A fully cached prompt computes nothing: no absurd rate, the last real one is held.
+  probe._applyTensorFoldHealth(
+    health({ prompt_tokens_total: 2_800_000, prefill_seconds_total: 451.4, cached_tokens_total: 1_673_169 }),
+    2
+  );
+  assert.ok(probe.prefillTps < 3000, `prefillTps ${probe.prefillTps}`);
+});
+
+test("_applyTensorFoldHealth: without a cached total (older builds) the whole prompt is the best available basis", () => {
+  const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888);
+  const base = { ok: true, backend: "tensorfold", prompt_tokens_total: 0, completion_tokens_total: 0, prefill_seconds_total: 0, requests_running: 0 };
+  probe._applyTensorFoldHealth(base, 2);
+  probe._applyTensorFoldHealth({ ...base, prompt_tokens_total: 1000, prefill_seconds_total: 0.5 }, 2);
+  assert.equal(probe.prefillTps, 2000);
+});
+
 test("_applyTensorFoldHealth: MLX health sizes the slot tile; null health is safe", () => {
   const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888);
   probe._applyTensorFoldHealth({ status: "ok", model: "m", max_batch_size: 8, warming: false }, 2);

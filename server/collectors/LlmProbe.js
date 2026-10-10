@@ -109,6 +109,7 @@ export class LlmProbe {
     this._tensorfoldSeeded = false;
     /** Previous TensorFold `prefill_seconds_total`. null until a sample includes it. */
     this._tensorfoldPrefillSeconds = null;
+    this._tensorfoldPrevCached = null;
     this._tensorfoldLastPrefill = null;
     this.prefillActive = false;
     /** Previous prefill counters by kind; null until first labeled sample. */
@@ -394,6 +395,7 @@ export class LlmProbe {
     this.lastTokenCounts = { input: 0, output: 0 };
     this._tensorfoldSeeded = false;
     this._tensorfoldPrefillSeconds = null;
+    this._tensorfoldPrevCached = null;
     this._tensorfoldLastPrefill = null;
     this.prefillActive = false;
     this.lastPrefillKinds = null;
@@ -1210,11 +1212,13 @@ export class LlmProbe {
     }
     const prevIn = this.lastTokenCounts.input;
     const prevPrefillSec = this._tensorfoldPrefillSeconds;
+    const prevCached = this._tensorfoldPrevCached ?? null;
     this._applyExl3Health(health, dtSec);
     // TensorFold 0.5.0 (cuda/health.py) publishes cumulative cached prompt tokens
     // alongside the EXL3-style counters; older builds omit it (stays null).
-    const cached = Number(health.cached_tokens_total);
+    const cached = health.cached_tokens_total == null ? NaN : Number(health.cached_tokens_total);
     if (Number.isFinite(cached) && cached >= 0) this.totalCachedTokens = cached;
+    this._tensorfoldPrevCached = Number.isFinite(cached) && cached >= 0 ? cached : null;
     const batch = Number(health.max_batch_size);
     if (Number.isFinite(batch) && batch > 0) this.slotsTotal = Math.round(batch);
     // TensorFold 0.6.0 CUDA serves several streams at once: `streams.max` is the
@@ -1258,11 +1262,18 @@ export class LlmProbe {
     if (!(dtSec > 0 && dtSec < 10)) return;
     const dSec = prefillSec - prevPrefillSec;
     const dIn = prompt - prevIn;
-    if (dSec > 0 && dIn > 0) {
+    // `prompt_tokens_total` counts every prompt token, including those served from the prefix
+    // cache (an agent re-sending a growing 50k-token conversation is ~95% cache hits), while
+    // `prefill_seconds_total` is only the time spent computing. Dividing one by the other gave
+    // 100k+ tok/s. Use computed (uncached) tokens when the build reports the cached total.
+    const dCached =
+      Number.isFinite(cached) && prevCached != null ? Math.max(0, cached - prevCached) : null;
+    const dComputed = dCached == null ? dIn : Math.max(0, dIn - dCached);
+    if (dSec > 0 && dComputed > 0) {
       // A request just finished: its average prefill rate. TensorFold publishes token and time
       // totals only for finished requests, so nothing is measurable while a long prefill runs;
       // keep the last finished rate on screen for a while instead of flashing to 0.
-      this._tensorfoldLastPrefill = { tps: Math.max(0, Math.round((dIn / dSec) * 100) / 100), at: Date.now() };
+      this._tensorfoldLastPrefill = { tps: Math.max(0, Math.round((dComputed / dSec) * 100) / 100), at: Date.now() };
       this.prefillTps = this._tensorfoldLastPrefill.tps;
     } else if (this._tensorfoldLastPrefill && Date.now() - this._tensorfoldLastPrefill.at < 20_000) {
       this.prefillTps = this._tensorfoldLastPrefill.tps;
