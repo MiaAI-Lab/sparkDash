@@ -35,6 +35,51 @@ test("low power needs a streak of consecutive gpu samples and resets", () => {
   assert.deepEqual(h.evaluate(m, "other"), []);
 });
 
+const nv = (temperature, usage, draw) => ({ vendor: "nvidia", temperature, usage, power: { draw, limit: 200 } });
+const intelCard = (temperature, usage, draw) => ({ vendor: "intel", temperature, usage, power: { draw, limit: 200 } });
+const hostOf = (gpus) => ({
+  temperature: Math.max(...gpus.map((g) => g.temperature)),
+  usage: Math.max(...gpus.map((g) => g.usage)),
+  power: { draw: gpus.reduce((n, g) => n + g.power.draw, 0), limit: 400 },
+  gpus,
+});
+
+test("intel card is not judged by the NVIDIA thresholds (hot, or 100% at a low draw)", () => {
+  const h = new HealthEvaluator();
+  // Intel-only host: hot and "stuck" by NVIDIA rules, but silent
+  const only = { gpu: hostOf([intelCard(95, 100, 5)]) };
+  for (let i = 0; i < LOW_POWER_STREAK + 2; i++) assert.deepEqual(h.evaluate(only, "gpu"), []);
+  // Mixed host: healthy NVIDIA card plus a hot, busy, low-power Intel card
+  const mixed = { gpu: hostOf([nv(60, 50, 40), intelCard(95, 100, 5)]) };
+  for (let i = 0; i < LOW_POWER_STREAK + 2; i++) assert.deepEqual(h.evaluate(mixed, "gpu"), []);
+});
+
+test("mixed host: the Intel draw does not hide a stuck NVIDIA card, and NVIDIA findings are unchanged", () => {
+  const h = new HealthEvaluator();
+  // aggregate draw is 5 + 150 W, but the NVIDIA card alone is stuck at 5 W
+  const m = { gpu: hostOf([nv(88, 99, 5), intelCard(50, 10, 150)]) };
+  let f = [];
+  for (let i = 0; i < LOW_POWER_STREAK; i++) f = h.evaluate(m, "gpu");
+  assert.deepEqual(ids(f).sort(), ["low-power", "thermal"]);
+  assert.equal(f.find((x) => x.id === "thermal").severity, "warn");
+});
+
+test("regression: an NVIDIA-only gpus list gives the same findings as the bare aggregate", () => {
+  const bare = { temperature: 91, usage: 97, power: { draw: 9 } };
+  const listed = { ...bare, gpus: [nv(91, 97, 9)] };
+  const a = new HealthEvaluator();
+  const b = new HealthEvaluator();
+  let fa = [];
+  let fb = [];
+  for (let i = 0; i < LOW_POWER_STREAK; i++) {
+    fa = a.evaluate({ gpu: bare }, "gpu");
+    fb = b.evaluate({ gpu: listed }, "gpu");
+  }
+  assert.deepEqual(fb, fa);
+  assert.deepEqual(ids(fa).sort(), ["low-power", "thermal"]);
+  assert.equal(fa.find((x) => x.id === "thermal").severity, "critical");
+});
+
 test("memory: warn below 3 GB available, critical below 1.5 GB", () => {
   const h = new HealthEvaluator();
   const mk = (available) => ({ unifiedMemory: { total: 124000, available, percentage: 97 } });

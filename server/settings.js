@@ -56,6 +56,11 @@ const DEFAULTS = Object.freeze({
    * Off by default: when off the path answers 404.
    */
   prometheusExport: false,
+  /**
+   * Let the Intel (xe) probe read root-only debugfs VRAM through `sudo -n`.
+   * Off by default: without it VRAM falls back to the PCI BAR size and no sudo runs.
+   */
+  intelVramSudo: false,
 });
 
 const POLL_INTERVAL_MIN_MS = 500;
@@ -117,6 +122,7 @@ function _clampSettings(settings) {
   s.timeZone = isValidTimeZone(s.timeZone) ? String(s.timeZone).trim() : "";
   s.showVramBreakdown = Boolean(s.showVramBreakdown);
   s.prometheusExport = Boolean(s.prometheusExport);
+  s.intelVramSudo = Boolean(s.intelVramSudo);
   // Ensure temperatureUnit is valid
   if (s.temperatureUnit !== "celsius" && s.temperatureUnit !== "fahrenheit") {
     s.temperatureUnit = DEFAULTS.temperatureUnit;

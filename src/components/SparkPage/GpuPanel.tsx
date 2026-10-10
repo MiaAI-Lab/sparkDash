@@ -9,6 +9,7 @@ import { MetricBar } from "../ui/MetricBar";
 import { VramBreakdownBar } from "../ui/VramBreakdownBar";
 import { useMetricsHistoryTail } from "../../hooks/metricsStore";
 import { formatMb } from "../../shared/formatBytes";
+import { shortGpuName } from "../../shared/gpuName";
 import { GpuHistoryChart, GPU_CHART_WINDOWS } from "./GpuHistoryChart";
 import {
   computeVramBreakdown,
@@ -37,12 +38,6 @@ interface GpuPanelProps {
 
 function celsiusToFahrenheit(c: number): number {
   return Math.round(c * 9 / 5 + 32);
-}
-
-/** "NVIDIA GeForce RTX 5080" → "RTX 5080" for the per-card rows. */
-function shortGpuName(name: string | null): string {
-  if (!name) return "";
-  return name.replace(/^NVIDIA\s+(GeForce\s+)?/i, "");
 }
 
 function throttleTag(reason: string | undefined): { label: string; tone: TagTone } {
@@ -120,7 +115,12 @@ function GpuDeviceRow({
           {d.power.draw}W / {d.power.limit}W
         </span>
       </div>
-      {breakdown ? (
+      {d.vramSource === "pci-bar" ? (
+        <div className="flex justify-between text-xs" title="VRAM use could not be read on this card">
+          <span className="text-muted">VRAM</span>
+          <span className="font-tabular text-text">{formatMb(d.vram.total)} total</span>
+        </div>
+      ) : breakdown ? (
         <VramBreakdownBar label="VRAM" breakdown={breakdown} showLegend />
       ) : d.vram.total > 0 ? (
         <MetricBar

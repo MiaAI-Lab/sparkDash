@@ -3,6 +3,7 @@ import path from "path";
 import { HOST_PATHS, GPU_MEMORY_JSON_PATH, DGX_SPARK, HARDWARE_DEFAULTS, POLL_INTERVAL_NVERR } from "../config.js";
 import { normalizeMac, WOL_INTERFACE } from "../wol.js";
 import { sshExec } from "./ssh.js";
+import { getSettings } from "../settings.js";
 import { RoceSampler } from "./roce.js";
 import {
   WINDOWS_GPU_SCRIPT,
@@ -11,6 +12,7 @@ import {
   splitWindowsGpuOutput,
   windowsGpuAsLinuxOutput,
 } from "./windowsMetrics.js";
+import { IntelSudoGate, IntelVramCache, buildIntelProbeScript, parseIntelProbe, sampleIntelCards } from "./intelGpu.js";
 
 const NVERR_JOURNAL_CMD =
   'journalctl -k --no-pager -q --grep=NV_ERR_NO_MEMORY 2>/dev/null | grep -c NV_ERR_NO_MEMORY || true';
@@ -93,6 +95,14 @@ export class SystemCollector {
 
     // GPU VRAM per-PID cache
     this.nvidiaComputeAppsCache = new Map();
+    // Intel (xe) energy / idle-residency baselines per PCI address
+    this._intelState = new Map();
+    // Remembers a failed `sudo -n` VRAM read so it is not retried every poll
+    this._intelSudo = new IntelSudoGate();
+    // Last debugfs VRAM reading, so working `sudo -n` runs once per window, not per poll
+    this._intelVram = new IntelVramCache();
+    // Whether any xe-driver card exists on this host (local path), re-checked rarely
+    this._intelPresent = { value: null, at: 0 };
 
     // Cached hardware info
     this._hardwareInfo = null;
@@ -166,6 +176,10 @@ export class SystemCollector {
   }
 
   _isSuccessfulGpuCollection(gpu) {
+    // An Intel card may expose no power cap (limit 0); only a host with
+    // nothing but Intel cards is exempt, NVIDIA must still report a limit.
+    const gpus = Array.isArray(gpu?.gpus) ? gpu.gpus : [];
+    const intelOnly = gpus.length > 0 && gpus.every((g) => g?.vendor === "intel");
     return (
       Number.isFinite(gpu?.temperature) &&
       gpu.temperature > 0 &&
@@ -173,7 +187,7 @@ export class SystemCollector {
       Number.isFinite(gpu?.power?.draw) &&
       gpu.power.draw >= 0 &&
       Number.isFinite(gpu?.power?.limit) &&
-      gpu.power.limit > 0
+      (gpu.power.limit > 0 || (intelOnly && gpu.power.limit === 0))
     );
   }
 
@@ -289,13 +303,29 @@ export class SystemCollector {
 
   // ─── GPU helpers ─────────────────────────────────────────
   async _getGPUAll() {
-    const gpuOut = await this._nvidiaSmi(
-      "--query-gpu=temperature.gpu,utilization.gpu,power.draw,power.limit,clocks.current.sm,clocks.max.sm,clocks_throttle_reasons.hw_thermal_slowdown,clocks_throttle_reasons.sw_thermal_slowdown,clocks_throttle_reasons.hw_slowdown,clocks_throttle_reasons.sw_power_cap,index,name,uuid --format=csv,noheader,nounits"
-    );
-    const devices = this._parseGpuLines(gpuOut);
-    const gpu = this._aggregateGpuDevices(devices);
+    // A host with only an Intel card has no nvidia-smi; that is not an error.
+    let gpuOut = "";
+    let smiError = null;
+    try {
+      gpuOut = await this._nvidiaSmi(
+        "--query-gpu=temperature.gpu,utilization.gpu,power.draw,power.limit,clocks.current.sm,clocks.max.sm,clocks_throttle_reasons.hw_thermal_slowdown,clocks_throttle_reasons.sw_thermal_slowdown,clocks_throttle_reasons.hw_slowdown,clocks_throttle_reasons.sw_power_cap,index,name,uuid --format=csv,noheader,nounits"
+      );
+    } catch (err) {
+      smiError = err;
+    }
+    const vramRead = this._intelVram.stale;
+    const intel = this._sampleIntel(await this._probeIntelLocal(vramRead), vramRead);
+    if (smiError && !intel.length) throw smiError;
+    const nvidiaDevices = this._parseGpuLines(gpuOut);
     this._lastVramPerDevice = [];
-    const vram = await this._queryNvidiaVram();
+    const nvidiaVram = await this._queryNvidiaVram();
+    const { devices, perDeviceVram, vram, cardAggregate } = this._withIntel(
+      nvidiaDevices,
+      this._lastVramPerDevice,
+      nvidiaVram,
+      intel
+    );
+    const gpu = this._aggregateGpuDevices(devices);
 
     // Estimate total system power: GPU draw + CPU draw + ~20W CX7/peripherals
     let systemDraw = gpu.powerDraw;
@@ -319,7 +349,7 @@ export class SystemCollector {
       throttle: gpu.throttle,
       nvErrNoMemory: await this._nvErrNoMemory(),
       kernelErrors: await this._kernelErrors(),
-      gpus: this._buildGpuDevices(devices, this._lastVramPerDevice ?? [], apps, vram),
+      gpus: this._buildGpuDevices(devices, perDeviceVram, apps, cardAggregate),
     };
   }
 
@@ -478,6 +508,7 @@ export class SystemCollector {
         index,
         name,
         uuid,
+        vendor: "nvidia",
         temperature,
         usage,
         powerDraw,
@@ -610,14 +641,114 @@ export class SystemCollector {
         index: d.index,
         name: d.name,
         uuid: d.uuid,
+        vendor: d.vendor ?? "nvidia",
         temperature: d.temperature,
         usage: d.usage,
         power: { draw: d.powerDraw, limit: d.powerLimit },
         vram,
         throttle: d.throttle,
         processes: this._topProcesses(own),
+        ...(d.vendor === "intel" ? { fanRpm: d.fanRpm ?? null, vramSource: d.vramSource } : {}),
       };
     });
+  }
+
+  /** Intel (xe) probe on this host, in the host mount namespace. "" when unavailable. */
+  async _probeIntelLocal(vram = true) {
+    if (process.platform !== "linux") return "";
+    if (!this._hasXeCard()) return "";
+    try {
+      return await this._execOnHost(buildIntelProbeScript({ sudo: this._intelSudo.allowed && getSettings().intelVramSudo, vram }));
+    } catch {
+      return "";
+    }
+  }
+
+  /** Where sysfs may be mounted: the host bind mount in the container, else /sys. */
+  _sysRoots() {
+    return [HOST_PATHS.SYS, "/sys"];
+  }
+
+  /**
+   * Whether an `xe`-driver card is present, read from sysfs without spawning
+   * anything. Cached; re-checked every 10 minutes so a hot-added card is found
+   * eventually. A failed read counts as "maybe" and is not cached.
+   */
+  _hasXeCard() {
+    const c = this._intelPresent;
+    const now = Date.now();
+    if (c.value != null && now - c.at < 10 * 60 * 1000) return c.value;
+    try {
+      const root = this._sysRoots()
+        .map((r) => path.join(r, "class/drm"))
+        .find((d) => fs.existsSync(d));
+      let found = false;
+      if (root) {
+        for (const name of fs.readdirSync(root)) {
+          if (!/^card\d+$/.test(name)) continue;
+          try {
+            if (path.basename(fs.readlinkSync(path.join(root, name, "device/driver"))) === "xe") {
+              found = true;
+              break;
+            }
+          } catch {
+            // no driver bound
+          }
+        }
+      }
+      this._intelPresent = { value: found, at: now };
+      return found;
+    } catch {
+      return true;
+    }
+  }
+
+  /** Probe output -> Intel device entries (shaped like `_parseGpuLines`). [] when none. */
+  _sampleIntel(probeOut, vramRead = true) {
+    const cards = parseIntelProbe(probeOut);
+    this._intelSudo.observe(cards);
+    this._intelVram.apply(cards, vramRead);
+    const { devices, next } = sampleIntelCards(cards, this._intelState);
+    this._intelState = next;
+    return devices.map((d) => ({
+      ...d,
+      uuid: null,
+      throttle: this._buildThrottle({ smClockMHz: d.smClockMHz, smClockMaxMHz: d.smClockMaxMHz }),
+    }));
+  }
+
+  /**
+   * Append Intel cards after the NVIDIA ones (indexes continue upward) and fold
+   * their VRAM into the aggregate. With no Intel card the inputs come back
+   * untouched, so NVIDIA-only hosts report exactly what they did before.
+   * `cardAggregate` is what a card with no memory numbers of its own (GB10)
+   * should show: the NVIDIA pool, not the Intel VRAM.
+   */
+  _withIntel(devices, perDeviceVram, vram, intel) {
+    if (!intel.length) return { devices, perDeviceVram, vram, cardAggregate: vram };
+    const first = devices.length ? Math.max(...devices.map((d) => d.index)) + 1 : 0;
+    const added = intel.map((d, i) => ({ ...d, index: first + i }));
+    const perDevice = [
+      ...devices.map((_, i) => perDeviceVram[i] ?? { used: null, total: null }),
+      ...added.map((d) => ({ used: d.vramUsedMB, total: d.vramTotalMB })),
+    ];
+    const used = added.reduce((n, d) => n + d.vramUsedMB, 0);
+    const total = added.reduce((n, d) => n + d.vramTotalMB, 0);
+    const base = devices.length ? vram : { used: 0, total: 0, available: 0 };
+    const mergedUsed = base.used + used;
+    const mergedTotal = base.total + total;
+    const merged = {
+      used: mergedUsed,
+      total: mergedTotal,
+      percentage: mergedTotal > 0 ? Math.round((mergedUsed / mergedTotal) * 100) : 0,
+      available: base.available + Math.max(0, total - used),
+    };
+    return {
+      devices: [...devices, ...added],
+      perDeviceVram: perDevice,
+      vram: merged,
+      cardAggregate: devices.length ? vram : merged,
+    };
   }
 
   /** Parse nvidia-smi Active / Not Active fields. */
@@ -1291,6 +1422,7 @@ export class SystemCollector {
   // ─── Remote collection via SSH ────────────────────────────
   async _getRemoteGpu(executor = sshExec) {
     try {
+      const vramRead = this._intelVram.stale;
       const cmd = [
         "nvidia-smi --query-gpu=temperature.gpu,utilization.gpu,power.draw,power.limit,clocks.current.sm,clocks.max.sm,clocks_throttle_reasons.hw_thermal_slowdown,clocks_throttle_reasons.sw_thermal_slowdown,clocks_throttle_reasons.hw_slowdown,clocks_throttle_reasons.sw_power_cap,index,name,uuid --format=csv,noheader,nounits 2>/dev/null",
         "echo '---'",
@@ -1299,6 +1431,8 @@ export class SystemCollector {
         "nvidia-smi --query-compute-apps=pid,process_name,used_gpu_memory,gpu_uuid --format=csv,noheader,nounits 2>/dev/null",
         "echo '---'",
         "grep -E 'MemTotal|MemAvailable' /proc/meminfo 2>/dev/null",
+        "echo '---'",
+        buildIntelProbeScript({ sudo: this._intelSudo.allowed && getSettings().intelVramSudo, vram: vramRead }),
       ].join("; ");
 
       const output = await executor(this.spark, cmd);
@@ -1307,9 +1441,9 @@ export class SystemCollector {
       const memFields = sections[1]?.trim() || "";
       const computeOut = sections[2]?.trim() || "";
       const meminfoOut = sections[3]?.trim() || "";
+      const intel = this._sampleIntel(sections[4] || "", vramRead);
 
-      const devices = this._parseGpuLines(gpuOut);
-      const gpu = this._aggregateGpuDevices(devices);
+      const nvidiaDevices = this._parseGpuLines(gpuOut);
 
       // Parse memory.used / memory.total from nvidia-smi, one line per GPU
       // (may be [N/A] on GB10); the aggregate is the sum across cards.
@@ -1352,13 +1486,21 @@ export class SystemCollector {
       }
       const percentage = totalMB > 0 ? Math.round((usedMB / totalMB) * 100) : 0;
 
+      const nvidiaVram = { used: usedMB, total: totalMB, percentage, available: availableMB };
+      const { devices, perDeviceVram: allVram, vram, cardAggregate } = this._withIntel(
+        nvidiaDevices,
+        perDeviceVram,
+        nvidiaVram,
+        intel
+      );
+      const gpu = this._aggregateGpuDevices(devices);
+
       // Rough system power estimate: GPU draw + 20W CX7/peripherals
       const systemDraw = Math.round(gpu.powerDraw + 20);
 
       // Top 5 GPU processes by VRAM usage (a PID spanning several GPUs is summed)
       const cachedApps = this._cachedApps();
       const processes = this._topProcesses(cachedApps);
-      const vram = { used: usedMB, total: totalMB, percentage, available: availableMB };
 
       return {
         temperature: gpu.temperature,
@@ -1369,7 +1511,7 @@ export class SystemCollector {
         throttle: gpu.throttle,
         nvErrNoMemory: await this._nvErrNoMemory(),
         kernelErrors: await this._kernelErrors(),
-        gpus: this._buildGpuDevices(devices, perDeviceVram, cachedApps, vram),
+        gpus: this._buildGpuDevices(devices, allVram, cachedApps, cardAggregate),
       };
     } catch (err) {
       console.error(`[SystemCollector] Remote GPU error for ${this.spark.id}:`, err.message);
