@@ -146,6 +146,14 @@ export function loadSecrets() {
     return { passwords, llmApiKeys, helperTokens };
   }
 
+  // Versions before the save-time mode was tightened left this file 0644, and a
+  // stable fleet may never save again, so close it here too.
+  try {
+    if ((fs.statSync(SPARKS_SECRETS_PATH).mode & 0o077) !== 0) fs.chmodSync(SPARKS_SECRETS_PATH, 0o600);
+  } catch {
+    /* another user's file or a read-only mount: the next save rewrites it */
+  }
+
   try {
     const key = resolveKey();
     const raw = fs.readFileSync(SPARKS_SECRETS_PATH, "utf8");
