@@ -687,13 +687,9 @@ export class SparkMonitor {
       health: this._health,
       hardware: this._hardwareSummary,
       metrics: {
-        // NOTE: no `timestamp` here on purpose. The broadcast path skips
-        // snapshots whose JSON is byte-identical to the previous one (see
-        // startBroadcast); a per-snapshot Date.now() would defeat that cache,
-        // forcing a broadcast + frontend re-render every tick even when all
-        // measured values are unchanged. The frontend does not consume a
-        // metrics timestamp; the WS receive time can serve if one is ever
-        // needed.
+        // NOTE: no `timestamp` here. The frontend does not consume a metrics
+        // timestamp; the broadcast envelope's `generatedAt` (see
+        // buildSnapshotPayload) and the WS receive time already serve.
         gpu: this._metrics.gpu,
         cpu: this._metrics.cpu,
         ram: this._metrics.ram,
