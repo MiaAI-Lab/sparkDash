@@ -63,6 +63,8 @@ Monitored units run **Linux**, **macOS**, or **Windows** (a Windows PC with an N
 
 ### Version 2.30.0
 - **Windows PCs as units**: a Windows PC with an NVIDIA GPU can be monitored over its built-in OpenSSH server (GPU, RAM, CPU load, disks, network, shutdown). See [Windows PCs](#windows-pcs).
+- **RoCE / RDMA panel** for Sparks: link state and rate, traffic, drops, PFC and QoS settings and the RDMA counters per port, with two health findings (a link went down, packets being dropped). See [RoCE / RDMA monitoring](#roce--rdma-monitoring).
+- **Time zone setting** for the Tokens, Energy and Activity charts, so the 24 h charts line up with your local time.
 - **Mobile app**: sparkDash installs as a PWA over HTTPS (for example Tailscale Serve).
 - **Monthly energy history** with a month/year view, **Prometheus `/metrics`** (opt-in), per-GPU graphs on multi-GPU hosts, a model picker in the decode benchmark, per-Spark `llmHost`, and **Restart sparkDash** from the UI after a fleet change.
 - The Settings poll interval now really sets the polling rate; the Fleet energy card explains partial coverage; CPU and RAM sit side by side on GPU hosts.
