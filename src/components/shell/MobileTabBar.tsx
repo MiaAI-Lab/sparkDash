@@ -9,6 +9,7 @@ import { BENCH_TYPES } from "../bench/benchCatalog";
 import { BoltIcon, ChartIcon, GearIcon, GridIcon, ListIcon, PlusIcon, ServerIcon, TerminalIcon, TokensIcon } from "../ui/icons";
 import { isThrottling, railSubLabel } from "./sparkSummary";
 import { ShutdownAll } from "../ShutdownAll";
+import { useTranslation } from "react-i18next";
 
 /** Keep in sync with the sheet-out animation in shell.css. */
 const SHEET_LEAVE_MS = 240;
@@ -23,6 +24,7 @@ interface MobileTabBarProps {
 
 /** Floating bottom tab bar for narrow screens (the fleet rail is hidden there). */
 export function MobileTabBar({ sparks, activeId, onSelect, onAdd, onOpenSettings }: MobileTabBarProps) {
+  const { t } = useTranslation();
   const [sheetKind, setSheetKind] = useState<"sparks" | "stats" | null>(null);
   const sheet = sheetKind != null;
   // Closing plays a slide-down first; the sheet unmounts when it has finished.
@@ -79,14 +81,14 @@ export function MobileTabBar({ sparks, activeId, onSelect, onAdd, onOpenSettings
   );
   return (
     <>
-      <nav className="tabbar" aria-label="Primary" data-tab={tabIndex}>
+      <nav className="tabbar" aria-label={t("shell.nav.primary", "Primary")} data-tab={tabIndex}>
         <button type="button" className={tabIndex === 0 ? "is-active" : ""} aria-current={activeId === OVERVIEW_ID ? "page" : undefined} onClick={() => onSelect(OVERVIEW_ID)}>
           <GridIcon className="h-[18px] w-[18px]" />
-          Overview
+          {t("shell.nav.overview", "Overview")}
         </button>
         <button type="button" className={tabIndex === 1 ? "is-active" : ""} aria-current={onSpark ? "page" : undefined} onClick={() => setSheet(true)} aria-haspopup="dialog">
           <ServerIcon className="h-[18px] w-[18px]" />
-          Sparks
+          {t("shell.nav.sparks", "Sparks")}
         </button>
         <button
           type="button"
@@ -96,11 +98,11 @@ export function MobileTabBar({ sparks, activeId, onSelect, onAdd, onOpenSettings
           aria-haspopup="dialog"
         >
           <ChartIcon className="h-[18px] w-[18px]" />
-          Stats
+          {t("shell.nav.stats", "Stats")}
         </button>
         <button type="button" onClick={onOpenSettings}>
           <GearIcon className="h-[18px] w-[18px]" />
-          Settings
+          {t("shell.nav.settings", "Settings")}
         </button>
       </nav>
       {sheet
@@ -111,18 +113,18 @@ export function MobileTabBar({ sparks, activeId, onSelect, onAdd, onOpenSettings
                 if (e.target === e.currentTarget) setSheet(false);
               }}
             >
-              <div ref={trapRef} className={`sheet ${leaving ? "is-leaving" : ""}`} role="dialog" aria-modal="true" aria-label={sheetKind === "stats" ? "Stats" : "Choose a Spark"}>
+              <div ref={trapRef} className={`sheet ${leaving ? "is-leaving" : ""}`} role="dialog" aria-modal="true" aria-label={sheetKind === "stats" ? t("shell.nav.stats", "Stats") : t("shell.nav.chooseSpark", "Choose a Spark")}>
                 <div className="rail-list">
                   {sheetKind === "stats" ? (
                     ([
-                      [TOKENS_ID, "Token totals", <TokensIcon key="t" className="h-4 w-4" />],
-                      [ENERGY_ID, "Fleet energy", <BoltIcon key="e" className="h-4 w-4" />],
-                      [ACTIVITY_ID, "Activity", <ListIcon key="a" className="h-4 w-4" />],
+                      [TOKENS_ID, t("shell.nav.tokens", "Token totals"), <TokensIcon key="t" className="h-4 w-4" />],
+                      [ENERGY_ID, t("shell.nav.energy", "Fleet energy"), <BoltIcon key="e" className="h-4 w-4" />],
+                      [ACTIVITY_ID, t("shell.nav.activity", "Activity"), <ListIcon key="a" className="h-4 w-4" />],
                     ] as const).map(([id, label, icon]) => pageButton(id, label, icon))
                   ) : (
                     <>
                   <div className="rail-label rail-label--spaced">
-                    <span>Benchmarks</span>
+                    <span>{t("shell.nav.benchmarks", "Benchmarks")}</span>
                   </div>
                   {BENCH_TYPES.map((b) => (
                     <Fragment key={b.id}>
@@ -138,12 +140,12 @@ export function MobileTabBar({ sparks, activeId, onSelect, onAdd, onOpenSettings
                         <span className="rail-item__name">{b.label}</span>
                       </button>
                       {b.id === "prefill"
-                        ? pageButton(SHOWCASE_ID, "Showcase", <TerminalIcon className="h-3.5 w-3.5" />, true)
+                        ? pageButton(SHOWCASE_ID, t("shell.nav.showcase", "Showcase"), <TerminalIcon className="h-3.5 w-3.5" />, true)
                         : null}
                     </Fragment>
                   ))}
                   <div className="rail-label rail-label--spaced">
-                    <span>Sparks</span>
+                    <span>{t("shell.nav.sparks", "Sparks")}</span>
                   </div>
                   {sparks.map((s) => (
                     <button
@@ -169,10 +171,10 @@ export function MobileTabBar({ sparks, activeId, onSelect, onAdd, onOpenSettings
                     }}
                   >
                     <PlusIcon className="h-4 w-4" />
-                    <span className="rail-item__name">Add Spark / GPU host</span>
+                    <span className="rail-item__name">{t("shell.nav.addSpark", "Add Spark / GPU host")}</span>
                   </button>
                   <div className="rail-label rail-label--spaced">
-                    <span>Fleet</span>
+                    <span>{t("shell.nav.fleet", "Fleet")}</span>
                   </div>
                   <div className="sheet-power">
                     <ShutdownAll sparks={sparks} className="sheet-power__btn" />

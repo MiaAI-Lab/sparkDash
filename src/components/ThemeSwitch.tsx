@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { SunIcon, SunDimIcon, MoonIcon, MoonStarIcon } from "./ui/icons";
+import { useTranslation } from "react-i18next";
 
 type Theme = "white" | "light" | "dark" | "oled";
 
@@ -19,6 +20,7 @@ function getInitialTheme(): Theme {
 }
 
 export function ThemeSwitch() {
+  const { t } = useTranslation();
   const [theme, setTheme] = useState<Theme>(() => getInitialTheme());
 
   useEffect(() => {
@@ -75,8 +77,8 @@ export function ThemeSwitch() {
       type="button"
       onClick={toggle}
       className="icon-circle"
-      title={`Theme: ${theme}`}
-      aria-label={`Switch theme (currently ${theme})`}
+      title={t("shell.theme.title", "Theme: {theme}", { theme })}
+      aria-label={t("shell.theme.aria", "Switch theme (currently {theme})", { theme })}
     >
       <Icon className="h-3.5 w-3.5" />
     </button>
