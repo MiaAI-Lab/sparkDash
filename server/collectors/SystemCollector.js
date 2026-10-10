@@ -272,7 +272,7 @@ export class SystemCollector {
       return await this._roceSampler.sample();
     } catch (err) {
       console.error(`[SystemCollector] RoCE error for ${this.spark.id}:`, err.message);
-      return null;
+      return undefined; // could not read: the caller keeps its previous value
     }
   }
 

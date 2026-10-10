@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { isolatedConfigEnv } from "../../__tests__/isolatedEnv.js";
 import { once } from "node:events";
 import fs from "node:fs";
 import { mkdtemp } from "node:fs/promises";
@@ -25,6 +26,7 @@ async function startServer(t) {
     cwd: path.resolve(import.meta.dirname, "../../.."),
     env: {
       ...process.env,
+      ...isolatedConfigEnv(tmp),
       HOME: tmp, // the launcher log directory lives under $HOME on the (local) Spark
       BIND_HOST: "127.0.0.1",
       PORT: String(port),

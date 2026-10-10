@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { isolatedConfigEnv } from "../../__tests__/isolatedEnv.js";
 import { once } from "node:events";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
@@ -42,6 +43,7 @@ test("a new WebSocket client receives its initial snapshot without rebroadcastin
     cwd: path.resolve(import.meta.dirname, "../../.."),
     env: {
       ...process.env,
+      ...isolatedConfigEnv(tmp),
       BIND_HOST: "127.0.0.1",
       PORT: String(port),
       SPARKS_JSON_PATH: sparksPath,

@@ -894,7 +894,7 @@ export class SparkMonitor {
     this._inflight[domain] = pollToken;
     try {
       let result;
-      let roce = null;
+      let roce;
       switch (domain) {
         case "gpu":
           result = await this.collector.collectGpu();
@@ -907,8 +907,13 @@ export class SparkMonitor {
           break;
         case "network":
           result = await this.collector.collectNetwork();
-          // RoCE rides the network tick; it throttles itself and never fails the poll.
-          roce = await this.collector.collectRoce().catch(() => null);
+          // RoCE rides the network tick: it throttles itself, never fails the poll and never
+          // holds the network result for more than a moment (a wedged NIC can stall ethtool).
+          // `undefined` = could not read this time: keep the previous value.
+          roce = await Promise.race([
+            this.collector.collectRoce().catch(() => undefined),
+            new Promise((resolve) => setTimeout(() => resolve(undefined), 3000).unref?.()),
+          ]);
           break;
         case "storage":
           result = await this.collector.collectStorage();
@@ -954,7 +959,7 @@ export class SparkMonitor {
           break;
         case "network":
           this._metrics.network = result;
-          this._metrics.roce = roce;
+          if (roce !== undefined) this._metrics.roce = roce;
           this._updateHealth();
           if (result?.wolMac && this._onWolMac) {
             try {

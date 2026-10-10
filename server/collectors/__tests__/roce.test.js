@@ -164,3 +164,103 @@ test("health: loss only after several samples in a row", () => {
   assert.equal(f.severity, "warn");
   assert.match(f.detail, /out_of_buffer/);
 });
+
+test("one dropped frame at the port is not a finding: the discard flag lasts one slow sample, not 30 s of fast ones", async () => {
+  const state = { fast: FAST, slow: SLOW };
+  let t = 1_000_000;
+  const sampler = new RoceSampler({ run: fakeRun(state), now: () => t });
+  await sampler.sample();
+  t += 30_000;
+  // 30 s later rx_discards_phy rose by 1, once.
+  state.slow = SLOW.replace(/(ETH\|enp1s0f0np0\n(?:.*\n)*?\s+rx_discards_phy:\s+)0/, "$11");
+  const withBlip = await sampler.sample();
+  const dev = withBlip.devices.find((x) => x.netdev === "enp1s0f0np0");
+  assert.equal(dev.loss.ethStreak, 1);
+  const streaks = [];
+  for (let i = 0; i < 5; i++) {
+    t += 5_000; // fast samples between slow ones must not inflate anything
+    const r = await sampler.sample();
+    streaks.push(r.devices.find((x) => x.netdev === "enp1s0f0np0").loss.streak);
+  }
+  assert.deepEqual(streaks, [0, 0, 0, 0, 0]);
+  const ev = new HealthEvaluator();
+  assert.equal(ev.evaluate({ roce: withBlip }).some((f) => f.id === "roce-loss"), false);
+});
+
+test("port discards rising on two slow samples in a row do raise roce-loss", async () => {
+  const state = { fast: FAST, slow: SLOW };
+  let t = 1_000_000;
+  const sampler = new RoceSampler({ run: fakeRun(state), now: () => t });
+  await sampler.sample();
+  let last;
+  for (let i = 1; i <= 2; i++) {
+    t += 30_000;
+    state.slow = SLOW.replace(/(ETH\|enp1s0f0np0\n(?:.*\n)*?\s+rx_discards_phy:\s+)0/, `$1${i * 10}`);
+    last = await sampler.sample();
+  }
+  assert.equal(last.devices.find((x) => x.netdev === "enp1s0f0np0").loss.ethStreak, 2);
+  const f = new HealthEvaluator().evaluate({ roce: last }).find((x) => x.id === "roce-loss");
+  assert.match(f.detail, /port discards/);
+});
+
+test("devices that vanish or a failed read keep the last sample for a few reads, then drop it", async () => {
+  const state = { fast: FAST, slow: SLOW, fail: false };
+  let t = 1_000_000;
+  const run = async (script) => {
+    if (state.fail) throw new Error("ssh timed out");
+    return script.includes("mlnx_qos") ? state.slow : state.fast;
+  };
+  const sampler = new RoceSampler({ run, now: () => t });
+  const good = await sampler.sample();
+  assert.equal(good.devices.length, 2);
+
+  // empty output (driver reload): the last good sample stands, and no 10-minute blackout
+  state.fast = "";
+  t += 5_000;
+  assert.equal((await sampler.sample()).devices.length, 2);
+  t += 20_000;
+  assert.equal((await sampler.sample()).devices.length, 2);
+  state.fast = FAST;
+  t += 20_000;
+  assert.equal((await sampler.sample()).devices.length, 2); // recovered at the normal pace
+
+  // read failures: kept at first, then the error surfaces
+  state.fail = true;
+  const seen = [];
+  for (let i = 0; i < 6; i++) {
+    t += 20_000;
+    try {
+      seen.push((await sampler.sample())?.devices.length ?? null);
+    } catch {
+      seen.push("error");
+    }
+  }
+  assert.deepEqual(seen.slice(0, 3), [2, 2, 2]);
+  assert.ok(seen.includes("error"));
+});
+
+test("overlapping sample() calls share one read", async () => {
+  let runs = 0;
+  let release;
+  const gate = new Promise((r) => (release = r));
+  const sampler = new RoceSampler({
+    run: async (s) => {
+      runs += 1;
+      await gate;
+      return s.includes("mlnx_qos") ? SLOW : FAST;
+    },
+    now: () => 100_000, // past the 30 s slow interval, so one fast and one slow read happen
+  });
+  const a = sampler.sample();
+  const b = sampler.sample();
+  release();
+  await Promise.all([a, b]);
+  assert.equal(runs, 2); // one fast + one slow, not four
+});
+
+test("devices come back in a stable order whatever the sysfs glob order", async () => {
+  const reversed = FAST.split("\n").reverse().join("\n");
+  const a = await new RoceSampler({ run: fakeRun({ fast: FAST, slow: SLOW }), now: () => 0 }).sample();
+  const b = await new RoceSampler({ run: fakeRun({ fast: reversed, slow: SLOW }), now: () => 0 }).sample();
+  assert.deepEqual(a.devices.map((d) => d.netdev), b.devices.map((d) => d.netdev));
+});

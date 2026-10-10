@@ -1,4 +1,5 @@
 import type { ActivityEvent } from "../../api/types";
+import { tzOffsetMinutes } from "../../shared/timeZone";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -13,8 +14,9 @@ export function formatRelativeTime(ts: number, now: number = Date.now()): string
   if (hr < 24) return `${hr}h`;
   const day = Math.floor(hr / 24);
   if (day < 7) return `${day}d`;
-  const d = new Date(ts);
-  return `${MONTHS[d.getMonth()]} ${d.getDate()}`;
+  // Month and day in the Settings time zone (else the browser's), via the same offset the charts use.
+  const d = new Date(ts + tzOffsetMinutes(ts) * 60_000);
+  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
 }
 
 export function severityDotClass(severity: ActivityEvent["severity"]): string {

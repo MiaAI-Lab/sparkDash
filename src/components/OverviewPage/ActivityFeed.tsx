@@ -1,4 +1,5 @@
 import { AppLink } from "../ui/AppLink";
+import { activeTimeZone } from "../../shared/timeZone";
 import { ACTIVITY_ID, idToPath } from "../../constants";
 import { useActivityEvents } from "../../hooks/useActivityEvents";
 import { formatRelativeTime, severityDotClass, splitMessage } from "./activityFormat";
@@ -45,7 +46,7 @@ export function ActivityFeed({ limit = 8, sparkId, onSelectSpark, onViewAll }: A
                 <time
                   className="w-10 shrink-0 text-right font-mono tabular-nums text-muted"
                   dateTime={new Date(ev.ts).toISOString()}
-                  title={new Date(ev.ts).toLocaleString()}
+                  title={new Date(ev.ts).toLocaleString(undefined, { timeZone: activeTimeZone() })}
                 >
                   {formatRelativeTime(ev.ts, now)}
                 </time>

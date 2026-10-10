@@ -174,6 +174,7 @@ export class HealthEvaluator {
 
 // RoCE rules (see collectors/roce.js). Kept out of the class body above for readability.
 const ROCE_LOSS_STREAK = 3;
+const ROCE_ETH_LOSS_STREAK = 2;
 
 HealthEvaluator.prototype._roce = function roce(roce, out) {
   const devices = Array.isArray(roce?.devices) ? roce.devices : [];
@@ -189,7 +190,9 @@ HealthEvaluator.prototype._roce = function roce(roce, out) {
     });
   }
   // Loss counters that keep rising across several samples in a row.
-  const lossy = devices.filter((d) => d.active && num(d.loss?.streak) !== null && d.loss.streak >= ROCE_LOSS_STREAK);
+  const lossy = devices.filter(
+    (d) => d.active && ((num(d.loss?.streak) ?? 0) >= ROCE_LOSS_STREAK || (num(d.loss?.ethStreak) ?? 0) >= ROCE_ETH_LOSS_STREAK)
+  );
   if (lossy.length > 0) {
     out.push({
       id: "roce-loss",

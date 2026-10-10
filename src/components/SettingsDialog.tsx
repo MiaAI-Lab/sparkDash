@@ -115,6 +115,11 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
 
   const handleSave = async () => {
     if (!settings) return;
+    if (settings.timeZone && !isValidTimeZone(settings.timeZone)) {
+      // The server would silently fall back to the browser's zone; say so instead.
+      setError(`"${settings.timeZone}" is not a known time zone (for example Europe/Paris), or clear the field to follow the browser.`);
+      return;
+    }
     setSaving(true);
     setError(null);
     try {

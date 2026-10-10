@@ -16,9 +16,8 @@ export const ROCE_FAST_SCRIPT = [
   '  n=$(basename "$d"); p="$d/ports/1"',
   '  nd=$(ls "$d/device/net" 2>/dev/null | head -1)',
   '  echo "DEV|$n|$(cat $p/state 2>/dev/null)|$(cat $p/phys_state 2>/dev/null)|$(cat $p/rate 2>/dev/null)|$(cat $p/link_layer 2>/dev/null)|$nd"',
-  '  for c in "$p"/hw_counters/*; do',
-  '    [ -r "$c" ] && echo "CNT|$n|$(basename "$c")|$(cat "$c" 2>/dev/null)"',
-  "  done",
+  // One grep for all counters ("path:value" lines), instead of a cat and a basename each.
+  '  grep -H "" "$p"/hw_counters/* 2>/dev/null | sed "s#^.*/#CNT|$n|#; s#:#|#"',
   '  if [ -n "$nd" ]; then',
   '    s="/sys/class/net/$nd"',
   '    echo "NET|$nd|$(cat $s/operstate 2>/dev/null)|$(cat $s/mtu 2>/dev/null)|$(cat $s/speed 2>/dev/null)|$(cat $s/statistics/rx_bytes 2>/dev/null)|$(cat $s/statistics/tx_bytes 2>/dev/null)|$(cat $s/statistics/rx_errors 2>/dev/null)|$(cat $s/statistics/tx_errors 2>/dev/null)|$(cat $s/statistics/rx_dropped 2>/dev/null)|$(cat $s/statistics/tx_dropped 2>/dev/null)"',
@@ -189,8 +188,14 @@ export function parseRoceSlow(output) {
 export const FAST_INTERVAL_MS = 4_500;
 export const SLOW_INTERVAL_MS = 30_000;
 export const NO_RDMA_RECHECK_MS = 10 * 60_000;
-/** Samples in a row with rising loss counters before a finding is raised. */
+/** Samples in a row with rising RDMA loss counters before a finding is raised. */
 export const LOSS_STREAK_FOR_FINDING = 3;
+/** Slow (30 s) samples in a row with rising port discards / CRC errors before a finding. */
+export const ETH_LOSS_STREAK_FOR_FINDING = 2;
+/** Failed or empty reads in a row before the last good sample is dropped. */
+export const STALE_AFTER_FAILURES = 4;
+/** After a failed read, wait this long before running the script again. */
+export const RETRY_AFTER_FAILURE_MS = 15_000;
 
 /**
  * Keeps the baselines between samples (rates, counter deltas, "was this port ever up").
@@ -206,29 +211,71 @@ export class RoceSampler {
     this._prev = new Map(); // rdma device -> { at, rx, tx, counters, eth }
     this._everActive = new Set();
     this._lossStreak = new Map();
-    this._slow = { at: 0, byNetdev: new Map(), prevEth: new Map(), ethRising: new Set() };
+    this._slow = { at: 0, byNetdev: new Map(), prevEth: new Map(), ethStreak: new Map() };
+    this._everSawDevices = false;
+    this._failures = 0;
+    this._retryAt = 0;
+    this._pending = null;
   }
 
-  /** @returns {Promise<null | { available: true, sampledAt: number, devices: object[] }>} */
-  async sample() {
+  /**
+   * @returns {Promise<null | { available: true, sampledAt: number, devices: object[] }>}
+   * Never runs two reads at once: a call while one is in flight shares it. Throws only
+   * after STALE_AFTER_FAILURES failed reads in a row (until then the last good sample stands).
+   */
+  sample() {
+    if (this._pending) return this._pending;
+    this._pending = this._sample().finally(() => {
+      this._pending = null;
+    });
+    return this._pending;
+  }
+
+  async _sample() {
     const now = this._now();
     if (now < this._noRdmaUntil) return null;
     if (this._last && now - this._lastAt < FAST_INTERVAL_MS) return this._last;
+    if (now < this._retryAt) return this._failures >= STALE_AFTER_FAILURES ? null : this._last;
 
-    const fast = parseRoceFast(await this._run(ROCE_FAST_SCRIPT));
+    let fast;
+    try {
+      fast = parseRoceFast(await this._run(ROCE_FAST_SCRIPT));
+    } catch (error) {
+      return this._noteFailure(now, error);
+    }
     if (fast.devices.length === 0) {
+      if (this._everSawDevices) {
+        // The devices vanished (driver reload, transient empty output): keep the last good
+        // sample for a few reads instead of flapping, and keep asking at the normal pace.
+        return this._noteFailure(now, null);
+      }
       this._noRdmaUntil = now + NO_RDMA_RECHECK_MS;
       this._last = null;
       return null;
     }
+    this._everSawDevices = true;
+    this._failures = 0;
 
     if (now - this._slow.at >= SLOW_INTERVAL_MS) {
       await this._refreshSlow(fast, now);
     }
 
-    const devices = fast.devices.map((d) => this._device(d, fast.netdevs.get(d.netdev ?? ""), now));
+    const devices = fast.devices
+      .map((d) => this._device(d, fast.netdevs.get(d.netdev ?? ""), now))
+      .sort((a, b) => (a.netdev ?? a.name).localeCompare(b.netdev ?? b.name));
     this._last = { available: true, sampledAt: now, devices };
     this._lastAt = now;
+    return this._last;
+  }
+
+  _noteFailure(now, error) {
+    this._failures += 1;
+    this._retryAt = now + RETRY_AFTER_FAILURE_MS;
+    if (this._failures >= STALE_AFTER_FAILURES) {
+      this._last = null;
+      if (error) throw error;
+      return null;
+    }
     return this._last;
   }
 
@@ -237,13 +284,12 @@ export class RoceSampler {
     if (!script) return;
     try {
       const parsed = parseRoceSlow(await this._run(script));
-      this._slow.ethRising = new Set();
       for (const [name, info] of parsed) {
         const before = this._slow.prevEth.get(name);
         if (before) {
-          for (const key of ETH_LOSS_COUNTERS) {
-            if ((info.eth[key] ?? 0) > (before[key] ?? 0)) this._slow.ethRising.add(name);
-          }
+          const rose = ETH_LOSS_COUNTERS.some((key) => (info.eth[key] ?? 0) > (before[key] ?? 0));
+          // One entry per slow sample: consecutive samples with a rise build the streak.
+          this._slow.ethStreak.set(name, rose ? (this._slow.ethStreak.get(name) ?? 0) + 1 : 0);
         }
         this._slow.prevEth.set(name, { ...info.eth });
       }
@@ -273,9 +319,8 @@ export class RoceSampler {
       }
     }
     const slow = net ? this._slow.byNetdev.get(net.name) : null;
-    const ethRising = net ? this._slow.ethRising.has(net.name) : false;
-    const lossNow = rising.length > 0 || ethRising;
-    const streak = lossNow ? (this._lossStreak.get(d.name) ?? 0) + 1 : 0;
+    const ethStreak = net ? (this._slow.ethStreak.get(net.name) ?? 0) : 0;
+    const streak = rising.length > 0 ? (this._lossStreak.get(d.name) ?? 0) + 1 : 0;
     this._lossStreak.set(d.name, streak);
 
     this._prev.set(d.name, { at: now, counters: { ...d.counters }, rx: net?.rxBytes ?? null, tx: net?.txBytes ?? null });
@@ -300,7 +345,7 @@ export class RoceSampler {
       txDropped: net?.txDropped ?? null,
       counters: d.counters,
       deltas,
-      loss: { rising: ethRising ? [...rising, "port discards"] : rising, streak },
+      loss: { rising: ethStreak > 0 ? [...rising, "port discards"] : rising, streak, ethStreak },
       eth: slow?.eth ?? null,
       flowControl: slow?.flowControl ?? null,
       qos: slow?.qos ?? null,

@@ -285,7 +285,7 @@ export function SparkPage({
               />
             </Item>
             {metrics.roce && metrics.roce.devices.length > 0 && (
-              <Item order={8.5}>
+              <Item order={8}>
                 <RocePanel roce={metrics.roce} />
               </Item>
             )}
