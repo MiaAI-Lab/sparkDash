@@ -1,9 +1,26 @@
-import { describe, expect, it } from "vitest";
+import { act } from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const fetchLaunchers = vi.fn();
+const runLauncher = vi.fn();
+vi.mock("../../api/client", () => ({
+  fetchLaunchers: (...a: unknown[]) => fetchLaunchers(...a),
+  runLauncher: (...a: unknown[]) => runLauncher(...a),
+  removeLauncher: vi.fn(),
+  addLauncher: vi.fn(),
+  updateLauncher: vi.fn(),
+  readLauncherJob: vi.fn(() => new Promise(() => {})),
+  cancelLauncherJob: vi.fn(),
+}));
+
 import type { LauncherJob } from "../../api/types";
+import { _resetLauncherCache } from "../../hooks/launcherCache";
 import { appendLines } from "../../hooks/useLauncherJob";
+import { makeSpark } from "../../testing/fixtures";
+import { flush, render } from "../../testing/render";
 import { terminalText } from "../ui/LiveTerminal";
 import { validateLauncherForm } from "./LlmLauncherDialog";
-import { formatElapsed, jobHeadline, jobTone } from "./LlmModelsPanel";
+import { formatElapsed, jobHeadline, jobTone, LlmModelsPanel } from "./LlmModelsPanel";
 
 const job = (over: Partial<LauncherJob>): LauncherJob => ({
   id: "j1",
@@ -70,5 +87,51 @@ describe("add model form validation", () => {
     expect(validateLauncherForm({ name: "a", dir: "relative/x", port: "" })).toMatch(/start with/);
     expect(validateLauncherForm({ name: "a", dir: "/with space", port: "" })).toMatch(/Spaces/);
     expect(validateLauncherForm({ name: "a", dir: "/x", port: "99999" })).toMatch(/Port/);
+  });
+});
+
+describe("starting a model while another one runs", () => {
+  const launcher = (id: string, name: string) => ({ id, name, dir: "/m", startScript: "start.sh", stopScript: "stop.sh", port: 8000, notes: "" });
+  const button = (root: HTMLElement, text: string) => [...root.querySelectorAll("button")].find((b) => b.textContent?.trim() === text);
+
+  beforeEach(() => {
+    _resetLauncherCache();
+    fetchLaunchers.mockResolvedValue({
+      launchers: [launcher("a", "Alpha"), launcher("b", "Beta")],
+      job: null,
+      statuses: { a: "running", b: "stopped" },
+    });
+    runLauncher.mockImplementation(async (_spark: string, id: string, action: string) => ({ job: job({ id: `j-${id}`, launcherId: id, action: action as LauncherJob["action"] }) }));
+  });
+
+  async function askToStartBeta() {
+    const { container } = render(<LlmModelsPanel spark={makeSpark("s1")} />);
+    await flush();
+    act(() => button(container, "Start")!.click());
+    return container;
+  }
+
+  it("asks whether to stop the running one first or to run both", async () => {
+    const container = await askToStartBeta();
+    expect(container.textContent).toContain("Alpha is running. Stop it first, or run both?");
+    expect(button(container, "Stop it, then start")).toBeTruthy();
+    expect(button(container, "Run both")).toBeTruthy();
+    expect(runLauncher).not.toHaveBeenCalled();
+  });
+
+  it("Run both starts the new model and leaves the running one alone", async () => {
+    const container = await askToStartBeta();
+    await act(async () => button(container, "Run both")!.click());
+    await flush();
+    expect(runLauncher).toHaveBeenCalledTimes(1);
+    expect(runLauncher).toHaveBeenCalledWith("s1", "b", "start");
+  });
+
+  it("Stop it, then start still stops the running one first", async () => {
+    const container = await askToStartBeta();
+    await act(async () => button(container, "Stop it, then start")!.click());
+    await flush();
+    expect(runLauncher).toHaveBeenCalledTimes(1);
+    expect(runLauncher).toHaveBeenCalledWith("s1", "a", "stop");
   });
 });
