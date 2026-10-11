@@ -1,5 +1,6 @@
 import { AppLink } from "../ui/AppLink";
 import { activeTimeZone } from "../../shared/timeZone";
+import { useTranslation } from "react-i18next";
 import { ACTIVITY_ID, idToPath } from "../../constants";
 import { useActivityEvents } from "../../hooks/useActivityEvents";
 import { formatRelativeTime, severityDotClass, splitMessage } from "./activityFormat";
@@ -14,27 +15,28 @@ interface ActivityFeedProps {
 
 /** Compact fleet timeline. Renders card contents only (no outer chrome). */
 export function ActivityFeed({ limit = 8, sparkId, onSelectSpark, onViewAll }: ActivityFeedProps) {
+  const { t } = useTranslation();
   const { events, loading, error } = useActivityEvents({ sparkId });
   const now = Date.now();
   const shown = events.slice(0, limit);
 
   return (
-    <section className="activity-feed" aria-label="Recent activity">
+    <section className="activity-feed" aria-label={t("overview.feed.aria", "Recent activity")}>
       <header className="mb-2 flex items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold text-text-strong">Recent activity</h3>
+        <h3 className="text-sm font-semibold text-text-strong">{t("overview.feed.title", "Recent activity")}</h3>
         <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted">
           <span className="h-1.5 w-1.5 rounded-full bg-success" aria-hidden="true" />
-          live
+          {t("overview.feed.live", "live")}
         </span>
       </header>
 
       {loading && shown.length === 0 ? (
-        <p className="py-2 text-xs text-muted">Loading…</p>
+        <p className="py-2 text-xs text-muted">{t("overview.feed.loading", "Loading…")}</p>
       ) : shown.length === 0 ? (
         <p className="py-2 text-xs text-muted">
           {error
-            ? "Couldn't load activity."
-            : "Nothing yet. Throttling, restarts, updates and benchmark runs will appear here."}
+            ? t("overview.feed.loadError", "Couldn't load activity.")
+            : t("overview.feed.empty", "Nothing yet. Throttling, restarts, updates and benchmark runs will appear here.")}
         </p>
       ) : (
         <ul className="divide-y divide-border">
@@ -77,7 +79,7 @@ export function ActivityFeed({ limit = 8, sparkId, onSelectSpark, onViewAll }: A
       )}
       {onViewAll ? (
         <AppLink href={idToPath(ACTIVITY_ID)} className="btn btn--sm btn--ghost mt-2" onNavigate={onViewAll}>
-          View all activity
+          {t("overview.feed.viewAll", "View all activity")}
         </AppLink>
       ) : null}
     </section>

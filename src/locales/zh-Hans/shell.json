@@ -77,5 +77,10 @@
   "theme": {
     "title": "主题：{theme}",
     "aria": "切换主题（当前为 {theme}）"
+  },
+  "openAccess": {
+    "chip": "开放访问",
+    "explanation": "此仪表盘可在你的网络中无需令牌直接访问，因此网络中的任何人都能更改设置。请在服务器上设置 SPARKDASH_TOKEN 以要求提供令牌。",
+    "dontShowAgain": "不再显示"
   }
 }

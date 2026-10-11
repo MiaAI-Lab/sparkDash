@@ -1,0 +1,8 @@
+{
+  "type": "基准测试类型",
+  "kind": {
+    "decode": "解码",
+    "prefill": "预填充",
+    "quality": "质量"
+  }
+}

@@ -1,6 +1,7 @@
 import { BenchIcon } from "./components/bench/BenchIcon";
 import { setConfiguredTimeZone } from "./shared/timeZone";
 import { useState, useCallback, useEffect, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { useSnapshot } from "./hooks/useSnapshot";
 import { useAppRoute, useRoute } from "./hooks/useRoute";
 import { useSmoothWheel } from "./hooks/useSmoothWheel";
@@ -163,6 +164,7 @@ function placeholderSnapshot(
 }
 
 function DashboardApp() {
+  const { t } = useTranslation();
   const {
     sparks: snapSparks,
     activeId,
@@ -295,7 +297,9 @@ function DashboardApp() {
         })
         .catch((err) =>
           setActionError(
-            `Could not load settings: ${err instanceof Error ? err.message : String(err)}. Reload to retry.`
+            t("common.errors.couldNotLoadSettings", "Could not load settings: {message}. Reload to retry.", {
+              message: err instanceof Error ? err.message : String(err),
+            })
           )
         );
     void load(false);
@@ -372,7 +376,9 @@ function DashboardApp() {
     } catch (err) {
       console.error("Failed to refresh sparks:", err);
       setActionError(
-        `Could not refresh Sparks: ${err instanceof Error ? err.message : String(err)}. Previous data remains visible.`
+        t("common.errors.couldNotRefreshSparks", "Could not refresh Sparks: {message}. Previous data remains visible.", {
+          message: err instanceof Error ? err.message : String(err),
+        })
       );
     }
   }, [sparks, activeId, replace]);
@@ -387,7 +393,9 @@ function DashboardApp() {
         console.error("Failed to reorder Sparks:", err);
         setOrderOverride(null);
         setActionError(
-          `Could not save the Spark order: ${err instanceof Error ? err.message : String(err)}. The previous order was restored.`
+          t("common.errors.couldNotSaveOrder", "Could not save the Spark order: {message}. The previous order was restored.", {
+            message: err instanceof Error ? err.message : String(err),
+          })
         );
       }
     },
@@ -435,20 +443,20 @@ function DashboardApp() {
 
   const paletteCommands = useMemo<PaletteCommand[]>(() => {
     const cmds: PaletteCommand[] = [
-      { id: "nav:overview", group: "Go to", label: "Overview", hint: "Fleet", icon: <GridIcon className="h-4 w-4" />, keywords: "home fleet", run: () => navigate(OVERVIEW_ID) },
+      { id: "nav:overview", group: t("shell.palette.goTo", "Go to"), label: t("shell.nav.overview", "Overview"), hint: t("shell.palette.hintFleet", "Fleet"), icon: <GridIcon className="h-4 w-4" />, keywords: "home fleet", run: () => navigate(OVERVIEW_ID) },
     ];
     cmds.push(
-      { id: "nav:tokens", group: "Go to", label: "Token totals", hint: "Page", icon: <TokensIcon className="h-4 w-4" />, keywords: "llm tokens generated prompt cached usage", run: () => navigate(TOKENS_ID) },
-      { id: "nav:energy", group: "Go to", label: "Fleet energy", hint: "Page", icon: <BoltIcon className="h-4 w-4" />, keywords: "power kwh watts cost electricity", run: () => navigate(ENERGY_ID) },
-      { id: "nav:showcase", group: "Go to", label: "Showcase", hint: "Page", icon: <TerminalIcon className="h-4 w-4" />, keywords: "prompts terminals stream demo", run: () => navigate(SHOWCASE_ID) },
-      { id: "nav:activity", group: "Go to", label: "Activity", hint: "Page", icon: <ListIcon className="h-4 w-4" />, keywords: "events log history recent", run: () => navigate(ACTIVITY_ID) }
+      { id: "nav:tokens", group: t("shell.palette.goTo", "Go to"), label: t("shell.nav.tokens", "Token totals"), hint: t("shell.palette.hintPage", "Page"), icon: <TokensIcon className="h-4 w-4" />, keywords: "llm tokens generated prompt cached usage", run: () => navigate(TOKENS_ID) },
+      { id: "nav:energy", group: t("shell.palette.goTo", "Go to"), label: t("shell.nav.energy", "Fleet energy"), hint: t("shell.palette.hintPage", "Page"), icon: <BoltIcon className="h-4 w-4" />, keywords: "power kwh watts cost electricity", run: () => navigate(ENERGY_ID) },
+      { id: "nav:showcase", group: t("shell.palette.goTo", "Go to"), label: t("shell.nav.showcase", "Showcase"), hint: t("shell.palette.hintPage", "Page"), icon: <TerminalIcon className="h-4 w-4" />, keywords: "prompts terminals stream demo", run: () => navigate(SHOWCASE_ID) },
+      { id: "nav:activity", group: t("shell.palette.goTo", "Go to"), label: t("shell.nav.activity", "Activity"), hint: t("shell.palette.hintPage", "Page"), icon: <ListIcon className="h-4 w-4" />, keywords: "events log history recent", run: () => navigate(ACTIVITY_ID) }
     );
     for (const s of displaySparks) {
       cmds.push({
         id: `nav:${s.id}`,
-        group: "Go to",
+        group: t("shell.palette.goTo", "Go to"),
         label: s.name,
-        hint: s.online ? "online" : "offline",
+        hint: s.online ? t("shell.palette.hintOnline", "online") : t("shell.palette.hintOffline", "offline"),
         icon: <ServerIcon className="h-4 w-4" />,
         keywords: `spark ${s.id}`,
         run: () => navigate(s.id),
@@ -457,29 +465,29 @@ function DashboardApp() {
     for (const b of BENCH_TYPES) {
       cmds.push({
         id: `bench:${b.id}`,
-        group: "Benchmarks",
-        label: `${b.label} benchmark`,
+        group: t("shell.nav.benchmarks", "Benchmarks"),
+        label: t("shell.palette.bench", "{label} benchmark", { label: b.label }),
         hint: b.family,
         icon: <BenchIcon id={b.id} className="h-4 w-4" />,
         keywords: `bench benchmark ${b.blurb}`,
         run: () => navigate(benchId(b.id)),
       });
     }
-    cmds.push({ id: "act:add", group: "Actions", label: "Add a Spark or GPU host", icon: <PlusIcon className="h-4 w-4" />, keywords: "new register connect", run: () => setShowAdd(true) });
+    cmds.push({ id: "act:add", group: t("shell.palette.actions", "Actions"), label: t("shell.palette.addSpark", "Add a Spark or GPU host"), icon: <PlusIcon className="h-4 w-4" />, keywords: "new register connect", run: () => setShowAdd(true) });
     const sc = showcaseTarget(displaySparks);
     if (sc) {
-      cmds.push({ id: "act:showcase", group: "Actions", label: `Open showcase on ${sc.name} in a new window`, icon: <TerminalIcon className="h-4 w-4" />, keywords: "demo streams terminals", run: () => openShowcase(sc) });
+      cmds.push({ id: "act:showcase", group: t("shell.palette.actions", "Actions"), label: t("shell.palette.openShowcase", "Open showcase on {name} in a new window", { name: sc.name }), icon: <TerminalIcon className="h-4 w-4" />, keywords: "demo streams terminals", run: () => openShowcase(sc) });
     }
     if (displayActive) {
-      cmds.push({ id: "act:edit", group: "Actions", label: `Edit ${displayActive.name}`, icon: <EditIcon className="h-4 w-4" />, keywords: "settings role ports", run: () => setEditId(displayActive.id) });
+      cmds.push({ id: "act:edit", group: t("shell.palette.actions", "Actions"), label: t("shell.palette.editSpark", "Edit {name}", { name: displayActive.name }), icon: <EditIcon className="h-4 w-4" />, keywords: "settings role ports", run: () => setEditId(displayActive.id) });
     }
     cmds.push(
-      { id: "act:theme", group: "Actions", label: "Switch theme", hint: "white · light · dark · oled", icon: <SunIcon className="h-4 w-4" />, keywords: "appearance dark light", run: () => window.dispatchEvent(new Event("sparkdash:cycle-theme")) },
-      { id: "act:sidebar", group: "Actions", label: "Show or hide the sidebar", icon: <PanelLeftIcon className="h-4 w-4" />, keywords: "collapse expand navigation rail menu", run: toggleSidebar },
-      { id: "act:settings", group: "Actions", label: "Open settings", icon: <GearIcon className="h-4 w-4" />, keywords: "preferences density refresh", run: () => setShowSettings(true) }
+      { id: "act:theme", group: t("shell.palette.actions", "Actions"), label: t("shell.palette.switchTheme", "Switch theme"), hint: t("shell.palette.hintThemes", "white · light · dark · oled"), icon: <SunIcon className="h-4 w-4" />, keywords: "appearance dark light", run: () => window.dispatchEvent(new Event("sparkdash:cycle-theme")) },
+      { id: "act:sidebar", group: t("shell.palette.actions", "Actions"), label: t("shell.palette.sidebar", "Show or hide the sidebar"), icon: <PanelLeftIcon className="h-4 w-4" />, keywords: "collapse expand navigation rail menu", run: toggleSidebar },
+      { id: "act:settings", group: t("shell.palette.actions", "Actions"), label: t("shell.palette.settings", "Open settings"), icon: <GearIcon className="h-4 w-4" />, keywords: "preferences density refresh", run: () => setShowSettings(true) }
     );
     return cmds;
-  }, [displaySparks, displayActive, navigate, toggleSidebar]);
+  }, [displaySparks, displayActive, navigate, toggleSidebar, t]);
 
   return (
     <div className="min-h-screen text-text">
@@ -500,7 +508,7 @@ function DashboardApp() {
           authMode={authMode}
         />
         <div className="side-strip" aria-hidden={!sideHidden}>
-          <button type="button" className="icon-circle" onClick={toggleSidebar} tabIndex={sideHidden ? 0 : -1} title="Show sidebar (Ctrl+B)" aria-label="Show sidebar">
+          <button type="button" className="icon-circle" onClick={toggleSidebar} tabIndex={sideHidden ? 0 : -1} title={t("shell.app.showSidebarTitle", "Show sidebar (Ctrl+B)")} aria-label={t("shell.app.showSidebar", "Show sidebar")}>
             <PanelLeftIcon className="h-3.5 w-3.5" />
           </button>
         </div>
@@ -510,7 +518,7 @@ function DashboardApp() {
             <a
               href={idToPath(OVERVIEW_ID)}
               className="brand"
-              aria-label="sparkDash overview"
+              aria-label={t("shell.brand.overviewAria", "sparkDash overview")}
               onClick={(e) => {
                 if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
                 e.preventDefault();
@@ -524,7 +532,7 @@ function DashboardApp() {
                 spark<span className="brand__dash">Dash</span>
               </span>
             </a>
-            <button type="button" className="search-trigger" onClick={() => setShowPalette(true)} aria-label="Open command palette">
+            <button type="button" className="search-trigger" onClick={() => setShowPalette(true)} aria-label={t("shell.app.openPaletteAria", "Open command palette")}>
               <SearchIcon className="h-4 w-4" />
             </button>
             <ThemeSwitch />
@@ -577,11 +585,11 @@ function DashboardApp() {
                   <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-accent-soft text-accent">
                     <PlusIcon className="h-5 w-5" />
                   </div>
-                  <h2 className="text-sm font-semibold text-text-strong">No Spark registered</h2>
-                  <p className="mt-1 text-xs text-muted">Add a DGX Spark or GPU host to start monitoring.</p>
+                  <h2 className="text-sm font-semibold text-text-strong">{t("overview.empty.title", "No Spark registered")}</h2>
+                  <p className="mt-1 text-xs text-muted">{t("overview.empty.subtitle", "Add a DGX Spark or GPU host to start monitoring.")}</p>
                   <button type="button" className="btn btn--primary mt-4" onClick={() => setShowAdd(true)}>
                     <PlusIcon className="h-3.5 w-3.5" />
-                    Add Spark
+                    {t("overview.empty.addSpark", "Add Spark")}
                   </button>
                 </div>
               )}

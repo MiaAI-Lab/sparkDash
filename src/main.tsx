@@ -26,6 +26,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
+
 // Initialise i18n before the first render: English defaults are available
 // synchronously, a translated catalog (if the user chose one) is fetched and
 // swapped in as soon as it arrives.

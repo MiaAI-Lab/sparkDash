@@ -1,4 +1,5 @@
 /** Pure helpers for the Spark-detail charts and memory breakdown (no React, no I/O). */
+import { i18next } from "../../i18n";
 
 export interface Pt {
   at: number;
@@ -96,10 +97,18 @@ export function memoryBreakdown(input: MemBreakdownInput): MemSegment[] {
   const used = gpu + sys;
   const free = Math.max(0, total - used);
   const segs: MemSegment[] = [];
-  if (rest > 0) segs.push({ key: kv > 0 || input.hasModel ? "weights" : "gpu", label: kv > 0 || input.hasModel ? "Model weights" : "GPU processes", mb: rest });
-  if (kv > 0) segs.push({ key: "kv", label: "KV cache", mb: kv });
-  if (sys > 0) segs.push({ key: "system", label: "System", mb: sys });
-  segs.push({ key: "free", label: "Free", mb: free });
+  if (rest > 0)
+    segs.push({
+      key: kv > 0 || input.hasModel ? "weights" : "gpu",
+      label:
+        kv > 0 || input.hasModel
+          ? i18next.t("spark.chart.segWeights", "Model weights")
+          : i18next.t("spark.chart.segGpuProcesses", "GPU processes"),
+      mb: rest,
+    });
+  if (kv > 0) segs.push({ key: "kv", label: i18next.t("spark.chart.segKv", "KV cache"), mb: kv });
+  if (sys > 0) segs.push({ key: "system", label: i18next.t("spark.chart.segSystem", "System"), mb: sys });
+  segs.push({ key: "free", label: i18next.t("spark.chart.segFree", "Free"), mb: free });
   return segs;
 }
 
@@ -109,5 +118,5 @@ export function windowAxisLabels(windowMs: number): [string, string, string] {
     const min = Math.round(ms / 60_000);
     return min >= 60 && min % 60 === 0 ? `−${min / 60} h` : `−${min} min`;
   };
-  return [fmt(windowMs), fmt(windowMs / 2), "now"];
+  return [fmt(windowMs), fmt(windowMs / 2), i18next.t("spark.chart.now", "now")];
 }

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { SparkSnapshot } from "../api/types";
 import { shutdownAllSparks } from "../api/client";
 import { ConfirmShutdownDialog } from "./ConfirmShutdownDialog";
@@ -10,6 +11,7 @@ import { PowerOffIcon } from "./ui/icons";
  * and in the mobile Sparks sheet, so the flow exists once.
  */
 export function ShutdownAll({ sparks, className = "" }: { sparks: SparkSnapshot[]; className?: string }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ text: string; tone: "ok" | "err" } | null>(null);
@@ -27,12 +29,12 @@ export function ShutdownAll({ sparks, className = "" }: { sparks: SparkSnapshot[
       const ok = res.results.filter((r) => r.ok).length;
       const fail = res.results.filter((r) => !r.ok && !r.skipped).length;
       const skipped = res.results.filter((r) => r.skipped).length;
-      const parts = [`${ok} shut down`];
-      if (fail) parts.push(`${fail} failed`);
-      if (skipped) parts.push(`${skipped} skipped`);
+      const parts = [t("overview.shutdownAll.result.shutDown", "{count} shut down", { count: ok })];
+      if (fail) parts.push(t("overview.shutdownAll.result.failed", "{count} failed", { count: fail }));
+      if (skipped) parts.push(t("overview.shutdownAll.result.skipped", "{count} skipped", { count: skipped }));
       setMsg({ text: parts.join(", "), tone: fail === 0 ? "ok" : "err" });
     } catch (err: unknown) {
-      setMsg({ text: err instanceof Error ? err.message : "Batch shutdown failed", tone: "err" });
+      setMsg({ text: err instanceof Error ? err.message : t("overview.shutdownAll.error", "Batch shutdown failed"), tone: "err" });
     } finally {
       setBusy(false);
       clearTimeout(timer.current);
@@ -51,19 +53,23 @@ export function ShutdownAll({ sparks, className = "" }: { sparks: SparkSnapshot[
         type="button"
         onClick={() => setOpen(true)}
         disabled={busy || onlineCount === 0}
-        title="Shut down all online Sparks"
+        title={t("overview.shutdownAll.tooltip", "Shut down all online Sparks")}
         className={`btn btn--danger ${className}`}
       >
         <PowerOffIcon className="h-3.5 w-3.5" />
-        Shut down all
+        {t("overview.shutdownAll.button", "Shut down all")}
       </button>
       <ConfirmShutdownDialog
         open={open}
         onClose={() => setOpen(false)}
         onConfirm={run}
-        title="Shutdown All"
-        description={`Gracefully shut down all ${onlineCount} online Spark${onlineCount === 1 ? "" : "s"}? Offline nodes will be skipped.`}
-        confirmLabel="Shut down all"
+        title={t("overview.shutdownAll.title", "Shutdown All")}
+        description={t(
+          "overview.shutdownAll.description",
+          "Gracefully shut down all {count, plural, one {# online Spark} other {# online Sparks}}? Offline nodes will be skipped.",
+          { count: onlineCount }
+        )}
+        confirmLabel={t("overview.shutdownAll.confirmLabel", "Shut down all")}
         warnings={shutdownWarnings(sparks)}
       />
     </>

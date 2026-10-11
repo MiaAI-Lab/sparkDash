@@ -1,4 +1,5 @@
 import type { SparkSnapshot } from "../../api/types";
+import { i18next } from "../../i18n";
 
 export interface FleetTotals {
   total: number;
@@ -56,9 +57,21 @@ export function shutdownWarnings(sparks: readonly SparkSnapshot[]): string[] {
     const llmBusy = Array.isArray(s.metrics?.llm)
       ? s.metrics.llm.reduce((n, l) => n + Math.max(l.slotsActive || 0, l.requestsRunning || 0), 0)
       : 0;
-    if (llmBusy > 0) out.push(`${s.name}: ${llmBusy} in-flight LLM request${llmBusy === 1 ? "" : "s"}`);
-    if ((s.metrics?.comfy?.queueRunning ?? 0) > 0) out.push(`${s.name}: ComfyUI job running`);
-    if (s.hermes?.status === "running") out.push(`${s.name}: Hermes update in progress`);
+    if (llmBusy > 0) {
+      out.push(
+        i18next.t(
+          "overview.shutdown.llmBusy",
+          "{name}: {count, plural, one {# in-flight LLM request} other {# in-flight LLM requests}}",
+          { name: s.name, count: llmBusy }
+        )
+      );
+    }
+    if ((s.metrics?.comfy?.queueRunning ?? 0) > 0) {
+      out.push(i18next.t("overview.shutdown.comfyJob", "{name}: ComfyUI job running", { name: s.name }));
+    }
+    if (s.hermes?.status === "running") {
+      out.push(i18next.t("overview.shutdown.hermesUpdate", "{name}: Hermes update in progress", { name: s.name }));
+    }
   }
   return out;
 }

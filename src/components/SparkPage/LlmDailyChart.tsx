@@ -1,4 +1,6 @@
 import { useEffect, useId, useState, type KeyboardEvent } from "react";
+import { useTranslation } from "react-i18next";
+import { i18next } from "../../i18n";
 import { fetchLlmDaily } from "../../api/client";
 import type { LlmDailyDay } from "../../api/types";
 
@@ -36,12 +38,24 @@ export function barHeight(value: number, seriesMax: number, height: number): num
 export function dailyTooltipLines(day: LlmDailyDay, hasSplit: boolean): string[] {
   return [
     day.date,
-    `Decode peak ${fmt(day.decodeMax)} tok/s (avg ${fmt(day.decodeAvg)})`,
+    i18next.t("spark.llmDaily.decodePeak", "Decode peak {value} tok/s (avg {avg})", {
+      value: fmt(day.decodeMax),
+      avg: fmt(day.decodeAvg),
+    }),
     hasSplit
-      ? `Uncached prefill peak ${fmt(day.uncachedPrefillMax)} tok/s (avg ${fmt(day.uncachedPrefillAvg)})`
-      : `Prefill peak ${fmt(day.prefillMax)} tok/s (avg ${fmt(day.prefillAvg)})`,
+      ? i18next.t("spark.llmDaily.uncachedPrefillPeak", "Uncached prefill peak {value} tok/s (avg {avg})", {
+          value: fmt(day.uncachedPrefillMax),
+          avg: fmt(day.uncachedPrefillAvg),
+        })
+      : i18next.t("spark.llmDaily.prefillPeak", "Prefill peak {value} tok/s (avg {avg})", {
+          value: fmt(day.prefillMax),
+          avg: fmt(day.prefillAvg),
+        }),
     hasSplit
-      ? `Cached prefill peak ${fmt(day.cachedPrefillMax)} tok/s (avg ${fmt(day.cachedPrefillAvg)})`
+      ? i18next.t("spark.llmDaily.cachedPrefillPeak", "Cached prefill peak {value} tok/s (avg {avg})", {
+          value: fmt(day.cachedPrefillMax),
+          avg: fmt(day.cachedPrefillAvg),
+        })
       : null,
   ].filter((line): line is string => line != null);
 }
@@ -53,6 +67,7 @@ export function LlmDailyChart({
   sparkId: string;
   llmPort: number;
 }) {
+  const { t } = useTranslation();
   const [days, setDays] = useState<LlmDailyDay[] | null>(null);
   /** Day under the pointer or keyboard cursor; null hides the tooltip. */
   const [active, setActive] = useState<number | null>(null);
@@ -71,10 +86,10 @@ export function LlmDailyChart({
         });
     };
     load();
-    const t = setInterval(load, POLL_MS);
+    const timer = setInterval(load, POLL_MS);
     return () => {
       cancelled = true;
-      clearInterval(t);
+      clearInterval(timer);
     };
   }, [sparkId, llmPort]);
 
@@ -88,7 +103,10 @@ export function LlmDailyChart({
   // Each series on its own 14-day scale (see barHeight).
   const decodeMax = Math.max(0, ...decodeVals);
   const prefillMax = Math.max(0, ...prefillVals);
-  const prefillName = hasSplit ? "uncached prefill" : "prefill";
+  const prefillName = hasSplit
+    ? t("spark.llmDaily.uncachedPrefillName", "uncached prefill")
+    : t("spark.llmDaily.prefillName", "prefill");
+  const prefillLabel = `${prefillName.charAt(0).toUpperCase()}${prefillName.slice(1)}`;
   const axisLabel = (m: number) => (m > 0 ? formatAxisMax(m) : "—");
   const n = days.length;
   const gap = 1.5;
@@ -125,14 +143,15 @@ export function LlmDailyChart({
   return (
     <div className="sp-section">
       <div className="sp-section__head">
-        <span className="eyebrow">Daily peak tok/s</span>
+        <span className="eyebrow">{t("spark.llmDaily.title", "Daily peak tok/s")}</span>
         <span className="sp-muted">
-          <span className="text-accent">decode</span> ·{" "}
-          <span className="text-text opacity-60">{prefillName}</span> · own scales · 14d
+          <span className="text-accent">{t("spark.llmDaily.decode", "decode")}</span> ·{" "}
+          <span className="text-text opacity-60">{prefillName}</span> ·{" "}
+          {t("spark.llmDaily.ownScales", "own scales")} · {t("spark.llmDaily.window14d", "14d")}
         </span>
       </div>
       {!busy ? (
-        <p className="text-[10px] text-muted">No busy samples in the last 14 days.</p>
+        <p className="text-[10px] text-muted">{t("spark.llmDaily.empty", "No busy samples in the last 14 days.")}</p>
       ) : (
         <div className="flex items-stretch gap-1.5">
           <div
@@ -144,14 +163,14 @@ export function LlmDailyChart({
               <span
                 className="block text-accent"
                 data-testid="daily-chart-ymax-decode"
-                title={`Decode scale: top of the chart is ${axisLabel(decodeMax)}`}
+                title={t("spark.llmDaily.decodeScaleTitle", "Decode scale: top of the chart is {value}", { value: axisLabel(decodeMax) })}
               >
                 {axisLabel(decodeMax)}
               </span>
               <span
                 className="block text-text opacity-60"
                 data-testid="daily-chart-ymax-prefill"
-                title={`${prefillName[0].toUpperCase()}${prefillName.slice(1)} scale: top of the chart is ${axisLabel(prefillMax)}`}
+                title={t("spark.llmDaily.prefillScaleTitle", "{name} scale: top of the chart is {value}", { name: prefillLabel, value: axisLabel(prefillMax) })}
               >
                 {axisLabel(prefillMax)}
               </span>
@@ -162,7 +181,16 @@ export function LlmDailyChart({
             className="relative rounded-sm outline-none focus-visible:ring-1 focus-visible:ring-accent"
             tabIndex={0}
             role="group"
-            aria-label={`Daily peak decode and prefill tokens per second, last ${n} days. Each series has its own scale: decode 0 to ${axisLabel(decodeMax)}, ${prefillName} 0 to ${axisLabel(prefillMax)}. Use the arrow keys to read each day.`}
+            aria-label={t(
+              "spark.llmDaily.aria",
+              "Daily peak decode and prefill tokens per second, last {days} days. Each series has its own scale: decode 0 to {decode}, {prefillName} 0 to {prefill}. Use the arrow keys to read each day.",
+              {
+                days: n,
+                decode: axisLabel(decodeMax),
+                prefill: axisLabel(prefillMax),
+                prefillName,
+              },
+            )}
             aria-describedby={activeDay ? tooltipId : undefined}
             onKeyDown={onKeyDown}
             onFocus={() => {

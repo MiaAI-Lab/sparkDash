@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { NetworkMetrics } from "../../api/types";
 import { updateDisabledInterfaces } from "../../api/client";
 import { Panel } from "../ui/Panel";
@@ -40,6 +41,7 @@ export function NetworkPanel({
   onDisabledChange,
   className,
 }: NetworkPanelProps) {
+  const { t } = useTranslation();
   const [showSettings, setShowSettings] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -83,7 +85,7 @@ export function NetworkPanel({
 
   return (
     <Panel
-      title="Network"
+      title={t("spark.network.title", "Network")}
       accent
       icon={<NetworkIcon />}
       className={`panel-network ${className ?? ""}`}
@@ -91,21 +93,27 @@ export function NetworkPanel({
       actions={
         <button
           type="button"
-          title={showSettings ? "Done" : "Interface settings"}
+          title={
+            showSettings
+              ? t("common.action.done", "Done")
+              : t("spark.network.interfaceSettings", "Interface settings")
+          }
           onClick={() => setShowSettings(!showSettings)}
           disabled={saving}
           className={`btn btn--sm btn--ghost ${showSettings ? "is-on" : ""}`}
         >
           <GearIcon />
-          <span>{showSettings ? "Done" : "Settings"}</span>
+          <span>
+            {showSettings ? t("common.action.done", "Done") : t("common.action.settings", "Settings")}
+          </span>
         </button>
       }
     >
       {showSettings ? (
         <div className="sp-stack">
-          <p className="sp-hint">Toggle adapters to monitor:</p>
+          <p className="sp-hint">{t("spark.network.toggleAdapters", "Toggle adapters to monitor:")}</p>
           {interfaces.length === 0 ? (
-            <p className="sp-muted">No interfaces discovered</p>
+            <p className="sp-muted">{t("spark.network.noneDiscovered", "No interfaces discovered")}</p>
           ) : (
             interfaces.map((iface) => {
               const isDisabled =
@@ -117,7 +125,9 @@ export function NetworkPanel({
                 >
                   <div className="sp-list-row__main">
                     <span className="sp-clip">{iface.name}</span>
-                    {primary === iface.name && <Tag tone="acc">primary</Tag>}
+                    {primary === iface.name && (
+                      <Tag tone="acc">{t("spark.network.primaryTag", "primary")}</Tag>
+                    )}
                   </div>
                   <Toggle checked={!isDisabled} onChange={(on) => handleToggle(iface.name, !on)} />
                 </div>
@@ -129,7 +139,7 @@ export function NetworkPanel({
         <>
           <div className="sp-decode">
             <div className="sp-metric">
-              <span className="eyebrow">Download</span>
+              <span className="eyebrow">{t("spark.network.download", "Download")}</span>
               <div className="big-num sp-big-md">
                 {rxFmt.value}
                 <small>{rxFmt.unit}</small>
@@ -137,7 +147,7 @@ export function NetworkPanel({
               <TrendLine data={rxHistory} height={36} color="var(--color-success)" />
             </div>
             <div className="sp-metric">
-              <span className="eyebrow">Upload</span>
+              <span className="eyebrow">{t("spark.network.upload", "Upload")}</span>
               <div className="big-num sp-big-md">
                 {txFmt.value}
                 <small>{txFmt.unit}</small>
@@ -147,7 +157,7 @@ export function NetworkPanel({
           </div>
           {primaryVisible && (
             <div className="sp-row">
-              <span className="text-muted">Primary</span>
+              <span className="text-muted">{t("spark.network.primary", "Primary")}</span>
               <span className="sp-chips">
                 <span className="mono text-text">{primaryVisible}</span>
                 {linkSpeed != null && <Tag>{linkSpeed} Mbps</Tag>}
@@ -157,7 +167,9 @@ export function NetworkPanel({
           <div className="sp-list">
             {visible.length === 0 ? (
               <p className="sp-muted">
-                {interfaces.length === 0 ? "No interfaces" : "All adapters hidden — open settings"}
+                {interfaces.length === 0
+                  ? t("spark.network.none", "No interfaces")
+                  : t("spark.network.allHidden", "All adapters hidden — open settings")}
               </p>
             ) : (
               visible.map((iface) => {
