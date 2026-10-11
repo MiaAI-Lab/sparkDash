@@ -55,6 +55,10 @@
       "dark": "深色",
       "oled": "OLED"
     },
+    "language": {
+      "title": "语言",
+      "help": "界面显示语言。保存在当前浏览器中。"
+    },
     "refreshRate": {
       "title": "刷新频率",
       "pollAria": "轮询间隔",
@@ -62,6 +66,14 @@
     },
     "temperature": {
       "title": "温度单位"
+    },
+    "timeZone": {
+      "title": "时区",
+      "help": "Token、能耗和活动图表上的小时与日期分界线及标签。留空跟随此浏览器（{browserTimeZone}）。每日 Token 桶与每月能耗总计仍保持 UTC。",
+      "browserDefault": "浏览器默认",
+      "emptyFollows": "留空跟随此浏览器（{browserTimeZone}）",
+      "useBrowser": "使用浏览器默认",
+      "unknown": "未知时区。例如 Asia/Shanghai 或 Europe/Paris。"
     },
     "defaultLlmPort": {
       "title": "默认 LLM 端口",

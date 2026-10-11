@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { BoltIcon } from "../ui/icons";
 
 /**
@@ -38,6 +39,7 @@ function isIOS(): boolean {
 type BannerKind = "none" | "native" | "ios";
 
 export function InstallPrompt() {
+  const { t } = useTranslation();
   const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null);
   const [kind, setKind] = useState<BannerKind>("none");
   const [busy, setBusy] = useState(false);
@@ -136,7 +138,7 @@ export function InstallPrompt() {
   return (
     <div
       role="dialog"
-      aria-label="Install sparkDash"
+      aria-label={t("shell.pwa.dialogAria", "Install sparkDash")}
       className="fixed inset-x-3 bottom-[76px] z-50 mx-auto flex max-w-md items-center gap-3 rounded-xl border p-3 shadow-lg sm:inset-x-auto sm:bottom-4 sm:left-4"
       style={{
         background: "var(--color-surface-elevated)",
@@ -149,10 +151,10 @@ export function InstallPrompt() {
         <>
           <div className="min-w-0 flex-1 text-sm leading-tight">
             <span className="font-medium" style={{ color: "var(--color-text-strong)" }}>
-              Install sparkDash
+              {t("shell.pwa.title", "Install sparkDash")}
             </span>
             <span className="block text-xs" style={{ color: "var(--color-muted)" }}>
-              Add to your home screen for a fullscreen, app-like dashboard.
+              {t("shell.pwa.desc", "Add to your home screen for a fullscreen, app-like dashboard.")}
             </span>
           </div>
           <button
@@ -162,24 +164,23 @@ export function InstallPrompt() {
             className="shrink-0 rounded-lg px-3 py-1.5 text-sm font-medium disabled:opacity-60"
             style={{ background: "var(--color-accent)", color: "var(--color-on-accent)" }}
           >
-            {busy ? "…" : "Install"}
+            {busy ? "…" : t("shell.pwa.install", "Install")}
           </button>
         </>
       ) : (
         <div className="min-w-0 flex-1 text-sm leading-tight">
           <span className="font-medium" style={{ color: "var(--color-text-strong)" }}>
-            Install sparkDash on your iPhone
+            {t("shell.pwa.iosTitle", "Install sparkDash on your iPhone")}
           </span>
           <span className="mt-0.5 block text-xs" style={{ color: "var(--color-muted)" }}>
-            Tap the <strong>Share</strong> icon <span aria-hidden>⬆︎</span> in Safari, then{" "}
-            <strong>Add to Home Screen</strong>.
+            {t("shell.pwa.iosDesc", "Tap the Share icon ⬆︎ in Safari, then Add to Home Screen.")}
           </span>
         </div>
       )}
       <button
         type="button"
         onClick={dismiss}
-        aria-label="Dismiss"
+        aria-label={t("shell.pwa.dismiss", "Dismiss")}
         className="shrink-0 rounded-md px-1.5 py-1 text-sm"
         style={{ color: "var(--color-muted)" }}
       >

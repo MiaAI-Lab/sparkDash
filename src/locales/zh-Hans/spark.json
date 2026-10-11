@@ -7,7 +7,8 @@
   "editDevice": "编辑{noun}",
   "kindOption": {
     "spark": "NVIDIA DGX Spark",
-    "host": "专用 GPU 主机（Linux、nvidia-smi，非 Spark）"
+    "host": "专用 GPU 主机（Linux、nvidia-smi，非 Spark）",
+    "windows": "配备 NVIDIA GPU 的 Windows PC（OpenSSH、nvidia-smi）"
   },
   "step": {
     "connect": "连接",
@@ -71,6 +72,7 @@
   "add": {
     "title": "添加 Spark / GPU 主机",
     "progress": "进度",
+    "windowsHint": "需要 Windows OpenSSH 服务器与 NVIDIA 驱动（nvidia-smi）。指标通过 SSH 由 PowerShell 采集；Hermes 与 Tailnet 检查暂不支持 Windows。",
     "thisHost": "此主机（本地采集器，指标不走 SSH）",
     "lanIpOptWol": "（可选，浏览器链接和 Wake-on-LAN）",
     "lanIpOpt": "（可选，浏览器链接）",
@@ -891,5 +893,47 @@
     "overall": "总体",
     "deltaSame": "相同",
     "deltaPts": "{delta} 分"
+  },
+  "roce": {
+    "title": "RoCE / RDMA",
+    "hint": "每个端口的链路状态、速率、流量、丢弃及 RDMA 计数器，直接读取自 Spark 本机的 sysfs、ethtool 与 mlnx_qos。",
+    "hidePorts": "隐藏端口",
+    "showPorts": "显示端口",
+    "stateUnknown": "未知",
+    "mtuTitle": "MTU",
+    "dropsTitle": "此接口上丢弃或出错的数据帧",
+    "errDrop": "{errors} 错误 · {drops} 丢弃",
+    "pfcTitle": "基于优先级的流量控制（mlnx_qos）",
+    "pfcOn": "PFC 开启：{priorities}",
+    "pfcOff": "PFC 关闭",
+    "trustTitle": "QoS 信任模式",
+    "trustTag": "trust {mode}",
+    "pauseTitle": "全局暂停（ethtool -a）",
+    "lossRising": "丢包上升中",
+    "noLoss": "无丢包",
+    "counters": "RDMA 计数器",
+    "summaryUp": "{up}/{total} 正常",
+    "summaryDown": "{down} 离线",
+    "summaryPfcOn": "PFC 开启（{pfcOn}/{total}）",
+    "idlePorts": "{count, plural, one {# 个端口未连接} other {# 个端口未连接}}：{ports}",
+    "counter": {
+      "outOfBuffer": "缓冲区溢出",
+      "packetSeqErr": "报文序号错误",
+      "localAckTimeoutErr": "本地 ACK 超时",
+      "rnrNakRetryErr": "RNR NAK 重试",
+      "impliedNakSeqErr": "隐式 NAK 错误",
+      "reqTransportRetriesExceeded": "传输重试超限",
+      "rxIcrcEncapsulated": "ICRC 校验错误",
+      "npEcnMarkedRocePackets": "ECN 标记报文",
+      "npCnpSent": "已发送 CNP",
+      "rpCnpHandled": "已处理 CNP",
+      "roceAdpRetrans": "自适应重传",
+      "duplicateRequest": "重复请求",
+      "rxDiscardsPhy": "RX 丢弃",
+      "txDiscardsPhy": "TX 丢弃",
+      "rxCrcErrorsPhy": "CRC 校验错误",
+      "rxPauseCtrlPhy": "接收暂停帧",
+      "txPauseCtrlPhy": "发送暂停帧"
+    }
   }
 }

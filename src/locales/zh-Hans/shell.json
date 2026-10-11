@@ -82,5 +82,14 @@
     "chip": "开放访问",
     "explanation": "此仪表盘可在你的网络中无需令牌直接访问，因此网络中的任何人都能更改设置。请在服务器上设置 SPARKDASH_TOKEN 以要求提供令牌。",
     "dontShowAgain": "不再显示"
+  },
+  "pwa": {
+    "dialogAria": "安装 sparkDash",
+    "title": "安装 sparkDash",
+    "desc": "添加到主屏幕，获得全屏且沉浸的应用级仪表盘体验。",
+    "install": "安装",
+    "iosTitle": "在 iPhone 上安装 sparkDash",
+    "iosDesc": "在 Safari 中轻点“分享”图标 ⬆︎，然后选择“添加到主屏幕”。",
+    "dismiss": "关闭"
   }
 }

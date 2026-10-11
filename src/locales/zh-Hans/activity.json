@@ -25,6 +25,8 @@
     "lowMemory": "内存不足",
     "concurrency": "加载模型过多",
     "linkSpeed": "链路缓慢",
+    "roceLink": "RoCE 链路中断",
+    "roceLoss": "RoCE 丢包",
     "healthOk": "健康正常",
     "shutdown": "关机",
     "wake": "唤醒",
