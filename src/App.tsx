@@ -32,6 +32,7 @@ import {
   ListIcon,
   PanelLeftIcon,
   TokensIcon,
+  ThermometerIcon,
 } from "./components/ui/icons";
 import { ConnectionBanner } from "./components/ui/ConnectionBanner";
 import { ErrorBanner } from "./components/ui/ErrorBanner";
@@ -40,6 +41,7 @@ import {
   SHOWCASE_ID,
   ENERGY_ID,
   OVERVIEW_ID,
+  TEMPS_ID,
   TOKENS_ID,
   benchId,
   benchTypeOf,
@@ -49,6 +51,7 @@ import {
 } from "./constants";
 import { TokensPage } from "./components/TokensPage/TokensPage";
 import { EnergyPage } from "./components/EnergyPage/EnergyPage";
+import { TempsPage } from "./components/TempsPage/TempsPage";
 import { ActivityPage } from "./components/ActivityPage/ActivityPage";
 import { BenchPage } from "./components/bench/BenchPage";
 import { BENCH_SPARK_KEY, BENCH_TYPES } from "./components/bench/benchCatalog";
@@ -440,6 +443,7 @@ function DashboardApp() {
     cmds.push(
       { id: "nav:tokens", group: "Go to", label: "Token totals", hint: "Page", icon: <TokensIcon className="h-4 w-4" />, keywords: "llm tokens generated prompt cached usage", run: () => navigate(TOKENS_ID) },
       { id: "nav:energy", group: "Go to", label: "Fleet energy", hint: "Page", icon: <BoltIcon className="h-4 w-4" />, keywords: "power kwh watts cost electricity", run: () => navigate(ENERGY_ID) },
+      { id: "nav:temps", group: "Go to", label: "Temps", hint: "Page", icon: <ThermometerIcon className="h-4 w-4" />, keywords: "gpu temperature thermal temps heat cooling", run: () => navigate(TEMPS_ID) },
       { id: "nav:showcase", group: "Go to", label: "Showcase", hint: "Page", icon: <TerminalIcon className="h-4 w-4" />, keywords: "prompts terminals stream demo", run: () => navigate(SHOWCASE_ID) },
       { id: "nav:activity", group: "Go to", label: "Activity", hint: "Page", icon: <ListIcon className="h-4 w-4" />, keywords: "events log history recent", run: () => navigate(ACTIVITY_ID) }
     );
@@ -543,6 +547,8 @@ function DashboardApp() {
                 <TokensPage sparks={displaySparks} onSelectSpark={navigate} />
               ) : activeId === ENERGY_ID ? (
                 <EnergyPage sparks={displaySparks} settings={settings} onSelectSpark={navigate} />
+              ) : activeId === TEMPS_ID ? (
+                <TempsPage sparks={displaySparks} onSelectSpark={navigate} />
               ) : activeId === ACTIVITY_ID ? (
                 <ActivityPage sparks={displaySparks} onSelectSpark={navigate} />
               ) : activeId === SHOWCASE_ID ? (

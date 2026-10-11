@@ -1,0 +1,101 @@
+/* Temps page. Everything is scoped under .tp, mirroring the energy page structure. */
+.tp {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.tp > .page-head {
+  margin-bottom: 2px;
+}
+.tp .page-head__tools {
+  min-width: 0;
+}
+.tp .tp-state {
+  padding: 28px 22px;
+  text-align: center;
+}
+.tp .tp-state h2 {
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.tp .tp-state p {
+  max-width: 62ch;
+  margin: 0 auto 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-muted);
+}
+.tp .tp-state p:last-child {
+  margin-bottom: 0;
+}
+.tp .tp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(480px, 100%), 1fr));
+  gap: 12px;
+  min-width: 0;
+}
+.tp .tp-card {
+  min-width: 0;
+  padding: 14px 16px 12px;
+}
+.tp .tp-card__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.tp .tp-card__name {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+  cursor: pointer;
+}
+.tp .tp-card__name:hover {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+.tp .tp-card__now {
+  font-family: "Geist Mono Variable", "Geist Mono", ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.tp .tp-card__now.is-offline {
+  color: var(--color-faint);
+}
+.tp .tp-plot {
+  display: block;
+  width: 100%;
+  max-width: 640px;
+  height: auto;
+}
+.tp .tp-plot text {
+  fill: var(--color-muted);
+  font-family: "Geist Mono Variable", "Geist Mono", ui-monospace, monospace;
+  font-size: 10.5px;
+}
+.tp .tp-card__empty {
+  margin: 24px 0;
+  font-size: 12px;
+  color: var(--color-muted);
+  text-align: center;
+}
+@media (max-width: 640px) {
+  .tp .tp-grid {
+    grid-template-columns: 1fr;
+  }
+  .tp .page-head__tools,
+  .tp .page-head__tools .seg {
+    width: 100%;
+  }
+  .tp .page-head__tools .seg > button {
+    flex: 1;
+  }
+}

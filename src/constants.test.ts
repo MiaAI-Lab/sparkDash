@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ENERGY_ID, OVERVIEW_ID, benchId, idToPath, initialActiveId, isStaleSparkId, pathToId } from "./constants";
+import { ENERGY_ID, OVERVIEW_ID, TEMPS_ID, benchId, idToPath, initialActiveId, isStaleSparkId, pathToId } from "./constants";
 
 describe("route helpers", () => {
   it("round-trips ids and paths", () => {
     expect(pathToId("/energy")).toBe(ENERGY_ID);
+    expect(pathToId("/temps")).toBe(TEMPS_ID);
+    expect(idToPath(TEMPS_ID)).toBe("/temps");
     expect(pathToId("/spark/a%20b")).toBe("a b");
     expect(idToPath("a b")).toBe("/spark/a%20b");
     expect(pathToId(idToPath(benchId("decode")))).toBe(benchId("decode"));

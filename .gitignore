@@ -39,6 +39,7 @@ config/llm-launchers.json
 config/tool-eval-runs.json
 config/tool-eval-results/
 config/gpu-history.json
+config/gpu-history-long.json
 config/fleet-energy.scope-*.json
 config/*.tmp
 config/*.json.*.tmp

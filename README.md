@@ -678,7 +678,7 @@ sparkDash/
 | GET | `/api/fleet-energy/history` | Hourly / daily energy buckets for the Fleet energy page |
 | GET/DELETE | `/api/fleet-energy/monthly` | Permanent per-UTC-month energy totals; `DELETE` needs `?month=YYYY-MM` or `?all=true&confirm=delete-all-history` |
 | GET | `/api/llm-token-totals` · `/api/llm-token-totals/history` | Cumulative LLM tokens by model, and the hourly / daily history behind the Token totals page |
-| GET | `/api/sparks/:id/gpu-history` | Last hours of GPU utilization, temperature and power % (`windowMs`, up to 8 h; parallel arrays) |
+| GET | `/api/sparks/:id/gpu-history` | GPU utilization, temperature and power % (`windowMs`; up to 8 h at ~2 s resolution, up to 7 days at minute resolution from the long-retention store; parallel arrays) |
 | GET/POST | `/api/restart` | `GET` says whether the server can restart itself (Docker with a restart policy); `POST` shuts down cleanly so Docker starts it again |
 | DELETE | `/api/events` · `/api/fleet-energy` | Clear Activity or Fleet energy: everything, or only entries older than `?olderThanMs=` |
 | DELETE | `/api/llm-token-totals` | Reset Token totals (all Sparks, or one with `?sparkId=`) |

@@ -41,6 +41,7 @@ async function startServer(t) {
       FLEET_ENERGY_MONTHLY_JSON_PATH: path.join(tmp, "fleet-energy-monthly.json"),
       EVENTS_JSON_PATH: path.join(tmp, "events.json"),
       GPU_HISTORY_JSON_PATH: path.join(tmp, "gpu-history.json"),
+      GPU_HISTORY_LONG_JSON_PATH: path.join(tmp, "gpu-history-long.json"),
       LLM_LAUNCHERS_JSON_PATH: path.join(tmp, "llm-launchers.json"),
       TOOL_EVAL_RUNS_PATH: path.join(tmp, "tool-eval-runs.json"),
       TOOL_EVAL_RESULTS_DIR: path.join(tmp, "tool-eval-results"),

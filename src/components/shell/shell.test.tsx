@@ -61,6 +61,14 @@ describe("AppSidebar", () => {
     expect(railSubLabel(sparks[1])).toBe("off");
   });
 
+  it("links the Temps page with a deep-linkable href", () => {
+    const { container } = render(
+      <AppSidebar sparks={[]} activeId={null} onSelect={() => {}} onAdd={() => {}} onOpenSettings={() => {}} onOpenSearch={() => {}} connected />
+    );
+    const link = container.querySelector<HTMLAnchorElement>('a[href="/temps"]')!;
+    expect(link.textContent).toContain("Temps");
+  });
+
   it("only offers the showcase when an online Spark has a reachable LLM", () => {
     expect(showcaseTarget([makeSpark("a", false)])).toBeNull();
   });
@@ -196,7 +204,7 @@ describe("MobileTabBar sheet", () => {
     expect(document.activeElement).toBe(opener);
   });
 
-  it("Stats opens Token totals, Fleet energy and Activity; Sparks no longer lists them; Showcase follows Prefill", () => {
+  it("Stats opens Token totals, Fleet energy, Temps and Activity; Sparks no longer lists them; Showcase follows Prefill", () => {
     const { container } = render(
       <MobileTabBar sparks={[makeSpark("a")]} activeId={null} onSelect={() => {}} onAdd={() => {}} onOpenSettings={() => {}} />
     );
@@ -204,7 +212,7 @@ describe("MobileTabBar sheet", () => {
     expect(tab("Search")).toBeUndefined();
     act(() => tab("Stats").click());
     let names = [...document.querySelectorAll(".sheet .rail-item__name")].map((n) => n.textContent);
-    expect(names).toEqual(["Token totals", "Fleet energy", "Activity"]);
+    expect(names).toEqual(["Token totals", "Fleet energy", "Temps", "Activity"]);
     act(() => {
       document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     });

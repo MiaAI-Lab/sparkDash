@@ -403,6 +403,15 @@ export function GaugeIcon({ className = "" }: { className?: string }) {
   );
 }
 
+/** Thermometer: GPU temperatures (Temps page). */
+export function ThermometerIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg {...baseProps(className)}>
+      <path d="M14 14.76V5a2 2 0 0 0-4 0v9.76a4 4 0 1 0 4 0" />
+    </svg>
+  );
+}
+
 /** Lines flowing into a bar: prompt processing (Prefill bench). */
 export function PrefillIcon({ className = "" }: { className?: string }) {
   return (

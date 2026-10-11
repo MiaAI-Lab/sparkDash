@@ -169,3 +169,31 @@ test("per-card series survive a restart through the file, and old files without 
   const c = new GpuHistory({ file, minGapMs: 1, now: () => now });
   assert.deepEqual(c.get("a"), { t: [now - 1000], u: [1], c: [2], p: [3], gpus: [] });
 });
+
+test("a week of minute samples is retained with the long-store config (day/week windows)", () => {
+  const week = 7 * 24 * 60 * 60_000;
+  let now = 0;
+  const h = new GpuHistory({ maxAgeMs: week, minGapMs: 60_000, now: () => now });
+  const samples = week / 60_000;
+  for (let i = 0; i < samples; i++) {
+    now = (i + 1) * 60_000;
+    h.record("a", now, 10, 20 + (i % 10), 5);
+  }
+  // The whole week survives, and a day-long sub-window slices it.
+  assert.equal(h.get("a", now - week).t.length, samples);
+  const day = h.get("a", now - 24 * 3600_000);
+  assert.equal(day.t.length, 24 * 60 + 1, "both ends of the window are inclusive at minute spacing");
+  assert.ok(day.t[0] >= now - 24 * 3600_000);
+});
+
+test("the default dense retention still caps at 8 hours", () => {
+  let now = 0;
+  const h = new GpuHistory({ minGapMs: 60_000, now: () => now });
+  for (let i = 0; i < 7 * 24 * 60; i++) {
+    now = (i + 1) * 60_000;
+    h.record("a", now, 10, 20, 5);
+  }
+  const kept = h.get("a", now - 7 * 24 * 3600_000).t.length;
+  // _trim keeps a small slack (chunked trimming), so allow a couple of extra minute samples.
+  assert.ok(kept >= 8 * 60 && kept <= 8 * 60 + 5, `only about the last 8 h kept (got ${kept})`);
+});
