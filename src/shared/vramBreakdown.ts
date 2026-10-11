@@ -1,4 +1,5 @@
 import { resolveSparkRole } from "../api/sparkRole";
+import { i18next } from "../i18n";
 import type { LlmMetrics, SparkRole } from "../api/types";
 import { backendLabel } from "./llmBackends.js";
 import { makeHeadResolver, usableHead, type HeadResolver } from "./sparkHead";
@@ -323,8 +324,8 @@ export function gbNumber(mb: number): string {
 export function legendItems(b: VramBreakdown): Array<{ key: VramSegmentKey | "free"; label: string; gb: string }> {
   const items: Array<{ key: VramSegmentKey | "free"; label: string; gb: string }> = b.segments
     .filter((s) => gbNumber(s.mb) !== "0.0")
-    .map((s) => ({ key: s.key, label: SEGMENT_LABELS[s.key], gb: gbNumber(s.mb) }));
-  items.push({ key: "free", label: "Free", gb: gbNumber(b.freeMB) });
+    .map((s) => ({ key: s.key, label: segmentLabel(s.key), gb: gbNumber(s.mb) }));
+  items.push({ key: "free", label: i18next.t("spark.vram.free", "Free"), gb: gbNumber(b.freeMB) });
   return items;
 }
 
@@ -335,11 +336,20 @@ export function kvNearlyFull(b: VramBreakdown): boolean {
 /** One plain sentence on what the numbers mean. */
 export function verdict(b: VramBreakdown): string {
   if (b.tone !== "ok") {
-    const lead = b.tone === "critical" ? "Very low headroom" : "Low headroom";
+    const lead = b.tone === "critical" ? i18next.t("spark.vram.veryLow", "Very low headroom") : i18next.t("spark.vram.low", "Low headroom");
     return b.model === "unified"
-      ? `${lead}: CPU-side growth could trigger the OOM killer`
-      : `${lead}: a new GPU allocation could fail with out of memory`;
+      ? i18next.t("spark.vram.cpuRisk", "{lead}: CPU-side growth could trigger the OOM killer", { lead })
+      : i18next.t("spark.vram.gpuRisk", "{lead}: a new GPU allocation could fail with out of memory", { lead });
   }
-  if (kvNearlyFull(b)) return "Engine KV pool nearly full: new requests queue or get preempted";
-  return "Plenty of headroom";
+  if (kvNearlyFull(b)) return i18next.t("spark.vram.kvFull", "Engine KV pool nearly full: new requests queue or get preempted");
+  return i18next.t("spark.vram.plenty", "Plenty of headroom");
+}
+
+export function segmentLabel(key: VramSegmentKey): string {
+  switch (key) {
+    case "engine": return i18next.t("spark.vram.model", "Model");
+    case "system": return i18next.t("spark.vram.system", "System");
+    case "other": return i18next.t("spark.vram.other", "Other");
+    case "gpu": return i18next.t("spark.vram.gpu", "GPU");
+  }
 }

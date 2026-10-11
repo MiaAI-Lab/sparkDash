@@ -48,3 +48,17 @@ describe("cancelShowcaseBeacon", () => {
     await Promise.resolve();
   });
 });
+
+describe("localized API errors", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it("retains HTTP status, original diagnostics and per-field metadata in both API clients", async () => {
+    const message = "ssh failed\nlast diagnostic line\n";
+    const i18n = { error: { key: "server.error.unexpected", params: { detail: message } } };
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ error: message, i18n }), { status: 503, headers: { "Content-Type": "application/json" } }))));
+    const { fetchSparks, fetchToolEvalSpec } = await import("./client");
+    const { fetchLlmTokenTotals } = await import("./llmTokenClient");
+    await expect(fetchSparks()).rejects.toMatchObject({ message, status: 503, i18n });
+    await expect(fetchLlmTokenTotals()).rejects.toMatchObject({ message, status: 503, i18n });
+    await expect(fetchToolEvalSpec()).rejects.toMatchObject({ message, status: 503, i18n, errors: [], active: null });
+  });
+});

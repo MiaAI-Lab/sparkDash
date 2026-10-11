@@ -127,7 +127,7 @@ function PortRow({ d }: { d: RoceDevice }) {
         {pfc && <Tag tone={pfc.tone} title={t("spark.roce.pfcTitle", "Priority flow control (mlnx_qos)")}>{pfc.text}</Tag>}
         {d.qos?.trust && <Tag title={t("spark.roce.trustTitle", "QoS trust mode")}>{t("spark.roce.trustTag", "trust {mode}", { mode: d.qos.trust })}</Tag>}
         {d.flowControl && (d.flowControl.rx || d.flowControl.tx) && (
-          <Tag title={t("spark.roce.pauseTitle", "Global pause (ethtool -a)")}>pause {d.flowControl.rx ? "rx" : ""}{d.flowControl.rx && d.flowControl.tx ? "/" : ""}{d.flowControl.tx ? "tx" : ""}</Tag>
+          <Tag title={t("spark.roce.pauseTitle", "Global pause (ethtool -a)")}>{t("spark.roce.pauseLabel", "pause")} {d.flowControl.rx ? "rx" : ""}{d.flowControl.rx && d.flowControl.tx ? "/" : ""}{d.flowControl.tx ? "tx" : ""}</Tag>
         )}
         {lossRising && <Tag tone="warn" title={d.loss.rising.join(", ")}>{t("spark.roce.lossRising", "loss rising")}</Tag>}
       </div>

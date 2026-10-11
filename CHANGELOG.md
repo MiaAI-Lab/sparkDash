@@ -10,7 +10,7 @@ Format: version sections are listed newest first.
 ## [Unreleased]
 
 ### Added
-- Initial Simplified Chinese UI translations and a **Settings → Language** selector for English / 简体中文. The choice applies immediately and is remembered in the current browser. Coverage includes navigation, Overview, device dialogs, Spark resource/service panels, decode/prefill/quality benchmark dialogs and share cards, and Activity. Token totals, Fleet energy, Showcase, some standalone benchmark screens and server-generated messages still use English; see [localization notes](./docs/i18n.md).
+- Simplified Chinese interface translations throughout the application and a **Settings → Language** selector for English / 简体中文. The choice applies immediately and is remembered in the current browser, including Token totals, Fleet energy, Showcase, standalone benchmarks, Tool Eval, menus, charts, share cards and authored server messages. Optional server descriptors preserve original English API fields. Raw model/log/test content and technical identifiers remain unchanged; see [coverage and localization notes](./docs/i18n.md).
 
 ---
 

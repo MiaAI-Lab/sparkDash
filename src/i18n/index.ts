@@ -34,6 +34,7 @@ export const NAMESPACES = [
   "energy",
   "health",
   "server",
+  "ui",
 ] as const;
 export type Namespace = (typeof NAMESPACES)[number];
 export const DEFAULT_NAMESPACE: Namespace = "common";

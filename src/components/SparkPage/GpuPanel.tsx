@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { localizedServerText } from "../../i18n/messages";
 import { useTranslation } from "react-i18next";
 import { i18next } from "../../i18n";
 import type { GpuDevice, GpuMetrics } from "../../api/types";
@@ -95,7 +96,7 @@ function GpuDeviceRow({
   const chip = throttleTag(d.throttle?.reason);
   const short = shortGpuName(d.name);
   return (
-    <div className="sp-device space-y-1.5" title={d.throttle?.detail ?? undefined}>
+    <div className="sp-device space-y-1.5" title={d.throttle?.detail ? localizedServerText(d.throttle.detail) : undefined}>
       <div className="flex items-center justify-between gap-2 text-xs">
         <span className="min-w-0 truncate font-medium text-text" title={d.name ?? undefined}>
           {t("spark.gpu.device", "GPU {idx}", { idx: d.index })}
@@ -242,7 +243,7 @@ export function GpuPanel({
             </span>
           ) : null}
         </div>
-        <div className="sp-stat" title={throttleInfo?.detail ?? undefined}>
+        <div className="sp-stat" title={throttleInfo?.detail ? localizedServerText(throttleInfo.detail) : undefined}>
           <span className="eyebrow">{t("spark.gpu.smClock", "SM clock")}</span>
           <div className="big-num">
             {clock.value}

@@ -1,3 +1,5 @@
+import { localizedServerText } from "../../i18n/messages";
+import { activeLocale } from "../../i18n";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
@@ -405,7 +407,7 @@ export function HermesUpdateDialog() {
               <p className="text-[11px] font-medium text-danger">
                 {t("spark.hermesDialog.changelogError", "Couldn't load the changelog. You can still update.")}
               </p>
-              <p className="mt-1 break-words text-[11px] text-muted">{error}</p>
+              <p className="mt-1 break-words text-[11px] text-muted">{localizedServerText(error)}</p>
               <div className="mt-2 flex items-center gap-3">
                 <button
                   type="button"
@@ -508,7 +510,7 @@ export function HermesUpdateDialog() {
                 )}
                 {upd.release.publishedAt && (
                   <span className="font-tabular text-[10px] text-muted">
-                    {new Date(upd.release.publishedAt).toLocaleDateString()}
+                    {new Date(upd.release.publishedAt).toLocaleDateString(activeLocale())}
                   </span>
                 )}
                 <a

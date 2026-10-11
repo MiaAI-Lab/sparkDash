@@ -1,3 +1,4 @@
+import { localizedServerText } from "../i18n/messages";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
@@ -772,7 +773,7 @@ export function EditSparkDialog({
           {testResult && <TestResultList result={testResult} />}
 
           {error && (
-            <div className="modal-sheet__error">{error}</div>
+            <div className="modal-sheet__error">{localizedServerText(error)}</div>
           )}
         </div>
 

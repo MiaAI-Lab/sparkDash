@@ -155,5 +155,15 @@
       "title": "显示今日 Token 指标",
       "help": "总览中显示今日生成的 Token 总量；尚无 Token 记录时显示在线设备数。"
     }
+  },
+  "duration": {
+    "seconds": "{count}秒",
+    "minutes": "{count}分钟",
+    "hours": "{count}小时",
+    "days": "{count}天",
+    "minuteSeconds": "{minutes}分 {seconds}秒",
+    "lessMinute": "不足1分钟",
+    "hoursMinutes": "{hours}小时 {minutes}分",
+    "daysHours": "{days}天 {hours}小时"
   }
 }

@@ -321,7 +321,9 @@
     "segGpuProcesses": "GPU 进程",
     "segKv": "KV 缓存",
     "segSystem": "系统",
-    "segFree": "空闲"
+    "segFree": "空闲",
+    "hoursBefore": "−{count} 小时",
+    "minutesBefore": "−{count} 分钟"
   },
   "llm": {
     "title": "LLM 服务器",
@@ -835,7 +837,8 @@
       "noiseText": "McNemar p = {p}。差异在噪声范围内。",
       "betterText": "McNemar p = {p}。本次运行优于另一次，超出噪声范围。",
       "worseText": "McNemar p = {p}。本次运行差于另一次，超出噪声范围。"
-    }
+    },
+    "pointsDifference": "{value} 分"
   },
   "copy": {
     "copy": "复制结果",
@@ -938,7 +941,8 @@
       "rxCrcErrorsPhy": "CRC 校验错误",
       "rxPauseCtrlPhy": "接收暂停帧",
       "txPauseCtrlPhy": "发送暂停帧"
-    }
+    },
+    "pauseLabel": "暂停帧"
   },
   "benchLabels": {
     "structured": "结构化",
@@ -957,5 +961,41 @@
     "mmlu": "MMLU",
     "follow": "指令遵循",
     "long": "长上下文召回"
+  },
+  "idle": {
+    "lastServed": "空闲 · 上次服务于 {since}前",
+    "label": "空闲"
+  },
+  "vram": {
+    "free": "空闲",
+    "veryLow": "剩余空间极低",
+    "low": "剩余空间不足",
+    "cpuRisk": "{lead}：CPU 内存增长可能触发 OOM 进程终止",
+    "gpuRisk": "{lead}：新的 GPU 内存分配可能因内存不足而失败",
+    "kvFull": "引擎 KV 缓存池接近满载：新请求会排队或被抢占",
+    "plenty": "剩余空间充足",
+    "model": "模型",
+    "system": "系统",
+    "other": "其他",
+    "gpu": "GPU"
+  },
+  "share": {
+    "unknownModel": "未知模型",
+    "decodeHeading": "{name} | 解码 tok/s 结果（{typeLabel}）：",
+    "decodeResult": "×{concurrency}  总计 {aggregate}  每流 {stream}  · TTFT {ttft}",
+    "decodeFailed": "×{concurrency}  失败{error}",
+    "prefillHeading": "{name} | 预填充 tok/s 结果：",
+    "prefillFailed": "{label}  失败 — {error}",
+    "noPrefill": "未测得预填充速率",
+    "lowConfidence": "置信度低",
+    "samples": "{actual}/{requested} 次采样",
+    "qualityHeading": "{model}{label} | 质量测试",
+    "qualityOverall": "总分 {score}（各类别百分比的均值）",
+    "skippedSizes": "已跳过的长上下文长度（超出上下文）：{sizes}",
+    "comparedWith": "对比运行：{run}",
+    "overallVerdict": "总体：{verdict}",
+    "qualityComparedRow": "{category} {scoreA} 对比 {scoreB}  相同 {identical}/{paired}  仅本次通过 {onlyA}  仅对照通过 {onlyB}  p={p}  {verdict}",
+    "qualityFooter": "温度 0 · 固定种子 · 测试集 v{suite}{scoring} · {status}，耗时 {duration}",
+    "scoringVersion": " · 评分 v{version}"
   }
 }

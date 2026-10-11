@@ -1,3 +1,4 @@
+import { localizedServerText } from "../../i18n/messages";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
@@ -470,7 +471,7 @@ function LlmModelsPanelFor({ spark, className }: { spark: SparkSnapshot; classNa
         {!online && launchers.length > 0 ? <p className="sp-models__hint">{t("spark.llmModels.offline", "{name} is offline, so models cannot be started or stopped.", { name: spark.name })}</p> : null}
         {actionError ? (
           <p className="sp-models__error" role="alert">
-            {actionError}
+            {localizedServerText(actionError)}
           </p>
         ) : null}
 
@@ -514,7 +515,7 @@ function LlmModelsPanelFor({ spark, className }: { spark: SparkSnapshot; classNa
                 )}
               </div>
             </div>
-            {job.error ? <p className="sp-models__error">{job.error}</p> : null}
+            {job.error ? <p className="sp-models__error">{localizedServerText(job.error)}</p> : null}
             {jobError ? <p className="sp-models__hint">{t("spark.llmModels.lostContact", "Lost contact with the dashboard server: {error}. Retrying…", { error: jobError })}</p> : null}
             {showTerminal ? (
               <>

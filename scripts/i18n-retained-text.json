@@ -1,0 +1,1874 @@
+[
+  {
+    "file": "src/App.tsx",
+    "kind": "jsx",
+    "text": "spark",
+    "reason": "Product, hardware, library, device or publisher name; kept verbatim by the localization scope."
+  },
+  {
+    "file": "src/App.tsx",
+    "kind": "jsx",
+    "text": "Dash",
+    "reason": "Product, hardware, library, device or publisher name; kept verbatim by the localization scope."
+  },
+  {
+    "file": "src/constants.ts",
+    "kind": "return",
+    "text": "/bench/{…}",
+    "reason": "Internal route builder; URL protocol paths must remain unchanged."
+  },
+  {
+    "file": "src/constants.ts",
+    "kind": "return",
+    "text": "/spark/{…}",
+    "reason": "Internal route builder; URL protocol paths must remain unchanged."
+  },
+  {
+    "file": "src/shared/deviceKind.ts",
+    "kind": "property",
+    "text": "NVIDIA DGX Spark",
+    "reason": "Product, hardware, library, device or publisher name; kept verbatim by the localization scope."
+  },
+  {
+    "file": "src/shared/deviceKind.ts",
+    "kind": "property",
+    "text": "Dedicated GPU host (Linux, nvidia-smi, not a Spark)",
+    "reason": "Shared English device-kind descriptor; AddSparkDialog and EditSparkDialog render finite translated kind labels."
+  },
+  {
+    "file": "src/shared/deviceKind.ts",
+    "kind": "property",
+    "text": "Windows PC (NVIDIA GPU or AMD Strix Halo)",
+    "reason": "Shared English device-kind descriptor; AddSparkDialog and EditSparkDialog render finite translated kind labels."
+  },
+  {
+    "file": "src/shared/deviceKind.ts",
+    "kind": "return",
+    "text": "windows",
+    "reason": "Device-kind enum used in request/configuration data."
+  },
+  {
+    "file": "src/shared/deviceKind.ts",
+    "kind": "return",
+    "text": "host",
+    "reason": "Device-kind enum used in request/configuration data."
+  },
+  {
+    "file": "src/shared/deviceKind.ts",
+    "kind": "return",
+    "text": "spark",
+    "reason": "Product, hardware, library, device or publisher name; kept verbatim by the localization scope."
+  },
+  {
+    "file": "src/shared/formatBytes.ts",
+    "kind": "return",
+    "text": "{…} GB/s",
+    "reason": "Standard technical unit or abbreviation; surrounding descriptions are localized."
+  },
+  {
+    "file": "src/shared/formatBytes.ts",
+    "kind": "return",
+    "text": "{…} MB/s",
+    "reason": "Standard technical unit or abbreviation; surrounding descriptions are localized."
+  },
+  {
+    "file": "src/shared/formatBytes.ts",
+    "kind": "return",
+    "text": "{…} KB/s",
+    "reason": "Standard technical unit or abbreviation; surrounding descriptions are localized."
+  },
+  {
+    "file": "src/shared/formatBytes.ts",
+    "kind": "return",
+    "text": "{…} GB",
+    "reason": "Standard technical unit or abbreviation; surrounding descriptions are localized."
+  },
+  {
+    "file": "src/shared/formatBytes.ts",
+    "kind": "return",
+    "text": "{…} MB",
+    "reason": "Standard technical unit or abbreviation; surrounding descriptions are localized."
+  },
+  {
+    "file": "src/shared/formatBytes.ts",
+    "kind": "return",
+    "text": "{…} TB",
+    "reason": "Standard technical unit or abbreviation; surrounding descriptions are localized."
+  },
+  {
+    "file": "src/shared/formatDuration.ts",
+    "kind": "return",
+    "text": "{…} ms",
+    "reason": "Standard technical unit or abbreviation; surrounding descriptions are localized."
+  },
+  {
+    "file": "src/shared/llmPrompts.js",
+    "kind": "property",
+    "text": "Structured",
+    "reason": "Canonical benchmark workload metadata shared with the server; decodeBenchTypeLabel translates the UI label without changing prompts."
+  },
+  {
+    "file": "src/shared/llmPrompts.js",
+    "kind": "property",
+    "text": "Count 1→200, numbers only — lab structured protocol",
+    "reason": "Canonical benchmark workload metadata shared with the server; decodeBenchTypeLabel translates the UI label without changing prompts."
+  },
+  {
+    "file": "src/shared/llmPrompts.js",
+    "kind": "property",
+    "text": "Prose",
+    "reason": "Canonical benchmark workload metadata shared with the server; decodeBenchTypeLabel translates the UI label without changing prompts."
+  },
+  {
+    "file": "src/shared/llmPrompts.js",
+    "kind": "property",
+    "text": "Hash-map explanation — lab default bench prompt",
+    "reason": "Canonical benchmark workload metadata shared with the server; decodeBenchTypeLabel translates the UI label without changing prompts."
+  },
+  {
+    "file": "src/shared/llmPrompts.js",
+    "kind": "property",
+    "text": "Code",
+    "reason": "Canonical benchmark workload metadata shared with the server; decodeBenchTypeLabel translates the UI label without changing prompts."
+  },
+  {
+    "file": "src/shared/llmPrompts.js",
+    "kind": "property",
+    "text": "Distinct Python tasks per stream — different prefixes, no comments",
+    "reason": "Canonical benchmark workload metadata shared with the server; decodeBenchTypeLabel translates the UI label without changing prompts."
+  },
+  {
+    "file": "src/shared/llmPrompts.js",
+    "kind": "property",
+    "text": "JSON",
+    "reason": "Canonical benchmark workload metadata shared with the server; decodeBenchTypeLabel translates the UI label without changing prompts."
+  },
+  {
+    "file": "src/shared/llmPrompts.js",
+    "kind": "property",
+    "text": "JSON GPU-metrics catalog — output type only, not guided JSON",
+    "reason": "Canonical benchmark workload metadata shared with the server; decodeBenchTypeLabel translates the UI label without changing prompts."
+  },
+  {
+    "file": "src/shared/llmPrompts.js",
+    "kind": "return",
+    "text": "Structured",
+    "reason": "Canonical benchmark workload metadata shared with the server; decodeBenchTypeLabel translates the UI label without changing prompts."
+  },
+  {
+    "file": "src/shared/llmTarget.js",
+    "kind": "error",
+    "text": "Enter a host",
+    "reason": "Shared locale-neutral URL validation; applicationTextI18n and localizedServerText translate this exact message at display time."
+  },
+  {
+    "file": "src/shared/llmTarget.js",
+    "kind": "error",
+    "text": "Invalid URL",
+    "reason": "Shared locale-neutral URL validation; applicationTextI18n and localizedServerText translate this exact message at display time."
+  },
+  {
+    "file": "src/shared/timeZone.ts",
+    "kind": "return",
+    "text": "UTC",
+    "reason": "Standard technical unit or abbreviation; surrounding descriptions are localized."
+  },
+  {
+    "file": "src/shared/vramBreakdown.ts",
+    "kind": "return",
+    "text": "discrete",
+    "reason": "Internal state, grouping, theme or visual-tone identifier; its displayed label is localized separately."
+  },
+  {
+    "file": "src/shared/vramBreakdown.ts",
+    "kind": "return",
+    "text": "unified",
+    "reason": "Internal state, grouping, theme or visual-tone identifier; its displayed label is localized separately."
+  },
+  {
+    "file": "src/shared/vramBreakdown.ts",
+    "kind": "return",
+    "text": "critical",
+    "reason": "Internal state, grouping, theme or visual-tone identifier; its displayed label is localized separately."
+  },
+  {
+    "file": "src/shared/vramBreakdown.ts",
+    "kind": "return",
+    "text": "low",
+    "reason": "Internal state, grouping, theme or visual-tone identifier; its displayed label is localized separately."
+  },
+  {
+    "file": "src/shared/vramBreakdown.ts",
+    "kind": "return",
+    "text": "ok",
+    "reason": "Internal state, grouping, theme or visual-tone identifier; its displayed label is localized separately."
+  },
+  {
+    "file": "src/shared/vramBreakdown.ts",
+    "kind": "return",
+    "text": "danger",
+    "reason": "Internal state, grouping, theme or visual-tone identifier; its displayed label is localized separately."
+  },
+  {
+    "file": "src/shared/vramBreakdown.ts",
+    "kind": "return",
+    "text": "warning",
+    "reason": "Internal state, grouping, theme or visual-tone identifier; its displayed label is localized separately."
+  },
+  {
+    "file": "src/shared/vramBreakdown.ts",
+    "kind": "return",
+    "text": "default",
+    "reason": "Internal state, grouping, theme or visual-tone identifier; its displayed label is localized separately."
+  },
+  {
+    "file": "src/shared/vramBreakdown.ts",
+    "kind": "return",
+    "text": "text-danger",
+    "reason": "CSS class or color expression, not displayed prose."
+  },
+  {
+    "file": "src/shared/vramBreakdown.ts",
+    "kind": "return",
+    "text": "text-warning",
+    "reason": "CSS class or color expression, not displayed prose."
+  },
+  {
+    "file": "src/shared/vramBreakdown.ts",
+    "kind": "return",
+    "text": "text-text",
+    "reason": "CSS class or color expression, not displayed prose."
+  },
+  {
+    "file": "src/hooks/ringBuffer.ts",
+    "kind": "error",
+    "text": "capacity must be positive",
+    "reason": "Internal programmer invariant exception for invalid capacity; never used as user-facing feedback."
+  },
+  {
+    "file": "src/hooks/useSnapshot.ts",
+    "kind": "return",
+    "text": "{…}//{…}/ws{…}",
+    "reason": "WebSocket URL, scheme or authentication query syntax."
+  },
+  {
+    "file": "src/hooks/useSnapshot.ts",
+    "kind": "return",
+    "text": "wss:",
+    "reason": "WebSocket URL, scheme or authentication query syntax."
+  },
+  {
+    "file": "src/hooks/useSnapshot.ts",
+    "kind": "return",
+    "text": "ws:",
+    "reason": "WebSocket URL, scheme or authentication query syntax."
+  },
+  {
+    "file": "src/hooks/useSnapshot.ts",
+    "kind": "return",
+    "text": "?token={…}",
+    "reason": "WebSocket URL, scheme or authentication query syntax."
+  },
+  {
+    "file": "src/hooks/useSnapshot.ts",
+    "kind": "feedback",
+    "text": "The server sent an invalid telemetry payload.",
+    "reason": "Locale-neutral stored telemetry error; ConnectionBanner translates the complete message on render."
+  },
+  {
+    "file": "src/hooks/useSnapshot.ts",
+    "kind": "feedback",
+    "text": "The server sent malformed telemetry data.",
+    "reason": "Locale-neutral stored telemetry error; ConnectionBanner translates the complete message on render."
+  },
+  {
+    "file": "src/components/addSparkSteps.ts",
+    "kind": "return",
+    "text": "lanIp",
+    "reason": "Form field key or generated device ID; displayed validation text is translated."
+  },
+  {
+    "file": "src/components/addSparkSteps.ts",
+    "kind": "return",
+    "text": "password",
+    "reason": "Form field key or generated device ID; displayed validation text is translated."
+  },
+  {
+    "file": "src/components/addSparkSteps.ts",
+    "kind": "return",
+    "text": "spark-{…}",
+    "reason": "Form field key or generated device ID; displayed validation text is translated."
+  },
+  {
+    "file": "src/components/EditSparkDialog.tsx",
+    "kind": "jsx",
+    "text": "hermes update",
+    "reason": "Executable or command syntax; the accompanying explanation is translated."
+  },
+  {
+    "file": "src/components/SettingsDialog.tsx",
+    "kind": "property",
+    "text": "White",
+    "reason": "Baseline theme descriptor; the rendered themeLabels map uses stable translated theme IDs."
+  },
+  {
+    "file": "src/components/SettingsDialog.tsx",
+    "kind": "property",
+    "text": "Light",
+    "reason": "Baseline theme descriptor; the rendered themeLabels map uses stable translated theme IDs."
+  },
+  {
+    "file": "src/components/SettingsDialog.tsx",
+    "kind": "property",
+    "text": "Dark",
+    "reason": "Baseline theme descriptor; the rendered themeLabels map uses stable translated theme IDs."
+  },
+  {
+    "file": "src/components/SettingsDialog.tsx",
+    "kind": "property",
+    "text": "OLED",
+    "reason": "Baseline theme descriptor; the rendered themeLabels map uses stable translated theme IDs."
+  },
+  {
+    "file": "src/components/SettingsDialog.tsx",
+    "kind": "return",
+    "text": "dark",
+    "reason": "Persisted theme enum, not its translated display label."
+  },
+  {
+    "file": "src/components/SettingsDialog.tsx",
+    "kind": "jsx",
+    "text": "English",
+    "reason": "Language autonym lets English readers identify the language selector."
+  },
+  {
+    "file": "src/components/SettingsDialog.tsx",
+    "kind": "jsx",
+    "text": "sparkDash v",
+    "reason": "Product, hardware, library, device or publisher name; kept verbatim by the localization scope."
+  },
+  {
+    "file": "src/components/SettingsDialog.tsx",
+    "kind": "jsx",
+    "text": "mia-ai.net",
+    "reason": "Product, hardware, library, device or publisher name; kept verbatim by the localization scope."
+  },
+  {
+    "file": "src/components/SettingsDialog.tsx",
+    "kind": "jsx",
+    "text": "𝕏 @MiaAI_lab",
+    "reason": "Product, hardware, library, device or publisher name; kept verbatim by the localization scope."
+  },
+  {
+    "file": "src/components/SettingsDialog.tsx",
+    "kind": "jsx",
+    "text": "GitHub MiaAI-Lab",
+    "reason": "Product, hardware, library, device or publisher name; kept verbatim by the localization scope."
+  },
+  {
+    "file": "src/components/ThemeSwitch.tsx",
+    "kind": "return",
+    "text": "dark",
+    "reason": "Internal state, grouping, theme or visual-tone identifier; its displayed label is localized separately."
+  },
+  {
+    "file": "src/components/ui/HealthFindings.tsx",
+    "kind": "return",
+    "text": "critical",
+    "reason": "Internal state, grouping, theme or visual-tone identifier; its displayed label is localized separately."
+  },
+  {
+    "file": "src/components/ui/HealthFindings.tsx",
+    "kind": "return",
+    "text": "warn",
+    "reason": "Internal state, grouping, theme or visual-tone identifier; its displayed label is localized separately."
+  },
+  {
+    "file": "src/components/ui/MetricBar.tsx",
+    "kind": "return",
+    "text": "bg-danger",
+    "reason": "CSS class or color expression, not displayed prose."
+  },
+  {
+    "file": "src/components/ui/MetricBar.tsx",
+    "kind": "return",
+    "text": "bg-warning",
+    "reason": "CSS class or color expression, not displayed prose."
+  },
+  {
+    "file": "src/components/ui/VramBreakdownBar.tsx",
+    "kind": "jsx",
+    "text": "GB",
+    "reason": "Standard technical unit or abbreviation; surrounding descriptions are localized."
+  },
+  {
+    "file": "src/components/ui/VramBreakdownBar.tsx",
+    "kind": "attribute",
+    "text": "GPU",
+    "reason": "Standard technical unit or abbreviation; surrounding descriptions are localized."
+  },
+  {
+    "file": "src/components/TokensPage/TokensPage.tsx",
+    "kind": "error",
+    "text": "no clipboard",
+    "reason": "Caught clipboard control-flow sentinel; the catch branch displays a localized copy error."
+  },
+  {
+    "file": "src/components/TokensPage/tokenStats.ts",
+    "kind": "property",
+    "text": "Last 24 h",
+    "reason": "English range/series baseline descriptor; localizedRange and groupBuckets project stable IDs at render time."
+  },
+  {
+    "file": "src/components/TokensPage/tokenStats.ts",
+    "kind": "property",
+    "text": "All time",
+    "reason": "English range/series baseline descriptor; localizedRange and groupBuckets project stable IDs at render time."
+  },
+  {
+    "file": "src/components/TokensPage/tokenStats.ts",
+    "kind": "return",
+    "text": "{…} (UTC)",
+    "reason": "English-compatible date template or UTC technical marker; the Simplified Chinese branch formats Chinese dates and the local-time marker."
+  },
+  {
+    "file": "src/components/TokensPage/tokenStats.ts",
+    "kind": "return",
+    "text": "{…} {…} {…} {…} (UTC)",
+    "reason": "English-compatible date template or UTC technical marker; the Simplified Chinese branch formats Chinese dates and the local-time marker."
+  },
+  {
+    "file": "src/components/TokensPage/tokenStats.ts",
+    "kind": "return",
+    "text": "{…} {…} {…}, {…}–{…} (local)",
+    "reason": "English-compatible date template or UTC technical marker; the Simplified Chinese branch formats Chinese dates and the local-time marker."
+  },
+  {
+    "file": "src/components/TokensPage/tokenStats.ts",
+    "kind": "property",
+    "text": "Generated",
+    "reason": "English range/series baseline descriptor; localizedRange and groupBuckets project stable IDs at render time."
+  },
+  {
+    "file": "src/components/TokensPage/tokenStats.ts",
+    "kind": "property",
+    "text": "Cached prefill",
+    "reason": "English range/series baseline descriptor; localizedRange and groupBuckets project stable IDs at render time."
+  },
+  {
+    "file": "src/components/TokensPage/tokenStats.ts",
+    "kind": "property",
+    "text": "Computed prefill",
+    "reason": "English range/series baseline descriptor; localizedRange and groupBuckets project stable IDs at render time."
+  },
+  {
+    "file": "src/components/TokensPage/tokenStats.ts",
+    "kind": "variable",
+    "text": "bucket_utc",
+    "reason": "Stable CSV column identifier for downstream readers; export controls and feedback are translated."
+  },
+  {
+    "file": "src/components/TokensPage/tokenStats.ts",
+    "kind": "variable",
+    "text": "spark_id",
+    "reason": "Stable CSV column identifier for downstream readers; export controls and feedback are translated."
+  },
+  {
+    "file": "src/components/TokensPage/tokenStats.ts",
+    "kind": "variable",
+    "text": "spark",
+    "reason": "Product, hardware, library, device or publisher name; kept verbatim by the localization scope."
+  },
+  {
+    "file": "src/components/TokensPage/tokenStats.ts",
+    "kind": "variable",
+    "text": "port",
+    "reason": "Stable CSV column identifier for downstream readers; export controls and feedback are translated."
+  },
+  {
+    "file": "src/components/TokensPage/tokenStats.ts",
+    "kind": "variable",
+    "text": "model",
+    "reason": "Stable CSV column identifier for downstream readers; export controls and feedback are translated."
+  },
+  {
+    "file": "src/components/TokensPage/tokenStats.ts",
+    "kind": "variable",
+    "text": "prompt_tokens",
+    "reason": "Stable CSV column identifier for downstream readers; export controls and feedback are translated."
+  },
+  {
+    "file": "src/components/TokensPage/tokenStats.ts",
+    "kind": "variable",
+    "text": "completion_tokens",
+    "reason": "Stable CSV column identifier for downstream readers; export controls and feedback are translated."
+  },
+  {
+    "file": "src/components/TokensPage/tokenStats.ts",
+    "kind": "variable",
+    "text": "cached_tokens",
+    "reason": "Stable CSV column identifier for downstream readers; export controls and feedback are translated."
+  },
+  {
+    "file": "src/components/TokensPage/tokenStats.ts",
+    "kind": "variable",
+    "text": "computed_prefill_tokens",
+    "reason": "Stable CSV column identifier for downstream readers; export controls and feedback are translated."
+  },
+  {
+    "file": "src/components/TokensPage/TokenTables.tsx",
+    "kind": "return",
+    "text": "ascending",
+    "reason": "Required aria-sort enum value, not a spoken or displayed translation string."
+  },
+  {
+    "file": "src/components/TokensPage/TokenTables.tsx",
+    "kind": "return",
+    "text": "descending",
+    "reason": "Required aria-sort enum value, not a spoken or displayed translation string."
+  },
+  {
+    "file": "src/components/TokensPage/TokenTables.tsx",
+    "kind": "return",
+    "text": "none",
+    "reason": "Required aria-sort enum value, not a spoken or displayed translation string."
+  },
+  {
+    "file": "src/components/SparkPage/BenchmarkDialog.tsx",
+    "kind": "return",
+    "text": "{…}ms",
+    "reason": "Standard technical unit or abbreviation; surrounding descriptions are localized."
+  },
+  {
+    "file": "src/components/SparkPage/BenchmarkDialog.tsx",
+    "kind": "jsx",
+    "text": "tok/s",
+    "reason": "Standard technical unit or abbreviation; surrounding descriptions are localized."
+  },
+  {
+    "file": "src/components/SparkPage/benchShareCard.ts",
+    "kind": "return",
+    "text": "sparkdash-{…}-{…}-{…}.png",
+    "reason": "Generated image filename; not a UI sentence."
+  },
+  {
+    "file": "src/components/SparkPage/benchShareCard.ts",
+    "kind": "return",
+    "text": "spark",
+    "reason": "Product, hardware, library, device or publisher name; kept verbatim by the localization scope."
+  },
+  {
+    "file": "src/components/SparkPage/benchShareCard.ts",
+    "kind": "return",
+    "text": "{…}ms",
+    "reason": "Standard technical unit or abbreviation; surrounding descriptions are localized."
+  },
+  {
+    "file": "src/components/SparkPage/benchShareCard.ts",
+    "kind": "return",
+    "text": "dark",
+    "reason": "Theme enum used to select share-card paint colors."
+  },
+  {
+    "file": "src/components/SparkPage/benchShareCard.ts",
+    "kind": "return",
+    "text": "{…} {…}px {…}",
+    "reason": "Canvas font-size syntax."
+  },
+  {
+    "file": "src/components/SparkPage/ComfyPanel.tsx",
+    "kind": "return",
+    "text": "http://{…}:{…}",
+    "reason": "ComfyUI endpoint URL builder."
+  },
+  {
+    "file": "src/components/SparkPage/ComfyPanel.tsx",
+    "kind": "return",
+    "text": "http://127.0.0.1:{…}",
+    "reason": "ComfyUI endpoint URL builder."
+  },
+  {
+    "file": "src/components/SparkPage/ComfyPanel.tsx",
+    "kind": "attribute",
+    "text": "ComfyUI",
+    "reason": "Product, hardware, library, device or publisher name; kept verbatim by the localization scope."
+  },
+  {
+    "file": "src/components/SparkPage/ComfyPanel.tsx",
+    "kind": "jsx",
+    "text": "torch",
+    "reason": "Product, hardware, library, device or publisher name; kept verbatim by the localization scope."
+  },
+  {
+    "file": "src/components/SparkPage/gpuChartView.ts",
+    "kind": "return",
+    "text": "all",
+    "reason": "Internal state, grouping, theme or visual-tone identifier; its displayed label is localized separately."
+  },
+  {
+    "file": "src/components/SparkPage/gpuChartView.ts",
+    "kind": "return",
+    "text": "usage",
+    "reason": "Internal state, grouping, theme or visual-tone identifier; its displayed label is localized separately."
+  },
+  {
+    "file": "src/components/SparkPage/GpuHistoryChart.tsx",
+    "kind": "property",
+    "text": "30 min",
+    "reason": "English baseline chart-window descriptor; gpuChartWindowLabel translates the stable window ID."
+  },
+  {
+    "file": "src/components/SparkPage/GpuPanel.tsx",
+    "kind": "return",
+    "text": "var(--color-danger)",
+    "reason": "CSS class or color expression, not displayed prose."
+  },
+  {
+    "file": "src/components/SparkPage/GpuPanel.tsx",
+    "kind": "return",
+    "text": "var(--color-warning)",
+    "reason": "CSS class or color expression, not displayed prose."
+  },
+  {
+    "file": "src/components/SparkPage/GpuPanel.tsx",
+    "kind": "attribute",
+    "text": "{…} (PID {…})",
+    "reason": "Process name supplied by telemetry and PID technical identifier."
+  },
+  {
+    "file": "src/components/SparkPage/HermesUpdateDialog.tsx",
+    "kind": "jsx",
+    "text": "hermes update",
+    "reason": "Executable or command syntax; the accompanying explanation is translated."
+  },
+  {
+    "file": "src/components/SparkPage/LlmDailyChart.tsx",
+    "kind": "return",
+    "text": "{…}M tok/s",
+    "reason": "Standard technical unit or abbreviation; surrounding descriptions are localized."
+  },
+  {
+    "file": "src/components/SparkPage/LlmDailyChart.tsx",
+    "kind": "return",
+    "text": "{…}k tok/s",
+    "reason": "Standard technical unit or abbreviation; surrounding descriptions are localized."
+  },
+  {
+    "file": "src/components/SparkPage/LlmDailyChart.tsx",
+    "kind": "return",
+    "text": "{…} tok/s",
+    "reason": "Standard technical unit or abbreviation; surrounding descriptions are localized."
+  },
+  {
+    "file": "src/components/SparkPage/LlmLauncherDialog.tsx",
+    "kind": "attribute",
+    "text": "GLM 5.3 EXL3",
+    "reason": "Product, hardware, library, device or publisher name; kept verbatim by the localization scope."
+  },
+  {
+    "file": "src/components/SparkPage/LlmLauncherDialog.tsx",
+    "kind": "attribute",
+    "text": "/home/you/llms/glm-5.3",
+    "reason": "Literal endpoint or filesystem-path example; protocol syntax is preserved."
+  },
+  {
+    "file": "src/components/SparkPage/LlmModelsPanel.tsx",
+    "kind": "return",
+    "text": "info",
+    "reason": "Internal state, grouping, theme or visual-tone identifier; its displayed label is localized separately."
+  },
+  {
+    "file": "src/components/SparkPage/LlmModelsPanel.tsx",
+    "kind": "return",
+    "text": "good",
+    "reason": "Internal state, grouping, theme or visual-tone identifier; its displayed label is localized separately."
+  },
+  {
+    "file": "src/components/SparkPage/LlmModelsPanel.tsx",
+    "kind": "return",
+    "text": "bad",
+    "reason": "Internal state, grouping, theme or visual-tone identifier; its displayed label is localized separately."
+  },
+  {
+    "file": "src/components/SparkPage/LlmModelsPanel.tsx",
+    "kind": "return",
+    "text": "neutral",
+    "reason": "Internal state, grouping, theme or visual-tone identifier; its displayed label is localized separately."
+  },
+  {
+    "file": "src/components/SparkPage/LlmModelsPanel.tsx",
+    "kind": "jsx",
+    "text": "start.sh",
+    "reason": "Executable or command syntax; the accompanying explanation is translated."
+  },
+  {
+    "file": "src/components/SparkPage/LlmModelsPanel.tsx",
+    "kind": "jsx",
+    "text": "stop.sh",
+    "reason": "Executable or command syntax; the accompanying explanation is translated."
+  },
+  {
+    "file": "src/components/SparkPage/LlmPanel.tsx",
+    "kind": "return",
+    "text": "{…} GB",
+    "reason": "Standard technical unit or abbreviation; surrounding descriptions are localized."
+  },
+  {
+    "file": "src/components/SparkPage/LlmPanel.tsx",
+    "kind": "return",
+    "text": "{…} MB",
+    "reason": "Standard technical unit or abbreviation; surrounding descriptions are localized."
+  },
+  {
+    "file": "src/components/SparkPage/LlmPanel.tsx",
+    "kind": "attribute",
+    "text": "https://name.tailxxxxx.ts.net/v1/models",
+    "reason": "Literal endpoint or filesystem-path example; protocol syntax is preserved."
+  },
+  {
+    "file": "src/components/SparkPage/LlmPanel.tsx",
+    "kind": "jsx",
+    "text": "HTTPS",
+    "reason": "Keyboard notation or network protocol abbreviation."
+  },
+  {
+    "file": "src/components/SparkPage/LlmPanel.tsx",
+    "kind": "jsx",
+    "text": "LM Studio :1234",
+    "reason": "Product, hardware, library, device or publisher name; kept verbatim by the localization scope."
+  },
+  {
+    "file": "src/components/SparkPage/LlmPanel.tsx",
+    "kind": "jsx",
+    "text": "Ollama :11434",
+    "reason": "Product, hardware, library, device or publisher name; kept verbatim by the localization scope."
+  },
+  {
+    "file": "src/components/SparkPage/LlmPanel.tsx",
+    "kind": "jsx",
+    "text": "TensorFold :8888",
+    "reason": "Product, hardware, library, device or publisher name; kept verbatim by the localization scope."
+  },
+  {
+    "file": "src/components/SparkPage/LlmPanel.tsx",
+    "kind": "jsx",
+    "text": "tok/s",
+    "reason": "Standard technical unit or abbreviation; surrounding descriptions are localized."
+  },
+  {
+    "file": "src/components/SparkPage/NetworkPanel.tsx",
+    "kind": "jsx",
+    "text": "Mbps",
+    "reason": "Standard technical unit or abbreviation; surrounding descriptions are localized."
+  },
+  {
+    "file": "src/components/SparkPage/PrefillBenchDialog.tsx",
+    "kind": "return",
+    "text": "{…}ms",
+    "reason": "Standard technical unit or abbreviation; surrounding descriptions are localized."
+  },
+  {
+    "file": "src/components/SparkPage/PrefillBenchDialog.tsx",
+    "kind": "return",
+    "text": "{…} {…} tok/s · TTFT {…} · {…}{…}",
+    "reason": "Share-result row containing dynamic model labels, numbers and technical tok/s / TTFT units; localized failures and confidence labels are interpolated separately."
+  },
+  {
+    "file": "src/components/SparkPage/PrefillBenchDialog.tsx",
+    "kind": "jsx",
+    "text": "tok/s",
+    "reason": "Standard technical unit or abbreviation; surrounding descriptions are localized."
+  },
+  {
+    "file": "src/components/SparkPage/QualityBenchDialog.tsx",
+    "kind": "return",
+    "text": "{…} ms",
+    "reason": "Standard technical unit or abbreviation; surrounding descriptions are localized."
+  },
+  {
+    "file": "src/components/SparkPage/QualityBenchDialog.tsx",
+    "kind": "return",
+    "text": "none",
+    "reason": "Internal state, grouping, theme or visual-tone identifier; its displayed label is localized separately."
+  },
+  {
+    "file": "src/components/SparkPage/QualityBenchDialog.tsx",
+    "kind": "return",
+    "text": "good",
+    "reason": "Internal state, grouping, theme or visual-tone identifier; its displayed label is localized separately."
+  },
+  {
+    "file": "src/components/SparkPage/QualityBenchDialog.tsx",
+    "kind": "return",
+    "text": "ok",
+    "reason": "Internal state, grouping, theme or visual-tone identifier; its displayed label is localized separately."
+  },
+  {
+    "file": "src/components/SparkPage/QualityBenchDialog.tsx",
+    "kind": "return",
+    "text": "low",
+    "reason": "Internal state, grouping, theme or visual-tone identifier; its displayed label is localized separately."
+  },
+  {
+    "file": "src/components/SparkPage/RocePanel.tsx",
+    "kind": "property",
+    "text": "Out of buffer",
+    "reason": "Baseline RDMA counter descriptor; counterLabel maps each stable telemetry counter ID to translated text."
+  },
+  {
+    "file": "src/components/SparkPage/RocePanel.tsx",
+    "kind": "property",
+    "text": "Packet sequence errors",
+    "reason": "Baseline RDMA counter descriptor; counterLabel maps each stable telemetry counter ID to translated text."
+  },
+  {
+    "file": "src/components/SparkPage/RocePanel.tsx",
+    "kind": "property",
+    "text": "Local ACK timeouts",
+    "reason": "Baseline RDMA counter descriptor; counterLabel maps each stable telemetry counter ID to translated text."
+  },
+  {
+    "file": "src/components/SparkPage/RocePanel.tsx",
+    "kind": "property",
+    "text": "RNR NAK retries",
+    "reason": "Baseline RDMA counter descriptor; counterLabel maps each stable telemetry counter ID to translated text."
+  },
+  {
+    "file": "src/components/SparkPage/RocePanel.tsx",
+    "kind": "property",
+    "text": "Implied NAK errors",
+    "reason": "Baseline RDMA counter descriptor; counterLabel maps each stable telemetry counter ID to translated text."
+  },
+  {
+    "file": "src/components/SparkPage/RocePanel.tsx",
+    "kind": "property",
+    "text": "Transport retries exceeded",
+    "reason": "Baseline RDMA counter descriptor; counterLabel maps each stable telemetry counter ID to translated text."
+  },
+  {
+    "file": "src/components/SparkPage/RocePanel.tsx",
+    "kind": "property",
+    "text": "ICRC errors",
+    "reason": "Baseline RDMA counter descriptor; counterLabel maps each stable telemetry counter ID to translated text."
+  },
+  {
+    "file": "src/components/SparkPage/RocePanel.tsx",
+    "kind": "property",
+    "text": "ECN-marked packets",
+    "reason": "Baseline RDMA counter descriptor; counterLabel maps each stable telemetry counter ID to translated text."
+  },
+  {
+    "file": "src/components/SparkPage/RocePanel.tsx",
+    "kind": "property",
+    "text": "CNPs sent",
+    "reason": "Baseline RDMA counter descriptor; counterLabel maps each stable telemetry counter ID to translated text."
+  },
+  {
+    "file": "src/components/SparkPage/RocePanel.tsx",
+    "kind": "property",
+    "text": "CNPs handled",
+    "reason": "Baseline RDMA counter descriptor; counterLabel maps each stable telemetry counter ID to translated text."
+  },
+  {
+    "file": "src/components/SparkPage/RocePanel.tsx",
+    "kind": "property",
+    "text": "Adaptive retransmits",
+    "reason": "Baseline RDMA counter descriptor; counterLabel maps each stable telemetry counter ID to translated text."
+  },
+  {
+    "file": "src/components/SparkPage/RocePanel.tsx",
+    "kind": "property",
+    "text": "Duplicate requests",
+    "reason": "Baseline RDMA counter descriptor; counterLabel maps each stable telemetry counter ID to translated text."
+  },
+  {
+    "file": "src/components/SparkPage/RocePanel.tsx",
+    "kind": "property",
+    "text": "RX discards",
+    "reason": "Baseline RDMA counter descriptor; counterLabel maps each stable telemetry counter ID to translated text."
+  },
+  {
+    "file": "src/components/SparkPage/RocePanel.tsx",
+    "kind": "property",
+    "text": "TX discards",
+    "reason": "Baseline RDMA counter descriptor; counterLabel maps each stable telemetry counter ID to translated text."
+  },
+  {
+    "file": "src/components/SparkPage/RocePanel.tsx",
+    "kind": "property",
+    "text": "CRC errors",
+    "reason": "Baseline RDMA counter descriptor; counterLabel maps each stable telemetry counter ID to translated text."
+  },
+  {
+    "file": "src/components/SparkPage/RocePanel.tsx",
+    "kind": "property",
+    "text": "Pause frames received",
+    "reason": "Baseline RDMA counter descriptor; counterLabel maps each stable telemetry counter ID to translated text."
+  },
+  {
+    "file": "src/components/SparkPage/RocePanel.tsx",
+    "kind": "property",
+    "text": "Pause frames sent",
+    "reason": "Baseline RDMA counter descriptor; counterLabel maps each stable telemetry counter ID to translated text."
+  },
+  {
+    "file": "src/components/SparkPage/RocePanel.tsx",
+    "kind": "return",
+    "text": "good",
+    "reason": "Internal state, grouping, theme or visual-tone identifier; its displayed label is localized separately."
+  },
+  {
+    "file": "src/components/SparkPage/RocePanel.tsx",
+    "kind": "return",
+    "text": "bad",
+    "reason": "Internal state, grouping, theme or visual-tone identifier; its displayed label is localized separately."
+  },
+  {
+    "file": "src/components/SparkPage/RocePanel.tsx",
+    "kind": "return",
+    "text": "neutral",
+    "reason": "Internal state, grouping, theme or visual-tone identifier; its displayed label is localized separately."
+  },
+  {
+    "file": "src/components/SparkPage/RocePanel.tsx",
+    "kind": "jsx",
+    "text": "MTU",
+    "reason": "Standard technical unit or abbreviation; surrounding descriptions are localized."
+  },
+  {
+    "file": "src/components/SparkPage/RocePanel.tsx",
+    "kind": "expression",
+    "text": "rx",
+    "reason": "Keyboard notation or network protocol abbreviation."
+  },
+  {
+    "file": "src/components/SparkPage/RocePanel.tsx",
+    "kind": "expression",
+    "text": "tx",
+    "reason": "Keyboard notation or network protocol abbreviation."
+  },
+  {
+    "file": "src/components/SparkPage/shareImage.ts",
+    "kind": "error",
+    "text": "clipboard image write unsupported",
+    "reason": "Caught clipboard capability sentinel; failure is handled with localized copy/download feedback."
+  },
+  {
+    "file": "src/components/SparkPage/shareImage.ts",
+    "kind": "return",
+    "text": "failed",
+    "reason": "Internal share-result status enum; callers translate feedback by this stable value."
+  },
+  {
+    "file": "src/components/SparkPage/shareImage.ts",
+    "kind": "return",
+    "text": "copied",
+    "reason": "Internal share-result status enum; callers translate feedback by this stable value."
+  },
+  {
+    "file": "src/components/SparkPage/shareImage.ts",
+    "kind": "return",
+    "text": "downloaded",
+    "reason": "Internal share-result status enum; callers translate feedback by this stable value."
+  },
+  {
+    "file": "src/components/SparkPage/SparkHeader.tsx",
+    "kind": "jsx",
+    "text": "Hermes",
+    "reason": "Product, hardware, library, device or publisher name; kept verbatim by the localization scope."
+  },
+  {
+    "file": "src/components/SparkPage/SparkPage.tsx",
+    "kind": "jsx",
+    "text": "LM Studio :1234",
+    "reason": "Product, hardware, library, device or publisher name; kept verbatim by the localization scope."
+  },
+  {
+    "file": "src/components/SparkPage/SparkPage.tsx",
+    "kind": "jsx",
+    "text": "Ollama :11434",
+    "reason": "Product, hardware, library, device or publisher name; kept verbatim by the localization scope."
+  },
+  {
+    "file": "src/components/SparkPage/SparkPage.tsx",
+    "kind": "jsx",
+    "text": "TensorFold :8888",
+    "reason": "Product, hardware, library, device or publisher name; kept verbatim by the localization scope."
+  },
+  {
+    "file": "src/components/SparkPage/UnifiedMemoryPanel.tsx",
+    "kind": "jsx",
+    "text": "GB/s",
+    "reason": "Standard technical unit or abbreviation; surrounding descriptions are localized."
+  },
+  {
+    "file": "src/components/ShowcasePage/ShowcasePage.tsx",
+    "kind": "feedback",
+    "text": "Spark not found",
+    "reason": "Locale-neutral stored showcase error; showcaseError translates this complete message on each render."
+  },
+  {
+    "file": "src/components/ShowcasePage/ShowcasePage.tsx",
+    "kind": "feedback",
+    "text": "Failed to load Spark",
+    "reason": "Locale-neutral stored showcase error; showcaseError translates this complete message on each render."
+  },
+  {
+    "file": "src/components/ShowcasePage/ShowcasePage.tsx",
+    "kind": "feedback",
+    "text": "Could not copy to clipboard",
+    "reason": "Locale-neutral stored showcase error; showcaseError translates this complete message on each render."
+  },
+  {
+    "file": "src/components/ShowcasePage/ShowcasePage.tsx",
+    "kind": "error",
+    "text": "Use between {…} and {…} non-empty prompts",
+    "reason": "Locale-neutral stored showcase error; showcaseError translates this complete message on each render."
+  },
+  {
+    "file": "src/components/ShowcasePage/ShowcasePage.tsx",
+    "kind": "jsx",
+    "text": "spark",
+    "reason": "Product, hardware, library, device or publisher name; kept verbatim by the localization scope."
+  },
+  {
+    "file": "src/components/ShowcasePage/ShowcasePage.tsx",
+    "kind": "jsx",
+    "text": "Dash",
+    "reason": "Product, hardware, library, device or publisher name; kept verbatim by the localization scope."
+  },
+  {
+    "file": "src/components/ShowcasePage/ShowcasePage.tsx",
+    "kind": "jsx",
+    "text": "tok/s",
+    "reason": "Standard technical unit or abbreviation; surrounding descriptions are localized."
+  },
+  {
+    "file": "src/components/ShowcasePage/ShowcasePage.tsx",
+    "kind": "jsx",
+    "text": "tok",
+    "reason": "Standard technical unit or abbreviation; surrounding descriptions are localized."
+  },
+  {
+    "file": "src/components/ShowcasePage/ShowcasePage.tsx",
+    "kind": "jsx",
+    "text": "&nbsp;",
+    "reason": "Non-breaking whitespace entity; no visible English text."
+  },
+  {
+    "file": "src/components/ShowcasePage/showcasePrompts.ts",
+    "kind": "property",
+    "text": "Text",
+    "reason": "Canonical prompt-type label/help metadata; promptTypeText translates by stable type ID without modifying benchmark prompt content."
+  },
+  {
+    "file": "src/components/ShowcasePage/showcasePrompts.ts",
+    "kind": "property",
+    "text": "Prose / narrative — no code or structured formats",
+    "reason": "Canonical prompt-type label/help metadata; promptTypeText translates by stable type ID without modifying benchmark prompt content."
+  },
+  {
+    "file": "src/components/ShowcasePage/showcasePrompts.ts",
+    "kind": "property",
+    "text": "Structural",
+    "reason": "Canonical prompt-type label/help metadata; promptTypeText translates by stable type ID without modifying benchmark prompt content."
+  },
+  {
+    "file": "src/components/ShowcasePage/showcasePrompts.ts",
+    "kind": "property",
+    "text": "JSON, HTML, YAML, SQL, schemas, tables, logs",
+    "reason": "Canonical prompt-type label/help metadata; promptTypeText translates by stable type ID without modifying benchmark prompt content."
+  },
+  {
+    "file": "src/components/ShowcasePage/showcasePrompts.ts",
+    "kind": "property",
+    "text": "Mixed",
+    "reason": "Canonical prompt-type label/help metadata; promptTypeText translates by stable type ID without modifying benchmark prompt content."
+  },
+  {
+    "file": "src/components/ShowcasePage/showcasePrompts.ts",
+    "kind": "property",
+    "text": "Half structural, half text — interleaved",
+    "reason": "Canonical prompt-type label/help metadata; promptTypeText translates by stable type ID without modifying benchmark prompt content."
+  },
+  {
+    "file": "src/components/ShowcasePage/TerminalCard.tsx",
+    "kind": "return",
+    "text": "showcase-term__status--streaming",
+    "reason": "CSS class or color expression, not displayed prose."
+  },
+  {
+    "file": "src/components/ShowcasePage/TerminalCard.tsx",
+    "kind": "return",
+    "text": "showcase-term__status--completed",
+    "reason": "CSS class or color expression, not displayed prose."
+  },
+  {
+    "file": "src/components/ShowcasePage/TerminalCard.tsx",
+    "kind": "return",
+    "text": "showcase-term__status--error",
+    "reason": "CSS class or color expression, not displayed prose."
+  },
+  {
+    "file": "src/components/ShowcasePage/TerminalCard.tsx",
+    "kind": "return",
+    "text": "showcase-term__status--cancelled",
+    "reason": "CSS class or color expression, not displayed prose."
+  },
+  {
+    "file": "src/components/ShowcasePage/TerminalCard.tsx",
+    "kind": "return",
+    "text": "showcase-term__status--pending",
+    "reason": "CSS class or color expression, not displayed prose."
+  },
+  {
+    "file": "src/components/ShowcasePage/TerminalCard.tsx",
+    "kind": "jsx",
+    "text": "tok/s",
+    "reason": "Standard technical unit or abbreviation; surrounding descriptions are localized."
+  },
+  {
+    "file": "src/components/shell/AppSidebar.tsx",
+    "kind": "return",
+    "text": "sdot sdot--off",
+    "reason": "CSS class or color expression, not displayed prose."
+  },
+  {
+    "file": "src/components/shell/AppSidebar.tsx",
+    "kind": "return",
+    "text": "sdot sdot--warn",
+    "reason": "CSS class or color expression, not displayed prose."
+  },
+  {
+    "file": "src/components/shell/AppSidebar.tsx",
+    "kind": "return",
+    "text": "sdot",
+    "reason": "CSS class or color expression, not displayed prose."
+  },
+  {
+    "file": "src/components/shell/AppSidebar.tsx",
+    "kind": "jsx",
+    "text": "spark",
+    "reason": "Product, hardware, library, device or publisher name; kept verbatim by the localization scope."
+  },
+  {
+    "file": "src/components/shell/AppSidebar.tsx",
+    "kind": "jsx",
+    "text": "Dash",
+    "reason": "Product, hardware, library, device or publisher name; kept verbatim by the localization scope."
+  },
+  {
+    "file": "src/components/shell/AppSidebar.tsx",
+    "kind": "jsx",
+    "text": "Ctrl K",
+    "reason": "Keyboard notation or network protocol abbreviation."
+  },
+  {
+    "file": "src/components/shell/CommandPalette.tsx",
+    "kind": "jsx",
+    "text": "Esc",
+    "reason": "Keyboard notation or network protocol abbreviation."
+  },
+  {
+    "file": "src/components/shell/sparkSummary.ts",
+    "kind": "return",
+    "text": "/showcase/{…}{…}",
+    "reason": "Standalone showcase URL path, not a displayed sentence."
+  },
+  {
+    "file": "src/components/OverviewPage/activityFormat.ts",
+    "kind": "return",
+    "text": "bg-success",
+    "reason": "CSS class or color expression, not displayed prose."
+  },
+  {
+    "file": "src/components/OverviewPage/activityFormat.ts",
+    "kind": "return",
+    "text": "bg-warning",
+    "reason": "CSS class or color expression, not displayed prose."
+  },
+  {
+    "file": "src/components/OverviewPage/activityFormat.ts",
+    "kind": "return",
+    "text": "bg-danger",
+    "reason": "CSS class or color expression, not displayed prose."
+  },
+  {
+    "file": "src/components/OverviewPage/activityFormat.ts",
+    "kind": "return",
+    "text": "bg-accent",
+    "reason": "CSS class or color expression, not displayed prose."
+  },
+  {
+    "file": "src/components/OverviewPage/activityFormat.ts",
+    "kind": "return",
+    "text": "bg-muted",
+    "reason": "CSS class or color expression, not displayed prose."
+  },
+  {
+    "file": "src/components/OverviewPage/FleetEnergyCard.tsx",
+    "kind": "jsx",
+    "text": "kWh",
+    "reason": "Standard technical unit or abbreviation; surrounding descriptions are localized."
+  },
+  {
+    "file": "src/components/OverviewPage/FleetEnergyCard.tsx",
+    "kind": "jsx",
+    "text": "Wh/token",
+    "reason": "Standard technical unit or abbreviation; surrounding descriptions are localized."
+  },
+  {
+    "file": "src/components/OverviewPage/SparkCard.tsx",
+    "kind": "variable",
+    "text": "GB",
+    "reason": "Standard technical unit or abbreviation; surrounding descriptions are localized."
+  },
+  {
+    "file": "src/components/OverviewPage/SparkCard.tsx",
+    "kind": "variable",
+    "text": "MB",
+    "reason": "Standard technical unit or abbreviation; surrounding descriptions are localized."
+  },
+  {
+    "file": "src/components/OverviewPage/SparkCard.tsx",
+    "kind": "jsx",
+    "text": "Comfy",
+    "reason": "Product, hardware, library, device or publisher name; kept verbatim by the localization scope."
+  },
+  {
+    "file": "src/components/EnergyPage/EnergyPage.tsx",
+    "kind": "jsx",
+    "text": "kWh",
+    "reason": "Standard technical unit or abbreviation; surrounding descriptions are localized."
+  },
+  {
+    "file": "src/components/EnergyPage/EnergyPage.tsx",
+    "kind": "jsx",
+    "text": "/kWh",
+    "reason": "Standard technical unit or abbreviation; surrounding descriptions are localized."
+  },
+  {
+    "file": "src/components/EnergyPage/EnergyPage.tsx",
+    "kind": "jsx",
+    "text": "Wh / 1k tok",
+    "reason": "Standard technical unit or abbreviation; surrounding descriptions are localized."
+  },
+  {
+    "file": "src/components/EnergyPage/EnergyPage.tsx",
+    "kind": "attribute",
+    "text": "Spark",
+    "reason": "Product, hardware, library, device or publisher name; kept verbatim by the localization scope."
+  },
+  {
+    "file": "src/components/EnergyPage/MonthlyEnergy.tsx",
+    "kind": "jsx",
+    "text": "kWh",
+    "reason": "Standard technical unit or abbreviation; surrounding descriptions are localized."
+  },
+  {
+    "file": "src/components/EnergyPage/MonthlyEnergy.tsx",
+    "kind": "expression",
+    "text": "{…} Wh / 1k tok",
+    "reason": "Standard technical unit or abbreviation; surrounding descriptions are localized."
+  },
+  {
+    "file": "src/components/EnergyPage/MonthlyEnergy.tsx",
+    "kind": "jsx",
+    "text": "Spark",
+    "reason": "Product, hardware, library, device or publisher name; kept verbatim by the localization scope."
+  },
+  {
+    "file": "src/components/bench/benchCatalog.ts",
+    "kind": "property",
+    "text": "Decode",
+    "reason": "English catalog metadata is projected through localizeBenchType at render time; stable benchmark data stays untranslated."
+  },
+  {
+    "file": "src/components/bench/benchCatalog.ts",
+    "kind": "property",
+    "text": "Generation speed (tokens/s) at rising concurrency.",
+    "reason": "English catalog metadata is projected through localizeBenchType at render time; stable benchmark data stays untranslated."
+  },
+  {
+    "file": "src/components/bench/benchCatalog.ts",
+    "kind": "property",
+    "text": "Prefill",
+    "reason": "English catalog metadata is projected through localizeBenchType at render time; stable benchmark data stays untranslated."
+  },
+  {
+    "file": "src/components/bench/benchCatalog.ts",
+    "kind": "property",
+    "text": "Prompt processing speed and time to first token across context sizes.",
+    "reason": "English catalog metadata is projected through localizeBenchType at render time; stable benchmark data stays untranslated."
+  },
+  {
+    "file": "src/components/bench/benchCatalog.ts",
+    "kind": "property",
+    "text": "Quality",
+    "reason": "English catalog metadata is projected through localizeBenchType at render time; stable benchmark data stays untranslated."
+  },
+  {
+    "file": "src/components/bench/benchCatalog.ts",
+    "kind": "property",
+    "text": "A fixed, seeded quality suite to compare models, quantisations and KV-cache formats.",
+    "reason": "English catalog metadata is projected through localizeBenchType at render time; stable benchmark data stays untranslated."
+  },
+  {
+    "file": "src/components/bench/benchCatalog.ts",
+    "kind": "property",
+    "text": "Tool Eval Bench",
+    "reason": "English catalog metadata is projected through localizeBenchType at render time; stable benchmark data stays untranslated."
+  },
+  {
+    "file": "src/components/bench/benchCatalog.ts",
+    "kind": "property",
+    "text": "Tool-calling quality across 69 deterministic scenarios (selection, parameters, multi-step, safety).",
+    "reason": "English catalog metadata is projected through localizeBenchType at render time; stable benchmark data stays untranslated."
+  },
+  {
+    "file": "src/components/bench/tooleval/ConfigForm.tsx",
+    "kind": "attribute",
+    "text": "--some-new-flag value",
+    "reason": "Literal CLI, JSON, scenario ID, URL, or filesystem path example; changing its syntax would obscure the expected protocol input."
+  },
+  {
+    "file": "src/components/bench/tooleval/Fields.tsx",
+    "kind": "attribute",
+    "text": "{\"chat_template_kwargs\": {\"enable_thinking\": false}}",
+    "reason": "Literal CLI, JSON, scenario ID, URL, or filesystem path example; changing its syntax would obscure the expected protocol input."
+  },
+  {
+    "file": "src/components/bench/tooleval/Fields.tsx",
+    "kind": "attribute",
+    "text": "TC-01 TC-07 TC-12",
+    "reason": "Literal CLI, JSON, scenario ID, URL, or filesystem path example; changing its syntax would obscure the expected protocol input."
+  },
+  {
+    "file": "src/components/bench/tooleval/Fields.tsx",
+    "kind": "attribute",
+    "text": "http://127.0.0.1:8888",
+    "reason": "Literal CLI, JSON, scenario ID, URL, or filesystem path example; changing its syntax would obscure the expected protocol input."
+  },
+  {
+    "file": "src/components/bench/tooleval/Fields.tsx",
+    "kind": "attribute",
+    "text": "/home/user/…",
+    "reason": "Literal CLI, JSON, scenario ID, URL, or filesystem path example; changing its syntax would obscure the expected protocol input."
+  },
+  {
+    "file": "src/components/bench/tooleval/format.ts",
+    "kind": "return",
+    "text": "{…} KiB",
+    "reason": "International binary-size unit."
+  },
+  {
+    "file": "src/components/bench/tooleval/format.ts",
+    "kind": "return",
+    "text": "var(--color-success)",
+    "reason": "CSS custom property used to color score tiers; not displayed prose."
+  },
+  {
+    "file": "src/components/bench/tooleval/format.ts",
+    "kind": "return",
+    "text": "var(--color-info)",
+    "reason": "CSS custom property used to color score tiers; not displayed prose."
+  },
+  {
+    "file": "src/components/bench/tooleval/format.ts",
+    "kind": "return",
+    "text": "var(--color-warning)",
+    "reason": "CSS custom property used to color score tiers; not displayed prose."
+  },
+  {
+    "file": "src/components/bench/tooleval/format.ts",
+    "kind": "return",
+    "text": "var(--color-danger)",
+    "reason": "CSS custom property used to color score tiers; not displayed prose."
+  },
+  {
+    "file": "src/components/bench/tooleval/format.ts",
+    "kind": "return",
+    "text": "var(--color-accent)",
+    "reason": "CSS custom property used to color score tiers; not displayed prose."
+  },
+  {
+    "file": "src/components/bench/tooleval/normalize.ts",
+    "kind": "return",
+    "text": "pass",
+    "reason": "Internal scenario status identifier used for parsing and comparison; displayed status is translated separately."
+  },
+  {
+    "file": "src/components/bench/tooleval/normalize.ts",
+    "kind": "return",
+    "text": "fail",
+    "reason": "Internal scenario status identifier used for parsing and comparison; displayed status is translated separately."
+  },
+  {
+    "file": "src/components/bench/tooleval/normalize.ts",
+    "kind": "return",
+    "text": "partial",
+    "reason": "Internal scenario status identifier used for parsing and comparison; displayed status is translated separately."
+  },
+  {
+    "file": "src/components/bench/tooleval/normalize.ts",
+    "kind": "return",
+    "text": "other",
+    "reason": "Internal scenario status identifier used for parsing and comparison; displayed status is translated separately."
+  },
+  {
+    "file": "src/components/bench/tooleval/options.ts",
+    "kind": "property",
+    "text": "GSM8K",
+    "reason": "Official benchmark suite identifier."
+  },
+  {
+    "file": "src/components/bench/tooleval/options.ts",
+    "kind": "property",
+    "text": "Grade-school math",
+    "reason": "English suite help is projected through localizeBenchText in ConfigForm at render time."
+  },
+  {
+    "file": "src/components/bench/tooleval/options.ts",
+    "kind": "property",
+    "text": "MMLU",
+    "reason": "Official benchmark suite identifier."
+  },
+  {
+    "file": "src/components/bench/tooleval/options.ts",
+    "kind": "property",
+    "text": "Multitask knowledge",
+    "reason": "English suite help is projected through localizeBenchText in ConfigForm at render time."
+  },
+  {
+    "file": "src/components/bench/tooleval/options.ts",
+    "kind": "property",
+    "text": "IFEval",
+    "reason": "Official benchmark suite identifier."
+  },
+  {
+    "file": "src/components/bench/tooleval/options.ts",
+    "kind": "property",
+    "text": "Instruction following",
+    "reason": "English suite help is projected through localizeBenchText in ConfigForm at render time."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "Quick check",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "Only the 15 core scenarios (about 2 minutes).",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "Full",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "Every standard scenario with the tool's defaults.",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "Hard mode only",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "Only the Hard Mode scenarios (category P).",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "Reproducible",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "Temperature 0 and a fixed seed so repeat runs are comparable.",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "Thinking model",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "Disables thinking output and allows 120 s per request (Qwen3 / DeepSeek style).",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "Quick",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "Short prompts, one depth, one run per point.",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "Standard",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "The tool's defaults.",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "Deep context",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "Up to 32k of context and 8 concurrent requests.",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "One prompt type, one run per cell.",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "Code and structured",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "The prompt types where speculation helps most.",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "Single level (75%)",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "Core scenarios with the context 75% full.",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "Sweep 50–100%",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "Core scenarios at five pressure levels.",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "Fine sweep",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "Ten levels from 10% to 100% (long).",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "A small sample of each suite.",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "The tool's default question limits.",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "Full datasets",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "Every question (slow).",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "Fixed seed and shuffled GSM8K.",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "Three depths and two lengths.",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "The tool's defaults (5 depths, 4 lengths).",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "Thorough",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "Ten depths and eight lengths (long).",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "Default",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "Regular run",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "The full standard suite: tool selection, parameters, multi-step chains, error recovery, safety and more.",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "Regular + Hard mode",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "The full suite plus the Hard Mode scenarios.",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "Short run",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "Only the 15 core scenarios. A fast check after changing a model or setting.",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/presets.ts",
+    "kind": "property",
+    "text": "Only the adversarial Hard Mode scenarios: stateful, transactional and tricky. For models that ace the regular run.",
+    "reason": "English preset metadata is projected through localizePreset and the static localizeBenchText switch at render time; IDs and option values stay unchanged."
+  },
+  {
+    "file": "src/components/bench/tooleval/SetupCard.tsx",
+    "kind": "jsx",
+    "text": "tool-eval-bench",
+    "reason": "External CLI project and executable name."
+  },
+  {
+    "file": "src/components/bench/tooleval/SimpleConfig.tsx",
+    "kind": "jsx",
+    "text": "http://127.0.0.1:",
+    "reason": "Literal CLI, JSON, scenario ID, URL, or filesystem path example; changing its syntax would obscure the expected protocol input."
+  },
+  {
+    "file": "src/components/bench/tooleval/status.ts",
+    "kind": "return",
+    "text": "good",
+    "reason": "Internal visual tone identifier, not displayed prose."
+  },
+  {
+    "file": "src/components/bench/tooleval/status.ts",
+    "kind": "return",
+    "text": "bad",
+    "reason": "Internal visual tone identifier, not displayed prose."
+  },
+  {
+    "file": "src/components/bench/tooleval/status.ts",
+    "kind": "return",
+    "text": "warn",
+    "reason": "Internal visual tone identifier, not displayed prose."
+  },
+  {
+    "file": "src/components/bench/tooleval/status.ts",
+    "kind": "return",
+    "text": "acc",
+    "reason": "Internal visual tone identifier, not displayed prose."
+  },
+  {
+    "file": "src/components/bench/tooleval/status.ts",
+    "kind": "return",
+    "text": "neutral",
+    "reason": "Internal visual tone identifier, not displayed prose."
+  },
+  {
+    "file": "src/components/bench/tooleval/ToolEvalBenchPage.tsx",
+    "kind": "return",
+    "text": "advanced",
+    "reason": "Persisted configuration view identifier, not its translated display label."
+  },
+  {
+    "file": "src/components/bench/tooleval/ToolEvalBenchPage.tsx",
+    "kind": "return",
+    "text": "simple",
+    "reason": "Persisted configuration view identifier, not its translated display label."
+  },
+  {
+    "file": "src/components/bench/tooleval/ToolEvalBenchPage.tsx",
+    "kind": "jsx",
+    "text": "tool-eval-bench",
+    "reason": "External CLI project and executable name."
+  },
+  {
+    "file": "src/components/bench/tooleval/ToolResult.tsx",
+    "kind": "jsx",
+    "text": "tool-eval-bench",
+    "reason": "External CLI project and executable name."
+  },
+  {
+    "file": "src/components/bench/sparkdash/BenchTargetFrame.tsx",
+    "kind": "jsx",
+    "text": "ctx",
+    "reason": "Protocol acronym or technical unit abbreviation."
+  },
+  {
+    "file": "src/components/bench/sparkdash/BenchTargetFrame.tsx",
+    "kind": "attribute",
+    "text": "https://name.tailxxxxx.ts.net/v1/models",
+    "reason": "Literal CLI, JSON, scenario ID, URL, or filesystem path example; changing its syntax would obscure the expected protocol input."
+  },
+  {
+    "file": "src/components/bench/sparkdash/BenchTargetFrame.tsx",
+    "kind": "jsx",
+    "text": "HTTPS",
+    "reason": "Protocol acronym or technical unit abbreviation."
+  },
+  {
+    "file": "src/components/bench/sparkdash/LiveTps.tsx",
+    "kind": "jsx",
+    "text": "tok/s",
+    "reason": "Protocol acronym or technical unit abbreviation."
+  },
+  {
+    "file": "src/components/ActivityPage/activityStats.ts",
+    "kind": "return",
+    "text": "status",
+    "reason": "Internal state, grouping, theme or visual-tone identifier; its displayed label is localized separately."
+  },
+  {
+    "file": "src/components/ActivityPage/activityStats.ts",
+    "kind": "return",
+    "text": "fleet",
+    "reason": "Internal state, grouping, theme or visual-tone identifier; its displayed label is localized separately."
+  },
+  {
+    "file": "src/components/ActivityPage/activityStats.ts",
+    "kind": "return",
+    "text": "thermal",
+    "reason": "Internal state, grouping, theme or visual-tone identifier; its displayed label is localized separately."
+  },
+  {
+    "file": "src/components/ActivityPage/activityStats.ts",
+    "kind": "return",
+    "text": "health",
+    "reason": "Internal state, grouping, theme or visual-tone identifier; its displayed label is localized separately."
+  },
+  {
+    "file": "src/components/ActivityPage/activityStats.ts",
+    "kind": "return",
+    "text": "hermes",
+    "reason": "Internal state, grouping, theme or visual-tone identifier; its displayed label is localized separately."
+  },
+  {
+    "file": "src/components/ActivityPage/activityStats.ts",
+    "kind": "return",
+    "text": "bench",
+    "reason": "Internal state, grouping, theme or visual-tone identifier; its displayed label is localized separately."
+  },
+  {
+    "file": "src/components/ActivityPage/activityStats.ts",
+    "kind": "return",
+    "text": "power",
+    "reason": "Internal state, grouping, theme or visual-tone identifier; its displayed label is localized separately."
+  },
+  {
+    "file": "src/components/ActivityPage/activityStats.ts",
+    "kind": "return",
+    "text": "llm",
+    "reason": "Internal state, grouping, theme or visual-tone identifier; its displayed label is localized separately."
+  },
+  {
+    "file": "src/components/ActivityPage/activityStats.ts",
+    "kind": "return",
+    "text": "other",
+    "reason": "Internal state, grouping, theme or visual-tone identifier; its displayed label is localized separately."
+  },
+  {
+    "file": "src/api/authToken.ts",
+    "kind": "error",
+    "text": "HTTP {…}",
+    "reason": "Raw HTTP diagnostic with status code; localizedServerText adds a translated error explanation at the UI boundary."
+  },
+  {
+    "file": "src/api/llmTokenClient.ts",
+    "kind": "error",
+    "text": "HTTP {…}",
+    "reason": "Raw HTTP diagnostic with status code; localizedServerText adds a translated error explanation at the UI boundary."
+  },
+  {
+    "file": "src/api/sparkRole.ts",
+    "kind": "return",
+    "text": "worker",
+    "reason": "Internal state, grouping, theme or visual-tone identifier; its displayed label is localized separately."
+  },
+  {
+    "file": "src/api/sparkRole.ts",
+    "kind": "return",
+    "text": "standalone",
+    "reason": "Internal state, grouping, theme or visual-tone identifier; its displayed label is localized separately."
+  }
+]

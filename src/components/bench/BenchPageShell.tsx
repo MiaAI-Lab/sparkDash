@@ -2,6 +2,8 @@ import type { ReactNode } from "react";
 import type { SparkSnapshot } from "../../api/types";
 import { benchTypeById } from "./benchCatalog";
 import { SparkChips } from "./SparkChips";
+import { useTranslation } from "react-i18next";
+import { localizeBenchType } from "./benchCatalog";
 
 interface BenchPageShellProps {
   type: string;
@@ -17,13 +19,15 @@ interface BenchPageShellProps {
 
 /** Common header for every benchmark page: title and blurb, then a "Run on" Spark picker right under it. */
 export function BenchPageShell({ type, spark, sparks, onSelectSpark, tools, picker = true, children }: BenchPageShellProps) {
-  const bench = benchTypeById(type);
+  const { t } = useTranslation();
+  const rawBench = benchTypeById(type);
+  const bench = rawBench ? localizeBenchType(rawBench, t) : null;
   return (
     <div className="bench-page">
       <div className="page-head">
         <div>
-          <div className="eyebrow">Benchmarks{bench ? ` · ${bench.family}` : ""}</div>
-          <h1>{bench?.label ?? "Benchmark"}</h1>
+          <div className="eyebrow">{t("bench.page.benchmarks", "Benchmarks")}{bench ? ` · ${bench.family}` : ""}</div>
+          <h1>{bench?.label ?? t("bench.page.benchmark", "Benchmark")}</h1>
           {bench ? <p className="page-head__sub">{bench.blurb}</p> : null}
         </div>
         <div className="page-head__tools">
@@ -32,8 +36,8 @@ export function BenchPageShell({ type, spark, sparks, onSelectSpark, tools, pick
       </div>
       {picker ? (
         <div className="bench-runon">
-          <span className="eyebrow">Run on</span>
-          {sparks.length === 0 ? <span className="bench-runon__none">No Sparks available</span> : null}
+          <span className="eyebrow">{t("bench.page.runOn", "Run on")}</span>
+          {sparks.length === 0 ? <span className="bench-runon__none">{t("bench.page.noSparks", "No Sparks available")}</span> : null}
           <SparkChips sparks={sparks} activeId={spark?.id ?? null} onSelect={onSelectSpark} />
         </div>
       ) : null}

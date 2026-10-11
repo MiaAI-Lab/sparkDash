@@ -1,3 +1,5 @@
+import { activeLocale, i18next } from "../../i18n";
+const t = i18next.t.bind(i18next);
 import type { EnergyHistoryRow } from "../../api/types";
 import { tzOffsetMinutes } from "../../shared/timeZone";
 
@@ -70,12 +72,14 @@ export function floorHour(ms: number): number {
 /** "Tue 14:00" */
 export function formatLocalHour(ms: number, tz: TzOffsetFn): string {
   const d = wall(ms, tz);
+  if (activeLocale() === "zh-Hans") return `${new Intl.DateTimeFormat("zh-CN", { weekday: "short", timeZone: "UTC" }).format(d)} ${pad(d.getUTCHours())}:00`;
   return `${WEEKDAYS[d.getUTCDay()]} ${pad(d.getUTCHours())}:00`;
 }
 
 /** "Tue 7 Oct" */
 export function formatLocalDay(ms: number, tz: TzOffsetFn): string {
   const d = wall(ms, tz);
+  if (activeLocale() === "zh-Hans") return new Intl.DateTimeFormat("zh-CN", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" }).format(d);
   return `${WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
 }
 
@@ -223,6 +227,7 @@ export function buildBuckets(
 
 export function formatShortDay(ms: number, tz: TzOffsetFn): string {
   const d = wall(ms, tz);
+  if (activeLocale() === "zh-Hans") return new Intl.DateTimeFormat("zh-CN", { month: "short", day: "numeric", timeZone: "UTC" }).format(d);
   return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
 }
 
@@ -380,7 +385,7 @@ export interface InsightContext {
   nodeName: (id: string) => string;
 }
 
-const fmtNum = (v: number, digits = 1) => v.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+const fmtNum = (v: number, digits = 1) => v.toLocaleString(activeLocale(), { minimumFractionDigits: digits, maximumFractionDigits: digits });
 
 export function formatKwh(v: number | null): string {
   if (v == null) return "—";
@@ -388,7 +393,7 @@ export function formatKwh(v: number | null): string {
 }
 
 export function formatWatts(v: number | null): string {
-  return v == null ? "—" : `${Math.round(v).toLocaleString("en-US")} W`;
+  return v == null ? "—" : `${Math.round(v).toLocaleString(activeLocale())} W`;
 }
 
 export function formatMoney(v: number | null, currency: string): string {
@@ -418,9 +423,9 @@ export function buildInsights(ctx: InsightContext): string[] {
     const second = summary.nodes[1];
     const spread = second && second.kwh > 0 ? top.kwh / second.kwh : null;
     out.push(
-      `${nodeName(top.id)} uses the most energy: ${formatKwh(top.kwh)} kWh, ${Math.round(top.share * 100)}% of the fleet total` +
-        (top.avgWatts != null ? `, averaging ${formatWatts(top.avgWatts)} while reporting.` : ".") +
-        (spread != null && spread >= 1.5 ? ` That is ${fmtNum(spread, 1)}x the next node.` : "")
+      t("energy.text.0UsesTheMostEnergy1KWh2OfTheFleetTotal", "{value0} uses the most energy: {value1} kWh, {value2}% of the fleet total", { value0: nodeName(top.id), value1: formatKwh(top.kwh), value2: Math.round(top.share * 100) }) +
+        (top.avgWatts != null ? t("energy.text.averaging0WhileReporting", ", averaging {value0} while reporting.", { value0: formatWatts(top.avgWatts) }) : ".") +
+        (spread != null && spread >= 1.5 ? t("energy.text.thatIs0XTheNextNode", " That is {value0}x the next node.", { value0: fmtNum(spread, 1) }) : "")
     );
   }
 
@@ -428,8 +433,8 @@ export function buildInsights(ctx: InsightContext): string[] {
     const where = formatLocalHour(summary.peak.atMs, tz);
     const low = lowestHour(rows, summary, summary.peak.atMs);
     out.push(
-      `The highest-draw hour was ${where} (local) at ${formatWatts(summary.peak.watts)}` +
-        (low ? `; the lowest was ${formatLocalHour(low.atMs, tz)} at ${formatWatts(low.watts)}.` : ".")
+      t("energy.text.theHighestDrawHourWas0LocalAt1", "The highest-draw hour was {value0} (local) at {value1}", { value0: where, value1: formatWatts(summary.peak.watts) }) +
+        (low ? t("energy.text.theLowestWas0At1", "; the lowest was {value0} at {value1}.", { value0: formatLocalHour(low.atMs, tz), value1: formatWatts(low.watts) }) : ".")
     );
   }
 
@@ -439,7 +444,7 @@ export function buildInsights(ctx: InsightContext): string[] {
       const best = days.reduce((a, b) => (b.kwh > a.kwh ? b : a));
       const avg = days.reduce((s, b) => s + b.kwh, 0) / days.length;
       out.push(
-        `${best.title} was the highest-use day with ${formatKwh(best.kwh)} kWh, ${Math.round((best.kwh / avg - 1) * 100)}% above the ${fmtNum(avg, 1)} kWh average of well-covered days.`
+        t("energy.text.0WasTheHighestUseDayWith1KWh2AboveThe3KWhAverageOfWellCoveredDays", "{value0} was the highest-use day with {value1} kWh, {value2}% above the {value3} kWh average of well-covered days.", { value0: best.title, value1: formatKwh(best.kwh), value2: Math.round((best.kwh / avg - 1) * 100), value3: fmtNum(avg, 1) })
       );
     }
   }
@@ -450,25 +455,25 @@ export function buildInsights(ctx: InsightContext): string[] {
     if (Math.abs(diff) >= 0.05) {
       out.push(
         diff > 0
-          ? `Overnight (22:00 to 06:00 local) the fleet averaged ${formatWatts(dn.night)}, ${Math.round(diff * 100)}% lower than the ${formatWatts(dn.day)} daytime average.`
-          : `Overnight (22:00 to 06:00 local) the fleet averaged ${formatWatts(dn.night)}, ${Math.round(-diff * 100)}% higher than the ${formatWatts(dn.day)} daytime average.`
+          ? t("energy.text.overnight2200To0600LocalTheFleetAveraged01LowerThanThe2DaytimeAverage", "Overnight (22:00 to 06:00 local) the fleet averaged {value0}, {value1}% lower than the {value2} daytime average.", { value0: formatWatts(dn.night), value1: Math.round(diff * 100), value2: formatWatts(dn.day) })
+          : t("energy.text.overnight2200To0600LocalTheFleetAveraged01HigherThanThe2DaytimeAverage", "Overnight (22:00 to 06:00 local) the fleet averaged {value0}, {value1}% higher than the {value2} daytime average.", { value0: formatWatts(dn.night), value1: Math.round(-diff * 100), value2: formatWatts(dn.day) })
       );
     } else {
-      out.push(`Draw is steady around the clock: ${formatWatts(dn.night)} overnight versus ${formatWatts(dn.day)} during the day.`);
+      out.push(t("energy.text.drawIsSteadyAroundTheClock0OvernightVersus1DuringTheDay", "Draw is steady around the clock: {value0} overnight versus {value1} during the day.", { value0: formatWatts(dn.night), value1: formatWatts(dn.day) }));
     }
   }
 
   if (summary.cost != null && summary.coveredHours >= 12 && price != null) {
     const perWeek = ((summary.kwh / (summary.windowMs / DAY_MS)) * 7) * price;
     out.push(
-      `At ${currency}${fmtNum(price, price < 1 ? 3 : 2)} per kWh, this pace would cost about ${formatMoney(perWeek, currency)} per week. This is a rough extrapolation from the data recorded so far, not a forecast.`
+      t("energy.text.at01PerKWhThisPaceWouldCostAbout2PerWeekThisIsARoughExtrapolationFromTheDataReco", "At {value0}{value1} per kWh, this pace would cost about {value2} per week. This is a rough extrapolation from the data recorded so far, not a forecast.", { value0: currency, value1: fmtNum(price, price < 1 ? 3 : 2), value2: formatMoney(perWeek, currency) })
     );
   }
 
   if (summary.whPer1kTokens != null && summary.coveredTokens >= 1000) {
     const tokensPerKwh = 1_000_000 / summary.whPer1kTokens;
     out.push(
-      `The fleet generated about ${formatTokensPerKwh(tokensPerKwh)} output tokens per kWh (${fmtNum(summary.whPer1kTokens, summary.whPer1kTokens < 10 ? 2 : 1)} Wh per 1,000 tokens), counting idle time in the same hours.`
+      t("energy.text.theFleetGeneratedAbout0OutputTokensPerKWh1WhPer1000TokensCountingIdleTimeInTheSa", "The fleet generated about {value0} output tokens per kWh ({value1} Wh per 1,000 tokens), counting idle time in the same hours.", { value0: formatTokensPerKwh(tokensPerKwh), value1: fmtNum(summary.whPer1kTokens, summary.whPer1kTokens < 10 ? 2 : 1) })
     );
   }
   return out.slice(0, 6);

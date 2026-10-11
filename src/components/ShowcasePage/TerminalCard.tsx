@@ -1,4 +1,9 @@
+import { showcaseError, showcaseStatus } from "./showcaseText";
+import { useTranslation } from "react-i18next";
+import { activeLocale, i18next } from "../../i18n";
 import { useEffect, useRef, useState } from "react";
+
+const t = i18next.t.bind(i18next);
 
 /**
  * Reveals `target` smoothly instead of in the lumps the network delivers it in.
@@ -87,6 +92,7 @@ export function TerminalCard({
   onCopy,
   copied,
 }: TerminalCardProps) {
+  useTranslation();
   const bodyRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
   const [reasoningOpen, setReasoningOpen] = useState(true);
@@ -131,17 +137,17 @@ export function TerminalCard({
       <header className="showcase-term__header">
         <span className="showcase-term__dot" aria-hidden />
         <span className="showcase-term__label" title={label}>
-          {label || "Terminal"}
+          {label || t("showcase.text.terminal", "Terminal")}
         </span>
-        <span className={`showcase-term__status ${statusClass(status)}`}>{status}</span>
+        <span className={`showcase-term__status ${statusClass(status)}`}>{showcaseStatus(status)}</span>
         {tokenCount != null && tokenCount > 0 && (
-          <span className="showcase-term__tokens font-tabular">{tokenCount.toLocaleString()} tokens</span>
+          <span className="showcase-term__tokens font-tabular">{tokenCount.toLocaleString(activeLocale())} {t("showcase.text.tokens", "tokens")}</span>
         )}
         <span
           className="showcase-term__tps font-tabular"
           title={
             peakTokPerSec > 0 || liveTokPerSec > 0
-              ? `Live ${liveTokPerSec.toFixed(1)} tok/s · peak ${Math.max(peakTokPerSec, liveTokPerSec).toFixed(1)} tok/s`
+              ? t("showcase.text.live0TokSPeak1TokS", "Live {value0} tok/s · peak {value1} tok/s", { value0: liveTokPerSec.toFixed(1), value1: Math.max(peakTokPerSec, liveTokPerSec).toFixed(1) })
               : undefined
           }
         >
@@ -150,8 +156,7 @@ export function TerminalCard({
               {(liveTokPerSec > 0 ? liveTokPerSec : peakTokPerSec).toFixed(0)} tok/s
               {peakTokPerSec > 0 && (
                 <span className="showcase-term__tps-peak">
-                  {" "}
-                  peak {Math.max(peakTokPerSec, liveTokPerSec).toFixed(0)}
+                  {" "} {t("showcase.text.peak", "peak")} {Math.max(peakTokPerSec, liveTokPerSec).toFixed(0)}
                 </span>
               )}
             </>
@@ -164,9 +169,9 @@ export function TerminalCard({
             type="button"
             className="showcase-term__copy"
             onClick={onCopy}
-            title="Copy this terminal"
+            title={t("showcase.text.copyThisTerminal", "Copy this terminal")}
           >
-            {copied ? "Copied" : "Copy"}
+            {copied ? t("showcase.text.copied", "Copied") : t("showcase.text.copy", "Copy")}
           </button>
         )}
       </header>
@@ -181,7 +186,7 @@ export function TerminalCard({
         }}
       >
         {empty && status === "pending" && (
-          <pre className="showcase-term__answer">Waiting…</pre>
+          <pre className="showcase-term__answer">{t("showcase.text.waiting", "Waiting…")}</pre>
         )}
         {hasReasoning && (
           <div className="showcase-term__reasoning">
@@ -194,10 +199,8 @@ export function TerminalCard({
                 setReasoningOpen((o) => !o);
               }}
             >
-              {reasoningOpen ? "▾" : "▸"} Reasoning
-              <span className="showcase-term__reasoning-meta">
-                {reasoning.length.toLocaleString()} chars
-              </span>
+              {reasoningOpen ? "▾" : "▸"} {t("showcase.text.reasoning", "Reasoning")} <span className="showcase-term__reasoning-meta">
+                {reasoning.length.toLocaleString(activeLocale())} {t("showcase.text.chars", "chars")} </span>
             </button>
             {reasoningOpen && (
               <pre className="showcase-term__reasoning-text">{shownReasoning}</pre>
@@ -214,7 +217,7 @@ export function TerminalCard({
             <pre className="showcase-term__answer">…</pre>
           )
         )}
-        {error ? <pre className="showcase-term__error">{`[error] ${error}`}</pre> : null}
+        {error ? <pre className="showcase-term__error">{t("showcase.text.error0", "[error] {value0}", { value0: showcaseError(error) })}</pre> : null}
       </div>
       <footer className="showcase-term__footer">
         <div className="showcase-gauge" aria-hidden="true">

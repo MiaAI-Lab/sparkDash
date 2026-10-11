@@ -122,7 +122,8 @@
     "storage": "存储",
     "storageTitle": "已用 {used} / 共 {total}（{pct}%）",
     "storageAvailable": "可用存储",
-    "modelTitle": "{model} · {engine}"
+    "modelTitle": "{model} · {engine}",
+    "headDecode": "{backend} · 解码 {rate} tok/s"
   },
   "tokens": {
     "title": "LLM Token 统计",
@@ -232,5 +233,6 @@
       "failed": "{count} 台失败",
       "skipped": "{count} 台已跳过"
     }
-  }
+  },
+  "contextSize": "{size} 上下文"
 }

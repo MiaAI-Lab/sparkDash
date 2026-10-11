@@ -2,6 +2,7 @@ import { memo, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
 import type { ActivityEvent } from "../../api/types";
 import { i18next } from "../../i18n";
+import { localizedActivityMessage } from "../../i18n/messages";
 import { ChevronRightIcon } from "../ui/icons";
 import { Tag, type TagTone } from "../ui/Tag";
 import { splitMessage } from "../OverviewPage/activityFormat";
@@ -31,7 +32,8 @@ interface EventRowProps {
 /** One timeline row: summary line plus an expandable detail block. */
 export const EventRow = memo(function EventRow({ event: e, open, fresh, now, onToggle, onSelectSpark }: EventRowProps) {
   const { t } = useTranslation();
-  const { before, name, after } = splitMessage(e.message, e.sparkName);
+  const localizedMessage = localizedActivityMessage(e);
+  const { before, name, after } = splitMessage(localizedMessage, e.sparkName);
   const clickable = Boolean(e.sparkId && onSelectSpark);
   const label = typeLabel(e.type);
   const detailId = `ac-ev-${e.id}`;
@@ -108,7 +110,7 @@ export const EventRow = memo(function EventRow({ event: e, open, fresh, now, onT
         <dl className="ac-detail" id={detailId}>
           <div className="ac-detail__wide">
             <dt>{t("activity.detail.message", "Message")}</dt>
-            <dd>{e.message}</dd>
+            <dd>{localizedMessage}</dd>
           </div>
           <div>
             <dt>{t("activity.detail.time", "Time")}</dt>

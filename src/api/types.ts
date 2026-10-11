@@ -200,15 +200,23 @@ export interface GpuThrottle {
   smClockPct: number | null;
   /** Human-readable active reasons (tooltip). */
   detail: string;
+  i18n?: Partial<Record<"detail", LocalizedMessage>>;
 }
 
 /** One health finding for a Spark (server rules in server/health/HealthEvaluator.js). */
+export interface LocalizedMessage {
+  key: string;
+  params?: Record<string, string | number>;
+}
+
 export interface HealthFinding {
   id: "thermal" | "low-power" | "memory" | "xid" | "oom" | "concurrency" | "link-speed" | "roce-link" | "roce-loss";
   severity: "warn" | "critical";
   title: string;
   detail: string;
   hint: string;
+  /** Optional descriptor for browser-side localization; English fields remain authoritative fallbacks. */
+  i18n?: Record<"title" | "detail" | "hint", LocalizedMessage>;
 }
 
 export interface GpuMetrics {
@@ -482,6 +490,7 @@ export interface LlmPosture {
   label: string;
   /** Tooltip / title detail */
   detail: string;
+  i18n?: Partial<Record<"label" | "detail", LocalizedMessage>>;
 }
 
 // ─── ComfyUI metrics ─────────────────────────────────────
@@ -752,6 +761,7 @@ export interface SparkTestResponse {
     required: boolean;
     message: string;
     recovery: string | null;
+    i18n?: Partial<Record<"label" | "message" | "recovery", LocalizedMessage>>;
   }>;
   ssh: { ok: boolean; message: string };
   llm: { ok: boolean; message: string; skipped?: boolean };
@@ -876,6 +886,7 @@ export interface DecodeBenchProgress {
   completedLevels: number;
   totalLevels: number;
   message: string;
+  i18n?: Partial<Record<"message", LocalizedMessage>>;
   /** Generation tok/s measured from the streams of the running wave; null before the first token. */
   liveTps?: number | null;
 }
@@ -890,6 +901,7 @@ export interface DecodeBenchJob {
   progress: DecodeBenchProgress;
   results: DecodeBenchLevelResult[];
   error: string | null;
+  i18n?: Partial<Record<"error", LocalizedMessage>>;
   durationMs: number;
 }
 
@@ -965,6 +977,7 @@ export interface PrefillBenchProgress {
   completedLevels: number;
   totalLevels: number;
   message: string;
+  i18n?: Partial<Record<"message", LocalizedMessage>>;
 }
 
 export interface PrefillBenchJob {
@@ -977,6 +990,7 @@ export interface PrefillBenchJob {
   progress: PrefillBenchProgress;
   results: PrefillBenchSizeResult[];
   error: string | null;
+  i18n?: Partial<Record<"error", LocalizedMessage>>;
   durationMs: number;
 }
 
@@ -1077,6 +1091,7 @@ export interface QualityBenchProgress {
   done: number;
   total: number;
   message: string;
+  i18n?: Partial<Record<"message", LocalizedMessage>>;
 }
 
 export interface QualityBenchJob {
@@ -1089,6 +1104,7 @@ export interface QualityBenchJob {
   progress: QualityBenchProgress;
   results: QualityBenchResults;
   error: string | null;
+  i18n?: Partial<Record<"error", LocalizedMessage>>;
   durationMs: number;
 }
 
@@ -1158,6 +1174,7 @@ export interface ShowcaseStreamState {
   peakTokPerSec?: number;
   model: string | null;
   error: string | null;
+  i18n?: Partial<Record<"error", LocalizedMessage>>;
 }
 
 export interface ShowcaseSessionState {
@@ -1227,6 +1244,8 @@ export interface ActivityEvent {
   sparkId?: string | null;
   sparkName?: string | null;
   message: string;
+  /** Optional descriptor for browser-side localization; message remains an English compatibility fallback. */
+  i18n?: Record<"message", LocalizedMessage>;
   data?: unknown;
 }
 
@@ -1268,6 +1287,7 @@ export interface LauncherJob {
   startedAt: number;
   finishedAt: number | null;
   error: string | null;
+  i18n?: Partial<Record<"error" | "status", LocalizedMessage>>;
 }
 
 export interface LauncherListResponse {
@@ -1471,6 +1491,7 @@ export interface ToolEvalJob {
   startedAt: number;
   finishedAt: number | null;
   error: string | null;
+  i18n?: Partial<Record<"error", LocalizedMessage>>;
 }
 
 export interface ToolEvalLine {
@@ -1566,6 +1587,7 @@ export class ToolEvalApiError extends Error {
   status: number;
   errors: string[];
   active: ToolEvalJob | null;
+  i18n?: Partial<Record<"error", LocalizedMessage>>;
   constructor(message: string, status: number, errors: string[] = [], active: ToolEvalJob | null = null) {
     super(message);
     this.name = "ToolEvalApiError";

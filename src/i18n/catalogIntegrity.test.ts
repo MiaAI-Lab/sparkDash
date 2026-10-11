@@ -17,7 +17,7 @@ it("formats every Chinese message and inline English default with the runtime IC
   for (const [ns, catalog] of Object.entries(await loadLocaleCatalogs("zh-Hans"))) flatten(catalog, ns, chinese);
   const english: Record<string, string> = {};
   for (const [file, source] of Object.entries(sources)) {
-    if (/\.test\./.test(file) || file.startsWith("../i18n/")) continue;
+    if (/\.test\./.test(file) || (file.startsWith("../i18n/") && file !== "../i18n/messages.ts")) continue;
     for (const match of source.matchAll(/\bt\(\s*"([^"]+)"\s*,\s*"((?:[^"\\]|\\.)*)"/g)) {
       // Decode JS double-quoted literals before ICU sees them. Keep each call
       // site separate even when several sites share a translation key.

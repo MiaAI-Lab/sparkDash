@@ -1,4 +1,6 @@
+import { localizedServerText } from "../../i18n/messages";
 import { useTranslation } from "react-i18next";
+import { i18next } from "../../i18n";
 import type { SparkSnapshot } from "../../api/types";
 import { resolveSparkRole } from "../../api/sparkRole";
 import { backendLabel } from "../../shared/llmBackends.js";
@@ -11,15 +13,15 @@ interface SparkHeaderProps {
 }
 
 function formatUptime(seconds: number): string {
-  if (seconds < 60) return "<1m";
+  if (seconds < 60) return i18next.t("common.duration.lessMinute", "<1m");
   const mins = Math.floor(seconds / 60);
-  if (mins < 60) return `${mins}m`;
+  if (mins < 60) return i18next.t("common.duration.minutes", "{count}m", { count: mins });
   const hours = Math.floor(mins / 60);
   const remainMins = mins % 60;
-  if (hours < 24) return `${hours}h ${remainMins}m`;
+  if (hours < 24) return i18next.t("common.duration.hoursMinutes", "{hours}h {minutes}m", { hours, minutes: remainMins });
   const days = Math.floor(hours / 24);
   const remainHours = hours % 24;
-  return `${days}d ${remainHours}h`;
+  return i18next.t("common.duration.daysHours", "{days}d {hours}h", { days, hours: remainHours });
 }
 
 export function SparkHeader({ spark, onEdit }: SparkHeaderProps) {

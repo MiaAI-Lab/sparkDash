@@ -1,3 +1,5 @@
+import { localizedServerText, localizedServerMessage } from "../../i18n/messages";
+import { activeLocale } from "../../i18n";
 import { qualityCategoryLabel } from "./benchLabels";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -147,7 +149,7 @@ function pct(v: number | null | undefined): string {
 }
 
 function runLabel(job: QualityBenchJob): string {
-  const when = new Date(job.startedAt).toLocaleString(undefined, {
+  const when = new Date(job.startedAt).toLocaleString(activeLocale(), {
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -174,7 +176,7 @@ function categoryNotes(cat: QualityCategory, s: QualityCategorySummary): string 
   if (cat === "reason" || cat === "arith" || cat === "track" || cat === "gsm8k") {
     notes.push(
       i18next.t("spark.quality.notes.meanTok", "mean {value} tok", {
-        value: s.meanCompletionTokens.toLocaleString(),
+        value: s.meanCompletionTokens.toLocaleString(activeLocale()),
       }),
     );
     notes.push(i18next.t("spark.quality.notes.hitMax", "{count} hit max_tokens", { count: s.hitMaxTokens }));
@@ -203,9 +205,9 @@ function buildShareText(
   compareRows: QualityCompareRow[]
 ): string {
   const lines: string[] = [];
-  const model = job.config.modelId || "unknown model";
-  lines.push(`${model}${job.config.label ? ` [${job.config.label}]` : ""} | quality bench`);
-  lines.push(`Overall ${pct(job.results.overallPct)} (mean of category %)`);
+  const model = job.config.modelId || i18next.t("spark.share.unknownModel", "unknown model");
+  lines.push(i18next.t("spark.share.qualityHeading", "{model}{label} | quality bench", { model, label: job.config.label ? ` [${job.config.label}]` : "" }));
+  lines.push(i18next.t("spark.share.qualityOverall", "Overall {score} (mean of category %)", { score: pct(job.results.overallPct) }));
   lines.push("");
   for (const cat of QUALITY_CATEGORIES) {
     const s = job.results.categories?.[cat];
@@ -216,22 +218,22 @@ function buildShareText(
     );
   }
   if (job.results.skippedLongSizes?.length) {
-    lines.push(`Long sizes skipped (above context): ${job.results.skippedLongSizes.map(formatContextSize).join(", ")}`);
+    lines.push(i18next.t("spark.share.skippedSizes", "Long sizes skipped (above context): {sizes}", { sizes: job.results.skippedLongSizes.map(formatContextSize).join(", ") }));
   }
   if (compareJob && compareRows.length) {
     lines.push("");
-    lines.push(`Compared with: ${runLabel(compareJob)}`);
+    lines.push(i18next.t("spark.share.comparedWith", "Compared with: {run}", { run: runLabel(compareJob) }));
     const verdict = overallVerdict(compareRows);
-    if (verdict) lines.push(`Overall: ${verdict.text}`);
+    if (verdict) lines.push(i18next.t("spark.share.overallVerdict", "Overall: {verdict}", { verdict: verdict.text }));
     for (const r of compareRows) {
       lines.push(
-        `${qualityCategoryLabel(r.category).padEnd(20)} ${pct(r.pctA).padStart(6)} vs ${pct(r.pctB).padStart(6)}  identical ${r.identical}/${r.paired}  only-this ${r.onlyA}  only-other ${r.onlyB}  p=${formatP(r.p)}  ${verdictLine(r)}`
+        i18next.t("spark.share.qualityComparedRow", "{category} {scoreA} vs {scoreB}  identical {identical}/{paired}  only-this {onlyA}  only-other {onlyB}  p={p}  {verdict}", { category: qualityCategoryLabel(r.category).padEnd(20), scoreA: pct(r.pctA).padStart(6), scoreB: pct(r.pctB).padStart(6), identical: r.identical, paired: r.paired, onlyA: r.onlyA, onlyB: r.onlyB, p: formatP(r.p), verdict: verdictLine(r) })
       );
     }
   }
   lines.push("");
   lines.push(
-    `temp 0 · seed fixed · suite v${job.config.suiteVersion}${job.config.scoringVersion != null ? ` · scoring v${job.config.scoringVersion}` : ""} · ${job.status} in ${formatDuration(job.durationMs)}`
+    i18next.t("spark.share.qualityFooter", "temp 0 · seed fixed · suite v{suite}{scoring} · {status} in {duration}", { suite: job.config.suiteVersion, scoring: job.config.scoringVersion != null ? i18next.t("spark.share.scoringVersion", " · scoring v{version}", { version: job.config.scoringVersion }) : "", status: statusLabel(job.status), duration: formatDuration(job.durationMs) })
   );
   return lines.join("\n");
 }
@@ -279,7 +281,7 @@ function qTier(p: number | null | undefined): "good" | "ok" | "low" | "none" {
 const TIER_COLOR = { good: "var(--color-success)", ok: "var(--color-accent)", low: "var(--color-danger)", none: "var(--color-muted)" } as const;
 
 function shortRunName(job: QualityBenchJob, fallback: string): string {
-  return job.config.label || new Date(job.startedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }) || fallback;
+  return job.config.label || new Date(job.startedAt).toLocaleDateString(activeLocale(), { month: "short", day: "numeric" }) || fallback;
 }
 
 function ScoreCard({
@@ -339,7 +341,7 @@ function ScoreCard({
           <span className="q-score__hint">
             {t("spark.quality.meanOfCategories", "Mean of {count} category scores · {items} items", {
               count: Object.keys(job.results.categories ?? {}).length,
-              items: (job.results.items?.length ?? 0).toLocaleString(),
+              items: (job.results.items?.length ?? 0).toLocaleString(activeLocale()),
             })}
           </span>
         )}
@@ -567,11 +569,11 @@ function ItemTable({ job }: { job: QualityBenchJob }) {
                     {it.ok ? "✓" : it.error ? t("spark.quality.item.err", "err") : "✗"}
                   </td>
                   <td className="py-1 break-words text-text [overflow-wrap:anywhere]">
-                    {it.error ? <span className="text-danger">{it.error}</span> : it.excerpt}
+                    {it.error ? <span className="text-danger">{localizedServerText(it.error)}</span> : it.excerpt}
                     {(it.detail || it.finishReason === "length") && (
                       <span className="block text-[10px] text-muted">
                         {[
-                          it.detail,
+                          it.detail ? localizedServerText(it.detail) : null,
                           it.finishReason === "length" ? t("spark.quality.item.hitMaxTokens", "hit max_tokens") : null,
                         ]
                           .filter(Boolean)
@@ -1091,7 +1093,7 @@ export function QualityBenchDialog({
                             n + (c === "long" ? longSizes.length * (Number(longItems) || 0) : CATEGORY_ITEMS[c] ?? 0),
                           0,
                         )
-                        .toLocaleString(),
+                        .toLocaleString(activeLocale()),
                     })}
                   </span>
                 </div>
@@ -1158,7 +1160,7 @@ export function QualityBenchDialog({
                 >
                   <div className="bench-progress__fill" style={{ width: `${Math.min(100, progressPct)}%` }} />
                 </div>
-                {job.progress.message ? <p className="bench-sheet__hint">{job.progress.message}</p> : null}
+                {job.progress.message ? <p className="bench-sheet__hint">{localizedServerMessage(job.progress.i18n?.message, job.progress.message)}</p> : null}
               </div>
               <CategoryTable job={job} />
             </section>
@@ -1175,11 +1177,11 @@ export function QualityBenchDialog({
                   {statusLabel(job.status)}
                 </span>
                 <span className="bench-status-meta">
-                  {new Date(job.startedAt).toLocaleString()} · {formatDuration(job.durationMs)}
+                  {new Date(job.startedAt).toLocaleString(activeLocale())} · {formatDuration(job.durationMs)}
                 </span>
               </div>
 
-              {job.error && <p className="bench-sheet__error">{job.error}</p>}
+              {job.error && <p className="bench-sheet__error">{localizedServerText(job.error)}</p>}
 
               {hasItems && compareChoices.length > 0 && (
                 <label className="q-pick">
@@ -1272,7 +1274,7 @@ export function QualityBenchDialog({
         }
         runBar={null}
       >
-        {error && <p className="bench-sheet__error">{error}</p>}
+        {error && <p className="bench-sheet__error">{localizedServerText(error)}</p>}
         {isRunning && <PageCard title={t("spark.benchDialog.progress", "Progress")}>{progressNode}</PageCard>}
         {showResults && (
           <PageCard
@@ -1364,7 +1366,7 @@ export function QualityBenchDialog({
 
           {configNode}
 
-          {error && <p className="bench-sheet__error">{error}</p>}
+          {error && <p className="bench-sheet__error">{localizedServerText(error)}</p>}
 
           {progressNode}
 

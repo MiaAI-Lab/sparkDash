@@ -20,7 +20,7 @@ import { CSS } from "@dnd-kit/utilities";
 import type { AuthMode, SparkSnapshot } from "../../api/types";
 import { useTranslation } from "react-i18next";
 import { ACTIVITY_ID, ENERGY_ID, OVERVIEW_ID, SHOWCASE_ID, TOKENS_ID, benchId, idToPath } from "../../constants";
-import { BENCH_TYPES } from "../bench/benchCatalog";
+import { BENCH_TYPES, localizeBenchType } from "../bench/benchCatalog";
 import { BoltIcon, ChevronDownIcon, GearIcon, GithubIcon, GlobeIcon, GridIcon, ListIcon, PanelLeftIcon, PlusIcon, SearchIcon, TerminalIcon, TokensIcon, XLogoIcon } from "../ui/icons";
 import { OpenAccessChip } from "../OpenAccessChip";
 import { ThemeSwitch } from "../ThemeSwitch";
@@ -359,7 +359,7 @@ export function AppSidebar({
             <ChevronDownIcon className={`h-3 w-3 transition-transform ${benchOpen || benchType != null ? "" : "-rotate-90"}`} />
           </button>
           <nav className="rail-list" id="rail-benchmarks" aria-label={t("shell.nav.benchmarks", "Benchmarks")} hidden={!(benchOpen || benchType != null)}>
-            {BENCH_TYPES.map((b) => (
+            {BENCH_TYPES.map((b) => localizeBenchType(b, t)).map((b) => (
               <div key={b.id}>
                 <a
                   href={idToPath(benchId(b.id))}

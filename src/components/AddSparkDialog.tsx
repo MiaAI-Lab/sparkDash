@@ -1,3 +1,4 @@
+import { localizedServerText } from "../i18n/messages";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
@@ -564,7 +565,7 @@ export function AddSparkDialog({ open, onClose, onAdded, defaultLlmPort = 8888 }
             </>
           )}
 
-          {error && <div className="modal-sheet__error">{error}</div>}
+          {error && <div className="modal-sheet__error">{localizedServerText(error)}</div>}
         </div>
 
         <div className="modal-sheet__footer">

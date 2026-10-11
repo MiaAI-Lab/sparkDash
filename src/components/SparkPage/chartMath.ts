@@ -116,7 +116,9 @@ export function memoryBreakdown(input: MemBreakdownInput): MemSegment[] {
 export function windowAxisLabels(windowMs: number): [string, string, string] {
   const fmt = (ms: number) => {
     const min = Math.round(ms / 60_000);
-    return min >= 60 && min % 60 === 0 ? `−${min / 60} h` : `−${min} min`;
+    return min >= 60 && min % 60 === 0
+      ? i18next.t("spark.chart.hoursBefore", "−{count} h", { count: min / 60 })
+      : i18next.t("spark.chart.minutesBefore", "−{count} min", { count: min });
   };
   return [fmt(windowMs), fmt(windowMs / 2), i18next.t("spark.chart.now", "now")];
 }

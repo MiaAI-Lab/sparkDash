@@ -1,6 +1,7 @@
 import type {
   ActivityEvent,
   ActivityEventsPage,
+  LocalizedMessage,
   EnergyHistory,
   MonthlyEnergy,
   TokenHistory,
@@ -37,6 +38,14 @@ import { authHeaders, reportAuthRequired } from "./authToken";
 
 const BASE = "";
 
+export type LocalizedApiError = Error & { status?: number; i18n?: Partial<Record<"error", LocalizedMessage>> };
+
+function apiError(body: { error?: unknown; i18n?: unknown }, fallback: string): LocalizedApiError {
+  const error = new Error(typeof body.error === "string" ? body.error : fallback) as LocalizedApiError;
+  if (body.i18n && typeof body.i18n === "object") error.i18n = body.i18n as LocalizedApiError["i18n"];
+  return error;
+}
+
 // ─── Generic fetch wrapper ────────────────────────────────
 async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
   // Only set Content-Type for requests that actually carry a body. Setting it
@@ -52,7 +61,7 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
     // The server wants a token we do not have (or ours is stale): ask for one.
     if (res.status === 401) reportAuthRequired();
     const body = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(body.error || `HTTP ${res.status}`);
+    throw Object.assign(apiError(body, `HTTP ${res.status}`), { status: res.status });
   }
   return res.json();
 }
@@ -659,13 +668,16 @@ async function teFetch<T>(path: string, opts?: RequestInit): Promise<T> {
   if (opts?.body) headers["Content-Type"] = "application/json";
   const res = await fetch(`${BASE}${path}`, { ...opts, headers: { ...headers, ...(opts?.headers as Record<string, string> | undefined) } });
   if (!res.ok) {
+    if (res.status === 401) reportAuthRequired();
     const body = await res.json().catch(() => ({}) as Record<string, unknown>);
-    throw new ToolEvalApiError(
+    const error = new ToolEvalApiError(
       (typeof body.error === "string" && body.error) || res.statusText || `HTTP ${res.status}`,
       res.status,
       Array.isArray(body.errors) ? body.errors.filter((e: unknown): e is string => typeof e === "string") : [],
       (body.active as ToolEvalJob | undefined) ?? null
     );
+    if (body.i18n && typeof body.i18n === "object") error.i18n = body.i18n;
+    throw error;
   }
   return res.json();
 }

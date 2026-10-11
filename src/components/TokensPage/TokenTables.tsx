@@ -1,4 +1,6 @@
+import { activeLocale } from "../../i18n";
 import { useMemo, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { activeTimeZone } from "../../shared/timeZone";
 import { formatTokensCompact } from "../../shared/tokenFormat";
 import { fmtPct, formatAgo, sortRows, type EndpointRow, type ModelRow, type SortDir } from "./tokenStats";
@@ -43,6 +45,7 @@ function SortTable<T>({
   cell: (col: Col<T>, row: T) => ReactNode;
   noun: string;
 }) {
+  const { t } = useTranslation();
   const [sort, setSort] = useState<SortState>(initial);
   const [all, setAll] = useState(false);
   const sorted = useMemo(() => {
@@ -56,7 +59,7 @@ function SortTable<T>({
 
   return (
     <>
-      <div className="tk-scroll" tabIndex={0} role="region" aria-label={`${caption} (scrollable)`}>
+        <div className="tk-scroll" tabIndex={0} role="region" aria-label={t("tokens.table.scrollable", "{caption} (scrollable)", { caption })}>
         <table className="tk-table">
           <caption className="tk-sr">{caption}</caption>
           <thead>
@@ -90,7 +93,7 @@ function SortTable<T>({
       </div>
       {sorted.length > INITIAL_ROWS ? (
         <button type="button" className="btn btn--sm btn--ghost tk-more" onClick={() => setAll((v) => !v)} aria-expanded={all}>
-          {all ? `Show top ${INITIAL_ROWS}` : `Show all ${sorted.length} ${noun}`}
+          {all ? t("tokens.table.showTop", "Show top {count}", { count: INITIAL_ROWS }) : t("tokens.table.showAll", "Show all {count} {noun}", { count: sorted.length, noun })}
         </button>
       ) : null}
     </>
@@ -109,8 +112,9 @@ function ShareBar({ share }: { share: number }) {
 }
 
 function CacheCell({ rate, cached }: { rate: number | null; cached: number }) {
-  if (rate == null) return <span className="tk-faint" title="No prompt tokens reported">{"—"}</span>;
-  return <span title={`${cached.toLocaleString()} cached prompt tokens`}>{fmtPct(rate)}</span>;
+  const { t } = useTranslation();
+  if (rate == null) return <span className="tk-faint" title={t("tokens.table.noPrompt", "No prompt tokens reported")}>{"—"}</span>;
+  return <span title={t("tokens.table.cachedPrompt", "{count} cached prompt tokens", { count: cached })}>{fmtPct(rate)}</span>;
 }
 
 /** Chips for a list of names, folding the overflow into "+N". */
@@ -127,20 +131,21 @@ function NameList({ names, max = 3 }: { names: readonly string[]; max?: number }
 }
 
 export function ModelTable({ rows, sparkName, nowMs }: { rows: readonly ModelRow[]; sparkName: (id: string) => string; nowMs: number }) {
+  const { t } = useTranslation();
   const cols: Col<ModelRow>[] = [
-    { id: "model", label: "Model", get: (r) => r.modelId },
-    { id: "generated", label: "Generated", num: true, get: (r) => r.generated },
-    { id: "prompt", label: "Prompt", num: true, get: (r) => r.prompt },
-    { id: "cache", label: "Cached", num: true, get: (r) => r.cacheRate },
-    { id: "total", label: "Total", num: true, get: (r) => r.total },
-    { id: "share", label: "Share of total", get: (r) => r.share, first: "desc" },
-    { id: "sparks", label: "Active on", get: (r) => r.sparkIds.length, first: "desc" },
-    { id: "seen", label: "Last seen", get: (r) => r.lastSeen, first: "desc" },
+    { id: "model", label: t("tokens.table.model", "Model"), get: (r) => r.modelId },
+    { id: "generated", label: t("tokens.table.generated", "Generated"), num: true, get: (r) => r.generated },
+    { id: "prompt", label: t("tokens.table.prompt", "Prompt"), num: true, get: (r) => r.prompt },
+    { id: "cache", label: t("tokens.table.cached", "Cached"), num: true, get: (r) => r.cacheRate },
+    { id: "total", label: t("tokens.table.total", "Total"), num: true, get: (r) => r.total },
+    { id: "share", label: t("tokens.table.share", "Share of total"), get: (r) => r.share, first: "desc" },
+    { id: "sparks", label: t("tokens.table.activeOn", "Active on"), get: (r) => r.sparkIds.length, first: "desc" },
+    { id: "seen", label: t("tokens.table.lastSeen", "Last seen"), get: (r) => r.lastSeen, first: "desc" },
   ];
   return (
     <SortTable
-      caption="Token totals by model"
-      noun="models"
+      caption={t("tokens.table.byModel", "Token totals by model")}
+      noun={t("tokens.table.models", "models")}
       cols={cols}
       rows={rows}
       initial={{ id: "total", dir: "desc" }}
@@ -150,19 +155,19 @@ export function ModelTable({ rows, sparkName, nowMs }: { rows: readonly ModelRow
           case "model":
             return <span className="tk-name" title={r.modelId}>{r.modelId}</span>;
           case "generated":
-            return <span title={r.generated.toLocaleString()}>{fmt(r.generated)}</span>;
+            return <span title={r.generated.toLocaleString(activeLocale())}>{fmt(r.generated)}</span>;
           case "prompt":
-            return <span title={`${r.prompt.toLocaleString()} (${r.computed.toLocaleString()} computed)`}>{fmt(r.prompt)}</span>;
+            return <span title={t("tokens.text.01Computed", "{value0} ({value1} computed)", { value0: r.prompt.toLocaleString(activeLocale()), value1: r.computed.toLocaleString(activeLocale()) })}>{fmt(r.prompt)}</span>;
           case "cache":
             return <CacheCell rate={r.cacheRate} cached={r.cached} />;
           case "total":
-            return <b title={r.total.toLocaleString()}>{fmt(r.total)}</b>;
+            return <b title={r.total.toLocaleString(activeLocale())}>{fmt(r.total)}</b>;
           case "share":
             return <ShareBar share={r.share} />;
           case "sparks":
             return <NameList names={r.sparkIds.map(sparkName)} />;
           default:
-            return r.lastSeen ? <span title={new Date(r.lastSeen).toLocaleString(undefined, { timeZone: activeTimeZone() })}>{formatAgo(r.lastSeen, nowMs)}</span> : <span className="tk-faint">{"—"}</span>;
+            return r.lastSeen ? <span title={new Date(r.lastSeen).toLocaleString(activeLocale() === "zh-Hans" ? "zh-CN" : "en-US", { timeZone: activeTimeZone() })}>{formatAgo(r.lastSeen, nowMs)}</span> : <span className="tk-faint">{"—"}</span>;
         }
       }}
     />
@@ -181,20 +186,21 @@ export function EndpointTable({
   knownSpark: (id: string) => boolean;
   onSelectSpark?: (id: string) => void;
 }) {
+  const { t } = useTranslation();
   const cols: Col<EndpointRow>[] = [
-    { id: "spark", label: "Spark", get: (r) => sparkName(r.sparkId) },
-    { id: "port", label: "Port", num: true, get: (r) => r.port, first: "asc" },
-    { id: "models", label: "Models served", get: (r) => r.models.length, first: "desc" },
-    { id: "generated", label: "Generated", num: true, get: (r) => r.generated },
-    { id: "prompt", label: "Prompt", num: true, get: (r) => r.prompt },
-    { id: "cache", label: "Cached", num: true, get: (r) => r.cacheRate },
-    { id: "total", label: "Total", num: true, get: (r) => r.total },
-    { id: "share", label: "Share of total", get: (r) => r.share, first: "desc" },
+    { id: "spark", label: t("tokens.table.spark", "Spark"), get: (r) => sparkName(r.sparkId) },
+    { id: "port", label: t("tokens.table.port", "Port"), num: true, get: (r) => r.port, first: "asc" },
+    { id: "models", label: t("tokens.table.modelsServed", "Models served"), get: (r) => r.models.length, first: "desc" },
+    { id: "generated", label: t("tokens.table.generated", "Generated"), num: true, get: (r) => r.generated },
+    { id: "prompt", label: t("tokens.table.prompt", "Prompt"), num: true, get: (r) => r.prompt },
+    { id: "cache", label: t("tokens.table.cached", "Cached"), num: true, get: (r) => r.cacheRate },
+    { id: "total", label: t("tokens.table.total", "Total"), num: true, get: (r) => r.total },
+    { id: "share", label: t("tokens.table.share", "Share of total"), get: (r) => r.share, first: "desc" },
   ];
   return (
     <SortTable
-      caption="Token totals by Spark and endpoint"
-      noun="endpoints"
+      caption={t("tokens.table.byEndpoint", "Token totals by Spark and endpoint")}
+      noun={t("tokens.table.endpoints", "endpoints")}
       cols={cols}
       rows={rows}
       initial={{ id: "total", dir: "desc" }}
@@ -203,7 +209,7 @@ export function EndpointTable({
         switch (c.id) {
           case "spark":
             return onSelectSpark && knownSpark(r.sparkId) ? (
-              <button type="button" className="tk-link" onClick={() => onSelectSpark(r.sparkId)} title={`Open ${sparkName(r.sparkId)}`}>
+              <button type="button" className="tk-link" onClick={() => onSelectSpark(r.sparkId)} title={t("tokens.table.openSpark", "Open {name}", { name: sparkName(r.sparkId) })}>
                 {sparkName(r.sparkId)}
               </button>
             ) : (
@@ -214,13 +220,13 @@ export function EndpointTable({
           case "models":
             return <NameList names={r.models} max={2} />;
           case "generated":
-            return <span title={r.generated.toLocaleString()}>{fmt(r.generated)}</span>;
+            return <span title={r.generated.toLocaleString(activeLocale())}>{fmt(r.generated)}</span>;
           case "prompt":
-            return <span title={`${r.prompt.toLocaleString()} (${r.computed.toLocaleString()} computed)`}>{fmt(r.prompt)}</span>;
+            return <span title={t("tokens.text.01Computed", "{value0} ({value1} computed)", { value0: r.prompt.toLocaleString(activeLocale()), value1: r.computed.toLocaleString(activeLocale()) })}>{fmt(r.prompt)}</span>;
           case "cache":
             return <CacheCell rate={r.cacheRate} cached={r.cached} />;
           case "total":
-            return <b title={r.total.toLocaleString()}>{fmt(r.total)}</b>;
+            return <b title={r.total.toLocaleString(activeLocale())}>{fmt(r.total)}</b>;
           default:
             return <ShareBar share={r.share} />;
         }

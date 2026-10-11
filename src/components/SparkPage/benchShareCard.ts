@@ -1,3 +1,5 @@
+import { activeLocale } from "../../i18n";
+import { localizedServerText } from "../../i18n/messages";
 import { decodeBenchTypeLabel, qualityCategoryLabel } from "./benchLabels";
 /**
  * Benchmark share card — the image behind "Copy image".
@@ -154,7 +156,7 @@ export function shareCardChips(src: ShareCardSource): ShareCardChip[] {
   if (engine) chips.push({ label: engine, tone: "accent" });
   if (src.posture?.label) {
     chips.push({
-      label: src.posture.label,
+      label: localizedServerText(src.posture.label),
       tone: src.posture.level === "ok" ? "ok" : src.posture.level === "warn" ? "warn" : "bad",
     });
   }
@@ -265,7 +267,7 @@ export function buildPrefillShareCard(
               tokens:
                 r.promptTokens > 0
                   ? i18next.t("spark.shareCard.prefillTokens", "{tokens} tokens", {
-                      tokens: r.promptTokens.toLocaleString("en-US"),
+                      tokens: r.promptTokens.toLocaleString(activeLocale()),
                     })
                   : "—",
               flags: flags.length ? ` · ${flags.join(", ")}` : "",
@@ -359,7 +361,7 @@ export function buildQualityShareCard(
     i18next.t("spark.shareCard.categoryCount", "{count, plural, one {# category} other {# categories}}", {
       count: tiles.length,
     }),
-    i18next.t("spark.shareCard.itemCount", "{items} items", { items: itemTotal.toLocaleString("en-US") }),
+    i18next.t("spark.shareCard.itemCount", "{items} items", { items: itemTotal.toLocaleString(activeLocale()) }),
     ...(job.durationMs != null ? [formatDuration(job.durationMs)] : []),
   ].join(" · ");
   return {

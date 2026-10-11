@@ -53,7 +53,7 @@ import { TokensPage } from "./components/TokensPage/TokensPage";
 import { EnergyPage } from "./components/EnergyPage/EnergyPage";
 import { ActivityPage } from "./components/ActivityPage/ActivityPage";
 import { BenchPage } from "./components/bench/BenchPage";
-import { BENCH_SPARK_KEY, BENCH_TYPES } from "./components/bench/benchCatalog";
+import { BENCH_SPARK_KEY, BENCH_TYPES, localizeBenchType } from "./components/bench/benchCatalog";
 import type { AuthMode, Settings, SparkSnapshot } from "./api/types";
 import { AccessTokenPrompt } from "./components/AccessTokenDialog";
 import { onTokenChange } from "./api/authToken";
@@ -463,7 +463,8 @@ function DashboardApp() {
         run: () => navigate(s.id),
       });
     }
-    for (const b of BENCH_TYPES) {
+    for (const catalogEntry of BENCH_TYPES) {
+      const b = localizeBenchType(catalogEntry, t);
       cmds.push({
         id: `bench:${b.id}`,
         group: t("shell.nav.benchmarks", "Benchmarks"),

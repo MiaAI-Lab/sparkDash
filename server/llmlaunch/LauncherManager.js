@@ -171,6 +171,7 @@ export class LauncherManager {
       startedAt: job.startedAt,
       finishedAt: job.finishedAt,
       error: job.error,
+      i18n: job.error ? { error: { key: "server.job.error", params: { detail: job.error } } } : { status: { key: `server.job.status.${job.status}`, params: { action: job.action, launcher: job.launcherName } } },
     };
   }
 
@@ -314,6 +315,7 @@ export class LauncherManager {
       severity: "info",
       sparkId: spark.id,
       message: `${action === "start" ? "Starting" : action === "stop" ? "Stopping" : "Opening output of"} ${launcher.name}`,
+      data: { action, launcher: launcher.name },
     });
     return { ok: true, job: this.summary(job) };
   }
@@ -380,6 +382,7 @@ export class LauncherManager {
       severity: job.status === "failed" ? "error" : job.status === "completed" ? "success" : "info",
       sparkId: job.sparkId,
       message: this._eventMessage(job),
+      data: { action: job.action, launcher: job.launcherName, status: job.status, exitCode: job.exitCode },
     });
   }
 

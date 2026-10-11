@@ -1,5 +1,6 @@
 import fs from "fs";
 import { atomicWrite, quarantineCorrupt } from "../util/atomicWrite.js";
+import { eventI18n } from "../i18n/messages.js";
 
 const SEVERITIES = new Set(["info", "warn", "error", "success"]);
 const DEDUPE_MS = 5000;
@@ -78,6 +79,10 @@ export class EventLog {
         sparkName: input.sparkName ?? null,
         message: input.message,
       };
+      // Keep old persisted records and API clients valid. New application events
+      // carry a locale-neutral descriptor; unknown/external text stays raw.
+      const i18n = input.i18n ?? eventI18n({ ...input, sparkName: event.sparkName });
+      if (i18n) event.i18n = i18n;
       if (input.data !== undefined) event.data = input.data;
       this._events.push(event);
       if (this._events.length > this.max) this._events.splice(0, this._events.length - this.max);

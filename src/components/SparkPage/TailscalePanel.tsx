@@ -1,3 +1,4 @@
+import { localizedServerText } from "../../i18n/messages";
 import { useTranslation } from "react-i18next";
 import type { TailscaleMetrics } from "../../api/types";
 import { Panel } from "../ui/Panel";
@@ -58,7 +59,7 @@ export function TailscalePanel({ tailscale, className }: TailscalePanelProps) {
 
       {tailscale?.error && (
         <p className="sp-callout">
-          {tailscale.error}
+          {localizedServerText(tailscale.error)}
         </p>
       )}
 

@@ -17,6 +17,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { fetch as undiciFetch } from "undici";
 import { atomicWrite } from "../util/atomicWrite.js";
+import { jobErrorI18n, jobTextI18n } from "../i18n/messages.js";
 import { LLM_STREAM_AGENT, applyThinkingFlags, round2, runStreamingRequest } from "./LlmStreaming.js";
 import { decodeBenchManager } from "./DecodeBench.js";
 import { prefillBenchManager, timeoutMsForSize } from "./PrefillBench.js";
@@ -255,9 +256,10 @@ function publicJob(job, { full = job.status !== "running" } = {}) {
     startedAt: job.startedAt,
     completedAt: job.completedAt,
     config: { ...job.config },
-    progress: { ...job.progress },
+    progress: { ...job.progress, i18n: { message: jobTextI18n(job.progress.message) } },
     results,
     error: job.error,
+    i18n: job.error ? { error: jobErrorI18n(job.error) } : undefined,
     durationMs:
       job.completedAt != null ? job.completedAt - job.startedAt : Date.now() - job.startedAt,
     owner: job.owner || null,

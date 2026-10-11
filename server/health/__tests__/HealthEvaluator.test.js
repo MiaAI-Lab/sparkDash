@@ -20,6 +20,11 @@ test("thermal: warns at 85, critical at 90, silent below and when unknown", () =
   assert.deepEqual(h.evaluate({ gpu: { temperature: 84 } }), []);
   assert.equal(h.evaluate({ gpu: { temperature: 86 } })[0].severity, "warn");
   assert.equal(h.evaluate({ gpu: { temperature: 91 } })[0].severity, "critical");
+  assert.deepEqual(h.evaluate({ gpu: { temperature: 91 } })[0].i18n, {
+    title: { key: "health.thermal.title.critical" },
+    detail: { key: "health.thermal.detail", params: { temperature: 91, warn: 85, critical: 90 } },
+    hint: { key: "health.thermal.hint" },
+  });
   assert.deepEqual(h.evaluate({ gpu: {} }), []);
 });
 

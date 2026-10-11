@@ -1,3 +1,4 @@
+import { i18next } from "../../../i18n";
 import { humanizeKey } from "./format";
 
 /**
@@ -336,7 +337,7 @@ export function suggestCharts(table: GenericTable, maxCharts = 6): ChartSpec[] {
       }
       if (byX.size < 2) continue;
       const pts = [...byX.entries()].sort((a, b) => a[0] - b[0]).map(([x, vs]) => ({ x, label: String(x), value: vs.reduce((a, b) => a + b, 0) / vs.length }));
-      charts.push({ title: `${humanizeKey(y)} by ${humanizeKey(xKey).toLowerCase()}${g != null ? ` (${humanizeKey(groupKey as string).toLowerCase()} ${g})` : ""}`, xKey, yKey: y, group: g, points: pts });
+      charts.push({ title: i18next.t("bench.ui.chartBy", "{metric} by {axis}{group}", { metric: humanizeKey(y), axis: humanizeKey(xKey).toLowerCase(), group: g != null ? ` (${humanizeKey(groupKey as string).toLowerCase()} ${g})` : "" }), xKey, yKey: y, group: g, points: pts });
     }
   }
   return charts;

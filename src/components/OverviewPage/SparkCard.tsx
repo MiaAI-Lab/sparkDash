@@ -1,4 +1,5 @@
 import { memo, useState } from "react";
+import { localizedServerText } from "../../i18n/messages";
 import { useTranslation } from "react-i18next";
 import type { SparkSnapshot } from "../../api/types";
 import { resolveSparkRole } from "../../api/sparkRole";
@@ -88,7 +89,7 @@ function SparkCardImpl({
   const llmList = Array.isArray(spark.metrics.llm) ? spark.metrics.llm : [];
   const llmIdx = llmList.findIndex((l) => l.available);
   const llm = llmIdx >= 0 ? llmList[llmIdx] : null;
-  const [wakeMsg, setWakeMsg] = useState<string | null>(null);
+  const [wakeMsg, setWakeMsg] = useState<{ success: boolean; detail?: string } | null>(null);
   const [waking, setWaking] = useState(false);
 
   const usage = gpu?.usage ?? 0;
@@ -140,9 +141,9 @@ function SparkCardImpl({
     setWakeMsg(null);
     try {
       const res = await wakeSpark(spark.id);
-      setWakeMsg(res.success ? t("overview.card.wakeSent", "Wake packet sent") : res.error || res.message || t("overview.card.wakeFailed", "Wake failed"));
+      setWakeMsg({ success: res.success, detail: res.success ? undefined : res.error || res.message });
     } catch (err) {
-      setWakeMsg(err instanceof Error ? err.message : t("overview.card.wakeFailed", "Wake failed"));
+      setWakeMsg({ success: false, detail: err instanceof Error ? err.message : undefined });
     } finally {
       setWaking(false);
     }
@@ -194,7 +195,7 @@ function SparkCardImpl({
   const chips = (
     <div className="ov-chips">
       {online && throttle && slowed ? (
-        <Tag tone="warn" title={throttle.detail || t("overview.card.throttleTitle", "GPU clock throttled")}>
+        <Tag tone="warn" title={throttle.detail ? localizedServerText(throttle.detail) : t("overview.card.throttleTitle", "GPU clock throttled")}>
           {throttle.thermal ? t("overview.card.throttleThermal", "Thermal throttle") : t("overview.card.hwSlowdown", "HW slowdown")}
           {throttle.smClockMHz ? t("overview.card.smClock", " · SM {ghz} GHz", { ghz: (throttle.smClockMHz / 1000).toFixed(1) }) : ""}
         </Tag>
@@ -260,7 +261,7 @@ function SparkCardImpl({
               {t("overview.card.wakeUp", "Wake up")}
             </button>
           ) : null}
-          {wakeMsg ? <span className="ov-sc__msg">{wakeMsg}</span> : null}
+          {wakeMsg ? <span className="ov-sc__msg">{wakeMsg.success ? t("overview.card.wakeSent", "Wake packet sent") : wakeMsg.detail ? localizedServerText(wakeMsg.detail) : t("overview.card.wakeFailed", "Wake failed")}</span> : null}
           {chips}
         </div>
       ) : (
@@ -319,7 +320,7 @@ function SparkCardImpl({
               )}
               <div className="ov-launch__hint">
                 {headLlm
-                  ? `${backendLabel(headLlm.backend) ?? headLlm.backend ?? "LLM"} · ${headLlm.generationTps.toFixed(1)} tok/s decode`
+                  ? t("overview.card.headDecode", "{backend} · {rate} tok/s decode", { backend: backendLabel(headLlm.backend) ?? headLlm.backend ?? "LLM", rate: headLlm.generationTps.toFixed(1) })
                   : headSpark
                     ? headSpark.online
                       ? t("overview.card.headNoModel", "No model loaded on the head")

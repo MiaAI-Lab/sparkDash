@@ -148,7 +148,7 @@ export function deltaPts(a: number | null | undefined, b: number | null | undefi
 }
 
 export function formatDelta(d: number): string {
-  return `${d > 0 ? "+" : ""}${d.toFixed(1)} pts`;
+  return i18next.t("spark.quality.pointsDifference", "{value} pts", { value: `${d > 0 ? "+" : ""}${d.toFixed(1)}` });
 }
 
 /**

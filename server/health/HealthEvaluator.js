@@ -1,3 +1,5 @@
+import { healthI18n } from "../i18n/messages.js";
+
 /**
  * Fleet health findings: small, explainable rules over metrics sparkDash
  * already collects. One evaluator per Spark keeps the few bits of state the
@@ -55,7 +57,7 @@ export class HealthEvaluator {
     } catch {
       /* a rule bug must never break the poll loop */
     }
-    return out;
+    return out.map(({ _i18nParams, ...finding }) => ({ ...finding, i18n: healthI18n({ ...finding, _i18nParams }) }));
   }
 
   _thermal(gpu, out) {
@@ -68,6 +70,7 @@ export class HealthEvaluator {
       title: critical ? "GPU is close to its shutdown temperature" : "GPU is running hot",
       detail: `${Math.round(t)}°C (warns at ${TEMP_WARN}°C, critical at ${TEMP_CRITICAL}°C).`,
       hint: "Check airflow and the room temperature, and that nothing blocks the vents. Lower the power limit or the load if it keeps climbing.",
+      _i18nParams: { temperature: Math.round(t), warn: TEMP_WARN, critical: TEMP_CRITICAL },
     });
   }
 
@@ -87,6 +90,7 @@ export class HealthEvaluator {
       title: "GPU looks stuck in a low-power state",
       detail: `${Math.round(util)}% utilisation but only ${draw.toFixed(1)} W for ${this._lowPowerStreak} samples in a row.`,
       hint: "Often a driver or power-management hiccup. A GPU reset or a reboot usually clears it; check dmesg for NVRM errors first.",
+      _i18nParams: { utilisation: Math.round(util), watts: draw.toFixed(1), samples: this._lowPowerStreak },
     });
   }
 
@@ -102,6 +106,7 @@ export class HealthEvaluator {
       title: critical ? "Unified memory is almost exhausted" : "Unified memory is running low",
       detail: `${(avail / 1024).toFixed(1)} GB available of ${(total / 1024).toFixed(0)} GB.`,
       hint: "The kernel may start killing processes. Stop a model you are not using, lower the context length or the GPU memory utilisation.",
+      _i18nParams: { available: (avail / 1024).toFixed(1), total: (total / 1024).toFixed(0) },
     });
   }
 
@@ -127,6 +132,7 @@ export class HealthEvaluator {
           type: `health.${id}`,
           severity: "error",
           message: `${title}: ${count - prev} new since the last check${last}`,
+          data: { findingId: id, count: count - prev, last: key === "xid" ? ke.lastXid ?? "" : "" },
         });
         this._kernelLast[key] = key === "xid" ? ke.lastXid ?? null : null;
       }
@@ -138,6 +144,7 @@ export class HealthEvaluator {
           title,
           detail: `${what} within the last hour (${count} since boot).${extra}`,
           hint,
+          _i18nParams: { count, last: this._kernelLast.xid ?? "" },
         });
       }
     }
@@ -155,6 +162,7 @@ export class HealthEvaluator {
       title: "Several models are loaded on this node",
       detail: `${ids.size} different models are serving while ${Math.round(pct)}% of memory is in use.`,
       hint: "Heavy backends compete for the same unified memory. Stop the ones you are not using to avoid out-of-memory kills.",
+      _i18nParams: { count: ids.size, memory: Math.round(pct) },
     });
   }
 
@@ -167,9 +175,11 @@ export class HealthEvaluator {
       title: "Network link is slower than 1 Gb/s",
       detail: `${net?.primaryInterface ?? "The primary interface"} negotiated ${mbps} Mb/s.`,
       hint: "Check the cable and the switch port. A cluster running over a degraded link slows every tensor-parallel step.",
+      _i18nParams: { interface: net?.primaryInterface ?? "The primary interface", mbps },
     });
   }
 }
+
 
 
 // RoCE rules (see collectors/roce.js). Kept out of the class body above for readability.
@@ -187,6 +197,7 @@ HealthEvaluator.prototype._roce = function roce(roce, out) {
       title: down.length === 1 ? "A RoCE link went down" : `${down.length} RoCE links went down`,
       detail: down.map((d) => `${d.netdev ?? d.name}: ${d.state ?? "unknown"}${d.physState ? ` (${d.physState})` : ""}`).join(", ") + ".",
       hint: "Check the cable, the transceiver and the switch port. Tensor-parallel and NCCL traffic over this port stalls or falls back to another path.",
+      _i18nParams: { count: down.length, links: down.map((d) => `${d.netdev ?? d.name}: ${d.state ?? "unknown"}${d.physState ? ` (${d.physState})` : ""}`).join(", ") },
     });
   }
   // Loss counters that keep rising across several samples in a row.
@@ -200,6 +211,7 @@ HealthEvaluator.prototype._roce = function roce(roce, out) {
       title: "RoCE is dropping packets",
       detail: lossy.map((d) => `${d.netdev ?? d.name}: ${(d.loss.rising ?? []).join(", ") || "counters rising"}`).join("; ") + ".",
       hint: "Rising out_of_buffer, sequence or ack-timeout errors point at congestion or a lossless-network (PFC/ECN) misconfiguration. Compare the PFC and trust settings on every Spark and on the switch.",
+      _i18nParams: { links: lossy.map((d) => `${d.netdev ?? d.name}: ${(d.loss.rising ?? []).join(", ") || "counters rising"}`).join("; ") },
     });
   }
 };

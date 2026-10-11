@@ -42,6 +42,36 @@
     "llmAction": "{action} {stage}",
     "event": "事件"
   },
+  "message": {
+    "sparkOnline": "{name} 已上线",
+    "sparkOffline": "{name} 已离线",
+    "sparkAdded": "已添加 {name}",
+    "sparkRemoved": "已移除 {name}",
+    "healthCleared": "{name}：{finding} 已恢复正常",
+    "thermalThrottle": "{name} 开始因温度限制降频",
+    "thermalThrottleCleared": "{name} 已停止因温度限制降频",
+    "hermesAvailable": "{name} 有可用 Hermes 更新",
+    "hermesUpdated": "{name} 的 Hermes 已更新",
+    "hermesFailed": "{name} 的 Hermes 更新失败",
+    "shutdownRequested": "已请求关闭 {name}",
+    "wakeSent": "已向 {name} 发送网络唤醒包",
+    "healthFinding": "{name}：{finding}",
+    "benchFinished": "{name} 上的{label}已完成{score}",
+    "benchCancelled": "{name} 上的{label}已取消",
+    "benchFailed": "{name} 上的{label}失败{detail}",
+    "llmStarting": "正在启动 {launcher}",
+    "llmStopping": "正在停止 {launcher}",
+    "llmOpening": "正在打开 {launcher} 的输出",
+    "llmClosed": "已关闭 {launcher} 的输出",
+    "llmCompleted": "{launcher}：{action}脚本已完成",
+    "llmCancelled": "{launcher}：{action}脚本已取消",
+    "llmDetached": "{launcher}：已停止监视{action}脚本",
+    "llmFailed": "{launcher}：{action}脚本失败{exit}",
+    "exitCode": "（退出码 {code}）",
+    "hermesVersion": "，版本 {version}",
+    "kernelError": "{finding}：自上次检查以来新增 {count} 次{last}",
+    "hermesCommits": "（落后 {count} 个提交）"
+  },
   "category": {
     "status": "状态（在线/离线）",
     "thermal": "温度",
@@ -168,5 +198,27 @@
   },
   "skel": {
     "loading": "正在加载活动记录"
+  },
+  "health": {
+    "thermal": "GPU 温度",
+    "power": "GPU 功耗",
+    "memory": "统一内存",
+    "concurrency": "模型并发",
+    "link": "网络链路速率",
+    "roceLink": "RoCE 链路",
+    "roceLoss": "RoCE 丢包"
+  },
+  "stage": {
+    "requested": "已请求",
+    "completed": "已完成",
+    "cancelled": "已取消",
+    "failed": "失败",
+    "detached": "已停止监视"
+  },
+  "relative": {
+    "now": "刚刚",
+    "minutes": "{count}分钟",
+    "hours": "{count}小时",
+    "days": "{count}天"
   }
 }

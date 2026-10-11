@@ -1,4 +1,5 @@
 import type { FieldValue } from "./options";
+import { localizeBenchText } from "./benchText";
 
 export interface Preset {
   id: string;
@@ -61,7 +62,7 @@ export interface SimpleTemplate extends Preset {
  */
 export function simpleTemplates(type: string): SimpleTemplate[] {
   if (type === "tool-eval") {
-    return [
+    const templates: SimpleTemplate[] = [
       {
         id: "regular",
         label: "Regular run",
@@ -95,8 +96,19 @@ export function simpleTemplates(type: string): SimpleTemplate[] {
         time: "about 5–10 min",
       },
     ];
+    return templates.map(localizePreset);
   }
-  return (PRESETS[type] ?? []).map((p) => ({ ...p }));
+  return (PRESETS[type] ?? []).map(localizePreset);
+}
+
+export function localizePreset(preset: SimpleTemplate): SimpleTemplate {
+  return {
+    ...preset,
+    label: localizeBenchText(preset.label),
+    help: localizeBenchText(preset.help),
+    size: preset.size ? localizeBenchText(preset.size) : undefined,
+    time: preset.time ? localizeBenchText(preset.time) : undefined,
+  };
 }
 
 /** Where the run points, not how it runs: a custom URL or model never makes a template "custom". */

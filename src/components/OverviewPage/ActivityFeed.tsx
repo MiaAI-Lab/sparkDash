@@ -1,9 +1,12 @@
+import { activeLocale } from "../../i18n";
 import { AppLink } from "../ui/AppLink";
 import { activeTimeZone } from "../../shared/timeZone";
 import { useTranslation } from "react-i18next";
 import { ACTIVITY_ID, idToPath } from "../../constants";
 import { useActivityEvents } from "../../hooks/useActivityEvents";
 import { formatRelativeTime, severityDotClass, splitMessage } from "./activityFormat";
+import { localizedActivityMessage } from "../../i18n/messages";
+import { severityLabel } from "../ActivityPage/activityStats";
 
 interface ActivityFeedProps {
   limit?: number;
@@ -41,20 +44,20 @@ export function ActivityFeed({ limit = 8, sparkId, onSelectSpark, onViewAll }: A
       ) : (
         <ul className="divide-y divide-border">
           {shown.map((ev) => {
-            const { before, name, after } = splitMessage(ev.message, ev.sparkName);
+            const { before, name, after } = splitMessage(localizedActivityMessage(ev), ev.sparkName);
             const clickable = Boolean(name && ev.sparkId && onSelectSpark);
             return (
               <li key={ev.id} className="flex items-baseline gap-2 py-1.5 text-xs">
                 <time
                   className="w-10 shrink-0 text-right font-mono tabular-nums text-muted"
                   dateTime={new Date(ev.ts).toISOString()}
-                  title={new Date(ev.ts).toLocaleString(undefined, { timeZone: activeTimeZone() })}
+                  title={new Date(ev.ts).toLocaleString(activeLocale(), { timeZone: activeTimeZone() })}
                 >
                   {formatRelativeTime(ev.ts, now)}
                 </time>
                 <span
                   className={`h-1.5 w-1.5 shrink-0 translate-y-[-1px] rounded-full ${severityDotClass(ev.severity)}`}
-                  aria-label={ev.severity}
+                  aria-label={severityLabel(ev.severity)}
                 />
                 <span className="min-w-0 break-words text-muted-strong">
                   {before}

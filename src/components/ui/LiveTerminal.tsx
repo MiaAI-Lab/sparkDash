@@ -1,5 +1,9 @@
+import { useTranslation } from "react-i18next";
+import { activeLocale, i18next } from "../../i18n";
 import { useEffect, useMemo, useRef } from "react";
 import "../../styles/terminal.css";
+
+const t = i18next.t.bind(i18next);
 
 interface LiveTerminalProps {
   lines: readonly { seq: number; text: string }[];
@@ -28,8 +32,9 @@ export function LiveTerminal({
   running = false,
   maxVisible = 1500,
   className = "",
-  emptyText = "Waiting for output…",
+  emptyText = t("ui.terminal.waiting", "Waiting for output…"),
 }: LiveTerminalProps) {
+  useTranslation();
   const ref = useRef<HTMLPreElement>(null);
   const stick = useRef(true);
   const shown = lines.length > maxVisible ? lines.slice(lines.length - maxVisible) : lines;
@@ -48,14 +53,14 @@ export function LiveTerminal({
       tabIndex={0}
       role="log"
       aria-live="off"
-      aria-label="Command output"
+      aria-label={t("ui.text.commandOutput", "Command output")}
       onScroll={(e) => {
         const el = e.currentTarget;
         stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 28;
       }}
     >
-      {hidden > 0 ? <span className="live-term__note">… {hidden.toLocaleString()} earlier lines hidden (copy gets everything)</span> : null}
-      {text || (running ? emptyText : "No output.")}
+      {hidden > 0 ? <span className="live-term__note">… {hidden.toLocaleString(activeLocale())} {t("ui.text.earlierLinesHiddenCopyGetsEverything", "earlier lines hidden (copy gets everything)")}</span> : null}
+      {text || (running ? emptyText : t("ui.text.noOutput", "No output."))}
       {running ? <span className="live-term__cursor" aria-hidden /> : null}
     </pre>
   );

@@ -1,3 +1,4 @@
+import { localizedServerText, localizedServerMessage } from "../../i18n/messages";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
@@ -105,19 +106,19 @@ function defaultSelected(contextLength: number | null): number[] {
 }
 
 function buildShareText(job: PrefillBenchJob, modelId: string | null): string {
-  const name = modelId || job.config?.modelId || "unknown model";
-  const head = `${name} | prefill tok/s results:`;
+  const name = modelId || job.config?.modelId || i18next.t("spark.share.unknownModel", "unknown model");
+  const head = i18next.t("spark.share.prefillHeading", "{name} | prefill tok/s results:", { name });
   const lines = job.results.map((r) => {
     const label = formatContextSize(r.targetTokens);
     if (rowFailed(r)) {
-      return `${label}  failed — ${r.error || "no prefill rate was measured"}`;
+      return i18next.t("spark.share.prefillFailed", "{label}  failed — {error}", { label, error: r.error || i18next.t("spark.share.noPrefill", "no prefill rate was measured") });
     }
     const actual =
       r.promptTokens > 0 ? `${r.promptTokens} tok` : `${r.targetTokens} tok`;
     const flags = [
-      r.lowConfidence ? "low confidence" : null,
+      r.lowConfidence ? i18next.t("spark.share.lowConfidence", "low confidence") : null,
       r.samples != null && r.samplesRequested != null && r.samples < r.samplesRequested
-        ? `${r.samples}/${r.samplesRequested} samples`
+        ? i18next.t("spark.share.samples", "{actual}/{requested} samples", { actual: r.samples, requested: r.samplesRequested })
         : null,
     ].filter(Boolean);
     return `${label}  ${r.prefillTps.toFixed(1)} tok/s  · TTFT ${formatTtft(r.ttftMs)}  · ${actual}${flags.length ? `  · ${flags.join(", ")}` : ""}`;
@@ -709,7 +710,7 @@ export function PrefillBenchDialog({
                   />
                 </div>
                 {job.progress.message ? (
-                  <p className="bench-sheet__hint">{job.progress.message}</p>
+                  <p className="bench-sheet__hint">{localizedServerMessage(job.progress.i18n?.message, job.progress.message)}</p>
                 ) : null}
               </div>
               {job.results.length > 0 && (
@@ -741,7 +742,7 @@ export function PrefillBenchDialog({
                 </span>
               </div>
 
-              {job.error && <p className="bench-sheet__error">{job.error}</p>}
+              {job.error && <p className="bench-sheet__error">{localizedServerText(job.error)}</p>}
 
               {job.results.length > 0 && (
                 <div className="bench-results bench-results--table">
@@ -834,7 +835,7 @@ export function PrefillBenchDialog({
           )
         }
       >
-        {error && <p className="bench-sheet__error">{error}</p>}
+        {error && <p className="bench-sheet__error">{localizedServerText(error)}</p>}
         {isRunning && <PageCard title={t("spark.benchDialog.progress", "Progress")}>{progressNode}</PageCard>}
         {showResults && (
           <PageCard
@@ -928,7 +929,7 @@ export function PrefillBenchDialog({
 
           {configNode}
 
-          {error && <p className="bench-sheet__error">{error}</p>}
+          {error && <p className="bench-sheet__error">{localizedServerText(error)}</p>}
 
           {progressNode}
 

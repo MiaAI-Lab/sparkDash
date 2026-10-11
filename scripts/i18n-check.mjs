@@ -50,7 +50,7 @@ async function listSourceFiles() {
     .filter((file) => /\.(ts|tsx|js|jsx)$/.test(file))
     .filter((file) => !/\.test\.(ts|tsx|js|jsx)$/.test(file))
     .filter((file) => !file.startsWith(LOCALES + path.sep))
-    .filter((file) => !file.startsWith(path.join(SRC, "i18n") + path.sep));
+    .filter((file) => !file.startsWith(path.join(SRC, "i18n") + path.sep) || path.basename(file) === "messages.ts");
 }
 
 async function readNamespaces() {
@@ -253,7 +253,7 @@ async function main() {
     if (dynamicCalls.length > 20) console.log(`        … ${dynamicCalls.length - 20} more`);
   }
 
-  if (errors.length > 0 || (STRICT && warnings.length > 0)) process.exit(1);
+  if (errors.length > 0 || (STRICT && (warnings.length > 0 || dynamicCalls.length > 0))) process.exit(1);
 }
 
 await main();

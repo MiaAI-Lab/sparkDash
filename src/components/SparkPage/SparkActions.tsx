@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { i18next } from "../../i18n";
+import { localizedServerText } from "../../i18n/messages";
 import type { SparkSnapshot } from "../../api/types";
 import { shutdownSpark, wakeSpark } from "../../api/client";
 import { ConfirmShutdownDialog } from "../ConfirmShutdownDialog";
@@ -65,7 +66,7 @@ export function SparkActions({ spark, onEdit, className }: SparkActionsProps) {
   const { t } = useTranslation();
   const online = spark.online;
   const [powerLoading, setPowerLoading] = useState(false);
-  const [powerMsg, setPowerMsg] = useState<{ text: string; tone: "ok" | "err" } | null>(null);
+  const [powerMsg, setPowerMsg] = useState<{ text?: string; tone: "ok" | "err"; action: "shutdown" | "wake" } | null>(null);
   const [shutdownOpen, setShutdownOpen] = useState(false);
 
   const hermes = spark.hermes;
@@ -85,13 +86,15 @@ export function SparkActions({ spark, onEdit, className }: SparkActionsProps) {
     try {
       const res = await shutdownSpark(spark.id);
       setPowerMsg({
-        text: res.message || t("spark.action.shutdownInitiated", "Shutdown initiated"),
+        text: res.message,
         tone: "ok",
+        action: "shutdown",
       });
     } catch (err: unknown) {
       setPowerMsg({
-        text: err instanceof Error ? err.message : t("spark.action.shutdownFailed", "Shutdown failed"),
+        text: err instanceof Error ? err.message : undefined,
         tone: "err",
+        action: "shutdown",
       });
     } finally {
       setPowerLoading(false);
@@ -105,13 +108,15 @@ export function SparkActions({ spark, onEdit, className }: SparkActionsProps) {
     try {
       const res = await wakeSpark(spark.id);
       setPowerMsg({
-        text: res.message || t("spark.action.wakeSent", "Wake packet sent"),
+        text: res.message,
         tone: "ok",
+        action: "wake",
       });
     } catch (err: unknown) {
       setPowerMsg({
-        text: err instanceof Error ? err.message : t("spark.action.wakeFailed", "Wake failed"),
+        text: err instanceof Error ? err.message : undefined,
         tone: "err",
+        action: "wake",
       });
     } finally {
       setPowerLoading(false);
@@ -124,7 +129,9 @@ export function SparkActions({ spark, onEdit, className }: SparkActionsProps) {
       <div className={className}>
         {powerMsg && (
           <span className={`sp-flash ${powerMsg.tone === "ok" ? "text-success" : "text-danger"}`}>
-            {powerMsg.text}
+            {powerMsg.text ? localizedServerText(powerMsg.text) : powerMsg.action === "shutdown"
+              ? powerMsg.tone === "ok" ? t("spark.action.shutdownInitiated", "Shutdown initiated") : t("spark.action.shutdownFailed", "Shutdown failed")
+              : powerMsg.tone === "ok" ? t("spark.action.wakeSent", "Wake packet sent") : t("spark.action.wakeFailed", "Wake failed")}
           </span>
         )}
         {hermesRunning && (
@@ -142,7 +149,7 @@ export function SparkActions({ spark, onEdit, className }: SparkActionsProps) {
         {!hermesRunning && hermes?.monitoring && hermes.status === "error" && (
           <span
             className="sp-flash max-w-[16rem] truncate text-danger"
-            title={hermes.error || t("spark.action.hermesFailed", "Hermes update failed")}
+            title={hermes.error ? localizedServerText(hermes.error) : t("spark.action.hermesFailed", "Hermes update failed")}
           >
             {t("spark.action.hermesFailed", "Hermes update failed")}
           </span>

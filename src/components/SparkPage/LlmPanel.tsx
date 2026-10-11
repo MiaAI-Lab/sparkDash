@@ -1,3 +1,4 @@
+import { localizedServerText } from "../../i18n/messages";
 import { benchId } from "../../constants";
 import { BenchIcon } from "../bench/BenchIcon";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
@@ -239,7 +240,7 @@ function LlmLaunchers({
               HTTPS
             </label>
           </div>
-          {remoteError && <p className="sp-error">{remoteError}</p>}
+          {remoteError && <p className="sp-error">{localizedServerText(remoteError)}</p>}
           <div className="sp-btns">
             <button type="button" onClick={() => launchRemote("decode")} className="btn btn--sm">
               {t("spark.llm.decode", "Decode")}
@@ -266,8 +267,8 @@ const POSTURE_TONE: Record<NonNullable<LlmMetrics["posture"]>["level"], TagTone>
 /** Exposure / auth posture from the unauthenticated probe (issue #17). */
 function PostureBadge({ posture }: { posture: NonNullable<LlmMetrics["posture"]> }) {
   return (
-    <Tag tone={POSTURE_TONE[posture.level]} title={posture.detail}>
-      {posture.label}
+    <Tag tone={POSTURE_TONE[posture.level]} title={localizedServerText(posture.detail)}>
+      {localizedServerText(posture.label)}
     </Tag>
   );
 }
@@ -727,7 +728,7 @@ export function LlmPanel({
             </label>
           )}
           {portInvalid && <p className="sp-error">{t("spark.llm.portInvalid", "Enter an integer between 1 and 65535")}</p>}
-          {saveError && <p className="sp-error">{saveError}</p>}
+          {saveError && <p className="sp-error">{localizedServerText(saveError)}</p>}
           <div className="sp-btns sp-btns--end">
             <button
               type="button"
@@ -759,7 +760,7 @@ export function LlmPanel({
             {llm?.posture ? <PostureBadge posture={llm.posture} /> : <span className="sdot sdot--off" />}
             <p className="sp-muted">
               {llm?.posture?.auth === "protected"
-                ? t("spark.llm.protectedOn", "{label} on :{port}", { label: llm.posture.label, port: llmPort })
+                ? t("spark.llm.protectedOn", "{label} on :{port}", { label: localizedServerText(llm.posture.label), port: llmPort })
                 : t("spark.llm.noModel", "No model loaded on :{port}", { port: llmPort })}
             </p>
           </div>

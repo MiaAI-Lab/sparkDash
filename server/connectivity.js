@@ -2,6 +2,7 @@ import { SystemCollector, collectionWasSuccessful } from "./collectors/SystemCol
 import { HermesProbe } from "./collectors/HermesProbe.js";
 import { TailscaleProbe } from "./collectors/TailscaleProbe.js";
 import { comfyTest, llmTest, sshTest } from "./collectors/ssh.js";
+import { applicationTextI18n } from "../src/shared/applicationText.js";
 
 const RECOVERY = {
   host: {
@@ -36,7 +37,7 @@ export function buildConnectivityPlan(spark) {
 export function summarizeConnectivity(plan, results) {
   const capabilities = plan.map((capability) => {
     if (!capability.enabled) {
-      return { id: capability.id, label: capability.label, status: "skipped", required: false, message: "Disabled", recovery: null };
+      return { id: capability.id, label: capability.label, status: "skipped", required: false, message: "Disabled", recovery: null, i18n: { label: capabilityLabelI18n(capability), message: { key: "server.connection.disabled" } } };
     }
     const result = results[capability.id] || { ok: false, message: "Check did not run" };
     const ok = result.ok === true;
@@ -45,19 +46,29 @@ export function summarizeConnectivity(plan, results) {
       : capability.id === "host"
         ? RECOVERY.host[capability.label === "Local collectors" ? "local" : "remote"]
         : RECOVERY[capability.id];
+    const message = result.message || (ok ? "Available" : "Unavailable");
     return {
       id: capability.id,
       label: capability.label,
       status: ok ? "pass" : "fail",
       required: capability.required,
-      message: result.message || (ok ? "Available" : "Unavailable"),
+      message,
       recovery,
+      i18n: {
+        label: capabilityLabelI18n(capability),
+        message: applicationTextI18n(message) ?? { key: "server.connection.raw", params: { detail: message } },
+        ...(recovery ? { recovery: { key: `server.connection.recovery.${capability.id === "host" ? capability.label === "Local collectors" ? "hostLocal" : "hostRemote" : capability.id}` } } : {}),
+      },
     };
   });
   return {
     ok: capabilities.every((capability) => !capability.required || capability.status === "pass"),
     capabilities,
   };
+}
+
+function capabilityLabelI18n(capability) {
+  return { key: `server.connection.label.${capability.id}${capability.id === "host" ? capability.label === "Local collectors" ? ".local" : ".remote" : ""}` };
 }
 
 function checked(check) {

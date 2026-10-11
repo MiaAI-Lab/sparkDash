@@ -78,5 +78,5 @@ export function shutdownWarnings(sparks: readonly SparkSnapshot[]): string[] {
 
 export function formatCtx(n: number | null | undefined): string | null {
   if (!n || n <= 0) return null;
-  return n >= 1000 ? `${Math.round(n / 1024)}k ctx` : `${n} ctx`;
+  return i18next.t("overview.contextSize", "{size} ctx", { size: n >= 1000 ? `${Math.round(n / 1024)}k` : String(n) });
 }

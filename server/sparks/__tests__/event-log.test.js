@@ -43,6 +43,13 @@ test("dedupes same type+spark within 5s only", () => {
   assert.ok(log.record(ev("x")));
 });
 
+test("adds optional localization metadata without changing the English event", () => {
+  const log = new EventLog({ now: () => 1 });
+  const event = log.record({ type: "spark.online", sparkId: "s1", sparkName: "Spark 1", message: "Spark 1 came online" });
+  assert.equal(event.message, "Spark 1 came online");
+  assert.deepEqual(event.i18n, { message: { key: "activity.message.sparkOnline", params: { name: "Spark 1" } } });
+});
+
 test("a real offline -> online -> offline flip inside 5s is not deduped", () => {
   const c = clock();
   const log = new EventLog({ now: c.now });

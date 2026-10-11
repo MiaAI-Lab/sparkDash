@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { fetchRestartAvailable, restartServer } from "../../api/client";
 
 /** Wait for the server to go down and come back, then reload the page. */
@@ -18,6 +19,7 @@ async function waitForRestart() {
 
 /** "Restart sparkDash" with an in-place confirm. Renders nothing when the server can't restart itself. */
 export function RestartButton({ className = "btn btn--primary btn--sm" }: { className?: string }) {
+  const { t } = useTranslation();
   const [available, setAvailable] = useState(false);
   const [state, setState] = useState<"idle" | "confirm" | "restarting" | "error">("idle");
 
@@ -43,20 +45,20 @@ export function RestartButton({ className = "btn btn--primary btn--sm" }: { clas
   };
 
   if (state === "restarting") {
-    return <span className="tag" role="status">Restarting…</span>;
+    return <span className="tag" role="status">{t("ui.restart.restarting", "Restarting…")}</span>;
   }
   if (state === "confirm") {
     return (
-      <span role="group" aria-label="Confirm restart">
-        <span className="ov-note">Restart now? Running benchmarks will be interrupted.</span>{" "}
-        <button type="button" className={className} onClick={() => void run()}>Restart</button>{" "}
-        <button type="button" className="btn btn--sm btn--ghost" onClick={() => setState("idle")}>Cancel</button>
+      <span role="group" aria-label={t("ui.restart.confirmAria", "Confirm restart")}>
+        <span className="ov-note">{t("ui.restart.confirm", "Restart now? Running benchmarks will be interrupted.")}</span>{" "}
+        <button type="button" className={className} onClick={() => void run()}>{t("ui.restart.restart", "Restart")}</button>{" "}
+        <button type="button" className="btn btn--sm btn--ghost" onClick={() => setState("idle")}>{t("ui.restart.cancel", "Cancel")}</button>
       </span>
     );
   }
   return (
     <button type="button" className={className} onClick={() => setState("confirm")}>
-      {state === "error" ? "Restart failed — retry" : "Restart sparkDash"}
+      {state === "error" ? t("ui.restart.failed", "Restart failed — retry") : t("ui.restart.button", "Restart sparkDash")}
     </button>
   );
 }

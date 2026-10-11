@@ -1,3 +1,4 @@
+import { localizedServerText } from "../../i18n/messages";
 import { useEffect, useId, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
@@ -215,7 +216,7 @@ export function LlmLauncherDialog({ open, sparkId, sparkName, launcher, onClose,
             </div>
             {error ? (
               <p className="field-hint is-warn" role="alert">
-                {error}
+                {localizedServerText(error)}
               </p>
             ) : null}
           </div>

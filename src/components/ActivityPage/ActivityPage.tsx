@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { SparkSnapshot } from "../../api/types";
 import { i18next } from "../../i18n";
+import { localizedServerText } from "../../i18n/messages";
 import { StackedBarChart, type BarBucket, type BarSeries } from "../ui/StackedBarChart";
 import { RotateIcon, SearchIcon, XIcon } from "../ui/icons";
 import { EventRow } from "./EventRow";
@@ -52,7 +53,7 @@ export function ActivityPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[
   const [now, setNow] = useState(() => Date.now());
   const [away, setAway] = useState(false);
   const [unseen, setUnseen] = useState(0);
-  const [copyMsg, setCopyMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  const [copyMsg, setCopyMsg] = useState<{ count: number; ok: boolean } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const topRef = useRef<HTMLDivElement>(null);
   const awayRef = useRef(false);
@@ -149,9 +150,7 @@ export function ActivityPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[
     }
     setCopyMsg({
       ok,
-      text: ok
-        ? t("activity.toast.copied", "Copied {count, plural, one {# event} other {# events}}", { count: visible.length })
-        : t("activity.toast.copyBlocked", "Couldn't copy (clipboard blocked)"),
+        count: visible.length,
     });
     setTimeout(() => setCopyMsg(null), 2500);
   };
@@ -236,7 +235,7 @@ export function ActivityPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[
       return (
         <div className="ac-state" role="alert">
           <h3>{t("activity.error.title", "Couldn't load activity")}</h3>
-          <p>{feed.error}</p>
+            <p>{localizedServerText(feed.error)}</p>
           <button type="button" className="btn btn--primary btn--sm" onClick={() => void feed.reload()}>
             {t("activity.error.retry", "Retry")}
           </button>
@@ -325,7 +324,7 @@ export function ActivityPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[
             disabled={feed.status !== "ready"}
           />
           <span className={`ac-toast${copyMsg ? (copyMsg.ok ? " is-ok" : " is-err") : ""}`} role="status" aria-live="polite">
-            {copyMsg?.text}
+            {copyMsg ? copyMsg.ok ? t("activity.toast.copied", "Copied {count, plural, one {# event} other {# events}}", { count: copyMsg.count }) : t("activity.toast.copyBlocked", "Couldn't copy (clipboard blocked)") : null}
           </span>
         </div>
       </header>
@@ -482,7 +481,7 @@ export function ActivityPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[
               ) : null}
               {feed.moreError ? (
                 <p className="ac-more__err" role="alert">
-                  {t("activity.more.loadError", "Couldn't load older events: {message}", { message: feed.moreError })}
+                  {t("activity.more.loadError", "Couldn't load older events: {message}", { message: localizedServerText(feed.moreError) })}
                 </p>
               ) : null}
             </>

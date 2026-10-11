@@ -1,7 +1,11 @@
+import { useTranslation } from "react-i18next";
+import { i18next } from "../../i18n";
 import { useMemo, useState, type ReactNode } from "react";
 import { labelIndexes, niceScale } from "./chartScale";
 import { useElementWidth } from "./useElementWidth";
 import "../../styles/charts.css";
+
+const t = i18next.t.bind(i18next);
 
 export interface BarSeries {
   id: string;
@@ -50,9 +54,10 @@ export function StackedBarChart({
   format,
   unit,
   footer,
-  empty = "No data in this range yet.",
+  empty = t("ui.text.noDataInThisRangeYet", "No data in this range yet."),
   ariaLabel,
 }: StackedBarChartProps) {
+  useTranslation();
   const [ref, width] = useElementWidth();
   const [hover, setHover] = useState<number | null>(null);
 
@@ -136,8 +141,7 @@ export function StackedBarChart({
                 <em>{format(hovered.values[s.id] || 0)}</em>
               </span>
             ))}
-          <span className="chart__tip-total">
-            Total <em>{format(totals[hover])}{unit ? ` ${unit}` : ""}</em>
+          <span className="chart__tip-total"> {t("ui.text.total", "Total")} <em>{format(totals[hover])}{unit ? ` ${unit}` : ""}</em>
           </span>
           {footer ? <span className="chart__tip-foot">{footer(hovered)}</span> : null}
         </div>

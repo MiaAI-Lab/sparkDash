@@ -11,6 +11,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { atomicWrite } from "../util/atomicWrite.js";
+import { jobErrorI18n } from "../i18n/messages.js";
 import { decodeBenchManager } from "./DecodeBench.js";
 import { prefillBenchManager } from "./PrefillBench.js";
 import { qualityBenchManager } from "./QualityBench.js";
@@ -95,6 +96,7 @@ function publicSessionRecord(session, opts = {}) {
     peakTokPerSec: s.peakTokPerSec || 0,
     model: s.model ?? null,
     error: s.error ?? null,
+    i18n: s.error ? { error: jobErrorI18n(s.error) } : undefined,
   }));
 
   const totalTokens = streams.reduce((sum, s) => sum + (s.tokenCount || 0), 0);
@@ -130,6 +132,7 @@ function publicSessionRecord(session, opts = {}) {
     streamCount: streams.length,
     streams,
     error: session.error ?? null,
+    i18n: session.error ? { error: jobErrorI18n(session.error) } : undefined,
     fromHistory: Boolean(opts.fromHistory || session.fromHistory),
   };
 }
@@ -511,6 +514,7 @@ export class ShowcaseManager {
         peakTokPerSec: s.peakTokPerSec || 0,
         model: s.model,
         error: s.error,
+        i18n: s.error ? { error: jobErrorI18n(s.error) } : undefined,
       };
 
       if (fullSnapshot || resetContent) {
@@ -543,6 +547,7 @@ export class ShowcaseManager {
       serverGenerationSamples: session.serverGenerationSamples,
       streams,
       error: session.error,
+      i18n: session.error ? { error: jobErrorI18n(session.error) } : undefined,
       fromHistory: false,
     };
   }

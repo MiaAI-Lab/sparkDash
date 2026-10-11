@@ -1,3 +1,4 @@
+import { localizedServerText } from "../../i18n/messages";
 import { useState, useCallback, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { i18next } from "../../i18n";
@@ -304,7 +305,7 @@ export function ComfyPanel({
         <div className="space-y-1 text-sm">
           <p className="text-muted">{t("spark.comfy.notReachable", "Not reachable")}</p>
           {comfy?.error ? (
-            <p className="break-all text-[11px] text-muted">{comfy.error}</p>
+            <p className="break-all text-[11px] text-muted">{localizedServerText(comfy.error)}</p>
           ) : (
             <p className="text-[11px] text-muted">
               {t("spark.comfy.ensureRunning", "Ensure ComfyUI is running on this host (default port 8188).")}
@@ -333,7 +334,7 @@ export function ComfyPanel({
           </div>
 
           {actionError ? (
-            <p className="text-[11px] text-danger">{actionError}</p>
+            <p className="text-[11px] text-danger">{localizedServerText(actionError)}</p>
           ) : null}
 
           {active ? (

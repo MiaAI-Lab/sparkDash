@@ -19,7 +19,7 @@ It also supports **non-Spark units**: any Linux machine with an NVIDIA GPU (e.g.
 
 Monitored units run **Linux**, **macOS**, or **Windows** (a Windows PC with an NVIDIA GPU — or an AMD-iGPU Windows host like a Strix Halo, whose GPU usage comes from Windows' GPU engine counters; see [Windows PCs](#windows-pcs)).
 
-**Interface language:** choose **English** or **简体中文** in **Settings → Language**. It applies immediately and is saved in this browser without clicking Save. Simplified Chinese coverage is currently partial; see [coverage and contributor notes](./docs/i18n.md).
+**Interface language:** choose **English** or **简体中文** in **Settings → Language**. It applies immediately across the application and is saved in this browser without clicking Save. See [coverage, retained technical content and contributor notes](./docs/i18n.md).
 
 <img src="./.github/screenshot.png" alt="sparkDash Overview page with multiple DGX Spark units, GPU metrics, and LLM status">
 

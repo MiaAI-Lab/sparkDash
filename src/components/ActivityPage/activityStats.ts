@@ -1,6 +1,7 @@
 import type { ActivityEvent } from "../../api/types";
 import { configuredTimeZone } from "../../shared/timeZone";
 import { activeLocale, i18next } from "../../i18n";
+import { localizedActivityMessage } from "../../i18n/messages";
 
 /** Pure logic for the Activity page: categories, labels, filtering, counts, day grouping, export. */
 
@@ -88,8 +89,10 @@ function knownTypeLabel(type: string): string | null {
     case "hermes.update.available":
       return i18next.t("activity.type.hermesAvailable", "Hermes update available");
     case "hermes.update.success":
+    case "hermes.update.completed":
       return i18next.t("activity.type.hermesUpdated", "Hermes updated");
     case "hermes.update.error":
+    case "hermes.update.failed":
       return i18next.t("activity.type.hermesFailed", "Hermes update failed");
     case "health.xid":
       return i18next.t("activity.type.xid", "Xid error");
@@ -112,8 +115,10 @@ function knownTypeLabel(type: string): string | null {
     case "health.cleared":
       return i18next.t("activity.type.healthOk", "Health OK");
     case "power.shutdown":
+    case "power.shutdown.requested":
       return i18next.t("activity.type.shutdown", "Shutdown");
     case "power.wake":
+    case "power.wake.sent":
       return i18next.t("activity.type.wake", "Wake");
     default:
       return null;
@@ -173,9 +178,20 @@ export function typeLabel(type: string): string {
   }
   if (parts[0] === "llm" && parts.length === 3) {
     const action = llmAction(parts[1]);
-    if (action) return i18next.t("activity.type.llmAction", "{action} {stage}", { action, stage: parts[2] });
+    if (action) return i18next.t("activity.type.llmAction", "{action} {stage}", { action, stage: stageLabel(parts[2]) });
   }
   return sentence(type);
+}
+
+function stageLabel(stage: string): string {
+  switch (stage) {
+    case "requested": return i18next.t("activity.stage.requested", "requested");
+    case "completed": return i18next.t("activity.stage.completed", "completed");
+    case "cancelled": return i18next.t("activity.stage.cancelled", "cancelled");
+    case "failed": return i18next.t("activity.stage.failed", "failed");
+    case "detached": return i18next.t("activity.stage.detached", "detached");
+    default: return stage;
+  }
 }
 
 export function categoryLabel(id: CategoryId): string {
@@ -232,7 +248,7 @@ function matches(e: ActivityEvent, f: ActivityFilter, now: number, skip?: Dim): 
   if (skip !== "query") {
     const q = f.query.trim().toLowerCase();
     if (q) {
-      const hay = `${e.message}\n${e.sparkName ?? ""}\n${e.type}\n${typeLabel(e.type)}`.toLowerCase();
+      const hay = `${localizedActivityMessage(e)}\n${e.message}\n${e.sparkName ?? ""}\n${e.type}\n${typeLabel(e.type)}`.toLowerCase();
       if (!hay.includes(q)) return false;
     }
   }
@@ -476,7 +492,7 @@ export function summarize(events: readonly ActivityEvent[], now: number = Date.n
 export function exportText(events: readonly ActivityEvent[], tz?: string): string {
   return events
     .map((e) => {
-      return `${formatStamp(e.ts, tz)} [${severityLabel(e.severity)}] ${typeLabel(e.type)} - ${e.message}`.replace(/\s+/g, " ");
+      return `${formatStamp(e.ts, tz)} [${severityLabel(e.severity)}] ${typeLabel(e.type)} - ${localizedActivityMessage(e)}`.replace(/\s+/g, " ");
     })
     .join("\n");
 }

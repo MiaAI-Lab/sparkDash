@@ -1,5 +1,6 @@
 import { act } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { setLocale } from "../../i18n";
 import { MonthlyEnergy } from "./MonthlyEnergy";
 import { flush, render } from "../../testing/render";
 import type { MonthlyEnergy as MonthlyEnergyData, MonthlyEnergyMonth } from "../../api/types";
@@ -11,6 +12,10 @@ vi.mock("../../api/client", () => ({
 import { fetchMonthlyEnergy } from "../../api/client";
 
 const fetchMonthly = vi.mocked(fetchMonthlyEnergy);
+
+afterEach(async () => {
+  await act(async () => { await setLocale("en", { persist: false }); });
+});
 
 function month(key: string, nodes: Record<string, number>, over: Partial<MonthlyEnergyMonth> = {}): MonthlyEnergyMonth {
   const [y, m] = key.split("-").map(Number);
@@ -48,6 +53,23 @@ function choose(select: HTMLSelectElement, value: string) {
 }
 
 describe("MonthlyEnergy", () => {
+  it("translates cached monthly data, options and chart labels without refetching", async () => {
+    fetchMonthly.mockResolvedValue(data([month("2026-10", { a: 3000 })]));
+    const { container } = render(<MonthlyEnergy nameOf={nameOf} price={0.5} currency="$" />);
+    await flush();
+    const requests = fetchMonthly.mock.calls.length;
+    await act(async () => { await setLocale("zh-Hans", { persist: false }); });
+    expect(container.textContent).toContain("月度历史");
+    expect(container.textContent).toContain("2026年10月");
+    expect(container.textContent).toContain("已结算");
+    const year = [...container.querySelectorAll("button")].find((button) => button.textContent === "年")!;
+    act(() => year.click());
+    expect(container.querySelector('svg[aria-label="2026年每月能耗（kWh）"]')).toBeTruthy();
+    expect(container.textContent).toContain("10月");
+    expect(fetchMonthly.mock.calls).toHaveLength(requests);
+    await act(async () => { await setLocale("en", { persist: false }); });
+    expect(container.querySelector('svg[aria-label="Energy in kWh per month, 2026"]')).toBeTruthy();
+  });
   it("shows the newest month with per-node figures, including a node that left the fleet", async () => {
     fetchMonthly.mockResolvedValue(
       data([

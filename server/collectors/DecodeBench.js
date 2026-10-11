@@ -18,6 +18,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { atomicWrite } from "../util/atomicWrite.js";
+import { jobErrorI18n, jobTextI18n } from "../i18n/messages.js";
 import {
   applyThinkingFlags,
   mean,
@@ -1027,9 +1028,10 @@ function publicJob(job) {
     startedAt: job.startedAt,
     completedAt: job.completedAt,
     config: { ...job.config },
-    progress: { ...job.progress },
+    progress: { ...job.progress, i18n: { message: jobTextI18n(job.progress.message) } },
     results: job.results,
     error: job.error,
+    i18n: job.error ? { error: jobErrorI18n(job.error) } : undefined,
     durationMs:
       job.completedAt != null
         ? job.completedAt - job.startedAt

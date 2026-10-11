@@ -1,3 +1,4 @@
+import { localizedServerText, localizedServerMessage } from "../../i18n/messages";
 import { decodeBenchTypeLabel, decodeBenchTypeHint } from "./benchLabels";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -108,9 +109,9 @@ function formatTtft(ms: number): string {
  * concurrency level with decode tok/s and key metrics.
  */
 function buildShareText(job: DecodeBenchJob, modelId: string | null): string {
-  const name = modelId || "unknown model";
+  const name = modelId || i18next.t("spark.share.unknownModel", "unknown model");
   const typeLabel = decodeBenchTypeLabel(job.config?.promptType);
-  const head = `${name} | decode tok/s results (${typeLabel}):`;
+  const head = i18next.t("spark.share.decodeHeading", "{name} | decode tok/s results ({typeLabel}):", { name, typeLabel });
 
   const lines = job.results
     .slice()
@@ -118,9 +119,9 @@ function buildShareText(job: DecodeBenchJob, modelId: string | null): string {
     .map((r) => {
       if (r.totalDecodeTokens > 0 || r.totalCompletionTokens > 0) {
         const agg = r.aggregateDecodeTps > 0 ? r.aggregateDecodeTps : r.meanDecodeTps;
-        return `×${r.concurrency}  ${agg.toFixed(1)} agg  ${r.meanDecodeTps.toFixed(1)}/str  · TTFT ${formatTtft(r.meanTtftMs)}`;
+        return i18next.t("spark.share.decodeResult", "×{concurrency}  {aggregate} agg  {stream}/str  · TTFT {ttft}", { concurrency: r.concurrency, aggregate: agg.toFixed(1), stream: r.meanDecodeTps.toFixed(1), ttft: formatTtft(r.meanTtftMs) });
       }
-      return `×${r.concurrency}  failed${r.error ? ` — ${r.error}` : ""}`;
+      return i18next.t("spark.share.decodeFailed", "×{concurrency}  failed{error}", { concurrency: r.concurrency, error: r.error ? ` — ${r.error}` : "" });
     });
 
   return [head, "", ...lines].join("\n");
@@ -666,7 +667,7 @@ export function BenchmarkDialog({
                   />
                 </div>
                 {job.progress.message ? (
-                  <p className="bench-sheet__hint">{job.progress.message}</p>
+                  <p className="bench-sheet__hint">{localizedServerMessage(job.progress.i18n?.message, job.progress.message)}</p>
                 ) : null}
               </div>
               <LiveTps tps={job.progress.liveTps ?? liveTps} active />
@@ -703,7 +704,7 @@ export function BenchmarkDialog({
                 </span>
               </div>
 
-              {job.error && <p className="bench-sheet__error">{job.error}</p>}
+              {job.error && <p className="bench-sheet__error">{localizedServerText(job.error)}</p>}
 
               {job.results.length > 0 && (
                 <div className="bench-results bench-results--table">
@@ -784,7 +785,7 @@ export function BenchmarkDialog({
           )
         }
       >
-        {error && <p className="bench-sheet__error">{error}</p>}
+        {error && <p className="bench-sheet__error">{localizedServerText(error)}</p>}
         {isRunning && <PageCard title={t("spark.benchDialog.progress", "Progress")}>{progressNode}</PageCard>}
         {showResults && (
           <PageCard
@@ -879,7 +880,7 @@ export function BenchmarkDialog({
 
           {configNode}
 
-          {error && <p className="bench-sheet__error">{error}</p>}
+          {error && <p className="bench-sheet__error">{localizedServerText(error)}</p>}
 
           {progressNode}
 

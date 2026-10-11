@@ -5,7 +5,7 @@ import { useFocusTrap } from "../../hooks/useFocusTrap";
 import { useInertBackground } from "../../hooks/useInertBackground";
 import type { SparkSnapshot } from "../../api/types";
 import { ACTIVITY_ID, ENERGY_ID, OVERVIEW_ID, SHOWCASE_ID, TOKENS_ID, benchId, benchTypeOf, isPageId } from "../../constants";
-import { BENCH_TYPES } from "../bench/benchCatalog";
+import { BENCH_TYPES, localizeBenchType } from "../bench/benchCatalog";
 import { BoltIcon, ChartIcon, GearIcon, GridIcon, ListIcon, PlusIcon, ServerIcon, TerminalIcon, TokensIcon } from "../ui/icons";
 import { isThrottling, railSubLabel } from "./sparkSummary";
 import { ShutdownAll } from "../ShutdownAll";
@@ -126,7 +126,7 @@ export function MobileTabBar({ sparks, activeId, onSelect, onAdd, onOpenSettings
                   <div className="rail-label rail-label--spaced">
                     <span>{t("shell.nav.benchmarks", "Benchmarks")}</span>
                   </div>
-                  {BENCH_TYPES.map((b) => (
+                  {BENCH_TYPES.map((b) => localizeBenchType(b, t)).map((b) => (
                     <Fragment key={b.id}>
                       <button
                         type="button"

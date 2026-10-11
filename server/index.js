@@ -61,6 +61,7 @@ import { ToolEvalStore } from "./tooleval/ToolEvalStore.js";
 import { ToolEvalManager } from "./tooleval/ToolEvalManager.js";
 import { registerToolEvalRoutes } from "./tooleval/routes.js";
 import { benchEvent } from "./events/eventFormat.js";
+import { responseI18n, withApiError } from "./i18n/messages.js";
 import {
   createFleetEnergyRuntime,
   registerFleetEnergyRoute,
@@ -463,6 +464,13 @@ const app = express();
 const server = createServer(app);
 
 app.use(express.json());
+// One response boundary keeps every JSON route backwards compatible while
+// attaching metadata for application-owned errors and notices.
+app.use((_req, res, next) => {
+  const json = res.json.bind(res);
+  res.json = (body) => json(responseI18n(body));
+  next();
+});
 // Registered ahead of the auth middleware: a remote browser holding no token
 // (or a stale one) must still be able to learn that it needs one.
 app.get("/api/auth/status", createHostGuardMiddleware(), (req, res) => {
@@ -493,7 +501,7 @@ app.delete("/api/events", (req, res) => {
   const raw = req.query.olderThanMs;
   const olderThanMs = raw == null || raw === "" ? undefined : Number(raw);
   if (olderThanMs !== undefined && (!Number.isFinite(olderThanMs) || olderThanMs <= 0)) {
-    return res.status(400).json({ error: "olderThanMs must be a positive number" });
+    return withApiError(res, 400, "olderThanMs must be a positive number", "server.error.historyAge");
   }
   res.json({ removed: eventLog.clear({ olderThanMs }) });
 });
