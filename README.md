@@ -757,7 +757,7 @@ Copy `.env.example` to `.env` if needed:
 | `POLL_INTERVAL_COMFY` | _(setting)_ | ComfyUI probe poll (ms); same rule |
 | `POLL_INTERVAL_CPU` | _(setting)_ | CPU / RAM poll (ms); same rule |
 | `POLL_INTERVAL_NETWORK` | _(setting)_ | Network poll (ms); same rule |
-| `POLL_INTERVAL_STORAGE` | `5000` | Storage poll (ms) |
+| `POLL_INTERVAL_STORAGE` | `5000` | Storage poll (ms): disk usage and the read/write speed on the Storage panel |
 | `POLL_INTERVAL_LLM` | _(setting)_ | LLM probe poll (ms); same rule |
 | `POLL_INTERVAL_BANDWIDTH` | _(setting, ≥ 2000)_ | Memory bandwidth / dmon poll (ms); same rule, and when it follows the setting it never drops below 2000 |
 | `POLL_INTERVAL_HERMES` | `600000` | Hermes Agent update check poll (ms) |

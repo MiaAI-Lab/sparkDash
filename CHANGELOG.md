@@ -12,6 +12,9 @@ Format: version sections are listed newest first.
 ### Added
 - Simplified Chinese interface translations throughout the application and a **Settings → Language** selector for English / 简体中文. The choice applies immediately and is remembered in the current browser, including Token totals, Fleet energy, Showcase, standalone benchmarks, Tool Eval, menus, charts, share cards and authored server messages. Optional server descriptors preserve original English API fields. Raw model/log/test content and technical identifiers remain unchanged; see [coverage and localization notes](./docs/i18n.md).
 
+### Fixed
+- **Disk read/write speed on remote units.** Only the unit sparkDash runs on measured it; every Linux unit reached over SSH and every Windows PC showed 0 B/s forever. Remote Linux units now read the block-device counters in the same SSH round trip as the disk usage, and Windows PCs read the per-drive performance counters, so the Storage panel shows live read and write speed (macOS units still show none). Two mounts on one physical disk no longer make the second read 0. Reported by a user ("disk I/O is not being reflected in real-time").
+
 ---
 
 ## [2.40.0] — 2026-10-11

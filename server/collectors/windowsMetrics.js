@@ -101,6 +101,9 @@ export const WINDOWS_SYSTEM_SCRIPT = [
   "$st=@{};Get-NetAdapterStatistics|%{$st[$_.Name]=$_}",
   "$ip=@{};Get-NetIPAddress -AddressFamily IPv4|%{if(-not $ip[$_.InterfaceIndex]){$ip[$_.InterfaceIndex]=$_.IPAddress}}",
   "Get-NetAdapter|%{@((Cl $_.Name),$_.Status,$_.ReceiveLinkSpeed,$st[$_.Name].ReceivedBytes,$st[$_.Name].SentBytes,$ip[$_.ifIndex],$_.Virtual) -join $t}",
+  "'---'",
+  // Cumulative bytes per drive with the counter's own clock, so a cached run does not distort the rate.
+  "Get-CimInstance Win32_PerfRawData_PerfDisk_LogicalDisk|?{$_.Name -match '^[A-Za-z]:$'}|%{@((Cl $_.Name),$_.DiskReadBytesPerSec,$_.DiskWriteBytesPerSec,$_.Timestamp_Sys100NS) -join $t}",
   "exit 0",
 ].join("\n");
 
@@ -116,7 +119,7 @@ const num = (value) => {
  */
 export function parseWindowsSystem(output) {
   const sections = String(output ?? "").split(/^---\s*$/m).map((s) => s.trim());
-  const [mem = "", cpu = "", disks = "", route = "", nets = ""] = sections;
+  const [mem = "", cpu = "", disks = "", route = "", nets = "", io = ""] = sections;
 
   const [totalKB, freeKB, uptime] = mem.split("\t").map(num);
   const cpuParts = cpu.split("\t");
@@ -146,6 +149,16 @@ export function parseWindowsSystem(output) {
     });
   }
 
+  // Cumulative read/write bytes per drive letter, with the sample time in ms.
+  const diskIo = new Map();
+  for (const line of io.split(/\r?\n/)) {
+    const [name, read, written, stamp] = line.replace(/\r$/, "").split("\t");
+    const r = num(read);
+    const w = num(written);
+    const t = num(stamp);
+    if (name && r != null && w != null && t != null) diskIo.set(name.toUpperCase(), { readBytes: r, writtenBytes: w, atMs: t / 10_000 });
+  }
+
   return {
     totalMB: totalKB != null ? Math.round(totalKB / 1024) : 0,
     availableMB: freeKB != null ? Math.round(freeKB / 1024) : 0,
@@ -154,6 +167,7 @@ export function parseWindowsSystem(output) {
     cpuName: (cpuParts[1] || "").trim() || null,
     logicalCpus: num(cpuParts[2]),
     disks: diskRows,
+    diskIo,
     defaultInterface: route.trim().split(/\r?\n/)[0]?.trim() || null,
     adapters,
   };

@@ -73,6 +73,11 @@ function tagCollectionResult(result, successful) {
  * In Phase 2, this is the LOCAL path only (no SSH).
  * Remote path added in Phase 3.
  */
+/** Separates `df` output from the block-device counters in the remote storage command. */
+const REMOTE_IO_MARKER = "---sparkdash-block-io---";
+/** Samples of one disk closer together than this (ms) are the same poll and share one rate. */
+const DISK_RATE_MIN_WINDOW_MS = 250;
+
 export class SystemCollector {
   constructor(spark) {
     this.spark = spark;
@@ -1052,6 +1057,29 @@ export class SystemCollector {
     return mount;
   }
 
+  /**
+   * Bytes/s read and written by a block device since its previous sample, from cumulative
+   * counters: sectors of 512 bytes from /sys/block/<dev>/stat, or bytes (`unit` 1) on Windows.
+   * The first sample of a device has nothing to compare with and reads 0.
+   */
+  _diskRate(dev, sectorsRead, sectorsWritten, now = Date.now(), unit = 512) {
+    const last = this.lastDiskIO.get(dev);
+    // Several mounts on one disk are read back to back within a poll: a second sample a few
+    // milliseconds after the first would show 0, so they share the first one's rate.
+    if (last && now - last.time >= 0 && now - last.time < DISK_RATE_MIN_WINDOW_MS) return last.rate;
+    let rate = { readSpeed: 0, writeSpeed: 0 };
+    if (last && now > last.time) {
+      const dtMs = now - last.time;
+      const per = (cur, prev) => Math.max(0, Math.round((((cur - prev) * unit) / dtMs) * 1000));
+      rate = {
+        readSpeed: per(sectorsRead, last.sectorsRead),
+        writeSpeed: per(sectorsWritten, last.sectorsWritten),
+      };
+    }
+    this.lastDiskIO.set(dev, { sectorsRead, sectorsWritten, time: now, rate });
+    return rate;
+  }
+
   /** Get disk I/O speeds from /sys/block/<dev>/stat */
   async _getDiskIO(dev) {
     try {
@@ -1060,25 +1088,7 @@ export class SystemCollector {
         : path.join("/sys/block", dev, "stat");
       const raw = fs.readFileSync(sysPath, "utf-8").trim();
       const fields = raw.split(/\s+/);
-      const sectorsRead = parseInt(fields[2]) || 0;
-      const sectorsWritten = parseInt(fields[6]) || 0;
-      const now = Date.now();
-
-      const last = this.lastDiskIO.get(dev);
-      this.lastDiskIO.set(dev, { sectorsRead, sectorsWritten, time: now });
-
-      if (!last) return { readSpeed: 0, writeSpeed: 0 };
-
-      const dtMs = now - last.time;
-      if (dtMs <= 0) return { readSpeed: 0, writeSpeed: 0 };
-
-      const readSpeed = Math.round(((sectorsRead - last.sectorsRead) * 512 / dtMs) * 1000);
-      const writeSpeed = Math.round(((sectorsWritten - last.sectorsWritten) * 512 / dtMs) * 1000);
-
-      return {
-        readSpeed: Math.max(0, readSpeed),
-        writeSpeed: Math.max(0, writeSpeed),
-      };
+      return this._diskRate(dev, parseInt(fields[2]) || 0, parseInt(fields[6]) || 0);
     } catch {
       return { readSpeed: 0, writeSpeed: 0 };
     }
@@ -1513,56 +1523,77 @@ export class SystemCollector {
 
   async _getRemoteStorage() {
     try {
-      // Include root (/); exclude pseudo filesystems via -x and type filter
+      // Include root (/); exclude pseudo filesystems via -x and type filter. The block devices'
+      // cumulative sector counters ride in the same round trip, after a marker line.
       const cmd =
-        "df -l -B1 -T -x tmpfs -x devtmpfs -x squashfs -x overlay -x efivarfs -x proc -x sysfs -x devpts -x cgroup -x cgroup2 2>/dev/null";
+        "df -l -B1 -T -x tmpfs -x devtmpfs -x squashfs -x overlay -x efivarfs -x proc -x sysfs -x devpts -x cgroup -x cgroup2 2>/dev/null; " +
+        `echo ${REMOTE_IO_MARKER}; ` +
+        'for d in /sys/block/*; do echo "${d##*/} $(cat "$d/stat" 2>/dev/null)"; done 2>/dev/null';
       const output = await sshExec(this.spark, cmd);
-      const lines = output.trim().split("\n").slice(1); // Skip header
-      const disks = [];
-      const disabledDevices = this.spark.disabledDevices || [];
-      const PSEUDO = new Set([
-        "tmpfs",
-        "devtmpfs",
-        "proc",
-        "sysfs",
-        "efivarfs",
-        "squashfs",
-        "overlay",
-        "devpts",
-        "cgroup",
-        "cgroup2",
-      ]);
-
-      for (const line of lines) {
-        const parts = line.split(/\s+/);
-        if (parts.length < 7) continue;
-        const [fsys, type, size, used, avail, pct, mount] = parts;
-
-        if (mount === "/boot/efi" || mount.includes("/snap")) continue;
-        if (PSEUDO.has((type || "").toLowerCase())) continue;
-
-        const device = fsys.split("/").pop() || fsys;
-        const isDisabled =
-          disabledDevices.includes(device) || disabledDevices.includes(mount);
-
-        disks.push({
-          device,
-          label: mount,
-          used: Math.round(parseInt(used) / 1024 / 1024),
-          total: Math.round(parseInt(size) / 1024 / 1024),
-          available: Math.round(parseInt(avail) / 1024 / 1024),
-          percentage: parseInt(pct) || 0,
-          readSpeed: 0,
-          writeSpeed: 0,
-          disabled: isDisabled,
-        });
-      }
-
-      return disks;
+      return this._parseRemoteStorage(output);
     } catch (err) {
       console.error(`[SystemCollector] Remote Storage error for ${this.spark.id}:`, err.message);
       return [];
     }
+  }
+
+  /** Disks from `df` output, with read/write speed from the block-device counters that follow it. */
+  _parseRemoteStorage(output, now = Date.now()) {
+    const [dfText, ioText = ""] = String(output).split(REMOTE_IO_MARKER);
+    const counters = new Map();
+    for (const line of ioText.split("\n")) {
+      const f = line.trim().split(/\s+/);
+      // name, then the kernel's stat fields: sectors read is the 3rd, sectors written the 7th.
+      if (f.length >= 8 && /^\d+$/.test(f[3]) && /^\d+$/.test(f[7])) {
+        counters.set(f[0], { read: parseInt(f[3], 10), written: parseInt(f[7], 10) });
+      }
+    }
+    const lines = dfText.trim().split("\n").slice(1); // Skip header
+    const disks = [];
+    const disabledDevices = this.spark.disabledDevices || [];
+    const PSEUDO = new Set([
+      "tmpfs",
+      "devtmpfs",
+      "proc",
+      "sysfs",
+      "efivarfs",
+      "squashfs",
+      "overlay",
+      "devpts",
+      "cgroup",
+      "cgroup2",
+    ]);
+
+    for (const line of lines) {
+      const parts = line.split(/\s+/);
+      if (parts.length < 7) continue;
+      const [fsys, type, size, used, avail, pct, mount] = parts;
+
+      if (mount === "/boot/efi" || mount.includes("/snap")) continue;
+      if (PSEUDO.has((type || "").toLowerCase())) continue;
+
+      const device = fsys.split("/").pop() || fsys;
+      const isDisabled = disabledDevices.includes(device) || disabledDevices.includes(mount);
+
+      const parent = this._blockParentDevice(device);
+      const c = counters.get(parent);
+      let io = { readSpeed: 0, writeSpeed: 0 };
+      if (c) io = this._diskRate(parent, c.read, c.written, now);
+
+      disks.push({
+        device,
+        label: mount,
+        used: Math.round(parseInt(used) / 1024 / 1024),
+        total: Math.round(parseInt(size) / 1024 / 1024),
+        available: Math.round(parseInt(avail) / 1024 / 1024),
+        percentage: parseInt(pct) || 0,
+        readSpeed: io.readSpeed,
+        writeSpeed: io.writeSpeed,
+        disabled: isDisabled,
+      });
+    }
+
+    return disks;
   }
 
   /**
@@ -1967,10 +1998,12 @@ export class SystemCollector {
 
   async _getWindowsStorage() {
     try {
-      const { disks } = await this._windowsSystem();
+      const { disks, diskIo } = await this._windowsSystem();
       const disabledDevices = this.spark.disabledDevices || [];
       const MB = 1024 * 1024;
       return disks.map((d) => {
+        const c = diskIo?.get(String(d.id).toUpperCase());
+        const io = c ? this._diskRate(d.id, c.readBytes, c.writtenBytes, c.atMs, 1) : { readSpeed: 0, writeSpeed: 0 };
         const total = Math.round(d.totalBytes / MB);
         const available = Math.round(d.freeBytes / MB);
         const used = Math.max(0, total - available);
@@ -1981,8 +2014,8 @@ export class SystemCollector {
           total,
           available,
           percentage: total > 0 ? Math.round((used / total) * 100) : 0,
-          readSpeed: 0,
-          writeSpeed: 0,
+          readSpeed: io.readSpeed,
+          writeSpeed: io.writeSpeed,
           disabled: disabledDevices.includes(d.id),
         };
       });
