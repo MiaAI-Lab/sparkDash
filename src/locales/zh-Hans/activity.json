@@ -1,0 +1,170 @@
+{
+  "title": "活动",
+  "severity": {
+    "error": "错误",
+    "warn": "警告",
+    "success": "成功",
+    "info": "信息",
+    "errors": "错误",
+    "warnings": "警告"
+  },
+  "type": {
+    "sparkOnline": "在线",
+    "sparkOffline": "离线",
+    "sparkAdded": "已添加 Spark",
+    "sparkRemoved": "已移除 Spark",
+    "throttleThermal": "热降频",
+    "throttleCleared": "降频已解除",
+    "hermesAvailable": "有可用的 Hermes 更新",
+    "hermesUpdated": "Hermes 已更新",
+    "hermesFailed": "Hermes 更新失败",
+    "xid": "Xid 错误",
+    "oom": "内存不足被终止",
+    "runningHot": "温度过高",
+    "lowPower": "低功耗状态",
+    "lowMemory": "内存不足",
+    "concurrency": "加载模型过多",
+    "linkSpeed": "链路缓慢",
+    "healthOk": "健康正常",
+    "shutdown": "关机",
+    "wake": "唤醒",
+    "benchDecode": "解码基准测试",
+    "benchPrefill": "预填充基准测试",
+    "benchQuality": "质量基准测试",
+    "llmStart": "LLM 启动",
+    "llmStop": "LLM 停止",
+    "llmAttach": "LLM 挂接",
+    "benchFinished": "{name}",
+    "benchFailed": "{name} 失败",
+    "benchCancelled": "{name} 已取消",
+    "llmAction": "{action} {stage}",
+    "event": "事件"
+  },
+  "category": {
+    "status": "状态（在线/离线）",
+    "thermal": "温度",
+    "health": "健康",
+    "hermes": "Hermes",
+    "bench": "基准测试",
+    "power": "电源",
+    "llm": "LLM 模型",
+    "fleet": "设备变更",
+    "other": "其他"
+  },
+  "day": {
+    "today": "今天",
+    "yesterday": "昨天"
+  },
+  "updated": {
+    "connecting": "正在连接",
+    "justNow": "刚刚",
+    "secondsAgo": "{count} 秒前",
+    "minutesAgo": "{count} 分钟前"
+  },
+  "ago": {
+    "hours": "{count} 小时前",
+    "days": "{count} 天前"
+  },
+  "row": {
+    "openSpark": "打开 {name}",
+    "hideDetails": "隐藏详情：{label}",
+    "showDetails": "显示详情：{label}"
+  },
+  "detail": {
+    "message": "消息",
+    "time": "时间",
+    "severity": "严重级别",
+    "type": "类型",
+    "eventId": "事件 ID",
+    "spark": "Spark",
+    "category": "类别",
+    "data": "数据",
+    "copy": "复制",
+    "copied": "已复制"
+  },
+  "clear": {
+    "older7d": "早于 7 天",
+    "older7dAsk": "删除早于 7 天的事件？",
+    "older24h": "早于 24 小时",
+    "older24hAsk": "删除早于 24 小时的事件？",
+    "everything": "全部",
+    "everythingAsk": "删除全部活动历史记录？"
+  },
+  "action": {
+    "copyText": "复制为文本",
+    "resetFilters": "重置筛选"
+  },
+  "chart": {
+    "title": "每日事件",
+    "empty": "最近 14 天没有事件。",
+    "aria": "最近 14 天的每日事件，共 {total} 条"
+  },
+  "count": {
+    "showing": "已加载 {total} 条事件，当前显示 {shown} 条",
+    "filtered": "（已筛选）"
+  },
+  "empty": {
+    "nothing": "暂无任何记录",
+    "detail": "服务器会实时记录设备事件：Spark 上线或离线、GPU 热降频、Hermes 更新、基准测试运行、关机与唤醒、LLM 启动与停止运行，以及 Spark 的添加或移除。",
+    "filtered": "没有符合筛选条件的事件",
+    "filteredHint": "试试更大的时间范围，或清除某个筛选条件。"
+  },
+  "error": {
+    "title": "无法加载活动记录",
+    "retry": "重试"
+  },
+  "filters": {
+    "aria": "筛选",
+    "severityAria": "严重级别",
+    "rangeAria": "时间范围",
+    "all": "全部",
+    "allCategories": "全部类别",
+    "allSparks": "全部 Spark",
+    "category": "类别",
+    "spark": "Spark",
+    "searchAria": "搜索事件",
+    "searchPlaceholder": "搜索消息、Spark 或类型",
+    "severityChipTitle": "{severity}事件",
+    "fleetWide": "全局（{count}）"
+  },
+  "header": {
+    "clearMenu": "清除历史…",
+    "summaryAria": "概要，点击可筛选",
+    "subtitle": "设备上发生的一切：重启、降频、更新、基准测试、电源与 LLM 运行。服务器保留最近 2,000 条事件。"
+  },
+  "live": {
+    "failed": "更新失败，正在重试",
+    "live": "实时 · {updated}",
+    "paused": "已暂停（标签页隐藏）"
+  },
+  "more": {
+    "end": "已到达服务器保留的最早事件。",
+    "filtersHint": "筛选仅作用于目前已加载的事件。",
+    "loadError": "无法加载更早的事件：{message}",
+    "loadOlder": "加载更早的"
+  },
+  "newbar": "{count, plural, other {# 条新事件}}，跳到顶部",
+  "range": {
+    "all": "全部",
+    "d7": "7 天",
+    "h24": "24 小时"
+  },
+  "tile": {
+    "errors24h": "错误，24 小时",
+    "events24h": "事件，24 小时",
+    "eventsCount": "{count, plural, other {# 条事件}}",
+    "in7d": "7 天内 {count}",
+    "mostActive": "最活跃的 Spark",
+    "noEventsYet": "暂无事件",
+    "none": "无",
+    "problems": "出现问题的 Spark",
+    "warnings24h": "警告，24 小时"
+  },
+  "toast": {
+    "copied": "已复制 {count, plural, other {# 条事件}}",
+    "copyBlocked": "无法复制（剪贴板被阻止）"
+  },
+  "skel": {
+    "loading": "正在加载活动记录"
+  }
+}
