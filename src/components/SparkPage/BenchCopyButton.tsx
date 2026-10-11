@@ -9,6 +9,8 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
+import { i18next } from "../../i18n";
 import { ChevronDownIcon } from "../ui/icons";
 import { shareCardFileName, type ShareCardModel } from "./benchShareCard";
 import { canCopyImages, copyCardImage, copyTextOnly, renderCardObjectUrl } from "./shareImage";
@@ -30,18 +32,20 @@ interface BenchCopyButtonProps {
 function stateLabel(state: CopyState, shareImage: boolean): string {
   switch (state) {
     case "working":
-      return "Copying…";
+      return i18next.t("spark.copy.working", "Copying…");
     case "image":
-      return "Image copied!";
+      return i18next.t("spark.copy.imageCopied", "Image copied!");
     case "downloaded":
-      return "PNG saved";
+      return i18next.t("spark.copy.downloaded", "PNG saved");
     case "shown":
-      return "Card shown";
+      return i18next.t("spark.copy.shown", "Card shown");
     case "text":
       // Off, this is the copy button as it always was.
-      return shareImage ? "Copied text!" : "Copied!";
+      return shareImage
+        ? i18next.t("spark.copy.textCopied", "Copied text!")
+        : i18next.t("spark.copy.copied", "Copied!");
     default:
-      return "Copy results";
+      return i18next.t("spark.copy.copy", "Copy results");
   }
 }
 
@@ -58,6 +62,7 @@ export function BenchCopyButton({
   shareImage,
   onError,
 }: BenchCopyButtonProps) {
+  const { t } = useTranslation();
   const [state, setState] = useState<CopyState>("idle");
   /** Secure context? Without it the card can only be downloaded. */
   const imageClipboard = shareImage && canCopyImages();
@@ -162,7 +167,7 @@ export function BenchCopyButton({
       await copyTextOnly(text);
       flash("text");
     } catch {
-      onError("Could not copy results to clipboard");
+      onError(t("spark.copy.errText", "Could not copy results to clipboard"));
     }
   };
 
@@ -182,7 +187,7 @@ export function BenchCopyButton({
     else if (outcome === "downloaded") flash("downloaded");
     else {
       setState("idle");
-      onError("Could not copy the image to the clipboard");
+      onError(t("spark.copy.errImage", "Could not copy the image to the clipboard"));
     }
   };
 
@@ -200,7 +205,7 @@ export function BenchCopyButton({
     const url = await renderCardObjectUrl(buildCard());
     if (!url) {
       setState("idle");
-      onError("Could not render the card image");
+      onError(t("spark.copy.errRender", "Could not render the card image"));
       return;
     }
     setPreview(url);
@@ -242,7 +247,7 @@ export function BenchCopyButton({
         className="bench-btn bench-btn--ghost"
         onClick={() => void copyText()}
         disabled={state === "working"}
-        title="Copy a plain-text summary to the clipboard"
+        title={t("spark.copy.copyTitle", "Copy a plain-text summary to the clipboard")}
       >
         {stateLabel(state, shareImage)}
       </button>
@@ -262,7 +267,10 @@ export function BenchCopyButton({
         className="bench-btn bench-btn--ghost"
         onClick={() => void copyText()}
         disabled={state === "working"}
-        title="Copy the results as plain text — the caret on the right copies the share-card image instead"
+        title={t(
+          "spark.copy.labelTitle",
+          "Copy the results as plain text — the caret on the right copies the share-card image instead",
+        )}
       >
         {stateLabel(state, shareImage)}
       </button>
@@ -271,11 +279,11 @@ export function BenchCopyButton({
         className="bench-btn bench-btn--ghost bench-copy-caret -ml-px px-1.5"
         aria-haspopup="menu"
         aria-expanded={menuOpen}
-        aria-label="Copy format"
+        aria-label={t("spark.copy.format", "Copy format")}
         title={
           imageClipboard
-            ? "Copy as text or as an image"
-            : "Copy as text, or show or download the image"
+            ? t("spark.copy.caretTitleImage", "Copy as text or as an image")
+            : t("spark.copy.caretTitleText", "Copy as text, or show or download the image")
         }
         disabled={state === "working"}
         onMouseEnter={openMenu}
@@ -290,7 +298,7 @@ export function BenchCopyButton({
           <span
             ref={menuRef}
             role="menu"
-            aria-label="Copy format"
+            aria-label={t("spark.copy.format", "Copy format")}
             onMouseEnter={cancelClose}
             onMouseLeave={scheduleClose}
             style={{
@@ -310,7 +318,7 @@ export function BenchCopyButton({
               className="block w-full rounded px-2 py-1.5 text-left text-[11px] text-muted transition-colors hover:bg-surface-hover hover:text-text"
               onClick={() => void copyText()}
             >
-              Copy as text
+              {t("spark.copy.asText", "Copy as text")}
             </button>
             {imageClipboard ? (
               <button
@@ -319,7 +327,7 @@ export function BenchCopyButton({
                 className="block w-full rounded px-2 py-1.5 text-left text-[11px] text-muted transition-colors hover:bg-surface-hover hover:text-text"
                 onClick={() => void copyImage()}
               >
-                Copy as image
+                {t("spark.copy.asImage", "Copy as image")}
               </button>
             ) : (
               <>
@@ -328,9 +336,12 @@ export function BenchCopyButton({
                   role="menuitem"
                   className="block w-full rounded px-2 py-1.5 text-left text-[11px] text-muted transition-colors hover:bg-surface-hover hover:text-text"
                   onClick={() => void showImage()}
-                  title="This page is served over http on a LAN address, where a page cannot write images to the clipboard. The card is shown as an image instead — right-click → Copy Image, or drag it into your post."
+                  title={t(
+                    "spark.copy.showCardTitle",
+                    "This page is served over http on a LAN address, where a page cannot write images to the clipboard. The card is shown as an image instead — right-click → Copy Image, or drag it into your post.",
+                  )}
                 >
-                  Show card
+                  {t("spark.copy.showCard", "Show card")}
                 </button>
                 <button
                   type="button"
@@ -338,7 +349,7 @@ export function BenchCopyButton({
                   className="block w-full rounded px-2 py-1.5 text-left text-[11px] text-muted transition-colors hover:bg-surface-hover hover:text-text"
                   onClick={() => void copyImage()}
                 >
-                  Download PNG
+                  {t("spark.copy.downloadPng", "Download PNG")}
                 </button>
               </>
             )}
@@ -350,7 +361,7 @@ export function BenchCopyButton({
           <div
             role="dialog"
             aria-modal="true"
-            aria-label="Benchmark share card"
+            aria-label={t("spark.copy.cardDialog", "Benchmark share card")}
             className="card-preview"
             onMouseDown={(e) => {
               if (e.target === e.currentTarget) closePreview();
@@ -358,23 +369,36 @@ export function BenchCopyButton({
           >
             <div className="card-preview__panel">
               <div className="card-preview__head">
-                <h2>Share card</h2>
-                <button type="button" className="icon-circle" onClick={closePreview} aria-label="Close share card">
+                <h2>{t("spark.copy.shareCard", "Share card")}</h2>
+                <button
+                  type="button"
+                  className="icon-circle"
+                  onClick={closePreview}
+                  aria-label={t("spark.copy.closeShareCard", "Close share card")}
+                >
                   ✕
                 </button>
               </div>
               {/* eslint-disable-next-line jsx-a11y/alt-text -- alt text is on the img below */}
-              <img src={preview} alt="Benchmark result card — right-click to copy it" className="card-preview__img" />
+              <img
+                src={preview}
+                alt={t("spark.copy.imageAlt", "Benchmark result card — right-click to copy it")}
+                className="card-preview__img"
+              />
               <p className="card-preview__hint">
-                Right-click → <strong>Copy Image</strong>, or drag the card into your post. Browsers only let a page copy
-                images over HTTPS or localhost, so the card is shown here for your browser to copy.
+                {t("spark.copy.previewHintLead", "Right-click → ")}
+                <strong>{t("spark.copy.previewHintStrong", "Copy Image")}</strong>
+                {t(
+                  "spark.copy.previewHintBody",
+                  ", or drag the card into your post. Browsers only let a page copy images over HTTPS or localhost, so the card is shown here for your browser to copy.",
+                )}
               </p>
               <div className="card-preview__actions">
                 <button type="button" className="btn" onClick={downloadPreview}>
-                  Download PNG
+                  {t("spark.copy.downloadPng", "Download PNG")}
                 </button>
                 <button type="button" className="btn btn--primary" onClick={closePreview}>
-                  Close
+                  {t("common.action.close", "Close")}
                 </button>
               </div>
             </div>

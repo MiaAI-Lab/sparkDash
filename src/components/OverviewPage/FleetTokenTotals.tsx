@@ -11,7 +11,7 @@ import { useEffect, useState } from "react";
 import { fetchLlmTokenTotals } from "../../api/llmTokenClient";
 import { addTokens, formatTokensCompact } from "../../shared/tokenFormat";
 import type { LlmTokenRange, LlmTokenSeriesTotals } from "../../api/llmTokenTypes";
-import { LEDGER_HINT, LEDGER_TITLE } from "../SparkPage/tokenTotalsCopy";
+import { ledgerHint, ledgerTitle } from "../SparkPage/tokenTotalsCopy";
 
 const POLL_MS = 60_000;
 
@@ -141,8 +141,8 @@ export function FleetTokenTotals({ onOpenDetails }: { onOpenDetails?: () => void
           {formatTokensCompact(totalCompletion)}
           <small>{t("overview.tokens.generated", "generated")}</small>
         </div>
-        <div className="ov-card__sub" title={LEDGER_TITLE}>
-          {t("overview.tokens.ledgerLine", "{hint}, whole fleet", { hint: LEDGER_HINT })}
+        <div className="ov-card__sub" title={ledgerTitle()}>
+          {t("overview.tokens.ledgerLine", "{hint}, whole fleet", { hint: ledgerHint() })}
         </div>
       </div>
       <div className="seg-bar" role="img" aria-label={t("overview.tokens.segAria", "Generated, cached prefill and computed prefill token share")}>
