@@ -50,3 +50,14 @@ test("timeZone follows the browser by default, accepts IANA names and drops anyt
   assert.equal(updateSettings({ timeZone: "x".repeat(80) }).timeZone, "");
   assert.equal(updateSettings({ timeZone: "" }).timeZone, "");
 });
+
+test("every Overview panel is shown by default (an older file gets that too) and each can be switched off", () => {
+  const keys = ["showFleetEnergy", "showLlmTokenTotals", "showActivityFeed", "showKpiDecode", "showKpiPower", "showKpiMemory", "showKpiTokens"];
+  fs.writeFileSync(process.env.SETTINGS_JSON_PATH, JSON.stringify({ density: "compact" }));
+  const fresh = loadSettings();
+  for (const k of keys) assert.equal(fresh[k], true, k);
+  for (const k of keys) {
+    assert.equal(updateSettings({ [k]: false })[k], false, k);
+    assert.equal(updateSettings({ [k]: true })[k], true, k);
+  }
+});

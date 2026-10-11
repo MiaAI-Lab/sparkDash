@@ -9,7 +9,12 @@ export interface SparkConfig {
    *   just not a Spark). Real hardware is auto-detected once online.
    */
   kind?: "spark" | "host";
-  /** OS of an SSH-collected unit. Windows PCs are always "host" units with an NVIDIA GPU. */
+  /**
+   * Optional OS platform override for SSH-collected units. "linux" (default)
+   * uses /proc + nvidia-smi, "darwin" macOS hosts, "windows" Windows hosts
+   * (PowerShell collectors; NVIDIA via nvidia-smi, AMD iGPUs via GPU
+   * performance counters).
+   */
   platform?: "linux" | "darwin" | "windows";
   lanIp: string;
   cx7Ip?: string | null;
@@ -372,8 +377,10 @@ export interface UnifiedMemoryMetrics {
 
 // ─── LLM metrics ─────────────────────────────────────────
 export interface LlmMetrics {
+  /** The LLM port this snapshot came from — lets the UI match panels to probes by port, not array position. */
+  port?: number;
   available: boolean;
-  backend: "vllm" | "llama.cpp" | "sglang" | "ds4" | "exl3" | "q27" | "tensorfold" | "freetoken" | null;
+  backend: "vllm" | "llama.cpp" | "sglang" | "lmstudio" | "ollama" | "ds4" | "exl3" | "q27" | "tensorfold" | "freetoken" | null;
   /** How the monitor reaches the engine: its own address, or an SSH forward when only SSH gets there. */
   via?: "direct" | "ssh-tunnel";
   modelId: string | null;
@@ -709,6 +716,12 @@ export interface Settings {
   /** Overview search field + status filter. Off by default. */
   showOverviewSearch: boolean;
   showLlmTokenTotals: boolean;
+  /** Overview KPI tiles and the Recent activity card; each can be hidden. All on by default. */
+  showKpiDecode?: boolean;
+  showKpiPower?: boolean;
+  showKpiMemory?: boolean;
+  showKpiTokens?: boolean;
+  showActivityFeed?: boolean;
   /** Benchmark dialogs offer "Copy image" — a PNG share card of the results. */
   benchShareImage: boolean;
   /** IANA time zone for the Tokens, Energy and Activity charts; "" follows the browser. */

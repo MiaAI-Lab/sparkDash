@@ -17,7 +17,7 @@ import {
   validateConnect,
   type AddStep,
 } from "./addSparkSteps";
-import { addDeviceLabel, UNIT_TYPE_OPTIONS, unitTypeOf, unitTypePatch, type UnitType } from "../shared/deviceKind";
+import { addDeviceLabel, unitTypeOf, unitTypePatch, type UnitType } from "../shared/deviceKind";
 import { TestResultList } from "./TestResultList";
 import { resolveSparkRole } from "../api/sparkRole";
 import type { SparkRole } from "../api/types";
@@ -78,6 +78,13 @@ function Stepper({ step }: { step: AddStep }) {
   );
 }
 
+/** One-click ports for common servers. They only fill a port number; nothing is installed. */
+const SERVER_PRESETS = [
+  { name: "LM Studio", port: 1234 },
+  { name: "Ollama", port: 11434 },
+  { name: "TensorFold", port: 8888 },
+] as const;
+
 export function AddSparkDialog({ open, onClose, onAdded, defaultLlmPort = 8888 }: AddSparkDialogProps) {
   const { t } = useTranslation();
   const [config, setConfig] = useState(defaultConfig);
@@ -116,6 +123,15 @@ export function AddSparkDialog({ open, onClose, onAdded, defaultLlmPort = 8888 }
 
   const update = (patch: Partial<Omit<SparkConfig, "id">>) => {
     setConfig((prev) => ({ ...prev, ...patch }));
+  };
+
+  /** Add a server's default port to the list (the untouched default port is replaced), keeping the text field in step. */
+  const addPresetPort = (port: number) => {
+    const current = parsePorts(portsText);
+    const untouched = current.length === 1 && current[0] === defaultLlmPort;
+    const next = untouched || current.length === 0 ? [port] : current.includes(port) ? current : [...current, port];
+    setPortsText(next.join(", "));
+    update({ llmPorts: next });
   };
 
   const updateSsh = (patch: Partial<SparkConfig["ssh"]>) => {
@@ -248,7 +264,7 @@ export function AddSparkDialog({ open, onClose, onAdded, defaultLlmPort = 8888 }
                     {t("spark.kindOption.host", "Dedicated GPU host (Linux, nvidia-smi, not a Spark)")}
                   </option>
                   <option value="windows">
-                    {t("spark.kindOption.windows", "Windows PC with an NVIDIA GPU (OpenSSH, nvidia-smi)")}
+                    {t("spark.kindOption.windows", "Windows PC (NVIDIA GPU or AMD Strix Halo)")}
                   </option>
                 </select>
               </div>
@@ -461,9 +477,21 @@ export function AddSparkDialog({ open, onClose, onAdded, defaultLlmPort = 8888 }
                     }}
                     placeholder={String(defaultLlmPort)}
                   />
-                  <p className="field-hint">
-                    {t("spark.hint.llmPortsDefault", "Default: {port}", { port: defaultLlmPort })}
-                  </p>
+                  <p className="field-hint">{t("spark.hint.llmPortsDefault", "Default: {port}", { port: defaultLlmPort })}</p>
+                  <div role="group" aria-label={t("spark.add.serverPresets", "Server presets")} className="sp-btns">
+                    <span className="eyebrow">{t("spark.add.presets", "Presets:")}</span>
+                    {SERVER_PRESETS.map((preset) => (
+                      <button
+                        key={preset.port}
+                        type="button"
+                        className="btn btn--sm"
+                        title={t("spark.add.presetTitle", "Add {name} default port ({port})", { name: preset.name, port: preset.port })}
+                        onClick={() => addPresetPort(preset.port)}
+                      >
+                        {preset.name} :{preset.port}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               ) : (
                 <p className="field-hint">

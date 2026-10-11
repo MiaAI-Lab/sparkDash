@@ -20,6 +20,27 @@ const REDETECT_INTERVAL_MS = 60_000;
 /** Current SGLang names first. Deprecated aliases still work but log a warning per hit. */
 const SGLANG_SERVER_INFO_PATHS = ["/server_info", "/get_server_info"];
 const SGLANG_MODEL_INFO_PATHS = ["/model_info", "/get_model_info"];
+const LMSTUDIO_MODELS_PATH = "/api/v0/models";
+const LMSTUDIO_PROBE_TIMEOUT_MS = 8000;
+const OLLAMA_TAGS_PATH = "/api/tags";
+/**
+ * Fields a genuine SGLang /server_info|/get_server_info payload carries. Some
+ * servers (LM Studio) answer 200 with a JSON body on EVERY path, so "is it an
+ * object" is not enough to classify — require SGLang-shaped fields.
+ */
+const SGLANG_INFO_FIELDS = [
+  "context_length",
+  "max_total_tokens",
+  "max_req_input_len",
+  "max_total_num_tokens",
+  "max_running_requests",
+  "total_input_tokens",
+  "total_output_tokens",
+  "total_cached_tokens",
+  "model_path",
+  "tokenizer_path",
+  "load_format",
+];
 /**
  * SGLang's last_gen_throughput is a sticky gauge (holds last decode rate when
  * idle). Only treat it as live after we observe a change between polls, and
@@ -82,7 +103,7 @@ export class LlmProbe {
     this._openTunnel = openSshLlmTunnel;
 
     // State
-    this.backendType = null; // 'vllm' | 'llama.cpp' | 'sglang' | 'ds4' | 'exl3' | 'q27' | 'tensorfold' | 'freetoken' | null
+    this.backendType = null; // 'vllm' | 'llama.cpp' | 'sglang' | 'lmstudio' | 'ollama' | 'ds4' | 'exl3' | 'q27' | 'tensorfold' | 'freetoken' | null
     this.serverIsOpenAI = null; // true = OpenAI-compatible
     /** Whether /v1/models (or /slots) answered without credentials. null = unknown. */
     this.authOpen = null;
@@ -429,6 +450,8 @@ export class LlmProbe {
     if (
       this.backendType !== "vllm" &&
       this.backendType !== "sglang" &&
+      this.backendType !== "lmstudio" &&
+      this.backendType !== "ollama" &&
       this.backendType !== "ds4" &&
       this.backendType !== "exl3" &&
       this.backendType !== "q27" &&
@@ -481,11 +504,17 @@ export class LlmProbe {
   }
 
   /**
-   * Classify an OpenAI-compatible server: ds4, SGLang, EXL3, q27, TensorFold, FreeToken, or vLLM (default).
+   * Classify an OpenAI-compatible server: LM Studio, Ollama, ds4, SGLang,
+   * EXL3, q27, TensorFold, FreeToken, or vLLM (default).
    * @param {unknown} ownedBy
-   * @returns {Promise<"ds4" | "sglang" | "exl3" | "q27" | "tensorfold" | "freetoken" | "vllm">}
+   * @returns {Promise<"lmstudio" | "ollama" | "ds4" | "sglang" | "exl3" | "q27" | "tensorfold" | "freetoken" | "vllm">}
    */
   async _classifyOpenAIBackend(ownedBy) {
+    // LM Studio first: it answers 200 + JSON on every path, so the heuristic
+    // probes below (notably SGLang's /server_info) would misfire on it.
+    if (await this._probeIsLmStudio()) return "lmstudio";
+    // Ollama second: its native /api/tags contract is unique among engines.
+    if (await this._probeIsOllama()) return "ollama";
     if (typeof ownedBy === "string") {
       if (/ds4/i.test(ownedBy)) return "ds4";
       if (/sglang/i.test(ownedBy)) return "sglang";
@@ -496,6 +525,8 @@ export class LlmProbe {
       if (/tensorfold/i.test(ownedBy)) return "tensorfold";
       // FreeToken reports owned_by: "FreeToken".
       if (/freetoken/i.test(ownedBy)) return "freetoken";
+      // Ollama's OpenAI-compat /v1/models may report its own name.
+      if (/^ollama$/i.test(ownedBy)) return "ollama";
     }
     if (await this._probeIsDs4()) return "ds4";
     if (await this._probeIsSglang()) return "sglang";
@@ -579,7 +610,52 @@ export class LlmProbe {
 
   /** True when SGLang native server-info endpoints respond. */
   async _probeIsSglang() {
-    return (await this._fetchSglangJson(SGLANG_SERVER_INFO_PATHS)) != null;
+    const sgData = await this._fetchSglangJson(SGLANG_SERVER_INFO_PATHS);
+    if (sgData == null) return false;
+    // Some catch-all servers (LM Studio) answer 200 + {"error": ...} on every
+    // path. A real SGLang server-info payload carries SGLang-shaped fields.
+    return SGLANG_INFO_FIELDS.some((f) => f in sgData);
+  }
+
+  /**
+   * True when `/api/v0/models` matches LM Studio's REST contract — model
+   * entries with a load `state` (plus publisher/arch/quantization metadata).
+   * No other OpenAI-compatible server exposes this shape.
+   */
+  async _probeIsLmStudio() {
+    // LM Studio is a single-threaded server on the probed machine; while it is busy
+    // (generating) responses can exceed the normal probe timeout, and a miss silently
+    // downgrades the backend label to "vllm", so detection gets a longer budget. One
+    // attempt only: a port that hangs on this path must not stall the poll for twice that.
+    try {
+      const res = await this._fetch(`${this.baseUrl}${LMSTUDIO_MODELS_PATH}`, LMSTUDIO_PROBE_TIMEOUT_MS);
+      if (!res.ok) return false;
+      const data = await res.json().catch(() => null);
+      if (!data || typeof data !== "object" || !Array.isArray(data.data) || data.data.length === 0) {
+        return false;
+      }
+      return data.data.every((m) => m && typeof m === "object" && typeof m.id === "string" && "state" in m);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * True when `/api/tags` matches Ollama's native contract — a top-level
+   * `models` array (even empty). No other engine serves this shape; Ollama
+   * 404s unknown paths so the catch-all hazards don't apply, but without a
+   * positive probe it would fall through to the "vllm" default label.
+   */
+  async _probeIsOllama() {
+    try {
+      const res = await this._fetch(`${this.baseUrl}${OLLAMA_TAGS_PATH}`);
+      if (!res.ok) return false;
+      const data = await res.json().catch(() => null);
+      if (!data || typeof data !== "object" || !Array.isArray(data.models)) return false;
+      return data.models.every((m) => m == null || typeof m === "object");
+    } catch {
+      return false;
+    }
   }
 
   /** True when Prometheus /metrics exposes ds4-server series (ds4-on-spark). */
@@ -742,7 +818,9 @@ export class LlmProbe {
     if (this.backendType === "sglang" || this.backendType == null) {
       this._sglangTotalsPolled = false;
       const sgData = await this._fetchSglangJson(SGLANG_SERVER_INFO_PATHS);
-      if (sgData) {
+      // Catch-all servers (LM Studio) answer 200 + {"error": …} on every path;
+      // only latch sglang when the payload actually looks like SGLang.
+      if (sgData && SGLANG_INFO_FIELDS.some((f) => f in sgData)) {
         this.backendType = "sglang";
         // Load before last_gen_throughput so inflight can keep a steady rate live.
         await this._probeSglangLoad();
@@ -780,41 +858,59 @@ export class LlmProbe {
       return this._getSnapshot();
     }
 
-    // Single /metrics fetch: ds4-server or vLLM Prometheus exposition
-    try {
-      const metricsRes = await this._fetch(`${this.baseUrl}/metrics`);
-      if (metricsRes.ok) {
-        const txt = await metricsRes.text();
-        if (
-          this.backendType === "ds4" ||
-          LlmProbe._metricsLookLikeDs4(txt)
-        ) {
-          this.backendType = "ds4";
-          this._applyDs4Metrics(txt, dtSec);
+    // Single /metrics fetch: ds4-server or vLLM Prometheus exposition.
+    // Skip it for backends that never serve Prometheus — LM Studio answers
+    // 200 + JSON on every path, and each fetch just spams its access log.
+    const wantsPrometheus =
+      this.backendType == null ||
+      this.backendType === "vllm" ||
+      this.backendType === "ds4" ||
+      this.backendType === "q27" ||
+      this.backendType === "sglang";
+    if (wantsPrometheus) {
+      try {
+        const metricsRes = await this._fetch(`${this.baseUrl}/metrics`);
+        if (metricsRes.ok) {
+          const txt = await metricsRes.text();
+          if (
+            this.backendType === "ds4" ||
+            LlmProbe._metricsLookLikeDs4(txt)
+          ) {
+            this.backendType = "ds4";
+            this._applyDs4Metrics(txt, dtSec);
+          } else if (
+            this.backendType === "q27" ||
+            LlmProbe._metricsLookLikeQ27(txt)
+          ) {
+            this.backendType = "q27";
+            this._applyQ27Metrics(txt, dtSec);
+          } else {
+            // Only claim vLLM when the backend is still unclassified — a
+            // positively-identified backend (LM Studio, tensorfold, …) must not
+            // be downgraded just because its /metrics body isn't Prometheus text
+            // (LM Studio answers 200 + JSON on every path).
+            if (this.backendType == null || this.backendType === "vllm") {
+              this.backendType = "vllm";
+              this._applyVllmMetrics(txt, dtSec);
+            }
+          }
         } else if (
-          this.backendType === "q27" ||
-          LlmProbe._metricsLookLikeQ27(txt)
+          (this.backendType == null || this.backendType === "vllm") &&
+          this.backendType !== "ds4" &&
+          this.backendType !== "exl3" &&
+          this.backendType !== "q27"
         ) {
-          this.backendType = "q27";
-          this._applyQ27Metrics(txt, dtSec);
-        } else {
           this.backendType = "vllm";
-          this._applyVllmMetrics(txt, dtSec);
         }
-      } else if (
-        this.backendType !== "ds4" &&
-        this.backendType !== "exl3" &&
-        this.backendType !== "q27"
-      ) {
-        this.backendType = "vllm";
-      }
-    } catch {
-      if (
-        this.backendType !== "ds4" &&
-        this.backendType !== "exl3" &&
-        this.backendType !== "q27"
-      ) {
-        this.backendType = "vllm";
+      } catch {
+        if (
+          (this.backendType == null || this.backendType === "vllm") &&
+          this.backendType !== "ds4" &&
+          this.backendType !== "exl3" &&
+          this.backendType !== "q27"
+        ) {
+          this.backendType = "vllm";
+        }
       }
     }
 
@@ -2276,6 +2372,7 @@ export class LlmProbe {
   _getSnapshot() {
     const metricsLive = this.serverIsOpenAI !== null && this.authOpen !== false;
     return {
+      port: this.port,
       available: metricsLive,
       via: this._tunnel ? "ssh-tunnel" : "direct",
       backend: this.backendType,
@@ -2317,6 +2414,7 @@ export class LlmProbe {
 
   _defaultLlm() {
     return {
+      port: this.port,
       available: false,
       backend: this.backendType,
       modelId: null,
@@ -2362,10 +2460,10 @@ export class LlmProbe {
     return key || null;
   }
 
-  async _fetch(url) {
-    const headers = {};
+  async _fetch(url, timeoutMs = LLM_PROBE_TIMEOUT_MS, init = {}) {
+    const headers = { ...init.headers };
     const apiKey = this._apiKey();
     if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
-    return fetch(url, { signal: AbortSignal.timeout(LLM_PROBE_TIMEOUT_MS), headers });
+    return fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs), headers });
   }
 }

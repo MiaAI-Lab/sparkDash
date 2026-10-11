@@ -76,6 +76,9 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
   const [dirty, setDirty] = useState(false);
   const [theme, setTheme] = useState<ThemeId>(readTheme);
   const [tokenSet, setTokenSet] = useState(() => getToken() !== "");
+  const [languagePending, setLanguagePending] = useState(false);
+  const [languageError, setLanguageError] = useState(false);
+  const locale = activeLocale();
 
   const themeLabels: Record<ThemeId, string> = {
     white: t("common.settings.theme.white", "White"),
@@ -133,7 +136,7 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
     if (!settings) return;
     if (settings.timeZone && !isValidTimeZone(settings.timeZone)) {
       // The server would silently fall back to the browser's zone; say so instead.
-      setError(`"${settings.timeZone}" is not a known time zone (for example Europe/Paris), or clear the field to follow the browser.`);
+      setError(t("common.settings.timeZone.invalid", '"{zone}" is not a known time zone (for example Europe/Paris), or clear the field to follow the browser.', { zone: settings.timeZone }));
       return;
     }
     setSaving(true);
@@ -156,6 +159,18 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
   const pickTheme = (next: ThemeId) => {
     setTheme(next);
     applyTheme(next);
+  };
+
+  const pickLanguage = async (next: Locale) => {
+    setLanguagePending(true);
+    setLanguageError(false);
+    try {
+      await setLocale(next);
+    } catch {
+      setLanguageError(true);
+    } finally {
+      setLanguagePending(false);
+    }
   };
 
   return (
@@ -210,33 +225,44 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
 
           <SettingRow
             title={t("common.settings.language.title", "Language")}
-            help={t("common.settings.language.help", "Interface language. Saved in this browser.")}
+            help={t("common.settings.language.help", "Applies instantly. Saved in this browser; no need to click Save.")}
           >
             <div
               className="seg"
               role="radiogroup"
               aria-label={t("common.settings.language.title", "Language")}
+              aria-busy={languagePending}
             >
               <button
                 type="button"
                 role="radio"
-                aria-checked={activeLocale() === "zh-Hans"}
-                className={activeLocale() === "zh-Hans" ? "is-on" : ""}
-                onClick={() => void setLocale("zh-Hans")}
+                aria-checked={locale === "zh-Hans"}
+                className={locale === "zh-Hans" ? "is-on" : ""}
+                disabled={languagePending}
+                lang="zh-Hans"
+                onClick={() => void pickLanguage("zh-Hans")}
               >
                 简体中文
               </button>
               <button
                 type="button"
                 role="radio"
-                aria-checked={activeLocale() === "en"}
-                className={activeLocale() === "en" ? "is-on" : ""}
-                onClick={() => void setLocale("en")}
+                aria-checked={locale === "en"}
+                className={locale === "en" ? "is-on" : ""}
+                disabled={languagePending}
+                lang="en"
+                onClick={() => void pickLanguage("en")}
               >
                 English
               </button>
             </div>
           </SettingRow>
+
+          {languageError && (
+            <p className="modal-sheet__error" role="alert">
+              {t("common.settings.language.failed", "Could not load the language. Please try again.")}
+            </p>
+          )}
 
           {settings && !loading && (
             <>
@@ -480,11 +506,38 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
                 onChange={(v) => update({ showLlmTokenTotals: v })}
               />
               <ToggleRow
+                title={t("common.settings.activityFeed.title", "Show Recent activity")}
+                help={t("common.settings.activityFeed.help", "Overview card with the latest health and kernel events. The full Activity page is always available from the sidebar.")}
+                checked={settings.showActivityFeed ?? true}
+                onChange={(v) => update({ showActivityFeed: v })}
+              />
+              <ToggleRow
+                title={t("common.settings.kpiDecode.title", "Show Fleet decode tile")}
+                help={t("common.settings.kpiDecode.help", "Overview tile with the fleet's total generation tok/s.")}
+                checked={settings.showKpiDecode ?? true}
+                onChange={(v) => update({ showKpiDecode: v })}
+              />
+              <ToggleRow
+                title={t("common.settings.kpiPower.title", "Show Fleet power tile")}
+                help={t("common.settings.kpiPower.help", "Overview tile with the fleet's total power draw.")}
+                checked={settings.showKpiPower ?? true}
+                onChange={(v) => update({ showKpiPower: v })}
+              />
+              <ToggleRow
+                title={t("common.settings.kpiMemory.title", "Show Memory in use tile")}
+                help={t("common.settings.kpiMemory.help", "Overview tile with the fleet's total memory in use.")}
+                checked={settings.showKpiMemory ?? true}
+                onChange={(v) => update({ showKpiMemory: v })}
+              />
+              <ToggleRow
+                title={t("common.settings.kpiTokens.title", "Show Tokens today tile")}
+                help={t("common.settings.kpiTokens.help", "Overview tile with the tokens generated today (or the online unit count, when no tokens are tracked yet).")}
+                checked={settings.showKpiTokens ?? true}
+                onChange={(v) => update({ showKpiTokens: v })}
+              />
+              <ToggleRow
                 title={t("common.settings.fleetExceptions.title", "Show active fleet exceptions")}
-                help={t(
-                  "common.settings.fleetExceptions.help",
-                  "Overview strip for offline hosts, GPU throttle, disk, LLM, and Tailnet alerts. Off by default."
-                )}
+                help={t("common.settings.fleetExceptions.help", "Overview strip for offline hosts, GPU throttle, disk, LLM, and Tailnet alerts. Off by default.")}
                 checked={Boolean(settings.showFleetExceptions)}
                 onChange={(v) => update({ showFleetExceptions: v })}
               />

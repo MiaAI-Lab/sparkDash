@@ -91,7 +91,7 @@ export function ActivityPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[
   }, []);
 
   const summary = useMemo(() => summarize(events, now), [events, now]);
-  const buckets = useMemo(() => eventsPerDay(events, now), [events, now]);
+  const buckets = useMemo(() => eventsPerDay(events, now), [events, now, i18n.language]);
   const chartBuckets: BarBucket[] = useMemo(
     () => buckets.map((b) => ({ key: b.key, label: b.label, title: b.title, values: b.counts })),
     [buckets]
@@ -100,9 +100,9 @@ export function ActivityPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[
   // labels and the day headings are translated.
   const visible = useMemo(() => filterEvents(events, filter, now), [events, filter, now, i18n.language]);
   const groups = useMemo(() => groupByDay(visible, now), [visible, now, i18n.language]);
-  const sevCounts = useMemo(() => countBySeverity(events, filter, now), [events, filter, now]);
-  const catCounts = useMemo(() => countByCategory(events, filter, now), [events, filter, now]);
-  const sparkCounts = useMemo(() => countBySpark(events, filter, now), [events, filter, now]);
+  const sevCounts = useMemo(() => countBySeverity(events, filter, now), [events, filter, now, i18n.language]);
+  const catCounts = useMemo(() => countByCategory(events, filter, now), [events, filter, now, i18n.language]);
+  const sparkCounts = useMemo(() => countBySpark(events, filter, now), [events, filter, now, i18n.language]);
   const options = useMemo(() => sparkOptions(sparks, events), [sparks, events]);
   const hasNoSpark = (sparkCounts[NO_SPARK] ?? 0) > 0 || filter.sparkId === NO_SPARK;
   const active = isFilterActive(filter);

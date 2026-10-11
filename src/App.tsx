@@ -2,6 +2,7 @@ import { BenchIcon } from "./components/bench/BenchIcon";
 import { setConfiguredTimeZone } from "./shared/timeZone";
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { i18next } from "./i18n";
 import { useSnapshot } from "./hooks/useSnapshot";
 import { useAppRoute, useRoute } from "./hooks/useRoute";
 import { useSmoothWheel } from "./hooks/useSmoothWheel";
@@ -297,7 +298,7 @@ function DashboardApp() {
         })
         .catch((err) =>
           setActionError(
-            t("common.errors.couldNotLoadSettings", "Could not load settings: {message}. Reload to retry.", {
+            i18next.t("common.errors.couldNotLoadSettings", "Could not load settings: {message}. Reload to retry.", {
               message: err instanceof Error ? err.message : String(err),
             })
           )
@@ -381,7 +382,7 @@ function DashboardApp() {
         })
       );
     }
-  }, [sparks, activeId, replace]);
+  }, [sparks, activeId, replace, t]);
 
   const handleReorder = useCallback(
     async (orderedIds: string[]) => {
@@ -399,7 +400,7 @@ function DashboardApp() {
         );
       }
     },
-    [displaySparks, hiddenWorkerIds]
+    [displaySparks, hiddenWorkerIds, t]
   );
 
   const [showPalette, setShowPalette] = useState(false);
@@ -566,6 +567,13 @@ function DashboardApp() {
                   showFleetExceptions={settings?.showFleetExceptions ?? false}
                   showOverviewSearch={settings?.showOverviewSearch ?? false}
                   showLlmTokenTotals={settings?.showLlmTokenTotals ?? true}
+                  showActivityFeed={settings?.showActivityFeed ?? true}
+                  kpis={{
+                    decode: settings?.showKpiDecode ?? true,
+                    power: settings?.showKpiPower ?? true,
+                    memory: settings?.showKpiMemory ?? true,
+                    tokens: settings?.showKpiTokens ?? true,
+                  }}
                   showVramBreakdown={settings?.showVramBreakdown ?? true}
                   temperatureUnit={settings?.temperatureUnit ?? "celsius"}
                   onSelectSpark={navigate}

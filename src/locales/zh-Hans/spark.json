@@ -8,7 +8,7 @@
   "kindOption": {
     "spark": "NVIDIA DGX Spark",
     "host": "专用 GPU 主机（Linux、nvidia-smi，非 Spark）",
-    "windows": "配备 NVIDIA GPU 的 Windows PC（OpenSSH、nvidia-smi）"
+    "windows": "Windows 电脑（NVIDIA GPU 或 AMD Strix Halo）"
   },
   "step": {
     "connect": "连接",
@@ -89,7 +89,10 @@
     "monitorComfyHint": "任务队列和实时进度。默认端口 8188。",
     "monitorHermes": "监控 Hermes 更新",
     "monitorHermesHint": "每 10 分钟检查一次新版本，并添加一个“更新 Hermes”按钮。",
-    "next": "下一步：{step}"
+    "next": "下一步：{step}",
+    "serverPresets": "服务端预设",
+    "presets": "预设：",
+    "presetTitle": "添加 {name} 的默认端口（{port}）"
   },
   "edit": {
     "thisHost": "此主机（本地采集器 — 指标不走 SSH）",
@@ -390,7 +393,8 @@
     "engineInfoAria": "引擎状态信息",
     "engineInfo": "活跃 = 正在处理或可随时处理请求。休眠 = 空闲，GPU 内存已释放，直到下一个请求。",
     "freeTokens": "{tokens} 可用",
-    "poolTokens": "{tokens} 池"
+    "poolTokens": "{tokens} 池",
+    "fillPresetTitle": "填入 {name} 的默认端口（{port}）"
   },
   "llmModels": {
     "title": "模型",
@@ -935,5 +939,23 @@
       "rxPauseCtrlPhy": "接收暂停帧",
       "txPauseCtrlPhy": "发送暂停帧"
     }
+  },
+  "benchLabels": {
+    "structured": "结构化",
+    "prose": "说明文",
+    "code": "代码",
+    "json": "JSON",
+    "structuredHint": "从 1 数到 200，仅输出数字 — 实验室结构化协议",
+    "proseHint": "解释哈希表 — 实验室默认基准提示词",
+    "codeHint": "每条流执行不同的 Python 任务 — 前缀不同，不含注释",
+    "jsonHint": "JSON 格式的 GPU 指标目录 — 仅限定输出类型，不使用 JSON 约束解码",
+    "qa": "问答",
+    "reason": "推理",
+    "arith": "算术链",
+    "track": "状态跟踪",
+    "gsm8k": "GSM8K",
+    "mmlu": "MMLU",
+    "follow": "指令遵循",
+    "long": "长上下文召回"
   }
 }

@@ -29,6 +29,12 @@ const DEFAULTS = Object.freeze({
   showOverviewSearch: false,
   /** Overview LLM token totals card (cumulative tokens per model). On by default. */
   showLlmTokenTotals: true,
+  /** Overview KPI tiles (Fleet decode, Fleet power, Memory in use, Tokens today) and the Recent activity card. On by default. */
+  showKpiDecode: true,
+  showKpiPower: true,
+  showKpiMemory: true,
+  showKpiTokens: true,
+  showActivityFeed: true,
   /**
    * Benchmark dialogs offer the share-card format. On by default: the extra
    * control is one caret next to a button that already copies, and anyone who
@@ -107,6 +113,11 @@ function _clampSettings(settings) {
   s.showFleetExceptions = Boolean(s.showFleetExceptions);
   s.showOverviewSearch = Boolean(s.showOverviewSearch);
   s.showLlmTokenTotals = Boolean(s.showLlmTokenTotals);
+  s.showKpiDecode = Boolean(s.showKpiDecode);
+  s.showKpiPower = Boolean(s.showKpiPower);
+  s.showKpiMemory = Boolean(s.showKpiMemory);
+  s.showKpiTokens = Boolean(s.showKpiTokens);
+  s.showActivityFeed = Boolean(s.showActivityFeed);
   // Electricity price: a non-negative finite number, otherwise "not set".
   const price = s.energyPricePerKwh == null || s.energyPricePerKwh === "" ? null : Number(s.energyPricePerKwh);
   s.energyPricePerKwh = Number.isFinite(price) && price >= 0 && price <= 100 ? price : null;

@@ -195,7 +195,7 @@ test("_detectServerType: OpenAI models + get_server_info → sglang", async () =
       return {
         ok: true,
         status: 200,
-        json: async () => ({ version: "0.5.0" }),
+        json: async () => ({ version: "0.5.0", model_path: "/models/qwen" }),
       };
     }
     return { ok: false, status: 404, json: async () => ({}) };

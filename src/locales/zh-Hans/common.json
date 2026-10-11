@@ -57,7 +57,8 @@
     },
     "language": {
       "title": "语言",
-      "help": "界面显示语言。保存在当前浏览器中。"
+      "help": "即时生效并保存在当前浏览器中，无需点击“保存”。",
+      "failed": "无法加载语言，请重试。"
     },
     "refreshRate": {
       "title": "刷新频率",
@@ -73,7 +74,8 @@
       "browserDefault": "浏览器默认",
       "emptyFollows": "留空跟随此浏览器（{browserTimeZone}）",
       "useBrowser": "使用浏览器默认",
-      "unknown": "未知时区。例如 Asia/Shanghai 或 Europe/Paris。"
+      "unknown": "未知时区。例如 Asia/Shanghai 或 Europe/Paris。",
+      "invalid": "“{zone}”不是有效时区（例如 Asia/Shanghai 或 Europe/Paris），也可清空以跟随浏览器。"
     },
     "defaultLlmPort": {
       "title": "默认 LLM 端口",
@@ -132,6 +134,26 @@
       "change": "更改",
       "add": "添加令牌",
       "clear": "清除"
+    },
+    "activityFeed": {
+      "title": "显示最近活动",
+      "help": "总览中显示最近的健康与内核事件卡片。完整的活动页面始终可从侧边栏访问。"
+    },
+    "kpiDecode": {
+      "title": "显示设备解码指标",
+      "help": "总览中显示全部设备的生成速度总计（tok/s）。"
+    },
+    "kpiPower": {
+      "title": "显示设备功耗指标",
+      "help": "总览中显示全部设备的总功耗。"
+    },
+    "kpiMemory": {
+      "title": "显示已用内存指标",
+      "help": "总览中显示全部设备的已用内存总量。"
+    },
+    "kpiTokens": {
+      "title": "显示今日 Token 指标",
+      "help": "总览中显示今日生成的 Token 总量；尚无 Token 记录时显示在线设备数。"
     }
   }
 }

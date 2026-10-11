@@ -1,6 +1,6 @@
 import type { ActivityEvent } from "../../api/types";
 import { configuredTimeZone } from "../../shared/timeZone";
-import { i18next } from "../../i18n";
+import { activeLocale, i18next } from "../../i18n";
 
 /** Pure logic for the Activity page: categories, labels, filtering, counts, day grouping, export. */
 
@@ -287,10 +287,11 @@ const dtfCache = new Map<string, Intl.DateTimeFormat>();
 function dtf(key: string, tz: string | undefined, opts: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
   // No explicit zone: the Settings time zone, else the browser's.
   const zone = tz ?? configuredTimeZone() ?? undefined;
-  const k = `${key}|${zone ?? ""}`;
+  const locale = activeLocale() === "zh-Hans" ? "zh-CN" : "en-US";
+  const k = `${locale}|${key}|${zone ?? ""}`;
   let f = dtfCache.get(k);
   if (!f) {
-    f = new Intl.DateTimeFormat("en-US", { ...opts, timeZone: zone });
+    f = new Intl.DateTimeFormat(locale, { ...opts, timeZone: zone });
     dtfCache.set(k, f);
   }
   return f;

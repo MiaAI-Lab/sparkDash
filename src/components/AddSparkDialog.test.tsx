@@ -137,4 +137,38 @@ describe("AddSparkDialog keyboard contract", () => {
     await click(/^Next: Services/);
     expect(buttons()).toContain("Add Spark");
   });
+
+  it("a server preset replaces the untouched default port, then adds to a list and keeps the field in step", async () => {
+    vi.mocked(addSpark).mockResolvedValue({ success: true, spark: {} as never });
+    render(<AddSparkDialog open onClose={() => {}} onAdded={() => {}} defaultLlmPort={8888} />);
+    const setValue = (el: HTMLInputElement, value: string) => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      setter?.call(el, value);
+      act(() => el.dispatchEvent(new Event("input", { bubbles: true })));
+    };
+    const click = async (label: RegExp) => {
+      const button = Array.from(document.querySelectorAll("button")).find((b) => label.test(b.textContent ?? ""));
+      expect(button, String(label)).toBeDefined();
+      await act(async () => {
+        button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+    };
+    setValue(document.getElementById("add-spark-lan-ip") as HTMLInputElement, "192.168.1.50");
+    await click(/^Next: Role/);
+    await click(/^Head/);
+    setValue(document.getElementById("add-spark-name") as HTMLInputElement, "Lab Spark");
+    await click(/^Next: Services/);
+
+    const ports = () => (document.getElementById("add-spark-llm-ports") as HTMLInputElement).value;
+    expect(ports()).toBe("8888");
+    await click(/^LM Studio :1234/);
+    expect(ports()).toBe("1234");
+    await click(/^Ollama :11434/);
+    expect(ports()).toBe("1234, 11434");
+    await click(/^Ollama :11434/);
+    expect(ports()).toBe("1234, 11434");
+
+    await click(/^Add Spark/);
+    expect(addSpark).toHaveBeenCalledWith(expect.objectContaining({ llmPorts: [1234, 11434] }));
+  });
 });

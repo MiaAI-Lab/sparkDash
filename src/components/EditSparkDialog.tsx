@@ -10,7 +10,7 @@ import {
   updateSpark,
 } from "../api/client";
 import type { SparkConfig, SparkRole, SparkTestResponse } from "../api/types";
-import { deviceKindNoun, editDeviceTitle, UNIT_TYPE_OPTIONS, unitTypeOf, unitTypePatch, type UnitType } from "../shared/deviceKind";
+import { deviceKindNoun, editDeviceTitle, unitTypeOf, unitTypePatch, type UnitType } from "../shared/deviceKind";
 import { resolveSparkRole } from "../api/sparkRole";
 import { useModalPresence } from "../hooks/useModalPresence";
 import { InfoIcon } from "./ui/icons";
@@ -346,7 +346,7 @@ export function EditSparkDialog({
                     {t("spark.kindOption.host", "Dedicated GPU host (Linux, nvidia-smi, not a Spark)")}
                   </option>
                   <option value="windows">
-                    {t("spark.kindOption.windows", "Windows PC with an NVIDIA GPU (OpenSSH, nvidia-smi)")}
+                    {t("spark.kindOption.windows", "Windows PC (NVIDIA GPU or AMD Strix Halo)")}
                   </option>
                 </select>
               </div>

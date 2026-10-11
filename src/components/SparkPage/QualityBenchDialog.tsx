@@ -1,3 +1,4 @@
+import { qualityCategoryLabel } from "./benchLabels";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
@@ -27,7 +28,6 @@ import { Ring } from "../ui/Ring";
 import { qualityLongFitsContext } from "../../shared/contextFit.js";
 import {
   QUALITY_CATEGORIES,
-  QUALITY_CATEGORY_LABELS,
   QUALITY_DEFAULT_CATEGORIES,
   QUALITY_DEFAULT_CONCURRENCY,
   QUALITY_DEFAULT_LONG_ITEMS,
@@ -212,7 +212,7 @@ function buildShareText(
     if (!s) continue;
     const notes = categoryNotes(cat, s);
     lines.push(
-      `${QUALITY_CATEGORY_LABELS[cat].padEnd(20)} ${`${s.passed}/${s.scored ?? s.total}`.padStart(7)}  ${pct(s.pct).padStart(6)}${notes ? `  · ${notes}` : ""}`
+      `${qualityCategoryLabel(cat).padEnd(20)} ${`${s.passed}/${s.scored ?? s.total}`.padStart(7)}  ${pct(s.pct).padStart(6)}${notes ? `  · ${notes}` : ""}`
     );
   }
   if (job.results.skippedLongSizes?.length) {
@@ -225,7 +225,7 @@ function buildShareText(
     if (verdict) lines.push(`Overall: ${verdict.text}`);
     for (const r of compareRows) {
       lines.push(
-        `${QUALITY_CATEGORY_LABELS[r.category].padEnd(20)} ${pct(r.pctA).padStart(6)} vs ${pct(r.pctB).padStart(6)}  identical ${r.identical}/${r.paired}  only-this ${r.onlyA}  only-other ${r.onlyB}  p=${formatP(r.p)}  ${verdictLine(r)}`
+        `${qualityCategoryLabel(r.category).padEnd(20)} ${pct(r.pctA).padStart(6)} vs ${pct(r.pctB).padStart(6)}  identical ${r.identical}/${r.paired}  only-this ${r.onlyA}  only-other ${r.onlyB}  p=${formatP(r.p)}  ${verdictLine(r)}`
       );
     }
   }
@@ -256,7 +256,7 @@ function CategoryTable({ job }: { job: QualityBenchJob }) {
             const s = job.results.categories[cat] as QualityCategorySummary;
             return (
               <tr key={cat}>
-                <td className="q-cat-table__name">{QUALITY_CATEGORY_LABELS[cat]}</td>
+                <td className="q-cat-table__name">{qualityCategoryLabel(cat)}</td>
                 <td className="is-num">
                   {s.passed}/{s.scored ?? s.total}
                 </td>
@@ -396,7 +396,7 @@ function CategoryBars({
           return (
             <div key={cat} className="q-cat">
               <div className="q-cat__name">
-                {QUALITY_CATEGORY_LABELS[cat]}
+                {qualityCategoryLabel(cat)}
                 <small>
                   {t("spark.quality.itemsSuffix", "{passed}/{total} items", {
                     passed: s.passed,
@@ -494,7 +494,7 @@ function DisagreementTable({ job, compareJob }: { job: QualityBenchJob; compareJ
               {rows.map((r) => (
                 <tr key={r.id}>
                   <td className="mono">{r.id}</td>
-                  <td>{QUALITY_CATEGORY_LABELS[r.category]}</td>
+                  <td>{qualityCategoryLabel(r.category)}</td>
                   <td className={r.okA ? "is-ok" : "is-no"}>
                     {r.okA ? t("spark.quality.compare.pass", "✓ pass") : t("spark.quality.compare.fail", "✕ fail")}
                   </td>
@@ -543,7 +543,7 @@ function ItemTable({ job }: { job: QualityBenchJob }) {
                 ? t("spark.quality.filterAll", "all")
                 : f === "failed"
                   ? t("spark.quality.filterFailed", "failed")
-                  : QUALITY_CATEGORY_LABELS[f]}
+                  : qualityCategoryLabel(f)}
             </button>
           ))}
         </div>
@@ -967,7 +967,7 @@ export function QualityBenchDialog({
                           </span>
                           <span className="qsel-card__body">
                             <span className="qsel-card__name">
-                              {QUALITY_CATEGORY_LABELS[c]}
+                              {qualityCategoryLabel(c)}
                               {!QUALITY_DEFAULT_CATEGORIES.includes(c) ? <em>{t("spark.quality.optional", "optional")}</em> : null}
                             </span>
                             <span className="qsel-card__hint">{categoryHint(c, t)}</span>
@@ -999,13 +999,13 @@ export function QualityBenchDialog({
                     ref={infoRef}
                     role="region"
                     aria-label={t("spark.quality.howWorksAria", "How {label} works", {
-                      label: QUALITY_CATEGORY_LABELS[infoFor],
+                      label: qualityCategoryLabel(infoFor),
                     })}
                   >
                     <div className="q-info__head">
                       <b>
                         {t("spark.quality.howWorksTitle", "{label}: how it works", {
-                          label: QUALITY_CATEGORY_LABELS[infoFor],
+                          label: qualityCategoryLabel(infoFor),
                         })}
                       </b>
                       <button type="button" className="btn btn--sm btn--ghost" onClick={() => setInfoFor(null)}>
@@ -1137,7 +1137,7 @@ export function QualityBenchDialog({
                   <span className="bench-progress__status" role="status" aria-live="polite">
                     {t("spark.benchDialog.running", "Running")}
                     {job.progress.currentCategory
-                      ? ` · ${QUALITY_CATEGORY_LABELS[job.progress.currentCategory]} ${job.progress.categoryDone}/${job.progress.categoryTotal}`
+                      ? ` · ${qualityCategoryLabel(job.progress.currentCategory)} ${job.progress.categoryDone}/${job.progress.categoryTotal}`
                       : ""}
                   </span>
                   <span className="bench-progress__meta">

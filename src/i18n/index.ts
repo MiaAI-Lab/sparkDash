@@ -41,6 +41,7 @@ export const DEFAULT_NAMESPACE: Namespace = "common";
 let initialized = false;
 let reactBound = false;
 const catalogPromises = new Map<string, Promise<void>>();
+let localeRequest = 0;
 
 export interface InitI18nOptions {
   /** Force the startup language (tests pin this to "en"). */
@@ -87,6 +88,9 @@ function ensureCatalogs(locale: Locale): Promise<void> {
     for (const [namespace, data] of Object.entries(bundles)) {
       i18next.addResourceBundle(locale, namespace, data, true, true);
     }
+  }).catch((error: unknown) => {
+    catalogPromises.delete(locale);
+    throw error;
   });
   catalogPromises.set(locale, load);
   return load;
@@ -104,10 +108,15 @@ export function activeLocale(): Locale {
  */
 export async function setLocale(locale: Locale, options: { persist?: boolean } = {}): Promise<void> {
   initI18n();
+  const request = ++localeRequest;
   const { persist = true } = options;
   if (locale !== FALLBACK_LOCALE) await ensureCatalogs(locale);
-  if (persist) storeLocale(locale);
+  // A slow first download must not overwrite a newer selection (including
+  // a selection made while the startup catalog is still downloading).
+  if (request !== localeRequest) return;
   await i18next.changeLanguage(locale);
+  if (request !== localeRequest) return;
+  if (persist) storeLocale(locale);
   applyHtmlLang(locale);
 }
 
@@ -119,9 +128,11 @@ export async function setLocale(locale: Locale, options: { persist?: boolean } =
 export function bootstrapI18n(): void {
   initI18n();
   const target = detectLocale();
-  applyHtmlLang(target);
+  applyHtmlLang(FALLBACK_LOCALE);
   if (target === FALLBACK_LOCALE) return;
-  void setLocale(target, { persist: false });
+  void setLocale(target, { persist: false }).catch((error: unknown) => {
+    console.warn("Could not load the interface language; keeping English.", error);
+  });
 }
 
 export { i18next };

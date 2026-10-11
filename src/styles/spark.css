@@ -787,8 +787,21 @@
 .sp-add-port {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 12px;
+}
+.sp-add-port__presets {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 100%;
+  margin-top: 2px;
+}
+.sp-add-port__presets .sp-hint {
+  font-size: 11px;
+  color: var(--color-muted);
 }
 .sp-add-port-btn {
   width: 100%;

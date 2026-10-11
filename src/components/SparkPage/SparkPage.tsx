@@ -99,23 +99,26 @@ export function SparkPage({
     [spark.id]
   );
 
-  const handleAddPort = useCallback(async () => {
-    const port = parseInt(newPortDraft, 10);
-    if (!Number.isInteger(port) || port < 1 || port > 65535) return;
-    if (llmPorts.includes(port)) {
-      setNewPortDraft("");
-      setShowAddPort(false);
-      return;
-    }
-    try {
-      const result = await addLlmPort(spark.id, port);
-      setLlmPorts(result.llmPorts);
-      setNewPortDraft("");
-      setShowAddPort(false);
-    } catch (err) {
-      console.error("Failed to add LLM port:", err);
-    }
-  }, [spark.id, newPortDraft, llmPorts]);
+  const handleAddPort = useCallback(
+    async (portOverride?: number) => {
+      const port = portOverride ?? parseInt(newPortDraft, 10);
+      if (!Number.isInteger(port) || port < 1 || port > 65535) return;
+      if (llmPorts.includes(port)) {
+        setNewPortDraft("");
+        setShowAddPort(false);
+        return;
+      }
+      try {
+        const result = await addLlmPort(spark.id, port);
+        setLlmPorts(result.llmPorts);
+        setNewPortDraft("");
+        setShowAddPort(false);
+      } catch (err) {
+        console.error("Failed to add LLM port:", err);
+      }
+    },
+    [spark.id, newPortDraft, llmPorts]
+  );
 
   const handleRemovePort = useCallback(async (port: number) => {
     try {
@@ -142,7 +145,12 @@ export function SparkPage({
   const showUnified = spark.kind !== "host" && unified != null && unified.total > 0;
 
   const renderLlmPanel = (port: number, portIndex: number, className?: string) => {
-    const llmMetrics = metrics.llm?.[portIndex] ?? null;
+    // Match by the snapshot's own port so a panel never shows another port's
+    // backend (stale-array window after adding/switching ports); fall back to
+    // position for servers that don't yet report `port`.
+    const llmMetrics =
+      metrics.llm?.find((l) => l?.port != null && l.port === port) ??
+      (metrics.llm?.[portIndex]?.port == null ? (metrics.llm?.[portIndex] ?? null) : null);
     const canRemove = portIndex > 0;
     return (
       <LlmPanel
@@ -198,6 +206,33 @@ export function SparkPage({
         >
           {t("common.action.cancel", "Cancel")}
         </button>
+        <div className="sp-add-port__presets" role="group" aria-label={t("spark.add.serverPresets", "Server presets")}>
+          <span className="sp-hint">{t("spark.add.presets", "Presets:")}</span>
+          <button
+            type="button"
+            title={t("spark.add.presetTitle", "Add {name} default port ({port})", { name: "LM Studio", port: 1234 })}
+            onClick={() => void handleAddPort(1234)}
+            className="btn btn--sm"
+          >
+            LM Studio :1234
+          </button>
+          <button
+            type="button"
+            title={t("spark.add.presetTitle", "Add {name} default port ({port})", { name: "Ollama", port: 11434 })}
+            onClick={() => void handleAddPort(11434)}
+            className="btn btn--sm"
+          >
+            Ollama :11434
+          </button>
+          <button
+            type="button"
+            title={t("spark.add.presetTitle", "Add {name} default port ({port})", { name: "TensorFold", port: 8888 })}
+            onClick={() => void handleAddPort(8888)}
+            className="btn btn--sm"
+          >
+            TensorFold :8888
+          </button>
+        </div>
       </div>
     ) : (
       <button type="button" onClick={() => setShowAddPort(true)} className="sp-add-port-btn">

@@ -43,7 +43,7 @@ export function AccessTokenDialog({ open, reason, onClose }: AccessTokenDialogPr
     );
     const timer = window.setTimeout(() => inputRef.current?.focus(), 50);
     return () => window.clearTimeout(timer);
-  }, [open, reason]);
+  }, [open, reason, t]);
 
   // Capture-phase Escape so a dialog underneath (Settings) does not close too.
   useEffect(() => {

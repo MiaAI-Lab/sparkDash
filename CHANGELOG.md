@@ -9,6 +9,18 @@ Format: version sections are listed newest first.
 
 ## [Unreleased]
 
+### Added
+- Initial Simplified Chinese UI translations and a **Settings → Language** selector for English / 简体中文. The choice applies immediately and is remembered in the current browser. Coverage includes navigation, Overview, device dialogs, Spark resource/service panels, decode/prefill/quality benchmark dialogs and share cards, and Activity. Token totals, Fleet energy, Showcase, some standalone benchmark screens and server-generated messages still use English; see [localization notes](./docs/i18n.md).
+
+---
+
+## [2.40.0] — 2026-10-11
+
+### Added
+- **LM Studio and Ollama are detected by their own endpoints** (`/api/v0/models`, `/api/tags`), so a server that answers 200 + JSON on every path (LM Studio) is no longer labelled SGLang or vLLM, and an identified backend is never downgraded. `/metrics` is no longer fetched from engines that never serve it. LLM panels are matched to their port instead of their position in the list, and the Add wizard, the "+ Add LLM port" panel and each LLM panel's settings have **LM Studio :1234 / Ollama :11434 / TensorFold :8888** presets that only fill in a port. From a contribution by @HassanEmam (#191).
+- **Windows units with an AMD iGPU (Strix Halo)** show GPU utilisation and memory from Windows' GPU performance counters when `nvidia-smi` is not installed (an NVIDIA PC whose `nvidia-smi` fails still reports the failure). Model launchers now say plainly that they are not supported on Windows. From #191.
+- **Every Overview panel can be hidden.** Settings now has switches for Recent activity and for each of the four tiles (Fleet decode, Fleet power, Memory in use, Tokens today), next to the existing Fleet energy and LLM token totals ones. The remaining tiles share the row, and a column with nothing left in it disappears. Hidden panels stay available from the sidebar pages. Suggested by a user.
+
 ### Fixed
 - **Windows PCs: "keys work everywhere but here".** The setup docs now explain that for an administrator account `sshd` ignores `~/.ssh/authorized_keys` and reads `C:\ProgramData\ssh\administrators_authorized_keys`, which only Administrators and SYSTEM may write (with the `icacls` command), and a refused key on a Windows unit adds the same hint to the connection error. Suggested by a user.
 

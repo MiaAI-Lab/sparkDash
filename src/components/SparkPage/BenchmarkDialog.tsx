@@ -1,3 +1,4 @@
+import { decodeBenchTypeLabel, decodeBenchTypeHint } from "./benchLabels";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
@@ -24,7 +25,6 @@ import { formatLlmBaseUrl } from "../../shared/llmTarget.js";
 import {
   DECODE_BENCH_DEFAULT_TYPE,
   DECODE_BENCH_TYPE_META,
-  decodeBenchTypeLabel,
   normalizeDecodeBenchType,
 } from "../../shared/llmPrompts.js";
 
@@ -555,7 +555,7 @@ export function BenchmarkDialog({
                 <div className="bench-field__head">
                   <h3 className="bench-sheet__section-title">{t("spark.benchDialog.decode.type", "Type")}</h3>
                   <p className="bench-sheet__hint">
-                    {DECODE_BENCH_TYPE_META.find((meta) => meta.id === promptType)?.hint}
+                    {decodeBenchTypeHint(promptType)}
                     {t("spark.benchDialog.decode.typeTempOff", " · temp 0, thinking off")}
                   </p>
                 </div>
@@ -572,12 +572,12 @@ export function BenchmarkDialog({
                         type="button"
                         role="radio"
                         aria-checked={on}
-                        title={meta.hint}
+                        title={decodeBenchTypeHint(meta.id)}
                         disabled={isRunning || starting}
                         onClick={() => setPromptType(meta.id)}
                         className={`bench-conc-btn${on ? " is-on" : ""}`}
                       >
-                        {meta.label}
+                        {decodeBenchTypeLabel(meta.id)}
                       </button>
                     );
                   })}

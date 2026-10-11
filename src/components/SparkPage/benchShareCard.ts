@@ -1,3 +1,4 @@
+import { decodeBenchTypeLabel, qualityCategoryLabel } from "./benchLabels";
 /**
  * Benchmark share card — the image behind "Copy image".
  *
@@ -9,10 +10,9 @@
  * without a real canvas context.
  */
 import { formatDuration } from "../../shared/formatDuration";
-import { decodeBenchTypeLabel } from "../../shared/llmPrompts.js";
 import { backendLabel } from "../../shared/llmBackends.js";
 import { formatContextSize } from "../../shared/prefillBench.js";
-import { QUALITY_CATEGORIES, QUALITY_CATEGORY_LABELS, checkQualityComparable } from "../../shared/qualityBench.js";
+import { QUALITY_CATEGORIES, checkQualityComparable } from "../../shared/qualityBench.js";
 import type { DecodeBenchJob, PrefillBenchJob, QualityBenchJob } from "../../api/types";
 import { i18next } from "../../i18n";
 
@@ -323,7 +323,7 @@ export function buildQualityShareCard(
     const other = compare?.results?.categories?.[cat];
     const delta = s.pct != null && other?.pct != null ? Math.round((s.pct - other.pct) * 10) / 10 : null;
     rows.push({
-      load: QUALITY_CATEGORY_LABELS[cat],
+      load: qualityCategoryLabel(cat),
       detail: `${i18next.t("spark.shareCard.qualityItems", "{passed}/{total} items", {
         passed: s.passed,
         total: s.scored ?? s.total,

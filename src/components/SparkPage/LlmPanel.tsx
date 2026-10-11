@@ -660,6 +660,33 @@ export function LlmPanel({
               className="sp-input"
             />
           </label>
+          <div className="sp-btns" role="group" aria-label={t("spark.add.serverPresets", "Server presets")}>
+            <span className="eyebrow">{t("spark.add.presets", "Presets:")}</span>
+            <button
+              type="button"
+              title={t("spark.llm.fillPresetTitle", "Fill {name} default port ({port})", { name: "LM Studio", port: 1234 })}
+              onClick={() => setPortDraft("1234")}
+              className="btn btn--sm"
+            >
+              LM Studio :1234
+            </button>
+            <button
+              type="button"
+              title={t("spark.llm.fillPresetTitle", "Fill {name} default port ({port})", { name: "Ollama", port: 11434 })}
+              onClick={() => setPortDraft("11434")}
+              className="btn btn--sm"
+            >
+              Ollama :11434
+            </button>
+            <button
+              type="button"
+              title={t("spark.llm.fillPresetTitle", "Fill {name} default port ({port})", { name: "TensorFold", port: 8888 })}
+              onClick={() => setPortDraft("8888")}
+              className="btn btn--sm"
+            >
+              TensorFold :8888
+            </button>
+          </div>
           <label className="sp-field">
             <span className="eyebrow">{t("spark.llm.apiKeyLabel", "API key (optional)")}</span>
             <input
