@@ -14,6 +14,7 @@ import { backendLabel } from "../../shared/llmBackends.js";
 import { formatContextSize } from "../../shared/prefillBench.js";
 import { QUALITY_CATEGORIES, QUALITY_CATEGORY_LABELS, checkQualityComparable } from "../../shared/qualityBench.js";
 import type { DecodeBenchJob, PrefillBenchJob, QualityBenchJob } from "../../api/types";
+import { i18next } from "../../i18n";
 
 /** Fixed width; height grows with the number of result rows. */
 export const SHARE_CARD_WIDTH = 1200;
@@ -125,13 +126,13 @@ export function shareCardStatus(
 ): { label: string; tone: ShareCardTone } {
   switch (status) {
     case "completed":
-      return { label: "COMPLETED", tone: "ok" };
+      return { label: i18next.t("spark.shareCard.statusCompleted", "COMPLETED"), tone: "ok" };
     case "running":
-      return { label: "RUNNING", tone: "warn" };
+      return { label: i18next.t("spark.shareCard.statusRunning", "RUNNING"), tone: "warn" };
     case "failed":
-      return { label: "FAILED", tone: "bad" };
+      return { label: i18next.t("spark.shareCard.statusFailed", "FAILED"), tone: "bad" };
     case "cancelled":
-      return { label: "CANCELLED", tone: "muted" };
+      return { label: i18next.t("spark.shareCard.statusCancelled", "CANCELLED"), tone: "muted" };
     default:
       return { label: String(status).toUpperCase(), tone: "muted" };
   }
@@ -162,8 +163,12 @@ export function shareCardChips(src: ShareCardSource): ShareCardChip[] {
 
 /** `Port 8888 · org/model`, or the remote host when the run used one. */
 export function shareCardSubtitle(src: ShareCardSource): string {
-  const target = src.remoteHost ? src.remoteHost : `Port ${src.llmPort}`;
-  return src.modelId ? `${target} · ${src.modelId}` : target;
+  const target = src.remoteHost
+    ? src.remoteHost
+    : i18next.t("spark.shareCard.port", "Port {port}", { port: src.llmPort });
+  return src.modelId
+    ? i18next.t("spark.shareCard.subtitle", "{target} · {model}", { target, model: src.modelId })
+    : target;
 }
 
 /**
@@ -185,8 +190,12 @@ export function buildDecodeShareCard(
       return {
         load: `×${r.concurrency}`,
         detail: failed
-          ? r.error || "failed"
-          : `TTFT ${formatTtft(r.meanTtftMs)} · ${r.streamsOk}/${streams} streams`,
+          ? r.error || i18next.t("spark.shareCard.decodeFailed", "failed")
+          : i18next.t("spark.shareCard.decodeRowDetail", "TTFT {ttft} · {ok}/{total} streams", {
+              ttft: formatTtft(r.meanTtftMs),
+              ok: r.streamsOk,
+              total: streams,
+            }),
         primary: failed ? "—" : agg.toFixed(1),
         secondary: failed ? "—" : r.meanDecodeTps.toFixed(1),
         primaryUnit: "tok/s",
@@ -199,17 +208,25 @@ export function buildDecodeShareCard(
   return {
     brand: "sparkDash",
     host: src.sparkName || "",
-    title: "Decode benchmark",
+    title: i18next.t("spark.shareCard.titleDecode", "Decode benchmark"),
     subtitle: shareCardSubtitle(src),
     chips: shareCardChips(src),
     status: shareCardStatus(job.status),
-    meta: `${decodeBenchTypeLabel(job.config?.promptType)} · ${job.config?.maxTokens ?? "?"} tok · ${
-      concurrencies.length ? `${concurrencies.join(", ")} conc` : "—"
+    meta: `${decodeBenchTypeLabel(job.config?.promptType)} · ${job.config?.maxTokens ?? "?"} ${i18next.t("spark.benchDialog.unitTok", "tok")} · ${
+      concurrencies.length
+        ? `${concurrencies.join(", ")} ${i18next.t("spark.benchDialog.unitConc", "conc")}`
+        : "—"
     }${job.durationMs != null ? ` · ${formatDuration(job.durationMs)}` : ""}`,
-    columns: { load: "Load", primary: "Aggregate", secondary: "Stream" },
+    columns: {
+      load: i18next.t("spark.benchDialog.load", "Load"),
+      primary: i18next.t("spark.benchDialog.aggregate", "Aggregate"),
+      secondary: i18next.t("spark.benchDialog.stream", "Stream"),
+    },
     rows,
-    legend:
-      "Aggregate — total decode tok/s across all concurrent streams. Stream — per-stream average decode.",
+    legend: i18next.t(
+      "spark.shareCard.legendDecode",
+      "Aggregate — total decode tok/s across all concurrent streams. Stream — per-stream average decode."
+    ),
     footer: "github.com/MiaAI-Lab/sparkDash",
     generatedAt: now,
   };
@@ -230,14 +247,29 @@ export function buildPrefillShareCard(
     .map<ShareCardRow>((r) => {
       const failed = Boolean(r.error) || r.prefillTps <= 0;
       const partial = !failed && r.samples != null && r.samplesRequested != null && r.samples < r.samplesRequested;
-      const flags = [partial ? `${r.samples}/${r.samplesRequested} samples` : null, !failed && r.lowConfidence ? "low confidence" : null].filter(Boolean);
+      const flags = [
+        partial
+          ? i18next.t("spark.shareCard.samplesPartial", "{passed}/{requested} samples", {
+              passed: r.samples,
+              requested: r.samplesRequested,
+            })
+          : null,
+        !failed && r.lowConfidence ? i18next.t("spark.shareCard.lowConfidence", "low confidence") : null,
+      ].filter(Boolean);
       return {
         load: formatContextSize(r.targetTokens),
         detail: failed
-          ? r.error || "No prefill rate was measured"
-          : `TTFT ${formatTtft(r.ttftMs)} · ${
-              r.promptTokens > 0 ? `${r.promptTokens.toLocaleString("en-US")} tokens` : "—"
-            }${flags.length ? ` · ${flags.join(", ")}` : ""}`,
+          ? r.error || i18next.t("spark.shareCard.prefillFailed", "No prefill rate was measured")
+          : i18next.t("spark.shareCard.prefillRow", "TTFT {ttft} · {tokens}{flags}", {
+              ttft: formatTtft(r.ttftMs),
+              tokens:
+                r.promptTokens > 0
+                  ? i18next.t("spark.shareCard.prefillTokens", "{tokens} tokens", {
+                      tokens: r.promptTokens.toLocaleString("en-US"),
+                    })
+                  : "—",
+              flags: flags.length ? ` · ${flags.join(", ")}` : "",
+            }),
         primary: failed ? "—" : r.prefillTps.toFixed(1),
         secondary: failed ? "—" : formatTtft(r.ttftMs),
         primaryUnit: "tok/s",
@@ -250,17 +282,23 @@ export function buildPrefillShareCard(
   return {
     brand: "sparkDash",
     host: src.sparkName || "",
-    title: "Prefill benchmark",
+    title: i18next.t("spark.shareCard.titlePrefill", "Prefill benchmark"),
     subtitle: shareCardSubtitle(src),
     chips: shareCardChips(src),
     status: shareCardStatus(job.status),
-    meta: `${sizes.length ? `${sizes.map(formatContextSize).join(", ")} ctx` : "—"}${
+    meta: `${sizes.length ? `${sizes.map(formatContextSize).join(", ")} ${i18next.t("spark.shareCard.unitCtx", "ctx")}` : "—"}${
       job.durationMs != null ? ` · ${formatDuration(job.durationMs)}` : ""
     }`,
-    columns: { load: "Context", primary: "Prefill", secondary: "TTFT" },
+    columns: {
+      load: i18next.t("spark.benchDialog.prefill.context", "Context"),
+      primary: i18next.t("spark.benchDialog.prefill.label", "Prefill"),
+      secondary: i18next.t("spark.benchDialog.ttft", "TTFT"),
+    },
     rows,
-    legend:
-      "Prefill — server prompt timing, else tokens ÷ (TTFT − request overhead), cache hits excluded. TTFT — time to first token. Median-rate sample.",
+    legend: i18next.t(
+      "spark.shareCard.legendPrefill",
+      "Prefill — server prompt timing, else tokens ÷ (TTFT − request overhead), cache hits excluded. TTFT — time to first token. Median-rate sample."
+    ),
     footer: "github.com/MiaAI-Lab/sparkDash",
     generatedAt: now,
   };
@@ -286,11 +324,20 @@ export function buildQualityShareCard(
     const delta = s.pct != null && other?.pct != null ? Math.round((s.pct - other.pct) * 10) / 10 : null;
     rows.push({
       load: QUALITY_CATEGORY_LABELS[cat],
-      detail: `${s.passed}/${s.scored ?? s.total} items${s.errors > 0 ? ` · ${s.errors} error${s.errors === 1 ? "" : "s"}` : ""}`,
+      detail: `${i18next.t("spark.shareCard.qualityItems", "{passed}/{total} items", {
+        passed: s.passed,
+        total: s.scored ?? s.total,
+      })}${
+        s.errors > 0
+          ? ` · ${i18next.t("spark.shareCard.qualityErrors", "{count, plural, one {# error} other {# errors}}", {
+              count: s.errors,
+            })}`
+          : ""
+      }`,
       primary: s.pct == null ? "—" : s.pct.toFixed(1),
       secondary: delta == null ? "" : `${delta > 0 ? "+" : ""}${delta.toFixed(1)}`,
       primaryUnit: "%",
-      secondaryUnit: delta == null ? "" : "pts",
+      secondaryUnit: delta == null ? "" : i18next.t("spark.shareCard.unitPts", "pts"),
       tone: s.pct == null ? "bad" : delta != null && delta < 0 ? "warn" : "ok",
     });
   }
@@ -309,31 +356,41 @@ export function buildQualityShareCard(
   const catKeys = QUALITY_CATEGORIES.filter((c) => job.results?.categories?.[c]);
   const itemTotal = catKeys.reduce((n, c) => n + (job.results?.categories?.[c]?.total ?? 0), 0);
   const summary = [
-    `${tiles.length} ${tiles.length === 1 ? "category" : "categories"}`,
-    `${itemTotal.toLocaleString("en-US")} items`,
+    i18next.t("spark.shareCard.categoryCount", "{count, plural, one {# category} other {# categories}}", {
+      count: tiles.length,
+    }),
+    i18next.t("spark.shareCard.itemCount", "{items} items", { items: itemTotal.toLocaleString("en-US") }),
     ...(job.durationMs != null ? [formatDuration(job.durationMs)] : []),
   ].join(" · ");
   return {
     quality: {
       overall: overall ?? null,
       modelName: src.modelId || "",
-      target: src.remoteHost ? src.remoteHost : `Port ${src.llmPort}`,
+      target: src.remoteHost
+        ? src.remoteHost
+        : i18next.t("spark.shareCard.port", "Port {port}", { port: src.llmPort }),
       runLabel: job.config?.label || "",
       summary,
       tiles,
     },
     brand: "sparkDash",
     host: src.sparkName || "",
-    title: "Quality benchmark",
+    title: i18next.t("spark.shareCard.titleQuality", "Quality benchmark"),
     subtitle: shareCardSubtitle(src),
     chips: shareCardChips(src),
     status: shareCardStatus(job.status),
-    meta: `Overall ${overall == null ? "—" : `${overall.toFixed(1)}%`}${job.config?.label ? ` · ${job.config.label}` : ""}${
+    meta: `${i18next.t("spark.shareCard.overallMeta", "Overall {score}", {
+      score: overall == null ? "—" : `${overall.toFixed(1)}%`,
+    })}${job.config?.label ? ` · ${job.config.label}` : ""}${
       job.durationMs != null ? ` · ${formatDuration(job.durationMs)}` : ""
     }`,
-    columns: { load: "Category", primary: "Score", secondary: compare ? "vs other" : "" },
+    columns: {
+      load: i18next.t("spark.quality.colCategory", "Category"),
+      primary: i18next.t("spark.quality.score", "Score"),
+      secondary: compare ? i18next.t("spark.shareCard.vsOther", "vs other") : "",
+    },
     rows,
-    legend: "Score — share of items passed. Temperature 0, fixed seed.",
+    legend: i18next.t("spark.shareCard.legendQuality", "Score — share of items passed. Temperature 0, fixed seed."),
     footer: "github.com/MiaAI-Lab/sparkDash",
     generatedAt: now,
   };
@@ -830,7 +887,7 @@ function paintQualityCard(ctx: ShareCardContext, P: Palette, model: ShareCardMod
   ctx.textBaseline = "alphabetic";
   ctx.fillStyle = P.textStrong;
   ctx.font = font(700, 44);
-  ctx.fillText("Quality benchmark", PAD, PAD + 78);
+  ctx.fillText(i18next.t("spark.shareCard.titleQuality", "Quality benchmark"), PAD, PAD + 78);
   ctx.font = font(700, 20);
   const pillW = ctx.measureText(model.status.label).width + 40;
   drawPill(ctx, P, PAD + inner - pillW, PAD + 46, model.status.label, model.status.tone);
@@ -866,7 +923,7 @@ function paintQualityCard(ctx: ShareCardContext, P: Palette, model: ShareCardMod
   ctx.textBaseline = "alphabetic";
   ctx.fillStyle = P.muted;
   ctx.font = font(600, 15);
-  ctx.fillText("OVERALL", cx, cy - 30);
+  ctx.fillText(i18next.t("spark.shareCard.overall", "OVERALL"), cx, cy - 30);
   ctx.fillStyle = P.textStrong;
   ctx.font = font(700, 48);
   const score = q.overall == null ? "—" : q.overall.toFixed(1);
@@ -888,7 +945,7 @@ function paintQualityCard(ctx: ShareCardContext, P: Palette, model: ShareCardMod
   ctx.textBaseline = "alphabetic";
   ctx.fillStyle = P.textStrong;
   ctx.font = font(700, 36);
-  ctx.fillText(fitText(ctx, q.modelName || "Unknown model", textW), textX, cy - 40);
+  ctx.fillText(fitText(ctx, q.modelName || i18next.t("spark.quality.unknownModel", "Unknown model"), textW), textX, cy - 40);
   ctx.fillStyle = P.muted;
   ctx.font = font(500, 22);
   const where = [q.target, q.runLabel].filter(Boolean).join(" · ");
@@ -953,7 +1010,15 @@ function paintQualityCard(ctx: ShareCardContext, P: Palette, model: ShareCardMod
     if (tile.delta != null) {
       ctx.font = font(600, 19);
       ctx.fillStyle = tile.delta > 0 ? P.success : tile.delta < 0 ? P.danger : P.muted;
-      ctx.fillText(tile.delta === 0 ? "same" : `${tile.delta > 0 ? "+" : ""}${tile.delta.toFixed(1)} pts`, right, y + 76);
+      ctx.fillText(
+        tile.delta === 0
+          ? i18next.t("spark.shareCard.deltaSame", "same")
+          : i18next.t("spark.shareCard.deltaPts", "{delta} pts", {
+              delta: `${tile.delta > 0 ? "+" : ""}${tile.delta.toFixed(1)}`,
+            }),
+        right,
+        y + 76
+      );
     }
 
     // Bar
