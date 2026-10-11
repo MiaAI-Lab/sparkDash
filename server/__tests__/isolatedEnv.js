@@ -36,6 +36,9 @@ export const CONFIG_DIR_VARS = ["TOOL_EVAL_RESULTS_DIR"];
 /** Env entries mapping each config path variable to a file (or directory) inside `dir`. */
 export function isolatedConfigEnv(dir) {
   return {
+    // Tests must not contact an operator's opt-in inference activity source.
+    SPARKDASH_INFERENCE_ACTIVITY_URL: "",
+    SPARKDASH_INFERENCE_ACTIVITY_LABELS: "",
     ...Object.fromEntries(
       CONFIG_PATH_VARS.map((name) => [
         name,

@@ -27,7 +27,10 @@ test("every config path variable the server reads can be isolated by tests", () 
 });
 
 test("isolatedConfigEnv keeps every file inside the given directory", () => {
-  const env = isolatedConfigEnv("/tmp/x");
-  for (const value of Object.values(env)) assert.ok(value.startsWith("/tmp/x/"), value);
-  assert.equal(Object.keys(env).length, CONFIG_PATH_VARS.length + CONFIG_DIR_VARS.length);
+  const dir = path.resolve("/tmp/x");
+  const env = isolatedConfigEnv(dir);
+  for (const name of [...CONFIG_PATH_VARS, ...CONFIG_DIR_VARS]) assert.ok(env[name].startsWith(`${dir}${path.sep}`), env[name]);
+  assert.equal(env.SPARKDASH_INFERENCE_ACTIVITY_URL, "");
+  assert.equal(env.SPARKDASH_INFERENCE_ACTIVITY_LABELS, "");
+  assert.equal(Object.keys(env).length, CONFIG_PATH_VARS.length + CONFIG_DIR_VARS.length + 2);
 });

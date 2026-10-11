@@ -6,6 +6,7 @@ import { ShutdownAll } from "../ShutdownAll";
 import { FleetEnergyCard } from "./FleetEnergyCard";
 import { FleetAlertStrip } from "./FleetAlertStrip";
 import { FleetTokenTotals } from "./FleetTokenTotals";
+import { InferenceTrafficCard } from "./InferenceTrafficCard";
 import { FleetKpis, type KpiVisibility } from "./FleetKpis";
 import { ACTIVITY_ID, ENERGY_ID, TOKENS_ID } from "../../constants";
 import { SparkCard } from "./SparkCard";
@@ -21,6 +22,8 @@ interface OverviewPageProps {
   hideOffline?: boolean;
   hideWorkers?: boolean;
   showFleetEnergy?: boolean;
+  /** Opt-in server capability; absent sources add no card or polling. */
+  showInferenceActivity?: boolean;
   showFleetExceptions?: boolean;
   showOverviewSearch?: boolean;
   /** Overview LLM token totals card (cumulative tokens per model). */
@@ -42,6 +45,7 @@ export function OverviewPage({
   hideOffline = false,
   hideWorkers = false,
   showFleetEnergy = true,
+  showInferenceActivity = false,
   showFleetExceptions = false,
   showOverviewSearch = false,
   showLlmTokenTotals = true,
@@ -329,8 +333,9 @@ export function OverviewPage({
           })}
         </div>
         <FleetKpis sparks={visibleSparks} snapshotKey={sparks} show={kpis} />
-        {showFleetEnergy || showLlmTokenTotals || showActivityFeed ? (
+        {showFleetEnergy || showLlmTokenTotals || showActivityFeed || showInferenceActivity ? (
         <div className="ov-side">
+          {showInferenceActivity ? <InferenceTrafficCard /> : null}
           {showFleetEnergy ? <FleetEnergyCard nodeCount={sparks.length} nodeNames={Object.fromEntries(sparks.map((s) => [s.id, s.name]))} onOpenDetails={onNavigate ? () => onNavigate(ENERGY_ID) : undefined} /> : null}
           {showLlmTokenTotals ? <FleetTokenTotals onOpenDetails={onNavigate ? () => onNavigate(TOKENS_ID) : undefined} /> : null}
           {showActivityFeed ? (

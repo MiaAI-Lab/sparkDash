@@ -78,6 +78,7 @@ describe("Overview panels can be hidden", () => {
     const { container } = render(<OverviewPage sparks={[host()]} />);
     expect(tileLabels(container)).toEqual(["Fleet decode", "Fleet power", "Memory in use", "Online"]);
     expect(container.querySelector('[aria-label="Recent activity"]')).not.toBeNull();
+    expect(container.textContent).not.toContain("Inference activity");
   });
 
   it("hides single tiles and sizes the row to the rest", () => {

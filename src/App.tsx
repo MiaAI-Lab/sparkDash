@@ -555,6 +555,7 @@ function DashboardApp() {
                   hideOffline={settings?.autoHideOffline ?? false}
                   hideWorkers={hideWorkers}
                   showFleetEnergy={settings?.showFleetEnergy ?? true}
+                  showInferenceActivity={settings?.inferenceActivityEnabled === true}
                   showFleetExceptions={settings?.showFleetExceptions ?? false}
                   showOverviewSearch={settings?.showOverviewSearch ?? false}
                   showLlmTokenTotals={settings?.showLlmTokenTotals ?? true}

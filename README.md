@@ -922,6 +922,42 @@ Live probes use the LAN IP on remote units, and fall back to an SSH forward to t
 
 ---
 
+## Optional inference request activity
+
+For shared inference deployments, an optional Overview card groups in-flight requests and recent completions by approved **display labels**. It is disabled by default and makes no source requests until configured. The gateway must already expose sanitized JSON; sparkDash does not intercept inference, handle client API keys or infer their owners.
+
+Set these variables in the **server's environment**, then restart sparkDash:
+
+```dotenv
+SPARKDASH_INFERENCE_ACTIVITY_URL=http://127.0.0.1:9001/activity
+SPARKDASH_INFERENCE_ACTIVITY_LABELS=service-a,user-1
+```
+
+The URL accepts HTTP/S with an explicit loopback or RFC1918 IP literal only; DNS names, public/link-local targets, credentials, queries, fragments and redirects are rejected. Requests carry no source credentials, time out after 5 seconds and read at most 64 KiB. There is no browser-editable URL or API-key mapping. These labels are visible to anyone allowed to view the dashboard: protect the dashboard with its normal authentication or private access, and **never configure a key, token, IP, email or prompt as a label**.
+
+The source must return `application/json` with this shape:
+
+```json
+{
+  "available": true,
+  "generatedAt": "2026-10-11T12:00:00Z",
+  "active": [
+    {"principal": "service-a", "model": "model-a", "count": 2,
+     "oldestAgeMs": 900, "newestAgeMs": 100}
+  ],
+  "recent": [
+    {"principal": "user-1", "model": "model-a", "durationMs": 400, "ageMs": 1000}
+  ],
+  "overflowed": false
+}
+```
+
+`generatedAt` is the source sampling time, refreshed by the source on each sample. Both arrays are required; active rows must be unique per normalized principal/model group. Snake-case `oldest_age_ms`/`newest_age_ms` are also accepted. Principals not in the configured label list become `unknown`; model labels are optional non-secret identifiers. URL/IP labels and recognizable credential-like model segments become `unknown`, but this is not a general secret detector: the source must never place credentials or user content in metadata. Recent rows may provide an actual HTTP `status`, otherwise no status is invented. At most 256 active groups and 24 recent rows are retained in memory, with a 10-minute recent window and bounded non-negative ages/durations. Extra fields—including keys, headers, IPs, request IDs and prompts—are discarded, not persisted. Source bodies, failures and URLs are not logged or returned by the dashboard API.
+
+The source is read at most once per 5 seconds, shared between dashboard viewers. Samples older than 30 seconds, invalid payloads and failed reads show **unknown**, not zero. A fresh empty `active` array is a measured zero. The read-only `/api/inference/activity` route uses the dashboard's existing GET access policy and `Cache-Control: no-store`: loopback GETs remain open, while a token-protected remote bind requires the dashboard token. Configuration is not writable through that route or Settings. The card is absent when no URL is configured, including when the normal sidebar cards are hidden.
+
+**In flight includes queued, prefill and decoding HTTP requests.** It is not the number of active GPU slots, does not distinguish engine queueing, and does not measure per-key token throughput. This card needs an external sanitized activity source; an unmodified model server without that source remains unchanged.
+
 ## Contributing
 
 Contributions are welcome. Conventions:

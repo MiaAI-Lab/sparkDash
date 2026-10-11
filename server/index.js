@@ -40,6 +40,7 @@ import {
   normalizeQualityOptions,
 } from "./collectors/QualityBench.js";
 import { showcaseManager } from "./collectors/ShowcaseManager.js";
+import { InferenceActivityStore } from "./collectors/InferenceActivity.js";
 import { llmProbeHost } from "./collectors/llmHost.js";
 import { onceClose, resolveLlmHttpTarget } from "./collectors/llmTunnel.js";
 import { formatLlmBaseUrl, parseLlmTargetInput } from "../src/shared/llmTarget.js";
@@ -287,6 +288,7 @@ function consumeBenchStartQuota(req, res) {
 
 // ─── Spark registry ──────────────────────────────────────
 const registry = new SparkRegistry();
+const inferenceActivity = new InferenceActivityStore();
 
 const fleetEnergyTracker = new FleetEnergyTracker({
   nodeIds: registry.sparkIds,
@@ -721,7 +723,7 @@ app.put("/api/sparks/order", (req, res) => {
 
 // ─── Global settings ──────────────────────────────────────
 app.get("/api/settings", (_req, res) => {
-  res.json(getSettings());
+  res.json({ ...getSettings(), inferenceActivityEnabled: inferenceActivity.enabled });
 });
 
 app.put("/api/settings", (req, res) => {
@@ -736,10 +738,16 @@ app.put("/api/settings", (req, res) => {
       }
       restartBroadcast();
     }
-    res.json(newSettings);
+    res.json({ ...newSettings, inferenceActivityEnabled: inferenceActivity.enabled });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
+});
+
+// Optional gateway summaries; source URLs and labels can only be set on the server.
+app.get("/api/inference/activity", async (_req, res) => {
+  await inferenceActivity.refreshIfDue();
+  res.set("Cache-Control", "no-store").json(inferenceActivity.snapshot());
 });
 
 // Recent GPU utilization / temperature / power % for one Spark (parallel arrays), newest last.

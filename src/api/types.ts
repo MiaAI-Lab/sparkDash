@@ -698,7 +698,33 @@ export interface HealthResponse {
   warnings: string[];
 }
 
+export interface InferenceActivity {
+  enabled: boolean;
+  available: boolean;
+  /** Approved non-secret display labels, never API keys. */
+  labels: string[];
+  generatedAt: string | null;
+  error: string | null;
+  active: Array<{
+    principal: string;
+    model: string;
+    count: number;
+    oldestAgeMs: number;
+    newestAgeMs: number;
+  }>;
+  recent: Array<{
+    principal: string;
+    model: string;
+    durationMs: number;
+    status: number | null;
+    observedAt: string;
+  }>;
+  overflowed: boolean;
+}
+
 export interface Settings {
+  /** Read-only server capability; configured through environment variables. */
+  inferenceActivityEnabled?: boolean;
   pollIntervalMs: number;
   defaultLlmPort: number;
   autoHideOffline: boolean;

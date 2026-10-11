@@ -8,6 +8,7 @@ import type {
   DecodeBenchListResponse,
   FleetEnergy,
   HealthResponse,
+  InferenceActivity,
   HermesBatchUpdateResponse,
   HermesUpdatesResponse,
   LauncherAction,
@@ -64,6 +65,11 @@ export function fetchSparks(): Promise<{ sparks: SparkConfig[] }> {
 
 export function fetchFleetEnergy(): Promise<FleetEnergy> {
   return apiFetch("/api/fleet-energy");
+}
+
+/** Optional, sanitized inference request activity from a configured private source. */
+export function fetchInferenceActivity(): Promise<InferenceActivity> {
+  return apiFetch("/api/inference/activity");
 }
 
 /** Fleet activity log, newest first. */

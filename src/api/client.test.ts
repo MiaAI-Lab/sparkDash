@@ -7,6 +7,19 @@ async function loadClient() {
   return import("./client");
 }
 
+describe("fetchInferenceActivity", () => {
+  afterEach(() => { localStorage.removeItem("sparkdashToken"); vi.unstubAllGlobals(); });
+  it("uses the ordinary authenticated dashboard GET without sending an inference key", async () => {
+    localStorage.setItem("sparkdashToken", "dashboard-token");
+    const payload = { enabled: false, available: false, labels: [], active: [], recent: [] };
+    const fetchMock = vi.fn().mockResolvedValue(Response.json(payload));
+    vi.stubGlobal("fetch", fetchMock);
+    const { fetchInferenceActivity } = await loadClient();
+    expect(await fetchInferenceActivity()).toEqual(payload);
+    expect(fetchMock).toHaveBeenCalledWith("/api/inference/activity", { headers: { Authorization: "Bearer dashboard-token" } });
+  });
+});
+
 describe("cancelShowcaseBeacon", () => {
   afterEach(() => {
     localStorage.removeItem("sparkdashToken");
