@@ -562,6 +562,15 @@ For development with Docker (source-mounted, HMR):
 docker compose -f docker-compose.dev.yml up --build
 ```
 
+**Published image (no local build):** each release tag (`v*`) is built for arm64 and amd64 and pushed to `ghcr.io/miaai-lab/sparkdash`. `docker-compose.image.yml` runs that image with the same host mounts and environment as `docker-compose.yml`; it is the only file the host needs, and `./config` next to it holds the runtime state:
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/MiaAI-Lab/sparkDash/main/docker-compose.image.yml
+docker compose -f docker-compose.image.yml up -d
+```
+
+It follows `latest` unless `SPARKDASH_VERSION` names a release (`SPARKDASH_VERSION=<version>`); update with `docker compose -f docker-compose.image.yml pull` and `up -d`. The frontend history window (`VITE_HISTORY_HOURS`) is fixed at the default 8 hours in the published image; build locally to change it.
+
 **Remote units + SSH keys (Docker):** SSH is executed *inside* the container on the sparkDash host (typically the head DGX). Configured LAN IPs are from **that** host’s point of view, not your laptop. OpenSSH looks for keys under `/root/.ssh` in the container — the host user’s `~/.ssh` is not used unless you bind-mount it. Uncomment this volume in `docker-compose.yml` (and recreate the container):
 
 ```yaml
@@ -645,9 +654,10 @@ sparkDash/
 │   └── validate.js      Host/user validation (SSRF-minded)
 ├── config/              Runtime state (volume; secrets gitignored)
 ├── assets/              Logo (bolt.svg) and legacy media
-├── .github/             README screenshot and Showcase video
+├── .github/             README screenshot and Showcase video; image publish workflow
 ├── Dockerfile           Production multi-stage arm64
 ├── docker-compose.yml   Production
+├── docker-compose.image.yml  Production from the published image
 ├── docker-compose.dev.yml
 └── deploy.sh            Rebuild / recreate helpers
 ```

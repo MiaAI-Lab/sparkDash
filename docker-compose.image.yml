@@ -1,0 +1,51 @@
+# Runs the image published to the GitHub container registry for each release
+# tag, instead of building one from this checkout (docker-compose.yml does that).
+# Nothing but this file is needed on the host:
+#   docker compose -f docker-compose.image.yml up -d
+# Pin a release with SPARKDASH_VERSION=<version> (default: latest).
+services:
+  sparkdash:
+    image: ghcr.io/miaai-lab/sparkdash:${SPARKDASH_VERSION:-latest}
+    container_name: sparkDash
+    # always: come back after host reboot even if the container was stopped
+    # before shutdown (unlike unless-stopped, which stays down after a manual stop).
+    restart: always
+    # Host network so local LLM probes reach loopback-bound servers
+    # (ds4-server / start.sh default --host 127.0.0.1). Bridge NAT cannot
+    # reach the host's 127.0.0.1, and LAN-IP probes miss loopback binds.
+    network_mode: host
+    privileged: true
+    # Share host PID namespace so nvidia-smi compute-apps sees GPU processes
+    # (otherwise local VRAM falls back to minute-old config/gpu-memory.json).
+    pid: host
+    volumes:
+      # Mount host filesystem for local Spark metrics
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/root:ro
+      # Mount nvidia-smi + driver libs (fallback if nsenter host path fails)
+      - /usr/bin/nvidia-smi:/usr/bin/nvidia-smi:ro
+      - /usr/lib/aarch64-linux-gnu/libnvidia-ml.so.1:/usr/lib/aarch64-linux-gnu/libnvidia-ml.so.1:ro
+      # Config + encrypted secrets (passwords survive restarts)
+      - ./config:/app/config
+      # Remote Sparks with SSH *key* auth: OpenSSH inside the container uses
+      # /root/.ssh (not the host user's ~/.ssh). Uncomment and point at a
+      # default-named key (id_ed25519 / id_rsa). A custom name like
+      # id_ed25519_shared must be mounted *as* id_ed25519, or set
+      # SSH_IDENTITY_FILE to the path inside the container.
+      # - ${HOME}/.ssh/id_ed25519:/root/.ssh/id_ed25519:ro
+    environment:
+      # Secure default: host-networked service listens only on loopback.
+      # See docs/REMOTE-ACCESS.md; direct non-loopback binds fail closed.
+      - BIND_HOST=${BIND_HOST:-127.0.0.1}
+      - SPARKDASH_TOKEN=${SPARKDASH_TOKEN:-}
+      - SPARKDASH_ALLOW_OPEN_REMOTE=${SPARKDASH_ALLOW_OPEN_REMOTE:-1}
+      - SPARKDASH_ALLOWED_HOSTS=${SPARKDASH_ALLOWED_HOSTS:-}
+      - PORT=5555
+      - LLM_PORT=8888
+      - NODE_ENV=production
+      - HOST_PROC_PATH=/host/proc
+      - HOST_SYS_PATH=/host/sys
+      - HOST_ROOT_PATH=/host/root
+      - SSH_CONTROL_PERSIST_SECONDS=${SSH_CONTROL_PERSIST_SECONDS:-60}
+      - SSH_IDENTITY_FILE=${SSH_IDENTITY_FILE:-}
