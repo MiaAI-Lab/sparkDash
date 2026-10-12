@@ -2,6 +2,8 @@ import { BenchIcon } from "./components/bench/BenchIcon";
 import { setConfiguredTimeZone } from "./shared/timeZone";
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useSnapshot } from "./hooks/useSnapshot";
+import { useFleetAlerts } from "./hooks/useFleetAlerts";
+import { useBrowserAlerts } from "./hooks/useBrowserAlerts";
 import { useAppRoute, useRoute } from "./hooks/useRoute";
 import { useSmoothWheel } from "./hooks/useSmoothWheel";
 import { fetchSparks, reorderSparks, fetchSettings, fetchHealth } from "./api/client";
@@ -242,6 +244,17 @@ function DashboardApp() {
     for (const s of map.values()) ordered.push(s);
     return ordered;
   }, [liveSparks, orderOverride]);
+
+  // Tab badge + desktop notifications (both opt-in, per browser): the strip's own
+  // list. Live snapshots only — placeholders from the REST fallback are all "offline".
+  const fleetAlerts = useFleetAlerts({
+    sparks,
+    alertsEnabled: settings?.alertsEnabled ?? false,
+    serverAlerts,
+    showExceptions: settings?.showFleetExceptions ?? false,
+    temperatureUnit: settings?.temperatureUnit ?? "celsius",
+  });
+  useBrowserAlerts(fleetAlerts.rows, fleetAlerts.ready && settings != null, fleetAlerts.source);
 
   // Drop override once server/WS order matches
   useEffect(() => {

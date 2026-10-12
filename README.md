@@ -570,6 +570,10 @@ Channel URLs are credentials, so they are stored encrypted in `config/sparks-sec
 
 While notifications are off, nothing is evaluated or sent, and `PUT /api/alerts/config` and `POST /api/alerts/test` answer `409`. While on, the WebSocket snapshot carries `alerts.active` and the Overview exceptions strip lists the server's alerts with their real durations.
 
+### In the browser
+
+**Settings → Tab badge / Desktop notifications** (per browser, both off by default): the tab title shows how many exceptions the Overview strip lists — `(2) sparkDash` — with a red (critical) or amber dot on the icon, and a desktop notification pops up when one becomes active while the page is open. Both count exactly what the strip lists (the server's alerts while notifications are on, otherwise the strip's own conditions, with *Show active fleet exceptions* and the temperature unit applied). Conditions the browser derives itself must hold for 30 s before they count and stay clear for 30 s before they stop, so a flapping reading notifies once. Browsers only allow notifications on HTTPS or localhost — on a plain-HTTP LAN address, use an SSH tunnel, Tailscale Serve or an HTTPS proxy, or an ntfy channel.
+
 ---
 
 ## RoCE / RDMA monitoring

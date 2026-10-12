@@ -8,6 +8,7 @@ import packageJson from "../../package.json";
 import { XIcon } from "./ui/icons";
 import { SettingRow, ToggleRow } from "./SettingRows";
 import { AlertsDialog } from "./AlertsDialog";
+import { BrowserAlertsSettings } from "./BrowserAlertsSettings";
 import "../styles/dialogs.css";
 
 interface SettingsDialogProps {
@@ -460,6 +461,7 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
                   </button>
                 </div>
               </SettingRow>
+              <BrowserAlertsSettings />
               <ToggleRow
                 title="Save benchmark debug traces"
                 help="Stores prompts, HTTP/completion IDs, content previews, and GPU samples in bench history. Off by default; larger history files."

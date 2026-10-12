@@ -1868,6 +1868,13 @@
   resize: vertical;
 }
 
+/* Settings → Tab badge / Desktop notifications: why a switch is unavailable. */
+.set-row__note {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--color-warning);
+}
+
 /* Settings → Alert notifications dialog */
 .alerts-fieldset {
   min-width: 0;
