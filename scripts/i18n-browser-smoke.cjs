@@ -5,7 +5,7 @@ const { spawn } = require('node:child_process');
 const { createRequire } = require('node:module');
 const { pathToFileURL } = require('node:url');
 const assert = require('node:assert/strict');
-const { createBrowserProfile, removeBrowserProfile, resolveBrowserConfig, sandboxArguments } = require('./i18n-browser-config.cjs');
+const { createBrowserProfile, removeBrowserProfile, resolveBrowserConfig, sandboxArguments, stopBrowser } = require('./i18n-browser-config.cjs');
 const repo = process.cwd();
 // Resolve this before creating the fixture server so missing browsers fail quickly.
 const browserConfig = resolveBrowserConfig({ repo });
@@ -157,6 +157,10 @@ async function main() {
     fs.writeFileSync(path.join(out,'visible-text.json'),JSON.stringify(texts,null,2));
     console.log('Browser validation passed '+checks.length+' checks: '+out);await cdp('Browser.close');
   }catch(error){fs.writeFileSync(path.join(out,'failure.json'),JSON.stringify({error:String(error),checks,errors,writes,texts},null,2));throw error}
-  finally{clearInterval(timer);socket?.close();browser?.kill();for(const ws of wss.clients)ws.terminate();wss.close();await new Promise(r=>server.close(r));try{if(profile&&!removeBrowserProfile(profile))console.error('Skipped cleanup of an unowned browser profile')}catch(cleanupError){console.error('Browser profile cleanup failed: '+cleanupError)}}
+  finally{
+    clearInterval(timer);socket?.close();for(const ws of wss.clients)ws.terminate();wss.close();await new Promise(r=>server.close(r));
+    await stopBrowser(browser);
+    if(profile&&!removeBrowserProfile(profile))throw new Error('Skipped cleanup of an unowned browser profile');
+  }
 }
 main().catch(error=>{console.error(error);process.exitCode=1});

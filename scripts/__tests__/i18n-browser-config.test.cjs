@@ -1,7 +1,8 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const path = require('node:path');
-const { createBrowserProfile, removeBrowserProfile, resolveBrowserConfig, sandboxArguments } = require('../i18n-browser-config.cjs');
+const { EventEmitter } = require('node:events');
+const { createBrowserProfile, removeBrowserProfile, resolveBrowserConfig, sandboxArguments, stopBrowser } = require('../i18n-browser-config.cjs');
 
 function fakeFs(files) {
   return {
@@ -71,4 +72,37 @@ test('adds --no-sandbox only for opt-in or root Linux runs', () => {
 
 test('rejects an explicitly configured non-executable Unix browser', () => {
   assert.throws(() => resolveBrowserConfig({ platform: 'linux', env: { I18N_BROWSER_BINARY: '/browser' }, fs: fakeFs(new Map([['/browser', 'not-executable']])), path }), /not an executable/);
+});
+
+test('waits for browser exit before deleting the profile it could still write to', async () => {
+  const browser = Object.assign(new EventEmitter(), { pid: 123, exitCode: null, signalCode: null });
+  const events = [];
+  browser.kill = () => { events.push('stop requested'); };
+  const fs = { mkdtempSync: () => '/tmp/sparkdash-i18n-browser-closing', rmSync: () => events.push('profile deleted') };
+  const profile = createBrowserProfile({ path, tmpdir: () => '/tmp', fs });
+  const cleanup = stopBrowser(browser).then(() => removeBrowserProfile(profile, { path, fs }));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(events, ['stop requested']);
+  events.push('last browser write');
+  browser.exitCode = 0;
+  browser.emit('close', 0);
+  assert.equal(await cleanup, true);
+  assert.deepEqual(events, ['stop requested', 'last browser write', 'profile deleted']);
+  assert.equal(browser.listenerCount('close'), 0);
+});
+
+test('browser cleanup tolerates failed launches and already exited processes', async () => {
+  await stopBrowser(undefined);
+  await stopBrowser({ pid: undefined });
+  await stopBrowser({ pid: 123, exitCode: 0, signalCode: null, kill() { assert.fail('already exited'); } });
+});
+
+test('an unresponsive browser causes bounded cleanup failure instead of unsafe profile deletion', async () => {
+  const browser = Object.assign(new EventEmitter(), { pid: 123, exitCode: null, signalCode: null });
+  const signals = [];
+  browser.kill = (signal = 'SIGTERM') => signals.push(signal);
+  await assert.rejects(stopBrowser(browser, { timeoutMs: 30, killAfterMs: 5 }), /temporary profile was retained/);
+  assert.deepEqual(signals, ['SIGTERM', 'SIGKILL']);
+  assert.equal(browser.listenerCount('close'), 0);
+  assert.equal(browser.listenerCount('error'), 0);
 });

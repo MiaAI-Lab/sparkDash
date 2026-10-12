@@ -89,4 +89,28 @@ function sandboxArguments({ platform = process.platform, uid = process.getuid?.(
   return platform === 'linux' && (env.I18N_BROWSER_NO_SANDBOX === '1' || uid === 0) ? ['--no-sandbox'] : [];
 }
 
-module.exports = { createBrowserProfile, installedCandidates, removeBrowserProfile, resolveBrowserConfig, sandboxArguments };
+async function stopBrowser(browser, { timeoutMs = 5000, killAfterMs = 1000 } = {}) {
+  if (!browser?.pid || browser.exitCode !== null || browser.signalCode !== null) return;
+  let closed;
+  let failed;
+  let deadline;
+  let forceKill;
+  try {
+    await new Promise((resolve, reject) => {
+      closed = resolve;
+      failed = reject;
+      browser.once('close', closed);
+      browser.once('error', failed);
+      deadline = setTimeout(() => reject(new Error('Browser did not exit; temporary profile was retained')), timeoutMs);
+      forceKill = setTimeout(() => browser.kill('SIGKILL'), killAfterMs);
+      browser.kill();
+    });
+  } finally {
+    clearTimeout(deadline);
+    clearTimeout(forceKill);
+    browser.removeListener('close', closed);
+    browser.removeListener('error', failed);
+  }
+}
+
+module.exports = { createBrowserProfile, installedCandidates, removeBrowserProfile, resolveBrowserConfig, sandboxArguments, stopBrowser };
