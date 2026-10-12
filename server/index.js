@@ -8,7 +8,6 @@ import dotenv from "dotenv";
 import { SparkRegistry } from "./sparks/SparkRegistry.js";
 import { resolveFrontendDir, FRONTEND_MISSING_MESSAGE } from "./frontendDir.js";
 import { SparkMonitor } from "./sparks/SparkMonitor.js";
-import { collectionWasSuccessful } from "./collectors/SystemCollector.js";
 import { sshExec } from "./collectors/ssh.js";
 import { comfyCancelJob } from "./collectors/comfyActions.js";
 import {
@@ -54,10 +53,11 @@ import {
 } from "./llmtokens/LlmTokenRuntime.js";
 import { closeLlmStreamAgent } from "./collectors/LlmStreaming.js";
 import { compareSemver, getLatestRelease } from "./collectors/HermesReleases.js";
-import { FLEET_ENERGY_JSON_PATH, FLEET_ENERGY_MONTHLY_JSON_PATH } from "./config.js";
+import { FLEET_ENERGY_JSON_PATH, FLEET_ENERGY_MONTHLY_JSON_PATH, METRICS_HISTORY_JSON_PATH } from "./config.js";
 import { FleetEnergyTracker } from "./energy/FleetEnergyTracker.js";
 import { EventLog } from "./events/EventLog.js";
-import { GpuHistory, deviceReadings } from "./metrics/GpuHistory.js";
+import { UnitHistory } from "./metrics/UnitHistory.js";
+import { createUnitHistoryRuntime, registerUnitHistoryRoutes } from "./metrics/UnitHistoryRuntime.js";
 import { LauncherStore } from "./llmlaunch/LauncherStore.js";
 import { LauncherManager } from "./llmlaunch/LauncherManager.js";
 import { ToolEvalStore } from "./tooleval/ToolEvalStore.js";
@@ -312,46 +312,18 @@ const eventLog = new EventLog({
   max: 2000,
 });
 
-// ─── GPU history (so a fresh page can draw the last hours at once) ─────
-// Two stores: the dense one keeps every ~2 s sample for the short Overview/Spark charts
-// (8 h), the long one keeps a minute-resolution series for a week so the Temps page can
-// draw day and week ranges without storing a week of 2 s samples.
-const GPU_HISTORY_DENSE_WINDOW_MS = 8 * 3600_000;
-const GPU_HISTORY_MAX_WINDOW_MS = 7 * 24 * 3600_000;
-const gpuHistory = new GpuHistory({
+// ─── Unit history (so a fresh page can draw the last hours at once) ─────
+// GPU: a dense ~2 s series for 8 h (Overview/Spark charts) and a minute-resolution series for
+// a week (Temps day/week), always on, in one store fed by one sampler. The 48 h / 30 d bucketed
+// tiers only with Settings → metricsHistory on (read every tick, so no restart); the sampler is
+// started once the monitors exist, below.
+const metricsHistoryEnabled = () => getSettings().metricsHistory === true;
+const unitHistory = new UnitHistory({
   file: process.env.GPU_HISTORY_JSON_PATH || path.join(ROOT, "config", "gpu-history.json"),
+  longFile: process.env.GPU_HISTORY_LONG_JSON_PATH || path.join(ROOT, "config", "gpu-history-long.json"),
+  tiersFile: METRICS_HISTORY_JSON_PATH,
+  tiersEnabled: metricsHistoryEnabled,
 });
-const gpuHistoryLong = new GpuHistory({
-  file: process.env.GPU_HISTORY_LONG_JSON_PATH || path.join(ROOT, "config", "gpu-history-long.json"),
-  maxAgeMs: GPU_HISTORY_MAX_WINDOW_MS,
-  minGapMs: 60_000,
-});
-const GPU_HISTORY_SAMPLE_MS = 2000;
-function sampleGpuHistory() {
-  try {
-    for (const snap of orderedSnapshots()) {
-      const gpu = snap?.metrics?.gpu;
-      // Require a real collection: a default/failed GPU result would record a fabricated 0 C / 0 %.
-      if (!snap?.online || !gpu || !collectionWasSuccessful(gpu)) continue;
-      const draw = gpu.power?.draw;
-      const limit = gpu.power?.limit;
-      const powerPct = Number.isFinite(draw) && Number.isFinite(limit) && limit > 0 ? Math.min(100, (draw / limit) * 100) : null;
-      const devices = deviceReadings(gpu.gpus);
-      const at = Date.now();
-      const usage = gpu.metricAvailability?.usage === false ? null : gpu.usage;
-      const temperature = gpu.metricAvailability?.temperature === false ? null : gpu.temperature;
-      const pct = gpu.metricAvailability?.powerDraw === false || gpu.metricAvailability?.powerLimit === false ? null : powerPct;
-      gpuHistory.record(snap.id, at, usage, temperature, pct, devices);
-      gpuHistoryLong.record(snap.id, at, usage, temperature, pct, devices);
-    }
-  } catch {
-    /* sampling must never break the server */
-  }
-}
-const gpuHistoryTimer = setInterval(sampleGpuHistory, GPU_HISTORY_SAMPLE_MS);
-gpuHistoryTimer.unref?.();
-gpuHistory.start();
-gpuHistoryLong.start();
 
 /** Record an event; never throws (callers sit in poll loops and routes). */
 function recordEvent(event) {
@@ -515,6 +487,14 @@ const fleetEnergyRuntime = createFleetEnergyRuntime({
   orderedSnapshots,
   monitors,
 });
+
+const unitHistoryRuntime = createUnitHistoryRuntime({
+  store: unitHistory,
+  orderedSnapshots,
+  monitors,
+  isEnabled: metricsHistoryEnabled,
+});
+unitHistoryRuntime.start();
 
 // Cumulative prompt/generated token totals per model (per-UTC-day buckets for range queries).
 const llmTokenRuntime = createLlmTokenRuntime({ ledger: llmTokenLedger, orderedSnapshots });
@@ -764,8 +744,7 @@ app.delete("/api/sparks/:id", (req, res) => {
     stopMonitor(req.params.id);
     launcherManager.removeSpark(req.params.id);
     launcherStatusCache.delete(req.params.id);
-    gpuHistory.remove(req.params.id);
-    gpuHistoryLong.remove(req.params.id);
+    unitHistory.remove(req.params.id);
     toolEvalManager.removeSpark(req.params.id);
     vulnHuntManager.removeSpark(req.params.id);
     reaManager.removeSpark(req.params.id);
@@ -825,14 +804,11 @@ app.get("/api/inference/activity", async (_req, res) => {
   res.set("Cache-Control", "no-store").json(inferenceActivity.snapshot());
 });
 
-// Recent GPU utilization / temperature / power % for one Spark (parallel arrays), newest last.
-// Windows up to 8 h come from the dense ~2 s series; longer windows (Temps day/week) come
-// from the minute-resolution long-retention series.
-app.get("/api/sparks/:id/gpu-history", (req, res) => {
-  if (!registry.getSpark(req.params.id)) return res.status(404).json({ error: "Spark not found" });
-  const windowMs = Math.min(GPU_HISTORY_MAX_WINDOW_MS, Math.max(60_000, Number(req.query.windowMs) || 8 * 3600_000));
-  const store = windowMs > GPU_HISTORY_DENSE_WINDOW_MS ? gpuHistoryLong : gpuHistory;
-  res.json(store.get(req.params.id, Date.now() - windowMs));
+// GET /api/sparks/:id/gpu-history (GPU raw tier, newest last) and /api/sparks/:id/history (bucketed tiers).
+registerUnitHistoryRoutes(app, {
+  store: unitHistory,
+  hasUnit: (id) => Boolean(registry.getSpark(id)),
+  isEnabled: metricsHistoryEnabled,
 });
 
 app.get("/api/sparks/:id/metrics", (req, res) => {
@@ -2462,11 +2438,9 @@ async function shutdown(signal) {
     console.error("[sparkDash] failed to flush event log:", err.message);
   }
   try {
-    clearInterval(gpuHistoryTimer);
-    gpuHistory.stop();
-    gpuHistoryLong.stop();
+    unitHistoryRuntime.stop();
   } catch (err) {
-    console.error("[sparkDash] failed to flush GPU history:", err.message);
+    console.error("[sparkDash] failed to flush unit history:", err.message);
   }
   try {
     llmDaily.flush();

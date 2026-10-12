@@ -275,6 +275,37 @@ test("lastSuccess only advances when a poll returns real data (a stuck collector
   assert.equal("collectedAt" in monitor.snapshot(), false);
 });
 
+test("public freshness accessors: last real collection, latest poll ok, current cadence", async () => {
+  const monitor = new SparkMonitor(spark(), { pollIntervalMs: 10_000 });
+  assert.equal(monitor.lastCollectedAt("gpu"), null);
+  assert.equal(monitor.collectionOk("gpu"), false);
+  assert.equal(monitor.collectionOk("ram"), false);
+  assert.equal(monitor.pollIntervalMs("gpu"), 10_000);
+  assert.equal(monitor.pollIntervalMs("storage"), null, "not a fast domain");
+  monitor.setPollInterval(4000); // before _running, so no timers are armed
+  assert.equal(monitor.pollIntervalMs("cpu"), 4000, "follows Settings → Poll interval");
+  monitor._running = true;
+
+  monitor.collector.collectGpu = async () => tagged(validGpu());
+  monitor.collector.collectRam = async () => ({ used: 10, total: 100, percentage: 10 });
+  await monitor._pollDomain("gpu");
+  await monitor._pollDomain("ram");
+  const at = monitor.lastCollectedAt("ram");
+  assert.ok(at > 0 && monitor.lastCollectedAt("gpu") > 0);
+  assert.equal(monitor.collectionOk("gpu"), true);
+  assert.equal(monitor.collectionOk("ram"), true);
+
+  // A failed poll: the previous value stays in the snapshot, but it is no longer "ok".
+  await new Promise((r) => setTimeout(r, 5));
+  monitor.collector.collectGpu = async () => validGpu();
+  monitor.collector.collectRam = async () => ({ used: 0, total: 0, percentage: 0 });
+  await monitor._pollDomain("gpu");
+  await monitor._pollDomain("ram");
+  assert.equal(monitor.collectionOk("gpu"), false);
+  assert.equal(monitor.collectionOk("ram"), false);
+  assert.equal(monitor.lastCollectedAt("ram"), at, "only real data moves it");
+});
+
 test("success rules per domain, and the snapshot carries no success timestamps", () => {
   const monitor = new SparkMonitor(spark());
   const ok = (domain, result) => monitor._domainSucceeded(domain, result);

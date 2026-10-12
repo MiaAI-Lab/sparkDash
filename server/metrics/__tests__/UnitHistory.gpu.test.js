@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { GpuHistory, deviceReadings } from "../GpuHistory.js";
+import { UnitHistory as GpuHistory, deviceReadings } from "../UnitHistory.js";
 
 const tmpFile = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), "gpuhist-")), "h.json");
 
@@ -196,4 +196,48 @@ test("the default dense retention still caps at 8 hours", () => {
   const kept = h.get("a", now - 7 * 24 * 3600_000).t.length;
   // _trim keeps a small slack (chunked trimming), so allow a couple of extra minute samples.
   assert.ok(kept >= 8 * 60 && kept <= 8 * 60 + 5, `only about the last 8 h kept (got ${kept})`);
+});
+
+test("the long series keeps a week of minute readings in its own file; window() picks dense or long", () => {
+  const file = tmpFile();
+  const longFile = path.join(path.dirname(file), "long.json");
+  const hour = 3600_000;
+  const day = 24 * hour;
+  let now = 10 * day;
+  const h = new GpuHistory({ file, longFile, now: () => now });
+  assert.equal(h.maxWindowMs, 7 * day);
+  // A reading every 30 s for two days: the dense series keeps the last 8 h of all of them, the
+  // long one a reading a minute for the whole span.
+  const start = now;
+  for (let at = start; at <= start + 2 * day; at += 30_000) {
+    now = at;
+    h.record("a", at, 10, 40 + ((at / 30_000) % 2), 5);
+  }
+  const dense = h.window("a", 8 * hour);
+  assert.equal(dense.t.length, 8 * 120 + 1, "8 h at 30 s spacing, both ends inclusive");
+  const long = h.window("a", day);
+  assert.equal(long.t.length, 24 * 60 + 1, "a day at minute spacing");
+  assert.ok(long.t.every((t, i) => i === 0 || t - long.t[i - 1] === 60_000));
+  assert.equal(h.window("a", 2 * day + hour).t[0], start, "the long series reaches back to the first reading");
+  assert.deepEqual(h.get("a", now - 8 * hour), dense, "get() is the dense series, as before");
+
+  assert.equal(h.flush(), true);
+  const saved = JSON.parse(fs.readFileSync(longFile, "utf8"));
+  assert.equal(saved.version, 1);
+  assert.equal(saved.sparks.a.t.length, 2 * 24 * 60 + 1, "the 2.40.1 file format, unchanged");
+  const reloaded = new GpuHistory({ file, longFile, now: () => now });
+  assert.deepEqual(reloaded.window("a", day), long);
+  assert.deepEqual(reloaded.window("a", 8 * hour), dense);
+
+  h.remove("a");
+  assert.deepEqual(h.window("a", day).t, []);
+  assert.deepEqual(h.window("a", hour).t, []);
+});
+
+test("without a long series every window is the dense one, capped at 8 h", () => {
+  let now = 100 * 3600_000;
+  const h = new GpuHistory({ now: () => now });
+  assert.equal(h.maxWindowMs, 8 * 3600_000);
+  h.record("a", now - 1000, 1, 2, 3);
+  assert.deepEqual(h.window("a", 24 * 3600_000).t, [now - 1000]);
 });

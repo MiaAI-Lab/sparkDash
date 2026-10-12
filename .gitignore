@@ -42,6 +42,8 @@ config/vulnhunt-runs.json
 config/vulnhunt-results/
 config/gpu-history.json
 config/gpu-history-long.json
+config/metrics-history.json
+config/metrics-history.json.corrupt-*
 config/fleet-energy.scope-*.json
 config/*.tmp
 config/*.json.*.tmp

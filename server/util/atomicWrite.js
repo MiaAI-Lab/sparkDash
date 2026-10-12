@@ -73,6 +73,58 @@ export function atomicWrite(filePath, contents, mode = 0o600) {
 export default atomicWrite;
 
 /**
+ * atomicWrite without blocking the event loop: the same temp-then-rename steps
+ * and root-owned-target fallback, on fs.promises. The temp file has its own
+ * name (`.async.tmp`), so a synchronous write of the same target — a shutdown
+ * flush while this one is in flight — never shares it.
+ *
+ * `shouldCommit` is asked once the contents are on disk, just before the
+ * rename; returning false discards the temp file and leaves the target alone
+ * (a newer synchronous write has superseded this one).
+ *
+ * @param {string} filePath Destination path.
+ * @param {string} contents Text contents to write.
+ * @param {number} [mode=0o600] File mode to apply (best-effort chmod).
+ * @param {{ shouldCommit?: () => boolean, fsp?: typeof fs.promises }} [opts]
+ * @returns {Promise<boolean>} false when shouldCommit declined the rename.
+ */
+export async function atomicWriteAsync(filePath, contents, mode = 0o600, { shouldCommit, fsp = fs.promises } = {}) {
+  await fsp.mkdir(path.dirname(filePath), { recursive: true });
+  const tmp = `${filePath}.${process.pid}.async.tmp`;
+  const cleanup = () => fsp.unlink(tmp).catch(() => {});
+  try {
+    await fsp.writeFile(tmp, contents, { mode });
+  } catch (err) {
+    await cleanup();
+    throw new Error(`Failed to write ${filePath}: ${err.message}`);
+  }
+  await fsp.chmod(tmp, mode).catch(() => {});
+  if (shouldCommit && !shouldCommit()) {
+    await cleanup();
+    return false;
+  }
+  try {
+    await fsp.rename(tmp, filePath);
+  } catch {
+    try {
+      await fsp.chmod(filePath, 0o666).catch(() => {});
+      await fsp.unlink(filePath).catch((err) => {
+        if (err?.code !== "ENOENT") throw err;
+      });
+      await fsp.rename(tmp, filePath);
+    } catch (err2) {
+      await cleanup();
+      throw new Error(
+        `Failed to write ${filePath}: ${err2.message}. ` +
+          `If this is a root-owned file: sudo chown $(id -u):$(id -g) ${filePath}`
+      );
+    }
+  }
+  await fsp.chmod(filePath, mode).catch(() => {});
+  return true;
+}
+
+/**
  * A state file failed to parse: move it aside as <name>.corrupt-<ts> so the next
  * save does not destroy it, and log once. Never throws.
  * @param {string} filePath

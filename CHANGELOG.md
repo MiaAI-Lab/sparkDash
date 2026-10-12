@@ -9,6 +9,12 @@ Format: version sections are listed newest first.
 
 ## [Unreleased]
 
+### Added
+- **Per-unit metrics history, 48 h and 30 days (opt-in, server side).** With the new `metricsHistory` setting on (`PUT /api/settings`; default off), the server keeps 1-minute buckets for 48 h and 15-minute buckets for 30 days per unit — GPU utilisation, temperature and power, memory used and headroom (MemAvailable of the GB10 unified pool, free VRAM on a discrete card), CPU utilisation and temperature, RAM on hosts, network rx/tx, and per LLM endpoint decode/prefill tok/s and KV fill — each bucket with avg, max (min for headroom) and a sample count. Offline units, failed or stale collections and missing sensors are gaps, never zeros; a reading counts as stale after 3 × the current poll interval (at least 15 s), so it follows Settings → Poll interval. `GET /api/sparks/:id/history?range=1h|6h|24h|7d|30d` serves them (at most ~500 points per series). It is the GPU history store generalised (`server/metrics/UnitHistory.js`): one store and one sampler for the 8 h GPU chart series, the Temps page's minute-resolution week (files and API unchanged) and these tiers. Tiers are written to `config/metrics-history.json` (`METRICS_HISTORY_JSON_PATH`, mode 0600, ~1 MB per unit at most), never while the setting is off, including buckets still pending when it is turned off.
+
+### Fixed
+- **GPU history is saved without blocking the server.** The 8 h GPU history (`config/gpu-history.json`) and the Temps page's week (`config/gpu-history-long.json`) are now written asynchronously every 5 minutes, one unit per event-loop turn, instead of in one synchronous rewrite; shutdown still writes them synchronously. A unit whose id is `__proto__` no longer loses its history on save.
+
 ---
 
 ## [2.50.0] — 2026-10-15
@@ -19,6 +25,8 @@ Format: version sections are listed newest first.
 - **GPU clock cap asks for the sudo password when the unit has no passwordless sudo.** The password is sent once to the unit's `sudo -S` over stdin, never stored or logged, and only accepted over https or from the machine itself; three wrong ones lock that account for five minutes.
 - **GPU clock cap: run it on the Spark yourself.** Edit unit → GPU clock cap has a *Run it on the Spark yourself* panel that gives a command to paste into a terminal on the Spark. It uses plain `sudo`, so it asks for the password there, and prints the result in plain words. Use it when the dashboard has no passwordless sudo on a unit.
 - **GPU clock cap from Edit unit.** Spark units get a **GPU clock cap** section (Linux Spark units only): cap the graphics clock with `nvidia-smi -lgc 0,MAX`, optionally **keep it after reboot** with a systemd service (`spark-gpu-clock-limit.service`, the unit sparkLimiter installs), or remove it again. It shows the cap in effect and the GPU maximum, and the value appears on the unit's card and GPU panel. Runs as root locally and through `sudo -n` over SSH, so the SSH user needs passwordless sudo; nothing changes without it. API: `GET|PUT|DELETE /api/sparks/:id/gpu-clock`.
+
+### Fixed
 
 ---
 
