@@ -1,4 +1,11 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+
+// Compile lazy dependencies during suite setup. Each beacon case still resets
+// the module below so token initialization is tested against that case's storage.
+beforeAll(async () => {
+  await import("./client");
+  await import("./llmTokenClient");
+});
 
 // client.ts reads the token when the module loads, so each case stores (or
 // clears) it first and imports a fresh copy of the module.

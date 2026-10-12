@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { LOCALE_STORAGE_KEY, detectLocale, normalizeLocale } from "./detect";
 import { activeLocale, i18next, initI18n, setLocale } from "./index";
 import { catalogLocales, catalogNamespaces, loadLocaleCatalogs } from "./resources";
@@ -28,6 +28,12 @@ describe("locale detection", () => {
 });
 
 describe("catalog wiring", () => {
+  // Vitest transforms lazy JSON modules on first import. Prepare that compiler
+  // work in setup; the tests still call the real loader and use default deadlines.
+  beforeAll(async () => {
+    await loadLocaleCatalogs("zh-Hans");
+  });
+
   beforeEach(() => {
     localStorage.clear();
     initI18n({ lng: "en" });
