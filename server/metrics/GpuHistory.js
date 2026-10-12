@@ -23,9 +23,11 @@ export function deviceReadings(gpus) {
     out.push({
       index: d.index,
       name: typeof d.name === "string" ? d.name : null,
-      usage: d.usage,
-      temperature: d.temperature,
-      powerPct: Number.isFinite(draw) && Number.isFinite(limit) && limit > 0 ? Math.min(100, (draw / limit) * 100) : null,
+      usage: d.metricAvailability?.usage === false ? null : d.usage,
+      temperature: d.metricAvailability?.temperature === false ? null : d.temperature,
+      powerPct: d.metricAvailability?.powerDraw === false || d.metricAvailability?.powerLimit === false ||
+        !Number.isFinite(draw) || !Number.isFinite(limit) || limit <= 0
+        ? null : Math.min(100, (draw / limit) * 100),
     });
   }
   return out;
@@ -92,7 +94,9 @@ export class GpuHistory {
    * `devices` (see deviceReadings) adds the per-card readings of a multi-GPU host.
    */
   record(sparkId, at, usage, temperature, powerPct, devices = []) {
-    if (!Number.isFinite(at) || !Number.isFinite(usage) || !Number.isFinite(temperature)) return false;
+    if (!Number.isFinite(at)) return false;
+    if (![usage, temperature, powerPct].some(Number.isFinite) && (!Array.isArray(devices) || !devices.some((d) =>
+      [d?.usage, d?.temperature, d?.powerPct].some(Number.isFinite)))) return false;
     let s = this._series.get(sparkId);
     if (!s) {
       s = { t: [], u: [], c: [], p: [], g: {} };
@@ -101,8 +105,8 @@ export class GpuHistory {
     const last = s.t.length ? s.t[s.t.length - 1] : -Infinity;
     if (at - last < this.minGapMs) return false;
     s.t.push(Math.round(at));
-    s.u.push(Math.round(usage * 10) / 10);
-    s.c.push(Math.round(temperature * 10) / 10);
+    s.u.push(Number.isFinite(usage) ? Math.round(usage * 10) / 10 : null);
+    s.c.push(Number.isFinite(temperature) ? Math.round(temperature * 10) / 10 : null);
     s.p.push(Number.isFinite(powerPct) ? round1(powerPct) : null);
     this._recordDevices(s, devices);
     this._trim(s, at);
@@ -124,10 +128,9 @@ export class GpuHistory {
     for (const [k, g] of Object.entries(s.g)) {
       const d = seen.get(k);
       if (d && typeof d.name === "string") g.n = d.name;
-      const ok = d && Number.isFinite(d.usage) && Number.isFinite(d.temperature);
-      g.u.push(ok ? round1(d.usage) : null);
-      g.c.push(ok ? round1(d.temperature) : null);
-      g.p.push(ok && Number.isFinite(d.powerPct) ? round1(d.powerPct) : null);
+      g.u.push(d && Number.isFinite(d.usage) ? round1(d.usage) : null);
+      g.c.push(d && Number.isFinite(d.temperature) ? round1(d.temperature) : null);
+      g.p.push(d && Number.isFinite(d.powerPct) ? round1(d.powerPct) : null);
     }
   }
 

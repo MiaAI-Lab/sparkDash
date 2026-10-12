@@ -120,10 +120,14 @@ export function GpuHistoryChart({
   const indices = useMemo(() => (gpu?.gpus && gpu.gpus.length > 1 ? gpu.gpus.map((d) => d.index) : []), [gpu?.gpus]);
   const multi = indices.length > 1;
   const indexKey = indices.join(",");
+  const deviceLabels = new Map((gpu?.gpus ?? []).map((d) => [
+    d.index,
+    d.vendor === "amd" ? `AMD GPU ${d.physicalIndex ?? d.index}` : `GPU ${d.physicalIndex ?? d.index}`,
+  ]));
   const [viewRaw, setViewRaw] = useState<string | null>(() => readPref(VIEW_KEY));
   const [metric, setMetric] = useState<GpuMetric>(() => parseGpuMetric(readPref(METRIC_KEY)));
   const view: GpuView = multi ? parseGpuView(viewRaw, indices) : "combined";
-  const specs = useMemo(() => chartSeriesSpecs(view, metric, indices), [view, metric, indexKey]);
+  const specs = useMemo(() => chartSeriesSpecs(view, metric, indices, deviceLabels), [view, metric, indexKey, gpu?.gpus]);
 
   const lines = useMemo<Line[]>(() => {
     // The aggregate series change on every sample and on backfill, which is also when the per-card ones do.
@@ -162,7 +166,7 @@ export function GpuHistoryChart({
     setMetric(m);
     writePref(METRIC_KEY, m);
   };
-  const viewOptions: Array<[GpuView, string]> = [["combined", "Combined"], ["all", "All GPUs"], ...indices.map((i): [GpuView, string] => [i, `GPU ${i}`])];
+  const viewOptions: Array<[GpuView, string]> = [["combined", "Combined"], ["all", "All GPUs"], ...indices.map((i): [GpuView, string] => [i, deviceLabels.get(i) ?? `GPU ${i}`])];
   const controls = multi ? (
     <div className="sp-chart__controls">
       <div className="seg" role="group" aria-label="GPUs to plot">

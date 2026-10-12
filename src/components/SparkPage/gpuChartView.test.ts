@@ -31,6 +31,12 @@ describe("gpuChartView", () => {
     expect(specs.some((s) => s.fill)).toBe(false);
   });
 
+  it("can show stable vendor-aware labels for internally namespaced GPU indices", () => {
+    const specs = chartSeriesSpecs("all", "usage", [0, 1000], new Map([[0, "GPU 0"], [1000, "AMD GPU 0"]]));
+    expect(specs.map((s) => s.label)).toEqual(["GPU 0", "AMD GPU 0"]);
+    expect(specs.map((s) => s.metric)).toEqual(["gpu.0.usage", "gpu.1000.usage"]);
+  });
+
   it("one card shows its three metrics", () => {
     expect(chartSeriesSpecs(1, "usage", [0, 1]).map((s) => s.metric)).toEqual([
       "gpu.1.usage",

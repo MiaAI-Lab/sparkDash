@@ -42,4 +42,18 @@ describe("metricsStore timestamp contract", () => {
       { at: 5_000, value: 42 },
     ]);
   });
+
+  it("does not record unavailable GPU fields as fabricated zero readings", () => {
+    const spark = makeSpark();
+    spark.metrics.gpu!.metricAvailability = {
+      temperature: false, usage: false, powerDraw: false, powerLimit: false, vramUsed: false, vramTotal: false,
+    };
+    spark.metrics.gpu!.usage = 0;
+    spark.metrics.gpu!.temperature = 0;
+    spark.metrics.gpu!.power = { draw: 0, limit: 0 };
+    ingestSnapshots([spark], 10_000);
+    expect(getMetricHistorySamples(spark.id, "gpu.usage")).toEqual([]);
+    expect(getMetricHistorySamples(spark.id, "gpu.temp")).toEqual([]);
+    expect(getMetricHistorySamples(spark.id, "gpu.powerPct")).toEqual([]);
+  });
 });

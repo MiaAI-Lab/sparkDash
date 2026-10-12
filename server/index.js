@@ -315,7 +315,14 @@ function sampleGpuHistory() {
       const draw = gpu.power?.draw;
       const limit = gpu.power?.limit;
       const powerPct = Number.isFinite(draw) && Number.isFinite(limit) && limit > 0 ? Math.min(100, (draw / limit) * 100) : null;
-      gpuHistory.record(snap.id, Date.now(), gpu.usage, gpu.temperature, powerPct, deviceReadings(gpu.gpus));
+      gpuHistory.record(
+        snap.id,
+        Date.now(),
+        gpu.metricAvailability?.usage === false ? null : gpu.usage,
+        gpu.metricAvailability?.temperature === false ? null : gpu.temperature,
+        gpu.metricAvailability?.powerDraw === false || gpu.metricAvailability?.powerLimit === false ? null : powerPct,
+        deviceReadings(gpu.gpus)
+      );
     }
   } catch {
     /* sampling must never break the server */

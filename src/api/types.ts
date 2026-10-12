@@ -5,13 +5,13 @@ export interface SparkConfig {
   /**
    * Unit type:
    * - spark: NVIDIA DGX Spark (default) — DGX Spark specs shown in the header.
-   * - host: any Linux box with an NVIDIA GPU (still monitored via nvidia-smi,
-   *   just not a Spark). Real hardware is auto-detected once online.
+   * - host: any Linux box with supported NVIDIA or AMD GPUs, just not a Spark.
+   *   Real hardware is auto-detected once online.
    */
   kind?: "spark" | "host";
   /**
    * Optional OS platform override for SSH-collected units. "linux" (default)
-   * uses /proc + nvidia-smi, "darwin" macOS hosts, "windows" Windows hosts
+   * uses /proc + vendor GPU tooling, "darwin" macOS hosts, "windows" Windows hosts
    * (PowerShell collectors; NVIDIA via nvidia-smi, AMD iGPUs via GPU
    * performance counters).
    */
@@ -211,7 +211,18 @@ export interface HealthFinding {
   hint: string;
 }
 
+export interface GpuMetricAvailability {
+  temperature: boolean;
+  usage: boolean;
+  powerDraw: boolean;
+  powerLimit: boolean;
+  vramUsed: boolean;
+  vramTotal: boolean;
+}
+
 export interface GpuMetrics {
+  vendors?: Array<"amd" | "nvidia">;
+  metricAvailability?: GpuMetricAvailability;
   temperature: number;
   usage: number;
   power: {
@@ -243,9 +254,14 @@ export interface GpuMetrics {
   gpus?: GpuDevice[];
 }
 
-/** One physical GPU as reported by nvidia-smi (`index,name,uuid`). */
+/** One physical GPU; `index` is a stable dashboard identity and `physicalIndex` is the vendor's index. */
 export interface GpuDevice {
+  /** Stable dashboard identity; AMD indices use a separate internal range. */
   index: number;
+  /** Physical index reported by the vendor tool. */
+  physicalIndex?: number;
+  vendor?: "amd" | "nvidia";
+  metricAvailability?: GpuMetricAvailability;
   name: string | null;
   uuid: string | null;
   temperature: number;

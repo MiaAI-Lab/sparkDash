@@ -48,11 +48,16 @@ export function parseGpuMetric(raw: string | null | undefined): GpuMetric {
 }
 
 /** The lines for a view: the host aggregate, every card for one metric, or one card's three metrics. */
-export function chartSeriesSpecs(view: GpuView, metric: GpuMetric, indices: readonly number[]): ChartSeriesSpec[] {
+export function chartSeriesSpecs(
+  view: GpuView,
+  metric: GpuMetric,
+  indices: readonly number[],
+  labels: ReadonlyMap<number, string> = new Map()
+): ChartSeriesSpec[] {
   if (view === "all") {
     return indices.map((idx, pos) => ({
       key: `gpu${idx}`,
-      label: `GPU ${idx}`,
+      label: labels.get(idx) ?? `GPU ${idx}`,
       color: gpuColor(pos),
       metric: `gpu.${idx}.${metric}`,
       fill: false,

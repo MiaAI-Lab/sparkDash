@@ -371,6 +371,24 @@ test("multi-GPU hosts get one series per card, labelled by index", () => {
   assert.equal(samplesOf(families, "sparkdash_gpu_temperature_celsius", unit).length, 2);
 });
 
+test("unavailable GPU metrics are omitted instead of exported as zeroes", () => {
+  const unit = multiGpuHost();
+  unit.metrics.gpu.gpus[1].metricAvailability = {
+    usage: false, temperature: false, powerDraw: false, powerLimit: false, vramUsed: false, vramTotal: false,
+  };
+  unit.metrics.gpu.gpus[1].usage = 0;
+  unit.metrics.gpu.gpus[1].temperature = 0;
+  unit.metrics.gpu.gpus[1].power = { draw: 0, limit: 0 };
+  unit.metrics.gpu.gpus[1].vram = { used: 100, total: 16000, percentage: 1, available: 15900 };
+  const families = parseExposition(renderPrometheusMetrics([unit]));
+  assert.equal(samplesOf(families, "sparkdash_gpu_utilization_ratio", { gpu: "1" }).length, 0);
+  assert.equal(samplesOf(families, "sparkdash_gpu_temperature_celsius", { gpu: "1" }).length, 0);
+  assert.equal(samplesOf(families, "sparkdash_gpu_power_watts", { gpu: "1" }).length, 0);
+  assert.equal(samplesOf(families, "sparkdash_gpu_power_limit_watts", { gpu: "1" }).length, 0);
+  assert.equal(samplesOf(families, "sparkdash_gpu_memory_used_bytes", { gpu: "1" }).length, 0);
+  assert.equal(samplesOf(families, "sparkdash_gpu_memory_total_bytes", { gpu: "1" }).length, 0);
+});
+
 test("LLM endpoints: rates, counters, and nothing invented for a down or silent engine", () => {
   const families = parseExposition(renderPrometheusMetrics([gb10Head(), multiGpuHost()]));
   const tf = { unit: "spark-1", port: "8888", backend: "tensorfold", model: "GLM-5.3-Flash-EXL3" };

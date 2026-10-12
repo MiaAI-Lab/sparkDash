@@ -18,10 +18,12 @@ test("records readings, enforces a minimum gap and returns parallel arrays", () 
   assert.deepEqual(h.get("nope"), { t: [], u: [], c: [], p: [], gpus: [] });
 });
 
-test("rejects non-finite readings", () => {
+test("stores unavailable fields as gaps and rejects a sample with no readings", () => {
   const h = new GpuHistory();
-  assert.equal(h.record("a", Date.now(), NaN, 50, 1), false);
-  assert.equal(h.record("a", Date.now(), 5, undefined, 1), false);
+  assert.equal(h.record("a", 10_000, NaN, 50, null), true);
+  assert.equal(h.record("a", 12_000, null, null, null), false);
+  assert.deepEqual(h.get("a").u, [null]);
+  assert.deepEqual(h.get("a").c, [50]);
 });
 
 test("old readings are trimmed away", () => {

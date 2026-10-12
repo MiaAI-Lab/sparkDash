@@ -230,7 +230,37 @@ test("AMD-iGPU output (no nvidia-smi) parses through the same Linux-shaped secti
   assert.equal(gpu.vram.total, 98304); // from the driver's reported memory size
   assert.equal(gpu.vram.available, 98304 - 73148);
   assert.equal(gpu.gpus.length, 1);
+  assert.equal(gpu.gpus[0].vendor, "amd");
+  assert.equal(gpu.gpus[0].metricAvailability.usage, true);
+  assert.equal(gpu.gpus[0].metricAvailability.temperature, false);
+  assert.equal(gpu.gpus[0].metricAvailability.powerDraw, false);
+  assert.equal(gpu.metricAvailability.temperature, false);
   assert.deepEqual(gpu.processes, []);
+});
+
+test("Windows AMD adapter uses OS memory as a shared-memory ceiling when driver capacity is missing", async () => {
+  const amdOut = [
+    "0,37,,0,0,0,,,,,0,AMD Radeon Graphics",
+    "---",
+    "4096,0",
+    "---",
+    "",
+    "---",
+    "AMD Radeon Graphics,driver",
+    "---",
+    "MemTotal: 67108864 kB",
+    "MemAvailable: 33554432 kB",
+  ].join("\n");
+  const collector = new SystemCollector({ id: "windows-shared-gpu", platform: "windows", kind: "host", isLocal: false });
+  collector._windowsRun = async () => amdOut;
+  const gpu = await collector.collectGpu();
+  assert.equal(gpu.gpus[0].vendor, "amd");
+  assert.equal(gpu.vram.used, 4096);
+  assert.equal(gpu.vram.total, 65536);
+  assert.equal(gpu.vram.available, 61440);
+  assert.equal(gpu.gpus[0].vram.total, 65536);
+  assert.equal(gpu.metricAvailability.vramTotal, true);
+  assert.equal(gpu.metricAvailability.powerDraw, false);
 });
 
 test("WINDOWS_GPU_SCRIPT carries the AMD fallback and clamps engine utilization", () => {

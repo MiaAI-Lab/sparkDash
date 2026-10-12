@@ -58,6 +58,75 @@ export function collectionWasSuccessful(result) {
   return result?.[COLLECTION_SUCCESS] === true;
 }
 
+/** Convert amd-smi JSON output into the collector's per-device GPU shape. */
+export function parseAmdSmiMetrics(raw, limitRaw = null) {
+  let payload;
+  let limits;
+  try { payload = typeof raw === "string" ? JSON.parse(raw) : raw; } catch { return []; }
+  try { limits = typeof limitRaw === "string" ? JSON.parse(limitRaw) : limitRaw; } catch { limits = null; }
+  const rows = Array.isArray(payload) ? payload : Array.isArray(payload?.gpu_data) ? payload.gpu_data : [];
+  const limitRows = Array.isArray(limits) ? limits : Array.isArray(limits?.gpu_data) ? limits.gpu_data : [];
+  const number = (v) => {
+    if (v == null) return null;
+    const candidate = typeof v === "object" ? v.value : v;
+    if (candidate == null || String(candidate).trim() === "") return null;
+    const n = Number(candidate);
+    return Number.isFinite(n) ? n : null;
+  };
+  return rows.map((row, i) => {
+    const used = number(row?.mem_usage?.used_vram);
+    const total = number(row?.mem_usage?.total_vram);
+    const free = number(row?.mem_usage?.free_vram);
+    const temperature = number(row?.temperature?.edge);
+    const usage = number(row?.usage?.gfx_activity);
+    const powerDraw = number(row?.power?.socket_power);
+    const powerLimit = number(
+      row?.power?.socket_power_limit ?? row?.power?.power_limit ??
+      limitRows[i]?.socket_power_limit ?? limitRows[i]?.limit?.ppt0?.socket_power_limit ??
+      limitRows[i]?.limit?.socket_power_limit
+    );
+    const physicalIndex = Number.isFinite(Number(row?.gpu)) ? Number(row.gpu) : i;
+    return {
+      index: physicalIndex,
+      physicalIndex,
+      name: row?.name || "AMD GPU",
+      uuid: row?.uuid || null,
+      vendor: "amd",
+      temperature: temperature ?? 0,
+      usage: usage ?? 0,
+      powerDraw: powerDraw ?? 0,
+      powerLimit: powerLimit ?? 0,
+      power: { draw: powerDraw ?? 0, limit: powerLimit ?? 0 },
+      vram: {
+        used: used ?? 0,
+        total: total ?? 0,
+        percentage: total > 0 && used != null ? Math.round((used / total) * 100) : 0,
+        available: free ?? (total != null && used != null ? Math.max(0, total - used) : 0),
+      },
+      metricAvailability: {
+        temperature: temperature != null,
+        usage: usage != null,
+        powerDraw: powerDraw != null,
+        powerLimit: powerLimit != null,
+        vramUsed: used != null,
+        vramTotal: total != null,
+      },
+      throttle: null,
+      processes: [],
+    };
+  });
+}
+
+const AMD_GPU_FIELDS = ["temperature", "usage", "powerDraw", "powerLimit", "vramUsed", "vramTotal"];
+const AMD_SMI_RESOLVER = [
+  'amd_smi="${AMD_SMI_PATH:-}"',
+  'if [ -z "$amd_smi" ] || [ ! -x "$amd_smi" ]; then amd_smi="$(command -v amd-smi 2>/dev/null || true)"; fi',
+  'if [ -z "$amd_smi" ]; then for amd_candidate in "${ROCM_PATH:+$ROCM_PATH/bin/amd-smi}" "${ROCM_HOME:+$ROCM_HOME/bin/amd-smi}" /opt/rocm/bin/amd-smi /opt/rocm/core-*/bin/amd-smi /opt/rocm-*/bin/amd-smi; do if [ -x "$amd_candidate" ]; then amd_smi="$amd_candidate"; break; fi; done; fi',
+].join("; ");
+// Keep vendor namespaces disjoint so collection failures cannot make AMD reuse
+// an NVIDIA device's index in per-card histories or Prometheus labels.
+const AMD_GPU_INDEX_OFFSET = 1000;
+
 function tagCollectionResult(result, successful) {
   Object.defineProperty(result, COLLECTION_SUCCESS, {
     value: successful === true,
@@ -171,6 +240,10 @@ export class SystemCollector {
   }
 
   _isSuccessfulGpuCollection(gpu) {
+    if (Array.isArray(gpu?.gpus) && gpu.gpus.length > 0) {
+      return Object.values(gpu.metricAvailability ?? {}).some(Boolean) ||
+        gpu.gpus.some((device) => Object.values(device.metricAvailability ?? {}).some(Boolean));
+    }
     return (
       Number.isFinite(gpu?.temperature) &&
       gpu.temperature > 0 &&
@@ -294,13 +367,23 @@ export class SystemCollector {
 
   // ─── GPU helpers ─────────────────────────────────────────
   async _getGPUAll() {
-    const gpuOut = await this._nvidiaSmi(
+    const [gpuOut, amdMetricsOut, amdLimitsOut] = await Promise.all([
+      this._nvidiaSmi(
       "--query-gpu=temperature.gpu,utilization.gpu,power.draw,power.limit,clocks.current.sm,clocks.max.sm,clocks_throttle_reasons.hw_thermal_slowdown,clocks_throttle_reasons.sw_thermal_slowdown,clocks_throttle_reasons.hw_slowdown,clocks_throttle_reasons.sw_power_cap,index,name,uuid --format=csv,noheader,nounits"
-    );
-    const devices = this._parseGpuLines(gpuOut);
-    const gpu = this._aggregateGpuDevices(devices);
+      ).catch(() => ""),
+      this._amdSmi("metric -u -p -m -t --json").catch(() => ""),
+      this._amdSmi("static -l --json").catch(() => ""),
+    ]);
+    const nvidiaDevices = this._parseGpuLines(gpuOut);
+    const amdDevices = parseAmdSmiMetrics(amdMetricsOut, amdLimitsOut)
+      .map((device) => ({ ...device, index: AMD_GPU_INDEX_OFFSET + device.index }));
     this._lastVramPerDevice = [];
-    const vram = await this._queryNvidiaVram();
+    const nvidiaVram = nvidiaDevices.length ? await this._queryNvidiaVram() : { used: 0, total: 0, percentage: 0, available: 0 };
+    const amdVram = this._sumDeviceVram(amdDevices);
+    const devices = [...nvidiaDevices, ...amdDevices];
+    const gpu = this._aggregateGpuDevices(devices);
+      if (!nvidiaDevices.length) this.nvidiaComputeAppsCache.clear();
+    const vram = this._combineVram(nvidiaVram, amdVram);
 
     // Estimate total system power: GPU draw + CPU draw + ~20W CX7/peripherals
     let systemDraw = gpu.powerDraw;
@@ -324,8 +407,34 @@ export class SystemCollector {
       throttle: gpu.throttle,
       nvErrNoMemory: await this._nvErrNoMemory(),
       kernelErrors: await this._kernelErrors(),
-      gpus: this._buildGpuDevices(devices, this._lastVramPerDevice ?? [], apps, vram),
+      gpus: [
+        ...this._buildGpuDevices(nvidiaDevices, this._lastVramPerDevice ?? [], apps, nvidiaVram),
+        ...amdDevices,
+      ],
+      vendors: [...new Set(devices.map((device) => device.vendor))],
+      metricAvailability: {
+        ...gpu.metricAvailability,
+        vramUsed: devices.some((device) => device.metricAvailability?.vramUsed !== false),
+        vramTotal: devices.some((device) => device.metricAvailability?.vramTotal !== false),
+      },
     };
+  }
+
+  _sumDeviceVram(devices) {
+    const available = devices.filter((d) => d.metricAvailability?.vramTotal);
+    return {
+      used: devices.some((d) => d.metricAvailability?.vramUsed)
+        ? devices.reduce((sum, d) => sum + (d.metricAvailability?.vramUsed ? d.vram.used : 0), 0) : 0,
+      total: available.reduce((sum, d) => sum + d.vram.total, 0),
+      available: available.reduce((sum, d) => sum + d.vram.available, 0),
+    };
+  }
+
+  _combineVram(a, b) {
+    const used = (a?.used || 0) + (b?.used || 0);
+    const total = (a?.total || 0) + (b?.total || 0);
+    const available = (a?.available || 0) + (b?.available || 0);
+    return { used, total, percentage: total > 0 ? Math.round((used / total) * 100) : 0, available };
   }
 
   /**
@@ -462,14 +571,14 @@ export class SystemCollector {
    * Fields 0-9 are the metrics; 10-12 (`index,name,uuid`) identify the card.
    * Returns [] when nvidia-smi printed nothing.
    */
-  _parseGpuLines(output) {
+  _parseGpuLines(output, { source = "nvidia" } = {}) {
     const lines = String(output ?? "").trim().split("\n").filter(Boolean);
     return lines.map((line, i) => {
       const parts = line.split(",").map((s) => s.trim());
-      const temperature = parseFloat(parts[0]) || 0;
-      const usage = parseFloat(parts[1]) || 0;
-      const powerDraw = parseFloat(parts[2]) || 0;
-      const powerLimit = this._parseSmiNumber(parts[3]) ?? 120;
+      const rawTemperature = this._parseSmiNumber(parts[0]);
+      const rawUsage = this._parseSmiNumber(parts[1]);
+      const rawPowerDraw = this._parseSmiNumber(parts[2]);
+      const rawPowerLimit = this._parseSmiNumber(parts[3]);
       const smClockMHz = this._parseSmiNumber(parts[4]);
       const smClockMaxMHz = this._parseSmiNumber(parts[5]);
       const hwThermal = this._parseSmiActive(parts[6]);
@@ -479,8 +588,16 @@ export class SystemCollector {
       const index = this._parseSmiNumber(parts[10]) ?? i;
       const name = parts[11] && !/^\[?n\/a\]?$/i.test(parts[11]) ? parts[11] : null;
       const uuid = parts[12] && /^GPU-/i.test(parts[12]) ? parts[12] : null;
+      const vendor = /nvidia/i.test(name || "") ? "nvidia" : /amd|radeon/i.test(name || "") ? "amd" : source === "windows" ? "unknown" : "nvidia";
+      const windowsAdapter = source === "windows" && vendor !== "nvidia";
+      const temperature = rawTemperature ?? 0;
+      const usage = rawUsage ?? 0;
+      const powerDraw = rawPowerDraw ?? 0;
+      const powerLimit = rawPowerLimit ?? (windowsAdapter ? 0 : 120);
       return {
+        vendor,
         index,
+        physicalIndex: index,
         name,
         uuid,
         temperature,
@@ -495,6 +612,14 @@ export class SystemCollector {
           smClockMHz,
           smClockMaxMHz,
         }),
+        metricAvailability: {
+          temperature: !windowsAdapter && rawTemperature != null,
+          usage: rawUsage != null,
+          powerDraw: !windowsAdapter && rawPowerDraw != null,
+          powerLimit: !windowsAdapter && rawPowerLimit != null,
+          vramUsed: !windowsAdapter,
+          vramTotal: !windowsAdapter,
+        },
       };
     });
   }
@@ -513,16 +638,23 @@ export class SystemCollector {
         powerDraw: 0,
         powerLimit: 120,
         throttle: this._defaultThrottle(),
+        metricAvailability: Object.fromEntries(AMD_GPU_FIELDS.map((field) => [field, false])),
       };
     }
     const worst = devices.find((d) => d.throttle?.active) ?? devices[0];
     const round2 = (n) => Math.round(n * 100) / 100;
+    const available = (d, field) => d.metricAvailability?.[field] !== false;
+    const temps = devices.filter((d) => available(d, "temperature")).map((d) => d.temperature);
+    const usages = devices.filter((d) => available(d, "usage")).map((d) => d.usage);
+    const draws = devices.filter((d) => available(d, "powerDraw")).map((d) => d.powerDraw);
+    const limits = devices.filter((d) => available(d, "powerLimit")).map((d) => d.powerLimit);
     return {
-      temperature: Math.max(...devices.map((d) => d.temperature)),
-      usage: Math.max(...devices.map((d) => d.usage)),
-      powerDraw: round2(devices.reduce((sum, d) => sum + d.powerDraw, 0)),
-      powerLimit: round2(devices.reduce((sum, d) => sum + d.powerLimit, 0)),
+      temperature: temps.length ? Math.max(...temps) : 0,
+      usage: usages.length ? Math.max(...usages) : 0,
+      powerDraw: round2(draws.reduce((sum, n) => sum + n, 0)),
+      powerLimit: round2(limits.reduce((sum, n) => sum + n, 0)),
       throttle: worst.throttle,
+      metricAvailability: Object.fromEntries(AMD_GPU_FIELDS.map((field) => [field, devices.some((d) => available(d, field))])),
     };
   }
 
@@ -612,6 +744,7 @@ export class SystemCollector {
         };
       }
       return {
+        vendor: d.vendor ?? "nvidia",
         index: d.index,
         name: d.name,
         uuid: d.uuid,
@@ -621,6 +754,7 @@ export class SystemCollector {
         vram,
         throttle: d.throttle,
         processes: this._topProcesses(own),
+        metricAvailability: d.metricAvailability,
       };
     });
   }
@@ -1302,31 +1436,42 @@ export class SystemCollector {
   async _getRemoteGpu(executor = sshExec) {
     try {
       const cmd = [
-        "nvidia-smi --query-gpu=temperature.gpu,utilization.gpu,power.draw,power.limit,clocks.current.sm,clocks.max.sm,clocks_throttle_reasons.hw_thermal_slowdown,clocks_throttle_reasons.sw_thermal_slowdown,clocks_throttle_reasons.hw_slowdown,clocks_throttle_reasons.sw_power_cap,index,name,uuid --format=csv,noheader,nounits 2>/dev/null",
-        "echo '---'",
-        "nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader,nounits 2>/dev/null",
-        "echo '---'",
-        "nvidia-smi --query-compute-apps=pid,process_name,used_gpu_memory,gpu_uuid --format=csv,noheader,nounits 2>/dev/null",
-        "echo '---'",
-        "grep -E 'MemTotal|MemAvailable' /proc/meminfo 2>/dev/null",
+        "if command -v nvidia-smi >/dev/null 2>&1; then printf '__NVIDIA__\\n'; nvidia-smi --query-gpu=temperature.gpu,utilization.gpu,power.draw,power.limit,clocks.current.sm,clocks.max.sm,clocks_throttle_reasons.hw_thermal_slowdown,clocks_throttle_reasons.sw_thermal_slowdown,clocks_throttle_reasons.hw_slowdown,clocks_throttle_reasons.sw_power_cap,index,name,uuid --format=csv,noheader,nounits 2>/dev/null; printf '__NVIDIA_VRAM__\\n'; nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader,nounits 2>/dev/null; printf '__NVIDIA_APPS__\\n'; nvidia-smi --query-compute-apps=pid,process_name,used_gpu_memory,gpu_uuid --format=csv,noheader,nounits 2>/dev/null; fi",
+        `${AMD_SMI_RESOLVER}; if [ -n "$amd_smi" ]; then printf '__AMD__\\n'; "$amd_smi" metric -u -p -m -t --json 2>/dev/null; printf '__AMD_LIMITS__\\n'; "$amd_smi" static -l --json 2>/dev/null; fi`,
+        "printf '__MEMINFO__\\n'; grep -E 'MemTotal|MemAvailable' /proc/meminfo 2>/dev/null",
       ].join("; ");
 
       const output = await executor(this.spark, cmd);
-      const sections = output.split("---");
-      const gpuOut = sections[0]?.trim() || "";
-      const memFields = sections[1]?.trim() || "";
-      const computeOut = sections[2]?.trim() || "";
-      const meminfoOut = sections[3]?.trim() || "";
+      const section = (name) => {
+        const marker = `__${name}__`;
+        const start = String(output).indexOf(marker);
+        if (start < 0) return "";
+        const from = start + marker.length;
+        const next = String(output).indexOf("__", from);
+        return String(output).slice(from, next < 0 ? undefined : next).trim();
+      };
+      const gpuOut = section("NVIDIA");
+      const memFields = section("NVIDIA_VRAM");
+      const computeOut = section("NVIDIA_APPS");
+      const amdMetrics = section("AMD");
+      const amdLimits = section("AMD_LIMITS");
+      const meminfoOut = section("MEMINFO");
+      // Keep compatibility with existing injected executor fixtures and older command results.
+      const legacy = !String(output).includes("__MEMINFO__");
+      const legacySections = legacy ? String(output).split("---") : [];
+      const resolvedMeminfo = legacy ? (legacySections[3] || "").trim() : meminfoOut;
+      const cliDevices = this._parseGpuLines(legacy ? (legacySections[0] || "") : gpuOut, {
+        source: this.isWindows ? "windows" : "nvidia",
+      });
+      const perDeviceVram = this._parseVramLines(legacy ? (legacySections[1] || "") : memFields);
+      const apps = this._parseComputeApps(legacy ? (legacySections[2] || "") : computeOut);
+      const amdDevices = legacy ? [] : parseAmdSmiMetrics(amdMetrics, amdLimits)
+        .map((device) => ({ ...device, index: AMD_GPU_INDEX_OFFSET + device.index }));
+      const gpuDevices = [...cliDevices, ...amdDevices];
+      const gpu = this._aggregateGpuDevices(gpuDevices);
+      if (!gpuDevices.length) return this._defaultGpu();
+      let { used: cliUsed, total: cliTotal } = this._sumVram(perDeviceVram);
 
-      const devices = this._parseGpuLines(gpuOut);
-      const gpu = this._aggregateGpuDevices(devices);
-
-      // Parse memory.used / memory.total from nvidia-smi, one line per GPU
-      // (may be [N/A] on GB10); the aggregate is the sum across cards.
-      const perDeviceVram = this._parseVramLines(memFields);
-      let { used, total } = this._sumVram(perDeviceVram);
-
-      const apps = this._parseComputeApps(computeOut);
       this.nvidiaComputeAppsCache.clear();
       let computeSum = 0;
       for (const app of apps) {
@@ -1338,29 +1483,62 @@ export class SystemCollector {
         });
         computeSum += app.vramMB;
       }
-      if ((used == null || used === 0) && computeSum > 0) used = computeSum;
+      if ((cliUsed == null || cliUsed === 0) && computeSum > 0) cliUsed = computeSum;
+
+      const amdVram = this._sumDeviceVram(amdDevices);
+      const cliVram = { used: cliUsed || 0, total: cliTotal || 0, available: Math.max(0, (cliTotal || 0) - (cliUsed || 0)) };
+      const combinedVram = this._combineVram(cliVram, amdVram);
 
       // Unified-memory pool: prefer MemTotal (OS-visible) so VRAM and Unified
       // Memory panels share the same base. Available = MemAvailable (real free).
-      const totalMatch = meminfoOut.match(/MemTotal:\s+(\d+)\s+kB/);
-      const availMatch = meminfoOut.match(/MemAvailable:\s+(\d+)\s+kB/);
+      const totalMatch = resolvedMeminfo.match(/MemTotal:\s+(\d+)\s+kB/);
+      const availMatch = resolvedMeminfo.match(/MemAvailable:\s+(\d+)\s+kB/);
       const memTotalMB = totalMatch ? Math.round(parseInt(totalMatch[1]) / 1024) : 0;
       let availableMB = availMatch ? Math.round(parseInt(availMatch[1]) / 1024) : 0;
 
-      const usedMB = Math.round(used || 0);
-      let totalMB = Math.round(total || 0);
+      const usedMB = Math.round(combinedVram.used || 0);
+      let totalMB = Math.round(combinedVram.total || 0);
+      // GB10 shares its HBM pool with the OS. Resolve NVIDIA's N/A card memory
+      // from that pool only; never fold AMD memory or host RAM into an unknown
+      // discrete GPU capacity.
+      let resolvedCliVram = cliVram;
+      if (this.spark.kind !== "host" && cliDevices.length) {
+        const resolvedTotal = memTotalMB || cliTotal || DGX_SPARK.MEMORY_HBM_SIZE_GB * 1024;
+        resolvedCliVram = {
+          used: Math.round(cliUsed || 0),
+          total: resolvedTotal,
+          available: availMatch ? availableMB : Math.max(0, resolvedTotal - Math.round(cliUsed || 0)),
+        };
+        totalMB = resolvedTotal + Math.round(amdVram.total || 0);
+      }
       if (this.spark.kind === "host") {
-        // Discrete GPU VRAM: trust nvidia-smi's memory.total; free VRAM = total − used.
-        if (totalMB <= 0 && memTotalMB > 0) totalMB = memTotalMB;
-        else if (totalMB <= 0) totalMB = DGX_SPARK.MEMORY_HBM_SIZE_GB * 1024; // Convert to MB
-        if (totalMB > 0) availableMB = Math.max(0, totalMB - usedMB);
+        // Discrete GPU VRAM: trust vendor-reported memory. Unknown capacity
+        // stays unknown instead of being replaced with system RAM or a spec.
+        // Windows adapter counters include shared-memory use; when their driver
+        // omits an adapter capacity, the OS-visible pool is the usable ceiling.
+        if (this.isWindows && cliDevices.some((device) => device.vendor !== "nvidia") && totalMB <= 0 && memTotalMB > 0) {
+          totalMB = memTotalMB;
+          resolvedCliVram = { ...cliVram, total: totalMB, available: Math.max(0, totalMB - usedMB) };
+        }
+        availableMB = totalMB > 0 ? Math.max(0, totalMB - usedMB) : 0;
       } else {
         // GB10 shared HBM pool: prefer the OS-visible pool (MemTotal) as the total,
         // fall back to nvidia-smi, then the hardware spec (HBM) only if nothing known.
-        if (memTotalMB > 0) totalMB = memTotalMB;
-        else if (totalMB <= 0) totalMB = DGX_SPARK.MEMORY_HBM_SIZE_GB * 1024; // Convert to MB
+        if (cliDevices.length && memTotalMB > 0) totalMB = memTotalMB + Math.round(amdVram.total || 0);
+        else if (cliDevices.length && totalMB <= 0) totalMB = DGX_SPARK.MEMORY_HBM_SIZE_GB * 1024;
+        if (!cliDevices.length && amdDevices.length) availableMB = Math.round(amdVram.available || 0);
       }
       const percentage = totalMB > 0 ? Math.round((usedMB / totalMB) * 100) : 0;
+
+      if (this.isWindows) {
+        cliDevices.forEach((device, i) => {
+          device.metricAvailability = {
+            ...device.metricAvailability,
+            vramUsed: perDeviceVram[i]?.used != null,
+            vramTotal: perDeviceVram[i]?.total > 0 || memTotalMB > 0,
+          };
+        });
+      }
 
       // Rough system power estimate: GPU draw + 20W CX7/peripherals
       const systemDraw = Math.round(gpu.powerDraw + 20);
@@ -1379,7 +1557,16 @@ export class SystemCollector {
         throttle: gpu.throttle,
         nvErrNoMemory: await this._nvErrNoMemory(),
         kernelErrors: await this._kernelErrors(),
-        gpus: this._buildGpuDevices(devices, perDeviceVram, cachedApps, vram),
+        gpus: [
+          ...this._buildGpuDevices(cliDevices, perDeviceVram, cachedApps, resolvedCliVram),
+          ...amdDevices,
+        ],
+        vendors: [...new Set(gpuDevices.map((device) => device.vendor))],
+        metricAvailability: {
+          ...gpu.metricAvailability,
+          vramUsed: gpuDevices.some((device) => device.metricAvailability?.vramUsed !== false),
+          vramTotal: gpuDevices.some((device) => device.metricAvailability?.vramTotal !== false),
+        },
       };
     } catch (err) {
       console.error(`[SystemCollector] Remote GPU error for ${this.spark.id}:`, err.message);
@@ -2131,6 +2318,13 @@ export class SystemCollector {
     return this._exec(cmd);
   }
 
+  /** amd-smi from the host namespace when available; AMD and NVIDIA are probed independently. */
+  async _amdSmi(args) {
+    const cmd = `${AMD_SMI_RESOLVER}; if [ -n "$amd_smi" ]; then "$amd_smi" ${args} 2>/dev/null; fi`;
+    if (this._hasHostProc()) return this._execOnHost(cmd);
+    return this._exec(cmd);
+  }
+
   /**
    * One-shot real-hardware detection (GPU chip + driver, CPU model/cores, RAM).
    * Used for kind === "host" units (dedicated GPU Linux boxes) so the header
@@ -2362,6 +2556,8 @@ export class SystemCollector {
       processes: [],
       throttle: this._defaultThrottle(),
       nvErrNoMemory: 0,
+      vendor: null,
+      metricAvailability: Object.fromEntries(AMD_GPU_FIELDS.map((field) => [field, false])),
       gpus: [],
     };
   }
