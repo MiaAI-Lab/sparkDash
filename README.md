@@ -523,6 +523,15 @@ vLLM, SGLang and friends publish cumulative token counters, and the dashboard di
 
 Any unit can monitor several LLM servers on different ports at once; each port gets its own panel with independent backend detection, metrics and history. Panels are matched to their port explicitly, so adding, removing or switching ports never shows one port's data on another's panel.
 
+### Engines run in containers (sparkrun, `docker run`)
+
+sparkDash only needs the engine's HTTP port; it does not care how the engine was started. For a vLLM (or any supported engine) that a container tool such as sparkrun publishes on the unit:
+
+- Add the unit, then add that port in the Add wizard's LLM-ports step or the unit page's **+ Add LLM port** panel. The probe, live tok/s, KV-cache tiles (vLLM Prometheus `/metrics`) and the decode/prefill/quality benchmarks run over HTTP; nothing is installed in the engine's container.
+- The dashboard container uses `network_mode: host`, so a port published on the unit's loopback or LAN address is reachable as `127.0.0.1` (this unit) or its LAN IP (a remote unit). Benchmarks on a remote unit whose server only listens on loopback fall back to an SSH tunnel.
+- A Docker-based start script that detaches (`docker run -d`) shows **Stopped** in the Models panel because the script's process group is gone, while the port probe shows **Serving**. Treat the port status as the source of truth (the **Output** button re-opens the script's output while it runs).
+- Provisioning models (pulling weights, choosing a recipe) stays with your own tool; the Models panel only runs the `start.sh` / `stop.sh` you register.
+
 ## Quick start
 
 ```bash

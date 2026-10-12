@@ -343,12 +343,20 @@ function LlmModelsPanelFor({ spark, className }: { spark: SparkSnapshot; classNa
           ) : pending?.kind === "switch" ? (
             <>
               <span className="sp-launch__ask">
-                {t("spark.llmModels.switchAsk", "{name} is running. Stop it first?", {
+                {t("spark.llmModels.switchAsk", "{name} is running. Stop it first, or run both?", {
                   name: other?.name ?? t("spark.llmModels.anotherModel", "Another model"),
                 })}
               </span>
               <button type="button" className="btn btn--sm btn--primary" onClick={() => void switchTo(l, pending.otherId)}>
                 {t("spark.llmModels.stopThenStart", "Stop it, then start")}
+              </button>
+              <button
+                type="button"
+                className="btn btn--sm"
+                title={t("spark.llmModels.runBothHint", "Start this one too and leave the other running (its start script can still refuse if memory is short)")}
+                onClick={() => void run(l.id, "start")}
+              >
+                {t("spark.llmModels.runBoth", "Run both")}
               </button>
               <button type="button" className="btn btn--sm btn--ghost" onClick={() => setConfirm(null)}>
                 {t("common.action.cancel", "Cancel")}
