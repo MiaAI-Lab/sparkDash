@@ -4,6 +4,8 @@ import type { InferenceActivity } from "../../api/types";
 import { ActivityIcon } from "../ui/icons";
 import { Panel } from "../ui/Panel";
 
+const NO_RESPONSE_TIMEOUT_MS = 30_000;
+
 function safeLabel(value: string, labels: string[]): string {
   return /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(value) &&
     !/^(?:sk[-_]|bearer(?:[-_ ]|$)|eyJ)/i.test(value) && labels.includes(value) ? value : "unknown";
@@ -16,11 +18,11 @@ function age(value: number): string {
 export function InferenceTrafficCard() {
   const [activity, setActivity] = useState<InferenceActivity | null>(null);
   const [failed, setFailed] = useState(false);
-  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     let alive = true;
     let loading = false;
     let disabled = false;
+    let staleTimer: number | undefined;
     const load = async () => {
       if (loading || disabled) return;
       loading = true;
@@ -29,8 +31,12 @@ export function InferenceTrafficCard() {
         if (!alive) return;
         disabled = next.enabled === false;
         setActivity(next);
-        setNow(Date.now());
         setFailed(false);
+        window.clearTimeout(staleTimer);
+        // Expire a stalled transport, not the server's sample using the client's clock.
+        if (next.available) staleTimer = window.setTimeout(() => {
+          if (alive) setFailed(true);
+        }, NO_RESPONSE_TIMEOUT_MS);
       } catch {
         if (alive) setFailed(true);
       } finally {
@@ -38,14 +44,12 @@ export function InferenceTrafficCard() {
       }
     };
     void load();
-    const timer = window.setInterval(() => { setNow(Date.now()); void load(); }, 5000);
-    return () => { alive = false; window.clearInterval(timer); };
+    const timer = window.setInterval(() => { void load(); }, 5000);
+    return () => { alive = false; window.clearInterval(timer); window.clearTimeout(staleTimer); };
   }, []);
 
   if (activity?.enabled === false) return null;
-  const generatedMs = Date.parse(activity?.generatedAt ?? "");
-  const available = activity?.available === true && !failed && Number.isFinite(generatedMs) &&
-    now - generatedMs <= 30_000 && generatedMs <= now + 10_000;
+  const available = activity?.available === true && !failed;
   const active = available ? activity.active : [];
   const recent = available ? activity.recent : [];
   const labels = activity?.labels ?? [];

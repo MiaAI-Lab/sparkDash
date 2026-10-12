@@ -14,7 +14,7 @@ async function listening(server) {
   return server.address().port;
 }
 
-test("optional activity route respects dashboard auth, private-source isolation and server-only configuration", { timeout: 15000 }, async (t) => {
+test("optional activity route respects dashboard auth, private-source isolation and server-only configuration", { timeout: 30000 }, async (t) => {
   let sourceReads = 0;
   const source = createServer((req, res) => {
     sourceReads += 1;
@@ -22,7 +22,10 @@ test("optional activity route respects dashboard auth, private-source isolation 
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({
       available: true, generatedAt: new Date().toISOString(),
-      active: [{ principal: "service-a", model: "model-a", count: 1, oldestAgeMs: 200, newestAgeMs: 200, prompt: "private-prompt" }],
+      active: [
+        { principal: "service-a", model: "model-a", count: 300, oldestAgeMs: 200, newestAgeMs: 100, prompt: "private-prompt" },
+        { principal: "service-a", model: "model-a", count: 7, oldestAgeMs: 500, newestAgeMs: 400 },
+      ],
       recent: [], headers: "private-header", key: "private-key",
     }));
   });
@@ -47,7 +50,8 @@ test("optional activity route respects dashboard auth, private-source isolation 
     });
     try {
       await new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error("isolated dashboard did not start")), 4000);
+        // Cold imports over Windows/Docker bind mounts need a bounded startup allowance.
+        const timer = setTimeout(() => reject(new Error("isolated dashboard did not start")), 10000);
         child.once("exit", () => { clearTimeout(timer); reject(new Error("isolated dashboard exited before startup")); });
         child.stdout.on("data", (data) => {
           if (String(data).includes("server listening")) { clearTimeout(timer); resolve(); }
@@ -64,6 +68,12 @@ test("optional activity route respects dashboard auth, private-source isolation 
       assert.equal(body.enabled, enabled);
       assert.equal(body.available, enabled);
       assert.equal(body.active.length, enabled ? 1 : 0);
+      if (enabled) {
+        const { principal, model, count, oldestAgeMs, newestAgeMs } = body.active[0];
+        assert.deepEqual({ principal, model, count }, { principal: "service-a", model: "model-a", count: 307 });
+        assert.ok(oldestAgeMs >= 500 && newestAgeMs >= 100);
+        assert.equal(oldestAgeMs - newestAgeMs, 400);
+      }
       assert.doesNotMatch(JSON.stringify(body), /private-|http:\/\/|dashboard-test-token/);
       const settings = await (await fetch(`${base}/api/settings`, { headers })).json();
       assert.equal(settings.inferenceActivityEnabled, enabled);

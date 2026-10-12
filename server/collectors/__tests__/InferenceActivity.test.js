@@ -47,7 +47,7 @@ test("normalization supports the router schema without retaining keys, prompts, 
 
 test("missing, malformed or stale summaries cannot claim measured zero", () => {
   const malformed = [null, [], payload({ available: false }), payload({ active: undefined }), payload({ recent: undefined }),
-    payload({ active: [null] }), payload({ active: [payload().active[0], payload().active[0]] }),
+    payload({ active: [null] }),
     payload({ active: [{ ...payload().active[0], count: 0 }] }),
     payload({ active: [{ ...payload().active[0], count: true }] }),
     payload({ active: [{ ...payload().active[0], newest_age_ms: 1000 }] }),
@@ -60,6 +60,41 @@ test("missing, malformed or stale summaries cannot claim measured zero", () => {
   assert.deepEqual(parseActivity(payload({ active: [], recent: [] }), LABELS, NOW).active, []);
 });
 
+test("duplicate normalized groups coalesce counts and age extrema in first-seen order", () => {
+  const row = (overrides) => ({ ...payload().active[0], ...overrides });
+  assert.deepEqual(parseActivity(payload({ active: [row({}), row({})] }), LABELS, NOW).active,
+    [{ principal: "service-a", model: "model-a", count: 4, oldestAgeMs: 900, newestAgeMs: 100 }]);
+  const parsed = parseActivity(payload({ active: [
+    row({}),
+    row({ model: "model-b", count: 3 }),
+    row({ count: 4, oldest_age_ms: 1200, newest_age_ms: 200 }),
+    row({ principal: "private-principal", model: "org/sk-secret", count: 5, oldest_age_ms: 800, newest_age_ms: 300 }),
+    row({ principal: "other-private-principal", model: "org/192.168.1.2", count: 6, oldest_age_ms: 1000, newest_age_ms: 50 }),
+  ] }), LABELS, NOW);
+  assert.deepEqual(parsed.active, [
+    { principal: "service-a", model: "model-a", count: 6, oldestAgeMs: 1200, newestAgeMs: 100 },
+    { principal: "service-a", model: "model-b", count: 3, oldestAgeMs: 900, newestAgeMs: 100 },
+    { principal: "unknown", model: "unknown", count: 11, oldestAgeMs: 1000, newestAgeMs: 50 },
+  ]);
+  assert.doesNotMatch(JSON.stringify(parsed), /private-principal|sk-secret|192\.168/);
+  assert.equal(parsed.overflowed, false);
+});
+
+test("request counts are positive safe integers independent of the row cap", () => {
+  const row = (count, model = "model-a") => ({ ...payload().active[0], count, model });
+  for (const count of [257, Number.MAX_SAFE_INTEGER]) {
+    assert.equal(parseActivity(payload({ active: [row(count)] }), LABELS, NOW).active[0].count, count);
+  }
+  assert.equal(parseActivity(payload({ active: [row(Number.MAX_SAFE_INTEGER - 1), row(1)] }), LABELS, NOW).active[0].count,
+    Number.MAX_SAFE_INTEGER);
+  for (const count of [true, false, 0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
+    assert.equal(parseActivity(payload({ active: [row(count)] }), LABELS, NOW), null);
+  }
+  for (const model of ["model-a", "model-b"]) {
+    assert.equal(parseActivity(payload({ active: [row(Number.MAX_SAFE_INTEGER), row(1, model)] }), LABELS, NOW), null);
+  }
+});
+
 test("camel-case ages, row bounds, freshness and recent retention are explicit", () => {
   const parsed = parseActivity(payload({
     active: Array.from({ length: 300 }, (_, n) => ({ principal: "service-a", model: `model-${n}`, count: 1, oldestAgeMs: 30, newestAgeMs: 0 })),
@@ -68,6 +103,10 @@ test("camel-case ages, row bounds, freshness and recent retention are explicit",
   assert.equal(parsed.active.length, 256);
   assert.equal(parsed.recent.length, 24);
   assert.equal(parsed.overflowed, true);
+  const duplicates = parseActivity(payload({ active: Array.from({ length: 257 }, () => payload().active[0]) }), LABELS, NOW);
+  assert.equal(duplicates.active.length, 1);
+  assert.equal(duplicates.active[0].count, 512);
+  assert.equal(duplicates.overflowed, true);
   assert.equal(parseActivity(payload({ recent: [{ ...payload().recent[0], ageMs: 600001 }] }), LABELS, NOW).recent.length, 0);
 });
 

@@ -1,7 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { InferenceTrafficCard } from "./InferenceTrafficCard";
-import { flush, render } from "../../testing/render";
+import { cleanupRenders, flush, render } from "../../testing/render";
 import type { InferenceActivity } from "../../api/types";
 
 vi.mock("../../api/client", () => ({ fetchInferenceActivity: vi.fn() }));
@@ -15,6 +15,8 @@ const activity = (overrides: Partial<InferenceActivity> = {}): InferenceActivity
 });
 
 describe("optional inference activity", () => {
+  afterEach(() => { cleanupRenders(); vi.useRealTimers(); });
+
   it("shows approved labels, in-flight counts and actual durations, not token rates", async () => {
     fetchActivity.mockResolvedValue(activity());
     const { container } = render(<InferenceTrafficCard />);
@@ -74,24 +76,44 @@ describe("optional inference activity", () => {
     expect(container.textContent).toContain("counts may be incomplete");
   });
 
-  it("expires the last live response while a later browser fetch remains pending", async () => {
-    let now = Date.parse("2026-10-11T12:00:00Z");
-    vi.spyOn(Date, "now").mockImplementation(() => now);
-    let poll = () => {};
-    vi.spyOn(window, "setInterval").mockImplementation((handler) => { poll = handler as () => void; return 1; });
+  it.each([-3_600_000, 3_600_000])("trusts server availability with client clock skew %i ms", async (skew) => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-10-11T12:00:00Z") + skew);
+    fetchActivity.mockResolvedValue(activity({ generatedAt: "2026-10-11T12:00:00Z" }));
+    const { container } = render(<InferenceTrafficCard />);
+    await flush();
+    expect(container.textContent).toContain("2 in flight");
+    expect(container.textContent).toContain("service-a");
+  });
+
+  it("expires a stalled transport without reinterpreting server timestamps and recovers", async () => {
+    vi.useFakeTimers();
     fetchActivity.mockResolvedValue(activity());
     const { container } = render(<InferenceTrafficCard />);
     await flush();
     expect(container.textContent).toContain("2 in flight");
     let finish!: (value: InferenceActivity) => void;
     fetchActivity.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
-    now += 5000;
-    await act(async () => poll());
-    now += 26000;
-    await act(async () => poll());
+    await act(async () => vi.advanceTimersByTime(5000));
+    vi.setSystemTime(Date.now() - 3_600_000);
+    await act(async () => vi.advanceTimersByTime(26000));
     expect(container.textContent).toContain("counts are unknown");
     expect(container.textContent).not.toMatch(/2 in flight|service-a/);
     await act(async () => finish(activity()));
     expect(container.textContent).toContain("2 in flight");
+  });
+
+  it("resets the transport timeout on a new response and clears timers on unmount", async () => {
+    vi.useFakeTimers();
+    fetchActivity.mockResolvedValue(activity());
+    const { container, root } = render(<InferenceTrafficCard />);
+    await flush();
+    await act(async () => vi.advanceTimersByTime(20_000));
+    await act(async () => vi.advanceTimersByTime(11_000));
+    expect(container.textContent).toContain("2 in flight");
+    act(() => root.unmount());
+    expect(vi.getTimerCount()).toBe(0);
+    const calls = fetchActivity.mock.calls.length;
+    await act(async () => vi.advanceTimersByTime(60_000));
+    expect(fetchActivity).toHaveBeenCalledTimes(calls);
   });
 });

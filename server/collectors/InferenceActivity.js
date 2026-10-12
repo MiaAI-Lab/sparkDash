@@ -89,18 +89,28 @@ export function parseActivity(payload, labels, nowMs = Date.now()) {
   if (!Number.isFinite(generatedMs) || nowMs - generatedMs > SOURCE_MAX_AGE_MS || generatedMs > nowMs + 10_000) return null;
   const principal = (value) => typeof value === "string" && labels.includes(value) ? value : "unknown";
   const active = [];
-  const groups = new Set();
+  const groups = new Map();
+  let totalCount = 0;
   for (const entry of payload.active.slice(0, MAX_ACTIVE)) {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
     const oldestAgeMs = entry.oldestAgeMs ?? entry.oldest_age_ms;
     const newestAgeMs = entry.newestAgeMs ?? entry.newest_age_ms;
-    if (!Number.isInteger(entry.count) || entry.count < 1 || entry.count > MAX_ACTIVE ||
+    if (!Number.isSafeInteger(entry.count) || entry.count < 1 ||
       !duration(oldestAgeMs) || !duration(newestAgeMs) || newestAgeMs > oldestAgeMs) return null;
+    totalCount += entry.count;
+    if (!Number.isSafeInteger(totalCount)) return null;
     const normalized = { principal: principal(entry.principal), model: modelLabel(entry.model), count: entry.count, oldestAgeMs, newestAgeMs };
     const group = JSON.stringify([normalized.principal, normalized.model]);
-    if (groups.has(group)) return null;
-    groups.add(group);
-    active.push(normalized);
+    const existing = groups.get(group);
+    if (existing) {
+      existing.count += normalized.count;
+      if (!Number.isSafeInteger(existing.count)) return null;
+      existing.oldestAgeMs = Math.max(existing.oldestAgeMs, oldestAgeMs);
+      existing.newestAgeMs = Math.min(existing.newestAgeMs, newestAgeMs);
+    } else {
+      groups.set(group, normalized);
+      active.push(normalized);
+    }
   }
   const recent = [];
   for (const entry of payload.recent.slice(0, MAX_RECENT)) {
