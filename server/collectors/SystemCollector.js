@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import childProcess from "child_process";
 import { HOST_PATHS, GPU_MEMORY_JSON_PATH, DGX_SPARK, HARDWARE_DEFAULTS, POLL_INTERVAL_NVERR } from "../config.js";
 import { normalizeMac, WOL_INTERFACE } from "../wol.js";
 import { sshExec } from "./ssh.js";
@@ -105,6 +106,11 @@ export class SystemCollector {
     this._nvErrCache = { count: 0, at: 0 };
     /** Cached kernel error counters (Xid / OOM kills), same slow cadence. */
     this._kernelErrCache = { value: null, at: 0 };
+
+    // Rootless-Docker nsenter state (classified once, then remembered).
+    this._nsenterBroken = false;
+    /** Cached "container netns is the host's" check (network_mode: host). */
+    this._containerNetnsShared = null;
   }
 
   /** Collect GPU metrics (temperature, usage, power, VRAM). */
@@ -269,7 +275,8 @@ export class SystemCollector {
       run: (script) =>
         this.spark.isLocal
           ? this._hasHostProc()
-            ? this._execOnHost(script)
+            ? // RoCE reads /sys/class/infiniband — useless inside the container.
+              this._execOnHost(script, { allowContainerFallback: false })
             : this._exec(script)
           : sshExec(this.spark, script, { timeoutMs: 8000 }),
     });
@@ -1165,26 +1172,8 @@ export class SystemCollector {
   }
 
   /** Run a command in the host mount + network namespaces so we see host interfaces and IPs. */
-  async _execOnHostNet(cmd) {
-    if (!this._hasHostProc()) {
-      return this._exec(cmd);
-    }
-    const mntNs = path.join(HOST_PATHS.PROC, "1", "ns", "mnt");
-    const netNs = path.join(HOST_PATHS.PROC, "1", "ns", "net");
-    const { execFile } = await import("child_process");
-    const args = ["--mount=" + mntNs, "--net=" + netNs, "--", "sh", "-c", cmd];
-    try {
-      return await new Promise((resolve, reject) => {
-        execFile("nsenter", args, { timeout: 8000 }, (err, stdout) => {
-          if (err) return reject(err);
-          resolve(String(stdout).trim());
-        });
-      });
-    } catch {
-      // Rootless Docker EPERM (see _execOnHost): with network_mode: host the
-      // container's own netns IS the host's, so plain exec sees the same data.
-      return this._exec(cmd);
-    }
+  _execOnHostNet(cmd, opts = {}) {
+    return this._execHostNs(cmd, { ...opts, net: true });
   }
 
   /** Read operstate for an interface from sysfs. */
@@ -2120,30 +2109,100 @@ export class SystemCollector {
   }
 
   /**
-   * Run a command in the host mount (+pid) namespaces so tools like
-   * nvidia-smi and lsblk see host driver libs and mount table.
+   * Promisified execFile. Goes through the mutable child_process exports
+   * object so tests can stub exec results with `t.mock.method`.
    */
-  async _execOnHost(cmd) {
+  _execFileP(file, args, options) {
+    return new Promise((resolve, reject) => {
+      childProcess.execFile(file, args, options, (err, stdout) => {
+        if (err) return reject(err);
+        resolve(String(stdout ?? ""));
+      });
+    });
+  }
+
+  /**
+   * Rootless Docker: nsenter cannot enter the host namespaces (EPERM on
+   * /proc/1/ns/*). Classify once — log and remember — so later polls skip
+   * the doomed nsenter entirely instead of re-failing on every call.
+   */
+  _markNsenterBroken(err) {
+    if (this._nsenterBroken) return;
+    this._nsenterBroken = true;
+    console.warn(
+      `[SystemCollector] nsenter cannot enter the host namespaces on ${this.spark.id} (${err?.message}); using in-container reads where allowed.`
+    );
+  }
+
+  /**
+   * Only the permission-shaped failure (rootless setns EPERM) may fall back.
+   * Timeouts (hung commands) and missing binaries propagate so callers see
+   * the real error instead of a silent, wrong container reading.
+   */
+  _isNsenterPermError(err) {
+    if (err?.code === "EPERM") return true;
+    if (err?.killed) return false; // timed out: never mask a hung nsenter
+    return /EPERM|Operation not permitted|Permission denied/i.test(
+      `${err?.stderr ?? ""}\n${err?.message ?? ""}`
+    );
+  }
+
+  /**
+   * True when this process's netns IS the host's (network_mode: host) —
+   * only then does the container's own /proc/net mirror the host's.
+   */
+  _containerNetnsIsHost() {
+    if (this._containerNetnsShared !== null) return this._containerNetnsShared;
+    try {
+      const host = fs.statSync(path.join(HOST_PATHS.PROC, "1", "ns", "net"));
+      const mine = fs.statSync("/proc/self/ns/net");
+      this._containerNetnsShared = host.dev === mine.dev && host.ino === mine.ino;
+    } catch {
+      this._containerNetnsShared = false;
+    }
+    return this._containerNetnsShared;
+  }
+
+  /**
+   * Run a command in the host mount (optionally +network) namespaces so
+   * tools like nvidia-smi and lsblk see host driver libs and mount table.
+   *
+   * On the rootless-Docker permission failure the command reruns inside the
+   * container — valid where the compose file mounts the host's view
+   * (nvidia-smi, /proc, /sys). Callers whose output would silently degrade
+   * in the container (kernel journals, host-only sysfs) pass
+   * `allowContainerFallback: false` and handle the throw as "unknown".
+   * @returns {Promise<string>} trimmed stdout
+   */
+  async _execHostNs(cmd, { net = false, allowContainerFallback = true } = {}) {
     if (!this._hasHostProc()) {
       return this._exec(cmd);
     }
-    const mntNs = path.join(HOST_PATHS.PROC, "1", "ns", "mnt");
-    const { execFile } = await import("child_process");
-    const args = ["--mount=" + mntNs];
-    args.push("--", "sh", "-c", cmd);
-    try {
-      return await new Promise((resolve, reject) => {
-        execFile("nsenter", args, { timeout: 8000 }, (err, stdout) => {
-          if (err) return reject(err);
-          resolve(String(stdout).trim());
-        });
-      });
-    } catch {
-      // Rootless Docker cannot enter the host mount ns (EPERM on
-      // /proc/1/ns/mnt). The compose file mounts nvidia-smi, /proc and /sys
-      // as the documented fallback — run in the container instead.
-      return this._exec(cmd);
+    if (!this._nsenterBroken) {
+      const args = ["--mount=" + path.join(HOST_PATHS.PROC, "1", "ns", "mnt")];
+      if (net) args.push("--net=" + path.join(HOST_PATHS.PROC, "1", "ns", "net"));
+      args.push("--", "sh", "-c", cmd);
+      try {
+        return (await this._execFileP("nsenter", args, { timeout: 8000 })).trim();
+      } catch (err) {
+        if (!this._isNsenterPermError(err)) throw err;
+        this._markNsenterBroken(err);
+      }
     }
+    if (net && !this._containerNetnsIsHost()) {
+      // A container netns that differs from the host's would serve the
+      // wrong interfaces — report unknown instead.
+      throw new Error(`host netns unreachable (nsenter failed, container netns differs): ${cmd}`);
+    }
+    if (!allowContainerFallback) {
+      throw new Error(`host namespaces unreachable, container fallback disabled: ${cmd}`);
+    }
+    return this._exec(cmd);
+  }
+
+  /** Host mount ns only (nvidia-smi, lsblk). */
+  _execOnHost(cmd, opts = {}) {
+    return this._execHostNs(cmd, opts);
   }
 
   /** nvidia-smi via host namespaces when available (fixes missing libnvidia-ml in Docker). */
@@ -2252,27 +2311,25 @@ export class SystemCollector {
    */
   async _readHostNetFile(relPath) {
     // relPath e.g. "dev" or "route" under /proc/net/
-    if (this._hasHostProc()) {
+    if (this._hasHostProc() && !this._nsenterBroken) {
       const netNs = path.join(HOST_PATHS.PROC, "1", "ns", "net");
       if (fs.existsSync(netNs)) {
-        const { execFile } = await import("child_process");
         try {
-          return await new Promise((resolve, reject) => {
-            execFile(
-              "nsenter",
-              ["--net=" + netNs, "--", "cat", `/proc/net/${relPath}`],
-              { timeout: 5000 },
-              (err, stdout) => {
-                if (err) return reject(err);
-                resolve(String(stdout));
-              }
-            );
-          });
-        } catch {
-          // Rootless Docker EPERM on the host netns: with network_mode: host
-          // the container's /proc/net is the host's — fall through to it.
+          return await this._execFileP(
+            "nsenter",
+            ["--net=" + netNs, "--", "cat", `/proc/net/${relPath}`],
+            { timeout: 5000 }
+          );
+        } catch (err) {
+          if (!this._isNsenterPermError(err)) throw err;
+          this._markNsenterBroken(err);
         }
       }
+    }
+    // Without a working nsenter, /proc/net here is the host's only when the
+    // container shares the host netns (network_mode: host).
+    if (this._hasHostProc() && !this._containerNetnsIsHost()) {
+      throw new Error(`no host netns access for /proc/net/${relPath}`);
     }
     return fs.readFileSync(`/proc/net/${relPath}`, "utf-8");
   }
@@ -2341,7 +2398,9 @@ export class SystemCollector {
       let out;
       if (this.spark.isLocal) {
         out = this._hasHostProc()
-          ? await this._execOnHost(KERNEL_ERRORS_CMD)
+          ? // journalctl is absent in the container: a fallback there would
+            // print zero counters — report unknown (null) instead.
+            await this._execOnHost(KERNEL_ERRORS_CMD, { allowContainerFallback: false })
           : await this._exec(KERNEL_ERRORS_CMD);
       } else {
         out = await sshExec(this.spark, KERNEL_ERRORS_CMD, { timeoutMs: 8000 });
@@ -2365,7 +2424,7 @@ export class SystemCollector {
       let out;
       if (this.spark.isLocal) {
         out = this._hasHostProc()
-          ? await this._execOnHost(NVERR_JOURNAL_CMD)
+          ? await this._execOnHost(NVERR_JOURNAL_CMD, { allowContainerFallback: false })
           : await this._exec(NVERR_JOURNAL_CMD);
       } else {
         out = await sshExec(this.spark, NVERR_JOURNAL_CMD, { timeoutMs: 8000 });
