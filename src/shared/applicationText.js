@@ -288,26 +288,58 @@ const vocabulary = [
   ["server.progress.cancelled","Cancelled"],
   ["server.progress.done","Done"]
 ];
-const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// This is a recognition budget, not a diagnostic limit: callers retain the raw
+// string when recognition declines. Count UTF-16 code units, like String.length.
+export const APPLICATION_TEXT_MAX_LENGTH = 4096;
 const exact = new Map();
 const patterns = [];
 for (const [key, template] of vocabulary) {
   const names = [...template.matchAll(/\{(\w+)\}/g)].map(m => m[1]);
   if (!names.length) exact.set(template, { key });
   else {
-    const pieces = template.split(/\{\w+\}/g).map(escape);
-    patterns.push({ key, names, regex: new RegExp('^' + pieces.join('([\\s\\S]+?)') + '$') });
+    patterns.push({ key, names, pieces: template.split(/\{\w+\}/g) });
   }
 }
 export function applicationTextI18n(raw) {
-  if (typeof raw !== 'string') return undefined;
+  if (typeof raw !== 'string' || raw.length > APPLICATION_TEXT_MAX_LENGTH) return undefined;
   const known = exact.get(raw);
   if (known) return known;
-  for (const {key,names,regex} of patterns) {
-    const match = regex.exec(raw);
-    if (match && match[0].length === raw.length) return {key, params:Object.fromEntries(names.map((name,i)=>[name,match[i+1]]))};
+  for (const { key, names, pieces } of patterns) {
+    const captures = matchTemplate(raw, pieces);
+    if (captures) return { key, params: Object.fromEntries(names.map((name, i) => [name, captures[i]])) };
   }
   return undefined;
+}
+
+/** Literal searches only; each non-empty placeholder keeps the earliest feasible capture. */
+function matchTemplate(raw, pieces) {
+  const count = pieces.length - 1;
+  if (!raw.startsWith(pieces[0]) || !raw.endsWith(pieces[count])) return undefined;
+  const suffixStart = raw.length - pieces[count].length;
+  const latest = [];
+  let boundary = suffixStart;
+  // Reverse bounds prove that the remaining literals and non-empty captures can
+  // fit. Forward matching can then select the first separator without backtracking,
+  // including when a parameter itself contains a separator.
+  for (let i = count - 1; i > 0; i--) {
+    const maxStart = boundary - pieces[i].length - 1;
+    if (maxStart < 0) return undefined;
+    const position = raw.lastIndexOf(pieces[i], maxStart);
+    if (position < 0) return undefined;
+    latest[i] = position;
+    boundary = position;
+  }
+  const captures = [];
+  let cursor = pieces[0].length;
+  for (let i = 1; i < count; i++) {
+    const position = raw.indexOf(pieces[i], cursor + 1);
+    if (position < 0 || position > latest[i]) return undefined;
+    captures.push(raw.slice(cursor, position));
+    cursor = position + pieces[i].length;
+  }
+  if (cursor >= suffixStart) return undefined;
+  captures.push(raw.slice(cursor, suffixStart));
+  return captures;
 }
 
 // Required values for the finite browser templates; partial metadata falls back safely.

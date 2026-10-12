@@ -5,9 +5,12 @@ const { spawn } = require('node:child_process');
 const { createRequire } = require('node:module');
 const { pathToFileURL } = require('node:url');
 const assert = require('node:assert/strict');
+const { createBrowserProfile, removeBrowserProfile, resolveBrowserConfig, sandboxArguments } = require('./i18n-browser-config.cjs');
 const repo = process.cwd();
-const out = process.env.I18N_BROWSER_OUT || path.join(repo, '.omx/i18n-browser');
-const browserBinary = process.env.I18N_BROWSER_BINARY || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
+// Resolve this before creating the fixture server so missing browsers fail quickly.
+const browserConfig = resolveBrowserConfig({ repo });
+const out = browserConfig.out;
+const browserBinary = browserConfig.binary;
 const { WebSocket, WebSocketServer } = createRequire(path.join(repo, 'package.json'))('ws');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 async function main() {
@@ -77,11 +80,21 @@ async function main() {
   await new Promise(r=>portReservation.listen(0,'127.0.0.1',r));
   const cdpPort=portReservation.address().port;
   await new Promise(r=>portReservation.close(r));
-  const browser=spawn(browserBinary,['--headless=new','--disable-gpu','--no-first-run','--no-default-browser-check','--remote-debugging-port='+cdpPort,'--remote-debugging-address=127.0.0.1','--user-data-dir='+path.join(out,'edge-profile'),'about:blank'],{windowsHide:true,stdio:'ignore'});
+  let profile;
+  let browser;
+  let spawnError;
   let socket;
   const checks=[], errors=[], texts=[];
   try{
-    let pages;for(let i=0;i<50;i++){try{pages=await(await fetch('http://127.0.0.1:'+cdpPort+'/json/list')).json();if(pages.some(p=>p.type==='page'))break}catch{}await sleep(100)}
+    profile=createBrowserProfile();
+    try {
+    browser=spawn(browserBinary,['--headless=new','--disable-gpu','--no-first-run','--no-default-browser-check','--remote-debugging-port='+cdpPort,'--remote-debugging-address=127.0.0.1','--user-data-dir='+profile,...sandboxArguments(),'about:blank'],{windowsHide:true,stdio:'ignore'});
+    browser.once('error', error => { spawnError = error; });
+    browser.once('exit', code => { if (code !== 0) spawnError ||= new Error('browser exited with code '+code); });
+    } catch (error) {
+    spawnError = error;
+    }
+    let pages;for(let i=0;i<50;i++){if(spawnError)throw new Error('Browser launch failed: '+spawnError.message);try{pages=await(await fetch('http://127.0.0.1:'+cdpPort+'/json/list')).json();if(pages.some(p=>p.type==='page'))break}catch{}await sleep(100)}
     const target=pages?.find(p=>p.type==='page');assert(target,'Edge started');socket=new WebSocket(target.webSocketDebuggerUrl);await new Promise(r=>socket.once('open',r));
     let id=0;const pending=new Map();socket.on('message',raw=>{const msg=JSON.parse(raw);if(msg.id){const p=pending.get(msg.id);pending.delete(msg.id);msg.error?p.reject(new Error(JSON.stringify(msg.error))):p.resolve(msg.result)}if(msg.method==='Runtime.exceptionThrown')errors.push(msg.params.exceptionDetails.exception?.description||msg.params.exceptionDetails.text)});
     const cdp=(method,params={})=>new Promise((resolve,reject)=>{const n=++id;pending.set(n,{resolve,reject});socket.send(JSON.stringify({id:n,method,params}))});
@@ -144,6 +157,6 @@ async function main() {
     fs.writeFileSync(path.join(out,'visible-text.json'),JSON.stringify(texts,null,2));
     console.log('Browser validation passed '+checks.length+' checks: '+out);await cdp('Browser.close');
   }catch(error){fs.writeFileSync(path.join(out,'failure.json'),JSON.stringify({error:String(error),checks,errors,writes,texts},null,2));throw error}
-  finally{clearInterval(timer);socket?.close();browser.kill();for(const ws of wss.clients)ws.terminate();wss.close();await new Promise(r=>server.close(r));}
+  finally{clearInterval(timer);socket?.close();browser?.kill();for(const ws of wss.clients)ws.terminate();wss.close();await new Promise(r=>server.close(r));try{if(profile&&!removeBrowserProfile(profile))console.error('Skipped cleanup of an unowned browser profile')}catch(cleanupError){console.error('Browser profile cleanup failed: '+cleanupError)}}
 }
 main().catch(error=>{console.error(error);process.exitCode=1});

@@ -79,7 +79,7 @@ function isTerminalStreamStatus(status) {
  * @param {object} session
  * @param {{ fromHistory?: boolean }} [opts]
  */
-function publicSessionRecord(session, opts = {}) {
+function publicSessionRecord(session, { fromHistory = false, presentation = true } = {}) {
   const streams = (session.streams || []).map((s) => ({
     streamId: s.streamId,
     label: s.label,
@@ -96,7 +96,7 @@ function publicSessionRecord(session, opts = {}) {
     peakTokPerSec: s.peakTokPerSec || 0,
     model: s.model ?? null,
     error: s.error ?? null,
-    i18n: s.error ? { error: jobErrorI18n(s.error) } : undefined,
+    ...(presentation && (s.i18n || s.error) ? { i18n: s.i18n ?? { error: jobErrorI18n(s.error) } } : {}),
   }));
 
   const totalTokens = streams.reduce((sum, s) => sum + (s.tokenCount || 0), 0);
@@ -110,7 +110,7 @@ function publicSessionRecord(session, opts = {}) {
     0
   );
 
-  return {
+  const out = {
     sessionId: session.sessionId,
     sparkId: session.sparkId,
     status: session.status,
@@ -132,9 +132,10 @@ function publicSessionRecord(session, opts = {}) {
     streamCount: streams.length,
     streams,
     error: session.error ?? null,
-    i18n: session.error ? { error: jobErrorI18n(session.error) } : undefined,
-    fromHistory: Boolean(opts.fromHistory || session.fromHistory),
+    fromHistory: Boolean(fromHistory || session.fromHistory),
   };
+  if (presentation && (session.i18n || session.error)) out.i18n = session.i18n ?? { error: jobErrorI18n(session.error) };
+  return out;
 }
 
 /** Lightweight list row (no stream bodies). */
@@ -218,7 +219,7 @@ export class ShowcaseManager {
    */
   _archiveSession(session) {
     if (!session || session.status === "running") return;
-    const record = publicSessionRecord(session, { fromHistory: true });
+    const record = publicSessionRecord(session, { fromHistory: true, presentation: false });
     const list = this.historyBySpark.get(session.sparkId) || [];
     const next = [
       record,
@@ -240,7 +241,7 @@ export class ShowcaseManager {
   getHistorySession(sparkId, sessionId) {
     const list = this.historyBySpark.get(sparkId) || [];
     const found = list.find((r) => r.sessionId === sessionId);
-    return found ? { ...found, fromHistory: true } : null;
+    return found ? publicSessionRecord(found, { fromHistory: true }) : null;
   }
 
   clearHistory(sparkId) {

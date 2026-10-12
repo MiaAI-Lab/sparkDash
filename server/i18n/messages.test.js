@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { responseI18n, jobTextI18n, jobErrorI18n, eventI18n } from "./messages.js";
+import { responseI18n, responseI18nResults, jobTextI18n, jobErrorI18n, eventI18n } from "./messages.js";
 import { applicationTextI18n } from "../../src/shared/applicationText.js";
 import { HealthEvaluator } from "../health/HealthEvaluator.js";
 import { ARG_SPEC } from "../tooleval/spec.js";
@@ -32,14 +32,28 @@ test("every Tool Eval field validation has a recognized application descriptor",
   }
 });
 
-test("batch errors and success notices keep raw fields and receive metadata per result", () => {
+test("response boundary leaves arbitrary result payloads and their references alone", () => {
   const original = { results: [{ id: "a", error: "Spark not found" }, { id: "b", message: "Shutdown initiated" }, { id: "c", error: "ssh timed out\nlast diagnostic line\n" }] };
   const output = responseI18n(original);
-  assert.equal(output.results[0].error, original.results[0].error);
-  assert.equal(output.results[0].i18n.error.key, "server.error.sparkNotFound");
-  assert.equal(output.results[1].i18n.message.key, "server.message.shutdownInitiated");
-  assert.equal(output.results[2].i18n.error.params.detail, original.results[2].error);
+  assert.equal(output, original);
+  assert.equal(output.results, original.results);
   assert.equal(original.results[0].i18n, undefined);
+});
+
+test("response boundary does not read a results getter", () => {
+  const body = { ok: true };
+  Object.defineProperty(body, "results", { get: () => { throw new Error("must not traverse results"); } });
+  assert.equal(responseI18n(body), body);
+});
+
+test("explicit batch error boundary keeps raw fields and decorates known result rows", () => {
+  const original = [{ id: "a", error: "Spark not found" }, { id: "b", message: "Shutdown initiated" }, { id: "c", error: "ssh timed out\nlast diagnostic line\n" }];
+  const output = responseI18nResults(original);
+  assert.equal(output[0].error, original[0].error);
+  assert.equal(output[0].i18n.error.key, "server.error.sparkNotFound");
+  assert.equal(output[1].i18n.message.key, "server.message.shutdownInitiated");
+  assert.equal(output[2].i18n.error.params.detail, original[2].error);
+  assert.equal(original[0].i18n, undefined);
 });
 
 test("authored progress and dynamic errors use the same recognizer as stored browser errors", () => {

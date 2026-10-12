@@ -21,6 +21,7 @@ import { flush, render } from "../../testing/render";
 import { terminalText } from "../ui/LiveTerminal";
 import { validateLauncherForm } from "./LlmLauncherDialog";
 import { formatElapsed, jobHeadline, jobTone, LlmModelsPanel } from "./LlmModelsPanel";
+import { setLocale } from "../../i18n";
 
 const job = (over: Partial<LauncherJob>): LauncherJob => ({
   id: "j1",
@@ -125,6 +126,21 @@ describe("starting a model while another one runs", () => {
     await flush();
     expect(runLauncher).toHaveBeenCalledTimes(1);
     expect(runLauncher).toHaveBeenCalledWith("s1", "b", "start");
+  });
+
+  it("updates an open parallel-model confirmation in Chinese and retains its start action", async () => {
+    const container = await askToStartBeta();
+    try {
+      await act(async () => { await setLocale("zh-Hans", { persist: false }); });
+      expect(container.textContent).toContain("Alpha 正在运行。要先停止它，还是同时运行两个模型？");
+      expect(button(container, "同时运行")?.title).toContain("内存不足");
+      await act(async () => button(container, "同时运行")!.click());
+      await flush();
+      expect(runLauncher).toHaveBeenCalledTimes(1);
+      expect(runLauncher).toHaveBeenCalledWith("s1", "b", "start");
+    } finally {
+      await act(async () => { await setLocale("en", { persist: false }); });
+    }
   });
 
   it("Stop it, then start still stops the running one first", async () => {

@@ -61,7 +61,7 @@ import { ToolEvalStore } from "./tooleval/ToolEvalStore.js";
 import { ToolEvalManager } from "./tooleval/ToolEvalManager.js";
 import { registerToolEvalRoutes } from "./tooleval/routes.js";
 import { benchEvent } from "./events/eventFormat.js";
-import { responseI18n, withApiError } from "./i18n/messages.js";
+import { responseI18n, responseI18nResults, withApiError } from "./i18n/messages.js";
 import {
   createFleetEnergyRuntime,
   registerFleetEnergyRoute,
@@ -2037,7 +2037,7 @@ app.post("/api/sparks/shutdown-all", async (_req, res) => {
       results.push({ id: spark.id, ok: false, error: err.message || String(err) });
     }
   }
-  res.json({ success: true, results });
+  res.json({ success: true, results: responseI18nResults(results) });
 });
 
 app.post("/api/sparks/wake-all", async (_req, res) => {
@@ -2070,7 +2070,7 @@ app.post("/api/sparks/wake-all", async (_req, res) => {
       results.push({ id: spark.id, ok: false, error: err.message || String(err) });
     }
   }
-  res.json({ success: true, results });
+  res.json({ success: true, results: responseI18nResults(results) });
 });
 
 app.post("/api/sparks/:id/shutdown", async (req, res) => {

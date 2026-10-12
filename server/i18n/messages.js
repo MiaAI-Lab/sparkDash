@@ -71,9 +71,6 @@ export function withApiError(res, status, error, key, params) {
  */
 export function responseI18n(body) {
   if (!body || typeof body !== "object") return body;
-  if (Array.isArray(body)) return body.map(responseI18n);
-  // Batch endpoints contain independent errors/notices, each with its own metadata.
-  if (Array.isArray(body.results)) body = { ...body, results: body.results.map(responseI18n) };
   if (body.i18n) return body;
   if (typeof body.error === "string") {
     const meta = applicationTextI18n(body.error) ?? { key: "server.error.unexpected", params: { detail: body.error } };
@@ -85,6 +82,11 @@ export function responseI18n(body) {
     if (match) return { ...body, i18n: { message: { key: "server.message.wakeSent", params: { mac: match[1], broadcast: match[2] } } } };
   }
   return body;
+}
+
+/** Explicit boundary for batch routes that author each result row. */
+export function responseI18nResults(results) {
+  return results.map(responseI18n);
 }
 
 /** Metadata for application job progress. Unknown process diagnostics retain raw text. */

@@ -239,7 +239,7 @@ function summaryOf(job) {
  * @param {{ full?: boolean }} [opts] full = include per-item rows. A running job omits them by
  *   default (the dialog polls every second; the rows are only needed once it finishes).
  */
-function publicJob(job, { full = job.status !== "running" } = {}) {
+function publicJob(job, { full = job.status !== "running", presentation = true } = {}) {
   const results =
     full || !job.results
       ? job.results
@@ -249,21 +249,25 @@ function publicJob(job, { full = job.status !== "running" } = {}) {
           skippedLongSizes: job.results.skippedLongSizes,
           itemCount: job.results.items?.length ?? 0,
         };
-  return {
+  const progress = { ...job.progress };
+  if (presentation) progress.i18n = job.progress?.i18n ?? { message: jobTextI18n(job.progress?.message) };
+  else delete progress.i18n;
+  const out = {
     benchId: job.benchId,
     sparkId: job.sparkId,
     status: job.status,
     startedAt: job.startedAt,
     completedAt: job.completedAt,
     config: { ...job.config },
-    progress: { ...job.progress, i18n: { message: jobTextI18n(job.progress.message) } },
+    progress,
     results,
     error: job.error,
-    i18n: job.error ? { error: jobErrorI18n(job.error) } : undefined,
     durationMs:
       job.completedAt != null ? job.completedAt - job.startedAt : Date.now() - job.startedAt,
     owner: job.owner || null,
   };
+  if (presentation && (job.i18n || job.error)) out.i18n = job.i18n ?? { error: jobErrorI18n(job.error) };
+  return out;
 }
 
 function emptyResults() {
@@ -315,7 +319,7 @@ export class QualityBenchManager {
     if (job) return publicJob(job, opts.full ? { full: true } : undefined);
     for (const list of this.historyBySpark.values()) {
       const found = list.find((j) => j.benchId === benchId);
-      if (found) return found;
+      if (found) return publicJob(found, opts.full ? { full: true } : undefined);
     }
     return null;
   }
@@ -328,7 +332,7 @@ export class QualityBenchManager {
   }
 
   getHistory(sparkId) {
-    return this.historyBySpark.get(sparkId) || [];
+    return (this.historyBySpark.get(sparkId) || []).map((job) => publicJob(job, { full: true }));
   }
 
   /** History without per-item rows (the dialog fetches a full run by id to compare). */
@@ -437,7 +441,7 @@ export class QualityBenchManager {
   _runningSnapshots() {
     const running = [];
     for (const job of this.jobs.values()) {
-      if (job.status === "running") running.push(publicJob(job, { full: true }));
+      if (job.status === "running") running.push(publicJob(job, { full: true, presentation: false }));
     }
     return running;
   }
@@ -805,7 +809,7 @@ export class QualityBenchManager {
 
   _pushHistory(job) {
     const list = this.historyBySpark.get(job.sparkId) || [];
-    const pub = publicJob(job, { full: true });
+    const pub = publicJob(job, { full: true, presentation: false });
     const existing = list.findIndex((j) => j.benchId === pub.benchId);
     if (existing >= 0) list.splice(existing, 1);
     list.unshift(pub);

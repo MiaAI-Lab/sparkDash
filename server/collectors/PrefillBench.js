@@ -397,24 +397,28 @@ export async function runPrefillMeasured(opts, overheadMs, onSample, sampleFn = 
   };
 }
 
-function publicJob(job) {
-  return {
+function publicJob(job, { presentation = true } = {}) {
+  const progress = { ...job.progress };
+  if (presentation) progress.i18n = job.progress?.i18n ?? { message: jobTextI18n(job.progress?.message) };
+  else delete progress.i18n;
+  const out = {
     benchId: job.benchId,
     sparkId: job.sparkId,
     status: job.status,
     startedAt: job.startedAt,
     completedAt: job.completedAt,
     config: { ...job.config },
-    progress: { ...job.progress, i18n: { message: jobTextI18n(job.progress.message) } },
+    progress,
     results: job.results,
     error: job.error,
-    i18n: job.error ? { error: jobErrorI18n(job.error) } : undefined,
     durationMs:
       job.completedAt != null
         ? job.completedAt - job.startedAt
         : Date.now() - job.startedAt,
     owner: job.owner || null,
   };
+  if (presentation && (job.i18n || job.error)) out.i18n = job.i18n ?? { error: jobErrorI18n(job.error) };
+  return out;
 }
 
 /**
@@ -459,7 +463,7 @@ export class PrefillBenchManager {
     if (job) return publicJob(job);
     for (const list of this.historyBySpark.values()) {
       const found = list.find((j) => j.benchId === benchId);
-      if (found) return found;
+      if (found) return publicJob(found);
     }
     return null;
   }
@@ -472,7 +476,7 @@ export class PrefillBenchManager {
   }
 
   getHistory(sparkId) {
-    return this.historyBySpark.get(sparkId) || [];
+    return (this.historyBySpark.get(sparkId) || []).map((job) => publicJob(job));
   }
 
   getLast(sparkId, port = null) {
@@ -602,7 +606,7 @@ export class PrefillBenchManager {
     /** @type {object[]} */
     const running = [];
     for (const job of this.jobs.values()) {
-      if (job.status === "running") running.push(publicJob(job));
+      if (job.status === "running") running.push(publicJob(job, { presentation: false }));
     }
     this._writeActiveFile(running);
   }
@@ -921,7 +925,7 @@ export class PrefillBenchManager {
 
   _pushHistory(job) {
     const list = this.historyBySpark.get(job.sparkId) || [];
-    const pub = publicJob(job);
+    const pub = publicJob(job, { presentation: false });
     const existing = list.findIndex((j) => j.benchId === pub.benchId);
     if (existing >= 0) list.splice(existing, 1);
     list.unshift(pub);
