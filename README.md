@@ -46,6 +46,7 @@ Monitored units run **Linux**, **macOS**, or **Windows** (a Windows PC with an N
 - [Security scans (VulnHunter)](#security-scans-vulnhunter)
 - [Reverse engineering (REA)](#reverse-engineering-rea)
 - [Prometheus](#prometheus)
+- [Alert notifications](#alert-notifications)
 - [RoCE / RDMA monitoring](#roce--rdma-monitoring)
 - [Windows PCs](#windows-pcs)
 - [Full changelog](./CHANGELOG.md)
@@ -528,6 +529,48 @@ Unknown is left out rather than written as zero: a failed GPU read, a sensor tha
 
 ---
 
+## Alert notifications
+
+Opt-in (default **off**): **Settings → Alert notifications → Configure…**. The server sends a notification to ntfy, Discord, Slack or a JSON webhook when a problem has held for a while, and again when it clears — whether or not a dashboard is open.
+
+### What notifies
+
+Nothing new is detected here. The conditions are the ones sparkDash already shows, with their own thresholds:
+
+- the **Health findings** on the unit cards (`server/health/HealthEvaluator.js`: GPU temperature, unified memory, stuck low-power state, Xid / OOM, RoCE link and loss, slow link, several models loaded), and
+- the **Overview exceptions** (`src/shared/fleetExceptions.js`, the strip's own code): unit offline, thermal or hardware throttle (never the software power cap), storage at or above 90 %, LLM unavailable, tailnet unavailable.
+
+Each can be switched off, and given its own wait. Timing works like Prometheus: a condition has to hold for its wait before it fires (until then it is *pending*), and a firing alert clears only after the condition has stayed clear for the same wait (at least 30 s), so a reading hovering on a threshold does not notify on every crossing. An offline unit keeps its other alerts as they are instead of clearing them. The firing set is saved, so a restart neither repeats a notification nor resets a duration.
+
+The Activity log keeps recording what happened, as before; on top, every notification sent or failed is an `alert.notify.sent` / `alert.notify.failed` event (category *Alert notifications*), which names the channel and the alert — never the URL, never what the server answered.
+
+### Channels
+
+| Type | What is sent |
+|------|--------------|
+| `ntfy` | `POST` plain text to the topic URL with `Title`, `Priority` (5 critical, 4 warning, 3 resolved) and `Tags` headers — ntfy.sh or self-hosted |
+| `discord` | Discord webhook JSON: `content` plus one embed per alert (mentions disabled) |
+| `slack` | Slack incoming-webhook JSON `{ "text": … }` |
+| `webhook` | Generic JSON `{ source, status, severity, title, reminder, sentAt, alerts: [{ status, severity, rule, ruleName, unit, unitId, label, summary, startsAt, endsAt }] }` |
+
+Everything that fires or clears in one evaluation goes out as one message per channel, filtered by the channel's minimum severity. **Remind while still firing** (off by default) repeats firing alerts every 1 h / 4 h / 12 h / 24 h. Text that comes from elsewhere (unit names, SSH errors, kernel Xid lines, model ids) is cut to 120 characters.
+
+How sends are made:
+
+- **Outbound policy.** A channel URL must be `http(s)` and pass the same target policy as units and LLM endpoints (`server/validate.js`): LAN, Tailscale and loopback addresses are fine (a self-hosted ntfy), link-local / cloud-metadata, multicast and unspecified addresses are refused. The host is checked when the channel is saved and resolved again on every send; the connection goes to exactly the address that was checked, so a DNS record that changes in between cannot redirect it.
+- **No redirects.** A `3xx` answer is a failed send (`redirect not followed`).
+- **No response bodies.** A failure is reported as a status code or a fixed reason (`HTTP 403`, `timed out after 10s`, `connection failed (ECONNREFUSED)`) — in the dialog, the log and Activity alike.
+
+Example — phone notifications with [ntfy](https://ntfy.sh): subscribe the ntfy app to a topic nobody will guess (e.g. `sparkdash-7f3k9q`), turn notifications on, **Add channel** with type `ntfy` and URL `https://ntfy.sh/sparkdash-7f3k9q` (or your own server), **Save**, then **Send test**.
+
+### Where the configuration lives
+
+Channel URLs are credentials, so they are stored encrypted in `config/sparks-secrets.json` next to the unit passwords and LLM API keys, and the API only ever shows them masked (`https://ntfy.sh…3k9q`; saving the masked value unchanged keeps the stored URL). `config/alerts.json` (`ALERTS_JSON_PATH`, mode `0600`) holds the rest: rule switches and waits, channel names and types, and the firing set. A plaintext URL left in `alerts.json` by an earlier build is moved into the encrypted store when the server starts.
+
+While notifications are off, nothing is evaluated or sent, and `PUT /api/alerts/config` and `POST /api/alerts/test` answer `409`. While on, the WebSocket snapshot carries `alerts.active` and the Overview exceptions strip lists the server's alerts with their real durations.
+
+---
+
 ## RoCE / RDMA monitoring
 
 Spark units with RDMA devices (the CX7 ports) get a **RoCE / RDMA** panel on their page, with no switch integration and no root. Per port: link state and rate, MTU, RX/TX traffic, interface errors and drops, PFC priorities, QoS trust mode (PCP or DSCP) and the DSCP map, global pause settings, and the RDMA counters (out of buffer, sequence errors, ACK timeouts, ECN-marked packets, CNPs sent and handled) plus ethtool discards, CRC errors and pause frames, with the change since the last sample.
@@ -819,6 +862,8 @@ sparkDash/
 | POST | `/api/sparks/:id/llm/prefill-bench` | Start prefill + TTFT context sweep (202); poll/cancel/clear on the same path |
 | POST | `/api/sparks/:id/llm/quality-bench` | Start quality suite (202); `GET` lists active / last / history summaries, `GET :benchId` returns a full run, `DELETE :benchId` cancels, `DELETE` clears history |
 | GET | `/metrics` | Prometheus exposition (opt-in, see [Prometheus](#prometheus)) |
+| GET | `/api/alerts` · `/api/alerts/config` | Firing, pending and recent alerts; rules and channels (URLs masked) — see [Alert notifications](#alert-notifications) |
+| PUT/POST | `/api/alerts/config` · `/api/alerts/test` | Save rules and channels; send a test message (both `409` while notifications are off) |
 | GET | `/api/settings` | Global settings |
 | PUT | `/api/settings` | Update global settings |
 | WS | `/ws` | Real-time metrics stream |
@@ -871,6 +916,7 @@ Gear icon in the header, or `GET`/`PUT` `/api/settings`:
 | Show search and status filters | false | Overview search field and status dropdown |
 | Save benchmark debug traces | false | Store prompts, HTTP ids and GPU samples in bench history (larger files) |
 | Prometheus metrics | false | Serve `GET /metrics` for Prometheus / Grafana (see [Prometheus](#prometheus)); `404` while off |
+| Alert notifications (`alertsEnabled`) | false | Notify ntfy / Discord / Slack / a webhook about Health findings and Overview exceptions (see [Alert notifications](#alert-notifications)); while off nothing is evaluated or sent |
 
 ### Environment variables
 
@@ -909,6 +955,7 @@ Copy `.env.example` to `.env` if needed:
 | `SSH_CONTROL_PERSIST_SECONDS` | `60` | Idle SSH transport persistence in seconds, capped at `3600`. Set to `0` to disable multiplexing. |
 | `FLEET_ENERGY_JSON_PATH` | `config/fleet-energy.json` | Rolling fleet-energy persistence path |
 | `FLEET_ENERGY_MONTHLY_JSON_PATH` | `config/fleet-energy-monthly.json` | Permanent monthly energy archive |
+| `ALERTS_JSON_PATH` | `config/alerts.json` | Alert rule switches, channel settings (no URLs) and the firing set |
 
 For compatibility, `SSH_CONTROL_PERSIST` is accepted as a seconds-based fallback when `SSH_CONTROL_PERSIST_SECONDS` is unset. The existing `SSH_MULTIPLEX=0` switch also disables reuse. SSH tunnels always use an independent connection.
 

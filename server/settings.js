@@ -66,6 +66,11 @@ const DEFAULTS = Object.freeze({
   vulnhuntEnabled: false,
   /** REA (Tools): install, uploads and analysis runs on a unit. Opt-in, off by default. */
   reaEnabled: false,
+  /**
+   * Alert notifications (Settings → Alerts). Off by default: while off nothing
+   * is evaluated or sent, and the alert config / test routes refuse.
+   */
+  alertsEnabled: false,
 });
 
 const POLL_INTERVAL_MIN_MS = 500;
@@ -134,6 +139,7 @@ function _clampSettings(settings) {
   s.prometheusExport = Boolean(s.prometheusExport);
   s.vulnhuntEnabled = Boolean(s.vulnhuntEnabled);
   s.reaEnabled = Boolean(s.reaEnabled);
+  s.alertsEnabled = Boolean(s.alertsEnabled);
   // Ensure temperatureUnit is valid
   if (s.temperatureUnit !== "celsius" && s.temperatureUnit !== "fahrenheit") {
     s.temperatureUnit = DEFAULTS.temperatureUnit;

@@ -9,6 +9,9 @@ Format: version sections are listed newest first.
 
 ## [Unreleased]
 
+### Added
+- **Alert notifications to ntfy, Discord, Slack or a webhook (opt-in).** Nothing told you about a problem unless a dashboard was open. **Settings → Alert notifications → Configure…** now has the server notify you when a Health finding (GPU temperature, unified memory, Xid / OOM, RoCE, …) or an Overview exception (unit offline, thermal or hardware throttle, storage ≥ 90 %, LLM or tailnet unavailable) has held for its wait, and again once it has stayed clear as long — with no thresholds of its own, so a notification always matches the card chips and the strip. Each condition can be switched off or given its own wait; one message per channel per evaluation; optional reminders; the firing set survives a restart. Channel URLs are stored encrypted with the unit passwords and shown masked, must pass the same outbound-target policy as unit and LLM addresses (checked on save and again on every send, with the connection pinned to the checked address), redirects are never followed, and a failure is reported as a status code or a fixed reason, never a server's answer. Every notification sent or failed is on the Activity page (*Alert notifications*). While on, the exceptions strip lists the server's alerts with their real durations. Off by default: while off nothing is evaluated or sent, and the alert config and test routes answer 409. New endpoints: `GET /api/alerts`, `GET`/`PUT /api/alerts/config`, `POST /api/alerts/test`.
+
 ---
 
 ## [2.50.0] — 2026-10-15

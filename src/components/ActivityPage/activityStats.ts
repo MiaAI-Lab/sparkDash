@@ -14,12 +14,13 @@ export const SEVERITY_LABEL: Record<Severity, string> = {
   info: "Info",
 };
 
-export type CategoryId = "status" | "thermal" | "health" | "hermes" | "bench" | "power" | "llm" | "fleet" | "other";
+export type CategoryId = "status" | "thermal" | "health" | "alerts" | "hermes" | "bench" | "power" | "llm" | "fleet" | "other";
 
 export const CATEGORIES: readonly { id: CategoryId; label: string }[] = [
   { id: "status", label: "Status (online/offline)" },
   { id: "thermal", label: "Thermal" },
   { id: "health", label: "Health" },
+  { id: "alerts", label: "Alert notifications" },
   { id: "hermes", label: "Hermes" },
   { id: "bench", label: "Benchmarks" },
   { id: "power", label: "Power" },
@@ -57,6 +58,7 @@ export function categorize(type: string): CategoryId {
   if (type === "spark.added" || type === "spark.removed") return "fleet";
   if (type.startsWith("gpu.throttle")) return "thermal";
   if (type.startsWith("health.")) return "health";
+  if (type.startsWith("alert.")) return "alerts";
   if (type.startsWith("hermes.")) return "hermes";
   if (type.startsWith("bench.")) return "bench";
   if (type.startsWith("power.")) return "power";
@@ -84,6 +86,8 @@ const KNOWN_LABELS: Record<string, string> = {
   "health.roce-link": "RoCE link down",
   "health.roce-loss": "RoCE packet loss",
   "health.cleared": "Health OK",
+  "alert.notify.sent": "Notification sent",
+  "alert.notify.failed": "Notification failed",
   "power.shutdown": "Shutdown",
   "power.wake": "Wake",
 };

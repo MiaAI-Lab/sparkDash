@@ -31,6 +31,7 @@ export const CONFIG_PATH_VARS = [
   "FLEET_ENERGY_JSON_PATH",
   "FLEET_ENERGY_MONTHLY_JSON_PATH",
   "EVENTS_JSON_PATH",
+  "ALERTS_JSON_PATH",
 ];
 
 /** Variables that point at a directory the server writes into. */

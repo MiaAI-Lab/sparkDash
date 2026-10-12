@@ -55,6 +55,14 @@ test("reaEnabled is opt-in and stored as a boolean", () => {
   assert.equal(updateSettings({ reaEnabled: 0 }).reaEnabled, false);
 });
 
+test("alertsEnabled is opt-in and stored as a boolean", () => {
+  fs.writeFileSync(process.env.SETTINGS_JSON_PATH, JSON.stringify({ density: "compact" }));
+  assert.equal(loadSettings().alertsEnabled, false);
+  assert.equal(updateSettings({ alertsEnabled: "yes" }).alertsEnabled, true);
+  assert.equal(loadSettings().alertsEnabled, true);
+  assert.equal(updateSettings({ alertsEnabled: 0 }).alertsEnabled, false);
+});
+
 test("timeZone follows the browser by default, accepts IANA names and drops anything else", () => {
   fs.writeFileSync(process.env.SETTINGS_JSON_PATH, JSON.stringify({ density: "compact" }));
   assert.equal(loadSettings().timeZone, "");

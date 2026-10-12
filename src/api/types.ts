@@ -700,6 +700,107 @@ export interface WsSnapshot {
   generatedAt?: number;
   sparks: SparkSnapshot[];
   refreshInterval: number;
+  /** Alert notifications' firing set — present only while `alertsEnabled` is on. */
+  alerts?: { active: AlertInstance[] };
+}
+
+// ─── Alert notifications (server/alerts) ──────────────────
+export type AlertSeverity = "warning" | "critical";
+
+/**
+ * One pending or firing alert (GET /api/alerts, WS `alerts.active`). The
+ * condition is a Health finding or an Overview strip exception; `ruleId` is the
+ * finding id (thermal, memory, …) or the strip's (offline, throttle, disk, llm, tailnet).
+ */
+export interface AlertInstance {
+  /** `${unitId}:${ruleId}` — the same key the Overview strip uses. */
+  key: string;
+  ruleId: string;
+  ruleName: string;
+  unitId: string;
+  unitName: string;
+  severity: AlertSeverity;
+  /** Highest severity reached while firing (a resolved alert is routed by it). */
+  peakSeverity?: AlertSeverity;
+  state: "pending" | "firing";
+  /** Short predicate after the unit name ("GPU is running hot"). */
+  label: string;
+  summary: string;
+  /** Epoch ms the condition first held — survives a server restart. */
+  startsAt: number;
+  firingAt: number | null;
+}
+
+/** One firing / resolved transition (newest first in `recent`). */
+export interface AlertEvent {
+  id: number;
+  at: number;
+  status: "firing" | "resolved";
+  key: string;
+  ruleId: string;
+  ruleName: string;
+  unitId: string;
+  unitName: string;
+  severity: AlertSeverity;
+  label: string;
+  summary: string;
+  startsAt: number;
+  endsAt: number | null;
+}
+
+export interface AlertsResponse {
+  enabled: boolean;
+  active: AlertInstance[];
+  pending: AlertInstance[];
+  recent: AlertEvent[];
+}
+
+/** A rule as GET /api/alerts/config describes it: where it comes from, on/off and `for`. */
+export interface AlertRule {
+  id: string;
+  name: string;
+  description: string;
+  source: "health" | "strip";
+  defaults: { enabled: boolean; forSec: number };
+  /** Only the values the user changed. */
+  overrides: { enabled?: boolean; forSec?: number };
+}
+
+export type AlertChannelType = "ntfy" | "discord" | "slack" | "webhook";
+
+export interface AlertChannel {
+  /** Absent on a channel added in the dialog and not yet saved. */
+  id?: string;
+  name: string;
+  type: AlertChannelType;
+  /** Masked by the server (`https://ntfy.sh…ab12`); send it back unchanged to keep it. */
+  url: string;
+  /** The server has a URL for this channel (in its encrypted secrets store). */
+  hasUrl?: boolean;
+  enabled: boolean;
+  minSeverity: AlertSeverity;
+  /** `lastError` is a status code or a fixed reason, never a server's answer. */
+  status?: { lastSentAt: number | null; lastError: string | null; lastErrorAt: number | null };
+}
+
+export interface AlertsConfig {
+  enabled: boolean;
+  /** 0 = no reminders while an alert keeps firing. */
+  repeatIntervalMin: number;
+  rules: AlertRule[];
+  channels: AlertChannel[];
+}
+
+export interface AlertsConfigUpdate {
+  repeatIntervalMin?: number;
+  rules?: Record<string, { enabled?: boolean; forSec?: number }>;
+  channels?: AlertChannel[];
+}
+
+export interface AlertTestResult {
+  ok: boolean;
+  status?: number;
+  error?: string;
 }
 
 export interface FleetEnergy {
@@ -811,6 +912,8 @@ export interface Settings {
   vulnhuntEnabled: boolean;
   /** REA (Tools): install, uploads and analysis runs on a unit are opt-in (off by default). */
   reaEnabled: boolean;
+  /** Alert notifications (Settings → Alerts). Off by default; while off nothing is evaluated or sent. */
+  alertsEnabled?: boolean;
 }
 
 export interface SparksListResponse {

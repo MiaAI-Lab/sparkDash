@@ -179,6 +179,7 @@ function DashboardApp() {
     lastValidSnapshotAt,
     snapshotError,
     refreshInterval,
+    serverAlerts,
   } = useSnapshot();
   const sparks = snapSparks;
   const activeSpark = liveActive;
@@ -573,6 +574,8 @@ function DashboardApp() {
                   showFleetEnergy={settings?.showFleetEnergy ?? true}
                   showInferenceActivity={settings?.inferenceActivityEnabled === true}
                   showFleetExceptions={settings?.showFleetExceptions ?? false}
+                  alertsEnabled={settings?.alertsEnabled ?? false}
+                  serverAlerts={serverAlerts}
                   showOverviewSearch={settings?.showOverviewSearch ?? false}
                   showLlmTokenTotals={settings?.showLlmTokenTotals ?? true}
                   showActivityFeed={settings?.showActivityFeed ?? true}

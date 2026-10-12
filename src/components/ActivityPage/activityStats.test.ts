@@ -31,6 +31,9 @@ describe("categorize / typeLabel", () => {
     expect(categorize("llm.start.requested")).toBe("llm");
     expect(categorize("spark.added")).toBe("fleet");
     expect(categorize("spark.removed")).toBe("fleet");
+    expect(categorize("alert.notify.sent")).toBe("alerts");
+    expect(categorize("alert.notify.failed")).toBe("alerts");
+    expect(typeLabel("alert.notify.failed")).toBe("Notification failed");
   });
   it("falls back to other for unknown types", () => {
     expect(categorize("weird.thing")).toBe("other");
