@@ -363,6 +363,15 @@ function SparkCardImpl({
               <code>{"\u00a0"}</code>
             </div>
           )}
+          {online && role !== "worker" && [...new Set([
+            ...llmList.filter((entry) => entry.available).flatMap((entry) => entry.models?.length ? entry.models : entry.modelId ? [entry.modelId] : []),
+            ...(spark.metrics.residentModels ?? []).map((entry) => entry.modelId),
+          ])].filter((name) => name !== modelText).map((name) => (
+            <div className="ov-modelrow" key={name} title={`${name} · loaded model; throughput shown for the monitored endpoint above`}>
+              <code>{name}</code>
+              <span className="ov-modelrow__ctx">Loaded</span>
+            </div>
+          ))}
         </>
       )}
 

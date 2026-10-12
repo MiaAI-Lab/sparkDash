@@ -802,6 +802,20 @@ For compatibility, `SSH_CONTROL_PERSIST` is accepted as a seconds-based fallback
 4. **Test** shows pass/fail/skipped for host collectors/SSH and each enabled service (LLM, ComfyUI, Hermes Agent, Tailnet). Every enabled capability must pass; disable an unavailable optional service before saving if it should not be monitored.
 5. Save — a tab appears and metrics start streaming.
 
+### Loaded models in private containers
+
+Overview lists all models returned by the configured, reachable LLM endpoints.
+For remote Linux units, it also checks running Docker containers whose image name
+contains `vllm`, every 30 seconds over the existing SSH connection. It reads
+`/v1/models` on each container's private network address and configured `--port`
+(default 8000), without publishing ports or sending inference requests.
+
+This optional discovery requires Python 3 and existing permission to read Docker
+state on the remote unit; missing tools, inaccessible APIs and SSH failures return
+no discoveries. Local, macOS and Windows units are skipped. Additional models are
+labelled **Loaded**. Throughput, benchmarks and token totals still apply to the
+configured LLM endpoints; discovery does not add a monitored endpoint. Offline
+units do not display stale discovered models.
 ### Power controls (shutdown / Wake-on-LAN)
 
 - **Shutdown** (per Spark or **Shutdown All** on Overview) runs the host helper

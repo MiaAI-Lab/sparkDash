@@ -190,6 +190,7 @@ export class SparkMonitor {
       roce: null,
       unifiedMemory: this.collector._defaultUnifiedMemory(),
       llm: [],
+      residentModels: [],
       comfy: null,
       tailscale: null,
     };
@@ -578,6 +579,7 @@ export class SparkMonitor {
       this._domainTimers[domain] = this._armDomainTimer(domain);
     }
     this._intervals.push(setInterval(() => this._pollDomain("storage"), POLL_INTERVAL_STORAGE));
+    this._intervals.push(setInterval(() => this._pollDomain("residentModels"), 30_000));
     this._restartLlmPollInterval();
     this._restartComfyPollInterval();
     this._restartHermesPollInterval();
@@ -675,6 +677,7 @@ export class SparkMonitor {
         roce: this._metrics.roce ?? null,
         unifiedMemory: this._metrics.unifiedMemory,
         llm: this._metrics.llm,
+        residentModels: this._metrics.residentModels,
         comfy: comfyOn ? this._metrics.comfy : null,
         tailscale: tailscaleOn ? this._metrics.tailscale : null,
       },
@@ -934,6 +937,7 @@ export class SparkMonitor {
       this._pollDomain("comfy"),
       this._pollDomain("hermes"),
       this._pollDomain("tailscale"),
+      this._pollDomain("residentModels"),
     ]);
   }
 
@@ -974,6 +978,9 @@ export class SparkMonitor {
       let result;
       let roce;
       switch (domain) {
+        case "residentModels":
+          result = await this.collector.collectResidentModels();
+          break;
         case "gpu":
           result = await this.collector.collectGpu();
           break;
@@ -1022,6 +1029,9 @@ export class SparkMonitor {
       // otherwise race the tail-end await onto the wrong object.
       if (!this._running || this._runGeneration !== runGeneration) return;
       switch (domain) {
+        case "residentModels":
+          this._metrics.residentModels = result;
+          break;
         case "gpu":
           this._metrics.gpu = result;
           this._metricCollectionSuccessful.gpu = collectionWasSuccessful(result);

@@ -3,6 +3,41 @@ import path from "path";
 import { HOST_PATHS, GPU_MEMORY_JSON_PATH, DGX_SPARK, HARDWARE_DEFAULTS, POLL_INTERVAL_NVERR } from "../config.js";
 import { normalizeMac, WOL_INTERFACE } from "../wol.js";
 import { sshExec } from "./ssh.js";
+
+// Discover models in private vLLM containers on remote Linux units.
+// Read only; no port publication, container changes, or inference requests.
+const RESIDENT_MODELS_CMD = `python3 - <<'PY'
+import json, subprocess, urllib.request, shlex
+try:
+    ids = subprocess.check_output(['docker', 'ps', '-q'], timeout=3, text=True).split()
+    containers = json.loads(subprocess.check_output(['docker', 'inspect', *ids], timeout=3, text=True)) if ids else []
+    models = []
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    for c in containers:
+        if 'vllm' not in c.get('Config', {}).get('Image', '').lower():
+            continue
+        args = shlex.split(' '.join(c.get('Config', {}).get('Cmd') or []))
+        port = 8000
+        if '--port' in args:
+            port = int(args[args.index('--port') + 1])
+        for arg in args:
+            if arg.startswith('--port='):
+                port = int(arg.split('=', 1)[1])
+        addresses = [n.get('IPAddress') for n in c.get('NetworkSettings', {}).get('Networks', {}).values() if n.get('IPAddress')]
+        for address in addresses:
+            try:
+                with opener.open('http://%s:%s/v1/models' % (address, port), timeout=2) as r:
+                    data = json.load(r)
+                for model in data.get('data', []):
+                    if isinstance(model.get('id'), str):
+                        models.append({'modelId': model['id'], 'container': c['Name'].lstrip('/')})
+                break
+            except Exception:
+                continue
+    print(json.dumps(models))
+except Exception:
+    print('[]')
+PY`;
 import { RoceSampler } from "./roce.js";
 import {
   WINDOWS_GPU_SCRIPT,
@@ -78,6 +113,17 @@ const REMOTE_IO_MARKER = "---sparkdash-block-io---";
 const DISK_RATE_MIN_WINDOW_MS = 250;
 
 export class SystemCollector {
+  async collectResidentModels(execute = sshExec) {
+    if (this.spark.isLocal || this.spark.platform === "windows" || this.spark.platform === "darwin") return [];
+    try {
+      const value = JSON.parse(await execute(this.spark, RESIDENT_MODELS_CMD));
+      return Array.isArray(value)
+        ? value.filter((m) => typeof m?.modelId === "string" && typeof m?.container === "string")
+        : [];
+    } catch {
+      return [];
+    }
+  }
   constructor(spark) {
     this.spark = spark;
     this._nvidiaSmiPath = this._resolveNvidiaSmiPath();
