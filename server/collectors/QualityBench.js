@@ -359,7 +359,7 @@ export class QualityBenchManager {
   clearHistory(sparkId, port = null) {
     const p = port != null ? Number(port) : null;
     const portScoped = p != null && Number.isInteger(p);
-    const list = portScoped ? this.getHistory(sparkId).filter((j) => j.config?.port !== p) : [];
+    const list = portScoped ? (this.historyBySpark.get(sparkId) || []).filter((j) => j.config?.port !== p) : [];
     if (list.length) this.historyBySpark.set(sparkId, list);
     else this.historyBySpark.delete(sparkId);
     for (const [benchId, job] of this.jobs.entries()) {

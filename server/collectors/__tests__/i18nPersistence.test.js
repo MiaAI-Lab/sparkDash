@@ -40,6 +40,25 @@ test("new benchmark checkpoints and histories omit derived i18n while getters pr
   }
 });
 
+test("port-scoped history clearing preserves raw records without persisting display descriptors", () => {
+  for (const Manager of [DecodeBenchManager, PrefillBenchManager, QualityBenchManager]) {
+    const files = tempFiles(`${Manager.name}-clear`);
+    const manager = new Manager(files.history, files.active);
+    manager._pushHistory({ ...job("cancelled"), benchId: "removed" });
+    manager._pushHistory({ ...job("cancelled"), benchId: "retained", config: { port: 9000 } });
+    assert.equal(manager.getJob("retained").i18n.error.key, "server.error.cancelled");
+    manager.clearHistory("s1", 8000);
+    const saved = JSON.parse(fs.readFileSync(files.history, "utf8")).s1;
+    assert.equal(saved.length, 1, Manager.name);
+    assert.equal(saved[0].benchId, "retained", Manager.name);
+    assert.equal(saved[0].i18n, undefined, Manager.name);
+    assert.equal(saved[0].progress.i18n, undefined, Manager.name);
+    assert.deepEqual(saved[0].results, job().results, Manager.name);
+    assert.equal(manager.getJob("retained").i18n.error.key, "server.error.cancelled");
+    fs.rmSync(files.dir, { recursive: true, force: true });
+  }
+});
+
 test("legacy benchmark descriptors remain readable without rewriting the file on load", () => {
   const files = tempFiles("legacy-bench");
   const stored = { s1: [{ ...job("failed"), i18n: { error: { key: "legacy.error" } }, progress: { message: "old", i18n: { message: { key: "legacy.progress" } } } }] };
