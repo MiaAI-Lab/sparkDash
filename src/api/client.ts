@@ -30,6 +30,8 @@ import type {
   LlmLauncherInput,
   LlmMetrics,
   LlmDailyResponse,
+  MetricsHistoryRange,
+  MetricsHistoryResponse,
   Settings,
   ShowcaseListResponse,
   ShowcaseSessionState,
@@ -1177,4 +1179,9 @@ export function commitReaUpload(sparkId: string, uploadId: string): Promise<ReaU
 
 export function deleteReaUpload(sparkId: string, uploadId: string): Promise<{ success: boolean }> {
   return reaFetch(reaUpload(sparkId, uploadId), { method: "DELETE" });
+}
+
+/** The 48 h / 30 d unit history (Settings → Metrics history; `{ enabled: false }` while off). */
+export function getUnitHistory(sparkId: string, range: MetricsHistoryRange): Promise<MetricsHistoryResponse> {
+  return apiFetch<MetricsHistoryResponse>(`/api/sparks/${encodeURIComponent(sparkId)}/history?range=${range}`);
 }

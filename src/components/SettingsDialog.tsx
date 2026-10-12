@@ -350,6 +350,12 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
                 onChange={(v) => update({ reaEnabled: v })}
               />
               <ToggleRow
+                title="Metrics history"
+                help="Keeps 48 hours of 1-minute and 30 days of 15-minute history per unit on the server (GPU, memory headroom, CPU, network, LLM tok/s and KV; at most about 1 MB per unit on disk) and charts it in a History panel on each unit's page. Off by default."
+                checked={Boolean(settings.metricsHistory)}
+                onChange={(v) => update({ metricsHistory: v })}
+              />
+              <ToggleRow
                 title="Show Fleet Energy"
                 help="Overview card with rolling fleet power estimates. The full Fleet energy page is always available from the sidebar."
                 checked={Boolean(settings.showFleetEnergy)}

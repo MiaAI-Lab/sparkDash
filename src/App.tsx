@@ -594,6 +594,7 @@ function DashboardApp() {
                   showVramBreakdown={settings?.showVramBreakdown ?? true}
                   temperatureUnit={settings?.temperatureUnit ?? "celsius"}
                   benchShareImage={settings?.benchShareImage ?? false}
+                  metricsHistory={settings?.metricsHistory ?? false}
                   onEdit={() => setEditId(displayActive.id)}
                 />
               ) : !fleetLoaded || staleSpark ? null : (

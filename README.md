@@ -149,7 +149,7 @@ Full history: [CHANGELOG.md](./CHANGELOG.md)
 | **Mobile + PWA** | A phone layout with a docked tab bar (Overview, Sparks, Stats, Settings); installable to the home screen over HTTPS (see [Mobile PWA](#mobile-pwa-install-on-a-phone)) |
 | **Time zone** | **Settings → Time zone** sets hour and day boundaries and labels on the Tokens, Energy and Activity charts, whatever device you view them on |
 | **Prometheus** | Opt-in `GET /metrics` export (see [Prometheus](#prometheus)) |
-| **Metrics history** | Opt-in (`metricsHistory`): 48 h of 1-minute and 30 days of 15-minute avg/max per unit — GPU, memory headroom, CPU, RAM, network, LLM tok/s and KV fill — kept by the server across reloads and restarts (`GET /api/sparks/:id/history`). The 8 h GPU chart and 7-day Temps history are always on |
+| **Metrics history** | Opt-in (**Settings → Metrics history**): 48 h of 1-minute and 30 days of 15-minute avg/max per unit — GPU, memory headroom, CPU, RAM, network, LLM tok/s and KV fill — kept by the server across reloads and restarts and charted in a History panel on the unit page (1h–30d, shared crosshair). The 8 h GPU chart and 7-day Temps history are always on |
 | **Restart from the UI** | When the fleet changes and Energy needs a restart, a **Restart sparkDash** button restarts the Docker container (only offered when it can) |
 | **Themes** | Dark, light, cool white, OLED — neutral palettes, persisted in `localStorage` |
 | **Secrets** | SSH passwords AES-256-GCM encrypted; never in `sparks.json` or API responses |
@@ -873,7 +873,7 @@ Gear icon in the header, or `GET`/`PUT` `/api/settings`:
 | Show search and status filters | false | Overview search field and status dropdown |
 | Save benchmark debug traces | false | Store prompts, HTTP ids and GPU samples in bench history (larger files) |
 | Prometheus metrics | false | Serve `GET /metrics` for Prometheus / Grafana (see [Prometheus](#prometheus)); `404` while off |
-| Metrics history (`metricsHistory`) | false | Keep 48 h of 1-minute and 30 days of 15-minute history per unit (GPU, memory headroom, CPU, RAM, network, LLM tok/s and KV) for `GET /api/sparks/:id/history`. Readings are gaps, not zeros, while a unit is offline or a collection is failed or older than 3 × the poll interval (at least 15 s). Stored in `config/metrics-history.json` (at most ~1 MB per unit, +~0.3 MB per LLM port), saved every 5 min and on shutdown; nothing is recorded or written while off |
+| Metrics history (`metricsHistory`) | false | Keep 48 h of 1-minute and 30 days of 15-minute history per unit (GPU, memory headroom, CPU, RAM, network, LLM tok/s and KV) and show it in a History panel at the bottom of each unit's page (also `GET /api/sparks/:id/history`). The panel polls every 30 s only while it is on screen. Readings are gaps, not zeros, while a unit is offline or a collection is failed or older than 3 × the poll interval (at least 15 s). Stored in `config/metrics-history.json` (at most ~1 MB per unit, +~0.3 MB per LLM port), saved every 5 min and on shutdown; nothing is recorded or written while off |
 
 ### Environment variables
 

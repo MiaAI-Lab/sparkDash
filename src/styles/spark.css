@@ -1120,3 +1120,116 @@
   flex-wrap: wrap;
   gap: 6px;
 }
+
+/* ─── History panel (Settings → Metrics history) ──────── */
+.sp-hist-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+}
+@media (min-width: 640px) {
+  .sp-hist-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (min-width: 1280px) {
+  .sp-hist-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+.sp-hist-chart {
+  min-width: 0;
+  padding: 10px 12px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+}
+.sp-hist-chart__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.sp-hist-chart__readouts {
+  display: flex;
+  flex-shrink: 0;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.sp-hist-chart__readout {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.sp-hist-chart__readout b {
+  font-weight: 600;
+}
+.sp-hist-chart__readout small {
+  font-size: 10.5px;
+  color: var(--color-muted);
+}
+.sp-hist-chart__body {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+.sp-hist-chart__yaxis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  width: 52px;
+  flex-shrink: 0;
+  font-size: 10px;
+  line-height: 1;
+  text-align: right;
+  white-space: nowrap;
+  color: var(--color-muted);
+}
+.sp-hist-chart__plot {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  border-radius: 4px;
+  outline: none;
+}
+.sp-hist-chart__plot:focus-visible {
+  box-shadow: 0 0 0 1px var(--color-accent);
+}
+.sp-hist-chart__plot svg {
+  display: block;
+  width: 100%;
+}
+.sp-hist-chart__threshold {
+  position: absolute;
+  left: 2px;
+  font-size: 10px;
+  line-height: 1;
+  transform: translateY(-110%);
+  pointer-events: none;
+}
+.sp-hist-chart__dot {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+/* The shared chart tooltip, placed beside the crosshair instead of centred on it. */
+.sp .sp-hist-chart__tip {
+  top: 2px;
+  min-width: 0;
+  width: max-content;
+  max-width: 16rem;
+  transform: none;
+}
+.sp-hist-chart__xaxis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 3px;
+  padding-left: 58px;
+  font-size: 10px;
+  color: var(--color-muted);
+}

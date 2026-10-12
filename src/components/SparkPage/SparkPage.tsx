@@ -16,6 +16,7 @@ import { ComfyPanel } from "./ComfyPanel";
 import { LlmModelsPanel } from "./LlmModelsPanel";
 import { RocePanel } from "./RocePanel";
 import { UnifiedMemoryPanel } from "./UnifiedMemoryPanel";
+import { HistoryPanel } from "./HistoryPanel";
 import "../../styles/spark.css";
 import { vramContextFor } from "../../shared/vramBreakdown";
 
@@ -28,6 +29,8 @@ interface SparkPageProps {
   benchShareImage?: boolean;
   /** GPU panel VRAM bar split by engine / system / free (Settings, on by default). */
   showVramBreakdown?: boolean;
+  /** 48 h / 30 d History panel under the columns (Settings → Metrics history, off by default). */
+  metricsHistory?: boolean;
   onEdit?: () => void;
 }
 
@@ -48,6 +51,7 @@ export function SparkPage({
   temperatureUnit,
   benchShareImage = false,
   showVramBreakdown = true,
+  metricsHistory = false,
   onEdit,
 }: SparkPageProps) {
   const { metrics } = spark;
@@ -331,6 +335,11 @@ export function SparkPage({
             )}
           </div>
         </div>
+      )}
+
+      {/* Full width under both columns: the small multiples need the room. */}
+      {metricsHistory && (
+        <HistoryPanel key={spark.id} sparkId={spark.id} kind={spark.kind} temperatureUnit={temperatureUnit} />
       )}
     </div>
   );
