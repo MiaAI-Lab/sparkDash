@@ -11,7 +11,7 @@ import { BROWSER_ALERT_HOLD_MS, emptyDebounce, stepDebounce, type DebounceState 
  * private windows and locked-down browsers throw on localStorage.
  */
 
-const STORAGE_KEY = "sparkdash.browserAlerts";
+const STORAGE_KEY = "sparkdashBrowserAlerts";
 const CHANGE_EVENT = "sparkdash:browser-alerts";
 
 export interface BrowserAlertPrefs {

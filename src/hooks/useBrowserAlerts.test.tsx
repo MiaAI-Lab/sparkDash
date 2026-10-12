@@ -12,7 +12,7 @@ import type { AlertInstance, SparkSnapshot } from "../api/types";
 
 const TITLE = "sparkDash — Multi-DGX Spark Monitoring Dashboard";
 const ICON = "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M13 2L3 14h9'/></svg>";
-const PREFS_KEY = "sparkdash.browserAlerts";
+const PREFS_KEY = "sparkdashBrowserAlerts";
 
 const row = (key: string, severity: FleetAlert["severity"] = "warning"): FleetAlert => ({
   key,
@@ -111,6 +111,13 @@ describe("useBrowserAlerts", () => {
     await settleDraw();
     expect(document.title).toBe(TITLE);
     expect(icon().getAttribute("href")).toBe(ICON);
+  });
+
+  it("reads the prefs a browser already stored under sparkdashBrowserAlerts", () => {
+    // The key the first version of this PR shipped with; renaming it silently turned the badge off.
+    localStorage.setItem("sparkdashBrowserAlerts", JSON.stringify({ tabBadge: true, desktop: false }));
+    mount([row("a", "critical")]);
+    expect(document.title).toBe(`(1) ${TITLE}`);
   });
 
   it("puts the count in the title and restores it when clear", () => {
