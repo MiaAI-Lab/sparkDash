@@ -1,7 +1,11 @@
+import { useTranslation } from "react-i18next";
+import { i18next } from "../../i18n";
 import { useId, useMemo, useState } from "react";
 import { labelIndexes, niceScale } from "./chartScale";
 import { useElementWidth } from "./useElementWidth";
 import "../../styles/charts.css";
+
+const t = i18next.t.bind(i18next);
 
 export interface LinePoint {
   key: string;
@@ -30,9 +34,10 @@ export function LineAreaChart({
   height = 200,
   format,
   unit,
-  empty = "No data in this range yet.",
+  empty = t("ui.text.noDataInThisRangeYet", "No data in this range yet."),
   ariaLabel,
 }: LineAreaChartProps) {
+  useTranslation();
   const gradId = useId();
   const [ref, width] = useElementWidth();
   const [hover, setHover] = useState<number | null>(null);
@@ -98,7 +103,7 @@ export function LineAreaChart({
               height={ih}
               fill="transparent"
               tabIndex={0}
-              aria-label={`${p.title}: ${p.value == null ? "no data" : format(p.value)}`}
+              aria-label={`${p.title}: ${p.value == null ? t("ui.chart.noDataAria", "no data") : format(p.value)}`}
               onMouseEnter={() => setHover(i)}
               onFocus={() => setHover(i)}
               onBlur={() => setHover(null)}
@@ -116,7 +121,7 @@ export function LineAreaChart({
         <div className="chart__tip" role="status" style={{ left: Math.min(Math.max(x(hover!), 90), width - 90) }}>
           <b>{hovered.title}</b>
           <span className="chart__tip-total">
-            {hovered.value == null ? "No data" : <em>{format(hovered.value)}{unit ? ` ${unit}` : ""}</em>}
+            {hovered.value == null ? t("ui.text.noData", "No data") : <em>{format(hovered.value)}{unit ? ` ${unit}` : ""}</em>}
           </span>
         </div>
       ) : null}

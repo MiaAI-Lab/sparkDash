@@ -1,3 +1,5 @@
+import { localizedServerText } from "../../i18n/messages";
+import { useTranslation } from "react-i18next";
 import type { TailscaleMetrics } from "../../api/types";
 import { Panel } from "../ui/Panel";
 import { Tag } from "../ui/Tag";
@@ -13,22 +15,23 @@ interface TailscalePanelProps {
  * invisible off it" — every other panel is LAN-fed and looks fine.
  */
 export function TailscalePanel({ tailscale, className }: TailscalePanelProps) {
+  const { t } = useTranslation();
   const online = tailscale?.online ?? null;
   const health = tailscale?.health ?? [];
   const available = Boolean(tailscale?.available);
   const offTailnet = available && online === false;
 
   const status: { label: string; tone: "neutral" | "good" | "bad" } = !available
-    ? { label: "unknown", tone: "neutral" }
+    ? { label: t("spark.tailscale.statusUnknown", "unknown"), tone: "neutral" }
     : online === true
-      ? { label: "online", tone: "good" }
+      ? { label: t("spark.tailscale.statusOnline", "online"), tone: "good" }
       : online === false
-        ? { label: "OFF TAILNET", tone: "bad" }
-        : { label: "unknown", tone: "neutral" };
+        ? { label: t("spark.tailscale.statusOff", "OFF TAILNET"), tone: "bad" }
+        : { label: t("spark.tailscale.statusUnknown", "unknown"), tone: "neutral" };
 
   return (
     <Panel
-      title="Tailnet"
+      title={t("spark.tailscale.title", "Tailnet")}
       accent={offTailnet}
       icon={<NetworkIcon />}
       className={className}
@@ -56,18 +59,32 @@ export function TailscalePanel({ tailscale, className }: TailscalePanelProps) {
 
       {tailscale?.error && (
         <p className="sp-callout">
-          {tailscale.error}
+          {localizedServerText(tailscale.error)}
         </p>
       )}
 
       <div className="sp-list">
-        {tailscale?.tailscaleIp && <Row label="IP" value={tailscale.tailscaleIp} tabular />}
-        {tailscale?.hostName && <Row label="Host" value={tailscale.hostName} />}
-        {tailscale?.relay && <Row label="Relay" value={tailscale.relay} />}
-        {tailscale?.keyExpired && <Row label="Key" value="EXPIRED — needs re-auth" danger />}
-        {tailscale?.version && <Row label="Version" value={tailscale.version} tabular />}
+        {tailscale?.tailscaleIp && (
+          <Row label={t("spark.tailscale.ip", "IP")} value={tailscale.tailscaleIp} tabular />
+        )}
+        {tailscale?.hostName && (
+          <Row label={t("spark.tailscale.host", "Host")} value={tailscale.hostName} />
+        )}
+        {tailscale?.relay && (
+          <Row label={t("spark.tailscale.relay", "Relay")} value={tailscale.relay} />
+        )}
+        {tailscale?.keyExpired && (
+          <Row
+            label={t("spark.tailscale.key", "Key")}
+            value={t("spark.tailscale.keyExpired", "EXPIRED — needs re-auth")}
+            danger
+          />
+        )}
+        {tailscale?.version && (
+          <Row label={t("spark.tailscale.version", "Version")} value={tailscale.version} tabular />
+        )}
         {!available && !tailscale?.error && (
-          <p className="sp-muted">Waiting for first poll…</p>
+          <p className="sp-muted">{t("spark.tailscale.waiting", "Waiting for first poll…")}</p>
         )}
       </div>
     </Panel>

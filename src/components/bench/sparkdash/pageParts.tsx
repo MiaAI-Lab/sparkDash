@@ -1,6 +1,9 @@
+import { localizeBenchText } from "../tooleval/benchText";
 import type { ReactNode } from "react";
 import "../../../styles/benchpages.css";
 import type { HistoryRow } from "./historyRows";
+import { useTranslation } from "react-i18next";
+import { activeLocale } from "../../../i18n";
 
 /** Two-column page body: run configuration on the left, progress / results / history on the right. */
 export function PageLayout({
@@ -15,10 +18,11 @@ export function PageLayout({
   stacked?: boolean;
   children: ReactNode;
 }) {
+  const { t } = useTranslation();
   return (
     <div className={`bp-grid${stacked ? " bp-grid--stacked" : ""}`}>
-      <section className="panel bp-config" aria-label="Run configuration">
-        <div className="eyebrow">Configuration</div>
+      <section className="panel bp-config" aria-label={t("bench.pageParts.runConfiguration", "Run configuration")}>
+        <div className="eyebrow">{t("bench.pageParts.configuration", "Configuration")}</div>
         {config}
         {runBar ? <div className="bp-runbar">{runBar}</div> : null}
       </section>
@@ -65,7 +69,7 @@ const STATUS_TONE: Record<HistoryRow["status"], string> = {
 };
 
 function formatWhen(ts: number): string {
-  return new Date(ts).toLocaleString(undefined, {
+  return new Date(ts).toLocaleString(activeLocale(), {
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -93,16 +97,17 @@ export function HistoryTable({
   /** A run is in flight, so opening another would replace its live view. */
   busy: boolean;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="bp-table-wrap">
       <table className="bp-table">
         <thead>
           <tr>
-            <th>Date</th>
+            <th>{t("bench.history.date", "Date")}</th>
             <th>{labelHeader}</th>
-            <th className="bp-model">Model</th>
-            <th className="bp-num">Result</th>
-            <th aria-label="Actions" />
+            <th className="bp-model">{t("bench.history.model", "Model")}</th>
+            <th className="bp-num">{t("bench.history.result", "Result")}</th>
+            <th aria-label={t("bench.history.actions", "Actions")} />
           </tr>
         </thead>
         <tbody>
@@ -111,7 +116,7 @@ export function HistoryTable({
               <td className="bp-nowrap">
                 {formatWhen(r.startedAt)}
                 {r.status !== "completed" ? (
-                  <span className={`tag ${STATUS_TONE[r.status]} bp-status`}>{r.status}</span>
+                  <span className={`tag ${STATUS_TONE[r.status]} bp-status`}>{localizeBenchText(r.status)}</span>
                 ) : null}
               </td>
               <td className="bp-clip">{r.label}</td>
@@ -129,7 +134,7 @@ export function HistoryTable({
                   disabled={busy || r.id === activeId}
                   onClick={() => onView(r.id)}
                 >
-                  {r.id === activeId ? "Open" : "View"}
+                  {r.id === activeId ? t("bench.history.open", "Open") : t("bench.history.view", "View")}
                 </button>
                 {onCompare && r.id !== activeId ? (
                   <button
@@ -138,7 +143,7 @@ export function HistoryTable({
                     disabled={busy || r.id === compareId}
                     onClick={() => onCompare(r.id)}
                   >
-                    {r.id === compareId ? "Comparing" : "Compare"}
+                    {r.id === compareId ? t("bench.history.comparing", "Comparing") : t("bench.history.compare", "Compare")}
                   </button>
                 ) : null}
               </td>

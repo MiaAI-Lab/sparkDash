@@ -1,0 +1,1122 @@
+{
+  "page": {
+    "unknown": "未知基准测试。",
+    "benchmarks": "基准测试",
+    "benchmark": "基准测试",
+    "runOn": "运行位置",
+    "noSparks": "没有可用的 Spark"
+  },
+  "catalog": {
+    "sparkdash": "sparkDash",
+    "decode": {
+      "label": "解码",
+      "blurb": "在逐步提高并发时测试生成速度（tokens/s）。"
+    },
+    "prefill": {
+      "label": "预填充",
+      "blurb": "跨上下文长度测试提示词处理速度和首 token 时间。"
+    },
+    "quality": {
+      "label": "质量",
+      "blurb": "使用固定随机种子的质量套件比较模型、量化方式和 KV 缓存格式。"
+    },
+    "toolEval": {
+      "label": "工具调用评测",
+      "family": "工具调用评测",
+      "blurb": "通过 69 个确定性场景评测工具调用质量（选择、参数、多步和安全）。"
+    }
+  },
+  "sparkChips": {
+    "group": "要进行基准测试的 Spark",
+    "workerTitle": "{name} 是工作节点：没有本地 LLM，只能查看已保存结果",
+    "offlineTitle": "{name} 离线",
+    "worker": "工作节点"
+  },
+  "toolEval": {
+    "noSpark": "添加一个 Spark 后即可运行工具调用评测。"
+  },
+  "liveTps": {
+    "aria": "实时生成速度",
+    "live": "实时生成",
+    "peak": "峰值 {value} tok/s"
+  },
+  "target": {
+    "enterHost": "请输入要进行基准测试的 LLM 端点主机地址。",
+    "noSparkTitle": "没有可用于基准测试的 Spark",
+    "noSparkBody": "请先从节点列表添加一个 Spark。基准测试可以针对 Spark 上的 LLM 服务，或你输入的远程端点运行。",
+    "aria": "基准测试目标",
+    "remoteTitle": "测试另一个 LLM 端点，而不是 Spark 上的端点",
+    "remote": "远程",
+    "llmPort": "LLM 端口",
+    "port": "端口 {port}",
+    "servedModel": "当前在此端口提供服务的模型",
+    "host": "主机",
+    "remoteHost": "远程主机",
+    "portLabel": "端口",
+    "remotePort": "远程端口",
+    "offlineTitle": "{name} 离线。",
+    "offlineBody": "恢复在线后即可测试其 LLM，或者改用远程目标并指向另一个端点。下方的已保存运行仍可查看。",
+    "workerTitle": "{name} 是工作节点",
+    "workerBody": "，它自身不提供 LLM，因此无法在此运行。下方的已保存运行仍可查看。",
+    "unreachableTitle": "端口 {port} 没有可访问的 LLM。",
+    "unreachableBody": "请在此 Spark 上启动模型（其页面的模型面板），检查设置中的 LLM 端口，或改用远程目标。下方的已保存运行仍可查看。",
+    "remoteHint": "按需端点：在开始运行前不会进行探测。远程节点使用局域网 HTTP；若服务器只监听 127.0.0.1，则使用到回环地址的 SSH 隧道。"
+  },
+  "pageParts": {
+    "runConfiguration": "运行配置",
+    "configuration": "配置"
+  },
+  "history": {
+    "date": "日期",
+    "model": "模型",
+    "result": "结果",
+    "actions": "操作",
+    "open": "打开",
+    "view": "查看",
+    "comparing": "正在比较",
+    "compare": "比较"
+  },
+  "trials": {
+    "title": "试验次数",
+    "hint": "重复整个运行 N 次，以获得 Pass@k 统计数据。",
+    "longer": "耗时约为原来的 {count} 倍。",
+    "single": "1 = 单次运行。",
+    "number": "试验次数",
+    "fewer": "减少试验次数",
+    "range": "试验次数（1 至 {max}）",
+    "more": "增加试验次数"
+  },
+  "fields": {
+    "defaultValue": "默认值（{value}）",
+    "default": "默认值",
+    "bytesOf": "{used} / {max}",
+    "jsonError": "JSON：{error}",
+    "validJson": "有效的 JSON 对象",
+    "spaceSeparated": "以空格分隔",
+    "items": "{count} 项",
+    "categories": "分类",
+    "all": "全部",
+    "none": "无",
+    "rowAria": "{label} {index}",
+    "removeRowAria": "移除 {label} {index}",
+    "remove": "移除",
+    "addRow": "添加一行",
+    "hideValues": "隐藏值",
+    "showValues": "显示值"
+  },
+  "parts": {
+    "copied": "已复制",
+    "copyFailed": "复制失败",
+    "show": "显示",
+    "copyJson": "复制 JSON",
+    "rawOutput": "原始工具输出"
+  },
+  "setup": {
+    "checkInstallFailed": "无法检查工具调用评测的安装状态",
+    "retry": "重试",
+    "noServerAnswer": "服务器没有响应。",
+    "commandRunOn": "在 {name} 上运行的命令",
+    "upgradeExplanation": "这会在 {name} 上运行 uv tool upgrade：它从 GitHub（SeraphimSerapis/tool-eval-bench）获取最新版并替换已安装副本。如果当前副本不是 uv 安装的，则改从 GitHub 重新安装。勾选强制重新安装可从头安装。",
+    "installExplanation": "这会以 sparkDash 连接所用的用户身份，在 {name} 上从 GitHub（SeraphimSerapis/tool-eval-bench）运行 uv tool install。",
+    "internetNote": "它会下载 Python 软件包，因此该 Spark 需要互联网访问。运行 sparkDash 的机器上不会安装任何内容。",
+    "uvMissing": "此 Spark 未安装 uv",
+    "uvMissingBody": "安装使用 uv。请先安装它（在 Spark 上运行 curl -LsSf https://astral.sh/uv/install.sh | sh），然后再次检查。",
+    "installing": "正在安装…",
+    "installed": "已安装",
+    "installFailed": "安装失败",
+    "copyOutput": "复制输出",
+    "doneChecking": "完成。正在检查安装状态…",
+    "installDidNotFinish": "安装未完成",
+    "uvNotFound": "Spark 上找不到 uv。请先安装 uv，然后重试。",
+    "installFailureHint": "请查看上方输出以了解原因（无网络、缺少 Python、磁盘已满等）。",
+    "upgradeNow": "立即升级",
+    "installOn": "安装到 {name}…",
+    "confirmRun": "要在 {name} 上运行上述命令吗？",
+    "yesUpgrade": "是，升级",
+    "yesInstall": "是，安装",
+    "cancel": "取消",
+    "busy": "此 Spark 上已有另一个工具调用评测任务在运行。",
+    "forceReinstall": "强制重新安装",
+    "checking": "正在检查…",
+    "checkAgain": "再次检查",
+    "setup": "设置",
+    "notInstalledOn": "{name} 上尚未安装工具调用评测",
+    "notInstalled": "未安装",
+    "lead": "此页面驱动外部 tool-eval-bench CLI，它在 Spark 本身运行。安装一次后，所有工具调用评测页面即可使用。期间仍可配置和预览运行；安装前无法开始。",
+    "sparkUnreachable": "无法连接到 Spark",
+    "installStatus": "工具调用评测安装状态",
+    "unknownVersion": "未知版本",
+    "checkingGithub": "正在检查 GitHub…",
+    "checkUpdates": "检查更新",
+    "checkUpdatesFailed": "无法检查更新",
+    "latestVersion": "已是最新版本。",
+    "installedCommit": "已安装提交",
+    "latestChange": " · 最新变更 {date}",
+    "reinstall": "重新安装…",
+    "newVersion": "有新版本可用",
+    "latestCommit": "最新提交",
+    "upgradeRunsOn": "升级将在 {name} 上运行。",
+    "updateUnknown": "无法确定是否有更新",
+    "upgradeAnyway": "仍然升级",
+    "noComparableCommit": "已安装版本没有提交标识，因此无法与 GitHub 比较。",
+    "canUpgrade": "仍然可以升级。",
+    "resultsLocation": "结果位置：每次运行会将文件保存在 {name} 的 {path} 下；sparkDash 也会缓存已完成结果，因此 Spark 离线时仍可查看历史。",
+    "upgradeComplete": "升级完成",
+    "installComplete": "安装完成",
+    "dismiss": "关闭",
+    "upgradedFrom": "{name} 上的 tool-eval-bench 已从 {from} 升级到 {to}。现在可以运行基准测试。",
+    "reinstalled": "{name} 上的 tool-eval-bench 已重新安装，当前版本为 {version}。现在可以运行基准测试。",
+    "installedSuccess": "tool-eval-bench {version} 已安装到 {name}。现在可以运行基准测试。"
+  },
+  "simple": {
+    "testing": "测试目标",
+    "whatToTest": "要测试的目标",
+    "modelOn": "{name} 上的模型",
+    "customUrl": "自定义 URL",
+    "baseUrl": "基础 URL",
+    "customBaseUrl": "自定义基础 URL",
+    "model": "模型",
+    "autoDetect": "自动检测",
+    "modelName": "模型名称",
+    "apiKey": "API 密钥",
+    "ifRequired": "如需要",
+    "urlHint": "运行发生在 {name} 上，因此它必须能够访问此 URL。密钥仅在本次运行发送给 {name}，不会存储在这里。",
+    "enterUrl": "请输入要测试的 OpenAI 兼容服务器 URL。",
+    "sparkModel": "此 DGX Spark 上的模型",
+    "port": "端口",
+    "llmPort": "要测试的 LLM 端口",
+    "noModel": "此端口当前没有模型响应。请先在 Spark 的模型面板启动一个模型，或切换到自定义 URL。",
+    "readyRuns": "预置运行",
+    "customApplied": "已应用自定义设置。",
+    "reviewAdvanced": "在高级设置中查看",
+    "orTemplate": "或选择上方模板重新开始。",
+    "moreControl": "需要更多控制（采样、分类、系统提示词、其他端点或全部选项）？",
+    "openAdvanced": "打开高级设置",
+    "urlExample": "https://host/v1 或 http://192.168.1.50:8000"
+  },
+  "form": {
+    "presets": "预设",
+    "optionsSet": "已设置 {count} 个选项",
+    "reset": "重置",
+    "suites": "要运行的套件",
+    "suitesHint": "每个勾选的套件都会作为独立的 --…-only 标志发送；勾选多个会依次运行。",
+    "suiteNotSelected": "未选择套件",
+    "set": "已设置 {count} 项",
+    "llmPortOn": "{name} 上的 LLM 端口",
+    "portHint": "基础 URL 为空时使用；也决定使用哪个已保存的 API 密钥。",
+    "servedModel": "当前由此 Spark 提供服务的模型：{model}（保留模型字段为空即可使用它）。",
+    "usingSavedKey": "使用此端口保存的密钥",
+    "leaveSavedKey": "留空以使用保存的密钥",
+    "keyHint": "留空会使用此 Spark 端口保存的密钥（如有）。输入的密钥仅会与基础 URL 一同发送，并通过环境变量仅用于此次运行，不会存储在此浏览器中。",
+    "advanced": "高级／全部选项",
+    "moreOptions": "另外 {count} 个选项",
+    "setSuffix": " · 已设置 {count} 项",
+    "advancedHint": "工具调用评测的其他所有选项均在此处；本页面替你设置的选项不会显示。",
+    "additionalArgs": "附加参数",
+    "additionalArgsHint": "以独立参数形式传递的自由标志（不经 shell）。适用于比此表单更新的选项。sparkDash 控制的标志（--json、--probe 等）会被拒绝。"
+  },
+  "validation": {
+    "number": "{label} 必须是数字",
+    "wholeNumber": "{label} 必须是整数",
+    "atLeast": "{label} 至少应为 {value}",
+    "atMost": "{label} 至多应为 {value}",
+    "oneOf": "{label} 必须是以下之一：{values}",
+    "tooLong": "{label} 过长",
+    "invalidFormat": "{label} 格式无效",
+    "longerThan": "{label} 超过 {size} KiB",
+    "absolutePath": "{label} 必须是绝对路径（或以 ~/ 开头）",
+    "noDotDot": "{label} 不能包含 ..",
+    "httpUrl": "{label} 必须以 http:// 或 https:// 开头",
+    "noCredentials": "{label} 不能包含凭据（请使用 API 密钥字段）",
+    "validUrl": "{label} 不是有效 URL",
+    "json": "{label}：{error}",
+    "tooManyItems": "{label} 的项目过多",
+    "invalidItem": "{label} 含无效项目“{item}”",
+    "invalidEntry": "{label} 含无效条目“{item}”",
+    "jsonObject": "必须是 JSON 对象",
+    "invalidJson": "不是有效 JSON",
+    "promptExclusive": "请使用系统提示词文本或系统提示词文件之一，不能同时使用",
+    "pressureExclusive": "请使用单个上下文压力值或扫描范围之一，不能同时使用",
+    "shortExclusive": "短运行不能与指定场景列表组合",
+    "suiteRequired": "请至少勾选一个要运行的套件",
+    "pressureRequired": "请设置压力比例或扫描范围，否则这只是普通工具调用运行"
+  },
+  "groups": {
+    "connection": {
+      "label": "连接",
+      "help": "要测试的模型端点及其通信方式。"
+    },
+    "scenarios": {
+      "label": "场景",
+      "help": "要运行的工具调用场景。"
+    },
+    "sampling": {
+      "label": "采样",
+      "help": "模型生成回答的方式。"
+    },
+    "run": {
+      "label": "运行控制",
+      "help": "超时、重复次数、并发和提示词覆盖。"
+    },
+    "scoring": {
+      "label": "评分",
+      "help": "得分的加权方式。"
+    },
+    "output": {
+      "label": "输出",
+      "help": "标签和报告写入位置。"
+    },
+    "throughput": {
+      "label": "吞吐量测试",
+      "help": "提示词处理与生成速度（llama-benchy 风格）。"
+    },
+    "spec": {
+      "label": "推测解码",
+      "help": "推测解码 / MTP 的有效 tokens/s 和草稿接受率。"
+    },
+    "pressure": {
+      "label": "上下文压力",
+      "help": "在每个场景之前填充上下文窗口，找出质量开始下降的位置。"
+    },
+    "gsm8k": {
+      "label": "GSM8K（数学）",
+      "help": "小学数学推理。"
+    },
+    "mmlu": {
+      "label": "MMLU（知识）",
+      "help": "多任务知识基准测试。"
+    },
+    "ifeval": {
+      "label": "IFEval（指令）",
+      "help": "具有可验证约束的指令遵循。"
+    },
+    "needle": {
+      "label": "大海捞针",
+      "help": "在不同深度和长度下测试长上下文检索。"
+    },
+    "decision": {
+      "label": "决策模型",
+      "help": "在 llama.cpp /v1/systemone 端点进行决策模型评分。"
+    },
+    "advanced": {
+      "label": "高级",
+      "help": "模式开关和临时调整。"
+    }
+  },
+  "type": "基准测试类型",
+  "kind": {
+    "decode": "解码",
+    "prefill": "预填充",
+    "quality": "质量"
+  },
+  "args": {
+    "base-url": {
+      "label": "基础 URL",
+      "help": "兼容 OpenAI 的服务 URL。留空则使用此 Spark 的 localhost LLM 端口（测试在 Spark 本机运行）。"
+    },
+    "model": {
+      "label": "模型",
+      "help": "模型名称或路径。留空则从服务自动检测。"
+    },
+    "backend": {
+      "label": "后端标签",
+      "help": "仅用于报告标签；请求格式由端点决定。"
+    },
+    "provider": {
+      "label": "提供方",
+      "help": "读取 Spark 上设置的 TOOL_EVAL_<NAME>_BASE_URL / _API_KEY / _MODEL（例如 openai、gemini、anthropic）。"
+    },
+    "format": {
+      "label": "通信格式",
+      "help": "openai、gemini 或 anthropic（/v1/messages）。默认从基础 URL 检测。"
+    },
+    "api-key": {
+      "label": "API 密钥",
+      "help": "通过环境变量传递给工具，不出现在命令行中。留空则使用此 Spark 端口保存的密钥（如有）。"
+    },
+    "header": {
+      "label": "额外请求头",
+      "help": "每行一个 NAME=VALUE。值通过环境变量传递（可能包含令牌），值中不允许分号。"
+    },
+    "session-header": {
+      "label": "会话请求头",
+      "help": "携带各对话 ID 的请求头，例如 x-opencode-session。"
+    },
+    "short": {
+      "label": "简短测试（核心 15 项）",
+      "help": "仅运行 15 个核心场景（约 2 分钟），跳过扩展场景和智能体场景。"
+    },
+    "scenarios": {
+      "label": "指定场景",
+      "help": "场景 ID，例如 TC-01 TC-07。留空则运行全部场景。"
+    },
+    "categories": {
+      "label": "类别",
+      "help": "仅运行这些类别（字母 A–P）。留空则运行全部类别。"
+    },
+    "hardmode": {
+      "label": "包含高难度模式",
+      "help": "添加高难度模式场景（类别 P）：对抗、有状态、事务性场景。"
+    },
+    "hardmode-only": {
+      "label": "仅高难度模式",
+      "help": "仅运行高难度模式场景（等同于 --hardmode --categories P）。"
+    },
+    "variant-seed": {
+      "label": "变体随机种子",
+      "help": "使用带版本的确定性测试样本变体；未更改的场景保留为对照。"
+    },
+    "scenario-pack": {
+      "label": "留出场景包",
+      "help": "Spark 上 YAML 场景包的目录，每行一个。场景包的提示词不会写入报告。"
+    },
+    "pack-only": {
+      "label": "仅场景包",
+      "help": "仅运行上述场景包中的场景（跳过公开套件）。"
+    },
+    "temperature": {
+      "label": "温度",
+      "help": "默认 0.0（贪心采样）。"
+    },
+    "no-think": {
+      "label": "禁用思考",
+      "help": "关闭思考/推理（enable_thinking=false），适用于 Qwen3 和 DeepSeek 类模型。"
+    },
+    "top-p": {
+      "label": "Top-p",
+      "help": "核采样，例如 0.9。"
+    },
+    "top-k": {
+      "label": "Top-k",
+      "help": "例如 40。"
+    },
+    "min-p": {
+      "label": "Min-p",
+      "help": "Min-p 阈值，例如 0.05。"
+    },
+    "repeat-penalty": {
+      "label": "重复惩罚",
+      "help": "例如 1.1。"
+    },
+    "seed": {
+      "label": "随机种子",
+      "help": "传递给服务的随机种子，用于可复现采样。"
+    },
+    "backend-kwargs": {
+      "label": "后端参数（JSON）",
+      "help": "合并到每个 API 请求中的 JSON 对象；覆盖单独设置的采样字段。"
+    },
+    "timeout": {
+      "label": "请求超时（s）",
+      "help": "每个请求的超时时间。思考模型可能需要 120 秒或更长。"
+    },
+    "max-turns": {
+      "label": "每个场景的最大轮数",
+      "help": "默认 8。"
+    },
+    "trials": {
+      "label": "重复次数",
+      "help": "将整轮测试重复 N 次，用于统计 Pass@k。"
+    },
+    "parallel": {
+      "label": "并行场景数",
+      "help": "同时运行 N 个场景（1 表示顺序运行）。"
+    },
+    "error-rate": {
+      "label": "工具错误注入率",
+      "help": "随机注入工具错误（0–1），测试稳健性。"
+    },
+    "no-warmup": {
+      "label": "跳过预热",
+      "help": "不先发送预热请求。"
+    },
+    "no-preflight": {
+      "label": "跳过模型预检",
+      "help": "跳过严格的模型可用性检查。"
+    },
+    "no-probe-engine": {
+      "label": "跳过引擎探测",
+      "help": "不调用 /version 或 /health 来识别推理引擎。"
+    },
+    "reference-date": {
+      "label": "参考日期",
+      "help": "覆盖基准测试的参考日期（YYYY-MM-DD）。"
+    },
+    "system-prompt": {
+      "label": "覆盖系统提示词",
+      "help": "替换每个场景的内置提示词（最大 32 KiB）。此设置会影响测试指纹。"
+    },
+    "system-prompt-file": {
+      "label": "系统提示词文件",
+      "help": "Spark 上 UTF-8 文件的路径（最大 32 KiB），不能与上述文本同时使用。"
+    },
+    "skip-tool-eval": {
+      "label": "跳过工具调用场景",
+      "help": "与吞吐量或推测解码基准测试配合使用。"
+    },
+    "resume": {
+      "label": "恢复测试",
+      "help": "按测试 ID 继续中断的测试，保留已完成的结果。"
+    },
+    "diff": {
+      "label": "与测试比较",
+      "help": "与之前的测试 ID（或 latest）比较。"
+    },
+    "fail-on-safety": {
+      "label": "安全失败时退出",
+      "help": "安全关键场景失败时，以状态码 2 退出。"
+    },
+    "alpha": {
+      "label": "质量权重（alpha）",
+      "help": "可部署性得分中质量与速度的权重（0–1）。"
+    },
+    "weight-by-difficulty": {
+      "label": "按难度加权",
+      "help": "难度更高的场景权重更大（简单场景 1×，极难场景 5×）。"
+    },
+    "label": {
+      "label": "标签",
+      "help": "附加到本轮所有报告的自由备注；标签的简化形式会添加到报告文件名中。"
+    },
+    "output-dir": {
+      "label": "报告目录",
+      "help": "在 Spark 上写入报告文件的位置（默认工具自己的 runs/ 目录）。"
+    },
+    "perf": {
+      "label": "运行吞吐量测试",
+      "help": "在工具调用场景之前运行。"
+    },
+    "perf-only": {
+      "label": "仅吞吐量",
+      "help": "仅运行吞吐量基准测试。"
+    },
+    "pp": {
+      "label": "提示词 token 数",
+      "help": "默认 2048。"
+    },
+    "tg": {
+      "label": "生成 token 数",
+      "help": "默认 128。"
+    },
+    "depth": {
+      "label": "上下文深度",
+      "help": "以逗号分隔，默认 0,4096,8192。"
+    },
+    "concurrency": {
+      "label": "并发级别",
+      "help": "以逗号分隔，默认 1,2,4。"
+    },
+    "benchy-runs": {
+      "label": "每个测试点的运行次数",
+      "help": "每个测试点的测量次数（默认 3）。"
+    },
+    "benchy-latency-mode": {
+      "label": "延迟模式",
+      "help": "延迟的测量方式（默认 generation）。"
+    },
+    "benchy-args": {
+      "label": "额外 llama-benchy 参数",
+      "help": "传递给 llama-benchy 的参数（一个带引号的字符串）。"
+    },
+    "tokenizer": {
+      "label": "分词器路径",
+      "help": "构造提示词使用的本地 tokenizer.json（或其目录）。仅离线主机需要。"
+    },
+    "spec-bench": {
+      "label": "运行推测解码测试",
+      "help": "有效 tokens/s、接受率和 tau。"
+    },
+    "spec-method": {
+      "label": "方法提示",
+      "help": "服务未标明其方法时使用（默认 auto）。"
+    },
+    "spec-prompts": {
+      "label": "提示词类型",
+      "help": "以逗号分隔，默认 filler,code,structured。也可使用提示词文件中的标签。"
+    },
+    "spec-prompt-file": {
+      "label": "自定义提示词文件",
+      "help": "每行一个提示词，或包含 prompt 和可选 label 的 JSON 行。"
+    },
+    "spec-runs": {
+      "label": "每个单元的运行次数",
+      "help": "每个深度 × 提示词单元的测量次数（默认 3）。"
+    },
+    "baseline-tgs": {
+      "label": "基线 tokens/s",
+      "help": "不使用推测解码时已知的 tokens/s，用于计算加速比。"
+    },
+    "metrics-url": {
+      "label": "Prometheus /metrics URL",
+      "help": "API 位于代理后方时需要。"
+    },
+    "context-pressure": {
+      "label": "压力比例",
+      "help": "在每个场景之前将上下文填充到此比例（0–1）。"
+    },
+    "context-pressure-sweep": {
+      "label": "压力扫描范围",
+      "help": "起止比例，例如 0.5-1.0。"
+    },
+    "sweep-steps": {
+      "label": "扫描步数",
+      "help": "测试的压力级别数（默认 5）。"
+    },
+    "context-size": {
+      "label": "覆盖上下文窗口",
+      "help": "单位为 token。覆盖自动检测的窗口。"
+    },
+    "gsm8k": {
+      "label": "运行 GSM8K",
+      "help": "在工具调用场景之后运行。"
+    },
+    "gsm8k-only": {
+      "label": "仅 GSM8K",
+      "help": "跳过工具调用场景。"
+    },
+    "gsm8k-shots": {
+      "label": "少样本示例数",
+      "help": "0–8，默认 8。"
+    },
+    "gsm8k-limit": {
+      "label": "问题数量上限",
+      "help": "默认 200；0 表示全部 1,319 个问题。"
+    },
+    "gsm8k-shuffle": {
+      "label": "打乱问题顺序",
+      "help": "使用随机种子保证可复现。"
+    },
+    "mmlu": {
+      "label": "运行 MMLU",
+      "help": "多任务知识基准测试。"
+    },
+    "mmlu-only": {
+      "label": "仅 MMLU",
+      "help": "跳过工具调用场景。"
+    },
+    "mmlu-shots": {
+      "label": "少样本示例数",
+      "help": "0–5，默认 5。"
+    },
+    "mmlu-limit": {
+      "label": "问题数量上限",
+      "help": "默认 500；0 表示全部 14,042 个问题。"
+    },
+    "mmlu-subjects": {
+      "label": "学科",
+      "help": "以逗号分隔的学科或类别，例如 STEM,abstract_algebra。"
+    },
+    "ifeval": {
+      "label": "运行 IFEval",
+      "help": "指令遵循基准测试。"
+    },
+    "ifeval-only": {
+      "label": "仅 IFEval",
+      "help": "跳过工具调用场景。"
+    },
+    "ifeval-limit": {
+      "label": "提示词数量上限",
+      "help": "默认 0，表示全部 541 个提示词。"
+    },
+    "needle": {
+      "label": "运行大海捞针测试",
+      "help": "在工具调用场景之后运行。"
+    },
+    "needle-only": {
+      "label": "仅大海捞针",
+      "help": "跳过工具调用场景。"
+    },
+    "needle-depths": {
+      "label": "深度数",
+      "help": "要探测的针位置深度，在 0–100% 之间均匀分布（默认 5）。"
+    },
+    "needle-lengths": {
+      "label": "长度数",
+      "help": "不超过上下文窗口的干草堆大小（默认 4）。"
+    },
+    "decision": {
+      "label": "运行决策模型测试",
+      "help": "llama.cpp /v1/systemone，在工具调用场景之后运行。"
+    },
+    "decision-only": {
+      "label": "仅决策模型",
+      "help": "跳过工具调用场景和聊天预检。"
+    }
+  },
+  "ui": {
+    "pass_9d4e1e": "通过",
+    "partial_355705": "部分通过",
+    "fail_a602e2": "失败",
+    "score_489f48": "得分",
+    "deployability_63067e": "可部署性",
+    "responsiveness_81f3f7": "响应能力",
+    "passed_271d60": "通过",
+    "partial_65de2e": "部分通过",
+    "failed_09fef5": "失败",
+    "safetyWarnings_b864d9": "安全警告",
+    "theRunsAreOfDifferentBenchmarkTypes_ccd9a0": "两次测试的基准类型不同。",
+    "auto_0d612c": "自动",
+    "excellent_1aafbf": "优秀",
+    "good_61dedc": "良好",
+    "adequate_368b1a": "合格",
+    "weak_8bfada": "较弱",
+    "poor_4e0fa4": "较差",
+    "yes_fb360f": "是",
+    "no_fd1286": "否",
+    "empty_ad8710": "空",
+    "more_e7c95b": "更多",
+    "showing300Of_95f7cc": "显示前 300 行，共",
+    "rows_0089db": "行。",
+    "keyNumbers_5fa698": "关键数值",
+    "noRecognisableNumbersInThisResultThe_ebe954": "此结果中没有可识别的数值。完整数据如下。",
+    "configurationReportedByTheTool_9540c8": "工具报告的配置",
+    "allValues_4f5920": "全部值",
+    "couldNotLoadTheHistory_8a8155": "无法加载历史记录",
+    "retry_9f5cd8": "重试",
+    "noRunsYet_578f60": "暂无测试记录",
+    "runsOfThisBenchmarkOn_2ebfe5": "此基准测试在",
+    "showUpHereWithTheirResultsSo_d47b84": "上的运行记录和结果会显示在此处，便于打开、重新运行和比较。",
+    "tickTwoRunsToCompareThemResults_dcac1c": "勾选两次测试以进行比较。只有模型、端点和选项接近时结果才有可比性；比较时会列出差异。",
+    "selectForComparison_1a8fc3": "选择以进行比较",
+    "autoModel_361286": "自动检测模型",
+    "inProgress_d6e91b": "运行中",
+    "finalScore_ddcd5e": "最终得分",
+    "noHeadlineNumber_ce7e96": "无主要数值",
+    "deleteThisRun_378d28": "删除此测试记录？",
+    "delete_f6fdbe": "删除",
+    "cancel_77dfd2": "取消",
+    "open_cf9b77": "打开",
+    "loadTheseOptionsIntoTheForm_e4ac56": "将这些选项加载到表单",
+    "reRun_24e901": "重新运行…",
+    "watch_d91ebf": "查看进度",
+    "askTheSparkWhetherThisRunHas_cac20f": "向 Spark 查询此测试是否完成",
+    "checking_820d60": "检查中…",
+    "refreshStatus_ade15a": "刷新状态",
+    "stopTheRunFirst_26451e": "请先停止测试",
+    "selectOneMoreRunToCompare_b552e8": "再选择一次测试以进行比较。",
+    "runComparison_2e597a": "测试比较",
+    "compare_8d105c": "比较",
+    "theseRunsAreNotDirectlyComparable_c5eaef": "这些测试不能直接比较",
+    "differencesLikeTheseCanExplainAChange_b51a4c": "这些差异本身就可能导致得分变化。",
+    "sameModelEndpointAndOptionsAFair_597972": "模型、端点和选项相同，可以公平比较。",
+    "aResultCouldNotBeLoaded_5ab4f4": "无法加载结果",
+    "metric_b2bb76": "指标",
+    "change_64fbd9": "变化",
+    "numbersAreIdentical_9624f2": "个数值相同。",
+    "noNumbersDifferBetweenTheseRuns_596cac": "这些测试的数值没有差异。",
+    "nothingToCompareYet_03e44f": "暂无可比较的内容。",
+    "starting_e5f580": "启动中…",
+    "startingTheToolOnTheSpark_2ba2bd": "正在 Spark 上启动工具…",
+    "theServer_cae77b": "服务",
+    "runningScenarios_293803": "正在运行场景",
+    "measuring_13a40d": "测量中",
+    "finished_355bcc": "已完成",
+    "error_7f2f6a": "错误",
+    "runProgress_c961f3": "测试进度",
+    "lastRun_333c63": "上次测试",
+    "runInProgress_3a1231": "测试运行中",
+    "model_68c2cc": "模型",
+    "progress_1b9027": "进度",
+    "scenarios_c254d1": "个场景",
+    "elapsed_0a6837": "已用时",
+    "other_d0941e": "其他",
+    "points_819f41": "分",
+    "now_a61d4e": "当前：",
+    "goodToKnow_79fc37": "提示",
+    "theToolReportedAnError_e9c97f": "工具报告错误",
+    "openTheRawOutputBelowForDetails_21630c": "展开下方原始输出查看详情。",
+    "theRunWasStopped_366783": "测试已停止",
+    "itStoppedBeforeFinishingSoThereMay_689bbe": "测试在完成前停止，因此可能没有结果。",
+    "lostTheLiveView_22b04a": "实时视图已断开",
+    "reAttach_fcc3e9": "重新连接",
+    "checkStatus_07adf9": "检查状态",
+    "theRunMayStillBeGoingOn_7baa5e": "测试可能仍在 Spark 上运行。",
+    "notWatchingThisRun_285d85": "当前未查看此测试",
+    "runIsDetached_a7d527": "已断开测试视图",
+    "watchAgain_0587c1": "再次查看",
+    "theRunContinuesOnTheSparkWatch_2a8718": "测试仍在 Spark 上运行。可再次查看进度，或检查是否已完成。",
+    "connectionToSparkdashLostRetrying_a30cf1": "与 sparkDash 的连接已断开，正在重试…",
+    "scenariosSoFar_e9847f": "已运行的场景",
+    "recentActivity_72d561": "最近活动",
+    "stopThisRunOnTheSparkPartial_7d7247": "停止 Spark 上的此次测试？未完成的结果将丢失。",
+    "stopping_827c97": "停止中…",
+    "yesStopIt_2ed0f6": "确认停止",
+    "keepRunning_fecf69": "继续运行",
+    "stopRun_3fa97b": "停止测试",
+    "theRunKeepsGoingOnTheSpark_2ce681": "测试仍在 Spark 上运行；可以从历史记录再次查看。",
+    "stopWatching_9e521d": "停止查看",
+    "viewResult_a4a3e2": "查看结果",
+    "dismiss_70afe9": "关闭",
+    "hideRawOutput_dc3d32": "隐藏原始输出",
+    "stopWatchingLeavesTheRunGoingOn_47fcc1": "停止查看后测试仍在 Spark 上运行；它会出现在历史记录中，可重新连接查看。",
+    "stderrLinesAreDimmedMessagesAboutFeatures_856ed6": "stderr 行以浅色显示。关于服务缺失功能的消息（HTTP 400、“rejected”）来自工具探测，不代表测试失败。",
+    "copyOutput_944a2c": "复制输出",
+    "earlierLinesHiddenCopyGetsEverything_737f6b": "行较早的输出已隐藏（复制会包含全部内容）",
+    "waitingForOutput_c0bc68": "等待输出…",
+    "noOutput_64bbb2": "暂无输出。",
+    "took_b1b416": "耗时",
+    "command_890189": "命令",
+    "optionsUsed_0fd883": "使用的选项（",
+    "theRunIsGone_89f83f": "测试记录已不存在",
+    "theFilesOfThisRunNoLonger_8dfced": "Spark 上已不存在此次测试的文件。",
+    "theToolStoppedBeforeWritingAComplete_1bbf03": "工具在写入完整结果前停止。",
+    "outputOfTheRun_f5347d": "测试输出",
+    "thisRunHasNotFinishedYetIts_9f04ef": "测试尚未完成。完成后结果会显示在此处。",
+    "noResultWasSaved_4bd5fd": "未保存结果",
+    "couldNotLoadTheResult_ff8933": "无法加载结果",
+    "commandAndStart_5a778d": "命令与启动",
+    "updating_4070a5": "更新中…",
+    "valid_bec262": "有效",
+    "needsAttention_3ad98d": "需要处理",
+    "runsOn_570332": "运行于",
+    "against_b51c31": "目标为",
+    "commandLine_f6fe35": "命令行",
+    "fixTheErrorsToSeeTheCommand_4a4087": "（修复错误后可查看命令）",
+    "previewUnavailable_50369b": "（预览不可用）",
+    "usesTheApiKeySavedForThis_7b8a98": "使用为此 Spark 端口保存的 API 密钥（通过环境变量传递）。 ",
+    "theApiKeyAndHeaderValuesNever_6b883a": "此处不会显示 API 密钥和请求头的值。测试启动时会添加结果文件路径。",
+    "previewFailed_d7f276": "预览失败",
+    "couldNotStart_925149": "无法启动",
+    "evaluation_90f0f8": "评测",
+    "benchmark_fc38e4": "基准测试",
+    "checkConnection_14caef": "检查连接",
+    "loading_33ce41": "加载中…",
+    "previewScenarios_919a58": "预览场景",
+    "reachable_fa887b": "可连接",
+    "notReachable_4e2ee0": "无法连接",
+    "scenariosThatWouldRun_0ae50c": "将运行的场景",
+    "run_b1b392": "测试",
+    "swapAAndB_168313": "交换 A 和 B",
+    "swap_b04158": "⇄ 交换",
+    "metrics_ddf6a1": "指标",
+    "categories_6ccb60": "类别",
+    "notInRunA_edfdf1": "不在测试 A 中",
+    "notInRunB_77b3c2": "不在测试 B 中",
+    "scenarios_2dd4a8": "场景",
+    "differOf_15f871": "项不同，共",
+    "onlyDifferences_78bb9f": "仅显示差异",
+    "scenario_569aae": "场景",
+    "runA_eb2b58": "测试 A",
+    "runB_4e703c": "测试 B",
+    "notRun_fd55e9": "未运行",
+    "everyScenarioEndedWithTheSameStatus_a400d9": "所有场景在两次测试中的最终状态相同。",
+    "running_73989d": "运行中",
+    "runningNotWatched_73f269": "运行中（未查看）",
+    "completed_1798b3": "已完成",
+    "stopped_51e911": "已停止",
+    "gone_149ecf": "已不存在",
+    "theToolRunsOnTheSparkSo_ed6a42": "工具在 Spark 上运行，因此运行和检查需要它在线。你仍可配置选项和查看历史记录。",
+    "anotherToolEvalBenchRunIsIn_7ece39": "此 Spark 上已有另一项工具调用评测正在运行",
+    "itBelongsToThe_daade5": "它属于",
+    "pageSoItIsNotShownHere_f33927": "页面，因此不会显示在此处。",
+    "openThatPage_cd4ddb": "打开对应页面",
+    "toolEvalBenchSections_6d1982": "工具调用评测栏目",
+    "configureAndRun_403ae7": "配置与运行",
+    "results_612e12": "结果",
+    "runInProgressShowProgress_893d1d": "测试运行中，显示进度",
+    "couldNotReadThisSparkSRuns_6b1132": "无法读取此 Spark 的测试记录",
+    "couldNotLoadTheOptionList_308c64": "无法加载选项列表",
+    "configuration_754164": "配置",
+    "configurationView_4d9617": "配置视图",
+    "simple_de72ea": "简洁",
+    "advanced_4d0647": "高级",
+    "pickAReadyMadeRun_53d22e": "选择预设测试。",
+    "everyOptionTheToolOffers_79e4db": "工具提供的全部选项。",
+    "noResultToShowYet_b2ba3b": "暂无结果",
+    "finishARunOrOpenOneFrom_d8d568": "完成一次测试，或从历史记录打开已有结果。",
+    "configureARun_e33529": "配置测试",
+    "poweredBy_68976b": "基于",
+    "bySeraphimserapisSparkdashAddsTheInterfaceThe_b30f1a": "由 SeraphimSerapis 开发。sparkDash 提供界面，基准测试来自该工具。",
+    "unrated_43f4e5": "未评级",
+    "theRatingIsCappedBecauseOfSafety_c964fd": "由于安全警告，评级受到限制。 ",
+    "tiers90Excellent75Good60Adequate_c9974e": "等级：90 分以上优秀，75 分以上良好，60 分以上合格，40 分以上较弱，更低为较差。",
+    "completion_2ff255": "完成情况",
+    "run_df6ad1": "测试",
+    "safetyWarnings_a0ca51": "安全警告（",
+    "configurationUsed_d95308": "使用的配置",
+    "categoryScores_cf8abb": "类别得分",
+    "categoryNameFromTheToolSDocumentation_66ad53": "工具文档中的类别名称",
+    "category_a3c686": "类别",
+    "noScore_2aa018": "无得分",
+    "searchScenarios_6a5d9a": "搜索场景",
+    "searchIdTitleReasoning_f08d6c": "搜索 ID、标题、推理…",
+    "filterByStatus_f43653": "按状态筛选",
+    "allStatuses_640517": "全部状态",
+    "other_6e6a6f": "其他",
+    "filterByCategory_459a08": "按类别筛选",
+    "allCategories_060be0": "全部类别",
+    "sort_adc4e9": "排序",
+    "originalOrder_4d0912": "原始顺序",
+    "worstFirst_1e9a39": "最差优先",
+    "byId_b7d3db": "按 ID",
+    "fewestPoints_e8e05e": "最低分优先",
+    "slowest_b70a21": "最慢优先",
+    "noScenarioMatchesTheseFilters_7c7272": "没有场景匹配这些筛选条件。",
+    "noTitle_0cf161": "（无标题）",
+    "pts_30275c": " 分",
+    "reasoning_e272c5": "推理",
+    "noFurtherDetailsWereRecordedForThis_73ed50": "未记录此场景的更多详情。",
+    "show_d97d1e": "显示",
+    "quickCheck_c96989": "快速检查",
+    "onlyThe15CoreScenariosAbout2_8d2edb": "仅运行 15 个核心场景（约 2 分钟）。",
+    "full_10b28a": "完整",
+    "everyStandardScenarioWithTheToolS_3a286b": "使用工具默认设置运行全部标准场景。",
+    "hardModeOnly_7469e2": "仅高难度模式",
+    "onlyTheHardModeScenariosCategoryP_5b6719": "仅运行高难度模式场景（类别 P）。",
+    "reproducible_87e130": "可复现",
+    "temperature0AndAFixedSeedSo_53948b": "温度设为 0 并固定随机种子，便于比较重复测试。",
+    "thinkingModel_4e8c65": "思考模型",
+    "disablesThinkingOutputAndAllows120S_f229d5": "禁用思考输出，将每个请求超时设为 120 秒（Qwen3 / DeepSeek 类模型）。",
+    "quick_7ef6f2": "快速",
+    "shortPromptsOneDepthOneRunPer_3faeb3": "短提示词、单一深度，每个测试点运行一次。",
+    "standard_2dfa66": "标准",
+    "theToolSDefaults_8acdd8": "工具的默认设置。",
+    "deepContext_786ca1": "深上下文",
+    "upTo32kOfContextAnd8_678adf": "上下文最大 32k，最多 8 个并发请求。",
+    "onePromptTypeOneRunPerCell_3b2af9": "单一提示词类型，每个单元运行一次。",
+    "codeAndStructured_dd0548": "代码与结构化",
+    "thePromptTypesWhereSpeculationHelpsMost_184c41": "推测解码收益最高的提示词类型。",
+    "singleLevel75_3b09dd": "单级（75%）",
+    "coreScenariosWithTheContext75Full_8819a9": "将上下文填充至 75% 后运行核心场景。",
+    "sweep50100_7e1dac": "扫描 50–100%",
+    "coreScenariosAtFivePressureLevels_2e542d": "在五个压力级别下运行核心场景。",
+    "fineSweep_88c31e": "精细扫描",
+    "tenLevelsFrom10To100Long_ec82a1": "从 10% 到 100% 的十个级别（耗时较长）。",
+    "aSmallSampleOfEachSuite_110f57": "每个套件的少量样本。",
+    "theToolSDefaultQuestionLimits_ef6da3": "工具默认的问题数量上限。",
+    "fullDatasets_d80a6b": "完整数据集",
+    "everyQuestionSlow_3d153b": "全部问题（耗时较长）。",
+    "fixedSeedAndShuffledGsm8k_3af0fb": "固定随机种子并打乱 GSM8K 顺序。",
+    "threeDepthsAndTwoLengths_af9983": "三个深度和两种长度。",
+    "theToolSDefaults5Depths4_47007c": "工具默认设置（5 个深度、4 种长度）。",
+    "thorough_d49aad": "全面",
+    "tenDepthsAndEightLengthsLong_8ad460": "十个深度和八种长度（耗时较长）。",
+    "default_808d7d": "默认",
+    "regularRun_92c9db": "标准测试",
+    "theFullStandardSuiteToolSelectionParameters_982ddb": "完整标准套件：工具选择、参数、多步调用链、错误恢复、安全等。",
+    "regularHardMode_fe7216": "标准 + 高难度模式",
+    "theFullSuitePlusTheHardMode_36f441": "完整套件加高难度模式场景。",
+    "shortRun_43c100": "简短测试",
+    "onlyThe15CoreScenariosAFast_cbfa52": "仅运行 15 个核心场景。适用于更换模型或设置后的快速检查。",
+    "onlyTheAdversarialHardModeScenariosStateful_d3507b": "仅运行具有对抗性、有状态、事务性和复杂性的高难度场景，适合已出色完成标准测试的模型。",
+    "69Scenarios_52feb9": "69 个场景",
+    "92Scenarios_f4367a": "92 个场景",
+    "15Scenarios_11697c": "15 个场景",
+    "23Scenarios_271926": "23 个场景",
+    "about1020Min_d0e84b": "约 10–20 分钟",
+    "about1530Min_6a464f": "约 15–30 分钟",
+    "about2Min_8d0020": "约 2 分钟",
+    "about510Min_7c3a6f": "约 5–10 分钟",
+    "usesTheApiKeySavedForThis_16b1b7": "使用为此 Spark 端口保存的 API 密钥（通过环境变量传递）。",
+    "theRatingIsCappedBecauseOfSafety_3e69ea": "由于安全警告，评级受到限制。",
+    "pts_4abdfc": "分",
+    "gradeSchoolMath_2ccdfc": "小学数学",
+    "multitaskKnowledge_2fc199": "多任务知识",
+    "instructionFollowing_553f7a": "指令遵循",
+    "copy_af74f7": "复制",
+    "rawJson_d9f8d0": "原始 JSON",
+    "toolSelection_7603ac": "工具选择",
+    "parameterPrecision_3d5e7d": "参数精确性",
+    "multiStepChains_5a020a": "多步调用链",
+    "restraintAndRefusal_7b9fe7": "克制与拒绝",
+    "errorRecovery_6f3e5c": "错误恢复",
+    "localization_b9fc94": "本地化",
+    "structuredReasoning_c04c82": "结构化推理",
+    "contextAndState_995994": "上下文与状态",
+    "codePatterns_c90aa9": "代码模式",
+    "safetyAndBoundaries_2a73c0": "安全与边界",
+    "toolsetScaling_b7131b": "工具集扩展",
+    "autonomousPlanning_033683": "自主规划",
+    "creativeComposition_b8fc45": "创造性组合",
+    "structuredOutput_cfcf9d": "结构化输出",
+    "hardMode_aae442": "高难度模式",
+    "noModelServerWasFoundStartThe_98420b": "未找到模型服务。请在此 Spark 上启动模型（或设置基础 URL）后重试。{v1}",
+    "theToolCouldNotReachTheModel_d86b18": "工具无法连接模型服务。请检查 URL、端口及服务是否运行。{v1}",
+    "theServerAnsweredButListsNoModels_f5c006": "服务已响应，但没有列出模型。请先加载模型，或明确设置模型名称。{v1}",
+    "theServerRejectedTheApiKeyEnter_42bec7": "服务拒绝了 API 密钥。请输入正确密钥，或为此端口保存密钥。{v1}",
+    "theServerDoesNotServeThatModel_b83a0e": "服务未提供此名称的模型。将模型留空可自动检测。{v1}",
+    "theToolReportedAnErrorV1_5aa8e5": "工具报告错误{v1}。",
+    "compareRunFromV1_c0ffe7": "比较 {v1} 的测试",
+    "v1V2V3PassPartialFail_a45c95": " · {v1}/{v2}/{v3} 通过/部分通过/失败",
+    "v1SafetyWarningS_a1974d": " · {v1} 条安全警告",
+    "connectedToV1V2_f5c263": "已连接到 {v1}{v2}…",
+    "aboutV1Left_b3ccd1": " · 预计剩余 {v1}",
+    "exitCodeV1_01f57c": " （退出码 {v1}）",
+    "theRunFailedV1_d84728": "测试失败{v1}",
+    "v1Pts_1d1eb4": "· {v1} 分",
+    "rawOutputV1_bbe433": "原始输出（{v1}）",
+    "startV1_f99684": "开始{v1}",
+    "v1IsOffline_41eb67": "{v1} 离线",
+    "historyV1_ca8d9c": "历史记录{v1}",
+    "v1OfV2Stars_86f70b": "{v1} 星，满分 {v2} 星",
+    "v1Percent_33bfe5": "百分之 {v1}",
+    "v1OfV2_58f1a5": "{v1} / {v2}",
+    "pass_d7cd56": "通过",
+    "fail_2758e3": "失败",
+    "points_4b2a6a": "得分",
+    "toolEvalBench_60b67f": "工具调用评测",
+    "throughput_fc65cf": "吞吐量",
+    "speculativeDecoding_8e5dc6": "推测解码",
+    "contextPressure_74ede1": "上下文压力",
+    "accuracy_12a3a4": "准确率",
+    "needleInAHaystack_b6a44d": "大海捞针",
+    "decisionModel_3999c3": "决策模型",
+    "decode_df50d3": "解码",
+    "prefill_1cdf11": "预填充",
+    "quality_a60f2c": "质量",
+    "tokensPerSecond_855cda": "每秒 token 数",
+    "tps_1f90b0": "每秒 token 数",
+    "ttftMs_aacdce": "首 token 延迟（ms）",
+    "ttft_8157cf": "首 token 延迟",
+    "latency_3e3997": "延迟",
+    "latencyMs_af3d91": "延迟（ms）",
+    "latencySeconds_842662": "延迟（s）",
+    "meanLatency_e69023": "平均延迟",
+    "medianLatency_73f526": "中位延迟",
+    "p50Latency_21dd09": "P50 延迟",
+    "p95Latency_bd40f2": "P95 延迟",
+    "p99Latency_c4ba4e": "P99 延迟",
+    "throughputTps_79e19b": "吞吐量（tokens/s）",
+    "promptTokens_685471": "提示词 token 数",
+    "completionTokens_5f62e8": "生成 token 数",
+    "generationTokens_022214": "生成 token 数",
+    "totalTokens_e6dad1": "总 token 数",
+    "tokens_c38c6c": "token 数",
+    "pp_465459": "提示词处理",
+    "tg_a2d475": "生成",
+    "depth_df0e29": "深度",
+    "contextDepth_e15701": "上下文深度",
+    "contextLength_e85ba9": "上下文长度",
+    "contextSize_bcc3e2": "上下文大小",
+    "context_cc11b3": "上下文",
+    "pressure_d12221": "压力",
+    "ratio_794f65": "比例",
+    "length_3bade3": "长度",
+    "concurrency_2ec390": "并发数",
+    "nParallel_79491d": "并行数",
+    "level_7c7f5d": "级别",
+    "measurements_737bc9": "测量结果",
+    "summary_12b71c": "汇总",
+    "statistics_2086b2": "统计",
+    "performance_63c904": "性能",
+    "accuracyPercent_08c67f": "准确率（%）",
+    "acceptanceRate_21a9b9": "接受率",
+    "acceptance_a69d9d": "接受率",
+    "draftAcceptance_16437e": "草稿接受率",
+    "draftTokens_46224a": "草稿 token 数",
+    "acceptedTokens_dc0647": "已接受 token 数",
+    "rejectedTokens_a403c5": "已拒绝 token 数",
+    "speedup_ec00ed": "加速比",
+    "speed_2d2cb0": "速度",
+    "recall_3f7e1f": "召回率",
+    "percent_ac556c": "百分比",
+    "rate_3a9c73": "比率",
+    "time_6c82e6": "时间",
+    "duration_137000": "耗时",
+    "durationSeconds_19d42e": "耗时（s）",
+    "elapsedSeconds_9b511e": "已用时间（s）",
+    "promptType_1471d4": "提示词类型",
+    "type_3deb74": "类型",
+    "label_74341e": "标签",
+    "suite_6463c4": "套件",
+    "subject_8d183d": "学科",
+    "task_7bb0dd": "任务",
+    "kind_e00ac2": "种类",
+    "name_709a23": "名称",
+    "status_bae7d5": "状态",
+    "maxPoints_205995": "满分",
+    "totalScenarios_637426": "场景总数",
+    "questions_9a1fc1": "问题",
+    "correct_48e09e": "正确",
+    "incorrect_78318e": "错误",
+    "total_b25928": "总数",
+    "count_66e129": "数量",
+    "backend_e758ca": "后端",
+    "runId_cc8629": "测试 ID",
+    "temperature_0a9062": "温度",
+    "seed_32fe9f": "随机种子",
+    "trials_3dcdca": "重复次数",
+    "samples_0fb594": "样本数",
+    "runs_fcde5c": "测试次数",
+    "tokensGenerated_2068fb": "生成 token 数",
+    "promptProcessing_578ea1": "提示词处理",
+    "generation_8d441f": "生成",
+    "filler_e0a621": "填充文本",
+    "code_adac69": "代码",
+    "structured_14dde9": "结构化",
+    "mean_51cda5": "平均值",
+    "median_b887ba": "中位数",
+    "min_7eb0ce": "最小值",
+    "max_a95e85": "最大值",
+    "std_c45b18": "标准差",
+    "copyDefault": "复制",
+    "rawJsonDefault": "原始 JSON",
+    "unsupportedForcedCalls": "此模型服务不支持强制工具调用（tool_choice \"required\"），因此需要此功能的{count, plural, one {场景} other {场景}}{which}未计入得分。测试正常；得分仅涵盖其他场景，无法与支持此功能的服务直接比较。",
+    "excludedScenarios": "{count, plural, one {工具未将 {scenarios} 计入得分（原因见原始输出）。} other {工具未将 {scenarios} 计入得分（原因见原始输出）。}}",
+    "chartBy": "{metric}随{axis}变化{group}",
+    "busyRun": "此 Spark 上已有测试正在运行。",
+    "busyJob": "此 Spark 上已有另一项工具调用评测任务正在运行。",
+    "minimumHint": "最小 {value}",
+    "maximumHint": "最大 {value}",
+    "defaultHint": "默认 {value}",
+    "noOutput": "暂无输出。",
+    "exitedCode": "以退出码 {code} 退出",
+    "installFirst": "请先在此 Spark 上安装工具调用评测工具。",
+    "fixOptions": "请先修正高亮的选项。",
+    "modelsDiffer": "模型不同：{a} 与 {b}。",
+    "endpointsDiffer": "端点不同：{a} 与 {b}。",
+    "optionsDiffer": "选项不同：{options}。",
+    "pts_87161b": "分",
+    "historyPeak": "峰值位于 ×{concurrency}",
+    "historyStream": "×1 时每路 {rate}",
+    "historyBest": "最佳位于 {size}",
+    "historyCategories": "{count} 个类别",
+    "cancelled": "已取消",
+    "safetyWarningCount": "安全警告（{count}）",
+    "showMore": "再显示 {count} 项",
+    "optionsCount": "使用的选项（{count}）"
+  },
+  "serverErrors": {
+    "tooManyExtra": "额外参数过多",
+    "extraText": "额外参数必须为文本",
+    "extraSecrets": "额外参数不能携带密钥（请使用 API 密钥字段）",
+    "keyFormat": "API 密钥格式无效",
+    "savedKey": "已保存的 API 密钥仅可用于此 Spark 自身的服务；使用其他 URL 时请输入密钥",
+    "promptExclusive": "系统提示词文本与文件只能选择其一",
+    "pressureExclusive": "单一上下文压力与压力扫描只能选择其一",
+    "shortExclusive": "简短测试不能与指定场景列表同时使用",
+    "unknownOption": "未知选项“{option}”",
+    "extraFlag": "额外参数“{argument}”不是有效的标志",
+    "extraAllowed": "额外参数“{argument}”不允许使用",
+    "extraCharacters": "额外参数“{argument}”包含不支持的字符",
+    "controlled": "{argument} 由 sparkDash 控制（或形式相似），不能在此设置",
+    "bool": "{label}必须为开启或关闭",
+    "integer": "{label}必须为整数",
+    "number": "{label}必须为数字",
+    "nonEmpty": "{label}不能为空",
+    "singleLine": "{label}必须为单行文本",
+    "tooLong": "{label}过长",
+    "format": "{label}格式无效",
+    "character": "{label}包含无效字符",
+    "absolutePath": "{label}必须为绝对路径（或以 ~/ 开头）",
+    "noDotDot": "{label}不能包含 ..",
+    "text": "{label}必须为文本",
+    "url": "{label}不是有效的 URL",
+    "httpUrl": "{label}必须以 http:// 或 https:// 开头",
+    "credentials": "{label}不能包含凭据（请使用 API 密钥字段）",
+    "linkLocal": "{label}指向不允许使用的链路本地地址",
+    "jsonObject": "{label}必须为 JSON 对象",
+    "json": "{label}不是有效的 JSON",
+    "list": "{label}必须为非空列表",
+    "items": "{label}条目过多",
+    "cannotSet": "{label}不能设置",
+    "minimum": "{label}不能小于 {value}",
+    "maximum": "{label}不能大于 {value}",
+    "oneOf": "{label}必须为以下值之一：{values}",
+    "length": "{label}超过 {size} KiB",
+    "item": "{label}包含无效条目“{item}”"
+  },
+  "duration": {
+    "minuteSeconds": "{minutes}分 {seconds}秒"
+  }
+}

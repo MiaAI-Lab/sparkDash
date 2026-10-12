@@ -10,6 +10,7 @@ Format: version sections are listed newest first.
 ## [Unreleased]
 
 ### Added
+- Simplified Chinese interface translations throughout the application and a **Settings → Language** selector for English / 简体中文. The choice applies immediately and is remembered in the current browser, including Token totals, Fleet energy, Showcase, standalone benchmarks, Tool Eval, menus, charts, share cards and authored server messages. Optional server descriptors preserve original English API fields. Raw model/log/test content and technical identifiers remain unchanged; see [coverage and localization notes](./docs/i18n.md).
 - **Models panel: "Run both".** Starting a model while another launcher on the same unit is running now offers **Run both** next to **Stop it, then start**, so two models can share a unit without starting the second by hand. The start script can still refuse if memory is short. Thanks @ZackSample (#195).
 
 ### Fixed

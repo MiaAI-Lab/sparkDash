@@ -1,0 +1,69 @@
+{
+  "thermal": {
+    "title": {
+      "warn": "GPU 温度过高",
+      "critical": "GPU 接近关机温度"
+    },
+    "detail": "温度 {temperature}°C（警告阈值 {warn}°C，严重阈值 {critical}°C）。",
+    "hint": "检查风道、室温和通风口是否被遮挡；若持续升高，请降低功率限制或负载。"
+  },
+  "low-power": {
+    "title": {
+      "warn": "GPU 似乎卡在低功耗状态"
+    },
+    "detail": "GPU 利用率 {utilisation}%，但功耗只有 {watts} W，已连续 {samples} 次采样。",
+    "hint": "通常是驱动或电源管理异常；GPU 重置或重启通常可以恢复，并先检查 dmesg 中的 NVRM 错误。"
+  },
+  "memory": {
+    "title": {
+      "warn": "统一内存不足",
+      "critical": "统一内存几乎耗尽"
+    },
+    "detail": "可用 {available} GB，共 {total} GB。",
+    "hint": "内核可能开始终止进程。停止未使用的模型，降低上下文长度或 GPU 内存利用率。"
+  },
+  "xid": {
+    "title": {
+      "critical": "NVIDIA Xid 错误"
+    },
+    "detail": "过去一小时内内核记录了 GPU 或驱动错误（自启动以来共 {count} 次）。",
+    "hint": "在 NVIDIA Xid 目录中查询该代码。反复出现的驱动类 Xid 可能指向硬件或驱动缺陷。",
+    "latest": " 最新记录：{last}。"
+  },
+  "oom": {
+    "title": {
+      "critical": "内核因内存不足终止了进程"
+    },
+    "detail": "过去一小时内 OOM 杀手终止了进程（自启动以来共 {count} 次）。",
+    "hint": "有工作负载耗尽了内存。降低模型内存占用或停止其他任务。"
+  },
+  "concurrency": {
+    "title": {
+      "warn": "此节点加载了多个模型"
+    },
+    "detail": "正在服务 {count} 个不同模型，内存使用率为 {memory}%。",
+    "hint": "重型后端会争用统一内存。停止未使用的模型以避免 OOM。"
+  },
+  "link-speed": {
+    "title": {
+      "warn": "网络链路低于 1 Gb/s"
+    },
+    "detail": "{interface} 协商为 {mbps} Mb/s。",
+    "hint": "检查网线和交换机端口。降级链路会拖慢所有张量并行步骤。",
+    "primaryInterface": "主网络接口"
+  },
+  "roce-link": {
+    "title": {
+      "critical": "{count, plural, other {# 条 RoCE 链路已断开}}"
+    },
+    "detail": "{links}。",
+    "hint": "检查网线、收发器和交换机端口。该端口上的张量并行和 NCCL 流量会停滞或回退。"
+  },
+  "roce-loss": {
+    "title": {
+      "warn": "RoCE 正在丢包"
+    },
+    "detail": "{links}。",
+    "hint": "持续增长的 out_of_buffer、sequence 或 ack-timeout 错误常指向拥塞或无损网络 PFC/ECN 配置问题；比较所有 Spark 和交换机的 PFC 与信任设置。"
+  }
+}

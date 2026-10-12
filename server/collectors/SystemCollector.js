@@ -4,6 +4,7 @@ import { HOST_PATHS, GPU_MEMORY_JSON_PATH, DGX_SPARK, HARDWARE_DEFAULTS, POLL_IN
 import { normalizeMac, WOL_INTERFACE } from "../wol.js";
 import { sshExec } from "./ssh.js";
 import { RoceSampler } from "./roce.js";
+import { applicationTextI18n } from "../../src/shared/applicationText.js";
 import {
   WINDOWS_GPU_SCRIPT,
   WINDOWS_SYSTEM_SCRIPT,
@@ -680,6 +681,7 @@ export class SystemCollector {
     if (swThermal) details.push("SW thermal slowdown");
     if (powerCap) details.push("SW power cap");
     if (hwSlowdown && !hwThermal) details.push("HW slowdown");
+    const detail = details.length ? details.join(" · ") : "Clocks not limited";
 
     return {
       thermal,
@@ -690,7 +692,8 @@ export class SystemCollector {
       smClockMHz,
       smClockMaxMHz,
       smClockPct,
-      detail: details.length ? details.join(" · ") : "Clocks not limited",
+      detail,
+      i18n: { detail: applicationTextI18n(detail) },
     };
   }
 

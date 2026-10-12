@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { LauncherRunState, LlmLauncher, SparkSnapshot } from "../../api/types";
 import { runLauncher } from "../../api/client";
 import { fetchLaunchersCached, getCachedLaunchers, invalidateLaunchers, patchCachedStatus } from "../../hooks/launcherCache";
@@ -28,6 +29,7 @@ export function ModelLauncher({
   /** Set when the GPU is in use although nothing serves yet (a model is probably loading). */
   busy?: string | null;
 }) {
+  const { t } = useTranslation();
   const sparkId = spark.id;
   const initial = getCachedLaunchers(sparkId);
   const [launchers, setLaunchers] = useState<LlmLauncher[] | null>(initial?.launchers ?? null);
@@ -60,7 +62,7 @@ export function ModelLauncher({
   useEffect(() => {
     aliveRef.current = true;
     void refresh();
-    const t = window.setInterval(() => {
+    const timer = window.setInterval(() => {
       if (!document.hidden) void refresh();
     }, REFRESH_MS);
     const onVisible = () => {
@@ -69,7 +71,7 @@ export function ModelLauncher({
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       aliveRef.current = false;
-      window.clearInterval(t);
+      window.clearInterval(timer);
       window.clearTimeout(afterStartTimer.current);
       document.removeEventListener("visibilitychange", onVisible);
     };
@@ -100,18 +102,24 @@ export function ModelLauncher({
 
   let body;
   if (launchers == null) {
-    body = <div className="ov-launch__hint">{failed ? "Models unavailable" : "Looking for models…"}</div>;
+    body = (
+      <div className="ov-launch__hint">
+        {failed
+          ? t("overview.launcher.modelsUnavailable", "Models unavailable")
+          : t("overview.launcher.looking", "Looking for models…")}
+      </div>
+    );
   } else if (loading) {
     body = (
       <>
         <div className="ov-launch__title">
           <span className="ov-launch__spin" aria-hidden />
-          Loading {loading.name}…
+          {t("overview.launcher.loading", "Loading {name}…", { name: loading.name })}
         </div>
-        <div className="ov-launch__hint">The start script is running; the model appears here once it serves.</div>
+        <div className="ov-launch__hint">{t("overview.launcher.startRunning", "The start script is running; the model appears here once it serves.")}</div>
         {onOpen ? (
           <button type="button" className="btn btn--sm" onClick={() => onOpen(sparkId)}>
-            View output
+            {t("overview.launcher.viewOutput", "View output")}
           </button>
         ) : null}
       </>
@@ -121,17 +129,17 @@ export function ModelLauncher({
       <>
         <div className="ov-launch__title">
           <span className="ov-launch__spin" aria-hidden />
-          Something is loading
+          {t("overview.launcher.somethingLoading", "Something is loading")}
         </div>
-        <div className="ov-launch__hint">{busy}. Starting another model now could run out of memory.</div>
+        <div className="ov-launch__hint">{t("overview.launcher.busyHint", "{busy}. Starting another model now could run out of memory.", { busy })}</div>
         <div className="ov-launch__more">
           {onOpen ? (
             <button type="button" className="btn btn--sm" onClick={() => onOpen(sparkId)}>
-              Open Spark
+              {t("overview.launcher.openSpark", "Open Spark")}
             </button>
           ) : null}
           <button type="button" className="btn btn--sm btn--ghost" onClick={() => setOverride(true)}>
-            Start anyway…
+            {t("overview.launcher.startAnyway", "Start anyway…")}
           </button>
         </div>
       </>
@@ -139,18 +147,22 @@ export function ModelLauncher({
   } else if (launchers.length === 0) {
     body = (
       <>
-        <div className="ov-launch__title">No model loaded</div>
-        <div className="ov-launch__hint">Add a model folder (start.sh / stop.sh) to start it from here.</div>
+        <div className="ov-launch__title">{t("overview.launcher.noModel", "No model loaded")}</div>
+        <div className="ov-launch__hint">{t("overview.launcher.noModelHint", "Add a model folder (start.sh / stop.sh) to start it from here.")}</div>
         <button type="button" className="btn btn--sm btn--primary" onClick={() => setAdding(true)}>
           <PlusIcon className="h-3.5 w-3.5" />
-          Add a model
+          {t("overview.launcher.addModel", "Add a model")}
         </button>
       </>
     );
   } else {
     body = (
       <>
-        <div className="ov-launch__title">{busy ? "GPU is busy · start anyway?" : "No model loaded · start one"}</div>
+        <div className="ov-launch__title">
+          {busy
+            ? t("overview.launcher.busyStart", "GPU is busy · start anyway?")
+            : t("overview.launcher.noModelStart", "No model loaded · start one")}
+        </div>
         {busy ? <div className="ov-launch__hint">{busy}.</div> : null}
         <ul className="ov-launch__list">
           {shown.map((l) => (
@@ -163,7 +175,7 @@ export function ModelLauncher({
                 disabled={starting != null}
                 onClick={() => void start(l)}
               >
-                {starting === l.id ? "Starting…" : "Start"}
+                {starting === l.id ? t("overview.launcher.starting", "Starting…") : t("overview.launcher.start", "Start")}
               </button>
             </li>
           ))}
@@ -171,12 +183,12 @@ export function ModelLauncher({
         <div className="ov-launch__more">
           {more > 0 && onOpen ? (
             <button type="button" className="btn btn--sm btn--ghost" onClick={() => onOpen(sparkId)}>
-              +{more} more
+              {t("overview.launcher.more", "+{count} more", { count: more })}
             </button>
           ) : null}
           <button type="button" className="btn btn--sm btn--ghost" onClick={() => setAdding(true)}>
             <PlusIcon className="h-3.5 w-3.5" />
-            Add model
+            {t("overview.launcher.addModelShort", "Add model")}
           </button>
         </div>
       </>

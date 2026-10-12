@@ -753,11 +753,12 @@ export class SparkMonitor {
           type: `health.${f.id}`,
           severity: f.severity === "critical" ? "error" : "warn",
           message: `${name}: ${f.title} — ${f.detail}`,
+          data: { finding: f },
         });
       }
       for (const id of prev) {
         if (ids.has(id) || id === "xid" || id === "oom") continue;
-        this._emit({ type: "health.cleared", severity: "success", message: `${name}: ${HEALTH_LABELS[id] ?? id} is back to normal` });
+        this._emit({ type: "health.cleared", severity: "success", message: `${name}: ${HEALTH_LABELS[id] ?? id} is back to normal`, data: { findingId: id } });
       }
     } catch (err) {
       console.error(`[SparkMonitor] ${this.spark.id} health error:`, err?.message);
@@ -1155,7 +1156,7 @@ export class SparkMonitor {
         type: "hermes.update.available",
         severity: "info",
         message: `Hermes update available on ${name}${n}`,
-        data: { version: result.version ?? null },
+        data: { version: result.version ?? null, behindCommits: result.behindCommits ?? null },
       });
     }
     if (changed) this._notifyHermesChange();

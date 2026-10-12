@@ -1,4 +1,7 @@
+import { localizedServerText } from "../../i18n/messages";
 import { useState, useCallback, type MouseEvent } from "react";
+import { useTranslation } from "react-i18next";
+import { i18next } from "../../i18n";
 import type { ComfyJob, ComfyMetrics, ComfyProgress } from "../../api/types";
 import { cancelComfyJob } from "../../api/client";
 import { Panel } from "../ui/Panel";
@@ -78,14 +81,17 @@ function jobFootprint(job: ComfyJob): string {
   if (job.width != null && job.height != null) {
     parts.push(`${job.width}×${job.height}`);
   }
-  if (job.steps != null) parts.push(`${job.steps} steps`);
-  if (job.batchSize != null && job.batchSize !== 1) parts.push(`batch ${job.batchSize}`);
+  if (job.steps != null) parts.push(i18next.t("spark.comfy.steps", "{count} steps", { count: job.steps }));
+  if (job.batchSize != null && job.batchSize !== 1)
+    parts.push(i18next.t("spark.comfy.batch", "batch {count}", { count: job.batchSize }));
   if (job.sampler) parts.push(job.sampler);
-  if (job.nodeCount > 0) parts.push(`${job.nodeCount} nodes`);
+  if (job.nodeCount > 0)
+    parts.push(i18next.t("spark.comfy.nodeCount", "{count} nodes", { count: job.nodeCount }));
   return parts.join(" · ");
 }
 
 function ProgressBar({ progress }: { progress: ComfyProgress }) {
+  const { t } = useTranslation();
   const pct =
     progress.percent != null
       ? progress.percent
@@ -94,7 +100,9 @@ function ProgressBar({ progress }: { progress: ComfyProgress }) {
         : 0;
   const label =
     progress.nodeLabel ||
-    (progress.source === "estimate" ? "Elapsed (est.)" : "Progress");
+    (progress.source === "estimate"
+      ? t("spark.comfy.elapsedEst", "Elapsed (est.)")
+      : t("spark.comfy.progress", "Progress"));
   const detail =
     progress.max > 0 && progress.source === "ws"
       ? `${Math.round(progress.value)}/${Math.round(progress.max)}`
@@ -108,7 +116,7 @@ function ProgressBar({ progress }: { progress: ComfyProgress }) {
         <span className="truncate text-muted" title={label}>
           {label}
           {progress.source === "estimate" ? (
-            <span className="ml-1 text-[10px] opacity-70">est.</span>
+            <span className="ml-1 text-[10px] opacity-70">{t("spark.comfy.est", "est.")}</span>
           ) : null}
         </span>
         {detail ? <span className="font-tabular text-text">{detail}</span> : null}
@@ -138,6 +146,7 @@ function JobBlock({
   onCancel?: () => void;
   cancelling?: boolean;
 }) {
+  const { t } = useTranslation();
   const title = job.title?.trim() || shortId(job.id);
   const footprint = jobFootprint(job);
   const elapsed = variant === "running" ? formatElapsed(job.createTime) : null;
@@ -149,14 +158,17 @@ function JobBlock({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <Tag tone={variant === "running" ? "acc" : "neutral"} title={job.id}>
-              {variant === "running" ? "Running" : "Queued"}
+              {variant === "running" ? t("spark.comfy.running", "Running") : t("spark.comfy.queued", "Queued")}
             </Tag>
             {elapsed ? (
               <span className="font-tabular text-[11px] text-muted">{elapsed}</span>
             ) : null}
             {etaLabel ? (
-              <span className="font-tabular text-[11px] text-muted" title="Estimated time remaining">
-                {etaLabel} left
+              <span
+                className="font-tabular text-[11px] text-muted"
+                title={t("spark.comfy.etaRemaining", "Estimated time remaining")}
+              >
+                {t("spark.comfy.etaLeft", "{eta} left", { eta: etaLabel })}
               </span>
             ) : null}
           </div>
@@ -171,7 +183,11 @@ function JobBlock({
             disabled={cancelling}
             className="btn btn--sm btn--danger shrink-0"
           >
-            {cancelling ? "…" : variant === "running" ? "Cancel" : "Remove"}
+            {cancelling
+              ? "…"
+              : variant === "running"
+                ? t("common.action.cancel", "Cancel")
+                : t("common.action.remove", "Remove")}
           </button>
         ) : null}
       </div>
@@ -179,14 +195,17 @@ function JobBlock({
       {variant === "running" && progress ? <ProgressBar progress={progress} /> : null}
 
       {footprint ? (
-        <p className="font-tabular text-[11px] text-muted" title="Workflow compute footprint">
+        <p
+          className="font-tabular text-[11px] text-muted"
+          title={t("spark.comfy.footprintTitle", "Workflow compute footprint")}
+        >
           {footprint}
         </p>
       ) : null}
 
       {models.length > 0 ? (
         <div className="space-y-1">
-          <div className="text-[10px] uppercase tracking-wide text-muted">Models</div>
+          <div className="text-[10px] uppercase tracking-wide text-muted">{t("spark.comfy.models", "Models")}</div>
           <ul className="space-y-0.5">
             {models.slice(0, 6).map((m) => (
               <li key={m} className="truncate font-tabular text-[12px] text-text" title={m}>
@@ -194,7 +213,9 @@ function JobBlock({
               </li>
             ))}
             {models.length > 6 ? (
-              <li className="text-[11px] text-muted">+{models.length - 6} more</li>
+              <li className="text-[11px] text-muted">
+                {t("spark.comfy.moreModels", "+{count} more", { count: models.length - 6 })}
+              </li>
             ) : null}
           </ul>
         </div>
@@ -210,6 +231,7 @@ export function ComfyPanel({
   lanIp,
   className = "",
 }: ComfyPanelProps) {
+  const { t } = useTranslation();
   const available = Boolean(comfy?.available);
   const pending = comfy?.queuePending ?? 0;
   const active = comfy?.activeJob ?? null;
@@ -236,7 +258,7 @@ export function ComfyPanel({
 
   const handleCancel = useCallback(
     async (promptId: string) => {
-      if (!confirm("Cancel this ComfyUI job?")) return;
+      if (!confirm(t("spark.comfy.confirmCancel", "Cancel this ComfyUI job?"))) return;
       setActionError(null);
       setCancellingId(promptId);
       try {
@@ -247,7 +269,7 @@ export function ComfyPanel({
         setCancellingId(null);
       }
     },
-    [sparkId]
+    [sparkId, t]
   );
 
   return (
@@ -258,7 +280,7 @@ export function ComfyPanel({
       bodyClassName="sp-stack"
       actions={
         <div className="flex items-center gap-2">
-          <span className="font-tabular text-[11px] text-muted" title="Probe port">
+          <span className="font-tabular text-[11px] text-muted" title={t("spark.comfy.probePort", "Probe port")}>
             :{comfyPort}
           </span>
           <a
@@ -266,49 +288,53 @@ export function ComfyPanel({
             target="_blank"
             rel="noopener noreferrer"
             onClick={handleOpenComfy}
-            title={`Open ComfyUI at ${openUrl} (must be reachable from your browser)`}
+            title={t(
+              "spark.comfy.openTitle",
+              "Open ComfyUI at {url} (must be reachable from your browser)",
+              { url: openUrl }
+            )}
             className="btn btn--sm"
           >
             <ExternalLinkIcon className="h-3 w-3" />
-            Open
+            {t("spark.comfy.open", "Open")}
           </a>
         </div>
       }
     >
       {!available ? (
         <div className="space-y-1 text-sm">
-          <p className="text-muted">Not reachable</p>
+          <p className="text-muted">{t("spark.comfy.notReachable", "Not reachable")}</p>
           {comfy?.error ? (
-            <p className="break-all text-[11px] text-muted">{comfy.error}</p>
+            <p className="break-all text-[11px] text-muted">{localizedServerText(comfy.error)}</p>
           ) : (
             <p className="text-[11px] text-muted">
-              Ensure ComfyUI is running on this host (default port 8188).
+              {t("spark.comfy.ensureRunning", "Ensure ComfyUI is running on this host (default port 8188).")}
             </p>
           )}
         </div>
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-2 text-xs">
-            <Tag tone="good">Online</Tag>
+            <Tag tone="good">{t("spark.comfy.online", "Online")}</Tag>
             {comfy?.version ? (
-              <span className="text-muted" title="ComfyUI version">
+              <span className="text-muted" title={t("spark.comfy.versionTitle", "ComfyUI version")}>
                 v{comfy.version}
               </span>
             ) : null}
             {comfy?.deviceType ? (
-              <span className="text-muted" title="ComfyUI compute device">
+              <span className="text-muted" title={t("spark.comfy.deviceTitle", "ComfyUI compute device")}>
                 {comfy.deviceType}
               </span>
             ) : null}
             {comfy?.pytorchVersion ? (
-              <span className="text-muted" title="PyTorch version">
+              <span className="text-muted" title={t("spark.comfy.torchTitle", "PyTorch version")}>
                 torch {comfy.pytorchVersion}
               </span>
             ) : null}
           </div>
 
           {actionError ? (
-            <p className="text-[11px] text-danger">{actionError}</p>
+            <p className="text-[11px] text-danger">{localizedServerText(actionError)}</p>
           ) : null}
 
           {active ? (
@@ -323,7 +349,7 @@ export function ComfyPanel({
           ) : (
             <div className="space-y-2">
               <div className="sp-idle">
-                Idle — no running job
+                {t("spark.comfy.idle", "Idle — no running job")}
               </div>
               {lastJob ? (
                 <p
@@ -335,7 +361,7 @@ export function ComfyPanel({
                         : "text-muted"
                   }`}
                 >
-                  Last:{" "}
+                  {t("spark.comfy.last", "Last:")}{" "}
                   <span className="text-text">
                     {lastJob.title?.trim() || shortId(lastJob.id)}
                   </span>
@@ -351,9 +377,9 @@ export function ComfyPanel({
           {pending > 0 ? (
             <div className="space-y-2">
               <div className="flex items-baseline justify-between gap-2 text-[10px] uppercase tracking-wide text-muted">
-                <span>Queue</span>
+                <span>{t("spark.comfy.queue", "Queue")}</span>
                 <span className="font-tabular normal-case text-muted">
-                  {pending} pending
+                  {t("spark.comfy.pendingCount", "{count} pending", { count: pending })}
                   {etaLabel ? ` · ${etaLabel}` : ""}
                 </span>
               </div>
@@ -368,7 +394,9 @@ export function ComfyPanel({
               ))}
               {pending > Math.min(2, pendingJobs.length) ? (
                 <p className="text-[11px] text-muted">
-                  +{pending - Math.min(2, pendingJobs.length)} more waiting
+                  {t("spark.comfy.moreWaiting", "+{count} more waiting", {
+                    count: pending - Math.min(2, pendingJobs.length),
+                  })}
                 </p>
               ) : null}
             </div>
@@ -376,7 +404,7 @@ export function ComfyPanel({
 
           {active && lastJob ? (
             <p className="text-[11px] text-muted">
-              Last: {lastJob.title?.trim() || shortId(lastJob.id)}
+              {t("spark.comfy.last", "Last:")} {lastJob.title?.trim() || shortId(lastJob.id)}
               {formatDurationMs(lastJob.durationMs)
                 ? ` · ${formatDurationMs(lastJob.durationMs)}`
                 : ""}
@@ -393,17 +421,21 @@ export function ComfyPanel({
                 className="flex w-full items-center justify-between text-left text-[11px] text-muted hover:text-text"
               >
                 <span>
-                  Installed: {modelsInstalled.checkpoints.length} checkpoints ·{" "}
-                  {modelsInstalled.loras.length} loras
+                  {t("spark.comfy.installed", "Installed: {checkpoints} checkpoints · {loras} loras", {
+                    checkpoints: modelsInstalled.checkpoints.length,
+                    loras: modelsInstalled.loras.length,
+                  })}
                 </span>
-                <span className="text-[10px]">{modelsOpen ? "Hide" : "Show"}</span>
+                <span className="text-[10px]">
+                  {modelsOpen ? t("spark.comfy.hide", "Hide") : t("spark.comfy.show", "Show")}
+                </span>
               </button>
               {modelsOpen ? (
                 <div className="mt-1.5 grid gap-2 sm:grid-cols-2">
                   {modelsInstalled.checkpoints.length > 0 ? (
                     <div>
                       <div className="text-[10px] uppercase tracking-wide text-muted">
-                        Checkpoints
+                        {t("spark.comfy.checkpoints", "Checkpoints")}
                       </div>
                       <ul className="mt-0.5 space-y-0.5">
                         {modelsInstalled.checkpoints.slice(0, 12).map((m) => (
@@ -420,7 +452,9 @@ export function ComfyPanel({
                   ) : null}
                   {modelsInstalled.loras.length > 0 ? (
                     <div>
-                      <div className="text-[10px] uppercase tracking-wide text-muted">LoRAs</div>
+                      <div className="text-[10px] uppercase tracking-wide text-muted">
+                        {t("spark.comfy.loras", "LoRAs")}
+                      </div>
                       <ul className="mt-0.5 space-y-0.5">
                         {modelsInstalled.loras.slice(0, 12).map((m) => (
                           <li

@@ -1,5 +1,9 @@
+import { localizedServerText, localizedServerMessage } from "../../i18n/messages";
+import { decodeBenchTypeLabel, decodeBenchTypeHint } from "./benchLabels";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
+import { i18next } from "../../i18n";
 import "../../styles/dialogs.css";
 import {
   cancelDecodeBench,
@@ -22,7 +26,6 @@ import { formatLlmBaseUrl } from "../../shared/llmTarget.js";
 import {
   DECODE_BENCH_DEFAULT_TYPE,
   DECODE_BENCH_TYPE_META,
-  decodeBenchTypeLabel,
   normalizeDecodeBenchType,
 } from "../../shared/llmPrompts.js";
 
@@ -83,13 +86,13 @@ function useBodyScrollLock(locked: boolean) {
 function statusLabel(status: DecodeBenchJob["status"]): string {
   switch (status) {
     case "running":
-      return "Running";
+      return i18next.t("spark.benchDialog.status.running", "Running");
     case "completed":
-      return "Completed";
+      return i18next.t("spark.benchDialog.status.completed", "Completed");
     case "failed":
-      return "Failed";
+      return i18next.t("spark.benchDialog.status.failed", "Failed");
     case "cancelled":
-      return "Cancelled";
+      return i18next.t("spark.benchDialog.status.cancelled", "Cancelled");
     default:
       return status;
   }
@@ -106,9 +109,9 @@ function formatTtft(ms: number): string {
  * concurrency level with decode tok/s and key metrics.
  */
 function buildShareText(job: DecodeBenchJob, modelId: string | null): string {
-  const name = modelId || "unknown model";
+  const name = modelId || i18next.t("spark.share.unknownModel", "unknown model");
   const typeLabel = decodeBenchTypeLabel(job.config?.promptType);
-  const head = `${name} | decode tok/s results (${typeLabel}):`;
+  const head = i18next.t("spark.share.decodeHeading", "{name} | decode tok/s results ({typeLabel}):", { name, typeLabel });
 
   const lines = job.results
     .slice()
@@ -116,9 +119,9 @@ function buildShareText(job: DecodeBenchJob, modelId: string | null): string {
     .map((r) => {
       if (r.totalDecodeTokens > 0 || r.totalCompletionTokens > 0) {
         const agg = r.aggregateDecodeTps > 0 ? r.aggregateDecodeTps : r.meanDecodeTps;
-        return `×${r.concurrency}  ${agg.toFixed(1)} agg  ${r.meanDecodeTps.toFixed(1)}/str  · TTFT ${formatTtft(r.meanTtftMs)}`;
+        return i18next.t("spark.share.decodeResult", "×{concurrency}  {aggregate} agg  {stream}/str  · TTFT {ttft}", { concurrency: r.concurrency, aggregate: agg.toFixed(1), stream: r.meanDecodeTps.toFixed(1), ttft: formatTtft(r.meanTtftMs) });
       }
-      return `×${r.concurrency}  failed${r.error ? ` — ${r.error}` : ""}`;
+      return i18next.t("spark.share.decodeFailed", "×{concurrency}  failed{error}", { concurrency: r.concurrency, error: r.error ? ` — ${r.error}` : "" });
     });
 
   return [head, "", ...lines].join("\n");
@@ -129,6 +132,7 @@ function resultAgg(r: DecodeBenchJob["results"][number]): number {
 }
 
 function ResultRow({ r, max }: { r: DecodeBenchJob["results"][number]; max: number }) {
+  const { t } = useTranslation();
   const pct = max > 0 ? Math.max(2, Math.round((resultAgg(r) / max) * 100)) : 0;
   return (
     <article className="bench-result-row" title={r.error || undefined}>
@@ -136,7 +140,7 @@ function ResultRow({ r, max }: { r: DecodeBenchJob["results"][number]; max: numb
         <span className="bench-result-row__badge">×{r.concurrency}</span>
         <div className="bench-result-row__facts">
           <span>
-            TTFT <strong>{formatTtft(r.meanTtftMs)}</strong>
+            {t("spark.benchDialog.ttft", "TTFT")} <strong>{formatTtft(r.meanTtftMs)}</strong>
           </span>
           <span className="bench-result-row__sep" aria-hidden>
             ·
@@ -145,21 +149,21 @@ function ResultRow({ r, max }: { r: DecodeBenchJob["results"][number]; max: numb
             <strong>
               {r.streamsOk}/{r.streamsOk + r.streamsFailed}
             </strong>{" "}
-            streams
+            {t("spark.benchDialog.streams", "streams")}
           </span>
         </div>
       </div>
 
       <div className="bench-result-row__speeds">
         <div className="bench-result-row__metric">
-          <span className="bench-result-row__label">Aggregate</span>
+          <span className="bench-result-row__label">{t("spark.benchDialog.aggregate", "Aggregate")}</span>
           <span className="bench-result-row__value bench-result-row__value--accent">
             {(r.aggregateDecodeTps > 0 ? r.aggregateDecodeTps : r.meanDecodeTps).toFixed(1)}
             <span className="bench-result-row__unit">tok/s</span>
           </span>
         </div>
         <div className="bench-result-row__metric">
-          <span className="bench-result-row__label">Stream</span>
+          <span className="bench-result-row__label">{t("spark.benchDialog.stream", "Stream")}</span>
           <span className="bench-result-row__value">
             {r.meanDecodeTps.toFixed(1)}
             <span className="bench-result-row__unit">tok/s</span>
@@ -190,6 +194,7 @@ export function BenchmarkDialog({
   onSwitchBench,
   liveTps = null,
 }: BenchmarkDialogProps) {
+  const { t } = useTranslation();
   const isPage = variant === "page";
   const open = isPage || openProp;
   const [history, setHistory] = useState<DecodeBenchJob[]>([]);
@@ -226,9 +231,16 @@ export function BenchmarkDialog({
       : remoteTarget ? null : modelId;
     if (targetChanged) setModelNotice(null);
     else if (hasModelDiscovery && selectedModel && selectedModel !== next) {
-      setModelNotice(next ? `Selected model is no longer served. Switched to ${next}.` : "No models are currently served by this target.");
+      setModelNotice(
+        next
+          ? t("spark.benchDialog.decode.modelSwitched", "Selected model is no longer served. Switched to {model}.", {
+              model: next,
+            })
+          : t("spark.benchDialog.decode.noModels", "No models are currently served by this target."),
+      );
     } else setModelNotice(null);
     setSelectedModel(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, selectionTarget, hasModelDiscovery, availableModels, modelId, remoteTarget, selectedModel]);
 
   const stopPoll = useCallback(() => {
@@ -310,7 +322,10 @@ export function BenchmarkDialog({
                 }
                 setError(
                   err.message === "Benchmark not found"
-                    ? "Benchmark interrupted — server restarted during the run"
+                    ? i18next.t(
+                        "spark.benchDialog.interrupted",
+                        "Benchmark interrupted — server restarted during the run",
+                      )
                     : err.message
                 );
                 stopPoll();
@@ -318,7 +333,10 @@ export function BenchmarkDialog({
               .catch(() => {
                 setError(
                   err.message === "Benchmark not found"
-                    ? "Benchmark interrupted — server restarted during the run"
+                    ? i18next.t(
+                        "spark.benchDialog.interrupted",
+                        "Benchmark interrupted — server restarted during the run",
+                      )
                     : err.message
                 );
                 stopPoll();
@@ -415,16 +433,16 @@ export function BenchmarkDialog({
   const handleStart = async () => {
     if (startLockRef.current) return;
     if (!modelSelectionValid) {
-      setError("Select a currently served model before running the benchmark");
+      setError(t("spark.benchDialog.decode.errSelectModel", "Select a currently served model before running the benchmark"));
       return;
     }
     if (selected.length === 0) {
-      setError("Select at least one concurrency level");
+      setError(t("spark.benchDialog.decode.errSelectConcurrency", "Select at least one concurrency level"));
       return;
     }
     const maxTokens = parseInt(maxTokensDraft.trim(), 10);
     if (!Number.isInteger(maxTokens) || maxTokens < 64 || maxTokens > 2048) {
-      setError("Max tokens must be an integer between 64 and 2048");
+      setError(t("spark.benchDialog.decode.errMaxTokens", "Max tokens must be an integer between 64 and 2048"));
       return;
     }
     startLockRef.current = true;
@@ -513,8 +531,8 @@ export function BenchmarkDialog({
               {availableModels.length > 1 && (
                 <div className="bench-field">
                   <div className="bench-field__head">
-                    <label htmlFor="bench-model-select" className="bench-sheet__section-title">Model</label>
-                    <p className="bench-sheet__hint">Select which model the benchmark targets.</p>
+                    <label htmlFor="bench-model-select" className="bench-sheet__section-title">{t("spark.benchDialog.model", "Model")}</label>
+                    <p className="bench-sheet__hint">{t("spark.benchDialog.decode.modelHint", "Select which model the benchmark targets.")}</p>
                   </div>
                   <select
                     id="bench-model-select"
@@ -532,35 +550,35 @@ export function BenchmarkDialog({
               )}
               {modelNotice && availableModels.length > 0 && <p className="bench-sheet__hint" role="status">{modelNotice}</p>}
               {hasModelDiscovery && availableModels.length === 0 && (
-                <p className="bench-sheet__hint" role="status">No models are currently served by this target.</p>
+                <p className="bench-sheet__hint" role="status">{t("spark.benchDialog.decode.noModels", "No models are currently served by this target.")}</p>
               )}
               <div className="bench-field">
                 <div className="bench-field__head">
-                  <h3 className="bench-sheet__section-title">Type</h3>
+                  <h3 className="bench-sheet__section-title">{t("spark.benchDialog.decode.type", "Type")}</h3>
                   <p className="bench-sheet__hint">
-                    {DECODE_BENCH_TYPE_META.find((t) => t.id === promptType)?.hint}
-                    {" · temp 0, thinking off"}
+                    {decodeBenchTypeHint(promptType)}
+                    {t("spark.benchDialog.decode.typeTempOff", " · temp 0, thinking off")}
                   </p>
                 </div>
                 <div
                   className="bench-type-grid"
                   role="radiogroup"
-                  aria-label="Decode benchmark type"
+                  aria-label={t("spark.benchDialog.decode.typeAria", "Decode benchmark type")}
                 >
-                  {DECODE_BENCH_TYPE_META.map((t) => {
-                    const on = promptType === t.id;
+                  {DECODE_BENCH_TYPE_META.map((meta) => {
+                    const on = promptType === meta.id;
                     return (
                       <button
-                        key={t.id}
+                        key={meta.id}
                         type="button"
                         role="radio"
                         aria-checked={on}
-                        title={t.hint}
+                        title={decodeBenchTypeHint(meta.id)}
                         disabled={isRunning || starting}
-                        onClick={() => setPromptType(t.id)}
+                        onClick={() => setPromptType(meta.id)}
                         className={`bench-conc-btn${on ? " is-on" : ""}`}
                       >
-                        {t.label}
+                        {decodeBenchTypeLabel(meta.id)}
                       </button>
                     );
                   })}
@@ -569,9 +587,9 @@ export function BenchmarkDialog({
 
               <div className="bench-field">
                 <div className="bench-field__head">
-                  <h3 className="bench-sheet__section-title">Concurrency</h3>
+                  <h3 className="bench-sheet__section-title">{t("spark.benchDialog.decode.concurrency", "Concurrency")}</h3>
                   <p className="bench-sheet__hint">
-                    Levels run sequentially; each opens that many parallel streams.
+                    {t("spark.benchDialog.decode.concurrencyHint", "Levels run sequentially; each opens that many parallel streams.")}
                   </p>
                 </div>
                 <div className="bench-conc-grid">
@@ -595,11 +613,11 @@ export function BenchmarkDialog({
               <div className="bench-field">
                 <div className="bench-field__head">
                   <label htmlFor="bench-max-tokens" className="bench-sheet__section-title">
-                    Max tokens / stream
+                    {t("spark.benchDialog.decode.maxTokens", "Max tokens / stream")}
                   </label>
                   <p className="bench-sheet__hint">
-                    Default 400 · temp 0, thinking off
-                    {promptType === "structured" ? " · count 1→200" : ""}
+                    {t("spark.benchDialog.decode.maxTokensHint", "Default 400 · temp 0, thinking off")}
+                    {promptType === "structured" ? t("spark.benchDialog.decode.maxTokensStructured", " · count 1→200") : ""}
                   </p>
                 </div>
                 <input
@@ -629,7 +647,7 @@ export function BenchmarkDialog({
               <div className="bench-progress">
                 <div className="bench-progress__row">
                   <span className="bench-progress__status">
-                    Running
+                    {t("spark.benchDialog.running", "Running")}
                     {job.config?.promptType
                       ? ` · ${decodeBenchTypeLabel(job.config.promptType)}`
                       : ""}
@@ -649,13 +667,15 @@ export function BenchmarkDialog({
                   />
                 </div>
                 {job.progress.message ? (
-                  <p className="bench-sheet__hint">{job.progress.message}</p>
+                  <p className="bench-sheet__hint">{localizedServerMessage(job.progress.i18n?.message, job.progress.message)}</p>
                 ) : null}
               </div>
               <LiveTps tps={job.progress.liveTps ?? liveTps} active />
               {job.results.length > 0 && (
                 <div className="bench-results">
-                  <div className="bench-results__caption">Completed levels</div>
+                  <div className="bench-results__caption">
+                    {t("spark.benchDialog.completedLevels", "Completed levels")}
+                  </div>
                   {job.results.map((r) => (
                     <ResultRow key={r.concurrency} r={r} max={maxAgg} />
                   ))}
@@ -677,21 +697,22 @@ export function BenchmarkDialog({
                   {statusLabel(job.status)}
                 </span>
                 <span className="bench-status-meta">
-                  {decodeBenchTypeLabel(job.config.promptType)} · {job.config.maxTokens} tok ·{" "}
-                  {job.config.concurrencies.join(", ")} conc
+                  {decodeBenchTypeLabel(job.config.promptType)} · {job.config.maxTokens}{" "}
+                  {t("spark.benchDialog.unitTok", "tok")} · {job.config.concurrencies.join(", ")}{" "}
+                  {t("spark.benchDialog.unitConc", "conc")}
                   {job.durationMs != null ? ` · ${formatDuration(job.durationMs)}` : ""}
                 </span>
               </div>
 
-              {job.error && <p className="bench-sheet__error">{job.error}</p>}
+              {job.error && <p className="bench-sheet__error">{localizedServerText(job.error)}</p>}
 
               {job.results.length > 0 && (
                 <div className="bench-results bench-results--table">
                   <div className="bench-results__head" aria-hidden="true">
-                    <span>Load</span>
+                    <span>{t("spark.benchDialog.load", "Load")}</span>
                     <span className="bench-results__head-speeds">
-                      <span>Aggregate</span>
-                      <span>Stream</span>
+                      <span>{t("spark.benchDialog.aggregate", "Aggregate")}</span>
+                      <span>{t("spark.benchDialog.stream", "Stream")}</span>
                     </span>
                   </div>
                   {job.results.map((r) => (
@@ -702,8 +723,13 @@ export function BenchmarkDialog({
 
               {job.results.length > 0 && (
                 <p className="bench-legend">
-                  <strong>Aggregate</strong> — total decode tok/s across all concurrent streams.{" "}
-                  <strong>Stream</strong> — per-stream average decode.
+                  <strong>{t("spark.benchDialog.aggregate", "Aggregate")}</strong>
+                  {t(
+                    "spark.benchDialog.legendAggregateText",
+                    " — total decode tok/s across all concurrent streams.",
+                  )}{" "}
+                  <strong>{t("spark.benchDialog.stream", "Stream")}</strong>
+                  {t("spark.benchDialog.legendStreamText", " — per-stream average decode.")}
                 </p>
               )}
             </section>
@@ -736,14 +762,16 @@ export function BenchmarkDialog({
       <PageLayout
         config={
           <>
-            {loadingLast && !job && <p className="bench-sheet__hint">Loading last results…</p>}
+            {loadingLast && !job && (
+              <p className="bench-sheet__hint">{t("spark.benchDialog.loadingLast", "Loading last results…")}</p>
+            )}
             {configNode}
           </>
         }
         runBar={
           isRunning ? (
             <button type="button" className="btn" onClick={() => void handleCancel()}>
-              Cancel run
+              {t("spark.benchDialog.cancelRun", "Cancel run")}
             </button>
           ) : (
             <button
@@ -752,16 +780,16 @@ export function BenchmarkDialog({
               onClick={() => void handleStart()}
               disabled={starting || selected.length === 0}
             >
-              {starting ? "Starting…" : "Run benchmark"}
+              {starting ? t("spark.benchDialog.starting", "Starting…") : t("spark.benchDialog.runBenchmark", "Run benchmark")}
             </button>
           )
         }
       >
-        {error && <p className="bench-sheet__error">{error}</p>}
-        {isRunning && <PageCard title="Progress">{progressNode}</PageCard>}
+        {error && <p className="bench-sheet__error">{localizedServerText(error)}</p>}
+        {isRunning && <PageCard title={t("spark.benchDialog.progress", "Progress")}>{progressNode}</PageCard>}
         {showResults && (
           <PageCard
-            title="Results"
+            title={t("spark.benchDialog.results", "Results")}
             tools={
               <>
                 {copyButton}
@@ -770,9 +798,9 @@ export function BenchmarkDialog({
                     type="button"
                     className="btn btn--sm btn--ghost"
                     onClick={() => void handleClear()}
-                    title="Clear saved results for this port"
+                    title={t("spark.benchDialog.clearSavedTitle", "Clear saved results for this port")}
                   >
-                    Clear history
+                    {t("spark.benchDialog.clearHistory", "Clear history")}
                   </button>
                 )}
               </>
@@ -782,17 +810,19 @@ export function BenchmarkDialog({
           </PageCard>
         )}
         {!job && !loadingLast && (
-          <PageEmpty title="No runs yet">
-            Pick a prompt type and concurrency levels, then run. Each level opens that many parallel streams and
-            reports aggregate and per-stream decode tok/s.
+          <PageEmpty title={t("spark.benchDialog.noRunsYet", "No runs yet")}>
+            {t(
+              "spark.benchDialog.decode.emptyBody",
+              "Pick a prompt type and concurrency levels, then run. Each level opens that many parallel streams and reports aggregate and per-stream decode tok/s.",
+            )}
           </PageEmpty>
         )}
         {history.length > 0 && (
-          <PageCard title={`History · ${history.length}`}>
+          <PageCard title={t("spark.benchDialog.history", "History · {count}", { count: history.length })}>
             <HistoryTable
               rows={history.map(decodeHistoryRow)}
               activeId={job?.benchId ?? null}
-              labelHeader="Concurrency"
+              labelHeader={t("spark.benchDialog.decode.concurrency", "Concurrency")}
               onView={handleView}
               busy={isRunning || starting}
             />
@@ -808,7 +838,7 @@ export function BenchmarkDialog({
       <button
         type="button"
         className="bench-overlay__scrim"
-        aria-label="Close dialog"
+        aria-label={t("spark.benchDialog.closeDialog", "Close dialog")}
         onClick={() => {
           if (!isRunning) onClose();
         }}
@@ -823,12 +853,12 @@ export function BenchmarkDialog({
         <header className="bench-sheet__header">
           <div className="bench-sheet__header-text">
             <h2 id="bench-title" className="bench-sheet__title">
-              Decode benchmark
+              {t("spark.benchDialog.decode.title", "Decode benchmark")}
             </h2>
             <p className="bench-sheet__subtitle">
               {remoteTarget
                 ? formatLlmBaseUrl(remoteTarget)
-                : `Port ${llmPort}`}
+                : t("spark.benchDialog.port", "Port {port}", { port: llmPort })}
               {resultModelId ? ` · ${resultModelId}` : ""}
             </p>
           </div>
@@ -837,7 +867,7 @@ export function BenchmarkDialog({
             type="button"
             className="bench-sheet__close"
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t("common.action.close", "Close")}
           >
             <XIcon className="h-4 w-4" />
           </button>
@@ -845,12 +875,12 @@ export function BenchmarkDialog({
 
         <div className="bench-sheet__body">
           {loadingLast && !job && (
-            <p className="bench-sheet__hint">Loading last results…</p>
+            <p className="bench-sheet__hint">{t("spark.benchDialog.loadingLast", "Loading last results…")}</p>
           )}
 
           {configNode}
 
-          {error && <p className="bench-sheet__error">{error}</p>}
+          {error && <p className="bench-sheet__error">{localizedServerText(error)}</p>}
 
           {progressNode}
 
@@ -860,7 +890,7 @@ export function BenchmarkDialog({
         <footer className="bench-sheet__footer">
           {job?.status === "running" ? (
             <button type="button" className="bench-btn bench-btn--ghost" onClick={() => void handleCancel()}>
-              Cancel
+              {t("common.action.cancel", "Cancel")}
             </button>
           ) : job ? (
             <>
@@ -869,9 +899,9 @@ export function BenchmarkDialog({
                   type="button"
                   className="bench-btn bench-btn--ghost"
                   onClick={() => void handleClear()}
-                  title="Clear saved results for this port"
+                  title={t("spark.benchDialog.clearSavedTitle", "Clear saved results for this port")}
                 >
-                  Clear
+                  {t("spark.benchDialog.clear", "Clear")}
                 </button>
               )}
               {job.results.length > 0 && (
@@ -893,16 +923,16 @@ export function BenchmarkDialog({
                 />
               )}
               <button type="button" className="bench-btn bench-btn--ghost" onClick={onClose}>
-                Done
+                {t("common.action.done", "Done")}
               </button>
               <button type="button" className="bench-btn bench-btn--primary" onClick={handleNewRun}>
-                Run again
+                {t("spark.benchDialog.runAgain", "Run again")}
               </button>
             </>
           ) : (
             <>
               <button type="button" className="bench-btn bench-btn--ghost" onClick={onClose}>
-                Close
+                {t("common.action.close", "Close")}
               </button>
               <button
                 type="button"
@@ -910,7 +940,9 @@ export function BenchmarkDialog({
                 onClick={() => void handleStart()}
                 disabled={starting || selected.length === 0 || !modelSelectionValid}
               >
-                {starting ? "Starting…" : "Run benchmark"}
+                {starting
+                  ? t("spark.benchDialog.starting", "Starting…")
+                  : t("spark.benchDialog.runBenchmark", "Run benchmark")}
               </button>
             </>
           )}

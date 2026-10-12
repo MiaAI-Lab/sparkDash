@@ -1,4 +1,5 @@
 import type { QualityBenchJob, QualityCategory } from "../../api/types";
+import { i18next } from "../../i18n";
 import { mcnemarExactP, type QualityCompareRow } from "../../shared/qualityBench.js";
 
 /** One item the two runs scored differently. */
@@ -42,7 +43,11 @@ export function formatP(p: number): string {
 
 function excludedNote(excluded: number): string {
   return excluded > 0
-    ? ` ${excluded} pair${excluded === 1 ? "" : "s"} left out (request error or timeout in one run).`
+    ? i18next.t(
+        "spark.quality.compare.excludedNote",
+        " {count, plural, one {# pair left out (request error or timeout in one run).} other {# pairs left out (request error or timeout in one run).}}",
+        { count: excluded },
+      )
     : "";
 }
 
@@ -70,7 +75,7 @@ export function overallVerdict(rows: QualityCompareRow[]): QualityOverallVerdict
       p,
       withinNoise,
       tone: "same",
-      text: `Both runs scored every shared item the same.${note}`,
+      text: `${i18next.t("spark.quality.compare.sameText", "Both runs scored every shared item the same.")}${note}`,
     };
   }
   if (withinNoise) {
@@ -82,10 +87,25 @@ export function overallVerdict(rows: QualityCompareRow[]): QualityOverallVerdict
       p,
       withinNoise,
       tone: "noise",
-      text: `McNemar p = ${formatP(p)}. The difference is within noise.${note}`,
+      text: `${i18next.t(
+        "spark.quality.compare.noiseText",
+        "McNemar p = {p}. The difference is within noise.",
+        { p: formatP(p) },
+      )}${note}`,
     };
   }
   const better = onlyA > onlyB;
+  const text = better
+    ? i18next.t(
+        "spark.quality.compare.betterText",
+        "McNemar p = {p}. This run is better than the other, beyond noise.",
+        { p: formatP(p) },
+      )
+    : i18next.t(
+        "spark.quality.compare.worseText",
+        "McNemar p = {p}. This run is worse than the other, beyond noise.",
+        { p: formatP(p) },
+      );
   return {
     paired,
     excluded,
@@ -94,7 +114,7 @@ export function overallVerdict(rows: QualityCompareRow[]): QualityOverallVerdict
     p,
     withinNoise,
     tone: better ? "better" : "worse",
-    text: `McNemar p = ${formatP(p)}. This run is ${better ? "better" : "worse"} than the other, beyond noise.${note}`,
+    text: `${text}${note}`,
   };
 }
 
@@ -128,7 +148,7 @@ export function deltaPts(a: number | null | undefined, b: number | null | undefi
 }
 
 export function formatDelta(d: number): string {
-  return `${d > 0 ? "+" : ""}${d.toFixed(1)} pts`;
+  return i18next.t("spark.quality.pointsDifference", "{value} pts", { value: `${d > 0 ? "+" : ""}${d.toFixed(1)}` });
 }
 
 /**

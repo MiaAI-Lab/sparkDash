@@ -1,3 +1,4 @@
+import { localizedServerText } from "../../../i18n/messages";
 import { useMemo, useState, type ReactNode } from "react";
 import "../../../styles/benchpages.css";
 import type { LlmBenchTarget, SparkSnapshot } from "../../../api/types";
@@ -10,6 +11,7 @@ import { PageEmpty } from "./pageParts";
 import { isWorkerSpark } from "../../../api/sparkRole";
 import { SparkChips, useBenchSparks } from "../SparkChips";
 import { useStickyHeight } from "./useStickyHeight";
+import { useTranslation } from "react-i18next";
 
 /** Same key the Spark page's Remote launcher uses, so a typed host carries over. */
 const REMOTE_STORAGE_KEY = "sparkdash.remote-bench-target";
@@ -63,6 +65,7 @@ export function BenchTargetFrame({
   benchShareImage?: boolean;
   children: (target: BenchTargetProps) => ReactNode;
 }) {
+  const { t, i18n } = useTranslation();
   const benchSparks = useBenchSparks();
   const [mode, setMode] = useState<"local" | "remote">("local");
   const [portPick, setPortPick] = useState<number | null>(null);
@@ -83,7 +86,7 @@ export function BenchTargetFrame({
     if (!hostDraft.trim())
       return {
         target: null,
-        error: "Enter the host of the LLM endpoint to benchmark.",
+        error: t("bench.target.enterHost", "Enter the host of the LLM endpoint to benchmark."),
       };
     try {
       return {
@@ -97,16 +100,15 @@ export function BenchTargetFrame({
     } catch (err) {
       return {
         target: null,
-        error: err instanceof Error ? err.message : String(err),
+        error: localizedServerText(err instanceof Error ? err.message : String(err)),
       };
     }
-  }, [mode, hostDraft, portDraft, tls]);
+  }, [mode, hostDraft, portDraft, tls, t, i18n.language]);
 
   if (!spark) {
     return (
-      <PageEmpty title="No Spark to benchmark">
-        Add a Spark from the fleet rail first. Benchmarks run against the LLM
-        server on a Spark, or on a Remote endpoint you type in.
+      <PageEmpty title={t("bench.target.noSparkTitle", "No Spark to benchmark")}>
+        {t("bench.target.noSparkBody", "Add a Spark from the fleet rail first. Benchmarks run against the LLM server on a Spark, or on a Remote endpoint you type in.")}
       </PageEmpty>
     );
   }
@@ -150,34 +152,31 @@ export function BenchTargetFrame({
   } else if (!spark.online) {
     notice = (
       <p className="bp-notice bp-notice--warn">
-        <strong>{spark.name} is offline.</strong> Bring it back online to
-        benchmark its LLM, or switch the target to Remote and point at another
-        endpoint. Saved runs below are still readable.
+        <strong>{t("bench.target.offlineTitle", "{name} is offline.", { name: spark.name })}</strong>{" "}
+        {t("bench.target.offlineBody", "Bring it back online to benchmark its LLM, or switch the target to Remote and point at another endpoint. Saved runs below are still readable.")}
       </p>
     );
   } else if (isWorkerSpark(spark)) {
     notice = (
       <p className="bp-notice bp-notice--warn">
-        <strong>{spark.name} is a worker</strong> and serves no LLM of its own, so
-        nothing can run here. Saved runs below are still readable.
+        <strong>{t("bench.target.workerTitle", "{name} is a worker", { name: spark.name })}</strong>{" "}
+        {t("bench.target.workerBody", "and serves no LLM of its own, so nothing can run here. Saved runs below are still readable.")}
       </p>
     );
   } else if (!reachable) {
     notice = (
       <p className="bp-notice bp-notice--warn">
-        <strong>No reachable LLM on port {llmPort}.</strong>{" "}
-        {llm?.error ? `${llm.error}. ` : ""}Start a model on this Spark (Models
-        panel on its page), check the LLM port in its settings, or switch the
-        target to Remote. Saved runs below are still readable.
+        <strong>{t("bench.target.unreachableTitle", "No reachable LLM on port {port}.", { port: llmPort })}</strong>{" "}
+        {llm?.error ? `${localizedServerText(llm.error)}. ` : ""}{t("bench.target.unreachableBody", "Start a model on this Spark (Models panel on its page), check the LLM port in its settings, or switch the target to Remote. Saved runs below are still readable.")}
       </p>
     );
   }
 
   return (
     <div className="bp">
-      <section className="panel bp-target" aria-label="Benchmark target">
+      <section className="panel bp-target" aria-label={t("bench.target.aria", "Benchmark target")}>
         <div className="bp-target__row">
-          <span className="eyebrow">Run on</span>
+          <span className="eyebrow">{t("bench.page.runOn", "Run on")}</span>
           <SparkChips
             sparks={benchSparks.sparks.length ? benchSparks.sparks : [spark]}
             activeId={useRemote ? null : spark.id}
@@ -192,9 +191,9 @@ export function BenchTargetFrame({
                 className={`bench-runon__chip${useRemote ? " is-on" : ""}`}
                 aria-pressed={useRemote}
                 onClick={() => setMode("remote")}
-                title="Benchmark another LLM endpoint instead of a Spark's"
+                title={t("bench.target.remoteTitle", "Benchmark another LLM endpoint instead of a Spark's")}
               >
-                Remote
+                {t("bench.target.remote", "Remote")}
               </button>
             }
           />
@@ -203,11 +202,11 @@ export function BenchTargetFrame({
             <>
               {ports.length > 1 ? (
                 <label className="bp-field">
-                  <span className="eyebrow">LLM port</span>
+                  <span className="eyebrow">{t("bench.target.llmPort", "LLM port")}</span>
                   <select
                     value={llmPort}
                     onChange={(e) => setPortPick(Number(e.target.value))}
-                    aria-label="LLM port"
+                    aria-label={t("bench.target.llmPort", "LLM port")}
                   >
                     {ports.map((p, i) => (
                       <option key={p} value={p}>
@@ -220,10 +219,10 @@ export function BenchTargetFrame({
                   </select>
                 </label>
               ) : (
-                <Tag>Port {llmPort}</Tag>
+                <Tag>{t("bench.target.port", "Port {port}", { port: llmPort })}</Tag>
               )}
               {llm?.modelId ? (
-                <Tag tone="acc" title="Model currently served on this port">
+                <Tag tone="acc" title={t("bench.target.servedModel", "Model currently served on this port")}>
                   {llm.modelId}
                 </Tag>
               ) : null}
@@ -234,9 +233,9 @@ export function BenchTargetFrame({
               {llm?.posture ? (
                 <Tag
                   tone={POSTURE_TONE[llm.posture.level]}
-                  title={llm.posture.detail}
+                  title={localizedServerText(llm.posture.detail)}
                 >
-                  {llm.posture.label}
+                  {localizedServerText(llm.posture.label)}
                 </Tag>
               ) : null}
             </>
@@ -248,7 +247,7 @@ export function BenchTargetFrame({
         {useRemote ? (
           <div className="bp-remote">
             <label className="bp-field bp-field--grow">
-              <span className="eyebrow">Host</span>
+              <span className="eyebrow">{t("bench.target.host", "Host")}</span>
               <input
                 type="text"
                 value={hostDraft}
@@ -266,11 +265,11 @@ export function BenchTargetFrame({
                 spellCheck={false}
                 autoCapitalize="off"
                 autoCorrect="off"
-                aria-label="Remote host"
+                aria-label={t("bench.target.remoteHost", "Remote host")}
               />
             </label>
             <label className="bp-field">
-              <span className="eyebrow">Port</span>
+              <span className="eyebrow">{t("bench.target.portLabel", "Port")}</span>
               <input
                 type="number"
                 min={1}
@@ -278,7 +277,7 @@ export function BenchTargetFrame({
                 inputMode="numeric"
                 value={portDraft}
                 onChange={(e) => setPortDraft(e.target.value)}
-                aria-label="Remote port"
+                aria-label={t("bench.target.remotePort", "Remote port")}
               />
             </label>
             <label className="bp-check">
@@ -295,9 +294,7 @@ export function BenchTargetFrame({
               HTTPS
             </label>
             <p className="bp-hint">
-              On-demand endpoint: nothing is probed until you run. Remote units
-              use LAN HTTP, or an SSH tunnel to loopback if the server only
-              listens on 127.0.0.1.
+              {t("bench.target.remoteHint", "On-demand endpoint: nothing is probed until you run. Remote units use LAN HTTP, or an SSH tunnel to loopback if the server only listens on 127.0.0.1.")}
             </p>
           </div>
         ) : null}

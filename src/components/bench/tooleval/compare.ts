@@ -1,3 +1,4 @@
+import { i18next } from "../../../i18n";
 import type { ToolEvalRun } from "../../../api/types";
 import { CATEGORY_NAMES, flattenNumbers, normalizeToolResult, type NormToolResult, type ScenarioStatus } from "./normalize";
 
@@ -136,16 +137,16 @@ const IGNORED_OPTIONS = new Set(["label", "output-dir", "api-key", "header", "di
 /** Differences in model / endpoint / options that make a comparison less meaningful. */
 export function configCaveats(a: Pick<ToolEvalRun, "model" | "baseUrl" | "options" | "type">, b: Pick<ToolEvalRun, "model" | "baseUrl" | "options" | "type">): string[] {
   const out: string[] = [];
-  if (a.type !== b.type) out.push("The runs are of different benchmark types.");
-  if ((a.model ?? "") !== (b.model ?? "")) out.push(`Different models: ${a.model ?? "auto"} vs ${b.model ?? "auto"}.`);
-  if (a.baseUrl !== b.baseUrl) out.push(`Different endpoints: ${a.baseUrl} vs ${b.baseUrl}.`);
+  if (a.type !== b.type) out.push(i18next.t("bench.ui.theRunsAreOfDifferentBenchmarkTypes_ccd9a0", "The runs are of different benchmark types."));
+  if ((a.model ?? "") !== (b.model ?? "")) out.push(i18next.t("bench.ui.modelsDiffer", "Different models: {a} vs {b}.", { a: a.model ?? i18next.t("bench.ui.auto_0d612c", "auto"), b: b.model ?? i18next.t("bench.ui.auto_0d612c", "auto") }));
+  if (a.baseUrl !== b.baseUrl) out.push(i18next.t("bench.ui.endpointsDiffer", "Different endpoints: {a} vs {b}.", { a: a.baseUrl, b: b.baseUrl }));
   const keys = new Set([...Object.keys(a.options ?? {}), ...Object.keys(b.options ?? {})]);
   const differing: string[] = [];
   for (const k of keys) {
     if (IGNORED_OPTIONS.has(k) || k === "model" || k === "base-url") continue;
     if (JSON.stringify(a.options?.[k] ?? null) !== JSON.stringify(b.options?.[k] ?? null)) differing.push(k);
   }
-  if (differing.length) out.push(`Different options: ${differing.map((k) => `--${k}`).join(", ")}.`);
+  if (differing.length) out.push(i18next.t("bench.ui.optionsDiffer", "Different options: {options}.", { options: differing.map((k) => `--${k}`).join(", ") }));
   return out;
 }
 

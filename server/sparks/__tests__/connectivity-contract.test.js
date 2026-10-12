@@ -37,6 +37,7 @@ test("connectivity summary is honest per capability", () => {
       required: true,
       message: "SSH timed out",
       recovery: "Check the host address, SSH user, key/password, and network route.",
+      i18n: { label: { key: "server.connection.label.host.remote" }, message: { key: "server.connection.raw", params: { detail: "SSH timed out" } }, recovery: { key: "server.connection.recovery.hostRemote" } },
     },
     {
       id: "llm",
@@ -45,6 +46,7 @@ test("connectivity summary is honest per capability", () => {
       required: true,
       message: "Model: test",
       recovery: null,
+      i18n: { label: { key: "server.connection.label.llm" }, message: { key: "server.connection.model", params: { model: "test" } } },
     },
     {
       id: "comfy",
@@ -53,6 +55,7 @@ test("connectivity summary is honest per capability", () => {
       required: false,
       message: "Disabled",
       recovery: null,
+      i18n: { label: { key: "server.connection.label.comfy" }, message: { key: "server.connection.disabled" } },
     },
     {
       id: "hermes",
@@ -61,6 +64,7 @@ test("connectivity summary is honest per capability", () => {
       required: false,
       message: "Disabled",
       recovery: null,
+      i18n: { label: { key: "server.connection.label.hermes" }, message: { key: "server.connection.disabled" } },
     },
     {
       id: "tailnet",
@@ -69,6 +73,7 @@ test("connectivity summary is honest per capability", () => {
       required: false,
       message: "Disabled",
       recovery: null,
+      i18n: { label: { key: "server.connection.label.tailnet" }, message: { key: "server.connection.disabled" } },
     },
   ]);
 });

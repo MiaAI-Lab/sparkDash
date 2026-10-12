@@ -1,3 +1,6 @@
+import { localizedServerText } from "../../i18n/messages";
+import { useTranslation } from "react-i18next";
+import { i18next } from "../../i18n";
 import type { SparkSnapshot } from "../../api/types";
 import { resolveSparkRole } from "../../api/sparkRole";
 import { backendLabel } from "../../shared/llmBackends.js";
@@ -10,31 +13,40 @@ interface SparkHeaderProps {
 }
 
 function formatUptime(seconds: number): string {
-  if (seconds < 60) return "<1m";
+  if (seconds < 60) return i18next.t("common.duration.lessMinute", "<1m");
   const mins = Math.floor(seconds / 60);
-  if (mins < 60) return `${mins}m`;
+  if (mins < 60) return i18next.t("common.duration.minutes", "{count}m", { count: mins });
   const hours = Math.floor(mins / 60);
   const remainMins = mins % 60;
-  if (hours < 24) return `${hours}h ${remainMins}m`;
+  if (hours < 24) return i18next.t("common.duration.hoursMinutes", "{hours}h {minutes}m", { hours, minutes: remainMins });
   const days = Math.floor(hours / 24);
   const remainHours = hours % 24;
-  return `${days}d ${remainHours}h`;
+  return i18next.t("common.duration.daysHours", "{days}d {hours}h", { days, hours: remainHours });
 }
 
 export function SparkHeader({ spark, onEdit }: SparkHeaderProps) {
+  const { t } = useTranslation();
   const { hardware } = spark;
   const online = spark.online;
   const hermes = spark.hermes;
   const role = resolveSparkRole(spark);
-  const roleText = role === "head" ? "Head" : role === "worker" ? "Worker" : "Standalone";
+  const roleText =
+    role === "head"
+      ? t("spark.role.head", "Head")
+      : role === "worker"
+        ? t("spark.role.worker", "Worker")
+        : t("spark.role.standalone", "Standalone");
   const roleTitle =
     role === "head"
-      ? "Cluster head — local LLM API"
+      ? t("spark.roleTitle.head", "Cluster head — local LLM API")
       : role === "worker"
-        ? "Distributed LLM worker — no local model; LLM card is hidden"
+        ? t(
+            "spark.roleTitle.worker",
+            "Distributed LLM worker — no local model; LLM card is hidden"
+          )
         : spark.llmMonitoring === false
-          ? "Standalone — LLM monitoring off"
-          : "Standalone — local LLM API";
+          ? t("spark.roleTitle.standaloneOff", "Standalone — LLM monitoring off")
+          : t("spark.roleTitle.standaloneOn", "Standalone — local LLM API");
   // Manual override first, then derived head-model mirror.
   const workerLabel =
     role === "worker" ? spark.workerLabel?.trim() || spark.workerDerivedLabel?.trim() || null : null;
@@ -51,7 +63,15 @@ export function SparkHeader({ spark, onEdit }: SparkHeaderProps) {
         <div className="sp-header__title">
           <span
             className={`sdot ${online ? "" : "sdot--bad"}`}
-            title={online ? "Online" : spark.offlineReason ? `Offline — ${spark.offlineReason}` : "Offline"}
+            title={
+              online
+                ? t("spark.header.online", "Online")
+                : spark.offlineReason
+                  ? t("spark.header.offlineWithReason", "Offline — {reason}", {
+                      reason: spark.offlineReason,
+                    })
+                  : t("spark.header.offline", "Offline")
+            }
           />
           <h2>{spark.name}</h2>
           <div className="sp-tags">
@@ -63,36 +83,68 @@ export function SparkHeader({ spark, onEdit }: SparkHeaderProps) {
                 {workerLabel}
               </Tag>
             )}
-            {spark.isLocal && <Tag title="This dashboard runs on this machine">local</Tag>}
+            {spark.isLocal && (
+              <Tag title={t("spark.header.localTitle", "This dashboard runs on this machine")}>
+                {t("spark.header.localTag", "local")}
+              </Tag>
+            )}
             {online && backend && <Tag tone="info">{backend}</Tag>}
             {!online && spark.offlineReason && (
-              <Tag tone="bad" className="sp-tag-clip" title={`Offline — ${spark.offlineReason}`}>
+              <Tag
+                tone="bad"
+                className="sp-tag-clip"
+                title={t("spark.header.offlineWithReason", "Offline — {reason}", {
+                  reason: spark.offlineReason,
+                })}
+              >
                 {spark.offlineReason}
               </Tag>
             )}
             {online && spark.uptime != null && (
-              <Tag title={`Uptime: ${formatUptime(spark.uptime)}`}>up {formatUptime(spark.uptime)}</Tag>
+              <Tag
+                title={t("spark.header.uptimeTitle", "Uptime: {value}", {
+                  value: formatUptime(spark.uptime),
+                })}
+              >
+                {t("spark.header.uptimeLabel", "up {value}", {
+                  value: formatUptime(spark.uptime),
+                })}
+              </Tag>
             )}
             {hermes?.monitoring && hermes.installed && hermes.version && (
-              <Tag tone="acc" title={`Hermes Agent ${hermes.version} installed on this machine`}>
+              <Tag
+                tone="acc"
+                title={t(
+                  "spark.header.hermesInstalled",
+                  "Hermes Agent {version} installed on this machine",
+                  { version: hermes.version }
+                )}
+              >
                 Hermes
               </Tag>
             )}
             {hermes?.monitoring && hermes.installed === false && hermes.checkedAt != null && (
               <Tag
                 tone="bad"
-                title="The `hermes` binary was not found on this machine (check the install path or Edit Spark)."
+                title={t(
+                  "spark.header.hermesNotFoundTitle",
+                  "The `hermes` binary was not found on this machine (check the install path or Edit Spark)."
+                )}
               >
-                Hermes not found
+                {t("spark.header.hermesNotFound", "Hermes not found")}
               </Tag>
             )}
             {hermes?.monitoring && hermes.error && hermes.status === "idle" && (
               <Tag
                 tone="bad"
                 className="sp-tag-clip"
-                title={`Update check failed — it will retry automatically: ${hermes.error}`}
+                title={t(
+                  "spark.header.updateCheckFailedTitle",
+                  "Update check failed — it will retry automatically: {error}",
+                  { error: hermes.error }
+                )}
               >
-                Update check failed
+                {t("spark.header.updateCheckFailed", "Update check failed")}
               </Tag>
             )}
           </div>
@@ -102,7 +154,8 @@ export function SparkHeader({ spark, onEdit }: SparkHeaderProps) {
           {tailscaleIp && (
             <>
               {spark.lanIp && <span className="sp-sep">·</span>}
-              <span className="mono">{tailscaleIp}</span> <span>(tailscale)</span>
+              <span className="mono">{tailscaleIp}</span>{" "}
+              <span>{t("spark.header.tailscale", "(tailscale)")}</span>
             </>
           )}
           {(spark.lanIp || tailscaleIp) && hw.length > 0 && <span className="sp-sep">·</span>}

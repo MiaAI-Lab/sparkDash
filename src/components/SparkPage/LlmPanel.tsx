@@ -1,6 +1,8 @@
+import { localizedServerText } from "../../i18n/messages";
 import { benchId } from "../../constants";
 import { BenchIcon } from "../bench/BenchIcon";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import type { LlmMetrics, LlmBenchTarget } from "../../api/types";
 import { setLlmApiKey, updateLlmPort, updateLlmPorts } from "../../api/client";
 import { TrendLine } from "../ui/TrendLine";
@@ -17,7 +19,6 @@ import { PrefillBenchDialog } from "./PrefillBenchDialog";
 import { QualityBenchDialog } from "./QualityBenchDialog";
 import { LlmDailyChart } from "./LlmDailyChart";
 import { LlmTokenTotals } from "./LlmTokenTotals";
-import { ENGINE_GENERATED_LABEL, ENGINE_GENERATED_TITLE } from "./tokenTotalsCopy";
 import { parseLlmTargetInput } from "../../shared/llmTarget.js";
 import { backendLabel } from "../../shared/llmBackends.js";
 import { LlmTrendChart } from "./LlmTrendChart";
@@ -38,27 +39,6 @@ interface LlmPanelProps {
   onRemovePort?: (port: number) => void;
   className?: string;
 }
-
-const VLLM_METRIC_INFO = {
-  kvCache:
-    "Free tokens left in the engine’s KV-cache pool, over the allocated pool (tokens and memory). The pool is shared across concurrent requests and can be larger than one request’s max context. High usage (≥80% full) means little room for new or long contexts and often leads to queuing or preemptions.",
-  requests:
-    "Run = requests actively generating on the GPU. Wait = accepted but not yet scheduled (capacity or constraints). Growing wait with high KV cache usually means the server is overloaded.",
-  ttftMean:
-    "Mean time-to-first-token reported by FreeToken (a mean, not a percentile): how long requests wait until the first output token.",
-  ttftP95:
-    "95th percentile time-to-first-token from the engine’s request history: how long “slow” requests wait until the first output token. Spikes mean queueing, long prefills, or cold paths—not average decode speed.",
-  preempts:
-    "Cumulative times the engine paused a running request to free KV cache for others. Rising under load signals memory pressure; zero is normal when the server is comfortable.",
-  prefixCache:
-    "Lifetime fraction of prefix-cache lookups that hit (hits ÷ queries). Higher means more prompt reuse and less prefill work; — when the series is missing or unused.",
-  e2eP95:
-    "95th percentile end-to-end request latency from the engine’s request history: arrival until the request finishes. Includes queue wait, prefill, and decode—not just token generation speed.",
-  itlP95:
-    "95th percentile inter-token latency (time between successive output tokens) from the engine’s request history. Spikes mean decode stalls or contention; lower is smoother streaming.",
-  mtpAccept:
-    "Lifetime speculative / MTP acceptance rate (accepted draft tokens ÷ drafted tokens). Higher means speculative decoding is paying off; — when speculation is off or unused.",
-} as const;
 
 /** Compact token counts for the KV pool tile (883552 → 884k). */
 function formatKvTokens(n: number): string {
@@ -116,15 +96,16 @@ function LlmLaunchers({
   onLaunch: (kind: BenchKind) => void;
   onRemoteLaunch: (kind: BenchKind, target: LlmBenchTarget) => void;
 }) {
+  const { t } = useTranslation();
   const [remoteOpen, setRemoteOpen] = useState(false);
   const [hostDraft, setHostDraft] = useState(() => readStoredRemote().host);
   const [portDraft, setPortDraft] = useState(() => readStoredRemote().port);
   const [tls, setTls] = useState(() => readStoredRemote().tls);
   const [remoteError, setRemoteError] = useState<string | null>(null);
 
-  const persist = (t: LlmBenchTarget) => {
+  const persist = (target: LlmBenchTarget) => {
     try {
-      localStorage.setItem(REMOTE_STORAGE_KEY, JSON.stringify(t));
+      localStorage.setItem(REMOTE_STORAGE_KEY, JSON.stringify(target));
     } catch {
       /* ignore */
     }
@@ -157,18 +138,20 @@ function LlmLaunchers({
     }
   };
 
-  const localHint =
-    "Runs against this Spark’s LLM. Remote units use LAN HTTP, or an SSH tunnel to loopback if the server only listens on 127.0.0.1.";
+  const localHint = t(
+    "spark.llm.localHint",
+    "Runs against this Spark’s LLM. Remote units use LAN HTTP, or an SSH tunnel to loopback if the server only listens on 127.0.0.1.",
+  );
 
   return (
     <div className="sp-launchers">
       <div className="sp-btns">
         {(
           [
-            ["decode", "Decode", `Decode benchmark: generation speed at rising concurrency, on this Spark. ${localHint}`],
-            ["prefill", "Prefill", `Prefill benchmark: prompt processing speed and time to first token, on this Spark. ${localHint}`],
-            ["quality", "Quality", "Quality suite (QA, reasoning, arithmetic, state tracking, GSM8K, MMLU) against this port's model. Compare runs across models, quantizations and KV-cache formats."],
-            ["tool-eval", "Tool Eval Bench", "Benchmark this model's tool calling."],
+            ["decode", t("spark.llm.decode", "Decode"), t("spark.llm.launchDecodeTitle", "Decode benchmark: generation speed at rising concurrency, on this Spark. {hint}", { hint: localHint })],
+            ["prefill", t("spark.llm.prefill", "Prefill"), t("spark.llm.launchPrefillTitle", "Prefill benchmark: prompt processing speed and time to first token, on this Spark. {hint}", { hint: localHint })],
+            ["quality", t("spark.llm.quality", "Quality"), t("spark.llm.launchQualityTitle", "Quality suite (QA, reasoning, arithmetic, state tracking, GSM8K, MMLU) against this port's model. Compare runs across models, quantizations and KV-cache formats.")],
+            ["tool-eval", t("spark.llm.toolEval", "Tool Eval Bench"), t("spark.llm.launchToolEvalTitle", "Benchmark this model's tool calling.")],
           ] as const
         ).map(([type, label, title]) => (
           <button
@@ -195,7 +178,7 @@ function LlmLaunchers({
           className="btn btn--sm"
         >
           <ExpandIcon className="h-3.5 w-3.5" />
-          Showcase
+          {t("spark.llm.showcase", "Showcase")}
         </button>
         <button
           type="button"
@@ -205,19 +188,19 @@ function LlmLaunchers({
           }}
           className={`btn btn--sm btn--ghost sp-btns__end ${remoteOpen ? "is-on" : ""}`}
           aria-expanded={remoteOpen}
-          title="On-demand bench against a typed host (HTTPS Tailscale, LAN IP, …). Not probed until you run."
+          title={t("spark.llm.remoteTitle", "On-demand bench against a typed host (HTTPS Tailscale, LAN IP, …). Not probed until you run.")}
         >
           <ServerIcon className="h-3.5 w-3.5" />
-          Remote
+          {t("spark.llm.remote", "Remote")}
         </button>
       </div>
       {remoteOpen && (
         <div className="sp-remote">
           <p className="sp-hint">
-            On-demand endpoint. Paste a URL or type host + port — nothing is probed until you run.
+            {t("spark.llm.remoteHint", "On-demand endpoint. Paste a URL or type host + port — nothing is probed until you run.")}
           </p>
           <label className="sp-field">
-            <span className="eyebrow">Host</span>
+            <span className="eyebrow">{t("spark.llm.host", "Host")}</span>
             <input
               type="text"
               value={hostDraft}
@@ -232,7 +215,7 @@ function LlmLaunchers({
           </label>
           <div className="sp-field-row">
             <label className="sp-field sp-field--grow">
-              <span className="eyebrow">Port</span>
+              <span className="eyebrow">{t("spark.llm.port", "Port")}</span>
               <input
                 type="number"
                 min={1}
@@ -257,16 +240,16 @@ function LlmLaunchers({
               HTTPS
             </label>
           </div>
-          {remoteError && <p className="sp-error">{remoteError}</p>}
+          {remoteError && <p className="sp-error">{localizedServerText(remoteError)}</p>}
           <div className="sp-btns">
             <button type="button" onClick={() => launchRemote("decode")} className="btn btn--sm">
-              Decode
+              {t("spark.llm.decode", "Decode")}
             </button>
             <button type="button" onClick={() => launchRemote("prefill")} className="btn btn--sm">
-              Prefill
+              {t("spark.llm.prefill", "Prefill")}
             </button>
             <button type="button" onClick={() => launchRemote("quality")} className="btn btn--sm">
-              Quality
+              {t("spark.llm.quality", "Quality")}
             </button>
           </div>
         </div>
@@ -284,8 +267,8 @@ const POSTURE_TONE: Record<NonNullable<LlmMetrics["posture"]>["level"], TagTone>
 /** Exposure / auth posture from the unauthenticated probe (issue #17). */
 function PostureBadge({ posture }: { posture: NonNullable<LlmMetrics["posture"]> }) {
   return (
-    <Tag tone={POSTURE_TONE[posture.level]} title={posture.detail}>
-      {posture.label}
+    <Tag tone={POSTURE_TONE[posture.level]} title={localizedServerText(posture.detail)}>
+      {localizedServerText(posture.label)}
     </Tag>
   );
 }
@@ -308,6 +291,7 @@ function MetricInfoTip({
   align?: "left" | "right";
 }) {
   const open = openId === id;
+  const { t } = useTranslation();
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearTimer = useCallback(() => {
@@ -344,7 +328,7 @@ function MetricInfoTip({
         }}
         onMouseLeave={scheduleClose}
         className="relative cursor-pointer opacity-60 hover:opacity-100"
-        aria-label={`${label} info`}
+        aria-label={t("spark.llm.metricInfoAria", "{label} info", { label })}
       >
         <InfoIcon className="h-2.5 w-2.5" />
         {open && (
@@ -374,6 +358,7 @@ export function LlmPanel({
   onRemovePort,
   className,
 }: LlmPanelProps) {
+  const { t } = useTranslation();
   // Tail keyed by port so multi-port LLM sparklines stay distinct (8b).
   const genHistory = useMetricsHistoryTail(sparkId, `llm:${llmPort}.tps`);
   const prefillHistory = useMetricsHistoryTail(sparkId, `llm:${llmPort}.prefill`);
@@ -455,7 +440,7 @@ export function LlmPanel({
 
   const handleSaveSettings = async () => {
     if (parsedPort === null) {
-      setSaveError("Port must be an integer 1–65535");
+      setSaveError(t("spark.llm.portError", "Port must be an integer 1–65535"));
       return;
     }
     if (!settingsDirty) {
@@ -469,7 +454,7 @@ export function LlmPanel({
         const currentPorts =
           Array.isArray(llmPorts) && llmPorts.length > 0 ? llmPorts : [llmPort];
         if (currentPorts.includes(parsedPort) && parsedPort !== llmPort) {
-          setSaveError(`Port ${parsedPort} is already configured`);
+          setSaveError(t("spark.llm.portConfigured", "Port {port} is already configured", { port: parsedPort }));
           setSaving(false);
           return;
         }
@@ -491,7 +476,7 @@ export function LlmPanel({
       setClearApiKey(false);
       setShowSettings(false);
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Failed to save LLM settings");
+      setSaveError(err instanceof Error ? err.message : t("spark.llm.saveFailed", "Failed to save LLM settings"));
     } finally {
       setSaving(false);
     }
@@ -518,13 +503,52 @@ export function LlmPanel({
     : null;
   const backend = backendLabel(llm?.backend ?? null);
 
+  const metricInfo: Record<string, string> = {
+    kvCache: t(
+      "spark.llm.info.kvCache",
+      "Free tokens left in the engine’s KV-cache pool, over the allocated pool (tokens and memory). The pool is shared across concurrent requests and can be larger than one request’s max context. High usage (≥80% full) means little room for new or long contexts and often leads to queuing or preemptions.",
+    ),
+    requests: t(
+      "spark.llm.info.requests",
+      "Run = requests actively generating on the GPU. Wait = accepted but not yet scheduled (capacity or constraints). Growing wait with high KV cache usually means the server is overloaded.",
+    ),
+    ttftMean: t(
+      "spark.llm.info.ttftMean",
+      "Mean time-to-first-token reported by FreeToken (a mean, not a percentile): how long requests wait until the first output token.",
+    ),
+    ttftP95: t(
+      "spark.llm.info.ttftP95",
+      "95th percentile time-to-first-token from the engine’s request history: how long “slow” requests wait until the first output token. Spikes mean queueing, long prefills, or cold paths—not average decode speed.",
+    ),
+    preempts: t(
+      "spark.llm.info.preempts",
+      "Cumulative times the engine paused a running request to free KV cache for others. Rising under load signals memory pressure; zero is normal when the server is comfortable.",
+    ),
+    prefixCache: t(
+      "spark.llm.info.prefixCache",
+      "Lifetime fraction of prefix-cache lookups that hit (hits ÷ queries). Higher means more prompt reuse and less prefill work; — when the series is missing or unused.",
+    ),
+    e2eP95: t(
+      "spark.llm.info.e2eP95",
+      "95th percentile end-to-end request latency from the engine’s request history: arrival until the request finishes. Includes queue wait, prefill, and decode—not just token generation speed.",
+    ),
+    itlP95: t(
+      "spark.llm.info.itlP95",
+      "95th percentile inter-token latency (time between successive output tokens) from the engine’s request history. Spikes mean decode stalls or contention; lower is smoother streaming.",
+    ),
+    mtpAccept: t(
+      "spark.llm.info.mtpAccept",
+      "Lifetime speculative / MTP acceptance rate (accepted draft tokens ÷ drafted tokens). Higher means speculative decoding is paying off; — when speculation is off or unused.",
+    ),
+  };
+
   const tile = (id: string, label: string, value: string, opts?: { tone?: string; sub?: string; align?: "left" | "right" }) => (
     <div className="sp-tile" key={id}>
       <b className={opts?.tone ?? ""}>{value}</b>
       <MetricInfoTip
         id={id}
         label={label}
-        text={VLLM_METRIC_INFO[id as keyof typeof VLLM_METRIC_INFO]}
+        text={metricInfo[id]}
         openId={metricInfoId}
         setOpenId={setMetricInfoId}
         align={opts?.align}
@@ -537,15 +561,17 @@ export function LlmPanel({
     llm?.kvCacheUsage != null
       ? `${(llm.kvCacheUsage * 100).toFixed(0)}%`
       : llm?.kvCacheTokensAvailable != null
-        ? `${formatKvTokens(llm.kvCacheTokensAvailable)} free`
+        ? t("spark.llm.freeTokens", "{tokens} free", { tokens: formatKvTokens(llm.kvCacheTokensAvailable) })
         : llm?.kvCacheTokens != null
           ? formatKvTokens(llm.kvCacheTokens)
           : null;
   const kvSub = [
     llm?.kvCacheUsage != null && llm?.kvCacheTokensAvailable != null
-      ? `${formatKvTokens(llm.kvCacheTokensAvailable)} free`
+      ? t("spark.llm.freeTokens", "{tokens} free", { tokens: formatKvTokens(llm.kvCacheTokensAvailable) })
       : null,
-    llm?.kvCacheTokens != null ? `${formatKvTokens(llm.kvCacheTokens)} pool` : null,
+    llm?.kvCacheTokens != null
+      ? t("spark.llm.poolTokens", "{tokens} pool", { tokens: formatKvTokens(llm.kvCacheTokens) })
+      : null,
     llm?.kvCacheMemoryBytes != null ? formatKvBytes(llm.kvCacheMemoryBytes) : null,
   ]
     .filter(Boolean)
@@ -553,7 +579,7 @@ export function LlmPanel({
 
   return (
     <Panel
-      title="LLM server"
+      title={t("spark.llm.title", "LLM server")}
       accent={available}
       icon={<BotIcon />}
       className={`panel-llm ${className ?? ""}`}
@@ -563,11 +589,16 @@ export function LlmPanel({
           {available && backend && (
             <>
               {llm?.via === "ssh-tunnel" && (
-                <Tag title="This engine's port is not reachable from the dashboard, so it is read through an SSH tunnel to the unit">
-                  via SSH
+                <Tag
+                  title={t(
+                    "spark.llm.viaSshTitle",
+                    "This engine's port is not reachable from the dashboard, so it is read through an SSH tunnel to the unit",
+                  )}
+                >
+                  {t("spark.llm.viaSsh", "via SSH")}
                 </Tag>
               )}
-              <Tag tone="info" title={`Backend: ${backend}`}>
+              <Tag tone="info" title={t("spark.llm.backendTitle", "Backend: {backend}", { backend })}>
                 {backend} · :{llmPort}
               </Tag>
             </>
@@ -575,17 +606,17 @@ export function LlmPanel({
           {onRemovePort && (
             <button
               type="button"
-              title={`Remove port ${llmPort}`}
+              title={t("spark.llm.removePort", "Remove port {port}", { port: llmPort })}
               onClick={() => onRemovePort(llmPort)}
               className="btn btn--sm btn--danger"
             >
               <span aria-hidden>×</span>
-              <span>Remove</span>
+              <span>{t("common.action.remove", "Remove")}</span>
             </button>
           )}
           <button
             type="button"
-            title={showSettings ? "Done" : "LLM settings"}
+            title={showSettings ? t("common.action.done", "Done") : t("spark.llm.settingsTitle", "LLM settings")}
             onClick={() => {
               if (showSettings) {
                 setPortDraft(String(llmPort));
@@ -599,7 +630,7 @@ export function LlmPanel({
             className={`btn btn--sm btn--ghost ${showSettings ? "is-on" : ""}`}
           >
             <GearIcon />
-            <span>{showSettings ? "Done" : "Settings"}</span>
+            <span>{showSettings ? t("common.action.done", "Done") : t("common.action.settings", "Settings")}</span>
           </button>
         </div>
       }
@@ -607,10 +638,10 @@ export function LlmPanel({
       {showSettings ? (
         <div className="sp-stack">
           <p className="sp-hint">
-            HTTP port of the LLM server on this Spark (vLLM / llama.cpp / sglang / ds4 / EXL3 / TensorFold / OpenAI-compatible gateway).
+            {t("spark.llm.settingsHint", "HTTP port of the LLM server on this Spark (vLLM / llama.cpp / sglang / ds4 / EXL3 / TensorFold / OpenAI-compatible gateway).")}
           </p>
           <label className="sp-field">
-            <span className="eyebrow">Port</span>
+            <span className="eyebrow">{t("spark.llm.port", "Port")}</span>
             <input
               type="number"
               min={1}
@@ -630,11 +661,11 @@ export function LlmPanel({
               className="sp-input"
             />
           </label>
-          <div className="sp-btns" role="group" aria-label="Server presets">
-            <span className="eyebrow">Presets:</span>
+          <div className="sp-btns" role="group" aria-label={t("spark.add.serverPresets", "Server presets")}>
+            <span className="eyebrow">{t("spark.add.presets", "Presets:")}</span>
             <button
               type="button"
-              title="Fill LM Studio's default port (1234)"
+              title={t("spark.llm.fillPresetTitle", "Fill {name} default port ({port})", { name: "LM Studio", port: 1234 })}
               onClick={() => setPortDraft("1234")}
               className="btn btn--sm"
             >
@@ -642,7 +673,7 @@ export function LlmPanel({
             </button>
             <button
               type="button"
-              title="Fill Ollama's default port (11434)"
+              title={t("spark.llm.fillPresetTitle", "Fill {name} default port ({port})", { name: "Ollama", port: 11434 })}
               onClick={() => setPortDraft("11434")}
               className="btn btn--sm"
             >
@@ -650,7 +681,7 @@ export function LlmPanel({
             </button>
             <button
               type="button"
-              title="Fill TensorFold's default port (8888)"
+              title={t("spark.llm.fillPresetTitle", "Fill {name} default port ({port})", { name: "TensorFold", port: 8888 })}
               onClick={() => setPortDraft("8888")}
               className="btn btn--sm"
             >
@@ -658,14 +689,16 @@ export function LlmPanel({
             </button>
           </div>
           <label className="sp-field">
-            <span className="eyebrow">API key (optional)</span>
+            <span className="eyebrow">{t("spark.llm.apiKeyLabel", "API key (optional)")}</span>
             <input
               type="password"
               autoComplete="new-password"
               spellCheck={false}
               value={apiKeyDraft}
               disabled={clearApiKey}
-              placeholder={hasApiKey && !clearApiKey ? "•••••••• (saved — leave blank to keep)" : "Bearer token if required"}
+              placeholder={hasApiKey && !clearApiKey
+                ? t("spark.llm.apiKeySavedPlaceholder", "•••••••• (saved — leave blank to keep)")
+                : t("spark.llm.apiKeyPlaceholder", "Bearer token if required")}
               onChange={(e) => {
                 setApiKeyDraft(e.target.value);
                 setClearApiKey(false);
@@ -691,11 +724,11 @@ export function LlmPanel({
                   setSaveError(null);
                 }}
               />
-              Clear saved API key
+              {t("spark.llm.clearApiKey", "Clear saved API key")}
             </label>
           )}
-          {portInvalid && <p className="sp-error">Enter an integer between 1 and 65535</p>}
-          {saveError && <p className="sp-error">{saveError}</p>}
+          {portInvalid && <p className="sp-error">{t("spark.llm.portInvalid", "Enter an integer between 1 and 65535")}</p>}
+          {saveError && <p className="sp-error">{localizedServerText(saveError)}</p>}
           <div className="sp-btns sp-btns--end">
             <button
               type="button"
@@ -709,7 +742,7 @@ export function LlmPanel({
               disabled={saving}
               className="btn btn--sm"
             >
-              Cancel
+              {t("common.action.cancel", "Cancel")}
             </button>
             <button
               type="button"
@@ -717,7 +750,7 @@ export function LlmPanel({
               disabled={saving || portInvalid || !settingsDirty}
               className="btn btn--sm btn--primary"
             >
-              {saving ? "Saving…" : "Save"}
+              {saving ? t("common.action.saving", "Saving…") : t("common.action.save", "Save")}
             </button>
           </div>
         </div>
@@ -727,8 +760,8 @@ export function LlmPanel({
             {llm?.posture ? <PostureBadge posture={llm.posture} /> : <span className="sdot sdot--off" />}
             <p className="sp-muted">
               {llm?.posture?.auth === "protected"
-                ? `${llm.posture.label} on :${llmPort}`
-                : `No model loaded on :${llmPort}`}
+                ? t("spark.llm.protectedOn", "{label} on :{port}", { label: localizedServerText(llm.posture.label), port: llmPort })
+                : t("spark.llm.noModel", "No model loaded on :{port}", { port: llmPort })}
             </p>
           </div>
           <LlmLaunchers
@@ -745,7 +778,7 @@ export function LlmPanel({
         <div className="sp-stack">
           <div className="sp-model">
             <div className="eyebrow">
-              <span>Model</span>
+              <span>{t("spark.llm.model", "Model")}</span>
               {contextLabel && <span>{contextLabel}</span>}
             </div>
             <code title={llm?.modelId ?? undefined}>{llm?.modelId ?? "—"}</code>
@@ -756,13 +789,13 @@ export function LlmPanel({
 
           <div className="sp-decode">
             <div className="sp-metric">
-              <span className="eyebrow">Decode</span>
+              <span className="eyebrow">{t("spark.llm.decode", "Decode")}</span>
               <div className="big-num sp-big-lg">
                 {fmtTps(generationTps)}
                 <small>tok/s</small>
               </div>
               <TrendLine data={genHistory} height={44} color="var(--color-accent)" />
-              {genAvg != null && <span className="sp-avg mono">avg {fmtAvg(genAvg)}</span>}
+              {genAvg != null && <span className="sp-avg mono">{t("spark.llm.avg", "avg {value}", { value: fmtAvg(genAvg) })}</span>}
               {idleNote && (
                 <span className="sp-avg" data-llm-idle>
                   {idleNote}
@@ -771,14 +804,14 @@ export function LlmPanel({
             </div>
             <div
               className="sp-metric"
-              title="Prompt tokens/sec taken in during the last poll window — cache-served + computed. Opening a saved chat in the UI does not hit the GPU; send (or regenerate) so the history is sent as the prompt. Cached prefill does little GPU work; uncached prefill is what builds KV cache."
+              title={t("spark.llm.prefillTitle", "Prompt tokens/sec taken in during the last poll window — cache-served + computed. Opening a saved chat in the UI does not hit the GPU; send (or regenerate) so the history is sent as the prompt. Cached prefill does little GPU work; uncached prefill is what builds KV cache.")}
             >
-              <span className="eyebrow">Prefill</span>
+              <span className="eyebrow">{t("spark.llm.prefill", "Prefill")}</span>
               <div className="big-num sp-big-lg">
                 {llm?.prefillActive && prefillTps <= 0 ? (
                   <>
                     <span className="ov-tps__dots" aria-hidden />
-                    <small title="A prompt is being processed. The engine reports its speed only when the request finishes.">prefilling</small>
+                    <small title={t("spark.llm.prefillingTitle", "A prompt is being processed. The engine reports its speed only when the request finishes.")}>{t("spark.llm.prefilling", "prefilling")}</small>
                   </>
                 ) : (
                   <>
@@ -788,74 +821,74 @@ export function LlmPanel({
                 )}
               </div>
               <TrendLine data={prefillHistory} height={44} color="var(--color-info)" />
-              {prefillAvg != null && <span className="sp-avg mono">avg {fmtAvg(prefillAvg)}</span>}
+              {prefillAvg != null && <span className="sp-avg mono">{t("spark.llm.avg", "avg {value}", { value: fmtAvg(prefillAvg) })}</span>}
             </div>
           </div>
           {showPrefillSplit && (
             <div className="sp-decode sp-decode--split">
               <div
                 className="sp-metric"
-                title="Prefill tokens served from prefix cache (little GPU work). High values mean prompt reuse, not a faster cold prefill."
+                title={t("spark.llm.cachedPrefillTitle", "Prefill tokens served from prefix cache (little GPU work). High values mean prompt reuse, not a faster cold prefill.")}
               >
-                <span className="eyebrow">Cached prefill</span>
+                <span className="eyebrow">{t("spark.llm.cachedPrefill", "Cached prefill")}</span>
                 <div className="big-num sp-big-md">
                   {fmtTps(cachedPrefillTps)}
                   <small>tok/s</small>
                 </div>
                 <TrendLine data={cachedPrefillHistory} height={30} color="var(--color-muted)" />
-                {cachedPrefillAvg != null && <span className="sp-avg mono">avg {fmtAvg(cachedPrefillAvg)}</span>}
+                {cachedPrefillAvg != null && <span className="sp-avg mono">{t("spark.llm.avg", "avg {value}", { value: fmtAvg(cachedPrefillAvg) })}</span>}
               </div>
               <div
                 className="sp-metric"
-                title="Uncached (computed) prefill — tokens that actually build KV cache on the GPU."
+                title={t("spark.llm.uncachedPrefillTitle", "Uncached (computed) prefill — tokens that actually build KV cache on the GPU.")}
               >
-                <span className="eyebrow">Uncached prefill</span>
+                <span className="eyebrow">{t("spark.llm.uncachedPrefill", "Uncached prefill")}</span>
                 <div className="big-num sp-big-md">
                   {fmtTps(uncachedPrefillTps)}
                   <small>tok/s</small>
                 </div>
                 <TrendLine data={uncachedPrefillHistory} height={30} color="var(--color-violet)" />
-                {uncachedPrefillAvg != null && <span className="sp-avg mono">avg {fmtAvg(uncachedPrefillAvg)}</span>}
+                {uncachedPrefillAvg != null && <span className="sp-avg mono">{t("spark.llm.avg", "avg {value}", { value: fmtAvg(uncachedPrefillAvg) })}</span>}
               </div>
             </div>
           )}
 
           <div className="sp-tiles">
-            {showEngineTiles && kvValue != null && tile("kvCache", "KV cache", kvValue, { tone: kvTone, sub: kvSub || undefined })}
+            {showEngineTiles && kvValue != null && tile("kvCache", t("spark.llm.kvCache", "KV cache"), kvValue, { tone: kvTone, sub: kvSub || undefined })}
             {showEngineTiles &&
               llm?.requestsRunning != null &&
               tile(
                 "requests",
-                "Running / waiting",
+                t("spark.llm.runningWaiting", "Running / waiting"),
                 `${Math.round(llm.requestsRunning)} / ${llm.requestsWaiting != null ? Math.round(llm.requestsWaiting) : "—"}`,
                 { align: "right" }
               )}
-            {isFreeToken && llm?.ttftSeconds != null && tile("ttftMean", "TTFT mean", `${Math.round(llm.ttftSeconds * 1000)} ms`)}
-            {showEngineTiles && llm?.ttftP95Seconds != null && tile("ttftP95", "TTFT p95", `${Math.round(llm.ttftP95Seconds * 1000)} ms`)}
+            {isFreeToken && llm?.ttftSeconds != null && tile("ttftMean", t("spark.llm.ttftMean", "TTFT mean"), `${Math.round(llm.ttftSeconds * 1000)} ms`)}
+            {showEngineTiles && llm?.ttftP95Seconds != null && tile("ttftP95", t("spark.llm.ttftP95", "TTFT p95"), `${Math.round(llm.ttftP95Seconds * 1000)} ms`)}
             {showEngineTiles &&
               llm?.preemptionsTotal != null &&
-              tile("preempts", "Preempts", Math.round(llm.preemptionsTotal).toLocaleString(), { align: "right" })}
+              tile("preempts", t("spark.llm.preempts", "Preempts"), Math.round(llm.preemptionsTotal).toLocaleString(), { align: "right" })}
             {showEngineTiles &&
               llm?.prefixCacheHitRate != null &&
-              tile("prefixCache", "Prefix hit", `${(llm.prefixCacheHitRate * 100).toFixed(0)}%`)}
-            {showEngineTiles && llm?.e2eP95Seconds != null && tile("e2eP95", "E2E p95", `${llm.e2eP95Seconds.toFixed(2)}s`, { align: "right" })}
-            {showEngineTiles && llm?.itlP95Seconds != null && tile("itlP95", "Inter-token p95", `${Math.round(llm.itlP95Seconds * 1000)} ms`)}
+              tile("prefixCache", t("spark.llm.prefixHit", "Prefix hit"), `${(llm.prefixCacheHitRate * 100).toFixed(0)}%`)}
+            {showEngineTiles && llm?.e2eP95Seconds != null && tile("e2eP95", t("spark.llm.e2eP95", "E2E p95"), `${llm.e2eP95Seconds.toFixed(2)}s`, { align: "right" })}
+            {showEngineTiles && llm?.itlP95Seconds != null && tile("itlP95", t("spark.llm.itlP95", "Inter-token p95"), `${Math.round(llm.itlP95Seconds * 1000)} ms`)}
             {showEngineTiles &&
               llm?.mtpAcceptanceRate != null &&
-              tile("mtpAccept", "MTP accept", llm.mtpAcceptanceRate.toFixed(2), { align: "right" })}
+              tile("mtpAccept", t("spark.llm.mtpAccept", "MTP accept"), llm.mtpAcceptanceRate.toFixed(2), { align: "right" })}
             <div className="sp-tile">
               <b>
                 {(llm?.slotsTotal ?? 0) > 0
                   ? `${llm?.slotsActive ?? 0} / ${llm?.slotsTotal ?? 0}`
                   : (llm?.slotsActive ?? 0) > 0
-                    ? `${llm?.slotsActive} running`
+                    ? t("spark.llm.slotsRunning", "{count} running", { count: llm?.slotsActive ?? 0 })
                     : "—"}
               </b>
-              <span>Slots</span>
+              <span>{t("spark.llm.slots", "Slots")}</span>
             </div>
             <div className="sp-tile">
               <b>{llm?.contextLength ? llm.contextLength.toLocaleString() : "—"}</b>
-              <span>Context</span>
+              <span>{t("spark.llm.context", "Context")}</span>
             </div>
             <div className="sp-tile">
               {(() => {
@@ -867,7 +900,7 @@ export function LlmPanel({
                 );
               })()}
               <div className="sp-tile__label">
-                <span>Engine</span>
+                <span>{t("spark.llm.engine", "Engine")}</span>
                 <button
                   type="button"
                   onClick={() => {
@@ -879,7 +912,7 @@ export function LlmPanel({
                   onMouseEnter={clearEngineInfoTimer}
                   onMouseLeave={startEngineInfoTimer}
                   className="relative cursor-pointer opacity-60 hover:opacity-100"
-                  aria-label="Engine state info"
+                  aria-label={t("spark.llm.engineInfoAria", "Engine state info")}
                 >
                   <InfoIcon className="h-2.5 w-2.5" />
                   {engineInfoOpen && (
@@ -888,15 +921,18 @@ export function LlmPanel({
                       onMouseLeave={startEngineInfoTimer}
                       className="absolute left-0 top-full z-10 mt-1 w-56 rounded-xl border border-border-strong bg-surface-elevated px-3 py-2 text-left text-[11px] font-normal normal-case text-text shadow-lg"
                     >
-                      Active = processing or ready for requests. Sleeping = idle, GPU memory freed until next request.
+                      {t("spark.llm.engineInfo", "Active = processing or ready for requests. Sleeping = idle, GPU memory freed until next request.")}
                     </div>
                   )}
                 </button>
               </div>
             </div>
-            <div className="sp-tile" title={ENGINE_GENERATED_TITLE}>
+            <div
+              className="sp-tile"
+              title={t("tokens.engine.generatedTitle", "Reported by the engine since it last started")}
+            >
               <b>{llm && llm.totalOutputTokens > 0 ? llm.totalOutputTokens.toLocaleString() : "—"}</b>
-              <span>{ENGINE_GENERATED_LABEL}</span>
+              <span>{t("tokens.engine.generatedLabel", "Generated (engine)")}</span>
             </div>
           </div>
 

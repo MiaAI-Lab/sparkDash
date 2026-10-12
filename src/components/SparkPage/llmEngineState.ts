@@ -1,3 +1,4 @@
+import { i18next } from "../../i18n";
 import type { LlmMetrics } from "../../api/types";
 
 export interface EngineStateLabel {
@@ -19,10 +20,14 @@ export function engineStateLabel(llm: LlmMetrics | null | undefined): EngineStat
   if (!llm) return { text: "—", muted: false };
   if (llm.gpuMemoryUtilization == null) {
     return {
-      text: "n/a",
-      title: "This backend does not report engine sleep state",
+      text: i18next.t("spark.llmState.na", "n/a"),
+      title: i18next.t("spark.llmState.naTitle", "This backend does not report engine sleep state"),
       muted: true,
     };
   }
-  return { text: llm.gpuMemoryUtilization === 0 ? "Sleeping" : "Active", muted: false };
+  const text =
+    llm.gpuMemoryUtilization === 0
+      ? i18next.t("spark.llmState.sleeping", "Sleeping")
+      : i18next.t("spark.llmState.active", "Active");
+  return { text, muted: false };
 }

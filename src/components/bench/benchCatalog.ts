@@ -14,8 +14,10 @@ export interface BenchType {
   blurb: string;
   engine: BenchEngine;
   /** Sidebar sub-heading it sits under. */
-  family: "sparkDash" | "Tool Eval Bench";
+  family: string;
 }
+
+export type BenchTranslate = (key: string, fallback: string, options?: Record<string, unknown>) => string;
 
 export const BENCH_TYPES: readonly BenchType[] = [
   { id: "decode", label: "Decode", blurb: "Generation speed (tokens/s) at rising concurrency.", engine: "sparkdash", family: "sparkDash" },
@@ -28,6 +30,17 @@ const BY_ID = new Map(BENCH_TYPES.map((b) => [b.id, b]));
 
 export function benchTypeById(id: string | null | undefined): BenchType | null {
   return (id && BY_ID.get(id)) || null;
+}
+
+/** Translate catalog text for consumers outside the page tree (sidebar and palette). */
+export function localizeBenchType(bench: BenchType, t: BenchTranslate): BenchType {
+  switch (bench.id) {
+    case "decode": return { ...bench, label: t("bench.catalog.decode.label", "Decode"), blurb: t("bench.catalog.decode.blurb", "Generation speed (tokens/s) at rising concurrency."), family: t("bench.catalog.sparkdash", "sparkDash") };
+    case "prefill": return { ...bench, label: t("bench.catalog.prefill.label", "Prefill"), blurb: t("bench.catalog.prefill.blurb", "Prompt processing speed and time to first token across context sizes."), family: t("bench.catalog.sparkdash", "sparkDash") };
+    case "quality": return { ...bench, label: t("bench.catalog.quality.label", "Quality"), blurb: t("bench.catalog.quality.blurb", "A fixed, seeded quality suite to compare models, quantisations and KV-cache formats."), family: t("bench.catalog.sparkdash", "sparkDash") };
+    case "tool-eval": return { ...bench, label: t("bench.catalog.toolEval.label", "Tool Eval Bench"), blurb: t("bench.catalog.toolEval.blurb", "Tool-calling quality across 69 deterministic scenarios (selection, parameters, multi-step, safety)."), family: t("bench.catalog.toolEval.family", "Tool Eval Bench") };
+    default: return bench;
+  }
 }
 
 /** localStorage key remembering which Spark the benchmark pages act on. */

@@ -1,5 +1,11 @@
+import { localizedServerText, localizedServerMessage } from "../../i18n/messages";
+import { activeLocale } from "../../i18n";
+import { qualityCategoryLabel } from "./benchLabels";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
+import { i18next } from "../../i18n";
 import "../../styles/dialogs.css";
 import {
   cancelQualityBench,
@@ -24,7 +30,6 @@ import { Ring } from "../ui/Ring";
 import { qualityLongFitsContext } from "../../shared/contextFit.js";
 import {
   QUALITY_CATEGORIES,
-  QUALITY_CATEGORY_LABELS,
   QUALITY_DEFAULT_CATEGORIES,
   QUALITY_DEFAULT_CONCURRENCY,
   QUALITY_DEFAULT_LONG_ITEMS,
@@ -37,7 +42,7 @@ import {
   compareQualityRuns,
   type QualityCompareRow,
 } from "../../shared/qualityBench.js";
-import { QUALITY_CATEGORY_INFO } from "./qualityCategoryInfo";
+import { qualityCategoryInfo } from "./qualityCategoryInfo";
 import { HistoryTable, PageCard, PageEmpty, PageLayout } from "../bench/sparkdash/pageParts";
 import { qualityHistoryRow } from "../bench/sparkdash/historyRows";
 import { formatContextSize } from "../../shared/prefillBench.js";
@@ -64,16 +69,29 @@ interface QualityBenchDialogProps {
   onSwitchBench?: (kind: BenchKind) => void;
 }
 
-const CATEGORY_HINTS: Record<QualityCategory, string> = {
-  qa: "Short factual and arithmetic questions: multiplication, strings, dates, LCM.",
-  reason: "Multi-step word problems with a two-part answer.",
-  arith: "Ten-step arithmetic chains.",
-  track: "Token-transfer stories, 25 events each.",
-  gsm8k: "Grade-school maths from the public GSM8K test set (fixed sample).",
-  mmlu: "Multiple choice from the public MMLU test set, 5 per subject across 57 subjects.",
-  follow: "Prompts with verifiable formatting rules, checked by code, not a judge.",
-  long: "Needle recall: 16 codes, 4 corrected late in the text. Sequential.",
-};
+function categoryHint(cat: QualityCategory, t: TFunction): string {
+  switch (cat) {
+    case "qa":
+      return t("spark.quality.categoryHint.qa", "Short factual and arithmetic questions: multiplication, strings, dates, LCM.");
+    case "reason":
+      return t("spark.quality.categoryHint.reason", "Multi-step word problems with a two-part answer.");
+    case "arith":
+      return t("spark.quality.categoryHint.arith", "Ten-step arithmetic chains.");
+    case "track":
+      return t("spark.quality.categoryHint.track", "Token-transfer stories, 25 events each.");
+    case "gsm8k":
+      return t("spark.quality.categoryHint.gsm8k", "Grade-school maths from the public GSM8K test set (fixed sample).");
+    case "mmlu":
+      return t(
+        "spark.quality.categoryHint.mmlu",
+        "Multiple choice from the public MMLU test set, 5 per subject across 57 subjects.",
+      );
+    case "follow":
+      return t("spark.quality.categoryHint.follow", "Prompts with verifiable formatting rules, checked by code, not a judge.");
+    case "long":
+      return t("spark.quality.categoryHint.long", "Needle recall: 16 codes, 4 corrected late in the text. Sequential.");
+  }
+}
 
 /** Fixed item counts; long recall depends on the chosen sizes. */
 const CATEGORY_ITEMS: Record<Exclude<QualityCategory, "long">, number> = { qa: 150, reason: 40, arith: 40, track: 40, gsm8k: 200, mmlu: 285, follow: 40 };
@@ -114,13 +132,13 @@ function formatDuration(ms: number): string {
 function statusLabel(status: QualityBenchJob["status"]): string {
   switch (status) {
     case "running":
-      return "Running";
+      return i18next.t("spark.benchDialog.status.running", "Running");
     case "completed":
-      return "Completed";
+      return i18next.t("spark.benchDialog.status.completed", "Completed");
     case "failed":
-      return "Failed";
+      return i18next.t("spark.benchDialog.status.failed", "Failed");
     case "cancelled":
-      return "Cancelled";
+      return i18next.t("spark.benchDialog.status.cancelled", "Cancelled");
     default:
       return status;
   }
@@ -131,7 +149,7 @@ function pct(v: number | null | undefined): string {
 }
 
 function runLabel(job: QualityBenchJob): string {
-  const when = new Date(job.startedAt).toLocaleString(undefined, {
+  const when = new Date(job.startedAt).toLocaleString(activeLocale(), {
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -139,7 +157,7 @@ function runLabel(job: QualityBenchJob): string {
   });
   const parts = [when];
   if (job.config.label) parts.push(job.config.label);
-  parts.push(job.config.modelId || "unknown model");
+  parts.push(job.config.modelId || i18next.t("spark.quality.unknownModel", "unknown model"));
   parts.push(pct(job.results?.overallPct));
   return parts.join(" · ");
 }
@@ -147,21 +165,38 @@ function runLabel(job: QualityBenchJob): string {
 function categoryNotes(cat: QualityCategory, s: QualityCategorySummary): string {
   const notes: string[] = [];
   if (cat === "long" && s.keysTotal != null) {
-    notes.push(`keys ${s.keysFound ?? 0}/${s.keysTotal}`);
-    notes.push(`${s.stale ?? 0} stale`);
+    notes.push(
+      i18next.t("spark.quality.notes.keys", "keys {found}/{total}", {
+        found: s.keysFound ?? 0,
+        total: s.keysTotal,
+      }),
+    );
+    notes.push(i18next.t("spark.quality.notes.stale", "{count} stale", { count: s.stale ?? 0 }));
   }
   if (cat === "reason" || cat === "arith" || cat === "track" || cat === "gsm8k") {
-    notes.push(`mean ${s.meanCompletionTokens.toLocaleString()} tok`);
-    notes.push(`${s.hitMaxTokens} hit max_tokens`);
+    notes.push(
+      i18next.t("spark.quality.notes.meanTok", "mean {value} tok", {
+        value: s.meanCompletionTokens.toLocaleString(activeLocale()),
+      }),
+    );
+    notes.push(i18next.t("spark.quality.notes.hitMax", "{count} hit max_tokens", { count: s.hitMaxTokens }));
   }
-  if (s.errors > 0) notes.push(`${s.errors} request error${s.errors === 1 ? "" : "s"}`);
+  if (s.errors > 0) {
+    notes.push(
+      i18next.t(
+        "spark.quality.notes.errors",
+        "{count, plural, one {# request error} other {# request errors}}",
+        { count: s.errors },
+      ),
+    );
+  }
   return notes.join(" · ");
 }
 
 function verdictLine(r: QualityCompareRow): string {
-  if (r.onlyA + r.onlyB === 0) return "no discordant items";
-  if (r.withinNoise) return "difference within noise";
-  return `significant (p ${formatP(r.p)})`;
+  if (r.onlyA + r.onlyB === 0) return i18next.t("spark.quality.compare.noDiscordant", "no discordant items");
+  if (r.withinNoise) return i18next.t("spark.quality.compare.withinNoise", "difference within noise");
+  return i18next.t("spark.quality.compare.significant", "significant (p {p})", { p: formatP(r.p) });
 }
 
 function buildShareText(
@@ -170,40 +205,41 @@ function buildShareText(
   compareRows: QualityCompareRow[]
 ): string {
   const lines: string[] = [];
-  const model = job.config.modelId || "unknown model";
-  lines.push(`${model}${job.config.label ? ` [${job.config.label}]` : ""} | quality bench`);
-  lines.push(`Overall ${pct(job.results.overallPct)} (mean of category %)`);
+  const model = job.config.modelId || i18next.t("spark.share.unknownModel", "unknown model");
+  lines.push(i18next.t("spark.share.qualityHeading", "{model}{label} | quality bench", { model, label: job.config.label ? ` [${job.config.label}]` : "" }));
+  lines.push(i18next.t("spark.share.qualityOverall", "Overall {score} (mean of category %)", { score: pct(job.results.overallPct) }));
   lines.push("");
   for (const cat of QUALITY_CATEGORIES) {
     const s = job.results.categories?.[cat];
     if (!s) continue;
     const notes = categoryNotes(cat, s);
     lines.push(
-      `${QUALITY_CATEGORY_LABELS[cat].padEnd(20)} ${`${s.passed}/${s.scored ?? s.total}`.padStart(7)}  ${pct(s.pct).padStart(6)}${notes ? `  · ${notes}` : ""}`
+      `${qualityCategoryLabel(cat).padEnd(20)} ${`${s.passed}/${s.scored ?? s.total}`.padStart(7)}  ${pct(s.pct).padStart(6)}${notes ? `  · ${notes}` : ""}`
     );
   }
   if (job.results.skippedLongSizes?.length) {
-    lines.push(`Long sizes skipped (above context): ${job.results.skippedLongSizes.map(formatContextSize).join(", ")}`);
+    lines.push(i18next.t("spark.share.skippedSizes", "Long sizes skipped (above context): {sizes}", { sizes: job.results.skippedLongSizes.map(formatContextSize).join(", ") }));
   }
   if (compareJob && compareRows.length) {
     lines.push("");
-    lines.push(`Compared with: ${runLabel(compareJob)}`);
+    lines.push(i18next.t("spark.share.comparedWith", "Compared with: {run}", { run: runLabel(compareJob) }));
     const verdict = overallVerdict(compareRows);
-    if (verdict) lines.push(`Overall: ${verdict.text}`);
+    if (verdict) lines.push(i18next.t("spark.share.overallVerdict", "Overall: {verdict}", { verdict: verdict.text }));
     for (const r of compareRows) {
       lines.push(
-        `${QUALITY_CATEGORY_LABELS[r.category].padEnd(20)} ${pct(r.pctA).padStart(6)} vs ${pct(r.pctB).padStart(6)}  identical ${r.identical}/${r.paired}  only-this ${r.onlyA}  only-other ${r.onlyB}  p=${formatP(r.p)}  ${verdictLine(r)}`
+        i18next.t("spark.share.qualityComparedRow", "{category} {scoreA} vs {scoreB}  identical {identical}/{paired}  only-this {onlyA}  only-other {onlyB}  p={p}  {verdict}", { category: qualityCategoryLabel(r.category).padEnd(20), scoreA: pct(r.pctA).padStart(6), scoreB: pct(r.pctB).padStart(6), identical: r.identical, paired: r.paired, onlyA: r.onlyA, onlyB: r.onlyB, p: formatP(r.p), verdict: verdictLine(r) })
       );
     }
   }
   lines.push("");
   lines.push(
-    `temp 0 · seed fixed · suite v${job.config.suiteVersion}${job.config.scoringVersion != null ? ` · scoring v${job.config.scoringVersion}` : ""} · ${job.status} in ${formatDuration(job.durationMs)}`
+    i18next.t("spark.share.qualityFooter", "temp 0 · seed fixed · suite v{suite}{scoring} · {status} in {duration}", { suite: job.config.suiteVersion, scoring: job.config.scoringVersion != null ? i18next.t("spark.share.scoringVersion", " · scoring v{version}", { version: job.config.scoringVersion }) : "", status: statusLabel(job.status), duration: formatDuration(job.durationMs) })
   );
   return lines.join("\n");
 }
 
 function CategoryTable({ job }: { job: QualityBenchJob }) {
+  const { t } = useTranslation();
   const rows = QUALITY_CATEGORIES.filter((c) => job.results.categories?.[c]);
   if (!rows.length) return null;
   return (
@@ -211,10 +247,10 @@ function CategoryTable({ job }: { job: QualityBenchJob }) {
       <table className="q-cat-table">
         <thead>
           <tr>
-            <th>Category</th>
-            <th className="is-num">Score</th>
+            <th>{t("spark.quality.colCategory", "Category")}</th>
+            <th className="is-num">{t("spark.quality.score", "Score")}</th>
             <th className="is-num">%</th>
-            <th>Notes</th>
+            <th>{t("spark.quality.colNotes", "Notes")}</th>
           </tr>
         </thead>
         <tbody>
@@ -222,7 +258,7 @@ function CategoryTable({ job }: { job: QualityBenchJob }) {
             const s = job.results.categories[cat] as QualityCategorySummary;
             return (
               <tr key={cat}>
-                <td className="q-cat-table__name">{QUALITY_CATEGORY_LABELS[cat]}</td>
+                <td className="q-cat-table__name">{qualityCategoryLabel(cat)}</td>
                 <td className="is-num">
                   {s.passed}/{s.scored ?? s.total}
                 </td>
@@ -245,7 +281,7 @@ function qTier(p: number | null | undefined): "good" | "ok" | "low" | "none" {
 const TIER_COLOR = { good: "var(--color-success)", ok: "var(--color-accent)", low: "var(--color-danger)", none: "var(--color-muted)" } as const;
 
 function shortRunName(job: QualityBenchJob, fallback: string): string {
-  return job.config.label || new Date(job.startedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }) || fallback;
+  return job.config.label || new Date(job.startedAt).toLocaleDateString(activeLocale(), { month: "short", day: "numeric" }) || fallback;
 }
 
 function ScoreCard({
@@ -257,6 +293,7 @@ function ScoreCard({
   compareJob: QualityBenchJob | null;
   compareRows: QualityCompareRow[];
 }) {
+  const { t } = useTranslation();
   const overall = job.results.overallPct;
   // Overall means over different category sets are not comparable: use the shared categories.
   const shared = compareJob ? sharedOverallDelta(job, compareJob) : null;
@@ -266,7 +303,9 @@ function ScoreCard({
   return (
     <div className="q-side">
       <div className="q-score">
-        <span className="eyebrow">{compareJob ? "Overall · this run" : "Overall"}</span>
+        <span className="eyebrow">
+          {compareJob ? t("spark.quality.overallThisRun", "Overall · this run") : t("spark.quality.overall", "Overall")}
+        </span>
         {compareJob ? (
           <div className="big-num">
             {overall == null ? "—" : overall.toFixed(1)}
@@ -277,8 +316,15 @@ function ScoreCard({
         )}
         {delta != null && (
           <div className={`q-delta${delta > 0 ? " is-up" : delta < 0 ? " is-down" : ""}`}>
-            {delta === 0 ? "Same score" : formatDelta(delta)} vs other run
-            {shared && shared.categories < totalCats ? ` · ${shared.categories} shared categor${shared.categories === 1 ? "y" : "ies"}` : ""}
+            {delta === 0 ? t("spark.quality.sameScore", "Same score") : formatDelta(delta)}
+            {t("spark.quality.vsOtherRun", " vs other run")}
+            {shared && shared.categories < totalCats
+              ? t(
+                  "spark.quality.sharedCategories",
+                  " · {count, plural, one {# shared category} other {# shared categories}}",
+                  { count: shared.categories },
+                )
+              : ""}
           </div>
         )}
         {verdict && (
@@ -293,7 +339,10 @@ function ScoreCard({
         )}
         {!compareJob && (
           <span className="q-score__hint">
-            Mean of {Object.keys(job.results.categories ?? {}).length} category scores · {(job.results.items?.length ?? 0).toLocaleString()} items
+            {t("spark.quality.meanOfCategories", "Mean of {count} category scores · {items} items", {
+              count: Object.keys(job.results.categories ?? {}).length,
+              items: (job.results.items?.length ?? 0).toLocaleString(activeLocale()),
+            })}
           </span>
         )}
       </div>
@@ -301,12 +350,12 @@ function ScoreCard({
         <div className="q-runs">
           <div className="q-run q-run--a">
             <i aria-hidden />
-            <span className="q-run__name">A · {shortRunName(job, "this run")}</span>
+            <span className="q-run__name">A · {shortRunName(job, t("spark.quality.thisRun", "this run"))}</span>
             <span className="q-run__val">{pct(job.results.overallPct)}</span>
           </div>
           <div className="q-run q-run--b">
             <i aria-hidden />
-            <span className="q-run__name">B · {shortRunName(compareJob, "other run")}</span>
+            <span className="q-run__name">B · {shortRunName(compareJob, t("spark.quality.otherRun", "other run"))}</span>
             <span className="q-run__val">{pct(compareJob.results?.overallPct)}</span>
           </div>
         </div>
@@ -324,17 +373,18 @@ function CategoryBars({
   compareJob: QualityBenchJob | null;
   compareRows: QualityCompareRow[];
 }) {
+  const { t } = useTranslation();
   const cats = QUALITY_CATEGORIES.filter((c) => job.results.categories?.[c]);
   if (!cats.length) return null;
   const rowByCat = new Map(compareRows.map((r) => [r.category, r]));
   return (
     <div className="q-main">
       <div className="q-main__head">
-        <h3 className="bench-sheet__section-title">Score by category</h3>
+        <h3 className="bench-sheet__section-title">{t("spark.quality.scoreByCategory", "Score by category")}</h3>
         {compareJob && (
           <div className="legend">
-            <span className="q-leg-a">Run A</span>
-            <span className="q-leg-b">Run B</span>
+            <span className="q-leg-a">{t("spark.quality.runA", "Run A")}</span>
+            <span className="q-leg-b">{t("spark.quality.runB", "Run B")}</span>
           </div>
         )}
       </div>
@@ -348,9 +398,12 @@ function CategoryBars({
           return (
             <div key={cat} className="q-cat">
               <div className="q-cat__name">
-                {QUALITY_CATEGORY_LABELS[cat]}
+                {qualityCategoryLabel(cat)}
                 <small>
-                  {s.passed}/{s.scored ?? s.total} items
+                  {t("spark.quality.itemsSuffix", "{passed}/{total} items", {
+                    passed: s.passed,
+                    total: s.scored ?? s.total,
+                  })}
                 </small>
               </div>
               <div className="q-cat__pair">
@@ -375,7 +428,18 @@ function CategoryBars({
               {(cmp || notes) && (
                 <div className="q-cat__note">
                   {cmp
-                    ? `same reply ${cmp.identical}/${cmp.paired} · only this ${cmp.onlyA} · only other ${cmp.onlyB} · p ${formatP(cmp.p)} · ${verdictLine(cmp)}`
+                    ? t(
+                        "spark.quality.compare.categoryNote",
+                        "same reply {identical}/{paired} · only this {onlyA} · only other {onlyB} · p {p} · {verdict}",
+                        {
+                          identical: cmp.identical,
+                          paired: cmp.paired,
+                          onlyA: cmp.onlyA,
+                          onlyB: cmp.onlyB,
+                          p: formatP(cmp.p),
+                          verdict: verdictLine(cmp),
+                        },
+                      )
                     : notes}
                 </div>
               )}
@@ -388,6 +452,7 @@ function CategoryBars({
 }
 
 function DisagreementTable({ job, compareJob }: { job: QualityBenchJob; compareJob: QualityBenchJob }) {
+  const { t } = useTranslation();
   const rows = useMemo(() => disagreements(job, compareJob), [job, compareJob]);
   const paired = useMemo(() => {
     const ok = new Set((compareJob.results?.items ?? []).filter((it) => !it.error).map((it) => it.id));
@@ -399,36 +464,45 @@ function DisagreementTable({ job, compareJob }: { job: QualityBenchJob; compareJ
     <div className="q-disagree">
       <div className="q-main__head">
         <h3 className="bench-sheet__section-title">
-          Items where the runs disagree{" "}
+          {t("spark.quality.compare.disagreeTitle", "Items where the runs disagree")}{" "}
           <span className="q-muted">
-            · {rows.length} of {paired}
+            {t("spark.quality.compare.disagreeOf", "· {count} of {paired}", {
+              count: rows.length,
+              paired,
+            })}
           </span>
         </h3>
         <span className="tag">
-          A only {onlyA} · B only {onlyB}
+          {t("spark.quality.compare.disagreeTag", "A only {onlyA} · B only {onlyB}", { onlyA, onlyB })}
         </span>
       </div>
       {rows.length === 0 ? (
-        <p className="bench-sheet__hint">Both runs passed and failed the same items.</p>
+        <p className="bench-sheet__hint">
+          {t("spark.quality.compare.bothSame", "Both runs passed and failed the same items.")}
+        </p>
       ) : (
         <div className="q-table-wrap">
           <table className="q-table">
             <thead>
               <tr>
-                <th>Item</th>
-                <th>Category</th>
-                <th>Run A</th>
-                <th>Run B</th>
-                <th>Run A detail</th>
+                <th>{t("spark.quality.itemLabel", "Item")}</th>
+                <th>{t("spark.quality.colCategory", "Category")}</th>
+                <th>{t("spark.quality.runAName", "Run A")}</th>
+                <th>{t("spark.quality.runBName", "Run B")}</th>
+                <th>{t("spark.quality.runADetail", "Run A detail")}</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id}>
                   <td className="mono">{r.id}</td>
-                  <td>{QUALITY_CATEGORY_LABELS[r.category]}</td>
-                  <td className={r.okA ? "is-ok" : "is-no"}>{r.okA ? "✓ pass" : "✕ fail"}</td>
-                  <td className={r.okB ? "is-ok" : "is-no"}>{r.okB ? "✓ pass" : "✕ fail"}</td>
+                  <td>{qualityCategoryLabel(r.category)}</td>
+                  <td className={r.okA ? "is-ok" : "is-no"}>
+                    {r.okA ? t("spark.quality.compare.pass", "✓ pass") : t("spark.quality.compare.fail", "✕ fail")}
+                  </td>
+                  <td className={r.okB ? "is-ok" : "is-no"}>
+                    {r.okB ? t("spark.quality.compare.pass", "✓ pass") : t("spark.quality.compare.fail", "✕ fail")}
+                  </td>
                   <td className="q-table__note">{r.note}</td>
                 </tr>
               ))}
@@ -441,6 +515,7 @@ function DisagreementTable({ job, compareJob }: { job: QualityBenchJob; compareJ
 }
 
 function ItemTable({ job }: { job: QualityBenchJob }) {
+  const { t } = useTranslation();
   const [filter, setFilter] = useState<QualityCategory | "all" | "failed">("all");
   const items = job.results.items ?? [];
   const shown = items.filter((it) =>
@@ -450,7 +525,7 @@ function ItemTable({ job }: { job: QualityBenchJob }) {
   return (
     <details className="rounded border border-border">
       <summary className="cursor-pointer select-none px-2 py-1.5 text-xs text-muted hover:text-text">
-        Per-item results ({items.length})
+        {t("spark.quality.perItem", "Per-item results ({count})", { count: items.length })}
       </summary>
       <div className="space-y-2 border-t border-border p-2">
         <div className="flex flex-wrap gap-1">
@@ -466,7 +541,11 @@ function ItemTable({ job }: { job: QualityBenchJob }) {
                   : "border-border text-muted hover:text-text"
               }`}
             >
-              {f === "all" || f === "failed" ? f : QUALITY_CATEGORY_LABELS[f]}
+              {f === "all"
+                ? t("spark.quality.filterAll", "all")
+                : f === "failed"
+                  ? t("spark.quality.filterFailed", "failed")
+                  : qualityCategoryLabel(f)}
             </button>
           ))}
         </div>
@@ -474,9 +553,9 @@ function ItemTable({ job }: { job: QualityBenchJob }) {
           <table className="w-full border-collapse text-[11px]">
             <thead>
               <tr className="text-left text-[10px] uppercase tracking-wide text-muted">
-                <th className="py-1 pr-2 font-medium">Id</th>
-                <th className="py-1 pr-2 font-medium">Ok</th>
-                <th className="py-1 font-medium">Reply</th>
+                <th className="py-1 pr-2 font-medium">{t("spark.quality.colId", "Id")}</th>
+                <th className="py-1 pr-2 font-medium">{t("spark.quality.colOk", "Ok")}</th>
+                <th className="py-1 font-medium">{t("spark.quality.colReply", "Reply")}</th>
               </tr>
             </thead>
             <tbody>
@@ -485,15 +564,18 @@ function ItemTable({ job }: { job: QualityBenchJob }) {
                   <td className="whitespace-nowrap py-1 pr-2 font-tabular text-muted">{it.id}</td>
                   <td
                     className={`py-1 pr-2 font-semibold ${it.ok ? "text-success" : it.error ? "text-muted" : "text-danger"}`}
-                    title={it.error ? "Request error — not scored" : undefined}
+                    title={it.error ? t("spark.quality.requestErrorTitle", "Request error — not scored") : undefined}
                   >
-                    {it.ok ? "✓" : it.error ? "err" : "✗"}
+                    {it.ok ? "✓" : it.error ? t("spark.quality.item.err", "err") : "✗"}
                   </td>
                   <td className="py-1 break-words text-text [overflow-wrap:anywhere]">
-                    {it.error ? <span className="text-danger">{it.error}</span> : it.excerpt}
+                    {it.error ? <span className="text-danger">{localizedServerText(it.error)}</span> : it.excerpt}
                     {(it.detail || it.finishReason === "length") && (
                       <span className="block text-[10px] text-muted">
-                        {[it.detail, it.finishReason === "length" ? "hit max_tokens" : null]
+                        {[
+                          it.detail ? localizedServerText(it.detail) : null,
+                          it.finishReason === "length" ? t("spark.quality.item.hitMaxTokens", "hit max_tokens") : null,
+                        ]
                           .filter(Boolean)
                           .join(" · ")}
                       </span>
@@ -523,6 +605,8 @@ export function QualityBenchDialog({
   posture = null,
   onSwitchBench,
 }: QualityBenchDialogProps) {
+  const { t } = useTranslation();
+  const categoryInfo = qualityCategoryInfo(t);
   const isPage = variant === "page";
   const open = isPage || openProp;
   const [categories, setCategories] = useState<QualityCategory[]>([...QUALITY_DEFAULT_CATEGORIES]);
@@ -604,7 +688,10 @@ export function QualityBenchDialog({
                 }
                 setError(
                   err.message === "Benchmark not found"
-                    ? "Benchmark interrupted — server restarted during the run"
+                    ? i18next.t(
+                        "spark.benchDialog.interrupted",
+                        "Benchmark interrupted — server restarted during the run",
+                      )
                     : err.message
                 );
                 stopPoll();
@@ -711,7 +798,7 @@ export function QualityBenchDialog({
   // Page only: a run started from the Spark page's dialog (or another tab) shows up here too.
   useEffect(() => {
     if (!isPage) return;
-    const t = setInterval(() => {
+    const poll = setInterval(() => {
       if (pollRef.current != null || startLockRef.current || document.hidden) return;
       void listQualityBench(sparkId, benchPort)
         .then((data) => {
@@ -726,14 +813,14 @@ export function QualityBenchDialog({
           /* next tick */
         });
     }, 5000);
-    return () => clearInterval(t);
+    return () => clearInterval(poll);
   }, [isPage, sparkId, benchPort, startPolling]);
 
   const handleStart = async () => {
     if (startLockRef.current) return;
     const sizes = longSizes.filter(sizeFits);
     if (categories.includes("long") && sizes.length === 0) {
-      setError("Select at least one long-context size that fits this model");
+      setError(t("spark.quality.errNoLongSize", "Select at least one long-context size that fits this model"));
       return;
     }
     const conc = Math.min(QUALITY_MAX_CONCURRENCY, Math.max(1, parseInt(concurrency, 10) || 1));
@@ -821,11 +908,11 @@ export function QualityBenchDialog({
 
   const runControl = isRunning ? (
     <button type="button" className="btn" onClick={() => void handleCancel()}>
-      Cancel run
+      {t("spark.benchDialog.cancelRun", "Cancel run")}
     </button>
   ) : (
     <button type="button" className="btn btn--primary" onClick={() => void handleStart()} disabled={starting || categories.length === 0}>
-      {starting ? "Starting…" : "Run quality bench"}
+      {starting ? t("spark.benchDialog.starting", "Starting…") : t("spark.quality.runBench", "Run quality bench")}
     </button>
   );
 
@@ -836,15 +923,15 @@ export function QualityBenchDialog({
               <div className="bench-field">
                 <div className="bench-field__head">
                   <div className="qsel-head">
-                    <h3 className="bench-sheet__section-title">Categories</h3>
-                    <div className="qsel-bulk" role="group" aria-label="Select categories">
+                    <h3 className="bench-sheet__section-title">{t("spark.quality.categories", "Categories")}</h3>
+                    <div className="qsel-bulk" role="group" aria-label={t("spark.quality.selectCategoriesAria", "Select categories")}>
                       <button
                         type="button"
                         className="qsel-bulk__btn"
                         disabled={starting || isRunning}
                         onClick={() => setCategories([...QUALITY_DEFAULT_CATEGORIES])}
                       >
-                        Defaults
+                        {t("spark.quality.defaults", "Defaults")}
                       </button>
                       <button
                         type="button"
@@ -852,15 +939,18 @@ export function QualityBenchDialog({
                         disabled={starting || isRunning}
                         onClick={() => setCategories([...QUALITY_CATEGORIES])}
                       >
-                        Select all
+                        {t("spark.quality.selectAll", "Select all")}
                       </button>
                     </div>
                   </div>
                   <p className="bench-sheet__hint">
-                    Fixed, seeded suite at temperature 0 — the same items every run, so runs pair item by item.
+                    {t(
+                      "spark.quality.suiteHint",
+                      "Fixed, seeded suite at temperature 0 — the same items every run, so runs pair item by item.",
+                    )}
                   </p>
                 </div>
-                <div className="qsel" role="group" aria-label="Categories">
+                <div className="qsel" role="group" aria-label={t("spark.quality.categoriesAria", "Categories")}>
                   {QUALITY_CATEGORIES.map((c) => {
                     const on = categories.includes(c);
                     const items = c === "long" ? longSizes.length * (Number(longItems) || 0) : CATEGORY_ITEMS[c];
@@ -879,13 +969,15 @@ export function QualityBenchDialog({
                           </span>
                           <span className="qsel-card__body">
                             <span className="qsel-card__name">
-                              {QUALITY_CATEGORY_LABELS[c]}
-                              {!QUALITY_DEFAULT_CATEGORIES.includes(c) ? <em>optional</em> : null}
+                              {qualityCategoryLabel(c)}
+                              {!QUALITY_DEFAULT_CATEGORIES.includes(c) ? <em>{t("spark.quality.optional", "optional")}</em> : null}
                             </span>
-                            <span className="qsel-card__hint">{CATEGORY_HINTS[c]}</span>
+                            <span className="qsel-card__hint">{categoryHint(c, t)}</span>
                             <span className="qsel-card__meta">
-                              {c === "long" ? `${Number(longItems) || 0} per size` : `${items} items`}
-                              {THINKING_CATEGORIES.includes(c) ? <small>thinking on</small> : null}
+                              {c === "long"
+                                ? t("spark.quality.perSize", "{count} per size", { count: Number(longItems) || 0 })
+                                : t("spark.quality.items", "{count} items", { count: items })}
+                              {THINKING_CATEGORIES.includes(c) ? <small>{t("spark.quality.thinkingOn", "thinking on")}</small> : null}
                             </span>
                           </span>
                         </button>
@@ -896,40 +988,52 @@ export function QualityBenchDialog({
                           aria-controls="q-info-panel"
                           onClick={() => setInfoFor(infoOpen ? null : c)}
                         >
-                          {infoOpen ? "Hide details" : "How it works"}
+                          {infoOpen ? t("spark.quality.hideDetails", "Hide details") : t("spark.quality.howItWorks", "How it works")}
                         </button>
                       </div>
                     );
                   })}
                 </div>
                 {infoFor ? (
-                  <div className="q-info" id="q-info-panel" ref={infoRef} role="region" aria-label={`How ${QUALITY_CATEGORY_LABELS[infoFor]} works`}>
+                  <div
+                    className="q-info"
+                    id="q-info-panel"
+                    ref={infoRef}
+                    role="region"
+                    aria-label={t("spark.quality.howWorksAria", "How {label} works", {
+                      label: qualityCategoryLabel(infoFor),
+                    })}
+                  >
                     <div className="q-info__head">
-                      <b>{QUALITY_CATEGORY_LABELS[infoFor]}: how it works</b>
+                      <b>
+                        {t("spark.quality.howWorksTitle", "{label}: how it works", {
+                          label: qualityCategoryLabel(infoFor),
+                        })}
+                      </b>
                       <button type="button" className="btn btn--sm btn--ghost" onClick={() => setInfoFor(null)}>
-                        Close
+                        {t("common.action.close", "Close")}
                       </button>
                     </div>
                     <dl className="q-info__grid">
                       <div>
-                        <dt>What it measures</dt>
-                        <dd>{QUALITY_CATEGORY_INFO[infoFor].measures}</dd>
+                        <dt>{t("spark.quality.whatItMeasures", "What it measures")}</dt>
+                        <dd>{categoryInfo[infoFor].measures}</dd>
                       </div>
                       <div>
-                        <dt>What it sends</dt>
-                        <dd>{QUALITY_CATEGORY_INFO[infoFor].how}</dd>
+                        <dt>{t("spark.quality.whatItSends", "What it sends")}</dt>
+                        <dd>{categoryInfo[infoFor].how}</dd>
                       </div>
                       <div>
-                        <dt>How it is scored</dt>
-                        <dd>{QUALITY_CATEGORY_INFO[infoFor].scoring}</dd>
+                        <dt>{t("spark.quality.howItIsScored", "How it is scored")}</dt>
+                        <dd>{categoryInfo[infoFor].scoring}</dd>
                       </div>
                       <div>
-                        <dt>Settings and cost</dt>
-                        <dd>{QUALITY_CATEGORY_INFO[infoFor].settings}</dd>
+                        <dt>{t("spark.quality.settingsAndCost", "Settings and cost")}</dt>
+                        <dd>{categoryInfo[infoFor].settings}</dd>
                       </div>
                       <div className="q-info__wide">
-                        <dt>Example (the shape of the real prompts)</dt>
-                        <dd className="q-info__example">{QUALITY_CATEGORY_INFO[infoFor].example}</dd>
+                        <dt>{t("spark.quality.example", "Example (the shape of the real prompts)")}</dt>
+                        <dd className="q-info__example">{categoryInfo[infoFor].example}</dd>
                       </div>
                     </dl>
                   </div>
@@ -939,14 +1043,16 @@ export function QualityBenchDialog({
               {categories.includes("long") && (
                 <div className="bench-field">
                   <div className="bench-field__head">
-                    <h3 className="bench-sheet__section-title">Long-context sizes</h3>
+                    <h3 className="bench-sheet__section-title">{t("spark.quality.longSizes", "Long-context sizes")}</h3>
                     <p className="bench-sheet__hint">
                       {contextLength != null && contextLength > 0
-                        ? `Model context ${formatContextSize(contextLength)} — larger sizes are disabled.`
-                        : "Large sizes can take many minutes per item."}
+                        ? t("spark.quality.longSizesFit", "Model context {context} — larger sizes are disabled.", {
+                            context: formatContextSize(contextLength),
+                          })
+                        : t("spark.quality.longSizesSlow", "Large sizes can take many minutes per item.")}
                     </p>
                   </div>
-                  <div className="bench-conc-grid" role="group" aria-label="Long-context sizes">
+                  <div className="bench-conc-grid" role="group" aria-label={t("spark.quality.longSizesAria", "Long-context sizes")}>
                     {QUALITY_LONG_SIZES.map((n: number) => (
                       <button
                         key={n}
@@ -961,7 +1067,7 @@ export function QualityBenchDialog({
                     ))}
                   </div>
                   <label className="flex items-center gap-2 text-xs text-muted">
-                    Items per size
+                    {t("spark.quality.itemsPerSize", "Items per size")}
                     <input
                       type="number"
                       min={1}
@@ -978,17 +1084,21 @@ export function QualityBenchDialog({
 
               <div className="qrun">
                 <div className="qrun__sum">
-                  <b>{categories.length} selected</b>
+                  <b>{t("spark.quality.selectedCount", "{count} selected", { count: categories.length })}</b>
                   <span>
-                    about{" "}
-                    {categories
-                      .reduce((n, c) => n + (c === "long" ? longSizes.length * (Number(longItems) || 0) : (CATEGORY_ITEMS[c] ?? 0)), 0)
-                      .toLocaleString()}{" "}
-                    requests
+                    {t("spark.quality.aboutRequests", "about {total} requests", {
+                      total: categories
+                        .reduce(
+                          (n, c) =>
+                            n + (c === "long" ? longSizes.length * (Number(longItems) || 0) : CATEGORY_ITEMS[c] ?? 0),
+                          0,
+                        )
+                        .toLocaleString(activeLocale()),
+                    })}
                   </span>
                 </div>
                 <label className="qrun__field">
-                  <span>Concurrency</span>
+                  <span>{t("spark.quality.concurrency", "Concurrency")}</span>
                   <input
                     type="number"
                     min={1}
@@ -998,17 +1108,17 @@ export function QualityBenchDialog({
                     disabled={starting || isRunning}
                     onChange={(e) => setConcurrency(e.target.value)}
                     className="bench-input"
-                    title="How many questions are sent to the model at the same time"
+                    title={t("spark.quality.concurrencyTitle", "How many questions are sent to the model at the same time")}
                   />
                 </label>
                 <label className="qrun__field qrun__field--grow">
-                  <span>Run label</span>
+                  <span>{t("spark.quality.runLabel", "Run label")}</span>
                   <input
                     type="text"
                     value={label}
                     maxLength={QUALITY_LABEL_MAX}
                     disabled={starting || isRunning}
-                    placeholder="e.g. fp4 KV"
+                    placeholder={t("spark.quality.runLabelPlaceholder", "e.g. fp4 KV")}
                     onChange={(e) => setLabel(e.target.value)}
                     className="bench-input bench-input--wide"
                   />
@@ -1027,9 +1137,9 @@ export function QualityBenchDialog({
               <div className="bench-progress">
                 <div className="bench-progress__row">
                   <span className="bench-progress__status" role="status" aria-live="polite">
-                    Running
+                    {t("spark.benchDialog.running", "Running")}
                     {job.progress.currentCategory
-                      ? ` · ${QUALITY_CATEGORY_LABELS[job.progress.currentCategory]} ${job.progress.categoryDone}/${job.progress.categoryTotal}`
+                      ? ` · ${qualityCategoryLabel(job.progress.currentCategory)} ${job.progress.categoryDone}/${job.progress.categoryTotal}`
                       : ""}
                   </span>
                   <span className="bench-progress__meta">
@@ -1039,15 +1149,18 @@ export function QualityBenchDialog({
                 <div
                   className="bench-progress__track"
                   role="progressbar"
-                  aria-label="Quality benchmark progress"
+                  aria-label={t("spark.quality.progressAria", "Quality benchmark progress")}
                   aria-valuemin={0}
                   aria-valuemax={100}
                   aria-valuenow={Math.min(100, progressPct)}
-                  aria-valuetext={`${job.progress.done} of ${job.progress.total || "?"} items`}
+                  aria-valuetext={t("spark.quality.progressItems", "{done} of {total} items", {
+                    done: job.progress.done,
+                    total: job.progress.total || "?",
+                  })}
                 >
                   <div className="bench-progress__fill" style={{ width: `${Math.min(100, progressPct)}%` }} />
                 </div>
-                {job.progress.message ? <p className="bench-sheet__hint">{job.progress.message}</p> : null}
+                {job.progress.message ? <p className="bench-sheet__hint">{localizedServerMessage(job.progress.i18n?.message, job.progress.message)}</p> : null}
               </div>
               <CategoryTable job={job} />
             </section>
@@ -1064,17 +1177,17 @@ export function QualityBenchDialog({
                   {statusLabel(job.status)}
                 </span>
                 <span className="bench-status-meta">
-                  {new Date(job.startedAt).toLocaleString()} · {formatDuration(job.durationMs)}
+                  {new Date(job.startedAt).toLocaleString(activeLocale())} · {formatDuration(job.durationMs)}
                 </span>
               </div>
 
-              {job.error && <p className="bench-sheet__error">{job.error}</p>}
+              {job.error && <p className="bench-sheet__error">{localizedServerText(job.error)}</p>}
 
               {hasItems && compareChoices.length > 0 && (
                 <label className="q-pick">
-                  <span>Compare with</span>
+                  <span>{t("spark.quality.compareWith", "Compare with")}</span>
                   <select value={compareId} onChange={(e) => setCompareId(e.target.value)}>
-                    <option value="">— pick a previous run —</option>
+                    <option value="">{t("spark.quality.pickRun", "— pick a previous run —")}</option>
                     {compareChoices.map((h) => (
                       <option key={h.benchId} value={h.benchId}>
                         {runLabel(h)}
@@ -1094,7 +1207,9 @@ export function QualityBenchDialog({
                     </div>
                     {cmp && !comparable.ok && <p className="bench-sheet__error">{comparable.reason}</p>}
                     {cmp && comparable.ok && compareRows.length === 0 && (
-                      <p className="bench-sheet__hint">No shared items between these runs.</p>
+                      <p className="bench-sheet__hint">
+                        {t("spark.quality.noSharedItems", "No shared items between these runs.")}
+                      </p>
                     )}
                     {cmp && compareRows.length > 0 && <DisagreementTable job={job} compareJob={cmp} />}
                   </>
@@ -1103,17 +1218,22 @@ export function QualityBenchDialog({
 
               {job.results.skippedLongSizes?.length > 0 && (
                 <p className="bench-sheet__hint">
-                  Skipped long sizes above the model context:{" "}
-                  {job.results.skippedLongSizes.map(formatContextSize).join(", ")}
+                  {t("spark.quality.skippedLongSizes", "Skipped long sizes above the model context: {sizes}", {
+                    sizes: job.results.skippedLongSizes.map(formatContextSize).join(", "),
+                  })}
                 </p>
               )}
 
               {hasItems && <ItemTable job={job} />}
 
               <p className="bench-legend">
-                <strong>Score</strong> — items passed. <strong>p</strong> — exact McNemar test on items only one
-                run got right; p ≥ 0.05 means the difference is within noise. Items with a request error or timeout
-                are not scored and are left out of the comparison.
+                <strong>{t("spark.quality.legendScore", "Score")}</strong>
+                {t("spark.quality.legendScored", " — items passed. ")}
+                <strong>{t("spark.quality.legendP", "p")}</strong>
+                {t(
+                  "spark.quality.legendPNote",
+                  " — exact McNemar test on items only one run got right; p ≥ 0.05 means the difference is within noise. Items with a request error or timeout are not scored and are left out of the comparison.",
+                )}
               </p>
             </section>
           )}
@@ -1146,17 +1266,19 @@ export function QualityBenchDialog({
         stacked
         config={
           <>
-            {loadingLast && !job && <p className="bench-sheet__hint">Loading last results…</p>}
+            {loadingLast && !job && (
+              <p className="bench-sheet__hint">{t("spark.benchDialog.loadingLast", "Loading last results…")}</p>
+            )}
             {configNode}
           </>
         }
         runBar={null}
       >
-        {error && <p className="bench-sheet__error">{error}</p>}
-        {isRunning && <PageCard title="Progress">{progressNode}</PageCard>}
+        {error && <p className="bench-sheet__error">{localizedServerText(error)}</p>}
+        {isRunning && <PageCard title={t("spark.benchDialog.progress", "Progress")}>{progressNode}</PageCard>}
         {showResults && (
           <PageCard
-            title="Results"
+            title={t("spark.benchDialog.results", "Results")}
             tools={
               <>
                 {copyButton}
@@ -1164,9 +1286,9 @@ export function QualityBenchDialog({
                   type="button"
                   className="btn btn--sm btn--ghost"
                   onClick={() => void handleClear()}
-                  title="Clear saved quality runs for this port"
+                  title={t("spark.quality.clearSavedTitle", "Clear saved quality runs for this port")}
                 >
-                  Clear history
+                  {t("spark.benchDialog.clearHistory", "Clear history")}
                 </button>
               </>
             }
@@ -1175,17 +1297,21 @@ export function QualityBenchDialog({
           </PageCard>
         )}
         {!job && !loadingLast && (
-          <PageEmpty title="No runs yet">
-            Pick the categories to score, give the run a label (for example the quantisation or KV-cache format) and
-            run. The suite is fixed and seeded, so any two runs can be compared item by item.
+          <PageEmpty title={t("spark.benchDialog.noRunsYet", "No runs yet")}>
+            {t(
+              "spark.quality.emptyBody",
+              "Pick the categories to score, give the run a label (for example the quantisation or KV-cache format) and run. The suite is fixed and seeded, so any two runs can be compared item by item.",
+            )}
           </PageEmpty>
         )}
         {history.length > 0 && (
-          <PageCard title={`History · ${history.length}`}>
+          <PageCard
+            title={t("spark.benchDialog.history", "History · {count}", { count: history.length })}
+          >
             <HistoryTable
               rows={history.map(qualityHistoryRow)}
               activeId={job?.benchId ?? null}
-              labelHeader="Label"
+              labelHeader={t("spark.quality.labelHeader", "Label")}
               onView={handleView}
               onCompare={showResults && hasItems ? setCompareId : undefined}
               compareId={compareId}
@@ -1202,7 +1328,7 @@ export function QualityBenchDialog({
       <button
         type="button"
         className="bench-overlay__scrim"
-        aria-label="Close dialog"
+        aria-label={t("spark.benchDialog.closeDialog", "Close dialog")}
         onClick={() => {
           if (!isRunning) onClose();
         }}
@@ -1212,26 +1338,35 @@ export function QualityBenchDialog({
         <header className="bench-sheet__header">
           <div className="bench-sheet__header-text">
             <h2 id="quality-bench-title" className="bench-sheet__title">
-              Quality benchmark
+              {t("spark.quality.title", "Quality benchmark")}
             </h2>
             <p className="bench-sheet__subtitle">
-              {remoteTarget ? formatLlmBaseUrl(remoteTarget) : `Port ${llmPort}`}
+              {remoteTarget
+                ? formatLlmBaseUrl(remoteTarget)
+                : t("spark.benchDialog.port", "Port {port}", { port: llmPort })}
               {(job?.config.modelId || modelId) ? ` · ${job?.config.modelId || modelId}` : ""}
               {job?.config.label ? ` · ${job.config.label}` : ""}
             </p>
           </div>
           <BenchSwitcher active="quality" onSwitch={onSwitchBench} disabled={isRunning || starting} />
-          <button type="button" className="bench-sheet__close" onClick={onClose} aria-label="Close">
+          <button
+            type="button"
+            className="bench-sheet__close"
+            onClick={onClose}
+            aria-label={t("common.action.close", "Close")}
+          >
             <XIcon className="h-4 w-4" />
           </button>
         </header>
 
         <div className="bench-sheet__body">
-          {loadingLast && !job && <p className="bench-sheet__hint">Loading last results…</p>}
+          {loadingLast && !job && (
+            <p className="bench-sheet__hint">{t("spark.benchDialog.loadingLast", "Loading last results…")}</p>
+          )}
 
           {configNode}
 
-          {error && <p className="bench-sheet__error">{error}</p>}
+          {error && <p className="bench-sheet__error">{localizedServerText(error)}</p>}
 
           {progressNode}
 
@@ -1241,7 +1376,7 @@ export function QualityBenchDialog({
         <footer className="bench-sheet__footer">
           {job?.status === "running" ? (
             <button type="button" className="bench-btn bench-btn--ghost" onClick={() => void handleCancel()}>
-              Cancel
+              {t("common.action.cancel", "Cancel")}
             </button>
           ) : job ? (
             <>
@@ -1249,9 +1384,9 @@ export function QualityBenchDialog({
                 type="button"
                 className="bench-btn bench-btn--ghost"
                 onClick={() => void handleClear()}
-                title="Clear saved quality runs for this port"
+                title={t("spark.quality.clearSavedTitle", "Clear saved quality runs for this port")}
               >
-                Clear
+                {t("spark.benchDialog.clear", "Clear")}
               </button>
               {hasItems && (
                 <BenchCopyButton
@@ -1272,16 +1407,16 @@ export function QualityBenchDialog({
                 />
               )}
               <button type="button" className="bench-btn bench-btn--ghost" onClick={onClose}>
-                Done
+                {t("common.action.done", "Done")}
               </button>
               <button type="button" className="bench-btn bench-btn--primary" onClick={handleNewRun}>
-                Run again
+                {t("spark.benchDialog.runAgain", "Run again")}
               </button>
             </>
           ) : (
             <>
               <button type="button" className="bench-btn bench-btn--ghost" onClick={onClose}>
-                Close
+                {t("common.action.close", "Close")}
               </button>
               <button
                 type="button"
@@ -1289,7 +1424,9 @@ export function QualityBenchDialog({
                 onClick={() => void handleStart()}
                 disabled={starting || categories.length === 0}
               >
-                {starting ? "Starting…" : "Run quality bench"}
+                {starting
+                  ? t("spark.benchDialog.starting", "Starting…")
+                  : t("spark.quality.runBench", "Run quality bench")}
               </button>
             </>
           )}

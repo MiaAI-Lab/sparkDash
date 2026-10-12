@@ -1,5 +1,6 @@
 import type { SparkSnapshot } from "../../api/types";
 import { isWorkerSpark } from "../../api/sparkRole";
+import { i18next } from "@/i18n";
 
 /** Live decode tok/s of the first reachable LLM on a Spark, or null. */
 export function primaryDecodeTps(spark: SparkSnapshot): number | null {
@@ -9,10 +10,10 @@ export function primaryDecodeTps(spark: SparkSnapshot): number | null {
 
 /** Short label for the rail: tok/s when an LLM is live, otherwise a status word. */
 export function railSubLabel(spark: SparkSnapshot): string {
-  if (!spark.online) return "off";
+  if (!spark.online) return i18next.t("shell.state.off", "off");
   const tps = primaryDecodeTps(spark);
   if (tps != null) return tps >= 100 ? tps.toFixed(0) : tps.toFixed(1);
-  return isWorkerSpark(spark) ? "worker" : "—";
+  return isWorkerSpark(spark) ? i18next.t("shell.state.worker", "worker") : "—";
 }
 
 export function isThrottling(spark: SparkSnapshot): boolean {

@@ -1,4 +1,11 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+
+// Compile lazy dependencies during suite setup. Each beacon case still resets
+// the module below so token initialization is tested against that case's storage.
+beforeAll(async () => {
+  await import("./client");
+  await import("./llmTokenClient");
+});
 
 // client.ts reads the token when the module loads, so each case stores (or
 // clears) it first and imports a fresh copy of the module.
@@ -46,5 +53,19 @@ describe("cancelShowcaseBeacon", () => {
 
     expect(() => cancelShowcaseBeacon("spark-1", "abc")).not.toThrow();
     await Promise.resolve();
+  });
+});
+
+describe("localized API errors", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it("retains HTTP status, original diagnostics and per-field metadata in both API clients", async () => {
+    const message = "ssh failed\nlast diagnostic line\n";
+    const i18n = { error: { key: "server.error.unexpected", params: { detail: message } } };
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ error: message, i18n }), { status: 503, headers: { "Content-Type": "application/json" } }))));
+    const { fetchSparks, fetchToolEvalSpec } = await import("./client");
+    const { fetchLlmTokenTotals } = await import("./llmTokenClient");
+    await expect(fetchSparks()).rejects.toMatchObject({ message, status: 503, i18n });
+    await expect(fetchLlmTokenTotals()).rejects.toMatchObject({ message, status: 503, i18n });
+    await expect(fetchToolEvalSpec()).rejects.toMatchObject({ message, status: 503, i18n, errors: [], active: null });
   });
 });

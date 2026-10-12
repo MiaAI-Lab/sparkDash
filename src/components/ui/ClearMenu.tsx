@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { localizedServerText } from "../../i18n/messages";
 import "../../styles/clearmenu.css";
 
 export interface ClearChoice<T = number | string | undefined> {
@@ -24,10 +26,12 @@ export function ClearMenu<T>({
   disabled?: boolean;
   note?: string;
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [pick, setPick] = useState<ClearChoice<T> | null>(null);
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [msg, setMsg] = useState<{ ok: boolean; removed?: number; text?: string } | null>(null);
+  const selected = pick ? choices.find((choice) => choice.id === pick.id) ?? pick : null;
   const root = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
@@ -63,16 +67,17 @@ export function ClearMenu<T>({
     setBusy(true);
     try {
       const n = await onRun(pick.arg);
-      setMsg({ ok: true, text: n === 0 ? "Nothing to delete" : `Deleted ${n} event${n === 1 ? "" : "s"}` });
+      setMsg({ ok: true, removed: n });
       setOpen(false);
       setPick(null);
     } catch (err) {
-      setMsg({ ok: false, text: err instanceof Error ? err.message : "Could not delete" });
+      setMsg({ ok: false, text: err instanceof Error ? err.message : undefined });
     } finally {
       setBusy(false);
     }
   };
 
+  const noteText = note === "This can't be undone." ? t("ui.clearMenu.undo", "This can't be undone.") : note;
   return (
     <span className="ac-clear" ref={root}>
       <button
@@ -92,14 +97,14 @@ export function ClearMenu<T>({
         <div className="ac-clear__menu" role="menu">
           {pick ? (
             <div className="ac-clear__confirm">
-              <p>{pick.ask}</p>
-              <p className="ac-clear__note">{note}</p>
+              <p>{selected?.ask}</p>
+              <p className="ac-clear__note">{noteText}</p>
               <div className="ac-clear__row">
                 <button type="button" className="btn btn--sm" onClick={() => setPick(null)} disabled={busy}>
-                  Cancel
+                  {t("ui.clearMenu.cancel", "Cancel")}
                 </button>
                 <button type="button" className="btn btn--sm btn--danger" onClick={() => void run()} disabled={busy}>
-                  {busy ? "Deleting…" : "Delete"}
+                  {busy ? t("ui.clearMenu.deleting", "Deleting…") : t("ui.clearMenu.delete", "Delete")}
                 </button>
               </div>
             </div>
@@ -113,7 +118,7 @@ export function ClearMenu<T>({
         </div>
       ) : null}
       <span className={`ac-toast${msg ? (msg.ok ? " is-ok" : " is-err") : ""}`} role="status" aria-live="polite">
-        {msg?.text}
+        {msg ? msg.ok ? msg.removed === 0 ? t("ui.clearMenu.nothing", "Nothing to delete") : msg.removed === 1 ? t("ui.clearMenu.deletedOne", "Deleted {count} event", { count: msg.removed }) : t("ui.clearMenu.deletedOther", "Deleted {count} events", { count: msg.removed }) : msg.text ? localizedServerText(msg.text) : t("ui.clearMenu.failed", "Could not delete") : null}
       </span>
     </span>
   );

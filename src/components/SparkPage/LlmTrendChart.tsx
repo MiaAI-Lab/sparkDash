@@ -1,4 +1,6 @@
 import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
+import { i18next } from "../../i18n";
 import { HISTORY_MAX, useMetricsHistory, useTimedMetricsHistory, avgPositive } from "../../hooks/metricsStore";
 import type { TimedSample } from "../../hooks/ringBuffer";
 
@@ -59,7 +61,11 @@ function fmtSpan(seconds: number): string {
 }
 
 function historyLabel(): string {
-  return `last 30m · averages since page opened (up to ${fmtSpan(HISTORY_MAX * 2)})`;
+  return i18next.t(
+    "spark.llmTrend.history",
+    "last 30m · averages since page opened (up to {span})",
+    { span: fmtSpan(HISTORY_MAX * 2) },
+  );
 }
 
 /** Newest DISPLAY_WINDOW samples — the slice the chart draws. */
@@ -86,6 +92,7 @@ export function LlmTrendChart({
   sparkId: string;
   llmPort: number;
 }) {
+  const { t } = useTranslation();
   const gen = useMetricsHistory(sparkId, `llm:${llmPort}.tps`);
   const prefill = useMetricsHistory(sparkId, `llm:${llmPort}.prefill`);
   const ttft = useMetricsHistory(sparkId, `llm:${llmPort}.ttft`);
@@ -113,18 +120,18 @@ export function LlmTrendChart({
   return (
     <div className="sp-section">
       <div className="sp-section__head">
-        <span className="eyebrow">tok/s history</span>
+        <span className="eyebrow">{t("spark.llmTrend.title", "tok/s history")}</span>
         <span className="sp-muted">{historyLabel()}</span>
       </div>
       {!hasData ? (
-        <p className="sp-muted">No samples yet.</p>
+        <p className="sp-muted">{t("spark.llmTrend.empty", "No samples yet.")}</p>
       ) : (
         <svg
           viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
           preserveAspectRatio="none"
           className="sp-trend-svg"
           role="img"
-          aria-label="Generation and prefill tokens per second over the last 30 minutes"
+          aria-label={t("spark.llmTrend.aria", "Generation and prefill tokens per second over the last 30 minutes")}
         >
           {prefillPts.map((points, index) => (
             <g key={`prefill-${index}`}>
@@ -158,20 +165,20 @@ export function LlmTrendChart({
       )}
       <div className="sp-trend-foot">
         <span>
-          Gen avg{" "}
+          {t("spark.llmTrend.genAvg", "Gen avg")}{" "}
           <span className="mono text-accent">{fmt(genAvg)}</span>
         </span>
         <span>
-          Prefill avg{" "}
+          {t("spark.llmTrend.prefillAvg", "Prefill avg")}{" "}
           <span className="mono text-text">{fmt(prefillAvg)}</span>
         </span>
         <span>
-          TTFT avg{" "}
+          {t("spark.llmTrend.ttftAvg", "TTFT avg")}{" "}
           <span className="mono">
             {ttftAvg != null ? `${ttftAvg.toFixed(3)}s` : "—"}
           </span>
         </span>
-        <span>avg over busy samples only</span>
+        <span>{t("spark.llmTrend.busyNote", "avg over busy samples only")}</span>
       </div>
     </div>
   );

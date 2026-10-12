@@ -1,0 +1,95 @@
+{
+  "brand": {
+    "overviewAria": "sparkDash 总览"
+  },
+  "nav": {
+    "fleetAria": "设备导航",
+    "primary": "主导航",
+    "overview": "总览",
+    "sparks": "Spark 设备",
+    "stats": "统计",
+    "chooseSpark": "选择 Spark",
+    "workspace": "工作区",
+    "tokens": "Token 统计",
+    "energy": "能耗",
+    "activity": "动态",
+    "showcase": "演示",
+    "benchmarks": "基准测试",
+    "settings": "设置",
+    "fleet": "设备",
+    "addSpark": "添加 Spark / GPU 主机",
+    "addSparkAria": "添加 Spark 或 GPU 主机"
+  },
+  "app": {
+    "hideSidebar": "隐藏侧边栏",
+    "hideSidebarTitle": "隐藏侧边栏（Ctrl+B）",
+    "showSidebar": "显示侧边栏",
+    "showSidebarTitle": "显示侧边栏（Ctrl+B）",
+    "openPaletteAria": "打开命令面板",
+    "jumpTo": "跳转…"
+  },
+  "state": {
+    "off": "离线",
+    "worker": "工作节点"
+  },
+  "spark": {
+    "dragTitle": "{name}{status, select, online {} other {（离线）}}，拖动可排序（键盘：M）",
+    "dragInstructions": "按 Enter 打开此 Spark；要排序请按 M，用方向键移动，再按 Enter 放下，或按 Escape 取消"
+  },
+  "empty": {
+    "noSparksYet": "还没有 Spark，点击 + 添加。"
+  },
+  "live": {
+    "now": "实时",
+    "poll": "实时 · {interval} 秒轮询",
+    "reconnecting": "正在重连…"
+  },
+  "credit": {
+    "by": "来自 Mia's AI Lab",
+    "website": "Mia's AI Lab 官网",
+    "github": "sparkDash 的 GitHub 仓库",
+    "x": "Mia's AI Lab 在 X"
+  },
+  "palette": {
+    "aria": "命令面板",
+    "placeholder": "跳转到 Spark、执行操作、打开设置…",
+    "searchAria": "搜索命令",
+    "listAria": "命令",
+    "noMatch": "未找到与“{query}”匹配的结果",
+    "footMove": "↑↓ 浏览",
+    "footOpen": "↵ 打开",
+    "footClose": "Esc 关闭",
+    "goTo": "前往",
+    "actions": "操作",
+    "hintFleet": "设备",
+    "hintPage": "页面",
+    "hintOnline": "在线",
+    "hintOffline": "离线",
+    "hintThemes": "白色 · 浅色 · 深色 · OLED",
+    "bench": "{label} 基准测试",
+    "addSpark": "添加 Spark 或 GPU 主机",
+    "openShowcase": "在新窗口为 {name} 打开演示",
+    "editSpark": "编辑 {name}",
+    "switchTheme": "切换主题",
+    "sidebar": "显示或隐藏侧边栏",
+    "settings": "打开设置"
+  },
+  "theme": {
+    "title": "主题：{theme}",
+    "aria": "切换主题（当前为 {theme}）"
+  },
+  "openAccess": {
+    "chip": "开放访问",
+    "explanation": "此仪表盘可在你的网络中无需令牌直接访问，因此网络中的任何人都能更改设置。请在服务器上设置 SPARKDASH_TOKEN 以要求提供令牌。",
+    "dontShowAgain": "不再显示"
+  },
+  "pwa": {
+    "dialogAria": "安装 sparkDash",
+    "title": "安装 sparkDash",
+    "desc": "添加到主屏幕，获得全屏且沉浸的应用级仪表盘体验。",
+    "install": "安装",
+    "iosTitle": "在 iPhone 上安装 sparkDash",
+    "iosDesc": "在 Safari 中轻点“分享”图标 ⬆︎，然后选择“添加到主屏幕”。",
+    "dismiss": "关闭"
+  }
+}

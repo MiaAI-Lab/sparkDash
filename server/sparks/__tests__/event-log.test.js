@@ -43,6 +43,13 @@ test("dedupes same type+spark within 5s only", () => {
   assert.ok(log.record(ev("x")));
 });
 
+test("adds optional localization metadata without changing the English event", () => {
+  const log = new EventLog({ now: () => 1 });
+  const event = log.record({ type: "spark.online", sparkId: "s1", sparkName: "Spark 1", message: "Spark 1 came online" });
+  assert.equal(event.message, "Spark 1 came online");
+  assert.deepEqual(event.i18n, { message: { key: "activity.message.sparkOnline", params: { name: "Spark 1" } } });
+});
+
 test("a real offline -> online -> offline flip inside 5s is not deduped", () => {
   const c = clock();
   const log = new EventLog({ now: c.now });
@@ -69,6 +76,33 @@ test("persists, restores ids across restart, and tolerates corrupt files", () =>
   fs.writeFileSync(file, "{not json");
   assert.deepEqual(new EventLog({ file }).list(), []);
   assert.deepEqual(new EventLog({ file: path.join(path.dirname(file), "missing.json") }).list(), []);
+});
+
+test("persists raw events and projects both new and legacy descriptors at the read boundary", () => {
+  const file = tmp();
+  const log = new EventLog({ file });
+  assert.equal(log.record({ type: "spark.online", sparkId: "s1", sparkName: "Spark 1", message: "Spark 1 came online" }).i18n.message.key, "activity.message.sparkOnline");
+  log.flush();
+  assert.doesNotMatch(fs.readFileSync(file, "utf8"), /"i18n"/);
+
+  fs.writeFileSync(file, JSON.stringify({ nextId: 2, events: [{ id: 1, ts: 1, type: "legacy", severity: "info", sparkId: "s1", message: "old", i18n: { message: { key: "legacy.event" } } }] }));
+  const before = fs.readFileSync(file, "utf8");
+  const legacy = new EventLog({ file });
+  assert.equal(legacy.list()[0].i18n.message.key, "legacy.event");
+  assert.equal(fs.readFileSync(file, "utf8"), before);
+});
+
+test("caller-supplied event descriptors are returned and subscribed but never persisted", () => {
+  const file = tmp();
+  const log = new EventLog({ file });
+  const received = [];
+  log.subscribe((event) => received.push(event));
+  const i18n = { message: { key: "custom.event", params: { value: 1 } } };
+  assert.deepEqual(log.record({ type: "external", sparkId: "s1", message: "raw", i18n }).i18n, i18n);
+  assert.deepEqual(received[0].i18n, i18n);
+  log.flush();
+  assert.doesNotMatch(fs.readFileSync(file, "utf8"), /"custom.event"/);
+  assert.equal(log.list()[0].i18n, undefined);
 });
 
 test("subscribe delivers events and unsubscribes; bad subscriber cannot throw", () => {

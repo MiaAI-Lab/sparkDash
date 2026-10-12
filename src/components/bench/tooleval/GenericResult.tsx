@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+import { i18next } from "../../../i18n";
 import { LineAreaChart } from "../../ui/LineAreaChart";
 import { Tag } from "../../ui/Tag";
 import { cellText, collectTables, isNum, isObj, suggestCharts, topMetrics, type GenericTable } from "./normalize";
@@ -6,15 +8,16 @@ import { JsonDisclosure } from "./parts";
 
 /** Recursively render any JSON value: scalars as text, objects as key/value lists, arrays of objects as tables or cards. */
 export function GenericValue({ value, depth = 0 }: { value: unknown; depth?: number }) {
+  useTranslation();
   if (value == null) return <span className="te-faint">–</span>;
-  if (typeof value === "boolean") return <Tag tone={value ? "good" : "neutral"}>{value ? "yes" : "no"}</Tag>;
+  if (typeof value === "boolean") return <Tag tone={value ? "good" : "neutral"}>{value ? i18next.t("bench.ui.yes_fb360f", "yes") : i18next.t("bench.ui.no_fd1286", "no")}</Tag>;
   if (isNum(value)) return <span className="mono">{fmtNum(value, 3)}</span>;
   if (typeof value === "string") {
     return value.length > 120 || value.includes("\n") ? <pre className="te-pre">{value}</pre> : <span>{value}</span>;
   }
   if (depth > 5) return <code>{JSON.stringify(value).slice(0, 200)}</code>;
   if (Array.isArray(value)) {
-    if (value.length === 0) return <span className="te-faint">empty</span>;
+    if (value.length === 0) return <span className="te-faint">{i18next.t("bench.ui.empty_ad8710", "empty")}</span>;
     if (value.every((v) => v == null || typeof v !== "object")) {
       return (
         <span className="te-valuelist">
@@ -41,12 +44,12 @@ export function GenericValue({ value, depth = 0 }: { value: unknown; depth?: num
             <GenericValue value={v} depth={depth + 1} />
           </div>
         ))}
-        {value.length > 100 ? <span className="te-faint">… {value.length - 100} more</span> : null}
+        {value.length > 100 ? <span className="te-faint">… {value.length - 100} {i18next.t("bench.ui.more_e7c95b", "more")}</span> : null}
       </div>
     );
   }
   const entries = Object.entries(value as Record<string, unknown>);
-  if (!entries.length) return <span className="te-faint">empty</span>;
+  if (!entries.length) return <span className="te-faint">{i18next.t("bench.ui.empty_ad8710", "empty")}</span>;
   return (
     <dl className="te-kv">
       {entries.map(([k, v]) => (
@@ -62,6 +65,7 @@ export function GenericValue({ value, depth = 0 }: { value: unknown; depth?: num
 }
 
 export function MiniTable({ columns, rows }: { columns: string[]; rows: Record<string, unknown>[] }) {
+  useTranslation();
   return (
     <div className="te-tablewrap">
       <table className="te-table">
@@ -86,12 +90,13 @@ export function MiniTable({ columns, rows }: { columns: string[]; rows: Record<s
           ))}
         </tbody>
       </table>
-      {rows.length > 300 ? <p className="te-faint">Showing 300 of {rows.length} rows.</p> : null}
+      {rows.length > 300 ? <p className="te-faint">{i18next.t("bench.ui.showing300Of_95f7cc", "Showing 300 of")} {rows.length} {i18next.t("bench.ui.rows_0089db", "rows.")}</p> : null}
     </div>
   );
 }
 
 function TableWithCharts({ table }: { table: GenericTable }) {
+  useTranslation();
   const charts = suggestCharts(table);
   return (
     <section className="te-section">
@@ -118,13 +123,14 @@ function TableWithCharts({ table }: { table: GenericTable }) {
 
 /** Metric-first view for results whose structure is not known in advance. */
 export function GenericResult({ result, compact = false }: { result: unknown; compact?: boolean }) {
+  useTranslation();
   const tiles = topMetrics(result);
   const tables = collectTables(result);
   const meta = isObj(result) ? (isObj(result.config) ? result.config : null) : null;
   return (
     <div className="te-generic">
       {tiles.length && !compact ? (
-        <div className="te-tiles" role="list" aria-label="Key numbers">
+        <div className="te-tiles" role="list" aria-label={i18next.t("bench.ui.keyNumbers_5fa698", "Key numbers")}>
           {tiles.map((t) => (
             <div key={t.path} className="te-tile" role="listitem" title={t.path}>
               <span className="eyebrow">{t.label}</span>
@@ -136,11 +142,11 @@ export function GenericResult({ result, compact = false }: { result: unknown; co
       {tables.map((t) => (
         <TableWithCharts key={t.path} table={t} />
       ))}
-      {!compact && !tiles.length && !tables.length ? <p className="te-faint">No recognisable numbers in this result. The full data is below.</p> : null}
+      {!compact && !tiles.length && !tables.length ? <p className="te-faint">{i18next.t("bench.ui.noRecognisableNumbersInThisResultThe_ebe954", "No recognisable numbers in this result. The full data is below.")}</p> : null}
       {meta && !compact ? (
         <details className="te-disclosure">
           <summary>
-            <span>Configuration reported by the tool</span>
+            <span>{i18next.t("bench.ui.configurationReportedByTheTool_9540c8", "Configuration reported by the tool")}</span>
           </summary>
           <div className="te-disclosure__body">
             <GenericValue value={meta} />
@@ -151,7 +157,7 @@ export function GenericResult({ result, compact = false }: { result: unknown; co
         <>
           <details className="te-disclosure">
             <summary>
-              <span>All values</span>
+              <span>{i18next.t("bench.ui.allValues_4f5920", "All values")}</span>
             </summary>
             <div className="te-disclosure__body">
               <GenericValue value={result} />

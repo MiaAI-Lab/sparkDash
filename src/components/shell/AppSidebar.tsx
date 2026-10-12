@@ -18,8 +18,9 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { AuthMode, SparkSnapshot } from "../../api/types";
+import { useTranslation } from "react-i18next";
 import { ACTIVITY_ID, ENERGY_ID, OVERVIEW_ID, SHOWCASE_ID, TOKENS_ID, benchId, idToPath } from "../../constants";
-import { BENCH_TYPES } from "../bench/benchCatalog";
+import { BENCH_TYPES, localizeBenchType } from "../bench/benchCatalog";
 import { BoltIcon, ChevronDownIcon, GearIcon, GithubIcon, GlobeIcon, GridIcon, ListIcon, PanelLeftIcon, PlusIcon, SearchIcon, TerminalIcon, TokensIcon, XLogoIcon } from "../ui/icons";
 import { OpenAccessChip } from "../OpenAccessChip";
 import { ThemeSwitch } from "../ThemeSwitch";
@@ -54,12 +55,6 @@ export const RAIL_KEYBOARD_CODES = {
   start: ["KeyM"],
   cancel: ["Escape"],
   end: ["Space", "Enter"],
-};
-
-const RAIL_ANNOUNCEMENTS = {
-  screenReaderInstructions: {
-    draggable: "Press Enter to open this Spark. To reorder it, press M, use the arrow keys to move it, then Enter to drop it or Escape to cancel.",
-  },
 };
 
 function dotClass(spark: SparkSnapshot): string {
@@ -118,6 +113,7 @@ function RailSpark({
   isActive: boolean;
   onSelect: (id: string) => void;
 }) {
+  const { t } = useTranslation();
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
     useSortable({ id: spark.id });
   return (
@@ -136,7 +132,10 @@ function RailSpark({
         onClick={inApp(() => onSelect(spark.id))}
         aria-current={isActive ? "page" : undefined}
         aria-roledescription="sortable"
-        title={`${spark.name}${spark.online ? "" : " (offline)"}. Drag to reorder (keyboard: M).`}
+        title={t("shell.spark.dragTitle", "{name}{status, select, online {} other { (offline)}}. Drag to reorder (keyboard: M).", {
+          name: spark.name,
+          status: spark.online ? "online" : "offline",
+        })}
       >
         <i className={dotClass(spark)} aria-hidden />
         <span className="rail-item__name">{spark.name}</span>
@@ -162,6 +161,7 @@ export function AppSidebar({
   authMode = null,
   onCollapse,
 }: AppSidebarProps) {
+  const { t } = useTranslation();
   const [items, setItems] = useState<string[]>(() => sparks.map((s) => s.id));
   const [dragging, setDragging] = useState(false);
   const [benchOpen, setBenchOpen] = useState(() => {
@@ -208,12 +208,12 @@ export function AppSidebar({
   };
 
   return (
-    <aside className="app-side" aria-label="Fleet navigation">
+    <aside className="app-side" aria-label={t("shell.nav.fleetAria", "Fleet navigation")}>
       <div className="side-head">
         <a
           href={idToPath(OVERVIEW_ID)}
           className="brand"
-          aria-label="sparkDash overview"
+          aria-label={t("shell.brand.overviewAria", "sparkDash overview")}
           onClick={(e) => {
             // Plain click navigates in-app; modifier clicks and the context menu keep the normal link behaviour.
             if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
@@ -229,31 +229,33 @@ export function AppSidebar({
           </span>
         </a>
         {onCollapse ? (
-          <button type="button" className="icon-circle side-toggle" onClick={onCollapse} title="Hide sidebar (Ctrl+B)" aria-label="Hide sidebar">
+          <button type="button" className="icon-circle side-toggle" onClick={onCollapse} title={t("shell.app.hideSidebarTitle", "Hide sidebar (Ctrl+B)")} aria-label={t("shell.app.hideSidebar", "Hide sidebar")}>
             <PanelLeftIcon className="h-3.5 w-3.5" />
           </button>
         ) : null}
       </div>
 
       <div className="side-tools">
-        <button type="button" className="search-trigger" onClick={onOpenSearch} aria-label="Open command palette">
+        <button type="button" className="search-trigger" onClick={onOpenSearch} aria-label={t("shell.app.openPaletteAria", "Open command palette")}>
           <SearchIcon className="h-4 w-4 shrink-0" />
-          <span>Jump to…</span>
+          <span>{t("shell.app.jumpTo", "Jump to…")}</span>
           <span className="kbd">Ctrl K</span>
         </button>
       </div>
 
       <div className="min-h-0">
         <div className="rail-label">
-          <span>Sparks</span>
-          <button type="button" onClick={onAdd} title="Add Spark / GPU host" aria-label="Add Spark or GPU host">
+          <span>{t("shell.nav.sparks", "Sparks")}</span>
+          <button type="button" onClick={onAdd} title={t("shell.nav.addSpark", "Add Spark / GPU host")} aria-label={t("shell.nav.addSparkAria", "Add Spark or GPU host")}>
             <PlusIcon className="h-3.5 w-3.5" />
           </button>
         </div>
         {canReorder ? (
           <DndContext
             sensors={sensors}
-            accessibility={RAIL_ANNOUNCEMENTS}
+            accessibility={{
+              screenReaderInstructions: { draggable: t("shell.spark.dragInstructions", "Press Enter to open this Spark. To reorder it, press M, use the arrow keys to move it, then Enter to drop it or Escape to cancel.") },
+            }}
             collisionDetection={closestCenter}
             onDragStart={() => setDragging(true)}
             onDragEnd={handleDragEnd}
@@ -263,7 +265,7 @@ export function AppSidebar({
             }}
           >
             <SortableContext items={items} strategy={verticalListSortingStrategy}>
-              <nav className="rail-list" aria-label="Sparks">
+              <nav className="rail-list" aria-label={t("shell.nav.sparks", "Sparks")}>
                 {ordered.map((s) => (
                   <RailSpark key={s.id} spark={s} isActive={activeId === s.id} onSelect={onSelect} />
                 ))}
@@ -271,7 +273,7 @@ export function AppSidebar({
             </SortableContext>
           </DndContext>
         ) : (
-          <nav className="rail-list" aria-label="Sparks">
+          <nav className="rail-list" aria-label={t("shell.nav.sparks", "Sparks")}>
             {sparks.map((s) => (
               <div key={s.id} className={`rail-item ${activeId === s.id ? "is-active" : ""}`}>
                 <a
@@ -289,12 +291,12 @@ export function AppSidebar({
           </nav>
         )}
         {sparks.length === 0 ? (
-          <p className="px-2.5 pt-1 text-xs text-muted">No Sparks yet. Use + to add one.</p>
+          <p className="px-2.5 pt-1 text-xs text-muted">{t("shell.empty.noSparksYet", "No Sparks yet. Use + to add one.")}</p>
         ) : null}
       </div>
 
       <div>
-        <div className="rail-label">Workspace</div>
+        <div className="rail-label">{t("shell.nav.workspace", "Workspace")}</div>
         <nav className="rail-list">
           <a
             href={idToPath(OVERVIEW_ID)}
@@ -303,7 +305,7 @@ export function AppSidebar({
             aria-current={activeId === OVERVIEW_ID ? "page" : undefined}
           >
             <GridIcon className="h-4 w-4" />
-            <span className="rail-item__name">Overview</span>
+            <span className="rail-item__name">{t("shell.nav.overview", "Overview")}</span>
           </a>
           <a
             href={idToPath(TOKENS_ID)}
@@ -312,7 +314,7 @@ export function AppSidebar({
             aria-current={activeId === TOKENS_ID ? "page" : undefined}
           >
             <TokensIcon className="h-4 w-4" />
-            <span className="rail-item__name">Token totals</span>
+            <span className="rail-item__name">{t("shell.nav.tokens", "Token totals")}</span>
           </a>
           <a
             href={idToPath(ENERGY_ID)}
@@ -321,7 +323,7 @@ export function AppSidebar({
             aria-current={activeId === ENERGY_ID ? "page" : undefined}
           >
             <BoltIcon className="h-4 w-4" />
-            <span className="rail-item__name">Fleet energy</span>
+            <span className="rail-item__name">{t("shell.nav.energy", "Fleet energy")}</span>
           </a>
           <a
             href={idToPath(ACTIVITY_ID)}
@@ -330,7 +332,7 @@ export function AppSidebar({
             aria-current={activeId === ACTIVITY_ID ? "page" : undefined}
           >
             <ListIcon className="h-4 w-4" />
-            <span className="rail-item__name">Activity</span>
+            <span className="rail-item__name">{t("shell.nav.activity", "Activity")}</span>
           </a>
           <a
             href={idToPath(SHOWCASE_ID)}
@@ -339,7 +341,7 @@ export function AppSidebar({
             aria-current={activeId === SHOWCASE_ID ? "page" : undefined}
           >
             <TerminalIcon className="h-4 w-4" />
-            <span className="rail-item__name">Showcase</span>
+            <span className="rail-item__name">{t("shell.nav.showcase", "Showcase")}</span>
           </a>
         </nav>
       </div>
@@ -353,11 +355,11 @@ export function AppSidebar({
             aria-expanded={benchOpen || benchType != null}
             aria-controls="rail-benchmarks"
           >
-            <span>Benchmarks</span>
+            <span>{t("shell.nav.benchmarks", "Benchmarks")}</span>
             <ChevronDownIcon className={`h-3 w-3 transition-transform ${benchOpen || benchType != null ? "" : "-rotate-90"}`} />
           </button>
-          <nav className="rail-list" id="rail-benchmarks" aria-label="Benchmarks" hidden={!(benchOpen || benchType != null)}>
-            {BENCH_TYPES.map((b) => (
+          <nav className="rail-list" id="rail-benchmarks" aria-label={t("shell.nav.benchmarks", "Benchmarks")} hidden={!(benchOpen || benchType != null)}>
+            {BENCH_TYPES.map((b) => localizeBenchType(b, t)).map((b) => (
               <div key={b.id}>
                 <a
                   href={idToPath(benchId(b.id))}
@@ -380,26 +382,32 @@ export function AppSidebar({
           <nav className="rail-list">
             <button type="button" className="rail-item" onClick={onOpenSettings}>
               <GearIcon className="h-4 w-4" />
-              <span className="rail-item__name">Settings</span>
+              <span className="rail-item__name">{t("shell.nav.settings", "Settings")}</span>
             </button>
           </nav>
           <ThemeSwitch />
         </div>
         <div className="rail-conn" role="status">
           <i className={`sdot ${connected ? "" : "sdot--warn"}`} aria-hidden />
-          <span>{connected ? `Live${refreshInterval ? ` · ${Math.round(refreshInterval / 100) / 10} s poll` : ""}` : "Reconnecting…"}</span>
+          <span>
+            {connected
+              ? refreshInterval
+                ? t("shell.live.poll", "Live · {interval} s poll", { interval: Math.round(refreshInterval / 100) / 10 })
+                : t("shell.live.now", "Live")
+              : t("shell.live.reconnecting", "Reconnecting…")}
+          </span>
         </div>
         <OpenAccessChip authMode={authMode} />
         <div className="rail-credit">
-          <span>by Mia&apos;s AI Lab</span>
+          <span>{t("shell.credit.by", "by Mia's AI Lab")}</span>
           <span className="rail-credit__links">
-            <a href="https://mia-ai.net/" target="_blank" rel="noopener noreferrer" title="Mia's AI Lab website" aria-label="Mia's AI Lab website">
+            <a href="https://mia-ai.net/" target="_blank" rel="noopener noreferrer" title={t("shell.credit.website", "Mia's AI Lab website")} aria-label={t("shell.credit.website", "Mia's AI Lab website")}>
               <GlobeIcon className="h-3.5 w-3.5" />
             </a>
-            <a href="https://github.com/MiaAI-Lab/sparkDash" target="_blank" rel="noopener noreferrer" title="sparkDash on GitHub" aria-label="sparkDash on GitHub">
+            <a href="https://github.com/MiaAI-Lab/sparkDash" target="_blank" rel="noopener noreferrer" title={t("shell.credit.github", "sparkDash on GitHub")} aria-label={t("shell.credit.github", "sparkDash on GitHub")}>
               <GithubIcon className="h-3.5 w-3.5" />
             </a>
-            <a href="https://x.com/MiaAI_lab" target="_blank" rel="noopener noreferrer" title="Mia's AI Lab on X" aria-label="Mia's AI Lab on X">
+            <a href="https://x.com/MiaAI_lab" target="_blank" rel="noopener noreferrer" title={t("shell.credit.x", "Mia's AI Lab on X")} aria-label={t("shell.credit.x", "Mia's AI Lab on X")}>
               <XLogoIcon className="h-3 w-3" />
             </a>
           </span>

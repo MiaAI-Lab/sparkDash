@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { isValidTimeZone, listTimeZones } from "../shared/timeZone";
+import { useTranslation } from "react-i18next";
+import { activeLocale, setLocale, type Locale } from "../i18n";
 import { fetchSettings, updateSettings } from "../api/client";
 import { clearToken, getToken, onTokenChange, requestTokenPrompt } from "../api/authToken";
 import type { Settings } from "../api/types";
@@ -66,6 +68,7 @@ const POLL_PRESETS = [
 ];
 
 export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) {
+  const { t } = useTranslation();
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -73,6 +76,16 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
   const [dirty, setDirty] = useState(false);
   const [theme, setTheme] = useState<ThemeId>(readTheme);
   const [tokenSet, setTokenSet] = useState(() => getToken() !== "");
+  const [languagePending, setLanguagePending] = useState(false);
+  const [languageError, setLanguageError] = useState(false);
+  const locale = activeLocale();
+
+  const themeLabels: Record<ThemeId, string> = {
+    white: t("common.settings.theme.white", "White"),
+    light: t("common.settings.theme.light", "Light"),
+    dark: t("common.settings.theme.dark", "Dark"),
+    oled: t("common.settings.theme.oled", "OLED"),
+  };
 
   useEscape(onClose);
 
@@ -123,7 +136,7 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
     if (!settings) return;
     if (settings.timeZone && !isValidTimeZone(settings.timeZone)) {
       // The server would silently fall back to the browser's zone; say so instead.
-      setError(`"${settings.timeZone}" is not a known time zone (for example Europe/Paris), or clear the field to follow the browser.`);
+      setError(t("common.settings.timeZone.invalid", '"{zone}" is not a known time zone (for example Europe/Paris), or clear the field to follow the browser.', { zone: settings.timeZone }));
       return;
     }
     setSaving(true);
@@ -148,6 +161,18 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
     applyTheme(next);
   };
 
+  const pickLanguage = async (next: Locale) => {
+    setLanguagePending(true);
+    setLanguageError(false);
+    try {
+      await setLocale(next);
+    } catch {
+      setLanguageError(true);
+    } finally {
+      setLanguagePending(false);
+    }
+  };
+
   return (
     <div
       className={`settings-overlay${visible ? " is-open" : ""}`}
@@ -158,41 +183,101 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
       <div className="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <div className="modal-sheet__header">
           <h2 className="modal-sheet__title" id="settings-title">
-            Settings
+            {t("common.settings.title", "Settings")}
           </h2>
-          <button type="button" className="modal-sheet__close" onClick={onClose} aria-label="Close">
+          <button
+            type="button"
+            className="modal-sheet__close"
+            onClick={onClose}
+            aria-label={t("common.action.close", "Close")}
+          >
             <XIcon className="h-4 w-4" />
           </button>
         </div>
 
         <div className="modal-sheet__body">
-          {loading && <p className="bench-sheet__hint">Loading…</p>}
+          {loading && <p className="bench-sheet__hint">{t("common.settings.loading", "Loading…")}</p>}
 
           <SettingRow
-            title="Appearance"
-            help="Applies instantly on this device. Saved in this browser."
+            title={t("common.settings.appearance.title", "Appearance")}
+            help={t("common.settings.appearance.help", "Applies instantly on this device. Saved in this browser.")}
           >
-            <div className="swatches" role="radiogroup" aria-label="Theme">
-              {THEME_CHOICES.map((t) => (
+            <div
+              className="swatches"
+              role="radiogroup"
+              aria-label={t("common.settings.appearance.themeAria", "Theme")}
+            >
+              {THEME_CHOICES.map((choice) => (
                 <button
-                  key={t.id}
+                  key={choice.id}
                   type="button"
                   role="radio"
-                  aria-checked={theme === t.id}
-                  className={`sw sw--${t.id}${theme === t.id ? " is-on" : ""}`}
-                  onClick={() => pickTheme(t.id)}
+                  aria-checked={theme === choice.id}
+                  className={`sw sw--${choice.id}${theme === choice.id ? " is-on" : ""}`}
+                  onClick={() => pickTheme(choice.id)}
                 >
                   <i className="sw__dot" aria-hidden />
-                  {t.label}
+                  {themeLabels[choice.id]}
                 </button>
               ))}
             </div>
           </SettingRow>
 
+          <SettingRow
+            title={t("common.settings.language.title", "Language")}
+            help={t("common.settings.language.help", "Applies instantly. Saved in this browser; no need to click Save.")}
+          >
+            <div
+              className="seg"
+              role="radiogroup"
+              aria-label={t("common.settings.language.title", "Language")}
+              aria-busy={languagePending}
+            >
+              <button
+                type="button"
+                role="radio"
+                aria-checked={locale === "zh-Hans"}
+                className={locale === "zh-Hans" ? "is-on" : ""}
+                disabled={languagePending}
+                lang="zh-Hans"
+                onClick={() => void pickLanguage("zh-Hans")}
+              >
+                简体中文
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={locale === "en"}
+                className={locale === "en" ? "is-on" : ""}
+                disabled={languagePending}
+                lang="en"
+                onClick={() => void pickLanguage("en")}
+              >
+                English
+              </button>
+            </div>
+          </SettingRow>
+
+          {languageError && (
+            <p className="modal-sheet__error" role="alert">
+              {t("common.settings.language.failed", "Could not load the language. Please try again.")}
+            </p>
+          )}
+
           {settings && !loading && (
             <>
-              <SettingRow title="Refresh rate" help="How often every unit is polled for GPU, CPU, memory, network and LLM metrics, and how often the dashboard updates. Remote units are polled over SSH, so 1s costs the most; storage and liveness keep their own slower checks.">
-                <div className="seg" role="radiogroup" aria-label="Poll interval">
+              <SettingRow
+                title={t("common.settings.refreshRate.title", "Refresh rate")}
+                help={t(
+                  "common.settings.refreshRate.help",
+                  "How often every unit is polled for GPU, CPU, memory, network and LLM metrics, and how often the dashboard updates. Remote units are polled over SSH, so 1s costs the most; storage and liveness keep their own slower checks."
+                )}
+              >
+                <div
+                  className="seg"
+                  role="radiogroup"
+                  aria-label={t("common.settings.refreshRate.pollAria", "Poll interval")}
+                >
                   {POLL_PRESETS.map((preset) => (
                     <button
                       key={preset.value}
@@ -208,8 +293,12 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
                 </div>
               </SettingRow>
 
-              <SettingRow title="Temperature unit">
-                <div className="seg" role="radiogroup" aria-label="Temperature unit">
+              <SettingRow title={t("common.settings.temperature.title", "Temperature unit")}>
+                <div
+                  className="seg"
+                  role="radiogroup"
+                  aria-label={t("common.settings.temperature.title", "Temperature unit")}
+                >
                   <button
                     type="button"
                     role="radio"
@@ -232,8 +321,12 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
               </SettingRow>
 
               <SettingRow
-                title="Time zone"
-                help={`Hour and day boundaries and labels on the Tokens, Energy and Activity charts. Empty follows this browser (${browserTimeZone}). Daily token buckets and monthly energy totals stay UTC.`}
+                title={t("common.settings.timeZone.title", "Time zone")}
+                help={t(
+                  "common.settings.timeZone.help",
+                  "Hour and day boundaries and labels on the Tokens, Energy and Activity charts. Empty follows this browser ({browserTimeZone}). Daily token buckets and monthly energy totals stay UTC.",
+                  { browserTimeZone }
+                )}
                 htmlFor="settings-time-zone"
                 stack
               >
@@ -243,8 +336,12 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
                     type="text"
                     list="settings-time-zones"
                     value={settings.timeZone ?? ""}
-                    placeholder="Browser default"
-                    title={`Empty follows this browser (${browserTimeZone})`}
+                    placeholder={t("common.settings.timeZone.browserDefault", "Browser default")}
+                    title={t(
+                      "common.settings.timeZone.emptyFollows",
+                      "Empty follows this browser ({browserTimeZone})",
+                      { browserTimeZone }
+                    )}
                     spellCheck={false}
                     autoComplete="off"
                     aria-invalid={tzInvalid}
@@ -273,18 +370,18 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
                       tzInput.current?.focus(); // the button disables itself: keep keyboard focus somewhere sensible
                     }}
                   >
-                    Use browser
+                    {t("common.settings.timeZone.useBrowser", "Use browser")}
                   </button>
                 </div>
                 {/* One reserved line: the message appears after the field is left, and never moves anything. */}
                 <small id="settings-time-zone-msg" className="set-tz__msg" role="status" aria-live="polite">
-                  {tzInvalid ? "Unknown time zone. Try Europe/Paris." : ""}
+                  {tzInvalid ? t("common.settings.timeZone.unknown", "Unknown time zone. Try Europe/Paris.") : ""}
                 </small>
               </SettingRow>
 
               <SettingRow
-                title="Default LLM port"
-                help="Pre-filled when adding a new Spark (1–65535)."
+                title={t("common.settings.defaultLlmPort.title", "Default LLM port")}
+                help={t("common.settings.defaultLlmPort.help", "Pre-filled when adding a new Spark (1–65535).")}
                 htmlFor="settings-default-llm-port"
               >
                 <input
@@ -302,57 +399,79 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
               </SettingRow>
 
               <ToggleRow
-                title="Hide offline Sparks"
-                help="Auto-hide offline Sparks on Overview."
+                title={t("common.settings.hideOffline.title", "Hide offline Sparks")}
+                help={t("common.settings.hideOffline.help", "Auto-hide offline Sparks on Overview.")}
                 checked={settings.autoHideOffline}
                 onChange={(v) => update({ autoHideOffline: v })}
               />
               <ToggleRow
-                title="Hide worker nodes"
-                help="Removes Worker-role Sparks from Overview and the sidebar. Direct URLs and batch power / Hermes actions still include them."
+                title={t("common.settings.hideWorkers.title", "Hide worker nodes")}
+                help={t(
+                  "common.settings.hideWorkers.help",
+                  "Removes Worker-role Sparks from Overview and the sidebar. Direct URLs and batch power / Hermes actions still include them."
+                )}
                 checked={Boolean(settings.hideWorkers)}
                 onChange={(v) => update({ hideWorkers: v })}
               />
               <ToggleRow
-                title="Show search and status filters"
-                help="Overview search field and status dropdown (All / Online / Offline / Issues). Off by default."
+                title={t("common.settings.overviewSearch.title", "Show search and status filters")}
+                help={t(
+                  "common.settings.overviewSearch.help",
+                  "Overview search field and status dropdown (All / Online / Offline / Issues). Off by default."
+                )}
                 checked={Boolean(settings.showOverviewSearch)}
                 onChange={(v) => update({ showOverviewSearch: v })}
               />
               <ToggleRow
-                title="Benchmark share image"
-                help="The decode/prefill Copy results button gains a caret with Copy as text / Copy as image (a share card). Turn it off to keep the plain text button."
+                title={t("common.settings.benchShareImage.title", "Benchmark share image")}
+                help={t(
+                  "common.settings.benchShareImage.help",
+                  "The decode/prefill Copy results button gains a caret with Copy as text / Copy as image (a share card). Turn it off to keep the plain text button."
+                )}
                 checked={Boolean(settings.benchShareImage)}
                 onChange={(v) => update({ benchShareImage: v })}
               />
               <ToggleRow
-                title="Detailed VRAM breakdown"
-                help="VRAM bars split memory into LLM engine, system and free, and turn amber or red on low free memory rather than on a high percentage. Turn it off for the single percentage bar."
+                title={t("common.settings.vramBreakdown.title", "Detailed VRAM breakdown")}
+                help={t(
+                  "common.settings.vramBreakdown.help",
+                  "VRAM bars split memory into LLM engine, system and free, and turn amber or red on low free memory rather than on a high percentage. Turn it off for the single percentage bar."
+                )}
                 checked={settings.showVramBreakdown ?? true}
                 onChange={(v) => update({ showVramBreakdown: v })}
               />
               <ToggleRow
-                title="Prometheus metrics"
-                help={`Serves every unit's metrics for Prometheus / Grafana to scrape at ${window.location.origin}/metrics. Off by default.`}
+                title={t("common.settings.prometheus.title", "Prometheus metrics")}
+                help={t(
+                  "common.settings.prometheus.help",
+                  "Serves every unit's metrics for Prometheus / Grafana to scrape at {origin}/metrics. Off by default.",
+                  { origin: window.location.origin }
+                )}
                 checked={Boolean(settings.prometheusExport)}
                 onChange={(v) => update({ prometheusExport: v })}
               />
               <ToggleRow
-                title="Show Fleet Energy"
-                help="Overview card with rolling fleet power estimates. The full Fleet energy page is always available from the sidebar."
+                title={t("common.settings.fleetEnergy.title", "Show Fleet Energy")}
+                help={t(
+                  "common.settings.fleetEnergy.help",
+                  "Overview card with rolling fleet power estimates. The full Fleet energy page is always available from the sidebar."
+                )}
                 checked={Boolean(settings.showFleetEnergy)}
                 onChange={(v) => update({ showFleetEnergy: v })}
               />
               <SettingRow
-                title="Electricity price"
-                help="Per kWh, used for the estimated cost on the Fleet energy page. Leave empty to hide cost."
+                title={t("common.settings.energyPrice.title", "Electricity price")}
+                help={t(
+                  "common.settings.energyPrice.help",
+                  "Per kWh, used for the estimated cost on the Fleet energy page. Leave empty to hide cost."
+                )}
                 htmlFor="settings-energy-price"
               >
                 <div className="set-price">
                   <input
                     id="settings-energy-currency"
                     type="text"
-                    aria-label="Currency symbol"
+                    aria-label={t("common.settings.energyPrice.currencyAria", "Currency symbol")}
                     maxLength={4}
                     value={settings.energyCurrency ?? "$"}
                     onChange={(e) => update({ energyCurrency: e.target.value })}
@@ -378,50 +497,56 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
                 </div>
               </SettingRow>
               <ToggleRow
-                title="Show LLM Token Totals"
-                help="Overview card with cumulative prompt/generated tokens per model. The full Token totals page is always available from the sidebar."
+                title={t("common.settings.tokenTotals.title", "Show LLM Token Totals")}
+                help={t(
+                  "common.settings.tokenTotals.help",
+                  "Overview card with cumulative prompt/generated tokens per model. The full Token totals page is always available from the sidebar."
+                )}
                 checked={Boolean(settings.showLlmTokenTotals)}
                 onChange={(v) => update({ showLlmTokenTotals: v })}
               />
               <ToggleRow
-                title="Show Recent activity"
-                help="Overview card with the latest health and kernel events. The full Activity page is always available from the sidebar."
+                title={t("common.settings.activityFeed.title", "Show Recent activity")}
+                help={t("common.settings.activityFeed.help", "Overview card with the latest health and kernel events. The full Activity page is always available from the sidebar.")}
                 checked={settings.showActivityFeed ?? true}
                 onChange={(v) => update({ showActivityFeed: v })}
               />
               <ToggleRow
-                title="Show Fleet decode tile"
-                help="Overview tile with the fleet's total generation tok/s."
+                title={t("common.settings.kpiDecode.title", "Show Fleet decode tile")}
+                help={t("common.settings.kpiDecode.help", "Overview tile with the fleet's total generation tok/s.")}
                 checked={settings.showKpiDecode ?? true}
                 onChange={(v) => update({ showKpiDecode: v })}
               />
               <ToggleRow
-                title="Show Fleet power tile"
-                help="Overview tile with the fleet's total power draw."
+                title={t("common.settings.kpiPower.title", "Show Fleet power tile")}
+                help={t("common.settings.kpiPower.help", "Overview tile with the fleet's total power draw.")}
                 checked={settings.showKpiPower ?? true}
                 onChange={(v) => update({ showKpiPower: v })}
               />
               <ToggleRow
-                title="Show Memory in use tile"
-                help="Overview tile with the fleet's total memory in use."
+                title={t("common.settings.kpiMemory.title", "Show Memory in use tile")}
+                help={t("common.settings.kpiMemory.help", "Overview tile with the fleet's total memory in use.")}
                 checked={settings.showKpiMemory ?? true}
                 onChange={(v) => update({ showKpiMemory: v })}
               />
               <ToggleRow
-                title="Show Tokens today tile"
-                help="Overview tile with the tokens generated today (or the online unit count, when no tokens are tracked yet)."
+                title={t("common.settings.kpiTokens.title", "Show Tokens today tile")}
+                help={t("common.settings.kpiTokens.help", "Overview tile with the tokens generated today (or the online unit count, when no tokens are tracked yet).")}
                 checked={settings.showKpiTokens ?? true}
                 onChange={(v) => update({ showKpiTokens: v })}
               />
               <ToggleRow
-                title="Show active fleet exceptions"
-                help="Overview strip for offline hosts, GPU throttle, disk, LLM, and Tailnet alerts. Off by default."
+                title={t("common.settings.fleetExceptions.title", "Show active fleet exceptions")}
+                help={t("common.settings.fleetExceptions.help", "Overview strip for offline hosts, GPU throttle, disk, LLM, and Tailnet alerts. Off by default.")}
                 checked={Boolean(settings.showFleetExceptions)}
                 onChange={(v) => update({ showFleetExceptions: v })}
               />
               <ToggleRow
-                title="Save benchmark debug traces"
-                help="Stores prompts, HTTP/completion IDs, content previews, and GPU samples in bench history. Off by default; larger history files."
+                title={t("common.settings.benchDebugTraces.title", "Save benchmark debug traces")}
+                help={t(
+                  "common.settings.benchDebugTraces.help",
+                  "Stores prompts, HTTP/completion IDs, content previews, and GPU samples in bench history. Off by default; larger history files."
+                )}
                 checked={Boolean(settings.benchDebugTraces)}
                 onChange={(v) => update({ benchDebugTraces: v })}
               />
@@ -430,20 +555,27 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
 
           {/* Outside the settings block: a rejected token is exactly when settings fail to load. */}
           <SettingRow
-            title="Access token"
-            help="Sent to servers that set SPARKDASH_TOKEN. Stored in this browser only."
+            title={t("common.settings.accessToken.title", "Access token")}
+            help={t(
+              "common.settings.accessToken.help",
+              "Sent to servers that set SPARKDASH_TOKEN. Stored in this browser only."
+            )}
           >
             <div className="set-token">
               <span className={`set-token__state${tokenSet ? " is-set" : ""}`} data-testid="access-token-state">
                 <i aria-hidden />
-                {tokenSet ? "Set" : "Not set"}
+                {tokenSet
+                  ? t("common.settings.accessToken.set", "Set")
+                  : t("common.settings.accessToken.notSet", "Not set")}
               </span>
               <button type="button" className="btn btn--sm" onClick={() => requestTokenPrompt()}>
-                {tokenSet ? "Change" : "Add token"}
+                {tokenSet
+                  ? t("common.settings.accessToken.change", "Change")
+                  : t("common.settings.accessToken.add", "Add token")}
               </button>
               {tokenSet ? (
                 <button type="button" className="btn btn--sm btn--ghost" onClick={() => clearToken()}>
-                  Clear
+                  {t("common.settings.accessToken.clear", "Clear")}
                 </button>
               ) : null}
             </div>
@@ -471,7 +603,7 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
         <div className="modal-sheet__footer">
           <div className="modal-sheet__footer-actions">
             <button type="button" onClick={onClose} className="btn btn--ghost">
-              Cancel
+              {t("common.action.cancel", "Cancel")}
             </button>
             <button
               type="button"
@@ -479,7 +611,7 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
               disabled={saving || !settings || !dirty}
               className="btn btn--primary"
             >
-              {saving ? "Saving..." : "Save"}
+              {saving ? t("common.action.saving", "Saving...") : t("common.action.save", "Save")}
             </button>
           </div>
         </div>

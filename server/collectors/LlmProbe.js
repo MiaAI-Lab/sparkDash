@@ -8,6 +8,7 @@ import { LLM_PROBE_TIMEOUT_MS } from "../config.js";
 import { classifyHostScope } from "../validate.js";
 import { llmProbeHost } from "./llmHost.js";
 import { openSshLlmTunnel } from "./llmTunnel.js";
+import { applicationTextI18n } from "../../src/shared/applicationText.js";
 
 const FAIL_RESET_THRESHOLD = 3;
 /** Direct failures in a row before the probe tries an SSH tunnel to the unit's loopback. */
@@ -2366,7 +2367,7 @@ export class LlmProbe {
           ? `Using configured API key · ${scopeWords[scope]} target (${host || "—"}). Based on the configured probe host, not the process bind address.`
           : `Unauthenticated · ${scopeWords[scope]} target (${host || "—"}). Based on the configured probe host, not the process bind address.`;
 
-    return { level, auth, scope, label, detail };
+    return { level, auth, scope, label, detail, i18n: { label: applicationTextI18n(label), detail: applicationTextI18n(detail) } };
   }
 
   _getSnapshot() {

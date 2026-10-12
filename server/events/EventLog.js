@@ -1,9 +1,16 @@
 import fs from "fs";
 import { atomicWrite, quarantineCorrupt } from "../util/atomicWrite.js";
+import { eventI18n } from "../i18n/messages.js";
 
 const SEVERITIES = new Set(["info", "warn", "error", "success"]);
 const DEDUPE_MS = 5000;
 const WRITE_DEBOUNCE_MS = 1500;
+
+function presentEvent(event, displayI18n) {
+  if (event.i18n) return event;
+  const i18n = displayI18n ?? eventI18n(event);
+  return i18n ? { ...event, i18n } : event;
+}
 
 /**
  * Fleet event log: a capped, persisted ring of human-readable events
@@ -79,17 +86,20 @@ export class EventLog {
         message: input.message,
       };
       if (input.data !== undefined) event.data = input.data;
+      // Caller-supplied descriptors are presentation-only. Persisted events
+      // stay raw; standard descriptors can be regenerated from structured data.
+      const displayI18n = input.i18n;
       this._events.push(event);
       if (this._events.length > this.max) this._events.splice(0, this._events.length - this.max);
       this._schedulePersist();
       for (const fn of [...this._subs]) {
         try {
-          fn(event);
+          fn(presentEvent(event, displayI18n));
         } catch {
           /* subscriber errors never propagate */
         }
       }
-      return event;
+      return presentEvent(event, displayI18n);
     } catch (err) {
       console.error("[EventLog] record failed:", err?.message);
       return null;
@@ -104,7 +114,7 @@ export class EventLog {
     // Older page: events strictly before `beforeId` (newest first, like the default listing).
     if (Number.isFinite(beforeId)) out = out.filter((e) => e.id < beforeId);
     const n = Math.max(1, Math.min(Number.isFinite(limit) ? Math.floor(limit) : 50, this.max));
-    return out.slice(-n).reverse();
+    return out.slice(-n).reverse().map(presentEvent);
   }
 
   /**

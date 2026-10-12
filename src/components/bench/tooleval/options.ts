@@ -1,5 +1,7 @@
+import { localizeToolEvalError } from "./localizeError";
 import type { ToolEvalArgSpec, ToolEvalRun, ToolEvalSpec } from "../../../api/types";
-import { PRESETS, type Preset } from "./presets";
+import { PRESETS, localizePreset, type Preset } from "./presets";
+import { i18next } from "../../../i18n";
 
 /**
  * Form state for the Tool Eval pages and its mapping to the API payload.
@@ -113,7 +115,7 @@ export function applyPreset(type: string, preset: Preset): FormState {
 }
 
 export function presetsFor(type: string): Preset[] {
-  return PRESETS[type] ?? [];
+  return (PRESETS[type] ?? []).map(localizePreset);
 }
 
 const isBlank = (v: FieldValue | undefined): boolean => v === undefined || v === "" || v === false || (Array.isArray(v) && v.every((x) => !x.trim()));
@@ -186,50 +188,50 @@ export function validateField(spec: ToolEvalArgSpec, v: FieldValue | undefined):
     case "int":
     case "float": {
       const n = Number(s);
-      if (!s || !Number.isFinite(n)) return `${label} must be a number`;
-      if (spec.kind === "int" && !Number.isInteger(n)) return `${label} must be a whole number`;
-      if (spec.min != null && n < spec.min) return `${label} must be at least ${spec.min}`;
-      if (spec.max != null && n > spec.max) return `${label} must be at most ${spec.max}`;
+      if (!s || !Number.isFinite(n)) return i18next.t("bench.validation.number", "{label} must be a number", { label });
+      if (spec.kind === "int" && !Number.isInteger(n)) return i18next.t("bench.validation.wholeNumber", "{label} must be a whole number", { label });
+      if (spec.min != null && n < spec.min) return i18next.t("bench.validation.atLeast", "{label} must be at least {value}", { label, value: spec.min });
+      if (spec.max != null && n > spec.max) return i18next.t("bench.validation.atMost", "{label} must be at most {value}", { label, value: spec.max });
       return null;
     }
     case "choice":
-      return spec.choices?.includes(s) ? null : `${label} must be one of ${spec.choices?.join(", ")}`;
+      return spec.choices?.includes(s) ? null : i18next.t("bench.validation.oneOf", "{label} must be one of {values}", { label, values: spec.choices?.join(", ") });
     case "string":
     case "csv":
     case "range":
-      if (s.length > (spec.maxLen ?? 500)) return `${label} is too long`;
-      if (spec.pattern && !new RegExp(spec.pattern).test(s)) return `${label} has an invalid format`;
+      if (s.length > (spec.maxLen ?? 500)) return i18next.t("bench.validation.tooLong", "{label} is too long", { label });
+      if (spec.pattern && !new RegExp(spec.pattern).test(s)) return i18next.t("bench.validation.invalidFormat", "{label} has an invalid format", { label });
       return null;
     case "text": {
       const bytes = byteLength(typeof v === "string" ? v : "");
-      return bytes > (spec.maxBytes ?? 32768) ? `${label} is longer than ${(spec.maxBytes ?? 32768) / 1024} KiB` : null;
+      return bytes > (spec.maxBytes ?? 32768) ? i18next.t("bench.validation.longerThan", "{label} is longer than {size} KiB", { label, size: (spec.maxBytes ?? 32768) / 1024 }) : null;
     }
     case "path":
-      if (!/^(~\/|\/)[A-Za-z0-9._@+=,/ -]{0,300}$/.test(s)) return `${label} must be an absolute path (or start with ~/)`;
-      return s.split("/").includes("..") ? `${label} must not contain ..` : null;
+      if (!/^(~\/|\/)[A-Za-z0-9._@+=,/ -]{0,300}$/.test(s)) return i18next.t("bench.validation.absolutePath", "{label} must be an absolute path (or start with ~/)", { label });
+      return s.split("/").includes("..") ? i18next.t("bench.validation.noDotDot", "{label} must not contain ..", { label }) : null;
     case "url":
       try {
         const u = new URL(s);
-        if (u.protocol !== "http:" && u.protocol !== "https:") return `${label} must start with http:// or https://`;
-        return u.username || u.password ? `${label} must not contain credentials (use the API key field)` : null;
+        if (u.protocol !== "http:" && u.protocol !== "https:") return i18next.t("bench.validation.httpUrl", "{label} must start with http:// or https://", { label });
+        return u.username || u.password ? i18next.t("bench.validation.noCredentials", "{label} must not contain credentials (use the API key field)", { label }) : null;
       } catch {
-        return `${label} is not a valid URL`;
+        return i18next.t("bench.validation.validUrl", "{label} is not a valid URL", { label });
       }
     case "json":
-      return jsonObjectError(s) ? `${label}: ${jsonObjectError(s)}` : null;
+      return jsonObjectError(s) ? i18next.t("bench.validation.json", "{label}: {error}", { label, error: jsonObjectError(s) }) : null;
     case "list": {
       const items = Array.isArray(v) ? v : splitList(String(v));
-      if (spec.maxItems && items.length > spec.maxItems) return `${label} has too many items`;
+      if (spec.maxItems && items.length > spec.maxItems) return i18next.t("bench.validation.tooManyItems", "{label} has too many items", { label });
       const re = spec.itemPattern ? new RegExp(spec.itemPattern) : null;
       const bad = re ? items.find((i) => !re.test(i)) : undefined;
-      return bad ? `${label} has an invalid item "${bad.slice(0, 40)}"` : null;
+      return bad ? i18next.t("bench.validation.invalidItem", "{label} has an invalid item \"{item}\"", { label, item: bad.slice(0, 40) }) : null;
     }
     case "repeat": {
       const items = (Array.isArray(v) ? v : [String(v)]).map((x) => x.trim()).filter(Boolean);
-      if (spec.maxItems && items.length > spec.maxItems) return `${label} has too many items`;
+      if (spec.maxItems && items.length > spec.maxItems) return i18next.t("bench.validation.tooManyItems", "{label} has too many items", { label });
       const re = spec.itemPattern ? new RegExp(spec.itemPattern) : null;
       const bad = re ? items.find((i) => !re.test(i)) : undefined;
-      return bad ? `${label} has an invalid entry "${bad.slice(0, 40)}"` : null;
+      return bad ? i18next.t("bench.validation.invalidEntry", "{label} has an invalid entry \"{item}\"", { label, item: bad.slice(0, 40) }) : null;
     }
     default:
       return null;
@@ -244,9 +246,9 @@ export function byteLength(s: string): number {
 export function jsonObjectError(s: string): string | null {
   try {
     const p = JSON.parse(s);
-    return p && typeof p === "object" && !Array.isArray(p) ? null : "must be a JSON object";
+    return p && typeof p === "object" && !Array.isArray(p) ? null : i18next.t("bench.validation.jsonObject", "must be a JSON object");
   } catch {
-    return "is not valid JSON";
+    return i18next.t("bench.validation.invalidJson", "is not valid JSON");
   }
 }
 
@@ -261,12 +263,12 @@ export function validateState(spec: ToolEvalSpec, type: string, state: FormState
   }
   const form: string[] = [];
   const set = (n: string) => !isBlank(state.values[n]);
-  if (set("system-prompt") && set("system-prompt-file")) form.push("Use either the system prompt text or the system prompt file, not both");
-  if (set("context-pressure") && set("context-pressure-sweep")) form.push("Use either a single context pressure or a sweep, not both");
-  if (set("short") && set("scenarios")) form.push("A short run and a specific scenario list cannot be combined");
-  if (type === "accuracy" && state.suites.length === 0) form.push("Tick at least one suite to run");
+  if (set("system-prompt") && set("system-prompt-file")) form.push(i18next.t("bench.validation.promptExclusive", "Use either the system prompt text or the system prompt file, not both"));
+  if (set("context-pressure") && set("context-pressure-sweep")) form.push(i18next.t("bench.validation.pressureExclusive", "Use either a single context pressure or a sweep, not both"));
+  if (set("short") && set("scenarios")) form.push(i18next.t("bench.validation.shortExclusive", "A short run and a specific scenario list cannot be combined"));
+  if (type === "accuracy" && state.suites.length === 0) form.push(i18next.t("bench.validation.suiteRequired", "Tick at least one suite to run"));
   if (type === "context-pressure" && !set("context-pressure") && !set("context-pressure-sweep")) {
-    form.push("Set a pressure ratio or a sweep range, otherwise this is a plain tool-call run");
+    form.push(i18next.t("bench.validation.pressureRequired", "Set a pressure ratio or a sweep range, otherwise this is a plain tool-call run"));
   }
   return { fields, form };
 }
@@ -279,9 +281,9 @@ export function mapServerErrors(spec: ToolEvalSpec, errors: readonly string[]): 
   for (const e of errors) {
     const hit = byLen.find((a) => e.startsWith(a.label));
     const quoted = /Unknown option "([^"]+)"/.exec(e);
-    if (hit) fields[hit.name] ??= e;
-    else if (quoted && spec.args.some((a) => a.name === quoted[1])) fields[quoted[1]] ??= e;
-    else form.push(e);
+    if (hit) fields[hit.name] ??= localizeToolEvalError(e, spec);
+    else if (quoted && spec.args.some((a) => a.name === quoted[1])) fields[quoted[1]] ??= localizeToolEvalError(e, spec);
+    else form.push(localizeToolEvalError(e, spec));
   }
   return { fields, form };
 }

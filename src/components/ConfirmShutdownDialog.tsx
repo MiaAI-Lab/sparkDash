@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { createPortal } from "react-dom";
 import { useModalPresence } from "../hooks/useModalPresence";
 import { useFocusTrap } from "../hooks/useFocusTrap";
@@ -35,9 +36,10 @@ export function ConfirmShutdownDialog({
   onConfirm,
   title,
   description,
-  confirmLabel = "Shut down",
+  confirmLabel,
   warnings,
 }: ConfirmShutdownDialogProps) {
+  const { t } = useTranslation();
   const [phrase, setPhrase] = useState("");
   const [acknowledged, setAcknowledged] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -55,8 +57,8 @@ export function ConfirmShutdownDialog({
       setSubmitting(false);
       return;
     }
-    const t = window.setTimeout(() => inputRef.current?.focus(), 50);
-    return () => window.clearTimeout(t);
+    const timer = window.setTimeout(() => inputRef.current?.focus(), 50);
+    return () => window.clearTimeout(timer);
   }, [open]);
 
   useEffect(() => {
@@ -102,7 +104,7 @@ export function ConfirmShutdownDialog({
         <div className="modal-sheet__header modal-sheet__header--danger">
           <PowerOffIcon className="h-4 w-4 shrink-0" />
           <h2 className="modal-sheet__title" id={titleId}>
-            Danger zone — {title}
+            {t("common.confirm.dangerZone", "Danger zone — {title}", { title })}
           </h2>
         </div>
 
@@ -112,8 +114,8 @@ export function ConfirmShutdownDialog({
           <div className="danger-box" role="alert">
             <b>
               {warnings && warnings.length > 0
-                ? "This stops running work."
-                : "This powers off hardware."}
+                ? t("common.confirm.stopsRunningWork", "This stops running work.")
+                : t("common.confirm.powersOffHardware", "This powers off hardware.")}
             </b>
             {warnings && warnings.length > 0 ? (
               <ul>
@@ -122,7 +124,12 @@ export function ConfirmShutdownDialog({
                 ))}
               </ul>
             ) : null}
-            <span>Running containers and sessions will stop. The host powers off after a graceful stop.</span>
+            <span>
+              {t(
+                "common.confirm.footnote",
+                "Running containers and sessions will stop. The host powers off after a graceful stop."
+              )}
+            </span>
           </div>
 
           <label className="check-row">
@@ -132,12 +139,12 @@ export function ConfirmShutdownDialog({
               disabled={submitting}
               onChange={(e) => setAcknowledged(e.target.checked)}
             />
-            <span>I understand this cannot be undone from the dashboard.</span>
+            <span>{t("common.confirm.acknowledge", "I understand this cannot be undone from the dashboard.")}</span>
           </label>
 
           <div className="field">
             <label htmlFor={`${titleId}-phrase`}>
-              Type <b className="mono">{CONFIRM_PHRASE}</b> to confirm
+              {t("common.confirm.typeToConfirm", "Type {phrase} to confirm", { phrase: CONFIRM_PHRASE })}
             </label>
             <input
               id={`${titleId}-phrase`}
@@ -163,7 +170,7 @@ export function ConfirmShutdownDialog({
         <div className="modal-sheet__footer">
           <div className="modal-sheet__footer-actions">
             <button type="button" onClick={onClose} disabled={submitting} className="btn btn--ghost">
-              Cancel
+              {t("common.action.cancel", "Cancel")}
             </button>
             <button
               type="button"
@@ -172,7 +179,9 @@ export function ConfirmShutdownDialog({
               className="btn btn--danger"
             >
               <PowerOffIcon className="h-3.5 w-3.5" />
-              {submitting ? "Shutting down…" : confirmLabel}
+              {submitting
+                ? t("common.confirm.shuttingDown", "Shutting down…")
+                : confirmLabel ?? t("common.confirm.shutDown", "Shut down")}
             </button>
           </div>
         </div>

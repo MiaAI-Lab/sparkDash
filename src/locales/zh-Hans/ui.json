@@ -1,0 +1,77 @@
+{
+  "clearMenu": {
+    "nothing": "没有可删除的内容",
+    "deletedOne": "已删除 {count} 条记录",
+    "deletedOther": "已删除 {count} 条记录",
+    "failed": "无法删除",
+    "undo": "此操作无法撤销。",
+    "cancel": "取消",
+    "deleting": "正在删除…",
+    "delete": "删除"
+  },
+  "restart": {
+    "restarting": "正在重启…",
+    "confirmAria": "确认重启",
+    "confirm": "现在重启？正在运行的基准测试将被中断。",
+    "restart": "重启",
+    "cancel": "取消",
+    "failed": "重启失败 — 重试",
+    "button": "重启 sparkDash"
+  },
+  "error": {
+    "dismissAria": "关闭错误",
+    "dismiss": "关闭"
+  },
+  "text": {
+    "connectingToLiveTelemetry": "正在连接实时遥测…",
+    "liveTelemetryIsDisconnectedWaitingForTheFirstValidUpdate": "实时遥测已断开，正在等待首次有效更新…",
+    "telemetryDataError": "遥测数据错误。",
+    "telemetryIsStale": "遥测数据已过期。",
+    "liveTelemetryIsDisconnected": "实时遥测已断开。",
+    "allRequiredCapabilitiesPassed": "所有必需能力均已通过。",
+    "oneOrMoreRequiredCapabilitiesFailed": "一个或多个必需能力未通过。",
+    "pass": "通过",
+    "fail": "失败",
+    "skipped": "已跳过",
+    "healthFindings": "健康问题",
+    "critical": "严重",
+    "warning": "警告",
+    "noDataInThisRangeYet": "此时段暂无数据。",
+    "noData": "无数据",
+    "commandOutput": "命令输出",
+    "earlierLinesHiddenCopyGetsEverything": "较早的行已隐藏（复制可获取全部内容）",
+    "noOutput": "无输出。",
+    "total": "总计",
+    "free": "可用",
+    "unifiedMemory": "统一内存",
+    "engine": "引擎",
+    "weights": "权重",
+    "kvPool": "KV 缓存池",
+    "kvInUse": "KV 已用",
+    "thisBackend": "此后端",
+    "systemCPU": "系统 / CPU",
+    "otherGPU": "其他 GPU",
+    "0S": "{value0}秒",
+    "0M1S": "{value0}分 {value1}秒",
+    "telemetryIsStaleLastValidUpdateWas0Ago": "遥测数据已过期。上次有效更新在 {value0}前。",
+    "liveTelemetryDisconnectedShowingDataFrom0Ago": "实时遥测已断开。正在显示 {value0}前的数据。",
+    "notReportedBy0": "{value0} 未上报"
+  },
+  "health": {
+    "more": "+{count} 项"
+  },
+  "terminal": {
+    "waiting": "等待输出…"
+  },
+  "memory": {
+    "freeAmount": "{amount} 可用",
+    "usedAmount": "{pool} · 已用 {used}，共 {total}"
+  },
+  "chart": {
+    "noDataAria": "无数据"
+  },
+  "telemetry": {
+    "invalidPayload": "服务器发送了无效的遥测载荷。",
+    "malformed": "服务器发送的遥测数据格式错误。"
+  }
+}

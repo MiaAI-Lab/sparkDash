@@ -1,3 +1,4 @@
+import { activeLocale } from "../../i18n";
 import type { MonthlyEnergyMonth } from "../../api/types";
 import type { BarBucket } from "../ui/StackedBarChart";
 import { costFor, NODE_COLORS } from "./energyStats";
@@ -15,6 +16,7 @@ const MONTH_NAMES = [
 /** "October 2026" for a "YYYY-MM" key. */
 export function monthLabel(key: string): string {
   const [year, month] = key.split("-").map(Number);
+  if (activeLocale() === "zh-Hans") return `${year}年${month || 1}月`;
   return `${MONTH_NAMES[(month || 1) - 1]} ${year}`;
 }
 
@@ -92,8 +94,8 @@ export function yearBars(months: readonly MonthlyEnergyMonth[], year: number): Y
     return {
       key,
       month: key,
-      label: SHORT[i],
-      title: `${MONTH_NAMES[i]} ${year}`,
+      label: activeLocale() === "zh-Hans" ? `${i + 1}月` : SHORT[i],
+      title: monthLabel(key),
       values,
       hasData: m != null && m.totalWh > 0,
       kwh: (m?.totalWh ?? 0) / 1000,

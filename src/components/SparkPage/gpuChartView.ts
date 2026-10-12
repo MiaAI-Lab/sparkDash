@@ -1,13 +1,30 @@
 /** Which GPU series the Spark page's main chart plots (pure helpers, no React). */
+import { i18next } from "../../i18n";
 
 export type GpuView = "combined" | "all" | number;
 export type GpuMetric = "usage" | "powerPct" | "temp";
 
-export const GPU_METRICS: ReadonlyArray<{ id: GpuMetric; label: string; unit: string }> = [
-  { id: "usage", label: "Utilization", unit: "GPU utilization %" },
-  { id: "powerPct", label: "Power", unit: "Power % of limit" },
-  { id: "temp", label: "Temperature", unit: "Temperature °C" },
+// Only the metric ids live here; the visible button / legend text is resolved by
+// gpuMetricLabel / gpuMetricUnit below so it follows the active language.
+export const GPU_METRICS: ReadonlyArray<{ id: GpuMetric }> = [
+  { id: "usage" },
+  { id: "powerPct" },
+  { id: "temp" },
 ];
+
+/** Short button label for one metric (an if-chain so the keys stay static). */
+export function gpuMetricLabel(id: GpuMetric): string {
+  if (id === "usage") return i18next.t("spark.chart.metricUsage", "Utilization");
+  if (id === "powerPct") return i18next.t("spark.chart.metricPower", "Power");
+  return i18next.t("spark.chart.metricTemp", "Temperature");
+}
+
+/** Y-axis / legend unit for one metric. */
+export function gpuMetricUnit(id: GpuMetric): string {
+  if (id === "usage") return i18next.t("spark.chart.unitUsage", "GPU utilization %");
+  if (id === "powerPct") return i18next.t("spark.chart.unitPower", "Power % of limit");
+  return i18next.t("spark.chart.unitTemp", "Temperature °C");
+}
 
 /** One colour per card, by position; cycles past six cards. */
 const GPU_COLORS = [
@@ -52,7 +69,7 @@ export function chartSeriesSpecs(view: GpuView, metric: GpuMetric, indices: read
   if (view === "all") {
     return indices.map((idx, pos) => ({
       key: `gpu${idx}`,
-      label: `GPU ${idx}`,
+      label: i18next.t("spark.chart.gpu", "GPU {idx}", { idx }),
       color: gpuColor(pos),
       metric: `gpu.${idx}.${metric}`,
       fill: false,
@@ -61,7 +78,7 @@ export function chartSeriesSpecs(view: GpuView, metric: GpuMetric, indices: read
   const prefix = view === "combined" ? "gpu" : `gpu.${view}`;
   return GPU_METRICS.map((m) => ({
     key: m.id,
-    label: m.unit,
+    label: gpuMetricUnit(m.id),
     color: METRIC_COLORS[m.id],
     metric: `${prefix}.${m.id}`,
     fill: m.id === "usage",

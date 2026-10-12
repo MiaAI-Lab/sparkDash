@@ -17,10 +17,10 @@ export function benchEvent(kind, job, sparkName) {
     if (kind === "quality" && Number.isFinite(job.results?.overallPct)) {
       detail = `: ${Math.round(job.results.overallPct * 10) / 10}%`;
     }
-    return { type: `bench.${kind}.finished`, severity: "success", message: `${label} finished on ${name}${detail}` };
+    return { type: `bench.${kind}.finished`, severity: "success", message: `${label} finished on ${name}${detail}`, data: { kind, score: kind === "quality" ? job.results?.overallPct : undefined } };
   }
   if (status === "cancelled") {
-    return { type: `bench.${kind}.cancelled`, severity: "info", message: `${label} cancelled on ${name}` };
+    return { type: `bench.${kind}.cancelled`, severity: "info", message: `${label} cancelled on ${name}`, data: { kind } };
   }
   if (status === "failed") {
     const err = String(job?.error || "").split("\n")[0].slice(0, 120);
@@ -28,6 +28,7 @@ export function benchEvent(kind, job, sparkName) {
       type: `bench.${kind}.failed`,
       severity: "error",
       message: `${label} failed on ${name}${err ? `: ${err}` : ""}`,
+      data: { kind, error: err },
     };
   }
   return null;

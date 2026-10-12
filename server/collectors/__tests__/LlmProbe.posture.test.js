@@ -51,6 +51,8 @@ test("_buildPosture: open + public → danger", () => {
   assert.equal(p.scope, "public");
   assert.match(p.label, /Open/);
   assert.match(p.detail, /not the process bind address/);
+  assert.equal(p.i18n.label.key, "server.posture.open");
+  assert.deepEqual(p.i18n.detail.params, { scope: "public", host: "8.8.8.8" });
 });
 
 test("_buildPosture: open + lan → warn", () => {

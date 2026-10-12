@@ -1,5 +1,7 @@
 import type { ActivityEvent } from "../../api/types";
 import { configuredTimeZone } from "../../shared/timeZone";
+import { activeLocale, i18next } from "../../i18n";
+import { localizedActivityMessage } from "../../i18n/messages";
 
 /** Pure logic for the Activity page: categories, labels, filtering, counts, day grouping, export. */
 
@@ -7,25 +9,31 @@ export type Severity = ActivityEvent["severity"];
 
 export const SEVERITIES: readonly Severity[] = ["error", "warn", "success", "info"];
 
-export const SEVERITY_LABEL: Record<Severity, string> = {
-  error: "Error",
-  warn: "Warning",
-  success: "Success",
-  info: "Info",
-};
+export function severityLabel(severity: Severity): string {
+  switch (severity) {
+    case "error":
+      return i18next.t("activity.severity.error", "Error");
+    case "warn":
+      return i18next.t("activity.severity.warn", "Warning");
+    case "success":
+      return i18next.t("activity.severity.success", "Success");
+    case "info":
+      return i18next.t("activity.severity.info", "Info");
+  }
+}
 
 export type CategoryId = "status" | "thermal" | "health" | "hermes" | "bench" | "power" | "llm" | "fleet" | "other";
 
-export const CATEGORIES: readonly { id: CategoryId; label: string }[] = [
-  { id: "status", label: "Status (online/offline)" },
-  { id: "thermal", label: "Thermal" },
-  { id: "health", label: "Health" },
-  { id: "hermes", label: "Hermes" },
-  { id: "bench", label: "Benchmarks" },
-  { id: "power", label: "Power" },
-  { id: "llm", label: "LLM models" },
-  { id: "fleet", label: "Fleet changes" },
-  { id: "other", label: "Other" },
+export const CATEGORIES: readonly CategoryId[] = [
+  "status",
+  "thermal",
+  "health",
+  "hermes",
+  "bench",
+  "power",
+  "llm",
+  "fleet",
+  "other",
 ];
 
 const DAY_MS = 86_400_000;
@@ -64,54 +72,149 @@ export function categorize(type: string): CategoryId {
   return "other";
 }
 
-const KNOWN_LABELS: Record<string, string> = {
-  "spark.online": "Online",
-  "spark.offline": "Offline",
-  "spark.added": "Spark added",
-  "spark.removed": "Spark removed",
-  "gpu.throttle.thermal": "Thermal throttle",
-  "gpu.throttle.cleared": "Throttle cleared",
-  "hermes.update.available": "Hermes update available",
-  "hermes.update.success": "Hermes updated",
-  "hermes.update.error": "Hermes update failed",
-  "health.xid": "Xid error",
-  "health.oom": "Out of memory kill",
-  "health.thermal": "Running hot",
-  "health.low-power": "Low power state",
-  "health.memory": "Low memory",
-  "health.concurrency": "Many models loaded",
-  "health.link-speed": "Slow link",
-  "health.roce-link": "RoCE link down",
-  "health.roce-loss": "RoCE packet loss",
-  "health.cleared": "Health OK",
-  "power.shutdown": "Shutdown",
-  "power.wake": "Wake",
-};
+function knownTypeLabel(type: string): string | null {
+  switch (type) {
+    case "spark.online":
+      return i18next.t("activity.type.sparkOnline", "Online");
+    case "spark.offline":
+      return i18next.t("activity.type.sparkOffline", "Offline");
+    case "spark.added":
+      return i18next.t("activity.type.sparkAdded", "Spark added");
+    case "spark.removed":
+      return i18next.t("activity.type.sparkRemoved", "Spark removed");
+    case "gpu.throttle.thermal":
+      return i18next.t("activity.type.throttleThermal", "Thermal throttle");
+    case "gpu.throttle.cleared":
+      return i18next.t("activity.type.throttleCleared", "Throttle cleared");
+    case "hermes.update.available":
+      return i18next.t("activity.type.hermesAvailable", "Hermes update available");
+    case "hermes.update.success":
+    case "hermes.update.completed":
+      return i18next.t("activity.type.hermesUpdated", "Hermes updated");
+    case "hermes.update.error":
+    case "hermes.update.failed":
+      return i18next.t("activity.type.hermesFailed", "Hermes update failed");
+    case "health.xid":
+      return i18next.t("activity.type.xid", "Xid error");
+    case "health.oom":
+      return i18next.t("activity.type.oom", "Out of memory kill");
+    case "health.thermal":
+      return i18next.t("activity.type.runningHot", "Running hot");
+    case "health.low-power":
+      return i18next.t("activity.type.lowPower", "Low power state");
+    case "health.memory":
+      return i18next.t("activity.type.lowMemory", "Low memory");
+    case "health.concurrency":
+      return i18next.t("activity.type.concurrency", "Many models loaded");
+    case "health.link-speed":
+      return i18next.t("activity.type.linkSpeed", "Slow link");
+    case "health.roce-link":
+      return i18next.t("activity.type.roceLink", "RoCE link down");
+    case "health.roce-loss":
+      return i18next.t("activity.type.roceLoss", "RoCE packet loss");
+    case "health.cleared":
+      return i18next.t("activity.type.healthOk", "Health OK");
+    case "power.shutdown":
+    case "power.shutdown.requested":
+      return i18next.t("activity.type.shutdown", "Shutdown");
+    case "power.wake":
+    case "power.wake.sent":
+      return i18next.t("activity.type.wake", "Wake");
+    default:
+      return null;
+  }
+}
 
-const BENCH_NAME: Record<string, string> = { decode: "Decode bench", prefill: "Prefill bench", quality: "Quality bench" };
-const BENCH_STAGE: Record<string, string> = { finished: "", failed: " failed", cancelled: " cancelled" };
-const LLM_ACTION: Record<string, string> = { start: "LLM start", stop: "LLM stop", attach: "LLM attach" };
+function benchName(id: string): string | null {
+  switch (id) {
+    case "decode":
+      return i18next.t("activity.type.benchDecode", "Decode bench");
+    case "prefill":
+      return i18next.t("activity.type.benchPrefill", "Prefill bench");
+    case "quality":
+      return i18next.t("activity.type.benchQuality", "Quality bench");
+    default:
+      return null;
+  }
+}
+
+function llmAction(id: string): string | null {
+  switch (id) {
+    case "start":
+      return i18next.t("activity.type.llmStart", "LLM start");
+    case "stop":
+      return i18next.t("activity.type.llmStop", "LLM stop");
+    case "attach":
+      return i18next.t("activity.type.llmAttach", "LLM attach");
+    default:
+      return null;
+  }
+}
 
 function sentence(s: string): string {
-  const t = s.replace(/[._-]+/g, " ").trim();
-  return t ? t.charAt(0).toUpperCase() + t.slice(1) : "Event";
+  const text = s.replace(/[._-]+/g, " ").trim();
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : i18next.t("activity.type.event", "Event");
 }
 
 /** Short human label for a type tag, e.g. "bench.decode.finished" -> "Decode bench". */
 export function typeLabel(type: string): string {
-  if (KNOWN_LABELS[type]) return KNOWN_LABELS[type];
+  const known = knownTypeLabel(type);
+  if (known) return known;
   const parts = type.split(".");
-  if (parts[0] === "bench" && parts.length === 3 && BENCH_NAME[parts[1]] && parts[2] in BENCH_STAGE) {
-    return BENCH_NAME[parts[1]] + BENCH_STAGE[parts[2]];
+  if (parts[0] === "bench" && parts.length === 3) {
+    const name = benchName(parts[1]);
+    if (name) {
+      switch (parts[2]) {
+        case "finished":
+          return i18next.t("activity.type.benchFinished", "{name}", { name });
+        case "failed":
+          return i18next.t("activity.type.benchFailed", "{name} failed", { name });
+        case "cancelled":
+          return i18next.t("activity.type.benchCancelled", "{name} cancelled", { name });
+        default:
+          break;
+      }
+    }
   }
-  if (parts[0] === "llm" && parts.length === 3 && LLM_ACTION[parts[1]]) {
-    return `${LLM_ACTION[parts[1]]} ${parts[2]}`;
+  if (parts[0] === "llm" && parts.length === 3) {
+    const action = llmAction(parts[1]);
+    if (action) return i18next.t("activity.type.llmAction", "{action} {stage}", { action, stage: stageLabel(parts[2]) });
   }
   return sentence(type);
 }
 
+function stageLabel(stage: string): string {
+  switch (stage) {
+    case "requested": return i18next.t("activity.stage.requested", "requested");
+    case "completed": return i18next.t("activity.stage.completed", "completed");
+    case "cancelled": return i18next.t("activity.stage.cancelled", "cancelled");
+    case "failed": return i18next.t("activity.stage.failed", "failed");
+    case "detached": return i18next.t("activity.stage.detached", "detached");
+    default: return stage;
+  }
+}
+
 export function categoryLabel(id: CategoryId): string {
-  return CATEGORIES.find((c) => c.id === id)?.label ?? "Other";
+  switch (id) {
+    case "status":
+      return i18next.t("activity.category.status", "Status (online/offline)");
+    case "thermal":
+      return i18next.t("activity.category.thermal", "Thermal");
+    case "health":
+      return i18next.t("activity.category.health", "Health");
+    case "hermes":
+      return i18next.t("activity.category.hermes", "Hermes");
+    case "bench":
+      return i18next.t("activity.category.bench", "Benchmarks");
+    case "power":
+      return i18next.t("activity.category.power", "Power");
+    case "llm":
+      return i18next.t("activity.category.llm", "LLM models");
+    case "fleet":
+      return i18next.t("activity.category.fleet", "Fleet changes");
+    case "other":
+      return i18next.t("activity.category.other", "Other");
+  }
 }
 
 /** Newest first by id (ids are monotonic), ts as a tiebreak for odd inputs. */
@@ -145,7 +248,7 @@ function matches(e: ActivityEvent, f: ActivityFilter, now: number, skip?: Dim): 
   if (skip !== "query") {
     const q = f.query.trim().toLowerCase();
     if (q) {
-      const hay = `${e.message}\n${e.sparkName ?? ""}\n${e.type}\n${typeLabel(e.type)}`.toLowerCase();
+      const hay = `${localizedActivityMessage(e)}\n${e.message}\n${e.sparkName ?? ""}\n${e.type}\n${typeLabel(e.type)}`.toLowerCase();
       if (!hay.includes(q)) return false;
     }
   }
@@ -165,7 +268,7 @@ export function countBySeverity(events: readonly ActivityEvent[], f: ActivityFil
 }
 
 export function countByCategory(events: readonly ActivityEvent[], f: ActivityFilter, now: number = Date.now()): Record<CategoryId, number> {
-  const out = Object.fromEntries(CATEGORIES.map((c) => [c.id, 0])) as Record<CategoryId, number>;
+  const out = Object.fromEntries(CATEGORIES.map((c) => [c, 0])) as Record<CategoryId, number>;
   for (const e of events) if (matches(e, f, now, "category")) out[categorize(e.type)]++;
   return out;
 }
@@ -200,10 +303,11 @@ const dtfCache = new Map<string, Intl.DateTimeFormat>();
 function dtf(key: string, tz: string | undefined, opts: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
   // No explicit zone: the Settings time zone, else the browser's.
   const zone = tz ?? configuredTimeZone() ?? undefined;
-  const k = `${key}|${zone ?? ""}`;
+  const locale = activeLocale() === "zh-Hans" ? "zh-CN" : "en-US";
+  const k = `${locale}|${key}|${zone ?? ""}`;
   let f = dtfCache.get(k);
   if (!f) {
-    f = new Intl.DateTimeFormat("en-US", { ...opts, timeZone: zone });
+    f = new Intl.DateTimeFormat(locale, { ...opts, timeZone: zone });
     dtfCache.set(k, f);
   }
   return f;
@@ -251,8 +355,8 @@ function shiftKey(key: string, days: number): string {
 export function dayLabel(key: string, now: number = Date.now(), tz?: string): string {
   const today = ymd(now, tz);
   const diff = dayNumber(today) - dayNumber(parseKey(key));
-  if (diff === 0) return "Today";
-  if (diff === 1) return "Yesterday";
+  if (diff === 0) return i18next.t("activity.day.today", "Today");
+  if (diff === 1) return i18next.t("activity.day.yesterday", "Yesterday");
   const sameYear = parseKey(key).y === today.y;
   return formatDayKey(key, sameYear ? { weekday: "long", month: "short", day: "numeric" } : { weekday: "long", month: "short", day: "numeric", year: "numeric" });
 }
@@ -388,7 +492,7 @@ export function summarize(events: readonly ActivityEvent[], now: number = Date.n
 export function exportText(events: readonly ActivityEvent[], tz?: string): string {
   return events
     .map((e) => {
-      return `${formatStamp(e.ts, tz)} [${SEVERITY_LABEL[e.severity] ?? e.severity}] ${typeLabel(e.type)} - ${e.message}`.replace(/\s+/g, " ");
+      return `${formatStamp(e.ts, tz)} [${severityLabel(e.severity)}] ${typeLabel(e.type)} - ${localizedActivityMessage(e)}`.replace(/\s+/g, " ");
     })
     .join("\n");
 }

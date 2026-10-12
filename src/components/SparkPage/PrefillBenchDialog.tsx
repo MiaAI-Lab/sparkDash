@@ -1,5 +1,8 @@
+import { localizedServerText, localizedServerMessage } from "../../i18n/messages";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
+import { i18next } from "../../i18n";
 import "../../styles/dialogs.css";
 import {
   cancelPrefillBench,
@@ -76,13 +79,13 @@ function useBodyScrollLock(locked: boolean) {
 function statusLabel(status: PrefillBenchJob["status"]): string {
   switch (status) {
     case "running":
-      return "Running";
+      return i18next.t("spark.benchDialog.status.running", "Running");
     case "completed":
-      return "Completed";
+      return i18next.t("spark.benchDialog.status.completed", "Completed");
     case "failed":
-      return "Failed";
+      return i18next.t("spark.benchDialog.status.failed", "Failed");
     case "cancelled":
-      return "Cancelled";
+      return i18next.t("spark.benchDialog.status.cancelled", "Cancelled");
     default:
       return status;
   }
@@ -103,19 +106,19 @@ function defaultSelected(contextLength: number | null): number[] {
 }
 
 function buildShareText(job: PrefillBenchJob, modelId: string | null): string {
-  const name = modelId || job.config?.modelId || "unknown model";
-  const head = `${name} | prefill tok/s results:`;
+  const name = modelId || job.config?.modelId || i18next.t("spark.share.unknownModel", "unknown model");
+  const head = i18next.t("spark.share.prefillHeading", "{name} | prefill tok/s results:", { name });
   const lines = job.results.map((r) => {
     const label = formatContextSize(r.targetTokens);
     if (rowFailed(r)) {
-      return `${label}  failed — ${r.error || "no prefill rate was measured"}`;
+      return i18next.t("spark.share.prefillFailed", "{label}  failed — {error}", { label, error: r.error || i18next.t("spark.share.noPrefill", "no prefill rate was measured") });
     }
     const actual =
       r.promptTokens > 0 ? `${r.promptTokens} tok` : `${r.targetTokens} tok`;
     const flags = [
-      r.lowConfidence ? "low confidence" : null,
+      r.lowConfidence ? i18next.t("spark.share.lowConfidence", "low confidence") : null,
       r.samples != null && r.samplesRequested != null && r.samples < r.samplesRequested
-        ? `${r.samples}/${r.samplesRequested} samples`
+        ? i18next.t("spark.share.samples", "{actual}/{requested} samples", { actual: r.samples, requested: r.samplesRequested })
         : null,
     ].filter(Boolean);
     return `${label}  ${r.prefillTps.toFixed(1)} tok/s  · TTFT ${formatTtft(r.ttftMs)}  · ${actual}${flags.length ? `  · ${flags.join(", ")}` : ""}`;
@@ -138,19 +141,37 @@ function prefillTitle(r: PrefillRow): string | undefined {
   if (!r.method) return undefined;
   const how =
     r.method === "server"
-      ? "server-reported prompt timing"
-      : `tokens ÷ (TTFT − ${Math.round(r.overheadMs ?? 0)} ms overhead, capped at half the TTFT)`;
-  const parts = [`Prefill: ${how}`, `median-rate sample of ${r.samples ?? 1}`];
-  if (r.cachedTokens) parts.push(`${r.cachedTokens.toLocaleString()} cached tokens excluded`);
-  if (r.lowConfidence) parts.push("overhead was over 30% of the TTFT");
+      ? i18next.t("spark.benchDialog.prefill.methodServer", "server-reported prompt timing")
+      : i18next.t(
+          "spark.benchDialog.prefill.methodComputed",
+          "tokens ÷ (TTFT − {overhead} ms overhead, capped at half the TTFT)",
+          { overhead: Math.round(r.overheadMs ?? 0) },
+        );
+  const parts = [
+    i18next.t("spark.benchDialog.prefill.titleLead", "Prefill: {how}", { how }),
+    i18next.t("spark.benchDialog.prefill.titleSample", "median-rate sample of {samples}", {
+      samples: r.samples ?? 1,
+    }),
+  ];
+  if (r.cachedTokens)
+    parts.push(
+      i18next.t("spark.benchDialog.prefill.titleCached", "{tokens} cached tokens excluded", {
+        tokens: r.cachedTokens.toLocaleString(),
+      }),
+    );
+  if (r.lowConfidence)
+    parts.push(
+      i18next.t("spark.benchDialog.prefill.titleLowConfidence", "overhead was over 30% of the TTFT"),
+    );
   if (r.notice) parts.push(r.notice);
   return parts.join(" · ");
 }
 
 function ResultRow({ r, max }: { r: PrefillRow; max: number }) {
+  const { t } = useTranslation();
   const failed = rowFailed(r);
   const partial = rowPartial(r);
-  const reason = r.error || "No prefill rate was measured";
+  const reason = r.error || t("spark.benchDialog.prefill.noRate", "No prefill rate was measured");
   // A failed row has no bar at all (a 2% sliver reads as "very slow", not "failed").
   const pct = !failed && max > 0 ? Math.max(2, Math.round((r.prefillTps / max) * 100)) : 0;
   return (
@@ -159,23 +180,23 @@ function ResultRow({ r, max }: { r: PrefillRow; max: number }) {
         <span className="bench-result-row__badge">{formatContextSize(r.targetTokens)}</span>
         <div className="bench-result-row__facts">
           <span>
-            TTFT <strong>{r.ttftMs > 0 ? formatTtft(r.ttftMs) : "—"}</strong>
+            {t("spark.benchDialog.ttft", "TTFT")} <strong>{r.ttftMs > 0 ? formatTtft(r.ttftMs) : "—"}</strong>
           </span>
           <span className="bench-result-row__sep" aria-hidden>
             ·
           </span>
           <span>
             <strong>{r.promptTokens > 0 ? r.promptTokens.toLocaleString() : "—"}</strong>{" "}
-            tokens
+            {t("spark.benchDialog.prefill.tokens", "tokens")}
           </span>
         </div>
       </div>
 
       <div className="bench-result-row__speeds">
         <div className="bench-result-row__metric">
-          <span className="bench-result-row__label">Prefill</span>
+          <span className="bench-result-row__label">{t("spark.benchDialog.prefill.label", "Prefill")}</span>
           {failed ? (
-            <span className="bench-result-row__value">failed</span>
+            <span className="bench-result-row__value">{t("spark.benchDialog.prefill.rowFailed", "failed")}</span>
           ) : (
             <span className="bench-result-row__value bench-result-row__value--accent">
               {r.prefillTps.toFixed(1)}
@@ -184,7 +205,7 @@ function ResultRow({ r, max }: { r: PrefillRow; max: number }) {
           )}
         </div>
         <div className="bench-result-row__metric">
-          <span className="bench-result-row__label">TTFT</span>
+          <span className="bench-result-row__label">{t("spark.benchDialog.ttft", "TTFT")}</span>
           <span className="bench-result-row__value">{r.ttftMs > 0 ? formatTtft(r.ttftMs) : "—"}</span>
         </div>
       </div>
@@ -197,9 +218,20 @@ function ResultRow({ r, max }: { r: PrefillRow; max: number }) {
         <>
           {(partial || r.lowConfidence) && (
             <p className="bench-result-row__note" role="note">
-              {partial ? (r.notice ?? `${r.samples}/${r.samplesRequested} samples`) : null}
+              {partial
+                ? (r.notice ??
+                  t("spark.benchDialog.prefill.samplesPartial", "{passed}/{requested} samples", {
+                    passed: r.samples,
+                    requested: r.samplesRequested,
+                  }))
+                : null}
               {partial && r.lowConfidence ? " · " : null}
-              {r.lowConfidence ? "Low confidence: request overhead was over 30% of the TTFT" : null}
+              {r.lowConfidence
+                ? t(
+                    "spark.benchDialog.prefill.lowConfidenceNote",
+                    "Low confidence: request overhead was over 30% of the TTFT",
+                  )
+                : null}
             </p>
           )}
           <div className="bench-result-row__bar" aria-hidden>
@@ -228,6 +260,7 @@ export function PrefillBenchDialog({
 }: PrefillBenchDialogProps) {
   const isPage = variant === "page";
   const open = isPage || openProp;
+  const { t } = useTranslation();
   const [history, setHistory] = useState<PrefillBenchJob[]>([]);
   const [selected, setSelected] = useState<number[]>(() => defaultSelected(contextLength));
   const [customDraft, setCustomDraft] = useState("");
@@ -299,7 +332,10 @@ export function PrefillBenchDialog({
                 }
                 setError(
                   err.message === "Benchmark not found"
-                    ? "Benchmark interrupted — server restarted during the run"
+                    ? i18next.t(
+                        "spark.benchDialog.interrupted",
+                        "Benchmark interrupted — server restarted during the run",
+                      )
                     : err.message
                 );
                 stopPoll();
@@ -307,7 +343,10 @@ export function PrefillBenchDialog({
               .catch(() => {
                 setError(
                   err.message === "Benchmark not found"
-                    ? "Benchmark interrupted — server restarted during the run"
+                    ? i18next.t(
+                        "spark.benchDialog.interrupted",
+                        "Benchmark interrupted — server restarted during the run",
+                      )
                     : err.message
                 );
                 stopPoll();
@@ -391,13 +430,24 @@ export function PrefillBenchDialog({
     const n = parseContextSize(customDraft);
     if (n == null) {
       setError(
-        `Custom size must be an integer between ${PREFILL_MIN_CONTEXT_SIZE.toLocaleString()} and ${PREFILL_MAX_CONTEXT_SIZE.toLocaleString()} tokens`
+        t(
+          "spark.benchDialog.prefill.errCustomRange",
+          "Custom size must be an integer between {min} and {max} tokens",
+          {
+            min: PREFILL_MIN_CONTEXT_SIZE.toLocaleString(),
+            max: PREFILL_MAX_CONTEXT_SIZE.toLocaleString(),
+          },
+        ),
       );
       return;
     }
     if (!sizeFits(n)) {
       setError(
-        `Custom size plus template and reply does not fit the model context (${contextLength?.toLocaleString()} tokens)`
+        t(
+          "spark.benchDialog.prefill.errCustomFit",
+          "Custom size plus template and reply does not fit the model context ({context} tokens)",
+          { context: contextLength?.toLocaleString() },
+        ),
       );
       return;
     }
@@ -434,7 +484,7 @@ export function PrefillBenchDialog({
     if (startLockRef.current) return;
     const sizes = selected.filter(sizeFits);
     if (sizes.length === 0) {
-      setError("Select at least one context size that fits this model");
+      setError(t("spark.benchDialog.prefill.errSelectSize", "Select at least one context size that fits this model"));
       return;
     }
     startLockRef.current = true;
@@ -515,8 +565,15 @@ export function PrefillBenchDialog({
   const showResults = job && job.status !== "running";
   const ctxHint =
     contextLength != null && contextLength > 0
-      ? `Model context ${formatContextSize(contextLength)} — larger sizes are disabled.`
-      : "Unique-prefix prompts; TTFT is time to first token. 128k–300k can take tens of minutes.";
+      ? t(
+          "spark.benchDialog.prefill.ctxModel",
+          "Model context {size} — larger sizes are disabled.",
+          { size: formatContextSize(contextLength) },
+        )
+      : t(
+          "spark.benchDialog.prefill.ctxDefault",
+          "Unique-prefix prompts; TTFT is time to first token. 128k–300k can take tens of minutes.",
+        );
 
   const configNode = (
     <>
@@ -524,10 +581,16 @@ export function PrefillBenchDialog({
             <section className="bench-sheet__section">
               <div className="bench-field">
                 <div className="bench-field__head">
-                  <h3 className="bench-sheet__section-title">Context size</h3>
-                  <p className="bench-sheet__hint">{ctxHint} Type a custom token count to add it.</p>
+                  <h3 className="bench-sheet__section-title">{t("spark.benchDialog.prefill.contextSize", "Context size")}</h3>
+                  <p className="bench-sheet__hint">
+                    {ctxHint} {t("spark.benchDialog.prefill.ctxHintSuffix", "Type a custom token count to add it.")}
+                  </p>
                 </div>
-                <div className="bench-conc-grid" role="group" aria-label="Context sizes">
+                <div
+                  className="bench-conc-grid"
+                  role="group"
+                  aria-label={t("spark.benchDialog.prefill.contextSizes", "Context sizes")}
+                >
                   {PREFILL_CONTEXT_SIZES.map((n: number) => {
                     const on = selected.includes(n);
                     const fits = sizeFits(n);
@@ -539,8 +602,14 @@ export function PrefillBenchDialog({
                         aria-pressed={on}
                         title={
                           fits
-                            ? `${n.toLocaleString()} tokens`
-                            : `Does not fit the model context (${contextLength?.toLocaleString()} tokens) once the template and reply are added`
+                            ? t("spark.benchDialog.prefill.chipTitle", "{tokens} tokens", {
+                                tokens: n.toLocaleString(),
+                              })
+                            : t(
+                                "spark.benchDialog.prefill.chipTooLarge",
+                                "Does not fit the model context ({context} tokens) once the template and reply are added",
+                                { context: contextLength?.toLocaleString() },
+                              )
                         }
                         onClick={() => toggleSize(n)}
                         className={`bench-conc-btn${on ? " is-on" : ""}`}
@@ -555,7 +624,9 @@ export function PrefillBenchDialog({
                       type="button"
                       disabled={isRunning || starting}
                       aria-pressed
-                      title={`${n.toLocaleString()} tokens — click to remove`}
+                      title={t("spark.benchDialog.prefill.customChipTitle", "{tokens} tokens — click to remove", {
+                        tokens: n.toLocaleString(),
+                      })}
                       onClick={() => toggleSize(n)}
                       className="bench-conc-btn is-on"
                     >
@@ -565,7 +636,7 @@ export function PrefillBenchDialog({
                 </div>
                 <div className="bench-custom-size">
                   <label htmlFor="prefill-custom-size" className="sr-only">
-                    Custom context size in tokens
+                    {t("spark.benchDialog.prefill.customLabel", "Custom context size in tokens")}
                   </label>
                   <input
                     id="prefill-custom-size"
@@ -574,8 +645,8 @@ export function PrefillBenchDialog({
                     pattern="[0-9]*"
                     disabled={isRunning || starting}
                     value={customDraft}
-                    placeholder="Custom"
-                    aria-label="Custom context size in tokens"
+                    placeholder={t("spark.benchDialog.prefill.customPlaceholder", "Custom")}
+                    aria-label={t("spark.benchDialog.prefill.customLabel", "Custom context size in tokens")}
                     onChange={(e) => {
                       const raw = e.target.value;
                       if (raw === "" || /^\d+$/.test(raw)) setCustomDraft(raw);
@@ -595,7 +666,7 @@ export function PrefillBenchDialog({
                     disabled={isRunning || starting || customDraft.trim() === ""}
                     onClick={addCustomSize}
                   >
-                    Add
+                    {t("common.action.add", "Add")}
                   </button>
                 </div>
               </div>
@@ -611,7 +682,7 @@ export function PrefillBenchDialog({
               <div className="bench-progress">
                 <div className="bench-progress__row">
                   <span className="bench-progress__status" role="status" aria-live="polite">
-                    Running
+                    {t("spark.benchDialog.running", "Running")}
                     {job.progress.currentContext != null
                       ? ` · ${formatContextSize(job.progress.currentContext)}`
                       : ""}
@@ -624,11 +695,14 @@ export function PrefillBenchDialog({
                 <div
                   className="bench-progress__track"
                   role="progressbar"
-                  aria-label="Prefill benchmark progress"
+                  aria-label={t("spark.benchDialog.prefill.progressAria", "Prefill benchmark progress")}
                   aria-valuemin={0}
                   aria-valuemax={100}
                   aria-valuenow={Math.min(100, progressPct)}
-                  aria-valuetext={`${job.progress.completedLevels} of ${job.progress.totalLevels} sizes`}
+                  aria-valuetext={t("spark.benchDialog.prefill.progressValueText", "{done} of {total} sizes", {
+                    done: job.progress.completedLevels,
+                    total: job.progress.totalLevels,
+                  })}
                 >
                   <div
                     className="bench-progress__fill"
@@ -636,12 +710,14 @@ export function PrefillBenchDialog({
                   />
                 </div>
                 {job.progress.message ? (
-                  <p className="bench-sheet__hint">{job.progress.message}</p>
+                  <p className="bench-sheet__hint">{localizedServerMessage(job.progress.i18n?.message, job.progress.message)}</p>
                 ) : null}
               </div>
               {job.results.length > 0 && (
                 <div className="bench-results">
-                  <div className="bench-results__caption">Completed sizes</div>
+                  <div className="bench-results__caption">
+                    {t("spark.benchDialog.prefill.completedSizes", "Completed sizes")}
+                  </div>
                   {job.results.map((r) => (
                     <ResultRow key={r.targetTokens} r={r} max={maxPrefill} />
                   ))}
@@ -666,15 +742,15 @@ export function PrefillBenchDialog({
                 </span>
               </div>
 
-              {job.error && <p className="bench-sheet__error">{job.error}</p>}
+              {job.error && <p className="bench-sheet__error">{localizedServerText(job.error)}</p>}
 
               {job.results.length > 0 && (
                 <div className="bench-results bench-results--table">
                   <div className="bench-results__head" aria-hidden="true">
-                    <span>Context</span>
+                    <span>{t("spark.benchDialog.prefill.context", "Context")}</span>
                     <span className="bench-results__head-speeds">
-                      <span>Prefill</span>
-                      <span>TTFT</span>
+                      <span>{t("spark.benchDialog.prefill.label", "Prefill")}</span>
+                      <span>{t("spark.benchDialog.ttft", "TTFT")}</span>
                     </span>
                   </div>
                   {job.results.map((r) => (
@@ -685,14 +761,23 @@ export function PrefillBenchDialog({
 
               {job.results.length > 0 && (
                 <p className="bench-legend">
-                  <strong>Prefill</strong> — the server&apos;s own prompt-processing timing when it
-                  reports one, otherwise tokens computed ÷ (TTFT − calibrated request overhead),
-                  with prefix-cache hits excluded and the correction capped at half the TTFT.{" "}
-                  <strong>TTFT</strong> — request start to first streamed token. Tokens, TTFT and
-                  tok/s are from the median-rate sample of each size. Each size uses a unique
-                  prefix so prefix-cache does not inflate later sizes.{" "}
-                  <strong>Low confidence</strong> — the overhead was over 30% of the TTFT, so the
-                  rate leans on the calibration; <strong>n/m samples</strong> — some repeats failed.
+                  <strong>{t("spark.benchDialog.prefill.label", "Prefill")}</strong>
+                  {t(
+                    "spark.benchDialog.prefill.legendPrefillBody",
+                    " — the server's own prompt-processing timing when it reports one, otherwise tokens computed ÷ (TTFT − calibrated request overhead), with prefix-cache hits excluded and the correction capped at half the TTFT.",
+                  )}{" "}
+                  <strong>{t("spark.benchDialog.ttft", "TTFT")}</strong>
+                  {t(
+                    "spark.benchDialog.prefill.legendTtftBody",
+                    " — request start to first streamed token. Tokens, TTFT and tok/s are from the median-rate sample of each size. Each size uses a unique prefix so prefix-cache does not inflate later sizes.",
+                  )}{" "}
+                  <strong>{t("spark.benchDialog.prefill.legendLowConfidence", "Low confidence")}</strong>
+                  {t(
+                    "spark.benchDialog.prefill.legendLowConfidenceBody",
+                    " — the overhead was over 30% of the TTFT, so the rate leans on the calibration; ",
+                  )}
+                  <strong>{t("spark.benchDialog.prefill.legendSamples", "n/m samples")}</strong>
+                  {t("spark.benchDialog.prefill.legendSamplesBody", " — some repeats failed.")}
                 </p>
               )}
             </section>
@@ -725,14 +810,16 @@ export function PrefillBenchDialog({
       <PageLayout
         config={
           <>
-            {loadingLast && !job && <p className="bench-sheet__hint">Loading last results…</p>}
+            {loadingLast && !job && (
+              <p className="bench-sheet__hint">{t("spark.benchDialog.loadingLast", "Loading last results…")}</p>
+            )}
             {configNode}
           </>
         }
         runBar={
           isRunning ? (
             <button type="button" className="btn" onClick={() => void handleCancel()}>
-              Cancel run
+              {t("spark.benchDialog.cancelRun", "Cancel run")}
             </button>
           ) : (
             <button
@@ -741,16 +828,18 @@ export function PrefillBenchDialog({
               onClick={() => void handleStart()}
               disabled={starting || selected.filter(sizeFits).length === 0}
             >
-              {starting ? "Starting…" : "Run benchmark"}
+              {starting
+                ? t("spark.benchDialog.starting", "Starting…")
+                : t("spark.benchDialog.runBenchmark", "Run benchmark")}
             </button>
           )
         }
       >
-        {error && <p className="bench-sheet__error">{error}</p>}
-        {isRunning && <PageCard title="Progress">{progressNode}</PageCard>}
+        {error && <p className="bench-sheet__error">{localizedServerText(error)}</p>}
+        {isRunning && <PageCard title={t("spark.benchDialog.progress", "Progress")}>{progressNode}</PageCard>}
         {showResults && (
           <PageCard
-            title="Results"
+            title={t("spark.benchDialog.results", "Results")}
             tools={
               <>
                 {copyButton}
@@ -759,9 +848,9 @@ export function PrefillBenchDialog({
                     type="button"
                     className="btn btn--sm btn--ghost"
                     onClick={() => void handleClear()}
-                    title="Clear saved results for this port"
+                    title={t("spark.benchDialog.clearSavedTitle", "Clear saved results for this port")}
                   >
-                    Clear history
+                    {t("spark.benchDialog.clearHistory", "Clear history")}
                   </button>
                 )}
               </>
@@ -771,17 +860,19 @@ export function PrefillBenchDialog({
           </PageCard>
         )}
         {!job && !loadingLast && (
-          <PageEmpty title="No runs yet">
-            Choose the context sizes to test, then run. Each size sends a unique prompt and reports prefill tok/s and
-            time to first token.
+          <PageEmpty title={t("spark.benchDialog.noRunsYet", "No runs yet")}>
+            {t(
+              "spark.benchDialog.prefill.emptyBody",
+              "Choose the context sizes to test, then run. Each size sends a unique prompt and reports prefill tok/s and time to first token.",
+            )}
           </PageEmpty>
         )}
         {history.length > 0 && (
-          <PageCard title={`History · ${history.length}`}>
+          <PageCard title={t("spark.benchDialog.history", "History · {count}", { count: history.length })}>
             <HistoryTable
               rows={history.map(prefillHistoryRow)}
               activeId={job?.benchId ?? null}
-              labelHeader="Context sizes"
+              labelHeader={t("spark.benchDialog.prefill.contextSizes", "Context sizes")}
               onView={handleView}
               busy={isRunning || starting}
             />
@@ -796,7 +887,7 @@ export function PrefillBenchDialog({
       <button
         type="button"
         className="bench-overlay__scrim"
-        aria-label="Close dialog"
+        aria-label={t("spark.benchDialog.closeDialog", "Close dialog")}
         onClick={() => {
           if (!isRunning) onClose();
         }}
@@ -811,12 +902,12 @@ export function PrefillBenchDialog({
         <header className="bench-sheet__header">
           <div className="bench-sheet__header-text">
             <h2 id="prefill-bench-title" className="bench-sheet__title">
-              Prefill benchmark
+              {t("spark.benchDialog.prefill.title", "Prefill benchmark")}
             </h2>
             <p className="bench-sheet__subtitle">
               {remoteTarget
                 ? formatLlmBaseUrl(remoteTarget)
-                : `Port ${llmPort}`}
+                : t("spark.benchDialog.port", "Port {port}", { port: llmPort })}
               {resultModelId ? ` · ${resultModelId}` : ""}
             </p>
           </div>
@@ -825,7 +916,7 @@ export function PrefillBenchDialog({
             type="button"
             className="bench-sheet__close"
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t("common.action.close", "Close")}
           >
             <XIcon className="h-4 w-4" />
           </button>
@@ -833,12 +924,12 @@ export function PrefillBenchDialog({
 
         <div className="bench-sheet__body">
           {loadingLast && !job && (
-            <p className="bench-sheet__hint">Loading last results…</p>
+            <p className="bench-sheet__hint">{t("spark.benchDialog.loadingLast", "Loading last results…")}</p>
           )}
 
           {configNode}
 
-          {error && <p className="bench-sheet__error">{error}</p>}
+          {error && <p className="bench-sheet__error">{localizedServerText(error)}</p>}
 
           {progressNode}
 
@@ -852,7 +943,7 @@ export function PrefillBenchDialog({
               className="bench-btn bench-btn--ghost"
               onClick={() => void handleCancel()}
             >
-              Cancel
+              {t("common.action.cancel", "Cancel")}
             </button>
           ) : job ? (
             <>
@@ -861,9 +952,9 @@ export function PrefillBenchDialog({
                   type="button"
                   className="bench-btn bench-btn--ghost"
                   onClick={() => void handleClear()}
-                  title="Clear saved results for this port"
+                  title={t("spark.benchDialog.clearSavedTitle", "Clear saved results for this port")}
                 >
-                  Clear
+                  {t("spark.benchDialog.clear", "Clear")}
                 </button>
               )}
               {job.results.length > 0 && (
@@ -885,16 +976,16 @@ export function PrefillBenchDialog({
                 />
               )}
               <button type="button" className="bench-btn bench-btn--ghost" onClick={onClose}>
-                Done
+                {t("common.action.done", "Done")}
               </button>
               <button type="button" className="bench-btn bench-btn--primary" onClick={handleNewRun}>
-                Run again
+                {t("spark.benchDialog.runAgain", "Run again")}
               </button>
             </>
           ) : (
             <>
               <button type="button" className="bench-btn bench-btn--ghost" onClick={onClose}>
-                Close
+                {t("common.action.close", "Close")}
               </button>
               <button
                 type="button"
@@ -902,7 +993,9 @@ export function PrefillBenchDialog({
                 onClick={() => void handleStart()}
                 disabled={starting || selected.filter(sizeFits).length === 0}
               >
-                {starting ? "Starting…" : "Run benchmark"}
+                {starting
+                  ? t("spark.benchDialog.starting", "Starting…")
+                  : t("spark.benchDialog.runBenchmark", "Run benchmark")}
               </button>
             </>
           )}

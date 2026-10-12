@@ -1,3 +1,7 @@
+import { localizedServerText } from "../../../i18n/messages";
+import { localizeBenchText } from "./benchText";
+import { useTranslation } from "react-i18next";
+import { i18next } from "../../../i18n";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ToolEvalRun } from "../../../api/types";
 import { Tag } from "../../ui/Tag";
@@ -36,6 +40,7 @@ const CHIP: Record<string, "good" | "warn" | "bad" | "neutral"> = { pass: "good"
 
 /** Progress of the run being followed: counters, current scenario, per-scenario list, raw output, and the stop controls. */
 export function LiveRun({ followed, polling, pollError, actionError, scenarioMode, onStop, onStopWatching, onAttach, onRefresh, onDismiss, onViewResult }: LiveRunProps) {
+  const { i18n } = useTranslation();
   const { run, job, progress, lines, events, partial, noLive } = followed;
   const jobRunning = job?.status === "running";
   const running = run.status === "running" && (jobRunning || (polling && !job));
@@ -54,7 +59,7 @@ export function LiveRun({ followed, polling, pollError, actionError, scenarioMod
   const lostWatch = !running && !finished; // run is still going on the Spark, but nobody is reading it
   const err = p?.error ?? null;
   const live = running && !stopping;
-  const notes = useMemo(() => toolNotes(lines), [lines]);
+  const notes = useMemo(() => toolNotes(lines), [lines, i18n.language]);
   const errLines = lines.filter((l) => l.stream === "err" && !l.text.startsWith("{")).slice(-3);
 
   // Keep the newest scenario in view while the list grows, unless the reader scrolled up to look back.
@@ -78,40 +83,40 @@ export function LiveRun({ followed, polling, pollError, actionError, scenarioMod
   }, [running]);
 
   const phaseText = (() => {
-    if (!p) return "Starting…";
+    if (!p) return i18next.t("bench.ui.starting_e5f580", "Starting…");
     switch (p.phase) {
       case "starting":
-        return "Starting the tool on the Spark…";
+        return i18next.t("bench.ui.startingTheToolOnTheSpark_2ba2bd", "Starting the tool on the Spark…");
       case "connecting":
-        return `Connected to ${p.server?.baseUrl ?? "the server"}${p.server?.backend ? ` (${p.server.backend})` : ""}…`;
+        return i18next.t("bench.ui.connectedToV1V2_f5c263", "Connected to {v1}{v2}…", { v1: p.server?.baseUrl ?? i18next.t("bench.ui.theServer_cae77b", "the server"), v2: p.server?.backend ? ` (${p.server.backend})` : "" });
       case "running":
-        return scenarioMode ? "Running scenarios" : "Measuring";
+        return scenarioMode ? i18next.t("bench.ui.runningScenarios_293803", "Running scenarios") : i18next.t("bench.ui.measuring_13a40d", "Measuring");
       case "done":
-        return "Finished";
+        return i18next.t("bench.ui.finished_355bcc", "Finished");
       case "error":
-        return "Error";
+        return i18next.t("bench.ui.error_7f2f6a", "Error");
       default:
         return p.phase;
     }
   })();
 
   return (
-    <section className="panel te-card te-live" aria-label="Run progress">
+    <section className="panel te-card te-live" aria-label={i18next.t("bench.ui.runProgress_c961f3", "Run progress")}>
       <div className="te-card__head">
         <div>
-          <div className="eyebrow">{finished ? "Last run" : "Run in progress"}</div>
+          <div className="eyebrow">{finished ? i18next.t("bench.ui.lastRun_333c63", "Last run") : i18next.t("bench.ui.runInProgress_3a1231", "Run in progress")}</div>
           <h2>
-            {run.typeLabel}
+            {localizeBenchText(run.typeLabel)}
             {run.label ? <span className="te-faint"> · {run.label}</span> : null}
           </h2>
         </div>
         <div className="te-live__tags">
           <Tag tone={statusTone(run.status)}>{statusLabel(run.status, jobRunning)}</Tag>
-          {p?.model || run.model ? <Tag tone="neutral" title="Model">{p?.model ?? run.model}</Tag> : null}
+          {p?.model || run.model ? <Tag tone="neutral" title={i18next.t("bench.ui.model_68c2cc", "Model")}>{p?.model ?? run.model}</Tag> : null}
         </div>
       </div>
 
-      <div className="te-progress" role="group" aria-label="Progress">
+      <div className="te-progress" role="group" aria-label={i18next.t("bench.ui.progress_1b9027", "Progress")}>
         <div
           className={`te-bar ${pct == null && running ? "is-indeterminate" : ""}`}
           role="progressbar"
@@ -123,28 +128,27 @@ export function LiveRun({ followed, polling, pollError, actionError, scenarioMod
           <i className={err || run.status === "failed" ? "is-bad" : undefined} style={pct != null ? { width: `${pct}%` } : finished ? { width: "100%" } : undefined} />
         </div>
         <div className="te-progress__meta" aria-live="polite">
-          <span>{total ? <><b className="mono">{done}</b> / {total} scenarios</> : phaseText}</span>
+          <span>{total ? <><b className="mono">{done}</b> / {total} {i18next.t("bench.ui.scenarios_c254d1", "scenarios")}</> : phaseText}</span>
           <span className="te-faint">
-            {fmtDuration(elapsed)} elapsed{eta != null ? ` · about ${fmtDuration(eta)} left` : ""}
+            {fmtDuration(elapsed)} {i18next.t("bench.ui.elapsed_0a6837", "elapsed")}{eta != null ? i18next.t("bench.ui.aboutV1Left_b3ccd1", " · about {v1} left", { v1: fmtDuration(eta) }) : ""}
           </span>
         </div>
       </div>
 
       {scenarioMode && p ? (
         <div className="te-counters">
-          <span className="te-counter-chip is-pass"><b>{p.counts.pass}</b> pass</span>
-          <span className="te-counter-chip is-partial"><b>{p.counts.partial}</b> partial</span>
-          <span className="te-counter-chip is-fail"><b>{p.counts.fail}</b> fail</span>
-          {p.counts.other ? <span className="te-counter-chip"><b>{p.counts.other}</b> other</span> : null}
-          <span className="te-faint te-counters__pts">{p.points} points</span>
+          <span className="te-counter-chip is-pass"><b>{p.counts.pass}</b> {i18next.t("bench.ui.pass_9d4e1e", "pass")}</span>
+          <span className="te-counter-chip is-partial"><b>{p.counts.partial}</b> {i18next.t("bench.ui.partial_355705", "partial")}</span>
+          <span className="te-counter-chip is-fail"><b>{p.counts.fail}</b> {i18next.t("bench.ui.fail_a602e2", "fail")}</span>
+          {p.counts.other ? <span className="te-counter-chip"><b>{p.counts.other}</b> {i18next.t("bench.ui.other_d0941e", "other")}</span> : null}
+          <span className="te-faint te-counters__pts">{p.points} {i18next.t("bench.ui.points_819f41", "points")}</span>
         </div>
       ) : null}
 
       {live ? (
         <p className="te-current" aria-live="polite">
           {scenarioMode && p?.current?.id ? (
-            <>
-              Now: <b className="mono">{p.current.id}</b>
+            <>{i18next.t("bench.ui.now_a61d4e", "Now:")} <b className="mono">{p.current.id}</b>
               {p.current.title ? ` ${p.current.title}` : ""}
               {p.current.category ? <Tag tone="neutral">{p.current.category}</Tag> : null}
             </>
@@ -155,7 +159,7 @@ export function LiveRun({ followed, polling, pollError, actionError, scenarioMod
       ) : null}
 
       {notes.length ? (
-        <Notice tone="info" title="Good to know">
+        <Notice tone="info" title={i18next.t("bench.ui.goodToKnow_79fc37", "Good to know")}>
           {notes.map((n) => (
             <p key={n.key}>{n.text}</p>
           ))}
@@ -163,41 +167,39 @@ export function LiveRun({ followed, polling, pollError, actionError, scenarioMod
       ) : null}
 
       {err || run.status === "failed" ? (
-        <Notice tone="bad" title={err ? "The tool reported an error" : `The run failed${run.exitCode != null ? ` (exit code ${run.exitCode})` : ""}`}>
-          {err ? explainErrorCode(err.code, err.message) : errLines.length ? errLines.map((l) => l.text).join(" / ") : "Open the raw output below for details."}
+        <Notice tone="bad" title={err ? i18next.t("bench.ui.theToolReportedAnError_e9c97f", "The tool reported an error") : i18next.t("bench.ui.theRunFailedV1_d84728", "The run failed{v1}", { v1: run.exitCode != null ? i18next.t("bench.ui.exitCodeV1_01f57c", " (exit code {v1})", { v1: run.exitCode }) : "" })}>
+          {err ? explainErrorCode(err.code, err.message) : errLines.length ? errLines.map((l) => l.text).join(" / ") : i18next.t("bench.ui.openTheRawOutputBelowForDetails_21630c", "Open the raw output below for details.")}
         </Notice>
       ) : null}
-      {run.status === "stopped" ? <Notice tone="warn" title="The run was stopped">It stopped before finishing, so there may be no result.</Notice> : null}
+      {run.status === "stopped" ? <Notice tone="warn" title={i18next.t("bench.ui.theRunWasStopped_366783", "The run was stopped")}>{i18next.t("bench.ui.itStoppedBeforeFinishingSoThereMay_689bbe", "It stopped before finishing, so there may be no result.")}</Notice> : null}
       {job?.status === "detached" || (lostWatch && job) ? (
         <Notice
           tone="warn"
-          title="Lost the live view"
+          title={i18next.t("bench.ui.lostTheLiveView_22b04a", "Lost the live view")}
           actions={
             <>
-              <button type="button" className="btn btn--sm" onClick={() => onAttach(run)}>Re-attach</button>
-              <button type="button" className="btn btn--sm btn--ghost" onClick={() => onRefresh(run)}>Check status</button>
+              <button type="button" className="btn btn--sm" onClick={() => onAttach(run)}>{i18next.t("bench.ui.reAttach_fcc3e9", "Re-attach")}</button>
+              <button type="button" className="btn btn--sm btn--ghost" onClick={() => onRefresh(run)}>{i18next.t("bench.ui.checkStatus_07adf9", "Check status")}</button>
             </>
           }
         >
-          {job?.error ?? "The run may still be going on the Spark."}
+          {job?.error ? localizedServerText(job.error) : i18next.t("bench.ui.theRunMayStillBeGoingOn_7baa5e", "The run may still be going on the Spark.")}
         </Notice>
       ) : null}
       {lostWatch && !job ? (
         <Notice
           tone="info"
-          title={noLive ? "Not watching this run" : "Run is detached"}
+          title={noLive ? i18next.t("bench.ui.notWatchingThisRun_285d85", "Not watching this run") : i18next.t("bench.ui.runIsDetached_a7d527", "Run is detached")}
           actions={
             <>
-              <button type="button" className="btn btn--sm" onClick={() => onAttach(run)}>Watch again</button>
-              <button type="button" className="btn btn--sm btn--ghost" onClick={() => onRefresh(run)}>Check status</button>
+              <button type="button" className="btn btn--sm" onClick={() => onAttach(run)}>{i18next.t("bench.ui.watchAgain_0587c1", "Watch again")}</button>
+              <button type="button" className="btn btn--sm btn--ghost" onClick={() => onRefresh(run)}>{i18next.t("bench.ui.checkStatus_07adf9", "Check status")}</button>
             </>
           }
-        >
-          The run continues on the Spark. Watch it again to see its progress, or check whether it has finished.
-        </Notice>
+        >{i18next.t("bench.ui.theRunContinuesOnTheSparkWatch_2a8718", "The run continues on the Spark. Watch it again to see its progress, or check whether it has finished.")}</Notice>
       ) : null}
-      {pollError ? <Notice tone="warn" title="Connection to sparkDash lost, retrying…">{pollError}</Notice> : null}
-      {actionError ? <Notice tone="bad">{actionError}</Notice> : null}
+      {pollError ? <Notice tone="warn" title={i18next.t("bench.ui.connectionToSparkdashLostRetrying_a30cf1", "Connection to sparkDash lost, retrying…")}>{localizedServerText(pollError)}</Notice> : null}
+      {actionError ? <Notice tone="bad">{localizedServerText(actionError)}</Notice> : null}
 
       {scenarioMode && p && p.scenarios.length ? (
         <ul
@@ -206,15 +208,15 @@ export function LiveRun({ followed, polling, pollError, actionError, scenarioMod
             listRef.current = el;
           }}
           className={`te-scn-list${running ? " is-live" : ""}`}
-          aria-label="Scenarios so far"
+          aria-label={i18next.t("bench.ui.scenariosSoFar_e9847f", "Scenarios so far")}
           onScroll={(e) => {
             const el = e.currentTarget;
             pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
           }}
         >
           {p.scenarios.map((s, i) => (
-            <li key={`${s.id}-${i}`} className={`is-${CHIP[s.status] ?? "neutral"}`} title={`${s.title ?? ""} ${s.points != null ? `· ${s.points} pts` : ""}`}>
-              <Tag tone={CHIP[s.status] ?? "neutral"}>{s.status}</Tag>
+            <li key={`${s.id}-${i}`} className={`is-${CHIP[s.status] ?? "neutral"}`} title={`${s.title ?? ""} ${s.points != null ? i18next.t("bench.ui.v1Pts_1d1eb4", "· {v1} pts", { v1: s.points }) : ""}`}>
+              <Tag tone={CHIP[s.status] ?? "neutral"}>{localizeBenchText(s.status)}</Tag>
               <span className="mono">{s.id}</span>
               <span className="te-scn-list__title">{s.title ?? ""}</span>
               {s.durationSeconds != null ? <span className="te-faint">{s.durationSeconds.toFixed(1)}s</span> : null}
@@ -223,7 +225,7 @@ export function LiveRun({ followed, polling, pollError, actionError, scenarioMod
         </ul>
       ) : null}
       {!scenarioMode && events.length ? (
-        <ul className="te-events" aria-label="Recent activity">
+        <ul className="te-events" aria-label={i18next.t("bench.ui.recentActivity_72d561", "Recent activity")}>
           {events.slice(-6).map((e) => (
             <li key={e.seq}>
               <span className="mono">{e.event}</span>
@@ -237,7 +239,7 @@ export function LiveRun({ followed, polling, pollError, actionError, scenarioMod
         {running ? (
           confirmStop ? (
             <>
-              <span className="te-confirm-text">Stop this run on the Spark? Partial results are lost.</span>
+              <span className="te-confirm-text">{i18next.t("bench.ui.stopThisRunOnTheSparkPartial_7d7247", "Stop this run on the Spark? Partial results are lost.")}</span>
               <button
                 type="button"
                 className="btn btn--danger"
@@ -247,31 +249,29 @@ export function LiveRun({ followed, polling, pollError, actionError, scenarioMod
                   onStop();
                 }}
               >
-                {stopping ? "Stopping…" : "Yes, stop it"}
+                {stopping ? i18next.t("bench.ui.stopping_827c97", "Stopping…") : i18next.t("bench.ui.yesStopIt_2ed0f6", "Yes, stop it")}
               </button>
-              <button type="button" className="btn" onClick={() => setConfirmStop(false)}>Keep running</button>
+              <button type="button" className="btn" onClick={() => setConfirmStop(false)}>{i18next.t("bench.ui.keepRunning_fecf69", "Keep running")}</button>
             </>
           ) : (
             <>
-              <button type="button" className="btn btn--danger" onClick={() => setConfirmStop(true)}>Stop run</button>
-              <button type="button" className="btn btn--ghost" onClick={onStopWatching} title="The run keeps going on the Spark; you can watch it again from the history.">
-                Stop watching
-              </button>
+              <button type="button" className="btn btn--danger" onClick={() => setConfirmStop(true)}>{i18next.t("bench.ui.stopRun_3fa97b", "Stop run")}</button>
+              <button type="button" className="btn btn--ghost" onClick={onStopWatching} title={i18next.t("bench.ui.theRunKeepsGoingOnTheSpark_2ce681", "The run keeps going on the Spark; you can watch it again from the history.")}>{i18next.t("bench.ui.stopWatching_9e521d", "Stop watching")}</button>
             </>
           )
         ) : null}
-        {finished && run.status === "completed" ? <button type="button" className="btn btn--primary" onClick={() => onViewResult(run)}>View result</button> : null}
-        {finished ? <button type="button" className="btn btn--ghost" onClick={onDismiss}>Dismiss</button> : null}
+        {finished && run.status === "completed" ? <button type="button" className="btn btn--primary" onClick={() => onViewResult(run)}>{i18next.t("bench.ui.viewResult_a4a3e2", "View result")}</button> : null}
+        {finished ? <button type="button" className="btn btn--ghost" onClick={onDismiss}>{i18next.t("bench.ui.dismiss_70afe9", "Dismiss")}</button> : null}
         <button type="button" className="btn btn--ghost te-actions__end" aria-expanded={showTerm} onClick={() => setShowTerm((s) => !s)}>
-          {showTerm ? "Hide raw output" : `Raw output (${lines.length})`}
+          {showTerm ? i18next.t("bench.ui.hideRawOutput_dc3d32", "Hide raw output") : i18next.t("bench.ui.rawOutputV1_bbe433", "Raw output ({v1})", { v1: lines.length })}
         </button>
       </div>
-      {running ? <p className="te-faint">Stop watching leaves the run going on the Spark; it will show up under History and can be re-attached.</p> : null}
+      {running ? <p className="te-faint">{i18next.t("bench.ui.stopWatchingLeavesTheRunGoingOn_47fcc1", "Stop watching leaves the run going on the Spark; it will show up under History and can be re-attached.")}</p> : null}
       {showTerm ? (
         <div className="te-live__term">
           <div className="te-json__bar">
-            <span className="te-faint">stderr lines are dimmed. Messages about features the server lacks (an HTTP 400, “rejected”) are the tool probing it, not a failure.</span>
-            <CopyButton text={() => linesText(lines, partial)} label="Copy output" />
+            <span className="te-faint">{i18next.t("bench.ui.stderrLinesAreDimmedMessagesAboutFeatures_856ed6", "stderr lines are dimmed. Messages about features the server lacks (an HTTP 400, “rejected”) are the tool probing it, not a failure.")}</span>
+            <CopyButton text={() => linesText(lines, partial)} label={i18next.t("bench.ui.copyOutput_944a2c", "Copy output")} />
           </div>
           <RunTerminal lines={lines} partial={partial} running={running} />
         </div>

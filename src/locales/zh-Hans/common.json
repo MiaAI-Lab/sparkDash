@@ -1,0 +1,169 @@
+{
+  "errors": {
+    "couldNotLoadSettings": "无法加载设置：{message}。请刷新页面重试。",
+    "couldNotRefreshSparks": "无法刷新 Spark：{message}。仍显示此前的数据。",
+    "couldNotSaveOrder": "无法保存 Spark 顺序：{message}。已恢复原有顺序。"
+  },
+  "action": {
+    "cancel": "取消",
+    "close": "关闭",
+    "save": "保存",
+    "saving": "正在保存...",
+    "remove": "移除",
+    "back": "返回",
+    "loading": "正在加载…",
+    "test": "测试",
+    "testing": "正在测试...",
+    "edit": "编辑",
+    "add": "添加",
+    "shutDown": "关机",
+    "done": "完成",
+    "settings": "设置",
+    "refresh": "刷新"
+  },
+  "confirm": {
+    "dangerZone": "危险操作 — {title}",
+    "stopsRunningWork": "此操作会中断正在运行的任务。",
+    "powersOffHardware": "此操作会关闭硬件电源。",
+    "footnote": "运行中的容器和会话将停止。在优雅停止后主机会关机。",
+    "acknowledge": "我明白此操作无法从仪表盘撤销。",
+    "typeToConfirm": "输入 {phrase} 以确认",
+    "shutDown": "关机",
+    "shuttingDown": "正在关机…"
+  },
+  "accessToken": {
+    "title": "访问令牌",
+    "descRejected": "此 sparkDash 服务器需要访问令牌才能获取实时遥测并执行更改。请输入主机上设置的 SPARKDASH_TOKEN 的值。",
+    "descPlain": "请输入主机上设置的 SPARKDASH_TOKEN 的值。",
+    "storedLocally": "它仅存储在此浏览器中。",
+    "label": "令牌",
+    "checking": "正在检查…",
+    "rejected": "服务器拒绝了此令牌。请检查主机上的 SPARKDASH_TOKEN 后重试。",
+    "rejectedSaved": "已保存的令牌被服务器拒绝。"
+  },
+  "settings": {
+    "title": "设置",
+    "loading": "正在加载…",
+    "appearance": {
+      "title": "外观",
+      "help": "在此设备上即时生效，保存在当前浏览器中。",
+      "themeAria": "主题"
+    },
+    "theme": {
+      "white": "白色",
+      "light": "浅色",
+      "dark": "深色",
+      "oled": "OLED"
+    },
+    "language": {
+      "title": "语言",
+      "help": "即时生效并保存在当前浏览器中，无需点击“保存”。",
+      "failed": "无法加载语言，请重试。"
+    },
+    "refreshRate": {
+      "title": "刷新频率",
+      "pollAria": "轮询间隔",
+      "help": "每隔多久轮询一次每台设备的 GPU、CPU、内存、网络和 LLM 指标，以及仪表盘更新的频率。远程设备通过 SSH 轮询，因此 1 秒开销最大；存储与在线状态仍按各自的较慢频率检查。"
+    },
+    "temperature": {
+      "title": "温度单位"
+    },
+    "timeZone": {
+      "title": "时区",
+      "help": "Token、能耗和活动图表上的小时与日期分界线及标签。留空跟随此浏览器（{browserTimeZone}）。每日 Token 桶与每月能耗总计仍保持 UTC。",
+      "browserDefault": "浏览器默认",
+      "emptyFollows": "留空跟随此浏览器（{browserTimeZone}）",
+      "useBrowser": "使用浏览器默认",
+      "unknown": "未知时区。例如 Asia/Shanghai 或 Europe/Paris。",
+      "invalid": "“{zone}”不是有效时区（例如 Asia/Shanghai 或 Europe/Paris），也可清空以跟随浏览器。"
+    },
+    "defaultLlmPort": {
+      "title": "默认 LLM 端口",
+      "help": "添加新 Spark 时预填（1–65535）。"
+    },
+    "hideOffline": {
+      "title": "隐藏离线 Spark",
+      "help": "在总览中自动隐藏离线 Spark。"
+    },
+    "hideWorkers": {
+      "title": "隐藏工作节点",
+      "help": "从总览和侧边栏中移除角色为工作节点的 Spark。直接 URL 以及批量关机 / Hermes 操作仍会包含它们。"
+    },
+    "overviewSearch": {
+      "title": "显示搜索和状态筛选",
+      "help": "总览的搜索框和状态下拉菜单（全部 / 在线 / 离线 / 异常）。默认关闭。"
+    },
+    "benchShareImage": {
+      "title": "基准测试分享图片",
+      "help": "解码/预填充的“复制结果”按钮会出现下拉箭头，提供“复制为文本 / 复制为图片”（分享卡片）。关闭后保留纯文本按钮。"
+    },
+    "vramBreakdown": {
+      "title": "详细显存明细",
+      "help": "显存条将内存拆分为 LLM 引擎、系统和空闲，并在空闲内存偏低时变为琥珀色或红色，而非依据百分比。关闭后显示单一百分比条。"
+    },
+    "prometheus": {
+      "title": "Prometheus 指标",
+      "help": "在 {origin}/metrics 提供每台设备的指标供 Prometheus / Grafana 抓取。默认关闭。"
+    },
+    "fleetEnergy": {
+      "title": "显示设备能耗",
+      "help": "总览中显示滚动设备功耗估算的卡片。完整的设备能耗页面始终可从侧边栏访问。"
+    },
+    "energyPrice": {
+      "title": "电价",
+      "help": "每 kWh，用于设备能耗页面上的估算成本。留空则隐藏成本。",
+      "currencyAria": "货币符号"
+    },
+    "tokenTotals": {
+      "title": "显示 LLM Token 统计",
+      "help": "总览中显示每个模型累计提示/生成 Token 的卡片。完整的 Token 统计页面始终可从侧边栏访问。"
+    },
+    "fleetExceptions": {
+      "title": "显示设备活动异常",
+      "help": "总览中显示离线主机、GPU 降频、磁盘、LLM 和 Tailnet 告警的横条。默认关闭。"
+    },
+    "benchDebugTraces": {
+      "title": "保存基准测试调试追踪",
+      "help": "在基准测试历史中存储提示、HTTP/补全 ID、内容预览和 GPU 采样。默认关闭；历史文件会更大。"
+    },
+    "accessToken": {
+      "title": "访问令牌",
+      "help": "发送给设置了 SPARKDASH_TOKEN 的服务器。仅存储在此浏览器中。",
+      "set": "已设置",
+      "notSet": "未设置",
+      "change": "更改",
+      "add": "添加令牌",
+      "clear": "清除"
+    },
+    "activityFeed": {
+      "title": "显示最近活动",
+      "help": "总览中显示最近的健康与内核事件卡片。完整的活动页面始终可从侧边栏访问。"
+    },
+    "kpiDecode": {
+      "title": "显示设备解码指标",
+      "help": "总览中显示全部设备的生成速度总计（tok/s）。"
+    },
+    "kpiPower": {
+      "title": "显示设备功耗指标",
+      "help": "总览中显示全部设备的总功耗。"
+    },
+    "kpiMemory": {
+      "title": "显示已用内存指标",
+      "help": "总览中显示全部设备的已用内存总量。"
+    },
+    "kpiTokens": {
+      "title": "显示今日 Token 指标",
+      "help": "总览中显示今日生成的 Token 总量；尚无 Token 记录时显示在线设备数。"
+    }
+  },
+  "duration": {
+    "seconds": "{count}秒",
+    "minutes": "{count}分钟",
+    "hours": "{count}小时",
+    "days": "{count}天",
+    "minuteSeconds": "{minutes}分 {seconds}秒",
+    "lessMinute": "不足1分钟",
+    "hoursMinutes": "{hours}小时 {minutes}分",
+    "daysHours": "{days}天 {hours}小时"
+  }
+}

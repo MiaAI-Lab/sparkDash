@@ -12,11 +12,53 @@ It includes or depends on the following third-party work. Each keeps its own lic
 | [@dnd-kit/core](https://www.npmjs.com/package/@dnd-kit/core) | 6.3.1 | MIT | Copyright (c) 2021, Claudéric Demers |
 | [@dnd-kit/sortable](https://www.npmjs.com/package/@dnd-kit/sortable) | 10.0.0 | MIT | Copyright (c) 2021, Claudéric Demers |
 | [@dnd-kit/utilities](https://www.npmjs.com/package/@dnd-kit/utilities) | 3.2.2 | MIT | Copyright (c) 2021, Claudéric Demers |
+| [i18next](https://www.npmjs.com/package/i18next) | 26.4.2 | MIT | Copyright (c) 2011-present i18next |
+| [react-i18next](https://www.npmjs.com/package/react-i18next) | 17.0.16 | MIT | Copyright (c) 2015-present i18next |
+| [i18next-icu](https://www.npmjs.com/package/i18next-icu) | 2.5.0 | MIT | Copyright (c) 2018-present i18next |
+| [intl-messageformat](https://www.npmjs.com/package/intl-messageformat) | 12.1.3 | BSD-3-Clause | Copyright (c) 2023, Oath Inc. |
 | [tailwindcss](https://www.npmjs.com/package/tailwindcss) | 4.3.2 | MIT | Copyright (c) Tailwind Labs, Inc. |
 | [express](https://www.npmjs.com/package/express) | 5.2.1 | MIT | Copyright (c) 2009-2014 TJ Holowaychuk <tj@vision-media.ca>; Copyright (c) 2013-2014 Roman Shtylman <shtylman+expressjs@gmail.com>; Copyright (c) 2014-2015 Douglas Christopher Wilson <doug@somethingdoug.com> |
 | [ws](https://www.npmjs.com/package/ws) | 8.21.0 | MIT | Copyright (c) 2011 Einar Otto Stangvik <einaros@gmail.com>; Copyright (c) 2013 Arnout Kazemier and contributors; Copyright (c) 2016 Luigi Pinca and contributors |
 | [undici](https://www.npmjs.com/package/undici) | 8.9.0 | MIT | Copyright (c) Matteo Collina and Undici contributors |
 | [dotenv](https://www.npmjs.com/package/dotenv) | 17.4.2 | BSD-2-Clause | Copyright (c) 2015, Scott Motte |
+
+## intl-messageformat license
+
+```
+Copyright (c) 2023, Oath Inc.
+
+Licensed under the terms of the New BSD license. See below for terms.
+
+Redistribution and use of this software in source and binary forms,
+with or without modification, are permitted provided that the following
+conditions are met:
+
+- Redistributions of source code must retain the above
+  copyright notice, this list of conditions and the
+  following disclaimer.
+
+- Redistributions in binary form must reproduce the above
+  copyright notice, this list of conditions and the
+  following disclaimer in the documentation and/or other
+  materials provided with the distribution.
+
+- Neither the name of Oath Inc. nor the names of its
+  contributors may be used to endorse or promote products
+  derived from this software without specific prior
+  written permission of Oath Inc.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS
+IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
 
 ## Fonts
 
