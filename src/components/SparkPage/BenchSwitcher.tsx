@@ -1,9 +1,10 @@
+import { t } from "../../i18n";
 export type BenchKind = "decode" | "prefill" | "quality";
 
 const LABELS: Record<BenchKind, string> = {
-  decode: "Decode",
-  prefill: "Prefill",
-  quality: "Quality",
+  decode: t("bench.decode"),
+  prefill: t("bench.prefill"),
+  quality: t("bench.quality"),
 };
 
 /**
@@ -22,7 +23,7 @@ export function BenchSwitcher({
 }) {
   if (!onSwitch) return null;
   return (
-    <div className="seg" role="tablist" aria-label="Benchmark type">
+    <div className="seg" role="tablist" aria-label={t("ui.benchmark_type_81d0")}>
       {(Object.keys(LABELS) as BenchKind[]).map((k) => (
         <button
           key={k}

@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ReactNode } from "react";
@@ -375,7 +376,7 @@ export function HermesUpdateDialog() {
             className="modal-sheet__close"
             onClick={closeHermesUpdateDialog}
             disabled={updating}
-            aria-label="Close"
+            aria-label={t("sd3d2e61733")}
           >
             <XIcon className="h-4 w-4" />
           </button>
@@ -482,7 +483,7 @@ export function HermesUpdateDialog() {
                   target="_blank"
                   rel="noreferrer"
                   className="ml-auto inline-flex items-center gap-1 text-[11px] text-accent hover:underline"
-                  title="View this release on GitHub"
+                  title={t("s297c88a200")}
                 >
                   View on GitHub
                   <ExternalLinkIcon className="h-3 w-3" />
@@ -492,7 +493,7 @@ export function HermesUpdateDialog() {
                 {upd.release.body ? (
                   <ChangelogBody body={upd.release.body} />
                 ) : (
-                  <p className="text-xs text-muted">No release notes provided for this version.</p>
+                  <p className="text-xs text-muted">{t("s50dcf0a043")}</p>
                 )}
               </div>
             </div>

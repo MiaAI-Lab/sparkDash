@@ -1,9 +1,12 @@
+import { t } from "../i18n";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { isValidTimeZone, listTimeZones } from "../shared/timeZone";
 import { fetchSettings, updateSettings } from "../api/client";
 import { clearToken, getToken, onTokenChange, requestTokenPrompt } from "../api/authToken";
 import type { Settings } from "../api/types";
 import { useModalPresence } from "../hooks/useModalPresence";
+import { LANGUAGES, getSavedLanguage, setAppLanguage, type AppLanguage } from "../i18n";
 import packageJson from "../../package.json";
 import { XIcon } from "./ui/icons";
 import "../styles/dialogs.css";
@@ -66,6 +69,8 @@ const POLL_PRESETS = [
 ];
 
 export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) {
+  const { t } = useTranslation();
+  const [language, setLanguage] = useState<AppLanguage>(getSavedLanguage);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -158,21 +163,44 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
       <div className="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <div className="modal-sheet__header">
           <h2 className="modal-sheet__title" id="settings-title">
-            Settings
+            {t("settings.title")}
           </h2>
-          <button type="button" className="modal-sheet__close" onClick={onClose} aria-label="Close">
+          <button type="button" className="modal-sheet__close" onClick={onClose} aria-label={t("settings.close")}>
             <XIcon className="h-4 w-4" />
           </button>
         </div>
 
         <div className="modal-sheet__body">
-          {loading && <p className="bench-sheet__hint">Loading…</p>}
+          {loading && <p className="bench-sheet__hint">{t("settings.loading")}</p>}
 
           <SettingRow
-            title="Appearance"
-            help="Applies instantly on this device. Saved in this browser."
+            title={t("settings.language")}
+            help={t("settings.languageHint")}
           >
-            <div className="swatches" role="radiogroup" aria-label="Theme">
+            <div className="seg" role="radiogroup" aria-label={t("settings.language")}>
+              {LANGUAGES.map((l) => (
+                <button
+                  key={l.code}
+                  type="button"
+                  role="radio"
+                  aria-checked={language === l.code}
+                  className={language === l.code ? "is-on" : ""}
+                  onClick={() => {
+                    setLanguage(l.code);
+                    setAppLanguage(l.code);
+                  }}
+                >
+                  {l.label}
+                </button>
+              ))}
+            </div>
+          </SettingRow>
+
+          <SettingRow
+            title={t("settings.appearance")}
+            help={t("settings.appearanceHint")}
+          >
+            <div className="swatches" role="radiogroup" aria-label={t("sd721757161")}>
               {THEME_CHOICES.map((t) => (
                 <button
                   key={t.id}
@@ -191,8 +219,8 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
 
           {settings && !loading && (
             <>
-              <SettingRow title="Refresh rate" help="How often every unit is polled for GPU, CPU, memory, network and LLM metrics, and how often the dashboard updates. Remote units are polled over SSH, so 1s costs the most; storage and liveness keep their own slower checks.">
-                <div className="seg" role="radiogroup" aria-label="Poll interval">
+              <SettingRow title={t("settings.refreshRate")} help={t("settings.help_refresh")}>
+                <div className="seg" role="radiogroup" aria-label={t("s7411112611")}>
                   {POLL_PRESETS.map((preset) => (
                     <button
                       key={preset.value}
@@ -208,8 +236,8 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
                 </div>
               </SettingRow>
 
-              <SettingRow title="Temperature unit">
-                <div className="seg" role="radiogroup" aria-label="Temperature unit">
+              <SettingRow title={t("settings.temperatureUnit")}>
+                <div className="seg" role="radiogroup" aria-label={t("settings.temperatureUnit")}>
                   <button
                     type="button"
                     role="radio"
@@ -232,8 +260,8 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
               </SettingRow>
 
               <SettingRow
-                title="Time zone"
-                help={`Hour and day boundaries and labels on the Tokens, Energy and Activity charts. Empty follows this browser (${browserTimeZone}). Daily token buckets and monthly energy totals stay UTC.`}
+                title={t("settings.timeZone")}
+                help={t("settings.help_tz", { tz: browserTimeZone })}
                 htmlFor="settings-time-zone"
                 stack
               >
@@ -243,8 +271,8 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
                     type="text"
                     list="settings-time-zones"
                     value={settings.timeZone ?? ""}
-                    placeholder="Browser default"
-                    title={`Empty follows this browser (${browserTimeZone})`}
+                    placeholder={t("settings.tz_placeholder")}
+                    title={t("settings.tz_empty_title", { tz: browserTimeZone })}
                     spellCheck={false}
                     autoComplete="off"
                     aria-invalid={tzInvalid}
@@ -273,18 +301,18 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
                       tzInput.current?.focus(); // the button disables itself: keep keyboard focus somewhere sensible
                     }}
                   >
-                    Use browser
+                    {t("settings.use_browser")}
                   </button>
                 </div>
                 {/* One reserved line: the message appears after the field is left, and never moves anything. */}
                 <small id="settings-time-zone-msg" className="set-tz__msg" role="status" aria-live="polite">
-                  {tzInvalid ? "Unknown time zone. Try Europe/Paris." : ""}
+                  {tzInvalid ? t("settings.tz_invalid") : ""}
                 </small>
               </SettingRow>
 
               <SettingRow
-                title="Default LLM port"
-                help="Pre-filled when adding a new Spark (1–65535)."
+                title={t("s618efca593")}
+                help={t("s6133e6dce4")}
                 htmlFor="settings-default-llm-port"
               >
                 <input
@@ -302,57 +330,57 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
               </SettingRow>
 
               <ToggleRow
-                title="Hide offline Sparks"
-                help="Auto-hide offline Sparks on Overview."
+                title={t("sda64c16a4a")}
+                help={t("s6294e6ded7")}
                 checked={settings.autoHideOffline}
                 onChange={(v) => update({ autoHideOffline: v })}
               />
               <ToggleRow
-                title="Hide worker nodes"
-                help="Removes Worker-role Sparks from Overview and the sidebar. Direct URLs and batch power / Hermes actions still include them."
+                title={t("s5c3dc39649")}
+                help={t("settings.help_hide_workers")}
                 checked={Boolean(settings.hideWorkers)}
                 onChange={(v) => update({ hideWorkers: v })}
               />
               <ToggleRow
-                title="Show search and status filters"
-                help="Overview search field and status dropdown (All / Online / Offline / Issues). Off by default."
+                title={t("s0f959e0b79")}
+                help={t("settings.help_search")}
                 checked={Boolean(settings.showOverviewSearch)}
                 onChange={(v) => update({ showOverviewSearch: v })}
               />
               <ToggleRow
-                title="Benchmark share image"
-                help="The decode/prefill Copy results button gains a caret with Copy as text / Copy as image (a share card). Turn it off to keep the plain text button."
+                title={t("seee7130c84")}
+                help={t("settings.help_copy_caret")}
                 checked={Boolean(settings.benchShareImage)}
                 onChange={(v) => update({ benchShareImage: v })}
               />
               <ToggleRow
-                title="Detailed VRAM breakdown"
-                help="VRAM bars split memory into LLM engine, system and free, and turn amber or red on low free memory rather than on a high percentage. Turn it off for the single percentage bar."
+                title={t("scda59e0879")}
+                help={t("settings.help_vram")}
                 checked={settings.showVramBreakdown ?? true}
                 onChange={(v) => update({ showVramBreakdown: v })}
               />
               <ToggleRow
-                title="Prometheus metrics"
-                help={`Serves every unit's metrics for Prometheus / Grafana to scrape at ${window.location.origin}/metrics. Off by default.`}
+                title={t("sb423acbee7")}
+                help={t("settings.help_metrics", { origin: window.location.origin })}
                 checked={Boolean(settings.prometheusExport)}
                 onChange={(v) => update({ prometheusExport: v })}
               />
               <ToggleRow
-                title="Show Fleet Energy"
-                help="Overview card with rolling fleet power estimates. The full Fleet energy page is always available from the sidebar."
+                title={t("s45a83ad9f1")}
+                help={t("settings.help_energy")}
                 checked={Boolean(settings.showFleetEnergy)}
                 onChange={(v) => update({ showFleetEnergy: v })}
               />
               <SettingRow
-                title="Electricity price"
-                help="Per kWh, used for the estimated cost on the Fleet energy page. Leave empty to hide cost."
+                title={t("sd41d2acf98")}
+                help={t("settings.help_price")}
                 htmlFor="settings-energy-price"
               >
                 <div className="set-price">
                   <input
                     id="settings-energy-currency"
                     type="text"
-                    aria-label="Currency symbol"
+                    aria-label={t("s62f9da2dd4")}
                     maxLength={4}
                     value={settings.energyCurrency ?? "$"}
                     onChange={(e) => update({ energyCurrency: e.target.value })}
@@ -378,50 +406,50 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
                 </div>
               </SettingRow>
               <ToggleRow
-                title="Show LLM Token Totals"
-                help="Overview card with cumulative prompt/generated tokens per model. The full Token totals page is always available from the sidebar."
+                title={t("sf6d0289217")}
+                help={t("settings.help_tokens")}
                 checked={Boolean(settings.showLlmTokenTotals)}
                 onChange={(v) => update({ showLlmTokenTotals: v })}
               />
               <ToggleRow
-                title="Show Recent activity"
-                help="Overview card with the latest health and kernel events. The full Activity page is always available from the sidebar."
+                title={t("scffded6a9d")}
+                help={t("settings.help_activity")}
                 checked={settings.showActivityFeed ?? true}
                 onChange={(v) => update({ showActivityFeed: v })}
               />
               <ToggleRow
-                title="Show Fleet decode tile"
-                help="Overview tile with the fleet's total generation tok/s."
+                title={t("s9710305f90")}
+                help={t("s1aacc5c70a")}
                 checked={settings.showKpiDecode ?? true}
                 onChange={(v) => update({ showKpiDecode: v })}
               />
               <ToggleRow
-                title="Show Fleet power tile"
-                help="Overview tile with the fleet's total power draw."
+                title={t("saa420cc3b7")}
+                help={t("s3e1a641598")}
                 checked={settings.showKpiPower ?? true}
                 onChange={(v) => update({ showKpiPower: v })}
               />
               <ToggleRow
-                title="Show Memory in use tile"
-                help="Overview tile with the fleet's total memory in use."
+                title={t("s11b49630df")}
+                help={t("s321198b38f")}
                 checked={settings.showKpiMemory ?? true}
                 onChange={(v) => update({ showKpiMemory: v })}
               />
               <ToggleRow
-                title="Show Tokens today tile"
-                help="Overview tile with the tokens generated today (or the online unit count, when no tokens are tracked yet)."
+                title={t("s104969b3ca")}
+                help={t("settings.help_tokens_today")}
                 checked={settings.showKpiTokens ?? true}
                 onChange={(v) => update({ showKpiTokens: v })}
               />
               <ToggleRow
-                title="Show active fleet exceptions"
-                help="Overview strip for offline hosts, GPU throttle, disk, LLM, and Tailnet alerts. Off by default."
+                title={t("sdf736e3a4d")}
+                help={t("settings.help_alerts")}
                 checked={Boolean(settings.showFleetExceptions)}
                 onChange={(v) => update({ showFleetExceptions: v })}
               />
               <ToggleRow
-                title="Save benchmark debug traces"
-                help="Stores prompts, HTTP/completion IDs, content previews, and GPU samples in bench history. Off by default; larger history files."
+                title={t("s7bbe9e67fb")}
+                help={t("settings.help_bench_history")}
                 checked={Boolean(settings.benchDebugTraces)}
                 onChange={(v) => update({ benchDebugTraces: v })}
               />
@@ -430,16 +458,16 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
 
           {/* Outside the settings block: a rejected token is exactly when settings fail to load. */}
           <SettingRow
-            title="Access token"
-            help="Sent to servers that set SPARKDASH_TOKEN. Stored in this browser only."
+            title={t("s5bc7ab3010")}
+            help={t("s05351a2cd7")}
           >
             <div className="set-token">
               <span className={`set-token__state${tokenSet ? " is-set" : ""}`} data-testid="access-token-state">
                 <i aria-hidden />
-                {tokenSet ? "Set" : "Not set"}
+                {tokenSet ? t("settings.token_set") : t("settings.token_not_set")}
               </span>
               <button type="button" className="btn btn--sm" onClick={() => requestTokenPrompt()}>
-                {tokenSet ? "Change" : "Add token"}
+                {tokenSet ? t("settings.change") : t("settings.add_token")}
               </button>
               {tokenSet ? (
                 <button type="button" className="btn btn--sm btn--ghost" onClick={() => clearToken()}>
@@ -471,7 +499,7 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
         <div className="modal-sheet__footer">
           <div className="modal-sheet__footer-actions">
             <button type="button" onClick={onClose} className="btn btn--ghost">
-              Cancel
+              {t("launcher.cancel")}
             </button>
             <button
               type="button"
@@ -479,7 +507,7 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
               disabled={saving || !settings || !dirty}
               className="btn btn--primary"
             >
-              {saving ? "Saving..." : "Save"}
+              {saving ? t("settings.saving") : t("settings.save")}
             </button>
           </div>
         </div>

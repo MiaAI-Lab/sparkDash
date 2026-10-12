@@ -1,3 +1,4 @@
+import { t } from "../../../i18n";
 import type { ReactNode } from "react";
 import { onRovingKeyDown } from "./a11y";
 

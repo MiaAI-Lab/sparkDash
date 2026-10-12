@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 /**
  * LlmTokenTotals — per-model cumulative prompt/completion token table.
  * Local-only component: lives in its own file, rendered by LlmPanel via one
@@ -13,11 +14,11 @@ import { LEDGER_HINT, LEDGER_TITLE } from "./tokenTotalsCopy";
 const POLL_MS = 60_000;
 
 const RANGE_OPTIONS: Array<{ value: LlmTokenRange; label: string }> = [
-  { value: "all", label: "All time" },
-  { value: "today", label: "Today" },
-  { value: "7d", label: "Last 7 days" },
-  { value: "14d", label: "Last 14 days" },
-  { value: "30d", label: "Last month" },
+  { value: "all", label: "rangeAll" },
+  { value: "today", label: "rangeToday" },
+  { value: "7d", label: "range7d" },
+  { value: "14d", label: "range14d" },
+  { value: "30d", label: "range30d" },
 ];
 
 export function LlmTokenTotals({ sparkId, llmPort }: { sparkId: string; llmPort: number }) {
@@ -54,35 +55,35 @@ export function LlmTokenTotals({ sparkId, llmPort }: { sparkId: string; llmPort:
   return (
     <div className="sp-section">
       <div className="sp-section__head">
-        <span className="min-w-0" title={LEDGER_TITLE}>
-          <span className="eyebrow block">Total tokens by model</span>
-          <span className="sp-muted block">{LEDGER_HINT}</span>
+        <span className="min-w-0" title={t("tokens.ledger_title")}>
+          <span className="eyebrow block">{t("llm.total_by_model")}</span>
+          <span className="sp-muted block">{t("tokens.ledger_title")}</span>
         </span>
         <div className="flex items-center gap-2">
           <select
             value={range}
             onChange={(e) => setRange(e.target.value as LlmTokenRange)}
-            aria-label="Token totals time range"
+            aria-label={t("ui.token_totals_time_range_d8cb")}
             className="sp-select"
           >
             {RANGE_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
-                {opt.label}
+                {t(`tokens.${opt.label}`)}
               </option>
             ))}
           </select>
           <span className="sp-tok-cols">
-            <span className="inline-block w-14 text-right">Cached</span>
+            <span className="inline-block w-14 text-right">{t("tokens.col_cached")}</span>
 
-            <span className="inline-block w-14 text-right">Prefill</span>
+            <span className="inline-block w-14 text-right">{t("tokens.col_prefill")}</span>
 
-            <span className="inline-block w-16 text-right">Generated</span>
+            <span className="inline-block w-16 text-right">{t("tokens.col_generated")}</span>
           </span>
         </div>
       </div>
       <div className="sp-tok-rows">
         {rows.length === 0 ? (
-          <p className="sp-muted">No tokens recorded in this period.</p>
+          <p className="sp-muted">{t("ui.no_tokens_recorded_in_this_4c8a")}</p>
         ) : (
           rows.map((row) => {
           const seen = formatSince(row.lastSeenAt);

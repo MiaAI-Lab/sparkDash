@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 type ConnectionBannerProps = {
   connected: boolean;
   lastValidSnapshotAt: number | null;

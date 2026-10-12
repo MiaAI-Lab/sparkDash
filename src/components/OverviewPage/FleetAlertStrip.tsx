@@ -1,7 +1,7 @@
+import { t } from "../../i18n";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SparkSnapshot } from "../../api/types";
 import { AlertTriangleIcon, ChevronRightIcon } from "../ui/icons";
-
 type Alert = { key: string; spark: SparkSnapshot; label: string; detail?: string; severity: "critical" | "warning"; throttle?: boolean };
 
 function fmtTemp(c: number, unit: "celsius" | "fahrenheit"): string {
@@ -65,7 +65,7 @@ export function FleetAlertStrip({
   }, [alerts]);
   if (alerts.length === 0) return null;
   return (
-    <section className="ov-alerts" aria-label="Active fleet exceptions">
+    <section className="ov-alerts" aria-label={t("sd0b0b21ebe")}>
       {alerts.map((alert) => {
         const mins = Math.max(0, Math.floor((now - (firstSeen.current.get(alert.key) ?? now)) / 60_000));
         return (

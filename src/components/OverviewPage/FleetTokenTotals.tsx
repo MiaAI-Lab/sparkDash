@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { AppLink } from "../ui/AppLink";
 import { TOKENS_ID, idToPath } from "../../constants";
 /**
@@ -10,16 +11,16 @@ import { useEffect, useState } from "react";
 import { fetchLlmTokenTotals } from "../../api/llmTokenClient";
 import { addTokens, formatTokensCompact } from "../../shared/tokenFormat";
 import type { LlmTokenRange, LlmTokenSeriesTotals } from "../../api/llmTokenTypes";
-import { LEDGER_HINT, LEDGER_TITLE } from "../SparkPage/tokenTotalsCopy";
+import { LEDGER_TITLE } from "../SparkPage/tokenTotalsCopy";
 
 const POLL_MS = 60_000;
 
 const RANGE_OPTIONS: Array<{ value: LlmTokenRange; label: string }> = [
-  { value: "all", label: "All time" },
-  { value: "today", label: "Today" },
-  { value: "7d", label: "Last 7 days" },
-  { value: "14d", label: "Last 14 days" },
-  { value: "30d", label: "Last month" },
+  { value: "all", label: "rangeAll" },
+  { value: "today", label: "rangeToday" },
+  { value: "7d", label: "range7d" },
+  { value: "14d", label: "range14d" },
+  { value: "30d", label: "range30d" },
 ];
 
 /** Aggregate per-series model rows into one fleet-wide per-model table. */
@@ -84,10 +85,10 @@ export function FleetTokenTotals({ onOpenDetails }: { onOpenDetails?: () => void
         });
     };
     load();
-    const t = setInterval(load, POLL_MS);
+    const timer = setInterval(load, POLL_MS);
     return () => {
       cancelled = true;
-      clearInterval(t);
+      clearInterval(timer);
     };
   }, [range]);
 
@@ -105,26 +106,26 @@ export function FleetTokenTotals({ onOpenDetails }: { onOpenDetails?: () => void
   return (
     <section className="panel ov-card" aria-labelledby="fleet-token-totals-title">
       <div className="ov-card__head">
-        <h2 id="fleet-token-totals-title" className="ov-card__title">LLM token totals</h2>
+        <h2 id="fleet-token-totals-title" className="ov-card__title">{t("overview.tokensTitle")}</h2>
         <div className="ov-card__tools">
           <span className="tag">
-            {activeEndpoints} endpoint{activeEndpoints === 1 ? "" : "s"}
+            {t("overview.endpoints", { n: activeEndpoints })}
           </span>
           <select
             value={range}
             onChange={(e) => setRange(e.target.value as LlmTokenRange)}
-            aria-label="Token totals time range"
+            aria-label={t("overview.tokensRangeAria")}
             className="ov-select"
           >
             {RANGE_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
-                {opt.label}
+                {t(`overview.${opt.label}`)}
               </option>
             ))}
           </select>
           {onOpenDetails ? (
             <AppLink href={idToPath(TOKENS_ID)} className="btn btn--sm btn--ghost" onNavigate={onOpenDetails}>
-              Details
+              {t("overview.details")}
             </AppLink>
           ) : null}
         </div>
@@ -132,31 +133,31 @@ export function FleetTokenTotals({ onOpenDetails }: { onOpenDetails?: () => void
       <div>
         <div className="big-num">
           {formatTokensCompact(totalCompletion)}
-          <small>generated</small>
+          <small>{t("overview.generated")}</small>
         </div>
         <div className="ov-card__sub" title={LEDGER_TITLE}>
-          {LEDGER_HINT}, whole fleet
+          {t("overview.tokensLedgerFleet")}
         </div>
       </div>
-      <div className="seg-bar" role="img" aria-label="Generated, cached prefill and computed prefill token share">
+      <div className="seg-bar" role="img" aria-label={t("ui.generated_cached_prefill_and_com_555d")}>
         <i className="ov-seg ov-seg--gen" style={{ width: pct(totalCompletion) }} />
         <i className="ov-seg ov-seg--cached" style={{ width: pct(totalCached) }} />
         <i className="ov-seg ov-seg--comp" style={{ width: pct(prefillComputed) }} />
       </div>
       <div className="legend">
-        <span className="ov-leg--gen">Generated</span>
-        <span className="ov-leg--cached">Cached</span>
-        <span className="ov-leg--comp">Prefill</span>
+        <span className="ov-leg--gen">{t("overview.legendGenerated")}</span>
+        <span className="ov-leg--cached">{t("overview.legendCached")}</span>
+        <span className="ov-leg--comp">{t("overview.legendPrefill")}</span>
       </div>
       <div className="ov-rows">
         <div className="ov-row ov-row--head">
-          <span className="ov-row__name eyebrow">Model</span>
-          <span className="ov-row__num eyebrow">Cached</span>
-          <span className="ov-row__num eyebrow">Prefill</span>
-          <span className="ov-row__num eyebrow">Gen</span>
+          <span className="ov-row__name eyebrow">{t("overview.colModel")}</span>
+          <span className="ov-row__num eyebrow">{t("overview.colCached")}</span>
+          <span className="ov-row__num eyebrow">{t("overview.colPrefill")}</span>
+          <span className="ov-row__num eyebrow">{t("overview.colGen")}</span>
         </div>
         {rows.length === 0 ? (
-          <p className="ov-card__sub">No tokens recorded in this period.</p>
+          <p className="ov-card__sub">{t("overview.noTokensPeriod")}</p>
         ) : (
           rows.map((row) => (
             <div
@@ -175,7 +176,7 @@ export function FleetTokenTotals({ onOpenDetails }: { onOpenDetails?: () => void
           ))
         )}
         <div className="ov-row ov-row--total">
-          <span className="ov-row__name eyebrow">Total</span>
+          <span className="ov-row__name eyebrow">{t("overview.colTotal")}</span>
           <span className="ov-row__num mono">{totalCached > 0 ? formatTokensCompact(totalCached) : "\u2014"}</span>
           <span className="ov-row__num mono">{formatTokensCompact(prefillComputed)}</span>
           <span className="ov-row__num ov-row__num--strong mono">{formatTokensCompact(totalCompletion)}</span>

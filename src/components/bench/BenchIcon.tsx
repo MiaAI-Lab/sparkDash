@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { FlaskIcon, GaugeIcon, PrefillIcon, QualityIcon, WrenchIcon } from "../ui/icons";
 
 const ICONS: Record<string, typeof FlaskIcon> = {

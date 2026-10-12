@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import type { SparkSnapshot } from "../../api/types";
 import { resolveSparkRole } from "../../api/sparkRole";
 import { backendLabel } from "../../shared/llmBackends.js";
@@ -63,7 +64,7 @@ export function SparkHeader({ spark, onEdit }: SparkHeaderProps) {
                 {workerLabel}
               </Tag>
             )}
-            {spark.isLocal && <Tag title="This dashboard runs on this machine">local</Tag>}
+            {spark.isLocal && <Tag title={t("ui.this_dashboard_runs_on_this_4d25")}>local</Tag>}
             {online && backend && <Tag tone="info">{backend}</Tag>}
             {!online && spark.offlineReason && (
               <Tag tone="bad" className="sp-tag-clip" title={`Offline — ${spark.offlineReason}`}>

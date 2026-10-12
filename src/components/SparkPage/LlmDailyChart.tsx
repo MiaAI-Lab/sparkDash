@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { useEffect, useId, useState, type KeyboardEvent } from "react";
 import { fetchLlmDaily } from "../../api/client";
 import type { LlmDailyDay } from "../../api/types";
@@ -36,7 +37,7 @@ export function barHeight(value: number, seriesMax: number, height: number): num
 export function dailyTooltipLines(day: LlmDailyDay, hasSplit: boolean): string[] {
   return [
     day.date,
-    `Decode peak ${fmt(day.decodeMax)} tok/s (avg ${fmt(day.decodeAvg)})`,
+    t("llm.decode_peak_tip", { v: fmt(day.decodeMax), avg: fmt(day.decodeAvg) }),
     hasSplit
       ? `Uncached prefill peak ${fmt(day.uncachedPrefillMax)} tok/s (avg ${fmt(day.uncachedPrefillAvg)})`
       : `Prefill peak ${fmt(day.prefillMax)} tok/s (avg ${fmt(day.prefillAvg)})`,
@@ -125,14 +126,14 @@ export function LlmDailyChart({
   return (
     <div className="sp-section">
       <div className="sp-section__head">
-        <span className="eyebrow">Daily peak tok/s</span>
+        <span className="eyebrow">{t("llm.daily_peak")}</span>
         <span className="sp-muted">
           <span className="text-accent">decode</span> ·{" "}
-          <span className="text-text opacity-60">{prefillName}</span> · own scales · 14d
+          <span className="text-text opacity-60">{prefillName}</span> · {t("llm.own_scales")}
         </span>
       </div>
       {!busy ? (
-        <p className="text-[10px] text-muted">No busy samples in the last 14 days.</p>
+        <p className="text-[10px] text-muted">{t("ui.no_busy_samples_in_the_e600")}</p>
       ) : (
         <div className="flex items-stretch gap-1.5">
           <div

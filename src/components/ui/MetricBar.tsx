@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 /** Color band for metric bars — green normal, amber elevated, red critical. */
 export function bandColor(pct: number, base = "bg-accent"): string {
   if (pct > 85) return "bg-danger";

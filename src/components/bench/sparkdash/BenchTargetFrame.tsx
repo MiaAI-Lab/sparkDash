@@ -1,3 +1,4 @@
+import { t } from "../../../i18n";
 import { useMemo, useState, type ReactNode } from "react";
 import "../../../styles/benchpages.css";
 import type { LlmBenchTarget, SparkSnapshot } from "../../../api/types";
@@ -104,7 +105,7 @@ export function BenchTargetFrame({
 
   if (!spark) {
     return (
-      <PageEmpty title="No Spark to benchmark">
+      <PageEmpty title={t("bench.no_spark_to_benchmark_0605_2")}>
         Add a Spark from the fleet rail first. Benchmarks run against the LLM
         server on a Spark, or on a Remote endpoint you type in.
       </PageEmpty>
@@ -165,7 +166,7 @@ export function BenchTargetFrame({
   } else if (!reachable) {
     notice = (
       <p className="bp-notice bp-notice--warn">
-        <strong>No reachable LLM on port {llmPort}.</strong>{" "}
+        <strong>{t("bench.no_llm_on_port", { port: llmPort })}</strong>{" "}
         {llm?.error ? `${llm.error}. ` : ""}Start a model on this Spark (Models
         panel on its page), check the LLM port in its settings, or switch the
         target to Remote. Saved runs below are still readable.
@@ -175,9 +176,9 @@ export function BenchTargetFrame({
 
   return (
     <div className="bp">
-      <section className="panel bp-target" aria-label="Benchmark target">
+      <section className="panel bp-target" aria-label={t("bench.benchmark_target_0573_2")}>
         <div className="bp-target__row">
-          <span className="eyebrow">Run on</span>
+          <span className="eyebrow">{t("bench.run_on_5df2")}</span>
           <SparkChips
             sparks={benchSparks.sparks.length ? benchSparks.sparks : [spark]}
             activeId={useRemote ? null : spark.id}
@@ -192,9 +193,9 @@ export function BenchTargetFrame({
                 className={`bench-runon__chip${useRemote ? " is-on" : ""}`}
                 aria-pressed={useRemote}
                 onClick={() => setMode("remote")}
-                title="Benchmark another LLM endpoint instead of a Spark's"
+                title={t("bench.benchmark_another_llm_endpoint_i_a2b0_2")}
               >
-                Remote
+                {t("bench.remote_short")}
               </button>
             }
           />
@@ -203,11 +204,11 @@ export function BenchTargetFrame({
             <>
               {ports.length > 1 ? (
                 <label className="bp-field">
-                  <span className="eyebrow">LLM port</span>
+                  <span className="eyebrow">{t("bench.llm_port_aeb5")}</span>
                   <select
                     value={llmPort}
                     onChange={(e) => setPortPick(Number(e.target.value))}
-                    aria-label="LLM port"
+                    aria-label={t("bench.llm_port_aeb5_2")}
                   >
                     {ports.map((p, i) => (
                       <option key={p} value={p}>
@@ -220,10 +221,10 @@ export function BenchTargetFrame({
                   </select>
                 </label>
               ) : (
-                <Tag>Port {llmPort}</Tag>
+                <Tag>{t("bench.port_n", { port: llmPort })}</Tag>
               )}
               {llm?.modelId ? (
-                <Tag tone="acc" title="Model currently served on this port">
+                <Tag tone="acc" title={t("bench.model_currently_served_on_this_052c_2")}>
                   {llm.modelId}
                 </Tag>
               ) : null}
@@ -266,7 +267,7 @@ export function BenchTargetFrame({
                 spellCheck={false}
                 autoCapitalize="off"
                 autoCorrect="off"
-                aria-label="Remote host"
+                aria-label={t("bench.remote_host_1293_2")}
               />
             </label>
             <label className="bp-field">
@@ -278,7 +279,7 @@ export function BenchTargetFrame({
                 inputMode="numeric"
                 value={portDraft}
                 onChange={(e) => setPortDraft(e.target.value)}
-                aria-label="Remote port"
+                aria-label={t("bench.remote_port_ee75_2")}
               />
             </label>
             <label className="bp-check">

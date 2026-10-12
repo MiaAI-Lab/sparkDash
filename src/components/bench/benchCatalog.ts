@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 /**
  * Every benchmark sparkDash has a page for (sidebar "Benchmarks" section).
  * Throughput, speculative decoding, context pressure, needle and decision-model runs are not
@@ -18,10 +19,10 @@ export interface BenchType {
 }
 
 export const BENCH_TYPES: readonly BenchType[] = [
-  { id: "decode", label: "Decode", blurb: "Generation speed (tokens/s) at rising concurrency.", engine: "sparkdash", family: "sparkDash" },
-  { id: "prefill", label: "Prefill", blurb: "Prompt processing speed and time to first token across context sizes.", engine: "sparkdash", family: "sparkDash" },
-  { id: "quality", label: "Quality", blurb: "A fixed, seeded quality suite to compare models, quantisations and KV-cache formats.", engine: "sparkdash", family: "sparkDash" },
-  { id: "tool-eval", label: "Tool Eval Bench", blurb: "Tool-calling quality across 69 deterministic scenarios (selection, parameters, multi-step, safety).", engine: "tool-eval", family: "Tool Eval Bench" },
+  { id: "decode", label: t("bench.name_decode"), blurb: t("bench.blurb_decode"), engine: "sparkdash", family: "sparkDash" },
+  { id: "prefill", label: t("bench.name_prefill"), blurb: t("bench.blurb_prefill"), engine: "sparkdash", family: "sparkDash" },
+  { id: "quality", label: t("bench.name_quality"), blurb: t("bench.blurb_quality"), engine: "sparkdash", family: "sparkDash" },
+  { id: "tool-eval", label: t("bench.name_tooleval"), blurb: t("bench.blurb_tooleval"), engine: "tool-eval", family: "Tool Eval Bench" },
 ];
 
 const BY_ID = new Map(BENCH_TYPES.map((b) => [b.id, b]));

@@ -1,3 +1,4 @@
+import { t } from "../../../i18n";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ToolEvalRun } from "../../../api/types";
 import { Tag } from "../../ui/Tag";
@@ -96,7 +97,7 @@ export function LiveRun({ followed, polling, pollError, actionError, scenarioMod
   })();
 
   return (
-    <section className="panel te-card te-live" aria-label="Run progress">
+    <section className="panel te-card te-live" aria-label={t("bench.run_progress_bca3_2")}>
       <div className="te-card__head">
         <div>
           <div className="eyebrow">{finished ? "Last run" : "Run in progress"}</div>
@@ -155,7 +156,7 @@ export function LiveRun({ followed, polling, pollError, actionError, scenarioMod
       ) : null}
 
       {notes.length ? (
-        <Notice tone="info" title="Good to know">
+        <Notice tone="info" title={t("bench.good_to_know_7dad_2")}>
           {notes.map((n) => (
             <p key={n.key}>{n.text}</p>
           ))}
@@ -167,15 +168,15 @@ export function LiveRun({ followed, polling, pollError, actionError, scenarioMod
           {err ? explainErrorCode(err.code, err.message) : errLines.length ? errLines.map((l) => l.text).join(" / ") : "Open the raw output below for details."}
         </Notice>
       ) : null}
-      {run.status === "stopped" ? <Notice tone="warn" title="The run was stopped">It stopped before finishing, so there may be no result.</Notice> : null}
+      {run.status === "stopped" ? <Notice tone="warn" title={t("bench.the_run_was_stopped_bc9d_2")}>{t("bench.it_stopped_before_finishing_so_e4eb_2")}</Notice> : null}
       {job?.status === "detached" || (lostWatch && job) ? (
         <Notice
           tone="warn"
-          title="Lost the live view"
+          title={t("bench.lost_the_live_view_e93e_2")}
           actions={
             <>
-              <button type="button" className="btn btn--sm" onClick={() => onAttach(run)}>Re-attach</button>
-              <button type="button" className="btn btn--sm btn--ghost" onClick={() => onRefresh(run)}>Check status</button>
+              <button type="button" className="btn btn--sm" onClick={() => onAttach(run)}>{t("bench.re_attach_4c52_2")}</button>
+              <button type="button" className="btn btn--sm btn--ghost" onClick={() => onRefresh(run)}>{t("bench.check_status_eb19_2")}</button>
             </>
           }
         >
@@ -188,15 +189,15 @@ export function LiveRun({ followed, polling, pollError, actionError, scenarioMod
           title={noLive ? "Not watching this run" : "Run is detached"}
           actions={
             <>
-              <button type="button" className="btn btn--sm" onClick={() => onAttach(run)}>Watch again</button>
-              <button type="button" className="btn btn--sm btn--ghost" onClick={() => onRefresh(run)}>Check status</button>
+              <button type="button" className="btn btn--sm" onClick={() => onAttach(run)}>{t("bench.watch_again_f365_2")}</button>
+              <button type="button" className="btn btn--sm btn--ghost" onClick={() => onRefresh(run)}>{t("bench.check_status_eb19")}</button>
             </>
           }
         >
           The run continues on the Spark. Watch it again to see its progress, or check whether it has finished.
         </Notice>
       ) : null}
-      {pollError ? <Notice tone="warn" title="Connection to sparkDash lost, retrying…">{pollError}</Notice> : null}
+      {pollError ? <Notice tone="warn" title={t("bench.connection_to_sparkdash_lost_ret_b9b0_2")}>{pollError}</Notice> : null}
       {actionError ? <Notice tone="bad">{actionError}</Notice> : null}
 
       {scenarioMode && p && p.scenarios.length ? (
@@ -206,7 +207,7 @@ export function LiveRun({ followed, polling, pollError, actionError, scenarioMod
             listRef.current = el;
           }}
           className={`te-scn-list${running ? " is-live" : ""}`}
-          aria-label="Scenarios so far"
+          aria-label={t("bench.scenarios_so_far_663c_2")}
           onScroll={(e) => {
             const el = e.currentTarget;
             pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
@@ -223,7 +224,7 @@ export function LiveRun({ followed, polling, pollError, actionError, scenarioMod
         </ul>
       ) : null}
       {!scenarioMode && events.length ? (
-        <ul className="te-events" aria-label="Recent activity">
+        <ul className="te-events" aria-label={t("bench.recent_activity_f7ce_2")}>
           {events.slice(-6).map((e) => (
             <li key={e.seq}>
               <span className="mono">{e.event}</span>
@@ -237,7 +238,7 @@ export function LiveRun({ followed, polling, pollError, actionError, scenarioMod
         {running ? (
           confirmStop ? (
             <>
-              <span className="te-confirm-text">Stop this run on the Spark? Partial results are lost.</span>
+              <span className="te-confirm-text">{t("bench.stop_this_run_on_the_6442_2")}</span>
               <button
                 type="button"
                 className="btn btn--danger"
@@ -249,18 +250,18 @@ export function LiveRun({ followed, polling, pollError, actionError, scenarioMod
               >
                 {stopping ? "Stopping…" : "Yes, stop it"}
               </button>
-              <button type="button" className="btn" onClick={() => setConfirmStop(false)}>Keep running</button>
+              <button type="button" className="btn" onClick={() => setConfirmStop(false)}>{t("bench.keep_running_7a3b_2")}</button>
             </>
           ) : (
             <>
-              <button type="button" className="btn btn--danger" onClick={() => setConfirmStop(true)}>Stop run</button>
+              <button type="button" className="btn btn--danger" onClick={() => setConfirmStop(true)}>{t("bench.stop_run_5bb7_2")}</button>
               <button type="button" className="btn btn--ghost" onClick={onStopWatching} title="The run keeps going on the Spark; you can watch it again from the history.">
                 Stop watching
               </button>
             </>
           )
         ) : null}
-        {finished && run.status === "completed" ? <button type="button" className="btn btn--primary" onClick={() => onViewResult(run)}>View result</button> : null}
+        {finished && run.status === "completed" ? <button type="button" className="btn btn--primary" onClick={() => onViewResult(run)}>{t("bench.view_result_6abb_2")}</button> : null}
         {finished ? <button type="button" className="btn btn--ghost" onClick={onDismiss}>Dismiss</button> : null}
         <button type="button" className="btn btn--ghost te-actions__end" aria-expanded={showTerm} onClick={() => setShowTerm((s) => !s)}>
           {showTerm ? "Hide raw output" : `Raw output (${lines.length})`}
@@ -271,7 +272,7 @@ export function LiveRun({ followed, polling, pollError, actionError, scenarioMod
         <div className="te-live__term">
           <div className="te-json__bar">
             <span className="te-faint">stderr lines are dimmed. Messages about features the server lacks (an HTTP 400, “rejected”) are the tool probing it, not a failure.</span>
-            <CopyButton text={() => linesText(lines, partial)} label="Copy output" />
+            <CopyButton text={() => linesText(lines, partial)} label={t("bench.copy_output_c5b0_2")} />
           </div>
           <RunTerminal lines={lines} partial={partial} running={running} />
         </div>

@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { BenchIcon } from "../bench/BenchIcon";
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -79,14 +80,14 @@ export function MobileTabBar({ sparks, activeId, onSelect, onAdd, onOpenSettings
   );
   return (
     <>
-      <nav className="tabbar" aria-label="Primary" data-tab={tabIndex}>
+      <nav className="tabbar" aria-label={t("sidebar.fleetNavigation")} data-tab={tabIndex}>
         <button type="button" className={tabIndex === 0 ? "is-active" : ""} aria-current={activeId === OVERVIEW_ID ? "page" : undefined} onClick={() => onSelect(OVERVIEW_ID)}>
           <GridIcon className="h-[18px] w-[18px]" />
-          Overview
+          {t("sidebar.overview")}
         </button>
         <button type="button" className={tabIndex === 1 ? "is-active" : ""} aria-current={onSpark ? "page" : undefined} onClick={() => setSheet(true)} aria-haspopup="dialog">
           <ServerIcon className="h-[18px] w-[18px]" />
-          Sparks
+          {t("sidebar.sparks")}
         </button>
         <button
           type="button"
@@ -96,11 +97,11 @@ export function MobileTabBar({ sparks, activeId, onSelect, onAdd, onOpenSettings
           aria-haspopup="dialog"
         >
           <ChartIcon className="h-[18px] w-[18px]" />
-          Stats
+          {t("sidebar.stats")}
         </button>
         <button type="button" onClick={onOpenSettings}>
           <GearIcon className="h-[18px] w-[18px]" />
-          Settings
+          {t("sidebar.settings")}
         </button>
       </nav>
       {sheet
@@ -111,7 +112,7 @@ export function MobileTabBar({ sparks, activeId, onSelect, onAdd, onOpenSettings
                 if (e.target === e.currentTarget) setSheet(false);
               }}
             >
-              <div ref={trapRef} className={`sheet ${leaving ? "is-leaving" : ""}`} role="dialog" aria-modal="true" aria-label={sheetKind === "stats" ? "Stats" : "Choose a Spark"}>
+              <div ref={trapRef} className={`sheet ${leaving ? "is-leaving" : ""}`} role="dialog" aria-modal="true" aria-label={sheetKind === "stats" ? t("sidebar.stats") : t("mobiletab.chooseSpark")}>
                 <div className="rail-list">
                   {sheetKind === "stats" ? (
                     ([
@@ -143,7 +144,7 @@ export function MobileTabBar({ sparks, activeId, onSelect, onAdd, onOpenSettings
                     </Fragment>
                   ))}
                   <div className="rail-label rail-label--spaced">
-                    <span>Sparks</span>
+                    <span>{t("sidebar.sparks")}</span>
                   </div>
                   {sparks.map((s) => (
                     <button
@@ -169,7 +170,7 @@ export function MobileTabBar({ sparks, activeId, onSelect, onAdd, onOpenSettings
                     }}
                   >
                     <PlusIcon className="h-4 w-4" />
-                    <span className="rail-item__name">Add Spark / GPU host</span>
+                    <span className="rail-item__name">{t("ui.add_spark_gpu_host_520c")}</span>
                   </button>
                   <div className="rail-label rail-label--spaced">
                     <span>Fleet</span>

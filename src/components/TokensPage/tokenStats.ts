@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 /**
  * Pure logic for the Token totals page: range windows, bucketing (UTC day / UTC hour),
  * group-by with top-N + Other, totals, previous-period comparison, per-model and
@@ -29,11 +30,11 @@ export interface RangeSpec {
 }
 
 export const RANGES: readonly RangeSpec[] = [
-  { key: "24h", label: "Last 24 h", phrase: "the last 24 hours", unit: "hour", count: 24 },
-  { key: "7d", label: "7 d", phrase: "the last 7 days", unit: "day", count: 7 },
-  { key: "14d", label: "14 d", phrase: "the last 14 days", unit: "day", count: 14 },
-  { key: "30d", label: "30 d", phrase: "the last 30 days", unit: "day", count: 30 },
-  { key: "all", label: "All time", phrase: "all time", unit: "day", count: null },
+  { key: "24h", label: t("tokens.r24h"), phrase: t("tokens.p24h"), unit: "hour", count: 24 },
+  { key: "7d", label: t("tokens.r7d"), phrase: t("tokens.p7d"), unit: "day", count: 7 },
+  { key: "14d", label: t("tokens.r14d"), phrase: t("tokens.p14d"), unit: "day", count: 14 },
+  { key: "30d", label: t("tokens.r30d"), phrase: t("tokens.p30d"), unit: "day", count: 30 },
+  { key: "all", label: t("tokens.rAll"), phrase: t("tokens.pAll"), unit: "day", count: null },
 ];
 
 export const OTHER_ID = "__other";
@@ -318,9 +319,9 @@ export interface GroupedBuckets {
 }
 
 export const TYPE_SERIES: readonly { id: string; label: string }[] = [
-  { id: "generated", label: "Generated" },
-  { id: "cached", label: "Cached prefill" },
-  { id: "computed", label: "Computed prefill" },
+  { id: "generated", label: t("tokens.legend_generated") },
+  { id: "cached", label: t("tokens.legend_cached") },
+  { id: "computed", label: t("tokens.legend_computed") },
 ];
 
 /** One bucket-by-series matrix for the stacked chart; model / spark keep the top N, the rest fold into "Other". */
@@ -461,12 +462,12 @@ export function sortRows<T>(rows: readonly T[], get: (row: T) => number | string
 /** "3 h ago", "2 d ago", "just now". */
 export function formatAgo(ms: number, nowMs: number): string {
   const s = Math.max(0, Math.round((nowMs - ms) / 1000));
-  if (s < 90) return "just now";
+  if (s < 90) return t("tokens.just_now");
   const m = Math.round(s / 60);
-  if (m < 90) return `${m} min ago`;
+  if (m < 90) return t("tokens.min_ago", { n: m });
   const h = Math.round(m / 60);
-  if (h < 48) return `${h} h ago`;
-  return `${Math.round(h / 24)} d ago`;
+  if (h < 48) return t("tokens.hour_ago", { n: h });
+  return t("tokens.day_ago", { n: Math.round(h / 24) });
 }
 
 // ─── Insights ────────────────────────────────────────────
@@ -496,22 +497,22 @@ export function buildInsights(i: InsightInput): string[] {
 
   if (s.busiest && s.activeBuckets >= 2) {
     const share = s.busiest.total / Math.max(1, i.totals.reduce((a, b) => a + b.total, 0));
-    out.push(`The busiest ${unitWord} was ${bucketTitle(s.busiest.key, i.spec.unit, i.tzOffsetMin).replace(/ \((UTC|local)\)$/, "")} with ${compact(s.busiest.total)} tokens, ${fmtPct(share)} of ${period === "all time" ? "the retained history" : period}.`);
+    out.push(t("tokens.insight_busiest", { unit: unitWord === "hour" ? t("tokens.hour") : t("tokens.day"), when: bucketTitle(s.busiest.key, i.spec.unit, i.tzOffsetMin).replace(/ \((UTC|local)\)$/, ""), v: compact(s.busiest.total), pct: fmtPct(share), period: period === "all time" ? t("tokens.retained") : period }));
   }
 
   if (s.prompt > 0) {
     if (s.cached > 0) {
-      out.push(`The prefix cache served ${fmtPct(s.cacheRate ?? 0)} of prompt tokens, so about ${compact(s.cached)} prefill tokens did not have to be recomputed.`);
+      out.push(t("tokens.insight_cache_hit", { pct: fmtPct(s.cacheRate ?? 0), v: compact(s.cached) }));
     } else {
-      out.push("No prompt tokens were served from the prefix cache. Either prefix caching is off or the engine does not report cache hits.");
+      out.push(t("tokens.insight_cache_none"));
     }
   }
 
   const top = i.models[0];
   if (top) {
-    if (i.models.length === 1) out.push(`All traffic ran on ${top.modelId}.`);
-    else if (top.share >= 0.5) out.push(`${top.modelId} dominates, handling ${fmtPct(top.share)} of all tokens across ${i.models.length} models.`);
-    else out.push(`Traffic is spread across ${i.models.length} models; the busiest, ${top.modelId}, has ${fmtPct(top.share)}.`);
+    if (i.models.length === 1) out.push(t("tokens.insight_one_model", { model: top.modelId }));
+    else if (top.share >= 0.5) out.push(t("tokens.insight_dominant", { model: top.modelId, pct: fmtPct(top.share), n: i.models.length }));
+    else out.push(t("tokens.insight_spread", { n: i.models.length, model: top.modelId, pct: fmtPct(top.share) }));
   }
 
   if (s.genPerPrompt != null && s.generated > 0) {
@@ -519,26 +520,26 @@ export function buildInsights(i: InsightInput): string[] {
     const shape =
       r < 0.1 ? "a very input-heavy workload (long prompts, short answers)" : r < 0.5 ? "an input-heavy workload" : r <= 1.5 ? "a fairly balanced mix of input and output" : "an output-heavy workload";
     const perGen = s.prompt / s.generated;
-    out.push(`For every generated token, ${perGen >= 10 ? Math.round(perGen) : perGen.toFixed(1)} prompt tokens were read: ${shape}.`);
+    out.push(t("tokens.insight_ratio", { per: perGen >= 10 ? Math.round(perGen) : perGen.toFixed(1), shape: t(shape === "a very input-heavy workload (long prompts, short answers)" ? "tokens.shape_very_input" : shape === "an input-heavy workload" ? "tokens.shape_input" : shape === "a fairly balanced mix of input and output" ? "tokens.shape_balanced" : "tokens.shape_output") }));
   }
 
   const completed = i.totals.slice(0, -1).filter((b) => !i.firstKey || b.key >= i.firstKey);
   const idle = completed.filter((b) => b.total <= 0).length;
   if (idle > 0 && completed.length >= 2) {
-    out.push(`${idle} of the ${completed.length} completed ${unitWord}s in ${period === "all time" ? "the retained history" : period} had no traffic at all.`);
+    out.push(t("tokens.insight_idle", { idle, n: completed.length, unit: unitWord === "hour" ? t("tokens.hour") : t("tokens.day"), period: period === "all time" ? t("tokens.retained") : period }));
   }
 
   const sparkTotals = new Map<string, number>();
   for (const e of i.endpoints) sparkTotals.set(e.sparkId, (sparkTotals.get(e.sparkId) || 0) + e.total);
   if (sparkTotals.size >= 2 && out.length < 6) {
     const [id, v] = [...sparkTotals.entries()].sort((a, b) => b[1] - a[1])[0];
-    out.push(`${i.sparkName(id)} served ${fmtPct(v / s.total)} of all tokens, the most of ${sparkTotals.size} Sparks.`);
+    out.push(t("tokens.insight_top_spark", { spark: i.sparkName(id), pct: fmtPct(v / s.total), n: sparkTotals.size }));
   }
 
   if (i.comparison?.total != null && out.length < 6) {
     const c = i.comparison.total;
-    const prev = i.spec.phrase.replace("the last", "the previous");
-    out.push(Math.abs(c) < 0.01 ? `Usage is flat compared with ${prev}.` : `Usage is ${c > 0 ? "up" : "down"} ${fmtPct(Math.abs(c))} compared with ${prev}.`);
+    const prev = period;
+    out.push(Math.abs(c) < 0.01 ? t("tokens.insight_flat", { period: prev }) : t("tokens.insight_trend", { dir: c > 0 ? t("tokens.up") : t("tokens.down"), pct: fmtPct(Math.abs(c)), period: prev }));
   }
   return out.slice(0, 6);
 }

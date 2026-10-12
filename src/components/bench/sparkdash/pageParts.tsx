@@ -1,3 +1,4 @@
+import { t } from "../../../i18n";
 import type { ReactNode } from "react";
 import "../../../styles/benchpages.css";
 import type { HistoryRow } from "./historyRows";
@@ -17,8 +18,8 @@ export function PageLayout({
 }) {
   return (
     <div className={`bp-grid${stacked ? " bp-grid--stacked" : ""}`}>
-      <section className="panel bp-config" aria-label="Run configuration">
-        <div className="eyebrow">Configuration</div>
+      <section className="panel bp-config" aria-label={t("bench.run_configuration_fbcd_2")}>
+        <div className="eyebrow">{t("bench.configuration")}</div>
         {config}
         {runBar ? <div className="bp-runbar">{runBar}</div> : null}
       </section>
@@ -98,10 +99,10 @@ export function HistoryTable({
       <table className="bp-table">
         <thead>
           <tr>
-            <th>Date</th>
+            <th>{t("bench.col_date")}</th>
             <th>{labelHeader}</th>
-            <th className="bp-model">Model</th>
-            <th className="bp-num">Result</th>
+            <th className="bp-model">{t("tokens.col_model")}</th>
+            <th className="bp-num">{t("bench.col_result")}</th>
             <th aria-label="Actions" />
           </tr>
         </thead>
@@ -111,7 +112,7 @@ export function HistoryTable({
               <td className="bp-nowrap">
                 {formatWhen(r.startedAt)}
                 {r.status !== "completed" ? (
-                  <span className={`tag ${STATUS_TONE[r.status]} bp-status`}>{r.status}</span>
+                  <span className={`tag ${STATUS_TONE[r.status]} bp-status`}>{t(`bench.st_${r.status}`)}</span>
                 ) : null}
               </td>
               <td className="bp-clip">{r.label}</td>
@@ -129,7 +130,7 @@ export function HistoryTable({
                   disabled={busy || r.id === activeId}
                   onClick={() => onView(r.id)}
                 >
-                  {r.id === activeId ? "Open" : "View"}
+                  {r.id === activeId ? t("bench.open") : t("bench.view")}
                 </button>
                 {onCompare && r.id !== activeId ? (
                   <button
@@ -138,7 +139,7 @@ export function HistoryTable({
                     disabled={busy || r.id === compareId}
                     onClick={() => onCompare(r.id)}
                   >
-                    {r.id === compareId ? "Comparing" : "Compare"}
+                    {r.id === compareId ? t("bench.comparing") : t("bench.compare")}
                   </button>
                 ) : null}
               </td>

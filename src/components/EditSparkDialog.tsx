@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -308,18 +309,18 @@ export function EditSparkDialog({
           <h2 className="modal-sheet__title" id="edit-spark-title">
             {editDeviceTitle(config?.kind)}
           </h2>
-          <button type="button" className="modal-sheet__close" onClick={onClose} aria-label="Close">
+          <button type="button" className="modal-sheet__close" onClick={onClose} aria-label={t("sd3d2e61733")}>
             <XIcon className="h-4 w-4" />
           </button>
         </div>
 
         <div className="modal-sheet__body">
-          {loading && <p className="text-xs text-muted">Loading…</p>}
+          {loading && <p className="text-xs text-muted">{t("s5f02f05c74")}</p>}
 
           {config && !loading && (
             <div className="space-y-3">
               <div>
-                <label className="field-label">Unit type</label>
+                <label className="field-label">{t("sae96a9f2fd")}</label>
                 <select
                   value={unitTypeOf(config)}
                   onChange={(e) => update(unitTypePatch(e.target.value as UnitType, config))}
@@ -331,7 +332,7 @@ export function EditSparkDialog({
               </div>
 
               <div>
-                <label className="field-label">Name</label>
+                <label className="field-label">{t("s49ee308734")}</label>
                 <input
                   type="text"
                   value={config.name}
@@ -354,7 +355,7 @@ export function EditSparkDialog({
                 />
                 {config.isLocal && !config.lanIp && (
                   <p className="field-hint">
-                    Local metrics still work.
+                    {t("spark.local_metrics_work")}
                     {config.kind === "host"
                       ? " Open links and directed Wake-on-LAN need a LAN IP."
                       : " Open links need a LAN IP. DGX Spark has no Wake-on-LAN."}
@@ -364,7 +365,7 @@ export function EditSparkDialog({
 
               {config.kind !== "host" && (
                 <div>
-                  <label className="field-label">CX7 IP (optional)</label>
+                  <label className="field-label">{t("se8a112aa06")}</label>
                   <input
                     type="text"
                     value={config.cx7Ip || ""}
@@ -409,11 +410,11 @@ export function EditSparkDialog({
 
               <div>
                 <label className="field-label field-label--row">
-                  <span>Role</span>
+                  <span>{t("sbbbabdbe1b")}</span>
                   <span
                     className="inline-flex shrink-0 cursor-help text-muted hover:text-text"
-                    title="Head always monitors the local LLM. Standalone can opt in/out. Workers have no local API — the LLM card is hidden and ports are not probed."
-                    aria-label="Head always monitors the local LLM. Standalone can opt in or out. Workers hide the LLM card and do not probe ports."
+                    title={t("ui.head_always_monitors_the_local_cdca")}
+                    aria-label={t("ui.head_always_monitors_the_local_3cf6")}
                   >
                     <InfoIcon className="h-3.5 w-3.5" />
                   </span>
@@ -422,9 +423,9 @@ export function EditSparkDialog({
                   value={role}
                   onChange={(e) => setRole(e.target.value as SparkRole)}
                 >
-                  <option value="head">Head</option>
-                  <option value="worker">Worker</option>
-                  <option value="standalone">Standalone</option>
+                  <option value="head">{t("s98921133d1")}</option>
+                  <option value="worker">{t("s62efb9ec33")}</option>
+                  <option value="standalone">{t("s5c80f10110")}</option>
                 </select>
               </div>
 
@@ -436,11 +437,11 @@ export function EditSparkDialog({
                     onChange={(e) => update({ llmMonitoring: e.target.checked })}
                     
                   />
-                  <span>LLM monitoring</span>
+                  <span>{t("s9881e7af5b")}</span>
                   <span
                     className="inline-flex shrink-0 cursor-help text-muted hover:text-text"
-                    title="When enabled, probe the local LLM API and show the LLM card on this Spark."
-                    aria-label="Enable probing the local LLM API and showing the LLM card."
+                    title={t("ui.when_enabled_probe_the_local_b2d7")}
+                    aria-label={t("s736c4ce59a")}
                   >
                     <InfoIcon className="h-3.5 w-3.5" />
                   </span>
@@ -460,11 +461,11 @@ export function EditSparkDialog({
                     }
                     
                   />
-                  <span>ComfyUI monitoring</span>
+                  <span>{t("s35090505f6")}</span>
                   <span
                     className="inline-flex shrink-0 cursor-help text-muted hover:text-text"
-                    title="When enabled, probe ComfyUI on this host and show a ComfyUI card. Default port is 8188 — change the port value on the right if needed."
-                    aria-label="Enable probing ComfyUI and showing the ComfyUI card."
+                    title={t("ui.when_enabled_probe_comfyui_on_08bf")}
+                    aria-label={t("sa448f92804")}
                   >
                     <InfoIcon className="h-3.5 w-3.5" />
                   </span>
@@ -474,7 +475,7 @@ export function EditSparkDialog({
                   className={`ml-auto flex items-center gap-1 font-tabular ${
                     config.comfyMonitoring ? "text-text" : "pointer-events-none opacity-40"
                   }`}
-                  title="ComfyUI HTTP port (default 8188)"
+                  title={t("sce430f4a8c")}
                 >
                   <span className="select-none text-muted" aria-hidden>
                     port
@@ -485,7 +486,7 @@ export function EditSparkDialog({
                     max={65535}
                     inputMode="numeric"
                     disabled={!config.comfyMonitoring}
-                    aria-label="ComfyUI port"
+                    aria-label={t("s38ce39cb12")}
                     value={config.comfyPort ?? 8188}
                     onChange={(e) => {
                       const n = parseInt(e.target.value, 10);
@@ -513,7 +514,7 @@ export function EditSparkDialog({
                     onChange={(e) => update({ hermesMonitoring: e.target.checked })}
                   
                   />
-                  <span>Hermes Agent</span>
+                  <span>{t("sab9a06b06d")}</span>
                   <span
                     className="inline-flex shrink-0 cursor-help text-muted hover:text-text"
                     title='Hermes Agent CLI is installed on this machine (nousresearch/hermes-agent). When enabled, sparkDash checks for updates (hermes update --check) and can run “hermes update” for you via SSH with one click.'
@@ -523,8 +524,7 @@ export function EditSparkDialog({
                   </span>
                 </label>
                 <p className="field-hint">
-                  Checks for updates in the background (10 min) and adds an "Update Hermes" button
-                  that runs{" "}
+                  {t("spark.hermes_hint")}
                   <code className="rounded bg-surface-elevated px-1">hermes update</code> on this
                   machine via SSH.
                 </p>
@@ -537,11 +537,11 @@ export function EditSparkDialog({
                       onChange={(e) => update({ tailscaleMonitoring: e.target.checked })}
                     
                     />
-                    <span>Tailnet monitoring</span>
+                    <span>{t("se528ae4d1d")}</span>
                     <span
                       className="inline-flex shrink-0 cursor-help text-muted hover:text-text"
                       title="When enabled, run `tailscale status --json` on this host and show a Tailnet card. Catches a unit that is healthy on the LAN but has fallen off its tailnet. Requires the tailscale CLI. Default off."
-                      aria-label="Enable reporting this unit's tailnet presence."
+                      aria-label={t("sdf3b135177")}
                     >
                       <InfoIcon className="h-3.5 w-3.5" />
                     </span>
@@ -568,16 +568,16 @@ export function EditSparkDialog({
                   </div>
 
                   <div>
-                    <label className="field-label">Head Spark</label>
+                    <label className="field-label">{t("s00f11d8f8b")}</label>
                     <select
                       value={config.workerHeadId || ""}
                       onChange={(e) => update({ workerHeadId: e.target.value || null })}
                     >
-                      <option value="">None</option>
+                      <option value="">{t("s6adf97f83a")}</option>
                       {config.workerHeadId &&
                         !allSparks.some((s) => s.id === config.workerHeadId) && (
                           <option value={config.workerHeadId}>
-                            Missing spark ({config.workerHeadId})
+                            {t("spark.missing_spark", { id: config.workerHeadId })}
                           </option>
                         )}
                       {allSparks
@@ -603,7 +603,7 @@ export function EditSparkDialog({
               {!config.isLocal && (
                 <>
                   <div>
-                    <label className="field-label">SSH User</label>
+                    <label className="field-label">{t("sfbb84e97ac")}</label>
                     <input
                       type="text"
                       value={config.ssh.user}
@@ -629,17 +629,17 @@ export function EditSparkDialog({
                         });
                       }}
                     />
-                    <p className="field-hint">Default 22. Use this when sshd listens elsewhere.</p>
+                    <p className="field-hint">{t("se267fcd8cf")}</p>
                   </div>
 
                   <div>
-                    <label className="field-label">SSH Auth</label>
+                    <label className="field-label">{t("sb2f90633a7")}</label>
                     <select
                       value={config.ssh.auth}
                       onChange={(e) => updateSsh({ auth: e.target.value as "key" | "pass" })}
                     >
-                      <option value="key">Key</option>
-                      <option value="pass">Password</option>
+                      <option value="key">{t("s897356954c")}</option>
+                      <option value="pass">{t("sdc647eb65e")}</option>
                     </select>
                     {config.ssh.auth === "key" && (
                       <p className="field-hint">
@@ -652,7 +652,7 @@ export function EditSparkDialog({
                   {config.ssh.auth === "pass" && (
                     <div>
                       <label className="field-label">
-                        SSH Password
+                        {t("add.ssh_password")}
                         {config.ssh.hasPassword
                           ? " (leave blank to keep stored secret)"
                           : " (required — saved even if host is offline)"}

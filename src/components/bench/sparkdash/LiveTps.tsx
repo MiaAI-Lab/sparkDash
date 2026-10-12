@@ -1,3 +1,4 @@
+import { t } from "../../../i18n";
 import { useEffect, useRef, useState } from "react";
 import { TrendLine } from "../../ui/TrendLine";
 
@@ -28,12 +29,12 @@ export function LiveTps({ tps, active }: { tps: number | null | undefined; activ
   if (!active || tps == null) return null;
   const peak = samples.length ? Math.max(...samples) : tps;
   return (
-    <div className="bench-live" aria-label="Live generation speed">
+    <div className="bench-live" aria-label={t("bench.live_generation_speed_4616_2")}>
       <div className="bench-live__head">
         <span className="bench-live__label">
-          <span className="bench-live__dot" aria-hidden /> Live generation
+          <span className="bench-live__dot" aria-hidden /> {t("bench.live_generation")}
         </span>
-        <span className="bench-live__peak">peak {peak.toFixed(1)} tok/s</span>
+        <span className="bench-live__peak">{t("bench.peak_tps", { v: peak.toFixed(1) })}</span>
       </div>
       <div className="bench-live__value">
         {tps.toFixed(1)} <small>tok/s</small>

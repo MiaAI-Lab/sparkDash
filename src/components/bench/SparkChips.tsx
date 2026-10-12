@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { createContext, useContext, type ReactNode } from "react";
 import type { SparkSnapshot } from "../../api/types";
 import { isWorkerSpark } from "../../api/sparkRole";

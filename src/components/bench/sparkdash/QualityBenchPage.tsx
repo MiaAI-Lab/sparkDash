@@ -1,3 +1,4 @@
+import { t } from "../../../i18n";
 import type { SparkSnapshot } from "../../../api/types";
 import { QualityBenchDialog } from "../../SparkPage/QualityBenchDialog";
 import { BenchTargetFrame } from "./BenchTargetFrame";

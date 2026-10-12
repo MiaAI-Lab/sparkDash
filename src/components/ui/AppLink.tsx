@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import type { AnchorHTMLAttributes, MouseEvent, ReactNode } from "react";
 
 interface AppLinkProps extends Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "onClick" | "href"> {

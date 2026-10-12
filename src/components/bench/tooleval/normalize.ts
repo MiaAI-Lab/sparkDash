@@ -46,22 +46,22 @@ export function normalizeStatus(v: unknown): ScenarioStatus {
 
 /** Category names as documented for the tool (A–O, P = Hard Mode). Used only when the result carries no name. */
 export const CATEGORY_NAMES: Record<string, string> = {
-  A: "Tool selection",
-  B: "Parameter precision",
-  C: "Multi-step chains",
-  D: "Restraint and refusal",
-  E: "Error recovery",
-  F: "Localization",
-  G: "Structured reasoning",
-  H: "Instruction following",
-  I: "Context and state",
-  J: "Code patterns",
-  K: "Safety and boundaries",
-  L: "Toolset scaling",
-  M: "Autonomous planning",
-  N: "Creative composition",
-  O: "Structured output",
-  P: "Hard mode",
+  A: "quality.cat_a",
+  B: "quality.cat_b",
+  C: "quality.cat_c",
+  D: "quality.cat_d",
+  E: "quality.cat_e",
+  F: "quality.cat_f",
+  G: "quality.cat_g",
+  H: "quality.cat_h",
+  I: "quality.cat_i",
+  J: "quality.cat_j",
+  K: "quality.cat_k",
+  L: "quality.cat_l",
+  M: "quality.cat_m",
+  N: "quality.cat_n",
+  O: "quality.cat_o",
+  P: "quality.cat_p",
 };
 
 export interface NormCategory {

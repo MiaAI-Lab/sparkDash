@@ -51,3 +51,28 @@ export function splitMessage(
   }
   return { before: message, name: "", after: "" };
 }
+
+/** Front-end mapping for known server-generated event messages. */
+export function localizeEventMessage(
+  type: string,
+  message: string,
+  t: (k: string, o?: Record<string, unknown>) => string
+): string {
+  const bench = message.match(/^(Decode|Prefill|Quality) bench (finished|failed|cancelled) on (.+?)(: .+)?$/);
+  if (bench) {
+    const kind = bench[1].toLowerCase();
+    const key =
+      bench[2] === "finished" ? "activity.bench_finished" : bench[2] === "failed" ? "activity.bench_failed" : "activity.bench_cancelled";
+    const rawDetail = (bench[4] ?? "").replace(/^:\s*/, "");
+    const detail =
+      rawDetail === "Interrupted — server restarted while the benchmark was running"
+        ? `: ${t("bench.interrupted")}`
+        : rawDetail
+          ? `: ${rawDetail}`
+          : "";
+    return t(key, { kind: t(`bench.name_${kind}`), spark: bench[3], detail });
+  }
+  const hermes = message.match(/^Hermes update failed on (.+)$/);
+  if (hermes) return t("activity.hermes_failed", { spark: hermes[1] });
+  return message;
+}

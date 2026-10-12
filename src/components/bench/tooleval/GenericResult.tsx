@@ -1,3 +1,4 @@
+import { t } from "../../../i18n";
 import { LineAreaChart } from "../../ui/LineAreaChart";
 import { Tag } from "../../ui/Tag";
 import { cellText, collectTables, isNum, isObj, suggestCharts, topMetrics, type GenericTable } from "./normalize";
@@ -86,7 +87,7 @@ export function MiniTable({ columns, rows }: { columns: string[]; rows: Record<s
           ))}
         </tbody>
       </table>
-      {rows.length > 300 ? <p className="te-faint">Showing 300 of {rows.length} rows.</p> : null}
+      {rows.length > 300 ? <p className="te-faint">{t("bench.showing_rows", { n: rows.length })}</p> : null}
     </div>
   );
 }
@@ -124,7 +125,7 @@ export function GenericResult({ result, compact = false }: { result: unknown; co
   return (
     <div className="te-generic">
       {tiles.length && !compact ? (
-        <div className="te-tiles" role="list" aria-label="Key numbers">
+        <div className="te-tiles" role="list" aria-label={t("bench.key_numbers_7a3a_2")}>
           {tiles.map((t) => (
             <div key={t.path} className="te-tile" role="listitem" title={t.path}>
               <span className="eyebrow">{t.label}</span>
@@ -136,11 +137,11 @@ export function GenericResult({ result, compact = false }: { result: unknown; co
       {tables.map((t) => (
         <TableWithCharts key={t.path} table={t} />
       ))}
-      {!compact && !tiles.length && !tables.length ? <p className="te-faint">No recognisable numbers in this result. The full data is below.</p> : null}
+      {!compact && !tiles.length && !tables.length ? <p className="te-faint">{t("bench.no_recognisable_numbers_in_this_1202_2")}</p> : null}
       {meta && !compact ? (
         <details className="te-disclosure">
           <summary>
-            <span>Configuration reported by the tool</span>
+            <span>{t("bench.configuration_reported_by_the_to_73b6_2")}</span>
           </summary>
           <div className="te-disclosure__body">
             <GenericValue value={meta} />
@@ -151,7 +152,7 @@ export function GenericResult({ result, compact = false }: { result: unknown; co
         <>
           <details className="te-disclosure">
             <summary>
-              <span>All values</span>
+              <span>{t("bench.all_values_69a1_2")}</span>
             </summary>
             <div className="te-disclosure__body">
               <GenericValue value={result} />

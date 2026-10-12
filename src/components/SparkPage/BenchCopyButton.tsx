@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 /**
  * The benchmark dialogs' copy control.
  *
@@ -41,7 +42,7 @@ function stateLabel(state: CopyState, shareImage: boolean): string {
       // Off, this is the copy button as it always was.
       return shareImage ? "Copied text!" : "Copied!";
     default:
-      return "Copy results";
+      return t("bench.copy_results");
   }
 }
 
@@ -242,7 +243,7 @@ export function BenchCopyButton({
         className="bench-btn bench-btn--ghost"
         onClick={() => void copyText()}
         disabled={state === "working"}
-        title="Copy a plain-text summary to the clipboard"
+        title={t("ui.copy_a_plain_text_summary_7359")}
       >
         {stateLabel(state, shareImage)}
       </button>
@@ -262,7 +263,7 @@ export function BenchCopyButton({
         className="bench-btn bench-btn--ghost"
         onClick={() => void copyText()}
         disabled={state === "working"}
-        title="Copy the results as plain text — the caret on the right copies the share-card image instead"
+        title={t("ui.copy_the_results_as_plain_496d")}
       >
         {stateLabel(state, shareImage)}
       </button>
@@ -271,7 +272,7 @@ export function BenchCopyButton({
         className="bench-btn bench-btn--ghost bench-copy-caret -ml-px px-1.5"
         aria-haspopup="menu"
         aria-expanded={menuOpen}
-        aria-label="Copy format"
+        aria-label={t("ui.copy_format_6a90")}
         title={
           imageClipboard
             ? "Copy as text or as an image"
@@ -290,7 +291,7 @@ export function BenchCopyButton({
           <span
             ref={menuRef}
             role="menu"
-            aria-label="Copy format"
+            aria-label={t("ui.copy_format_6a90")}
             onMouseEnter={cancelClose}
             onMouseLeave={scheduleClose}
             style={{
@@ -328,7 +329,7 @@ export function BenchCopyButton({
                   role="menuitem"
                   className="block w-full rounded px-2 py-1.5 text-left text-[11px] text-muted transition-colors hover:bg-surface-hover hover:text-text"
                   onClick={() => void showImage()}
-                  title="This page is served over http on a LAN address, where a page cannot write images to the clipboard. The card is shown as an image instead — right-click → Copy Image, or drag it into your post."
+                  title={t("ui.this_page_is_served_over_4448")}
                 >
                   Show card
                 </button>
@@ -350,7 +351,7 @@ export function BenchCopyButton({
           <div
             role="dialog"
             aria-modal="true"
-            aria-label="Benchmark share card"
+            aria-label={t("ui.benchmark_share_card_2cc8")}
             className="card-preview"
             onMouseDown={(e) => {
               if (e.target === e.currentTarget) closePreview();
@@ -358,8 +359,8 @@ export function BenchCopyButton({
           >
             <div className="card-preview__panel">
               <div className="card-preview__head">
-                <h2>Share card</h2>
-                <button type="button" className="icon-circle" onClick={closePreview} aria-label="Close share card">
+                <h2>{t("ui.share_card_53dd")}</h2>
+                <button type="button" className="icon-circle" onClick={closePreview} aria-label={t("ui.close_share_card_e58b")}>
                   ✕
                 </button>
               </div>

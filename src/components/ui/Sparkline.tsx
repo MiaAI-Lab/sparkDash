@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 interface SparklineProps {
   data: readonly number[];
   width?: number;

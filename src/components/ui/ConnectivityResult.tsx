@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import type { SparkTestResponse } from "../../api/types";
 
 export function ConnectivityResult({ result }: { result: SparkTestResponse }) {

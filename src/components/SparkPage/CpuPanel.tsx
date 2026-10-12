@@ -1,9 +1,9 @@
+import { t } from "../../i18n";
 import type { CpuMetrics, HardwareInfo } from "../../api/types";
 import { TrendLine } from "../ui/TrendLine";
 import { Panel } from "../ui/Panel";
 import { CpuIcon } from "../ui/icons";
 import { useMetricsHistoryTail } from "../../hooks/metricsStore";
-
 interface CpuPanelProps {
   cpu: CpuMetrics | null;
   hardware?: HardwareInfo | null;
@@ -56,10 +56,10 @@ export function CpuPanel({ cpu, hardware, sparkId, temperatureUnit, className }:
 
   return (
     <Panel
-      title="CPU"
+      title={t("s2b55387dd0")}
       hint={
         socPackage
-          ? "ACPI package zone (TSOC on GB10). This is the SoC, not a CPU die and not the GPU junction temperature from nvidia-smi."
+          ? t("spark.acpi_hint")
           : undefined
       }
       icon={<CpuIcon />}
@@ -68,7 +68,7 @@ export function CpuPanel({ cpu, hardware, sparkId, temperatureUnit, className }:
     >
       <div className="sp-duo">
         <div className="sp-metric">
-          <span className="eyebrow">Usage</span>
+          <span className="eyebrow">{t("sc64518704c")}</span>
           <div className="big-num sp-big-md">
             {usage}
             <small>%</small>
@@ -83,16 +83,16 @@ export function CpuPanel({ cpu, hardware, sparkId, temperatureUnit, className }:
             title={
               cpu?.temperatureSource
                 ? `Reading from ${cpu.temperatureSource} — ${
-                    cpu.temperatureLabel === "CPU"
-                      ? "the CPU package sensor"
-                      : "an ACPI/board thermal zone, not a CPU package sensor"
+                    cpu.temperatureLabel === t("s2b55387dd0")
+                      ? t("spark.sensor_cpu_package")
+                      : t("spark.sensor_acpi")
                   }`
                 : undefined
             }
           >
-            {cpu?.temperatureLabel && cpu.temperatureLabel !== "CPU"
-              ? `Temperature (${cpu.temperatureLabel})`
-              : "Temperature"}
+            {cpu?.temperatureLabel && cpu.temperatureLabel !== t("s2b55387dd0")
+              ? t("spark.temperature_with_label", { label: cpu.temperatureLabel })
+              : t("spark.temperature")}
           </span>
           <div className="big-num sp-big-md">
             {displayTemp}
@@ -102,17 +102,17 @@ export function CpuPanel({ cpu, hardware, sparkId, temperatureUnit, className }:
         </div>
       </div>
       <div className="sp-row">
-        <span className="text-muted">CPU power</span>
+        <span className="text-muted">{t("sd98e0302d1")}</span>
         <span className="mono text-text">
           {draw}W{tdp > 0 ? ` / ${tdp}W` : ""}
         </span>
       </div>
       {model && (
         <div className="sp-row sp-row--rule">
-          <span className="text-muted">Model</span>
+          <span className="text-muted">{t("sa559b87068")}</span>
           <span className="mono sp-clip text-text" title={model}>
             {model}
-            {cores != null ? ` · ${cores} cores` : ""}
+            {cores != null ? t("spark.cores_suffix", { n: cores }) : ""}
           </span>
         </div>
       )}

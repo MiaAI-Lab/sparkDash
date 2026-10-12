@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { useMemo } from "react";
 import type { GpuMetrics, LlmMetrics, UnifiedMemoryMetrics } from "../../api/types";
 import { Panel } from "../ui/Panel";
@@ -40,7 +41,7 @@ export function UnifiedMemoryPanel({ um, gpu, llm, className }: UnifiedMemoryPan
 
   return (
     <Panel
-      title="Unified memory"
+      title={t("overview.unifiedMemory")}
       icon={<MemoryIcon />}
       className={`panel-memory ${className ?? ""}`}
       bodyClassName="sp-stack"
@@ -76,7 +77,7 @@ export function UnifiedMemoryPanel({ um, gpu, llm, className }: UnifiedMemoryPan
           <div className="sp-chips">
             {um && um.oomRisk !== "low" && (
               <Tag tone={um.oomRisk === "high" ? "bad" : "warn"}>
-                {um.oomRisk === "high" ? "OOM risk: high" : "Memory pressure"}
+                {um.oomRisk === "high" ? t("spark.oom_high") : t("spark.mem_pressure")}
               </Tag>
             )}
             {um && um.bandwidth.current > 0 && (
@@ -87,7 +88,7 @@ export function UnifiedMemoryPanel({ um, gpu, llm, className }: UnifiedMemoryPan
           </div>
         </>
       ) : (
-        <p className="sp-muted">Waiting for memory reading…</p>
+        <p className="sp-muted">{t("ui.waiting_for_memory_reading_3051")}</p>
       )}
       {processes.length > 0 && <GpuProcessTable processes={processes} />}
     </Panel>

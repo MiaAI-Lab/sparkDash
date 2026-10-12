@@ -1,3 +1,4 @@
+import { t } from "../../../i18n";
 import { useState } from "react";
 import { previewToolEval, probeToolEval } from "../../../api/client";
 import type { SparkSnapshot, ToolEvalProbeResponse, ToolEvalRunRequest } from "../../../api/types";
@@ -48,24 +49,24 @@ export function RunCard({ spark, type, request, preview, problems, installed, bu
   };
 
   const invalid = problems.length > 0 || preview.status === "invalid";
-  const reason = !installed ? "Install Tool Eval Bench on this Spark first." : invalid ? "Fix the highlighted options first." : busyReason;
+  const reason = !installed ? t("setup.install_first") : invalid ? t("setup.fix_options") : busyReason;
   const disabled = Boolean(reason) || starting || preview.status === "error";
   const probeOutput = probe.res?.output?.trim() ?? "";
 
   return (
-    <aside className="panel te-card te-runcard" aria-label="Command and start">
+    <aside className="panel te-card te-runcard" aria-label={t("bench.command_and_start_7cf6_2")}>
       <div className="te-card__head">
-        <h2>Command</h2>
+        <h2>{t("bench.command")}</h2>
         {preview.status === "loading" ? <span className="te-faint" aria-live="polite">updating…</span> : null}
-        {preview.status === "ok" ? <Tag tone="good">valid</Tag> : null}
+        {preview.status === "ok" ? <Tag tone="good">{t("bench.valid")}</Tag> : null}
         {invalid ? <Tag tone="bad">needs attention</Tag> : null}
       </div>
       <p className="te-target">
-        Runs on <b>{spark.name}</b> against <span className="mono">{baseUrl}</span>
+        {t("bench.runs_on_against", { spark: spark.name, url: baseUrl })}
       </p>
       <div className="te-cmd">
         <div className="te-cmd__head">
-          <span className="eyebrow">Command line</span>
+          <span className="eyebrow">{t("bench.command_line_760f_2")}</span>
           {preview.command ? <CopyButton text={preview.command} /> : null}
         </div>
         <pre className="te-cmd__body" aria-live="polite">
@@ -73,10 +74,10 @@ export function RunCard({ spark, type, request, preview, problems, installed, bu
         </pre>
         <p className="te-faint te-cmd__foot">
           {preview.usesSavedKey ? "Uses the API key saved for this Spark's port (passed by environment). " : ""}
-          The API key and header values never appear here. The result file path is added when the run starts.
+          {t("bench.cmd_foot")}
         </p>
       </div>
-      {preview.status === "error" ? <Notice tone="bad" title="Preview failed">{preview.error}</Notice> : null}
+      {preview.status === "error" ? <Notice tone="bad" title={t("bench.preview_failed_91ed_2")}>{preview.error}</Notice> : null}
       {preview.errors.length || problems.length ? (
         <ul className="te-form-errors" role="alert">
           {[...new Set([...problems, ...preview.errors])].map((e) => (
@@ -84,11 +85,11 @@ export function RunCard({ spark, type, request, preview, problems, installed, bu
           ))}
         </ul>
       ) : null}
-      {startError ? <Notice tone="bad" title="Could not start">{startError}</Notice> : null}
+      {startError ? <Notice tone="bad" title={t("bench.could_not_start_5661_2")}>{startError}</Notice> : null}
 
       <div className="te-actions te-actions--stack">
         <button type="button" className="btn btn--primary te-start" disabled={disabled} onClick={onStart} aria-describedby={reason ? "te-start-reason" : undefined}>
-          {starting ? "Starting…" : `Start ${type === "tool-eval" ? "evaluation" : "benchmark"}`}
+          {starting ? t("showcase.starting") : t(type === "tool-eval" ? "bench.start_evaluation" : "bench.start_benchmark")}
         </button>
         {reason ? (
           <p className="te-faint" id="te-start-reason">
@@ -97,11 +98,11 @@ export function RunCard({ spark, type, request, preview, problems, installed, bu
         ) : null}
         <div className="te-actions">
           <button type="button" className="btn btn--sm" onClick={runProbe} disabled={probe.loading || !installed}>
-            {probe.loading ? "Checking…" : "Check connection"}
+            {probe.loading ? t("setup.checking") : t("setup.check_connection")}
           </button>
           {hasScenarios ? (
             <button type="button" className="btn btn--sm" onClick={runDry} disabled={dry.loading || !installed || invalid}>
-              {dry.loading ? "Loading…" : "Preview scenarios"}
+              {dry.loading ? t("overview.activityLoading") : t("setup.preview_scenarios")}
             </button>
           ) : null}
         </div>
@@ -117,7 +118,7 @@ export function RunCard({ spark, type, request, preview, problems, installed, bu
       {dry.output != null || dry.error ? (
         <div className="te-probe" role="status">
           <div className="te-probe__head">
-            <b>Scenarios that would run</b>
+            <b>{t("bench.scenarios_that_would_run_3a6d_2")}</b>
             {dry.output ? <CopyButton text={dry.output} /> : null}
           </div>
           {dry.error ? <p className="te-bad">{dry.error}</p> : null}

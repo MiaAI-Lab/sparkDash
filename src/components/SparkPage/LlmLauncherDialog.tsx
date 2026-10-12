@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { useEffect, useId, useState } from "react";
 import { createPortal } from "react-dom";
 import { useModalPresence } from "../../hooks/useModalPresence";
@@ -18,14 +19,14 @@ interface LlmLauncherDialogProps {
 
 /** Quick client-side check, so obvious mistakes read before a round trip. The server is the authority. */
 export function validateLauncherForm(form: { name: string; dir: string; port: string }): string | null {
-  if (!form.name.trim()) return "Give the model a name";
+  if (!form.name.trim()) return t("launcher.err_name");
   const dir = form.dir.trim();
-  if (!dir) return "Enter the directory that holds start.sh and stop.sh";
-  if (!(dir.startsWith("/") || dir.startsWith("~/"))) return "The directory must start with / or ~/";
+  if (!dir) return t("launcher.err_dir");
+  if (!(dir.startsWith("/") || dir.startsWith("~/"))) return t("launcher.err_dir_prefix");
   if (/\s/.test(dir)) return "Spaces are not supported in the directory path";
   if (form.port.trim()) {
     const p = Number(form.port);
-    if (!Number.isInteger(p) || p < 1 || p > 65535) return "Port must be a number from 1 to 65535";
+    if (!Number.isInteger(p) || p < 1 || p > 65535) return t("launcher.err_port");
   }
   return null;
 }
@@ -106,7 +107,7 @@ export function LlmLauncherDialog({ open, sparkId, sparkName, launcher, onClose,
       <div ref={trapRef} className="modal-sheet" role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <div className="modal-sheet__header">
           <h2 className="modal-sheet__title" id={titleId}>
-            {editing ? "Edit model" : "Add a model"}
+            {editing ? t("launcher.edit_model") : t("launcher.add_a_model")}
           </h2>
         </div>
         <form
@@ -117,11 +118,10 @@ export function LlmLauncherDialog({ open, sparkId, sparkName, launcher, onClose,
         >
           <div className="modal-sheet__body modal-sheet__stack">
             <p className="modal-sheet__lead">
-              Point sparkDash at the folder on <b>{sparkName}</b> that holds your model&rsquo;s start and stop scripts. It runs
-              those scripts as the SSH user and shows their output here.
+              {t("launcher.lead", { spark: sparkName })}
             </p>
             <div className="field">
-              <label htmlFor={`${titleId}-name`}>Name (required)</label>
+              <label htmlFor={`${titleId}-name`}>{t("launcher.lbl_name")}</label>
               <input
                 id={`${titleId}-name`}
                 type="text"
@@ -133,7 +133,7 @@ export function LlmLauncherDialog({ open, sparkId, sparkName, launcher, onClose,
               />
             </div>
             <div className="field">
-              <label htmlFor={`${titleId}-dir`}>Directory on {sparkName} (required)</label>
+              <label htmlFor={`${titleId}-dir`}>{t("launcher.lbl_dir", { spark: sparkName })}</label>
               <input
                 id={`${titleId}-dir`}
                 type="text"
@@ -144,11 +144,11 @@ export function LlmLauncherDialog({ open, sparkId, sparkName, launcher, onClose,
                 autoComplete="off"
                 spellCheck={false}
               />
-              <p className="field-hint">An absolute path, or one starting with ~/. No spaces.</p>
+              <p className="field-hint">{t("ui.an_absolute_path_or_one_7276")}</p>
             </div>
             <div className="field-row">
               <div className="field">
-                <label htmlFor={`${titleId}-start`}>Start script</label>
+                <label htmlFor={`${titleId}-start`}>{t("launcher.lbl_start")}</label>
                 <input
                   id={`${titleId}-start`}
                   type="text"
@@ -159,7 +159,7 @@ export function LlmLauncherDialog({ open, sparkId, sparkName, launcher, onClose,
                 />
               </div>
               <div className="field">
-                <label htmlFor={`${titleId}-stop`}>Stop script</label>
+                <label htmlFor={`${titleId}-stop`}>{t("launcher.lbl_stop")}</label>
                 <input
                   id={`${titleId}-stop`}
                   type="text"
@@ -170,7 +170,7 @@ export function LlmLauncherDialog({ open, sparkId, sparkName, launcher, onClose,
                 />
               </div>
               <div className="field field--port">
-                <label htmlFor={`${titleId}-port`}>Port</label>
+                <label htmlFor={`${titleId}-port`}>{t("bench.port_n", { port: "" }).replace(": ", "")}</label>
                 <input
                   id={`${titleId}-port`}
                   type="number"
@@ -182,16 +182,16 @@ export function LlmLauncherDialog({ open, sparkId, sparkName, launcher, onClose,
               </div>
             </div>
             <p className="field-hint">
-              The port is optional. When set, the model shows as &ldquo;serving&rdquo; once the dashboard sees an LLM answering there.
+              {t("launcher.port_hint")}
             </p>
             <div className="field">
-              <label htmlFor={`${titleId}-notes`}>Notes</label>
+              <label htmlFor={`${titleId}-notes`}>{t("launcher.lbl_notes")}</label>
               <input
                 id={`${titleId}-notes`}
                 type="text"
                 value={form.notes}
                 onChange={(e) => set({ notes: e.target.value })}
-                placeholder="Optional, e.g. 2-node cluster, needs ~100 GB"
+                placeholder={t("launcher.placeholder_notes")}
                 autoComplete="off"
               />
             </div>
@@ -204,10 +204,10 @@ export function LlmLauncherDialog({ open, sparkId, sparkName, launcher, onClose,
           <div className="modal-sheet__footer">
             <div className="modal-sheet__footer-actions">
               <button type="button" className="btn btn--ghost" onClick={onClose} disabled={saving}>
-                Cancel
+                {t("launcher.cancel")}
               </button>
               <button type="submit" className="btn btn--primary" disabled={saving}>
-                {saving ? "Saving…" : editing ? "Save" : "Add model"}
+                {saving ? t("common.saving") : editing ? t("common.save") : t("models.add")}
               </button>
             </div>
           </div>

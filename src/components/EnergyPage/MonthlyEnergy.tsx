@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchMonthlyEnergy } from "../../api/client";
 import type { MonthlyEnergy as MonthlyEnergyData, MonthlyEnergyMonth } from "../../api/types";
@@ -82,19 +83,19 @@ export function MonthlyEnergy({
     <section className="panel en-panel en-monthly" aria-labelledby="en-h-monthly">
       <header className="en-panel__head">
         <div>
-          <h2 id="en-h-monthly">Monthly history</h2>
+          <h2 id="en-h-monthly">{t("energy.h_monthly")}</h2>
           <p className="en-panel__sub">
-            Totals per UTC month, kept permanently. They survive resets, restarts and changes to the fleet. Months are UTC, so they will not match a local-time electricity bill.
+            {t("energy.monthly_sub")}
           </p>
         </div>
         {data && months.length > 0 ? (
           <div className="en-monthly__tools">
-            <div className="seg" role="group" aria-label="Monthly view">
-              <button type="button" aria-pressed={view === "month"} className={view === "month" ? "is-on" : ""} onClick={() => setView("month")}>Month</button>
-              <button type="button" aria-pressed={view === "year"} className={view === "year" ? "is-on" : ""} onClick={() => setView("year")}>Year</button>
+            <div className="seg" role="group" aria-label={t("energy.monthly_view")}>
+              <button type="button" aria-pressed={view === "month"} className={view === "month" ? "is-on" : ""} onClick={() => setView("month")}>{t("energy.view_month")}</button>
+              <button type="button" aria-pressed={view === "year"} className={view === "year" ? "is-on" : ""} onClick={() => setView("year")}>{t("energy.view_year")}</button>
             </div>
             {view === "month" ? (
-              <select className="en-select" aria-label="Month" value={activeMonth} onChange={(e) => setMonth(e.target.value)}>
+              <select className="en-select" aria-label={t("energy.view_month")} value={activeMonth} onChange={(e) => setMonth(e.target.value)}>
                 {monthKeys.map((key) => <option key={key} value={key}>{monthLabel(key)}</option>)}
               </select>
             ) : (
@@ -107,9 +108,9 @@ export function MonthlyEnergy({
       </header>
 
       {error && !data ? (
-        <p className="en-panel__sub" role="alert">Could not load monthly history: {error}</p>
+        <p className="en-panel__sub" role="alert">{t("energy.monthly_load_error", { error })}</p>
       ) : !data ? (
-        <p className="en-panel__sub" role="status">Loading monthly history…</p>
+        <p className="en-panel__sub" role="status">{t("energy.monthly_loading")}</p>
       ) : months.length === 0 ? (
         <p className="en-panel__sub" role="status">
           Nothing archived yet. Each finished minute is added to its month once the Sparks have been reporting for a little while.
@@ -141,7 +142,7 @@ function MonthView({
   currency,
 }: ViewProps & { month: MonthlyEnergyMonth | null; label: string; now: number }) {
   if (!month || month.totalWh <= 0) {
-    return <p className="en-panel__sub" role="status">No energy was recorded in {label}.</p>;
+    return <p className="en-panel__sub" role="status">{t("energy.none_in_month", { label })}</p>;
   }
   const rows = monthNodeRows(month, now, price);
   const kwh = month.totalWh / 1000;
@@ -150,28 +151,28 @@ function MonthView({
   return (
     <>
       <div className="en-monthly__stats" role="group" aria-label={`${label} summary`}>
-        <div><span className="eyebrow">Energy</span><b className="mono">{formatKwh(kwh)} kWh</b></div>
-        <div><span className="eyebrow">Cost</span><b className="mono">{cost != null ? formatMoney(cost, currency) : "—"}</b></div>
+        <div><span className="eyebrow">{t("energy.col_energy")}</span><b className="mono">{formatKwh(kwh)} kWh</b></div>
+        <div><span className="eyebrow">{t("energy.col_cost")}</span><b className="mono">{cost != null ? formatMoney(cost, currency) : "—"}</b></div>
         <div>
-          <span className="eyebrow">Efficiency</span>
+          <span className="eyebrow">{t("energy.h_eff")}</span>
           <b className="mono">{eff != null ? `${eff < 10 ? eff.toFixed(2) : eff.toFixed(1)} Wh / 1k tok` : "—"}</b>
         </div>
-        <div><span className="eyebrow">Fleet coverage</span><b className="mono">{pct(fleetCoverage(month, now))}</b></div>
+        <div><span className="eyebrow">{t("ui.fleet_coverage_0de9")}</span><b className="mono">{pct(fleetCoverage(month, now))}</b></div>
         <div>
-          <span className="eyebrow">Status</span>
-          <Tag tone={month.closed ? "good" : "warn"}>{month.closed ? "Closed" : "Open, still counting"}</Tag>
+          <span className="eyebrow">{t("energy.col_status")}</span>
+          <Tag tone={month.closed ? "good" : "warn"}>{month.closed ? t("energy.month_closed") : t("energy.month_open")}</Tag>
         </div>
       </div>
       <div className="en-table-wrap">
         <table className="en-table">
-          <caption className="sr-only">Energy by node for {label}</caption>
+          <caption className="sr-only">{t("energy.table_caption", { range: label })}</caption>
           <thead>
             <tr>
               <th scope="col" className="is-left">Spark</th>
-              <th scope="col">Energy</th>
-              <th scope="col">Share</th>
-              <th scope="col">Coverage</th>
-              <th scope="col">Cost</th>
+              <th scope="col">{t("energy.col_energy")}</th>
+              <th scope="col">{t("tokens.col_share")}</th>
+              <th scope="col">{t("energy.tile_coverage")}</th>
+              <th scope="col">{t("energy.col_cost")}</th>
             </tr>
           </thead>
           <tbody>
@@ -191,8 +192,7 @@ function MonthView({
         </table>
       </div>
       <p className="en-panel__sub en-panel__foot">
-        Only the Sparks that reported in {label} are listed. Coverage is the share of the month each one was measured
-        {month.closed ? "" : " so far"}. Estimated, not metered.
+        {t("energy.monthly_footnote", { label, open: month.closed ? "" : t("energy.monthly_footnote_open") })}
       </p>
     </>
   );

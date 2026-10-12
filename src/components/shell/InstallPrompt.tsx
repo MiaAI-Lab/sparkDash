@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { useCallback, useEffect, useState } from "react";
 import { BoltIcon } from "../ui/icons";
 
@@ -172,7 +173,7 @@ export function InstallPrompt() {
           </span>
           <span className="mt-0.5 block text-xs" style={{ color: "var(--color-muted)" }}>
             Tap the <strong>Share</strong> icon <span aria-hidden>⬆︎</span> in Safari, then{" "}
-            <strong>Add to Home Screen</strong>.
+            <strong>{t("ui.add_to_home_screen_b507")}</strong>.
           </span>
         </div>
       )}

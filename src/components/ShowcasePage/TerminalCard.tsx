@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { useEffect, useRef, useState } from "react";
 
 /**
@@ -133,9 +134,9 @@ export function TerminalCard({
         <span className="showcase-term__label" title={label}>
           {label || "Terminal"}
         </span>
-        <span className={`showcase-term__status ${statusClass(status)}`}>{status}</span>
+        <span className={`showcase-term__status ${statusClass(status)}`}>{t(`showcase.status_${status}`)}</span>
         {tokenCount != null && tokenCount > 0 && (
-          <span className="showcase-term__tokens font-tabular">{tokenCount.toLocaleString()} tokens</span>
+          <span className="showcase-term__tokens font-tabular">{t("showcase.n_tokens", { n: tokenCount.toLocaleString() })}</span>
         )}
         <span
           className="showcase-term__tps font-tabular"
@@ -164,7 +165,7 @@ export function TerminalCard({
             type="button"
             className="showcase-term__copy"
             onClick={onCopy}
-            title="Copy this terminal"
+            title={t("showcase.copy_this_terminal_a07e_2")}
           >
             {copied ? "Copied" : "Copy"}
           </button>
@@ -181,7 +182,7 @@ export function TerminalCard({
         }}
       >
         {empty && status === "pending" && (
-          <pre className="showcase-term__answer">Waiting…</pre>
+          <pre className="showcase-term__answer">{t("showcase.waiting")}</pre>
         )}
         {hasReasoning && (
           <div className="showcase-term__reasoning">
@@ -194,9 +195,9 @@ export function TerminalCard({
                 setReasoningOpen((o) => !o);
               }}
             >
-              {reasoningOpen ? "▾" : "▸"} Reasoning
+              {reasoningOpen ? "▾" : "▸"} {t("showcase.reasoning")}
               <span className="showcase-term__reasoning-meta">
-                {reasoning.length.toLocaleString()} chars
+                {t("showcase.n_chars", { n: reasoning.length.toLocaleString() })}
               </span>
             </button>
             {reasoningOpen && (

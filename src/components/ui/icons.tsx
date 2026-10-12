@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 /**
  * Compact inline icons (stroke-based, currentColor). No icon package.
  * Each accepts a className for sizing/color via Tailwind.

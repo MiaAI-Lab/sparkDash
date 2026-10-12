@@ -1,8 +1,9 @@
+import { t } from "../../i18n";
 import { memo, useState, type KeyboardEvent, type MouseEvent } from "react";
 import type { ActivityEvent } from "../../api/types";
 import { ChevronRightIcon } from "../ui/icons";
 import { Tag, type TagTone } from "../ui/Tag";
-import { splitMessage } from "../OverviewPage/activityFormat";
+import { localizeEventMessage, splitMessage } from "../OverviewPage/activityFormat";
 import { SEVERITY_LABEL, categorize, categoryLabel, formatClock, formatStamp, typeLabel } from "./activityStats";
 
 const SEV_TONE: Record<ActivityEvent["severity"], TagTone> = { error: "bad", warn: "warn", success: "good", info: "info" };
@@ -27,10 +28,15 @@ interface EventRowProps {
 }
 
 /** One timeline row: summary line plus an expandable detail block. */
+/** Slug of the English type label, used as an i18n key suffix. */
+function typeLabelKey(type: string): string {
+  return typeLabel(type).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+}
+
 export const EventRow = memo(function EventRow({ event: e, open, fresh, now, onToggle, onSelectSpark }: EventRowProps) {
-  const { before, name, after } = splitMessage(e.message, e.sparkName);
+  const { before, name, after } = splitMessage(localizeEventMessage(e.type, e.message, t), e.sparkName);
   const clickable = Boolean(e.sparkId && onSelectSpark);
-  const label = typeLabel(e.type);
+  const label = t(`activity.tl_${typeLabelKey(e.type)}`, { defaultValue: typeLabel(e.type) });
   const detailId = `ac-ev-${e.id}`;
   const hasData = e.data !== undefined && e.data !== null;
   const [copied, setCopied] = useState(false);
@@ -63,7 +69,7 @@ export const EventRow = memo(function EventRow({ event: e, open, fresh, now, onT
         </time>
         <span className="ac-sev">
           <i className={`ac-sev__dot ac-sev__dot--${e.severity}`} aria-hidden="true" />
-          {SEVERITY_LABEL[e.severity]}
+          {t(SEVERITY_LABEL[e.severity])}
         </span>
         <p className="ac-row__msg">
           {before}
@@ -106,14 +112,14 @@ export const EventRow = memo(function EventRow({ event: e, open, fresh, now, onT
           </div>
           <div>
             <dt>Severity</dt>
-            <dd>{SEVERITY_LABEL[e.severity]}</dd>
+            <dd>{t(SEVERITY_LABEL[e.severity])}</dd>
           </div>
           <div>
             <dt>Type</dt>
             <dd className="mono">{e.type}</dd>
           </div>
           <div>
-            <dt>Event id</dt>
+            <dt>{t("ui.event_id_1bbd")}</dt>
             <dd className="mono">#{e.id}</dd>
           </div>
           {e.sparkId ? (

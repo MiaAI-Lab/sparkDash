@@ -1,3 +1,4 @@
+import { t } from "../../../i18n";
 import { useState } from "react";
 import type { ToolEvalArgSpec } from "../../../api/types";
 import { byteLength, jsonObjectError, splitList, type FieldValue } from "./options";
@@ -34,7 +35,7 @@ export function Field({ arg, value, error, onChange }: FieldProps) {
   const describedBy = error ? `${id}-err` : `${id}-help`;
   const help = (
     <p className="field-hint" id={`${id}-help`}>
-      {arg.help}
+      {t(`te.${arg.name}_help`, { defaultValue: arg.help })}
     </p>
   );
 
@@ -45,8 +46,8 @@ export function Field({ arg, value, error, onChange }: FieldProps) {
           <input id={id} type="checkbox" role="switch" checked={value === true} onChange={(e) => set(e.target.checked)} aria-describedby={describedBy} />
           <span className="te-switch__track" aria-hidden />
           <span className="te-switch__text">
-            <b>{arg.label}</b>
-            <small>{arg.help}</small>
+            <b>{t(`te.${arg.name}_label`, { defaultValue: arg.label })}</b>
+            <small>{t(`te.${arg.name}_help`, { defaultValue: arg.help })}</small>
           </span>
         </label>
         {err}
@@ -144,7 +145,7 @@ export function Field({ arg, value, error, onChange }: FieldProps) {
   return (
     <div className={`te-field ${error ? "has-error" : ""} ${arg.kind === "text" || arg.kind === "json" || arg.kind === "repeat" || arg.kind === "list" ? "te-field--wide" : ""}`}>
       <label className="field-label" htmlFor={arg.kind === "list" && arg.choices ? undefined : id}>
-        {arg.label}
+        {t(`te.${arg.name}_label`, { defaultValue: arg.label })}
         {hint ? <span className="te-faint"> · {hint}</span> : null}
       </label>
       {control}
@@ -159,17 +160,17 @@ function CategoryPicker({ id, value, choices, onChange }: { id: string; value: s
   return (
     <div className="te-cats" role="group" aria-label="Categories" id={id}>
       {choices.map((c) => (
-        <button key={c} type="button" className={`te-chip ${on.has(c) ? "is-on" : ""}`} aria-pressed={on.has(c)} onClick={() => toggle(c)} title={CATEGORY_NAMES[c] ? `${c}: ${CATEGORY_NAMES[c]}` : c}>
+        <button key={c} type="button" className={`te-chip ${on.has(c) ? "is-on" : ""}`} aria-pressed={on.has(c)} onClick={() => toggle(c)} title={t(`quality.cat_${c.toLowerCase()}`) ? `${c}: ${t(`quality.cat_${c.toLowerCase()}`)}` : c}>
           <b>{c}</b>
-          <span>{CATEGORY_NAMES[c] ?? ""}</span>
+          <span>{t(`quality.cat_${c.toLowerCase()}`) ?? ""}</span>
         </button>
       ))}
       <span className="te-cats__tools">
         <button type="button" className="btn btn--sm btn--ghost" onClick={() => onChange([...choices])}>
-          All
+          {t("activity.all")}
         </button>
         <button type="button" className="btn btn--sm btn--ghost" onClick={() => onChange([])} disabled={on.size === 0}>
-          None
+          {t("te.none")}
         </button>
       </span>
     </div>
@@ -196,17 +197,17 @@ function RepeatRows({ id, arg, rows, onChange }: { id: string; arg: ToolEvalArgS
             onChange={(e) => onChange(list.map((r, j) => (j === i ? e.target.value : r)))}
           />
           <button type="button" className="btn btn--sm btn--ghost" aria-label={`Remove ${arg.label} ${i + 1}`} onClick={() => onChange(list.filter((_, j) => j !== i))} disabled={list.length === 1 && !row}>
-            Remove
+            {t("te.remove")}
           </button>
         </div>
       ))}
       <div className="te-rows__tools">
         <button type="button" className="btn btn--sm" onClick={() => onChange([...list, ""])} disabled={list.length >= max}>
-          Add row
+          {t("te.add_row")}
         </button>
         {arg.secret ? (
           <button type="button" className="btn btn--sm btn--ghost" onClick={() => setReveal((r) => !r)}>
-            {reveal ? "Hide values" : "Show values"}
+            {reveal ? t("te.hide_values") : t("te.show_values")}
           </button>
         ) : null}
       </div>

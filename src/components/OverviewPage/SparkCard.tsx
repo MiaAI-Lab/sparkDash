@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { memo, useState } from "react";
 import type { SparkSnapshot } from "../../api/types";
 import { resolveSparkRole } from "../../api/sparkRole";
@@ -14,7 +15,6 @@ import { computeVramBreakdown, type VramBreakdownContext } from "../../shared/vr
 import { ImageIcon, PowerOnIcon } from "../ui/icons";
 import { formatCtx } from "./fleetStats";
 import { ModelLauncher } from "./ModelLauncher";
-
 type Unit = "celsius" | "fahrenheit";
 
 function toF(c: number): number {
@@ -133,9 +133,9 @@ function SparkCardImpl({
     setWakeMsg(null);
     try {
       const res = await wakeSpark(spark.id);
-      setWakeMsg(res.success ? "Wake packet sent" : res.error || res.message || "Wake failed");
+      setWakeMsg(res.success ? t("overview.wakeSent") : res.error || res.message || t("overview.wakeFailed"));
     } catch (err) {
-      setWakeMsg(err instanceof Error ? err.message : "Wake failed");
+      setWakeMsg(err instanceof Error ? err.message : t("overview.wakeFailed"));
     } finally {
       setWaking(false);
     }
@@ -154,8 +154,8 @@ function SparkCardImpl({
     // Prefer the head's live model; fall back to the configured / mirrored worker label.
     const label = headLlm?.modelId || spark.workerLabel?.trim() || spark.workerDerivedLabel?.trim() || null;
     modelEyebrowRight = headLlm ? formatCtx(headLlm.contextLength) : null;
-    modelText = label ?? (headName ? "No model on head" : "Worker");
-    modelTitle = headName ? `${label ?? "No model"} · worker of ${headName}` : `${label ?? "Distributed"} · LLM worker`;
+    modelText = label ?? (headName ? t("overview.noModelOnHead") : "Worker");
+    modelTitle = headName ? `${label ?? "No model"} · ${t("overview.workerOf")} ${headName}` : `${label ?? "Distributed"} · LLM worker`;
   } else if (llm) {
     // The engine name lives in the tooltip; the row itself is just model + context.
     const engine = backendLabel(llm.backend) ?? llm.backend ?? "LLM";
@@ -167,16 +167,16 @@ function SparkCardImpl({
   // Memory or compute in use while nothing serves yet: a model is most likely still loading.
   const loadingHint =
     !llm && (memUsed >= 2048 || usage >= 10)
-      ? `${formatMb(memUsed)} VRAM in use · GPU ${Math.round(usage)}%`
+      ? t("overview.vramInUse", { gb: formatMb(memUsed), pct: Math.round(usage) })
       : null;
   const showLauncher = role !== "worker" && !llm && spark.llmMonitoring !== false && spark.platform !== "windows";
 
   const showTps = role !== "worker" && !!llm;
   const llmChip = llm
     ? llm.requestsRunning != null
-      ? `${llm.requestsRunning} running · ${llm.requestsWaiting ?? 0} queued`
+      ? t("overview.runningQueued", { run: llm.requestsRunning, wait: llm.requestsWaiting ?? 0 })
       : llm.slotsTotal > 0
-        ? `${llm.slotsActive}/${llm.slotsTotal} slots`
+        ? t("overview.slots", { active: llm.slotsActive, total: llm.slotsTotal })
         : null
     : null;
 
@@ -184,14 +184,14 @@ function SparkCardImpl({
     <div className="ov-chips">
       {online && throttle && slowed ? (
         <Tag tone="warn" title={throttle.detail || "GPU clock throttled"}>
-          {throttle.thermal ? "Thermal throttle" : "HW slowdown"}
+          {throttle.thermal ? t("overview.thermalThrottle") : t("overview.hwSlowdown")}
           {throttle.smClockMHz ? ` · SM ${(throttle.smClockMHz / 1000).toFixed(1)} GHz` : ""}
         </Tag>
       ) : null}
       {online && llmChip ? <Tag tone={(llm?.requestsRunning ?? llm?.slotsActive ?? 0) > 0 ? "good" : "neutral"}>{llmChip}</Tag> : null}
       {comfy !== undefined || spark.comfyMonitoring ? (
         !comfy?.available ? (
-          <Tag title="ComfyUI monitoring on — not reachable">Comfy</Tag>
+          <Tag title={t("s4978a58e4c")}>{t("s42f4a40643")}</Tag>
         ) : (comfy.queueRunning ?? 0) > 0 ? (
           <Tag tone="info" title={comfy.activeJob?.title ? `ComfyUI running: ${comfy.activeJob.title}` : "ComfyUI job running"}>
             <ImageIcon className="h-3.5 w-3.5" />
@@ -201,14 +201,14 @@ function SparkCardImpl({
         ) : (comfy.queuePending ?? 0) > 0 ? (
           <Tag tone="warn" title={`ComfyUI queue: ${comfy.queuePending} pending`}>Comfy {"·"} {comfy.queuePending}q</Tag>
         ) : (
-          <Tag title="ComfyUI idle">Comfy {"·"} idle</Tag>
+          <Tag title={t("sbbb4737f9b")}>Comfy {"·"} idle</Tag>
         )
       ) : null}
-      {hermes?.monitoring && hermes.status === "running" ? <Tag tone="info">Hermes updating</Tag> : null}
+      {hermes?.monitoring && hermes.status === "running" ? <Tag tone="info">{t("s99bc0ea770")}</Tag> : null}
       {hermes?.monitoring && hermes.status !== "running" && hermes.updateAvailable ? (
-        <Tag tone="acc" title="A Hermes update is available">Hermes update available</Tag>
+        <Tag tone="acc" title={t("sc796d0771a")}>{t("sdc9ed797ca")}</Tag>
       ) : null}
-      {!online ? <Tag>Offline</Tag> : null}
+      {!online ? <Tag>{t("s8d9da4bc0e")}</Tag> : null}
     </div>
   );
 
@@ -256,31 +256,31 @@ function SparkCardImpl({
             <div className="ov-sc__stats">
               {breakdown ? (
                 <VramBreakdownBar
-                  label={breakdown.systemMB != null ? "Unified memory" : "VRAM"}
+                  label={breakdown.systemMB != null ? t("overview.unifiedMemory") : "VRAM"}
                   breakdown={breakdown}
                   showLegend
                 />
               ) : (
                 <Bar
-                  label={gpu.vram?.total ? "VRAM" : "Unified memory"}
+                  label={gpu.vram?.total ? "VRAM" : t("overview.unifiedMemory")}
                   caption={memTotal > 0 ? `${fmtStorage(memUsed, false)} / ${fmtStorage(memTotal, true)}` : "—"}
                   pct={memPct}
                   color={memColor}
                   sub={memTotal > 0 && memAvail > 0 ? { label: "Available", value: formatMb(memAvail) } : null}
                 />
               )}
-              <Bar label="GPU" caption={`${Math.round(usage)}%`} pct={usage} color={ringColor} />
+              <Bar label={t("overview.gpu")} caption={`${Math.round(usage)}%`} pct={usage} color={ringColor} />
               {spark.kind === "host" && spark.metrics.ram?.total ? (
                 <Bar
-                  label="RAM"
+                  label={t("se53619c1fe")}
                   caption={`${fmtStorage(spark.metrics.ram.used, false)} / ${fmtStorage(spark.metrics.ram.total, true)}`}
                   pct={(spark.metrics.ram.used / spark.metrics.ram.total) * 100}
                   color="var(--color-info)"
                 />
               ) : null}
-              <Bar label="GPU temp" caption={fmtTemp(tempRaw)} pct={(tempVal / tempMax) * 100} color={tempColor} />
+              <Bar label={t("overview.gpuTemp")} caption={fmtTemp(tempRaw)} pct={(tempVal / tempMax) * 100} color={tempColor} />
               <Bar
-                label="GPU power"
+                label={t("overview.gpuPower")}
                 caption={`${power?.draw ?? 0} / ${power?.limit ?? 0} W`}
                 pct={powerPct}
                 color="var(--color-violet)"
@@ -290,7 +290,7 @@ function SparkCardImpl({
           {showLauncher ? <ModelLauncher spark={spark} onOpen={onSelect} busy={loadingHint} /> : null}
           {role === "worker" ? (
             <div className="ov-launch ov-launch--worker">
-              <div className="eyebrow">Worker of</div>
+              <div className="eyebrow">{t("overview.workerOf")}</div>
               {headSpark ? (
                 <AppLink
                   href={idToPath(headSpark.id)}
@@ -302,7 +302,7 @@ function SparkCardImpl({
                   {headSpark.name}
                 </AppLink>
               ) : (
-                <div className="ov-launch__title">Head not set</div>
+                <div className="ov-launch__title">{t("seed0c1e09e")}</div>
               )}
               <div className="ov-launch__hint">
                 {headLlm
@@ -318,13 +318,13 @@ function SparkCardImpl({
           {showTps && llm ? (
             <div className="ov-tps">
               <div>
-                <div className="eyebrow">Decode</div>
+                <div className="eyebrow">{t("overview.decode")}</div>
                 <div className="big-num ov-tps__num">{llm.generationTps.toFixed(1)}<small>tok/s</small></div>
               </div>
               <div>
-                <div className="eyebrow">Prefill</div>
+                <div className="eyebrow">{t("overview.prefill")}</div>
                 {llm.prefillActive && llm.prefillTps <= 0 ? (
-                  <div className="big-num ov-tps__num ov-tps__num--live" title="A prompt is being processed. The engine reports its speed only when the request finishes.">
+                  <div className="big-num ov-tps__num ov-tps__num--live" title={t("ui.a_prompt_is_being_processed_045a")}>
                     <span className="ov-tps__dots" aria-hidden />
                     <small>prefilling</small>
                   </div>
@@ -338,7 +338,7 @@ function SparkCardImpl({
           {rootDisk ? (
             <div className="ov-foot">
               <div className="ov-kv">
-                <span>Storage</span>
+                <span>{t("s8c4aa541ee")}</span>
                 <b
                   className="mono"
                   title={`${fmtStorage(rootDisk.used, true)} of ${fmtStorage(rootDisk.total, true)} used (${Math.round(rootDisk.percentage)}%)`}
@@ -347,7 +347,7 @@ function SparkCardImpl({
                 </b>
               </div>
               <div className="ov-kv">
-                <span>Storage available</span>
+                <span>{t("scfcf0e457f")}</span>
                 <b className="mono">{fmtStorage(rootDisk.available ?? Math.max(0, rootDisk.total - rootDisk.used), true)}</b>
               </div>
             </div>

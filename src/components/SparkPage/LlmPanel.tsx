@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { benchId } from "../../constants";
 import { BenchIcon } from "../bench/BenchIcon";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
@@ -165,10 +166,10 @@ function LlmLaunchers({
       <div className="sp-btns">
         {(
           [
-            ["decode", "Decode", `Decode benchmark: generation speed at rising concurrency, on this Spark. ${localHint}`],
-            ["prefill", "Prefill", `Prefill benchmark: prompt processing speed and time to first token, on this Spark. ${localHint}`],
-            ["quality", "Quality", "Quality suite (QA, reasoning, arithmetic, state tracking, GSM8K, MMLU) against this port's model. Compare runs across models, quantizations and KV-cache formats."],
-            ["tool-eval", "Tool Eval Bench", "Benchmark this model's tool calling."],
+            ["decode", t("s6002396e8a"), `Decode benchmark: generation speed at rising concurrency, on this Spark. ${localHint}`],
+            ["prefill", t("s91175afdec"), `Prefill benchmark: prompt processing speed and time to first token, on this Spark. ${localHint}`],
+            ["quality", t("bench.quality"), t("bench.quality_hint")],
+            ["tool-eval", t("bench.tooleval"), t("bench.tooleval_hint")],
           ] as const
         ).map(([type, label, title]) => (
           <button
@@ -195,7 +196,7 @@ function LlmLaunchers({
           className="btn btn--sm"
         >
           <ExpandIcon className="h-3.5 w-3.5" />
-          Showcase
+          {t("llm.showcase")}
         </button>
         <button
           type="button"
@@ -205,19 +206,19 @@ function LlmLaunchers({
           }}
           className={`btn btn--sm btn--ghost sp-btns__end ${remoteOpen ? "is-on" : ""}`}
           aria-expanded={remoteOpen}
-          title="On-demand bench against a typed host (HTTPS Tailscale, LAN IP, …). Not probed until you run."
+          title={t("llm.remote_title")}
         >
           <ServerIcon className="h-3.5 w-3.5" />
-          Remote
+          {t("llm.remote")}
         </button>
       </div>
       {remoteOpen && (
         <div className="sp-remote">
           <p className="sp-hint">
-            On-demand endpoint. Paste a URL or type host + port — nothing is probed until you run.
+            {t("llm.remote_hint")}
           </p>
           <label className="sp-field">
-            <span className="eyebrow">Host</span>
+            <span className="eyebrow">{t("sc2ca16d048")}</span>
             <input
               type="text"
               value={hostDraft}
@@ -232,7 +233,7 @@ function LlmLaunchers({
           </label>
           <div className="sp-field-row">
             <label className="sp-field sp-field--grow">
-              <span className="eyebrow">Port</span>
+              <span className="eyebrow">{t("s60aaf44d4b")}</span>
               <input
                 type="number"
                 min={1}
@@ -260,13 +261,13 @@ function LlmLaunchers({
           {remoteError && <p className="sp-error">{remoteError}</p>}
           <div className="sp-btns">
             <button type="button" onClick={() => launchRemote("decode")} className="btn btn--sm">
-              Decode
+              {t("bench.decode")}
             </button>
             <button type="button" onClick={() => launchRemote("prefill")} className="btn btn--sm">
-              Prefill
+              {t("bench.prefill")}
             </button>
             <button type="button" onClick={() => launchRemote("quality")} className="btn btn--sm">
-              Quality
+              {t("bench.quality")}
             </button>
           </div>
         </div>
@@ -553,7 +554,7 @@ export function LlmPanel({
 
   return (
     <Panel
-      title="LLM server"
+      title={t("sc94b3bf727")}
       accent={available}
       icon={<BotIcon />}
       className={`panel-llm ${className ?? ""}`}
@@ -563,7 +564,7 @@ export function LlmPanel({
           {available && backend && (
             <>
               {llm?.via === "ssh-tunnel" && (
-                <Tag title="This engine's port is not reachable from the dashboard, so it is read through an SSH tunnel to the unit">
+                <Tag title={t("ui.this_engine_s_port_is_89e0")}>
                   via SSH
                 </Tag>
               )}
@@ -580,7 +581,7 @@ export function LlmPanel({
               className="btn btn--sm btn--danger"
             >
               <span aria-hidden>×</span>
-              <span>Remove</span>
+              <span>{t("s1063e38cb5")}</span>
             </button>
           )}
           <button
@@ -599,7 +600,7 @@ export function LlmPanel({
             className={`btn btn--sm btn--ghost ${showSettings ? "is-on" : ""}`}
           >
             <GearIcon />
-            <span>{showSettings ? "Done" : "Settings"}</span>
+            <span>{showSettings ? t("common.done") : t("common.settings")}</span>
           </button>
         </div>
       }
@@ -610,7 +611,7 @@ export function LlmPanel({
             HTTP port of the LLM server on this Spark (vLLM / llama.cpp / sglang / ds4 / EXL3 / TensorFold / OpenAI-compatible gateway).
           </p>
           <label className="sp-field">
-            <span className="eyebrow">Port</span>
+            <span className="eyebrow">{t("s60aaf44d4b")}</span>
             <input
               type="number"
               min={1}
@@ -630,11 +631,11 @@ export function LlmPanel({
               className="sp-input"
             />
           </label>
-          <div className="sp-btns" role="group" aria-label="Server presets">
-            <span className="eyebrow">Presets:</span>
+          <div className="sp-btns" role="group" aria-label={t("s3f5d84d843")}>
+            <span className="eyebrow">{t("s34ef785f52")}</span>
             <button
               type="button"
-              title="Fill LM Studio's default port (1234)"
+              title={t("sd6c2ef98eb")}
               onClick={() => setPortDraft("1234")}
               className="btn btn--sm"
             >
@@ -642,7 +643,7 @@ export function LlmPanel({
             </button>
             <button
               type="button"
-              title="Fill Ollama's default port (11434)"
+              title={t("s91402ba6d9")}
               onClick={() => setPortDraft("11434")}
               className="btn btn--sm"
             >
@@ -650,7 +651,7 @@ export function LlmPanel({
             </button>
             <button
               type="button"
-              title="Fill TensorFold's default port (8888)"
+              title={t("s7257d9d966")}
               onClick={() => setPortDraft("8888")}
               className="btn btn--sm"
             >
@@ -658,7 +659,7 @@ export function LlmPanel({
             </button>
           </div>
           <label className="sp-field">
-            <span className="eyebrow">API key (optional)</span>
+            <span className="eyebrow">{t("s7fe4a6a247")}</span>
             <input
               type="password"
               autoComplete="new-password"
@@ -694,7 +695,7 @@ export function LlmPanel({
               Clear saved API key
             </label>
           )}
-          {portInvalid && <p className="sp-error">Enter an integer between 1 and 65535</p>}
+          {portInvalid && <p className="sp-error">{t("s517870b2c6")}</p>}
           {saveError && <p className="sp-error">{saveError}</p>}
           <div className="sp-btns sp-btns--end">
             <button
@@ -745,7 +746,7 @@ export function LlmPanel({
         <div className="sp-stack">
           <div className="sp-model">
             <div className="eyebrow">
-              <span>Model</span>
+              <span>{t("sa559b87068")}</span>
               {contextLabel && <span>{contextLabel}</span>}
             </div>
             <code title={llm?.modelId ?? undefined}>{llm?.modelId ?? "—"}</code>
@@ -756,7 +757,7 @@ export function LlmPanel({
 
           <div className="sp-decode">
             <div className="sp-metric">
-              <span className="eyebrow">Decode</span>
+              <span className="eyebrow">{t("s6002396e8a")}</span>
               <div className="big-num sp-big-lg">
                 {fmtTps(generationTps)}
                 <small>tok/s</small>
@@ -773,12 +774,12 @@ export function LlmPanel({
               className="sp-metric"
               title="Prompt tokens/sec taken in during the last poll window — cache-served + computed. Opening a saved chat in the UI does not hit the GPU; send (or regenerate) so the history is sent as the prompt. Cached prefill does little GPU work; uncached prefill is what builds KV cache."
             >
-              <span className="eyebrow">Prefill</span>
+              <span className="eyebrow">{t("s91175afdec")}</span>
               <div className="big-num sp-big-lg">
                 {llm?.prefillActive && prefillTps <= 0 ? (
                   <>
                     <span className="ov-tps__dots" aria-hidden />
-                    <small title="A prompt is being processed. The engine reports its speed only when the request finishes.">prefilling</small>
+                    <small title={t("ui.a_prompt_is_being_processed_045a")}>prefilling</small>
                   </>
                 ) : (
                   <>
@@ -797,7 +798,7 @@ export function LlmPanel({
                 className="sp-metric"
                 title="Prefill tokens served from prefix cache (little GPU work). High values mean prompt reuse, not a faster cold prefill."
               >
-                <span className="eyebrow">Cached prefill</span>
+                <span className="eyebrow">{t("sbb0a230f20")}</span>
                 <div className="big-num sp-big-md">
                   {fmtTps(cachedPrefillTps)}
                   <small>tok/s</small>
@@ -809,7 +810,7 @@ export function LlmPanel({
                 className="sp-metric"
                 title="Uncached (computed) prefill — tokens that actually build KV cache on the GPU."
               >
-                <span className="eyebrow">Uncached prefill</span>
+                <span className="eyebrow">{t("sdd61cd6152")}</span>
                 <div className="big-num sp-big-md">
                   {fmtTps(uncachedPrefillTps)}
                   <small>tok/s</small>
@@ -851,11 +852,11 @@ export function LlmPanel({
                     ? `${llm?.slotsActive} running`
                     : "—"}
               </b>
-              <span>Slots</span>
+              <span>{t("sf573ad6f99")}</span>
             </div>
             <div className="sp-tile">
               <b>{llm?.contextLength ? llm.contextLength.toLocaleString() : "—"}</b>
-              <span>Context</span>
+              <span>{t("sad4e206408")}</span>
             </div>
             <div className="sp-tile">
               {(() => {
@@ -867,7 +868,7 @@ export function LlmPanel({
                 );
               })()}
               <div className="sp-tile__label">
-                <span>Engine</span>
+                <span>{t("s7bfa30721c")}</span>
                 <button
                   type="button"
                   onClick={() => {
@@ -879,7 +880,7 @@ export function LlmPanel({
                   onMouseEnter={clearEngineInfoTimer}
                   onMouseLeave={startEngineInfoTimer}
                   className="relative cursor-pointer opacity-60 hover:opacity-100"
-                  aria-label="Engine state info"
+                  aria-label={t("s8d2d3760c1")}
                 >
                   <InfoIcon className="h-2.5 w-2.5" />
                   {engineInfoOpen && (
@@ -896,7 +897,7 @@ export function LlmPanel({
             </div>
             <div className="sp-tile" title={ENGINE_GENERATED_TITLE}>
               <b>{llm && llm.totalOutputTokens > 0 ? llm.totalOutputTokens.toLocaleString() : "—"}</b>
-              <span>{ENGINE_GENERATED_LABEL}</span>
+              <span>{t("llm.generated_engine")}</span>
             </div>
           </div>
 

@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { useState, useEffect, useCallback, type CSSProperties, type ReactNode } from "react";
 import type { SparkSnapshot } from "../../api/types";
 import { isLlmMonitoringEnabled } from "../../api/sparkRole";
@@ -174,7 +175,7 @@ export function SparkPage({
           min={1}
           max={65535}
           inputMode="numeric"
-          placeholder="Port number"
+          placeholder={t("ui.port_number_f92d")}
           value={newPortDraft}
           onChange={(e) => setNewPortDraft(e.target.value)}
           onKeyDown={(e) => {
@@ -204,11 +205,11 @@ export function SparkPage({
         >
           Cancel
         </button>
-        <div className="sp-add-port__presets" role="group" aria-label="Server presets">
+        <div className="sp-add-port__presets" role="group" aria-label={t("ui.server_presets_3f5d")}>
           <span className="sp-hint">Presets:</span>
           <button
             type="button"
-            title="LM Studio default port"
+            title={t("ui.lm_studio_default_port_99c2")}
             onClick={() => void handleAddPort(1234)}
             className="btn btn--sm"
           >
@@ -216,7 +217,7 @@ export function SparkPage({
           </button>
           <button
             type="button"
-            title="Ollama default port"
+            title={t("ui.ollama_default_port_ace1")}
             onClick={() => void handleAddPort(11434)}
             className="btn btn--sm"
           >
@@ -224,7 +225,7 @@ export function SparkPage({
           </button>
           <button
             type="button"
-            title="TensorFold default port"
+            title={t("ui.tensorfold_default_port_1dfd")}
             onClick={() => void handleAddPort(8888)}
             className="btn btn--sm"
           >

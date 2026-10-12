@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import type { SparkSnapshot } from "../../api/types";
 import { benchTypeById } from "./benchCatalog";
 import { BenchPageShell } from "./BenchPageShell";
@@ -17,7 +18,7 @@ export function BenchPage({ type, sparks, benchShareImage = false }: BenchPagePr
   const { spark, select, eligible } = useBenchSpark(sparks);
   const bench = benchTypeById(type);
   let body;
-  if (!bench) body = <p className="page-stub">Unknown benchmark.</p>;
+  if (!bench) body = <p className="page-stub">{t("bench.unknown_benchmark_ad92_2")}</p>;
   else if (type === "decode") body = <DecodeBenchPage spark={spark} benchShareImage={benchShareImage} />;
   else if (type === "prefill") body = <PrefillBenchPage spark={spark} benchShareImage={benchShareImage} />;
   else if (type === "quality") body = <QualityBenchPage spark={spark} benchShareImage={benchShareImage} />;

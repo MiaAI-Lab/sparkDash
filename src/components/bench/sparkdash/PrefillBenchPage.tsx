@@ -1,3 +1,4 @@
+import { t } from "../../../i18n";
 import type { SparkSnapshot } from "../../../api/types";
 import { PrefillBenchDialog } from "../../SparkPage/PrefillBenchDialog";
 import { BenchTargetFrame } from "./BenchTargetFrame";

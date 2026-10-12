@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { useState, useEffect } from "react";
 import { SunIcon, SunDimIcon, MoonIcon, MoonStarIcon } from "./ui/icons";
 

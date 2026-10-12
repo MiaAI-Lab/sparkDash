@@ -1,9 +1,10 @@
+import { t } from "../../../i18n";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ToolEvalLine } from "../../../api/types";
 import { AlertTriangleIcon, CheckIcon, InfoIcon } from "../../ui/icons";
 
 /** Copy text to the clipboard with a short "Copied" confirmation. */
-export function CopyButton({ text, label = "Copy", className = "" }: { text: string | (() => string); label?: string; className?: string }) {
+export function CopyButton({ text, label, className = "" }: { text: string | (() => string); label?: string; className?: string }) {
   const [state, setState] = useState<"idle" | "ok" | "err">("idle");
   const timer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(timer.current), []);
@@ -33,12 +34,12 @@ export function CopyButton({ text, label = "Copy", className = "" }: { text: str
     <button type="button" className={`btn btn--sm btn--ghost ${className}`} onClick={copy} aria-live="polite">
       {state === "ok" ? (
         <>
-          <CheckIcon className="h-3.5 w-3.5" /> Copied
+          <CheckIcon className="h-3.5 w-3.5" /> {t("bench.copied_label")}
         </>
       ) : state === "err" ? (
-        "Copy failed"
+        t("bench.copy_failed")
       ) : (
-        label
+        label ?? t("bench.copy")
       )}
     </button>
   );
@@ -113,7 +114,7 @@ export function RunTerminal({ lines, partial = "", running, maxVisible = 1500 }:
       className="live-term te-term"
       tabIndex={0}
       role="log"
-      aria-label="Raw tool output"
+      aria-label={t("bench.raw_tool_output_162c_2")}
       onScroll={(e) => {
         const el = e.currentTarget;
         stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 28;

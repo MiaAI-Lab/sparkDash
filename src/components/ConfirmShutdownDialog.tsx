@@ -1,10 +1,10 @@
+import { t } from "../i18n";
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useModalPresence } from "../hooks/useModalPresence";
 import { useFocusTrap } from "../hooks/useFocusTrap";
 import { PowerOffIcon } from "./ui/icons";
 import "../styles/dialogs.css";
-
 const CONFIRM_PHRASE = "poweroff";
 
 interface ConfirmShutdownDialogProps {
@@ -55,7 +55,7 @@ export function ConfirmShutdownDialog({
       setSubmitting(false);
       return;
     }
-    const t = window.setTimeout(() => inputRef.current?.focus(), 50);
+    const focusTimer = window.setTimeout(() => inputRef.current?.focus(), 50);
     return () => window.clearTimeout(t);
   }, [open]);
 
@@ -102,7 +102,7 @@ export function ConfirmShutdownDialog({
         <div className="modal-sheet__header modal-sheet__header--danger">
           <PowerOffIcon className="h-4 w-4 shrink-0" />
           <h2 className="modal-sheet__title" id={titleId}>
-            Danger zone — {title}
+            {t("confirm.danger_zone", { title })}
           </h2>
         </div>
 
@@ -122,7 +122,7 @@ export function ConfirmShutdownDialog({
                 ))}
               </ul>
             ) : null}
-            <span>Running containers and sessions will stop. The host powers off after a graceful stop.</span>
+            <span>{t("ui.running_containers_and_sessions_019e")}</span>
           </div>
 
           <label className="check-row">
@@ -132,7 +132,7 @@ export function ConfirmShutdownDialog({
               disabled={submitting}
               onChange={(e) => setAcknowledged(e.target.checked)}
             />
-            <span>I understand this cannot be undone from the dashboard.</span>
+            <span>{t("s84db69119e")}</span>
           </label>
 
           <div className="field">

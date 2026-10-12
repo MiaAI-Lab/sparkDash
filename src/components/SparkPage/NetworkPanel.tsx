@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { useState } from "react";
 import type { NetworkMetrics } from "../../api/types";
 import { updateDisabledInterfaces } from "../../api/client";
@@ -83,7 +84,8 @@ export function NetworkPanel({
 
   return (
     <Panel
-      title="Network"
+      title={t("spark.network")}
+
       accent
       icon={<NetworkIcon />}
       className={`panel-network ${className ?? ""}`}
@@ -97,15 +99,15 @@ export function NetworkPanel({
           className={`btn btn--sm btn--ghost ${showSettings ? "is-on" : ""}`}
         >
           <GearIcon />
-          <span>{showSettings ? "Done" : "Settings"}</span>
+          <span>{showSettings ? t("common.done") : t("common.settings")}</span>
         </button>
       }
     >
       {showSettings ? (
         <div className="sp-stack">
-          <p className="sp-hint">Toggle adapters to monitor:</p>
+          <p className="sp-hint">{t("ui.toggle_adapters_to_monitor_97e5")}</p>
           {interfaces.length === 0 ? (
-            <p className="sp-muted">No interfaces discovered</p>
+            <p className="sp-muted">{t("ui.no_interfaces_discovered_d0ff")}</p>
           ) : (
             interfaces.map((iface) => {
               const isDisabled =
@@ -129,7 +131,7 @@ export function NetworkPanel({
         <>
           <div className="sp-decode">
             <div className="sp-metric">
-              <span className="eyebrow">Download</span>
+              <span className="eyebrow">{t("spark.download")}</span>
               <div className="big-num sp-big-md">
                 {rxFmt.value}
                 <small>{rxFmt.unit}</small>
@@ -137,7 +139,7 @@ export function NetworkPanel({
               <TrendLine data={rxHistory} height={36} color="var(--color-success)" />
             </div>
             <div className="sp-metric">
-              <span className="eyebrow">Upload</span>
+              <span className="eyebrow">{t("spark.upload")}</span>
               <div className="big-num sp-big-md">
                 {txFmt.value}
                 <small>{txFmt.unit}</small>
@@ -147,7 +149,7 @@ export function NetworkPanel({
           </div>
           {primaryVisible && (
             <div className="sp-row">
-              <span className="text-muted">Primary</span>
+              <span className="text-muted">{t("spark.primary")}</span>
               <span className="sp-chips">
                 <span className="mono text-text">{primaryVisible}</span>
                 {linkSpeed != null && <Tag>{linkSpeed} Mbps</Tag>}

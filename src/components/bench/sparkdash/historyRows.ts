@@ -1,3 +1,4 @@
+import { t } from "../../../i18n";
 import type { DecodeBenchJob, PrefillBenchJob, QualityBenchJob } from "../../../api/types";
 import { formatContextSize } from "../../../shared/prefillBench.js";
 
@@ -35,8 +36,8 @@ export function decodeHistoryRow(job: DecodeBenchJob): HistoryRow {
     model: job.config.modelId ?? job.results.find((r) => r.model)?.model ?? null,
     headline: best ? `${aggregate(best).toFixed(1)} tok/s` : "—",
     detail: [
-      best ? `peak at ×${best.concurrency}` : null,
-      single ? `${single.meanDecodeTps.toFixed(1)}/stream at ×1` : null,
+      best ? t("bench.hist_peak_at", { n: best.concurrency }) : null,
+      single ? t("bench.hist_per_stream", { v: single.meanDecodeTps.toFixed(1) }) : null,
     ]
       .filter(Boolean)
       .join(" · "),
@@ -58,7 +59,7 @@ export function prefillHistoryRow(job: PrefillBenchJob): HistoryRow {
     label: sizes.length ? sizes.map(formatContextSize).join(", ") : "—",
     model: job.config.modelId ?? job.results.find((r) => r.model)?.model ?? null,
     headline: best ? `${best.prefillTps.toFixed(1)} tok/s` : "—",
-    detail: best ? `best at ${formatContextSize(best.targetTokens)}` : "",
+    detail: best ? t("bench.hist_best_at", { size: formatContextSize(best.targetTokens) }) : "",
   };
 }
 

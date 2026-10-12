@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { useEffect, useRef, useState } from "react";
 import type { SparkSnapshot } from "../api/types";
 import { shutdownAllSparks } from "../api/client";
@@ -27,12 +28,12 @@ export function ShutdownAll({ sparks, className = "" }: { sparks: SparkSnapshot[
       const ok = res.results.filter((r) => r.ok).length;
       const fail = res.results.filter((r) => !r.ok && !r.skipped).length;
       const skipped = res.results.filter((r) => r.skipped).length;
-      const parts = [`${ok} shut down`];
-      if (fail) parts.push(`${fail} failed`);
-      if (skipped) parts.push(`${skipped} skipped`);
+      const parts = [t("overview.shutdownOk", { n: ok })];
+      if (fail) parts.push(t("overview.shutdownFailed", { n: fail }));
+      if (skipped) parts.push(t("overview.shutdownSkipped", { n: skipped }));
       setMsg({ text: parts.join(", "), tone: fail === 0 ? "ok" : "err" });
     } catch (err: unknown) {
-      setMsg({ text: err instanceof Error ? err.message : "Batch shutdown failed", tone: "err" });
+      setMsg({ text: err instanceof Error ? err.message : t("overview.shutdownBatchFailed"), tone: "err" });
     } finally {
       setBusy(false);
       clearTimeout(timer.current);
@@ -51,19 +52,19 @@ export function ShutdownAll({ sparks, className = "" }: { sparks: SparkSnapshot[
         type="button"
         onClick={() => setOpen(true)}
         disabled={busy || onlineCount === 0}
-        title="Shut down all online Sparks"
+        title={t("overview.shutdownTooltip")}
         className={`btn btn--danger ${className}`}
       >
         <PowerOffIcon className="h-3.5 w-3.5" />
-        Shut down all
+        {t("overview.shutDownAll")}
       </button>
       <ConfirmShutdownDialog
         open={open}
         onClose={() => setOpen(false)}
         onConfirm={run}
-        title="Shutdown All"
-        description={`Gracefully shut down all ${onlineCount} online Spark${onlineCount === 1 ? "" : "s"}? Offline nodes will be skipped.`}
-        confirmLabel="Shut down all"
+        title={t("overview.shutdownTitle")}
+        description={t("overview.shutdownConfirm", { n: onlineCount })}
+        confirmLabel={t("overview.shutDownAll")}
         warnings={shutdownWarnings(sparks)}
       />
     </>

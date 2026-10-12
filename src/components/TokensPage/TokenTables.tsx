@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { useMemo, useState, type ReactNode } from "react";
 import { activeTimeZone } from "../../shared/timeZone";
 import { formatTokensCompact } from "../../shared/tokenFormat";
@@ -90,7 +91,7 @@ function SortTable<T>({
       </div>
       {sorted.length > INITIAL_ROWS ? (
         <button type="button" className="btn btn--sm btn--ghost tk-more" onClick={() => setAll((v) => !v)} aria-expanded={all}>
-          {all ? `Show top ${INITIAL_ROWS}` : `Show all ${sorted.length} ${noun}`}
+          {all ? t("tokens.show_top", { n: INITIAL_ROWS }) : t("tokens.show_all", { n: sorted.length, noun })}
         </button>
       ) : null}
     </>
@@ -109,7 +110,7 @@ function ShareBar({ share }: { share: number }) {
 }
 
 function CacheCell({ rate, cached }: { rate: number | null; cached: number }) {
-  if (rate == null) return <span className="tk-faint" title="No prompt tokens reported">{"—"}</span>;
+  if (rate == null) return <span className="tk-faint" title={t("ui.no_prompt_tokens_reported_37ea")}>{"—"}</span>;
   return <span title={`${cached.toLocaleString()} cached prompt tokens`}>{fmtPct(rate)}</span>;
 }
 
@@ -128,19 +129,19 @@ function NameList({ names, max = 3 }: { names: readonly string[]; max?: number }
 
 export function ModelTable({ rows, sparkName, nowMs }: { rows: readonly ModelRow[]; sparkName: (id: string) => string; nowMs: number }) {
   const cols: Col<ModelRow>[] = [
-    { id: "model", label: "Model", get: (r) => r.modelId },
-    { id: "generated", label: "Generated", num: true, get: (r) => r.generated },
-    { id: "prompt", label: "Prompt", num: true, get: (r) => r.prompt },
-    { id: "cache", label: "Cached", num: true, get: (r) => r.cacheRate },
-    { id: "total", label: "Total", num: true, get: (r) => r.total },
-    { id: "share", label: "Share of total", get: (r) => r.share, first: "desc" },
-    { id: "sparks", label: "Active on", get: (r) => r.sparkIds.length, first: "desc" },
-    { id: "seen", label: "Last seen", get: (r) => r.lastSeen, first: "desc" },
+    { id: "model", label: t("tokens.col_model"), get: (r) => r.modelId },
+    { id: "generated", label: t("tokens.col_generated"), num: true, get: (r) => r.generated },
+    { id: "prompt", label: t("tokens.col_prompt"), num: true, get: (r) => r.prompt },
+    { id: "cache", label: t("tokens.col_cached"), num: true, get: (r) => r.cacheRate },
+    { id: "total", label: t("tokens.col_total"), num: true, get: (r) => r.total },
+    { id: "share", label: t("tokens.col_share"), get: (r) => r.share, first: "desc" },
+    { id: "sparks", label: t("tokens.col_active_on"), get: (r) => r.sparkIds.length, first: "desc" },
+    { id: "seen", label: t("tokens.col_last_seen"), get: (r) => r.lastSeen, first: "desc" },
   ];
   return (
     <SortTable
-      caption="Token totals by model"
-      noun="models"
+      caption={t("ui.token_totals_by_model_990d")}
+      noun={t("tokens.noun_models")}
       cols={cols}
       rows={rows}
       initial={{ id: "total", dir: "desc" }}
@@ -182,19 +183,19 @@ export function EndpointTable({
   onSelectSpark?: (id: string) => void;
 }) {
   const cols: Col<EndpointRow>[] = [
-    { id: "spark", label: "Spark", get: (r) => sparkName(r.sparkId) },
-    { id: "port", label: "Port", num: true, get: (r) => r.port, first: "asc" },
-    { id: "models", label: "Models served", get: (r) => r.models.length, first: "desc" },
-    { id: "generated", label: "Generated", num: true, get: (r) => r.generated },
-    { id: "prompt", label: "Prompt", num: true, get: (r) => r.prompt },
-    { id: "cache", label: "Cached", num: true, get: (r) => r.cacheRate },
-    { id: "total", label: "Total", num: true, get: (r) => r.total },
-    { id: "share", label: "Share of total", get: (r) => r.share, first: "desc" },
+    { id: "spark", label: t("tokens.g_spark"), get: (r) => sparkName(r.sparkId) },
+    { id: "port", label: t("tokens.col_port"), num: true, get: (r) => r.port, first: "asc" },
+    { id: "models", label: t("tokens.col_models_served"), get: (r) => r.models.length, first: "desc" },
+    { id: "generated", label: t("tokens.col_generated"), num: true, get: (r) => r.generated },
+    { id: "prompt", label: t("tokens.col_prompt"), num: true, get: (r) => r.prompt },
+    { id: "cache", label: t("tokens.col_cached"), num: true, get: (r) => r.cacheRate },
+    { id: "total", label: t("tokens.col_total"), num: true, get: (r) => r.total },
+    { id: "share", label: t("tokens.col_share"), get: (r) => r.share, first: "desc" },
   ];
   return (
     <SortTable
-      caption="Token totals by Spark and endpoint"
-      noun="endpoints"
+      caption={t("tokens.table_caption")}
+      noun={t("tokens.noun_endpoints")}
       cols={cols}
       rows={rows}
       initial={{ id: "total", dir: "desc" }}

@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { useState } from "react";
 import type { RoceDevice, RoceMetrics } from "../../api/types";
 import { Panel } from "../ui/Panel";
@@ -65,13 +66,13 @@ function PortRow({ d }: { d: RoceDevice }) {
       <div className="sp-roce-port__rates mono">
         <span><span className="text-accent">↓</span> {d.rxBps == null ? "—" : formatBytesPerSec(Math.round(d.rxBps))}</span>
         <span><span className="text-accent">↑</span> {d.txBps == null ? "—" : formatBytesPerSec(Math.round(d.txBps))}</span>
-        <span title="Frames dropped or in error on this interface">
+        <span title={t("ui.frames_dropped_or_in_error_8259")}>
           {n(d.rxErrors)} err · {n(d.rxDropped)} drop
         </span>
       </div>
       <div className="sp-chips sp-roce-port__qos">
         {pfc && <Tag tone={pfc.tone} title="Priority flow control (mlnx_qos)">{pfc.text}</Tag>}
-        {d.qos?.trust && <Tag title="QoS trust mode">trust {d.qos.trust}</Tag>}
+        {d.qos?.trust && <Tag title={t("ui.qos_trust_mode_76b7")}>trust {d.qos.trust}</Tag>}
         {d.flowControl && (d.flowControl.rx || d.flowControl.tx) && (
           <Tag title="Global pause (ethtool -a)">pause {d.flowControl.rx ? "rx" : ""}{d.flowControl.rx && d.flowControl.tx ? "/" : ""}{d.flowControl.tx ? "tx" : ""}</Tag>
         )}
@@ -79,7 +80,7 @@ function PortRow({ d }: { d: RoceDevice }) {
       </div>
       {dscp && <div className="sp-muted mono sp-roce-port__dscp">{dscp}</div>}
       <details className="sp-roce-port__more">
-        <summary>RDMA counters</summary>
+        <summary>{t("ui.rdma_counters_4134")}</summary>
         <table className="sp-roce-table">
           <tbody>
             {ROCE_COUNTER_ROWS.filter((r) => d.counters[r.key] != null).map((r) => {
@@ -168,7 +169,7 @@ export function RocePanel({ roce, className }: { roce: RoceMetrics | null | unde
           aria-controls="roce-ports"
           onClick={toggle}
         >
-          {open ? "Hide ports" : "Show ports"}
+          {open ? t("spark.hide_ports") : t("spark.show_ports")}
         </button>
       }
     >

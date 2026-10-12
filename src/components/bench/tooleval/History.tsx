@@ -1,3 +1,4 @@
+import { t } from "../../../i18n";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ToolEvalRun } from "../../../api/types";
 import { Tag } from "../../ui/Tag";
@@ -43,13 +44,13 @@ export function History({ sparkId, sparkName, runs, error, followedId, viewedId,
   }, [picked, runs]);
 
   if (error && !runs) {
-    return <Notice tone="bad" title="Could not load the history" actions={<button type="button" className="btn btn--sm" onClick={onReload}>Retry</button>}>{error}</Notice>;
+    return <Notice tone="bad" title={t("bench.could_not_load_the_history_d7ac_2")} actions={<button type="button" className="btn btn--sm" onClick={onReload}>Retry</button>}>{error}</Notice>;
   }
   if (!runs) return <Skeleton lines={4} className="te-card te-card--pad" />;
   if (!runs.length) {
     return (
       <div className="te-empty te-empty--big">
-        <b>No runs yet</b>
+        <b>{t("bench.no_runs_yet_9058_2")}</b>
         <p>Runs of this benchmark on {sparkName} show up here with their results, so you can open, re-run and compare them.</p>
       </div>
     );
@@ -66,7 +67,7 @@ export function History({ sparkId, sparkName, runs, error, followedId, viewedId,
           const dur = r.finishedAt ? (r.finishedAt - r.startedAt) / 1000 : null;
           return (
             <li key={r.id} className={`te-run ${viewedId === r.id ? "is-viewed" : ""}`}>
-              <label className="te-run__pick" title="Select for comparison">
+              <label className="te-run__pick" title={t("bench.select_for_comparison_c7f1_2")}>
                 <input type="checkbox" checked={picked.includes(r.id)} onChange={() => toggle(r.id)} aria-label={`Compare run from ${fmtDate(r.startedAt)}`} />
               </label>
               <div className="te-run__main">
@@ -88,7 +89,7 @@ export function History({ sparkId, sparkName, runs, error, followedId, viewedId,
               <div className="te-run__actions">
                 {confirmDel === r.id ? (
                   <>
-                    <span className="te-confirm-text">Delete this run?</span>
+                    <span className="te-confirm-text">{t("bench.delete_this_run_93b7_2")}</span>
                     <button
                       type="button"
                       className="btn btn--sm btn--danger"
@@ -108,7 +109,7 @@ export function History({ sparkId, sparkName, runs, error, followedId, viewedId,
                 ) : (
                   <>
                     <button type="button" className="btn btn--sm" onClick={() => onOpen(r)}>Open</button>
-                    <button type="button" className="btn btn--sm btn--ghost" onClick={() => onRerun(r)} title="Load these options into the form">Re-run…</button>
+                    <button type="button" className="btn btn--sm btn--ghost" onClick={() => onRerun(r)} title={t("bench.load_these_options_into_the_1eb3_2")}>{t("bench.re_run_ec13_2")}</button>
                     {stuck ? (
                       <>
                         <button type="button" className="btn btn--sm btn--ghost" onClick={() => onAttach(r)}>Watch</button>
@@ -121,7 +122,7 @@ export function History({ sparkId, sparkName, runs, error, followedId, viewedId,
                             await onRefresh(r);
                             setBusyId(null);
                           }}
-                          title="Ask the Spark whether this run has finished"
+                          title={t("bench.ask_the_spark_whether_this_d1c1_2")}
                         >
                           {busyId === r.id ? "Checking…" : "Refresh status"}
                         </button>
@@ -137,7 +138,7 @@ export function History({ sparkId, sparkName, runs, error, followedId, viewedId,
           );
         })}
       </ul>
-      {picked.length === 1 ? <p className="te-faint">Select one more run to compare.</p> : null}
+      {picked.length === 1 ? <p className="te-faint">{t("bench.select_one_more_run_to_a1cc_2")}</p> : null}
       {pair ? <ComparePanel key={`${pair[0].id}:${pair[1].id}`} sparkId={sparkId} a={pair[0]} b={pair[1]} /> : null}
     </div>
   );
@@ -162,12 +163,12 @@ function ComparePanel({ sparkId, a, b }: { sparkId: string; a: ToolEvalRun; b: T
   const generic = !tool && ra.result && rb.result ? compareGeneric(ra.result, rb.result) : null;
 
   return (
-    <section ref={ref} className="panel te-card te-compare" aria-label="Run comparison">
+    <section ref={ref} className="panel te-card te-compare" aria-label={t("bench.run_comparison_b584_2")}>
       <div className="te-card__head">
         <h2>Compare</h2>
       </div>
       {caveats.length ? (
-        <Notice tone="warn" title="These runs are not directly comparable">
+        <Notice tone="warn" title={t("bench.these_runs_are_not_directly_306c_2")}>
           <ul className="te-list">
             {caveats.map((c) => (
               <li key={c}>{c}</li>
@@ -176,10 +177,10 @@ function ComparePanel({ sparkId, a, b }: { sparkId: string; a: ToolEvalRun; b: T
           Differences like these can explain a change in score on their own.
         </Notice>
       ) : (
-        <p className="te-ok">Same model, endpoint and options: a fair comparison.</p>
+        <p className="te-ok">{t("bench.same_model_endpoint_and_options_9b28_2")}</p>
       )}
       {loading ? <Skeleton lines={4} /> : null}
-      {error ? <Notice tone="bad" title="A result could not be loaded">{error}</Notice> : null}
+      {error ? <Notice tone="bad" title={t("bench.a_result_could_not_be_3541_2")}>{error}</Notice> : null}
       {tool ? <SideBySide a={tool.a} b={tool.b} runA={swapped ? b : a} runB={swapped ? a : b} onSwap={() => setSwapped((v) => !v)} /> : null}
       {generic ? (
         generic.changed.length ? (
@@ -202,10 +203,10 @@ function ComparePanel({ sparkId, a, b }: { sparkId: string; a: ToolEvalRun; b: T
             <p className="te-faint">{generic.same} numbers are identical.</p>
           </div>
         ) : (
-          <p className="te-empty">No numbers differ between these runs.</p>
+          <p className="te-empty">{t("bench.no_numbers_differ_between_these_f2f7_2")}</p>
         )
       ) : null}
-      {!loading && !error && !tool && !generic ? <p className="te-empty">Nothing to compare yet.</p> : null}
+      {!loading && !error && !tool && !generic ? <p className="te-empty">{t("bench.nothing_to_compare_yet_70e7_2")}</p> : null}
     </section>
   );
 }

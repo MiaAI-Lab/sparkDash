@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useFocusTrap } from "../../hooks/useFocusTrap";
@@ -111,7 +112,7 @@ export function CommandPalette({ open, onClose, commands }: CommandPaletteProps)
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div ref={trapRef} className="palette" role="dialog" aria-modal="true" aria-label="Command palette" onKeyDown={onKeyDown}>
+      <div ref={trapRef} className="palette" role="dialog" aria-modal="true" aria-label={t("ui.command_palette_f8f1")} onKeyDown={onKeyDown}>
         <div className="palette__input">
           <SearchIcon className="h-4 w-4" />
           <input
@@ -119,8 +120,8 @@ export function CommandPalette({ open, onClose, commands }: CommandPaletteProps)
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Jump to a Spark, run an action, open settings…"
-            aria-label="Search commands"
+            placeholder={t("ui.jump_to_a_spark_run_f578")}
+            aria-label={t("ui.search_commands_1a4b")}
             role="combobox"
             aria-expanded="true"
             aria-controls={LIST_ID}
@@ -164,7 +165,7 @@ export function CommandPalette({ open, onClose, commands }: CommandPaletteProps)
         <div className="palette__foot">
           <span>↑↓ to move</span>
           <span>↵ to open</span>
-          <span>Esc to close</span>
+          <span>{t("ui.esc_to_close_07ba")}</span>
         </div>
       </div>
     </div>,

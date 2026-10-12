@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { useEffect, useState } from "react";
 import { fetchRestartAvailable, restartServer } from "../../api/client";
 
@@ -47,8 +48,8 @@ export function RestartButton({ className = "btn btn--primary btn--sm" }: { clas
   }
   if (state === "confirm") {
     return (
-      <span role="group" aria-label="Confirm restart">
-        <span className="ov-note">Restart now? Running benchmarks will be interrupted.</span>{" "}
+      <span role="group" aria-label={t("ui.confirm_restart_69af")}>
+        <span className="ov-note">{t("ui.restart_now_running_benchmarks_w_6f73")}</span>{" "}
         <button type="button" className={className} onClick={() => void run()}>Restart</button>{" "}
         <button type="button" className="btn btn--sm btn--ghost" onClick={() => setState("idle")}>Cancel</button>
       </span>

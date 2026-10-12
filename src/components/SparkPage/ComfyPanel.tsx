@@ -1,10 +1,10 @@
+import { t } from "../../i18n";
 import { useState, useCallback, type MouseEvent } from "react";
 import type { ComfyJob, ComfyMetrics, ComfyProgress } from "../../api/types";
 import { cancelComfyJob } from "../../api/client";
 import { Panel } from "../ui/Panel";
 import { Tag } from "../ui/Tag";
 import { ComfyIcon, ExternalLinkIcon } from "../ui/icons";
-
 interface ComfyPanelProps {
   comfy: ComfyMetrics | null;
   comfyPort: number;
@@ -155,7 +155,7 @@ function JobBlock({
               <span className="font-tabular text-[11px] text-muted">{elapsed}</span>
             ) : null}
             {etaLabel ? (
-              <span className="font-tabular text-[11px] text-muted" title="Estimated time remaining">
+              <span className="font-tabular text-[11px] text-muted" title={t("s39b603a81b")}>
                 {etaLabel} left
               </span>
             ) : null}
@@ -179,14 +179,14 @@ function JobBlock({
       {variant === "running" && progress ? <ProgressBar progress={progress} /> : null}
 
       {footprint ? (
-        <p className="font-tabular text-[11px] text-muted" title="Workflow compute footprint">
+        <p className="font-tabular text-[11px] text-muted" title={t("s90d5a8c6cb")}>
           {footprint}
         </p>
       ) : null}
 
       {models.length > 0 ? (
         <div className="space-y-1">
-          <div className="text-[10px] uppercase tracking-wide text-muted">Models</div>
+          <div className="text-[10px] uppercase tracking-wide text-muted">{t("s25ac429f90")}</div>
           <ul className="space-y-0.5">
             {models.slice(0, 6).map((m) => (
               <li key={m} className="truncate font-tabular text-[12px] text-text" title={m}>
@@ -252,13 +252,13 @@ export function ComfyPanel({
 
   return (
     <Panel
-      title="ComfyUI"
+      title={t("sa2c27f78c0")}
       icon={<ComfyIcon />}
       className={`panel-comfy ${className}`}
       bodyClassName="sp-stack"
       actions={
         <div className="flex items-center gap-2">
-          <span className="font-tabular text-[11px] text-muted" title="Probe port">
+          <span className="font-tabular text-[11px] text-muted" title={t("sdf70613764")}>
             :{comfyPort}
           </span>
           <a
@@ -277,7 +277,7 @@ export function ComfyPanel({
     >
       {!available ? (
         <div className="space-y-1 text-sm">
-          <p className="text-muted">Not reachable</p>
+          <p className="text-muted">{t("s94a4e04deb")}</p>
           {comfy?.error ? (
             <p className="break-all text-[11px] text-muted">{comfy.error}</p>
           ) : (
@@ -289,19 +289,19 @@ export function ComfyPanel({
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-2 text-xs">
-            <Tag tone="good">Online</Tag>
+            <Tag tone="good">{t("s54f664c70c")}</Tag>
             {comfy?.version ? (
-              <span className="text-muted" title="ComfyUI version">
+              <span className="text-muted" title={t("s840ad27cad")}>
                 v{comfy.version}
               </span>
             ) : null}
             {comfy?.deviceType ? (
-              <span className="text-muted" title="ComfyUI compute device">
+              <span className="text-muted" title={t("s744d7ec3ce")}>
                 {comfy.deviceType}
               </span>
             ) : null}
             {comfy?.pytorchVersion ? (
-              <span className="text-muted" title="PyTorch version">
+              <span className="text-muted" title={t("s134d02c09d")}>
                 torch {comfy.pytorchVersion}
               </span>
             ) : null}
@@ -351,7 +351,7 @@ export function ComfyPanel({
           {pending > 0 ? (
             <div className="space-y-2">
               <div className="flex items-baseline justify-between gap-2 text-[10px] uppercase tracking-wide text-muted">
-                <span>Queue</span>
+                <span>{t("s722ad2d05e")}</span>
                 <span className="font-tabular normal-case text-muted">
                   {pending} pending
                   {etaLabel ? ` · ${etaLabel}` : ""}
@@ -420,7 +420,7 @@ export function ComfyPanel({
                   ) : null}
                   {modelsInstalled.loras.length > 0 ? (
                     <div>
-                      <div className="text-[10px] uppercase tracking-wide text-muted">LoRAs</div>
+                      <div className="text-[10px] uppercase tracking-wide text-muted">{t("s1293353f5d")}</div>
                       <ul className="mt-0.5 space-y-0.5">
                         {modelsInstalled.loras.slice(0, 12).map((m) => (
                           <li

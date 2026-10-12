@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { useState } from "react";
 import type { SparkSnapshot } from "../../api/types";
 import { shutdownSpark, wakeSpark } from "../../api/client";
@@ -151,7 +152,7 @@ export function SparkActions({ spark, onEdit, className }: SparkActionsProps) {
         {onEdit && (
           <button type="button" onClick={onEdit} className="btn">
             <EditIcon className="h-3.5 w-3.5" />
-            Edit
+            {t("actions.edit")}
           </button>
         )}
         {online ? (
@@ -159,11 +160,11 @@ export function SparkActions({ spark, onEdit, className }: SparkActionsProps) {
             type="button"
             onClick={() => setShutdownOpen(true)}
             disabled={powerLoading}
-            title="Graceful shutdown (requires /usr/local/bin/spark-shutdown on the host)"
+            title={t("actions.shutdown_title")}
             className="btn btn--danger"
           >
             <PowerOffIcon className="h-3.5 w-3.5" />
-            Shut down
+            {t("actions.shutdown")}
           </button>
         ) : spark.kind === "host" ? (
           <button
@@ -179,7 +180,7 @@ export function SparkActions({ spark, onEdit, className }: SparkActionsProps) {
         ) : (
           <span
             className="sp-muted"
-            title="DGX Spark does not wake from a magic packet. The onboard NIC has no Wake-on-LAN."
+            title={t("ui.dgx_spark_does_not_wake_6b2b")}
           >
             No Wake-on-LAN
           </span>
@@ -192,7 +193,7 @@ export function SparkActions({ spark, onEdit, className }: SparkActionsProps) {
         onConfirm={handleShutdown}
         title={`Shut down ${spark.name}`}
         description={`Gracefully shut down ${spark.name}? This will stop all containers and power off the node.`}
-        confirmLabel="Shut down"
+        confirmLabel={t("actions.shutdown")}
         warnings={shutdownWarnings(spark)}
       />
     </>

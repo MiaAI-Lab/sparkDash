@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { useState, useCallback } from "react";
 import type { StorageMetrics } from "../../api/types";
 import { updateDisabledDevices, refreshSparkMetric, updateSpark } from "../../api/client";
@@ -58,7 +59,7 @@ function SettingsButton({
       className={`btn btn--sm btn--ghost ${active ? "is-on" : ""}`}
     >
       <GearIcon />
-      <span>{active ? "Done" : "Settings"}</span>
+      <span>{active ? t("common.done") : t("common.settings")}</span>
     </button>
   );
 }
@@ -112,14 +113,15 @@ export function StoragePanel({
 
   return (
     <Panel
-      title="Storage"
+      title={t("bench.st_storage")}
+
       icon={<DiskIcon />}
       className="panel-storage"
       bodyClassName="sp-stack"
       actions={
         <div className="sp-actions">
           {!showSettings && visibleDisks.length > 0 && (
-            <span className="mono sp-muted sp-nowrap sp-actions__lead" title="Combined disk throughput">
+            <span className="mono sp-muted sp-nowrap sp-actions__lead" title={t("ui.combined_disk_throughput_1844")}>
               r {formatBytesPerSec(totalRead)} · w {formatBytesPerSec(totalWrite)}
             </span>
           )}
@@ -127,27 +129,27 @@ export function StoragePanel({
             type="button"
             onClick={handleRefresh}
             disabled={refreshing}
-            title="Refresh storage"
-            aria-label="Refresh storage"
+            title={t("ui.refresh_storage_3f89")}
+            aria-label={t("ui.refresh_storage_3f89")}
             className="btn btn--sm btn--ghost"
           >
             <RotateIcon className={`h-3 w-3 ${refreshing ? "animate-spin" : ""}`} />
-            <span>{refreshing ? "Refreshing…" : "Refresh"}</span>
+            <span>{refreshing ? t("spark.refreshing") : t("activity.refresh")}</span>
           </button>
           <SettingsButton
             active={showSettings}
             onClick={() => setShowSettings(!showSettings)}
             disabled={saving}
-            label="Storage"
+            label={t("bench.st_storage")}
           />
         </div>
       }
     >
       {showSettings ? (
         <div className="sp-stack">
-          <p className="sp-hint">Toggle devices on/off:</p>
+          <p className="sp-hint">{t("ui.toggle_devices_on_off_d04d")}</p>
           {storage.length === 0 ? (
-            <p className="sp-muted">No disks discovered</p>
+            <p className="sp-muted">{t("ui.no_disks_discovered_8b5c")}</p>
           ) : (
             storage.map((disk) => {
               const isDisabled =
@@ -171,7 +173,7 @@ export function StoragePanel({
 
           <div className="sp-section">
             <label className="sp-row">
-              <span>Auto-refresh</span>
+              <span>{t("ui.auto_refresh_05cc")}</span>
               <Toggle
                 checked={!storagePollDisabled}
                 onChange={(on) => {
@@ -190,7 +192,7 @@ export function StoragePanel({
       ) : (
         <>
           {visibleDisks.length === 0 ? (
-            <p className="sp-muted">No mounted disks</p>
+            <p className="sp-muted">{t("ui.no_mounted_disks_35dc")}</p>
           ) : (
             <div className="sp-stack">
               {visibleDisks.map((disk) => {

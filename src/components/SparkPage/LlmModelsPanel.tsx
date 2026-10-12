@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { LauncherAction, LauncherJob, LauncherRunState, LlmLauncher, SparkSnapshot } from "../../api/types";
@@ -10,7 +11,6 @@ import { Panel } from "../ui/Panel";
 import { Tag, type TagTone } from "../ui/Tag";
 import { BotIcon, EditIcon, ExpandIcon, PlusIcon, XIcon } from "../ui/icons";
 import { LlmLauncherDialog } from "./LlmLauncherDialog";
-
 const AUTOSHOW_KEY = "sparkdash.llm.autoShowOutput";
 const STATUS_REFRESH_MS = 20_000;
 
@@ -106,7 +106,7 @@ function TerminalModal({
       <div className="modal-sheet term-modal" role="dialog" aria-modal="true" aria-label={title}>
         <div className="modal-sheet__header">
           <h2 className="modal-sheet__title">{title}</h2>
-          <button type="button" className="icon-circle ml-auto" onClick={onClose} aria-label="Close output">
+          <button type="button" className="icon-circle ml-auto" onClick={onClose} aria-label={t("s04d7cb448c")}>
             <XIcon className="h-4 w-4" />
           </button>
         </div>
@@ -287,17 +287,17 @@ function LlmModelsPanelFor({ spark, className }: { spark: SparkSnapshot; classNa
           <div className="sp-launch__title">
             <b>{l.name}</b>
             {mine && job?.status === "running" && job.action === "stop" ? (
-              <Tag tone="info">Stopping…</Tag>
+              <Tag tone="info">{t("s47b5a5f73c")}</Tag>
             ) : serving ? (
               <Tag tone="good" title={live?.modelId ?? undefined}>
                 Serving :{l.port}
               </Tag>
             ) : state === "running" ? (
-              <Tag tone="info" title="The start script is still running on the Spark">
+              <Tag tone="info" title={t("sf57e233ec5")}>
                 Running
               </Tag>
             ) : state === "stopped" ? (
-              <Tag>Stopped</Tag>
+              <Tag>{t("sc23e2b09eb")}</Tag>
             ) : null}
           </div>
           <div className="sp-launch__dir mono" title={`${l.dir}/${l.startScript} · ${l.dir}/${l.stopScript}`}>
@@ -337,7 +337,7 @@ function LlmModelsPanelFor({ spark, className }: { spark: SparkSnapshot; classNa
             </>
           ) : pending?.kind === "remove" ? (
             <>
-              <span className="sp-launch__ask">Remove from the list? Files stay untouched.</span>
+              <span className="sp-launch__ask">{t("s64a90e9892")}</span>
               <button type="button" className="btn btn--sm btn--danger" onClick={() => void doRemove(l.id)}>
                 Remove
               </button>
@@ -354,7 +354,7 @@ function LlmModelsPanelFor({ spark, className }: { spark: SparkSnapshot; classNa
                     className="btn btn--sm"
                     disabled={busy}
                     onClick={() => void run(l.id, "attach")}
-                    title="Show what the running start script is printing"
+                    title={t("sd01793dee9")}
                   >
                     Output
                   </button>
@@ -392,7 +392,7 @@ function LlmModelsPanelFor({ spark, className }: { spark: SparkSnapshot; classNa
                 type="button"
                 className="sp-iconbtn"
                 aria-label={`Edit ${l.name}`}
-                title="Edit"
+                title={t("s7dce122004")}
                 disabled={busy && mine}
                 onClick={() => setDialog({ open: true, launcher: l })}
               >
@@ -402,7 +402,7 @@ function LlmModelsPanelFor({ spark, className }: { spark: SparkSnapshot; classNa
                 type="button"
                 className="sp-iconbtn"
                 aria-label={`Remove ${l.name}`}
-                title="Remove from list"
+                title={t("s2672ab7141")}
                 disabled={busy && mine}
                 onClick={() => setConfirm({ kind: "remove", id: l.id })}
               >
@@ -417,31 +417,30 @@ function LlmModelsPanelFor({ spark, className }: { spark: SparkSnapshot; classNa
 
   return (
     <Panel
-      title="Models"
+      title={t("s25ac429f90")}
       icon={<BotIcon className="h-4 w-4" />}
       className={className}
       actions={
         <button type="button" className="btn btn--sm" onClick={() => setDialog({ open: true, launcher: null })}>
           <PlusIcon className="h-3.5 w-3.5" />
-          Add model
+          {t("models.add")}
         </button>
       }
     >
       <div className="sp-models">
         {loadError ? (
           <p className="sp-models__error" role="alert">
-            Could not load models: {loadError}
+            {t("models.load_error", { error: loadError })}
           </p>
         ) : null}
         {loaded && !loadError && launchers.length === 0 ? (
           <div className="sp-models__empty">
             <p>
-              Add the folder on {spark.name} that holds a model&rsquo;s <span className="mono">start.sh</span> and{" "}
-              <span className="mono">stop.sh</span>. Then start and stop it from here and watch it load.
+              {t("models.empty_hint", { spark: spark.name })}
             </p>
             <button type="button" className="btn btn--primary btn--sm" onClick={() => setDialog({ open: true, launcher: null })}>
               <PlusIcon className="h-3.5 w-3.5" />
-              Add your first model
+              {t("models.add_first")}
             </button>
           </div>
         ) : null}
@@ -477,7 +476,7 @@ function LlmModelsPanelFor({ spark, className }: { spark: SparkSnapshot; classNa
                     <button type="button" className="btn btn--sm btn--ghost" onClick={() => void copyOutput()}>
                       {copied ? "Copied" : "Copy"}
                     </button>
-                    <button type="button" className="sp-iconbtn" aria-label="Expand output" title="Expand" onClick={() => setExpanded(true)}>
+                    <button type="button" className="sp-iconbtn" aria-label={t("s53e54ddc20")} title={t("s8098b34f58")} onClick={() => setExpanded(true)}>
                       <ExpandIcon className="h-3.5 w-3.5" />
                     </button>
                     <button type="button" className="btn btn--sm btn--ghost" onClick={() => setTermOpen(false)}>
@@ -496,7 +495,7 @@ function LlmModelsPanelFor({ spark, className }: { spark: SparkSnapshot; classNa
             {showTerminal ? (
               <>
                 <LiveTerminal lines={lines} partial={partial} running={job.status === "running"} />
-                {truncated ? <p className="sp-models__hint">Only the newest 5,000 lines are kept.</p> : null}
+                {truncated ? <p className="sp-models__hint">{t("s8e3ed4761f")}</p> : null}
               </>
             ) : null}
           </div>
@@ -504,7 +503,7 @@ function LlmModelsPanelFor({ spark, className }: { spark: SparkSnapshot; classNa
 
         <label className="sp-models__pref">
           <input type="checkbox" checked={autoShow} onChange={(e) => toggleAutoShow(e.target.checked)} />
-          <span>Show the output when I start or stop a model</span>
+          <span>{t("models.autoshow")}</span>
         </label>
       </div>
 

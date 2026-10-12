@@ -1,3 +1,4 @@
+import { t } from "../../../i18n";
 import { useMemo, useState } from "react";
 import type { SparkSnapshot, ToolEvalArgSpec, ToolEvalSpec } from "../../../api/types";
 import { Field } from "./Fields";
@@ -52,8 +53,8 @@ export function ConfigForm({ spec, type, spark, state, onChange, apiKey, onApiKe
   return (
     <div className="te-form">
       <div className="te-form__bar">
-        <div className="te-presets" role="group" aria-label="Presets">
-          <span className="eyebrow">Presets</span>
+        <div className="te-presets" role="group" aria-label={t("presets.pick_ready")}>
+          <span className="eyebrow">{t("te.presets")}</span>
           {presets.map((p) => (
             <button
               key={p.id}
@@ -84,7 +85,7 @@ export function ConfigForm({ spec, type, spark, state, onChange, apiKey, onApiKe
               onApiKey("");
             }}
           >
-            Reset
+            {t("te.reset")}
           </button>
         </div>
       </div>
@@ -101,7 +102,7 @@ export function ConfigForm({ spec, type, spark, state, onChange, apiKey, onApiKe
 
       {type === "accuracy" ? (
         <fieldset className="te-suites">
-          <legend className="field-label">Suites to run</legend>
+          <legend className="field-label">{t("bench.suites_to_run_635e_2")}</legend>
           <div className="te-suites__row">
             {SUITES.map((s) => {
               const on = state.suites.includes(s.id);
@@ -132,15 +133,15 @@ export function ConfigForm({ spec, type, spark, state, onChange, apiKey, onApiKe
         return (
           <details key={sel.id} className={`te-group ${off ? "is-off" : ""}`} open={gi < 2 || nSet > 0}>
             <summary>
-              <span className="te-group__title">{sel.label ?? group!.label}</span>
-              <span className="te-group__meta">{off ? "suite not selected" : nSet ? `${nSet} set` : ""}</span>
+              <span className="te-group__title">{t(`te.group_${sel.id}_label`, { defaultValue: sel.label ?? group!.label })}</span>
+              <span className="te-group__meta">{off ? t("te.suite_off") : nSet ? t("te.n_set", { n: nSet }) : ""}</span>
             </summary>
-            <p className="te-group__help">{group!.help}</p>
+            <p className="te-group__help">{t(`te.group_${sel.id}_help`, { defaultValue: group!.help })}</p>
             <div className="te-grid">
               {isConn && ports.length > 1 ? (
                 <div className="te-field">
                   <label className="field-label" htmlFor="te-f-port">
-                    LLM port on {spark.name}
+                    {t("bench.llm_port_on", { spark: spark.name })}
                   </label>
                   <select id="te-f-port" value={state.port ?? ports[0]} onChange={(e) => onChange({ ...state, port: Number(e.target.value) })} disabled={disabled}>
                     {ports.map((p) => (
@@ -159,7 +160,7 @@ export function ConfigForm({ spec, type, spark, state, onChange, apiKey, onApiKe
                 <>
                   {liveModel ? (
                     <p className="te-hint-line te-field--wide">
-                      Model currently served on this Spark: <b className="mono">{liveModel}</b> (leave the model field empty to use it).
+                      {t("te.model_served")} <b className="mono">{liveModel}</b> {t("te.model_served_leave")}
                     </p>
                   ) : null}
                   <div className="te-field te-field--wide">
@@ -168,7 +169,7 @@ export function ConfigForm({ spec, type, spark, state, onChange, apiKey, onApiKe
                     </label>
                     <input id="te-f-api-key" type="password" autoComplete="new-password" value={apiKey} onChange={(e) => onApiKey(e.target.value)} placeholder={hasSavedKey ? "Using the key saved for this port" : "Leave empty to use the saved key"} disabled={disabled} />
                     <p className="field-hint">
-                      Empty uses the key saved for this Spark&apos;s port (if one is saved){hasSavedKey ? ", and one is saved for this port" : ""}. A typed key is only sent together with a base URL, and then goes to the Spark through its environment for this run only and is never stored in this browser.
+                      {t("te.api_key_hint_full", { hasSaved: hasSavedKey ? t("te.has_saved") : "" })}
                     </p>
                   </div>
                 </>
@@ -180,13 +181,13 @@ export function ConfigForm({ spec, type, spark, state, onChange, apiKey, onApiKe
 
       <details className="te-group te-group--adv" open={advancedSet > 0 || undefined}>
         <summary>
-          <span className="te-group__title">Advanced / all options</span>
-          <span className="te-group__meta">{advanced.length} more option(s){advancedSet ? ` · ${advancedSet} set` : ""}</span>
+          <span className="te-group__title">{t("bench.advanced_all_options_528d_2")}</span>
+          <span className="te-group__meta">{t("te.more_options", { n: advanced.length })}{advancedSet ? ` · ${advancedSet}` : ""}</span>
         </summary>
-        <p className="te-group__help">Every other option of tool-eval-bench, so nothing is out of reach. Options this page sets for you are left out.</p>
+        <p className="te-group__help">{t("bench.every_other_option_of_tool_1bb5_2")}</p>
         {advancedByGroup.map((g) => (
           <fieldset key={g.id} className="te-subgroup">
-            <legend>{g.label}</legend>
+            <legend>{t(`te.group_${g.id}_label`, { defaultValue: g.label })}</legend>
             <div className="te-grid">
               {g.fields.map((f) => (
                 <Field key={f.name} arg={f} value={state.values[f.name]} error={fieldErrors[f.name]} onChange={setValue} />
@@ -198,10 +199,10 @@ export function ConfigForm({ spec, type, spark, state, onChange, apiKey, onApiKe
 
       <div className="te-field te-field--wide te-extra">
         <label className="field-label" htmlFor="te-f-extra">
-          Additional arguments
+          {t("te.additional_args")}
         </label>
-        <input id="te-f-extra" type="text" className="te-mono-input" value={state.extraArgs} onChange={(e) => onChange({ ...state, extraArgs: e.target.value })} placeholder="--some-new-flag value" autoComplete="off" spellCheck={false} disabled={disabled} />
-        <p className="field-hint">Free-form flags passed through as separate arguments (no shell). Handy for options newer than this form. Flags that sparkDash controls (--json, --probe, …) are refused.</p>
+        <input id="te-f-extra" type="text" className="te-mono-input" value={state.extraArgs} onChange={(e) => onChange({ ...state, extraArgs: e.target.value })} placeholder={t("bench.some_new_flag_value_2e50_2")} autoComplete="off" spellCheck={false} disabled={disabled} />
+        <p className="field-hint">{t("te.free_form_flags")}</p>
       </div>
     </div>
   );

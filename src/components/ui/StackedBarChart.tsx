@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { useMemo, useState, type ReactNode } from "react";
 import { labelIndexes, niceScale } from "./chartScale";
 import { useElementWidth } from "./useElementWidth";

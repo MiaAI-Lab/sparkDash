@@ -1,3 +1,4 @@
+import { t } from "../../../i18n";
 import { useEffect, useId } from "react";
 import type { SparkSnapshot } from "../../../api/types";
 import { applyPreset, countSet, emptyState, type FormState } from "./options";
@@ -63,15 +64,15 @@ export function SimpleConfig({ type, spark, state, onChange, ports, port, onAdva
     <div className="te-simple">
       <div className="te-simple__target">
         <div className="te-simple__target-head">
-          <span className="eyebrow">Testing</span>
+          <span className="eyebrow">{t("bench.testing")}</span>
           <Tabs
             prefix={uid}
-            label="What to test"
+            label={t("bench.what_to_test_3e4e_2")}
             value={useUrl ? "url" : "local"}
             onChange={(v) => setTarget(v === "url")}
             items={[
-              { id: "local", label: `Model on ${spark.name}` },
-              { id: "url", label: "Custom URL" },
+              { id: "local", label: t("bench.model_on", { spark: spark.name }) },
+              { id: "url", label: t("bench.custom_url") },
             ]}
           />
         </div>
@@ -79,7 +80,7 @@ export function SimpleConfig({ type, spark, state, onChange, ports, port, onAdva
         {useUrl ? (
           <div className="te-simple__url">
             <label className="te-simple__field te-simple__field--grow">
-              <span className="eyebrow">Base URL</span>
+              <span className="eyebrow">{t("bench.base_url")}</span>
               <input
                 type="text"
                 value={baseUrl}
@@ -88,19 +89,19 @@ export function SimpleConfig({ type, spark, state, onChange, ports, port, onAdva
                 spellCheck={false}
                 autoCapitalize="off"
                 autoCorrect="off"
-                aria-label="Custom base URL"
+                aria-label={t("bench.custom_base_url_daf8_2")}
               />
             </label>
             <label className="te-simple__field">
-              <span className="eyebrow">Model</span>
-              <input type="text" value={modelName} onChange={(e) => setValue("model", e.target.value)} placeholder="auto-detect" spellCheck={false} aria-label="Model name" />
+              <span className="eyebrow">{t("tokens.col_model")}</span>
+              <input type="text" value={modelName} onChange={(e) => setValue("model", e.target.value)} placeholder="auto-detect" spellCheck={false} aria-label={t("bench.model_name_402d_2")} />
             </label>
             <label className="te-simple__field">
-              <span className="eyebrow">API key</span>
-              <input type="password" autoComplete="new-password" value={apiKey} onChange={(e) => onApiKey(e.target.value)} placeholder="if required" aria-label="API key" />
+              <span className="eyebrow">{t("bench.api_key_656a")}</span>
+              <input type="password" autoComplete="new-password" value={apiKey} onChange={(e) => onApiKey(e.target.value)} placeholder="if required" aria-label={t("bench.api_key_656a_2")} />
             </label>
             <p className="te-simple__hint">The run happens on {spark.name}, so it must be able to reach this URL. The key is sent to {spark.name} for this run only and is not stored here.</p>
-            {!baseUrl.trim() ? <p className="te-simple__warn">Enter the URL of the OpenAI-compatible server to test.</p> : null}
+            {!baseUrl.trim() ? <p className="te-simple__warn">{t("bench.enter_the_url_of_the_16f7_2")}</p> : null}
           </div>
         ) : (
           <>
@@ -110,7 +111,7 @@ export function SimpleConfig({ type, spark, state, onChange, ports, port, onAdva
               {ports.length > 1 ? (
                 <label className="te-simple__port">
                   <span className="eyebrow">Port</span>
-                  <select value={port} onChange={(e) => onChange({ ...state, port: Number(e.target.value) })} aria-label="LLM port to test">
+                  <select value={port} onChange={(e) => onChange({ ...state, port: Number(e.target.value) })} aria-label={t("bench.llm_port_to_test_72a0_2")}>
                     {ports.map((p) => (
                       <option key={p} value={p}>
                         {p}
@@ -121,14 +122,14 @@ export function SimpleConfig({ type, spark, state, onChange, ports, port, onAdva
               ) : null}
             </div>
             {!llm?.available ? (
-              <p className="te-simple__warn">No model is answering on this port right now. Start one from the Spark's Models panel first, or switch to a custom URL.</p>
+              <p className="te-simple__warn">{t("bench.no_model_is_answering_on_cf12_2")}</p>
             ) : null}
           </>
         )}
         </div>
       </div>
 
-      <div className="te-simple__cards" role="radiogroup" aria-label="Ready-made runs">
+      <div className="te-simple__cards" role="radiogroup" aria-label={t("bench.ready_made_runs_30df_2")}>
         {templates.map((t, i) => (
           <button
             key={t.id}
@@ -153,17 +154,17 @@ export function SimpleConfig({ type, spark, state, onChange, ports, port, onAdva
 
       {custom ? (
         <p className="te-simple__custom">
-          Custom settings are applied.{" "}
+          {t("bench.custom_applied")}{" "}
           <button type="button" className="te-link" onClick={onAdvanced}>
-            Review them in Advanced
+            {t("presets.review_in_advanced")}
           </button>{" "}
           or pick a template above to start fresh.
         </p>
       ) : (
         <p className="te-simple__more">
-          Need more control (sampling, categories, a system prompt, other endpoints, every option)?{" "}
+          {t("presets.need_control2")}{" "}
           <button type="button" className="te-link" onClick={onAdvanced}>
-            Open Advanced
+            {t("presets.open_advanced")}
           </button>
         </p>
       )}

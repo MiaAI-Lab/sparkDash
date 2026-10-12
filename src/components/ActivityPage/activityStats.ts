@@ -8,24 +8,24 @@ export type Severity = ActivityEvent["severity"];
 export const SEVERITIES: readonly Severity[] = ["error", "warn", "success", "info"];
 
 export const SEVERITY_LABEL: Record<Severity, string> = {
-  error: "Error",
-  warn: "Warning",
-  success: "Success",
-  info: "Info",
+  error: "activity.sev_error",
+  warn: "activity.sev_warning",
+  success: "activity.sev_success",
+  info: "activity.sev_info",
 };
 
 export type CategoryId = "status" | "thermal" | "health" | "hermes" | "bench" | "power" | "llm" | "fleet" | "other";
 
 export const CATEGORIES: readonly { id: CategoryId; label: string }[] = [
-  { id: "status", label: "Status (online/offline)" },
-  { id: "thermal", label: "Thermal" },
-  { id: "health", label: "Health" },
-  { id: "hermes", label: "Hermes" },
-  { id: "bench", label: "Benchmarks" },
-  { id: "power", label: "Power" },
-  { id: "llm", label: "LLM models" },
-  { id: "fleet", label: "Fleet changes" },
-  { id: "other", label: "Other" },
+  { id: "status", label: "activity.cat_status" },
+  { id: "thermal", label: "activity.cat_thermal" },
+  { id: "health", label: "activity.cat_health" },
+  { id: "hermes", label: "activity.cat_hermes" },
+  { id: "bench", label: "activity.cat_bench" },
+  { id: "power", label: "activity.cat_power" },
+  { id: "llm", label: "activity.cat_llm" },
+  { id: "fleet", label: "activity.cat_fleet" },
+  { id: "other", label: "activity.cat_other" },
 ];
 
 const DAY_MS = 86_400_000;

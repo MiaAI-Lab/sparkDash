@@ -1,8 +1,9 @@
+import { t } from "../../i18n";
 import { AppLink } from "../ui/AppLink";
 import { activeTimeZone } from "../../shared/timeZone";
 import { ACTIVITY_ID, idToPath } from "../../constants";
 import { useActivityEvents } from "../../hooks/useActivityEvents";
-import { formatRelativeTime, severityDotClass, splitMessage } from "./activityFormat";
+import { formatRelativeTime, localizeEventMessage, severityDotClass, splitMessage } from "./activityFormat";
 
 interface ActivityFeedProps {
   limit?: number;
@@ -19,27 +20,27 @@ export function ActivityFeed({ limit = 8, sparkId, onSelectSpark, onViewAll }: A
   const shown = events.slice(0, limit);
 
   return (
-    <section className="activity-feed" aria-label="Recent activity">
+    <section className="activity-feed" aria-label={t("overview.recentActivity")}>
       <header className="mb-2 flex items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold text-text-strong">Recent activity</h3>
+        <h3 className="text-sm font-semibold text-text-strong">{t("overview.recentActivity")}</h3>
         <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted">
           <span className="h-1.5 w-1.5 rounded-full bg-success" aria-hidden="true" />
-          live
+          {t("overview.live")}
         </span>
       </header>
 
       {loading && shown.length === 0 ? (
-        <p className="py-2 text-xs text-muted">Loading…</p>
+        <p className="py-2 text-xs text-muted">{t("overview.activityLoading")}</p>
       ) : shown.length === 0 ? (
         <p className="py-2 text-xs text-muted">
           {error
-            ? "Couldn't load activity."
-            : "Nothing yet. Throttling, restarts, updates and benchmark runs will appear here."}
+            ? t("overview.activityError")
+            : t("overview.nothingYet")}
         </p>
       ) : (
         <ul className="divide-y divide-border">
           {shown.map((ev) => {
-            const { before, name, after } = splitMessage(ev.message, ev.sparkName);
+            const { before, name, after } = splitMessage(localizeEventMessage(ev.type, ev.message, t), ev.sparkName);
             const clickable = Boolean(name && ev.sparkId && onSelectSpark);
             return (
               <li key={ev.id} className="flex items-baseline gap-2 py-1.5 text-xs">
@@ -77,7 +78,7 @@ export function ActivityFeed({ limit = 8, sparkId, onSelectSpark, onViewAll }: A
       )}
       {onViewAll ? (
         <AppLink href={idToPath(ACTIVITY_ID)} className="btn btn--sm btn--ghost mt-2" onNavigate={onViewAll}>
-          View all activity
+          {t("overview.viewAllActivity")}
         </AppLink>
       ) : null}
     </section>

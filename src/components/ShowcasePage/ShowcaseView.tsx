@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import type { SparkSnapshot } from "../../api/types";
 import { useBenchSpark } from "../bench/useBenchSpark";
 import { SparkChips } from "../bench/SparkChips";
@@ -23,9 +24,9 @@ export function ShowcaseView({ sparks }: { sparks: readonly SparkSnapshot[] }) {
     <div className="bench-page showcase-view">
       <div className="page-head">
         <div>
-          <div className="eyebrow">Workspace</div>
+          <div className="eyebrow">{t("showcase.lbl_workspace")}</div>
           <h1>Showcase</h1>
-          <p className="page-head__sub">Run prompts on several terminals at once and watch your model stream.</p>
+          <p className="page-head__sub">{t("showcase.run_prompts_on_several_terminals_6612_2")}</p>
         </div>
         <div className="page-head__tools">
           {spark ? (
@@ -34,7 +35,7 @@ export function ShowcaseView({ sparks }: { sparks: readonly SparkSnapshot[] }) {
               href={showcaseUrl(spark)}
               target="_blank"
               rel="noopener noreferrer"
-              title="Open the showcase in its own full-screen window"
+              title={t("showcase.open_the_showcase_in_its_c7c5_2")}
             >
               Open in new window ↗
             </a>
@@ -42,8 +43,8 @@ export function ShowcaseView({ sparks }: { sparks: readonly SparkSnapshot[] }) {
         </div>
       </div>
       <div className="bench-runon">
-        <span className="eyebrow">Run on</span>
-        {eligible.length === 0 ? <span className="bench-runon__none">No Sparks available</span> : null}
+        <span className="eyebrow">{t("showcase.run_on_5df2_2")}</span>
+        {eligible.length === 0 ? <span className="bench-runon__none">{t("showcase.no_sparks_available_cdb9_2")}</span> : null}
         <SparkChips sparks={eligible} activeId={spark?.id ?? null} onSelect={select} />
       </div>
       {spark ? (
@@ -58,10 +59,10 @@ export function ShowcaseView({ sparks }: { sparks: readonly SparkSnapshot[] }) {
             <p className="sc-empty__body">{why?.body}</p>
             {alternative ? (
               <button type="button" className="btn btn--primary" onClick={() => select(alternative.id)}>
-                Run on {alternative.name}
+                {t("bench.run_on", { spark: alternative.name })}
               </button>
             ) : (
-              <p className="sc-empty__hint">No Spark with a reachable model is online right now.</p>
+              <p className="sc-empty__hint">{t("showcase.no_spark_with_a_reachable_7bac_2")}</p>
             )}
           </div>
         )

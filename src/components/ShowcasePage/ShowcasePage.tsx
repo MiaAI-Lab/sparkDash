@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "../../styles/showcase.css";
 import {
@@ -818,19 +819,19 @@ export function ShowcasePage({ sparkId, embedded = false }: ShowcasePageProps) {
               type="button"
               className="showcase-btn showcase-btn--ghost showcase-config-peek__show"
               onClick={() => setBarVisible(true)}
-              title="Show controls"
+              title={t("showcase.show_controls_6029_2")}
             >
               Show controls
             </button>
             {(aggregateTps > 0 || totalTokens > 0) && (
-              <div className="showcase-config-peek__tps" title="Aggregate tokens per second across all terminals">
+              <div className="showcase-config-peek__tps" title={t("showcase.aggregate_tokens_per_second_acro_50b9_2")}>
                 <span className="showcase-config-peek__tps-value font-tabular">
                   {aggregateTps > 0 ? `${aggregateTps.toFixed(0)}` : "—"}
                 </span>
                 <span className="showcase-config-peek__tps-unit">tok/s</span>
                 {totalTokens > 0 && (
                   <span className="showcase-config-peek__tps-tokens font-tabular">
-                    · {formatToks(totalTokens)} tok
+                    · {formatToks(totalTokens)} {t("showcase.tok")}
                   </span>
                 )}
               </div>
@@ -868,7 +869,7 @@ export function ShowcasePage({ sparkId, embedded = false }: ShowcasePageProps) {
           <div className="showcase-config__controls">
             <fieldset className="showcase-config__lockgroup" disabled={controlsLocked}>
               <label className="showcase-field">
-                <span className="showcase-field__label">Port</span>
+                <span className="showcase-field__label">{t("showcase.lbl_port")}</span>
                 <select
                   value={port}
                   disabled={controlsLocked}
@@ -882,7 +883,7 @@ export function ShowcasePage({ sparkId, embedded = false }: ShowcasePageProps) {
                 </select>
               </label>
               <label className="showcase-field">
-                <span className="showcase-field__label">Terminals</span>
+                <span className="showcase-field__label">{t("showcase.lbl_terminals")}</span>
                 <select
                   value={terminalCount}
                   disabled={controlsLocked}
@@ -899,7 +900,7 @@ export function ShowcasePage({ sparkId, embedded = false }: ShowcasePageProps) {
                 className="showcase-field"
                 title={PROMPT_TYPES.find((t) => t.id === promptType)?.hint}
               >
-                <span className="showcase-field__label">Prompt type</span>
+                <span className="showcase-field__label">{t("showcase.prompt_type_7cd6_2")}</span>
                 <select
                   value={promptType}
                   disabled={controlsLocked}
@@ -915,7 +916,7 @@ export function ShowcasePage({ sparkId, embedded = false }: ShowcasePageProps) {
                 </select>
               </label>
               <label className="showcase-field">
-                <span className="showcase-field__label">Max tokens</span>
+                <span className="showcase-field__label">{t("showcase.max_tokens_ebd6_2")}</span>
                 <input
                   type="number"
                   min={64}
@@ -927,7 +928,7 @@ export function ShowcasePage({ sparkId, embedded = false }: ShowcasePageProps) {
                 />
               </label>
               <label className="showcase-field">
-                <span className="showcase-field__label">Temp</span>
+                <span className="showcase-field__label">{t("showcase.lbl_temp")}</span>
                 <input
                   type="number"
                   min={MIN_TEMPERATURE}
@@ -952,14 +953,14 @@ export function ShowcasePage({ sparkId, embedded = false }: ShowcasePageProps) {
                 <span className="showcase-field__label showcase-field__label--spacer" aria-hidden="true">
                   &nbsp;
                 </span>
-                <label className="showcase-check" title="Enable model thinking / reasoning tokens">
+                <label className="showcase-check" title={t("showcase.enable_model_thinking_reasoning_20b6_2")}>
                   <input
                     type="checkbox"
                     checked={thinking}
                     disabled={controlsLocked}
                     onChange={(e) => setThinking(e.target.checked)}
                   />
-                  <span>Thinking</span>
+                  <span>{t("showcase.lbl_thinking")}</span>
                 </label>
               </div>
             </fieldset>
@@ -973,7 +974,7 @@ export function ShowcasePage({ sparkId, embedded = false }: ShowcasePageProps) {
                   checked={configOpen}
                   onChange={(e) => setConfigOpen(e.target.checked)}
                 />
-                <span>Show prompts</span>
+                <span>{t("showcase.show_prompts_1154_2")}</span>
               </label>
             </div>
             <div className="showcase-field showcase-field--actions">
@@ -987,17 +988,17 @@ export function ShowcasePage({ sparkId, embedded = false }: ShowcasePageProps) {
                   disabled={!canRun || monitoringOff || controlsLocked}
                   onClick={() => void handleRun()}
                 >
-                  {starting ? "Starting…" : "Run"}
+                  {starting ? t("showcase.starting") : t("showcase.lbl_run")}
                 </button>
                 {running && (
                   <button
                     type="button"
                     className="showcase-btn showcase-btn--danger"
                     onClick={() => {
-                      if (window.confirm("Stop all showcase streams?")) void handleStop();
+                      if (window.confirm(t("showcase.stop_all_confirm"))) void handleStop();
                     }}
                   >
-                    Stop
+                    {t("showcase.lbl_stop")}
                   </button>
                 )}
                 <button
@@ -1005,15 +1006,15 @@ export function ShowcasePage({ sparkId, embedded = false }: ShowcasePageProps) {
                   className="showcase-btn showcase-btn--ghost"
                   disabled={!hasCopyable}
                   onClick={() => void handleCopyAll()}
-                  title="Copy all terminals as plain text"
+                  title={t("showcase.copy_all_terminals_as_plain_5a87_2")}
                 >
-                  {copiedId === "all" ? "Copied!" : "Copy all"}
+                  {copiedId === "all" ? t("showcase.copied_one") : t("showcase.lbl_copy_all")}
                 </button>
                 <button
                   type="button"
                   className={`showcase-btn showcase-btn--ghost${historyOpen ? " is-active" : ""}`}
                   onClick={() => setHistoryOpen((o) => !o)}
-                  title="Past showcase runs"
+                  title={t("showcase.past_showcase_runs_f724_2")}
                 >
                   History{history.length > 0 ? ` (${history.length})` : ""}
                 </button>
@@ -1021,7 +1022,7 @@ export function ShowcasePage({ sparkId, embedded = false }: ShowcasePageProps) {
                   type="button"
                   className="showcase-btn showcase-btn--ghost"
                   onClick={() => setBarVisible(false)}
-                  title="Hide controls"
+                  title={t("showcase.hide_controls_99d7_2")}
                 >
                   Hide
                 </button>
@@ -1034,7 +1035,7 @@ export function ShowcasePage({ sparkId, embedded = false }: ShowcasePageProps) {
         {historyOpen && (
           <div className="showcase-history">
             <div className="showcase-history__head">
-              <span className="showcase-history__title">Past runs</span>
+              <span className="showcase-history__title">{t("showcase.past_runs_da2b_2")}</span>
               <div className="showcase-history__head-actions">
                 <button
                   type="button"
@@ -1080,7 +1081,7 @@ export function ShowcasePage({ sparkId, embedded = false }: ShowcasePageProps) {
                         className="showcase-history__main"
                         disabled={controlsLocked}
                         onClick={() => void handleOpenHistoryRun(row.sessionId)}
-                        title="View this run"
+                        title={t("showcase.view_this_run_3638_2")}
                       >
                         <span className="showcase-history__when">{when}</span>
                         <span className="showcase-history__meta">
@@ -1088,15 +1089,15 @@ export function ShowcasePage({ sparkId, embedded = false }: ShowcasePageProps) {
                             {row.status}
                           </span>
                           <span>· :{row.port}</span>
-                          <span>· {row.streamCount} term</span>
+                          <span>· {t("showcase.n_term", { n: row.streamCount })}</span>
                           {row.promptType ? (
                             <span>· {row.promptType}</span>
                           ) : null}
                           {row.meanDecodeTps > 0 && (
-                            <span>· avg {row.meanDecodeTps.toFixed(0)} tok/s</span>
+                            <span>· {t("showcase.avg_tps", { v: row.meanDecodeTps.toFixed(0) })}</span>
                           )}
                           {row.totalTokens > 0 && (
-                            <span>· {formatToks(row.totalTokens)} tok</span>
+                            <span>· {formatToks(row.totalTokens)} {t("showcase.tok")}</span>
                           )}
                         </span>
                         {row.modelId ? (
@@ -1126,7 +1127,7 @@ export function ShowcasePage({ sparkId, embedded = false }: ShowcasePageProps) {
           <div className="showcase-config__prompts">
             {prompts.map((p, i) => (
               <label key={i} className="showcase-prompt">
-                <span className="showcase-prompt__label">Prompt {i + 1}</span>
+                <span className="showcase-prompt__label">{t("showcase.prompt_n", { n: i + 1 })}</span>
                 <textarea
                   value={p}
                   disabled={controlsLocked}
@@ -1160,7 +1161,7 @@ export function ShowcasePage({ sparkId, embedded = false }: ShowcasePageProps) {
 
       {showMetricsStrip && (
         <div className="showcase-metrics" aria-live="polite">
-          <div className="showcase-metrics__hero" title="Sum of live decode tok/s across all terminals">
+          <div className="showcase-metrics__hero" title={t("showcase.sum_of_live_decode_tok_3737_2")}>
             <span className="showcase-metrics__label">Aggregate</span>
             <span className="showcase-metrics__hero-value font-tabular">
               {aggregateTps > 0 ? aggregateTps.toFixed(0) : "—"}
@@ -1168,7 +1169,7 @@ export function ShowcasePage({ sparkId, embedded = false }: ShowcasePageProps) {
             </span>
             {aggregatePeakTps > 0 && (
                 <span className="showcase-metrics__sub">
-                  peak {aggregatePeakTps.toFixed(0)}
+                  {t("showcase.peak_tps", { v: aggregatePeakTps.toFixed(0) })}
                 </span>
               )}
             {aggHistory.length > 2 && (
@@ -1184,7 +1185,7 @@ export function ShowcasePage({ sparkId, embedded = false }: ShowcasePageProps) {
               </span>
               <div
                 className="showcase-metrics__item"
-                title="Average decode tok/s per terminal for this session"
+                title={t("showcase.average_decode_tok_s_per_4cdd_2")}
               >
                 <span className="showcase-metrics__label">Avg</span>
                 <span className="showcase-metrics__value font-tabular">
@@ -1217,7 +1218,7 @@ export function ShowcasePage({ sparkId, embedded = false }: ShowcasePageProps) {
             </span>
             {serverTpsMax != null && serverTpsMax > 0 && (
                 <span className="showcase-metrics__sub">
-                  peak {serverTpsMax.toFixed(0)}
+                  {t("showcase.peak_tps", { v: serverTpsMax.toFixed(0) })}
                 </span>
               )}
           </div>

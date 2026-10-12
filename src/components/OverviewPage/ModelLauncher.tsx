@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { LauncherRunState, LlmLauncher, SparkSnapshot } from "../../api/types";
 import { runLauncher } from "../../api/client";
@@ -139,8 +140,8 @@ export function ModelLauncher({
   } else if (launchers.length === 0) {
     body = (
       <>
-        <div className="ov-launch__title">No model loaded</div>
-        <div className="ov-launch__hint">Add a model folder (start.sh / stop.sh) to start it from here.</div>
+        <div className="ov-launch__title">{t("ui.no_model_loaded_e1a0")}</div>
+        <div className="ov-launch__hint">{t("launcher.hint")}</div>
         <button type="button" className="btn btn--sm btn--primary" onClick={() => setAdding(true)}>
           <PlusIcon className="h-3.5 w-3.5" />
           Add a model

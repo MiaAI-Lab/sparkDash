@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { useMemo } from "react";
 import { HISTORY_MAX, useMetricsHistory, useTimedMetricsHistory, avgPositive } from "../../hooks/metricsStore";
 import type { TimedSample } from "../../hooks/ringBuffer";
@@ -59,7 +60,7 @@ function fmtSpan(seconds: number): string {
 }
 
 function historyLabel(): string {
-  return `last 30m · averages since page opened (up to ${fmtSpan(HISTORY_MAX * 2)})`;
+  return t("llm.trend_hint", { span: fmtSpan(HISTORY_MAX * 2) });
 }
 
 /** Newest DISPLAY_WINDOW samples — the slice the chart draws. */
@@ -117,14 +118,14 @@ export function LlmTrendChart({
         <span className="sp-muted">{historyLabel()}</span>
       </div>
       {!hasData ? (
-        <p className="sp-muted">No samples yet.</p>
+        <p className="sp-muted">{t("ui.no_samples_yet_e511")}</p>
       ) : (
         <svg
           viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
           preserveAspectRatio="none"
           className="sp-trend-svg"
           role="img"
-          aria-label="Generation and prefill tokens per second over the last 30 minutes"
+          aria-label={t("ui.generation_and_prefill_tokens_pe_1d00")}
         >
           {prefillPts.map((points, index) => (
             <g key={`prefill-${index}`}>
@@ -158,20 +159,20 @@ export function LlmTrendChart({
       )}
       <div className="sp-trend-foot">
         <span>
-          Gen avg{" "}
+          {t("llm.gen_avg")}{" "}
           <span className="mono text-accent">{fmt(genAvg)}</span>
         </span>
         <span>
-          Prefill avg{" "}
+          {t("llm.prefill_avg")}{" "}
           <span className="mono text-text">{fmt(prefillAvg)}</span>
         </span>
         <span>
-          TTFT avg{" "}
+          {t("llm.ttft_avg")}{" "}
           <span className="mono">
             {ttftAvg != null ? `${ttftAvg.toFixed(3)}s` : "—"}
           </span>
         </span>
-        <span>avg over busy samples only</span>
+        <span>{t("llm.busy_only")}</span>
       </div>
     </div>
   );

@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { SparkSnapshot } from "../../api/types";
 import { fetchLlmTokenTotals } from "../../api/llmTokenClient";
@@ -5,7 +6,6 @@ import { formatTokensCompact } from "../../shared/tokenFormat";
 import { TrendLine } from "../ui/TrendLine";
 import { aggregateModelTotals } from "./FleetTokenTotals";
 import { computeFleetTotals, pushRolling } from "./fleetStats";
-
 interface Trends {
   decode: number[];
   power: number[];
@@ -85,12 +85,12 @@ export function FleetKpis({
   const [tokens, setTokens] = useState<{ completion: number; prompt: number } | null>(null);
 
   useEffect(() => {
-    const t = totalsRef.current;
+    const totalsNow = totalsRef.current;
     setTrends((prev) => {
       const next = {
-        decode: pushRolling(prev.decode, t.decodeTps),
-        power: pushRolling(prev.power, t.powerW),
-        mem: pushRolling(prev.mem, t.memUsedMb / 1024),
+        decode: pushRolling(prev.decode, totalsNow.decodeTps),
+        power: pushRolling(prev.power, totalsNow.powerW),
+        mem: pushRolling(prev.mem, totalsNow.memUsedMb / 1024),
       };
       persisted = next;
       return next;
@@ -111,10 +111,10 @@ export function FleetKpis({
           if (!cancelled) setTokens(null);
         });
     void load();
-    const t = window.setInterval(load, 60_000);
+    const pollTimer = window.setInterval(load, 60_000);
     return () => {
       cancelled = true;
-      window.clearInterval(t);
+      window.clearInterval(pollTimer);
     };
   }, [showTokens]);
 
@@ -129,7 +129,7 @@ export function FleetKpis({
     <div className="ov-kpis" data-count={count}>
       {showDecode ? (
         <Kpi
-          label="Fleet decode"
+          label={t("s3e79376202")}
           value={totals.decodeTps.toFixed(1)}
           unit="tok/s"
           trend={trends.decode}
@@ -138,7 +138,7 @@ export function FleetKpis({
       ) : null}
       {showPower ? (
         <Kpi
-          label="Fleet power"
+          label={t("sebb91fc811")}
           value={totals.powerW.toFixed(0)}
           unit="W"
           trend={trends.power}
@@ -147,7 +147,7 @@ export function FleetKpis({
       ) : null}
       {showMemory ? (
         <Kpi
-          label="Memory in use"
+          label={t("sb82f55739b")}
           value={memGb.toFixed(0)}
           unit="GB"
           right={memPct != null ? <span className="ov-delta mono">{memPct}%</span> : undefined}
@@ -157,15 +157,15 @@ export function FleetKpis({
       ) : null}
       {!showTokens ? null : tokens && tokensCompact ? (
         <Kpi
-          label="Tokens today"
+          label={t("seb8d96ad52")}
           value={tokensCompact[1]}
           unit={tokensCompact[2] || "tok"}
-          foot={`generated · ${formatTokensCompact(tokens.prompt)} prefill`}
+          foot={t("overview.kpiGeneratedPrefill", { n: formatTokensCompact(tokens.prompt) })}
           color="var(--color-success)"
         />
       ) : (
         <Kpi
-          label="Online"
+          label={t("s54f664c70c")}
           value={String(totals.online)}
           unit={`/ ${totals.total} units`}
           foot={totals.online === totals.total ? "all units reachable" : `${totals.total - totals.online} offline`}

@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import type { TailscaleMetrics } from "../../api/types";
 import { Panel } from "../ui/Panel";
 import { Tag } from "../ui/Tag";
@@ -67,7 +68,7 @@ export function TailscalePanel({ tailscale, className }: TailscalePanelProps) {
         {tailscale?.keyExpired && <Row label="Key" value="EXPIRED — needs re-auth" danger />}
         {tailscale?.version && <Row label="Version" value={tailscale.version} tabular />}
         {!available && !tailscale?.error && (
-          <p className="sp-muted">Waiting for first poll…</p>
+          <p className="sp-muted">{t("ui.waiting_for_first_poll_f122")}</p>
         )}
       </div>
     </Panel>

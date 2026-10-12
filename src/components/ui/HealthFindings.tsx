@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import type { HealthFinding } from "../../api/types";
 import { Tag } from "./Tag";
 import { AlertTriangleIcon } from "./icons";
@@ -24,7 +25,7 @@ export function HealthChips({ findings }: { findings: readonly HealthFinding[] |
   const shown = list.slice(0, 2);
   const more = list.length - shown.length;
   return (
-    <div className="health-strip" role="status" aria-label="Health findings">
+    <div className="health-strip" role="status" aria-label={t("ui.health_findings_3377")}>
       {shown.map((f) => (
         <div key={f.id} className={`health-row health-row--${f.severity}`} title={`${f.detail} ${f.hint}`}>
           <AlertTriangleIcon className="health-row__icon" />
@@ -33,7 +34,7 @@ export function HealthChips({ findings }: { findings: readonly HealthFinding[] |
       ))}
       {more > 0 ? (
         <div className="health-more" title={list.slice(2).map((f) => f.title).join("\n")}>
-          +{more} more
+          {t("health.n_more", { n: more })}
         </div>
       ) : null}
     </div>
@@ -45,7 +46,7 @@ export function HealthList({ findings }: { findings: readonly HealthFinding[] | 
   const list = sortFindings(findings);
   if (list.length === 0) return null;
   return (
-    <section className="health-list" aria-label="Health findings">
+    <section className="health-list" aria-label={t("ui.health_findings_3377")}>
       {list.map((f) => (
         <div key={f.id} className={`health-item health-item--${f.severity}`}>
           <div className="health-item__title">

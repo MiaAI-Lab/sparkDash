@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { RestartButton } from "../ui/RestartButton";
 import { AppLink } from "../ui/AppLink";
 import { ENERGY_ID, idToPath } from "../../constants";
@@ -52,20 +53,20 @@ export function FleetEnergyCard({
   const stale = (data?.staleNodeIds ?? []).map((id) => nodeNames?.[id] ?? id);
   const partialHelp =
     data && !data.membershipChanged && data.freshNodeCount < nodeCount
-      ? `Energy is estimated from each node's live GPU and CPU readings. ${
-          stale.length ? `No fresh reading from: ${stale.join(", ")}. ` : ""
-        }A node that is offline, unreachable or not reporting power stops the fleet total from being measured for that time, so 24h coverage drops. It recovers by itself once the node reports again.`
+      ? `${t("overview.energyHelpBase")} ${
+          stale.length ? `${t("overview.energyHelpStale", { names: stale.join(", ") })} ` : ""
+        }${t("overview.energyHelpTail")}`
       : null;
   const state = error
-    ? `Energy telemetry unavailable: ${error}`
+    ? t("overview.energyUnavailable", { error })
     : data?.membershipChanged
-      ? "Fleet membership changed. Restart sparkDash to establish a truthful new accounting scope."
+      ? t("overview.energyMembership")
       : !data
-        ? "Loading fleet energy…"
+        ? t("overview.energyLoading")
         : data.freshNodeCount < nodeCount
-          ? `Partial coverage: ${data.freshNodeCount}/${nodeCount} nodes currently fresh.`
+          ? t("overview.energyPartial", { fresh: data.freshNodeCount, total: nodeCount })
           : data.energy24hKwh == null
-            ? "Warming up — no complete energy interval recorded yet."
+            ? t("overview.energyWarmingUp")
             : null;
 
   const hourly = data?.hourlyWatts24h ?? Array(24).fill(null);
@@ -73,12 +74,12 @@ export function FleetEnergyCard({
   return (
     <section className="panel ov-card" aria-labelledby="fleet-energy-title">
       <div className="ov-card__head">
-        <h2 id="fleet-energy-title" className="ov-card__title">Fleet energy</h2>
+        <h2 id="fleet-energy-title" className="ov-card__title">{t("overview.fleetEnergy")}</h2>
         <div className="ov-card__tools">
-          <span className="tag">{data ? `${data.freshNodeCount}/${nodeCount} fresh` : "\u2014"}</span>
+          <span className="tag">{data ? t("overview.freshTag", { fresh: data.freshNodeCount, total: nodeCount }) : "\u2014"}</span>
           {onOpenDetails ? (
             <AppLink href={idToPath(ENERGY_ID)} className="btn btn--sm btn--ghost" onNavigate={onOpenDetails}>
-              Details
+              {t("overview.details")}
             </AppLink>
           ) : null}
         </div>
@@ -96,24 +97,24 @@ export function FleetEnergyCard({
       )}
       {data?.membershipChanged && !error ? <RestartButton /> : null}
       <div>
-        <div className="big-num">{number(data?.energy24hKwh ?? null)}<small>kWh / 24 h</small></div>
-        <div className="ov-card__sub mono">Estimated, not wall-metered · 24h coverage {coverage.toFixed(1)}%</div>
+        <div className="big-num">{number(data?.energy24hKwh ?? null)}<small>{t("overview.energyPerDay")}</small></div>
+        <div className="ov-card__sub mono">{t("overview.energyEstimatedLine", { pct: coverage.toFixed(1) })}</div>
       </div>
-      <div className="ov-bars" aria-label="Hourly estimated watts for the last 24 hours, with gaps shown empty">
+      <div className="ov-bars" aria-label={t("overview.hourlyWattsAria")}>
         {hourly.map((watts, index) => (
           <span
             key={index}
             className={index === hourly.length - 1 ? "is-now" : undefined}
             style={{ height: watts == null ? 0 : `${Math.max(4, (watts / max) * 100)}%` }}
-            title={watts == null ? "No complete coverage" : `${watts.toFixed(0)} W`}
+            title={watts == null ? t("overview.noCompleteCoverage") : `${watts.toFixed(0)} W`}
           />
         ))}
       </div>
-      <div className="ov-axis mono"><span>24h ago</span><span>12h</span><span>now</span></div>
+      <div className="ov-axis mono"><span>{t("overview.energyAgo24h")}</span><span>{t("overview.energyAgo12h")}</span><span>{t("overview.energyNow")}</span></div>
       <dl className="ov-stats">
-        <div><dt>Current</dt><dd className="mono">{number(data?.currentWatts30s ?? null, 0)} W</dd></div>
-        <div><dt>31 days</dt><dd className="mono">{number(data?.energy31dKwh ?? null)} kWh</dd></div>
-        <div><dt>Efficiency</dt><dd className="mono">{significant(data?.whPerOutputToken24h ?? null)} Wh/token</dd></div>
+        <div><dt>{t("overview.energyCurrent")}</dt><dd className="mono">{number(data?.currentWatts30s ?? null, 0)} W</dd></div>
+        <div><dt>{t("overview.energy31d")}</dt><dd className="mono">{number(data?.energy31dKwh ?? null)} kWh</dd></div>
+        <div><dt>{t("overview.energyEfficiency")}</dt><dd className="mono">{significant(data?.whPerOutputToken24h ?? null)} Wh/token</dd></div>
       </dl>
     </section>
   );

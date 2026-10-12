@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { GpuMetrics } from "../../api/types";
 import { getGpuHistory } from "../../api/client";
@@ -165,7 +166,7 @@ export function GpuHistoryChart({
   const viewOptions: Array<[GpuView, string]> = [["combined", "Combined"], ["all", "All GPUs"], ...indices.map((i): [GpuView, string] => [i, `GPU ${i}`])];
   const controls = multi ? (
     <div className="sp-chart__controls">
-      <div className="seg" role="group" aria-label="GPUs to plot">
+      <div className="seg" role="group" aria-label={t("ui.gpus_to_plot_8798")}>
         {viewOptions.map(([v, label]) => (
           <button
             key={String(v)}
@@ -180,7 +181,7 @@ export function GpuHistoryChart({
         ))}
       </div>
       {view === "all" && (
-        <div className="seg" role="group" aria-label="Metric to plot">
+        <div className="seg" role="group" aria-label={t("ui.metric_to_plot_e22e")}>
           {GPU_METRICS.map((m) => (
             <button
               key={m.id}
@@ -213,7 +214,7 @@ export function GpuHistoryChart({
       <div>
         {controls}
         <div className="sp-chart sp-chart--empty" ref={wrapRef}>
-          <p className="sp-chart__note">Collecting history. The chart fills in while this page is open.</p>
+          <p className="sp-chart__note">{t("ui.collecting_history_the_chart_fil_33ed")}</p>
         </div>
       </div>
     );
@@ -227,7 +228,7 @@ export function GpuHistoryChart({
         height={HEIGHT}
         viewBox={`0 0 ${width} ${HEIGHT}`}
         role="img"
-        aria-label="GPU utilization, power and temperature history"
+        aria-label={t("ui.gpu_utilization_power_and_temper_6c99")}
       >
         <defs>
           <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">

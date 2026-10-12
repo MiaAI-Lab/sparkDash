@@ -1,3 +1,4 @@
+import { t } from "../../../i18n";
 import { useMemo, useState } from "react";
 import type { ToolEvalRun } from "../../../api/types";
 import { Tag } from "../../ui/Tag";
@@ -27,7 +28,7 @@ const count = (n: NormToolResult, v: number) => (n.scenarios.length ? v : "–")
 function RunHead({ side, run, n, other }: { side: "A" | "B"; run: ToolEvalRun; n: NormToolResult; other: NormToolResult }) {
   return (
     <div className={`te-sbs__head te-sbs__head--${side.toLowerCase()}`}>
-      <span className="eyebrow">Run {side}</span>
+      <span className="eyebrow">{t("bench.run_n", { side })}</span>
       <b className="te-sbs__title">{run.label || fmtDate(run.startedAt)}</b>
       <span className="te-faint">{run.label ? `${fmtDate(run.startedAt)} · ` : ""}{run.model ?? n.model ?? "auto model"}</span>
       <div className="te-sbs__score">
@@ -59,7 +60,7 @@ export function SideBySide({ a, b, runA, runB, onSwap }: { a: NormToolResult; b:
       <div className="te-sbs__top">
         <RunHead side="A" run={runA} n={a} other={b} />
         <div className="te-sbs__mid">
-          <button type="button" className="btn btn--sm btn--ghost" onClick={onSwap} title="Swap A and B">
+          <button type="button" className="btn btn--sm btn--ghost" onClick={onSwap} title={t("bench.swap_a_and_b_012d_2")}>
             ⇄ Swap
           </button>
         </div>
@@ -141,7 +142,7 @@ export function SideBySide({ a, b, runA, runB, onSwap }: { a: NormToolResult; b:
           </table>
         </div>
       ) : (
-        <p className="te-empty">Every scenario ended with the same status in both runs.</p>
+        <p className="te-empty">{t("bench.every_scenario_ended_with_the_db54_2")}</p>
       )}
         </>
       ) : null}

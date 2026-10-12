@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import type { RamMetrics } from "../../api/types";
 import { TrendLine } from "../ui/TrendLine";
 import { Panel } from "../ui/Panel";

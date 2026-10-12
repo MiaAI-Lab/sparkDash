@@ -1,3 +1,4 @@
+import { t } from "../../../i18n";
 import type { ToolEvalLine, ToolEvalRun } from "../../../api/types";
 import { Tag } from "../../ui/Tag";
 import { GenericResult, GenericValue } from "./GenericResult";
@@ -23,7 +24,7 @@ export function RunMeta({ run }: { run: ToolEvalRun }) {
       </div>
       <div className="te-cmd">
         <div className="te-cmd__head">
-          <span className="eyebrow">Command</span>
+          <span className="eyebrow">{t("bench.command")}</span>
           <CopyButton text={run.command} />
         </div>
         <pre className="te-cmd__body">{run.command}</pre>
@@ -31,7 +32,7 @@ export function RunMeta({ run }: { run: ToolEvalRun }) {
       {optionCount ? (
         <details className="te-disclosure">
           <summary>
-            <span>Options used ({optionCount})</span>
+            <span>{t("bench.options_used", { n: optionCount })}</span>
           </summary>
           <div className="te-disclosure__body">
             <GenericValue value={run.options} />
@@ -78,7 +79,7 @@ export function ResultPanel({ sparkId, type, run, lines, errorCode, version }: R
       {!failed && lines && lines.length ? (
         <>
           {toolNotes(lines).length ? (
-            <Notice tone="info" title="Good to know">
+            <Notice tone="info" title={t("bench.good_to_know_7dad")}>
               {toolNotes(lines).map((n) => (
                 <p key={n.key}>{n.text}</p>
               ))}
@@ -89,14 +90,14 @@ export function ResultPanel({ sparkId, type, run, lines, errorCode, version }: R
       {failed && lines && lines.length ? (
         <details className="te-disclosure" open>
           <summary>
-            <span>Output of the run</span>
+            <span>{t("bench.output_of_the_run_65c1_2")}</span>
           </summary>
           <div className="te-disclosure__body">
             <RunTerminal lines={lines} />
           </div>
         </details>
       ) : null}
-      {run.status === "running" ? <Notice tone="info">This run has not finished yet. Its result appears here when it does.</Notice> : null}
+      {run.status === "running" ? <Notice tone="info">{t("bench.this_run_has_not_finished_b857_2")}</Notice> : null}
       {state.loading ? <Skeleton lines={5} /> : null}
       {state.error && wantsResult ? (
         <Notice tone={failed ? "info" : "bad"} title={failed ? "No result was saved" : "Could not load the result"} actions={failed ? null : <button type="button" className="btn btn--sm" onClick={state.reload}>Retry</button>}>

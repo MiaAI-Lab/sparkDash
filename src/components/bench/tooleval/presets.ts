@@ -1,3 +1,4 @@
+import { t } from "../../../i18n";
 import type { FieldValue } from "./options";
 
 export interface Preset {
@@ -12,15 +13,15 @@ export interface Preset {
 /** One-click starting points per page type. Applied on top of the page's defaults. */
 export const PRESETS: Record<string, Preset[]> = {
   "tool-eval": [
-    { id: "quick", label: "Quick check", help: "Only the 15 core scenarios (about 2 minutes).", values: { short: true } },
-    { id: "full", label: "Full", help: "Every standard scenario with the tool's defaults.", values: {} },
-    { id: "hard", label: "Hard mode only", help: "Only the Hard Mode scenarios (category P).", values: { "hardmode-only": true } },
-    { id: "repro", label: "Reproducible", help: "Temperature 0 and a fixed seed so repeat runs are comparable.", values: { temperature: "0", seed: "42" } },
-    { id: "thinking", label: "Thinking model", help: "Disables thinking output and allows 120 s per request (Qwen3 / DeepSeek style).", values: { "no-think": true, timeout: "120" } },
+    { id: "quick", label: t("presets.quick_check"), help: t("presets.quick_check_help"), values: { short: true } },
+    { id: "full", label: t("presets.full"), help: t("presets.full_help"), values: {} },
+    { id: "hard", label: t("presets.hard_only"), help: t("presets.hard_only_help"), values: { "hardmode-only": true } },
+    { id: "repro", label: t("presets.reproducible"), help: t("presets.reproducible_help"), values: { temperature: "0", seed: "42" } },
+    { id: "thinking", label: t("presets.thinking_model"), help: t("presets.thinking_help"), values: { "no-think": true, timeout: "120" } },
   ],
   throughput: [
-    { id: "quick", label: "Quick", help: "Short prompts, one depth, one run per point.", values: { pp: "512", tg: "64", depth: "0", concurrency: "1", "benchy-runs": "1" } },
-    { id: "standard", label: "Standard", help: "The tool's defaults.", values: {} },
+    { id: "quick", label: t("presets.quick"), help: t("presets.quick_help"), values: { pp: "512", tg: "64", depth: "0", concurrency: "1", "benchy-runs": "1" } },
+    { id: "standard", label: t("presets.standard"), help: t("presets.standard_help"), values: {} },
     { id: "deep", label: "Deep context", help: "Up to 32k of context and 8 concurrent requests.", values: { depth: "0,4096,8192,16384,32768", concurrency: "1,2,4,8" } },
   ],
   "spec-decode": [
@@ -64,32 +65,32 @@ export function simpleTemplates(type: string): SimpleTemplate[] {
     return [
       {
         id: "regular",
-        label: "Regular run",
-        help: "The full standard suite: tool selection, parameters, multi-step chains, error recovery, safety and more.",
+        label: t("presets.regular_run"),
+        help: t("presets.regular_run_help"),
         values: { seed: "42" },
         size: "69 scenarios",
         time: "about 10–20 min",
       },
       {
         id: "regular-hard",
-        label: "Regular + Hard mode",
-        help: "The full suite plus the Hard Mode scenarios.",
+        label: t("presets.regular_hard"),
+        help: t("presets.regular_hard_help"),
         values: { hardmode: true, seed: "42" },
         size: "92 scenarios",
         time: "about 15–30 min",
       },
       {
         id: "short",
-        label: "Short run",
-        help: "Only the 15 core scenarios. A fast check after changing a model or setting.",
+        label: t("presets.short_run"),
+        help: t("presets.short_run_help"),
         values: { short: true, seed: "42" },
         size: "15 scenarios",
         time: "about 2 min",
       },
       {
         id: "hard",
-        label: "Hard mode only",
-        help: "Only the adversarial Hard Mode scenarios: stateful, transactional and tricky. For models that ace the regular run.",
+        label: t("presets.hard_only"),
+        help: t("presets.hard_only_help2"),
         values: { "hardmode-only": true, seed: "42" },
         size: "23 scenarios",
         time: "about 5–10 min",
