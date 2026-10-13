@@ -11,6 +11,10 @@ import { TailscaleProbe } from "../collectors/TailscaleProbe.js";
 import { llmDaily } from "../collectors/LlmDaily.js";
 import { HealthEvaluator } from "../health/HealthEvaluator.js";
 import { sshExec } from "../collectors/ssh.js";
+
+/** macOS uptime in seconds from `kern.boottime` (`{ sec = 1791857261, usec = ... } ...`). */
+export const DARWIN_UPTIME_CMD =
+  "b=$(sysctl -n kern.boottime | sed -E 's/^[{] sec = ([0-9]+),.*/\\1/'); echo $(( $(date +%s) - b ))";
 import {
   POLL_INTERVAL_STORAGE,
   POLL_INTERVAL_LIVENESS,
@@ -714,6 +718,9 @@ export class SparkMonitor {
     if (this.spark.isLocal) {
       const mapped = path.join(HOST_PATHS.PROC, "uptime");
       content = fs.readFileSync(mapped, "utf8");
+    } else if (this.spark.platform === "darwin") {
+      // macOS has no /proc/uptime; without this every Mac unit stays offline.
+      content = await sshExec(this.spark, DARWIN_UPTIME_CMD);
     } else {
       content = await sshExec(this.spark, "cat /proc/uptime");
     }

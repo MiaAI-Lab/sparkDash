@@ -118,6 +118,32 @@ export function parseAmdSmiMetrics(raw, limitRaw = null) {
   });
 }
 
+/**
+ * Locate and run macmon on a macOS unit. Non-interactive SSH sessions get a minimal
+ * PATH, so Homebrew and cargo locations are tried explicitly. MACMON_PATH overrides.
+ */
+const MACMON_CANDIDATES = [
+  process.env.MACMON_PATH,
+  "/opt/homebrew/bin/macmon",
+  "/usr/local/bin/macmon",
+  "$HOME/.cargo/bin/macmon",
+].filter(Boolean);
+export const MACMON_CMD =
+  `for m in ${MACMON_CANDIDATES.map((p) => (p.startsWith("$HOME") ? `"${p}"` : `'${p}'`)).join(" ")} "$(command -v macmon 2>/dev/null)"; do ` +
+  'if [ -n "$m" ] && [ -x "$m" ]; then "$m" pipe -s 1 -i 200; exit 0; fi; done; echo NO_MACMON';
+
+/** Last JSON line of `macmon pipe` output, parsed; null when absent or malformed. */
+export function parseMacmonSample(output) {
+  const line = String(output ?? "").trim().split("\n").filter((l) => l.trim().startsWith("{")).pop();
+  if (!line) return null;
+  try {
+    const j = JSON.parse(line);
+    return j && typeof j === "object" ? j : null;
+  } catch {
+    return null;
+  }
+}
+
 const REMOTE_GPU_SECTIONS = new Set(["NVIDIA", "NVIDIA_VRAM", "NVIDIA_APPS", "AMD", "AMD_LIMITS", "MEMINFO"]);
 
 /**
@@ -308,6 +334,10 @@ export class SystemCollector {
   /** Collect GPU metrics (temperature, usage, power, VRAM). */
   async collectGpu() {
     try {
+      if (this.isMac && !this.spark.isLocal) {
+        const macGpu = await this._getRemoteGpuMac();
+        return tagCollectionResult(macGpu, macGpu.gpus.length > 0);
+      }
       const gpuData = this.spark.isLocal
         ? await this._getGPUAll()
         : this.isWindows
@@ -327,6 +357,10 @@ export class SystemCollector {
     const collectionSequence = ++this._cpuCollectionSequence;
     try {
       if (!this.spark.isLocal) {
+        if (this.isMac) {
+          const macCpu = await this._getRemoteCpuMac();
+          return tagCollectionResult(macCpu, macCpu.temperatureSource === "macmon");
+        }
         const cpuData = this.isWindows
           ? await this._getWindowsCpu(collectionSequence)
           : await this._getRemoteCpu(collectionSequence);
@@ -415,7 +449,7 @@ export class SystemCollector {
   async collectRam() {
     if (!this.spark.isLocal) {
       if (this.isWindows) return this._getWindowsRam();
-      if (this.isMac) return this._getRemoteRamMac();
+      if (this.isMac) return (await this._macmonRam()) ?? this._getRemoteRamMac();
       return this._getRemoteRam();
     }
     try {
@@ -443,6 +477,7 @@ export class SystemCollector {
 
   /** Collect network metrics (interfaces, speeds). */
   async collectNetwork() {
+    if (!this.spark.isLocal && this.isMac) return this._defaultNetwork();
     if (!this.spark.isLocal) return this.isWindows ? this._getWindowsNetwork() : this._getRemoteNetwork();
     try {
       const interfaces = this._tagDisabledInterfaces(await this._getNetworkMetrics());
@@ -486,6 +521,7 @@ export class SystemCollector {
 
   /** Collect unified memory metrics. */
   async collectUnifiedMemory() {
+    if (!this.spark.isLocal && this.isMac) return this._getRemoteUnifiedMemoryMac();
     if (!this.spark.isLocal) return this.isWindows ? this._getWindowsUnifiedMemory() : this._getRemoteUnifiedMemory();
     try {
       return await this._getUnifiedMemory();
@@ -1931,6 +1967,127 @@ export class SystemCollector {
    */
   get isMac() {
     return this.spark.platform === "darwin";
+  }
+
+  // ─── macOS via macmon ────────────────────────────────────
+  // macmon (github.com/vladkens/macmon) reads Apple Silicon CPU/GPU/power/temperature
+  // without sudo. One sample feeds the GPU, CPU, RAM and unified-memory polls (cached
+  // 1.5 s), so a Mac costs one SSH call per cycle. Without macmon on the host these
+  // collectors fall back to defaults (RAM keeps the sysctl/memory_pressure reader).
+  _macmonSample(executor = sshExec) {
+    const now = Date.now();
+    if (this._macmon && now - this._macmon.at < 1500) return this._macmon.promise;
+    const promise = executor(this.spark, MACMON_CMD).then((out) => {
+      const sample = parseMacmonSample(out);
+      if (!sample) throw new Error("macmon not found on host (install it, or set MACMON_PATH)");
+      return sample;
+    });
+    this._macmon = { at: now, promise };
+    promise.catch(() => {
+      if (this._macmon?.promise === promise) this._macmon = null;
+    });
+    return promise;
+  }
+
+  async _getRemoteGpuMac() {
+    try {
+      const j = await this._macmonSample();
+      const r1 = (n) => Math.round((Number(n) || 0) * 10) / 10;
+      const temperature = r1(j.temp?.gpu_temp_avg);
+      const usage = Math.round((Number(j.gpu_usage?.[1]) || 0) * 100);
+      const draw = r1(j.gpu_power);
+      const total = Math.round((Number(j.memory?.ram_total) || 0) / 1048576);
+      const used = Math.round((Number(j.memory?.ram_usage) || 0) / 1048576);
+      const vram = {
+        used,
+        total,
+        percentage: total > 0 ? Math.round((used / total) * 100) : 0,
+        available: Math.max(0, total - used),
+      };
+      const metricAvailability = {
+        temperature: temperature > 0,
+        usage: true,
+        powerDraw: true,
+        powerLimit: false,
+        vramUsed: total > 0,
+        vramTotal: total > 0,
+      };
+      const throttle = this._defaultThrottle();
+      const device = {
+        vendor: "apple",
+        index: 0,
+        physicalIndex: 0,
+        name: "Apple GPU",
+        uuid: null,
+        temperature,
+        usage,
+        power: { draw, limit: 0 },
+        vram,
+        throttle,
+        processes: [],
+        metricAvailability,
+      };
+      return {
+        temperature,
+        usage,
+        power: { draw, limit: 0, systemDraw: Math.round(Number(j.sys_power) || 0) },
+        vram,
+        processes: [],
+        throttle,
+        nvErrNoMemory: 0,
+        vendor: "apple",
+        vendors: ["apple"],
+        metricAvailability,
+        gpus: [device],
+      };
+    } catch (err) {
+      console.error(`[SystemCollector] macmon GPU error for ${this.spark.id}:`, err.message);
+      return this._defaultGpu();
+    }
+  }
+
+  async _getRemoteCpuMac() {
+    try {
+      const j = await this._macmonSample();
+      return {
+        usage: Math.round((Number(j.cpu_usage_pct) || 0) * 100),
+        temperature: Math.round((Number(j.temp?.cpu_temp_avg) || 0) * 10) / 10,
+        temperatureLabel: "CPU avg",
+        temperatureSource: "macmon",
+        draw: Math.round((Number(j.cpu_power) || 0) * 10) / 10,
+        tdp: 0,
+      };
+    } catch (err) {
+      console.error(`[SystemCollector] macmon CPU error for ${this.spark.id}:`, err.message);
+      return this._defaultCpu();
+    }
+  }
+
+  async _macmonRam() {
+    try {
+      const m = (await this._macmonSample()).memory || {};
+      const total = Math.round((Number(m.ram_total) || 0) / 1048576);
+      const used = Math.round((Number(m.ram_usage) || 0) / 1048576);
+      if (!(total > 0)) return null;
+      return { used, total, percentage: Math.round((used / total) * 100) };
+    } catch {
+      return null;
+    }
+  }
+
+  async _getRemoteUnifiedMemoryMac() {
+    const ram = await this._macmonRam();
+    if (!ram) return this._defaultUnifiedMemory();
+    return {
+      total: ram.total,
+      gpuUsed: 0,
+      cpuUsed: ram.used,
+      used: ram.used,
+      available: Math.max(0, ram.total - ram.used),
+      percentage: ram.percentage,
+      oomRisk: ram.percentage > 85 ? "high" : ram.percentage > 60 ? "medium" : "low",
+      bandwidth: { current: 0, peak: 0 },
+    };
   }
 
   /** macOS RAM via sysctl + memory_pressure (one SSH round trip). */

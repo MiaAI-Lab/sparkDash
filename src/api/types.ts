@@ -260,7 +260,7 @@ export interface GpuDevice {
   index: number;
   /** Physical index reported by the vendor tool. */
   physicalIndex?: number;
-  vendor?: "amd" | "nvidia";
+  vendor?: "amd" | "nvidia" | "apple";
   metricAvailability?: GpuMetricAvailability;
   name: string | null;
   uuid: string | null;

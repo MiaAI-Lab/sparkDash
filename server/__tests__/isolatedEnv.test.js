@@ -6,7 +6,7 @@ import { CONFIG_DIR_VARS, CONFIG_PATH_VARS, isolatedConfigEnv } from "./isolated
 
 const SERVER = path.resolve(import.meta.dirname, "..");
 // Directories and binaries, not files under config/.
-const NOT_CONFIG_FILES = new Set(["PATH", "HOST_PROC_PATH", "HOST_SYS_PATH", "HOST_ROOT_PATH", "SSH_IDENTITY_FILE"]);
+const NOT_CONFIG_FILES = new Set(["PATH", "HOST_PROC_PATH", "HOST_SYS_PATH", "HOST_ROOT_PATH", "SSH_IDENTITY_FILE", "MACMON_PATH"]);
 
 function sourceFiles(dir) {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
