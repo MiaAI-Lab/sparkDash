@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
+import { spawnSync } from "node:child_process";
 import { SystemCollector, parseAmdSmiMetrics, splitRemoteGpuSections } from "../SystemCollector.js";
 
 const amdMetrics = {
@@ -238,4 +239,14 @@ test("NVIDIA with an N/A power.limit keeps the 120 W default shown, as before AM
   const agg = collector._aggregateGpuDevices([d]);
   assert.equal(agg.powerLimit, 120);
   assert.equal(agg.metricAvailability.powerLimit, true);
+});
+
+test("the remote GPU probe runs to the end under a zsh login shell", { skip: spawnSync("zsh", ["-c", "true"]).error != null }, async () => {
+  const collector = new SystemCollector({ id: "worker", isLocal: false, kind: "spark" });
+  let command = "";
+  await collector._getRemoteGpu(async (_spark, cmd) => { command = cmd; return ""; });
+  // An unmatched glob such as /opt/rocm-*/bin/amd-smi aborts zsh before any section prints.
+  const run = spawnSync("zsh", ["-c", command], { encoding: "utf8" });
+  assert.doesNotMatch(run.stderr, /no matches found/);
+  assert.match(run.stdout, /__MEMINFO__/);
 });

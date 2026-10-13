@@ -146,7 +146,9 @@ const AMD_GPU_FIELDS = ["temperature", "usage", "powerDraw", "powerLimit", "vram
 const AMD_SMI_RESOLVER = [
   'amd_smi="${AMD_SMI_PATH:-}"',
   'if [ -z "$amd_smi" ] || [ ! -x "$amd_smi" ]; then amd_smi="$(command -v amd-smi 2>/dev/null || true)"; fi',
-  'if [ -z "$amd_smi" ]; then for amd_candidate in "${ROCM_PATH:+$ROCM_PATH/bin/amd-smi}" "${ROCM_HOME:+$ROCM_HOME/bin/amd-smi}" /opt/rocm/bin/amd-smi /opt/rocm/core-*/bin/amd-smi /opt/rocm-*/bin/amd-smi; do if [ -x "$amd_candidate" ]; then amd_smi="$amd_candidate"; break; fi; done; fi',
+  // Versioned ROCm dirs come from find, not a shell glob: the remote login shell
+  // may be zsh, where an unmatched glob aborts the whole probe (no matches found).
+  'if [ -z "$amd_smi" ]; then for amd_candidate in "${ROCM_PATH:+$ROCM_PATH/bin/amd-smi}" "${ROCM_HOME:+$ROCM_HOME/bin/amd-smi}" /opt/rocm/bin/amd-smi $(find /opt -maxdepth 4 \\( -path \'/opt/rocm/core-*/bin/amd-smi\' -o -path \'/opt/rocm-*/bin/amd-smi\' \\) 2>/dev/null | sort); do if [ -x "$amd_candidate" ]; then amd_smi="$amd_candidate"; break; fi; done; fi',
 ].join("; ");
 // Keep vendor namespaces disjoint so collection failures cannot make AMD reuse
 // an NVIDIA device's index in per-card histories or Prometheus labels.
