@@ -11,15 +11,30 @@ export function useSmoothText(target: string, live: boolean): string {
   const pos = useRef(live ? 0 : target.length);
   const latest = useRef({ target, live });
   latest.current = { target, live };
+  const [reduceMotion, setReduceMotion] = useState(() =>
+    typeof window !== "undefined" &&
+    Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches)
+  );
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    if (reduce) {
-      pos.current = target.length;
-      setShown(target.length);
-      return;
-    }
+    const media = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    if (!media) return;
+    const update = () => setReduceMotion(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  // No animation does not mean no updates. Keep both cursors current so
+  // switching motion back on also preserves the text already on screen.
+  useEffect(() => {
+    if (!reduceMotion) return;
+    pos.current = target.length;
+    setShown(target.length);
+  }, [reduceMotion, target]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || reduceMotion) return;
     let raf = 0;
     let last = performance.now();
     const tick = (now: number) => {
@@ -41,9 +56,9 @@ export function useSmoothText(target: string, live: boolean): string {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [reduceMotion]);
 
-  return shown >= target.length ? target : target.slice(0, shown);
+  return reduceMotion || shown >= target.length ? target : target.slice(0, shown);
 }
 
 export interface TerminalCardProps {
