@@ -224,6 +224,21 @@ if [ "$PERSIST" -eq 1 ]; then
   chmod 644 "$UNIT.tmp"
   # Validate then atomically move into place (systemd refuses world-writable units).
   mv "$UNIT.tmp" "$UNIT"
+  # Review fix: "persist never runs systemctl enable" — the boot unit must
+  # actually be enabled, not merely present. Enable it here so Save is a
+  # complete, self-contained operation (idempotent; harmless if already on).
+  # Honors SPARKDASH_UNIT_DIR so test/sandbox installs enable within their
+  # own unit dir instead of the host's wants tree.
+  if [ -n "${SPARKDASH_UNIT_DIR:-}" ]; then
+    mkdir -p "${SPARKDASH_UNIT_DIR}/multi-user.target.wants"
+    ln -sf "${SPARKDASH_UNIT_DIR}/$(basename "$UNIT")" \
+      "${SPARKDASH_UNIT_DIR}/multi-user.target.wants/$(basename "$UNIT")"
+  else
+    systemctl enable "$UNIT" 2>/dev/null || {
+      mkdir -p /etc/systemd/system/multi-user.target.wants
+      ln -sf "$UNIT" "/etc/systemd/system/multi-user.target.wants/$(basename "$UNIT")"
+    }
+  fi
   systemctl daemon-reload
 fi
 
