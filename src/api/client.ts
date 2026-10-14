@@ -33,6 +33,8 @@ import type {
   QualityBenchJob,
   QualityBenchListResponse,
   StartQualityBenchRequest,
+  ClockCapSparkStatus,
+  ClockCapApplyResponse,
 } from "./types";
 import { authHeaders, reportAuthRequired } from "./authToken";
 
@@ -573,6 +575,28 @@ export function shutdownAllSparks(): Promise<BatchPowerResult> {
 /** Send WoL to all registered Sparks that have a MAC configured. */
 export function wakeAllSparks(): Promise<BatchPowerResult> {
   return apiFetch("/api/sparks/wake-all", { method: "POST" });
+}
+
+// ─── GPU clock cap ───────────────────────────────────────
+/** Per-node clock cap state (marker + live graphics clock). */
+export function fetchClockCap(id?: string): Promise<{ success: boolean; sparks: ClockCapSparkStatus[] }> {
+  const qs = id ? `?id=${encodeURIComponent(id)}` : "";
+  return apiFetch(`/api/sparks/clock-cap${qs}`);
+}
+
+/**
+ * Apply a preset cap (mhz from CLOCK_CAP_PRESETS) or revert to stock
+ * (mhz = null → nvidia-smi -rgc + marker removed). `sparkIds` "all" targets
+ * every node.
+ */
+export function setClockCap(
+  sparkIds: string[] | "all",
+  mhz: number | null
+): Promise<ClockCapApplyResponse> {
+  return apiFetch("/api/sparks/clock-cap", {
+    method: "POST",
+    body: JSON.stringify({ sparkIds, mhz }),
+  });
 }
 
 // ─── Hermes update preview ───────────────────────────────

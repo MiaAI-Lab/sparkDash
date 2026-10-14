@@ -709,6 +709,7 @@ sparkDash/
 | DELETE | `/api/llm-token-totals` | Reset Token totals (all Sparks, or one with `?sparkId=`) |
 | GET | `/api/health` · `/api/auth/status` | Bind / auth mode; whether a token is required and accepted |
 | POST | `/api/sparks/:id/shutdown` · `/wake` · `/api/sparks/shutdown-all` · `/wake-all` | Power controls (see [Power controls](#power-controls-shutdown--wake-on-lan)) |
+| GET/POST | `/api/sparks/clock-cap` · `/api/sparks/clock-cap/presets` | GPU clock cap: per-Spark status (`?id=`), apply a preset or Unlocked (`{ sparkIds, mhz }`, `mhz: null` unlocks), preset list (see [GPU clock cap](#gpu-clock-cap-fleet)) |
 | POST | `/api/sparks/:id/refresh/:domain` | Re-poll one domain now (`storage` or `llm` only) |
 | GET/POST/DELETE | `/api/sparks/:id/llm/showcase[/:sessionId]` | Prompt Showcase sessions |
 | GET | `/api/events` | Fleet event log (`limit`, `sparkId`, `sinceId`, `beforeId`; 2000 kept) |
@@ -884,6 +885,38 @@ units do not display stale discovered models.
 - On a **Windows PC** shutdown runs `shutdown.exe /s /t 5` over SSH; Wake-on-LAN needs a MAC address entered by hand.
 - Batch shutdown only targets **online** Sparks; offline nodes are skipped.
 - Power APIs are mutations: with `SPARKDASH_TOKEN` set they require it; without it they are open on loopback (local trust) **and** on a remote bind, unless `SPARKDASH_ALLOW_OPEN_REMOTE=0` makes that bind fail closed.
+
+### GPU clock cap (fleet)
+
+**Settings → GPU clock cap** caps or unlocks the GPU graphics clock on every
+Spark at once: pick a preset (1800–2400 MHz, every 100 MHz) or **Unlocked**,
+confirm, and each node runs `nvidia-smi -lgc 0,<MHz>` (or `-rgc`). The server
+rejects any value off the preset list with a `400`. Below the presets each
+Spark shows its GPU temperature and current cap; the preset matching the
+fleet's real state is highlighted on load, and **Mixed** shows when the nodes
+differ.
+
+- Each node needs a sudoers rule limited to those two invocations:
+
+  ```
+  sparky ALL=(root) NOPASSWD: /usr/bin/nvidia-smi -lgc *, /usr/bin/nvidia-smi -rgc
+  ```
+
+- NVML cannot read a graphics clock lock back, so every apply also writes
+  `~/.config/sparkdash/gpu-clock-cap` on the node as `<MHz> <boot_id>`. A
+  marker whose boot_id no longer matches the node's current boot is stale (the
+  reboot cleared the cap) and counts as stock. An apply is only reported once
+  the marker is read back.
+- Remote nodes run over SSH; the **local unit** runs as the SSH user on the
+  host (entering the host mount namespace when the dashboard is in Docker),
+  the same way the collectors do, so `~` and `sudo` resolve on the Spark.
+- A fleet-wide apply is saved as `clockCapTarget` in `config/settings.json`.
+  Every 5 s a reconcile loop re-applies it to any node that drifted (a reboot,
+  an out-of-band `nvidia-smi -rgc`, a different MHz) and logs a
+  `gpu.clockcap.reapplied` event. Applying to a subset of nodes through the
+  API does not change the saved target.
+- Applies and failures are logged to Activity (`gpu.clockcap.applied`,
+  `gpu.clockcap.unlocked`, `gpu.clockcap.failed`).
 
 ### Themes
 

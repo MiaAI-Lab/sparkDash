@@ -1621,3 +1621,38 @@ export class ToolEvalApiError extends Error {
     this.active = active;
   }
 }
+
+// ─── GPU clock cap ───────────────────────────────────────
+/** Per-node clock-cap state (marker ~/.config/sparkdash/gpu-clock-cap + live clocks.gr). */
+export interface ClockCapSparkStatus {
+  id: string;
+  name: string;
+  ok: boolean;
+  /** Effective cap in MHz, or null for stock / Unlocked. */
+  mhz: number | null;
+  /** True when a marker from an earlier boot exists (reboot cleared the cap). */
+  stale: boolean;
+  /** The stale marker's MHz, shown as an explanation only. */
+  markerMhz?: number | null;
+  /** Live graphics clock from nvidia-smi --query-gpu=clocks.gr. */
+  graphicsClockMHz: number | null;
+  /** GPU temperature in °C from the same status read. */
+  tempC?: number | null;
+  error?: string;
+}
+
+export interface ClockCapResult {
+  id: string;
+  name: string;
+  ok: boolean;
+  mhz?: number | null;
+  stale?: boolean;
+  graphicsClockMHz?: number | null;
+  error?: string;
+}
+
+export interface ClockCapApplyResponse {
+  success: boolean;
+  mhz: number | null;
+  results: ClockCapResult[];
+}
