@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { atomicWrite } from "./util/atomicWrite.js";
+import { CLOCK_CAP_PRESETS } from "./clockCap.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -62,6 +63,14 @@ const DEFAULTS = Object.freeze({
    * Off by default: when off the path answers 404.
    */
   prometheusExport: false,
+  /**
+   * The fleet-wide GPU clock-cap target the last fleet apply asked for —
+   * `{ mode: "fixed", mhz }` or `{ mode: "unlocked", mhz: null }`. null =
+   * nothing recorded, so the reconcile loop must not touch any node. The
+   * periodic reconcile re-applies this to nodes whose marker drifted (reboot,
+   * out-of-band -rgc, MHz change).
+   */
+  clockCapTarget: null,
 });
 
 const POLL_INTERVAL_MIN_MS = 500;
@@ -136,6 +145,15 @@ function _clampSettings(settings) {
   if (s.density !== "comfortable" && s.density !== "compact") {
     s.density = DEFAULTS.density;
   }
+  // The fleet clock-cap target must be exactly one of the shapes the route
+  // writes; anything else (junk from a hand edit) means "no target".
+  const t = s.clockCapTarget;
+  const validTarget =
+    t &&
+    typeof t === "object" &&
+    ((t.mode === "fixed" && Number.isInteger(t.mhz) && CLOCK_CAP_PRESETS.includes(t.mhz)) ||
+      (t.mode === "unlocked" && t.mhz === null));
+  if (!validTarget) s.clockCapTarget = null;
   return s;
 }
 

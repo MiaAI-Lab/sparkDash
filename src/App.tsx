@@ -634,6 +634,7 @@ function DashboardApp() {
         open={showSettings}
         onClose={() => setShowSettings(false)}
         onSaved={handleSettingsSaved}
+        sparks={displaySparks}
       />
     </div>
   );

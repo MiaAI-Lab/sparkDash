@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { isValidTimeZone, listTimeZones } from "../shared/timeZone";
 import { fetchSettings, updateSettings } from "../api/client";
 import { clearToken, getToken, onTokenChange, requestTokenPrompt } from "../api/authToken";
-import type { Settings } from "../api/types";
+import type { Settings, SparkSnapshot } from "../api/types";
+import { FleetClockCap } from "./FleetClockCap";
 import { useModalPresence } from "../hooks/useModalPresence";
 import packageJson from "../../package.json";
 import { XIcon } from "./ui/icons";
@@ -12,6 +13,8 @@ interface SettingsDialogProps {
   open: boolean;
   onClose: () => void;
   onSaved: (settings: Settings) => void;
+  /** Live fleet: the per-Spark clock-cap readouts come from here. */
+  sparks: SparkSnapshot[];
 }
 
 function useEscape(onClose: () => void) {
@@ -65,7 +68,7 @@ const POLL_PRESETS = [
   { label: "10s", value: 10000 },
 ];
 
-export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) {
+export function SettingsDialog({ open, onClose, onSaved, sparks }: SettingsDialogProps) {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -448,6 +451,12 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
               ) : null}
             </div>
           </SettingRow>
+
+          {/* Fleet-wide GPU clock control: the actuator is independent of the
+              settings JSON, so it renders even when the settings fail to load. */}
+          <div className="settings-fleet-cap">
+            <FleetClockCap sparks={sparks} />
+          </div>
 
           <div className="settings-links">
             <span>sparkDash v{packageJson.version}</span>
