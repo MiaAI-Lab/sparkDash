@@ -3,10 +3,12 @@ import { strict as assert } from "node:assert";
 import { SystemCollector, collectionWasSuccessful } from "../SystemCollector.js";
 import {
   WINDOWS_GPU_SCRIPT,
+  WINDOWS_AMD_GPU_SCRIPT,
   WINDOWS_SYSTEM_SCRIPT,
   parseWindowsSystem,
   powershellCommand,
   windowsGpuAsLinuxOutput,
+  mergeWindowsGpuOutputs,
 } from "../windowsMetrics.js";
 import { SparkRegistry } from "../../sparks/SparkRegistry.js";
 
@@ -42,7 +44,7 @@ function windowsCollector() {
 }
 
 test("commands are sent as an encoded PowerShell command that fits cmd.exe's line limit", () => {
-  for (const script of [WINDOWS_GPU_SCRIPT, WINDOWS_SYSTEM_SCRIPT]) {
+  for (const script of [WINDOWS_GPU_SCRIPT, WINDOWS_AMD_GPU_SCRIPT, WINDOWS_SYSTEM_SCRIPT]) {
     const cmd = powershellCommand(script);
     assert.ok(cmd.length < 8000, `${cmd.length} chars`);
     assert.match(cmd, /^powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand [A-Za-z0-9+/=]+$/);
@@ -95,6 +97,7 @@ test("a pipe or --- in a volume label or adapter name does not break parsing", (
 
 test("both scripts end with exit 0 so a failed native command is not read as a dead host", () => {
   assert.match(WINDOWS_GPU_SCRIPT, /\nexit 0$/);
+  assert.match(WINDOWS_AMD_GPU_SCRIPT, /\nexit 0$/);
   assert.match(WINDOWS_SYSTEM_SCRIPT, /\nexit 0$/);
 });
 
@@ -196,6 +199,83 @@ test("without nvidia-smi output the GPU collection is not successful (what the c
   assert.equal(collectionWasSuccessful(await c.collectGpu()), true);
   c._windowsRun = async () => "";
   assert.equal(collectionWasSuccessful(await c.collectGpu()), false);
+});
+
+// Strix Halo shape: nvidia-smi absent (four empty sections from the NVIDIA
+// script), counters answered instead. Figures in the style measured live on an
+// HP Z2 Mini G1a (128 GB installed, 96 GB UMA carve): Dedicated usage ~32 GiB
+// + Shared usage, Limits report 0 -> total falls back to installed-DIMM sum.
+const NVIDIA_EMPTY = ["", "---", "", "---", "", "---", ""].join("\r\n");
+const AMD_OUT = [
+  "[N/A], 12, [N/A], [N/A], [N/A], [N/A], Not Active, Not Active, Not Active, Not Active, 0, [N/A], [N/A]",
+  "---",
+  "33694, 131072",
+  "---",
+  "467880, [N/A], 1842310, [N/A]",
+  "2432, [N/A], 15240, [N/A]",
+  "---",
+  "AMD Radeon(TM) 8060S Graphics, 32.0.31036.15",
+].join("\r\n");
+
+function amdCollector() {
+  const c = new SystemCollector({ id: "deathstar", platform: "windows", kind: "host", isLocal: false, ssh: { host: "deathstar", user: "me" } });
+  c._windowsRun = async (key) => (key === "gpu" ? NVIDIA_EMPTY : key === "amdGpu" ? AMD_OUT : SYSTEM_OUT);
+  return c;
+}
+
+test("an AMD iGPU host falls back to the counter script and reports vRAM + usage", async () => {
+  const gpu = await amdCollector().collectGpu();
+  assert.equal(gpu.usage, 12); // busiest engine; temperature [N/A] -> 0, the GB10 convention
+  assert.equal(gpu.vram.used, 33694);
+  assert.equal(gpu.vram.total, 131072); // installed pool, not the OS-visible slice
+  assert.equal(gpu.vram.available, 131072 - 33694);
+  assert.equal(gpu.processes.length, 2); // counter rows carry real memory figures
+  assert.equal(gpu.processes[0].vramMB, 1842310); // script already converts KB -> MB
+  assert.ok(collectionWasSuccessful(gpu));
+});
+
+test("the AMD vendor is remembered and nvidia-smi is not re-run every poll", async () => {
+  const c = amdCollector();
+  let nvidiaRuns = 0;
+  c._windowsRun = async (key) => {
+    if (key === "gpu") nvidiaRuns++;
+    return key === "gpu" ? NVIDIA_EMPTY : key === "amdGpu" ? AMD_OUT : SYSTEM_OUT;
+  };
+  await c.collectGpu();
+  await c.collectGpu();
+  await c.collectGpu();
+  assert.equal(nvidiaRuns, 1); // probe once, then ride the amdGpu cache path
+});
+
+test("a Windows box with neither nvidia-smi nor counters keeps the old not-successful answer", async () => {
+  const c = amdCollector();
+  c._windowsRun = async (key) => (key === "system" ? SYSTEM_OUT : NVIDIA_EMPTY);
+  const gpu = await c.collectGpu();
+  assert.equal(collectionWasSuccessful(gpu), false);
+  // ...and the "none" verdict remembers too: a second poll still says false, no throw
+  assert.equal(collectionWasSuccessful(await c.collectGpu()), false);
+});
+
+test("mergeWindowsGpuOutputs answers per section, primary first", () => {
+  const merged = mergeWindowsGpuOutputs(NVIDIA_EMPTY, AMD_OUT);
+  assert.equal(merged.split("---").length, 4);
+  assert.match(merged, /8060S/);
+  assert.match(mergeWindowsGpuOutputs(GPU_OUT, AMD_OUT), /RTX 4090/); // NVIDIA answer wins when it has one
+});
+
+test("the AMD script reads counter sets and sums both memory classes", () => {
+  assert.match(WINDOWS_AMD_GPU_SCRIPT, /GPU Engine\(\*\)\\Utilization Percentage/);
+  assert.match(WINDOWS_AMD_GPU_SCRIPT, /GPU Adapter Memory\(\*\)\\\*/);
+  assert.match(WINDOWS_AMD_GPU_SCRIPT, /GPU Process Memory\(\*\)\\\*/);
+  assert.match(WINDOWS_AMD_GPU_SCRIPT, /VEN_1002/);
+});
+
+test("Windows unified memory on an AMD host counts the counter-script vRAM", async () => {
+  const c = amdCollector();
+  const mem = await c.collectUnifiedMemory();
+  assert.equal(mem.gpuUsed, 33694);
+  assert.ok(mem.cpuUsed >= 0);
+  assert.ok(mem.gpuUsed + mem.cpuUsed <= mem.total || mem.cpuUsed === 0); // never past the RAM pool
 });
 
 test("an unfinished PowerShell call is reused however old, a finished one only for ~1.2 s", () => {

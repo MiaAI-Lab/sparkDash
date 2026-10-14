@@ -129,3 +129,78 @@ export function windowsGpuAsLinuxOutput(output) {
   const { gpu, memory, apps } = splitWindowsGpuOutput(output);
   return [gpu, "---", memory, "---", apps, "---", ""].join("\n");
 }
+
+/**
+ * AMD iGPU / non-NVIDIA Windows boxes (Strix Halo etc.): nvidia-smi is absent
+ * there, so WINDOWS_GPU_SCRIPT answers with empty sections. The repair here
+ * reads the WDDM driver's \GPU Engine / \GPU Adapter Memory / \GPU Process
+ * Memory perf counters instead and prints the SAME four ---delimited sections
+ * (per-GPU line / vram MiB / per-process / name+driver), so the Linux-shaped
+ * parser needs no Windows branch. Unavailable nvidia-smi fields are [N/A]
+ * (temperature from a WMI thermal zone when exposed; per-process names are not
+ * recoverable from counter instance names). With no \GPU* counters registered,
+ * the probes yield nothing and the output is four empty sections — today's
+ * no-GPU behavior, unchanged. Rationale also in SystemCollector._windowsGpuOutput.
+ */
+export const WINDOWS_AMD_GPU_SCRIPT = [
+  ...PREAMBLE,
+  "$ErrorActionPreference='SilentlyContinue'",
+  // ── Section 1: utilization from the busiest GPU Engine instance ──
+  "$e=@(Get-Counter '\\GPU Engine(*)\\Utilization Percentage' -ErrorAction SilentlyContinue).CounterSamples",
+  "$u=0",
+  "if($e){$u=@($e|?{$_.InstanceName -match '^pid_' -and $_.InstanceName -match 'engtype_(3D|Compute|VideoDecode|VideoEncode)'}|%{$_.CookedValue})|Measure-Object -Maximum}",
+  "$um=0; if($u -and $u.Maximum){$um=[math]::Min(100,[math]::Round($u.Maximum))}",
+  // GPU temperature: WMI thermal zone (Kelvin*10) if the OEM driver exposes one.
+  "$tz=@(Get-CimInstance -Namespace root\\wmi -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction SilentlyContinue)",
+  "$temp='[N/A]'; if($tz){$temp=[int](($tz[0].CurrentTemperature-2732)/10)}",
+  "@($temp,$um,'[N/A]','[N/A]','[N/A]','[N/A]','Not Active','Not Active','Not Active','Not Active',0,'[N/A]','[N/A]') -join ', '",
+  "'---'",
+  // ── Section 2: adapter memory MiB, summed over physical adapters ──
+  "$a=@(Get-Counter '\\GPU Adapter Memory(*)\\*' -ErrorAction SilentlyContinue).CounterSamples",
+  "$du=0;$sh=0;$dl=0;$sl=0",
+  "$x=@($a|?{$_.Path -match '(?i)\\\\dedicated usage$'}|%{$_.CookedValue/1MB})|Measure-Object -Sum; if($x.Sum){$du=$x.Sum}",
+  "$x=@($a|?{$_.Path -match '(?i)\\\\shared usage$'}|%{$_.CookedValue/1MB})|Measure-Object -Sum; if($x.Sum){$sh=$x.Sum}",
+  "$x=@($a|?{$_.Path -match '(?i)\\\\dedicated limit$'}|%{$_.CookedValue/1MB})|Measure-Object -Sum; if($x.Sum){$dl=$x.Sum}",
+  "$x=@($a|?{$_.Path -match '(?i)\\\\shared limit$'}|%{$_.CookedValue/1MB})|Measure-Object -Sum; if($x.Sum){$sl=$x.Sum}",
+  "$used=[math]::Round($du+$sh)",
+  // Total: driver Limits when reported; else the PHYSICAL pool — Win32 total
+  // physical is only the OS-visible slice because a BIOS UMA carve-out is hidden
+  // from the OS (a 128GB Strix Halo with a 96GB carve reports ~32GB). Win32
+  // sums the installed chips, which is the whole unified pool: the honest base
+  // for a carved iGPU. Then OS-visible, then [N/A].
+  "$tot=[math]::Round($dl+$sl)",
+  "if($tot -le 0){$ph=(Get-CimInstance Win32_PhysicalMemory|Measure-Object Capacity -Sum).Sum; if($ph){$tot=[math]::Round($ph/1MB)}}",
+  "if($tot -le 0){$os=@(Get-CimInstance Win32_OperatingSystem)[0].TotalVisibleMemorySize; if($os){$tot=[math]::Round($os/1KB)}}",
+  "if($tot -le 0){$tot='[N/A]'}",
+  "if(-not $a -or ($du -eq 0 -and $sh -eq 0 -and $dl -eq 0)){$used='[N/A]';$tot='[N/A]'}",
+  "@($used,$tot) -join ', '",
+  "'---'",
+  // ── Section 3: per-process GPU memory from the Process Memory counters ──
+  "$pm=@(Get-Counter '\\GPU Process Memory(*)\\*' -ErrorAction SilentlyContinue).CounterSamples",
+  "$acc=@{}",
+  "foreach($c in $pm){$n=$c.InstanceName; if($n -notmatch '^pid_(\\d+)_'){continue}",
+  "$p=$Matches[1]",
+  "if($c.Path -notmatch '(?i)\\\\(dedicated|shared) usage$'){continue}",
+  "if(-not $acc[$p]){$acc[$p]=0}; $acc[$p]+=$c.CookedValue/1KB}",
+  "foreach($p in ($acc.Keys|Sort-Object {[double]$acc[$_]} -Descending|Select-Object -First 20)){",
+  "@($p,'[N/A]',[math]::Round($acc[$p]),'[N/A]') -join ', '}",
+  "'---'",
+  // ── Section 4: adapter name + driver version ──
+  "$c=@(Get-CimInstance Win32_VideoController)",
+  "if($c){$v=$c|?{$_.PNPDeviceID -match 'VEN_1002'}|Select -First 1; if(-not $v){$v=$c[0]}",
+  "@((($v.Name -replace '[,\\r\\n\\t]',' ').Trim()),(($v.DriverVersion -replace '[,\\r\\n\\t]',' ').Trim())) -join ', '}",
+  "exit 0",
+].join("\n");
+
+/**
+ * Merge an AMD fallback answer into the nvidia-smi (empty) answer. Either side
+ * may be empty; whichever produced non-empty sections wins per section — on
+ * NVIDIA boxes AMD never runs (gated upstream) and on AMD boxes the NVIDIA
+ * script gives four empty lines, so this is a straight hand-off in practice.
+ */
+export function mergeWindowsGpuOutputs(primary, fallback) {
+  const p = String(primary ?? "").split(/^---\s*$/m).map((s) => s.trim());
+  const f = String(fallback ?? "").split(/^---\s*$/m).map((s) => s.trim());
+  const picked = [0, 1, 2, 3].map((i) => (p[i] ? p[i] : f[i] || ""));
+  return picked.join("\n---\n");
+}

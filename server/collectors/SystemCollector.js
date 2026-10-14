@@ -6,6 +6,8 @@ import { sshExec } from "./ssh.js";
 import { RoceSampler } from "./roce.js";
 import {
   WINDOWS_GPU_SCRIPT,
+  WINDOWS_AMD_GPU_SCRIPT,
+  mergeWindowsGpuOutputs,
   WINDOWS_SYSTEM_SCRIPT,
   parseWindowsSystem,
   splitWindowsGpuOutput,
@@ -109,10 +111,10 @@ export class SystemCollector {
         ? await this._getGPUAll()
         : this.isWindows
           ? this._withoutUnmeteredProcesses(
-              await this._getRemoteGpu(async () => windowsGpuAsLinuxOutput(await this._windowsRun("gpu", WINDOWS_GPU_SCRIPT)))
+              await this._getRemoteGpu(async () => windowsGpuAsLinuxOutput(await this._windowsGpuOutput()))
             )
           : await this._getRemoteGpu();
-      return tagCollectionResult(gpuData, this._isSuccessfulGpuCollection(gpuData));
+      return tagCollectionResult(gpuData, this._isSuccessfulGpuCollection(gpuData) || this._isUnifiedIGpuReport(gpuData));
     } catch (err) {
       console.error(`[SystemCollector] GPU error for ${this.spark.id}:`, err.message);
       return tagCollectionResult(this._defaultGpu(), false);
@@ -174,6 +176,24 @@ export class SystemCollector {
       gpu.power.draw >= 0 &&
       Number.isFinite(gpu?.power?.limit) &&
       gpu.power.limit > 0
+    );
+  }
+
+  /**
+   * AMD/WDDM fallback shape (see WINDOWS_AMD_GPU_SCRIPT): the driver exposes
+   * vRAM and engine utilization counters but no wattage at all, so the
+   * nvidia-smi predicate above can never pass on these boxes. A counters
+   * answer is "good" when a device was identified and real vRAM figures came
+   * back. The device list is the guard: a GPU-less Windows box yields no
+   * devices (and would otherwise ride the DGX-total fallback to a false pass).
+   */
+  _isUnifiedIGpuReport(gpu) {
+    return (
+      Number.isFinite(gpu?.usage) &&
+      Array.isArray(gpu?.gpus) &&
+      gpu.gpus.length > 0 &&
+      Number.isFinite(gpu?.vram?.used) &&
+      gpu?.vram?.total > 0
     );
   }
 
@@ -1889,6 +1909,36 @@ export class SystemCollector {
   }
 
   /**
+   * Windows GPU sections with an AMD fallback. nvidia-smi runs first (unchanged
+   * for NVIDIA hosts); an answer whose GPU/memory sections are all empty — the
+   * AMD/other-vendor signature — triggers the counter script once and the
+   * vendor is remembered, so the idle nvidia-smi trip stops repeating.
+   * A remembered-other-vendor host still retries nvidia-smi once an hour in case
+   * a card/driver was installed (cheap: a miss is three empty echoes).
+   */
+  async _windowsGpuOutput() {
+    if (this._windowsGpuVendor) {
+      if (Date.now() - (this._windowsGpuVendorAt || 0) < 3600_000) {
+        if (this._windowsGpuVendor === "amd") {
+          return this._windowsRun("amdGpu", WINDOWS_AMD_GPU_SCRIPT);
+        }
+        // Vendor "none": neither script reports anything; skip the second round
+        // trip until the hourly refresh (a card/driver install is picked up then).
+        return this._windowsRun("gpu", WINDOWS_GPU_SCRIPT);
+      }
+      // Refresh window: probe both once more.
+      this._windowsGpuVendor = null;
+    }
+    const primary = await this._windowsRun("gpu", WINDOWS_GPU_SCRIPT);
+    if (splitWindowsGpuOutput(primary).gpu) return primary;
+    const fallback = await this._windowsRun("amdGpu", WINDOWS_AMD_GPU_SCRIPT);
+    if (splitWindowsGpuOutput(fallback).gpu) this._windowsGpuVendor = "amd";
+    else this._windowsGpuVendor = "none";
+    this._windowsGpuVendorAt = Date.now();
+    return mergeWindowsGpuOutputs(primary, fallback);
+  }
+
+  /**
    * Under WDDM nvidia-smi lists graphics processes (dwm.exe, explorer.exe...) without
    * a memory figure. A process list of 0 MB entries says nothing, so keep only
    * processes that report memory.
@@ -1911,7 +1961,7 @@ export class SystemCollector {
   async detectWindowsHardware() {
     const [system, gpuRaw] = await Promise.all([
       this._windowsSystem(),
-      this._windowsRun("gpu", WINDOWS_GPU_SCRIPT),
+      this._windowsGpuOutput(),
     ]);
     const { names } = splitWindowsGpuOutput(gpuRaw);
     const { gpuChip, gpuCount, cudaDriver } = this._describeGpus(names);
@@ -2030,7 +2080,7 @@ export class SystemCollector {
     try {
       const [system, gpuRaw] = await Promise.all([
         this._windowsSystem(),
-        this._windowsRun("gpu", WINDOWS_GPU_SCRIPT),
+        this._windowsGpuOutput(),
       ]);
       const { memory } = splitWindowsGpuOutput(gpuRaw);
       const { used: gpuUsed } = this._sumVram(this._parseVramLines(memory));
