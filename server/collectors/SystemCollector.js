@@ -2538,22 +2538,69 @@ export class SystemCollector {
     if (this._windowsGpuVendor) {
       if (Date.now() - (this._windowsGpuVendorAt || 0) < 3600_000) {
         if (this._windowsGpuVendor === "amd") {
-          return this._windowsRun("amdGpu", WINDOWS_AMD_GPU_SCRIPT);
+          // Vendor verified once: only the candidate script re-runs, spliced
+          // onto the primary's meminfo tail recorded at verification time —
+          // so neither nvidia-smi nor the primary counter script repeats.
+          const out = await this._windowsRun("amdGpu", WINDOWS_AMD_GPU_SCRIPT);
+          return out.split(/^---\s*$/m).slice(0, 4).join("\n---\n") + (this._windowsGpuMeminfoTail || "");
         }
-        // Vendor "none": neither script reports anything; skip the second round
-        // trip until the hourly refresh (a card/driver install is picked up then).
+        // Vendor "none": the counters probe stayed silent; keep the primary
+        // answer and skip the extra round trip until the hourly refresh.
         return this._windowsRun("gpu", WINDOWS_GPU_SCRIPT);
       }
       // Refresh window: probe both once more.
       this._windowsGpuVendor = null;
     }
     const primary = await this._windowsRun("gpu", WINDOWS_GPU_SCRIPT);
-    if (splitWindowsGpuOutput(primary).gpu) return primary;
-    const fallback = await this._windowsRun("amdGpu", WINDOWS_AMD_GPU_SCRIPT);
-    if (splitWindowsGpuOutput(fallback).gpu) this._windowsGpuVendor = "amd";
-    else this._windowsGpuVendor = "none";
+    // An NVIDIA answer (nvidia-smi named a device) is upstream, verbatim —
+    // no extra PowerShell ever runs on NVIDIA boxes. This keeps upstream's
+    // "a broken NVIDIA driver stays empty" contract: counters never invent a
+    // GPU on an NVIDIA PC.
+    const s = splitWindowsGpuOutput(primary);
+    if (/nvidia/i.test(`${s.gpu}\n${s.names}`)) return primary;
+    const candidate = await this._windowsRun("amdGpu", WINDOWS_AMD_GPU_SCRIPT);
+    const c = splitWindowsGpuOutput(candidate);
+    if (!(c.gpu || c.memory)) {
+      this._windowsGpuVendor = "none";
+      this._windowsGpuVendorAt = Date.now();
+      return primary;
+    }
+    this._windowsGpuVendor = "amd";
     this._windowsGpuVendorAt = Date.now();
-    return mergeWindowsGpuOutputs(primary, fallback);
+    // Remember the primary's sections past the candidate's shape (its
+    // MemTotal/MemAvailable tail) so later polls keep it without re-polling.
+    const pSections = String(primary ?? "").split(/^---\s*$/m);
+    this._windowsGpuMeminfoTail = pSections.length > 4
+      ? "\n---\n" + pSections.slice(4).map((x) => x.trim()).join("\n---\n")
+      : "";
+    return this._amdMerged(primary, candidate);
+  }
+
+  /**
+   * Section precedence for a verified AMD-iGPU box (Strix Halo): the full-pool
+   * candidate answers memory, and its utilization/temp/per-process section
+   * fills gaps the primary counter path leaves blank or zero-valued.
+   * Memory only shifts to the candidate when it reports a pool at least as
+   * large as the primary's — its point is the true unified pool (installed
+   * DIMMs) vs the registry/BIOS-carve figures the primary reads; a smaller
+   * pool never displaces upstream's answer.
+   */
+  _amdMerged(primary, candidate) {
+    const p = String(primary ?? "").split(/^---\s*$/m).map((x) => x.trim());
+    const c = String(candidate ?? "").split(/^---\s*$/m).map((x) => x.trim());
+    const num = (mem) => {
+      const m = /^[\d.]+\s*,\s*([\d.]+)/.exec(mem || "");
+      return m ? Math.max(0, parseFloat(m[1])) : 0;
+    };
+    const pick = (a, b) => a || b || "";
+    const sections = [
+      pick(c[0], p[0]),                                              // gpu line (candidate: temp + live counters)
+      num(c[1]) >= num(p[1]) && num(c[1]) > 0 ? c[1] : p[1] || "",  // memory: bigger-or-equal pool wins
+      pick(c[2], p[2]),                                              // compute apps (candidate: real rows)
+      pick(c[3], p[3]),                                              // name,driver (candidate: AMD-preferred)
+    ];
+    if (p.length > 4) sections.push(...p.slice(4).map((x) => x.trim())); // primary's meminfo tail
+    return sections.join("\n---\n");
   }
 
   /**

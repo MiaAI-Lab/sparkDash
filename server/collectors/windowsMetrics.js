@@ -199,13 +199,13 @@ export function windowsGpuAsLinuxOutput(output) {
  */
 export const WINDOWS_AMD_GPU_SCRIPT = [
   ...PREAMBLE,
-  "$ErrorActionPreference='SilentlyContinue'",
   // ── Section 1: utilization from the busiest GPU Engine instance ──
   "$e=@(Get-Counter '\\GPU Engine(*)\\Utilization Percentage' -ErrorAction SilentlyContinue).CounterSamples",
   "$u=0",
   "if($e){$u=@($e|?{$_.InstanceName -match '^pid_' -and $_.InstanceName -match 'engtype_(3D|Compute|VideoDecode|VideoEncode)'}|%{$_.CookedValue})|Measure-Object -Maximum}",
   "$um=0; if($u -and $u.Maximum){$um=[math]::Min(100,[math]::Round($u.Maximum))}",
-  // GPU temperature: WMI thermal zone (Kelvin*10) if the OEM driver exposes one.
+  // GPU temperature: WMI thermal zone (Kelvin*10) where the OEM driver exposes
+  // one — verified live on a Strix Halo (MSAcpi_ThermalZoneTemperature).
   "$tz=@(Get-CimInstance -Namespace root\\wmi -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction SilentlyContinue)",
   "$temp='[N/A]'; if($tz){$temp=[int](($tz[0].CurrentTemperature-2732)/10)}",
   "@($temp,$um,'[N/A]','[N/A]','[N/A]','[N/A]','Not Active','Not Active','Not Active','Not Active',0,'[N/A]','[N/A]') -join ', '",
@@ -254,8 +254,16 @@ export const WINDOWS_AMD_GPU_SCRIPT = [
  * script gives four empty lines, so this is a straight hand-off in practice.
  */
 export function mergeWindowsGpuOutputs(primary, fallback) {
-  const p = String(primary ?? "").split(/^---\s*$/m).map((s) => s.trim());
-  const f = String(fallback ?? "").split(/^---\s*$/m).map((s) => s.trim());
-  const picked = [0, 1, 2, 3].map((i) => (p[i] ? p[i] : f[i] || ""));
+  const split = (o) => String(o ?? "").split(/^---\s*$/m).map((s) => s.trim());
+  const p = split(primary);
+  const f = split(fallback);
+  // One winner per section (primary first), across however many sections
+  // either side produced — the Windows script shape has five (the trailing
+  // meminfo section feeds the OS-memory fallback), older output has four.
+  const n = Math.max(p.length, f.length);
+  const picked = Array.from({ length: n }, (_, i) => {
+    if (i >= p.length) return f[i] || "";
+    return p[i] ? p[i] : (f[i] || "");
+  });
   return picked.join("\n---\n");
 }
