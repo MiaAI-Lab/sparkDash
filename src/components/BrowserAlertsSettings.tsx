@@ -5,7 +5,8 @@ import { ToggleRow } from "./SettingRows";
 /**
  * Settings → Tab badge / Desktop notifications. Per browser (localStorage),
  * saved on click — not part of the server settings the dialog's Save writes.
- * Both count what the Overview exceptions strip lists.
+ * Both count every fleet alert the Overview exceptions strip knows of, even
+ * while "Show active fleet exceptions" is off and the strip shows throttling only.
  */
 export function BrowserAlertsSettings() {
   const [prefs, setPrefs] = useBrowserAlertPrefs();
@@ -52,7 +53,7 @@ export function BrowserAlertsSettings() {
     <>
       <ToggleRow
         title="Tab badge"
-        help="The tab title shows how many exceptions the Overview strip lists — “(2) sparkDash” — and the icon gets a red (critical) or amber dot. This browser only; saved immediately."
+        help="The tab title shows how many fleet alerts are active — offline units, throttling, storage, LLM and Health — as “(2) sparkDash”, and the icon gets a red (critical) or amber dot. Counts all of them even when “Show active fleet exceptions” is off. This browser only; saved immediately."
         checked={prefs.tabBadge}
         onChange={(v) => setPrefs({ ...prefs, tabBadge: v })}
       />
@@ -60,7 +61,7 @@ export function BrowserAlertsSettings() {
         title="Desktop notifications"
         help={
           <>
-            A notification when an exception becomes active, while this page is open. This browser only; saved immediately.
+            A notification when a fleet alert becomes active (any kind, as for the tab badge), while this page is open. This browser only; saved immediately.
             {desktopNote && (
               <span className="set-row__note" role="note">
                 {desktopNote}

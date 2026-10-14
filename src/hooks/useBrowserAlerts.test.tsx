@@ -316,7 +316,7 @@ describe("useFleetAlerts", () => {
     return <pre data-testid="fa">{JSON.stringify({ keys: r.rows.map((x) => x.key), ready: r.ready, source: r.source })}</pre>;
   }
   const read = () => JSON.parse(document.querySelector('[data-testid="fa"]')!.textContent!);
-  const base = { alertsEnabled: false, serverAlerts: null, showExceptions: true, temperatureUnit: "celsius" as const };
+  const base = { alertsEnabled: false, serverAlerts: null, temperatureUnit: "celsius" as const };
 
   function thermal(id: string): SparkSnapshot {
     const s = makeSpark(id);
@@ -324,16 +324,17 @@ describe("useFleetAlerts", () => {
     return s;
   }
 
-  it("is the strip's own list: reuses deriveAlerts, honours showExceptions and the temperature unit", () => {
+  it("is the strip's own list: reuses deriveAlerts with the temperature unit, every alert whatever the strip shows", () => {
     const spy = vi.spyOn(strip, "stripAlerts");
     const { root } = render(<Probe {...base} sparks={[]} />);
     expect(read()).toEqual({ keys: [], ready: false, source: "browser" });
     const sparks = [makeSpark("a", false), thermal("b")];
     act(() => root.render(<Probe {...base} sparks={sparks} />));
     expect(read()).toEqual({ keys: ["a:offline", "b:throttle"], ready: true, source: "browser" });
-    act(() => root.render(<Probe {...base} sparks={sparks} showExceptions={false} />));
-    expect(read().keys).toEqual(["b:throttle"]);
-    expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ showExceptions: false, temperatureUnit: "celsius" }));
+    expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ showExceptions: true, temperatureUnit: "celsius" }));
+    // The strip shows throttling alone while "Show active fleet exceptions" is off (the default); the
+    // badge and notifications still count the offline unit.
+    expect(strip.stripAlerts({ sparks, showExceptions: false }).map((a) => a.key)).toEqual(["b:throttle"]);
     act(() => root.render(<Probe {...base} sparks={sparks} temperatureUnit="fahrenheit" />));
     expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ temperatureUnit: "fahrenheit" }));
     expect(strip.deriveAlerts(sparks, "fahrenheit")[1].detail).toContain("190°F");
