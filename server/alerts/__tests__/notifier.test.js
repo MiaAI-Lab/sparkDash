@@ -5,7 +5,7 @@
  */
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
-import { Notifier, buildRequest, describeGroup, filterGroupForChannel } from "../notifier.js";
+import { Notifier, buildRequest, describeGroup, filterGroupForChannel, slackEscape } from "../notifier.js";
 import { POLICY_BLOCKED, POLICY_UNRESOLVED } from "../outbound.js";
 import { LEAK, quietLog, receiver, stubFetch, stubLookup } from "./fixtures.js";
 
@@ -43,6 +43,17 @@ test("discord never pings and caps embed text; slack and webhook carry the same 
   assert.equal(w.status, "firing");
   assert.equal(w.alerts[0].rule, "thermal");
   assert.equal(w.alerts[0].label, "GPU is close to its shutdown temperature");
+});
+
+test("slack text escapes &, < and > so unit names and remote text cannot mention or link", () => {
+  const hostile = {
+    firing: [alert({ unitName: "<!channel> & <https://evil.example|click>", summary: "Xid 79 <!here> <@U123>" })],
+    resolved: [],
+  };
+  const { text } = JSON.parse(buildRequest({ type: "slack", url: "https://s/x" }, hostile, NOW).init.body);
+  assert.ok(!/[<>]/.test(text), text);
+  assert.match(text, /&lt;!channel&gt; &amp; &lt;https:\/\/evil\.example\|click&gt;/);
+  assert.equal(slackEscape("a & b < c > d"), "a &amp; b &lt; c &gt; d");
 });
 
 test("a large group is cut to a fixed number of lines", () => {

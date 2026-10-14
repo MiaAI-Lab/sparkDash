@@ -41,6 +41,9 @@ test("the API masks URLs and a masked URL sent back keeps the stored one", () =>
   assert.equal(pub.channels[0].url, maskUrl(url));
   assert.equal(pub.channels[0].hasUrl, true);
   assert.ok(!JSON.stringify(pub).includes("secret-topic"));
+  assert.equal(pub.channels[0].url, "https://ntfy.example.com/…", "host and a fixed mask, nothing of the path");
+  assert.equal(maskUrl("https://ntfy.example.com/a"), maskUrl("https://ntfy.example.com/a-much-longer-topic-name"), "same length whatever is hidden");
+  assert.equal(maskUrl("https://user:pass@hooks.example.com/x"), "https://hooks.example.com/…", "no credentials");
   const again = validateConfig({ channels: [{ ...pub.channels[0] }] }, cfg);
   assert.equal(again.channels[0].url, url);
   assert.throws(() => validateConfig({ channels: [{ name: "New", type: "ntfy", url: pub.channels[0].url }] }, cfg), /masked/);

@@ -9,9 +9,9 @@
  * as `legacyUrls` so the runtime can move them into the store and rewrite the
  * file without them.
  *
- * The API never returns a URL whole: `maskUrl()` keeps scheme + host + the
- * last four characters, and a PUT that sends the masked value back keeps the
- * stored URL.
+ * The API never returns a URL whole: `maskUrl()` keeps scheme + host and
+ * replaces the rest with a fixed `/…`, and a PUT that sends the masked value
+ * back keeps the stored URL.
  *
  * The firing set is persisted here too, so `startsAt` survives a restart.
  */
@@ -60,8 +60,9 @@ export function validateChannelUrl(raw) {
 }
 
 /**
- * `https://ntfy.sh…ab12` — enough to recognise which channel it is, never
- * enough to use it. Credentials in the URL (user:pass@) are never shown.
+ * `https://ntfy.sh/…` — the host, to recognise the service, and a fixed mask for
+ * the rest, so nothing of the topic or webhook token is shown (not even its
+ * length or last characters). Credentials in the URL (user:pass@) are never shown.
  */
 export function maskUrl(raw) {
   if (typeof raw !== "string" || !raw) return "";
@@ -72,11 +73,13 @@ export function maskUrl(raw) {
   } catch {
     origin = "";
   }
-  return `${origin}…${raw.slice(-4)}`;
+  return `${origin}/${URL_MASK}`;
 }
 
+const URL_MASK = "…";
+
 function isMasked(value) {
-  return typeof value === "string" && value.includes("…");
+  return typeof value === "string" && value.includes(URL_MASK);
 }
 
 // ─── Validation ─────────────────────────────────────────

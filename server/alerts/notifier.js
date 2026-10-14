@@ -43,6 +43,15 @@ export function formatAge(ms) {
   return `${Math.floor(h / 24)}d ${h % 24}h`;
 }
 
+/**
+ * Slack mrkdwn control characters. `<…>` is how Slack spells links and mentions (`<!channel>`,
+ * `<!here>`, `<@U123>`, `<https://x|text>`), so unit names and remote error text must not be
+ * able to produce one; Slack asks for exactly these three to be escaped.
+ */
+export function slackEscape(text) {
+  return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 const iso = (ms) => (Number.isFinite(ms) ? new Date(ms).toISOString() : null);
 
 /**
@@ -163,7 +172,9 @@ export function buildRequest(channel, group, now = Date.now()) {
         init: {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: [`*${d.title}*`, ...d.lines.map((l) => `• ${l}`)].join("\n") }),
+          body: JSON.stringify({
+            text: [`*${slackEscape(d.title)}*`, ...d.lines.map((l) => `• ${slackEscape(l)}`)].join("\n"),
+          }),
         },
       };
     case "webhook":

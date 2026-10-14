@@ -61,5 +61,5 @@ test("a plaintext URL in alerts.json is moved into the encrypted store at startu
   assert.equal(rt.publicConfig().channels[0].hasUrl, true);
   // A restart reads it back from the store.
   const again = createAlertsRuntime({ filePath: file, isEnabled: () => false, log: quietLog });
-  assert.equal(again.publicConfig().channels[0].url, `https://ntfy.example.com…${URL_A.slice(-4)}`);
+  assert.equal(again.publicConfig().channels[0].url, "https://ntfy.example.com/…");
 });
