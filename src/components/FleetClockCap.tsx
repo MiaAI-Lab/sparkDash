@@ -1,7 +1,17 @@
 import { useCallback, useEffect, useId, useState } from "react";
 import { createPortal } from "react-dom";
-import { fetchClockCap, setClockCap } from "../api/client";
-import type { ClockCapResult, ClockCapSparkStatus, SparkSnapshot } from "../api/types";
+import {
+  fetchClockCap,
+  fetchFleetClockAuto,
+  setClockCap,
+  setFleetClockAuto,
+} from "../api/client";
+import type {
+  ClockCapResult,
+  ClockCapSparkStatus,
+  FleetClockAutoState,
+  SparkSnapshot,
+} from "../api/types";
 import { useModalPresence } from "../hooks/useModalPresence";
 import { useFocusTrap } from "../hooks/useFocusTrap";
 import { Panel } from "./ui/Panel";
@@ -10,6 +20,9 @@ import { GaugeIcon, RotateIcon, XIcon } from "./ui/icons";
 
 /** Preset caps in MHz. The server rejects anything outside this exact list. */
 const PRESETS = [1800, 1900, 2000, 2100, 2200, 2300, 2400];
+
+/** How often the (cheap, in-memory) auto-mode status is re-read. */
+const AUTO_POLL_MS = 15_000;
 
 interface FleetClockCapProps {
   /** The fleet snapshot — per-Spark readouts (name, live GPU temp) come from here. */
@@ -27,6 +40,9 @@ export function FleetClockCap({ sparks }: FleetClockCapProps) {
   const [applying, setApplying] = useState(false);
   const [pendingMhz, setPendingMhz] = useState<number | null | undefined>(undefined);
   const [failures, setFailures] = useState<ClockCapResult[]>([]);
+  const [auto, setAuto] = useState<FleetClockAutoState | null>(null);
+  const [autoBusy, setAutoBusy] = useState(false);
+  const [autoError, setAutoError] = useState<string | null>(null);
   const titleId = useId();
   const { mounted, visible } = useModalPresence(pendingMhz !== undefined);
   const trapRef = useFocusTrap(mounted);
@@ -43,20 +59,35 @@ export function FleetClockCap({ sparks }: FleetClockCapProps) {
     }
   }, []);
 
+  const refreshAuto = useCallback(async () => {
+    try {
+      setAuto(await fetchFleetClockAuto());
+      setAutoError(null);
+    } catch (err) {
+      setAutoError(err instanceof Error ? err.message : String(err));
+    }
+  }, []);
+
   useEffect(() => {
     void refreshCaps();
-  }, [refreshCaps]);
+    void refreshAuto();
+    const timer = setInterval(() => void refreshAuto(), AUTO_POLL_MS);
+    return () => clearInterval(timer);
+  }, [refreshCaps, refreshAuto]);
 
   const statusById = new Map(statuses.map((s) => [s.id, s]));
+  const autoById = new Map((auto?.sparks ?? []).map((s) => [s.id, s]));
 
   // Preselect the real state on load. The caps come from the fresh
   // GET /api/sparks/clock-cap read: one shared value → that preset (or
-  // Unlocked) is highlighted; differing nodes → "Mixed".
+  // Unlocked) is highlighted; differing nodes → "Mixed". Auto shows on while
+  // the fleet controller is enabled.
   const okStatuses = statuses.filter((s) => s.ok);
   const caps = okStatuses.map((s) => s.mhz);
   const firstCap = caps[0];
   const mixed = caps.length > 1 && caps.some((mhz) => mhz !== firstCap);
   const uniformCap = !mixed && caps.length > 0 ? firstCap : undefined;
+  const autoOn = auto?.enabled ?? false;
 
   async function handleApply() {
     if (pendingMhz === undefined) return;
@@ -96,6 +127,18 @@ export function FleetClockCap({ sparks }: FleetClockCapProps) {
     }
   }
 
+  async function handleAuto(enabled: boolean, capMhz?: number) {
+    setAutoBusy(true);
+    setAutoError(null);
+    try {
+      setAuto(await setFleetClockAuto(enabled, capMhz));
+    } catch (err) {
+      setAutoError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAutoBusy(false);
+    }
+  }
+
   const capButton = (mhz: number | null) => {
     // The preset matching the fleet's real state is highlighted
     // (Unlocked when every node reports stock); "Mixed" shows when nodes differ.
@@ -123,9 +166,57 @@ export function FleetClockCap({ sparks }: FleetClockCapProps) {
     <Panel
       title="GPU clock cap"
       icon={<GaugeIcon className="h-3.5 w-3.5 text-muted" />}
-      hint="One control for the whole fleet: caps or unlocks the GPU graphics clock on every Spark via nvidia-smi."
+      hint="One control for the whole fleet: caps or unlocks the GPU graphics clock on every Spark via nvidia-smi; Auto holds a cap while a GPU is hot and releases it when it cools."
     >
       <div className="ov-cap">
+        {auto ? (
+          <div className="ov-cap__auto">
+            <div className="ov-cap__autorow">
+              <button
+                type="button"
+                className={`seg ov-cap__toggle ${autoOn ? "is-on" : ""}`}
+                aria-pressed={autoOn}
+                disabled={autoBusy}
+                onClick={() => void handleAuto(!autoOn)}
+                title={
+                  autoOn
+                    ? "Disable fleet-wide auto mode (caps already applied stay until Unlocked)"
+                    : "Enable fleet-wide auto mode: hold a cap while a GPU is ≥72 °C, release at ≤67 °C"
+                }
+              >
+                {autoBusy ? <RotateIcon className="h-3 w-3 animate-spin" /> : null}
+                Auto {autoOn ? "on" : "off"}
+              </button>
+              <label className="ov-cap__capselect">
+                <span className="text-xs text-muted" title="Auto-only: with Auto off, changing the hold cap applies nothing to the GPUs">
+                  Hold cap (Auto only)
+                </span>
+                <select
+                  value={auto.capMhz}
+                  disabled={autoBusy}
+                  onChange={(e) => void handleAuto(auto.enabled, parseInt(e.target.value, 10))}
+                  aria-label="Auto-mode hold cap"
+                >
+                  {auto.presets.map((mhz) => (
+                    <option key={mhz} value={mhz}>
+                      {mhz} MHz
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <p className="text-xs text-muted">
+              Holds <b className="mono">{auto.capMhz} MHz</b> on any GPU at ≥{auto.holdTempC} °C,
+              releases at ≤{auto.releaseTempC} °C (range {auto.range.min}–{auto.range.max} MHz). The
+              hold cap is Auto-only — with Auto off, changing it applies nothing to the GPUs.
+            </p>
+          </div>
+        ) : (
+          <p className="text-xs text-muted">
+            {autoError ? `Auto mode unavailable: ${autoError}` : "Loading auto mode…"}
+          </p>
+        )}
+
         <div className="ov-cap__row">
           <span className="text-xs text-muted">
             Fleet presets{mixed ? " — " : ""}
@@ -151,11 +242,13 @@ export function FleetClockCap({ sparks }: FleetClockCapProps) {
         <div className="ov-cap__list" aria-label="Per-Spark cap status">
           {sparks.map((spark) => {
             const status = statusById.get(spark.id);
+            const autoState = autoById.get(spark.id);
             const temp = tempOf(spark);
             return (
               <div key={spark.id} className="ov-cap__spark">
                 <span className="ov-cap__name">{spark.name || spark.id}</span>
                 <span className="mono text-xs">{temp != null ? `${Math.round(temp)} °C` : "—"}</span>
+                {autoState?.holding ? <Tag tone="warn">auto hold</Tag> : null}
                 {status ? (
                   status.ok ? (
                     <Tag tone={status.mhz != null ? "acc" : "neutral"}>

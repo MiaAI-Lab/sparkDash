@@ -1653,3 +1653,25 @@ export interface ClockCapApplyResponse {
   mhz: number | null;
   results: ClockCapResult[];
 }
+
+/** Per-Spark auto-mode state from the fleet controller. */
+export interface FleetClockAutoSparkState {
+  id: string;
+  name: string;
+  /** True while auto is holding a cap on this node. */
+  holding: boolean;
+  /** Last tick error for this node, or null. */
+  lastError: string | null;
+}
+
+/** Fleet-wide auto-mode controller state (GET/POST /api/sparks/clock-cap/auto). */
+export interface FleetClockAutoState {
+  enabled: boolean;
+  /** Cap applied while holding, within `range`. */
+  capMhz: number;
+  holdTempC: number;
+  releaseTempC: number;
+  range: { min: number; max: number };
+  presets: number[];
+  sparks: FleetClockAutoSparkState[];
+}

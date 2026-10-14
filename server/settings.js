@@ -65,12 +65,17 @@ const DEFAULTS = Object.freeze({
   prometheusExport: false,
   /**
    * The fleet-wide GPU clock-cap target the last fleet apply asked for —
-   * `{ mode: "fixed", mhz }` or `{ mode: "unlocked", mhz: null }`. null =
-   * nothing recorded, so the reconcile loop must not touch any node. The
-   * periodic reconcile re-applies this to nodes whose marker drifted (reboot,
-   * out-of-band -rgc, MHz change).
+   * `{ mode: "fixed", mhz }`, `{ mode: "unlocked", mhz: null }` or
+   * `{ mode: "auto", mhz }` (fleet Auto owns the caps). null = nothing
+   * recorded, so the reconcile loop must not touch any node. The periodic
+   * reconcile re-applies a fixed/unlocked target to nodes whose marker drifted
+   * (reboot, out-of-band -rgc, MHz change).
    */
   clockCapTarget: null,
+  /** Fleet Auto controller state, restored on boot. */
+  fleetClockAutoEnabled: false,
+  /** Cap fleet Auto holds while a GPU is hot (within 1800–2200 MHz). */
+  fleetClockAutoCapMhz: 1800,
 });
 
 const POLL_INTERVAL_MIN_MS = 500;
@@ -151,9 +156,13 @@ function _clampSettings(settings) {
   const validTarget =
     t &&
     typeof t === "object" &&
-    ((t.mode === "fixed" && Number.isInteger(t.mhz) && CLOCK_CAP_PRESETS.includes(t.mhz)) ||
+    (((t.mode === "fixed" || t.mode === "auto") && Number.isInteger(t.mhz) && CLOCK_CAP_PRESETS.includes(t.mhz)) ||
       (t.mode === "unlocked" && t.mhz === null));
   if (!validTarget) s.clockCapTarget = null;
+  s.fleetClockAutoEnabled = Boolean(s.fleetClockAutoEnabled);
+  if (!Number.isInteger(s.fleetClockAutoCapMhz) || !CLOCK_CAP_PRESETS.includes(s.fleetClockAutoCapMhz)) {
+    s.fleetClockAutoCapMhz = DEFAULTS.fleetClockAutoCapMhz;
+  }
   return s;
 }
 

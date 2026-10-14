@@ -2,13 +2,14 @@
  * Fleet clock-cap reconcile.
  *
  * The last fleet-wide apply is persisted in config (settings.clockCapTarget —
- * `fixed <MHz>` or `unlocked`). A periodic loop reads each Spark's cap status
+ * `fixed <MHz>`, `unlocked` or `auto`). A periodic loop reads each Spark's cap status
  * and re-applies the target when the node has drifted:
  *   - a stale marker from an earlier boot (the Spark rebooted, cap gone),
  *   - someone ran `nvidia-smi -rgc` out-of-band (marker gone → stock),
  *   - the live marker MHz no longer matches the target.
  * Every successful re-application records a `gpu.clockcap.reapplied` event.
- * With no target recorded the loop touches nothing.
+ * With no target recorded, or while fleet Auto owns the caps (`auto`), the
+ * loop touches nothing.
  */
 
 /** How often the reconcile loop reads the fleet (ms). */
@@ -20,11 +21,12 @@ export const RECONCILE_FAILURE_EVENT_MS = 5 * 60_000;
 /**
  * Whether a node's cap status has drifted from the fleet target.
  * @param {{ mhz: number | null, stale?: boolean }} status result of readClockCapStatus
- * @param {{ mode: "fixed" | "unlocked", mhz: number | null } | null} target
+ * @param {{ mode: "fixed" | "unlocked" | "auto", mhz: number | null } | null} target
  * @returns {boolean}
  */
 export function capDrifts(status, target) {
-  if (!target) return false;
+  // Fleet Auto owns the caps while enabled: never fight it.
+  if (!target || target.mode === "auto") return false;
   if (target.mode === "unlocked") {
     // Drift when a cap is present, or a stale marker from a previous boot
     // still sits on disk (the reapply removes it).

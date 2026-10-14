@@ -30,6 +30,7 @@ import {
   CLOCK_CAP_PRESETS,
 } from "./clockCap.js";
 import { FleetClockCapReconciler } from "./clockCapReconcile.js";
+import { FleetClockAuto, parseFleetAutoCap, AUTO_RANGE } from "./clockCapAuto.js";
 import { broadcastForLanIp, effectiveMac, normalizeMac, sendWol } from "./wol.js";
 import { remoteShutdownCommand, spawnLocalShutdown } from "./shutdown.js";
 import {
@@ -355,7 +356,8 @@ function recordEvent(event) {
 // ─── Fleet clock-cap reconcile ───────────────────────────
 // Re-applies the persisted fleet target (settings.clockCapTarget) to any Spark
 // whose cap status drifted: stale marker after a reboot, an out-of-band
-// nvidia-smi -rgc, or a mismatched MHz.
+// nvidia-smi -rgc, or a mismatched MHz. Stands down while fleet Auto owns the
+// caps (target mode "auto").
 const clockCapReconciler = new FleetClockCapReconciler({
   sparks: () => registry.sparks,
   target: () => getSettings().clockCapTarget,
@@ -429,6 +431,24 @@ const allowToolEval = createRateLimiter(30, 60_000);
 
 // ─── Monitor map ─────────────────────────────────────────
 const monitors = new Map();
+
+// ─── Fleet-wide clock-cap auto mode ──────────────────────
+// One controller for every Spark: holds a cap (1800–2200 MHz) while a node's
+// GPU is ≥72 °C and releases it again at ≤67 °C. Temperatures come from each
+// monitor's metrics snapshot; only fresh, successfully collected readings act.
+const fleetClockAuto = new FleetClockAuto({
+  sparks: () => registry.sparks,
+  readTemp: (spark) => {
+    const gpu = monitors.get(spark.id)?.snapshot()?.metrics?.gpu;
+    if (!gpu || !collectionWasSuccessful(gpu)) return null;
+    const temp = gpu.temperature;
+    return Number.isFinite(temp) ? temp : null;
+  },
+  readStatus: readClockCapStatus,
+  apply: applyClockCap,
+  revert: revertClockCap,
+  recordEvent,
+});
 
 // ─── Start monitor for a Spark ───────────────────────────
 function startMonitor(spark) {
@@ -760,6 +780,8 @@ app.put("/api/settings", (req, res) => {
     // every key it loaded, which would roll back a cap applied meanwhile.
     const patch = { ...(req.body || {}) };
     delete patch.clockCapTarget;
+    delete patch.fleetClockAutoEnabled;
+    delete patch.fleetClockAutoCapMhz;
     const newSettings = updateSettings(patch);
     // Poll interval changed: re-arm the running monitors' collector timers
     // (in place — no restart, no lost backoff state) and the broadcast timer.
@@ -2290,6 +2312,50 @@ app.get("/api/sparks/clock-cap/presets", (_req, res) => {
   res.json({ presets: CLOCK_CAP_PRESETS });
 });
 
+// ─── Fleet-wide clock-cap auto mode ──────────────────────
+// One control for the whole fleet: while enabled, the controller holds a cap
+// (within 1800–2200 MHz) on any node whose GPU reaches 72 °C and releases it
+// again at 67 °C. See server/clockCapAuto.js.
+app.get("/api/sparks/clock-cap/auto", (_req, res) => {
+  res.json({ success: true, ...fleetClockAuto.status() });
+});
+
+app.post("/api/sparks/clock-cap/auto", async (req, res) => {
+  const enabled = req.body?.enabled;
+  if (typeof enabled !== "boolean") {
+    return res.status(400).json({ error: "enabled must be a boolean" });
+  }
+  let capMhz;
+  if (req.body?.capMhz !== undefined) {
+    try {
+      capMhz = parseFleetAutoCap(req.body.capMhz);
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
+    }
+  }
+  try {
+    const status = await fleetClockAuto.setEnabled(enabled, capMhz);
+    // Persist the fleet Auto state so a restart restores the toggle and hold
+    // cap; while Auto owns the fleet the reconcile loop stands down.
+    updateSettings({
+      clockCapTarget: enabled ? { mode: "auto", mhz: status.capMhz } : null,
+      fleetClockAutoEnabled: enabled,
+      fleetClockAutoCapMhz: status.capMhz,
+    });
+    recordEvent({
+      type: enabled ? "gpu.clockcap.auto.enabled" : "gpu.clockcap.auto.disabled",
+      severity: "info",
+      message: enabled
+        ? `Fleet clock-cap auto enabled — holds ${status.capMhz} MHz at ≥${status.holdTempC}°C, releases at ≤${status.releaseTempC}°C`
+        : "Fleet clock-cap auto disabled",
+    });
+    eventLog.flush();
+    res.json({ success: true, ...status });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── Prometheus exposition (opt-in) ──────────────────────
 // Registered after the auth middleware (a token-protected install needs the
 // scraper's bearer token) and before the SPA fallback, which would otherwise
@@ -2465,7 +2531,19 @@ if (!startupPreflight.fatal) {
     startAllMonitors();
     fleetEnergyRuntime.start();
     llmTokenRuntime.start();
-    // Re-apply the persisted fleet clock-cap target to Sparks that drifted.
+    fleetClockAuto.start();
+    // Restore the persisted fleet Auto state (toggle + hold cap), then run the
+    // reconcile loop against the persisted fleet target.
+    const savedAuto = getSettings();
+    if (
+      savedAuto.fleetClockAutoEnabled &&
+      savedAuto.fleetClockAutoCapMhz >= AUTO_RANGE.min &&
+      savedAuto.fleetClockAutoCapMhz <= AUTO_RANGE.max
+    ) {
+      fleetClockAuto.setEnabled(true, savedAuto.fleetClockAutoCapMhz).catch((err) => {
+        console.error("[sparkDash] failed to restore fleet clock-cap auto:", err.message);
+      });
+    }
     clockCapReconciler.start();
   });
 } else {
@@ -2517,6 +2595,7 @@ async function shutdown(signal) {
   }
   llmTokenRuntime.stop();
   clockCapReconciler.stop();
+  fleetClockAuto.stop();
   const energyPersistenceSucceeded = fleetEnergyRuntime.stop();
   const streamAgentClosedGracefully = await closeLlmStreamAgent();
   if (!streamAgentClosedGracefully) {

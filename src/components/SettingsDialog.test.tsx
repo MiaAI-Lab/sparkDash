@@ -5,7 +5,9 @@ vi.mock("../api/client", () => ({
   fetchSettings: vi.fn(),
   updateSettings: vi.fn(),
   fetchClockCap: vi.fn(),
+  fetchFleetClockAuto: vi.fn(),
   setClockCap: vi.fn(),
+  setFleetClockAuto: vi.fn(),
 }));
 vi.mock("../api/authToken", () => ({
   getToken: vi.fn().mockReturnValue(""),
@@ -14,14 +16,22 @@ vi.mock("../api/authToken", () => ({
   clearToken: vi.fn(),
 }));
 
-import { fetchSettings, fetchClockCap, setClockCap } from "../api/client";
+import {
+  fetchSettings,
+  fetchClockCap,
+  fetchFleetClockAuto,
+  setClockCap,
+  setFleetClockAuto,
+} from "../api/client";
 import type { Settings, SparkSnapshot } from "../api/types";
 import { SettingsDialog } from "./SettingsDialog";
 import { flush, render } from "../testing/render";
 
 const fetchSettingsMock = vi.mocked(fetchSettings);
 const fetchClockCapMock = vi.mocked(fetchClockCap);
+const fetchAutoMock = vi.mocked(fetchFleetClockAuto);
 const setClockCapMock = vi.mocked(setClockCap);
+const setAutoMock = vi.mocked(setFleetClockAuto);
 
 const DEFAULT_SETTINGS: Settings = {
   pollIntervalMs: 2000,
@@ -43,6 +53,19 @@ const DEFAULT_SETTINGS: Settings = {
 
 function okStatus(id: string, overrides = {}) {
   return { id, name: id.toUpperCase(), ok: true, mhz: null, stale: false, graphicsClockMHz: null, ...overrides };
+}
+
+function autoState(overrides = {}) {
+  return {
+    enabled: false,
+    capMhz: 1800,
+    holdTempC: 72,
+    releaseTempC: 67,
+    range: { min: 1800, max: 2200 },
+    presets: [1800, 1900, 2000, 2100, 2200],
+    sparks: [],
+    ...overrides,
+  };
 }
 
 function spark(id: string): SparkSnapshot {
@@ -71,11 +94,13 @@ function button(label: string, scope: HTMLElement = dialog()): HTMLButtonElement
 beforeEach(() => {
   fetchSettingsMock.mockResolvedValue(DEFAULT_SETTINGS);
   fetchClockCapMock.mockResolvedValue({ success: true, sparks: [okStatus("s1"), okStatus("s2", { mhz: 2000 })] });
+  fetchAutoMock.mockResolvedValue(autoState());
   setClockCapMock.mockReset();
+  setAutoMock.mockReset();
 });
 
 describe("SettingsDialog fleet clock control", () => {
-  it("hosts the fleet-wide clock cap panel with presets and Unlocked", async () => {
+  it("hosts the fleet-wide clock cap panel with presets, Unlocked and Auto", async () => {
     const { container } = render(<SettingsDialog open onClose={() => {}} onSaved={() => {}} sparks={[spark("s1"), spark("s2")]} />);
     await flush();
 
@@ -87,6 +112,10 @@ describe("SettingsDialog fleet clock control", () => {
     }
     expect(presetGroup.textContent).not.toContain("1700");
     expect(presetGroup.textContent).toContain("Unlocked");
+    // Auto mode: default 1800–2200 hold band, ≥72 °C / ≤67 °C.
+    expect(container.textContent).toContain("Auto off");
+    expect(container.textContent).toContain("≥72 °C");
+    expect(container.textContent).toContain("≤67 °C");
   });
 
   it("applies a preset fleet-wide from Settings after confirm", async () => {
@@ -123,5 +152,17 @@ describe("SettingsDialog fleet clock control", () => {
     await flush();
 
     expect(setClockCapMock).toHaveBeenCalledWith("all", null);
+  });
+
+  it("toggles fleet-wide auto mode from Settings", async () => {
+    setAutoMock.mockResolvedValue(autoState({ enabled: true }));
+    render(<SettingsDialog open onClose={() => {}} onSaved={() => {}} sparks={[spark("s1")]} />);
+    await flush();
+
+    await act(async () => button("Auto off").click());
+    await flush();
+
+    expect(setAutoMock).toHaveBeenCalledWith(true, undefined);
+    expect(dialog().textContent).toContain("Auto on");
   });
 });

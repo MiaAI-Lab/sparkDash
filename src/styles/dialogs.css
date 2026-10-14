@@ -1829,6 +1829,32 @@
   flex-direction: column;
   gap: 10px;
 }
+.settings-panel .ov-cap__auto {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.settings-panel .ov-cap__autorow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.settings-panel .ov-cap__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.settings-panel .ov-cap__capselect {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.settings-panel .ov-cap__capselect select {
+  padding: 3px 6px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
 .settings-panel .ov-cap__row {
   display: flex;
   flex-direction: column;

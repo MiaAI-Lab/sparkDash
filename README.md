@@ -685,6 +685,7 @@ sparkDash/
 | GET | `/api/health` · `/api/auth/status` | Bind / auth mode; whether a token is required and accepted |
 | POST | `/api/sparks/:id/shutdown` · `/wake` · `/api/sparks/shutdown-all` · `/wake-all` | Power controls (see [Power controls](#power-controls-shutdown--wake-on-lan)) |
 | GET/POST | `/api/sparks/clock-cap` · `/api/sparks/clock-cap/presets` | GPU clock cap: per-Spark status (`?id=`), apply a preset or Unlocked (`{ sparkIds, mhz }`, `mhz: null` unlocks), preset list (see [GPU clock cap](#gpu-clock-cap-fleet)) |
+| GET/POST | `/api/sparks/clock-cap/auto` | Fleet Auto mode: controller state (thresholds, hold cap, per-Spark holding); `{ enabled, capMhz? }` turns it on or off (`capMhz` within 1800–2200) |
 | POST | `/api/sparks/:id/refresh/:domain` | Re-poll one domain now (`storage` or `llm` only) |
 | GET/POST/DELETE | `/api/sparks/:id/llm/showcase[/:sessionId]` | Prompt Showcase sessions |
 | GET | `/api/events` | Fleet event log (`limit`, `sparkId`, `sinceId`, `beforeId`; 2000 kept) |
@@ -892,6 +893,29 @@ differ.
   API does not change the saved target.
 - Applies and failures are logged to Activity (`gpu.clockcap.applied`,
   `gpu.clockcap.unlocked`, `gpu.clockcap.failed`).
+
+#### Auto mode (1800–2200 MHz by temperature)
+
+The **Auto** toggle in the same panel hands the fleet to a backend controller
+(`server/clockCapAuto.js`). Every 5 s it reads each Spark's GPU temperature
+from the monitor snapshot (only fresh, successful readings count) and:
+
+- holds the **hold cap** on a node whose GPU reaches **72 °C**,
+- releases it (back to stock) once the GPU cools to **67 °C**.
+
+The hold cap is picked from the dropdown next to the toggle (1800–2200 MHz,
+every 100 MHz; default 1800). Changing it only changes what the next hold
+applies. Turning Auto on adopts any cap already set on a node, so Auto
+releases what it finds; turning it off leaves the current caps alone. Caps go through the
+same sudoers rule and marker as the manual presets. Each node shows an
+**auto hold** tag while Auto holds its cap.
+
+The toggle and hold cap are saved in `config/settings.json`
+(`fleetClockAutoEnabled`, `fleetClockAutoCapMhz`) and restored on restart.
+While Auto is on the saved fleet target is `auto` and the reconcile loop
+stands down. Holds, releases and failures are logged to Activity
+(`gpu.clockcap.auto.applied`, `gpu.clockcap.auto.released`,
+`gpu.clockcap.auto.failed`, `gpu.clockcap.auto.enabled` / `.disabled`).
 
 ### Themes
 

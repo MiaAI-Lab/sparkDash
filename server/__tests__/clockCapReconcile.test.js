@@ -2,7 +2,7 @@
  * Reconcile-loop tests. Pure drift detection plus a controller run against
  * fake nodes — no hardware, no SSH. Covers the three drift causes: a stale
  * marker after a reboot, an out-of-band nvidia-smi -rgc, and a mismatched MHz
- * marker; plus the gpu.clockcap.reapplied event and the no-target guard.
+ * marker; plus the gpu.clockcap.reapplied event and the no-target / auto guards.
  */
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -22,6 +22,11 @@ test("capDrifts: fixed target — stale marker (reboot), missing marker (-rgc) a
   assert.equal(capDrifts(status(), target), true);
   // Someone capped at a different MHz.
   assert.equal(capDrifts(status({ mhz: 1800 }), target), true);
+});
+
+test("capDrifts: an auto target never drifts — fleet Auto owns the caps", () => {
+  assert.equal(capDrifts(status({ mhz: 2400 }), { mode: "auto", mhz: 2000 }), false);
+  assert.equal(capDrifts(status({ mhz: null, stale: true, markerMhz: 2000 }), { mode: "auto", mhz: 2000 }), false);
 });
 
 test("capDrifts: unlocked target — any cap or stale marker drifts", () => {
