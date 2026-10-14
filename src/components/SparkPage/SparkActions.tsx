@@ -23,7 +23,7 @@ export function shutdownWarnings(spark: SparkSnapshot): string[] {
     if (!l?.available) return;
     const running = Math.round(l.requestsRunning ?? 0);
     const waiting = Math.round(l.requestsWaiting ?? 0);
-    const busy = running + waiting > 0 ? running + waiting : l.slotsActive > 0 ? l.slotsActive : 0;
+    const busy = running + waiting > 0 ? running + waiting : (l.slotsActive ?? 0) > 0 ? (l.slotsActive ?? 0) : 0;
     if (busy > 0) {
       const port = ports[i];
       out.push(`${busy} in-flight LLM request${busy === 1 ? "" : "s"}${port != null ? ` on :${port}` : ""}`);

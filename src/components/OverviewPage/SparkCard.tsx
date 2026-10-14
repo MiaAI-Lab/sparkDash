@@ -175,9 +175,9 @@ function SparkCardImpl({
   const showTps = role !== "worker" && !!llm;
   const llmChip = llm
     ? llm.requestsRunning != null
-      ? `${llm.requestsRunning} running · ${llm.requestsWaiting ?? 0} queued`
+      ? `${llm.requestsRunning} running · ${llm.requestsWaiting == null ? "queue unknown" : `${llm.requestsWaiting} queued`}`
       : llm.slotsTotal > 0
-        ? `${llm.slotsActive}/${llm.slotsTotal} slots`
+        ? `${llm.slotsActive ?? "?"}/${llm.slotsTotal} slots`
         : null
     : null;
 

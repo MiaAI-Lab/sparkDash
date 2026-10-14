@@ -66,6 +66,78 @@ test("probe: tensorfold CUDA {ok:true} health → labeled, 0 tok/s, no crash", a
   assert.equal(snap.prefillTps, 0);
 });
 
+test("_applyTensorFoldHealth: open requests do not count queued work as occupied slots", () => {
+  const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888);
+  probe._applyTensorFoldHealth({
+    ok: true, busy: true, requests_running: 10,
+    streams: { decoding: 8, prefilling: 0, max: 8, filling: 0, paused: 0 },
+  }, 2);
+  assert.equal(probe.slotsActive, 8);
+  assert.equal(probe.slotsTotal, 8);
+  assert.equal(probe.requestsRunning, 8);
+  assert.equal(probe.requestsWaiting, null); // Not an inferred queue of 10 - 8.
+});
+
+test("_applyTensorFoldHealth: paused lanes occupy slots and filling aliases prefilling", () => {
+  const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888);
+  for (const prefill of [{ prefilling: 2, filling: 2 }, { filling: 2 }, { prefilling: null, filling: 2 }]) {
+    probe._applyTensorFoldHealth({ requests_running: 10,
+      streams: { decoding: 3, paused: 1, max: 8, ...prefill } }, 2);
+    assert.equal(probe.slotsActive, 6);
+    assert.equal(probe.requestsRunning, 6);
+    assert.equal(probe.prefillActive, true);
+  }
+});
+
+test("_applyTensorFoldHealth: missing counts remain unknown, measured idle stays zero", () => {
+  const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888);
+  for (const health of [null, {}, { requests_running: null },
+    { requests_running: 10, streams: { max: 8, decoding: null, prefilling: null, filling: null, paused: null } }]) {
+    probe._applyTensorFoldHealth(health, 2);
+    assert.equal(probe.requestsRunning, null);
+    assert.equal(probe.slotsActive, null);
+    assert.equal(probe.requestsWaiting, null);
+  }
+  probe._applyTensorFoldHealth({ requests_running: 10,
+    streams: { max: 8, decoding: 0, prefilling: 0, filling: 2, paused: 0 } }, 2);
+  assert.equal(probe.slotsActive, 0); // Measured prefilling=0 wins over its alias.
+  assert.equal(probe.requestsRunning, 0);
+});
+
+test("_applyTensorFoldLive: connections do not overwrite measured idle streams", () => {
+  const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888);
+  probe._applyTensorFoldHealth({ streams: { max: 8, decoding: 0, prefilling: 0 } }, 2);
+  probe._applyTensorFoldLive({ live: { connections: 10, waiting: 2 } });
+  assert.equal(probe.requestsRunning, 0);
+  assert.equal(probe.slotsActive, 0);
+  assert.equal(probe.requestsWaiting, 2);
+});
+
+test("_applyTensorFoldLive: missing queue stays unknown, explicit queue values survive", () => {
+  const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888);
+  for (const waiting of [undefined, null, 0, 2]) {
+    probe._applyTensorFoldHealth({}, 2);
+    probe._applyTensorFoldLive({ live: { connections: 1, waiting } });
+    assert.equal(probe.requestsWaiting, waiting == null ? null : waiting);
+    assert.equal(probe.requestsRunning, 1);
+  }
+});
+
+test("_applyTensorFoldMetrics: scheduler gauges override health/live without inferring queue", async () => {
+  for (const waiting of [0, 2]) {
+    const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888);
+    probe._applyTensorFoldHealth({ requests_running: 10, streams: { decoding: 8, max: 8 } }, 2);
+    probe._applyTensorFoldLive({ live: { connections: 10, waiting: 3 } });
+    probe._fetch = async () => ({ ok: true, text: async () =>
+      `tensorfold:requests_running 7\ntensorfold:requests_waiting ${waiting}` });
+    await probe._applyTensorFoldMetrics();
+    assert.equal(probe.requestsRunning, 7);
+    assert.equal(probe.slotsActive, 7);
+    assert.equal(probe.slotsTotal, 8);
+    assert.equal(probe.requestsWaiting, waiting);
+  }
+});
+
 test("_applyTensorFoldHealth: counter diffs → tok/s; idle → 0", () => {
   const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888);
   probe._applyTensorFoldHealth(

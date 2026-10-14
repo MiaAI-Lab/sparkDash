@@ -1293,7 +1293,7 @@ export class LlmProbe {
   _applyTensorFoldHealth(data, dtSec) {
     const health = data && typeof data === "object" && !Array.isArray(data) ? data : {};
     // A prompt is being processed right now (no live rate exists for it, see below).
-    this.prefillActive = Number(health.streams?.prefilling) > 0;
+    this.prefillActive = Number(health.streams?.prefilling ?? health.streams?.filling) > 0;
     // Number(null) is 0: a null counter means "absent", not "zero".
     const prompt = health.prompt_tokens_total == null ? NaN : Number(health.prompt_tokens_total);
     const completion = health.completion_tokens_total == null ? NaN : Number(health.completion_tokens_total);
@@ -1317,9 +1317,9 @@ export class LlmProbe {
     this._tensorfoldPrevCached = Number.isFinite(cached) && cached >= 0 ? cached : null;
     const batch = Number(health.max_batch_size);
     if (Number.isFinite(batch) && batch > 0) this.slotsTotal = Math.round(batch);
-    // TensorFold 0.6.0 CUDA serves several streams at once: `streams.max` is the
-    // slot count and `requests_running` the busy ones. The EXL3 path above only
-    // knows a single `busy` flag, which would pin the tile at 1/1.
+    // CUDA health.requests_running counts open generate calls, including waiting
+    // work. Prefer occupied streams over that legacy fallback; streams.max is
+    // capacity, not a cap to hide a request/slot semantic mismatch.
     const streams =
       health.streams && typeof health.streams === "object" && !Array.isArray(health.streams)
         ? health.streams
@@ -1328,20 +1328,20 @@ export class LlmProbe {
     if (Number.isFinite(max) && max > 0) this.slotsTotal = Math.round(max);
     // null must not read as 0 busy streams (Number(null) === 0).
     const count = (v) => (v == null ? NaN : Number(v));
-    let running = count(health.requests_running);
-    if (!Number.isFinite(running)) {
-      const decoding = count(streams.decoding);
-      const prefilling = count(streams.prefilling);
-      if (Number.isFinite(decoding) || Number.isFinite(prefilling)) {
-        running =
-          (Number.isFinite(decoding) ? decoding : 0) +
-          (Number.isFinite(prefilling) ? prefilling : 0);
-      }
-    }
-    if (Number.isFinite(running) && running >= 0) {
-      this.requestsRunning = Math.round(running);
-      this.slotsActive = Math.round(running);
-    }
+    const decoding = count(streams.decoding);
+    // prefilling/filling describe the same lanes; never add both.
+    const prefilling = count(streams.prefilling ?? streams.filling);
+    const paused = count(streams.paused);
+    const laneCounts = [decoding, prefilling, paused];
+    const hasStreams = health.streams && typeof health.streams === "object" && !Array.isArray(health.streams);
+    const running = hasStreams
+      ? laneCounts.some((n) => Number.isFinite(n) && n >= 0)
+        ? laneCounts.reduce((sum, n) => sum + (Number.isFinite(n) && n >= 0 ? n : 0), 0)
+        : NaN
+      : count(health.requests_running); // Older health shapes have no stream breakdown.
+    // EXL3's busy flag is not a measurement of TensorFold's concurrency.
+    this.requestsRunning = Number.isFinite(running) && running >= 0 ? Math.round(running) : null;
+    this.slotsActive = this.requestsRunning;
     // 0.6.0 CUDA sizes its KV pool in tokens: `pool_tokens` in all,
     // `pool_free_tokens` not held by a request (kept prompts count as held).
     const pool = count(health.pool_tokens);
@@ -1399,7 +1399,7 @@ export class LlmProbe {
     const waiting = live.waiting == null ? NaN : Number(live.waiting);
     if (Number.isFinite(waiting) && waiting >= 0) this.requestsWaiting = Math.round(waiting);
     const conns = live.connections == null ? NaN : Number(live.connections);
-    if (Number.isFinite(conns) && conns >= 0 && !(this.requestsRunning > 0)) {
+    if (Number.isFinite(conns) && conns >= 0 && this.requestsRunning == null) {
       this.requestsRunning = Math.round(conns);
       this.slotsActive = Math.round(conns);
     }

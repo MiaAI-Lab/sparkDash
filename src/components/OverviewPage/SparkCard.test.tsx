@@ -25,6 +25,26 @@ function head(online: boolean): SparkSnapshot {
 }
 
 describe("SparkCard", () => {
+  it.each([null, undefined, 0, 2])("renders queue %s without inventing a zero", (waiting) => {
+    const spark = makeSpark("fixture");
+    Object.assign(spark.metrics.llm[0], {
+      backend: "tensorfold", slotsActive: 8, slotsTotal: 8,
+      requestsRunning: 8, requestsWaiting: waiting,
+    });
+    const { container } = render(<SparkCard spark={spark} temperatureUnit="celsius" />);
+    expect(container.querySelector(".ov-chips")?.textContent).toContain(
+      waiting == null ? "8 running · queue unknown" : `8 running · ${waiting} queued`
+    );
+  });
+
+  it("renders unknown slot occupancy without presenting it as zero", () => {
+    const spark = makeSpark("fixture");
+    Object.assign(spark.metrics.llm[0], {
+      backend: "tensorfold", slotsActive: null, slotsTotal: 8, requestsRunning: null,
+    });
+    const { container } = render(<SparkCard spark={spark} temperatureUnit="celsius" />);
+    expect(container.querySelector(".ov-chips")?.textContent).toContain("?/8 slots");
+  });
   it("lists private loaded models alongside the monitored model without duplicates", () => {
     const spark = head(true);
     spark.metrics.residentModels = [
