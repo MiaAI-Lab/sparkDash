@@ -29,6 +29,8 @@ interface SparkPageProps {
   /** GPU panel VRAM bar split by engine / system / free (Settings, on by default). */
   showVramBreakdown?: boolean;
   onEdit?: () => void;
+  /** Navigate to a spark id (header back-to-overview link). */
+  onNavigate?: (sparkId: string) => void;
 }
 
 type SparkView = "all" | "resources" | "services";
@@ -49,6 +51,7 @@ export function SparkPage({
   benchShareImage = false,
   showVramBreakdown = true,
   onEdit,
+  onNavigate,
 }: SparkPageProps) {
   const { metrics } = spark;
   const [disabledDevices, setDisabledDevices] = useState<string[]>(spark.disabledDevices || []);
@@ -250,7 +253,7 @@ export function SparkPage({
 
   return (
     <div className="sp">
-      <SparkHeader spark={spark} onEdit={onEdit} />
+      <SparkHeader spark={spark} onEdit={onEdit} onNavigate={onNavigate} />
       {/* Mobile-only action row (Update Hermes / Edit / Power) — desktop keeps them in the header. */}
       <SparkActions spark={spark} onEdit={onEdit} className="sp-mobile-actions flex sm:hidden" />
       {spark.online ? <HealthList findings={spark.health} /> : null}
