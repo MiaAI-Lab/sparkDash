@@ -765,6 +765,71 @@ input[type="checkbox"] {
 
 
 
+/* ─── Generic form modal sheet (Add/Edit Spark; portaled; scrollable) ─── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  isolation: isolate;
+  background: rgba(0, 0, 0, 0.55);
+}
+@media (min-width: 640px) {
+  .modal-overlay {
+    align-items: center;
+    padding: 1rem;
+  }
+}
+.modal-sheet {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 28rem;
+  max-height: min(94dvh, 100%);
+  border: 1px solid var(--color-border);
+  border-bottom: none;
+  border-radius: 1.1rem 1.1rem 0 0;
+  background: #faf7f0;
+  box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+}
+:root .modal-sheet,
+[data-theme="light"] .modal-sheet {
+  background: #faf7f0;
+}
+[data-theme="white"] .modal-sheet {
+  background: #ffffff;
+}
+[data-theme="dark"] .modal-sheet {
+  background: #1a1a1a;
+  box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.55);
+}
+[data-theme="oled"] .modal-sheet {
+  background: #0a0a0a;
+}
+@media (min-width: 640px) {
+  .modal-sheet {
+    max-height: min(90vh, 40rem);
+    border-radius: 1.1rem;
+    border-bottom: 1px solid var(--color-border);
+    box-shadow: var(--shadow-shell);
+  }
+}
+.modal-sheet--wide {
+  max-width: 40rem;
+}
+/* Clock-cap dialog gets its own room (item 1): the candidate chip grid and
+   the two-control row need more width than every other sheet in the app.
+   The base .modal-sheet (28rem) stays intact for all other dialogs; the
+   max-height guard plus .modal-sheet__body's overflow-y:auto keep short
+   viewports scrollable (the mobile sheet variant is bottom-anchored). */
+.modal-sheet--clock {
+  max-width: 36rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
 
 
 

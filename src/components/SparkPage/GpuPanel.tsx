@@ -15,6 +15,7 @@ import {
   headroomTextClass,
   type VramBreakdownContext,
 } from "../../shared/vramBreakdown";
+import { ClockCapControl } from "./ClockCapControl";
 
 interface GpuPanelProps {
   gpu: GpuMetrics | null;
@@ -32,6 +33,8 @@ interface GpuPanelProps {
    * (which shows both) sits right below this one.
    */
   hideMemory?: boolean;
+  /** Opt-in: the Clock Cap row becomes editable (default false). */
+  clockControlEnabled?: boolean;
   className?: string;
 }
 
@@ -152,6 +155,7 @@ export function GpuPanel({
   temperatureUnit,
   chip,
   hideMemory = false,
+  clockControlEnabled,
   className,
 }: GpuPanelProps) {
   const [windowId, setWindowId] = useState<(typeof GPU_CHART_WINDOWS)[number]["id"]>("30m");
@@ -247,12 +251,123 @@ export function GpuPanel({
         </div>
       </div>
 
+      {/* NVIDIA throttle / thermal slowdown + SM clock headroom */}
+      {(() => {
+        const t = gpu?.throttle;
+        const reason = t?.reason ?? "ok";
+        const chipLabel =
+          reason === "thermal"
+            ? "Thermal"
+            : reason === "power"
+              ? "Power"
+              : reason === "hw"
+                ? "HW"
+                : "OK";
+        const chipClass =
+          reason === "thermal"
+            ? "border-danger/40 bg-danger/15 text-danger"
+            : reason === "power" || reason === "hw"
+              ? "border-warning/40 bg-warning/15 text-warning"
+              : "border-border bg-surface-elevated text-muted";
+        const barColor =
+          reason === "thermal"
+            ? "bg-danger"
+            : reason === "power" || reason === "hw"
+              ? "bg-warning"
+              : "bg-accent";
+        const pct = t?.smClockPct;
+        // When a clock cap is set, the bar's full scale becomes the cap (not
+        // the hardware max) so it reflects the headroom that actually exists.
+        const clockLock = gpu?.clockLock ?? null;
+        const capMax = clockLock?.maxMHz ?? null;
+        const denomMHz =
+          capMax != null && t?.smClockMaxMHz != null
+            ? Math.min(capMax, t.smClockMaxMHz)
+            : t?.smClockMaxMHz ?? null;
+        const barPct =
+          t?.smClockMHz != null && denomMHz != null && denomMHz > 0
+            ? (t.smClockMHz / denomMHz) * 100
+            : pct;
+        const clockCaption =
+          t?.smClockMHz != null && denomMHz != null
+            ? `${t.smClockMHz} / ${denomMHz} MHz`
+            : pct != null
+              ? `${pct}%`
+              : "—";
+        return (
+          <div className="space-y-1.5" title={t?.detail ?? undefined}>
+            <div className="flex items-center justify-between gap-2 text-sm">
+              <span className="text-muted">Throttle</span>
+              <span
+                className={`rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${chipClass}`}
+              >
+                {chipLabel}
+              </span>
+            </div>
+            {/* Real-estate rule: show the Clock Cap row only when clock control
+                is enabled for this Spark AND a lock is actually set. Never a
+                permanent disabled row. */}
+            {clockLock != null && clockControlEnabled && (
+              <div className="flex items-center justify-between gap-2 text-sm">
+                <span className="text-muted">Clock Cap</span>
+                <ClockCapControl
+                  sparkId={sparkId}
+                  domain="gpu"
+                  currentMHz={capMax}
+                  display={
+                    /* -lgc MIN,MAX: a 0 min means "no floor" and MIN==MAX is a
+                       single pinned value — both collapse to just the max.
+                       Show the range only when a real floor is locked. */
+                    clockLock.minMHz > 0 && clockLock.minMHz !== clockLock.maxMHz
+                      ? `${clockLock.minMHz}–${clockLock.maxMHz} MHz`
+                      : `${capMax} MHz`
+                  }
+                  chipTitle="read from the boot unit; this driver reports no live lock state"
+                  enabled={Boolean(clockControlEnabled)}
+                  disabledReason="Clock control is disabled for this Spark (enable it in Edit Spark)"
+                />
+              </div>
+            )}
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-[10px] uppercase tracking-wide text-muted">SM clock</span>
+              <span className="font-tabular text-xs text-text">{clockCaption}</span>
+            </div>
+            <div className="h-1.5 overflow-hidden rounded-full bg-border">
+              <div
+                className={`h-full rounded-full transition-[width] duration-300 ease-out ${barColor}`}
+                style={{
+                  width: `${barPct != null ? Math.min(100, Math.max(0, barPct)) : 0}%`,
+                }}
+              />
+            </div>
+          </div>
+        );
+      })()}
+
       <GpuHistoryChart sparkId={sparkId} gpu={gpu} windowMs={windowMs} />
       {!multiGpu && (
         <div className="legend">
           <span className="c-accent">GPU utilization %</span>
           <span className="c-violet">Power % of limit</span>
           <span className="c-info">Temperature °C</span>
+        </div>
+      )}
+
+      {/* Per-card breakdown — only when the host has more than one GPU */}
+      {multiGpu && (
+        <div className="sp-section">
+          <div className="eyebrow">{devices.length} GPUs</div>
+          <div className="sp-devices">
+            {devices.map((d) => (
+              <GpuDeviceRow
+                key={d.uuid ?? d.index}
+                device={d}
+                vramContext={vramContext}
+                sparkId={sparkId}
+                temperatureUnit={temperatureUnit}
+              />
+            ))}
+          </div>
         </div>
       )}
 

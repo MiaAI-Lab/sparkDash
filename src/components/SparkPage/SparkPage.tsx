@@ -268,6 +268,7 @@ export function SparkPage({
                 temperatureUnit={temperatureUnit}
                 chip={spark.hardware.gpuChip}
                 hideMemory={showUnified}
+                clockControlEnabled={Boolean(spark.clockControlEnabled)}
               />
             </Item>
             {/* Unified memory (or RAM on a dedicated host) and CPU sit side by side (they stack when the column is narrow). */}
@@ -279,6 +280,7 @@ export function SparkPage({
                   hardware={spark.hardware}
                   sparkId={spark.id}
                   temperatureUnit={temperatureUnit}
+                  clockControlEnabled={Boolean(spark.clockControlEnabled)}
                 />
                 {/* Dedicated hosts have system RAM instead of a unified pool: CPU and RAM side by side. */}
                 {spark.kind === "host" && <RamPanel ram={metrics.ram} sparkId={spark.id} />}
