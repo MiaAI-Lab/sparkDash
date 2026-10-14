@@ -852,7 +852,13 @@ export class SystemCollector {
           smClockMaxMHz,
         }),
         metricAvailability: {
-          temperature: !windowsAdapter && rawTemperature != null,
+          // Windows AMD adapters: upstream reports a literal 0 for a metric it
+          // cannot read, so 0 stays "unavailable" there — but a NONZERO temp
+          // (our full-pool probe's WMI thermal zone, live-verified on a Strix
+          // Halo) is a real reading and must survive the aggregation gate.
+          temperature: !windowsAdapter
+            ? rawTemperature != null
+            : rawTemperature != null && rawTemperature > 0,
           usage: rawUsage != null,
           powerDraw: !windowsAdapter && rawPowerDraw != null,
           // NVIDIA keeps the historical 120 W default for an N/A limit (GB10),
