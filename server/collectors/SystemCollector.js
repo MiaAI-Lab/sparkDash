@@ -61,7 +61,7 @@ const CLOCK_CAP_CMD =
 export function parseClockCap(raw) {
   const lines = String(raw ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
   const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  const capLine = lines.find((l) => /^\d+/.test(l));
+  const capLine = lines.find((l) => /^\d+(\s|$)/.test(l)); // first token must be wholly numeric — a bare boot_id line (e.g. "139dcc9e-…") starts with digits and must NOT parse as a cap
   if (!capLine) return null;
   const [mhzRaw, markerBoot] = capLine.split(/\s+/);
   const mhz = Number.parseInt(mhzRaw, 10);
