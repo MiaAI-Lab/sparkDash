@@ -7,6 +7,8 @@ import { sshExec } from "./ssh.js";
 import { RoceSampler } from "./roce.js";
 import {
   WINDOWS_GPU_SCRIPT,
+  WINDOWS_AMD_GPU_SCRIPT,
+  mergeWindowsGpuOutputs,
   WINDOWS_SYSTEM_SCRIPT,
   parseWindowsSystem,
   splitWindowsGpuOutput,
@@ -374,10 +376,10 @@ export class SystemCollector {
         ? await this._getGPUAll()
         : this.isWindows
           ? this._withoutUnmeteredProcesses(
-              await this._getRemoteGpu(async () => windowsGpuAsLinuxOutput(await this._windowsRun("gpu", WINDOWS_GPU_SCRIPT)))
+              await this._getRemoteGpu(async () => windowsGpuAsLinuxOutput(await this._windowsGpuOutput()))
             )
           : await this._getRemoteGpu();
-      return tagCollectionResult(gpuData, this._isSuccessfulGpuCollection(gpuData));
+      return tagCollectionResult(gpuData, this._isSuccessfulGpuCollection(gpuData) || this._isUnifiedIGpuReport(gpuData));
     } catch (err) {
       console.error(`[SystemCollector] GPU error for ${this.spark.id}:`, err.message);
       return tagCollectionResult(this._defaultGpu(), false);
@@ -447,6 +449,24 @@ export class SystemCollector {
       gpu.power.draw >= 0 &&
       Number.isFinite(gpu?.power?.limit) &&
       gpu.power.limit > 0
+    );
+  }
+
+  /**
+   * AMD/WDDM fallback shape (see WINDOWS_AMD_GPU_SCRIPT): the driver exposes
+   * vRAM and engine utilization counters but no wattage at all, so the
+   * nvidia-smi predicate above can never pass on these boxes. A counters
+   * answer is "good" when a device was identified and real vRAM figures came
+   * back. The device list is the guard: a GPU-less Windows box yields no
+   * devices (and would otherwise ride the DGX-total fallback to a false pass).
+   */
+  _isUnifiedIGpuReport(gpu) {
+    return (
+      Number.isFinite(gpu?.usage) &&
+      Array.isArray(gpu?.gpus) &&
+      gpu.gpus.length > 0 &&
+      Number.isFinite(gpu?.vram?.used) &&
+      gpu?.vram?.total > 0
     );
   }
 
@@ -832,7 +852,13 @@ export class SystemCollector {
           smClockMaxMHz,
         }),
         metricAvailability: {
-          temperature: !windowsAdapter && rawTemperature != null,
+          // Windows AMD adapters: upstream reports a literal 0 for a metric it
+          // cannot read, so 0 stays "unavailable" there — but a NONZERO temp
+          // (our full-pool probe's WMI thermal zone, live-verified on a Strix
+          // Halo) is a real reading and must survive the aggregation gate.
+          temperature: !windowsAdapter
+            ? rawTemperature != null
+            : rawTemperature != null && rawTemperature > 0,
           usage: rawUsage != null,
           powerDraw: !windowsAdapter && rawPowerDraw != null,
           // NVIDIA keeps the historical 120 W default for an N/A limit (GB10),
@@ -2507,6 +2533,83 @@ export class SystemCollector {
   }
 
   /**
+   * Windows GPU sections with an AMD fallback. nvidia-smi runs first (unchanged
+   * for NVIDIA hosts); an answer whose GPU/memory sections are all empty — the
+   * AMD/other-vendor signature — triggers the counter script once and the
+   * vendor is remembered, so the idle nvidia-smi trip stops repeating.
+   * A remembered-other-vendor host still retries nvidia-smi once an hour in case
+   * a card/driver was installed (cheap: a miss is three empty echoes).
+   */
+  async _windowsGpuOutput() {
+    if (this._windowsGpuVendor) {
+      if (Date.now() - (this._windowsGpuVendorAt || 0) < 3600_000) {
+        if (this._windowsGpuVendor === "amd") {
+          // Vendor verified once: only the candidate script re-runs, spliced
+          // onto the primary's meminfo tail recorded at verification time —
+          // so neither nvidia-smi nor the primary counter script repeats.
+          const out = await this._windowsRun("amdGpu", WINDOWS_AMD_GPU_SCRIPT);
+          return out.split(/^---\s*$/m).slice(0, 4).join("\n---\n") + (this._windowsGpuMeminfoTail || "");
+        }
+        // Vendor "none": the counters probe stayed silent; keep the primary
+        // answer and skip the extra round trip until the hourly refresh.
+        return this._windowsRun("gpu", WINDOWS_GPU_SCRIPT);
+      }
+      // Refresh window: probe both once more.
+      this._windowsGpuVendor = null;
+    }
+    const primary = await this._windowsRun("gpu", WINDOWS_GPU_SCRIPT);
+    // An NVIDIA answer (nvidia-smi named a device) is upstream, verbatim —
+    // no extra PowerShell ever runs on NVIDIA boxes. This keeps upstream's
+    // "a broken NVIDIA driver stays empty" contract: counters never invent a
+    // GPU on an NVIDIA PC.
+    const s = splitWindowsGpuOutput(primary);
+    if (/nvidia/i.test(`${s.gpu}\n${s.names}`)) return primary;
+    const candidate = await this._windowsRun("amdGpu", WINDOWS_AMD_GPU_SCRIPT);
+    const c = splitWindowsGpuOutput(candidate);
+    if (!(c.gpu || c.memory)) {
+      this._windowsGpuVendor = "none";
+      this._windowsGpuVendorAt = Date.now();
+      return primary;
+    }
+    this._windowsGpuVendor = "amd";
+    this._windowsGpuVendorAt = Date.now();
+    // Remember the primary's sections past the candidate's shape (its
+    // MemTotal/MemAvailable tail) so later polls keep it without re-polling.
+    const pSections = String(primary ?? "").split(/^---\s*$/m);
+    this._windowsGpuMeminfoTail = pSections.length > 4
+      ? "\n---\n" + pSections.slice(4).map((x) => x.trim()).join("\n---\n")
+      : "";
+    return this._amdMerged(primary, candidate);
+  }
+
+  /**
+   * Section precedence for a verified AMD-iGPU box (Strix Halo): the full-pool
+   * candidate answers memory, and its utilization/temp/per-process section
+   * fills gaps the primary counter path leaves blank or zero-valued.
+   * Memory only shifts to the candidate when it reports a pool at least as
+   * large as the primary's — its point is the true unified pool (installed
+   * DIMMs) vs the registry/BIOS-carve figures the primary reads; a smaller
+   * pool never displaces upstream's answer.
+   */
+  _amdMerged(primary, candidate) {
+    const p = String(primary ?? "").split(/^---\s*$/m).map((x) => x.trim());
+    const c = String(candidate ?? "").split(/^---\s*$/m).map((x) => x.trim());
+    const num = (mem) => {
+      const m = /^[\d.]+\s*,\s*([\d.]+)/.exec(mem || "");
+      return m ? Math.max(0, parseFloat(m[1])) : 0;
+    };
+    const pick = (a, b) => a || b || "";
+    const sections = [
+      pick(c[0], p[0]),                                              // gpu line (candidate: temp + live counters)
+      num(c[1]) >= num(p[1]) && num(c[1]) > 0 ? c[1] : p[1] || "",  // memory: bigger-or-equal pool wins
+      pick(c[2], p[2]),                                              // compute apps (candidate: real rows)
+      pick(c[3], p[3]),                                              // name,driver (candidate: AMD-preferred)
+    ];
+    if (p.length > 4) sections.push(...p.slice(4).map((x) => x.trim())); // primary's meminfo tail
+    return sections.join("\n---\n");
+  }
+
+  /**
    * Under WDDM nvidia-smi lists graphics processes (dwm.exe, explorer.exe...) without
    * a memory figure. A process list of 0 MB entries says nothing, so keep only
    * processes that report memory.
@@ -2529,7 +2632,7 @@ export class SystemCollector {
   async detectWindowsHardware() {
     const [system, gpuRaw] = await Promise.all([
       this._windowsSystem(),
-      this._windowsRun("gpu", WINDOWS_GPU_SCRIPT),
+      this._windowsGpuOutput(),
     ]);
     const { names } = splitWindowsGpuOutput(gpuRaw);
     const { gpuChip, gpuCount, cudaDriver } = this._describeGpus(names);
@@ -2650,7 +2753,7 @@ export class SystemCollector {
     try {
       const [system, gpuRaw] = await Promise.all([
         this._windowsSystem(),
-        this._windowsRun("gpu", WINDOWS_GPU_SCRIPT),
+        this._windowsGpuOutput(),
       ]);
       const { memory } = splitWindowsGpuOutput(gpuRaw);
       const { used: gpuUsed } = this._sumVram(this._parseVramLines(memory));
