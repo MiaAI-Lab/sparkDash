@@ -96,34 +96,28 @@ export function FleetTokenTotals({ onOpenDetails }: { onOpenDetails?: () => void
   if (!series || series.length === 0) return null;
 
   const { rows, totalPrompt, totalCached, totalCompletion } = aggregateModelTotals(series);
-  // One row per machine (head/standalone — workers serve no LLM endpoint, so
-  // they produce no series), with its model label and token split.
-  const machineRows = (() => {
-    const bySpark = new Map<
+  // One row per machine-model combination (merged across ports on the same
+  // machine serving the same model). Workers serve no LLM endpoint, so they
+  // produce no series and appear nowhere.
+  const combinedRows = (() => {
+    const byKey = new Map<
       string,
-      { models: Set<string>; promptTokens: number; cachedTokens: number; completionTokens: number }
+      { sparkId: string; modelId: string; promptTokens: number; cachedTokens: number; completionTokens: number }
     >();
     for (const s of Array.isArray(series) ? series : []) {
-      if (!Array.isArray(s.models) || s.models.length === 0) continue;
-      const entry =
-        bySpark.get(s.sparkId) ??
-        { models: new Set<string>(), promptTokens: 0, cachedTokens: 0, completionTokens: 0 };
-      for (const m of s.models) {
-        entry.models.add(m.modelId);
+      for (const m of Array.isArray(s.models) ? s.models : []) {
+        const key = `${s.sparkId}\u0000${m.modelId}`;
+        const entry =
+          byKey.get(key) ??
+          { sparkId: s.sparkId, modelId: m.modelId, promptTokens: 0, cachedTokens: 0, completionTokens: 0 };
         entry.promptTokens = addTokens(entry.promptTokens, m.promptTokens || 0);
         entry.cachedTokens = addTokens(entry.cachedTokens, m.cachedTokens || 0);
         entry.completionTokens = addTokens(entry.completionTokens, m.completionTokens || 0);
+        byKey.set(key, entry);
       }
-      bySpark.set(s.sparkId, entry);
     }
-    return [...bySpark.entries()]
-      .map(([sparkId, e]) => ({
-        sparkId,
-        modelLabel: [...e.models].sort().join(" + "),
-        promptTokens: e.promptTokens,
-        cachedTokens: Math.min(e.cachedTokens, e.promptTokens),
-        completionTokens: e.completionTokens,
-      }))
+    return [...byKey.values()]
+      .map((e) => ({ ...e, cachedTokens: Math.min(e.cachedTokens, e.promptTokens) }))
       .sort((a, b) => b.completionTokens + b.promptTokens - (a.completionTokens + a.promptTokens));
   })();
   // Count only endpoints with token data in the selected period, not all configured ones.
@@ -182,7 +176,7 @@ export function FleetTokenTotals({ onOpenDetails }: { onOpenDetails?: () => void
       </div>
       <div className="ov-rows">
         <div className="ov-row ov-row--head">
-          <span className="ov-row__name eyebrow">Model</span>
+          <span className="ov-row__name eyebrow">Machine · Model</span>
           <span className="ov-row__num eyebrow">Cached</span>
           <span className="ov-row__num eyebrow">Prefill</span>
           <span className="ov-row__num eyebrow">Gen</span>
@@ -190,46 +184,21 @@ export function FleetTokenTotals({ onOpenDetails }: { onOpenDetails?: () => void
         {rows.length === 0 ? (
           <p className="ov-card__sub">No tokens recorded in this period.</p>
         ) : (
-          rows.map((row) => (
+          combinedRows.map((row) => (
             <div
-              key={row.modelId}
+              key={`${row.sparkId}\u0000${row.modelId}`}
               className="ov-row"
-              title={`${row.promptTokens.toLocaleString()} prompt · ${row.cachedTokens.toLocaleString()} cached · ${(row.promptTokens - row.cachedTokens).toLocaleString()} prefill · ${row.completionTokens.toLocaleString()} generated · ${row.sparkCount} Spark${row.sparkCount === 1 ? "" : "s"}`}
+              title={`${row.promptTokens.toLocaleString()} prompt \u00b7 ${row.cachedTokens.toLocaleString()} cached \u00b7 ${(row.promptTokens - row.cachedTokens).toLocaleString()} prefill \u00b7 ${row.completionTokens.toLocaleString()} generated`}
             >
               <span className="ov-row__name" title={row.modelId}>
-                {row.modelId}
-                {row.sparkCount > 1 && <span className="ov-row__x">{"\u00d7"}{row.sparkCount}</span>}
+                {row.sparkId}
+                <span className="text-muted">{" \u00b7 "}{row.modelId}</span>
               </span>
               <span className="ov-row__num mono">{row.cachedTokens > 0 ? formatTokensCompact(row.cachedTokens) : "\u2014"}</span>
               <span className="ov-row__num mono">{formatTokensCompact(row.promptTokens - row.cachedTokens)}</span>
               <span className="ov-row__num ov-row__num--strong mono">{formatTokensCompact(row.completionTokens)}</span>
             </div>
           ))
-        )}
-        {machineRows.length > 0 && (
-          <>
-            <div className="ov-row ov-row--head" style={{ marginTop: "0.75rem" }}>
-              <span className="ov-row__name eyebrow">Machine</span>
-              <span className="ov-row__num eyebrow">Cached</span>
-              <span className="ov-row__num eyebrow">Prefill</span>
-              <span className="ov-row__num eyebrow">Gen</span>
-            </div>
-            {machineRows.map((row) => (
-              <div
-                key={row.sparkId}
-                className="ov-row"
-                title={`${row.promptTokens.toLocaleString()} prompt · ${row.cachedTokens.toLocaleString()} cached · ${(row.promptTokens - row.cachedTokens).toLocaleString()} prefill · ${row.completionTokens.toLocaleString()} generated`}
-              >
-                <span className="ov-row__name" title={row.modelLabel}>
-                  {row.sparkId}
-                  <span className="text-muted">{" \u00b7 "}{row.modelLabel}</span>
-                </span>
-                <span className="ov-row__num mono">{row.cachedTokens > 0 ? formatTokensCompact(row.cachedTokens) : "\u2014"}</span>
-                <span className="ov-row__num mono">{formatTokensCompact(row.promptTokens - row.cachedTokens)}</span>
-                <span className="ov-row__num ov-row__num--strong mono">{formatTokensCompact(row.completionTokens)}</span>
-              </div>
-            ))}
-          </>
         )}
         <div className="ov-row ov-row--total">
           <span className="ov-row__name eyebrow">Total</span>
