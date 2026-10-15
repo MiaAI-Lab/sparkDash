@@ -417,3 +417,40 @@ test("_applyTensorFoldHealth: prefillActive follows streams.prefilling and the l
   probe._applyTensorFoldHealth(h(3000, 12, 1), 2);
   assert.equal(probe.prefillTps, 0);
 });
+
+test("_applyTensorFoldMetrics: /metrics-only builds get decode tok/s from total + running tokens", async () => {
+  // tensorfold-native (Zig engine): /health is only {"status": "ok"}, every counter is on /metrics.
+  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 8888);
+  let sample = { total: 1000, running: 0 };
+  probe._fetch = async (url) => {
+    if (!String(url).endsWith("/metrics")) return notFound();
+    const txt = [
+      `tensorfold:generation_tokens_total ${sample.total}`,
+      `tensorfold:generation_tokens_running ${sample.running}`,
+      "tensorfold:prompt_tokens_total 5000",
+      `tensorfold:requests_running ${sample.running > 0 ? 1 : 0}`,
+    ].join("\n");
+    return { ok: true, status: 200, text: async () => txt };
+  };
+
+  // First sample seeds the baseline: a lifetime total is not a rate.
+  await probe._applyTensorFoldMetrics(2);
+  assert.equal(probe.generationTps, 0);
+  assert.equal(probe.totalOutputTokens, 1000);
+
+  // A request is decoding; the finished total has not moved yet.
+  sample = { total: 1000, running: 100 };
+  await probe._applyTensorFoldMetrics(2);
+  assert.equal(probe.generationTps, 50);
+  assert.equal(probe.slotsActive, 1);
+
+  // It finishes: its 150 tokens move into the total, no spike from the handover.
+  sample = { total: 1150, running: 0 };
+  await probe._applyTensorFoldMetrics(2);
+  assert.equal(probe.generationTps, 25);
+  assert.equal(probe.totalOutputTokens, 1150);
+
+  // Idle again.
+  await probe._applyTensorFoldMetrics(2);
+  assert.equal(probe.generationTps, 0);
+});

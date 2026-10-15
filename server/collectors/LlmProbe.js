@@ -132,6 +132,8 @@ export class LlmProbe {
     this._tensorfoldPrefillSeconds = null;
     this._tensorfoldPrevCached = null;
     this._tensorfoldLastPrefill = null;
+    /** Previous TensorFold /metrics `generation_tokens_total + generation_tokens_running`. */
+    this._tensorfoldPromProduced = null;
     this.prefillActive = false;
     /** Previous prefill counters by kind; null until first labeled sample. */
     this.lastPrefillKinds = null;
@@ -418,6 +420,7 @@ export class LlmProbe {
     this._tensorfoldPrefillSeconds = null;
     this._tensorfoldPrevCached = null;
     this._tensorfoldLastPrefill = null;
+    this._tensorfoldPromProduced = null;
     this.prefillActive = false;
     this.lastPrefillKinds = null;
     this.lastTtftSum = null;
@@ -785,7 +788,7 @@ export class LlmProbe {
           this._applyTensorFoldLive(health);
           // Newer builds report live rates in /health but cumulative totals only on Prometheus /metrics.
           const totalRaw = health?.completion_tokens_total;
-          if (totalRaw == null || !Number.isFinite(Number(totalRaw))) await this._applyTensorFoldMetrics();
+          if (totalRaw == null || !Number.isFinite(Number(totalRaw))) await this._applyTensorFoldMetrics(dtSec);
         } else {
           this._applyTensorFoldHealth(null, dtSec);
         }
@@ -1408,8 +1411,11 @@ export class LlmProbe {
   /**
    * TensorFold Prometheus /metrics (`tensorfold:*`): cumulative token totals (finished requests),
    * running / waiting requests and the MTP draft acceptance rate. Best effort: a miss changes nothing.
+   * Builds whose /health is only `{"status": "ok"}` (tensorfold-native) report counters here alone,
+   * so decode tok/s comes from this poll-window diff.
+   * @param {number} [dtSec]
    */
-  async _applyTensorFoldMetrics() {
+  async _applyTensorFoldMetrics(dtSec) {
     let txt;
     try {
       const res = await this._fetch(`${this.baseUrl}/metrics`);
@@ -1424,6 +1430,19 @@ export class LlmProbe {
     const prompt = m("prompt_tokens_total");
     if (Number.isFinite(gen) && gen >= 0) this.totalOutputTokens = gen;
     if (Number.isFinite(prompt) && prompt >= 0) this.totalPromptTokens = prompt;
+    // The total moves only when a request finishes; `generation_tokens_running` counts the
+    // tokens of requests still decoding. Their sum grows steadily while tokens are produced
+    // (a finishing request moves its tokens from one to the other), so its diff is the live rate.
+    // Prefill stays as is: prompt_tokens_total includes cached prefix tokens.
+    if (Number.isFinite(gen) && gen >= 0) {
+      const inFlight = m("generation_tokens_running");
+      const produced = gen + (Number.isFinite(inFlight) && inFlight >= 0 ? inFlight : 0);
+      const prev = this._tensorfoldPromProduced;
+      this._tensorfoldPromProduced = produced;
+      if (prev != null && Number.isFinite(dtSec) && dtSec > 0) {
+        this.generationTps = Math.max(0, Math.round(((produced - prev) / dtSec) * 100) / 100);
+      }
+    }
     const running = m("requests_running");
     if (Number.isFinite(running) && running >= 0) {
       this.requestsRunning = Math.round(running);

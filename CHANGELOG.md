@@ -14,6 +14,9 @@ Format: version sections are listed newest first.
 
 ---
 
+### Fixed
+- **TensorFold engines that report only through `/metrics` showed 0 tok/s.** Builds whose `/health` is just `{"status": "ok"}` (the `tensorfold-native` Zig engine) publish every counter on Prometheus `/metrics`. sparkDash copied the token totals from there but never turned them into a rate, so the Decode tile read 0 tok/s even mid-generation. Decode tok/s now comes from the poll-window diff of `generation_tokens_total` + `generation_tokens_running`: the total moves only when a request finishes, the running gauge counts the tokens of requests still decoding, so their sum grows while tokens are produced. A request finishing can show one short dip and spike, as the two counters are not updated in the same instant; the pair averages out. Prefill is unchanged, since `prompt_tokens_total` includes cached prefix tokens. From a contribution by @yrjo.
+
 ## [2.40.1] — 2026-10-14
 
 ### Added
