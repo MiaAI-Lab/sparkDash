@@ -161,12 +161,22 @@ test("LlmTokenLedger: daily buckets credit deltas and serve ranged snapshots", (
   const all = ledger.snapshot("all", d2).series[0];
   assert.equal(all.models[0].completionTokens, 200);
 
-  // "today" (day of d2) only includes the d2 delta.
+  // "today" is a rolling last-24-hours window (hourly buckets), so the d1
+  // delta (23:00 UTC, 11 h before d2) is included.
   const today = ledger.snapshot("today", d2).series[0];
   assert.equal(today.models.length, 1);
-  assert.equal(today.models[0].completionTokens, 100);
-  assert.equal(today.models[0].promptTokens, 20);
+  assert.equal(today.models[0].completionTokens, 200);
+  assert.equal(today.models[0].promptTokens, 30);
   assert.equal(today.models[0].lastSeenAt, null);
+
+  // 6h window: d1 (11 h before d2) falls outside, only the d2 delta counts.
+  const six = ledger.snapshot("6h", d2).series[0];
+  assert.equal(six.models[0].completionTokens, 100);
+  assert.equal(six.models[0].promptTokens, 20);
+
+  // 1h window: same — only the d2 delta.
+  const one = ledger.snapshot("1h", d2).series[0];
+  assert.equal(one.models[0].completionTokens, 100);
 
   // 7d/14d/30d windows include both days.
   const seven = ledger.snapshot("7d", d2).series[0];

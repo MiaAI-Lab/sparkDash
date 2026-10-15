@@ -25,7 +25,7 @@ export interface LlmTokenSeriesTotals {
 
 export interface LlmTokenTotalsResponse {
   /** "all" or the normalized window echo for ranged queries. */
-  range: "all" | "today" | "7d" | "14d" | "30d";
+  range: "all" | "today" | "1h" | "6h" | "7d" | "14d" | "30d";
   series: LlmTokenSeriesTotals[];
 }
 

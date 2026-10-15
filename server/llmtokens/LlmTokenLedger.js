@@ -49,14 +49,32 @@ const MODEL_ID_MAX_LEN = 200;
 
 /** Valid range keys for GET /api/llm-token-totals?range=… ("all" = lifetime). */
 export function normalizeLlmTokenRange(value) {
-  return value === "today" || value === "7d" || value === "14d" || value === "30d"
+  return value === "today" ||
+    value === "1h" ||
+    value === "6h" ||
+    value === "7d" ||
+    value === "14d" ||
+    value === "30d"
     ? value
     : "all";
 }
 
 /** Number of UTC date keys a range covers (null = lifetime). */
+/**
+ * Number of UTC hour keys an hour-based range covers (null = not hour-based).
+ * "today" is a rolling last-24-hours window (hourly buckets), NOT the UTC
+ * calendar day — it matches the overview "Tokens today" KPI and the selector
+ * label "Last 24 hours". Bucket granularity is one hour, so a range spans
+ * between N-1 and N hours of real time.
+ */
+function rangeHourCount(range) {
+  if (range === "today") return 24;
+  if (range === "6h") return 6;
+  if (range === "1h") return 1;
+  return null;
+}
+
 function rangeDayCount(range) {
-  if (range === "today") return 1;
   if (range === "7d") return 7;
   if (range === "14d") return 14;
   if (range === "30d") return 30;
@@ -414,20 +432,47 @@ export class LlmTokenLedger {
 
   /**
    * Read-only public shape for GET /api/llm-token-totals.
-   * `range`: "all" (lifetime) or a daily-bucket window (today / 7d / 14d / 30d).
-   * Ranged rows aggregate the retained UTC-day buckets; day boundaries are UTC,
-   * matching the LlmDaily convention. `lastSeenAt` is null for ranged rows.
+   * `range`: "all" (lifetime), an hour-bucket window (today = rolling 24 h /
+   * 6h / 1h) or a daily-bucket window (7d / 14d / 30d). Bucket boundaries are
+   * UTC, matching the LlmDaily convention. `lastSeenAt` is null for ranged rows.
    * @param {string} [range]
    * @param {number} [nowMs]
    */
   snapshot(range = "all", nowMs = Date.now()) {
     const dayCount = rangeDayCount(range);
+    const hourCount = rangeHourCount(range);
     const series = [];
     for (const [key, s] of Object.entries(this._data.series)) {
       const sep = key.lastIndexOf(":");
       if (sep <= 0) continue;
       let models;
-      if (dayCount == null) {
+      if (hourCount != null) {
+        const wanted = new Set();
+        const HOUR_MS = 3_600_000;
+        const currentHourStart = Math.floor(nowMs / HOUR_MS) * HOUR_MS;
+        for (let i = 0; i < hourCount; i++) {
+          wanted.add(utcHourKey(currentHourStart - i * HOUR_MS));
+        }
+        const agg = new Map();
+        for (const hourKey of Object.keys(s.hourly || {}).sort().reverse()) {
+          if (!wanted.has(hourKey)) continue;
+          for (const [modelId, row] of Object.entries(s.hourly[hourKey])) {
+            const acc =
+              agg.get(modelId) || { promptTokens: 0, completionTokens: 0, cachedTokens: 0 };
+            acc.promptTokens = addTokens(acc.promptTokens, row.promptTokens || 0);
+            acc.completionTokens = addTokens(acc.completionTokens, row.completionTokens || 0);
+            acc.cachedTokens = addTokens(acc.cachedTokens, row.cachedTokens || 0);
+            agg.set(modelId, acc);
+          }
+        }
+        models = [...agg.entries()].map(([modelId, row]) => ({
+          modelId,
+          promptTokens: row.promptTokens,
+          completionTokens: row.completionTokens,
+          cachedTokens: Math.min(row.cachedTokens, row.promptTokens),
+          lastSeenAt: null,
+        }));
+      } else if (dayCount == null) {
         models = Object.entries(s.models).map(([modelId, row]) => ({
           modelId,
           promptTokens: row.promptTokens || 0,
@@ -482,7 +527,7 @@ export class LlmTokenLedger {
       });
     }
     series.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-    return { range: dayCount == null ? "all" : range, series };
+    return { range: dayCount == null && hourCount == null ? "all" : range, series };
   }
 }
 
