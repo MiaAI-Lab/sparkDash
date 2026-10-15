@@ -118,7 +118,10 @@ export function FleetTokenTotals({ onOpenDetails }: { onOpenDetails?: () => void
     }
     return [...byKey.values()]
       .map((e) => ({ ...e, cachedTokens: Math.min(e.cachedTokens, e.promptTokens) }))
-      .sort((a, b) => b.completionTokens + b.promptTokens - (a.completionTokens + a.promptTokens));
+      .sort(
+        (a, b) =>
+          a.sparkId.localeCompare(b.sparkId) || a.modelId.localeCompare(b.modelId)
+      );
   })();
   // Count only endpoints with token data in the selected period, not all configured ones.
   const activeEndpoints = series.filter((s) => s.models.length > 0).length;
