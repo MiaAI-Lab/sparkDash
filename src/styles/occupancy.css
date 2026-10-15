@@ -1,0 +1,210 @@
+/* Harness sessions on an LLM card, and the setup wizard. Theme tokens only. */
+
+.occupancy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-top: 0.25rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.occupancy-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.occupancy-head-count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  color: var(--color-text-strong);
+}
+
+.occupancy-head-title {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+.occupancy-head-add,
+.occupancy-add-harness {
+  margin-left: auto;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.occupancy-head-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  padding: 0;
+}
+
+.occupancy-add-harness {
+  margin-left: 0;
+  padding: 0.28rem 0.7rem;
+  font-size: 0.78rem;
+}
+
+.occupancy-head-add:hover,
+.occupancy-add-harness:hover {
+  background: var(--color-surface-hover);
+}
+
+.occupancy-empty {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  color: var(--color-muted);
+  font-size: 0.78rem;
+}
+
+.occupancy-empty p {
+  margin: 0;
+  flex: 1 1 16rem;
+}
+
+.occupancy-lane-label {
+  margin: 0.35rem 0 0.2rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+.occupancy-lane-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.occupancy-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: 0.45rem;
+  align-items: center;
+  min-height: 1.6rem;
+  font-size: 0.8rem;
+}
+
+.occupancy-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 999px;
+  background: var(--color-faint);
+}
+
+.is-generating .occupancy-dot { background: var(--color-success); }
+.is-stalled .occupancy-dot { background: var(--color-warning); }
+.is-recent .occupancy-dot { background: var(--color-accent); }
+.is-warm .occupancy-dot { background: var(--color-info); }
+
+.occupancy-handle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-strong);
+}
+
+.occupancy-ctx:empty { display: none; }
+
+.occupancy-ctx,
+.occupancy-state {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+
+.is-generating .occupancy-state { color: var(--color-success); }
+.is-stalled .occupancy-state { color: var(--color-warning); }
+
+.occupancy-stale {
+  color: var(--color-warning);
+}
+
+.harness-pick,
+.harness-routes,
+.harness-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.harness-pick label,
+.harness-list article {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.7rem;
+  background: var(--color-surface);
+}
+
+.harness-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.7rem;
+}
+
+.harness-field span {
+  font-size: 0.72rem;
+  color: var(--color-muted);
+}
+
+.harness-route {
+  display: grid;
+  grid-template-columns: 1fr 6.5rem;
+  gap: 0.4rem;
+  margin-bottom: 0.35rem;
+}
+
+.harness-route input,
+.harness-route select,
+.harness-field input {
+  width: 100%;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-radius: 0.55rem;
+  padding: 0.4rem 0.55rem;
+}
+
+.harness-snippet {
+  margin: 0;
+  padding: 0.7rem;
+  overflow: auto;
+  border-radius: 0.7rem;
+  background: var(--color-surface-elevated);
+  color: var(--color-text);
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+}
+
+.harness-check-list {
+  margin: 0.4rem 0 0;
+  padding-left: 1.1rem;
+  color: var(--color-text);
+  font-size: 0.8rem;
+}
+
+@media (max-width: 639px) {
+  .occupancy-row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+  .occupancy-ctx { display: none; }
+  .harness-route { grid-template-columns: 1fr; }
+}

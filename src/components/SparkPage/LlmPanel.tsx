@@ -1,7 +1,7 @@
 import { benchId } from "../../constants";
 import { BenchIcon } from "../bench/BenchIcon";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import type { LlmMetrics, LlmBenchTarget } from "../../api/types";
+import type { ConversationRow, LlmMetrics, LlmBenchTarget } from "../../api/types";
 import { setLlmApiKey, updateLlmPort, updateLlmPorts } from "../../api/client";
 import { TrendLine } from "../ui/TrendLine";
 import { Panel } from "../ui/Panel";
@@ -24,6 +24,7 @@ import { LlmTrendChart } from "./LlmTrendChart";
 import type { BenchKind } from "./BenchSwitcher";
 import { engineStateLabel } from "./llmEngineState";
 import { idleLabel, isLlmIdle } from "../../shared/llmIdle";
+import { ConversationList } from "./ConversationList";
 
 interface LlmPanelProps {
   llm: LlmMetrics | null;
@@ -37,6 +38,8 @@ interface LlmPanelProps {
   shareImage?: boolean;
   onRemovePort?: (port: number) => void;
   className?: string;
+  conversations?: ConversationRow[];
+  onAddHarness?: () => void;
 }
 
 const VLLM_METRIC_INFO = {
@@ -373,6 +376,8 @@ export function LlmPanel({
   shareImage = false,
   onRemovePort,
   className,
+  conversations = [],
+  onAddHarness,
 }: LlmPanelProps) {
   // Tail keyed by port so multi-port LLM sparklines stay distinct (8b).
   const genHistory = useMetricsHistoryTail(sparkId, `llm:${llmPort}.tps`);
@@ -917,6 +922,8 @@ export function LlmPanel({
           <LlmTokenTotals sparkId={sparkId} llmPort={llmPort} />
         </div>
       )}
+
+      <ConversationList conversations={conversations} onAddHarness={onAddHarness} />
 
       <BenchmarkDialog
         open={openBench === "decode"}

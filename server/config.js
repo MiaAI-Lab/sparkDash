@@ -33,6 +33,9 @@ const METRICS_HISTORY_JSON_PATH =
 /** Alert rule switches, channel settings (no URLs — those are in the secrets store) and the firing set; mode 0600. */
 const ALERTS_JSON_PATH =
   process.env.ALERTS_JSON_PATH || path.join(ROOT, "config", "alerts.json");
+/** Harness helper attaches (URLs and routes; bearer tokens stay in the secrets store). */
+const OCCUPANCY_HELPERS_JSON_PATH =
+  process.env.OCCUPANCY_HELPERS_JSON_PATH || path.join(ROOT, "config", "occupancy-helpers.json");
 
 // ─── LLM / Comfy probe timeouts ──────────────────────────
 const LLM_PROBE_TIMEOUT_MS = 3000;
@@ -198,6 +201,7 @@ export {
   FLEET_ENERGY_MONTHLY_JSON_PATH,
   METRICS_HISTORY_JSON_PATH,
   ALERTS_JSON_PATH,
+  OCCUPANCY_HELPERS_JSON_PATH,
   LLM_PROBE_TIMEOUT_MS,
   COMFY_PROBE_TIMEOUT_MS,
   TAILSCALE_PROBE_TIMEOUT_MS,

@@ -11,14 +11,19 @@
  *     version: 2,
  *     secrets: { [sparkId]: "<encrypted ssh password>" },
  *     llmApiKeys: { [sparkId]: "<encrypted JSON { \"8000\": \"sk-…\" }>" },
- *     alertChannels: { [channelId]: "<encrypted alert channel URL>" }   (optional)
+ *     alertChannels: { [channelId]: "<encrypted alert channel URL>" },   (optional)
+ *     helperTokens: { [helperId]: "<encrypted helper bearer>" }          (optional)
  *   }
  *
  * Alert channel URLs (an ntfy topic, a Discord or Slack webhook) are the
  * channel's credential, so they live here too, written by their own save
- * function; each save keeps the other's sections exactly as they are on disk.
+ * function. Harness helper bearer tokens live in helperTokens, written by
+ * saveHelperTokens. Each save keeps the other sections exactly as they are
+ * on disk, including ciphertext this process cannot decrypt.
  *
  * v1 files (secrets only) still load; rewritten as v2 on next save.
+ * A save replaces only the namespaces the caller supplies. An empty map clears
+ * that namespace. The file is removed only when every namespace is empty.
  *
  * Encryption key:
  *   - SPARKDASH_SECRETS_KEY env (passphrase or 64-char hex), or
@@ -124,6 +129,7 @@ function decrypt(blobB64, key) {
  * @returns {{
  *   passwords: Map<string, string>,
  *   llmApiKeys: Map<string, Record<string, string>>,
+ *   helperTokens: Map<string, string>,
  * }}
  */
 export function loadSecrets() {
@@ -131,9 +137,11 @@ export function loadSecrets() {
   const passwords = new Map();
   /** @type {Map<string, Record<string, string>>} */
   const llmApiKeys = new Map();
+  /** @type {Map<string, string>} */
+  const helperTokens = new Map();
 
   if (!fs.existsSync(SPARKS_SECRETS_PATH)) {
-    return { passwords, llmApiKeys };
+    return { passwords, llmApiKeys, helperTokens };
   }
 
   try {
@@ -199,22 +207,49 @@ export function loadSecrets() {
         );
       }
     }
+
+    const helperEntries = data?.helperTokens || {};
+    if (typeof helperEntries === "object" && helperEntries !== null && !Array.isArray(helperEntries)) {
+      let failedHelpers = 0;
+      for (const [id, blob] of Object.entries(helperEntries)) {
+        if (!id || typeof blob !== "string") continue;
+        try {
+          const token = decrypt(blob, key);
+          if (token) helperTokens.set(id, token);
+        } catch {
+          failedHelpers += 1;
+          console.error(
+            `[secretsStore] Failed to decrypt helper token for ${id} (wrong/missing key?)`
+          );
+        }
+      }
+      if (helperTokens.size > 0) {
+        console.log(`[secretsStore] Loaded ${helperTokens.size} helper token(s) from encrypted store`);
+      }
+      if (failedHelpers > 0) {
+        console.warn(
+          `[secretsStore] ${failedHelpers} helper token(s) could not be decrypted — re-enter in the harness wizard`
+        );
+      }
+    }
   } catch (err) {
     console.error(`[secretsStore] Failed to load secrets: ${err.message}`);
   }
 
-  return { passwords, llmApiKeys };
+  return { passwords, llmApiKeys, helperTokens };
 }
 
 /**
  * Persist SSH passwords + per-port LLM API keys (encrypted).
- * Empty maps remove the file when both are empty.
+ * Alert channel URLs and helper tokens already on disk are kept.
+ * The file is removed only when every namespace is empty.
  *
  * @param {Map<string, string>} passwords
  * @param {Map<string, Record<string, string>>} [llmApiKeys]
  */
 export function saveSecrets(passwords, llmApiKeys = new Map()) {
   const alertChannels = readRawSection("alertChannels");
+  const helperTokens = readRawSection("helperTokens");
   const hasPasswords = passwords && passwords.size > 0;
   let hasKeys = false;
   if (llmApiKeys) {
@@ -226,7 +261,12 @@ export function saveSecrets(passwords, llmApiKeys = new Map()) {
     }
   }
 
-  if (!hasPasswords && !hasKeys && Object.keys(alertChannels).length === 0) {
+  if (
+    !hasPasswords &&
+    !hasKeys &&
+    Object.keys(alertChannels).length === 0 &&
+    Object.keys(helperTokens).length === 0
+  ) {
     clearSecretsFile();
     return;
   }
@@ -253,12 +293,51 @@ export function saveSecrets(passwords, llmApiKeys = new Map()) {
     }
   }
 
-  writeSecretsFile({ secrets, llmApiKeys: llmOut, alertChannels });
+  writeSecretsFile({ secrets, llmApiKeys: llmOut, alertChannels, helperTokens });
   const keyCount = Object.keys(llmOut).length;
   console.log(
     `[secretsStore] Saved ${Object.keys(secrets).length} SSH password(s)` +
       (keyCount ? `, ${keyCount} LLM API key bundle(s)` : "")
   );
+}
+
+/** Helper bearers currently decryptable with this process's key. */
+export function loadHelperTokens() {
+  return loadSecrets().helperTokens;
+}
+
+/**
+ * Replace only helper-attach bearers. SSH passwords, LLM keys and alert
+ * channel URLs stay as stored, including ciphertext that cannot be decrypted.
+ * A file that cannot be parsed is left untouched.
+ * @param {Map<string, string>} helperTokens
+ */
+export function saveHelperTokens(helperTokens) {
+  let secrets;
+  let llmApiKeys;
+  let alertChannels;
+  try {
+    secrets = readRawSection("secrets");
+    llmApiKeys = readRawSection("llmApiKeys");
+    alertChannels = readRawSection("alertChannels");
+  } catch (err) {
+    throw new Error(`secrets file is corrupt: ${err.message}`);
+  }
+  const entries = helperTokens ? [...helperTokens.entries()].filter(([id, token]) => id && token) : [];
+  const key = entries.length > 0 ? resolveKey() : null;
+  /** @type {Record<string, string>} */
+  const helpers = {};
+  for (const [id, token] of entries) helpers[String(id)] = encrypt(String(token), key);
+  if (
+    Object.keys(secrets).length === 0 &&
+    Object.keys(llmApiKeys).length === 0 &&
+    Object.keys(alertChannels).length === 0 &&
+    Object.keys(helpers).length === 0
+  ) {
+    clearSecretsFile();
+    return;
+  }
+  writeSecretsFile({ secrets, llmApiKeys, alertChannels, helperTokens: helpers });
 }
 
 // ─── File sections ───────────────────────────────────────
@@ -300,10 +379,11 @@ function clearSecretsFile() {
   }
 }
 
-/** Write every section; an empty alertChannels section is left out of the file. */
-function writeSecretsFile({ secrets, llmApiKeys, alertChannels }) {
+/** Write every section. Empty alertChannels and helperTokens sections are left out of the file. */
+function writeSecretsFile({ secrets, llmApiKeys, alertChannels, helperTokens }) {
   const body = { version: 2, secrets, llmApiKeys };
   if (alertChannels && Object.keys(alertChannels).length > 0) body.alertChannels = alertChannels;
+  if (helperTokens && Object.keys(helperTokens).length > 0) body.helperTokens = helperTokens;
   atomicWrite(SPARKS_SECRETS_PATH, JSON.stringify(body, null, 2) + "\n", 0o644);
 }
 
@@ -347,8 +427,8 @@ export function loadAlertChannelUrls() {
 }
 
 /**
- * Replace the stored alert channel URLs (encrypted). SSH passwords and LLM API
- * keys stay exactly as they are on disk. Throws when the file cannot be read or written.
+ * Replace the stored alert channel URLs (encrypted). SSH passwords, LLM API
+ * keys and helper tokens stay exactly as they are on disk. Throws when the file cannot be read or written.
  * A stored URL that cannot be decrypted (for example after a key change) is kept as is
  * while its channel is still configured, so entering the key again brings it back.
  * @param {Map<string, string>} urls channel id → URL
@@ -357,6 +437,7 @@ export function loadAlertChannelUrls() {
 export function saveAlertChannelUrls(urls, opts = {}) {
   const secrets = readRawSection("secrets");
   const llmApiKeys = readRawSection("llmApiKeys");
+  const helperTokens = readRawSection("helperTokens");
   const existing = readRawSection("alertChannels");
   /** @type {Record<string, string>} */
   const alertChannels = {};
@@ -373,9 +454,14 @@ export function saveAlertChannelUrls(urls, opts = {}) {
       alertChannels[id] = blob;
     }
   }
-  if (Object.keys(secrets).length === 0 && Object.keys(llmApiKeys).length === 0 && Object.keys(alertChannels).length === 0) {
+  if (
+    Object.keys(secrets).length === 0 &&
+    Object.keys(llmApiKeys).length === 0 &&
+    Object.keys(alertChannels).length === 0 &&
+    Object.keys(helperTokens).length === 0
+  ) {
     clearSecretsFile();
     return;
   }
-  writeSecretsFile({ secrets, llmApiKeys, alertChannels });
+  writeSecretsFile({ secrets, llmApiKeys, alertChannels, helperTokens });
 }

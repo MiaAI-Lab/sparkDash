@@ -5,6 +5,7 @@ import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
 import "./index.css";
 import "./styles/shell.css";
+import "./styles/occupancy.css";
 
 // Installed as an app (home screen): let the CSS know, to clear the status bar.
 try {

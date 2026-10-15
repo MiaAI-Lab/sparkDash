@@ -21,6 +21,7 @@ import {
 import { authStatus, authorizeUpgrade, createAuthMiddleware, createHostGuardMiddleware, isLoopbackBind, setTailscaleName } from "./auth.js";
 import { inspectHealth } from "./health.js";
 import { getSettings, updateSettings, loadSettings } from "./settings.js";
+import { createOccupancyRuntime } from "./occupancy/runtime.js";
 import { broadcastForLanIp, effectiveMac, normalizeMac, sendWol } from "./wol.js";
 import { remoteShutdownCommand, spawnLocalShutdown } from "./shutdown.js";
 import { GpuClockManager } from "./gpuclock/GpuClockManager.js";
@@ -299,6 +300,7 @@ function consumeBenchStartQuota(req, res) {
 // ─── Spark registry ──────────────────────────────────────
 const registry = new SparkRegistry();
 const inferenceActivity = new InferenceActivityStore();
+const occupancy = createOccupancyRuntime({ listSparks: () => registry.sparks });
 
 const fleetEnergyTracker = new FleetEnergyTracker({
   nodeIds: registry.sparkIds,
@@ -477,10 +479,14 @@ function startAllMonitors() {
 
 /** Snapshots in registry tab order (not Map insertion order). */
 function orderedSnapshots() {
+  const conversations = occupancy.projection().bySpark;
   return registry.sparkIds
     .map((id) => monitors.get(id))
     .filter(Boolean)
-    .map((m) => m.snapshot());
+    .map((m) => {
+      const snap = m.snapshot();
+      return { ...snap, conversations: conversations[snap.id] || {} };
+    });
 }
 
 const fleetEnergyRuntime = createFleetEnergyRuntime({
@@ -533,6 +539,7 @@ app.get("/api/auth/status", createHostGuardMiddleware(), (req, res) => {
   res.json(authStatus(req));
 });
 app.use(createAuthMiddleware());
+occupancy.register(app);
 
 /** Fleet event log, newest first. Query: limit, sparkId, sinceId. */
 app.get("/api/events", (req, res) => {
@@ -2416,6 +2423,7 @@ if (!startupPreflight.fatal) {
     }
     startAllMonitors();
     alertsRuntime.start();
+    occupancy.start();
     fleetEnergyRuntime.start();
     llmTokenRuntime.start();
   });
@@ -2468,6 +2476,11 @@ async function shutdown(signal) {
     console.error("[sparkDash] failed to flush LLM daily history:", err.message);
   }
   llmTokenRuntime.stop();
+  try {
+    await occupancy.stop();
+  } catch (err) {
+    console.error("[sparkDash] failed to stop occupancy poller:", err.message);
+  }
   const energyPersistenceSucceeded = fleetEnergyRuntime.stop();
   const streamAgentClosedGracefully = await closeLlmStreamAgent();
   if (!streamAgentClosedGracefully) {

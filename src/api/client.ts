@@ -37,6 +37,9 @@ import type {
   LlmDailyResponse,
   MetricsHistoryRange,
   MetricsHistoryResponse,
+  OccupancyCheck,
+  OccupancyHelper,
+  OccupancyHelperInput,
   Settings,
   ShowcaseListResponse,
   ShowcaseSessionState,
@@ -825,6 +828,26 @@ export function refreshToolEvalRun(sparkId: string, runId: string): Promise<{ st
 
 export function fetchToolEvalResult(sparkId: string, runId: string): Promise<{ run: ToolEvalRun | null; result: unknown }> {
   return teFetch(`${teBase(sparkId)}/runs/${encodeURIComponent(runId)}/result`);
+}
+
+export function fetchOccupancyHelpers(): Promise<{ helpers: OccupancyHelper[] }> {
+  return apiFetch("/api/occupancy/helpers");
+}
+
+export function saveOccupancyHelpers(helpers: OccupancyHelperInput[]): Promise<{ helpers: OccupancyHelper[] }> {
+  return apiFetch("/api/occupancy/helpers", { method: "PUT", body: JSON.stringify({ helpers }) });
+}
+
+export function deleteOccupancyHelper(id: string): Promise<{ helpers: OccupancyHelper[] }> {
+  return apiFetch(`/api/occupancy/helpers/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+/** Connection check. The response is coverage and a count; it has no session titles. */
+export function checkOccupancyHelper(url: string, token = ""): Promise<OccupancyCheck> {
+  return apiFetch("/api/occupancy/helpers/check", {
+    method: "POST",
+    body: JSON.stringify({ url, token }),
+  });
 }
 
 export function deleteToolEvalRun(sparkId: string, runId: string): Promise<{ success: boolean }> {

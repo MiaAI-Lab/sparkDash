@@ -34,6 +34,7 @@ interface SparkPageProps {
   onEdit?: () => void;
   /** Navigate to a spark id (header back-to-overview link). */
   onNavigate?: (sparkId: string) => void;
+  onAddHarness?: () => void;
 }
 
 type SparkView = "all" | "resources" | "services";
@@ -56,6 +57,7 @@ export function SparkPage({
   metricsHistory = false,
   onEdit,
   onNavigate,
+  onAddHarness,
 }: SparkPageProps) {
   const { metrics } = spark;
   const [disabledDevices, setDisabledDevices] = useState<string[]>(spark.disabledDevices || []);
@@ -169,6 +171,8 @@ export function SparkPage({
         shareImage={benchShareImage}
         onRemovePort={canRemove ? handleRemovePort : undefined}
         className={className}
+        conversations={spark.conversations?.[String(port)] ?? []}
+        onAddHarness={onAddHarness}
       />
     );
   };

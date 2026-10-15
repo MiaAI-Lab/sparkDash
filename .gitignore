@@ -37,6 +37,7 @@ HANDOFF-HERMES.md
 handoff.md
 test/
 config/events.json
+config/occupancy-helpers.json
 config/llm-launchers.json
 config/tool-eval-runs.json
 config/tool-eval-results/

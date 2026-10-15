@@ -16,6 +16,7 @@ interface SettingsDialogProps {
   open: boolean;
   onClose: () => void;
   onSaved: (settings: Settings) => void;
+  onOpenHarness?: () => void;
 }
 
 function useEscape(onClose: () => void) {
@@ -69,7 +70,17 @@ const POLL_PRESETS = [
   { label: "10s", value: 10000 },
 ];
 
-export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) {
+const AGE_PRESETS = [
+  { label: "1h", value: 60 * 60 * 1000 },
+  { label: "6h", value: 6 * 60 * 60 * 1000 },
+  { label: "12h", value: 12 * 60 * 60 * 1000 },
+  { label: "24h", value: 24 * 60 * 60 * 1000 },
+  { label: "3d", value: 3 * 24 * 60 * 60 * 1000 },
+  { label: "7d", value: 7 * 24 * 60 * 60 * 1000 },
+  { label: "14d", value: 14 * 24 * 60 * 60 * 1000 },
+];
+
+export function SettingsDialog({ open, onClose, onSaved, onOpenHarness }: SettingsDialogProps) {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -222,6 +233,29 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
                     </button>
                   ))}
                 </div>
+              </SettingRow>
+
+              <SettingRow title="Session age" help="Hide harness sessions older than this. The oldest choice is 14 days. There is no unlimited value.">
+                <div className="seg" role="radiogroup" aria-label="Session age">
+                  {AGE_PRESETS.map((preset) => (
+                    <button
+                      key={preset.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={(settings.occupancyMaxAgeMs ?? AGE_PRESETS[2].value) === preset.value}
+                      className={(settings.occupancyMaxAgeMs ?? AGE_PRESETS[2].value) === preset.value ? "is-on" : ""}
+                      onClick={() => update({ occupancyMaxAgeMs: preset.value })}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </SettingRow>
+
+              <SettingRow title="Harness sessions" help="One helper on each machine lists OpenClaw, OpenCode, oh-my-pi, Hermes and DeepSeek Harness. The dashboard only stores the helper address and token.">
+                <button type="button" className="btn btn--sm" onClick={() => onOpenHarness?.()}>
+                  Set up
+                </button>
               </SettingRow>
 
               <SettingRow title="Temperature unit">

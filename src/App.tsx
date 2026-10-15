@@ -21,6 +21,7 @@ import { ShowcasePage } from "./components/ShowcasePage/ShowcasePage";
 import { ShowcaseView } from "./components/ShowcasePage/ShowcaseView";
 import { ThemeSwitch } from "./components/ThemeSwitch";
 import { SettingsDialog } from "./components/SettingsDialog";
+import { HarnessWizard } from "./components/HarnessWizard";
 import {
   GearIcon,
   GridIcon,
@@ -35,6 +36,7 @@ import {
   PanelLeftIcon,
   TokensIcon,
   ThermometerIcon,
+  BotIcon,
 } from "./components/ui/icons";
 import { ConnectionBanner } from "./components/ui/ConnectionBanner";
 import { ErrorBanner } from "./components/ui/ErrorBanner";
@@ -190,6 +192,8 @@ function DashboardApp() {
   const [showAdd, setShowAdd] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [showHarness, setShowHarness] = useState(false);
+  const [harnessSparkId, setHarnessSparkId] = useState<string | undefined>();
   // Desktop sidebar can be hidden to give the page the full width; remembered per browser.
   const [sideHidden, setSideHidden] = useState(() => {
     try {
@@ -499,7 +503,8 @@ function DashboardApp() {
     cmds.push(
       { id: "act:theme", group: "Actions", label: "Switch theme", hint: "white · light · dark · oled", icon: <SunIcon className="h-4 w-4" />, keywords: "appearance dark light", run: () => window.dispatchEvent(new Event("sparkdash:cycle-theme")) },
       { id: "act:sidebar", group: "Actions", label: "Show or hide the sidebar", icon: <PanelLeftIcon className="h-4 w-4" />, keywords: "collapse expand navigation rail menu", run: toggleSidebar },
-      { id: "act:settings", group: "Actions", label: "Open settings", icon: <GearIcon className="h-4 w-4" />, keywords: "preferences density refresh", run: () => setShowSettings(true) }
+      { id: "act:settings", group: "Actions", label: "Open settings", icon: <GearIcon className="h-4 w-4" />, keywords: "preferences density refresh", run: () => setShowSettings(true) },
+      { id: "act:harness", group: "Actions", label: "Set up harness sessions", icon: <BotIcon className="h-4 w-4" />, keywords: "occupancy openclaw opencode hermes oh-my-pi wizard", run: () => { setHarnessSparkId(undefined); setShowHarness(true); } }
     );
     return cmds;
   }, [displaySparks, displayActive, navigate, toggleSidebar]);
@@ -612,6 +617,10 @@ function DashboardApp() {
                   metricsHistory={settings?.metricsHistory ?? false}
                   onEdit={() => setEditId(displayActive.id)}
                   onNavigate={navigate}
+                  onAddHarness={() => {
+                    setHarnessSparkId(displayActive.id);
+                    setShowHarness(true);
+                  }}
                 />
               ) : !fleetLoaded || staleSpark ? null : (
                 <div className="panel mx-auto mt-16 max-w-md p-8 text-center">
@@ -667,6 +676,21 @@ function DashboardApp() {
         open={showSettings}
         onClose={() => setShowSettings(false)}
         onSaved={handleSettingsSaved}
+        onOpenHarness={() => {
+          setShowSettings(false);
+          setHarnessSparkId(displayActive?.id);
+          setShowHarness(true);
+        }}
+      />
+      <HarnessWizard
+        open={showHarness}
+        onClose={() => setShowHarness(false)}
+        sparkId={harnessSparkId}
+        sparks={displaySparks.map((spark) => ({
+          id: spark.id,
+          name: spark.name,
+          llmPorts: spark.llmPorts?.length ? spark.llmPorts : [spark.llmPort],
+        }))}
       />
     </div>
   );

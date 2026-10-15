@@ -697,6 +697,8 @@ export interface SparkSnapshot {
   hermes?: HermesStatus;
   hardware: HardwareInfo;
   metrics: SparkMetrics;
+  /** Harness sessions by LLM port. Absent until the occupancy poller has a projection. */
+  conversations?: Record<string, ConversationRow[]>;
 }
 
 // ─── WebSocket envelope ───────────────────────────────────
@@ -927,6 +929,69 @@ export interface Settings {
   metricsHistory?: boolean;
   /** Alert notifications (Settings → Alerts). Off by default; while off nothing is evaluated or sent. */
   alertsEnabled?: boolean;
+  /**
+   * Hide harness sessions older than this. Finite: 1 minute through 14 days.
+   * Missing or out of range becomes 12 hours.
+   */
+  occupancyMaxAgeMs: number;
+}
+
+export type OccupancyBadge = "unknown" | "generating" | "stalled";
+
+export interface ConversationRow {
+  id: string;
+  source: string;
+  handle: string;
+  badge: OccupancyBadge;
+  port: number;
+  routingProvenance?: string;
+  stale?: boolean;
+  lastUsedAt?: number;
+  agent?: string;
+  contextUsed?: number | null;
+  contextWindow?: number | null;
+  contextApprox?: boolean;
+}
+
+export interface OccupancyRoute {
+  harness: string;
+  sparkId: string;
+  port: number;
+  cwdPrefix?: string;
+}
+
+export interface OccupancyHelper {
+  id: string;
+  label: string;
+  url: string;
+  enabled: boolean;
+  harnesses: string[];
+  routes: OccupancyRoute[];
+  hasToken: boolean;
+}
+
+export interface OccupancyHelperInput {
+  id?: string;
+  label?: string;
+  url: string;
+  enabled?: boolean;
+  harnesses: string[];
+  routes: OccupancyRoute[];
+  token?: string;
+}
+
+export interface OccupancyAdapterSummary {
+  coverage: "supported" | "unsupported" | "unavailable" | "partial" | string;
+  stale: boolean;
+  rows: number;
+  error: string | null;
+}
+
+export interface OccupancyCheck {
+  ok: boolean;
+  observedAt: number;
+  adapters: Record<string, OccupancyAdapterSummary>;
+  rowCount: number;
 }
 
 // ─── Unit history (GET /api/sparks/:id/history) ──────────
