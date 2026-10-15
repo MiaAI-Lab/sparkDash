@@ -52,7 +52,7 @@ function Kpi({
   );
 }
 
-/** Which tiles to show; a missing key means shown. The fourth slot is Tokens today (Online units when no tokens are tracked). */
+/** Which tiles to show; a missing key means shown. The fourth slot is Tokens in last 24 hours (Online units when no tokens are tracked). */
 export interface KpiVisibility {
   decode?: boolean;
   power?: boolean;
@@ -157,7 +157,7 @@ export function FleetKpis({
       ) : null}
       {!showTokens ? null : tokens && tokensCompact ? (
         <Kpi
-          label="Tokens today"
+          label="Tokens in last 24 hours"
           value={tokensCompact[1]}
           unit={tokensCompact[2] || "tok"}
           foot={`generated · ${formatTokensCompact(tokens.prompt)} prefill`}
