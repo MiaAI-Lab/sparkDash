@@ -18,15 +18,20 @@ import {
 } from "../commands.js";
 import { GpuClockManager, assertSupported, remoteCommand } from "../GpuClockManager.js";
 
-/** A temp tree with a fake nvidia-smi and systemctl; the programs run unprivileged against it. */
-function sandbox({ hwMax = 3003, lgcFails = false } = {}) {
+/** A temp tree with fake nvidia-smi, systemctl, sudo and crontab; the programs run
+ * unprivileged against it. `narrowSudo` stands in for a unit whose only
+ * passwordless rule is the narrow nvidia-smi one, `cron` for a running cron,
+ * `cronMangles` for a crontab tool that rewrites the clocks of what it stores. */
+function sandbox({ hwMax = 3003, lgcFails = false, narrowSudo = false, cron = false, cronMangles = false } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "gpuclock-"));
   const bin = path.join(root, "bin");
   fs.mkdirSync(bin);
   for (const d of ["units", "run", "systemd"]) fs.mkdirSync(path.join(root, d));
   fs.writeFileSync(path.join(root, "boot_id"), "11111111-2222-3333-4444-555555555555\n");
+  if (cron) fs.writeFileSync(path.join(root, "cron_active"), "");
   const lock = path.join(root, "lock");
   const calls = path.join(root, "calls.log");
+  const crontab = path.join(root, "crontab");
   fs.writeFileSync(
     path.join(bin, "nvidia-smi"),
     `#!/bin/sh
@@ -46,9 +51,53 @@ echo "systemctl $*" >> ${calls}
 case "$1" in
   restart) [ -f ${root}/restart_fails ] && exit 1 ;;
   is-enabled) [ -f ${root}/units/${UNIT_NAME} ] && echo enabled || echo disabled ;;
-  is-active) [ -f ${root}/units/${UNIT_NAME} ] && echo active || echo inactive ;;
+  is-active)
+    if [ -f ${root}/cron_active ] && { [ "$2" = cron.service ] || [ "$2" = crond.service ]; }; then
+      echo active
+    elif [ -f ${root}/units/${UNIT_NAME} ]; then
+      echo active
+    else
+      echo inactive
+    fi ;;
 esac
 exit 0
+`,
+    { mode: 0o755 }
+  );
+  // `sudo -n` with only the rule the fleet actually grants: the nvidia-smi
+  // commands, no root shell. Anything else demands a password.
+  fs.writeFileSync(
+    path.join(bin, "sudo"),
+    `#!/bin/sh
+echo "sudo $*" >> ${calls}
+[ "$1" = "-n" ] && shift
+if [ "$1" = "-l" ]; then
+  shift
+  [ "$2" = "-lgc" ] && exit 0
+  exit 1
+fi
+case "$1" in
+  ${bin}/nvidia-smi)
+    case "$2" in -lgc | -rgc) exec "$@" ;; esac ;;
+esac
+echo "sudo: a password is required" >&2
+exit 1
+`,
+    { mode: 0o755 }
+  );
+  fs.writeFileSync(
+    path.join(bin, "crontab"),
+    `#!/bin/sh
+echo "crontab $*" >> ${calls}
+case "$1" in
+  -l)
+    # A read that fails for another reason (lock, spool, PAM): like the real
+    # tool, it exits non-zero with something other than "no crontab for".
+    [ -f ${path.join(root, "crontab.broken")} ] && { echo "crontab: cannot open spool" >&2; exit 1; }
+    if [ -f ${crontab} ]; then cat ${crontab}; else echo "no crontab for $(id -un)" >&2; exit 1; fi ;;
+  -r) [ -f ${crontab} ] || { echo "no crontab for $(id -un)" >&2; exit 1; }; rm -f ${crontab} ;;
+  *) ${cronMangles ? `sed 's/-lgc [0-9,]*/-lgc 0,9/' "$1" > ${crontab}` : `cp "$1" ${crontab}`} ;;
+esac
 `,
     { mode: 0o755 }
   );
@@ -60,12 +109,28 @@ exit 0
     nvsmi: [path.join(bin, "nvidia-smi")],
     systemctl: path.join(bin, "systemctl"),
     sandbox: true,
+    sandboxSudo: narrowSudo ? path.join(bin, "sudo") : "",
   };
+  const withPath = (env) => ({ ...(env ?? process.env), PATH: `${bin}:${(env ?? process.env).PATH ?? ""}` });
   const run = (program, { shell = "sh", env } = {}) =>
-    parseProgramOutput(execFileSync(shell, ["-c", program], { encoding: "utf8", env: env ?? process.env }));
+    parseProgramOutput(execFileSync(shell, ["-c", program], { encoding: "utf8", env: withPath(env) }));
+  /** Run a shell snippet as cron would, ignoring the program output protocol. */
+  const shell = (program, env) => execFileSync("sh", ["-c", program], { encoding: "utf8", env: withPath(env) });
   const read = (f) => (fs.existsSync(path.join(root, f)) ? fs.readFileSync(path.join(root, f), "utf8") : null);
   const write = (f, text) => fs.writeFileSync(path.join(root, f), text);
-  return { root, paths, run, read, write, bin, calls: () => read("calls.log") ?? "", cleanup: () => fs.rmSync(root, { recursive: true, force: true }) };
+  return {
+    root,
+    paths,
+    run,
+    shell,
+    read,
+    write,
+    bin,
+    cronText: () => read("crontab") ?? "",
+    lockText: () => (fs.existsSync(lock) ? fs.readFileSync(lock, "utf8").trim() : null),
+    calls: () => read("calls.log") ?? "",
+    cleanup: () => fs.rmSync(root, { recursive: true, force: true }),
+  };
 }
 
 test("parseCapRequest accepts a normal cap and rejects everything else", () => {
@@ -242,6 +307,19 @@ test("only Linux Spark units are supported", () => {
   assertSupported({ id: "a", kind: "spark", platform: "linux" });
 });
 
+test("GpuClockManager: a cap not kept never names a hook; a kept one without a kind is the service", async () => {
+  const spark = { id: "s1", kind: "spark" };
+  const answering = (out) => new GpuClockManager({ run: async () => out });
+  // A stray kind on an apply that did not persist must not read as "kept by cron".
+  const notKept = await answering("RESULT=ok\nCAP=1800\nPERSIST=0\nPERSIST_KIND=cron").apply(spark, { maxMHz: 1800, persist: true });
+  assert.equal(notKept.persist, false);
+  assert.equal(notKept.persistKind, "none");
+  // An older unit program reports PERSIST=1 alone: only the service existed then.
+  const kindless = await answering("RESULT=ok\nCAP=1800\nPERSIST=1").apply(spark, { maxMHz: 1800, persist: true });
+  assert.equal(kindless.persist, true);
+  assert.equal(kindless.persistKind, "unit");
+});
+
 test("GpuClockManager: maps program errors to statuses, serialises per unit, hides ssh detail", async () => {
   let release;
   const gate = new Promise((r) => (release = r));
@@ -261,7 +339,17 @@ test("GpuClockManager: maps program errors to statuses, serialises per unit, hid
   const first = m.apply(spark, { maxMHz: 2200 });
   await assert.rejects(m.apply(spark, { maxMHz: 1900 }), (e) => e.status === 409);
   release();
-  assert.deepEqual(await first, { capMHz: 2200, persist: false, minMHz: 0 });
+  assert.deepEqual(await first, { capMHz: 2200, persist: false, persistKind: "none", minMHz: 0 });
+
+  // Which hook kept the cap comes from the unit, per unit: one Spark may take the
+  // boot service where another falls back to the @reboot job.
+  const kept = new GpuClockManager({ run: async () => "RESULT=ok\nCAP=1800\nPERSIST=1\nPERSIST_KIND=cron" });
+  assert.equal((await kept.apply(spark, { maxMHz: 1800, persist: true })).persistKind, "cron");
+  const unitKept = new GpuClockManager({ run: async () => "RESULT=ok\nCAP=1800\nPERSIST=1\nPERSIST_KIND=unit" });
+  assert.equal((await unitKept.apply(spark, { maxMHz: 1800, persist: true })).persistKind, "unit");
+  // A "kept" answer with no recognisable mechanism is the boot service, never cron.
+  const bare = new GpuClockManager({ run: async () => "RESULT=ok\nCAP=1800\nPERSIST=1" });
+  assert.equal((await bare.apply(spark, { maxMHz: 1800, persist: true })).persistKind, "unit");
 
   const down = new GpuClockManager({ run: async () => { throw new Error("SSH to 10.0.0.2:22 failed: refused"); } });
   await assert.rejects(down.reset(spark), (e) => e.status === 502);
@@ -272,12 +360,32 @@ test("GpuClockManager: maps program errors to statuses, serialises per unit, hid
 test("GpuClockManager.status: normal answer, and a unit without nvidia-smi is 'unsupported', not an error", async () => {
   const spark = { id: "s1", kind: "spark" };
   const ok = new GpuClockManager({
-    run: async () => "RESULT=ok\nHWMAX=3003\nSUDO=yes\nCAP=1800\nSVC_INSTALLED=1\nSVC_CLOCKS=0,1800\nSVC_ENABLED=enabled\nSVC_ACTIVE=active",
+    run: async () =>
+      "RESULT=ok\nHWMAX=3003\nSUDO=yes\nPERSIST_KIND=unit\nCAP=1800\nSVC_INSTALLED=1\nSVC_CLOCKS=0,1800\nSVC_ENABLED=enabled\nSVC_ACTIVE=active",
   });
   assert.deepEqual(await ok.status(spark), {
-    supported: true, hwMaxMHz: 3003, capMHz: 1800, sudo: "yes",
+    supported: true, hwMaxMHz: 3003, capMHz: 1800, sudo: "yes", persistKind: "unit",
     service: { installed: true, clocks: "0,1800", enabled: "enabled", active: "active" },
+    cron: { installed: false, clocks: null },
   });
+  // A unit whose rule only covers the nvidia-smi commands keeps the cap with its
+  // own @reboot job: the row reports that mechanism, and a missing line means no
+  // mechanism at all, never a permissive default.
+  const narrow = new GpuClockManager({
+    run: async () => "RESULT=ok\nHWMAX=3003\nSUDO=yes\nPERSIST_KIND=cron\nCRON_INSTALLED=1\nCRON_CLOCKS=0,1800\nCAP=1800",
+  });
+  const narrowStatus = await narrow.status(spark);
+  assert.equal(narrowStatus.persistKind, "cron");
+  assert.deepEqual(narrowStatus.cron, { installed: true, clocks: "0,1800" });
+  const silent = new GpuClockManager({ run: async () => "RESULT=ok\nHWMAX=3003\nSUDO=yes\nCAP=1800" });
+  assert.equal((await silent.status(spark)).persistKind, "none");
+  // A junk mechanism is no mechanism, and an unknown hook is not "installed".
+  const junk = new GpuClockManager({
+    run: async () => "RESULT=ok\nHWMAX=3003\nSUDO=yes\nPERSIST_KIND=whatever\nCRON_INSTALLED=maybe\nCRON_CLOCKS=x",
+  });
+  const junkStatus = await junk.status(spark);
+  assert.equal(junkStatus.persistKind, "none");
+  assert.deepEqual(junkStatus.cron, { installed: false, clocks: null });
   const none = new GpuClockManager({ run: async () => "RESULT=error\nCODE=no-nvidia\nMSG=nvidia-smi was not found on this unit" });
   assert.equal((await none.status(spark)).supported, false);
 });
@@ -407,7 +515,264 @@ test("as a normal user every privileged step goes through sudo -n (real privileg
   }
 });
 
-test("a dropped connection keeps the unit busy for a while, then frees it", async () => {
+test("a narrow NOPASSWD rule for the nvidia-smi commands is enough to cap, read back and unlock", () => {
+  const sb = sandbox();
+  const home = path.join(sb.root, "home");
+  fs.mkdirSync(home);
+  try {
+    // NOPASSWD covers `nvidia-smi -lgc` and `-rgc` only, like the rule this
+    // project's own README suggests: `sudo true` and `sudo sh -c ...` are
+    // refused, and `sudo -l` reports the rule.
+    fs.writeFileSync(
+      path.join(sb.bin, "sudo"),
+      `#!/bin/sh
+case "$*" in
+  "-n -l "*) exit 0 ;;
+  "-n "*) ;;
+  *) exit 1 ;;
+esac
+shift
+case "$1" in
+  */nvidia-smi) exec "$@" ;;
+esac
+exit 1
+`,
+      { mode: 0o755 }
+    );
+    const paths = { ...sb.paths, sandbox: false, systemctl: "systemctl" };
+    const env = { ...process.env, HOME: home, PATH: `${sb.bin}:${process.env.PATH}` };
+    const applied = sb.run(buildApplyProgram({ minMHz: 0, maxMHz: 1800 }, paths), { env });
+    assert.equal(applied.RESULT, "ok");
+    assert.equal(sb.read("lock").trim(), "0,1800");
+    assert.equal(sb.read(`units/${UNIT_NAME}`), null);
+    // The marker lands in the SSH user's own config dir, because root's is out of reach.
+    const marker = path.join(home, ".config/sparkdash/gpu-clock-cap");
+    assert.equal(fs.readFileSync(marker, "utf8"), `1800 ${sb.read("boot_id").trim()}\n`);
+    const status = sb.run(buildStatusProgram(paths), { env });
+    assert.equal(status.SUDO, "yes");
+    assert.equal(status.CAP, "1800");
+    const reset = sb.run(buildResetProgram(paths), { env });
+    assert.equal(reset.RESULT, "ok");
+    assert.equal(fs.existsSync(marker), false);
+    assert.equal(sb.read("lock"), null);
+    // Keeping the cap needs either a root shell (the systemd unit) or cron (an
+    // @reboot line), and this unit offers neither: it must refuse before the GPU
+    // is capped, leaving the clocks untouched.
+    const persisted = sb.run(buildApplyProgram({ minMHz: 0, maxMHz: 1800, persist: true }, paths), { env });
+    assert.equal(persisted.CODE, "no-sudo");
+    assert.equal(sb.read("lock"), null);
+    assert.equal(fs.existsSync(marker), false);
+  } finally {
+    sb.cleanup();
+  }
+});
+
+test("where only the narrow nvidia-smi rule is granted, keeping the cap installs an @reboot job", () => {
+  const sb = sandbox({ narrowSudo: true, cron: true });
+  try {
+    const res = sb.run(buildApplyProgram({ minMHz: 0, maxMHz: 1800, persist: true }, sb.paths));
+    assert.equal(res.RESULT, "ok");
+    assert.equal(res.PERSIST, "1");
+    assert.equal(res.PERSIST_KIND, "cron");
+    assert.equal(sb.read(`units/${UNIT_NAME}`), null, "a narrow rule cannot install the unit");
+    assert.equal(sb.lockText(), "0,1800");
+    const crontab = sb.cronText();
+    assert.match(crontab, /^@reboot /);
+    assert.match(crontab, /-lgc 0,1800/);
+    assert.match(crontab, /# sparkdash-gpu-clock-cap/);
+    assert.equal(sb.read(`run/${MARKER_FILE}`).trim(), "1800 11111111-2222-3333-4444-555555555555");
+
+    const status = sb.run(buildStatusProgram(sb.paths));
+    assert.equal(status.SUDO, "yes");
+    assert.equal(status.PERSIST_KIND, "cron");
+    assert.equal(status.CRON_INSTALLED, "1");
+    assert.equal(status.CRON_CLOCKS, "0,1800");
+    assert.equal(status.SVC_INSTALLED, "0");
+    assert.equal(status.CAP, "1800");
+  } finally {
+    sb.cleanup();
+  }
+});
+
+test("the @reboot job re-applies the cap at boot with no more privilege than the cap itself", () => {
+  const sb = sandbox({ narrowSudo: true, cron: true });
+  try {
+    sb.run(buildApplyProgram({ minMHz: 0, maxMHz: 1800, persist: true }, sb.paths));
+    // A reboot: the lock is gone, the boot id moved on, so the marker is stale.
+    fs.rmSync(path.join(sb.root, "lock"));
+    sb.write("boot_id", "22222222-3333-4444-5555-666666666666\n");
+    const line = sb.cronText().split("\n").find((l) => l.startsWith("@reboot"));
+    // The retry sleep only spaces attempts at boot; run the rest of the line verbatim.
+    sb.shell(line.replace(/^@reboot /, "").replace(/\/bin\/sleep 20; /, ""));
+    assert.equal(sb.lockText(), "0,1800");
+    assert.equal(sb.read(`run/${MARKER_FILE}`).trim(), "1800 22222222-3333-4444-5555-666666666666");
+    assert.equal(sb.run(buildStatusProgram(sb.paths)).CAP, "1800");
+  } finally {
+    sb.cleanup();
+  }
+});
+
+test("with the narrow rule but no cron, keeping the cap is refused before anything is capped", () => {
+  const sb = sandbox({ narrowSudo: true });
+  try {
+    const res = sb.run(buildApplyProgram({ minMHz: 0, maxMHz: 1800, persist: true }, sb.paths));
+    assert.equal(res.RESULT, "error");
+    assert.equal(res.CODE, "no-sudo");
+    assert.match(res.MSG, /@reboot/);
+    assert.equal(sb.lockText(), null);
+    assert.equal(sb.cronText(), "");
+    assert.doesNotMatch(sb.calls(), /-lgc 0,1800/);
+  } finally {
+    sb.cleanup();
+  }
+});
+
+test("switching keep-after-reboot off drops the @reboot job and leaves the user's other jobs alone", () => {
+  const sb = sandbox({ narrowSudo: true, cron: true });
+  try {
+    sb.write("crontab", "0 4 * * * /usr/local/bin/backup.sh\n");
+    sb.run(buildApplyProgram({ minMHz: 0, maxMHz: 1800, persist: true }, sb.paths));
+    const res = sb.run(buildApplyProgram({ minMHz: 0, maxMHz: 2000, persist: false }, sb.paths));
+    assert.equal(res.RESULT, "ok");
+    assert.equal(res.PERSIST_KIND, "none");
+    assert.equal(sb.cronText(), "0 4 * * * /usr/local/bin/backup.sh\n");
+    assert.equal(sb.lockText(), "0,2000");
+  } finally {
+    sb.cleanup();
+  }
+});
+
+test("reset clears the @reboot job along with the cap and the marker", () => {
+  const sb = sandbox({ narrowSudo: true, cron: true });
+  try {
+    sb.run(buildApplyProgram({ minMHz: 0, maxMHz: 1800, persist: true }, sb.paths));
+    const res = sb.run(buildResetProgram(sb.paths));
+    assert.equal(res.RESULT, "ok");
+    assert.equal(sb.cronText(), "");
+    assert.equal(sb.lockText(), null);
+    assert.equal(sb.read(`run/${MARKER_FILE}`), null);
+  } finally {
+    sb.cleanup();
+  }
+});
+
+test("status names the boot hook the unit can take: the service with root, cron without", () => {
+  const root = sandbox();
+  const narrow = sandbox({ narrowSudo: true, cron: true });
+  try {
+    assert.equal(root.run(buildStatusProgram(root.paths)).PERSIST_KIND, "unit");
+    assert.equal(narrow.run(buildStatusProgram(narrow.paths)).PERSIST_KIND, "cron");
+  } finally {
+    root.cleanup();
+    narrow.cleanup();
+  }
+});
+
+test("a crontab that cannot be read is never written back empty: apply and reset refuse first", () => {
+  const sb = sandbox({ narrowSudo: true, cron: true });
+  try {
+    const jobs = "0 4 * * * /usr/local/bin/backup.sh\n";
+    sb.write("crontab", jobs);
+    sb.write("crontab.broken", "");
+    for (const persist of [true, false]) {
+      const res = sb.run(buildApplyProgram({ minMHz: 0, maxMHz: 1800, persist }, sb.paths));
+      assert.equal(res.CODE, "cron-failed");
+      assert.equal(sb.lockText(), null, "nothing is capped before the crontab is known");
+    }
+    assert.equal(sb.run(buildResetProgram(sb.paths)).CODE, "cron-failed");
+    assert.equal(sb.cronText(), jobs);
+    assert.doesNotMatch(sb.calls(), /crontab (-r|\/)/);
+  } finally {
+    sb.cleanup();
+  }
+});
+
+test("with root but neither systemd nor cron, keeping the cap is refused before anything is capped", () => {
+  const sb = sandbox();
+  try {
+    fs.rmSync(path.join(sb.root, "systemd"), { recursive: true });
+    const res = sb.run(buildApplyProgram({ minMHz: 0, maxMHz: 1800, persist: true }, sb.paths));
+    assert.equal(res.RESULT, "error");
+    assert.equal(res.CODE, "no-systemd");
+    assert.equal(sb.lockText(), null);
+    assert.doesNotMatch(sb.calls(), /-lgc 0,1800/);
+    assert.equal(sb.read(`units/${UNIT_NAME}`), null);
+    assert.equal(sb.cronText(), "");
+  } finally {
+    sb.cleanup();
+  }
+});
+
+test("with only the narrow rule, a leftover boot service blocks the @reboot job before anything is capped", () => {
+  const sb = sandbox({ narrowSudo: true, cron: true });
+  try {
+    const jobs = "0 4 * * * /usr/local/bin/backup.sh\n";
+    sb.write("crontab", jobs);
+    sb.write(`units/${UNIT_NAME}`, OLD_UNIT);
+    const res = sb.run(buildApplyProgram({ minMHz: 0, maxMHz: 1800, persist: true }, sb.paths));
+    assert.equal(res.RESULT, "error");
+    assert.equal(res.CODE, "service-failed");
+    assert.match(res.MSG, /NOPASSWD: ALL/);
+    assert.equal(sb.lockText(), null);
+    assert.doesNotMatch(sb.calls(), /-lgc 0,1800/);
+    assert.equal(sb.cronText(), jobs);
+    assert.equal(sb.read(`units/${UNIT_NAME}`), OLD_UNIT);
+  } finally {
+    sb.cleanup();
+  }
+});
+
+test("a crontab that stores the @reboot job with other clocks is reported as not installed and cleaned up", () => {
+  const sb = sandbox({ narrowSudo: true, cron: true, cronMangles: true });
+  try {
+    const jobs = "0 4 * * * /usr/local/bin/backup.sh\n";
+    sb.write("crontab", jobs);
+    const res = sb.run(buildApplyProgram({ minMHz: 0, maxMHz: 1800, persist: true }, sb.paths));
+    assert.equal(res.RESULT, "error");
+    assert.equal(res.CODE, "cron-failed");
+    assert.match(res.MSG, /did not install/);
+    // The message promises the cap holds until the next reboot: it does.
+    assert.equal(sb.lockText(), "0,1800");
+    assert.doesNotMatch(sb.cronText(), /sparkdash-gpu-clock-cap/);
+    assert.equal(sb.cronText(), jobs);
+  } finally {
+    sb.cleanup();
+  }
+});
+
+test("with root but no systemd, keeping the cap falls back to the @reboot job", () => {
+  const sb = sandbox({ cron: true });
+  try {
+    fs.rmSync(path.join(sb.root, "systemd"), { recursive: true });
+    assert.equal(sb.run(buildStatusProgram(sb.paths)).PERSIST_KIND, "cron");
+    const res = sb.run(buildApplyProgram({ minMHz: 0, maxMHz: 1800, persist: true }, sb.paths));
+    assert.equal(res.RESULT, "ok");
+    assert.equal(res.PERSIST_KIND, "cron");
+    assert.match(sb.cronText(), /-lgc 0,1800/);
+    assert.equal(sb.read(`units/${UNIT_NAME}`), null);
+  } finally {
+    sb.cleanup();
+  }
+});
+
+test("installing the boot service removes an @reboot job left from a narrower rule", () => {
+  const sb = sandbox({ narrowSudo: true, cron: true });
+  try {
+    sb.write("crontab", "0 4 * * * /usr/local/bin/backup.sh\n");
+    sb.run(buildApplyProgram({ minMHz: 0, maxMHz: 1800, persist: true }, sb.paths));
+    // The fleet is granted NOPASSWD: ALL: the next keep-after-reboot takes the service.
+    const res = sb.run(buildApplyProgram({ minMHz: 0, maxMHz: 2000, persist: true }, { ...sb.paths, sandboxSudo: "" }));
+    assert.equal(res.RESULT, "ok");
+    assert.equal(res.PERSIST_KIND, "unit");
+    assert.match(sb.read(`units/${UNIT_NAME}`), /-lgc 0,2000/);
+    assert.equal(sb.cronText(), "0 4 * * * /usr/local/bin/backup.sh\n");
+  } finally {
+    sb.cleanup();
+  }
+});
+
+test("a dropped connection keeps the unit busy for the hold time, then frees it", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   let n = 0;
   const m = new GpuClockManager({
     holdMs: 60,
@@ -415,8 +780,9 @@ test("a dropped connection keeps the unit busy for a while, then frees it", asyn
   });
   const spark = { id: "s1", kind: "spark" };
   await assert.rejects(m.apply(spark, { maxMHz: 1800 }), (e) => e.status === 502);
+  t.mock.timers.tick(59);
   await assert.rejects(m.apply(spark, { maxMHz: 1800 }), (e) => e.status === 409);
-  await new Promise((r) => setTimeout(r, 90));
+  t.mock.timers.tick(1);
   assert.equal((await m.apply(spark, { maxMHz: 1800 })).capMHz, 1800);
 });
 

@@ -1784,6 +1784,48 @@
   background: var(--color-success);
 }
 
+/* Fleet-wide GPU clock cap (Settings). */
+.set-fleetcap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.set-fleetcap__presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.set-fleetcap__presets .is-current {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+  color: var(--color-accent-text);
+  font-weight: 600;
+}
+/* Picked but not applied: Save is what changes a unit. */
+.set-fleetcap__presets .is-picked {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+.set-fleetcap__hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.set-fleetcap__msg {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-muted-strong);
+}
+.set-fleetcap__msg.is-err {
+  color: var(--color-danger, var(--color-muted-strong));
+}
+.set-fleetcap__detail {
+  display: block;
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+  color: var(--color-muted);
+}
+
 /* A row whose control sits under the text instead of beside it. */
 .set-row--stack {
   flex-direction: column;

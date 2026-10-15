@@ -24,7 +24,7 @@ import { getSettings, updateSettings, loadSettings } from "./settings.js";
 import { broadcastForLanIp, effectiveMac, normalizeMac, sendWol } from "./wol.js";
 import { remoteShutdownCommand, spawnLocalShutdown } from "./shutdown.js";
 import { GpuClockManager } from "./gpuclock/GpuClockManager.js";
-import { registerGpuClockRoutes } from "./gpuclock/routes.js";
+import { registerGpuClockFleetRoute, registerGpuClockRoutes } from "./gpuclock/routes.js";
 import {
   decodeBenchManager,
   DECODE_BENCH_DEFAULTS,
@@ -2180,11 +2180,24 @@ app.post("/api/sparks/:id/shutdown", async (req, res) => {
   }
 });
 
+// One manager for the fleet batch and the per-unit routes: it serialises work per
+// Spark, so a fleet apply cannot run while another cap change is in flight for it.
+const gpuClockManager = new GpuClockManager();
+
+// Fleet-wide batch first (a plain Sparks-suffix path, like shutdown-all).
+registerGpuClockFleetRoute(app, {
+  manager: gpuClockManager,
+  registry,
+  recordEvent,
+  allowChange: (req) => allowDestructive(principalKey(req)) && allowGlobalDestructive(clientKey(req)),
+  rejectLimited,
+});
+
 // GPU clock cap (nvidia-smi -lgc, optionally kept across reboots by a systemd service).
 // Needs root on the unit: the local unit runs as root in the host mount namespace, a
 // remote one uses `sudo -n` as its SSH user. Same auth and limiters as power actions.
 registerGpuClockRoutes(app, {
-  manager: new GpuClockManager(),
+  manager: gpuClockManager,
   registry,
   recordEvent,
   allowRead: (req) => allowTest(principalKey(req)),

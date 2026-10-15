@@ -205,7 +205,12 @@ export interface GpuThrottle {
   detail: string;
 }
 
-/** GET /api/sparks/:id/gpu-clock: the GPU clock cap (`nvidia-smi -lgc`) and its boot service. */
+/** What keeps a cap across reboots on a unit: the systemd unit where passwordless
+ *  sudo reaches a root shell, the user's `@reboot` cron line where it does not, or
+ *  nothing at all. */
+export type GpuClockPersistKind = "unit" | "cron" | "none";
+
+/** GET /api/sparks/:id/gpu-clock: the GPU clock cap (`nvidia-smi -lgc`) and its boot hook. */
 export type GpuClockStatus =
   | { supported: false; reason?: string }
   | {
@@ -218,6 +223,8 @@ export type GpuClockStatus =
       passwordAllowed?: boolean;
       /** "root" runs directly, "yes" = passwordless sudo works, "no" = it does not. */
       sudo: "root" | "yes" | "no";
+      /** What "keep after reboot" would install on this unit. */
+      persistKind: GpuClockPersistKind;
       service: {
         installed: boolean;
         /** "min,max" the service applies at boot. */
@@ -225,7 +232,19 @@ export type GpuClockStatus =
         enabled: string | null;
         active: string | null;
       };
+      /** The fallback where the boot service cannot be installed. */
+      cron: {
+        installed: boolean;
+        /** "min,max" the @reboot job applies at boot. */
+        clocks: string | null;
+      };
     };
+
+/** POST /api/sparks/gpu-clock-all: per-unit outcome of a fleet-wide cap or reset. */
+export type FleetGpuClockResult =
+  | { id: string; ok: true; capMHz: number | null; persistKind: GpuClockPersistKind }
+  | { id: string; ok: true; supported: false; reason: string }
+  | { id: string; ok: false; error: string };
 
 /** One health finding for a Spark (server rules in server/health/HealthEvaluator.js). */
 export interface HealthFinding {

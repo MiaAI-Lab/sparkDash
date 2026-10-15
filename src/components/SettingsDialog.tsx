@@ -10,6 +10,7 @@ import { XIcon } from "./ui/icons";
 import { SettingRow, ToggleRow } from "./SettingRows";
 import { AlertsDialog } from "./AlertsDialog";
 import { BrowserAlertsSettings } from "./BrowserAlertsSettings";
+import { FleetGpuClock, type FleetGpuClockApi } from "./FleetGpuClock";
 import "../styles/dialogs.css";
 
 interface SettingsDialogProps {
@@ -75,6 +76,9 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
+  // The GPU clock row applies through Save, so a pick there is unsaved work too.
+  const fleetClock = useRef<FleetGpuClockApi | null>(null);
+  const [fleetClockPending, setFleetClockPending] = useState(false);
   const [theme, setTheme] = useState<ThemeId>(readTheme);
   const [tokenSet, setTokenSet] = useState(() => getToken() !== "");
   const [showAlerts, setShowAlerts] = useState(false);
@@ -147,6 +151,9 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
     setSaving(true);
     setError(null);
     try {
+      // Hardware first: Save is the only thing that changes a clock, and a unit
+      // that refuses it must not leave the settings half-saved behind.
+      if (fleetClockPending && !(await fleetClock.current?.apply())) return;
       const result = await updateSettings(settings);
       setSettings(result);
       setDirty(false);
@@ -483,6 +490,15 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
             </>
           )}
 
+          {/* Outside the settings block: a fleet GPU action needs no saved settings. */}
+          <SettingRow
+            title="GPU clock cap"
+            help="Caps the GPU graphics clock on every Spark at once (nvidia-smi -lgc): pick the state they should be in — Full capacity or 1800–2400 MHz — and Save applies it. Offline or GPU-less units are skipped and reported."
+            stack
+          >
+            <FleetGpuClock apiRef={fleetClock} onPendingChange={setFleetClockPending} />
+          </SettingRow>
+
           {/* Outside the settings block: a rejected token is exactly when settings fail to load. */}
           <SettingRow
             title="Access token"
@@ -531,7 +547,7 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
             <button
               type="button"
               onClick={handleSave}
-              disabled={saving || !settings || !dirty}
+              disabled={saving || !settings || !(dirty || fleetClockPending)}
               className="btn btn--primary"
             >
               {saving ? "Saving..." : "Save"}

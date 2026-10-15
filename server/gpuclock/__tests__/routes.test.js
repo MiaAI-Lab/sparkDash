@@ -39,7 +39,7 @@ test("PUT validates, applies, records an Activity event and answers with the new
 
     const ok = await fetch(`${base}/s1/gpu-clock`, json("PUT", { maxMHz: 1800, persist: true }));
     assert.equal(ok.status, 200);
-    assert.deepEqual(await ok.json(), { success: true, capMHz: 1800, persist: true, minMHz: 0 });
+    assert.deepEqual(await ok.json(), { success: true, capMHz: 1800, persist: true, persistKind: "unit", minMHz: 0 });
     assert.equal(events.length, 1);
     assert.equal(events[0].type, "gpu.clock.set");
     assert.match(events[0].message, /1800 MHz.*after reboot/);
@@ -84,6 +84,7 @@ test("an unreachable unit is a 502 that does not echo ssh internals beyond a sho
 test("a failure on the unit reaches the browser with its own message, not a generic 500", async () => {
   const cases = [
     ["lgc-failed", "nvidia-smi refused the clock cap: not supported", 422],
+    ["no-systemd", "keeping the cap after reboot needs systemd or a running cron service, and this unit has neither", 409],
     ["service-failed", "the service did not start; the cap applies until the next reboot", 422],
     ["rgc-failed", "nvidia-smi could not reset the clocks", 422],
     ["marker-failed", "could not record the cap", 422],

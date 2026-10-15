@@ -17,7 +17,9 @@ const base: GpuClockStatus = {
   hwMaxMHz: 3003,
   capMHz: null,
   sudo: "yes",
+  persistKind: "unit",
   service: { installed: false, clocks: null, enabled: null, active: null },
+  cron: { installed: false, clocks: null },
 };
 
 const buttons = (c: HTMLElement) => [...c.querySelectorAll("button")];
@@ -34,7 +36,12 @@ function setInput(el: HTMLInputElement, value: string) {
 describe("GpuClockSection", () => {
   beforeEach(() => {
     vi.mocked(fetchGpuClock).mockResolvedValue(base);
-    vi.mocked(setGpuClock).mockResolvedValue({ success: true, capMHz: 1800, persist: true });
+    vi.mocked(setGpuClock).mockResolvedValue({
+      success: true,
+      capMHz: 1800,
+      persist: true,
+      persistKind: "unit",
+    });
     vi.mocked(resetGpuClock).mockResolvedValue({ success: true });
     vi.stubGlobal("confirm", vi.fn(() => true));
   });
@@ -82,6 +89,54 @@ describe("GpuClockSection", () => {
       setInput(container.querySelector("#gpu-clock-max") as HTMLInputElement, bad);
       expect(byText(container, "Apply").disabled).toBe(true);
     }
+  });
+
+  it("says which hook keeps the cap, and offers the cron one where sudo cannot reach root", async () => {
+    vi.mocked(fetchGpuClock).mockResolvedValue({
+      ...base,
+      persistKind: "cron",
+      capMHz: 1800,
+      cron: { installed: true, clocks: "0,1800" },
+    });
+    vi.mocked(setGpuClock).mockResolvedValue({
+      success: true,
+      capMHz: 1800,
+      persist: true,
+      persistKind: "cron",
+    });
+    const { container } = render(<GpuClockSection sparkId="lab" />);
+    await flush();
+
+    expect(container.querySelector('[data-testid="gpu-clock-now"]')!.textContent).toContain(
+      "@reboot job (0,1800 MHz)",
+    );
+    const box = container.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    expect(box.disabled).toBe(false);
+    expect(box.checked).toBe(true);
+    expect(container.textContent).toContain("an @reboot cron job");
+
+    await act(async () => byText(container, "Apply").click());
+    await flush();
+    expect(setGpuClock).toHaveBeenCalledWith("lab", { maxMHz: 1800, persist: true });
+    expect(container.textContent).toContain("kept after reboot by an @reboot cron job");
+  });
+
+  it("offers nothing to keep when the unit has no hook, and says so instead of refusing", async () => {
+    vi.mocked(fetchGpuClock).mockResolvedValue({ ...base, persistKind: "none" });
+    const { container } = render(<GpuClockSection sparkId="lab" />);
+    await flush();
+
+    const box = container.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    expect(box.disabled).toBe(true);
+    expect(box.checked).toBe(false);
+    expect(container.textContent).toContain("this unit offers neither");
+    expect(container.textContent).toContain("Keep after reboot (not available on this unit)");
+
+    setInput(container.querySelector("#gpu-clock-max") as HTMLInputElement, "1800");
+    await act(async () => byText(container, "Apply").click());
+    await flush();
+    // The cap still applies — it just will not survive a reboot here.
+    expect(setGpuClock).toHaveBeenCalledWith("lab", { maxMHz: 1800, persist: false });
   });
 
   it("does nothing when the user cancels the service confirmation", async () => {

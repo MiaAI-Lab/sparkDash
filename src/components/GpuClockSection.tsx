@@ -6,9 +6,9 @@ const MIN_CAP_MHZ = 300;
 
 type Ready = Extract<GpuClockStatus, { supported: true }>;
 
-/** Highest clock the boot service applies, e.g. "0,2200" -> 2200. */
-function serviceMax(status: Ready): number | null {
-  const m = /^\d+,(\d+)$/.exec(status.service.clocks ?? "");
+/** Highest clock a boot hook applies, e.g. "0,2200" -> 2200. */
+function bootMax(status: Ready): number | null {
+  const m = /^\d+,(\d+)$/.exec(status.service.clocks ?? status.cron.clocks ?? "");
   return m ? Number(m[1]) : null;
 }
 
@@ -36,9 +36,9 @@ export function GpuClockSection({ sparkId }: { sparkId: string }) {
 
   const syncInputs = (s: GpuClockStatus) => {
     if (!s.supported) return;
-    const cap = s.capMHz ?? serviceMax(s);
+    const cap = s.capMHz ?? bootMax(s);
     setMaxInput(cap != null ? String(cap) : "");
-    setPersist(s.service.installed);
+    setPersist(s.service.installed || s.cron.installed);
   };
 
   const load = useCallback(
@@ -108,13 +108,21 @@ export function GpuClockSection({ sparkId }: { sparkId: string }) {
   const needPw = sudoMissing && secure;
   const pwOk = !needPw || sudoPw.length > 0;
   const pwArg = needPw ? sudoPw : undefined;
+  /**
+   * No boot hook is reachable here at all: the checkbox says so instead of refusing on Apply.
+   * Without passwordless sudo the status cannot probe for one, so a typed password decides it on the unit.
+   */
+  const cannotPersist = !sudoMissing && status.persistKind === "none";
 
-  const run = async (action: () => Promise<unknown>, done: string) => {
+  /** How this unit keeps the cap, as the response reported it. */
+  const keptText = (kind: string) =>
+    kind === "cron" ? "kept after reboot by an @reboot cron job" : "kept after reboot by a boot service";
+
+  const run = async (action: () => Promise<string>) => {
     setBusy(true);
     setMessage(null);
     try {
-      await action();
-      setMessage({ ok: true, text: done });
+      setMessage({ ok: true, text: await action() });
     } catch (err) {
       setMessage({ ok: false, text: err instanceof Error ? err.message : "The unit refused the change" });
     } finally {
@@ -128,16 +136,23 @@ export function GpuClockSection({ sparkId }: { sparkId: string }) {
   };
 
   const apply = () => {
-    if (persist && !confirm("Install a system service on this unit that re-applies the cap at every boot? It runs as root through sudo.")) return;
-    void run(
-      () => setGpuClock(sparkId, { maxMHz, persist, ...(pwArg ? { sudoPassword: pwArg } : {}) }),
-      persist ? `Capped at ${maxMHz} MHz and kept after reboot.` : `Capped at ${maxMHz} MHz until the next reboot.`
-    );
+    const how = status.persistKind === "cron" ? "an @reboot cron job" : "a system service";
+    if (persist && !confirm(`Keep the cap after reboot with ${how}? It re-applies the cap at every boot on this unit.`))
+      return;
+    void run(async () => {
+      const out = await setGpuClock(sparkId, { maxMHz, persist, ...(pwArg ? { sudoPassword: pwArg } : {}) });
+      return persist
+        ? `Capped at ${maxMHz} MHz and ${keptText(out.persistKind)}.`
+        : `Capped at ${maxMHz} MHz until the next reboot.`;
+    });
   };
 
   const remove = () => {
-    if (!confirm("Remove the GPU clock cap and its boot service from this unit?")) return;
-    void run(() => resetGpuClock(sparkId, pwArg), "Cap removed.");
+    if (!confirm("Remove the GPU clock cap and its boot hook from this unit?")) return;
+    void run(async () => {
+      await resetGpuClock(sparkId, pwArg);
+      return "Cap removed.";
+    });
   };
 
   const showCommand = async (kind: "apply" | "reset") => {
@@ -185,7 +200,9 @@ export function GpuClockSection({ sparkId }: { sparkId: string }) {
           ? ` · boot service ${status.service.enabled === "enabled" ? "enabled" : status.service.enabled || "installed"}${
               status.service.clocks ? ` (${status.service.clocks} MHz)` : ""
             }`
-          : " · not kept after reboot"}
+          : status.cron.installed
+            ? ` · @reboot job${status.cron.clocks ? ` (${status.cron.clocks} MHz)` : ""}`
+            : " · not kept after reboot"}
       </p>
       <div className="gpu-clock__row">
         <input
@@ -212,9 +229,15 @@ export function GpuClockSection({ sparkId }: { sparkId: string }) {
           type="checkbox"
           checked={persist}
           onChange={(e) => setPersist(e.target.checked)}
-          disabled={busy}
+          disabled={busy || cannotPersist}
         />
-        Keep after reboot (installs a system service)
+        Keep after reboot (
+        {cannotPersist
+          ? "not available on this unit"
+          : status.persistKind === "cron"
+            ? "an @reboot cron job"
+            : "a system service"}
+        )
       </label>
       {needPw && (
         <div>
@@ -241,8 +264,9 @@ export function GpuClockSection({ sparkId }: { sparkId: string }) {
       {sudoMissing && !secure && (
         <p className="field-hint is-warn">
           This connection is not on https or the machine itself, so a sudo password is not typed here (it would cross the
-          network in the clear). Open the dashboard over https or from the Spark itself, or run the change on the Spark with
-          the command below.
+          network in the clear). Open the dashboard over https or from the Spark itself, run the change on the Spark with
+          the command below, or give that user passwordless sudo for <code>nvidia-smi -lgc</code> and <code>-rgc</code>{" "}
+          — a rule for those two commands is enough.
         </p>
       )}
       {!sudoMissing && (
@@ -251,6 +275,12 @@ export function GpuClockSection({ sparkId }: { sparkId: string }) {
           saved connection settings. Applies at once; it is not part of Save.
         </p>
       )}
+      {cannotPersist ? (
+        <p className="field-hint is-warn">
+          Keeping the cap after reboot needs either passwordless sudo for a root shell (the boot service) or a running
+          cron service (an @reboot job), and this unit offers neither. The cap applies until the next reboot.
+        </p>
+      ) : null}
       {maxInput.trim() !== "" && !valid && (
         <p className="field-hint is-warn">
           Enter a whole number from {MIN_CAP_MHZ}{hwMax != null ? ` to ${hwMax}` : ""}.
