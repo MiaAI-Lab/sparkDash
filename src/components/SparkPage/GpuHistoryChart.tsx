@@ -234,6 +234,9 @@ export function GpuHistoryChart({
         aria-label="GPU utilization, power and temperature history"
       >
         <defs>
+          <clipPath id={`${gradId}-plot`}>
+            <rect x={PAD.l} y={PAD.t} width={iw} height={ih} />
+          </clipPath>
           <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0" stopColor="var(--color-accent)" stopOpacity="0.28" />
             <stop offset="1" stopColor="var(--color-accent)" stopOpacity="0" />
@@ -263,30 +266,32 @@ export function GpuHistoryChart({
         <text x={width - PAD.r} y={HEIGHT - 4} textAnchor="end">
           now
         </text>
-        {hasData &&
-          lines.map((l) =>
-            l.segs
-              .filter((s) => s.length > 1)
-              .map((seg, si) => {
-                const path = d(seg);
-                const last = seg[seg.length - 1];
-                const first = seg[0];
-                return (
-                  <g key={`${l.key}-${si}`}>
-                    {l.fill && (
-                      <path
-                        d={`${path} L${xOf(last.at).toFixed(1)} ${yOf(0)} L${xOf(first.at).toFixed(1)} ${yOf(0)} Z`}
-                        fill={`url(#${gradId})`}
-                      />
-                    )}
-                    <path d={path} fill="none" stroke={l.color} strokeWidth="1.8" strokeLinejoin="round" />
-                    {si === l.segs.filter((s) => s.length > 1).length - 1 && (
-                      <circle cx={xOf(last.at)} cy={yOf(last.value)} r="3.5" fill={l.color} />
-                    )}
-                  </g>
-                );
-              })
-          )}
+        <g clipPath={`url(#${gradId}-plot)`}>
+          {hasData &&
+            lines.map((l) =>
+              l.segs
+                .filter((s) => s.length > 1)
+                .map((seg, si) => {
+                  const path = d(seg);
+                  const last = seg[seg.length - 1];
+                  const first = seg[0];
+                  return (
+                    <g key={`${l.key}-${si}`}>
+                      {l.fill && (
+                        <path
+                          d={`${path} L${xOf(last.at).toFixed(1)} ${yOf(0)} L${xOf(first.at).toFixed(1)} ${yOf(0)} Z`}
+                          fill={`url(#${gradId})`}
+                        />
+                      )}
+                      <path d={path} fill="none" stroke={l.color} strokeWidth="1.8" strokeLinejoin="round" />
+                      {si === l.segs.filter((s) => s.length > 1).length - 1 && (
+                        <circle cx={xOf(last.at)} cy={yOf(last.value)} r="3.5" fill={l.color} />
+                      )}
+                    </g>
+                  );
+                })
+            )}
+        </g>
       </svg>
       {legend}
     </div>
