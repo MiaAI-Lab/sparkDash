@@ -18,10 +18,10 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { AuthMode, SparkSnapshot } from "../../api/types";
-import { ACTIVITY_ID, ENERGY_ID, OVERVIEW_ID, SHOWCASE_ID, TEMPS_ID, TOKENS_ID, benchId, idToPath, toolId } from "../../constants";
+import { ACTIVITY_ID, COST_ID, ENERGY_ID, OVERVIEW_ID, SHOWCASE_ID, TEMPS_ID, TOKENS_ID, benchId, idToPath, toolId } from "../../constants";
 import { BENCH_TYPES } from "../bench/benchCatalog";
 import { TOOL_TYPES } from "../tools/toolsCatalog";
-import { BoltIcon, ChevronDownIcon, GearIcon, GithubIcon, GlobeIcon, GridIcon, ListIcon, MicroscopeIcon, PanelLeftIcon, PlusIcon, SearchIcon, TerminalIcon, ThermometerIcon, TokensIcon, XLogoIcon } from "../ui/icons";
+import { BoltIcon, ChevronDownIcon, CoinsIcon, GearIcon, GithubIcon, GlobeIcon, GridIcon, ListIcon, MicroscopeIcon, PanelLeftIcon, PlusIcon, SearchIcon, TerminalIcon, ThermometerIcon, TokensIcon, XLogoIcon } from "../ui/icons";
 import { OpenAccessChip } from "../OpenAccessChip";
 import { ThemeSwitch } from "../ThemeSwitch";
 import { isThrottling, railSubLabel } from "./sparkSummary";
@@ -336,6 +336,15 @@ export function AppSidebar({
           >
             <TokensIcon className="h-4 w-4" />
             <span className="rail-item__name">Token totals</span>
+          </a>
+          <a
+            href={idToPath(COST_ID)}
+            className={`rail-item ${activeId === COST_ID ? "is-active" : ""}`}
+            onClick={inApp(() => onSelect(COST_ID))}
+            aria-current={activeId === COST_ID ? "page" : undefined}
+          >
+            <CoinsIcon className="h-4 w-4" />
+            <span className="rail-item__name">Cost compare</span>
           </a>
           <a
             href={idToPath(ENERGY_ID)}

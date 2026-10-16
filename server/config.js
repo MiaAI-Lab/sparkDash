@@ -33,6 +33,9 @@ const METRICS_HISTORY_JSON_PATH =
 /** Alert rule switches, channel settings (no URLs — those are in the secrets store) and the firing set; mode 0600. */
 const ALERTS_JSON_PATH =
   process.env.ALERTS_JSON_PATH || path.join(ROOT, "config", "alerts.json");
+/** Last good hosted-model price catalog (Cost compare page offline fallback). */
+const MODEL_PRICES_JSON_PATH =
+  process.env.MODEL_PRICES_JSON_PATH || path.join(ROOT, "config", "model-prices.json");
 
 // ─── LLM / Comfy probe timeouts ──────────────────────────
 const LLM_PROBE_TIMEOUT_MS = 3000;
@@ -198,6 +201,7 @@ export {
   FLEET_ENERGY_MONTHLY_JSON_PATH,
   METRICS_HISTORY_JSON_PATH,
   ALERTS_JSON_PATH,
+  MODEL_PRICES_JSON_PATH,
   LLM_PROBE_TIMEOUT_MS,
   COMFY_PROBE_TIMEOUT_MS,
   TAILSCALE_PROBE_TIMEOUT_MS,
