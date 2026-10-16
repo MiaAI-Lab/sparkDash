@@ -8,6 +8,7 @@ import { LLM_PROBE_TIMEOUT_MS } from "../config.js";
 import { classifyHostScope } from "../validate.js";
 import { llmProbeHost } from "./llmHost.js";
 import { openSshLlmTunnel } from "./llmTunnel.js";
+import { LlamaSwapState, ownedByLlamaSwap } from "./llamaSwap.js";
 
 const FAIL_RESET_THRESHOLD = 3;
 /** Direct failures in a row before the probe tries an SSH tunnel to the unit's loopback. */
@@ -103,7 +104,9 @@ export class LlmProbe {
     this._openTunnel = openSshLlmTunnel;
 
     // State
-    this.backendType = null; // 'vllm' | 'llama.cpp' | 'sglang' | 'lmstudio' | 'ollama' | 'ds4' | 'exl3' | 'q27' | 'tensorfold' | 'freetoken' | null
+    this.backendType = null; // 'vllm' | 'llama.cpp' | 'sglang' | 'lmstudio' | 'ollama' | 'ds4' | 'exl3' | 'q27' | 'tensorfold' | 'freetoken' | 'llama-swap' | null
+    /** llama-swap port: loaded model, nested engine probe, activity totals. Null on other backends. */
+    this._llamaSwap = null;
     this.serverIsOpenAI = null; // true = OpenAI-compatible
     /** Whether /v1/models (or /slots) answered without credentials. null = unknown. */
     this.authOpen = null;
@@ -366,6 +369,7 @@ export class LlmProbe {
 
   /** Release the SSH forward (monitor stopped, port removed). */
   dispose() {
+    this._disposeLlamaSwap();
     this._closeTunnel();
     this.baseUrl = this._directBase;
   }
@@ -386,6 +390,7 @@ export class LlmProbe {
   }
 
   _resetDetection() {
+    this._disposeLlamaSwap();
     this.serverIsOpenAI = null;
     this.backendType = null;
     this.authOpen = null;
@@ -459,7 +464,8 @@ export class LlmProbe {
       this.backendType !== "exl3" &&
       this.backendType !== "q27" &&
       this.backendType !== "tensorfold" &&
-      this.backendType !== "freetoken"
+      this.backendType !== "freetoken" &&
+      this.backendType !== "llama-swap"
     ) {
       const slotUrl = `${this.baseUrl}/slots`;
       try {
@@ -510,9 +516,12 @@ export class LlmProbe {
    * Classify an OpenAI-compatible server: LM Studio, Ollama, ds4, SGLang,
    * EXL3, q27, TensorFold, FreeToken, or vLLM (default).
    * @param {unknown} ownedBy
-   * @returns {Promise<"lmstudio" | "ollama" | "ds4" | "sglang" | "exl3" | "q27" | "tensorfold" | "freetoken" | "vllm">}
+   * @returns {Promise<"llama-swap" | "lmstudio" | "ollama" | "ds4" | "sglang" | "exl3" | "q27" | "tensorfold" | "freetoken" | "vllm">}
    */
   async _classifyOpenAIBackend(ownedBy) {
+    // llama-swap names itself in owned_by. Check it before any heuristic probe:
+    // those would only see whichever engine happens to be loaded behind it.
+    if (ownedByLlamaSwap(ownedBy)) return "llama-swap";
     // LM Studio first: it answers 200 + JSON on every path, so the heuristic
     // probes below (notably SGLang's /server_info) would misfire on it.
     if (await this._probeIsLmStudio()) return "lmstudio";
@@ -707,6 +716,7 @@ export class LlmProbe {
     let modelsOk = false;
     let owned = null;
     let servedModelId = null;
+    let modelRecords = [];
     this.models = [];
     try {
       const modelsRes = await this._fetch(`${this.baseUrl}/v1/models`);
@@ -721,6 +731,7 @@ export class LlmProbe {
         const validModels = records.filter((model) =>
           typeof model?.id === "string" && model.id.trim().length > 0
         );
+        modelRecords = validModels;
         this.models = [...new Set(validModels.map((model) => model.id))];
         const model = validModels[0];
         servedModelId = this.models.length > 1
@@ -742,7 +753,9 @@ export class LlmProbe {
 
     // Self-heal backend from owned_by before branching (cheap, no extra HTTP)
     if (typeof owned === "string") {
-      if (/ds4/i.test(owned)) this.backendType = "ds4";
+      if (ownedByLlamaSwap(owned)) this.backendType = "llama-swap";
+      else if (this.backendType === "llama-swap") this.backendType = null;
+      else if (/ds4/i.test(owned)) this.backendType = "ds4";
       else if (/sglang/i.test(owned) && this.backendType !== "ds4") {
         this.backendType = "sglang";
       } else if (/exl3/i.test(owned) && this.backendType !== "ds4") {
@@ -752,6 +765,11 @@ export class LlmProbe {
       } else if (/freetoken/i.test(owned) && this.backendType !== "ds4") {
         this.backendType = "freetoken";
       }
+    }
+
+    if (this.backendType === "llama-swap") {
+      await this._probeLlamaSwap(modelRecords);
+      return this._getSnapshot();
     }
 
     if (this.backendType === "freetoken") {
@@ -2395,16 +2413,18 @@ export class LlmProbe {
 
   _getSnapshot() {
     const metricsLive = this.serverIsOpenAI !== null && this.authOpen !== false;
+    // llama-swap lists every model it can start; only the loaded one is "the" model.
+    const swap = this.backendType === "llama-swap" && this._llamaSwap ? this._llamaSwap : null;
     return {
       port: this.port,
       available: metricsLive,
       via: this._tunnel ? "ssh-tunnel" : "direct",
       backend: this.backendType,
-      modelId: this.models.length > 1 ? this.models[0] : this.modelId || null,
+      modelId: swap ? this.modelId || null : this.models.length > 1 ? this.models[0] : this.modelId || null,
       modelPath: this.modelPath || null,
       models: metricsLive ? [...this.models] : [],
       // Native enrichment may set a context limit; routers have no shared limit.
-      contextLength: this.models.length > 1 ? null : this.contextLength,
+      contextLength: swap ? this.contextLength : this.models.length > 1 ? null : this.contextLength,
       gpuMemoryUtilization: this.gpuMemoryUtilization,
       slotsActive: this.slotsActive,
       slotsTotal: this.slotsTotal,
@@ -2431,6 +2451,7 @@ export class LlmProbe {
       e2eP95Seconds: this.e2eP95Seconds,
       itlP95Seconds: this.itlP95Seconds,
       mtpAcceptanceRate: this.mtpAcceptanceRate,
+      llamaSwap: swap ? swap.snapshot() : null,
       posture: this._buildPosture(),
       error: this.error,
     };
@@ -2470,9 +2491,61 @@ export class LlmProbe {
       e2eP95Seconds: null,
       itlP95Seconds: null,
       mtpAcceptanceRate: null,
+      llamaSwap: null,
       posture: this._buildPosture(),
       error: this.error,
     };
+  }
+
+  // ─── llama-swap ──────────────────────────────────────────
+  /**
+   * One llama-swap poll: loaded model from /running, engine fields from a
+   * nested probe of that model's upstream, token totals from Activity.
+   * @param {any[]} records `/v1/models` entries
+   */
+  async _probeLlamaSwap(records) {
+    this._clearEngineMemory();
+    if (!this._llamaSwap) {
+      this._llamaSwap = new LlamaSwapState({
+        baseUrl: () => this.baseUrl,
+        fetch: (url) => this._fetch(url),
+        makeEngineProbe: (url) => this._makeEngineProbe(url),
+        viaTunnel: () => Boolean(this._tunnel),
+      });
+    }
+    const swap = this._llamaSwap;
+    const engine = await swap.poll(records);
+    Object.assign(this, engine);
+    this.modelId = swap.loadedModelId;
+    this.modelPath = null;
+    this.contextLength = swap.engineSnapshot?.contextLength ?? swap.contextLength;
+    // Loaded first, so pickers that default to the first entry pick it.
+    const loaded = new Set(swap.running.ready);
+    this.models = [...this.models.filter((id) => loaded.has(id)), ...this.models.filter((id) => !loaded.has(id))];
+    this.totalOutputTokens = swap.totals.output;
+    this.totalPromptTokens = swap.totals.prompt;
+    this.totalCachedTokens = swap.totals.cached;
+  }
+
+  /**
+   * Probe for the engine llama-swap has loaded, at its own upstream address.
+   * No tunnel and no API key: it is reached directly or not at all.
+   * @param {string} url engine origin, e.g. http://127.0.0.1:5804
+   */
+  _makeEngineProbe(url) {
+    const parsed = new URL(url);
+    const port = Number(parsed.port) || (parsed.protocol === "https:" ? 443 : 80);
+    const { llmApiKeys: _keys, ...spark } = this.spark || {};
+    const probe = new LlmProbe(spark, port);
+    probe._directBase = parsed.origin;
+    probe.baseUrl = parsed.origin;
+    probe._canTunnel = () => false;
+    return probe;
+  }
+
+  _disposeLlamaSwap() {
+    this._llamaSwap?.dispose();
+    this._llamaSwap = null;
   }
 
   // ─── HTTP helpers ────────────────────────────────────────

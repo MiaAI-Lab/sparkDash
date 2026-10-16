@@ -43,6 +43,7 @@ import {
 import { showcaseManager } from "./collectors/ShowcaseManager.js";
 import { InferenceActivityStore } from "./collectors/InferenceActivity.js";
 import { llmProbeHost } from "./collectors/llmHost.js";
+import { ownedByLlamaSwap, resolveLlamaSwapBenchModel } from "./collectors/llamaSwap.js";
 import { onceClose, resolveLlmHttpTarget } from "./collectors/llmTunnel.js";
 import { formatLlmBaseUrl, parseLlmTargetInput } from "../src/shared/llmTarget.js";
 import { llmDaily } from "./collectors/LlmDaily.js";
@@ -204,6 +205,42 @@ async function benchHttpTarget(spark, configuredPorts, body) {
         signal,
       }),
   };
+}
+
+/**
+ * Bench model on a llama-swap port. llama-swap starts whatever model a request
+ * names, so a bench there may only use a model that is already loaded: the
+ * requested one if loaded, otherwise the loaded one, otherwise 409. Other
+ * backends and custom targets pass through unchanged.
+ * @returns {Promise<string|null>}
+ */
+async function benchModelForPort(spark, port, requested, { custom = false } = {}) {
+  if (custom) return requested;
+  const ports = Array.isArray(spark.llmPorts) && spark.llmPorts.length ? spark.llmPorts : [resolveLlmPort(spark)];
+  const llmList = monitors.get(spark.id)?.snapshot()?.metrics?.llm;
+  const llm = Array.isArray(llmList) ? llmList[ports.indexOf(port)] : null;
+  const baseUrl = `http://${llmProbeHost(spark)}:${port}`;
+  let isSwap = llm?.backend === "llama-swap";
+  if (!isSwap && !llm?.backend) {
+    // Not classified yet (just added or restarted): ask the port itself.
+    isSwap = await portIsLlamaSwap(baseUrl, resolveLlmApiKey(spark, port));
+  }
+  if (!isSwap) return requested;
+  return resolveLlamaSwapBenchModel({ baseUrl, requested });
+}
+
+async function portIsLlamaSwap(baseUrl, apiKey) {
+  try {
+    const res = await fetch(`${baseUrl}/v1/models`, {
+      signal: AbortSignal.timeout(5000),
+      headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
+    });
+    if (!res.ok) return false;
+    const body = await res.json().catch(() => null);
+    return Array.isArray(body?.data) && body.data.some((m) => ownedByLlamaSwap(m?.owned_by));
+  } catch {
+    return false;
+  }
 }
 
 function extraBenchmarkHosts() {
@@ -866,6 +903,7 @@ app.post("/api/sparks/:id/test", async (req, res) => {
 
 registerToolEvalRoutes(app, {
   registry,
+  benchModelForPort,
   manager: toolEvalManager,
   store: toolEvalStore,
   allowRun: allowToolEval,
@@ -1476,6 +1514,11 @@ app.post("/api/sparks/:id/llm/bench", async (req, res) => {
       llmList[0];
     modelId = llm?.modelId || null;
   }
+  try {
+    modelId = await benchModelForPort(spark, port, modelId, { custom: target.custom });
+  } catch (err) {
+    return res.status(err.status || 409).json({ error: err.message });
+  }
 
   try {
     if (!consumeBenchStartQuota(req, res)) return;
@@ -1653,6 +1696,11 @@ app.post("/api/sparks/:id/llm/prefill-bench", async (req, res) => {
     modelId = llm?.modelId || null;
     contextLength = Number(llm?.contextLength) > 0 ? Number(llm.contextLength) : null;
   }
+  try {
+    modelId = await benchModelForPort(spark, port, modelId, { custom: target.custom });
+  } catch (err) {
+    return res.status(err.status || 409).json({ error: err.message });
+  }
 
   try {
     if (!consumeBenchStartQuota(req, res)) return;
@@ -1793,6 +1841,11 @@ app.post("/api/sparks/:id/llm/quality-bench", async (req, res) => {
     if (!modelId) modelId = llm?.modelId || null;
     contextLength = llm?.contextLength ?? null;
   }
+  try {
+    modelId = await benchModelForPort(spark, port, modelId, { custom: target.custom });
+  } catch (err) {
+    return res.status(err.status || 409).json({ error: err.message });
+  }
 
   try {
     if (!consumeBenchStartQuota(req, res)) return;
@@ -1875,7 +1928,7 @@ app.delete("/api/sparks/:id/llm/quality-bench/:benchId", (req, res) => {
  * Returns 202 { sessionId }; poll GET for deltas; DELETE :sessionId to cancel.
  * Finished runs are archived; GET collection lists history; DELETE collection clears it.
  */
-app.post("/api/sparks/:id/llm/showcase", (req, res) => {
+app.post("/api/sparks/:id/llm/showcase", async (req, res) => {
   const spark = registry.getSpark(req.params.id);
   if (!spark) return res.status(404).json({ error: "Spark not found" });
   if (spark.workerNode) {
@@ -1911,6 +1964,11 @@ app.post("/api/sparks/:id/llm/showcase", (req, res) => {
       llmList.find((m) => m?.available) ||
       llmList[0];
     modelId = llm?.modelId || null;
+  }
+  try {
+    modelId = await benchModelForPort(spark, port, modelId);
+  } catch (err) {
+    return res.status(err.status || 409).json({ error: err.message });
   }
 
   try {

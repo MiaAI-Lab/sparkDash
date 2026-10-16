@@ -57,6 +57,34 @@ describe("SparkCard", () => {
     expect(container.querySelectorAll(".ov-modelrow")[1].textContent).toContain("Loaded");
   });
 
+  it("lists only llama-swap's loaded models, not every model it could start", () => {
+    const spark = makeSpark("fixture");
+    Object.assign(spark.metrics.llm[0], {
+      available: true,
+      backend: "llama-swap",
+      modelId: "chat/loaded",
+      models: ["chat/loaded", "audio/music", "image/flux"],
+      llamaSwap: { version: "v265", loaded: ["chat/loaded"], starting: [], models: [], engine: null, activity: true, lastRequest: null },
+    });
+    const { container } = render(<SparkCard spark={spark} temperatureUnit="celsius" />);
+    const rows = [...container.querySelectorAll(".ov-modelrow code")].map((row) => row.textContent);
+    expect(rows).toEqual(["chat/loaded"]);
+  });
+
+  it("says nothing is loaded on an idle llama-swap", () => {
+    const spark = makeSpark("fixture");
+    Object.assign(spark.metrics.llm[0], {
+      available: true,
+      backend: "llama-swap",
+      modelId: null,
+      models: ["audio/music"],
+      llamaSwap: { version: "v265", loaded: [], starting: [], models: [], engine: null, activity: true, lastRequest: null },
+    });
+    const { container } = render(<SparkCard spark={spark} temperatureUnit="celsius" />);
+    const rows = [...container.querySelectorAll(".ov-modelrow code")].map((row) => row.textContent);
+    expect(rows).toEqual(["Nothing loaded"]);
+  });
+
   it("does not present an offline unit's discovered models as loaded", () => {
     const spark = head(false);
     spark.metrics.residentModels = [{ modelId: "surya-private", container: "surya-vllm" }];
