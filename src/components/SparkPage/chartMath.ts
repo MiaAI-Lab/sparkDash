@@ -6,10 +6,11 @@ export interface Pt {
 }
 
 /**
- * Average samples into equal-width time buckets across [startAt, endAt].
+ * Average samples into equal-width time buckets anchored to the Unix epoch.
  * Keeps long windows (8 h at a 2 s poll) cheap to draw. Empty buckets are
  * skipped, so gaps stay gaps. Each output point sits at the mean timestamp of
- * its bucket.
+ * its bucket. Include the whole first overlapping bucket; the chart clips it
+ * to the viewport. Moving either window edge must not regroup older samples.
  */
 export function bucketByTime(
   samples: readonly Pt[],
@@ -19,21 +20,21 @@ export function bucketByTime(
 ): Pt[] {
   if (buckets < 1 || endAt <= startAt) return [];
   const width = (endAt - startAt) / buckets;
-  const sum = new Array<number>(buckets).fill(0);
-  const atSum = new Array<number>(buckets).fill(0);
-  const count = new Array<number>(buckets).fill(0);
+  const firstBucket = Math.floor(startAt / width);
+  const alignedStart = firstBucket * width;
+  const groups = new Map<number, { sum: number; atSum: number; count: number }>();
   for (const s of samples) {
-    if (s.at < startAt || s.at > endAt || !Number.isFinite(s.value)) continue;
-    const i = Math.min(buckets - 1, Math.floor((s.at - startAt) / width));
-    sum[i] += s.value;
-    atSum[i] += s.at;
-    count[i] += 1;
+    if (s.at < alignedStart || s.at > endAt || !Number.isFinite(s.at) || !Number.isFinite(s.value)) continue;
+    const key = Math.floor(s.at / width);
+    const group = groups.get(key) ?? { sum: 0, atSum: 0, count: 0 };
+    group.sum += s.value;
+    group.atSum += s.at;
+    group.count += 1;
+    groups.set(key, group);
   }
-  const out: Pt[] = [];
-  for (let i = 0; i < buckets; i++) {
-    if (count[i] > 0) out.push({ at: atSum[i] / count[i], value: sum[i] / count[i] });
-  }
-  return out;
+  return [...groups.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([, group]) => ({ at: group.atSum / group.count, value: group.sum / group.count }));
 }
 
 /** Split a point list wherever consecutive points are further apart than maxGapMs. */
