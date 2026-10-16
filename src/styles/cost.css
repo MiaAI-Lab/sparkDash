@@ -1,0 +1,51 @@
+/* Cost compare page — builds on the token-page panels/tiles (tokens.css).
+   Colors come from the theme tokens in index.css so every theme reads correctly. */
+
+.cp-picker { position: relative; min-width: 320px; }
+
+.cp-toggle {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  min-height: 2.5rem; padding: 0.5rem 0.8rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 10px; background: var(--color-surface-elevated);
+  color: var(--color-text); cursor: pointer;
+  text-align: left; font: inherit; font-size: 0.8125rem;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.cp-toggle:hover, .cp-toggle:focus-visible { border-color: var(--color-accent); box-shadow: 0 0 0 3px var(--color-accent-soft); outline: none; }
+.cp-toggle__id { font-weight: 600; color: var(--color-text-strong); }
+.cp-toggle__price { margin-left: auto; font-size: 11px; color: var(--color-muted); white-space: nowrap; }
+
+.cp-pop {
+  position: absolute; z-index: 30; top: calc(100% + 6px); left: 0; right: 0;
+  background: var(--color-surface-elevated);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 12px; box-shadow: 0 18px 50px rgb(0 0 0 / 0.35);
+  display: flex; flex-direction: column; max-height: 380px;
+}
+.cp-search { padding: 8px; border-bottom: 1px solid var(--color-border); }
+.cp-search input {
+  width: 100%; padding: 6px 9px; border-radius: 8px; font: inherit; font-size: 12px;
+  border: 1px solid var(--color-border-strong); outline: none;
+  background: var(--color-surface); color: var(--color-text);
+}
+.cp-search input:focus { border-color: var(--color-accent); box-shadow: 0 0 0 3px var(--color-accent-soft); }
+.cp-search input::placeholder { color: var(--color-faint); }
+.cp-list { overflow-y: auto; margin: 0; padding: 4px; list-style: none; }
+.cp-item {
+  display: flex; align-items: baseline; gap: 8px; width: 100%;
+  padding: 6px 8px; border: 0; border-radius: 8px;
+  background: transparent; color: var(--color-text); cursor: pointer;
+  text-align: left; font: inherit;
+}
+.cp-item:hover, .cp-item.is-active, .cp-item:focus-visible { background: var(--color-surface-hover); outline: none; }
+.cp-item[aria-selected="true"] .cp-item__id { color: var(--color-accent-text); }
+.cp-item__id { font-size: 12px; font-weight: 600; color: var(--color-text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cp-item__meta { margin-left: auto; font-size: 10px; color: var(--color-muted); white-space: nowrap; }
+.cp-empty { padding: 12px; font-size: 12px; color: var(--color-muted); text-align: center; }
+
+.cp-modelinfo { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 11px; color: var(--color-muted); }
+.cp-modelinfo b { color: var(--color-text-strong); }
+
+/* Cost columns in tables */
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }

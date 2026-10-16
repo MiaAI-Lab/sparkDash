@@ -502,3 +502,14 @@ export function XLogoIcon({ className = "" }: { className?: string }) {
     </svg>
   );
 }
+
+/** Stacked coins — used for the Cost compare page. */
+export function CoinsIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden className={className}>
+      <circle cx="8.5" cy="8.5" r="5.5" />
+      <path d="M14.5 4.6a5.5 5.5 0 1 1-3.9 9.4" />
+      <path d="M7.5 18.4a5.5 5.5 0 1 0 7-7" />
+    </svg>
+  );
+}
