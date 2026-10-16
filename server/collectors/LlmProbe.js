@@ -143,6 +143,7 @@ export class LlmProbe {
     this.lastTtftCount = null;
     /** Previous `vllm:iteration_tokens_total_sum` (engine-step tokens). */
     this.lastIterSum = null;
+    this.lastRadianceSteps = null;
     this.lastProbeTime = 0;
 
     // Cumulative total output tokens (generation) as reported by the LLM server
@@ -426,6 +427,7 @@ export class LlmProbe {
     this.lastTtftSum = null;
     this.lastTtftCount = null;
     this.lastIterSum = null;
+    this.lastRadianceSteps = null;
     this._sglangStickyTps = null;
     this._sglangLoadGenTps = null;
   }
@@ -906,6 +908,7 @@ export class LlmProbe {
             if (this.backendType === "radiance") {
               // Radiance exports the vLLM series names (prompt/generation totals, TTFT histogram).
               this._applyVllmMetrics(txt, dtSec);
+              this._applyRadianceLiveRates(txt);
             } else if (this.backendType == null || this.backendType === "vllm") {
               this.backendType = "vllm";
               this._applyVllmMetrics(txt, dtSec);
@@ -1476,6 +1479,36 @@ export class LlmProbe {
    * @param {string} txt
    * @param {number} dtSec
    */
+  /**
+   * Radiance only advances vllm:{prompt,generation}_tokens_total when a request
+   * finishes, so counter deltas read 0 during a request and then spike on the
+   * poll it completes in. It also exports live engine-rate gauges; use them
+   * while the matching engine-step counters advance (the gauges decay slowly
+   * after the engine goes idle, so the step counters gate them).
+   * Older builds without the gauges keep the counter-derived rates.
+   * @param {string} txt
+   */
+  _applyRadianceLiveRates(txt) {
+    const decodeRate = this._getPromMetric(txt, "radiance:decode_tokens_per_second");
+    const prefillRate = this._getPromMetric(txt, "radiance:prefill_tokens_per_second");
+    const prefillSteps = this._getPromMetric(txt, "radiance:engine_steps_prefill_total");
+    const decodeSteps = this._getPromMetric(txt, "radiance:engine_steps_decode_total");
+    const mixedSteps = this._getPromMetric(txt, "radiance:engine_steps_mixed_total") ?? 0;
+    if (decodeRate == null || prefillRate == null || prefillSteps == null || decodeSteps == null) {
+      this.lastRadianceSteps = null;
+      return;
+    }
+    const steps = { prefill: prefillSteps + mixedSteps, decode: decodeSteps + mixedSteps };
+    const last = this.lastRadianceSteps;
+    this.lastRadianceSteps = steps;
+    if (last == null) return;
+    const round2 = (v) => Math.max(0, Math.round(v * 100) / 100);
+    const prefilling = steps.prefill > last.prefill;
+    this.generationTps = steps.decode > last.decode ? round2(decodeRate) : 0;
+    this.prefillTps = prefilling ? round2(prefillRate) : 0;
+    this.prefillActive = prefilling && (this.requestsRunning ?? 0) > 0;
+  }
+
   _applyVllmMetrics(txt, dtSec) {
     const promptTokens = this._getVllmMetric(txt, "prompt_tokens_total");
     const genTokens = this._getVllmMetric(txt, "generation_tokens_total");
