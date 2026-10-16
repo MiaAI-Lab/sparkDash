@@ -103,7 +103,7 @@ export class LlmProbe {
     this._openTunnel = openSshLlmTunnel;
 
     // State
-    this.backendType = null; // 'vllm' | 'llama.cpp' | 'sglang' | 'lmstudio' | 'ollama' | 'ds4' | 'exl3' | 'q27' | 'tensorfold' | 'freetoken' | null
+    this.backendType = null; // 'vllm' | 'llama.cpp' | 'sglang' | 'lmstudio' | 'ollama' | 'ds4' | 'exl3' | 'q27' | 'tensorfold' | 'freetoken' | 'radiance' | null
     this.serverIsOpenAI = null; // true = OpenAI-compatible
     /** Whether /v1/models (or /slots) answered without credentials. null = unknown. */
     this.authOpen = null;
@@ -459,7 +459,8 @@ export class LlmProbe {
       this.backendType !== "exl3" &&
       this.backendType !== "q27" &&
       this.backendType !== "tensorfold" &&
-      this.backendType !== "freetoken"
+      this.backendType !== "freetoken" &&
+      this.backendType !== "radiance"
     ) {
       const slotUrl = `${this.baseUrl}/slots`;
       try {
@@ -510,7 +511,7 @@ export class LlmProbe {
    * Classify an OpenAI-compatible server: LM Studio, Ollama, ds4, SGLang,
    * EXL3, q27, TensorFold, FreeToken, or vLLM (default).
    * @param {unknown} ownedBy
-   * @returns {Promise<"lmstudio" | "ollama" | "ds4" | "sglang" | "exl3" | "q27" | "tensorfold" | "freetoken" | "vllm">}
+   * @returns {Promise<"lmstudio" | "ollama" | "ds4" | "sglang" | "exl3" | "q27" | "tensorfold" | "freetoken" | "radiance" | "vllm">}
    */
   async _classifyOpenAIBackend(ownedBy) {
     // LM Studio first: it answers 200 + JSON on every path, so the heuristic
@@ -528,6 +529,8 @@ export class LlmProbe {
       if (/tensorfold/i.test(ownedBy)) return "tensorfold";
       // FreeToken reports owned_by: "FreeToken".
       if (/freetoken/i.test(ownedBy)) return "freetoken";
+      // Radiance (native RDNA engine) reports owned_by: "radiance" and serves vLLM-format /metrics.
+      if (/radiance/i.test(ownedBy)) return "radiance";
       // Ollama's OpenAI-compat /v1/models may report its own name.
       if (/^ollama$/i.test(ownedBy)) return "ollama";
     }
@@ -751,6 +754,8 @@ export class LlmProbe {
         this.backendType = "tensorfold";
       } else if (/freetoken/i.test(owned) && this.backendType !== "ds4") {
         this.backendType = "freetoken";
+      } else if (/radiance/i.test(owned) && this.backendType !== "ds4") {
+        this.backendType = "radiance";
       }
     }
 
@@ -872,6 +877,7 @@ export class LlmProbe {
     const wantsPrometheus =
       this.backendType == null ||
       this.backendType === "vllm" ||
+      this.backendType === "radiance" ||
       this.backendType === "ds4" ||
       this.backendType === "q27" ||
       this.backendType === "sglang";
@@ -897,7 +903,10 @@ export class LlmProbe {
             // positively-identified backend (LM Studio, tensorfold, …) must not
             // be downgraded just because its /metrics body isn't Prometheus text
             // (LM Studio answers 200 + JSON on every path).
-            if (this.backendType == null || this.backendType === "vllm") {
+            if (this.backendType === "radiance") {
+              // Radiance exports the vLLM series names (prompt/generation totals, TTFT histogram).
+              this._applyVllmMetrics(txt, dtSec);
+            } else if (this.backendType == null || this.backendType === "vllm") {
               this.backendType = "vllm";
               this._applyVllmMetrics(txt, dtSec);
             }
@@ -2229,8 +2238,13 @@ export class LlmProbe {
    * @param {string} txt
    */
   _applyVllmKvPool(txt) {
-    const tokens = this._sumPromLabel(txt, "vllm:cache_config_info", "kv_cache_size_tokens");
-    const bytes = this._sumPromLabel(txt, "vllm:cache_config_info", "kv_cache_memory_bytes");
+    // Radiance has no cache_config_info; it reports the pool as radiance:kv_cache_max_{tokens,bytes} gauges.
+    const tokens =
+      this._sumPromLabel(txt, "vllm:cache_config_info", "kv_cache_size_tokens") ??
+      this._getPromMetric(txt, "radiance:kv_cache_max_tokens");
+    const bytes =
+      this._sumPromLabel(txt, "vllm:cache_config_info", "kv_cache_memory_bytes") ??
+      this._getPromMetric(txt, "radiance:kv_cache_max_bytes");
     this.kvCacheTokens = tokens;
     this.kvCacheMemoryBytes = bytes;
     if (tokens != null && this.kvCacheUsage != null && Number.isFinite(this.kvCacheUsage)) {
