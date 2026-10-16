@@ -24,6 +24,7 @@ import { LlmTrendChart } from "./LlmTrendChart";
 import type { BenchKind } from "./BenchSwitcher";
 import { engineStateLabel } from "./llmEngineState";
 import { idleLabel, isLlmIdle } from "../../shared/llmIdle";
+import { LlamaSwapDetails } from "./LlamaSwapDetails";
 
 interface LlmPanelProps {
   llm: LlmMetrics | null;
@@ -499,9 +500,12 @@ export function LlmPanel({
 
   const fmtTps = (n: number) => (n >= 1000 ? Math.round(n).toLocaleString() : n.toFixed(1));
   const fmtAvg = (n: number) => (n >= 100 ? n.toFixed(0) : n.toFixed(1));
-  const isVllm = llm != null && (llm.backend === "vllm" || llm.backend === "q27");
+  // llama-swap: the engine tiles follow the engine it has loaded.
+  const swap = llm?.backend === "llama-swap" ? llm.llamaSwap ?? null : null;
+  const engineBackend = swap ? swap.engine?.backend ?? null : llm?.backend ?? null;
+  const isVllm = llm != null && (engineBackend === "vllm" || engineBackend === "q27");
   // FreeToken reports KV use, active requests and a TTFT mean in /v1/stats; the tiles below are null-gated.
-  const isFreeToken = llm?.backend === "freetoken";
+  const isFreeToken = engineBackend === "freetoken";
   const showEngineTiles = isVllm || isFreeToken;
   const kvTone =
     llm?.kvCacheUsage == null
@@ -568,7 +572,8 @@ export function LlmPanel({
                 </Tag>
               )}
               <Tag tone="info" title={`Backend: ${backend}`}>
-                {backend} · :{llmPort}
+                {backend}
+                {swap?.engine?.available && swap.engine.backend ? ` → ${backendLabel(swap.engine.backend) ?? swap.engine.backend}` : ""} · :{llmPort}
               </Tag>
             </>
           )}
@@ -748,7 +753,9 @@ export function LlmPanel({
               <span>Model</span>
               {contextLabel && <span>{contextLabel}</span>}
             </div>
-            <code title={llm?.modelId ?? undefined}>{llm?.modelId ?? "—"}</code>
+            <code title={llm?.modelId ?? undefined}>
+              {llm?.modelId ?? (swap ? (swap.starting.length ? `Starting ${swap.starting[0]}…` : "Nothing loaded") : "—")}
+            </code>
             {llm?.modelPath && llm.modelPath !== llm.modelId && !llm.modelPath.includes("models--") && (
               <small title={llm.modelPath}>{llm.modelPath}</small>
             )}
@@ -912,6 +919,7 @@ export function LlmPanel({
               <PostureBadge posture={llm.posture} />
             </div>
           )}
+          {swap && <LlamaSwapDetails info={swap} />}
           <LlmDailyChart sparkId={sparkId} llmPort={llmPort} />
           <LlmTrendChart sparkId={sparkId} llmPort={llmPort} />
           <LlmTokenTotals sparkId={sparkId} llmPort={llmPort} />
@@ -925,7 +933,13 @@ export function LlmPanel({
         sparkId={sparkId}
         llmPort={llmPort}
         modelId={remoteTarget ? null : llm?.modelId ?? null}
-        models={remoteTarget || (available && llm?.backend === "llama.cpp") ? undefined : llm?.models}
+        models={
+          remoteTarget || (available && llm?.backend === "llama.cpp")
+            ? undefined
+            : swap
+              ? swap.loaded // never offer a model that would make llama-swap swap
+              : llm?.models
+        }
         remoteTarget={remoteTarget}
         shareImage={shareImage}
         sparkName={sparkName ?? null}

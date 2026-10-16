@@ -125,7 +125,7 @@ Full history: [CHANGELOG.md](./CHANGELOG.md)
 | **Windows hosts** | Windows machines with an AMD iGPU (Strix Halo and friends) are first-class units too: agentless PowerShell over OpenSSH, CPU/RAM/disks/network collectors, and GPU usage straight from the engine performance counters (reads like Task Manager). The Add/Edit wizard has a **Strix Halo / Windows host** unit type |
 | **Live streaming** | WebSocket metrics with configurable poll intervals; central history store for sparklines across tab switches |
 | **Local + remote** | Host metrics via sysfs/proc/`nvidia-smi`; remotes over SSH (key or password) |
-| **LLM probe** | Auto-detects llama.cpp, vLLM, sglang, LM Studio, Ollama, ds4-server, EXL3, TensorFold, FreeToken, or q27; live decode/prefill tok/s from the engine's own counters where it publishes them (not LM Studio or Ollama); cached vs uncached prefill on ds4, llama.cpp, SGLang, and q27; **daily peak** history on the LLM card |
+| **LLM probe** | Auto-detects llama.cpp, vLLM, sglang, LM Studio, Ollama, ds4-server, EXL3, TensorFold, FreeToken, or q27, and [llama-swap](#llama-swap) in front of any of them; live decode/prefill tok/s from the engine's own counters where it publishes them (not LM Studio or Ollama); cached vs uncached prefill on ds4, llama.cpp, SGLang, and q27; **daily peak** history on the LLM card |
 | **LLM server presets** | One-click **LM Studio :1234** / **Ollama :11434** / **TensorFold :8888** presets in the Add wizard's LLM-ports step, the "+ Add LLM port" panel, and each LLM panel's settings (they fill the port number — they install nothing) |
 | **ComfyUI** | Opt-in probe: queue/jobs, progress, cancel, Open link, inventory, overview chip |
 | **Hermes Agent** | Opt-in per unit: background update check (10 min), status badges, one-click or batch `hermes update` |
@@ -217,6 +217,19 @@ The Spark page **Services** section shows the ComfyUI card. On Overview, a small
 Env (optional): `COMFY_PORT` (default `8188`), `COMFY_PROBE_TIMEOUT_MS`, `POLL_INTERVAL_COMFY`.
 
 ---
+
+## llama-swap
+
+[llama-swap](https://github.com/mostlygeek/llama-swap) serves many model IDs on one port and starts and stops their engines on demand. Add **its** port (for example `:8080`) as an LLM port; sparkDash recognises it from `owned_by: "llama-swap"` in `/v1/models` and then:
+
+- shows the **loaded** model (from `GET /running`), its context, and every model ID with its state (loaded / starting / unloaded);
+- probes the loaded engine at the upstream address llama-swap reports, so live decode/prefill tok/s, slots and KV come from that engine's own counters exactly as if you had added its port (a loopback upstream is rewritten to the address llama-swap is reached at; if the engine cannot be reached from the dashboard, the panel says so);
+- reads llama-swap's Activity log (`GET /api/metrics/activity`) for **token totals** and the **last request** (decode and prefill tok/s, tokens, age). This covers engines that publish no live counters, and requests that never touch sparkDash;
+- runs **benches only against the loaded model.** Any request that names a model makes llama-swap swap to it, so Decode, Prefill, Quality, Showcase and Tool Eval Bench (on this unit's port) use the loaded model, and a request for another model, or with nothing loaded, is refused with 409 instead of evicting what is running. Load the model in llama-swap first. These benches go through llama-swap, so they also appear in its Activity log.
+
+Every call sparkDash makes to llama-swap is a read-only GET it answers itself (`/v1/models`, `/running`, `/api/version`, `/api/metrics/activity`); it never uses `/upstream/…`, which starts a model that is not running. Tested against llama-swap v265.
+
+Limits: llama-swap logs a request's speed only when it finishes, and only when the engine reports usage, so for an engine without live counters the decode tile stays at 0 while it streams and the **Last request** line updates afterwards. Totals count requests completed since sparkDash started probing the port.
 
 ## Hermes Agent monitoring
 

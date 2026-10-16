@@ -423,11 +423,40 @@ export interface UnifiedMemoryMetrics {
 }
 
 // ─── LLM metrics ─────────────────────────────────────────
+/** One completed request from llama-swap's Activity log. */
+export interface LlamaSwapRequest {
+  id: number;
+  model: string | null;
+  status: number | null;
+  /** When the request finished (epoch ms, second resolution), as llama-swap logged it. */
+  at: number | null;
+  durationMs: number | null;
+  inputTokens: number;
+  cachedTokens: number;
+  outputTokens: number;
+  prefillTps: number | null;
+  decodeTps: number | null;
+}
+
+/** llama-swap state behind one LLM port. */
+export interface LlamaSwapInfo {
+  version: string | null;
+  /** Model IDs llama-swap reports ready. Benches only target these. */
+  loaded: string[];
+  starting: string[];
+  models: Array<{ id: string; name: string | null; state: string }>;
+  /** The loaded model's own upstream, probed directly for live engine counters. */
+  engine: { url: string; available: boolean; backend: string | null; modelId: string | null } | null;
+  /** False when this llama-swap has no /api/metrics/activity. */
+  activity: boolean;
+  lastRequest: LlamaSwapRequest | null;
+}
+
 export interface LlmMetrics {
   /** The LLM port this snapshot came from — lets the UI match panels to probes by port, not array position. */
   port?: number;
   available: boolean;
-  backend: "vllm" | "llama.cpp" | "sglang" | "lmstudio" | "ollama" | "ds4" | "exl3" | "q27" | "tensorfold" | "freetoken" | null;
+  backend: "vllm" | "llama.cpp" | "sglang" | "lmstudio" | "ollama" | "ds4" | "exl3" | "q27" | "tensorfold" | "freetoken" | "llama-swap" | null;
   /** How the monitor reaches the engine: its own address, or an SSH forward when only SSH gets there. */
   via?: "direct" | "ssh-tunnel";
   modelId: string | null;
@@ -487,6 +516,8 @@ export interface LlmMetrics {
   itlP95Seconds?: number | null;
   /** vLLM speculative/MTP acceptance rate (accepted/drafted, 0–1). null when unavailable. */
   mtpAcceptanceRate?: number | null;
+  /** Present when the port is a llama-swap proxy (backend "llama-swap"). */
+  llamaSwap?: LlamaSwapInfo | null;
   /**
    * Observational exposure hint from unauthenticated probe reachability +
    * configured target host scope. null when auth status is unknown.

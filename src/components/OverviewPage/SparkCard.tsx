@@ -161,7 +161,7 @@ function SparkCardImpl({
     // The engine name lives in the tooltip; the row itself is just model + context.
     const engine = backendLabel(llm.backend) ?? llm.backend ?? "LLM";
     modelEyebrowRight = formatCtx(llm.contextLength);
-    modelText = llm.modelId ?? "unknown";
+    modelText = llm.modelId ?? (llm.llamaSwap ? "Nothing loaded" : "unknown");
     modelTitle = llm.modelId ? `${llm.modelId} · ${engine}` : engine;
   }
   // Idle Spark (nothing serving): the launcher block fills the free space instead.
@@ -370,7 +370,10 @@ function SparkCardImpl({
             </div>
           )}
           {online && role !== "worker" && [...new Set([
-            ...llmList.filter((entry) => entry.available).flatMap((entry) => entry.models?.length ? entry.models : entry.modelId ? [entry.modelId] : []),
+            ...llmList.filter((entry) => entry.available).flatMap((entry) =>
+              // llama-swap lists every model it could start; only the ready ones are loaded.
+              entry.llamaSwap ? entry.llamaSwap.loaded : entry.models?.length ? entry.models : entry.modelId ? [entry.modelId] : []
+            ),
             ...(spark.metrics.residentModels ?? []).map((entry) => entry.modelId),
           ])].filter((name) => name !== modelText).map((name) => (
             <div className="ov-modelrow" key={name} title={`${name} · loaded model; throughput shown for the monitored endpoint above`}>

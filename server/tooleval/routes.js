@@ -34,7 +34,7 @@ function portOf(spark, body) {
  *   GET  …/runs/:rid, …/stream, …/result                  one run, its live output, its full result
  *   POST …/runs/:rid/(attach|stop|refresh), DELETE …/runs/:rid, DELETE …/watch
  */
-export function registerToolEvalRoutes(app, { registry, manager, store, allowRun, principalKey, rejectLimited }) {
+export function registerToolEvalRoutes(app, { registry, manager, store, allowRun, principalKey, rejectLimited, benchModelForPort }) {
   const base = "/api/sparks/:id/tool-eval";
 
   const sparkOr404 = (req, res) => {
@@ -168,6 +168,19 @@ export function registerToolEvalRoutes(app, { registry, manager, store, allowRun
     const spark = sparkOr404(req, res);
     if (!spark) return;
     if (!allowRun(principalKey(req))) return rejectLimited(res, "Too many requests; try again shortly");
+    // A run against this Spark's own port must not make a llama-swap there swap
+    // models: pin the loaded model (or refuse) before the harness auto-detects one.
+    const options = req.body?.options && typeof req.body.options === "object" ? req.body.options : {};
+    const ownPort = !(typeof options["base-url"] === "string" && options["base-url"].trim());
+    if (benchModelForPort && ownPort) {
+      const requested = typeof options.model === "string" && options.model.trim() ? options.model.trim() : null;
+      try {
+        const model = await benchModelForPort(spark, portOf(spark, req.body), requested);
+        if (model && model !== requested) req.body = { ...req.body, options: { ...options, model } };
+      } catch (err) {
+        return res.status(err.status || 409).json({ error: err.message });
+      }
+    }
     const prepared = prepare(req, res, spark);
     if (!prepared) return;
     const id = newRunId();
