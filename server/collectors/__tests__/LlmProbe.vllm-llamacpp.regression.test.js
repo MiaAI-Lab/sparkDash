@@ -439,3 +439,48 @@ test("vLLM cache_config_info: sums pools across engines and clamps usage", () =>
   assert.equal(probe.kvCacheMemoryBytes, 150);
   assert.equal(probe.kvCacheTokensAvailable, 0);
 });
+
+test("vLLM prefill excludes prefix-cache hits; cached vs uncached split", () => {
+  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 8000);
+  const base = (prompt, cached, ttft) => `vllm:prompt_tokens_total{engine="0"} ${prompt}
+vllm:prompt_tokens_cached_total{engine="0"} ${cached}
+vllm:generation_tokens_total{engine="0"} 500.0
+vllm:time_to_first_token_seconds_sum{engine="0"} ${ttft}
+`;
+  probe._applyVllmMetrics(base(100000, 90000, 10), 2); // seed
+  // 50,000 new prompt tokens, 49,000 of them from the prefix cache, TTFT +0.5 s
+  probe._applyVllmMetrics(base(150000, 139000, 10.5), 2);
+  assert.equal(probe.prefillTps, 2000); // 1,000 computed / 0.5 s, not 100,000
+  assert.equal(probe.cachedPrefillTps, 24500);
+  assert.equal(probe.uncachedPrefillTps, 500);
+  assert.equal(probe.totalCachedTokens, 139000);
+});
+
+test("vLLM without prompt_tokens_cached_total falls back to prefix_cache_hits_total", () => {
+  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 8000);
+  const base = (prompt, hits, ttft) => `vllm:prompt_tokens_total{engine="0"} ${prompt}
+vllm:prefix_cache_hits_total{engine="0"} ${hits}
+vllm:prefix_cache_queries_total{engine="0"} ${prompt}
+vllm:generation_tokens_total{engine="0"} 500.0
+vllm:time_to_first_token_seconds_sum{engine="0"} ${ttft}
+`;
+  probe._applyVllmMetrics(base(10000, 8000, 5), 2);
+  probe._applyVllmMetrics(base(20000, 17000, 6), 2);
+  assert.equal(probe.prefillTps, 1000); // 1,000 computed / 1 s
+  assert.equal(probe.uncachedPrefillTps, 500);
+  assert.equal(probe.cachedPrefillTps, 4500);
+});
+
+test("vLLM counter reset (engine restart) reads 0 prefill, not a negative or a spike", () => {
+  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 8000);
+  const base = (prompt, cached, ttft) => `vllm:prompt_tokens_total{engine="0"} ${prompt}
+vllm:prompt_tokens_cached_total{engine="0"} ${cached}
+vllm:generation_tokens_total{engine="0"} 0
+vllm:time_to_first_token_seconds_sum{engine="0"} ${ttft}
+`;
+  probe._applyVllmMetrics(base(500000, 450000, 100), 2);
+  probe._applyVllmMetrics(base(1200, 0, 0.4), 2);
+  assert.equal(probe.prefillTps, 0);
+  assert.equal(probe.cachedPrefillTps, 0);
+  assert.equal(probe.uncachedPrefillTps, 0);
+});
