@@ -9,6 +9,11 @@ It includes or depends on the following third-party work. Each keeps its own lic
 |---|---|---|---|
 | [react](https://www.npmjs.com/package/react) | 19.2.7 | MIT | Copyright (c) Meta Platforms, Inc. and affiliates. |
 | [react-dom](https://www.npmjs.com/package/react-dom) | 19.2.7 | MIT | Copyright (c) Meta Platforms, Inc. and affiliates. |
+| [i18next](https://www.npmjs.com/package/i18next) | 26.4.2 | MIT | Copyright (c) 2011-present i18next |
+| [react-i18next](https://www.npmjs.com/package/react-i18next) | 17.0.15 | MIT | Copyright (c) 2015-present i18next |
+| [@babel/runtime](https://www.npmjs.com/package/@babel/runtime) | 7.29.7 | MIT | Copyright (c) 2014-present Sebastian McKenzie and other contributors |
+| [html-parse-stringify](https://www.npmjs.com/package/html-parse-stringify) | 4.0.1 | MIT | Copyright (c) 2025 Henrik Joreteg; Copyright (c) 2026-present i18next |
+| [use-sync-external-store](https://www.npmjs.com/package/use-sync-external-store) | 1.7.0 | MIT | Copyright (c) Meta Platforms, Inc. and affiliates. |
 | [@dnd-kit/core](https://www.npmjs.com/package/@dnd-kit/core) | 6.3.1 | MIT | Copyright (c) 2021, Claudéric Demers |
 | [@dnd-kit/sortable](https://www.npmjs.com/package/@dnd-kit/sortable) | 10.0.0 | MIT | Copyright (c) 2021, Claudéric Demers |
 | [@dnd-kit/utilities](https://www.npmjs.com/package/@dnd-kit/utilities) | 3.2.2 | MIT | Copyright (c) 2021, Claudéric Demers |

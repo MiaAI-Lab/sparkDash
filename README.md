@@ -1204,6 +1204,22 @@ Contributions are welcome. Conventions:
 - Run `npm test` and `npm run typecheck` before a pull request. Tests that start the server must point every config file at a temp directory (`server/__tests__/isolatedEnv.js`)
 - Read [AGENTS.md](./AGENTS.md) and [CODEBASE.md](./CODEBASE.md) first
 
+### Interface language
+
+Settings → Language switches immediately between English and 简体中文, remembers the choice in this browser (`sparkdash-locale`) and updates `<html lang>`. It applies without Save and preserves pending settings edits. A supported stored preference takes precedence over the browser language; unsupported languages fall back to English. Simplified Chinese tags and the earlier `zh-Hans` preference map to `zh-CN`; Traditional Chinese is not supported yet. Switching still works for the current page when browser storage is blocked.
+
+This foundation translates Settings and its embedded browser-alert controls. Navigation, other pages, the separate Alerts dialog, access-token prompt and raw server diagnostics remain English for later page-sized changes. Server settings and other users' language preferences are unaffected.
+
+`src/i18n/index.ts` owns one i18next/react-i18next instance, initialized by `src/main.tsx` before React mounts. The small `language` and `settings` catalogs are bundled eagerly. English JSON in `src/locales/en/` is the source of truth and fallback; `src/locales/zh-CN/` mirrors each page or namespace. Add future namespace imports and resources to this same loader.
+
+Use `const { t } = useTranslation("settings")` with static keys such as `t("dialog.save")`. Add the English entry first, then its translation. Use plain i18next interpolation (`"Hello, {{name}}"`) and ordinary plural keys (`items_one` / `items_other` with a numeric `count`); there is no ICU plugin or `intl-messageformat`. React escapes rendered text. Keep IDs, settings values and raw diagnostics separate from display text, and store stable message reasons rather than translated strings so feedback updates on language changes.
+
+`npm test` runs `npm run i18n:check` and the checker's regression fixtures before the server and frontend suites. The AST check validates wired keys against English catalogs, including missing keys/catalogs, duplicate JSON keys, orphan Chinese keys and interpolation mismatches. Use static hook namespaces and distinct `t` aliases for multiple namespaces; dynamic or ambiguous calls, inline defaults and direct `i18n.t()` calls are rejected. The checker does not measure untranslated text coverage. Per-call namespace overrides (`t("key", { ns })`) and `<Trans>` are not checked yet; keep this foundation's static-hook pattern until those forms have coverage.
+
+The two direct build dependencies are exactly pinned: `i18next@26.4.2` (published 2026-09-03) and `react-i18next@17.0.15` (2026-09-21), both more than two weeks old when submitted. Their new transitive packages are `@babel/runtime@7.29.7`, `html-parse-stringify@4.0.1` and `use-sync-external-store@1.7.0`; a scoped override holds the first at its reviewed version. The lockfile leaves existing resolutions unchanged. See [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) for licenses. The checker currently uses `rolldown/parseAst` supplied transitively by Vite, so validate that import when changing the build dependencies.
+
+Validate with a supported Node release such as 22.23.2: `npm ci`, `npm test`, `npm run typecheck` and `npm run build`. The server suite needs native Linux/POSIX tools, Python 3.11+ and Git; install zsh to exercise the login-shell probe. In a browser, check Settings at desktop and phone sizes, switch English → 简体中文 → English, reload, check accessible labels and horizontal overflow, and verify a pending setting survives a language switch and Save. Use synthetic data for writes.
+
 ---
 
 ## License
