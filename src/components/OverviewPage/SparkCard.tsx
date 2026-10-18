@@ -174,13 +174,20 @@ function SparkCardImpl({
 
   const showTps = role !== "worker" && !!llm;
   const isStrata = llm?.backend === "strata";
+  // Engines that report requests (TensorFold, Strata, …) used to hide their parallelism behind
+  // "N running": a unit set to --parallel 4 and one set to 8 read the same. Name the capacity too.
+  const parallel = llm && llm.slotsTotal > 0 ? llm.slotsTotal : null;
   const llmChip = llm
     ? llm.requestsRunning != null
-      ? `${llm.requestsRunning} running · ${llm.requestsWaiting == null ? "queue unknown" : `${llm.requestsWaiting} queued`}`
+      ? `${llm.requestsRunning} running · ${llm.requestsWaiting == null ? "queue unknown" : `${llm.requestsWaiting} queued`}${
+          parallel != null ? ` · ${parallel} slots` : ""
+        }`
       : llm.slotsTotal > 0
         ? `${llm.slotsActive ?? "?"}/${llm.slotsTotal} slots`
         : null
     : null;
+  const llmChipTitle =
+    parallel != null && llm?.requestsRunning != null ? `${parallel} requests decode in parallel on this engine` : undefined;
 
   const chips = (
     <div className="ov-chips">
@@ -195,7 +202,7 @@ function SparkCardImpl({
           Cap {(throttle.clockCapMHz / 1000).toFixed(1)} GHz
         </Tag>
       ) : null}
-      {online && llmChip ? <Tag tone={(llm?.requestsRunning ?? llm?.slotsActive ?? 0) > 0 ? "good" : "neutral"}>{llmChip}</Tag> : null}
+      {online && llmChip ? <Tag tone={(llm?.requestsRunning ?? llm?.slotsActive ?? 0) > 0 ? "good" : "neutral"} title={llmChipTitle}>{llmChip}</Tag> : null}
       {comfy !== undefined || spark.comfyMonitoring ? (
         !comfy?.available ? (
           <Tag title="ComfyUI monitoring on — not reachable">Comfy</Tag>
