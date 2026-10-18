@@ -19,6 +19,14 @@ function strata(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Strata live metrics", () => {
+  it("shows the native context and loaded engine state with multiple model aliases", () => {
+    const { container } = render(<LlmPanel llm={strata({ contextLength: 262144,
+      models: ["fixture-model", "fixture-alias"], gpuMemoryUtilization: null,
+    })} sparkId="fixture" llmPort={8888} />);
+    expect(container.textContent).toContain("262,144");
+    expect([...container.querySelectorAll(".sp-tile")].find((el) => el.textContent?.includes("Engine"))?.textContent).toContain("Active");
+  });
+
   it("renders both rates, the Strata badge, and rate provenance", () => {
     const { container } = render(
       <LlmPanel

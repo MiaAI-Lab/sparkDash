@@ -17,6 +17,13 @@ export interface EngineStateLabel {
  */
 export function engineStateLabel(llm: LlmMetrics | null | undefined): EngineStateLabel {
   if (!llm) return { text: "—", muted: false };
+  // A successful Strata probe requires a loaded engine. Idle means the model
+  // is ready for work, not asleep; it has no vLLM-style sleep gauge.
+  if (llm.backend === "strata") {
+    return llm.available
+      ? { text: "Active", muted: false }
+      : { text: "—", muted: true };
+  }
   if (llm.gpuMemoryUtilization == null) {
     return {
       text: "n/a",

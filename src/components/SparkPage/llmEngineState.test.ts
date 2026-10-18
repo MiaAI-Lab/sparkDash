@@ -23,4 +23,16 @@ describe("engineStateLabel", () => {
   it("keeps the dash when there is no LLM at all", () => {
     expect(engineStateLabel(null).text).toBe("—");
   });
+
+  it("shows a loaded Strata engine as active, even while it is idle", () => {
+    expect(engineStateLabel({ ...llm(null), backend: "strata", slotsActive: 0 })).toEqual({
+      text: "Active", muted: false,
+    });
+  });
+
+  it("does not present unavailable Strata as a loaded or sleeping engine", () => {
+    expect(engineStateLabel({ ...llm(null), backend: "strata", available: false })).toEqual({
+      text: "—", muted: true,
+    });
+  });
 });

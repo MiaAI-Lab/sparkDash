@@ -16,13 +16,13 @@ const metrics = (live = {}) => ({
 });
 function setup(body = metrics()) {
   const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8000);
-  const state = { body, health: { service: "strata", status: "ok", loaded: true, max_context: 262144 }, status: 200, modelStatus: 200, calls: [] };
+  const state = { body, health: { service: "strata", status: "ok", loaded: true, max_context: 262144 }, status: 200, modelStatus: 200, models: ["fixture-model"], calls: [] };
   probe._fetch = async (url, timeout, init) => {
     const path = new URL(url).pathname;
     state.calls.push({ path, init });
     if (path === "/health") return response(state.health);
     if (path === "/slots") return response([{ id: 0, n_ctx: 262144, is_processing: true, n_prompt_tokens: 1000 }]);
-    if (path === "/v1/models") return response({ data: [{ id: "fixture-model" }] }, state.modelStatus);
+    if (path === "/v1/models") return response({ data: state.models.map((id) => ({ id })) }, state.modelStatus);
     if (path === "/metrics") return response(state.body, state.status);
     return response({}, 404);
   };
@@ -52,6 +52,14 @@ test("unrelated health payloads retain llama.cpp detection", async () => {
     await probe._detectServerType();
     assert.equal(probe.backendType, "llama.cpp");
   }
+});
+
+test("Strata model aliases retain the single engine context limit", async () => {
+  const { probe, state } = setup();
+  state.models = ["fixture-model", "fixture-alias", "fixture-quant", "fixture-version"];
+  const snap = await probe.probe();
+  assert.deepEqual(snap.models, state.models);
+  assert.equal(snap.contextLength, 262144);
 });
 
 test("four decoding slots prefer aggregate window TPS without multiplying it", async () => {

@@ -2532,8 +2532,9 @@ export class LlmProbe {
       modelId: this.models.length > 1 ? this.models[0] : this.modelId || null,
       modelPath: this.modelPath || null,
       models: metricsLive ? [...this.models] : [],
-      // Native enrichment may set a context limit; routers have no shared limit.
-      contextLength: this.models.length > 1 ? null : this.contextLength,
+      // Strata advertises aliases for one loaded engine, sharing its native
+      // context limit. Genuine multi-model routers still have no shared limit.
+      contextLength: this.models.length > 1 && this.backendType !== "strata" ? null : this.contextLength,
       gpuMemoryUtilization: this.gpuMemoryUtilization,
       slotsActive: this.slotsActive,
       slotsTotal: this.slotsTotal,

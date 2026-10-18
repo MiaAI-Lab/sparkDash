@@ -22,6 +22,14 @@ function strata(overrides: Record<string, unknown> = {}) {
 }
 
 describe("SparkCard Strata throughput", () => {
+  it("shows the shared engine context for Strata model aliases", () => {
+    const { container } = render(<SparkCard spark={strata({
+      contextLength: 262144,
+      models: ["fixture-model", "fixture-alias", "fixture-quant", "fixture-version"],
+    })} temperatureUnit="celsius" />);
+    expect(container.textContent).toContain("256k ctx");
+  });
+
   it("shows positive rates and makes their provenance clear", () => {
     const { container } = render(
       <SparkCard
