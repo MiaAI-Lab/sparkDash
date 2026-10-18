@@ -13,6 +13,7 @@ import {
   entriesFromTotals,
   rowsIn,
   tallyOf,
+  trackedBuckets,
   windowFor,
   type Entry,
   type RangeKey,
@@ -26,18 +27,23 @@ const POLL_MS = 30_000;
 const fmt = formatTokensCompact;
 const MODEL_KEY = "sparkdash.cost.model";
 
-interface Loaded {
+interface Usage {
   history: TokenHistory;
   /** Lifetime totals per model; null when that endpoint failed (All time then falls back to retained days). */
   lifetime: Entry[] | null;
-  prices: ModelPrice[];
-  pricesAt: number | null;
-  pricesStale: boolean;
+}
+
+interface Prices {
+  models: ModelPrice[];
+  at: number | null;
+  stale: boolean;
 }
 
 export function CostPage() {
   const [range, setRange] = useState<RangeKey>("7d");
-  const [data, setData] = useState<Loaded | null>(null);
+  const [usage, setUsage] = useState<Usage | null>(null);
+  const [prices, setPrices] = useState<Prices | null>(null);
+  const [pricesError, setPricesError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
   const [modelId, setModelId] = useState<string>(() => {
@@ -48,6 +54,8 @@ export function CostPage() {
     }
   });
 
+  // Usage polls; prices load once (and on retry) so a slow or dead price source
+  // never holds the usage view hostage.
   useEffect(() => {
     let cancelled = false;
     const run = () => {
@@ -56,17 +64,10 @@ export function CostPage() {
         fetchLlmTokenTotals("all")
           .then((r) => r.series || [])
           .catch(() => null),
-        fetchModelPrices().catch(() => null),
       ])
-        .then(([history, lifetimeSeries, pricesRes]) => {
+        .then(([history, lifetimeSeries]) => {
           if (cancelled) return;
-          setData({
-            history,
-            lifetime: lifetimeSeries ? entriesFromTotals(lifetimeSeries) : null,
-            prices: pricesRes?.models ?? [],
-            pricesAt: pricesRes?.fetchedAt ?? null,
-            pricesStale: pricesRes?.stale ?? false,
-          });
+          setUsage({ history, lifetime: lifetimeSeries ? entriesFromTotals(lifetimeSeries) : null });
           setError(null);
         })
         .catch((e: unknown) => {
@@ -88,6 +89,22 @@ export function CostPage() {
     };
   }, [tick]);
 
+  useEffect(() => {
+    let cancelled = false;
+    fetchModelPrices()
+      .then((res) => {
+        if (cancelled) return;
+        setPrices({ models: res.models ?? [], at: res.fetchedAt ?? null, stale: res.stale ?? false });
+        setPricesError(null);
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) setPricesError(e instanceof Error ? e.message : "Could not load the price catalog");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tick]);
+
   const selectModel = useCallback((id: string) => {
     setModelId(id);
     try {
@@ -97,31 +114,37 @@ export function CostPage() {
     }
   }, []);
 
-  const price = useMemo(() => data?.prices.find((m) => m.id === modelId) ?? null, [data, modelId]);
+  const price = useMemo(() => prices?.models.find((m) => m.id === modelId) ?? null, [prices, modelId]);
 
   // No saved pick (or the catalog dropped it): fall back to the first model.
   useEffect(() => {
-    if (!data || price) return;
-    const fallback = data.prices[0]?.id;
+    if (!prices || price) return;
+    const fallback = prices.models[0]?.id;
     if (fallback) selectModel(fallback);
-  }, [data, price, selectModel]);
+  }, [prices, price, selectModel]);
 
   const view = useMemo(() => {
-    if (!data || !price) return null;
-    const { history, lifetime } = data;
-    const w = windowFor(range, history, Date.now());
+    if (!usage || !price) return null;
+    const { history, lifetime } = usage;
+    const at = Date.now();
+    const w = windowFor(range, history, at);
     const inRange: TokenHistoryRow[] = rowsIn(w.spec.unit === "hour" ? history.hour : history.day, w.keys);
     const useLifetime = range === "all" && lifetime != null;
     const priced: readonly Entry[] = useLifetime ? lifetime : inRange;
+    // Days the average is spread over: the range length, or — All time — every
+    // day tracking has recorded (the Token totals rule), not a fixed 30.
+    const days =
+      w.spec.count ?? (useLifetime ? trackedBuckets(w.firstKey, "day", at) ?? w.keys.length : w.keys.length);
     return {
       w,
       inRange,
+      days,
       cost: costOf(priced, price),
       tally: tallyOf(priced),
       buckets: costBuckets(inRange, w.keys, price),
       useLifetime,
     };
-  }, [data, range, price]);
+  }, [usage, range, price]);
 
   const spec = RANGES.find((r) => r.key === range) ?? RANGES[1];
   const unitWord = spec.unit === "hour" ? "hour" : "day";
@@ -152,7 +175,7 @@ export function CostPage() {
       {error ? (
         <div className="panel tk-note tk-note--err" role="alert">
           <span>
-            {data
+            {usage
               ? `Showing the last loaded data. Refresh failed: ${error}`
               : `Could not load usage history: ${error}`}
           </span>
@@ -170,13 +193,13 @@ export function CostPage() {
             </h2>
             {price ? <PriceLine price={price} /> : <p className="tk-card__sub">Pick any model to price your usage against.</p>}
           </div>
-          <ModelPicker models={data?.prices ?? []} selectedId={price?.id ?? null} onSelect={selectModel} />
+          <ModelPicker models={prices?.models ?? []} selectedId={price?.id ?? null} onSelect={selectModel} />
         </div>
       </section>
 
       {view && price ? (
         <>
-          <CostTiles cost={view.cost} tally={view.tally} range={spec} />
+          <CostTiles cost={view.cost} tally={view.tally} range={spec} days={view.days} />
 
           <section className="panel tk-card" aria-labelledby="cp-chart-title">
             <div className="tk-card__head">
@@ -248,20 +271,33 @@ export function CostPage() {
                   litellm catalog
                 </a>
                 , refreshed daily
-                {data?.pricesAt ? ` (last fetched ${new Date(data.pricesAt).toLocaleString()})` : ""}
-                {data?.pricesStale ? " — the refresh failed, so these may be out of date" : ""}.
+                {prices?.at ? ` (last fetched ${new Date(prices.at).toLocaleString()})` : ""}
+                {prices?.stale ? " — the refresh failed, so these may be out of date" : ""}.
               </li>
               <li>Tokens are the same counters as the Token totals page: fleet-wide, every port and model.</li>
             </ul>
           </section>
         </>
-      ) : data ? (
-        <div className="panel tk-note" role="status">
-          <b>No prices loaded.</b> The price catalog came back empty — retry in a moment.
-        </div>
+      ) : usage ? (
+        pricesError ? (
+          <div className="panel tk-note tk-note--err" role="status">
+            <b>The price catalog could not be loaded.</b> {pricesError}
+            <button type="button" className="btn btn--sm" onClick={() => setTick((t) => t + 1)}>
+              Retry
+            </button>
+          </div>
+        ) : prices && prices.models.length === 0 ? (
+          <div className="panel tk-note" role="status">
+            <b>No prices loaded.</b> The price catalog came back empty — retry in a moment.
+          </div>
+        ) : (
+          <div className="panel tk-note" role="status">
+            Loading prices…
+          </div>
+        )
       ) : (
         <div className="panel tk-note" role="status">
-          Loading prices…
+          Loading…
         </div>
       )}
     </div>
@@ -284,13 +320,15 @@ function CostTiles({
   cost,
   tally,
   range,
+  days,
 }: {
   cost: { inputCost: number; outputCost: number; cacheSavings: number; totalCost: number };
   tally: Tally;
   range: (typeof RANGES)[number];
+  /** Buckets the per-day average is spread over (All time: every tracked day). */
+  days: number;
 }) {
   const per = range.unit === "hour" ? "hour" : "day";
-  const buckets = range.count ?? 30;
   const blended = blendedPerMillion(cost.totalCost, tally.total);
   const outputShare = cost.totalCost > 0 ? cost.outputCost / cost.totalCost : 0;
   return (
@@ -315,9 +353,9 @@ function CostTiles({
       />
       <Tile
         label={`Average per ${per}`}
-        value={fmtMoney(cost.totalCost / buckets)}
+        value={fmtMoney(cost.totalCost / Math.max(1, days))}
         unit={`/ ${per}`}
-        sub={`Across ${buckets} ${per}s`}
+        sub={`Across ${days} ${per}${days === 1 ? "" : "s"}${range.count == null ? " tracked" : ""}`}
       />
       <Tile
         label="Blended rate"

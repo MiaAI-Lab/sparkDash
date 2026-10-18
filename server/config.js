@@ -36,6 +36,14 @@ const ALERTS_JSON_PATH =
 /** Last good hosted-model price catalog (Cost compare page offline fallback). */
 const MODEL_PRICES_JSON_PATH =
   process.env.MODEL_PRICES_JSON_PATH || path.join(ROOT, "config", "model-prices.json");
+/**
+ * Opt-in refresh of that catalog from raw.githubusercontent.com (Cost compare).
+ * While off, no outbound fetch is made: the page serves the last catalog on disk
+ * (MODEL_PRICES_JSON_PATH) or reports pricing as unavailable.
+ */
+const MODEL_PRICES_FETCH = ["1", "true"].includes(
+  String(process.env.MODEL_PRICES_FETCH || "").toLowerCase()
+);
 
 // ─── LLM / Comfy probe timeouts ──────────────────────────
 const LLM_PROBE_TIMEOUT_MS = 3000;
@@ -202,6 +210,7 @@ export {
   METRICS_HISTORY_JSON_PATH,
   ALERTS_JSON_PATH,
   MODEL_PRICES_JSON_PATH,
+  MODEL_PRICES_FETCH,
   LLM_PROBE_TIMEOUT_MS,
   COMFY_PROBE_TIMEOUT_MS,
   TAILSCALE_PROBE_TIMEOUT_MS,

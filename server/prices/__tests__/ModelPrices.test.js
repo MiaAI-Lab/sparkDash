@@ -55,6 +55,7 @@ test("handler serves the fetched catalog and persists it", async () => {
   const cachePath = path.join(dir, "model-prices.json");
   let fetches = 0;
   const handler = createModelPricesHandler({
+    enabled: true,
     cachePath,
     ttlMs: 1000,
     now: () => 1_000_000,
@@ -87,6 +88,7 @@ test("handler falls back to the on-disk catalog when the source fails", async ()
     JSON.stringify({ models: parseModelPrices(SAMPLE), fetchedAt: 1, source: LITELLM_PRICES_URL })
   );
   const handler = createModelPricesHandler({
+    enabled: true,
     cachePath,
     ttlMs: 0,
     now: () => 2_000_000,
@@ -104,6 +106,7 @@ test("handler falls back to the on-disk catalog when the source fails", async ()
 
 test("handler returns 502 when there is no cache and the source fails", async () => {
   const handler = createModelPricesHandler({
+    enabled: true,
     cachePath: path.join(tmpDir(), "missing.json"),
     ttlMs: 0,
     now: () => 3_000_000,
@@ -116,6 +119,119 @@ test("handler returns 502 when there is no cache and the source fails", async ()
   await handler({}, res);
   assert.equal(res.statusCode, 502);
   assert.match(res.body.error, /price catalog|Try again/);
+});
+
+test("handler keeps the disk fallback stale instead of promoting it to fresh", async () => {
+  const dir = tmpDir();
+  const cachePath = path.join(dir, "model-prices.json");
+  fs.writeFileSync(
+    cachePath,
+    JSON.stringify({ models: parseModelPrices(SAMPLE), fetchedAt: 1, source: LITELLM_PRICES_URL })
+  );
+  let fetches = 0;
+  const handler = createModelPricesHandler({
+    enabled: true,
+    cachePath,
+    ttlMs: 1000,
+    retryMs: 0,
+    now: () => 2_000_000,
+    fetchJson: async () => {
+      fetches += 1;
+      throw new Error("offline");
+    },
+    log: { warn: () => {} },
+  });
+  // The disk copy is seeded into memory: while the refresh keeps failing, every
+  // answer must say so via stale:true — never a fresh-looking stale copy.
+  for (let i = 0; i < 3; i++) {
+    const res = fakeRes();
+    await handler({}, res);
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.stale, true, `request ${i + 1}`);
+  }
+  assert.equal(fetches, 3);
+});
+
+test("handler retries a failed refresh at most once per retry window and shares one attempt", async () => {
+  let fetches = 0;
+  const handler = createModelPricesHandler({
+    enabled: true,
+    cachePath: path.join(tmpDir(), "missing.json"),
+    ttlMs: 0,
+    retryMs: 60_000,
+    now: () => 4_000_000,
+    fetchJson: async () => {
+      fetches += 1;
+      throw new Error("offline");
+    },
+    log: { warn: () => {} },
+  });
+  // Concurrent requests share the in-flight attempt…
+  await Promise.all([handler({}, fakeRes()), handler({}, fakeRes()), handler({}, fakeRes())]);
+  const afterBurst = fetches;
+  assert.ok(afterBurst >= 1);
+  // …and the negative cache holds for the retry window.
+  await handler({}, fakeRes());
+  await handler({}, fakeRes());
+  assert.equal(fetches, afterBurst);
+  // The shared attempt resolves for every caller: 502, no cache anywhere.
+  const res = fakeRes();
+  await handler({}, res);
+  assert.equal(res.statusCode, 502);
+});
+
+test("disabled handler never fetches and points at MODEL_PRICES_FETCH in the 502", async () => {
+  let fetches = 0;
+  const handler = createModelPricesHandler({
+    enabled: false,
+    cachePath: path.join(tmpDir(), "missing.json"),
+    ttlMs: 0,
+    now: () => 5_000_000,
+    fetchJson: async () => {
+      fetches += 1;
+      return SAMPLE;
+    },
+    log: { warn: () => {} },
+  });
+  const res = fakeRes();
+  await handler({}, res);
+  assert.equal(fetches, 0);
+  assert.equal(res.statusCode, 502);
+  assert.match(res.body.error, /MODEL_PRICES_FETCH/);
+});
+
+test("default fetch disables redirects and caps the body size", async () => {
+  const dir = tmpDir();
+  const cachePath = path.join(dir, "model-prices.json");
+  const inits = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => {
+    inits.push(init);
+    return new Response(JSON.stringify(SAMPLE), {
+      status: 200,
+      headers: { "content-length": String(JSON.stringify(SAMPLE).length) },
+    });
+  };
+  try {
+    const handler = createModelPricesHandler({ enabled: true, cachePath, ttlMs: 0, now: () => 6_000_000, log: { warn: () => {} } });
+    const res = fakeRes();
+    await handler({}, res);
+    assert.equal(res.statusCode, 200);
+    assert.equal(inits[0]?.redirect, "error");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  const oversized = "x".repeat(11 * 1024 * 1024);
+  globalThis.fetch = async () => new Response(oversized, { status: 200 });
+  try {
+    const handler = createModelPricesHandler({ enabled: true, cachePath: path.join(dir, "other.json"), ttlMs: 0, now: () => 6_000_001, log: { warn: () => {} } });
+    const res = fakeRes();
+    await handler({}, res);
+    assert.equal(res.statusCode, 502);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });
 
 function fakeRes() {
