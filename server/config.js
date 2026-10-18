@@ -47,6 +47,16 @@ const MODEL_PRICES_FETCH = ["1", "true"].includes(
 
 // ─── LLM / Comfy probe timeouts ──────────────────────────
 const LLM_PROBE_TIMEOUT_MS = 3000;
+/**
+ * Fleet-wide cap on running decode + prefill + quality benchmarks (each unit still
+ * runs one at a time). Default 2; MAX_ACTIVE_BENCH_JOBS raises or lowers it, 1-32.
+ * @param {string | undefined} raw
+ */
+function parseMaxActiveBenchJobs(raw) {
+  const n = Number.parseInt(String(raw ?? ""), 10);
+  return Number.isInteger(n) ? Math.min(32, Math.max(1, n)) : 2;
+}
+const MAX_ACTIVE_BENCH_JOBS = parseMaxActiveBenchJobs(process.env.MAX_ACTIVE_BENCH_JOBS);
 const COMFY_PROBE_TIMEOUT_MS = parseInt(process.env.COMFY_PROBE_TIMEOUT_MS || "3000", 10);
 const TAILSCALE_PROBE_TIMEOUT_MS = parseInt(process.env.TAILSCALE_PROBE_TIMEOUT_MS || "8000", 10);
 const SSH_CONNECT_TIMEOUT = 5; // seconds
@@ -222,6 +232,8 @@ export {
   POLL_INTERVAL_STORAGE,
   POLL_INTERVAL_LLM,
   POLL_INTERVAL_COMFY,
+  MAX_ACTIVE_BENCH_JOBS,
+  parseMaxActiveBenchJobs,
   POLL_INTERVAL_TAILSCALE,
   POLL_INTERVAL_NVERR,
   POLL_INTERVAL_BANDWIDTH,

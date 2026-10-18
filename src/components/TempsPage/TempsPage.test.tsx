@@ -63,6 +63,17 @@ describe("TempsPage", () => {
     expect([...container.querySelectorAll(".legend span")].map((s) => s.textContent)).toEqual(["Card A", "GPU 1"]);
   });
 
+  it("clips the lines to the plot area so a bucket that starts before the left edge stays off the axis labels", async () => {
+    mockedGet.mockResolvedValue(resp([60, 61, 62], 600_000));
+    const { container } = render(<TempsPage sparks={[makeSpark("a")]} />);
+    await flush();
+    const svg = container.querySelector("svg.tp-plot")!;
+    const clip = svg.querySelector("clipPath");
+    expect(clip?.id).toBeTruthy();
+    const group = svg.querySelector(`g[clip-path="url(#${clip!.id})"]`);
+    expect(group?.querySelector("path[stroke]")).not.toBeNull();
+  });
+
   it("shows the warming-up state when no spark has samples in range", async () => {
     const { container } = render(<TempsPage sparks={[makeSpark("a")]} />);
     await flush();

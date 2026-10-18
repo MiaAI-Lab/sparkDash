@@ -388,12 +388,16 @@ export function getQualityBench(
   return apiFetch(`/api/sparks/${id}/llm/quality-bench/${benchId}`);
 }
 
+/** `historyPort` scopes the saved-run list on its own: a port, or "all" for every endpoint on the unit. */
 export function listQualityBench(
   id: string,
-  port?: number
+  port?: number,
+  historyPort?: number | "all"
 ): Promise<QualityBenchListResponse> {
-  const q =
-    port != null && Number.isInteger(port) ? `?port=${encodeURIComponent(port)}` : "";
+  const params = new URLSearchParams();
+  if (port != null && Number.isInteger(port)) params.set("port", String(port));
+  if (historyPort != null) params.set("historyPort", String(historyPort));
+  const q = params.size ? `?${params}` : "";
   return apiFetch(`/api/sparks/${id}/llm/quality-bench${q}`);
 }
 

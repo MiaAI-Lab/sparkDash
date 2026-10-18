@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { getGpuHistory, type GpuHistoryResponse } from "../../api/client";
 import type { SparkSnapshot } from "../../api/types";
 import { seriesSegments, type Pt } from "../SparkPage/chartMath";
@@ -204,6 +204,7 @@ function TempSvg({ lines, endAt, rangeMs, axis }: { lines: Line[]; endAt: number
   const width = 640;
   const iw = width - PAD.l - PAD.r;
   const ih = HEIGHT - PAD.t - PAD.b;
+  const clipId = `${useId()}-plot`;
   const startAt = endAt - rangeMs;
   const xOf = (at: number) => PAD.l + ((at - startAt) / rangeMs) * iw;
   const yOf = (v: number) => PAD.t + ih - (Math.max(0, Math.min(100, v)) / 100) * ih;
@@ -227,19 +228,24 @@ function TempSvg({ lines, endAt, rangeMs, axis }: { lines: Line[]; endAt: number
       <text x={width - PAD.r} y={HEIGHT - 4} textAnchor="end">
         now
       </text>
-      {lines.map((l, i) =>
-        l.segs
-          .filter((seg) => seg.length > 1)
-          .map((seg, si) => {
-            const last = seg[seg.length - 1];
-            return (
-              <g key={`${i}-${si}`}>
-                <path d={d(seg)} fill="none" stroke={l.color} strokeWidth="1.8" strokeLinejoin="round" />
-                {si === l.segs.filter((s) => s.length > 1).length - 1 && <circle cx={xOf(last.at)} cy={yOf(last.value)} r="3" fill={l.color} />}
-              </g>
-            );
-          })
-      )}
+      <clipPath id={clipId}>
+        <rect x={PAD.l} y={PAD.t} width={iw} height={ih} />
+      </clipPath>
+      <g clipPath={`url(#${clipId})`}>
+        {lines.map((l, i) =>
+          l.segs
+            .filter((seg) => seg.length > 1)
+            .map((seg, si) => {
+              const last = seg[seg.length - 1];
+              return (
+                <g key={`${i}-${si}`}>
+                  <path d={d(seg)} fill="none" stroke={l.color} strokeWidth="1.8" strokeLinejoin="round" />
+                  {si === l.segs.filter((s) => s.length > 1).length - 1 && <circle cx={xOf(last.at)} cy={yOf(last.value)} r="3" fill={l.color} />}
+                </g>
+              );
+            })
+        )}
+      </g>
     </svg>
   );
 }

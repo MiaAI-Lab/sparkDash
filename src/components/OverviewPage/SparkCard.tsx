@@ -173,6 +173,7 @@ function SparkCardImpl({
   const showLauncher = role !== "worker" && !llm && spark.llmMonitoring !== false && spark.platform !== "windows";
 
   const showTps = role !== "worker" && !!llm;
+  const isStrata = llm?.backend === "strata";
   const llmChip = llm
     ? llm.requestsRunning != null
       ? `${llm.requestsRunning} running · ${llm.requestsWaiting == null ? "queue unknown" : `${llm.requestsWaiting} queued`}`
@@ -323,20 +324,41 @@ function SparkCardImpl({
           ) : null}
           {showTps && llm ? (
             <div className="ov-tps">
-              <div>
+              <div
+                title={
+                  isStrata
+                    ? "Live sliding-window decode rate. When that window is unavailable, the active-slot mean sums each active slot’s generated tokens divided by its elapsed time since first token; it excludes prefill time."
+                    : undefined
+                }
+              >
                 <div className="eyebrow">Decode</div>
-                <div className="big-num ov-tps__num">{llm.generationTps.toFixed(1)}<small>tok/s</small></div>
+                {isStrata && llm.decodeActive && llm.generationTps <= 0 ? (
+                  <div className="big-num ov-tps__num ov-tps__num--live">
+                    <span className="ov-tps__dots" aria-hidden />
+                    <small>decoding</small>
+                  </div>
+                ) : (
+                  <div className="big-num ov-tps__num">{llm.generationTps.toFixed(1)}<small>tok/s</small></div>
+                )}
+                {isStrata && llm.generationTpsSource === "slot-mean" && <small className="text-muted">active-slot mean</small>}
               </div>
-              <div>
+              <div
+                title={
+                  isStrata
+                    ? "Engine-reported mean for computed/new prompt tokens. It may be from an earlier prefill and is not an aggregate across slots."
+                    : undefined
+                }
+              >
                 <div className="eyebrow">Prefill</div>
                 {llm.prefillActive && llm.prefillTps <= 0 ? (
-                  <div className="big-num ov-tps__num ov-tps__num--live" title="A prompt is being processed. The engine reports its speed only when the request finishes.">
+                  <div className="big-num ov-tps__num ov-tps__num--live" title={isStrata ? "A prompt is being processed; no current prefill rate is available." : "A prompt is being processed. The engine reports its speed only when the request finishes."}>
                     <span className="ov-tps__dots" aria-hidden />
                     <small>prefilling</small>
                   </div>
                 ) : (
                   <div className="big-num ov-tps__num">{Math.round(llm.prefillTps).toLocaleString()}<small>tok/s</small></div>
                 )}
+                {isStrata && llm.prefillTps > 0 && <small className="text-muted">last reported mean</small>}
               </div>
             </div>
           ) : null}

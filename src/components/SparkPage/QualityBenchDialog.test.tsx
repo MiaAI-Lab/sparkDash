@@ -117,6 +117,35 @@ describe("QualityBenchDialog", () => {
     maxConcurrency: 16,
   };
 
+  it("lists and compares saved runs from every port, not only the selected one", async () => {
+    const current = run("b2", "model B", [true, true, true, false], "a");
+    const other = run("b1", "model A", [true, false, true, true], "b");
+    current.config.port = 18891;
+    other.config.port = 8888;
+    const { items: _items, ...otherSummary } = other.results;
+    vi.mocked(listQualityBench).mockReset().mockResolvedValue({
+      active: null,
+      last: current,
+      history: [current, { ...other, results: otherSummary }],
+      defaults,
+    });
+    vi.mocked(getQualityBench).mockResolvedValue(other);
+
+    render(
+      <QualityBenchDialog open onClose={() => {}} sparkId="s1" llmPort={18891} modelId="m" contextLength={32768} />
+    );
+    await flush();
+
+    // The port selects the endpoint of the new run; history is requested for all ports.
+    expect(listQualityBench).toHaveBeenCalledWith("s1", 18891, "all");
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    const select = dialog.querySelector("select") as HTMLSelectElement;
+    expect(select.options).toHaveLength(2);
+    expect(select.options[1].textContent).toContain("port 8888");
+    const clear = [...dialog.querySelectorAll("button")].find((b) => b.textContent === "Clear all ports");
+    expect(clear?.getAttribute("title")).toContain("all LLM ports");
+  });
+
   it("refuses to compare runs scored by different rules", async () => {
     const current = run("b2", "new", [true, true, true, false], "a");
     current.config.scoringVersion = 2;

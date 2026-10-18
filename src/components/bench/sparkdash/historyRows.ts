@@ -9,6 +9,8 @@ export interface HistoryRow {
   /** Run label (quality) or the bench's own shape, e.g. "×1, 2, 4". */
   label: string;
   model: string | null;
+  /** Endpoint port the run used, when the history spans several (quality). */
+  port?: number | null;
   /** The number to compare runs by, already formatted. */
   headline: string;
   /** Secondary facts for the same run. */
@@ -71,6 +73,7 @@ export function qualityHistoryRow(job: QualityBenchJob): HistoryRow {
     status: job.status,
     label: job.config.label || "—",
     model: job.config.modelId ?? null,
+    port: Number.isInteger(job.config.port) ? job.config.port : null,
     headline: overall == null ? "—" : `${overall.toFixed(1)}%`,
     detail: cats ? `${cats} categor${cats === 1 ? "y" : "ies"}` : "",
   };

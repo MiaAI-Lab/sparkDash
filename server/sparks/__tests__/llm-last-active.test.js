@@ -26,6 +26,17 @@ function sample(generationTps, prefillTps) {
   return { available: true, backend: "vllm", modelId: "m", generationTps, prefillTps, error: null };
 }
 
+test("activity without a rate stamps last served, but unavailable samples do not", (t) => {
+  t.mock.method(Date, "now", () => 12345);
+  const monitor = new SparkMonitor(spark([8000, 8001, 8002]));
+  const result = monitor._stampLlmLastActive([{ port: 8000 }, { port: 8001 }, { port: 8002 }], [
+    { ...sample(0, 0), backend: "strata", decodeActive: true },
+    { ...sample(0, 0), backend: "strata", prefillActive: true },
+    { ...sample(50, 0), available: false, decodeActive: true },
+  ]);
+  assert.deepEqual(result.map((l) => l.lastActiveAt), [12345, 12345, null]);
+});
+
 /** Monitor whose probes return whatever `rates` holds for their port. */
 function scriptedMonitor(t, ports) {
   t.mock.method(llmDaily, "record", () => {});

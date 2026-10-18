@@ -117,6 +117,7 @@ export function HistoryTable({
               <td className="bp-clip">{r.label}</td>
               <td className="bp-clip bp-model mono" title={r.model ?? undefined}>
                 {r.model ?? "—"}
+                {r.port != null ? <small> :{r.port}</small> : null}
               </td>
               <td className="bp-num">
                 <strong>{r.headline}</strong>

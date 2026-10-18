@@ -54,7 +54,7 @@ import {
 import { closeLlmStreamAgent } from "./collectors/LlmStreaming.js";
 import { compareSemver, getLatestRelease } from "./collectors/HermesReleases.js";
 import { createModelPricesHandler } from "./prices/ModelPrices.js";
-import { ALERTS_JSON_PATH, FLEET_ENERGY_JSON_PATH, FLEET_ENERGY_MONTHLY_JSON_PATH, METRICS_HISTORY_JSON_PATH } from "./config.js";
+import { ALERTS_JSON_PATH, FLEET_ENERGY_JSON_PATH, FLEET_ENERGY_MONTHLY_JSON_PATH, MAX_ACTIVE_BENCH_JOBS, METRICS_HISTORY_JSON_PATH } from "./config.js";
 import { createAlertsRuntime, registerAlertRoutes } from "./alerts/runtime.js";
 import { FleetEnergyTracker } from "./energy/FleetEnergyTracker.js";
 import { EventLog } from "./events/EventLog.js";
@@ -257,7 +257,6 @@ const allowBench = createRateLimiter(20, 60_000);
 const allowGlobalDestructive = createRateLimiter(30, 60_000);
 /** Anti double-submit only; per-Spark mutex + MAX_ACTIVE_BENCH_JOBS cap load. */
 const benchCooldown = createRateLimiter(1, 3_000);
-const MAX_ACTIVE_BENCH_JOBS = 2;
 
 /** Running decode + prefill + quality jobs across all Sparks. */
 function activeBenchJobCount() {
@@ -274,7 +273,7 @@ function consumeBenchStartQuota(req, res) {
   // target resolution, so two concurrent requests could both have passed. This
   // runs synchronously right before the manager's start(), closing that window.
   if (activeBenchJobCount() >= MAX_ACTIVE_BENCH_JOBS) {
-    res.status(429).json({ error: "Global active benchmark cap reached; wait for a job to finish" });
+    res.status(429).json({ error: `Global active benchmark cap (${MAX_ACTIVE_BENCH_JOBS}) reached; wait for a job to finish` });
     return false;
   }
   const key = principalKey(req);
@@ -1428,7 +1427,7 @@ app.get("/api/sparks/:id/llm/daily", (req, res) => {
  */
 app.post("/api/sparks/:id/llm/bench", async (req, res) => {
   if (activeBenchJobCount() >= MAX_ACTIVE_BENCH_JOBS) {
-    return res.status(429).json({ error: "Global active benchmark cap reached; wait for a job to finish" });
+    return res.status(429).json({ error: `Global active benchmark cap (${MAX_ACTIVE_BENCH_JOBS}) reached; wait for a job to finish` });
   }
   const spark = registry.getSpark(req.params.id);
   if (!spark) return res.status(404).json({ error: "Spark not found" });
@@ -1604,7 +1603,7 @@ app.delete("/api/sparks/:id/llm/bench/:benchId", (req, res) => {
  */
 app.post("/api/sparks/:id/llm/prefill-bench", async (req, res) => {
   if (activeBenchJobCount() >= MAX_ACTIVE_BENCH_JOBS) {
-    return res.status(429).json({ error: "Global active benchmark cap reached; wait for a job to finish" });
+    return res.status(429).json({ error: `Global active benchmark cap (${MAX_ACTIVE_BENCH_JOBS}) reached; wait for a job to finish` });
   }
   const spark = registry.getSpark(req.params.id);
   if (!spark) return res.status(404).json({ error: "Spark not found" });
@@ -1744,7 +1743,7 @@ app.delete("/api/sparks/:id/llm/prefill-bench/:benchId", (req, res) => {
  */
 app.post("/api/sparks/:id/llm/quality-bench", async (req, res) => {
   if (activeBenchJobCount() >= MAX_ACTIVE_BENCH_JOBS) {
-    return res.status(429).json({ error: "Global active benchmark cap reached; wait for a job to finish" });
+    return res.status(429).json({ error: `Global active benchmark cap (${MAX_ACTIVE_BENCH_JOBS}) reached; wait for a job to finish` });
   }
   const spark = registry.getSpark(req.params.id);
   if (!spark) return res.status(404).json({ error: "Spark not found" });
@@ -1826,10 +1825,21 @@ app.get("/api/sparks/:id/llm/quality-bench", (req, res) => {
       ? parseInt(String(portRaw), 10)
       : null;
   const p = Number.isInteger(port) ? port : null;
+  // `port` picks the endpoint of the current run view; `historyPort` (a port, or
+  // "all") widens or narrows the saved-run list on its own so runs from other
+  // endpoints stay reachable for comparison. Without it, history follows `port`.
+  const hpRaw = req.query.historyPort;
+  let historyPort = p;
+  if (hpRaw === "all") historyPort = null;
+  else if (hpRaw != null && hpRaw !== "") {
+    const hp = parseInt(String(hpRaw), 10);
+    if (!Number.isInteger(hp)) return res.status(400).json({ error: "historyPort must be a port number or \"all\"" });
+    historyPort = hp;
+  }
   res.json({
     active: qualityBenchManager.getActive(spark.id),
     last: qualityBenchManager.getLast(spark.id, p),
-    history: qualityBenchManager.getHistorySummaries(spark.id, p),
+    history: qualityBenchManager.getHistorySummaries(spark.id, historyPort),
     defaults: QUALITY_BENCH_DEFAULTS,
   });
 });

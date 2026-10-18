@@ -73,6 +73,40 @@ describe("AppSidebar", () => {
   it("only offers the showcase when an online Spark has a reachable LLM", () => {
     expect(showcaseTarget([makeSpark("a", false)])).toBeNull();
   });
+
+  it("uses Strata activity flags instead of displaying an unmeasured zero decode rate", () => {
+    const spark = makeSpark("strata");
+    Object.assign(spark.metrics.llm[0], { backend: "strata", generationTps: 0, prefillTps: 0, prefillActive: true, decodeActive: false });
+    const { container, root } = render(
+      <AppSidebar sparks={[spark]} activeId={null} onSelect={() => {}} onAdd={() => {}} onOpenSettings={() => {}} onOpenSearch={() => {}} connected />,
+    );
+    const label = () => container.querySelector(".rail-item__sub")?.textContent;
+
+    expect(label()).toBe("prefilling");
+    act(() => root.render(
+      <AppSidebar sparks={[{ ...spark, metrics: { ...spark.metrics, llm: [{ ...spark.metrics.llm[0], prefillActive: false, decodeActive: true }] } }]} activeId={null} onSelect={() => {}} onAdd={() => {}} onOpenSettings={() => {}} onOpenSearch={() => {}} connected />,
+    ));
+    expect(label()).toBe("decoding");
+    act(() => root.render(
+      <AppSidebar sparks={[{ ...spark, metrics: { ...spark.metrics, llm: [{ ...spark.metrics.llm[0], prefillActive: false, decodeActive: false }] } }]} activeId={null} onSelect={() => {}} onAdd={() => {}} onOpenSettings={() => {}} onOpenSearch={() => {}} connected />,
+    ));
+    expect(label()).toBe("0.0");
+  });
+
+  it("keeps rates in the sortable rail and prioritizes offline and worker labels", () => {
+    const strata = makeSpark("strata");
+    Object.assign(strata.metrics.llm[0], { backend: "strata", generationTps: 42.5, prefillTps: 0, decodeActive: true });
+    const offline = makeSpark("offline", false);
+    Object.assign(offline.metrics, { llm: [{ ...strata.metrics.llm[0], prefillActive: true, generationTps: 0 }] });
+    const worker = makeSpark("worker");
+    Object.assign(worker, { role: "worker", workerNode: true });
+    Object.assign(worker.metrics.llm[0], { backend: "strata", generationTps: 0, prefillActive: true });
+    const { container } = render(
+      <AppSidebar sparks={[strata, offline, worker]} activeId={null} onSelect={() => {}} onAdd={() => {}} onReorder={() => {}} onOpenSettings={() => {}} onOpenSearch={() => {}} connected />,
+    );
+    const labels = [...container.querySelectorAll(".rail-item__sub")].map((label) => label.textContent);
+    expect(labels).toEqual(["42.5", "off", "worker"]);
+  });
 });
 
 describe("AppSidebar Tools section", () => {

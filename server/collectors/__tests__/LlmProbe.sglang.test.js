@@ -681,7 +681,8 @@ function sglangCounterProbe(state) {
   return probe;
 }
 
-test("probe: SGLang prefill tok/s returns to 0 once the engine goes idle (#99)", async () => {
+test("probe: SGLang prefill tok/s returns to 0 once the engine goes idle (#99)", async (t) => {
+  t.mock.method(Date, "now", () => 1_800_000_000_000);
   const state = { prompt: 1000, gen: 500, running: 0 };
   const probe = sglangCounterProbe(state);
 

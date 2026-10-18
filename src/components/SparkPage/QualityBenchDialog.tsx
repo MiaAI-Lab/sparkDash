@@ -140,6 +140,7 @@ function runLabel(job: QualityBenchJob): string {
   const parts = [when];
   if (job.config.label) parts.push(job.config.label);
   parts.push(job.config.modelId || "unknown model");
+  if (Number.isInteger(job.config.port)) parts.push(`port ${job.config.port}`);
   parts.push(pct(job.results?.overallPct));
   return parts.join(" · ");
 }
@@ -550,6 +551,12 @@ export function QualityBenchDialog({
   const [loadingLast, setLoadingLast] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const benchPort = remoteTarget?.port ?? llmPort;
+  // The port picks the endpoint for a new run; which saved runs are listed (and offered
+  // for comparison) is a separate choice, "all" by default so other endpoints stay reachable.
+  const [historyScope, setHistoryScope] = useState<number | "all">("all");
+  const [seenPorts, setSeenPorts] = useState<number[]>([]);
+  const scopeRef = useRef<number | "all">("all");
+  scopeRef.current = historyScope;
 
   const stopPoll = useCallback(() => {
     if (pollRef.current != null) {
@@ -564,13 +571,33 @@ export function QualityBenchDialog({
   useEscape(onClose, open && !starting && !isPage);
   useBodyScrollLock(mounted && !isPage);
 
+  const applyHistory = useCallback((rows: QualityBenchJob[] | undefined) => {
+    const list = rows ?? [];
+    setHistory(list);
+    if (scopeRef.current === "all") {
+      setSeenPorts(
+        [...new Set(list.map((h) => h.config.port).filter((p): p is number => Number.isInteger(p)))].sort((a, b) => a - b)
+      );
+    }
+  }, []);
+
   const refreshHistory = useCallback(() => {
-    void listQualityBench(sparkId, benchPort)
-      .then((data) => setHistory(data.history ?? []))
+    void listQualityBench(sparkId, benchPort, scopeRef.current)
+      .then((data) => applyHistory(data.history))
       .catch(() => {
         /* history is optional */
       });
   }, [sparkId, benchPort]);
+
+  const scopeMounted = useRef(false);
+  useEffect(() => {
+    if (!scopeMounted.current) {
+      scopeMounted.current = true;
+      return;
+    }
+    if (open) refreshHistory();
+    setCompareId("");
+  }, [historyScope, open, refreshHistory]);
 
   const startPolling = useCallback(
     (benchId: string) => {
@@ -586,9 +613,9 @@ export function QualityBenchDialog({
             }
           })
           .catch((err: Error) => {
-            void listQualityBench(sparkId, benchPort)
+            void listQualityBench(sparkId, benchPort, scopeRef.current)
               .then((data) => {
-                setHistory(data.history ?? []);
+                applyHistory(data.history);
                 if (data.active) {
                   setJob(data.active);
                   setError(null);
@@ -627,10 +654,10 @@ export function QualityBenchDialog({
     let cancelled = false;
     setLoadingLast(true);
     setError(null);
-    void listQualityBench(sparkId, benchPort)
+    void listQualityBench(sparkId, benchPort, scopeRef.current)
       .then((data) => {
         if (cancelled) return;
-        setHistory(data.history ?? []);
+        applyHistory(data.history);
         const current = data.active || data.last;
         if (current) {
           setJob(current);
@@ -713,9 +740,9 @@ export function QualityBenchDialog({
     if (!isPage) return;
     const t = setInterval(() => {
       if (pollRef.current != null || startLockRef.current || document.hidden) return;
-      void listQualityBench(sparkId, benchPort)
+      void listQualityBench(sparkId, benchPort, scopeRef.current)
         .then((data) => {
-          setHistory(data.history ?? []);
+          applyHistory(data.history);
           if (data.active?.status === "running" && pollRef.current == null && !startLockRef.current) {
             setJob(data.active);
             setCompareId("");
@@ -783,15 +810,22 @@ export function QualityBenchDialog({
     setCompareId("");
   };
 
+  const clearLabel = historyScope === "all" ? "Clear all ports" : `Clear port ${historyScope}`;
+  const clearTitle =
+    historyScope === "all"
+      ? "Clear every saved quality run on this unit, on all LLM ports"
+      : `Clear the saved quality runs of port ${historyScope} only`;
+
   const handleClear = async () => {
     if (!job || job.status === "running") return;
     setError(null);
     try {
-      await clearQualityBenchHistory(sparkId, benchPort);
+      await clearQualityBenchHistory(sparkId, historyScope === "all" ? undefined : historyScope);
       stopPoll();
       setJob(null);
-      setHistory([]);
       setCompareId("");
+      if (historyScope === "all") setHistory([]);
+      else refreshHistory();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -816,6 +850,7 @@ export function QualityBenchDialog({
     job && job.progress.total > 0 ? Math.round((job.progress.done / job.progress.total) * 100) : 0;
   const showConfig = (isPage || !job) && !loadingLast;
   const showResults = job && job.status !== "running";
+  const scopePorts = [...new Set([...seenPorts, benchPort, ...(historyScope === "all" ? [] : [historyScope])])].sort((a, b) => a - b);
   const compareChoices = history.filter((h) => h.benchId !== job?.benchId);
   const hasItems = (job?.results?.items?.length ?? 0) > 0;
 
@@ -1164,9 +1199,9 @@ export function QualityBenchDialog({
                   type="button"
                   className="btn btn--sm btn--ghost"
                   onClick={() => void handleClear()}
-                  title="Clear saved quality runs for this port"
+                  title={clearTitle}
                 >
-                  Clear history
+                  {clearLabel}
                 </button>
               </>
             }
@@ -1180,8 +1215,28 @@ export function QualityBenchDialog({
             run. The suite is fixed and seeded, so any two runs can be compared item by item.
           </PageEmpty>
         )}
-        {history.length > 0 && (
-          <PageCard title={`History · ${history.length}`}>
+        {(history.length > 0 || historyScope !== "all") && (
+          <PageCard
+            title={`History · ${history.length}`}
+            tools={
+              <label className="q-pick">
+                <span>Show</span>
+                <select
+                  value={String(historyScope)}
+                  onChange={(e) => setHistoryScope(e.target.value === "all" ? "all" : Number(e.target.value))}
+                  aria-label="History scope"
+                >
+                  <option value="all">All ports</option>
+                  {scopePorts.map((p) => (
+                    <option key={p} value={p}>
+                      Port {p}
+                      {p === benchPort ? " (selected)" : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            }
+          >
             <HistoryTable
               rows={history.map(qualityHistoryRow)}
               activeId={job?.benchId ?? null}
@@ -1249,9 +1304,9 @@ export function QualityBenchDialog({
                 type="button"
                 className="bench-btn bench-btn--ghost"
                 onClick={() => void handleClear()}
-                title="Clear saved quality runs for this port"
+                title={clearTitle}
               >
-                Clear
+                {clearLabel}
               </button>
               {hasItems && (
                 <BenchCopyButton

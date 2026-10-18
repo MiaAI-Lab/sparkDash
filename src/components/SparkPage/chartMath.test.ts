@@ -23,6 +23,23 @@ describe("bucketByTime", () => {
 });
 
 describe("splitSegments / seriesSegments", () => {
+  it("keeps completed historical buckets unchanged when a tick advances the window", () => {
+    const samples = Array.from({ length: 901 }, (_, i) => ({ at: i * 2000, value: i % 17 === 0 ? 100 : 0 }));
+    const before = seriesSegments(samples, 1_800_000, 1_800_000).flat();
+    const after = seriesSegments([...samples, { at: 1_802_000, value: 0 }], 1_800_000, 1_802_000).flat();
+    // Every completed bucket stays identical, including the partly visible left edge.
+    expect(after.filter((p) => p.at < 1_800_000)).toEqual(before.filter((p) => p.at < 1_800_000));
+    expect(after.find((p) => p.at === 206_000)?.value).toBeCloseTo(100 / 3);
+  });
+  it("only changes the live bucket and preserves it after the next bucket starts", () => {
+    const samples = [{ at: 10_000, value: 0 }, { at: 12_000, value: 100 }];
+    const live = seriesSegments(samples, 1_800_000, 12_000).flat();
+    const updated = seriesSegments([...samples, { at: 14_000, value: 100 }], 1_800_000, 14_000).flat();
+    expect(live).toEqual([{ at: 11_000, value: 50 }]);
+    expect(updated).toEqual([{ at: 12_000, value: 200 / 3 }]);
+    const next = seriesSegments([...samples, { at: 14_000, value: 100 }, { at: 16_000, value: 100 }], 1_800_000, 16_000).flat();
+    expect(next[0]).toEqual(updated[0]);
+  });
   it("breaks the line across a long gap", () => {
     const segs = splitSegments(
       [

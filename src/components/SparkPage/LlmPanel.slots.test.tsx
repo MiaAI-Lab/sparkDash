@@ -15,3 +15,13 @@ describe("TensorFold slot tile", () => {
     expect(tile?.querySelector("b")?.textContent).toBe(`${active ?? "?"} / 8`);
   });
 });
+
+describe("Radiance engine tiles", () => {
+  it("shows the vLLM-format KV cache tile", () => {
+    const llm = { ...makeSpark().metrics.llm[0], backend: "radiance" as const, kvCacheUsage: 0.25, kvCacheTokens: 1_087_768, ttftP95Seconds: 0.4 };
+    const { container } = render(<LlmPanel llm={llm} sparkId="fixture" llmPort={8888} />);
+    const labels = [...container.querySelectorAll(".sp-tile")].map((el) => el.querySelector("span")?.textContent);
+    expect(labels).toContain("KV cache");
+    expect(labels).toContain("TTFT p95");
+  });
+});
