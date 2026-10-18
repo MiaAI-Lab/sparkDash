@@ -1386,7 +1386,15 @@ export class LlmProbe {
     }
     // PP progress is engine-global and can survive an earlier batch request.
     // The UI labels this as the last reported mean, never aggregate prefill.
-    if (this.prefillActive && live.state === "reading" && (slots.length === 0 || reading.length > 0)) {
+    // Oversized prompts can take Strata's solo path even with batch enabled.
+    // Confirm unfinished engine progress before showing its mean while every
+    // batch slot is idle; queued requests alone are not prefill evidence.
+    const promptRead = nonnegative(live.prompt_read);
+    const promptTotal = nonnegative(live.prompt_total);
+    const outsidePrefill = nonnegative(live.outside_slots) > 0 &&
+      promptRead > 0 && promptTotal > promptRead;
+    if (this.prefillActive && live.state === "reading" &&
+      (slots.length === 0 || reading.length > 0 || outsidePrefill)) {
       this.prefillTps = rate(nonnegative(live.prefill_tok_s_mean) ?? 0);
     }
 

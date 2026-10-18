@@ -52,4 +52,12 @@ describe("Strata live metrics", () => {
     expect(container.textContent).not.toContain("prefilling");
     expect(container.querySelector("[data-llm-idle]")?.textContent).toMatch(/^Idle/);
   });
+
+  it("distinguishes running requests from occupied batch slots", () => {
+    const { container } = render(<LlmPanel llm={strata({ slotsActive: 0, requestsRunning: 4,
+      requestsWaiting: 0, prefillActive: true, prefillTps: 6300 })} sparkId="fixture" llmPort={8888} />);
+    expect(container.textContent).toContain("0 / 4");
+    expect(container.textContent).toContain("4 / 0");
+    expect(container.textContent).toContain("Running / waiting");
+  });
 });

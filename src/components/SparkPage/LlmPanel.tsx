@@ -503,7 +503,7 @@ export function LlmPanel({
   const isVllm = llm != null && (llm.backend === "vllm" || llm.backend === "q27");
   // FreeToken reports KV use, active requests and a TTFT mean in /v1/stats; the tiles below are null-gated.
   const isFreeToken = llm?.backend === "freetoken";
-  const showEngineTiles = isVllm || isFreeToken;
+  const showEngineTiles = isVllm || isFreeToken || isStrata;
   const kvTone =
     llm?.kvCacheUsage == null
       ? ""

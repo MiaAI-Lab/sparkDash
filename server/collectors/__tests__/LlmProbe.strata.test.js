@@ -227,6 +227,29 @@ test("malformed batch slots cannot be treated as solo prefill", async () => {
   }
 });
 
+test("outside-slot prefill reports its mean only with unfinished engine progress", async () => {
+  const { probe, state } = setup(metrics({ state: "reading", running: 4, outside_slots: 4,
+    prompt_read: 120000, prompt_total: 260000, prefill_tok_s_mean: 6300 }));
+  let snap = await probe.probe();
+  assert.equal(snap.prefillTps, 6300);
+  assert.equal(snap.prefillActive, true);
+  assert.equal(snap.requestsRunning, 4);
+  assert.equal(snap.slotsActive, 0);
+  assert.equal(snap.slotsTotal, 4);
+  for (const progress of [{ prompt_read: null }, { prompt_read: 0 },
+    { prompt_read: 260000 }, { prompt_total: null }, { outside_slots: 0 }, { outside_slots: "4" }]) {
+    state.body = metrics({ state: "reading", running: 4, outside_slots: 4,
+      prompt_read: 120000, prompt_total: 260000, prefill_tok_s_mean: 6300, ...progress });
+    snap = await probe.probe();
+    assert.equal(snap.prefillTps, 0);
+    assert.equal(snap.prefillActive, true);
+  }
+  state.body = metrics({ outside_slots: 0, prefill_tok_s_mean: 6300 });
+  snap = await probe.probe();
+  assert.equal(snap.prefillTps, 0);
+  assert.equal(snap.prefillActive, false);
+});
+
 test("unknown outside-slot counts cannot authorize a partial decode aggregate", async () => {
   for (const outside_slots of ["1", NaN, null, -1]) {
     const { probe } = setup(metrics({ state: "reading", running: 2, outside_slots,
