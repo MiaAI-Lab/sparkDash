@@ -48,4 +48,9 @@ describe("llm idle helpers", () => {
     expect(idleLabel(null, NOW)).toBe("Idle");
     expect(idleLabel(undefined, NOW)).toBe("Idle");
   });
+
+  it("is not idle while Strata is decoding without a reported rate", () => {
+    expect(isLlmIdle({ generationTps: 0, prefillTps: 0, decodeActive: true })).toBe(false);
+    expect(isLlmIdle({ generationTps: 0, prefillTps: 0, decodeActive: false })).toBe(true);
+  });
 });

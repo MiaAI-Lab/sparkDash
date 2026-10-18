@@ -125,7 +125,7 @@ Full history: [CHANGELOG.md](./CHANGELOG.md)
 | **Windows hosts** | Windows machines with an AMD iGPU (Strix Halo and friends) are first-class units too: agentless PowerShell over OpenSSH, CPU/RAM/disks/network collectors, and GPU usage straight from the engine performance counters (reads like Task Manager). The Add/Edit wizard has a **Strix Halo / Windows host** unit type |
 | **Live streaming** | WebSocket metrics with configurable poll intervals; central history store for sparklines across tab switches |
 | **Local + remote** | Host metrics via sysfs/proc/`nvidia-smi`; remotes over SSH (key or password) |
-| **LLM probe** | Auto-detects llama.cpp, vLLM, sglang, LM Studio, Ollama, ds4-server, EXL3, TensorFold, FreeToken, or q27; live decode/prefill tok/s from the engine's own counters where it publishes them (not LM Studio or Ollama); cached vs uncached prefill on ds4, llama.cpp, SGLang, and q27; **daily peak** history on the LLM card |
+| **LLM probe** | Auto-detects llama.cpp, vLLM, sglang, LM Studio, Ollama, ds4-server, EXL3, TensorFold, FreeToken, Strata, or q27; live decode/prefill tok/s from the engine's own counters where it publishes them (not LM Studio or Ollama); cached vs uncached prefill on ds4, llama.cpp, SGLang, and q27; **daily peak** history on the LLM card |
 | **LLM server presets** | One-click **LM Studio :1234** / **Ollama :11434** / **TensorFold :8888** presets in the Add wizard's LLM-ports step, the "+ Add LLM port" panel, and each LLM panel's settings (they fill the port number — they install nothing) |
 | **ComfyUI** | Opt-in probe: queue/jobs, progress, cancel, Open link, inventory, overview chip |
 | **Hermes Agent** | Opt-in per unit: background update check (10 min), status badges, one-click or batch `hermes update` |
@@ -653,8 +653,11 @@ LM Studio (:1234), Ollama (:11434) and TensorFold (:8888) are one-click presets 
 | q27 | Prometheus exposition |
 | TensorFold | `owned_by` on `/v1/models`, totals from `/health` |
 | FreeToken | `/v1/stats` throughput contract |
+| Strata | `/health` reports `service: "strata"`, checked before the llama.cpp-compatible `/slots`; JSON `/metrics` supplies rates |
 
 Detection is **positive-signature first**: some desktop engines (LM Studio) answer HTTP 200 with a JSON body on *every* path, which would trip naive heuristics ("does `/server_info` return JSON?" → SGLang, or the vLLM default). sparkDash probes each engine's unique endpoint and never lets a catch-all-200 server downgrade an identified backend.
+
+Strata monitoring follows the [v0.1.45 JSON metrics contract](https://github.com/Niko1221/Strata/blob/477ac13cbe8e582c20484871ce459d20d82df09d/serve/server.py#L3738-L3790). **Decode** uses the aggregate sliding-window rate. When a newer request is prefilling and hides that rate, it sums the available decoding-slot rates and labels the result **active-slot mean** (each slot's mean starts at its first generated token). It publishes no partial sum if a decoding slot lacks a rate or work is running outside the slots. **Prefill** is the engine's **last reported mean** for new/computed prompt tokens, shown only while the selected request and a slot are reading; the value may come from an earlier prefill and is not a sum across concurrent slots. A busy phase without a rate says **decoding** or **prefilling**. Idle clears both rates immediately. Completed-request totals are retained as totals, never turned into live rates; restarting Strata therefore does not create a TPS spike. No per-slot prefill throughput or KV-cache occupancy is inferred from held prompt tokens.
 
 ### Decode / prefill tok/s on engines without counters
 

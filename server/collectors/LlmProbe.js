@@ -103,7 +103,7 @@ export class LlmProbe {
     this._openTunnel = openSshLlmTunnel;
 
     // State
-    this.backendType = null; // 'vllm' | 'llama.cpp' | 'sglang' | 'lmstudio' | 'ollama' | 'ds4' | 'exl3' | 'q27' | 'tensorfold' | 'freetoken' | null
+    this.backendType = null; // 'vllm' | 'llama.cpp' | 'sglang' | 'lmstudio' | 'ollama' | 'ds4' | 'exl3' | 'q27' | 'tensorfold' | 'freetoken' | 'strata' | null
     this.serverIsOpenAI = null; // true = OpenAI-compatible
     /** Whether /v1/models (or /slots) answered without credentials. null = unknown. */
     this.authOpen = null;
@@ -117,6 +117,8 @@ export class LlmProbe {
     this.slotsTotal = 0;
     this.generationTps = 0;
     this.prefillTps = 0;
+    this.decodeActive = false;
+    this.generationTpsSource = null;
     /** Live cached-prefill tok/s when the backend splits kinds (ds4 / llama.cpp / sglang). null otherwise. */
     this.cachedPrefillTps = null;
     /** Live uncached/computed prefill tok/s when split is available. null otherwise. */
@@ -275,6 +277,10 @@ export class LlmProbe {
   }
 
   async _probeOnce() {
+    this.decodeActive = false;
+    this.generationTpsSource = null;
+    this.prefillActive = false;
+    if (this.backendType === "strata") this._clearStrataRates();
     try {
       const shouldDetect =
         this.serverIsOpenAI === null ||
@@ -394,6 +400,8 @@ export class LlmProbe {
     this.models = [];
     this.generationTps = 0;
     this.prefillTps = 0;
+    this.decodeActive = false;
+    this.generationTpsSource = null;
     this.cachedPrefillTps = null;
     this.uncachedPrefillTps = null;
     this.contextLength = null;
@@ -445,6 +453,21 @@ export class LlmProbe {
 
   // ─── Server type detection ───────────────────────────────
   async _detectServerType() {
+    // Strata deliberately provides llama.cpp-shaped /slots, but those slots
+    // omit its live decode counters. Check the explicit fingerprint first.
+    if (this.backendType == null || this.backendType === "llama.cpp" || this.backendType === "strata") {
+      try {
+        const healthRes = await this._fetch(`${this.baseUrl}/health`);
+        if (healthRes.ok && (await healthRes.json())?.service === "strata") {
+          this.serverIsOpenAI = true;
+          this.backendType = "strata";
+          return;
+        }
+      } catch { /* continue with the other backend signatures */ }
+      // A transient health failure must not demote a known Strata to its
+      // compatibility shim. Repeated actual probe failures reset detection.
+      if (this.backendType === "strata") return;
+    }
     // Skip the llama.cpp /slots probe once we've positively identified an
     // OpenAI-compatible backend. vLLM / sglang / ds4-server have no /slots,
     // so re-probing it on every re-detect cycle just spams 404s in the
@@ -752,6 +775,19 @@ export class LlmProbe {
       } else if (/freetoken/i.test(owned) && this.backendType !== "ds4") {
         this.backendType = "freetoken";
       }
+    }
+
+    if (this.backendType === "strata") {
+      const res = await this._fetch(`${this.baseUrl}/metrics`, LLM_PROBE_TIMEOUT_MS, {
+        headers: { Accept: "application/json" },
+      });
+      const auth = this._noteAuthStatus(res.status);
+      if (auth === "auth") return this._getSnapshot();
+      if (!res.ok) throw new Error("Strata /metrics unreachable");
+      const data = await res.json();
+      this._applyStrataMetrics(data);
+      if (data.live.state === "unloaded") return this._defaultLlm();
+      return this._getSnapshot();
     }
 
     if (this.backendType === "freetoken") {
@@ -1286,6 +1322,91 @@ export class LlmProbe {
     const ctx = Number(stats.model?.ctx);
     if (Number.isFinite(ctx) && ctx > 0) this.contextLength = Math.round(ctx);
     if (stats.model?.id) applyModelRef(this, stats.model.id);
+  }
+
+  _clearStrataRates() {
+    this.generationTps = 0;
+    this.prefillTps = 0;
+    this.decodeActive = false;
+    this.prefillActive = false;
+    this.generationTpsSource = null;
+    this.slotsActive = 0;
+    this.requestsRunning = null;
+    this.requestsWaiting = null;
+  }
+
+  /**
+   * Strata v0.1.45 JSON /metrics. Totals advance only at completion, so never
+   * difference them for live TPS. Slot states can differ from live.state,
+   * which describes only the newest active request in batch mode.
+   */
+  _applyStrataMetrics(data) {
+    this._clearStrataRates();
+    const live = data?.live;
+    if (!data?.engine || typeof data.engine !== "object" || Array.isArray(data.engine) ||
+      !live || !["idle", "unloaded", "reading", "generating"].includes(live.state)) {
+      throw new Error("Invalid Strata /metrics payload");
+    }
+    const nonnegative = (value) => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+    const rate = (value) => Math.round(value * 100) / 100;
+    // Solo mode omits slots. A malformed/missing batch list must not be
+    // mistaken for solo mode and authorize a rate from the selected request.
+    if ((Object.hasOwn(live, "slots") && !Array.isArray(live.slots)) ||
+      (nonnegative(live.parallel) > 0 && !Array.isArray(live.slots))) {
+      throw new Error("Invalid Strata slot metrics");
+    }
+    const slots = Array.isArray(live.slots) ? live.slots : [];
+    const reading = slots.filter((s) => s?.state === "reading");
+    const decoding = slots.filter((s) => s?.state === "decoding");
+    const occupied = reading.length + decoding.length;
+    const capacity = nonnegative(live.parallel);
+    this.slotsTotal = capacity > 0 ? capacity : slots.length || 1;
+    this.slotsActive = slots.length > 0 ? occupied : (live.state === "reading" || live.state === "generating" ? 1 : 0);
+    this.requestsRunning = nonnegative(live.running) ?? this.slotsActive;
+    // FIFO queued, engine waiting and admitting are different/overlapping
+    // populations; adding them would double-count waiting requests.
+    this.requestsWaiting = nonnegative(live.queued);
+    if (live.state !== "unloaded") {
+      this.decodeActive = decoding.length > 0 || live.state === "generating";
+      this.prefillActive = reading.length > 0 || live.state === "reading";
+    }
+
+    const windowRate = nonnegative(live.tok_s);
+    if (this.decodeActive && live.state === "generating" && windowRate != null) {
+      this.generationTps = rate(windowRate);
+      this.generationTpsSource = "window";
+    } else if (this.decodeActive && decoding.length > 0 &&
+      (!Object.hasOwn(live, "outside_slots") || nonnegative(live.outside_slots) === 0) &&
+      decoding.every((s) => nonnegative(s.tok_s) != null)) {
+      // The newest request may be reading, hiding the aggregate window rate.
+      // Slot TPS is generated/(now-first_token), so label this decode mean
+      // explicitly. Never publish a partial sum when any slot rate is missing.
+      this.generationTps = rate(decoding.reduce((sum, s) => sum + s.tok_s, 0));
+      this.generationTpsSource = "slot-mean";
+    }
+    // PP progress is engine-global and can survive an earlier batch request.
+    // The UI labels this as the last reported mean, never aggregate prefill.
+    if (this.prefillActive && live.state === "reading" && (slots.length === 0 || reading.length > 0)) {
+      this.prefillTps = rate(nonnegative(live.prefill_tok_s_mean) ?? 0);
+    }
+
+    const totals = data.totals ?? {};
+    this.totalPromptTokens = nonnegative(totals.prompt_tokens);
+    this.totalOutputTokens = nonnegative(totals.output_tokens) ?? 0;
+    this.totalCachedTokens = nonnegative(totals.reused);
+    this.contextLength = nonnegative(data.engine.max_context) || null;
+    this.gpuMemoryUtilization = null;
+    this.kvCacheUsage = null;
+    this._clearEngineMemory();
+    this.cachedPrefillTps = null;
+    this.uncachedPrefillTps = null;
+    this.ttftSeconds = null;
+    this.ttftP95Seconds = null;
+    this.e2eP95Seconds = null;
+    this.itlP95Seconds = null;
+    this.preemptionsTotal = null;
+    this.prefixCacheHitRate = null;
+    this.mtpAcceptanceRate = null;
   }
 
   /**
@@ -2410,6 +2531,8 @@ export class LlmProbe {
       slotsTotal: this.slotsTotal,
       generationTps: this.generationTps,
       prefillTps: this.prefillTps,
+      decodeActive: this.decodeActive === true,
+      generationTpsSource: this.generationTpsSource,
       prefillActive: this.prefillActive === true,
       cachedPrefillTps: this.cachedPrefillTps,
       uncachedPrefillTps: this.uncachedPrefillTps,
@@ -2450,6 +2573,8 @@ export class LlmProbe {
       slotsTotal: 0,
       generationTps: 0,
       prefillTps: 0,
+      decodeActive: false,
+      generationTpsSource: null,
       prefillActive: false,
       cachedPrefillTps: null,
       uncachedPrefillTps: null,
