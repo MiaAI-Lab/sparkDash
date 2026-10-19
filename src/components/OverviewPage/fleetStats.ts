@@ -16,7 +16,9 @@ export interface FleetTotals {
 /**
  * Everything on a unit that is neither the GPU nor the CPU rail (SSD, NIC, fans,
  * conversion loss), in watts. Same figure as `estimateNodeWatts` in
- * server/energy/FleetEnergyTracker.js, so this tile and Fleet energy agree.
+ * server/energy/FleetEnergyTracker.js. On a GB10 the two estimates are the
+ * same formula; the tracker additionally assumes a 65 W CPU and caps a unit
+ * at 240 W, so they differ on other hosts.
  */
 export const NODE_OVERHEAD_W = 23;
 
