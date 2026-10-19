@@ -46,7 +46,7 @@ function barLabels(container: HTMLElement): string[] {
 describe("Overview card", () => {
   it("names each bar for what it measures", () => {
     const { container } = render(<OverviewPage sparks={[host({ cpuTemp: 51 })]} />);
-    expect(barLabels(container)).toEqual(["VRAM", "GPU", "RAM", "GPU temp", "GPU power"]);
+    expect(barLabels(container)).toEqual(["VRAM", "GPU", "RAM", "GPU temp", "GPU power", "CPU temp"]);
   });
 
   it("calls the temperature bar GPU temp even without a CPU sensor", () => {
