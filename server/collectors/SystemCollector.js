@@ -2582,15 +2582,17 @@ export class SystemCollector {
     }
   }
 
-  async _getRemoteUnifiedMemory() {
+  async _getRemoteUnifiedMemory(executor = sshExec) {
     try {
       const cmd = [
         "grep -E 'MemTotal|MemAvailable' /proc/meminfo 2>/dev/null",
         "echo '---'",
-        "nvidia-smi --query-compute-apps=pid,process_name,used_gpu_memory --format=csv,noheader,nounits 2>/dev/null",
+        // `|| true`: this is the last command, so its status would be the SSH
+        // exit status, and a failing nvidia-smi would discard the meminfo above.
+        "nvidia-smi --query-compute-apps=pid,process_name,used_gpu_memory --format=csv,noheader,nounits 2>/dev/null || true",
       ].join("; ");
 
-      const output = await sshExec(this.spark, cmd);
+      const output = await executor(this.spark, cmd);
       const sections = output.split("---");
       const memOut = sections[0]?.trim() || "";
       const computeOut = sections[1]?.trim() || "";

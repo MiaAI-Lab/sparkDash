@@ -136,6 +136,14 @@ export function loadSecrets() {
     return { passwords, llmApiKeys };
   }
 
+  // Versions before the save-time mode was tightened left this file 0644, and a
+  // stable fleet may never save again, so close it here too.
+  try {
+    if ((fs.statSync(SPARKS_SECRETS_PATH).mode & 0o077) !== 0) fs.chmodSync(SPARKS_SECRETS_PATH, 0o600);
+  } catch {
+    /* another user's file or a read-only mount: the next save rewrites it */
+  }
+
   try {
     const key = resolveKey();
     const raw = fs.readFileSync(SPARKS_SECRETS_PATH, "utf8");
@@ -304,7 +312,9 @@ function clearSecretsFile() {
 function writeSecretsFile({ secrets, llmApiKeys, alertChannels }) {
   const body = { version: 2, secrets, llmApiKeys };
   if (alertChannels && Object.keys(alertChannels).length > 0) body.alertChannels = alertChannels;
-  atomicWrite(SPARKS_SECRETS_PATH, JSON.stringify(body, null, 2) + "\n", 0o644);
+  // Owner-only, like the key file beside it: with a passphrase key the
+  // ciphertext alone is enough for an offline guess.
+  atomicWrite(SPARKS_SECRETS_PATH, JSON.stringify(body, null, 2) + "\n", 0o600);
 }
 
 // ─── Alert channel URLs ──────────────────────────────────

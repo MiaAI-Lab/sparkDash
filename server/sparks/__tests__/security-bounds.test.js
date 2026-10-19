@@ -90,3 +90,18 @@ test("benchmark budgets cap total requested work", () => {
   assert.equal(validatePrefillBudget([1_024, 8_192], 10_000), 9_216);
   assert.throws(() => validatePrefillBudget([128_000, 256_000, 300_000], 600_000), /work budget/);
 });
+
+test("numeric spellings of a link-local IPv4 address are rejected", () => {
+  // Decimal, hex, octal-dotted and short forms of 169.254.169.254.
+  for (const host of ["2852039166", "0xa9fea9fe", "0251.0376.0251.0376", "169.254.43518"]) {
+    assert.equal(isAllowedTargetHost(host), false, host);
+  }
+  // 0.0.0.0 written as a bare number.
+  assert.equal(isAllowedTargetHost("0"), false);
+  // Loopback stays allowed however it is written, as 127.0.0.1 is.
+  assert.equal(isAllowedTargetHost("0x7f.1"), true);
+  // Ordinary names that merely contain digits are untouched.
+  for (const host of ["spark-2", "node1.local", "10-0-0-5.lan", "localhost", "10.0.0.5"]) {
+    assert.equal(isAllowedTargetHost(host), true, host);
+  }
+});

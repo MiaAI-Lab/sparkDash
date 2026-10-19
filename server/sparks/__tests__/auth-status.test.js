@@ -250,3 +250,17 @@ test("a non-loopback bind is unaffected by Host and Origin", () => {
     assert.equal(authorizeUpgrade(browser("10.0.0.5:5555", { origin: "https://evil.example" })), true);
   });
 });
+
+test("tokened remote bind: the API gate ignores path case, as Express routing does", () => {
+  withEnv({ SPARKDASH_TOKEN: "s3cret", BIND_HOST: "0.0.0.0" }, () => {
+    for (const path of ["/API/sparks", "/Api/Sparks", "/METRICS", "/Ws"]) {
+      assert.equal(passesMiddleware(req({ path })), false, `${path} without a token`);
+      assert.equal(passesMiddleware(req({ path, bearer: "s3cret" })), true, `${path} with the token`);
+    }
+    // A state-changing request was already gated; it must stay that way.
+    assert.equal(passesMiddleware(req({ path: "/API/sparks/shutdown-all", method: "POST" })), false);
+    // The SPA shell and its hashed assets still load before the app has a token.
+    assert.equal(passesMiddleware(req({ path: "/" })), true);
+    assert.equal(passesMiddleware(req({ path: "/assets/index-abc123.js" })), true);
+  });
+});

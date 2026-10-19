@@ -344,7 +344,8 @@ export function OverviewPage({
             );
           })}
         </div>
-        <FleetKpis sparks={visibleSparks} snapshotKey={sparks} show={kpis} />
+        {/* Fleet totals count every unit, not only the cards the filters leave visible. */}
+        <FleetKpis sparks={sparks} show={kpis} />
         {showFleetEnergy || showLlmTokenTotals || showActivityFeed || showInferenceActivity ? (
         <div className="ov-side">
           {showInferenceActivity ? <InferenceTrafficCard /> : null}

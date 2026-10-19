@@ -4,7 +4,7 @@ import { fetchLlmTokenTotals } from "../../api/llmTokenClient";
 import { formatTokensCompact } from "../../shared/tokenFormat";
 import { TrendLine } from "../ui/TrendLine";
 import { aggregateModelTotals } from "./FleetTokenTotals";
-import { computeFleetTotals, pushRolling } from "./fleetStats";
+import { NODE_OVERHEAD_W, computeFleetTotals, pushRolling } from "./fleetStats";
 
 interface Trends {
   decode: number[];
@@ -141,6 +141,14 @@ export function FleetKpis({
           label="Fleet power"
           value={totals.powerW.toFixed(0)}
           unit="W"
+          right={
+            <span
+              className="ov-delta mono"
+              title={`Whole-node estimate per online unit: GPU + CPU + ${NODE_OVERHEAD_W} W platform overhead`}
+            >
+              est.
+            </span>
+          }
           trend={trends.power}
           color="var(--color-violet)"
         />

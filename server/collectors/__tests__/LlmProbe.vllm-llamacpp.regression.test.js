@@ -484,3 +484,58 @@ vllm:time_to_first_token_seconds_sum{engine="0"} ${ttft}
   assert.equal(probe.cachedPrefillTps, 0);
   assert.equal(probe.uncachedPrefillTps, 0);
 });
+
+test("vLLM: the first poll after a detection reset only seeds the counters", async () => {
+  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 8000);
+  let metrics = VLLM_METRICS; // lifetime counters: 1000 prompt, 500 generated
+  probe._fetch = async (url) => {
+    const u = String(url);
+    if (u.endsWith("/v1/models")) return jsonRes({ data: [{ id: "m", max_model_len: 4096 }] });
+    if (u.endsWith("/metrics")) return textRes(metrics);
+    return jsonRes({}, 404);
+  };
+  // Three failed polls reset detection; each of them still advanced lastProbeTime.
+  probe.lastProbeTime = Date.now() - 2000;
+  probe._resetDetection();
+
+  const recovery = await probe.probe();
+  assert.equal(recovery.backend, "vllm");
+  assert.equal(recovery.generationTps, 0, "lifetime counters must not be read as two seconds of work");
+  assert.equal(recovery.prefillTps, 0);
+
+  // The poll after that measures normally: +400 generated and +200 prompt over 2 s.
+  probe.lastProbeTime = Date.now() - 2000;
+  metrics = VLLM_METRICS.replace("1000.0", "1200.0").replace("500.0", "900.0");
+  const next = await probe.probe();
+  assert.ok(Math.abs(next.generationTps - 200) < 5, `generationTps ${next.generationTps}`);
+  assert.ok(Math.abs(next.prefillTps - 100) < 5, `prefillTps ${next.prefillTps}`);
+});
+
+test("llama.cpp: a slot starting a new request does not cancel another slot's tokens", async (t) => {
+  const now = freezeProbeClock(t);
+  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 8080);
+  probe.serverIsOpenAI = false;
+  probe.backendType = "llama.cpp";
+  probe.authOpen = true;
+  probe._lastDetectAt = now;
+  probe.lastProbeTime = now - 2000;
+  probe.slotState.set(0, { decoded: 600, prompted: 900 });
+  probe.slotState.set(1, { decoded: 100, prompted: 50 });
+  probe._fetch = async (url) => {
+    const u = String(url);
+    if (u.endsWith("/slots")) {
+      return jsonRes([
+        // Slot 0 finished and began a new request: both counters restarted.
+        { id: 0, n_decoded: 20, n_prompt_tokens_processed: 30, is_processing: true },
+        // Slot 1 kept going: +100 decoded, +40 prompted.
+        { id: 1, n_decoded: 200, n_prompt_tokens_processed: 90, is_processing: true },
+      ]);
+    }
+    if (u.endsWith("/props")) return jsonRes({ model_alias: "m", total_context_length: 4096 });
+    return jsonRes({}, 404);
+  };
+
+  const snap = await probe.probe();
+  assert.equal(snap.generationTps, 50); // slot 1 only: 100 / 2 s
+  assert.equal(snap.prefillTps, 20); // slot 1 only: 40 / 2 s
+});
