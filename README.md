@@ -735,7 +735,7 @@ npm install
 npm run dev
 ```
 
-- **Docker**: open **http://127.0.0.1:5555** on the host (arm64 image, auto-restart, host mounts for GPU/metrics access). The compose file serves the frontend from the host's `./dist` when it has been built (`npm run build`) and from the copy baked into the image otherwise, so a fresh clone works; a host build that is older than the image's copy is ignored, so after `git pull` one `docker compose up --build -d` is enough
+- **Docker**: open **http://127.0.0.1:5555** on the host (auto-restart, host mounts for GPU/metrics access). The image is built for the machine's own architecture — Docker detects it, so a DGX Spark builds and runs the arm64 image as before and an x86 box builds a native amd64 one, with no emulation and no *image platform does not match the host platform* warning. Both architectures are supported: `docker compose -f docker-compose.yml -f docker-compose.multiarch.yml build` produces the arm64 and amd64 variants in one manifest list (the pair the release workflow publishes), and `DOCKER_DEFAULT_PLATFORM=linux/arm64` (or `linux/amd64`) cross-targets a single one. The compose file serves the frontend from the host's `./dist` when it has been built (`npm run build`) and from the copy baked into the image otherwise, so a fresh clone works; a host build that is older than the image's copy is ignored, so after `git pull` one `docker compose up --build -d` is enough
 - **Dev**: Vite on **http://localhost:5173** (proxies API/WS to Express)
 
 For another computer, keep the server on loopback and use an SSH tunnel:
@@ -1114,6 +1114,7 @@ Choice is stored in `localStorage`.
 | `npm run docker:up` | `docker compose up -d` |
 | `npm run docker:prod` | Same as `docker:up` |
 | `npm run docker:rebuild` | `docker compose up --build -d` |
+| `npm run docker:multiarch` | Build the arm64 + amd64 variants into one manifest list |
 | `npm run docker:dev` | Dev Compose |
 | `npm run docker:dev:build` | Dev Compose with rebuild |
 | `./deploy.sh` | Recreate container; `--build`, `--frontend` flags |

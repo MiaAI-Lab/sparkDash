@@ -3,8 +3,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dev
-      platforms:
-        - linux/arm64
+      # Same host-platform detection as docker-compose.yml (arm64 on a Spark,
+      # amd64 on x86); see docker-compose.multiarch.yml to build both at once.
+    # Follows the build platform so a cross-built image does not warn on `up`.
+    platform: ${DOCKER_DEFAULT_PLATFORM:-}
     container_name: sparkDash-dev
     restart: unless-stopped
     # Host network: Vite :5173 + API :5555 bind on the host; local LLM

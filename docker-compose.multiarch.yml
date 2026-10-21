@@ -1,0 +1,20 @@
+# Build override that produces every architecture sparkDash supports in one
+# manifest list, the same pair the release workflow publishes (arm64 for DGX
+# Spark, amd64 for x86 hosts):
+#
+#   docker compose -f docker-compose.yml -f docker-compose.multiarch.yml build
+#
+# Plain `docker compose up --build` builds only the host platform, which is
+# what a machine that runs the container wants: no QEMU, no build time spent on
+# the other architecture. Use this file when the image is going somewhere else.
+#
+# The non-native variant is built under emulation, so QEMU/binfmt must be
+# registered (`docker run --rm --platform linux/arm64 alpine uname -m` on x86,
+# or `--platform linux/amd64` on a Spark). Keeping both variants locally needs
+# the containerd image store; without it `--push` to a registry is the way.
+services:
+  sparkdash:
+    build:
+      platforms:
+        - linux/arm64
+        - linux/amd64

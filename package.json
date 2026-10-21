@@ -20,6 +20,7 @@
     "docker:dev:build": "docker compose -f docker-compose.dev.yml up --build",
     "docker:prod": "docker compose up -d",
     "docker:rebuild": "docker compose up --build -d",
+    "docker:multiarch": "docker compose -f docker-compose.yml -f docker-compose.multiarch.yml build",
     "frontend": "npm run build"
   },
   "keywords": [

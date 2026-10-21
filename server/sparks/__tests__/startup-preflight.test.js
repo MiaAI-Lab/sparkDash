@@ -67,3 +67,20 @@ test("Compose files default to loopback and do not hard-code 0.0.0.0", async () 
     assert.equal(text.includes("BIND_HOST=0.0.0.0"), false);
   }
 });
+
+test("Compose files build for the host platform and cover both architectures", async () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), "../../..");
+  for (const file of ["docker-compose.yml", "docker-compose.dev.yml"]) {
+    const text = await readFile(join(root, file), "utf8");
+    // A hard-coded build platform produces an arm64 image on every host, and
+    // `docker compose up` then runs it under emulation after warning that the
+    // image platform does not match the host. Docker detects the host itself.
+    assert.equal(/^\s+platforms:/m.test(text), false, `${file} must not pin build platforms`);
+    // Cross-builds pin the build and the container platform together instead.
+    assert.match(text, /platform: \$\{DOCKER_DEFAULT_PLATFORM:-\}/);
+  }
+  // The opt-in override builds every supported architecture into one index.
+  const multiarch = await readFile(join(root, "docker-compose.multiarch.yml"), "utf8");
+  assert.match(multiarch, /-\s+linux\/arm64/);
+  assert.match(multiarch, /-\s+linux\/amd64/);
+});

@@ -3,13 +3,24 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      platforms:
-        - linux/arm64
+      # Nothing is pinned here on purpose: Docker detects the build platform
+      # from the host, so the same file builds the usual arm64 image on a Spark
+      # and a native amd64 image on an x86 box — no QEMU emulation, and none of
+      # "The requested image's platform (linux/arm64) does not match the
+      # detected host platform (linux/amd64/v3)" on `up`.
+      # Cross target a single architecture with DOCKER_DEFAULT_PLATFORM (it also
+      # sets the container platform below, so `up` stays warning-free), and
+      # build every supported architecture into one manifest list with
+      #   docker compose -f docker-compose.yml -f docker-compose.multiarch.yml build
       args:
         # Frontend metrics-history retention (hours). Baked in when the frontend is
         # built: for host builds set VITE_HISTORY_HOURS in the shell that runs
         # `npm run build`; this arg only matters if you build the image itself.
         VITE_HISTORY_HOURS: ${VITE_HISTORY_HOURS:-8}
+    # Runs on the platform its image was built for: empty by default, so the
+    # container follows the host platform the build detected. DOCKER_DEFAULT_PLATFORM
+    # pins build and run together when cross-building.
+    platform: ${DOCKER_DEFAULT_PLATFORM:-}
     container_name: sparkDash
     # always: come back after host reboot even if the container was stopped
     # before shutdown (unlike unless-stopped, which stays down after a manual stop).
