@@ -428,7 +428,15 @@ function Tiles({ s, cmp, spec }: { s: Summary; cmp: Comparison | null; spec: (ty
       <Tile
         label="Cache hit rate"
         value={s.cacheRate == null ? "—" : fmtPct(s.cacheRate)}
-        sub={s.cacheRate == null ? "Needs prompt data" : s.cached > 0 ? `The prefix cache saved ${fmt(s.cached)} prefill tokens` : "The prefix cache saved nothing"}
+        sub={
+          s.prompt <= 0
+            ? "Needs prompt data"
+            : s.cacheReported === false
+              ? "This engine does not report prefix-cache hits"
+              : s.cached > 0
+                ? `The prefix cache saved ${fmt(s.cached)} prefill tokens`
+                : "The prefix cache saved nothing"
+        }
         delta={cmp?.cachePoints != null ? <span className={`tk-delta ${Math.abs(cmp.cachePoints) < 0.5 ? "" : cmp.cachePoints > 0 ? "is-up" : "is-down"}`}>{cmp.cachePoints >= 0 ? "+" : "−"}{Math.abs(cmp.cachePoints).toFixed(1)} pts vs {prevWord}</span> : null}
       />
       <Tile

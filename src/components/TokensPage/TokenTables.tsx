@@ -108,8 +108,14 @@ function ShareBar({ share }: { share: number }) {
   );
 }
 
-function CacheCell({ rate, cached }: { rate: number | null; cached: number }) {
-  if (rate == null) return <span className="tk-faint" title="No prompt tokens reported">{"—"}</span>;
+function CacheCell({ rate, cached, reported }: { rate: number | null; cached: number; reported?: boolean }) {
+  if (rate == null) {
+    return (
+      <span className="tk-faint" title={reported === false ? "This engine does not report prefix-cache hits" : "No prompt tokens reported"}>
+        {"—"}
+      </span>
+    );
+  }
   return <span title={`${cached.toLocaleString()} cached prompt tokens`}>{fmtPct(rate)}</span>;
 }
 
@@ -154,7 +160,7 @@ export function ModelTable({ rows, sparkName, nowMs }: { rows: readonly ModelRow
           case "prompt":
             return <span title={`${r.prompt.toLocaleString()} (${r.computed.toLocaleString()} computed)`}>{fmt(r.prompt)}</span>;
           case "cache":
-            return <CacheCell rate={r.cacheRate} cached={r.cached} />;
+            return <CacheCell rate={r.cacheRate} cached={r.cached} reported={r.cacheReported} />;
           case "total":
             return <b title={r.total.toLocaleString()}>{fmt(r.total)}</b>;
           case "share":
@@ -218,7 +224,7 @@ export function EndpointTable({
           case "prompt":
             return <span title={`${r.prompt.toLocaleString()} (${r.computed.toLocaleString()} computed)`}>{fmt(r.prompt)}</span>;
           case "cache":
-            return <CacheCell rate={r.cacheRate} cached={r.cached} />;
+            return <CacheCell rate={r.cacheRate} cached={r.cached} reported={r.cacheReported} />;
           case "total":
             return <b title={r.total.toLocaleString()}>{fmt(r.total)}</b>;
           default:

@@ -58,6 +58,12 @@ export interface Tally {
   computed: number;
   /** generated + prompt. */
   total: number;
+  /**
+   * true = at least one entry measured the prefix-cache split, false = none did
+   * (the engine publishes no cached-prompt counter), undefined = pre-flag data
+   * (assume reported, which is what earlier versions did).
+   */
+  cacheReported?: boolean;
 }
 
 export function emptyTally(): Tally {
@@ -65,7 +71,7 @@ export function emptyTally(): Tally {
 }
 
 /** Add one entry; cached is clamped to that entry's prompt so the invariant holds per row. */
-export function addEntry(t: Tally, e: Pick<Entry, "promptTokens" | "completionTokens" | "cachedTokens">): void {
+export function addEntry(t: Tally, e: Pick<Entry, "promptTokens" | "completionTokens" | "cachedTokens" | "cacheReported">): void {
   const prompt = nn(e.promptTokens);
   const cached = Math.min(nn(e.cachedTokens), prompt);
   t.generated = addTokens(t.generated, nn(e.completionTokens));
@@ -73,6 +79,9 @@ export function addEntry(t: Tally, e: Pick<Entry, "promptTokens" | "completionTo
   t.cached = addTokens(t.cached, cached);
   t.computed = t.prompt - t.cached;
   t.total = addTokens(t.generated, t.prompt);
+  // A single reporting entry is enough; "unreported" wins only when no entry reported.
+  if (e.cacheReported === true) t.cacheReported = true;
+  else if (e.cacheReported === false && t.cacheReported === undefined) t.cacheReported = false;
 }
 
 export function tallyOf(entries: readonly Entry[]): Tally {
@@ -84,6 +93,15 @@ export function tallyOf(entries: readonly Entry[]): Tally {
 /** cached / prompt, or null when there is no prompt data to divide by. */
 export function cacheRate(t: Pick<Tally, "cached" | "prompt">): number | null {
   return t.prompt > 0 ? Math.min(1, t.cached / t.prompt) : null;
+}
+
+/**
+ * Cache hit rate for display, or null when it cannot be measured: no prompt data, or
+ * the engine never reported a cached-prompt counter (`cacheReported === false`). A rate
+ * of 0 % must mean "the cache missed", never "this backend stays silent about it".
+ */
+export function hitRate(t: Tally): number | null {
+  return t.cacheReported === false ? null : cacheRate(t);
 }
 
 /** Fraction change (0.25 = +25 %); null when the baseline is zero. */
@@ -229,6 +247,7 @@ export function entriesFromTotals(series: readonly LlmTokenSeriesTotals[]): Entr
         promptTokens: m.promptTokens,
         completionTokens: m.completionTokens,
         cachedTokens: m.cachedTokens,
+        cacheReported: m.cacheReported,
       });
     }
   }
@@ -274,7 +293,7 @@ export function summarize(tally: Tally, totals: readonly { key: string; total: n
   }
   return {
     ...tally,
-    cacheRate: cacheRate(tally),
+    cacheRate: hitRate(tally),
     genPerPrompt: tally.prompt > 0 ? tally.generated / tally.prompt : null,
     elapsed: n,
     avgPerBucket: tally.total / n,
@@ -294,8 +313,8 @@ export interface Comparison {
 /** Compare against the previous period; null when it had no traffic. */
 export function compare(cur: Tally, prev: Tally): Comparison | null {
   if (prev.total <= 0) return null;
-  const cr = cacheRate(cur);
-  const pr = cacheRate(prev);
+  const cr = hitRate(cur);
+  const pr = hitRate(prev);
   return {
     total: pctChange(cur.total, prev.total),
     generated: pctChange(cur.generated, prev.generated),
@@ -401,7 +420,7 @@ export function modelRows(entries: readonly Entry[], lastSeen?: ReadonlyMap<stri
     .map(([modelId, v]) => ({
       ...v.t,
       modelId,
-      cacheRate: cacheRate(v.t),
+      cacheRate: hitRate(v.t),
       share: grand > 0 ? v.t.total / grand : 0,
       sparkIds: [...v.sparks].sort(),
       lastSeen: lastSeen?.get(modelId) ?? null,
@@ -434,7 +453,7 @@ export function endpointRows(entries: readonly Entry[]): EndpointRow[] {
       ...v.t,
       sparkId: v.sparkId,
       port: v.port,
-      cacheRate: cacheRate(v.t),
+      cacheRate: hitRate(v.t),
       share: grand > 0 ? v.t.total / grand : 0,
       models: [...v.models].sort(),
     }))
@@ -500,10 +519,13 @@ export function buildInsights(i: InsightInput): string[] {
   }
 
   if (s.prompt > 0) {
-    if (s.cached > 0) {
-      out.push(`The prefix cache served ${fmtPct(s.cacheRate ?? 0)} of prompt tokens, so about ${compact(s.cached)} prefill tokens did not have to be recomputed.`);
+    const rate = hitRate(s);
+    if (rate == null) {
+      out.push("This engine does not publish a prefix-cache counter, so the cache hit rate cannot be measured — only the per-response split knows it.");
+    } else if (s.cached > 0) {
+      out.push(`The prefix cache served ${fmtPct(rate)} of prompt tokens, so about ${compact(s.cached)} prefill tokens did not have to be recomputed.`);
     } else {
-      out.push("No prompt tokens were served from the prefix cache. Either prefix caching is off or the engine does not report cache hits.");
+      out.push("No prompt tokens were served from the prefix cache: either prefix caching is off or no prompt reused an earlier one.");
     }
   }
 
