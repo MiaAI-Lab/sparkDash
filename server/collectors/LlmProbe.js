@@ -222,6 +222,8 @@ export class LlmProbe {
     this._seedNext = false;
     /** Locals: the last sample's per-engine counters; null until one is read. */
     this._localsBase = null;
+    /** Splash: the last scrape's decode and prefill counters; null until one is read. */
+    this._splashBase = null;
 
     this._consecutiveFailures = 0;
     this._lastDetectAt = 0;
@@ -467,6 +469,7 @@ export class LlmProbe {
     this.measurementError = null;
     this._seedNext = false;
     this._localsBase = null;
+    this._splashBase = null;
     this.slotState.clear();
     this.lastTokenCounts = { input: 0, output: 0 };
     // The counters restart from zero, so the next poll may only seed them. The
@@ -550,6 +553,7 @@ export class LlmProbe {
       this.backendType !== "exl3" &&
       this.backendType !== "q27" &&
       this.backendType !== "locals" &&
+      this.backendType !== "splash" &&
       this.backendType !== "tensorfold" &&
       this.backendType !== "freetoken" &&
       this.backendType !== "radiance" &&
@@ -633,6 +637,8 @@ export class LlmProbe {
       if (/exl3/i.test(ownedBy)) return "exl3";
       // q27's /v1/models reports owned_by: "q27" (signalnine/q27 engine).
       if (/q27/i.test(ownedBy)) return "q27";
+      // Splash (incoai/splash) reports owned_by: "splash" and serves its own splash_* /metrics.
+      if (/splash/i.test(ownedBy)) return "splash";
       // TensorFold (ashhart/TensorFold) reports owned_by: "tensorfold" on both MLX and CUDA servers.
       if (/tensorfold/i.test(ownedBy)) return "tensorfold";
       // FreeToken reports owned_by: "FreeToken".
@@ -837,6 +843,13 @@ export class LlmProbe {
   /** @param {string} body */
   static _metricsLookLikeFlare(body) {
     return /(?:^|\n)flare_generated_tokens_total(?:\{|\s)/m.test(String(body || ""));
+  }
+
+  /** @param {string} body */
+  static _metricsLookLikeSplash(body) {
+    return /(?:^|\n)splash_(?:decode_output_tokens_total|requests_submitted_total)(?:\{|\s)/m.test(
+      String(body || "")
+    );
   }
 
   // ─── OpenAI-compatible path (vLLM/sglang/ds4) ────────────
@@ -1070,6 +1083,7 @@ export class LlmProbe {
       this.backendType === "radiance" ||
       this.backendType === "ds4" ||
       this.backendType === "q27" ||
+      this.backendType === "splash" ||
       this.backendType === "sglang";
     if (wantsPrometheus) {
       try {
@@ -1088,6 +1102,12 @@ export class LlmProbe {
           ) {
             this.backendType = "q27";
             this._applyQ27Metrics(txt, dtSec);
+          } else if (
+            this.backendType === "splash" ||
+            LlmProbe._metricsLookLikeSplash(txt)
+          ) {
+            this.backendType = "splash";
+            this._applySplashMetrics(txt, dtSec);
           } else {
             // Only claim vLLM when the backend is still unclassified — a
             // positively-identified backend (LM Studio, tensorfold, …) must not
@@ -1102,6 +1122,8 @@ export class LlmProbe {
               this._applyVllmMetrics(txt, dtSec);
             }
           }
+        } else if (this.backendType === "splash") {
+          this._markUnmeasured(`metrics endpoint answered ${metricsRes.status}`);
         } else if (
           (this.backendType == null || this.backendType === "vllm") &&
           this.backendType !== "ds4" &&
@@ -1111,7 +1133,9 @@ export class LlmProbe {
           this.backendType = "vllm";
         }
       } catch {
-        if (
+        if (this.backendType === "splash") {
+          this._markUnmeasured("metrics request failed");
+        } else if (
           (this.backendType == null || this.backendType === "vllm") &&
           this.backendType !== "ds4" &&
           this.backendType !== "exl3" &&
@@ -1515,6 +1539,69 @@ export class LlmProbe {
 
     this.requestsRunning = Array.isArray(data?.active) ? data.active.length : null;
     this.requestsWaiting = null; // Locals has no scheduler queue to report
+  }
+
+  /**
+   * Apply Splash (incoai/splash) Prometheus /metrics.
+   *
+   * Live tok/s are counter deltas like the ds4/q27 paths, so idle → 0. The
+   * engine's own `splash_*_tokens_per_second` gauges are lifetime averages and
+   * stay non-zero when idle, so they are not used. Prefill counts the tokens
+   * actually computed; prefix-cache hits are the separate reused counter.
+   * @param {string} txt
+   * @param {number} dtSec
+   */
+  _applySplashMetrics(txt, dtSec) {
+    // A counter is a finite, non-negative number; a series that is absent or malformed is not 0.
+    const counter = (name) => {
+      const v = this._getPromMetric(txt, name);
+      return typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null;
+    };
+    const decoded = counter("splash_decode_output_tokens_total");
+    const computed = counter("splash_prefill_input_tokens_total");
+    if (decoded == null) {
+      this._markUnmeasured("metrics had no splash token counters");
+      return;
+    }
+    const before = this._splashBase;
+    let why = null;
+    if (this._seedNext) why = "re-seeding counters after an interruption";
+    else if (!before) why = "no earlier sample to measure against";
+    else if (!(dtSec > 0 && dtSec < 10)) why = "no earlier sample within 10 s to measure against";
+    else if (decoded < before.out || (computed != null && before.in != null && computed < before.in)) why = "engine counters restarted";
+    this._seedNext = false;
+    this._splashBase = { out: decoded, in: computed };
+    if (why) {
+      // No rate on this poll, and it says so; the next one measures against these counters.
+      this._markUnmeasured(why, { reseed: false });
+    } else {
+      this.measurementValid = true;
+      this.measurementError = null;
+      this.generationTps = Math.round(((decoded - before.out) / dtSec) * 100) / 100;
+      if (computed != null && before.in != null) this.prefillTps = Math.round(((computed - before.in) / dtSec) * 100) / 100;
+    }
+    this.totalOutputTokens = decoded;
+
+    const reused = this._getPromMetric(txt, "splash_cache_reused_tokens_total");
+    // The token ledger wants the full prompt: computed plus cache-served.
+    if (computed != null) this.totalPromptTokens = reused != null ? computed + reused : computed;
+    if (reused != null) this.totalCachedTokens = reused;
+    this._setPrefillSplitRates(reused, computed, dtSec);
+
+    const prefilling = this._getPromMetric(txt, "splash_scheduler_prefilling");
+    const decoding = this._getPromMetric(txt, "splash_scheduler_decoding");
+    this.requestsRunning = prefilling != null || decoding != null ? (prefilling ?? 0) + (decoding ?? 0) : null;
+    this.requestsWaiting = this._getPromMetric(txt, "splash_scheduler_queued");
+
+    // p95 gauges are milliseconds in Splash's exposition.
+    const ttftMs = this._getPromMetric(txt, "splash_ttft_p95_milliseconds");
+    this.ttftP95Seconds = ttftMs == null ? null : Math.round(ttftMs) / 1000;
+    const itlMs = this._getPromMetric(txt, "splash_itl_p95_milliseconds");
+    this.itlP95Seconds = itlMs == null ? null : Math.round(itlMs) / 1000;
+
+    const accept = this._getPromMetric(txt, "splash_draft_acceptance_ratio");
+    this.mtpAcceptanceRate = accept == null ? null : Math.round(accept * 10000) / 10000;
+    if (this._getPromMetric(txt, "splash_ready") === 1) this.gpuMemoryUtilization = 1;
   }
 
   /**

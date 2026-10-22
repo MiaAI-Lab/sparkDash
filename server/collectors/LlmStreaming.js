@@ -174,6 +174,11 @@ export async function readServerGenerationTokens(baseUrl, opts = {}) {
         /^flare_generated_tokens_total(?:\{[^}]*\})?\s+([\d.eE+-]+)\s*$/gm
       );
       if (flare != null) return flare;
+      // Splash (incoai/splash) — cumulative decoded tokens.
+      const splash = fromSeries(
+        /^splash_decode_output_tokens_total(?:\{[^}]*\})?\s+([\d.eE+-]+)\s*$/gm
+      );
+      if (splash != null) return splash;
     }
   } catch {
     /* try next */
