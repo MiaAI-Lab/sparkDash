@@ -152,4 +152,49 @@ describe("ModelLauncher", () => {
     await flush();
     expect(fetchLaunchers).not.toHaveBeenCalled();
   });
+
+  describe("GPU busy with nothing serving", () => {
+    const clickByText = async (container: HTMLElement, text: string) => {
+      const b = [...container.querySelectorAll<HTMLButtonElement>("button")].find((x) => x.textContent === text)!;
+      await act(async () => b.click());
+    };
+
+    it("names the process holding the GPU instead of claiming something is loading", async () => {
+      fetchLaunchers.mockResolvedValue(list({ a: "stopped", b: "stopped" }));
+      const { container } = render(
+        <ModelLauncher spark={makeSpark("s1")} busy="In use by flare (107.7 GB) · 107.7 GB VRAM in use · GPU 96%" busyHolders />,
+      );
+      await flush();
+      expect(container.textContent).toContain("GPU is in use");
+      expect(container.textContent).toContain("flare (107.7 GB)");
+      expect(container.textContent).toContain("Add LLM port");
+      expect(container.textContent).not.toContain("Something is loading");
+    });
+
+    it("keeps the loading wording when no process is named", async () => {
+      fetchLaunchers.mockResolvedValue(list({ a: "stopped", b: "stopped" }));
+      const { container } = render(<ModelLauncher spark={makeSpark("s1")} busy="9 GB VRAM in use" />);
+      await flush();
+      expect(container.textContent).toContain("Something is loading");
+    });
+
+    it("asks twice before Start anyway when little memory is free", async () => {
+      fetchLaunchers.mockResolvedValue(list({ a: "stopped", b: "stopped" }));
+      const { container } = render(<ModelLauncher spark={makeSpark("s1")} busy="x" freeMb={7_000} lowFreeMb={8_192} />);
+      await flush();
+      await clickByText(container, "Start anyway…");
+      expect(container.textContent).toContain("probably run out of memory");
+      expect(container.querySelector("button.btn--primary")).toBeNull();
+      await clickByText(container, "Yes, start anyway");
+      expect(container.querySelectorAll("button.btn--primary").length).toBe(2);
+    });
+
+    it("starts anyway after one click when enough memory is free", async () => {
+      fetchLaunchers.mockResolvedValue(list({ a: "stopped", b: "stopped" }));
+      const { container } = render(<ModelLauncher spark={makeSpark("s1")} busy="x" freeMb={40_000} lowFreeMb={8_192} />);
+      await flush();
+      await clickByText(container, "Start anyway…");
+      expect(container.querySelectorAll("button.btn--primary").length).toBe(2);
+    });
+  });
 });

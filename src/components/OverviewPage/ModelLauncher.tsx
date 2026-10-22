@@ -3,6 +3,7 @@ import type { LauncherRunState, LlmLauncher, SparkSnapshot } from "../../api/typ
 import { runLauncher } from "../../api/client";
 import { fetchLaunchersCached, getCachedLaunchers, invalidateLaunchers, patchCachedStatus } from "../../hooks/launcherCache";
 import { LlmLauncherDialog } from "../SparkPage/LlmLauncherDialog";
+import { formatMb } from "../../shared/formatBytes";
 import { PlusIcon } from "../ui/icons";
 
 const REFRESH_MS = 30_000;
@@ -22,11 +23,20 @@ export function ModelLauncher({
   spark,
   onOpen,
   busy = null,
+  busyHolders = false,
+  freeMb = null,
+  lowFreeMb = 0,
 }: {
   spark: SparkSnapshot;
   onOpen?: (id: string) => void;
   /** Set when the GPU is in use although nothing serves yet (a model is probably loading). */
   busy?: string | null;
+  /** The busy text names the processes holding the GPU, so it is not a model that is starting. */
+  busyHolders?: boolean;
+  /** Free memory in MB; null when unknown. */
+  freeMb?: number | null;
+  /** Below this much free memory, "Start anyway" asks a second time. */
+  lowFreeMb?: number;
 }) {
   const sparkId = spark.id;
   const initial = getCachedLaunchers(sparkId);
@@ -37,6 +47,8 @@ export function ModelLauncher({
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [override, setOverride] = useState(false);
+  const [confirmLow, setConfirmLow] = useState(false);
+  const lowMemory = freeMb != null && freeMb < lowFreeMb;
   /** Ignores results that arrive after unmount or a Spark switch. */
   const aliveRef = useRef(true);
   const afterStartTimer = useRef<number | undefined>(undefined);
@@ -120,18 +132,35 @@ export function ModelLauncher({
     body = (
       <>
         <div className="ov-launch__title">
-          <span className="ov-launch__spin" aria-hidden />
-          Something is loading
+          {busyHolders ? null : <span className="ov-launch__spin" aria-hidden />}
+          {busyHolders ? "GPU is in use" : "Something is loading"}
         </div>
-        <div className="ov-launch__hint">{busy}. Starting another model now could run out of memory.</div>
+        <div className="ov-launch__hint">
+          {busy}.{" "}
+          {busyHolders
+            ? "If this is an LLM server, add its port under + Add LLM port on the Spark page to monitor it."
+            : "Starting another model now could run out of memory."}
+        </div>
+        {confirmLow ? (
+          <div className="ov-launch__err" role="alert">
+            Only {formatMb(freeMb ?? 0)} of memory is free. Starting a model now will probably run out of memory.
+          </div>
+        ) : null}
         <div className="ov-launch__more">
           {onOpen ? (
             <button type="button" className="btn btn--sm" onClick={() => onOpen(sparkId)}>
               Open Spark
             </button>
           ) : null}
-          <button type="button" className="btn btn--sm btn--ghost" onClick={() => setOverride(true)}>
-            Start anyway…
+          <button
+            type="button"
+            className="btn btn--sm btn--ghost"
+            onClick={() => {
+              if (lowMemory && !confirmLow) setConfirmLow(true);
+              else setOverride(true);
+            }}
+          >
+            {confirmLow ? "Yes, start anyway" : "Start anyway…"}
           </button>
         </div>
       </>
