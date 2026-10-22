@@ -174,7 +174,7 @@ const MACMON_CANDIDATES = [
 ].filter(Boolean);
 export const MACMON_CMD =
   `for m in ${MACMON_CANDIDATES.map((p) => (p.startsWith("$HOME") ? `"${p}"` : `'${p.replace(/'/g, `'\\''`)}'`)).join(" ")} "$(command -v macmon 2>/dev/null)"; do ` +
-  'if [ -n "$m" ] && [ -x "$m" ]; then "$m" pipe -s 1 -i 200; exit 0; fi; done; echo NO_MACMON';
+  'if [ -n "$m" ] && [ -x "$m" ]; then "$m" pipe -s 1 -i 200 --soc-info || "$m" pipe -s 1 -i 200; exit 0; fi; done; echo NO_MACMON';
 
 /** Last JSON line of `macmon pipe` output, parsed; null when absent or malformed. */
 export function parseMacmonSample(output) {
@@ -2277,7 +2277,7 @@ export class SystemCollector {
         vendor: "apple",
         index: 0,
         physicalIndex: 0,
-        name: "Apple GPU",
+        name: String(j.soc?.chip_name || "Apple GPU"),
         uuid: null,
         temperature,
         usage,

@@ -31,6 +31,7 @@ test("macOS GPU/CPU/RAM come from one macmon sample", async () => {
   assert.equal(calls(), 1, "one SSH round trip shared by all four collectors");
   assert.equal(gpu.vendor, "apple");
   assert.equal(gpu.gpus.length, 1);
+  assert.equal(gpu.gpus[0].name, "Apple GPU");
   assert.equal(gpu.usage, 42);
   assert.equal(gpu.temperature, 36.8);
   assert.equal(gpu.power.systemDraw, 34);
@@ -64,6 +65,7 @@ test("MACMON_CMD and DARWIN_UPTIME_CMD are valid POSIX sh", () => {
   for (const cmd of [MACMON_CMD, DARWIN_UPTIME_CMD]) execFileSync("sh", ["-n", "-c", cmd]);
   assert.match(MACMON_CMD, /opt\/homebrew\/bin\/macmon/);
   assert.match(MACMON_CMD, /HOME\/\.cargo\/bin\/macmon/);
+  assert.match(MACMON_CMD, /--soc-info/);
 });
 
 test("DARWIN_UPTIME_CMD parses kern.boottime", () => {
@@ -85,4 +87,20 @@ test("a Mac without macmon costs one SSH call a minute, not one per poll", async
   }
   assert.equal(calls(), 1);
   assert.equal(logged.filter((l) => /macmon/.test(l)).length, 1);
+});
+
+test("macmon SoC info names the actual chip", async () => {
+  const c = mac();
+  withSample(c, JSON.stringify({
+    soc: { chip_name: "Apple M3", mac_model: "Mac15,3", memory_gb: 24, gpu_cores: 10 },
+    cpu_active_ratio: 0.256,
+    gpu_active_ratio: 0.42,
+    temp: { cpu_temp_avg: 45, gpu_temp_avg: 40 },
+    memory: { ram_total: 51539607552, ram_usage: 21474836480 },
+    cpu_power: 1.2,
+    gpu_power: 0.4,
+    sys_power: 12.5,
+  }));
+  const gpu = await c.collectGpu();
+  assert.equal(gpu.gpus[0].name, "Apple M3");
 });
