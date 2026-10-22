@@ -25,7 +25,7 @@ const CUDA_MODELS = {
 };
 
 test("_detectServerType: owned_by tensorfold → tensorfold (not vllm)", async () => {
-  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 8888);
+  const probe = new LlmProbe({ lanIp: "192.0.2.10" }, 8888);
   probe._fetch = async (url) => {
     const u = String(url);
     if (u.endsWith("/v1/models")) return jsonRes(CUDA_MODELS);
@@ -37,7 +37,7 @@ test("_detectServerType: owned_by tensorfold → tensorfold (not vllm)", async (
 });
 
 test("_detectServerType: known tensorfold skips the /slots probe", async () => {
-  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 8888);
+  const probe = new LlmProbe({ lanIp: "192.0.2.10" }, 8888);
   probe.backendType = "tensorfold";
   const seen = [];
   probe._fetch = async (url) => {
@@ -51,7 +51,7 @@ test("_detectServerType: known tensorfold skips the /slots probe", async () => {
 });
 
 test("probe: tensorfold CUDA {ok:true} health → labeled, 0 tok/s, no crash", async () => {
-  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 8888);
+  const probe = new LlmProbe({ lanIp: "192.0.2.10" }, 8888);
   probe._fetch = async (url) => {
     const u = String(url);
     if (u.endsWith("/slots")) return notFound();
@@ -304,7 +304,7 @@ test("_applyTensorFoldHealth: CUDA 0.6.0 streams size the slot tile and count bu
 });
 
 test("probe: newer TensorFold (live rates in /health, totals on /metrics) → real tok/s and totals", async () => {
-  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 8888);
+  const probe = new LlmProbe({ lanIp: "192.0.2.10" }, 8888);
   const health = {
     status: "ok",
     max_batch_size: 4,
@@ -339,7 +339,7 @@ test("probe: newer TensorFold (live rates in /health, totals on /metrics) → re
 });
 
 test("probe: a decode rate reported in /health is not replaced by the /metrics counter diff", async () => {
-  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 8888);
+  const probe = new LlmProbe({ lanIp: "192.0.2.10" }, 8888);
   const health = { status: "ok", max_batch_size: 4, live: { connections: 1, waiting: 0, decode_tokens_per_second: 33.5 } };
   let total = 1000;
   probe._fetch = async (url) => {
@@ -362,7 +362,7 @@ test("probe: a decode rate reported in /health is not replaced by the /metrics c
 });
 
 test("probe: TensorFold with cumulative counters in /health reads only the queue from /metrics", async () => {
-  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 8888);
+  const probe = new LlmProbe({ lanIp: "192.0.2.10" }, 8888);
   const seen = [];
   probe._fetch = async (url) => {
     const u = String(url);
@@ -418,7 +418,7 @@ test("_applyTensorFoldHealth: CUDA 0.6.0 KV pool tokens give the KV fill", () =>
 });
 
 test("probe: tensorfold snapshot carries kvCacheUsage and null pool sizes", async () => {
-  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 8888);
+  const probe = new LlmProbe({ lanIp: "192.0.2.10" }, 8888);
   probe._fetch = async (url) => {
     const u = String(url);
     if (u.endsWith("/v1/models")) return jsonRes(CUDA_MODELS);
@@ -456,7 +456,7 @@ test("_applyTensorFoldHealth: prefillActive follows streams.prefilling and the l
 
 test("_applyTensorFoldMetrics: /metrics-only builds get decode tok/s from total + running tokens", async () => {
   // tensorfold-native (Zig engine): /health is only {"status": "ok"}, every counter is on /metrics.
-  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 8888);
+  const probe = new LlmProbe({ lanIp: "192.0.2.10" }, 8888);
   let sample = { total: 1000, running: 0 };
   probe._fetch = async (url) => {
     if (!String(url).endsWith("/metrics")) return notFound();
@@ -489,4 +489,52 @@ test("_applyTensorFoldMetrics: /metrics-only builds get decode tok/s from total 
   // Idle again.
   await probe._applyTensorFoldMetrics(2);
   assert.equal(probe.generationTps, 0);
+});
+
+test("_applyTensorFoldMetrics reads latency histograms and cache counters", async () => {
+  const probe = new LlmProbe({ lanIp: "192.0.2.10" }, 8888);
+  const metrics = [
+    'tensorfold:time_to_first_token_seconds_bucket{le="0.1"} 5',
+    'tensorfold:time_to_first_token_seconds_bucket{le="0.2"} 10',
+    'tensorfold:time_to_first_token_seconds_bucket{le="+Inf"} 10',
+    "tensorfold:time_to_first_token_seconds_sum 1.5",
+    "tensorfold:time_to_first_token_seconds_count 10",
+    'tensorfold:request_latency_seconds_bucket{le="0.5"} 8',
+    'tensorfold:request_latency_seconds_bucket{le="1"} 10',
+    'tensorfold:request_latency_seconds_bucket{le="+Inf"} 10',
+    "tensorfold:request_latency_seconds_count 10",
+    'tensorfold:request_time_per_output_token_seconds_bucket{le="0.01"} 10',
+    'tensorfold:request_time_per_output_token_seconds_bucket{le="+Inf"} 10',
+    "tensorfold:request_time_per_output_token_seconds_count 10",
+    "tensorfold:prefix_cache_queries_total 100",
+    "tensorfold:prefix_cache_hits_total 25",
+    "tensorfold:preemptions_total 3",
+  ].join("\n");
+  probe._fetch = async () => ({ ok: true, status: 200, text: async () => metrics });
+  await probe._applyTensorFoldMetrics(2);
+
+  assert.equal(probe.ttftP95Seconds, 0.19);
+  assert.equal(probe.ttftSeconds, 0.15);
+  assert.equal(probe.e2eP95Seconds, 0.875);
+  assert.equal(probe.itlP95Seconds, 0.01);
+  assert.equal(probe.prefixCacheHitRate, 0.25);
+  assert.equal(probe.preemptionsTotal, 3);
+});
+
+test("_applyTensorFoldMetrics reads the TensorFold 1.1 KV occupancy ratio", async () => {
+  const probe = new LlmProbe({ lanIp: "192.0.2.10" }, 8888);
+  probe._fetch = async () => ({
+    ok: true,
+    status: 200,
+    text: async () =>
+      [
+        "tensorfold:requests_running 1",
+        "tensorfold:requests_waiting 2",
+        "tensorfold:kv_cache_usage_ratio 0.42",
+      ].join("\n"),
+  });
+  await probe._applyTensorFoldMetrics(2);
+  assert.equal(probe.kvCacheUsage, 0.42);
+  assert.equal(probe.requestsWaiting, 2);
+  assert.equal(probe.requestsRunning, 1);
 });

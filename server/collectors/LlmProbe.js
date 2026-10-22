@@ -1761,6 +1761,42 @@ export class LlmProbe {
     }
     const waiting = m("requests_waiting");
     if (Number.isFinite(waiting) && waiting >= 0) this.requestsWaiting = Math.round(waiting);
+
+    if (!queueOnly) {
+      // TensorFold exposes Prometheus histograms under the same names as its
+      // vLLM-compatible aliases. A malformed/partial histogram yields null,
+      // never a guessed percentile.
+      const p95 = (metric) => {
+        const hist = this._parseHistogram(txt, `tensorfold:${metric}`, `tensorfold:${metric}_count`);
+        const value = this._histogramQuantile(hist.buckets, hist.total, 0.95);
+        return value == null ? null : Math.round(value * 1000) / 1000;
+      };
+      this.ttftP95Seconds = p95("time_to_first_token_seconds");
+      this.e2eP95Seconds = p95("request_latency_seconds");
+      this.itlP95Seconds = p95("request_time_per_output_token_seconds");
+
+      const mean = (metric) => {
+        const sum = this._getPromMetric(txt, `tensorfold:${metric}_sum`);
+        const count = this._getPromMetric(txt, `tensorfold:${metric}_count`);
+        if (!Number.isFinite(sum) || !Number.isFinite(count) || count <= 0) return null;
+        return Math.round((sum / count) * 1000) / 1000;
+      };
+      this.ttftSeconds = mean("time_to_first_token_seconds");
+
+      const queries = m("prefix_cache_queries_total");
+      const hits = m("prefix_cache_hits_total");
+      this.prefixCacheHitRate =
+        Number.isFinite(queries) && queries > 0 && Number.isFinite(hits)
+          ? Math.max(0, Math.min(1, hits / queries))
+          : null;
+
+      const preemptions = m("preemptions_total");
+      this.preemptionsTotal =
+        Number.isFinite(preemptions) && preemptions >= 0 ? Math.round(preemptions) : null;
+    }
+
+    const kv = queueOnly ? null : m("kv_cache_usage_ratio");
+    if (Number.isFinite(kv) && kv >= 0) this.kvCacheUsage = Math.min(1, kv);
     const drafted = queueOnly ? null : m("mtp_drafted_total");
     const accepted = queueOnly ? null : m("mtp_accepted_total");
     if (Number.isFinite(drafted) && drafted > 0 && Number.isFinite(accepted)) {
