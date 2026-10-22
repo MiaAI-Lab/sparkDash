@@ -427,7 +427,7 @@ export interface LlmMetrics {
   /** The LLM port this snapshot came from — lets the UI match panels to probes by port, not array position. */
   port?: number;
   available: boolean;
-  backend: "vllm" | "llama.cpp" | "sglang" | "lmstudio" | "ollama" | "ds4" | "exl3" | "q27" | "tensorfold" | "freetoken" | "radiance" | "strata" | null;
+  backend: "vllm" | "llama.cpp" | "sglang" | "lmstudio" | "ollama" | "ds4" | "exl3" | "q27" | "flare" | "tensorfold" | "freetoken" | "radiance" | "strata" | null;
   /** How the monitor reaches the engine: its own address, or an SSH forward when only SSH gets there. */
   via?: "direct" | "ssh-tunnel";
   modelId: string | null;
@@ -459,7 +459,7 @@ export interface LlmMetrics {
   /** Cumulative total prompt (prefill) tokens as reported by the LLM server. null when the backend does not expose it. */
   totalPromptTokens: number | null;
   /**
-   * Share of the engine's KV cache pool held by requests (0–1): vLLM, q27,
+   * Share of the engine's KV cache pool held by requests (0–1): vLLM, q27, Flare,
    * SGLang (`token_usage`) and TensorFold (`pool_tokens`). null when unknown.
    */
   kvCacheUsage?: number | null;

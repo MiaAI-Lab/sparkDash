@@ -10,7 +10,7 @@ export interface EngineStateLabel {
 
 /**
  * The LLM panel's Engine tile. `gpuMemoryUtilization` carries the engine
- * state only where the probe fills it (vLLM's sleep gauge; SGLang and q27,
+ * state only where the probe fills it (vLLM's sleep gauge; SGLang, q27 and Flare,
  * which are always resident, report Active). For the rest — TensorFold,
  * llama.cpp, … — a bare dash read like a failed probe, so the tile says the
  * backend does not report it. The dash is kept for "no LLM at all".

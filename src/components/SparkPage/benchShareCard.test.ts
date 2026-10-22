@@ -285,6 +285,7 @@ describe("share card model", () => {
     expect(backendLabel("tensorfold")).toBe("TensorFold");
     expect(backendLabel("sglang")).toBe("SGLang");
     expect(backendLabel("exl3")).toBe("EXL3");
+    expect(backendLabel("flare")).toBe("Flare");
     expect(backendLabel("something-new")).toBe("something-new");
     expect(backendLabel(null)).toBeNull();
   });

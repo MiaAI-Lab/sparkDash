@@ -169,6 +169,11 @@ export async function readServerGenerationTokens(baseUrl, opts = {}) {
           /^q27_decode_tokens_total(?:\{[^}]*\})?\s+([\d.eE+-]+)\s*$/gm
         );
       if (q27 != null) return q27;
+      // Flare (NVIDIA Flare, `flare run`) — committed generated tokens.
+      const flare = fromSeries(
+        /^flare_generated_tokens_total(?:\{[^}]*\})?\s+([\d.eE+-]+)\s*$/gm
+      );
+      if (flare != null) return flare;
     }
   } catch {
     /* try next */

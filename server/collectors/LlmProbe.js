@@ -497,6 +497,7 @@ export class LlmProbe {
       this.backendType !== "ds4" &&
       this.backendType !== "exl3" &&
       this.backendType !== "q27" &&
+      this.backendType !== "flare" &&
       this.backendType !== "tensorfold" &&
       this.backendType !== "freetoken" &&
       this.backendType !== "radiance"
@@ -548,9 +549,9 @@ export class LlmProbe {
 
   /**
    * Classify an OpenAI-compatible server: LM Studio, Ollama, ds4, SGLang,
-   * EXL3, q27, TensorFold, FreeToken, or vLLM (default).
+   * EXL3, q27, Flare, TensorFold, FreeToken, or vLLM (default).
    * @param {unknown} ownedBy
-   * @returns {Promise<"lmstudio" | "ollama" | "ds4" | "sglang" | "exl3" | "q27" | "tensorfold" | "freetoken" | "radiance" | "vllm">}
+   * @returns {Promise<"lmstudio" | "ollama" | "ds4" | "sglang" | "exl3" | "q27" | "flare" | "tensorfold" | "freetoken" | "radiance" | "vllm">}
    */
   async _classifyOpenAIBackend(ownedBy) {
     // LM Studio first: it answers 200 + JSON on every path, so the heuristic
@@ -574,6 +575,9 @@ export class LlmProbe {
       if (/^ollama$/i.test(ownedBy)) return "ollama";
     }
     if (await this._probeIsDs4()) return "ds4";
+    // Flare reports owned_by: "local" and has no /server_info, so only its
+    // flare_* Prometheus series identify it. Checked before the SGLang probe.
+    if (await this._probeIsFlare()) return "flare";
     if (await this._probeIsSglang()) return "sglang";
     if (await this._probeIsExl3()) return "exl3";
     if (await this._probeIsQ27()) return "q27";
@@ -739,6 +743,25 @@ export class LlmProbe {
     );
   }
 
+  /** True when Prometheus /metrics exposes Flare series (NVIDIA Flare, `flare run`). */
+  async _probeIsFlare() {
+    try {
+      const res = await this._fetch(`${this.baseUrl}/metrics`);
+      if (!res.ok) return false;
+      const txt = await res.text();
+      return LlmProbe._metricsLookLikeFlare(txt);
+    } catch {
+      return false;
+    }
+  }
+
+  /** @param {string} body */
+  static _metricsLookLikeFlare(body) {
+    return /(?:^|\n)flare_(?:generated_tokens_total|active_requests)(?:\{|\s)/m.test(
+      String(body || "")
+    );
+  }
+
   // ─── OpenAI-compatible path (vLLM/sglang/ds4) ────────────
   async _probeOpenAICompatible() {
     const now = Date.now();
@@ -749,6 +772,8 @@ export class LlmProbe {
     let modelsOk = false;
     let owned = null;
     let servedModelId = null;
+    let servedRoot = null;
+    let servedRawId = null;
     this.models = [];
     try {
       const modelsRes = await this._fetch(`${this.baseUrl}/v1/models`);
@@ -775,6 +800,9 @@ export class LlmProbe {
         this.contextLength =
           model?.max_model_len ?? model?.context_length ?? null;
         owned = model?.owned_by;
+        // Flare's `root` is the real checkpoint (HF repo id) behind the served alias.
+        servedRoot = typeof model?.root === "string" ? model.root : null;
+        servedRawId = model?.id ?? null;
       }
     } catch {}
 
@@ -938,6 +966,7 @@ export class LlmProbe {
       this.backendType === "radiance" ||
       this.backendType === "ds4" ||
       this.backendType === "q27" ||
+      this.backendType === "flare" ||
       this.backendType === "sglang";
     if (wantsPrometheus) {
       try {
@@ -956,6 +985,25 @@ export class LlmProbe {
           ) {
             this.backendType = "q27";
             this._applyQ27Metrics(txt, dtSec);
+          } else if (
+            this.backendType === "flare" ||
+            LlmProbe._metricsLookLikeFlare(txt)
+          ) {
+            this.backendType = "flare";
+            this._applyFlareMetrics(txt, dtSec);
+            // `id` is only the --served-model-name alias ("flare"); `root` is
+            // the real checkpoint, so show that as the model.
+            // Read on every probe, so it follows whatever Flare serves next. A
+            // local filesystem path is no name: keep the served id then.
+            const rootName = normalizeModelId(servedRoot);
+            if (rootName && !/^(?:[/~.]|[A-Za-z]:[\\/])/.test(rootName)) {
+              this.modelId = rootName;
+              // Flare accepts the root name as `model`, so list it instead of the
+              // alias (keeps order, no duplicate row on the Overview card).
+              this.models = [
+                ...new Set(this.models.map((id) => (id === servedRawId ? rootName : id))),
+              ];
+            }
           } else {
             // Only claim vLLM when the backend is still unclassified — a
             // positively-identified backend (LM Studio, tensorfold, …) must not
@@ -1094,6 +1142,94 @@ export class LlmProbe {
     this.ttftP95Seconds = null;
     this.ttftSeconds = null;
     this.preemptionsTotal = null;
+    this.e2eP95Seconds = null;
+    this.itlP95Seconds = null;
+  }
+
+  /**
+   * Apply Flare (NVIDIA Flare, `flare run`) Prometheus /metrics.
+   *
+   * Live tok/s from counter diffs (same as ds4/q27) so idle → 0; the engine's
+   * `flare_generated_tokens_last_minute` gauge is a one-minute window and is
+   * not used for the live panel. `flare_prefill_tokens_total` counts computed
+   * prompt tokens only (no prefix reuse), so it is the prefill tile and
+   * `flare_(host_)cache_reused_tokens_total` is the cached share.
+   * @param {string} txt
+   * @param {number} dtSec
+   */
+  _applyFlareMetrics(txt, dtSec) {
+    const m = (name) => this._getPromMetric(txt, `flare_${name}`);
+    const decoded = m("generated_tokens_total");
+    const computed = m("prefill_tokens_total");
+    const gpuReused = m("cache_reused_tokens_total");
+    const hostReused = m("host_cache_reused_tokens_total");
+    const cached = gpuReused == null ? null : gpuReused + (hostReused ?? 0);
+
+    if (decoded != null) {
+      if (dtSec > 0 && dtSec < 10) {
+        const deltaOut = decoded - this.lastTokenCounts.output;
+        this.generationTps = Math.max(0, Math.round((deltaOut / dtSec) * 100) / 100);
+        if (computed != null) {
+          const deltaIn = computed - this.lastTokenCounts.input;
+          // Latch the burst while requests are still in flight (decode polls
+          // have no new prompt tokens); idle clears it.
+          const inflight = (m("active_requests") ?? 0) > 0 || (m("pending_requests") ?? 0) > 0;
+          this._setPrefillTps(deltaIn / dtSec, inflight);
+        }
+      }
+      if (computed != null) this.lastTokenCounts.input = computed;
+      this.lastTokenCounts.output = decoded;
+      this.totalOutputTokens = decoded;
+      // The token ledger wants the full prompt (computed + reused).
+      if (computed != null) {
+        this.totalPromptTokens = cached != null ? computed + cached : computed;
+      }
+      if (cached != null) this.totalCachedTokens = cached;
+    }
+
+    const active = m("active_requests");
+    this.requestsRunning = active;
+    if (active != null) this.slotsActive = Math.round(active);
+    const freeSlots = m("free_request_slots");
+    if (active != null && freeSlots != null) {
+      this.slotsTotal = Math.round(active + freeSlots);
+    }
+    const pending = m("pending_requests");
+    this.requestsWaiting = pending == null ? null : Math.round(pending);
+
+    // KV pool: tokens held by live requests = total - free - checkpoint-owned.
+    // Retained prefix checkpoints are reusable, so they do not count as fill.
+    const kvTotal = m("total_kv_tokens");
+    const kvFree = m("free_kv_tokens");
+    const kvCached = m("cached_kv_tokens") ?? 0;
+    if (kvTotal != null && kvTotal > 0 && kvFree != null) {
+      const used = Math.min(kvTotal, Math.max(0, kvTotal - kvFree - kvCached));
+      this.kvCacheUsage = Math.round((used / kvTotal) * 10000) / 10000;
+      this.kvCacheTokens = Math.round(kvTotal);
+      this.kvCacheTokensAvailable = Math.max(0, Math.round(kvTotal - used));
+    } else {
+      this.kvCacheUsage = null;
+      this._clearKvPool();
+    }
+    this.kvCacheMemoryBytes = null;
+
+    // Draft acceptance = accepted / offered draft tokens (lifetime ratio, like
+    // vLLM). flare_accepted_draft_tokens_total / flare_draft_request_rounds_total
+    // is the mean accepted length per round, not a rate.
+    const offered = m("speculative_offered_drafts_total");
+    const accepted = m("speculative_accepted_drafts_total");
+    this.mtpAcceptanceRate =
+      offered != null && accepted != null && offered > 0
+        ? Math.round(Math.min(1, accepted / offered) * 10000) / 10000
+        : null;
+
+    this.preemptionsTotal = m("preemptions_total");
+    // Weights stay resident for the life of `flare run`: report Active.
+    if (this.gpuMemoryUtilization == null) this.gpuMemoryUtilization = 1;
+    this._setPrefillSplitRates(cached, computed, dtSec);
+    // No latency histograms are exposed.
+    this.ttftP95Seconds = null;
+    this.ttftSeconds = null;
     this.e2eP95Seconds = null;
     this.itlP95Seconds = null;
   }
