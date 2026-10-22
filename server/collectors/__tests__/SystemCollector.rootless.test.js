@@ -5,6 +5,14 @@ import fs from "node:fs";
 
 import { SystemCollector } from "../SystemCollector.js";
 
+function preserveHostNetworkEnv(t) {
+  const previous = process.env.SPARKDASH_HOST_NETWORK;
+  t.after(() => {
+    if (previous === undefined) delete process.env.SPARKDASH_HOST_NETWORK;
+    else process.env.SPARKDASH_HOST_NETWORK = previous;
+  });
+}
+
 function localCollector() {
   const collector = new SystemCollector({
     id: "rootless-test",
@@ -121,29 +129,37 @@ test("healthy nsenter path: host output, net flag only for net variant, no fallb
   assert.equal(warn.mock.callCount(), 0);
 });
 
-test("_containerNetnsIsHost compares netns dev+ino, caches, and treats stat failure as no", (t) => {
+test("_containerNetnsIsHost compares readable namespace IDs and caches", (t) => {
+  preserveHostNetworkEnv(t);
   const collector = localCollector();
-  let scenario = "same";
-  let stats = 0;
-  t.mock.method(fs, "statSync", (p) => {
-    stats += 1;
-    if (String(p).includes("/host/proc")) return { dev: 7, ino: 42 };
-    if (scenario === "boom") throw new Error("no proc");
-    return scenario === "same" ? { dev: 7, ino: 42 } : { dev: 7, ino: 43 };
-  });
-
-  assert.equal(collector._containerNetnsIsHost(), true); // same ns -> host view valid
+  let calls = 0;
+  t.mock.method(fs, "readlinkSync", () => { calls += 1; return "net:[42]"; });
   assert.equal(collector._containerNetnsIsHost(), true);
-  assert.equal(stats, 2); // cached: the second call did not re-stat
+  assert.equal(collector._containerNetnsIsHost(), true);
+  assert.equal(calls, 2);
 
-  const other = localCollector();
-  scenario = "differs";
-  assert.equal(other._containerNetnsIsHost(), false);
+  t.mock.method(fs, "readlinkSync", (p) => String(p).includes("/host/proc") ? "net:[42]" : "net:[43]");
+  process.env.SPARKDASH_HOST_NETWORK = "1";
+  assert.equal(localCollector()._containerNetnsIsHost(), false); // A readable mismatch always wins.
+});
 
-  const broken = localCollector();
-  scenario = "boom";
-  assert.equal(broken._containerNetnsIsHost(), false);
+test("unreadable namespace links require an explicit host-network declaration", (t) => {
+  preserveHostNetworkEnv(t);
+  process.env.SPARKDASH_HOST_NETWORK = "0";
+  t.mock.method(fs, "readlinkSync", () => "");
+  t.mock.method(fs, "statSync", () => ({ dev: 28, ino: 1 })); // Same procfs does NOT prove same netns.
+  assert.equal(localCollector()._containerNetnsIsHost(), false);
+  process.env.SPARKDASH_HOST_NETWORK = "1";
+  assert.equal(localCollector()._containerNetnsIsHost(), true);
+});
 
-  // The first collector's cached verdict survives the other instances' checks.
-  assert.equal(collector._containerNetnsShared, true);
+test("namespace read failures remain unknown unless deployment declares host networking", (t) => {
+  preserveHostNetworkEnv(t);
+  t.mock.method(fs, "readlinkSync", () => { throw Object.assign(new Error("denied"), { code: "EPERM" }); });
+  process.env.SPARKDASH_HOST_NETWORK = "0";
+  assert.equal(localCollector()._containerNetnsIsHost(), false);
+  process.env.SPARKDASH_HOST_NETWORK = "true"; // Only the documented exact value opts in.
+  assert.equal(localCollector()._containerNetnsIsHost(), false);
+  process.env.SPARKDASH_HOST_NETWORK = "1";
+  assert.equal(localCollector()._containerNetnsIsHost(), true);
 });

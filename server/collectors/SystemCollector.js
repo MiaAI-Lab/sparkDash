@@ -3152,16 +3152,23 @@ export class SystemCollector {
   /**
    * True when this process's netns IS the host's (network_mode: host) —
    * only then does the container's own /proc/net mirror the host's.
+   *
+   * Rootless Docker may deny the host namespace symlink. In that case only
+   * an explicit deployment declaration permits the fallback; a shared procfs
+   * mount does not prove shared networking. Readable namespace IDs take
+   * precedence, including a mismatch against the deployment declaration.
    */
   _containerNetnsIsHost() {
     if (this._containerNetnsShared !== null) return this._containerNetnsShared;
     try {
-      const host = fs.statSync(path.join(HOST_PATHS.PROC, "1", "ns", "net"));
-      const mine = fs.statSync("/proc/self/ns/net");
-      this._containerNetnsShared = host.dev === mine.dev && host.ino === mine.ino;
-    } catch {
-      this._containerNetnsShared = false;
-    }
+      const hostLink = fs.readlinkSync(path.join(HOST_PATHS.PROC, "1", "ns", "net"));
+      const mineLink = fs.readlinkSync("/proc/self/ns/net");
+      if (/^net:\[\d+\]$/.test(hostLink) && /^net:\[\d+\]$/.test(mineLink)) {
+        this._containerNetnsShared = hostLink === mineLink;
+        return this._containerNetnsShared;
+      }
+    } catch { /* Permission failure is inconclusive, not proof of equality. */ }
+    this._containerNetnsShared = process.env.SPARKDASH_HOST_NETWORK === "1";
     return this._containerNetnsShared;
   }
 
