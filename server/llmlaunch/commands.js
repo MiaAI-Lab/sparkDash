@@ -49,9 +49,25 @@ function markerFn(nonce) {
 }
 
 const HELPERS = `
-# Start time (clock ticks since boot) of a pid: guards against pid reuse.
-pstart() { sed 's/.*) //' "/proc/$1/stat" 2>/dev/null | cut -d' ' -f20; }
-ppidof() { sed 's/.*) //' "/proc/$1/stat" 2>/dev/null | cut -d' ' -f2; }
+# Start time of a pid (guards against pid reuse) and its parent pid. /proc where it exists
+# (Linux); ps elsewhere (macOS has no /proc, and its ps prints a date for the start time).
+if [ -r /proc/self/stat ]; then
+  pstart() { sed 's/.*) //' "/proc/$1/stat" 2>/dev/null | cut -d' ' -f20; }
+  ppidof() { sed 's/.*) //' "/proc/$1/stat" 2>/dev/null | cut -d' ' -f2; }
+else
+  pstart() { LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null | sed 's/^ *//; s/ *$//'; }
+  ppidof() { ps -o ppid= -p "$1" 2>/dev/null | tr -d ' '; }
+fi
+# GNU stat first, BSD stat (macOS) second.
+fmode() { stat -c %a -- "$1" 2>/dev/null || stat -f %Lp "$1" 2>/dev/null; }
+fowner() { stat -c %u -- "$1" 2>/dev/null || stat -f %u "$1" 2>/dev/null; }
+fsize() { stat -c %s -- "$1" 2>/dev/null || stat -f %z "$1" 2>/dev/null; }
+# Run a command as the leader of a new session; $! of "newsid ... &" is that leader's pid.
+# macOS has no setsid(1): perl's POSIX::setsid does the same and then execs the command.
+newsid() {
+  if command -v setsid >/dev/null 2>&1; then exec setsid "$@"; fi
+  exec perl -MPOSIX -e 'POSIX::setsid(); exec { $ARGV[0] } @ARGV or die "exec: $!"' "$@"
+}
 # pid file holds "<pid> <starttime>" of the setsid leader.
 loadpid() {
   PID=0; PST=
@@ -65,8 +81,8 @@ loadpid() {
 # kernel never hands out a pid that is still a live group id).
 alive() {
   [ "\${PID:-0}" != 0 ] || return 1
-  if [ -d "/proc/$PID" ]; then
-    [ -z "$PST" ] && { kill -0 -- "-$PID" 2>/dev/null || kill -0 "$PID" 2>/dev/null; return; }
+  if kill -0 "$PID" 2>/dev/null; then
+    [ -z "$PST" ] && return 0
     [ "$(pstart "$PID")" = "$PST" ]
     return
   fi
@@ -93,7 +109,7 @@ follow() {
   alive || rm -f "$P"
 }
 # World-writable? (also true when the mode cannot be read)
-wwrite() { m=$(stat -c %a -- "$1" 2>/dev/null) || return 0; [ $(( 8#\${m: -1} & 2 )) -ne 0 ]; }
+wwrite() { m=$(fmode "$1") || return 0; [ $(( 8#\${m: -1} & 2 )) -ne 0 ]; }
 # Run inside the launcher directory. $1: script file name.
 check_script() {
   H=$(cd "$HOME" 2>/dev/null && pwd -P) || { echo "[sparkdash] cannot resolve the home directory"; return 1; }
@@ -101,7 +117,7 @@ check_script() {
   case "$D/" in "$H"/*) ;; *) echo "[sparkdash] refusing: $D is not inside $H"; return 1 ;; esac
   if wwrite .; then echo "[sparkdash] refusing: directory $D is world-writable"; return 1; fi
   if [ ! -f "./$1" ] || [ -L "./$1" ]; then echo "[sparkdash] $1 not found in $D (must be a regular file)"; return 2; fi
-  [ "$(stat -c %u -- "./$1" 2>/dev/null)" = "$(id -u)" ] || { echo "[sparkdash] refusing: $1 is not owned by $(id -un)"; return 1; }
+  [ "$(fowner "./$1")" = "$(id -u)" ] || { echo "[sparkdash] refusing: $1 is not owned by $(id -un)"; return 1; }
   if wwrite "./$1"; then echo "[sparkdash] refusing: $1 is world-writable"; return 1; fi
   return 0
 }
@@ -124,7 +140,7 @@ W=$$
 (
   while kill -0 $W 2>/dev/null; do
     read -t 15 <>"$4"
-    s=$(stat -c %s -- "$3" 2>/dev/null || echo 0)
+    s=$(stat -c %s -- "$3" 2>/dev/null || stat -f %z "$3" 2>/dev/null || echo 0)
     if [ "$s" -gt ${LOG_MAX_BYTES} ]; then
       tail -c ${LOG_KEEP_BYTES} "$3" > "$3.cut" && cat "$3.cut" > "$3"
       rm -f "$3.cut"
@@ -164,7 +180,7 @@ if alive; then
 else
   rm -f "$X" "$P"; : > "$L"
   echo "[sparkdash] starting ${dir}/${script} as $(id -un)" >> "$L"
-  setsid bash -c "$WRAP" _ '${script}' "$X" "$L" "$LD/${id}.fifo" >> "$L" 2>&1 < /dev/null 9>&- &
+  newsid bash -c "$WRAP" _ '${script}' "$X" "$L" "$LD/${id}.fifo" >> "$L" 2>&1 < /dev/null 9>&- &
   PID=$!
   PST=$(pstart "$PID")
   echo "$PID $PST" > "$P"
@@ -206,7 +222,7 @@ check_script '${script}'; RC=$?
 if [ $RC -ne 0 ]; then [ $RC -eq 2 ] && RC=127 || RC=126; mark $RC; exit 0; fi
 echo "[sparkdash] running ${dir}/${script} as $(id -un)"
 P0=$(ppidof $$)
-setsid bash -c 'if [ -x "./$1" ]; then "./$1"; else bash "./$1"; fi' _ '${script}' < /dev/null &
+newsid bash -c 'if [ -x "./$1" ]; then "./$1"; else bash "./$1"; fi' _ '${script}' < /dev/null &
 SP=$!
 while kill -0 "$SP" 2>/dev/null; do
   if [ "$(ppidof $$)" != "$P0" ]; then
