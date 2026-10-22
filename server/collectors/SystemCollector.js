@@ -188,6 +188,101 @@ export function parseMacmonSample(output) {
   }
 }
 
+/** One SSH round trip: BSD link counters, interface addresses/state, default route. */
+const MAC_NETWORK_CMD =
+  "netstat -ibn 2>/dev/null; echo '---IFCONFIG---'; ifconfig -a 2>/dev/null; echo '---ROUTE---'; route -n get default 2>/dev/null";
+
+/**
+ * Parse the combined macOS network probe. Keeps physical `en*` interfaces
+ * (including Ethernet and Wi-Fi) and drops loopback, tunnels and bridges so
+ * encapsulated traffic is not counted twice. Byte counters are cumulative;
+ * rates are deltas against `lastStats`, which this function updates.
+ *
+ * @param {string} output
+ * @param {Map<string, {rxBytes:number, txBytes:number, time:number}>} lastStats
+ * @param {number} now
+ */
+export function parseMacNetwork(output, lastStats = new Map(), now = Date.now()) {
+  const text = String(output ?? "");
+  const [netstatPart, rest = ""] = text.split("---IFCONFIG---");
+  const [ifconfigPart = "", routePart = ""] = rest.split("---ROUTE---");
+
+  const config = new Map();
+  let current = null;
+  for (const line of ifconfigPart.split("\n")) {
+    const head = /^(\w+): flags=/.exec(line);
+    if (head) {
+      current = { ip: null, operstate: "unknown", media: null, ether: null };
+      config.set(head[1], current);
+      continue;
+    }
+    if (!current) continue;
+    const status = /^\s+status:\s*(\S+)/.exec(line);
+    if (status) current.operstate = status[1] === "active" ? "up" : "down";
+    const inet = /^\s+inet\s+(\d+\.\d+\.\d+\.\d+)/.exec(line);
+    if (inet) current.ip = inet[1];
+    const media = /^\s+media:\s*(.+)$/.exec(line);
+    if (media) current.media = media[1].trim();
+    const ether = /^\s+ether\s+([0-9a-f:]{17})/i.exec(line);
+    if (ether) current.ether = ether[1];
+  }
+
+  const interfaces = [];
+  const seen = new Set();
+  for (const line of netstatPart.split("\n")) {
+    const parts = line.trim().split(/\s+/);
+    const name = parts[0];
+    if (!/^en\d+$/.test(name) || seen.has(name)) continue;
+    const linkIdx = parts.findIndex((p) => p.startsWith("<Link#"));
+    if (linkIdx < 0) continue;
+    const rxBytes = Number(parts[linkIdx + 4]);
+    const txBytes = Number(parts[linkIdx + 7]);
+    if (!Number.isFinite(rxBytes) || !Number.isFinite(txBytes)) continue;
+    const iface = config.get(name) || {};
+    const prev = lastStats.get(name);
+    const dtSec = prev ? (now - prev.time) / 1000 : 0;
+    const rxSpeed = prev && dtSec > 0 ? Math.max(0, (rxBytes - prev.rxBytes) / dtSec) : 0;
+    const txSpeed = prev && dtSec > 0 ? Math.max(0, (txBytes - prev.txBytes) / dtSec) : 0;
+    lastStats.set(name, { rxBytes, txBytes, time: now });
+    seen.add(name);
+    // A Mac exposes many dormant en* interfaces (Thunderbolt, USB, Wi-Fi).
+    // Keep an interface when it is up or has carried traffic; drop the rest
+    // so the network panel lists what is actually in use.
+    if (iface.operstate !== "up" && rxBytes === 0 && txBytes === 0) continue;
+    interfaces.push({
+      name,
+      rxSpeed: Math.round(rxSpeed),
+      txSpeed: Math.round(txSpeed),
+      ip: iface.ip ?? null,
+      operstate: iface.operstate ?? "unknown",
+      disabled: false,
+    });
+  }
+
+  const routeMatch = /interface:\s*(\w+)/.exec(routePart);
+  const routed = routeMatch?.[1];
+  const primaryInterface =
+    (routed && interfaces.some((i) => i.name === routed) ? routed : null) ||
+    interfaces.find((i) => i.operstate === "up")?.name ||
+    interfaces[0]?.name ||
+    null;
+
+  const media = primaryInterface ? config.get(primaryInterface)?.media : null;
+  let linkSpeedMbps = null;
+  const speed = media ? /(\d+)\s*(Gbase|baseT|Base-T|Gbps|base)/i.exec(media) : null;
+  if (speed) {
+    const n = Number(speed[1]);
+    linkSpeedMbps = /g/i.test(speed[2]) ? n * 1000 : n;
+  }
+
+  return {
+    primaryInterface,
+    linkSpeedMbps,
+    interfaces,
+    wolMac: primaryInterface ? config.get(primaryInterface)?.ether ?? null : null,
+  };
+}
+
 const REMOTE_GPU_SECTIONS = new Set(["NVIDIA", "NVIDIA_VRAM", "NVIDIA_APPS", "AMD", "AMD_LIMITS", "INTEL", "MEMINFO", "CLOCK_CAP"]);
 
 /**
@@ -533,7 +628,7 @@ export class SystemCollector {
 
   /** Collect network metrics (interfaces, speeds). */
   async collectNetwork() {
-    if (!this.spark.isLocal && this.isMac) return this._defaultNetwork();
+    if (!this.spark.isLocal && this.isMac) return this._getRemoteNetworkMac();
     if (!this.spark.isLocal) return this.isWindows ? this._getWindowsNetwork() : this._getRemoteNetwork();
     try {
       const interfaces = this._tagDisabledInterfaces(await this._getNetworkMetrics());
@@ -2351,6 +2446,22 @@ export class SystemCollector {
   }
 
   /** macOS RAM via sysctl + memory_pressure (one SSH round trip). */
+  /** macOS network: BSD byte counters + ifconfig state + default route, one SSH call. */
+  async _getRemoteNetworkMac() {
+    try {
+      const output = await sshExec(this.spark, MAC_NETWORK_CMD);
+      const network = parseMacNetwork(output, this.lastNetworkStats);
+      network.interfaces = this._tagDisabledInterfaces(network.interfaces);
+      if (network.primaryInterface && (this.spark.disabledInterfaces || []).includes(network.primaryInterface)) {
+        network.primaryInterface = network.interfaces.find((i) => !i.disabled)?.name ?? network.primaryInterface;
+      }
+      return network;
+    } catch (err) {
+      console.error(`[SystemCollector] macOS network error for ${this.spark.id}:`, err.message);
+      return this._defaultNetwork();
+    }
+  }
+
   async _getRemoteRamMac() {
     try {
       const output = await sshExec(

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { execFileSync } from "node:child_process";
-import { SystemCollector, MACMON_CMD, parseMacmonSample } from "../SystemCollector.js";
+import { SystemCollector, MACMON_CMD, parseMacmonSample, parseMacNetwork } from "../SystemCollector.js";
 import { DARWIN_UPTIME_CMD } from "../../sparks/SparkMonitor.js";
 
 // `macmon pipe -s 1` output captured from a Mac Studio (M3 Ultra, 512 GB, macOS 27), core lists trimmed.
@@ -54,10 +54,50 @@ test("macOS without macmon degrades to defaults; RAM falls back to sysctl", asyn
   assert.equal((await c.collectCpu()).usage, 0);
 });
 
-test("macOS network collector is skipped instead of failing on /sys/class/net", async () => {
-  const c = mac();
-  c._getRemoteNetwork = async () => { throw new Error("Linux collector must not run on darwin"); };
-  assert.deepEqual(await c.collectNetwork(), c._defaultNetwork());
+const MAC_NETWORK = `Name       Mtu   Network       Address            Ipkts Ierrs     Ibytes    Opkts Oerrs     Obytes  Coll
+en0       1500  <Link#4>    02:1a:7f:3c:9d:2e    100     0      10000      200     0      20000     0
+en0       1500  192.168.1    192.168.1.10         100     0      10000      200     0      20000     0
+lo0       16384 <Link#1>                          900     0     900000      900     0     900000     0
+utun3     1500  <Link#22>                          10      0       1000       10     0       1000     0
+en1       1500  <Link#5>                                0     0          0        0     0          0     0
+---IFCONFIG---
+en0: flags=8863<UP,BROADCAST,SMART,RUNNING,SIMPLEX,MULTICAST> mtu 1500
+\tether 02:1a:7f:3c:9d:2e
+\tinet 192.168.1.10 netmask 0xffffff00 broadcast 192.168.1.255
+\tmedia: autoselect (1000baseT <full-duplex>)
+\tstatus: active
+lo0: flags=8049<UP,LOOPBACK,RUNNING,MULTICAST> mtu 16384
+\tinet 127.0.0.1 netmask 0xff000000
+---ROUTE---
+   route to: default
+destination: default
+       mask: default
+    gateway: 192.168.1.1
+  interface: en0
+`;
+
+test("macOS network keeps physical en0, drops loopback/tunnels/dormant, and deltas counters", () => {
+  const stats = new Map();
+  const first = parseMacNetwork(MAC_NETWORK, stats, 1000);
+  assert.equal(first.primaryInterface, "en0");
+  assert.equal(first.linkSpeedMbps, 1000);
+  assert.equal(first.wolMac, "02:1a:7f:3c:9d:2e");
+  assert.deepEqual(first.interfaces.map((i) => i.name), ["en0"]);
+  assert.equal(first.interfaces[0].ip, "192.168.1.10");
+  assert.equal(first.interfaces[0].operstate, "up");
+  assert.equal(first.interfaces[0].rxSpeed, 0);
+
+  const second = parseMacNetwork(MAC_NETWORK.replace("10000", "16000").replace("20000", "26000"), stats, 2000);
+  assert.equal(second.interfaces[0].rxSpeed, 6000);
+  assert.equal(second.interfaces[0].txSpeed, 6000);
+});
+
+test("macOS network counter reset reports 0, not a negative rate", () => {
+  const stats = new Map();
+  parseMacNetwork(MAC_NETWORK, stats, 1000);
+  const reset = parseMacNetwork(MAC_NETWORK.replace("10000", "10").replace("20000", "20"), stats, 2000);
+  assert.equal(reset.interfaces[0].rxSpeed, 0);
+  assert.equal(reset.interfaces[0].txSpeed, 0);
 });
 
 test("MACMON_CMD and DARWIN_UPTIME_CMD are valid POSIX sh", () => {
