@@ -188,6 +188,138 @@ export function parseMacmonSample(output) {
   }
 }
 
+/** One SSH round trip: APFS capacity plus aggregate block-device byte counters. */
+export const MAC_STORAGE_CMD =
+  "df -k 2>/dev/null; echo '---IOREG---'; /usr/sbin/ioreg -r -c IOBlockStorageDriver -k Statistics -l 2>/dev/null | /usr/bin/grep '\"Statistics\"'";
+
+/**
+ * Parse macOS `df -k`. The APFS system (`/`) and Data
+ * (`/System/Volumes/Data`) volumes share one container: reporting only `/`
+ * hides user data, while reporting both would double the capacity. Collapse a
+ * same-container pair into one entry with summed used blocks and the shared
+ * free space. Other `/System/Volumes/*` mounts are internal and omitted.
+ *
+ * @param {string} output
+ * @param {string[]} disabledDevices
+ */
+export function parseMacDf(output, disabledDevices = []) {
+  const rows = [];
+  const PSEUDO = new Set(["devfs", "autofs", "tmpfs", "overlay"]);
+  for (const line of String(output ?? "").trim().split("\n").slice(1)) {
+    const parts = line.trim().split(/\s+/);
+    if (parts.length < 6) continue;
+    const isTyped = /^[a-z]+$/.test(parts[1] || "");
+    let fsys, type, size, used, avail, mountRest;
+    if (isTyped) {
+      // GNU-style df -T (not normally used on macOS)
+      [fsys, type, size, used, avail, , ...mountRest] = parts;
+    } else {
+      // BSD df: fs, 1024-blocks, used, available, capacity, iused, ifree, %iused, mount
+      if (parts.length < 9) continue;
+      [fsys, size, used, avail, , , , , ...mountRest] = parts;
+      type = "apfs";
+    }
+    const mount = mountRest.join(" ") || "/";
+    if (PSEUDO.has(String(type || "").toLowerCase())) continue;
+    if (!mount.startsWith("/") || mount === "/dev") continue;
+    if (mount === "/boot/efi" || mount.includes("/snap")) continue;
+    if (/^\/System\/Volumes\//.test(mount) && mount !== "/System/Volumes/Data") continue;
+    const toMB = (v) => Math.round((parseInt(v, 10) || 0) / 1024);
+    rows.push({
+      device: fsys.split("/").pop() || fsys,
+      mount,
+      used: toMB(used),
+      total: toMB(size),
+      available: toMB(avail),
+    });
+  }
+
+  const parentDevice = (device) => (String(device).match(/^disk\d+/) || [device])[0];
+  const root = rows.find((r) => r.mount === "/");
+  const data = rows.find((r) => r.mount === "/System/Volumes/Data");
+  const sameContainer = root && data && parentDevice(root.device) === parentDevice(data.device);
+  const consumed = new Set([root, data].filter(Boolean));
+  const out = [];
+
+  const push = (row, label, device, used, total, available) => {
+    const isDisabled =
+      disabledDevices.includes(device) || disabledDevices.includes(label) || disabledDevices.includes(row.mount);
+    out.push({
+      device,
+      label,
+      used,
+      total,
+      available,
+      percentage: total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0,
+      readSpeed: 0,
+      writeSpeed: 0,
+      disabled: isDisabled,
+    });
+  };
+
+  if (sameContainer) {
+    const total = Math.max(root.total, data.total);
+    const used = Math.min(total, root.used + data.used);
+    push(root, "/", parentDevice(root.device), used, total, Math.min(root.available, data.available));
+  } else {
+    if (root) push(root, "/", root.device, root.used, root.total, root.available);
+    if (data) push(data, "/", parentDevice(data.device), data.used, data.total, data.available);
+  }
+
+  for (const row of rows) {
+    if (consumed.has(row)) continue;
+    if (out.some((d) => d.label === row.mount)) continue;
+    push(row, row.mount, row.device, row.used, row.total, row.available);
+  }
+  return out;
+}
+
+/**
+ * Sum the IOBlockStorageDriver lifetime byte counters from an `ioreg` dump.
+ * One driver exists per physical block device; summing them gives aggregate
+ * system disk throughput, not per-volume throughput. Returns null when the
+ * Statistics dictionaries are absent or malformed.
+ *
+ * @param {string} output
+ * @returns {{ readBytes: number, writeBytes: number } | null}
+ */
+export function parseMacIoregDiskStats(output) {
+  const text = String(output ?? "");
+  let readBytes = 0;
+  let writeBytes = 0;
+  let found = false;
+  const number = (raw) => Number.parseInt(raw, /^0x/i.test(raw) ? 16 : 10);
+  const lines = text.split("\n");
+  // Apple's IOBlockStorageDriver dictionary uses spaced keys and may print
+  // 64-bit counters in hex. APFS also publishes a driver-level Statistics
+  // dictionary that mirrors the physical disk; summing both doubles I/O.
+  // Physical-driver blocks carry timing/retry keys that the APFS mirror lacks,
+  // so only those blocks are summed.
+  const candidates = [];
+  for (const line of lines) {
+    if (!line.includes('"Statistics"')) continue;
+    if (!/"Total Time \(Read\)"|"Latency Time \(Write\)"|"Retries \(Read\)"/.test(line)) continue;
+    candidates.push(line);
+  }
+  const spacedRead = candidates.flatMap((line) => [...line.matchAll(/"Bytes\s*\(Read\)"\s*=\s*(0x[0-9a-f]+|\d+)/gi)]);
+  const spacedWrite = candidates.flatMap((line) => [...line.matchAll(/"Bytes\s*\(Write\)"\s*=\s*(0x[0-9a-f]+|\d+)/gi)]);
+  if (spacedRead.length > 0 || spacedWrite.length > 0) {
+    for (const m of spacedRead) { readBytes += number(m[1]); found = true; }
+    for (const m of spacedWrite) { writeBytes += number(m[1]); found = true; }
+  } else {
+    for (const m of text.matchAll(/"BytesRead"\s*=\s*(0x[0-9a-f]+|\d+)/gi)) {
+      readBytes += number(m[1]);
+      found = true;
+    }
+    for (const m of text.matchAll(/"BytesWritten"\s*=\s*(0x[0-9a-f]+|\d+)/gi)) {
+      writeBytes += number(m[1]);
+      found = true;
+    }
+  }
+  if (!found || !Number.isSafeInteger(readBytes) || !Number.isSafeInteger(writeBytes)) return null;
+  return { readBytes, writeBytes };
+}
+
 const REMOTE_GPU_SECTIONS = new Set(["NVIDIA", "NVIDIA_VRAM", "NVIDIA_APPS", "AMD", "AMD_LIMITS", "INTEL", "MEMINFO", "CLOCK_CAP"]);
 
 /**
@@ -2386,44 +2518,23 @@ export class SystemCollector {
   /** macOS storage: BSD df has no -x excludes; filter by mount/type instead. */
   async _getRemoteStorageMac() {
     try {
-      const output = await sshExec(this.spark, "df -k 2>/dev/null");
-      const lines = output.trim().split("\n").slice(1); // skip header
-      const disks = [];
-      const disabledDevices = this.spark.disabledDevices || [];
-      const PSEUDO = new Set(["devfs", "autofs", "apfs", "tmpfs", "overlay"]);
-      for (const line of lines) {
-        const parts = line.split(/\s+/);
-        // BSD df (no -T): Filesystem 1024-blocks Used Available Capacity iused ifree %iused Mounted (9 cols)
-        // GNU df -T: Filesystem Type 1024-blocks Used Available Capacity Mounted (7 cols)
-        if (parts.length < 6) continue;
-        const isTyped = /^[a-z]+$/.test(parts[1] || "");
-        let fsys, type, size, used, avail, pct, mountRest;
-        if (isTyped) {
-          [fsys, type, size, used, avail, pct, ...mountRest] = parts;
-        } else {
-          // 9-col BSD: parts = fs,1024blocks,used,avail,cap,iused,ifree,%iused,mount
-          if (parts.length < 9) continue;
-          [fsys, size, used, avail, pct, , , , ...mountRest] = parts;
-          type = "apfs";
+      // One SSH round trip: capacity from df, aggregate read/write byte
+      // counters from IOBlockStorageDriver. The latter covers every block
+      // device, so the rate is attached to the root entry and documented as
+      // aggregate rather than per-volume.
+      const output = await sshExec(this.spark, MAC_STORAGE_CMD);
+      const disks = parseMacDf(output, this.spark.disabledDevices || []);
+      const io = parseMacIoregDiskStats(output);
+      if (io) {
+        const now = Date.now();
+        const prev = this._macDiskIo;
+        const dt = prev ? (now - prev.time) / 1000 : 0;
+        const root = disks.find((d) => d.label === "/") ?? disks[0];
+        if (root && prev && dt > 0) {
+          root.readSpeed = Math.max(0, Math.round((io.readBytes - prev.readBytes) / dt));
+          root.writeSpeed = Math.max(0, Math.round((io.writeBytes - prev.writeBytes) / dt));
         }
-        const mount = mountRest.join(" ") || "/";
-        if (PSEUDO.has((type || "").toLowerCase()) && type !== "apfs") continue;
-        if (mount === "/boot/efi" || mount.includes("/snap") || /^\/System\/Volumes\//.test(mount)) continue;
-        if (!mount.startsWith("/") || mount === "/dev") continue;
-        const device = fsys.split("/").pop() || fsys;
-        const isDisabled =
-          disabledDevices.includes(device) || disabledDevices.includes(mount);
-        disks.push({
-          device,
-          label: mount,
-          used: Math.round(parseInt(used) / 1024),
-          total: Math.round(parseInt(size) / 1024),
-          available: Math.round(parseInt(avail) / 1024),
-          percentage: parseInt(pct) || 0,
-          readSpeed: 0,
-          writeSpeed: 0,
-          disabled: isDisabled,
-        });
+        this._macDiskIo = { ...io, time: now };
       }
       return disks;
     } catch (err) {

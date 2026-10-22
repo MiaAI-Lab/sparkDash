@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
+import { parseMacDf, parseMacIoregDiskStats } from "../SystemCollector.js";
 
 /**
  * Parse-level tests for the macOS (platform: "darwin") collectors. These run
@@ -131,4 +132,63 @@ test("mac ram parse: hw.memsize + free percentage", () => {
   assert.equal(ram.total, Math.round(38654705664 / 1024 / 1024));
   assert.equal(ram.percentage, 36);
   assert.equal(ram.used, ram.total - Math.round((ram.total * 64) / 100));
+});
+
+const APFS_DF = `Filesystem     1024-blocks      Used Available Capacity iused      ifree %iused  Mounted on
+/dev/disk3s1s1    1000000      5000    800000     1%    1000    8000000    0%   /
+/dev/disk3s5      1000000     15000    800000     2%    2000    8000000    0%   /System/Volumes/Data
+devfs                 197       197         0   100%     195          0  100%   /dev
+/dev/disk5s1       500000    100000    400000    20%       1          2    0%   /Volumes/Backup`;
+
+test("mac df: APFS root + Data collapse into one container entry", () => {
+  const disks = parseMacDf(APFS_DF);
+  const root = disks.find((d) => d.label === "/");
+  assert.ok(root);
+  assert.equal(root.device, "disk3");
+  assert.equal(root.used, Math.round((5000 + 15000) / 1024));
+  assert.equal(root.total, Math.round(1000000 / 1024));
+  assert.equal(root.available, Math.round(800000 / 1024));
+  assert.equal(disks.some((d) => d.label === "/System/Volumes/Data"), false);
+  assert.equal(disks.some((d) => d.label === "/dev"), false);
+  const backup = disks.find((d) => d.label === "/Volumes/Backup");
+  assert.ok(backup);
+  assert.equal(backup.used, Math.round(100000 / 1024));
+});
+
+test("mac df: a lone Data volume is shown as the root pool", () => {
+  const disks = parseMacDf(`Filesystem 1024-blocks Used Available Capacity iused ifree %iused Mounted on
+/dev/disk3s5 1000000 20000 800000 20% 1 2 0% /System/Volumes/Data`);
+  assert.equal(disks.length, 1);
+  assert.equal(disks[0].label, "/");
+  assert.equal(disks[0].used, Math.round(20000 / 1024));
+});
+
+test("mac ioreg: accepts Apple spaced keys and hex counters", () => {
+  const io = parseMacIoregDiskStats(
+    '"Statistics" = {"Bytes (Read)"=0x1000,"Bytes (Write)"=0x2000,"Operations (Read)"=0x10,"Total Time (Read)"=1}'
+  );
+  assert.deepEqual(io, { readBytes: 0x1000, writeBytes: 0x2000 });
+});
+
+test("mac ioreg: ignores APFS mirror counters that would double I/O", () => {
+  const io = parseMacIoregDiskStats(`
+  | "Statistics" = {"Bytes (Read)"=1000000,"Bytes (Write)"=2000000,"Total Time (Read)"=1,"Latency Time (Write)"=0,"Retries (Read)"=0}
+  | "IOPersonalityPublisher" = "com.apple.iokit.IOStorageFamily"
+      | "Statistics" = {"Bytes (Read)"=999999,"Bytes (Write)"=1999999}
+      | "IOPersonalityPublisher" = "com.apple.filesystems.apfs"
+      | "Statistics" = {"Bytes (Read)"=100,"Bytes (Write)"=200}
+`);
+  assert.deepEqual(io, { readBytes: 1000000, writeBytes: 2000000 });
+});
+
+test("mac ioreg: absent or malformed counters are unavailable, not zero", () => {
+  assert.equal(parseMacIoregDiskStats(""), null);
+  assert.equal(parseMacIoregDiskStats('"Statistics" = {"Other"=1}'), null);
+});
+
+test("mac df ignores the ioreg section appended to the same SSH output", () => {
+  const combined = APFS_DF + "\n---IOREG---\n\"Statistics\" = {\"Bytes (Read)\"=10,\"Bytes (Write)\"=20,\"Total Time (Read)\"=1}\n";
+  const disks = parseMacDf(combined);
+  assert.equal(disks.find((d) => d.label === "/").used, Math.round((5000 + 15000) / 1024));
+  assert.deepEqual(parseMacIoregDiskStats(combined), { readBytes: 10, writeBytes: 20 });
 });
