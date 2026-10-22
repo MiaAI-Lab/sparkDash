@@ -389,6 +389,26 @@ test("unavailable GPU metrics are omitted instead of exported as zeroes", () => 
   assert.equal(samplesOf(families, "sparkdash_gpu_memory_total_bytes", { gpu: "1" }).length, 0);
 });
 
+test("an endpoint whose stats could not be read is up, flagged unmeasured, and exports no rates", () => {
+  const head = gb10Head();
+  const tf = { unit: "spark-1", port: "8888", backend: "tensorfold", model: "GLM-5.3-Flash-EXL3" };
+  const readable = parseExposition(renderPrometheusMetrics([head]));
+  assert.equal(valueOf(readable, "sparkdash_llm_measurement_valid", tf), 1);
+  head.metrics.llm[0] = { ...head.metrics.llm[0], measurementValid: false, measurementError: "stats endpoint answered 500", generationTps: 0, prefillTps: 0, requestsRunning: null };
+  const families = parseExposition(renderPrometheusMetrics([head]));
+  assert.equal(valueOf(families, "sparkdash_llm_up", tf), 1, "the endpoint is reachable");
+  assert.equal(valueOf(families, "sparkdash_llm_measurement_valid", tf), 0);
+  for (const name of [
+    "sparkdash_llm_generation_tokens_per_second",
+    "sparkdash_llm_prefill_tokens_per_second",
+    "sparkdash_llm_kv_cache_usage_ratio",
+    "sparkdash_llm_requests_running",
+    "sparkdash_llm_generated_tokens_total",
+  ]) {
+    assert.equal(samplesOf(families, name, tf).length, 0, `${name} is omitted, not exported as 0`);
+  }
+});
+
 test("LLM endpoints: rates, counters, and nothing invented for a down or silent engine", () => {
   const families = parseExposition(renderPrometheusMetrics([gb10Head(), multiGpuHost()]));
   const tf = { unit: "spark-1", port: "8888", backend: "tensorfold", model: "GLM-5.3-Flash-EXL3" };

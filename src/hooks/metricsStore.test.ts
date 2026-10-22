@@ -56,4 +56,23 @@ describe("metricsStore timestamp contract", () => {
     expect(getMetricHistorySamples(spark.id, "gpu.temp")).toEqual([]);
     expect(getMetricHistorySamples(spark.id, "gpu.powerPct")).toEqual([]);
   });
+
+  it("leaves a gap, not a zero, for an LLM poll whose stats could not be read", () => {
+    const spark = makeSpark();
+    spark.llmPorts = [8888];
+    Object.assign(spark.metrics.llm[0], { available: true, generationTps: 40, prefillTps: 900, measurementValid: true });
+    ingestSnapshots([spark], 1_000);
+    Object.assign(spark.metrics.llm[0], { generationTps: 0, prefillTps: 0, measurementValid: false });
+    ingestSnapshots([spark], 3_000);
+    Object.assign(spark.metrics.llm[0], { generationTps: 42, prefillTps: 0, measurementValid: true });
+    ingestSnapshots([spark], 5_000);
+    expect(getMetricHistorySamples(spark.id, "llm:8888.tps")).toEqual([
+      { at: 1_000, value: 40 },
+      { at: 5_000, value: 42 },
+    ]);
+    expect(getMetricHistorySamples(spark.id, "llm:8888.prefill")).toEqual([
+      { at: 1_000, value: 900 },
+      { at: 5_000, value: 0 },
+    ]);
+  });
 });

@@ -179,8 +179,11 @@ export function ingestSnapshots(sparks: SparkSnapshot[], at = Date.now()): void 
         const llm = m.llm[i];
         const port = ports[i];
         const portKey = port != null ? `:${port}` : `:${i}`;
-        pushHistory(`${s.id}:llm${portKey}.tps`, llm.generationTps, at);
-        pushHistory(`${s.id}:llm${portKey}.prefill`, llm.prefillTps, at);
+        // An unreadable poll is a gap in the trend, not a dip to zero.
+        if (llm.measurementValid !== false) {
+          pushHistory(`${s.id}:llm${portKey}.tps`, llm.generationTps, at);
+          pushHistory(`${s.id}:llm${portKey}.prefill`, llm.prefillTps, at);
+        }
         // TTFT is sparse: vLLM reports live TTFT only while serving. It is NOT
         // index-aligned with the tick-dense series above — that is fine because
         // the ttft series feeds only the busy-sample average badge, never the

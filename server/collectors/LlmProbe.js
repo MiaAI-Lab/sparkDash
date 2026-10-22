@@ -211,6 +211,17 @@ export class LlmProbe {
     this.itlP95Seconds = null;
     /** Speculative/MTP acceptance rate 0–1 (accepted/drafted). */
     this.mtpAcceptanceRate = null;
+    /**
+     * False when the engine answered but this poll's stats could not be read (an error status, or a body with no
+     * counters). The rates are then unknown, not zero: history, Prometheus and the UI leave them out.
+     */
+    this.measurementValid = true;
+    /** Why the last poll's stats were unreadable; null while they are readable. */
+    this.measurementError = null;
+    /** The next stats sample only re-seeds the counter baselines (set when a read failed). */
+    this._seedNext = false;
+    /** Locals: the last sample's per-engine counters; null until one is read. */
+    this._localsBase = null;
 
     this._consecutiveFailures = 0;
     this._lastDetectAt = 0;
@@ -303,6 +314,8 @@ export class LlmProbe {
   }
 
   async _probeOnce() {
+    this.measurementValid = true;
+    this.measurementError = null;
     this.decodeActive = false;
     this.generationTpsSource = null;
     this.prefillActive = false;
@@ -415,6 +428,8 @@ export class LlmProbe {
     if (this._consecutiveFailures >= FAIL_RESET_THRESHOLD) {
       this._resetDetection();
     }
+    // Whatever the engine counted while it could not be reached must not read as one interval's rate.
+    this._seedNext = true;
   }
 
   _resetDetection() {
@@ -448,6 +463,10 @@ export class LlmProbe {
     this.e2eP95Seconds = null;
     this.itlP95Seconds = null;
     this.mtpAcceptanceRate = null;
+    this.measurementValid = true;
+    this.measurementError = null;
+    this._seedNext = false;
+    this._localsBase = null;
     this.slotState.clear();
     this.lastTokenCounts = { input: 0, output: 0 };
     // The counters restart from zero, so the next poll may only seed them. The
@@ -530,6 +549,7 @@ export class LlmProbe {
       this.backendType !== "ds4" &&
       this.backendType !== "exl3" &&
       this.backendType !== "q27" &&
+      this.backendType !== "locals" &&
       this.backendType !== "tensorfold" &&
       this.backendType !== "freetoken" &&
       this.backendType !== "radiance" &&
@@ -601,6 +621,9 @@ export class LlmProbe {
     // LM Studio first: it answers 200 + JSON on every path, so the heuristic
     // probes below (notably SGLang's /server_info) would misfire on it.
     if (await this._probeIsLmStudio()) return "lmstudio";
+    // Locals (Generated-Computers/Locals) reports owned_by: "locals" and also answers Ollama's /api/tags,
+    // so it has to be recognised before the Ollama probe claims it.
+    if (typeof ownedBy === "string" && /^locals$/i.test(ownedBy)) return "locals";
     // Ollama second: its native /api/tags contract is unique among engines.
     if (await this._probeIsOllama()) return "ollama";
     if (flareCard) return "flare";
@@ -1029,6 +1052,15 @@ export class LlmProbe {
       return this._getSnapshot();
     }
 
+    if (this.backendType === "locals") {
+      const res = await this._fetch(`${this.baseUrl}/stats`, LLM_PROBE_TIMEOUT_MS, {
+        headers: { Accept: "application/json" },
+      });
+      if (res.ok) this._applyLocalsStats(await res.json().catch(() => null), dtSec);
+      else this._markUnmeasured(`stats endpoint answered ${res.status}`);
+      return this._getSnapshot();
+    }
+
     // Single /metrics fetch: ds4-server or vLLM Prometheus exposition.
     // Skip it for backends that never serve Prometheus — LM Studio answers
     // 200 + JSON on every path, and each fetch just spams its access log.
@@ -1382,6 +1414,107 @@ export class LlmProbe {
     this.cachedPrefillTps = null;
     this.uncachedPrefillTps = null;
     this.lastPrefillKinds = null;
+  }
+
+  /**
+   * This poll's stats could not be read although the endpoint answered: say so instead of showing zero
+   * throughput. Rates read 0 for consumers that ignore the flag, the fields that need a measurement are
+   * cleared, and the next good sample only re-seeds the counter baselines, so tokens generated while the
+   * stats were unreadable are not read as one interval's rate.
+   * @param {string} reason
+   */
+  _markUnmeasured(reason, { reseed = true } = {}) {
+    this.measurementValid = false;
+    this.measurementError = reason;
+    this.generationTps = 0;
+    this.prefillTps = 0;
+    this.cachedPrefillTps = null;
+    this.uncachedPrefillTps = null;
+    this.lastPrefillKinds = null;
+    this.prefixCacheHitRate = null;
+    this.requestsRunning = null;
+    this.requestsWaiting = null;
+    this.ttftP95Seconds = null;
+    this.itlP95Seconds = null;
+    this.e2eP95Seconds = null;
+    this.mtpAcceptanceRate = null;
+    this._seedNext = reseed;
+  }
+
+  /**
+   * Apply Locals (Generated-Computers/Locals) `GET /stats`: JSON counters per engine.
+   *
+   * Live tok/s are counter deltas, so idle → 0. `tokens_out` moves with every decode step (an engine
+   * without it falls back to its completion-based `completion_tokens`). Prompt tokens are counted when
+   * their prefill finishes, so a long prompt reads 0 and then lands in one poll; its rate is then taken
+   * over the engine's own `prefill_s`, not the poll interval, which would overstate it. `cached_tokens`
+   * are prompt-cache hits.
+   *
+   * Counters are read strictly (a number, finite, not negative: `null` and `""` are not 0) and kept per
+   * engine. A poll has no rate, and says so, when there is no earlier sample within 10 s to measure
+   * against, when the set of reporting engines changed, or when a counter went backwards (the engine
+   * restarted): the baselines are replaced and the next poll measures.
+   * @param {Record<string, any> | null} data
+   * @param {number} dtSec
+   */
+  _applyLocalsStats(data, dtSec) {
+    const counter = (v) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null);
+    /** @type {Record<string, {out: number, prefill: number|null, prefillSec: number|null, prompt: number|null, cached: number|null}>} */
+    const now = {};
+    for (const [name, e] of Object.entries(data?.engines ?? {})) {
+      if (!e || typeof e !== "object" || Array.isArray(e)) continue;
+      const out = counter(e.tokens_out) ?? counter(e.completion_tokens);
+      if (out == null) continue; // this engine publishes no decode counter
+      now[name] = { out, prefill: counter(e.prefill_tokens), prefillSec: counter(e.prefill_s), prompt: counter(e.prompt_tokens), cached: counter(e.cached_tokens) };
+    }
+    const names = Object.keys(now);
+    if (!names.length) {
+      this._markUnmeasured("stats had no token counters");
+      return;
+    }
+    const before = this._localsBase;
+    let why = null;
+    if (this._seedNext) why = "re-seeding counters after an interruption";
+    else if (!before) why = "no earlier sample to measure against";
+    else if (!(dtSec > 0 && dtSec < 10)) why = "no earlier sample within 10 s to measure against";
+    else if (names.length !== Object.keys(before).length || names.some((n) => !before[n])) why = "the set of reporting engines changed";
+    else if (names.some((n) => now[n].out < before[n].out || (now[n].prefill != null && before[n].prefill != null && now[n].prefill < before[n].prefill))) {
+      why = "engine counters restarted";
+    }
+    this._seedNext = false;
+    this._localsBase = now;
+    const round2 = (v) => Math.max(0, Math.round(v * 100) / 100);
+    // Engines with a batched-prefill counter, in both this sample and the last one.
+    const pairs = why ? [] : names.filter((n) => now[n].prefill != null && before[n].prefill != null);
+    if (why) {
+      this._markUnmeasured(why, { reseed: false });
+    } else {
+      this.measurementValid = true;
+      this.measurementError = null;
+      this.generationTps = round2(names.reduce((a, n) => a + (now[n].out - before[n].out), 0) / dtSec);
+      if (pairs.length) {
+        const deltaIn = pairs.reduce((a, n) => a + (now[n].prefill - before[n].prefill), 0);
+        const timed = pairs.every((n) => now[n].prefillSec != null && before[n].prefillSec != null);
+        const deltaSec = timed ? pairs.reduce((a, n) => a + (now[n].prefillSec - before[n].prefillSec), 0) : 0;
+        this.prefillTps = round2(deltaIn / (deltaIn > 0 && deltaSec > 0 ? deltaSec : dtSec));
+      }
+    }
+    this.totalOutputTokens = names.reduce((a, n) => a + now[n].out, 0);
+
+    const total = (key, list = names) => {
+      const vals = list.map((n) => now[n][key]);
+      return vals.length && vals.every((v) => v != null) ? vals.reduce((a, b) => a + b, 0) : null;
+    };
+    const promptTotal = total("prompt");
+    const cached = total("cached");
+    if (promptTotal != null) this.totalPromptTokens = promptTotal;
+    if (cached != null) this.totalCachedTokens = cached;
+    const batched = names.filter((n) => now[n].prefill != null);
+    this._setPrefillSplitRates(total("cached", batched), total("prefill", batched), dtSec);
+    if (this.uncachedPrefillTps != null) this.uncachedPrefillTps = this.prefillTps;
+
+    this.requestsRunning = Array.isArray(data?.active) ? data.active.length : null;
+    this.requestsWaiting = null; // Locals has no scheduler queue to report
   }
 
   /**
@@ -3009,6 +3142,8 @@ export class LlmProbe {
       e2eP95Seconds: this.e2eP95Seconds,
       itlP95Seconds: this.itlP95Seconds,
       mtpAcceptanceRate: this.mtpAcceptanceRate,
+      measurementValid: this.measurementValid,
+      measurementError: this.measurementError,
       posture: this._buildPosture(),
       error: this.error,
     };
@@ -3052,6 +3187,8 @@ export class LlmProbe {
       e2eP95Seconds: null,
       itlP95Seconds: null,
       mtpAcceptanceRate: null,
+      measurementValid: true,
+      measurementError: null,
       posture: this._buildPosture(),
       error: this.error,
     };

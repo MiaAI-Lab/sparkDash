@@ -345,7 +345,7 @@ function SparkCardImpl({
               )}
               <div className="ov-launch__hint">
                 {headLlm
-                  ? `${backendLabel(headLlm.backend) ?? headLlm.backend ?? "LLM"} · ${headLlm.generationTps.toFixed(1)} tok/s decode${headLlm.perStreamTps != null ? ` · ${headLlm.perStreamTps.toFixed(1)} per stream` : ""}${headLlm.perStreamPrefillTps != null ? ` · ${Math.round(headLlm.perStreamPrefillTps).toLocaleString()} prefill per request (effective, incl. cached)` : ""}`
+                  ? `${backendLabel(headLlm.backend) ?? headLlm.backend ?? "LLM"} · ${headLlm.measurementValid === false ? "—" : headLlm.generationTps.toFixed(1)} tok/s decode${headLlm.perStreamTps != null ? ` · ${headLlm.perStreamTps.toFixed(1)} per stream` : ""}${headLlm.perStreamPrefillTps != null ? ` · ${Math.round(headLlm.perStreamPrefillTps).toLocaleString()} prefill per request (effective, incl. cached)` : ""}`
                   : headSpark
                     ? headSpark.online
                       ? "No model loaded on the head"
@@ -364,7 +364,9 @@ function SparkCardImpl({
                 }
               >
                 <div className="eyebrow">Decode</div>
-                {isStrata && llm.decodeActive && llm.generationTps <= 0 ? (
+                {llm.measurementValid === false ? (
+                  <div className="big-num ov-tps__num" title={llm.measurementError ?? "Stats could not be read"}>—</div>
+                ) : isStrata && llm.decodeActive && llm.generationTps <= 0 ? (
                   <div className="big-num ov-tps__num ov-tps__num--live">
                     <span className="ov-tps__dots" aria-hidden />
                     <small>decoding</small>
@@ -373,7 +375,7 @@ function SparkCardImpl({
                   <div className="big-num ov-tps__num">{llm.generationTps.toFixed(1)}<small>tok/s</small></div>
                 )}
                 {isStrata && llm.generationTpsSource === "slot-mean" && <small className="text-muted">active-slot mean</small>}
-                {llm.perStreamTps != null && (
+                {llm.measurementValid !== false && llm.perStreamTps != null && (
                   <small
                     className="text-muted"
                     title="Average decode throughput of one running stream (1 / mean seconds per output token). Only engines that publish a per-token latency histogram report it."
@@ -390,7 +392,9 @@ function SparkCardImpl({
                 }
               >
                 <div className="eyebrow">Prefill</div>
-                {llm.prefillActive && llm.prefillTps <= 0 ? (
+                {llm.measurementValid === false ? (
+                  <div className="big-num ov-tps__num" title={llm.measurementError ?? "Stats could not be read"}>—</div>
+                ) : llm.prefillActive && llm.prefillTps <= 0 ? (
                   <div className="big-num ov-tps__num ov-tps__num--live" title={isStrata ? "A prompt is being processed; no current prefill rate is available." : "A prompt is being processed. The engine reports its speed only when the request finishes."}>
                     <span className="ov-tps__dots" aria-hidden />
                     <small>prefilling</small>
@@ -398,7 +402,7 @@ function SparkCardImpl({
                 ) : (
                   <div className="big-num ov-tps__num">{Math.round(llm.prefillTps).toLocaleString()}<small>tok/s</small></div>
                 )}
-                {llm.perStreamPrefillTps != null && (
+                {llm.measurementValid !== false && llm.perStreamPrefillTps != null && (
                   <small
                     className="text-muted"
                     title="Effective prefill rate of one request (prompt tokens ÷ prefill seconds over finished requests). The prompt counter includes prefix-cache tokens, so this is an effective speed, not raw GPU speed; it is held between completions."

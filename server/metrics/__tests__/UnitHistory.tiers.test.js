@@ -100,6 +100,17 @@ test("an offline unit is a gap, not zeros", () => {
   assert.equal(extractSample(gb10Snapshot({ online: false })), null);
 });
 
+test("an LLM poll whose stats could not be read is a gap, not a zero rate", () => {
+  const snap = gb10Snapshot();
+  snap.metrics.llm = [{ available: true, measurementValid: false, generationTps: 0, prefillTps: 0, kvCacheUsage: 0.4 }];
+  const v = extractSample(snap);
+  assert.equal(v[llmKey(8888, "genTps")], undefined);
+  assert.equal(v[llmKey(8888, "prefillTps")], undefined);
+  assert.equal(v[llmKey(8888, "kvUsage")], undefined);
+  snap.metrics.llm[0].measurementValid = true;
+  assert.equal(extractSample(snap)[llmKey(8888, "genTps")], 0, "a readable idle engine is a real zero");
+});
+
 test("failed, stale or unavailable readings are skipped, never recorded as zero", () => {
   const snap = gb10Snapshot();
   snap.metrics.gpu = { temperature: 0, usage: 0, power: { draw: 0, limit: 0 }, vram: { used: 0, total: 0 } };

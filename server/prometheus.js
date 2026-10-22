@@ -118,6 +118,11 @@ export const METRIC_FAMILIES = [
     help: "1 when the LLM endpoint answered its last probe, else 0.",
   },
   {
+    name: "sparkdash_llm_measurement_valid",
+    type: "gauge",
+    help: "1 when the endpoint's stats were read on the last poll, 0 when it answered but they could not be read; the rate and counter series are then omitted.",
+  },
+  {
     name: "sparkdash_llm_generation_tokens_per_second",
     type: "gauge",
     help: "Decode throughput over the last poll interval, from the engine's token counters.",
@@ -333,6 +338,9 @@ function addLlm(samples, base, snapshot) {
     };
     samples.add("sparkdash_llm_up", labels, entry.available === true ? 1 : 0);
     if (entry.available !== true) return;
+    // Reachable but unmeasured (its stats could not be read): flag it and export no rates or counters.
+    samples.add("sparkdash_llm_measurement_valid", labels, entry.measurementValid === false ? 0 : 1);
+    if (entry.measurementValid === false) return;
     samples.add("sparkdash_llm_generation_tokens_per_second", labels, entry.generationTps);
     samples.add("sparkdash_llm_per_stream_tokens_per_second", labels, entry.perStreamTps);
     samples.add("sparkdash_llm_per_stream_prefill_tokens_per_second", labels, entry.perStreamPrefillTps);

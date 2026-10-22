@@ -196,6 +196,23 @@ export async function readServerGenerationTokens(baseUrl, opts = {}) {
     /* try next */
   }
 
+  // Locals — live decoded-token counter per engine on /stats.
+  try {
+    const res = await fetch(`${baseUrl}/stats`, {
+      signal: AbortSignal.timeout(5_000),
+      headers,
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const vals = Object.values(data?.engines ?? {})
+        .map((e) => Number(e?.tokens_out ?? e?.completion_tokens))
+        .filter(Number.isFinite);
+      if (vals.length) return vals.reduce((a, b) => a + b, 0);
+    }
+  } catch {
+    /* try next */
+  }
+
   // SGLang — current /server_info first; /get_server_info is a deprecated alias.
   for (const path of ["/server_info", "/get_server_info"]) {
     try {

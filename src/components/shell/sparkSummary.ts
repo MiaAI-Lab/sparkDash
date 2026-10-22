@@ -1,10 +1,11 @@
 import type { SparkSnapshot } from "../../api/types";
 import { isWorkerSpark } from "../../api/sparkRole";
+import { measuredGenerationTps } from "../../shared/llmRate";
 
 /** Live decode tok/s of the first reachable LLM on a Spark, or null. */
 export function primaryDecodeTps(spark: SparkSnapshot): number | null {
   const llm = Array.isArray(spark.metrics.llm) ? spark.metrics.llm.find((l) => l.available) : null;
-  return llm ? llm.generationTps : null;
+  return measuredGenerationTps(llm);
 }
 
 /** Short label for the rail: tok/s when an LLM is live, otherwise a status word. */

@@ -16,6 +16,13 @@ describe("fleetStats", () => {
     expect(t).toMatchObject({ total: 3, online: 2, decodeTps: 45.5, powerW: 100, memUsedMb: 30, memTotalMb: 300 });
   });
 
+  it("leaves out an engine whose stats could not be read", () => {
+    const t = computeFleetTotals([
+      spark({ metrics: { llm: [{ available: true, generationTps: 40 }, { available: true, measurementValid: false, generationTps: 7 }] } }),
+    ]);
+    expect(t.decodeTps).toBe(40);
+  });
+
   it("rolls a fixed window", () => {
     let b: number[] = [];
     for (let i = 0; i < 5; i++) b = pushRolling(b, i, 3);
