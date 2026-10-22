@@ -1022,6 +1022,7 @@ Copy `.env.example` to `.env` if needed:
 | `HERMES_UPDATE_TIMEOUT_MS` | `600000` | Hard timeout for running `hermes update` over SSH (ms) |
 | `POLL_INTERVAL_LIVENESS` | `5000` | Online/SSH liveness check (ms) |
 | `SPARKDASH_SECRETS_KEY` | _(auto)_ | Passphrase or 64-char hex for secret encryption |
+| `SPARKDASH_HOST_NETWORK` | `0` in Compose; unset otherwise | Set exactly `1` only after verifying the process shares the physical host's network namespace, to permit fallback when host namespace links are unreadable. `network_mode: host` alone is not proof with an isolated RootlessKit daemon. Leave unset/`0` for bridge networking or an unverified setup. Readable, differing namespace IDs always disable the fallback. |
 | `HOST_PROC_PATH` | `/host/proc` | Host proc mount inside container |
 | `HOST_SYS_PATH` | `/host/sys` | Host sys mount |
 | `HOST_ROOT_PATH` | `/host/root` | Host root mount |
