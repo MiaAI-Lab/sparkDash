@@ -521,6 +521,60 @@ test("_applyTensorFoldMetrics reads latency histograms and cache counters", asyn
   assert.equal(probe.preemptionsTotal, 3);
 });
 
+test("_applyTensorFoldMetrics: prompt_tokens_cached_total feeds the token ledger", async () => {
+  const lines = (extra) =>
+    [
+      "tensorfold:prompt_tokens_total 1000",
+      "tensorfold:generation_tokens_total 100",
+      ...extra,
+    ].join("\n");
+
+  const direct = metricsProbe(() => lines(["tensorfold:prompt_tokens_cached_total 640"]));
+  await direct._applyTensorFoldMetrics(2);
+  assert.equal(direct.totalPromptTokens, 1000);
+  assert.equal(direct.totalCachedTokens, 640);
+
+  // vLLM's hit counter carries the same split on builds that do not publish the
+  // TensorFold name; use it only when the dedicated counter is absent.
+  const fallback = metricsProbe(() =>
+    lines([
+      "tensorfold:prefix_cache_queries_total 1000",
+      "tensorfold:prefix_cache_hits_total 250",
+    ])
+  );
+  await fallback._applyTensorFoldMetrics(2);
+  assert.equal(fallback.totalCachedTokens, 250);
+
+  // The cached count belongs to this scrape's prompt total and cannot exceed it.
+  const clamped = metricsProbe(() =>
+    [
+      "tensorfold:prompt_tokens_total 100",
+      "tensorfold:generation_tokens_total 10",
+      "tensorfold:prompt_tokens_cached_total 150",
+    ].join("\n")
+  );
+  await clamped._applyTensorFoldMetrics(2);
+  assert.equal(clamped.totalCachedTokens, 100);
+
+  // No cached counter at all: keep whatever /health or an earlier scrape reported.
+  const absent = metricsProbe(() => lines([]));
+  await absent._applyTensorFoldMetrics(2);
+  assert.equal(absent.totalCachedTokens, null);
+
+  const kept = metricsProbe(() => lines([]));
+  kept.totalCachedTokens = 321;
+  await kept._applyTensorFoldMetrics(2);
+  assert.equal(kept.totalCachedTokens, 321);
+
+  // A queue-only poll reads no totals, so it must not clear the cached counter.
+  const queueOnly = metricsProbe(() =>
+    lines(["tensorfold:prompt_tokens_cached_total 640"])
+  );
+  queueOnly.totalCachedTokens = 42;
+  await queueOnly._applyTensorFoldMetrics(undefined, true);
+  assert.equal(queueOnly.totalCachedTokens, 42);
+});
+
 test("_applyTensorFoldMetrics reads the TensorFold 1.1 KV occupancy ratio", async () => {
   const probe = new LlmProbe({ lanIp: "192.0.2.10" }, 8888);
   probe._fetch = async () => ({

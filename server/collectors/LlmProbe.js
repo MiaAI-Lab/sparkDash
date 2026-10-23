@@ -1774,6 +1774,23 @@ export class LlmProbe {
     const prompt = queueOnly ? null : m("prompt_tokens_total");
     if (Number.isFinite(gen) && gen >= 0) this.totalOutputTokens = gen;
     if (Number.isFinite(prompt) && prompt >= 0) this.totalPromptTokens = prompt;
+    // TensorFold publishes the prompt-cache split of finished requests, either under
+    // its own name or as vLLM's prefix-cache hits. Keep it from this scrape's prompt
+    // total and never let a cached count exceed the prompt it belongs to. Builds that
+    // publish neither leave the previous value alone.
+    const cached = queueOnly ? null : m("prompt_tokens_cached_total");
+    const cachedFallback =
+      queueOnly || (Number.isFinite(cached) && cached >= 0) ? null : m("prefix_cache_hits_total");
+    const cachedTotal =
+      Number.isFinite(cached) && cached >= 0
+        ? cached
+        : Number.isFinite(cachedFallback) && cachedFallback >= 0
+          ? cachedFallback
+          : null;
+    if (cachedTotal != null) {
+      this.totalCachedTokens =
+        Number.isFinite(prompt) && prompt >= 0 ? Math.min(cachedTotal, prompt) : cachedTotal;
+    }
     // The total moves only when a request finishes; `generation_tokens_running` counts the
     // tokens of requests still decoding. Their sum grows steadily while tokens are produced
     // (a finishing request moves its tokens from one to the other), so its diff is the live rate.
