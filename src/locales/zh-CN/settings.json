@@ -3,6 +3,7 @@
   "appearance": { "title": "外观", "help": "立即在此设备上生效，并保存在此浏览器中。", "theme": "主题", "white": "白色", "light": "浅色", "dark": "深色", "oled": "OLED" },
   "refresh": { "title": "刷新频率", "help": "轮询每个节点的 GPU、CPU、内存、网络和 LLM 指标以及更新仪表盘的频率。远程节点通过 SSH 轮询，因此 1 秒的开销最大；存储和存活状态有各自更慢的检查。", "interval": "轮询间隔", "oneSecond": "1秒", "twoSeconds": "2秒", "fiveSeconds": "5秒", "tenSeconds": "10秒" },
   "temperature": { "title": "温度单位", "aria": "温度单位" },
+  "healthTemps": { "title": "GPU 温度告警", "help": "最热的 GPU 达到第一个值时发出警告，达到第二个值时转为严重，单位始终为 °C，与显示单位无关。告警通知使用相同的阈值。默认值为 85 和 90；警告温度必须低于严重温度。", "warn": "警告温度 (°C)", "reset": "恢复默认值", "critical": "严重温度 (°C)" },
   "timeZone": { "title": "时区", "help": "Tokens、Energy 和 Activity 图表中的小时和日期边界及标签。留空时跟随此浏览器（{{timeZone}}）。每日 Token 桶和每月能源总量保持 UTC。", "placeholder": "浏览器默认值", "inputTitle": "留空时跟随此浏览器（{{timeZone}}）", "useBrowser": "使用浏览器设置", "unknown": "未知时区。请尝试 Europe/Paris。" },
   "defaultLlmPort": { "title": "默认 LLM 端口", "help": "添加新 Spark 时预填（1–65535）。" },
   "toggles": {
@@ -29,5 +30,5 @@
   "browserAlerts": { "tabBadge": { "title": "标签页徽标", "help": "标签页标题显示活跃集群告警数量——离线节点、降频、存储、LLM 和 Health——例如“(2) sparkDash”，图标会出现红色（严重）或琥珀色圆点。即使“显示活跃集群异常”关闭，也会统计全部告警。仅此浏览器；立即保存。" }, "desktop": { "title": "桌面通知", "help": "此页面打开期间，当某个集群告警变为活跃（任何类型，与标签页徽标相同）时发送通知。仅此浏览器；立即保存。", "blocked": "此站点的通知已被阻止。请在浏览器的网站设置中允许通知，然后再次开启。", "refused": "此浏览器拒绝了通知权限请求。", "insecure": "浏览器只允许在 HTTPS 或 localhost 上使用通知，而当前页面是普通 HTTP。请使用 SSH 隧道、Tailscale Serve 或 HTTPS 代理，或在告警通知中使用 ntfy 频道。", "unsupported": "此浏览器不支持桌面通知。", "withdrawn": "浏览器中的权限已被撤回；重新允许前不会显示任何内容。" } },
   "accessToken": { "title": "访问令牌", "help": "此浏览器保存的服务器令牌副本，会发送给已经要求令牌的服务器。它无法开启保护：请在主机的 .env 中设置 SPARKDASH_TOKEN 并重新创建容器。只保存在此浏览器中。", "set": "已设置", "notSet": "未设置", "change": "更改", "add": "添加令牌", "clear": "清除" },
   "about": { "version": "sparkDash v{{version}}", "github": "GitHub MiaAI-Lab" },
-  "errors": { "invalidTimeZone": "\"{{timeZone}}\" 不是已知时区（例如 Europe/Paris），或者清空此字段以跟随浏览器。" }
+  "errors": { "healthTempsRange": "GPU 温度阈值必须是介于 {{min}} 和 {{max}} °C 之间的数字。", "healthTempsOrder": "警告温度必须低于严重温度。", "invalidTimeZone": "\"{{timeZone}}\" 不是已知时区（例如 Europe/Paris），或者清空此字段以跟随浏览器。" }
 }

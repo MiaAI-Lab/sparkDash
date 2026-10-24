@@ -562,6 +562,10 @@
   line-height: 1.4;
   color: var(--color-muted);
 }
+.set-row__text small > .set-row__action {
+  display: block;
+  margin-top: 0.4rem;
+}
 .set-row__control {
   display: flex;
   flex-shrink: 0;
