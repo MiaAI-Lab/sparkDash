@@ -64,7 +64,7 @@ import { BenchPage } from "./components/bench/BenchPage";
 import { BENCH_SPARK_KEY, BENCH_TYPES } from "./components/bench/benchCatalog";
 import type { AuthMode, Settings, SparkSnapshot } from "./api/types";
 import { AccessTokenPrompt } from "./components/AccessTokenDialog";
-import { onTokenChange } from "./api/authToken";
+import { onSessionChange, onTokenChange } from "./api/authToken";
 import { isWorkerSpark } from "./api/sparkRole";
 
 /** Keep hidden worker ids in their original slots when the visible tabs are reordered. */
@@ -308,7 +308,7 @@ function DashboardApp() {
   }, [sparks]);
 
   // Fetch global settings on mount, and again when a new access token is
-  // saved (the first load may have been refused for the missing token).
+  // saved or a sign-in starts a session (the first load may have been refused).
   useEffect(() => {
     const load = (afterTokenChange: boolean) =>
       fetchSettings()
@@ -322,9 +322,16 @@ function DashboardApp() {
           )
         );
     void load(false);
-    return onTokenChange((token) => {
+    const offToken = onTokenChange((token) => {
       if (token) void load(true);
     });
+    const offSession = onSessionChange((session) => {
+      if (session) void load(true);
+    });
+    return () => {
+      offToken();
+      offSession();
+    };
   }, []);
 
   // Auth posture once on load — drives the "Open access" header warning.

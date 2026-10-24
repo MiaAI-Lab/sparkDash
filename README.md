@@ -754,6 +754,8 @@ Then open `http://127.0.0.1:5555` on that computer. For shared access, use an au
 
 When the server has `SPARKDASH_TOKEN` set, the dashboard asks for it: the first request or live-telemetry connection the server turns away opens an **Access token** dialog. Enter the token once; it is checked against the server, stored in this browser only, and the live connection reconnects with it — no reload, no devtools. **Settings → Access token** shows whether one is stored and lets you change or clear it.
 
+With `SPARKDASH_PASSKEY_ORIGIN` also set, the dialog becomes **Sign in**: use a passkey, or the token once, and the browser keeps only a session cookie instead of the token. **Settings → Passkeys** adds and revokes passkeys and signs out. Setup, passkey-only mode and host-side recovery are in [docs/REMOTE-ACCESS.md](docs/REMOTE-ACCESS.md#passkey-sign-in).
+
 For development with Docker (source-mounted, HMR):
 ```bash
 docker compose -f docker-compose.dev.yml up --build
@@ -1000,6 +1002,10 @@ Copy `.env.example` to `.env` if needed:
 | `BIND_HOST` | `127.0.0.1` | HTTP and WebSocket listen address. A non-loopback bind without `SPARKDASH_TOKEN` is open to anyone who can reach it (see `SPARKDASH_ALLOW_OPEN_REMOTE`). |
 | `SPARKDASH_TOKEN` | _(empty)_ | Bearer token. When set, it is required for every mutation and WebSocket connection, and for REST reads on a non-loopback bind. The browser prompts for it when needed (Settings → Access token to change it). |
 | `SPARKDASH_ALLOW_OPEN_REMOTE` | `1` | Unset, empty, or `1`: a non-loopback bind without `SPARKDASH_TOKEN` stays open. `0`: refuse to start without a token (fail closed). |
+| `SPARKDASH_PASSKEY_ORIGIN` | _(empty)_ | Turns on passkey sign-in: the origin the browser shows, `https://…` or `http://localhost:<port>`, never an IP address. Needs `SPARKDASH_TOKEN`. See [Passkey sign-in](docs/REMOTE-ACCESS.md#passkey-sign-in). |
+| `SPARKDASH_PASSKEY_ONLY` | _(empty)_ | `1`: once a passkey is enrolled, the token no longer authenticates anything but GET/HEAD `/metrics`. |
+| `SPARKDASH_SESSION_TTL_DAYS` | `30` | How long a passkey or token sign-in lasts, from sign-in (1–365). |
+| `PASSKEYS_DB_PATH` | `config/passkeys.sqlite` | Absolute path of the SQLite passkey/session store (Node 22.13+). |
 | `SPARKDASH_ALLOWED_HOSTS` | _(empty)_ | Only for a reverse proxy on a custom domain: comma-separated names a loopback bind should also answer to. `localhost`, IP addresses, this machine's hostname and its Tailscale name work without it. |
 | `SPARKDASH_MQTT_PASSWORD` | _(empty)_ | Password for the MQTT broker configured in Settings → MQTT (the URL and username live in `settings.json`). Read once at startup. |
 | `SPARKDASH_HELPER_HOSTS` | _(empty)_ | Extra hostnames allowed for harness occupancy helpers, comma separated. `localhost`, `127.0.0.1` and `::1` are always allowed. The dashboard connects only to an address from that lookup and does not follow redirects |
@@ -1133,6 +1139,7 @@ Choice is stored in `localStorage`.
 - SSH and HTTP probes use short timeouts (about 5 s SSH connect, 3 s HTTP) so a hung host cannot stall the poll loop.
 - Prefer **SSH keys** over passwords. In Docker, mount the private key into `/root/.ssh` (see Quick start); passwords are the only SSH secret the app stores itself.
 - Loopback installs remain local-trust. A remote bind (`BIND_HOST` not loopback) **without** `SPARKDASH_TOKEN` is open by default: anyone who can reach the port can read telemetry, change settings and power units off, and the header shows an **Open access** warning (dismissible per browser). Set `SPARKDASH_TOKEN` to require a bearer token for mutations and remote telemetry/WebSocket, and `SPARKDASH_ALLOW_OPEN_REMOTE=0` to refuse to start a remote bind without one. `GET /api/health` reports which applies as `authMode`: `loopback-open`, `bearer`, `open-remote`, or `required-missing`.
+- **Passkey sign-in** (optional, `SPARKDASH_PASSKEY_ORIGIN`): sessions are opaque tokens in an `HttpOnly`, `SameSite=Strict` cookie, stored server-side only as digests; enrolling or revoking a passkey needs the token's authority; rotating the token removes every passkey and session; recovery is `node server/passkeyAdmin.js reset` on the host, never a route.
 - One-off remote benchmark hosts must be listed in `SPARKDASH_BENCH_HOSTS`.
 - Tested operator capacity for this remediation: **12 units**.
 

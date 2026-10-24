@@ -1,7 +1,8 @@
 import fs from "fs";
 import path from "path";
 import { HOST_PATHS, SPARKS_JSON_PATH } from "./config.js";
-import { allowOpenRemote } from "./auth.js";
+import { allowOpenRemote, configuredToken } from "./auth.js";
+import { passkeyPreflightProblem } from "./passkeys/preflight.js";
 
 export function isLoopbackHost(host) {
   return host === "localhost" || host === "::1" || /^127\./.test(host || "");
@@ -23,6 +24,7 @@ export function evaluateStartupPreflight(input) {
     }
   }
   if (!input.configWritable) errors.push("Config directory is not writable; fix the config volume ownership/permissions.");
+  if (input.passkeyProblem) errors.push(input.passkeyProblem);
   if (!input.secretsKey?.present) warnings.push("No secrets key exists yet; one will be created when the secrets store is first used. Back it up with the config directory.");
   if (!input.sshIdentity?.configured) warnings.push("No SSH identity is configured; remote key-auth units will be unavailable.");
   if (input.sshIdentity?.configured && input.sshIdentity.safePermissions === false) {
@@ -79,6 +81,7 @@ export function inspectStartupPreflight(bindHost) {
     localCollectors: {
       available: fs.existsSync(path.join(HOST_PATHS.PROC, "meminfo")) && fs.existsSync(HOST_PATHS.SYS),
     },
+    passkeyProblem: passkeyPreflightProblem({ tokenConfigured: Boolean(configuredToken()) }),
   });
 }
 
