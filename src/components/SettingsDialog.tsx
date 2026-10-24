@@ -13,6 +13,7 @@ import { AlertsDialog } from "./AlertsDialog";
 import { BrowserAlertsSettings } from "./BrowserAlertsSettings";
 import { FleetGpuClock, type FleetGpuClockApi } from "./FleetGpuClock";
 import { LanguageSelector } from "./LanguageSelector";
+import { PasskeySettings } from "./PasskeySettings";
 import "../styles/dialogs.css";
 
 interface SettingsDialogProps {
@@ -645,6 +646,8 @@ export function SettingsDialog({ open, onClose, onSaved, onOpenHarness }: Settin
               ) : null}
             </div>
           </SettingRow>
+
+          <PasskeySettings />
 
           <div className="settings-links">
             <span>{t("about.version", { version: packageJson.version })}</span>

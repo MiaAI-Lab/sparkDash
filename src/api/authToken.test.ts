@@ -4,7 +4,9 @@ import {
   clearToken,
   fetchAuthStatus,
   getToken,
+  notifySessionChange,
   onAuthRequired,
+  onSessionChange,
   onTokenChange,
   reportAuthRequired,
   requestTokenPrompt,
@@ -98,12 +100,56 @@ describe("authToken signals and status", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(fetchAuthStatus("candidate")).resolves.toEqual({ tokenRequired: true, authenticated: true });
+    await expect(fetchAuthStatus("candidate")).resolves.toMatchObject({ tokenRequired: true, authenticated: true });
     expect(fetchMock).toHaveBeenCalledWith("/api/auth/status", {
       headers: { Authorization: "Bearer candidate" },
     });
 
     await fetchAuthStatus();
     expect((fetchMock.mock.calls[1] as unknown[])[1]).toEqual({ headers: { Authorization: "Bearer stored" } });
+  });
+
+  it("reads the passkey posture and session, and treats an older server without them as passkeys off", async () => {
+    const answers = [
+      { tokenRequired: true, authenticated: false },
+      {
+        tokenRequired: true,
+        authenticated: true,
+        passkeys: { enabled: true, passkeyOnly: true },
+        session: { method: "token", canManage: true },
+      },
+      { tokenRequired: true, authenticated: true, passkeys: { enabled: true }, session: { method: "bogus" } },
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify(answers.shift()), { status: 200 }))
+    );
+
+    await expect(fetchAuthStatus()).resolves.toEqual({
+      tokenRequired: true,
+      authenticated: false,
+      passkeys: { enabled: false },
+      session: null,
+    });
+    await expect(fetchAuthStatus()).resolves.toEqual({
+      tokenRequired: true,
+      authenticated: true,
+      passkeys: { enabled: true, passkeyOnly: true },
+      session: { method: "token", canManage: true },
+    });
+    await expect(fetchAuthStatus()).resolves.toMatchObject({
+      passkeys: { enabled: true, passkeyOnly: false },
+      session: null,
+    });
+  });
+
+  it("tells session subscribers about sign-in and sign-out", () => {
+    const seen: unknown[] = [];
+    const off = onSessionChange((s) => seen.push(s));
+    notifySessionChange({ method: "passkey", canManage: false });
+    notifySessionChange(null);
+    off();
+    notifySessionChange(null);
+    expect(seen).toEqual([{ method: "passkey", canManage: false }, null]);
   });
 });

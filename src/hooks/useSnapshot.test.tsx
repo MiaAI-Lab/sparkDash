@@ -3,8 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { _resetStore, getMetricHistorySamples } from "./metricsStore";
 import { useSnapshot } from "./useSnapshot";
 import { makeSpark } from "../testing/fixtures";
-import { onAuthRequired, setToken } from "../api/authToken";
-import { flush, render } from "../testing/render";
+import { clearToken, notifySessionChange, onAuthRequired, setToken } from "../api/authToken";
+import { cleanupRenders, flush, render } from "../testing/render";
 
 class MockSocket {
   static OPEN = 1;
@@ -127,12 +127,56 @@ describe("useSnapshot connection lifecycle", () => {
     expect(first.url).toBe("ws://localhost:5555/ws");
 
     act(() => setToken("a b/c"));
+    await flush();
     expect(MockSocket.instances).toHaveLength(2);
     expect(MockSocket.instances[1].url).toBe("ws://localhost:5555/ws?token=a%20b%2Fc");
     // The replaced socket must not schedule a second reconnect of its own.
     act(() => first.close());
     act(() => vi.advanceTimersByTime(5000));
     expect(MockSocket.instances).toHaveLength(2);
+  });
+
+  it("reconnects on a passkey/token sign-in or sign-out, with no token in the URL", async () => {
+    render(<Probe />);
+    const first = MockSocket.instances[0];
+
+    act(() => notifySessionChange({ method: "passkey", canManage: false }));
+    await flush();
+    expect(MockSocket.instances).toHaveLength(2);
+    // The session cookie carries the authority; the socket URL has no token.
+    expect(MockSocket.instances[1].url).toBe("ws://localhost:5555/ws");
+    act(() => first.close());
+    act(() => vi.advanceTimersByTime(5000));
+    expect(MockSocket.instances).toHaveLength(2);
+
+    act(() => notifySessionChange(null));
+    await flush();
+    expect(MockSocket.instances).toHaveLength(3);
+  });
+
+  it("reconnects once when a session change also clears a saved bearer", async () => {
+    setToken("valid-token");
+    render(<Probe />);
+    const first = MockSocket.instances[0];
+    act(() => {
+      clearToken();
+      notifySessionChange({ method: "passkey", canManage: false });
+    });
+    await flush();
+    expect(first.readyState).toBe(3);
+    expect(MockSocket.instances).toHaveLength(2);
+    expect(MockSocket.instances[1].url).toBe("ws://localhost:5555/ws");
+    act(() => vi.advanceTimersByTime(5000));
+    expect(MockSocket.instances).toHaveLength(2);
+  });
+
+  it("does not reconnect after unmount while a credential change is queued", async () => {
+    render(<Probe />);
+    act(() => setToken("valid-token"));
+    cleanupRenders();
+    await flush();
+    expect(MockSocket.instances).toHaveLength(1);
+    expect(MockSocket.instances[0].readyState).toBe(3);
   });
 
   it("asks for a token once when the server refuses the socket for it", async () => {

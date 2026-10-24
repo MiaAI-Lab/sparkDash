@@ -1,10 +1,21 @@
 import { timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
 import os from "node:os";
+import { passkeyOnly, passkeyOrigin } from "./passkeys/settings.js";
+import { sessionFor } from "./passkeys/session.js";
+import { hasCredentials, passkeyStoreAvailable } from "./passkeys/store.js";
 
 export function configuredToken() {
   const token = process.env.SPARKDASH_TOKEN || process.env.DASHBOARD_TOKEN || "";
   return token.trim();
+}
+
+/**
+ * Passkey sign-in is on: an origin is configured, and a token exists to prove who
+ * may enrol. Startup refuses an origin without a token (passkeys/preflight.js).
+ */
+export function passkeysEnabled() {
+  return Boolean(passkeyOrigin()) && Boolean(configuredToken()) && passkeyStoreAvailable();
 }
 
 export function isLoopbackBind(host) {
@@ -44,6 +55,9 @@ function isOwnName(name) {
   if (name === "localhost" || name.endsWith(".localhost") || name === "[::1]") return true;
   if (isIP(name) === 4 && name.startsWith("127.")) return true;
   if (name === SELF_NAME || name === `${SELF_NAME}.local` || (tailscaleName && name === tailscaleName)) return true;
+  // The passkey origin is, by configuration, how the operator's browser reaches us.
+  const origin = passkeyOrigin();
+  if (origin && new URL(origin).hostname === name) return true;
   const extra = (process.env.SPARKDASH_ALLOWED_HOSTS || "").split(",");
   return extra.some((h) => parseUrl(`http://${h.trim()}`)?.hostname === name);
 }
@@ -99,7 +113,7 @@ function refuse(req, res, name) {
   return res.status(403).json({ error: `sparkDash does not answer to ${name} (add it to SPARKDASH_ALLOWED_HOSTS if that is this dashboard's address)` });
 }
 
-function tokensEqual(left, right) {
+export function tokensEqual(left, right) {
   const a = Buffer.from(String(left));
   const b = Buffer.from(String(right));
   if (a.length !== b.length) return false;
@@ -128,14 +142,63 @@ function queryTokenFromUrl(url) {
   }
 }
 
+/**
+ * SPARKDASH_PASSKEY_ONLY with at least one passkey enrolled: the token no longer
+ * authenticates the dashboard. Prometheus' read of /metrics is the one exception
+ * — a scraper cannot hold a passkey, and the exposition is read-only telemetry.
+ * With nothing enrolled the token still works, so turning the flag on is never a
+ * one-way door.
+ */
+export function tokenRefused(req) {
+  if (!passkeysEnabled() || !passkeyOnly() || !hasCredentials()) return false;
+  const method = (req.method || "GET").toUpperCase();
+  return !((method === "GET" || method === "HEAD") && requestPath(req) === "/metrics");
+}
+
+function requestPath(req) {
+  if (typeof req.path === "string") return req.path;
+  try {
+    return new URL(req.url || "/", "http://localhost").pathname;
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * The cookie is ambient: a browser attaches it to a request some other page
+ * triggered. SameSite=Strict already keeps it off cross-site requests; a
+ * cookie-authenticated mutation or WebSocket must also name our origin, so a
+ * same-site sibling cannot ride it either. The bearer path needs no such check.
+ */
+function crossOriginForCookie(req) {
+  const method = (req.method || "GET").toUpperCase();
+  const upgrade = String(req.headers?.upgrade || "").toLowerCase() === "websocket";
+  const mutating = method !== "GET" && method !== "HEAD" && method !== "OPTIONS";
+  if (!mutating && !upgrade) return false;
+  return req.headers?.origin !== passkeyOrigin();
+}
+
+/**
+ * Who this request is. `keyAuthority` is true when it carries the token's
+ * authority — the token itself, or a session the token established — which is
+ * what enrolling and revoking passkeys require. A passkey session is
+ * authenticated without it, so a stolen session cannot mint permanent access.
+ */
 export function authenticate(req) {
   const expected = configuredToken();
-  if (!expected) return { ok: true, mode: "open-loopback" };
+  if (!expected) return { ok: true, mode: "open-loopback", keyAuthority: false };
   const provided = extractBearer(req);
-  if (!provided || !tokensEqual(provided, expected)) {
-    return { ok: false, status: 401, error: "Authentication required" };
+  const tokenMatches = Boolean(provided) && tokensEqual(provided, expected);
+  if (tokenMatches && !tokenRefused(req)) return { ok: true, mode: "bearer", keyAuthority: true };
+  const session = sessionFor(req);
+  if (session) {
+    if (crossOriginForCookie(req)) return { ok: false, status: 403, error: "Cross-origin request refused" };
+    return { ok: true, mode: "session", session, keyAuthority: session.credentialId === null };
   }
-  return { ok: true, mode: "bearer" };
+  if (tokenMatches) {
+    return { ok: false, status: 401, error: "Sign in with a passkey: SPARKDASH_PASSKEY_ONLY no longer accepts the access token" };
+  }
+  return { ok: false, status: 401, error: "Authentication required" };
 }
 
 /**
@@ -166,8 +229,9 @@ export function createAuthMiddleware() {
     // The built frontend must load before the app can ask for the token: the
     // SPA shell and its hashed assets carry no secrets, so on a tokened remote
     // bind they answer without auth (the loopback bind already serves every
-    // GET open). API routes and the WebSocket stay token-gated; the app then
-    // authenticates its own calls from localStorage (src/api/authToken.ts).
+    // GET open). API routes and the WebSocket stay gated; the app then
+    // authenticates its own calls with the stored token (src/api/authToken.ts)
+    // or its passkey session cookie.
     if (!mutating && !/^\/(api|ws|metrics)(\/|$)/.test(req.path || "")) return next();
     const result = authenticate(req);
     if (!result.ok) return res.status(result.status).json({ error: result.error });
@@ -176,16 +240,26 @@ export function createAuthMiddleware() {
 }
 
 /**
- * What the UI needs to know before it asks for a token, and nothing more.
+ * What the UI needs to know before it asks for credentials, and nothing more.
  * `tokenRequired` is true exactly when a configured token gates the WebSocket
  * upgrade and mutations (authorizeUpgrade / createAuthMiddleware both fall
  * through to authenticate(), which only checks once a token is set).
- * `authenticated` says whether this request's bearer/`?token=` would pass.
+ * `authenticated` says whether this request's credentials would pass.
+ * `passkeys` reports the configured posture only — never whether anything is
+ * enrolled, which would tell a caller when a takeover attempt is worth making.
  * The token itself is never part of the response.
  */
 export function authStatus(req) {
   const tokenRequired = Boolean(configuredToken());
-  return { tokenRequired, authenticated: authenticate(req).ok };
+  const result = authenticate(req);
+  if (!passkeysEnabled()) return { tokenRequired, authenticated: result.ok, passkeys: { enabled: false }, session: null };
+  const session = sessionFor(req);
+  return {
+    tokenRequired,
+    authenticated: result.ok,
+    passkeys: { enabled: true, passkeyOnly: passkeyOnly() },
+    session: session ? { method: session.credentialId ? "passkey" : "token", canManage: session.credentialId === null } : null,
+  };
 }
 
 export function authorizeUpgrade(req) {

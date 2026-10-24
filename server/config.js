@@ -40,6 +40,14 @@ const OCCUPANCY_HELPERS_JSON_PATH =
 const MODEL_PRICES_JSON_PATH =
   process.env.MODEL_PRICES_JSON_PATH || path.join(ROOT, "config", "model-prices.json");
 /**
+ * Passkey credentials, browser sessions and ceremony state (mode 0600). Read live
+ * rather than at import, so a test can point a fresh store at a temp dir. Only
+ * opened while passkey sign-in is armed (SPARKDASH_PASSKEY_ORIGIN).
+ */
+function passkeysDbPath() {
+  return (process.env.PASSKEYS_DB_PATH || "").trim() || path.join(ROOT, "config", "passkeys.sqlite");
+}
+/**
  * Opt-in refresh of that catalog from raw.githubusercontent.com (Cost compare).
  * While off, no outbound fetch is made: the page serves the last catalog on disk
  * (MODEL_PRICES_JSON_PATH) or reports pricing as unavailable.
@@ -224,6 +232,7 @@ export {
   ALERTS_JSON_PATH,
   OCCUPANCY_HELPERS_JSON_PATH,
   MODEL_PRICES_JSON_PATH,
+  passkeysDbPath,
   MODEL_PRICES_FETCH,
   LLM_PROBE_TIMEOUT_MS,
   COMFY_PROBE_TIMEOUT_MS,

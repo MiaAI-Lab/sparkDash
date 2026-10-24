@@ -63,11 +63,16 @@ services:
       # - ${HOME}/.ssh/id_ed25519:/root/.ssh/id_ed25519:ro
     environment:
       # Secure default: host-networked service listens only on loopback.
-      # See docs/REMOTE-ACCESS.md; direct non-loopback binds fail closed.
+      # See docs/REMOTE-ACCESS.md; set a token to protect remote access.
       - BIND_HOST=${BIND_HOST:-127.0.0.1}
       - SPARKDASH_TOKEN=${SPARKDASH_TOKEN:-}
       - SPARKDASH_ALLOW_OPEN_REMOTE=${SPARKDASH_ALLOW_OPEN_REMOTE:-1}
       - SPARKDASH_ALLOWED_HOSTS=${SPARKDASH_ALLOWED_HOSTS:-}
+      # Passkey sign-in (docs/REMOTE-ACCESS.md#passkey-sign-in); empty = off.
+      - SPARKDASH_PASSKEY_ORIGIN=${SPARKDASH_PASSKEY_ORIGIN:-}
+      - SPARKDASH_PASSKEY_ONLY=${SPARKDASH_PASSKEY_ONLY:-}
+      - SPARKDASH_SESSION_TTL_DAYS=${SPARKDASH_SESSION_TTL_DAYS:-}
+      - PASSKEYS_DB_PATH=${PASSKEYS_DB_PATH:-}
       - SPARKDASH_MQTT_PASSWORD=${SPARKDASH_MQTT_PASSWORD:-}
       - PORT=5555
       - LLM_PORT=8888

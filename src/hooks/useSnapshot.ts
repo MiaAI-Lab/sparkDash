@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import type { AlertInstance, SparkSnapshot, WsSnapshot } from "../api/types";
 import { ingestSnapshots } from "./metricsStore";
 import { initialActiveId } from "../constants";
-import { fetchAuthStatus, getToken, onTokenChange, reportAuthRequired } from "../api/authToken";
+import { fetchAuthStatus, getToken, onSessionChange, onTokenChange, reportAuthRequired } from "../api/authToken";
 
 const RECONNECT_DELAY = 2000;
 
@@ -133,15 +133,29 @@ export function useSnapshot() {
     };
   }, [connect, disposeSocket]);
 
-  // A new (or cleared) token takes effect immediately: reconnect with it.
-  useEffect(
-    () =>
-      onTokenChange(() => {
+  // Coalesce token cleanup and its session change into one reconnect.
+  useEffect(() => {
+    let pending = false;
+    let cancelled = false;
+    function reconnect(): void {
+      authCheckedFor.current = null;
+      if (pending) return;
+      pending = true;
+      void Promise.resolve().then(() => {
+        pending = false;
+        if (cancelled) return;
         disposeSocket();
         connect();
-      }),
-    [connect, disposeSocket]
-  );
+      });
+    }
+    const offToken = onTokenChange(reconnect);
+    const offSession = onSessionChange(reconnect);
+    return () => {
+      cancelled = true;
+      offToken();
+      offSession();
+    };
+  }, [connect, disposeSocket]);
 
   // ─── Derived state ──────────────────────────────────────
   const activeSpark = sparks.find((s) => s.id === activeId) || null;

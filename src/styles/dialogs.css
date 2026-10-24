@@ -1784,6 +1784,60 @@
   background: var(--color-success);
 }
 
+/* Settings → Passkeys: session state, enrolled passkeys, enrol control. */
+.set-passkeys {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.set-passkeys__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.set-passkeys__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+.set-passkeys__text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+.set-passkeys__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.set-passkeys__text small,
+.set-passkeys__hint {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--color-muted);
+}
+.set-passkeys__add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.set-passkeys__add .field-input {
+  flex: 1;
+  min-width: 0;
+}
+.set-passkeys__error {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--color-danger);
+}
+
 /* Fleet-wide GPU clock cap (Settings). */
 .set-fleetcap {
   display: flex;

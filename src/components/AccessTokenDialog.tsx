@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ReactElement, type ReactPortal } from "react";
 import { createPortal } from "react-dom";
 import { useModalPresence } from "../hooks/useModalPresence";
 import { useOverlayClose } from "../hooks/useOverlayClose";
@@ -7,45 +7,71 @@ import {
   fetchAuthStatus,
   getToken,
   onAuthRequired,
+  onSessionChange,
   setToken,
   type AuthPromptReason,
 } from "../api/authToken";
+import { browserSupportsWebAuthn } from "@simplewebauthn/browser";
+import { isPasskeyCancelled, signInWithPasskey, signInWithToken } from "../api/passkeys";
 
 interface AccessTokenDialogProps {
   open: boolean;
   reason: AuthPromptReason;
-  /** `saved` is true when the dialog closed because a token was stored. */
+  /** `saved` is true when the dialog closed because a token was stored or a sign-in succeeded. */
   onClose: (saved?: boolean) => void;
 }
 
 const REJECTED_MESSAGE = "The server rejected this token. Check SPARKDASH_TOKEN on the host and try again.";
 
-export function AccessTokenDialog({ open, reason, onClose }: AccessTokenDialogProps) {
+/**
+ * Without passkeys it stores the access token in this browser. With passkeys
+ * armed on the host it is a "Sign in" dialog: a passkey, or a one-time exchange
+ * of the access token for a session cookie (the token is then not stored).
+ */
+export function AccessTokenDialog({ open, reason, onClose }: AccessTokenDialogProps): ReactPortal | null {
   const [value, setValue] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  const [submitting, setSubmitting] = useState<"token" | "passkey" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  /** null until the server says whether passkeys are armed. */
+  const [passkeys, setPasskeys] = useState<boolean | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const titleId = useId();
   const { mounted, visible } = useModalPresence(open);
   const trapRef = useFocusTrap(mounted);
-  const overlayClose = useOverlayClose(() => onClose(false), !submitting);
+  const busy = submitting !== null;
+  const overlayClose = useOverlayClose(() => onClose(false), !busy);
 
   useEffect(() => {
     if (!open) {
       setValue("");
-      setSubmitting(false);
+      setSubmitting(null);
       setError(null);
+      setNotice(null);
+      setPasskeys(null);
       return;
     }
     // Reopened by a refusal while a token is stored: that token is the problem.
     setError(reason === "rejected" && getToken() ? "The saved token was rejected by the server." : null);
+    let cancelled = false;
+    fetchAuthStatus()
+      .then((status) => {
+        if (!cancelled) setPasskeys(status.passkeys.enabled);
+      })
+      .catch(() => {
+        // Server unreachable: offer what works without it, storing the token.
+        if (!cancelled) setPasskeys(false);
+      });
     const t = window.setTimeout(() => inputRef.current?.focus(), 50);
-    return () => window.clearTimeout(t);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+    };
   }, [open, reason]);
 
   // Capture-phase Escape so a dialog underneath (Settings) does not close too.
   useEffect(() => {
-    if (!open || submitting) return;
+    if (!open || busy) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       e.stopPropagation();
@@ -53,19 +79,46 @@ export function AccessTokenDialog({ open, reason, onClose }: AccessTokenDialogPr
     };
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
-  }, [open, submitting, onClose]);
+  }, [open, busy, onClose]);
 
   const candidate = value.trim();
+  const passkeyCapable = passkeys === true && browserSupportsWebAuthn();
+  let saveLabel = "Save";
+  if (passkeys) {
+    saveLabel = submitting === "token" ? "Signing in…" : "Sign in with token";
+  } else if (submitting) {
+    saveLabel = "Checking…";
+  }
 
-  const handleSave = async () => {
-    if (!candidate || submitting) return;
-    setSubmitting(true);
+  async function handleSave(): Promise<void> {
+    if (!candidate || busy || passkeys === null) return;
+    setSubmitting("token");
     setError(null);
+    setNotice(null);
+    if (passkeys) {
+      try {
+        await signInWithToken(candidate);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+        // A store fault can disarm passkeys after this dialog opened. Refresh the
+        // posture so the operator's valid token still has a browser sign-in path.
+        try {
+          const status = await fetchAuthStatus();
+          if (!status.passkeys.enabled) setPasskeys(false);
+        } catch {
+          // No new posture is known; keep the sign-in mode and original error.
+        }
+        setSubmitting(null);
+        return;
+      }
+      onClose(true);
+      return;
+    }
     try {
       const status = await fetchAuthStatus(candidate);
       if (status.tokenRequired && !status.authenticated) {
         setError(REJECTED_MESSAGE);
-        setSubmitting(false);
+        setSubmitting(null);
         return;
       }
     } catch {
@@ -74,7 +127,23 @@ export function AccessTokenDialog({ open, reason, onClose }: AccessTokenDialogPr
     }
     setToken(candidate);
     onClose(true);
-  };
+  }
+
+  async function handlePasskey(): Promise<void> {
+    if (busy) return;
+    setSubmitting("passkey");
+    setError(null);
+    setNotice(null);
+    try {
+      await signInWithPasskey();
+    } catch (err) {
+      if (isPasskeyCancelled(err)) setNotice("Passkey sign-in was cancelled or timed out.");
+      else setError(err instanceof Error ? err.message : String(err));
+      setSubmitting(null);
+      return;
+    }
+    onClose(true);
+  }
 
   if (!mounted) return null;
 
@@ -91,20 +160,46 @@ export function AccessTokenDialog({ open, reason, onClose }: AccessTokenDialogPr
         aria-labelledby={titleId}
       >
         <div className="modal-sheet__header" id={titleId}>
-          Access token
+          {passkeys ? "Sign in" : "Access token"}
         </div>
 
         <div className="modal-sheet__body space-y-3">
-          <p className="text-xs leading-relaxed text-muted">
-            {reason === "rejected"
-              ? "This sparkDash server requires an access token for live telemetry and changes. Enter the value of SPARKDASH_TOKEN set on the host."
-              : "Enter the value of SPARKDASH_TOKEN set on the host."}{" "}
-            It is stored in this browser only.
-          </p>
+          {passkeys ? (
+            <>
+              <p className="text-xs leading-relaxed text-muted">
+                {reason === "rejected"
+                  ? "This sparkDash server requires a sign-in for live telemetry and changes."
+                  : "Sign in to this sparkDash server."}{" "}
+                This browser then stays signed in without storing the token.
+              </p>
+              {passkeyCapable ? (
+                <button
+                  type="button"
+                  onClick={() => void handlePasskey()}
+                  disabled={busy}
+                  className="w-full rounded-md bg-accent px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {submitting === "passkey" ? "Waiting for the passkey…" : "Sign in with a passkey"}
+                </button>
+              ) : (
+                <p className="text-xs leading-relaxed text-muted" data-testid="passkey-unsupported">
+                  This browser cannot use a passkey here: passkeys need a supporting browser and an HTTPS (or
+                  localhost) address. Sign in with the access token instead.
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="text-xs leading-relaxed text-muted">
+              {reason === "rejected"
+                ? "This sparkDash server requires an access token for live telemetry and changes. Enter the value of SPARKDASH_TOKEN set on the host."
+                : "Enter the value of SPARKDASH_TOKEN set on the host."}{" "}
+              It is stored in this browser only.
+            </p>
+          )}
 
           <div>
             <label htmlFor={`${titleId}-input`} className="mb-1 block text-xs text-muted">
-              Token
+              {passkeys ? "Sign in with the access token" : "Token"}
             </label>
             <input
               ref={inputRef}
@@ -113,10 +208,11 @@ export function AccessTokenDialog({ open, reason, onClose }: AccessTokenDialogPr
               autoComplete="off"
               spellCheck={false}
               value={value}
-              disabled={submitting}
+              disabled={busy}
               onChange={(e) => {
                 setValue(e.target.value);
                 if (error) setError(null);
+                if (notice) setNotice(null);
               }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
@@ -133,6 +229,11 @@ export function AccessTokenDialog({ open, reason, onClose }: AccessTokenDialogPr
               {error}
             </div>
           )}
+          {notice && (
+            <p role="status" className="text-xs text-muted">
+              {notice}
+            </p>
+          )}
         </div>
 
         <div className="modal-sheet__footer">
@@ -140,7 +241,7 @@ export function AccessTokenDialog({ open, reason, onClose }: AccessTokenDialogPr
             <button
               type="button"
               onClick={() => onClose(false)}
-              disabled={submitting}
+              disabled={busy}
               className="rounded-md border border-border bg-surface-elevated px-3 py-1.5 text-xs text-muted transition-colors hover:bg-surface-hover hover:text-text disabled:opacity-50"
             >
               Cancel
@@ -148,10 +249,10 @@ export function AccessTokenDialog({ open, reason, onClose }: AccessTokenDialogPr
             <button
               type="button"
               onClick={() => void handleSave()}
-              disabled={!candidate || submitting}
+              disabled={!candidate || busy || passkeys === null}
               className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {submitting ? "Checking…" : "Save"}
+              {saveLabel}
             </button>
           </div>
         </div>
@@ -165,13 +266,22 @@ export function AccessTokenDialog({ open, reason, onClose }: AccessTokenDialogPr
  * App-level host for the dialog: opens it whenever the API layer reports a
  * refused token (401, or a WebSocket the server turned away) or Settings asks
  * to change it. After Cancel it stays quiet for that token, so background
- * polling cannot pop it up again; a new token or a manual request re-arms it.
+ * polling cannot pop it up again; a new token, a sign-in or sign-out, or a
+ * manual request re-arms it.
  */
-export function AccessTokenPrompt() {
+export function AccessTokenPrompt(): ReactElement {
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState<AuthPromptReason>("rejected");
   const openRef = useRef(false);
   const dismissedFor = useRef<string | null>(null);
+
+  useEffect(
+    () =>
+      onSessionChange(() => {
+        dismissedFor.current = null;
+      }),
+    []
+  );
 
   useEffect(
     () =>

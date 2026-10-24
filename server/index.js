@@ -18,7 +18,19 @@ import {
   validateDecodeBudget,
   validatePrefillBudget,
 } from "./validate.js";
-import { authStatus, authorizeUpgrade, createAuthMiddleware, createHostGuardMiddleware, isLoopbackBind, setTailscaleName } from "./auth.js";
+import {
+  authStatus,
+  authorizeUpgrade,
+  configuredToken,
+  createAuthMiddleware,
+  createHostGuardMiddleware,
+  isLoopbackBind,
+  passkeysEnabled,
+  setTailscaleName,
+} from "./auth.js";
+import { registerPasskeyRoutes } from "./passkeys/routes.js";
+import { armPasskeys } from "./passkeys/preflight.js";
+import { passkeyOrigin } from "./passkeys/settings.js";
 import { inspectHealth } from "./health.js";
 import { getSettings, updateSettings, loadSettings } from "./settings.js";
 import { MqttPublisher } from "./mqtt/MqttPublisher.js";
@@ -488,11 +500,19 @@ const app = express();
 const server = createServer(app);
 
 app.use(express.json());
+// Cookie-authenticated API responses must not become shared proxy cache entries.
+app.use("/api", (_req, res, next) => {
+  if (passkeyOrigin()) res.set("Cache-Control", "no-store");
+  next();
+});
 // Registered ahead of the auth middleware: a remote browser holding no token
 // (or a stale one) must still be able to learn that it needs one.
 app.get("/api/auth/status", createHostGuardMiddleware(), (req, res) => {
   res.json(authStatus(req));
 });
+// Passkey sign-in must answer a browser that holds no credential yet; the routes
+// that need one authenticate for themselves (server/passkeys/routes.js).
+registerPasskeyRoutes(app);
 app.use(createAuthMiddleware());
 occupancy.register(app);
 
@@ -2270,10 +2290,14 @@ const wss = new WebSocketServer({
   maxPayload: 64 * 1024,
   verifyClient: ({ req }, done) => done(authorizeUpgrade(req)),
 });
+// Retain each connection's credentials so a revoked or expired browser session
+// cannot keep receiving telemetry through an already-open socket.
+const socketRequests = new WeakMap();
 wss.on("error", (err) => {
   console.error("[ws] server error:", err?.message);
 });
-wss.on("connection", (ws) => {
+wss.on("connection", (ws, req) => {
+  socketRequests.set(ws, req);
   console.log("[ws] client connected");
   // A malformed frame or reset socket emits "error" on the socket; without a
   // listener that is an uncaught exception that kills the process.
@@ -2317,6 +2341,10 @@ function buildSnapshotPayload(sparks = orderedSnapshots()) {
 function broadcastPayload(payload) {
   wss.clients.forEach((client) => {
     if (client.readyState !== 1) return; // OPEN only
+    if (passkeyOrigin() && !authorizeUpgrade(socketRequests.get(client))) {
+      client.close(1008, "session ended");
+      return;
+    }
     if (client.bufferedAmount > 1_000_000) {
       try {
         client.close(1008, "client too slow");
@@ -2388,6 +2416,7 @@ const startupPreflight = inspectStartupPreflight(BIND_HOST);
 logStartupPreflight(startupPreflight, BIND_HOST, PORT);
 
 if (!startupPreflight.fatal) {
+  if (passkeysEnabled()) armPasskeys(configuredToken());
   startBroadcast();
   if (isLoopbackBind(BIND_HOST)) {
     // Learn this machine's MagicDNS name (via the host namespace in Docker) so Tailscale Serve
