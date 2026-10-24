@@ -373,7 +373,19 @@ export function SettingsDialog({ open, onClose, onSaved, onOpenHarness }: Settin
 
               <SettingRow
                 title={t("healthTemps.title")}
-                help={t("healthTemps.help")}
+                help={
+                  <>
+                    {t("healthTemps.help")}
+                    <button
+                      type="button"
+                      className="btn btn--sm btn--ghost set-row__action"
+                      disabled={settings.healthTempWarnC === 85 && settings.healthTempCriticalC === 90}
+                      onClick={() => update({ healthTempWarnC: 85, healthTempCriticalC: 90 })}
+                    >
+                      {t("healthTemps.reset")}
+                    </button>
+                  </>
+                }
                 htmlFor="settings-health-temp-warn"
               >
                 <div className="set-price">

@@ -93,4 +93,18 @@ describe("SettingsDialog GPU temperature limits", () => {
     expect(updateSettings).not.toHaveBeenCalled();
     expect(document.body.textContent).toContain("between 40 and 110");
   });
+
+  it("resets both limits to the defaults, and the button is off while they already are", async () => {
+    vi.mocked(fetchSettings).mockResolvedValue({ ...settings, healthTempWarnC: 78, healthTempCriticalC: 88 });
+    render(<SettingsDialog open onClose={vi.fn()} onSaved={vi.fn()} />);
+    await flush();
+    const reset = () => [...document.querySelectorAll("button")].find((b) => b.textContent === "Reset to Defaults")!;
+    expect(reset().disabled).toBe(false);
+    act(() => reset().click());
+    expect((document.getElementById("settings-health-temp-warn") as HTMLInputElement).value).toBe("85");
+    expect((document.getElementById("settings-health-temp-critical") as HTMLInputElement).value).toBe("90");
+    expect(reset().disabled).toBe(true);
+    await act(async () => saveButton()?.click());
+    expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({ healthTempWarnC: 85, healthTempCriticalC: 90 }));
+  });
 });
