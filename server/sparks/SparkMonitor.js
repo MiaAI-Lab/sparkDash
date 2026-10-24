@@ -10,6 +10,7 @@ import { HermesProbe } from "../collectors/HermesProbe.js";
 import { TailscaleProbe } from "../collectors/TailscaleProbe.js";
 import { llmDaily } from "../collectors/LlmDaily.js";
 import { HealthEvaluator } from "../health/HealthEvaluator.js";
+import { getSettings } from "../settings.js";
 import { sshExec } from "../collectors/ssh.js";
 
 /** macOS uptime in seconds from `kern.boottime` (`{ sec = 1791857261, usec = ... } ...`). */
@@ -130,7 +131,12 @@ export class SparkMonitor {
     /** @type {boolean | null} null until the first successful GPU sample. */
     this._prevThermal = null;
     /** Health rules + their sample-streak state; findings go out in snapshot().health. */
-    this._healthEval = new HealthEvaluator();
+    this._healthEval = new HealthEvaluator({
+      thresholds: () => {
+        const { healthTempWarnC, healthTempCriticalC } = getSettings();
+        return { warnC: healthTempWarnC, criticalC: healthTempCriticalC };
+      },
+    });
     this._health = [];
     this._prevHealthIds = null;
     // Resolver for worker derived label: maps a head spark id to its live

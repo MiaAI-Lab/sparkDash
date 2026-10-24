@@ -33,6 +33,33 @@ function mqttUrlHasCredentials(value: string): boolean {
   }
 }
 
+const HEALTH_TEMP_MIN_C = 40;
+const HEALTH_TEMP_MAX_C = 110;
+
+/** NaN stands for an empty field while typing; Save refuses it. */
+function parseHealthTemp(raw: string): number {
+  return raw.trim() === "" ? NaN : Number(raw);
+}
+
+function healthTempValue(value: number | undefined): number | "" {
+  return typeof value === "number" && Number.isFinite(value) ? value : "";
+}
+
+/** The message for unusable thermal thresholds, or null when they can be saved. */
+function healthTempsError(
+  warn: number | undefined,
+  critical: number | undefined,
+  t: (key: string, opts?: Record<string, unknown>) => string
+): string | null {
+  // A server that predates these settings does not send them; leave it alone.
+  if (warn === undefined && critical === undefined) return null;
+  const ok = (v: number | undefined): v is number =>
+    typeof v === "number" && Number.isFinite(v) && v >= HEALTH_TEMP_MIN_C && v <= HEALTH_TEMP_MAX_C;
+  if (!ok(warn) || !ok(critical)) return t("errors.healthTempsRange", { min: HEALTH_TEMP_MIN_C, max: HEALTH_TEMP_MAX_C });
+  if (warn >= critical) return t("errors.healthTempsOrder");
+  return null;
+}
+
 function useEscape(onClose: () => void) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -203,6 +230,12 @@ export function SettingsDialog({ open, onClose, onSaved, onOpenHarness }: Settin
       setError("Remove the user name and password from the broker URL: put the user name in MQTT username and the password in the SPARKDASH_MQTT_PASSWORD environment variable.");
       return;
     }
+    const tempsError = healthTempsError(settings.healthTempWarnC, settings.healthTempCriticalC, t);
+    if (tempsError) {
+      setInvalidTimeZone(null);
+      setError(tempsError);
+      return;
+    }
     setSaving(true);
     setError(null);
     setInvalidTimeZone(null);
@@ -335,6 +368,41 @@ export function SettingsDialog({ open, onClose, onSaved, onOpenHarness }: Settin
                   >
                     °F
                   </button>
+                </div>
+              </SettingRow>
+
+              <SettingRow
+                title={t("healthTemps.title")}
+                help={t("healthTemps.help")}
+                htmlFor="settings-health-temp-warn"
+              >
+                <div className="set-price">
+                  <input
+                    id="settings-health-temp-warn"
+                    type="number"
+                    aria-label={t("healthTemps.warn")}
+                    min={HEALTH_TEMP_MIN_C}
+                    max={HEALTH_TEMP_MAX_C}
+                    step="1"
+                    inputMode="decimal"
+                    placeholder="85"
+                    value={healthTempValue(settings.healthTempWarnC)}
+                    onChange={(e) => update({ healthTempWarnC: parseHealthTemp(e.target.value) })}
+                    className="field-input field-input--price"
+                  />
+                  <input
+                    id="settings-health-temp-critical"
+                    type="number"
+                    aria-label={t("healthTemps.critical")}
+                    min={HEALTH_TEMP_MIN_C}
+                    max={HEALTH_TEMP_MAX_C}
+                    step="1"
+                    inputMode="decimal"
+                    placeholder="90"
+                    value={healthTempValue(settings.healthTempCriticalC)}
+                    onChange={(e) => update({ healthTempCriticalC: parseHealthTemp(e.target.value) })}
+                    className="field-input field-input--price"
+                  />
                 </div>
               </SettingRow>
 
