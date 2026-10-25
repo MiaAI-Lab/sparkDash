@@ -43,6 +43,11 @@ const KEY_LEN = 32;
 /** Cached key so we never regenerate mid-process. */
 let _cachedKey = null;
 
+/** Test helper: drop the in-process key cache. Does not rotate the key file. */
+export function resetSecretsKeyCache() {
+  _cachedKey = null;
+}
+
 function ensureDir(filePath) {
   const dir = path.dirname(filePath);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });

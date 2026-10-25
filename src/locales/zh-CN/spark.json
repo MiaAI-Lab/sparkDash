@@ -8,7 +8,9 @@
     "boardSensorHelp": "读数来自 {{source}} — ACPI/主板温区，并非 CPU 封装传感器",
     "power": "CPU 功耗",
     "model": "型号",
-    "cores": " · {{count}} 核"
+    "cores": " · {{count}} 核",
+    "unavailable": "不可用",
+    "unavailableReason": "不可用：{{reason}}"
   },
   "ram": {
     "title": "系统内存",
@@ -70,7 +72,10 @@
     "usedMemory": "已用 {{memory}}",
     "available": "可用",
     "allocationErrorsHelp": "自启动以来内核日志中的 NVRM NV_ERR_NO_MEMORY 条目数，表示显存压力下发生的 GPU 内存分配失败。",
-    "allocationErrors": "自启动以来 GPU 内存分配错误"
+    "allocationErrors": "自启动以来 GPU 内存分配错误",
+    "unavailableReason": "不可用：{{reason}}",
+    "gpuClock": "GPU 时钟",
+    "unifiedMemoryInUse": "已用统一内存"
   },
   "gpuChart": {
     "combined": "合并",

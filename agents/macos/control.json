@@ -1,0 +1,120 @@
+{
+  "schema": "sparkdash.mac-control/1",
+  "source": "Launch commands mirror model-start / model-stop on the captain's Mac (MK-MacBook-Pro-5). The agent does not bake those engine names into code; edit this catalog to retarget a machine.",
+  "notes": [
+    "GET /control and the serving probe never execute these commands.",
+    "POST /control/start and POST /control/stop run the matching argv only after SPARKDASH_MAC_CONTROL_TOKEN matches.",
+    "The privileged root collector refuses control even if this file is present.",
+    "A request names a catalog entry. It is not interpolated into the command."
+  ],
+  "targets": [
+    {
+      "name": "omlx",
+      "label": "oMLX",
+      "group": "omlx",
+      "groupLabel": "oMLX",
+      "models": [{ "id": "default", "label": "start-command default" }],
+      "start": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-start omlx"],
+      "stop": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-stop omlx"]
+    },
+    {
+      "name": "qflash",
+      "label": "qflash (mlx-serve)",
+      "group": "qflash",
+      "groupLabel": "qflash",
+      "models": [{ "id": "default", "label": "start-command default" }],
+      "start": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-start qflash"],
+      "stop": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-stop qflash"]
+    },
+    {
+      "name": "splash",
+      "label": "Splash default",
+      "group": "splash",
+      "groupLabel": "Splash",
+      "models": [{ "id": "incoai/Qwen3.6-35B-A3B-Splash", "label": "Qwen3.6-35B-A3B (default)" }],
+      "start": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-start splash"],
+      "stop": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-stop splash"]
+    },
+    {
+      "name": "splash-27b",
+      "label": "Splash 27B",
+      "group": "splash",
+      "groupLabel": "Splash",
+      "models": [{ "id": "incoai/Qwen3.8-27B-Splash", "label": "Qwen3.8-27B" }],
+      "start": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-start splash-27b"],
+      "stop": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-stop splash"]
+    },
+    {
+      "name": "splash-35b",
+      "label": "Splash 35B",
+      "group": "splash",
+      "groupLabel": "Splash",
+      "models": [{ "id": "incoai/Qwen3.6-35B-A3B-Splash", "label": "Qwen3.6-35B-A3B" }],
+      "start": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-start splash-35b"],
+      "stop": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-stop splash"]
+    },
+    {
+      "name": "ds4",
+      "label": "DS4 / DwarfStar",
+      "group": "ds4",
+      "groupLabel": "DS4",
+      "models": [{ "id": "default", "label": "start-command default" }],
+      "start": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-start ds4"],
+      "stop": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-stop ds4"]
+    },
+    {
+      "name": "ds4-serve",
+      "label": "DS4 on-demand",
+      "group": "ds4",
+      "groupLabel": "DS4",
+      "models": [{ "id": "default", "label": "start-command default" }],
+      "start": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-start ds4-serve"],
+      "stop": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-stop ds4"]
+    },
+    {
+      "name": "mtplx",
+      "label": "MTPLX default",
+      "group": "mtplx",
+      "groupLabel": "MTPLX",
+      "models": [{ "id": "Youssofal/Qwen3.8-27B-MTPLX-Optimized-Speed", "label": "Qwen3.8-27B (default)" }],
+      "start": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-start mtplx"],
+      "stop": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-stop mtplx"]
+    },
+    {
+      "name": "mtplx-27b",
+      "label": "MTPLX 27B",
+      "group": "mtplx",
+      "groupLabel": "MTPLX",
+      "models": [{ "id": "Youssofal/Qwen3.8-27B-MTPLX-Optimized-Speed", "label": "Qwen3.8-27B" }],
+      "start": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-start mtplx-27b"],
+      "stop": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-stop mtplx"]
+    },
+    {
+      "name": "mtplx-flash",
+      "label": "MTPLX Flash-Next",
+      "group": "mtplx",
+      "groupLabel": "MTPLX",
+      "models": [{ "id": "Youssofal/Qwen3.8-Flash-Next-MTPLX-Optimized-Speed", "label": "Qwen3.8 Flash-Next" }],
+      "start": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-start mtplx-flash"],
+      "stop": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-stop mtplx"]
+    },
+    {
+      "name": "mtplx-35b",
+      "label": "MTPLX 35B",
+      "group": "mtplx",
+      "groupLabel": "MTPLX",
+      "models": [{ "id": "qwen3.6-35b-a3b", "label": "Qwen3.6-35B-A3B" }],
+      "start": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-start mtplx-35b"],
+      "stop": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-stop mtplx-35b"]
+    },
+    {
+      "name": "tensorfold",
+      "label": "TensorFold",
+      "group": "tensorfold",
+      "groupLabel": "TensorFold",
+      "models": [{ "id": "Vontra/Qwen3.8-27B-MLX-4bit", "label": "Qwen3.8-27B" }],
+      "start": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-start tensorfold"],
+      "stop": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-stop tensorfold"]
+    }
+  ]
+}

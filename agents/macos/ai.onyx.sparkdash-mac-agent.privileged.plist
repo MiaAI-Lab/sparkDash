@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>ai.onyx.sparkdash-mac-agent.privileged</string>
+
+    <!-- Opt-in root collector. Installed only by install-privileged-collector.sh
+         after a sudo prompt. It does not replace the user LaunchAgent. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>-I</string>
+        <string>INSTALL_DIR/sparkdash_mac_agent.py</string>
+        <string>--serve</string>
+        <string>--host</string>
+        <string>127.0.0.1</string>
+        <string>--port</string>
+        <string>8791</string>
+        <string>--config</string>
+        <string>INSTALL_DIR/runtimes.json</string>
+    </array>
+
+    <!-- Loopback only, so install does not add a LAN listener next to the
+         user agent's port. Edit the bind address here if a remote dashboard must scrape
+         temperatures; that is the same unauthenticated /metrics trust model
+         as the user agent. -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Library/Logs/sparkdash-mac-agent-privileged.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Library/Logs/sparkdash-mac-agent-privileged.err.log</string>
+</dict>
+</plist>

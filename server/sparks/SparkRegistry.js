@@ -15,6 +15,22 @@ import { llmProbeHost } from "../collectors/llmHost.js";
  *  - Held in memory for SSH collectors / LLM probes
  *  - Encrypted at rest in config/sparks-secrets.json (survives Docker restart)
  */
+/**
+ * Normalize the optional Mac agent endpoint. `null` (or a block with nothing
+ * usable in it) keeps the SSH transport for a mac unit.
+ * @param {unknown} value
+ */
+export function normalizeMacAgent(value) {
+  if (!value || typeof value !== "object") return null;
+  const row = /** @type {Record<string, unknown>} */ (value);
+  const url = String(row.url || "").trim();
+  const host = String(row.host || "").trim();
+  const port = Number.parseInt(String(row.port ?? ""), 10);
+  const usablePort = Number.isInteger(port) && port > 0 && port <= 65535 ? port : null;
+  if (!url && !host && !usablePort) return null;
+  return { url: url || null, host: host || null, port: usablePort };
+}
+
 export class SparkRegistry {
   constructor() {
     this._sparks = [];
@@ -610,7 +626,8 @@ export class SparkRegistry {
       id: config.id,
       name: config.name || config.id,
       /** Unit type: spark (DGX Spark) or host (dedicated GPU Linux box). */
-      kind: config.kind === "host" || config.platform === "windows" ? "host" : "spark",
+      kind: config.kind === "mac" ? "mac" : config.kind === "host" || config.platform === "windows" ? "host" : "spark",
+      agent: config.kind === "mac" ? normalizeMacAgent(config.agent) : null,
       /**
        * Optional OS platform override for SSH-collected units: "darwin" for
        * macOS hosts (Mac Studio etc.). Absent/"linux" keeps the existing
@@ -630,7 +647,7 @@ export class SparkRegistry {
       /** Last MAC seen on enP7s7 (auto; not set via public PATCH). */
       detectedMacAddress: config.detectedMacAddress || null,
       // A Windows PC is always reached over SSH (the local collectors read /proc).
-      isLocal: config.platform !== "windows" && Boolean(config.isLocal),
+      isLocal: config.kind !== "mac" && config.platform !== "windows" && Boolean(config.isLocal),
       ssh,
       llmPorts,
       role,

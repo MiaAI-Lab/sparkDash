@@ -8,7 +8,9 @@
     "boardSensorHelp": "Reading from {{source}} — an ACPI/board thermal zone, not a CPU package sensor",
     "power": "CPU power",
     "model": "Model",
-    "cores": " · {{count}} cores"
+    "cores": " · {{count}} cores",
+    "unavailable": "unavailable",
+    "unavailableReason": "unavailable: {{reason}}"
   },
   "ram": {
     "title": "RAM",
@@ -70,7 +72,10 @@
     "usedMemory": "{{memory}} used",
     "available": "Available",
     "allocationErrorsHelp": "NVRM kernel NV_ERR_NO_MEMORY lines since boot (journal). GPU memory allocation failures under pressure.",
-    "allocationErrors": "GPU memory allocation errors since boot"
+    "allocationErrors": "GPU memory allocation errors since boot",
+    "unavailableReason": "unavailable: {{reason}}",
+    "gpuClock": "GPU clock",
+    "unifiedMemoryInUse": "Unified memory in use"
   },
   "gpuChart": {
     "combined": "Combined",

@@ -3,7 +3,7 @@ import { strict as assert } from "node:assert";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { sshCommandSpec, explainSshFailure } from "../ssh.js";
+import { sshCommandSpec, sshExecOutcome, explainSshFailure } from "../ssh.js";
 import { decodeClixml } from "../windowsMetrics.js";
 
 beforeEach((t) => {
@@ -189,6 +189,36 @@ test("sshCommandSpec: the legacy global switch still disables reuse", () => {
   }));
   assert.deepEqual(controlOptions(spec), ["ControlMaster=no", "ControlPath=none"]);
   assert.equal(spec.multiplex, null);
+});
+
+test("sshExecOutcome: a clean command yields trimmed stdout", () => {
+  assert.equal(sshExecOutcome({ error: null, stdout: " hi \n" }), "hi");
+});
+
+test("sshExecOutcome: nonzero exit keeps output only when the caller opts in", () => {
+  const error = Object.assign(new Error("Command failed"), { code: 1 });
+  assert.equal(sshExecOutcome({ error, stdout: "df table" }), null);
+  assert.equal(sshExecOutcome({ error, stdout: "df table", allowNonZeroExit: true }), "df table");
+});
+
+test("sshExecOutcome: timeouts and spawn failures never yield output", () => {
+  const killed = Object.assign(new Error("timed out"), { code: null, killed: true });
+  assert.equal(sshExecOutcome({ error: killed, stdout: "partial", allowNonZeroExit: true }), null);
+  const spawn = Object.assign(new Error("spawn ssh ENOENT"), { code: "ENOENT" });
+  assert.equal(sshExecOutcome({ error: spawn, stdout: "partial", allowNonZeroExit: true }), null);
+});
+
+test("sshExecOutcome: an opted-in failure with no output still rejects", () => {
+  const error = Object.assign(new Error("Permission denied"), { code: 255 });
+  assert.equal(sshExecOutcome({ error, stdout: "", allowNonZeroExit: true }), null);
+});
+
+test("sshExecOutcome: a transport failure never yields output even with stdout", () => {
+  const transport = Object.assign(new Error("Connection closed by remote host"), { code: 255 });
+  assert.equal(
+    sshExecOutcome({ error: transport, stdout: "partial table", allowNonZeroExit: true }),
+    null
+  );
 });
 
 test("explainSshFailure points Windows hosts at the Windows unit type and leaves other errors alone", () => {
