@@ -563,6 +563,42 @@ export interface LlmDailyResponse {
   days: LlmDailyDay[];
 }
 
+export interface LlmTelemetryPoint {
+  /** Start of the ten-second bucket, milliseconds since epoch. */
+  t: number;
+  available: boolean;
+  status?: "active" | "idle" | "unknown" | "stale" | "unavailable" | "ambiguous_model";
+  lastObservedAt?: number | null;
+  statusReason?: string | null;
+  modelId?: string | null;
+  telemetrySource?: "direct" | "relay" | null;
+  backend: string | null;
+  generationTps: number | null;
+  prefillTps: number | null;
+  totalPromptTokens?: number | null;
+  totalOutputTokens?: number | null;
+  completedRequestsTotal?: number | null;
+  requestsRunning: number | null;
+  requestsWaiting: number | null;
+  kvCacheUsage: number | null;
+  ttftP95Seconds: number | null;
+  e2eP95Seconds: number | null;
+  itlP95Seconds: number | null;
+  preemptionsTotal: number | null;
+  prefixCacheHitRate: number | null;
+  mtpAcceptanceRate: number | null;
+  kvCacheCapacityTokens: number | null;
+  kvCacheMaxConcurrency: number | null;
+}
+
+export interface LlmTelemetryResponse {
+  sparkId: string;
+  port: number;
+  bucketSeconds: number;
+  retentionHours: number;
+  points: LlmTelemetryPoint[];
+}
+
 /** Security posture badge payload from LlmProbe. */
 export interface LlmPosture {
   /** ok = green, warn = amber, danger = red */

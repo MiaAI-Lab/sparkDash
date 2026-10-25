@@ -1,3 +1,4 @@
+import { OverviewLlmFooter } from "./OverviewLlmFooter";
 import { memo, useState } from "react";
 import type { SparkSnapshot } from "../../api/types";
 import { resolveSparkRole } from "../../api/sparkRole";
@@ -198,21 +199,6 @@ function SparkCardImpl({
   const showLauncher = role !== "worker" && !llm && spark.llmMonitoring !== false && spark.platform !== "windows";
 
   const showTps = role !== "worker" && !!llm;
-  const isStrata = llm?.backend === "strata";
-  // Engines that report requests (TensorFold, Strata, …) used to hide their parallelism behind
-  // "N running": a unit set to --parallel 4 and one set to 8 read the same. Name the capacity too.
-  const parallel = llm && llm.slotsTotal > 0 ? llm.slotsTotal : null;
-  const llmChip = llm
-    ? llm.requestsRunning != null
-      ? `${llm.requestsRunning} running · ${llm.requestsWaiting == null ? "queue unknown" : `${llm.requestsWaiting} queued`}${
-          parallel != null ? ` · ${parallel} slots` : ""
-        }`
-      : llm.slotsTotal > 0
-        ? `${llm.slotsActive ?? "?"}/${llm.slotsTotal} slots`
-        : null
-    : null;
-  const llmChipTitle =
-    parallel != null && llm?.requestsRunning != null ? `${parallel} requests decode in parallel on this engine` : undefined;
 
   const chips = (
     <div className="ov-chips">
@@ -227,7 +213,6 @@ function SparkCardImpl({
           Cap {(throttle.clockCapMHz / 1000).toFixed(1)} GHz
         </Tag>
       ) : null}
-      {online && llmChip ? <Tag tone={(llm?.requestsRunning ?? llm?.slotsActive ?? 0) > 0 ? "good" : "neutral"} title={llmChipTitle}>{llmChip}</Tag> : null}
       {comfy !== undefined || spark.comfyMonitoring ? (
         !comfy?.available ? (
           <Tag title="ComfyUI monitoring on — not reachable">Comfy</Tag>
@@ -367,64 +352,7 @@ function SparkCardImpl({
             </div>
           ) : null}
           {showTps && llm ? (
-            <div className="ov-tps">
-              <div
-                title={
-                  isStrata
-                    ? "Live sliding-window decode rate. When that window is unavailable, the active-slot mean sums each active slot’s generated tokens divided by its elapsed time since first token; it excludes prefill time."
-                    : undefined
-                }
-              >
-                <div className="eyebrow">Decode</div>
-                {llm.measurementValid === false ? (
-                  <div className="big-num ov-tps__num" title={llm.measurementError ?? "Stats could not be read"}>—</div>
-                ) : isStrata && llm.decodeActive && llm.generationTps <= 0 ? (
-                  <div className="big-num ov-tps__num ov-tps__num--live">
-                    <span className="ov-tps__dots" aria-hidden />
-                    <small>decoding</small>
-                  </div>
-                ) : (
-                  <div className="big-num ov-tps__num">{llm.generationTps.toFixed(1)}<small>tok/s</small></div>
-                )}
-                {isStrata && llm.generationTpsSource === "slot-mean" && <small className="text-muted">active-slot mean</small>}
-                {llm.measurementValid !== false && llm.perStreamTps != null && (
-                  <small
-                    className="text-muted"
-                    title="Average decode throughput of one running stream (1 / mean seconds per output token). Only engines that publish a per-token latency histogram report it."
-                  >
-                    {llm.perStreamTps.toFixed(1)} tok/s per stream
-                  </small>
-                )}
-              </div>
-              <div
-                title={
-                  isStrata
-                    ? "Engine-reported mean for computed/new prompt tokens. It may be from an earlier prefill and is not an aggregate across slots."
-                    : undefined
-                }
-              >
-                <div className="eyebrow">Prefill</div>
-                {llm.measurementValid === false ? (
-                  <div className="big-num ov-tps__num" title={llm.measurementError ?? "Stats could not be read"}>—</div>
-                ) : llm.prefillActive && llm.prefillTps <= 0 ? (
-                  <div className="big-num ov-tps__num ov-tps__num--live" title={isStrata ? "A prompt is being processed; no current prefill rate is available." : "A prompt is being processed. The engine reports its speed only when the request finishes."}>
-                    <span className="ov-tps__dots" aria-hidden />
-                    <small>prefilling</small>
-                  </div>
-                ) : (
-                  <div className="big-num ov-tps__num">{Math.round(llm.prefillTps).toLocaleString()}<small>tok/s</small></div>
-                )}
-                {llm.measurementValid !== false && llm.perStreamPrefillTps != null && (
-                  <small
-                    className="text-muted"
-                    title="Effective prefill rate of one request (prompt tokens ÷ prefill seconds over finished requests). The prompt counter includes prefix-cache tokens, so this is an effective speed, not raw GPU speed; it is held between completions."
-                  >
-                    {Math.round(llm.perStreamPrefillTps).toLocaleString()} tok/s per request — effective (incl. cached tokens)
-                  </small>
-                )}
-                {isStrata && llm.prefillTps > 0 && <small className="text-muted">last reported mean</small>}
-              </div>
-            </div>
+            <OverviewLlmFooter sparkId={spark.id} port={spark.llmPorts?.[llmIdx] ?? spark.llmPort ?? null} llm={llm} />
           ) : null}
           {chips}
           {rootDisk ? (

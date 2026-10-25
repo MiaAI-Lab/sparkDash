@@ -23,9 +23,9 @@ describe("SparkCard when the engine's stats could not be read", () => {
         temperatureUnit="celsius"
       />,
     );
-    expect(container.textContent).toMatch(/Decode—/);
-    expect(container.textContent).toMatch(/Prefill—/);
-    expect(container.textContent).not.toMatch(/Decode0\.0tok\/s/);
+    expect(container.textContent).toContain("— tok/s");
+    expect(container.textContent).toMatch(/prefill —/);
+    expect(container.textContent).not.toContain("0 tok/s");
     expect(container.querySelector('[title*="answered 500"]')).not.toBeNull();
   });
 
@@ -33,6 +33,7 @@ describe("SparkCard when the engine's stats could not be read", () => {
     const { container } = render(
       <SparkCard spark={withLlm({ measurementValid: true, generationTps: 0, prefillTps: 0 })} temperatureUnit="celsius" />,
     );
-    expect(container.textContent).toMatch(/Decode0\.0tok\/s/);
+    expect(container.textContent).toContain("0 tok/s");
+    expect(container.textContent).toMatch(/prefill 0/);
   });
 });
