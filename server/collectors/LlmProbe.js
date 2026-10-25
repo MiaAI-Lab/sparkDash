@@ -141,6 +141,7 @@ export class LlmProbe {
 
     // Per-slot rate tracking (for llama.cpp native path)
     this.slotState = new Map();
+    this._mlxServeLive = null;
     this.lastTokenCounts = { input: 0, output: 0 };
     /** TensorFold: first /health sample with counters seeds the baseline (lifetime total is not a rate). */
     this._tensorfoldSeeded = false;
@@ -438,6 +439,7 @@ export class LlmProbe {
   }
 
   _noteFailure(message) {
+    this._mlxServeLive = null;
     this.models = [];
     this.error = message;
     this._consecutiveFailures += 1;
@@ -485,6 +487,7 @@ export class LlmProbe {
     this._localsBase = null;
     this._splashBase = null;
     this.slotState.clear();
+    this._mlxServeLive = null;
     this.lastTokenCounts = { input: 0, output: 0 };
     // The counters restart from zero, so the next poll may only seed them. The
     // per-backend `dtSec < 10` guards do that when the probe clock is zero too;
@@ -645,6 +648,8 @@ export class LlmProbe {
     // LM Studio first: it answers 200 + JSON on every path, so the heuristic
     // probes below (notably SGLang's /server_info) would misfire on it.
     if (await this._probeIsLmStudio()) return "lmstudio";
+    // Explicit mlx-serve identity wins over compatibility /api/tags endpoints.
+    if (typeof ownedBy === "string" && /^mlx-serve$/i.test(ownedBy)) return "vllm";
     // Ollama second: its native /api/tags contract is unique among engines. Locals
     // (Generated-Computers/Locals) also answers /api/tags, so it must not reach this
     // probe; its exact `owned_by: "locals"` is in OWNED_BY_ENGINES above.
@@ -1140,6 +1145,7 @@ export class LlmProbe {
             } else if (this.backendType == null || this.backendType === "vllm") {
               this.backendType = "vllm";
               this._applyVllmMetrics(txt, dtSec);
+              this._applyMlxServeLiveRates(txt, dtSec);
             }
           }
         } else if (this.backendType === "splash") {
@@ -1468,6 +1474,7 @@ export class LlmProbe {
    * @param {string} reason
    */
   _markUnmeasured(reason, { reseed = true } = {}) {
+    this._mlxServeLive = null;
     this.measurementValid = false;
     this.measurementError = reason;
     this.generationTps = 0;
@@ -2260,6 +2267,38 @@ export class LlmProbe {
    * @param {string} txt
    * @param {number} dtSec
    */
+  static _metricsLookLikeMlxServe(body) {
+    return /(?:^|\n)mlx_serve:prefill_tokens_live(?:\{|\s)/m.test(String(body || ""));
+  }
+
+  /**
+   * mlx-serve exports vLLM token counters but bumps them only when a request
+   * finishes, so mid-request deltas are 0 and completion spikes. Its own series
+   * move live: generation_tokens_live is cumulative including in-flight tokens,
+   * and prefill_tokens_live is the in-flight prefill progress that
+   * prefill_tokens_total absorbs at completion.
+   */
+  _applyMlxServeLiveRates(txt, dtSec) {
+    const gen = this._getPromMetric(txt, "mlx_serve:generation_tokens_live");
+    const prefillDone = this._getPromMetric(txt, "mlx_serve:prefill_tokens_total");
+    const prefillLive = this._getPromMetric(txt, "mlx_serve:prefill_tokens_live");
+    if (gen == null || prefillDone == null || prefillLive == null) {
+      this._mlxServeLive = null;
+      return;
+    }
+    const prev = this._mlxServeLive;
+    const cur = { gen, prefill: prefillDone + prefillLive };
+    this._mlxServeLive = cur;
+    if (!prev || !(dtSec > 0 && dtSec < 10) || cur.gen < prev.gen || cur.prefill < prev.prefill) {
+      this.generationTps = 0;
+      this.prefillTps = 0;
+      return;
+    }
+    const rate = (d) => Math.max(0, Math.round((d / dtSec) * 100) / 100);
+    this.generationTps = rate(cur.gen - prev.gen);
+    this.prefillTps = rate(cur.prefill - prev.prefill);
+  }
+
   _applyVllmMetrics(txt, dtSec) {
     const promptTokens = this._getVllmMetric(txt, "prompt_tokens_total");
     const genTokens = this._getVllmMetric(txt, "generation_tokens_total");
