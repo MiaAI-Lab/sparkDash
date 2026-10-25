@@ -106,7 +106,8 @@ export function honestValue(
   value: string,
   { fallbackForNonDgx = false }: { fallbackForNonDgx?: boolean } = {}
 ): { text: string; title?: string; muted: boolean } {
-  return honestGap(spark?.metrics?.unavailable ?? spark?.metrics?.gpu?.unavailable, metric, value, {
+  const gap = gapFor(spark, metric);
+  return honestGap(gap ? [gap] : [], metric, value, {
     nonDgx: fallbackForNonDgx && isNonDgxPlatform(spark),
   });
 }
