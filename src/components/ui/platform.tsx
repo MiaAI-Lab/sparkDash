@@ -69,10 +69,11 @@ export function gapFor(
   spark: Pick<SparkSnapshot, "metrics"> | null | undefined,
   metric: string
 ): MetricGap | null {
-  const rows: MetricGap[] = [
-    ...(spark?.metrics?.unavailable ?? []),
-    ...(spark?.metrics?.gpu?.unavailable ?? []),
-  ];
+  // An empty domain list is authoritative: a later recovered reading must not
+  // inherit a gap from the slower runtime-inventory poll.
+  const domain = metric.startsWith("cpu.") ? spark?.metrics?.cpu?.unavailable
+    : metric.startsWith("gpu.") ? spark?.metrics?.gpu?.unavailable : undefined;
+  const rows: MetricGap[] = domain ?? spark?.metrics?.unavailable ?? [];
   return rows.find((row) => row?.metric === metric) ?? null;
 }
 

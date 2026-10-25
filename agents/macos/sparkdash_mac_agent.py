@@ -110,8 +110,11 @@ def _abandon(proc: subprocess.Popen) -> None:
                 pass
 
 
-def run(cmd: list[str], timeout: float | None = CMD_TIMEOUT_S) -> str:
-    """Run a command, return stdout ('' on any failure). Never raises or waits forever.
+def run(cmd: list[str], timeout: float | None = CMD_TIMEOUT_S, *, strict: bool = False, allowed_codes: tuple[int, ...] = (0,)) -> str:
+    """Run a bounded command; return stdout or an empty failure sentinel by default.
+
+    Strict inventory probes raise on failure so unknown process state cannot
+    be mistaken for an empty inventory.
 
     The timeout is a hard bound: the process group is killed, and a child that
     does not reap (a stuck `df`, a `top` with no tty) is abandoned. One probe
@@ -122,23 +125,31 @@ def run(cmd: list[str], timeout: float | None = CMD_TIMEOUT_S) -> str:
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE if strict else subprocess.DEVNULL,
             stdin=subprocess.DEVNULL,
             text=True,
             start_new_session=True,
         )
-    except (OSError, ValueError):
+    except (OSError, ValueError) as exc:
+        if strict:
+            raise RuntimeError(f"{cmd[0]} probe could not start") from exc
         return ""
     try:
-        stdout, _stderr = proc.communicate(timeout=limit)
+        stdout, stderr = proc.communicate(timeout=limit)
+        if strict and (proc.returncode not in allowed_codes or (proc.returncode != 0 and stderr)):
+            raise RuntimeError(f"{cmd[0]} probe failed (exit {proc.returncode})")
         return stdout or ""
     except subprocess.TimeoutExpired:
         _kill_command(proc)
         _abandon(proc)
+        if strict:
+            raise RuntimeError(f"{cmd[0]} probe timed out")
         return ""
     except (OSError, subprocess.SubprocessError):
         _kill_command(proc)
         _abandon(proc)
+        if strict:
+            raise RuntimeError(f"{cmd[0]} probe failed")
         return ""
 
 
@@ -337,9 +348,9 @@ class CpuProbe:
 
     def _refresh(self) -> None:
         sample = cpu_sample_psutil() or cpu_sample_iostat() or cpu_sample_top()
-        if sample is not None:
-            with self._lock:
-                self._sample = sample
+        # A fresh whole-agent response must not re-stamp an old CPU value.
+        with self._lock:
+            self._sample = sample
 
     def sample(self) -> dict[str, object] | None:
         with self._lock:
@@ -758,6 +769,7 @@ def gpu_stats(allow_powermetrics: bool) -> tuple[dict[str, object], list[dict[st
         "activePercent": None,
         "freqMHz": None,
         "powerW": None,
+        "cpuW": None,
         "anePowerW": None,
         "combinedPowerW": None,
         "thermalPressure": None,
@@ -767,6 +779,7 @@ def gpu_stats(allow_powermetrics: bool) -> tuple[dict[str, object], list[dict[st
         unavailable.append({"metric": "gpu.utilization", "reason": reason})
         unavailable.append({"metric": "gpu.power", "reason": reason})
         unavailable.append({"metric": "ane.power", "reason": reason})
+        unavailable.append({"metric": "cpu.power", "reason": reason})
         block["powermetrics"] = "requires-root"
         return block, unavailable
 
@@ -781,6 +794,7 @@ def gpu_stats(allow_powermetrics: bool) -> tuple[dict[str, object], list[dict[st
         unavailable.append({"metric": "gpu.utilization", "reason": reason})
         unavailable.append({"metric": "gpu.power", "reason": reason})
         unavailable.append({"metric": "ane.power", "reason": reason})
+        unavailable.append({"metric": "cpu.power", "reason": reason})
         block["powermetrics"] = "failed"
         return block, unavailable
 
@@ -789,10 +803,13 @@ def gpu_stats(allow_powermetrics: bool) -> tuple[dict[str, object], list[dict[st
         "activePercent": parsed["gpuActivePct"],
         "freqMHz": parsed["gpuFreqMHz"],
         "powerW": parsed["gpuW"],
+        "cpuW": parsed["cpuW"],
         "anePowerW": parsed["aneW"],
         "combinedPowerW": parsed["combinedW"],
         "thermalPressure": parsed["thermalPressure"],
     })
+    if parsed["cpuW"] is None:
+        unavailable.append({"metric": "cpu.power", "reason": "CPU power was not reported by powermetrics"})
     return block, unavailable
 
 
@@ -811,7 +828,9 @@ def load_inventory(path: Path) -> dict[str, object]:
 
 def list_processes() -> dict[int, dict[str, object]]:
     """pid -> process identity, from `ps` (argv survives, unlike lsof's 16-char command)."""
-    text = run(["ps", "-Ao", "pid=,ppid=,uid=,args="], timeout=3.0)
+    text = run(["ps", "-Ao", "pid=,ppid=,uid=,args="], timeout=3.0, strict=True)
+    if not text.strip():
+        raise RuntimeError("process inventory is unavailable")
     procs: dict[int, dict[str, object]] = {}
     for line in text.splitlines():
         parts = line.strip().split(None, 3)
@@ -832,6 +851,8 @@ def list_processes() -> dict[int, dict[str, object]]:
             "comm": _basename(argv[0]) if argv else "",
             "script": _script_identity(argv),
         }
+    if not procs:
+        raise RuntimeError("process inventory could not be parsed")
     return procs
 
 
@@ -853,7 +874,7 @@ def _script_identity(argv: list[str]) -> str:
 
 def listening_sockets() -> dict[int, list[dict[str, object]]]:
     """pid -> [{port, address}] for TCP listeners, via lsof (same user, no root)."""
-    text = run(["lsof", "-nP", "-iTCP", "-sTCP:LISTEN", "-F", "pcn"], timeout=4.0)
+    text = run(["lsof", "-nP", "-iTCP", "-sTCP:LISTEN", "-F", "pcn"], timeout=4.0, strict=True, allowed_codes=(0, 1))
     out: dict[int, list[dict[str, object]]] = {}
     pid: int | None = None
     for line in text.splitlines():
@@ -1142,11 +1163,15 @@ def collect_snapshot(inventory: dict[str, object], *, allow_powermetrics: bool,
     if thermal["pressureState"] == "unknown":
         unavailable.append({"metric": "thermal.pressureState", "reason": "pmset returned no recognized thermal state"})
 
-    runtimes = detect_runtimes(
-        inventory,
-        procs if procs is not None else list_processes(),
-        listeners if listeners is not None else listening_sockets(),
-    )
+    try:
+        runtimes = detect_runtimes(
+            inventory,
+            procs if procs is not None else list_processes(),
+            listeners if listeners is not None else listening_sockets(),
+        )
+    except Exception:
+        runtimes = None
+        unavailable.append({"metric": "runtimes", "reason": "process or listener inventory could not be read"})
 
     boot = parse_boot_time(sysctl_read(["kern.boottime"]).get("kern.boottime"))
     uptime = int(max(0, time.time() - boot)) if boot else None
@@ -1317,7 +1342,8 @@ class Handler(BaseHTTPRequestHandler):
                 "targets": [],
             })
             return
-        self._json(self.control.status())
+        payload = self.control.status(self.headers)
+        self._json(payload, status=403 if payload.get("control") == "denied" else 200)
 
     def _control_action(self, action: str) -> None:
         refused = self._root_control_refusal()

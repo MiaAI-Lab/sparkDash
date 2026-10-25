@@ -41,6 +41,7 @@ export function CpuPanel({
   const usageHistory = useMetricsHistoryTail(sparkId, "cpu.usage");
   const tempHistory = useMetricsHistoryTail(sparkId, "cpu.temp");
 
+  const gaps = cpu?.unavailable ?? unavailable;
   const usage = cpu?.usage ?? 0;
   const temperature = cpu?.temperature ?? 0;
   const draw = cpu?.draw ?? 0;
@@ -59,10 +60,10 @@ export function CpuPanel({
   const hasTemperature =
     typeof cpu?.temperature === "number" && Number.isFinite(cpu.temperature) && cpu.temperature > 0;
   const tempValueText = hasTemp ? `${displayTemp}${temperatureUnit === "fahrenheit" ? "°F" : "°C"}` : "—";
-  const tempView = honestGap(unavailable, "cpu.temperature", tempValueText, {
+  const tempView = honestGap(gaps, "cpu.temperature", tempValueText, {
     nonDgx: !hasTemperature && (mac || cpu?.temperature == null),
   });
-  const powerView = honestGap(unavailable, "cpu.power", `${draw}W${tdp > 0 ? ` / ${tdp}W` : ""}`, {
+  const powerView = honestGap(gaps, "cpu.power", `${draw}W${tdp > 0 ? ` / ${tdp}W` : ""}`, {
     nonDgx: mac && draw === 0,
   });
 

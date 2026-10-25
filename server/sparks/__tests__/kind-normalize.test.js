@@ -41,3 +41,9 @@ test("mac agent endpoint normalizes, and only for mac units", () => {
   // A DGX Spark carrying an agent block ignores it.
   assert.equal(n({ kind: "spark", agent: { port: 8790 } }).agent, null);
 });
+
+test("a Mac always uses darwin and remote collection, including legacy Windows configurations", () => {
+  const normalized = n({ kind: "mac", platform: "windows", isLocal: true });
+  assert.equal(normalized.platform, "darwin");
+  assert.equal(normalized.isLocal, false);
+});
