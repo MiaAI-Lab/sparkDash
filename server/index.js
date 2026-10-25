@@ -1,7 +1,7 @@
 // First on purpose: imports are evaluated in order, and config.js, settings.js
 // and the bench modules read process.env while they load.
 import "dotenv/config";
-import { llmTelemetry } from "./collectors/LlmTelemetry.js";
+import { LlmTelemetryStore } from "./collectors/LlmTelemetry.js";
 import express from "express";
 import { createServer } from "http";
 import { WebSocketServer } from "ws";
@@ -88,6 +88,8 @@ import { inspectStartupPreflight, logStartupPreflight } from "./startupPreflight
 import { readServerVersion } from "./serverVersion.js";
 import { PROMETHEUS_CONTENT_TYPE, metricsEntries, renderPrometheusMetrics } from "./prometheus.js";
 
+// Construct after dotenv/config has loaded .env (it runs first above).
+const llmTelemetry = new LlmTelemetryStore();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT = path.resolve(__dirname, "..");

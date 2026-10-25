@@ -130,3 +130,65 @@ test("compaction removes expired series even after their port is deleted", (t) =
     assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")).series, {});
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("two restarts retain new samples after recovering a torn journal tail", (t) => {
+  let clock = Date.parse("2026-08-27T12:00:00Z");
+  t.mock.method(Date, "now", () => clock);
+  const { dir, file, store } = makeStore();
+  try {
+    store.record("fixture", 8888, { available: true, generationTps: 10 }, clock);
+    store.flush();
+    store.compact(clock);
+    const valid = { key: "fixture:8888", point: { t: clock + 10000, available: true, generationTps: 20 } };
+    fs.writeFileSync(`${file}.journal`, JSON.stringify(valid) + '\n{"key":"fixture:8888","point":');
+    clock += 30000;
+    const recovered = new LlmTelemetryStore(file);
+    recovered.record("fixture", 8888, { available: true, generationTps: 30 }, clock);
+    recovered.flush();
+    const again = new LlmTelemetryStore(file);
+    assert.deepEqual(again.getSeries("fixture", 8888, { now: new Date(clock) }).points.map((p) => p.generationTps), [10, 20, 30]);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("persistent write failures retain only bounded pending history and recover", (t) => {
+  let clock = Date.parse("2026-08-27T12:00:00Z");
+  t.mock.method(Date, "now", () => clock);
+  const { dir, file, store } = makeStore();
+  const append = fs.appendFileSync.bind(fs);
+  let denied = true;
+  t.mock.method(fs, "appendFileSync", (...args) => {
+    if (denied) throw new Error("synthetic EACCES");
+    return append(...args);
+  });
+  t.mock.method(console, "error", () => {});
+  try {
+    for (let hour = 0; hour < 9 * 24; hour++) {
+      clock += 3600000;
+      store.record("fixture", 8888, { available: true, generationTps: hour }, clock);
+      store.flush();
+      assert.ok(store._pending.size <= 168);
+    }
+    denied = false;
+    store.flush();
+    assert.equal(store._pending.size, 0);
+    const restored = new LlmTelemetryStore(file).getSeries("fixture", 8888, { hours: 168, now: new Date(clock) });
+    assert.equal(restored.points.length, 168);
+    assert.equal(restored.points.at(-1).generationTps, 215);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("store construction honors a telemetry path loaded later from .env", async (t) => {
+  const { dir } = makeStore();
+  const previous = process.env.LLM_TELEMETRY_JSON_PATH;
+  t.after(() => {
+    if (previous === undefined) delete process.env.LLM_TELEMETRY_JSON_PATH;
+    else process.env.LLM_TELEMETRY_JSON_PATH = previous;
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  delete process.env.LLM_TELEMETRY_JSON_PATH;
+  const expected = path.join(dir, "from-dotenv.json");
+  fs.writeFileSync(path.join(dir, ".env"), `LLM_TELEMETRY_JSON_PATH=${expected}\n`);
+  const { default: dotenv } = await import("dotenv");
+  dotenv.config({ path: path.join(dir, ".env"), quiet: true });
+  assert.equal(new LlmTelemetryStore().filePath, expected);
+});
