@@ -539,3 +539,54 @@ test("llama.cpp: a slot starting a new request does not cancel another slot's to
   assert.equal(snap.generationTps, 50); // slot 1 only: 100 / 2 s
   assert.equal(snap.prefillTps, 20); // slot 1 only: 40 / 2 s
 });
+
+test("vLLM prompt_tokens_by_source: prefill counts computed tokens only", () => {
+  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 8000);
+  probe.lastTokenCounts = { input: 1000, output: 500 };
+  probe.lastTtftSum = 10;
+  probe.lastPromptCompute = 100;
+  probe.lastPrefillKinds = { cached: 800, computed: 100 };
+  probe._prefillSplitSource = "cumulative";
+  const body = `${VLLM_METRICS.replace("1000.0", "1200.0").replace("500.0", "900.0")}
+vllm:prompt_tokens_by_source_total{engine="0",source="local_compute"} 140.0
+vllm:prompt_tokens_by_source_total{engine="0",source="local_cache_hit"} 860.0
+vllm:prompt_tokens_by_source_total{engine="0",source="external_kv_transfer"} 0.0
+vllm:time_to_first_token_seconds_sum{engine="0"} 10.05
+`;
+  probe._applyVllmMetrics(body, 2);
+  assert.equal(probe.generationTps, 200); // (900-500)/2
+  // Δcompute 40 / Δttft 0.05s = 800 — not Δprompt 200 / 0.05 = 4000 inflated by cache hits
+  assert.equal(probe.prefillTps, 800);
+  assert.equal(probe.uncachedPrefillTps, 20); // (140-100)/2
+  assert.equal(probe.cachedPrefillTps, 30); // (860-800)/2
+});
+
+test("vLLM fully cached prompt reports 0 computed prefill", () => {
+  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 8000);
+  probe.lastTokenCounts = { input: 1000, output: 500 };
+  probe.lastTtftSum = 10;
+  probe.lastPromptCompute = 100;
+  const body = `${VLLM_METRICS.replace("1000.0", "1200.0").replace("500.0", "900.0")}
+vllm:prompt_tokens_by_source_total{engine="0",source="local_compute"} 100.0
+vllm:prompt_tokens_by_source_total{engine="0",source="local_cache_hit"} 1000.0
+vllm:time_to_first_token_seconds_sum{engine="0"} 10.02
+`;
+  probe._applyVllmMetrics(body, 2);
+  // Δprompt 200 served entirely from cache → Δcompute 0 → no fake prefill burst
+  assert.equal(probe.prefillTps, 0);
+});
+
+test("vLLM by_source first sample seeds without a prefill spike", () => {
+  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 8000);
+  probe.lastTokenCounts = { input: 1000, output: 500 };
+  probe.lastTtftSum = 10;
+  const body = `${VLLM_METRICS.replace("1000.0", "1200.0").replace("500.0", "900.0")}
+vllm:prompt_tokens_by_source_total{engine="0",source="local_compute"} 900.0
+vllm:prompt_tokens_by_source_total{engine="0",source="local_cache_hit"} 9000.0
+vllm:time_to_first_token_seconds_sum{engine="0"} 10.05
+`;
+  probe._applyVllmMetrics(body, 2);
+  // Metric appears mid-run: seed, not 900 / 0.05 = 18000
+  assert.equal(probe.prefillTps, 0);
+  assert.equal(probe.uncachedPrefillTps, 0);
+});

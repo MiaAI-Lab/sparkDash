@@ -170,6 +170,7 @@ export class LlmProbe {
     this.lastTtftCount = null;
     /** Previous `vllm:iteration_tokens_total_sum` (engine-step tokens). */
     this.lastIterSum = null;
+    this.lastPromptCompute = null;
     this.lastRadianceSteps = null;
     this.lastProbeTime = 0;
 
@@ -495,6 +496,7 @@ export class LlmProbe {
     this.lastTtftSum = null;
     this.lastTtftCount = null;
     this.lastIterSum = null;
+    this.lastPromptCompute = null;
     this.lastRadianceSteps = null;
     this._sglangStickyTps = null;
     this._sglangLoadGenTps = null;
@@ -2258,18 +2260,38 @@ export class LlmProbe {
         this._getVllmMetric(txt, "prompt_tokens_cached_total") ??
         this._getVllmMetric(txt, "prefix_cache_hits_total");
       if (cachedTok != null) this.totalCachedTokens = cachedTok;
-      // prompt_tokens_total counts prefix-cache hits too; a 97%-cached agent
-      // prompt would otherwise read as 100k+ tok/s "prefill". Only the
-      // computed share is real prefill work.
-      const prevCached = this.lastPrefillKinds?.cached;
-      const deltaCached =
-        cachedTok != null && prevCached != null ? Math.max(0, cachedTok - prevCached) : 0;
-      const deltaComputedIn = Math.max(0, deltaIn - deltaCached);
-      this._setPrefillSplitRates(
-        cachedTok,
-        cachedTok != null ? Math.max(0, promptTokens - cachedTok) : null,
-        dtSec
-      );
+      // vLLM splits prompt tokens by source: local_compute is the share that
+      // actually ran prefill; the rest was served from prefix/external cache.
+      // prompt_tokens_total counts both, so prefill rates derived from it are
+      // inflated whenever the prefix cache hits. Prefer this split when the
+      // engine reports it; older builds only expose the plain cached counter.
+      const srcCompute = this._getPromMetricLabeled(
+        txt, "vllm:prompt_tokens_by_source_total", "source", "local_compute");
+      const srcHit = this._getPromMetricLabeled(
+        txt, "vllm:prompt_tokens_by_source_total", "source", "local_cache_hit");
+      const srcExternal = this._getPromMetricLabeled(
+        txt, "vllm:prompt_tokens_by_source_total", "source", "external_kv_transfer");
+      let deltaCompute = null;
+      if (srcCompute != null && srcHit != null) {
+        this._setPrefillSplitRates(srcHit + (srcExternal ?? 0), srcCompute, dtSec, "cumulative");
+        deltaCompute =
+          this.lastPromptCompute != null ? Math.max(0, srcCompute - this.lastPromptCompute) : 0;
+        this.lastPromptCompute = srcCompute;
+      } else {
+        this.lastPromptCompute = null;
+        // prompt_tokens_total counts prefix-cache hits too; a 97%-cached agent
+        // prompt would otherwise read as 100k+ tok/s "prefill". Only the
+        // computed share is real prefill work.
+        const prevCached = this.lastPrefillKinds?.cached;
+        const deltaCached =
+          cachedTok != null && prevCached != null ? Math.max(0, cachedTok - prevCached) : 0;
+        deltaCompute = Math.max(0, deltaIn - deltaCached);
+        this._setPrefillSplitRates(
+          cachedTok,
+          cachedTok != null ? Math.max(0, promptTokens - cachedTok) : null,
+          dtSec
+        );
+      }
       const ttftSum = this._getVllmMetric(txt, "time_to_first_token_seconds_sum");
       const deltaIter =
         iterSum != null && this.lastIterSum != null ? iterSum - this.lastIterSum : 0;
@@ -2285,10 +2307,10 @@ export class LlmProbe {
         const livePrefill =
           prefillIter > 0 && !specNoise ? prefillIter / dtSec : 0;
         const finishedPrefill =
-          deltaComputedIn > 0 && deltaTtft > 0
-            ? deltaComputedIn / deltaTtft
-            : deltaComputedIn > 0 && livePrefill <= 0
-              ? deltaComputedIn / dtSec
+          deltaCompute > 0 && deltaTtft > 0
+            ? deltaCompute / deltaTtft
+            : deltaCompute > 0 && livePrefill <= 0
+              ? deltaCompute / dtSec
               : 0;
         this.prefillTps = Math.max(
           0,
