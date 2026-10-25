@@ -118,3 +118,20 @@ describe("RuntimeLauncher", () => {
     expect(container.textContent).not.toContain("started");
   });
 });
+
+it("does not apply Mac A's pending action result after navigating to Mac B", async () => {
+  let finish!: (result: RuntimeControlView) => void;
+  const start = () => new Promise<RuntimeControlView>((resolve) => { finish = resolve; });
+  const bTarget = { ...target, name: "b-runtime", label: "B runtime", group: "b", groupLabel: "B", models: [] };
+  const load = async (id: string) => view({ targets: id === "a" ? [target] : [bTarget], serving: [] });
+  const { container, root } = render(<RuntimeLauncher sparkId="a" load={load} start={start} />);
+  await flush();
+  act(() => { (container.querySelector('[data-action="launch"]') as HTMLButtonElement).click(); });
+  act(() => root.render(<RuntimeLauncher sparkId="b" load={load} start={start} />));
+  await flush();
+  expect(container.textContent).toContain("B runtime");
+  finish(view({ targets: [target], serving: [] }));
+  await flush();
+  expect(container.textContent).toContain("B runtime");
+  expect(container.textContent).not.toContain("Splash 35B");
+});

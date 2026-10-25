@@ -34,3 +34,12 @@ describe("unit type", () => {
     expect(unitTypePatch("host", { platform: "darwin" })).toEqual({ kind: "host", platform: "darwin" });
   });
 });
+
+it("switches Windows to a remote Mac and normalizes inconsistent legacy Mac types", () => {
+  const windows = { kind: "host" as const, platform: "windows" as const };
+  const converted = { ...windows, ...unitTypePatch("mac", windows) };
+  expect(converted.platform).toBe("darwin");
+  expect(converted.isLocal).toBe(false);
+  expect(unitTypeOf(converted)).toBe("mac");
+  expect(unitTypeOf({ kind: "mac", platform: "windows" })).toBe("mac");
+});

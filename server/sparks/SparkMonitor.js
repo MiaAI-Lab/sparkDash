@@ -1181,7 +1181,7 @@ export class SparkMonitor {
           this._updateHealth();
           break;
         case "runtimes":
-          this._metrics.runtimes = Array.isArray(result?.runtimes) ? result.runtimes : [];
+          this._metrics.runtimes = Array.isArray(result?.runtimes) ? result.runtimes : null;
           this._metrics.unavailable = Array.isArray(result?.unavailable) ? result.unavailable : [];
           this._metrics.agentOnline = Boolean(result?.agentOnline);
           break;

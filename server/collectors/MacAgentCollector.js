@@ -261,6 +261,7 @@ export class MacAgentCollector extends MacSystemCollector {
     return tagCollectionResult({
       usage,
       usageAvailable: valid,
+      unavailable: this._agentEntries(snapshot),
       temperature: finiteTemperature(snapshot.cpu?.temperature) ? snapshot.cpu.temperature : null,
       draw: snapshot.gpu?.powermetrics === "ok" ? snapshot.gpu?.cpuW ?? 0 : 0,
       tdp: 0,
@@ -400,7 +401,7 @@ export class MacAgentCollector extends MacSystemCollector {
 
   _onlineRuntimes(snapshot) {
     return {
-      runtimes: Array.isArray(snapshot.runtimes) ? snapshot.runtimes : [],
+      runtimes: Array.isArray(snapshot.runtimes) ? snapshot.runtimes : null,
       agentOnline: true,
       agentVersion: snapshot.agentVersion ?? null,
       collectedAt: snapshot.collectedAt ?? null,

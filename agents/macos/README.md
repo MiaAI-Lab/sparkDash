@@ -143,11 +143,11 @@ Control is **off** until both sides share a token. Set
 `SPARKDASH_MAC_CONTROL_TOKEN` in the user agent's LaunchAgent environment and
 in the sparkDash server environment. Until then the dashboard tile says
 unavailable and does not offer a launch button. A wrong token is permission
-denied, and the command is not run.
+denied on both status and action requests, and the command is not run. If process or listener inventory cannot be read, serving state remains unknown and launch is blocked.
 
 | method | path | effect |
 | ------ | ---- | ------ |
-| GET | `/control` | catalog plus what a process/port probe sees serving. Runs no start command. |
+| GET | `/control` | authenticated catalog and current serving probe. Runs no start command. |
 | POST | `/control/start` | runs that target's catalog `start` argv. Body: `{"runtime","model"}`. |
 | POST | `/control/stop` | runs that target's catalog `stop` argv. |
 

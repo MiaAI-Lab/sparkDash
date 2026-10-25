@@ -35,21 +35,27 @@ function groupsOf(targets: RuntimeControlTarget[]): { id: string; label: string 
   return [...seen.entries()].map(([id, label]) => ({ id, label }));
 }
 
-export function RuntimeLauncher({
-  sparkId,
-  metricsRuntimes,
-  agentOnline,
-  load = fetchRuntimeControl,
-  start = startMacRuntime,
-  stop = stopMacRuntime,
-}: {
+interface RuntimeLauncherProps {
   sparkId: string;
   metricsRuntimes?: MacRuntime[] | null;
   agentOnline?: boolean | null;
   load?: Load;
   start?: Act;
   stop?: (sparkId: string, runtime: string) => Promise<RuntimeControlView>;
-}) {
+}
+
+export function RuntimeLauncher(props: RuntimeLauncherProps) {
+  return <RuntimeLauncherForNode key={props.sparkId} {...props} />;
+}
+
+function RuntimeLauncherForNode({
+  sparkId,
+  metricsRuntimes,
+  agentOnline,
+  load = fetchRuntimeControl,
+  start = startMacRuntime,
+  stop = stopMacRuntime,
+}: RuntimeLauncherProps) {
   const [status, setStatus] = useState<RuntimeControlView | null>(null);
   const [freshProbe, setFreshProbe] = useState<MacRuntime[] | null | undefined>(undefined);
   const [group, setGroup] = useState<string>("");

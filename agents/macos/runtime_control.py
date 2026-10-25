@@ -179,8 +179,10 @@ class RuntimeControl:
             return None, "serving probe returned an unexpected payload"
         return rows, None
 
-    def status(self) -> dict[str, object]:
-        control, reason = self.capability()
+    def status(self, headers=None) -> dict[str, object]:
+        control, reason = self.authorize(headers or {})
+        if control == "denied":
+            return self._refused(control, reason or "control token rejected")
         serving, serving_error = self._serving()
         return {
             "schema": CONTROL_SCHEMA,
@@ -220,6 +222,10 @@ class RuntimeControl:
         problem = _argv_problem(argv)
         if problem:
             return 409, self._refused("ready", f"{name}: {problem}")
+        if action == "start":
+            serving, serving_error = self._serving()
+            if serving is None:
+                return 503, self._refused("ready", serving_error or "serving state is unknown")
         # The request selects a catalog entry. It never becomes part of the command.
         result = self._runner(list(argv), self._timeout)
         serving, serving_error = self._serving()

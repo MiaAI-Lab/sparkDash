@@ -299,7 +299,7 @@ class AvailabilityTests(unittest.TestCase):
         self.assertIsNone(block["anePowerW"])
         self.assertEqual(
             {row["metric"] for row in unavailable},
-            {"gpu.utilization", "gpu.power", "ane.power"},
+            {"gpu.utilization", "gpu.power", "ane.power", "cpu.power"},
         )
         self.assertTrue(all("root" in row["reason"] for row in unavailable))
 
@@ -311,7 +311,7 @@ class AvailabilityTests(unittest.TestCase):
         finally:
             agent.run = original
         self.assertEqual(block["powermetrics"], "failed")
-        self.assertEqual(len(unavailable), 3)
+        self.assertEqual(len(unavailable), 4)
 
     def test_network_without_a_default_route_is_declared_unavailable(self):
         original = agent.default_interface
@@ -562,7 +562,7 @@ class CommandTimeoutTests(unittest.TestCase):
                 with patch.object(agent.time, "monotonic", return_value=cache._at + 61):
                     response = cache.get()
                     self.assertTrue(response["sampleStale"])
-                    self.assertEqual(response["sampleAgeSeconds"], 61)
+                    self.assertAlmostEqual(response["sampleAgeSeconds"], 61)
                     self.assertEqual(response["cpu"]["temperature"], 46)
                     self.assertEqual(response["unavailable"][0]["metric"], "agent.sample")
                     worker = cache._worker
@@ -722,6 +722,43 @@ class ServeTests(unittest.TestCase):
             self.assertEqual(cache.get(force=True)["n"], 2)
         finally:
             agent.collect_snapshot = original
+
+
+
+
+class ReviewRegressionTests(unittest.TestCase):
+    def test_background_cpu_failure_expires_previous_sample_and_recovers(self):
+        probe = agent.CpuProbe()
+        with patch.object(agent, "cpu_sample_psutil", return_value={"usagePercent": 91}), patch.object(agent, "cpu_sample_iostat", return_value=None), patch.object(agent, "cpu_sample_top", return_value=None):
+            probe._refresh()
+            self.assertEqual(probe.sample()["usagePercent"], 91)
+        with patch.object(agent, "cpu_sample_psutil", return_value=None), patch.object(agent, "cpu_sample_iostat", return_value=None), patch.object(agent, "cpu_sample_top", return_value=None):
+            probe._refresh()
+            self.assertIsNone(probe.sample())
+        with patch.object(agent, "cpu_sample_psutil", return_value={"usagePercent": 32}):
+            probe._refresh()
+            self.assertEqual(probe.sample()["usagePercent"], 32)
+
+    def test_parsed_cpu_power_is_published_and_missing_power_is_unknown(self):
+        with patch.object(agent, "run", return_value="CPU Power: 10000 mW\nGPU Power: 2000 mW\nCombined Power (CPU + GPU + ANE): 12000 mW\n"):
+            block, gaps = agent.gpu_stats(True)
+        self.assertEqual(block["cpuW"], 10)
+        self.assertNotIn("cpu.power", {gap["metric"] for gap in gaps})
+        block, gaps = agent.gpu_stats(False)
+        self.assertIsNone(block["cpuW"])
+        self.assertIn("cpu.power", {gap["metric"] for gap in gaps})
+
+    def test_failed_process_probe_is_unknown_instead_of_empty(self):
+        with patch.object(agent, "run", return_value=""):
+            with self.assertRaises(RuntimeError):
+                agent.list_processes()
+        failed = SimpleNamespace(returncode=2, communicate=lambda **kw: ("", "denied"))
+        with patch.object(agent.subprocess, "Popen", return_value=failed):
+            with self.assertRaises(RuntimeError):
+                agent.listening_sockets()
+        empty = SimpleNamespace(returncode=1, communicate=lambda **kw: ("", ""))
+        with patch.object(agent.subprocess, "Popen", return_value=empty):
+            self.assertEqual(agent.listening_sockets(), {})
 
 
 if __name__ == "__main__":

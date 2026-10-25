@@ -171,7 +171,7 @@ export function GpuPanel({
   const tempUnit = temperatureUnit === "fahrenheit" ? "°F" : "°C";
   const usage = gpu?.usage ?? 0;
   const powerDraw = gpu?.power?.draw ?? 0;
-  const powerLimit = gpu?.power?.limit ?? 0;
+  const powerLimit = metrics?.powerLimit === false ? 0 : gpu?.power?.limit ?? 0;
   const systemDraw = gpu?.power?.systemDraw;
 
   const vramUsed = gpu?.vram?.used ?? 0;
@@ -186,7 +186,10 @@ export function GpuPanel({
   // the node said it could not read them (a declared gap, or the older
   // powermetricsAvailable flag), say so: 0W reads as an idle GPU, not as
   // "not measurable here".
-  const gaps = unavailable ?? gpu?.unavailable ?? null;
+  const gaps = [...(gpu?.unavailable ?? unavailable ?? [])];
+  for (const [field, metric] of [["temperature", "gpu.temperature"], ["usage", "gpu.utilization"], ["powerDraw", "gpu.power"]] as const) {
+    if (metrics?.[field] === false && !gaps.some((gap) => gap.metric === metric)) gaps.push({ metric, reason: `${metric} is unavailable in this sample` });
+  }
   const macUnmeasured = mac && gpu?.powermetricsAvailable === false;
   const powerView = honestGap(
     gaps,
@@ -246,7 +249,7 @@ export function GpuPanel({
     >
       <div className="sp-gpu-top">
         <Ring
-          value={usage}
+          value={usageView.muted ? 0 : usage}
           size={140}
           strokeWidth={11}
           color={ringColor}

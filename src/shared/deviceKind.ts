@@ -16,8 +16,8 @@ export const UNIT_TYPE_OPTIONS: { value: UnitType; label: string }[] = [
 ];
 
 export function unitTypeOf(config: Pick<SparkConfig, "kind" | "platform">): UnitType {
-  if (config.platform === "windows") return "windows";
   if (config.kind === "mac") return "mac";
+  if (config.platform === "windows") return "windows";
   return config.kind === "host" ? "host" : "spark";
 }
 
@@ -25,7 +25,7 @@ export function unitTypeOf(config: Pick<SparkConfig, "kind" | "platform">): Unit
 export function unitTypePatch(type: UnitType, current: Pick<SparkConfig, "platform">): Partial<SparkConfig> {
   if (type === "windows") return { kind: "host", platform: "windows", isLocal: false };
   // Mac units are read by the macOS collectors and the optional Mac node agent; always remote.
-  if (type === "mac") return { kind: "mac", isLocal: false };
+  if (type === "mac") return { kind: "mac", platform: "darwin", isLocal: false };
   // Keep a macOS platform set through the API; everything else is plain Linux.
   const platform = current.platform === "darwin" ? "darwin" : "linux";
   return { kind: type, platform };

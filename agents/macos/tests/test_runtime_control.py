@@ -69,7 +69,7 @@ class ControlUnitTests(unittest.TestCase):
         ctl = control.RuntimeControl(
             catalog(), token="secret", euid=501, probe_serving=probe, runner=runner,
         )
-        payload = ctl.status()
+        payload = ctl.status({"Authorization": "Bearer secret"})
         self.assertEqual(payload["schema"], control.CONTROL_SCHEMA)
         self.assertEqual(payload["control"], "ready")
         self.assertEqual(payload["serving"][0]["name"], "splash-35b")
@@ -215,8 +215,9 @@ class ControlHttpTests(unittest.TestCase):
             self.serving = []
         return {"exitCode": 0, "output": "done", "timedOut": False}
 
-    def _get(self, path):
-        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}{path}", timeout=2) as resp:
+    def _get(self, path, token="secret"):
+        req = urllib.request.Request(f"http://127.0.0.1:{self.port}{path}", headers={"Authorization": f"Bearer {token}"})
+        with urllib.request.urlopen(req, timeout=2) as resp:
             return resp.status, json.loads(resp.read())
 
     def _post(self, path, payload, token="secret"):
@@ -293,6 +294,18 @@ class ControlHttpTests(unittest.TestCase):
         release.set()
         worker.join(2)
 
+    def test_status_read_rejects_a_mismatched_token(self):
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self._get("/control", token="wrong")
+        try:
+            self.assertEqual(caught.exception.code, 403)
+            payload = json.loads(caught.exception.read())
+            self.assertEqual(payload["control"], "denied")
+            self.assertIsNone(payload["serving"])
+        finally:
+            caught.exception.close()
+        self.assertEqual(self.calls, [])
+
 
 class ShippedCatalogTests(unittest.TestCase):
     def test_shipped_catalog_matches_model_start_names_and_hides_argv_on_status(self):
@@ -309,6 +322,32 @@ class ShippedCatalogTests(unittest.TestCase):
         self.assertTrue(all(row["startable"] for row in payload["targets"]))
         self.assertTrue(all("start" not in row for row in payload["targets"]))
         self.assertNotIn("model-start", json.dumps(payload))
+
+
+
+
+class ReviewControlRegressionTests(unittest.TestCase):
+    def test_status_rejects_wrong_token_without_probing_or_running(self):
+        calls = []
+        ctl = control.RuntimeControl(catalog(), token="secret", euid=501, probe_serving=lambda: calls.append("probe"), runner=lambda *a: calls.append("run"))
+        result = ctl.status({"Authorization": "Bearer wrong"})
+        self.assertEqual(result["control"], "denied")
+        self.assertIsNone(result["serving"])
+        self.assertEqual(result["targets"], [])
+        self.assertEqual(calls, [])
+
+    def test_unknown_serving_state_blocks_launch_before_command(self):
+        calls = []
+        def failed_probe():
+            raise RuntimeError("synthetic process probe failure")
+        ctl = control.RuntimeControl(catalog(), token="secret", euid=501, probe_serving=failed_probe, runner=lambda *a: calls.append("run"))
+        result = ctl.status({"Authorization": "Bearer secret"})
+        self.assertIsNone(result["serving"])
+        self.assertIn("probe failed", result["servingError"])
+        status, result = ctl.act("start", {"Authorization": "Bearer secret"}, {"runtime": "splash-35b"})
+        self.assertEqual(status, 503)
+        self.assertFalse(result["ok"])
+        self.assertEqual(calls, [])
 
 
 if __name__ == "__main__":
