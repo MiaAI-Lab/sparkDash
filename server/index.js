@@ -1,4 +1,4 @@
-import { llmTelemetry } from "./collectors/LlmTelemetry.js";
+import { LlmTelemetryStore } from "./collectors/LlmTelemetry.js";
 import express from "express";
 import { createServer } from "http";
 import { WebSocketServer } from "ws";
@@ -82,6 +82,8 @@ import { inspectStartupPreflight, logStartupPreflight } from "./startupPreflight
 import { PROMETHEUS_CONTENT_TYPE, metricsEntries, renderPrometheusMetrics } from "./prometheus.js";
 
 dotenv.config();
+// Construct only after .env is loaded; config modules may have been imported earlier.
+const llmTelemetry = new LlmTelemetryStore();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

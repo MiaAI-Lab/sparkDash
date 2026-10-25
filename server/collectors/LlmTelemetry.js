@@ -101,12 +101,14 @@ function migratePoint(point) {
 
 export class LlmTelemetryStore {
   /** @param {string} [filePath] */
-  constructor(filePath = LLM_TELEMETRY_JSON_PATH) {
+  constructor(filePath = process.env.LLM_TELEMETRY_JSON_PATH || LLM_TELEMETRY_JSON_PATH) {
     this.filePath = filePath;
     this.journalPath = `${filePath}.journal`;
     /** @type {Record<string, Array<Record<string, unknown>>>} */
     this._series = {};
     this._dirty = false;
+    this._journalNeedsRepair = false;
+    this._journalNeedsReplay = false;
     this._pending = new Map();
     this._flushTimer = null;
     this._lastCompactionAt = Date.now();
@@ -131,15 +133,18 @@ export class LlmTelemetryStore {
     }
     try {
       this._replayJournal();
-      if (!fs.existsSync(this.filePath) && fs.existsSync(this.journalPath)) this.compact();
+      if (this._journalNeedsRepair || (!fs.existsSync(this.filePath) && fs.existsSync(this.journalPath))) this.compact();
     } catch {
-      // Keep the last valid compacted snapshot if the journal cannot be read.
+      this._journalNeedsReplay = true;
+      // Retry recovery before a later append; never extend a tail we could not read.
     }
   }
 
   _replayJournal() {
     if (!fs.existsSync(this.journalPath)) return;
-    for (const line of fs.readFileSync(this.journalPath, "utf8").split("\n")) {
+    const journal = fs.readFileSync(this.journalPath, "utf8");
+    this._journalNeedsRepair = journal.length > 0 && !journal.endsWith("\n");
+    for (const line of journal.split("\n")) {
       if (!line) continue;
       try {
         const entry = JSON.parse(line);
@@ -173,8 +178,20 @@ export class LlmTelemetryStore {
   }
 
   flush() {
+    if (this._flushTimer) clearTimeout(this._flushTimer);
+    this._flushTimer = null;
     if (!this._dirty) return;
     try {
+      if (this._journalNeedsReplay) {
+        this._replayJournal();
+        // Newer in-memory records take precedence over recovered journal rows.
+        for (const { key, point } of this._pending.values()) this._upsert(key, point);
+        this._journalNeedsReplay = false;
+      }
+      if (this._journalNeedsRepair) {
+        this.compact();
+        return;
+      }
       fs.mkdirSync(path.dirname(this.journalPath), { recursive: true });
       const journal = `${Array.from(this._pending.values(), (entry) => JSON.stringify(entry)).join("\n")}\n`;
       fs.appendFileSync(this.journalPath, journal, { encoding: "utf8", mode: 0o600 });
@@ -183,6 +200,7 @@ export class LlmTelemetryStore {
       this._dirty = false;
       if (Date.now() - this._lastCompactionAt >= COMPACT_MS) this.compact();
     } catch (err) {
+      this._journalNeedsReplay = true;
       console.error("[LlmTelemetry] write failed:", err.message);
     }
   }
@@ -203,6 +221,8 @@ export class LlmTelemetryStore {
     atomicWrite(this.journalPath, "", 0o600);
     this._pending.clear();
     this._dirty = false;
+    this._journalNeedsRepair = false;
+    this._journalNeedsReplay = false;
     this._lastCompactionAt = Date.now();
   }
 
@@ -215,6 +235,11 @@ export class LlmTelemetryStore {
     const point = pointFrom(metrics, time);
     this._upsert(key, point);
     this._pending.set(`${key}:${point.t}`, { key, point });
+    // A denied/full journal must not turn the retry buffer into unbounded history.
+    const cutoff = point.t - RETENTION_MS + BUCKET_MS;
+    for (const [id, entry] of this._pending) {
+      if (entry.point.t < cutoff || entry.point.t > point.t) this._pending.delete(id);
+    }
     this._dirty = true;
     this._scheduleFlush();
   }
@@ -227,5 +252,3 @@ export class LlmTelemetryStore {
     return { sparkId, port, bucketSeconds: BUCKET_MS / 1000, retentionHours: MAX_HOURS, points };
   }
 }
-
-export const llmTelemetry = new LlmTelemetryStore();

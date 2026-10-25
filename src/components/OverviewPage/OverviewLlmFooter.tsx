@@ -19,11 +19,14 @@ function useLlmHour(sparkId: string, port: number | null): LlmHourSummary | null
     setSummary(null);
     if (port == null) return;
     let alive = true;
-    const load = () =>
-      fetchLlmTelemetry(sparkId, port, 1)
-        .then((r) => alive && setSummary(summarizeLlmHour(r.points ?? [])))
-        // A failed read leaves the hour unknown ("—"), never a fake zero.
-        .catch(() => alive && setSummary(null));
+    let latestRequest = 0;
+    const load = () => {
+      const request = ++latestRequest;
+      return fetchLlmTelemetry(sparkId, port, 1)
+        .then((r) => alive && request === latestRequest && setSummary(summarizeLlmHour(r.points ?? [])))
+        // A superseded failure must not clear a more recent successful read.
+        .catch(() => alive && request === latestRequest && setSummary(null));
+    };
     void load();
     const timer = setInterval(load, REFRESH_MS);
     return () => {
@@ -37,8 +40,8 @@ function useLlmHour(sparkId: string, port: number | null): LlmHourSummary | null
 function busyCaption(hour: LlmHourSummary | null): string {
   if (!hour) return "60m —";
   if (hour.observedBuckets === 0) return "no data";
-  if (hour.busyBuckets === 0) return "idle all hour";
-  return `${Math.max(1, Math.round((hour.busyBuckets * 10) / 60))}m busy`;
+  if (hour.busyBuckets === 0) return "no decode observed";
+  return `${hour.busyBuckets} busy samples`;
 }
 
 /**
@@ -51,7 +54,8 @@ function DecodeSparkline({ points, p50, now }: { points: LlmTelemetryPoint[]; p5
   const H = 34;
   const start = now - HOUR_MS;
   const inHour = points.filter((p) => p.t >= start);
-  const max = Math.max(1, ...inHour.map((p) => p.generationTps ?? 0));
+  const valid = inHour.filter((p) => p.available && p.generationTps != null && Number.isFinite(p.generationTps));
+  const max = Math.max(1, ...valid.map((p) => p.generationTps!));
   const x = (t: number) => ((t - start) / HOUR_MS) * W;
   const y = (v: number) => H - 2 - (v / max) * (H - 4);
   let previous: number | null = null;
@@ -64,7 +68,8 @@ function DecodeSparkline({ points, p50, now }: { points: LlmTelemetryPoint[]; p5
     previous = p.t;
     return `${command}${x(p.t).toFixed(1)},${y(p.generationTps).toFixed(1)}`;
   }).join(" ");
-  const idle = p50 == null;
+  const hasDecode = p50 != null;
+  const description = valid.length === 0 ? "no decode data" : !hasDecode ? "no decode observed" : `median ${formatRate(p50)}`;
   return (
     <svg
       width={W}
@@ -72,15 +77,13 @@ function DecodeSparkline({ points, p50, now }: { points: LlmTelemetryPoint[]; p5
       viewBox={`0 0 ${W} ${H}`}
       className="block shrink-0"
       role="img"
-      aria-label={idle ? "Decode tok/s, last 60 minutes: idle" : `Decode tok/s, last 60 minutes, median ${formatRate(p50)}`}
+      aria-label={`Decode tok/s, last 60 minutes: ${description}`}
     >
       <line x1={0} x2={W} y1={H - 2} y2={H - 2} stroke="var(--color-border)" />
-      {path && !idle ? <path d={path} fill="none" stroke="var(--color-accent)" strokeWidth={1.25} /> : null}
-      {/* A lone "M" path draws nothing, so the first busy sample gets a dot. */}
-      {inHour.length === 1 && !idle ? (
-        <circle cx={x(inHour[0].t)} cy={y(inHour[0].generationTps ?? 0)} r={1.5} fill="var(--color-accent)" />
-      ) : null}
-      {!idle ? (
+      {path && hasDecode ? <path d={path} fill="none" stroke="var(--color-accent)" strokeWidth={1.25} /> : null}
+      {/* Isolated observations remain visible at slower configured poll cadences. */}
+      {valid.map((p) => <circle key={p.t} cx={x(p.t)} cy={y(p.generationTps!)} r={1.5} fill="var(--color-accent)" />)}
+      {hasDecode ? (
         <line
           x1={0}
           x2={W}

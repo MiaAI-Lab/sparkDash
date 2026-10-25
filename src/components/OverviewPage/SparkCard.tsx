@@ -87,6 +87,10 @@ function SparkCardImpl({
   const llmList = Array.isArray(spark.metrics.llm) ? spark.metrics.llm : [];
   const llmIdx = llmList.findIndex((l) => l.available);
   const llm = llmIdx >= 0 ? llmList[llmIdx] : null;
+  const configuredPorts = spark.llmPorts?.length ? spark.llmPorts : [spark.llmPort ?? 8888];
+  const measuredPort = llm?.port ?? configuredPorts[llmIdx] ?? null;
+  // An edit can reorder/remove ports before the next live poll arrives.
+  const historyPort = measuredPort != null && configuredPorts.includes(measuredPort) ? measuredPort : null;
   const [wakeMsg, setWakeMsg] = useState<string | null>(null);
   const [waking, setWaking] = useState(false);
 
@@ -352,7 +356,7 @@ function SparkCardImpl({
             </div>
           ) : null}
           {showTps && llm ? (
-            <OverviewLlmFooter sparkId={spark.id} port={spark.llmPorts?.[llmIdx] ?? spark.llmPort ?? null} llm={llm} />
+            <OverviewLlmFooter sparkId={spark.id} port={historyPort} llm={llm} />
           ) : null}
           {chips}
           {rootDisk ? (

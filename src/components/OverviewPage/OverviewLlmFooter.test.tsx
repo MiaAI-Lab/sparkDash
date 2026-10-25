@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // A plain stub, not vi.fn(): vi.fn tracks a rejected promise it returns and
 // reports it as unhandled even when the caller catches it.
@@ -38,6 +39,7 @@ function hourOf(points: Partial<LlmTelemetryPoint>[]) {
 }
 
 describe("OverviewLlmFooter", () => {
+  afterEach(() => vi.useRealTimers());
   beforeEach(() => {
     telemetry.calls = [];
     telemetry.impl = () => Promise.resolve({ points: [] });
@@ -62,14 +64,14 @@ describe("OverviewLlmFooter", () => {
     expect(container.querySelector("svg path")).not.toBeNull();
   });
 
-  it("says the engine was idle instead of drawing a flat median", async () => {
+  it("reports no decode observations without claiming the hour was idle", async () => {
     const idle = hourOf([{ generationTps: 0 }, { generationTps: 0 }]);
     telemetry.impl = () => Promise.resolve(idle);
     const { container } = render(
       <OverviewLlmFooter sparkId="mama" port={30000} llm={{ ...llm, generationTps: 0, requestsRunning: 0, requestsWaiting: 0 }} />
     );
     await flush();
-    expect(container.textContent).toContain("idle all hour");
+    expect(container.textContent).toContain("no decode observed");
     expect(container.textContent).toContain("p50 —");
     expect(container.querySelector("svg path")).toBeNull();
   });
@@ -114,4 +116,44 @@ describe("OverviewLlmFooter", () => {
     await flush();
     expect(telemetry.calls).toEqual([]);
   });
+});
+
+it("labels prefill-only and missing history without claiming idle", async () => {
+  telemetry.impl = () => Promise.resolve(hourOf([{ generationTps: 0, prefillTps: 1000 }]));
+  const { container, root } = render(<OverviewLlmFooter sparkId="fixture" port={8888} llm={llm} />);
+  await flush();
+  expect(container.textContent).toContain("no decode observed");
+  expect(container.querySelector("svg")?.getAttribute("aria-label")).toContain("no decode observed");
+  act(() => root.render(<OverviewLlmFooter sparkId="fixture" port={null} llm={llm} />));
+  await flush();
+  expect(container.querySelector("svg")?.getAttribute("aria-label")).toContain("no decode data");
+});
+
+it("reports samples rather than invented minutes and renders sparse observations", async () => {
+  const now = Date.now();
+  telemetry.impl = () => Promise.resolve(hourOf(Array.from({ length: 60 }, (_, i) => ({ t: now - (60 - i) * 60000, generationTps: 50 }))));
+  const { container } = render(<OverviewLlmFooter sparkId="fixture" port={8888} llm={llm} />);
+  await flush();
+  expect(container.textContent).toContain("60 busy samples");
+  expect(container.textContent).not.toContain("m busy");
+  // The oldest point may age out between creating the response and rendering.
+  expect(container.querySelectorAll("svg circle").length).toBeGreaterThanOrEqual(59);
+});
+
+it.each(["resolve", "reject"])("a superseded %s cannot overwrite a newer history response", async (outcome) => {
+  vi.useFakeTimers();
+  try {
+    const pending: { resolve: (value: unknown) => void; reject: (reason: Error) => void }[] = [];
+    telemetry.impl = () => new Promise((resolve, reject) => pending.push({ resolve, reject }));
+    const { container } = render(<OverviewLlmFooter sparkId="fixture" port={8888} llm={llm} />);
+    act(() => { vi.advanceTimersByTime(30000); });
+    pending[1].resolve(hourOf([{ generationTps: 30 }]));
+    await flush();
+    expect(container.textContent).toContain("p50 30");
+    if (outcome === "resolve") pending[0].resolve(hourOf([{ generationTps: 999 }]));
+    else pending[0].reject(new Error("superseded failure"));
+    await flush();
+    expect(container.textContent).toContain("p50 30");
+    expect(container.textContent).not.toContain("999");
+  } finally { vi.useRealTimers(); }
 });
