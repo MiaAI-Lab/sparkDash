@@ -49,3 +49,27 @@ describe("Mac thermal reporting", () => {
     expect(container.textContent).not.toContain("unavailable");
   });
 });
+
+it("keeps unavailable non-Mac GPU readings unknown and retains measured partial fields", () => {
+  const gpu = makeSpark("fixture").metrics.gpu!;
+  const flags = { temperature: false, usage: false, powerDraw: false, powerLimit: false, vramUsed: false, vramTotal: false };
+  const { container } = render(<GpuPanel gpu={{ ...gpu, temperature: 0, usage: 0, power: { draw: 0, limit: 0 }, metricAvailability: flags }} sparkId="fixture" temperatureUnit="celsius" />);
+  expect(container.textContent).not.toContain("0°C");
+  expect(container.textContent).not.toContain("Normal");
+  expect(container.textContent).not.toContain("0%");
+  const partial = render(<GpuPanel gpu={{ ...gpu, metricAvailability: { ...flags, powerDraw: true } }} sparkId="partial" temperatureUnit="celsius" />);
+  expect(partial.container.textContent).toContain("50W");
+  expect(partial.container.textContent).not.toContain("100 W");
+});
+
+it("uses each fresh sensor sample's availability instead of older runtime-poll gaps", () => {
+  const base = makeSpark("fixture").metrics;
+  const old = [{ metric: "gpu.temperature", reason: "old gap" }, { metric: "cpu.temperature", reason: "old gap" }];
+  const { container } = render(<>
+    <GpuPanel gpu={{ ...base.gpu!, temperature: 42.1, unavailable: [] }} mac sparkId="fixture" temperatureUnit="celsius" unavailable={old} />
+    <CpuPanel cpu={{ ...base.cpu!, temperature: 46.2, unavailable: [] }} mac sparkId="fixture" temperatureUnit="celsius" unavailable={old} />
+  </>);
+  expect(container.textContent).toContain("42.1°C");
+  expect(container.textContent).toContain("46.2°C");
+  expect(container.textContent).not.toContain("old gap");
+});
