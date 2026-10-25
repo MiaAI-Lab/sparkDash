@@ -78,7 +78,7 @@ function sidebarSubLabel(spark: SparkSnapshot): string {
   if (!spark.online) return railSubLabel(spark);
   if (isWorkerSpark(spark)) return "worker";
   const llm = Array.isArray(spark.metrics.llm) ? spark.metrics.llm.find((entry) => entry.available) : null;
-  if (llm?.backend === "strata" && !(Number.isFinite(llm.generationTps) && llm.generationTps > 0)) {
+  if (llm?.backend === "strata" && !((llm.generationTps ?? 0) > 0)) {
     if (llm.prefillActive) return "prefilling";
     if (llm.decodeActive) return "decoding";
   }

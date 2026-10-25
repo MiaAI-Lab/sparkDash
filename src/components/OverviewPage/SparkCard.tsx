@@ -1,3 +1,5 @@
+import { PlatformBadge, gapFor, honestValue } from "../ui/platform";
+import { RuntimeChips } from "../ui/RuntimeChips";
 import { memo, useState } from "react";
 import type { SparkSnapshot } from "../../api/types";
 import { resolveSparkRole } from "../../api/sparkRole";
@@ -112,12 +114,30 @@ function SparkCardImpl({
   // is the number that hits high temps first, so it belongs next to the GPU bars at a glance
   // instead of hiding behind a per-unit page visit.
   const cpuMetrics = spark.metrics.cpu ?? null;
-  const cpuTempRaw = cpuMetrics && Number.isFinite(cpuMetrics.temperature) && cpuMetrics.temperature > 0 ? cpuMetrics.temperature : null;
+  const cpuTempRaw = cpuMetrics && cpuMetrics.temperature != null && Number.isFinite(cpuMetrics.temperature) && cpuMetrics.temperature > 0 ? cpuMetrics.temperature : null;
   const cpuTempVal = cpuTempRaw === null ? 0 : temperatureUnit === "fahrenheit" ? toF(cpuTempRaw) : cpuTempRaw;
   const cpuTempColor = cpuTempRaw !== null && cpuTempRaw > 80 ? "var(--color-danger)" : cpuTempRaw !== null && cpuTempRaw >= 75 ? "var(--color-warning)" : "var(--color-success)";
   const cpuPower = cpuMetrics && (cpuMetrics.draw > 0 || cpuMetrics.tdp > 0) ? { draw: cpuMetrics.draw, tdp: cpuMetrics.tdp } : null;
   const cpuPowerPct = cpuPower && cpuPower.tdp > 0 ? (cpuPower.draw / cpuPower.tdp) * 100 : 0;
   const power = gpu?.power;
+  // Mac units: a metric the node cannot measure (powermetrics needs root) is a
+  // declared gap, never a 0.
+  const macNoPowermetrics = spark.kind === "mac" && gpu?.powermetricsAvailable === false;
+  const gpuUsageGap =
+    spark.kind === "mac" && (gapFor(spark, "gpu.utilization") || macNoPowermetrics)
+      ? honestValue(spark, "gpu.utilization", "", { fallbackForNonDgx: true })
+      : null;
+  // A Mac reports no GPU temperature without a privileged reader: unknown, not 0 °C.
+  const gpuTempGap =
+    spark.kind === "mac" && (gpu?.temperature == null || gpu.temperature <= 0)
+      ? honestValue(spark, "gpu.temperature", "", { fallbackForNonDgx: true })
+      : null;
+  const macPower =
+    spark.kind === "mac"
+      ? honestValue(spark, "gpu.power", `${power?.draw ?? 0} W · sys ${power?.systemDraw ?? 0} W`, {
+          fallbackForNonDgx: macNoPowermetrics,
+        })
+      : null;
   const powerPct = power && power.limit > 0 ? (power.draw / power.limit) * 100 : 0;
 
   const rootDisk =
@@ -266,6 +286,7 @@ function SparkCardImpl({
             spark.name
           )}
         </h3>
+        <PlatformBadge spark={spark} />
         <Tag className="tag--role" tone={role === "head" ? "acc" : "neutral"} title={roleTitle}>{roleText}</Tag>
         {spark.lanIp ? <span className="ov-sc__ip mono">{spark.lanIp}</span> : null}
       </div>
@@ -308,7 +329,7 @@ function SparkCardImpl({
                   sub={memTotal > 0 && memAvail > 0 ? { label: "Available", value: formatMb(memAvail) } : null}
                 />
               )}
-              <Bar label="GPU" caption={gpu.metricAvailability?.usage === false ? "—" : `${Math.round(usage)}%`} pct={gpu.metricAvailability?.usage === false ? 0 : usage} color={ringColor} />
+              <Bar label="GPU" caption={gpuUsageGap ? gpuUsageGap.text : gpu.metricAvailability?.usage === false ? "—" : `${Math.round(usage)}%`} title={gpuUsageGap?.title} pct={gpuUsageGap || gpu.metricAvailability?.usage === false ? 0 : usage} color={ringColor} />
               {spark.kind === "host" && spark.metrics.ram?.total ? (
                 <Bar
                   label="RAM"
@@ -317,13 +338,24 @@ function SparkCardImpl({
                   color="var(--color-info)"
                 />
               ) : null}
-              <Bar label="GPU temp" caption={gpu.metricAvailability?.temperature === false ? "—" : fmtTemp(tempRaw)} pct={gpu.metricAvailability?.temperature === false ? 0 : (tempVal / tempMax) * 100} color={tempColor} />
               <Bar
-                label="GPU power"
-                caption={gpu.metricAvailability?.powerDraw === false ? "—" : `${power?.draw ?? 0} / ${gpu.metricAvailability?.powerLimit === false ? "—" : power?.limit ?? 0} W`}
-                pct={gpu.metricAvailability?.powerDraw === false ? 0 : powerPct}
-                color="var(--color-violet)"
+                label="GPU temp"
+                caption={gpuTempGap ? gpuTempGap.text : gpu.metricAvailability?.temperature === false || gpu.temperature == null ? "—" : fmtTemp(tempRaw)}
+                title={gpuTempGap?.title}
+                pct={gpuTempGap || gpu.metricAvailability?.temperature === false || gpu.temperature == null ? 0 : (tempVal / tempMax) * 100}
+                color={tempColor}
               />
+              {spark.kind === "mac" ? (
+                // A Mac has no power limit to fill a bar against; show draw, or the declared gap.
+                <Bar label="GPU power" caption={macPower!.text} title={macPower!.title} pct={0} color="var(--color-violet)" />
+              ) : (
+                <Bar
+                  label="GPU power"
+                  caption={gpu.metricAvailability?.powerDraw === false ? "—" : `${power?.draw ?? 0} / ${gpu.metricAvailability?.powerLimit === false ? "—" : power?.limit ?? 0} W`}
+                  pct={gpu.metricAvailability?.powerDraw === false ? 0 : powerPct}
+                  color="var(--color-violet)"
+                />
+              )}
               {cpuTempRaw !== null ? (
                 <Bar
                   label="CPU temp"
@@ -333,7 +365,15 @@ function SparkCardImpl({
                   color={cpuTempColor}
                 />
               ) : null}
-              {cpuPower ? <Bar label="CPU power" caption={`${cpuPower.draw} / ${cpuPower.tdp} W`} pct={cpuPowerPct} color="var(--color-violet)" /> : null}
+              {cpuPower ? (
+                // No TDP (a Mac) means no limit to fill against: show the draw alone, not "/ 0 W".
+                <Bar
+                  label="CPU power"
+                  caption={cpuPower.tdp > 0 ? `${cpuPower.draw} / ${cpuPower.tdp} W` : `${cpuPower.draw} W`}
+                  pct={cpuPowerPct}
+                  color="var(--color-violet)"
+                />
+              ) : null}
             </div>
           </div>
           {showLauncher ? <ModelLauncher spark={spark} onOpen={onSelect} busy={loadingHint} busyHolders={gpuHolders.length > 0} freeMb={memTotal > 0 ? memAvail : null} lowFreeMb={HEADROOM_THRESHOLDS_MB[memoryModelFor(spark.kind)].low} /> : null}
@@ -427,6 +467,23 @@ function SparkCardImpl({
             </div>
           ) : null}
           {chips}
+          {/* Mac agent units report what is serving from the node's process table.
+              null means this transport has no inventory: show nothing rather than
+              an empty row that reads as "nothing serving". */}
+          {Array.isArray(spark.metrics.runtimes) ? (
+            <div className="ov-runtimes">
+              <div className="eyebrow">
+                {spark.metrics.agentOnline === false ? "Runtimes (agent unreachable)" : "Runtimes"}
+              </div>
+              {spark.metrics.runtimes.length > 0 ? (
+                <RuntimeChips runtimes={spark.metrics.runtimes} />
+              ) : (
+                <span className="text-muted">
+                  {spark.metrics.agentOnline === false ? "Unknown — the Mac agent is not answering" : "Nothing serving"}
+                </span>
+              )}
+            </div>
+          ) : null}
           {rootDisk ? (
             <div className="ov-foot">
               <div className="ov-kv">

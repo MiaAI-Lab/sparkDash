@@ -19,6 +19,7 @@ import { addDeviceLabel, UNIT_TYPE_OPTIONS, unitTypeOf, unitTypePatch, type Unit
 import { TestResultList } from "./TestResultList";
 import { resolveSparkRole } from "../api/sparkRole";
 import type { SparkRole } from "../api/types";
+import { MacAgentFields } from "./MacAgentFields";
 import "../styles/dialogs.css";
 
 interface AddSparkDialogProps {
@@ -285,7 +286,11 @@ export function AddSparkDialog({ open, onClose, onAdded, defaultLlmPort = 8888 }
                 )}
               </div>
 
-              {config.kind !== "host" && (
+              {config.kind === "mac" && (
+                <MacAgentFields agent={config.agent} onChange={(agent) => update({ agent })} />
+              )}
+
+              {config.kind !== "host" && config.kind !== "mac" && (
                 <div className="field">
                   <label htmlFor="add-spark-cx7">CX7 IP (optional)</label>
                   <input

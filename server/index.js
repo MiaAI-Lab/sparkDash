@@ -76,6 +76,12 @@ import {
   registerFleetEnergyRoute,
 } from "./energy/FleetEnergyRuntime.js";
 import { testSparkConnectivity } from "./connectivity.js";
+import {
+  actRuntimeControl,
+  assertMacControlSpark,
+  readRuntimeControl,
+  runtimeControlHttpStatus,
+} from "./collectors/MacRuntimeControl.js";
 import { TailscaleProbe } from "./collectors/TailscaleProbe.js";
 import { inspectStartupPreflight, logStartupPreflight } from "./startupPreflight.js";
 import { PROMETHEUS_CONTENT_TYPE, metricsEntries, renderPrometheusMetrics } from "./prometheus.js";
@@ -794,6 +800,33 @@ app.get("/api/sparks/:id/metrics", (req, res) => {
   const monitor = monitors.get(req.params.id);
   if (!monitor) return res.status(404).json({ error: "Spark not found" });
   res.json(monitor.snapshot());
+});
+
+app.get("/api/sparks/:id/runtime-control", async (req, res) => {
+  const spark = registry.getSpark(req.params.id);
+  const blocked = assertMacControlSpark(spark);
+  if (blocked) return res.status(blocked.status).json(blocked.body);
+  try {
+    const result = await readRuntimeControl(spark);
+    res.status(runtimeControlHttpStatus(result)).json(result);
+  } catch (err) {
+    res.status(503).json({ state: "unavailable", reason: err.message, error: err.message, serving: null, targets: [] });
+  }
+});
+
+app.post("/api/sparks/:id/runtime-control/:action", async (req, res) => {
+  if (!allowDestructive(principalKey(req)) || !allowGlobalDestructive(clientKey(req))) {
+    return rejectLimited(res, "Too many runtime control requests; try again shortly");
+  }
+  const spark = registry.getSpark(req.params.id);
+  const blocked = assertMacControlSpark(spark);
+  if (blocked) return res.status(blocked.status).json(blocked.body);
+  try {
+    const result = await actRuntimeControl(spark, req.params.action, req.body || {});
+    res.status(runtimeControlHttpStatus(result)).json(result);
+  } catch (err) {
+    res.status(503).json({ state: "unavailable", reason: err.message, error: err.message, serving: null, targets: [] });
+  }
 });
 
 // Test SSH + LLM connectivity for a registered Spark.

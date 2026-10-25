@@ -1,11 +1,12 @@
 import { useState } from "react";
-import type { GpuDevice, GpuMetrics } from "../../api/types";
+import type { GpuDevice, GpuMetrics, MetricGap } from "../../api/types";
 import { Sparkline } from "../ui/Sparkline";
 import { Panel } from "../ui/Panel";
 import { Ring } from "../ui/Ring";
 import { Tag, type TagTone } from "../ui/Tag";
 import { ActivityIcon } from "../ui/icons";
 import { MetricBar } from "../ui/MetricBar";
+import { honestGap } from "../ui/platform";
 import { VramBreakdownBar } from "../ui/VramBreakdownBar";
 import { useMetricsHistoryTail } from "../../hooks/metricsStore";
 import { formatMb } from "../../shared/formatBytes";
@@ -34,6 +35,10 @@ interface GpuPanelProps {
    */
   hideMemory?: boolean;
   className?: string;
+  /** Apple Silicon Mac: no GPU power limit is available. */
+  mac?: boolean;
+  /** Metrics this node declared unavailable (mac agent transport). */
+  unavailable?: MetricGap[] | null;
 }
 
 function celsiusToFahrenheit(c: number): number {
@@ -153,6 +158,8 @@ export function GpuPanel({
   chip,
   hideMemory = false,
   className,
+  mac = false,
+  unavailable = null,
 }: GpuPanelProps) {
   const [windowId, setWindowId] = useState<(typeof GPU_CHART_WINDOWS)[number]["id"]>("30m");
   const windowMs = GPU_CHART_WINDOWS.find((w) => w.id === windowId)?.ms ?? GPU_CHART_WINDOWS[0].ms;
@@ -174,6 +181,34 @@ export function GpuPanel({
   const vramAvailable = metrics?.vramUsed !== false && metrics?.vramTotal !== false;
   const breakdown =
     gpu && vramAvailable && vramContext ? computeVramBreakdown(gpu.vram, gpu.processes, vramContext) : null;
+
+  // On a Mac, GPU busy and power come from powermetrics, which needs root. When
+  // the node said it could not read them (a declared gap, or the older
+  // powermetricsAvailable flag), say so: 0W reads as an idle GPU, not as
+  // "not measurable here".
+  const gaps = unavailable ?? gpu?.unavailable ?? null;
+  const macUnmeasured = mac && gpu?.powermetricsAvailable === false;
+  const powerView = honestGap(
+    gaps,
+    "gpu.power",
+    mac
+      ? `${powerDraw}W · system ${gpu?.power?.systemDraw ?? 0}W`
+      : `${powerDraw}W / ${powerLimit}W`,
+    { nonDgx: macUnmeasured }
+  );
+  if (powerView.muted && !powerView.title) {
+    powerView.title = "powermetrics needs root on macOS";
+  }
+  const usageView = honestGap(gaps, "gpu.utilization", `${usage}%`, {
+    nonDgx: macUnmeasured,
+  });
+
+  const hasTemperature =
+    typeof gpu?.temperature === "number" && Number.isFinite(gpu.temperature) && gpu.temperature > 0;
+  const tempValueText = temperatureAvailable ? `${displayTemp}${tempUnit}` : "—";
+  const tempView = honestGap(gaps, "gpu.temperature", tempValueText, {
+    nonDgx: !hasTemperature && (mac || gpu?.temperature == null),
+  });
 
   const t = gpu?.throttle;
   const thermal = t?.reason === "thermal";
@@ -215,30 +250,55 @@ export function GpuPanel({
           size={140}
           strokeWidth={11}
           color={ringColor}
-          label={metrics?.usage === false ? "—" : `${usage}%`}
+          label={
+            usageView.muted ? (
+              <span className="font-normal text-muted" title={usageView.title}>
+                —
+              </span>
+            ) : (
+              usageView.text
+            )
+          }
           caption="utilization"
           className="sp-gpu-top__ring"
         />
         <div className="sp-stat">
           <span className="eyebrow">Temperature</span>
-          <div className="big-num">
-            {temperatureAvailable ? displayTemp : "—"}
-            {temperatureAvailable ? <small>{tempUnit}</small> : null}
+          <div className="big-num" title={tempView.title}>
+            {tempView.muted ? (
+              <span className="font-normal text-muted">unavailable: {tempView.title}</span>
+            ) : (
+              <>
+                {displayTemp}
+                <small>{tempUnit}</small>
+              </>
+            )}
           </div>
-          <Tag tone={temp.tone}>{temp.label}</Tag>
+          {tempView.muted ? null : <Tag tone={temp.tone}>{temp.label}</Tag>}
         </div>
         <div className="sp-stat">
           <span className="eyebrow">{multiGpu ? "Power (all cards)" : "Power draw"}</span>
-          <div className="big-num">
-            {metrics?.powerDraw === false ? "—" : powerDraw}
-            {metrics?.powerDraw === false ? null : <small>{metrics?.powerLimit === false ? "W" : powerLimit > 0 ? `/ ${powerLimit} W` : "W"}</small>}
+          <div className="big-num" title={powerView.title}>
+            {powerView.muted ? (
+              <span className="font-normal text-muted">—</span>
+            ) : mac ? (
+              <>
+                {powerDraw}
+                <small>W</small>
+              </>
+            ) : (
+              <>
+                {powerDraw}
+                <small>{powerLimit > 0 ? `/ ${powerLimit} W` : "W"}</small>
+              </>
+            )}
           </div>
           {systemDraw != null && systemDraw > 0 ? (
             <span className="sp-stat__sub mono">System ≈ {systemDraw} W</span>
           ) : null}
         </div>
         <div className="sp-stat" title={t?.detail ?? undefined}>
-          <span className="eyebrow">SM clock</span>
+          <span className="eyebrow">{mac ? "GPU clock" : "SM clock"}</span>
           <div className="big-num">
             {clock.value}
             <small>{clock.unit}</small>
@@ -251,6 +311,14 @@ export function GpuPanel({
           ) : null}
         </div>
       </div>
+      {mac ? (
+        <div className="sp-row">
+          <span className="text-muted">Thermal pressure (last recorded)</span>
+          <span className="mono text-text" title={gpu?.thermal?.lastRecordedEvents?.join("\n")}>
+            {gpu?.thermalPressure ?? "unknown"}
+          </span>
+        </div>
+      ) : null}
 
       <GpuHistoryChart sparkId={sparkId} gpu={gpu} windowMs={windowMs} />
       {!multiGpu && (
@@ -307,7 +375,7 @@ export function GpuPanel({
           ) : vramTotal > 0 ? (
             <>
               <MetricBar
-                label={multiGpu ? "VRAM (all cards)" : "VRAM"}
+                label={mac ? "Unified memory in use" : multiGpu ? "VRAM (all cards)" : "VRAM"}
                 value={vramUsed}
                 max={vramTotal}
                 color="bg-info"
@@ -322,7 +390,7 @@ export function GpuPanel({
             </>
           ) : (
             <div className="sp-row">
-              <span className="text-muted">VRAM</span>
+              <span className="text-muted">{mac ? "Unified memory in use" : "VRAM"}</span>
               <span className="mono text-text">{vramUsed > 0 ? `${formatMb(vramUsed)} used` : "—"}</span>
             </div>
           )}

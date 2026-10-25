@@ -13,6 +13,8 @@ import { NetworkPanel } from "./NetworkPanel";
 import { TailscalePanel } from "./TailscalePanel";
 import { LlmPanel } from "./LlmPanel";
 import { ComfyPanel } from "./ComfyPanel";
+import { RuntimesPanel } from "../ui/RuntimeChips";
+import { RuntimeLauncher } from "./RuntimeLauncher";
 import { LlmModelsPanel } from "./LlmModelsPanel";
 import { RocePanel } from "./RocePanel";
 import { UnifiedMemoryPanel } from "./UnifiedMemoryPanel";
@@ -70,6 +72,7 @@ export function SparkPage({
   );
   const [showAddPort, setShowAddPort] = useState(false);
   const [newPortDraft, setNewPortDraft] = useState("");
+
   // Sync when spark data changes (WS push)
   useEffect(() => {
     setDisabledDevices(spark.disabledDevices || []);
@@ -277,10 +280,33 @@ export function SparkPage({
                 vramContext={showVramBreakdown ? vramContextFor(spark, fleet) : null}
                 sparkId={spark.id}
                 temperatureUnit={temperatureUnit}
+                mac={spark.kind === "mac"}
+                unavailable={metrics.unavailable}
                 chip={spark.hardware.gpuChip}
                 hideMemory={showUnified}
               />
             </Item>
+            {/* Mac agent: start/stop launcher tile for its detected runtimes. */}
+            {spark.kind === "mac" && (
+              <Item order={5}>
+                <RuntimeLauncher
+                  sparkId={spark.id}
+                  metricsRuntimes={metrics.runtimes}
+                  agentOnline={metrics.agentOnline}
+                />
+              </Item>
+            )}
+            {/* Mac agent transport only: what is actually serving, from the
+                node's own process/port inventory. */}
+            {Array.isArray(metrics.runtimes) && (
+              <Item order={6}>
+                <RuntimesPanel
+                  runtimes={metrics.runtimes}
+                  unavailable={metrics.unavailable}
+                  agentOnline={metrics.agentOnline}
+                />
+              </Item>
+            )}
             {/* Unified memory (or RAM on a dedicated host) and CPU sit side by side (they stack when the column is narrow). */}
             <Item order={2}>
               <div className="sp-pair">
@@ -290,9 +316,13 @@ export function SparkPage({
                   hardware={spark.hardware}
                   sparkId={spark.id}
                   temperatureUnit={temperatureUnit}
+                  mac={spark.kind === "mac"}
+                  unavailable={metrics.unavailable}
                 />
-                {/* Dedicated hosts have system RAM instead of a unified pool: CPU and RAM side by side. */}
-                {spark.kind === "host" && <RamPanel ram={metrics.ram} sparkId={spark.id} />}
+                {/* Dedicated hosts (and Macs) have system RAM instead of a unified pool: CPU and RAM side by side. */}
+                {(spark.kind === "host" || spark.kind === "mac") && (
+                  <RamPanel ram={metrics.ram} sparkId={spark.id} />
+                )}
                 {/* Models is the third column of the row (Windows PCs have no launchers). */}
                 {spark.platform !== "windows" && modelsPanel}
               </div>

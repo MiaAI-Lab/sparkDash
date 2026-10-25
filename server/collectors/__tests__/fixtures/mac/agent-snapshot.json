@@ -1,0 +1,118 @@
+{
+  "schema": "sparkdash.mac-agent/1",
+  "agentVersion": "1.0.0",
+  "collectedAt": 1791347817,
+  "collectMs": 1612,
+  "uptimeSeconds": 429939,
+  "bootTime": 1790917878,
+  "host": {
+    "platform": "macos",
+    "hostname": "fixture-mac.local",
+    "osVersion": "macOS 26.7.1",
+    "arch": "arm64",
+    "model": "Mac17,6",
+    "chip": "Apple M5 Max",
+    "cpuCores": 18,
+    "performanceCores": 6,
+    "efficiencyCores": 12,
+    "totalMemoryMB": 131072
+  },
+  "cpu": {
+    "usagePercent": 37.5,
+    "perCorePercent": null,
+    "loadAverage": [62.3, 63.4, 67.6],
+    "source": "iostat"
+  },
+  "memory": {
+    "total": 131072,
+    "gpuUsed": 14938,
+    "cpuUsed": 95165,
+    "used": 110103,
+    "available": 20969,
+    "percentage": 84,
+    "oomRisk": "high",
+    "swap": { "total": 10240, "used": 8607, "free": 1633 },
+    "source": "vm_stat"
+  },
+  "disks": [
+    {
+      "device": "disk3s5",
+      "label": "/System/Volumes/Data",
+      "total": 3811147,
+      "used": 1617382,
+      "available": 2161717,
+      "percentage": 43
+    }
+  ],
+  "network": {
+    "primaryInterface": "en0",
+    "interfaces": [
+      {
+        "name": "en0",
+        "rxBytes": 164425824824,
+        "txBytes": 92839260191,
+        "ip": "10.0.0.9",
+        "operstate": "up"
+      }
+    ],
+    "reachability": [
+      { "target": "1.1.1.1:53", "ok": true, "rttMs": 18 },
+      { "target": "8.8.8.8:53", "ok": true, "rttMs": 21 }
+    ]
+  },
+  "gpu": {
+    "powermetrics": "requires-root",
+    "activePercent": null,
+    "freqMHz": null,
+    "powerW": null,
+    "anePowerW": null,
+    "combinedPowerW": null,
+    "thermalPressure": null
+  },
+  "runtimes": [
+    {
+      "name": "mtplx-mux",
+      "label": "MTPLX OpenAI mux",
+      "role": "server",
+      "pid": 36953,
+      "command": "python3",
+      "script": "mtplx-openai-mux.py",
+      "port": 8200,
+      "model": null,
+      "state": "serving",
+      "detectedBy": "inventory",
+      "health": { "ok": true, "url": "http://127.0.0.1:8200/v1/models" }
+    },
+    {
+      "name": "tensorfold",
+      "label": "TensorFold",
+      "role": "server",
+      "pid": 2302,
+      "command": "python",
+      "script": "tensorfold",
+      "port": 8300,
+      "model": "qwen3.8-27b",
+      "state": "serving",
+      "detectedBy": "inventory",
+      "health": { "ok": true, "url": "http://127.0.0.1:8300/v1/models" }
+    },
+    {
+      "name": "other-runtime",
+      "label": "infer.py",
+      "role": "server",
+      "pid": 41001,
+      "command": "python3",
+      "script": "infer.py",
+      "port": 9099,
+      "model": null,
+      "state": "listening",
+      "detectedBy": "listener"
+    }
+  ],
+  "unavailable": [
+    { "metric": "cpu.perCore", "reason": "install psutil for per-core readings" },
+    { "metric": "gpu.utilization", "reason": "powermetrics requires root (run as a LaunchDaemon, or grant sudo -n)" },
+    { "metric": "gpu.power", "reason": "powermetrics requires root (run as a LaunchDaemon, or grant sudo -n)" },
+    { "metric": "ane.power", "reason": "powermetrics requires root (run as a LaunchDaemon, or grant sudo -n)" }
+  ]
+}
