@@ -104,7 +104,7 @@ function RuntimeLauncherForNode({
     ? freshProbe
     : agentOnline === false
       ? null
-      : Array.isArray(metricsRuntimes)
+      : metricsRuntimes !== undefined
         ? metricsRuntimes
         : status?.serving ?? null;
   const servingNow = Array.isArray(serving) && selected

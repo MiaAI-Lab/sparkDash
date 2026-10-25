@@ -180,3 +180,14 @@ describe("existing DGX behaviour is untouched", () => {
     expect(badge).toBe("DGX");
   });
 });
+
+it("shows recovered measured Mac power despite an older runtime-poll power gap", () => {
+  const base = makeMacSpark();
+  const spark = makeMacSpark({
+    gpu: { ...base.metrics.gpu!, power: { draw: 8, limit: 0, systemDraw: 12 }, powermetricsAvailable: true, unavailable: [] },
+    unavailable: [ROOT_POWER_GAP],
+  });
+  const { container } = render(<OverviewPage sparks={[spark]} />);
+  expect(container.textContent).toContain("8 W · sys 12 W");
+  expect(container.querySelector('[title*="powermetrics requires root"]')).toBeNull();
+});

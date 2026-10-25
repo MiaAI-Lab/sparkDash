@@ -135,3 +135,15 @@ it("does not apply Mac A's pending action result after navigating to Mac B", asy
   expect(container.textContent).toContain("B runtime");
   expect(container.textContent).not.toContain("Splash 35B");
 });
+
+it("preserves explicitly unknown inventory instead of reusing an old empty status", async () => {
+  const load = async () => view({ serving: [] });
+  const { container, root } = render(<RuntimeLauncher sparkId="fixture" load={load} metricsRuntimes={[]} agentOnline />);
+  await flush();
+  expect(container.querySelector('[data-action="launch"]')).not.toBeNull();
+  act(() => root.render(<RuntimeLauncher sparkId="fixture" load={load} metricsRuntimes={null} agentOnline />));
+  await flush();
+  expect(container.textContent).toContain("Serving status unavailable");
+  expect(container.textContent).not.toContain("Nothing serving");
+  expect(container.querySelector('[data-action="launch"]')).toBeNull();
+});
