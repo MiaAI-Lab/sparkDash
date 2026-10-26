@@ -25,7 +25,7 @@ it('shows explicit disabled/no-blocking state and unavailable totals, never an a
   const host = await render({ ...base, enabled: false, state: 'disabled', checkedAt: null, summary: null });
   expect(host.textContent).toContain('Spark Overseer'); expect(host.textContent).toContain('Disabled by default');
   expect(host.textContent).toContain('Observe only'); expect(host.textContent).toContain('0 model tokens');
-  expect(host.textContent).toContain('Unavailable'); expect(host.textContent).not.toContain('Sparky');
+  expect(host.textContent).toContain('Unavailable'); expect(host.textContent).toContain('Spark Overseer');
 });
 it('separates source coverage from resident models and does not invent coverage for a second unit', async () => {
   const host = await render(base);

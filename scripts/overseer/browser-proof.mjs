@@ -73,6 +73,10 @@ try {
     }));assert.ok(contrasts.every(value=>value!==null&&value>=4.5),'secondary metric text contrast');
     const clipped=await page.locator('.ovr-disclosure').evaluateAll(els=>els.some(el=>el.scrollWidth>el.clientWidth+1));assert.equal(clipped,false,'event disclosure clipping');
     await page.locator('.ovr-event summary').nth(1).focus();await page.keyboard.press('Enter');assert.equal(await page.locator('.ovr-event').nth(1).getAttribute('open'),'');
+    await page.getByRole('heading',{name:'Spark Overseer',exact:true}).scrollIntoViewIfNeeded();
+    await page.screenshot({animations:'disabled',path:path.join(out,`${engine}-${width}-${theme}-viewport.png`)});
+    await page.locator('.ovr-event').nth(1).scrollIntoViewIfNeeded();
+    await page.screenshot({animations:'disabled',path:path.join(out,`${engine}-${width}-${theme}-event.png`)});
     await page.screenshot({animations:'disabled',path:path.join(out,`${engine}-${width}-${theme}.png`),fullPage:true});
     const search=page.getByRole('searchbox',{name:'Find an event'});await search.fill('no-such-observation');await page.getByText('No records match these filters.').waitFor();await search.fill('');
     await page.getByLabel('Unit',{exact:true}).selectOption('fixture-b');await page.getByText('No records match these filters.').waitFor();await page.getByLabel('Unit',{exact:true}).selectOption('');
