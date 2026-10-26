@@ -32,5 +32,7 @@ test("isolatedConfigEnv keeps every file inside the given directory", () => {
   for (const name of [...CONFIG_PATH_VARS, ...CONFIG_DIR_VARS]) assert.ok(env[name].startsWith(`${dir}${path.sep}`), env[name]);
   assert.equal(env.SPARKDASH_INFERENCE_ACTIVITY_URL, "");
   assert.equal(env.SPARKDASH_INFERENCE_ACTIVITY_LABELS, "");
-  assert.equal(Object.keys(env).length, CONFIG_PATH_VARS.length + CONFIG_DIR_VARS.length + 2);
+  assert.equal(env.SPARK_OVERSEER_ENABLED, "0");
+  assert.equal(env.SPARK_OVERSEER_CONFIG, "");
+  assert.equal(Object.keys(env).length, CONFIG_PATH_VARS.length + CONFIG_DIR_VARS.length + 4);
 });

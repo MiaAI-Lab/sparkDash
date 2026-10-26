@@ -4,6 +4,7 @@ export const OVERVIEW_ID = "__overview__";
 export const TOKENS_ID = "__tokens__";
 export const ENERGY_ID = "__energy__";
 export const TEMPS_ID = "__temps__";
+export const OVERSEER_ID = "__overseer__";
 export const ACTIVITY_ID = "__activity__";
 export const SHOWCASE_ID = "__showcase__";
 /** Cost compare page: fleet token usage priced as a hosted API model. */
@@ -17,6 +18,7 @@ const FIXED_PATHS: Record<string, string> = {
   [ENERGY_ID]: "/energy",
   [TEMPS_ID]: "/temps",
   [ACTIVITY_ID]: "/activity",
+  [OVERSEER_ID]: "/overseer",
   [SHOWCASE_ID]: "/showcase",
   [COST_ID]: "/cost",
 };
