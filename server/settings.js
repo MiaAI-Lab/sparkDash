@@ -97,6 +97,13 @@ const DEFAULTS = Object.freeze({
    * A missing or out-of-range value becomes 12 hours. There is no unlimited value.
    */
   occupancyMaxAgeMs: 12 * 60 * 60 * 1000,
+  /**
+   * GPU temperature (°C) at which the Health "thermal" finding warns, and at
+   * which it turns critical. Alerts reuse that finding, so these also decide
+   * when a notification goes out. Warn must stay below critical.
+   */
+  healthTempWarnC: 85,
+  healthTempCriticalC: 90,
 });
 
 const POLL_INTERVAL_MIN_MS = 500;
@@ -104,6 +111,31 @@ const POLL_INTERVAL_MAX_MS = 60_000;
 export const OCCUPANCY_AGE_MIN_MS = 60 * 1000;
 export const OCCUPANCY_AGE_MAX_MS = 14 * 24 * 60 * 60 * 1000;
 export const OCCUPANCY_AGE_DEFAULT_MS = 12 * 60 * 60 * 1000;
+export const HEALTH_TEMP_MIN_C = 40;
+export const HEALTH_TEMP_MAX_C = 110;
+
+/** A finite temperature inside the accepted range, otherwise null. */
+function healthTemp(value) {
+  if (value == null || value === "" || typeof value === "boolean") return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= HEALTH_TEMP_MIN_C && n <= HEALTH_TEMP_MAX_C ? n : null;
+}
+
+/**
+ * Reject a settings write that would leave the thermal thresholds unusable:
+ * a value that is not a number in range, or a warning that is not below the
+ * critical value. Only checked when the patch touches one of the two keys.
+ */
+function assertHealthTemps(current, patch) {
+  if (!("healthTempWarnC" in patch) && !("healthTempCriticalC" in patch)) return;
+  const merged = { ...current, ...patch };
+  const range = `between ${HEALTH_TEMP_MIN_C} and ${HEALTH_TEMP_MAX_C} °C`;
+  const warn = healthTemp(merged.healthTempWarnC);
+  const critical = healthTemp(merged.healthTempCriticalC);
+  if (warn == null) throw new Error(`healthTempWarnC must be a number ${range}`);
+  if (critical == null) throw new Error(`healthTempCriticalC must be a number ${range}`);
+  if (warn >= critical) throw new Error("healthTempWarnC must be lower than healthTempCriticalC");
+}
 
 /** "" (follow the browser) or an IANA zone name this runtime knows. */
 export function isValidTimeZone(value) {
@@ -226,6 +258,17 @@ function _clampSettings(settings) {
     Number.isFinite(age) && age >= OCCUPANCY_AGE_MIN_MS && age <= OCCUPANCY_AGE_MAX_MS
       ? Math.round(age)
       : OCCUPANCY_AGE_DEFAULT_MS;
+  // A hand-edited settings.json can hold unusable thresholds; updateSettings()
+  // rejects them on write, so here both fall back together to keep warn < critical.
+  const warnC = healthTemp(s.healthTempWarnC);
+  const criticalC = healthTemp(s.healthTempCriticalC);
+  if (warnC != null && criticalC != null && warnC < criticalC) {
+    s.healthTempWarnC = warnC;
+    s.healthTempCriticalC = criticalC;
+  } else {
+    s.healthTempWarnC = DEFAULTS.healthTempWarnC;
+    s.healthTempCriticalC = DEFAULTS.healthTempCriticalC;
+  }
   // Ensure temperatureUnit is valid
   if (s.temperatureUnit !== "celsius" && s.temperatureUnit !== "fahrenheit") {
     s.temperatureUnit = DEFAULTS.temperatureUnit;
@@ -279,10 +322,12 @@ export function getSettings() {
 
 /**
  * Apply a partial patch, persist, and return the new settings.
+ * Throws when the GPU temperature thresholds in the patch are not usable.
  * @param {Partial<typeof DEFAULTS>} patch
  * @returns {typeof DEFAULTS}
  */
 export function updateSettings(patch) {
+  assertHealthTemps(_settings, _whitelist(patch));
   const merged = _clampSettings({ ..._settings, ..._whitelist(patch) });
   _settings = merged;
   saveSettings();

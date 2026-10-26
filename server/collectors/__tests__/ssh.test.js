@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { sshCommandSpec, explainSshFailure } from "../ssh.js";
+import { decodeClixml } from "../windowsMetrics.js";
 
 beforeEach((t) => {
   for (const name of ["SSH_CONTROL_PERSIST_SECONDS", "SSH_CONTROL_PERSIST", "SSH_IDENTITY_FILE"]) {
@@ -212,4 +213,51 @@ test("explainSshFailure names the administrators_authorized_keys file for a refu
   assert.match(win, /administrators_authorized_keys/);
   assert.match(win, /Administrators and SYSTEM/);
   assert.equal(explainSshFailure(denied), denied);
+});
+
+test("decodeClixml returns the PowerShell stream text, and null for plain stderr", () => {
+  const clixml =
+    '#< CLIXML\n' +
+    '<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04">' +
+    '<S S="Error">Get-CimInstance : Access is denied. _x000D__x000A_</S>' +
+    '<S S="Error">At line:1 char:1_x000D__x000A_</S>' +
+    '<S S="Debug">noise</S>' +
+    '</Objs>';
+  assert.equal(decodeClixml(clixml), "Get-CimInstance : Access is denied. At line:1 char:1");
+  // Entities and _xNNNN_ escapes come back as characters; &amp; must not re-expand.
+  assert.equal(
+    decodeClixml('#< CLIXML\n<Objs><S S="Error">a &lt;b&gt; &amp;amp; c_x0009_d</S></Objs>'),
+    "a <b> &amp; c d"
+  );
+  // CLIXML with no stream text at all is still recognised as CLIXML.
+  assert.equal(decodeClixml('#< CLIXML\n<Objs><Obj RefId="0"/></Objs>'), "");
+  assert.equal(decodeClixml("Permission denied (publickey)."), null);
+  assert.equal(decodeClixml(undefined), null);
+});
+
+test("explainSshFailure decodes a CLIXML error instead of showing the raw envelope", () => {
+  const denied =
+    '#< CLIXML\n<Objs><S S="Error">Get-CimInstance : Access is denied. _x000D__x000A_</S></Objs>';
+  const shown = explainSshFailure(denied, { windows: true });
+  assert.ok(!shown.includes("CLIXML"), shown);
+  assert.ok(!shown.includes("<Objs"), shown);
+  assert.match(shown, /Access is denied/);
+  // The common cause is not in the message itself, so name it.
+  assert.match(shown, /WMI\/CIM/);
+
+  // A CLIXML envelope with no message still says something usable.
+  const empty = explainSshFailure('#< CLIXML\n<Objs></Objs>', { windows: true });
+  assert.ok(!empty.includes("CLIXML"), empty);
+  assert.match(empty, /PowerShell reported a failure/);
+
+  // An unrelated PowerShell error is decoded without the WMI hint.
+  const other = explainSshFailure(
+    '#< CLIXML\n<Objs><S S="Error">nvidia-smi : The term is not recognized._x000D__x000A_</S></Objs>',
+    { windows: true }
+  );
+  assert.match(other, /nvidia-smi/);
+  assert.ok(!other.includes("WMI/CIM"), other);
+
+  // Plain stderr keeps its existing handling on every platform.
+  assert.equal(explainSshFailure("Permission denied (publickey)."), "Permission denied (publickey).");
 });

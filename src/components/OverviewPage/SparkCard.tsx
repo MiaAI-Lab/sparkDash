@@ -160,12 +160,22 @@ function SparkCardImpl({
   const liveHead = usableHead(headSpark);
   const headLlmList = Array.isArray(liveHead?.metrics.llm) ? liveHead.metrics.llm : [];
   const headLlm = headLlmList.find((l) => l.available) ?? null;
+  // Why the head reports no model, without asserting that none is loaded: a head
+  // that is cold-starting, switching model or simply not monitored produces the same
+  // empty probe state as an idle one, so its readiness is unknown, not established.
+  const headState = !headName
+    ? "Worker"
+    : !headSpark?.online
+      ? "Head offline"
+      : headLlmList.length
+        ? "Head API not ready"
+        : "No LLM port watched on the head";
   if (role === "worker") {
     // Prefer the head's live model; fall back to the configured / mirrored worker label.
     const label = headLlm?.modelId || spark.workerLabel?.trim() || spark.workerDerivedLabel?.trim() || null;
     modelEyebrowRight = headLlm ? formatCtx(headLlm.contextLength) : null;
-    modelText = label ?? (headName ? "No model on head" : "Worker");
-    modelTitle = headName ? `${label ?? "No model"} · worker of ${headName}` : `${label ?? "Distributed"} · LLM worker`;
+    modelText = label ?? headState;
+    modelTitle = headName ? `${label ?? headState} · worker of ${headName}` : `${label ?? "Distributed"} · LLM worker`;
   } else if (llm) {
     // The engine name lives in the tooltip; the row itself is just model + context.
     const engine = backendLabel(llm.backend) ?? llm.backend ?? "LLM";
@@ -348,7 +358,9 @@ function SparkCardImpl({
                   ? `${backendLabel(headLlm.backend) ?? headLlm.backend ?? "LLM"} · ${headLlm.measurementValid === false ? "—" : headLlm.generationTps.toFixed(1)} tok/s decode${headLlm.perStreamTps != null ? ` · ${headLlm.perStreamTps.toFixed(1)} per stream` : ""}${headLlm.perStreamPrefillTps != null ? ` · ${Math.round(headLlm.perStreamPrefillTps).toLocaleString()} prefill per request (effective, incl. cached)` : ""}`
                   : headSpark
                     ? headSpark.online
-                      ? "No model loaded on the head"
+                      ? headLlmList.length
+                        ? "The head's inference API is not ready yet"
+                        : "No LLM port is watched on the head"
                       : "Head is offline"
                     : "Pick its head in Edit Spark to see the model here"}
               </div>

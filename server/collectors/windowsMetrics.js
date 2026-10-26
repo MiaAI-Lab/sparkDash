@@ -15,6 +15,46 @@ const PREAMBLE = [
   "[Console]::OutputEncoding=[Text.Encoding]::UTF8",
 ];
 
+/** `_x000D_` escapes and XML entities back to the characters they stand for. */
+function unescapeClixml(body) {
+  return String(body)
+    .replace(/_x([0-9A-Fa-f]{4})_/g, (_, hex) => String.fromCharCode(Number.parseInt(hex, 16)))
+    .replace(/&#x([0-9A-Fa-f]+);/g, (_, hex) => String.fromCharCode(Number.parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(Number(dec)))
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    // Last: an escaped ampersand must not re-create one of the entities above.
+    .replace(/&amp;/g, "&");
+}
+
+/**
+ * Decode PowerShell's CLIXML error stream.
+ *
+ * With stderr redirected — which is how every command sparkDash runs on a Windows
+ * unit arrives — PowerShell serialises its error and warning streams instead of
+ * writing plain text, so a failure reaches the dashboard as the unreadable
+ * `#< CLIXML <Objs …><S S="Error">…</S></Objs>`. This returns the stream text in
+ * order, as one line; `null` when the input is not CLIXML, and `""` when it is
+ * CLIXML that carries no stream text (progress records only).
+ *
+ * @param {unknown} text
+ * @returns {string | null}
+ */
+export function decodeClixml(text) {
+  const raw = String(text ?? "");
+  if (!/^\s*#<\s*CLIXML/.test(raw)) return null;
+  const parts = [];
+  // One <S> element per line written to a stream, tagged with the stream name.
+  for (const [, stream, body] of raw.matchAll(/<S(?:\s+S="([^"]*)")?[^>]*>([\s\S]*?)<\/S>/g)) {
+    // Keep what a reader needs; drop verbose/debug/progress chatter.
+    if (stream && !/^(error|warning|information)$/i.test(stream)) continue;
+    parts.push(unescapeClixml(body));
+  }
+  return parts.join("").replace(/\s+/g, " ").trim();
+}
+
 /** Wrap a script so it runs the same way under cmd.exe, PowerShell or any default shell. */
 export function powershellCommand(script) {
   const encoded = Buffer.from(String(script), "utf16le").toString("base64");

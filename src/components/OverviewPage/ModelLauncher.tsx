@@ -112,7 +112,15 @@ export function ModelLauncher({
 
   let body;
   if (launchers == null) {
-    body = <div className="ov-launch__hint">{failed ? "Models unavailable" : "Looking for models…"}</div>;
+    // Launcher discovery failing says nothing about the GPU. Keep the activity the
+    // collector did supply, so a working unit whose launcher list cannot be read is
+    // not presented as having nothing on it. No cause is claimed for the activity.
+    body = (
+      <div className="ov-launch__hint">
+        {failed ? "Models unavailable" : "Looking for models…"}
+        {failed && busy ? ` · ${busy}.` : ""}
+      </div>
+    );
   } else if (loading) {
     body = (
       <>

@@ -197,4 +197,24 @@ describe("ModelLauncher", () => {
       expect(container.querySelectorAll("button.btn--primary").length).toBe(2);
     });
   });
+
+  it("keeps the GPU activity visible when launcher discovery fails", async () => {
+    // Discovery failing says nothing about the GPU: the busy evidence the collector
+    // supplied must not be discarded for a bare "Models unavailable".
+    fetchLaunchers.mockRejectedValue(new Error("launcher discovery unavailable"));
+    const { container } = render(
+      <ModelLauncher spark={makeSpark("busy-no-launchers")} busy="GPU 96% · 90 GB in use" busyHolders />
+    );
+    await flush();
+    expect(container.textContent).toContain("Models unavailable");
+    expect(container.textContent).toContain("GPU 96% · 90 GB in use");
+  });
+
+  it("says only that models are unavailable when there is no activity to report", async () => {
+    fetchLaunchers.mockRejectedValue(new Error("launcher discovery unavailable"));
+    const { container } = render(<ModelLauncher spark={makeSpark("quiet-no-launchers")} />);
+    await flush();
+    expect(container.textContent).toContain("Models unavailable");
+  });
+
 });

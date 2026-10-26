@@ -5,7 +5,7 @@
  * Uses execFile + argv arrays (no shell interpolation of user/host/cmd).
  * Password auth uses sshpass -e (password via env), not -p on the command line.
  */
-import { powershellCommand } from "./windowsMetrics.js";
+import { decodeClixml, powershellCommand } from "./windowsMetrics.js";
 import { execFile } from "child_process";
 import crypto from "crypto";
 import fs from "fs";
@@ -17,6 +17,9 @@ import {
 } from "../config.js";
 import { isAllowedTargetHost, isValidSshUser, normalizeSshPort } from "../validate.js";
 import { llmProbeHost } from "./llmHost.js";
+
+/** A decoded PowerShell error keeps its first line or two; the rest is position noise. */
+const CLIXML_MESSAGE_MAX = 300;
 
 // Detect sshpass without shelling out to `which` on every cold call —
 // checking PATH entries directly is faster and avoids spawning a shell.
@@ -270,6 +273,21 @@ export function sshCommandSpec(spark, opts = {}) {
  * ~/.ssh/authorized_keys for administrators.
  */
 export function explainSshFailure(message, { windows = false } = {}) {
+  // PowerShell serialises its error stream as CLIXML when stderr is redirected, so a
+  // failed command on a Windows unit otherwise arrives as "#< CLIXML <Objs …>".
+  const clixml = decodeClixml(message);
+  if (clixml != null) {
+    const decoded = clixml
+      ? clixml.length > CLIXML_MESSAGE_MAX
+        ? `${clixml.slice(0, CLIXML_MESSAGE_MAX)}…`
+        : clixml
+      : "PowerShell reported a failure with no message on its error stream.";
+    // A standard Windows account is not entitled to the CIM/WMI classes the collector
+    // reads, which is the common cause and is not visible in the message itself.
+    return /access is denied|access denied|permissiondenied|unauthorizedaccess/i.test(clixml)
+      ? `${decoded} (this usually means the Windows account sparkDash signs in as may not read WMI/CIM: grant it read access to the root\\cimv2 namespace, or use an account that has it.)`
+      : decoded;
+  }
   if (/is not recognized as an internal or external command/i.test(message)) {
     return `${message} (this looks like a Windows host: set the Unit type to "Windows PC with an NVIDIA GPU" in the unit's settings.)`;
   }

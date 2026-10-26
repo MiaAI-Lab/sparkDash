@@ -981,6 +981,12 @@ export interface Settings {
    * Missing or out of range becomes 12 hours.
    */
   occupancyMaxAgeMs: number;
+  /**
+   * GPU temperature (°C) at which the Health finding warns, and at which it turns
+   * critical. Defaults 85 and 90; warn is always below critical. Alerts reuse the finding.
+   */
+  healthTempWarnC: number;
+  healthTempCriticalC: number;
 }
 
 export type OccupancyBadge = "unknown" | "generating" | "stalled";

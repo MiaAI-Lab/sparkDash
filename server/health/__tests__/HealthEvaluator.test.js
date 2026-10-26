@@ -156,3 +156,24 @@ test("low-power finding describes the observation and recommends checking progre
   assert.match(finding.hint, /progress/);
   assert.doesNotMatch(finding.hint, /reset|reboot/);
 });
+
+test("thermal: configured thresholds move the finding and its text, and apply without a new evaluator", () => {
+  let t = { warnC: 78, criticalC: 88 };
+  const h = new HealthEvaluator({ thresholds: () => t });
+  assert.deepEqual(h.evaluate({ gpu: { temperature: 77 } }), []);
+  const warn = h.evaluate({ gpu: { temperature: 80 } })[0];
+  assert.equal(warn.severity, "warn");
+  assert.match(warn.detail, /warns at 78°C, critical at 88°C/);
+  assert.equal(h.evaluate({ gpu: { temperature: 88 } })[0].severity, "critical");
+  t = { warnC: 92, criticalC: 100 };
+  assert.deepEqual(h.evaluate({ gpu: { temperature: 91 } }), []);
+});
+
+test("thermal: unusable thresholds fall back to 85/90", () => {
+  for (const bad of [{ warnC: 90, criticalC: 85 }, { warnC: NaN, criticalC: 90 }, { warnC: 85 }, null]) {
+    const h = new HealthEvaluator({ thresholds: () => bad });
+    assert.deepEqual(h.evaluate({ gpu: { temperature: 84 } }), []);
+    assert.equal(h.evaluate({ gpu: { temperature: 85 } })[0].severity, "warn");
+    assert.equal(h.evaluate({ gpu: { temperature: 90 } })[0].severity, "critical");
+  }
+});

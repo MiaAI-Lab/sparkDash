@@ -575,6 +575,49 @@ test("_applyTensorFoldMetrics: prompt_tokens_cached_total feeds the token ledger
   assert.equal(queueOnly.totalCachedTokens, 42);
 });
 
+test("_applyTensorFoldMetrics: a prompt-cache-tier build reports its cached split", async () => {
+  // A build whose prompt-cache tier comes from a recipe patch rather than from
+  // upstream publishes prompt_cache_cached_tokens / prompt_cache_computed_tokens
+  // and neither upstream name, so the ledger used to record no cached tokens at
+  // all and Cost compare priced every prompt token as computed.
+  const tier = metricsProbe(() =>
+    [
+      "tensorfold:prompt_tokens_total 532701765",
+      "tensorfold:generation_tokens_total 1000",
+      "tensorfold:prompt_cache_cached_tokens 519106560",
+      "tensorfold:prompt_cache_computed_tokens 10564859",
+    ].join("\n")
+  );
+  await tier._applyTensorFoldMetrics(2);
+  assert.equal(tier.totalPromptTokens, 532701765);
+  assert.equal(tier.totalCachedTokens, 519106560);
+
+  // Upstream's own counter still wins where a build publishes both.
+  const both = metricsProbe(() =>
+    [
+      "tensorfold:prompt_tokens_total 1000",
+      "tensorfold:generation_tokens_total 100",
+      "tensorfold:prompt_tokens_cached_total 700",
+      "tensorfold:prompt_cache_cached_tokens 600",
+    ].join("\n")
+  );
+  await both._applyTensorFoldMetrics(2);
+  assert.equal(both.totalCachedTokens, 700);
+
+  // The tier name is preferred over vLLM's hit counter, and still clamped to
+  // this scrape's prompt total.
+  const overPrompt = metricsProbe(() =>
+    [
+      "tensorfold:prompt_tokens_total 100",
+      "tensorfold:generation_tokens_total 10",
+      "tensorfold:prompt_cache_cached_tokens 150",
+      "tensorfold:prefix_cache_hits_total 20",
+    ].join("\n")
+  );
+  await overPrompt._applyTensorFoldMetrics(2);
+  assert.equal(overPrompt.totalCachedTokens, 100);
+});
+
 test("_applyTensorFoldMetrics reads the TensorFold 1.1 KV occupancy ratio", async () => {
   const probe = new LlmProbe({ lanIp: "192.0.2.10" }, 8888);
   probe._fetch = async () => ({

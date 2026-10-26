@@ -327,13 +327,21 @@ function CostTiles({
   const per = range.unit === "hour" ? "hour" : "day";
   const blended = blendedPerMillion(cost.totalCost, tally.total);
   const outputShare = cost.totalCost > 0 ? cost.outputCost / cost.totalCost : 0;
+  // The engine published no cached-prompt counter: the cached share is unknown, not
+  // zero. Saying "0 of them cached" would read as a measured cache miss and hide that
+  // every prompt token is priced at the full input rate, which overstates the bill.
+  const cacheUnknown = tally.cacheReported === false;
   return (
     <section className="tk-tiles" aria-label={`Cost summary for ${range.phrase}`}>
       <Tile label="Total cost" value={fmtMoney(cost.totalCost)} sub={`for ${range.phrase}`} title={cost.totalCost.toFixed(6)} />
       <Tile
         label="Input (prompt)"
         value={fmtMoney(cost.inputCost)}
-        sub={`${fmt(tally.prompt)} prompt tokens, ${fmt(tally.cached)} of them cached`}
+        sub={
+          cacheUnknown
+            ? `${fmt(tally.prompt)} prompt tokens, all priced as computed — this engine reports no cached share`
+            : `${fmt(tally.prompt)} prompt tokens, ${fmt(tally.cached)} of them cached`
+        }
         title={cost.inputCost.toFixed(6)}
       />
       <Tile
@@ -345,7 +353,13 @@ function CostTiles({
       <Tile
         label="Cache savings"
         value={cost.cacheSavings > 0 ? fmtMoney(cost.cacheSavings) : "—"}
-        sub={cost.cacheSavings > 0 ? "vs the full input price for cached prefill" : "no cache discount published"}
+        sub={
+          cost.cacheSavings > 0
+            ? "vs the full input price for cached prefill"
+            : cacheUnknown
+              ? "this engine does not report cached prompt tokens"
+              : "no cache discount published"
+        }
       />
       <Tile
         label={`Average per ${per}`}
