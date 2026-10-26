@@ -292,7 +292,8 @@ test("local: an xe card is probed; absence is re-checked after 10 minutes", asyn
     await c._probeIntelLocal();
     assert.equal(spawns(), 0);
     // hot-add: the cached "none" holds until it is 10 minutes old
-    fs.rmSync(path.join(root, "class/drm/card0/device/driver"));
+    // Unlink the fixture symlink itself. Node 24.8 on Linux treats rmSync(link-to-dir) as EISDIR.
+    fs.unlinkSync(path.join(root, "class/drm/card0/device/driver"));
     fs.mkdirSync(path.join(root, "bus/pci/drivers/xe"), { recursive: true });
     fs.symlinkSync(path.join(root, "bus/pci/drivers/xe"), path.join(root, "class/drm/card0/device/driver"));
     await c._probeIntelLocal();
