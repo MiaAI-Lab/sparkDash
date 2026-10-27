@@ -96,3 +96,14 @@ test("mlx-serve live rates re-seed after unreadable metrics and long gaps", () =
   probe._applyMlxServeLiveRates(sample(4100), 2);
   assert.equal(probe.generationTps, 50);
 });
+
+test("mlx-serve live series are gated by the metrics helper", () => {
+  assert.equal(
+    LlmProbe._metricsLookLikeMlxServe(metrics({ prompt: 1, gen: 1, prefillDone: 0, prefillLive: 0, genLive: 0, running: 0 })),
+    true
+  );
+  assert.equal(
+    LlmProbe._metricsLookLikeMlxServe("vllm:prompt_tokens_total 1\nvllm:generation_tokens_total 1\n"),
+    false
+  );
+});
