@@ -192,3 +192,28 @@ test("store construction honors a telemetry path loaded later from .env", async 
   dotenv.config({ path: path.join(dir, ".env"), quiet: true });
   assert.equal(new LlmTelemetryStore().filePath, expected);
 });
+
+test("a forward-stepped sample keeps the series and its measurement fields", (t) => {
+  t.mock.method(Date, "now", () => Date.parse("2026-08-27T12:00:00.000Z"));
+  const { dir, store } = makeStore();
+  try {
+    const base = new Date("2026-08-27T12:00:00.000Z");
+    for (let i = 0; i < 5; i += 1) {
+      store.record("john", 8888, { available: true, generationTps: i }, new Date(base.getTime() + i * 10_000));
+    }
+    // A clock jump past the retention window must not drop the earlier points.
+    store.record(
+      "john",
+      8888,
+      { available: true, generationTps: 99, measurementValid: false, measurementError: "stats unreadable" },
+      new Date(base.getTime() + 8 * 24 * 60 * 60 * 1000)
+    );
+    const points = store._series["john:8888"];
+    assert.equal(points.length, 6);
+    assert.equal(points[0].generationTps, 0);
+    assert.equal(points.at(-1).measurementValid, false);
+    assert.equal(points.at(-1).measurementError, "stats unreadable");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
