@@ -440,6 +440,40 @@ test("vLLM cache_config_info: sums pools across engines and clamps usage", () =>
   assert.equal(probe.kvCacheTokensAvailable, 0);
 });
 
+test("vLLM prompt_tokens_by_source: prefill counts computed tokens only", () => {
+  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 8000);
+  probe.lastTokenCounts = { input: 1000, output: 500 };
+  probe.lastTtftSum = 10;
+  probe.lastPromptCompute = 100;
+  const body = `${VLLM_METRICS.replace("1000.0", "1200.0").replace("500.0", "900.0")}
+vllm:prompt_tokens_by_source_total{engine="0",source="local_compute"} 140.0
+vllm:prompt_tokens_by_source_total{engine="0",source="local_cache_hit"} 860.0
+vllm:prompt_tokens_by_source_total{engine="0",source="external_kv_transfer"} 0.0
+vllm:time_to_first_token_seconds_sum{engine="0"} 10.05
+`;
+  probe._applyVllmMetrics(body, 2);
+  // Δcompute 40 / Δttft 0.05 s = 800, not Δprompt 200 / 0.05 = 4000 inflated by cache hits.
+  assert.equal(probe.prefillTps, 800);
+});
+
+test("vLLM prefill uses the engine's per-request prefill time when published", () => {
+  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 8000);
+  probe.lastTokenCounts = { input: 1000, output: 500 };
+  probe._lastPrefillTotals = { count: 10, time: 100, kv: 1000, cache: 500 };
+  const body = `${VLLM_METRICS.replace("1000.0", "1200.0").replace("500.0", "900.0")}
+vllm:request_prefill_time_seconds_count{engine="0"} 11.0
+vllm:request_prefill_time_seconds_sum{engine="0"} 102.0
+vllm:request_prefill_kv_computed_tokens_sum{engine="0"} 5000.0
+vllm:prompt_tokens_by_source_total{engine="0",source="local_cache_hit"} 1500.0
+`;
+  probe._applyVllmMetrics(body, 2);
+  // Δkv 4000 over Δprefill 2 s = 2000 tok/s; the poll window would have said 100.
+  assert.equal(probe.prefillTps, 2000);
+  assert.equal(probe.uncachedPrefillTps, 2000);
+  // Δcached 1000 over the same 2 s of prefill.
+  assert.equal(probe.cachedPrefillTps, 500);
+});
+
 test("vLLM prefill excludes prefix-cache hits; cached vs uncached split", () => {
   const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 8000);
   const base = (prompt, cached, ttft) => `vllm:prompt_tokens_total{engine="0"} ${prompt}
