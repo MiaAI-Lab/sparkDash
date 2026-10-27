@@ -56,6 +56,7 @@ test("gpu-history serves the week window from the long store and the 8 h window 
       EVENTS_JSON_PATH: path.join(tmp, "events.json"),
       GPU_HISTORY_JSON_PATH: path.join(tmp, "gpu-history.json"),
       GPU_HISTORY_LONG_JSON_PATH: path.join(tmp, "gpu-history-long.json"),
+      LLM_TELEMETRY_JSON_PATH: path.join(tmp, "llm-telemetry.json"),
     },
     stdio: ["ignore", "pipe", "pipe"],
   });

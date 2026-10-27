@@ -8,7 +8,7 @@
 import fs from "fs";
 import path from "path";
 import { LLM_TELEMETRY_JSON_PATH } from "../config.js";
-import { atomicWrite } from "../util/atomicWrite.js";
+import { atomicWrite, quarantineCorrupt } from "../util/atomicWrite.js";
 
 const BUCKET_MS = 10_000;
 const MAX_HOURS = 168;
@@ -43,6 +43,9 @@ function pointFrom(metrics, time) {
   return {
     t: Math.floor(time / BUCKET_MS) * BUCKET_MS,
     available: metrics?.available === true && metrics?.measurementValid !== false,
+    measurementValid: metrics?.measurementValid !== false,
+    measurementError:
+      typeof metrics?.measurementError === "string" ? metrics.measurementError : null,
     status,
     lastObservedAt: finiteOrNull(metrics?.lastObservedAt),
     statusReason: typeof metrics?.statusReason === "string" ? metrics.statusReason : null,
@@ -113,6 +116,15 @@ export class LlmTelemetryStore {
     this._flushTimer = null;
     this._lastCompactionAt = Date.now();
     this._load();
+    // Retire expired ports even when nothing new arrives.
+    this._compactTimer = setInterval(() => {
+      try {
+        this.compact();
+      } catch (err) {
+        console.error("[LlmTelemetry] compaction failed:", err.message);
+      }
+    }, COMPACT_MS);
+    this._compactTimer.unref?.();
   }
 
   _load() {
@@ -127,7 +139,8 @@ export class LlmTelemetryStore {
           }
         }
         this._lastCompactionAt = fs.statSync(this.filePath).mtimeMs;
-      } catch {
+      } catch (err) {
+        quarantineCorrupt(this.filePath, "LlmTelemetry", err);
         this._series = {};
       }
     }
@@ -158,14 +171,32 @@ export class LlmTelemetryStore {
     }
   }
 
-  _upsert(key, point) {
-    const cutoff = point.t - RETENTION_MS + BUCKET_MS;
-    const points = (this._series[key] || []).filter((candidate) => candidate.t >= cutoff);
-    const existing = points.findIndex((candidate) => candidate.t === point.t);
-    if (existing >= 0) points[existing] = point;
-    else points.push(point);
-    points.sort((left, right) => left.t - right.t);
-    this._series[key] = points.slice(-MAX_POINTS);
+  _upsert(key, point, nowMs = Date.now()) {
+    // Retention is relative to now, not to the incoming sample: one point with
+    // a forward-stepped clock must not collapse the whole series.
+    const cutoff = nowMs - RETENTION_MS + BUCKET_MS;
+    let points = this._series[key] || [];
+    const last = points[points.length - 1];
+    if (!last || point.t > last.t) {
+      points.push(point);
+      let drop = 0;
+      while (drop < points.length && points[drop].t < cutoff) drop += 1;
+      if (drop) points = points.slice(drop);
+    } else if (point.t === last.t) {
+      points[points.length - 1] = point;
+    } else {
+      const existing = points.findIndex((candidate) => candidate.t === point.t);
+      if (existing >= 0) points[existing] = point;
+      else {
+        const at = points.findIndex((candidate) => candidate.t > point.t);
+        points.splice(at < 0 ? points.length : at, 0, point);
+      }
+      if (points.some((candidate) => candidate.t < cutoff)) {
+        points = points.filter((candidate) => candidate.t >= cutoff);
+      }
+    }
+    if (points.length > MAX_POINTS) points = points.slice(-MAX_POINTS);
+    this._series[key] = points;
   }
 
   _scheduleFlush() {
