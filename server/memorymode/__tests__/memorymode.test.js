@@ -135,12 +135,73 @@ test("a below-floor settle result refuses the launch and names what happened to 
 
 // ─── The two flows, end to end with fakes ─────────────────────────────────
 
-test("qwen launch: success only when the container itself reaches running", async (t) => {
+test("qwen launch: switching to qwen while already in qwen mode is a no-op success", async (t) => {
   const spawned = [];
   const router = execRouter({ ...Object.fromEntries(STACK.map((n) => [n, "exited"])), "qwen38-flash-next-tf": "running" });
   const m = makeManager(t, {
     execHost: router.exec,
-    spawnDetached: (cmd) => (spawned.push(cmd), 4242),
+    spawnDetached: (cmd) => (spawned.push(cmd), 1),
+    readMemAvailable: () => 50,
+    ...fakeClock(),
+  });
+  const out = await m.switchTo("qwen");
+  assert.equal(out.status, "success");
+  assert.match(out.message, /Already in Qwen mode/);
+  assert.equal(spawned.length, 0, "start.sh must not run again when Qwen is already up");
+});
+
+test("ollama switch: switching to ollama while already in ollama mode is a no-op success", async (t) => {
+  const stopRuns = [];
+  const router = execRouter({ ...Object.fromEntries(STACK.map((n) => [n, "running"])), "qwen38-flash-next-tf": "exited" });
+  const m = makeManager(t, {
+    execHost: async (cmd, timeout) => {
+      if (cmd === buildQwenStopCommand({ dir: baseConfig("/").qwenDir })) stopRuns.push(cmd);
+      return router.exec(cmd, timeout);
+    },
+    readMemAvailable: () => 120,
+    ...fakeClock(),
+  });
+  const out = await m.switchTo("ollama");
+  assert.equal(out.status, "success");
+  assert.match(out.message, /Already in Ollama mode/);
+  assert.equal(stopRuns.length, 0, "stop.sh must not run again when Qwen is already down");
+});
+
+test("mixed state (both stacks up) is NOT treated as already-in-target", async (t) => {
+  // Qwen running AND a stack container running: the guard must not claim
+  // "already in qwen mode" — the full flow has to tear the stack down.
+  const states = { ...Object.fromEntries(STACK.map((n) => [n, "running"])), "qwen38-flash-next-tf": "running" };
+  const router = execRouter(states);
+  const liveExec = async (cmd, timeout) => {
+    for (const name of Object.keys(states)) {
+      if (cmd === buildDockerStopCommand(name)) states[name] = "exited"; // real stop flips the state
+    }
+    return router.exec(cmd, timeout);
+  };
+  const m = makeManager(t, {
+    execHost: liveExec,
+    spawnDetached: () => 1,
+    readMemAvailable: () => 120,
+    ...fakeClock(),
+  });
+  const out = await m.switchTo("qwen");
+  assert.equal(out.status, "success");
+  assert.doesNotMatch(out.message, /Already in Qwen mode/);
+  // The flow ran: the stack was stopped (docker stop commands issued for each).
+  assert.ok(router.calls.some((c) => c === buildDockerStopCommand("spark-ollama-engine")));
+});
+
+
+test("qwen launch: success only when the container itself reaches running", async (t) => {
+  const spawned = [];
+  // A genuine transition: Qwen is down until start.sh is launched, and only
+  // then does the container reach running — the manager must verify the state,
+  // never trust the script's exit.
+  const states = { ...Object.fromEntries(STACK.map((n) => [n, "exited"])), "qwen38-flash-next-tf": "exited" };
+  const router = execRouter(states);
+  const m = makeManager(t, {
+    execHost: router.exec,
+    spawnDetached: (cmd) => (spawned.push(cmd), (states["qwen38-flash-next-tf"] = "running"), 4242),
     readMemAvailable: () => 120,
     ...fakeClock(),
   });

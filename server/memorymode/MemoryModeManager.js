@@ -189,6 +189,24 @@ export class MemoryModeManager {
     }
     this.busy = true;
     try {
+      // Idempotency: an already-settled target state is success, not a re-run.
+      // Without this guard, switching to qwen while Qwen is up would trip the
+      // memory floor (Qwen itself holds ~100GB) and report a bogus breach,
+      // and switching to ollama with both stacks settled would needlessly
+      // re-execute stop.sh. Mixed states (both up, or neither) fall through
+      // to the full flow, which repairs either case.
+      const qwenNow = await this.containerState(this.config.qwenContainer);
+      const stackStates = await Promise.all(
+        this.config.ollamaStack.map((n) => this.containerState(n))
+      );
+      const stackUp = stackStates.filter((s) => s === "running").length;
+      const stackDown = stackStates.every((s) => s === "exited" || s === "missing");
+      if (mode === "qwen" && qwenNow === "running" && stackDown) {
+        return { status: "success", message: "Already in Qwen mode: Qwen is running and the Ollama stack is stopped. No switch needed." };
+      }
+      if (mode === "ollama" && qwenNow === "exited" && stackUp === this.config.ollamaStack.length) {
+        return { status: "success", message: "Already in Ollama mode: Qwen is stopped and the whole Ollama stack is running. No switch needed." };
+      }
       return mode === "ollama" ? await this._switchToOllama() : await this._switchToQwen();
     } finally {
       this.busy = false;
