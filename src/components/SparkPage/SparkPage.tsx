@@ -14,6 +14,7 @@ import { TailscalePanel } from "./TailscalePanel";
 import { LlmPanel } from "./LlmPanel";
 import { ComfyPanel } from "./ComfyPanel";
 import { LlmModelsPanel } from "./LlmModelsPanel";
+import { MemoryModeCard } from "./MemoryModeCard";
 import { RocePanel } from "./RocePanel";
 import { UnifiedMemoryPanel } from "./UnifiedMemoryPanel";
 import { HistoryPanel } from "./HistoryPanel";
@@ -295,6 +296,8 @@ export function SparkPage({
                 {spark.kind === "host" && <RamPanel ram={metrics.ram} sparkId={spark.id} />}
                 {/* Models is the third column of the row (Windows PCs have no launchers). */}
                 {spark.platform !== "windows" && modelsPanel}
+                {/* Engine switcher lives with the models, but only on the machine whose stacks it controls. */}
+                {spark.isLocal && spark.platform !== "windows" && <MemoryModeCard />}
               </div>
             </Item>
             {/* History closes the hardware column: the right column (LLM, storage, network) is

@@ -17,6 +17,10 @@ interface ConfirmShutdownDialogProps {
   confirmLabel?: string;
   /** Lines naming running work this action will stop; rendered in a danger box. */
   warnings?: string[];
+  /** Word that must be typed to arm the button. Defaults to the shutdown phrase. */
+  confirmPhrase?: string;
+  /** Closing line of the danger box, for destructive actions that are not a power-off. */
+  footnote?: string;
 }
 
 function useEscape(enabled: boolean, onClose: () => void) {
@@ -38,6 +42,8 @@ export function ConfirmShutdownDialog({
   description,
   confirmLabel = "Shut down",
   warnings,
+  confirmPhrase = CONFIRM_PHRASE,
+  footnote = "Running containers and sessions will stop. The host powers off after a graceful stop.",
 }: ConfirmShutdownDialogProps) {
   const [phrase, setPhrase] = useState("");
   const [acknowledged, setAcknowledged] = useState(false);
@@ -70,7 +76,7 @@ export function ConfirmShutdownDialog({
     };
   }, [mounted]);
 
-  const phraseOk = phrase.trim().toLowerCase() === CONFIRM_PHRASE;
+  const phraseOk = phrase.trim().toLowerCase() === confirmPhrase.trim().toLowerCase();
   const canConfirm = phraseOk && acknowledged && !submitting;
 
   const handleConfirm = async () => {
@@ -121,7 +127,7 @@ export function ConfirmShutdownDialog({
                 ))}
               </ul>
             ) : null}
-            <span>Running containers and sessions will stop. The host powers off after a graceful stop.</span>
+            <span>{footnote}</span>
           </div>
 
           <label className="check-row">
@@ -136,7 +142,7 @@ export function ConfirmShutdownDialog({
 
           <div className="field">
             <label htmlFor={`${titleId}-phrase`}>
-              Type <b className="mono">{CONFIRM_PHRASE}</b> to confirm
+              Type <b className="mono">{confirmPhrase}</b> to confirm
             </label>
             <input
               id={`${titleId}-phrase`}
@@ -154,7 +160,7 @@ export function ConfirmShutdownDialog({
                 }
               }}
               className="field-input field-input--mono"
-              placeholder={CONFIRM_PHRASE}
+              placeholder={confirmPhrase}
             />
           </div>
         </div>
@@ -171,7 +177,7 @@ export function ConfirmShutdownDialog({
               className="btn btn--danger"
             >
               <PowerOffIcon className="h-3.5 w-3.5" />
-              {submitting ? "Shutting down…" : confirmLabel}
+              {submitting ? (confirmLabel === "Shut down" ? "Shutting down…" : `${confirmLabel}…`) : confirmLabel}
             </button>
           </div>
         </div>
