@@ -70,6 +70,8 @@ import { LauncherManager } from "./llmlaunch/LauncherManager.js";
 import { ToolEvalStore } from "./tooleval/ToolEvalStore.js";
 import { ToolEvalManager } from "./tooleval/ToolEvalManager.js";
 import { registerToolEvalRoutes } from "./tooleval/routes.js";
+import { MemoryModeManager } from "./memorymode/MemoryModeManager.js";
+import { registerMemoryModeRoutes } from "./memorymode/routes.js";
 import { benchEvent } from "./events/eventFormat.js";
 import {
   createFleetEnergyRuntime,
@@ -2190,6 +2192,21 @@ registerGpuClockRoutes(app, {
   registry,
   recordEvent,
   allowRead: (req) => allowTest(principalKey(req)),
+  allowChange: (req) => allowDestructive(principalKey(req)) && allowGlobalDestructive(clientKey(req)),
+  rejectLimited,
+});
+
+// ─── Memory mode (Qwen ⇄ Ollama exclusive stacks) ────────
+// Off unless MEMORY_MODE_ENABLED is set. The switcher runs Qwen's start.sh/stop.sh
+// and the docker CLI as the local Spark's SSH user (nsenter + setpriv, never root),
+// so it shares the auth and limiters of the power and GPU-clock actions.
+const memoryModeManager = new MemoryModeManager({
+  // The drop target is the local unit's SSH user (spark.ssh.user), same as HermesProbe.
+  getSpark: () => registry.sparks.find((s) => s.isLocal) || null,
+});
+registerMemoryModeRoutes(app, {
+  manager: memoryModeManager,
+  recordEvent,
   allowChange: (req) => allowDestructive(principalKey(req)) && allowGlobalDestructive(clientKey(req)),
   rejectLimited,
 });

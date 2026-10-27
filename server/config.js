@@ -48,6 +48,31 @@ const MODEL_PRICES_FETCH = ["1", "true"].includes(
   String(process.env.MODEL_PRICES_FETCH || "").toLowerCase()
 );
 
+// ─── Memory mode (Qwen ⇄ Ollama exclusive stacks) ────────
+// Off unless MEMORY_MODE_ENABLED is set, like MODEL_PRICES_FETCH above: an install
+// never runs host scripts or docker start/stop unasked. Host topology lives in env
+// only — never in the world-readable settings.json (see server/settings.js notes).
+const MEMORY_MODE_ENABLED = ["1", "true"].includes(
+  String(process.env.MEMORY_MODE_ENABLED || "").toLowerCase()
+);
+/** Host directory holding Qwen's start.sh / stop.sh (validated by validateDir at boot). */
+const QWEN_DIR = process.env.QWEN_DIR || "";
+const QWEN_CONTAINER = process.env.QWEN_CONTAINER || "qwen38-flash-next-tf";
+const OLLAMA_STACK = (
+  process.env.OLLAMA_STACK || "spark-ollama-engine,librechat,chat-mongodb"
+)
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+/** MemAvailable (GB) required before Qwen may be launched (spark-dash parity: 108). */
+const MEMORY_FLOOR_GB = (() => {
+  const n = Number.parseFloat(process.env.MEMORY_FLOOR_GB || "");
+  return Number.isFinite(n) && n > 0 ? n : 108;
+})();
+/** Where detached start.sh output lands (config volume is writable in-container). */
+const MEMORY_MODE_LOG_PATH =
+  process.env.MEMORY_MODE_LOG_PATH || path.join(ROOT, "config", "memory-mode.log");
+
 // ─── LLM / Comfy probe timeouts ──────────────────────────
 const LLM_PROBE_TIMEOUT_MS = 3000;
 /**
@@ -225,6 +250,12 @@ export {
   OCCUPANCY_HELPERS_JSON_PATH,
   MODEL_PRICES_JSON_PATH,
   MODEL_PRICES_FETCH,
+  MEMORY_MODE_ENABLED,
+  QWEN_DIR,
+  QWEN_CONTAINER,
+  OLLAMA_STACK,
+  MEMORY_FLOOR_GB,
+  MEMORY_MODE_LOG_PATH,
   LLM_PROBE_TIMEOUT_MS,
   COMFY_PROBE_TIMEOUT_MS,
   TAILSCALE_PROBE_TIMEOUT_MS,

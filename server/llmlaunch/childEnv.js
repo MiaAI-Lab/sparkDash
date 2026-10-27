@@ -14,6 +14,14 @@ const DASHBOARD_ENV = new Set([
   "HOST_PROC_PATH",
   "HOST_SYS_PATH",
   "HOST_ROOT_PATH",
+  // Memory-mode switcher topology: the host scripts (and everything they launch)
+  // must not learn the dashboard's engine layout either.
+  "MEMORY_MODE_ENABLED",
+  "QWEN_DIR",
+  "QWEN_CONTAINER",
+  "OLLAMA_STACK",
+  "MEMORY_FLOOR_GB",
+  "MEMORY_MODE_LOG_PATH",
 ]);
 
 export function scrubbedChildEnv(env = process.env) {

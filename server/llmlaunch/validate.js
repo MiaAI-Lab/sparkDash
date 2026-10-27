@@ -12,6 +12,9 @@ const DIR_RE = /^(~\/|\/)[A-Za-z0-9._@+=,/-]*$/;
 // Must end in .sh: stops a launcher from naming an arbitrary executable (reboot, ...).
 const SCRIPT_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,60}\.sh$/;
 const ID_RE = /^[a-z0-9][a-z0-9-]{0,47}$/;
+// Docker's own container-name grammar (conservative): lowercase, no `:`, `/`, quotes or
+// shell metacharacters — everything the memory-mode switcher embeds into a shell string.
+const CONTAINER_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
 export const MAX_LAUNCHERS_PER_SPARK = 24;
 
@@ -36,6 +39,14 @@ export function validateScriptName(name, label) {
 
 export function isValidLauncherId(id) {
   return typeof id === "string" && ID_RE.test(id);
+}
+
+/** Container names are embedded in docker CLI strings — allow-list first, shell second. */
+export function validateContainerName(name) {
+  if (typeof name !== "string" || !CONTAINER_RE.test(name)) {
+    return "Container name must start with a letter or digit and use only letters, digits, . _ - (64 characters max)";
+  }
+  return null;
 }
 
 /** URL-safe slug for an id derived from a display name. */
