@@ -11,6 +11,7 @@ POST. The catalog is data: this file has no engine names of its own.
 
 from __future__ import annotations
 
+import hmac
 import json
 import os
 import signal
@@ -280,9 +281,4 @@ class RuntimeControl:
 
 
 def _tokens_equal(left: str, right: str) -> bool:
-    if len(left) != len(right):
-        return False
-    diff = 0
-    for a, b in zip(left, right):
-        diff |= ord(a) ^ ord(b)
-    return diff == 0
+    return hmac.compare_digest(left, right)

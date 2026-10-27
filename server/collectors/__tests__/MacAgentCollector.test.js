@@ -107,8 +107,9 @@ test("vitals come from one agent read and keep the existing shapes", async () =>
 test("powermetrics refusal shows as a declared gap, not a zero", async () => {
   const { collector } = collectorWith("ok");
   const gpu = await collector.collectGpu();
-  assert.equal(gpu.usage, 0);
-  assert.equal(gpu.power.draw, 0);
+  assert.equal(gpu.usage, null);
+  assert.equal(gpu.power.draw, null);
+  assert.equal(gpu.power.systemDraw, null);
   assert.equal(gpu.powermetricsAvailable, false);
   const gap = gpu.unavailable.find((row) => row.metric === "gpu.power");
   assert.match(gap.reason, /root/);

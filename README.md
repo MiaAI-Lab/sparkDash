@@ -1098,9 +1098,12 @@ The non-privileged reads share one SSH call per poll. Metal wires MLX weights an
 
 **Requirements on the Mac**
 - Remote Login (SSH) enabled, and the sparkDash host's key in the account's `authorized_keys`.
-- For GPU activity and power, passwordless sudo for `powermetrics`, e.g. `/etc/sudoers.d/sparkdash`:
-  `youruser ALL=(root) NOPASSWD: /usr/bin/powermetrics`.
-  Without it the GPU fields read **n/a** and everything else still works.
+- For GPU activity and power, passwordless sudo for the exact `powermetrics` call the collector
+  makes, e.g. `/etc/sudoers.d/sparkdash`:
+  `youruser ALL=(root) NOPASSWD: /usr/bin/powermetrics -n 1 -i 500 --samplers gpu_power,cpu_power,thermal`.
+  Pin the arguments: a bare `NOPASSWD: /usr/bin/powermetrics` also matches every other sampler and
+  option, which is effectively root. Without the rule the GPU fields read **n/a** and everything
+  else still works.
 - For the LLM card, the model server port reachable from the sparkDash host.
 
 **Mac node agent (optional, recommended).** Installing [`agents/macos`](agents/macos/README.md)

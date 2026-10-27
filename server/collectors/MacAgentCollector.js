@@ -220,15 +220,16 @@ export class MacAgentCollector extends MacSystemCollector {
     const read = gpu.powermetrics === "ok";
     const base = this._defaultGpu();
     const thermal = gpu.thermalPressure && gpu.thermalPressure !== "Nominal";
+    // Unread privileged fields stay null; a zero here is indistinguishable
+    // from a measured 0 W / 0% and drags fleet energy down as if measured.
+    const usage = read && Number.isFinite(gpu.activePercent) ? Math.round(gpu.activePercent) : null;
+    const draw = read && Number.isFinite(gpu.powerW) ? gpu.powerW : null;
+    const systemDraw = read && Number.isFinite(gpu.combinedPowerW) ? gpu.combinedPowerW : null;
     return tagCollectionResult({
       ...base,
       temperature: finiteTemperature(gpu.temperature) ? gpu.temperature : null,
-      usage: read ? Math.round(gpu.activePercent ?? 0) : 0,
-      power: {
-        draw: read ? gpu.powerW ?? 0 : 0,
-        limit: 0,
-        systemDraw: read ? gpu.combinedPowerW ?? 0 : 0,
-      },
+      usage,
+      power: { draw, limit: 0, systemDraw },
       vram: {
         used: mem.used ?? 0,
         total: mem.total ?? 0,
@@ -256,14 +257,14 @@ export class MacAgentCollector extends MacSystemCollector {
     if (!snapshot) return super.collectCpu();
     const value = snapshot.cpu?.usagePercent;
     const valid = typeof value === "number" && Number.isFinite(value) && !isUnavailable(snapshot.unavailable, "cpu.usage");
-    const usage = valid ? value : 0;
+    const usage = valid ? value : null;
     this.lastCpuUsagePct = usage;
     return tagCollectionResult({
       usage,
       usageAvailable: valid,
       unavailable: this._agentEntries(snapshot),
       temperature: finiteTemperature(snapshot.cpu?.temperature) ? snapshot.cpu.temperature : null,
-      draw: snapshot.gpu?.powermetrics === "ok" ? snapshot.gpu?.cpuW ?? 0 : 0,
+      draw: snapshot.gpu?.powermetrics === "ok" && Number.isFinite(snapshot.gpu?.cpuW) ? snapshot.gpu.cpuW : null,
       tdp: 0,
     }, valid);
   }
@@ -277,6 +278,7 @@ export class MacAgentCollector extends MacSystemCollector {
       total: mem.total ?? 0,
       percentage: mem.percentage ?? 0,
       swap: mem.swap || { total: 0, used: 0, free: 0 },
+      unavailable: this._agentEntries(snapshot).filter((row) => String(row.metric).startsWith("memory")),
     };
   }
 
@@ -293,6 +295,7 @@ export class MacAgentCollector extends MacSystemCollector {
       percentage: mem.percentage ?? 0,
       oomRisk: mem.oomRisk || "low",
       bandwidth: { current: 0, peak: 0 },
+      unavailable: this._agentEntries(snapshot).filter((row) => String(row.metric).startsWith("memory")),
     };
   }
 

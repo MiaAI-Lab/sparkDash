@@ -287,7 +287,8 @@ export class MacSystemCollector extends SystemCollector {
       if (!power) {
         return tagCollectionResult({
           ...base,
-          power: { draw: 0, limit: 0, systemDraw: 0 },
+          usage: null,
+          power: { draw: null, limit: 0, systemDraw: null },
           vram: { used: mem.used, total: mem.total, percentage: mem.percentage, available: mem.available },
           powermetricsAvailable: false,
           metricAvailability: macGpuAvailability({ powermetrics: false, temperature: null }),
@@ -297,8 +298,12 @@ export class MacSystemCollector extends SystemCollector {
       return tagCollectionResult({
         ...base,
         temperature: null,
-        usage: Math.round(power.gpuActivePct ?? 0),
-        power: { draw: power.gpuW ?? 0, limit: 0, systemDraw: power.combinedW ?? 0 },
+        usage: Number.isFinite(power.gpuActivePct) ? Math.round(power.gpuActivePct) : null,
+        power: {
+          draw: Number.isFinite(power.gpuW) ? power.gpuW : null,
+          limit: 0,
+          systemDraw: Number.isFinite(power.combinedW) ? power.combinedW : null,
+        },
         vram: { used: mem.used, total: mem.total, percentage: mem.percentage, available: mem.available },
         processes: [],
         throttle: this._buildThrottle({ swThermal: thermal, smClockMHz: power.gpuFreqMHz }),
@@ -317,9 +322,10 @@ export class MacSystemCollector extends SystemCollector {
       const snap = await this._snapshot();
       const parsedUsage = parseTopCpu(snap.top);
       const valid = parsedUsage != null && Number.isFinite(parsedUsage);
-      const usage = valid ? parsedUsage : 0;
+      const usage = valid ? parsedUsage : null;
       this.lastCpuUsagePct = usage;
-      return tagCollectionResult({ usage, usageAvailable: valid, temperature: null, draw: this._lastPower?.cpuW ?? 0, tdp: 0 }, valid);
+      const draw = Number.isFinite(this._lastPower?.cpuW) ? this._lastPower.cpuW : null;
+      return tagCollectionResult({ usage, usageAvailable: valid, temperature: null, draw, tdp: 0 }, valid);
     } catch (err) {
       console.error(`[MacSystemCollector] CPU error for ${this.spark.id}:`, err.message);
       return this._defaultCpu();
