@@ -42,3 +42,9 @@ services:
       - SSH_CONTROL_PERSIST_SECONDS=${SSH_CONTROL_PERSIST_SECONDS:-60}
       - MAX_ACTIVE_BENCH_JOBS=${MAX_ACTIVE_BENCH_JOBS:-2}
       - SSH_IDENTITY_FILE=${SSH_IDENTITY_FILE:-}
+      # Memory mode (Qwen ⇄ Ollama switcher) — opt-in; mirror of docker-compose.yml.
+      - MEMORY_MODE_ENABLED=${MEMORY_MODE_ENABLED:-0}
+      - QWEN_DIR=${QWEN_DIR:-}
+      - QWEN_CONTAINER=${QWEN_CONTAINER:-qwen38-flash-next-tf}
+      - OLLAMA_STACK=${OLLAMA_STACK:-spark-ollama-engine,librechat,chat-mongodb}
+      - MEMORY_FLOOR_GB=${MEMORY_FLOOR_GB:-108}

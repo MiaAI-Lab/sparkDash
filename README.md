@@ -1037,6 +1037,12 @@ Copy `.env.example` to `.env` if needed:
 | `ALERTS_JSON_PATH` | `config/alerts.json` | Alert rule switches, channel settings (no URLs) and the firing set |
 | `MODEL_PRICES_FETCH` | `0` | **Cost compare**: when `1`, the server refreshes the hosted-model price catalog once a day from `raw.githubusercontent.com` (the community litellm list). Opt-in so an install never phones out unasked; while off, the Cost compare page serves the last catalog on disk and makes no requests |
 | `MODEL_PRICES_JSON_PATH` | `config/model-prices.json` | **Cost compare**: where the last good price catalog is persisted (the offline / opt-out fallback). Pre-seed it to use the page with `MODEL_PRICES_FETCH` off |
+| `MEMORY_MODE_ENABLED` | `0` | **Memory mode** (Qwen ⇄ Ollama switcher on the local unit page): `1` enables it. Off by default — with it off the server never runs the host scripts or `docker start`/`stop`, and `GET /api/memory-mode` reports `enabled: false` so the card stays hidden |
+| `QWEN_DIR` | _(empty)_ | **Memory mode**: host directory holding Qwen's `start.sh` / `stop.sh` (e.g. `/home/<user>/Qwen3.8-Flash-Next-Single-DGX-Spark-TensorFold`). Must pass the launcher directory allow-list; a bad value disables the switcher with a startup warning. The scripts run as the local Spark's **SSH user** — the directory must be theirs |
+| `QWEN_CONTAINER` | `qwen38-flash-next-tf` | **Memory mode**: container whose `running`/`exited` state is verified before a switch counts as done |
+| `OLLAMA_STACK` | `spark-ollama-engine,librechat,chat-mongodb` | **Memory mode**: comma-separated containers started (one at a time, each verified) for Ollama mode and stopped for Qwen mode |
+| `MEMORY_FLOOR_GB` | `108` | **Memory mode**: host MemAvailable (GB) that must remain after the Ollama stack stops and memory settles, or the Qwen launch is refused with the honest message |
+| `MEMORY_MODE_LOG_PATH` | `config/memory-mode.log` | **Memory mode**: where detached `start.sh` output is appended (bounded like the launcher logs) |
 
 For compatibility, `SSH_CONTROL_PERSIST` is accepted as a seconds-based fallback when `SSH_CONTROL_PERSIST_SECONDS` is unset. The existing `SSH_MULTIPLEX=0` switch also disables reuse. SSH tunnels always use an independent connection.
 
