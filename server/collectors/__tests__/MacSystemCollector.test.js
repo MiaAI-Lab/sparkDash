@@ -190,7 +190,8 @@ test("sudo refusal leaves GPU fields at defaults and backs off", async () => {
   const { collector, calls } = collectorWith((cmd) => (cmd.includes("powermetrics") ? "" : snapshotOutput()));
   const gpu = await collector.collectGpu();
   assert.equal(gpu.powermetricsAvailable, false);
-  assert.equal(gpu.usage, 0);
+  assert.equal(gpu.usage, null);
+  assert.equal(gpu.power.draw, null);
   assert.equal(gpu.vram.total, 262144);
   collector._snapshotCache = null;
   await collector.collectGpu();
