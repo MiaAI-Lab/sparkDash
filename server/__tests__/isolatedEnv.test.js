@@ -2,7 +2,7 @@ import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import fs from "node:fs";
 import path from "node:path";
-import { CONFIG_DIR_VARS, CONFIG_PATH_VARS, isolatedConfigEnv } from "./isolatedEnv.js";
+import { CONFIG_DIR_VARS, CONFIG_PATH_VARS, PINNED_EMPTY_VARS, isolatedConfigEnv } from "./isolatedEnv.js";
 
 const SERVER = path.resolve(import.meta.dirname, "..");
 // Directories and binaries, not files under config/.
@@ -30,7 +30,6 @@ test("isolatedConfigEnv keeps every file inside the given directory", () => {
   const dir = path.resolve("/tmp/x");
   const env = isolatedConfigEnv(dir);
   for (const name of [...CONFIG_PATH_VARS, ...CONFIG_DIR_VARS]) assert.ok(env[name].startsWith(`${dir}${path.sep}`), env[name]);
-  assert.equal(env.SPARKDASH_INFERENCE_ACTIVITY_URL, "");
-  assert.equal(env.SPARKDASH_INFERENCE_ACTIVITY_LABELS, "");
-  assert.equal(Object.keys(env).length, CONFIG_PATH_VARS.length + CONFIG_DIR_VARS.length + 2);
+  for (const name of PINNED_EMPTY_VARS) assert.equal(env[name], "", name);
+  assert.equal(Object.keys(env).length, CONFIG_PATH_VARS.length + CONFIG_DIR_VARS.length + PINNED_EMPTY_VARS.length);
 });

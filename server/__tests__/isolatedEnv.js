@@ -40,12 +40,28 @@ export const CONFIG_PATH_VARS = [
 /** Variables that point at a directory the server writes into. */
 export const CONFIG_DIR_VARS = ["TOOL_EVAL_RESULTS_DIR", "QWEN_DIR"];
 
+/**
+ * Operator/env variables pinned to "" so a spawned test server can never pick
+ * them up from the operator's shell or the repo's .env (dotenv leaves
+ * already-defined keys untouched). Tests that want them pass values explicitly.
+ */
+export const PINNED_EMPTY_VARS = [
+  "SPARKDASH_INFERENCE_ACTIVITY_URL",
+  "SPARKDASH_INFERENCE_ACTIVITY_LABELS",
+  "SPARKDASH_TOKEN",
+  "DASHBOARD_TOKEN",
+  "MEMORY_MODE_ENABLED",
+  "QWEN_CONTAINER",
+  "OLLAMA_STACK",
+  "MEMORY_FLOOR_GB",
+];
+
 /** Env entries mapping each config path variable to a file (or directory) inside `dir`. */
 export function isolatedConfigEnv(dir) {
   return {
-    // Tests must not contact an operator's opt-in inference activity source.
-    SPARKDASH_INFERENCE_ACTIVITY_URL: "",
-    SPARKDASH_INFERENCE_ACTIVITY_LABELS: "",
+    // Operator settings that must never leak into a spawned test server —
+    // including through the repo's .env, since dotenv leaves defined keys alone.
+    ...Object.fromEntries(PINNED_EMPTY_VARS.map((name) => [name, ""])),
     ...Object.fromEntries(
       CONFIG_PATH_VARS.map((name) => [
         name,
