@@ -8,7 +8,7 @@ import { fetchLlmTokenTotals } from "../../api/llmTokenClient";
 import { formatTokensCompact } from "../../shared/tokenFormat";
 import { formatSince } from "../../shared/formatSince";
 import type { LlmTokenRange, LlmTokenSeriesTotals } from "../../api/llmTokenTypes";
-import { LEDGER_HINT, LEDGER_TITLE } from "./tokenTotalsCopy";
+import { LEDGER_HINT, LEDGER_TITLE, tokenRowTitle, unreportedOf } from "./tokenTotalsCopy";
 
 const POLL_MS = 60_000;
 
@@ -49,7 +49,8 @@ export function LlmTokenTotals({ sparkId, llmPort }: { sparkId: string; llmPort:
 
   const rows = series
     .filter((s) => s.sparkId === sparkId && s.port === llmPort)
-    .flatMap((s) => s.models);
+    .flatMap((s) => s.models)
+    .map((m) => ({ ...m, unreportedPromptTokens: unreportedOf(m) }));
 
   if (rows.length === 0 && range === "all") return null;
 
@@ -92,7 +93,7 @@ export function LlmTokenTotals({ sparkId, llmPort }: { sparkId: string; llmPort:
             <div
               key={row.modelId}
               className="flex items-center justify-between gap-2 text-[11px]"
-              title={`${row.promptTokens.toLocaleString()} prompt · ${row.cachedTokens.toLocaleString()} cached · ${(row.promptTokens - row.cachedTokens).toLocaleString()} prefill · ${row.completionTokens.toLocaleString()} generated${seen ? ` · ${seen} ago` : ""}`}
+              title={`${tokenRowTitle(row)}${seen ? ` · ${seen} ago` : ""}`}
             >
               <span
                 className="min-w-0 flex-1 truncate text-text"
@@ -106,7 +107,7 @@ export function LlmTokenTotals({ sparkId, llmPort }: { sparkId: string; llmPort:
                 </span>
 
                 <span className="inline-block w-14 text-right">
-                  {formatTokensCompact(row.promptTokens - row.cachedTokens)}
+                  {formatTokensCompact(row.promptTokens - row.cachedTokens - row.unreportedPromptTokens)}
                 </span>
 
                 <span className="inline-block w-16 text-right text-text">

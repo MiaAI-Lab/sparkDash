@@ -673,6 +673,11 @@
   --c: var(--color-violet);
   background: var(--color-violet);
 }
+.ov .ov-seg--unrep,
+.ov .ov-leg--unrep {
+  --c: var(--color-faint);
+  background: var(--color-faint);
+}
 .ov .legend > span {
   background: none;
 }

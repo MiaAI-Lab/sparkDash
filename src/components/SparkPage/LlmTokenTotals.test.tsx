@@ -90,4 +90,26 @@ describe("token totals wording", () => {
     const gx12Qwen = container.querySelectorAll<HTMLElement>(".ov-row:not(.ov-row--head)")[1];
     expect(gx12Qwen.title).toContain("50 generated");
   });
+
+  it("counts prompt the engine never measured as not reported, not as prefill, on both cards", async () => {
+    // 3000 prompt: 800 cached, 2000 read before the engine published a cached counter, 200 computed
+    const m = { modelId: "DS", promptTokens: 3000, completionTokens: 30, cachedTokens: 800, cacheReported: true, unreportedPromptTokens: 2000, lastSeenAt: 1 };
+    fetchTotals.mockResolvedValue({
+      range: "all",
+      series: [{ sparkId: "gx1", port: 8888, updatedAt: 1, lastModelId: "DS", totals: { promptTokens: 3000, completionTokens: 30, cachedTokens: 800, unreportedPromptTokens: 2000 }, models: [m] }],
+    });
+    const fleet = render(<FleetTokenTotals />);
+    await flush();
+    const cells = (row: Element) => [...row.querySelectorAll(".ov-row__num")].map((el) => el.textContent);
+    const [modelRow, totalRow] = [...fleet.container.querySelectorAll(".ov-row:not(.ov-row--head)")];
+    expect(cells(modelRow)).toEqual(["800", "200", "30"]);
+    expect(cells(totalRow)).toEqual(["800", "200", "30"]);
+    expect((modelRow as HTMLElement).title).toContain("200 prefill");
+    expect((modelRow as HTMLElement).title).toMatch(/2,?000 not reported/);
+    const spark = render(<LlmTokenTotals sparkId="gx1" llmPort={8888} />);
+    await flush();
+    const row = [...spark.container.querySelectorAll<HTMLElement>(".sp-tok-rows > div")][0];
+    expect([...row.querySelectorAll(".font-tabular > span")].map((el) => el.textContent)).toEqual(["800", "200", "30"]);
+    expect(row.title).toMatch(/2,?000 not reported/);
+  });
 });

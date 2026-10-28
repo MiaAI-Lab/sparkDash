@@ -1681,6 +1681,11 @@ export interface TokenHistoryRow {
    * Absent on data recorded before the flag existed (treated as reported).
    */
   cacheReported?: boolean;
+  /**
+   * Prompt tokens credited while the engine published no cached-prompt counter: neither
+   * cached nor computed. Absent on older data (then `cacheReported: false` means all of it).
+   */
+  unreportedPromptTokens?: number;
 }
 
 export interface TokenHistory {

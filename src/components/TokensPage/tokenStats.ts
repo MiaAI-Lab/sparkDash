@@ -4,7 +4,8 @@
  * per-endpoint tables, plain-English insights and CSV. No React, no I/O.
  *
  * Vocabulary: generated = completionTokens, prompt = promptTokens, cached = prefix-cache
- * served subset of prompt, computed = prompt - cached. total = generated + prompt.
+ * served subset of prompt, unreported = prompt whose split the engine never measured,
+ * computed = prompt - cached - unreported. total = generated + prompt.
  */
 import { addTokens, formatTokensCompact } from "../../shared/tokenFormat";
 import { tzOffsetMinutes } from "../../shared/timeZone";
@@ -54,7 +55,9 @@ export interface Tally {
   prompt: number;
   /** Always <= prompt. */
   cached: number;
-  /** prompt - cached. */
+  /** Prompt tokens whose cache split was never measured (no cached counter then). */
+  unreported: number;
+  /** prompt - cached - unreported. */
   computed: number;
   /** generated + prompt. */
   total: number;
@@ -67,17 +70,26 @@ export interface Tally {
 }
 
 export function emptyTally(): Tally {
-  return { generated: 0, prompt: 0, cached: 0, computed: 0, total: 0 };
+  return { generated: 0, prompt: 0, cached: 0, unreported: 0, computed: 0, total: 0 };
 }
 
 /** Add one entry; cached is clamped to that entry's prompt so the invariant holds per row. */
-export function addEntry(t: Tally, e: Pick<Entry, "promptTokens" | "completionTokens" | "cachedTokens" | "cacheReported">): void {
+export function addEntry(
+  t: Tally,
+  e: Pick<Entry, "promptTokens" | "completionTokens" | "cachedTokens" | "cacheReported" | "unreportedPromptTokens">
+): void {
   const prompt = nn(e.promptTokens);
   const cached = Math.min(nn(e.cachedTokens), prompt);
+  // The server's count when it sent one; older data has only the flag (unreported: all of the uncached prompt).
+  const unreported = Math.min(
+    typeof e.unreportedPromptTokens === "number" ? nn(e.unreportedPromptTokens) : e.cacheReported === false ? prompt : 0,
+    prompt - cached
+  );
   t.generated = addTokens(t.generated, nn(e.completionTokens));
   t.prompt = addTokens(t.prompt, prompt);
   t.cached = addTokens(t.cached, cached);
-  t.computed = t.prompt - t.cached;
+  t.unreported = addTokens(t.unreported, unreported);
+  t.computed = t.prompt - t.cached - t.unreported;
   t.total = addTokens(t.generated, t.prompt);
   // A single reporting entry is enough; "unreported" wins only when no entry reported.
   if (e.cacheReported === true) t.cacheReported = true;
@@ -98,10 +110,11 @@ export function cacheRate(t: Pick<Tally, "cached" | "prompt">): number | null {
 /**
  * Cache hit rate for display, or null when it cannot be measured: no prompt data, or
  * the engine never reported a cached-prompt counter (`cacheReported === false`). A rate
- * of 0 % must mean "the cache missed", never "this backend stays silent about it".
+ * of 0 % must mean "the cache missed", never "this backend stays silent about it", so
+ * it covers only the prompt whose split was measured.
  */
 export function hitRate(t: Tally): number | null {
-  return t.cacheReported === false ? null : cacheRate(t);
+  return t.cacheReported === false ? null : cacheRate({ cached: t.cached, prompt: t.prompt - t.unreported });
 }
 
 /** Fraction change (0.25 = +25 %); null when the baseline is zero. */
@@ -248,6 +261,7 @@ export function entriesFromTotals(series: readonly LlmTokenSeriesTotals[]): Entr
         completionTokens: m.completionTokens,
         cachedTokens: m.cachedTokens,
         cacheReported: m.cacheReported,
+        unreportedPromptTokens: m.unreportedPromptTokens,
       });
     }
   }
@@ -340,6 +354,7 @@ export const TYPE_SERIES: readonly { id: string; label: string }[] = [
   { id: "generated", label: "Generated" },
   { id: "cached", label: "Cached prefill" },
   { id: "computed", label: "Computed prefill" },
+  { id: "unreported", label: "Prompt, cache not reported" },
 ];
 
 /** One bucket-by-series matrix for the stacked chart; model / spark keep the top N, the rest fold into "Other". */
@@ -359,13 +374,14 @@ export function groupBuckets(
   }
 
   if (by === "type") {
-    const totals: Record<string, number> = { generated: 0, cached: 0, computed: 0 };
+    const totals: Record<string, number> = { generated: 0, cached: 0, computed: 0, unreported: 0 };
     const buckets = keys.map((key) => {
       const t = tallyOf(byKey.get(key) ?? []);
       totals.generated += t.generated;
       totals.cached += t.cached;
       totals.computed += t.computed;
-      return { key, values: { generated: t.generated, cached: t.cached, computed: t.computed } };
+      totals.unreported += t.unreported;
+      return { key, values: { generated: t.generated, cached: t.cached, computed: t.computed, unreported: t.unreported } };
     });
     return { series: TYPE_SERIES.map((s) => ({ ...s, total: totals[s.id] })), buckets };
   }
@@ -520,8 +536,12 @@ export function buildInsights(i: InsightInput): string[] {
 
   if (s.prompt > 0) {
     const rate = hitRate(s);
-    if (rate == null) {
+    if (rate == null && s.cacheReported !== false) {
+      out.push(`None of the ${compact(s.prompt)} prompt tokens was measured: they were read before the engine reported its prefix cache.`);
+    } else if (rate == null) {
       out.push("This engine does not publish a prefix-cache counter, so the cache hit rate cannot be measured — only the per-response split knows it.");
+    } else if (s.unreported > 0) {
+      out.push(`The prefix cache served ${fmtPct(rate)} of the ${compact(s.prompt - s.unreported)} prompt tokens it was measured on (${compact(s.unreported)} more were not reported).`);
     } else if (s.cached > 0) {
       out.push(`The prefix cache served ${fmtPct(rate)} of prompt tokens, so about ${compact(s.cached)} prefill tokens did not have to be recomputed.`);
     } else {
@@ -572,15 +592,14 @@ function csvCell(v: string | number): string {
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-/** Raw per-bucket rows (UTC bucket start) with a computed-prefill column. */
+/** Raw per-bucket rows (UTC bucket start) with computed-prefill and unreported-prompt columns. */
 export function buildCsv(rows: readonly TokenHistoryRow[], sparkName: (id: string) => string = (id) => id): string {
-  const head = ["bucket_utc", "spark_id", "spark", "port", "model", "prompt_tokens", "completion_tokens", "cached_tokens", "computed_prefill_tokens"];
+  const head = ["bucket_utc", "spark_id", "spark", "port", "model", "prompt_tokens", "completion_tokens", "cached_tokens", "computed_prefill_tokens", "unreported_prompt_tokens"];
   const sorted = [...rows].sort((a, b) => a.t.localeCompare(b.t) || a.sparkId.localeCompare(b.sparkId) || a.port - b.port || a.modelId.localeCompare(b.modelId));
   const lines = [head.join(",")];
   for (const r of sorted) {
-    const prompt = nn(r.promptTokens);
-    const cached = Math.min(nn(r.cachedTokens), prompt);
-    lines.push([r.t, r.sparkId, sparkName(r.sparkId), r.port, r.modelId, prompt, nn(r.completionTokens), cached, prompt - cached].map(csvCell).join(","));
+    const t = tallyOf([r]);
+    lines.push([r.t, r.sparkId, sparkName(r.sparkId), r.port, r.modelId, t.prompt, t.generated, t.cached, t.computed, t.unreported].map(csvCell).join(","));
   }
   return lines.join("\n") + "\n";
 }

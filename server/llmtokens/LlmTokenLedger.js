@@ -22,7 +22,8 @@
  *       "models": {
  *         "org/model": {
  *           "promptTokens": 5678, "completionTokens": 1234,
- *           "cachedTokens": 900, "cacheReported": true, "lastSeenAt": ...
+ *           "cachedTokens": 900, "cacheReported": true,
+ *           "unreportedPromptTokens": 0, "lastSeenAt": ...
  *         }
  *       }
  *     }
@@ -32,6 +33,11 @@
  * `cacheReported` says whether `cachedTokens` was measured at all: engines that never
  * publish a prefix-cache counter (many OpenAI-compatible builds report the split only
  * per response) leave it false, so a 0 there must not read as "0 % hit rate".
+ *
+ * `unreportedPromptTokens` are the prompt tokens credited by samples that had no cached delta
+ * to go with them (the engine published no counter then). They are neither cached nor
+ * computed, so a series that gained or lost the counter part way through still splits
+ * honestly: computed = prompt - cached - unreported.
  */
 import fs from "fs";
 import path from "path";
@@ -113,6 +119,26 @@ function cacheReportedOf(row, endpointReports) {
   return (Number(row?.cachedTokens) || 0) > 0 || endpointReports;
 }
 
+/**
+ * A row's prompt tokens whose cache split was never measured. Rows written before the field
+ * existed have only the flag: all of an unreported row's uncached prompt, none of a reported one's.
+ * @param {unknown} row
+ * @param {boolean} reported the row's cacheReportedOf verdict
+ */
+function unreportedOf(row, reported) {
+  const prompt = Number(row?.promptTokens) || 0;
+  const open = Math.max(0, prompt - Math.min(Number(row?.cachedTokens) || 0, prompt));
+  const n = Number(row?.unreportedPromptTokens);
+  if (Number.isFinite(n) && n >= 0) return Math.min(n, open);
+  return reported ? 0 : open;
+}
+
+/** The on-disk field, kept only when the row has it (older rows fall back to the flag). */
+function unreportedField(row) {
+  const n = Number(row?.unreportedPromptTokens);
+  return Number.isFinite(n) && n >= 0 ? { unreportedPromptTokens: Math.round(n) } : {};
+}
+
 /** Coerce an on-disk { bucketKey: { modelId: row } } map; drops anything malformed. */
 function sanitizeBuckets(buckets) {
   const out = {};
@@ -128,6 +154,7 @@ function sanitizeBuckets(buckets) {
         completionTokens: Math.max(0, Math.round(Number(r.completionTokens) || 0)),
         cachedTokens: Math.min(cachedTokens, promptTokens),
         ...cacheReportedField(r),
+        ...unreportedField(r),
       };
     }
     out[bucketKey] = models;
@@ -137,13 +164,46 @@ function sanitizeBuckets(buckets) {
 
 /** Credit one delta set into a { modelId: row } bucket, keeping cached ⊆ prompt. */
 function creditBucket(bucket, modelId, dOut, dIn, dCached, cachedReported) {
-  const row = bucket[modelId] || (bucket[modelId] = { promptTokens: 0, completionTokens: 0, cachedTokens: 0, cacheReported: false });
+  const row =
+    bucket[modelId] ||
+    (bucket[modelId] = { promptTokens: 0, completionTokens: 0, cachedTokens: 0, cacheReported: false, unreportedPromptTokens: 0 });
   if (cachedReported) row.cacheReported = true;
   if (dOut > 0) addTokensTo(row, "completionTokens", dOut);
   if (dIn != null && dIn > 0) addTokensTo(row, "promptTokens", dIn);
+  if (!cachedReported && dIn != null && dIn > 0) addTokensTo(row, "unreportedPromptTokens", dIn);
   if (dCached != null && dCached > 0) addTokensTo(row, "cachedTokens", dCached);
   if (row.cachedTokens > row.promptTokens) {
     addTokensTo(row, "promptTokens", row.cachedTokens - row.promptTokens);
+  }
+  settleUnreported(row);
+}
+
+/** Keep cached + unreported within prompt as credits land: a cached backfill explains earlier unmeasured prompt. */
+function settleUnreported(row) {
+  row.unreportedPromptTokens = Math.min(row.unreportedPromptTokens || 0, Math.max(0, row.promptTokens - row.cachedTokens));
+}
+
+/**
+ * Give rows written before `unreportedPromptTokens` existed their count, once, at load, so later
+ * credits add to it instead of starting from 0. A bucket row knows from its flag. A lifetime row
+ * that says unreported is all unknown; one that says reported (it measured some of its traffic)
+ * takes the sum of its retained unreported days, a lower bound when older days were pruned.
+ */
+function backfillUnreported(series) {
+  const endpointReports = series.counters.cached != null;
+  const unknownByModel = new Map();
+  for (const [name, buckets] of [["daily", series.daily], ["hourly", series.hourly]]) {
+    for (const models of Object.values(buckets || {})) {
+      for (const [modelId, row] of Object.entries(models)) {
+        if (!Number.isFinite(row.unreportedPromptTokens)) row.unreportedPromptTokens = unreportedOf(row, cacheReportedOf(row, endpointReports));
+        if (name === "daily") unknownByModel.set(modelId, addTokens(unknownByModel.get(modelId) || 0, row.unreportedPromptTokens));
+      }
+    }
+  }
+  for (const [modelId, row] of Object.entries(series.models)) {
+    if (Number.isFinite(row.unreportedPromptTokens)) continue;
+    const reported = cacheReportedOf(row, endpointReports);
+    row.unreportedPromptTokens = reported ? unreportedOf({ ...row, unreportedPromptTokens: unknownByModel.get(modelId) || 0 }, true) : unreportedOf(row, false);
   }
 }
 
@@ -240,6 +300,7 @@ export class LlmTokenLedger {
             cachedTokens: Math.min(cachedTokens, promptTokens),
             lastSeenAt: Number(row.lastSeenAt) || 0,
             ...cacheReportedField(row),
+            ...unreportedField(row),
           };
         }
       }
@@ -256,6 +317,7 @@ export class LlmTokenLedger {
       // Range buckets (optional — files written before ranges / hourly lack them).
       if (value.daily && typeof value.daily === "object") out[key].daily = sanitizeBuckets(value.daily);
       if (value.hourly && typeof value.hourly === "object") out[key].hourly = sanitizeBuckets(value.hourly);
+      backfillUnreported(out[key]);
     }
     return out;
   }
@@ -391,12 +453,13 @@ export class LlmTokenLedger {
         const cachedReported = dCached != null;
         let row = series.models[modelId];
         if (!row) {
-          row = { promptTokens: 0, completionTokens: 0, cachedTokens: 0, cacheReported: false, lastSeenAt: now };
+          row = { promptTokens: 0, completionTokens: 0, cachedTokens: 0, cacheReported: false, unreportedPromptTokens: 0, lastSeenAt: now };
           series.models[modelId] = row;
         }
         if (cachedReported) row.cacheReported = true;
         if (dOut > 0) addTokensTo(row, "completionTokens", dOut);
         if (dIn != null && dIn > 0) addTokensTo(row, "promptTokens", dIn);
+        if (!cachedReported && dIn != null && dIn > 0) addTokensTo(row, "unreportedPromptTokens", dIn);
         if (dCached != null && dCached > 0) addTokensTo(row, "cachedTokens", dCached);
         // Keep cached ⊆ prompt: a bigger cached delta means the backend
         // backfilled cache stats for older traffic (or counted buckets
@@ -404,6 +467,7 @@ export class LlmTokenLedger {
         if (row.cachedTokens > row.promptTokens) {
           addTokensTo(row, "promptTokens", row.cachedTokens - row.promptTokens);
         }
+        settleUnreported(row);
         row.lastSeenAt = now;
 
         // Same deltas into the per-UTC-day and per-UTC-hour buckets that power range queries.
@@ -490,11 +554,13 @@ export class LlmTokenLedger {
           if (!wanted.has(hourKey)) continue;
           for (const [modelId, row] of Object.entries(s.hourly[hourKey])) {
             const acc =
-              agg.get(modelId) || { promptTokens: 0, completionTokens: 0, cachedTokens: 0, cacheReported: false };
+              agg.get(modelId) || { promptTokens: 0, completionTokens: 0, cachedTokens: 0, cacheReported: false, unreportedPromptTokens: 0 };
+            const reported = cacheReportedOf(row, endpointReports);
             acc.promptTokens = addTokens(acc.promptTokens, row.promptTokens || 0);
             acc.completionTokens = addTokens(acc.completionTokens, row.completionTokens || 0);
             acc.cachedTokens = addTokens(acc.cachedTokens, row.cachedTokens || 0);
-            acc.cacheReported = acc.cacheReported || cacheReportedOf(row, endpointReports);
+            acc.unreportedPromptTokens = addTokens(acc.unreportedPromptTokens, unreportedOf(row, reported));
+            acc.cacheReported = acc.cacheReported || reported;
             agg.set(modelId, acc);
           }
         }
@@ -504,17 +570,22 @@ export class LlmTokenLedger {
           completionTokens: row.completionTokens,
           cachedTokens: Math.min(row.cachedTokens, row.promptTokens),
           cacheReported: row.cacheReported,
+          unreportedPromptTokens: row.unreportedPromptTokens,
           lastSeenAt: null,
         }));
       } else if (dayCount == null) {
-        models = Object.entries(s.models).map(([modelId, row]) => ({
-          modelId,
-          promptTokens: row.promptTokens || 0,
-          completionTokens: row.completionTokens || 0,
-          cachedTokens: row.cachedTokens || 0,
-          cacheReported: cacheReportedOf(row, endpointReports),
-          lastSeenAt: row.lastSeenAt || 0,
-        }));
+        models = Object.entries(s.models).map(([modelId, row]) => {
+          const reported = cacheReportedOf(row, endpointReports);
+          return {
+            modelId,
+            promptTokens: row.promptTokens || 0,
+            completionTokens: row.completionTokens || 0,
+            cachedTokens: row.cachedTokens || 0,
+            cacheReported: reported,
+            unreportedPromptTokens: unreportedOf(row, reported),
+            lastSeenAt: row.lastSeenAt || 0,
+          };
+        });
       } else {
         const wanted = new Set();
         for (let i = 0; i < dayCount; i++) wanted.add(utcDateKey(nowMs - i * 86_400_000));
@@ -523,11 +594,13 @@ export class LlmTokenLedger {
           if (!wanted.has(dateKey)) continue;
           for (const [modelId, row] of Object.entries(s.daily[dateKey])) {
             const acc =
-              agg.get(modelId) || { promptTokens: 0, completionTokens: 0, cachedTokens: 0, cacheReported: false };
+              agg.get(modelId) || { promptTokens: 0, completionTokens: 0, cachedTokens: 0, cacheReported: false, unreportedPromptTokens: 0 };
+            const reported = cacheReportedOf(row, endpointReports);
             acc.promptTokens = addTokens(acc.promptTokens, row.promptTokens || 0);
             acc.completionTokens = addTokens(acc.completionTokens, row.completionTokens || 0);
             acc.cachedTokens = addTokens(acc.cachedTokens, row.cachedTokens || 0);
-            acc.cacheReported = acc.cacheReported || cacheReportedOf(row, endpointReports);
+            acc.unreportedPromptTokens = addTokens(acc.unreportedPromptTokens, unreportedOf(row, reported));
+            acc.cacheReported = acc.cacheReported || reported;
             agg.set(modelId, acc);
           }
         }
@@ -537,6 +610,7 @@ export class LlmTokenLedger {
           completionTokens: row.completionTokens,
           cachedTokens: Math.min(row.cachedTokens, row.promptTokens),
           cacheReported: row.cacheReported,
+          unreportedPromptTokens: row.unreportedPromptTokens,
           lastSeenAt: null,
         }));
       }
@@ -551,8 +625,9 @@ export class LlmTokenLedger {
           promptTokens: addTokens(acc.promptTokens, row.promptTokens),
           completionTokens: addTokens(acc.completionTokens, row.completionTokens),
           cachedTokens: addTokens(acc.cachedTokens || 0, row.cachedTokens),
+          unreportedPromptTokens: addTokens(acc.unreportedPromptTokens, row.unreportedPromptTokens),
         }),
-        { promptTokens: 0, completionTokens: 0, cachedTokens: 0 }
+        { promptTokens: 0, completionTokens: 0, cachedTokens: 0, unreportedPromptTokens: 0 }
       );
       series.push({
         sparkId: key.slice(0, sep),
@@ -597,6 +672,7 @@ LlmTokenLedger.prototype.history = function history(nowMs = Date.now()) {
             completionTokens: r.completionTokens || 0,
             cachedTokens: Math.min(r.cachedTokens || 0, r.promptTokens || 0),
             cacheReported: cacheReportedOf(r, endpointReports),
+            unreportedPromptTokens: unreportedOf(r, cacheReportedOf(r, endpointReports)),
           });
         }
       }

@@ -108,10 +108,16 @@ function ShareBar({ share }: { share: number }) {
   );
 }
 
+/** The prompt cell's hover: its exact count and split (prompt the engine never measured is its own part). */
+function promptTitle(r: Pick<ModelRow, "prompt" | "computed" | "unreported">): string {
+  const unreported = r.unreported > 0 ? `, ${r.unreported.toLocaleString()} not reported` : "";
+  return `${r.prompt.toLocaleString()} (${r.computed.toLocaleString()} computed${unreported})`;
+}
+
 function CacheCell({ rate, cached, reported }: { rate: number | null; cached: number; reported?: boolean }) {
   if (rate == null) {
     return (
-      <span className="tk-faint" title={reported === false ? "This engine does not report prefix-cache hits" : "No prompt tokens reported"}>
+      <span className="tk-faint" title={reported === false ? "This engine does not report prefix-cache hits" : "No measured prompt tokens"}>
         {"—"}
       </span>
     );
@@ -158,7 +164,7 @@ export function ModelTable({ rows, sparkName, nowMs }: { rows: readonly ModelRow
           case "generated":
             return <span title={r.generated.toLocaleString()}>{fmt(r.generated)}</span>;
           case "prompt":
-            return <span title={`${r.prompt.toLocaleString()} (${r.computed.toLocaleString()} computed)`}>{fmt(r.prompt)}</span>;
+            return <span title={promptTitle(r)}>{fmt(r.prompt)}</span>;
           case "cache":
             return <CacheCell rate={r.cacheRate} cached={r.cached} reported={r.cacheReported} />;
           case "total":
@@ -222,7 +228,7 @@ export function EndpointTable({
           case "generated":
             return <span title={r.generated.toLocaleString()}>{fmt(r.generated)}</span>;
           case "prompt":
-            return <span title={`${r.prompt.toLocaleString()} (${r.computed.toLocaleString()} computed)`}>{fmt(r.prompt)}</span>;
+            return <span title={promptTitle(r)}>{fmt(r.prompt)}</span>;
           case "cache":
             return <CacheCell rate={r.cacheRate} cached={r.cached} reported={r.cacheReported} />;
           case "total":

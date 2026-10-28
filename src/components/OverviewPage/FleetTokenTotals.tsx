@@ -10,7 +10,7 @@ import { useEffect, useState } from "react";
 import { fetchLlmTokenTotals } from "../../api/llmTokenClient";
 import { addTokens, formatTokensCompact } from "../../shared/tokenFormat";
 import type { LlmTokenRange, LlmTokenSeriesTotals } from "../../api/llmTokenTypes";
-import { LEDGER_HINT, LEDGER_TITLE } from "../SparkPage/tokenTotalsCopy";
+import { LEDGER_HINT, LEDGER_TITLE, tokenRowTitle, unreportedOf } from "../SparkPage/tokenTotalsCopy";
 
 const POLL_MS = 60_000;
 
@@ -28,30 +28,34 @@ const RANGE_OPTIONS: Array<{ value: LlmTokenRange; label: string }> = [
 export function aggregateModelTotals(
   series: LlmTokenSeriesTotals[]
 ): {
-  rows: Array<{ modelId: string; promptTokens: number; cachedTokens: number; completionTokens: number; sparkCount: number }>;
+  rows: Array<{ modelId: string; promptTokens: number; cachedTokens: number; unreportedPromptTokens: number; completionTokens: number; sparkCount: number }>;
   totalPrompt: number;
   totalCached: number;
+  totalUnreported: number;
   totalCompletion: number;
 } {
   const byModel = new Map<
     string,
-    { promptTokens: number; cachedTokens: number; completionTokens: number; sparks: Set<string> }
+    { promptTokens: number; cachedTokens: number; unreportedPromptTokens: number; completionTokens: number; sparks: Set<string> }
   >();
   let totalPrompt = 0;
   let totalCached = 0;
+  let totalUnreported = 0;
   let totalCompletion = 0;
   for (const s of Array.isArray(series) ? series : []) {
     for (const row of Array.isArray(s.models) ? s.models : []) {
       const entry =
         byModel.get(row.modelId) ??
-        { promptTokens: 0, cachedTokens: 0, completionTokens: 0, sparks: new Set<string>() };
+        { promptTokens: 0, cachedTokens: 0, unreportedPromptTokens: 0, completionTokens: 0, sparks: new Set<string>() };
       entry.promptTokens = addTokens(entry.promptTokens, row.promptTokens || 0);
       entry.cachedTokens = addTokens(entry.cachedTokens, row.cachedTokens || 0);
+      entry.unreportedPromptTokens = addTokens(entry.unreportedPromptTokens, unreportedOf(row));
       entry.completionTokens = addTokens(entry.completionTokens, row.completionTokens || 0);
       entry.sparks.add(s.sparkId);
       byModel.set(row.modelId, entry);
       totalPrompt = addTokens(totalPrompt, row.promptTokens || 0);
       totalCached = addTokens(totalCached, row.cachedTokens || 0);
+      totalUnreported = addTokens(totalUnreported, unreportedOf(row));
       totalCompletion = addTokens(totalCompletion, row.completionTokens || 0);
     }
   }
@@ -60,6 +64,7 @@ export function aggregateModelTotals(
       modelId,
       promptTokens: entry.promptTokens,
       cachedTokens: Math.min(entry.cachedTokens, entry.promptTokens),
+      unreportedPromptTokens: entry.unreportedPromptTokens,
       completionTokens: entry.completionTokens,
       sparkCount: entry.sparks.size,
     }))
@@ -67,7 +72,7 @@ export function aggregateModelTotals(
       (a, b) =>
         b.completionTokens + b.promptTokens - (a.completionTokens + a.promptTokens)
     );
-  return { rows, totalPrompt, totalCached: Math.min(totalCached, totalPrompt), totalCompletion };
+  return { rows, totalPrompt, totalCached: Math.min(totalCached, totalPrompt), totalUnreported, totalCompletion };
 }
 
 export function FleetTokenTotals({ onOpenDetails }: { onOpenDetails?: () => void }) {
@@ -95,22 +100,23 @@ export function FleetTokenTotals({ onOpenDetails }: { onOpenDetails?: () => void
 
   if (!series || series.length === 0) return null;
 
-  const { rows, totalPrompt, totalCached, totalCompletion } = aggregateModelTotals(series);
+  const { rows, totalPrompt, totalCached, totalUnreported, totalCompletion } = aggregateModelTotals(series);
   // One row per machine-model combination (merged across ports on the same
   // machine serving the same model). Workers serve no LLM endpoint, so they
   // produce no series and appear nowhere.
   const combinedRows = (() => {
     const byKey = new Map<
       string,
-      { sparkId: string; modelId: string; promptTokens: number; cachedTokens: number; completionTokens: number }
+      { sparkId: string; modelId: string; promptTokens: number; cachedTokens: number; unreportedPromptTokens: number; completionTokens: number }
     >();
     for (const s of Array.isArray(series) ? series : []) {
       for (const m of Array.isArray(s.models) ? s.models : []) {
         const key = `${s.sparkId}\u0000${m.modelId}`;
         const entry =
           byKey.get(key) ??
-          { sparkId: s.sparkId, modelId: m.modelId, promptTokens: 0, cachedTokens: 0, completionTokens: 0 };
+          { sparkId: s.sparkId, modelId: m.modelId, promptTokens: 0, cachedTokens: 0, unreportedPromptTokens: 0, completionTokens: 0 };
         entry.promptTokens = addTokens(entry.promptTokens, m.promptTokens || 0);
+        entry.unreportedPromptTokens = addTokens(entry.unreportedPromptTokens, unreportedOf(m));
         entry.cachedTokens = addTokens(entry.cachedTokens, m.cachedTokens || 0);
         entry.completionTokens = addTokens(entry.completionTokens, m.completionTokens || 0);
         byKey.set(key, entry);
@@ -127,8 +133,8 @@ export function FleetTokenTotals({ onOpenDetails }: { onOpenDetails?: () => void
   const activeEndpoints = series.filter((s) => s.models.length > 0).length;
   if (rows.length === 0 && range === "all") return null;
 
-  const prefillComputed = Math.max(0, totalPrompt - totalCached);
-  const grand = Math.max(1, totalCompletion + totalCached + prefillComputed);
+  const prefillComputed = Math.max(0, totalPrompt - totalCached - totalUnreported);
+  const grand = Math.max(1, totalCompletion + totalCached + prefillComputed + totalUnreported);
   const pct = (n: number) => `${((n / grand) * 100).toFixed(1)}%`;
 
   return (
@@ -171,11 +177,13 @@ export function FleetTokenTotals({ onOpenDetails }: { onOpenDetails?: () => void
         <i className="ov-seg ov-seg--gen" style={{ width: pct(totalCompletion) }} />
         <i className="ov-seg ov-seg--cached" style={{ width: pct(totalCached) }} />
         <i className="ov-seg ov-seg--comp" style={{ width: pct(prefillComputed) }} />
+        {totalUnreported > 0 ? <i className="ov-seg ov-seg--unrep" style={{ width: pct(totalUnreported) }} /> : null}
       </div>
       <div className="legend">
         <span className="ov-leg--gen">Generated</span>
         <span className="ov-leg--cached">Cached</span>
         <span className="ov-leg--comp">Prefill</span>
+        {totalUnreported > 0 ? <span className="ov-leg--unrep" title="Prompt read while the engine published no prefix-cache counter">Not reported</span> : null}
       </div>
       <div className="ov-rows">
         <div className="ov-row ov-row--head">
@@ -191,14 +199,14 @@ export function FleetTokenTotals({ onOpenDetails }: { onOpenDetails?: () => void
             <div
               key={`${row.sparkId}\u0000${row.modelId}`}
               className="ov-row"
-              title={`${row.promptTokens.toLocaleString()} prompt \u00b7 ${row.cachedTokens.toLocaleString()} cached \u00b7 ${(row.promptTokens - row.cachedTokens).toLocaleString()} prefill \u00b7 ${row.completionTokens.toLocaleString()} generated`}
+              title={tokenRowTitle(row)}
             >
               <span className="ov-row__name" title={row.modelId}>
                 {row.sparkId}
                 <span className="text-muted">{" \u00b7 "}{row.modelId}</span>
               </span>
               <span className="ov-row__num mono">{row.cachedTokens > 0 ? formatTokensCompact(row.cachedTokens) : "\u2014"}</span>
-              <span className="ov-row__num mono">{formatTokensCompact(row.promptTokens - row.cachedTokens)}</span>
+              <span className="ov-row__num mono">{formatTokensCompact(row.promptTokens - row.cachedTokens - row.unreportedPromptTokens)}</span>
               <span className="ov-row__num ov-row__num--strong mono">{formatTokensCompact(row.completionTokens)}</span>
             </div>
           ))
