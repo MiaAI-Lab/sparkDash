@@ -51,3 +51,14 @@ test("Ollama whose model namespace contains an engine name still classifies as o
   await probe._detectServerType();
   assert.equal(probe.backendType, "ollama");
 });
+
+// Detection asks each probe once per pass. A second identical /api/tags call is a wasted request
+// every minute on every engine that is not Ollama (the 404-spam shape #282 was about).
+test("an engine that names no backend probes Ollama's /api/tags once, not twice", async () => {
+  const requested = [];
+  const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8030);
+  probe._fetch = engineFetch("some-router", requested);
+  await probe._detectServerType();
+  assert.equal(probe.backendType, "vllm");
+  assert.equal(requested.filter((p) => p === "/api/tags").length, 1);
+});

@@ -649,7 +649,6 @@ export class LlmProbe {
     // (Generated-Computers/Locals) also answers /api/tags, so it must not reach this
     // probe; its exact `owned_by: "locals"` is in OWNED_BY_ENGINES above.
     if (await this._probeIsOllama()) return "ollama";
-    if (await this._probeIsOllama()) return "ollama";
     if (flareCard) return "flare";
     if (typeof ownedBy === "string") {
       if (/ds4/i.test(ownedBy)) return "ds4";
