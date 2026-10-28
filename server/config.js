@@ -73,6 +73,28 @@ const MEMORY_FLOOR_GB = (() => {
 const MEMORY_MODE_LOG_PATH =
   process.env.MEMORY_MODE_LOG_PATH || path.join(ROOT, "config", "memory-mode.log");
 
+// ─── Model discovery ("Discover on this Spark") ──────────
+/**
+ * Folders the discovery scan walks on the dashboard's own Spark (find, depth 3)
+ * looking for launchable model folders. Read ONCE at import; the strings are
+ * spliced UNQUOTED into a fixed find template, so they must pass the allowlist
+ * in models/discovery.js (which is why they are config-only, never request input).
+ */
+const MODEL_DISCOVERY_DEFAULT_ROOTS = Object.freeze(["$HOME", "$HOME/llms", "$HOME/models", "$HOME/Qwen*"]);
+/** Extra roots from MODEL_DISCOVERY_ROOTS (colon-separated), appended to the defaults. */
+function parseModelDiscoveryRoots(raw) {
+  return String(raw || "")
+    .split(":")
+    .map((r) => r.trim())
+    .filter(Boolean);
+}
+const MODEL_DISCOVERY_ROOTS = Object.freeze([
+  ...MODEL_DISCOVERY_DEFAULT_ROOTS,
+  ...parseModelDiscoveryRoots(process.env.MODEL_DISCOVERY_ROOTS),
+]);
+/** Per-command cap for the fixed discovery templates on the local host. */
+const MODEL_DISCOVERY_TIMEOUT_MS = parseInt(process.env.MODEL_DISCOVERY_TIMEOUT_MS || "8000", 10);
+
 // ─── LLM / Comfy probe timeouts ──────────────────────────
 const LLM_PROBE_TIMEOUT_MS = 3000;
 /**
@@ -256,6 +278,9 @@ export {
   OLLAMA_STACK,
   MEMORY_FLOOR_GB,
   MEMORY_MODE_LOG_PATH,
+  MODEL_DISCOVERY_DEFAULT_ROOTS,
+  MODEL_DISCOVERY_ROOTS,
+  MODEL_DISCOVERY_TIMEOUT_MS,
   LLM_PROBE_TIMEOUT_MS,
   COMFY_PROBE_TIMEOUT_MS,
   TAILSCALE_PROBE_TIMEOUT_MS,

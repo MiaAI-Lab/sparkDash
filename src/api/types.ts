@@ -1686,6 +1686,27 @@ export interface LauncherJobRead {
   truncated: boolean;
 }
 
+// ─── Model discovery ("Discover on this Spark") ───
+/** A model the discovery scan found on the dashboard's own Spark. */
+export type ModelCandidateKind = "scripted" | "ollama" | "huggingface";
+
+export interface ModelCandidate {
+  kind: ModelCandidateKind;
+  name: string;
+  /** Absolute folder (scripted) or cache dir (huggingface); ollama has none. */
+  directory?: string;
+  startScript?: string;
+  stopScript?: string | null;
+  /** Ollama weights only: human size string from `ollama list`. */
+  size?: string;
+}
+
+export interface ModelDiscoveryResponse {
+  candidates: ModelCandidate[];
+  scannedRoots: string[];
+  notes: string[];
+}
+
 // ─── Detailed fleet pages: history APIs ───
 /** One bucket of token traffic for one (Spark, port, model). `t` is a UTC date ("2026-10-07") or UTC hour ("2026-10-07T14"). */
 export interface TokenHistoryRow {

@@ -120,7 +120,13 @@ export function defaultSpawn(spark, cmd, opts = {}) {
   return spawn(spec.file, spec.args, { env: spec.env, stdio, detached: true });
 }
 
-function defaultExec(spark, cmd, timeoutMs) {
+/**
+ * Run a fixed read-only command and resolve stdout: SSH for remote Sparks, the
+ * host-user drop (refusing root) for the local one. Exported for model
+ * discovery, which scans the local unit with the same identity the launcher
+ * scripts run under.
+ */
+export function defaultExec(spark, cmd, timeoutMs) {
   if (!spark.isLocal) {
     if (spark.platform === "windows") {
       return Promise.reject(
