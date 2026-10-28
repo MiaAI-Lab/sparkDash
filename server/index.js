@@ -85,6 +85,8 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT = path.resolve(__dirname, "..");
+/** Version of this running server, from the package manifest beside server/. */
+const SERVER_VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")).version;
 
 // Default to loopback. A non-loopback bind without SPARKDASH_TOKEN stays OPEN —
 // anyone who can reach the port can mutate settings and power units — unless
@@ -558,7 +560,7 @@ app.post("/api/restart", (_req, res) => {
 });
 
 app.get("/api/health", (_req, res) => {
-  res.json(inspectHealth(process.env.BIND_HOST || "127.0.0.1"));
+  res.json({ ...inspectHealth(process.env.BIND_HOST || "127.0.0.1"), version: SERVER_VERSION });
 });
 
 function clientKey(req) {

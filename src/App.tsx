@@ -214,6 +214,8 @@ function DashboardApp() {
   }, []);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [authMode, setAuthMode] = useState<AuthMode | null>(null);
+  /** Version the running server reports; Settings falls back to this page's own build. */
+  const [serverVersion, setServerVersion] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   /** Used when WS is down so add/delete still updates the tab bar */
   const [fallbackSparks, setFallbackSparks] = useState<SparkSnapshot[]>([]);
@@ -330,8 +332,14 @@ function DashboardApp() {
   // Auth posture once on load — drives the "Open access" header warning.
   useEffect(() => {
     fetchHealth()
-      .then((h) => setAuthMode(h.authMode))
-      .catch(() => setAuthMode(null));
+      .then((h) => {
+        setAuthMode(h.authMode);
+        setServerVersion(h.version ?? null);
+      })
+      .catch(() => {
+        setAuthMode(null);
+        setServerVersion(null);
+      });
   }, []);
 
   const handleSettingsSaved = useCallback((s: Settings) => {
@@ -672,6 +680,7 @@ function DashboardApp() {
         open={showSettings}
         onClose={() => setShowSettings(false)}
         onSaved={handleSettingsSaved}
+        serverVersion={serverVersion}
         onOpenHarness={() => {
           setShowSettings(false);
           setHarnessSparkId(displayActive?.id);

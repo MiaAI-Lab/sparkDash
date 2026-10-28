@@ -576,8 +576,16 @@ export function LlmPanel({
                   via SSH
                 </Tag>
               )}
-              <Tag tone="info" title={`Backend: ${backend}`}>
+              <Tag
+                tone="info"
+                title={
+                  llm?.engineVersion
+                    ? `Backend: ${backend}, engine v${llm.engineVersion}`
+                    : `Backend: ${backend}`
+                }
+              >
                 {backend} · :{llmPort}
+                {llm?.engineVersion ? ` · v${llm.engineVersion}` : ""}
               </Tag>
             </>
           )}

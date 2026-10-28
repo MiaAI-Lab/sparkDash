@@ -457,6 +457,8 @@ export interface LlmMetrics {
   via?: "direct" | "ssh-tunnel";
   modelId: string | null;
   modelPath: string | null;
+  /** Engine version from vLLM's GET /version; null when the backend reports none or it could not be read. */
+  engineVersion?: string | null;
   /** Exact served request IDs from /v1/models, in response order. */
   models?: string[];
   contextLength: number | null;
@@ -892,6 +894,8 @@ export interface HealthResponse {
   authMode: AuthMode;
   errors: string[];
   warnings: string[];
+  /** The running server's package version; absent on servers that predate the field. */
+  version?: string | null;
 }
 
 export interface InferenceActivity {

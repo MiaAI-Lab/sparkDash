@@ -17,6 +17,8 @@ const TUNNEL_DROP_AFTER_FAILURES = 5;
 const TUNNEL_RETRY_MIN_MS = 60_000;
 const TUNNEL_RETRY_MAX_MS = 15 * 60_000;
 const REDETECT_INTERVAL_MS = 60_000;
+/** How long a vLLM `/version` answer is reused before it is asked for again. */
+const ENGINE_VERSION_TTL_MS = 10 * 60_000;
 /**
  * TensorFold's cached-prompt counter, by precedence. Upstream
  * (ashhart/TensorFold) publishes `prompt_tokens_cached_total`; a build whose
@@ -125,6 +127,9 @@ export class LlmProbe {
     this.modelId = null;
     this.modelPath = null;
     this.models = [];
+    /** Engine version reported by vLLM's GET /version; null until read. */
+    this.engineVersion = null;
+    this._engineVersionAt = 0;
     this.contextLength = null;
     this.gpuMemoryUtilization = null;
     this.slotsActive = 0;
@@ -455,6 +460,8 @@ export class LlmProbe {
     this.modelId = null;
     this.modelPath = null;
     this.models = [];
+    this.engineVersion = null;
+    this._engineVersionAt = 0;
     this.generationTps = 0;
     this.prefillTps = 0;
     this.decodeActive = false;
@@ -1165,6 +1172,8 @@ export class LlmProbe {
         }
       }
     }
+
+    if (this.backendType === "vllm") await this._refreshEngineVersion();
 
     return this._getSnapshot();
   }
@@ -3207,6 +3216,27 @@ export class LlmProbe {
     return { level, auth, scope, label, detail };
   }
 
+  /**
+   * vLLM answers GET /version with `{ "version": "0.11.0" }`. Read it at most
+   * once per ENGINE_VERSION_TTL_MS — the version cannot change between polls,
+   * and an engine that does not implement the endpoint must not be asked every
+   * poll either. A failed or malformed answer keeps the last known version.
+   */
+  async _refreshEngineVersion() {
+    if (this._engineVersionAt !== 0 && Date.now() - this._engineVersionAt < ENGINE_VERSION_TTL_MS) return;
+    try {
+      const res = await this._fetch(`${this.baseUrl}/version`, LLM_PROBE_TIMEOUT_MS);
+      this._engineVersionAt = Date.now();
+      if (!res.ok) return;
+      const data = await res.json().catch(() => null);
+      const version = typeof data?.version === "string" ? data.version.trim() : "";
+      if (version) this.engineVersion = version;
+    } catch {
+      /* /version is optional; keep the last value and wait out the cache window */
+      this._engineVersionAt = Date.now();
+    }
+  }
+
   _getSnapshot() {
     const metricsLive = this.serverIsOpenAI !== null && this.authOpen !== false;
     return {
@@ -3216,6 +3246,8 @@ export class LlmProbe {
       backend: this.backendType,
       modelId: this.models.length > 1 ? this.models[0] : this.modelId || null,
       modelPath: this.modelPath || null,
+      /** Only vLLM reports a version we read today; other backends stay null. */
+      engineVersion: this.backendType === "vllm" ? this.engineVersion : null,
       models: metricsLive ? [...this.models] : [],
       // Strata advertises aliases for one loaded engine, sharing its native
       // context limit. Genuine multi-model routers still have no shared limit.
@@ -3264,6 +3296,7 @@ export class LlmProbe {
       backend: this.backendType,
       modelId: null,
       modelPath: null,
+      engineVersion: null,
       models: [],
       contextLength: null,
       gpuMemoryUtilization: null,
