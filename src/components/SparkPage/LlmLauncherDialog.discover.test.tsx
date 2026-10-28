@@ -66,7 +66,7 @@ describe("LlmLauncherDialog discovery", () => {
     );
     render(<LlmLauncherDialog {...props} />);
     await flush();
-    await click(button("Discover on this Spark")!);
+    // The scan starts on open now — the button is already in its scanning state.
     expect(button("Scanning…")).toBeTruthy();
     await act(async () => {
       resolveScan(okResult);
@@ -92,8 +92,6 @@ describe("LlmLauncherDialog discovery", () => {
     vi.mocked(discoverModels).mockResolvedValue(okResult);
     render(<LlmLauncherDialog {...props} />);
     await flush();
-    await click(button("Discover on this Spark")!);
-    await flush();
     const rows = [...document.querySelectorAll(".model-discovery__row")];
     await click(rows[1]);
     expect(inputs()[0].value).toBe("llama3.2:3b");
@@ -105,8 +103,6 @@ describe("LlmLauncherDialog discovery", () => {
     vi.mocked(discoverModels).mockResolvedValue(okResult);
     render(<LlmLauncherDialog {...props} />);
     await flush();
-    await click(button("Discover on this Spark")!);
-    await flush();
     const rows = [...document.querySelectorAll(".model-discovery__row")];
     await click(rows[2]);
     expect(inputs()[0].value).toBe("google/gemma-3-27b-it");
@@ -117,8 +113,6 @@ describe("LlmLauncherDialog discovery", () => {
     vi.mocked(discoverModels).mockResolvedValue({ candidates: [], scannedRoots: ["$HOME"], notes: [] });
     render(<LlmLauncherDialog {...props} />);
     await flush();
-    await click(button("Discover on this Spark")!);
-    await flush();
     expect(document.body.textContent).toContain("Nothing launchable found in the scanned folders");
   });
 
@@ -126,12 +120,26 @@ describe("LlmLauncherDialog discovery", () => {
     vi.mocked(discoverModels).mockRejectedValue(new Error("Discovery scans the Spark that runs this dashboard"));
     render(<LlmLauncherDialog {...props} />);
     await flush();
-    await click(button("Discover on this Spark")!);
-    await flush();
     expect(document.body.textContent).toContain("Discovery failed: Discovery scans the Spark that runs this dashboard");
     expect(document.querySelector(".model-discovery__list")).toBeNull();
     // The user can try again.
     expect(button("Discover on this Spark")).toBeTruthy();
+  });
+
+  it("scans automatically for a new model and not when editing an existing one", async () => {
+    vi.mocked(discoverModels).mockResolvedValue(okResult);
+    render(<LlmLauncherDialog {...props} />);
+    await flush();
+    expect(discoverModels).toHaveBeenCalledTimes(1);
+    const { container } = render(
+      <LlmLauncherDialog
+        {...props}
+        launcher={{ id: "l1", name: "glm-5.3", dir: "/home/spark/llms/glm-5.3", startScript: "start.sh", stopScript: "stop.sh", port: null, notes: "" }}
+      />
+    );
+    await flush();
+    expect(discoverModels).toHaveBeenCalledTimes(1); // still one — editing does not re-scan
+    expect(container.textContent).not.toContain("Scanned $HOME");
   });
 
   it("renders notes from degraded sources", () => {
