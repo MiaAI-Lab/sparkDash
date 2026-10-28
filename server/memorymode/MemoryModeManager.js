@@ -24,6 +24,7 @@ import {
   OLLAMA_STACK,
   QWEN_CONTAINER,
   QWEN_DIR,
+  QWEN_LAUNCH_WAIT_MS,
 } from "../config.js";
 import { chooseLocalInvocation } from "../collectors/HermesProbe.js";
 import { scrubbedChildEnv } from "../llmlaunch/childEnv.js";
@@ -42,7 +43,7 @@ export const POLL_STEP_MS = 2000;
 export const QWEN_STOPPED_WAIT_MS = 40_000; // stop.sh → qwen container exited
 export const OLLAMA_START_WAIT_MS = 30_000; // docker start → running
 export const OLLAMA_STOP_WAIT_MS = 40_000; // docker stop → exited
-export const QWEN_LAUNCH_WAIT_MS = 90_000; // start.sh → running (script exit alone never counts)
+export const QWEN_LAUNCH_WAIT_MS_DEFAULT = 90_000; // documented default (config.js may override via env)
 export const SETTLE_MAX_MS = 30_000;
 export const PLATEAU_GB = 0.3;
 
@@ -107,6 +108,7 @@ export class MemoryModeManager {
       qwenContainer: QWEN_CONTAINER,
       ollamaStack: OLLAMA_STACK,
       memoryFloorGb: MEMORY_FLOOR_GB,
+      qwenLaunchWaitMs: QWEN_LAUNCH_WAIT_MS,
       logPath: MEMORY_MODE_LOG_PATH,
       ...config,
     };
@@ -272,11 +274,17 @@ export class MemoryModeManager {
     }
     let pid;
     try {
-      pid = await this._deps.spawnDetached(buildQwenStartCommand({ dir: this.config.qwenDir }));
+      // Pass the floor we just cleared as start.sh's own memory number: the two
+      // guards must ask the same figure, or the dashboard clears a switch its own
+      // script then refuses (MEM_CHECK=0 as the only way out). A manual ./start.sh
+      // in a terminal still runs with the script's stricter built-in default.
+      const floor = Number(this.config.memoryFloorGb);
+      const startEnv = Number.isFinite(floor) && floor > 0 ? { MEM_NEED_GIB: String(Math.floor(floor)) } : null;
+      pid = await this._deps.spawnDetached(buildQwenStartCommand({ dir: this.config.qwenDir, env: startEnv }));
     } catch (err) {
       return { status: "error", message: `${err.message} Ollama stack verified stopped; Qwen NOT launched.` };
     }
-    if (await this.waitState(this.config.qwenContainer, "running", QWEN_LAUNCH_WAIT_MS)) {
+    if (await this.waitState(this.config.qwenContainer, "running", this.config.qwenLaunchWaitMs)) {
       return {
         status: "success",
         message:

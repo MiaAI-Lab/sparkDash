@@ -9,6 +9,17 @@ Format: version sections are listed newest first.
 
 ## [Unreleased]
 
+- fix(memory-mode): the Qwen switch now passes its own memory floor to start.sh
+  (`MEM_NEED_GIB`) and per-launcher `startEnv` exports reach the LLM panel's start
+  script, so the dashboard and the script's built-in guard ask the same number —
+  no more `MEM_CHECK=0` manual force-starts after an Ollama→Qwen switch.
+- feat(llmlaunch): optional `startEnv` (up to 8 allow-listed NAME=value exports)
+  on user-registered launchers; values are strict single-quote-safe.
+- feat(config): `QWEN_LAUNCH_WAIT_MS` (default 90s) lets cold Qwen launches
+  (image rebuild + checkpoint verify) wait past 90 seconds before the switch
+  reports the container as never coming up.
+
+
 ### Added
 - **Memory mode: a Qwen ⇄ Ollama switcher for the local unit.** The two stacks are exclusive — each reserves most of the 128 GB unified pool — and switching between them by hand (stop one, watch the kernel give the RAM back, start the other) is exactly the kind of thing a one-shot button gets wrong. **The unit page now carries a Memory mode card** (local unit only, and only when `MEMORY_MODE_ENABLED=1`; ordinary installs never see it) with **Qwen stack** and **Ollama stack** buttons, live container-state badges and a MemAvailable-vs-floor readout. Every step is verified, not trusted: Qwen's `stop.sh` exit code, each container's real `docker inspect` state after every stop and start (a script exiting 0 is never enough — the Qwen container must itself reach `running` within 90 s), and before launching Qwen, memory is polled until it settles (two consecutive readings within 0.3 GB) — if it settles below the floor (default 108 GB, `MEMORY_FLOOR_GB`) the launch is refused with the honest message ("…Something else is holding RAM. Qwen NOT launched."). Switching away from Qwen asks for confirmation, naming that any session served by the local Qwen engine (including Hermes chat) is interrupted. The scripts and the docker CLI run inside the host mount namespace as the local Spark's SSH user (`setpriv` drop; running them as root is refused), so no docker.sock mount is added. API: `GET /api/memory-mode`, `POST /api/memory-mode` `{mode: "qwen"|"ollama"}` — the same auth as the power actions, the same destructive limiters, one switch at a time, every attempt in the Activity log. Requesting the mode you are already in is a no-op success (no re-run of stop.sh or start.sh); mixed states are repaired by the full flow. Configure with `MEMORY_MODE_ENABLED`, `QWEN_DIR`, `QWEN_CONTAINER`, `OLLAMA_STACK`, `MEMORY_FLOOR_GB` (README environment table). Thanks to @SovereignSunman (#285).
 - **GPU temperature limits are configurable.** **Settings → GPU temperature alerts** (`healthTempWarnC`, `healthTempCriticalC`) sets the °C at which the Health finding for a hot GPU warns and turns critical, for units in enclosed or poorly ventilated rooms, or hardware with its own thermal policy. The defaults stay 85 and 90, so nothing changes until you edit them. Each value must be a number from 40 to 110 and the warning must be lower than critical; a save that breaks this is refused (`400` from `PUT /api/settings`), and an unusable `settings.json` falls back to 85/90. The finding text shows the configured limits, and Alert notifications follow them because they reuse the finding. A **Reset to Defaults** button restores 85 and 90. The change applies on the next sample, without a restart. Per-unit overrides are left for a later step. Thanks to @jammsen (#273, closes #233).

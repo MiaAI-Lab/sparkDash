@@ -69,6 +69,15 @@ const MEMORY_FLOOR_GB = (() => {
   const n = Number.parseFloat(process.env.MEMORY_FLOOR_GB || "");
   return Number.isFinite(n) && n > 0 ? n : 108;
 })();
+/**
+ * ms the Qwen switch waits for start.sh to bring its container up. The script's
+ * cold path (image rebuild + checkpoint verify) can take many minutes; the 90s
+ * default only fits the warm path. Set QWEN_LAUNCH_WAIT_MS=660000 for ~11 min.
+ */
+const QWEN_LAUNCH_WAIT_MS = (() => {
+  const n = Number.parseInt(process.env.QWEN_LAUNCH_WAIT_MS || "", 10);
+  return Number.isFinite(n) && n >= 10_000 && n <= 3_600_000 ? n : 90_000;
+})();
 /** Where detached start.sh output lands (config volume is writable in-container). */
 const MEMORY_MODE_LOG_PATH =
   process.env.MEMORY_MODE_LOG_PATH || path.join(ROOT, "config", "memory-mode.log");
@@ -277,6 +286,7 @@ export {
   QWEN_CONTAINER,
   OLLAMA_STACK,
   MEMORY_FLOOR_GB,
+  QWEN_LAUNCH_WAIT_MS,
   MEMORY_MODE_LOG_PATH,
   MODEL_DISCOVERY_DEFAULT_ROOTS,
   MODEL_DISCOVERY_ROOTS,

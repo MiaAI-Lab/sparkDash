@@ -9,6 +9,11 @@
  */
 
 const DIR_RE = /^(~\/|\/)[A-Za-z0-9._@+=,/-]*$/;
+// startEnv (per-launcher environment exports for start.sh): variable names are ordinary
+// identifiers and values are allow-listed to characters that are safe inside single
+// quotes (no quotes, spaces, `$`, backticks, newlines), so builders embed them verbatim.
+const ENV_KEY_RE = /^[A-Z][A-Z0-9_]{0,31}$/;
+const ENV_VALUE_RE = /^[A-Za-z0-9._+/@-]{0,64}$/;
 // Must end in .sh: stops a launcher from naming an arbitrary executable (reboot, ...).
 const SCRIPT_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,60}\.sh$/;
 const ID_RE = /^[a-z0-9][a-z0-9-]{0,47}$/;
@@ -60,6 +65,40 @@ export function slugify(name) {
 }
 
 /**
+ * Validate a launcher's optional startEnv ({ NAME: "value" } exported before start.sh
+ * runs — e.g. MEM_NEED_GIB so a script-managed stack asks the dashboard's own memory
+ * floor instead of its built-in number). Returns { ok, value } with a plain object
+ * (possibly empty), or { ok: false, error }.
+ */
+export function sanitizeStartEnv(raw) {
+  if (raw === undefined || raw === null || raw === "") return { ok: true, value: {} };
+  if (typeof raw !== "object" || Array.isArray(raw)) {
+    return { ok: false, error: "startEnv must be an object of NAME=value" };
+  }
+  const entries = Object.entries(raw);
+  if (entries.length > 8) return { ok: false, error: "startEnv allows at most 8 variables" };
+  const value = {};
+  for (const [k, v] of entries) {
+    if (!ENV_KEY_RE.test(k)) {
+      return { ok: false, error: `startEnv key '${k}' must match A-Z0-9_ (letter first)` };
+    }
+    const s = v === undefined || v === null ? "" : String(v);
+    if (!ENV_VALUE_RE.test(s)) {
+      return { ok: false, error: `startEnv value for '${k}' has unsupported characters` };
+    }
+    value[k] = s;
+  }
+  return { ok: true, value };
+}
+
+/** `export K='v'` lines for validated startEnv input; throws on invalid input. */
+export function envExportLines(env) {
+  const r = sanitizeStartEnv(env);
+  if (!r.ok) throw new Error(r.error);
+  return Object.entries(r.value).map(([k, v]) => `export ${k}='${v}'`);
+}
+
+/**
  * Normalize + validate user input for a launcher.
  * @returns {{ ok: true, value: object } | { ok: false, error: string }}
  */
@@ -84,5 +123,18 @@ export function normalizeLauncherInput(input) {
     port = p;
   }
   const notes = typeof body.notes === "string" ? body.notes.trim().slice(0, 300) : "";
-  return { ok: true, value: { name, dir, startScript, stopScript, port, notes } };
+  const envRes = sanitizeStartEnv(body.startEnv);
+  if (!envRes.ok) return { ok: false, error: envRes.error };
+  return {
+    ok: true,
+    value: {
+      name,
+      dir,
+      startScript,
+      stopScript,
+      port,
+      notes,
+      ...(body.startEnv ? { startEnv: envRes.value } : {}),
+    },
+  };
 }

@@ -19,6 +19,8 @@
  */
 
 export const EXIT_MARKER = "__SDEXIT__";
+
+import { envExportLines } from "./validate.js";
 export const LOG_DIR = '$HOME/.cache/sparkdash/llm';
 export const LOG_MAX_BYTES = 32 * 1024 * 1024;
 export const LOG_KEEP_BYTES = 8 * 1024 * 1024;
@@ -171,8 +173,9 @@ kill $J 2>/dev/null
 rm -f "$4"
 `;
 
-export function buildStartCommand({ id, dir, script, nonce }) {
+export function buildStartCommand({ id, dir, script, nonce, env = null }) {
   assertNonce(nonce);
+  const envLines = envExportLines(env).map((l) => `  ${l}`).join("\n");
   const program = `
 ${paths(id, nonce)}
 cd ${dirExpr(dir)} 2>/dev/null || { echo "[sparkdash] cannot open directory ${dir}"; mark 127; exit 0; }
@@ -197,7 +200,7 @@ if alive; then
 else
   rm -f "$X" "$P"; : > "$L"
   echo "[sparkdash] starting ${dir}/${script} as $(id -un)" >> "$L"
-  newsid bash -c "$WRAP" _ '${script}' "$X" "$L" "$LD/${id}.fifo" >> "$L" 2>&1 < /dev/null 9>&- &
+${envLines ? envLines + "\n" : ""}  newsid bash -c "$WRAP" _ '${script}' "$X" "$L" "$LD/${id}.fifo" >> "$L" 2>&1 < /dev/null 9>&- &
   PID=$!
   PST=$(pstart "$PID")
   echo "$PID $PST" > "$P"

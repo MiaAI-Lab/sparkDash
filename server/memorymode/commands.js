@@ -12,7 +12,7 @@
  * ships base64-encoded, exactly like server/llmlaunch/commands.js, so no quoting
  * difference between shells can alter it.
  */
-import { validateContainerName, validateDir, validateScriptName } from "../llmlaunch/validate.js";
+import { envExportLines, validateContainerName, validateDir, validateScriptName } from "../llmlaunch/validate.js";
 
 export const QWEN_START_SCRIPT = "start.sh";
 export const QWEN_STOP_SCRIPT = "stop.sh";
@@ -76,12 +76,14 @@ export function buildQwenStopCommand({ dir, script = QWEN_STOP_SCRIPT }) {
  * the memory-mode log; whether the container came up is verified separately against
  * `docker inspect`, so this program says nothing about success.
  */
-export function buildQwenStartCommand({ dir, script = QWEN_START_SCRIPT }) {
+export function buildQwenStartCommand({ dir, script = QWEN_START_SCRIPT, env = null }) {
   assertDir(dir);
   assertScript(script, "Start script");
+  const envLines = envExportLines(env);
   const program = [
     `cd ${dirExpr(dir)} || { echo "[memory-mode] cannot open ${dir}"; exit 127; }`,
     `echo "[memory-mode] starting ${dir}/${script} as $(id -un)"`,
+    ...envLines,
     `if [ -x './${script}' ]; then './${script}'; else bash './${script}'; fi`,
   ].join("\n");
   return wrap(program);

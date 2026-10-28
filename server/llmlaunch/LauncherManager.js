@@ -240,7 +240,7 @@ export class LauncherManager {
     let maxMs;
     const nonce = crypto.randomBytes(12).toString("hex");
     if (action === "start") {
-      cmd = buildStartCommand({ id: launcher.id, dir: launcher.dir, script: launcher.startScript, nonce });
+      cmd = buildStartCommand({ id: launcher.id, dir: launcher.dir, script: launcher.startScript, nonce, env: launcher.startEnv });
       maxMs = START_WATCH_MAX_MS;
     } else if (action === "attach") {
       cmd = buildAttachCommand({ id: launcher.id, nonce });

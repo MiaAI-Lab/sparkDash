@@ -208,7 +208,7 @@ test("qwen launch: success only when the container itself reaches running", asyn
   const out = await m.switchTo("qwen");
   assert.equal(out.status, "success");
   assert.equal(spawned.length, 1);
-  assert.equal(spawned[0], buildQwenStartCommand({ dir: baseConfig("/").qwenDir }));
+  assert.equal(spawned[0], buildQwenStartCommand({ dir: baseConfig("/").qwenDir, env: { MEM_NEED_GIB: "108" } }));
   assert.match(out.message, /pid 4242/);
   assert.match(out.message, /120GB avail/);
 });
@@ -328,6 +328,14 @@ test("the Qwen directory and script names are allow-listed too", () => {
   assert.throws(() => buildQwenStartCommand({ dir: "" }), /Directory/);
   assert.throws(() => buildQwenStartCommand({ dir: "/tmp/x", script: "start;sh" }), /\.sh/);
   assert.throws(() => buildQwenStopCommand({ dir: "~/Qwen", script: "../evil.sh" }), /\.sh/);
+  // startEnv: exports ride in before the script call; hostile values throw.
+  const withEnv = buildQwenStartCommand({ dir: "/tmp/x", env: { MEM_NEED_GIB: "104" } });
+  const prog = Buffer.from(/printf %s '([^']+)'/.exec(withEnv)[1], "base64").toString("utf8");
+  assert.ok(prog.includes("export MEM_NEED_GIB='104'"));
+  assert.ok(prog.indexOf("export MEM_NEED_GIB='104'") < prog.indexOf("start.sh'"));
+  assert.throws(() => buildQwenStartCommand({ dir: "/tmp/x", env: { MEM_NEED_GIB: "0; reboot" } }), /unsupported/);
+  const noEnv = buildQwenStartCommand({ dir: "/tmp/x" });
+  assert.ok(!Buffer.from(/printf %s '([^']+)'/.exec(noEnv)[1], "base64").toString("utf8").includes("export "));
 });
 
 test("a bad MEMORY_MODE_ENABLED config disables the feature instead of running it", () => {
