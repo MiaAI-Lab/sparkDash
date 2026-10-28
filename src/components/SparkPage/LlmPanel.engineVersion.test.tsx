@@ -30,4 +30,15 @@ describe("engine version chip", () => {
     expect(container.textContent).toContain("vLLM · :8888");
     expect(container.textContent).not.toContain("vLLM · :8888 ·");
   });
+
+  it("shows the version TensorFold's /health names", () => {
+    const llm = {
+      ...makeSpark().metrics.llm[0],
+      backend: "tensorfold" as const,
+      available: true,
+      engineVersion: "0.6.0",
+    };
+    const { container } = render(<LlmPanel llm={llm} sparkId="fixture" llmPort={8888} />);
+    expect(container.textContent).toContain("TensorFold · :8888 · v0.6.0");
+  });
 });

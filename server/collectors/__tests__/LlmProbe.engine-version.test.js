@@ -16,7 +16,12 @@ const response = (body, status = 200) => ({
   text: async () => (typeof body === "string" ? body : JSON.stringify(body)),
 });
 
-function setup({ backend = "vllm", versionBody = { version: "0.11.0" }, versionStatus = 200 } = {}) {
+function setup({
+  backend = "vllm",
+  versionBody = { version: "0.11.0" },
+  versionStatus = 200,
+  healthBody = { ok: true },
+} = {}) {
   const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888);
   probe.serverIsOpenAI = true;
   probe.backendType = backend;
@@ -26,7 +31,7 @@ function setup({ backend = "vllm", versionBody = { version: "0.11.0" }, versionS
     calls.push(String(url));
     if (url.endsWith("/v1/models")) return response({ data: [{ id: "fixture-model", max_model_len: 8192 }] });
     if (url.endsWith("/metrics")) return response(VLLM_METRICS);
-    if (url.endsWith("/health")) return response({ ok: true });
+    if (url.endsWith("/health")) return response(healthBody);
     if (url.endsWith("/version")) return response(versionBody, versionStatus);
     return response({}, 404);
   };
@@ -78,6 +83,27 @@ test("backends that do not publish /version are never asked for it", async () =>
     const snap = await probe.probe();
     assert.equal(calls.filter((u) => u.endsWith("/version")).length, 0, backend);
     assert.equal(snap.engineVersion, null, backend);
+  }
+});
+
+test("a TensorFold unit reports the version its open /health names", async () => {
+  const { probe, calls } = setup({ backend: "tensorfold", healthBody: { ok: true, version: "0.6.0" } });
+  const snap = await probe.probe();
+  assert.equal(snap.backend, "tensorfold");
+  assert.equal(snap.engineVersion, "0.6.0");
+  assert.equal(calls.filter((u) => u.endsWith("/version")).length, 0);
+});
+
+test("a TensorFold build that omits or malforms the version leaves the field null", async () => {
+  for (const healthBody of [
+    { ok: true },
+    { status: "ok" },
+    { ok: true, version: 42 },
+    { ok: true, version: "  " },
+  ]) {
+    const { probe } = setup({ backend: "tensorfold", healthBody });
+    const snap = await probe.probe();
+    assert.equal(snap.engineVersion, null, JSON.stringify(healthBody));
   }
 });
 

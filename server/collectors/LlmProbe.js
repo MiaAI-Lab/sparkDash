@@ -989,6 +989,11 @@ export class LlmProbe {
           const health = await healthRes.json().catch(() => null);
           this._applyTensorFoldHealth(health, dtSec);
           this._applyTensorFoldLive(health);
+          // TensorFold's open /health names the release when the build carries one
+          // (zig/src/server/identity.zig; status_routes.zig's openHealth). Older builds
+          // omit the field, so it stays null rather than being inferred from a model name.
+          const version = typeof health?.version === "string" ? health.version.trim() : "";
+          if (version) this.engineVersion = version;
           // Newer builds report live rates in /health but cumulative totals only on Prometheus /metrics.
           const totalRaw = health?.completion_tokens_total;
           if (totalRaw == null || !Number.isFinite(Number(totalRaw))) {
@@ -3246,8 +3251,9 @@ export class LlmProbe {
       backend: this.backendType,
       modelId: this.models.length > 1 ? this.models[0] : this.modelId || null,
       modelPath: this.modelPath || null,
-      /** Only vLLM reports a version we read today; other backends stay null. */
-      engineVersion: this.backendType === "vllm" ? this.engineVersion : null,
+      /** Only vLLM and TensorFold report a version we read today; other backends stay null. */
+      engineVersion:
+        this.backendType === "vllm" || this.backendType === "tensorfold" ? this.engineVersion : null,
       models: metricsLive ? [...this.models] : [],
       // Strata advertises aliases for one loaded engine, sharing its native
       // context limit. Genuine multi-model routers still have no shared limit.

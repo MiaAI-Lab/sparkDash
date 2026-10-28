@@ -622,7 +622,7 @@ LM Studio (:1234), Ollama (:11434) and TensorFold (:8888) are one-click presets 
 | ds4-server | `ds4_*` Prometheus series |
 | EXL3 | `/health` with backend + token totals |
 | q27 | Prometheus exposition |
-| TensorFold | `owned_by` on `/v1/models`, totals from `/health` |
+| TensorFold | `owned_by` on `/v1/models`, totals from `/health`, and `/health`'s `version` when the build names one |
 | FreeToken | `/v1/stats` throughput contract |
 | Strata | `/health` reports `service: "strata"`, checked before the llama.cpp-compatible `/slots`; JSON `/metrics` supplies rates |
 
