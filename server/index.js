@@ -66,7 +66,8 @@ import { EventLog } from "./events/EventLog.js";
 import { UnitHistory } from "./metrics/UnitHistory.js";
 import { createUnitHistoryRuntime, registerUnitHistoryRoutes } from "./metrics/UnitHistoryRuntime.js";
 import { LauncherStore } from "./llmlaunch/LauncherStore.js";
-import { LauncherManager } from "./llmlaunch/LauncherManager.js";
+import { LauncherManager, defaultExec } from "./llmlaunch/LauncherManager.js";
+import { discoverModelCandidates } from "./models/discovery.js";
 import { ToolEvalStore } from "./tooleval/ToolEvalStore.js";
 import { ToolEvalManager } from "./tooleval/ToolEvalManager.js";
 import { registerToolEvalRoutes } from "./tooleval/routes.js";
@@ -943,6 +944,47 @@ for (const action of ["start", "stop", "attach"]) {
     res.status(202).json({ job: result.job });
   });
 }
+
+// ─── Model discovery: "Discover on this Spark" ───────────
+// Scans the unit sparkDash itself runs on (LOCAL-UNIT ONLY — the same local-
+// identity rule the power actions follow; remote units are never scanned).
+// The scan runs the FIXED templates from models/discovery.js through the
+// launcher's host-user drop (refuses root); no text from this request — and
+// nothing the browser can influence at all — reaches a shell string.
+// Cached 15 s so reopening the dialog does not re-scan the filesystem.
+
+const MODEL_DISCOVERY_CACHE_TTL_MS = 15_000;
+/** @type {{ at: number, payload: object } | null} */
+let modelDiscoveryCache = null;
+
+app.get("/api/model-launcher/discover", async (req, res) => {
+  try {
+    if (!allowLaunchProbe(principalKey(req))) {
+      return rejectLimited(res, "Too many discovery requests; try again shortly");
+    }
+    const spark = registry.sparks.find((s) => s.isLocal);
+    if (!spark) {
+      return res.status(400).json({
+        error: "Discovery scans the Spark that runs this dashboard. Add this machine as a Spark first.",
+      });
+    }
+    if (spark.platform === "windows") {
+      return res.status(400).json({ error: "Model discovery is not supported on Windows PCs" });
+    }
+    const now = Date.now();
+    if (modelDiscoveryCache && now - modelDiscoveryCache.at < MODEL_DISCOVERY_CACHE_TTL_MS) {
+      return res.json(modelDiscoveryCache.payload);
+    }
+    const payload = await discoverModelCandidates({
+      execHost: (cmd, timeoutMs) => defaultExec(spark, cmd, timeoutMs),
+      sshUser: spark.ssh?.user,
+    });
+    modelDiscoveryCache = { at: now, payload };
+    res.json(payload);
+  } catch (err) {
+    res.status(500).json({ error: err?.message || String(err) });
+  }
+});
 
 // Cancel a ComfyUI job (running interrupt and/or pending dequeue).
 app.post("/api/sparks/:id/comfy/cancel", async (req, res) => {
