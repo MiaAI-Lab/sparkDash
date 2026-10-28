@@ -18,6 +18,10 @@ export const ROCE_FAST_SCRIPT = [
   '  echo "DEV|$n|$(cat $p/state 2>/dev/null)|$(cat $p/phys_state 2>/dev/null)|$(cat $p/rate 2>/dev/null)|$(cat $p/link_layer 2>/dev/null)|$nd"',
   // One grep for all counters ("path:value" lines), instead of a cat and a basename each.
   '  find "$p/hw_counters" -maxdepth 1 -type f 2>/dev/null | sort | while IFS= read -r f; do grep -H "" "$f" 2>/dev/null; done | sed "s#^.*/#CNT|$n|#; s#:#|#"',
+  // RDMA payload counters, for throughput: hw_counters above are loss counters. The port counters
+  // count 4-byte words (NVIDIA mlx5 docs) and are 64-bit on the CX7 ports, so the sampler multiplies
+  // the delta by 4. A read that fails leaves the field empty rather than a zero.
+  '  echo "DATA|$n|$(cat "$p/counters/port_rcv_data" 2>/dev/null)|$(cat "$p/counters/port_xmit_data" 2>/dev/null)"',
   '  if [ -n "$nd" ]; then',
   '    s="/sys/class/net/$nd"',
   '    echo "NET|$nd|$(cat $s/operstate 2>/dev/null)|$(cat $s/mtu 2>/dev/null)|$(cat $s/speed 2>/dev/null)|$(cat $s/statistics/rx_bytes 2>/dev/null)|$(cat $s/statistics/tx_bytes 2>/dev/null)|$(cat $s/statistics/rx_errors 2>/dev/null)|$(cat $s/statistics/tx_errors 2>/dev/null)|$(cat $s/statistics/rx_dropped 2>/dev/null)|$(cat $s/statistics/tx_dropped 2>/dev/null)"',
@@ -86,11 +90,15 @@ export function parseRoceFast(output) {
         linkLayer: p[5] || null,
         netdev: p[6] || null,
         counters: {},
+        data: {},
       });
     } else if (p[0] === "CNT" && p.length >= 4) {
       const d = devices.get(p[1]);
       const v = toInt(p[3]);
       if (d && v != null) d.counters[p[2]] = v;
+    } else if (p[0] === "DATA" && p.length >= 4) {
+      const d = devices.get(p[1]);
+      if (d) d.data = { rxData: toInt(p[2]), txData: toInt(p[3]) };
     } else if (p[0] === "NET" && p.length >= 11) {
       netdevs.set(p[1], {
         name: p[1],
@@ -308,6 +316,12 @@ export class RoceSampler {
     const prev = this._prev.get(d.name);
     const dt = prev ? (now - prev.at) / 1000 : 0;
     const rate = (cur, before) => (prev && dt > 0 && cur != null && before != null ? Math.max(0, (cur - before) / dt) : null);
+    // The port's port_*_data counters count 4-byte words, so the delta is multiplied by 4. A
+    // counter that went backwards is a reset (reboot or driver reload), not a negative rate.
+    const rdmaRate = (cur, before) => {
+      if (!prev || dt <= 0 || cur == null || before == null || cur < before) return null;
+      return ((cur - before) * 4) / dt;
+    };
 
     const deltas = {};
     const rising = [];
@@ -323,7 +337,13 @@ export class RoceSampler {
     const streak = rising.length > 0 ? (this._lossStreak.get(d.name) ?? 0) + 1 : 0;
     this._lossStreak.set(d.name, streak);
 
-    this._prev.set(d.name, { at: now, counters: { ...d.counters }, rx: net?.rxBytes ?? null, tx: net?.txBytes ?? null });
+    this._prev.set(d.name, {
+      at: now,
+      counters: { ...d.counters },
+      rx: net?.rxBytes ?? null,
+      tx: net?.txBytes ?? null,
+      data: { ...d.data },
+    });
 
     return {
       name: d.name,
@@ -339,6 +359,8 @@ export class RoceSampler {
       speedMbps: net?.speedMbps ?? null,
       rxBps: prev ? rate(net?.rxBytes ?? null, prev.rx) : null,
       txBps: prev ? rate(net?.txBytes ?? null, prev.tx) : null,
+      rdmaRxBps: prev ? rdmaRate(d.data.rxData, prev.data?.rxData) : null,
+      rdmaTxBps: prev ? rdmaRate(d.data.txData, prev.data?.txData) : null,
       rxErrors: net?.rxErrors ?? null,
       txErrors: net?.txErrors ?? null,
       rxDropped: net?.rxDropped ?? null,

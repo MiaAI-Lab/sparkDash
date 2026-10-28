@@ -18,6 +18,8 @@ const device = (over: Partial<RoceDevice> = {}): RoceDevice => ({
   speedMbps: 200000,
   rxBps: 1_048_576,
   txBps: 2_097_152,
+  rdmaRxBps: 3_145_728,
+  rdmaTxBps: 4_194_304,
   rxErrors: 0,
   txErrors: 0,
   rxDropped: 3,
@@ -79,6 +81,8 @@ describe("RocePanel", () => {
     expect(text).toContain("200 Gb/s");
     expect(text).toContain("MTU 9000");
     expect(text).toContain("1.0 MB/s");
+    expect(text).toContain("RDMA ↓ 3.0 MB/s");
+    expect(text).toContain("RDMA ↑ 4.0 MB/s");
     expect(text).toContain("PFC off");
     expect(text).toContain("trust pcp");
     expect(text).toContain("loss rising");
@@ -105,8 +109,9 @@ describe("RocePanel", () => {
   });
 });
 
-it("explains netdev rate limits and cumulative pause totals", () => {
+it("explains which rates come from netdev and which from the RDMA counters, and cumulative pause totals", () => {
   const { container } = render(<RocePanel roce={metrics([device()])} />);
-  expect(container.textContent).toContain("These netdev traffic rates do not measure RDMA payload throughput.");
+  expect(container.textContent).toContain("↓/↑ are the interface's netdev traffic.");
+  expect(container.textContent).toContain("RDMA ↓/↑ come from the port's own port_rcv_data / port_xmit_data counters");
   expect(container.textContent).toContain("Pause frames are cumulative totals, separate from the current PFC setting.");
 });

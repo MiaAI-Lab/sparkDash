@@ -407,6 +407,9 @@ export interface RoceDevice {
   speedMbps: number | null;
   rxBps: number | null;
   txBps: number | null;
+  /** RDMA payload throughput from the port's port_rcv_data / port_xmit_data counters, bytes/s. */
+  rdmaRxBps: number | null;
+  rdmaTxBps: number | null;
   rxErrors: number | null;
   txErrors: number | null;
   rxDropped: number | null;
