@@ -238,6 +238,17 @@
   -webkit-overflow-scrolling: touch;
   padding: 1.3rem 1.35rem;
 }
+/* A dialog that wraps its body+footer in a <form> (the Add-a-model dialog) hides
+ * them from the sheet's flex column: the form became an auto-height block, so a
+ * tall body — the Discover list — pushed the Cancel/Add footer past the clipped
+ * bottom of the sheet, out of reach. The form must carry the column through:
+ * body scrolls, footer stays pinned. */
+.modal-sheet > form {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+}
 .modal-sheet__stack {
   display: flex;
   flex-direction: column;
