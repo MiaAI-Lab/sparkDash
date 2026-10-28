@@ -131,6 +131,18 @@ export function LlmLauncherDialog({ open, sparkId, sparkName, launcher, onClose,
     );
   }, [open, launcher]);
 
+  // The point of discovery is that the user never has to type a name or a
+  // directory they would have to look up first — so scanning starts the moment
+  // the dialog opens (new unit), not after a button press. Editing an existing
+  // model leaves the form alone: its path is already right. The server caches
+  // the scan for 15 s, so reopening the dialog costs nothing. `scan` is read
+  // from the latest render via the effect's timing, not captured stale: it
+  // only touches setState, which is stable.
+  useEffect(() => {
+    if (open && !launcher) scan();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, launcher]);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
