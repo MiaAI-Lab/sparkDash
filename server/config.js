@@ -48,6 +48,62 @@ const MODEL_PRICES_FETCH = ["1", "true"].includes(
   String(process.env.MODEL_PRICES_FETCH || "").toLowerCase()
 );
 
+// ─── Memory mode (Qwen ⇄ Ollama exclusive stacks) ────────
+// Off unless MEMORY_MODE_ENABLED is set, like MODEL_PRICES_FETCH above: an install
+// never runs host scripts or docker start/stop unasked. Host topology lives in env
+// only — never in the world-readable settings.json (see server/settings.js notes).
+const MEMORY_MODE_ENABLED = ["1", "true"].includes(
+  String(process.env.MEMORY_MODE_ENABLED || "").toLowerCase()
+);
+/** Host directory holding Qwen's start.sh / stop.sh (validated by validateDir at boot). */
+const QWEN_DIR = process.env.QWEN_DIR || "";
+const QWEN_CONTAINER = process.env.QWEN_CONTAINER || "qwen38-flash-next-tf";
+const OLLAMA_STACK = (
+  process.env.OLLAMA_STACK || "spark-ollama-engine,librechat,chat-mongodb"
+)
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+/** MemAvailable (GB) required before Qwen may be launched (spark-dash parity: 108). */
+const MEMORY_FLOOR_GB = (() => {
+  const n = Number.parseFloat(process.env.MEMORY_FLOOR_GB || "");
+  return Number.isFinite(n) && n > 0 ? n : 108;
+})();
+/**
+ * ms the Qwen switch waits for start.sh to bring its container up. The script's
+ * cold path (image rebuild + checkpoint verify) can take many minutes; the 90s
+ * default only fits the warm path. Set QWEN_LAUNCH_WAIT_MS=660000 for ~11 min.
+ */
+const QWEN_LAUNCH_WAIT_MS = (() => {
+  const n = Number.parseInt(process.env.QWEN_LAUNCH_WAIT_MS || "", 10);
+  return Number.isFinite(n) && n >= 10_000 && n <= 3_600_000 ? n : 90_000;
+})();
+/** Where detached start.sh output lands (config volume is writable in-container). */
+const MEMORY_MODE_LOG_PATH =
+  process.env.MEMORY_MODE_LOG_PATH || path.join(ROOT, "config", "memory-mode.log");
+
+// ─── Model discovery ("Discover on this Spark") ──────────
+/**
+ * Folders the discovery scan walks on the dashboard's own Spark (find, depth 3)
+ * looking for launchable model folders. Read ONCE at import; the strings are
+ * spliced UNQUOTED into a fixed find template, so they must pass the allowlist
+ * in models/discovery.js (which is why they are config-only, never request input).
+ */
+const MODEL_DISCOVERY_DEFAULT_ROOTS = Object.freeze(["$HOME", "$HOME/llms", "$HOME/models", "$HOME/Qwen*"]);
+/** Extra roots from MODEL_DISCOVERY_ROOTS (colon-separated), appended to the defaults. */
+function parseModelDiscoveryRoots(raw) {
+  return String(raw || "")
+    .split(":")
+    .map((r) => r.trim())
+    .filter(Boolean);
+}
+const MODEL_DISCOVERY_ROOTS = Object.freeze([
+  ...MODEL_DISCOVERY_DEFAULT_ROOTS,
+  ...parseModelDiscoveryRoots(process.env.MODEL_DISCOVERY_ROOTS),
+]);
+/** Per-command cap for the fixed discovery templates on the local host. */
+const MODEL_DISCOVERY_TIMEOUT_MS = parseInt(process.env.MODEL_DISCOVERY_TIMEOUT_MS || "8000", 10);
+
 // ─── LLM / Comfy probe timeouts ──────────────────────────
 const LLM_PROBE_TIMEOUT_MS = 3000;
 /**
@@ -225,6 +281,16 @@ export {
   OCCUPANCY_HELPERS_JSON_PATH,
   MODEL_PRICES_JSON_PATH,
   MODEL_PRICES_FETCH,
+  MEMORY_MODE_ENABLED,
+  QWEN_DIR,
+  QWEN_CONTAINER,
+  OLLAMA_STACK,
+  MEMORY_FLOOR_GB,
+  QWEN_LAUNCH_WAIT_MS,
+  MEMORY_MODE_LOG_PATH,
+  MODEL_DISCOVERY_DEFAULT_ROOTS,
+  MODEL_DISCOVERY_ROOTS,
+  MODEL_DISCOVERY_TIMEOUT_MS,
   LLM_PROBE_TIMEOUT_MS,
   COMFY_PROBE_TIMEOUT_MS,
   TAILSCALE_PROBE_TIMEOUT_MS,

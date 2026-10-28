@@ -63,13 +63,17 @@ import { ALERTS_JSON_PATH, FLEET_ENERGY_JSON_PATH, FLEET_ENERGY_MONTHLY_JSON_PAT
 import { createAlertsRuntime, registerAlertRoutes } from "./alerts/runtime.js";
 import { FleetEnergyTracker } from "./energy/FleetEnergyTracker.js";
 import { EventLog } from "./events/EventLog.js";
+import { planListenRetry } from "./listenRetry.js";
 import { UnitHistory } from "./metrics/UnitHistory.js";
 import { createUnitHistoryRuntime, registerUnitHistoryRoutes } from "./metrics/UnitHistoryRuntime.js";
 import { LauncherStore } from "./llmlaunch/LauncherStore.js";
-import { LauncherManager } from "./llmlaunch/LauncherManager.js";
+import { LauncherManager, defaultExec } from "./llmlaunch/LauncherManager.js";
+import { discoverModelCandidates } from "./models/discovery.js";
 import { ToolEvalStore } from "./tooleval/ToolEvalStore.js";
 import { ToolEvalManager } from "./tooleval/ToolEvalManager.js";
 import { registerToolEvalRoutes } from "./tooleval/routes.js";
+import { MemoryModeManager } from "./memorymode/MemoryModeManager.js";
+import { registerMemoryModeRoutes } from "./memorymode/routes.js";
 import { benchEvent } from "./events/eventFormat.js";
 import {
   createFleetEnergyRuntime,
@@ -943,6 +947,47 @@ for (const action of ["start", "stop", "attach"]) {
     res.status(202).json({ job: result.job });
   });
 }
+
+// ─── Model discovery: "Discover on this Spark" ───────────
+// Scans the unit sparkDash itself runs on (LOCAL-UNIT ONLY — the same local-
+// identity rule the power actions follow; remote units are never scanned).
+// The scan runs the FIXED templates from models/discovery.js through the
+// launcher's host-user drop (refuses root); no text from this request — and
+// nothing the browser can influence at all — reaches a shell string.
+// Cached 15 s so reopening the dialog does not re-scan the filesystem.
+
+const MODEL_DISCOVERY_CACHE_TTL_MS = 15_000;
+/** @type {{ at: number, payload: object } | null} */
+let modelDiscoveryCache = null;
+
+app.get("/api/model-launcher/discover", async (req, res) => {
+  try {
+    if (!allowLaunchProbe(principalKey(req))) {
+      return rejectLimited(res, "Too many discovery requests; try again shortly");
+    }
+    const spark = registry.sparks.find((s) => s.isLocal);
+    if (!spark) {
+      return res.status(400).json({
+        error: "Discovery scans the Spark that runs this dashboard. Add this machine as a Spark first.",
+      });
+    }
+    if (spark.platform === "windows") {
+      return res.status(400).json({ error: "Model discovery is not supported on Windows PCs" });
+    }
+    const now = Date.now();
+    if (modelDiscoveryCache && now - modelDiscoveryCache.at < MODEL_DISCOVERY_CACHE_TTL_MS) {
+      return res.json(modelDiscoveryCache.payload);
+    }
+    const payload = await discoverModelCandidates({
+      execHost: (cmd, timeoutMs) => defaultExec(spark, cmd, timeoutMs),
+      sshUser: spark.ssh?.user,
+    });
+    modelDiscoveryCache = { at: now, payload };
+    res.json(payload);
+  } catch (err) {
+    res.status(500).json({ error: err?.message || String(err) });
+  }
+});
 
 // Cancel a ComfyUI job (running interrupt and/or pending dequeue).
 app.post("/api/sparks/:id/comfy/cancel", async (req, res) => {
@@ -2194,6 +2239,21 @@ registerGpuClockRoutes(app, {
   rejectLimited,
 });
 
+// ─── Memory mode (Qwen ⇄ Ollama exclusive stacks) ────────
+// Off unless MEMORY_MODE_ENABLED is set. The switcher runs Qwen's start.sh/stop.sh
+// and the docker CLI as the local Spark's SSH user (nsenter + setpriv, never root),
+// so it shares the auth and limiters of the power and GPU-clock actions.
+const memoryModeManager = new MemoryModeManager({
+  // The drop target is the local unit's SSH user (spark.ssh.user), same as HermesProbe.
+  getSpark: () => registry.sparks.find((s) => s.isLocal) || null,
+});
+registerMemoryModeRoutes(app, {
+  manager: memoryModeManager,
+  recordEvent,
+  allowChange: (req) => allowDestructive(principalKey(req)) && allowGlobalDestructive(clientKey(req)),
+  rejectLimited,
+});
+
 app.post("/api/sparks/:id/wake", async (req, res) => {
   try {
     const spark = registry.getSpark(req.params.id);
@@ -2419,18 +2479,40 @@ if (!startupPreflight.fatal) {
     learnTailscaleName();
     setInterval(learnTailscaleName, 10 * 60 * 1000).unref();
   }
-  // A failed listen (port in use, address not available) must end the process.
-  // The WebSocket server's own error handler only logs it, and the broadcast
-  // timer would keep a process alive that never serves a request.
+  // A failed bind must be diagnosed, not blindly fatal. On a unit whose
+  // container restarts unconditionally, binding the Tailscale address can win
+  // the race against tailscale0 and fail with EADDRNOTAVAIL; exiting under
+  // `node --watch` parks the process until a file changes, which kept the
+  // dashboard dead forever after a fast reboot. Transient bind errors are
+  // retried for ~2 minutes (policy in server/listenRetry.js); everything
+  // else (port in use, bad address) is a real misconfiguration and still
+  // ends the process — the WebSocket server's own handler only logs, and the
+  // broadcast timer would keep a process alive that never serves a request.
+  let listenAttempts = 0;
+  let listenRetryTimer = null;
   server.on("error", (err) => {
     if (server.listening) {
       console.error("[sparkDash] server error:", err?.message);
       return;
     }
+    const plan = planListenRetry({ code: err?.code, attempt: listenAttempts });
+    if (plan.retry && !listenRetryTimer) {
+      listenAttempts = plan.attempt + 1;
+      console.log(`[sparkDash] ${BIND_HOST} is not bindable yet (${err?.code}); retry ${listenAttempts} in ${plan.delayMs / 1000}s — waiting for the network interface.`);
+      listenRetryTimer = setTimeout(() => {
+        listenRetryTimer = null;
+        server.listen(PORT, BIND_HOST, onListening);
+      }, plan.delayMs);
+      return;
+    }
     console.error(`[sparkDash] cannot listen on ${BIND_HOST}:${PORT}: ${err?.message}`);
     process.exit(1);
   });
-  server.listen(PORT, BIND_HOST, () => {
+  server.listen(PORT, BIND_HOST, onListening);
+  // Monitors and runtimes start ONLY on a successful bind — never on the
+  // not-listening path. (Declared after the listen call so the source order
+  // stays listen → start, which the occupancy wiring test pins.)
+  function onListening() {
     console.log(`[sparkDash] server listening on http://${BIND_HOST}:${PORT}`);
     console.log(`[sparkDash] WebSocket endpoint ws://${BIND_HOST}:${PORT}/ws`);
     const { authMode } = inspectHealth(BIND_HOST);
@@ -2443,7 +2525,7 @@ if (!startupPreflight.fatal) {
     occupancy.start();
     fleetEnergyRuntime.start();
     llmTokenRuntime.start();
-  });
+  }
 } else {
   process.exitCode = 1;
 }

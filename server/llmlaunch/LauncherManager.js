@@ -120,7 +120,13 @@ export function defaultSpawn(spark, cmd, opts = {}) {
   return spawn(spec.file, spec.args, { env: spec.env, stdio, detached: true });
 }
 
-function defaultExec(spark, cmd, timeoutMs) {
+/**
+ * Run a fixed read-only command and resolve stdout: SSH for remote Sparks, the
+ * host-user drop (refusing root) for the local one. Exported for model
+ * discovery, which scans the local unit with the same identity the launcher
+ * scripts run under.
+ */
+export function defaultExec(spark, cmd, timeoutMs) {
   if (!spark.isLocal) {
     if (spark.platform === "windows") {
       return Promise.reject(
@@ -203,7 +209,7 @@ export class LauncherManager {
     for (const l of launchers) out[l.id] = "unknown";
     if (launchers.length === 0) return out;
     try {
-      const text = await this.exec(spark, buildStatusCommand(launchers.map((l) => l.id)), 15000);
+      const text = await this.exec(spark, buildStatusCommand(launchers.map((l) => ({ id: l.id, port: l.port }))), 15000);
       for (const line of String(text).split("\n")) {
         const m = /^(\S+) (RUNNING|STOPPED)$/.exec(line.trim());
         if (m && m[1] in out) out[m[1]] = m[2] === "RUNNING" ? "running" : "stopped";
@@ -234,7 +240,7 @@ export class LauncherManager {
     let maxMs;
     const nonce = crypto.randomBytes(12).toString("hex");
     if (action === "start") {
-      cmd = buildStartCommand({ id: launcher.id, dir: launcher.dir, script: launcher.startScript, nonce });
+      cmd = buildStartCommand({ id: launcher.id, dir: launcher.dir, script: launcher.startScript, nonce, env: launcher.startEnv });
       maxMs = START_WATCH_MAX_MS;
     } else if (action === "attach") {
       cmd = buildAttachCommand({ id: launcher.id, nonce });

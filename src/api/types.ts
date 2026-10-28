@@ -248,6 +248,28 @@ export type FleetGpuClockResult =
   | { id: string; ok: true; supported: false; reason: string }
   | { id: string; ok: false; error: string };
 
+/** One container of a memory-mode stack, as `docker inspect` reports it ("missing" when unreadable). */
+export interface MemoryModeContainer {
+  name: string;
+  state: string;
+}
+
+/** GET /api/memory-mode: the Qwen ⇄ Ollama exclusive-stack state for the local unit. */
+export interface MemoryModeStatus {
+  /** False (and the card hidden) unless MEMORY_MODE_ENABLED is set and the config is valid. */
+  enabled: boolean;
+  /** Why an enabled-but-misconfigured switcher stays off. */
+  problem?: string | null;
+  mode: "qwen" | "ollama" | "none";
+  /** State of the Qwen container, or null while disabled. */
+  qwen: string | null;
+  ollamaStack: MemoryModeContainer[];
+  /** Host MemAvailable in GB; null when unreadable (never a fabricated 0). */
+  availableGb: number | null;
+  memoryFloorGb: number;
+  busy: boolean;
+}
+
 /** One health finding for a Spark (server rules in server/health/HealthEvaluator.js). */
 export interface HealthFinding {
   id: "thermal" | "low-power" | "memory" | "xid" | "oom" | "concurrency" | "link-speed" | "roce-link" | "roce-loss";
@@ -1662,6 +1684,27 @@ export interface LauncherJobRead {
   partial: string;
   nextSeq: number;
   truncated: boolean;
+}
+
+// ─── Model discovery ("Discover on this Spark") ───
+/** A model the discovery scan found on the dashboard's own Spark. */
+export type ModelCandidateKind = "scripted" | "ollama" | "huggingface";
+
+export interface ModelCandidate {
+  kind: ModelCandidateKind;
+  name: string;
+  /** Absolute folder (scripted) or cache dir (huggingface); ollama has none. */
+  directory?: string;
+  startScript?: string;
+  stopScript?: string | null;
+  /** Ollama weights only: human size string from `ollama list`. */
+  size?: string;
+}
+
+export interface ModelDiscoveryResponse {
+  candidates: ModelCandidate[];
+  scannedRoots: string[];
+  notes: string[];
 }
 
 // ─── Detailed fleet pages: history APIs ───

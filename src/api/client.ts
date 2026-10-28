@@ -29,6 +29,8 @@ import type {
   LlmDailyResponse,
   MetricsHistoryRange,
   MetricsHistoryResponse,
+  MemoryModeStatus,
+  ModelDiscoveryResponse,
   OccupancyCheck,
   OccupancyHelper,
   OccupancyHelperInput,
@@ -592,6 +594,16 @@ export function wakeAllSparks(): Promise<BatchPowerResult> {
   return apiFetch("/api/sparks/wake-all", { method: "POST" });
 }
 
+// ─── Memory mode (Qwen ⇄ Ollama exclusive stacks) ────────
+export function fetchMemoryMode(): Promise<MemoryModeStatus> {
+  return apiFetch("/api/memory-mode");
+}
+
+/** Switch the local unit to one engine stack; the server's message names what happened to each stack. */
+export function setMemoryMode(mode: "qwen" | "ollama"): Promise<{ status: "success" | "error"; message: string }> {
+  return apiFetch("/api/memory-mode", { method: "POST", body: JSON.stringify({ mode }) });
+}
+
 // ─── GPU clock cap (Spark units) ─────────────────────────
 export function fetchGpuClock(id: string): Promise<GpuClockStatus> {
   return apiFetch(`/api/sparks/${encodeURIComponent(id)}/gpu-clock`);
@@ -735,6 +747,14 @@ export function readLauncherJob(sparkId: string, jobId: string, since = 0): Prom
 /** Stop watching the active job. A start script keeps running on the Spark. */
 export function cancelLauncherJob(sparkId: string): Promise<{ success: boolean }> {
   return apiFetch(`${launchersBase(sparkId)}/jobs/active`, { method: "DELETE" });
+}
+
+/**
+ * "Discover on this Spark": scan the dashboard's own unit for launchable model
+ * folders, ollama weights and HF-cache repos (server caches the scan 15 s).
+ */
+export function discoverModels(): Promise<ModelDiscoveryResponse> {
+  return apiFetch("/api/model-launcher/discover");
 }
 
 // ─── Tool Eval ───────────────────────────────────────────

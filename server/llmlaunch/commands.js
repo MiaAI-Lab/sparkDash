@@ -19,6 +19,8 @@
  */
 
 export const EXIT_MARKER = "__SDEXIT__";
+
+import { envExportLines } from "./validate.js";
 export const LOG_DIR = '$HOME/.cache/sparkdash/llm';
 export const LOG_MAX_BYTES = 32 * 1024 * 1024;
 export const LOG_KEEP_BYTES = 8 * 1024 * 1024;
@@ -171,8 +173,9 @@ kill $J 2>/dev/null
 rm -f "$4"
 `;
 
-export function buildStartCommand({ id, dir, script, nonce }) {
+export function buildStartCommand({ id, dir, script, nonce, env = null }) {
   assertNonce(nonce);
+  const envLines = envExportLines(env).map((l) => `  ${l}`).join("\n");
   const program = `
 ${paths(id, nonce)}
 cd ${dirExpr(dir)} 2>/dev/null || { echo "[sparkdash] cannot open directory ${dir}"; mark 127; exit 0; }
@@ -197,7 +200,7 @@ if alive; then
 else
   rm -f "$X" "$P"; : > "$L"
   echo "[sparkdash] starting ${dir}/${script} as $(id -un)" >> "$L"
-  newsid bash -c "$WRAP" _ '${script}' "$X" "$L" "$LD/${id}.fifo" >> "$L" 2>&1 < /dev/null 9>&- &
+${envLines ? envLines + "\n" : ""}  newsid bash -c "$WRAP" _ '${script}' "$X" "$L" "$LD/${id}.fifo" >> "$L" 2>&1 < /dev/null 9>&- &
   PID=$!
   PST=$(pstart "$PID")
   echo "$PID $PST" > "$P"
@@ -256,12 +259,17 @@ mark "$RC"
 }
 
 /** One line per launcher id: "<id> RUNNING|STOPPED". */
-export function buildStatusCommand(ids) {
-  const body = ids
-    .map(
-      (id) =>
-        `P="$HOME/.cache/sparkdash/llm/${id}.pid"; loadpid; if alive; then echo "${id} RUNNING"; else echo "${id} STOPPED"; fi`
-    )
+export function buildStatusCommand(entries) {
+  // entries: [{ id, port }] — id is the launcher id; an optional port adds a
+  // listener probe, because a start script that daemonizes and EXITS leaves its
+  // pid file dead while the model it launched keeps serving (e.g. docker run -d).
+  const body = entries
+    .map(({ id, port }) => {
+      const listen = Number.isInteger(port) && port >= 1 && port <= 65535
+        ? `ss -ltn "sport = :${port}" 2>/dev/null | grep -q LISTEN`
+        : "false";
+      return `P="$HOME/.cache/sparkdash/llm/${id}.pid"; loadpid; if alive; then echo "${id} RUNNING"; elif ${listen}; then echo "${id} RUNNING"; else echo "${id} STOPPED"; fi`;
+    })
     .join("\n");
   return wrap(`${HELPERS}\n${body || "true"}`);
 }

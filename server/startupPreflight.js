@@ -1,7 +1,17 @@
 import fs from "fs";
 import path from "path";
-import { HOST_PATHS, SPARKS_JSON_PATH } from "./config.js";
+import {
+  HOST_PATHS,
+  MEMORY_FLOOR_GB,
+  MEMORY_MODE_ENABLED,
+  MEMORY_MODE_LOG_PATH,
+  OLLAMA_STACK,
+  QWEN_CONTAINER,
+  QWEN_DIR,
+  SPARKS_JSON_PATH,
+} from "./config.js";
 import { allowOpenRemote } from "./auth.js";
+import { memoryModeConfigProblem } from "./memorymode/MemoryModeManager.js";
 
 export function isLoopbackHost(host) {
   return host === "localhost" || host === "::1" || /^127\./.test(host || "");
@@ -29,6 +39,11 @@ export function evaluateStartupPreflight(input) {
     warnings.push("SSH identity permissions are too open; set the private key to mode 600.");
   }
   if (!input.localCollectors?.available) warnings.push("Local host metrics are unavailable; verify /proc and /sys host mounts.");
+  // A bad MEMORY_MODE_ENABLED config must disable the switcher with a visible reason,
+  // never half-run it (validateDir/validateContainerName decide at boot, not per request).
+  if (input.memoryMode?.enabled && input.memoryMode.problem) {
+    warnings.push(`Memory mode switcher is enabled but stays off: ${input.memoryMode.problem}.`);
+  }
   return {
     fatal: errors.length > 0,
     authMode: loopback
@@ -78,6 +93,17 @@ export function inspectStartupPreflight(bindHost) {
     },
     localCollectors: {
       available: fs.existsSync(path.join(HOST_PATHS.PROC, "meminfo")) && fs.existsSync(HOST_PATHS.SYS),
+    },
+    memoryMode: {
+      enabled: MEMORY_MODE_ENABLED,
+      problem: memoryModeConfigProblem({
+        enabled: true,
+        qwenDir: QWEN_DIR,
+        qwenContainer: QWEN_CONTAINER,
+        ollamaStack: OLLAMA_STACK,
+        memoryFloorGb: MEMORY_FLOOR_GB,
+        logPath: MEMORY_MODE_LOG_PATH,
+      }),
     },
   });
 }

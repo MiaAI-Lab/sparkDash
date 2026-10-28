@@ -238,6 +238,17 @@
   -webkit-overflow-scrolling: touch;
   padding: 1.3rem 1.35rem;
 }
+/* A dialog that wraps its body+footer in a <form> (the Add-a-model dialog) hides
+ * them from the sheet's flex column: the form became an auto-height block, so a
+ * tall body — the Discover list — pushed the Cancel/Add footer past the clipped
+ * bottom of the sheet, out of reach. The form must carry the column through:
+ * body scrolls, footer stays pinned. */
+.modal-sheet > form {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+}
 .modal-sheet__stack {
   display: flex;
   flex-direction: column;
@@ -2034,4 +2045,90 @@
 }
 .alerts-error {
   margin: 0 1.35rem 0.75rem;
+}
+
+/* ─── Model discovery: "Discover on this Spark" candidate list ─── */
+.model-discovery {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.model-discovery__scan {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--color-muted);
+  overflow-wrap: anywhere;
+}
+.model-discovery__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-height: 13rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface);
+}
+.model-discovery__group {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-muted);
+  margin: 0.25rem 0 0;
+}
+.model-discovery__row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface-elevated);
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+}
+.model-discovery__row:hover {
+  background: var(--color-surface-hover);
+  border-color: var(--color-border-strong);
+}
+.model-discovery__badge {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 0.05rem 0.4rem;
+  border-radius: 6px;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--color-muted-strong);
+}
+.model-discovery__name {
+  min-width: 0;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.model-discovery__meta {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-muted);
+}
+.model-discovery__dir {
+  display: block;
+  font-family: var(--font-mono, "Geist Mono", ui-monospace, monospace);
+  font-size: 0.7rem;
+  color: var(--color-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }

@@ -319,10 +319,52 @@ test("the start program is valid bash and embeds nothing outside the validated f
   const program = Buffer.from(b64, "base64").toString("utf8");
   assert.ok(program.includes(`"$HOME"/'llms/glm'`));
   assert.ok(program.includes("setsid"));
+  assert.ok(!program.includes("export "));
   const f = path.join(tmpDir("sd-syn-"), "p.sh");
   fs.writeFileSync(f, program);
   const r = spawn("bash", ["-n", f]);
   return new Promise((resolve, reject) => r.on("close", (c) => (c === 0 ? resolve() : reject(new Error("bash -n failed")))));
+});
+
+test("startEnv exports ride into the start program in the launch branch only", () => {
+  const cmd = buildStartCommand({
+    id: "demo",
+    dir: "~/llms/glm",
+    script: "start.sh",
+    nonce: "abcdef0123456789",
+    env: { MEM_NEED_GIB: "104" },
+  });
+  const program = Buffer.from(/printf %s '([^']+)'/.exec(cmd)[1], "base64").toString("utf8");
+  assert.ok(program.includes("export MEM_NEED_GIB='104'"));
+  // The exports must sit inside the launch branch, right before the detached spawn.
+  const i = program.indexOf("export MEM_NEED_GIB='104'");
+  const j = program.indexOf("newsid bash -c");
+  assert.ok(i > 0 && j > i, "export must precede the newsid launch line");
+  const f = path.join(tmpDir("sd-env-"), "p.sh");
+  fs.writeFileSync(f, program);
+  const r = spawn("bash", ["-n", f]);
+  return new Promise((resolve, reject) => r.on("close", (c) => (c === 0 ? resolve() : reject(new Error("bash -n failed")))));
+});
+
+test("startEnv rejects anything that is not a plain NAME=value pair", async () => {
+  const { sanitizeStartEnv, normalizeLauncherInput } = await import("../validate.js");
+  assert.equal(sanitizeStartEnv(null).ok, true);
+  assert.deepEqual(sanitizeStartEnv({ A_B2: "x/._+@-9" }).value, { A_B2: "x/._+@-9" });
+  assert.equal(sanitizeStartEnv({ lower: "x" }).ok, false);
+  assert.equal(sanitizeStartEnv({ "1BAD": "x" }).ok, false);
+  assert.equal(sanitizeStartEnv({ A: "no spaces" }).ok, false);
+  assert.equal(sanitizeStartEnv({ A: "no'quotes" }).ok, false);
+  assert.equal(sanitizeStartEnv({ A: "$(reboot)" }).ok, false);
+  assert.equal(sanitizeStartEnv(["A=1"]).ok, false);
+  const many = Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`K${i}`, "1"]));
+  assert.equal(sanitizeStartEnv(many).ok, false);
+  const bad = normalizeLauncherInput({ name: "x", dir: "~/l", startEnv: { A: "`x`" } });
+  assert.equal(bad.ok, false);
+  const good = normalizeLauncherInput({ name: "x", dir: "~/l", startEnv: { MEM_NEED_GIB: "104" } });
+  assert.equal(good.ok, true);
+  assert.deepEqual(good.value.startEnv, { MEM_NEED_GIB: "104" });
+  const absent = normalizeLauncherInput({ name: "x", dir: "~/l" });
+  assert.equal("startEnv" in absent.value, false);
 });
 
 test("start refuses a directory outside the user's home and a world-writable script or dir", async () => {
