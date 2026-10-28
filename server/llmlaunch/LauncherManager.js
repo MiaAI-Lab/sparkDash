@@ -209,7 +209,7 @@ export class LauncherManager {
     for (const l of launchers) out[l.id] = "unknown";
     if (launchers.length === 0) return out;
     try {
-      const text = await this.exec(spark, buildStatusCommand(launchers.map((l) => l.id)), 15000);
+      const text = await this.exec(spark, buildStatusCommand(launchers.map((l) => ({ id: l.id, port: l.port }))), 15000);
       for (const line of String(text).split("\n")) {
         const m = /^(\S+) (RUNNING|STOPPED)$/.exec(line.trim());
         if (m && m[1] in out) out[m[1]] = m[2] === "RUNNING" ? "running" : "stopped";
