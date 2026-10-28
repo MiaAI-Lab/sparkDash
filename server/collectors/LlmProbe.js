@@ -18,6 +18,13 @@ const TUNNEL_RETRY_MIN_MS = 60_000;
 const TUNNEL_RETRY_MAX_MS = 15 * 60_000;
 const REDETECT_INTERVAL_MS = 60_000;
 /**
+ * TensorFold prefill rates are the computed (and the cached) tokens of the requests that finished in the
+ * last minute divided by their prefill seconds. One poll window holds one to a few requests, and a request
+ * that restores a 100k-token cached prompt and computes 80 new tokens spends seconds in "prefill" while
+ * computing almost nothing, so a rate per poll window swings between 30 and 1,800 tok/s on the same engine.
+ */
+const TENSORFOLD_PREFILL_WINDOW_MS = 60_000;
+/**
  * TensorFold's cached-prompt counter, by precedence. Upstream
  * (ashhart/TensorFold) publishes `prompt_tokens_cached_total`; a build whose
  * prompt-cache tier comes from a recipe patch rather than upstream publishes
@@ -175,6 +182,10 @@ export class LlmProbe {
     this._tensorfoldPromptTokens = null;
     this._tensorfoldPrefillSum = null;
     this._tensorfoldPrefillCount = null;
+    /** Previous cached-prompt counter (clamped to its scrape's prompt total); null when the build publishes none. */
+    this._tensorfoldCachedTokens = null;
+    /** Finished-request windows of the last TENSORFOLD_PREFILL_WINDOW_MS: [{ computed, cached, sec, at }]. */
+    this._tensorfoldPrefillWindow = [];
     this.prefillActive = false;
     /** Previous prefill counters by kind; null until first labeled sample. */
     this.lastPrefillKinds = null;
@@ -504,6 +515,8 @@ export class LlmProbe {
     this._tensorfoldPromptTokens = null;
     this._tensorfoldPrefillSum = null;
     this._tensorfoldPrefillCount = null;
+    this._tensorfoldCachedTokens = null;
+    this._tensorfoldPrefillWindow = [];
     this.prefillActive = false;
     this.lastPrefillKinds = null;
     this.lastTtftSum = null;
@@ -1895,6 +1908,11 @@ export class LlmProbe {
     const prevPrefillSec = this._tensorfoldPrefillSeconds;
     const prevCached = this._tensorfoldPrevCached ?? null;
     this._applyExl3Health(health, dtSec);
+    // The single slot _applyExl3Health sets belongs to an EXL3 server. A TensorFold build serves
+    // several streams at once and says how many only as `streams.max` or `max_batch_size` below;
+    // one that says neither (its /health is just {"status": "ok"}, /metrics and /v1/models carry no
+    // stream count either) has an unknown capacity, so no total is shown rather than a made-up 1.
+    this.slotsTotal = 0;
     // TensorFold 0.5.0 (cuda/health.py) publishes cumulative cached prompt tokens
     // alongside the EXL3-style counters; older builds omit it (stays null).
     const cached = health.cached_tokens_total == null ? NaN : Number(health.cached_tokens_total);
@@ -2147,12 +2165,15 @@ export class LlmProbe {
     // Prefill on /metrics-only builds (verified on a live server): during a
     // 35-second prefill prompt_tokens_total AND every prefill histogram stay
     // frozen — they advance only in the poll where the request finishes. So no
-    // mid-prefill rate exists; derive the effective per-request rate from the
-    // completion window and HOLD it until the next finish, with a "prefilling"
-    // indicator while a request is open and no tokens have been produced yet.
-    // CAVEAT: prompt_tokens_total counts prefix-cache tokens too and this
-    // surface has no cached counter — the number is an effective rate, not raw
-    // GPU compute speed (the label says so).
+    // mid-prefill rate exists; derive the rate per request from the completion
+    // window and HOLD it until the next finish, with a "prefilling" indicator
+    // while a request is open and no tokens have been produced yet.
+    // prompt_tokens_total counts the prompt tokens restored from the prompt cache too, while
+    // the prefill seconds are the time spent computing the rest. With a cached counter
+    // (cachedTotal above) the window is split: prefillTps and uncachedPrefillTps are the tokens
+    // computed per prefill second of the last minute's finished requests, cachedPrefillTps the tokens
+    // restored per prefill second (TENSORFOLD_PREFILL_WINDOW_MS says why a minute).
+    // Without one the number stays an effective rate that includes cached tokens (the label says so).
     if (!queueOnly && Number.isFinite(dtSec) && dtSec > 0) {
       let prefillPrefix = null;
       if (m("request_prefill_seconds_count") != null) prefillPrefix = "request_prefill_seconds";
@@ -2164,39 +2185,61 @@ export class LlmProbe {
           const prevPrompt = this._tensorfoldPromptTokens;
           const prevSum = this._tensorfoldPrefillSum;
           const prevCount = this._tensorfoldPrefillCount;
+          const prevCached = this._tensorfoldCachedTokens;
+          const cachedNow = cachedTotal == null ? null : Math.min(cachedTotal, prompt);
+          const split = cachedNow != null;
+          let measured = false;
           if (
             prevPrompt != null && prevSum != null && prevCount != null &&
             prompt >= prevPrompt && pSum >= prevSum && pCount >= prevCount
           ) {
             const dPrompt = prompt - prevPrompt;
             const dSec = pSum - prevSum;
-            if (pCount > prevCount && dPrompt > 0) {
-              // Sub-millisecond and tiny-prompt windows are too noisy to
-              // measure reliably: require at least 50 ms and 50 tokens.
-              // Effective rates include cache credit and vary by host; do not
-              // cap them using one machine's cold-compute throughput.
-              const rate = Math.round((dPrompt / dSec) * 100) / 100;
-              if (dSec >= 0.05 && dPrompt >= 50) {
-                // Window ratio = mean over the requests finished in it; the
-                // aggregate is the same measurement (no per-request split here).
-                this.perStreamPrefillTps = Math.max(0, rate);
+            // The cached tokens of the same window. When the build publishes the counter but this
+            // window has no earlier value of it to subtract (first scrape with it, or it went back),
+            // the window is skipped rather than counting cached tokens as computed.
+            const comparable = !split || (prevCached != null && cachedNow >= prevCached);
+            const dCached = split && comparable ? Math.min(dPrompt, cachedNow - prevCached) : 0;
+            const dComputed = dPrompt - dCached;
+            if (comparable && pCount > prevCount && dPrompt > 0) {
+              if (split) {
+                if (dSec > 0) this._tensorfoldPrefillWindow.push({ computed: dComputed, cached: dCached, sec: dSec, at: Date.now() });
+              } else if (dSec >= 0.05 && dComputed >= 50) {
+                // Sub-millisecond and tiny-prompt windows are too noisy to
+                // measure reliably: require at least 50 ms and 50 tokens.
+                // Effective rates include cache credit and vary by host; do not
+                // cap them using one machine's cold-compute throughput.
+                const rate = Math.max(0, Math.round((dComputed / dSec) * 100) / 100);
+                this.perStreamPrefillTps = rate;
                 this._tensorfoldPrefillMeasuredAt = Date.now();
                 // Wins over the /health zeroing that ran earlier this poll.
-                this.prefillTps = this.perStreamPrefillTps;
-              } else if (
-                this.perStreamPrefillTps != null &&
-                this._tensorfoldPrefillMeasuredAt != null &&
-                Date.now() - this._tensorfoldPrefillMeasuredAt < 20_000
-              ) {
-                // Hold across polls (and across rejected noise windows), but
-                // expire like the /health path: a stale rate must not masquerade
-                // as current, and _applyExl3Health zeroes it every poll anyway.
-                this.prefillTps = this.perStreamPrefillTps;
-              } else {
-                this.perStreamPrefillTps = null;
-                this.prefillTps = 0;
+                this.prefillTps = rate;
+                measured = true;
               }
-            } else if (
+            }
+          }
+          if (split) {
+            // The split replaces the effective per-request line: it would restate the computed
+            // rate under a label that says "incl. cached tokens".
+            this.perStreamPrefillTps = null;
+            const cutoff = Date.now() - TENSORFOLD_PREFILL_WINDOW_MS;
+            this._tensorfoldPrefillWindow = this._tensorfoldPrefillWindow.filter((w) => w.at >= cutoff);
+            let computed = 0;
+            let cachedTok = 0;
+            let sec = 0;
+            for (const w of this._tensorfoldPrefillWindow) {
+              computed += w.computed;
+              cachedTok += w.cached;
+              sec += w.sec;
+            }
+            // Zero once a minute has passed with nothing finished, like the /health path's expiry.
+            const enough = sec >= 0.05;
+            const round2 = (v) => Math.max(0, Math.round(v * 100) / 100);
+            this.uncachedPrefillTps = enough ? round2(computed / sec) : 0;
+            this.cachedPrefillTps = enough ? round2(cachedTok / sec) : 0;
+            this.prefillTps = this.uncachedPrefillTps;
+          } else if (!measured) {
+            if (
               this.perStreamPrefillTps != null &&
               this._tensorfoldPrefillMeasuredAt != null &&
               Date.now() - this._tensorfoldPrefillMeasuredAt < 20_000
@@ -2204,7 +2247,7 @@ export class LlmProbe {
               // Hold across polls: _applyExl3Health zeroes prefillTps from the
               // counterless /health every poll, so re-state the last real rate.
               this.prefillTps = this.perStreamPrefillTps;
-            } else {
+            } else if (prevPrompt != null) {
               this.perStreamPrefillTps = null;
               this.prefillTps = 0;
             }
@@ -2213,6 +2256,7 @@ export class LlmProbe {
           this._tensorfoldPromptTokens = prompt;
           this._tensorfoldPrefillSum = pSum;
           this._tensorfoldPrefillCount = pCount;
+          this._tensorfoldCachedTokens = cachedNow;
         }
       }
       // The only live prefill signal this build has: a request is open and no
