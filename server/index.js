@@ -63,6 +63,7 @@ import { ALERTS_JSON_PATH, FLEET_ENERGY_JSON_PATH, FLEET_ENERGY_MONTHLY_JSON_PAT
 import { createAlertsRuntime, registerAlertRoutes } from "./alerts/runtime.js";
 import { FleetEnergyTracker } from "./energy/FleetEnergyTracker.js";
 import { EventLog } from "./events/EventLog.js";
+import { planListenRetry } from "./listenRetry.js";
 import { UnitHistory } from "./metrics/UnitHistory.js";
 import { createUnitHistoryRuntime, registerUnitHistoryRoutes } from "./metrics/UnitHistoryRuntime.js";
 import { LauncherStore } from "./llmlaunch/LauncherStore.js";
@@ -2419,18 +2420,40 @@ if (!startupPreflight.fatal) {
     learnTailscaleName();
     setInterval(learnTailscaleName, 10 * 60 * 1000).unref();
   }
-  // A failed listen (port in use, address not available) must end the process.
-  // The WebSocket server's own error handler only logs it, and the broadcast
-  // timer would keep a process alive that never serves a request.
+  // A failed bind must be diagnosed, not blindly fatal. On a unit whose
+  // container restarts unconditionally, binding the Tailscale address can win
+  // the race against tailscale0 and fail with EADDRNOTAVAIL; exiting under
+  // `node --watch` parks the process until a file changes, which kept the
+  // dashboard dead forever after a fast reboot. Transient bind errors are
+  // retried for ~2 minutes (policy in server/listenRetry.js); everything
+  // else (port in use, bad address) is a real misconfiguration and still
+  // ends the process — the WebSocket server's own handler only logs, and the
+  // broadcast timer would keep a process alive that never serves a request.
+  let listenAttempts = 0;
+  let listenRetryTimer = null;
   server.on("error", (err) => {
     if (server.listening) {
       console.error("[sparkDash] server error:", err?.message);
       return;
     }
+    const plan = planListenRetry({ code: err?.code, attempt: listenAttempts });
+    if (plan.retry && !listenRetryTimer) {
+      listenAttempts = plan.attempt + 1;
+      console.log(`[sparkDash] ${BIND_HOST} is not bindable yet (${err?.code}); retry ${listenAttempts} in ${plan.delayMs / 1000}s — waiting for the network interface.`);
+      listenRetryTimer = setTimeout(() => {
+        listenRetryTimer = null;
+        server.listen(PORT, BIND_HOST, onListening);
+      }, plan.delayMs);
+      return;
+    }
     console.error(`[sparkDash] cannot listen on ${BIND_HOST}:${PORT}: ${err?.message}`);
     process.exit(1);
   });
-  server.listen(PORT, BIND_HOST, () => {
+  server.listen(PORT, BIND_HOST, onListening);
+  // Monitors and runtimes start ONLY on a successful bind — never on the
+  // not-listening path. (Declared after the listen call so the source order
+  // stays listen → start, which the occupancy wiring test pins.)
+  function onListening() {
     console.log(`[sparkDash] server listening on http://${BIND_HOST}:${PORT}`);
     console.log(`[sparkDash] WebSocket endpoint ws://${BIND_HOST}:${PORT}/ws`);
     const { authMode } = inspectHealth(BIND_HOST);
@@ -2443,7 +2466,7 @@ if (!startupPreflight.fatal) {
     occupancy.start();
     fleetEnergyRuntime.start();
     llmTokenRuntime.start();
-  });
+  }
 } else {
   process.exitCode = 1;
 }
