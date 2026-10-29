@@ -1306,3 +1306,7 @@ On a fresh install, Cost compare shows **No price data yet** until a catalog is 
 ### Interpreting RoCE traffic
 
 The RoCE panel shows netdev byte-counter rates, which do not measure RDMA payload throughput; a busy tensor-parallel link can therefore show little netdev traffic. Pause-frame counters are cumulative totals and are separate from the current PFC setting. RDMA error counters and their deltas remain available in the panel.
+
+### Overview LLM activity
+
+Host cards show current decode/prefill rates, running and queued requests, and an engine-reported slot cap when available. A decode sparkline and p50 rates summarize busy ten-second buckets from the last 60 minutes, excluding idle/unavailable samples; these are sampled aggregate rates for that port, not per-request averages, and can include earlier models served on the same port. Unknown concurrency stays unknown; the KV-cache concurrency estimate is never used as a slot cap. History persists locally for up to seven days in `LLM_TELEMETRY_JSON_PATH` (default `config/llm-telemetry.json`), with a restricted-mode write journal and periodic compaction.

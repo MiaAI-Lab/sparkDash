@@ -145,6 +145,8 @@ export class SparkMonitor {
     this._resolveHeadModelId =
       typeof options.resolveHeadModelId === "function" ? options.resolveHeadModelId : null;
     this.collector = new SystemCollector(spark);
+    // The application owns persistence; isolated monitor fixtures do not write live history.
+    this._llmTelemetry = options.llmTelemetry ?? null;
 
     // One LlmProbe per port — none when LLM monitoring is off
     this.llmProbes = new Map();
@@ -1134,7 +1136,10 @@ export class SparkMonitor {
             this._updateHealth();
             for (let i = 0; i < result.length; i++) {
               const probe = probes[i];
-              if (probe) llmDaily.record(this.spark.id, probe.port, result[i]);
+              if (probe) {
+                llmDaily.record(this.spark.id, probe.port, result[i]);
+                this._llmTelemetry?.record(this.spark.id, probe.port, result[i]);
+              }
             }
           }
           break;
