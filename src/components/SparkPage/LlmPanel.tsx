@@ -431,6 +431,8 @@ export function LlmPanel({
   const generationTps = llm?.generationTps ?? 0;
   const prefillTps = llm?.prefillTps ?? 0;
   const isStrata = llm?.backend === "strata";
+  const isTensorFold = llm?.backend === "tensorfold";
+  const completedPrefill = llm?.prefillTpsSource?.startsWith("completed-") === true;
   const showPrefillSplit = llm?.cachedPrefillTps != null || llm?.uncachedPrefillTps != null;
   const cachedPrefillTps = llm?.cachedPrefillTps ?? 0;
   const uncachedPrefillTps = llm?.uncachedPrefillTps ?? 0;
@@ -780,7 +782,7 @@ export function LlmPanel({
                   : undefined
               }
             >
-              <span className="eyebrow">Decode</span>
+              <span className="eyebrow">{isTensorFold ? "Decode · aggregate" : "Decode"}</span>
               <div className="big-num sp-big-lg">
                 {!measured ? (
                   <span title={llm?.measurementError ?? undefined}>—</span>
@@ -802,9 +804,11 @@ export function LlmPanel({
               {measured && llm?.perStreamTps != null && (
                 <span
                   className="sp-avg mono"
-                  title="Average decode throughput of one running stream (1 / mean seconds per output token). Only engines that publish a per-token latency histogram report it."
+                  title={isTensorFold
+                    ? "Completed-request decode rate (1 / mean per-request time per output token). Held between completions; not the speed of a currently running stream."
+                    : "Average decode throughput of one running stream (1 / mean seconds per output token). Only engines that publish a per-token latency histogram report it."}
                 >
-                  {fmtTps(llm.perStreamTps)} tok/s per stream
+                  {fmtTps(llm.perStreamTps)} tok/s{isTensorFold ? " · last completions" : " per stream"}
                 </span>
               )}
               {!measured && (
@@ -828,7 +832,7 @@ export function LlmPanel({
                     : "Prompt tokens/sec taken in during the last poll window — cache-served + computed. Opening a saved chat in the UI does not hit the GPU; send (or regenerate) so the history is sent as the prompt. Cached prefill does little GPU work; uncached prefill is what builds KV cache."
               }
             >
-              <span className="eyebrow">Prefill</span>
+              <span className="eyebrow">{completedPrefill ? "Prefill · last completed" : "Prefill"}</span>
               <div className="big-num sp-big-lg">
                 {!measured ? (
                   <span title={llm?.measurementError ?? undefined}>—</span>
@@ -837,6 +841,8 @@ export function LlmPanel({
                     <span className="ov-tps__dots" aria-hidden />
                     <small title={isStrata ? "A prompt is being processed; no current prefill rate is available." : "A prompt is being processed. The engine reports its speed only when the request finishes."}>prefilling</small>
                   </>
+                ) : isTensorFold && prefillTps <= 0 && !completedPrefill ? (
+                  <span title="No current prefill measurement; zero is not evidence that no prompt is being processed.">—</span>
                 ) : (
                   <>
                     {fmtTps(prefillTps)}
@@ -847,12 +853,10 @@ export function LlmPanel({
               <TrendLine data={prefillHistory} height={44} color="var(--color-info)" />
               {prefillAvg != null && <span className="sp-avg mono">avg {fmtAvg(prefillAvg)}</span>}
               {isStrata && prefillTps > 0 && <span className="sp-avg">last reported mean</span>}
-              {measured && llm?.perStreamPrefillTps != null && (
-                <span
-                  className="sp-avg mono"
-                  title="Effective prefill rate of one request: prompt tokens ÷ prefill seconds over the finished window. The prompt counter includes prefix-cache tokens (this surface has no cached counter), so it is an effective speed, not raw GPU speed. The engine publishes prefill seconds only when a request finishes, so it is held between completions."
-                >
-                  {fmtTps(llm.perStreamPrefillTps)} tok/s per request — effective (incl. cached tokens)
+              {isTensorFold && !completedPrefill && prefillTps <= 0 && <span className="sp-avg">Not measured live</span>}
+              {measured && completedPrefill && (
+                <span className="sp-avg" title="Token and prefill-time deltas over requests that finished in the same window; not continuous live throughput.">
+                  Effective rate · includes cached tokens
                 </span>
               )}
             </div>
