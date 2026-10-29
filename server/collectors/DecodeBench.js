@@ -120,7 +120,7 @@ function decodeRequestBody(
   modelId,
   prompt,
   maxTokens,
-  { temperature = DEFAULT_TEMPERATURE, thinking = DEFAULT_THINKING } = {}
+  { temperature = DEFAULT_TEMPERATURE, thinking = DEFAULT_THINKING, topK = null } = {}
 ) {
   const body = {
     model: modelId || undefined,
@@ -131,6 +131,9 @@ function decodeRequestBody(
     stream: true,
     stream_options: { include_usage: true },
   };
+  // TensorFold's native sampler requires top_k for non-greedy sampling.
+  // Only the detected backend opts in; strict OpenAI-compatible servers may reject it.
+  if (topK != null) body.top_k = topK;
   applyThinkingFlags(body, modelId, thinking);
   return body;
 }
@@ -148,12 +151,13 @@ async function warmupDecode({
   promptType = DECODE_BENCH_DEFAULT_TYPE,
   temperature = DEFAULT_TEMPERATURE,
   thinking = DEFAULT_THINKING,
+  topK = null,
 }) {
   const url = `${baseUrl}/v1/chat/completions`;
   const kind = normalizeDecodeBenchType(promptType);
   const warmupPrompt =
     kind === "code" ? DECODE_CODE_WARMUP_PROMPT : decodeBenchPromptForType(kind);
-  const body = decodeRequestBody(modelId, warmupPrompt, WARMUP_MAX_TOKENS, { temperature, thinking });
+  const body = decodeRequestBody(modelId, warmupPrompt, WARMUP_MAX_TOKENS, { temperature, thinking, topK });
   const ctrl = new AbortController();
   const onParentAbort = () => ctrl.abort();
   if (abortSignal) {
@@ -192,6 +196,7 @@ async function prefillContexts({
   apiKey,
   temperature,
   thinking,
+  topK = null,
   onProgress = null,
 }) {
   const url = `${baseUrl}/v1/chat/completions`;
@@ -209,7 +214,7 @@ async function prefillContexts({
       ctrl.abort();
     }, timeoutMs);
     try {
-      const body = decodeRequestBody(modelId, prompts[i], 1, { temperature, thinking });
+      const body = decodeRequestBody(modelId, prompts[i], 1, { temperature, thinking, topK });
       const r = await runStreamingRequest(url, body, ctrl.signal, {
         retryOnThinking400: true,
         thinking,
@@ -390,6 +395,7 @@ export async function runConcurrencyWave({
   promptType = DECODE_BENCH_DEFAULT_TYPE,
   temperature = DEFAULT_TEMPERATURE,
   thinking = DEFAULT_THINKING,
+  topK = null,
   onLive = null,
   contextTokens = 0,
   contextSalt = randomUUID(),
@@ -417,6 +423,7 @@ export async function runConcurrencyWave({
       apiKey,
       temperature,
       thinking,
+      topK,
       onProgress: onPrefill,
     });
     contextPrefillMs = round2(performance.now() - fillStart);
@@ -459,7 +466,7 @@ export async function runConcurrencyWave({
     }
 
     const body = {
-      ...decodeRequestBody(modelId, sendPrompts[streamIndex], maxTokens, { temperature, thinking }),
+      ...decodeRequestBody(modelId, sendPrompts[streamIndex], maxTokens, { temperature, thinking, topK }),
       min_tokens: maxTokens,
       ignore_eos: true,
       stop: [],
@@ -910,6 +917,7 @@ export class DecodeBenchManager {
    *   lanIp: string,
    *   port: number,
    *   modelId: string | null,
+   *   backend?: string | null,
    *   concurrencies: number[],
    *   maxTokens?: number,
    *   promptType?: string,
@@ -931,6 +939,7 @@ export class DecodeBenchManager {
       lanIp,
       port,
       modelId,
+      backend = null,
       concurrencies: rawConc,
       maxTokens: rawMax,
       promptType: rawType,
@@ -1011,6 +1020,7 @@ export class DecodeBenchManager {
         promptType,
         temperature,
         thinking,
+        ...(backend === "tensorfold" ? { topK: 20 } : {}),
         ...(contextTokens > 0 ? { contextTokens } : {}),
         ...(debugOn ? { debug: true } : {}),
         ...(rawHost
@@ -1096,6 +1106,7 @@ export class DecodeBenchManager {
           promptType: job.config.promptType,
           temperature: job.config.temperature,
           thinking: job.config.thinking,
+          topK: job.config.topK,
         });
       }
       for (const c of job.config.concurrencies) {
@@ -1124,6 +1135,7 @@ export class DecodeBenchManager {
           promptType: job.config.promptType,
           temperature: job.config.temperature,
           thinking: job.config.thinking,
+          topK: job.config.topK,
           contextTokens: job.config.contextTokens || 0,
           contextSalt: job.benchId,
           onPrefill: (done, total) => {

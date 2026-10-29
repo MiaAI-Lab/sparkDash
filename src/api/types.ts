@@ -1135,6 +1135,8 @@ export interface DecodeBenchConfig {
   promptType?: DecodeBenchPromptType;
   /** Sampling temperature (default 0.7). Older runs have none: they ran at 0. */
   temperature?: number;
+  /** Sent only for a detected TensorFold backend; absent means no top_k override. */
+  topK?: number;
   /** Thinking on (default). Older runs have none: they ran with it off. */
   thinking?: boolean;
   /** Prompt tokens each stream carries before it decodes (deep-context start). Absent: empty context. */
