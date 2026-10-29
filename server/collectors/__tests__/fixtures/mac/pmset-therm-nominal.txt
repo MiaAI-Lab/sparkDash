@@ -1,0 +1,4 @@
+2026-10-07 12:00:00 -0700
+Thermal Warning Level = 0
+Note: No performance warning level has been recorded
+Note: No CPU power status has been recorded

@@ -1,0 +1,19 @@
+**** Processor usage ****
+
+P0-Cluster HW active residency: 100.00% (1344 MHz:  98% 1644 MHz: 1.8%)
+
+CPU Power: 5134 mW
+GPU Power: 84895 mW
+ANE Power: 0 mW
+Combined Power (CPU + GPU + ANE): 90029 mW
+
+**** Thermal pressure ****
+
+Current pressure level: Nominal
+
+**** GPU usage ****
+
+GPU HW active frequency: 1620 MHz
+GPU HW active residency: 100.00% (338 MHz:   0% 486 MHz:   0% 1620 MHz: 100%)
+GPU idle residency:   0.00%
+GPU Power: 84909 mW

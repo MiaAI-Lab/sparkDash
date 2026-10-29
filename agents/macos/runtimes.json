@@ -1,0 +1,119 @@
+{
+  "schema": "sparkdash.runtime-inventory/1",
+  "source": "Seeded from the owner's model-start() shell functions in ~/.zshrc on the captain's MacBook Pro (M5 Max). Edit this file to add or retarget an engine — the agent ships no hardcoded runtime names.",
+  "notes": [
+    "Entries are evaluated top to bottom and the first match wins, so model-specific variants are listed before their catch-all parent.",
+    "exe is a regex tested against the process command basename and, for interpreter processes, the first script-like argv token (the 'script' identity).",
+    "argvAll entries are regexes that must all match the full command line; ports lists the listener ports the engine is expected to own.",
+    "Entries with role 'watchdog' are launcher processes and are reported as running, not serving.",
+    "Anything else that owns a TCP listener and looks like a Python server is reported as other-runtime with its command basename, never renamed."
+  ],
+  "defaults": {
+    "health": {
+      "path": "/v1/models",
+      "timeoutMs": 750
+    },
+    "model": {
+      "flags": ["--model", "--model-id", "-m"],
+      "positional": true
+    },
+    "otherRuntime": {
+      "enabled": true,
+      "interpreter": "^(python|python3|python[0-9.]+|uv|uvx)$",
+      "serveArgv": "(serve|--port|\\s-p\\s|--listen|--host)",
+      "label": "other-runtime"
+    }
+  },
+  "runtimes": [
+    {
+      "name": "omlx",
+      "label": "oMLX",
+      "ports": [8000],
+      "exe": "(^|/)omlx(-serve)?$",
+      "argvAll": ["(^|/)omlx(-serve)?(\\s|$)"],
+      "model": { "flags": ["--model"], "positional": false }
+    },
+    {
+      "name": "qflash",
+      "label": "qflash (mlx-serve)",
+      "ports": [11234],
+      "exe": "qflash-mlx",
+      "argvAll": ["qflash-mlx[\\s/]+serve"],
+      "health": { "path": "/health" },
+      "model": { "flags": ["--model", "--model-path"], "positional": false }
+    },
+    {
+      "name": "splash-27b",
+      "label": "Splash (Qwen3.8-27B)",
+      "ports": [8100],
+      "argvAll": ["splash/libexec/server/server\\.py", "Qwen3\\.8-27B-Splash"]
+    },
+    {
+      "name": "splash-35b",
+      "label": "Splash (Qwen3.6-35B-A3B)",
+      "ports": [8100],
+      "argvAll": ["splash/libexec/server/server\\.py", "Qwen3\\.6-35B-A3B-Splash"]
+    },
+    {
+      "name": "splash",
+      "label": "Splash",
+      "ports": [8100],
+      "argvAll": ["splash/libexec/(server/server\\.py|engine/splash)"]
+    },
+    {
+      "name": "ds4-serve",
+      "label": "DS4 (on-demand)",
+      "role": "watchdog",
+      "ports": [8000],
+      "exe": "ds4-serve\\.sh$",
+      "argvAll": ["ds4-serve\\.sh"],
+      "model": { "flags": ["--model", "-m"], "positional": false }
+    },
+    {
+      "name": "ds4",
+      "label": "DS4 / DwarfStar",
+      "ports": [8000],
+      "exe": "(^|/)ds4-server$",
+      "argvAll": ["(^|/)ds4-server(\\s|$)"]
+    },
+    {
+      "name": "mtplx-mux",
+      "label": "MTPLX OpenAI mux",
+      "ports": [8200],
+      "argvAll": ["mtplx-openai-mux\\.py"],
+      "model": { "flags": ["--model"], "positional": false }
+    },
+    {
+      "name": "mtplx-27b",
+      "label": "MTPLX (Qwen3.8-27B)",
+      "ports": [8210],
+      "argvAll": ["(^|/)mtplx(\\.py)?[\\s/]+serve", "Qwen3\\.8-27B"]
+    },
+    {
+      "name": "mtplx-flash",
+      "label": "MTPLX (Qwen3.8 Flash-Next)",
+      "ports": [8210],
+      "argvAll": ["(^|/)mtplx(\\.py)?[\\s/]+serve", "Flash-Next"]
+    },
+    {
+      "name": "mtplx-35b",
+      "label": "MTPLX (Qwen3.6-35B-A3B)",
+      "ports": [8201],
+      "argvAll": ["(^|/)mtplx(\\.py)?[\\s/]+serve", "Qwen3\\.6-35B"]
+    },
+    {
+      "name": "mtplx",
+      "label": "MTPLX",
+      "ports": [8200, 8201, 8210],
+      "argvAll": ["(^|/)mtplx(\\.py)?([\\s/]|$)"],
+      "model": { "flags": ["--model", "--model-id"], "positional": false }
+    },
+    {
+      "name": "tensorfold",
+      "label": "TensorFold",
+      "ports": [8300],
+      "exe": "(^|/)tensorfold$",
+      "argvAll": ["(^|/)tensorfold([\\s/]|$)"]
+    }
+  ]
+}

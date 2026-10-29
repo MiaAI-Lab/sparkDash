@@ -43,3 +43,7 @@ Model-launcher programs use GNU `tail --pid` with a process-group lifetime monit
 Preserve the meaning of existing metrics when adding platform support: active residency and frequency-scaled utilisation are distinct signals and should have explicit fields or a documented basis before changing historical series. Hardware names may come from platform probes such as macmon, but a model name is not evidence of an engine version. Cost compare uses an explicitly selected hosted model and an opt-in price catalog; it does not infer a provider from a local model name.
 
 Keep this overview synchronized when module boundaries, scripts, architecture or dependencies change. Historical local design notes may describe earlier versions; verify them against the current source.
+
+## Apple Silicon units
+
+`kind: "mac"` selects `MacSystemCollector` (SSH) or `MacAgentCollector` (optional on-device agent). Missing temperatures and privileged power readings remain unavailable. `agents/macos/README.md` documents the read path, optional privileged collector and opt-in runtime control.

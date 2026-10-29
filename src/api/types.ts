@@ -7,8 +7,16 @@ export interface SparkConfig {
    * - spark: NVIDIA DGX Spark (default) — DGX Spark specs shown in the header.
    * - host: any Linux box with supported NVIDIA or AMD GPUs, just not a Spark.
    *   Real hardware is auto-detected once online.
+   * - mac: an Apple Silicon Mac monitored over SSH with macOS tools
+   *   (sysctl, vm_stat, powermetrics) and the optional Mac node agent. Always remote.
    */
-  kind?: "spark" | "host";
+  kind?: "spark" | "host" | "mac";
+  /**
+   * Mac units only: read vitals + the runtime inventory from the on-device agent
+   * (`agents/macos/sparkdash_mac_agent.py --serve`) instead of SSH-only reads.
+   * Set `url` to override the whole endpoint, or `host`/`port` to build one.
+   */
+  agent?: MacAgentConfig | null;
   /**
    * Optional OS platform override for SSH-collected units. "linux" (default)
    * uses /proc + vendor GPU tooling, "darwin" macOS hosts, "windows" Windows hosts
@@ -269,8 +277,15 @@ export interface GpuMetricAvailability {
 export interface GpuMetrics {
   vendors?: Array<"amd" | "nvidia" | "intel">;
   metricAvailability?: GpuMetricAvailability;
-  temperature: number;
+  temperature: number | null;
+  thermal?: { pressureState: string; lastRecordedEvents: string[]; source: string } | null;
   usage: number;
+  /** Mac pressure label; agent and SSH sources differ (see agents/macos/README.md). */
+  thermalPressure?: string | null;
+  /** Mac units: false when `sudo -n powermetrics` is not permitted, so GPU activity and power are unknown. */
+  powermetricsAvailable?: boolean;
+  /** Mac-agent units: what this node could not read (e.g. gpu.power without root). */
+  unavailable?: MetricGap[];
   power: {
     draw: number;
     limit: number;
@@ -328,7 +343,11 @@ export interface GpuDevice {
 // ─── CPU metrics ─────────────────────────────────────────
 export interface CpuMetrics {
   usage: number;
-  temperature: number;
+  /** False when the CPU usage read was unavailable; the numeric placeholder is not a measured zero. */
+  usageAvailable?: boolean;
+  /** Availability entries from the same CPU sample. */
+  unavailable?: MetricGap[];
+  temperature: number | null;
   /** What the temperature reading is: "CPU", or "ACPI"/"SoC" for a board zone. */
   temperatureLabel?: string | null;
   /** Raw sensor name behind the reading (e.g. "acpitz", "coretemp"). */
@@ -685,6 +704,79 @@ export interface SparkMetrics {
   comfy?: ComfyMetrics | null;
   /** Tailnet probe result when monitoring is enabled; null when off or not yet polled. */
   tailscale?: TailscaleMetrics | null;
+  /**
+   * Mac-agent units: model runtimes detected on the machine. null for other
+   * transports (DGX Sparks, macs read over SSH) — an empty array only when the
+   * agent actually answered and found nothing serving.
+   */
+  runtimes?: MacRuntime[] | null;
+  /** Mac-agent units: metrics the node declared unavailable (never zeroed). */
+  unavailable?: MetricGap[] | null;
+  /** Mac-agent units: whether the agent answered the last runtime poll. */
+  agentOnline?: boolean | null;
+}
+
+// ─── Mac node agent ──────────────────────────────────────────
+export interface MacAgentConfig {
+  /** Full base URL, e.g. http://100.64.0.10:8790 (wins over host/port). */
+  url?: string | null;
+  /** Host to reach the agent on; defaults to the unit's probe host. */
+  host?: string | null;
+  /** Agent listen port (default 8790). */
+  port?: number | null;
+}
+
+/** One detected model runtime, from the Mac agent's data-driven inventory. */
+export interface MacRuntime {
+  /** Inventory name — e.g. "omlx", "splash-35b", "tensorfold", or "other-runtime". */
+  name: string;
+  /** Display label; for other-runtime this is the command basename. */
+  label: string;
+  /** "server" (owns a listener) or "watchdog" (a launcher, not serving). */
+  role: string;
+  pid: number;
+  command: string;
+  script?: string | null;
+  port: number | null;
+  /** Served model id when argv or the server's own API exposes one. */
+  model?: string | null;
+  /** "serving" (health path answered) | "listening" | "running". */
+  state: string;
+  detectedBy: string;
+  health?: { ok: boolean; url: string };
+}
+
+/** A metric this node could not read, with the reason shown in the UI. */
+export interface MetricGap {
+  metric: string;
+  reason: string;
+}
+
+/** One launchable catalog entry from the Mac agent's control endpoint. */
+export interface RuntimeControlTarget {
+  name: string;
+  label: string;
+  group: string;
+  groupLabel: string;
+  models: { id: string; label: string }[];
+  startable: boolean;
+  stoppable: boolean;
+  reason?: string | null;
+}
+
+/**
+ * Mac runtime control as the dashboard server reports it.
+ * `serving` is null when the probe did not answer — that is not "nothing serving".
+ */
+export interface RuntimeControlView {
+  state: "ready" | "unavailable" | "denied";
+  reason: string | null;
+  serving: MacRuntime[] | null;
+  targets: RuntimeControlTarget[];
+  error?: string | null;
+  output?: string | null;
+  ok?: boolean;
+  authorized?: boolean;
 }
 
 // ─── Spark snapshot (server pushes this) ──────────────────
@@ -695,8 +787,8 @@ export interface SparkSnapshot {
   name: string;
   /** Why the last liveness check failed, when offline. null/absent when online. */
   offlineReason?: string | null;
-  /** Unit type: spark (DGX Spark) or host (dedicated GPU Linux box). */
-  kind?: "spark" | "host";
+  /** Unit type: spark (DGX Spark), host (dedicated GPU Linux box), or mac (Apple Silicon). */
+  kind?: "spark" | "host" | "mac";
   /** OS of an SSH-collected unit; Windows units have no model launchers or CPU temperature. */
   platform?: "linux" | "darwin" | "windows";
   online: boolean;

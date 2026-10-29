@@ -19,6 +19,8 @@ It also supports **non-Spark units**: any Linux machine with an NVIDIA GPU (e.g.
 
 Monitored units run **Linux**, **macOS**, or **Windows** (a Windows PC with an NVIDIA GPU — or an AMD-iGPU Windows host like a Strix Halo, whose GPU usage comes from Windows' GPU engine counters; see [Windows PCs](#windows-pcs)).
 
+**Apple Silicon Macs** (for example a Mac Studio serving models with [oMLX](https://github.com/jundot/omlx)) can be added as a **Mac** unit. They are read over SSH with stock macOS tools, optionally plus a small [on-device agent](agents/macos/README.md) that adds the model-runtime inventory and explicit unavailable readings. See [Mac units](#mac-units).
+
 <img src="./.github/screenshot.png" alt="sparkDash Overview page with multiple DGX Spark units, GPU metrics, and LLM status">
 
 ### LLM Prompt Showcase
@@ -1051,6 +1053,7 @@ For compatibility, `SSH_CONTROL_PERSIST` is accepted as a seconds-based fallback
 1. Click **+** next to *Sparks* in the sidebar (or **Add Spark / GPU host** in the Sparks menu on a phone).
 2. Choose **Unit type**:
    - **NVIDIA DGX Spark** — the default; hardware summary shows DGX Spark specs and the CX7 IP field is available.
+   - **Apple Silicon Mac** — a Mac monitored over SSH with macOS tools, optionally through the [Mac node agent](agents/macos/README.md) for runtime detection; see [Mac units](#mac-units).
    - **Dedicated GPU host** — any Linux machine with an NVIDIA GPU. It is monitored exactly like a Spark (SSH + `nvidia-smi`) but is **not** reported as a DGX Spark: the header shows a detected hardware summary (GPU model, CPU, RAM) instead of fixed GB10 specs, and the page shows separate **RAM** and **VRAM** panels (VRAM from `nvidia-smi`, RAM from system memory). On the unit page, RAM → Network → Storage stack in the right column with GPU filling the left column. A host with **more than one GPU** needs nothing extra: every card `nvidia-smi` lists is collected, the header names them all, the GPU panel shows a block per card, and `metrics.gpu` stays the aggregate (hottest / busiest card, summed power and VRAM) with the per-card detail under `gpu.gpus[]`.
    - **Windows PC with an NVIDIA GPU** — a Windows machine with the OpenSSH Server and the NVIDIA driver; see [Windows PCs](#windows-pcs). Always a remote unit; no model launchers, CPU temperature or Hermes / Tailnet checks.
 3. Set **Name** and choose whether this is **This host**. Local units do not require a LAN IP or SSH; their optional LAN IP enables browser links. On a dedicated GPU host it also directs Wake-on-LAN. Remote units require a LAN IP/host, SSH user, and key or password. Key auth in Docker needs a key mounted into the container (see Quick start).
@@ -1077,6 +1080,76 @@ Local, macOS and Windows units are skipped. Additional models are
 labelled **Loaded**. Throughput, benchmarks and token totals still apply to the
 configured LLM endpoints; discovery does not add a monitored endpoint. Offline
 units do not display stale discovered models.
+### Mac units
+
+A unit with **Unit type → Apple Silicon Mac** (`kind: "mac"`) is always remote. Without the optional [Mac node agent](agents/macos/README.md), it is read over SSH with stock macOS tools:
+
+| Metric | Source |
+|---|---|
+| CPU usage | `top -l 1` |
+| Unified memory in use (like Activity Monitor: app + wired + compressed), GPU-wired share, free, swap | `hw.memsize`, `vm_stat`, `vm.swapusage` |
+| Disk | `df -k` on the data volume (`/System/Volumes/Data`) |
+| Network | `netstat -ib` on the default-route interface |
+| GPU busy %, GPU clock, GPU / CPU / combined power, thermal pressure | `sudo -n powermetrics` (one 0.5 s sample per poll) |
+| Uptime | `kern.boottime` |
+| Hardware header (model, chip, cores, memory) | `sysctl` |
+
+The non-privileged reads share one SSH call per poll. Metal wires MLX weights and KV cache while a model is working, but macOS can un-wire an idle model back into ordinary app memory without freeing it, so memory in use counts app memory as well as wired pages; the wired share is reported separately. SSH does not supply CPU or GPU temperatures. For measured temperatures, see the agent's [opt-in root collector](agents/macos/README.md#opt-in-root-temperatures).
+
+**Requirements on the Mac**
+- Remote Login (SSH) enabled, and the sparkDash host's key in the account's `authorized_keys`.
+- For GPU activity and power, passwordless sudo for the exact `powermetrics` call the collector
+  makes, e.g. `/etc/sudoers.d/sparkdash`:
+  `youruser ALL=(root) NOPASSWD: /usr/bin/powermetrics -n 1 -i 500 --samplers gpu_power,cpu_power,thermal`.
+  Pin the arguments: a bare `NOPASSWD: /usr/bin/powermetrics` also matches every other sampler and
+  option, which is effectively root. Without the rule the GPU fields read **n/a** and everything
+  else still works.
+- For the LLM card, the model server port reachable from the sparkDash host.
+
+**Mac node agent (optional, recommended).** Installing [`agents/macos`](agents/macos/README.md)
+— one stdlib-only Python script, no `pip install` — and setting the unit's
+**Mac node agent** port reads the Mac from the device instead of over SSH, and
+adds runtime inventory and explicit metric availability:
+
+- **Runtime inventory.** The overview card shows runtimes as chips; the Mac page
+  gets a **Model runtimes** panel. See the agent guide's
+  [inventory rules](agents/macos/README.md#runtime-inventory) and
+  [elevated-process privacy rules](agents/macos/README.md#opt-in-root-temperatures).
+- **Runtime launcher (Mac node only).** The Mac page also has a launcher tile:
+  runtime picker, model picker, and one Launch or Stop action. It talks to the
+  agent `/control` endpoint and stays unavailable until
+  `SPARKDASH_MAC_CONTROL_TOKEN` is set on both the agent and the dashboard.
+  Nothing is started just to refresh the tile. A failed action shows the
+  command's error, and the serving line comes from a live probe. Other unit
+  types do not get this control. See
+  [Runtime control](agents/macos/README.md#runtime-control).
+- **Honest availability.** Missing metrics render as **unavailable** with the
+  node's reason in the tooltip; CPU and GPU temperature rows also show the reason
+  inline. See the [agent guide](agents/macos/README.md) for metric sources and
+  privilege requirements. A Mac (or Linux host) carries a platform badge, so it
+  is never mistaken for a Spark.
+
+See the agent guide's [snapshot and SSH fallback contract](agents/macos/README.md#run-it)
+for collection ownership and pending samples. When fallback is needed, the UI
+shows **Runtimes (agent unreachable)** rather than claiming nothing is serving.
+DGX Spark behaviour is untouched: no agent, no runtime row, and the card is
+unchanged apart from the platform badge.
+
+**Example unit** (`config/sparks.json`, or add it in the UI):
+
+```json
+{
+  "id": "mac-studio",
+  "name": "mac-studio",
+  "kind": "mac",
+  "lanIp": "100.64.0.10",
+  "ssh": { "host": "100.64.0.10", "user": "macuser", "auth": "key" },
+  "agent": { "port": 8790 },
+  "llmPorts": [8000],
+  "role": "standalone",
+  "llmMonitoring": true
+}
+```
 
 ### Power controls (shutdown / Wake-on-LAN)
 

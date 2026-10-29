@@ -4,6 +4,8 @@ import {
   SystemCollector,
   collectionWasSuccessful,
 } from "../collectors/SystemCollector.js";
+import { MacSystemCollector } from "../collectors/MacSystemCollector.js";
+import { MacAgentCollector } from "../collectors/MacAgentCollector.js";
 import { LlmProbe } from "../collectors/LlmProbe.js";
 import { ComfyProbe } from "../collectors/ComfyProbe.js";
 import { HermesProbe } from "../collectors/HermesProbe.js";
@@ -94,6 +96,7 @@ export function livenessReason(err) {
 }
 
 const ONLINE_GRACE_MS = 10000;
+const POLL_INTERVAL_RUNTIMES = 30_000;
 
 /**
  * SparkMonitor — one per Spark. Owns collectors + rate state + poll loop.
@@ -144,7 +147,7 @@ export class SparkMonitor {
     // map; never writes back to registry config (derived display only).
     this._resolveHeadModelId =
       typeof options.resolveHeadModelId === "function" ? options.resolveHeadModelId : null;
-    this.collector = new SystemCollector(spark);
+    this.collector = createCollector(spark);
 
     // One LlmProbe per port — none when LLM monitoring is off
     this.llmProbes = new Map();
@@ -212,6 +215,9 @@ export class SparkMonitor {
       residentModels: [],
       comfy: null,
       tailscale: null,
+      /** Mac-agent units only: detected model runtimes + what it could not read. */
+      runtimes: null,
+      unavailable: null,
     };
     this._lastUpdate = {};
     /** domain → epoch ms of the last poll that returned real data (see _domainSucceeded). Not in snapshot(): it would defeat the broadcast cache. */
@@ -224,19 +230,13 @@ export class SparkMonitor {
      */
     this._llmLastActiveAt = new Map();
 
-    // Hardware summary: kind "spark" uses the static DGX Spark specs; kind
-    // "host" (dedicated GPU Linux box) detects real hardware once in the
-    // background so the header doesn't mislabel the machine as a Spark.
+    // Hardware summary: kind "spark" uses the static DGX Spark specs; kinds
+    // "host" (dedicated GPU Linux box) and "mac" (Apple Silicon) detect real
+    // hardware once in the background so the header doesn't mislabel the
+    // machine as a Spark.
     this._hardwareSummary = this._staticHardwareSummary(spark);
     this._stopped = false;
-    if (spark?.kind === "host") {
-      void (spark.platform === "windows" ? this.collector.detectWindowsHardware() : this.collector.detectHardware())
-        .then((detected) => {
-          if (this._stopped || !detected) return;
-          this._hardwareSummary = { ...this._hardwareSummary, ...detected };
-        })
-        .catch(() => {});
-    }
+    this._detectHardwareInBackground();
 
     // Timers
     /** Per-domain cadence for the fast collectors (ms). */
@@ -252,10 +252,13 @@ export class SparkMonitor {
     this._hermesIntervalId = null;
     /** @type {ReturnType<typeof setInterval> | null} */
     this._tailscaleIntervalId = null;
+    /** @type {ReturnType<typeof setInterval> | null} */
+    this._runtimesIntervalId = null;
     this._running = false;
     this._runGeneration = 0;
     /** @type {Record<string, boolean | symbol>} in-flight domain guards */
     this._inflight = {};
+
   }
 
   /** Hot-update config without tearing down poll loops / rate baselines. */
@@ -274,8 +277,23 @@ export class SparkMonitor {
     this._runGeneration += 1;
     this._inflight = {};
     this._metricCollectionSuccessful = { gpu: false, cpu: false };
+    const kindChanged = (this.spark?.kind === "mac") !== (spark?.kind === "mac");
+    // The agent endpoint is baked into the collector, so moving or removing it
+    // needs a fresh collector just like a kind change does.
+    const transportChanged =
+      JSON.stringify(this.spark?.agent ?? null) !== JSON.stringify(spark?.agent ?? null);
     this.spark = spark;
-    this.collector.spark = spark;
+    if (kindChanged || transportChanged) {
+      this.collector = createCollector(spark);
+      this._metrics.runtimes = null;
+      this._metrics.unavailable = null;
+      this._metrics.agentOnline = null;
+      this._hardwareSummary = this._staticHardwareSummary(spark);
+      this._detectHardwareInBackground();
+    } else {
+      this.collector.spark = spark;
+    }
+    if (kindChanged || transportChanged) this._restartRuntimesPollInterval();
 
     // Rebuild LLM probe map — add new ports, remove stale ones, update existing
     const ports = this._llmMonitoringEnabled() ? this._llmPorts() : [];
@@ -615,6 +633,7 @@ export class SparkMonitor {
     this._restartComfyPollInterval();
     this._restartHermesPollInterval();
     this._restartTailscalePollInterval();
+    this._restartRuntimesPollInterval();
     // Liveness on a slightly slower cadence
     this._intervals.push(setInterval(() => this._checkOnline(), POLL_INTERVAL_LIVENESS));
     console.log(`[SparkMonitor] ${this.spark.id} started`);
@@ -634,6 +653,7 @@ export class SparkMonitor {
     this._comfyIntervalId = null;
     this._hermesIntervalId = null;
     this._tailscaleIntervalId = null;
+    this._runtimesIntervalId = null;
     this._inflight = {};
     for (const probe of this.llmProbes.values()) {
       try {
@@ -704,6 +724,9 @@ export class SparkMonitor {
         roce: this._metrics.roce ?? null,
         unifiedMemory: this._metrics.unifiedMemory,
         llm: this._metrics.llm,
+        runtimes: this._metrics.runtimes,
+        unavailable: this._metrics.unavailable,
+        agentOnline: this._metrics.agentOnline ?? null,
         residentModels: this._metrics.residentModels,
         comfy: comfyOn ? this._metrics.comfy : null,
         tailscale: tailscaleOn ? this._metrics.tailscale : null,
@@ -714,6 +737,10 @@ export class SparkMonitor {
   // ─── Uptime helper ─────────────────────────────────────────
   /** Read system uptime from /proc/uptime (local or via SSH). */
   async _readUptime() {
+    if (this.spark.kind === "mac") {
+      const boot = await this.collector.readBootTime();
+      return boot ? Math.max(0, Math.floor(Date.now() / 1000 - boot)) : null;
+    }
     if (this.spark.platform === "windows" && !this.spark.isLocal) {
       return this.collector.readWindowsUptime();
     }
@@ -765,6 +792,9 @@ export class SparkMonitor {
           network: this._metrics.network,
           roce: this._metrics.roce,
           llm: this._metrics.llm,
+        runtimes: this._metrics.runtimes,
+        unavailable: this._metrics.unavailable,
+        agentOnline: this._metrics.agentOnline ?? null,
         },
         domain
       );
@@ -977,6 +1007,23 @@ export class SparkMonitor {
   }
 
   // ─── Polling ──────────────────────────────────────────────
+  /** Keep agent inventory fresh, including recovery after startup probes fail. */
+  _restartRuntimesPollInterval() {
+    if (this._runtimesIntervalId != null) {
+      clearInterval(this._runtimesIntervalId);
+      this._intervals = this._intervals.filter((id) => id !== this._runtimesIntervalId);
+      this._runtimesIntervalId = null;
+    }
+    if (this._running && this.collector instanceof MacAgentCollector) {
+      this._runtimesIntervalId = setInterval(
+        () => this._pollDomain("runtimes"),
+        POLL_INTERVAL_RUNTIMES
+      );
+      this._intervals.push(this._runtimesIntervalId);
+      void this._pollDomain("runtimes");
+    }
+  }
+
   async _poll() {
     if (!this._running) return;
     await Promise.all([
@@ -987,6 +1034,7 @@ export class SparkMonitor {
       this._pollDomain("storage"),
       this._pollDomain("ram"),
       this._pollDomain("memory"),
+      this._pollDomain("runtimes"),
       this._pollDomain("llm"),
       this._pollDomain("comfy"),
       this._pollDomain("hermes"),
@@ -1028,6 +1076,8 @@ export class SparkMonitor {
     if (domain === "comfy" && !this._comfyMonitoringEnabled()) return;
     if (domain === "hermes" && !this._hermesMonitoringEnabled()) return;
     if (domain === "tailscale" && !this._tailscaleMonitoringEnabled()) return;
+    // Only agent-backed units can report runtimes / declared gaps.
+    if (domain === "runtimes" && typeof this.collector.collectRuntimes !== "function") return;
     const runGeneration = this._runGeneration;
     const pollToken = Symbol(domain);
     this._inflight[domain] = pollToken;
@@ -1062,6 +1112,9 @@ export class SparkMonitor {
           break;
         case "memory":
           result = await this.collector.collectUnifiedMemory();
+          break;
+        case "runtimes":
+          result = await this.collector.collectRuntimes();
           break;
         case "llm":
           // Probe all ports in parallel
@@ -1127,6 +1180,11 @@ export class SparkMonitor {
           this._metrics.unifiedMemory = result;
           this._updateHealth();
           break;
+        case "runtimes":
+          this._metrics.runtimes = Array.isArray(result?.runtimes) ? result.runtimes : null;
+          this._metrics.unavailable = Array.isArray(result?.unavailable) ? result.unavailable : [];
+          this._metrics.agentOnline = Boolean(result?.agentOnline);
+          break;
         case "llm":
           {
             const probes = Array.from(this.llmProbes.values());
@@ -1154,6 +1212,11 @@ export class SparkMonitor {
       // actually read, so a stalled RoCE read ages instead of looking fresh.
       if (domain === "network" && roce?.sampledAt) this._lastSuccess.roce = roce.sampledAt;
     } catch (err) {
+      if (domain === "runtimes" && this._running && this._runGeneration === runGeneration) {
+        this._metrics.runtimes = [];
+        this._metrics.unavailable = [{ metric: "agent", reason: "mac agent runtimes probe failed" }];
+        this._metrics.agentOnline = false;
+      }
       if (
         this._running &&
         this._runGeneration === runGeneration &&
@@ -1335,9 +1398,36 @@ export class SparkMonitor {
   /**
    * Static summary used for kind "spark" (DGX Spark specs) and as the
    * pre-detection fallback for kind "host". kind "host" is then enriched
-   * with real hardware from `detectHardware()` once available.
+   * with real hardware from `detectHardware()` once available; kind "mac"
+   * likewise starts from a generic Apple Silicon summary.
    */
+  _detectHardwareInBackground() {
+    if (this.spark?.kind !== "host" && this.spark?.kind !== "mac") return;
+    const collector = this.collector;
+    const detectPromise =
+      this.spark?.kind === "host" && this.spark?.platform === "windows"
+        ? collector.detectWindowsHardware()
+        : collector.detectHardware();
+    void detectPromise
+      .then((detected) => {
+        if (this._stopped || !detected || collector !== this.collector) return;
+        this._hardwareSummary = { ...this._hardwareSummary, ...detected };
+      })
+      .catch(() => {});
+  }
+
   _staticHardwareSummary(spark) {
+    if (spark?.kind === "mac") {
+      return {
+        device: "Apple Silicon Mac",
+        cpuModel: null,
+        cpuCores: null,
+        totalMemoryGB: null,
+        gpuChip: null,
+        cudaDriver: null,
+        storageModel: null,
+      };
+    }
     if (spark?.kind === "host") {
       return {
         device: spark.platform === "windows" ? "Windows GPU host" : "Linux GPU host",
@@ -1359,4 +1449,17 @@ export class SparkMonitor {
       storageModel: null,
     };
   }
+}
+
+/**
+ * Metrics collector for a unit: Apple Silicon Macs with an on-device agent are
+ * read from that agent (vitals + runtime inventory); Macs without one use stock
+ * macOS tools over SSH; every other kind uses the Linux/NVIDIA collector.
+ * @param {object} spark
+ */
+export function createCollector(spark) {
+  if (spark?.kind !== "mac") return new SystemCollector(spark);
+  return spark.agent
+    ? new MacAgentCollector(spark)
+    : new MacSystemCollector(spark);
 }
