@@ -194,11 +194,21 @@ describe("SparkCard per-stream decode rate", () => {
 });
 
 describe("SparkCard effective prefill rate", () => {
+  it("does not present an unavailable live TensorFold prefill as measured zero", () => {
+    const spark = head(true);
+    Object.assign(spark.metrics.llm[0], { backend: "tensorfold", prefillTps: 0, perStreamTps: 40, requestsRunning: 3 });
+    const { container } = render(<SparkCard spark={spark} temperatureUnit="celsius" />);
+    expect(container.textContent).toContain("Not measured live");
+    expect(container.textContent).toContain("Decode · aggregate");
+    expect(container.textContent).toContain("40.0 tok/s · last completions");
+    expect(container.textContent).not.toContain("tok/s per stream");
+  });
   it("labels the per-request prefill as effective (incl. cached tokens)", () => {
     const spark = head(true);
-    Object.assign(spark.metrics.llm[0], { prefillTps: 2813, perStreamPrefillTps: 2813 });
+    Object.assign(spark.metrics.llm[0], { backend: "tensorfold", prefillTps: 2813, perStreamPrefillTps: 2813, prefillTpsSource: "completed-effective" });
     const { container } = render(<SparkCard spark={spark} temperatureUnit="celsius" />);
-    expect(container.textContent).toContain("2,813 tok/s per request — effective (incl. cached tokens)");
+    expect(container.textContent).toContain("Prefill · last completed");
+    expect(container.textContent).toContain("Effective rate · includes cached tokens");
   });
   it("omits the prefill line when no request has finished", () => {
     const spark = head(true);

@@ -162,15 +162,15 @@ export class LlmProbe {
     this._tensorfoldTpotCount = null;
     this._tensorfoldTpotSum = null;
     /**
-     * Effective prefill tok/s of ONE request (TensorFold /metrics-only builds):
-     * Δprompt_tokens_total / Δprefill-seconds over finished requests. Labeled
-     * "effective" because prompt_tokens_total includes prefix-cache hits and
-     * the engine exposes no cached counter on /metrics. null until a request
-     * with prefill time has finished; held (not zeroed) between completions.
+     * Completed-window prefill tok/s: Δprompt tokens / Δprefill seconds,
+     * including cache credit and explicitly labelled effective.
+     * Not a live or individual-request rate;
+     * null before measurement and after 20 seconds without a valid update.
      */
     this.perStreamPrefillTps = null;
     /** When the last SANITY-PASSING prefill measurement was taken (hold expires after 20 s). */
     this._tensorfoldPrefillMeasuredAt = null;
+    this.prefillTpsSource = null;
     /** Previous prompt_tokens_total / prefill histogram _sum / _count for the /metrics prefill window. */
     this._tensorfoldPromptTokens = null;
     this._tensorfoldPrefillSum = null;
@@ -501,6 +501,7 @@ export class LlmProbe {
     this._tensorfoldTpotSum = null;
     this.perStreamPrefillTps = null;
     this._tensorfoldPrefillMeasuredAt = null;
+    this.prefillTpsSource = null;
     this._tensorfoldPromptTokens = null;
     this._tensorfoldPrefillSum = null;
     this._tensorfoldPrefillCount = null;
@@ -980,6 +981,7 @@ export class LlmProbe {
         const healthRes = await this._fetch(`${this.baseUrl}/health`);
         if (healthRes.ok) {
           const health = await healthRes.json().catch(() => null);
+          this.prefillTpsSource = null;
           this._applyTensorFoldHealth(health, dtSec);
           this._applyTensorFoldLive(health);
           // Newer builds report live rates in /health but cumulative totals only on Prometheus /metrics.
@@ -988,7 +990,7 @@ export class LlmProbe {
             // A decode rate the server reports itself wins over the /metrics counter diff.
             const liveDecode = health?.live?.decode_tokens_per_second;
             const hasLiveDecode = liveDecode != null && Number.isFinite(Number(liveDecode));
-            await this._applyTensorFoldMetrics(hasLiveDecode ? undefined : dtSec);
+            await this._applyTensorFoldMetrics(dtSec, false, hasLiveDecode);
           } else if (this.requestsWaiting == null) {
             // A /health with token totals but no waiting count (TensorFold's Python engine) keeps
             // its queue gauge in /metrics alone: poll it queue-only, so /health stays the authority
@@ -1981,6 +1983,7 @@ export class LlmProbe {
     const prefill = rate(live.prefill_tokens_per_second);
     if (decode != null) this.generationTps = decode;
     if (prefill != null) this.prefillTps = prefill;
+    if (prefill > 0) this.prefillTpsSource = "live";
     const waiting = live.waiting == null ? NaN : Number(live.waiting);
     if (Number.isFinite(waiting) && waiting >= 0) this.requestsWaiting = Math.round(waiting);
     const conns = live.connections == null ? NaN : Number(live.connections);
@@ -1998,8 +2001,9 @@ export class LlmProbe {
    * @param {number} [dtSec]
    * @param {boolean} [queueOnly=false] apply only the waiting gauge: for builds whose /health
    * carries the totals but no waiting count, /metrics is still the queue's only source.
+   * @param {boolean} [preserveLiveDecode=false] retain /health decode while still collecting prefill timing.
    */
-  async _applyTensorFoldMetrics(dtSec, queueOnly = false) {
+  async _applyTensorFoldMetrics(dtSec, queueOnly = false, preserveLiveDecode = false) {
     let txt;
     try {
       const res = await this._fetch(`${this.baseUrl}/metrics`);
@@ -2041,7 +2045,7 @@ export class LlmProbe {
       const produced = gen + (Number.isFinite(inFlight) && inFlight >= 0 ? inFlight : 0);
       const prev = this._tensorfoldPromProduced;
       this._tensorfoldPromProduced = produced;
-      if (prev != null && Number.isFinite(dtSec) && dtSec > 0) {
+      if (!preserveLiveDecode && prev != null && Number.isFinite(dtSec) && dtSec > 0) {
         this.generationTps = Math.max(0, Math.round(((produced - prev) / dtSec) * 100) / 100);
       }
     }
@@ -2150,9 +2154,8 @@ export class LlmProbe {
     // mid-prefill rate exists; derive the effective per-request rate from the
     // completion window and HOLD it until the next finish, with a "prefilling"
     // indicator while a request is open and no tokens have been produced yet.
-    // CAVEAT: prompt_tokens_total counts prefix-cache tokens too and this
-    // surface has no cached counter — the number is an effective rate, not raw
-    // GPU compute speed (the label says so).
+    // This existing ratio includes cache hits: label it effective, not GPU
+    // compute throughput. It is a completed-window, not live measurement.
     if (!queueOnly && Number.isFinite(dtSec) && dtSec > 0) {
       let prefillPrefix = null;
       if (m("request_prefill_seconds_count") != null) prefillPrefix = "request_prefill_seconds";
@@ -2162,6 +2165,8 @@ export class LlmProbe {
         const pCount = m(`${prefillPrefix}_count`);
         if (Number.isFinite(pSum) && Number.isFinite(pCount) && pSum >= 0 && pCount >= 0) {
           const prevPrompt = this._tensorfoldPromptTokens;
+          const livePrefill = this.prefillTpsSource === "live";
+          const livePrefillRate = this.prefillTps;
           const prevSum = this._tensorfoldPrefillSum;
           const prevCount = this._tensorfoldPrefillCount;
           if (
@@ -2213,6 +2218,11 @@ export class LlmProbe {
           this._tensorfoldPromptTokens = prompt;
           this._tensorfoldPrefillSum = pSum;
           this._tensorfoldPrefillCount = pCount;
+          this.prefillTpsSource = this.perStreamPrefillTps != null ? "completed-effective" : null;
+          if (livePrefill) {
+            this.prefillTps = livePrefillRate;
+            this.prefillTpsSource = "live";
+          }
         }
       }
       // The only live prefill signal this build has: a request is open and no
@@ -3226,6 +3236,7 @@ export class LlmProbe {
       generationTps: this.generationTps,
       perStreamTps: this.perStreamTps,
       perStreamPrefillTps: this.perStreamPrefillTps,
+      prefillTpsSource: this.prefillTpsSource,
       prefillTps: this.prefillTps,
       decodeActive: this.decodeActive === true,
       generationTpsSource: this.generationTpsSource,
@@ -3272,6 +3283,7 @@ export class LlmProbe {
       generationTps: 0,
       perStreamTps: null,
       perStreamPrefillTps: null,
+      prefillTpsSource: null,
       prefillTps: 0,
       decodeActive: false,
       generationTpsSource: null,

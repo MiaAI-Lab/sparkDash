@@ -475,13 +475,13 @@ export interface LlmMetrics {
    */
   perStreamTps?: number | null;
   /**
-   * Effective prefill tok/s of ONE request (aggregate equals it on engines
-   * without a per-request split). Derived from prompt-token and prefill-second
-   * counters that advance when a request FINISHES, so it is held between
-   * completions. Prompt counters include prefix-cache hits — treat it as an
-   * effective rate, not raw GPU compute speed; null when unavailable.
+   * Prefill rate over completed requests, held for up to 20 seconds.
+   * This effective rate includes cache credit; see prefillTpsSource.
+   * Not continuously measured live or an individual-request rate.
    */
   perStreamPrefillTps?: number | null;
+  /** TensorFold: live throughput or a held, cache-inclusive completed-request window. */
+  prefillTpsSource?: "live" | "completed-effective" | null;
   prefillTps: number;
   /** A prompt is being processed right now. With no live rate available (TensorFold reports totals only for finished requests) the UI says "prefilling" instead of 0. */
   prefillActive?: boolean;

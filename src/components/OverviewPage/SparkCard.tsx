@@ -238,6 +238,8 @@ function SparkCardImpl({
 
   const showTps = role !== "worker" && !!llm;
   const isStrata = llm?.backend === "strata";
+  const isTensorFold = llm?.backend === "tensorfold";
+  const completedPrefill = llm?.prefillTpsSource?.startsWith("completed-") === true;
   // Engines that report requests (TensorFold, Strata, …) used to hide their parallelism behind
   // "N running": a unit set to --parallel 4 and one set to 8 read the same. Name the capacity too.
   const parallel = llm && llm.slotsTotal > 0 ? llm.slotsTotal : null;
@@ -400,7 +402,7 @@ function SparkCardImpl({
               )}
               <div className="ov-launch__hint">
                 {headLlm
-                  ? `${backendLabel(headLlm.backend) ?? headLlm.backend ?? "LLM"} · ${headLlm.measurementValid === false ? "—" : headLlm.generationTps.toFixed(1)} tok/s decode${headLlm.perStreamTps != null ? ` · ${headLlm.perStreamTps.toFixed(1)} per stream` : ""}${headLlm.perStreamPrefillTps != null ? ` · ${Math.round(headLlm.perStreamPrefillTps).toLocaleString()} prefill per request (effective, incl. cached)` : ""}`
+                  ? `${backendLabel(headLlm.backend) ?? headLlm.backend ?? "LLM"} · ${headLlm.measurementValid === false ? "—" : headLlm.generationTps.toFixed(1)} tok/s decode${headLlm.perStreamTps != null ? ` · ${headLlm.perStreamTps.toFixed(1)} last completed decode` : ""}${headLlm.prefillTpsSource?.startsWith("completed-") ? ` · ${Math.round(headLlm.prefillTps).toLocaleString()} last completed prefill (effective, incl. cached)` : ""}`
                   : headSpark
                     ? headSpark.online
                       ? headLlmList.length
@@ -420,7 +422,7 @@ function SparkCardImpl({
                     : undefined
                 }
               >
-                <div className="eyebrow">Decode</div>
+                <div className="eyebrow">{isTensorFold ? "Decode · aggregate" : "Decode"}</div>
                 {llm.measurementValid === false ? (
                   <div className="big-num ov-tps__num" title={llm.measurementError ?? "Stats could not be read"}>—</div>
                 ) : isStrata && llm.decodeActive && llm.generationTps <= 0 ? (
@@ -435,9 +437,11 @@ function SparkCardImpl({
                 {llm.measurementValid !== false && llm.perStreamTps != null && (
                   <small
                     className="text-muted"
-                    title="Average decode throughput of one running stream (1 / mean seconds per output token). Only engines that publish a per-token latency histogram report it."
+                    title={isTensorFold
+                      ? "Completed-request decode rate; held between completions, not the speed of a currently running stream."
+                      : "Average decode throughput of one running stream (1 / mean seconds per output token). Only engines that publish a per-token latency histogram report it."}
                   >
-                    {llm.perStreamTps.toFixed(1)} tok/s per stream
+                    {llm.perStreamTps.toFixed(1)} tok/s{isTensorFold ? " · last completions" : " per stream"}
                   </small>
                 )}
               </div>
@@ -448,7 +452,7 @@ function SparkCardImpl({
                     : undefined
                 }
               >
-                <div className="eyebrow">Prefill</div>
+                <div className="eyebrow">{completedPrefill ? "Prefill · last completed" : "Prefill"}</div>
                 {llm.measurementValid === false ? (
                   <div className="big-num ov-tps__num" title={llm.measurementError ?? "Stats could not be read"}>—</div>
                 ) : llm.prefillActive && llm.prefillTps <= 0 ? (
@@ -456,15 +460,15 @@ function SparkCardImpl({
                     <span className="ov-tps__dots" aria-hidden />
                     <small>prefilling</small>
                   </div>
+                ) : isTensorFold && llm.prefillTps <= 0 ? (
+                  <div className="big-num ov-tps__num" title="No current prefill measurement; zero is not evidence of no prefill.">—</div>
                 ) : (
                   <div className="big-num ov-tps__num">{Math.round(llm.prefillTps).toLocaleString()}<small>tok/s</small></div>
                 )}
-                {llm.measurementValid !== false && llm.perStreamPrefillTps != null && (
-                  <small
-                    className="text-muted"
-                    title="Effective prefill rate of one request (prompt tokens ÷ prefill seconds over finished requests). The prompt counter includes prefix-cache tokens, so this is an effective speed, not raw GPU speed; it is held between completions."
-                  >
-                    {Math.round(llm.perStreamPrefillTps).toLocaleString()} tok/s per request — effective (incl. cached tokens)
+                {isTensorFold && !completedPrefill && llm.prefillTps <= 0 && <small className="text-muted">Not measured live</small>}
+                {llm.measurementValid !== false && completedPrefill && (
+                  <small className="text-muted" title="Completion-window tokens divided by prefill seconds; not continuous live throughput.">
+                    Effective rate · includes cached tokens
                   </small>
                 )}
                 {isStrata && llm.prefillTps > 0 && <small className="text-muted">last reported mean</small>}
