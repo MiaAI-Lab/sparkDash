@@ -810,6 +810,22 @@
   font-size: 11.5px;
 }
 
+/* A head whose engine answers on its worker: a quiet note with a warning accent (#271) */
+.ov .ov-launch--moved {
+  gap: 4px;
+  min-height: 0;
+  border: 1px solid color-mix(in srgb, var(--color-warning) 45%, transparent);
+  background: color-mix(in srgb, var(--color-warning) 8%, transparent);
+  padding: 8px 10px;
+}
+.ov .ov-launch--moved .eyebrow {
+  color: var(--color-warning);
+}
+.ov .ov-launch--moved .ov-launch__hint {
+  font-size: 11.5px;
+  color: var(--color-text);
+}
+
 /* ── Health findings (cards) ─────────────────────────────── */
 .ov .ov-sc.is-health-warn {
   border-color: color-mix(in srgb, var(--color-warning) 50%, transparent);

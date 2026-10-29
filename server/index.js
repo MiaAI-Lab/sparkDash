@@ -8,6 +8,8 @@ import dotenv from "dotenv";
 import { SparkRegistry } from "./sparks/SparkRegistry.js";
 import { resolveFrontendDir, FRONTEND_MISSING_MESSAGE } from "./frontendDir.js";
 import { SparkMonitor } from "./sparks/SparkMonitor.js";
+import { LlmProbe } from "./collectors/LlmProbe.js";
+import { detectLlmMovedToWorker, llmDown } from "./sparks/LlmMovedToWorker.js";
 import { sshExec } from "./collectors/ssh.js";
 import { comfyCancelJob } from "./collectors/comfyActions.js";
 import {
@@ -793,7 +795,7 @@ registerUnitHistoryRoutes(app, {
 app.get("/api/sparks/:id/metrics", (req, res) => {
   const monitor = monitors.get(req.params.id);
   if (!monitor) return res.status(404).json({ error: "Spark not found" });
-  res.json(monitor.snapshot());
+  res.json(withMovedEngineHint(monitor.snapshot()));
 });
 
 // Test SSH + LLM connectivity for a registered Spark.
@@ -2322,7 +2324,8 @@ function buildSnapshotPayload(sparks = orderedSnapshots()) {
   const payload = {
     type: "snapshot",
     generatedAt: Date.now(),
-    sparks,
+    // A head whose engine answers on its worker carries the hint; every other snapshot is untouched.
+    sparks: movedEngineHints.size ? sparks.map(withMovedEngineHint) : sparks,
     refreshInterval: getSettings().pollIntervalMs,
   };
   // Only while alerts are on: the key's absence tells the UI to derive its own.
@@ -2376,6 +2379,79 @@ function forceBroadcast() {
   publishMqttFleet();
 }
 
+// ─── #271: an engine that moved to the worker ────────────
+// Workers are not polled, so a recipe that starts rank 0 on the worker leaves the head's LLM
+// ports unanswered with no explanation. Probe the workers only while the head is down, throttled,
+// and surface a hint. Never write config, never swap roles.
+const movedEngineHints = new Map();
+const movedEngineProbeState = new Map();
+let movedEngineWatchTimer = null;
+
+async function probeWorkerLlm(workerSpark, port) {
+  if (!workerSpark) return null;
+  const probe = new LlmProbe(workerSpark, port);
+  try {
+    return await probe.probe();
+  } catch {
+    return null;
+  } finally {
+    probe.dispose?.();
+  }
+}
+
+async function refreshMovedEngineHints() {
+  // Workers report no `llmPorts` in their snapshot (LLM polling is off for them by design);
+  // the registry keeps the configured ports the detector needs to probe.
+  const sparks = orderedSnapshots().map((s) => {
+    const cfg = registry.getSpark(s.id);
+    return cfg?.llmPorts?.length ? { ...s, llmPorts: cfg.llmPorts } : s;
+  });
+  for (const snap of sparks) {
+    if (snap.role !== "head") {
+      movedEngineHints.delete(snap.id);
+      continue;
+    }
+    if (!llmDown(snap)) {
+      movedEngineHints.delete(snap.id);
+      movedEngineProbeState.delete(snap.id);
+      continue;
+    }
+    const hint = await detectLlmMovedToWorker({
+      head: snap,
+      sparks,
+      probe: (workerSnap, port) => probeWorkerLlm(registry.getSpark(workerSnap.id), port),
+      state: movedEngineProbeState,
+    });
+    if (!hint) {
+      movedEngineHints.delete(snap.id);
+      continue;
+    }
+    const prev = movedEngineHints.get(snap.id);
+    movedEngineHints.set(snap.id, hint);
+    if (!prev || prev.workerId !== hint.workerId || prev.port !== hint.port) {
+      recordEvent({
+        sparkId: snap.id,
+        type: "llm.moved_to_worker",
+        severity: "warn",
+        message: hint.message,
+      });
+    }
+  }
+}
+
+function startMovedEngineWatch() {
+  if (movedEngineWatchTimer) return;
+  movedEngineWatchTimer = setInterval(() => void refreshMovedEngineHints(), 30_000);
+  movedEngineWatchTimer.unref?.();
+  setTimeout(() => void refreshMovedEngineHints(), 5_000).unref?.();
+}
+
+/** Attach the current hint (if any) to a head's snapshot. Display-only. */
+function withMovedEngineHint(snap) {
+  const hint = movedEngineHints.get(snap?.id);
+  return hint ? { ...snap, llmMovedTo: hint } : snap;
+}
+
 function startBroadcast() {
   const interval = getSettings().pollIntervalMs;
   broadcastTimer = setInterval(() => {
@@ -2411,6 +2487,7 @@ logStartupPreflight(startupPreflight, BIND_HOST, PORT);
 
 if (!startupPreflight.fatal) {
   startBroadcast();
+  startMovedEngineWatch();
   if (isLoopbackBind(BIND_HOST)) {
     // Learn this machine's MagicDNS name (via the host namespace in Docker) so Tailscale Serve
     // needs no SPARKDASH_ALLOWED_HOSTS entry; re-checked now and then in case tailscaled starts later.

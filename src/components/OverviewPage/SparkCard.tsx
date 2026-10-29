@@ -195,7 +195,7 @@ function SparkCardImpl({
     !llm && (memUsed >= 2048 || usage >= 10)
       ? `${gpuHolders.length > 0 ? `In use by ${gpuHolders.join(", ")} · ` : ""}${formatMb(memUsed)} VRAM in use · GPU ${Math.round(usage)}%`
       : null;
-  const showLauncher = role !== "worker" && !llm && spark.llmMonitoring !== false && spark.platform !== "windows";
+  const showLauncher = role !== "worker" && !llm && !spark.llmMovedTo && spark.llmMonitoring !== false && spark.platform !== "windows";
 
   const showTps = role !== "worker" && !!llm;
   const isStrata = llm?.backend === "strata";
@@ -363,6 +363,16 @@ function SparkCardImpl({
                         : "No LLM port is watched on the head"
                       : "Head is offline"
                     : "Pick its head in Edit Spark to see the model here"}
+              </div>
+            </div>
+          ) : null}
+          {role !== "worker" && spark.llmMovedTo ? (
+            <div className="ov-launch ov-launch--moved" title={spark.llmMovedTo.message}>
+              <div className="eyebrow">Engine on the worker</div>
+              <div className="ov-launch__hint">
+                {spark.llmMovedTo.workerName} answers on port {spark.llmMovedTo.port}
+                {spark.llmMovedTo.modelId ? ` · ${spark.llmMovedTo.modelId}` : ""} while this head does not.
+                The engine may have moved — swap head and worker?
               </div>
             </div>
           ) : null}

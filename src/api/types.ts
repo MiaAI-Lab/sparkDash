@@ -688,6 +688,16 @@ export interface SparkMetrics {
 }
 
 // ─── Spark snapshot (server pushes this) ──────────────────
+/** Hint attached to a head whose engine answers on a paired worker (#271). */
+export interface LlmMovedToWorker {
+  workerId: string;
+  workerName: string;
+  port: number;
+  modelId: string | null;
+  backend: string | null;
+  message: string;
+}
+
 export interface SparkSnapshot {
   id: string;
   /** Active health findings, most important first is not guaranteed; sort with sortFindings. */
@@ -722,6 +732,11 @@ export interface SparkSnapshot {
   workerDerivedLabel?: string | null;
   /** Optional head Spark id when role is worker */
   workerHeadId?: string | null;
+  /**
+   * Head only: the engine answers on a paired worker while every head port is down (#271).
+   * Display-only hint — sparkDash never swaps roles itself.
+   */
+  llmMovedTo?: LlmMovedToWorker | null;
   /** Standalone: whether LLM is probed (head always true, worker always false) */
   llmMonitoring?: boolean;
   /** LLM server port (first port, for backward compat) */
