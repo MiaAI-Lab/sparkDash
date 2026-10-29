@@ -1,6 +1,6 @@
 import { act } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { getQualityBench, listQualityBench } from "../../api/client";
+import { getQualityBench, listQualityBench, deleteQualityBenchRun } from "../../api/client";
 import type { QualityBenchDefaults, QualityBenchJob } from "../../api/types";
 import { mcnemarExactP } from "../../shared/qualityBench.js";
 import { flush, render } from "../../testing/render";
@@ -9,6 +9,7 @@ import { QualityBenchDialog } from "./QualityBenchDialog";
 vi.mock("../../api/client", () => ({
   cancelQualityBench: vi.fn(),
   clearQualityBenchHistory: vi.fn(),
+  deleteQualityBenchRun: vi.fn(),
   getQualityBench: vi.fn(),
   listQualityBench: vi.fn(),
   startQualityBench: vi.fn(),
@@ -213,5 +214,80 @@ describe("QualityBenchDialog", () => {
     const size8k = [...document.querySelectorAll('[aria-label="Long-context sizes"] button')].find((b) => b.textContent === "8k") as HTMLButtonElement;
     // 8192*1.2 = 9831 + 512 = 10343 > 10000 -> disabled (the old n+512 rule would allow it)
     expect(size8k.disabled).toBe(true);
+  });
+
+  it("deletes one saved run after a confirmation and keeps the rest", async () => {
+    const current = run("b2", "fp4 KV", [true, true], "a");
+    const previous = run("b1", "bf16 KV", [true, false], "b");
+    const { items: _items, ...prevSummary } = previous.results;
+    vi.mocked(listQualityBench).mockReset().mockResolvedValue({
+      active: null,
+      last: current,
+      history: [current, { ...previous, results: prevSummary }],
+      defaults,
+    });
+    vi.mocked(deleteQualityBenchRun).mockResolvedValue({ success: true });
+    const confirmStub = vi.fn(() => true);
+    vi.stubGlobal("confirm", confirmStub);
+    try {
+      render(<QualityBenchDialog open variant="page" onClose={() => {}} sparkId="s1" llmPort={8888} modelId="test-model" contextLength={32768} />);
+      await flush();
+
+      const historyTable = [...document.querySelectorAll("table")].find((t) =>
+        (t.querySelector("thead")?.textContent ?? "").includes("Label")
+      ) as HTMLTableElement;
+      const rows = [...historyTable.querySelectorAll("tbody tr")] as HTMLElement[];
+      expect(rows).toHaveLength(2);
+      const del = [...rows[1].querySelectorAll("button")].find((b) => b.textContent === "Delete") as HTMLButtonElement;
+      expect(del).toBeTruthy();
+
+      await act(async () => del.click());
+      await flush();
+
+      expect(confirmStub).toHaveBeenCalled();
+      expect(deleteQualityBenchRun).toHaveBeenCalledWith("s1", "b1");
+      // The list is reloaded so the deleted run stops being offered for comparison.
+      expect(listQualityBench).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("offers no delete for a run still in flight", async () => {
+    const running = run("b3", "live", [true], "a");
+    running.status = "running";
+    running.results = { overallPct: 100, skippedLongSizes: [], itemCount: 1, categories: running.results.categories };
+    vi.mocked(listQualityBench).mockReset().mockResolvedValue({ active: running, last: null, history: [running], defaults });
+    vi.mocked(getQualityBench).mockResolvedValue(running);
+    render(<QualityBenchDialog open variant="page" onClose={() => {}} sparkId="s1" llmPort={8888} modelId="test-model" contextLength={32768} />);
+    await flush();
+
+    const historyTable = [...document.querySelectorAll("table")].find((t) =>
+      (t.querySelector("thead")?.textContent ?? "").includes("Label")
+    ) as HTMLTableElement;
+    const rows = [...historyTable.querySelectorAll("tbody tr")] as HTMLElement[];
+    expect(rows.length).toBeGreaterThan(0);
+    expect([...rows[0].querySelectorAll("button")].some((b) => b.textContent === "Delete")).toBe(false);
+  });
+
+  it("deletes the open run from the dialog footer", async () => {
+    const current = run("b2", "fp4 KV", [true, true], "a");
+    vi.mocked(listQualityBench).mockReset().mockResolvedValue({ active: null, last: current, history: [current], defaults });
+    vi.mocked(deleteQualityBenchRun).mockResolvedValue({ success: true });
+    const confirmStub = vi.fn(() => true);
+    vi.stubGlobal("confirm", confirmStub);
+    try {
+      render(<QualityBenchDialog open onClose={() => {}} sparkId="s1" llmPort={8888} modelId="test-model" contextLength={32768} />);
+      await flush();
+
+      const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+      const del = [...dialog.querySelectorAll("button")].find((b) => b.textContent === "Delete run") as HTMLButtonElement;
+      expect(del).toBeTruthy();
+      await act(async () => del.click());
+      await flush();
+      expect(deleteQualityBenchRun).toHaveBeenCalledWith("s1", "b2");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

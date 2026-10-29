@@ -1839,6 +1839,17 @@ app.delete("/api/sparks/:id/llm/quality-bench", (req, res) => {
   res.json({ success: true });
 });
 
+app.delete("/api/sparks/:id/llm/quality-bench/history/:benchId", (req, res) => {
+  const spark = registry.getSpark(req.params.id);
+  if (!spark) return res.status(404).json({ error: "Spark not found" });
+  const result = qualityBenchManager.deleteRun(spark.id, req.params.benchId);
+  if (!result.ok && result.reason === "running") {
+    return res.status(409).json({ error: "Cancel the run before deleting it" });
+  }
+  if (!result.ok) return res.status(404).json({ error: "Benchmark not found" });
+  res.json({ success: true });
+});
+
 app.get("/api/sparks/:id/llm/quality-bench/:benchId", (req, res) => {
   const spark = registry.getSpark(req.params.id);
   if (!spark) return res.status(404).json({ error: "Spark not found" });
@@ -1852,9 +1863,18 @@ app.get("/api/sparks/:id/llm/quality-bench/:benchId", (req, res) => {
 app.delete("/api/sparks/:id/llm/quality-bench/:benchId", (req, res) => {
   const spark = registry.getSpark(req.params.id);
   if (!spark) return res.status(404).json({ error: "Spark not found" });
-  const job = qualityBenchManager.cancel(spark.id, req.params.benchId);
-  if (!job) return res.status(404).json({ error: "Benchmark not found" });
-  res.json(job);
+  const job = qualityBenchManager.getJob(req.params.benchId);
+  if (!job || job.sparkId !== spark.id) {
+    return res.status(404).json({ error: "Benchmark not found" });
+  }
+  // This route only cancels a run in flight. A finished run used to come back as a
+  // 200 with its own record, which read as a successful cancel while nothing changed.
+  if (job.status !== "running") {
+    return res.status(409).json({
+      error: "This run has already finished; delete it from the history instead",
+    });
+  }
+  res.json(qualityBenchManager.cancel(spark.id, req.params.benchId));
 });
 
 /**

@@ -81,6 +81,7 @@ export function HistoryTable({
   onView,
   onCompare,
   compareId,
+  onDelete,
   busy,
 }: {
   rows: readonly HistoryRow[];
@@ -90,6 +91,8 @@ export function HistoryTable({
   /** Quality only: pick a run to compare the open one against. */
   onCompare?: (id: string) => void;
   compareId?: string;
+  /** Quality only: remove one saved run. A run in flight offers no delete. */
+  onDelete?: (id: string) => void;
   /** A run is in flight, so opening another would replace its live view. */
   busy: boolean;
 }) {
@@ -140,6 +143,16 @@ export function HistoryTable({
                     onClick={() => onCompare(r.id)}
                   >
                     {r.id === compareId ? "Comparing" : "Compare"}
+                  </button>
+                ) : null}
+                {onDelete && r.status !== "running" ? (
+                  <button
+                    type="button"
+                    className="btn btn--sm btn--ghost"
+                    onClick={() => onDelete(r.id)}
+                    title="Remove this run from the history"
+                  >
+                    Delete
                   </button>
                 ) : null}
               </td>
