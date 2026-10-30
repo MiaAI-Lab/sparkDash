@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergeTraces } from "./useKioskTraces";
+import { forEachLimited, mergeTraces } from "./useKioskTraces";
 import type { KioskTraces } from "./kioskModel";
 
 const traces = (n: number): KioskTraces => ({ gpu: [n], cpu: [n], gen: [n], prefill: [n] }) as unknown as KioskTraces;
@@ -23,5 +23,26 @@ describe("mergeTraces", () => {
     expect(Object.keys(mergeTraces({}, { c: traces(4) }, ["c"]))).toEqual(["c"]);
     // A unit with neither a fetch nor a previous series is simply absent, not an empty trace.
     expect(mergeTraces({}, {}, ["d"])).toEqual({});
+  });
+});
+
+describe("forEachLimited", () => {
+  it("runs every item, never more than the limit at once", async () => {
+    let running = 0;
+    let peak = 0;
+    const done: number[] = [];
+    await forEachLimited([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 4, async (n) => {
+      running += 1;
+      peak = Math.max(peak, running);
+      await new Promise((r) => setTimeout(r, n % 3));
+      done.push(n);
+      running -= 1;
+    });
+    expect(peak).toBe(4);
+    expect(done.sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  });
+
+  it("finishes at once with nothing to do", async () => {
+    await expect(forEachLimited([], 4, async () => {})).resolves.toBeUndefined();
   });
 });

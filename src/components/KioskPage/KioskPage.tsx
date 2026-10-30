@@ -3,6 +3,7 @@ import "../../styles/kiosk.css";
 import { fetchFleetEnergy, fetchSettings } from "../../api/client";
 import type { FleetEnergy, Settings, SparkSnapshot } from "../../api/types";
 import { resolveSparkRole } from "../../api/sparkRole";
+import { OVERVIEW_ID, idToPath } from "../../constants";
 import { useSnapshot } from "../../hooks/useSnapshot";
 import { useFleetAlerts } from "../../hooks/useFleetAlerts";
 import { formatTemperature } from "../../shared/fleetExceptions";
@@ -302,7 +303,7 @@ export function KioskPage() {
   useEffect(() => {
     document.title = "sparkDash · Kiosk";
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") window.location.href = "/";
+      if (e.key === "Escape") window.location.href = idToPath(OVERVIEW_ID);
     };
     const onResize = () => setSize({ w: window.innerWidth, h: window.innerHeight });
     window.addEventListener("keydown", onKey);
@@ -394,7 +395,7 @@ export function KioskPage() {
           </span>
         </a>
         <HeadKpi value={rateText(totals.decodeTps)} label="tok/s fleet decode" trace={fleetGen} traceKey="gen" />
-        <HeadKpi value={totals.powerW.toFixed(0)} unit="W" label="GPU power" />
+        <HeadKpi value={totals.powerW == null ? "—" : totals.powerW.toFixed(0)} unit={totals.powerW == null ? undefined : "W"} label="GPU power" />
         <HeadKpi value={stats.gpuTempMaxC == null ? "—" : formatTemperature(stats.gpuTempMaxC, tempUnit)} label="hottest GPU" />
         <HeadKpi value={stats.queued == null ? "—" : String(stats.queued)} label="queued" />
         <HeadKpi

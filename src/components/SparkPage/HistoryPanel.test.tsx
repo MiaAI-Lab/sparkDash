@@ -164,6 +164,20 @@ describe("HistoryPanel", () => {
     expect(mem.textContent).toContain("low 2.0 GB");
   });
 
+  it("adds a RAM chart on a discrete host, but not on a Mac, whose RAM is the unified pool", async () => {
+    const withRam = data();
+    withRam.points = withRam.points.map((p) => ({ ...p, ramUsedMB: { avg: 40_000, max: 41_000 } }));
+    fetchHistory.mockResolvedValue(withRam);
+    const linux = render(<HistoryPanel sparkId="h" kind="host" platform="linux" temperatureUnit="celsius" />);
+    await flush();
+    expect(chart(linux.container, "ramUsed").textContent).toContain("RAM used");
+
+    const mac = render(<HistoryPanel sparkId="m" kind="host" platform="darwin" temperatureUnit="celsius" />);
+    await flush();
+    expect(mac.container.querySelector('[data-chart="ramUsed"]')).toBeNull();
+    expect(chart(mac.container, "memFree").textContent).toContain("Memory free (unified)");
+  });
+
   it("charts each LLM endpoint, KV only when reported", async () => {
     const { container } = await mount();
     expect(chart(container, "llm-8888-gen")).toBeTruthy();

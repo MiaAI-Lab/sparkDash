@@ -89,7 +89,7 @@ export function FleetKpis({
     setTrends((prev) => {
       const next = {
         decode: pushRolling(prev.decode, t.decodeTps),
-        power: pushRolling(prev.power, t.powerW),
+        power: t.powerW == null ? prev.power : pushRolling(prev.power, t.powerW),
         mem: pushRolling(prev.mem, t.memUsedMb / 1024),
       };
       persisted = next;
@@ -139,7 +139,7 @@ export function FleetKpis({
       {showPower ? (
         <Kpi
           label="Fleet power"
-          value={totals.powerW.toFixed(0)}
+          value={totals.powerW == null ? "—" : totals.powerW.toFixed(0)}
           unit="W"
           trend={trends.power}
           color="var(--color-violet)"

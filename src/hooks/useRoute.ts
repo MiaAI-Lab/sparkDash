@@ -1,6 +1,6 @@
 import { withPageTransition } from "./pageTransition";
 import { useEffect, useCallback, useMemo, useState } from "react";
-import { idToPath, pathToId } from "../constants";
+import { KIOSK_ID, idToPath, pathToId } from "../constants";
 
 export type RouteMode = "app" | "showcase" | "kiosk";
 
@@ -11,7 +11,7 @@ export interface AppRoute {
 }
 
 function parsePath(pathname: string): AppRoute {
-  if (pathname === "/kiosk" || pathname === "/kiosk/") return { mode: "kiosk", showcaseSparkId: null };
+  if (pathToId(pathname) === KIOSK_ID) return { mode: "kiosk", showcaseSparkId: null };
   const showcase = pathname.match(/^\/showcase\/([^/]+)/);
   if (showcase) {
     return {

@@ -25,3 +25,14 @@ describe("FleetKpis trend samples", () => {
     expect(container.querySelectorAll("svg").length).toBeGreaterThan(0);
   });
 });
+
+describe("FleetKpis power", () => {
+  beforeEach(() => _resetFleetKpiTrends());
+
+  it("reads a dash, not 0 W, when no unit reports power", () => {
+    const unmeasured = [makeSpark("a"), makeSpark("b")];
+    for (const s of unmeasured) s.metrics.gpu!.metricAvailability = { powerDraw: false } as never;
+    const { container } = render(<FleetKpis sparks={unmeasured} snapshotKey={unmeasured} show={{ decode: false, memory: false, tokens: false }} />);
+    expect(container.querySelector(".big-num")!.textContent).toBe("—W");
+  });
+});

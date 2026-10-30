@@ -16,6 +16,17 @@ describe("fleetStats", () => {
     expect(t).toMatchObject({ total: 3, online: 2, decodeTps: 45.5, powerW: 100, memUsedMb: 30, memTotalMb: 300 });
   });
 
+  it("reports no fleet power, not 0 W, when no online unit has power telemetry", () => {
+    expect(computeFleetTotals([spark({ metrics: { llm: [], gpu: null } })]).powerW).toBeNull();
+    const unavailable = { power: { draw: 0 }, metricAvailability: { powerDraw: false }, vram: { used: 1, total: 2 } };
+    expect(computeFleetTotals([spark({ metrics: { llm: [], gpu: unavailable } })]).powerW).toBeNull();
+    // A measured 0 W is still 0 W, and units without telemetry do not hide the ones with it.
+    expect(computeFleetTotals([spark({ metrics: { llm: [], gpu: { power: { draw: 0 } } } })]).powerW).toBe(0);
+    expect(
+      computeFleetTotals([spark({ metrics: { llm: [], gpu: unavailable } }), spark({ id: "b", metrics: { llm: [], gpu: { power: { draw: 55 } } } })]).powerW
+    ).toBe(55);
+  });
+
   it("leaves out an engine whose stats could not be read", () => {
     const t = computeFleetTotals([
       spark({ metrics: { llm: [{ available: true, generationTps: 40 }, { available: true, measurementValid: false, generationTps: 7 }] } }),

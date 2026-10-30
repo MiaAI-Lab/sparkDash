@@ -19,7 +19,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import type { AuthMode, SparkSnapshot } from "../../api/types";
 import { isWorkerSpark } from "../../api/sparkRole";
-import { ACTIVITY_ID, COST_ID, ENERGY_ID, OVERVIEW_ID, SHOWCASE_ID, TEMPS_ID, TOKENS_ID, benchId, idToPath } from "../../constants";
+import { ACTIVITY_ID, COST_ID, ENERGY_ID, KIOSK_ID, OVERVIEW_ID, SHOWCASE_ID, TEMPS_ID, TOKENS_ID, benchId, idToPath } from "../../constants";
 import { BENCH_TYPES } from "../bench/benchCatalog";
 import { BoltIcon, ChevronDownIcon, CoinsIcon, ExpandIcon, GearIcon, GithubIcon, GlobeIcon, GridIcon, ListIcon, PanelLeftIcon, PlusIcon, SearchIcon, TerminalIcon, ThermometerIcon, TokensIcon, XLogoIcon } from "../ui/icons";
 import { OpenAccessChip } from "../OpenAccessChip";
@@ -376,7 +376,7 @@ export function AppSidebar({
             <TerminalIcon className="h-4 w-4" />
             <span className="rail-item__name">Showcase</span>
           </a>
-          <a href="/kiosk" className="rail-item" title="Full-screen wall display (Esc returns)">
+          <a href={idToPath(KIOSK_ID)} className="rail-item" title="Full-screen wall display (Esc returns)">
             <ExpandIcon className="h-4 w-4" />
             <span className="rail-item__name">Kiosk</span>
           </a>
