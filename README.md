@@ -46,6 +46,7 @@ Monitored units run **Linux**, **macOS**, or **Windows** (a Windows PC with an N
 - [Quality bench](#quality-bench)
 - [Prometheus](#prometheus)
 - [Alert notifications](#alert-notifications)
+- [Power meters (wall power)](#power-meters-wall-power)
 - [RoCE / RDMA monitoring](#roce--rdma-monitoring)
 - [Intel Arc GPUs](#intel-arc-gpus)
 - [Windows PCs](#windows-pcs)
@@ -570,6 +571,12 @@ Publishing is best-effort: while the broker is unreachable sparkDash retries eve
 
 ---
 
+## Power meters (wall power)
+
+Opt-in (off unless `config/power-meters.json` exists). The Energy page normally **estimates** power from GPU and CPU telemetry. If your units are on metered outlets — a smart strip or plug, a metered PDU, anything Home Assistant already reads — sparkDash records **wall power** in the same energy accounting. The Energy page then shows wall power, with GPU (measured) and CPU (modelled) beside it. Live readings are replaced by the meter's own record as it arrives, the first start backfills its history, and gaps are filled from the estimate at a ratio learned per unit. A chip on the Energy page and the Activity log show whether each meter is connected. Meters are pluggable providers, with Home Assistant first. Setup, reconciliation and the provider interface: [docs/POWER-METERS.md](./docs/POWER-METERS.md).
+
+---
+
 ## RoCE / RDMA monitoring
 
 Spark units with RDMA devices (the CX7 ports) get a **RoCE / RDMA** panel on their page, with no switch integration and no root. Per port: link state and rate, MTU, netdev RX/TX traffic, RDMA payload throughput (the port's own `port_rcv_data` / `port_xmit_data` counters), interface errors and drops, PFC priorities, QoS trust mode (PCP or DSCP) and the DSCP map, global pause settings, and the RDMA counters (out of buffer, sequence errors, ACK timeouts, ECN-marked packets, CNPs sent and handled) plus ethtool discards, CRC errors and pause frames, with the change since the last sample.
@@ -865,6 +872,7 @@ sparkDash/
 │   ├── collectors/      SystemCollector, LlmProbe, ssh, RoCE, Windows (PowerShell)
 │   ├── health/          HealthEvaluator (findings)
 │   ├── energy/          Fleet energy tracker + monthly archive
+│   ├── powermeter/      Opt-in wall-power meters: providers, polling, history reconciliation (recorded by energy/)
 │   ├── llmtokens/       Token ledger · events/ Activity log · metrics/ Unit history (GPU chart, Temps week, 48 h / 30 d tiers)
 │   ├── llmlaunch/       Model launchers · tooleval/ Tool Eval Bench
 │   ├── secretsStore.js  Encrypted password persistence
@@ -1051,6 +1059,7 @@ Copy `.env.example` to `.env` if needed:
 | `MAX_ACTIVE_BENCH_JOBS` | `2` | Benchmarks (decode, prefill, quality) that may run at the same time across the whole fleet; each unit still runs one at a time. Clamped to 1–32. A start above the cap is refused with 429. Docker compose passes it through; set it in `.env`. |
 | `FLEET_ENERGY_JSON_PATH` | `config/fleet-energy.json` | Rolling fleet-energy persistence path |
 | `FLEET_ENERGY_MONTHLY_JSON_PATH` | `config/fleet-energy-monthly.json` | Permanent monthly energy archive |
+| `POWER_METERS_CONFIG_PATH` | `config/power-meters.json` | Opt-in [power meters](./docs/POWER-METERS.md): the feature runs only when this file exists |
 | `GPU_HISTORY_JSON_PATH` | `config/gpu-history.json` | 8 h GPU chart history |
 | `GPU_HISTORY_LONG_JSON_PATH` | `config/gpu-history-long.json` | 7-day minute-resolution GPU history (Temps page) |
 | `METRICS_HISTORY_JSON_PATH` | `config/metrics-history.json` | 48 h / 30 d unit history (only with `metricsHistory` on) |
