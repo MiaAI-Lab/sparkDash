@@ -512,7 +512,7 @@ function DashboardApp() {
       <div className={`app-shell${sideHidden ? " app-shell--side-hidden" : ""}`}>
         <AppSidebar
           onCollapse={toggleSidebar}
-          sparks={tabSparks}
+          sparks={displaySparks} // hidden workers stay reachable here
           activeId={displayActive?.id ?? activeId}
           onSelect={navigate}
           onAdd={() => setShowAdd(true)}
