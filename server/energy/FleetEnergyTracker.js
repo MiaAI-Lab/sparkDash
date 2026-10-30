@@ -26,6 +26,12 @@ const PERSISTENCE_RELATIVE_TOLERANCE = 1e-9;
 const MAX_PART_WATTS = 5_000;
 const MAX_WALL_WATTS = 20_000;
 const WALL_PERIODS_MS = new Set([5 * MINUTE_MS, HOUR_MS]);
+// Persistence. The full file is rewritten at most hourly (and by flush()/close()); in
+// between, the periodic flush writes only the minutes changed since then to a small
+// "recent" file beside it, which loading merges back in. A large change set (a backfill)
+// goes straight to a full write.
+const FULL_WRITE_INTERVAL_MS = HOUR_MS;
+const MAX_RECENT_BUCKETS = 2_000;
 
 function clamp(value, minimum, maximum) {
   return Math.max(minimum, Math.min(maximum, value));
@@ -35,6 +41,12 @@ function clamp(value, minimum, maximum) {
 // exact leading edge, limiting approximation error to less than one minute.
 function alignedWindowCutoff(atMs, windowMs) {
   return Math.floor((atMs - windowMs) / MINUTE_MS) * MINUTE_MS;
+}
+
+/** fleet-energy.json → fleet-energy.recent.json */
+function recentPathFor(filePath) {
+  const parsed = path.parse(filePath);
+  return path.join(parsed.dir, `${parsed.name}.recent${parsed.ext}`);
 }
 
 function normalizeNodeIds(nodeIds) {
@@ -126,6 +138,13 @@ function hasExactNodeKeys(value, nodeIds, nodeIdSet) {
  * `nodeIds`, or null when anything is implausible.
  */
 function restoreBucket(candidate, minuteStartMs, nodeIds) {
+  // A bucket that only carries optional series is stored without the estimate's zeros.
+  if (candidate && !("nodeWh" in candidate) && !("nodeCoverageMs" in candidate) && (candidate.parts || candidate.wall)) {
+    candidate = {
+      ...emptyBucket(minuteStartMs, nodeIds),
+      ...candidate,
+    };
+  }
   const nodeIdSet = new Set(nodeIds);
   if (
     !hasExactNodeKeys(candidate?.nodeWh, nodeIds, nodeIdSet) ||
@@ -183,6 +202,37 @@ function restoreBucket(candidate, minuteStartMs, nodeIds) {
   );
   if (wall) bucket.wall = wall;
   return bucket;
+}
+
+const roundMicro = (value) => Math.round(value * 1e6) / 1e6;
+
+function roundSeries(series) {
+  return Object.fromEntries(Object.entries(series).map(([id, entry]) => [id, entry.map(roundMicro)]));
+}
+
+/**
+ * A bucket as written to disk. The estimate's fields keep their exact shape and values;
+ * a bucket that only carries optional series (wall power backfilled from a meter, say) is
+ * written without them, and the optional series are rounded to a microwatt-hour.
+ */
+function serializeBucket(bucket) {
+  if (!bucket.parts && !bucket.wall) return bucket;
+  const estimateEmpty =
+    !bucket.fleetWattMs &&
+    !bucket.fleetCoverageMs &&
+    !bucket.outputTokens &&
+    !bucket.coveredOutputTokens &&
+    Object.values(bucket.nodeWh).every((v) => !v) &&
+    Object.values(bucket.nodeCoverageMs).every((v) => !v);
+  const { parts, wall, ...estimate } = bucket;
+  const out = estimateEmpty ? { minuteStartMs: bucket.minuteStartMs } : { ...estimate };
+  if (parts) out.parts = roundSeries(parts);
+  if (wall) out.wall = roundSeries(wall);
+  return out;
+}
+
+function sameEntry(a, b) {
+  return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((v, i) => v === b[i]);
 }
 
 function validCoverage(coverageMs) {
@@ -324,6 +374,12 @@ export class FleetEnergyTracker {
     this._ratioCache = null;
     // Opaque bookkeeping of the meter integration (watermarks, backfill keys), persisted here.
     this._wallState = {};
+    // Minutes changed since the last full write, for the small periodic write.
+    this._changedMinutes = new Set();
+    this._lastFullWriteAt = null;
+    this._baseSavedAt = null;
+    this._fullWriteNeeded = false;
+    this.recentFilePath = this.filePath ? recentPathFor(this.filePath) : null;
 
     // Permanent monthly roll-up; in memory only unless monthlyFilePath is set.
     this.monthly =
@@ -341,7 +397,7 @@ export class FleetEnergyTracker {
     if (this.filePath && typeof this._setInterval === "function") {
       this._flushTimer = this._setInterval(() => {
         try {
-          this.flush();
+          this.flushRecent();
         } catch (error) {
           console.error(`[FleetEnergyTracker] persist error: ${error.message}`);
         }
@@ -370,7 +426,8 @@ export class FleetEnergyTracker {
     return this._membershipChanged;
   }
 
-  _bucket(minuteStartMs) {
+  _bucket(minuteStartMs, { markChanged = true } = {}) {
+    if (markChanged) this._changedMinutes.add(minuteStartMs);
     if (minuteStartMs < (this._ratioCache?.settled?.beforeMs ?? -Infinity)) this._ratioCache.settled = null;
     let bucket = this._buckets.get(minuteStartMs);
     if (!bucket) {
@@ -541,7 +598,10 @@ export class FleetEnergyTracker {
     }
     this._wallBaselines.delete(nodeId);
     this._ratioCache = null;
-    if (removed > 0) this._dirty = true;
+    if (removed > 0) {
+      this._dirty = true;
+      this._fullWriteNeeded = true;
+    }
     return removed;
   }
 
@@ -561,22 +621,28 @@ export class FleetEnergyTracker {
     const now = this._now();
     const cutoff = this.windowStartMs(now);
     let applied = 0;
+    let changed = 0;
     for (const period of periods) {
       const { startMs, endMs, meanW } = period ?? {};
       const durationMs = endMs - startMs;
       if (!WALL_PERIODS_MS.has(durationMs) || startMs % durationMs !== 0 || endMs > now || startMs < cutoff) continue;
       if (sinceMs !== null && startMs < sinceMs) continue;
       if (!validNonnegative(meanW) || meanW > MAX_WALL_WATTS) continue;
-      const whPerMinute = (meanW * MINUTE_MS) / 3_600_000;
+      // Rounded as on disk, so the same figure fetched again after a restart is no change.
+      const whPerMinute = roundMicro((meanW * MINUTE_MS) / 3_600_000);
       for (let minute = startMs; minute < endMs; minute += MINUTE_MS) {
-        const bucket = this._bucket(minute);
+        const bucket = this._bucket(minute, { markChanged: false });
         const wall = (bucket.wall ??= {});
         if (durationMs === HOUR_MS && wall[nodeId]?.[2] > 0) continue;
-        wall[nodeId] = [whPerMinute, MINUTE_MS, MINUTE_MS];
+        const entry = [whPerMinute, MINUTE_MS, MINUTE_MS];
+        if (sameEntry(wall[nodeId], entry)) continue;
+        wall[nodeId] = entry;
+        this._changedMinutes.add(minute);
+        changed += 1;
       }
       applied += 1;
     }
-    if (applied > 0) {
+    if (changed > 0) {
       this._dirty = true;
       this._ratioCache = null;
     }
@@ -1223,6 +1289,7 @@ export class FleetEnergyTracker {
     try {
       if (this._fs.existsSync(archivePath)) return;
       this._fs.renameSync(this.filePath, archivePath);
+      this._removeRecent();
       console.warn(
         `[FleetEnergyTracker] fleet membership changed; previous energy history kept at ${archivePath}`
       );
@@ -1231,10 +1298,47 @@ export class FleetEnergyTracker {
     }
   }
 
+  /** Overlay the recent-changes file onto a freshly read full file, when it belongs to it. */
+  _mergeRecent(raw) {
+    let recent;
+    try {
+      recent = JSON.parse(this._fs.readFileSync(this.recentFilePath, "utf8"));
+    } catch (error) {
+      if (error?.code !== "ENOENT") console.warn(`[FleetEnergyTracker] ignoring ${this.recentFilePath}: ${error.message}`);
+      return raw;
+    }
+    if (
+      recent?.version !== FILE_VERSION ||
+      !Number.isFinite(raw?.savedAt) ||
+      recent.baseSavedAt !== raw.savedAt ||
+      !Array.isArray(recent.buckets) ||
+      !Array.isArray(raw.buckets)
+    ) {
+      return raw;
+    }
+    const byMinute = new Map(raw.buckets.map((b) => [b?.minuteStartMs, b]));
+    for (const b of recent.buckets) byMinute.set(b?.minuteStartMs, b);
+    this._fullWriteNeeded = true;
+    const merged = { ...raw, buckets: [...byMinute.values()] };
+    for (const key of ["integrationHighWaterMs", "tokensTrackedSinceMs", "wallMeter"]) {
+      if (Object.prototype.hasOwnProperty.call(recent, key)) merged[key] = recent[key];
+    }
+    return merged;
+  }
+
+  _removeRecent() {
+    if (!this.recentFilePath) return;
+    try {
+      this._fs.unlinkSync(this.recentFilePath);
+    } catch (error) {
+      if (error?.code !== "ENOENT") console.warn(`[FleetEnergyTracker] unable to remove ${this.recentFilePath}: ${error.message}`);
+    }
+  }
+
   _load() {
     if (!this.filePath) return;
     try {
-      const raw = JSON.parse(this._fs.readFileSync(this.filePath, "utf8"));
+      const raw = this._mergeRecent(JSON.parse(this._fs.readFileSync(this.filePath, "utf8")));
       const legacyNodeIds = !Object.prototype.hasOwnProperty.call(raw || {}, "nodeIds");
       if (raw?.version !== FILE_VERSION || !Array.isArray(raw.buckets)) {
         return;
@@ -1328,6 +1432,13 @@ export class FleetEnergyTracker {
         }
       }
       this._dirty = legacyNodeIds || rejectedBucket || repairedHighWater;
+      // Recent-only writes build on this file, unless loading had to repair it. A rejected or
+      // archived file never becomes the base: the first write after it is a full one.
+      if (this._dirty) this._fullWriteNeeded = true;
+      else if (Number.isFinite(raw.savedAt)) {
+        this._baseSavedAt = raw.savedAt;
+        this._lastFullWriteAt = raw.savedAt;
+      }
       if (Number.isFinite(now)) this._prune(now);
     } catch (error) {
       if (error?.code === "ENOENT") return;
@@ -1378,12 +1489,13 @@ export class FleetEnergyTracker {
     } catch (error) {
       console.error(`[FleetEnergyTracker] monthly persist error: ${error.message}`);
     }
-    if (!this.filePath || !this._dirty) return false;
+    // Also consolidate when only the recent file holds the latest changes.
+    if (!this.filePath || (!this._dirty && this._changedMinutes.size === 0 && !this._fullWriteNeeded)) return false;
     const now = this._now();
     if (Number.isFinite(now)) this._prune(now);
-    const buckets = [...this._buckets.values()].sort(
-      (left, right) => left.minuteStartMs - right.minuteStartMs
-    );
+    const buckets = [...this._buckets.values()]
+      .sort((left, right) => left.minuteStartMs - right.minuteStartMs)
+      .map(serializeBucket);
     const state = {
       version: FILE_VERSION,
       nodeIds: this.nodeIds,
@@ -1397,6 +1509,54 @@ export class FleetEnergyTracker {
       buckets,
     };
     this._writeState(this.filePath, `${JSON.stringify(state)}\n`, this._fs);
+    this._dirty = false;
+    this._changedMinutes.clear();
+    this._fullWriteNeeded = false;
+    this._lastFullWriteAt = now;
+    this._baseSavedAt = now;
+    this._removeRecent();
+    return true;
+  }
+
+  /**
+   * The periodic flush: a full write when one is due (hourly, after a large change or a
+   * removal), otherwise only the minutes changed since the last full write, to the small
+   * recent file. flush() and close() always write the full file.
+   */
+  flushRecent() {
+    try {
+      this._foldClosedMinutes(this._now());
+      this.monthly.flush();
+    } catch (error) {
+      console.error(`[FleetEnergyTracker] monthly persist error: ${error.message}`);
+    }
+    if (!this.filePath || !this._dirty) return false;
+    const now = this._now();
+    if (
+      this._fullWriteNeeded ||
+      this._baseSavedAt === null ||
+      this._lastFullWriteAt === null ||
+      now - this._lastFullWriteAt >= FULL_WRITE_INTERVAL_MS ||
+      this._changedMinutes.size > MAX_RECENT_BUCKETS
+    ) {
+      return this.flush();
+    }
+    if (Number.isFinite(now)) this._prune(now);
+    const buckets = [...this._changedMinutes]
+      .sort((a, b) => a - b)
+      .map((minute) => this._buckets.get(minute))
+      .filter(Boolean)
+      .map(serializeBucket);
+    const recent = {
+      version: FILE_VERSION,
+      baseSavedAt: this._baseSavedAt,
+      savedAt: now,
+      integrationHighWaterMs: this._integrationHighWaterMs === null ? null : Math.ceil(this._integrationHighWaterMs),
+      tokensTrackedSinceMs: this._tokensTrackedSinceMs,
+      ...(Object.keys(this._wallState).length > 0 ? { wallMeter: this._wallState } : {}),
+      buckets,
+    };
+    this._writeState(this.recentFilePath, `${JSON.stringify(recent)}\n`, this._fs);
     this._dirty = false;
     return true;
   }
