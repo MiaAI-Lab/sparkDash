@@ -57,9 +57,17 @@ export function runFleetEnergySamplerTick({
   orderedSnapshots,
   monitors,
   now = Date.now,
+  wallReadings = null,
 }) {
   const atMs = now();
   const snapshots = orderedSnapshots();
+  // Latest fresh wall readings from external meters (cached; this never asks a meter).
+  let wall = null;
+  try {
+    wall = wallReadings?.(atMs) ?? null;
+  } catch {
+    wall = null;
+  }
   const trackerInputs = snapshots.map((snapshot) => ({
     ...snapshot,
     telemetryFresh: hasFreshPowerTelemetry(
@@ -67,6 +75,7 @@ export function runFleetEnergySamplerTick({
       monitors?.get?.(snapshot?.id),
       atMs
     ),
+    ...(wall ? { wallWatts: wall.get(snapshot?.id) ?? null } : {}),
   }));
   return tracker.record(trackerInputs, atMs);
 }
@@ -132,6 +141,7 @@ export function createFleetEnergyRuntime({
   setIntervalFn = setInterval,
   clearIntervalFn = clearInterval,
   logError = console.error,
+  wallReadings = null,
 }) {
   let started = false;
   let stopped = false;
@@ -149,7 +159,7 @@ export function createFleetEnergyRuntime({
   const sample = () => {
     if (stopped) return;
     try {
-      runFleetEnergySamplerTick({ tracker, orderedSnapshots, monitors, now });
+      runFleetEnergySamplerTick({ tracker, orderedSnapshots, monitors, now, wallReadings });
     } catch (error) {
       reportError("fleet energy sample error", error);
     }
