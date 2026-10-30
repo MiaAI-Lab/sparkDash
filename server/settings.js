@@ -93,6 +93,12 @@ const DEFAULTS = Object.freeze({
   /** Topic root for everything published (no wildcards, no slashes at the edges). */
   mqttTopicPrefix: "sparkdash",
   /**
+   * Show the read-only API Keys page (LiteLLM virtual keys via a host-side bridge on a unix
+   * socket). Off by default. The bridge socket and token never live here (settings.json is
+   * world-readable) — they come from SPARKDASH_APIKEYS_BRIDGE_SOCKET / _TOKEN.
+   */
+  apiKeysEnabled: false,
+  /**
    * Hide harness sessions older than this. Finite: 1 minute through 14 days.
    * A missing or out-of-range value becomes 12 hours. There is no unlimited value.
    */
@@ -248,6 +254,7 @@ function _clampSettings(settings) {
   s.metricsHistory = Boolean(s.metricsHistory);
   s.alertsEnabled = Boolean(s.alertsEnabled);
   s.mqttEnabled = Boolean(s.mqttEnabled);
+  s.apiKeysEnabled = Boolean(s.apiKeysEnabled);
   s.mqttUrl = normalizeMqttUrl(s.mqttUrl);
   s.mqttUsername = typeof s.mqttUsername === "string" ? s.mqttUsername.trim().slice(0, 128) : "";
   // Trailing slashes are normal while typing; strip them instead of rejecting.
