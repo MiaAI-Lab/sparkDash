@@ -2,7 +2,7 @@ import { withPageTransition } from "./pageTransition";
 import { useEffect, useCallback, useMemo, useState } from "react";
 import { idToPath, pathToId } from "../constants";
 
-export type RouteMode = "app" | "showcase";
+export type RouteMode = "app" | "showcase" | "kiosk";
 
 export interface AppRoute {
   mode: RouteMode;
@@ -11,6 +11,7 @@ export interface AppRoute {
 }
 
 function parsePath(pathname: string): AppRoute {
+  if (pathname === "/kiosk" || pathname === "/kiosk/") return { mode: "kiosk", showcaseSparkId: null };
   const showcase = pathname.match(/^\/showcase\/([^/]+)/);
   if (showcase) {
     return {
@@ -22,8 +23,8 @@ function parsePath(pathname: string): AppRoute {
 }
 
 /**
- * Parse the current URL for showcase vs normal app shell.
- * Call once at App root so showcase skips the dashboard chrome.
+ * Parse the current URL for showcase, kiosk or the normal app shell.
+ * Call once at App root so showcase and kiosk skip the dashboard chrome.
  */
 export function useAppRoute(): AppRoute {
   const [route, setRoute] = useState(() => parsePath(window.location.pathname));
@@ -53,6 +54,7 @@ export interface RouteActions {
  *   /spark/:id             → Spark detail page
  *   /bench/:type           → benchmark page
  *   /showcase/:id          → full-screen showcase (handled separately via useAppRoute)
+ *   /kiosk                 → wall display (handled separately via useAppRoute)
  *
  * The initial id comes from `initialActiveId()` in constants (pass it to the state's initialiser).
  * `navigate(id)` updates the URL and the active id; Back/forward work via popstate.

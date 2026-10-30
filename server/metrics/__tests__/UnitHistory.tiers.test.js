@@ -153,6 +153,29 @@ test("memory headroom follows the VRAM breakdown semantics", () => {
   );
 });
 
+test("a macOS host is judged as unified, so its free memory is not total minus the GPU share", () => {
+  // A Mac is configured `kind: "host"` but shares one pool, and its vram.used carries only the
+  // GPU's share. Judged as discrete, free would be 512 GB − 71 GB = 441 GB while the CPU side
+  // holds 114 GB, so a Mac close to OOM would chart as having plenty of headroom.
+  const mac = {
+    kind: "host",
+    platform: "darwin",
+    metrics: {
+      unifiedMemory: { total: 524_288, gpuUsed: 71_400, cpuUsed: 118_256, available: 334_632 },
+      gpu: { temperature: 50, usage: 20, power: { draw: 15 }, vram: { used: 71_400, total: 524_288, available: 334_632 } },
+    },
+  };
+  assert.deepEqual(memoryReading(mac), { usedMB: 189_656, freeMB: 334_632 });
+
+  // A non-Apple host keeps the discrete rule: free = total − used.
+  const pc = {
+    kind: "host",
+    platform: "linux",
+    metrics: { gpu: { temperature: 40, usage: 1, power: { draw: 30 }, vram: { used: 90_000, total: 97_887, available: 500_000 } } },
+  };
+  assert.deepEqual(memoryReading(pc), { usedMB: 90_000, freeMB: 7_887 });
+});
+
 test("network uses the primary interface, else the sum of shown interfaces", () => {
   assert.deepEqual(
     networkRates({

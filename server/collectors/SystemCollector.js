@@ -6,6 +6,7 @@ import { normalizeMac, WOL_INTERFACE } from "../wol.js";
 import { sshExec } from "./ssh.js";
 import { getSettings } from "../settings.js";
 import { RoceSampler } from "./roce.js";
+import { KernelJournal } from "./kernelJournal.js";
 import { IntelSudoGate, IntelVramCache, buildIntelProbeScript, parseIntelProbe, sampleIntelCards } from "./intelGpu.js";
 import {
   WINDOWS_GPU_SCRIPT,
@@ -15,18 +16,8 @@ import {
   windowsGpuAsLinuxOutput,
 } from "./windowsMetrics.js";
 
-const NVERR_JOURNAL_CMD =
-  'journalctl -k --no-pager -q --grep=NV_ERR_NO_MEMORY 2>/dev/null | grep -c NV_ERR_NO_MEMORY || true';
-
-// One journal pass for kernel-level GPU / memory trouble: NVIDIA Xid errors and
-// OOM-killer kills. Output: "xid=<n> oom=<n>" then the latest Xid line (if any).
-const KERNEL_ERRORS_CMD =
-  "x=$(journalctl -k --no-pager -q --grep='NVRM: Xid' 2>/dev/null | grep 'NVRM: Xid' || true); " +
-  "o=$(journalctl -k --no-pager -q --grep='Out of memory: Killed process|oom-kill:' 2>/dev/null | grep -c -E 'Out of memory: Killed process|oom-kill:' || true); " +
-  'echo "xid=$(printf \'%s\' "$x" | grep -c . || true) oom=${o:-0}"; printf \'%s\\n\' "$x" | tail -1';
-
 /**
- * Parse KERNEL_ERRORS_CMD output. Exported for tests. Returns null when the
+ * Parse legacy kernel counter output. Exported for tests. Returns null when the
  * output has no counters (journal unreadable), so callers keep the last value.
  * @param {unknown} raw
  * @returns {{ xid: number, oomKills: number, lastXid: string|null } | null}
@@ -173,8 +164,38 @@ const MACMON_CANDIDATES = [
   "$HOME/.cargo/bin/macmon",
 ].filter(Boolean);
 export const MACMON_CMD =
+  // The GPU's share of unified memory first (macmon only reports RAM as a whole): the driver's
+  // "In use system memory" per accelerator, filtered to those lines, so macmon's JSON stays last.
+  `ioreg -r -d 1 -w 0 -c IOAccelerator 2>/dev/null | grep -o '"In use system memory"=[0-9]*'; ` +
   `for m in ${MACMON_CANDIDATES.map((p) => (p.startsWith("$HOME") ? `"${p}"` : `'${p.replace(/'/g, `'\\''`)}'`)).join(" ")} "$(command -v macmon 2>/dev/null)"; do ` +
   'if [ -n "$m" ] && [ -x "$m" ]; then "$m" pipe -s 1 -i 200 --soc-info || "$m" pipe -s 1 -i 200; exit 0; fi; done; echo NO_MACMON';
+
+/**
+ * Bytes of unified memory the GPU holds, summed over the `"In use system memory"=N` lines MACMON_CMD
+ * prints from the GPU driver's statistics; null when there are none (no accelerator entry, or ioreg
+ * unavailable), so callers keep reporting the pool as a whole.
+ */
+export function parseMacGpuMemory(output) {
+  const matches = [...String(output ?? "").matchAll(/^"In use system memory"=(\d+)\s*$/gm)];
+  if (matches.length === 0) return null;
+  return matches.reduce((sum, m) => sum + Number(m[1]), 0);
+}
+
+/**
+ * The GPU's share of a macmon sample's RAM in use (MB); null when ioreg gave none.
+ *
+ * A figure at or above the whole pool's use is not a GPU share — duplicate accelerator entries,
+ * or the counter not meaning what we read it as. Capping it there would publish the rest of the
+ * pool as `cpuUsed: 0`, asserting as measured fact that the CPU side holds nothing, so an
+ * implausible reading leaves the pool unsplit instead.
+ */
+export function macGpuUsedMB(sample, ramUsedMB) {
+  const bytes = sample?.gpuInUseBytes;
+  if (bytes == null || !Number.isFinite(bytes)) return null;
+  if (!Number.isFinite(ramUsedMB) || ramUsedMB <= 0) return null;
+  const mb = Math.round(bytes / 1048576);
+  return mb > ramUsedMB ? null : mb;
+}
 
 /** Last JSON line of `macmon pipe` output, parsed; null when absent or malformed. */
 export function parseMacmonSample(output) {
@@ -575,10 +596,12 @@ export class SystemCollector {
 
     // Cached hardware info
     this._hardwareInfo = null;
-    /** Cached NVRM NV_ERR_NO_MEMORY count (slow journal scan). */
-    this._nvErrCache = { count: 0, at: 0 };
-    /** Cached kernel error counters (Xid / OOM kills), same slow cadence. */
-    this._kernelErrCache = { value: null, at: 0 };
+    this._kernelJournal = new KernelJournal(async (cmd) => {
+      if (!this.spark.isLocal) return sshExec(this.spark, cmd, { timeoutMs: 8000 });
+      return this._hasHostProc()
+        ? this._execOnHost(cmd, { allowContainerFallback: false, maxBuffer: 10 * 1024 * 1024 })
+        : this._execFileP("sh", ["-c", cmd], { timeout: 8000, maxBuffer: 10 * 1024 * 1024 });
+    }, POLL_INTERVAL_NVERR);
 
     // Rootless-Docker nsenter state (classified once, then remembered).
     this._nsenterBroken = false;
@@ -2459,6 +2482,8 @@ export class SystemCollector {
         }
         throw new Error("macmon returned no sample");
       }
+      // Not a macmon field: the GPU's share of unified memory from the same SSH call (bytes, or null).
+      sample.gpuInUseBytes = parseMacGpuMemory(out);
       return sample;
     });
     const entry = { at: now, promise, ttl: 1500 };
@@ -2488,12 +2513,15 @@ export class SystemCollector {
       const usage = Math.round((Number(j.gpu_usage?.[1]) || 0) * 100);
       const draw = r1(j.gpu_power);
       const total = Math.round((Number(j.memory?.ram_total) || 0) / 1048576);
-      const used = Math.round((Number(j.memory?.ram_usage) || 0) / 1048576);
+      const ramUsed = Math.round((Number(j.memory?.ram_usage) || 0) / 1048576);
+      // The GPU's own share when the driver reports it, as on a Spark; otherwise the whole pool's use.
+      const used = macGpuUsedMB(j, ramUsed) ?? ramUsed;
       const vram = {
         used,
         total,
         percentage: total > 0 ? Math.round((used / total) * 100) : 0,
-        available: Math.max(0, total - used),
+        // The pool is shared: what is left for a new allocation is what the whole system has free.
+        available: Math.max(0, total - ramUsed),
       };
       const metricAvailability = {
         temperature: temperature > 0,
@@ -2569,10 +2597,16 @@ export class SystemCollector {
   async _getRemoteUnifiedMemoryMac() {
     const ram = await this._macmonRam();
     if (!ram) return this._defaultUnifiedMemory();
+    let gpuUsed = 0;
+    try {
+      gpuUsed = macGpuUsedMB(await this._macmonSample(), ram.used) ?? 0;
+    } catch {
+      /* _macmonRam just read the same sample; a failure here keeps the pool unsplit */
+    }
     return {
       total: ram.total,
-      gpuUsed: 0,
-      cpuUsed: ram.used,
+      gpuUsed,
+      cpuUsed: ram.used - gpuUsed,
       used: ram.used,
       available: Math.max(0, ram.total - ram.used),
       percentage: ram.percentage,
@@ -3142,7 +3176,7 @@ export class SystemCollector {
    * `allowContainerFallback: false` and handle the throw as "unknown".
    * @returns {Promise<string>} trimmed stdout
    */
-  async _execHostNs(cmd, { net = false, allowContainerFallback = true } = {}) {
+  async _execHostNs(cmd, { net = false, allowContainerFallback = true, maxBuffer = 1024 * 1024 } = {}) {
     if (!this._hasHostProc()) {
       return this._exec(cmd);
     }
@@ -3151,7 +3185,7 @@ export class SystemCollector {
       if (net) args.push("--net=" + path.join(HOST_PATHS.PROC, "1", "ns", "net"));
       args.push("--", "sh", "-c", cmd);
       try {
-        return (await this._execFileP("nsenter", args, { timeout: 8000 })).trim();
+        return (await this._execFileP("nsenter", args, { timeout: 8000, maxBuffer })).trim();
       } catch (err) {
         if (!this._isNsenterPermError(err)) throw err;
         this._markNsenterBroken(err);
@@ -3357,60 +3391,16 @@ export class SystemCollector {
     return fs.promises.statfs(dir);
   }
 
-  /**
-   * Count NVRM `NV_ERR_NO_MEMORY` lines in the kernel journal since boot.
-   * Cached for POLL_INTERVAL_NVERR — never on the 2s GPU/memory loop uncached.
-   * @returns {Promise<number>}
-   */
-  /** Xid / OOM-kill counters since boot (cached; journal scans are slow). null when unreadable. */
+  /** Complete since-boot totals; null while backfilling or when unreadable. */
   async _kernelErrors() {
-    if (this.isWindows) return null; // no kernel journal; unreadable, not "zero errors"
-    const now = Date.now();
-    if (this._kernelErrCache.at > 0 && now - this._kernelErrCache.at < POLL_INTERVAL_NVERR) {
-      return this._kernelErrCache.value;
-    }
-    try {
-      let out;
-      if (this.spark.isLocal) {
-        out = this._hasHostProc()
-          ? // journalctl is absent in the container: a fallback there would
-            // print zero counters — report unknown (null) instead.
-            await this._execOnHost(KERNEL_ERRORS_CMD, { allowContainerFallback: false })
-          : await this._exec(KERNEL_ERRORS_CMD);
-      } else {
-        out = await sshExec(this.spark, KERNEL_ERRORS_CMD, { timeoutMs: 8000 });
-      }
-      const parsed = parseKernelErrors(out);
-      if (parsed) this._kernelErrCache = { value: parsed, at: now };
-      else this._kernelErrCache.at = now;
-    } catch {
-      this._kernelErrCache.at = now;
-    }
-    return this._kernelErrCache.value;
+    if (this.isWindows) return null;
+    const value = await this._kernelJournal.read();
+    return value ? { xid: value.xid, oomKills: value.oomKills, lastXid: value.lastXid } : null;
   }
 
   async _nvErrNoMemory() {
     if (this.isWindows) return 0;
-    const now = Date.now();
-    if (this._nvErrCache.at > 0 && now - this._nvErrCache.at < POLL_INTERVAL_NVERR) {
-      return this._nvErrCache.count;
-    }
-    try {
-      let out;
-      if (this.spark.isLocal) {
-        out = this._hasHostProc()
-          ? await this._execOnHost(NVERR_JOURNAL_CMD, { allowContainerFallback: false })
-          : await this._exec(NVERR_JOURNAL_CMD);
-      } else {
-        out = await sshExec(this.spark, NVERR_JOURNAL_CMD, { timeoutMs: 8000 });
-      }
-      const count = parseNvErrNoMemoryCount(out);
-      this._nvErrCache = { count, at: now };
-      return count;
-    } catch {
-      this._nvErrCache.at = now;
-      return this._nvErrCache.count;
-    }
+    return (await this._kernelJournal.read())?.nvErr ?? null;
   }
 
   // ─── Default metrics ─────────────────────────────────────

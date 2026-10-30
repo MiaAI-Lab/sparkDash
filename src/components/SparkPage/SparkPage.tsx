@@ -302,7 +302,7 @@ export function SparkPage({
                 instead of starting below both columns. Stacked (below xl) it stays last. */}
             {metricsHistory && (
               <Item order={40}>
-                <HistoryPanel key={spark.id} sparkId={spark.id} kind={spark.kind} temperatureUnit={temperatureUnit} />
+                <HistoryPanel key={spark.id} sparkId={spark.id} kind={spark.kind} platform={spark.platform} temperatureUnit={temperatureUnit} />
               </Item>
             )}
           </div>

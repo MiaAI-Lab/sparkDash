@@ -576,8 +576,16 @@ export function LlmPanel({
                   via SSH
                 </Tag>
               )}
-              <Tag tone="info" title={`Backend: ${backend}`}>
+              <Tag
+                tone="info"
+                title={
+                  llm?.engineVersion
+                    ? `Backend: ${backend}, engine v${llm.engineVersion}`
+                    : `Backend: ${backend}`
+                }
+              >
                 {backend} · :{llmPort}
+                {llm?.engineVersion ? ` · v${llm.engineVersion}` : ""}
               </Tag>
             </>
           )}
@@ -815,7 +823,9 @@ export function LlmPanel({
               title={
                 isStrata
                   ? "Engine-reported mean for computed/new prompt tokens. It may be from an earlier prefill and is not an aggregate across slots."
-                  : "Prompt tokens/sec taken in during the last poll window — cache-served + computed. Opening a saved chat in the UI does not hit the GPU; send (or regenerate) so the history is sent as the prompt. Cached prefill does little GPU work; uncached prefill is what builds KV cache."
+                  : llm?.backend === "tensorfold" && llm.uncachedPrefillTps != null
+                    ? "Prompt tokens computed per second of prefill time (the engine's prefill-time and cached-token counters, finished requests only), held between completions. Tokens restored from the prompt cache are not counted here; they are the Cached prefill rate."
+                    : "Prompt tokens/sec taken in during the last poll window — cache-served + computed. Opening a saved chat in the UI does not hit the GPU; send (or regenerate) so the history is sent as the prompt. Cached prefill does little GPU work; uncached prefill is what builds KV cache."
               }
             >
               <span className="eyebrow">Prefill</span>

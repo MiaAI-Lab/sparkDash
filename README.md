@@ -41,6 +41,7 @@ Monitored units run **Linux**, **macOS**, or **Windows** (a Windows PC with an N
 - [Tailnet monitoring](#tailnet-monitoring)
 - [Tailscale Serve (HTTPS)](#tailscale-serve-https)
 - [Mobile PWA (install on a phone)](#mobile-pwa-install-on-a-phone)
+- [Kiosk (wall display)](#kiosk-wall-display)
 - [Glance integration](#glance-integration)
 - [Quality bench](#quality-bench)
 - [Prometheus](#prometheus)
@@ -138,6 +139,7 @@ Full history: [CHANGELOG.md](./CHANGELOG.md)
 | **Prefill benchmark** | Context-size sweep (1k–300k) of prefill tok/s and TTFT; unique prefix per size; persisted last run. Same remote targeting as decode |
 | **Quality benchmark** | Fixed, seeded quality suite (QA, reasoning, arithmetic, state tracking, GSM8K, MMLU, plus optional instruction following and long-context recall) at temperature 0; per-category and overall score; last 30 runs kept; paired compare with McNemar p-value. Same remote targeting as decode |
 | **Prompt Showcase** | Full-page multi-terminal LLM streaming demo (up to 32 prompts) with live tok/s and copy-out |
+| **Kiosk** | `/kiosk`: a full-screen wall display with no menus — fleet totals, a large-type card per unit with a 30-minute trace, and the active alerts, on one screen (see [Kiosk](#kiosk-wall-display)) |
 | **LLM inference health** | KV cache free/pool (vLLM `cache_config_info` token and byte size; usage % when the pool size is absent), run/wait queue, TTFT/E2E/ITL p95, preemptions, prefix cache, MTP accept from Prometheus `/metrics` (vLLM and q27; q27 FIFO-queues so the Requests tile reads “N run” without a wait gauge) |
 | **Multiple LLM ports** | Monitor several LLM servers on different ports simultaneously — each gets its own panel with independent backend detection and metrics |
 | **GPU processes** | See the top GPU processes by VRAM usage directly in the GPU panel, including process name and memory allocation |
@@ -376,6 +378,24 @@ Service worker caching: hashed `assets/*` are cache-first (immutable), `index.ht
 
 ---
 
+## Kiosk (wall display)
+
+Open **`/kiosk`** (sidebar → **Kiosk**, or **Kiosk** in the command palette) on a TV or a spare monitor. It has no menus and shows up to six units on one screen in at least two rows (3 × 2 on a 16:9 wall), in whichever column count gives the largest cards; each card sizes its type from its share of the screen, so it reads from across a room on a 720p TV or a 4K wall. A larger fleet keeps that card size and scrolls under the header, snapping a whole row at a time.
+
+- **Header:** fleet decode tok/s with its 30-minute trace, GPU power, the hottest GPU, queued requests, energy and output tokens over the last 24 hours (from Fleet energy; marked *est.* when estimated), units online, and the clock in the configured time zone.
+- **A card per unit in large type:** name, role (a worker's names its head), the served model with its context (in a pill on the name line) and IP; memory split as on the Overview (model / system / other, with the space free, and system RAM on a host with a discrete card; a Mac, whose GPU shares the system's memory, shows its unified pool, how much of it is in use and what the system has available); GPU use, temperature and power, CPU use and temperature, free space on the root disk, and live decode and prefill tok/s in one block of figures; and a 30-minute trace of GPU and CPU use and generation / prefill tok/s, drawn as smooth curves that never overshoot a sample, that takes the rest of the card. The figures come from the same code as the Overview card; its smaller extras (per-stream rates, slots, power limits, CPU power, storage used / total, chips and the model launcher) stay on the Overview.
+- **Alerts:** a band at the bottom lists the same alerts as the Overview (the server's firing set while alert notifications are on), and is hidden when there are none.
+
+Traces come from **Settings → Metrics history** (one-minute averages, refreshed every minute), so a reloaded wall shows the last half hour at once; with history off they start from what the browser has collected. The wall never dims or flashes for a slow or failed update: it keeps its last good frame and the clock shows how old it is. The page keeps the screen awake where the browser supports it (Screen Wake Lock), hides the cursor after three seconds, and **Esc** returns to the dashboard. **Settings → Hide workers** and **Show VRAM breakdown** apply here too. Below 760 px wide (a phone) the cards stack and scroll.
+
+URL flags choose the layout without touching settings:
+
+| Flag | Effect |
+|------|--------|
+| `?fit=scroll` | Cards of a fixed 3:2 shape that scroll, instead of fitting one screen (`shrink`, the default) |
+| `?cols=N` | A fixed number of columns (1–8) instead of the layout that gives the largest cards |
+| `?theme=oled` | A theme for this screen only (`white`, `light`, `dark`, `oled`); it is not saved |
+
 ## Glance integration
 
 [Glance](https://github.com/glanceapp/glance) can show the cluster on a self-hosted dashboard with the community widget [`sparkdash-dgx-cluster`](https://github.com/glanceapp/community-widgets/tree/main/widgets/sparkdash-dgx-cluster) (contributed by [@linxichen](https://github.com/linxichen)). One `custom-api` card renders GPU temperature and usage, VRAM, generation tok/s, KV-cache usage, and uptime for a head node plus one worker, reading `/api/sparks/:id/metrics` directly:
@@ -425,7 +445,7 @@ The overall score is the mean of the category percentages. Long sizes that do no
 
 The dialog shows live progress, the per-category table (mean completion tokens and how many replies hit `max_tokens` for the thinking categories, keys found and stale answers for long recall), and a collapsible per-item table with reply excerpts. Pick an earlier run under **Compare with** to see both scores, how many replies were identical, how many items only one run got right, and the exact two-sided McNemar p-value. When p ≥ 0.05 the row reads *difference within noise*. **Copy results** copies a plain-text summary.
 
-The last 30 runs per unit are kept in `config/quality-bench-history.json`, with the label, model id, settings, and per-item pass/fail and reply hash. One quality run per unit at a time; it cannot overlap a decode or prefill bench or a showcase. A full default run is about 755 requests, and the thinking categories can take a while on slow models.
+The last 30 runs per unit are kept in `config/quality-bench-history.json`, with the label, model id, settings, and per-item pass/fail and reply hash. A run can be removed on its own — **Delete** in the history table of the Quality bench page, or **Delete run** in the dialog's footer — without touching the other runs or the other ports' history; a run still in flight is refused, so cancel it first. One quality run per unit at a time; it cannot overlap a decode or prefill bench or a showcase. A full default run is about 755 requests, and the thinking categories can take a while on slow models.
 
 <sub>Quality bench by Mia's AI Lab.</sub>
 
@@ -552,9 +572,9 @@ Publishing is best-effort: while the broker is unreachable sparkDash retries eve
 
 ## RoCE / RDMA monitoring
 
-Spark units with RDMA devices (the CX7 ports) get a **RoCE / RDMA** panel on their page, with no switch integration and no root. Per port: link state and rate, MTU, RX/TX traffic, interface errors and drops, PFC priorities, QoS trust mode (PCP or DSCP) and the DSCP map, global pause settings, and the RDMA counters (out of buffer, sequence errors, ACK timeouts, ECN-marked packets, CNPs sent and handled) plus ethtool discards, CRC errors and pause frames, with the change since the last sample.
+Spark units with RDMA devices (the CX7 ports) get a **RoCE / RDMA** panel on their page, with no switch integration and no root. Per port: link state and rate, MTU, netdev RX/TX traffic, RDMA payload throughput (the port's own `port_rcv_data` / `port_xmit_data` counters), interface errors and drops, PFC priorities, QoS trust mode (PCP or DSCP) and the DSCP map, global pause settings, and the RDMA counters (out of buffer, sequence errors, ACK timeouts, ECN-marked packets, CNPs sent and handled) plus ethtool discards, CRC errors and pause frames, with the change since the last sample.
 
-Everything comes from the Spark itself: `/sys/class/infiniband`, `/sys/class/net`, `ethtool -S` / `-a` and `mlnx_qos -i`. The fast part (link, counters, traffic) is read about every 5 s; the slow part (ethtool counters, PFC and trust) every 30 s. Units without RDMA devices are skipped and re-checked every 10 minutes. The API exposes it as `metrics.roce` in `/api/sparks/:id/metrics`.
+Everything comes from the Spark itself: `/sys/class/infiniband`, `/sys/class/net`, `ethtool -S` / `-a` and `mlnx_qos -i`. The fast part (link, RDMA payload rates, counters, netdev traffic) is read about every 5 s; the slow part (ethtool counters, PFC and trust) every 30 s. Units without RDMA devices are skipped and re-checked every 10 minutes. The API exposes it as `metrics.roce` in `/api/sparks/:id/metrics`.
 
 Two health findings use it: **a RoCE link went down** (a port that was up, critical) and **RoCE is dropping packets** (RDMA loss counters such as `out_of_buffer` or sequence errors rising for three samples in a row, or port discards / CRC errors rising on two consecutive 30 s readings; a single dropped frame is not reported). Ports that never came up are not reported. Switch telemetry (PFC and ECN statistics on the switch side) is not part of this; it could be added later as an optional integration.
 
@@ -615,14 +635,14 @@ LM Studio (:1234), Ollama (:11434) and TensorFold (:8888) are one-click presets 
 | Engine | Signal |
 |--------|--------|
 | llama.cpp | `/slots` with per-slot timings |
-| vLLM | Prometheus `/metrics` (the default for OpenAI-compatible servers) |
+| vLLM | Prometheus `/metrics` (the default for OpenAI-compatible servers); `GET /version` supplies the engine version shown on the LLM panel |
 | SGLang | native `/server_info` / `/get_server_info` + `/model_info` |
 | LM Studio | `/api/v0/models` — model entries carry a load `state` (a contract no other engine has) |
 | Ollama | native `/api/tags` |
 | ds4-server | `ds4_*` Prometheus series |
 | EXL3 | `/health` with backend + token totals |
 | q27 | Prometheus exposition |
-| TensorFold | `owned_by` on `/v1/models`, totals from `/health` |
+| TensorFold | `owned_by` on `/v1/models`, totals from `/health`, and `/health`'s `version` when the build names one |
 | FreeToken | `/v1/stats` throughput contract |
 | Strata | `/health` reports `service: "strata"`, checked before the llama.cpp-compatible `/slots`; JSON `/metrics` supplies rates |
 
@@ -881,7 +901,7 @@ sparkDash/
 | GET/POST | `/api/restart` | `GET` says whether the server can restart itself (Docker with a restart policy); `POST` shuts down cleanly so Docker starts it again |
 | DELETE | `/api/events` · `/api/fleet-energy` | Clear Activity or Fleet energy: everything, or only entries older than `?olderThanMs=` |
 | DELETE | `/api/llm-token-totals` | Reset Token totals (all Sparks, or one with `?sparkId=`) |
-| GET | `/api/health` · `/api/auth/status` | Bind / auth mode; whether a token is required and accepted |
+| GET | `/api/health` · `/api/auth/status` | Bind / auth mode, the running server's version; whether a token is required and accepted |
 | GET · PUT · DELETE | `/api/sparks/:id/gpu-clock` | GPU clock cap on a Spark unit: status, apply (`maxMHz`, `persist`), remove (see [GPU clock cap](#gpu-clock-cap)) |
 | POST | `/api/sparks/gpu-clock-all` | GPU clock cap on every Spark at once: `{ maxMHz, persist? }`, or `{ reset: true }`; one result per unit (see [GPU clock cap](#gpu-clock-cap)) |
 | POST | `/api/sparks/:id/shutdown` · `/wake` · `/api/sparks/shutdown-all` · `/wake-all` | Power controls (see [Power controls](#power-controls-shutdown--wake-on-lan)) |
@@ -904,7 +924,7 @@ sparkDash/
 | GET | `/api/sparks/:id/llm/daily` | Daily busy decode/prefill tok/s (`port`, `days`) |
 | POST | `/api/sparks/:id/llm/bench` | Start decode benchmark (202); poll/cancel/clear on the same path |
 | POST | `/api/sparks/:id/llm/prefill-bench` | Start prefill + TTFT context sweep (202); poll/cancel/clear on the same path |
-| POST | `/api/sparks/:id/llm/quality-bench` | Start quality suite (202); `GET` lists active / last / history summaries, `GET :benchId` returns a full run, `DELETE :benchId` cancels, `DELETE` clears history |
+| POST | `/api/sparks/:id/llm/quality-bench` | Start quality suite (202); `GET` lists active / last / history summaries, `GET :benchId` returns a full run, `DELETE :benchId` cancels a run in flight (`409` once it has finished), `DELETE history/:benchId` removes one saved run, `DELETE` clears the history |
 | GET | `/metrics` | Prometheus exposition (opt-in, see [Prometheus](#prometheus)) |
 | GET | `/api/alerts` · `/api/alerts/config` | Firing, pending and recent alerts; rules and channels (URLs masked) — see [Alert notifications](#alert-notifications) |
 | PUT/POST | `/api/alerts/config` · `/api/alerts/test` | Save rules and channels; send a test message (both `409` while notifications are off) |
@@ -1020,7 +1040,7 @@ Copy `.env.example` to `.env` if needed:
 | `POLL_INTERVAL_HERMES` | `600000` | Hermes Agent update check poll (ms) |
 | `POLL_INTERVAL_TAILSCALE` | `30000` | Tailnet probe poll (ms) |
 | `TAILSCALE_PROBE_TIMEOUT_MS` | `8000` | Timeout for `tailscale status --json` (ms) |
-| `POLL_INTERVAL_NVERR` | `60000` | Kernel journal scan for NVRM `NV_ERR_NO_MEMORY` (ms) |
+| `POLL_INTERVAL_NVERR` | `60000` | Incremental kernel journal reads for NV_ERR, Xid and OOM counters (ms), after the initial backfill |
 | `HERMES_UPDATE_TIMEOUT_MS` | `600000` | Hard timeout for running `hermes update` over SSH (ms) |
 | `POLL_INTERVAL_LIVENESS` | `5000` | Online/SSH liveness check (ms) |
 | `SPARKDASH_SECRETS_KEY` | _(auto)_ | Passphrase or 64-char hex for secret encryption |
@@ -1178,7 +1198,7 @@ If host memory remains low, compare Linux `MemAvailable` and per-process residen
 
 ### Health findings
 
-`server/health/HealthEvaluator.js` runs a handful of rules over metrics sparkDash already collects, once per Spark, and reports them as `health[]` on the unit's snapshot. A rule never guesses: a missing metric raises nothing. Findings carry a severity, a detail and a hint, show up as chips on the Overview cards and in full on the unit page, and the monitor writes an Activity event when one appears or clears (never for the first baseline after a restart). The kernel Xid / OOM counters come from one cached `journalctl -k` scan per minute.
+`server/health/HealthEvaluator.js` runs a handful of rules over metrics sparkDash already collects, once per Spark, and reports them as `health[]` on the unit's snapshot. A rule never guesses: a missing metric raises nothing. Findings carry a severity, a detail and a hint, show up as chips on the Overview cards and in full on the unit page, and the monitor writes an Activity event when one appears or clears (never for the first baseline after a restart). The kernel NV_ERR / Xid / OOM counters share one cached journal cursor. Reads process at most 10,000 records and have a host-side 3-second hard timeout, including over SSH. Initial history is backfilled one page per 10 seconds (when polled); counters remain unknown until the baseline is complete. Later reads resume after the cursor at `POLL_INTERVAL_NVERR` cadence rather than scanning the whole boot journal again. Failed reads retain the last complete reading and retry after that interval.
 
 ### Windows units
 

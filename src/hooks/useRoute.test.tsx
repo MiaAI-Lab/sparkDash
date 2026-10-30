@@ -1,6 +1,6 @@
 import { act } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { useRoute, type RouteActions } from "./useRoute";
+import { useAppRoute, useRoute, type AppRoute, type RouteActions } from "./useRoute";
 import { render } from "../testing/render";
 
 describe("useRoute", () => {
@@ -46,5 +46,29 @@ describe("useRoute", () => {
       window.dispatchEvent(new PopStateEvent("popstate"));
     });
     expect(setActive).toHaveBeenCalledWith("__energy__");
+  });
+});
+
+describe("useAppRoute", () => {
+  afterEach(() => {
+    window.history.replaceState(null, "", "/");
+  });
+
+  function routeAt(path: string): AppRoute {
+    window.history.replaceState(null, "", path);
+    let route!: AppRoute;
+    function Probe() {
+      route = useAppRoute();
+      return null;
+    }
+    render(<Probe />);
+    return route;
+  }
+
+  it("opens the kiosk on /kiosk, with or without a query, and the app elsewhere", () => {
+    expect(routeAt("/kiosk").mode).toBe("kiosk");
+    expect(routeAt("/kiosk/?fit=scroll").mode).toBe("kiosk");
+    expect(routeAt("/kiosks").mode).toBe("app");
+    expect(routeAt("/showcase/spark-1")).toEqual({ mode: "showcase", showcaseSparkId: "spark-1" });
   });
 });

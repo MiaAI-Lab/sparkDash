@@ -22,6 +22,8 @@ test("parseRoceFast reads link state, rate, counters and netdev statistics", () 
   assert.equal(d.netdev, "enp1s0f0np0");
   assert.equal(d.counters.out_of_buffer, 0);
   assert.ok("np_cnp_sent" in d.counters);
+  assert.equal(d.data.rxData, 19993114402295);
+  assert.equal(d.data.txData, 18076528673541);
   const n = netdevs.get("enp1s0f0np0");
   assert.equal(n.mtu, 9000);
   assert.equal(n.speedMbps, 200000);
@@ -82,19 +84,33 @@ test("RoceSampler computes rates and counter deltas from consecutive samples", a
   const first = await sampler.sample();
   assert.equal(first.devices.length, 2);
   assert.equal(first.devices[0].rxBps, null); // no baseline yet
+  assert.equal(first.devices[0].rdmaRxBps, null);
   assert.equal(first.devices[0].qos.trust, "pcp");
 
   t += 5_000;
-  // 5 s later: +5,000,000 rx bytes and out_of_buffer +4 on the first device.
+  // 5 s later: +5,000,000 rx bytes, +5,000,000 4-byte words of RDMA data, and out_of_buffer +4.
   state.fast = FAST
     .replace(/(NET\|enp1s0f0np0\|up\|9000\|200000\|)(\d+)/, (_, a, rx) => `${a}${Number(rx) + 5_000_000}`)
+    .replace(/(DATA\|rocep1s0f0\|)(\d+)\|(\d+)/, (_, a, rx, tx) => `${a}${Number(rx) + 5_000_000}|${tx}`)
     .replace(/(CNT\|rocep1s0f0\|out_of_buffer\|)0/, "$14");
   const second = await sampler.sample();
   const d = second.devices.find((x) => x.name === "rocep1s0f0");
   assert.equal(Math.round(d.rxBps), 1_000_000);
+  assert.equal(Math.round(d.rdmaRxBps), 4_000_000); // 5,000,000 words × 4 bytes over 5 s
   assert.equal(d.deltas.out_of_buffer, 4);
   assert.deepEqual(d.loss.rising, ["out_of_buffer"]);
   assert.equal(d.loss.streak, 1);
+});
+
+test("an RDMA counter that goes backwards is a reset, not a negative rate", async () => {
+  const state = { fast: FAST, slow: SLOW };
+  let t = 1_000_000;
+  const sampler = new RoceSampler({ run: fakeRun(state), now: () => t });
+  await sampler.sample();
+  t += 5_000;
+  state.fast = FAST.replace(/(DATA\|rocep1s0f0\|)(\d+)\|(\d+)/, (_, a, rx, tx) => `${a}${Number(rx) - 1_000}|${tx}`);
+  const d = (await sampler.sample()).devices.find((x) => x.name === "rocep1s0f0");
+  assert.equal(d.rdmaRxBps, null);
 });
 
 test("RoceSampler throttles to one fast sample per ~4.5 s", async () => {

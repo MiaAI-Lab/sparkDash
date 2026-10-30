@@ -17,6 +17,15 @@ const TUNNEL_DROP_AFTER_FAILURES = 5;
 const TUNNEL_RETRY_MIN_MS = 60_000;
 const TUNNEL_RETRY_MAX_MS = 15 * 60_000;
 const REDETECT_INTERVAL_MS = 60_000;
+/** How long a vLLM `/version` answer is reused before it is asked for again. */
+const ENGINE_VERSION_TTL_MS = 10 * 60_000;
+/**
+ * TensorFold prefill rates are the computed (and the cached) tokens of the requests that finished in the
+ * last minute divided by their prefill seconds. One poll window holds one to a few requests, and a request
+ * that restores a 100k-token cached prompt and computes 80 new tokens spends seconds in "prefill" while
+ * computing almost nothing, so a rate per poll window swings between 30 and 1,800 tok/s on the same engine.
+ */
+const TENSORFOLD_PREFILL_WINDOW_MS = 60_000;
 /**
  * TensorFold's cached-prompt counter, by precedence. Upstream
  * (ashhart/TensorFold) publishes `prompt_tokens_cached_total`; a build whose
@@ -125,6 +134,9 @@ export class LlmProbe {
     this.modelId = null;
     this.modelPath = null;
     this.models = [];
+    /** Engine version reported by vLLM's GET /version; null until read. */
+    this.engineVersion = null;
+    this._engineVersionAt = 0;
     this.contextLength = null;
     this.gpuMemoryUtilization = null;
     this.slotsActive = 0;
@@ -141,6 +153,7 @@ export class LlmProbe {
 
     // Per-slot rate tracking (for llama.cpp native path)
     this.slotState = new Map();
+    this._mlxServeLive = null;
     this.lastTokenCounts = { input: 0, output: 0 };
     /** TensorFold: first /health sample with counters seeds the baseline (lifetime total is not a rate). */
     this._tensorfoldSeeded = false;
@@ -175,6 +188,11 @@ export class LlmProbe {
     this._tensorfoldPromptTokens = null;
     this._tensorfoldPrefillSum = null;
     this._tensorfoldPrefillCount = null;
+    /** Previous cached-prompt counter (clamped to its scrape's prompt total); null when the build publishes none. */
+    this._tensorfoldCachedTokens = null;
+    /** Finished-request windows of the last TENSORFOLD_PREFILL_WINDOW_MS: [{ computed, cached, sec, at }]. */
+    this._tensorfoldPrefillWindow = [];
+    this._tensorfoldSplitSeen = false;
     this.prefillActive = false;
     /** Previous prefill counters by kind; null until first labeled sample. */
     this.lastPrefillKinds = null;
@@ -438,6 +456,7 @@ export class LlmProbe {
   }
 
   _noteFailure(message) {
+    this._mlxServeLive = null;
     this.models = [];
     this.error = message;
     this._consecutiveFailures += 1;
@@ -455,6 +474,8 @@ export class LlmProbe {
     this.modelId = null;
     this.modelPath = null;
     this.models = [];
+    this.engineVersion = null;
+    this._engineVersionAt = 0;
     this.generationTps = 0;
     this.prefillTps = 0;
     this.decodeActive = false;
@@ -485,6 +506,7 @@ export class LlmProbe {
     this._localsBase = null;
     this._splashBase = null;
     this.slotState.clear();
+    this._mlxServeLive = null;
     this.lastTokenCounts = { input: 0, output: 0 };
     // The counters restart from zero, so the next poll may only seed them. The
     // per-backend `dtSec < 10` guards do that when the probe clock is zero too;
@@ -504,6 +526,9 @@ export class LlmProbe {
     this._tensorfoldPromptTokens = null;
     this._tensorfoldPrefillSum = null;
     this._tensorfoldPrefillCount = null;
+    this._tensorfoldCachedTokens = null;
+    this._tensorfoldPrefillWindow = [];
+    this._tensorfoldSplitSeen = false;
     this.prefillActive = false;
     this.lastPrefillKinds = null;
     this.lastTtftSum = null;
@@ -642,13 +667,18 @@ export class LlmProbe {
     if (typeof ownedBy === "string" && OWNED_BY_ENGINES.has(ownedBy.toLowerCase())) {
       return /** @type {any} */ (ownedBy.toLowerCase());
     }
+    // Exactly "mlx-serve" is an engine naming itself, so it belongs with OWNED_BY_ENGINES above
+    // and ahead of every probe — it cannot go in that set, which returns the name as the backend,
+    // because mlx-serve serves vLLM-format /metrics and is read by the vLLM reader. Behind the
+    // LM Studio probe it would both log a 404 a minute and, on the compatibility proxy this is
+    // about (200 + JSON on every path), be misclassified as LM Studio before ever being reached.
+    if (typeof ownedBy === "string" && /^mlx-serve$/i.test(ownedBy)) return "vllm";
     // LM Studio first: it answers 200 + JSON on every path, so the heuristic
     // probes below (notably SGLang's /server_info) would misfire on it.
     if (await this._probeIsLmStudio()) return "lmstudio";
     // Ollama second: its native /api/tags contract is unique among engines. Locals
     // (Generated-Computers/Locals) also answers /api/tags, so it must not reach this
     // probe; its exact `owned_by: "locals"` is in OWNED_BY_ENGINES above.
-    if (await this._probeIsOllama()) return "ollama";
     if (await this._probeIsOllama()) return "ollama";
     if (flareCard) return "flare";
     if (typeof ownedBy === "string") {
@@ -982,6 +1012,11 @@ export class LlmProbe {
           const health = await healthRes.json().catch(() => null);
           this._applyTensorFoldHealth(health, dtSec);
           this._applyTensorFoldLive(health);
+          // TensorFold's open /health names the release when the build carries one
+          // (zig/src/server/identity.zig; status_routes.zig's openHealth). Older builds
+          // omit the field, so it stays null rather than being inferred from a model name.
+          const version = typeof health?.version === "string" ? health.version.trim() : "";
+          if (version) this.engineVersion = version;
           // Newer builds report live rates in /health but cumulative totals only on Prometheus /metrics.
           const totalRaw = health?.completion_tokens_total;
           if (totalRaw == null || !Number.isFinite(Number(totalRaw))) {
@@ -1140,6 +1175,11 @@ export class LlmProbe {
             } else if (this.backendType == null || this.backendType === "vllm") {
               this.backendType = "vllm";
               this._applyVllmMetrics(txt, dtSec);
+              // Only mlx-serve publishes these live gauges; a plain vLLM (or a
+              // compatibility proxy) must keep the stock counter rates.
+              if (LlmProbe._metricsLookLikeMlxServe(txt)) {
+                this._applyMlxServeLiveRates(txt, dtSec);
+              }
             }
           }
         } else if (this.backendType === "splash") {
@@ -1165,6 +1205,8 @@ export class LlmProbe {
         }
       }
     }
+
+    if (this.backendType === "vllm") await this._refreshEngineVersion();
 
     return this._getSnapshot();
   }
@@ -1468,6 +1510,7 @@ export class LlmProbe {
    * @param {string} reason
    */
   _markUnmeasured(reason, { reseed = true } = {}) {
+    this._mlxServeLive = null;
     this.measurementValid = false;
     this.measurementError = reason;
     this.generationTps = 0;
@@ -1895,6 +1938,11 @@ export class LlmProbe {
     const prevPrefillSec = this._tensorfoldPrefillSeconds;
     const prevCached = this._tensorfoldPrevCached ?? null;
     this._applyExl3Health(health, dtSec);
+    // The single slot _applyExl3Health sets belongs to an EXL3 server. A TensorFold build serves
+    // several streams at once and says how many only as `streams.max` or `max_batch_size` below;
+    // one that says neither (its /health is just {"status": "ok"}, /metrics and /v1/models carry no
+    // stream count either) has an unknown capacity, so no total is shown rather than a made-up 1.
+    this.slotsTotal = 0;
     // TensorFold 0.5.0 (cuda/health.py) publishes cumulative cached prompt tokens
     // alongside the EXL3-style counters; older builds omit it (stays null).
     const cached = health.cached_tokens_total == null ? NaN : Number(health.cached_tokens_total);
@@ -2147,12 +2195,15 @@ export class LlmProbe {
     // Prefill on /metrics-only builds (verified on a live server): during a
     // 35-second prefill prompt_tokens_total AND every prefill histogram stay
     // frozen — they advance only in the poll where the request finishes. So no
-    // mid-prefill rate exists; derive the effective per-request rate from the
-    // completion window and HOLD it until the next finish, with a "prefilling"
-    // indicator while a request is open and no tokens have been produced yet.
-    // CAVEAT: prompt_tokens_total counts prefix-cache tokens too and this
-    // surface has no cached counter — the number is an effective rate, not raw
-    // GPU compute speed (the label says so).
+    // mid-prefill rate exists; derive the rate per request from the completion
+    // window and HOLD it until the next finish, with a "prefilling" indicator
+    // while a request is open and no tokens have been produced yet.
+    // prompt_tokens_total counts the prompt tokens restored from the prompt cache too, while
+    // the prefill seconds are the time spent computing the rest. With a cached counter
+    // (cachedTotal above) the window is split: prefillTps and uncachedPrefillTps are the tokens
+    // computed per prefill second of the last minute's finished requests, cachedPrefillTps the tokens
+    // restored per prefill second (TENSORFOLD_PREFILL_WINDOW_MS says why a minute).
+    // Without one the number stays an effective rate that includes cached tokens (the label says so).
     if (!queueOnly && Number.isFinite(dtSec) && dtSec > 0) {
       let prefillPrefix = null;
       if (m("request_prefill_seconds_count") != null) prefillPrefix = "request_prefill_seconds";
@@ -2164,39 +2215,71 @@ export class LlmProbe {
           const prevPrompt = this._tensorfoldPromptTokens;
           const prevSum = this._tensorfoldPrefillSum;
           const prevCount = this._tensorfoldPrefillCount;
+          const prevCached = this._tensorfoldCachedTokens;
+          const cachedNow = cachedTotal == null ? null : Math.min(cachedTotal, prompt);
+          const split = cachedNow != null;
+          let measured = false;
           if (
             prevPrompt != null && prevSum != null && prevCount != null &&
             prompt >= prevPrompt && pSum >= prevSum && pCount >= prevCount
           ) {
             const dPrompt = prompt - prevPrompt;
             const dSec = pSum - prevSum;
-            if (pCount > prevCount && dPrompt > 0) {
-              // Sub-millisecond and tiny-prompt windows are too noisy to
-              // measure reliably: require at least 50 ms and 50 tokens.
-              // Effective rates include cache credit and vary by host; do not
-              // cap them using one machine's cold-compute throughput.
-              const rate = Math.round((dPrompt / dSec) * 100) / 100;
-              if (dSec >= 0.05 && dPrompt >= 50) {
-                // Window ratio = mean over the requests finished in it; the
-                // aggregate is the same measurement (no per-request split here).
-                this.perStreamPrefillTps = Math.max(0, rate);
+            // The cached tokens of the same window. When the build publishes the counter but this
+            // window has no earlier value of it to subtract (first scrape with it, or it went back),
+            // the window is skipped rather than counting cached tokens as computed.
+            const comparable = !split || (prevCached != null && cachedNow >= prevCached);
+            const dCached = split && comparable ? Math.min(dPrompt, cachedNow - prevCached) : 0;
+            const dComputed = dPrompt - dCached;
+            if (comparable && pCount > prevCount && dPrompt > 0) {
+              if (split) {
+                if (dSec > 0) this._tensorfoldPrefillWindow.push({ computed: dComputed, cached: dCached, sec: dSec, at: Date.now() });
+              } else if (dSec >= 0.05 && dComputed >= 50) {
+                // Sub-millisecond and tiny-prompt windows are too noisy to
+                // measure reliably: require at least 50 ms and 50 tokens.
+                // Effective rates include cache credit and vary by host; do not
+                // cap them using one machine's cold-compute throughput.
+                const rate = Math.max(0, Math.round((dComputed / dSec) * 100) / 100);
+                this.perStreamPrefillTps = rate;
                 this._tensorfoldPrefillMeasuredAt = Date.now();
                 // Wins over the /health zeroing that ran earlier this poll.
-                this.prefillTps = this.perStreamPrefillTps;
-              } else if (
-                this.perStreamPrefillTps != null &&
-                this._tensorfoldPrefillMeasuredAt != null &&
-                Date.now() - this._tensorfoldPrefillMeasuredAt < 20_000
-              ) {
-                // Hold across polls (and across rejected noise windows), but
-                // expire like the /health path: a stale rate must not masquerade
-                // as current, and _applyExl3Health zeroes it every poll anyway.
-                this.prefillTps = this.perStreamPrefillTps;
-              } else {
-                this.perStreamPrefillTps = null;
-                this.prefillTps = 0;
+                this.prefillTps = rate;
+                measured = true;
               }
-            } else if (
+            }
+          }
+          if (split) {
+            // The split replaces the effective per-request line: it would restate the computed
+            // rate under a label that says "incl. cached tokens".
+            this.perStreamPrefillTps = null;
+            const cutoff = Date.now() - TENSORFOLD_PREFILL_WINDOW_MS;
+            this._tensorfoldPrefillWindow = this._tensorfoldPrefillWindow.filter((w) => w.at >= cutoff);
+            let computed = 0;
+            let cachedTok = 0;
+            let sec = 0;
+            for (const w of this._tensorfoldPrefillWindow) {
+              computed += w.computed;
+              cachedTok += w.cached;
+              sec += w.sec;
+            }
+            // A split needs at least one finished-request window to divide by. Until one has been
+            // recorded the rates are unknown, not zero: publishing 0 here would turn an engine
+            // that has simply served nothing yet into a measured "cached prefill 0 tok/s", and
+            // that zero would be written to the history series as if it had been observed.
+            if (this._tensorfoldPrefillWindow.length > 0) this._tensorfoldSplitSeen = true;
+            if (!this._tensorfoldSplitSeen) {
+              this.uncachedPrefillTps = null;
+              this.cachedPrefillTps = null;
+            } else {
+              // Zero once a minute has passed with nothing finished, like the /health path's expiry.
+              const enough = sec >= 0.05;
+              const round2 = (v) => Math.max(0, Math.round(v * 100) / 100);
+              this.uncachedPrefillTps = enough ? round2(computed / sec) : 0;
+              this.cachedPrefillTps = enough ? round2(cachedTok / sec) : 0;
+              this.prefillTps = this.uncachedPrefillTps;
+            }
+          } else if (!measured) {
+            if (
               this.perStreamPrefillTps != null &&
               this._tensorfoldPrefillMeasuredAt != null &&
               Date.now() - this._tensorfoldPrefillMeasuredAt < 20_000
@@ -2204,7 +2287,7 @@ export class LlmProbe {
               // Hold across polls: _applyExl3Health zeroes prefillTps from the
               // counterless /health every poll, so re-state the last real rate.
               this.prefillTps = this.perStreamPrefillTps;
-            } else {
+            } else if (prevPrompt != null) {
               this.perStreamPrefillTps = null;
               this.prefillTps = 0;
             }
@@ -2213,6 +2296,7 @@ export class LlmProbe {
           this._tensorfoldPromptTokens = prompt;
           this._tensorfoldPrefillSum = pSum;
           this._tensorfoldPrefillCount = pCount;
+          this._tensorfoldCachedTokens = cachedNow;
         }
       }
       // The only live prefill signal this build has: a request is open and no
@@ -2260,6 +2344,51 @@ export class LlmProbe {
    * @param {string} txt
    * @param {number} dtSec
    */
+  static _metricsLookLikeMlxServe(body) {
+    return /(?:^|\n)mlx_serve:prefill_tokens_live(?:\{|\s)/m.test(String(body || ""));
+  }
+
+  /**
+   * mlx-serve exports vLLM token counters but bumps them only when a request
+   * finishes, so mid-request deltas are 0 and completion spikes. Its own series
+   * move live: generation_tokens_live is cumulative including in-flight tokens,
+   * and prefill_tokens_live is the in-flight prefill progress that
+   * prefill_tokens_total absorbs at completion.
+   */
+  _applyMlxServeLiveRates(txt, dtSec) {
+    const gen = this._getPromMetric(txt, "mlx_serve:generation_tokens_live");
+    const prefillDone = this._getPromMetric(txt, "mlx_serve:prefill_tokens_total");
+    const prefillLive = this._getPromMetric(txt, "mlx_serve:prefill_tokens_live");
+    if (gen == null || prefillDone == null || prefillLive == null) {
+      this._mlxServeLive = null;
+      return;
+    }
+    const prev = this._mlxServeLive;
+    const cur = { gen, prefill: prefillDone + prefillLive };
+    // Three states look the same arithmetically and are all "we do not know this interval's
+    // rate" — not an engine that produced nothing. Reporting 0 would also overwrite the rates
+    // _applyVllmMetrics just computed, so an unmeasured poll has to say so, as the Locals and
+    // Splash readers do, and the cards, the rail and Prometheus then show "—" with the reason.
+    if (!prev) {
+      this._markUnmeasured("first mlx-serve sample; no earlier one to measure against", { reseed: false });
+      this._mlxServeLive = cur;
+      return;
+    }
+    if (cur.gen < prev.gen || cur.prefill < prev.prefill) {
+      this._markUnmeasured("mlx-serve counters went backwards; the engine restarted");
+      return; // _markUnmeasured cleared the baseline: the next poll re-seeds it.
+    }
+    if (!(dtSec > 0 && dtSec < 10)) {
+      this._markUnmeasured("no mlx-serve sample within 10 s to measure against", { reseed: false });
+      this._mlxServeLive = cur;
+      return;
+    }
+    this._mlxServeLive = cur;
+    const rate = (d) => Math.max(0, Math.round((d / dtSec) * 100) / 100);
+    this.generationTps = rate(cur.gen - prev.gen);
+    this.prefillTps = rate(cur.prefill - prev.prefill);
+  }
+
   _applyVllmMetrics(txt, dtSec) {
     const promptTokens = this._getVllmMetric(txt, "prompt_tokens_total");
     const genTokens = this._getVllmMetric(txt, "generation_tokens_total");
@@ -3207,6 +3336,27 @@ export class LlmProbe {
     return { level, auth, scope, label, detail };
   }
 
+  /**
+   * vLLM answers GET /version with `{ "version": "0.11.0" }`. Read it at most
+   * once per ENGINE_VERSION_TTL_MS — the version cannot change between polls,
+   * and an engine that does not implement the endpoint must not be asked every
+   * poll either. A failed or malformed answer keeps the last known version.
+   */
+  async _refreshEngineVersion() {
+    if (this._engineVersionAt !== 0 && Date.now() - this._engineVersionAt < ENGINE_VERSION_TTL_MS) return;
+    try {
+      const res = await this._fetch(`${this.baseUrl}/version`, LLM_PROBE_TIMEOUT_MS);
+      this._engineVersionAt = Date.now();
+      if (!res.ok) return;
+      const data = await res.json().catch(() => null);
+      const version = typeof data?.version === "string" ? data.version.trim() : "";
+      if (version) this.engineVersion = version;
+    } catch {
+      /* /version is optional; keep the last value and wait out the cache window */
+      this._engineVersionAt = Date.now();
+    }
+  }
+
   _getSnapshot() {
     const metricsLive = this.serverIsOpenAI !== null && this.authOpen !== false;
     return {
@@ -3216,6 +3366,16 @@ export class LlmProbe {
       backend: this.backendType,
       modelId: this.models.length > 1 ? this.models[0] : this.modelId || null,
       modelPath: this.modelPath || null,
+      /**
+       * Only vLLM and TensorFold report a version we read today; other backends stay null.
+       * A probe that is no longer measuring (the endpoint closed, or an API key was added so
+       * authOpen is false) must not keep presenting the version it last read, for the same
+       * reason `models` is cleared below.
+       */
+      engineVersion:
+        metricsLive && (this.backendType === "vllm" || this.backendType === "tensorfold")
+          ? this.engineVersion
+          : null,
       models: metricsLive ? [...this.models] : [],
       // Strata advertises aliases for one loaded engine, sharing its native
       // context limit. Genuine multi-model routers still have no shared limit.
@@ -3264,6 +3424,7 @@ export class LlmProbe {
       backend: this.backendType,
       modelId: null,
       modelPath: null,
+      engineVersion: null,
       models: [],
       contextLength: null,
       gpuMemoryUtilization: null,

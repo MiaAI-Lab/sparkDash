@@ -4,6 +4,7 @@ import "../../styles/dialogs.css";
 import {
   cancelQualityBench,
   clearQualityBenchHistory,
+  deleteQualityBenchRun,
   getQualityBench,
   listQualityBench,
   startQualityBench,
@@ -831,6 +832,23 @@ export function QualityBenchDialog({
     }
   };
 
+  /** Remove one saved run, keeping the rest of the history (and the other ports) intact. */
+  const handleDelete = async (id: string) => {
+    if (!confirm("Delete this run from the history? This cannot be undone.")) return;
+    setError(null);
+    try {
+      await deleteQualityBenchRun(sparkId, id);
+      if (job?.benchId === id) {
+        stopPoll();
+        setJob(null);
+        setCompareId("");
+      }
+      refreshHistory();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   // History rows are summaries; fetch the full run (per-item rows) before showing it.
   const handleView = (id: string) => {
     if (isRunning) return;
@@ -1244,6 +1262,7 @@ export function QualityBenchDialog({
               onView={handleView}
               onCompare={showResults && hasItems ? setCompareId : undefined}
               compareId={compareId}
+              onDelete={(id) => void handleDelete(id)}
               busy={isRunning || starting}
             />
           </PageCard>
@@ -1300,6 +1319,14 @@ export function QualityBenchDialog({
             </button>
           ) : job ? (
             <>
+              <button
+                type="button"
+                className="bench-btn bench-btn--ghost"
+                onClick={() => void handleDelete(job.benchId)}
+                title="Delete this run from the history, keeping the other runs"
+              >
+                Delete run
+              </button>
               <button
                 type="button"
                 className="bench-btn bench-btn--ghost"

@@ -74,6 +74,8 @@ describe("headroomTone", () => {
 
   it("a host is discrete, a Spark (or unknown kind) unified", () => {
     expect(memoryModelFor("host")).toBe("discrete");
+    expect(memoryModelFor("host", "linux")).toBe("discrete");
+    expect(memoryModelFor("host", "darwin")).toBe("unified");
     expect(memoryModelFor("spark")).toBe("unified");
     expect(memoryModelFor(undefined)).toBe("unified");
   });

@@ -365,6 +365,28 @@ export class QualityBenchManager {
     return { ok: true };
   }
 
+  /**
+   * Remove one saved run from history, leaving the other runs of the unit (and of the
+   * other ports) in place. A run still in flight is refused: cancel it first with
+   * `DELETE …/quality-bench/:benchId`, then delete it here.
+   * @returns {{ ok: true } | { ok: false, reason: "running" | "missing" }}
+   */
+  deleteRun(sparkId, benchId) {
+    const job = this.jobs.get(benchId);
+    if (job && job.sparkId === sparkId && job.status === "running") return { ok: false, reason: "running" };
+    const list = this.getHistory(sparkId);
+    const index = list.findIndex((j) => j.benchId === benchId);
+    if (index < 0) return { ok: false, reason: "missing" };
+    list.splice(index, 1);
+    if (list.length) this.historyBySpark.set(sparkId, list);
+    else this.historyBySpark.delete(sparkId);
+    // A finished run can still sit in `jobs` until the next prune; drop it too, so
+    // `GET …/:benchId` stops answering for a run the user deleted.
+    if (job && job.sparkId === sparkId) this.jobs.delete(benchId);
+    this._saveHistory();
+    return { ok: true };
+  }
+
   _loadHistory() {
     try {
       if (!fs.existsSync(this.historyPath)) return;

@@ -9,6 +9,7 @@ import {
 } from "../api/client";
 import type { GpuClockStatus, Settings, SparkConfig } from "../api/types";
 import { SettingsDialog } from "./SettingsDialog";
+import packageJson from "../../package.json";
 import { cleanupRenders, flush, render } from "../testing/render";
 
 vi.mock("../api/client", () => ({
@@ -82,6 +83,20 @@ describe("SettingsDialog fleet GPU clock and Save", () => {
     vi.mocked(setFleetGpuClock).mockReset();
   });
   afterEach(() => cleanupRenders());
+
+  it("shows the running server's version when health reports one", async () => {
+    const { container } = render(
+      <SettingsDialog open onClose={vi.fn()} onSaved={vi.fn()} serverVersion="2.99.0" />
+    );
+    await settle();
+    expect(container.textContent).toContain("sparkDash v2.99.0");
+  });
+
+  it("falls back to this page's build version when health reports none", async () => {
+    const { container } = render(<SettingsDialog open onClose={vi.fn()} onSaved={vi.fn()} />);
+    await settle();
+    expect(container.textContent).toContain(`sparkDash v${packageJson.version}`);
+  });
 
   it("enables Save for a cap pick alone, and saves nothing while the fleet refuses it", async () => {
     const onClose = vi.fn();

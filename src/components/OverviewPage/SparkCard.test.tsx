@@ -25,27 +25,26 @@ function head(online: boolean): SparkSnapshot {
 }
 
 describe("SparkCard", () => {
-  it("shows a VRAM and a usage bar per card on a multi-GPU host", () => {
+  it("shows one bar per card on a multi-GPU host, with load, temperature and power under it", () => {
     const spark = makeSpark("rtx");
-    const card = (index: number, used: number, temperature: number) => ({
+    const card = (index: number, used: number, temperature: number, draw: number) => ({
       index, name: "NVIDIA RTX PRO 6000 Blackwell Workstation Edition", uuid: `GPU-${index}`, temperature, usage: 100,
-      power: { draw: 300, limit: 300 }, vram: { used, total: 97887, percentage: Math.round((used / 97887) * 100), available: 97887 - used },
+      power: { draw, limit: 300 }, vram: { used, total: 97887, percentage: Math.round((used / 97887) * 100), available: 97887 - used },
     });
     spark.metrics.gpu = {
-      ...spark.metrics.gpu!, usage: 100, temperature: 75, power: { draw: 600, limit: 600 },
+      ...spark.metrics.gpu!, usage: 100, temperature: 81, power: { draw: 600.08, limit: 600 },
       vram: { used: 59426, total: 195774, percentage: 30, available: 136348 },
-      gpus: [card(0, 52646, 75), card(1, 6780, 63)],
+      gpus: [card(0, 52646, 81, 300.04), card(1, 6780, 63, 299.97)],
     };
     const { container } = render(<SparkCard spark={spark} temperatureUnit="celsius" />);
     const bars = [...container.querySelectorAll(".ov-lbl")].map((row) => row.textContent);
-    expect(bars).toContain("GPU 0 VRAM51.4 / 95.6 GB");
-    expect(bars).toContain("GPU 1 VRAM6.6 / 95.6 GB");
-    expect(bars).toContain("GPU 0100% · 75°C");
-    expect(bars).toContain("GPU 1100% · 63°C");
-    expect(bars).toContain("GPU power total600 / 600 W");
-    // The aggregate rows (busiest card's usage, hottest card's temperature) are not repeated.
-    expect(bars.some((b) => b?.startsWith("GPU temp"))).toBe(false);
-    expect(bars.some((b) => b?.startsWith("VRAM"))).toBe(false);
+    const subs = [...container.querySelectorAll(".ov-sub")].map((row) => row.textContent);
+    expect(bars.filter((b) => b?.startsWith("GPU"))).toEqual(["GPU 0 VRAM51.4 / 95.6 GB", "GPU 1 VRAM6.6 / 95.6 GB"]);
+    expect(subs).toEqual(["100% load · 81°C300 / 300 W", "100% load · 63°C300 / 300 W"]);
+    // Only the hot card's line is marked.
+    expect(container.querySelectorAll(".ov-sub__warn")).toHaveLength(1);
+    // No aggregate VRAM, usage, temperature or power rows next to the per-card bars.
+    expect(bars.some((b) => /^(VRAM|GPU temp|GPU power)/.test(b ?? ""))).toBe(false);
   });
 
   it("keeps the single GPU rows on a one-GPU unit", () => {
@@ -55,6 +54,7 @@ describe("SparkCard", () => {
     const bars = [...container.querySelectorAll(".ov-lbl")].map((row) => row.textContent);
     expect(bars).toContain("GPU42%");
     expect(bars).toContain("GPU temp55°C");
+    expect(bars).toContain("GPU power50 / 100 W");
     expect(bars.some((b) => b?.startsWith("GPU 0"))).toBe(false);
   });
 

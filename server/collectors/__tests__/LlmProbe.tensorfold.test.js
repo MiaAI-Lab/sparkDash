@@ -902,3 +902,156 @@ test("_applyTensorFoldMetrics: effective prefill can exceed one host's cold-comp
   assert.equal(probe.perStreamPrefillTps, 30000);
   assert.equal(probe.prefillTps, 30000);
 });
+
+// ── Prefill split and slot count on a /metrics-only build (health is just {"status": "ok"}) ──
+
+/** A scrape with the prefill histogram and the cached-prompt counter, as the Spark's TensorFold 1.1 publishes them. */
+function splitTxt({ prompt, cached, prefillSum, prefillCount, reqRunning = 0, cachedName = "prompt_tokens_cached_total" }) {
+  return prefillTxt({ prompt, prefillSum, prefillCount, reqRunning }) +
+    (cached == null ? "" : `tensorfold:${cachedName} ${cached}\n`);
+}
+
+test("_applyTensorFoldMetrics: the cached prompt counter is read by name in precedence order and clamped to the prompt", async () => {
+  const read = async (lines) => {
+    const probe = metricsProbe(() => lines.join("\n"));
+    await probe._applyTensorFoldMetrics(2);
+    return probe.totalCachedTokens;
+  };
+  assert.equal(await read(["tensorfold:prompt_tokens_total 1000", "tensorfold:generation_tokens_total 1",
+    "tensorfold:prompt_tokens_cached_total 700", "tensorfold:prompt_cache_cached_tokens 600",
+    "tensorfold:prefix_cache_hits_total 500"]), 700);
+  // A build whose cache tier comes from a recipe patch publishes only its own name.
+  assert.equal(await read(["tensorfold:prompt_tokens_total 1000", "tensorfold:generation_tokens_total 1",
+    "tensorfold:prompt_cache_cached_tokens 600", "tensorfold:prefix_cache_hits_total 500"]), 600);
+  assert.equal(await read(["tensorfold:prompt_tokens_total 1000", "tensorfold:generation_tokens_total 1",
+    "tensorfold:prefix_cache_hits_total 500"]), 500);
+  assert.equal(await read(["tensorfold:prompt_tokens_total 100", "tensorfold:generation_tokens_total 1",
+    "tensorfold:prompt_tokens_cached_total 150"]), 100); // never above the prompt it belongs to
+  assert.equal(await read(["tensorfold:prompt_tokens_total 100", "tensorfold:generation_tokens_total 1"]), null);
+});
+
+test("_applyTensorFoldMetrics: prefill counts computed tokens only, the cached share is its own rate", async () => {
+  // Window of two finished requests: 52,000 prompt tokens, 50,150 of them restored from the
+  // prompt cache, 1.6 s of prefill time. Counting every prompt token would read 32,500 tok/s.
+  let txt = splitTxt({ prompt: 1_000_000, cached: 950_000, prefillSum: 100, prefillCount: 10 });
+  const probe = metricsProbe(() => txt);
+  await probe._applyTensorFoldMetrics(2);
+  assert.equal(probe.prefillTps, 0); // the first sample only seeds the baseline
+  txt = splitTxt({ prompt: 1_052_000, cached: 1_000_150, prefillSum: 101.6, prefillCount: 12 });
+  await probe._applyTensorFoldMetrics(2);
+  assert.equal(probe.uncachedPrefillTps, 1156.25); // 1,850 computed tokens / 1.6 s
+  assert.equal(probe.prefillTps, 1156.25);
+  assert.equal(probe.cachedPrefillTps, 31343.75); // 50,150 restored tokens / 1.6 s
+  assert.equal(probe.perStreamPrefillTps, null); // no "effective, incl. cached" figure beside the split
+  assert.equal(probe.totalCachedTokens, 1_000_150);
+  const snap = probe._getSnapshot();
+  assert.equal(snap.prefillTps, 1156.25);
+  assert.equal(snap.cachedPrefillTps, 31343.75);
+  assert.equal(snap.uncachedPrefillTps, 1156.25);
+});
+
+test("_applyTensorFoldMetrics: prefill rates are totals over the last minute, so one cache-restoring request does not swing them", async () => {
+  let txt = splitTxt({ prompt: 1_000_000, cached: 950_000, prefillSum: 100, prefillCount: 10 });
+  const probe = metricsProbe(() => txt);
+  await probe._applyTensorFoldMetrics(2);
+  txt = splitTxt({ prompt: 1_020_000, cached: 968_000, prefillSum: 102, prefillCount: 11 }); // 2,000 computed in 2 s
+  await probe._applyTensorFoldMetrics(2);
+  assert.equal(probe.uncachedPrefillTps, 1000);
+  assert.equal(probe.cachedPrefillTps, 9000);
+  // A request that restored 29,970 cached tokens and computed 30 spent 2 s in prefill: alone it would read 15 tok/s.
+  txt = splitTxt({ prompt: 1_050_000, cached: 997_970, prefillSum: 104, prefillCount: 12 });
+  probe.prefillTps = 0; // _applyExl3Health zeroes it between polls
+  await probe._applyTensorFoldMetrics(2);
+  assert.equal(probe.uncachedPrefillTps, 507.5); // (2,000 + 30) computed / (2 + 2) s
+  assert.equal(probe.cachedPrefillTps, 11992.5); // (18,000 + 29,970) restored / 4 s
+  assert.equal(probe.prefillTps, 507.5);
+  // Nothing finished for a minute: both rates fall to 0.
+  for (const w of probe._tensorfoldPrefillWindow) w.at -= 61_000;
+  await probe._applyTensorFoldMetrics(2);
+  assert.equal(probe.uncachedPrefillTps, 0);
+  assert.equal(probe.cachedPrefillTps, 0);
+  assert.equal(probe.prefillTps, 0);
+});
+
+test("_applyTensorFoldMetrics: a cached counter with no earlier value, or one that went back, never turns cached tokens into computed ones", async () => {
+  // The counter shows up after the prefill baseline exists: that window cannot be split.
+  let txt = splitTxt({ prompt: 1_000_000, cached: null, prefillSum: 100, prefillCount: 10 });
+  const probe = metricsProbe(() => txt);
+  await probe._applyTensorFoldMetrics(2);
+  txt = splitTxt({ prompt: 1_052_000, cached: 1_000_150, prefillSum: 101.6, prefillCount: 12 });
+  await probe._applyTensorFoldMetrics(2);
+  // That window cannot be split and no earlier one can be either, so the split is unknown.
+  // A measured 0 here would claim the engine was observed prefilling nothing.
+  assert.equal(probe.uncachedPrefillTps, null);
+  assert.equal(probe.cachedPrefillTps, null);
+  // From the next window on it is split.
+  txt = splitTxt({ prompt: 1_104_000, cached: 1_050_300, prefillSum: 103.2, prefillCount: 14 });
+  await probe._applyTensorFoldMetrics(2);
+  assert.equal(probe.uncachedPrefillTps, 1156.25);
+  // The counter alone goes back (a bad scrape): that window is skipped, the minute's rate stays.
+  txt = splitTxt({ prompt: 1_156_000, cached: 1_000_000, prefillSum: 104.8, prefillCount: 16 });
+  await probe._applyTensorFoldMetrics(2);
+  assert.equal(probe.uncachedPrefillTps, 1156.25); // not 32,500
+});
+
+test("_applyTensorFoldMetrics: an idle engine's split is unknown until a request has finished", async () => {
+  // An engine that publishes both counters but has served nothing yet. The split has no window
+  // to divide by, so it must stay unknown: a 0 would be charted and summarised as an observed
+  // cached/computed prefill rate for a minute in which nothing was ever measured.
+  let txt = splitTxt({ prompt: 1_000_000, cached: 950_000, prefillSum: 100, prefillCount: 10 });
+  const probe = metricsProbe(() => txt);
+  await probe._applyTensorFoldMetrics(2);
+  assert.equal(probe.cachedPrefillTps, null);
+  assert.equal(probe.uncachedPrefillTps, null);
+  // Nothing finishes: still unknown, not zero.
+  await probe._applyTensorFoldMetrics(2);
+  assert.equal(probe.cachedPrefillTps, null);
+  assert.equal(probe.uncachedPrefillTps, null);
+  // Once a request finishes the split is measured, and a later idle minute is a real zero.
+  txt = splitTxt({ prompt: 1_052_000, cached: 1_000_000, prefillSum: 101.6, prefillCount: 12 });
+  await probe._applyTensorFoldMetrics(2);
+  assert.ok(probe.uncachedPrefillTps > 0, `expected a measured rate, got ${probe.uncachedPrefillTps}`);
+});
+
+test("_applyTensorFoldMetrics: a build with no cached counter keeps the effective per-request rate and no split", async () => {
+  let txt = prefillTxt({ prompt: 10000, prefillSum: 10, prefillCount: 1 });
+  const probe = metricsProbe(() => txt);
+  await probe._applyTensorFoldMetrics(2);
+  txt = prefillTxt({ prompt: 13000, prefillSum: 10.1, prefillCount: 2 });
+  await probe._applyTensorFoldMetrics(2);
+  assert.equal(probe.perStreamPrefillTps, 30000);
+  assert.equal(probe.cachedPrefillTps, null);
+  assert.equal(probe.uncachedPrefillTps, null);
+});
+
+test("TensorFold with no published stream count: running streams are shown, no total is invented", async () => {
+  // The Spark's engine: /health is {"status": "ok"}, /metrics and /v1/models carry no stream count.
+  const probe = new LlmProbe({ lanIp: "192.0.2.10" }, 8888);
+  probe._fetch = async (url) => {
+    const u = String(url);
+    if (u.endsWith("/slots")) return notFound();
+    if (u.endsWith("/v1/models")) return jsonRes({ object: "list", data: [{ id: "worker", owned_by: "tensorfold" }] });
+    if (u.endsWith("/health")) return jsonRes({ status: "ok" });
+    if (u.endsWith("/metrics")) {
+      return { ok: true, status: 200, json: async () => ({}), text: async () =>
+        tfMetrics({ gen: 1000, reqRunning: 3, reqWaiting: 1 }) };
+    }
+    return notFound();
+  };
+  const snap = await probe.probe();
+  assert.equal(snap.backend, "tensorfold");
+  assert.equal(snap.slotsActive, 3); // tensorfold:requests_running
+  assert.equal(snap.requestsRunning, 3);
+  assert.equal(snap.requestsWaiting, 1);
+  assert.equal(snap.slotsTotal, 0); // was 1 (an EXL3 server's one slot)
+});
+
+test("_applyTensorFoldHealth: a stream count the build does publish still sizes the slots", () => {
+  const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888);
+  probe._applyTensorFoldHealth({ streams: { max: 4, decoding: 1 } }, 2);
+  assert.equal(probe.slotsTotal, 4);
+  probe._applyTensorFoldHealth({ max_batch_size: 8 }, 2);
+  assert.equal(probe.slotsTotal, 8);
+  probe._applyTensorFoldHealth({ status: "ok" }, 2);
+  assert.equal(probe.slotsTotal, 0);
+});

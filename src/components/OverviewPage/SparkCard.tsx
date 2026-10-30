@@ -43,8 +43,8 @@ function Bar({
   pct: number;
   color: string;
   title?: string;
-  /** Small line under the bar, e.g. available memory. */
-  sub?: { label: string; value: string } | null;
+  /** Small line under the bar, e.g. available memory; `warn` marks its label (a hot card). */
+  sub?: { label: string; value: string; warn?: boolean } | null;
 }) {
   const p = Math.max(0, Math.min(100, Math.round(pct)));
   return (
@@ -58,7 +58,7 @@ function Bar({
       </div>
       {sub ? (
         <div className="ov-sub">
-          <span>{sub.label}</span>
+          <span className={sub.warn ? "ov-sub__warn" : undefined}>{sub.label}</span>
           <b className="mono">{sub.value}</b>
         </div>
       ) : null}
@@ -66,37 +66,29 @@ function Bar({
   );
 }
 
-/** One card of a multi-GPU host: its VRAM and its usage, with its temperature in the usage caption. */
-function GpuCardBars({ card, fmtTemp }: { card: GpuDevice; fmtTemp: (c: number) => string }) {
+/** One card of a multi-GPU host: its VRAM bar ("GPU 0 VRAM"), with its load, temperature and power on the line under it. */
+function GpuCardBar({ card, fmtTemp }: { card: GpuDevice; fmtTemp: (c: number) => string }) {
   const avail = card.metricAvailability;
-  const label = `GPU ${card.physicalIndex ?? card.index}`;
-  const title = shortGpuName(card.name) || undefined;
   const vramKnown = avail?.vramUsed !== false && avail?.vramTotal !== false && card.vram.total > 0;
   const vramPct = card.vram.percentage;
   const hot = !!(card.throttle?.thermal || card.throttle?.hwSlowdown) || card.temperature >= 80;
-  const usageCaption = [
-    avail?.usage === false ? "—" : `${Math.round(card.usage)}%`,
+  const load = [
+    avail?.usage === false ? "load —" : `${Math.round(card.usage)}% load`,
     avail?.temperature === false ? null : fmtTemp(card.temperature),
   ]
     .filter(Boolean)
     .join(" · ");
+  const power =
+    avail?.powerDraw === false ? "—" : `${Math.round(card.power.draw)}${avail?.powerLimit === false ? "" : ` / ${Math.round(card.power.limit)}`} W`;
   return (
-    <>
-      <Bar
-        label={`${label} VRAM`}
-        title={title}
-        caption={vramKnown ? `${fmtStorage(card.vram.used, false)} / ${fmtStorage(card.vram.total, true)}` : "—"}
-        pct={vramKnown ? vramPct : 0}
-        color={vramPct >= 90 ? "var(--color-danger)" : vramPct >= 85 ? "var(--color-warning)" : "var(--color-info)"}
-      />
-      <Bar
-        label={label}
-        title={title}
-        caption={usageCaption}
-        pct={avail?.usage === false ? 0 : card.usage}
-        color={hot ? "var(--color-warning)" : "var(--color-accent)"}
-      />
-    </>
+    <Bar
+      label={`GPU ${card.physicalIndex ?? card.index} VRAM`}
+      title={shortGpuName(card.name) || undefined}
+      caption={vramKnown ? `${fmtStorage(card.vram.used, false)} / ${fmtStorage(card.vram.total, true)}` : "—"}
+      pct={vramKnown ? vramPct : 0}
+      color={vramPct >= 90 ? "var(--color-danger)" : vramPct >= 85 ? "var(--color-warning)" : "var(--color-info)"}
+      sub={{ label: load, value: power, warn: hot }}
+    />
   );
 }
 
@@ -155,8 +147,9 @@ function SparkCardImpl({
   const cpuPowerPct = cpuPower && cpuPower.tdp > 0 ? (cpuPower.draw / cpuPower.tdp) * 100 : 0;
   const power = gpu?.power;
   const powerPct = power && power.limit > 0 ? (power.draw / power.limit) * 100 : 0;
-  // A multi-card host gets a VRAM and a usage bar per card: the aggregate above is the busiest card's usage
-  // and the summed VRAM, which hides a model split unevenly across cards (or one card sitting idle).
+  // A multi-card host gets one bar per card (its VRAM, with load, temperature and power under it) in place of
+  // the GPU rows: the aggregate is the busiest card's usage and the summed VRAM, which hides a model split
+  // unevenly across cards (or one card sitting idle).
   const cards = gpu?.gpus && gpu.gpus.length > 1 ? gpu.gpus : null;
 
   const rootDisk =
@@ -234,7 +227,7 @@ function SparkCardImpl({
     !llm && (memUsed >= 2048 || usage >= 10)
       ? `${gpuHolders.length > 0 ? `In use by ${gpuHolders.join(", ")} · ` : ""}${formatMb(memUsed)} VRAM in use · GPU ${Math.round(usage)}%`
       : null;
-  const showLauncher = role !== "worker" && !llm && spark.llmMonitoring !== false && spark.platform !== "windows";
+  const showLauncher = role !== "worker" && !llm && !spark.llmMovedTo && spark.llmMonitoring !== false && spark.platform !== "windows";
 
   const showTps = role !== "worker" && !!llm;
   const isStrata = llm?.backend === "strata";
@@ -332,13 +325,15 @@ function SparkCardImpl({
         <>
           <div className="ov-sc__body">
             <div className="ov-sc__stats">
-              {breakdown ? (
+              {cards ? (
+                cards.map((card) => <GpuCardBar key={card.index} card={card} fmtTemp={fmtTemp} />)
+              ) : breakdown ? (
                 <VramBreakdownBar
-                  label={breakdown.systemMB != null ? "Unified memory" : cards ? "VRAM total" : "VRAM"}
+                  label={breakdown.systemMB != null ? "Unified memory" : "VRAM"}
                   breakdown={breakdown}
                   showLegend
                 />
-              ) : cards ? null : (
+              ) : (
                 <Bar
                   label={gpu.vram?.total ? "VRAM" : "Unified memory"}
                   caption={vramAvailable && memTotal > 0 ? `${fmtStorage(memUsed, false)} / ${fmtStorage(memTotal, true)}` : "—"}
@@ -347,9 +342,7 @@ function SparkCardImpl({
                   sub={memTotal > 0 && memAvail > 0 ? { label: "Available", value: formatMb(memAvail) } : null}
                 />
               )}
-              {cards ? (
-                cards.map((card) => <GpuCardBars key={card.index} card={card} fmtTemp={fmtTemp} />)
-              ) : (
+              {cards ? null : (
                 <Bar label="GPU" caption={gpu.metricAvailability?.usage === false ? "—" : `${Math.round(usage)}%`} pct={gpu.metricAvailability?.usage === false ? 0 : usage} color={ringColor} />
               )}
               {spark.kind === "host" && spark.metrics.ram?.total ? (
@@ -361,14 +354,16 @@ function SparkCardImpl({
                 />
               ) : null}
               {cards ? null : (
-                <Bar label="GPU temp" caption={gpu.metricAvailability?.temperature === false ? "—" : fmtTemp(tempRaw)} pct={gpu.metricAvailability?.temperature === false ? 0 : (tempVal / tempMax) * 100} color={tempColor} />
+                <>
+                  <Bar label="GPU temp" caption={gpu.metricAvailability?.temperature === false ? "—" : fmtTemp(tempRaw)} pct={gpu.metricAvailability?.temperature === false ? 0 : (tempVal / tempMax) * 100} color={tempColor} />
+                  <Bar
+                    label="GPU power"
+                    caption={gpu.metricAvailability?.powerDraw === false ? "—" : `${power?.draw ?? 0} / ${gpu.metricAvailability?.powerLimit === false ? "—" : power?.limit ?? 0} W`}
+                    pct={gpu.metricAvailability?.powerDraw === false ? 0 : powerPct}
+                    color="var(--color-violet)"
+                  />
+                </>
               )}
-              <Bar
-                label={cards ? "GPU power total" : "GPU power"}
-                caption={gpu.metricAvailability?.powerDraw === false ? "—" : `${power?.draw ?? 0} / ${gpu.metricAvailability?.powerLimit === false ? "—" : power?.limit ?? 0} W`}
-                pct={gpu.metricAvailability?.powerDraw === false ? 0 : powerPct}
-                color="var(--color-violet)"
-              />
               {cpuTempRaw !== null ? (
                 <Bar
                   label="CPU temp"
@@ -381,7 +376,7 @@ function SparkCardImpl({
               {cpuPower ? <Bar label="CPU power" caption={`${cpuPower.draw} / ${cpuPower.tdp} W`} pct={cpuPowerPct} color="var(--color-violet)" /> : null}
             </div>
           </div>
-          {showLauncher ? <ModelLauncher spark={spark} onOpen={onSelect} busy={loadingHint} busyHolders={gpuHolders.length > 0} freeMb={memTotal > 0 ? memAvail : null} lowFreeMb={HEADROOM_THRESHOLDS_MB[memoryModelFor(spark.kind)].low} /> : null}
+          {showLauncher ? <ModelLauncher spark={spark} onOpen={onSelect} busy={loadingHint} busyHolders={gpuHolders.length > 0} freeMb={memTotal > 0 ? memAvail : null} lowFreeMb={HEADROOM_THRESHOLDS_MB[memoryModelFor(spark.kind, spark.platform)].low} /> : null}
           {role === "worker" ? (
             <div className="ov-launch ov-launch--worker">
               <div className="eyebrow">Worker of</div>
@@ -408,6 +403,16 @@ function SparkCardImpl({
                         : "No LLM port is watched on the head"
                       : "Head is offline"
                     : "Pick its head in Edit Spark to see the model here"}
+              </div>
+            </div>
+          ) : null}
+          {role !== "worker" && spark.llmMovedTo ? (
+            <div className="ov-launch ov-launch--moved" title={spark.llmMovedTo.message}>
+              <div className="eyebrow">Engine on the worker</div>
+              <div className="ov-launch__hint">
+                {spark.llmMovedTo.workerName} answers on port {spark.llmMovedTo.port}
+                {spark.llmMovedTo.modelId ? ` · ${spark.llmMovedTo.modelId}` : ""} while this head does not.
+                The engine may have moved — swap head and worker?
               </div>
             </div>
           ) : null}

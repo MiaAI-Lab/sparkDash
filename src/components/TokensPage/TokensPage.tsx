@@ -46,6 +46,7 @@ const TYPE_COLORS: Record<string, string> = {
   generated: "var(--color-accent)",
   cached: "var(--color-info)",
   computed: "var(--color-violet)",
+  unreported: "var(--color-faint)",
 };
 const GROUP_COLORS = ["var(--color-accent)", "var(--color-info)", "var(--color-violet)", "var(--color-success)", "var(--color-warning)"];
 
@@ -368,8 +369,8 @@ export function TokensPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[];
                 buckets.
               </li>
               <li>
-                Generated = tokens the model wrote. Prompt = tokens it read. Cached prefill is the part of the prompt served from the prefix cache; computed prefill is the rest. Engines that do not report cache
-                hits count as zero cached.
+                Generated = tokens the model wrote. Prompt = tokens it read. Cached prefill is the part of the prompt served from the prefix cache; computed prefill is the rest. Prompt read while the engine
+                published no prefix-cache counter is shown as not reported: it is neither cached nor computed, and the hit rate covers only the prompt whose split was measured.
               </li>
               {view.w.prevKeys.length === 0 && spec.count != null ? <li>No change-vs-previous figures are shown because the previous {spec.phrase.replace("the last ", "")} were not fully tracked.</li> : null}
             </ul>
@@ -421,7 +422,13 @@ function Tiles({ s, cmp, spec }: { s: Summary; cmp: Comparison | null; spec: (ty
       <Tile
         label="Prompt (input)"
         value={fmt(s.prompt)}
-        sub={s.prompt > 0 ? `${fmt(s.computed)} computed, ${fmt(s.cached)} cached` : "No prompt data reported"}
+        sub={
+          s.prompt <= 0
+            ? "No prompt data reported"
+            : s.unreported > 0
+              ? `${fmt(s.computed)} computed, ${fmt(s.cached)} cached, ${fmt(s.unreported)} not reported`
+              : `${fmt(s.computed)} computed, ${fmt(s.cached)} cached`
+        }
         title={s.prompt.toLocaleString()}
         delta={<Delta value={cmp?.prompt} suffix={`vs ${prevWord}`} />}
       />
@@ -433,7 +440,9 @@ function Tiles({ s, cmp, spec }: { s: Summary; cmp: Comparison | null; spec: (ty
             ? "Needs prompt data"
             : s.cacheReported === false
               ? "This engine does not report prefix-cache hits"
-              : s.cached > 0
+              : s.unreported > 0
+                ? `Measured on ${fmt(s.prompt - s.unreported)} of ${fmt(s.prompt)} prompt tokens`
+                : s.cached > 0
                 ? `The prefix cache saved ${fmt(s.cached)} prefill tokens`
                 : "The prefix cache saved nothing"
         }

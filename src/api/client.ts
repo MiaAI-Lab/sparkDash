@@ -413,6 +413,16 @@ export function clearQualityBenchHistory(
   return apiFetch(`/api/sparks/${id}/llm/quality-bench${q}`, { method: "DELETE" });
 }
 
+/** Remove one saved run. A run still in flight must be cancelled first (409). */
+export function deleteQualityBenchRun(
+  id: string,
+  benchId: string
+): Promise<{ success: boolean }> {
+  return apiFetch(`/api/sparks/${id}/llm/quality-bench/history/${benchId}`, {
+    method: "DELETE",
+  });
+}
+
 // ─── LLM Prompt Showcase ──────────────────────────────
 /** Start a concurrent prompt showcase (returns 202 session). */
 export function startShowcase(

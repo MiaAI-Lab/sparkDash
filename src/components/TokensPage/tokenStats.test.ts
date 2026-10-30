@@ -48,7 +48,7 @@ describe("tally", () => {
       { sparkId: "a", port: 1, modelId: "m", promptTokens: 50, completionTokens: 5, cachedTokens: 20 },
       { sparkId: "a", port: 1, modelId: "m", promptTokens: -5, completionTokens: NaN, cachedTokens: 3 },
     ]);
-    expect(t).toEqual({ generated: 15, prompt: 150, cached: 120, computed: 30, total: 165 });
+    expect(t).toEqual({ generated: 15, prompt: 150, cached: 120, unreported: 0, computed: 30, total: 165 });
   });
   it("cache rate is null without prompt data and never above 1", () => {
     expect(cacheRate({ cached: 0, prompt: 0 })).toBeNull();
@@ -76,10 +76,37 @@ describe("tally", () => {
       { sparkId: "a", port: 1, modelId: "m", promptTokens: 100, completionTokens: 10, cachedTokens: 0, cacheReported: false },
     ]);
     expect(mixed.cacheReported).toBe(true);
-    expect(hitRate(mixed)).toBe(0.25);
+    // the rate covers the measured row only: the unreported one's 100 prompt tokens are not misses
+    expect(hitRate(mixed)).toBe(0.5);
     // No flag at all (data from an older server) behaves exactly as before.
     expect(hitRate(tallyOf([row("2026-10-07")]))).toBeCloseTo(0.4);
     expect(hitRate(tallyOf([row("2026-10-07", { cachedTokens: 0 })]))).toBe(0);
+  });
+  it("prompt the engine never measured is neither cached nor computed", () => {
+    const t = tallyOf([
+      // a bucket that measured its split
+      { sparkId: "a", port: 1, modelId: "m", promptTokens: 100, completionTokens: 10, cachedTokens: 50, cacheReported: true },
+      // a bucket from an engine with no cached counter
+      { sparkId: "a", port: 1, modelId: "m", promptTokens: 100, completionTokens: 10, cachedTokens: 0, cacheReported: false },
+      // a lifetime row that gained the counter part way: 2000 of its 3000 prompt tokens came before it
+      { sparkId: "b", port: 1, modelId: "m", promptTokens: 3000, completionTokens: 30, cachedTokens: 800, cacheReported: true, unreportedPromptTokens: 2000 },
+    ]);
+    expect(t).toMatchObject({ prompt: 3200, cached: 850, unreported: 2100, computed: 250 });
+    expect(hitRate(t)).toBeCloseTo(850 / 1100);
+    // lifetime totals carry the count through to the All time tiles
+    const life = tallyOf(
+      entriesFromTotals([
+        {
+          sparkId: "b",
+          port: 1,
+          updatedAt: 1,
+          lastModelId: "m",
+          totals: { promptTokens: 3000, completionTokens: 30, cachedTokens: 800, cacheReported: true, unreportedPromptTokens: 2000 },
+          models: [{ modelId: "m", promptTokens: 3000, completionTokens: 30, cachedTokens: 800, cacheReported: true, unreportedPromptTokens: 2000, lastSeenAt: 1 }],
+        },
+      ])
+    );
+    expect(life).toMatchObject({ prompt: 3000, cached: 800, unreported: 2000, computed: 200 });
   });
   it("handles generated-only rows (missing prompt data)", () => {
     const t = tallyOf([{ sparkId: "a", port: 1, modelId: "m", promptTokens: 0, completionTokens: 40, cachedTokens: 9 }]);
@@ -197,9 +224,19 @@ describe("groupBuckets", () => {
   const keys = ["2026-10-06", "2026-10-07"];
   it("splits by type with computed = prompt - cached", () => {
     const g = groupBuckets([row("2026-10-07")], keys, "type");
-    expect(g.series.map((s) => s.id)).toEqual(["generated", "cached", "computed"]);
-    expect(g.buckets[1].values).toEqual({ generated: 100, cached: 400, computed: 600 });
-    expect(g.buckets[0].values).toEqual({ generated: 0, cached: 0, computed: 0 });
+    expect(g.series.map((s) => s.id)).toEqual(["generated", "cached", "computed", "unreported"]);
+    expect(g.buckets[1].values).toEqual({ generated: 100, cached: 400, computed: 600, unreported: 0 });
+    expect(g.buckets[0].values).toEqual({ generated: 0, cached: 0, computed: 0, unreported: 0 });
+  });
+  it("stacks prompt the engine never measured as its own series, not as computed", () => {
+    const g = groupBuckets(
+      [row("2026-10-06", { cachedTokens: 0, cacheReported: false }), row("2026-10-07", { cacheReported: true, unreportedPromptTokens: 500 })],
+      keys,
+      "type"
+    );
+    expect(g.buckets[0].values).toEqual({ generated: 100, cached: 0, computed: 0, unreported: 1000 });
+    expect(g.buckets[1].values).toEqual({ generated: 100, cached: 400, computed: 100, unreported: 500 });
+    expect(g.series.find((s) => s.id === "unreported")?.total).toBe(1500);
   });
   it("clamps cached > prompt in type mode", () => {
     const g = groupBuckets([row("2026-10-07", { promptTokens: 100, cachedTokens: 900 })], keys, "type");
@@ -297,6 +334,16 @@ describe("insights", () => {
     expect(text).not.toContain("no traffic at all");
     expect(text).toContain("All traffic ran on m1");
   });
+  it("says the hit rate covers only the measured prompt when part of it was never measured", () => {
+    const text = buildInsights(ctx([row("2026-10-07", { cachedTokens: 400, cacheReported: true, unreportedPromptTokens: 500 })])).join("\n");
+    // 400 of the 500 measured prompt tokens: 80 %, not 40 % of all 1000
+    expect(text).toContain("The prefix cache served 80% of the 500 prompt tokens it was measured on (500 more were not reported)");
+  });
+  it("does not blame the engine for a missing counter when it reports one but nothing was measured yet", () => {
+    const text = buildInsights(ctx([row("2026-10-07", { promptTokens: 900, cachedTokens: 0, cacheReported: true, unreportedPromptTokens: 900 })])).join("\n");
+    expect(text).not.toContain("does not publish a prefix-cache counter");
+    expect(text).toContain("None of the 900 prompt tokens was measured: they were read before the engine reported its prefix cache.");
+  });
   it("flags zero cache hits and omits ratio without prompt data", () => {
     const zero = buildInsights(ctx([row("2026-10-07", { cachedTokens: 0 })])).join("\n");
     expect(zero).toContain("No prompt tokens were served from the prefix cache");
@@ -318,9 +365,16 @@ describe("buildCsv", () => {
       (id) => `Spark ${id}`
     );
     const lines = csv.trim().split("\n");
-    expect(lines[0]).toBe("bucket_utc,spark_id,spark,port,model,prompt_tokens,completion_tokens,cached_tokens,computed_prefill_tokens");
-    expect(lines[1].startsWith("2026-10-06,a,Spark a,8000,m1,1000,100,400,600")).toBe(true);
-    expect(lines[2]).toBe('2026-10-07,a,Spark a,8000,"we""ird,model",10,100,10,0');
+    expect(lines[0]).toBe("bucket_utc,spark_id,spark,port,model,prompt_tokens,completion_tokens,cached_tokens,computed_prefill_tokens,unreported_prompt_tokens");
+    expect(lines[1]).toBe("2026-10-06,a,Spark a,8000,m1,1000,100,400,600,0");
+    expect(lines[2]).toBe('2026-10-07,a,Spark a,8000,"we""ird,model",10,100,10,0,0');
+  });
+  it("puts prompt the engine never measured in its own column, not in computed", () => {
+    const lines = buildCsv([
+      row("2026-10-06", { cachedTokens: 0, cacheReported: false }),
+      row("2026-10-07", { cacheReported: true, unreportedPromptTokens: 500 }),
+    ]).trim().split("\n");
+    expect(lines.slice(1)).toEqual(["2026-10-06,a,a,8000,m1,1000,100,0,0,1000", "2026-10-07,a,a,8000,m1,1000,100,400,100,500"]);
   });
   it("is header-only for no rows", () => {
     expect(buildCsv([]).trim().split("\n")).toHaveLength(1);

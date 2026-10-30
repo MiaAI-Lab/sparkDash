@@ -20,6 +20,8 @@ interface SettingsDialogProps {
   onClose: () => void;
   onSaved: (settings: Settings) => void;
   onOpenHarness?: () => void;
+  /** Version reported by the running server; absent when health could not be read. */
+  serverVersion?: string | null;
 }
 
 /** Whether a broker URL carries a user name or password before the host (mqtt://user:pass@host). */
@@ -121,8 +123,10 @@ const AGE_PRESETS = [
   { label: "14d", value: 14 * 24 * 60 * 60 * 1000 },
 ];
 
-export function SettingsDialog({ open, onClose, onSaved, onOpenHarness }: SettingsDialogProps) {
+export function SettingsDialog({ open, onClose, onSaved, onOpenHarness, serverVersion }: SettingsDialogProps) {
   const { t } = useTranslation("settings");
+  /** The server's own version wins: a stale dist must not report its build as the server's. */
+  const displayVersion = serverVersion || packageJson.version;
   const themeLabel = (themeId: ThemeId) => {
     switch (themeId) {
       case "white": return t("appearance.white");
@@ -727,7 +731,7 @@ export function SettingsDialog({ open, onClose, onSaved, onOpenHarness }: Settin
           </SettingRow>
 
           <div className="settings-links">
-            <span>{t("about.version", { version: packageJson.version })}</span>
+            <span>{t("about.version", { version: displayVersion })}</span>
             <span aria-hidden>·</span>
             <a href="https://mia-ai.net/" target="_blank" rel="noopener noreferrer">
               mia-ai.net

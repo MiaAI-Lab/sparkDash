@@ -16,6 +16,11 @@ export interface LlmTokenModelTotals {
    * "unknown" instead of a 0 % hit rate. Absent on older data (treated as reported).
    */
   cacheReported?: boolean;
+  /**
+   * Prompt tokens credited while the engine published no cached-prompt counter: neither
+   * cached nor computed. Absent on older data (then `cacheReported: false` means all of it).
+   */
+  unreportedPromptTokens?: number;
   lastSeenAt: number;
 }
 
@@ -25,7 +30,7 @@ export interface LlmTokenSeriesTotals {
   port: number;
   updatedAt: number | null;
   lastModelId: string | null;
-  totals: { promptTokens: number; completionTokens: number; cachedTokens: number; cacheReported?: boolean };
+  totals: { promptTokens: number; completionTokens: number; cachedTokens: number; cacheReported?: boolean; unreportedPromptTokens?: number };
   models: LlmTokenModelTotals[];
 }
 

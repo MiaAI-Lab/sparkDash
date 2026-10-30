@@ -120,6 +120,7 @@ function buildCharts(
   data: MetricsHistoryData,
   timeline: readonly number[],
   kind: string | undefined,
+  platform: string | undefined,
   temperatureUnit: "celsius" | "fahrenheit",
 ): ChartDef[] {
   const pts = data.points;
@@ -127,7 +128,7 @@ function buildCharts(
   const toTemp = f ? (c: number) => (c * 9) / 5 + 32 : undefined;
   const temp = (v: number) => `${Math.round(v)}°${f ? "F" : "C"}`;
   const accent = "var(--color-accent)";
-  const model = memoryModelFor(kind);
+  const model = memoryModelFor(kind, platform);
   const headroom = HEADROOM_THRESHOLDS_MB[model];
 
   const charts: ChartDef[] = [
@@ -314,10 +315,13 @@ function useUnitHistory(sparkId: string, range: MetricsHistoryRange, active: boo
 export function HistoryPanel({
   sparkId,
   kind,
+  platform,
   temperatureUnit,
 }: {
   sparkId: string;
   kind?: string;
+  /** A macOS host's memory is unified, like a Spark's. */
+  platform?: string;
   temperatureUnit: "celsius" | "fahrenheit";
 }) {
   const [range, setRange] = useState<MetricsHistoryRange>(readHistoryRange);
@@ -330,8 +334,8 @@ export function HistoryPanel({
   const enabled = data?.enabled === true ? data : null;
   const timeline = useMemo(() => (enabled ? buildTimeline(enabled) : []), [enabled]);
   const charts = useMemo(
-    () => (enabled ? buildCharts(enabled, timeline, kind, temperatureUnit) : []),
-    [enabled, timeline, kind, temperatureUnit],
+    () => (enabled ? buildCharts(enabled, timeline, kind, platform, temperatureUnit) : []),
+    [enabled, timeline, kind, platform, temperatureUnit],
   );
   const formats = useMemo(() => timeFormatters(range), [range]);
 

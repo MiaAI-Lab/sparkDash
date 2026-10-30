@@ -1,0 +1,537 @@
+/* /kiosk — the wall display. No chrome; the header and every card size their type from the space
+   they get (container query units), so `shrink` fits any fleet on one screen. */
+
+.kiosk {
+  display: flex;
+  flex-direction: column;
+  gap: 1.2vmin;
+  height: 100vh;
+  height: 100dvh;
+  padding: 1.2vmin;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: var(--color-base);
+  color: var(--color-text);
+  --kiosk-mono: "Geist Mono Variable", "Geist Mono", "JetBrains Mono", ui-monospace, monospace;
+}
+.kiosk--scroll {
+  height: auto;
+  min-height: 100vh;
+  overflow: visible;
+}
+.kiosk.is-idle,
+.kiosk.is-idle * {
+  cursor: none !important;
+}
+
+/* ── Header band ── */
+.kiosk-head {
+  display: flex;
+  align-items: stretch;
+  gap: 1.4vmin;
+  flex: 0 0 auto;
+  height: clamp(64px, 11vh, 260px);
+  container-type: size;
+}
+.kiosk-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-right: 1vmin;
+  font-size: clamp(16px, min(30cqh, 1.8cqw), 68px);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--color-text-strong);
+  text-decoration: none;
+}
+.kiosk-brand .brand__mark {
+  width: 1.5em;
+  height: 1.5em;
+  border-radius: 0.4em;
+}
+.kiosk-brand .brand__mark svg {
+  width: 0.85em;
+  height: 0.85em;
+}
+.kiosk-kpi {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0.6vmin 1vmin;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  overflow: hidden;
+}
+.kiosk-kpi.has-trace {
+  flex-grow: 1.8;
+}
+.kiosk-kpi .kiosk-kpi__trace {
+  position: absolute;
+  inset: 8% 0 34% 0;
+  opacity: 0.55;
+}
+.kiosk-kpi__trace .kiosk-trace__legend {
+  display: none;
+}
+.kiosk-kpi__value {
+  position: relative;
+  font-family: var(--kiosk-mono);
+  font-size: clamp(18px, min(42cqh, 2.6cqw), 120px);
+  font-weight: 600;
+  line-height: 1;
+  color: var(--color-text-strong);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.kiosk-kpi__value small {
+  margin-left: 0.2em;
+  font-size: 0.42em;
+  font-weight: 500;
+  color: var(--color-muted);
+}
+.kiosk-kpi__label {
+  position: relative;
+  margin-top: 0.3em;
+  font-size: clamp(10px, 11cqh, 30px);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.kiosk-clock {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-end;
+  padding-left: 1vmin;
+  white-space: nowrap;
+}
+.kiosk-clock__time {
+  font-family: var(--kiosk-mono);
+  font-size: clamp(22px, min(48cqh, 3.4cqw), 144px);
+  font-weight: 600;
+  line-height: 1;
+  color: var(--color-accent);
+  font-variant-numeric: tabular-nums;
+}
+.kiosk-clock__date {
+  margin-top: 0.35em;
+  font-size: clamp(10px, 12cqh, 32px);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+.kiosk-clock__stale {
+  margin-top: 0.2em;
+  font-size: clamp(10px, 11cqh, 28px);
+  color: var(--color-warning);
+}
+
+/* ── Unit grid: one cell per unit, at least two rows. Each card sizes its type from its own cell
+   (container query units on .kiosk-card__in), so the same layout reads at 720p and on a 4K wall. ── */
+.kiosk-frame {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+.kiosk-grid {
+  --kiosk-gap: 1.2vmin;
+  display: grid;
+  grid-template-columns: repeat(var(--kiosk-cols, 3), minmax(0, 1fr));
+  gap: var(--kiosk-gap);
+}
+/* Fit: the frame is the screen below the header, and each row takes 1 / rows of it. With more cards
+   than one screen holds, rows keep that height and the frame scrolls, snapping a row at a time. */
+.kiosk-frame.is-fit {
+  container-type: size;
+  overflow: hidden;
+}
+.kiosk-frame.is-fit .kiosk-grid {
+  grid-auto-rows: calc((100cqh - (var(--kiosk-rows, 2) - 1) * var(--kiosk-gap)) / var(--kiosk-rows, 2));
+}
+.kiosk-frame.is-scrolling {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-snap-type: y mandatory;
+  scrollbar-width: thin;
+}
+.kiosk-frame.is-scrolling .kiosk-card {
+  scroll-snap-align: start;
+}
+.kiosk-frame:not(.is-fit) .kiosk-grid {
+  grid-auto-rows: auto;
+}
+.kiosk-frame:not(.is-fit) .kiosk-card {
+  aspect-ratio: 3 / 2;
+}
+
+.kiosk-card {
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface);
+  container-type: size;
+  overflow: hidden;
+}
+.kiosk-card.is-offline {
+  border-color: color-mix(in srgb, var(--color-danger) 45%, var(--color-border));
+}
+/* Container units resolve against the card only from inside it. One text scale per card, from
+   whichever side of the cell is tighter. */
+.kiosk-card__in {
+  display: flex;
+  flex-direction: column;
+  gap: 2.4cqh;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 3.4cqh 3.4cqw;
+  font-size: min(3.9cqh, 2.7cqw);
+}
+.kiosk-card__head {
+  display: flex;
+  align-items: center;
+  gap: 0.55em;
+  min-width: 0;
+}
+.kiosk-dot {
+  flex: 0 0 auto;
+  width: 0.6em;
+  height: 0.6em;
+  border-radius: 50%;
+  background: var(--color-success);
+  box-shadow: 0 0 0 0.18em color-mix(in srgb, var(--color-success) 22%, transparent);
+}
+.kiosk-dot.is-off {
+  background: var(--color-danger);
+  box-shadow: 0 0 0 0.18em color-mix(in srgb, var(--color-danger) 22%, transparent);
+}
+.kiosk-card__name {
+  flex: 0 0 auto;
+  max-width: 45%;
+  min-width: 0;
+  font-size: 1.45em;
+  font-weight: 650;
+  color: var(--color-text-strong);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.kiosk-card__role {
+  /* Keeps its width (up to a third of the line) so "head" never truncates; the model pill gives way first. */
+  flex: 0 0 auto;
+  max-width: 34%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0.15em 0.6em;
+  border-radius: 999px;
+  font-size: 0.72em;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-accent-text);
+  background: var(--color-accent-soft);
+}
+.kiosk-card__ip {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-family: var(--kiosk-mono);
+  font-size: 0.85em;
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+
+/* Memory: the Overview's split (model / system / other) over a free track. */
+.kiosk-mem {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35em;
+}
+.kiosk-mem__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1em;
+}
+.kiosk-mem__label {
+  color: var(--color-muted);
+}
+.kiosk-mem__free {
+  font-family: var(--kiosk-mono);
+  font-size: 1.25em;
+  font-weight: 650;
+}
+.kiosk-mem__bar {
+  display: flex;
+  gap: 2px;
+  height: 0.55em;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--color-surface-hover);
+}
+.kiosk-mem__bar span {
+  flex: 0 0 auto;
+  width: var(--pct, 0%);
+}
+.kiosk-mem__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2em 1em;
+  font-family: var(--kiosk-mono);
+  font-size: 0.8em;
+  color: var(--color-muted);
+}
+.kiosk-mem__legend i {
+  display: inline-block;
+  width: 0.6em;
+  height: 0.6em;
+  margin-right: 0.4em;
+  border-radius: 2px;
+}
+
+/* Column by column (GPU over CPU, …, decode over prefill): two rows, as many columns as figures,
+   so a unit without rates (a worker) keeps three wide columns and a serving one gets four. */
+.kiosk-card__stats {
+  display: grid;
+  grid-template-rows: auto auto;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 0.5em 1em;
+}
+.kiosk-stat {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.kiosk-stat__label {
+  font-size: 0.75em;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+.kiosk-stat__value {
+  font-family: var(--kiosk-mono);
+  font-size: 1.6em;
+  font-weight: 650;
+  line-height: 1.15;
+  color: var(--color-text-strong);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.kiosk-stat__value.is-live {
+  color: var(--color-success);
+}
+.kiosk-stat__value small {
+  margin-left: 0.25em;
+  font-size: 0.5em;
+  font-weight: 500;
+  color: var(--color-muted);
+}
+.kiosk-card__trace {
+  flex: 1 1 0;
+  /* Fills what the figures leave and never sizes the card: an SVG's own 3:1 ratio would. */
+  contain: size;
+  min-height: 1.5em;
+  padding-top: 1.1em;
+  box-sizing: border-box;
+  font-size: 0.7em;
+}
+
+/* The served model, as a pill on the name line: it takes the room between the role and the IP and
+   truncates, so the trace keeps the card's height. */
+.kiosk-card__model {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6em;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
+  padding: 0.2em 0.7em;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 35%, var(--color-border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-accent) 9%, transparent);
+  font-size: 0.85em;
+}
+.kiosk-card__model code {
+  min-width: 0;
+  font-family: var(--kiosk-mono);
+  font-weight: 600;
+  color: var(--color-text-strong);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.kiosk-card__model span {
+  flex: 0 0 auto;
+  font-family: var(--kiosk-mono);
+  font-size: 0.85em;
+  color: var(--color-muted);
+}
+.kiosk-card__model.is-muted {
+  border-color: var(--color-border);
+  background: none;
+}
+.kiosk-card__model.is-muted code {
+  font-weight: 400;
+  color: var(--color-muted);
+}
+/* With a model pill, the IP sits right after it; without one, the IP takes the right edge itself. */
+.kiosk-card__model + .kiosk-card__ip {
+  margin-left: 0.4em;
+}
+
+.kiosk-card__offline {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4em;
+  text-align: center;
+}
+.kiosk-card__offline span {
+  font-size: 2em;
+  font-weight: 650;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-danger);
+}
+.kiosk-card__offline small {
+  max-width: 90%;
+  color: var(--color-muted);
+}
+
+/* ── Traces ── */
+.kiosk-trace {
+  position: relative;
+}
+.kiosk-trace svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.kiosk-trace__line {
+  fill: none;
+  stroke-width: 1.8;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.kiosk-trace__line.is-dashed {
+  stroke-dasharray: 4 3;
+}
+.kiosk-trace__line--gpu,
+.kiosk-trace__key--gpu {
+  stroke: var(--color-info);
+  color: var(--color-info);
+}
+.kiosk-trace__line--cpu,
+.kiosk-trace__key--cpu {
+  stroke: var(--color-violet);
+  color: var(--color-violet);
+}
+.kiosk-trace__line--gen,
+.kiosk-trace__key--gen {
+  stroke: var(--color-success);
+  color: var(--color-success);
+}
+.kiosk-trace__line--prefill,
+.kiosk-trace__key--prefill {
+  stroke: var(--color-accent);
+  color: var(--color-accent);
+}
+.kiosk-trace__legend {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  gap: 0.9em;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.72em;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1.3;
+}
+/* ── Alerts band ── */
+.kiosk-alerts {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 0.6vmin 1.6vmin;
+  padding: 0.8vmin 1.2vmin;
+  border: 1px solid color-mix(in srgb, var(--color-warning) 45%, var(--color-border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-warning) 8%, var(--color-surface));
+  font-size: clamp(13px, 1.6vmin, 40px);
+}
+.kiosk-alert::before {
+  content: "";
+  display: inline-block;
+  width: 0.55em;
+  height: 0.55em;
+  margin-right: 0.5em;
+  border-radius: 50%;
+  background: var(--color-warning);
+  vertical-align: 0.05em;
+}
+.kiosk-alert.is-critical::before {
+  background: var(--color-danger);
+}
+.kiosk-alert b {
+  font-weight: 650;
+  color: var(--color-text-strong);
+}
+
+@media (max-width: 760px) {
+  .kiosk {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+  .kiosk-grid {
+    grid-template-columns: 1fr;
+  }
+  .kiosk-head {
+    flex-wrap: wrap;
+    height: auto;
+    container-type: normal;
+  }
+  .kiosk-kpi {
+    flex: 1 1 40%;
+    min-height: 64px;
+  }
+  .kiosk-brand {
+    font-size: 20px;
+  }
+  .kiosk-kpi__value {
+    font-size: 28px;
+  }
+  .kiosk-kpi__label,
+  .kiosk-clock__date,
+  .kiosk-clock__stale {
+    font-size: 11px;
+  }
+  .kiosk-clock {
+    flex: 1 1 100%;
+    flex-direction: row;
+    align-items: baseline;
+    justify-content: space-between;
+  }
+  .kiosk-clock__time {
+    font-size: 32px;
+  }
+}

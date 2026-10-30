@@ -69,6 +69,14 @@ function PortRow({ d }: { d: RoceDevice }) {
           {n(d.rxErrors)} err · {n(d.rxDropped)} drop
         </span>
       </div>
+      <div className="sp-roce-port__rates mono">
+        <span title="RDMA payload received on this port, from port_rcv_data">
+          <span className="text-accent">RDMA ↓</span> {d.rdmaRxBps == null ? "—" : formatBytesPerSec(Math.round(d.rdmaRxBps))}
+        </span>
+        <span title="RDMA payload sent on this port, from port_xmit_data">
+          <span className="text-accent">RDMA ↑</span> {d.rdmaTxBps == null ? "—" : formatBytesPerSec(Math.round(d.rdmaTxBps))}
+        </span>
+      </div>
       <div className="sp-chips sp-roce-port__qos">
         {pfc && <Tag tone={pfc.tone} title="Priority flow control (mlnx_qos)">{pfc.text}</Tag>}
         {d.qos?.trust && <Tag title="QoS trust mode">trust {d.qos.trust}</Tag>}
@@ -159,7 +167,7 @@ export function RocePanel({ roce, className }: { roce: RoceMetrics | null | unde
       icon={<NetworkIcon />}
       className={`panel-roce ${className ?? ""}`}
       bodyClassName="sp-stack"
-      hint="Link state, rate, traffic, drops and RDMA counters per port, read from sysfs, ethtool and mlnx_qos on the Spark itself."
+      hint="Link state, rate, netdev and RDMA payload traffic, drops and RDMA counters per port, read from sysfs, ethtool and mlnx_qos on the Spark itself."
       actions={
         <button
           type="button"
@@ -175,7 +183,7 @@ export function RocePanel({ roce, className }: { roce: RoceMetrics | null | unde
       <div className="sp-roce-summary">
         <Tag tone={summary.tone}>{summary.text}</Tag>
       </div>
-      <p className="sp-muted">These netdev traffic rates do not measure RDMA payload throughput. Pause frames are cumulative totals, separate from the current PFC setting.</p>
+      <p className="sp-muted">↓/↑ are the interface's netdev traffic. RDMA ↓/↑ come from the port's own port_rcv_data / port_xmit_data counters (4-byte units, sampled every ~5 s). Pause frames are cumulative totals, separate from the current PFC setting.</p>
       {open && (
         <div id="roce-ports" className="sp-stack">
           {live.map((d) => (
