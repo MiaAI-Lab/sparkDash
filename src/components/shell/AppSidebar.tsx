@@ -44,6 +44,10 @@ interface AppSidebarProps {
   authMode?: AuthMode | null;
   /** Hide the sidebar (a strip with a show button stays behind). */
   onCollapse?: () => void;
+  /** Upstream version to offer when it is newer than the running one. */
+  updateVersion?: string | null;
+  /** Reopens the update notice. */
+  onOpenUpdate?: () => void;
 }
 
 /**
@@ -178,6 +182,8 @@ export function AppSidebar({
   refreshInterval,
   authMode = null,
   onCollapse,
+  updateVersion = null,
+  onOpenUpdate,
 }: AppSidebarProps) {
   const [items, setItems] = useState<string[]>(() => sparks.map((s) => s.id));
   const [dragging, setDragging] = useState(false);
@@ -415,6 +421,13 @@ export function AppSidebar({
       ) : null}
 
       <div className="rail-foot">
+        {updateVersion ? (
+          <button type="button" className="rail-update" onClick={onOpenUpdate}>
+            <span className="rail-update__dot" aria-hidden />
+            <span className="rail-update__label">Update available</span>
+            <span className="rail-update__version">v{updateVersion}</span>
+          </button>
+        ) : null}
         <div className="rail-settings">
           <nav className="rail-list">
             <button type="button" className="rail-item" onClick={onOpenSettings}>

@@ -920,6 +920,22 @@ export interface HealthResponse {
   version?: string | null;
 }
 
+/** Answer of the server-side self-update check (upstream `main` vs running version). */
+export interface UpdateStatus {
+  /** false when SPARKDASH_UPDATE_CHECK disables the outbound check. */
+  enabled: boolean;
+  /** Version of the running server; null when package.json is unreadable. */
+  currentVersion: string | null;
+  /** Version upstream `main` advertises; null until a check succeeds. */
+  latestVersion: string | null;
+  /** true: upstream is newer. false: up to date. null: not known. */
+  updateAvailable: boolean | null;
+  /** Markdown excerpt from upstream's changelog for versions newer than current; null when unavailable. */
+  notes: string | null;
+  /** Last successful check (ms epoch); null when none. */
+  checkedAt: number | null;
+}
+
 export interface InferenceActivity {
   enabled: boolean;
   available: boolean;

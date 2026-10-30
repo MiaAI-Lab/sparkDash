@@ -46,6 +46,7 @@ import type {
   QualityBenchJob,
   QualityBenchListResponse,
   StartQualityBenchRequest,
+  UpdateStatus,
 } from "./types";
 import { authHeaders, reportAuthRequired } from "./authToken";
 
@@ -664,6 +665,11 @@ export function fetchHermesUpdates(id: string): Promise<HermesUpdatesResponse> {
 /** Server health and auth posture (bind host, authMode). */
 export function fetchHealth(): Promise<HealthResponse> {
   return apiFetch("/api/health");
+}
+
+/** The server's cached comparison with upstream `main`; silent when it cannot check. */
+export function fetchUpdateStatus(): Promise<UpdateStatus> {
+  return apiFetch("/api/update-status");
 }
 
 // ─── Global settings ──────────────────────────────────────
