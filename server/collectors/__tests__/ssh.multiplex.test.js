@@ -37,6 +37,35 @@ test("supports disable and clamps excessive persistence", () => {
   delete process.env.SSH_CONTROL_PERSIST_SECONDS;
 });
 
+test("a Windows unit moves to a new socket every hour, other units keep theirs", (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.UTC(2026, 9, 30, 2, 0, 0) });
+  const windows = { id: "pc", platform: "windows" };
+  const linux = { id: "spark" };
+  const keys = () => [
+    sshMultiplexConfig(windows, "10.0.0.9", "u", "key", null).key,
+    sshMultiplexConfig(linux, "10.0.0.2", "u", "key", null).key,
+  ];
+  const [windowsStart, linuxStart] = keys();
+  t.mock.timers.tick(59 * 60 * 1000);
+  const [windowsSameHour] = keys();
+  t.mock.timers.tick(60 * 1000);
+  const [windowsNextHour, linuxNextHour] = keys();
+  assert.equal(windowsSameHour, windowsStart);
+  assert.notEqual(windowsNextHour, windowsStart);
+  assert.equal(linuxNextHour, linuxStart);
+});
+
+test("readiness is re-probed once it expires", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.UTC(2026, 9, 30, 2, 0, 0) });
+  const config = { key: "expiry-test", persistSeconds: 60 };
+  let calls = 0;
+  const establish = async () => { calls += 1; };
+  await ensureMultiplexReady(config, establish);
+  t.mock.timers.tick(61 * 1000);
+  await ensureMultiplexReady(config, establish);
+  assert.equal(calls, 2);
+});
+
 test("gates concurrent cold probes behind one connection setup", async () => {
   const config = { key: `gate-${Date.now()}`, persistSeconds: 60 };
   let releaseProbe;
