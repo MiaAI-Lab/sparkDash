@@ -66,6 +66,36 @@ test("LauncherStore persists, de-duplicates ids, updates and tolerates a corrupt
   assert.deepEqual(new LauncherStore({ file }).list("spark1"), []);
 });
 
+test("LauncherStore.reorder follows the given ids, keeps unnamed models and survives a reload", () => {
+  const file = path.join(tmpDir("sd-store-order-"), "l.json");
+  const store = new LauncherStore({ file });
+  const [a, b, c] = ["A", "B", "C"].map((name) => store.add("spark1", { name, dir: `/opt/${name}` }).launcher.id);
+  store.add("spark2", { name: "Other", dir: "/opt/other" });
+  const ids = (sparkId = "spark1") => store.list(sparkId).map((l) => l.id);
+
+  assert.deepEqual(store.reorder("spark1", [c, a, b]).map((l) => l.id), [c, a, b]);
+  assert.deepEqual(new LauncherStore({ file }).list("spark1").map((l) => l.id), [c, a, b], "saved to disk");
+
+  // A stale or hostile list can neither drop nor duplicate a model.
+  store.reorder("spark1", [b, "nope", b, 7, null]);
+  assert.deepEqual(ids(), [b, c, a], "unknown and repeated ids are ignored; unnamed models follow in their old order");
+  store.reorder("spark1", []);
+  assert.deepEqual(ids(), [b, c, a], "an empty list changes nothing");
+
+  assert.equal(store.list("spark2").length, 1, "other Sparks are untouched");
+  assert.deepEqual(store.reorder("ghost", [a]), [], "a Spark with no models stays empty");
+  assert.equal("ghost" in store.data, false);
+});
+
+test("LauncherStore.reorder does not rewrite the file when the order is unchanged", () => {
+  const file = path.join(tmpDir("sd-store-order-"), "l.json");
+  const store = new LauncherStore({ file });
+  const [a, b] = ["A", "B"].map((name) => store.add("spark1", { name, dir: `/opt/${name}` }).launcher.id);
+  fs.utimesSync(file, new Date(0), new Date(0));
+  store.reorder("spark1", [a, b]);
+  assert.equal(fs.statSync(file).mtimeMs, 0);
+});
+
 /** A manager that runs the generated programs with real bash against a throwaway $HOME. */
 function realManager(home, extraEnv = {}) {
   const events = [];

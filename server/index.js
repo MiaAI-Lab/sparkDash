@@ -892,6 +892,17 @@ app.post("/api/sparks/:id/llm-launchers", (req, res) => {
   res.status(201).json({ launcher: result.launcher });
 });
 
+// Registered before the ":lid" route below, which would otherwise take "order" for a launcher id.
+app.put("/api/sparks/:id/llm-launchers/order", (req, res) => {
+  const spark = launcherContext(req, res);
+  if (!spark) return;
+  const order = req.body?.order;
+  if (!Array.isArray(order) || !order.every((id) => typeof id === "string")) {
+    return res.status(400).json({ error: "body.order must be an array of model ids" });
+  }
+  res.json({ launchers: launcherStore.reorder(spark.id, order) });
+});
+
 app.put("/api/sparks/:id/llm-launchers/:lid", async (req, res) => {
   const spark = launcherContext(req, res);
   if (!spark) return;

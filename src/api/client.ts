@@ -728,6 +728,11 @@ export function updateLauncher(
   });
 }
 
+/** Save the order of a Spark's model list (the full list of launcher ids, first to last). */
+export function reorderLaunchers(sparkId: string, order: string[]): Promise<{ launchers: LlmLauncher[] }> {
+  return apiFetch(`${launchersBase(sparkId)}/order`, { method: "PUT", body: JSON.stringify({ order }) });
+}
+
 export function removeLauncher(sparkId: string, launcherId: string): Promise<{ success: boolean }> {
   return apiFetch(`${launchersBase(sparkId)}/${encodeURIComponent(launcherId)}`, { method: "DELETE" });
 }

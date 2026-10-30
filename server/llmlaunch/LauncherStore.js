@@ -76,6 +76,32 @@ export class LauncherStore {
     return { ok: true, launcher: { ...next } };
   }
 
+  /**
+   * Put a Spark's launchers in the given id order. Unknown and repeated ids are ignored, and
+   * launchers the list does not name keep their relative order after the named ones, so a
+   * client holding a stale list can never drop or duplicate a model.
+   * @param {string} sparkId
+   * @param {unknown[]} orderedIds
+   * @returns {object[]} the list in its new order
+   */
+  reorder(sparkId, orderedIds) {
+    const list = this.data[sparkId] ?? [];
+    const pending = new Map(list.map((l) => [l.id, l]));
+    const next = [];
+    for (const id of orderedIds) {
+      const launcher = pending.get(id);
+      if (!launcher) continue;
+      next.push(launcher);
+      pending.delete(id);
+    }
+    next.push(...pending.values());
+    if (next.some((l, i) => l !== list[i])) {
+      this.data[sparkId] = next;
+      this._save();
+    }
+    return this.list(sparkId);
+  }
+
   remove(sparkId, launcherId) {
     const list = this.data[sparkId] ?? [];
     if (!list.some((l) => l.id === launcherId)) return false;

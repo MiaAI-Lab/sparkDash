@@ -891,6 +891,52 @@
   border-top: 0;
   padding-top: 2px;
 }
+/* Drag handle: the only part of a row that starts a drag, so the Start / Stop / Edit buttons stay clickable. It sits in the row's upper right corner; the row keeps room for it beside the buttons. */
+.sp .sp-launch.is-reorderable {
+  position: relative;
+  padding-right: 26px;
+}
+.sp .sp-launch__grip {
+  position: absolute;
+  top: 10px;
+  right: -4px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  appearance: none;
+  background: transparent;
+  color: var(--color-muted);
+  opacity: 0.6;
+  cursor: grab;
+  touch-action: none;
+}
+.sp .sp-launch:first-child .sp-launch__grip {
+  top: 0;
+}
+.sp .sp-launch__grip:hover,
+.sp .sp-launch__grip:focus-visible {
+  opacity: 1;
+  color: var(--color-text);
+}
+.sp .sp-launch__grip:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+.sp .sp-launch.is-dragging {
+  position: relative;
+  z-index: 2;
+  border-radius: 8px;
+  background: var(--color-surface-elevated);
+  box-shadow: 0 0 0 8px var(--color-surface-elevated), var(--shadow-shell, 0 12px 32px rgba(0, 0, 0, 0.35));
+}
+.sp .sp-launch.is-dragging,
+.sp .sp-launch.is-dragging .sp-launch__grip {
+  cursor: grabbing;
+}
 .sp .sp-launch__main {
   min-width: 0;
   flex: 1 1 200px;
