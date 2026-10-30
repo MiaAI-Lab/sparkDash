@@ -29,6 +29,7 @@ import type {
   LlmDailyResponse,
   MetricsHistoryRange,
   MetricsHistoryResponse,
+  ModelDiscoveryResponse,
   OccupancyCheck,
   OccupancyHelper,
   OccupancyHelperInput,
@@ -735,6 +736,14 @@ export function readLauncherJob(sparkId: string, jobId: string, since = 0): Prom
 /** Stop watching the active job. A start script keeps running on the Spark. */
 export function cancelLauncherJob(sparkId: string): Promise<{ success: boolean }> {
   return apiFetch(`${launchersBase(sparkId)}/jobs/active`, { method: "DELETE" });
+}
+
+/**
+ * "Discover on this Spark": scan the dashboard's own unit for launchable model
+ * folders, ollama weights and HF-cache repos (server caches the scan 15 s).
+ */
+export function discoverModels(): Promise<ModelDiscoveryResponse> {
+  return apiFetch("/api/model-launcher/discover");
 }
 
 // ─── Tool Eval ───────────────────────────────────────────
