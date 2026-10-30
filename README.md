@@ -1291,6 +1291,8 @@ The two direct build dependencies are exactly pinned: `i18next@26.4.2` (publishe
 
 Validate with a supported Node release such as 22.23.2: `npm ci`, `npm test`, `npm run typecheck` and `npm run build`. The server suite needs native Linux/POSIX tools, Python 3.11+ and Git; install zsh to exercise the login-shell probe. In a browser, check Settings at desktop and phone sizes, switch English → 简体中文 → English, reload, check accessible labels and horizontal overflow, and verify a pending setting survives a language switch and Save. Use synthetic data for writes.
 
+The Settings session-age choices and Harness setup entry also follow the language switch; the separate Harness setup wizard is still a future translation batch. See the [page-by-page localization coverage checklist](docs/I18N-COVERAGE.md) for merged, proposed and remaining work. Passing catalog checks does not mean every screen has been translated.
+
 ---
 
 ## License
