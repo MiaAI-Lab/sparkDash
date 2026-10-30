@@ -1,7 +1,24 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import type { LauncherAction, LauncherJob, LauncherRunState, LlmLauncher, SparkSnapshot } from "../../api/types";
-import { removeLauncher, runLauncher } from "../../api/client";
+import { removeLauncher, reorderLaunchers, runLauncher } from "../../api/client";
 import { fetchLaunchersCached, invalidateLaunchers, patchCachedStatus } from "../../hooks/launcherCache";
 import { useLauncherJob } from "../../hooks/useLauncherJob";
 import { useModalPresence } from "../../hooks/useModalPresence";
@@ -9,7 +26,7 @@ import { useOverlayClose } from "../../hooks/useOverlayClose";
 import { LiveTerminal, terminalText } from "../ui/LiveTerminal";
 import { Panel } from "../ui/Panel";
 import { Tag, type TagTone } from "../ui/Tag";
-import { BotIcon, EditIcon, ExpandIcon, PlusIcon, XIcon } from "../ui/icons";
+import { BotIcon, EditIcon, ExpandIcon, GripVerticalIcon, PlusIcon, XIcon } from "../ui/icons";
 import { LlmLauncherDialog } from "./LlmLauncherDialog";
 
 const AUTOSHOW_KEY = "sparkdash.llm.autoShowOutput";
@@ -119,6 +136,47 @@ function TerminalModal({
   );
 }
 
+/** One model row. The grip is the drag handle (keyboard: Space, arrow keys, Space); it is hidden when there is nothing to reorder. */
+function SortableLaunch({
+  id,
+  name,
+  state,
+  reorderable,
+  children,
+}: {
+  id: string;
+  name: string;
+  state: LauncherRunState;
+  reorderable: boolean;
+  children: ReactNode;
+}) {
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id });
+  return (
+    <li
+      ref={setNodeRef}
+      // dnd-kit positions the row with an inline transform; rows only travel vertically.
+      style={{ transform: CSS.Transform.toString(transform ? { ...transform, x: 0 } : null), transition }}
+      className={`sp-launch${reorderable ? " is-reorderable" : ""}${isDragging ? " is-dragging" : ""}`}
+      data-state={state}
+    >
+      {children}
+      {reorderable ? (
+        <button
+          type="button"
+          ref={setActivatorNodeRef}
+          {...attributes}
+          {...listeners}
+          className="sp-launch__grip"
+          title="Drag to reorder (keyboard: Space, then arrow keys)"
+          aria-label={`Reorder ${name}`}
+        >
+          <GripVerticalIcon />
+        </button>
+      ) : null}
+    </li>
+  );
+}
+
 type Confirm =
   | { kind: "stop"; id: string }
   | { kind: "remove"; id: string }
@@ -150,6 +208,12 @@ function LlmModelsPanelFor({ spark, className }: { spark: SparkSnapshot; classNa
   const [copied, setCopied] = useState(false);
   const { job, lines, partial, truncated, error: jobError, follow, cancel } = useLauncherJob(sparkId);
   const adoptedRef = useRef(false);
+  // Saves of a new order still in flight: a refresh that lands meanwhile must not put the old order back.
+  const savingOrderRef = useRef(0);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
 
   // Only a stop script is exclusive. A start job is a watcher; a new action simply detaches it.
   const busy = job?.status === "running" && job.action === "stop";
@@ -160,7 +224,7 @@ function LlmModelsPanelFor({ spark, className }: { spark: SparkSnapshot; classNa
       try {
         // Shared with the Overview cards: at most one SSH-backed request per Spark per few seconds.
         const res = await fetchLaunchersCached(sparkId, { force });
-        setLaunchers(res.launchers);
+        if (!savingOrderRef.current) setLaunchers(res.launchers);
         if (res.statuses) setStatuses(res.statuses);
         setLoadError(null);
         setLoaded(true);
@@ -251,6 +315,33 @@ function LlmModelsPanelFor({ spark, className }: { spark: SparkSnapshot; classNa
     }
   }
 
+  /** Show the new order at once, save it, then take the server's list; a failed save puts the old order back. */
+  function onDragEnd({ active, over }: DragEndEvent) {
+    const from = launchers.findIndex((l) => l.id === active.id);
+    const to = over ? launchers.findIndex((l) => l.id === over.id) : -1;
+    if (from < 0 || to < 0 || from === to) return;
+    const previous = launchers;
+    const next = arrayMove(launchers, from, to);
+    setActionError(null);
+    setLaunchers(next);
+    savingOrderRef.current += 1;
+    reorderLaunchers(
+      sparkId,
+      next.map((l) => l.id)
+    )
+      .then((res) => {
+        invalidateLaunchers(sparkId);
+        setLaunchers(res.launchers);
+      })
+      .catch((e) => {
+        setLaunchers(previous);
+        setActionError(e instanceof Error ? e.message : "Could not save the model order");
+      })
+      .finally(() => {
+        savingOrderRef.current -= 1;
+      });
+  }
+
   function toggleAutoShow(v: boolean) {
     setAutoShow(v);
     try {
@@ -282,7 +373,7 @@ function LlmModelsPanelFor({ spark, className }: { spark: SparkSnapshot; classNa
     const pending = confirm?.id === l.id ? confirm : null;
     const other = pending?.kind === "switch" ? byId.get(pending.otherId) : null;
     return (
-      <li key={l.id} className="sp-launch" data-state={state}>
+      <SortableLaunch key={l.id} id={l.id} name={l.name} state={state} reorderable={launchers.length > 1}>
         <div className="sp-launch__main">
           <div className="sp-launch__title">
             <b>{l.name}</b>
@@ -411,7 +502,7 @@ function LlmModelsPanelFor({ spark, className }: { spark: SparkSnapshot; classNa
             </>
           )}
         </div>
-      </li>
+      </SortableLaunch>
     );
   });
 
@@ -445,7 +536,13 @@ function LlmModelsPanelFor({ spark, className }: { spark: SparkSnapshot; classNa
             </button>
           </div>
         ) : null}
-        {launchers.length > 0 ? <ul className="sp-models__list">{rows}</ul> : null}
+        {launchers.length > 0 ? (
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+            <SortableContext items={launchers.map((l) => l.id)} strategy={verticalListSortingStrategy}>
+              <ul className="sp-models__list">{rows}</ul>
+            </SortableContext>
+          </DndContext>
+        ) : null}
         {!online && launchers.length > 0 ? <p className="sp-models__hint">{spark.name} is offline, so models cannot be started or stopped.</p> : null}
         {actionError ? (
           <p className="sp-models__error" role="alert">

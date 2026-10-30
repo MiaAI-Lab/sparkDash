@@ -149,3 +149,38 @@ test("model launchers are refused for a Windows unit", async (t) => {
   assert.equal(res.status, 400);
   assert.match(res.body.error, /not supported on Windows/);
 });
+
+test("the model order is saved through the HTTP API and survives a restart of the list", async (t) => {
+  const { port, tmp } = await startServer(t);
+  const created = await api(port, "/api/sparks", {
+    method: "POST",
+    body: JSON.stringify({ id: "alpha", name: "alpha", lanIp: "127.0.0.1", isLocal: true, ssh: { host: "127.0.0.1", user: os.userInfo().username, auth: "key" } }),
+  });
+  assert.equal(created.status, 200);
+
+  const base = "/api/sparks/alpha/llm-launchers";
+  const ids = [];
+  for (const name of ["One", "Two", "Three"]) {
+    const added = await api(port, base, { method: "POST", body: JSON.stringify({ name, dir: path.join(tmp, name) }) });
+    assert.equal(added.status, 201);
+    ids.push(added.body.launcher.id);
+  }
+  const [one, two, three] = ids;
+  const listed = async () => (await api(port, base)).body.launchers.map((l) => l.id);
+
+  const moved = await api(port, `${base}/order`, { method: "PUT", body: JSON.stringify({ order: [three, one, two] }) });
+  assert.equal(moved.status, 200, "'order' is not taken for a launcher id");
+  assert.deepEqual(moved.body.launchers.map((l) => l.id), [three, one, two]);
+  assert.deepEqual(await listed(), [three, one, two]);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(tmp, "llm-launchers.json"), "utf8")).launchers.alpha.map((l) => l.id), [three, one, two]);
+
+  // A partial list moves the named models up and keeps the rest.
+  assert.deepEqual((await api(port, `${base}/order`, { method: "PUT", body: JSON.stringify({ order: [two] }) })).body.launchers.map((l) => l.id), [two, three, one]);
+
+  for (const bad of [{}, { order: "x" }, { order: [1, 2] }, { order: [two, null] }]) {
+    const res = await api(port, `${base}/order`, { method: "PUT", body: JSON.stringify(bad) });
+    assert.equal(res.status, 400, JSON.stringify(bad));
+  }
+  assert.deepEqual(await listed(), [two, three, one], "a rejected request leaves the order alone");
+  assert.equal((await api(port, "/api/sparks/nope/llm-launchers/order", { method: "PUT", body: JSON.stringify({ order: [] }) })).status, 404);
+});
