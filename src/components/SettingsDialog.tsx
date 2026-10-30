@@ -116,13 +116,13 @@ const POLL_PRESETS = [
 ];
 
 const AGE_PRESETS = [
-  { label: "1h", value: 60 * 60 * 1000 },
-  { label: "6h", value: 6 * 60 * 60 * 1000 },
-  { label: "12h", value: 12 * 60 * 60 * 1000 },
-  { label: "24h", value: 24 * 60 * 60 * 1000 },
-  { label: "3d", value: 3 * 24 * 60 * 60 * 1000 },
-  { label: "7d", value: 7 * 24 * 60 * 60 * 1000 },
-  { label: "14d", value: 14 * 24 * 60 * 60 * 1000 },
+  { unit: "hours", count: 1, value: 60 * 60 * 1000 },
+  { unit: "hours", count: 6, value: 6 * 60 * 60 * 1000 },
+  { unit: "hours", count: 12, value: 12 * 60 * 60 * 1000 },
+  { unit: "hours", count: 24, value: 24 * 60 * 60 * 1000 },
+  { unit: "days", count: 3, value: 3 * 24 * 60 * 60 * 1000 },
+  { unit: "days", count: 7, value: 7 * 24 * 60 * 60 * 1000 },
+  { unit: "days", count: 14, value: 14 * 24 * 60 * 60 * 1000 },
 ];
 
 export function SettingsDialog({ open, onClose, onSaved, onOpenHarness, serverVersion }: SettingsDialogProps) {
@@ -332,8 +332,8 @@ export function SettingsDialog({ open, onClose, onSaved, onOpenHarness, serverVe
                 </div>
               </SettingRow>
 
-              <SettingRow title="Session age" help="Hide harness sessions older than this. The oldest choice is 14 days. There is no unlimited value.">
-                <div className="seg" role="radiogroup" aria-label="Session age">
+              <SettingRow title={t("sessionAge.title")} help={t("sessionAge.help")} stack>
+                <div className="seg" role="radiogroup" aria-label={t("sessionAge.title")}>
                   {AGE_PRESETS.map((preset) => (
                     <button
                       key={preset.value}
@@ -343,15 +343,17 @@ export function SettingsDialog({ open, onClose, onSaved, onOpenHarness, serverVe
                       className={(settings.occupancyMaxAgeMs ?? AGE_PRESETS[2].value) === preset.value ? "is-on" : ""}
                       onClick={() => update({ occupancyMaxAgeMs: preset.value })}
                     >
-                      {preset.label}
+                      {preset.unit === "hours"
+                        ? t("sessionAge.hours", { count: preset.count })
+                        : t("sessionAge.days", { count: preset.count })}
                     </button>
                   ))}
                 </div>
               </SettingRow>
 
-              <SettingRow title="Harness sessions" help="One helper on each machine lists OpenClaw, OpenCode, oh-my-pi, Hermes and DeepSeek Harness. The dashboard only stores the helper address and token.">
+              <SettingRow title={t("harnessSessions.title")} help={t("harnessSessions.help")}>
                 <button type="button" className="btn btn--sm" onClick={() => onOpenHarness?.()}>
-                  Set up
+                  {t("harnessSessions.setup")}
                 </button>
               </SettingRow>
 

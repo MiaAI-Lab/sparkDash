@@ -2,6 +2,8 @@
   "dialog": { "title": "设置", "close": "关闭", "loading": "正在加载…", "cancel": "取消", "save": "保存", "saving": "正在保存..." },
   "appearance": { "title": "外观", "help": "立即在此设备上生效，并保存在此浏览器中。", "theme": "主题", "white": "白色", "light": "浅色", "dark": "深色", "oled": "OLED" },
   "refresh": { "title": "刷新频率", "help": "轮询每个节点的 GPU、CPU、内存、网络和 LLM 指标以及更新仪表盘的频率。远程节点通过 SSH 轮询，因此 1 秒的开销最大；存储和存活状态有各自更慢的检查。", "interval": "轮询间隔", "oneSecond": "1秒", "twoSeconds": "2秒", "fiveSeconds": "5秒", "tenSeconds": "10秒" },
+  "sessionAge": { "title": "会话时间范围", "help": "隐藏早于所选时限的 Harness 会话。最长可选 14 天，不提供无限制选项。", "hours": "{{count}}小时", "days": "{{count}}天" },
+  "harnessSessions": { "title": "Harness 会话", "help": "每台设备上的辅助服务列出 OpenClaw、OpenCode、oh-my-pi、Hermes 和 DeepSeek Harness 的会话。仪表盘仅保存辅助服务的地址和令牌。", "setup": "配置" },
   "temperature": { "title": "温度单位", "aria": "温度单位" },
   "healthTemps": { "title": "GPU 温度告警", "help": "最热的 GPU 达到第一个值时发出警告，达到第二个值时转为严重，单位始终为 °C，与显示单位无关。告警通知使用相同的阈值。默认值为 85 和 90；警告温度必须低于严重温度。", "warn": "警告温度 (°C)", "reset": "恢复默认值", "critical": "严重温度 (°C)" },
   "timeZone": { "title": "时区", "help": "Tokens、Energy 和 Activity 图表中的小时和日期边界及标签。留空时跟随此浏览器（{{timeZone}}）。每日 Token 桶和每月能源总量保持 UTC。", "placeholder": "浏览器默认值", "inputTitle": "留空时跟随此浏览器（{{timeZone}}）", "useBrowser": "使用浏览器设置", "unknown": "未知时区。请尝试 Europe/Paris。" },
