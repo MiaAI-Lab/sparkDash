@@ -34,6 +34,8 @@ export const CONFIG_PATH_VARS = [
   "OCCUPANCY_HELPERS_JSON_PATH",
   "MODEL_PRICES_JSON_PATH",
   "MODEL_PRICES_FETCH",
+  // Opt-in power meters: the isolated path never exists, so tests run with them off.
+  "POWER_METERS_CONFIG_PATH",
 ];
 
 /** Variables that point at a directory the server writes into. */
