@@ -52,7 +52,7 @@ import { authHeaders, reportAuthRequired } from "./authToken";
 const BASE = "";
 
 // ─── Generic fetch wrapper ────────────────────────────────
-async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
+export async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
   // Only set Content-Type for requests that actually carry a body. Setting it
   // on GET/DELETE was a no-op but could trigger an unnecessary CORS preflight
   // (OPTIONS) in some proxy setups.

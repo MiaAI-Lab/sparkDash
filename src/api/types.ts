@@ -900,6 +900,40 @@ export interface FleetEnergy {
   nodeCoverage24hMs: Record<string, number>;
   nodeCoverage31dMs: Record<string, number>;
   hourlyWatts24h: Array<number | null>;
+  /** Wall power from external meters; present only while power meters are configured. */
+  wall?: FleetWallEnergy;
+}
+
+/**
+ * Wall power in the shape of FleetEnergy's own fields. Energy and coverage include time
+ * filled from the estimate (estimate × the node's learned wall/estimate ratio).
+ */
+export interface FleetWallEnergy {
+  /** Nodes with a meter. */
+  nodeIds: string[];
+  /** Metered nodes whose last reading is fresh. */
+  freshNodeIds: string[];
+  /** Nodes counted at estimate × ratio right now (no fresh reading, or no meter). */
+  filledNodeIds: string[];
+  staleNodeIds: string[];
+  /** Ratio used to fill each node (its own, else the fleet's); null = not learned yet. */
+  ratios: Record<string, number | null>;
+  ownRatios: Record<string, number | null>;
+  fleetRatio: number | null;
+  currentWatts30s: number | null;
+  /** True when the current figure includes filled nodes. */
+  currentFilled: boolean;
+  energy24hKwh: number | null;
+  filledEnergy24hKwh: number | null;
+  energy31dKwh: number | null;
+  whPerOutputToken24h: number | null;
+  coverage24hMs: number;
+  coverage24hWindowMs: number;
+  coverage31dMs: number;
+  coverage31dWindowMs: number;
+  nodeCoverage24hMs: Record<string, number>;
+  nodeCoverage31dMs: Record<string, number>;
+  hourlyWatts24h: Array<number | null>;
 }
 
 // ─── API responses ────────────────────────────────────────
@@ -1735,6 +1769,26 @@ export interface EnergyHistoryRow {
   fleetCoverageMs: number;
   outputTokens: number;
   coveredOutputTokens: number;
+  // ── Optional, present only in hours that have them ──
+  /** GPU board draw as measured, per node. */
+  nodeGpuWh?: Record<string, number>;
+  /** CPU draw as modelled from utilization, per node. */
+  nodeCpuWh?: Record<string, number>;
+  nodePartsCoverageMs?: Record<string, number>;
+  /** Wall energy a meter measured, per node. */
+  nodeWallWh?: Record<string, number>;
+  nodeWallCoverageMs?: Record<string, number>;
+  /** Part of the measured coverage the meter's own record confirmed. */
+  nodeWallMeteredMs?: Record<string, number>;
+  /** Wall energy filled from the estimate where no meter measured. */
+  nodeWallFilledWh?: Record<string, number>;
+  nodeWallFilledMs?: Record<string, number>;
+  /** Fleet wall figures, measured plus filled, while every node was covered. */
+  avgWallWatts?: number | null;
+  fleetWallWh?: number;
+  fleetWallFilledWh?: number;
+  fleetWallCoverageMs?: number;
+  wallCoveredOutputTokens?: number;
 }
 
 export interface EnergyHistory {
@@ -1743,6 +1797,9 @@ export interface EnergyHistory {
   generatedAt: number;
   retentionMs: number;
   nodeIds: string[];
+  /** Present only while power meters are configured. */
+  wallNodeIds?: string[];
+  wallRatios?: Record<string, number | null>;
   hourly: EnergyHistoryRow[];
 }
 
@@ -1757,13 +1814,34 @@ export interface MonthlyEnergyMonth {
   closed: boolean;
   /** Nodes that reported in this month (the scope at the time). */
   nodeIds: string[];
-  nodes: Record<string, { wh: number; coverageMs: number }>;
+  nodes: Record<string, MonthlyEnergyNode>;
   totalWh: number;
   fleetWh: number;
   fleetCoverageMs: number;
   outputTokens: number;
   coveredOutputTokens: number;
   whPerOutputToken: number | null;
+  // ── Present only in months with wall power (measured or filled) ──
+  totalWallWh?: number;
+  totalWallFilledWh?: number;
+  fleetWallWh?: number;
+  fleetWallFilledWh?: number;
+  fleetWallCoverageMs?: number;
+  wallCoveredOutputTokens?: number;
+  wallWhPerOutputToken?: number | null;
+}
+
+export interface MonthlyEnergyNode {
+  wh: number;
+  coverageMs: number;
+  gpuWh?: number;
+  cpuWh?: number;
+  partsCoverageMs?: number;
+  wallWh?: number;
+  wallCoverageMs?: number;
+  wallMeteredMs?: number;
+  wallFilledWh?: number;
+  wallFilledMs?: number;
 }
 
 export interface MonthlyEnergy {

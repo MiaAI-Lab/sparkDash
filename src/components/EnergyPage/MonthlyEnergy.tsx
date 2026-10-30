@@ -4,6 +4,7 @@ import type { MonthlyEnergy as MonthlyEnergyData, MonthlyEnergyMonth } from "../
 import { StackedBarChart, type BarSeries } from "../ui/StackedBarChart";
 import { Tag } from "../ui/Tag";
 import { formatKwh, formatMoney } from "./energyStats";
+import { wallMonth } from "./wallStats";
 import {
   fleetCoverage,
   monthLabel,
@@ -69,7 +70,8 @@ export function MonthlyEnergy({
   }, [reloadToken, load]);
 
   const now = data?.generatedAt ?? 0;
-  const months = useMemo(() => data?.months ?? [], [data]);
+  // A month with wall power (measured, gaps filled) is shown at the wall; others stay estimated.
+  const months = useMemo(() => (data?.months ?? []).map((m) => wallMonth(m) ?? m), [data]);
   const monthKeys = useMemo(() => monthOptions(months, now), [months, now]);
   const years = useMemo(() => yearOptions(months, now), [months, now]);
   const colorOf = useMemo(() => nodeColors(months), [months]);
@@ -140,6 +142,7 @@ function MonthView({
   price,
   currency,
 }: ViewProps & { month: MonthlyEnergyMonth | null; label: string; now: number }) {
+  const metered = month?.totalWallWh != null;
   if (!month || month.totalWh <= 0) {
     return <p className="en-panel__sub" role="status">No energy was recorded in {label}.</p>;
   }
@@ -192,7 +195,10 @@ function MonthView({
       </div>
       <p className="en-panel__sub en-panel__foot">
         Only the Sparks that reported in {label} are listed. Coverage is the share of the month each one was measured
-        {month.closed ? "" : " so far"}. Estimated, not metered.
+        {month.closed ? "" : " so far"}.{" "}
+        {metered
+          ? `Measured at the wall${(month.totalWallFilledWh ?? 0) > 0 ? `, ${pct((month.totalWallFilledWh ?? 0) / month.totalWh)} filled from the estimate` : ""}.`
+          : "Estimated, not metered."}
       </p>
     </>
   );
