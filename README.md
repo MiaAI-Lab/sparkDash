@@ -1018,7 +1018,7 @@ Copy `.env.example` to `.env` if needed:
 | `POLL_INTERVAL_HERMES` | `600000` | Hermes Agent update check poll (ms) |
 | `POLL_INTERVAL_TAILSCALE` | `30000` | Tailnet probe poll (ms) |
 | `TAILSCALE_PROBE_TIMEOUT_MS` | `8000` | Timeout for `tailscale status --json` (ms) |
-| `POLL_INTERVAL_NVERR` | `60000` | Kernel journal scan for NVRM `NV_ERR_NO_MEMORY` (ms) |
+| `POLL_INTERVAL_NVERR` | `60000` | Incremental kernel journal reads for NV_ERR, Xid and OOM counters (ms), after the initial backfill |
 | `HERMES_UPDATE_TIMEOUT_MS` | `600000` | Hard timeout for running `hermes update` over SSH (ms) |
 | `POLL_INTERVAL_LIVENESS` | `5000` | Online/SSH liveness check (ms) |
 | `SPARKDASH_SECRETS_KEY` | _(auto)_ | Passphrase or 64-char hex for secret encryption |
@@ -1176,7 +1176,7 @@ If host memory remains low, compare Linux `MemAvailable` and per-process residen
 
 ### Health findings
 
-`server/health/HealthEvaluator.js` runs a handful of rules over metrics sparkDash already collects, once per Spark, and reports them as `health[]` on the unit's snapshot. A rule never guesses: a missing metric raises nothing. Findings carry a severity, a detail and a hint, show up as chips on the Overview cards and in full on the unit page, and the monitor writes an Activity event when one appears or clears (never for the first baseline after a restart). The kernel Xid / OOM counters come from one cached `journalctl -k` scan per minute.
+`server/health/HealthEvaluator.js` runs a handful of rules over metrics sparkDash already collects, once per Spark, and reports them as `health[]` on the unit's snapshot. A rule never guesses: a missing metric raises nothing. Findings carry a severity, a detail and a hint, show up as chips on the Overview cards and in full on the unit page, and the monitor writes an Activity event when one appears or clears (never for the first baseline after a restart). The kernel NV_ERR / Xid / OOM counters share one cached journal cursor. Reads process at most 10,000 records and have a host-side 3-second hard timeout, including over SSH. Initial history is backfilled one page per 10 seconds (when polled); counters remain unknown until the baseline is complete. Later reads resume after the cursor at `POLL_INTERVAL_NVERR` cadence rather than scanning the whole boot journal again. Failed reads retain the last complete reading and retry after that interval.
 
 ### Windows units
 
