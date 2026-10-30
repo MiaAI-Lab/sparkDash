@@ -74,6 +74,8 @@ function useEscape(onClose: () => void) {
 
 type ThemeId = "white" | "light" | "dark" | "oled";
 
+type SettingsError = string | { kind: "mqttUrl"; url: string } | { kind: "mqttCredentials" };
+
 const THEME_STORAGE_KEY = "sparkdash-theme";
 
 /** Real swatches: background, text and accent mirror each theme's tokens. */
@@ -147,7 +149,7 @@ export function SettingsDialog({ open, onClose, onSaved, onOpenHarness, serverVe
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<SettingsError | null>(null);
   const [invalidTimeZone, setInvalidTimeZone] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   // The GPU clock row applies through Save, so a pick there is unsaved work too.
@@ -224,14 +226,15 @@ export function SettingsDialog({ open, onClose, onSaved, onOpenHarness, serverVe
       setInvalidTimeZone(settings.timeZone);
       return;
     }
-    if (settings.mqttUrl && !/^(mqtt|ws)s?:\/\//i.test(settings.mqttUrl.trim())) {
-      // The server would silently clear it; say so instead.
-      setError(`"${settings.mqttUrl}" is not a broker URL — use mqtt://host:1883 (or mqtts://, ws://, wss://), or clear the field.`);
-      return;
-    }
     if (settings.mqttUrl && mqttUrlHasCredentials(settings.mqttUrl)) {
       // settings.json is world-readable, so the server refuses (and clears) such a URL.
-      setError("Remove the user name and password from the broker URL: put the user name in MQTT username and the password in the SPARKDASH_MQTT_PASSWORD environment variable.");
+      // Check before the scheme error, which quotes the URL: never echo credentials.
+      setError({ kind: "mqttCredentials" });
+      return;
+    }
+    if (settings.mqttUrl && !/^(mqtt|ws)s?:\/\//i.test(settings.mqttUrl.trim())) {
+      // The server would silently clear it; say so instead.
+      setError({ kind: "mqttUrl", url: settings.mqttUrl });
       return;
     }
     const tempsError = healthTempsError(settings.healthTempWarnC, settings.healthTempCriticalC, t);
@@ -541,14 +544,14 @@ export function SettingsDialog({ open, onClose, onSaved, onOpenHarness, serverVe
                 onChange={(v) => update({ metricsHistory: v })}
               />
               <ToggleRow
-                title="MQTT publishing"
-                help="Publishes the activity feed events and every unit's readings to your MQTT broker (Home Assistant, Node-RED, …) as they change. Off by default. The README's MQTT section lists the topics."
+                title={t("mqtt.publishing.title")}
+                help={t("mqtt.publishing.help")}
                 checked={Boolean(settings.mqttEnabled)}
                 onChange={(v) => update({ mqttEnabled: v })}
               />
               <SettingRow
-                title="MQTT broker URL"
-                help="mqtt://host:1883, mqtts:// for TLS, ws(s):// for a websocket broker. The password is read from the SPARKDASH_MQTT_PASSWORD environment variable, never stored in settings.json."
+                title={t("mqtt.url.title")}
+                help={t("mqtt.url.help")}
                 htmlFor="settings-mqtt-url"
               >
                 <input
@@ -563,15 +566,15 @@ export function SettingsDialog({ open, onClose, onSaved, onOpenHarness, serverVe
                 />
               </SettingRow>
               <SettingRow
-                title="MQTT username"
-                help="Leave empty for a broker that allows anonymous publish."
+                title={t("mqtt.username.title")}
+                help={t("mqtt.username.help")}
                 htmlFor="settings-mqtt-username"
               >
                 <input
                   id="settings-mqtt-username"
                   type="text"
                   value={settings.mqttUsername ?? ""}
-                  placeholder="empty"
+                  placeholder={t("mqtt.username.placeholder")}
                   spellCheck={false}
                   autoComplete="off"
                   onChange={(e) => update({ mqttUsername: e.target.value })}
@@ -579,8 +582,8 @@ export function SettingsDialog({ open, onClose, onSaved, onOpenHarness, serverVe
                 />
               </SettingRow>
               <SettingRow
-                title="MQTT topic prefix"
-                help="Topic root for everything published: PREFIX/events, PREFIX/status/… and PREFIX/metrics/…"
+                title={t("mqtt.prefix.title")}
+                help={t("mqtt.prefix.help")}
                 htmlFor="settings-mqtt-prefix"
               >
                 <input
@@ -702,8 +705,8 @@ export function SettingsDialog({ open, onClose, onSaved, onOpenHarness, serverVe
 
           {/* Outside the settings block: a fleet GPU action needs no saved settings. */}
           <SettingRow
-            title="GPU clock cap"
-            help="Caps the GPU graphics clock on every Spark at once (nvidia-smi -lgc): pick the state they should be in — Full capacity or 1800–2400 MHz — and Save applies it. Offline or GPU-less units are skipped and reported."
+            title={t("gpuClock.title")}
+            help={t("gpuClock.help")}
             stack
           >
             <FleetGpuClock apiRef={fleetClock} onPendingChange={setFleetClockPending} />
@@ -747,7 +750,12 @@ export function SettingsDialog({ open, onClose, onSaved, onOpenHarness, serverVe
           </div>
         </div>
 
-        {(invalidTimeZone || error) && <div className="modal-sheet__error">{invalidTimeZone ? t("errors.invalidTimeZone", { timeZone: invalidTimeZone }) : error}</div>}
+        {(invalidTimeZone || error) && <div className="modal-sheet__error">{
+          invalidTimeZone ? t("errors.invalidTimeZone", { timeZone: invalidTimeZone })
+            : typeof error === "string" ? error
+              : error?.kind === "mqttUrl" ? t("errors.invalidMqttUrl", { url: error.url })
+                : error?.kind === "mqttCredentials" ? t("errors.mqttCredentials") : null
+        }</div>}
 
         <div className="modal-sheet__footer">
           <div className="modal-sheet__footer-actions">
