@@ -5,7 +5,7 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { createBridge, MAX_FAILURES, FAILURE_WINDOW_MS } from "./bridge.js";
+import { createBridge, MAX_FAILURES, FAILURE_WINDOW_MS, MAX_UPSTREAM_BYTES } from "./bridge.js";
 
 const TOKEN = "fixture-bridge-token";
 const SHA = crypto.createHash("sha256").update(TOKEN).digest("hex");
@@ -19,7 +19,7 @@ function fakeLitellm(calls) {
     const body = u.pathname === "/health/readiness" ? { status: "healthy" }
       : u.pathname === "/key/list" ? { keys: [{ token: ID, key_alias: "a", spend: 2, key_name: "sk-...xyz" }, { token: "short" }], total_pages: 1 }
       : u.pathname === "/key/info" ? { info: { key_alias: "a" } } : null;
-    return { status: body ? 200 : 404, json: async () => body };
+    return { status: body ? 200 : 404, text: async () => JSON.stringify(body) };
   };
 }
 
@@ -73,6 +73,21 @@ test("locks out after repeated bad tokens, then recovers when the window passes"
   clock += FAILURE_WINDOW_MS;
   assert.equal((await b.req("GET", "/v1/health")).status, 200);
   assert.equal(b.calls.length, 1);
+  await b.close();
+});
+
+test("a key list longer than the page cap is refused, not cut off", async () => {
+  const b = await start({ fetchImpl: async () => ({ status: 200, text: async () => JSON.stringify({ keys: [{ token: ID }], total_pages: 999 }) }) });
+  const r = await b.req("GET", "/v1/keys");
+  assert.equal(r.status, 502);
+  assert.match(r.json.error, /more than/);
+  await b.close();
+});
+
+test("an oversized LiteLLM reply is treated as a failure", async () => {
+  const b = await start({ fetchImpl: async () => ({ status: 200, text: async () => "x".repeat(MAX_UPSTREAM_BYTES + 1) }) });
+  assert.equal((await b.req("GET", "/v1/keys")).status, 502);
+  assert.equal((await b.req("GET", "/v1/health")).json.upstream, "down");
   await b.close();
 });
 
