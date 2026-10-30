@@ -28,10 +28,11 @@ export const MAX_FAILURES = 10;
 export const FAILURE_WINDOW_MS = 10 * 60_000;
 const ID_RE = /^[0-9a-f]{64}$/;
 const MAX_PAGES = 50;
+export const MAX_UPSTREAM_BYTES = 8 * 1024 * 1024;
 
-function pick(k) {
+function pick(k, nowMs = Date.now()) {
   const exp = k.expires ? Date.parse(k.expires) : NaN;
-  const state = k.blocked ? "blocked" : Number.isFinite(exp) && exp <= Date.now() ? "expired" : "active";
+  const state = k.blocked ? "blocked" : Number.isFinite(exp) && exp <= nowMs ? "expired" : "active";
   return {
     id: k.token,
     alias: k.key_alias ?? null,
@@ -62,7 +63,16 @@ export function createBridge({ tokenSha256, litellmUrl, masterKey, now = Date.no
   const litellm = async (path) => {
     try {
       const res = await fetchImpl(base + path, { headers: { Authorization: `Bearer ${masterKey}` }, signal: AbortSignal.timeout(15_000) });
-      return { status: res.status, json: await res.json().catch(() => null) };
+      // Bound what we buffer from LiteLLM; an oversized or unparsable body counts as a failure.
+      const text = await res.text();
+      if (text.length > MAX_UPSTREAM_BYTES) return { status: 0, json: null };
+      let json = null;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        json = null;
+      }
+      return { status: res.status, json };
     } catch {
       return { status: 0, json: null };
     }
@@ -75,11 +85,14 @@ export function createBridge({ tokenSha256, litellmUrl, masterKey, now = Date.no
     }
     if (path === "/v1/keys") {
       const keys = [];
-      for (let page = 1; page <= MAX_PAGES; page++) {
+      for (let page = 1; ; page++) {
         const r = await litellm(`/key/list?return_full_object=true&size=100&page=${page}`);
         if (r.status !== 200 || !Array.isArray(r.json?.keys)) return [502, { error: "LiteLLM key list failed" }];
-        for (const k of r.json.keys) if (k && typeof k === "object" && ID_RE.test(String(k.token))) keys.push(pick(k));
+        const t = now();
+        for (const k of r.json.keys) if (k && typeof k === "object" && ID_RE.test(String(k.token))) keys.push(pick(k, t));
         if (page >= Number(r.json.total_pages || 1)) break;
+        // Never present a cut-off list as the whole list.
+        if (page >= MAX_PAGES) return [502, { error: `more than ${MAX_PAGES * 100} keys; list not returned` }];
       }
       return [200, { keys }];
     }
@@ -88,7 +101,7 @@ export function createBridge({ tokenSha256, litellmUrl, masterKey, now = Date.no
       const r = await litellm(`/key/info?key=${m[1]}`);
       if (r.status === 404) return [404, { error: "not found" }];
       if (r.status !== 200 || !r.json?.info) return [502, { error: "LiteLLM key info failed" }];
-      return [200, { key: pick({ ...r.json.info, token: m[1] }) }];
+      return [200, { key: pick({ ...r.json.info, token: m[1] }, now()) }];
     }
     return [404, { error: "not found" }];
   }
