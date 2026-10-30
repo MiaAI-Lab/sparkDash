@@ -1002,6 +1002,8 @@ export interface Settings {
   mqttUsername: string;
   /** Topic root for everything published (events, status, metrics). */
   mqttTopicPrefix: string;
+  /** Read-only API Keys page (LiteLLM keys via a host bridge). Off by default; while off there is no nav entry. */
+  apiKeysEnabled?: boolean;
   /**
    * Hide harness sessions older than this. Finite: 1 minute through 14 days.
    * Missing or out of range becomes 12 hours.

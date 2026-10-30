@@ -1,0 +1,29 @@
+# Example systemd unit for the reference API keys bridge. Adjust paths and the user, then:
+#   systemctl daemon-reload && systemctl enable --now sparkdash-apikeys-bridge
+# The socket directory must be bind-mounted into the sparkDash container (read-only is fine)
+# and the sparkDash user must be in the group below to connect.
+[Unit]
+Description=sparkDash API keys bridge (read-only LiteLLM key views)
+After=network-online.target
+
+[Service]
+Type=simple
+User=apikeys-bridge
+Group=sparkdash
+RuntimeDirectory=sparkdash-apikeys
+RuntimeDirectoryMode=0750
+Environment=APIKEYS_BRIDGE_SOCKET=/run/sparkdash-apikeys/bridge.sock
+Environment=LITELLM_URL=http://127.0.0.1:4000
+# sha256 of the token you put in SPARKDASH_APIKEYS_BRIDGE_TOKEN (printf %s "$TOKEN" | sha256sum)
+Environment=APIKEYS_BRIDGE_TOKEN_SHA256=replace-with-64-hex
+# The master key file stays root-only; systemd hands the service a private copy.
+LoadCredential=litellm-master-key:/etc/sparkdash-apikeys/litellm-master-key
+ExecStart=/usr/bin/node /opt/sparkdash/scripts/apikeys-bridge/bridge.js
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

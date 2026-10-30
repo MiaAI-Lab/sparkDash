@@ -40,6 +40,7 @@ import {
   BotIcon,
   CoinsIcon,
   ExpandIcon,
+  KeyIcon,
 } from "./components/ui/icons";
 import { ConnectionBanner } from "./components/ui/ConnectionBanner";
 import { ErrorBanner } from "./components/ui/ErrorBanner";
@@ -51,6 +52,7 @@ import {
   TEMPS_ID,
   TOKENS_ID,
   COST_ID,
+  API_KEYS_ID,
   benchId,
   benchTypeOf,
   idToPath,
@@ -59,6 +61,7 @@ import {
 } from "./constants";
 import { TokensPage } from "./components/TokensPage/TokensPage";
 import { CostPage } from "./components/CostPage/CostPage";
+import { ApiKeysPage } from "./components/ApiKeysPage/ApiKeysPage";
 import { EnergyPage } from "./components/EnergyPage/EnergyPage";
 import { TempsPage } from "./components/TempsPage/TempsPage";
 import { ActivityPage } from "./components/ActivityPage/ActivityPage";
@@ -271,6 +274,7 @@ function DashboardApp() {
 
 
   const isOverview = activeId === OVERVIEW_ID;
+  const apiKeysEnabled = settings?.apiKeysEnabled === true;
   const onPage = isPageId(activeId);
   const benchType = benchTypeOf(activeId);
   const hideWorkers = settings?.hideWorkers ?? false;
@@ -466,6 +470,11 @@ function DashboardApp() {
     return () => window.removeEventListener("keydown", onKey);
   }, [toggleSidebar]);
 
+  // The opt-in API Keys page does not exist while its setting is off: a deep link lands on Overview.
+  useEffect(() => {
+    if (settings && activeId === API_KEYS_ID && !apiKeysEnabled) navigate(OVERVIEW_ID);
+  }, [settings, activeId, apiKeysEnabled, navigate]);
+
   const paletteCommands = useMemo<PaletteCommand[]>(() => {
     const cmds: PaletteCommand[] = [
       { id: "nav:overview", group: "Go to", label: "Overview", hint: "Fleet", icon: <GridIcon className="h-4 w-4" />, keywords: "home fleet", run: () => navigate(OVERVIEW_ID) },
@@ -515,8 +524,11 @@ function DashboardApp() {
       { id: "act:settings", group: "Actions", label: "Open settings", icon: <GearIcon className="h-4 w-4" />, keywords: "preferences density refresh", run: () => setShowSettings(true) },
       { id: "act:harness", group: "Actions", label: "Set up harness sessions", icon: <BotIcon className="h-4 w-4" />, keywords: "occupancy openclaw opencode hermes oh-my-pi wizard", run: () => { setHarnessSparkId(undefined); setShowHarness(true); } }
     );
+    if (apiKeysEnabled) {
+      cmds.push({ id: "nav:apikeys", group: "Go to", label: "API Keys", hint: "Page", icon: <KeyIcon className="h-4 w-4" />, keywords: "api keys litellm virtual keys spend budget", run: () => navigate(API_KEYS_ID) });
+    }
     return cmds;
-  }, [displaySparks, displayActive, navigate, toggleSidebar]);
+  }, [displaySparks, displayActive, navigate, toggleSidebar, apiKeysEnabled]);
 
   return (
     <div className="min-h-screen text-text">
@@ -535,6 +547,7 @@ function DashboardApp() {
           connected={connected}
           refreshInterval={refreshInterval}
           authMode={authMode}
+          showApiKeys={apiKeysEnabled}
         />
         <div className="side-strip" aria-hidden={!sideHidden}>
           <button type="button" className="icon-circle" onClick={toggleSidebar} tabIndex={sideHidden ? 0 : -1} title="Show sidebar (Ctrl+B)" aria-label="Show sidebar">
@@ -580,6 +593,8 @@ function DashboardApp() {
                 <TokensPage sparks={displaySparks} onSelectSpark={navigate} />
               ) : activeId === COST_ID ? (
                 <CostPage />
+              ) : activeId === API_KEYS_ID ? (
+                apiKeysEnabled ? <ApiKeysPage /> : null
               ) : activeId === ENERGY_ID ? (
                 <EnergyPage sparks={displaySparks} settings={settings} onSelectSpark={navigate} />
               ) : activeId === TEMPS_ID ? (
@@ -652,6 +667,7 @@ function DashboardApp() {
         onSelect={navigate}
         onAdd={() => setShowAdd(true)}
         onOpenSettings={() => setShowSettings(true)}
+        showApiKeys={apiKeysEnabled}
       />
       <InstallPrompt />
       <CommandPalette open={showPalette} onClose={() => setShowPalette(false)} commands={paletteCommands} />
