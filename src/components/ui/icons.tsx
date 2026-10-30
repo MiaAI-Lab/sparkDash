@@ -499,3 +499,14 @@ export function CoinsIcon({ className = "" }: { className?: string }) {
     </svg>
   );
 }
+
+export function KeyIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden className={className}>
+      <circle cx="7.5" cy="15.5" r="4.5" />
+      <path d="M10.7 12.3 20 3" />
+      <path d="M16 7l3 3" />
+      <path d="M18 5l2 2" />
+    </svg>
+  );
+}

@@ -19,9 +19,9 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import type { AuthMode, SparkSnapshot } from "../../api/types";
 import { isWorkerSpark } from "../../api/sparkRole";
-import { ACTIVITY_ID, COST_ID, ENERGY_ID, OVERVIEW_ID, SHOWCASE_ID, TEMPS_ID, TOKENS_ID, benchId, idToPath } from "../../constants";
+import { ACTIVITY_ID, API_KEYS_ID, COST_ID, ENERGY_ID, OVERVIEW_ID, SHOWCASE_ID, TEMPS_ID, TOKENS_ID, benchId, idToPath } from "../../constants";
 import { BENCH_TYPES } from "../bench/benchCatalog";
-import { BoltIcon, ChevronDownIcon, CoinsIcon, ExpandIcon, GearIcon, GithubIcon, GlobeIcon, GridIcon, ListIcon, PanelLeftIcon, PlusIcon, SearchIcon, TerminalIcon, ThermometerIcon, TokensIcon, XLogoIcon } from "../ui/icons";
+import { BoltIcon, ChevronDownIcon, CoinsIcon, ExpandIcon, GearIcon, GithubIcon, GlobeIcon, GridIcon, ListIcon, PanelLeftIcon, PlusIcon, SearchIcon, TerminalIcon, ThermometerIcon, TokensIcon, XLogoIcon, KeyIcon } from "../ui/icons";
 import { OpenAccessChip } from "../OpenAccessChip";
 import { ThemeSwitch } from "../ThemeSwitch";
 import { isThrottling, railSubLabel } from "./sparkSummary";
@@ -44,6 +44,8 @@ interface AppSidebarProps {
   authMode?: AuthMode | null;
   /** Hide the sidebar (a strip with a show button stays behind). */
   onCollapse?: () => void;
+  /** Show the opt-in API Keys entry (Settings → API Keys). */
+  showApiKeys?: boolean;
 }
 
 /**
@@ -178,6 +180,7 @@ export function AppSidebar({
   refreshInterval,
   authMode = null,
   onCollapse,
+  showApiKeys = false,
 }: AppSidebarProps) {
   const [items, setItems] = useState<string[]>(() => sparks.map((s) => s.id));
   const [dragging, setDragging] = useState(false);
@@ -340,6 +343,17 @@ export function AppSidebar({
             <CoinsIcon className="h-4 w-4" />
             <span className="rail-item__name">Cost compare</span>
           </a>
+          {showApiKeys ? (
+            <a
+              href={idToPath(API_KEYS_ID)}
+              className={`rail-item ${activeId === API_KEYS_ID ? "is-active" : ""}`}
+              onClick={inApp(() => onSelect(API_KEYS_ID))}
+              aria-current={activeId === API_KEYS_ID ? "page" : undefined}
+            >
+              <KeyIcon className="h-4 w-4" />
+              <span className="rail-item__name">API Keys</span>
+            </a>
+          ) : null}
           <a
             href={idToPath(ENERGY_ID)}
             className={`rail-item ${activeId === ENERGY_ID ? "is-active" : ""}`}

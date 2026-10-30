@@ -61,6 +61,14 @@ describe("AppSidebar", () => {
     expect(railSubLabel(sparks[1])).toBe("off");
   });
 
+  it("shows the opt-in API Keys entry only when enabled", () => {
+    const props = { sparks: [makeSpark()], activeId: null, onSelect: vi.fn(), onAdd: vi.fn(), onOpenSettings: vi.fn(), onOpenSearch: vi.fn(), connected: true };
+    const off = render(<AppSidebar {...props} />);
+    expect(off.container.querySelector('a[href="/api-keys"]')).toBeNull();
+    const on = render(<AppSidebar {...props} showApiKeys />);
+    expect(on.container.querySelector('a[href="/api-keys"]')?.textContent).toContain("API Keys");
+  });
+
   it("links the Temps page with a deep-linkable href", () => {
     const { container } = render(
       <AppSidebar sparks={[]} activeId={null} onSelect={() => {}} onAdd={() => {}} onOpenSettings={() => {}} onOpenSearch={() => {}} connected />
