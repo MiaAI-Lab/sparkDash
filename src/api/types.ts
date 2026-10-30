@@ -1040,6 +1040,8 @@ export interface Settings {
   mqttDiscovery: boolean;
   /** Discovery prefix — match the integration's setting in Home Assistant (default "homeassistant"). */
   mqttDiscoveryPrefix: string;
+  /** Read-only API Keys page (LiteLLM keys via a host bridge). Off by default; while off there is no nav entry. */
+  apiKeysEnabled?: boolean;
   /**
    * Hide harness sessions older than this. Finite: 1 minute through 14 days.
    * Missing or out of range becomes 12 hours.

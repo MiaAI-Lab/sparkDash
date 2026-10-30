@@ -16,7 +16,8 @@
     "brandOverview": "sparkDash overview",
     "openSearch": "Open command palette",
     "showSidebar": "Show sidebar",
-    "showSidebarTitle": "Show sidebar (Ctrl+B)"
+    "showSidebarTitle": "Show sidebar (Ctrl+B)",
+    "apiKeys": "API Keys"
   },
   "sidebar": {
     "sortable": "sortable",
