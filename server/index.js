@@ -85,12 +85,16 @@ import { testSparkConnectivity } from "./connectivity.js";
 import { TailscaleProbe } from "./collectors/TailscaleProbe.js";
 import { inspectStartupPreflight, logStartupPreflight } from "./startupPreflight.js";
 import { readServerVersion } from "./serverVersion.js";
+import { createUpdateChecker } from "./updateCheck.js";
 import { PROMETHEUS_CONTENT_TYPE, metricsEntries, renderPrometheusMetrics } from "./prometheus.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT = path.resolve(__dirname, "..");
 const SERVER_VERSION = readServerVersion(ROOT);
+/** Lazy self-update check: the upstream answer is reused for six hours after a
+ * successful check; a failed check backs off from five minutes. */
+const updateChecker = createUpdateChecker({ currentVersion: SERVER_VERSION });
 
 // Default to loopback. A non-loopback bind without SPARKDASH_TOKEN stays OPEN —
 // anyone who can reach the port can mutate settings and power units — unless
@@ -565,6 +569,23 @@ app.post("/api/restart", (_req, res) => {
 
 app.get("/api/health", (_req, res) => {
   res.json({ ...inspectHealth(process.env.BIND_HOST || "127.0.0.1"), version: SERVER_VERSION });
+});
+
+// Read-only and silent on failure: the dashboard shows a notice only when the
+// answer is a definite "upstream is newer".
+app.get("/api/update-status", async (_req, res) => {
+  try {
+    res.json(await updateChecker.status());
+  } catch {
+    res.json({
+      enabled: true,
+      currentVersion: SERVER_VERSION,
+      latestVersion: null,
+      updateAvailable: null,
+      notes: null,
+      checkedAt: null,
+    });
+  }
 });
 
 function clientKey(req) {

@@ -1,0 +1,3 @@
+# Update checks are notify-only and read upstream's main manifest
+
+sparkDash is deployed by the operator as a checkout (Docker or `npm start`), and the running server cannot safely replace its own code, so the dashboard only reports that a newer upstream version exists and how to apply it; updating stays a manual `git pull` followed by the operator's normal rebuild. The signal is the `version` field of `package.json` on upstream's `main`, fetched server-side and cached, because upstream bumps that field far more often than it tags a release (latest tag v2.32.0 against `main` 2.75.4); a GitHub-releases check would miss most versions, and the releases API adds an unauthenticated rate limit that raw.githubusercontent.com does not.

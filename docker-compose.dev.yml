@@ -33,6 +33,7 @@ services:
     environment:
       - BIND_HOST=${BIND_HOST:-127.0.0.1}
       - SPARKDASH_ALLOW_OPEN_REMOTE=${SPARKDASH_ALLOW_OPEN_REMOTE:-1}
+      - SPARKDASH_UPDATE_CHECK=${SPARKDASH_UPDATE_CHECK:-}
       - PORT=5555
       - LLM_PORT=8888
       - NODE_ENV=development

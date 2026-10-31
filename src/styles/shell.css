@@ -70,6 +70,27 @@ body {
   margin-inline: auto;
   padding: var(--density-shell-pad) 50px;
 }
+/* Phone topbar: the rail badge is hidden with the rail, so the notice needs a
+   compact, always-visible reopen affordance here. */
+.topbar-update {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  padding: 5px 8px;
+  border: 1px solid color-mix(in srgb, var(--color-warning) 45%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-warning) 12%, transparent);
+  color: var(--color-text-strong);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11.5px;
+}
+.topbar-update__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--color-warning);
+}
 .app-mobile-only {
   display: none;
 }
@@ -209,6 +230,35 @@ body {
 }
 .rail-settings .icon-circle {
   flex: none;
+}
+.rail-update {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, var(--color-warning) 45%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-warning) 12%, transparent);
+  color: var(--color-text-strong);
+  font-size: 12px;
+  text-align: left;
+}
+.rail-update:hover {
+  background: color-mix(in srgb, var(--color-warning) 20%, transparent);
+}
+.rail-update__dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--color-warning);
+}
+.rail-update__version {
+  margin-left: auto;
+  color: var(--color-muted);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
 }
 .rail-conn {
   display: flex;

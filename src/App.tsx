@@ -6,7 +6,8 @@ import { useFleetAlerts } from "./hooks/useFleetAlerts";
 import { useBrowserAlerts } from "./hooks/useBrowserAlerts";
 import { useAppRoute, useRoute } from "./hooks/useRoute";
 import { useSmoothWheel } from "./hooks/useSmoothWheel";
-import { fetchSparks, reorderSparks, fetchSettings, fetchHealth } from "./api/client";
+import { fetchSparks, reorderSparks, fetchSettings, fetchHealth, fetchUpdateStatus } from "./api/client";
+import type { UpdateStatus } from "./api/types";
 import { AppSidebar } from "./components/shell/AppSidebar";
 import { MobileTabBar } from "./components/shell/MobileTabBar";
 import { InstallPrompt } from "./components/shell/InstallPrompt";
@@ -16,6 +17,12 @@ import { AddSparkDialog } from "./components/AddSparkDialog";
 import { EditSparkDialog } from "./components/EditSparkDialog";
 import { SparkPage } from "./components/SparkPage/SparkPage";
 import { HermesUpdateDialog } from "./components/SparkPage/HermesUpdateDialog";
+import {
+  UpdateAvailableDialog,
+  readDismissedVersion,
+  rememberDismissedVersion,
+  shouldOfferUpdate,
+} from "./components/UpdateAvailableDialog";
 import { OverviewPage } from "./components/OverviewPage/OverviewPage";
 import { ShowcasePage } from "./components/ShowcasePage/ShowcasePage";
 import { ShowcaseView } from "./components/ShowcasePage/ShowcaseView";
@@ -218,6 +225,9 @@ function DashboardApp() {
   const [authMode, setAuthMode] = useState<AuthMode | null>(null);
   /** Version the running server reports; Settings falls back to this page's own build. */
   const [serverVersion, setServerVersion] = useState<string | null>(null);
+  /** Upstream comparison from the server; null until the one-shot request settles. */
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
+  const [showUpdate, setShowUpdate] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   /** Used when WS is down so add/delete still updates the tab bar */
   const [fallbackSparks, setFallbackSparks] = useState<SparkSnapshot[]>([]);
@@ -343,6 +353,41 @@ function DashboardApp() {
         setServerVersion(null);
       });
   }, []);
+
+  // One request per load; the server caches upstream for six hours. Offline is
+  // silent — an update notice is never a reason to show an error. A tokened
+  // remote bind refuses the first request until the token dialog is answered,
+  // so the same request runs again when a token is stored.
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      fetchUpdateStatus()
+        .then((status) => {
+          if (!cancelled) setUpdateStatus(status);
+        })
+        .catch(() => {
+          /* No notice without a definite answer. */
+        });
+    };
+    load();
+    const off = onTokenChange((token) => {
+      if (token) load();
+    });
+    return () => {
+      cancelled = true;
+      off();
+    };
+  }, []);
+
+  // Open once per upstream version per browser; the rail badge reopens it.
+  useEffect(() => {
+    if (shouldOfferUpdate(updateStatus, readDismissedVersion())) setShowUpdate(true);
+  }, [updateStatus]);
+
+  const closeUpdate = useCallback(() => {
+    setShowUpdate(false);
+    if (updateStatus?.latestVersion) rememberDismissedVersion(updateStatus.latestVersion);
+  }, [updateStatus]);
 
   const handleSettingsSaved = useCallback((s: Settings) => {
     setSettings(s);
@@ -535,6 +580,8 @@ function DashboardApp() {
           connected={connected}
           refreshInterval={refreshInterval}
           authMode={authMode}
+          updateVersion={updateStatus?.updateAvailable ? updateStatus.latestVersion : null}
+          onOpenUpdate={() => setShowUpdate(true)}
         />
         <div className="side-strip" aria-hidden={!sideHidden}>
           <button type="button" className="icon-circle" onClick={toggleSidebar} tabIndex={sideHidden ? 0 : -1} title="Show sidebar (Ctrl+B)" aria-label="Show sidebar">
@@ -564,6 +611,18 @@ function DashboardApp() {
             <button type="button" className="search-trigger" onClick={() => setShowPalette(true)} aria-label="Open command palette">
               <SearchIcon className="h-4 w-4" />
             </button>
+            {updateStatus?.updateAvailable && updateStatus.latestVersion ? (
+              <button
+                type="button"
+                className="topbar-update"
+                onClick={() => setShowUpdate(true)}
+                aria-label={`Update available: v${updateStatus.latestVersion}`}
+                title={`Update available: v${updateStatus.latestVersion}`}
+              >
+                <span className="topbar-update__dot" aria-hidden />
+                v{updateStatus.latestVersion}
+              </button>
+            ) : null}
             <ThemeSwitch />
           </header>
           <div className={`app-content${activeId === SHOWCASE_ID ? " app-content--wide" : ""}`}>
@@ -656,6 +715,7 @@ function DashboardApp() {
       <InstallPrompt />
       <CommandPalette open={showPalette} onClose={() => setShowPalette(false)} commands={paletteCommands} />
       <HermesUpdateDialog />
+      <UpdateAvailableDialog status={updateStatus} open={showUpdate} onClose={closeUpdate} />
       <AddSparkDialog
         open={showAdd}
         onClose={() => setShowAdd(false)}

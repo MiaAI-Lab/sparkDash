@@ -82,7 +82,7 @@ function parseInline(text: string, keyBase: string): ReactNode[] {
   return nodes;
 }
 
-function ChangelogBody({ body }: { body: string }) {
+export function ChangelogBody({ body }: { body: string }) {
   const blocks = useMemo(() => {
     const out: ReactNode[] = [];
     const lines = body.replace(/\r\n?/g, "\n").slice(0, 40000).split("\n");
