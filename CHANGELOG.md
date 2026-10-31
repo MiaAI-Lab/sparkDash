@@ -9,6 +9,9 @@ Format: version sections are listed newest first.
 
 ## [Unreleased]
 
+### Changed
+- **LLM history and token-statistics interface language.** English / 简体中文 now covers Spark detail LLM trend labels, daily peak/scale guidance and keyboard/hover tooltips, and cumulative token table/range wording. Language changes preserve chart data, selected day/range, polling, raw dates/model IDs and the cached/computed/unreported token split. The unified progress index keeps this review separate from live controls, sessions and benchmark dialogs.
+
 ### Fixed
 - **TensorFold's per-pool KV ratio reads the busiest pool, not their sum.** The KV gauge summed every `tensorfold:kv_cache_usage_ratio` series and clamped at 1, so a six-pool build at 12–39 % fill read "about to flood". The probe now takes the worst pool, which is the number that forecasts queueing; a single fleet-wide gauge is unchanged. Thanks to @markyu0401 (#332, closes #330).
 - **A rootless-Docker unit with unreadable netns links can declare shared host networking.** Rootless Docker may deny the host namespace symlink, which silently disabled the container's `/proc/net` network collector even under `network_mode: host`. Readable, differing namespace IDs still decide; when they cannot be read, an explicit `SPARKDASH_HOST_NETWORK=1` (documented, Compose-supported, default off) permits the fallback, and a shared procfs mount alone proves nothing. Thanks to @tfolkman (#301).
