@@ -1,0 +1,56 @@
+{
+  "llmTrend": {
+    "title": "tok/s history",
+    "window": "last 30m · averages since page opened (up to {{span}})",
+    "empty": "No samples yet.",
+    "chartLabel": "Generation and prefill tokens per second over the last 30 minutes",
+    "generationAverage": "Gen avg",
+    "prefillAverage": "Prefill avg",
+    "ttftAverage": "TTFT avg",
+    "busyOnly": "avg over busy samples only"
+  },
+  "llmTokens": {
+    "title": "Total tokens by model",
+    "ledgerHint": "Counted by sparkDash since tracking began",
+    "ledgerTitle": "Counted by sparkDash since tracking began, filtered by the selected range. It survives engine restarts, so it can be larger than the engine's own Generated counter.",
+    "rangeLabel": "Token totals time range",
+    "ranges": {
+      "all": "All time",
+      "today": "Last 24 hours",
+      "sixHours": "Last 6 hours",
+      "oneHour": "Last 1 hour",
+      "sevenDays": "Last 7 days",
+      "fourteenDays": "Last 14 days",
+      "month": "Last month"
+    },
+    "cached": "Cached",
+    "prefill": "Prefill",
+    "generated": "Generated",
+    "empty": "No tokens recorded in this period.",
+    "rowTitle": "{{prompt}} prompt · {{cached}} cached · {{prefill}} prefill{{unreported}} · {{generated}} generated{{seen}}",
+    "rowUnreported": " · {{tokens}} not reported",
+    "lastSeen": " · {{age}} ago"
+  },
+  "llmDaily": {
+    "title": "Daily peak tok/s",
+    "decode": "decode",
+    "prefill": "prefill",
+    "uncachedPrefill": "uncached prefill",
+    "ownScales": "own scales",
+    "days": "{{count}}d",
+    "empty": "No busy samples in the last {{count}} days.",
+    "axis": {
+      "decodeTitle": "Decode scale: top of the chart is {{value}}",
+      "prefillTitle": "{{series}} scale: top of the chart is {{value}}"
+    },
+    "aria": {
+      "chart": "Daily peak decode and prefill tokens per second, last {{count}} days. Each series has its own scale: decode 0 to {{decodeMax}}, {{prefillName}} 0 to {{prefillMax}}. Use the arrow keys to read each day."
+    },
+    "tooltip": {
+      "decode": "Decode peak {{peak}} tok/s (avg {{average}})",
+      "prefill": "Prefill peak {{peak}} tok/s (avg {{average}})",
+      "uncachedPrefill": "Uncached prefill peak {{peak}} tok/s (avg {{average}})",
+      "cachedPrefill": "Cached prefill peak {{peak}} tok/s (avg {{average}})"
+    }
+  }
+}
