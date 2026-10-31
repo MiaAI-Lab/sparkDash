@@ -4,6 +4,8 @@ import enSettings from "../locales/en/settings.json";
 import zhSettings from "../locales/zh-CN/settings.json";
 import enLanguage from "../locales/en/language.json";
 import zhLanguage from "../locales/zh-CN/language.json";
+import enShell from "../locales/en/shell.json";
+import zhShell from "../locales/zh-CN/shell.json";
 
 export type Locale = "en" | "zh-CN";
 export const LOCALE_STORAGE_KEY = "sparkdash-locale";
@@ -29,15 +31,15 @@ export function detectLocale(): Locale {
 export const i18n = createInstance();
 void i18n.use(initReactI18next).init({
   resources: {
-    en: { settings: enSettings, language: enLanguage },
-    "zh-CN": { settings: zhSettings, language: zhLanguage },
+    en: { settings: enSettings, language: enLanguage, shell: enShell },
+    "zh-CN": { settings: zhSettings, language: zhLanguage, shell: zhShell },
   },
   lng: detectLocale(),
   fallbackLng: "en",
   supportedLngs: ["en", "zh-CN"],
   load: "currentOnly",
   defaultNS: "settings",
-  ns: ["settings", "language"],
+  ns: ["settings", "language", "shell"],
   interpolation: { escapeValue: false },
   returnEmptyString: false,
   initAsync: false,
