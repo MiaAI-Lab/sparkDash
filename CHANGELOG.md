@@ -10,7 +10,7 @@ Format: version sections are listed newest first.
 ## [Unreleased]
 
 ### Changed
-- **Overview interface language.** The existing English / 简体中文 setting now updates Overview headings, filters, unit cards, fleet metrics, energy/token/traffic cards, activity and alert controls, inline model-launch controls and fleet-action feedback. Shared memory tooltips and confirmation controls follow the same locale. Changing language preserves filters, selected ranges and pending input; raw events, diagnostics and identifiers remain unchanged. See `docs/I18N-COVERAGE.md` for pending and unwired pages.
+- **Overview interface language.** The existing English / 简体中文 setting now updates Overview headings, filters, unit cards, fleet metrics, energy/token/traffic cards, activity and alert controls, inline model-launch controls and fleet-action feedback. Shared memory tooltips and confirmation controls follow the same locale. Changing language preserves filters, selected ranges and pending input; raw events, diagnostics and identifiers remain unchanged. See `docs/I18N-COVERAGE.md` for pending and unwired pages. Thanks to @oscarlius (#316).
 
 ### Fixed
 - **TensorFold's per-pool KV ratio reads the busiest pool, not their sum.** The KV gauge summed every `tensorfold:kv_cache_usage_ratio` series and clamped at 1, so a six-pool build at 12–39 % fill read "about to flood". The probe now takes the worst pool, which is the number that forecasts queueing; a single fleet-wide gauge is unchanged. Thanks to @markyu0401 (#332, closes #330).
