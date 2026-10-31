@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useEffect, useId, useState } from "react";
 import { createPortal } from "react-dom";
 import { useModalPresence } from "../../hooks/useModalPresence";
@@ -18,20 +19,23 @@ interface LlmLauncherDialogProps {
 }
 
 /** Quick client-side check, so obvious mistakes read before a round trip. The server is the authority. */
-export function validateLauncherForm(form: { name: string; dir: string; port: string }): string | null {
-  if (!form.name.trim()) return "Give the model a name";
+export function validateLauncherForm(form: { name: string; dir: string; port: string }): "name" | "directory" | "absolute" | "spaces" | "port" | null {
+  if (!form.name.trim()) return "name";
   const dir = form.dir.trim();
-  if (!dir) return "Enter the directory that holds start.sh and stop.sh";
-  if (!(dir.startsWith("/") || dir.startsWith("~/"))) return "The directory must start with / or ~/";
-  if (/\s/.test(dir)) return "Spaces are not supported in the directory path";
+  if (!dir) return "directory";
+  if (!(dir.startsWith("/") || dir.startsWith("~/"))) return "absolute";
+  if (/\s/.test(dir)) return "spaces";
   if (form.port.trim()) {
     const p = Number(form.port);
-    if (!Number.isInteger(p) || p < 1 || p > 65535) return "Port must be a number from 1 to 65535";
+    if (!Number.isInteger(p) || p < 1 || p > 65535) return "port";
   }
   return null;
 }
 
 export function LlmLauncherDialog({ open, sparkId, sparkName, launcher, onClose, onSaved }: LlmLauncherDialogProps) {
+  const { t } = useTranslation("hardware");
+  const validation = { name: t("launcher.validation.name"), directory: t("launcher.validation.directory"), absolute: t("launcher.validation.absolute"), spaces: t("launcher.validation.spaces"), port: t("launcher.validation.port") };
+  const [problem, setProblem] = useState<ReturnType<typeof validateLauncherForm>>(null);
   const titleId = useId();
   const { mounted, visible } = useModalPresence(open);
   const trapRef = useFocusTrap(mounted);
@@ -44,6 +48,7 @@ export function LlmLauncherDialog({ open, sparkId, sparkName, launcher, onClose,
   useEffect(() => {
     if (!open) return;
     setError(null);
+    setProblem(null);
     setSaving(false);
     setForm(
       launcher
@@ -75,11 +80,13 @@ export function LlmLauncherDialog({ open, sparkId, sparkName, launcher, onClose,
   async function save() {
     const problem = validateLauncherForm(form);
     if (problem) {
-      setError(problem);
+      setProblem(problem);
+      setError(null);
       return;
     }
     setSaving(true);
     setError(null);
+    setProblem(null);
     const body = {
       name: form.name.trim(),
       dir: form.dir.trim(),
@@ -106,7 +113,7 @@ export function LlmLauncherDialog({ open, sparkId, sparkName, launcher, onClose,
       <div ref={trapRef} className="modal-sheet" role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <div className="modal-sheet__header">
           <h2 className="modal-sheet__title" id={titleId}>
-            {editing ? "Edit model" : "Add a model"}
+            {editing ? t("launcher.edit") : t("launcher.add")}
           </h2>
         </div>
         <form
@@ -117,11 +124,10 @@ export function LlmLauncherDialog({ open, sparkId, sparkName, launcher, onClose,
         >
           <div className="modal-sheet__body modal-sheet__stack">
             <p className="modal-sheet__lead">
-              Point sparkDash at the folder on <b>{sparkName}</b> that holds your model&rsquo;s start and stop scripts. It runs
-              those scripts as the SSH user and shows their output here.
+              {t("launcher.intro", { name: sparkName })}
             </p>
             <div className="field">
-              <label htmlFor={`${titleId}-name`}>Name (required)</label>
+              <label htmlFor={`${titleId}-name`}>{t("launcher.name")}</label>
               <input
                 id={`${titleId}-name`}
                 type="text"
@@ -133,7 +139,7 @@ export function LlmLauncherDialog({ open, sparkId, sparkName, launcher, onClose,
               />
             </div>
             <div className="field">
-              <label htmlFor={`${titleId}-dir`}>Directory on {sparkName} (required)</label>
+              <label htmlFor={`${titleId}-dir`}>{t("launcher.directory", { name: sparkName })}</label>
               <input
                 id={`${titleId}-dir`}
                 type="text"
@@ -144,11 +150,11 @@ export function LlmLauncherDialog({ open, sparkId, sparkName, launcher, onClose,
                 autoComplete="off"
                 spellCheck={false}
               />
-              <p className="field-hint">An absolute path, or one starting with ~/. No spaces.</p>
+              <p className="field-hint">{t("launcher.pathHelp")}</p>
             </div>
             <div className="field-row">
               <div className="field">
-                <label htmlFor={`${titleId}-start`}>Start script</label>
+                <label htmlFor={`${titleId}-start`}>{t("launcher.start")}</label>
                 <input
                   id={`${titleId}-start`}
                   type="text"
@@ -159,7 +165,7 @@ export function LlmLauncherDialog({ open, sparkId, sparkName, launcher, onClose,
                 />
               </div>
               <div className="field">
-                <label htmlFor={`${titleId}-stop`}>Stop script</label>
+                <label htmlFor={`${titleId}-stop`}>{t("launcher.stop")}</label>
                 <input
                   id={`${titleId}-stop`}
                   type="text"
@@ -170,7 +176,7 @@ export function LlmLauncherDialog({ open, sparkId, sparkName, launcher, onClose,
                 />
               </div>
               <div className="field field--port">
-                <label htmlFor={`${titleId}-port`}>Port</label>
+                <label htmlFor={`${titleId}-port`}>{t("launcher.port")}</label>
                 <input
                   id={`${titleId}-port`}
                   type="number"
@@ -182,32 +188,32 @@ export function LlmLauncherDialog({ open, sparkId, sparkName, launcher, onClose,
               </div>
             </div>
             <p className="field-hint">
-              The port is optional. When set, the model shows as &ldquo;serving&rdquo; once the dashboard sees an LLM answering there.
+              {t("launcher.portHelp")}
             </p>
             <div className="field">
-              <label htmlFor={`${titleId}-notes`}>Notes</label>
+              <label htmlFor={`${titleId}-notes`}>{t("launcher.notes")}</label>
               <input
                 id={`${titleId}-notes`}
                 type="text"
                 value={form.notes}
                 onChange={(e) => set({ notes: e.target.value })}
-                placeholder="Optional, e.g. 2-node cluster, needs ~100 GB"
+                placeholder={t("launcher.notesPlaceholder")}
                 autoComplete="off"
               />
             </div>
-            {error ? (
+            {error || problem ? (
               <p className="field-hint is-warn" role="alert">
-                {error}
+                {problem ? validation[problem] : error}
               </p>
             ) : null}
           </div>
           <div className="modal-sheet__footer">
             <div className="modal-sheet__footer-actions">
               <button type="button" className="btn btn--ghost" onClick={onClose} disabled={saving}>
-                Cancel
+                {t("launcher.cancel")}
               </button>
               <button type="submit" className="btn btn--primary" disabled={saving}>
-                {saving ? "Saving…" : editing ? "Save" : "Add model"}
+                {saving ? t("launcher.saving") : editing ? t("launcher.save") : t("launcher.addAction")}
               </button>
             </div>
           </div>
