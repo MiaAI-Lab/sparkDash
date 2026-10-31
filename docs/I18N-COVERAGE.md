@@ -26,6 +26,39 @@ Keep one progress list while retaining separate, complete-feature pull requests.
 
 When a page PR merges, update its row and the detailed inventory together. Keep all already-merged namespaces and newer coverage rows when resolving shared loader, README, changelog or inventory conflicts.
 
+## CI and maintainer review audit (2026-10-31)
+
+Live GitHub records were checked at **06:03 UTC / 14:03 Asia/Shanghai** for #310 and #315-#325, including each PR head, GitHub's test-merge commit, commit statuses, pull-request workflow runs, issue comments, inline review comments and submitted reviews. All twelve PRs are open, unmerged and awaiting maintainer review. None has a submitted review or discussion comment at this snapshot.
+
+**CI status: no checks recorded, not a passing CI result.** All twelve heads have zero PR workflow runs and zero commit statuses; both the heads and test-merge commits have zero check runs. The only tracked workflow, [Publish image](../.github/workflows/publish-image.yml), runs on `v*` release tags, not pull requests. GitHub also lists a dynamic Copilot review workflow, but it has attached no review/check to these PRs. Local test results in the validation record remain separate evidence. No workflow or test policy was changed during this audit.
+
+| PR | Audited head | GitHub checks | Maintainer review |
+| --- | --- | --- | --- |
+| [#310](https://github.com/MiaAI-Lab/sparkDash/pull/310) | `86fc74c` | None recorded | No feedback yet |
+| [#315](https://github.com/MiaAI-Lab/sparkDash/pull/315) | `91563f3` | None recorded | No feedback yet |
+| [#316](https://github.com/MiaAI-Lab/sparkDash/pull/316) | `be06492` | None recorded | No feedback yet |
+| [#317](https://github.com/MiaAI-Lab/sparkDash/pull/317) | `bed974c` | None recorded | No feedback yet |
+| [#318](https://github.com/MiaAI-Lab/sparkDash/pull/318) | `d22aa4d` | None recorded | No feedback yet |
+| [#319](https://github.com/MiaAI-Lab/sparkDash/pull/319) | `0325e7a` | None recorded | No feedback yet |
+| [#320](https://github.com/MiaAI-Lab/sparkDash/pull/320) | `741c347` | None recorded | No feedback yet |
+| [#321](https://github.com/MiaAI-Lab/sparkDash/pull/321) | `96a00ed` | None recorded | No feedback yet |
+| [#322](https://github.com/MiaAI-Lab/sparkDash/pull/322) | `fe22866` | None recorded | No feedback yet |
+| [#323](https://github.com/MiaAI-Lab/sparkDash/pull/323) | `b85d642` | None recorded | No feedback yet |
+| [#324](https://github.com/MiaAI-Lab/sparkDash/pull/324) | `f06b83a` | None recorded | No feedback yet |
+| [#325](https://github.com/MiaAI-Lab/sparkDash/pull/325) | `333816a` | None recorded | No feedback yet |
+
+These are the heads inspected before this documentation-only audit update; later source changes require a new check. A documentation-only successor is not a new runtime-validation claim.
+
+The latest relevant author direction remains the [2026-10-30 note on #194](https://github.com/MiaAI-Lab/sparkDash/pull/194#issuecomment-6517707651), following the [merged foundation confirmation on #226](https://github.com/MiaAI-Lab/sparkDash/pull/226#issuecomment-6384941765). The bounded source review found no new required correction:
+
+- All twelve reviews build on the merged foundation, reuse its loader, keep English as source/fallback, and retain exact `i18next@26.4.2` / `react-i18next@17.0.15` pins. No ICU, `intl-messageformat`, new runtime dependency or lockfile graph was introduced.
+- The work stays split by coherent feature group. #194 remains the unchanged integration/design reference. Shared catalogs and loader registrations still need additive resolution when the maintainer integrates the separate PRs.
+- Catalog validation remains first in `npm test`. Locale regressions use the default frontend test discovery; #325 explicitly adds `server/i18n/*.test.js` to `test:server`.
+- #325 uses a finite exact-literal recognizer with a 4,096-code-unit budget and shallow top-level metadata. Unknown output and stored records remain raw. Nested power-batch results intentionally remain raw; their boundary is already documented below and is not claimed as translated coverage.
+- The root documentation inventory is explicitly allow-listed, CHANGELOG entries credit `@oscarlius`, and no unrelated `.omx/` ignore change was added.
+
+Remaining scope limits are explicit: representative browser acceptance does not cover every page state, theme or real-device workflow; arbitrary server text and unwired API-error consumers remain raw. The foundation review's optional `{ ns }` / `<Trans>` checker support and direct parser-dependency follow-up remain optional, separate work. Absence of new comments is not maintainer approval, and absent CI checks are not successful checks. This audit changes documentation and PR descriptions only; no merge or deployment is performed.
+
 ## Spark detail merge order
 
 Recommended order: [#317](https://github.com/MiaAI-Lab/sparkDash/pull/317) → [#318](https://github.com/MiaAI-Lab/sparkDash/pull/318) → [#319](https://github.com/MiaAI-Lab/sparkDash/pull/319). This records the integration plan; the PRs remain separate reviews against `main`. The documentation follow-up does not merge, rebase or deploy them. Keep #194 open and unchanged as the server-message design reference.
