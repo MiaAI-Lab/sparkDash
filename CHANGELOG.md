@@ -10,7 +10,7 @@ Format: version sections are listed newest first.
 ## [Unreleased]
 
 ### Changed
-- **Resource-panel interface language.** The English / 简体中文 setting now updates the Spark detail GPU, CPU, system RAM and unified-memory panels, including GPU chart controls/legends/axes, thermal and throttle labels, sensor guidance, memory risk states and shared process-table headings. Language switches preserve readings, raw hardware/process identities, selected chart windows/devices/metrics and calculations. Shared detailed VRAM breakdown content remains in the separate Overview slice; the coverage inventory records that boundary and remaining panel-sized batches.
+- **Resource-panel interface language.** The English / 简体中文 setting now updates the Spark detail GPU, CPU, system RAM and unified-memory panels, including GPU chart controls/legends/axes, thermal and throttle labels, sensor guidance, memory risk states and shared process-table headings. Language switches preserve readings, raw hardware/process identities, selected chart windows/devices/metrics and calculations. Shared detailed VRAM breakdown content remains in the separate Overview slice; the coverage inventory records that boundary and remaining panel-sized batches. Thanks to @oscarlius (#317).
 
 ### Fixed
 - **TensorFold's per-pool KV ratio reads the busiest pool, not their sum.** The KV gauge summed every `tensorfold:kv_cache_usage_ratio` series and clamped at 1, so a six-pool build at 12–39 % fill read "about to flood". The probe now takes the worst pool, which is the number that forecasts queueing; a single fleet-wide gauge is unchanged. Thanks to @markyu0401 (#332, closes #330).
