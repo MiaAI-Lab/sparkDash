@@ -201,13 +201,13 @@ export function sparkOptions(
 // ── Local-day handling ──────────────────────────────────────────────
 
 const dtfCache = new Map<string, Intl.DateTimeFormat>();
-function dtf(key: string, tz: string | undefined, opts: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+function dtf(key: string, tz: string | undefined, opts: Intl.DateTimeFormatOptions, locale = "en-US"): Intl.DateTimeFormat {
   // No explicit zone: the Settings time zone, else the browser's.
   const zone = tz ?? configuredTimeZone() ?? undefined;
-  const k = `${key}|${zone ?? ""}`;
+  const k = `${key}|${zone ?? ""}|${locale}`;
   let f = dtfCache.get(k);
   if (!f) {
-    f = new Intl.DateTimeFormat("en-US", { ...opts, timeZone: zone });
+    f = new Intl.DateTimeFormat(locale, { ...opts, timeZone: zone });
     dtfCache.set(k, f);
   }
   return f;
@@ -240,9 +240,9 @@ function parseKey(key: string): Ymd {
 }
 
 /** Format a day key with Intl options (the key is a plain calendar date, so UTC is exact). */
-function formatDayKey(key: string, opts: Intl.DateTimeFormatOptions): string {
+function formatDayKey(key: string, opts: Intl.DateTimeFormatOptions, locale = "en-US"): string {
   const { y, m, d } = parseKey(key);
-  return dtf(`dk${JSON.stringify(opts)}`, "UTC", opts).format(new Date(Date.UTC(y, m - 1, d)));
+  return dtf(`dk${JSON.stringify(opts)}`, "UTC", opts, locale).format(new Date(Date.UTC(y, m - 1, d)));
 }
 
 function shiftKey(key: string, days: number): string {
@@ -252,13 +252,13 @@ function shiftKey(key: string, days: number): string {
 }
 
 /** "Today", "Yesterday", else "Tuesday, Oct 7" (adds the year when it differs from now's). */
-export function dayLabel(key: string, now: number = Date.now(), tz?: string): string {
+export function dayLabel(key: string, now: number = Date.now(), tz?: string, copy = { today: "Today", yesterday: "Yesterday" }, locale = "en-US"): string {
   const today = ymd(now, tz);
   const diff = dayNumber(today) - dayNumber(parseKey(key));
-  if (diff === 0) return "Today";
-  if (diff === 1) return "Yesterday";
+  if (diff === 0) return copy.today;
+  if (diff === 1) return copy.yesterday;
   const sameYear = parseKey(key).y === today.y;
-  return formatDayKey(key, sameYear ? { weekday: "long", month: "short", day: "numeric" } : { weekday: "long", month: "short", day: "numeric", year: "numeric" });
+  return formatDayKey(key, sameYear ? { weekday: "long", month: "short", day: "numeric" } : { weekday: "long", month: "short", day: "numeric", year: "numeric" }, locale);
 }
 
 /** "14:05" 24-hour local time. */

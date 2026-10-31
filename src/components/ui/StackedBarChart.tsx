@@ -33,6 +33,7 @@ interface StackedBarChartProps {
   footer?: (bucket: BarBucket) => ReactNode;
   /** Message when every value is zero. */
   empty?: string;
+  totalLabel?: string;
   ariaLabel: string;
 }
 
@@ -51,6 +52,7 @@ export function StackedBarChart({
   unit,
   footer,
   empty = "No data in this range yet.",
+  totalLabel = "Total",
   ariaLabel,
 }: StackedBarChartProps) {
   const [ref, width] = useElementWidth();
@@ -137,7 +139,7 @@ export function StackedBarChart({
               </span>
             ))}
           <span className="chart__tip-total">
-            Total <em>{format(totals[hover])}{unit ? ` ${unit}` : ""}</em>
+            {totalLabel} <em>{format(totals[hover])}{unit ? ` ${unit}` : ""}</em>
           </span>
           {footer ? <span className="chart__tip-foot">{footer(hovered)}</span> : null}
         </div>
