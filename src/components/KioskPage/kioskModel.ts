@@ -135,6 +135,19 @@ export interface KioskCard {
   model: { text: string; ctx: string | null; muted: boolean } | null;
 }
 
+export type KioskLabels = (key: string, values?: Record<string, unknown>) => string;
+
+/** Pure-model callers do not mount i18n; preserve the historic English contract. */
+const defaultKioskLabels: KioskLabels = (key, values) => {
+  const copy: Record<string, string> = {
+    "kiosk.unifiedMemory": "Unified memory", "kiosk.vram": "VRAM", "kiosk.inUse": "In use",
+    "kiosk.headOffline": "Head offline", "kiosk.headApiNotReady": "Head API not ready", "kiosk.noHeadPort": "No LLM port watched on the head",
+    "kiosk.unknown": "unknown", "kiosk.noLlmGpu": "No LLM answering · GPU in use", "kiosk.noLlm": "No LLM answering", "kiosk.prefilling": "prefilling",
+  };
+  if (key === "kiosk.free") return `${values?.value ?? ""} free`;
+  return copy[key] ?? key;
+};
+
 function availabilityOk(flag: boolean | undefined): boolean {
   return flag !== false;
 }
@@ -147,7 +160,8 @@ function availabilityOk(flag: boolean | undefined): boolean {
 export function kioskCard(
   spark: SparkSnapshot,
   headSpark: SparkSnapshot | null,
-  vramContext: VramBreakdownContext | null
+  vramContext: VramBreakdownContext | null,
+  tr: KioskLabels = defaultKioskLabels
 ): KioskCard {
   const m = spark.metrics;
   const gpu = m?.gpu ?? null;
@@ -172,8 +186,8 @@ export function kioskCard(
   const breakdown = gpu && vramKnown && context ? computeVramBreakdown(gpu.vram, gpu.processes, context) : null;
   if (breakdown && breakdown.totalMB > 0) {
     memory = {
-      label: breakdown.model === "unified" ? "Unified memory" : "VRAM",
-      free: `${formatMb(breakdown.freeMB)} free`,
+      label: tr(breakdown.model === "unified" ? "kiosk.unifiedMemory" : "kiosk.vram"),
+      free: tr("kiosk.free", { value: formatMb(breakdown.freeMB) }),
       tone: breakdown.tone,
       segments: breakdown.segments.map((x) => ({ key: x.key, pct: Math.min(100, (x.mb / breakdown.totalMB) * 100) })),
       legend: legendItems(breakdown).filter((x): x is { key: VramSegmentKey; label: string; gb: string } => x.key !== "free"),
@@ -183,15 +197,15 @@ export function kioskCard(
     // with no GPU share of its own), so neither "GPU" nor "Model" is true of it: say what it is.
     if (pooled && um && !um.gpuUsed && gpu && Math.abs(gpu.vram.used - um.used) < 1) {
       memory.segments = [{ key: "gpu", pct: Math.min(100, (um.used / breakdown.totalMB) * 100) }];
-      memory.legend = [{ key: "gpu", label: "In use", gb: gbNumber(um.used) }];
+      memory.legend = [{ key: "gpu", label: tr("kiosk.inUse"), gb: gbNumber(um.used) }];
     }
   } else if (gpu || um) {
     const total = gpu?.vram?.total ?? um?.total ?? 0;
     const used = gpu?.vram?.used ?? um?.used ?? 0;
     const avail = gpu?.vram?.available ?? um?.available ?? 0;
     memory = {
-      label: discrete ? "VRAM" : "Unified memory",
-      free: vramKnown && total > 0 ? `${formatMb(avail)} free` : null,
+      label: tr(discrete ? "kiosk.vram" : "kiosk.unifiedMemory"),
+      free: vramKnown && total > 0 ? tr("kiosk.free", { value: formatMb(avail) }) : null,
       tone: "ok",
       segments: vramKnown && total > 0 ? [{ key: "gpu", pct: Math.min(100, (used / total) * 100) }] : [],
       legend: [],
@@ -206,7 +220,7 @@ export function kioskCard(
     const ok = llm.measurementValid !== false;
     rates = {
       decode: ok ? llm.generationTps.toFixed(1) : "—",
-      prefill: !ok ? "—" : llm.prefillActive && llm.prefillTps <= 0 ? "prefilling" : Math.round(llm.prefillTps).toLocaleString(),
+      prefill: !ok ? "—" : llm.prefillActive && llm.prefillTps <= 0 ? tr("kiosk.prefilling") : Math.round(llm.prefillTps).toLocaleString(),
       decodeLive: ok && llm.generationTps > 0,
     };
   }
@@ -221,17 +235,17 @@ export function kioskCard(
     const headState = !headSpark
       ? null
       : !headSpark.online
-        ? "Head offline"
+        ? tr("kiosk.headOffline")
         : headLlmList.length
-          ? "Head API not ready"
-          : "No LLM port watched on the head";
+          ? tr("kiosk.headApiNotReady")
+          : tr("kiosk.noHeadPort");
     const label = headLlm?.modelId || spark.workerLabel?.trim() || spark.workerDerivedLabel?.trim() || null;
     workerOf = headSpark ? { name: headSpark.name } : null;
     const ctx = headLlm ? formatCtx(headLlm.contextLength) : null;
     // With no head and no label there is nothing to name; the role badge already says "worker".
     model = label ? { text: label, ctx, muted: false } : headState ? { text: headState, ctx: null, muted: true } : null;
   } else if (llm) {
-    model = { text: llm.modelId ?? "unknown", ctx: formatCtx(llm.contextLength), muted: false };
+    model = { text: llm.modelId ?? tr("kiosk.unknown"), ctx: formatCtx(llm.contextLength), muted: false };
   } else {
     // No endpoint answers. Memory or compute in use most likely means a model is still loading,
     // or a server sparkDash does not watch: say what is seen, not that nothing is loaded (the card
@@ -239,10 +253,10 @@ export function kioskCard(
     const memUsed = gpu?.vram?.used ?? um?.used ?? 0;
     const busy = memUsed >= 2048 || (gpu?.usage ?? 0) >= 10;
     model = busy
-      ? { text: "No LLM answering · GPU in use", ctx: null, muted: true }
+      ? { text: tr("kiosk.noLlmGpu"), ctx: null, muted: true }
       : spark.llmMonitoring === false
         ? null
-        : { text: "No LLM answering", ctx: null, muted: true };
+        : { text: tr("kiosk.noLlm"), ctx: null, muted: true };
   }
 
   return {

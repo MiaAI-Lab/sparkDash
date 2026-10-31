@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { useActivityLabels } from "./useActivityLabels";
 import type { SparkSnapshot } from "../../api/types";
 import { StackedBarChart, type BarBucket, type BarSeries } from "../ui/StackedBarChart";
 import { RotateIcon, SearchIcon, XIcon } from "../ui/icons";
 import { EventRow } from "./EventRow";
 import { ClearMenu } from "../ui/ClearMenu";
 import {
-  CATEGORIES, EMPTY_FILTER, NO_SPARK, SEVERITIES, SEVERITY_LABEL, countByCategory, countBySeverity, countBySpark,
+  CATEGORIES, EMPTY_FILTER, NO_SPARK, SEVERITIES, dayLabel, countByCategory, countBySeverity, countBySpark,
   eventsPerDay, exportText, filterEvents, groupByDay, isFilterActive, sparkOptions, summarize,
   type ActivityFilter, type CategoryId, type RangeId, type Severity,
 } from "./activityStats";
@@ -13,39 +15,7 @@ import { useActivityFeed } from "./useActivityFeed";
 import "../../styles/activity.css";
 
 const DAY_MS = 86_400_000;
-const ACTIVITY_CLEAR = [
-  { id: "7d", label: "Older than 7 days", ask: "Delete events older than 7 days?", arg: 7 * DAY_MS },
-  { id: "24h", label: "Older than 24 hours", ask: "Delete events older than 24 hours?", arg: DAY_MS },
-  { id: "all", label: "Everything", ask: "Delete the whole activity history?", arg: undefined },
-] as const;
-
-const SERIES: readonly BarSeries[] = [
-  { id: "error", label: "Errors", color: "var(--color-danger)" },
-  { id: "warn", label: "Warnings", color: "var(--color-warning)" },
-  { id: "success", label: "Success", color: "var(--color-success)" },
-  { id: "info", label: "Info", color: "var(--color-info)" },
-];
-
-const RANGES: readonly { id: RangeId; label: string }[] = [
-  { id: "24h", label: "24 h" },
-  { id: "7d", label: "7 d" },
-  { id: "all", label: "All" },
-];
-
-const SEV_CHIPS: readonly { id: Severity; label: string }[] = [
-  { id: "error", label: "Errors" },
-  { id: "warn", label: "Warnings" },
-  { id: "success", label: "Success" },
-  { id: "info", label: "Info" },
-];
-
 const sameSet = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((x) => b.includes(x));
-
-function formatUpdated(ts: number | null, now: number): string {
-  if (ts == null) return "connecting";
-  const s = Math.max(0, Math.round((now - ts) / 1000));
-  return s < 5 ? "just now" : s < 60 ? `${s} s ago` : `${Math.floor(s / 60)} min ago`;
-}
 
 /** Fallback for browsers or contexts without the async clipboard API. */
 function legacyCopy(text: string): boolean {
@@ -65,12 +35,48 @@ function legacyCopy(text: string): boolean {
 }
 
 export function ActivityPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[]; onSelectSpark?: (id: string) => void }) {
+  const { t, i18n } = useTranslation("activity");
+  const { severityLabels, categoryLabels } = useActivityLabels();
+  const locale = i18n.resolvedLanguage === "zh-CN" ? "zh-CN" : "en-US";
+const ACTIVITY_CLEAR = [
+  { id: "7d", label: t("clear.older7d"), ask: t("clear.older7dAsk"), arg: 7 * DAY_MS },
+  { id: "24h", label: t("clear.older24h"), ask: t("clear.older24hAsk"), arg: DAY_MS },
+  { id: "all", label: t("clear.everything"), ask: t("clear.everythingAsk"), arg: undefined },
+] as const;
+
+const SERIES: readonly BarSeries[] = [
+  { id: "error", label: t("severity.errors"), color: "var(--color-danger)" },
+  { id: "warn", label: t("severity.warnings"), color: "var(--color-warning)" },
+  { id: "success", label: t("severity.success"), color: "var(--color-success)" },
+  { id: "info", label: t("severity.info"), color: "var(--color-info)" },
+];
+
+const RANGES: readonly { id: RangeId; label: string }[] = [
+  { id: "24h", label: t("range.h24") },
+  { id: "7d", label: t("range.d7") },
+  { id: "all", label: t("range.all") },
+];
+
+const SEV_CHIPS: readonly { id: Severity; label: string }[] = [
+  { id: "error", label: t("severity.errors") },
+  { id: "warn", label: t("severity.warnings") },
+  { id: "success", label: t("severity.success") },
+  { id: "info", label: t("severity.info") },
+];
+
+function formatUpdated(ts: number | null, now: number): string {
+  if (ts == null) return t("updated.connecting");
+  const s = Math.max(0, Math.round((now - ts) / 1000));
+  return s < 5 ? t("updated.justNow") : s < 60 ? t("updated.secondsAgo", { count: s }) : t("updated.minutesAgo", { count: Math.floor(s / 60) });
+}
+
+
   const [filter, setFilter] = useState<ActivityFilter>(EMPTY_FILTER);
   const [open, setOpen] = useState<ReadonlySet<number>>(new Set());
   const [now, setNow] = useState(() => Date.now());
   const [away, setAway] = useState(false);
   const [unseen, setUnseen] = useState(0);
-  const [copyMsg, setCopyMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  const [copyMsg, setCopyMsg] = useState<{ count: number; ok: boolean } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const topRef = useRef<HTMLDivElement>(null);
   const awayRef = useRef(false);
@@ -111,8 +117,8 @@ export function ActivityPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[
   const summary = useMemo(() => summarize(events, now), [events, now]);
   const buckets = useMemo(() => eventsPerDay(events, now), [events, now]);
   const chartBuckets: BarBucket[] = useMemo(
-    () => buckets.map((b) => ({ key: b.key, label: b.label, title: b.title, values: b.counts })),
-    [buckets]
+    () => buckets.map((b) => ({ key: b.key, label: new Intl.DateTimeFormat(locale, { month: "short", day: "numeric", timeZone: "UTC" }).format(new Date(b.key + "T12:00:00Z")), title: new Intl.DateTimeFormat(locale, { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" }).format(new Date(b.key + "T12:00:00Z")), values: b.counts })),
+    [buckets, locale]
   );
   const visible = useMemo(() => filterEvents(events, filter, now), [events, filter, now]);
   const groups = useMemo(() => groupByDay(visible, now), [visible, now]);
@@ -138,7 +144,7 @@ export function ActivityPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[
     } catch {
       ok = legacyCopy(text);
     }
-    setCopyMsg({ ok, text: ok ? `Copied ${visible.length} event${visible.length === 1 ? "" : "s"}` : "Couldn't copy (clipboard blocked)" });
+    setCopyMsg({ ok, count: visible.length });
     setTimeout(() => setCopyMsg(null), 2500);
   };
 
@@ -148,50 +154,50 @@ export function ActivityPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[
   };
 
   const live = feed.pollError ? "warn" : feed.paused ? "off" : "ok";
-  const liveText = feed.pollError ? "Update failed, retrying" : feed.paused ? "Paused (tab hidden)" : `Live · ${formatUpdated(feed.lastUpdated, now)}`;
+  const liveText = feed.pollError ? t("live.failed") : feed.paused ? t("live.paused") : t("live.live", { updated: formatUpdated(feed.lastUpdated, now) });
 
   const tiles = [
     {
       id: "events",
-      label: "Events, 24 h",
+      label: t("tile.events24h"),
       value: String(summary.events24h),
-      sub: `${summary.events7d} in 7 d`,
+      sub: t("tile.in7d", { count: summary.events7d }),
       on: filter.range === "24h" && !filter.severities.length && filter.sparkId === "all" && filter.category === "all" && !filter.query,
       run: () => preset({ range: "24h" }),
     },
     {
       id: "errors",
-      label: "Errors, 24 h",
+      label: t("tile.errors24h"),
       value: String(summary.errors24h),
-      sub: `${summary.errors7d} in 7 d`,
+      sub: t("tile.in7d", { count: summary.errors7d }),
       tone: summary.errors24h > 0 ? "bad" : "",
       on: filter.range === "24h" && sameSet(filter.severities, ["error"]),
       run: () => preset({ range: "24h", severities: ["error"] }),
     },
     {
       id: "warnings",
-      label: "Warnings, 24 h",
+      label: t("tile.warnings24h"),
       value: String(summary.warnings24h),
-      sub: `${summary.warnings7d} in 7 d`,
+      sub: t("tile.in7d", { count: summary.warnings7d }),
       tone: summary.warnings24h > 0 ? "warn" : "",
       on: filter.range === "24h" && sameSet(filter.severities, ["warn"]),
       run: () => preset({ range: "24h", severities: ["warn"] }),
     },
     {
       id: "problems",
-      label: "Sparks with problems",
+      label: t("tile.problems"),
       value: String(summary.problemSparks24h),
-      sub: `${summary.problemSparks7d} in 7 d`,
+      sub: t("tile.in7d", { count: summary.problemSparks7d }),
       tone: summary.problemSparks24h > 0 ? "warn" : "",
       on: filter.range === "24h" && sameSet(filter.severities, ["error", "warn"]),
       run: () => preset({ range: "24h", severities: ["error", "warn"] }),
     },
     {
       id: "active",
-      label: "Most active Spark",
-      value: summary.mostActive?.name ?? "None",
+      label: t("tile.mostActive"),
+      value: summary.mostActive?.name ?? t("tile.none"),
       small: true,
-      sub: summary.mostActive ? `${summary.mostActive.count} event${summary.mostActive.count === 1 ? "" : "s"}` : "no events yet",
+      sub: summary.mostActive ? t("tile.eventsCount", { count: summary.mostActive.count }) : t("tile.noEventsYet"),
       on: summary.mostActive != null && filter.sparkId === summary.mostActive.sparkId,
       disabled: summary.mostActive == null,
       run: () => summary.mostActive && preset({ range: "24h", sparkId: summary.mostActive.sparkId }),
@@ -201,7 +207,7 @@ export function ActivityPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[
   const timeline = (() => {
     if (feed.status === "loading") {
       return (
-        <ul className="ac-skel" aria-busy="true" aria-label="Loading activity">
+        <ul className="ac-skel" aria-busy="true" aria-label={t("skel.loading")}>
           {Array.from({ length: 8 }, (_, i) => (
             <li key={i} className="ac-skel__row">
               <i className="ac-skel__bar ac-skel__bar--s" />
@@ -215,10 +221,10 @@ export function ActivityPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[
     if (feed.status === "error") {
       return (
         <div className="ac-state" role="alert">
-          <h3>Couldn't load activity</h3>
+          <h3>{t("error.title")}</h3>
           <p>{feed.error}</p>
           <button type="button" className="btn btn--primary btn--sm" onClick={() => void feed.reload()}>
-            Retry
+            {t("error.retry")}
           </button>
         </div>
       );
@@ -226,10 +232,9 @@ export function ActivityPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[
     if (events.length === 0) {
       return (
         <div className="ac-state">
-          <h3>Nothing recorded yet</h3>
+          <h3>{t("empty.nothing")}</h3>
           <p>
-            The server logs fleet events as they happen: Sparks going online or offline, GPU thermal throttling, Hermes
-            updates, benchmark runs, shutdown and wake, LLM start and stop runs, and Sparks being added or removed.
+            {t("empty.detail")}
           </p>
         </div>
       );
@@ -237,10 +242,10 @@ export function ActivityPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[
     if (visible.length === 0) {
       return (
         <div className="ac-state">
-          <h3>No events match your filters</h3>
-          <p>Try a wider time range or clear a filter.</p>
+          <h3>{t("empty.filtered")}</h3>
+          <p>{t("empty.filteredHint")}</p>
           <button type="button" className="btn btn--sm" onClick={() => setFilter(EMPTY_FILTER)}>
-            Reset filters
+            {t("action.resetFilters")}
           </button>
         </div>
       );
@@ -248,9 +253,9 @@ export function ActivityPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[
     return (
       <div>
         {groups.map((g) => (
-          <section key={g.key} className="ac-day" aria-label={g.label}>
+          <section key={g.key} className="ac-day" aria-label={dayLabel(g.key, now, undefined, { today: t("day.today"), yesterday: t("day.yesterday") }, locale)}>
             <h3 className="ac-day__head">
-              <span>{g.label}</span>
+              <span>{dayLabel(g.key, now, undefined, { today: t("day.today"), yesterday: t("day.yesterday") }, locale)}</span>
               <span className="ac-day__count mono">{g.events.length}</span>
             </h3>
             <ul className="ac-list">
@@ -276,10 +281,9 @@ export function ActivityPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[
     <div className="ac" ref={rootRef}>
       <header className="page-head">
         <div>
-          <h1>Activity</h1>
+          <h1>{t("title")}</h1>
           <p className="page-head__sub">
-            Everything that happened across the fleet: restarts, throttling, updates, benchmarks, power and LLM runs. The
-            server keeps the latest 2,000 events.
+            {t("header.subtitle")}
           </p>
         </div>
         <div className="page-head__tools">
@@ -289,24 +293,25 @@ export function ActivityPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[
           </span>
           <button type="button" className="btn btn--sm" onClick={() => void feed.refresh()} disabled={feed.status !== "ready" || feed.refreshing}>
             <RotateIcon className={`h-3.5 w-3.5${feed.refreshing ? " ac-spin" : ""}`} />
-            Refresh
+            {t("action.refresh")}
           </button>
           <button type="button" className="btn btn--sm" onClick={() => void copyAll()} disabled={visible.length === 0}>
-            Copy as text
+            {t("action.copyText")}
           </button>
           <ClearMenu
-            label="Clear history…"
+            label={t("header.clearMenu")}
             choices={ACTIVITY_CLEAR}
+            copy={{ cancel: t("clear.cancel"), delete: t("clear.delete"), deleting: t("clear.deleting"), irreversible: t("clear.irreversible"), nothing: t("clear.nothing"), failed: t("clear.failed"), deleted: (count) => t("clear.deleted", { count }) }}
             onRun={feed.clear}
             disabled={feed.status !== "ready"}
           />
           <span className={`ac-toast${copyMsg ? (copyMsg.ok ? " is-ok" : " is-err") : ""}`} role="status" aria-live="polite">
-            {copyMsg?.text}
+            {copyMsg ? (copyMsg.ok ? t("toast.copied", { count: copyMsg.count }) : t("toast.copyBlocked")) : null}
           </span>
         </div>
       </header>
 
-      <div className="ac-tiles" role="group" aria-label="Summary, click to filter">
+      <div className="ac-tiles" role="group" aria-label={t("header.summaryAria")}>
         {tiles.map((t) => (
           <button
             key={t.id}
@@ -323,9 +328,9 @@ export function ActivityPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[
         ))}
       </div>
 
-      <section className="panel ac-chart" aria-label="Events per day">
+      <section className="panel ac-chart" aria-label={t("chart.title")}>
         <div className="ac-chart__head">
-          <h2 className="panel-title">Events per day</h2>
+          <h2 className="panel-title">{t("chart.title")}</h2>
           <ul className="ac-legend">
             {SERIES.map((s) => (
               <li key={s.id}>
@@ -340,17 +345,18 @@ export function ActivityPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[
           series={SERIES}
           height={150}
           format={(n) => String(Math.round(n))}
-          unit="events"
-          empty={feed.status === "ready" ? "No events in the last 14 days." : "Loading…"}
-          ariaLabel={`Events per day over the last 14 days, ${chartTotal} in total`}
+          unit={t("chart.events")}
+          totalLabel={t("chart.total")}
+          empty={feed.status === "ready" ? t("chart.empty") : t("loading")}
+          ariaLabel={t("chart.aria", { total: chartTotal })}
         />
       </section>
 
-      <section className="panel ac-filters" aria-label="Filters">
+      <section className="panel ac-filters" aria-label={t("filters.aria")}>
         <div className="ac-filters__row">
-          <div className="ac-chips" role="group" aria-label="Severity">
+          <div className="ac-chips" role="group" aria-label={t("filters.severityAria")}>
             <button type="button" className="ac-chip" aria-pressed={filter.severities.length === 0} onClick={() => patch({ severities: [] })}>
-              All <b className="mono">{SEVERITIES.reduce((n, s) => n + sevCounts[s], 0)}</b>
+              {t("filters.all")} <b className="mono">{SEVERITIES.reduce((n, s) => n + sevCounts[s], 0)}</b>
             </button>
             {SEV_CHIPS.map((c) => (
               <button
@@ -359,14 +365,14 @@ export function ActivityPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[
                 className={`ac-chip ac-chip--${c.id}`}
                 aria-pressed={filter.severities.includes(c.id)}
                 onClick={() => toggleSeverity(c.id)}
-                title={`${SEVERITY_LABEL[c.id]} events`}
+                title={t("filters.severityChipTitle", { severity: severityLabels[c.id] })}
               >
                 <i className={`ac-sev__dot ac-sev__dot--${c.id}`} aria-hidden="true" />
                 {c.label} <b className="mono">{sevCounts[c.id]}</b>
               </button>
             ))}
           </div>
-          <div className="seg" role="group" aria-label="Time range">
+          <div className="seg" role="group" aria-label={t("filters.rangeAria")}>
             {RANGES.map((r) => (
               <button key={r.id} type="button" aria-pressed={filter.range === r.id} onClick={() => patch({ range: r.id })}>
                 {r.label}
@@ -381,36 +387,36 @@ export function ActivityPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[
               type="search"
               value={filter.query}
               onChange={(e) => patch({ query: e.target.value })}
-              placeholder="Search message, Spark or type"
-              aria-label="Search events"
+              placeholder={t("filters.searchPlaceholder")}
+              aria-label={t("filters.searchAria")}
             />
           </label>
           <label className="ac-select">
-            <span className="eyebrow">Category</span>
+            <span className="eyebrow">{t("filters.category")}</span>
             <select value={filter.category} onChange={(e) => patch({ category: e.target.value as CategoryId | "all" })}>
-              <option value="all">All categories</option>
+              <option value="all">{t("filters.allCategories")}</option>
               {CATEGORIES.filter((c) => catCounts[c.id] > 0 || filter.category === c.id).map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.label} ({catCounts[c.id]})
+                  {categoryLabels[c.id]} ({catCounts[c.id]})
                 </option>
               ))}
             </select>
           </label>
           <label className="ac-select">
-            <span className="eyebrow">Spark</span>
+            <span className="eyebrow">{t("filters.spark")}</span>
             <select value={filter.sparkId} onChange={(e) => patch({ sparkId: e.target.value })}>
-              <option value="all">All Sparks</option>
+              <option value="all">{t("filters.allSparks")}</option>
               {options.map((o) => (
                 <option key={o.id} value={o.id}>
                   {o.name} ({sparkCounts[o.id] ?? 0})
                 </option>
               ))}
-              {hasNoSpark ? <option value={NO_SPARK}>Fleet-wide ({sparkCounts[NO_SPARK] ?? 0})</option> : null}
+              {hasNoSpark ? <option value={NO_SPARK}>{t("filters.fleetWide", { count: sparkCounts[NO_SPARK] ?? 0 })}</option> : null}
             </select>
           </label>
           <button type="button" className="btn btn--ghost btn--sm ac-reset" onClick={() => setFilter(EMPTY_FILTER)} disabled={!active}>
             <XIcon className="h-3.5 w-3.5" />
-            Reset filters
+            {t("action.resetFilters")}
           </button>
         </div>
       </section>
@@ -418,8 +424,8 @@ export function ActivityPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[
       <div className="ac-count" role="status" aria-live="polite">
         {feed.status === "ready" ? (
           <>
-            Showing <b className="mono">{visible.length}</b> of <b className="mono">{events.length}</b> loaded events
-            {active ? " (filtered)" : ""}
+            {t("count.showing", { shown: visible.length, total: events.length })}
+            {active ? t("count.filtered") : ""}
           </>
         ) : (
           " "
@@ -430,7 +436,7 @@ export function ActivityPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[
       {away && unseen > 0 ? (
         <div className="ac-newbar">
           <button type="button" className="btn btn--primary btn--sm" onClick={jumpToNewest}>
-            {unseen} new event{unseen === 1 ? "" : "s"}, jump to top
+            {t("newbar", { count: unseen })}
           </button>
         </div>
       ) : null}
@@ -440,16 +446,16 @@ export function ActivityPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[
       {feed.status === "ready" && events.length > 0 ? (
         <div className="ac-more">
           {feed.reachedOldest ? (
-            <p className="ac-more__end">You've reached the oldest event the server kept.</p>
+            <p className="ac-more__end">{t("more.end")}</p>
           ) : (
             <>
               <button type="button" className="btn btn--sm" onClick={() => void feed.loadOlder()} disabled={feed.loadingMore}>
-                {feed.loadingMore ? "Loading…" : "Load older"}
+                {feed.loadingMore ? t("loading") : t("more.loadOlder")}
               </button>
-              {active ? <p className="ac-more__hint">Filters apply to the events loaded so far.</p> : null}
+              {active ? <p className="ac-more__hint">{t("more.filtersHint")}</p> : null}
               {feed.moreError ? (
                 <p className="ac-more__err" role="alert">
-                  Couldn't load older events: {feed.moreError}
+                  {t("more.loadError", { message: feed.moreError })}
                 </p>
               ) : null}
             </>

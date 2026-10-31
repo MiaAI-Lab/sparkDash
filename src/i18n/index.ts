@@ -1,3 +1,7 @@
+import enStatistics from "../locales/en/statistics.json";
+import zhStatistics from "../locales/zh-CN/statistics.json";
+import enActivity from "../locales/en/activity.json";
+import zhActivity from "../locales/zh-CN/activity.json";
 import { createInstance } from "i18next";
 import { initReactI18next } from "react-i18next";
 import enSettings from "../locales/en/settings.json";
@@ -29,15 +33,15 @@ export function detectLocale(): Locale {
 export const i18n = createInstance();
 void i18n.use(initReactI18next).init({
   resources: {
-    en: { settings: enSettings, language: enLanguage },
-    "zh-CN": { settings: zhSettings, language: zhLanguage },
+    en: { settings: enSettings, language: enLanguage, activity: enActivity, statistics: enStatistics },
+    "zh-CN": { settings: zhSettings, language: zhLanguage, activity: zhActivity, statistics: zhStatistics },
   },
   lng: detectLocale(),
   fallbackLng: "en",
   supportedLngs: ["en", "zh-CN"],
   load: "currentOnly",
   defaultNS: "settings",
-  ns: ["settings", "language"],
+  ns: ["settings", "language", "activity", "statistics"],
   interpolation: { escapeValue: false },
   returnEmptyString: false,
   initAsync: false,

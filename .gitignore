@@ -48,3 +48,8 @@ config/metrics-history.json.corrupt-*
 config/fleet-energy.scope-*.json
 config/*.tmp
 config/*.json.*.tmp
+
+# Keep only the unified localization inventory under version control.
+!/docs/
+/docs/*
+!/docs/I18N-COVERAGE.md

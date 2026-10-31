@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { fetchMonthlyEnergy } from "../../api/client";
 import type { MonthlyEnergy as MonthlyEnergyData, MonthlyEnergyMonth } from "../../api/types";
 import { StackedBarChart, type BarSeries } from "../ui/StackedBarChart";
@@ -38,6 +39,7 @@ export function MonthlyEnergy({
   /** Change this value (e.g. after a Reset) to refetch immediately. */
   reloadToken?: number;
 }) {
+  const { t } = useTranslation("statistics");
   const [data, setData] = useState<MonthlyEnergyData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"month" | "year">("month");
@@ -82,23 +84,23 @@ export function MonthlyEnergy({
     <section className="panel en-panel en-monthly" aria-labelledby="en-h-monthly">
       <header className="en-panel__head">
         <div>
-          <h2 id="en-h-monthly">Monthly history</h2>
+          <h2 id="en-h-monthly">{t("energy.monthly.title")}</h2>
           <p className="en-panel__sub">
-            Totals per UTC month, kept permanently. They survive resets, restarts and changes to the fleet. Months are UTC, so they will not match a local-time electricity bill.
+            {t("energy.monthly.subtitle")}
           </p>
         </div>
         {data && months.length > 0 ? (
           <div className="en-monthly__tools">
-            <div className="seg" role="group" aria-label="Monthly view">
-              <button type="button" aria-pressed={view === "month"} className={view === "month" ? "is-on" : ""} onClick={() => setView("month")}>Month</button>
-              <button type="button" aria-pressed={view === "year"} className={view === "year" ? "is-on" : ""} onClick={() => setView("year")}>Year</button>
+            <div className="seg" role="group" aria-label={t("energy.monthly.viewAria")}>
+              <button type="button" aria-pressed={view === "month"} className={view === "month" ? "is-on" : ""} onClick={() => setView("month")}>{t("energy.monthly.month")}</button>
+              <button type="button" aria-pressed={view === "year"} className={view === "year" ? "is-on" : ""} onClick={() => setView("year")}>{t("energy.monthly.year")}</button>
             </div>
             {view === "month" ? (
-              <select className="en-select" aria-label="Month" value={activeMonth} onChange={(e) => setMonth(e.target.value)}>
+              <select className="en-select" aria-label={t("energy.monthly.month")} value={activeMonth} onChange={(e) => setMonth(e.target.value)}>
                 {monthKeys.map((key) => <option key={key} value={key}>{monthLabel(key)}</option>)}
               </select>
             ) : (
-              <select className="en-select" aria-label="Year" value={activeYear} onChange={(e) => setYear(Number(e.target.value))}>
+              <select className="en-select" aria-label={t("energy.monthly.year")} value={activeYear} onChange={(e) => setYear(Number(e.target.value))}>
                 {years.map((y) => <option key={y} value={y}>{y}</option>)}
               </select>
             )}
@@ -107,12 +109,12 @@ export function MonthlyEnergy({
       </header>
 
       {error && !data ? (
-        <p className="en-panel__sub" role="alert">Could not load monthly history: {error}</p>
+        <p className="en-panel__sub" role="alert">{t("energy.monthly.loadError", { error })}</p>
       ) : !data ? (
-        <p className="en-panel__sub" role="status">Loading monthly history…</p>
+        <p className="en-panel__sub" role="status">{t("energy.monthly.loading")}</p>
       ) : months.length === 0 ? (
         <p className="en-panel__sub" role="status">
-          Nothing archived yet. Each finished minute is added to its month once the Sparks have been reporting for a little while.
+          {t("energy.monthly.empty")}
         </p>
       ) : view === "month" ? (
         <MonthView
@@ -140,8 +142,9 @@ function MonthView({
   price,
   currency,
 }: ViewProps & { month: MonthlyEnergyMonth | null; label: string; now: number }) {
+  const { t } = useTranslation("statistics");
   if (!month || month.totalWh <= 0) {
-    return <p className="en-panel__sub" role="status">No energy was recorded in {label}.</p>;
+    return <p className="en-panel__sub" role="status">{t("energy.monthly.none", { label })}</p>;
   }
   const rows = monthNodeRows(month, now, price);
   const kwh = month.totalWh / 1000;
@@ -149,29 +152,29 @@ function MonthView({
   const eff = month.whPerOutputToken != null ? month.whPerOutputToken * 1000 : null;
   return (
     <>
-      <div className="en-monthly__stats" role="group" aria-label={`${label} summary`}>
-        <div><span className="eyebrow">Energy</span><b className="mono">{formatKwh(kwh)} kWh</b></div>
-        <div><span className="eyebrow">Cost</span><b className="mono">{cost != null ? formatMoney(cost, currency) : "—"}</b></div>
+      <div className="en-monthly__stats" role="group" aria-label={t("energy.monthly.summaryAria", { label })}>
+        <div><span className="eyebrow">{t("energy.energy")}</span><b className="mono">{formatKwh(kwh)} {t("energy.kwh")}</b></div>
+        <div><span className="eyebrow">{t("energy.cost")}</span><b className="mono">{cost != null ? formatMoney(cost, currency) : "—"}</b></div>
         <div>
-          <span className="eyebrow">Efficiency</span>
-          <b className="mono">{eff != null ? `${eff < 10 ? eff.toFixed(2) : eff.toFixed(1)} Wh / 1k tok` : "—"}</b>
+          <span className="eyebrow">{t("energy.efficiency")}</span>
+          <b className="mono">{eff != null ? t("energy.efficiencyValue", { value: eff < 10 ? eff.toFixed(2) : eff.toFixed(1) }) : "—"}</b>
         </div>
-        <div><span className="eyebrow">Fleet coverage</span><b className="mono">{pct(fleetCoverage(month, now))}</b></div>
+        <div><span className="eyebrow">{t("energy.fleetCoverage")}</span><b className="mono">{pct(fleetCoverage(month, now))}</b></div>
         <div>
-          <span className="eyebrow">Status</span>
-          <Tag tone={month.closed ? "good" : "warn"}>{month.closed ? "Closed" : "Open, still counting"}</Tag>
+          <span className="eyebrow">{t("energy.status")}</span>
+          <Tag tone={month.closed ? "good" : "warn"}>{month.closed ? t("energy.monthly.closed") : t("energy.monthly.open")}</Tag>
         </div>
       </div>
       <div className="en-table-wrap">
         <table className="en-table">
-          <caption className="sr-only">Energy by node for {label}</caption>
+          <caption className="sr-only">{t("energy.monthly.tableCaption", { label })}</caption>
           <thead>
             <tr>
-              <th scope="col" className="is-left">Spark</th>
-              <th scope="col">Energy</th>
-              <th scope="col">Share</th>
-              <th scope="col">Coverage</th>
-              <th scope="col">Cost</th>
+              <th scope="col" className="is-left">{t("energy.spark")}</th>
+              <th scope="col">{t("energy.energy")}</th>
+              <th scope="col">{t("energy.share")}</th>
+              <th scope="col">{t("energy.coverage")}</th>
+              <th scope="col">{t("energy.cost")}</th>
             </tr>
           </thead>
           <tbody>
@@ -181,7 +184,7 @@ function MonthView({
                   <i className="en-swatch" style={{ background: colorOf(n.id) }} aria-hidden="true" />
                   {nameOf(n.id)}
                 </th>
-                <td className="mono">{formatKwh(n.kwh)} kWh</td>
+                <td className="mono">{formatKwh(n.kwh)} {t("energy.kwh")}</td>
                 <td className="mono">{pct(n.share)}</td>
                 <td className="mono">{pct(n.coverage)}</td>
                 <td className="mono">{n.cost != null ? formatMoney(n.cost, currency) : "—"}</td>
@@ -191,8 +194,7 @@ function MonthView({
         </table>
       </div>
       <p className="en-panel__sub en-panel__foot">
-        Only the Sparks that reported in {label} are listed. Coverage is the share of the month each one was measured
-        {month.closed ? "" : " so far"}. Estimated, not metered.
+        {t("energy.monthly.tableCaption", { label })}. {t("energy.monthly.estimated")} {!month.closed ? t("energy.monthly.soFar") : ""}
       </p>
     </>
   );
@@ -206,6 +208,7 @@ function YearView({
   price,
   currency,
 }: ViewProps & { months: MonthlyEnergyMonth[]; year: number }) {
+  const { t } = useTranslation("statistics");
   const bars = yearBars(months, year);
   const ids = [...new Set(bars.flatMap((b) => Object.keys(b.values)))];
   const series: BarSeries[] = ids.map((id) => ({ id, label: nameOf(id), color: colorOf(id) }));
@@ -213,10 +216,10 @@ function YearView({
   return (
     <>
       <p className="en-monthly__year">
-        <b className="mono">{formatKwh(total)} kWh</b> in {year}
-        {price != null && total > 0 ? <span> · about {formatMoney(total * price, currency)}</span> : null}
+        {t("energy.monthly.yearTotal", { total: formatKwh(total), year })}
+        {price != null && total > 0 ? <span> · {formatMoney(total * price, currency)}</span> : null}
       </p>
-      <div className="legend" aria-label="Nodes">
+      <div className="legend" aria-label={t("energy.monthly.nodes")}>
         {series.map((s) => (
           <span key={s.id} style={{ "--c": s.color } as React.CSSProperties}>{s.label}</span>
         ))}
@@ -227,8 +230,8 @@ function YearView({
         height={220}
         format={formatKwh}
         unit="kWh"
-        empty={`No energy recorded in ${year}.`}
-        ariaLabel={`Energy in kWh per month, ${year}`}
+        empty={t("energy.monthly.yearEmpty", { year })}
+        ariaLabel={t("energy.monthly.yearChartAria", { year })}
       />
     </>
   );
