@@ -1,0 +1,37 @@
+{
+  "cpu": {
+    "packageZoneHelp": "ACPI package zone (TSOC on GB10). This is the SoC, not a CPU die and not the GPU junction temperature from nvidia-smi.",
+    "usage": "Usage",
+    "temperature": "Temperature",
+    "namedTemperature": "Temperature ({{label}})",
+    "cpuSensorHelp": "Reading from {{source}} — the CPU package sensor",
+    "boardSensorHelp": "Reading from {{source}} — an ACPI/board thermal zone, not a CPU package sensor",
+    "power": "CPU power",
+    "model": "Model",
+    "cores": " · {{count}} cores"
+  },
+  "ram": {
+    "title": "RAM",
+    "usage": "Usage"
+  },
+  "memory": {
+    "title": "Unified memory",
+    "usedOf": "{{used}} of {{total}} · {{percentage}}%",
+    "usedLabel": "Unified memory {{percentage}}% used",
+    "segments": {
+      "weights": "Model weights",
+      "gpu": "GPU processes",
+      "kv": "KV cache",
+      "system": "System",
+      "free": "Free"
+    },
+    "highOomRisk": "OOM risk: high",
+    "pressure": "Memory pressure",
+    "bandwidthHelp": "GPU memory bandwidth (nvidia-smi dmon)",
+    "waiting": "Waiting for memory reading…"
+  },
+  "processes": {
+    "process": "Process",
+    "memory": "Memory"
+  }
+}

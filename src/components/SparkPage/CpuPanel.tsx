@@ -1,4 +1,5 @@
 import type { CpuMetrics, HardwareInfo } from "../../api/types";
+import { useTranslation } from "react-i18next";
 import { TrendLine } from "../ui/TrendLine";
 import { Panel } from "../ui/Panel";
 import { CpuIcon } from "../ui/icons";
@@ -25,6 +26,7 @@ function celsiusToFahrenheit(c: number): number {
  * hosts it covers the discrete CPU.
  */
 export function CpuPanel({ cpu, hardware, sparkId, temperatureUnit, className }: CpuPanelProps) {
+  const { t } = useTranslation("spark");
   const usageHistory = useMetricsHistoryTail(sparkId, "cpu.usage");
   const tempHistory = useMetricsHistoryTail(sparkId, "cpu.temp");
 
@@ -59,7 +61,7 @@ export function CpuPanel({ cpu, hardware, sparkId, temperatureUnit, className }:
       title="CPU"
       hint={
         socPackage
-          ? "ACPI package zone (TSOC on GB10). This is the SoC, not a CPU die and not the GPU junction temperature from nvidia-smi."
+          ? t("cpu.packageZoneHelp")
           : undefined
       }
       icon={<CpuIcon />}
@@ -68,7 +70,7 @@ export function CpuPanel({ cpu, hardware, sparkId, temperatureUnit, className }:
     >
       <div className="sp-duo">
         <div className="sp-metric">
-          <span className="eyebrow">Usage</span>
+          <span className="eyebrow">{t("cpu.usage")}</span>
           <div className="big-num sp-big-md">
             {usage}
             <small>%</small>
@@ -82,17 +84,15 @@ export function CpuPanel({ cpu, hardware, sparkId, temperatureUnit, className }:
             // say so rather than letting the tile claim it is the CPU (#142).
             title={
               cpu?.temperatureSource
-                ? `Reading from ${cpu.temperatureSource} — ${
-                    cpu.temperatureLabel === "CPU"
-                      ? "the CPU package sensor"
-                      : "an ACPI/board thermal zone, not a CPU package sensor"
-                  }`
+                ? cpu.temperatureLabel === "CPU"
+                  ? t("cpu.cpuSensorHelp", { source: cpu.temperatureSource })
+                  : t("cpu.boardSensorHelp", { source: cpu.temperatureSource })
                 : undefined
             }
           >
             {cpu?.temperatureLabel && cpu.temperatureLabel !== "CPU"
-              ? `Temperature (${cpu.temperatureLabel})`
-              : "Temperature"}
+              ? t("cpu.namedTemperature", { label: cpu.temperatureLabel })
+              : t("cpu.temperature")}
           </span>
           <div className="big-num sp-big-md">
             {displayTemp}
@@ -102,17 +102,17 @@ export function CpuPanel({ cpu, hardware, sparkId, temperatureUnit, className }:
         </div>
       </div>
       <div className="sp-row">
-        <span className="text-muted">CPU power</span>
+        <span className="text-muted">{t("cpu.power")}</span>
         <span className="mono text-text">
           {draw}W{tdp > 0 ? ` / ${tdp}W` : ""}
         </span>
       </div>
       {model && (
         <div className="sp-row sp-row--rule">
-          <span className="text-muted">Model</span>
+          <span className="text-muted">{t("cpu.model")}</span>
           <span className="mono sp-clip text-text" title={model}>
             {model}
-            {cores != null ? ` · ${cores} cores` : ""}
+            {cores != null ? t("cpu.cores", { count: cores }) : ""}
           </span>
         </div>
       )}
