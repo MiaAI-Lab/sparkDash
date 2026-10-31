@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useState } from "react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 import { fetchAlerts, fetchAlertsConfig, testAlertChannel, updateAlertsConfig, updateSettings } from "../api/client";
 import type { AlertChannel, AlertChannelType, AlertEvent, AlertInstance, AlertRule, AlertSeverity, AlertsConfig, Settings } from "../api/types";
 import { useFocusTrap } from "../hooks/useFocusTrap";
@@ -23,19 +24,6 @@ const CHANNEL_TYPES: Array<{ value: AlertChannelType; label: string; placeholder
   { value: "webhook", label: "Webhook (JSON)", placeholder: "https://example.com/hook" },
 ];
 
-const REPEAT_OPTIONS = [
-  { value: 0, label: "Off" },
-  { value: 60, label: "Every hour" },
-  { value: 240, label: "Every 4 hours" },
-  { value: 720, label: "Every 12 hours" },
-  { value: 1440, label: "Every day" },
-];
-
-const SOURCES: Array<{ id: AlertRule["source"]; title: string; help: string }> = [
-  { id: "strip", title: "Overview exceptions", help: "The conditions the Overview exceptions strip shows." },
-  { id: "health", title: "Health findings", help: "The findings on the unit cards, with the Health rules' own thresholds." },
-];
-
 /** Editable rule values; `forSec` stays a string so a half-typed number is not clobbered. */
 type RuleDraft = { enabled: boolean; forSec: string };
 type TestState = { pending: boolean; ok?: boolean; message?: string };
@@ -51,15 +39,25 @@ function ruleDraft(rule: AlertRule): RuleDraft {
 function ruleOverrides(rule: AlertRule, draft: RuleDraft): { enabled?: boolean; forSec?: number } {
   const out: { enabled?: boolean; forSec?: number } = {};
   const forSec = Number(draft.forSec);
-  if (!Number.isFinite(forSec) || draft.forSec.trim() === "") throw new Error(`${rule.name}: the wait must be a number of seconds`);
+  if (!Number.isFinite(forSec) || draft.forSec.trim() === "") throw new Error("invalidWait");
   if (draft.enabled !== rule.defaults.enabled) out.enabled = draft.enabled;
   if (forSec !== rule.defaults.forSec) out.forSec = forSec;
   return out;
 }
 
-const severityText = (s: AlertSeverity) => (s === "critical" ? "Critical" : "Warning");
-
 export function AlertsDialog({ open, onClose, onSettingsSaved }: AlertsDialogProps) {
+  const { t } = useTranslation("devices");
+  const repeatOptions = [
+    { value: 0, label: t("alerts.off") },
+    { value: 60, label: t("alerts.everyHour") },
+    { value: 240, label: t("alerts.every4Hours") },
+    { value: 720, label: t("alerts.every12Hours") },
+    { value: 1440, label: t("alerts.everyDay") },
+  ];
+  const sources: Array<{ id: AlertRule["source"]; title: string; help: string }> = [
+    { id: "strip", title: t("alerts.overviewExceptions"), help: t("alerts.overviewExceptionsHelp") },
+    { id: "health", title: t("alerts.healthFindings"), help: t("alerts.healthFindingsHelp") },
+  ];
   const titleId = useId();
   const { mounted, visible } = useModalPresence(open);
   const trapRef = useFocusTrap(mounted);
@@ -191,8 +189,8 @@ export function AlertsDialog({ open, onClose, onSettingsSaved }: AlertsDialogPro
     const ch = channels[index];
     setTests((prev) => ({ ...prev, [index]: { pending: true } }));
     try {
-      const r = await testAlertChannel(ch.id, { name: ch.name.trim() || "Test", type: ch.type, url: ch.url, enabled: true, minSeverity: ch.minSeverity });
-      setTests((prev) => ({ ...prev, [index]: { pending: false, ok: r.ok, message: r.ok ? "Sent" : r.error || "Failed" } }));
+      const r = await testAlertChannel(ch.id, { name: ch.name.trim() || t("alerts.testName"), type: ch.type, url: ch.url, enabled: true, minSeverity: ch.minSeverity });
+      setTests((prev) => ({ ...prev, [index]: { pending: false, ok: r.ok, message: r.ok ? "sent" : r.error || "failed" } }));
     } catch (err) {
       setTests((prev) => ({ ...prev, [index]: { pending: false, ok: false, message: err instanceof Error ? err.message : String(err) } }));
     } finally {
@@ -237,33 +235,33 @@ export function AlertsDialog({ open, onClose, onSettingsSaved }: AlertsDialogPro
       <div ref={trapRef} className="modal-sheet modal-sheet--wide" role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <div className="modal-sheet__header">
           <h2 className="modal-sheet__title" id={titleId}>
-            Alert notifications
+            {t("alerts.title")}
           </h2>
-          <button type="button" className="modal-sheet__close" onClick={onClose} aria-label="Close">
+          <button type="button" className="modal-sheet__close" onClick={onClose} aria-label={t("actions.close")}>
             <XIcon className="h-4 w-4" />
           </button>
         </div>
 
         <div className="modal-sheet__body">
-          {loading && <p className="bench-sheet__hint">Loading…</p>}
+          {loading && <p className="bench-sheet__hint">{t("actions.loading")}</p>}
 
           {config && !loading && (
             <>
               <ToggleRow
-                title="Send notifications"
-                help="The server watches the Health findings and the Overview exceptions and notifies the channels below when one holds for its wait, and again when it clears. Off by default: while off nothing is evaluated or sent. Saved immediately."
+                title={t("alerts.sendNotifications")}
+                help={t("alerts.sendNotificationsHelp")}
                 checked={enabled}
                 disabled={toggling}
                 onChange={() => void toggleEnabled()}
               />
 
               {enabled && active.length > 0 && (
-                <section className="alerts-section" aria-label="Firing now">
-                  <h3 className="alerts-section__title">Firing now · {active.length}</h3>
+                <section className="alerts-section" aria-label={t("alerts.firingNow")}>
+                  <h3 className="alerts-section__title">{t("alerts.firingNowCount", { count: active.length })}</h3>
                   <ul className="alerts-list">
                     {active.map((a) => (
                       <li key={a.key} className={a.severity === "critical" ? "is-critical" : "is-warning"}>
-                        <b>{a.unitName}</b> {a.label} · {formatSince(a.startsAt, now) ?? "now"}
+                        <b>{a.unitName}</b> {a.label} · {formatSince(a.startsAt, now) ?? t("alerts.now")}
                         <small>{a.summary}</small>
                       </li>
                     ))}
@@ -271,10 +269,10 @@ export function AlertsDialog({ open, onClose, onSettingsSaved }: AlertsDialogPro
                 </section>
               )}
 
-              {!enabled && <p className="modal-sheet__lead alerts-off-note">Turn notifications on to change what notifies and where.</p>}
+              {!enabled && <p className="modal-sheet__lead alerts-off-note">{t("alerts.offNote")}</p>}
 
               <fieldset className="alerts-fieldset" disabled={!enabled}>
-                {SOURCES.map((source) => (
+                  {sources.map((source) => (
                   <section key={source.id} className="alerts-section" aria-label={source.title}>
                     <h3 className="alerts-section__title">{source.title}</h3>
                     <p className="alerts-section__help">{source.help}</p>
@@ -287,22 +285,22 @@ export function AlertsDialog({ open, onClose, onSettingsSaved }: AlertsDialogPro
                             <ToggleRow
                               title={rule.name}
                               help={rule.description}
-                              label={`${rule.name} notifications`}
+                              label={t("alerts.ruleNotifications", { name: rule.name })}
                               checked={draft.enabled}
                               onChange={(v) => setRule(rule.id, { enabled: v })}
                             >
                               <label className="alerts-wait">
-                                <span>after</span>
+                                <span>{t("alerts.after")}</span>
                                 <input
                                   type="number"
                                   min={0}
                                   step={1}
-                                  aria-label={`${rule.name} wait (seconds)`}
+                                  aria-label={t("alerts.waitSeconds", { name: rule.name })}
                                   value={draft.forSec}
                                   onChange={(e) => setRule(rule.id, { forSec: e.target.value })}
                                   className="field-input"
                                 />
-                                <span>s</span>
+                                <span>{t("alerts.seconds")}</span>
                               </label>
                             </ToggleRow>
                           </div>
@@ -311,18 +309,16 @@ export function AlertsDialog({ open, onClose, onSettingsSaved }: AlertsDialogPro
                   </section>
                 ))}
 
-                <section className="alerts-section" aria-label="Channels">
+                <section className="alerts-section" aria-label={t("alerts.channels")}>
                   <div className="alerts-section__head">
-                    <h3 className="alerts-section__title">Channels</h3>
+                    <h3 className="alerts-section__title">{t("alerts.channels")}</h3>
                     <button type="button" className="btn btn--sm" onClick={addChannel}>
                       <PlusIcon className="h-3.5 w-3.5" />
-                      Add channel
+                      {t("alerts.addChannel")}
                     </button>
                   </div>
-                  <p className="alerts-section__help">
-                    URLs are stored encrypted with the unit passwords and shown masked. They may point at the LAN (a self-hosted ntfy) or the internet, under the same rules as unit and LLM addresses; redirects are not followed.
-                  </p>
-                  {channels.length === 0 && <p className="alerts-section__help">No channels yet: alerts still show on the Overview strip.</p>}
+                  <p className="alerts-section__help">{t("alerts.channelsHelp")}</p>
+                  {channels.length === 0 && <p className="alerts-section__help">{t("alerts.noChannels")}</p>}
                   {channels.map((ch, i) => {
                     const meta = CHANNEL_TYPES.find((t) => t.value === ch.type) ?? CHANNEL_TYPES[0];
                     const test = tests[i];
@@ -331,29 +327,29 @@ export function AlertsDialog({ open, onClose, onSettingsSaved }: AlertsDialogPro
                         <div className="alerts-channel__row">
                           <input
                             type="text"
-                            aria-label="Channel name"
-                            placeholder="Name"
+                            aria-label={t("alerts.channelName")}
+                            placeholder={t("alerts.name")}
                             value={ch.name}
                             maxLength={60}
                             onChange={(e) => setChannel(i, { name: e.target.value })}
                             className="field-input alerts-channel__name"
                           />
-                          <select aria-label="Channel type" value={ch.type} onChange={(e) => setChannel(i, { type: e.target.value as AlertChannelType })}>
+                          <select aria-label={t("alerts.channelType")} value={ch.type} onChange={(e) => setChannel(i, { type: e.target.value as AlertChannelType })}>
                             {CHANNEL_TYPES.map((t) => (
                               <option key={t.value} value={t.value}>
                                 {t.label}
                               </option>
                             ))}
                           </select>
-                          <select aria-label="Minimum severity" value={ch.minSeverity} onChange={(e) => setChannel(i, { minSeverity: e.target.value as AlertSeverity })}>
-                            <option value="warning">Warning and up</option>
-                            <option value="critical">Critical only</option>
+                          <select aria-label={t("alerts.minimumSeverity")} value={ch.minSeverity} onChange={(e) => setChannel(i, { minSeverity: e.target.value as AlertSeverity })}>
+                            <option value="warning">{t("alerts.warningAndUp")}</option>
+                            <option value="critical">{t("alerts.criticalOnly")}</option>
                           </select>
                           <button
                             type="button"
                             role="switch"
                             aria-checked={ch.enabled}
-                            aria-label={`Channel ${ch.name || i + 1} enabled`}
+                            aria-label={t("alerts.channelEnabled", { name: ch.name || i + 1 })}
                             onClick={() => setChannel(i, { enabled: !ch.enabled })}
                             className={`toggle-track relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors${ch.enabled ? " is-on" : ""}`}
                           >
@@ -362,7 +358,7 @@ export function AlertsDialog({ open, onClose, onSettingsSaved }: AlertsDialogPro
                         </div>
                         <input
                           type="text"
-                          aria-label="Channel URL"
+                          aria-label={t("alerts.channelUrl")}
                           placeholder={meta.placeholder}
                           value={ch.url}
                           spellCheck={false}
@@ -370,23 +366,23 @@ export function AlertsDialog({ open, onClose, onSettingsSaved }: AlertsDialogPro
                           onChange={(e) => setChannel(i, { url: e.target.value })}
                           className="field-input field-input--mono"
                         />
-                        {ch.id && ch.url.includes("…") && <p className="field-hint">Stored URL is hidden. Leave it to keep it, or paste a new one.</p>}
-                        {ch.id && !ch.url && ch.hasUrl === false && <p className="field-hint is-warn">No URL is stored for this channel. Enter it again.</p>}
+                        {ch.id && ch.url.includes("…") && <p className="field-hint">{t("alerts.hiddenUrl")}</p>}
+                        {ch.id && !ch.url && ch.hasUrl === false && <p className="field-hint is-warn">{t("alerts.missingUrl")}</p>}
                         <div className="alerts-channel__actions">
                           <button type="button" className="btn btn--sm" onClick={() => void sendTest(i)} disabled={!ch.url.trim() || test?.pending}>
-                            {test?.pending ? "Sending…" : "Send test"}
+                            {test?.pending ? t("alerts.sending") : t("alerts.sendTest")}
                           </button>
                           <button type="button" className="btn btn--sm btn--ghost" onClick={() => removeChannel(i)}>
-                            Remove
+                            {t("actions.remove")}
                           </button>
                           {test && !test.pending && test.message && (
                             <span role="status" className={`field-hint ${test.ok ? "is-ok" : "is-warn"}`}>
-                              {test.message}
+                              {test.message === "sent" ? t("alerts.sent") : test.message === "failed" ? t("alerts.failed") : test.message}
                             </span>
                           )}
                           {!test?.message && ch.status?.lastError && (
                             <span className="field-hint is-warn" title={ch.status.lastErrorAt ? new Date(ch.status.lastErrorAt).toLocaleString() : undefined}>
-                              Last send failed: {ch.status.lastError}
+                              {t("alerts.lastSendFailed")}: {ch.status.lastError}
                             </span>
                           )}
                         </div>
@@ -395,7 +391,7 @@ export function AlertsDialog({ open, onClose, onSettingsSaved }: AlertsDialogPro
                   })}
                 </section>
 
-                <SettingRow title="Remind while still firing" help="Repeat the notification for an alert that has not cleared." htmlFor="alerts-repeat">
+                <SettingRow title={t("alerts.remind")} help={t("alerts.remindHelp")} htmlFor="alerts-repeat">
                   <select
                     id="alerts-repeat"
                     value={repeat}
@@ -404,7 +400,7 @@ export function AlertsDialog({ open, onClose, onSettingsSaved }: AlertsDialogPro
                       touch();
                     }}
                   >
-                    {(REPEAT_OPTIONS.some((o) => o.value === repeat) ? REPEAT_OPTIONS : [...REPEAT_OPTIONS, { value: repeat, label: `Every ${repeat} min` }]).map((o) => (
+                    {(repeatOptions.some((o) => o.value === repeat) ? repeatOptions : [...repeatOptions, { value: repeat, label: t("alerts.everyMinutes", { count: repeat }) }]).map((o) => (
                       <option key={o.value} value={o.value}>
                         {o.label}
                       </option>
@@ -413,16 +409,16 @@ export function AlertsDialog({ open, onClose, onSettingsSaved }: AlertsDialogPro
                 </SettingRow>
               </fieldset>
 
-              <section className="alerts-section" aria-label="Recent">
-                <h3 className="alerts-section__title">Recent</h3>
-                <p className="alerts-section__help">Fired and cleared since the server started. Every notification sent or failed is also on the Activity page.</p>
+              <section className="alerts-section" aria-label={t("alerts.recent")}>
+                <h3 className="alerts-section__title">{t("alerts.recent")}</h3>
+                <p className="alerts-section__help">{t("alerts.recentHelp")}</p>
                 {recent.length === 0 ? (
-                  <p className="alerts-section__help">Nothing has fired yet.</p>
+                  <p className="alerts-section__help">{t("alerts.nothingFired")}</p>
                 ) : (
                   <ul className="alerts-list">
                     {recent.slice(0, 50).map((e) => (
                       <li key={e.id} className={e.status === "resolved" ? "is-ok" : e.severity === "critical" ? "is-critical" : "is-warning"}>
-                        {e.status === "resolved" ? "Resolved" : severityText(e.severity)} · <b>{e.unitName}</b> {e.label} · {formatSince(e.at, now) ?? "—"} ago
+                        {e.status === "resolved" ? t("alerts.resolved") : e.severity === "critical" ? t("alerts.critical") : t("alerts.warning")} · <b>{e.unitName}</b> {e.label} · {formatSince(e.at, now) ?? "—"} {t("alerts.ago")}
                         <small>{e.summary}</small>
                       </li>
                     ))}
@@ -435,20 +431,20 @@ export function AlertsDialog({ open, onClose, onSettingsSaved }: AlertsDialogPro
 
         {error && (
           <div className="modal-sheet__error alerts-error" role="alert">
-            {error}
+            {error === "invalidWait" ? t("alerts.invalidWait") : error}
           </div>
         )}
 
         <div className="modal-sheet__footer">
           <span className="field-hint" role="status">
-            {savedNote ? "Saved" : dirty ? "Unsaved changes" : ""}
+            {savedNote ? t("alerts.saved") : dirty ? t("alerts.unsaved") : ""}
           </span>
           <div className="modal-sheet__footer-actions">
             <button type="button" onClick={onClose} className="btn btn--ghost">
-              Close
+              {t("actions.close")}
             </button>
             <button type="button" onClick={() => void save()} disabled={!config || !enabled || saving || !dirty} className="btn btn--primary">
-              {saving ? "Saving…" : "Save"}
+              {saving ? t("actions.saving") : t("actions.save")}
             </button>
           </div>
         </div>
