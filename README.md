@@ -1279,7 +1279,7 @@ Contributions are welcome. Conventions:
 
 Settings → Language switches immediately between English and 简体中文, remembers the choice in this browser (`sparkdash-locale`) and updates `<html lang>`. It applies without Save and preserves pending settings edits. A supported stored preference takes precedence over the browser language; unsupported languages fall back to English. Simplified Chinese tags and the earlier `zh-Hans` preference map to `zh-CN`; Traditional Chinese is not supported yet. Switching still works for the current page when browser storage is blocked.
 
-This foundation translates Settings and its embedded browser-alert controls. Navigation, other pages, the separate Alerts dialog, access-token prompt and raw server diagnostics remain English for later page-sized changes. Server settings and other users' language preferences are unaffected.
+The Settings language foundation covers its embedded browser-alert controls, MQTT fields and local validation, fleet GPU-clock choices/status/results, session-age choices and the Harness setup entry. Switching language preserves pending settings and GPU-clock choices without saving settings or applying a clock change; feedback follows the selected language while raw server diagnostics remain intact. Navigation, other pages, the separate Harness setup wizard, Alerts dialog and access-token prompt remain English for later page-sized changes. Server settings and other users' language preferences are unaffected.
 
 `src/i18n/index.ts` owns one i18next/react-i18next instance, initialized by `src/main.tsx` before React mounts. The small `language` and `settings` catalogs are bundled eagerly. English JSON in `src/locales/en/` is the source of truth and fallback; `src/locales/zh-CN/` mirrors each page or namespace. Add future namespace imports and resources to this same loader.
 
@@ -1290,6 +1290,8 @@ Use `const { t } = useTranslation("settings")` with static keys such as `t("dial
 The two direct build dependencies are exactly pinned: `i18next@26.4.2` (published 2026-09-03) and `react-i18next@17.0.15` (2026-09-21), both more than two weeks old when submitted. Their new transitive packages are `@babel/runtime@7.29.7`, `html-parse-stringify@4.0.1` and `use-sync-external-store@1.7.0`; a scoped override holds the first at its reviewed version. The lockfile leaves existing resolutions unchanged. See [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) for licenses. The checker currently uses `rolldown/parseAst` supplied transitively by Vite, so validate that import when changing the build dependencies.
 
 Validate with a supported Node release such as 22.23.2: `npm ci`, `npm test`, `npm run typecheck` and `npm run build`. The server suite needs native Linux/POSIX tools, Python 3.11+ and Git; install zsh to exercise the login-shell probe. In a browser, check Settings at desktop and phone sizes, switch English → 简体中文 → English, reload, check accessible labels and horizontal overflow, and verify a pending setting survives a language switch and Save. Use synthetic data for writes.
+
+See the [page-by-page localization coverage checklist](docs/I18N-COVERAGE.md) for merged, proposed and remaining work. Passing catalog checks does not mean every screen has been translated.
 
 ---
 
