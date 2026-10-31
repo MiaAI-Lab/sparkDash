@@ -191,6 +191,56 @@ The six remaining groups are independent reviews against `b96244a`. Their shared
 
 Suggested remaining-group order: fleet reports → device setup → Spark details → benchmarks → Showcase → server messages. Fleet reports and Spark details also change `EventRow.tsx` and `SparkActions.tsx`; the server-message review deliberately contains only descriptor integration on baseline UI. When integrating it last, preserve the earlier translated chrome and add its metadata handling. It also shares `HealthFindings.tsx` with #316: retain the existing translated chrome or deduplicate it by static keys while adding descriptor rendering. No PR is merged by this migration.
 
+## Unified progress index
+
+Keep one progress list while retaining separate, complete-feature pull requests. This inventory tracks all reviews; a pending row does not mean its source is included in every branch. Open status was checked on 2026-10-31; an open PR is implemented work awaiting review, not shipped coverage.
+
+| Scope | Review entry | Status |
+| --- | --- | --- |
+| Language infrastructure and initial Settings | [#226](https://github.com/MiaAI-Lab/sparkDash/pull/226) | Merged; included in the baseline. |
+| Remaining Settings: MQTT, GPU clock and sessions | [#310](https://github.com/MiaAI-Lab/sparkDash/pull/310) | Open, independent Settings review. The former #311 session slice was consolidated here. |
+| Navigation and shared shell | [#315](https://github.com/MiaAI-Lab/sparkDash/pull/315) | Open, independent Shell review. |
+| Overview page and fleet controls | [#316](https://github.com/MiaAI-Lab/sparkDash/pull/316) | Open, independent Overview review. |
+| Spark detail GPU, CPU and memory | [#317](https://github.com/MiaAI-Lab/sparkDash/pull/317) | Open, resource-panel review with separate CPU/memory and GPU commits. |
+| Spark detail LLM live panel and sessions | [#318](https://github.com/MiaAI-Lab/sparkDash/pull/318) | Open, independent review; metrics/help, endpoint settings, benchmark entry controls and sessions. Charts/totals and benchmark dialogs remain separate. |
+| Spark detail LLM history, daily statistics and token totals | [#319](https://github.com/MiaAI-Lab/sparkDash/pull/319) | Open, independent review; chart presentation, daily tooltips/accessibility and cumulative token table/range labels. |
+| Fleet Reports | `codex/i18n-fleet-reports-20261031` (submission pending) | Implemented; pending maintainer review, not merged or deployed. |
+| Device Setup | `codex/i18n-device-setup-20261031` (submission pending) | Implemented; pending maintainer review, not merged or deployed. |
+| Spark Details | `codex/i18n-spark-details-20261031` (submission pending) | Implemented; pending maintainer review, not merged or deployed. |
+| Benchmarks | `codex/i18n-benchmarks-20261031` (submission pending) | Implemented; pending maintainer review, not merged or deployed. |
+| Showcase | `codex/i18n-showcase-20261031` (submission pending) | Implemented; pending maintainer review, not merged or deployed. |
+| Server Messages | `codex/i18n-server-messages-20261031` (submission pending) | Implemented; pending maintainer review, not merged or deployed. |
+
+[#194](https://github.com/MiaAI-Lab/sparkDash/pull/194) stays open as the original integration and server-message design reference, per the maintainer's [latest direction](https://github.com/MiaAI-Lab/sparkDash/pull/194#issuecomment-6517707651). It is not an active merge target. Do not rebase it or count its broad translation work as shipped. Its historical content would remain accessible after closure, but the maintainer explicitly requested an open reference; revisit its status when that reference has an agreed replacement.
+
+When a page PR merges, update its row and the detailed inventory together. Keep all already-merged namespaces and newer coverage rows when resolving shared loader, README, changelog or inventory conflicts.
+
+## Spark detail merge order
+
+Recommended order: [#317](https://github.com/MiaAI-Lab/sparkDash/pull/317) → [#318](https://github.com/MiaAI-Lab/sparkDash/pull/318) → [#319](https://github.com/MiaAI-Lab/sparkDash/pull/319). This records the integration plan; the PRs remain separate reviews against `main`. The documentation follow-up does not merge, rebase or deploy them. Keep #194 open and unchanged as the server-message design reference.
+
+| Step | Scope | `spark` prefixes to retain in both locales |
+| --- | --- | --- |
+| #317 | GPU, CPU and memory panels | `cpu`, `ram`, `memory`, `gpu`, `gpuChart`, `processes` |
+| #318 | LLM live controls and sessions | All #317 keys plus `llm`, `sessions` |
+| #319 | LLM history, daily statistics and token totals | All earlier keys plus `llmTrend`, `llmDaily`, `llmTokens` |
+
+After each predecessor is merged by the maintainer, update the next PR from the resulting `main` and resolve its remaining diff. The pairwise conflicts are in `CHANGELOG.md`, `README.md`, this inventory and the two `spark.json` catalogs; the shared loader registration is identical in these three branches. Treat a different conflict set after upstream changes as a new review point.
+
+- **Catalogs:** combine the English and `zh-CN` objects by key, preserving every prefix above and any newer main keys. Never resolve these add/add conflicts by selecting an entire side. Check duplicate keys and interpolation parameters with `npm run i18n:check` after the actual source resolution.
+- **Loader:** keep one `enSpark` import, one `zhSpark` import, one `spark` resource per locale and one `spark` namespace entry. Preserve `settings`, `language` and any already-merged `shell`/`overview` registrations.
+- **README and CHANGELOG:** combine the actual shipped coverage and keep each PR's own credited entry. Retain newer upstream wording and avoid duplicate section headings.
+- **Progress inventory:** use the latest complete index (currently the version in #319) as the starting point, preserving newer rows. Mark only PRs actually merged as **Merged**, with their verified revision; retain the other **Pending** / **Not wired** boundaries. Update branch-specific namespace wording to match the resulting main.
+- **Ignore rules:** retain `docs/` for nested documentation, reopen only the root directory with `!/docs/`, then use `/docs/*` and `!/docs/I18N-COVERAGE.md` to allow-list this one file. Other untracked documentation remains ignored. No further `git add -f` is needed for this inventory.
+
+The branches share files but their catalog prefixes do not overlap. Other pending page PRs (#310, #315 and #316) remain separate; preserve their merged namespaces and coverage when resolving common files. After a future source-conflict resolution, validate the catalog, typecheck and affected locale regressions once, extending checks only for additional source changes or failures. For this documentation/ignore-only follow-up, verify the allow-list, links, clean diff and unchanged source/dependency trees; do not repeat the full runtime suites.
+
+## Remaining-feature review order and scope
+
+The six remaining groups are independent reviews against `b96244a`. Their shared loader, README, changelog and this inventory must be combined by namespace or entry rather than choosing one whole side. Keep all prior #310/#315–#319 work. The benchmark group keeps Decode, Prefill, Quality, Tool Eval and their share-card interfaces together.
+
+Suggested remaining-group order: fleet reports → device setup → Spark details → benchmarks → Showcase → server messages. Fleet reports and Spark details also change `EventRow.tsx` and `SparkActions.tsx`; the server-message review deliberately contains only descriptor integration on baseline UI. When integrating it last, preserve the earlier translated chrome and add its metadata handling. No PR is merged by this migration.
+
 ## Scope and conventions
 
 This branch owns **fleet reports**, using `statistics`, `activity`, alongside the baseline `settings` and `language` namespaces. Token totals, cost comparison, energy and monthly archives, temperature charts, activity filters/exports and kiosk presentation now use English and Simplified Chinese catalogs. Locale changes retain selected ranges, filters, graph geometry, pending clears and raw event details.
