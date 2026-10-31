@@ -30,6 +30,53 @@
     "bandwidthHelp": "GPU 内存带宽（nvidia-smi dmon）",
     "waiting": "等待内存读数…"
   },
+  "gpu": {
+    "throttle": {
+      "thermal": "温度降频",
+      "power": "功耗限制",
+      "hw": "硬件降频",
+      "unknown": "已限频",
+      "ok": "无限频"
+    },
+    "heat": { "hot": "高温", "warm": "偏热", "normal": "正常" },
+    "windows": { "thirtyMinutes": "30 分钟", "oneHour": "1 小时", "eightHours": "8 小时" },
+    "chartWindow": "图表时间范围",
+    "usage": "利用率",
+    "utilization": "利用率",
+    "temperature": "温度",
+    "power": "功耗",
+    "powerDraw": "功耗",
+    "allCardsPower": "功耗（所有显卡）",
+    "systemPower": "系统 ≈ {{watts}} W",
+    "smClock": "SM 频率",
+    "clockCapHelp": "通过 nvidia-smi -lgc 锁定",
+    "clockCap": "上限 {{mhz}} MHz",
+    "utilizationLegend": "GPU 利用率 %",
+    "powerLegend": "功耗占上限 %",
+    "temperatureLegend": "温度 °C",
+    "cardCount": "{{count}} 块 GPU",
+    "vram": "显存",
+    "allCardsVram": "显存（所有显卡）",
+    "vramUnreadable": "无法读取此显卡的显存用量",
+    "totalMemory": "总计 {{memory}}",
+    "usedMemory": "已用 {{memory}}",
+    "available": "可用",
+    "allocationErrorsHelp": "自启动以来内核日志中的 NVRM NV_ERR_NO_MEMORY 条目数，表示显存压力下发生的 GPU 内存分配失败。",
+    "allocationErrors": "自启动以来 GPU 内存分配错误"
+  },
+  "gpuChart": {
+    "combined": "合并",
+    "allGpus": "所有 GPU",
+    "viewGroup": "要绘制的 GPU",
+    "metricGroup": "要绘制的指标",
+    "metrics": { "utilization": "利用率", "power": "功耗", "temperature": "温度" },
+    "series": { "utilization": "GPU 利用率 %", "power": "功耗占上限 %", "temperature": "温度 °C" },
+    "collecting": "正在收集历史数据。此页面保持打开时图表会逐步填充。",
+    "historyLabel": "GPU 利用率、功耗和温度历史",
+    "elapsedMinutes": "−{{count}} 分钟",
+    "elapsedHours": "−{{count}} 小时",
+    "now": "现在"
+  },
   "processes": {
     "process": "进程",
     "memory": "内存"

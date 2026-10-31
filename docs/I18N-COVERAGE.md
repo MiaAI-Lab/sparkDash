@@ -12,7 +12,7 @@ Keep one progress list while retaining separate, page-sized pull requests. Open 
 | Remaining Settings: MQTT, GPU clock and sessions | [#310](https://github.com/MiaAI-Lab/sparkDash/pull/310) | Open, independent Settings review. The former #311 session slice was consolidated here. |
 | Navigation and shared shell | [#315](https://github.com/MiaAI-Lab/sparkDash/pull/315) | Open, independent Shell review. |
 | Overview page and fleet controls | [#316](https://github.com/MiaAI-Lab/sparkDash/pull/316) | Open, independent Overview review. |
-| Spark detail CPU and memory | [#317](https://github.com/MiaAI-Lab/sparkDash/pull/317) | Open, independent CPU/memory review. |
+| Spark detail GPU, CPU and memory | [#317](https://github.com/MiaAI-Lab/sparkDash/pull/317) | Open, resource-panel review with separate CPU/memory and GPU commits. |
 | Other detail panels, pages and dialogs | Inventory and panel batches below | Not yet wired unless explicitly marked otherwise. |
 
 [#194](https://github.com/MiaAI-Lab/sparkDash/pull/194) stays open as the original integration and server-message design reference, per the maintainer's [latest direction](https://github.com/MiaAI-Lab/sparkDash/pull/194#issuecomment-6517707651). It is not an active merge target. Do not rebase it or count its broad translation work as shipped. Its historical content would remain accessible after closure, but the maintainer explicitly requested an open reference; revisit its status when that reference has an agreed replacement.
@@ -33,7 +33,7 @@ The first integration is deliberately page-sized. Follow the maintainer's [page-
 | **Pending (#310)** | Included in the separate Settings PR, but not in the baseline `main`; update this document when merged. |
 | **Pending (#315)** | Included in the separate Shell PR, but not in the baseline `main`. |
 | **Pending (#316)** | Included in the separate Overview PR, but not in the baseline `main`. |
-| **Pending (this CPU/memory PR)** | Implemented in this change; covers only the named panels, not the whole Spark detail page or a merged `main` claim. |
+| **Pending (#317)** | Implemented in this change; covers only the named panels, not the whole Spark detail page or a merged `main` claim. |
 | **Not wired** | No page-level catalog/wiring claim in this snapshot. |
 
 | Slice | Status | Boundary |
@@ -43,7 +43,7 @@ The first integration is deliberately page-sized. Follow the maintainer's [page-
 | MQTT and fleet GPU clock | **Pending (#310)** | Settings MQTT text and [`FleetGpuClock`](../src/components/FleetGpuClock.tsx) are not a `main` claim until #310 merges. |
 | Session age and Harness Sessions entry | **Pending (#310)** | Settings labels/help/preset labels and the entry action only. This does **not** localize [`HarnessWizard`](../src/components/HarnessWizard.tsx). |
 | Navigation and shared shell | **Pending (#315)** | Desktop/sidebar and mobile navigation, command palette and its commands, theme/open-access/connection/error/install UI, plus App-owned empty/error text. Benchmark navigation only; page bodies and standalone dialogs remain separate slices. Fleet shutdown is pending in #316. |
-| Spark CPU and memory panels | **Pending (this CPU/memory PR)** | CPU, system RAM and unified-memory labels, sensor guidance, segments, risks, waiting state and the shared process table. Other detail panels remain separate slices below. |
+| Spark resource panels | **Pending (#317)** | GPU metrics and history-chart controls, CPU, system RAM, unified memory and the shared process table. Shared VRAM breakdown content is pending in #316; other detail panels remain separate below. |
 
 ## Inventory
 
@@ -54,7 +54,7 @@ The route inventory comes from [`App.tsx`](../src/App.tsx), [`useRoute.ts`](../s
 | Surface and route | Primary source | Status / next page-sized slice |
 | --- | --- | --- |
 | Overview `/` | [`OverviewPage`](../src/components/OverviewPage/OverviewPage.tsx) and its cards | **Pending (#316)** — headings, filters, unit/memory cards, inline launcher controls, fleet KPIs, energy/token/traffic cards, local alert text, activity controls, and fleet action/confirmation feedback. Raw events, server-only findings and diagnostics remain unchanged. |
-| Spark detail `/spark/:id` | [`SparkPage`](../src/components/SparkPage/SparkPage.tsx) and panels | **Pending (this CPU/memory PR)** for CPU, RAM, unified memory and the shared process table only. Remaining areas are **Not wired**; see the panel-sized breakdown below. |
+| Spark detail `/spark/:id` | [`SparkPage`](../src/components/SparkPage/SparkPage.tsx) and panels | **Pending (#317)** for GPU metrics/history charts, CPU, RAM, unified memory and the shared process table. Shared VRAM breakdown content is pending in #316. Remaining areas are **Not wired**; see the panel-sized breakdown below. |
 | Token totals `/tokens` | [`TokensPage`](../src/components/TokensPage/TokensPage.tsx) | **Not wired**. |
 | Cost compare `/cost` | [`CostPage`](../src/components/CostPage/CostPage.tsx) | **Not wired**. |
 | Fleet energy `/energy` | [`EnergyPage`](../src/components/EnergyPage/EnergyPage.tsx) | **Not wired**. |
@@ -70,13 +70,13 @@ The route inventory comes from [`App.tsx`](../src/App.tsx), [`useRoute.ts`](../s
 
 ### Spark detail: panel-sized review batches
 
-Each row is an independently reviewable surface. Keep the English fallback and one shared `spark` namespace; add coherent key prefixes as panels are wired. This first batch does not mark the entire detail page as localized.
+Each row is a reviewable surface. #317 groups the related GPU, CPU and memory rows, with the GPU work in a separate commit. Keep the English fallback and one shared `spark` namespace; add coherent key prefixes as panels are wired. This resource-panel batch does not mark the entire detail page as localized.
 
 | Surface | Primary source | Status / boundary |
 | --- | --- | --- |
 | Header, unit actions and page-level port controls | [`SparkHeader`](../src/components/SparkPage/SparkHeader.tsx), [`SparkActions`](../src/components/SparkPage/SparkActions.tsx), [`SparkPage`](../src/components/SparkPage/SparkPage.tsx) | **Not wired** — retain raw host identity, diagnostics, port values and action payloads. Shared confirmation controls are pending in #316. |
-| CPU, system RAM and unified memory | [`CpuPanel`](../src/components/SparkPage/CpuPanel.tsx), [`RamPanel`](../src/components/SparkPage/RamPanel.tsx), [`UnifiedMemoryPanel`](../src/components/SparkPage/UnifiedMemoryPanel.tsx) | **Pending (this CPU/memory PR)** — labels, sensor provenance/help, core count, memory split legend/tooltips/accessibility, pressure and waiting states. Sensor/model values, metric history, units and split calculations stay unchanged. |
-| GPU metrics and charts | [`GpuPanel`](../src/components/SparkPage/GpuPanel.tsx), [`GpuHistoryChart`](../src/components/SparkPage/GpuHistoryChart.tsx) | **Not wired**, except `GpuProcessTable` headings are **Pending (this CPU/memory PR)** because the unified-memory panel shares that table. Raw process names, commands and PIDs stay intact. Shared VRAM breakdown tooltips are pending in #316. |
+| CPU, system RAM and unified memory | [`CpuPanel`](../src/components/SparkPage/CpuPanel.tsx), [`RamPanel`](../src/components/SparkPage/RamPanel.tsx), [`UnifiedMemoryPanel`](../src/components/SparkPage/UnifiedMemoryPanel.tsx) | **Pending (#317)** — labels, sensor provenance/help, core count, memory split legend/tooltips/accessibility, pressure and waiting states. Sensor/model values, metric history, units and split calculations stay unchanged. |
+| GPU metrics and charts | [`GpuPanel`](../src/components/SparkPage/GpuPanel.tsx), [`GpuHistoryChart`](../src/components/SparkPage/GpuHistoryChart.tsx) | **Pending (#317)** for single-/multi-card metrics, thermal/throttle states, memory availability/allocation-error labels, shared process-table headings, chart windows, view/metric selectors, legends, axes, accessibility and collecting state. Locale switches preserve selected data, storage values, backfill and curve geometry. Raw device/process names, commands and PIDs stay intact. The shared `VramBreakdownBar` legends/tooltips remain pending in #316; this PR does not duplicate them. |
 | LLM metrics and sessions | [`LlmPanel`](../src/components/SparkPage/LlmPanel.tsx), [`ConversationList`](../src/components/SparkPage/ConversationList.tsx), [`LlmTrendChart`](../src/components/SparkPage/LlmTrendChart.tsx), [`LlmDailyChart`](../src/components/SparkPage/LlmDailyChart.tsx) | **Not wired** — separate further by panel controls and charts if needed; preserve engine semantics, conversation content and counters. Benchmark dialogs remain separate below. |
 | Model scripts and output | [`LlmModelsPanel`](../src/components/SparkPage/LlmModelsPanel.tsx) | **Not wired** — include controls and progress/error feedback; preserve script names, paths and terminal output. |
 | Storage | [`StoragePanel`](../src/components/SparkPage/StoragePanel.tsx) | **Not wired** — include device/refresh controls; preserve device names and poll-mode values. |
@@ -100,7 +100,7 @@ Each row is an independently reviewable surface. Keep the English fallback and o
 | LLM launch and unit actions | [`LlmLauncherDialog`](../src/components/SparkPage/LlmLauncherDialog.tsx), [`SparkActions`](../src/components/SparkPage/SparkActions.tsx), [`ConfirmShutdownDialog`](../src/components/ConfirmShutdownDialog.tsx), [`ShutdownAll`](../src/components/ShutdownAll.tsx) | **Pending (#316)** for inline Overview launcher controls, fleet shutdown and shared confirmation controls. **Not wired** for the launcher configuration dialog and single-unit action prompts. |
 | LLM terminal output | [`LlmModelsPanel`](../src/components/SparkPage/LlmModelsPanel.tsx) | **Not wired**; translate modal controls such as **Close output**, while preserving commands and raw terminal output. |
 
-The pending Overview PR #316 also includes shared VRAM tooltips, health-chip controls, activity widgets, restart and shutdown confirmation controls. Their translated text follows the locale wherever reused; this does not mark the surrounding Spark detail, Energy, Activity or other page as localized. Likewise, this batch's translated process-table headings also appear in the GPU panel, whose remaining text is not yet wired.
+The pending Overview PR #316 also includes shared VRAM tooltips, health-chip controls, activity widgets, restart and shutdown confirmation controls. Their translated text follows the locale wherever reused; this does not mark the surrounding Spark detail, Energy, Activity or other page as localized. The resource panels in #317 share the process-table headings. Full localization of their detailed VRAM breakdown also requires the shared component work in #316; neither PR marks other Spark detail panels as complete.
 
 ## Per-page acceptance and update checklist
 
