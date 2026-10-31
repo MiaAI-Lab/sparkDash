@@ -4,7 +4,7 @@
 
 ## Scope and conventions
 
-The English catalogs are the source and fallback, initialized in [`src/i18n/index.ts`](../src/i18n/index.ts). The current namespaces are [`settings`](../src/locales/en/settings.json) and [`language`](../src/locales/en/language.json), with matching `zh-CN` files. Translate visible product UI, accessible names, validation/help/empty/loading and success/failure feedback. Do **not** translate raw server diagnostics, user-supplied text, IDs, protocol values, commands, URLs, or product and model names unless a product decision explicitly says otherwise.
+The English catalogs are the source and fallback, initialized in [`src/i18n/index.ts`](../src/i18n/index.ts). This branch registers [`settings`](../src/locales/en/settings.json), [`language`](../src/locales/en/language.json) and [`overview`](../src/locales/en/overview.json), with matching `zh-CN` files. The separate Shell namespace is pending in [#315](https://github.com/MiaAI-Lab/sparkDash/pull/315). Translate visible product UI, accessible names, validation/help/empty/loading and success/failure feedback. Do **not** translate raw server diagnostics, user-supplied text, IDs, protocol values, commands, URLs, or product and model names unless a product decision explicitly says otherwise.
 
 The first integration is deliberately page-sized. Follow the maintainer's [page-sized direction](https://github.com/MiaAI-Lab/sparkDash/pull/194#issuecomment-6517707651): keep #194 open and unchanged as an integration/translation reference, including its server-message design. Do not rebase it, revive the broad integration, or describe it as merged.
 
@@ -13,7 +13,9 @@ The first integration is deliberately page-sized. Follow the maintainer's [page-
 | Status | Meaning |
 | --- | --- |
 | **Foundation merged (#226)** | Wired to the shipped language infrastructure; only the explicitly named surface is covered. |
-| **Pending (#310)** | Included in this Settings PR, but not in the baseline `main`; update this document when merged. |
+| **Pending (#310)** | Included in the separate Settings PR, but not in the baseline `main`; update this document when merged. |
+| **Pending (#315)** | Included in the separate Shell PR, but not in the baseline `main`. |
+| **Pending (this Overview PR)** | Implemented in this change, but not a merged `main` claim. |
 | **Not wired** | No page-level catalog/wiring claim in this snapshot. |
 
 | Slice | Status | Boundary |
@@ -22,6 +24,7 @@ The first integration is deliberately page-sized. Follow the maintainer's [page-
 | Settings rows and browser alerts | **Foundation merged (#226)** | Most existing Settings row text plus [`BrowserAlertsSettings`](../src/components/BrowserAlertsSettings.tsx); retain its browser-only permission feedback. |
 | MQTT and fleet GPU clock | **Pending (#310)** | Settings MQTT text and [`FleetGpuClock`](../src/components/FleetGpuClock.tsx) are not a `main` claim until #310 merges. |
 | Session age and Harness Sessions entry | **Pending (#310)** | Settings labels/help/preset labels and the entry action only. This does **not** localize [`HarnessWizard`](../src/components/HarnessWizard.tsx). |
+| Navigation and shared shell | **Pending (#315)** | Desktop/sidebar and mobile navigation, command palette and its commands, theme/open-access/connection/error/install UI, plus App-owned empty/error text. Benchmark navigation only; page bodies and standalone dialogs remain separate slices. Fleet shutdown is covered by this Overview change. |
 
 ## Inventory
 
@@ -31,7 +34,7 @@ The route inventory comes from [`App.tsx`](../src/App.tsx), [`useRoute.ts`](../s
 
 | Surface and route | Primary source | Status / next page-sized slice |
 | --- | --- | --- |
-| Overview `/` | [`OverviewPage`](../src/components/OverviewPage/OverviewPage.tsx) and its cards | **Not wired** — cover shell headings, cards, alerts, empty/stale/error state and interactions as one Overview slice. |
+| Overview `/` | [`OverviewPage`](../src/components/OverviewPage/OverviewPage.tsx) and its cards | **Pending (this Overview PR)** — headings, filters, unit/memory cards, inline launcher controls, fleet KPIs, energy/token/traffic cards, local alert text, activity controls, and fleet action/confirmation feedback. Raw events, server-only findings and diagnostics remain unchanged. |
 | Spark detail `/spark/:id` | [`SparkPage`](../src/components/SparkPage/SparkPage.tsx) and panels | **Not wired** — split large panels into reviewable slices; keep telemetry values, model identifiers and raw collector errors unchanged. |
 | Token totals `/tokens` | [`TokensPage`](../src/components/TokensPage/TokensPage.tsx) | **Not wired**. |
 | Cost compare `/cost` | [`CostPage`](../src/components/CostPage/CostPage.tsx) | **Not wired**. |
@@ -50,7 +53,7 @@ The route inventory comes from [`App.tsx`](../src/App.tsx), [`useRoute.ts`](../s
 
 | Surface | Primary source | Status / boundary |
 | --- | --- | --- |
-| Desktop sidebar, mobile tab/sheets, command palette, install prompt, theme/open-access/connection and error UI | [`AppSidebar`](../src/components/shell/AppSidebar.tsx), [`MobileTabBar`](../src/components/shell/MobileTabBar.tsx), [`CommandPalette`](../src/components/shell/CommandPalette.tsx), [`InstallPrompt`](../src/components/shell/InstallPrompt.tsx), [`src/components/ui/`](../src/components/ui/) | **Not wired** — organize as a Shell slice, retaining Spark names, status data and keyboard shortcuts. |
+| Desktop sidebar, mobile tab/sheets, command palette, install prompt, theme/open-access/connection and error UI | [`AppSidebar`](../src/components/shell/AppSidebar.tsx), [`MobileTabBar`](../src/components/shell/MobileTabBar.tsx), [`CommandPalette`](../src/components/shell/CommandPalette.tsx), [`InstallPrompt`](../src/components/shell/InstallPrompt.tsx), [`src/components/ui/`](../src/components/ui/) | **Pending (#315)** — retains Spark names, telemetry, raw errors, keyboard shortcuts and English command aliases. The shared ShutdownAll control and its confirmations are covered in this Overview change; remaining unit actions stay separate. |
 | Settings dialog | [`SettingsDialog`](../src/components/SettingsDialog.tsx) | **Foundation merged (#226)** for its existing catalog-backed rows and language selector. **Pending (#310)** for MQTT, fleet GPU clock, Session age labels/presets and the Harness Sessions entry only. |
 | Browser notification preferences | [`BrowserAlertsSettings`](../src/components/BrowserAlertsSettings.tsx) | **Foundation merged (#226)**; keep permission/unsupported/insecure feedback and browser-local persistence behavior. |
 | Add/Edit Spark | [`AddSparkDialog`](../src/components/AddSparkDialog.tsx), [`EditSparkDialog`](../src/components/EditSparkDialog.tsx) | **Not wired**; include validation, SSH/connection feedback and embedded per-unit GPU clock UI. |
@@ -59,8 +62,10 @@ The route inventory comes from [`App.tsx`](../src/App.tsx), [`useRoute.ts`](../s
 | Access token prompt | [`AccessTokenDialog`](../src/components/AccessTokenDialog.tsx) | **Not wired**; keep token content and server response text unchanged. |
 | Hermes update | [`HermesUpdateDialog`](../src/components/SparkPage/HermesUpdateDialog.tsx) | **Not wired**. |
 | Benchmark run dialogs | [`BenchmarkDialog`](../src/components/SparkPage/BenchmarkDialog.tsx), [`PrefillBenchDialog`](../src/components/SparkPage/PrefillBenchDialog.tsx), [`QualityBenchDialog`](../src/components/SparkPage/QualityBenchDialog.tsx) | **Not wired**; preserve prompts, benchmark parameters, IDs and result payloads. |
-| LLM launch and unit actions | [`LlmLauncherDialog`](../src/components/SparkPage/LlmLauncherDialog.tsx), [`SparkActions`](../src/components/SparkPage/SparkActions.tsx), [`ConfirmShutdownDialog`](../src/components/ConfirmShutdownDialog.tsx), [`ShutdownAll`](../src/components/ShutdownAll.tsx) | **Not wired**; include confirmation, progress and failure feedback. |
+| LLM launch and unit actions | [`LlmLauncherDialog`](../src/components/SparkPage/LlmLauncherDialog.tsx), [`SparkActions`](../src/components/SparkPage/SparkActions.tsx), [`ConfirmShutdownDialog`](../src/components/ConfirmShutdownDialog.tsx), [`ShutdownAll`](../src/components/ShutdownAll.tsx) | **Pending (this Overview PR)** for inline Overview launcher controls, fleet shutdown and shared confirmation controls. **Not wired** for the launcher configuration dialog and single-unit action prompts. |
 | LLM terminal output | [`LlmModelsPanel`](../src/components/SparkPage/LlmModelsPanel.tsx) | **Not wired**; translate modal controls such as **Close output**, while preserving commands and raw terminal output. |
+
+Overview also uses shared VRAM tooltips, health-chip controls, activity widgets, restart and shutdown confirmation controls. Their translated text follows the locale wherever reused; this does not mark the surrounding Spark detail, Energy, Activity or other page as localized.
 
 ## Per-page acceptance and update checklist
 
