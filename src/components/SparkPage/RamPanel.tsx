@@ -1,4 +1,5 @@
 import type { RamMetrics } from "../../api/types";
+import { useTranslation } from "react-i18next";
 import { TrendLine } from "../ui/TrendLine";
 import { Panel } from "../ui/Panel";
 import { MemoryIcon } from "../ui/icons";
@@ -18,6 +19,7 @@ interface RamPanelProps {
  * dedicated CPU panel.
  */
 export function RamPanel({ ram, sparkId, className }: RamPanelProps) {
+  const { t } = useTranslation("spark");
   const history = useMetricsHistoryTail(sparkId, "ram.percentage");
   const used = ram?.used ?? 0;
   const total = ram?.total ?? 0;
@@ -25,7 +27,7 @@ export function RamPanel({ ram, sparkId, className }: RamPanelProps) {
 
   return (
     <Panel
-      title="RAM"
+      title={t("ram.title")}
       icon={<MemoryIcon />}
       className={`panel-ram ${className ?? ""}`}
       bodyClassName="sp-stack"
@@ -33,7 +35,7 @@ export function RamPanel({ ram, sparkId, className }: RamPanelProps) {
       {total > 0 ? (
         <>
           <MetricBar
-            label="RAM"
+            label={t("ram.title")}
             color="bg-info"
             value={used}
             max={total}
@@ -45,7 +47,7 @@ export function RamPanel({ ram, sparkId, className }: RamPanelProps) {
           />
           {history.length > 0 && (
             <div className="sp-metric">
-              <span className="eyebrow">Usage</span>
+              <span className="eyebrow">{t("ram.usage")}</span>
               <div className="big-num sp-big-md">
                 {percentage}
                 <small>%</small>
@@ -56,7 +58,7 @@ export function RamPanel({ ram, sparkId, className }: RamPanelProps) {
         </>
       ) : (
         <div className="sp-row">
-          <span className="text-muted">RAM</span>
+          <span className="text-muted">{t("ram.title")}</span>
           <span className="mono text-text">—</span>
         </div>
       )}
