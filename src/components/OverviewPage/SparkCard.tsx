@@ -1,4 +1,4 @@
-import { memo, useState } from "react";
+import { memo, useState, type ReactNode } from "react";
 import type { GpuDevice, SparkSnapshot } from "../../api/types";
 import { resolveSparkRole } from "../../api/sparkRole";
 import { usableHead } from "../../shared/sparkHead";
@@ -37,14 +37,17 @@ function Bar({
   color,
   title,
   sub,
+  footer,
 }: {
   label: string;
   caption: string;
   pct: number;
   color: string;
   title?: string;
-  /** Small line under the bar, e.g. available memory; `warn` marks its label (a hot card). */
-  sub?: { label: string; value: string; warn?: boolean } | null;
+  /** Small line under the bar, e.g. available memory. */
+  sub?: { label: string; value: string } | null;
+  /** Readings that belong to this bar, under it (a GPU card's load, temperature and power). */
+  footer?: ReactNode;
 }) {
   const p = Math.max(0, Math.min(100, Math.round(pct)));
   return (
@@ -58,26 +61,21 @@ function Bar({
       </div>
       {sub ? (
         <div className="ov-sub">
-          <span className={sub.warn ? "ov-sub__warn" : undefined}>{sub.label}</span>
+          <span>{sub.label}</span>
           <b className="mono">{sub.value}</b>
         </div>
       ) : null}
+      {footer}
     </div>
   );
 }
 
-/** One card of a multi-GPU host: its VRAM bar ("GPU 0 VRAM"), with its load, temperature and power on the line under it. */
+/** One card of a multi-GPU host: its VRAM bar ("GPU 0 VRAM"), with its load, temperature and power under it. */
 function GpuCardBar({ card, fmtTemp }: { card: GpuDevice; fmtTemp: (c: number) => string }) {
   const avail = card.metricAvailability;
   const vramKnown = avail?.vramUsed !== false && avail?.vramTotal !== false && card.vram.total > 0;
   const vramPct = card.vram.percentage;
   const hot = !!(card.throttle?.thermal || card.throttle?.hwSlowdown) || card.temperature >= 80;
-  const load = [
-    avail?.usage === false ? "load —" : `${Math.round(card.usage)}% load`,
-    avail?.temperature === false ? null : fmtTemp(card.temperature),
-  ]
-    .filter(Boolean)
-    .join(" · ");
   const power =
     avail?.powerDraw === false ? "—" : `${Math.round(card.power.draw)}${avail?.powerLimit === false ? "" : ` / ${Math.round(card.power.limit)}`} W`;
   return (
@@ -87,7 +85,19 @@ function GpuCardBar({ card, fmtTemp }: { card: GpuDevice; fmtTemp: (c: number) =
       caption={vramKnown ? `${fmtStorage(card.vram.used, false)} / ${fmtStorage(card.vram.total, true)}` : "—"}
       pct={vramKnown ? vramPct : 0}
       color={vramPct >= 90 ? "var(--color-danger)" : vramPct >= 85 ? "var(--color-warning)" : "var(--color-info)"}
-      sub={{ label: load, value: power, warn: hot }}
+      footer={
+        <div className="ov-gpu-stats">
+          <span>
+            Load <b className="mono">{avail?.usage === false ? "—" : `${Math.round(card.usage)}%`}</b>
+          </span>
+          <span>
+            Temp <b className={hot ? "mono ov-gpu-stats__hot" : "mono"}>{avail?.temperature === false ? "—" : fmtTemp(card.temperature)}</b>
+          </span>
+          <span>
+            Power <b className="mono">{power}</b>
+          </span>
+        </div>
+      }
     />
   );
 }
