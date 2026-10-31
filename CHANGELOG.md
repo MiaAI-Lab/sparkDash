@@ -10,7 +10,7 @@ Format: version sections are listed newest first.
 ## [Unreleased]
 
 ### Changed
-- **LLM live-panel interface language.** English / 简体中文 now covers Spark detail LLM metrics and help, port/API-key settings, local/remote benchmark entry controls and Harness session rows. Language changes preserve drafts, pending saves, targets, metric values and raw model/session/diagnostic data. Daily/history charts, cumulative token tables and benchmark dialogs remain separate batches, recorded in the unified localization coverage index.
+- **LLM live-panel interface language.** English / 简体中文 now covers Spark detail LLM metrics and help, port/API-key settings, local/remote benchmark entry controls and Harness session rows. Language changes preserve drafts, pending saves, targets, metric values and raw model/session/diagnostic data. Daily/history charts, cumulative token tables and benchmark dialogs remain separate batches, recorded in the unified localization coverage index. Thanks to @oscarlius (#318).
 
 ### Fixed
 - **TensorFold's per-pool KV ratio reads the busiest pool, not their sum.** The KV gauge summed every `tensorfold:kv_cache_usage_ratio` series and clamped at 1, so a six-pool build at 12–39 % fill read "about to flood". The probe now takes the worst pool, which is the number that forecasts queueing; a single fleet-wide gauge is unchanged. Thanks to @markyu0401 (#332, closes #330).
