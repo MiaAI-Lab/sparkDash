@@ -16,6 +16,8 @@ import enActivity from "../locales/en/activity.json";
 import zhActivity from "../locales/zh-CN/activity.json";
 import enDevices from "../locales/en/devices.json";
 import zhDevices from "../locales/zh-CN/devices.json";
+import enHardware from "../locales/en/hardware.json";
+import zhHardware from "../locales/zh-CN/hardware.json";
 
 export type Locale = "en" | "zh-CN";
 export const LOCALE_STORAGE_KEY = "sparkdash-locale";
@@ -41,15 +43,15 @@ export function detectLocale(): Locale {
 export const i18n = createInstance();
 void i18n.use(initReactI18next).init({
   resources: {
-    en: { settings: enSettings, language: enLanguage, shell: enShell, overview: enOverview, spark: enSpark, activity: enActivity, statistics: enStatistics, devices: enDevices },
-    "zh-CN": { settings: zhSettings, language: zhLanguage, shell: zhShell, overview: zhOverview, spark: zhSpark, activity: zhActivity, statistics: zhStatistics, devices: zhDevices },
+    en: { settings: enSettings, language: enLanguage, shell: enShell, overview: enOverview, spark: enSpark, activity: enActivity, statistics: enStatistics, devices: enDevices, hardware: enHardware },
+    "zh-CN": { settings: zhSettings, language: zhLanguage, shell: zhShell, overview: zhOverview, spark: zhSpark, activity: zhActivity, statistics: zhStatistics, devices: zhDevices, hardware: zhHardware },
   },
   lng: detectLocale(),
   fallbackLng: "en",
   supportedLngs: ["en", "zh-CN"],
   load: "currentOnly",
   defaultNS: "settings",
-  ns: ["settings", "language", "shell", "overview", "spark", "activity", "statistics", "devices"],
+  ns: ["settings", "language", "shell", "overview", "spark", "activity", "statistics", "devices", "hardware"],
   interpolation: { escapeValue: false },
   returnEmptyString: false,
   initAsync: false,

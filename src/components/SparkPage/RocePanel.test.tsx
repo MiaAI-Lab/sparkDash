@@ -1,3 +1,4 @@
+import { i18n } from "../../i18n";
 import { act } from "react";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { RoceDevice, RoceMetrics } from "../../api/types";
@@ -61,8 +62,8 @@ describe("RocePanel", () => {
   });
 
   it("summarises a down link and a quiet fleet", () => {
-    expect(roceSummary([device({ loss: { rising: [], streak: 0 }, state: "DOWN", active: false })]).tone).toBe("bad");
-    expect(roceSummary([device({ loss: { rising: [], streak: 0 } })])).toEqual({ text: "1/1 up · 200 Gb/s · PFC off · no loss", tone: "good" });
+    expect(roceSummary([device({ loss: { rising: [], streak: 0 }, state: "DOWN", active: false })], i18n.getFixedT("en", "hardware")).tone).toBe("bad");
+    expect(roceSummary([device({ loss: { rising: [], streak: 0 } })], i18n.getFixedT("en", "hardware"))).toEqual({ text: "1/1 up · 200 Gb/s · PFC off · no loss", tone: "good" });
   });
 
   it("renders nothing without RDMA devices", () => {
@@ -104,8 +105,8 @@ describe("RocePanel", () => {
   });
 
   it("describes PFC from mlnx_qos", () => {
-    expect(pfcLabel(device({ qos: { trust: "dscp", pfcPriorities: [3], cableLen: 7, dscpMap: null } }))?.text).toBe("PFC on: 3");
-    expect(pfcLabel(device({ qos: null }))).toBeNull();
+    expect(pfcLabel(device({ qos: { trust: "dscp", pfcPriorities: [3], cableLen: 7, dscpMap: null } }), i18n.getFixedT("en", "hardware"))?.text).toBe("PFC on: 3");
+    expect(pfcLabel(device({ qos: null }), i18n.getFixedT("en", "hardware"))).toBeNull();
   });
 });
 
