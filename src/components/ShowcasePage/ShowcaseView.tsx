@@ -1,4 +1,5 @@
 import type { SparkSnapshot } from "../../api/types";
+import { useTranslation } from "react-i18next";
 import { useBenchSpark } from "../bench/useBenchSpark";
 import { SparkChips } from "../bench/SparkChips";
 import { isLlmMonitoringEnabled, isWorkerSpark } from "../../api/sparkRole";
@@ -8,6 +9,7 @@ import { ShowcasePage } from "./ShowcasePage";
 
 /** The Showcase as a page of the dashboard: pick a Spark, run it here, or pop it out into its own window. */
 export function ShowcaseView({ sparks }: { sparks: readonly SparkSnapshot[] }) {
+  const { t } = useTranslation("showcase");
   const { spark, select, eligible } = useBenchSpark(sparks);
   const canRun = Boolean(spark && spark.online && isLlmMonitoringEnabled(spark) && !spark.workerNode);
   const runnable = (s: SparkSnapshot) =>
@@ -15,17 +17,17 @@ export function ShowcaseView({ sparks }: { sparks: readonly SparkSnapshot[] }) {
   const alternative = eligible.find((s) => s.id !== spark?.id && runnable(s)) ?? null;
   let why: { title: string; body: string } | null = null;
   if (spark && !canRun) {
-    if (!spark.online) why = { title: `${spark.name} is offline`, body: "Bring it back online, or run the showcase on another Spark." };
-    else if (isWorkerSpark(spark)) why = { title: `${spark.name} is a worker`, body: "Workers share a model that the head Spark serves, so there is nothing to stream from this one. Run the showcase on the head instead." };
-    else why = { title: "Showcase is off for this Spark", body: `LLM monitoring is turned off for ${spark.name}, so there is no model to talk to.` };
+    if (!spark.online) why = { title: t("view.offlineTitle", { name: spark.name }), body: t("view.offlineBody") };
+    else if (isWorkerSpark(spark)) why = { title: t("view.workerTitle", { name: spark.name }), body: t("view.workerBody") };
+    else why = { title: t("view.offTitle"), body: t("view.offBody", { name: spark.name }) };
   }
   return (
     <div className="bench-page showcase-view">
       <div className="page-head">
         <div>
-          <div className="eyebrow">Workspace</div>
-          <h1>Showcase</h1>
-          <p className="page-head__sub">Run prompts on several terminals at once and watch your model stream.</p>
+          <div className="eyebrow">{t("view.workspace")}</div>
+          <h1>{t("text.showcase")}</h1>
+          <p className="page-head__sub">{t("view.subtitle")}</p>
         </div>
         <div className="page-head__tools">
           {spark ? (
@@ -34,16 +36,16 @@ export function ShowcaseView({ sparks }: { sparks: readonly SparkSnapshot[] }) {
               href={showcaseUrl(spark)}
               target="_blank"
               rel="noopener noreferrer"
-              title="Open the showcase in its own full-screen window"
+              title={t("view.openTitle")}
             >
-              Open in new window ↗
+              {t("view.open")}
             </a>
           ) : null}
         </div>
       </div>
       <div className="bench-runon">
-        <span className="eyebrow">Run on</span>
-        {eligible.length === 0 ? <span className="bench-runon__none">No Sparks available</span> : null}
+        <span className="eyebrow">{t("view.runOn")}</span>
+        {eligible.length === 0 ? <span className="bench-runon__none">{t("view.noSparks")}</span> : null}
         <SparkChips sparks={eligible} activeId={spark?.id ?? null} onSelect={select} />
       </div>
       {spark ? (
@@ -58,10 +60,10 @@ export function ShowcaseView({ sparks }: { sparks: readonly SparkSnapshot[] }) {
             <p className="sc-empty__body">{why?.body}</p>
             {alternative ? (
               <button type="button" className="btn btn--primary" onClick={() => select(alternative.id)}>
-                Run on {alternative.name}
+                {t("view.runOnNode", { name: alternative.name })}
               </button>
             ) : (
-              <p className="sc-empty__hint">No Spark with a reachable model is online right now.</p>
+              <p className="sc-empty__hint">{t("view.noReachable")}</p>
             )}
           </div>
         )
