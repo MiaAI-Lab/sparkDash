@@ -19,6 +19,26 @@ Keep one progress list while retaining separate, page-sized pull requests. Open 
 
 When a page PR merges, update its row and the detailed inventory together. Keep all already-merged namespaces and newer coverage rows when resolving shared loader, README, changelog or inventory conflicts.
 
+## Spark detail merge order
+
+Recommended order: [#317](https://github.com/MiaAI-Lab/sparkDash/pull/317) → [#318](https://github.com/MiaAI-Lab/sparkDash/pull/318) → [#319](https://github.com/MiaAI-Lab/sparkDash/pull/319). This records the integration plan; the PRs remain separate reviews against `main`. The documentation follow-up does not merge, rebase or deploy them. Keep #194 open and unchanged as the server-message design reference.
+
+| Step | Scope | `spark` prefixes to retain in both locales |
+| --- | --- | --- |
+| #317 | GPU, CPU and memory panels | `cpu`, `ram`, `memory`, `gpu`, `gpuChart`, `processes` |
+| #318 | LLM live controls and sessions | All #317 keys plus `llm`, `sessions` |
+| #319 | LLM history, daily statistics and token totals | All earlier keys plus `llmTrend`, `llmDaily`, `llmTokens` |
+
+After each predecessor is merged by the maintainer, update the next PR from the resulting `main` and resolve its remaining diff. The pairwise conflicts are in `CHANGELOG.md`, `README.md`, this inventory and the two `spark.json` catalogs; the shared loader registration is identical in these three branches. Treat a different conflict set after upstream changes as a new review point.
+
+- **Catalogs:** combine the English and `zh-CN` objects by key, preserving every prefix above and any newer main keys. Never resolve these add/add conflicts by selecting an entire side. Check duplicate keys and interpolation parameters with `npm run i18n:check` after the actual source resolution.
+- **Loader:** keep one `enSpark` import, one `zhSpark` import, one `spark` resource per locale and one `spark` namespace entry. Preserve `settings`, `language` and any already-merged `shell`/`overview` registrations.
+- **README and CHANGELOG:** combine the actual shipped coverage and keep each PR's own credited entry. Retain newer upstream wording and avoid duplicate section headings.
+- **Progress inventory:** use the latest complete index (currently the version in #319) as the starting point, preserving newer rows. Mark only PRs actually merged as **Merged**, with their verified revision; retain the other **Pending** / **Not wired** boundaries. Update branch-specific namespace wording to match the resulting main.
+- **Ignore rules:** keep `/docs/*` with `!/docs/I18N-COVERAGE.md`; other untracked documentation remains ignored. No further `git add -f` is needed for this inventory.
+
+The branches share files but their catalog prefixes do not overlap. Other pending page PRs (#310, #315 and #316) remain separate; preserve their merged namespaces and coverage when resolving common files. After a future source-conflict resolution, validate the catalog, typecheck and affected locale regressions once, extending checks only for additional source changes or failures. For this documentation/ignore-only follow-up, verify the allow-list, links, clean diff and unchanged source/dependency trees; do not repeat the full runtime suites.
+
 ## Scope and conventions
 
 The English catalogs are the source and fallback, initialized in [`src/i18n/index.ts`](../src/i18n/index.ts). This branch registers [`settings`](../src/locales/en/settings.json), [`language`](../src/locales/en/language.json) and [`spark`](../src/locales/en/spark.json), with matching `zh-CN` files. The separate Shell and Overview namespaces are pending in [#315](https://github.com/MiaAI-Lab/sparkDash/pull/315) and [#316](https://github.com/MiaAI-Lab/sparkDash/pull/316). Translate visible product UI, accessible names, validation/help/empty/loading and success/failure feedback. Do **not** translate raw server diagnostics, user-supplied text, IDs, protocol values, commands, URLs, or product and model names unless a product decision explicitly says otherwise.
