@@ -1,3 +1,11 @@
+import enBenchmarks from "../locales/en/benchmarks.json";
+import zhBenchmarks from "../locales/zh-CN/benchmarks.json";
+import enTooleval from "../locales/en/tooleval.json";
+import zhTooleval from "../locales/zh-CN/tooleval.json";
+import enToolMessages from "../locales/en/toolMessages.json";
+import zhToolMessages from "../locales/zh-CN/toolMessages.json";
+import enShareCards from "../locales/en/shareCards.json";
+import zhShareCards from "../locales/zh-CN/shareCards.json";
 import { createInstance } from "i18next";
 import { initReactI18next } from "react-i18next";
 import enSettings from "../locales/en/settings.json";
@@ -29,15 +37,15 @@ export function detectLocale(): Locale {
 export const i18n = createInstance();
 void i18n.use(initReactI18next).init({
   resources: {
-    en: { settings: enSettings, language: enLanguage },
-    "zh-CN": { settings: zhSettings, language: zhLanguage },
+    en: { settings: enSettings, language: enLanguage, shareCards: enShareCards, toolMessages: enToolMessages, tooleval: enTooleval, benchmarks: enBenchmarks },
+    "zh-CN": { settings: zhSettings, language: zhLanguage, shareCards: zhShareCards, toolMessages: zhToolMessages, tooleval: zhTooleval, benchmarks: zhBenchmarks },
   },
   lng: detectLocale(),
   fallbackLng: "en",
   supportedLngs: ["en", "zh-CN"],
   load: "currentOnly",
   defaultNS: "settings",
-  ns: ["settings", "language"],
+  ns: ["settings", "language", "shareCards", "toolMessages", "tooleval", "benchmarks"],
   interpolation: { escapeValue: false },
   returnEmptyString: false,
   initAsync: false,
