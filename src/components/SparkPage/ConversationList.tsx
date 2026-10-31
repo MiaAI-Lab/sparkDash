@@ -1,4 +1,5 @@
 import type { ConversationRow } from "../../api/types";
+import { useTranslation } from "react-i18next";
 import { PlusIcon } from "../ui/icons";
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -15,17 +16,17 @@ interface ConversationListProps {
   now?: number;
 }
 
-function formatSessionAge(lastUsedAt: number | undefined, now: number): string {
+function formatSessionAge(lastUsedAt: number | undefined, now: number, language: string, t: (key: string, options?: Record<string, unknown>) => string): string {
   if (lastUsedAt == null || !Number.isFinite(lastUsedAt)) return "—";
   const delta = Math.max(0, now - lastUsedAt);
   const minute = 60_000;
   const hour = 60 * minute;
   const day = 24 * hour;
-  if (delta < minute) return "now";
-  if (delta < hour) return `${Math.floor(delta / minute)}m`;
-  if (delta < day) return `${Math.floor(delta / hour)}h`;
-  if (delta < 7 * day) return `${Math.floor(delta / day)}d`;
-  return new Date(lastUsedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  if (delta < minute) return t("sessions.age.now");
+  if (delta < hour) return t("sessions.age.minutes", { count: Math.floor(delta / minute) });
+  if (delta < day) return t("sessions.age.hours", { count: Math.floor(delta / hour) });
+  if (delta < 7 * day) return t("sessions.age.days", { count: Math.floor(delta / day) });
+  return new Intl.DateTimeFormat(language, { month: "short", day: "numeric" }).format(lastUsedAt);
 }
 
 function occupancyTone(row: ConversationRow, now: number): "generating" | "stalled" | "recent" | "warm" | "idle" {
@@ -52,19 +53,19 @@ function contextLabel(row: ConversationRow): string {
   return `${used}/${formatTokens(row.contextWindow)}`;
 }
 
-function contextTitle(row: ConversationRow): string {
-  const used = row.contextUsed?.toLocaleString();
-  const window = row.contextWindow?.toLocaleString();
-  if (used && window) return `${row.contextApprox ? "~" : ""}${used} / ${window} tokens`;
-  if (used) return `${row.contextApprox ? "~" : ""}${used} tokens`;
-  if (window) return `${window} token window`;
+function contextTitle(row: ConversationRow, language: string, t: (key: string, options?: Record<string, unknown>) => string): string {
+  const used = row.contextUsed?.toLocaleString(language);
+  const window = row.contextWindow?.toLocaleString(language);
+  if (used && window) return t("sessions.context.usedAndWindow", { used: `${row.contextApprox ? "~" : ""}${used}`, window });
+  if (used) return t("sessions.context.used", { used: `${row.contextApprox ? "~" : ""}${used}` });
+  if (window) return t("sessions.context.window", { window });
   return "";
 }
 
-function stateLabel(row: ConversationRow, now: number): string {
-  if (row.badge === "generating") return "Generating";
-  if (row.badge === "stalled") return "Stalled";
-  return formatSessionAge(row.lastUsedAt, now);
+function stateLabel(row: ConversationRow, now: number, language: string, t: (key: string, options?: Record<string, unknown>) => string): string {
+  if (row.badge === "generating") return t("sessions.generating");
+  if (row.badge === "stalled") return t("sessions.stalled");
+  return formatSessionAge(row.lastUsedAt, now, language, t);
 }
 
 function laneLabel(source: string, agent?: string): string {
@@ -90,44 +91,46 @@ function groupConversations(rows: ConversationRow[]) {
 }
 
 export function ConversationList({ conversations, onAddHarness, now = Date.now() }: ConversationListProps) {
+  const { t, i18n } = useTranslation("spark");
   const groups = groupConversations(conversations);
 
   return (
     <div className="occupancy">
       <div className="occupancy-head">
         <span className="occupancy-head-count">{conversations.length}</span>
-        <span className="occupancy-head-title">Sessions</span>
+        <span className="occupancy-head-title">{t("sessions.title")}</span>
         {onAddHarness && (
-          <button type="button" title="Add harness" aria-label="Add harness" onClick={onAddHarness} className="occupancy-head-add">
+          <button type="button" title={t("sessions.addHarness")} aria-label={t("sessions.addHarness")} onClick={onAddHarness} className="occupancy-head-add">
             <PlusIcon className="h-3.5 w-3.5" />
           </button>
         )}
       </div>
       {conversations.length === 0 ? (
         <div className="occupancy-empty">
-          <p>No sessions on this LLM. Attach OpenClaw, Hermes, OpenCode, oh-my-pi, or DeepSeek Harness.</p>
+          <p>{t("sessions.empty")}</p>
           {onAddHarness && (
             <button type="button" onClick={onAddHarness} className="occupancy-add-harness">
-              + Harness
+              {t("sessions.addHarnessButton")}
             </button>
           )}
         </div>
       ) : (
-        <div className="occupancy-list" aria-label="Harness sessions on this LLM">
+        <div className="occupancy-list" aria-label={t("sessions.listAriaLabel")}>
           {groups.map((group) => (
             <section key={group.key} className="occupancy-lane">
               <h3 className="occupancy-lane-label">{group.label}</h3>
               <ul className="occupancy-lane-list" aria-label={group.label}>
                 {group.rows.map((row) => {
                   const ctx = contextLabel(row);
+                  const language = i18n.resolvedLanguage ?? i18n.language;
                   return (
-                    <li key={row.id} className={`occupancy-row is-${occupancyTone(row, now)}`} title={row.stale ? "Last refresh failed; this row is stale" : undefined}>
+                    <li key={row.id} className={`occupancy-row is-${occupancyTone(row, now)}`} title={row.stale ? t("sessions.staleTitle") : undefined}>
                       <span className="occupancy-dot" aria-hidden="true" />
                       <span className="occupancy-handle" title={row.handle}>{row.handle}</span>
-                      <span className="occupancy-ctx" title={ctx ? contextTitle(row) : undefined}>{ctx}</span>
+                      <span className="occupancy-ctx" title={ctx ? contextTitle(row, language, t) : undefined}>{ctx}</span>
                       <span className="occupancy-state">
-                        {stateLabel(row, now)}
-                        {row.stale ? <span className="occupancy-stale"> stale</span> : null}
+                        {stateLabel(row, now, language, t)}
+                        {row.stale ? <span className="occupancy-stale"> {t("sessions.stale")}</span> : null}
                       </span>
                     </li>
                   );
