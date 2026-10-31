@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { useState, useCallback, type MouseEvent } from "react";
 import type { ComfyJob, ComfyMetrics, ComfyProgress } from "../../api/types";
 import { cancelComfyJob } from "../../api/client";
@@ -73,19 +75,20 @@ function formatEtaMs(ms: number | null | undefined): string | null {
   return `~${formatDurationMs(ms)}`;
 }
 
-function jobFootprint(job: ComfyJob): string {
+function jobFootprint(job: ComfyJob, t: TFunction): string {
   const parts: string[] = [];
   if (job.width != null && job.height != null) {
     parts.push(`${job.width}×${job.height}`);
   }
-  if (job.steps != null) parts.push(`${job.steps} steps`);
-  if (job.batchSize != null && job.batchSize !== 1) parts.push(`batch ${job.batchSize}`);
+  if (job.steps != null) parts.push(t("comfy.steps", { count: job.steps }));
+  if (job.batchSize != null && job.batchSize !== 1) parts.push(t("comfy.batch", { count: job.batchSize }));
   if (job.sampler) parts.push(job.sampler);
-  if (job.nodeCount > 0) parts.push(`${job.nodeCount} nodes`);
+  if (job.nodeCount > 0) parts.push(t("comfy.nodes", { count: job.nodeCount }));
   return parts.join(" · ");
 }
 
 function ProgressBar({ progress }: { progress: ComfyProgress }) {
+  const { t } = useTranslation("hardware");
   const pct =
     progress.percent != null
       ? progress.percent
@@ -94,7 +97,7 @@ function ProgressBar({ progress }: { progress: ComfyProgress }) {
         : 0;
   const label =
     progress.nodeLabel ||
-    (progress.source === "estimate" ? "Elapsed (est.)" : "Progress");
+    (progress.source === "estimate" ? t("comfy.elapsed") : t("comfy.progress"));
   const detail =
     progress.max > 0 && progress.source === "ws"
       ? `${Math.round(progress.value)}/${Math.round(progress.max)}`
@@ -108,7 +111,7 @@ function ProgressBar({ progress }: { progress: ComfyProgress }) {
         <span className="truncate text-muted" title={label}>
           {label}
           {progress.source === "estimate" ? (
-            <span className="ml-1 text-[10px] opacity-70">est.</span>
+            <span className="ml-1 text-[10px] opacity-70">{t("comfy.estimate")}</span>
           ) : null}
         </span>
         {detail ? <span className="font-tabular text-text">{detail}</span> : null}
@@ -138,8 +141,9 @@ function JobBlock({
   onCancel?: () => void;
   cancelling?: boolean;
 }) {
+  const { t } = useTranslation("hardware");
   const title = job.title?.trim() || shortId(job.id);
-  const footprint = jobFootprint(job);
+  const footprint = jobFootprint(job, t);
   const elapsed = variant === "running" ? formatElapsed(job.createTime) : null;
   const models = job.models ?? [];
 
@@ -149,14 +153,14 @@ function JobBlock({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <Tag tone={variant === "running" ? "acc" : "neutral"} title={job.id}>
-              {variant === "running" ? "Running" : "Queued"}
+              {variant === "running" ? t("comfy.running") : t("comfy.queued")}
             </Tag>
             {elapsed ? (
               <span className="font-tabular text-[11px] text-muted">{elapsed}</span>
             ) : null}
             {etaLabel ? (
-              <span className="font-tabular text-[11px] text-muted" title="Estimated time remaining">
-                {etaLabel} left
+              <span className="font-tabular text-[11px] text-muted" title={t("comfy.eta")}>
+                {t("comfy.left", { time: etaLabel })}
               </span>
             ) : null}
           </div>
@@ -171,7 +175,7 @@ function JobBlock({
             disabled={cancelling}
             className="btn btn--sm btn--danger shrink-0"
           >
-            {cancelling ? "…" : variant === "running" ? "Cancel" : "Remove"}
+            {cancelling ? "…" : variant === "running" ? t("comfy.cancel") : t("comfy.remove")}
           </button>
         ) : null}
       </div>
@@ -179,14 +183,14 @@ function JobBlock({
       {variant === "running" && progress ? <ProgressBar progress={progress} /> : null}
 
       {footprint ? (
-        <p className="font-tabular text-[11px] text-muted" title="Workflow compute footprint">
+        <p className="font-tabular text-[11px] text-muted" title={t("comfy.footprint")}>
           {footprint}
         </p>
       ) : null}
 
       {models.length > 0 ? (
         <div className="space-y-1">
-          <div className="text-[10px] uppercase tracking-wide text-muted">Models</div>
+          <div className="text-[10px] uppercase tracking-wide text-muted">{t("comfy.models")}</div>
           <ul className="space-y-0.5">
             {models.slice(0, 6).map((m) => (
               <li key={m} className="truncate font-tabular text-[12px] text-text" title={m}>
@@ -194,7 +198,7 @@ function JobBlock({
               </li>
             ))}
             {models.length > 6 ? (
-              <li className="text-[11px] text-muted">+{models.length - 6} more</li>
+              <li className="text-[11px] text-muted">{t("comfy.more", { count: models.length - 6 })}</li>
             ) : null}
           </ul>
         </div>
@@ -210,6 +214,7 @@ export function ComfyPanel({
   lanIp,
   className = "",
 }: ComfyPanelProps) {
+  const { t } = useTranslation("hardware");
   const available = Boolean(comfy?.available);
   const pending = comfy?.queuePending ?? 0;
   const active = comfy?.activeJob ?? null;
@@ -236,7 +241,7 @@ export function ComfyPanel({
 
   const handleCancel = useCallback(
     async (promptId: string) => {
-      if (!confirm("Cancel this ComfyUI job?")) return;
+      if (!confirm(t("comfy.cancelConfirm"))) return;
       setActionError(null);
       setCancellingId(promptId);
       try {
@@ -247,7 +252,7 @@ export function ComfyPanel({
         setCancellingId(null);
       }
     },
-    [sparkId]
+    [sparkId, t]
   );
 
   return (
@@ -258,7 +263,7 @@ export function ComfyPanel({
       bodyClassName="sp-stack"
       actions={
         <div className="flex items-center gap-2">
-          <span className="font-tabular text-[11px] text-muted" title="Probe port">
+          <span className="font-tabular text-[11px] text-muted" title={t("comfy.port")}>
             :{comfyPort}
           </span>
           <a
@@ -266,42 +271,42 @@ export function ComfyPanel({
             target="_blank"
             rel="noopener noreferrer"
             onClick={handleOpenComfy}
-            title={`Open ComfyUI at ${openUrl} (must be reachable from your browser)`}
+            title={t("comfy.openHint", { url: openUrl })}
             className="btn btn--sm"
           >
             <ExternalLinkIcon className="h-3 w-3" />
-            Open
+            {t("comfy.open")}
           </a>
         </div>
       }
     >
       {!available ? (
         <div className="space-y-1 text-sm">
-          <p className="text-muted">Not reachable</p>
+          <p className="text-muted">{t("comfy.unreachable")}</p>
           {comfy?.error ? (
             <p className="break-all text-[11px] text-muted">{comfy.error}</p>
           ) : (
             <p className="text-[11px] text-muted">
-              Ensure ComfyUI is running on this host (default port 8188).
+              {t("comfy.ensure")}
             </p>
           )}
         </div>
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-2 text-xs">
-            <Tag tone="good">Online</Tag>
+            <Tag tone="good">{t("comfy.online")}</Tag>
             {comfy?.version ? (
-              <span className="text-muted" title="ComfyUI version">
+              <span className="text-muted" title={t("comfy.version")}>
                 v{comfy.version}
               </span>
             ) : null}
             {comfy?.deviceType ? (
-              <span className="text-muted" title="ComfyUI compute device">
+              <span className="text-muted" title={t("comfy.device")}>
                 {comfy.deviceType}
               </span>
             ) : null}
             {comfy?.pytorchVersion ? (
-              <span className="text-muted" title="PyTorch version">
+              <span className="text-muted" title={t("comfy.pytorch")}>
                 torch {comfy.pytorchVersion}
               </span>
             ) : null}
@@ -323,7 +328,7 @@ export function ComfyPanel({
           ) : (
             <div className="space-y-2">
               <div className="sp-idle">
-                Idle — no running job
+                {t("comfy.idle")}
               </div>
               {lastJob ? (
                 <p
@@ -335,14 +340,14 @@ export function ComfyPanel({
                         : "text-muted"
                   }`}
                 >
-                  Last:{" "}
+                  {t("comfy.last")}{" "}
                   <span className="text-text">
                     {lastJob.title?.trim() || shortId(lastJob.id)}
                   </span>
                   {formatDurationMs(lastJob.durationMs)
                     ? ` · ${formatDurationMs(lastJob.durationMs)}`
                     : ""}
-                  {` · ${lastJob.status}`}
+                  {` · ${lastJob.status === "failed" ? t("comfy.failed") : lastJob.status === "cancelled" ? t("comfy.cancelled") : lastJob.status === "completed" ? t("comfy.completed") : lastJob.status}`}
                 </p>
               ) : null}
             </div>
@@ -351,9 +356,9 @@ export function ComfyPanel({
           {pending > 0 ? (
             <div className="space-y-2">
               <div className="flex items-baseline justify-between gap-2 text-[10px] uppercase tracking-wide text-muted">
-                <span>Queue</span>
+                <span>{t("comfy.queue")}</span>
                 <span className="font-tabular normal-case text-muted">
-                  {pending} pending
+                  {t("comfy.pending", { count: pending })}
                   {etaLabel ? ` · ${etaLabel}` : ""}
                 </span>
               </div>
@@ -368,7 +373,7 @@ export function ComfyPanel({
               ))}
               {pending > Math.min(2, pendingJobs.length) ? (
                 <p className="text-[11px] text-muted">
-                  +{pending - Math.min(2, pendingJobs.length)} more waiting
+                  {t("comfy.moreWaiting", { count: pending - Math.min(2, pendingJobs.length) })}
                 </p>
               ) : null}
             </div>
@@ -376,11 +381,11 @@ export function ComfyPanel({
 
           {active && lastJob ? (
             <p className="text-[11px] text-muted">
-              Last: {lastJob.title?.trim() || shortId(lastJob.id)}
+              {t("comfy.last")} {lastJob.title?.trim() || shortId(lastJob.id)}
               {formatDurationMs(lastJob.durationMs)
                 ? ` · ${formatDurationMs(lastJob.durationMs)}`
                 : ""}
-              {` · ${lastJob.status}`}
+              {` · ${lastJob.status === "failed" ? t("comfy.failed") : lastJob.status === "cancelled" ? t("comfy.cancelled") : lastJob.status === "completed" ? t("comfy.completed") : lastJob.status}`}
             </p>
           ) : null}
 
@@ -393,17 +398,16 @@ export function ComfyPanel({
                 className="flex w-full items-center justify-between text-left text-[11px] text-muted hover:text-text"
               >
                 <span>
-                  Installed: {modelsInstalled.checkpoints.length} checkpoints ·{" "}
-                  {modelsInstalled.loras.length} loras
+                  {t("comfy.installed", { checkpoints: modelsInstalled.checkpoints.length, loras: modelsInstalled.loras.length })}
                 </span>
-                <span className="text-[10px]">{modelsOpen ? "Hide" : "Show"}</span>
+                <span className="text-[10px]">{modelsOpen ? t("comfy.hide") : t("comfy.show")}</span>
               </button>
               {modelsOpen ? (
                 <div className="mt-1.5 grid gap-2 sm:grid-cols-2">
                   {modelsInstalled.checkpoints.length > 0 ? (
                     <div>
                       <div className="text-[10px] uppercase tracking-wide text-muted">
-                        Checkpoints
+                        {t("comfy.checkpoints")}
                       </div>
                       <ul className="mt-0.5 space-y-0.5">
                         {modelsInstalled.checkpoints.slice(0, 12).map((m) => (
