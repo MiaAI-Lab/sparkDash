@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { fetchTokenHistory } from "../../api/client";
 import { fetchLlmTokenTotals } from "../../api/llmTokenClient";
 import { fetchModelPrices } from "../../api/costClient";
@@ -40,6 +41,7 @@ interface Prices {
 }
 
 export function CostPage() {
+  const { t } = useTranslation("statistics");
   const [range, setRange] = useState<RangeKey>("7d");
   const [usage, setUsage] = useState<Usage | null>(null);
   const [prices, setPrices] = useState<Prices | null>(null);
@@ -71,7 +73,7 @@ export function CostPage() {
           setError(null);
         })
         .catch((e: unknown) => {
-          if (!cancelled) setError(e instanceof Error ? e.message : "Could not load usage history");
+          if (!cancelled) setError(e instanceof Error ? e.message : t("cost.usageLoadFailed"));
         });
     };
     run();
@@ -87,7 +89,7 @@ export function CostPage() {
       clearInterval(id);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [tick]);
+  }, [tick, t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -98,12 +100,12 @@ export function CostPage() {
         setPricesError(null);
       })
       .catch((e: unknown) => {
-        if (!cancelled) setPricesError(e instanceof Error ? e.message : "Could not load the price catalog");
+        if (!cancelled) setPricesError(e instanceof Error ? e.message : t("cost.catalogLoadFailed"));
       });
     return () => {
       cancelled = true;
     };
-  }, [tick]);
+  }, [tick, t]);
 
   const selectModel = useCallback((id: string) => {
     setModelId(id);
@@ -143,8 +145,8 @@ export function CostPage() {
   const unitWord = spec.unit === "hour" ? "hour" : "day";
 
   const series: BarSeries[] = [
-    { id: "input", label: "Input (prompt)", color: "var(--color-accent)" },
-    { id: "output", label: "Output (generated)", color: "var(--color-violet)" },
+    { id: "input", label: t("cost.input"), color: "var(--color-accent)" },
+    { id: "output", label: t("cost.output"), color: "var(--color-violet)" },
   ];
   const chartBuckets: BarBucket[] = (view?.buckets ?? []).map((b) => ({
     key: b.key,
@@ -157,10 +159,9 @@ export function CostPage() {
     <div className="tk cp">
       <header className="page-head">
         <div>
-          <h1>Cost compare</h1>
+          <h1>{t("cost.title")}</h1>
           <p className="page-head__sub">
-            What your fleet&rsquo;s token usage would have cost on a hosted API, priced from the
-            community price list.
+            {t("cost.subtitle")}
           </p>
         </div>
       </header>
@@ -169,11 +170,11 @@ export function CostPage() {
         <div className="panel tk-note tk-note--err" role="alert">
           <span>
             {usage
-              ? `Showing the last loaded data. Refresh failed: ${error}`
-              : `Could not load usage history: ${error}`}
+              ? t("cost.staleError", { error })
+              : t("cost.loadError", { error })}
           </span>
           <button type="button" className="btn btn--sm" onClick={() => setTick((t) => t + 1)}>
-            Retry
+            {t("cost.retry")}
           </button>
         </div>
       ) : null}
@@ -182,9 +183,9 @@ export function CostPage() {
         <div className="tk-card__head">
           <div>
             <h2 id="cp-pick-title" className="tk-card__title">
-              Priced as
+              {t("cost.pricedAs")}
             </h2>
-            {price ? <PriceLine price={price} /> : <p className="tk-card__sub">Choose a hosted model to price your usage against.</p>}
+            {price ? <PriceLine price={price} /> : <p className="tk-card__sub">{t("cost.chooseModel")}</p>}
           </div>
           <ModelPicker models={prices?.models ?? []} selectedId={price?.id ?? null} onSelect={selectModel} />
         </div>
@@ -198,15 +199,15 @@ export function CostPage() {
             <div className="tk-card__head">
               <div>
                 <h2 id="cp-chart-title" className="tk-card__title">
-                  Cost per {unitWord}
+                  {t("cost.perUnit", { unit: unitWord })}
                 </h2>
                 <p className="tk-card__sub">
-                  {spec.phrase} at {price.id} list prices
-                  {view.useLifetime ? "; the chart shows the retained daily buckets" : ""}
+                  {t("cost.chartSummary", { range: spec.phrase, model: price.id })}
+                  {view.useLifetime ? t("cost.retainedBuckets") : ""}
                 </p>
               </div>
               <div className="tk-card__tools">
-                <div className="seg" role="group" aria-label="Time range">
+                <div className="seg" role="group" aria-label={t("cost.rangeAria")}>
                   {RANGES.map((r) => (
                     <button
                       key={r.key}
@@ -227,8 +228,9 @@ export function CostPage() {
               height={240}
               format={fmtMoney}
               unit="spent"
-              empty="No token traffic in this range yet, so there is nothing to price."
-              ariaLabel={`Stacked bar chart of the cost of tokens per ${unitWord} as ${price.id}`}
+              empty={t("cost.emptyChart")}
+              totalLabel={t("cost.total")}
+              ariaLabel={t("cost.chartAria", { unit: unitWord, model: price.id })}
             />
             <ul className="legend tk-legend">
               {series.map((s) => (
@@ -242,58 +244,55 @@ export function CostPage() {
 
           <section className="panel tk-card tk-about" aria-labelledby="cp-about-title">
             <h2 id="cp-about-title" className="tk-card__title">
-              How this is priced
+              {t("cost.howPriced")}
             </h2>
             <ul>
               <li>
-                Computed prefill is charged the input rate ({fmtMoney(price.inputCostPerToken * 1_000_000)} / 1M); generated
-                tokens the output rate ({fmtMoney(price.outputCostPerToken * 1_000_000)} / 1M).
+                {t("cost.computedRate", { input: fmtMoney(price.inputCostPerToken * 1_000_000), output: fmtMoney(price.outputCostPerToken * 1_000_000)})}
               </li>
               <li>
                 {price.cacheReadCostPerToken != null
-                  ? `Cached prefill is charged the provider's cache-read rate (${fmtMoney(price.cacheReadCostPerToken * 1_000_000)} / 1M) — your prefix cache saves ${fmtMoney(view.cost.cacheSavings)} in ${spec.phrase}.`
-                  : "The provider publishes no cache-read rate, so cached prefill is charged the full input rate."}
+                  ? t("cost.cachedRate", { rate: fmtMoney(price.cacheReadCostPerToken * 1_000_000), savings: fmtMoney(view.cost.cacheSavings), range: spec.phrase })
+                  : t("cost.noCachedRate")}
               </li>
               <li>
-                Prices come from the community-maintained{" "}
+                {t("cost.catalogPrefix")} {" "}
                 <a
                   href="https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json"
                   target="_blank"
                   rel="noreferrer"
                 >
-                  litellm catalog
+                  {t("cost.catalogLink")}
                 </a>
-                , refreshed daily
-                {prices?.at ? ` (last fetched ${new Date(prices.at).toLocaleString()})` : ""}
-                {prices?.stale ? " — the refresh failed, so these may be out of date" : ""}.
+                {t("cost.catalogSuffix", { fetched: prices?.at ? new Date(prices.at).toLocaleString() : "", stale: prices?.stale ? t("cost.catalogStale") : "" })}
               </li>
-              <li>Tokens are the same counters as the Token totals page: fleet-wide, every port and model.</li>
+              <li>{t("cost.tokenCounters")}</li>
             </ul>
           </section>
         </>
       ) : usage ? (
         pricesError ? (
           <div className="panel tk-note tk-note--err" role="status">
-            <b>The price catalog could not be loaded.</b> {pricesError}
+            <b>{t("cost.catalogError")}</b> {pricesError}
             <button type="button" className="btn btn--sm" onClick={() => setTick((t) => t + 1)}>
-              Retry
+              {t("cost.retry")}
             </button>
           </div>
         ) : prices && prices.models.length === 0 ? (
           <div className="panel tk-note" role="status">
-            <b>No price data yet.</b> Enable MODEL_PRICES_FETCH or supply a catalog at MODEL_PRICES_JSON_PATH, then retry.
-            <button type="button" className="btn btn--sm" onClick={() => setTick((t) => t + 1)}>Retry</button>
+            <b>{t("cost.noPriceData")}</b> {t("cost.noPriceDataHelp")}
+            <button type="button" className="btn btn--sm" onClick={() => setTick((t) => t + 1)}>{t("cost.retry")}</button>
           </div>
         ) : prices ? (
-          <div className="panel tk-note" role="status">Choose a hosted model to compare costs.</div>
+          <div className="panel tk-note" role="status">{t("cost.chooseModel")}</div>
         ) : (
           <div className="panel tk-note" role="status">
-            Loading prices…
+            {t("cost.loadingPrices")}
           </div>
         )
       ) : (
         <div className="panel tk-note" role="status">
-          Loading…
+          {t("cost.loading")}
         </div>
       )}
     </div>
@@ -301,7 +300,8 @@ export function CostPage() {
 }
 
 function PriceLine({ price }: { price: ModelPrice }) {
-  const ctx = [price.provider, price.maxInputTokens ? `${Math.round(price.maxInputTokens / 1000).toLocaleString("en-US")}k context` : null].filter(
+  const { t } = useTranslation("statistics");
+  const ctx = [price.provider, price.maxInputTokens ? t("cost.context", { count: Math.round(price.maxInputTokens / 1000).toLocaleString("en-US") }) : null].filter(
     Boolean
   );
   return (
@@ -324,6 +324,7 @@ function CostTiles({
   /** Buckets the per-day average is spread over (All time: every tracked day). */
   days: number;
 }) {
+  const { t } = useTranslation("statistics");
   const per = range.unit === "hour" ? "hour" : "day";
   const blended = blendedPerMillion(cost.totalCost, tally.total);
   const outputShare = cost.totalCost > 0 ? cost.outputCost / cost.totalCost : 0;
@@ -332,46 +333,46 @@ function CostTiles({
   // every prompt token is priced at the full input rate, which overstates the bill.
   const cacheUnknown = tally.cacheReported === false;
   return (
-    <section className="tk-tiles" aria-label={`Cost summary for ${range.phrase}`}>
-      <Tile label="Total cost" value={fmtMoney(cost.totalCost)} sub={`for ${range.phrase}`} title={cost.totalCost.toFixed(6)} />
+    <section className="tk-tiles" aria-label={t("cost.summaryAria", { range: range.phrase })}>
+      <Tile label={t("cost.totalCost")} value={fmtMoney(cost.totalCost)} sub={t("cost.forRange", { range: range.phrase })} title={cost.totalCost.toFixed(6)} />
       <Tile
-        label="Input (prompt)"
+        label={t("cost.input")}
         value={fmtMoney(cost.inputCost)}
         sub={
           cacheUnknown
-            ? `${fmt(tally.prompt)} prompt tokens, all priced as computed — this engine reports no cached share`
-            : `${fmt(tally.prompt)} prompt tokens, ${fmt(tally.cached)} of them cached`
+            ? t("cost.cacheUnknown", { prompt: fmt(tally.prompt) })
+            : t("cost.cacheKnown", { prompt: fmt(tally.prompt), cached: fmt(tally.cached) })
         }
         title={cost.inputCost.toFixed(6)}
       />
       <Tile
-        label="Output (generated)"
+        label={t("cost.output")}
         value={fmtMoney(cost.outputCost)}
-        sub={`${fmt(tally.generated)} tokens · ${(outputShare * 100).toFixed(0)}% of the bill`}
+        sub={t("cost.outputSub", { tokens: fmt(tally.generated), share: (outputShare * 100).toFixed(0) })}
         title={cost.outputCost.toFixed(6)}
       />
       <Tile
-        label="Cache savings"
+        label={t("cost.cacheSavings")}
         value={cost.cacheSavings > 0 ? fmtMoney(cost.cacheSavings) : "—"}
         sub={
           cost.cacheSavings > 0
-            ? "vs the full input price for cached prefill"
+            ? t("cost.cacheSavingsSub")
             : cacheUnknown
-              ? "this engine does not report cached prompt tokens"
-              : "no cache discount published"
+              ? t("cost.cacheUnknownShort")
+              : t("cost.noCacheDiscount")
         }
       />
       <Tile
-        label={`Average per ${per}`}
+        label={t("cost.average", { unit: per })}
         value={fmtMoney(cost.totalCost / Math.max(1, days))}
-        unit={`/ ${per}`}
-        sub={`Across ${days} ${per}${days === 1 ? "" : "s"}${range.count == null ? " tracked" : ""}`}
+        unit={t("cost.perUnitSuffix", { unit: per })}
+        sub={t("cost.averageSub", { days, unit: per, tracked: range.count == null ? t("cost.tracked") : "" })}
       />
       <Tile
-        label="Blended rate"
+        label={t("cost.blendedRate")}
         value={blended == null ? "—" : `$${blended.toFixed(2)}`}
-        unit="/ 1M tok"
-        sub={`${fmt(tally.total)} tokens priced`}
+        unit={t("cost.perMillionTokens")}
+        sub={t("cost.tokensPriced", { tokens: fmt(tally.total) })}
       />
     </section>
   );
@@ -400,6 +401,7 @@ function ModelPicker({
   selectedId: string | null;
   onSelect: (id: string) => void;
 }) {
+  const { t } = useTranslation("statistics");
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
@@ -430,11 +432,11 @@ function ModelPicker({
   return (
     <div className="cp-picker" ref={rootRef}>
       <button type="button" className="cp-toggle" onClick={() => setOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={open}>
-        <span className="cp-toggle__id">{selected ? selected.id : "Choose a hosted model…"}</span>
+        <span className="cp-toggle__id">{selected ? selected.id : t("cost.chooseModelEllipsis")}</span>
         {selected ? <span className="cp-toggle__price">{priceLabel(selected)}</span> : null}
       </button>
       {open ? (
-        <div className="cp-pop" role="listbox" aria-label="Model price catalog">
+        <div className="cp-pop" role="listbox" aria-label={t("cost.catalogAria")}>
           <div className="cp-search">
             <input
               ref={inputRef}
@@ -453,8 +455,8 @@ function ModelPicker({
                   e.preventDefault();
                 }
               }}
-              placeholder={`Search ${models.length} models…`}
-              aria-label="Search models"
+              placeholder={t("cost.searchPlaceholder", { count: models.length })}
+              aria-label={t("cost.searchAria")}
             />
           </div>
           <ul className="cp-list">
@@ -473,7 +475,7 @@ function ModelPicker({
                 </button>
               </li>
             ))}
-            {results.length === 0 ? <li className="cp-empty">No models match &ldquo;{query}&rdquo;.</li> : null}
+            {results.length === 0 ? <li className="cp-empty">{t("cost.noModels", { query })}</li> : null}
           </ul>
         </div>
       ) : null}

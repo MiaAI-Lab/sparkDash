@@ -1,6 +1,7 @@
 import { RestartButton } from "../ui/RestartButton";
 import { activeTimeZone } from "../../shared/timeZone";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { clearFleetEnergy, fetchEnergyHistory, fetchFleetEnergy } from "../../api/client";
 import { ClearMenu } from "../ui/ClearMenu";
 import type { EnergyHistory, FleetEnergy, Settings, SparkSnapshot } from "../../api/types";
@@ -36,12 +37,6 @@ import {
 import "../../styles/energy.css";
 
 const DAY_MS = 86_400_000;
-const ENERGY_CLEAR = [
-  { id: "7d", label: "Older than 7 days", ask: "Delete energy history older than 7 days?", arg: 7 * DAY_MS },
-  { id: "24h", label: "Older than 24 hours", ask: "Delete energy history older than 24 hours?", arg: DAY_MS },
-  { id: "all", label: "Everything", ask: "Delete all recorded energy history?", arg: undefined },
-] as const;
-
 const HISTORY_POLL_MS = 60_000;
 const LIVE_POLL_MS = 15_000;
 
@@ -113,6 +108,12 @@ export function EnergyPage({
   settings: Settings | null;
   onSelectSpark?: (id: string) => void;
 }) {
+  const { t } = useTranslation("statistics");
+  const energyClear = [
+    { id: "7d", label: t("energy.clear.7d"), ask: t("energy.clear.7dAsk"), arg: 7 * DAY_MS },
+    { id: "24h", label: t("energy.clear.24h"), ask: t("energy.clear.24hAsk"), arg: DAY_MS },
+    { id: "all", label: t("energy.clear.all"), ask: t("energy.clear.allAsk"), arg: undefined },
+  ] as const;
   const [history, setHistory] = useState<EnergyHistory | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [live, setLive] = useState<FleetEnergy | null>(null);
@@ -159,9 +160,9 @@ export function EnergyPage({
     const hourly = buildBuckets(rows, win, "hour", tz);
     const powerBuckets = range === "24h" ? hourly : hourly.filter((b) => b.startMs >= floorHour(win.windowStartMs));
     const delta = previousPeriodDelta(rows, win, summary.kwh);
-    const insights = buildInsights({ summary, buckets, rows: inRange, mode, tz, price, currency, nodeName: nameOf });
+    const insights = buildInsights({ summary, buckets, rows: inRange, mode, tz, price, currency, nodeName: nameOf, t });
     return { rows, inRange, win, summary, mode, buckets, powerBuckets, delta, insights, nodeIds };
-  }, [history, range, price, currency, nameOf, tz]);
+  }, [history, range, price, currency, nameOf, tz, t]);
 
   const colorOf = useMemo(() => {
     const map = new Map<string, string>();
@@ -182,26 +183,25 @@ export function EnergyPage({
     if (historyError && !history) {
       return (
         <section className="panel en-state" role="alert">
-          <h2>Could not load energy history</h2>
+          <h2>{t("energy.loadError")}</h2>
           <p>{historyError}</p>
-          <button type="button" className="btn btn--primary btn--sm" onClick={() => void loadHistory()}>Retry</button>
+          <button type="button" className="btn btn--primary btn--sm" onClick={() => void loadHistory()}>{t("energy.retry")}</button>
         </section>
       );
     }
     if (!history) {
       return (
         <section className="panel en-state" role="status" aria-live="polite">
-          <h2>Loading energy history…</h2>
+          <h2>{t("energy.loading")}</h2>
         </section>
       );
     }
     if (history.membershipChanged) {
       return (
         <section className="panel en-state" role="status">
-          <h2>Fleet membership changed</h2>
+          <h2>{t("energy.membershipChanged")}</h2>
           <p>
-            Sparks were added or removed since energy accounting started, so totals would no longer be comparable.
-            Restart sparkDash to start a new accounting scope. Previous hourly history is withheld until then.
+            {t("energy.membershipChangedText")}
           </p>
           <RestartButton />
         </section>
@@ -210,8 +210,8 @@ export function EnergyPage({
     if (!model || history.hourly.length === 0) {
       return (
         <section className="panel en-state" role="status">
-          <h2>Warming up</h2>
-          <p>No complete energy interval has been recorded yet. Data appears here once every node has reported fresh power telemetry for a little while.</p>
+          <h2>{t("energy.warming")}</h2>
+          <p>{t("energy.warmingText")}</p>
         </section>
       );
     }
@@ -237,24 +237,24 @@ export function EnergyPage({
     <div className="en">
       <div className="page-head">
         <div>
-          <h1>Fleet energy</h1>
+          <h1>{t("energy.title")}</h1>
           <p className="page-head__sub">
-            Estimated electricity use of your Sparks from GPU and CPU power telemetry. Not wall-metered.
-            {history ? <span className="mono en-updated"> Updated {new Date(history.generatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", timeZone: activeTimeZone() })}</span> : null}
+            {t("energy.subtitle")}
+            {history ? <span className="mono en-updated"> {t("energy.updated", { time: new Date(history.generatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", timeZone: activeTimeZone() }) })}</span> : null}
           </p>
         </div>
         <div className="page-head__tools">
-          <div className="seg" role="group" aria-label="Time range">
+          <div className="seg" role="group" aria-label={t("energy.rangeAria")}>
             {RANGES.map((r) => (
               <button key={r.id} type="button" aria-pressed={range === r.id} className={range === r.id ? "is-on" : ""} onClick={() => setRange(r.id)}>
-                {r.id === "24h" ? "Last 24 h" : r.label}
+                {r.id === "24h" ? t("energy.last24") : r.label}
               </button>
             ))}
           </div>
           <ClearMenu
-            label="Reset…"
-            choices={ENERGY_CLEAR}
-            note="Power keeps being recorded from now on, and Monthly history is kept. This can't be undone."
+            label={t("energy.reset.label")}
+            choices={energyClear}
+            note={t("energy.resetNote")}
             onRun={async (ms) => {
               const { removed } = await clearFleetEnergy(ms);
               await Promise.all([loadHistory(), loadLive()]);
@@ -263,9 +263,9 @@ export function EnergyPage({
             }}
           />
           <button type="button" className="btn btn--ghost btn--sm" onClick={() => void copyCsv()} disabled={!model || model.inRange.length === 0}>
-            {copied === "ok" ? "Copied" : copied === "fail" ? "Copy failed" : "Copy CSV"}
+            {copied === "ok" ? t("energy.copied") : copied === "fail" ? t("energy.copyFailed") : t("energy.copyCsv")}
           </button>
-          <span className="sr-only" role="status" aria-live="polite">{copied === "ok" ? "CSV copied to clipboard" : ""}</span>
+          <span className="sr-only" role="status" aria-live="polite">{copied === "ok" ? t("energy.copiedStatus") : ""}</span>
         </div>
       </div>
       {body}
@@ -314,6 +314,7 @@ function EnergyBody({
   onSelectSpark?: (id: string) => void;
   stale: boolean;
 }) {
+  const { t } = useTranslation("statistics");
   const { summary, win, mode, buckets, powerBuckets, delta, insights } = model;
   const tz = browserTzOffset;
   const noData = !summary.hasData;
@@ -325,6 +326,7 @@ function EnergyBody({
   const barBuckets: BarBucket[] = buckets.map((b) => ({ key: b.key, label: b.label, title: b.title, values: b.nodeKwh }));
   const bucketById = new Map(buckets.map((b) => [b.key, b]));
   const unit = mode === "hour" ? "hour" : "day";
+  const unitLabel = unit === "hour" ? t("energy.unit.hour") : t("energy.unit.day");
 
   const powerPoints: LinePoint[] = powerBuckets.map((b) => ({
     key: b.key,
@@ -341,80 +343,80 @@ function EnergyBody({
 
   return (
     <>
-      {stale ? <p className="en-banner en-banner--warn" role="status">Could not refresh just now; showing the last data received.</p> : null}
+      {stale ? <p className="en-banner en-banner--warn" role="status">{t("energy.stale")}</p> : null}
       <p className="en-banner" role="note">
-        <b>Estimated, not metered.</b> Figures are integrated from GPU and CPU power readings and leave out power-supply losses and other components, so the wall draw is somewhat higher.
+        {t("energy.estimatedNotice")}
       </p>
 
-      <section className="en-tiles" aria-label="Summary">
-        <Tile label="Current draw">
+      <section className="en-tiles" aria-label={t("energy.summary")}>
+        <Tile label={t("energy.currentDraw")}>
           <div className="big-num mono">{live?.currentWatts30s != null ? Math.round(live.currentWatts30s) : "—"}<small>W</small></div>
           <div className="en-tile__sub">
             {fresh != null ? (
-              <Tag tone={fresh === 0 ? "bad" : fresh < total ? "warn" : "good"}>{fresh}/{total} nodes fresh</Tag>
+              <Tag tone={fresh === 0 ? "bad" : fresh < total ? "warn" : "good"}>{t("energy.nodesFresh", { fresh, total })}</Tag>
             ) : null}
-            <span>30 s average</span>
+            <span>{t("energy.currentPower")}</span>
           </div>
         </Tile>
-        <Tile label={`Energy, ${rangeLabel}`}>
-          <div className="big-num mono">{noData ? "—" : formatKwh(summary.kwh)}<small>kWh</small></div>
+        <Tile label={t("energy.energyRange", { range: rangeLabel })}>
+          <div className="big-num mono">{noData ? "—" : formatKwh(summary.kwh)}<small>{t("energy.kwh")}</small></div>
           <div className="en-tile__sub">
             {delta ? (
               <span className={delta.ratio > 0.02 ? "en-delta en-delta--up" : delta.ratio < -0.02 ? "en-delta en-delta--down" : "en-delta"}>
-                {delta.ratio > 0 ? "+" : ""}{Math.round(delta.ratio * 100)}% vs previous {rangeLabel}
+                {t("energy.delta", { change: `${delta.ratio > 0 ? "+" : ""}${Math.round(delta.ratio * 100)}%`, range: rangeLabel })}
               </span>
             ) : (
-              <span>No earlier period to compare yet</span>
+              <span>{t("energy.noEarlier")}</span>
             )}
           </div>
         </Tile>
-        <Tile label="Estimated cost">
+        <Tile label={t("energy.estimatedCost")}>
           <div className="big-num mono">{summary.cost != null && !noData ? formatMoney(summary.cost, currency) : "—"}</div>
           <div className="en-tile__sub">
             {price == null ? (
-              <span>Set an electricity price in Settings</span>
+              <span>{t("energy.setPrice")}</span>
             ) : (
-              <span>{summary.costPerDay != null ? `${formatMoney(summary.costPerDay, currency)} per day` : "—"} at {currency}{price}/kWh</span>
+              <span>{summary.costPerDay != null ? t("energy.costRate", { daily: formatMoney(summary.costPerDay, currency), price: `${currency}${price}` }) : "—"}</span>
             )}
           </div>
         </Tile>
-        <Tile label="Average power">
+        <Tile label={t("energy.averagePower")}>
           <div className="big-num mono">{summary.avgWatts != null ? Math.round(summary.avgWatts) : "—"}<small>W</small></div>
-          <div className="en-tile__sub"><span>Whole fleet, over {summary.coveredHours >= 10 ? Math.round(summary.coveredHours) : summary.coveredHours.toFixed(1)} h covered</span></div>
+          <div className="en-tile__sub"><span>{t("energy.wholeFleet", { hours: summary.coveredHours >= 10 ? Math.round(summary.coveredHours) : summary.coveredHours.toFixed(1) })}</span></div>
         </Tile>
-        <Tile label="Peak hour">
+        <Tile label={t("energy.peakHour")}>
           <div className="big-num mono">{summary.peak ? Math.round(summary.peak.watts) : "—"}<small>W</small></div>
-          <div className="en-tile__sub"><span>{summary.peak ? `${formatLocalHour(summary.peak.atMs, tz)} local` : "No full hour yet"}</span></div>
+          <div className="en-tile__sub"><span>{summary.peak ? t("energy.localTime", { time: formatLocalHour(summary.peak.atMs, tz) }) : t("energy.noFullHour")}</span></div>
         </Tile>
-        <Tile label="Efficiency">
-          <div className="big-num mono">{summary.whPer1kTokens != null ? (summary.whPer1kTokens < 10 ? summary.whPer1kTokens.toFixed(2) : summary.whPer1kTokens.toFixed(1)) : "—"}<small>Wh / 1k tok</small></div>
+        <Tile label={t("energy.efficiency")}>
+          <div className="big-num mono">{summary.whPer1kTokens != null ? (summary.whPer1kTokens < 10 ? summary.whPer1kTokens.toFixed(2) : summary.whPer1kTokens.toFixed(1)) : "—"}<small>{t("energy.efficiencyValue", { value: "" })}</small></div>
           <div className="en-tile__sub">
-            <span>{summary.coveredTokens > 0 ? `${compact(summary.coveredTokens)} output tokens` : "No token data in this range"}</span>
+            <span>{summary.coveredTokens > 0 ? t("energy.outputTokens", { tokens: compact(summary.coveredTokens) }) : t("energy.noTokenData")}</span>
           </div>
         </Tile>
-        <Tile label="Coverage">
+        <Tile label={t("energy.coverage")}>
           <div className="big-num mono">{noData ? "—" : pct(summary.coverage, summary.coverage >= 0.995 ? 0 : 1)}</div>
           <div className="en-tile__sub">
-            <Tag tone={summary.coverage >= 0.9 ? "good" : summary.coverage >= 0.5 ? "warn" : "bad"}>{summary.coverage >= 0.9 ? "Solid" : summary.coverage >= 0.5 ? "Partial" : "Sparse"}</Tag>
-            <span>{shortHistory ? "since history began" : "of the range"}</span>
+            <Tag tone={summary.coverage >= 0.9 ? "good" : summary.coverage >= 0.5 ? "warn" : "bad"}>{summary.coverage >= 0.9 ? t("energy.solid") : summary.coverage >= 0.5 ? t("energy.partial") : t("energy.sparse")}</Tag>
+            <span>{shortHistory ? t("energy.sinceHistory") : t("energy.ofRange")}</span>
           </div>
         </Tile>
       </section>
 
       {noData ? (
         <section className="panel en-state" role="status">
-          <h2>No energy recorded in the last {rangeLabel}</h2>
-          <p>Try a longer range, or check that the Sparks are reporting power telemetry.</p>
+          <h2>{t("energy.noEnergy", { range: rangeLabel })}</h2>
+          <p>{t("energy.tryLonger")}</p>
         </section>
       ) : (
         <>
           <section className="panel en-panel" aria-labelledby="en-h-energy">
             <header className="en-panel__head">
               <div>
-                <h2 id="en-h-energy">Energy per {unit}</h2>
-                <p className="en-panel__sub">kWh by node, local time{mode === "day" ? ", grouped by calendar day" : ""}.</p>
+                <h2 id="en-h-energy">{t("energy.energyPer", { unit: unitLabel })}</h2>
+                <p className="en-panel__sub">{t("energy.kwhByNode", { grouped: mode === "day" ? t("energy.groupedByDay") : "" })}</p>
               </div>
-              <div className="legend" aria-label="Nodes">
+              <div className="legend" aria-label={t("energy.nodes")}>
                 {series.map((s) => (
                   <span key={s.id} style={{ "--c": s.color } as React.CSSProperties}>{s.label}</span>
                 ))}
@@ -426,12 +428,12 @@ function EnergyBody({
               height={240}
               format={formatKwh}
               unit="kWh"
-              ariaLabel={`Energy in kWh per ${unit} by node, last ${rangeLabel}`}
+              ariaLabel={t("energy.chartAria", { unit: unitLabel, range: rangeLabel })}
               footer={(b) => {
                 const full = bucketById.get(b.key);
-                if (!full || !full.hasData) return "No telemetry recorded";
+                if (!full || !full.hasData) return t("energy.noTelemetry");
                 const c = full.expectedMs > 0 ? Math.min(1, full.fleetCoverageMs / full.expectedMs) : 0;
-                return `Fleet coverage ${pct(c)} of the ${unit}`;
+                return t("energy.fleetCoverageOf", { coverage: pct(c), unit: unitLabel });
               }}
             />
           </section>
@@ -440,8 +442,8 @@ function EnergyBody({
             <section className="panel en-panel" aria-labelledby="en-h-power">
               <header className="en-panel__head">
                 <div>
-                  <h2 id="en-h-power">Average fleet power</h2>
-                  <p className="en-panel__sub">Watts per hour while every node reported. Gaps mean no full-fleet coverage.</p>
+                  <h2 id="en-h-power">{t("energy.averagePower")}</h2>
+                  <p className="en-panel__sub">{t("energy.powerSubtitle")}</p>
                 </div>
               </header>
               <LineAreaChart
@@ -450,15 +452,15 @@ function EnergyBody({
                 format={(v) => `${Math.round(v)}`}
                 unit="W"
                 color="var(--color-info)"
-                ariaLabel={`Average fleet power in watts per hour, last ${rangeLabel}`}
+                ariaLabel={t("energy.powerChartAria", { range: rangeLabel })}
               />
             </section>
             {showEff ? (
               <section className="panel en-panel" aria-labelledby="en-h-eff">
                 <header className="en-panel__head">
                   <div>
-                    <h2 id="en-h-eff">Efficiency</h2>
-                    <p className="en-panel__sub">Wh per 1,000 generated tokens, per {unit}. Lower is better; idle time counts.</p>
+                    <h2 id="en-h-eff">{t("energy.efficiency")}</h2>
+                    <p className="en-panel__sub">{t("energy.efficiencyHint", { unit: unitLabel })}</p>
                   </div>
                 </header>
                 <LineAreaChart
@@ -467,7 +469,7 @@ function EnergyBody({
                   format={(v) => (v < 10 ? v.toFixed(1) : String(Math.round(v)))}
                   unit="Wh / 1k tok"
                   color="var(--color-violet)"
-                  ariaLabel={`Energy per 1,000 generated tokens per ${unit}`}
+                  ariaLabel={t("energy.efficiencyChartAria", { unit: unitLabel })}
                 />
               </section>
             ) : null}
@@ -476,22 +478,22 @@ function EnergyBody({
           <section className="panel en-panel" aria-labelledby="en-h-nodes">
             <header className="en-panel__head">
               <div>
-                <h2 id="en-h-nodes">By node</h2>
-                <p className="en-panel__sub">Each node is measured only while it reports, so coverage differs per node.</p>
+                <h2 id="en-h-nodes">{t("energy.byNode")}</h2>
+                <p className="en-panel__sub">{t("energy.nodeSubtitle")}</p>
               </div>
             </header>
             <div className="en-table-wrap">
               <table className="en-table">
-                <caption className="sr-only">Energy by node for the last {rangeLabel}</caption>
+                <caption className="sr-only">{t("energy.tableCaption", { range: rangeLabel })}</caption>
                 <thead>
                   <tr>
-                    <SortTh k="name" label="Spark" sort={sort} setSort={setSort} left />
-                    <SortTh k="kwh" label="Energy" sort={sort} setSort={setSort} />
-                    <SortTh k="share" label="Share" sort={sort} setSort={setSort} wide />
-                    <SortTh k="avgWatts" label="Avg W" sort={sort} setSort={setSort} />
-                    <SortTh k="peakWatts" label="Peak hour" sort={sort} setSort={setSort} />
-                    <SortTh k="coverage" label="Coverage" sort={sort} setSort={setSort} />
-                    <SortTh k="cost" label="Cost" sort={sort} setSort={setSort} />
+                    <SortTh k="name" label={t("energy.spark")} sort={sort} setSort={setSort} left />
+                    <SortTh k="kwh" label={t("energy.energy")} sort={sort} setSort={setSort} />
+                    <SortTh k="share" label={t("energy.share")} sort={sort} setSort={setSort} wide />
+                    <SortTh k="avgWatts" label={t("energy.avgW")} sort={sort} setSort={setSort} />
+                    <SortTh k="peakWatts" label={t("energy.peak")} sort={sort} setSort={setSort} />
+                    <SortTh k="coverage" label={t("energy.coverage")} sort={sort} setSort={setSort} />
+                    <SortTh k="cost" label={t("energy.cost")} sort={sort} setSort={setSort} />
                   </tr>
                 </thead>
                 <tbody>
@@ -505,7 +507,7 @@ function EnergyBody({
                           nameOf(n.id)
                         )}
                       </th>
-                      <td className="mono">{formatKwh(n.kwh)} kWh</td>
+                      <td className="mono">{formatKwh(n.kwh)} {t("energy.kwh")}</td>
                       <td className="en-table__share">
                         <span className="en-share">
                           <span className="en-share__bar" aria-hidden="true"><i style={{ width: `${(n.share / maxShare) * 100}%`, background: colorOf(n.id) }} /></span>
@@ -513,7 +515,7 @@ function EnergyBody({
                         </span>
                       </td>
                       <td className="mono">{formatWatts(n.avgWatts)}</td>
-                      <td className="mono" title={n.peakAtMs != null ? `${formatLocalHour(n.peakAtMs, tz)} local` : undefined}>
+                      <td className="mono" title={n.peakAtMs != null ? t("energy.localTime", { time: formatLocalHour(n.peakAtMs, tz) }) : undefined}>
                         {formatWatts(n.peakWatts)}
                         {n.peakAtMs != null ? <span className="en-table__when"> {formatLocalHour(n.peakAtMs, tz)}</span> : null}
                       </td>
@@ -524,31 +526,31 @@ function EnergyBody({
                 </tbody>
               </table>
             </div>
-            {price == null ? <p className="en-panel__sub en-panel__foot">Cost needs an electricity price; set one in Settings.</p> : null}
+            {price == null ? <p className="en-panel__sub en-panel__foot">{t("energy.costHelp")}</p> : null}
           </section>
         </>
       )}
 
       <div className="en-grid2">
         <section className="panel en-panel" aria-labelledby="en-h-insights">
-          <header className="en-panel__head"><h2 id="en-h-insights">Insights</h2></header>
+          <header className="en-panel__head"><h2 id="en-h-insights">{t("tokens.insights")}</h2></header>
           {insights.length ? (
             <ul className="en-list">
               {insights.map((line) => <li key={line}>{line}</li>)}
             </ul>
           ) : (
-            <p className="en-panel__sub">Insights appear once there is enough recorded data in this range.</p>
+            <p className="en-panel__sub">{t("energy.insightsEmpty")}</p>
           )}
         </section>
         <section className="panel en-panel" aria-labelledby="en-h-notes">
-          <header className="en-panel__head"><h2 id="en-h-notes">About this data</h2></header>
+          <header className="en-panel__head"><h2 id="en-h-notes">{t("energy.about")}</h2></header>
           <ul className="en-list en-list--notes">
-            <li><b>Estimated.</b> Energy is power telemetry (GPU + CPU) integrated over time, not a wall meter reading.</li>
-            <li><b>Gaps.</b> Hours with no telemetry are left out, never filled in. Coverage is the share of time every node reported fresh data; per-node coverage is in the table.</li>
-            <li><b>Efficiency</b> only counts tokens and energy from time when all nodes were reporting.</li>
-            <li><b>Retention.</b> Hourly history is kept for 31 days. Longer ranges show what exists so far.</li>
-            <li><b>Local time.</b> Hours and days follow the time zone in Settings, or this browser's by default ({activeTimeZone()}). Hourly rows are stored in UTC.</li>
-            <li><b>Membership.</b> Adding or removing a Spark starts a new accounting scope after a sparkDash restart.</li>
+            <li>{t("energy.notes.estimated")}</li>
+            <li>{t("energy.notes.gaps")}</li>
+            <li>{t("energy.efficiency")} {t("energy.notes.efficiency")}</li>
+            <li>{t("energy.notes.retention")}</li>
+            <li>{t("energy.notes.localTime", { zone: activeTimeZone() })}</li>
+            <li>{t("energy.notes.membership")}</li>
           </ul>
         </section>
       </div>
