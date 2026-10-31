@@ -14,6 +14,7 @@ Keep one progress list while retaining separate, page-sized pull requests. Open 
 | Overview page and fleet controls | [#316](https://github.com/MiaAI-Lab/sparkDash/pull/316) | Open, independent Overview review. |
 | Spark detail GPU, CPU and memory | [#317](https://github.com/MiaAI-Lab/sparkDash/pull/317) | Open, resource-panel review with separate CPU/memory and GPU commits. |
 | Spark detail LLM live panel and sessions | [#318](https://github.com/MiaAI-Lab/sparkDash/pull/318) | Open, independent review; metrics/help, endpoint settings, benchmark entry controls and sessions. Charts/totals and benchmark dialogs remain separate. |
+| Spark detail LLM history, daily statistics and token totals | This history PR | Pending review; chart presentation, daily tooltips/accessibility and cumulative token table/range labels. |
 | Other detail panels, pages and dialogs | Inventory and panel batches below | Not yet wired unless explicitly marked otherwise. |
 
 [#194](https://github.com/MiaAI-Lab/sparkDash/pull/194) stays open as the original integration and server-message design reference, per the maintainer's [latest direction](https://github.com/MiaAI-Lab/sparkDash/pull/194#issuecomment-6517707651). It is not an active merge target. Do not rebase it or count its broad translation work as shipped. Its historical content would remain accessible after closure, but the maintainer explicitly requested an open reference; revisit its status when that reference has an agreed replacement.
@@ -42,7 +43,7 @@ The branches share files but their catalog prefixes do not overlap. Other pendin
 
 ## Scope and conventions
 
-The English catalogs are the source and fallback, initialized in [`src/i18n/index.ts`](../src/i18n/index.ts). This branch registers [`settings`](../src/locales/en/settings.json), [`language`](../src/locales/en/language.json) and [`spark`](../src/locales/en/spark.json), with matching `zh-CN` files. Its `spark` keys cover `llm` and `sessions`; retain the separate resource-panel keys from #317 when merging. The separate Shell and Overview namespaces are pending in [#315](https://github.com/MiaAI-Lab/sparkDash/pull/315) and [#316](https://github.com/MiaAI-Lab/sparkDash/pull/316). Translate visible product UI, accessible names, validation/help/empty/loading and success/failure feedback. Do **not** translate raw server diagnostics, user-supplied text, IDs, protocol values, commands, URLs, or product and model names unless a product decision explicitly says otherwise.
+The English catalogs are the source and fallback, initialized in [`src/i18n/index.ts`](../src/i18n/index.ts). This branch registers [`settings`](../src/locales/en/settings.json), [`language`](../src/locales/en/language.json) and [`spark`](../src/locales/en/spark.json), with matching `zh-CN` files. Its `spark` keys cover `llmTrend`, `llmDaily` and `llmTokens`; retain the resource-panel keys from #317 and `llm`/`sessions` from #318 when merging. The separate Shell and Overview namespaces are pending in [#315](https://github.com/MiaAI-Lab/sparkDash/pull/315) and [#316](https://github.com/MiaAI-Lab/sparkDash/pull/316). Translate visible product UI, accessible names, validation/help/empty/loading and success/failure feedback. Do **not** translate raw server diagnostics, user-supplied text, IDs, protocol values, commands, URLs, or product and model names unless a product decision explicitly says otherwise.
 
 The first integration is deliberately page-sized. Follow the maintainer's [page-sized direction](https://github.com/MiaAI-Lab/sparkDash/pull/194#issuecomment-6517707651): keep #194 open and unchanged as an integration/translation reference, including its server-message design. Do not rebase it, revive the broad integration, or describe it as merged.
 
@@ -55,7 +56,8 @@ The first integration is deliberately page-sized. Follow the maintainer's [page-
 | **Pending (#315)** | Included in the separate Shell PR, but not in the baseline `main`. |
 | **Pending (#316)** | Included in the separate Overview PR, but not in the baseline `main`. |
 | **Pending (#317)** | Included in the separate resource-panel PR, but not in the baseline `main`. |
-| **Pending (#318)** | Implemented in this change; covers the live LLM panel and sessions, not its history/totals, separate dialogs or a merged `main` claim. |
+| **Pending (#318)** | Included in the separate live LLM panel/session PR, but not in the baseline `main`. |
+| **Pending (this history PR)** | Implemented in this change; covers the LLM history/daily charts and cumulative token table, not separate dialogs or a merged `main` claim. |
 | **Not wired** | No page-level catalog/wiring claim in this snapshot. |
 
 | Slice | Status | Boundary |
@@ -67,6 +69,7 @@ The first integration is deliberately page-sized. Follow the maintainer's [page-
 | Navigation and shared shell | **Pending (#315)** | Desktop/sidebar and mobile navigation, command palette and its commands, theme/open-access/connection/error/install UI, plus App-owned empty/error text. Benchmark navigation only; page bodies and standalone dialogs remain separate slices. Fleet shutdown is pending in #316. |
 | Spark resource panels | **Pending (#317)** | GPU metrics and history-chart controls, CPU, system RAM, unified memory and the shared process table. Shared VRAM breakdown content is pending in #316; other detail panels remain separate below. |
 | LLM live panel and sessions | **Pending (#318)** | Live metric labels/help, engine state, port/API-key settings, local/remote benchmark entry controls and session rows. Server posture/diagnostics remain raw; charts, totals and benchmark dialogs remain separate. |
+| LLM history, daily statistics and token totals | **Pending (this history PR)** | Chart headings, legends, scale guidance, keyboard/hover tooltips, range labels and cumulative token wording. Preserve dates, graph geometry, range values, polling and cache-split accounting. |
 
 ## Inventory
 
@@ -77,7 +80,7 @@ The route inventory comes from [`App.tsx`](../src/App.tsx), [`useRoute.ts`](../s
 | Surface and route | Primary source | Status / next page-sized slice |
 | --- | --- | --- |
 | Overview `/` | [`OverviewPage`](../src/components/OverviewPage/OverviewPage.tsx) and its cards | **Pending (#316)** — headings, filters, unit/memory cards, inline launcher controls, fleet KPIs, energy/token/traffic cards, local alert text, activity controls, and fleet action/confirmation feedback. Raw events, server-only findings and diagnostics remain unchanged. |
-| Spark detail `/spark/:id` | [`SparkPage`](../src/components/SparkPage/SparkPage.tsx) and panels | **Pending (#317)** for GPU metrics/history charts, CPU, RAM, unified memory and the shared process table; **Pending (#318)** for the live LLM panel and session list. Shared VRAM breakdown content is pending in #316. Remaining areas are **Not wired**; see the panel-sized breakdown below. |
+| Spark detail `/spark/:id` | [`SparkPage`](../src/components/SparkPage/SparkPage.tsx) and panels | **Pending (#317)** for resource panels; **Pending (#318)** for the live LLM panel and session list; **Pending (this history PR)** for LLM history/daily charts and cumulative token totals. Shared VRAM breakdown content is pending in #316. Remaining areas are **Not wired**; see the panel-sized breakdown below. |
 | Token totals `/tokens` | [`TokensPage`](../src/components/TokensPage/TokensPage.tsx) | **Not wired**. |
 | Cost compare `/cost` | [`CostPage`](../src/components/CostPage/CostPage.tsx) | **Not wired**. |
 | Fleet energy `/energy` | [`EnergyPage`](../src/components/EnergyPage/EnergyPage.tsx) | **Not wired**. |
@@ -93,7 +96,7 @@ The route inventory comes from [`App.tsx`](../src/App.tsx), [`useRoute.ts`](../s
 
 ### Spark detail: panel-sized review batches
 
-Each row is a reviewable surface. #317 groups the related GPU, CPU and memory rows, with the GPU work in a separate commit; #318 handles live controls and sessions. Keep the English fallback and one shared `spark` namespace; add coherent key prefixes as panels are wired. Neither batch marks the entire detail page as localized.
+Each row is a reviewable surface. #317 groups the related GPU, CPU and memory rows; #318 handles live controls and sessions; this history PR covers LLM charts and token totals. Keep the English fallback and one shared `spark` namespace; add coherent key prefixes as panels are wired. These batches do not mark the entire detail page as localized.
 
 | Surface | Primary source | Status / boundary |
 | --- | --- | --- |
@@ -101,7 +104,7 @@ Each row is a reviewable surface. #317 groups the related GPU, CPU and memory ro
 | CPU, system RAM and unified memory | [`CpuPanel`](../src/components/SparkPage/CpuPanel.tsx), [`RamPanel`](../src/components/SparkPage/RamPanel.tsx), [`UnifiedMemoryPanel`](../src/components/SparkPage/UnifiedMemoryPanel.tsx) | **Pending (#317)** — labels, sensor provenance/help, core count, memory split legend/tooltips/accessibility, pressure and waiting states. Sensor/model values, metric history, units and split calculations stay unchanged. |
 | GPU metrics and charts | [`GpuPanel`](../src/components/SparkPage/GpuPanel.tsx), [`GpuHistoryChart`](../src/components/SparkPage/GpuHistoryChart.tsx) | **Pending (#317)** for single-/multi-card metrics, thermal/throttle states, memory availability/allocation-error labels, shared process-table headings, chart windows, view/metric selectors, legends, axes, accessibility and collecting state. Locale switches preserve selected data, storage values, backfill and curve geometry. Raw device/process names, commands and PIDs stay intact. The shared `VramBreakdownBar` legends/tooltips remain pending in #316; this PR does not duplicate them. |
 | LLM live metrics, controls and sessions | [`LlmPanel`](../src/components/SparkPage/LlmPanel.tsx), [`ConversationList`](../src/components/SparkPage/ConversationList.tsx) | **Pending (#318)** — metrics/help, engine and idle states, port/API-key settings with local validation, benchmark launch/remote-target controls, session age/state/context tooltips and empty/add controls. Preserve mean versus percentile semantics, missing versus zero readings, cached versus computed rates, draft values, targets/navigation and raw model/session identity. Server posture labels/details and API diagnostics remain unchanged. The translated Harness entry opens the still-untranslated wizard. |
-| LLM history, daily statistics and token totals | [`LlmTrendChart`](../src/components/SparkPage/LlmTrendChart.tsx), [`LlmDailyChart`](../src/components/SparkPage/LlmDailyChart.tsx), [`LlmTokenTotals`](../src/components/SparkPage/LlmTokenTotals.tsx) | **Not wired** — a later bounded batch for chart controls, legends, date/range selectors and cumulative token tables. Preserve data geometry, UTC/day semantics, ledger versus engine counters and cache-split meaning. |
+| LLM history, daily statistics and token totals | [`LlmTrendChart`](../src/components/SparkPage/LlmTrendChart.tsx), [`LlmDailyChart`](../src/components/SparkPage/LlmDailyChart.tsx), [`LlmTokenTotals`](../src/components/SparkPage/LlmTokenTotals.tsx) | **Pending (this history PR)** — headings/legends, fixed-window and busy-average guidance, daily scale/accessibility/keyboard/hover tooltips, no-sample states, cumulative table/range labels and token-row details. Locale switches retain active day, focus, selected range, in-flight reads, data geometry, per-series scales and raw model IDs. Original UTC date strings, compact units, polling dependencies, ledger versus engine counters and cached/computed/unreported accounting remain unchanged. |
 | Model scripts and output | [`LlmModelsPanel`](../src/components/SparkPage/LlmModelsPanel.tsx) | **Not wired** — include controls and progress/error feedback; preserve script names, paths and terminal output. |
 | Storage | [`StoragePanel`](../src/components/SparkPage/StoragePanel.tsx) | **Not wired** — include device/refresh controls; preserve device names and poll-mode values. |
 | Network and interconnects | [`NetworkPanel`](../src/components/SparkPage/NetworkPanel.tsx), [`RocePanel`](../src/components/SparkPage/RocePanel.tsx), [`TailscalePanel`](../src/components/SparkPage/TailscalePanel.tsx) | **Not wired** — preserve interface names, addresses and connection state. |
