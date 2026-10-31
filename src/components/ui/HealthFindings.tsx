@@ -1,6 +1,7 @@
 import type { HealthFinding } from "../../api/types";
 import { Tag } from "./Tag";
 import { AlertTriangleIcon } from "./icons";
+import { useTranslation } from "react-i18next";
 
 const RANK = { critical: 0, warn: 1 } as const;
 
@@ -19,12 +20,13 @@ export function worstSeverity(list: readonly HealthFinding[] | undefined): Healt
 
 /** Alert strip for an Overview card: icon + title per finding, details in the tooltip. */
 export function HealthChips({ findings }: { findings: readonly HealthFinding[] | undefined }) {
+  const { t } = useTranslation("overview");
   const list = sortFindings(findings);
   if (list.length === 0) return null;
   const shown = list.slice(0, 2);
   const more = list.length - shown.length;
   return (
-    <div className="health-strip" role="status" aria-label="Health findings">
+    <div className="health-strip" role="status" aria-label={t("health.findings")}>
       {shown.map((f) => (
         <div key={f.id} className={`health-row health-row--${f.severity}`} title={`${f.detail} ${f.hint}`}>
           <AlertTriangleIcon className="health-row__icon" />
@@ -33,7 +35,7 @@ export function HealthChips({ findings }: { findings: readonly HealthFinding[] |
       ))}
       {more > 0 ? (
         <div className="health-more" title={list.slice(2).map((f) => f.title).join("\n")}>
-          +{more} more
+          {t("health.more", { count: more })}
         </div>
       ) : null}
     </div>

@@ -3,20 +3,28 @@ import { tzOffsetMinutes } from "../../shared/timeZone";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
+interface RelativeTimeLabels {
+  now: string;
+  minutes: (count: number) => string;
+  hours: (count: number) => string;
+  days: (count: number) => string;
+  date: (date: Date) => string;
+}
+
 /** Compact relative time: "now", "2m", "3h", "5d", then "Oct 5" after a week. */
-export function formatRelativeTime(ts: number, now: number = Date.now()): string {
+export function formatRelativeTime(ts: number, now: number = Date.now(), labels?: RelativeTimeLabels): string {
   const diff = Math.max(0, now - ts);
   const sec = Math.floor(diff / 1000);
-  if (sec < 45) return "now";
+  if (sec < 45) return labels?.now ?? "now";
   const min = Math.floor(sec / 60);
-  if (min < 60) return `${Math.max(1, min)}m`;
+  if (min < 60) return labels?.minutes(Math.max(1, min)) ?? `${Math.max(1, min)}m`;
   const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h`;
+  if (hr < 24) return labels?.hours(hr) ?? `${hr}h`;
   const day = Math.floor(hr / 24);
-  if (day < 7) return `${day}d`;
+  if (day < 7) return labels?.days(day) ?? `${day}d`;
   // Month and day in the Settings time zone (else the browser's), via the same offset the charts use.
   const d = new Date(ts + tzOffsetMinutes(ts) * 60_000);
-  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
+  return labels?.date(d) ?? `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
 }
 
 export function severityDotClass(severity: ActivityEvent["severity"]): string {

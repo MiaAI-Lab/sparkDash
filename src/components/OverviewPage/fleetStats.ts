@@ -49,16 +49,32 @@ export function trendDeltaPct(series: readonly number[], minSamples = 8): number
 }
 
 /** Work that a fleet shutdown would interrupt, from signals already in the snapshot. */
-export function shutdownWarnings(sparks: readonly SparkSnapshot[]): string[] {
+export interface ShutdownWarningCopy {
+  inFlight: (sparkName: string, count: number) => string;
+  comfyJob: (sparkName: string) => string;
+  hermesUpdate: (sparkName: string) => string;
+}
+
+const defaultShutdownWarningCopy: ShutdownWarningCopy = {
+  inFlight: (sparkName, count) => `${sparkName}: ${count} in-flight LLM request${count === 1 ? "" : "s"}`,
+  comfyJob: (sparkName) => `${sparkName}: ComfyUI job running`,
+  hermesUpdate: (sparkName) => `${sparkName}: Hermes update in progress`,
+};
+
+/**
+ * Work that a fleet shutdown would interrupt. Callers may provide presentation
+ * copy, while this function remains the sole source of the underlying signals.
+ */
+export function shutdownWarnings(sparks: readonly SparkSnapshot[], copy: ShutdownWarningCopy = defaultShutdownWarningCopy): string[] {
   const out: string[] = [];
   for (const s of sparks) {
     if (!s.online) continue;
     const llmBusy = Array.isArray(s.metrics?.llm)
       ? s.metrics.llm.reduce((n, l) => n + Math.max(l.slotsActive || 0, l.requestsRunning || 0), 0)
       : 0;
-    if (llmBusy > 0) out.push(`${s.name}: ${llmBusy} in-flight LLM request${llmBusy === 1 ? "" : "s"}`);
-    if ((s.metrics?.comfy?.queueRunning ?? 0) > 0) out.push(`${s.name}: ComfyUI job running`);
-    if (s.hermes?.status === "running") out.push(`${s.name}: Hermes update in progress`);
+    if (llmBusy > 0) out.push(copy.inFlight(s.name, llmBusy));
+    if ((s.metrics?.comfy?.queueRunning ?? 0) > 0) out.push(copy.comfyJob(s.name));
+    if (s.hermes?.status === "running") out.push(copy.hermesUpdate(s.name));
   }
   return out;
 }

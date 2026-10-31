@@ -1,4 +1,5 @@
 import { memo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { GpuDevice, SparkSnapshot } from "../../api/types";
 import { resolveSparkRole } from "../../api/sparkRole";
 import { usableHead } from "../../shared/sparkHead";
@@ -18,6 +19,7 @@ import { formatCtx } from "./fleetStats";
 import { ModelLauncher } from "./ModelLauncher";
 
 type Unit = "celsius" | "fahrenheit";
+type WakeMessage = "sent" | "failed" | { raw: string } | null;
 
 function toF(c: number): number {
   return Math.round((c * 9) / 5 + 32);
@@ -68,12 +70,13 @@ function Bar({
 
 /** One card of a multi-GPU host: its VRAM bar ("GPU 0 VRAM"), with its load, temperature and power on the line under it. */
 function GpuCardBar({ card, fmtTemp }: { card: GpuDevice; fmtTemp: (c: number) => string }) {
+  const { t } = useTranslation("overview");
   const avail = card.metricAvailability;
   const vramKnown = avail?.vramUsed !== false && avail?.vramTotal !== false && card.vram.total > 0;
   const vramPct = card.vram.percentage;
   const hot = !!(card.throttle?.thermal || card.throttle?.hwSlowdown) || card.temperature >= 80;
   const load = [
-    avail?.usage === false ? "load —" : `${Math.round(card.usage)}% load`,
+    avail?.usage === false ? t("card.loadUnavailable") : t("card.load", { value: Math.round(card.usage) }),
     avail?.temperature === false ? null : fmtTemp(card.temperature),
   ]
     .filter(Boolean)
@@ -82,7 +85,7 @@ function GpuCardBar({ card, fmtTemp }: { card: GpuDevice; fmtTemp: (c: number) =
     avail?.powerDraw === false ? "—" : `${Math.round(card.power.draw)}${avail?.powerLimit === false ? "" : ` / ${Math.round(card.power.limit)}`} W`;
   return (
     <Bar
-      label={`GPU ${card.physicalIndex ?? card.index} VRAM`}
+      label={t("card.gpuVram", { index: card.physicalIndex ?? card.index })}
       title={shortGpuName(card.name) || undefined}
       caption={vramKnown ? `${fmtStorage(card.vram.used, false)} / ${fmtStorage(card.vram.total, true)}` : "—"}
       pct={vramKnown ? vramPct : 0}
@@ -107,6 +110,7 @@ function SparkCardImpl({
   temperatureUnit: Unit;
   onSelect?: (id: string) => void;
 }) {
+  const { t } = useTranslation("overview");
   const gpu = spark.metrics.gpu;
   const um = spark.metrics.unifiedMemory;
   const online = spark.online;
@@ -114,7 +118,7 @@ function SparkCardImpl({
   const llmList = Array.isArray(spark.metrics.llm) ? spark.metrics.llm : [];
   const llmIdx = llmList.findIndex((l) => l.available);
   const llm = llmIdx >= 0 ? llmList[llmIdx] : null;
-  const [wakeMsg, setWakeMsg] = useState<string | null>(null);
+  const [wakeMsg, setWakeMsg] = useState<WakeMessage>(null);
   const [waking, setWaking] = useState(false);
 
   const usage = gpu?.usage ?? 0;
@@ -158,26 +162,26 @@ function SparkCardImpl({
   const comfy = spark.comfyMonitoring ? spark.metrics?.comfy : undefined;
   const hermes = spark.hermes;
 
-  const roleText = role === "head" ? "head" : role === "worker" ? "worker" : "standalone";
+  const roleText = role === "head" ? t("card.roleHead") : role === "worker" ? t("card.roleWorker") : t("card.roleStandalone");
   const roleTitle =
     role === "head"
-      ? "Cluster head Spark"
+      ? t("card.clusterHead")
       : role === "worker"
         ? spark.workerLabel?.trim()
-          ? `${spark.workerLabel.trim()} · distributed LLM worker`
-          : "Distributed LLM worker"
+          ? t("card.distributedWorkerNamed", { label: spark.workerLabel.trim() })
+          : t("card.distributedWorker")
         : spark.llmMonitoring === false
-          ? "Standalone — LLM monitoring off"
-          : "Standalone Spark";
+          ? t("card.standaloneMonitoringOff")
+          : t("card.standaloneSpark");
 
   async function onWake() {
     setWaking(true);
     setWakeMsg(null);
     try {
       const res = await wakeSpark(spark.id);
-      setWakeMsg(res.success ? "Wake packet sent" : res.error || res.message || "Wake failed");
+      setWakeMsg(res.success ? "sent" : res.error || res.message ? { raw: res.error || res.message! } : "failed");
     } catch (err) {
-      setWakeMsg(err instanceof Error ? err.message : "Wake failed");
+      setWakeMsg(err instanceof Error ? { raw: err.message } : "failed");
     } finally {
       setWaking(false);
     }
@@ -196,23 +200,23 @@ function SparkCardImpl({
   // that is cold-starting, switching model or simply not monitored produces the same
   // empty probe state as an idle one, so its readiness is unknown, not established.
   const headState = !headName
-    ? "Worker"
+    ? t("card.worker")
     : !headSpark?.online
-      ? "Head offline"
+      ? t("card.headOffline")
       : headLlmList.length
-        ? "Head API not ready"
-        : "No LLM port watched on the head";
+        ? t("card.headApiNotReady")
+        : t("card.noHeadLlmPort");
   if (role === "worker") {
     // Prefer the head's live model; fall back to the configured / mirrored worker label.
     const label = headLlm?.modelId || spark.workerLabel?.trim() || spark.workerDerivedLabel?.trim() || null;
     modelEyebrowRight = headLlm ? formatCtx(headLlm.contextLength) : null;
     modelText = label ?? headState;
-    modelTitle = headName ? `${label ?? headState} · worker of ${headName}` : `${label ?? "Distributed"} · LLM worker`;
+    modelTitle = headName ? t("card.workerOf", { label: label ?? headState, head: headName }) : t("card.llmWorker", { label: label ?? t("card.distributed") });
   } else if (llm) {
     // The engine name lives in the tooltip; the row itself is just model + context.
     const engine = backendLabel(llm.backend) ?? llm.backend ?? "LLM";
     modelEyebrowRight = formatCtx(llm.contextLength);
-    modelText = llm.modelId ?? "unknown";
+    modelText = llm.modelId ?? t("card.unknown");
     modelTitle = llm.modelId ? `${llm.modelId} · ${engine}` : engine;
   }
   // Idle Spark (nothing serving): the launcher block fills the free space instead.
@@ -225,7 +229,9 @@ function SparkCardImpl({
     .map((p) => `${shortProcessName(p.name)} (${formatMb(p.vramMB)})`);
   const loadingHint =
     !llm && (memUsed >= 2048 || usage >= 10)
-      ? `${gpuHolders.length > 0 ? `In use by ${gpuHolders.join(", ")} · ` : ""}${formatMb(memUsed)} VRAM in use · GPU ${Math.round(usage)}%`
+      ? gpuHolders.length > 0
+        ? t("card.vramInUseWithHolders", { holders: gpuHolders.join(", "), memory: formatMb(memUsed), usage: Math.round(usage) })
+        : t("card.vramInUse", { memory: formatMb(memUsed), usage: Math.round(usage) })
       : null;
   const showLauncher = role !== "worker" && !llm && !spark.llmMovedTo && spark.llmMonitoring !== false && spark.platform !== "windows";
 
@@ -236,62 +242,60 @@ function SparkCardImpl({
   const parallel = llm && llm.slotsTotal > 0 ? llm.slotsTotal : null;
   const llmChip = llm
     ? llm.requestsRunning != null
-      ? `${llm.requestsRunning} running · ${llm.requestsWaiting == null ? "queue unknown" : `${llm.requestsWaiting} queued`}${
-          parallel != null ? ` · ${parallel} slots` : ""
-        }`
+      ? t("card.requestStatus", { running: llm.requestsRunning, waiting: llm.requestsWaiting == null ? t("card.queueUnknown") : t("card.queued", { count: llm.requestsWaiting }), slots: parallel == null ? "" : t("card.slots", { count: parallel }) })
       : llm.slotsTotal > 0
-        ? `${llm.slotsActive ?? "?"}/${llm.slotsTotal} slots`
+        ? t("card.activeSlots", { active: llm.slotsActive ?? "?", total: llm.slotsTotal })
         : null
     : null;
   const llmChipTitle =
-    parallel != null && llm?.requestsRunning != null ? `${parallel} requests decode in parallel on this engine` : undefined;
+    parallel != null && llm?.requestsRunning != null ? t("card.parallelRequests", { count: parallel }) : undefined;
 
   const chips = (
     <div className="ov-chips">
       {online && throttle && slowed ? (
-        <Tag tone="warn" title={throttle.detail || "GPU clock throttled"}>
-          {throttle.thermal ? "Thermal throttle" : "HW slowdown"}
+        <Tag tone="warn" title={throttle.detail || t("card.gpuClockThrottled")}>
+          {throttle.thermal ? t("card.thermalThrottle") : t("card.hardwareSlowdown")}
           {throttle.smClockMHz ? ` · SM ${(throttle.smClockMHz / 1000).toFixed(1)} GHz` : ""}
         </Tag>
       ) : null}
       {online && throttle?.clockCapMHz != null ? (
-        <Tag title="GPU clock locked with nvidia-smi -lgc">
-          Cap {(throttle.clockCapMHz / 1000).toFixed(1)} GHz
+        <Tag title={t("card.gpuClockLocked")}>
+          {t("card.clockCap", { value: (throttle.clockCapMHz / 1000).toFixed(1) })}
         </Tag>
       ) : null}
       {online && llmChip ? <Tag tone={(llm?.requestsRunning ?? llm?.slotsActive ?? 0) > 0 ? "good" : "neutral"} title={llmChipTitle}>{llmChip}</Tag> : null}
       {comfy !== undefined || spark.comfyMonitoring ? (
         !comfy?.available ? (
-          <Tag title="ComfyUI monitoring on — not reachable">Comfy</Tag>
+          <Tag title={t("card.comfyUnavailable")}>Comfy</Tag>
         ) : (comfy.queueRunning ?? 0) > 0 ? (
-          <Tag tone="info" title={comfy.activeJob?.title ? `ComfyUI running: ${comfy.activeJob.title}` : "ComfyUI job running"}>
+          <Tag tone="info" title={comfy.activeJob?.title ? t("card.comfyRunningTitle", { title: comfy.activeJob.title }) : t("card.comfyJobRunning")}>
             <ImageIcon className="h-3.5 w-3.5" />
-            {comfy.activeJob?.title ? `ComfyUI · ${comfy.activeJob.title}` : "ComfyUI · running"}
+            {comfy.activeJob?.title ? t("card.comfyRunningTitle", { title: comfy.activeJob.title }) : t("card.comfyRunning")}
             {comfy.progress?.percent != null ? ` ${Math.round(comfy.progress.percent)}%` : ""}
           </Tag>
         ) : (comfy.queuePending ?? 0) > 0 ? (
-          <Tag tone="warn" title={`ComfyUI queue: ${comfy.queuePending} pending`}>Comfy {"·"} {comfy.queuePending}q</Tag>
+          <Tag tone="warn" title={t("card.comfyQueue", { count: comfy.queuePending })}>Comfy {"·"} {comfy.queuePending}q</Tag>
         ) : (
-          <Tag title="ComfyUI idle">Comfy {"·"} idle</Tag>
+          <Tag title={t("card.comfyIdle")}>Comfy {"·"} {t("card.idle")}</Tag>
         )
       ) : null}
-      {hermes?.monitoring && hermes.status === "running" ? <Tag tone="info">Hermes updating</Tag> : null}
+      {hermes?.monitoring && hermes.status === "running" ? <Tag tone="info">{t("card.hermesUpdating")}</Tag> : null}
       {hermes?.monitoring && hermes.status !== "running" && hermes.updateAvailable ? (
-        <Tag tone="acc" title="A Hermes update is available">Hermes update available</Tag>
+        <Tag tone="acc" title={t("card.hermesUpdateAvailable")}>{t("card.hermesUpdateAvailable")}</Tag>
       ) : null}
-      {!online ? <Tag>Offline</Tag> : null}
+      {!online ? <Tag>{t("card.offline")}</Tag> : null}
     </div>
   );
 
   return (
     <div className={`overview-card ov-sc ${online ? "" : "is-off"} ${hot && online ? "is-hot" : ""} ${online && worstSeverity(spark.health) ? `is-health-${worstSeverity(spark.health)}` : ""} ${onSelect ? "is-link" : ""}`}>
       <div className="ov-sc__head">
-        <i className={`sdot ${!online ? "sdot--off" : hot || worstSeverity(spark.health) ? "sdot--warn" : ""}`} aria-label={online ? "online" : "offline"} />
+        <i className={`sdot ${!online ? "sdot--off" : hot || worstSeverity(spark.health) ? "sdot--warn" : ""}`} aria-label={online ? t("card.online") : t("card.offline")} />
         <h3 className="ov-sc__name">
           {onSelect ? (
             // Stretched link: this button's ::after covers the whole card (overview.css), so the card
             // is clickable without being a button that contains buttons.
-            <AppLink href={idToPath(spark.id)} className="ov-sc__link" onNavigate={() => onSelect(spark.id)} title={`Open ${spark.name}`}>
+            <AppLink href={idToPath(spark.id)} className="ov-sc__link" onNavigate={() => onSelect(spark.id)} title={t("card.openSpark", { name: spark.name })}>
               {spark.name}
             </AppLink>
           ) : (
@@ -306,7 +310,7 @@ function SparkCardImpl({
 
       {!online || !gpu ? (
         <div className="ov-sc__off">
-          <span>{online ? "Waiting for metrics…" : "Host unreachable"}</span>
+          <span>{online ? t("card.waitingForMetrics") : t("card.hostUnreachable")}</span>
           {!online && spark.kind === "host" ? (
             <button
               type="button"
@@ -315,10 +319,10 @@ function SparkCardImpl({
               onClick={() => void onWake()}
             >
               <PowerOnIcon className="h-3.5 w-3.5" />
-              Wake up
+              {t("card.wakeUp")}
             </button>
           ) : null}
-          {wakeMsg ? <span className="ov-sc__msg">{wakeMsg}</span> : null}
+          {wakeMsg ? <span className="ov-sc__msg">{wakeMsg === "sent" ? t("card.wakePacketSent") : wakeMsg === "failed" ? t("card.wakeFailed") : wakeMsg.raw}</span> : null}
           {chips}
         </div>
       ) : (
@@ -329,25 +333,25 @@ function SparkCardImpl({
                 cards.map((card) => <GpuCardBar key={card.index} card={card} fmtTemp={fmtTemp} />)
               ) : breakdown ? (
                 <VramBreakdownBar
-                  label={breakdown.systemMB != null ? "Unified memory" : "VRAM"}
+                  label={breakdown.systemMB != null ? t("memory.unifiedMemory") : t("memory.vram")}
                   breakdown={breakdown}
                   showLegend
                 />
               ) : (
                 <Bar
-                  label={gpu.vram?.total ? "VRAM" : "Unified memory"}
+                  label={gpu.vram?.total ? t("memory.vram") : t("memory.unifiedMemory")}
                   caption={vramAvailable && memTotal > 0 ? `${fmtStorage(memUsed, false)} / ${fmtStorage(memTotal, true)}` : "—"}
                   pct={vramAvailable ? memPct : 0}
                   color={memColor}
-                  sub={memTotal > 0 && memAvail > 0 ? { label: "Available", value: formatMb(memAvail) } : null}
+                  sub={memTotal > 0 && memAvail > 0 ? { label: t("card.available"), value: formatMb(memAvail) } : null}
                 />
               )}
               {cards ? null : (
-                <Bar label="GPU" caption={gpu.metricAvailability?.usage === false ? "—" : `${Math.round(usage)}%`} pct={gpu.metricAvailability?.usage === false ? 0 : usage} color={ringColor} />
+                <Bar label={t("card.gpu")} caption={gpu.metricAvailability?.usage === false ? "—" : `${Math.round(usage)}%`} pct={gpu.metricAvailability?.usage === false ? 0 : usage} color={ringColor} />
               )}
               {spark.kind === "host" && spark.metrics.ram?.total ? (
                 <Bar
-                  label="RAM"
+                  label={t("card.ram")}
                   caption={`${fmtStorage(spark.metrics.ram.used, false)} / ${fmtStorage(spark.metrics.ram.total, true)}`}
                   pct={(spark.metrics.ram.used / spark.metrics.ram.total) * 100}
                   color="var(--color-info)"
@@ -355,9 +359,9 @@ function SparkCardImpl({
               ) : null}
               {cards ? null : (
                 <>
-                  <Bar label="GPU temp" caption={gpu.metricAvailability?.temperature === false ? "—" : fmtTemp(tempRaw)} pct={gpu.metricAvailability?.temperature === false ? 0 : (tempVal / tempMax) * 100} color={tempColor} />
+                  <Bar label={t("card.gpuTemp")} caption={gpu.metricAvailability?.temperature === false ? "—" : fmtTemp(tempRaw)} pct={gpu.metricAvailability?.temperature === false ? 0 : (tempVal / tempMax) * 100} color={tempColor} />
                   <Bar
-                    label="GPU power"
+                    label={t("card.gpuPower")}
                     caption={gpu.metricAvailability?.powerDraw === false ? "—" : `${power?.draw ?? 0} / ${gpu.metricAvailability?.powerLimit === false ? "—" : power?.limit ?? 0} W`}
                     pct={gpu.metricAvailability?.powerDraw === false ? 0 : powerPct}
                     color="var(--color-violet)"
@@ -366,53 +370,58 @@ function SparkCardImpl({
               )}
               {cpuTempRaw !== null ? (
                 <Bar
-                  label="CPU temp"
-                  title={cpuMetrics?.temperatureLabel ? `Sensor: ${cpuMetrics.temperatureLabel}` : undefined}
+                  label={t("card.cpuTemp")}
+                  title={cpuMetrics?.temperatureLabel ? t("card.sensor", { name: cpuMetrics.temperatureLabel }) : undefined}
                   caption={fmtTemp(cpuTempRaw)}
                   pct={(cpuTempVal / tempMax) * 100}
                   color={cpuTempColor}
                 />
               ) : null}
-              {cpuPower ? <Bar label="CPU power" caption={`${cpuPower.draw} / ${cpuPower.tdp} W`} pct={cpuPowerPct} color="var(--color-violet)" /> : null}
+              {cpuPower ? <Bar label={t("card.cpuPower")} caption={`${cpuPower.draw} / ${cpuPower.tdp} W`} pct={cpuPowerPct} color="var(--color-violet)" /> : null}
             </div>
           </div>
           {showLauncher ? <ModelLauncher spark={spark} onOpen={onSelect} busy={loadingHint} busyHolders={gpuHolders.length > 0} freeMb={memTotal > 0 ? memAvail : null} lowFreeMb={HEADROOM_THRESHOLDS_MB[memoryModelFor(spark.kind, spark.platform)].low} /> : null}
           {role === "worker" ? (
             <div className="ov-launch ov-launch--worker">
-              <div className="eyebrow">Worker of</div>
+              <div className="eyebrow">{t("card.workerOfLabel")}</div>
               {headSpark ? (
                 <AppLink
                   href={idToPath(headSpark.id)}
                   className="ov-launch__head"
                   onNavigate={() => onSelect?.(headSpark.id)}
-                  title={`Open ${headSpark.name}`}
+                  title={t("card.openSpark", { name: headSpark.name })}
                 >
                   <i className={`sdot ${headSpark.online ? "" : "sdot--off"}`} aria-hidden />
                   {headSpark.name}
                 </AppLink>
               ) : (
-                <div className="ov-launch__title">Head not set</div>
+                <div className="ov-launch__title">{t("card.headNotSet")}</div>
               )}
               <div className="ov-launch__hint">
                 {headLlm
-                  ? `${backendLabel(headLlm.backend) ?? headLlm.backend ?? "LLM"} · ${headLlm.measurementValid === false ? "—" : headLlm.generationTps.toFixed(1)} tok/s decode${headLlm.perStreamTps != null ? ` · ${headLlm.perStreamTps.toFixed(1)} per stream` : ""}${headLlm.perStreamPrefillTps != null ? ` · ${Math.round(headLlm.perStreamPrefillTps).toLocaleString()} prefill per request (effective, incl. cached)` : ""}`
+                  ? t("card.workerHeadThroughput", {
+                      backend: backendLabel(headLlm.backend) ?? headLlm.backend ?? "LLM",
+                      decode: headLlm.measurementValid === false ? "—" : headLlm.generationTps.toFixed(1),
+                      perStream: headLlm.perStreamTps == null ? "" : t("card.workerHeadPerStream", { value: headLlm.perStreamTps.toFixed(1) }),
+                      prefill: headLlm.perStreamPrefillTps == null ? "" : t("card.workerHeadPrefill", { value: Math.round(headLlm.perStreamPrefillTps).toLocaleString() }),
+                    })
                   : headSpark
                     ? headSpark.online
                       ? headLlmList.length
-                        ? "The head's inference API is not ready yet"
-                        : "No LLM port is watched on the head"
-                      : "Head is offline"
-                    : "Pick its head in Edit Spark to see the model here"}
+                        ? t("card.headInferenceNotReady")
+                        : t("card.noHeadLlmPortHint")
+                      : t("card.headOfflineHint")
+                    : t("card.pickHead")}
               </div>
             </div>
           ) : null}
           {role !== "worker" && spark.llmMovedTo ? (
             <div className="ov-launch ov-launch--moved" title={spark.llmMovedTo.message}>
-              <div className="eyebrow">Engine on the worker</div>
+              <div className="eyebrow">{t("card.engineOnWorker")}</div>
               <div className="ov-launch__hint">
-                {spark.llmMovedTo.workerName} answers on port {spark.llmMovedTo.port}
-                {spark.llmMovedTo.modelId ? ` · ${spark.llmMovedTo.modelId}` : ""} while this head does not.
-                The engine may have moved — swap head and worker?
+                {t("card.workerAnswersOnPort", { name: spark.llmMovedTo.workerName, port: spark.llmMovedTo.port })}
+                {spark.llmMovedTo.modelId ? ` · ${spark.llmMovedTo.modelId}` : ""} {t("card.headDoesNotAnswer")}
+                {t("card.engineMayHaveMoved")}
               </div>
             </div>
           ) : null}
@@ -421,58 +430,58 @@ function SparkCardImpl({
               <div
                 title={
                   isStrata
-                    ? "Live sliding-window decode rate. When that window is unavailable, the active-slot mean sums each active slot’s generated tokens divided by its elapsed time since first token; it excludes prefill time."
+                    ? t("card.decodeStrataHelp")
                     : undefined
                 }
               >
-                <div className="eyebrow">Decode</div>
+                <div className="eyebrow">{t("card.decode")}</div>
                 {llm.measurementValid === false ? (
-                  <div className="big-num ov-tps__num" title={llm.measurementError ?? "Stats could not be read"}>—</div>
+                  <div className="big-num ov-tps__num" title={llm.measurementError ?? t("card.statsCouldNotBeRead")}>—</div>
                 ) : isStrata && llm.decodeActive && llm.generationTps <= 0 ? (
                   <div className="big-num ov-tps__num ov-tps__num--live">
                     <span className="ov-tps__dots" aria-hidden />
-                    <small>decoding</small>
+                    <small>{t("card.decoding")}</small>
                   </div>
                 ) : (
-                  <div className="big-num ov-tps__num">{llm.generationTps.toFixed(1)}<small>tok/s</small></div>
+                  <div className="big-num ov-tps__num">{llm.generationTps.toFixed(1)}<small>{t("card.tokPerSecond")}</small></div>
                 )}
-                {isStrata && llm.generationTpsSource === "slot-mean" && <small className="text-muted">active-slot mean</small>}
+                {isStrata && llm.generationTpsSource === "slot-mean" && <small className="text-muted">{t("card.activeSlotMean")}</small>}
                 {llm.measurementValid !== false && llm.perStreamTps != null && (
                   <small
                     className="text-muted"
-                    title="Average decode throughput of one running stream (1 / mean seconds per output token). Only engines that publish a per-token latency histogram report it."
+                    title={t("card.perStreamDecodeHelp")}
                   >
-                    {llm.perStreamTps.toFixed(1)} tok/s per stream
+                    {t("card.tokPerSecondPerStream", { value: llm.perStreamTps.toFixed(1) })}
                   </small>
                 )}
               </div>
               <div
                 title={
                   isStrata
-                    ? "Engine-reported mean for computed/new prompt tokens. It may be from an earlier prefill and is not an aggregate across slots."
+                    ? t("card.prefillStrataHelp")
                     : undefined
                 }
               >
-                <div className="eyebrow">Prefill</div>
+                <div className="eyebrow">{t("card.prefill")}</div>
                 {llm.measurementValid === false ? (
-                  <div className="big-num ov-tps__num" title={llm.measurementError ?? "Stats could not be read"}>—</div>
+                  <div className="big-num ov-tps__num" title={llm.measurementError ?? t("card.statsCouldNotBeRead")}>—</div>
                 ) : llm.prefillActive && llm.prefillTps <= 0 ? (
-                  <div className="big-num ov-tps__num ov-tps__num--live" title={isStrata ? "A prompt is being processed; no current prefill rate is available." : "A prompt is being processed. The engine reports its speed only when the request finishes."}>
+                  <div className="big-num ov-tps__num ov-tps__num--live" title={isStrata ? t("card.prefillProcessingStrata") : t("card.prefillProcessing")}>
                     <span className="ov-tps__dots" aria-hidden />
-                    <small>prefilling</small>
+                    <small>{t("card.prefilling")}</small>
                   </div>
                 ) : (
-                  <div className="big-num ov-tps__num">{Math.round(llm.prefillTps).toLocaleString()}<small>tok/s</small></div>
+                  <div className="big-num ov-tps__num">{Math.round(llm.prefillTps).toLocaleString()}<small>{t("card.tokPerSecond")}</small></div>
                 )}
                 {llm.measurementValid !== false && llm.perStreamPrefillTps != null && (
                   <small
                     className="text-muted"
-                    title="Effective prefill rate of one request (prompt tokens ÷ prefill seconds over finished requests). The prompt counter includes prefix-cache tokens, so this is an effective speed, not raw GPU speed; it is held between completions."
+                    title={t("card.perRequestPrefillHelp")}
                   >
-                    {Math.round(llm.perStreamPrefillTps).toLocaleString()} tok/s per request — effective (incl. cached tokens)
+                    {t("card.tokPerSecondPerRequestEffective", { value: Math.round(llm.perStreamPrefillTps).toLocaleString() })}
                   </small>
                 )}
-                {isStrata && llm.prefillTps > 0 && <small className="text-muted">last reported mean</small>}
+                {isStrata && llm.prefillTps > 0 && <small className="text-muted">{t("card.lastReportedMean")}</small>}
               </div>
             </div>
           ) : null}
@@ -480,16 +489,16 @@ function SparkCardImpl({
           {rootDisk ? (
             <div className="ov-foot">
               <div className="ov-kv">
-                <span>Storage</span>
+                <span>{t("card.storage")}</span>
                 <b
                   className="mono"
-                  title={`${fmtStorage(rootDisk.used, true)} of ${fmtStorage(rootDisk.total, true)} used (${Math.round(rootDisk.percentage)}%)`}
+                  title={t("card.storageUsed", { used: fmtStorage(rootDisk.used, true), total: fmtStorage(rootDisk.total, true), percentage: Math.round(rootDisk.percentage) })}
                 >
                   {formatDiskSize(rootDisk.used)} / {formatDiskSize(rootDisk.total)}
                 </b>
               </div>
               <div className="ov-kv">
-                <span>Storage available</span>
+                <span>{t("card.storageAvailable")}</span>
                 <b className="mono">{fmtStorage(rootDisk.available ?? Math.max(0, rootDisk.total - rootDisk.used), true)}</b>
               </div>
             </div>
@@ -509,9 +518,9 @@ function SparkCardImpl({
             ...llmList.filter((entry) => entry.available).flatMap((entry) => entry.models?.length ? entry.models : entry.modelId ? [entry.modelId] : []),
             ...(spark.metrics.residentModels ?? []).map((entry) => entry.modelId),
           ])].filter((name) => name !== modelText).map((name) => (
-            <div className="ov-modelrow" key={name} title={`${name} · loaded model; throughput shown for the monitored endpoint above`}>
+            <div className="ov-modelrow" key={name} title={t("card.loadedModelTitle", { name })}>
               <code>{name}</code>
-              <span className="ov-modelrow__ctx">Loaded</span>
+              <span className="ov-modelrow__ctx">{t("card.loaded")}</span>
             </div>
           ))}
         </>
