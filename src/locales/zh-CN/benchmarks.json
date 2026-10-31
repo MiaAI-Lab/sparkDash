@@ -1,0 +1,86 @@
+{
+  "page": {
+    "unknown": "未知基准测试。",
+    "benchmarks": "基准测试",
+    "benchmark": "基准测试",
+    "runOn": "运行位置",
+    "noSparks": "没有可用的 Spark"
+  },
+  "catalog": {
+    "decode": { "label": "解码", "blurb": "在逐步提高并发时测试生成速度（tokens/s）。" },
+    "prefill": { "label": "预填充", "blurb": "跨上下文长度测试提示词处理速度和首个 token 时间。" },
+    "quality": { "label": "质量", "blurb": "使用固定随机种子的质量套件比较模型、量化方式和 KV 缓存格式。" },
+    "toolEval": { "label": "工具调用评测", "blurb": "通过 69 个确定性场景评测工具调用质量（选择、参数、多步和安全）。", "family": "工具调用评测" }
+  },
+  "sparkChips": {
+    "group": "要进行基准测试的 Spark",
+    "workerTitle": "{{name}} 是工作节点：没有本地 LLM，只能查看已保存结果",
+    "offlineTitle": "{{name}} 离线",
+    "worker": "工作节点"
+  },
+  "target": {
+    "enterHost": "请输入要进行基准测试的 LLM 端点主机地址。",
+    "noSparkTitle": "没有可用于基准测试的 Spark",
+    "noSparkBody": "请先从节点列表添加一个 Spark。基准测试可以针对 Spark 上的 LLM 服务，或你输入的远程端点运行。",
+    "aria": "基准测试目标",
+    "remoteTitle": "测试另一个 LLM 端点，而不是 Spark 上的端点",
+    "remote": "远程",
+    "llmPort": "LLM 端口",
+    "port": "端口 {{port}}",
+    "servedModel": "当前在此端口提供服务的模型",
+    "host": "主机",
+    "remoteHost": "远程主机",
+    "portLabel": "端口",
+    "remotePort": "远程端口",
+    "offlineTitle": "{{name}} 离线。",
+    "offlineBody": "恢复在线后即可测试其 LLM，或者改用远程目标并指向另一个端点。下方的已保存运行仍可查看。",
+    "workerTitle": "{{name}} 是工作节点",
+    "workerBody": "，它自身不提供 LLM，因此无法在此运行。下方的已保存运行仍可查看。",
+    "unreachableTitle": "端口 {{port}} 没有可访问的 LLM。",
+    "unreachableBody": "请在此 Spark 上启动模型（其页面的模型面板），检查设置中的 LLM 端口，或改用远程目标。下方的已保存运行仍可查看。",
+    "remoteHint": "按需端点：在开始运行前不会进行探测。远程节点使用局域网 HTTP；若服务器只监听 127.0.0.1，则使用到回环地址的 SSH 隧道。"
+  },
+  "switcher": { "aria": "基准测试类型" },
+  "pageParts": { "runConfiguration": "运行配置", "configuration": "配置" },
+  "history": {
+    "date": "日期", "model": "模型", "result": "结果", "actions": "操作",
+    "open": "打开", "view": "查看", "comparing": "正在比较", "compare": "比较",
+    "delete": "删除", "deleteTitle": "从历史记录中移除此运行", "peakAt": "峰值位于", "streamAtOne": "/流，位于 ×1", "startContext": "起始上下文", "bestAt": "最佳位于", "category": "个类别", "categories": "个类别"
+  },
+  "dialog": {
+    "model": "模型", "running": "运行中", "completedLevels": "已完成级别", "load": "负载", "aggregate": "聚合", "stream": "单流",
+    "loadingLast": "正在加载上次结果…", "cancelRun": "取消运行", "starting": "正在开始…", "run": "运行基准测试", "progress": "进度", "results": "结果",
+    "clearTitle": "清除此端口已保存的结果", "clearHistory": "清除历史", "noRuns": "尚无运行", "history": "历史记录 · {{count}}",
+    "closeDialog": "关闭对话框", "close": "关闭", "cancel": "取消", "clear": "清除", "done": "完成", "runAgain": "再次运行", "customExample": "自定义，例如 100k"
+  },
+  "decode": {
+    "title": "解码基准测试", "modelHint": "选择基准测试目标模型。", "noModels": "此目标当前没有提供服务的模型。",
+    "type": "类型", "typeAria": "解码基准测试类型", "thinking": "思考", "thinkingHint": "默认开启。推理 token 计入解码 tok/s。",
+    "withThinking": "开启思考", "withoutThinking": "关闭思考", "temperature": "温度", "concurrency": "并发", "concurrencyHint": "各级别按顺序运行；每个级别打开相应数量的并行流。",
+    "startContext": "每流起始上下文", "startContextAria": "起始上下文预设", "empty": "空", "maxTokens": "每流最大 token 数", "contextAbbr": "上下文", "streams": "流",
+    "emptyBody": "选择提示词类型和并发级别后运行。每个级别会打开相应数量的并行流，并报告聚合及每流解码 tok/s。", "errorModel": "请选择当前正在提供服务的模型后再运行基准测试", "errorConcurrency": "请至少选择一个并发级别", "errorMaxTokens": "最大 token 数必须是 64 到 2048 之间的整数", "errorTemperature": "温度必须是 0 到 2 之间的数字", "temperatureHint":"默认 0.7；0 为贪婪采样，范围 0 到 2。v2.70 之前始终使用温度 0 且关闭思考；与旧运行比较时请设为 0。使用推测解码的服务器在温度高于 0 时可能慢很多。", "contextHint":"每条流先预填充到该 token 数，再从这里解码。需要前缀缓存和足够的 KV 空间容纳并发数 × 上下文。", "maxHint":"默认 400", "maxStructuredHint":"默认 400 · 计数 1→200", "legend":"聚合 — 所有并行流的总解码 tok/s。单流 — 每条流的平均解码速度。", "mixedHistory":"这些运行使用不同的温度或思考设置。仅比较设置相同的运行；温度高于 0 时可能慢数倍。"
+  },
+  "copy": {
+    "idle": "复制结果", "working": "正在复制…", "image": "图片已复制！", "downloaded": "PNG 已保存", "shown": "已显示卡片", "text": "文本已复制！", "textShort": "已复制！",
+    "errorText": "无法将结果复制到剪贴板", "errorImage": "无法将图片复制到剪贴板", "errorRender": "无法渲染卡片图片",
+    "textTitle": "将纯文本摘要复制到剪贴板", "buttonTitle": "将结果复制为纯文本；右侧箭头复制分享卡片图片", "format": "复制格式",
+    "imageTitle": "复制为文本或图片", "showTitle": "复制为文本，或显示/下载图片", "asText": "复制为文本", "asImage": "复制为图片", "showCard": "显示卡片", "download": "下载 PNG",
+    "showHint": "此页面通过局域网 HTTP 地址提供服务，浏览器无法直接将图片写入剪贴板。因此改为显示卡片图片；可右键复制图片，或将它拖入帖子。",
+    "cardLabel": "基准测试分享卡片", "cardAlt": "基准测试结果卡片 — 右键复制", "previewBefore": "右键 → ", "copyImage": "复制图片", "previewAfter": "，或将卡片拖入帖子。浏览器仅允许网页通过 HTTPS 或 localhost 复制图片，因此在这里显示卡片供浏览器复制。"
+  },
+  "prefill": {
+    "title": "预填充基准测试", "contextSize": "上下文大小", "contextSizes": "上下文大小", "contextHint": "输入自定义 token 数以添加。",
+    "custom": "自定义", "customAria": "自定义上下文 token 数", "add": "添加", "progressAria": "预填充基准测试进度", "completedSizes": "已完成大小", "context": "上下文", "ttft": "TTFT", "tokens": "token", "failed": "失败", "noRate": "未测得预填充速率", "legend":"预填充 — 服务器报告自身提示词处理时间时使用该值，否则用 token 数 ÷（TTFT − 校准请求开销）计算；排除前缀缓存命中，修正上限为 TTFT 的一半。TTFT — 从请求开始到第一个流式 token。token、TTFT 和 tok/s 来自每个大小的中位速率样本。每个大小使用唯一前缀，避免前缀缓存抬高后续结果。低置信度 — 开销超过 TTFT 的 30%，速率更多依赖校准；n/m 样本 — 有重复失败。", "emptyBody":"选择要测试的上下文大小后运行。每个大小发送唯一提示词，并报告预填充 tok/s 和首 token 时间。"
+  },
+  "quality": {
+    "title": "质量基准测试", "categories": "类别", "defaults": "默认", "selectAll": "全选", "optional": "可选", "hideDetails": "隐藏详情", "howItWorks": "工作原理",
+    "longSizes": "长上下文大小", "itemsPerSize": "每个大小的项目数", "selected": "已选 {{count}} 项", "concurrency": "并发", "concurrencyTitle": "同时发送给模型的问题数量",
+    "runLabel": "运行标签", "runLabelPlaceholder": "例如 fp4 KV", "progressAria": "质量基准测试进度", "compareWith": "与以下运行比较", "pickRun": "— 选择之前的运行 —", "noSharedItems": "这些运行之间没有共同项目。",
+    "show": "显示", "historyScope": "历史范围", "allPorts": "所有端口", "label": "标签", "run": "运行质量基准测试", "category":"类别", "score":"得分", "notes":"备注", "overall":"总分", "thisRun":"本次运行", "otherRun":"另一运行", "sameScore":"得分相同", "vsOther":"与另一运行比较", "meanScores":"{{categories}} 个类别的平均得分 · {{items}} 项", "scoreByCategory":"按类别得分", "runA":"运行 A", "runB":"运行 B", "items":"项", "disagreements":"两次运行结果不同的项目", "of":"共", "aOnly":"仅 A {{count}}", "bOnly":"仅 B {{count}}", "sameItems":"两次运行通过和失败的项目完全相同。", "item":"项目", "runADetail":"运行 A 详情", "perItem":"逐项结果（{{count}}）", "id":"编号", "ok":"结果", "reply":"回复", "cancelRun":"取消运行", "selectCategories":"选择类别", "suiteHint":"固定随机种子套件，温度为 0；每次运行的项目相同，因此可逐项配对比较。", "thinkingOn":"开启思考", "howTitle":"{{category}}：工作原理", "measures":"测试内容", "sends":"发送内容", "scored":"评分方式", "settings":"设置和成本", "example":"示例（实际提示词的形式）", "aboutRequests":"约 {{count}} 个请求", "skippedLong":"跳过超出模型上下文的长尺寸：{{sizes}}", "legend":"得分 — 通过的项目。p — 仅一方答对的项目采用精确 McNemar 检验；p ≥ 0.05 表示差异处于噪声范围。请求错误或超时的项目不计分，也不参与比较。", "emptyBody":"选择要评分的类别，为运行添加标签（例如量化或 KV 缓存格式）后运行。套件固定且有随机种子，因此任意两次运行都可逐项比较。", "port":"端口 {{port}}", "deleteTitle":"从历史记录中删除此运行，保留其他运行", "deleteRun":"删除运行"
+  },
+  "share": {
+    "completed": "已完成", "running": "运行中", "failed": "失败", "cancelled": "已取消",
+    "score": "得分", "category": "类别", "versusOther": "与另一运行比较"
+  },
+  "liveTps": { "aria": "实时生成速度", "live": "实时生成", "peak": "峰值 {{value}} tok/s" }
+}

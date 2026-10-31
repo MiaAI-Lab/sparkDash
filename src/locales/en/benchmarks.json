@@ -1,0 +1,86 @@
+{
+  "page": {
+    "unknown": "Unknown benchmark.",
+    "benchmarks": "Benchmarks",
+    "benchmark": "Benchmark",
+    "runOn": "Run on",
+    "noSparks": "No Sparks available"
+  },
+  "catalog": {
+    "decode": { "label": "Decode", "blurb": "Generation speed (tokens/s) at rising concurrency." },
+    "prefill": { "label": "Prefill", "blurb": "Prompt processing speed and time to first token across context sizes." },
+    "quality": { "label": "Quality", "blurb": "A fixed, seeded quality suite to compare models, quantisations and KV-cache formats." },
+    "toolEval": { "label": "Tool Eval Bench", "blurb": "Tool-calling quality across 69 deterministic scenarios (selection, parameters, multi-step, safety).", "family": "Tool Eval Bench" }
+  },
+  "sparkChips": {
+    "group": "Spark to benchmark",
+    "workerTitle": "{{name}} is a worker: no local LLM, saved results only",
+    "offlineTitle": "{{name}} is offline",
+    "worker": "worker"
+  },
+  "target": {
+    "enterHost": "Enter the host of the LLM endpoint to benchmark.",
+    "noSparkTitle": "No Spark to benchmark",
+    "noSparkBody": "Add a Spark from the fleet rail first. Benchmarks run against the LLM server on a Spark, or on a Remote endpoint you type in.",
+    "aria": "Benchmark target",
+    "remoteTitle": "Benchmark another LLM endpoint instead of a Spark's",
+    "remote": "Remote",
+    "llmPort": "LLM port",
+    "port": "Port {{port}}",
+    "servedModel": "Model currently served on this port",
+    "host": "Host",
+    "remoteHost": "Remote host",
+    "portLabel": "Port",
+    "remotePort": "Remote port",
+    "offlineTitle": "{{name}} is offline.",
+    "offlineBody": "Bring it back online to benchmark its LLM, or switch the target to Remote and point at another endpoint. Saved runs below are still readable.",
+    "workerTitle": "{{name}} is a worker",
+    "workerBody": " and serves no LLM of its own, so nothing can run here. Saved runs below are still readable.",
+    "unreachableTitle": "No reachable LLM on port {{port}}.",
+    "unreachableBody": "Start a model on this Spark (Models panel on its page), check the LLM port in its settings, or switch the target to Remote. Saved runs below are still readable.",
+    "remoteHint": "On-demand endpoint: nothing is probed until you run. Remote units use LAN HTTP, or an SSH tunnel to loopback if the server only listens on 127.0.0.1."
+  },
+  "switcher": { "aria": "Benchmark type" },
+  "pageParts": { "runConfiguration": "Run configuration", "configuration": "Configuration" },
+  "history": {
+    "date": "Date", "model": "Model", "result": "Result", "actions": "Actions",
+    "open": "Open", "view": "View", "comparing": "Comparing", "compare": "Compare",
+    "delete": "Delete", "deleteTitle": "Remove this run from the history", "peakAt": "peak at", "streamAtOne": "/stream at ×1", "startContext": "start ctx", "bestAt": "best at", "category": "category", "categories": "categories"
+  },
+  "dialog": {
+    "model": "Model", "running": "Running", "completedLevels": "Completed levels", "load": "Load", "aggregate": "Aggregate", "stream": "Stream",
+    "loadingLast": "Loading last results…", "cancelRun": "Cancel run", "starting": "Starting…", "run": "Run benchmark", "progress": "Progress", "results": "Results",
+    "clearTitle": "Clear saved results for this port", "clearHistory": "Clear history", "noRuns": "No runs yet", "history": "History · {{count}}",
+    "closeDialog": "Close dialog", "close": "Close", "cancel": "Cancel", "clear": "Clear", "done": "Done", "runAgain": "Run again", "customExample": "Custom, e.g. 100k"
+  },
+  "decode": {
+    "title": "Decode benchmark", "modelHint": "Select which model the benchmark targets.", "noModels": "No models are currently served by this target.",
+    "type": "Type", "typeAria": "Decode benchmark type", "thinking": "Thinking", "thinkingHint": "On by default. Reasoning tokens count toward decode tok/s.",
+    "withThinking": "With thinking", "withoutThinking": "Without thinking", "temperature": "Temperature", "concurrency": "Concurrency", "concurrencyHint": "Levels run sequentially; each opens that many parallel streams.",
+    "startContext": "Start context / stream", "startContextAria": "Start context presets", "empty": "Empty", "maxTokens": "Max tokens / stream", "contextAbbr": "ctx", "streams": "streams",
+    "emptyBody": "Pick a prompt type and concurrency levels, then run. Each level opens that many parallel streams and reports aggregate and per-stream decode tok/s.", "errorModel": "Select a currently served model before running the benchmark", "errorConcurrency": "Select at least one concurrency level", "errorMaxTokens": "Max tokens must be an integer between 64 and 2048", "errorTemperature": "Temperature must be a number between 0 and 2", "temperatureHint":"Default 0.7 · 0 is greedy · 0 to 2. Before v2.70 the bench always ran at temp 0 with thinking off: set 0 to compare with those runs. Temp above 0 can be much slower on servers that use speculative decoding.", "contextHint":"Each stream is prefilled to this many tokens first, then decodes from there. Needs prefix caching and KV room for concurrency × context.", "maxHint":"Default 400", "maxStructuredHint":"Default 400 · count 1→200", "legend":"Aggregate — total decode tok/s across all concurrent streams. Stream — per-stream average decode.", "mixedHistory":"These runs use different temperature or thinking settings. Compare tok/s only between runs with the same settings; temp above 0 can be several times slower."
+  },
+  "copy": {
+    "idle": "Copy results", "working": "Copying…", "image": "Image copied!", "downloaded": "PNG saved", "shown": "Card shown", "text": "Copied text!", "textShort": "Copied!",
+    "errorText": "Could not copy results to clipboard", "errorImage": "Could not copy the image to the clipboard", "errorRender": "Could not render the card image",
+    "textTitle": "Copy a plain-text summary to the clipboard", "buttonTitle": "Copy the results as plain text — the caret on the right copies the share-card image instead", "format": "Copy format",
+    "imageTitle": "Copy as text or as an image", "showTitle": "Copy as text, or show or download the image", "asText": "Copy as text", "asImage": "Copy as image", "showCard": "Show card", "download": "Download PNG",
+    "showHint": "This page is served over http on a LAN address, where a page cannot write images to the clipboard. The card is shown as an image instead — right-click → Copy Image, or drag it into your post.",
+    "cardLabel": "Benchmark share card", "cardAlt": "Benchmark result card — right-click to copy it", "previewBefore": "Right-click → ", "copyImage": "Copy Image", "previewAfter": ", or drag the card into your post. Browsers only let a page copy images over HTTPS or localhost, so the card is shown here for your browser to copy."
+  },
+  "prefill": {
+    "title": "Prefill benchmark", "contextSize": "Context size", "contextSizes": "Context sizes", "contextHint": "Type a custom token count to add it.",
+    "custom": "Custom", "customAria": "Custom context size in tokens", "add": "Add", "progressAria": "Prefill benchmark progress", "completedSizes": "Completed sizes", "context": "Context", "ttft": "TTFT", "tokens": "tokens", "failed": "failed", "noRate": "No prefill rate was measured", "legend":"Prefill — the server's own prompt-processing timing when it reports one, otherwise tokens computed ÷ (TTFT − calibrated request overhead), with prefix-cache hits excluded and the correction capped at half the TTFT. TTFT — request start to first streamed token. Tokens, TTFT and tok/s are from the median-rate sample of each size. Each size uses a unique prefix so prefix-cache does not inflate later sizes. Low confidence — the overhead was over 30% of the TTFT, so the rate leans on the calibration; n/m samples — some repeats failed.", "emptyBody":"Choose the context sizes to test, then run. Each size sends a unique prompt and reports prefill tok/s and time to first token."
+  },
+  "quality": {
+    "title": "Quality benchmark", "categories": "Categories", "defaults": "Defaults", "selectAll": "Select all", "optional": "optional", "hideDetails": "Hide details", "howItWorks": "How it works",
+    "longSizes": "Long-context sizes", "itemsPerSize": "Items per size", "selected": "{{count}} selected", "concurrency": "Concurrency", "concurrencyTitle": "How many questions are sent to the model at the same time",
+    "runLabel": "Run label", "runLabelPlaceholder": "e.g. fp4 KV", "progressAria": "Quality benchmark progress", "compareWith": "Compare with", "pickRun": "— pick a previous run —", "noSharedItems": "No shared items between these runs.",
+    "show": "Show", "historyScope": "History scope", "allPorts": "All ports", "label": "Label", "run": "Run quality bench", "category":"Category", "score":"Score", "notes":"Notes", "overall":"Overall", "thisRun":"this run", "otherRun":"other run", "sameScore":"Same score", "vsOther":"vs other run", "meanScores":"Mean of {{categories}} category scores · {{items}} items", "scoreByCategory":"Score by category", "runA":"Run A", "runB":"Run B", "items":"items", "disagreements":"Items where the runs disagree", "of":"of", "aOnly":"A only {{count}}", "bOnly":"B only {{count}}", "sameItems":"Both runs passed and failed the same items.", "item":"Item", "runADetail":"Run A detail", "perItem":"Per-item results ({{count}})", "id":"Id", "ok":"Ok", "reply":"Reply", "cancelRun":"Cancel run", "selectCategories":"Select categories", "suiteHint":"Fixed, seeded suite at temperature 0 — the same items every run, so runs pair item by item.", "thinkingOn":"thinking on", "howTitle":"{{category}}: how it works", "measures":"What it measures", "sends":"What it sends", "scored":"How it is scored", "settings":"Settings and cost", "example":"Example (the shape of the real prompts)", "aboutRequests":"about {{count}} requests", "skippedLong":"Skipped long sizes above the model context: {{sizes}}", "legend":"Score — items passed. p — exact McNemar test on items only one run got right; p ≥ 0.05 means the difference is within noise. Items with a request error or timeout are not scored and are left out of the comparison.", "emptyBody":"Pick the categories to score, give the run a label (for example the quantisation or KV-cache format) and run. The suite is fixed and seeded, so any two runs can be compared item by item.", "port":"Port {{port}}", "deleteTitle":"Delete this run from the history, keeping the other runs", "deleteRun":"Delete run"
+  },
+  "share": {
+    "completed": "COMPLETED", "running": "RUNNING", "failed": "FAILED", "cancelled": "CANCELLED",
+    "score": "Score", "category": "Category", "versusOther": "vs other"
+  },
+  "liveTps": { "aria": "Live generation speed", "live": "Live generation", "peak": "peak {{value}} tok/s" }
+}

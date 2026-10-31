@@ -3,6 +3,7 @@ import boltSvg from "../../../assets/bolt.svg?raw";
 import type { DecodeBenchJob, PrefillBenchJob, QualityBenchJob } from "../../api/types";
 import {
   BOLT_POINTS,
+  DEFAULT_SHARE_CARD_LABELS,
   SHARE_CARD_MIN_HEIGHT,
   SHARE_CARD_WIDTH,
   buildDecodeShareCard,
@@ -180,6 +181,22 @@ describe("share card model", () => {
       primaryUnit: "tok/s",
       tone: "ok",
     });
+  });
+
+  it("changes localized card chrome without changing measured values or layout inputs", () => {
+    const job = decodeJob();
+    const english = buildDecodeShareCard(job, { llmPort: 8888, modelId: "raw/model:Q4" });
+    const chinese = buildDecodeShareCard(job, {
+      llmPort: 8888,
+      modelId: "raw/model:Q4",
+      labels: { ...DEFAULT_SHARE_CARD_LABELS, decodeTitle: "解码基准测试", load: "负载", aggregate: "总计", stream: "单流", completed: "已完成" },
+    });
+    expect(chinese.title).toBe("解码基准测试");
+    expect(chinese.columns).toEqual({ load: "负载", primary: "总计", secondary: "单流" });
+    expect(chinese.status.label).toBe("已完成");
+    expect(chinese.subtitle).toContain("raw/model:Q4");
+    expect(chinese.rows).toEqual(english.rows);
+    expect(shareCardHeight(chinese)).toBe(shareCardHeight(english));
   });
 
   it("sorts decode rows by concurrency regardless of arrival order", () => {
@@ -677,6 +694,25 @@ describe("tool eval share card", () => {
     const tile = m.toolEval!.categories[0];
     const sixteen = { ...m, toolEval: { ...m.toolEval!, categories: Array.from({ length: 16 }, () => tile) } };
     expect(shareCardHeight(sixteen)).toBeGreaterThan(shareCardHeight(m));
+  });
+
+  it("uses optional caller labels for hand-painted card chrome without changing raw safety text", () => {
+    const labels = {
+      ...DEFAULT_SHARE_CARD_LABELS,
+      toolEvalBench: "工具评测",
+      score: "得分",
+      scenarioOutcomes: "场景结果",
+      safetyWarnings: (count: number) => `安全警告 ${count}`,
+      more: (count: number) => `另有 ${count} 项`,
+    };
+    const m = buildToolEvalShareCard(result({ safety_warnings: ["raw warning"] }), run, { labels }, 0);
+    const ctx = fakeContext();
+    paintShareCard(ctx, m, "dark");
+    expect(ctx.texts).toContain("工具评测");
+    expect(ctx.texts).toContain("得分");
+    expect(ctx.texts).toContain("场景结果");
+    expect(ctx.texts).toContain("安全警告 1");
+    expect(ctx.texts).toContain("•  raw warning");
   });
 
   it("copes with a result that has no score, no categories and no model", () => {
