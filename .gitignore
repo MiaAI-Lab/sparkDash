@@ -27,7 +27,8 @@ config/gpu-memory.json.*
 config/bench-exports/
 *.log
 .DS_Store
-docs/
+/docs/*
+!/docs/I18N-COVERAGE.md
 mockups/
 PLAN.md
 tetris.html
