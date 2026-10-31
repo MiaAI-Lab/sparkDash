@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 import { useModalPresence } from "../hooks/useModalPresence";
 import { useOverlayClose } from "../hooks/useOverlayClose";
 import { useFocusTrap } from "../hooks/useFocusTrap";
@@ -18,12 +19,13 @@ interface AccessTokenDialogProps {
   onClose: (saved?: boolean) => void;
 }
 
-const REJECTED_MESSAGE = "The server rejected this token. Check SPARKDASH_TOKEN on the host and try again.";
+type AccessTokenError = "rejected" | "savedRejected";
 
 export function AccessTokenDialog({ open, reason, onClose }: AccessTokenDialogProps) {
+  const { t } = useTranslation("devices");
   const [value, setValue] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<AccessTokenError | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const titleId = useId();
   const { mounted, visible } = useModalPresence(open);
@@ -38,7 +40,7 @@ export function AccessTokenDialog({ open, reason, onClose }: AccessTokenDialogPr
       return;
     }
     // Reopened by a refusal while a token is stored: that token is the problem.
-    setError(reason === "rejected" && getToken() ? "The saved token was rejected by the server." : null);
+    setError(reason === "rejected" && getToken() ? "savedRejected" : null);
     const t = window.setTimeout(() => inputRef.current?.focus(), 50);
     return () => window.clearTimeout(t);
   }, [open, reason]);
@@ -64,7 +66,7 @@ export function AccessTokenDialog({ open, reason, onClose }: AccessTokenDialogPr
     try {
       const status = await fetchAuthStatus(candidate);
       if (status.tokenRequired && !status.authenticated) {
-        setError(REJECTED_MESSAGE);
+        setError("rejected");
         setSubmitting(false);
         return;
       }
@@ -91,20 +93,20 @@ export function AccessTokenDialog({ open, reason, onClose }: AccessTokenDialogPr
         aria-labelledby={titleId}
       >
         <div className="modal-sheet__header" id={titleId}>
-          Access token
+          {t("accessToken.title")}
         </div>
 
         <div className="modal-sheet__body space-y-3">
           <p className="text-xs leading-relaxed text-muted">
             {reason === "rejected"
-              ? "This sparkDash server requires an access token for live telemetry and changes. Enter the value of SPARKDASH_TOKEN set on the host."
-              : "Enter the value of SPARKDASH_TOKEN set on the host."}{" "}
-            It is stored in this browser only.
+              ? t("accessToken.descriptionRejected")
+              : t("accessToken.description")}{" "}
+            {t("accessToken.storedLocally")}
           </p>
 
           <div>
             <label htmlFor={`${titleId}-input`} className="mb-1 block text-xs text-muted">
-              Token
+              {t("accessToken.label")}
             </label>
             <input
               ref={inputRef}
@@ -130,7 +132,7 @@ export function AccessTokenDialog({ open, reason, onClose }: AccessTokenDialogPr
 
           {error && (
             <div role="alert" className="rounded bg-danger/20 px-3 py-2 text-xs text-danger">
-              {error}
+              {error === "rejected" ? t("accessToken.errors.rejected") : t("accessToken.errors.savedRejected")}
             </div>
           )}
         </div>
@@ -143,7 +145,7 @@ export function AccessTokenDialog({ open, reason, onClose }: AccessTokenDialogPr
               disabled={submitting}
               className="rounded-md border border-border bg-surface-elevated px-3 py-1.5 text-xs text-muted transition-colors hover:bg-surface-hover hover:text-text disabled:opacity-50"
             >
-              Cancel
+              {t("actions.cancel")}
             </button>
             <button
               type="button"
@@ -151,7 +153,7 @@ export function AccessTokenDialog({ open, reason, onClose }: AccessTokenDialogPr
               disabled={!candidate || submitting}
               className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {submitting ? "Checking…" : "Save"}
+              {submitting ? t("actions.checking") : t("actions.save")}
             </button>
           </div>
         </div>
