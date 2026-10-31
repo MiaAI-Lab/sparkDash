@@ -1,0 +1,96 @@
+{
+  "error": {
+    "sparkNotFound": "Spark not found",
+    "invalidUrl": "Invalid URL",
+    "authenticationRequired": "Authentication required",
+    "remoteTokenRequired": "Remote access requires SPARKDASH_TOKEN",
+    "hostRequired": "lanIp or ssh.host required",
+    "passwordRequired": "password is required",
+    "promptIdRequired": "promptId is required",
+    "orderArray": "body.order must be an array of spark ids",
+    "disabledDevicesArray": "disabledDevices must be an array",
+    "disabledInterfacesArray": "disabledInterfaces must be an array",
+    "llmPortsArray": "llmPorts must be an array",
+    "invalidPort": "Invalid port",
+    "portRequired": "port is required",
+    "portUnconfigured": "port is not configured for this Spark",
+    "primaryPort": "Cannot remove the primary LLM port",
+    "lastPort": "Cannot remove the last LLM port",
+    "workerApi": "Worker nodes do not expose a local LLM API",
+    "llmDisabled": "LLM monitoring is disabled for this Spark",
+    "comfyDisabled": "ComfyUI monitoring is disabled for this Spark",
+    "categoryRequired": "Select at least one category",
+    "benchmarkNotFound": "Benchmark not found",
+    "showcaseNotFound": "Showcase session not found",
+    "modelNotFound": "Model not found",
+    "jobNotFound": "Job not found (it may have been replaced by a newer one)",
+    "cancelled": "Cancelled"
+  },
+  "message": {
+    "shutdownInitiated": "Shutdown initiated",
+    "gpuCapRemoved": "GPU clock cap removed"
+  },
+  "health": {
+    "thermal": {
+      "titleWarn": "GPU is running hot",
+      "titleCritical": "GPU is close to its shutdown temperature",
+      "hint": "Check airflow and the room temperature, and that nothing blocks the vents. Lower the power limit or the load if it keeps climbing.",
+      "detail": "{{temperature}}°C (warns at {{warn}}°C, critical at {{critical}}°C)."
+    },
+    "lowPower": {
+      "title": "GPU has high utilisation with low power draw",
+      "hint": "This can be normal during memory-bound decode. Check workload progress and token throughput first; if progress has stopped, inspect driver logs and power-management settings.",
+      "detail": "{{util}}% utilisation but only {{power}} W for {{samples}} samples in a row."
+    },
+    "memory": {
+      "titleWarn": "Unified memory is running low",
+      "titleCritical": "Unified memory is almost exhausted",
+      "hint": "The kernel may start killing processes. Stop a model you are not using, lower the context length or the GPU memory utilisation.",
+      "detail": "{{available}} GB available of {{total}} GB."
+    },
+    "xid": {
+      "title": "NVIDIA Xid error",
+      "hint": "Look up the Xid code in NVIDIA's Xid catalog. Repeated driver-class Xids point at hardware or a driver bug.",
+      "detail": "A GPU or driver error was logged by the kernel within the last hour ({{count}} since boot).",
+      "latest": " Latest: {{last}}."
+    },
+    "oom": {
+      "title": "Kernel killed a process (out of memory)",
+      "hint": "Something ran out of memory. Lower the model's memory use or stop other workloads.",
+      "detail": "The kernel's OOM killer ended a process within the last hour ({{count}} since boot)."
+    },
+    "concurrency": {
+      "title": "Several models are loaded on this node",
+      "hint": "Heavy backends compete for the same unified memory. Stop the ones you are not using to avoid out-of-memory kills.",
+      "detail": "{{count}} different models are serving while {{percent}}% of memory is in use."
+    },
+    "linkSpeed": {
+      "title": "Network link is slower than 1 Gb/s",
+      "hint": "Check the cable and the switch port. A cluster running over a degraded link slows every tensor-parallel step.",
+      "detail": "{{device}} negotiated {{speed}} Mb/s."
+    },
+    "roceLink": {
+      "hint": "Check the cable, the transceiver and the switch port. Tensor-parallel and NCCL traffic over this port stalls or falls back to another path.",
+      "title_one": "A RoCE link went down",
+      "title_other": "{{count}} RoCE links went down"
+    },
+    "roceLoss": {
+      "title": "RoCE is dropping packets",
+      "hint": "Rising out_of_buffer, sequence or ack-timeout errors point at congestion or a lossless-network (PFC/ECN) misconfiguration. Compare the PFC and trust settings on every Spark and on the switch."
+    }
+  },
+  "event": {
+    "sparkOnline": "{{name}} came online",
+    "sparkOffline": "{{name}} went offline",
+    "sparkAdded": "{{name}} was added",
+    "sparkRemoved": "{{name}} was removed",
+    "shutdownRequested": "Shutdown requested for {{name}}",
+    "wakeSent": "Wake-on-LAN sent to {{name}}"
+  },
+  "ui": {
+    "healthFindings": "Health findings",
+    "critical": "Critical",
+    "warning": "Warning",
+    "more": "+{{count}} more"
+  }
+}

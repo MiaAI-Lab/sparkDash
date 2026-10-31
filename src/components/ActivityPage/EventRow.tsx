@@ -2,6 +2,7 @@ import { memo, useState, type KeyboardEvent, type MouseEvent } from "react";
 import type { ActivityEvent } from "../../api/types";
 import { ChevronRightIcon } from "../ui/icons";
 import { Tag, type TagTone } from "../ui/Tag";
+import { useServerMessage } from "../../i18n/serverMessages";
 import { splitMessage } from "../OverviewPage/activityFormat";
 import { SEVERITY_LABEL, categorize, categoryLabel, formatClock, formatStamp, typeLabel } from "./activityStats";
 
@@ -28,7 +29,9 @@ interface EventRowProps {
 
 /** One timeline row: summary line plus an expandable detail block. */
 export const EventRow = memo(function EventRow({ event: e, open, fresh, now, onToggle, onSelectSpark }: EventRowProps) {
-  const { before, name, after } = splitMessage(e.message, e.sparkName);
+  const renderServerMessage = useServerMessage();
+  const summaryMessage = renderServerMessage(e.i18n?.message, e.message);
+  const { before, name, after } = splitMessage(summaryMessage, e.sparkName);
   const clickable = Boolean(e.sparkId && onSelectSpark);
   const label = typeLabel(e.type);
   const detailId = `ac-ev-${e.id}`;

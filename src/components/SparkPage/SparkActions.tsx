@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { ApiRequestError } from "../../api/types";
+import { useServerMessage, type ServerMessageDescriptor } from "../../i18n/serverMessages";
 import type { SparkSnapshot } from "../../api/types";
 import { shutdownSpark, wakeSpark } from "../../api/client";
 import { ConfirmShutdownDialog } from "../ConfirmShutdownDialog";
@@ -42,9 +44,10 @@ export function shutdownWarnings(spark: SparkSnapshot): string[] {
  * power message here keeps the two placements in sync.
  */
 export function SparkActions({ spark, onEdit, className }: SparkActionsProps) {
+  const serverMessage = useServerMessage();
   const online = spark.online;
   const [powerLoading, setPowerLoading] = useState(false);
-  const [powerMsg, setPowerMsg] = useState<{ text: string; tone: "ok" | "err" } | null>(null);
+  const [powerMsg, setPowerMsg] = useState<{ text: string; meta?: ServerMessageDescriptor; tone: "ok" | "err" } | null>(null);
   const [shutdownOpen, setShutdownOpen] = useState(false);
 
   const hermes = spark.hermes;
@@ -63,10 +66,11 @@ export function SparkActions({ spark, onEdit, className }: SparkActionsProps) {
     setPowerMsg(null);
     try {
       const res = await shutdownSpark(spark.id);
-      setPowerMsg({ text: res.message || "Shutdown initiated", tone: "ok" });
+      setPowerMsg({ text: res.message || "Shutdown initiated", meta: res.i18n?.message, tone: "ok" });
     } catch (err: unknown) {
       setPowerMsg({
         text: err instanceof Error ? err.message : "Shutdown failed",
+        meta: err instanceof ApiRequestError ? err.i18n?.error : undefined,
         tone: "err",
       });
     } finally {
@@ -80,10 +84,11 @@ export function SparkActions({ spark, onEdit, className }: SparkActionsProps) {
     setPowerMsg(null);
     try {
       const res = await wakeSpark(spark.id);
-      setPowerMsg({ text: res.message || "Wake packet sent", tone: "ok" });
+      setPowerMsg({ text: res.message || "Wake packet sent", meta: res.i18n?.message, tone: "ok" });
     } catch (err: unknown) {
       setPowerMsg({
         text: err instanceof Error ? err.message : "Wake failed",
+        meta: err instanceof ApiRequestError ? err.i18n?.error : undefined,
         tone: "err",
       });
     } finally {
@@ -97,7 +102,7 @@ export function SparkActions({ spark, onEdit, className }: SparkActionsProps) {
       <div className={className}>
         {powerMsg && (
           <span className={`sp-flash ${powerMsg.tone === "ok" ? "text-success" : "text-danger"}`}>
-            {powerMsg.text}
+            {serverMessage(powerMsg.meta, powerMsg.text)}
           </span>
         )}
         {hermesRunning && (

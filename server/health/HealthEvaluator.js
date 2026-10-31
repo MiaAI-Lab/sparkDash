@@ -1,3 +1,5 @@
+import { healthI18n } from "../i18n/messages.js";
+
 /**
  * Fleet health findings: small, explainable rules over metrics sparkDash
  * already collects. One evaluator per Spark keeps the few bits of state the
@@ -83,7 +85,7 @@ export class HealthEvaluator {
     } catch {
       /* a rule bug must never break the poll loop */
     }
-    return out;
+    return out.map((finding) => ({ ...finding, i18n: healthI18n(finding) }));
   }
 
   _thermal(gpu, out) {
