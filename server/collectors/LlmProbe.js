@@ -155,6 +155,8 @@ export class LlmProbe {
     this.slotState = new Map();
     this._mlxServeLive = null;
     this.lastTokenCounts = { input: 0, output: 0 };
+    /** True once a real sample has seeded `lastTokenCounts`; a delta before that is a lifetime total. */
+    this._tokenCountsSeeded = false;
     /** TensorFold: first /health sample with counters seeds the baseline (lifetime total is not a rate). */
     this._tensorfoldSeeded = false;
     /** Previous TensorFold `prefill_seconds_total`. null until a sample includes it. */
@@ -316,6 +318,19 @@ export class LlmProbe {
       this.uncachedPrefillTps = Math.max(0, Math.round((dComputed / dtSec) * 100) / 100);
     }
     this.lastPrefillKinds = { cached: cachedCount, computed: computedCount };
+  }
+
+  /**
+   * Cumulative token counters only become a rate once a previous poll has seeded them.
+   * The first read after start/reset — or the first one after a failed `/metrics` read,
+   * which advances the probe clock without applying anything — must seed instead of
+   * dividing a lifetime total by one interval (#326). Returns whether the baseline
+   * predates this poll; call it exactly where a sample writes `lastTokenCounts`.
+   */
+  _seedTokenCounts() {
+    const seeded = this._tokenCountsSeeded === true;
+    this._tokenCountsSeeded = true;
+    return seeded;
   }
 
   /** Update probe port (and host from spark). Resets detection when the target changes. */
@@ -509,10 +524,12 @@ export class LlmProbe {
     this._mlxServeLive = null;
     this.lastTokenCounts = { input: 0, output: 0 };
     // The counters restart from zero, so the next poll may only seed them. The
-    // per-backend `dtSec < 10` guards do that when the probe clock is zero too;
-    // failed polls keep advancing it, which is how lifetime totals used to be
-    // reported as one interval's worth of tokens.
+    // per-backend `dtSec < 10` guards cover the poll whose clock is still zero;
+    // `_tokenCountsSeeded` covers the poll after a failed read, which advances the
+    // clock without applying anything — that is how lifetime totals used to be
+    // reported as one interval's worth of tokens (#326).
     this.lastProbeTime = 0;
+    this._tokenCountsSeeded = false;
     this._tensorfoldSeeded = false;
     this._tensorfoldPrefillSeconds = null;
     this._tensorfoldPrevCached = null;
@@ -1240,12 +1257,13 @@ export class LlmProbe {
     );
 
     if (decoded != null) {
-      if (prefilled != null && dtSec > 0 && dtSec < 10) {
+      const seeded = this._seedTokenCounts();
+      if (prefilled != null && seeded && dtSec > 0 && dtSec < 10) {
         const deltaIn = prefilled - this.lastTokenCounts.input;
         const deltaOut = decoded - this.lastTokenCounts.output;
         this.generationTps = Math.max(0, Math.round((deltaOut / dtSec) * 100) / 100);
         this.prefillTps = Math.max(0, Math.round((deltaIn / dtSec) * 100) / 100);
-      } else if (dtSec > 0 && dtSec < 10) {
+      } else if (seeded && dtSec > 0 && dtSec < 10) {
         const deltaOut = decoded - this.lastTokenCounts.output;
         this.generationTps = Math.max(0, Math.round((deltaOut / dtSec) * 100) / 100);
         if (!inflight && deltaOut <= 0) this.prefillTps = 0;
@@ -1348,7 +1366,8 @@ export class LlmProbe {
       this._getPromMetric(txt, "q27_prefill_computed_tokens_processed_total") ??
       this._getPromMetric(txt, "q27_prefill_computed_tokens_total");
     if (decoded != null) {
-      if (dtSec > 0 && dtSec < 10) {
+      const seeded = this._seedTokenCounts();
+      if (seeded && dtSec > 0 && dtSec < 10) {
         const deltaOut = decoded - this.lastTokenCounts.output;
         this.generationTps = Math.max(0, Math.round((deltaOut / dtSec) * 100) / 100);
         if (computed != null) {
@@ -1445,7 +1464,8 @@ export class LlmProbe {
     const computed = this._getPromMetric(txt, "flare_prefill_tokens_total");
     const cached = this._getPromMetric(txt, "flare_cache_reused_tokens_total");
     if (generated != null) {
-      if (dtSec > 0 && dtSec < 10) {
+      const seeded = this._seedTokenCounts();
+      if (seeded && dtSec > 0 && dtSec < 10) {
         const deltaOut = generated - this.lastTokenCounts.output;
         this.generationTps = Math.max(0, Math.round((deltaOut / dtSec) * 100) / 100);
         if (computed != null) {
@@ -1702,7 +1722,8 @@ export class LlmProbe {
       return;
     }
 
-    if (dtSec > 0 && dtSec < 10) {
+    const seeded = this._seedTokenCounts();
+    if (seeded && dtSec > 0 && dtSec < 10) {
       const deltaOut = completion - this.lastTokenCounts.output;
       this.generationTps = Math.max(0, Math.round((deltaOut / dtSec) * 100) / 100);
       if (Number.isFinite(prompt)) {
@@ -1931,6 +1952,7 @@ export class LlmProbe {
       this.lastTokenCounts.output = completion;
       if (Number.isFinite(prefillSec)) this._tensorfoldPrefillSeconds = prefillSec;
       this._tensorfoldSeeded = true;
+      this._tokenCountsSeeded = true;
       this.generationTps = 0;
       this.prefillTps = 0;
     }
@@ -2395,6 +2417,7 @@ export class LlmProbe {
     const running = this._getVllmMetric(txt, "num_requests_running");
     const iterSum = this._getVllmMetric(txt, "iteration_tokens_total_sum");
     if (promptTokens != null && genTokens != null) {
+      const seeded = this._seedTokenCounts();
       const deltaIn = promptTokens - this.lastTokenCounts.input;
       const deltaOut = genTokens - this.lastTokenCounts.output;
       this.lastTokenCounts.input = promptTokens;
@@ -2423,7 +2446,7 @@ export class LlmProbe {
       const ttftSum = this._getVllmMetric(txt, "time_to_first_token_seconds_sum");
       const deltaIter =
         iterSum != null && this.lastIterSum != null ? iterSum - this.lastIterSum : 0;
-      if (dtSec > 0 && dtSec < 10) {
+      if (seeded && dtSec > 0 && dtSec < 10) {
         this.generationTps = Math.max(0, Math.round((deltaOut / dtSec) * 100) / 100);
         const deltaTtft =
           ttftSum != null && this.lastTtftSum != null ? ttftSum - this.lastTtftSum : 0;
@@ -2559,6 +2582,7 @@ export class LlmProbe {
       const input = Number(inTok);
       const output = Number(outTok);
       if (Number.isFinite(input) && Number.isFinite(output)) {
+        const seeded = this._seedTokenCounts();
         const deltaIn = input - this.lastTokenCounts.input;
         const deltaOut = output - this.lastTokenCounts.output;
         this.lastTokenCounts.input = input;
@@ -2568,7 +2592,7 @@ export class LlmProbe {
         if (sgCached != null) this.totalCachedTokens = sgCached;
         this._sglangTotalsPolled = true;
         this._sglangTokenSource = "server_info";
-        if (dtSec > 0 && dtSec < 10) {
+        if (seeded && dtSec > 0 && dtSec < 10) {
           this.generationTps = Math.max(0, Math.round((deltaOut / dtSec) * 100) / 100);
           this._setPrefillTps(deltaIn / dtSec, deltaOut > 0);
         }
@@ -2863,8 +2887,9 @@ export class LlmProbe {
 
     // Difference only against our own baseline; after a server-info hand-off
     // the first sample seeds instead of reporting the gap between two series.
+    const seeded = this._seedTokenCounts();
     const ownsBaseline = this._sglangTokenSource !== "server_info";
-    const canDiff = ownsBaseline && dtSec > 0 && dtSec < 10;
+    const canDiff = ownsBaseline && seeded && dtSec > 0 && dtSec < 10;
     if (canDiff) {
       const deltaOut = gen - this.lastTokenCounts.output;
       const gauge = this._sglangGenGauge(txt);
