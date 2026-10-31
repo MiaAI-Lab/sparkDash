@@ -4,6 +4,7 @@ import { TempsPage } from "./TempsPage";
 import { flush, render } from "../../testing/render";
 import { makeSpark } from "../../testing/fixtures";
 import type { GpuHistoryResponse } from "../../api/client";
+import { i18n } from "../../i18n";
 
 vi.mock("../../api/client", () => ({
   getGpuHistory: vi.fn(() => Promise.resolve({ t: [], u: [], c: [], p: [] })),
@@ -29,6 +30,7 @@ const button = (c: HTMLElement, label: string) => buttons(c).find((b) => b.textC
 
 describe("TempsPage", () => {
   beforeEach(() => {
+    void i18n.changeLanguage("en");
     localStorage.clear();
     vi.clearAllMocks();
     mockedGet.mockReset().mockResolvedValue({ t: [], u: [], c: [], p: [] });
@@ -78,5 +80,16 @@ describe("TempsPage", () => {
     const { container } = render(<TempsPage sparks={[makeSpark("a")]} />);
     await flush();
     expect(container.textContent).toContain("Warming up");
+  });
+
+  it("keeps the selected range while labels update after a locale change", async () => {
+    mockedGet.mockResolvedValue(resp([60, 61]));
+    const { container } = render(<TempsPage sparks={[makeSpark("a")]} />);
+    await flush();
+    act(() => button(container, "Last 7 d").click());
+    await flush();
+    await act(async () => { await i18n.changeLanguage("zh-CN"); });
+    expect(container.textContent).toContain("最近 7 天");
+    expect(mockedGet).toHaveBeenCalledWith(expect.anything(), 7 * DAY_MS);
   });
 });
