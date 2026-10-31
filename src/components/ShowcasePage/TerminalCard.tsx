@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { useShowcaseText } from "./showcaseText";
 
 /**
  * Reveals `target` smoothly instead of in the lumps the network delivers it in.
@@ -102,6 +104,8 @@ export function TerminalCard({
   onCopy,
   copied,
 }: TerminalCardProps) {
+  const { t, i18n } = useTranslation("showcase");
+  const { error: showcaseError, status: showcaseStatus } = useShowcaseText();
   const bodyRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
   const [reasoningOpen, setReasoningOpen] = useState(true);
@@ -146,17 +150,17 @@ export function TerminalCard({
       <header className="showcase-term__header">
         <span className="showcase-term__dot" aria-hidden />
         <span className="showcase-term__label" title={label}>
-          {label || "Terminal"}
+          {label || t("text.terminal")}
         </span>
-        <span className={`showcase-term__status ${statusClass(status)}`}>{status}</span>
+        <span className={`showcase-term__status ${statusClass(status)}`}>{showcaseStatus(status)}</span>
         {tokenCount != null && tokenCount > 0 && (
-          <span className="showcase-term__tokens font-tabular">{tokenCount.toLocaleString()} tokens</span>
+          <span className="showcase-term__tokens font-tabular">{tokenCount.toLocaleString(i18n.language)} {t("text.tokens")}</span>
         )}
         <span
           className="showcase-term__tps font-tabular"
           title={
             peakTokPerSec > 0 || liveTokPerSec > 0
-              ? `Live ${liveTokPerSec.toFixed(1)} tok/s · peak ${Math.max(peakTokPerSec, liveTokPerSec).toFixed(1)} tok/s`
+              ? t("text.livePeak", { live: liveTokPerSec.toFixed(1), peak: Math.max(peakTokPerSec, liveTokPerSec).toFixed(1) })
               : undefined
           }
         >
@@ -166,7 +170,7 @@ export function TerminalCard({
               {peakTokPerSec > 0 && (
                 <span className="showcase-term__tps-peak">
                   {" "}
-                  peak {Math.max(peakTokPerSec, liveTokPerSec).toFixed(0)}
+                  {t("text.peak")} {Math.max(peakTokPerSec, liveTokPerSec).toFixed(0)}
                 </span>
               )}
             </>
@@ -179,9 +183,9 @@ export function TerminalCard({
             type="button"
             className="showcase-term__copy"
             onClick={onCopy}
-            title="Copy this terminal"
+            title={t("text.copyTerminal")}
           >
-            {copied ? "Copied" : "Copy"}
+            {copied ? t("text.copied") : t("text.copy")}
           </button>
         )}
       </header>
@@ -196,7 +200,7 @@ export function TerminalCard({
         }}
       >
         {empty && status === "pending" && (
-          <pre className="showcase-term__answer">Waiting…</pre>
+          <pre className="showcase-term__answer">{t("text.waiting")}</pre>
         )}
         {hasReasoning && (
           <div className="showcase-term__reasoning">
@@ -209,9 +213,9 @@ export function TerminalCard({
                 setReasoningOpen((o) => !o);
               }}
             >
-              {reasoningOpen ? "▾" : "▸"} Reasoning
+              {reasoningOpen ? "▾" : "▸"} {t("text.reasoning")}
               <span className="showcase-term__reasoning-meta">
-                {reasoning.length.toLocaleString()} chars
+                {reasoning.length.toLocaleString(i18n.language)} {t("text.chars")}
               </span>
             </button>
             {reasoningOpen && (
@@ -229,7 +233,7 @@ export function TerminalCard({
             <pre className="showcase-term__answer">…</pre>
           )
         )}
-        {error ? <pre className="showcase-term__error">{`[error] ${error}`}</pre> : null}
+        {error ? <pre className="showcase-term__error">{t("text.error", { error: showcaseError(error) })}</pre> : null}
       </div>
       <footer className="showcase-term__footer">
         <div className="showcase-gauge" aria-hidden="true">
