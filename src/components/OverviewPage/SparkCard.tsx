@@ -108,8 +108,11 @@ function SparkCardImpl({
   onSelect?: (id: string) => void;
 }) {
   const gpu = spark.metrics.gpu;
+  // The non-Pi online branch below is only reached with a GPU sample.
+  const gpuBody = gpu!;
   const um = spark.metrics.unifiedMemory;
   const online = spark.online;
+  const isPi = spark.kind === "pi";
   const role = resolveSparkRole(spark);
   const llmList = Array.isArray(spark.metrics.llm) ? spark.metrics.llm : [];
   const llmIdx = llmList.findIndex((l) => l.available);
@@ -131,7 +134,9 @@ function SparkCardImpl({
   const breakdown = gpu && vramAvailable && vramContext ? computeVramBreakdown(gpu.vram, gpu.processes, vramContext) : null;
   const throttle = gpu?.throttle;
   const slowed = !!(throttle?.thermal || throttle?.hwSlowdown);
-  const hot = slowed || tempRaw >= 80;
+  const piThrottle = isPi ? spark.metrics.pi?.throttle : null;
+  const piHot = isPi && (spark.metrics.cpu?.temperature ?? 0) >= 75;
+  const hot = piHot || slowed || tempRaw >= 80;
 
   const ringColor = hot ? "var(--color-warning)" : "var(--color-accent)";
   const memColor = memPct >= 90 ? "var(--color-danger)" : memPct >= 85 ? "var(--color-warning)" : "var(--color-info)";
@@ -143,7 +148,9 @@ function SparkCardImpl({
   const cpuTempRaw = cpuMetrics && Number.isFinite(cpuMetrics.temperature) && cpuMetrics.temperature > 0 ? cpuMetrics.temperature : null;
   const cpuTempVal = cpuTempRaw === null ? 0 : temperatureUnit === "fahrenheit" ? toF(cpuTempRaw) : cpuTempRaw;
   const cpuTempColor = cpuTempRaw !== null && cpuTempRaw > 80 ? "var(--color-danger)" : cpuTempRaw !== null && cpuTempRaw >= 75 ? "var(--color-warning)" : "var(--color-success)";
-  const cpuPower = cpuMetrics && (cpuMetrics.draw > 0 || cpuMetrics.tdp > 0) ? { draw: cpuMetrics.draw, tdp: cpuMetrics.tdp } : null;
+  const cpuDraw = cpuMetrics?.draw;
+  const cpuTdp = cpuMetrics?.tdp;
+  const cpuPower = typeof cpuDraw === "number" && cpuDraw > 0 && typeof cpuTdp === "number" && cpuTdp > 0 ? { draw: cpuDraw, tdp: cpuTdp } : null;
   const cpuPowerPct = cpuPower && cpuPower.tdp > 0 ? (cpuPower.draw / cpuPower.tdp) * 100 : 0;
   const power = gpu?.power;
   const powerPct = power && power.limit > 0 ? (power.draw / power.limit) * 100 : 0;
@@ -227,7 +234,7 @@ function SparkCardImpl({
     !llm && (memUsed >= 2048 || usage >= 10)
       ? `${gpuHolders.length > 0 ? `In use by ${gpuHolders.join(", ")} · ` : ""}${formatMb(memUsed)} VRAM in use · GPU ${Math.round(usage)}%`
       : null;
-  const showLauncher = role !== "worker" && !llm && !spark.llmMovedTo && spark.llmMonitoring !== false && spark.platform !== "windows";
+  const showLauncher = !isPi && role !== "worker" && !llm && !spark.llmMovedTo && spark.llmMonitoring !== false && spark.platform !== "windows";
 
   const showTps = role !== "worker" && !!llm;
   const isStrata = llm?.backend === "strata";
@@ -248,13 +255,19 @@ function SparkCardImpl({
 
   const chips = (
     <div className="ov-chips">
-      {online && throttle && slowed ? (
+      {online && !isPi && throttle && slowed ? (
         <Tag tone="warn" title={throttle.detail || "GPU clock throttled"}>
           {throttle.thermal ? "Thermal throttle" : "HW slowdown"}
           {throttle.smClockMHz ? ` · SM ${(throttle.smClockMHz / 1000).toFixed(1)} GHz` : ""}
         </Tag>
       ) : null}
-      {online && throttle?.clockCapMHz != null ? (
+      {online && isPi && piThrottle?.underVoltage ? (
+        <Tag tone="bad" title="The Pi firmware reports an active under-voltage condition">Under-voltage</Tag>
+      ) : null}
+      {online && isPi && (piThrottle?.throttled || piThrottle?.softTempLimit) ? (
+        <Tag tone="warn" title="The Pi firmware is throttling the CPU">Throttling</Tag>
+      ) : null}
+      {online && !isPi && throttle?.clockCapMHz != null ? (
         <Tag title="GPU clock locked with nvidia-smi -lgc">
           Cap {(throttle.clockCapMHz / 1000).toFixed(1)} GHz
         </Tag>
@@ -298,13 +311,17 @@ function SparkCardImpl({
             spark.name
           )}
         </h3>
-        <Tag className="tag--role" tone={role === "head" ? "acc" : "neutral"} title={roleTitle}>{roleText}</Tag>
+        {isPi ? (
+          <Tag className="tag--role" tone="acc" title={spark.hardware.device}>Raspberry Pi</Tag>
+        ) : (
+          <Tag className="tag--role" tone={role === "head" ? "acc" : "neutral"} title={roleTitle}>{roleText}</Tag>
+        )}
         {spark.lanIp ? <span className="ov-sc__ip mono">{spark.lanIp}</span> : null}
       </div>
 
       {online ? <HealthChips findings={spark.health} /> : null}
 
-      {!online || !gpu ? (
+      {!online || (!isPi && !gpu) ? (
         <div className="ov-sc__off">
           <span>{online ? "Waiting for metrics…" : "Host unreachable"}</span>
           {!online && spark.kind === "host" ? (
@@ -321,6 +338,41 @@ function SparkCardImpl({
           {wakeMsg ? <span className="ov-sc__msg">{wakeMsg}</span> : null}
           {chips}
         </div>
+      ) : isPi ? (
+        <div className="ov-sc__body">
+          <div className="ov-sc__stats">
+            <Bar
+              label="CPU"
+              caption={`${Math.round(cpuMetrics?.usage ?? 0)}%`}
+              pct={cpuMetrics?.usage ?? 0}
+              color="var(--color-accent)"
+            />
+            <Bar
+              label="CPU temp"
+              title={cpuMetrics?.temperatureLabel ? `Sensor: ${cpuMetrics.temperatureLabel}` : undefined}
+              caption={cpuTempRaw === null ? "—" : fmtTemp(cpuTempRaw)}
+              pct={cpuTempRaw === null ? 0 : (cpuTempVal / 100) * 100}
+              color={cpuTempColor}
+            />
+            {spark.metrics.ram?.total ? (
+              <Bar
+                label="RAM"
+                caption={`${fmtStorage(spark.metrics.ram.used, false)} / ${fmtStorage(spark.metrics.ram.total, true)}`}
+                pct={spark.metrics.ram.percentage}
+                color="var(--color-info)"
+              />
+            ) : null}
+            {rootDisk ? (
+              <Bar
+                label="Disk"
+                caption={`${fmtStorage(rootDisk.used, false)} / ${fmtStorage(rootDisk.total, true)}`}
+                pct={rootDisk.percentage}
+                color={rootDisk.percentage >= 90 ? "var(--color-danger)" : rootDisk.percentage >= 85 ? "var(--color-warning)" : "var(--color-success)"}
+              />
+            ) : null}
+          </div>
+          {chips}
+        </div>
       ) : (
         <>
           <div className="ov-sc__body">
@@ -335,7 +387,7 @@ function SparkCardImpl({
                 />
               ) : (
                 <Bar
-                  label={gpu.vram?.total ? "VRAM" : "Unified memory"}
+                  label={gpuBody.vram?.total ? "VRAM" : "Unified memory"}
                   caption={vramAvailable && memTotal > 0 ? `${fmtStorage(memUsed, false)} / ${fmtStorage(memTotal, true)}` : "—"}
                   pct={vramAvailable ? memPct : 0}
                   color={memColor}
@@ -343,7 +395,7 @@ function SparkCardImpl({
                 />
               )}
               {cards ? null : (
-                <Bar label="GPU" caption={gpu.metricAvailability?.usage === false ? "—" : `${Math.round(usage)}%`} pct={gpu.metricAvailability?.usage === false ? 0 : usage} color={ringColor} />
+                <Bar label="GPU" caption={gpuBody.metricAvailability?.usage === false ? "—" : `${Math.round(usage)}%`} pct={gpuBody.metricAvailability?.usage === false ? 0 : usage} color={ringColor} />
               )}
               {spark.kind === "host" && spark.metrics.ram?.total ? (
                 <Bar
@@ -355,11 +407,11 @@ function SparkCardImpl({
               ) : null}
               {cards ? null : (
                 <>
-                  <Bar label="GPU temp" caption={gpu.metricAvailability?.temperature === false ? "—" : fmtTemp(tempRaw)} pct={gpu.metricAvailability?.temperature === false ? 0 : (tempVal / tempMax) * 100} color={tempColor} />
+                  <Bar label="GPU temp" caption={gpuBody.metricAvailability?.temperature === false ? "—" : fmtTemp(tempRaw)} pct={gpuBody.metricAvailability?.temperature === false ? 0 : (tempVal / tempMax) * 100} color={tempColor} />
                   <Bar
                     label="GPU power"
-                    caption={gpu.metricAvailability?.powerDraw === false ? "—" : `${power?.draw ?? 0} / ${gpu.metricAvailability?.powerLimit === false ? "—" : power?.limit ?? 0} W`}
-                    pct={gpu.metricAvailability?.powerDraw === false ? 0 : powerPct}
+                    caption={gpuBody.metricAvailability?.powerDraw === false ? "—" : `${power?.draw ?? 0} / ${gpuBody.metricAvailability?.powerLimit === false ? "—" : power?.limit ?? 0} W`}
+                    pct={gpuBody.metricAvailability?.powerDraw === false ? 0 : powerPct}
                     color="var(--color-violet)"
                   />
                 </>

@@ -194,11 +194,26 @@ export function normalizeSshPort(value) {
   return n;
 }
 
+export function normalizeSshIdentityFile(value) {
+  if (value == null || value === "") return null;
+  const file = String(value).trim();
+  if (!file || file.length > 256) return null;
+  if (!file.startsWith("/") || file.includes("..")) return null;
+  if (!/^\/[A-Za-z0-9._/-]+$/.test(file)) return null;
+  return file;
+}
+
 /**
  * Validate fields used for SSH/LLM probes. Returns null if ok, else error message.
- * @param {{ lanIp?: string, llmHost?: string, ssh?: { host?: string, user?: string, port?: unknown } }} body
+ * @param {{ lanIp?: string, llmHost?: string, ssh?: { host?: string, user?: string, port?: unknown, identityFile?: string } }} body
  */
 export function validateSparkTarget(body) {
+  if (body?.kind === "pi") {
+    if (body.isLocal) return "Raspberry Pi units are remote-only; clear 'This host'";
+    if (body.platform === "windows" || body.platform === "darwin") {
+      return "Raspberry Pi units run Linux";
+    }
+  }
   const user = body?.ssh?.user;
   if (user != null && user !== "" && !isValidSshUser(user)) {
     return "Invalid SSH user (allowed: letters, digits, . _ -)";
@@ -224,6 +239,15 @@ export function validateSparkTarget(body) {
     if (raw != null && raw !== "" && normalizeSshPort(raw) == null) {
       return "SSH port must be an integer from 1 to 65535";
     }
+  }
+  if (
+    body?.ssh &&
+    Object.prototype.hasOwnProperty.call(body.ssh, "identityFile") &&
+    body.ssh.identityFile != null &&
+    body.ssh.identityFile !== "" &&
+    normalizeSshIdentityFile(body.ssh.identityFile) == null
+  ) {
+    return "SSH key file must be an absolute path without '..' (letters, digits, . _ - /)";
   }
   return null;
 }

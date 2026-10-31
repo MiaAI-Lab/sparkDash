@@ -1,5 +1,96 @@
 import type { SparkSnapshot } from "../api/types";
 
+export function makePi(id = "luffy-1", online = true): SparkSnapshot {
+  return {
+    id,
+    name: id,
+    kind: "pi",
+    platform: "linux",
+    online,
+    uptime: online ? 600 : null,
+    role: "standalone",
+    workerNode: false,
+    llmMonitoring: false,
+    comfyMonitoring: false,
+    tailscaleMonitoring: false,
+    hermesMonitoring: true,
+    llmPort: 8888,
+    llmPorts: [],
+    disabledDevices: [],
+    disabledInterfaces: [],
+    hermes: {
+      monitoring: true,
+      installed: true,
+      version: "1.2.3",
+      updateAvailable: false,
+      behindCommits: 0,
+      checkedAt: 1,
+      status: "idle",
+      startedAt: null,
+      finishedAt: null,
+      error: null,
+    },
+    hardware: {
+      device: "Raspberry Pi 4 Model B Rev 1.4",
+      cpuModel: "Cortex-A72",
+      cpuCores: 4,
+      totalMemoryGB: 8,
+      gpuChip: "VideoCore VI",
+      cudaDriver: null,
+      storageModel: null,
+    },
+    metrics: {
+      gpu: online ? { temperature: 0, usage: 0, power: { draw: 0, limit: 0 }, vram: { used: 0, total: 0, percentage: 0, available: 0 }, processes: [], gpus: [], metricAvailability: {} } : null,
+      cpu: online ? { usage: 22, temperature: 64, temperatureLabel: "CPU", temperatureSource: "cpu-thermal", draw: null, tdp: null } : null,
+      ram: online ? { used: 2048, total: 8192, percentage: 25, available: 6144 } : null,
+      storage: online ? [{ device: "mmcblk0p2", label: "/", used: 12000, total: 28000, available: 16000, percentage: 43, readSpeed: 0, writeSpeed: 0 }] : [],
+      network: online ? { primaryInterface: "eth0", linkSpeedMbps: 1000, interfaces: [{ name: "eth0", rxSpeed: 1000, txSpeed: 2000, ip: "192.168.1.50", operstate: "up" }] } : null,
+      unifiedMemory: { total: 0, gpuUsed: 0, cpuUsed: 0, used: 0, available: 0, percentage: 0, oomRisk: "low", bandwidth: { current: 0, peak: 0 } },
+      llm: [],
+      comfy: null,
+      tailscale: null,
+      pi: online
+        ? {
+            model: "Raspberry Pi 4 Model B Rev 1.4",
+            revision: "c03114",
+            serial: "abc",
+            throttle: {
+              raw: "0x50005",
+              underVoltage: true,
+              freqCapped: false,
+              throttled: true,
+              softTempLimit: false,
+              underVoltageOccurred: true,
+              freqCappedOccurred: false,
+              throttledOccurred: true,
+              softTempLimitOccurred: false,
+            },
+            throttleAvailable: true,
+          }
+        : null,
+    },
+    pi: online
+      ? {
+          model: "Raspberry Pi 4 Model B Rev 1.4",
+          revision: "c03114",
+          serial: "abc",
+          throttle: {
+            raw: "0x50005",
+            underVoltage: true,
+            freqCapped: false,
+            throttled: true,
+            softTempLimit: false,
+            underVoltageOccurred: true,
+            freqCappedOccurred: false,
+            throttledOccurred: true,
+            softTempLimitOccurred: false,
+          },
+          throttleAvailable: true,
+        }
+      : null,
+  } as unknown as SparkSnapshot;
+}
+
 export function makeSpark(id = "spark-1", online = true): SparkSnapshot {
   return {
     id,

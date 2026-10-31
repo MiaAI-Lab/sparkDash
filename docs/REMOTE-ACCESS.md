@@ -47,7 +47,7 @@ BIND_HOST=127.0.0.1 docker compose up -d --force-recreate
 
 ## SSH key mount
 
-Remote unit checks run inside the container. Mount one private key read-only at `/root/.ssh/id_ed25519`, or set `SSH_IDENTITY_FILE` to its in-container path. The host key file must be mode `600`:
+Remote unit checks run inside the container. Mount one private key read-only at `/root/.ssh/id_ed25519`, or set `SSH_IDENTITY_FILE` to its in-container path. A unit may override that with **Edit → SSH key file** (`ssh.identityFile`), which is how a Raspberry Pi can use a dedicated key without replacing the Spark identity. The host key file must be mode `600`:
 
 ```bash
 chmod 600 "$HOME/.ssh/id_ed25519"

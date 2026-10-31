@@ -9,6 +9,8 @@ interface CpuPanelProps {
   hardware?: HardwareInfo | null;
   sparkId: string;
   temperatureUnit: "celsius" | "fahrenheit";
+  /** Pi units use 75/80 °C bands and have no CPU power reading. */
+  kind?: "spark" | "host" | "pi";
   className?: string;
 }
 
@@ -24,14 +26,22 @@ function celsiusToFahrenheit(c: number): number {
  * this panel makes that visible at the device level. For non-Spark GPU
  * hosts it covers the discrete CPU.
  */
-export function CpuPanel({ cpu, hardware, sparkId, temperatureUnit, className }: CpuPanelProps) {
+export function CpuPanel({ cpu, hardware, sparkId, temperatureUnit, kind, className }: CpuPanelProps) {
   const usageHistory = useMetricsHistoryTail(sparkId, "cpu.usage");
   const tempHistory = useMetricsHistoryTail(sparkId, "cpu.temp");
 
   const usage = cpu?.usage ?? 0;
   const temperature = cpu?.temperature ?? 0;
-  const draw = cpu?.draw ?? 0;
-  const tdp = cpu?.tdp ?? 0;
+  const draw = cpu?.draw;
+  const tdp = cpu?.tdp;
+  // A Pi has no measured input power at all; on a failed/offline sample the
+  // collector's default is 0/0, which must not become an observed "0 W".
+  const hasPower =
+    kind !== "pi" &&
+    typeof draw === "number" &&
+    Number.isFinite(draw) &&
+    typeof tdp === "number" &&
+    Number.isFinite(tdp);
 
   // No sensor (Windows exposes none without a driver): show a dash, not 0 °C.
   const hasTemp = temperature > 0 || Boolean(cpu?.temperatureSource);
@@ -42,11 +52,13 @@ export function CpuPanel({ cpu, hardware, sparkId, temperatureUnit, className }:
       : temperature;
 
   // GB10 SoC bands: the CPU complex derates in the mid-80s; x86 hosts run
-  // hotter before throttling, so the danger band sits higher.
+  // hotter before throttling; Pi 4/5 firmware throttles at 80 °C.
+  const warnC = kind === "pi" ? 75 : 85;
+  const dangerC = kind === "pi" ? 80 : 95;
   const tempColor =
-    temperature > 95
+    temperature >= dangerC
       ? "var(--color-danger)"
-      : temperature > 85
+      : temperature >= warnC
         ? "var(--color-warning)"
         : "var(--color-accent)";
 
@@ -101,12 +113,14 @@ export function CpuPanel({ cpu, hardware, sparkId, temperatureUnit, className }:
           {hasTemp && <TrendLine data={tempHistory} height={36} color={tempColor} />}
         </div>
       </div>
-      <div className="sp-row">
-        <span className="text-muted">CPU power</span>
-        <span className="mono text-text">
-          {draw}W{tdp > 0 ? ` / ${tdp}W` : ""}
-        </span>
-      </div>
+      {hasPower && draw != null && tdp != null && (
+        <div className="sp-row">
+          <span className="text-muted">CPU power</span>
+          <span className="mono text-text">
+            {draw}W{tdp > 0 ? ` / ${tdp}W` : ""}
+          </span>
+        </div>
+      )}
       {model && (
         <div className="sp-row sp-row--rule">
           <span className="text-muted">Model</span>

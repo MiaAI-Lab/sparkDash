@@ -75,9 +75,14 @@ export const METRIC_FAMILIES = [
     help: "1 while nvidia-smi reports clocks limited for this reason (thermal, power, hw), else 0.",
   },
   {
+    name: "sparkdash_pi_throttled",
+    type: "gauge",
+    help: "Raspberry Pi firmware throttle state (1/0) by reason: under_voltage, freq_capped, throttled, soft_temp_limit, and their *_occurred variants. Absent when vcgencmd is unavailable.",
+  },
+  {
     name: "sparkdash_memory_available_bytes",
     type: "gauge",
-    help: `Memory headroom for new GPU work: MemAvailable of the unified pool on a GB10, free VRAM on a discrete GPU host. ${MIB_NOTE}`,
+    help: `Memory headroom: MemAvailable of the unified pool on a GB10, free VRAM on a discrete GPU host, free system RAM on a Raspberry Pi. ${MIB_NOTE}`,
   },
   {
     name: "sparkdash_cpu_utilization_ratio",
@@ -253,6 +258,18 @@ class SampleSet {
   }
 }
 
+/** Pi firmware throttle flag → Prometheus `reason` label. */
+const PI_THROTTLE_REASONS = Object.freeze({
+  underVoltage: "under_voltage",
+  freqCapped: "freq_capped",
+  throttled: "throttled",
+  softTempLimit: "soft_temp_limit",
+  underVoltageOccurred: "under_voltage_occurred",
+  freqCappedOccurred: "freq_capped_occurred",
+  throttledOccurred: "throttled_occurred",
+  softTempLimitOccurred: "soft_temp_limit_occurred",
+});
+
 /** True for the zero-filled object the collector returns when a GPU read fails. */
 function isDefaultGpu(gpu) {
   return (
@@ -384,8 +401,20 @@ function addUnit(samples, entry) {
   if (gpuMeasured) addGpu(samples, base, gpu);
 
   // Headroom: the GB10 shares one pool, so MemAvailable is the real limit; a
-  // discrete card is limited by its own free VRAM (system RAM does not help).
-  if (snapshot.kind === "host") {
+  // discrete card is limited by its own free VRAM (system RAM does not help);
+  // a Pi has no GPU, so its system RAM is the only headroom.
+  if (snapshot.kind === "pi") {
+    const ram = metrics.ram;
+    if (ram && finite(ram.total) && ram.total > 0 && finite(ram.available)) {
+      samples.add("sparkdash_memory_available_bytes", base, bytesFromMib(ram.available));
+    }
+    const throttle = metrics.pi?.throttle;
+    if (throttle && typeof throttle === "object") {
+      for (const [key, reason] of Object.entries(PI_THROTTLE_REASONS)) {
+        samples.add("sparkdash_pi_throttled", { ...base, reason }, throttle[key] ? 1 : 0);
+      }
+    }
+  } else if (snapshot.kind === "host") {
     if (gpuMeasured && finite(gpu.vram?.total) && gpu.vram.total > 0) {
       samples.add("sparkdash_memory_available_bytes", base, bytesFromMib(gpu.vram.available));
     }
@@ -498,8 +527,23 @@ export function unitMetricJson(entry) {
   }
 
   // Headroom: the GB10 shares one pool, so MemAvailable is the real limit; a
-  // discrete card is limited by its own free VRAM (system RAM does not help).
-  if (snapshot.kind === "host") {
+  // discrete card is limited by its own free VRAM (system RAM does not help);
+  // a Pi has no GPU, so its system RAM is the only headroom.
+  if (snapshot.kind === "pi") {
+    const ram = metrics.ram;
+    if (ram && finite(ram.total) && ram.total > 0 && finite(ram.available)) {
+      out.memory_available_bytes = bytesFromMib(ram.available);
+    }
+    const pi = metrics.pi;
+    if (pi) {
+      out.pi = {
+        ...(pi.model ? { model: pi.model } : {}),
+        ...(pi.revision ? { revision: pi.revision } : {}),
+        ...(pi.serial ? { serial: pi.serial } : {}),
+        ...(pi.throttle ? { throttle: { ...pi.throttle } } : {}),
+      };
+    }
+  } else if (snapshot.kind === "host") {
     if (gpuMeasured && finite(gpu.vram?.total) && gpu.vram.total > 0 && finite(gpu.vram?.available)) {
       out.memory_available_bytes = bytesFromMib(gpu.vram.available);
     }

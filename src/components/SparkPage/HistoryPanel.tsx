@@ -116,6 +116,14 @@ function aligned<P extends { t: number }>(
 
 const hasAny = (values: ReadonlyArray<HistoryStat | null>) => values.some(Boolean);
 
+/** Charts that need a GPU; a Pi unit gets CPU/RAM/network only. */
+const PI_HIDDEN_CHARTS: Record<string, true> = {
+  gpuUtil: true,
+  gpuTemp: true,
+  gpuPower: true,
+  memFree: true,
+};
+
 function buildCharts(
   data: MetricsHistoryData,
   timeline: readonly number[],
@@ -184,7 +192,7 @@ function buildCharts(
   ];
 
   const ram = aligned(timeline, pts, (p) => p.ramUsedMB);
-  if (kind === "host" && hasAny(ram)) {
+  if ((kind === "host" || kind === "pi") && hasAny(ram)) {
     charts.push({
       id: "ramUsed",
       title: "RAM used",
@@ -237,7 +245,7 @@ function buildCharts(
       });
     }
   }
-  return charts;
+  return kind === "pi" ? charts.filter((c) => !PI_HIDDEN_CHARTS[c.id]) : charts;
 }
 
 /**

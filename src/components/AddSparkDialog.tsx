@@ -142,6 +142,7 @@ export function AddSparkDialog({ open, onClose, onAdded, defaultLlmPort = 8888 }
   };
 
   const role = resolveSparkRole(config);
+  const isPi = config.kind === "pi";
 
   const buildPayload = (): SparkConfig => {
     const connectError = validateConnect(config);
@@ -242,7 +243,7 @@ export function AddSparkDialog({ open, onClose, onAdded, defaultLlmPort = 8888 }
                 </select>
               </div>
 
-              {config.platform !== "windows" && (
+              {config.platform !== "windows" && !isPi && (
                 <label className="check-row">
                   <input
                     type="checkbox"
@@ -285,7 +286,7 @@ export function AddSparkDialog({ open, onClose, onAdded, defaultLlmPort = 8888 }
                 )}
               </div>
 
-              {config.kind !== "host" && (
+              {config.kind === "spark" && (
                 <div className="field">
                   <label htmlFor="add-spark-cx7">CX7 IP (optional)</label>
                   <input
@@ -336,12 +337,28 @@ export function AddSparkDialog({ open, onClose, onAdded, defaultLlmPort = 8888 }
                       <option value="pass">Password</option>
                     </select>
                     {config.ssh.auth === "key" && (
-                      <p className="field-hint">
-                        SSH runs on the sparkDash host (not your browser). In Docker, mount a private
-                        key at /root/.ssh/id_ed25519 (see docker-compose.yml) or set SSH_IDENTITY_FILE.
-                        IPs are from that host&apos;s network. Mark this machine as “This host” so it
-                        skips SSH.
-                      </p>
+                      <>
+                        <p className="field-hint">
+                          SSH runs on the sparkDash host (not your browser). In Docker, mount a private
+                          key at /root/.ssh/id_ed25519 (see docker-compose.yml) or set SSH_IDENTITY_FILE.
+                          IPs are from that host&apos;s network. Mark this machine as “This host” so it
+                          skips SSH.
+                        </p>
+                        <div className="field">
+                          <label htmlFor="add-spark-ssh-identity">SSH key file (optional)</label>
+                          <input
+                            id="add-spark-ssh-identity"
+                            type="text"
+                            value={config.ssh.identityFile ?? ""}
+                            onChange={(e) => updateSsh({ identityFile: e.target.value || null })}
+                            placeholder="/root/.ssh/sparkdash_pi"
+                          />
+                          <p className="field-hint">
+                            Absolute path inside the sparkDash host/container. Use it to give a unit
+                            (for example a Raspberry Pi) its own key instead of SSH_IDENTITY_FILE.
+                          </p>
+                        </div>
+                      </>
                     )}
                   </div>
 
@@ -381,26 +398,30 @@ export function AddSparkDialog({ open, onClose, onAdded, defaultLlmPort = 8888 }
 
           {step === 1 && (
             <>
-              <div className="field">
-                <span className="field-label" id="add-spark-role-label">
-                  How will you use it?
-                </span>
-                <div className="role-opts" role="radiogroup" aria-labelledby="add-spark-role-label">
-                  {ROLE_CARDS.map((r) => (
-                    <button
-                      key={r.id}
-                      type="button"
-                      role="radio"
-                      aria-checked={role === r.id}
-                      className={`role-opt${role === r.id ? " is-on" : ""}`}
-                      onClick={() => update(rolePatch(r.id))}
-                    >
-                      {r.label}
-                      <small>{r.hint}</small>
-                    </button>
-                  ))}
+              {isPi ? (
+                <p className="field-hint">Raspberry Pi units are standalone monitors; they have no local LLM API.</p>
+              ) : (
+                <div className="field">
+                  <span className="field-label" id="add-spark-role-label">
+                    How will you use it?
+                  </span>
+                  <div className="role-opts" role="radiogroup" aria-labelledby="add-spark-role-label">
+                    {ROLE_CARDS.map((r) => (
+                      <button
+                        key={r.id}
+                        type="button"
+                        role="radio"
+                        aria-checked={role === r.id}
+                        className={`role-opt${role === r.id ? " is-on" : ""}`}
+                        onClick={() => update(rolePatch(r.id))}
+                      >
+                        {r.label}
+                        <small>{r.hint}</small>
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="field">
                 <label htmlFor="add-spark-name">Name (required)</label>
@@ -419,7 +440,8 @@ export function AddSparkDialog({ open, onClose, onAdded, defaultLlmPort = 8888 }
 
           {step === 2 && (
             <>
-              {role !== "worker" ? (
+              {!isPi &&
+                (role !== "worker" ? (
                 <div className="field">
                   <label htmlFor="add-spark-llm-ports">LLM ports (optional, comma-separated)</label>
                   <input
@@ -451,8 +473,9 @@ export function AddSparkDialog({ open, onClose, onAdded, defaultLlmPort = 8888 }
                 </div>
               ) : (
                 <p className="field-hint">Workers have no local LLM API, so no ports are probed.</p>
-              )}
+              ))}
 
+              {!isPi && (
               <div className="set-row">
                 <div className="set-row__text">
                   <span className="set-row__title">Monitor ComfyUI</span>
@@ -479,6 +502,7 @@ export function AddSparkDialog({ open, onClose, onAdded, defaultLlmPort = 8888 }
                   </button>
                 </div>
               </div>
+              )}
 
               {config.platform !== "windows" && (
                 <div className="set-row">

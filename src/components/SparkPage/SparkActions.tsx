@@ -43,6 +43,7 @@ export function shutdownWarnings(spark: SparkSnapshot): string[] {
  */
 export function SparkActions({ spark, onEdit, className }: SparkActionsProps) {
   const online = spark.online;
+  const isPi = spark.kind === "pi";
   const [powerLoading, setPowerLoading] = useState(false);
   const [powerMsg, setPowerMsg] = useState<{ text: string; tone: "ok" | "err" } | null>(null);
   const [shutdownOpen, setShutdownOpen] = useState(false);
@@ -154,7 +155,7 @@ export function SparkActions({ spark, onEdit, className }: SparkActionsProps) {
             Edit
           </button>
         )}
-        {online ? (
+        {!isPi && (online ? (
           <button
             type="button"
             onClick={() => setShutdownOpen(true)}
@@ -183,7 +184,7 @@ export function SparkActions({ spark, onEdit, className }: SparkActionsProps) {
           >
             No Wake-on-LAN
           </span>
-        )}
+        ))}
       </div>
 
       <ConfirmShutdownDialog

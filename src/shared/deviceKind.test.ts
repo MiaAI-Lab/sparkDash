@@ -12,6 +12,11 @@ describe("deviceKind labels", () => {
     expect(addDeviceLabel("host")).toBe("Add GPU Host");
     expect(editDeviceTitle("host")).toBe("Edit GPU Host");
   });
+  it("names a Raspberry Pi", () => {
+    expect(deviceKindNoun("pi")).toBe("Raspberry Pi");
+    expect(addDeviceLabel("pi")).toBe("Add Raspberry Pi");
+    expect(editDeviceTitle("pi")).toBe("Edit Raspberry Pi");
+  });
   it("treats an unset kind as a Spark", () => {
     expect(addDeviceLabel(undefined)).toBe("Add Spark");
   });
@@ -22,6 +27,20 @@ describe("unit type", () => {
     expect(unitTypeOf({})).toBe("spark");
     expect(unitTypeOf({ kind: "host" })).toBe("host");
     expect(unitTypeOf({ kind: "host", platform: "windows" })).toBe("windows");
+    expect(unitTypeOf({ kind: "pi", platform: "linux" })).toBe("pi");
+  });
+
+  it("a Raspberry Pi is a remote Linux unit with no LLM/Comfy surface", () => {
+    expect(unitTypePatch("pi", {})).toEqual({
+      kind: "pi",
+      platform: "linux",
+      isLocal: false,
+      role: "standalone",
+      llmMonitoring: false,
+      comfyMonitoring: false,
+      llmPorts: [],
+      cx7Ip: null,
+    });
   });
 
   it("a Windows PC is a remote GPU host", () => {

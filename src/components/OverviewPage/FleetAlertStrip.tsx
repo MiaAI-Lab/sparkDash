@@ -17,6 +17,13 @@ export type FleetAlert = {
   startsAt: number | null;
 };
 
+/** Thermal / hardware / power conditions that stay visible with the full list off. */
+const SAFETY_ALERT_IDS: Record<string, true> = {
+  throttle: true,
+  "pi-under-voltage": true,
+  "pi-throttle": true,
+};
+
 /** The strip's own conditions, from the module the server's alert notifications use too. */
 export function deriveAlerts(sparks: SparkSnapshot[], unit: "celsius" | "fahrenheit" = "celsius"): FleetAlert[] {
   const alerts: FleetAlert[] = [];
@@ -29,7 +36,7 @@ export function deriveAlerts(sparks: SparkSnapshot[], unit: "celsius" | "fahrenh
         label: ex.label,
         ...(ex.detail ? { detail: ex.detail } : {}),
         severity: ex.severity,
-        ...(ex.id === "throttle" ? { throttle: true } : {}),
+        ...(SAFETY_ALERT_IDS[ex.id] ? { throttle: true } : {}),
         startsAt: null,
       });
     }
@@ -53,7 +60,7 @@ export function serverAlertRows(alerts: AlertInstance[], sparks: SparkSnapshot[]
       label: here?.label ?? a.label,
       ...(here ? (here.detail ? { detail: here.detail } : {}) : a.summary && a.summary !== a.label ? { detail: a.summary } : {}),
       severity: a.severity,
-      ...(a.ruleId === "throttle" ? { throttle: true } : {}),
+      ...(SAFETY_ALERT_IDS[a.ruleId] ? { throttle: true } : {}),
       startsAt: a.startsAt,
     };
   });

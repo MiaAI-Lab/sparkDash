@@ -54,7 +54,7 @@ export function sshMultiplexConfig(spark, targetHost, user, auth, password, port
   if (persistSeconds === 0) return null;
 
   ensureControlDir();
-  const identityFile = process.env.SSH_IDENTITY_FILE || "default";
+  const identityFile = spark?.ssh?.identityFile || process.env.SSH_IDENTITY_FILE || "default";
   const sshPort = normalizeSshPort(port) ?? 22;
   const isolationKey = [spark.id, user, targetHost, String(sshPort), auth || "key", identityFile, password || ""].join(
     "\0"
@@ -256,7 +256,7 @@ export function sshCommandSpec(spark, opts = {}) {
     // Key-based SSH (default) — BatchMode prevents hanging on missing keys
     file = "ssh";
     args = [...baseOpts, ...controlOpts, "-o", "BatchMode=yes"];
-    const identityFile = process.env.SSH_IDENTITY_FILE;
+    const identityFile = spark?.ssh?.identityFile || process.env.SSH_IDENTITY_FILE;
     if (identityFile) {
       args.push("-i", identityFile);
     }

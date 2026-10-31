@@ -61,6 +61,9 @@ services:
       # id_ed25519_shared must be mounted *as* id_ed25519, or set
       # SSH_IDENTITY_FILE to the path inside the container.
       # - ${HOME}/.ssh/id_ed25519:/root/.ssh/id_ed25519:ro
+      # A unit can override the identity (Edit → SSH key file); mount that key
+      # at its own path so it does not replace the Spark identity:
+      # - ${HOME}/.ssh/sparkdash_pi:/root/.ssh/sparkdash_pi:ro
     environment:
       # Secure default: host-networked service listens only on loopback.
       # See docs/REMOTE-ACCESS.md; direct non-loopback binds fail closed.

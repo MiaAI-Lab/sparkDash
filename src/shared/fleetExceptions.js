@@ -21,7 +21,22 @@ export function fleetExceptions(spark, unit = "celsius") {
   if (!spark) return out;
   const metrics = spark.metrics || {};
   if (!spark.online) out.push({ id: "offline", label: "Host unreachable", severity: "critical" });
-  const th = metrics.gpu?.throttle;
+  if (spark.kind === "pi") {
+    const pt = metrics.pi?.throttle;
+    if (pt?.underVoltage) {
+      out.push({ id: "pi-under-voltage", label: "has an under-voltage condition", severity: "critical" });
+    } else if (pt?.underVoltageOccurred) {
+      out.push({ id: "pi-under-voltage", label: "had an under-voltage event since boot", severity: "warning" });
+    }
+    if (pt?.throttled || pt?.softTempLimit) {
+      out.push({
+        id: "pi-throttle",
+        label: pt.softTempLimit ? "hit the soft temperature limit" : "is throttling",
+        severity: "warning",
+      });
+    }
+  }
+  const th = spark.kind === "pi" ? null : metrics.gpu?.throttle;
   // A software power cap on an idle GPU is normal; only thermal / hardware slowdown is an alert.
   if (th?.thermal || th?.hwSlowdown) {
     const bits = [];

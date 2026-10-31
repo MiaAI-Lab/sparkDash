@@ -17,6 +17,12 @@ const MEM_AVAIL_CRITICAL_MB = 1536;
 const LOW_POWER_UTIL = 90;
 const LOW_POWER_WATTS = 15;
 const LINK_MIN_MBPS = 1000;
+/** Pi 4/5 firmware throttles at 80 °C; warn before the soft limit. */
+export const PI_TEMP_WARN_C = 75;
+export const PI_TEMP_CRITICAL_C = 80;
+/** Free RAM percentage at which a Pi unit warns / turns critical. */
+export const PI_RAM_FREE_WARN_PCT = 10;
+export const PI_RAM_FREE_CRITICAL_PCT = 5;
 
 const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
@@ -61,17 +67,27 @@ export class HealthEvaluator {
   }
 
   /**
-   * @param {{ gpu?: any, unifiedMemory?: any, network?: any, llm?: any[] }} metrics
+   * @param {{ gpu?: any, cpu?: any, ram?: any, pi?: any, unifiedMemory?: any, network?: any, llm?: any[] }} metrics
    * @param {"gpu"|"other"} [domain] "gpu" advances the per-sample streaks.
+   * @param {"spark"|"host"|"pi"|string} [kind] hardware kind; Pi uses its own rules.
    * @returns {Array<{id:string,severity:string,title:string,detail:string,hint:string}>}
    */
-  evaluate(metrics, domain = "other") {
+  evaluate(metrics, domain = "other", kind = "spark") {
     this.pendingEvents = [];
     const out = [];
     try {
+      const net = metrics?.network ?? null;
+      if (kind === "pi") {
+        // A Pi has no GPU/unified pool: judge the CPU, system RAM, firmware
+        // throttle state and the network link. GPU and LLM rules never apply.
+        this._piThermal(metrics?.cpu, out);
+        this._piMemory(metrics?.ram, out);
+        this._piThrottle(metrics?.pi, out);
+        this._link(net, out);
+        return out;
+      }
       const gpu = nvidiaView(metrics?.gpu ?? null);
       const mem = metrics?.unifiedMemory ?? null;
-      const net = metrics?.network ?? null;
       const llm = Array.isArray(metrics?.llm) ? metrics.llm : [];
       this._thermal(gpu, out);
       this._lowPower(gpu, domain, out);
@@ -84,6 +100,71 @@ export class HealthEvaluator {
       /* a rule bug must never break the poll loop */
     }
     return out;
+  }
+
+  _piThermal(cpu, out) {
+    const t = num(cpu?.temperature);
+    if (t == null || t < PI_TEMP_WARN_C) return;
+    const critical = t >= PI_TEMP_CRITICAL_C;
+    out.push({
+      id: "pi-thermal",
+      severity: critical ? "critical" : "warn",
+      title: critical ? "CPU is at its throttle temperature" : "CPU is running hot",
+      detail: `${Math.round(t)}°C (warns at ${PI_TEMP_WARN_C}°C, critical at ${PI_TEMP_CRITICAL_C}°C; the Pi firmware throttles at 80°C).`,
+      hint: "Check the heatsink, airflow and room temperature. A Pi 4/5 in a closed case throttles under sustained load.",
+    });
+  }
+
+  _piMemory(ram, out) {
+    const total = num(ram?.total);
+    if (total == null || total <= 0) return;
+    const available = num(ram?.available);
+    // Prefer the collector's MemAvailable; fall back to the used percentage
+    // (never derive free memory as total − used, which ignores caches).
+    const freePct = available != null ? (available / total) * 100 : 100 - (num(ram?.percentage) ?? 0);
+    if (freePct >= PI_RAM_FREE_WARN_PCT) return;
+    const critical = freePct < PI_RAM_FREE_CRITICAL_PCT;
+    const freeMB = available != null ? available : Math.max(0, (total * freePct) / 100);
+    out.push({
+      id: "pi-memory",
+      severity: critical ? "critical" : "warn",
+      title: critical ? "RAM is almost exhausted" : "RAM is running low",
+      detail: `${(freeMB / 1024).toFixed(1)} GB free of ${(total / 1024).toFixed(1)} GB (${Math.round(freePct)}% free).`,
+      hint: "Stop an unused service or container, or move the workload to another Pi. The kernel may start killing processes.",
+    });
+  }
+
+  _piThrottle(pi, out) {
+    const throttle = pi?.throttle;
+    if (!throttle) return;
+    if (throttle.underVoltage) {
+      out.push({
+        id: "pi-under-voltage",
+        severity: "critical",
+        title: "Under-voltage detected",
+        detail: "The Pi's firmware reports an active under-voltage condition.",
+        hint: "Use a proper 5V/3A (Pi 4) or 5V/5A (Pi 5) supply and a short, thick cable. USB hubs and phone chargers brown out under load.",
+      });
+    } else if (throttle.underVoltageOccurred) {
+      out.push({
+        id: "pi-under-voltage",
+        severity: "warn",
+        title: "Under-voltage occurred since boot",
+        detail: "The Pi's firmware recorded an under-voltage event earlier in this boot.",
+        hint: "Check the power supply, cable and any USB peripherals. Repeated brownouts can corrupt the SD card.",
+      });
+    }
+    if (throttle.throttled || throttle.softTempLimit) {
+      out.push({
+        id: "pi-throttle",
+        severity: "warn",
+        title: throttle.softTempLimit ? "CPU hit the soft temperature limit" : "CPU is throttling",
+        detail: throttle.softTempLimit
+          ? "The firmware reduced clocks at the soft temperature limit."
+          : "The firmware is currently throttling the CPU.",
+        hint: "Improve cooling and check that the case is not blocking airflow; sustained throttling slows every service on the board.",
+      });
+    }
   }
 
   _thermal(gpu, out) {

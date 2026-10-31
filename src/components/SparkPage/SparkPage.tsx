@@ -16,6 +16,7 @@ import { ComfyPanel } from "./ComfyPanel";
 import { LlmModelsPanel } from "./LlmModelsPanel";
 import { RocePanel } from "./RocePanel";
 import { UnifiedMemoryPanel } from "./UnifiedMemoryPanel";
+import { PiPanel } from "./PiPanel";
 import { HistoryPanel } from "./HistoryPanel";
 import "../../styles/spark.css";
 import { vramContextFor } from "../../shared/vramBreakdown";
@@ -139,6 +140,7 @@ export function SparkPage({
   const llmOn = isLlmMonitoringEnabled(spark);
   const comfyOn = Boolean(spark.comfyMonitoring);
   const tailscaleOn = Boolean(spark.tailscaleMonitoring);
+  const isPi = spark.kind === "pi";
   const showServices = llmOn || comfyOn;
   // Everything on one page: hardware and services together (no sub-tabs).
   const view: SparkView = showServices ? "all" : "resources";
@@ -149,7 +151,7 @@ export function SparkPage({
   const primaryPort = llmPorts[0];
   const extraPorts = llmPorts.slice(1);
   const unified = metrics.unifiedMemory;
-  const showUnified = spark.kind !== "host" && unified != null && unified.total > 0;
+  const showUnified = spark.kind === "spark" && unified != null && unified.total > 0;
 
   const renderLlmPanel = (port: number, portIndex: number, className?: string) => {
     // Match by the snapshot's own port so a panel never shows another port's
@@ -271,16 +273,23 @@ export function SparkPage({
            right. Below xl everything stacks in the Item order (GPU, memory, LLM first). */
         <div className="sp-cols">
           <div className="sp-col">
-            <Item order={1}>
-              <GpuPanel
-                gpu={metrics.gpu}
-                vramContext={showVramBreakdown ? vramContextFor(spark, fleet) : null}
-                sparkId={spark.id}
-                temperatureUnit={temperatureUnit}
-                chip={spark.hardware.gpuChip}
-                hideMemory={showUnified}
-              />
-            </Item>
+            {isPi && (
+              <Item order={1}>
+                <PiPanel pi={spark.pi ?? metrics.pi ?? null} hardware={spark.hardware} />
+              </Item>
+            )}
+            {!isPi && (
+              <Item order={1}>
+                <GpuPanel
+                  gpu={metrics.gpu}
+                  vramContext={showVramBreakdown ? vramContextFor(spark, fleet) : null}
+                  sparkId={spark.id}
+                  temperatureUnit={temperatureUnit}
+                  chip={spark.hardware.gpuChip}
+                  hideMemory={showUnified}
+                />
+              </Item>
+            )}
             {/* Unified memory (or RAM on a dedicated host) and CPU sit side by side (they stack when the column is narrow). */}
             <Item order={2}>
               <div className="sp-pair">
@@ -290,11 +299,12 @@ export function SparkPage({
                   hardware={spark.hardware}
                   sparkId={spark.id}
                   temperatureUnit={temperatureUnit}
+                  kind={spark.kind}
                 />
-                {/* Dedicated hosts have system RAM instead of a unified pool: CPU and RAM side by side. */}
-                {spark.kind === "host" && <RamPanel ram={metrics.ram} sparkId={spark.id} />}
-                {/* Models is the third column of the row (Windows PCs have no launchers). */}
-                {spark.platform !== "windows" && modelsPanel}
+                {/* Dedicated hosts and Pi units have system RAM instead of a unified pool. */}
+                {(spark.kind === "host" || isPi) && <RamPanel ram={metrics.ram} sparkId={spark.id} />}
+                {/* Models is the third column of the row (Windows PCs and Pi units have no launchers). */}
+                {spark.platform !== "windows" && !isPi && modelsPanel}
               </div>
             </Item>
             {/* History closes the hardware column: the right column (LLM, storage, network) is

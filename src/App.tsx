@@ -104,7 +104,7 @@ function placeholderSnapshot(
     comfyMonitoring?: boolean;
     comfyPort?: number;
     tailscaleMonitoring?: boolean;
-    kind?: "spark" | "host";
+    kind?: "spark" | "host" | "pi";
   }
 ): SparkSnapshot {
   const role =

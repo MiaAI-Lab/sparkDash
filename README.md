@@ -48,6 +48,7 @@ Monitored units run **Linux**, **macOS**, or **Windows** (a Windows PC with an N
 - [Alert notifications](#alert-notifications)
 - [RoCE / RDMA monitoring](#roce--rdma-monitoring)
 - [Intel Arc GPUs](#intel-arc-gpus)
+- [Raspberry Pi units](#raspberry-pi-units)
 - [Windows PCs](#windows-pcs)
 - [Full changelog](./CHANGELOG.md)
 - [Quick start](#quick-start)
@@ -128,6 +129,7 @@ Full history: [CHANGELOG.md](./CHANGELOG.md)
 | **Multi-unit** | Any number of units; each has a tabbed detail page plus a shared Overview |
 | **Non-Spark GPU hosts** | Linux boxes with a dedicated NVIDIA GPU are first-class units: same `nvidia-smi` collectors over SSH, detected hardware summary, and separate **RAM** / **VRAM** panels. Detail page: GPU (left) + **RAM → Network → Storage** (right column); Overview cards show RAM and VRAM bars |
 | **Windows hosts** | Windows machines with an AMD iGPU (Strix Halo and friends) are first-class units too: agentless PowerShell over OpenSSH, CPU/RAM/disks/network collectors, and GPU usage straight from the engine performance counters (reads like Task Manager). The Add/Edit wizard has a **Strix Halo / Windows host** unit type |
+| **Raspberry Pi units** | Pi 4/5 boards are first-class units over SSH with no agent: CPU/temperature, RAM, storage, network, uptime, board model and firmware throttle/under-voltage flags, plus the opt-in Hermes/Tailnet probes. No GPU/LLM/power surfaces and no fabricated 65 W estimate (see [Raspberry Pi units](#raspberry-pi-units)) |
 | **Live streaming** | WebSocket metrics with configurable poll intervals; central history store for sparklines across tab switches |
 | **Local + remote** | Host metrics via sysfs/proc/`nvidia-smi`; remotes over SSH (key or password) |
 | **LLM probe** | Auto-detects llama.cpp, vLLM, sglang, LM Studio, Ollama, ds4-server, EXL3, TensorFold, FreeToken, Strata, q27, NVIDIA Flare, Locals, or Splash; live decode/prefill tok/s from the engine's own counters where it publishes them (not LM Studio or Ollama); cached vs uncached prefill on ds4, llama.cpp, SGLang, and q27; **daily peak** history on the LLM card |
@@ -601,6 +603,30 @@ sparky ALL=(root) NOPASSWD: SPARKDASH_INTEL_VRAM
 Use the full path of `cat` that `command -v cat` prints for that user (`/usr/bin/cat` or `/bin/cat`; they are the same file on merged-`/usr` systems) and escape the colons of the PCI address with a backslash, as above. Do not use `*` in the paths: in sudoers a wildcard also matches spaces and `/`, so `.../dri/*/tile0/vram_mm` would also allow `cat` of other files. On sudo 1.9.10 or newer a regular expression pins the same set: `/usr/bin/cat ^/sys/kernel/debug/dri/[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]/tile[0-3]/vram_mm$`. Check the rule with `sudo -n cat /sys/kernel/debug/dri/<pci-address>/tile0/vram_mm` as that user. The local unit (the container with `pid: host`) runs as root and needs no rule.
 
 **Health.** Intel cards are shown and counted in the power and VRAM totals but are not judged by the NVIDIA-tuned health thresholds. If `nvidia-smi` is installed but returns no devices on a host that has an Intel card, the GPU collection is reported as failed (the Intel card is still shown), so a broken NVIDIA driver does not look healthy; a host with no `nvidia-smi` at all is treated as Intel-only.
+
+## Raspberry Pi units
+
+A Raspberry Pi 4/5 is a first-class unit with no agent installed. sparkDash reads
+`/proc`, `/sys` and `vcgencmd` over SSH and shows CPU usage and SoC temperature,
+RAM, storage and I/O, network, uptime, the board model/revision and the firmware
+throttle/under-voltage flags. GPU, VRAM, LLM, ComfyUI, model-launcher and power
+panels are hidden: a Pi has no supported GPU, no LLM endpoint and no measured
+input power, and sparkDash does not substitute the GB10's 65 W ARM estimate.
+
+Add it with **Add Spark / GPU host → Unit type → Raspberry Pi (Linux, SSH, no GPU)**.
+Pi units are remote-only; use key auth and a dedicated key (for example
+`/root/.ssh/sparkdash_pi`) in **SSH key file**, then authorize its public key on
+the Pi (`ssh-copy-id -i sparkdash_pi.pub devopsfortunato@luffy-1`). Mount that
+private key read-only into the container in `docker-compose.yml`. With the key at
+a distinct path, Sparks keep using `SSH_IDENTITY_FILE` or the default identity;
+the per-unit path wins for the Pi.
+
+Pi health findings use 75 °C warn / 80 °C critical (the firmware throttles at
+80 °C), free-RAM percentages, and firmware under-voltage/throttling. These reach
+the Overview strip and alert notifications; `sparkdash_pi_throttled{reason}` is
+exported to Prometheus and the Pi block is included in the MQTT JSON. The
+`/boot/firmware` volume is excluded from storage. Shutdown, GPU clocks, LLM-port
+editing and Tool Eval are refused for Pi units.
 
 ## Windows PCs
 

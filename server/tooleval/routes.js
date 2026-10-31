@@ -40,6 +40,10 @@ export function registerToolEvalRoutes(app, { registry, manager, store, allowRun
   const sparkOr404 = (req, res) => {
     const spark = registry.getSpark(req.params.id);
     if (!spark) res.status(404).json({ error: "Spark not found" });
+    if (spark?.kind === "pi") {
+      res.status(400).json({ error: "Tool Eval Bench is not supported on Raspberry Pi units" });
+      return null;
+    }
     return spark || null;
   };
   const runOr404 = (req, res, spark) => {

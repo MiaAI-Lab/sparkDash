@@ -1,6 +1,8 @@
 # Codebase overview
 
-sparkDash monitors a fleet of NVIDIA DGX Sparks and other supported hosts. Every configured unit has one registry entry and a shared `SparkMonitor` instance; hardware and LLM collectors are parameterized by that unit. Local collectors read host metrics, while remote collectors use SSH or the platform-specific collection paths.
+sparkDash monitors a fleet of NVIDIA DGX Sparks and other supported hosts — dedicated GPU machines, Windows PCs, macOS hosts and Raspberry Pi boards. Every configured unit has one registry entry and a shared `SparkMonitor` instance; hardware and LLM collectors are parameterized by that unit. Local collectors read host metrics, while remote collectors use SSH or the platform-specific collection paths.
+
+Unit kinds are `spark` (DGX Spark), `host` (dedicated GPU machine, Windows PC or Mac) and `pi` (Raspberry Pi 4/5). A Pi is remote-only: it has no GPU/LLM/Comfy collector domains, its CPU power is unknown rather than estimated, and it exposes board/throttle status from `vcgencmd`. Pi-only branches must not leak into Spark/GPU-host behavior; audit every `kind ===` branch when changing the unit model.
 
 ## Stack and entry points
 

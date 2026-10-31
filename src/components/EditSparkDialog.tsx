@@ -261,6 +261,7 @@ export function EditSparkDialog({
           host: config.ssh.host || config.lanIp,
           user: config.ssh.user,
           auth: config.ssh.auth,
+          identityFile: config.ssh.identityFile?.trim() || null,
           port: (() => {
             const n = Number(config.ssh.port);
             return Number.isInteger(n) && n >= 1 && n <= 65535 ? n : 22;
@@ -363,7 +364,7 @@ export function EditSparkDialog({
                 )}
               </div>
 
-              {config.kind !== "host" && (
+              {config.kind === "spark" && (
                 <div>
                   <label className="field-label">CX7 IP (optional)</label>
                   <input
@@ -397,7 +398,7 @@ export function EditSparkDialog({
               </div>
               )}
 
-              {config.platform !== "windows" && (
+              {config.platform !== "windows" && config.kind !== "pi" && (
                 <label className="check-row">
                   <input
                     type="checkbox"
@@ -408,6 +409,7 @@ export function EditSparkDialog({
                 </label>
               )}
 
+              {config.kind !== "pi" && (
               <div>
                 <label className="field-label field-label--row">
                   <span>Role</span>
@@ -428,8 +430,9 @@ export function EditSparkDialog({
                   <option value="standalone">Standalone</option>
                 </select>
               </div>
+              )}
 
-              {role === "standalone" && (
+              {config.kind !== "pi" && role === "standalone" && (
                 <label className="check-row">
                   <input
                     type="checkbox"
@@ -448,6 +451,7 @@ export function EditSparkDialog({
                 </label>
               )}
 
+              {config.kind !== "pi" && (
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
                 <label className="flex min-w-0 items-center gap-2">
                   <input
@@ -504,6 +508,7 @@ export function EditSparkDialog({
                   />
                 </div>
               </div>
+              )}
 
               {config.platform !== "windows" && (
                 <>
@@ -643,10 +648,28 @@ export function EditSparkDialog({
                       <option value="pass">Password</option>
                     </select>
                     {config.ssh.auth === "key" && (
-                      <p className="field-hint">
-                        SSH runs on the sparkDash host. Docker: mount a key at /root/.ssh/id_ed25519
-                        (or SSH_IDENTITY_FILE). IPs are from that host, not your laptop.
-                      </p>
+                      <>
+                        <p className="field-hint">
+                          SSH runs on the sparkDash host. Docker: mount a key at /root/.ssh/id_ed25519
+                          (or SSH_IDENTITY_FILE). IPs are from that host, not your laptop.
+                        </p>
+                        <div>
+                          <label className="field-label" htmlFor="edit-spark-ssh-identity">
+                            SSH key file (optional)
+                          </label>
+                          <input
+                            id="edit-spark-ssh-identity"
+                            type="text"
+                            value={config.ssh.identityFile ?? ""}
+                            onChange={(e) => updateSsh({ identityFile: e.target.value || null })}
+                            placeholder="/root/.ssh/sparkdash_pi"
+                          />
+                          <p className="field-hint">
+                            Absolute path inside the sparkDash host/container. Overrides
+                            SSH_IDENTITY_FILE for this unit.
+                          </p>
+                        </div>
+                      </>
                     )}
                   </div>
 
@@ -684,7 +707,7 @@ export function EditSparkDialog({
                 </>
               )}
 
-              {sparkId && config.kind !== "host" && config.platform !== "windows" && config.platform !== "darwin" && (
+              {sparkId && config.kind === "spark" && config.platform !== "windows" && config.platform !== "darwin" && (
                 <GpuClockSection sparkId={sparkId} />
               )}
             </div>

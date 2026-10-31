@@ -27,6 +27,7 @@ function formatUptime(seconds: number): string {
 export function SparkHeader({ spark, onEdit, onNavigate }: SparkHeaderProps) {
   const { hardware } = spark;
   const online = spark.online;
+  const isPi = spark.kind === "pi";
   const hermes = spark.hermes;
   const role = resolveSparkRole(spark);
   const roleText = role === "head" ? "Head" : role === "worker" ? "Worker" : "Standalone";
@@ -44,7 +45,7 @@ export function SparkHeader({ spark, onEdit, onNavigate }: SparkHeaderProps) {
   const backend = backendLabel(spark.metrics.llm?.find((l) => l.available)?.backend ?? null);
   const tailscaleIp = spark.metrics.tailscale?.tailscaleIp ?? null;
   const hw = [
-    hardware.gpuChip ? `${hardware.device} · ${hardware.gpuChip}` : hardware.device,
+    isPi ? hardware.device : hardware.gpuChip ? `${hardware.device} · ${hardware.gpuChip}` : hardware.device,
     hardware.totalMemoryGB != null ? `${Math.round(hardware.totalMemoryGB)} GB` : null,
   ].filter(Boolean);
 
@@ -67,9 +68,13 @@ export function SparkHeader({ spark, onEdit, onNavigate }: SparkHeaderProps) {
           />
           <h2>{spark.name}</h2>
           <div className="sp-tags">
-            <Tag className="tag--role" tone="acc" title={roleTitle}>
-              {roleText}
-            </Tag>
+            {isPi ? (
+              <Tag className="tag--role" tone="acc" title={hardware.device}>Raspberry Pi</Tag>
+            ) : (
+              <Tag className="tag--role" tone="acc" title={roleTitle}>
+                {roleText}
+              </Tag>
+            )}
             {workerLabel && (
               <Tag tone="acc" title={workerLabel} className="sp-tag-clip">
                 {workerLabel}

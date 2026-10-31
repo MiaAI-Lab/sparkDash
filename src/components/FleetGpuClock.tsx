@@ -129,7 +129,7 @@ export function FleetGpuClock({
       // Only the units the cap route acts on are asked: hosts and macOS/Windows
       // units have no clock to cap, so the route skips them before any read.
       const ids = res.sparks
-        .filter((spark) => spark.kind !== "host" && spark.platform !== "darwin" && spark.platform !== "windows")
+        .filter((spark) => spark.kind === "spark" && spark.platform !== "darwin" && spark.platform !== "windows")
         .map((spark) => spark.id);
       // Each unit gets its own deadline: one unreachable Spark must not hide what
       // the others report, and must not hold the row on "Reading the fleet…".

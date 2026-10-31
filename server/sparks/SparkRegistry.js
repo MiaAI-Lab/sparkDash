@@ -2,7 +2,7 @@ import fs from "fs";
 import { SPARKS_JSON_PATH, LLM_PORT } from "../config.js";
 import { loadSecrets, saveSecrets } from "../secretsStore.js";
 import { atomicWrite, quarantineCorrupt } from "../util/atomicWrite.js";
-import { isValidSparkId, normalizeSshPort } from "../validate.js";
+import { isValidSparkId, normalizeSshIdentityFile, normalizeSshPort } from "../validate.js";
 import { llmProbeHost } from "../collectors/llmHost.js";
 
 /**
@@ -599,38 +599,50 @@ export class SparkRegistry {
       host: sshIn.host || "",
       user: sshIn.user || "root",
       auth: sshIn.auth === "pass" ? "pass" : "key",
+      /** Key file inside the sparkDash server/container; falls back to SSH_IDENTITY_FILE. */
+      identityFile: normalizeSshIdentityFile(sshIn.identityFile),
       /** TCP port for SSH. Missing or invalid values fall back to 22. */
       port: normalizeSshPort(sshIn.port) ?? 22,
     };
-    const llmPorts = this._normalizeLlmPorts(config.llmPorts ?? config.llmPort);
-    const role = this._normalizeRole(config);
+    const pi = config.kind === "pi";
+    const kind = pi ? "pi" : config.kind === "host" || config.platform === "windows" ? "host" : "spark";
+    // Pi units are remote Linux boards: no Windows/macOS collectors, no local mode,
+    // no LLM/Comfy probes, and no LLM ports (an empty list must survive reloads).
+    const llmPorts = pi ? [] : this._normalizeLlmPorts(config.llmPorts ?? config.llmPort);
+    const role = pi ? "standalone" : this._normalizeRole(config);
     const isWorker = role === "worker";
     // Never keep password on the persisted object
     return {
       id: config.id,
       name: config.name || config.id,
-      /** Unit type: spark (DGX Spark) or host (dedicated GPU Linux box). */
-      kind: config.kind === "host" || config.platform === "windows" ? "host" : "spark",
+      /** Unit type: spark (DGX Spark), host (dedicated GPU box) or pi (Raspberry Pi). */
+      kind,
       /**
        * Optional OS platform override for SSH-collected units: "darwin" for
        * macOS hosts (Mac Studio etc.). Absent/"linux" keeps the existing
        * /proc-based collectors. See SystemCollector isMac.
        */
       platform:
-        config.platform === "darwin" ? "darwin" : config.platform === "windows" ? "windows" : "linux",
+        kind === "pi"
+          ? "linux"
+          : config.platform === "darwin"
+            ? "darwin"
+            : config.platform === "windows"
+              ? "windows"
+              : "linux",
       lanIp: config.lanIp || "",
       /** Optional pinned HTTP target for LLM probes/actions; SSH still uses ssh.host. */
       llmHost:
-        typeof config.llmHost === "string" && config.llmHost.trim()
+        !pi && typeof config.llmHost === "string" && config.llmHost.trim()
           ? config.llmHost.trim()
           : null,
-      cx7Ip: config.cx7Ip || null,
+      cx7Ip: pi ? null : config.cx7Ip || null,
       /** Optional user override for Wake-on-LAN. Empty → use detectedMacAddress. */
-      macAddress: config.macAddress || null,
+      macAddress: pi ? null : config.macAddress || null,
       /** Last MAC seen on enP7s7 (auto; not set via public PATCH). */
-      detectedMacAddress: config.detectedMacAddress || null,
+      detectedMacAddress: pi ? null : config.detectedMacAddress || null,
       // A Windows PC is always reached over SSH (the local collectors read /proc).
-      isLocal: config.platform !== "windows" && Boolean(config.isLocal),
+      isLocal: kind === "pi" ? false : config.platform !== "windows" && Boolean(config.isLocal),
       ssh,
       llmPorts,
       role,
@@ -644,26 +656,34 @@ export class SparkRegistry {
         : null,
       /**
        * Standalone: probe/show local LLM (default true).
-       * Head always on; worker always off.
+       * Head always on; worker always off; Raspberry Pi always off.
        */
-      llmMonitoring:
-        role === "worker" ? false : role === "head" ? true : config.llmMonitoring !== false,
+      llmMonitoring: pi
+        ? false
+        : role === "worker"
+          ? false
+          : role === "head"
+            ? true
+            : config.llmMonitoring !== false,
       /**
        * Probe local ComfyUI and show the ComfyUI card (default false; all roles).
        */
-      comfyMonitoring: Boolean(config.comfyMonitoring),
+      comfyMonitoring: pi ? false : Boolean(config.comfyMonitoring),
       /** ComfyUI HTTP port (default 8188). */
       comfyPort: this._normalizeComfyPort(config.comfyPort),
       /**
        * Opt-in tailnet presence via `tailscale status --json` (default false).
        */
       // Hermes and Tailnet probes are bash scripts; Windows units do not run them.
-      tailscaleMonitoring: config.platform !== "windows" && Boolean(config.tailscaleMonitoring),
+      // A Pi runs Raspberry Pi OS, so both stay available despite the coerced platform.
+      tailscaleMonitoring:
+        (kind === "pi" || config.platform !== "windows") && Boolean(config.tailscaleMonitoring),
       /**
        * Opt-in: Hermes Agent CLI is installed on this machine. When enabled,
        * the SparkMonitor checks for updates and allows one-click `hermes update`.
        */
-      hermesMonitoring: config.platform !== "windows" && Boolean(config.hermesMonitoring),
+      hermesMonitoring:
+        (kind === "pi" || config.platform !== "windows") && Boolean(config.hermesMonitoring),
       disabledDevices: Array.isArray(config.disabledDevices) ? config.disabledDevices : [],
       disabledInterfaces: Array.isArray(config.disabledInterfaces) ? config.disabledInterfaces : [],
       storagePollDisabled: Boolean(config.storagePollDisabled),

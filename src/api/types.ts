@@ -7,8 +7,10 @@ export interface SparkConfig {
    * - spark: NVIDIA DGX Spark (default) — DGX Spark specs shown in the header.
    * - host: any Linux box with supported NVIDIA or AMD GPUs, just not a Spark.
    *   Real hardware is auto-detected once online.
+   * - pi: Raspberry Pi 4/5; CPU/RAM/storage/network/temperature and firmware
+   *   throttle state, no GPU/LLM power surfaces.
    */
-  kind?: "spark" | "host";
+  kind?: "spark" | "host" | "pi";
   /**
    * Optional OS platform override for SSH-collected units. "linux" (default)
    * uses /proc + vendor GPU tooling, "darwin" macOS hosts, "windows" Windows hosts
@@ -30,6 +32,8 @@ export interface SparkConfig {
     host: string;
     user: string;
     auth: "key" | "pass";
+    /** Key file inside the sparkDash host/container; defaults to SSH_IDENTITY_FILE. */
+    identityFile?: string | null;
     /** TCP port for SSH. Omitted or invalid values are stored as 22. */
     port?: number;
     /** Request-only: never returned by GET/list */
@@ -337,8 +341,9 @@ export interface CpuMetrics {
   temperatureLabel?: string | null;
   /** Raw sensor name behind the reading (e.g. "acpitz", "coretemp"). */
   temperatureSource?: string | null;
-  draw: number;
-  tdp: number;
+  /** Estimated (Spark/GPU host) or unknown (Raspberry Pi) — null, never 0 W, when unknown. */
+  draw: number | null;
+  tdp: number | null;
 }
 
 // ─── RAM metrics ─────────────────────────────────────────
@@ -346,6 +351,8 @@ export interface RamMetrics {
   used: number;
   total: number;
   percentage: number;
+  /** MemAvailable in MB; absent on older snapshots. */
+  available?: number;
 }
 
 // ─── Storage metrics ─────────────────────────────────────
@@ -677,6 +684,29 @@ export interface TailscaleMetrics {
 }
 
 // ─── Full metrics snapshot ────────────────────────────────
+// ─── Raspberry Pi status ─────────────────────────────────
+export interface PiThrottle {
+  /** Raw firmware bitmask, e.g. "0x50005". */
+  raw: string;
+  underVoltage: boolean;
+  freqCapped: boolean;
+  throttled: boolean;
+  softTempLimit: boolean;
+  underVoltageOccurred: boolean;
+  freqCappedOccurred: boolean;
+  throttledOccurred: boolean;
+  softTempLimitOccurred: boolean;
+}
+
+export interface PiStatus {
+  model: string | null;
+  revision: string | null;
+  serial: string | null;
+  /** null when vcgencmd is unavailable — unknown, not "not throttled". */
+  throttle: PiThrottle | null;
+  throttleAvailable?: boolean;
+}
+
 export interface SparkMetrics {
   gpu: GpuMetrics | null;
   cpu: CpuMetrics | null;
@@ -694,6 +724,8 @@ export interface SparkMetrics {
   comfy?: ComfyMetrics | null;
   /** Tailnet probe result when monitoring is enabled; null when off or not yet polled. */
   tailscale?: TailscaleMetrics | null;
+  /** Raspberry Pi board status; null on other kinds and until the first poll. */
+  pi?: PiStatus | null;
 }
 
 // ─── Spark snapshot (server pushes this) ──────────────────
@@ -714,8 +746,8 @@ export interface SparkSnapshot {
   name: string;
   /** Why the last liveness check failed, when offline. null/absent when online. */
   offlineReason?: string | null;
-  /** Unit type: spark (DGX Spark) or host (dedicated GPU Linux box). */
-  kind?: "spark" | "host";
+  /** Unit type: spark (DGX Spark), host (dedicated GPU box) or pi (Raspberry Pi). */
+  kind?: "spark" | "host" | "pi";
   /** OS of an SSH-collected unit; Windows units have no model launchers or CPU temperature. */
   platform?: "linux" | "darwin" | "windows";
   online: boolean;
@@ -764,6 +796,8 @@ export interface SparkSnapshot {
   hermes?: HermesStatus;
   hardware: HardwareInfo;
   metrics: SparkMetrics;
+  /** Raspberry Pi board status; null on other kinds and until the first poll. */
+  pi?: PiStatus | null;
   /** Harness sessions by LLM port. Absent until the occupancy poller has a projection. */
   conversations?: Record<string, ConversationRow[]>;
 }

@@ -20,7 +20,9 @@ export function useBenchSpark(sparks: readonly SparkSnapshot[]) {
   // Every Spark stays selectable so its saved results can be read even when it has no LLM now
   // (workers included); runnable ones come first and are preferred as the default.
   const eligible = useMemo(
-    () => [...sparks].sort((a, b) => Number(isWorkerSpark(a)) - Number(isWorkerSpark(b))),
+    () => [...sparks]
+      .filter((s) => s.kind !== "pi")
+      .sort((a, b) => Number(isWorkerSpark(a)) - Number(isWorkerSpark(b))),
     [sparks]
   );
 

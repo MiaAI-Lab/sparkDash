@@ -17,7 +17,12 @@ export function railSubLabel(spark: SparkSnapshot): string {
 }
 
 export function isThrottling(spark: SparkSnapshot): boolean {
-  return Boolean(spark.online && spark.metrics.gpu?.throttle?.thermal);
+  if (!spark.online) return false;
+  if (spark.kind === "pi") {
+    const t = spark.metrics.pi?.throttle;
+    return Boolean(t?.underVoltage || t?.throttled || t?.softTempLimit);
+  }
+  return Boolean(spark.metrics.gpu?.throttle?.thermal);
 }
 
 /** First Spark that can host a showcase (has a reachable LLM and is not a worker). */

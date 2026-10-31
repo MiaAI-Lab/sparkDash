@@ -32,6 +32,14 @@ function isDefaultCpu(cpu) {
  */
 export function memoryReading(snapshot, isFresh = () => true) {
   const m = snapshot?.metrics || {};
+  // A Pi has no GPU pool: its system RAM is the only memory reading.
+  if (snapshot?.kind === "pi") {
+    const ram = m.ram;
+    if (!isFresh("ram") || !finite(ram?.total) || ram.total <= 0) return null;
+    const used = Math.max(0, finite(ram.used) ? ram.used : 0);
+    const free = finite(ram.available) ? Math.max(0, ram.available) : Math.max(0, ram.total - used);
+    return { usedMB: used, freeMB: free };
+  }
   // A macOS host shares one pool too (see memoryModelFor in src/shared/vramBreakdown.ts): judging
   // it as discrete would compute its free memory as total minus the GPU's share alone, hiding
   // everything the CPU side holds and charting a Mac near OOM as comfortable.
@@ -116,7 +124,7 @@ export function extractSample(snapshot, isFresh = () => true) {
     if (cpu.temperature > 0) set("cpuTemp", cpu.temperature);
   }
 
-  if (snapshot.kind === "host" && isFresh("ram") && finite(m.ram?.total) && m.ram.total > 0) {
+  if ((snapshot.kind === "host" || snapshot.kind === "pi") && isFresh("ram") && finite(m.ram?.total) && m.ram.total > 0) {
     set("ramUsedMB", m.ram.used);
   }
 

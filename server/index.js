@@ -67,6 +67,7 @@ import { createModelPricesHandler } from "./prices/ModelPrices.js";
 import { ALERTS_JSON_PATH, FLEET_ENERGY_JSON_PATH, FLEET_ENERGY_MONTHLY_JSON_PATH, MAX_ACTIVE_BENCH_JOBS, METRICS_HISTORY_JSON_PATH } from "./config.js";
 import { createAlertsRuntime, registerAlertRoutes } from "./alerts/runtime.js";
 import { FleetEnergyTracker } from "./energy/FleetEnergyTracker.js";
+import { energyNodeIds as energyMembership } from "./energy/membership.js";
 import { EventLog } from "./events/EventLog.js";
 import { planListenRetry } from "./listenRetry.js";
 import { UnitHistory } from "./metrics/UnitHistory.js";
@@ -305,8 +306,15 @@ const registry = new SparkRegistry();
 const inferenceActivity = new InferenceActivityStore();
 const occupancy = createOccupancyRuntime({ listSparks: () => registry.sparks });
 
+/**
+ * Energy tracks units with power telemetry. A Pi has no measured input power,
+ * so including its id in the membership would leave `_fleetBaseline` null for
+ * the whole fleet (see FleetEnergyTracker). Filter it out at every sync point.
+ */
+const energyNodeIds = () => energyMembership(registry);
+
 const fleetEnergyTracker = new FleetEnergyTracker({
-  nodeIds: registry.sparkIds,
+  nodeIds: energyNodeIds(),
   filePath: FLEET_ENERGY_JSON_PATH,
   monthlyFilePath: FLEET_ENERGY_MONTHLY_JSON_PATH,
 });
@@ -614,6 +622,7 @@ app.post("/api/sparks/test", async (req, res) => {
         host: body.ssh?.host || body.lanIp || "",
         user: body.ssh?.user || "root",
         auth: body.ssh?.auth === "pass" ? "pass" : "key",
+        identityFile: body.ssh?.identityFile || null,
         password: body.ssh?.password,
         port: normalizeSshPort(body.ssh?.port) ?? 22,
       },
@@ -645,7 +654,7 @@ app.post("/api/sparks", (req, res) => {
       return res.status(400).json({ error: validationError });
     }
     const spark = registry.addSpark(req.body);
-    fleetEnergyTracker.invalidateMembership(registry.sparkIds);
+    fleetEnergyTracker.invalidateMembership(energyNodeIds());
     startMonitor(spark);
     recordEvent({
       type: "spark.added",
@@ -663,6 +672,18 @@ app.post("/api/sparks", (req, res) => {
 app.patch("/api/sparks/:id", (req, res) => {
   try {
     const body = req.body || {};
+    // A kind switch to Pi must obey the remote-only/Linux rules even when the
+    // patch carries no host fields (the block below only validates those).
+    if (body.kind === "pi") {
+      const existing = registry.getSpark(req.params.id);
+      if (!existing) return res.status(404).json({ error: "Spark not found" });
+      const error = validateSparkTarget({
+        ...existing,
+        ...body,
+        ssh: { ...existing.ssh, ...(body.ssh || {}) },
+      });
+      if (error) return res.status(400).json({ error });
+    }
     // Only validate host fields if they are being updated
     if (
       body.lanIp != null ||
@@ -723,7 +744,7 @@ app.delete("/api/sparks/:id", (req, res) => {
   try {
     const removed = registry.removeSpark(req.params.id);
     if (!removed) return res.status(404).json({ error: "Spark not found" });
-    fleetEnergyTracker.invalidateMembership(registry.sparkIds);
+    fleetEnergyTracker.invalidateMembership(energyNodeIds());
     stopMonitor(req.params.id);
     launcherManager.removeSpark(req.params.id);
     launcherStatusCache.delete(req.params.id);
@@ -1184,6 +1205,7 @@ app.put("/api/sparks/:id/llm-ports", (req, res) => {
   try {
     const spark = registry.getSpark(req.params.id);
     if (!spark) return res.status(404).json({ error: "Spark not found" });
+    if (spark.kind === "pi") return res.status(400).json({ error: "Raspberry Pi units have no LLM ports" });
 
     const raw = req.body?.llmPorts;
     if (!Array.isArray(raw)) {
@@ -1223,6 +1245,7 @@ app.put("/api/sparks/:id/llm-port", (req, res) => {
   try {
     const spark = registry.getSpark(req.params.id);
     if (!spark) return res.status(404).json({ error: "Spark not found" });
+    if (spark.kind === "pi") return res.status(400).json({ error: "Raspberry Pi units have no LLM ports" });
 
     const raw = req.body?.llmPort;
     const n = typeof raw === "string" ? parseInt(raw, 10) : Number(raw);
@@ -1257,6 +1280,7 @@ app.post("/api/sparks/:id/llm-ports", (req, res) => {
   try {
     const spark = registry.getSpark(req.params.id);
     if (!spark) return res.status(404).json({ error: "Spark not found" });
+    if (spark.kind === "pi") return res.status(400).json({ error: "Raspberry Pi units have no LLM ports" });
 
     const raw = req.body?.port;
     const n = typeof raw === "string" ? parseInt(raw, 10) : Number(raw);
@@ -1287,6 +1311,7 @@ app.delete("/api/sparks/:id/llm-ports/:port", (req, res) => {
   try {
     const spark = registry.getSpark(req.params.id);
     if (!spark) return res.status(404).json({ error: "Spark not found" });
+    if (spark.kind === "pi") return res.status(400).json({ error: "Raspberry Pi units have no LLM ports" });
 
     const port = parseInt(req.params.port, 10);
     if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -1330,6 +1355,7 @@ app.put("/api/sparks/:id/llm-ports/:port/api-key", (req, res) => {
   try {
     const spark = registry.getSpark(req.params.id);
     if (!spark) return res.status(404).json({ error: "Spark not found" });
+    if (spark.kind === "pi") return res.status(400).json({ error: "Raspberry Pi units have no LLM ports" });
 
     const port = parseInt(req.params.port, 10);
     if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -2116,6 +2142,10 @@ app.post("/api/sparks/shutdown-all", async (_req, res) => {
       results.push({ id: spark.id, ok: false, skipped: true, error: "Offline — skipped" });
       continue;
     }
+    if (spark.kind === "pi") {
+      results.push({ id: spark.id, ok: false, skipped: true, error: "Raspberry Pi power control is not supported" });
+      continue;
+    }
     try {
       // Local dashboard host: acknowledge before power-off kills this process.
       if (spark.isLocal) {
@@ -2144,7 +2174,7 @@ app.post("/api/sparks/wake-all", async (_req, res) => {
         id: spark.id,
         ok: false,
         skipped: true,
-        error: "DGX Spark does not support Wake-on-LAN",
+        error: spark.kind === "pi" ? "Raspberry Pi has no Wake-on-LAN" : "DGX Spark does not support Wake-on-LAN",
       });
       continue;
     }
@@ -2173,6 +2203,9 @@ app.post("/api/sparks/:id/shutdown", async (req, res) => {
   try {
     const spark = registry.getSpark(req.params.id);
     if (!spark) return res.status(404).json({ error: "Spark not found" });
+    if (spark.kind === "pi") {
+      return res.status(400).json({ error: "Raspberry Pi power control is not supported" });
+    }
 
     // Local: send JSON first, then power off — otherwise the process dies mid-response
     // and the UI shows "Failed to fetch".

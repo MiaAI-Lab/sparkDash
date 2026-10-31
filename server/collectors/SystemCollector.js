@@ -564,6 +564,66 @@ const REMOTE_IO_MARKER = "---sparkdash-block-io---";
 /** Samples of one disk closer together than this (ms) are the same poll and share one rate. */
 const DISK_RATE_MIN_WINDOW_MS = 250;
 
+const PI_STATUS_CMD = [
+  "cat /proc/device-tree/model 2>/dev/null",
+  "echo '---'",
+  "grep -E '^(Model|Revision|Serial|Hardware)[[:space:]]*:' /proc/cpuinfo 2>/dev/null",
+  "echo '---'",
+  "vcgencmd get_throttled 2>/dev/null || true",
+].join("; ");
+
+/** Strip the NUL padding of /proc/device-tree/model. */
+export function cleanPiModel(raw) {
+  return String(raw ?? "").replace(/\0/g, "").trim();
+}
+
+/**
+ * `vcgencmd get_throttled` output (`throttled=0x50005`) or the raw hex into the
+ * bit flags the Pi firmware exposes. Returns null when the tool did not answer:
+ * an unreadable throttle state must stay unknown, never "not throttled".
+ */
+export function parsePiThrottle(raw) {
+  const match = String(raw ?? "").match(/throttled\s*=\s*(0x[0-9a-f]+|\d+)/i);
+  if (!match) return null;
+  const bits = Number.parseInt(match[1], match[1].toLowerCase().startsWith("0x") ? 16 : 10);
+  if (!Number.isFinite(bits)) return null;
+  return {
+    raw: `0x${bits.toString(16)}`,
+    underVoltage: (bits & 0x1) !== 0,
+    freqCapped: (bits & 0x2) !== 0,
+    throttled: (bits & 0x4) !== 0,
+    softTempLimit: (bits & 0x8) !== 0,
+    underVoltageOccurred: (bits & 0x10000) !== 0,
+    freqCappedOccurred: (bits & 0x20000) !== 0,
+    throttledOccurred: (bits & 0x40000) !== 0,
+    softTempLimitOccurred: (bits & 0x80000) !== 0,
+  };
+}
+
+/** CPU core model implied by the Pi board model string. */
+export function piCpuModel(model) {
+  const s = cleanPiModel(model);
+  if (/Raspberry Pi 5|Compute Module 5/i.test(s)) return "Cortex-A76";
+  if (/Raspberry Pi 4|Raspberry Pi 400|Compute Module 4/i.test(s)) return "Cortex-A72";
+  if (/Raspberry Pi 3|Compute Module 3|Zero 2/i.test(s)) return "Cortex-A53";
+  if (/Raspberry Pi 2/i.test(s)) return "Cortex-A7";
+  return null;
+}
+
+/** GPU generation implied by the Pi board model string. */
+export function piGpuChip(model) {
+  const s = cleanPiModel(model);
+  if (/Raspberry Pi 5|Compute Module 5/i.test(s)) return "VideoCore VII";
+  if (/Raspberry Pi 4|Raspberry Pi 400|Compute Module 4/i.test(s)) return "VideoCore VI";
+  if (/Raspberry Pi 3|Compute Module 3|Zero 2|Raspberry Pi 2/i.test(s)) return "VideoCore IV";
+  return "VideoCore";
+}
+
+function piCpuinfoField(raw, name) {
+  const match = String(raw ?? "").match(new RegExp(`^${name}\\s*:\\s*(.+)$`, "im"));
+  return match ? match[1].trim() : null;
+}
+
 export class SystemCollector {
   constructor(spark) {
     this.spark = spark;
@@ -688,10 +748,14 @@ export class SystemCollector {
       const usageFraction = totalDiff > 0 ? usedDiff / totalDiff : 0;
       // Temperature and power can run in parallel — power is now a pure
       // function of the usage fraction (no extra /proc/stat read).
-      const [tempReading, power] = await Promise.all([
-        this._getCPUTemperatureReading(),
-        this._getCPUPower(usageFraction),
-      ]);
+      // A Pi has no input-power sensor: keep draw/tdp unknown rather than
+      // estimating the board with the GB10's 65 W ARM constant.
+      const [tempReading, power] = this.isPi
+        ? [await this._getCPUTemperatureReading(), { draw: null, tdp: null }]
+        : await Promise.all([
+            this._getCPUTemperatureReading(),
+            this._getCPUPower(usageFraction),
+          ]);
       if (collectionSequence === this._cpuCollectionSequence) {
         this.lastCpuStat = usage;
         this.lastCpuUsagePct = cpuPercentage;
@@ -727,6 +791,10 @@ export class SystemCollector {
   }
 
   _isSuccessfulCpuCollection(cpu) {
+    // A Pi reports no CPU power; a valid usage sample is the whole contract.
+    if (this.isPi) {
+      return Number.isFinite(cpu?.usage) && cpu.usage >= 0 && cpu.usage <= 100;
+    }
     return (
       Number.isFinite(cpu?.usage) &&
       cpu.usage >= 0 &&
@@ -809,7 +877,7 @@ export class SystemCollector {
    * (or is a Windows / macOS unit). Throttled internally: calling it every poll is fine.
    */
   async collectRoce() {
-    if (this.isWindows || this.isMac) return null;
+    if (this.isWindows || this.isMac || this.isPi) return null;
     this._roceSampler ??= new RoceSampler({
       run: (script) =>
         this.spark.isLocal
@@ -1565,9 +1633,15 @@ export class SystemCollector {
    * worth calling "CPU" (#142).
    */
   _isCpuSensorName(name) {
-    return ["coretemp", "k10temp", "zenpower", "x86_pkg_temp", "cpu-thermal", "cpu0-thermal"].includes(
-      String(name || "").toLowerCase()
-    );
+    return [
+      "coretemp",
+      "k10temp",
+      "zenpower",
+      "x86_pkg_temp",
+      "cpu-thermal",
+      "cpu_thermal",
+      "cpu0-thermal",
+    ].includes(String(name || "").toLowerCase());
   }
 
   /**
@@ -1621,7 +1695,7 @@ export class SystemCollector {
           if (!fs.existsSync(nameFile)) continue;
           const name = fs.readFileSync(nameFile, "utf-8").trim();
           // GB10 also exposes nvme/mlx5 sensors; the allowlist keeps those out.
-          if (!["coretemp", "k10temp", "zenpower", "acpitz", "soc_thermal"].includes(name)) continue;
+          if (!["coretemp", "k10temp", "zenpower", "acpitz", "soc_thermal", "cpu_thermal"].includes(name)) continue;
           const dir = path.join(hwmonDir, entry);
           const tempFile = fs
             .readdirSync(dir)
@@ -1725,6 +1799,7 @@ export class SystemCollector {
       used: Math.round(usedKB / 1024),
       total: Math.round(totalKB / 1024),
       percentage: totalKB > 0 ? Math.round((usedKB / totalKB) * 100) : 0,
+      available: Math.round(availKB / 1024),
     };
   }
 
@@ -2264,7 +2339,7 @@ export class SystemCollector {
       // GB10 also exposes nvme/mlx5 sensors; the name allowlist keeps those out.
       // Every line is "<name> <millidegrees>" so the reader can say which sensor
       // it used — an ACPI zone must not be reported as the CPU (#142).
-      'for h in $(find /sys/class/hwmon -mindepth 1 -maxdepth 1 2>/dev/null | sort); do n=$(cat "$h/name" 2>/dev/null); case "$n" in coretemp|k10temp|zenpower|acpitz|soc_thermal) for t in $(find -L "$h" -mindepth 1 -maxdepth 1 -name \'temp*_input\' 2>/dev/null | sort); do v=$(cat "$t" 2>/dev/null); [ -n "$v" ] && echo "$n $v"; break; done;; esac; done',
+      'for h in $(find /sys/class/hwmon -mindepth 1 -maxdepth 1 2>/dev/null | sort); do n=$(cat "$h/name" 2>/dev/null); case "$n" in coretemp|k10temp|zenpower|acpitz|soc_thermal|cpu_thermal) for t in $(find -L "$h" -mindepth 1 -maxdepth 1 -name \'temp*_input\' 2>/dev/null | sort); do v=$(cat "$t" 2>/dev/null); [ -n "$v" ] && echo "$n $v"; break; done;; esac; done',
       'for z in $(find /sys/class/thermal -maxdepth 1 -name \'thermal_zone*\' 2>/dev/null | sort); do n=$(cat "$z/type" 2>/dev/null); v=$(cat "$z/temp" 2>/dev/null); [ -n "$v" ] && echo "$n $v"; done || true',
     ].join("; ");
   }
@@ -2298,7 +2373,9 @@ export class SystemCollector {
         this.lastCpuUsagePct = usage;
       }
 
-      // ARM/Neoverse power estimation
+      // ARM/Neoverse power estimation. A Pi is ARM but has no measured input
+      // power, and 65 W is the GB10 constant — never attribute it to a 3–7 W
+      // board. The monitor and exports treat null as unknown.
       const isArm = /CPU architecture:\s*[89]|aarch64|ARMv[89]|armv[89]/i.test(cpuinfoOut);
       const tdp = isArm ? 65 : 185;
       const idleWatts = tdp * 0.08;
@@ -2310,8 +2387,8 @@ export class SystemCollector {
         temperature: tempReading.temperature,
         temperatureLabel: tempReading.temperatureLabel,
         temperatureSource: tempReading.temperatureSource,
-        draw: Math.round(draw * 10) / 10,
-        tdp: Math.round(tdp),
+        draw: this.isPi ? null : Math.round(draw * 10) / 10,
+        tdp: this.isPi ? null : Math.round(tdp),
       };
     } catch (err) {
       console.error(`[SystemCollector] Remote CPU error for ${this.spark.id}:`, err.message);
@@ -2373,6 +2450,7 @@ export class SystemCollector {
         used: Math.round(usedKB / 1024),
         total: Math.round(totalKB / 1024),
         percentage: totalKB > 0 ? Math.round((usedKB / totalKB) * 100) : 0,
+        available: Math.round(availKB / 1024),
       };
     } catch (err) {
       console.error(`[SystemCollector] Remote RAM error for ${this.spark.id}:`, err.message);
@@ -2429,6 +2507,9 @@ export class SystemCollector {
       const [fsys, type, size, used, avail, pct, mount] = parts;
 
       if (mount === "/boot/efi" || mount.includes("/snap")) continue;
+      // Raspberry Pi OS mounts the firmware partition at /boot/firmware; it is a
+      // fixed-size boot volume, not a data filesystem worth a storage card.
+      if (this.isPi && mount === "/boot/firmware") continue;
       if (PSEUDO.has((type || "").toLowerCase())) continue;
 
       const device = fsys.split("/").pop() || fsys;
@@ -2453,6 +2534,14 @@ export class SystemCollector {
     }
 
     return disks;
+  }
+
+  /**
+   * Raspberry Pi units (kind "pi"): Linux, no supported GPU, no LLM/Comfy probes
+   * and no measured input power. Remote-only in v1.
+   */
+  get isPi() {
+    return this.spark.kind === "pi";
   }
 
   /**
@@ -3291,6 +3380,88 @@ export class SystemCollector {
   }
 
   /**
+   * One-shot Raspberry Pi board status: model string, revision/serial and the
+   * firmware throttle/under-voltage bitmask. Remote-only in v1.
+   * Returns null when the SSH command itself failed; `throttle` stays null when
+   * `vcgencmd` is unavailable (e.g. the user lacks `video`/`/dev/vchiq` access),
+   * so the UI can say "unavailable" instead of "not throttled".
+   * @returns {Promise<{ model: string|null, revision: string|null, serial: string|null, throttle: object|null } | null>}
+   */
+  async collectPiStatus(execute = sshExec) {
+    if (this.spark.isLocal) return null;
+    try {
+      const output = await execute(this.spark, PI_STATUS_CMD);
+      const [modelRaw, cpuinfo = "", throttleRaw = ""] = String(output).split("---");
+      const model = cleanPiModel(modelRaw);
+      const revision = piCpuinfoField(cpuinfo, "Revision");
+      const serial = piCpuinfoField(cpuinfo, "Serial");
+      const throttle = parsePiThrottle(throttleRaw);
+      if (!model && !revision && !throttle) return null;
+      return {
+        model: model || null,
+        revision,
+        serial,
+        throttle,
+        throttleAvailable: throttle != null,
+      };
+    } catch (err) {
+      console.error(`[SystemCollector] Pi status error for ${this.spark.id}:`, err.message);
+      return null;
+    }
+  }
+
+  /**
+   * One-shot Pi board detection for the unit header: board model, CPU core model,
+   * core count and RAM. Local mode is best-effort (remote-only is enforced by
+   * the registry); returns null on failure so the caller keeps its fallback.
+   * @returns {Promise<object|null>}
+   */
+  async detectPiHardware(execute = sshExec) {
+    try {
+      let modelRaw = "";
+      let cpuinfo = "";
+      let meminfo = "";
+      if (this.spark.isLocal) {
+        [modelRaw, cpuinfo, meminfo] = await Promise.all([
+          this._readHostFile("/sys/firmware/devicetree/base/model").catch(() => ""),
+          this._readHostFile("/proc/cpuinfo").catch(() => ""),
+          this._readHostFile("/proc/meminfo").catch(() => ""),
+        ]);
+      } else {
+        const out = await execute(
+          this.spark,
+          [
+            "cat /proc/device-tree/model 2>/dev/null",
+            "echo '---'",
+            "grep -c -E '^processor[[:space:]]*:' /proc/cpuinfo 2>/dev/null",
+            "echo '---'",
+            "grep MemTotal /proc/meminfo 2>/dev/null",
+          ].join("; ")
+        );
+        const parts = String(out).split("---");
+        modelRaw = parts[0] ?? "";
+        cpuinfo = parts[1] ?? "";
+        meminfo = parts[2] ?? "";
+      }
+      const model = cleanPiModel(modelRaw);
+      if (!model) return null;
+      const cores = parseInt(String(cpuinfo).trim(), 10);
+      const memMatch = String(meminfo).match(/MemTotal:\s+(\d+)\s+kB/);
+      return {
+        device: model || "Raspberry Pi",
+        cpuModel: piCpuModel(model),
+        cpuCores: Number.isInteger(cores) && cores > 0 ? cores : null,
+        totalMemoryGB: memMatch ? Math.max(1, Math.round(parseInt(memMatch[1], 10) / 1024 / 1024)) : null,
+        gpuChip: piGpuChip(model),
+        gpuCount: 1,
+        cudaDriver: null,
+        storageModel: null,
+      };
+    } catch {
+      return null;
+    }
+  }
+  /**
    * Header label from `--query-gpu=name,driver_version` (one line per card):
    * one card → its name; identical cards → "2× NVIDIA GeForce RTX 5080";
    * mixed cards → "NVIDIA GeForce RTX 5080 + RTX 5060 Ti" (vendor prefix once).
@@ -3431,7 +3602,7 @@ export class SystemCollector {
   }
 
   _defaultRam() {
-    return { used: 0, total: 0, percentage: 0 };
+    return { used: 0, total: 0, percentage: 0, available: 0 };
   }
 
   _defaultNetwork() {

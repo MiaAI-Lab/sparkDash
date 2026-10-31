@@ -21,6 +21,7 @@ import {
   POLL_INTERVAL_LIVENESS,
   POLL_INTERVAL_HERMES,
   POLL_INTERVAL_TAILSCALE,
+  PI_STATUS_POLL_MS,
   LLM_PORT,
   COMFY_PORT,
   HOST_PATHS,
@@ -110,6 +111,10 @@ const HEALTH_LABELS = {
   "link-speed": "Network link speed",
   "roce-link": "RoCE link",
   "roce-loss": "RoCE packet loss",
+  "pi-thermal": "CPU temperature",
+  "pi-memory": "RAM",
+  "pi-under-voltage": "Under-voltage",
+  "pi-throttle": "CPU throttling",
 };
 
 export class SparkMonitor {
@@ -212,6 +217,7 @@ export class SparkMonitor {
       residentModels: [],
       comfy: null,
       tailscale: null,
+      pi: null,
     };
     this._lastUpdate = {};
     /** domain → epoch ms of the last poll that returned real data (see _domainSucceeded). Not in snapshot(): it would defeat the broadcast cache. */
@@ -229,7 +235,15 @@ export class SparkMonitor {
     // background so the header doesn't mislabel the machine as a Spark.
     this._hardwareSummary = this._staticHardwareSummary(spark);
     this._stopped = false;
-    if (spark?.kind === "host") {
+    if (spark?.kind === "pi") {
+      void this.collector
+        .detectPiHardware()
+        .then((detected) => {
+          if (this._stopped || !detected) return;
+          this._hardwareSummary = { ...this._hardwareSummary, ...detected };
+        })
+        .catch(() => {});
+    } else if (spark?.kind === "host") {
       void (spark.platform === "windows" ? this.collector.detectWindowsHardware() : this.collector.detectHardware())
         .then((detected) => {
           if (this._stopped || !detected) return;
@@ -368,6 +382,7 @@ export class SparkMonitor {
    * @param {object} [spark]
    */
   _llmMonitoringEnabled(spark = this.spark) {
+    if (spark?.kind === "pi") return false;
     const role = spark?.role || (spark?.workerNode ? "worker" : "standalone");
     if (role === "worker") return false;
     if (role === "head") return true;
@@ -444,6 +459,7 @@ export class SparkMonitor {
    * @param {object} [spark]
    */
   _comfyMonitoringEnabled(spark = this.spark) {
+    if (spark?.kind === "pi") return false;
     return Boolean(spark?.comfyMonitoring);
   }
 
@@ -585,6 +601,7 @@ export class SparkMonitor {
     this._fastIntervals = resolveFastPollIntervals(pollIntervalMs);
     if (!this._running) return;
     for (const domain of FAST_TIMER_DOMAINS) {
+      if (this.spark.kind === "pi" && (domain === "gpu" || domain === "memory")) continue;
       if (prev[domain] === this._fastIntervals[domain]) continue;
       if (this._domainTimers[domain] != null) this._clearTimer(this._domainTimers[domain]);
       this._domainTimers[domain] = this._armDomainTimer(domain);
@@ -607,10 +624,14 @@ export class SparkMonitor {
     this._stopped = false;
     this._poll();
     for (const domain of FAST_TIMER_DOMAINS) {
+      if (this.spark.kind === "pi" && (domain === "gpu" || domain === "memory")) continue;
       this._domainTimers[domain] = this._armDomainTimer(domain);
     }
     this._intervals.push(setInterval(() => this._pollDomain("storage"), POLL_INTERVAL_STORAGE));
     this._intervals.push(setInterval(() => this._pollDomain("residentModels"), RESIDENT_MODELS_POLL_MS));
+    if (this.spark.kind === "pi") {
+      this._intervals.push(setInterval(() => this._pollDomain("pi"), PI_STATUS_POLL_MS));
+    }
     this._restartLlmPollInterval();
     this._restartComfyPollInterval();
     this._restartHermesPollInterval();
@@ -692,6 +713,7 @@ export class SparkMonitor {
       hermes: this._hermes,
       health: this._health,
       hardware: this._hardwareSummary,
+      pi: this.spark.kind === "pi" ? this._metrics.pi : null,
       metrics: {
         // NOTE: no `timestamp` here. The frontend does not consume a metrics
         // timestamp; the broadcast envelope's `generatedAt` (see
@@ -707,6 +729,7 @@ export class SparkMonitor {
         residentModels: this._metrics.residentModels,
         comfy: comfyOn ? this._metrics.comfy : null,
         tailscale: tailscaleOn ? this._metrics.tailscale : null,
+        pi: this.spark.kind === "pi" ? this._metrics.pi : null,
       },
     };
   }
@@ -761,12 +784,16 @@ export class SparkMonitor {
       const findings = ev.evaluate(
         {
           gpu: this._metrics.gpu,
+          cpu: this._metrics.cpu,
+          ram: this._metrics.ram,
+          pi: this._metrics.pi,
           unifiedMemory: this._metrics.unifiedMemory,
           network: this._metrics.network,
           roce: this._metrics.roce,
           llm: this._metrics.llm,
         },
-        domain
+        domain,
+        this.spark.kind || "spark"
       );
       // A reading that hovers around a threshold (a GPU at 85 °C, memory near 3 GB) would
       // raise and clear its finding every few seconds, and log an event each time. Keep a
@@ -837,6 +864,8 @@ export class SparkMonitor {
         return Array.isArray(result?.interfaces) && result.interfaces.length > 0;
       case "storage":
         return Array.isArray(result) && result.length > 0;
+      case "pi":
+        return result != null && (Boolean(result.model) || Boolean(result.throttle));
       case "residentModels":
         return Array.isArray(result);
       case "llm":
@@ -852,6 +881,9 @@ export class SparkMonitor {
     // A domain that is no longer polled must not age forever and trip a "stuck" alert.
     if (this.spark.storagePollDisabled) delete out.storage;
     if (!this._llmMonitoringEnabled()) delete out.llm;
+    if (this.spark.kind === "pi") {
+      for (const key of ["gpu", "memory", "roce", "comfy", "residentModels"]) delete out[key];
+    }
     return out;
   }
 
@@ -965,13 +997,14 @@ export class SparkMonitor {
     if (this.spark.isLocal) return;
     const c = this.collector;
     // Their data is gone; the series must restart from the first fresh poll after recovery.
-    for (const key of ["gpu", "cpu", "ram", "memory", "network", "storage", "roce"]) delete this._lastSuccess[key];
+    for (const key of ["gpu", "cpu", "ram", "memory", "network", "storage", "roce", "pi"]) delete this._lastSuccess[key];
     this._metrics.gpu = c._defaultGpu();
     this._metrics.cpu = c._defaultCpu();
     this._metrics.ram = c._defaultRam();
     this._metrics.storage = [];
     this._metrics.network = c._defaultNetwork();
     this._metrics.roce = null;
+    this._metrics.pi = null;
     this._metrics.unifiedMemory = c._defaultUnifiedMemory();
     this._metricCollectionSuccessful = { gpu: false, cpu: false };
   }
@@ -979,14 +1012,15 @@ export class SparkMonitor {
   // ─── Polling ──────────────────────────────────────────────
   async _poll() {
     if (!this._running) return;
+    const pi = this.spark.kind === "pi";
     await Promise.all([
       this._checkOnline(),
-      this._pollDomain("gpu"),
+      ...(pi ? [] : [this._pollDomain("gpu")]),
       this._pollDomain("cpu"),
       this._pollDomain("network"),
       this._pollDomain("storage"),
       this._pollDomain("ram"),
-      this._pollDomain("memory"),
+      ...(pi ? [this._pollDomain("pi")] : [this._pollDomain("memory")]),
       this._pollDomain("llm"),
       this._pollDomain("comfy"),
       this._pollDomain("hermes"),
@@ -1018,6 +1052,8 @@ export class SparkMonitor {
       this._pollsPaused = false;
       console.log(`[SparkMonitor] ${this.spark.id}: reachable again — resuming collector polls`);
     }
+    // Pi units have no GPU and no unified-memory domain.
+    if (this.spark.kind === "pi" && (domain === "gpu" || domain === "memory")) return;
     // Skip storage auto-poll when disabled for this spark
     if (domain === "storage" && this.spark.storagePollDisabled) return;
     // Worker nodes: no local LLM API
@@ -1043,6 +1079,9 @@ export class SparkMonitor {
           break;
         case "cpu":
           result = await this.collector.collectCpu();
+          break;
+        case "pi":
+          result = await this.collector.collectPiStatus();
           break;
         case "ram":
           result = await this.collector.collectRam();
@@ -1104,9 +1143,15 @@ export class SparkMonitor {
         case "cpu":
           this._metrics.cpu = result;
           this._metricCollectionSuccessful.cpu = collectionWasSuccessful(result);
+          this._updateHealth();
+          break;
+        case "pi":
+          this._metrics.pi = result;
+          this._updateHealth();
           break;
         case "ram":
           this._metrics.ram = result;
+          this._updateHealth();
           break;
         case "network":
           this._metrics.network = result;
@@ -1338,6 +1383,17 @@ export class SparkMonitor {
    * with real hardware from `detectHardware()` once available.
    */
   _staticHardwareSummary(spark) {
+    if (spark?.kind === "pi") {
+      return {
+        device: "Raspberry Pi",
+        cpuModel: null,
+        cpuCores: null,
+        totalMemoryGB: null,
+        gpuChip: "VideoCore",
+        cudaDriver: null,
+        storageModel: null,
+      };
+    }
     if (spark?.kind === "host") {
       return {
         device: spark.platform === "windows" ? "Windows GPU host" : "Linux GPU host",

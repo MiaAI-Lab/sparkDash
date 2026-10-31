@@ -54,7 +54,7 @@ const httpError = (status, message, code) => Object.assign(new Error(message), {
  */
 export function gpuClockUnsupportedReason(spark) {
   if (!spark) return "Spark not found";
-  if (spark.kind === "host") return "GPU clock caps are only supported on Spark units";
+  if (spark.kind !== "spark") return "GPU clock caps are only supported on Spark units";
   if (spark.platform === "windows" || spark.platform === "darwin") {
     return "GPU clock caps are only supported on Linux Spark units";
   }
@@ -193,7 +193,10 @@ export class GpuClockManager {
   /** Read-only: hardware maximum, current cap, sudo availability, what keeps the
    * cap across boots here, and the state of both boot hooks. */
   async status(spark) {
-    assertSupported(spark);
+    // Unsupported is a normal answer for the dialog (a Pi or GPU host has no cap),
+    // not a 400: FleetGpuClock reads null as "unreadable" and would never settle.
+    const unsupported = gpuClockUnsupportedReason(spark);
+    if (unsupported) return { supported: false, reason: unsupported };
     const res = await this._exec(spark, buildStatusProgram(this._paths), STATUS_TIMEOUT_MS);
     if (res.RESULT !== "ok") {
       // A unit without nvidia-smi is a normal answer for the dialog, not a server error.

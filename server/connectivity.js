@@ -23,11 +23,13 @@ function roleOf(spark) {
 
 export function buildConnectivityPlan(spark) {
   const role = roleOf(spark);
-  const llmEnabled = role === "head" || (role !== "worker" && spark?.llmMonitoring !== false);
+  const pi = spark?.kind === "pi";
+  const llmEnabled = !pi && (role === "head" || (role !== "worker" && spark?.llmMonitoring !== false));
+  const comfyEnabled = !pi && Boolean(spark?.comfyMonitoring);
   return [
     { id: "host", label: spark?.isLocal ? "Local collectors" : "Remote SSH", required: true, enabled: true },
     { id: "llm", label: "LLM API", required: llmEnabled, enabled: llmEnabled },
-    { id: "comfy", label: "ComfyUI", required: Boolean(spark?.comfyMonitoring), enabled: Boolean(spark?.comfyMonitoring) },
+    { id: "comfy", label: "ComfyUI", required: comfyEnabled, enabled: comfyEnabled },
     { id: "hermes", label: "Hermes Agent", required: Boolean(spark?.hermesMonitoring), enabled: Boolean(spark?.hermesMonitoring) },
     { id: "tailnet", label: "Tailnet", required: Boolean(spark?.tailscaleMonitoring), enabled: Boolean(spark?.tailscaleMonitoring) },
   ];

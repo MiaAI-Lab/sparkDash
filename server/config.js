@@ -81,6 +81,8 @@ const POLL_INTERVAL_LLM = parseInt(process.env.POLL_INTERVAL_LLM || "2000", 10);
 const POLL_INTERVAL_COMFY = parseInt(process.env.POLL_INTERVAL_COMFY || "2000", 10);
 // Tailnet membership changes slowly; each poll is an SSH round-trip.
 const POLL_INTERVAL_TAILSCALE = parseInt(process.env.POLL_INTERVAL_TAILSCALE || "30000", 10);
+// Pi board model/throttle changes slowly; one SSH round-trip per poll.
+const PI_STATUS_POLL_MS = parseInt(process.env.POLL_INTERVAL_PI || "5000", 10);
 // Incremental kernel error reads after backfill, independent of the GPU poll interval.
 const POLL_INTERVAL_NVERR = parseInt(process.env.POLL_INTERVAL_NVERR || "60000", 10);
 // dmon -c 1 -d 1 blocks ~1s; default 2s avoids stacking with in-flight guards
@@ -239,6 +241,7 @@ export {
   MAX_ACTIVE_BENCH_JOBS,
   parseMaxActiveBenchJobs,
   POLL_INTERVAL_TAILSCALE,
+  PI_STATUS_POLL_MS,
   POLL_INTERVAL_NVERR,
   POLL_INTERVAL_BANDWIDTH,
   POLL_INTERVAL_LIVENESS,
