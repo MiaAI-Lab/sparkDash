@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useFocusTrap } from "../../hooks/useFocusTrap";
 import { useInertBackground } from "../../hooks/useInertBackground";
+import { useTranslation } from "react-i18next";
 import { SearchIcon } from "../ui/icons";
 
 export interface PaletteCommand {
@@ -54,6 +55,7 @@ interface CommandPaletteProps {
 
 /** Jump-anywhere palette (Ctrl/⌘ K): Sparks, actions, settings. */
 export function CommandPalette({ open, onClose, commands }: CommandPaletteProps) {
+  const { t } = useTranslation("shell");
   const [query, setQuery] = useState("");
   const [sel, setSel] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
@@ -63,6 +65,8 @@ export function CommandPalette({ open, onClose, commands }: CommandPaletteProps)
   useInertBackground(open);
 
   const results = useMemo(() => filterCommands(commands, query), [commands, query]);
+  // A locale change can shrink the results without changing the typed query.
+  const selectedIndex = Math.max(0, Math.min(sel, results.length - 1));
 
   useEffect(() => {
     if (open) {
@@ -74,8 +78,8 @@ export function CommandPalette({ open, onClose, commands }: CommandPaletteProps)
   useEffect(() => setSel(0), [query]);
 
   useEffect(() => {
-    listRef.current?.querySelector<HTMLElement>(`[data-idx="${sel}"]`)?.scrollIntoView?.({ block: "nearest" });
-  }, [sel]);
+    listRef.current?.querySelector<HTMLElement>(`[data-idx="${selectedIndex}"]`)?.scrollIntoView?.({ block: "nearest" });
+  }, [selectedIndex]);
 
   if (!open) return null;
 
@@ -90,13 +94,13 @@ export function CommandPalette({ open, onClose, commands }: CommandPaletteProps)
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setSel((i) => Math.min(results.length - 1, i + 1));
+      setSel(Math.max(0, Math.min(results.length - 1, selectedIndex + 1)));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setSel((i) => Math.max(0, i - 1));
+      setSel(Math.max(0, selectedIndex - 1));
     } else if (e.key === "Enter") {
       e.preventDefault();
-      run(results[sel]);
+      run(results[selectedIndex]);
     } else if (e.key === "Escape") {
       e.preventDefault();
       onClose();
@@ -111,7 +115,7 @@ export function CommandPalette({ open, onClose, commands }: CommandPaletteProps)
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div ref={trapRef} className="palette" role="dialog" aria-modal="true" aria-label="Command palette" onKeyDown={onKeyDown}>
+      <div ref={trapRef} className="palette" role="dialog" aria-modal="true" aria-label={t("palette.dialogLabel")} onKeyDown={onKeyDown}>
         <div className="palette__input">
           <SearchIcon className="h-4 w-4" />
           <input
@@ -119,21 +123,21 @@ export function CommandPalette({ open, onClose, commands }: CommandPaletteProps)
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Jump to a Spark, run an action, open settings…"
-            aria-label="Search commands"
+            placeholder={t("palette.placeholder")}
+            aria-label={t("palette.searchLabel")}
             role="combobox"
             aria-expanded="true"
             aria-controls={LIST_ID}
             aria-autocomplete="list"
-            aria-activedescendant={results.length > 0 ? optionId(Math.min(sel, results.length - 1)) : undefined}
+            aria-activedescendant={results.length > 0 ? optionId(selectedIndex) : undefined}
             autoComplete="off"
             spellCheck={false}
           />
-          <span className="kbd">Esc</span>
+          <span className="kbd">{t("palette.escapeKey")}</span>
         </div>
-        <div className="palette__list" ref={listRef} role="listbox" id={LIST_ID} aria-label="Commands">
+        <div className="palette__list" ref={listRef} role="listbox" id={LIST_ID} aria-label={t("palette.listLabel")}>
           {results.length === 0 ? (
-            <div className="palette__empty">No match for “{query}”.</div>
+            <div className="palette__empty">{t("palette.noMatch", { query })}</div>
           ) : (
             results.map((cmd, i) => {
               const header = cmd.group !== lastGroup ? cmd.group : null;
@@ -145,9 +149,9 @@ export function CommandPalette({ open, onClose, commands }: CommandPaletteProps)
                   <div
                     role="option"
                     id={optionId(i)}
-                    aria-selected={i === sel}
+                    aria-selected={i === selectedIndex}
                     data-idx={i}
-                    className={`palette__item ${i === sel ? "is-sel" : ""}`}
+                    className={`palette__item ${i === selectedIndex ? "is-sel" : ""}`}
                     onMouseDown={(e) => e.preventDefault()}
                     onMouseMove={() => setSel(i)}
                     onClick={() => run(cmd)}
@@ -162,9 +166,9 @@ export function CommandPalette({ open, onClose, commands }: CommandPaletteProps)
           )}
         </div>
         <div className="palette__foot">
-          <span>↑↓ to move</span>
-          <span>↵ to open</span>
-          <span>Esc to close</span>
+          <span>{t("palette.move")}</span>
+          <span>{t("palette.open")}</span>
+          <span>{t("palette.close")}</span>
         </div>
       </div>
     </div>,

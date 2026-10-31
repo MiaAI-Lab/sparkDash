@@ -1,0 +1,159 @@
+{
+  "nav": {
+    "overview": "Overview",
+    "tokens": "Token totals",
+    "cost": "Cost compare",
+    "energy": "Fleet energy",
+    "temps": "Temps",
+    "activity": "Activity",
+    "showcase": "Showcase",
+    "kiosk": "Kiosk",
+    "sparks": "Sparks",
+    "stats": "Stats",
+    "settings": "Settings",
+    "benchmarks": "Benchmarks",
+    "fleet": "Fleet",
+    "brandOverview": "sparkDash overview",
+    "openSearch": "Open command palette",
+    "showSidebar": "Show sidebar",
+    "showSidebarTitle": "Show sidebar (Ctrl+B)"
+  },
+  "sidebar": {
+    "sortable": "sortable",
+    "dragStart": "Picked up draggable item {{id}}.",
+    "dragOver": "Draggable item {{id}} was moved over droppable area {{over}}.",
+    "dragOutside": "Draggable item {{id}} is no longer over a droppable area.",
+    "dragEndOver": "Draggable item {{id}} was dropped over droppable area {{over}}",
+    "dragEnd": "Draggable item {{id}} was dropped.",
+    "dragCancel": "Dragging was cancelled. Draggable item {{id}} was dropped.",
+    "fleetNavigation": "Fleet navigation",
+    "hideSidebar": "Hide sidebar",
+    "hideSidebarTitle": "Hide sidebar (Ctrl+B)",
+    "jumpTo": "Jump to…",
+    "addSpark": "Add Spark or GPU host",
+    "addSparkTitle": "Add Spark / GPU host",
+    "noSparks": "No Sparks yet. Use + to add one.",
+    "workspace": "Workspace",
+    "kioskTitle": "Full-screen wall display (Esc returns)",
+    "dragInstructions": "Press Enter to open this Spark. To reorder it, press M, use the arrow keys to move it, then Enter to drop it or Escape to cancel.",
+    "dragTitle": "Drag to reorder (keyboard: M).",
+    "live": "Live",
+    "livePoll": "Live · {{seconds}} s poll",
+    "reconnecting": "Reconnecting…",
+    "credit": "by Mia's AI Lab",
+    "website": "Mia's AI Lab website",
+    "github": "sparkDash on GitHub",
+    "x": "Mia's AI Lab on X"
+  },
+  "mobile": {
+    "primary": "Primary",
+    "chooseSpark": "Choose a Spark",
+    "addSpark": "Add Spark / GPU host"
+  },
+  "spark": {
+    "offline": "off",
+    "worker": "worker",
+    "prefilling": "prefilling",
+    "decoding": "decoding"
+  },
+  "bench": {
+    "decode": {
+      "label": "Decode",
+      "blurb": "Generation speed (tokens/s) at rising concurrency."
+    },
+    "prefill": {
+      "label": "Prefill",
+      "blurb": "Prompt processing speed and time to first token across context sizes."
+    },
+    "quality": {
+      "label": "Quality",
+      "blurb": "A fixed, seeded quality suite to compare models, quantisations and KV-cache formats."
+    },
+    "toolEval": {
+      "label": "Tool Eval Bench",
+      "blurb": "Tool-calling quality across 69 deterministic scenarios (selection, parameters, multi-step, safety)."
+    }
+  },
+  "palette": {
+    "dialogLabel": "Command palette",
+    "placeholder": "Jump to a Spark, run an action, open settings…",
+    "searchLabel": "Search commands",
+    "escapeKey": "Esc",
+    "listLabel": "Commands",
+    "noMatch": "No match for “{{query}}”.",
+    "move": "↑↓ to move",
+    "open": "↵ to open",
+    "close": "Esc to close"
+  },
+  "install": {
+    "dialogLabel": "Install sparkDash",
+    "title": "Install sparkDash",
+    "description": "Add to your home screen for a fullscreen, app-like dashboard.",
+    "button": "Install",
+    "dismiss": "Dismiss",
+    "ios": {
+      "title": "Install sparkDash on your iPhone",
+      "tapShare": "Tap the ",
+      "share": "Share",
+      "icon": " icon ",
+      "then": " in Safari, then ",
+      "addToHomeScreen": "Add to Home Screen",
+      "period": "."
+    }
+  },
+  "theme": {
+    "title": "Theme: {{theme}}",
+    "switchLabel": "Switch theme (currently {{theme}})",
+    "white": "white",
+    "light": "light",
+    "dark": "dark",
+    "oled": "oled"
+  },
+  "connection": {
+    "ageSeconds": "{{seconds}}s",
+    "ageMinutes": "{{minutes}}m {{seconds}}s",
+    "connecting": "Connecting to live telemetry…",
+    "staleWithAge": "Telemetry is stale. Last valid update was {{age}} ago.",
+    "disconnectedWithAge": "Live telemetry disconnected. Showing data from {{age}} ago.",
+    "waitingForFirstUpdate": "Live telemetry is disconnected. Waiting for the first valid update…",
+    "dataError": "Telemetry data error.",
+    "stale": "Telemetry is stale.",
+    "disconnected": "Live telemetry is disconnected."
+  },
+  "error": {
+    "dismiss": "Dismiss",
+    "dismissLabel": "Dismiss error"
+  },
+  "openAccess": {
+    "label": "Open access",
+    "dialogLabel": "Open access",
+    "explanation": "This dashboard is reachable from your network without a token, so anyone on it can change settings. Set SPARKDASH_TOKEN on the server to require one.",
+    "dismiss": "Don't show again"
+  },
+  "commands": {
+    "goTo": "Go to",
+    "actions": "Actions",
+    "benchmarks": "Benchmarks",
+    "page": "Page",
+    "wallDisplay": "Wall display",
+    "online": "online",
+    "offline": "offline",
+    "benchmark": "{{name}} benchmark",
+    "add": "Add a Spark or GPU host",
+    "showcase": "Open showcase on {{name}} in a new window",
+    "edit": "Edit {{name}}",
+    "theme": "Switch theme",
+    "themeHint": "white · light · dark · oled",
+    "sidebar": "Show or hide the sidebar",
+    "settings": "Open settings",
+    "harness": "Set up harness sessions"
+  },
+  "app": {
+    "settingsError": "Could not load settings: {{detail}}. Reload to retry.",
+    "refreshError": "Could not refresh Sparks: {{detail}}. Previous data remains visible.",
+    "reorderError": "Could not save the Spark order: {{detail}}. The previous order was restored.",
+    "emptyTitle": "No Spark registered",
+    "emptyDescription": "Add a DGX Spark or GPU host to start monitoring.",
+    "addSpark": "Add Spark"
+  }
+}
