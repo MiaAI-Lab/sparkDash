@@ -9,6 +9,9 @@ Format: version sections are listed newest first.
 
 ## [Unreleased]
 
+### Changed
+- **CPU and memory interface language.** The English / 简体中文 setting now updates the Spark detail CPU, system RAM and unified-memory panels, including sensor guidance, memory legends and risk states, and shared process-table headings. Readings, raw hardware/process identities and calculations remain unchanged. The coverage inventory now breaks the remaining Spark detail work into reviewable panel-sized batches.
+
 ### Fixed
 - **TensorFold's per-pool KV ratio reads the busiest pool, not their sum.** The KV gauge summed every `tensorfold:kv_cache_usage_ratio` series and clamped at 1, so a six-pool build at 12–39 % fill read "about to flood". The probe now takes the worst pool, which is the number that forecasts queueing; a single fleet-wide gauge is unchanged. Thanks to @markyu0401 (#332, closes #330).
 - **A rootless-Docker unit with unreadable netns links can declare shared host networking.** Rootless Docker may deny the host namespace symlink, which silently disabled the container's `/proc/net` network collector even under `network_mode: host`. Readable, differing namespace IDs still decide; when they cannot be read, an explicit `SPARKDASH_HOST_NETWORK=1` (documented, Compose-supported, default off) permits the fallback, and a shared procfs mount alone proves nothing. Thanks to @tfolkman (#301).

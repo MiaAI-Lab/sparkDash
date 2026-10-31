@@ -1,0 +1,37 @@
+{
+  "cpu": {
+    "packageZoneHelp": "ACPI 封装温区（GB10 上为 TSOC）。这是 SoC 温度，并非 CPU 裸片温度，也不是 nvidia-smi 上报的 GPU 结温。",
+    "usage": "使用率",
+    "temperature": "温度",
+    "namedTemperature": "温度（{{label}}）",
+    "cpuSensorHelp": "读数来自 {{source}} — CPU 封装传感器",
+    "boardSensorHelp": "读数来自 {{source}} — ACPI/主板温区，并非 CPU 封装传感器",
+    "power": "CPU 功耗",
+    "model": "型号",
+    "cores": " · {{count}} 核"
+  },
+  "ram": {
+    "title": "系统内存",
+    "usage": "使用率"
+  },
+  "memory": {
+    "title": "统一内存",
+    "usedOf": "已用 {{used}} / {{total}} · {{percentage}}%",
+    "usedLabel": "统一内存已用 {{percentage}}%",
+    "segments": {
+      "weights": "模型权重",
+      "gpu": "GPU 进程",
+      "kv": "KV 缓存",
+      "system": "系统",
+      "free": "可用"
+    },
+    "highOomRisk": "OOM 风险：高",
+    "pressure": "内存压力",
+    "bandwidthHelp": "GPU 内存带宽（nvidia-smi dmon）",
+    "waiting": "等待内存读数…"
+  },
+  "processes": {
+    "process": "进程",
+    "memory": "内存"
+  }
+}

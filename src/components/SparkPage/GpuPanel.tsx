@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { GpuDevice, GpuMetrics } from "../../api/types";
 import { Sparkline } from "../ui/Sparkline";
 import { Panel } from "../ui/Panel";
@@ -354,13 +355,14 @@ export function GpuProcessTable({
 }: {
   processes: NonNullable<GpuMetrics["processes"]>;
 }) {
+  const { t } = useTranslation("spark");
   return (
     <table className="sp-table">
       <thead>
         <tr>
           <th>PID</th>
-          <th>Process</th>
-          <th className="r">Memory</th>
+          <th>{t("processes.process")}</th>
+          <th className="r">{t("processes.memory")}</th>
         </tr>
       </thead>
       <tbody>
