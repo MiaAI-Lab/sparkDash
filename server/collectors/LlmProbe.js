@@ -196,6 +196,13 @@ export class LlmProbe {
     this.prefillActive = false;
     /** Previous prefill counters by kind; null until first labeled sample. */
     this.lastPrefillKinds = null;
+    /** Previous by-source computed prompt tokens; null until first labeled sample. */
+    this.lastPromptCompute = null;
+    /** Previous per-request prefill totals (count / seconds / computed / cached). */
+    this._lastPrefillTotals = null;
+    /** Seconds the oldest running request has been open; null when idle. */
+    this.inFlightSeconds = null;
+    this._runningSince = null;
     /** Previous vLLM TTFT histogram `_sum` (seconds). null until first sample. */
     this.lastTtftSum = null;
     /** Previous vLLM TTFT histogram `_count` (requests). null until first sample. */
@@ -531,6 +538,10 @@ export class LlmProbe {
     this._tensorfoldSplitSeen = false;
     this.prefillActive = false;
     this.lastPrefillKinds = null;
+    this.lastPromptCompute = null;
+    this._lastPrefillTotals = null;
+    this.inFlightSeconds = null;
+    this._runningSince = null;
     this.lastTtftSum = null;
     this.lastTtftCount = null;
     this.lastIterSum = null;
@@ -2411,40 +2422,98 @@ export class LlmProbe {
       // prompt_tokens_total counts prefix-cache hits too; a 97%-cached agent
       // prompt would otherwise read as 100k+ tok/s "prefill". Only the
       // computed share is real prefill work.
+      // vLLM splits prompt tokens by source: local_compute is the share that
+      // actually ran prefill; the rest was served from prefix/external cache.
+      // prompt_tokens_total counts both, so rates derived from it are inflated
+      // whenever the prefix cache hits. Prefer this split when the engine
+      // reports it; older builds only expose the plain cached counter.
+      const srcCompute = this._getPromMetricLabeled(
+        txt, "vllm:prompt_tokens_by_source_total", "source", "local_compute");
+      const srcHit = this._getPromMetricLabeled(
+        txt, "vllm:prompt_tokens_by_source_total", "source", "local_cache_hit");
+      const srcExternal = this._getPromMetricLabeled(
+        txt, "vllm:prompt_tokens_by_source_total", "source", "external_kv_transfer");
+      const bySource = srcCompute != null && srcHit != null;
+      // vLLM advances its prompt/compute counters when a request finishes, so a
+      // delta over the poll window is a completion burst, not a rate. The engine
+      // also publishes prefill seconds and computed tokens per finished request;
+      // divide those to get the rate the prefill actually ran at.
+      const prefillCount = this._getVllmMetric(txt, "request_prefill_time_seconds_count");
+      const prefillTime = this._getVllmMetric(txt, "request_prefill_time_seconds_sum");
+      const kvComputed = this._getVllmMetric(txt, "request_prefill_kv_computed_tokens_sum");
+      const cacheServed = srcHit ?? cachedTok;
+      const hasPrefillTiming =
+        prefillCount != null && prefillTime != null && kvComputed != null && cacheServed != null;
+      let completedPrefill = false;
+      if (hasPrefillTiming) {
+        const lastPrefill = this._lastPrefillTotals;
+        if (lastPrefill != null && prefillCount > lastPrefill.count) {
+          const dPrefillTime = prefillTime - lastPrefill.time;
+          const dKvComputed = kvComputed - lastPrefill.kv;
+          const dCacheServed = cacheServed - lastPrefill.cache;
+          if (dPrefillTime > 0 && dKvComputed >= 0 && dCacheServed >= 0) {
+            const prefillRate = Math.max(0, Math.round((dKvComputed / dPrefillTime) * 100) / 100);
+            this.prefillTps = prefillRate;
+            this.uncachedPrefillTps = prefillRate;
+            this.cachedPrefillTps = Math.max(0, Math.round((dCacheServed / dPrefillTime) * 100) / 100);
+            completedPrefill = true;
+          }
+        }
+        this._lastPrefillTotals = {
+          count: prefillCount, time: prefillTime, kv: kvComputed, cache: cacheServed,
+        };
+      }
       const prevCached = this.lastPrefillKinds?.cached;
       const deltaCached =
         cachedTok != null && prevCached != null ? Math.max(0, cachedTok - prevCached) : 0;
-      const deltaComputedIn = Math.max(0, deltaIn - deltaCached);
-      this._setPrefillSplitRates(
-        cachedTok,
-        cachedTok != null ? Math.max(0, promptTokens - cachedTok) : null,
-        dtSec
-      );
+      const deltaComputedIn =
+        bySource && this.lastPromptCompute != null
+          ? Math.max(0, srcCompute - this.lastPromptCompute)
+          : Math.max(0, deltaIn - deltaCached);
+      if (bySource) this.lastPromptCompute = srcCompute;
+      else this.lastPromptCompute = null;
+      if (!hasPrefillTiming) {
+        this._setPrefillSplitRates(
+          bySource ? srcHit + (srcExternal ?? 0) : cachedTok,
+          bySource
+            ? srcCompute
+            : cachedTok != null
+              ? Math.max(0, promptTokens - cachedTok)
+              : null,
+          dtSec
+        );
+      }
       const ttftSum = this._getVllmMetric(txt, "time_to_first_token_seconds_sum");
       const deltaIter =
         iterSum != null && this.lastIterSum != null ? iterSum - this.lastIterSum : 0;
       if (dtSec > 0 && dtSec < 10) {
         this.generationTps = Math.max(0, Math.round((deltaOut / dtSec) * 100) / 100);
-        const deltaTtft =
-          ttftSum != null && this.lastTtftSum != null ? ttftSum - this.lastTtftSum : 0;
-        // Engine-step tokens include prefill+decode. Surplus over generation is
-        // prefill, including the common case where a short/cached prefill lands
-        // in the same poll as the first decode tokens.
-        const prefillIter = Math.max(0, deltaIter - Math.max(0, deltaOut));
-        const specNoise = deltaOut > 0 && prefillIter > 0 && prefillIter < deltaOut * 0.5;
-        const livePrefill =
-          prefillIter > 0 && !specNoise ? prefillIter / dtSec : 0;
-        const finishedPrefill =
-          deltaComputedIn > 0 && deltaTtft > 0
-            ? deltaComputedIn / deltaTtft
-            : deltaComputedIn > 0 && livePrefill <= 0
-              ? deltaComputedIn / dtSec
-              : 0;
-        this.prefillTps = Math.max(
-          0,
-          Math.round((livePrefill > 0 ? livePrefill : finishedPrefill) * 100) / 100
-        );
+        if (!hasPrefillTiming) {
+          const deltaTtft =
+            ttftSum != null && this.lastTtftSum != null ? ttftSum - this.lastTtftSum : 0;
+          // Engine-step tokens include prefill+decode. Surplus over generation is
+          // prefill, including the common case where a short/cached prefill lands
+          // in the same poll as the first decode tokens.
+          const prefillIter = Math.max(0, deltaIter - Math.max(0, deltaOut));
+          const specNoise = deltaOut > 0 && prefillIter > 0 && prefillIter < deltaOut * 0.5;
+          const livePrefill =
+            prefillIter > 0 && !specNoise ? prefillIter / dtSec : 0;
+          const finishedPrefill =
+            deltaComputedIn > 0 && deltaTtft > 0
+              ? deltaComputedIn / deltaTtft
+              : deltaComputedIn > 0 && livePrefill <= 0
+                ? deltaComputedIn / dtSec
+                : 0;
+          this.prefillTps = Math.max(
+            0,
+            Math.round((livePrefill > 0 ? livePrefill : finishedPrefill) * 100) / 100
+          );
+        }
       }
+      // An open request that has not produced a decode token yet is in prefill;
+      // the card shows "prefilling" instead of a zero rate.
+      this.prefillActive =
+        Number.isFinite(running) && running > 0 && deltaOut <= 0 && !completedPrefill;
       // Live mean TTFT over the last poll window from histogram sum/count deltas.
       // Computed BEFORE lastTtftSum is advanced so the delta is real, not 0.
       const ttftCount = this._getVllmMetric(txt, "time_to_first_token_seconds_count");
@@ -2467,6 +2536,15 @@ export class LlmProbe {
 
     this.requestsRunning = running;
     if (running != null) this.slotsActive = Math.round(running);
+    if (Number.isFinite(running) && running > 0) {
+      if (this._runningSince == null) this._runningSince = Date.now();
+    } else {
+      this._runningSince = null;
+    }
+    this.inFlightSeconds =
+      this._runningSince == null
+        ? null
+        : Math.round((Date.now() - this._runningSince) / 100) / 10;
 
     if (this.gpuMemoryUtilization == null) {
       const sleepState = this._getVllmMetric(txt, "engine_sleep_state");
@@ -3404,6 +3482,7 @@ export class LlmProbe {
       requestsRunning: this.requestsRunning,
       requestsWaiting: this.requestsWaiting,
       ttftP95Seconds: this.ttftP95Seconds,
+      inFlightSeconds: this.inFlightSeconds,
       ttftSeconds: this.ttftSeconds,
       preemptionsTotal: this.preemptionsTotal,
       prefixCacheHitRate: this.prefixCacheHitRate,
