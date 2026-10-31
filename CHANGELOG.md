@@ -10,7 +10,7 @@ Format: version sections are listed newest first.
 ## [Unreleased]
 
 ### Changed
-- **LLM history and token-statistics interface language.** English / 简体中文 now covers Spark detail LLM trend labels, daily peak/scale guidance and keyboard/hover tooltips, and cumulative token table/range wording. Language changes preserve chart data, selected day/range, polling, raw dates/model IDs and the cached/computed/unreported token split. The unified progress index keeps this review separate from live controls, sessions and benchmark dialogs.
+- **LLM history and token-statistics interface language.** English / 简体中文 now covers Spark detail LLM trend labels, daily peak/scale guidance and keyboard/hover tooltips, and cumulative token table/range wording. Language changes preserve chart data, selected day/range, polling, raw dates/model IDs and the cached/computed/unreported token split. The unified progress index keeps this review separate from live controls, sessions and benchmark dialogs. Thanks to @oscarlius (#319).
 
 ### Fixed
 - **TensorFold's per-pool KV ratio reads the busiest pool, not their sum.** The KV gauge summed every `tensorfold:kv_cache_usage_ratio` series and clamped at 1, so a six-pool build at 12–39 % fill read "about to flood". The probe now takes the worst pool, which is the number that forecasts queueing; a single fleet-wide gauge is unchanged. Thanks to @markyu0401 (#332, closes #330).
