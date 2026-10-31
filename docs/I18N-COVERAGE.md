@@ -104,12 +104,12 @@ Keep one progress list while retaining separate, complete-feature pull requests.
 | Spark detail GPU, CPU and memory | [#317](https://github.com/MiaAI-Lab/sparkDash/pull/317) | Open, resource-panel review with separate CPU/memory and GPU commits. |
 | Spark detail LLM live panel and sessions | [#318](https://github.com/MiaAI-Lab/sparkDash/pull/318) | Open, independent review; metrics/help, endpoint settings, benchmark entry controls and sessions. Charts/totals and benchmark dialogs remain separate. |
 | Spark detail LLM history, daily statistics and token totals | [#319](https://github.com/MiaAI-Lab/sparkDash/pull/319) | Open, independent review; chart presentation, daily tooltips/accessibility and cumulative token table/range labels. |
-| Fleet Reports | `codex/i18n-fleet-reports-20261031` (submission pending) | Implemented; pending maintainer review, not merged or deployed. |
-| Device Setup | `codex/i18n-device-setup-20261031` (submission pending) | Implemented; pending maintainer review, not merged or deployed. |
-| Spark Details | `codex/i18n-spark-details-20261031` (submission pending) | Implemented; pending maintainer review, not merged or deployed. |
-| Benchmarks | `codex/i18n-benchmarks-20261031` (submission pending) | Implemented; pending maintainer review, not merged or deployed. |
-| Showcase | `codex/i18n-showcase-20261031` (submission pending) | Implemented; pending maintainer review, not merged or deployed. |
-| Server Messages | `codex/i18n-server-messages-20261031` (submission pending) | Implemented; pending maintainer review, not merged or deployed. |
+| Fleet Reports | [#320](https://github.com/MiaAI-Lab/sparkDash/pull/320) | Implemented; pending maintainer review, not merged or deployed. |
+| Device Setup | [#321](https://github.com/MiaAI-Lab/sparkDash/pull/321) | Implemented; pending maintainer review, not merged or deployed. |
+| Spark Details | [#322](https://github.com/MiaAI-Lab/sparkDash/pull/322) | Implemented; pending maintainer review, not merged or deployed. |
+| Benchmarks | [#323](https://github.com/MiaAI-Lab/sparkDash/pull/323) | Implemented; pending maintainer review, not merged or deployed. |
+| Showcase | [#324](https://github.com/MiaAI-Lab/sparkDash/pull/324) | Implemented; pending maintainer review, not merged or deployed. |
+| Server Messages | [#325](https://github.com/MiaAI-Lab/sparkDash/pull/325) | Implemented; pending maintainer review, not merged or deployed. |
 
 [#194](https://github.com/MiaAI-Lab/sparkDash/pull/194) stays open as the original integration and server-message design reference, per the maintainer's [latest direction](https://github.com/MiaAI-Lab/sparkDash/pull/194#issuecomment-6517707651). It is not an active merge target. Do not rebase it or count its broad translation work as shipped. Its historical content would remain accessible after closure, but the maintainer explicitly requested an open reference; revisit its status when that reference has an agreed replacement.
 
@@ -139,7 +139,7 @@ The branches share files but their catalog prefixes do not overlap. Other pendin
 
 The six remaining groups are independent reviews against `b96244a`. Their shared loader, README, changelog and this inventory must be combined by namespace or entry rather than choosing one whole side. Keep all prior #310/#315–#319 work. The benchmark group keeps Decode, Prefill, Quality, Tool Eval and their share-card interfaces together.
 
-Suggested remaining-group order: fleet reports → device setup → Spark details → benchmarks → Showcase → server messages. Fleet reports and Spark details also change `EventRow.tsx` and `SparkActions.tsx`; the server-message review deliberately contains only descriptor integration on baseline UI. When integrating it last, preserve the earlier translated chrome and add its metadata handling. No PR is merged by this migration.
+Suggested remaining-group order: fleet reports → device setup → Spark details → benchmarks → Showcase → server messages. Fleet reports and Spark details also change `EventRow.tsx` and `SparkActions.tsx`; the server-message review deliberately contains only descriptor integration on baseline UI. When integrating it last, preserve the earlier translated chrome and add its metadata handling. It also shares `HealthFindings.tsx` with #316: retain the existing translated chrome or deduplicate it by static keys while adding descriptor rendering. No PR is merged by this migration.
 
 ## Scope and conventions
 
@@ -232,23 +232,6 @@ Each row is a reviewable surface. #317 groups the related GPU, CPU and memory ro
 | ComfyUI | [`ComfyPanel`](../src/components/SparkPage/ComfyPanel.tsx) | **Pending [#322](https://github.com/MiaAI-Lab/sparkDash/pull/322)** — include job controls/status; preserve job names and workflow data. |
 | Metric history | [`HistoryPanel`](../src/components/SparkPage/HistoryPanel.tsx), [`HistoryChart`](../src/components/SparkPage/HistoryChart.tsx) | **Pending [#322](https://github.com/MiaAI-Lab/sparkDash/pull/322)** — retain selected range, measured gaps and chart units. |
 
-### Spark detail: panel-sized review batches
-
-Each row is a reviewable surface. #317 groups the related GPU, CPU and memory rows; #318 handles live controls and sessions; #319 covers LLM charts and token totals. Keep the English fallback and one shared `spark` namespace; add coherent key prefixes as panels are wired. These batches do not mark the entire detail page as localized.
-
-| Surface | Primary source | Status / boundary |
-| --- | --- | --- |
-| Header, unit actions and page-level port controls | [`SparkHeader`](../src/components/SparkPage/SparkHeader.tsx), [`SparkActions`](../src/components/SparkPage/SparkActions.tsx), [`SparkPage`](../src/components/SparkPage/SparkPage.tsx) | **Not wired** — retain raw host identity, diagnostics, port values and action payloads. Shared confirmation controls are pending in #316. |
-| CPU, system RAM and unified memory | [`CpuPanel`](../src/components/SparkPage/CpuPanel.tsx), [`RamPanel`](../src/components/SparkPage/RamPanel.tsx), [`UnifiedMemoryPanel`](../src/components/SparkPage/UnifiedMemoryPanel.tsx) | **Pending (#317)** — labels, sensor provenance/help, core count, memory split legend/tooltips/accessibility, pressure and waiting states. Sensor/model values, metric history, units and split calculations stay unchanged. |
-| GPU metrics and charts | [`GpuPanel`](../src/components/SparkPage/GpuPanel.tsx), [`GpuHistoryChart`](../src/components/SparkPage/GpuHistoryChart.tsx) | **Pending (#317)** for single-/multi-card metrics, thermal/throttle states, memory availability/allocation-error labels, shared process-table headings, chart windows, view/metric selectors, legends, axes, accessibility and collecting state. Locale switches preserve selected data, storage values, backfill and curve geometry. Raw device/process names, commands and PIDs stay intact. The shared `VramBreakdownBar` legends/tooltips remain pending in #316; this PR does not duplicate them. |
-| LLM live metrics, controls and sessions | [`LlmPanel`](../src/components/SparkPage/LlmPanel.tsx), [`ConversationList`](../src/components/SparkPage/ConversationList.tsx) | **Pending (#318)** — metrics/help, engine and idle states, port/API-key settings with local validation, benchmark launch/remote-target controls, session age/state/context tooltips and empty/add controls. Preserve mean versus percentile semantics, missing versus zero readings, cached versus computed rates, draft values, targets/navigation and raw model/session identity. Server posture labels/details and API diagnostics remain unchanged. The translated Harness entry opens the still-untranslated wizard. |
-| LLM history, daily statistics and token totals | [`LlmTrendChart`](../src/components/SparkPage/LlmTrendChart.tsx), [`LlmDailyChart`](../src/components/SparkPage/LlmDailyChart.tsx), [`LlmTokenTotals`](../src/components/SparkPage/LlmTokenTotals.tsx) | **Pending (#319)** — headings/legends, fixed-window and busy-average guidance, daily scale/accessibility/keyboard/hover tooltips, no-sample states, cumulative table/range labels and token-row details. Locale switches retain active day, focus, selected range, in-flight reads, data geometry, per-series scales and raw model IDs. Original UTC date strings, compact units, polling dependencies, ledger versus engine counters and cached/computed/unreported accounting remain unchanged. |
-| Model scripts and output | [`LlmModelsPanel`](../src/components/SparkPage/LlmModelsPanel.tsx) | **Not wired** — include controls and progress/error feedback; preserve script names, paths and terminal output. |
-| Storage | [`StoragePanel`](../src/components/SparkPage/StoragePanel.tsx) | **Not wired** — include device/refresh controls; preserve device names and poll-mode values. |
-| Network and interconnects | [`NetworkPanel`](../src/components/SparkPage/NetworkPanel.tsx), [`RocePanel`](../src/components/SparkPage/RocePanel.tsx), [`TailscalePanel`](../src/components/SparkPage/TailscalePanel.tsx) | **Not wired** — preserve interface names, addresses and connection state. |
-| ComfyUI | [`ComfyPanel`](../src/components/SparkPage/ComfyPanel.tsx) | **Not wired** — include job controls/status; preserve job names and workflow data. |
-| Metric history | [`HistoryPanel`](../src/components/SparkPage/HistoryPanel.tsx), [`HistoryChart`](../src/components/SparkPage/HistoryChart.tsx) | **Not wired** — retain selected range, measured gaps and chart units. |
-
 ### Shared shell, Settings, and separate dialogs
 
 | Surface | Primary source | Status / boundary |
@@ -270,8 +253,6 @@ The pending Overview PR #316 also includes shared VRAM tooltips, health-chip con
 ## Server-authored display messages
 
 Status: **Pending [#325](https://github.com/MiaAI-Lab/sparkDash/pull/325)**. Optional API descriptors cover known top-level responses; nested batch entries retain their original text. Health titles/hints and bounded known details are translated; unknown details stay raw. Activity summaries can render descriptors while expanded messages/data preserve the original. Power feedback retains descriptors in state so changing language does not repeat the action. Other API consumers keep their original raw-error display until explicitly wired; this batch does not claim arbitrary server text is translated.
-
-The pending Overview PR #316 also includes shared VRAM tooltips, health-chip controls, activity widgets, restart and shutdown confirmation controls. Their translated text follows the locale wherever reused; this does not mark the surrounding Spark detail, Energy, Activity or other page as localized. The resource panels in #317 share the process-table headings. Full localization of their detailed VRAM breakdown also requires the shared component work in #316; neither PR marks other Spark detail panels as complete.
 
 ## Per-page acceptance and update checklist
 
