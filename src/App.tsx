@@ -1,3 +1,4 @@
+import { OverseerPage } from "./components/OverseerPage/OverseerPage";
 import { BenchIcon } from "./components/bench/BenchIcon";
 import { setConfiguredTimeZone } from "./shared/timeZone";
 import { useState, useCallback, useEffect, useMemo } from "react";
@@ -45,6 +46,7 @@ import { ConnectionBanner } from "./components/ui/ConnectionBanner";
 import { ErrorBanner } from "./components/ui/ErrorBanner";
 import {
   ACTIVITY_ID,
+  OVERSEER_ID,
   SHOWCASE_ID,
   ENERGY_ID,
   OVERVIEW_ID,
@@ -476,6 +478,7 @@ function DashboardApp() {
       { id: "nav:energy", group: "Go to", label: "Fleet energy", hint: "Page", icon: <BoltIcon className="h-4 w-4" />, keywords: "power kwh watts cost electricity", run: () => navigate(ENERGY_ID) },
       { id: "nav:temps", group: "Go to", label: "Temps", hint: "Page", icon: <ThermometerIcon className="h-4 w-4" />, keywords: "gpu temperature thermal temps heat cooling", run: () => navigate(TEMPS_ID) },
       { id: "nav:showcase", group: "Go to", label: "Showcase", hint: "Page", icon: <TerminalIcon className="h-4 w-4" />, keywords: "prompts terminals stream demo", run: () => navigate(SHOWCASE_ID) },
+      { id: "nav:overseer", group: "Go to", label: "Spark Overseer", hint: "Observe only", icon: <ListIcon className="h-4 w-4" />, keywords: "security audit model journal", run: () => navigate(OVERSEER_ID) },
       { id: "nav:activity", group: "Go to", label: "Activity", hint: "Page", icon: <ListIcon className="h-4 w-4" />, keywords: "events log history recent", run: () => navigate(ACTIVITY_ID) },
       { id: "nav:kiosk", group: "Go to", label: "Kiosk", hint: "Wall display", icon: <ExpandIcon className="h-4 w-4" />, keywords: "wall tv display fullscreen full screen", run: () => window.location.assign("/kiosk") },
     );
@@ -575,8 +578,10 @@ function DashboardApp() {
               stale={telemetryStale}
             />
             <ErrorBanner message={actionError} onDismiss={() => setActionError(null)} />
-            <main key={chartTimeZone} className={telemetryStale || !connected ? "telemetry-stale" : undefined}>
-              {activeId === TOKENS_ID ? (
+            <main key={chartTimeZone} className={activeId !== OVERSEER_ID && (telemetryStale || !connected) ? "telemetry-stale" : undefined}>
+              {activeId === OVERSEER_ID ? (
+                <OverseerPage />
+              ) : activeId === TOKENS_ID ? (
                 <TokensPage sparks={displaySparks} onSelectSpark={navigate} />
               ) : activeId === COST_ID ? (
                 <CostPage />

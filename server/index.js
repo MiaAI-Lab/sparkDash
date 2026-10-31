@@ -2,6 +2,7 @@
 // and the bench modules read process.env while they load.
 import "dotenv/config";
 import express from "express";
+import { createOverseerRuntime } from "./overseer/runtime.js";
 import { createServer } from "http";
 import { WebSocketServer } from "ws";
 import fs from "fs";
@@ -493,6 +494,11 @@ const alertsRuntime = createAlertsRuntime({
 });
 
 // ─── Express app ─────────────────────────────────────────
+const overseer = createOverseerRuntime({
+  enabled: process.env.SPARK_OVERSEER_ENABLED === "1",
+  configFile: process.env.SPARK_OVERSEER_CONFIG,
+  getUnits: orderedSnapshots,
+});
 const app = express();
 const server = createServer(app);
 
@@ -503,6 +509,7 @@ app.get("/api/auth/status", createHostGuardMiddleware(), (req, res) => {
   res.json(authStatus(req));
 });
 app.use(createAuthMiddleware());
+overseer.register(app);
 occupancy.register(app);
 
 /** Fleet event log, newest first. Query: limit, sparkId, sinceId. */
@@ -2575,6 +2582,7 @@ if (!startupPreflight.fatal) {
     startAllMonitors();
     alertsRuntime.start();
     occupancy.start();
+    void overseer.start().catch(() => console.warn("[sparkDash] Overseer startup unavailable"));
     fleetEnergyRuntime.start();
     llmTokenRuntime.start();
   }
@@ -2634,6 +2642,9 @@ async function shutdown(signal) {
     await occupancy.stop();
   } catch (err) {
     console.error("[sparkDash] failed to stop occupancy poller:", err.message);
+  }
+  try { await overseer.close(); } catch {
+    console.error("[sparkDash] failed to stop Overseer poller");
   }
   const energyPersistenceSucceeded = fleetEnergyRuntime.stop();
   const [streamAgentClosedGracefully] = await Promise.all([closeLlmStreamAgent(), mqttStopped]);
