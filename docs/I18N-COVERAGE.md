@@ -60,9 +60,24 @@ English catalogs are the source/fallback. Reuse the single loader in `src/i18n/i
 
 ## Validation record (2026-10-31)
 
-The combined local candidate `2a16e5a` passed 800 frontend tests. Follow-up `48dbf89` preserves unknown response shapes and uses static Showcase keys; its affected regressions, typecheck, catalog checks and production build passed. Split branches receive catalog/type checks and narrowly scoped checks for extraction boundaries; see each PR for exact counts. The full `npm test` attempt on Windows stalled after helper/subprocess failures and a response-compatibility failure. Local WSL then returned `Wsl/Service/E_UNEXPECTED`, preventing a fresh full Linux server run. The response-compatibility issue was fixed by leaving unknown error payloads untouched; the isolated alerts route then passed. The changed server-message and health units passed 20 targeted tests. This is a recorded full-server validation gap, not a passing full-suite claim. No production traffic, deployment or model invocation was used.
+The combined local candidate `2a16e5a` passed 800 frontend tests. Follow-up `48dbf89` preserves unknown response shapes and uses static Showcase keys; its affected regressions, typecheck, catalog checks and production build passed. Split branches received catalog/type checks and focused extraction regressions; each PR records its own counts.
 
-Desktop/narrow visual acceptance for every remaining surface has not been independently recorded in this batch. Component regressions cover locale/state boundaries; they do not certify every layout. Keep this check pending during maintainer review.
+**Linux server validation completed:** the complete `npm run test:server` suite passed **1,433/1,433**, with **0 failures and 0 skips**, on the combined `48dbf89` source. It ran once in an isolated Debian Bookworm container with Node 24.19.0, Python 3, zsh and util-linux, using `--init`, no network, temporary configuration and a fresh dependency install. The server tree is identical to #325; the other five feature PRs do not change server code. This closes the earlier Linux validation gap. The earlier Windows `npm test` attempt remains an incomplete run, not a separate full-suite pass.
+
+**Representative browser acceptance completed:** Chrome 156, English and Simplified Chinese, at 1440 x 1000 and 390 x 1000, using real components and production styles with local mocked responses. The same mounted surfaces were switched between locales, producing 32 page/locale/width captures. No page-level horizontal overflow or browser exceptions were observed. Wide token tables retain their intentional internal horizontal scroll. The real language selector persisted the choice and did not repeat token data requests; a 390 x 844 device-dialog check confirmed the footer can be scrolled into view and focused.
+
+| Review | Representative surface checked | Retained behavior |
+| --- | --- | --- |
+| #320 Fleet Reports | Token totals, expanded activity, monthly energy | Token range/grouping and raw model identity; expanded raw event details; estimated energy and coverage wording |
+| #321 Device Setup | Add Spark connection form | Pending LAN address and raw SSH values across locale changes |
+| #322 Spark Details | Model launcher configuration | Pending model name and directory path |
+| #323 Benchmarks | Tool Eval setup and command preview | Custom URL/model drafts, raw command; locale switching did not issue another preview request |
+| #324 Showcase | Configuration and pending terminal grid | Raw model names, prompt text and pending state |
+| #325 Server Messages | Health chips/list and terminal feedback | Known translated health descriptors; raw output, reasoning and external diagnostics |
+
+Browser acceptance found a Token totals grammar regression (`7 day` / `24 hour`). #320 follow-up `27a8631` uses ordinary i18next counted plurals while preserving singular per-unit labels. A regression reproduced the failure before the fix; both affected locale tests then passed, along with typecheck, catalog validation, production build and diff checks. The same frontend fix was applied to the combined candidate for the final browser check. The shared language-selector help now says the setting applies to translated pages, replacing the outdated Settings-only wording without claiming complete site coverage. The backend is unchanged, so the Linux suite was not repeated.
+
+This is representative page acceptance, not exhaustive coverage of every dialog, theme, error state or real-device workflow. No real connection check, benchmark, model launch, production traffic, merge or deployment was used.
 
 ## Status legend and known slices
 
