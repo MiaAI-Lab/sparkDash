@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 import {
   checkOccupancyHelper,
   deleteOccupancyHelper,
@@ -49,7 +50,6 @@ interface Draft {
   routes: RouteDraft[];
 }
 
-const STEPS = ["Harnesses", "Connection", "Routes", "Check", "Review"] as const;
 
 function emptyDraft(): Draft {
   return {
@@ -100,15 +100,15 @@ function withRoutes(draft: Draft, sparks: HarnessSparkOption[], sparkId?: string
   return { ...draft, routes };
 }
 
-function parseUrl(value: string): string | null {
+function parseUrl(value: string): "invalidProtocol" | "credentials" | "missingHost" | "empty" | null {
   try {
     const parsed = new URL(value.trim());
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "Use an http or https URL";
-    if (parsed.username || parsed.password) return "Remove the username and password from the URL";
-    if (!parsed.hostname) return "The URL needs a host";
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "invalidProtocol";
+    if (parsed.username || parsed.password) return "credentials";
+    if (!parsed.hostname) return "missingHost";
     return null;
   } catch {
-    return "Enter a helper URL";
+    return "empty";
   }
 }
 
@@ -147,6 +147,8 @@ function routesFromDraft(routes: RouteDraft[]): OccupancyRoute[] {
 }
 
 export function HarnessWizard({ open, onClose, sparks, sparkId }: HarnessWizardProps) {
+  const { t } = useTranslation("devices");
+  const steps = [t("harness.steps.harnesses"), t("harness.steps.connection"), t("harness.steps.routes"), t("harness.steps.check"), t("harness.steps.review")];
   const { mounted, visible } = useModalPresence(open);
   const [helpers, setHelpers] = useState<OccupancyHelper[]>([]);
   const [loading, setLoading] = useState(false);
@@ -173,7 +175,7 @@ export function HarnessWizard({ open, onClose, sparks, sparkId }: HarnessWizardP
           setEditing(false);
         }
       })
-      .catch((err: Error) => setError(err.message || "Could not load helpers"))
+      .catch((err: Error) => setError(err.message || "load"))
       .finally(() => setLoading(false));
   }, []);
 
@@ -206,26 +208,26 @@ export function HarnessWizard({ open, onClose, sparks, sparkId }: HarnessWizardP
 
   const goNext = () => {
     if (step === 0 && draft.harnesses.length === 0) {
-      setError("Pick at least one harness");
+      setError(t("harness.errors.pickHarness"));
       return;
     }
     if (step === 1) {
       const problem = parseUrl(draft.url);
       if (problem) {
-        setError(problem);
+        setError(problem === "invalidProtocol" ? t("harness.errors.invalidProtocol") : problem === "credentials" ? t("harness.errors.credentials") : problem === "missingHost" ? t("harness.errors.missingHost") : t("harness.errors.empty"));
         return;
       }
     }
     if (step === 2) {
       const bad = draft.routes.find((route) => route.sparkId && (!Number.isInteger(Number(route.port)) || Number(route.port) < 1 || Number(route.port) > 65535));
       if (bad) {
-        setError("Each route needs a port from 1 to 65535");
+        setError(t("harness.errors.routePort"));
         return;
       }
     }
     setError(null);
     if (step === 1) setDraft((prev) => withRoutes(prev, sparks, sparkId));
-    setStep((prev) => Math.min(prev + 1, STEPS.length - 1));
+    setStep((prev) => Math.min(prev + 1, steps.length - 1));
   };
 
   const runCheck = async () => {
@@ -236,7 +238,7 @@ export function HarnessWizard({ open, onClose, sparks, sparkId }: HarnessWizardP
       setCheck(result);
     } catch (err: unknown) {
       setCheck(null);
-      setError(err instanceof Error ? err.message : "Check failed");
+      setError(err instanceof Error ? err.message : "check");
     } finally {
       setChecking(false);
     }
@@ -251,7 +253,7 @@ export function HarnessWizard({ open, onClose, sparks, sparkId }: HarnessWizardP
       setEditing(false);
       setStep(0);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Save failed");
+      setError(err instanceof Error ? err.message : "save");
     } finally {
       setSaving(false);
     }
@@ -278,14 +280,14 @@ export function HarnessWizard({ open, onClose, sparks, sparkId }: HarnessWizardP
   };
 
   const remove = async (helper: OccupancyHelper) => {
-    if (!window.confirm(`Remove helper ${helper.label || helper.id}?`)) return;
+    if (!window.confirm(t("harness.removeConfirm", { name: helper.label || helper.id }))) return;
     setSaving(true);
     setError(null);
     try {
       const saved = await deleteOccupancyHelper(helper.id);
       setHelpers(saved.helpers);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Remove failed");
+      setError(err instanceof Error ? err.message : "remove");
     } finally {
       setSaving(false);
     }
@@ -302,39 +304,39 @@ export function HarnessWizard({ open, onClose, sparks, sparkId }: HarnessWizardP
     >
       <div className="modal-sheet modal-sheet--wide" role="dialog" aria-modal="true" aria-labelledby="harness-title">
         <div className="modal-sheet__header">
-          <h2 className="modal-sheet__title" id="harness-title">Harness sessions</h2>
-          <button type="button" className="modal-sheet__close" onClick={onClose} aria-label="Close">
+          <h2 className="modal-sheet__title" id="harness-title">{t("harness.title")}</h2>
+          <button type="button" className="modal-sheet__close" onClick={onClose} aria-label={t("actions.close")}>
             <XIcon className="h-4 w-4" />
           </button>
         </div>
         <div className="modal-sheet__body">
-          {loading && <p className="bench-sheet__hint">Loading…</p>}
-          {error && <p role="alert" className="modal-sheet__error">{error}</p>}
+          {loading && <p className="bench-sheet__hint">{t("actions.loading")}</p>}
+          {error && <p role="alert" className="modal-sheet__error">{error === "load" ? t("harness.errors.load") : error === "check" ? t("harness.errors.check") : error === "save" ? t("harness.errors.save") : error === "remove" ? t("harness.errors.remove") : error}</p>}
           {!loading && !editing && (
             <div className="harness-list">
               {helpers.map((helper) => (
                 <article key={helper.id}>
                   <div>
                     <strong>{helper.label || helper.id}</strong>
-                    <div className="occupancy-ctx">{helper.enabled ? helper.harnesses.join(", ") : "Disabled"}</div>
+                    <div className="occupancy-ctx">{helper.enabled ? helper.harnesses.join(", ") : t("harness.disabled")}</div>
                   </div>
-                  <button type="button" className="btn btn--sm" onClick={() => { setDraft(draftFromHelper(helper)); setEditing(true); setStep(0); setCheck(null); setError(null); }}>Edit</button>
+                  <button type="button" className="btn btn--sm" onClick={() => { setDraft(draftFromHelper(helper)); setEditing(true); setStep(0); setCheck(null); setError(null); }}>{t("actions.edit")}</button>
                   <button type="button" className="btn btn--sm" onClick={() => void setEnabled(helper, !helper.enabled)} disabled={saving}>
-                    {helper.enabled ? "Disable" : "Enable"}
+                    {helper.enabled ? t("actions.disable") : t("actions.enable")}
                   </button>
-                  <button type="button" className="btn btn--sm" onClick={() => void remove(helper)} disabled={saving}>Remove</button>
+                  <button type="button" className="btn btn--sm" onClick={() => void remove(helper)} disabled={saving}>{t("actions.remove")}</button>
                 </article>
               ))}
               <button type="button" className="btn btn--primary" onClick={() => { setDraft(emptyDraft()); setEditing(true); setStep(0); setCheck(null); setError(null); }}>
-                Add helper
+                {t("harness.addHelper")}
               </button>
             </div>
           )}
           {!loading && editing && (
             <>
-              <p className="bench-sheet__hint">Step {step + 1} of {STEPS.length}: {STEPS[step]}</p>
+              <p className="bench-sheet__hint">{t("harness.step", { current: step + 1, total: steps.length, name: steps[step] })}</p>
               {step === 0 && (
-                <div className="harness-pick" role="group" aria-label="Harnesses">
+                <div className="harness-pick" role="group" aria-label={t("harness.harnesses")}>
                   {HARNESSES.map((harness) => (
                     <label key={harness.id}>
                       <input
@@ -356,34 +358,34 @@ export function HarnessWizard({ open, onClose, sparks, sparkId }: HarnessWizardP
                   }}
                 >
                   <label className="harness-field">
-                    <span>Name</span>
-                    <input aria-label="Helper name" name="helper-name" value={draft.label} onChange={(event) => setDraft({ ...draft, label: event.target.value })} />
+                    <span>{t("harness.name")}</span>
+                    <input aria-label={t("harness.helperName")} name="helper-name" value={draft.label} onChange={(event) => setDraft({ ...draft, label: event.target.value })} />
                   </label>
                   <label className="harness-field">
-                    <span>Helper URL</span>
-                    <input aria-label="Helper URL" name="helper-url" value={draft.url} onChange={(event) => setDraft({ ...draft, url: event.target.value })} />
+                    <span>{t("harness.helperUrl")}</span>
+                    <input aria-label={t("harness.helperUrl")} name="helper-url" value={draft.url} onChange={(event) => setDraft({ ...draft, url: event.target.value })} />
                   </label>
                   <label className="harness-field">
-                    <span>{draft.id ? "New bearer token (leave blank to keep the saved one)" : "Bearer token"}</span>
-                    <input aria-label="Bearer token" name="helper-token" type="password" value={draft.token} onChange={(event) => setDraft({ ...draft, token: event.target.value, clearToken: false })} autoComplete="off" />
+                    <span>{draft.id ? t("harness.newToken") : t("harness.token")}</span>
+                    <input aria-label={t("harness.token")} name="helper-token" type="password" value={draft.token} onChange={(event) => setDraft({ ...draft, token: event.target.value, clearToken: false })} autoComplete="off" />
                   </label>
                   {draft.id && (
                     <label>
-                      <input type="checkbox" aria-label="Clear saved token" checked={draft.clearToken} onChange={(event) => setDraft({ ...draft, clearToken: event.target.checked, token: "" })} />
-                      Clear saved token
+                      <input type="checkbox" aria-label={t("harness.clearToken")} checked={draft.clearToken} onChange={(event) => setDraft({ ...draft, clearToken: event.target.checked, token: "" })} />
+                      {t("harness.clearToken")}
                     </label>
                   )}
                 </form>
               )}
               {step === 2 && (
                 <div className="harness-routes">
-                  <p className="bench-sheet__hint">A route sends one harness to a Spark and port. A directory prefix wins over a general route. Rows with no route stay off the cards.</p>
+                  <p className="bench-sheet__hint">{t("harness.routesHelp")}</p>
                   {draft.routes.map((route, index) => (
                     <div key={`${route.harness}-${index}`}>
                       <strong>{HARNESSES.find((item) => item.id === route.harness)?.label || route.harness}</strong>
                       <div className="harness-route">
                         <select
-                          aria-label={`Spark for ${route.harness}`}
+                          aria-label={t("harness.sparkFor", { harness: route.harness })}
                           value={route.sparkId}
                           onChange={(event) => {
                             const spark = sparks.find((item) => item.id === event.target.value);
@@ -398,13 +400,13 @@ export function HarnessWizard({ open, onClose, sparks, sparkId }: HarnessWizardP
                             });
                           }}
                         >
-                          <option value="">Unassigned</option>
+                          <option value="">{t("harness.unassigned")}</option>
                           {sparks.map((spark) => (
                             <option key={spark.id} value={spark.id}>{spark.name}</option>
                           ))}
                         </select>
                         <input
-                          aria-label={`Port for ${route.harness}`}
+                          aria-label={t("harness.portFor", { harness: route.harness })}
                           inputMode="numeric"
                           value={route.port}
                           onChange={(event) => {
@@ -418,9 +420,9 @@ export function HarnessWizard({ open, onClose, sparks, sparkId }: HarnessWizardP
                         />
                       </div>
                       <label className="harness-field">
-                        <span>Directory prefix, optional</span>
+                        <span>{t("harness.directoryPrefix")}</span>
                         <input
-                          aria-label={`Directory prefix for ${route.harness}`}
+                          aria-label={t("harness.directoryPrefixFor", { harness: route.harness })}
                           value={route.cwdPrefix}
                           onChange={(event) => {
                             const cwdPrefix = event.target.value;
@@ -439,14 +441,14 @@ export function HarnessWizard({ open, onClose, sparks, sparkId }: HarnessWizardP
               {step === 3 && (
                 <div>
                   <button type="button" className="btn btn--primary" onClick={() => void runCheck()} disabled={checking}>
-                    {checking ? "Checking…" : "Check connection"}
+                    {checking ? t("actions.checking") : t("harness.checkConnection")}
                   </button>
                   {check && (
                     <>
-                      <p>{check.rowCount} sessions</p>
+                      <p>{t("harness.sessions", { count: check.rowCount })}</p>
                       <ul className="harness-check-list">
                         {Object.entries(check.adapters).map(([id, adapter]) => (
-                          <li key={id}>{id}: {adapter.coverage}{adapter.stale ? ", stale" : ""}{adapter.error ? ` (${adapter.error})` : ""}</li>
+                          <li key={id}>{id}: {adapter.coverage}{adapter.stale ? `, ${t("harness.stale")}` : ""}{adapter.error ? ` (${adapter.error})` : ""}</li>
                         ))}
                       </ul>
                     </>
@@ -455,7 +457,7 @@ export function HarnessWizard({ open, onClose, sparks, sparkId }: HarnessWizardP
               )}
               {step === 4 && (
                 <div>
-                  <p>{draft.harnesses.join(", ")} via {draft.url}</p>
+                  <p>{draft.harnesses.join(", ")} → {draft.url}</p>
                   <ul className="harness-check-list">
                     {draft.routes.filter((route) => route.sparkId).map((route) => (
                       <li key={`${route.harness}-${route.sparkId}-${route.port}`}>
@@ -474,13 +476,13 @@ export function HarnessWizard({ open, onClose, sparks, sparkId }: HarnessWizardP
           <div className="modal-sheet__footer">
             <div className="modal-sheet__footer-actions">
               <button type="button" className="btn btn--ghost" onClick={() => (step === 0 ? setEditing(helpers.length > 0) : setStep((prev) => prev - 1))}>
-                {step === 0 ? "Back" : "Back"}
+                {t("actions.back")}
               </button>
-              {step < STEPS.length - 1 ? (
-                <button type="button" className="btn btn--primary" onClick={goNext}>Next</button>
+              {step < steps.length - 1 ? (
+                <button type="button" className="btn btn--primary" onClick={goNext}>{t("actions.next")}</button>
               ) : (
                 <button type="button" className="btn btn--primary" onClick={() => void saveDraft()} disabled={saving}>
-                  {saving ? "Saving…" : "Save"}
+                  {saving ? t("actions.saving") : t("actions.save")}
                 </button>
               )}
             </div>
