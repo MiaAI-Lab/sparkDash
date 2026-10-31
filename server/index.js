@@ -86,6 +86,7 @@ import { TailscaleProbe } from "./collectors/TailscaleProbe.js";
 import { inspectStartupPreflight, logStartupPreflight } from "./startupPreflight.js";
 import { readServerVersion } from "./serverVersion.js";
 import { PROMETHEUS_CONTENT_TYPE, metricsEntries, renderPrometheusMetrics } from "./prometheus.js";
+import { eventI18n, responseI18n } from "./i18n/messages.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -497,6 +498,13 @@ const app = express();
 const server = createServer(app);
 
 app.use(express.json());
+// Shallow compatibility metadata for top-level JSON responses only. Nested
+// result/archive/diagnostic objects are intentionally never traversed.
+app.use((req, res, next) => {
+  const json = res.json.bind(res);
+  res.json = (body) => json(responseI18n(body));
+  next();
+});
 // Registered ahead of the auth middleware: a remote browser holding no token
 // (or a stale one) must still be able to learn that it needs one.
 app.get("/api/auth/status", createHostGuardMiddleware(), (req, res) => {
@@ -517,6 +525,9 @@ app.get("/api/events", (req, res) => {
       sparkId,
       sinceId: Number.isFinite(sinceId) ? sinceId : undefined,
       beforeId: Number.isFinite(beforeId) ? beforeId : undefined,
+    }).map((event) => {
+      const i18n = eventI18n(event);
+      return i18n ? { ...event, i18n } : event;
     }),
     // Lets the page know whether "load older" can return anything.
     oldestId: eventLog.oldestId?.() ?? null,

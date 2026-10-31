@@ -1,3 +1,9 @@
+/** Additive display metadata; its associated English field remains authoritative for compatibility. */
+export interface LocalizedMessage {
+  key: string;
+  params?: Record<string, string | number>;
+}
+
 // ─── Spark config (matches server/sparks.json) ────────────
 export interface SparkConfig {
   id: string;
@@ -255,6 +261,7 @@ export interface HealthFinding {
   title: string;
   detail: string;
   hint: string;
+  i18n?: { title?: LocalizedMessage; detail?: LocalizedMessage; hint?: LocalizedMessage };
 }
 
 export interface GpuMetricAvailability {
@@ -1139,6 +1146,17 @@ export interface SparkTestResponse {
 
 export interface ApiError {
   error: string;
+  i18n?: { error?: LocalizedMessage; message?: LocalizedMessage };
+}
+
+/** API failures retain their English message while carrying optional display metadata. */
+export class ApiRequestError extends Error {
+  readonly i18n?: { error?: LocalizedMessage; message?: LocalizedMessage };
+  constructor(message: string, i18n?: { error?: LocalizedMessage; message?: LocalizedMessage }) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.i18n = i18n;
+  }
 }
 
 // ─── LLM decode benchmark ────────────────────────────────
@@ -1636,6 +1654,7 @@ export interface ActivityEvent {
   sparkName?: string | null;
   message: string;
   data?: unknown;
+  i18n?: { message?: LocalizedMessage };
 }
 
 // ─── User-registered LLM launchers (start.sh / stop.sh) ───

@@ -6,6 +6,7 @@ import type {
   AlertsResponse,
   ActivityEvent,
   ActivityEventsPage,
+  ApiError,
   GpuClockPersistKind,
   EnergyHistory,
   MonthlyEnergy,
@@ -47,6 +48,7 @@ import type {
   QualityBenchListResponse,
   StartQualityBenchRequest,
 } from "./types";
+import { ApiRequestError } from "./types";
 import { authHeaders, reportAuthRequired } from "./authToken";
 
 const BASE = "";
@@ -65,8 +67,8 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
   if (!res.ok) {
     // The server wants a token we do not have (or ours is stale): ask for one.
     if (res.status === 401) reportAuthRequired();
-    const body = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(body.error || `HTTP ${res.status}`);
+    const body = await res.json().catch(() => ({ error: res.statusText })) as Partial<ApiError>;
+    throw new ApiRequestError(body.error || `HTTP ${res.status}`, body.i18n);
   }
   return res.json();
 }
@@ -564,6 +566,7 @@ export function checkHermes(id: string): Promise<{ success: boolean }> {
 export interface PowerResult {
   success: boolean;
   message?: string;
+  i18n?: ApiError["i18n"];
   output?: string;
   mac?: string;
   broadcast?: string;
