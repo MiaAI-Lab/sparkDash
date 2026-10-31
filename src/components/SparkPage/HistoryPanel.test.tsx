@@ -4,6 +4,7 @@ import { flush, render } from "../../testing/render";
 import type { MetricsHistoryData, MetricsHistoryResponse } from "../../api/types";
 import { nearestIndex, segmentRuns, yDomain } from "./HistoryChart";
 import { HISTORY_POLL_MS, HISTORY_RANGE_KEY, HistoryPanel } from "./HistoryPanel";
+import { i18n, setLocale } from "../../i18n";
 
 vi.mock("../../api/client", () => ({
   getUnitHistory: vi.fn(),
@@ -116,6 +117,36 @@ describe("HistoryChart helpers", () => {
 });
 
 describe("HistoryPanel", () => {
+  it("keeps range, keyboard focus, chart gaps and reads across a locale round trip", async () => {
+    const initialLocale = i18n.language;
+    await setLocale("en");
+    try {
+      const { container } = await mount();
+      const chip = [...container.querySelectorAll<HTMLButtonElement>(".seg button")].find((b) => b.textContent === "24h")!;
+      act(() => chip.click());
+      await flush();
+      const gpu = plot(container, "gpuUtil");
+      act(() => gpu.focus());
+      key(gpu, "ArrowLeft");
+      const geometry = () => [...container.querySelectorAll("polyline, polygon")].map((node) => node.getAttribute("points"));
+      const before = geometry();
+      const calls = fetchHistory.mock.calls.length;
+      await act(async () => { await setLocale("zh-CN"); });
+      expect(container.textContent).toContain("历史记录 · 最近 24 小时");
+      expect(gpu.getAttribute("aria-label")).toContain("使用方向键");
+      expect(document.activeElement).toBe(gpu);
+      expect(chip.getAttribute("aria-pressed")).toBe("true");
+      expect(geometry()).toEqual(before);
+      expect(fetchHistory).toHaveBeenCalledTimes(calls);
+      await act(async () => { await setLocale("en"); });
+      expect(container.textContent).toContain("History · last 24 hours");
+      expect(geometry()).toEqual(before);
+      expect(fetchHistory).toHaveBeenCalledTimes(calls);
+    } finally {
+      await act(async () => { await i18n.changeLanguage(initialLocale); });
+    }
+  });
+
   it("defaults to 1h, and the range chips refetch and are remembered", async () => {
     const { container } = await mount();
     expect(fetchHistory).toHaveBeenLastCalledWith("spark-1", "1h");

@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import type { SparkSnapshot } from "../../api/types";
 import { resolveSparkRole } from "../../api/sparkRole";
 import { backendLabel } from "../../shared/llmBackends.js";
@@ -25,19 +26,20 @@ function formatUptime(seconds: number): string {
 }
 
 export function SparkHeader({ spark, onEdit, onNavigate }: SparkHeaderProps) {
+  const { t } = useTranslation("hardware");
   const { hardware } = spark;
   const online = spark.online;
   const hermes = spark.hermes;
   const role = resolveSparkRole(spark);
-  const roleText = role === "head" ? "Head" : role === "worker" ? "Worker" : "Standalone";
+  const roleText = role === "head" ? t("header.head") : role === "worker" ? t("header.worker") : t("header.standalone");
   const roleTitle =
     role === "head"
-      ? "Cluster head — local LLM API"
+      ? t("header.headHelp")
       : role === "worker"
-        ? "Distributed LLM worker — no local model; LLM card is hidden"
+        ? t("header.workerHelp")
         : spark.llmMonitoring === false
-          ? "Standalone — LLM monitoring off"
-          : "Standalone — local LLM API";
+          ? t("header.offHelp")
+          : t("header.standaloneHelp");
   // Manual override first, then derived head-model mirror.
   const workerLabel =
     role === "worker" ? spark.workerLabel?.trim() || spark.workerDerivedLabel?.trim() || null : null;
@@ -57,13 +59,13 @@ export function SparkHeader({ spark, onEdit, onNavigate }: SparkHeaderProps) {
             className="sp-back text-xs text-muted transition-colors hover:text-text-strong"
             onClick={() => onNavigate(OVERVIEW_ID)}
           >
-            &larr; Overview
+            {t("header.overview")}
           </button>
         )}
         <div className="sp-header__title">
           <span
             className={`sdot ${online ? "" : "sdot--bad"}`}
-            title={online ? "Online" : spark.offlineReason ? `Offline — ${spark.offlineReason}` : "Offline"}
+            title={online ? t("header.online") : spark.offlineReason ? t("header.offlineReason", { reason: spark.offlineReason }) : t("header.offline")}
           />
           <h2>{spark.name}</h2>
           <div className="sp-tags">
@@ -75,36 +77,36 @@ export function SparkHeader({ spark, onEdit, onNavigate }: SparkHeaderProps) {
                 {workerLabel}
               </Tag>
             )}
-            {spark.isLocal && <Tag title="This dashboard runs on this machine">local</Tag>}
+            {spark.isLocal && <Tag title={t("header.localHelp")}>{t("header.local")}</Tag>}
             {online && backend && <Tag tone="info">{backend}</Tag>}
             {!online && spark.offlineReason && (
-              <Tag tone="bad" className="sp-tag-clip" title={`Offline — ${spark.offlineReason}`}>
+              <Tag tone="bad" className="sp-tag-clip" title={t("header.offlineReason", { reason: spark.offlineReason })}>
                 {spark.offlineReason}
               </Tag>
             )}
             {online && spark.uptime != null && (
-              <Tag title={`Uptime: ${formatUptime(spark.uptime)}`}>up {formatUptime(spark.uptime)}</Tag>
+              <Tag title={t("header.uptime", { time: formatUptime(spark.uptime) })}>{t("header.up", { time: formatUptime(spark.uptime) })}</Tag>
             )}
             {hermes?.monitoring && hermes.installed && hermes.version && (
-              <Tag tone="acc" title={`Hermes Agent ${hermes.version} installed on this machine`}>
+              <Tag tone="acc" title={t("header.hermesVersion", { version: hermes.version })}>
                 Hermes
               </Tag>
             )}
             {hermes?.monitoring && hermes.installed === false && hermes.checkedAt != null && (
               <Tag
                 tone="bad"
-                title="The `hermes` binary was not found on this machine (check the install path or Edit Spark)."
+                title={t("header.hermesMissingHelp")}
               >
-                Hermes not found
+                {t("header.hermesMissing")}
               </Tag>
             )}
             {hermes?.monitoring && hermes.error && hermes.status === "idle" && (
               <Tag
                 tone="bad"
                 className="sp-tag-clip"
-                title={`Update check failed — it will retry automatically: ${hermes.error}`}
+                title={t("header.checkFailed", { error: hermes.error })}
               >
-                Update check failed
+                {t("header.updateFailed")}
               </Tag>
             )}
           </div>
