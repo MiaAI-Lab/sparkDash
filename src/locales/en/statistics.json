@@ -144,7 +144,11 @@
     "previousIncomplete": "No change-vs-previous figures are shown because the previous period was not fully tracked.",
     "trackingBegan": "Tracking began on {{date}} (UTC).",
     "retention": "Hourly history is kept for {{hours}} hours and daily history for {{days}} days. The hourly view only has data from when it was first recorded.",
-    "accounting": "Generated = tokens the model wrote. Prompt = tokens it read. Cached prefill is the part of the prompt served from the prefix cache; computed prefill is the rest. Prompt read while the engine published no prefix-cache counter is shown as not reported: it is neither cached nor computed, and the hit rate covers only the prompt whose split was measured."
+    "accounting": "Generated = tokens the model wrote. Prompt = tokens it read. Cached prefill is the part of the prompt served from the prefix cache; computed prefill is the rest. Prompt read while the engine published no prefix-cache counter is shown as not reported: it is neither cached nor computed, and the hit rate covers only the prompt whose split was measured.",
+    "hour_one": "hour",
+    "hour_other": "hours",
+    "day_one": "day",
+    "day_other": "days"
   },
   "temps": {
     "title": "Temps",

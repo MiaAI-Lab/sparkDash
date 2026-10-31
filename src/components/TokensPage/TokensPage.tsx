@@ -428,7 +428,7 @@ function Tiles({ s, cmp, spec }: { s: Summary; cmp: Comparison | null; spec: (ty
   const { t } = useTranslation("statistics");
   const per = spec.unit === "hour" ? t("tokens.hour") : t("tokens.day");
   const period = rangePhrase(t, spec.key);
-  const prevWord = t("tokens.previousPeriod", { period: spec.count == null ? t("tokens.periodAll") : `${spec.count} ${per}` });
+  const prevWord = t("tokens.previousPeriod", { period: spec.count == null ? t("tokens.periodAll") : `${spec.count} ${spec.unit === "hour" ? t("tokens.hour", { count: spec.count }) : t("tokens.day", { count: spec.count })}` });
   const ratio = s.genPerPrompt != null && s.generated > 0 ? s.prompt / s.generated : null;
   return (
     <section className="tk-tiles" aria-label={t("tokens.summaryFor", { period })}>
@@ -478,7 +478,7 @@ function Tiles({ s, cmp, spec }: { s: Summary; cmp: Comparison | null; spec: (ty
         label={t("tokens.averagePer", { unit: per })}
         value={fmt(Math.round(s.avgPerBucket))}
         unit={`/ ${per}`}
-        sub={t("tokens.trackedOver", { count: s.elapsed, unit: per })}
+        sub={t("tokens.trackedOver", { count: s.elapsed, unit: spec.unit === "hour" ? t("tokens.hour", { count: s.elapsed }) : t("tokens.day", { count: s.elapsed }) })}
       />
       <Tile
         label={t("tokens.busiest", { unit: per })}
