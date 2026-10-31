@@ -254,12 +254,12 @@ Keep one progress list while retaining separate, complete-feature pull requests.
 | Spark detail GPU, CPU and memory | [#317](https://github.com/MiaAI-Lab/sparkDash/pull/317) | Open, resource-panel review with separate CPU/memory and GPU commits. |
 | Spark detail LLM live panel and sessions | [#318](https://github.com/MiaAI-Lab/sparkDash/pull/318) | Open, independent review; metrics/help, endpoint settings, benchmark entry controls and sessions. Charts/totals and benchmark dialogs remain separate. |
 | Spark detail LLM history, daily statistics and token totals | [#319](https://github.com/MiaAI-Lab/sparkDash/pull/319) | Open, independent review; chart presentation, daily tooltips/accessibility and cumulative token table/range labels. |
-| Fleet Reports | `codex/i18n-fleet-reports-20261031` (submission pending) | Implemented; pending maintainer review, not merged or deployed. |
-| Device Setup | `codex/i18n-device-setup-20261031` (submission pending) | Implemented; pending maintainer review, not merged or deployed. |
-| Spark Details | `codex/i18n-spark-details-20261031` (submission pending) | Implemented; pending maintainer review, not merged or deployed. |
-| Benchmarks | `codex/i18n-benchmarks-20261031` (submission pending) | Implemented; pending maintainer review, not merged or deployed. |
-| Showcase | `codex/i18n-showcase-20261031` (submission pending) | Implemented; pending maintainer review, not merged or deployed. |
-| Server Messages | `codex/i18n-server-messages-20261031` (submission pending) | Implemented; pending maintainer review, not merged or deployed. |
+| Fleet Reports | [#320](https://github.com/MiaAI-Lab/sparkDash/pull/320) | Implemented; pending maintainer review, not merged or deployed. |
+| Device Setup | [#321](https://github.com/MiaAI-Lab/sparkDash/pull/321) | Implemented; pending maintainer review, not merged or deployed. |
+| Spark Details | [#322](https://github.com/MiaAI-Lab/sparkDash/pull/322) | Implemented; pending maintainer review, not merged or deployed. |
+| Benchmarks | [#323](https://github.com/MiaAI-Lab/sparkDash/pull/323) | Implemented; pending maintainer review, not merged or deployed. |
+| Showcase | [#324](https://github.com/MiaAI-Lab/sparkDash/pull/324) | Implemented; pending maintainer review, not merged or deployed. |
+| Server Messages | [#325](https://github.com/MiaAI-Lab/sparkDash/pull/325) | Implemented; pending maintainer review, not merged or deployed. |
 
 [#194](https://github.com/MiaAI-Lab/sparkDash/pull/194) stays open as the original integration and server-message design reference, per the maintainer's [latest direction](https://github.com/MiaAI-Lab/sparkDash/pull/194#issuecomment-6517707651). It is not an active merge target. Do not rebase it or count its broad translation work as shipped. Its historical content would remain accessible after closure, but the maintainer explicitly requested an open reference; revisit its status when that reference has an agreed replacement.
 
@@ -289,7 +289,7 @@ The branches share files but their catalog prefixes do not overlap. Other pendin
 
 The six remaining groups are independent reviews against `b96244a`. Their shared loader, README, changelog and this inventory must be combined by namespace or entry rather than choosing one whole side. Keep all prior #310/#315–#319 work. The benchmark group keeps Decode, Prefill, Quality, Tool Eval and their share-card interfaces together.
 
-Suggested remaining-group order: fleet reports → device setup → Spark details → benchmarks → Showcase → server messages. Fleet reports and Spark details also change `EventRow.tsx` and `SparkActions.tsx`; the server-message review deliberately contains only descriptor integration on baseline UI. When integrating it last, preserve the earlier translated chrome and add its metadata handling. No PR is merged by this migration.
+Suggested remaining-group order: fleet reports → device setup → Spark details → benchmarks → Showcase → server messages. Fleet reports and Spark details also change `EventRow.tsx` and `SparkActions.tsx`; the server-message review deliberately contains only descriptor integration on baseline UI. When integrating it last, preserve the earlier translated chrome and add its metadata handling. It also shares `HealthFindings.tsx` with #316: retain the existing translated chrome or deduplicate it by static keys while adding descriptor rendering. No PR is merged by this migration.
 
 ## Scope and conventions
 
