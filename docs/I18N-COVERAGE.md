@@ -13,7 +13,7 @@ Keep one progress list while retaining separate, page-sized pull requests. Open 
 | Navigation and shared shell | [#315](https://github.com/MiaAI-Lab/sparkDash/pull/315) | Open, independent Shell review. |
 | Overview page and fleet controls | [#316](https://github.com/MiaAI-Lab/sparkDash/pull/316) | Open, independent Overview review. |
 | Spark detail GPU, CPU and memory | [#317](https://github.com/MiaAI-Lab/sparkDash/pull/317) | Open, resource-panel review with separate CPU/memory and GPU commits. |
-| Spark detail LLM live panel and sessions | This LLM PR | Pending review; metrics/help, endpoint settings, benchmark entry controls and sessions. Charts/totals and benchmark dialogs remain separate. |
+| Spark detail LLM live panel and sessions | [#318](https://github.com/MiaAI-Lab/sparkDash/pull/318) | Open, independent review; metrics/help, endpoint settings, benchmark entry controls and sessions. Charts/totals and benchmark dialogs remain separate. |
 | Other detail panels, pages and dialogs | Inventory and panel batches below | Not yet wired unless explicitly marked otherwise. |
 
 [#194](https://github.com/MiaAI-Lab/sparkDash/pull/194) stays open as the original integration and server-message design reference, per the maintainer's [latest direction](https://github.com/MiaAI-Lab/sparkDash/pull/194#issuecomment-6517707651). It is not an active merge target. Do not rebase it or count its broad translation work as shipped. Its historical content would remain accessible after closure, but the maintainer explicitly requested an open reference; revisit its status when that reference has an agreed replacement.
@@ -35,7 +35,7 @@ The first integration is deliberately page-sized. Follow the maintainer's [page-
 | **Pending (#315)** | Included in the separate Shell PR, but not in the baseline `main`. |
 | **Pending (#316)** | Included in the separate Overview PR, but not in the baseline `main`. |
 | **Pending (#317)** | Included in the separate resource-panel PR, but not in the baseline `main`. |
-| **Pending (this LLM PR)** | Implemented in this change; covers the live LLM panel and sessions, not its history/totals, separate dialogs or a merged `main` claim. |
+| **Pending (#318)** | Implemented in this change; covers the live LLM panel and sessions, not its history/totals, separate dialogs or a merged `main` claim. |
 | **Not wired** | No page-level catalog/wiring claim in this snapshot. |
 
 | Slice | Status | Boundary |
@@ -46,7 +46,7 @@ The first integration is deliberately page-sized. Follow the maintainer's [page-
 | Session age and Harness Sessions entry | **Pending (#310)** | Settings labels/help/preset labels and the entry action only. This does **not** localize [`HarnessWizard`](../src/components/HarnessWizard.tsx). |
 | Navigation and shared shell | **Pending (#315)** | Desktop/sidebar and mobile navigation, command palette and its commands, theme/open-access/connection/error/install UI, plus App-owned empty/error text. Benchmark navigation only; page bodies and standalone dialogs remain separate slices. Fleet shutdown is pending in #316. |
 | Spark resource panels | **Pending (#317)** | GPU metrics and history-chart controls, CPU, system RAM, unified memory and the shared process table. Shared VRAM breakdown content is pending in #316; other detail panels remain separate below. |
-| LLM live panel and sessions | **Pending (this LLM PR)** | Live metric labels/help, engine state, port/API-key settings, local/remote benchmark entry controls and session rows. Server posture/diagnostics remain raw; charts, totals and benchmark dialogs remain separate. |
+| LLM live panel and sessions | **Pending (#318)** | Live metric labels/help, engine state, port/API-key settings, local/remote benchmark entry controls and session rows. Server posture/diagnostics remain raw; charts, totals and benchmark dialogs remain separate. |
 
 ## Inventory
 
@@ -57,7 +57,7 @@ The route inventory comes from [`App.tsx`](../src/App.tsx), [`useRoute.ts`](../s
 | Surface and route | Primary source | Status / next page-sized slice |
 | --- | --- | --- |
 | Overview `/` | [`OverviewPage`](../src/components/OverviewPage/OverviewPage.tsx) and its cards | **Pending (#316)** — headings, filters, unit/memory cards, inline launcher controls, fleet KPIs, energy/token/traffic cards, local alert text, activity controls, and fleet action/confirmation feedback. Raw events, server-only findings and diagnostics remain unchanged. |
-| Spark detail `/spark/:id` | [`SparkPage`](../src/components/SparkPage/SparkPage.tsx) and panels | **Pending (#317)** for GPU metrics/history charts, CPU, RAM, unified memory and the shared process table; **Pending (this LLM PR)** for the live LLM panel and session list. Shared VRAM breakdown content is pending in #316. Remaining areas are **Not wired**; see the panel-sized breakdown below. |
+| Spark detail `/spark/:id` | [`SparkPage`](../src/components/SparkPage/SparkPage.tsx) and panels | **Pending (#317)** for GPU metrics/history charts, CPU, RAM, unified memory and the shared process table; **Pending (#318)** for the live LLM panel and session list. Shared VRAM breakdown content is pending in #316. Remaining areas are **Not wired**; see the panel-sized breakdown below. |
 | Token totals `/tokens` | [`TokensPage`](../src/components/TokensPage/TokensPage.tsx) | **Not wired**. |
 | Cost compare `/cost` | [`CostPage`](../src/components/CostPage/CostPage.tsx) | **Not wired**. |
 | Fleet energy `/energy` | [`EnergyPage`](../src/components/EnergyPage/EnergyPage.tsx) | **Not wired**. |
@@ -73,14 +73,14 @@ The route inventory comes from [`App.tsx`](../src/App.tsx), [`useRoute.ts`](../s
 
 ### Spark detail: panel-sized review batches
 
-Each row is a reviewable surface. #317 groups the related GPU, CPU and memory rows, with the GPU work in a separate commit; this LLM PR handles live controls and sessions. Keep the English fallback and one shared `spark` namespace; add coherent key prefixes as panels are wired. Neither batch marks the entire detail page as localized.
+Each row is a reviewable surface. #317 groups the related GPU, CPU and memory rows, with the GPU work in a separate commit; #318 handles live controls and sessions. Keep the English fallback and one shared `spark` namespace; add coherent key prefixes as panels are wired. Neither batch marks the entire detail page as localized.
 
 | Surface | Primary source | Status / boundary |
 | --- | --- | --- |
 | Header, unit actions and page-level port controls | [`SparkHeader`](../src/components/SparkPage/SparkHeader.tsx), [`SparkActions`](../src/components/SparkPage/SparkActions.tsx), [`SparkPage`](../src/components/SparkPage/SparkPage.tsx) | **Not wired** — retain raw host identity, diagnostics, port values and action payloads. Shared confirmation controls are pending in #316. |
 | CPU, system RAM and unified memory | [`CpuPanel`](../src/components/SparkPage/CpuPanel.tsx), [`RamPanel`](../src/components/SparkPage/RamPanel.tsx), [`UnifiedMemoryPanel`](../src/components/SparkPage/UnifiedMemoryPanel.tsx) | **Pending (#317)** — labels, sensor provenance/help, core count, memory split legend/tooltips/accessibility, pressure and waiting states. Sensor/model values, metric history, units and split calculations stay unchanged. |
 | GPU metrics and charts | [`GpuPanel`](../src/components/SparkPage/GpuPanel.tsx), [`GpuHistoryChart`](../src/components/SparkPage/GpuHistoryChart.tsx) | **Pending (#317)** for single-/multi-card metrics, thermal/throttle states, memory availability/allocation-error labels, shared process-table headings, chart windows, view/metric selectors, legends, axes, accessibility and collecting state. Locale switches preserve selected data, storage values, backfill and curve geometry. Raw device/process names, commands and PIDs stay intact. The shared `VramBreakdownBar` legends/tooltips remain pending in #316; this PR does not duplicate them. |
-| LLM live metrics, controls and sessions | [`LlmPanel`](../src/components/SparkPage/LlmPanel.tsx), [`ConversationList`](../src/components/SparkPage/ConversationList.tsx) | **Pending (this LLM PR)** — metrics/help, engine and idle states, port/API-key settings with local validation, benchmark launch/remote-target controls, session age/state/context tooltips and empty/add controls. Preserve mean versus percentile semantics, missing versus zero readings, cached versus computed rates, draft values, targets/navigation and raw model/session identity. Server posture labels/details and API diagnostics remain unchanged. The translated Harness entry opens the still-untranslated wizard. |
+| LLM live metrics, controls and sessions | [`LlmPanel`](../src/components/SparkPage/LlmPanel.tsx), [`ConversationList`](../src/components/SparkPage/ConversationList.tsx) | **Pending (#318)** — metrics/help, engine and idle states, port/API-key settings with local validation, benchmark launch/remote-target controls, session age/state/context tooltips and empty/add controls. Preserve mean versus percentile semantics, missing versus zero readings, cached versus computed rates, draft values, targets/navigation and raw model/session identity. Server posture labels/details and API diagnostics remain unchanged. The translated Harness entry opens the still-untranslated wizard. |
 | LLM history, daily statistics and token totals | [`LlmTrendChart`](../src/components/SparkPage/LlmTrendChart.tsx), [`LlmDailyChart`](../src/components/SparkPage/LlmDailyChart.tsx), [`LlmTokenTotals`](../src/components/SparkPage/LlmTokenTotals.tsx) | **Not wired** — a later bounded batch for chart controls, legends, date/range selectors and cumulative token tables. Preserve data geometry, UTC/day semantics, ledger versus engine counters and cache-split meaning. |
 | Model scripts and output | [`LlmModelsPanel`](../src/components/SparkPage/LlmModelsPanel.tsx) | **Not wired** — include controls and progress/error feedback; preserve script names, paths and terminal output. |
 | Storage | [`StoragePanel`](../src/components/SparkPage/StoragePanel.tsx) | **Not wired** — include device/refresh controls; preserve device names and poll-mode values. |
@@ -96,7 +96,7 @@ Each row is a reviewable surface. #317 groups the related GPU, CPU and memory ro
 | Settings dialog | [`SettingsDialog`](../src/components/SettingsDialog.tsx) | **Foundation merged (#226)** for its existing catalog-backed rows and language selector. **Pending (#310)** for MQTT, fleet GPU clock, Session age labels/presets and the Harness Sessions entry only. |
 | Browser notification preferences | [`BrowserAlertsSettings`](../src/components/BrowserAlertsSettings.tsx) | **Foundation merged (#226)**; keep permission/unsupported/insecure feedback and browser-local persistence behavior. |
 | Add/Edit Spark | [`AddSparkDialog`](../src/components/AddSparkDialog.tsx), [`EditSparkDialog`](../src/components/EditSparkDialog.tsx) | **Not wired**; include validation, SSH/connection feedback and embedded per-unit GPU clock UI. |
-| Harness setup wizard | [`HarnessWizard`](../src/components/HarnessWizard.tsx) | **Not wired**. The Settings entry in #310 and session-list entry in this LLM PR only open this wizard; its five steps, route data and check/review feedback remain a separate feature slice. |
+| Harness setup wizard | [`HarnessWizard`](../src/components/HarnessWizard.tsx) | **Not wired**. The Settings entry in #310 and session-list entry in #318 only open this wizard; its five steps, route data and check/review feedback remain a separate feature slice. |
 | Alert notification configuration | [`AlertsDialog`](../src/components/AlertsDialog.tsx) | **Not wired**; preserve endpoint values, tokens and raw delivery errors. |
 | Access token prompt | [`AccessTokenDialog`](../src/components/AccessTokenDialog.tsx) | **Not wired**; keep token content and server response text unchanged. |
 | Hermes update | [`HermesUpdateDialog`](../src/components/SparkPage/HermesUpdateDialog.tsx) | **Not wired**. |
