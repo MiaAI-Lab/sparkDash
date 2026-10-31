@@ -2,6 +2,23 @@
 
 **Snapshot baseline:** `main` at `b96244a2589a2130e80ff1b2b399252934a01154` on 2026-10-31. This is an inventory and update checklist, not a completion metric: passing tests or a successful build do not establish that a page is localized.
 
+## Unified progress index
+
+Keep one progress list while retaining separate, page-sized pull requests. Open status was checked on 2026-10-31; an open PR is implemented work awaiting review, not shipped coverage.
+
+| Scope | Review entry | Status |
+| --- | --- | --- |
+| Language infrastructure and initial Settings | [#226](https://github.com/MiaAI-Lab/sparkDash/pull/226) | Merged; included in the baseline. |
+| Remaining Settings: MQTT, GPU clock and sessions | [#310](https://github.com/MiaAI-Lab/sparkDash/pull/310) | Open, independent Settings review. The former #311 session slice was consolidated here. |
+| Navigation and shared shell | [#315](https://github.com/MiaAI-Lab/sparkDash/pull/315) | Open, independent Shell review. |
+| Overview page and fleet controls | [#316](https://github.com/MiaAI-Lab/sparkDash/pull/316) | Open, independent Overview review. |
+| Spark detail CPU and memory | This CPU/memory PR | Implemented and validated; independent of the three open PRs above. |
+| Other detail panels, pages and dialogs | Inventory and panel batches below | Not yet wired unless explicitly marked otherwise. |
+
+[#194](https://github.com/MiaAI-Lab/sparkDash/pull/194) stays open as the original integration and server-message design reference, per the maintainer's [latest direction](https://github.com/MiaAI-Lab/sparkDash/pull/194#issuecomment-6517707651). It is not an active merge target. Do not rebase it or count its broad translation work as shipped. Closing it would remove the open reference the maintainer requested; reconsider only when that reference has an agreed replacement.
+
+When a page PR merges, update its row and the detailed inventory together. Keep all already-merged namespaces and newer coverage rows when resolving shared loader, README, changelog or inventory conflicts.
+
 ## Scope and conventions
 
 The English catalogs are the source and fallback, initialized in [`src/i18n/index.ts`](../src/i18n/index.ts). This branch registers [`settings`](../src/locales/en/settings.json), [`language`](../src/locales/en/language.json) and [`spark`](../src/locales/en/spark.json), with matching `zh-CN` files. The separate Shell and Overview namespaces are pending in [#315](https://github.com/MiaAI-Lab/sparkDash/pull/315) and [#316](https://github.com/MiaAI-Lab/sparkDash/pull/316). Translate visible product UI, accessible names, validation/help/empty/loading and success/failure feedback. Do **not** translate raw server diagnostics, user-supplied text, IDs, protocol values, commands, URLs, or product and model names unless a product decision explicitly says otherwise.
