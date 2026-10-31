@@ -1,0 +1,159 @@
+{
+  "nav": {
+    "overview": "总览",
+    "tokens": "Token 总量",
+    "cost": "成本对比",
+    "energy": "集群能耗",
+    "temps": "温度",
+    "activity": "活动",
+    "showcase": "展示",
+    "kiosk": "大屏",
+    "sparks": "Spark 节点",
+    "stats": "统计",
+    "settings": "设置",
+    "benchmarks": "基准测试",
+    "fleet": "集群",
+    "brandOverview": "sparkDash 总览",
+    "openSearch": "打开命令面板",
+    "showSidebar": "显示侧边栏",
+    "showSidebarTitle": "显示侧边栏 (Ctrl+B)"
+  },
+  "sidebar": {
+    "sortable": "可排序",
+    "dragStart": "已拿起可拖动项目 {{id}}。",
+    "dragOver": "可拖动项目 {{id}} 已移至可放置区域 {{over}} 上方。",
+    "dragOutside": "可拖动项目 {{id}} 已离开可放置区域。",
+    "dragEndOver": "可拖动项目 {{id}} 已放在可放置区域 {{over}}",
+    "dragEnd": "已放下可拖动项目 {{id}}。",
+    "dragCancel": "已取消拖动，已放下可拖动项目 {{id}}。",
+    "fleetNavigation": "集群导航",
+    "hideSidebar": "隐藏侧边栏",
+    "hideSidebarTitle": "隐藏侧边栏 (Ctrl+B)",
+    "jumpTo": "跳转至…",
+    "addSpark": "添加 Spark 或 GPU 主机",
+    "addSparkTitle": "添加 Spark / GPU 主机",
+    "noSparks": "尚未添加 Spark。使用 + 添加一个。",
+    "workspace": "工作区",
+    "kioskTitle": "全屏大屏展示 (按 Esc 返回)",
+    "dragInstructions": "按 Enter 打开此 Spark。要重新排序，按 M 后用方向键移动；按 Enter 放下，或按 Escape 取消。",
+    "dragTitle": "拖动可重新排序 (键盘：M)。",
+    "live": "实时",
+    "livePoll": "实时 · 每 {{seconds}} 秒轮询",
+    "reconnecting": "正在重连…",
+    "credit": "由 Mia's AI Lab 提供",
+    "website": "Mia's AI Lab 网站",
+    "github": "GitHub 上的 sparkDash",
+    "x": "Mia's AI Lab 的 X"
+  },
+  "mobile": {
+    "primary": "主导航",
+    "chooseSpark": "选择 Spark",
+    "addSpark": "添加 Spark / GPU 主机"
+  },
+  "spark": {
+    "offline": "离线",
+    "worker": "工作节点",
+    "prefilling": "正在预填充",
+    "decoding": "正在解码"
+  },
+  "bench": {
+    "decode": {
+      "label": "解码",
+      "blurb": "随并发提升时的生成速度 (tokens/s)。"
+    },
+    "prefill": {
+      "label": "预填充",
+      "blurb": "不同上下文长度下的提示词处理速度和首 token 时间。"
+    },
+    "quality": {
+      "label": "质量",
+      "blurb": "用于比较模型、量化和 KV 缓存格式的固定种子质量套件。"
+    },
+    "toolEval": {
+      "label": "工具评测",
+      "blurb": "涵盖 69 个确定性场景的工具调用质量（选择、参数、多步、安全）。"
+    }
+  },
+  "palette": {
+    "dialogLabel": "命令面板",
+    "placeholder": "跳转到 Spark、运行操作或打开设置…",
+    "searchLabel": "搜索命令",
+    "escapeKey": "Esc",
+    "listLabel": "命令",
+    "noMatch": "没有与“{{query}}”匹配的结果。",
+    "move": "↑↓ 移动",
+    "open": "↵ 打开",
+    "close": "Esc 关闭"
+  },
+  "install": {
+    "dialogLabel": "安装 sparkDash",
+    "title": "安装 sparkDash",
+    "description": "添加到主屏幕，获得全屏应用般的仪表盘体验。",
+    "button": "安装",
+    "dismiss": "关闭",
+    "ios": {
+      "title": "在 iPhone 上安装 sparkDash",
+      "tapShare": "在 Safari 中轻点",
+      "share": "分享",
+      "icon": "图标 ",
+      "then": "，然后选择",
+      "addToHomeScreen": "添加到主屏幕",
+      "period": "。"
+    }
+  },
+  "theme": {
+    "title": "主题：{{theme}}",
+    "switchLabel": "切换主题（当前为 {{theme}}）",
+    "white": "白色",
+    "light": "浅色",
+    "dark": "深色",
+    "oled": "OLED"
+  },
+  "connection": {
+    "ageSeconds": "{{seconds}} 秒",
+    "ageMinutes": "{{minutes}} 分 {{seconds}} 秒",
+    "connecting": "正在连接实时遥测…",
+    "staleWithAge": "遥测数据已过期。上次有效更新在 {{age}} 前。",
+    "disconnectedWithAge": "实时遥测已断开。正在显示 {{age}} 前的数据。",
+    "waitingForFirstUpdate": "实时遥测已断开。正在等待首次有效更新…",
+    "dataError": "遥测数据错误。",
+    "stale": "遥测数据已过期。",
+    "disconnected": "实时遥测已断开。"
+  },
+  "error": {
+    "dismiss": "关闭",
+    "dismissLabel": "关闭错误"
+  },
+  "openAccess": {
+    "label": "开放访问",
+    "dialogLabel": "开放访问",
+    "explanation": "此仪表盘可在网络中无令牌访问，因此网络中的任何人都可以更改设置。请在服务器上设置 SPARKDASH_TOKEN 来要求令牌。",
+    "dismiss": "不再显示"
+  },
+  "commands": {
+    "goTo": "前往",
+    "actions": "操作",
+    "benchmarks": "基准测试",
+    "page": "页面",
+    "wallDisplay": "大屏展示",
+    "online": "在线",
+    "offline": "离线",
+    "benchmark": "{{name}}基准测试",
+    "add": "添加 Spark 或 GPU 主机",
+    "showcase": "在新窗口打开 {{name}} 的演示",
+    "edit": "编辑 {{name}}",
+    "theme": "切换主题",
+    "themeHint": "白色 · 浅色 · 深色 · OLED",
+    "sidebar": "显示或隐藏侧栏",
+    "settings": "打开设置",
+    "harness": "设置 Harness 会话"
+  },
+  "app": {
+    "settingsError": "无法加载设置：{{detail}}。请重新加载以重试。",
+    "refreshError": "无法刷新 Spark：{{detail}}。仍显示先前的数据。",
+    "reorderError": "无法保存 Spark 顺序：{{detail}}。已恢复先前的顺序。",
+    "emptyTitle": "尚未注册 Spark",
+    "emptyDescription": "添加 DGX Spark 或 GPU 主机以开始监控。",
+    "addSpark": "添加 Spark"
+  }
+}

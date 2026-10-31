@@ -4,7 +4,7 @@
 
 ## Scope and conventions
 
-The English catalogs are the source and fallback, initialized in [`src/i18n/index.ts`](../src/i18n/index.ts). The current namespaces are [`settings`](../src/locales/en/settings.json) and [`language`](../src/locales/en/language.json), with matching `zh-CN` files. Translate visible product UI, accessible names, validation/help/empty/loading and success/failure feedback. Do **not** translate raw server diagnostics, user-supplied text, IDs, protocol values, commands, URLs, or product and model names unless a product decision explicitly says otherwise.
+The English catalogs are the source and fallback, initialized in [`src/i18n/index.ts`](../src/i18n/index.ts). The namespaces are [`settings`](../src/locales/en/settings.json), [`language`](../src/locales/en/language.json) and, in this Shell change, [`shell`](../src/locales/en/shell.json), with matching `zh-CN` files. Translate visible product UI, accessible names, validation/help/empty/loading and success/failure feedback. Do **not** translate raw server diagnostics, user-supplied text, IDs, protocol values, commands, URLs, or product and model names unless a product decision explicitly says otherwise.
 
 The first integration is deliberately page-sized. Follow the maintainer's [page-sized direction](https://github.com/MiaAI-Lab/sparkDash/pull/194#issuecomment-6517707651): keep #194 open and unchanged as an integration/translation reference, including its server-message design. Do not rebase it, revive the broad integration, or describe it as merged.
 
@@ -13,7 +13,8 @@ The first integration is deliberately page-sized. Follow the maintainer's [page-
 | Status | Meaning |
 | --- | --- |
 | **Foundation merged (#226)** | Wired to the shipped language infrastructure; only the explicitly named surface is covered. |
-| **Pending (#310)** | Included in this Settings PR, but not in the baseline `main`; update this document when merged. |
+| **Pending (#310)** | Included in the separate Settings PR, but not in the baseline `main`; update this document when merged. |
+| **Pending (this Shell PR)** | Implemented in this change, but not a merged `main` claim. |
 | **Not wired** | No page-level catalog/wiring claim in this snapshot. |
 
 | Slice | Status | Boundary |
@@ -22,6 +23,7 @@ The first integration is deliberately page-sized. Follow the maintainer's [page-
 | Settings rows and browser alerts | **Foundation merged (#226)** | Most existing Settings row text plus [`BrowserAlertsSettings`](../src/components/BrowserAlertsSettings.tsx); retain its browser-only permission feedback. |
 | MQTT and fleet GPU clock | **Pending (#310)** | Settings MQTT text and [`FleetGpuClock`](../src/components/FleetGpuClock.tsx) are not a `main` claim until #310 merges. |
 | Session age and Harness Sessions entry | **Pending (#310)** | Settings labels/help/preset labels and the entry action only. This does **not** localize [`HarnessWizard`](../src/components/HarnessWizard.tsx). |
+| Navigation and shared shell | **Pending (this Shell PR)** | Desktop/sidebar and mobile navigation, command palette and its commands, theme/open-access/connection/error/install UI, plus App-owned empty/error text. Benchmark navigation only; page bodies, standalone dialogs and ShutdownAll remain unwired. |
 
 ## Inventory
 
@@ -50,7 +52,7 @@ The route inventory comes from [`App.tsx`](../src/App.tsx), [`useRoute.ts`](../s
 
 | Surface | Primary source | Status / boundary |
 | --- | --- | --- |
-| Desktop sidebar, mobile tab/sheets, command palette, install prompt, theme/open-access/connection and error UI | [`AppSidebar`](../src/components/shell/AppSidebar.tsx), [`MobileTabBar`](../src/components/shell/MobileTabBar.tsx), [`CommandPalette`](../src/components/shell/CommandPalette.tsx), [`InstallPrompt`](../src/components/shell/InstallPrompt.tsx), [`src/components/ui/`](../src/components/ui/) | **Not wired** — organize as a Shell slice, retaining Spark names, status data and keyboard shortcuts. |
+| Desktop sidebar, mobile tab/sheets, command palette, install prompt, theme/open-access/connection and error UI | [`AppSidebar`](../src/components/shell/AppSidebar.tsx), [`MobileTabBar`](../src/components/shell/MobileTabBar.tsx), [`CommandPalette`](../src/components/shell/CommandPalette.tsx), [`InstallPrompt`](../src/components/shell/InstallPrompt.tsx), [`src/components/ui/`](../src/components/ui/) | **Pending (this Shell PR)** — retains Spark names, telemetry, raw errors, keyboard shortcuts and English command aliases. The embedded ShutdownAll control and its confirmations remain in the separate unit-actions slice. |
 | Settings dialog | [`SettingsDialog`](../src/components/SettingsDialog.tsx) | **Foundation merged (#226)** for its existing catalog-backed rows and language selector. **Pending (#310)** for MQTT, fleet GPU clock, Session age labels/presets and the Harness Sessions entry only. |
 | Browser notification preferences | [`BrowserAlertsSettings`](../src/components/BrowserAlertsSettings.tsx) | **Foundation merged (#226)**; keep permission/unsupported/insecure feedback and browser-local persistence behavior. |
 | Add/Edit Spark | [`AddSparkDialog`](../src/components/AddSparkDialog.tsx), [`EditSparkDialog`](../src/components/EditSparkDialog.tsx) | **Not wired**; include validation, SSH/connection feedback and embedded per-unit GPU clock UI. |
