@@ -35,6 +35,7 @@ it("keeps token range, grouping, chart geometry, raw model and unreported-cache 
   await flush();
   act(() => button(container, "Last 24 h").click());
   act(() => button(container, "Model").click());
+  expect(container.textContent).toContain("Over 1 hour tracked");
   const before = geometry(container);
   expect(container.textContent).toContain("raw/model:Q4");
   expect(container.textContent).toContain("does not report prefix-cache hits");
@@ -57,4 +58,22 @@ it("keeps token range, grouping, chart geometry, raw model and unreported-cache 
   expect(geometry(container)).toEqual(before);
   expect(fetchHistory).toHaveBeenCalledTimes(1);
   expect(fetchTotals).toHaveBeenCalledTimes(1);
+});
+
+it("pluralizes comparison and tracked periods without changing the selected window", async () => {
+  const now = Date.now();
+  fetchHistory.mockResolvedValue({
+    generatedAt: now, retention: { days: 35, hours: 72 }, firstDay: null, firstHour: null,
+    day: bucketKeys("day", 14, now).map(row), hour: bucketKeys("hour", 48, now).map(row),
+  });
+  const { container } = render(<TokensPage sparks={[makeSpark()]} />);
+  await flush();
+  expect(container.textContent).toContain("vs previous 7 days");
+  expect(container.textContent).toContain("Over 7 days tracked");
+  act(() => button(container, "Last 24 h").click());
+  expect(container.textContent).toContain("vs previous 24 hours");
+  expect(container.textContent).toContain("Over 24 hours tracked");
+  await act(() => setLocale("zh-CN"));
+  expect(container.textContent).toContain("已跟踪 24 小时");
+  expect(fetchHistory).toHaveBeenCalledTimes(1);
 });
