@@ -12,10 +12,10 @@ Keep one progress list while retaining separate, page-sized pull requests. Open 
 | Remaining Settings: MQTT, GPU clock and sessions | [#310](https://github.com/MiaAI-Lab/sparkDash/pull/310) | Open, independent Settings review. The former #311 session slice was consolidated here. |
 | Navigation and shared shell | [#315](https://github.com/MiaAI-Lab/sparkDash/pull/315) | Open, independent Shell review. |
 | Overview page and fleet controls | [#316](https://github.com/MiaAI-Lab/sparkDash/pull/316) | Open, independent Overview review. |
-| Spark detail CPU and memory | This CPU/memory PR | Implemented and validated; independent of the three open PRs above. |
+| Spark detail CPU and memory | [#317](https://github.com/MiaAI-Lab/sparkDash/pull/317) | Open, independent CPU/memory review. |
 | Other detail panels, pages and dialogs | Inventory and panel batches below | Not yet wired unless explicitly marked otherwise. |
 
-[#194](https://github.com/MiaAI-Lab/sparkDash/pull/194) stays open as the original integration and server-message design reference, per the maintainer's [latest direction](https://github.com/MiaAI-Lab/sparkDash/pull/194#issuecomment-6517707651). It is not an active merge target. Do not rebase it or count its broad translation work as shipped. Closing it would remove the open reference the maintainer requested; reconsider only when that reference has an agreed replacement.
+[#194](https://github.com/MiaAI-Lab/sparkDash/pull/194) stays open as the original integration and server-message design reference, per the maintainer's [latest direction](https://github.com/MiaAI-Lab/sparkDash/pull/194#issuecomment-6517707651). It is not an active merge target. Do not rebase it or count its broad translation work as shipped. Its historical content would remain accessible after closure, but the maintainer explicitly requested an open reference; revisit its status when that reference has an agreed replacement.
 
 When a page PR merges, update its row and the detailed inventory together. Keep all already-merged namespaces and newer coverage rows when resolving shared loader, README, changelog or inventory conflicts.
 
