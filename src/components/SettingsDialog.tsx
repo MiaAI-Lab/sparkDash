@@ -600,6 +600,28 @@ export function SettingsDialog({ open, onClose, onSaved, onOpenHarness, serverVe
                 />
               </SettingRow>
               <ToggleRow
+                title={t("mqtt.discovery.title")}
+                help={t("mqtt.discovery.help")}
+                checked={Boolean(settings.mqttDiscovery)}
+                onChange={(v) => update({ mqttDiscovery: v })}
+              />
+              <SettingRow
+                title={t("mqtt.discoveryPrefix.title")}
+                help={t("mqtt.discoveryPrefix.help")}
+                htmlFor="settings-mqtt-discovery-prefix"
+              >
+                <input
+                  id="settings-mqtt-discovery-prefix"
+                  type="text"
+                  value={settings.mqttDiscoveryPrefix ?? ""}
+                  placeholder="homeassistant"
+                  spellCheck={false}
+                  autoComplete="off"
+                  onChange={(e) => update({ mqttDiscoveryPrefix: e.target.value })}
+                  className="field-input"
+                />
+              </SettingRow>
+              <ToggleRow
                 title={t("toggles.fleetEnergy.title")}
                 help={t("toggles.fleetEnergy.help")}
                 checked={Boolean(settings.showFleetEnergy)}
