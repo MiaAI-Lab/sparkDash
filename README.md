@@ -47,6 +47,7 @@ Monitored units run **Linux**, **macOS**, or **Windows** (a Windows PC with an N
 - [Prometheus](#prometheus)
 - [Alert notifications](#alert-notifications)
 - [RoCE / RDMA monitoring](#roce--rdma-monitoring)
+- [AMD GPUs on Linux](#amd-gpus-on-linux)
 - [Intel Arc GPUs](#intel-arc-gpus)
 - [Windows PCs](#windows-pcs)
 - [Full changelog](./CHANGELOG.md)
@@ -476,7 +477,7 @@ The exporter reads the snapshot sparkDash already holds, so scraping adds no SSH
 | `sparkdash_up` | gauge | | 1 when the unit answered its last liveness check. An unreachable unit exports `sparkdash_up 0` and nothing else |
 | `sparkdash_uptime_seconds` | gauge | | Host uptime |
 | `sparkdash_collector_last_success_timestamp_seconds` | gauge | `collector` | Unix time of the last poll of each collector (`gpu`, `cpu`, `ram`, `memory`, `network`, `storage`, `llm`, `roce`) that returned real data, not zeroed defaults. A stuck collector stops advancing while `sparkdash_up` stays 1, so alert on `time() - sparkdash_collector_last_success_timestamp_seconds > 60`. Absent until a collector has succeeded |
-| `sparkdash_gpu_info` | gauge | `gpu`, `name`, `uuid` | Always 1. `gpu` is the nvidia-smi index for an NVIDIA card; an AMD card (amd-smi) is its index plus 1000, so `gpu="1000"` is the first AMD card. Per-card chart history uses the same number (`gpu.1000.*`) |
+| `sparkdash_gpu_info` | gauge | `gpu`, `name`, `uuid` | Always 1. `gpu` is the nvidia-smi index for an NVIDIA card; an AMD card is its sysfs card index plus 1000 and an Intel card its index plus 2000, so `gpu="1000"` is the first AMD card. Per-card chart history uses the same number (`gpu.1000.*`) |
 | `sparkdash_gpu_utilization_ratio` | gauge | `gpu` | 0–1 |
 | `sparkdash_gpu_temperature_celsius` | gauge | `gpu` | |
 | `sparkdash_gpu_power_watts`, `sparkdash_gpu_power_limit_watts` | gauge | `gpu` | |
@@ -577,6 +578,26 @@ Spark units with RDMA devices (the CX7 ports) get a **RoCE / RDMA** panel on the
 Everything comes from the Spark itself: `/sys/class/infiniband`, `/sys/class/net`, `ethtool -S` / `-a` and `mlnx_qos -i`. The fast part (link, RDMA payload rates, counters, netdev traffic) is read about every 5 s; the slow part (ethtool counters, PFC and trust) every 30 s. Units without RDMA devices are skipped and re-checked every 10 minutes. The API exposes it as `metrics.roce` in `/api/sparks/:id/metrics`.
 
 Two health findings use it: **a RoCE link went down** (a port that was up, critical) and **RoCE is dropping packets** (RDMA loss counters such as `out_of_buffer` or sequence errors rising for three samples in a row, or port discards / CRC errors rising on two consecutive 30 s readings; a single dropped frame is not reported). Ports that never came up are not reported. Switch telemetry (PFC and ECN statistics on the switch side) is not part of this; it could be added later as an optional integration.
+
+---
+
+## AMD GPUs on Linux
+
+Every AMD card the Linux `amdgpu` driver binds — Radeon and Radeon Pro discrete cards, and the iGPU of an APU (Strix Halo and friends) — shows up in the GPU panel next to NVIDIA and Intel cards, on the machine sparkDash runs on and on SSH units. Nothing is installed and no root is needed: the numbers come from the driver's own files (`/sys/class/drm/card*/device/…` and its `hwmon`), read directly for the local unit and through one small `sh` script for a remote one. `amd-smi` and ROCm are not used.
+
+| Shown | Source |
+|-------|--------|
+| GPU use | `gpu_busy_percent` |
+| Temperature | the `edge` hwmon sensor, or `junction` when there is no edge sensor |
+| Power draw | `power1_average`, else `power1_input` (microwatts) |
+| Power cap | `power1_cap`, else `power1_max`; a cap of 0 means unlimited, so the tile reads "—" |
+| Fan | `fan1_input` where the board exposes one |
+| Clock | the `sclk` hwmon frequency, with the ceiling from `pp_dpm_sclk` feeding the clock-cap view |
+| Memory | `mem_info_*` (see below) |
+
+**Memory.** An integrated card is shown as **one pool: the VRAM carve-out plus GTT**, because the carve-out on its own is meaningless on a unified-memory APU — a 128 GB Strix Halo reports 512 MB of "VRAM" while its driver actually has ~117 GB of GTT to hand out. A card counts as integrated when its PCI class is a display controller (`0x0380…`) with visible VRAM equal to total VRAM, or when it reports no VRAM at all. A discrete card keeps its own VRAM and its GTT is never added to it, so a resizable-BAR card whose BAR maps all of its memory is not mistaken for an iGPU. The panel marks where the number came from (`vramSource: "gtt"` or `"sysfs"`).
+
+AMD cards have their own index range (1000 and up) and `vendor: "amd"`, so a chart series or a Prometheus label for card 0 of each vendor never collides (`gpu="0"` NVIDIA, `gpu="1000"` AMD). A metric the driver does not expose is reported as unavailable and renders as "—" rather than as a plausible 0. Like Intel cards, AMD cards are shown and counted in the power and memory totals but are not judged by the NVIDIA-tuned health rules. Per-process VRAM has no unprivileged source on `amdgpu`, so that list stays NVIDIA-only.
 
 ---
 

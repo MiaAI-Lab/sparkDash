@@ -325,8 +325,12 @@ export interface GpuDevice {
   processes?: Array<{ pid: number; name: string; vramMB: number }>;
   /** Intel only: fan speed in rpm, null when the card has no fan sensor. */
   fanRpm?: number | null;
-  /** Intel only: "debugfs" = measured VRAM use; "pci-bar" = total only, used is unknown (shown as 0). */
-  vramSource?: "debugfs" | "pci-bar";
+  /**
+   * Where the memory numbers came from. Intel: "debugfs" = measured VRAM use, "pci-bar" =
+   * total only, used is unknown (shown as 0). AMD: "gtt" = an integrated card's pool, the
+   * VRAM carve-out and GTT together; "sysfs" = that card's own VRAM.
+   */
+  vramSource?: "debugfs" | "pci-bar" | "gtt" | "sysfs";
 }
 
 // ─── CPU metrics ─────────────────────────────────────────

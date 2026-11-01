@@ -10,7 +10,7 @@
  * TYPE per family. Every series carries the unit's identity as labels
  * (`unit`, `unit_name`, `kind`, `role`); GPU series add `gpu` so multi-GPU
  * hosts get one series per card. For an NVIDIA card `gpu` is the nvidia-smi
- * index ("0", "1"); an AMD card is the amd-smi index plus 1000 ("1000" is the
+ * index ("0", "1"); an AMD card is its sysfs card index plus 1000 ("1000" is the
  * first AMD card), so the two vendors never share a label value. `name` and
  * `uuid` on `sparkdash_gpu_info` identify the card; the 1000 offset is not a
  * physical index.
