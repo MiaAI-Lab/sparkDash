@@ -143,7 +143,7 @@ test("local: Intel-only host (no nvidia-smi) still reports the card", async () =
     throw new Error("nvidia-smi: not found");
   };
   c._probeIntelLocal = async () => probe("1000.00", 5000000000, 800000);
-  c._probeLocalAmd = async () => ({ devices: [] });
+  c._amdLocalDevices = () => []; // no AMD card on this host
   c._readLocalClockCap = async () => null;
   c._queryNvidiaVram = async () => ({ used: 0, total: 65000, percentage: 0, available: 65000 });
   c._getCPUPower = async () => ({ draw: 10 });
@@ -161,7 +161,7 @@ test("local: no nvidia-smi and no Intel card is not a successful collection", as
     throw new Error("nvidia-smi: not found");
   };
   c._probeIntelLocal = async () => "";
-  c._probeLocalAmd = async () => ({ devices: [] });
+  c._amdLocalDevices = () => []; // no AMD card on this host
   c._readLocalClockCap = async () => null;
   c._getCPUPower = async () => ({ draw: 10 });
   c._nvErrNoMemory = async () => 0;
@@ -399,7 +399,7 @@ function localIntel(smiInstalled) {
   };
   c._nvidiaSmiInstalled = async () => smiInstalled;
   c._probeIntelLocal = async () => probe("1000.00", 5000000000, 800000);
-  c._probeLocalAmd = async () => ({ devices: [] });
+  c._amdLocalDevices = () => []; // no AMD card on this host
   c._readLocalClockCap = async () => null;
   c._getCPUPower = async () => ({ draw: 10 });
   c._nvErrNoMemory = async () => 0;

@@ -8,6 +8,7 @@ import { getSettings } from "../settings.js";
 import { RoceSampler } from "./roce.js";
 import { KernelJournal } from "./kernelJournal.js";
 import { IntelSudoGate, IntelVramCache, buildIntelProbeScript, parseIntelProbe, sampleIntelCards } from "./intelGpu.js";
+import { AMD_PROBE_SCRIPT, amdDevicesFromCards, collectAmdSysfs, parseAmdProbe } from "./amdGpu.js";
 import {
   WINDOWS_GPU_SCRIPT,
   WINDOWS_SYSTEM_SCRIPT,
@@ -92,65 +93,6 @@ export function nvidiaSideFailed(result) {
 function markNvidiaSideFailed(result, failed) {
   if (failed) Object.defineProperty(result, NVIDIA_SIDE_FAILED, { value: true, enumerable: false, configurable: true });
   return result;
-}
-
-/** Convert amd-smi JSON output into the collector's per-device GPU shape. */
-export function parseAmdSmiMetrics(raw, limitRaw = null) {
-  let payload;
-  let limits;
-  try { payload = typeof raw === "string" ? JSON.parse(raw) : raw; } catch { return []; }
-  try { limits = typeof limitRaw === "string" ? JSON.parse(limitRaw) : limitRaw; } catch { limits = null; }
-  const rows = Array.isArray(payload) ? payload : Array.isArray(payload?.gpu_data) ? payload.gpu_data : [];
-  const limitRows = Array.isArray(limits) ? limits : Array.isArray(limits?.gpu_data) ? limits.gpu_data : [];
-  const number = (v) => {
-    if (v == null) return null;
-    const candidate = typeof v === "object" ? v.value : v;
-    if (candidate == null || String(candidate).trim() === "") return null;
-    const n = Number(candidate);
-    return Number.isFinite(n) ? n : null;
-  };
-  return rows.map((row, i) => {
-    const used = number(row?.mem_usage?.used_vram);
-    const total = number(row?.mem_usage?.total_vram);
-    const free = number(row?.mem_usage?.free_vram);
-    const temperature = number(row?.temperature?.edge);
-    const usage = number(row?.usage?.gfx_activity);
-    const powerDraw = number(row?.power?.socket_power);
-    const powerLimit = number(
-      row?.power?.socket_power_limit ?? row?.power?.power_limit ??
-      limitRows[i]?.socket_power_limit ?? limitRows[i]?.limit?.ppt0?.socket_power_limit ??
-      limitRows[i]?.limit?.socket_power_limit
-    );
-    const physicalIndex = Number.isFinite(Number(row?.gpu)) ? Number(row.gpu) : i;
-    return {
-      index: physicalIndex,
-      physicalIndex,
-      name: row?.name || "AMD GPU",
-      uuid: row?.uuid || null,
-      vendor: "amd",
-      temperature: temperature ?? 0,
-      usage: usage ?? 0,
-      powerDraw: powerDraw ?? 0,
-      powerLimit: powerLimit ?? 0,
-      power: { draw: powerDraw ?? 0, limit: powerLimit ?? 0 },
-      vram: {
-        used: used ?? 0,
-        total: total ?? 0,
-        percentage: total > 0 && used != null ? Math.round((used / total) * 100) : 0,
-        available: free ?? (total != null && used != null ? Math.max(0, total - used) : 0),
-      },
-      metricAvailability: {
-        temperature: temperature != null,
-        usage: usage != null,
-        powerDraw: powerDraw != null,
-        powerLimit: powerLimit != null,
-        vramUsed: used != null,
-        vramTotal: total != null,
-      },
-      throttle: null,
-      processes: [],
-    };
-  });
 }
 
 /**
@@ -438,7 +380,7 @@ export function parseMacIoregDiskStats(output) {
   return { readBytes, writeBytes };
 }
 
-const REMOTE_GPU_SECTIONS = new Set(["NVIDIA", "NVIDIA_VRAM", "NVIDIA_APPS", "AMD", "AMD_LIMITS", "INTEL", "MEMINFO", "CLOCK_CAP"]);
+const REMOTE_GPU_SECTIONS = new Set(["NVIDIA", "NVIDIA_VRAM", "NVIDIA_APPS", "AMD", "INTEL", "MEMINFO", "CLOCK_CAP"]);
 
 /**
  * Split the remote GPU probe output into named sections. A section starts at a
@@ -459,17 +401,8 @@ export function splitRemoteGpuSections(output) {
   return sections;
 }
 
-// How long a local poll trusts "amd-smi is not installed" before probing again.
-const AMD_SMI_ABSENT_TTL_MS = 5 * 60 * 1000;
-
-const AMD_GPU_FIELDS = ["temperature", "usage", "powerDraw", "powerLimit", "vramUsed", "vramTotal"];
-const AMD_SMI_RESOLVER = [
-  'amd_smi="${AMD_SMI_PATH:-}"',
-  'if [ -z "$amd_smi" ] || [ ! -x "$amd_smi" ]; then amd_smi="$(command -v amd-smi 2>/dev/null || true)"; fi',
-  // Versioned ROCm dirs come from find, not a shell glob: the remote login shell
-  // may be zsh, where an unmatched glob aborts the whole probe (no matches found).
-  'if [ -z "$amd_smi" ]; then for amd_candidate in "${ROCM_PATH:+$ROCM_PATH/bin/amd-smi}" "${ROCM_HOME:+$ROCM_HOME/bin/amd-smi}" /opt/rocm/bin/amd-smi $(find /opt -maxdepth 4 \\( -path \'/opt/rocm/core-*/bin/amd-smi\' -o -path \'/opt/rocm-*/bin/amd-smi\' \\) 2>/dev/null | sort); do if [ -x "$amd_candidate" ]; then amd_smi="$amd_candidate"; break; fi; done; fi',
-].join("; ");
+/** The per-device metrics the aggregate reports as available or not. */
+const GPU_METRIC_FIELDS = ["temperature", "usage", "powerDraw", "powerLimit", "vramUsed", "vramTotal"];
 // Keep vendor namespaces disjoint so collection failures cannot make AMD reuse
 // an NVIDIA device's index in per-card histories or Prometheus labels.
 const AMD_GPU_INDEX_OFFSET = 1000;
@@ -842,18 +775,18 @@ export class SystemCollector {
   // ─── GPU helpers ─────────────────────────────────────────
   async _getGPUAll() {
     const vramRead = this._intelVram.stale;
-    const [gpuOut, amd, clockCapMHz, intelOut] = await Promise.all([
+    const [gpuOut, clockCapMHz, intelOut] = await Promise.all([
       this._nvidiaSmi(
         "--query-gpu=temperature.gpu,utilization.gpu,power.draw,power.limit,clocks.current.sm,clocks.max.sm,clocks_throttle_reasons.hw_thermal_slowdown,clocks_throttle_reasons.sw_thermal_slowdown,clocks_throttle_reasons.hw_slowdown,clocks_throttle_reasons.sw_power_cap,index,name,uuid --format=csv,noheader,nounits"
       ).catch(() => null),
-      this._probeLocalAmd(),
       this._readLocalClockCap(),
       this._probeIntelLocal(vramRead),
     ]);
     const nvidiaDevices = this._parseGpuLines(gpuOut ?? "");
     this._applyClockCap(nvidiaDevices, clockCapMHz);
     const intelDevices = this._intelDevices(this._sampleIntel(intelOut, vramRead));
-    const otherDevices = [...amd.devices, ...intelDevices];
+    const amdDevices = this._amdLocalDevices();
+    const otherDevices = [...amdDevices, ...intelDevices];
     // nvidia-smi failing is normal on a host without NVIDIA; installed-but-failing next to an Intel card is not.
     const nvidiaFailed = gpuOut === null && intelDevices.length > 0 && (await this._nvidiaSmiInstalled());
     this._lastVramPerDevice = [];
@@ -915,24 +848,31 @@ export class SystemCollector {
   }
 
   /**
-   * Local amd-smi probe. Each probe spawns a host shell, so once amd-smi has
-   * produced nothing on a host that has never shown an AMD GPU, skip it for
-   * AMD_SMI_ABSENT_TTL_MS. A host that has reported AMD data is always polled.
+   * This host's AMD cards, read from the driver's own sysfs files in this process: no
+   * shell, no vendor tool, nothing to install. Empty when no card is bound to amdgpu or
+   * sysfs cannot be read.
    */
-  async _probeLocalAmd() {
-    const none = { devices: [] };
-    if (!this._amdEverSeen && Date.now() < (this._amdAbsentUntil ?? 0)) return none;
-    const metricsOut = await this._amdSmi("metric -u -p -m -t --json").catch(() => "");
-    if (!parseAmdSmiMetrics(metricsOut).length) {
-      if (!this._amdEverSeen) this._amdAbsentUntil = Date.now() + AMD_SMI_ABSENT_TTL_MS;
-      return none;
+  _amdLocalDevices() {
+    if (process.platform !== "linux") return [];
+    const root = this._sysRoots().find((r) => fs.existsSync(path.join(r, "class/drm")));
+    if (!root) return [];
+    try {
+      return this._amdDevices(collectAmdSysfs({ root }));
+    } catch {
+      return [];
     }
-    this._amdEverSeen = true;
-    const limitsOut = await this._amdSmi("static -l --json").catch(() => "");
-    return {
-      devices: parseAmdSmiMetrics(metricsOut, limitsOut)
-        .map((device) => ({ ...device, index: AMD_GPU_INDEX_OFFSET + device.index })),
-    };
+  }
+
+  /**
+   * Card readings as devices: AMD keeps its own index range (like Intel), and the clock
+   * ceiling from pp_dpm_sclk feeds the same throttle view the other vendors get.
+   */
+  _amdDevices(cards) {
+    return amdDevicesFromCards(cards).map((device) => ({
+      ...device,
+      index: AMD_GPU_INDEX_OFFSET + device.index,
+      throttle: this._buildThrottle({ smClockMHz: device.smClockMHz, smClockMaxMHz: device.smClockMaxMHz }),
+    }));
   }
 
   /** Intel (xe) probe on this host, in the host mount namespace. "" when unavailable. */
@@ -999,7 +939,7 @@ export class SystemCollector {
   }
 
   /**
-   * Sampled Intel cards as finished devices, the same shape parseAmdSmiMetrics
+   * Sampled Intel cards as finished devices, the same shape the AMD sysfs collector
    * returns, in their own index range. Missing numbers are reported as
    * unavailable instead of zero: no power cap file means no power limit, and a
    * card whose VRAM usage could not be read (debugfs not readable) only knows
@@ -1264,7 +1204,7 @@ export class SystemCollector {
         powerDraw: 0,
         powerLimit: 120,
         throttle: this._defaultThrottle(),
-        metricAvailability: Object.fromEntries(AMD_GPU_FIELDS.map((field) => [field, false])),
+        metricAvailability: Object.fromEntries(GPU_METRIC_FIELDS.map((field) => [field, false])),
       };
     }
     const worst = devices.find((d) => d.throttle?.active) ?? devices[0];
@@ -1280,7 +1220,7 @@ export class SystemCollector {
       powerDraw: round2(draws.reduce((sum, n) => sum + n, 0)),
       powerLimit: round2(limits.reduce((sum, n) => sum + n, 0)),
       throttle: worst.throttle,
-      metricAvailability: Object.fromEntries(AMD_GPU_FIELDS.map((field) => [field, devices.some((d) => available(d, field))])),
+      metricAvailability: Object.fromEntries(GPU_METRIC_FIELDS.map((field) => [field, devices.some((d) => available(d, field))])),
     };
   }
 
@@ -2108,7 +2048,7 @@ export class SystemCollector {
       const vramRead = this._intelVram.stale;
       const cmd = [
         "if command -v nvidia-smi >/dev/null 2>&1; then printf '\\n__NVIDIA__\\n'; nvidia-smi --query-gpu=temperature.gpu,utilization.gpu,power.draw,power.limit,clocks.current.sm,clocks.max.sm,clocks_throttle_reasons.hw_thermal_slowdown,clocks_throttle_reasons.sw_thermal_slowdown,clocks_throttle_reasons.hw_slowdown,clocks_throttle_reasons.sw_power_cap,index,name,uuid --format=csv,noheader,nounits 2>/dev/null; printf '\\n__NVIDIA_VRAM__\\n'; nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader,nounits 2>/dev/null; printf '\\n__NVIDIA_APPS__\\n'; nvidia-smi --query-compute-apps=pid,process_name,used_gpu_memory,gpu_uuid --format=csv,noheader,nounits 2>/dev/null; fi",
-        `${AMD_SMI_RESOLVER}; if [ -n "$amd_smi" ]; then printf '\\n__AMD__\\n'; "$amd_smi" metric -u -p -m -t --json 2>/dev/null; printf '\\n__AMD_LIMITS__\\n'; "$amd_smi" static -l --json 2>/dev/null; fi`,
+        `printf '\\n__AMD__\\n'; ${AMD_PROBE_SCRIPT}`,
         `printf '\\n__INTEL__\\n'; ${buildIntelProbeScript({ sudo: this._intelSudo.allowed && getSettings().intelVramSudo, vram: vramRead })}`,
         "printf '\\n__MEMINFO__\\n'; grep -E 'MemTotal|MemAvailable' /proc/meminfo 2>/dev/null",
         `printf '\\n__CLOCK_CAP__\\n'; ${CLOCK_CAP_CMD}`,
@@ -2120,8 +2060,7 @@ export class SystemCollector {
       const gpuOut = section("NVIDIA");
       const memFields = section("NVIDIA_VRAM");
       const computeOut = section("NVIDIA_APPS");
-      const amdMetrics = section("AMD");
-      const amdLimits = section("AMD_LIMITS");
+      const amdProbe = section("AMD");
       const intelOut = section("INTEL");
       const meminfoOut = section("MEMINFO");
       // Keep compatibility with existing injected executor fixtures and older command results.
@@ -2135,8 +2074,7 @@ export class SystemCollector {
       this._applyClockCap(cliDevices, parseClockCap(clockCapOut));
       const perDeviceVram = this._parseVramLines(legacy ? (legacySections[1] || "") : memFields);
       const apps = this._parseComputeApps(legacy ? (legacySections[2] || "") : computeOut);
-      const amdDevices = legacy ? [] : parseAmdSmiMetrics(amdMetrics, amdLimits)
-        .map((device) => ({ ...device, index: AMD_GPU_INDEX_OFFSET + device.index }));
+      const amdDevices = legacy ? [] : this._amdDevices(parseAmdProbe(amdProbe));
       // Probe output only exists in the section format; legacy fixtures carry no Intel data.
       const intelDevices = this._intelDevices(this._sampleIntel(legacy ? "" : intelOut, vramRead));
       const otherDevices = [...amdDevices, ...intelDevices];
@@ -3214,13 +3152,6 @@ export class SystemCollector {
     return this._execOnHost(cmd);
   }
 
-  /** amd-smi from the host namespace when available; AMD and NVIDIA are probed independently. */
-  async _amdSmi(args) {
-    const cmd = `${AMD_SMI_RESOLVER}; if [ -n "$amd_smi" ]; then "$amd_smi" ${args} 2>/dev/null; fi`;
-    if (this._hasHostProc()) return this._execOnHost(cmd);
-    return this._exec(cmd);
-  }
-
   /**
    * One-shot real-hardware detection (GPU chip + driver, CPU model/cores, RAM).
    * Used for kind === "host" units (dedicated GPU Linux boxes) so the header
@@ -3414,7 +3345,7 @@ export class SystemCollector {
       throttle: this._defaultThrottle(),
       nvErrNoMemory: 0,
       vendor: null,
-      metricAvailability: Object.fromEntries(AMD_GPU_FIELDS.map((field) => [field, false])),
+      metricAvailability: Object.fromEntries(GPU_METRIC_FIELDS.map((field) => [field, false])),
       gpus: [],
     };
   }

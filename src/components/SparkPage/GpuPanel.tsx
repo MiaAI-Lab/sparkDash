@@ -132,6 +132,7 @@ function GpuDeviceRow({
           label="VRAM"
           value={d.vram.used}
           max={d.vram.total}
+          title={d.vramSource === "gtt" ? "Integrated card: the VRAM carve-out and GTT together" : undefined}
           caption={`${formatMb(d.vram.used).replace(/ (GB|MB)$/, "")} / ${formatMb(d.vram.total)}`}
         />
       ) : (

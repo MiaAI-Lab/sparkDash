@@ -1,97 +1,113 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { spawnSync } from "node:child_process";
-import { SystemCollector, parseAmdSmiMetrics, splitRemoteGpuSections } from "../SystemCollector.js";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { SystemCollector, splitRemoteGpuSections } from "../SystemCollector.js";
 
-const amdMetrics = {
-  gpu_data: [{
-    gpu: 0,
-    name: "Radeon AI Pro R9700",
-    usage: { gfx_activity: { value: 17, unit: "%" } },
-    power: { socket_power: { value: 96, unit: "W" } },
-    temperature: { edge: { value: 58, unit: "C" } },
-    mem_usage: {
-      total_vram: { value: 32624, unit: "MB" },
-      used_vram: { value: 24576, unit: "MB" },
-      free_vram: { value: 8048, unit: "MB" },
-    },
-  }],
-};
-const amdLimits = {
-  gpu_data: [{ limit: { ppt0: { socket_power_limit: { value: 300, unit: "W" } } } }],
-};
+// One amdgpu card in the probe script's own format (a 128 GB Strix Halo iGPU).
+const AMD_CARD = [
+  "@amd 0000:c6:00.0",
+  "id 0x1586",
+  "class 0x038000",
+  "busy 17",
+  "vram_used 235540480",
+  "vram_total 536870912",
+  "vis_used 235540480",
+  "vis_total 536870912",
+  "gtt_used 29132099584",
+  "gtt_total 122880000000",
+  "power 96000000",
+  "cap 300000000",
+  "capmax",
+  "fan",
+  "temp edge 58000",
+  "freq sclk 2800000000",
+  "sclk 0: 2900Mhz",
+  "sclk 1: 2800Mhz *",
+].join("\n");
 
-test("parseAmdSmiMetrics maps ROCm values and marks missing metrics unavailable", () => {
-  const [gpu] = parseAmdSmiMetrics(amdMetrics, amdLimits);
-  assert.equal(gpu.vendor, "amd");
-  assert.equal(gpu.name, "Radeon AI Pro R9700");
-  assert.equal(gpu.physicalIndex, 0);
-  assert.equal(gpu.usage, 17);
-  assert.equal(gpu.temperature, 58);
-  assert.equal(gpu.powerDraw, 96);
-  assert.equal(gpu.powerLimit, 300);
-  assert.deepEqual(gpu.power, { draw: 96, limit: 300 });
-  assert.equal(gpu.vram.used, 24576);
-  assert.equal(gpu.vram.total, 32624);
-  const [partial] = parseAmdSmiMetrics({ gpu_data: [{ gpu: 0, usage: {}, power: {}, temperature: {}, mem_usage: {} }] });
-  assert.equal(partial.metricAvailability.usage, false);
-  assert.equal(partial.metricAvailability.powerLimit, false);
-  assert.equal(partial.metricAvailability.vramTotal, false);
-  assert.deepEqual(parseAmdSmiMetrics("not json"), []);
-});
-
-test("parseAmdSmiMetrics accepts array-root output and legacy static power-limit fields", () => {
-  const row = amdMetrics.gpu_data[0];
-  const [gpu] = parseAmdSmiMetrics([row], [{ socket_power_limit: { value: 275, unit: "W" } }]);
-  assert.equal(gpu.usage, 17);
-  assert.equal(gpu.powerLimit, 275);
-  assert.equal(gpu.vram.total, 32624);
-  const [wrapped] = parseAmdSmiMetrics({ gpu_data: [row] }, { gpu_data: [{ limit: { ppt0: { socket_power_limit: { value: 300 } } } }] });
-  assert.equal(wrapped.powerLimit, 300);
-});
+const NVIDIA = "51,12,110,250,1500,2500,0,0,0,0,0,NVIDIA RTX,GPU-AAA";
+const MEMINFO = "MemTotal: 131072000 kB\nMemAvailable: 65536000 kB";
 
 test("remote collection detects NVIDIA and AMD independently and combines both device sets", async () => {
   const collector = new SystemCollector({ id: "mixed", kind: "host", isLocal: false });
   collector._nvErrNoMemory = async () => 0;
   collector._kernelErrors = async () => null;
-  const nvidia = "51,12,110,250,1500,2500,0,0,0,0,0,NVIDIA RTX,GPU-AAA";
   const output = [
-    "__NVIDIA__", nvidia,
+    "__NVIDIA__", NVIDIA,
     "__NVIDIA_VRAM__", "100,24576",
     "__NVIDIA_APPS__", "",
-    "__AMD__", JSON.stringify(amdMetrics.gpu_data),
-    "__AMD_LIMITS__", JSON.stringify([{ socket_power_limit: { value: 300, unit: "W" } }]),
-    "__MEMINFO__", "MemTotal: 131072000 kB\nMemAvailable: 65536000 kB",
+    "__AMD__", AMD_CARD,
+    "__MEMINFO__", MEMINFO,
   ].join("\n");
   const gpu = await collector._getRemoteGpu(async (_spark, command) => {
     assert.match(command, /command -v nvidia-smi/);
-    assert.match(command, /command -v amd-smi/);
+    // No vendor tool on the node: the AMD section comes from the driver's own files.
+    assert.doesNotMatch(command, /amd-smi/);
+    assert.match(command, /gpu_busy_percent/);
     return output;
   });
   assert.deepEqual(gpu.vendors, ["nvidia", "amd"]);
-  assert.equal(gpu.gpus.length, 2);
   assert.deepEqual(gpu.gpus.map((device) => device.vendor), ["nvidia", "amd"]);
   assert.deepEqual(gpu.gpus.map((device) => device.index), [0, 1000]);
   assert.equal(gpu.usage, 17);
-  assert.equal(gpu.power.draw, 206);
-  assert.equal(gpu.vram.used, 24676);
-  assert.equal(gpu.vram.total, 57200);
+  assert.equal(gpu.power.draw, 110 + 96);
   assert.equal(gpu.metricAvailability.temperature, true);
 });
 
-test("local collection still probes amd-smi when nvidia-smi is present", async () => {
+test("AMD indexes stay in a stable vendor namespace when NVIDIA is absent", async () => {
+  const collector = new SystemCollector({ id: "amd-only", kind: "host", isLocal: false });
+  const gpu = await collector._getRemoteGpu(async () => ["__AMD__", AMD_CARD, "__MEMINFO__", MEMINFO].join("\n"));
+  assert.equal(gpu.gpus.length, 1);
+  assert.equal(gpu.gpus[0].index, 1000);
+  assert.equal(gpu.gpus[0].physicalIndex, 0);
+  assert.equal(gpu.gpus[0].vendor, "amd");
+  assert.equal(gpu.gpus[0].temperature, 58);
+  assert.equal(gpu.gpus[0].powerDraw, 96);
+  assert.equal(gpu.gpus[0].powerLimit, 300);
+  assert.equal(gpu.gpus[0].smClockMHz, 2800);
+  assert.equal(gpu.gpus[0].throttle.smClockMaxMHz, 2900);
+  // The APU pool is the carve-out and GTT together, not the 512 MB BAR window.
+  assert.equal(gpu.gpus[0].vram.total, Math.round((536870912 + 122880000000) / 1048576));
+  assert.equal(gpu.gpus[0].vram.used, Math.round((235540480 + 29132099584) / 1048576));
+  assert.equal(gpu.vram.total, gpu.gpus[0].vram.total);
+});
+
+test("a host with no detected GPU returns the safe empty shape", async () => {
+  const collector = new SystemCollector({ id: "cpu-only", kind: "host", isLocal: false });
+  const gpu = await collector._getRemoteGpu(async () => `__MEMINFO__\n${MEMINFO}`);
+  assert.deepEqual(gpu.gpus, []);
+  assert.equal(gpu.metricAvailability.temperature, false);
+  assert.equal(gpu.metricAvailability.usage, false);
+});
+
+test("an AMD section of nothing but noise is no devices", async () => {
+  const collector = new SystemCollector({ id: "amd-noise", kind: "host", isLocal: false });
+  const gpu = await collector._getRemoteGpu(async () => "__AMD__\nfind: no such directory\n__MEMINFO__\n" + MEMINFO);
+  assert.deepEqual(gpu.gpus, []);
+});
+
+test("local collection reads AMD from sysfs next to nvidia-smi", async () => {
   const collector = new SystemCollector({ id: "mixed-local", kind: "host", isLocal: true });
   const probes = [];
   collector._nvidiaSmi = async (args) => {
     probes.push("nvidia-smi");
-    return args.startsWith("--query-gpu=temperature")
-      ? "51,12,110,250,1500,2500,0,0,0,0,0,NVIDIA RTX,GPU-AAA"
-      : "";
+    return args.startsWith("--query-gpu=temperature") ? NVIDIA : "";
   };
-  collector._amdSmi = async (args) => {
-    probes.push("amd-smi");
-    return args.startsWith("metric") ? JSON.stringify(amdMetrics) : JSON.stringify(amdLimits);
-  };
+  collector._readLocalClockCap = async () => null;
+  collector._probeIntelLocal = async () => "";
+  collector._amdLocalDevices = () => [
+    {
+      index: 1000, physicalIndex: 0, name: "AMD GPU", uuid: null, vendor: "amd",
+      temperature: 58, usage: 17, powerDraw: 96, powerLimit: 300,
+      power: { draw: 96, limit: 300 },
+      vram: { used: 28007, total: 117700, percentage: 24, available: 89693 },
+      metricAvailability: { temperature: true, usage: true, powerDraw: true, powerLimit: true, vramUsed: true, vramTotal: true },
+      throttle: null, processes: [],
+    },
+  ];
   collector._queryNvidiaVram = async () => ({ used: 100, total: 24576, available: 24476 });
   collector._getCPUPower = async () => ({ draw: 20 });
   collector._cachedApps = () => [];
@@ -99,50 +115,79 @@ test("local collection still probes amd-smi when nvidia-smi is present", async (
   collector._nvErrNoMemory = async () => 0;
   collector._kernelErrors = async () => null;
   const gpu = await collector._getGPUAll();
-  assert.deepEqual(probes, ["nvidia-smi", "amd-smi", "amd-smi"]);
+  assert.deepEqual(probes, ["nvidia-smi"]);
   assert.deepEqual(gpu.vendors, ["nvidia", "amd"]);
   assert.equal(gpu.gpus.length, 2);
   assert.equal(gpu.power.draw, 206);
 });
 
-test("amd-smi resolution checks configured ROCm locations when it is not on PATH", async () => {
-  const collector = new SystemCollector({ id: "amd-path", kind: "host", isLocal: true });
-  let command = "";
-  collector._exec = async (value) => { command = value; return "{}"; };
-  await collector._amdSmi("metric --json");
-  assert.match(command, /AMD_SMI_PATH/);
-  assert.match(command, /ROCM_PATH/);
-  assert.match(command, /ROCM_HOME/);
-  assert.match(command, /\/opt\/rocm\/bin\/amd-smi/);
-  assert.match(command, /\/opt\/rocm\/core-\*\/bin\/amd-smi/);
-  assert.match(command, /\/opt\/rocm-\*\/bin\/amd-smi/);
+test("_amdLocalDevices reads a sysfs tree and stamps the AMD index range on it", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "amd-sys-"));
+  const w = (rel, text) => {
+    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+    fs.writeFileSync(path.join(root, rel), text);
+  };
+  const link = (rel, target) => {
+    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+    fs.symlinkSync(target, path.join(root, rel));
+  };
+  link("class/drm/card0/device", "../../../devices/0000:c6:00.0");
+  fs.mkdirSync(path.join(root, "bus/pci/drivers/amdgpu"), { recursive: true });
+  link("devices/0000:c6:00.0/driver", "../../bus/pci/drivers/amdgpu");
+  w("devices/0000:c6:00.0/class", "0x038000\n");
+  w("devices/0000:c6:00.0/gpu_busy_percent", "42\n");
+  w("devices/0000:c6:00.0/mem_info_vram_total", "536870912\n");
+  w("devices/0000:c6:00.0/mem_info_vis_vram_total", "536870912\n");
+  w("devices/0000:c6:00.0/mem_info_gtt_total", "122880000000\n");
+  w("devices/0000:c6:00.0/hwmon/hwmon2/name", "amdgpu\n");
+  w("devices/0000:c6:00.0/hwmon/hwmon2/temp1_input", "61000\n");
+  w("devices/0000:c6:00.0/hwmon/hwmon2/power1_average", "55000000\n");
+  const collector = new SystemCollector({ id: "amd-local", kind: "host", isLocal: true });
+  collector._sysRoots = () => [root];
+  const [device] = collector._amdLocalDevices();
+  assert.equal(device.index, 1000);
+  assert.equal(device.vendor, "amd");
+  assert.equal(device.usage, 42);
+  assert.equal(device.temperature, 61);
+  assert.equal(device.powerDraw, 55);
+  assert.equal(device.metricAvailability.usage, true);
+  assert.ok(device.vram.total > 100000, "the APU pool is carve-out + GTT");
+  fs.rmSync(root, { recursive: true, force: true });
 });
 
-test("a host with no detected GPU returns the safe empty shape", async () => {
-  const collector = new SystemCollector({ id: "cpu-only", kind: "host", isLocal: false });
-  const gpu = await collector._getRemoteGpu(async () => "__MEMINFO__\nMemTotal: 64000000 kB\nMemAvailable: 32000000 kB");
-  assert.deepEqual(gpu.gpus, []);
-  assert.equal(gpu.metricAvailability.temperature, false);
-  assert.equal(gpu.metricAvailability.usage, false);
+test("_amdLocalDevices is empty when there is no sysfs to read", () => {
+  const collector = new SystemCollector({ id: "amd-none", kind: "host", isLocal: true });
+  collector._sysRoots = () => ["/does/not/exist"];
+  assert.deepEqual(collector._amdLocalDevices(), []);
 });
 
-test("AMD indexes stay in a stable vendor namespace when NVIDIA is absent", async () => {
-  const collector = new SystemCollector({ id: "amd-only", kind: "host", isLocal: false });
-  const output = ["__AMD__", JSON.stringify(amdMetrics), "__AMD_LIMITS__", JSON.stringify(amdLimits), "__MEMINFO__", "MemTotal: 64000000 kB\nMemAvailable: 32000000 kB"].join("\n");
+test("remote sections survive a double underscore inside a GPU name and the AMD probe", async () => {
+  const collector = new SystemCollector({ id: "dunder", kind: "host", isLocal: false });
+  collector._nvErrNoMemory = async () => 0;
+  collector._kernelErrors = async () => null;
+  const output = [
+    "", "__NVIDIA__", "51,12,110,250,1500,2500,0,0,0,0,0,NVIDIA__RTX__A6000,GPU-AAA",
+    "", "__NVIDIA_VRAM__", "100,24576",
+    "", "__NVIDIA_APPS__",
+    "", "__AMD__", AMD_CARD.replace("0x1586", "AMD__Radeon__Strix"),
+    "", "__MEMINFO__", MEMINFO,
+  ].join("\n");
   const gpu = await collector._getRemoteGpu(async () => output);
-  assert.equal(gpu.gpus[0].index, 1000);
-  assert.equal(gpu.vram.total, 32624);
-  assert.equal(gpu.gpus[0].vram.total, 32624);
+  assert.deepEqual(gpu.gpus.map((d) => d.name), ["NVIDIA__RTX__A6000", "AMD GPU [AMD__Radeon__Strix]"]);
+  assert.equal(gpu.gpus[1].power.limit, 300);
 });
 
-test("missing discrete AMD VRAM does not fall back to system RAM", async () => {
-  const collector = new SystemCollector({ id: "partial-amd", kind: "host", isLocal: false });
-  const metrics = { gpu_data: [{ gpu: 0, usage: { gfx_activity: { value: 12 } }, temperature: { edge: { value: 50 } }, power: {}, mem_usage: {} }] };
-  const output = ["__AMD__", JSON.stringify(metrics), "__AMD_LIMITS__", "{}", "__MEMINFO__", "MemTotal: 64000000 kB\nMemAvailable: 32000000 kB"].join("\n");
-  const gpu = await collector._getRemoteGpu(async () => output);
-  assert.equal(gpu.vram.total, 0);
-  assert.equal(gpu.gpus[0].vram.total, 0);
-  assert.equal(gpu.metricAvailability.vramTotal, false);
+test("splitRemoteGpuSections only breaks on whole-line known markers", () => {
+  const sections = splitRemoteGpuSections("noise\r\n__AMD__\r\nbusy 5\r\n__FOO__\r\n__MEMINFO__\r\nMemTotal: 1 kB\r\n");
+  assert.deepEqual(Object.keys(sections), ["AMD", "MEMINFO"]);
+  assert.equal(sections.AMD, "busy 5\n__FOO__");
+});
+
+test("the AMD index range no longer carries an amd-smi limits section", () => {
+  const sections = splitRemoteGpuSections("__AMD__\nbusy 5\n__AMD_LIMITS__\n{}\n__MEMINFO__\nMemTotal: 1 kB\n");
+  // The old section name is gone: its body stays part of the AMD section, harmlessly.
+  assert.deepEqual(Object.keys(sections), ["AMD", "MEMINFO"]);
+  assert.match(sections.AMD, /__AMD_LIMITS__\n\{\}/);
 });
 
 test("GB10 NVIDIA per-card VRAM uses its shared OS memory pool", async () => {
@@ -163,74 +208,6 @@ test("legacy Windows collector output preserves the fourth meminfo section", asy
   assert.equal(gpu.gpus[0].vram.total, 65536);
 });
 
-test("remote sections survive a double underscore inside a GPU name and amd-smi JSON", async () => {
-  const collector = new SystemCollector({ id: "dunder", kind: "host", isLocal: false });
-  collector._nvErrNoMemory = async () => 0;
-  collector._kernelErrors = async () => null;
-  const nvidia = "51,12,110,250,1500,2500,0,0,0,0,0,NVIDIA__RTX__A6000,GPU-AAA";
-  const amd = { gpu_data: [{ ...amdMetrics.gpu_data[0], name: "AMD__Radeon__R9700" }] };
-  const output = [
-    "", "__NVIDIA__", nvidia,
-    "", "__NVIDIA_VRAM__", "100,24576",
-    "", "__NVIDIA_APPS__",
-    "", "__AMD__", JSON.stringify(amd, null, 2),
-    "", "__AMD_LIMITS__", JSON.stringify(amdLimits),
-    "", "__MEMINFO__", "MemTotal: 131072000 kB\nMemAvailable: 65536000 kB",
-  ].join("\n");
-  const gpu = await collector._getRemoteGpu(async () => output);
-  assert.deepEqual(gpu.gpus.map((d) => d.name), ["NVIDIA__RTX__A6000", "AMD__Radeon__R9700"]);
-  assert.equal(gpu.gpus[1].power.limit, 300);
-  assert.equal(gpu.vram.total, 24576 + 32624);
-});
-
-test("splitRemoteGpuSections only breaks on whole-line known markers", () => {
-  const sections = splitRemoteGpuSections("noise\r\n__AMD__\r\n{\"n\": \"a__b\"}\r\n__FOO__\r\n__MEMINFO__\r\nMemTotal: 1 kB\r\n");
-  assert.deepEqual(Object.keys(sections), ["AMD", "MEMINFO"]);
-  assert.equal(sections.AMD, "{\"n\": \"a__b\"}\n__FOO__");
-});
-
-function localCollector(onProbe) {
-  const collector = new SystemCollector({ id: "nv-local", kind: "host", isLocal: true });
-  collector._nvidiaSmi = async (args) => args.startsWith("--query-gpu=temperature")
-    ? "51,12,110,250,1500,2500,0,0,0,0,0,NVIDIA RTX,GPU-AAA" : "";
-  collector._amdSmi = async (args) => { onProbe(args); return ""; };
-  collector._queryNvidiaVram = async () => ({ used: 100, total: 24576, available: 24476 });
-  collector._getCPUPower = async () => ({ draw: 20 });
-  collector._cachedApps = () => [];
-  collector._topProcesses = () => [];
-  collector._nvErrNoMemory = async () => 0;
-  collector._kernelErrors = async () => null;
-  return collector;
-}
-
-test("absent amd-smi is probed once, then skipped until the cache expires", async () => {
-  const probes = [];
-  const collector = localCollector((args) => probes.push(args));
-  await collector._getGPUAll();
-  await collector._getGPUAll();
-  await collector._getGPUAll();
-  assert.equal(probes.length, 1, "one metric probe, no static probe, across three polls");
-  collector._amdAbsentUntil = Date.now() - 1;
-  await collector._getGPUAll();
-  assert.equal(probes.length, 2);
-});
-
-test("a host that has shown AMD data keeps polling amd-smi after a failed read", async () => {
-  const probes = [];
-  let broken = false;
-  const collector = localCollector((args) => probes.push(args));
-  collector._amdSmi = async (args) => {
-    probes.push(args);
-    if (broken) return "";
-    return args.startsWith("metric") ? JSON.stringify(amdMetrics) : JSON.stringify(amdLimits);
-  };
-  await collector._getGPUAll();
-  broken = true;
-  await collector._getGPUAll();
-  await collector._getGPUAll();
-  assert.equal(probes.filter((p) => p.startsWith("metric")).length, 3);
-});
-
 test("NVIDIA with an N/A power.limit keeps the 120 W default shown, as before AMD support", () => {
   const collector = new SystemCollector({ id: "gb10", isLocal: true });
   const [d] = collector._parseGpuLines("40,5,12.5,[N/A],1500,2500,0,0,0,0,0,NVIDIA GB10,GPU-AAA");
@@ -245,19 +222,8 @@ test("the remote GPU probe runs to the end under a zsh login shell", { skip: spa
   const collector = new SystemCollector({ id: "worker", isLocal: false, kind: "spark" });
   let command = "";
   await collector._getRemoteGpu(async (_spark, cmd) => { command = cmd; return ""; });
-  // An unmatched glob such as /opt/rocm-*/bin/amd-smi aborts zsh before any section prints.
+  // An unmatched glob aborts zsh before any section prints.
   const run = spawnSync("zsh", ["-c", command], { encoding: "utf8" });
   assert.doesNotMatch(run.stderr, /no matches found/);
   assert.match(run.stdout, /__MEMINFO__/);
-});
-
-test("the amd-smi resolver has no unquoted shell glob (zsh aborts on an unmatched one)", async () => {
-  const collector = new SystemCollector({ id: "worker", isLocal: false, kind: "spark" });
-  let command = "";
-  await collector._getRemoteGpu(async (_spark, cmd) => { command = cmd; return ""; });
-  const resolver = command.slice(command.indexOf("amd_smi="), command.indexOf("amd_smi=") + 600);
-  assert.match(resolver, /amd-smi/);
-  // Drop single- and double-quoted spans; whatever remains is what the login shell globs.
-  const unquoted = resolver.replace(/'[^']*'/g, "''").replace(/"[^"]*"/g, '""');
-  assert.doesNotMatch(unquoted, /[*?]/);
 });
