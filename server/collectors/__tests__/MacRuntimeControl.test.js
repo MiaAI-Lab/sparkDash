@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createServer } from "node:http";
 import {
   actRuntimeControl,
   assertMacControlSpark,
@@ -139,4 +140,70 @@ test("invalid agent targets never receive the control credential and redirects a
     assert.equal(options.redirect, "error");
     return jsonResponse(404, {});
   } });
+});
+
+test("control requests connect to the single checked address and keep the URL host", async () => {
+  let lookupCalls = 0;
+  const seen = [];
+  const server = createServer((request, response) => {
+    let raw = "";
+    request.on("data", (chunk) => {
+      raw += chunk;
+    });
+    request.on("end", () => {
+      seen.push({
+        url: request.url,
+        host: request.headers.host,
+        auth: request.headers.authorization,
+        raw,
+      });
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({
+          schema: "sparkdash.mac-control/1",
+          ok: true,
+          control: "ready",
+          action: "start",
+          runtime: "splash-35b",
+          serving: [{ name: "splash-35b", state: "serving" }],
+          targets: [],
+          error: null,
+        })
+      );
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+  // A name that resolves nowhere: the request only reaches the server if it
+  // connects to the address the policy already checked.
+  const hostname = "mac-agent.fixture.test";
+  const target = { id: "macbook", kind: "mac", agent: { url: `http://${hostname}:${port}/` } };
+
+  try {
+    const result = await actRuntimeControl(
+      target,
+      "start",
+      { runtime: "splash-35b" },
+      {
+        token: "secret",
+        lookup: async (host, options) => {
+          lookupCalls += 1;
+          assert.equal(host, hostname);
+          assert.equal(options.all, true);
+          return [{ address: "127.0.0.1", family: 4 }];
+        },
+      }
+    );
+    assert.equal(result.state, "ready");
+    assert.equal(result.ok, true);
+    assert.equal(lookupCalls, 1, "the connection must not resolve the hostname a second time");
+    assert.deepEqual(seen.map((row) => row.url), ["/control/start"]);
+    assert.equal(seen[0].host, `${hostname}:${port}`, "the request keeps the original Host header");
+    assert.equal(seen[0].auth, "Bearer secret", "the control credential still rides");
+    assert.deepEqual(JSON.parse(seen[0].raw), { runtime: "splash-35b" });
+  } finally {
+    await new Promise((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
 });
