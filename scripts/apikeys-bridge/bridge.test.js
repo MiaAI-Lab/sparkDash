@@ -19,7 +19,7 @@ function fakeLitellm(calls) {
     const body = u.pathname === "/health/readiness" ? { status: "healthy" }
       : u.pathname === "/key/list" ? { keys: [{ token: ID, key_alias: "a", spend: 2, key_name: "sk-...xyz" }, { token: "short" }], total_pages: 1 }
       : u.pathname === "/key/info" ? { info: { key_alias: "a" } } : null;
-    return { status: body ? 200 : 404, text: async () => JSON.stringify(body) };
+    return new Response(JSON.stringify(body), { status: body ? 200 : 404 });
   };
 }
 
@@ -77,17 +77,127 @@ test("locks out after repeated bad tokens, then recovers when the window passes"
 });
 
 test("a key list longer than the page cap is refused, not cut off", async () => {
-  const b = await start({ fetchImpl: async () => ({ status: 200, text: async () => JSON.stringify({ keys: [{ token: ID }], total_pages: 999 }) }) });
+  let calls = 0;
+  const b = await start({
+    fetchImpl: async () => {
+      calls++;
+      return new Response(JSON.stringify({ keys: [{ token: ID }], total_pages: 999 }), { status: 200 });
+    },
+  });
   const r = await b.req("GET", "/v1/keys");
   assert.equal(r.status, 502);
   assert.match(r.json.error, /more than/);
+  assert.equal(calls, 1, "refused on the first page's total_pages");
   await b.close();
 });
 
-test("an oversized LiteLLM reply is treated as a failure", async () => {
-  const b = await start({ fetchImpl: async () => ({ status: 200, text: async () => "x".repeat(MAX_UPSTREAM_BYTES + 1) }) });
+test("a key list page whose total_pages is not a positive whole number is refused, not cut off", async () => {
+  let reply = "";
+  const b = await start({ fetchImpl: async () => new Response(reply, { status: 200 }) });
+  const key = { token: ID };
+  for (const page of [
+    { keys: [key] },
+    { keys: [key], total_pages: null },
+    { keys: [key], total_count: 1, total_pages: 0 },
+    { keys: [], total_pages: 0 },
+    { keys: [key], total_pages: -1 },
+    { keys: [key], total_pages: 1.5 },
+    { keys: [key], total_pages: "2" },
+  ]) {
+    reply = JSON.stringify(page);
+    const r = await b.req("GET", "/v1/keys");
+    assert.equal(r.status, 502, reply);
+    assert.match(r.json.error, /total_pages/, reply);
+  }
+  // NaN and Infinity are not valid JSON, so such a reply does not parse; 1e999 parses as Infinity.
+  for (const raw of ['{"keys":[],"total_pages":NaN}', '{"keys":[],"total_pages":Infinity}', '{"keys":[],"total_pages":1e999}']) {
+    reply = raw;
+    assert.equal((await b.req("GET", "/v1/keys")).status, 502, raw);
+  }
+  await b.close();
+});
+
+test("LiteLLM's reply for an empty key table (total_pages 0) is an empty list", async () => {
+  const reply = { keys: [], total_count: 0, current_page: 1, total_pages: 0 };
+  const b = await start({ fetchImpl: async () => new Response(JSON.stringify(reply), { status: 200 }) });
+  const r = await b.req("GET", "/v1/keys");
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.json, { keys: [] });
+  await b.close();
+});
+
+test("a multi-page key list is read page by page, with characters split across chunks", async () => {
+  const ids = ["a", "b", "c"].map((ch) => ch.repeat(64));
+  const pages = [];
+  const fetchImpl = async (url) => {
+    const page = Number(new URL(url).searchParams.get("page"));
+    pages.push(page);
+    const reply = { keys: [{ token: ids[page - 1], key_alias: `clé €${page}` }], total_count: 3, current_page: page, total_pages: 3 };
+    const bytes = new TextEncoder().encode(JSON.stringify(reply));
+    let i = 0;
+    // One byte per chunk, so every multi-byte character arrives split across reads.
+    const body = new ReadableStream({
+      pull(c) {
+        if (i === bytes.length) return c.close();
+        c.enqueue(bytes.slice(i, i + 1));
+        i++;
+      },
+    });
+    return new Response(body, { status: 200 });
+  };
+  const b = await start({ fetchImpl });
+  const r = await b.req("GET", "/v1/keys");
+  assert.equal(r.status, 200);
+  assert.deepEqual(pages, [1, 2, 3]);
+  assert.deepEqual(r.json.keys.map((k) => [k.id, k.alias]), ids.map((id, i) => [id, `clé €${i + 1}`]));
+  await b.close();
+});
+
+// A body of `count` chunks of `size` bytes. highWaterMark 0: a chunk is pulled only when the bridge
+// reads, so `seen.pulls` is what the bridge actually read; `seen.cancelled` counts cancel() calls.
+function countedBody(count, size, seen) {
+  return new ReadableStream(
+    {
+      pull(c) {
+        if (seen.pulls === count) return c.close();
+        seen.pulls++;
+        c.enqueue(new Uint8Array(size).fill(0x20));
+      },
+      cancel() {
+        seen.cancelled++;
+      },
+    },
+    { highWaterMark: 0 },
+  );
+}
+
+test("an oversized LiteLLM reply is cancelled once it passes the limit, not buffered whole", async () => {
+  const CHUNK = 1024 * 1024;
+  const seen = [];
+  const b = await start({
+    fetchImpl: async () => {
+      const s = { pulls: 0, cancelled: 0 };
+      seen.push(s);
+      // Four times the limit: reading the whole body first would pull every chunk and never cancel.
+      return new Response(countedBody((4 * MAX_UPSTREAM_BYTES) / CHUNK, CHUNK, s), { status: 200 });
+    },
+  });
   assert.equal((await b.req("GET", "/v1/keys")).status, 502);
   assert.equal((await b.req("GET", "/v1/health")).json.upstream, "down");
+  assert.equal(seen.length, 2);
+  for (const s of seen) {
+    assert.ok(s.pulls <= MAX_UPSTREAM_BYTES / CHUNK + 1, `read ${s.pulls} chunks`);
+    assert.equal(s.cancelled, 1);
+  }
+  await b.close();
+});
+
+test("a LiteLLM reply whose Content-Length is over the limit is refused before reading it", async () => {
+  const seen = { pulls: 0, cancelled: 0 };
+  const headers = { "Content-Length": String(MAX_UPSTREAM_BYTES + 1) };
+  const b = await start({ fetchImpl: async () => new Response(countedBody(1, 16, seen), { status: 200, headers }) });
+  assert.equal((await b.req("GET", "/v1/keys")).status, 502);
+  assert.deepEqual(seen, { pulls: 0, cancelled: 1 });
   await b.close();
 });
 
