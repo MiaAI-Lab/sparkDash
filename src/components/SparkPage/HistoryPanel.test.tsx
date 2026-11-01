@@ -213,6 +213,8 @@ describe("HistoryPanel", () => {
     expect(tooltips()[0].className).toContain("chart__tip");
     expect(tooltips()[0].textContent).toContain("60%");
     expect(tooltips()[0].textContent).toContain("max 70%");
+    // The same tooltip also summarises the whole visible window, prefixed apart from the bucket values.
+    expect(tooltips()[0].textContent).toContain("window avg 35% · peak 70% · low 10%*");
 
     key(gpu, "ArrowLeft");
     expect(tooltips()[0].textContent).toContain("50%");
@@ -241,6 +243,9 @@ describe("HistoryPanel", () => {
     const tip = container.querySelector("[data-tooltip]")!;
     expect(tip.textContent).toContain("↓ rx2.0 KB/s");
     expect(tip.textContent).toContain("↑ tx1.0 KB/s");
+    // One window line per series, each labelled so a multi-series panel stays readable.
+    expect(tip.textContent).toContain("window ↓ rx avg 2.0 KB/s · peak 4.0 KB/s · low 2.0 KB/s*");
+    expect(tip.textContent).toContain("window ↑ tx avg 1.0 KB/s · peak 1.0 KB/s · low 1.0 KB/s*");
     expect(container.querySelectorAll("[data-crosshair]").length).toBe(chartsWithData(container).length);
     expect(chart(container, "gpuUtil").querySelector('[data-readout="gpuUtil"]')!.textContent).toBe("20%");
     act(() => {
