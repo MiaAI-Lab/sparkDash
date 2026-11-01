@@ -240,6 +240,7 @@ export interface BenchmarkShareCardLabels {
 
 /** Labels and small formatters for all hand-painted card chrome. Raw model/rating/safety text stays outside this contract. */
 export interface ShareCardLabels extends BenchmarkShareCardLabels {
+  stopped: string;
   qualityBenchmark: string;
   overall: string;
   unknownModel: string;
@@ -298,6 +299,7 @@ export interface ShareCardLabels extends BenchmarkShareCardLabels {
 }
 
 export const DEFAULT_SHARE_CARD_LABELS: ShareCardLabels = {
+  stopped: "STOPPED",
   completed: "COMPLETED", running: "RUNNING", failed: "FAILED", cancelled: "CANCELLED",
   decodeTitle: "Decode benchmark", prefillTitle: "Prefill benchmark", qualityTitle: "Quality benchmark",
   load: "Load", aggregate: "Aggregate", stream: "Stream", context: "Context", prefill: "Prefill", versusOther: "vs other",
@@ -567,7 +569,7 @@ function toolEvalStatus(status: ToolEvalRun["status"], labels: ShareCardLabels):
     case "failed":
       return { label: labels.failed, tone: "bad" };
     case "stopped":
-      return { label: labels.cancelled, tone: "warn" };
+      return { label: labels.stopped, tone: "warn" };
     default:
       return { label: String(status).toUpperCase(), tone: "muted" };
   }
