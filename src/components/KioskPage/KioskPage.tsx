@@ -35,10 +35,26 @@ interface Series {
   values: ReadonlyArray<number | null>;
   max: number;
   dashed?: boolean;
+  /** Prints the series' latest value in the legend; omitted where a readout would be noise. */
+  format?: (v: number | null) => string;
+}
+
+/** The most recent non-null sample, for the legend readout. */
+function lastValue(values: ReadonlyArray<number | null>): number | null {
+  for (let i = values.length - 1; i >= 0; i--) if (values[i] != null) return values[i];
+  return null;
 }
 
 /** Overlaid traces with independent scales, drawn as smooth curves; a gap in a series breaks its line. */
-function KioskTrace({ series, className = "" }: { series: Series[]; className?: string }) {
+function KioskTrace({
+  series,
+  className = "",
+  caption,
+}: {
+  series: Series[];
+  className?: string;
+  caption?: string;
+}) {
   const W = 300;
   const H = 100;
   return (
@@ -59,9 +75,11 @@ function KioskTrace({ series, className = "" }: { series: Series[]; className?: 
         {series.map((s) => (
           <li key={s.key} className={`kiosk-trace__key--${s.key}`}>
             {s.label}
+            {s.format ? <b className="kiosk-trace__value">{s.format(lastValue(s.values))}</b> : null}
           </li>
         ))}
       </ul>
+      {caption ? <span className="kiosk-trace__scale">{caption}</span> : null}
     </div>
   );
 }
@@ -82,14 +100,23 @@ function rateText(v: number | null): string {
 function UnitTrace({ traces }: { traces: KioskTraces | undefined }) {
   if (!traces) return <div className="kiosk-card__trace" />;
   const series: Series[] = [
-    { key: "gpu", label: "GPU", values: traces.gpu, max: 100 },
-    { key: "cpu", label: "CPU", values: traces.cpu, max: 100 },
+    { key: "gpu", label: "GPU", values: traces.gpu, max: 100, format: pctText },
+    { key: "cpu", label: "CPU", values: traces.cpu, max: 100, format: pctText },
   ];
-  if (traces.gen.some((v) => v != null)) series.push({ key: "gen", label: "gen tok/s", values: traces.gen, max: rateScale(traces.gen) });
-  if (traces.prefill.some((v) => v != null)) {
-    series.push({ key: "prefill", label: "prefill tok/s", values: traces.prefill, max: rateScale(traces.prefill, 100), dashed: true });
+  const scales: string[] = [];
+  if (traces.gen.some((v) => v != null)) {
+    const max = rateScale(traces.gen);
+    series.push({ key: "gen", label: "gen tok/s", values: traces.gen, max, format: rateText });
+    scales.push(`gen ≤${max}`);
   }
-  return <KioskTrace series={series} className="kiosk-card__trace" />;
+  if (traces.prefill.some((v) => v != null)) {
+    const max = rateScale(traces.prefill, 100);
+    series.push({ key: "prefill", label: "prefill tok/s", values: traces.prefill, max, dashed: true, format: rateText });
+    scales.push(`prefill ≤${max}`);
+  }
+  // The % lines share 0–100; each tok/s line gets its own auto peak, so name both tops.
+  const caption = scales.length ? `tok/s auto peak · ${scales.join(" · ")}` : undefined;
+  return <KioskTrace series={series} className="kiosk-card__trace" caption={caption} />;
 }
 
 function Stat({ label, value, unit, live = false }: { label: string; value: string; unit?: string; live?: boolean }) {
