@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import mqtt from "mqtt";
 import { unitMetricJson } from "../prometheus.js";
 import { dashboardStatusTopic, unitMetricsTopic, unitStatusTopic } from "./topics.js";
+import { DEFAULT_DISCOVERY_PREFIX, dashboardDiscoveryMessages, unitDiscoveryMessages } from "./haDiscovery.js";
 
 const LOG_QUIET_MS = 30_000;
 const DEFAULT_PREFIX = "sparkdash";
@@ -24,6 +25,11 @@ export const STOP_TIMEOUT_MS = 1_500;
  * bounded amount of memory.
  */
 export const MAX_PENDING_REMOVALS = 100;
+/**
+ * Home Assistant discovery topics whose removal is still owed to the broker
+ * (a unit carries a few dozen). Past this the oldest are forgotten.
+ */
+export const MAX_PENDING_DISCOVERY_REMOVALS = 2_000;
 
 /**
  * Outbound MQTT bridge (opt-in, Settings → MQTT): republishes what sparkDash
@@ -33,10 +39,12 @@ export const MAX_PENDING_REMOVALS = 100;
  *   {prefix}/status/{sparkId}  retained "1"/"0", mirroring sparkdash_up
  *   {prefix}/metrics/{sparkId} retained JSON twin of the unit's Prometheus series
  *   {prefix}/dashboard/status  retained "1" while connected, LWT "0" otherwise
+ *   {discovery}/…/config       retained Home Assistant discovery, when enabled
  *
- * Status and metrics are republished only when they change, and all of them
- * again after a reconnect, so a broker restart self-heals. A removed unit's
- * retained topics are cleared at the broker.
+ * Status, metrics and discovery configs are republished only when they change,
+ * and all of them again after a reconnect, so a broker restart self-heals. A
+ * removed unit's retained topics, and discovery configs for a unit, GPU, LLM
+ * port, interface or disk that went away, are cleared at the broker.
  *
  * Publishing never throws and never blocks a poll loop: while the broker is
  * unreachable the client keeps retrying on its own and publishes are skipped
@@ -81,6 +89,18 @@ export class MqttPublisher {
     this._removedUnits = new Set();
     /** Bumped whenever pending removals are dropped, so late publish failures from before are not re-queued. */
     this._removalsEpoch = 0;
+    /**
+     * Discovery configs last built per unit id. Kept across reconnects, so a
+     * unit removed meanwhile still has its entities cleared, and an offline
+     * unit (whose snapshot no longer says what hardware it has) keeps them.
+     */
+    /** @type {Map<string, Array<{ topic: string, payload: string }>>} */
+    this._discoveryByUnit = new Map();
+    /** @type {string[]} */
+    this._dashboardDiscoveryTopics = [];
+    /** Discovery topics whose empty-payload removal is still owed to the broker (oldest first). */
+    /** @type {Set<string>} */
+    this._pendingDiscoveryRemovals = new Set();
   }
 
   /**
@@ -90,6 +110,8 @@ export class MqttPublisher {
    */
   applySettings() {
     const s = this._getSettings();
+    // Before any teardown, so the removals still have a client to go out on.
+    if (!s.mqttDiscovery) this._clearDiscovery();
     if (!s.mqttEnabled || !s.mqttUrl) return this._teardown();
     const base = this._prefix();
     const user = s.mqttUsername || "";
@@ -133,6 +155,7 @@ export class MqttPublisher {
       for (const token of this._inFlight.keys()) this._inFlight.set(token, at);
       this._announce();
       this._clearRemovedUnits();
+      this._flushDiscoveryRemovals();
     });
     client.on("error", (err) => this._quietLog(`broker error: ${err?.message}`));
     // "close" / "reconnect" are expected — MQTT.js retries with reconnectPeriod.
@@ -185,6 +208,109 @@ export class MqttPublisher {
         { qos: 0, retain: true }
       );
     }
+    // With discovery on, the sync flushes queued removals once it knows which
+    // topics are wanted again; flushing first would delete and recreate them.
+    if (s.mqttDiscovery) this._syncDiscovery(units, base, s.mqttDiscoveryPrefix || DEFAULT_DISCOVERY_PREFIX);
+    else this._flushDiscoveryRemovals();
+  }
+
+  /**
+   * Bring the Home Assistant discovery configs at the broker in line with the
+   * fleet. Each config goes through the same change check as status and
+   * metrics, so an unchanged fleet costs one comparison per config and a
+   * reconnect resends them all. Topics that are no longer produced (hardware,
+   * a unit, or the discovery prefix changed) get an empty retained payload,
+   * which removes the entity.
+   * @param {Array<{ snap: object }>} units
+   */
+  _syncDiscovery(units, base, discoveryPrefix) {
+    const ctx = { prefix: base, discoveryPrefix };
+    const dashboard = dashboardDiscoveryMessages(ctx);
+    for (const topic of this._dashboardDiscoveryTopics) {
+      if (!dashboard.some((m) => m.topic === topic)) this._removeDiscovery(topic);
+    }
+    this._dashboardDiscoveryTopics = dashboard.map((m) => m.topic);
+    // The dashboard device first: unit devices name it as via_device.
+    const wanted = [...dashboard];
+    const seen = new Set();
+    for (const { snap } of units) {
+      const id = String(snap.id);
+      seen.add(id);
+      const previous = this._discoveryByUnit.get(id) ?? [];
+      // Offline: its snapshot no longer lists its hardware. Keep the entities;
+      // its availability topic already reports the outage.
+      if (snap.online !== true) {
+        wanted.push(...previous);
+        continue;
+      }
+      const messages = unitDiscoveryMessages(snap, ctx);
+      const topics = new Set(messages.map((m) => m.topic));
+      for (const m of previous) {
+        if (!topics.has(m.topic)) this._removeDiscovery(m.topic);
+      }
+      this._discoveryByUnit.set(id, messages);
+      wanted.push(...messages);
+    }
+    for (const [id, messages] of this._discoveryByUnit) {
+      if (seen.has(id)) continue;
+      for (const m of messages) this._removeDiscovery(m.topic);
+      this._discoveryByUnit.delete(id);
+    }
+    // A topic produced again supersedes its queued removal; flush the rest
+    // before publishing, so nothing empties a config that was just sent.
+    for (const m of wanted) this._pendingDiscoveryRemovals.delete(m.topic);
+    this._flushDiscoveryRemovals();
+    for (const m of wanted) this._publishIfChanged(m.topic, m.payload, () => m.payload, { qos: 1, retain: true });
+  }
+
+  /** Discovery switched off: remove every entity sparkDash created. */
+  _clearDiscovery() {
+    for (const messages of this._discoveryByUnit.values()) {
+      for (const m of messages) this._removeDiscovery(m.topic);
+    }
+    this._discoveryByUnit.clear();
+    for (const topic of this._dashboardDiscoveryTopics) this._removeDiscovery(topic);
+    this._dashboardDiscoveryTopics = [];
+    this._flushDiscoveryRemovals();
+  }
+
+  /**
+   * Queue the removal of one discovery config. Like unit clears, nothing is
+   * recorded while there is no client, and pending removals are dropped when
+   * MQTT is disabled or the broker, prefix or user changes.
+   */
+  _removeDiscovery(topic) {
+    this._sentState.delete(topic);
+    if (!this._client) return;
+    this._pendingDiscoveryRemovals.delete(topic);
+    this._pendingDiscoveryRemovals.add(topic);
+    while (this._pendingDiscoveryRemovals.size > MAX_PENDING_DISCOVERY_REMOVALS) {
+      const oldest = this._pendingDiscoveryRemovals.values().next().value;
+      this._pendingDiscoveryRemovals.delete(oldest);
+      this._quietLog(`more than ${MAX_PENDING_DISCOVERY_REMOVALS} discovery removals awaiting the broker; "${oldest}" will not be removed`);
+    }
+  }
+
+  /** Send the queued discovery removals, within the in-flight cap; the rest wait for the next tick. */
+  _flushDiscoveryRemovals() {
+    if (!this._pendingDiscoveryRemovals.size || !this._client?.connected) return;
+    const epoch = this._removalsEpoch;
+    for (const topic of [...this._pendingDiscoveryRemovals]) {
+      const sent = this._publish(topic, "", { qos: 1, retain: true }, () => {
+        // Not if the removals were dropped meanwhile, or the config is wanted again.
+        if (this._removalsEpoch === epoch && !this._isDiscoveryTopicWanted(topic)) this._removeDiscovery(topic);
+      });
+      if (!sent) return;
+      this._pendingDiscoveryRemovals.delete(topic);
+    }
+  }
+
+  _isDiscoveryTopicWanted(topic) {
+    if (this._dashboardDiscoveryTopics.includes(topic)) return true;
+    for (const messages of this._discoveryByUnit.values()) {
+      if (messages.some((m) => m.topic === topic)) return true;
+    }
+    return false;
   }
 
   /**
@@ -272,6 +398,7 @@ export class MqttPublisher {
 
   _dropPendingRemovals() {
     this._removedUnits.clear();
+    this._pendingDiscoveryRemovals.clear();
     this._removalsEpoch += 1;
   }
 

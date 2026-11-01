@@ -4,7 +4,13 @@
  */
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
-import { ACK_TIMEOUT_MS, MAX_IN_FLIGHT, MAX_PENDING_REMOVALS, MqttPublisher } from "../MqttPublisher.js";
+import {
+  ACK_TIMEOUT_MS,
+  MAX_IN_FLIGHT,
+  MAX_PENDING_DISCOVERY_REMOVALS,
+  MAX_PENDING_REMOVALS,
+  MqttPublisher,
+} from "../MqttPublisher.js";
 
 /**
  * Stub mqtt.js client capturing the calls the publisher makes. With `autoAck`
@@ -528,4 +534,246 @@ test("a stall reconnect keeps a clear that was still awaiting the broker", () =>
   h.publisher.publishFleet([]);
   assert.equal(h.attempts.length, 2);
   assert.deepEqual(clears(h, mark), ["sparkdash/status/alpha", "sparkdash/metrics/alpha"]);
+});
+
+// ─── Home Assistant discovery ────────────────────────────
+
+const DISCOVERY = { mqttDiscovery: true, mqttDiscoveryPrefix: "homeassistant" };
+
+/** Config messages only (the `…/config` topics Home Assistant listens on). */
+const configs = (h, from = 0) => h.calls.publishes.slice(from).filter((p) => p.topic.endsWith("/config"));
+
+const alpha = (extra = {}) => ({ snapshot: { id: "alpha", name: "Alpha", kind: "spark", online: true, uptime: 10, ...extra } });
+
+const ONLINE_CONFIG = "homeassistant/binary_sensor/sparkdash_alpha/online/config";
+const DASHBOARD_CONFIG = "homeassistant/binary_sensor/sparkdash-dashboard/connected/config";
+
+test("discovery is opt-in even when publishing is on", () => {
+  const h = harness();
+  h.ready();
+  h.publisher.publishFleet([alpha()]);
+  assert.equal(configs(h).length, 0);
+});
+
+test("discovery configs are published when the fleet first appears, not on every tick", () => {
+  const h = harness({ settings: DISCOVERY });
+  h.ready();
+  h.publisher.publishFleet([alpha()]);
+  const first = configs(h);
+  assert.ok(first.length >= 3); // online, uptime + the dashboard's own sensor
+  for (const c of first) assert.deepEqual(c.opts, { qos: 1, retain: true });
+  const online = first.find((c) => c.topic === ONLINE_CONFIG);
+  assert.ok(online, "no online binary_sensor config");
+  assert.equal(JSON.parse(online.payload).state_topic, "sparkdash/status/alpha");
+  // The dashboard device goes first: unit devices name it as via_device.
+  assert.equal(first[0].topic, DASHBOARD_CONFIG);
+  assert.equal(JSON.parse(first[0].payload).state_topic, "sparkdash/dashboard/status");
+  // Same fleet again: nothing changed, so nothing is resent.
+  const before = h.calls.publishes.length;
+  h.publisher.publishFleet([alpha()]);
+  assert.deepEqual(configs(h, before), []);
+  // A GPU appears: exactly its configs (plus the board power sensor) are added.
+  h.publisher.publishFleet([
+    alpha({ metrics: { gpu: { gpus: [{ index: 0, usage: 5, temperature: 40, power: { draw: 9 }, vram: { used: 1, total: 2 } }] } } }),
+  ]);
+  const added = configs(h, before);
+  assert.equal(added.length, 5);
+  for (const c of added) assert.ok(c.topic.includes("/gpu_0_") || c.topic.endsWith("/power/config"), c.topic);
+});
+
+test("a unit removed from the fleet gets its discovery configs emptied", () => {
+  const h = harness({ settings: DISCOVERY });
+  h.ready();
+  h.publisher.publishFleet([alpha()]);
+  const announced = configs(h).filter((c) => c.topic.includes("sparkdash_alpha")).map((c) => c.topic);
+  const mark = h.calls.publishes.length;
+  h.publisher.publishFleet([]);
+  assert.deepEqual(clears(h, mark).sort(), announced.sort());
+  // Sent once: the next tick has nothing more to remove.
+  const mark2 = h.calls.publishes.length;
+  h.publisher.publishFleet([]);
+  assert.deepEqual(clears(h, mark2), []);
+});
+
+test("hardware that goes away has its entities removed", () => {
+  const h = harness({ settings: DISCOVERY });
+  h.ready();
+  const gpu = { gpus: [{ index: 0, usage: 5, temperature: 40, power: { draw: 9 }, vram: { used: 1, total: 2 } }] };
+  h.publisher.publishFleet([alpha({ metrics: { gpu } })]);
+  const mark = h.calls.publishes.length;
+  h.publisher.publishFleet([alpha()]);
+  const removed = clears(h, mark);
+  assert.equal(removed.length, 5);
+  for (const t of removed) assert.ok(t.includes("/gpu_0_") || t.endsWith("/power/config"), t);
+});
+
+test("an offline unit keeps its entities — its availability topic reports the outage", () => {
+  const h = harness({ settings: DISCOVERY });
+  h.ready();
+  h.publisher.publishFleet([alpha()]);
+  const before = h.calls.publishes.length;
+  h.publisher.publishFleet([{ id: "alpha", online: false }]);
+  assert.equal(configs(h, before).length, 0);
+  assert.deepEqual(
+    h.calls.publishes.slice(before).filter((p) => p.topic === "sparkdash/status/alpha").map((p) => p.payload),
+    ["0"]
+  );
+});
+
+test("a reconnect resends the discovery configs on the next tick, even for an offline unit", () => {
+  const h = harness({ settings: DISCOVERY });
+  h.ready();
+  h.publisher.publishFleet([alpha()]);
+  const announced = configs(h).map((c) => c.topic);
+  h.fire("connect"); // like a restarted broker handing the session back
+  const mark = h.calls.publishes.length;
+  h.publisher.publishFleet([{ id: "alpha", online: false }]);
+  assert.deepEqual(configs(h, mark).map((c) => c.topic).sort(), announced.sort());
+});
+
+test("a config whose delivery fails is resent on the next tick", () => {
+  const h = harness({ settings: DISCOVERY, client: { autoAck: false } });
+  h.ready();
+  h.publisher.publishFleet([alpha()]);
+  const sent = h.calls.publishes.map((p) => p.topic);
+  const failedTopic = sent.indexOf(ONLINE_CONFIG);
+  assert.ok(failedTopic >= 0);
+  for (let i = 0; i < sent.length; i++) h.ack(i === failedTopic ? new Error("Connection closed") : undefined);
+  const mark = h.calls.publishes.length;
+  h.publisher.publishFleet([alpha()]);
+  assert.deepEqual(configs(h, mark).map((c) => c.topic), [ONLINE_CONFIG]);
+});
+
+test("switching discovery off removes every entity it created", () => {
+  const h = harness({ settings: DISCOVERY });
+  h.ready();
+  h.publisher.publishFleet([alpha()]);
+  const announced = configs(h).map((c) => c.topic);
+  const mark = h.calls.publishes.length;
+  h.set({ mqttDiscovery: false });
+  h.publisher.applySettings();
+  assert.deepEqual(clears(h, mark).sort(), announced.sort());
+  // Turned back on: everything is announced again.
+  h.set({ mqttDiscovery: true });
+  h.publisher.applySettings();
+  const mark2 = h.calls.publishes.length;
+  h.publisher.publishFleet([alpha()]);
+  assert.deepEqual(configs(h, mark2).map((c) => c.topic).sort(), announced.sort());
+});
+
+test("discovery removals made while disconnected are sent on reconnect, once", () => {
+  const h = harness({ settings: DISCOVERY });
+  h.ready();
+  h.publisher.publishFleet([alpha()]);
+  const announced = configs(h).map((c) => c.topic);
+  h.client.connected = false;
+  h.set({ mqttDiscovery: false });
+  h.publisher.applySettings(); // clears discovery while the broker is unreachable
+  h.client.connected = true;
+  const mark = h.calls.publishes.length;
+  h.fire("connect");
+  assert.deepEqual(clears(h, mark).sort(), announced.sort());
+  const mark2 = h.calls.publishes.length;
+  h.fire("connect");
+  assert.deepEqual(clears(h, mark2), []);
+});
+
+test("changing the discovery prefix moves the entities", () => {
+  const h = harness({ settings: DISCOVERY });
+  h.ready();
+  h.publisher.publishFleet([alpha()]);
+  const old = configs(h).map((c) => c.topic);
+  h.set({ mqttDiscoveryPrefix: "ha" });
+  h.publisher.applySettings(); // no reconnect: broker, prefix and user are unchanged
+  assert.equal(h.attempts.length, 1);
+  const mark = h.calls.publishes.length;
+  h.publisher.publishFleet([alpha()]);
+  assert.deepEqual(clears(h, mark).sort(), old.sort());
+  const moved = configs(h, mark).filter((c) => c.payload !== "").map((c) => c.topic);
+  assert.deepEqual(moved.sort(), old.map((t) => t.replace(/^homeassistant\//, "ha/")).sort());
+});
+
+test("a topic produced again is not emptied by a removal still queued for it", () => {
+  const h = harness({ settings: DISCOVERY });
+  h.ready();
+  h.publisher.publishFleet([alpha()]);
+  h.client.connected = false;
+  h.publisher.publishFleet([]); // alpha removed while the broker is down: removals queued
+  h.client.connected = true;
+  h.fire("connect");
+  // The connect handler flushed them; queue them again, then bring alpha back before any flush.
+  h.client.connected = false;
+  h.publisher.publishFleet([alpha()]);
+  h.publisher.publishFleet([]);
+  h.client.connected = true;
+  const mark = h.calls.publishes.length;
+  h.publisher.publishFleet([alpha()]);
+  const sent = h.calls.publishes.slice(mark).filter((p) => p.topic === ONLINE_CONFIG);
+  assert.equal(sent.length, 1);
+  assert.notEqual(sent[0].payload, "");
+});
+
+test("a removal that fails after hand-off is retried, unless the config is wanted again", () => {
+  const h = harness({ settings: DISCOVERY, client: { autoAck: false } });
+  h.ready();
+  h.publisher.publishFleet([alpha()]);
+  while (h.calls.pending.length) h.ack();
+  h.publisher.publishFleet([]);
+  const removalCount = h.calls.pending.length;
+  assert.ok(removalCount > 0);
+  for (let i = 0; i < removalCount; i++) h.ack(new Error("Connection closed"));
+  const mark = h.calls.publishes.length;
+  h.publisher.publishFleet([]);
+  assert.equal(clears(h, mark).length, removalCount);
+  // Fail them again, but the unit is back: its configs are published, not emptied.
+  for (let i = 0; i < removalCount; i++) h.ack(new Error("Connection closed"));
+  const mark2 = h.calls.publishes.length;
+  h.publisher.publishFleet([alpha()]);
+  assert.deepEqual(clears(h, mark2), []);
+  assert.ok(configs(h, mark2).some((c) => c.topic === ONLINE_CONFIG));
+});
+
+test("disabling MQTT drops pending discovery removals", () => {
+  const h = harness({ settings: DISCOVERY });
+  h.ready();
+  h.publisher.publishFleet([alpha()]);
+  h.client.connected = false;
+  h.publisher.publishFleet([]); // removals queued
+  h.set({ mqttEnabled: false });
+  h.publisher.applySettings();
+  h.set({ mqttEnabled: true });
+  h.publisher.applySettings();
+  h.client.connected = true;
+  const mark = h.calls.publishes.length;
+  h.fire("connect");
+  assert.deepEqual(clears(h, mark), []);
+});
+
+test("at most MAX_PENDING_DISCOVERY_REMOVALS discovery removals are kept", () => {
+  const h = harness({ settings: DISCOVERY });
+  h.ready();
+  const fleet = [];
+  for (let i = 0; i < 200; i++) fleet.push({ snapshot: { id: `u${i}`, name: `U${i}`, kind: "spark", online: true, uptime: 1 } });
+  h.publisher.publishFleet(fleet);
+  while (h.calls.pending.length) h.ack();
+  const perUnit = configs(h).filter((c) => c.topic.includes("/sparkdash_u0/")).length;
+  // Enough units that their removals overflow the cap.
+  const units = Math.ceil(MAX_PENDING_DISCOVERY_REMOVALS / perUnit) + 5;
+  const big = [];
+  for (let i = 0; i < units; i++) big.push({ snapshot: { id: `v${i}`, name: `V${i}`, kind: "spark", online: true, uptime: 1 } });
+  h.publisher.publishFleet(big); // also removes the 200 u* units (sent: connected)
+  h.client.connected = false;
+  h.publisher.publishFleet([]);
+  h.client.connected = true;
+  const mark = h.calls.publishes.length;
+  h.fire("connect");
+  // The flush stops at the in-flight cap; acks free room for the rest on later ticks.
+  let sent = clears(h, mark).length;
+  for (let tick = 0; tick < 100 && sent < MAX_PENDING_DISCOVERY_REMOVALS; tick++) {
+    const m = h.calls.publishes.length;
+    h.publisher.publishFleet([]);
+    sent += clears(h, m).length;
+  }
+  assert.equal(sent, MAX_PENDING_DISCOVERY_REMOVALS);
+  assert.ok(h.warnings.some((w) => w.includes("discovery removals awaiting the broker")));
 });
