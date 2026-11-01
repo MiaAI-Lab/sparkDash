@@ -708,7 +708,7 @@ export function ShowcasePage({ sparkId, embedded = false }: ShowcasePageProps) {
 
   const handleClearHistory = useCallback(async () => {
     if (running || starting) return;
-    if (!window.confirm("Clear all saved showcase history for this Spark?")) return;
+    if (!window.confirm(t("text.clearHistory"))) return;
     try {
       await clearShowcaseHistory(sparkId);
       setHistory([]);
@@ -722,7 +722,7 @@ export function ShowcasePage({ sparkId, embedded = false }: ShowcasePageProps) {
     } catch (err) {
       setRunError(err instanceof Error ? err.message : String(err));
     }
-  }, [running, starting, sparkId, viewingHistory]);
+  }, [running, sparkId, starting, t, viewingHistory]);
 
   useEffect(() => {
     const cancelBeacon = () => {
