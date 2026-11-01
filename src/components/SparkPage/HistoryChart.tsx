@@ -19,6 +19,44 @@ const PAD_Y = 3;
 /** Consecutive buckets further apart than this many steps are a gap. */
 const GAP_STEPS = 1.5;
 
+/** avg / peak / low over the buckets that carry samples in the visible window. */
+export interface WindowStats {
+  avg: number | null;
+  peak: number | null;
+  low: number | null;
+  /** True when some bucket had no `min`, so `low` is the lowest bucket average. */
+  lowFromAvg: boolean;
+}
+
+/**
+ * Window summary for one series. `avg` is the mean of the bucket averages (every range
+ * returns uniform-width buckets, so that is the time-weighted mean; a partial newest
+ * bucket only skews it slightly). `peak` is the largest bucket max. `low` is the smallest
+ * bucket min where the server keeps one — today only memory headroom does — and otherwise
+ * the lowest bucket average, flagged so the label can say which it is.
+ */
+export function windowStats(values: ReadonlyArray<HistoryStat | null>): WindowStats {
+  let sum = 0;
+  let n = 0;
+  let peak = -Infinity;
+  let low = Infinity;
+  let missingMin = 0;
+  for (const st of values) {
+    if (!st) continue;
+    n += 1;
+    sum += st.avg;
+    if (st.max > peak) peak = st.max;
+    if (typeof st.min === "number" && Number.isFinite(st.min)) {
+      if (st.min < low) low = st.min;
+    } else {
+      missingMin += 1;
+      if (st.avg < low) low = st.avg;
+    }
+  }
+  if (n === 0) return { avg: null, peak: null, low: null, lowFromAvg: false };
+  return { avg: sum / n, peak, low, lowFromAvg: missingMin > 0 };
+}
+
 export interface HistoryChartSeries {
   key: string;
   label: string;
@@ -250,6 +288,31 @@ export function HistoryChart({
             );
           })}
         </span>
+      </div>
+      <div className="sp-hist-chart__stats mono" aria-label="window summary">
+        {series.map((s) => {
+          const w = windowStats(s.values);
+          if (w.avg == null) return null;
+          return (
+            <span key={s.key} className="sp-hist-chart__stat" data-stat={s.key}>
+              {series.length > 1 && <small>{s.label}</small>}
+              <span>avg {format(w.avg)}</span>
+              <span>peak {format(w.peak ?? w.avg)}</span>
+              {w.low != null && (
+                <span
+                  title={
+                    w.lowFromAvg
+                      ? "lowest bucket average — a true per-bucket minimum is only stored for memory headroom"
+                      : undefined
+                  }
+                >
+                  low {format(w.low)}
+                  {w.lowFromAvg ? "*" : ""}
+                </span>
+              )}
+            </span>
+          );
+        })}
       </div>
       <div className="sp-hist-chart__body">
         <div className="sp-hist-chart__yaxis mono" style={{ height: VIEW_H }} aria-hidden="true">

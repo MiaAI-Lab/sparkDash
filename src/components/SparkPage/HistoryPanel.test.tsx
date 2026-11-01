@@ -2,7 +2,7 @@ import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flush, render } from "../../testing/render";
 import type { MetricsHistoryData, MetricsHistoryResponse } from "../../api/types";
-import { nearestIndex, segmentRuns, yDomain } from "./HistoryChart";
+import { nearestIndex, segmentRuns, windowStats, yDomain } from "./HistoryChart";
 import { HISTORY_POLL_MS, HISTORY_RANGE_KEY, HistoryPanel } from "./HistoryPanel";
 
 vi.mock("../../api/client", () => ({
@@ -112,6 +112,22 @@ describe("HistoryChart helpers", () => {
     expect(d.lo).toBe(0);
     expect(d.hi).toBeGreaterThanOrEqual(8192 * 1.25);
     expect(yDomain([{ key: "a", label: "a", color: "x", values: [null] }])).toBeNull();
+  });
+
+  it("summarises a window: mean of averages, peak of maxes, true min where stored", () => {
+    expect(windowStats([{ avg: 10, max: 20 }, { avg: 30, max: 40 }, null])).toEqual({
+      avg: 20,
+      peak: 40,
+      low: 10,
+      lowFromAvg: true,
+    });
+    expect(windowStats([{ avg: 10, max: 20, min: 5 }, { avg: 30, max: 40, min: 7 }])).toEqual({
+      avg: 20,
+      peak: 40,
+      low: 5,
+      lowFromAvg: false,
+    });
+    expect(windowStats([null]).avg).toBeNull();
   });
 });
 
@@ -315,5 +331,20 @@ describe("HistoryPanel", () => {
     expect(container.querySelector("[data-chart]")).not.toBeNull();
     act(() => notify!([{ isIntersecting: false }]));
     expect(container.querySelector("[data-chart]")).not.toBeNull(); // the last answer stays
+  });
+
+  it("shows avg / peak / low for the visible window, flagging low when no true min is stored", async () => {
+    const { container } = await mount();
+    const gpu = chart(container, "gpuUtil").querySelector('[data-stat="gpuUtil"]')!;
+    expect(gpu.textContent).toMatch(/avg 35%/);
+    expect(gpu.textContent).toMatch(/peak 70%/);
+    expect(gpu.textContent).toMatch(/low 10%\*/);
+
+    // memFreeMB is the one series whose buckets keep a true minimum.
+    const mem = chart(container, "memFree").querySelector('[data-stat="memFreeMB"]')!;
+    expect(mem.textContent).toMatch(/avg 8\.8 GB/);
+    expect(mem.textContent).toMatch(/peak 9\.3 GB/);
+    expect(mem.textContent).toMatch(/low 6\.8 GB/);
+    expect(mem.textContent).not.toContain("*");
   });
 });
