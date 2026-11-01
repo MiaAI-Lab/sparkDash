@@ -118,6 +118,21 @@ export async function assertAllowedTarget(host, allowedHosts, { lookup = dns.loo
 }
 
 /**
+ * A connection lookup that returns only addresses already checked by the
+ * outbound-target policy, without asking DNS a second time.
+ * @param {string[]} addresses
+ */
+export function pinnedLookup(addresses) {
+  const entries = addresses.map((address) => ({ address, family: net.isIP(address) || 4 }));
+  return (_hostname, options, callback) => {
+    const cb = typeof options === "function" ? options : callback;
+    const all = typeof options === "object" && options?.all;
+    if (all) cb(null, entries);
+    else cb(null, entries[0].address, entries[0].family);
+  };
+}
+
+/**
  * Classify a probe target for security-posture hints.
  * Uses the configured host only — not the process bind address.
  * Hostnames (except localhost) are "unknown" (no DNS lookup).

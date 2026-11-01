@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -488,6 +489,41 @@ test("stale agent payloads cannot refresh vitals or runtime inventory", async ()
   assert.equal(await collector._agentSnapshot(), null);
   const probe = await collector._probeAgentOnce(100);
   assert.deepEqual(probe, { ok: false, retryable: true, reason: "stale" });
+});
+
+test("agent requests connect to the single checked address while keeping the URL host", async () => {
+  let lookupCalls = 0;
+  let observedHost;
+  const server = createServer((request, response) => {
+    observedHost = request.headers.host;
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ schema: "sparkdash.mac-agent/1" }));
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+  const hostname = "mac-agent.fixture.test";
+  const collector = new MacAgentCollector(
+    { ...spark, agent: { url: `http://${hostname}:${port}/` } },
+    {
+      lookup: async (host, options) => {
+        lookupCalls += 1;
+        assert.equal(host, hostname);
+        assert.equal(options.all, true);
+        return [{ address: "127.0.0.1", family: 4 }];
+      },
+    }
+  );
+
+  try {
+    const result = await collector._probeAgentOnce(1_000);
+    assert.equal(result.ok, true);
+    assert.equal(lookupCalls, 1, "the fetch must not resolve the hostname again");
+    assert.equal(observedHost, `${hostname}:${port}`, "the request keeps the original Host header");
+  } finally {
+    await new Promise((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
 });
 
 test("agent targets reject unsafe URLs and forbidden DNS answers", async () => {
