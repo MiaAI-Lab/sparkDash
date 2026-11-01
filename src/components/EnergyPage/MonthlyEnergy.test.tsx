@@ -2,6 +2,7 @@ import { act } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { MonthlyEnergy } from "./MonthlyEnergy";
 import { flush, render } from "../../testing/render";
+import { setLocale } from "../../i18n";
 import type { MonthlyEnergy as MonthlyEnergyData, MonthlyEnergyMonth } from "../../api/types";
 
 vi.mock("../../api/client", () => ({
@@ -127,5 +128,14 @@ describe("MonthlyEnergy", () => {
     await flush();
     expect(fetchMonthly.mock.calls.length).toBe(calls + 1);
     expect(container.textContent).toContain("9.00 kWh");
+  });
+
+  it("localizes month names in the picker and monthly summary", async () => {
+    fetchMonthly.mockResolvedValue(data([month("2026-10", { a: 1000 })]));
+    const { container } = render(<MonthlyEnergy nameOf={nameOf} price={null} currency="$" />);
+    await flush();
+    await act(() => setLocale("zh-CN"));
+    expect(container.querySelector('select[aria-label="月"]')?.textContent).toContain("2026年10月");
+    expect(container.textContent).toContain("2026年10月 的按节点能耗");
   });
 });
