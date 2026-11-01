@@ -143,18 +143,30 @@ function buildCharts(
   const model = memoryModelFor(kind, platform);
   const headroom = HEADROOM_THRESHOLDS_MB[model];
 
-  // A unified pool has two owners — the GPU/model side and everything else — so charting the
-  // split answers "what consumed the pool" (#336). A discrete card's used figure is the GPU's
-  // alone, so there is nothing to split and only the free line is drawn.
-  const memSeries: HistoryChartSeries[] = [
-    { key: "memFreeMB", label: "Free", color: "var(--color-success)", band: "min", values: aligned(timeline, pts, (p) => p.memFreeMB) },
-  ];
-  if (model === "unified") {
-    const gpu = aligned(timeline, pts, (p) => p.memGpuMB);
-    const sys = aligned(timeline, pts, (p) => p.memSysMB);
-    if (hasAny(gpu)) memSeries.push({ key: "memGpuMB", label: "GPU used", color: "var(--color-violet)", band: "max", values: gpu });
-    if (hasAny(sys)) memSeries.push({ key: "memSysMB", label: "System used", color: "var(--color-info)", band: "max", values: sys });
-  }
+  // The free line and its headroom thresholds are one question with one scale. The used split is
+  // a different question at a different magnitude (a 109 GB GPU share against 6 GB free), so it
+  // gets its own chart rather than sharing this y-axis: on one domain the free trace collapsed to
+  // a sub-pixel band and the two threshold labels landed 3 px apart (#350 review).
+  const memFree = aligned(timeline, pts, (p) => p.memFreeMB);
+  const gpuUsed = model === "unified" ? aligned(timeline, pts, (p) => p.memGpuMB) : null;
+  const sysUsed = model === "unified" ? aligned(timeline, pts, (p) => p.memSysMB) : null;
+  // A unified pool has two owners — the GPU/model side and everything else — so the split answers
+  // "what consumed the pool" (#336) as a trend of its own. A discrete card's `used` figure is the
+  // GPU's alone, so there is nothing to split and no chart is added.
+  const memSplit: ChartDef | null =
+    gpuUsed && sysUsed && hasAny(gpuUsed) && hasAny(sysUsed)
+      ? {
+          id: "memSplit",
+          title: "Memory used",
+          format: formatMb,
+          yMin: 0,
+          yUnit: 1024,
+          series: [
+            { key: "memGpuMB", label: "GPU", color: "var(--color-violet)", band: "max", values: gpuUsed },
+            { key: "memSysMB", label: "System", color: "var(--color-info)", band: "max", values: sysUsed },
+          ],
+        }
+      : null;
 
   const charts: ChartDef[] = [
     {
@@ -189,8 +201,9 @@ function buildCharts(
         { value: headroom.low, label: `low ${formatMb(headroom.low)}`, color: "var(--color-warning)" },
         { value: headroom.critical, label: `critical ${formatMb(headroom.critical)}`, color: "var(--color-danger)" },
       ],
-      series: memSeries,
+      series: [{ key: "memFreeMB", label: "Free", color: "var(--color-success)", band: "min", values: memFree }],
     },
+    ...(memSplit ? [memSplit] : []),
     {
       id: "cpuUtil",
       title: "CPU utilization",
