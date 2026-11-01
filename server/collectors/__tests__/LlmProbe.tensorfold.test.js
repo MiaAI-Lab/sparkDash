@@ -687,6 +687,11 @@ function tfMetrics(o) {
   if (o.prefillSum != null) lines.push(`tensorfold:request_prefill_seconds_sum ${o.prefillSum}`);
   if (o.prefillCount != null) lines.push(`tensorfold:request_prefill_seconds_count ${o.prefillCount}`);
   if (o.numRunning != null) lines.push(`tensorfold:num_requests_running ${o.numRunning}`);
+  // A number = one fleet-wide gauge; an array = one gauge per pool/stream (#330).
+  if (typeof o.kv === "number") lines.push(`tensorfold:kv_cache_usage_ratio ${o.kv}`);
+  else if (Array.isArray(o.kv)) {
+    o.kv.forEach((v, i) => lines.push(`tensorfold:kv_cache_usage_ratio{pool="${i}"} ${v}`));
+  }
   return lines.join("\n") + "\n";
 }
 
@@ -1054,4 +1059,23 @@ test("_applyTensorFoldHealth: a stream count the build does publish still sizes 
   assert.equal(probe.slotsTotal, 8);
   probe._applyTensorFoldHealth({ status: "ok" }, 2);
   assert.equal(probe.slotsTotal, 0);
+});
+
+test("_applyTensorFoldMetrics: per-pool KV ratios report the worst lane, not their sum", async () => {
+  // Six lanes at 12/12/28/39/3/29% fill: summing the 0–1 ratios gives 1.23 → clamped
+  // to 100%, which reads as "about to flood" while every lane has headroom (#330).
+  const probe = metricsProbe(() =>
+    tfMetrics({
+      gen: 1000,
+      kv: [0.116938, 0.116009, 0.282726, 0.38793, 0.033216, 0.289427],
+    })
+  );
+  await probe._applyTensorFoldMetrics(2);
+  assert.equal(probe.kvCacheUsage, 0.38793);
+});
+
+test("_applyTensorFoldMetrics: a single fleet-wide KV ratio is unchanged", async () => {
+  const probe = metricsProbe(() => tfMetrics({ gen: 1000, kv: 0.42 }));
+  await probe._applyTensorFoldMetrics(2);
+  assert.equal(probe.kvCacheUsage, 0.42);
 });
