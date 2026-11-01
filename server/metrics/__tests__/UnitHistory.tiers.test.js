@@ -72,6 +72,8 @@ test("extractSample reads every series from a GB10 snapshot", () => {
     gpuPower: 62.5,
     memUsedMB: 114_000,
     memFreeMB: 7_400,
+    memGpuMB: 98_000,
+    memSysMB: 16_000,
     cpuUtil: 12.5,
     cpuTemp: 48,
     netRx: 1_000,
@@ -80,6 +82,25 @@ test("extractSample reads every series from a GB10 snapshot", () => {
     [llmKey(8888, "prefillTps")]: 1_800,
     [llmKey(8888, "kvUsage")]: 0.05,
   });
+});
+
+test("a discrete host records no memory split: its used figure is the GPU's alone", () => {
+  const snap = {
+    id: "h",
+    kind: "host",
+    platform: "linux",
+    online: true,
+    llmPorts: [],
+    metrics: {
+      gpu: { usage: 10, temperature: 40, power: { draw: 20 }, vram: { used: 2_000, total: 8_000 } },
+      ram: { used: 20_000, total: 64_000 },
+    },
+  };
+  const v = extractSample(snap);
+  assert.equal(v.memUsedMB, 2_000);
+  assert.equal(v.memFreeMB, 6_000);
+  assert.equal("memGpuMB" in v, false);
+  assert.equal("memSysMB" in v, false);
 });
 
 test("extractSample matches LLM readings to ports by the port they carry, not by position", () => {
@@ -165,7 +186,12 @@ test("a macOS host is judged as unified, so its free memory is not total minus t
       gpu: { temperature: 50, usage: 20, power: { draw: 15 }, vram: { used: 71_400, total: 524_288, available: 334_632 } },
     },
   };
-  assert.deepEqual(memoryReading(mac), { usedMB: 189_656, freeMB: 334_632 });
+  assert.deepEqual(memoryReading(mac), {
+    usedMB: 189_656,
+    freeMB: 334_632,
+    gpuMB: 71_400,
+    sysMB: 118_256,
+  });
 
   // A non-Apple host keeps the discrete rule: free = total − used.
   const pc = {
@@ -498,6 +524,7 @@ test("the worst-case tiers stay within the documented size", () => {
   const s = store();
   const values = {
     gpuUtil: 87.25, gpuTemp: 61.5, gpuPower: 72.31, memUsedMB: 114_532, memFreeMB: 7_412,
+    memGpuMB: 98_000, memSysMB: 16_532,
     cpuUtil: 13.75, cpuTemp: 58.5, ramUsedMB: 20_481, netRx: 1_234_567, netTx: 987_654,
     [llmKey(8888, "genTps")]: 41.37, [llmKey(8888, "prefillTps")]: 1_803.2, [llmKey(8888, "kvUsage")]: 0.0513,
   };
@@ -511,7 +538,7 @@ test("the worst-case tiers stay within the documented size", () => {
     s.recordSample([unit], at);
   }
   const bytes = Buffer.byteLength(JSON.stringify(s.serializeTiers(T0 + 30 * DAY)));
-  // Documented in UnitHistory.js: ~1 MB per unit + ~0.3 MB per endpoint on disk.
+  // Documented in UnitHistory.js: ~1.3 MB per unit + ~0.3 MB per endpoint on disk.
   assert.ok(bytes < 1.4 * 1024 * 1024, `worst case ${bytes} bytes`);
 });
 

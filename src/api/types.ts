@@ -1090,6 +1090,8 @@ export type HistoryUnitSeries =
   | "gpuPower"
   | "memUsedMB"
   | "memFreeMB"
+  | "memGpuMB"
+  | "memSysMB"
   | "cpuUtil"
   | "cpuTemp"
   | "ramUsedMB"
