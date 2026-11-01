@@ -38,6 +38,19 @@ Model-launcher programs use GNU `tail --pid` with a process-group lifetime monit
 
 `npm start` serves the production frontend and API on port 5555, binding to loopback by default. Vite development uses port 5173. README documents authentication, allowed targets and Docker operation. Production compose mounts `server` and `dist`, so server edits reload and frontend edits require a host build and browser refresh. Changes to dependencies or the Dockerfile require a container rebuild.
 
+## Mac runtime control
+
+`agents/macos/runtime_control.py` authenticates and serializes user-agent actions;
+`profile_runner.py` owns stopping, process release, detached startup and exact-model
+readiness for private installed profiles. Privileged collectors remain read-only.
+`MacRuntimeControl.js` returns accepted actions promptly and polls the agent's
+current/latest operation through the dashboard API. Browser polling never replays
+an action; network failures retain the last authoritative operation state.
+Agent-backed Macs expose this catalog in the Models panel, including bounded
+operation output with copy and expanded views. The configured `macTransport`
+snapshot field keeps that control surface stable while telemetry is offline.
+SSH-backed hosts retain the script-based Models panel.
+
 ## Metric conventions
 
 Preserve the meaning of existing metrics when adding platform support: active residency and frequency-scaled utilisation are distinct signals and should have explicit fields or a documented basis before changing historical series. Hardware names may come from platform probes such as macmon, but a model name is not evidence of an engine version. Cost compare uses an explicitly selected hosted model and an opt-in price catalog; it does not infer a provider from a local model name.

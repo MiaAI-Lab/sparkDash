@@ -29,8 +29,8 @@
       "name": "omlx",
       "label": "oMLX",
       "ports": [8000],
-      "exe": "(^|/)omlx(-serve)?$",
-      "argvAll": ["(^|/)omlx(-serve)?(\\s|$)"],
+      "exe": "(^|/)omlx(-serve|-server)?$",
+      "argvAll": ["(^|/)omlx(-serve|-server)?(\\s|$)"],
       "model": { "flags": ["--model"], "positional": false }
     },
     {
@@ -58,7 +58,7 @@
       "name": "splash",
       "label": "Splash",
       "ports": [8100],
-      "argvAll": ["splash/libexec/(server/server\\.py|engine/splash)"]
+      "argvAll": ["splash/(?:[0-9][^/]+/)?libexec/(server/server\\.py|engine/splash)"]
     },
     {
       "name": "ds4-serve",
@@ -87,25 +87,25 @@
       "name": "mtplx-27b",
       "label": "MTPLX (Qwen3.8-27B)",
       "ports": [8210],
-      "argvAll": ["(^|/)mtplx(\\.py)?[\\s/]+serve", "Qwen3\\.8-27B"]
+      "argvAll": ["((^|/)mtplx(\\.py)?[\\s/]+serve|-m mtplx\\.server\\.openai)", "Qwen3\\.8-27B"]
     },
     {
       "name": "mtplx-flash",
       "label": "MTPLX (Qwen3.8 Flash-Next)",
       "ports": [8210],
-      "argvAll": ["(^|/)mtplx(\\.py)?[\\s/]+serve", "Flash-Next"]
+      "argvAll": ["((^|/)mtplx(\\.py)?[\\s/]+serve|-m mtplx\\.server\\.openai)", "Flash-Next"]
     },
     {
       "name": "mtplx-35b",
       "label": "MTPLX (Qwen3.6-35B-A3B)",
       "ports": [8201],
-      "argvAll": ["(^|/)mtplx(\\.py)?[\\s/]+serve", "Qwen3\\.6-35B"]
+      "argvAll": ["((^|/)mtplx(\\.py)?[\\s/]+serve|-m mtplx\\.server\\.openai)", "Qwen3\\.6-35B"]
     },
     {
       "name": "mtplx",
       "label": "MTPLX",
       "ports": [8200, 8201, 8210],
-      "argvAll": ["(^|/)mtplx(\\.py)?([\\s/]|$)"],
+      "argvAll": ["((^|/)mtplx(\\.py)?[\\s/]+serve|-m mtplx\\.server\\.openai)"],
       "model": { "flags": ["--model", "--model-id"], "positional": false }
     },
     {
