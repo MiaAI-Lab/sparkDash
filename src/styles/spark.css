@@ -1221,6 +1221,27 @@
   font-size: 10.5px;
   color: var(--color-muted);
 }
+.sp-hist-chart__stats {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 2px 14px;
+  margin: -2px 0 6px;
+  font-size: 10.5px;
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+}
+.sp-hist-chart__stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.sp-hist-chart__stat small {
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
 .sp-hist-chart__body {
   display: flex;
   align-items: stretch;
