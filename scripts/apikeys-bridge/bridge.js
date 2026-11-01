@@ -30,6 +30,32 @@ const ID_RE = /^[0-9a-f]{64}$/;
 const MAX_PAGES = 50;
 export const MAX_UPSTREAM_BYTES = 8 * 1024 * 1024;
 
+// Reads a fetch Response body as text, but never more than MAX_UPSTREAM_BYTES of it: bytes are
+// counted chunk by chunk and the body is cancelled (undici then closes the connection) as soon as
+// the count passes the limit, or before the first read when Content-Length already says it will.
+// Returns null in both cases, so an oversized reply is never buffered whole.
+async function readBounded(res) {
+  if (Number(res.headers.get("content-length")) > MAX_UPSTREAM_BYTES) {
+    res.body?.cancel().catch(() => {});
+    return null;
+  }
+  if (!res.body) return "";
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let size = 0;
+  let text = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) return text + decoder.decode();
+    size += value.byteLength;
+    if (size > MAX_UPSTREAM_BYTES) {
+      reader.cancel().catch(() => {});
+      return null;
+    }
+    text += decoder.decode(value, { stream: true });
+  }
+}
+
 function pick(k, nowMs = Date.now()) {
   const exp = k.expires ? Date.parse(k.expires) : NaN;
   const state = k.blocked ? "blocked" : Number.isFinite(exp) && exp <= nowMs ? "expired" : "active";
@@ -63,9 +89,9 @@ export function createBridge({ tokenSha256, litellmUrl, masterKey, now = Date.no
   const litellm = async (path) => {
     try {
       const res = await fetchImpl(base + path, { headers: { Authorization: `Bearer ${masterKey}` }, signal: AbortSignal.timeout(15_000) });
-      // Bound what we buffer from LiteLLM; an oversized or unparsable body counts as a failure.
-      const text = await res.text();
-      if (text.length > MAX_UPSTREAM_BYTES) return { status: 0, json: null };
+      // An oversized body counts as a failure and is not read to the end; an unparsable one gives json null.
+      const text = await readBounded(res);
+      if (text === null) return { status: 0, json: null };
       let json = null;
       try {
         json = JSON.parse(text);
@@ -88,11 +114,15 @@ export function createBridge({ tokenSha256, litellmUrl, masterKey, now = Date.no
       for (let page = 1; ; page++) {
         const r = await litellm(`/key/list?return_full_object=true&size=100&page=${page}`);
         if (r.status !== 200 || !Array.isArray(r.json?.keys)) return [502, { error: "LiteLLM key list failed" }];
+        // Never present a cut-off list as the whole list. Without a usable page count the end of the list
+        // is unknown, so refuse; LiteLLM reports 0 pages only for an empty key table (ceil(0 / size)).
+        const pages = r.json.total_pages;
+        const empty = page === 1 && pages === 0 && r.json.total_count === 0 && r.json.keys.length === 0;
+        if (!empty && !(Number.isInteger(pages) && pages > 0)) return [502, { error: "LiteLLM key list without a valid total_pages; list not returned" }];
+        if (pages > MAX_PAGES) return [502, { error: `more than ${MAX_PAGES * 100} keys; list not returned` }];
         const t = now();
         for (const k of r.json.keys) if (k && typeof k === "object" && ID_RE.test(String(k.token))) keys.push(pick(k, t));
-        if (page >= Number(r.json.total_pages || 1)) break;
-        // Never present a cut-off list as the whole list.
-        if (page >= MAX_PAGES) return [502, { error: `more than ${MAX_PAGES * 100} keys; list not returned` }];
+        if (empty || page >= pages) break;
       }
       return [200, { keys }];
     }
