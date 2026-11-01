@@ -44,6 +44,23 @@ describe("KioskPage", () => {
     expect(head).toContain("2/2");
   });
 
+  it("shows the fleet's GPU power, and a dash rather than 0 W when no unit reports power", async () => {
+    sparks = [makeSpark("a"), makeSpark("b")];
+    const { container } = render(<KioskPage />);
+    await flush();
+    const power = () => [...container.querySelectorAll(".kiosk-kpi")].find((k) => k.textContent!.includes("GPU power"))!;
+    expect(power().querySelector(".kiosk-kpi__value")!.textContent).toBe("100W");
+    cleanupRenders();
+
+    const unmeasured = [makeSpark("a"), makeSpark("b")];
+    for (const s of unmeasured) s.metrics.gpu!.metricAvailability = { powerDraw: false } as never;
+    sparks = unmeasured;
+    const second = render(<KioskPage />);
+    await flush();
+    const value = [...second.container.querySelectorAll(".kiosk-kpi")].find((k) => k.textContent!.includes("GPU power"))!.querySelector(".kiosk-kpi__value")!;
+    expect(value.textContent).toBe("—");
+  });
+
   it("shows an offline unit with its reason and lists the alert for it", async () => {
     const off = makeSpark("down", false);
     off.offlineReason = "SSH timed out";

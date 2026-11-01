@@ -133,6 +133,7 @@ test("probe: exl3 path does not mislabel as vllm", async (t) => {
   probe._lastDetectAt = now;
   probe.lastProbeTime = now - 2000;
   probe.lastTokenCounts = { input: 100, output: 50 };
+  probe._tokenCountsSeeded = true; // seeded baseline
   probe._fetch = async (url) => {
     const u = String(url);
     if (u.endsWith("/v1/models")) {

@@ -1,11 +1,13 @@
 import { act } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const fetchLaunchers = vi.fn();
 const runLauncher = vi.fn();
+const reorderLaunchers = vi.fn();
 vi.mock("../../api/client", () => ({
   fetchLaunchers: (...a: unknown[]) => fetchLaunchers(...a),
   runLauncher: (...a: unknown[]) => runLauncher(...a),
+  reorderLaunchers: (...a: unknown[]) => reorderLaunchers(...a),
   removeLauncher: vi.fn(),
   addLauncher: vi.fn(),
   updateLauncher: vi.fn(),
@@ -133,5 +135,93 @@ describe("starting a model while another one runs", () => {
     await flush();
     expect(runLauncher).toHaveBeenCalledTimes(1);
     expect(runLauncher).toHaveBeenCalledWith("s1", "a", "stop");
+  });
+});
+
+describe("reordering the model list", () => {
+  const launcher = (id: string, name: string) => ({ id, name, dir: "/m", startScript: "start.sh", stopScript: "stop.sh", port: 8000, notes: "" });
+  const list = [launcher("a", "Alpha"), launcher("b", "Beta"), launcher("c", "Gamma")];
+  const names = (root: HTMLElement) => [...root.querySelectorAll(".sp-launch__title b")].map((b) => b.textContent);
+  const grips = (root: HTMLElement) => [...root.querySelectorAll<HTMLButtonElement>("button.sp-launch__grip")];
+
+  const rowSlot = (row: HTMLElement) => [...(row.parentElement?.querySelectorAll(".sp-launch") ?? [])].indexOf(row);
+
+  beforeEach(() => {
+    _resetLauncherCache();
+    reorderLaunchers.mockReset();
+    fetchLaunchers.mockResolvedValue({ launchers: list, job: null, statuses: { a: "stopped", b: "stopped", c: "stopped" } });
+    // jsdom has no layout; give each row its own vertical slot so dnd-kit can tell which row is next.
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains("sp-launch") ? new DOMRect(0, rowSlot(this) * 60, 400, 56) : new DOMRect(0, 0, 0, 0);
+    });
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  const press = (target: Element, code: string) =>
+    act(() => {
+      target.dispatchEvent(new KeyboardEvent("keydown", { code, key: code, bubbles: true, cancelable: true }));
+    });
+  const tick = () =>
+    act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+  /** Pick a row up by its grip, move it one place down, drop it. */
+  async function moveDown(grip: HTMLElement) {
+    press(grip, "Space");
+    await tick();
+    press(document.body, "ArrowDown");
+    await tick();
+    press(document.body, "Space");
+    await tick();
+  }
+
+  async function open() {
+    const view = render(<LlmModelsPanel spark={makeSpark("s1")} />);
+    await flush();
+    return view.container;
+  }
+
+  it("gives each row a labelled handle when there is something to reorder", async () => {
+    const container = await open();
+    expect(names(container)).toEqual(["Alpha", "Beta", "Gamma"]);
+    expect(grips(container).map((g) => g.getAttribute("aria-label"))).toEqual(["Reorder Alpha", "Reorder Beta", "Reorder Gamma"]);
+  });
+
+  it("shows no handle for a single model", async () => {
+    fetchLaunchers.mockResolvedValue({ launchers: [list[0]], job: null, statuses: { a: "stopped" } });
+    const container = await open();
+    expect(names(container)).toEqual(["Alpha"]);
+    expect(grips(container)).toHaveLength(0);
+  });
+
+  it("saves the full new order and shows the list the server returns", async () => {
+    reorderLaunchers.mockImplementation(async (_spark: string, ids: string[]) => ({ launchers: ids.map((id) => list.find((l) => l.id === id)) }));
+    const container = await open();
+    await moveDown(grips(container)[0]);
+    await flush();
+    expect(reorderLaunchers).toHaveBeenCalledTimes(1);
+    expect(reorderLaunchers).toHaveBeenCalledWith("s1", ["b", "a", "c"]);
+    expect(names(container)).toEqual(["Beta", "Alpha", "Gamma"]);
+  });
+
+  it("puts the old order back and says so when the save fails", async () => {
+    reorderLaunchers.mockRejectedValue(new Error("Disk full"));
+    const container = await open();
+    await moveDown(grips(container)[0]);
+    await flush();
+    expect(names(container)).toEqual(["Alpha", "Beta", "Gamma"]);
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe("Disk full");
+  });
+
+  it("does not save when a row is dropped where it started", async () => {
+    const container = await open();
+    const grip = grips(container)[1];
+    press(grip, "Space");
+    await tick();
+    press(document.body, "Space");
+    await tick();
+    expect(reorderLaunchers).not.toHaveBeenCalled();
+    expect(names(container)).toEqual(["Alpha", "Beta", "Gamma"]);
   });
 });

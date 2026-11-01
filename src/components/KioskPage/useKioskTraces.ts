@@ -6,6 +6,8 @@ import { tracesFromHistory, type KioskTraces } from "./kioskModel";
 
 const REFRESH_MS = 60_000;
 const STEP_MS = 60_000;
+/** History reads in flight at once, so a large fleet does not send one request per unit together. */
+export const HISTORY_CONCURRENCY = 4;
 
 /** One-minute means of the browser's own samples, as history points carrying `key`. */
 function bucket<K extends string>(samples: readonly MetricSample[], key: K): Array<{ t: number } & Record<K, { avg: number; max: number }>> {
@@ -35,12 +37,15 @@ function tracesFromBrowser(spark: SparkSnapshot, now: number): KioskTraces {
   return tracesFromHistory(points, llm, STEP_MS, now);
 }
 
-/**
- * 30-minute traces for every unit, refreshed once a minute from the server's metric history
- * so a reloaded wall shows the last half hour at once. A unit whose fetch fails keeps the
- * traces it last had (the wall holds its last good frame); with history off on the server,
- * traces come from this browser's own samples.
- */
+/** Run `task` for every item with at most `limit` running at once (`task` handles its own errors: one rejection rejects the run). */
+export async function forEachLimited<T>(items: readonly T[], limit: number, task: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) await task(items[next++]);
+  };
+  await Promise.all(Array.from({ length: Math.min(Math.max(1, limit), items.length) }, worker));
+}
+
 /**
  * The traces to hold after a refresh: this fetch's series for each unit that returned one, the
  * unit's previous series where its own fetch failed (the wall keeps its last good frame), and
@@ -60,6 +65,12 @@ export function mergeTraces(
   return kept;
 }
 
+/**
+ * 30-minute traces for every unit, refreshed once a minute from the server's metric history
+ * so a reloaded wall shows the last half hour at once. A unit whose fetch fails keeps the
+ * traces it last had (the wall holds its last good frame); with history off on the server,
+ * traces come from this browser's own samples.
+ */
 export function useKioskTraces(sparks: readonly SparkSnapshot[]): Record<string, KioskTraces> {
   const [traces, setTraces] = useState<Record<string, KioskTraces>>({});
   const ids = sparks.map((s) => s.id).join("\n");
@@ -69,16 +80,14 @@ export function useKioskTraces(sparks: readonly SparkSnapshot[]): Record<string,
     const load = async () => {
       const now = Date.now();
       const next: Record<string, KioskTraces> = {};
-      await Promise.all(
-        sparks.map(async (spark) => {
-          try {
-            const h = await getUnitHistory(spark.id, "1h");
-            next[spark.id] = h.enabled ? tracesFromHistory(h.points, h.llm, h.stepMs, now) : tracesFromBrowser(spark, now);
-          } catch {
-            /* keep this unit's previous traces */
-          }
-        })
-      );
+      await forEachLimited(sparks, HISTORY_CONCURRENCY, async (spark) => {
+        try {
+          const h = await getUnitHistory(spark.id, "1h");
+          next[spark.id] = h.enabled ? tracesFromHistory(h.points, h.llm, h.stepMs, now) : tracesFromBrowser(spark, now);
+        } catch {
+          /* keep this unit's previous traces */
+        }
+      });
       if (!cancelled) setTraces((prev) => mergeTraces(prev, next, sparks.map((s) => s.id)));
     };
     void load();

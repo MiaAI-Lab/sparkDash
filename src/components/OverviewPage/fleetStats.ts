@@ -5,8 +5,8 @@ export interface FleetTotals {
   online: number;
   /** Sum of generation tok/s across every available LLM endpoint. */
   decodeTps: number;
-  /** Sum of GPU power draw (W) across online units. */
-  powerW: number;
+  /** Sum of GPU power draw (W) across online units that report it; null when none does. */
+  powerW: number | null;
   /** Unified memory / VRAM in use (MB) across online units. */
   memUsedMb: number;
   /** Unified memory / VRAM capacity (MB) across all units that report it. */
@@ -15,13 +15,18 @@ export interface FleetTotals {
 
 /** Aggregate live fleet numbers from one snapshot list (pure). */
 export function computeFleetTotals(sparks: readonly SparkSnapshot[]): FleetTotals {
-  const t: FleetTotals = { total: sparks.length, online: 0, decodeTps: 0, powerW: 0, memUsedMb: 0, memTotalMb: 0 };
+  const t: FleetTotals = { total: sparks.length, online: 0, decodeTps: 0, powerW: null, memUsedMb: 0, memTotalMb: 0 };
   for (const s of sparks) {
     const total = s.metrics?.gpu?.vram?.total || s.metrics?.unifiedMemory?.total || 0;
     t.memTotalMb += total;
     if (!s.online) continue;
     t.online += 1;
-    t.powerW += s.metrics?.gpu?.power?.draw ?? 0;
+    // A unit without power telemetry adds nothing, so a fleet with none reads "—", not a measured 0 W.
+    const gpu = s.metrics?.gpu;
+    const draw = gpu?.power?.draw;
+    if (gpu?.metricAvailability?.powerDraw !== false && typeof draw === "number" && Number.isFinite(draw)) {
+      t.powerW = (t.powerW ?? 0) + draw;
+    }
     t.memUsedMb += s.metrics?.gpu?.vram?.used ?? s.metrics?.unifiedMemory?.used ?? 0;
     if (Array.isArray(s.metrics?.llm)) {
       for (const llm of s.metrics.llm) if (llm.available && llm.measurementValid !== false) t.decodeTps += llm.generationTps || 0;

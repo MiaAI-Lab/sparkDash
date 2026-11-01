@@ -18,7 +18,7 @@ import { RocePanel } from "./RocePanel";
 import { UnifiedMemoryPanel } from "./UnifiedMemoryPanel";
 import { HistoryPanel } from "./HistoryPanel";
 import "../../styles/spark.css";
-import { vramContextFor } from "../../shared/vramBreakdown";
+import { memoryModelFor, vramContextFor } from "../../shared/vramBreakdown";
 
 interface SparkPageProps {
   spark: SparkSnapshot;
@@ -149,7 +149,8 @@ export function SparkPage({
   const primaryPort = llmPorts[0];
   const extraPorts = llmPorts.slice(1);
   const unified = metrics.unifiedMemory;
-  const showUnified = spark.kind !== "host" && unified != null && unified.total > 0;
+  // A Mac host shares one pool like a Spark (memoryModelFor), so it gets the unified panel too.
+  const showUnified = memoryModelFor(spark.kind, spark.platform) === "unified" && unified != null && unified.total > 0;
 
   const renderLlmPanel = (port: number, portIndex: number, className?: string) => {
     // Match by the snapshot's own port so a panel never shows another port's
@@ -291,8 +292,9 @@ export function SparkPage({
                   sparkId={spark.id}
                   temperatureUnit={temperatureUnit}
                 />
-                {/* Dedicated hosts have system RAM instead of a unified pool: CPU and RAM side by side. */}
-                {spark.kind === "host" && <RamPanel ram={metrics.ram} sparkId={spark.id} />}
+                {/* Dedicated hosts have system RAM instead of a unified pool: CPU and RAM side by side.
+                    A Mac's RAM is its unified pool, already shown above (RAM only when the pool is unknown). */}
+                {spark.kind === "host" && !showUnified && <RamPanel ram={metrics.ram} sparkId={spark.id} />}
                 {/* Models is the third column of the row (Windows PCs have no launchers). */}
                 {spark.platform !== "windows" && modelsPanel}
               </div>

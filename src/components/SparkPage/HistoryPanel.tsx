@@ -184,7 +184,8 @@ function buildCharts(
   ];
 
   const ram = aligned(timeline, pts, (p) => p.ramUsedMB);
-  if (kind === "host" && hasAny(ram)) {
+  // Only a discrete host has RAM apart from the memory charted above; a Mac's RAM is that unified pool.
+  if (model === "discrete" && hasAny(ram)) {
     charts.push({
       id: "ramUsed",
       title: "RAM used",

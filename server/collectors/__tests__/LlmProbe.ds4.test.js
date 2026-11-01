@@ -142,6 +142,7 @@ test("probe: ds4 path reads context_length and does not mislabel as vllm", async
   probe._lastDetectAt = Date.now();
   probe.lastProbeTime = Date.now() - 2000;
   probe.lastTokenCounts = { input: 100, output: 50 };
+  probe._tokenCountsSeeded = true; // seeded baseline
   probe._fetch = async (url) => {
     const u = String(url);
     if (u.endsWith("/v1/models")) {
