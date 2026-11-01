@@ -1392,6 +1392,7 @@ export interface PrefillBenchDefaults {
   allowedContextSizes: number[];
   defaultContextSizes: number[];
   minContextSize?: number;
+  /** Ceiling when the model's context is unknown. */
   maxContextSize?: number;
 }
 

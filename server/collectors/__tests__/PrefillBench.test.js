@@ -19,6 +19,10 @@ import {
   repeatsForSize,
   timeoutMsForSize,
 } from "../PrefillBench.js";
+import {
+  parseContextSize,
+  prefillCeilingFor,
+} from "../../../src/shared/prefillBench.js";
 
 test("allowed sizes include 300k and power-of-two steps", () => {
   assert.ok(ALLOWED_CONTEXT_SIZES.includes(300000));
@@ -32,6 +36,39 @@ test("formatContextSize uses compact labels", () => {
   assert.equal(formatContextSize(32768), "32k");
   assert.equal(formatContextSize(300000), "300k");
   assert.equal(formatContextSize(262144), "256k");
+  // k is 1024 here, so a typed "200k" reads back as it was typed; m is a million-token label.
+  assert.equal(formatContextSize(204800), "200k");
+  assert.equal(formatContextSize(1_048_576), "1m");
+});
+
+test("parseContextSize accepts the k/m suffix its own hint suggests", () => {
+  assert.equal(parseContextSize("200k"), 204800);
+  assert.equal(parseContextSize("128k"), 131072);
+  assert.equal(parseContextSize("1m", 2_000_000), 1_048_576);
+  // The default ceiling is the 300k preset, so a 1m size needs the caller's ceiling.
+  assert.equal(parseContextSize("1m"), null);
+  assert.equal(parseContextSize("1.5k"), 1536);
+  assert.equal(parseContextSize("4096"), 4096);
+  assert.equal(parseContextSize(4096), 4096);
+  assert.equal(parseContextSize("12kk"), null);
+  assert.equal(parseContextSize("nope"), null);
+});
+
+test("the ceiling follows the model context, with no fixed upper bound", () => {
+  assert.equal(prefillCeilingFor(null), 300_000);
+  assert.equal(prefillCeilingFor(131_072), 131_072);
+  assert.equal(prefillCeilingFor(1_048_576), 1_048_576);
+  // A model past 1M keeps its own ceiling: no constant here to raise later.
+  assert.equal(prefillCeilingFor(2_000_000), 2_000_000);
+  assert.equal(prefillCeilingFor(10_000_000), 10_000_000);
+  assert.equal(parseContextSize("600k", prefillCeilingFor(131_072)), null);
+  assert.equal(parseContextSize("600k", prefillCeilingFor(1_048_576)), 614_400);
+});
+
+test("normalizeContextSizes takes a ceiling, so a long-context model keeps a typed 600k", () => {
+  assert.deepEqual(normalizeContextSizes([600_000], prefillCeilingFor(1_048_576)), [600_000]);
+  assert.deepEqual(normalizeContextSizes([600_000], prefillCeilingFor(131_072)), []);
+  assert.deepEqual(normalizeContextSizes([600_000]), []);
 });
 
 test("normalizeContextSizes sorts, uniques, and accepts custom integers", () => {

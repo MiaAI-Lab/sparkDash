@@ -106,4 +106,59 @@ describe("PrefillBenchDialog", () => {
     expect(Number(bar.getAttribute("aria-valuenow"))).toBeGreaterThan(0);
     expect(document.querySelector('[role="status"][aria-live="polite"]')).not.toBeNull();
   });
+
+  it("accepts a k-suffixed custom size, with the model context as the ceiling", async () => {
+    vi.mocked(listPrefillBench).mockResolvedValue({ active: null, last: null, history: [], defaults });
+    render(<PrefillBenchDialog open onClose={() => {}} sparkId="s1" llmPort={8888} modelId="m" contextLength={1_048_576} />);
+    await flush();
+    const input = document.querySelector<HTMLInputElement>("#prefill-custom-size")!;
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setValue.call(input, "600k");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(input.value).toBe("600k");
+    act(() => {
+      [...document.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Add")!.click();
+    });
+    const chips = [...document.querySelectorAll('[aria-label="Context sizes"] button')];
+    expect(chips.some((b) => b.textContent === "600k")).toBe(true);
+    expect(document.body.textContent).not.toContain("Custom size must be");
+  });
+
+  it("follows a context past 1M: the ceiling has no constant of its own", async () => {
+    vi.mocked(listPrefillBench).mockResolvedValue({ active: null, last: null, history: [], defaults });
+    render(<PrefillBenchDialog open onClose={() => {}} sparkId="s1" llmPort={8888} modelId="m" contextLength={2_097_152} />);
+    await flush();
+    const input = document.querySelector<HTMLInputElement>("#prefill-custom-size")!;
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setValue.call(input, "1.5m");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => {
+      [...document.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Add")!.click();
+    });
+    const added = [...document.querySelectorAll<HTMLButtonElement>("button")].find((b) =>
+      (b.getAttribute("title") || "").startsWith("1,572,864 tokens"),
+    );
+    expect(added).toBeTruthy();
+    expect(document.body.textContent).not.toContain("Custom size must be");
+  });
+
+  it("refuses a custom size above the model context, naming the real ceiling", async () => {
+    vi.mocked(listPrefillBench).mockResolvedValue({ active: null, last: null, history: [], defaults });
+    render(<PrefillBenchDialog open onClose={() => {}} sparkId="s1" llmPort={8888} modelId="m" contextLength={131_072} />);
+    await flush();
+    const input = document.querySelector<HTMLInputElement>("#prefill-custom-size")!;
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setValue.call(input, "600k");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => {
+      [...document.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Add")!.click();
+    });
+    expect(document.body.textContent).toContain("Custom size must be an integer between 256 and 131,072 tokens");
+  });
 });
