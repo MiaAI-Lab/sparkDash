@@ -928,7 +928,7 @@ export function LlmPanel({
                 {(llm?.slotsTotal ?? 0) > 0
                   ? `${llm?.slotsActive ?? "?"} / ${llm?.slotsTotal ?? 0}`
                   : (llm?.slotsActive ?? 0) > 0
-                    ? t("llm.slotsRunning", { count: llm?.slotsActive })
+                    ? t("llm.slotsRunning", { count: llm?.slotsActive ?? 0 })
                     : "—"}
               </b>
               <span>{t("llm.slots")}</span>
