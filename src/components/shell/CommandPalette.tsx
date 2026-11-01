@@ -94,10 +94,10 @@ export function CommandPalette({ open, onClose, commands }: CommandPaletteProps)
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setSel(Math.max(0, Math.min(results.length - 1, selectedIndex + 1)));
+      setSel((i) => Math.max(0, Math.min(results.length - 1, i + 1)));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setSel(Math.max(0, selectedIndex - 1));
+      setSel((i) => Math.max(0, i - 1));
     } else if (e.key === "Enter") {
       e.preventDefault();
       run(results[selectedIndex]);

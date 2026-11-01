@@ -52,6 +52,7 @@
   },
   "spark": {
     "offline": "离线",
+    "offlineTooltip": "离线",
     "worker": "工作节点",
     "prefilling": "正在预填充",
     "decoding": "正在解码"

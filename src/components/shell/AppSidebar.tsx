@@ -134,7 +134,7 @@ function RailSpark({
   spark: SparkSnapshot;
   isActive: boolean;
   onSelect: (id: string) => void;
-  statusLabels: { offline: string; worker: string; prefill: string; decode: string };
+  statusLabels: { offline: string; offlineTooltip: string; worker: string; prefill: string; decode: string };
   dragTitle: string;
   sortableLabel: string;
 }) {
@@ -156,7 +156,7 @@ function RailSpark({
         onClick={inApp(() => onSelect(spark.id))}
         aria-current={isActive ? "page" : undefined}
         aria-roledescription={sortableLabel}
-        title={`${spark.name}${spark.online ? "" : ` (${statusLabels.offline})`}. ${dragTitle}`}
+        title={`${spark.name}${spark.online ? "" : ` (${statusLabels.offlineTooltip})`}. ${dragTitle}`}
       >
         <i className={dotClass(spark)} aria-hidden />
         <span className="rail-item__name">{spark.name}</span>
@@ -186,6 +186,7 @@ export function AppSidebar({
   const benchLabels = useBenchLabels();
   const statusLabels = {
     offline: t("spark.offline"),
+    offlineTooltip: t("spark.offlineTooltip"),
     worker: t("spark.worker"),
     prefill: t("spark.prefilling"),
     decode: t("spark.decoding"),
