@@ -5,7 +5,9 @@
  * start and stop run only when the dashboard asks, and only for a Mac node.
  */
 
+import { Agent, fetch as undiciFetch } from "undici";
 import { macAgentBaseUrl, assertMacAgentTarget } from "./MacAgentCollector.js";
+import { pinnedLookup } from "../validate.js";
 
 export const CONTROL_SCHEMA = "sparkdash.mac-control/1";
 const STATUS_TIMEOUT_MS = 8000;
@@ -98,34 +100,47 @@ async function readBody(response) {
   }
 }
 
-async function callAgent(spark, path, { fetchImpl, method = "GET", body, token, timeoutMs }) {
+async function callAgent(spark, path, { fetchImpl = undiciFetch, method = "GET", body, token, timeoutMs, lookup }) {
   let baseUrl;
-  let response;
+  let status = 0;
+  let payload = null;
   try {
     baseUrl = macAgentBaseUrl(spark);
-    await assertMacAgentTarget(baseUrl);
-    response = await fetchImpl(`${baseUrl}${path}`, {
-      method,
-      headers: {
-        ...(body ? { "Content-Type": "application/json" } : {}),
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: body ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(timeoutMs),
-      redirect: "error",
-    });
+    // Resolve once and hand the checked addresses to the connection. Validating
+    // here and letting the fetch resolve again would be two answers to one
+    // question: the second could return a different address than was checked.
+    const addresses = await assertMacAgentTarget(baseUrl, lookup ? { lookup } : undefined);
+    const dispatcher = new Agent({ connect: { lookup: pinnedLookup(addresses) } });
+    try {
+      const response = await fetchImpl(`${baseUrl}${path}`, {
+        method,
+        headers: {
+          ...(body ? { "Content-Type": "application/json" } : {}),
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: body ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(timeoutMs),
+        redirect: "error",
+        dispatcher,
+      });
+      status = response.status;
+      // Read the answer while the pinned connection is still open: closing the
+      // dispatcher first would strand the body.
+      payload = await readBody(response);
+    } finally {
+      await dispatcher.close();
+    }
   } catch (err) {
     return unavailable(`mac agent unreachable at ${baseUrl} (${err.message})`);
   }
-  const payload = await readBody(response);
-  if (response.status === 404 && (!payload || payload.schema !== CONTROL_SCHEMA)) {
+  if (status === 404 && (!payload || payload.schema !== CONTROL_SCHEMA)) {
     return unavailable("this agent has no runtime control endpoint");
   }
   if (!payload || payload.schema !== CONTROL_SCHEMA) {
-    if (response.status === 403) {
+    if (status === 403) {
       return denied(payload?.error || payload?.reason || "runtime control permission denied");
     }
-    return unavailable(payload?.error || `agent responded ${response.status}`);
+    return unavailable(payload?.error || `agent responded ${status}`);
   }
   return mapPayload(payload, { authorized: Boolean(token) });
 }
@@ -136,7 +151,7 @@ export function runtimeControlHttpStatus(result) {
   return 200;
 }
 
-export async function readRuntimeControl(spark, { fetchImpl = globalThis.fetch, token = macControlToken() } = {}) {
+export async function readRuntimeControl(spark, { fetchImpl, token = macControlToken(), lookup } = {}) {
   const blocked = assertMacControlSpark(spark);
   if (blocked) return blocked.body;
   if (!spark.agent) {
@@ -146,12 +161,14 @@ export async function readRuntimeControl(spark, { fetchImpl = globalThis.fetch, 
     fetchImpl,
     token,
     timeoutMs: STATUS_TIMEOUT_MS,
+    lookup,
   });
 }
 
 export async function actRuntimeControl(spark, action, request = {}, {
-  fetchImpl = globalThis.fetch,
+  fetchImpl,
   token = macControlToken(),
+  lookup,
 } = {}) {
   const blocked = assertMacControlSpark(spark);
   if (blocked) return blocked.body;
@@ -174,5 +191,6 @@ export async function actRuntimeControl(spark, action, request = {}, {
     body,
     token,
     timeoutMs: ACTION_TIMEOUT_MS,
+    lookup,
   });
 }
