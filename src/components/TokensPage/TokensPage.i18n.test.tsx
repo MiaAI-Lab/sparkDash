@@ -84,4 +84,7 @@ it("shows a localized retryable error when loading rejects with a non-Error valu
   await flush();
   expect(container.querySelector('[role="alert"]')?.textContent).toContain("Could not load token history");
   expect(container.querySelector('[role="alert"] button')?.textContent).toBe("Retry");
+  await act(() => setLocale("zh-CN"));
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain("无法加载 Token 历史");
+  expect(fetchHistory).toHaveBeenCalledTimes(1);
 });

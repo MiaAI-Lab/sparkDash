@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { fetchTokenHistory, resetTokenTotals } from "../../api/client";
 import { ClearMenu, type ClearChoice } from "../ui/ClearMenu";
@@ -54,14 +54,16 @@ interface Loaded {
   at: number;
 }
 
+interface LoadError {
+  message: string | null;
+}
+
 export function TokensPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[]; onSelectSpark?: (id: string) => void }) {
   const { t } = useTranslation("statistics");
-  const tRef = useRef(t);
-  tRef.current = t;
   const [range, setRange] = useState<RangeKey>("7d");
   const [groupBy, setGroupBy] = useState<GroupBy>("type");
   const [data, setData] = useState<Loaded | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<LoadError | null>(null);
   const [tick, setTick] = useState(0);
   const [copyMsg, setCopyMsg] = useState<{ ok: boolean; count: number } | null>(null);
 
@@ -75,7 +77,7 @@ export function TokensPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[];
           setError(null);
         })
         .catch((e: unknown) => {
-          if (!cancelled) setError(e instanceof Error ? e.message : tRef.current("tokens.loadError"));
+          if (!cancelled) setError({ message: e instanceof Error ? e.message : null });
         });
     };
     run();
@@ -249,7 +251,7 @@ export function TokensPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[];
 
       {error ? (
         <div className="panel tk-note tk-note--err" role="alert">
-          <span>{data ? t("tokens.staleError", { error }) : error ? `${t("tokens.loadError")}: ${error}` : t("tokens.loadError")}</span>
+          <span>{data ? t("tokens.staleError", { error: error.message ?? t("tokens.loadError") }) : error.message ? `${t("tokens.loadError")}: ${error.message}` : t("tokens.loadError")}</span>
           <button type="button" className="btn btn--sm" onClick={() => setTick((t) => t + 1)}>
             {t("tokens.retry")}
           </button>
