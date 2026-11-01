@@ -17,10 +17,10 @@ import { buildPrefillShareCard, shareCardFileName } from "./benchShareCard";
 import {
   PREFILL_CONTEXT_SIZES,
   PREFILL_DEFAULT_CONTEXT_SIZES,
-  PREFILL_MAX_CONTEXT_SIZE,
   PREFILL_MIN_CONTEXT_SIZE,
   formatContextSize,
   parseContextSize,
+  prefillCeilingFor,
 } from "../../shared/prefillBench.js";
 import { prefillFitsContext } from "../../shared/contextFit.js";
 import { HistoryTable, PageCard, PageEmpty, PageLayout } from "../bench/sparkdash/pageParts";
@@ -373,6 +373,9 @@ export function PrefillBenchDialog({
     []
   );
 
+  // The model's context is the real ceiling: the presets stop at 300k, but a long-context model
+  // may be asked for more by typing it out (#343).
+  const ceiling = prefillCeilingFor(contextLength);
   const sizeFits = (n: number) => prefillFitsContext(n, contextLength);
 
   const toggleSize = (n: number) => {
@@ -388,10 +391,10 @@ export function PrefillBenchDialog({
 
   const addCustomSize = () => {
     if (isRunning || starting) return;
-    const n = parseContextSize(customDraft);
+    const n = parseContextSize(customDraft, ceiling);
     if (n == null) {
       setError(
-        `Custom size must be an integer between ${PREFILL_MIN_CONTEXT_SIZE.toLocaleString()} and ${PREFILL_MAX_CONTEXT_SIZE.toLocaleString()} tokens`
+        `Custom size must be an integer between ${PREFILL_MIN_CONTEXT_SIZE.toLocaleString()} and ${ceiling.toLocaleString()} tokens (e.g. 131072 or 128k)`
       );
       return;
     }
@@ -525,7 +528,7 @@ export function PrefillBenchDialog({
               <div className="bench-field">
                 <div className="bench-field__head">
                   <h3 className="bench-sheet__section-title">Context size</h3>
-                  <p className="bench-sheet__hint">{ctxHint} Type a custom token count to add it.</p>
+                  <p className="bench-sheet__hint">{ctxHint} Type a custom token count (e.g. 200k) to add it.</p>
                 </div>
                 <div className="bench-conc-grid" role="group" aria-label="Context sizes">
                   {PREFILL_CONTEXT_SIZES.map((n: number) => {
@@ -570,15 +573,16 @@ export function PrefillBenchDialog({
                   <input
                     id="prefill-custom-size"
                     type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
+                    inputMode="text"
+                    pattern="[0-9]+(\.[0-9]+)?[kKmM]?"
                     disabled={isRunning || starting}
                     value={customDraft}
                     placeholder="Custom"
                     aria-label="Custom context size in tokens"
                     onChange={(e) => {
                       const raw = e.target.value;
-                      if (raw === "" || /^\d+$/.test(raw)) setCustomDraft(raw);
+                      // Digits, or the k/m suffix the hint suggests ("200k", "1m").
+                      if (raw === "" || /^\d+(?:\.\d+)?\s*[km]?$/i.test(raw)) setCustomDraft(raw);
                     }}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {

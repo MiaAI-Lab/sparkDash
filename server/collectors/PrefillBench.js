@@ -42,7 +42,10 @@ const ACTIVE_PATH =
   process.env.PREFILL_BENCH_ACTIVE_PATH ||
   path.join(ROOT, "config", "prefill-bench-active.json");
 
-/** Preset chip sizes (tokens). Custom integers in 256–300k are also allowed. */
+/**
+ * Preset chip sizes (tokens). Custom sizes are accepted up to the absolute bound; a size that
+ * does not fit the model's context is skipped with a row explaining why.
+ */
 export const ALLOWED_CONTEXT_SIZES = PREFILL_CONTEXT_SIZES;
 export const DEFAULT_CONTEXT_SIZES = PREFILL_DEFAULT_CONTEXT_SIZES;
 
@@ -114,11 +117,11 @@ export function rateFromSample(s, overheadMs = 0) {
   };
 }
 
-export function normalizeContextSizes(raw) {
+export function normalizeContextSizes(raw, maxTokens = PREFILL_MAX_CONTEXT_SIZE) {
   if (!Array.isArray(raw)) return [];
   const out = [];
   for (const v of raw) {
-    const n = parseContextSize(v);
+    const n = parseContextSize(v, maxTokens);
     if (n == null || out.includes(n)) continue;
     out.push(n);
   }
@@ -638,10 +641,17 @@ export class PrefillBenchManager {
       throw err;
     }
 
-    const contextSizes = normalizeContextSizes(rawSizes);
+    const ctxKnown = Number.isFinite(Number(contextLength)) && Number(contextLength) > 0;
+    // Structural bound only: a size that does not fit the model's context is skipped with a row
+    // below, so a known context needs no ceiling here. An unknown one falls back to the preset
+    // ceiling — the only bound we have without a model context.
+    const structuralCeiling = ctxKnown ? Infinity : PREFILL_MAX_CONTEXT_SIZE;
+    const contextSizes = normalizeContextSizes(rawSizes, structuralCeiling);
     if (!contextSizes.length) {
       const err = new Error(
-        `Select at least one context size (${PREFILL_MIN_CONTEXT_SIZE}–${PREFILL_MAX_CONTEXT_SIZE.toLocaleString()} tokens)`
+        ctxKnown
+          ? `Select at least one context size (${PREFILL_MIN_CONTEXT_SIZE} tokens or more)`
+          : `Select at least one context size (${PREFILL_MIN_CONTEXT_SIZE}–${PREFILL_MAX_CONTEXT_SIZE.toLocaleString()} tokens)`
       );
       err.status = 400;
       throw err;
@@ -776,7 +786,8 @@ export class PrefillBenchManager {
         }
 
         if (!prefillFitsContext(size, job.config.contextLength)) {
-          // Same rule the dialog uses to disable the chip; a stale/other client still gets a clear row.
+          // The dialog disables chips that do not fit; a size that still lands here (a stale
+          // client, or one within the template/reply reserve of the context) gets a clear row.
           job.results.push({
             targetTokens: size,
             promptTokens: 0,
@@ -888,5 +899,6 @@ export const PREFILL_BENCH_DEFAULTS = {
   allowedContextSizes: [...ALLOWED_CONTEXT_SIZES],
   defaultContextSizes: [...DEFAULT_CONTEXT_SIZES],
   minContextSize: PREFILL_MIN_CONTEXT_SIZE,
+  /** Ceiling when the model's context is unknown; a known context is the real ceiling. */
   maxContextSize: PREFILL_MAX_CONTEXT_SIZE,
 };
