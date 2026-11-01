@@ -40,12 +40,15 @@ const DAY_MS = 86_400_000;
 const HISTORY_POLL_MS = 60_000;
 const LIVE_POLL_MS = 15_000;
 
-const RANGES: Array<{ id: EnergyRange; label: string; long: string }> = [
-  { id: "24h", label: "24 h", long: "24 hours" },
-  { id: "7d", label: "7 d", long: "7 days" },
-  { id: "14d", label: "14 d", long: "14 days" },
-  { id: "31d", label: "31 d", long: "31 days" },
-];
+const RANGES: EnergyRange[] = ["24h", "7d", "14d", "31d"];
+
+export function energyRangeLabel(t: ReturnType<typeof useTranslation>["t"], range: EnergyRange) {
+  return range === "24h" ? t("energy.range24h") : range === "7d" ? t("energy.range7d") : range === "14d" ? t("energy.range14d") : t("energy.range31d");
+}
+
+export function energyRangeLong(t: ReturnType<typeof useTranslation>["t"], range: EnergyRange) {
+  return range === "24h" ? t("energy.range24hLong") : range === "7d" ? t("energy.range7dLong") : range === "14d" ? t("energy.range14dLong") : t("energy.range31dLong");
+}
 
 const pct = (v: number, digits = 0) => `${(v * 100).toFixed(digits)}%`;
 
@@ -170,8 +173,6 @@ export function EnergyPage({
     return (id: string) => map.get(id) ?? NODE_COLORS[NODE_COLORS.length - 1];
   }, [model]);
 
-  const rangeInfo = RANGES.find((r) => r.id === range)!;
-
   const copyCsv = async () => {
     if (!model) return;
     const ok = await copyText(toCsv(model.inRange, model.nodeIds, nameOf));
@@ -220,7 +221,7 @@ export function EnergyPage({
         model={model}
         live={live}
         nodeTotal={sparks.length || history.nodeIds.length}
-        rangeLabel={rangeInfo.long}
+        rangeLabel={energyRangeLong(t, range)}
         price={price}
         currency={currency}
         nameOf={nameOf}
@@ -245,9 +246,9 @@ export function EnergyPage({
         </div>
         <div className="page-head__tools">
           <div className="seg" role="group" aria-label={t("energy.rangeAria")}>
-            {RANGES.map((r) => (
-              <button key={r.id} type="button" aria-pressed={range === r.id} className={range === r.id ? "is-on" : ""} onClick={() => setRange(r.id)}>
-                {r.id === "24h" ? t("energy.last24") : r.label}
+            {RANGES.map((id) => (
+              <button key={id} type="button" aria-pressed={range === id} className={range === id ? "is-on" : ""} onClick={() => setRange(id)}>
+                {energyRangeLabel(t, id)}
               </button>
             ))}
           </div>

@@ -90,6 +90,8 @@ describe("TempsPage", () => {
     await flush();
     await act(async () => { await i18n.changeLanguage("zh-CN"); });
     expect(container.textContent).toContain("最近 7 天");
+    expect(container.textContent).not.toContain("over the last 7 days");
+    expect(container.textContent).toContain("最近 7 天 的集群 GPU 温度");
     expect(mockedGet).toHaveBeenCalledWith(expect.anything(), 7 * DAY_MS);
   });
 });

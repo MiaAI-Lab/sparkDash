@@ -77,3 +77,11 @@ it("pluralizes comparison and tracked periods without changing the selected wind
   expect(container.textContent).toContain("已跟踪 24 小时");
   expect(fetchHistory).toHaveBeenCalledTimes(1);
 });
+
+it("shows a localized retryable error when loading rejects with a non-Error value", async () => {
+  fetchHistory.mockRejectedValueOnce("offline");
+  const { container } = render(<TokensPage sparks={[makeSpark()]} />);
+  await flush();
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain("Could not load token history");
+  expect(container.querySelector('[role="alert"] button')?.textContent).toBe("Retry");
+});

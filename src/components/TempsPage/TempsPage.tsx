@@ -98,7 +98,7 @@ export function TempsPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[]; 
         <div>
           <h1>{t("temps.title")}</h1>
           <p className="page-head__sub">
-            {t("temps.subtitle", { range: rangeDef.long })}
+            {t("temps.subtitle", { range: tempsRangeLong(t, range) })}
           </p>
         </div>
         <div className="page-head__tools">
@@ -135,6 +135,10 @@ export function TempsPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[]; 
       )}
     </div>
   );
+}
+
+function tempsRangeLong(t: ReturnType<typeof useTranslation>["t"], range: TempsRange) {
+  return range === "24h" ? t("temps.range24hLong") : t("temps.range7dLong");
 }
 
 interface Line {

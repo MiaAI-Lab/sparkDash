@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { fetchTokenHistory, resetTokenTotals } from "../../api/client";
 import { ClearMenu, type ClearChoice } from "../ui/ClearMenu";
@@ -56,6 +56,8 @@ interface Loaded {
 
 export function TokensPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[]; onSelectSpark?: (id: string) => void }) {
   const { t } = useTranslation("statistics");
+  const tRef = useRef(t);
+  tRef.current = t;
   const [range, setRange] = useState<RangeKey>("7d");
   const [groupBy, setGroupBy] = useState<GroupBy>("type");
   const [data, setData] = useState<Loaded | null>(null);
@@ -73,7 +75,7 @@ export function TokensPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[];
           setError(null);
         })
         .catch((e: unknown) => {
-          if (!cancelled) setError(e instanceof Error ? e.message : "");
+          if (!cancelled) setError(e instanceof Error ? e.message : tRef.current("tokens.loadError"));
         });
     };
     run();

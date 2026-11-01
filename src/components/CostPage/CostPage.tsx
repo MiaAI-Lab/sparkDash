@@ -142,7 +142,8 @@ export function CostPage() {
   }, [usage, range, price]);
 
   const spec = RANGES.find((r) => r.key === range) ?? RANGES[1];
-  const unitWord = spec.unit === "hour" ? "hour" : "day";
+  const unitWord = costUnit(t, spec.unit);
+  const rangePhrase = costRangePhrase(t, spec.key);
 
   const series: BarSeries[] = [
     { id: "input", label: t("cost.input"), color: "var(--color-accent)" },
@@ -202,7 +203,7 @@ export function CostPage() {
                   {t("cost.perUnit", { unit: unitWord })}
                 </h2>
                 <p className="tk-card__sub">
-                  {t("cost.chartSummary", { range: spec.phrase, model: price.id })}
+                  {t("cost.chartSummary", { range: rangePhrase, model: price.id })}
                   {view.useLifetime ? t("cost.retainedBuckets") : ""}
                 </p>
               </div>
@@ -252,7 +253,7 @@ export function CostPage() {
               </li>
               <li>
                 {price.cacheReadCostPerToken != null
-                  ? t("cost.cachedRate", { rate: fmtMoney(price.cacheReadCostPerToken * 1_000_000), savings: fmtMoney(view.cost.cacheSavings), range: spec.phrase })
+                  ? t("cost.cachedRate", { rate: fmtMoney(price.cacheReadCostPerToken * 1_000_000), savings: fmtMoney(view.cost.cacheSavings), range: rangePhrase })
                   : t("cost.noCachedRate")}
               </li>
               <li>
@@ -264,7 +265,7 @@ export function CostPage() {
                 >
                   {t("cost.catalogLink")}
                 </a>
-                {t("cost.catalogSuffix", { fetched: prices?.at ? new Date(prices.at).toLocaleString() : "", stale: prices?.stale ? t("cost.catalogStale") : "" })}
+                {t("cost.catalogSuffix", { fetched: prices?.at ? t("cost.catalogFetched", { date: new Date(prices.at).toLocaleString() }) : "", stale: prices?.stale ? t("cost.catalogStale") : "" })}
               </li>
               <li>{t("cost.tokenCounters")}</li>
             </ul>
@@ -325,7 +326,8 @@ function CostTiles({
   days: number;
 }) {
   const { t } = useTranslation("statistics");
-  const per = range.unit === "hour" ? "hour" : "day";
+  const per = costUnit(t, range.unit);
+  const rangePhrase = costRangePhrase(t, range.key);
   const blended = blendedPerMillion(cost.totalCost, tally.total);
   const outputShare = cost.totalCost > 0 ? cost.outputCost / cost.totalCost : 0;
   // The engine published no cached-prompt counter: the cached share is unknown, not
@@ -333,8 +335,8 @@ function CostTiles({
   // every prompt token is priced at the full input rate, which overstates the bill.
   const cacheUnknown = tally.cacheReported === false;
   return (
-    <section className="tk-tiles" aria-label={t("cost.summaryAria", { range: range.phrase })}>
-      <Tile label={t("cost.totalCost")} value={fmtMoney(cost.totalCost)} sub={t("cost.forRange", { range: range.phrase })} title={cost.totalCost.toFixed(6)} />
+    <section className="tk-tiles" aria-label={t("cost.summaryAria", { range: rangePhrase })}>
+      <Tile label={t("cost.totalCost")} value={fmtMoney(cost.totalCost)} sub={t("cost.forRange", { range: rangePhrase })} title={cost.totalCost.toFixed(6)} />
       <Tile
         label={t("cost.input")}
         value={fmtMoney(cost.inputCost)}
@@ -376,6 +378,18 @@ function CostTiles({
       />
     </section>
   );
+}
+
+function costRangePhrase(t: ReturnType<typeof useTranslation>["t"], range: RangeKey) {
+  if (range === "24h") return t("cost.period24h");
+  if (range === "7d") return t("cost.period7d");
+  if (range === "14d") return t("cost.period14d");
+  if (range === "30d") return t("cost.period30d");
+  return t("cost.periodAll");
+}
+
+function costUnit(t: ReturnType<typeof useTranslation>["t"], unit: "hour" | "day") {
+  return unit === "hour" ? t("cost.hour") : t("cost.day");
 }
 
 function Tile({ label, value, unit, sub, title }: { label: string; value: string; unit?: string; sub?: string; title?: string }) {

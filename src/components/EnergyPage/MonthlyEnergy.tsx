@@ -40,7 +40,7 @@ export function MonthlyEnergy({
   /** Change this value (e.g. after a Reset) to refetch immediately. */
   reloadToken?: number;
 }) {
-  const { t } = useTranslation("statistics");
+  const { t, i18n } = useTranslation("statistics");
   const [data, setData] = useState<MonthlyEnergyData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"month" | "year">("month");
@@ -98,7 +98,7 @@ export function MonthlyEnergy({
             </div>
             {view === "month" ? (
               <select className="en-select" aria-label={t("energy.monthly.month")} value={activeMonth} onChange={(e) => setMonth(e.target.value)}>
-                {monthKeys.map((key) => <option key={key} value={key}>{monthLabel(key)}</option>)}
+                {monthKeys.map((key) => <option key={key} value={key}>{monthLabel(key, i18n.language)}</option>)}
               </select>
             ) : (
               <select className="en-select" aria-label={t("energy.monthly.year")} value={activeYear} onChange={(e) => setYear(Number(e.target.value))}>
@@ -120,7 +120,7 @@ export function MonthlyEnergy({
       ) : view === "month" ? (
         <MonthView
           month={months.find((m) => m.month === activeMonth) ?? null}
-          label={monthLabel(activeMonth)}
+          label={monthLabel(activeMonth, i18n.language)}
           now={now}
           nameOf={nameOf}
           colorOf={colorOf}
@@ -209,8 +209,8 @@ function YearView({
   price,
   currency,
 }: ViewProps & { months: MonthlyEnergyMonth[]; year: number }) {
-  const { t } = useTranslation("statistics");
-  const bars = yearBars(months, year);
+  const { t, i18n } = useTranslation("statistics");
+  const bars = yearBars(months, year, i18n.language);
   const ids = [...new Set(bars.flatMap((b) => Object.keys(b.values)))];
   const series: BarSeries[] = ids.map((id) => ({ id, label: nameOf(id), color: colorOf(id) }));
   const total = yearTotalKwh(months, year);
