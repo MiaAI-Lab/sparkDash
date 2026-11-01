@@ -2332,7 +2332,12 @@ export class LlmProbe {
         Number.isFinite(preemptions) && preemptions >= 0 ? Math.round(preemptions) : null;
     }
 
-    const kv = queueOnly ? null : m("kv_cache_usage_ratio");
+    // A multi-pool engine exports one 0–1 ratio per pool/stream. `m()` sums every
+    // matching series, so six half-empty pools would clamp at 1 and read as "full"
+    // while every lane is mostly empty (#330). The worst lane is the number that
+    // forecasts queueing/preemption pressure; on a single-series engine max is that
+    // same value. Per-pool detail would need a separate field.
+    const kv = queueOnly ? null : this._getPromMetricMax(txt, "tensorfold:kv_cache_usage_ratio");
     if (Number.isFinite(kv) && kv >= 0) this.kvCacheUsage = Math.min(1, kv);
     const drafted = queueOnly ? null : m("mtp_drafted_total");
     const accepted = queueOnly ? null : m("mtp_accepted_total");
