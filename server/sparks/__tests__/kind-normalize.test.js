@@ -47,3 +47,8 @@ test("a Mac always uses darwin and remote collection, including legacy Windows c
   assert.equal(normalized.platform, "darwin");
   assert.equal(normalized.isLocal, false);
 });
+
+test("Mac control uses an optional independent validated port", () => {
+  assert.equal(n({ kind: "mac", agent: { port: 8791, controlPort: 8790 } }).agent.controlPort, 8790);
+  assert.equal(n({ kind: "mac", agent: { port: 8791, controlPort: 70000 } }).agent.controlPort, undefined);
+});
