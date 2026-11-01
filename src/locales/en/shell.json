@@ -52,6 +52,7 @@
   },
   "spark": {
     "offline": "off",
+    "offlineTooltip": "offline",
     "worker": "worker",
     "prefilling": "prefilling",
     "decoding": "decoding"
