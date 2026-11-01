@@ -18,6 +18,11 @@ export function monthLabel(key: string, locale = "en"): string {
   return new Intl.DateTimeFormat(locale, { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(Date.UTC(year, (month || 1) - 1, 1)));
 }
 
+function monthShortLabel(key: string, locale: string): string {
+  const [year, month] = key.split("-").map(Number);
+  return new Intl.DateTimeFormat(locale, { month: "short", timeZone: "UTC" }).format(new Date(Date.UTC(year, (month || 1) - 1, 1)));
+}
+
 const monthKeyOf = (ms: number) => {
   const d = new Date(ms);
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
@@ -80,8 +85,6 @@ export interface YearBar extends BarBucket {
   kwh: number;
 }
 
-const SHORT = MONTH_NAMES.map((n) => n.slice(0, 3));
-
 /** Twelve bars (Jan to Dec) of kWh per node; months without data are empty bars. */
 export function yearBars(months: readonly MonthlyEnergyMonth[], year: number, locale = "en"): YearBar[] {
   const byKey = new Map(months.map((m) => [m.month, m]));
@@ -92,7 +95,7 @@ export function yearBars(months: readonly MonthlyEnergyMonth[], year: number, lo
     return {
       key,
       month: key,
-      label: SHORT[i],
+      label: monthShortLabel(key, locale),
       title: monthLabel(key, locale),
       values,
       hasData: m != null && m.totalWh > 0,
