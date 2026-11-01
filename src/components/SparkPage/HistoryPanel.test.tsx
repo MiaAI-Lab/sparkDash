@@ -155,7 +155,7 @@ describe("HistoryPanel", () => {
     expect(mem.textContent).toContain("critical 4.0 GB");
   });
 
-  it("charts what consumed a unified pool, and only free on a discrete card", async () => {
+  it("charts what consumed a unified pool in its own cell, and adds none on a discrete card", async () => {
     const split = data();
     split.points = split.points.map((p) => ({
       ...p,
@@ -165,20 +165,28 @@ describe("HistoryPanel", () => {
     fetchHistory.mockResolvedValue(split);
     const unified = render(<HistoryPanel sparkId="spark-1" kind="spark" temperatureUnit="celsius" />);
     await flush();
+    // The free chart keeps its single series and its thresholds: a 6 GB GPU share must not
+    // flatten the free trace by sharing its y-axis.
     const mem = chart(unified.container, "memFree");
-    expect(mem.querySelectorAll('polyline[data-series="memGpuMB"]').length).toBeGreaterThan(0);
-    expect(mem.querySelectorAll('polyline[data-series="memSysMB"]').length).toBeGreaterThan(0);
-    expect(mem.textContent).toContain("GPU used");
-    expect(mem.textContent).toContain("System used");
+    const memKeys = [...mem.querySelectorAll("[data-series]")].map((el) => el.getAttribute("data-series"));
+    expect(new Set(memKeys)).toEqual(new Set(["memFreeMB"]));
+    expect(mem.querySelector('[data-series="memGpuMB"]')).toBeNull();
+    expect(mem.textContent).not.toContain("GPU");
 
-    // A discrete card's used figure is the GPU's alone: no split lines, no dead legend entries.
+    // The split is a chart of its own, on a 0-based domain, next to the free chart.
+    const used = chart(unified.container, "memSplit");
+    expect(used.textContent).toContain("Memory used");
+    expect(used.querySelectorAll('polyline[data-series="memGpuMB"]').length).toBeGreaterThan(0);
+    expect(used.querySelectorAll('polyline[data-series="memSysMB"]').length).toBeGreaterThan(0);
+    expect(used.querySelector('[data-axis="ymin"]')!.textContent).toBe("0 MB");
+    const ids = [...unified.container.querySelectorAll("[data-chart]")].map((c) => c.getAttribute("data-chart"));
+    expect(ids.indexOf("memSplit")).toBe(ids.indexOf("memFree") + 1);
+
+    // A discrete card's used figure is the GPU's alone: there is nothing to split.
     fetchHistory.mockResolvedValue(split);
     const discrete = render(<HistoryPanel sparkId="h" kind="host" platform="linux" temperatureUnit="celsius" />);
     await flush();
-    const vram = chart(discrete.container, "memFree");
-    expect(vram.querySelector('[data-series="memGpuMB"]')).toBeNull();
-    expect(vram.querySelector('[data-series="memSysMB"]')).toBeNull();
-    expect(vram.textContent).not.toContain("GPU used");
+    expect(discrete.container.querySelector('[data-chart="memSplit"]')).toBeNull();
   });
 
   it("uses the discrete thresholds on a GPU host", async () => {
