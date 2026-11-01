@@ -1,4 +1,5 @@
 {
+  "stopped": "已停止",
   "completed": "已完成", "running": "运行中", "failed": "失败", "cancelled": "已取消", "decodeTitle": "解码基准测试", "prefillTitle": "预填充基准测试", "load": "负载", "aggregate": "总计", "stream": "单流", "context": "上下文", "prefill": "预填充", "versusOther": "对比另一运行",
   "qualityBenchmark": "质量基准测试", "overall": "总分", "unknownModel": "未知模型", "same": "持平", "pts": "分",
   "toolEvalBench": "工具评测", "toolEvalComparison": "工具评测对比", "score": "得分", "category": "类别",

@@ -659,6 +659,14 @@ describe("tool eval share card", () => {
     expect(shareCardFileName(m, "tool-eval")).toBe("sparkdash-tool-eval-spark-38bd-2026-09-17.png");
   });
 
+  it("preserves STOPPED for tool runs and keeps cancelled benchmark status separate", () => {
+    const stopped = { ...run, status: "stopped" as const };
+    expect(buildToolEvalShareCard(result(), stopped, {}, 0).status).toEqual({ label: "STOPPED", tone: "warn" });
+    const labels = { ...DEFAULT_SHARE_CARD_LABELS, stopped: "已停止" };
+    expect(buildToolEvalShareCard(result(), stopped, { labels }, 0).status.label).toBe("已停止");
+    expect(shareCardStatus("cancelled").label).toBe("CANCELLED");
+  });
+
   it("falls back to the score tier and the run's model when the result has no rating or model", () => {
     const r = result({ rating: undefined, config: {} });
     const m = buildToolEvalShareCard(r, { ...run, model: "from-run" }, {}, 0);

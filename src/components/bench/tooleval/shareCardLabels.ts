@@ -9,7 +9,7 @@ export function useShareCardLabels(): ShareCardLabels {
   const categories = useToolEvalCategories();
   const presentation = useToolEvalPresentation();
   return {
-    completed: t("completed"), running: t("running"), failed: t("failed"), cancelled: t("cancelled"),
+    stopped: t("stopped"), completed: t("completed"), running: t("running"), failed: t("failed"), cancelled: t("cancelled"),
     decodeTitle: t("decodeTitle"), prefillTitle: t("prefillTitle"), qualityTitle: t("qualityBenchmark"),
     load: t("load"), aggregate: t("aggregate"), stream: t("stream"), context: t("context"), prefill: t("prefill"), versusOther: t("versusOther"),
     qualityBenchmark: t("qualityBenchmark"), overall: t("overall"), unknownModel: t("unknownModel"), same: t("same"), pts: t("pts"),
