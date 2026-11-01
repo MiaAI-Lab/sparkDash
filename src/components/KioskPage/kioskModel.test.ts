@@ -120,6 +120,19 @@ describe("kioskCard", () => {
     expect(c.diskFreeMb).toBe(1e6);
     expect(c.ip).toBe("10.0.0.5");
   });
+
+  it("leaves an unread temperature unknown rather than reading it as 0", () => {
+    const s = makeSpark("mac");
+    s.kind = "mac";
+    s.platform = "darwin";
+    s.metrics.gpu!.temperature = null;
+    s.metrics.cpu!.temperature = null;
+    const c = kioskCard(s, null, null);
+    expect(c.gpuTempC).toBeNull();
+    expect(c.cpuTempC).toBeNull();
+    // The usage figures the node can still measure stay on the card.
+    expect(c.gpuPct).not.toBeNull();
+  });
 });
 
 describe("kioskFleetStats", () => {
@@ -133,6 +146,24 @@ describe("kioskFleetStats", () => {
     b.metrics.llm[0].requestsWaiting = 50;
     const off = makeSpark("c", false);
     expect(kioskFleetStats([a, b, off])).toEqual({ online: 2, total: 3, gpuTempMaxC: 71, queued: 2, running: 3 });
+  });
+
+  it("leaves the fleet GPU temperature unknown when no unit can read one", () => {
+    const a = makeSpark("a");
+    a.kind = "mac";
+    a.platform = "darwin";
+    a.metrics.gpu!.temperature = null;
+    const b = makeSpark("b");
+    b.metrics.gpu!.temperature = 0;
+    b.metrics.gpu!.metricAvailability = {
+      usage: true,
+      powerDraw: true,
+      powerLimit: true,
+      vramUsed: true,
+      vramTotal: true,
+      temperature: false,
+    };
+    expect(kioskFleetStats([a, b]).gpuTempMaxC).toBeNull();
   });
 
   it("reports an unknown queue as null, not 0", () => {
