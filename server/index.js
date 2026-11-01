@@ -1,6 +1,7 @@
 // First on purpose: imports are evaluated in order, and config.js, settings.js
 // and the bench modules read process.env while they load.
 import "dotenv/config";
+import { LlmTelemetryStore } from "./collectors/LlmTelemetry.js";
 import express from "express";
 import { createServer } from "http";
 import { WebSocketServer } from "ws";
@@ -87,6 +88,8 @@ import { inspectStartupPreflight, logStartupPreflight } from "./startupPreflight
 import { readServerVersion } from "./serverVersion.js";
 import { PROMETHEUS_CONTENT_TYPE, metricsEntries, renderPrometheusMetrics } from "./prometheus.js";
 
+// Construct after dotenv/config has loaded .env (it runs first above).
+const llmTelemetry = new LlmTelemetryStore();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT = path.resolve(__dirname, "..");
@@ -417,6 +420,7 @@ const monitors = new Map();
 function startMonitor(spark) {
   if (monitors.has(spark.id)) return;
   const monitor = new SparkMonitor(spark, {
+    llmTelemetry,
     onWolMac: (id, mac) => {
       const updated = registry.noteDetectedMac(id, mac);
       if (updated) {
@@ -1389,6 +1393,24 @@ app.get("/api/sparks/:id/llm/daily", (req, res) => {
   let days = req.query.days != null ? Number(req.query.days) : 14;
   if (!Number.isFinite(days)) days = 14;
   res.json(llmDaily.getSeries(spark.id, port, { days }));
+});
+
+/** Ten-second LLM telemetry buckets. Query: port, hours (1–168). */
+app.get("/api/sparks/:id/llm/telemetry", (req, res) => {
+  const spark = registry.getSpark(req.params.id);
+  if (!spark) return res.status(404).json({ error: "Spark not found" });
+  const ports =
+    Array.isArray(spark.llmPorts) && spark.llmPorts.length
+      ? spark.llmPorts
+      : [resolveLlmPort(spark)];
+  const port = req.query.port != null ? Number(req.query.port) : ports[0];
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    return res.status(400).json({ error: "Invalid port" });
+  }
+  if (!ports.includes(port)) return res.status(400).json({ error: "Port not configured" });
+  let hours = req.query.hours != null ? Number(req.query.hours) : 24;
+  if (!Number.isFinite(hours)) hours = 24;
+  res.json(llmTelemetry.getSeries(spark.id, port, { hours }));
 });
 
 /**
@@ -2596,6 +2618,7 @@ if (!startupPreflight.fatal) {
 // ─── Graceful shutdown ─────────────────────────────────
 let _shuttingDown = false;
 async function shutdown(signal) {
+  llmTelemetry.flush();
   if (_shuttingDown) return;
   _shuttingDown = true;
   console.log(`[sparkDash] ${signal} received, shutting down…`);

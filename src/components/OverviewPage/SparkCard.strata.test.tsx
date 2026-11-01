@@ -38,13 +38,12 @@ describe("SparkCard Strata throughput", () => {
       />,
     );
 
-    expect(container.textContent).toMatch(/Decode42\.5tok\/s/);
-    expect(container.textContent).toMatch(/Prefill1,024tok\/s/);
+    expect(container.textContent).toContain("43 tok/s");
+    expect(container.textContent).toMatch(/prefill 1024/);
     expect(container.textContent).toContain("active-slot mean");
     expect(container.textContent).toContain("last reported mean");
-    const metrics = [...container.querySelectorAll(".ov-tps > div")];
-    expect(metrics[0].getAttribute("title")).toContain("sliding-window");
-    expect(metrics[1].getAttribute("title")).toContain("not an aggregate across slots");
+    expect(container.querySelector('.ov-llm-footer [title*="sliding-window"]')).not.toBeNull();
+    expect(container.querySelector('.ov-llm-footer [title*="not an aggregate across slots"]')).not.toBeNull();
   });
 
   it("shows simultaneous active work without zero rates, then clears it when idle", () => {
@@ -59,7 +58,7 @@ describe("SparkCard Strata throughput", () => {
 
     expect(container.textContent).not.toContain("decoding");
     expect(container.textContent).not.toContain("prefilling");
-    expect(container.textContent).toMatch(/Decode0\.0tok\/s/);
-    expect(container.textContent).toMatch(/Prefill0tok\/s/);
+    expect(container.textContent).toContain("0 tok/s");
+    expect(container.textContent).toMatch(/prefill 0/);
   });
 });

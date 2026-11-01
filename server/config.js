@@ -4,6 +4,7 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT = path.resolve(__dirname, "..");
+const LLM_TELEMETRY_JSON_PATH = process.env.LLM_TELEMETRY_JSON_PATH || path.join(ROOT, "config", "llm-telemetry.json");
 
 // ─── Spark config file path ──────────────────────────────
 const SPARKS_JSON_PATH = process.env.SPARKS_JSON_PATH || path.join(ROOT, "config", "sparks.json");
@@ -212,6 +213,7 @@ const HOST_PATHS = {
 };
 
 export {
+  LLM_TELEMETRY_JSON_PATH,
   SPARKS_JSON_PATH,
   GPU_MEMORY_JSON_PATH,
   SPARKS_SECRETS_PATH,
