@@ -26,6 +26,8 @@ const ENGINE_VERSION_TTL_MS = 10 * 60_000;
  * computing almost nothing, so a rate per poll window swings between 30 and 1,800 tok/s on the same engine.
  */
 const TENSORFOLD_PREFILL_WINDOW_MS = 60_000;
+/** Bound vLLM completion-rate holds and no-progress prefill state to recent activity. */
+const VLLM_PREFILL_HOLD_MS = 20_000;
 /**
  * TensorFold's cached-prompt counter, by precedence. Upstream
  * (ashhart/TensorFold) publishes `prompt_tokens_cached_total`; a build whose
@@ -202,9 +204,12 @@ export class LlmProbe {
     this.lastPromptCompute = null;
     /** Previous per-request prefill totals (count / seconds / computed / cached). */
     this._lastPrefillTotals = null;
-    /** Seconds the oldest running request has been open; null when idle. */
-    this.inFlightSeconds = null;
-    this._runningSince = null;
+    /** Last completion-derived rate, held only until _vllmPrefillMeasuredAt expires. */
+    this._vllmPrefillHeldRate = null;
+    /** A completion-derived vLLM rate is trusted only for VLLM_PREFILL_HOLD_MS. */
+    this._vllmPrefillMeasuredAt = null;
+    /** Start of the current no-decode prefill episode, cleared on progress/completion/idle. */
+    this._vllmPrefillActiveSince = null;
     /** Previous vLLM TTFT histogram `_sum` (seconds). null until first sample. */
     this.lastTtftSum = null;
     /** Previous vLLM TTFT histogram `_count` (requests). null until first sample. */
@@ -295,6 +300,23 @@ export class LlmProbe {
     else if (!inflight) this.prefillTps = 0;
   }
 
+  _clearVllmPrefillRate() {
+    this.prefillTps = 0;
+    this._vllmPrefillHeldRate = null;
+    this._vllmPrefillMeasuredAt = null;
+    if (this.cachedPrefillTps != null) this.cachedPrefillTps = 0;
+    if (this.uncachedPrefillTps != null) this.uncachedPrefillTps = 0;
+  }
+
+  _expireVllmPrefillRate(now = Date.now()) {
+    if (
+      this._vllmPrefillMeasuredAt != null &&
+      now - this._vllmPrefillMeasuredAt >= VLLM_PREFILL_HOLD_MS
+    ) {
+      this._clearVllmPrefillRate();
+    }
+  }
+
   /**
    * Live cached vs computed prefill tok/s from cumulative counters.
    * First sample seeds the baseline (0 tok/s). Missing either side clears the split.
@@ -375,6 +397,7 @@ export class LlmProbe {
     this.decodeActive = false;
     this.generationTpsSource = null;
     this.prefillActive = false;
+    this._expireVllmPrefillRate();
     if (this.backendType === "strata") this._clearStrataRates();
     try {
       const shouldDetect =
@@ -557,8 +580,9 @@ export class LlmProbe {
     this.lastPrefillKinds = null;
     this.lastPromptCompute = null;
     this._lastPrefillTotals = null;
-    this.inFlightSeconds = null;
-    this._runningSince = null;
+    this._vllmPrefillHeldRate = null;
+    this._vllmPrefillMeasuredAt = null;
+    this._vllmPrefillActiveSince = null;
     this.lastTtftSum = null;
     this.lastTtftCount = null;
     this.lastIterSum = null;
@@ -2423,6 +2447,8 @@ export class LlmProbe {
   }
 
   _applyVllmMetrics(txt, dtSec) {
+    this._expireVllmPrefillRate();
+    this.prefillActive = false;
     const promptTokens = this._getVllmMetric(txt, "prompt_tokens_total");
     const genTokens = this._getVllmMetric(txt, "generation_tokens_total");
     const running = this._getVllmMetric(txt, "num_requests_running");
@@ -2467,10 +2493,12 @@ export class LlmProbe {
       const cacheServed = srcHit ?? cachedTok;
       const hasPrefillTiming =
         prefillCount != null && prefillTime != null && kvComputed != null && cacheServed != null;
+      let prefillCompleted = false;
       let completedPrefill = false;
       if (hasPrefillTiming) {
         const lastPrefill = this._lastPrefillTotals;
         if (lastPrefill != null && prefillCount > lastPrefill.count) {
+          prefillCompleted = true;
           const dPrefillTime = prefillTime - lastPrefill.time;
           const dKvComputed = kvComputed - lastPrefill.kv;
           const dCacheServed = cacheServed - lastPrefill.cache;
@@ -2479,6 +2507,8 @@ export class LlmProbe {
             this.prefillTps = prefillRate;
             this.uncachedPrefillTps = prefillRate;
             this.cachedPrefillTps = Math.max(0, Math.round((dCacheServed / dPrefillTime) * 100) / 100);
+            this._vllmPrefillHeldRate = prefillRate;
+            this._vllmPrefillMeasuredAt = Date.now();
             completedPrefill = true;
           }
         }
@@ -2486,6 +2516,12 @@ export class LlmProbe {
           count: prefillCount, time: prefillTime, kv: kvComputed, cache: cacheServed,
         };
       }
+      const splitCached = bySource ? srcHit + (srcExternal ?? 0) : cachedTok;
+      const splitComputed = bySource
+        ? srcCompute
+        : cachedTok != null
+          ? Math.max(0, promptTokens - cachedTok)
+          : null;
       const prevCached = this.lastPrefillKinds?.cached;
       const deltaCached =
         cachedTok != null && prevCached != null ? Math.max(0, cachedTok - prevCached) : 0;
@@ -2495,21 +2531,35 @@ export class LlmProbe {
           : Math.max(0, deltaIn - deltaCached);
       if (bySource) this.lastPromptCompute = srcCompute;
       else this.lastPromptCompute = null;
-      if (!hasPrefillTiming) {
-        this._setPrefillSplitRates(
-          bySource ? srcHit + (srcExternal ?? 0) : cachedTok,
-          bySource
-            ? srcCompute
-            : cachedTok != null
-              ? Math.max(0, promptTokens - cachedTok)
-              : null,
-          dtSec
-        );
-      }
       const ttftSum = this._getVllmMetric(txt, "time_to_first_token_seconds_sum");
       const deltaIter =
         iterSum != null && this.lastIterSum != null ? iterSum - this.lastIterSum : 0;
-      if (seeded && dtSec > 0 && dtSec < 10) {
+      const trustworthyWindow = seeded && dtSec > 0 && dtSec < 10;
+      const hasOpenRequest = Number.isFinite(running) && running > 0;
+      const noDecodeProgress = deltaOut <= 0;
+      const completionObserved = deltaIn > 0 || prefillCompleted;
+      const newPrefill =
+        trustworthyWindow && hasOpenRequest && noDecodeProgress && !completionObserved;
+      if (newPrefill) {
+        // A newly observed prefill has no completion rate yet; clear the previous
+        // request's held value before applying any rate measured live in this poll.
+        this._clearVllmPrefillRate();
+      }
+      if (hasPrefillTiming) {
+        // Keep the fallback counter baseline current while timing counters own the rate,
+        // so one missing timing scrape cannot turn an old lifetime delta into a spike.
+        if (
+          splitCached != null && splitComputed != null &&
+          Number.isFinite(splitCached) && Number.isFinite(splitComputed)
+        ) {
+          this.lastPrefillKinds = { cached: splitCached, computed: splitComputed };
+        } else {
+          this.lastPrefillKinds = null;
+        }
+      } else {
+        this._setPrefillSplitRates(splitCached, splitComputed, dtSec);
+      }
+      if (trustworthyWindow) {
         this.generationTps = Math.max(0, Math.round((deltaOut / dtSec) * 100) / 100);
         if (!hasPrefillTiming) {
           const deltaTtft =
@@ -2533,10 +2583,17 @@ export class LlmProbe {
           );
         }
       }
-      // An open request that has not produced a decode token yet is in prefill;
-      // the card shows "prefilling" instead of a zero rate.
+      // Only a seeded, plausible poll can establish prefill activity; cap the episode
+      // so a hung or preempted request cannot leave the UI stuck on "prefilling".
+      if (!hasOpenRequest || deltaOut > 0 || completionObserved) {
+        this._vllmPrefillActiveSince = null;
+      } else if (newPrefill && this._vllmPrefillActiveSince == null) {
+        this._vllmPrefillActiveSince = Date.now();
+      }
       this.prefillActive =
-        Number.isFinite(running) && running > 0 && deltaOut <= 0 && !completedPrefill;
+        newPrefill &&
+        this._vllmPrefillActiveSince != null &&
+        Date.now() - this._vllmPrefillActiveSince < VLLM_PREFILL_HOLD_MS;
       // Live mean TTFT over the last poll window from histogram sum/count deltas.
       // Computed BEFORE lastTtftSum is advanced so the delta is real, not 0.
       const ttftCount = this._getVllmMetric(txt, "time_to_first_token_seconds_count");
@@ -2559,15 +2616,6 @@ export class LlmProbe {
 
     this.requestsRunning = running;
     if (running != null) this.slotsActive = Math.round(running);
-    if (Number.isFinite(running) && running > 0) {
-      if (this._runningSince == null) this._runningSince = Date.now();
-    } else {
-      this._runningSince = null;
-    }
-    this.inFlightSeconds =
-      this._runningSince == null
-        ? null
-        : Math.round((Date.now() - this._runningSince) / 100) / 10;
 
     if (this.gpuMemoryUtilization == null) {
       const sleepState = this._getVllmMetric(txt, "engine_sleep_state");
@@ -3507,7 +3555,6 @@ export class LlmProbe {
       requestsRunning: this.requestsRunning,
       requestsWaiting: this.requestsWaiting,
       ttftP95Seconds: this.ttftP95Seconds,
-      inFlightSeconds: this.inFlightSeconds,
       ttftSeconds: this.ttftSeconds,
       preemptionsTotal: this.preemptionsTotal,
       prefixCacheHitRate: this.prefixCacheHitRate,

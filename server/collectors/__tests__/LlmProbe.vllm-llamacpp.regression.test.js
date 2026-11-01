@@ -42,6 +42,48 @@ function freezeProbeClock(t) {
   return now;
 }
 
+function advanceProbeClock(t, start = 10_000) {
+  let now = start;
+  t.mock.method(Date, "now", () => now);
+  return {
+    now: () => now,
+    advance: (ms) => { now += ms; },
+  };
+}
+
+function vllmPrefillMetrics({
+  prompt = 1000,
+  generated = 500,
+  running = 0,
+  cached = 100,
+  sourceCompute = null,
+  sourceCached = null,
+  sourceExternal = null,
+  prefillCount = null,
+  prefillSeconds = null,
+  kvComputed = null,
+} = {}) {
+  const metrics = [
+    `vllm:prompt_tokens_total{engine="0"} ${prompt}`,
+    `vllm:generation_tokens_total{engine="0"} ${generated}`,
+    `vllm:num_requests_running{engine="0"} ${running}`,
+  ];
+  if (cached != null) metrics.push(`vllm:prompt_tokens_cached_total{engine="0"} ${cached}`);
+  if (sourceCompute != null) {
+    metrics.push(`vllm:prompt_tokens_by_source_total{engine="0",source="local_compute"} ${sourceCompute}`);
+  }
+  if (sourceCached != null) {
+    metrics.push(`vllm:prompt_tokens_by_source_total{engine="0",source="local_cache_hit"} ${sourceCached}`);
+  }
+  if (sourceExternal != null) {
+    metrics.push(`vllm:prompt_tokens_by_source_total{engine="0",source="external_kv_transfer"} ${sourceExternal}`);
+  }
+  if (prefillCount != null) metrics.push(`vllm:request_prefill_time_seconds_count{engine="0"} ${prefillCount}`);
+  if (prefillSeconds != null) metrics.push(`vllm:request_prefill_time_seconds_sum{engine="0"} ${prefillSeconds}`);
+  if (kvComputed != null) metrics.push(`vllm:request_prefill_kv_computed_tokens_sum{engine="0"} ${kvComputed}`);
+  return metrics.join("\n");
+}
+
 test("vLLM detect: /v1/models + vllm /metrics → vllm (not ds4/sglang)", async () => {
   const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 8000);
   const hits = [];
@@ -453,6 +495,7 @@ test("vLLM prompt_tokens_by_source: prefill counts computed tokens only", () => 
   probe.lastTokenCounts = { input: 1000, output: 500 };
   probe.lastTtftSum = 10;
   probe.lastPromptCompute = 100;
+  probe._tokenCountsSeeded = true;
   const body = `${VLLM_METRICS.replace("1000.0", "1200.0").replace("500.0", "900.0")}
 vllm:prompt_tokens_by_source_total{engine="0",source="local_compute"} 140.0
 vllm:prompt_tokens_by_source_total{engine="0",source="local_cache_hit"} 860.0
@@ -480,6 +523,102 @@ vllm:prompt_tokens_by_source_total{engine="0",source="local_cache_hit"} 1500.0
   assert.equal(probe.uncachedPrefillTps, 2000);
   // Δcached 1000 over the same 2 s of prefill.
   assert.equal(probe.cachedPrefillTps, 500);
+});
+
+test("vLLM completion prefill rate expires after twenty idle seconds", (t) => {
+  const clock = advanceProbeClock(t);
+  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 8000);
+  probe.lastTokenCounts = { input: 1000, output: 500 };
+  probe._tokenCountsSeeded = true;
+  probe._lastPrefillTotals = { count: 10, time: 100, kv: 1000, cache: 500 };
+
+  probe._applyVllmMetrics(vllmPrefillMetrics({
+    prompt: 1200, generated: 600, cached: 600, sourceCompute: 1000, sourceCached: 600,
+    prefillCount: 11, prefillSeconds: 102, kvComputed: 5000,
+  }), 2);
+  assert.equal(probe.prefillTps, 2000);
+
+  clock.advance(2_000);
+  probe._applyVllmMetrics(vllmPrefillMetrics({
+    prompt: 1200, generated: 600, cached: 600, sourceCompute: 1000, sourceCached: 600,
+    prefillCount: 11, prefillSeconds: 102, kvComputed: 5000,
+  }), 2);
+  assert.equal(probe.prefillTps, 2000, "the last completed rate is briefly held while idle");
+
+  clock.advance(19_000);
+  probe._applyVllmMetrics(vllmPrefillMetrics({
+    prompt: 1200, generated: 600, cached: 600, sourceCompute: 1000, sourceCached: 600,
+    prefillCount: 11, prefillSeconds: 102, kvComputed: 5000,
+  }), 2);
+  assert.equal(probe.prefillTps, 0, "idle completion rates expire at twenty seconds");
+});
+
+test("vLLM new prefill clears the previous completion rate", (t) => {
+  const clock = advanceProbeClock(t);
+  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 8000);
+  probe.lastTokenCounts = { input: 1000, output: 500 };
+  probe._tokenCountsSeeded = true;
+  probe._lastPrefillTotals = { count: 10, time: 100, kv: 1000, cache: 500 };
+
+  probe._applyVllmMetrics(vllmPrefillMetrics({
+    prompt: 1200, generated: 600, cached: 600, sourceCompute: 1000, sourceCached: 600,
+    prefillCount: 11, prefillSeconds: 102, kvComputed: 5000,
+  }), 2);
+  assert.equal(probe.prefillTps, 2000);
+
+  clock.advance(2_000);
+  probe._applyVllmMetrics(vllmPrefillMetrics({
+    prompt: 1200, generated: 600, running: 1, cached: 600, sourceCompute: 1000, sourceCached: 600,
+    prefillCount: 11, prefillSeconds: 102, kvComputed: 5000,
+  }), 2);
+  assert.equal(probe.prefillTps, 0, "a running request with no decode progress is a new prefill");
+});
+
+test("vLLM timing-counter scrape miss keeps split-rate baseline current", () => {
+  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 8000);
+  probe.lastTokenCounts = { input: 100_000, output: 500 };
+  probe._tokenCountsSeeded = true;
+  probe.lastPrefillKinds = { cached: 50, computed: 50 };
+  probe._lastPrefillTotals = { count: 10, time: 100, kv: 50_000, cache: 10_000 };
+
+  probe._applyVllmMetrics(vllmPrefillMetrics({
+    prompt: 100_000, generated: 500, cached: 10_000,
+    sourceCompute: 100_000, sourceCached: 10_000, sourceExternal: 0,
+    prefillCount: 10, prefillSeconds: 100, kvComputed: 50_000,
+  }), 2);
+  assert.deepEqual(probe.lastPrefillKinds, { cached: 10_000, computed: 100_000 });
+
+  probe._applyVllmMetrics(vllmPrefillMetrics({
+    prompt: 100_100, generated: 500, cached: 10_000,
+    sourceCompute: 100_100, sourceCached: 10_000, sourceExternal: 0,
+  }), 2);
+  assert.equal(probe.uncachedPrefillTps, 50);
+  assert.ok(probe.uncachedPrefillTps < 1_000, `unreasonable split rate ${probe.uncachedPrefillTps}`);
+});
+
+test("vLLM prefillActive needs a trustworthy window and expires without progress", (t) => {
+  const clock = advanceProbeClock(t);
+  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 8000);
+  probe.lastTokenCounts = { input: 1000, output: 500 };
+
+  probe._applyVllmMetrics(vllmPrefillMetrics({ running: 1 }), 2);
+  assert.equal(probe.prefillActive, false, "the first unseeded poll cannot establish activity");
+
+  clock.advance(2_000);
+  probe._applyVllmMetrics(vllmPrefillMetrics({ running: 1 }), 10);
+  assert.equal(probe.prefillActive, false, "a ten-second window is not trustworthy");
+
+  clock.advance(2_000);
+  probe._applyVllmMetrics(vllmPrefillMetrics({ running: 1 }), 2);
+  assert.equal(probe.prefillActive, true);
+  assert.equal(probe._vllmPrefillActiveSince, clock.now());
+
+  clock.advance(21_000);
+  probe._applyVllmMetrics(vllmPrefillMetrics({ running: 1 }), 2);
+  assert.equal(probe.prefillActive, false, "a prefill without progress expires after twenty seconds");
+
+  probe._applyVllmMetrics(vllmPrefillMetrics({ running: 1, generated: 501 }), 2);
+  assert.equal(probe._vllmPrefillActiveSince, null, "decode progress ends the prefill episode");
 });
 
 test("vLLM prefill excludes prefix-cache hits; cached vs uncached split", () => {
