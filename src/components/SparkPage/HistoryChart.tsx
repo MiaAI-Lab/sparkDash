@@ -271,6 +271,15 @@ export function HistoryChart({
   const crossPct = crossX != null ? (crossX / VIEW_W) * 100 : null;
   const showTooltip = hasCursor && active;
 
+  // One window summary per series, computed once: the stats row under the header
+  // and the tooltip's summary line read the same numbers.
+  const windowRows = series.flatMap((s) => {
+    const w = windowStats(s.values);
+    return w.avg == null
+      ? []
+      : [{ series: s, avg: w.avg, peak: w.peak, low: w.low, lowFromAvg: w.lowFromAvg }];
+  });
+
   const point = (i: number, v: number) => `${xOf(timeline[i]).toFixed(2)},${yOf(v).toFixed(2)}`;
 
   return (
@@ -290,29 +299,25 @@ export function HistoryChart({
         </span>
       </div>
       <div className="sp-hist-chart__stats mono" aria-label="window summary">
-        {series.map((s) => {
-          const w = windowStats(s.values);
-          if (w.avg == null) return null;
-          return (
-            <span key={s.key} className="sp-hist-chart__stat" data-stat={s.key}>
-              {series.length > 1 && <small>{s.label}</small>}
-              <span>avg {format(w.avg)}</span>
-              <span>peak {format(w.peak ?? w.avg)}</span>
-              {w.low != null && (
-                <span
-                  title={
-                    w.lowFromAvg
-                      ? "lowest bucket average — a true per-bucket minimum is only stored for memory headroom"
-                      : undefined
-                  }
-                >
-                  low {format(w.low)}
-                  {w.lowFromAvg ? "*" : ""}
-                </span>
-              )}
-            </span>
-          );
-        })}
+        {windowRows.map(({ series: s, avg, peak, low, lowFromAvg }) => (
+          <span key={s.key} className="sp-hist-chart__stat" data-stat={s.key}>
+            {series.length > 1 && <small>{s.label}</small>}
+            <span>avg {format(avg)}</span>
+            <span>peak {format(peak ?? avg)}</span>
+            {low != null && (
+              <span
+                title={
+                  lowFromAvg
+                    ? "lowest bucket average — a true per-bucket minimum is only stored for memory headroom"
+                    : undefined
+                }
+              >
+                low {format(low)}
+                {lowFromAvg ? "*" : ""}
+              </span>
+            )}
+          </span>
+        ))}
       </div>
       <div className="sp-hist-chart__body">
         <div className="sp-hist-chart__yaxis mono" style={{ height: VIEW_H }} aria-hidden="true">
@@ -499,6 +504,33 @@ export function HistoryChart({
                     })
                     .filter(Boolean)
                     .join(" · ")}
+                </div>
+              )}
+              {windowRows.length > 0 && (
+                <div className="chart__tip-foot sp-hist-chart__tip-window" data-window-summary="">
+                  {windowRows.map(({ series: s, avg, peak, low, lowFromAvg }) => {
+                    const parts = [`avg ${format(avg)}`, `peak ${format(peak ?? avg)}`];
+                    if (low != null) parts.push(`low ${format(low)}${lowFromAvg ? "*" : ""}`);
+                    return (
+                      <div
+                        key={s.key}
+                        className="sp-hist-chart__tip-window-row"
+                        title={
+                          lowFromAvg
+                            ? "low is the lowest bucket average — a true per-bucket minimum is only stored for memory headroom"
+                            : undefined
+                        }
+                      >
+                        <span className="sp-hist-chart__tip-window-tag">window</span>{" "}
+                        {series.length > 1 && (
+                          <>
+                            <span className="sp-hist-chart__tip-window-series">{s.label}</span>{" "}
+                          </>
+                        )}
+                        <span>{parts.join(" · ")}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
