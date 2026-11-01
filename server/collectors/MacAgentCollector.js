@@ -15,9 +15,10 @@
  * absence is itself reported, never hidden.
  */
 
+import { Agent, fetch as undiciFetch } from "undici";
 import { MacSystemCollector, macGpuAvailability } from "./MacSystemCollector.js";
 import { tagCollectionResult } from "./SystemCollector.js";
-import { isAllowedTargetHost, assertAllowedTarget } from "../validate.js";
+import { isAllowedTargetHost, assertAllowedTarget, pinnedLookup } from "../validate.js";
 import { llmProbeHost } from "./llmHost.js";
 
 export const MAC_AGENT_DEFAULT_PORT = 8790;
@@ -131,16 +132,18 @@ function reasonFor(unavailable, metric, fallback) {
 export class MacAgentCollector extends MacSystemCollector {
   /**
    * @param {object} spark
-   * @param {{ fetchImpl?: typeof fetch, exec?: Function }} [options]
+   * @param {{ fetchImpl?: typeof fetch, exec?: Function, lookup?: Function }} [options]
    */
   constructor(spark, {
-    fetchImpl = globalThis.fetch,
+    fetchImpl = undiciFetch,
     exec,
+    lookup,
     sleep = delay,
     createTimeoutSignal = (ms) => AbortSignal.timeout(ms),
   } = {}) {
     super(spark, exec ? { exec } : {});
     this._fetch = fetchImpl;
+    this._lookup = lookup;
     this._sleep = sleep;
     this._createTimeoutSignal = createTimeoutSignal;
     this.baseUrl = macAgentBaseUrl(spark);
@@ -160,6 +163,29 @@ export class MacAgentCollector extends MacSystemCollector {
     this._probeGeneration += 1;
   }
 
+  /** Resolve once, then pin the request's connection to those checked addresses. */
+  async _withAgentMetrics(signal, consume) {
+    const addresses = await assertMacAgentTarget(
+      this.baseUrl,
+      this._lookup ? { lookup: this._lookup } : undefined
+    );
+    const dispatcher = new Agent({ connect: { lookup: pinnedLookup(addresses) } });
+    let response;
+    try {
+      response = await this._fetch(`${this.baseUrl}/metrics`, {
+        signal,
+        redirect: "error",
+        dispatcher,
+      });
+      return await consume(response);
+    } finally {
+      if (response?.body && !response.bodyUsed) {
+        await response.body.cancel().catch(() => {});
+      }
+      await dispatcher.close();
+    }
+  }
+
   /**
    * One agent snapshot, shared inside the TTL. Named apart from the parent's
    * SSH `_snapshot()` on purpose: with the same name, every SSH fallback the
@@ -171,21 +197,17 @@ export class MacAgentCollector extends MacSystemCollector {
       return this._agentCache.data;
     }
     if (this._inflight) return this._inflight;
-    this._inflight = assertMacAgentTarget(this.baseUrl).then(() => this._fetch(`${this.baseUrl}/metrics`, {
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      redirect: "error",
-    }))
-      .then(async (response) => {
-        if (!response.ok) throw new Error(`agent responded ${response.status}`);
-        const data = await response.json();
-        if (!data || typeof data !== "object" || data.schema !== AGENT_SCHEMA) {
-          throw new Error("unexpected agent payload");
-        }
-        if (staleSnapshot(data)) throw new Error("stale agent sample");
-        this._agentCache = { at: Date.now(), data };
-        this._agentDown = false;
-        return data;
-      })
+    this._inflight = this._withAgentMetrics(AbortSignal.timeout(FETCH_TIMEOUT_MS), async (response) => {
+      if (!response.ok) throw new Error(`agent responded ${response.status}`);
+      const data = await response.json();
+      if (!data || typeof data !== "object" || data.schema !== AGENT_SCHEMA) {
+        throw new Error("unexpected agent payload");
+      }
+      if (staleSnapshot(data)) throw new Error("stale agent sample");
+      this._agentCache = { at: Date.now(), data };
+      this._agentDown = false;
+      return data;
+    })
       .catch(() => {
         this._agentDown = true;
         return null;
@@ -361,31 +383,27 @@ export class MacAgentCollector extends MacSystemCollector {
    * @returns {Promise<{ok: true, data: object} | {ok: false, retryable: boolean, reason: string}>}
    */
   async _probeAgentOnce(timeoutMs) {
-    let response;
     try {
-      await assertMacAgentTarget(this.baseUrl);
-      response = await this._fetch(`${this.baseUrl}/metrics`, {
-        signal: this._createTimeoutSignal(timeoutMs),
-        redirect: "error",
+      return await this._withAgentMetrics(this._createTimeoutSignal(timeoutMs), async (response) => {
+        let data = null;
+        try {
+          data = await response.json();
+        } catch {
+          return { ok: false, retryable: false, reason: "json" };
+        }
+        if (isPendingBody(data)) return { ok: false, retryable: true, reason: "pending" };
+        if (!response.ok) return { ok: false, retryable: false, reason: "http" };
+        if (!data || typeof data !== "object" || data.schema !== AGENT_SCHEMA) {
+          return { ok: false, retryable: false, reason: "schema" };
+        }
+        if (staleSnapshot(data)) return { ok: false, retryable: true, reason: "stale" };
+        this._agentCache = { at: Date.now(), data };
+        this._agentDown = false;
+        return { ok: true, data };
       });
     } catch {
       return { ok: false, retryable: true, reason: "unreachable" };
     }
-    let data = null;
-    try {
-      data = await response.json();
-    } catch {
-      return { ok: false, retryable: false, reason: "json" };
-    }
-    if (isPendingBody(data)) return { ok: false, retryable: true, reason: "pending" };
-    if (!response.ok) return { ok: false, retryable: false, reason: "http" };
-    if (!data || typeof data !== "object" || data.schema !== AGENT_SCHEMA) {
-      return { ok: false, retryable: false, reason: "schema" };
-    }
-    if (staleSnapshot(data)) return { ok: false, retryable: true, reason: "stale" };
-    this._agentCache = { at: Date.now(), data };
-    this._agentDown = false;
-    return { ok: true, data };
   }
 
   _offlineRuntimes() {
