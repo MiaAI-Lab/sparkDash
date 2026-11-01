@@ -48,6 +48,8 @@ export const UNIT_SERIES = Object.freeze([
   "gpuPower",
   "memUsedMB",
   "memFreeMB",
+  "memGpuMB",
+  "memSysMB",
   "cpuUtil",
   "cpuTemp",
   "ramUsedMB",

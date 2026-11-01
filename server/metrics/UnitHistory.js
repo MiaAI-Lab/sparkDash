@@ -258,8 +258,9 @@ class GpuSeries {
  * install that never enables it never gets the file, and turning it off stops the writes. There is deliberately no raw tier for these series: 8 h of 2 s
  * samples for ~13 series would add ~2–3 MB of heap and a multi-MB file per unit for detail the
  * 1-minute avg/max already summarises; the GPU chart keeps its 8 h of raw readings.
- * Worst case with every bucket full: ~0.65 MB of heap and ~1 MB on disk per unit, plus ~0.17 MB
- * of heap and ~0.3 MB on disk per LLM endpoint.
+ * Worst case with every bucket full: ~0.75 MB of heap and ~1.3 MB on disk per unit, plus ~0.17 MB
+ * of heap and ~0.3 MB on disk per LLM endpoint. The disk budget is nearly spent at that size, so a
+ * further series needs a retention/tier decision, not just a key added to UNIT_SERIES.
  *
  * Persistence is asynchronous (fs.promises, temp + rename, one unit serialized per event-loop
  * turn) every few minutes, coalesced (one save in flight at a time; a revision counter decides

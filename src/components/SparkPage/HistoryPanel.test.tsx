@@ -155,6 +155,32 @@ describe("HistoryPanel", () => {
     expect(mem.textContent).toContain("critical 4.0 GB");
   });
 
+  it("charts what consumed a unified pool, and only free on a discrete card", async () => {
+    const split = data();
+    split.points = split.points.map((p) => ({
+      ...p,
+      memGpuMB: { avg: 6_000, max: 6_500 },
+      memSysMB: { avg: 2_000, max: 2_100 },
+    }));
+    fetchHistory.mockResolvedValue(split);
+    const unified = render(<HistoryPanel sparkId="spark-1" kind="spark" temperatureUnit="celsius" />);
+    await flush();
+    const mem = chart(unified.container, "memFree");
+    expect(mem.querySelectorAll('polyline[data-series="memGpuMB"]').length).toBeGreaterThan(0);
+    expect(mem.querySelectorAll('polyline[data-series="memSysMB"]').length).toBeGreaterThan(0);
+    expect(mem.textContent).toContain("GPU used");
+    expect(mem.textContent).toContain("System used");
+
+    // A discrete card's used figure is the GPU's alone: no split lines, no dead legend entries.
+    fetchHistory.mockResolvedValue(split);
+    const discrete = render(<HistoryPanel sparkId="h" kind="host" platform="linux" temperatureUnit="celsius" />);
+    await flush();
+    const vram = chart(discrete.container, "memFree");
+    expect(vram.querySelector('[data-series="memGpuMB"]')).toBeNull();
+    expect(vram.querySelector('[data-series="memSysMB"]')).toBeNull();
+    expect(vram.textContent).not.toContain("GPU used");
+  });
+
   it("uses the discrete thresholds on a GPU host", async () => {
     fetchHistory.mockResolvedValue(data());
     const { container } = render(<HistoryPanel sparkId="h" kind="host" temperatureUnit="celsius" />);

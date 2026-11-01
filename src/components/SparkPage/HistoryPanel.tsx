@@ -131,6 +131,19 @@ function buildCharts(
   const model = memoryModelFor(kind, platform);
   const headroom = HEADROOM_THRESHOLDS_MB[model];
 
+  // A unified pool has two owners — the GPU/model side and everything else — so charting the
+  // split answers "what consumed the pool" (#336). A discrete card's used figure is the GPU's
+  // alone, so there is nothing to split and only the free line is drawn.
+  const memSeries: HistoryChartSeries[] = [
+    { key: "memFreeMB", label: "Free", color: "var(--color-success)", band: "min", values: aligned(timeline, pts, (p) => p.memFreeMB) },
+  ];
+  if (model === "unified") {
+    const gpu = aligned(timeline, pts, (p) => p.memGpuMB);
+    const sys = aligned(timeline, pts, (p) => p.memSysMB);
+    if (hasAny(gpu)) memSeries.push({ key: "memGpuMB", label: "GPU used", color: "var(--color-violet)", band: "max", values: gpu });
+    if (hasAny(sys)) memSeries.push({ key: "memSysMB", label: "System used", color: "var(--color-info)", band: "max", values: sys });
+  }
+
   const charts: ChartDef[] = [
     {
       id: "gpuUtil",
@@ -164,7 +177,7 @@ function buildCharts(
         { value: headroom.low, label: `low ${formatMb(headroom.low)}`, color: "var(--color-warning)" },
         { value: headroom.critical, label: `critical ${formatMb(headroom.critical)}`, color: "var(--color-danger)" },
       ],
-      series: [{ key: "memFreeMB", label: "Free", color: "var(--color-success)", band: "min", values: aligned(timeline, pts, (p) => p.memFreeMB) }],
+      series: memSeries,
     },
     {
       id: "cpuUtil",

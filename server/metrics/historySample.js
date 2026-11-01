@@ -38,10 +38,13 @@ export function memoryReading(snapshot, isFresh = () => true) {
   const unified = snapshot?.kind !== "host" || snapshot?.platform === "darwin";
   const um = m.unifiedMemory;
   if (unified && isFresh("memory") && finite(um?.total) && um.total > 0) {
-    const used = Math.max(0, finite(um.gpuUsed) ? um.gpuUsed : 0) +
-      Math.max(0, finite(um.cpuUsed) ? um.cpuUsed : 0);
+    const gpuMB = Math.max(0, finite(um.gpuUsed) ? um.gpuUsed : 0);
+    const sysMB = Math.max(0, finite(um.cpuUsed) ? um.cpuUsed : 0);
+    const used = gpuMB + sysMB;
     const free = finite(um.available) ? Math.max(0, um.available) : Math.max(0, um.total - used);
-    return { usedMB: used, freeMB: free };
+    // Only a unified pool has two owners to split (GPU/model side vs everything else), so only
+    // here can a chart say what consumed the pool. A discrete card's `used` is the GPU's alone.
+    return { usedMB: used, freeMB: free, gpuMB, sysMB };
   }
   const vram = m.gpu?.vram;
   if (!isFresh("gpu") || isDefaultGpu(m.gpu) || !finite(vram?.total) || vram.total <= 0) {
@@ -108,6 +111,8 @@ export function extractSample(snapshot, isFresh = () => true) {
   if (mem) {
     set("memUsedMB", mem.usedMB);
     set("memFreeMB", mem.freeMB);
+    set("memGpuMB", mem.gpuMB);
+    set("memSysMB", mem.sysMB);
   }
 
   const cpu = m.cpu;
