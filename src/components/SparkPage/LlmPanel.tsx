@@ -27,6 +27,7 @@ import { isLlmIdle } from "../../shared/llmIdle";
 import { formatSince } from "../../shared/formatSince";
 import { measuredGenerationTps } from "../../shared/llmRate";
 import { ConversationList } from "./ConversationList";
+import { LlmCachePanel } from "./LlmCachePanel";
 
 interface LlmPanelProps {
   llm: LlmMetrics | null;
@@ -899,6 +900,10 @@ export function LlmPanel({
               </div>
             </div>
           )}
+
+          {/* TensorFold reports the shared pool and the snapshot store itself; its per-stream KV ratio
+              never stands in for pool occupancy, so it has no kvCache tile below. */}
+          {llm?.backend === "tensorfold" && available && <LlmCachePanel llm={llm} />}
 
           <div className="sp-tiles">
             {showEngineTiles && kvValue != null && tile("kvCache", t("llm.tiles.kvCache"), kvValue, { tone: kvTone, sub: kvSub || undefined })}

@@ -236,6 +236,20 @@ export class LlmProbe {
     // vLLM inference metrics from /metrics (null when not vLLM / missing series)
     // Metric names follow stock vLLM Prometheus exposition (versions may differ).
     this.kvCacheUsage = null; // 0–1 fraction
+    /**
+     * TensorFold's own cache observation (`/health.live.cache`), kept as a distinct group:
+     * { status, pool, promptState, ... }. Null when the endpoint is not a TensorFold engine,
+     * `status: "unavailable"` when a TensorFold engine does not publish the group (old build).
+     * The per-stream `kvCacheUsage` above is never used to fill it.
+     * @type {object | null}
+     */
+    this.cache = null;
+    /**
+     * Cumulative TTFT / request-latency histogram buckets from the same TensorFold /metrics
+     * read, for the history sampler to difference into window quantiles. Null when absent.
+     * @type {{ ttft: { edges: number[], counts: number[] }, latency: { edges: number[], counts: number[] } } | null}
+     */
+    this.cacheHistograms = null;
     /** Allocated KV-cache pool, tokens (vLLM `cache_config_info`). */
     this.kvCacheTokens = null;
     /** Free tokens in that pool. null until both pool size and usage are known. */
@@ -520,6 +534,8 @@ export class LlmProbe {
     this.totalPromptTokens = null;
     this.totalCachedTokens = null;
     this.kvCacheUsage = null;
+    this.cache = null;
+    this.cacheHistograms = null;
     this._clearEngineMemory();
     this.requestsRunning = null;
     this.requestsWaiting = null;
@@ -1066,6 +1082,7 @@ export class LlmProbe {
           const health = await healthRes.json().catch(() => null);
           this.prefillTpsSource = null;
           this._applyTensorFoldHealth(health, dtSec);
+          this._applyTensorFoldCache(health?.live?.cache);
           this._applyTensorFoldLive(health);
           // TensorFold's open /health names the release when the build carries one
           // (zig/src/server/identity.zig; status_routes.zig's openHealth). Older builds
@@ -1979,6 +1996,8 @@ export class LlmProbe {
    */
   _applyTensorFoldHealth(data, dtSec) {
     const health = data && typeof data === "object" && !Array.isArray(data) ? data : {};
+    // A failed or empty read is "no observation now", not the previous pool still being true.
+    if (!data || typeof data !== "object" || Array.isArray(data)) this.cache = null;
     // A prompt is being processed right now (no live rate exists for it, see below).
     this.prefillActive = Number(health.streams?.prefilling ?? health.streams?.filling) > 0;
     // Number(null) is 0: a null counter means "absent", not "zero".
@@ -2242,6 +2261,185 @@ export class LlmProbe {
    * carries the totals but no waiting count, /metrics is still the queue's only source.
    * @param {boolean} [preserveLiveDecode=false] retain /health decode while still collecting prefill timing.
    */
+  /**
+   * Apply TensorFold's `GET /health` → `live.cache` group (zig/src/core/lanes/cache.zig).
+   *
+   * The group is the engine's own accounting, so it is passed through, not derived: the four pool
+   * categories are disjoint allocator spans whose sum is the capacity, the prompt-state store is a
+   * separate byte budget, and `kv_cache_usage_ratio` is a per-stream ratio that never stands in for
+   * any of it. A group that does not validate becomes `inconsistent`/`unsupported` with no values,
+   * never a filled-in zero; a TensorFold build without the group becomes `unavailable` (an older
+   * engine is not a measured idle pool).
+   * @param {unknown} raw
+   */
+  /**
+   * The engine restarted (its `engine_epoch` changed).
+   *
+   * The live panel's reuse share is cached tokens over prompt tokens, both cumulative since the
+   * process started: carried across a restart, the two belong to different processes and the ratio
+   * would describe neither — a fresh engine with 2k prompt and 100 cached tokens next to the old
+   * process's 900k/1M would read as 90% reuse. The cached total is dropped until the new process
+   * reports its own (the panel shows "—"), and the poll-window baselines are reseeded so the first
+   * post-restart observation is not a negative delta clamped to a healthy zero.
+   */
+  _cacheRestarted() {
+    this.totalCachedTokens = null;
+    this.prefixCacheHitRate = null;
+    this._tensorfoldSeeded = false;
+    this._tensorfoldPrevCached = null;
+    this._tensorfoldPrefillSeconds = null;
+    this.cachedPrefillTps = null;
+    this.uncachedPrefillTps = null;
+    this.lastPrefillKinds = null;
+  }
+
+  _applyTensorFoldCache(raw) {
+    const count = (v) => {
+      if (v == null) return null;
+      const n = Number(v);
+      return Number.isFinite(n) && n >= 0 ? Math.round(n) : null;
+    };
+    const bytes = (v) => {
+      if (v == null) return null;
+      const n = Number(v);
+      return Number.isFinite(n) && n >= 0 ? n : null;
+    };
+    const stamp = (v) => {
+      if (!(raw && typeof raw === "object" && !Array.isArray(raw))) return null;
+      const epoch = raw.engine_epoch == null ? "" : String(raw.engine_epoch);
+      const ns = Number(raw.observed_unix_ns);
+      return {
+        engineEpoch: epoch || null,
+        // A u64 nanosecond stamp exceeds 2^53, so the millisecond figure is rounded here once
+        // and used for ordering only; the raw epoch string stays the identity.
+        observedAt: Number.isFinite(ns) && ns > 0 ? Math.round(ns / 1e6) : null,
+      };
+    };
+
+    if (raw == null) {
+      this.cache = { status: "unavailable", source: "health", reason: "engine reports no cache group" };
+      return;
+    }
+    if (typeof raw !== "object" || Array.isArray(raw)) {
+      this.cache = { status: "invalid", source: "health", reason: "cache group is not an object" };
+      return;
+    }
+    const meta = stamp(raw) ?? { engineEpoch: null, observedAt: null };
+    // A new engine epoch is a restarted engine: its cumulative counters began again at zero, so a
+    // window that spans the restart has no reuse share to report (see _cacheRestarted). A failed read
+    // never gets here, so a transient miss keeps the last epoch rather than re-baselining on nothing.
+    if (meta.engineEpoch && this._cacheEpoch && meta.engineEpoch !== this._cacheEpoch) {
+      this._cacheRestarted();
+    }
+    if (meta.engineEpoch) this._cacheEpoch = meta.engineEpoch;
+    const version = Number(raw.schema_version);
+    if (!Number.isFinite(version) || version !== 1) {
+      this.cache = {
+        status: "unsupported",
+        source: "health",
+        ...meta,
+        schemaVersion: Number.isFinite(version) ? version : null,
+        reason: "unknown cache schema version",
+      };
+      return;
+    }
+    const base = {
+      source: "health",
+      schemaVersion: version,
+      engineEpoch: meta.engineEpoch,
+      observedAt: meta.observedAt,
+      // The engine's own limits: one request's positions, the streams it admits.
+      contextLimitPositions: count(raw.context_limit_positions),
+      streamCapacity: count(raw.stream_capacity),
+    };
+
+    if (raw.consistent !== true) {
+      this.cache = { ...base, status: "inconsistent", pool: null, promptState: null, reason: "engine reports inconsistent accounting" };
+      return;
+    }
+
+    let pool = null;
+    let poolInvalid = false;
+    const p = raw.pool;
+    if (p != null && typeof p === "object" && !Array.isArray(p)) {
+      const fields = {
+        capacityPositions: count(p.capacity_positions),
+        activeReservedPositions: count(p.active_reserved_positions),
+        retainedPrefixPositions: count(p.retained_prefix_positions),
+        retainedGrowthPositions: count(p.retained_growth_positions),
+        unclaimedPositions: count(p.unclaimed_positions),
+        validStates: count(p.valid_states),
+        invalidationsTotal: count(p.invalidations_total),
+        placementBlocksTotal: count(p.placement_blocks_total),
+      };
+      const spans = [
+        fields.activeReservedPositions,
+        fields.retainedPrefixPositions,
+        fields.retainedGrowthPositions,
+        fields.unclaimedPositions,
+      ];
+      const capacity = fields.capacityPositions;
+      const complete = capacity != null && capacity > 0 && spans.every((v) => v != null);
+      // The four categories are a partition (cache.zig's accountIvs); a report that does not add
+      // up is a broken observation, not partial data to guess around.
+      if (complete && spans.reduce((sum, v) => sum + v, 0) === capacity) pool = fields;
+      else poolInvalid = true;
+    }
+
+    let promptState = null;
+    let storeInvalid = false;
+    const st = raw.prompt_state;
+    if (st != null && typeof st === "object" && !Array.isArray(st)) {
+      const enabled = st.enabled === true;
+      const budgetBytes = bytes(st.budget_bytes);
+      const heldBytes = bytes(st.held_bytes);
+      const fields = {
+        enabled,
+        budgetBytes,
+        heldBytes,
+        spareBytes: bytes(st.spare_bytes),
+        entries: count(st.entries),
+        hitsTotal: count(st.hits_total),
+        missesTotal: count(st.misses_total),
+        evictionsTotal: count(st.evictions_total),
+        refusalsTotal: count(st.refusals_total),
+        failuresTotal: count(st.failures_total),
+        failuresKeepTotal: count(st.failures_keep_total),
+        failuresRestoreTotal: count(st.failures_restore_total),
+        failuresPeerForgetTotal: count(st.failures_peer_forget_total),
+      };
+      if (enabled && (budgetBytes == null || heldBytes == null)) storeInvalid = true;
+      else if (enabled && budgetBytes > 0 && heldBytes > budgetBytes) storeInvalid = true;
+      else promptState = fields;
+    }
+
+    if (poolInvalid || storeInvalid) {
+      this.cache = {
+        ...base,
+        status: "inconsistent",
+        pool: poolInvalid ? null : pool,
+        promptState: storeInvalid ? null : promptState,
+        reason: poolInvalid
+          ? "pool categories do not sum to the capacity"
+          : "prompt-state storage exceeds its budget",
+      };
+      return;
+    }
+
+    const missing = [];
+    if (!pool) missing.push("pool");
+    if (!promptState || promptState.enabled !== true) missing.push("prompt_state");
+    const status = missing.length === 0 ? "full" : missing.length === 2 ? "unavailable" : "partial";
+    this.cache = {
+      ...base,
+      status,
+      pool,
+      promptState,
+      missing,
+      reason: status === "unavailable" ? "engine reports no cache values" : missing.length ? `missing: ${missing.join(", ")}` : null,
+    };
+  }
+
   async _applyTensorFoldMetrics(dtSec, queueOnly = false, preserveLiveDecode = false) {
     let txt;
     try {
@@ -2306,26 +2504,35 @@ export class LlmProbe {
       // TensorFold exposes Prometheus histograms under the same names as its
       // vLLM-compatible aliases. A malformed/partial histogram yields null,
       // never a guessed percentile.
-      const p95 = (metric) => {
+      // One validated read gives both the poll-time percentile and the cumulative bucket counts the
+      // history sampler differences into window quantiles. A malformed histogram yields neither.
+      const hist95 = (metric) => {
         const hist = this._parseHistogram(txt, `tensorfold:${metric}`, `tensorfold:${metric}_count`);
         const { buckets, total } = hist;
-        if (!Number.isFinite(total) || total <= 0 || !buckets.length) return null;
+        if (!Number.isFinite(total) || total <= 0 || !buckets.length) return { value: null, cumulative: null };
         const last = buckets[buckets.length - 1];
-        if (last.upper !== Infinity || Math.abs(last.count - total) > 1e-6) return null;
+        if (last.upper !== Infinity || Math.abs(last.count - total) > 1e-6) return { value: null, cumulative: null };
         let previousCount = 0;
         let previousUpper = -Infinity;
         for (const { upper, count } of buckets) {
           if (!Number.isFinite(count) || count < previousCount || count > total ||
-              upper < 0 || upper <= previousUpper || (upper !== Infinity && !Number.isFinite(upper))) return null;
+              upper < 0 || upper <= previousUpper || (upper !== Infinity && !Number.isFinite(upper))) return { value: null, cumulative: null };
           previousCount = count;
           previousUpper = upper;
         }
         const value = this._histogramQuantile(buckets, total, 0.95);
-        return value == null ? null : Math.round(value * 1000) / 1000;
+        return {
+          value: value == null ? null : Math.round(value * 1000) / 1000,
+          cumulative: { edges: buckets.map((b) => b.upper), counts: buckets.map((b) => b.count) },
+        };
       };
-      this.ttftP95Seconds = p95("time_to_first_token_seconds");
-      this.e2eP95Seconds = p95("request_latency_seconds");
-      this.itlP95Seconds = p95("request_time_per_output_token_seconds");
+      const ttft = hist95("time_to_first_token_seconds");
+      const latency = hist95("request_latency_seconds");
+      this.ttftP95Seconds = ttft.value;
+      this.e2eP95Seconds = latency.value;
+      this.itlP95Seconds = hist95("request_time_per_output_token_seconds").value;
+      this.cacheHistograms =
+        ttft.cumulative && latency.cumulative ? { ttft: ttft.cumulative, latency: latency.cumulative } : null;
 
       const mean = (metric) => {
         const sum = this._getPromMetric(txt, `tensorfold:${metric}_sum`);
@@ -3681,6 +3888,8 @@ export class LlmProbe {
       totalPromptTokens: this.totalPromptTokens ?? null,
       totalCachedTokens: this.totalCachedTokens ?? null,
       kvCacheUsage: this.kvCacheUsage,
+      cache: this.cache,
+      cacheHistograms: this.cacheHistograms,
       kvCacheTokens: this.kvCacheTokens,
       kvCacheTokensAvailable: this.kvCacheTokensAvailable,
       kvCacheMemoryBytes: this.kvCacheMemoryBytes,
@@ -3729,6 +3938,8 @@ export class LlmProbe {
       totalOutputTokens: 0,
       totalCachedTokens: null,
       kvCacheUsage: null,
+      cache: null,
+      cacheHistograms: null,
       kvCacheTokens: null,
       kvCacheTokensAvailable: null,
       kvCacheMemoryBytes: null,
