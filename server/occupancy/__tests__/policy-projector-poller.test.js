@@ -355,3 +355,66 @@ test("a bearer is refused over LAN HTTP before any request and loopback HTTP rem
     assert.equal((await fetchHelper(`http://127.0.0.1:${server.address().port}`, { token: "fixture" })).schemaVersion, 1);
   } finally { server.close(); }
 });
+
+test("normalize fair-shares the row budget across adapters instead of filling helper order", () => {
+  const rows = [];
+  for (let i = 0; i < 600; i += 1) rows.push({ harness: "openclaw", sessionId: `a${i}` });
+  for (let i = 0; i < 5; i += 1) rows.push({ harness: "opencode", sessionId: `b${i}` });
+  for (let i = 0; i < 5; i += 1) rows.push({ harness: "omp", sessionId: `c${i}` });
+  const payload = normalizeOccupancyPayload({
+    schemaVersion: 1,
+    observedAt: 1,
+    adapters: {
+      openclaw: { coverage: "supported", stale: false, rows: 600 },
+      opencode: { coverage: "supported", stale: false, rows: 5 },
+      omp: { coverage: "supported", stale: false, rows: 5 },
+    },
+    rows,
+  });
+  assert.equal(payload.rows.length, 500);
+  assert.equal(payload.truncated, true);
+  assert.equal(payload.adapters.openclaw.dropped, 110);
+  assert.equal(payload.adapters.opencode.dropped, 0);
+  assert.equal(payload.adapters.omp.dropped, 0);
+  const count = (harness) => payload.rows.filter((row) => row.harness === harness).length;
+  assert.equal(count("openclaw"), 490);
+  assert.equal(count("opencode"), 5);
+  assert.equal(count("omp"), 5);
+});
+
+test("normalize reports no truncation when every adapter fits", () => {
+  const payload = normalizeOccupancyPayload({
+    schemaVersion: 1,
+    observedAt: 1,
+    adapters: {
+      hermes: { coverage: "supported", stale: false, rows: 3 },
+      dsh: { coverage: "supported", stale: false, rows: 2 },
+    },
+    rows: [
+      { harness: "hermes", sessionId: "h1" },
+      { harness: "hermes", sessionId: "h2" },
+      { harness: "hermes", sessionId: "h3" },
+      { harness: "dsh", sessionId: "d1" },
+      { harness: "dsh", sessionId: "d2" },
+    ],
+  });
+  assert.equal(payload.rows.length, 5);
+  assert.equal(payload.truncated, false);
+  assert.equal(payload.adapters.hermes.dropped, 0);
+  assert.equal(payload.adapters.dsh.dropped, 0);
+});
+
+test("normalize does not treat invalid rows as budget pressure", () => {
+  const rows = [];
+  for (let i = 0; i < 300; i += 1) rows.push({ harness: "hermes", sessionId: `h${i}` });
+  for (let i = 0; i < 300; i += 1) rows.push({ harness: "unknown", sessionId: `u${i}` });
+  const payload = normalizeOccupancyPayload({
+    schemaVersion: 1,
+    observedAt: 1,
+    adapters: { hermes: { coverage: "supported", stale: false, rows: 300 } },
+    rows,
+  });
+  assert.equal(payload.rows.length, 300);
+  assert.equal(payload.truncated, false);
+  assert.equal(payload.adapters.hermes.dropped, 0);
+});

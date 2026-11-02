@@ -128,7 +128,7 @@ describe("helper config and routes", { concurrency: 1 }, () => {
     let fetches = 0;
     registerOccupancyRoutes(app, {
       poller: {
-        health: () => new Map([["mac", { coverage: "supported", error: null, observedAt: 3, adapters: {} }]]),
+        health: () => new Map([["mac", { coverage: "supported", error: null, observedAt: 3, adapters: { opencode: { coverage: "supported", stale: false, rows: 1, dropped: 2, error: null } } }]]),
         reconfigure() {},
       },
       listSparks: () => sparks,
@@ -153,6 +153,7 @@ describe("helper config and routes", { concurrency: 1 }, () => {
     const health = await request(app, "GET", "/api/occupancy/health");
     assert.equal(health.body.helpers[0].id, "mac");
     assert.equal(health.body.helpers[0].coverage, "supported");
+    assert.equal(health.body.helpers[0].adapters.opencode.dropped, 2);
 
     const limited = [];
     for (let i = 0; i < 31; i += 1) {

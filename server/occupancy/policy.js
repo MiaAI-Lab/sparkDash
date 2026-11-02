@@ -79,22 +79,51 @@ export function normalizeOccupancyPayload(body) {
       coverage: item.coverage,
       stale: item.stale,
       rows: item.rows,
+      // Rows this adapter lost to the shared ROW_CAP budget (0 = all included).
+      dropped: 0,
       error: typeof item.error === "string" && item.error ? item.error.slice(0, 200) : null,
     };
   }
-  const rawRows = body.rows;
+  // Fair-share the row budget across adapters instead of filling it in helper
+  // order: one row per adapter per pass, so a small adapter's unused share
+  // flows to a busy one rather than starving behind it.
+  const buckets = new Map();
+  for (const raw of body.rows) {
+    const harness = raw && typeof raw === "object" ? String(raw.harness || "") : "";
+    if (!HARNESS_IDS.includes(harness)) continue;
+    const bucket = buckets.get(harness);
+    if (bucket) bucket.push(raw);
+    else buckets.set(harness, [raw]);
+  }
+  const order = [];
+  for (const id of Object.keys(adapters)) if (buckets.has(id)) order.push(id);
+  for (const id of HARNESS_IDS) if (buckets.has(id) && !order.includes(id)) order.push(id);
+  const taken = new Map(order.map((id) => [id, 0]));
   const rows = [];
-  for (const raw of rawRows) {
-    if (rows.length >= ROW_CAP) break;
-    const row = normalizeRow(raw);
-    if (row) rows.push(row);
+  while (rows.length < ROW_CAP) {
+    let advanced = false;
+    for (const id of order) {
+      if (rows.length >= ROW_CAP) break;
+      const bucket = buckets.get(id);
+      const index = taken.get(id);
+      if (index >= bucket.length) continue;
+      taken.set(id, index + 1);
+      advanced = true;
+      const row = normalizeRow(bucket[index]);
+      if (row) rows.push(row);
+    }
+    if (!advanced) break;
+  }
+  for (const id of order) {
+    const adapter = adapters[id];
+    if (adapter) adapter.dropped = buckets.get(id).length - taken.get(id);
   }
   return {
     schemaVersion: 1,
     observedAt: body.observedAt,
     adapters,
     rows,
-    truncated: rawRows.length > ROW_CAP,
+    truncated: order.some((id) => taken.get(id) < buckets.get(id).length),
   };
 }
 
