@@ -453,6 +453,8 @@ test("vLLM prompt_tokens_by_source: prefill counts computed tokens only", () => 
   probe.lastTokenCounts = { input: 1000, output: 500 };
   probe.lastTtftSum = 10;
   probe.lastPromptCompute = 100;
+  // The hand-seeded counts stand in for a previous real read (#327 seeding).
+  probe._tokenCountsSeeded = true;
   const body = `${VLLM_METRICS.replace("1000.0", "1200.0").replace("500.0", "900.0")}
 vllm:prompt_tokens_by_source_total{engine="0",source="local_compute"} 140.0
 vllm:prompt_tokens_by_source_total{engine="0",source="local_cache_hit"} 860.0
