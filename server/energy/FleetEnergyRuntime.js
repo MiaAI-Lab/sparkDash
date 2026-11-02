@@ -10,20 +10,26 @@ function hasFreshTimestamp(timestamp, atMs) {
 }
 
 function isDefaultGpuResult(gpu) {
+  // A null usage/draw is an unread privileged field, not a measured zero.
   return (
-    gpu?.temperature === 0 &&
-    gpu?.usage === 0 &&
-    gpu?.power?.draw === 0 &&
-    gpu?.vram?.total === 0
+    gpu?.usage == null ||
+    gpu?.power?.draw == null ||
+    gpu?.vram?.total == null ||
+    ((gpu?.temperature === 0 || gpu?.temperature === null) &&
+      gpu?.usage === 0 &&
+      gpu?.power?.draw === 0 &&
+      gpu?.vram?.total === 0)
   );
 }
 
 function isDefaultCpuResult(cpu) {
   return (
-    cpu?.usage === 0 &&
-    cpu?.temperature === 0 &&
-    cpu?.draw === 0 &&
-    cpu?.tdp === 0
+    cpu?.usage == null ||
+    cpu?.draw == null ||
+    (cpu?.usage === 0 &&
+      (cpu?.temperature === 0 || cpu?.temperature === null) &&
+      cpu?.draw === 0 &&
+      cpu?.tdp === 0)
   );
 }
 
@@ -41,6 +47,9 @@ export function hasFreshPowerTelemetry(snapshot, monitor, atMs) {
     wasCollectionSuccessful(monitor, "cpu") &&
     hasFreshTimestamp(monitor?._lastUpdate?.gpu, atMs) &&
     hasFreshTimestamp(monitor?._lastUpdate?.cpu, atMs) &&
+    gpu?.metricAvailability?.powerDraw !== false &&
+    gpu?.metricAvailability?.usage !== false &&
+    cpu?.usageAvailable !== false &&
     !isDefaultGpuResult(gpu) &&
     !isDefaultCpuResult(cpu) &&
     Number.isFinite(gpu?.power?.draw) &&

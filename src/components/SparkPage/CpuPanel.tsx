@@ -1,7 +1,8 @@
-import type { CpuMetrics, HardwareInfo } from "../../api/types";
+import type { CpuMetrics, HardwareInfo, MetricGap } from "../../api/types";
 import { TrendLine } from "../ui/TrendLine";
 import { Panel } from "../ui/Panel";
 import { CpuIcon } from "../ui/icons";
+import { honestGap } from "../ui/platform";
 import { useMetricsHistoryTail } from "../../hooks/metricsStore";
 
 interface CpuPanelProps {
@@ -10,6 +11,10 @@ interface CpuPanelProps {
   sparkId: string;
   temperatureUnit: "celsius" | "fahrenheit";
   className?: string;
+  /** Apple Silicon Mac: CPU power requires an elevated powermetrics read. */
+  mac?: boolean;
+  /** Metrics this node declared unavailable (mac agent transport). */
+  unavailable?: MetricGap[] | null;
 }
 
 function celsiusToFahrenheit(c: number): number {
@@ -24,10 +29,19 @@ function celsiusToFahrenheit(c: number): number {
  * this panel makes that visible at the device level. For non-Spark GPU
  * hosts it covers the discrete CPU.
  */
-export function CpuPanel({ cpu, hardware, sparkId, temperatureUnit, className }: CpuPanelProps) {
+export function CpuPanel({
+  cpu,
+  hardware,
+  sparkId,
+  temperatureUnit,
+  className,
+  mac = false,
+  unavailable = null,
+}: CpuPanelProps) {
   const usageHistory = useMetricsHistoryTail(sparkId, "cpu.usage");
   const tempHistory = useMetricsHistoryTail(sparkId, "cpu.temp");
 
+  const gaps = cpu?.unavailable ?? unavailable;
   const usage = cpu?.usage ?? 0;
   const temperature = cpu?.temperature ?? 0;
   const draw = cpu?.draw ?? 0;
@@ -40,6 +54,18 @@ export function CpuPanel({ cpu, hardware, sparkId, temperatureUnit, className }:
     : temperatureUnit === "fahrenheit"
       ? celsiusToFahrenheit(temperature)
       : temperature;
+
+  // A missing Mac temperature stays unavailable. A finite reading from the
+  // privileged collector is a real value, not a platform gap.
+  const hasTemperature =
+    typeof cpu?.temperature === "number" && Number.isFinite(cpu.temperature) && cpu.temperature > 0;
+  const tempValueText = hasTemp ? `${displayTemp}${temperatureUnit === "fahrenheit" ? "°F" : "°C"}` : "—";
+  const tempView = honestGap(gaps, "cpu.temperature", tempValueText, {
+    nonDgx: !hasTemperature && (mac || cpu?.temperature == null),
+  });
+  const powerView = honestGap(gaps, "cpu.power", `${draw}W${tdp > 0 ? ` / ${tdp}W` : ""}`, {
+    nonDgx: mac && draw === 0,
+  });
 
   // GB10 SoC bands: the CPU complex derates in the mid-80s; x86 hosts run
   // hotter before throttling, so the danger band sits higher.
@@ -70,8 +96,7 @@ export function CpuPanel({ cpu, hardware, sparkId, temperatureUnit, className }:
         <div className="sp-metric">
           <span className="eyebrow">Usage</span>
           <div className="big-num sp-big-md">
-            {usage}
-            <small>%</small>
+            {cpu?.usageAvailable === false ? "unavailable" : <>{usage}<small>%</small></>}
           </div>
           <TrendLine data={usageHistory} height={36} color="var(--color-accent)" min={0} max={100} />
         </div>
@@ -81,30 +106,40 @@ export function CpuPanel({ cpu, hardware, sparkId, temperatureUnit, className }:
             // GB10 exposes no CPU package sensor, so the reading is an ACPI/SoC zone:
             // say so rather than letting the tile claim it is the CPU (#142).
             title={
-              cpu?.temperatureSource
-                ? `Reading from ${cpu.temperatureSource} — ${
-                    cpu.temperatureLabel === "CPU"
-                      ? "the CPU package sensor"
-                      : "an ACPI/board thermal zone, not a CPU package sensor"
-                  }`
-                : undefined
+              tempView.muted
+                ? tempView.title
+                : cpu?.temperatureSource
+                  ? `Reading from ${cpu.temperatureSource} — ${
+                      cpu.temperatureLabel === "CPU"
+                        ? "the CPU package sensor"
+                        : "an ACPI/board thermal zone, not a CPU package sensor"
+                    }`
+                  : undefined
             }
           >
             {cpu?.temperatureLabel && cpu.temperatureLabel !== "CPU"
               ? `Temperature (${cpu.temperatureLabel})`
               : "Temperature"}
           </span>
-          <div className="big-num sp-big-md">
-            {displayTemp}
-            {hasTemp && <small>{temperatureUnit === "fahrenheit" ? "°F" : "°C"}</small>}
-          </div>
-          {hasTemp && <TrendLine data={tempHistory} height={36} color={tempColor} />}
+          {tempView.muted ? (
+            <div className="big-num sp-big-md font-normal text-muted" title={tempView.title}>
+              unavailable: {tempView.title}
+            </div>
+          ) : (
+            <>
+              <div className="big-num sp-big-md">
+                {displayTemp}
+                {hasTemp && <small>{temperatureUnit === "fahrenheit" ? "°F" : "°C"}</small>}
+              </div>
+              {hasTemp && <TrendLine data={tempHistory} height={36} color={tempColor} />}
+            </>
+          )}
         </div>
       </div>
       <div className="sp-row">
         <span className="text-muted">CPU power</span>
-        <span className="mono text-text">
-          {draw}W{tdp > 0 ? ` / ${tdp}W` : ""}
+        <span className={`mono ${powerView.muted ? "text-muted" : "text-text"}`} title={powerView.title}>
+          {powerView.text}
         </span>
       </div>
       {model && (

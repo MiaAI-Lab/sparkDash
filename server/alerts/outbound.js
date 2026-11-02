@@ -19,7 +19,6 @@
  * follow, rather than growing a second policy here.
  */
 import dns from "node:dns/promises";
-import net from "node:net";
 import { assertAllowedTarget, isAllowedTargetHost } from "../validate.js";
 
 /** Refused by the policy. The message is fixed text: no host, address or URL. */
@@ -66,19 +65,4 @@ export async function resolveChannelTarget(url, { lookup = dns.lookup } = {}) {
   } catch (err) {
     throw new OutboundPolicyError(err?.status === 403 ? POLICY_BLOCKED : POLICY_UNRESOLVED);
   }
-}
-
-/**
- * A `lookup` for the connection that answers with the addresses already
- * checked, never asking DNS again.
- * @param {string[]} addresses
- */
-export function pinnedLookup(addresses) {
-  const entries = addresses.map((address) => ({ address, family: net.isIP(address) || 4 }));
-  return (_hostname, options, callback) => {
-    const cb = typeof options === "function" ? options : callback;
-    const all = typeof options === "object" && options?.all;
-    if (all) cb(null, entries);
-    else cb(null, entries[0].address, entries[0].family);
-  };
 }

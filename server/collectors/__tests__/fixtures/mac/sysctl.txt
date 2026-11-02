@@ -1,0 +1,7 @@
+hw.memsize: 274877906944
+hw.pagesize: 16384
+hw.ncpu: 30
+hw.model: Mac17,15
+machdep.cpu.brand_string: Apple M5 Ultra
+kern.boottime: { sec = 1790650919, usec = 729724 } Mon Sep 28 20:01:59 2026
+vm.swapusage: total = 1024.00M  used = 77.94M  free = 946.06M  (encrypted)

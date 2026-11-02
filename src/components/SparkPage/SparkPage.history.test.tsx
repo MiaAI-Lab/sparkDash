@@ -11,7 +11,7 @@ vi.mock("./NetworkPanel", () => ({ NetworkPanel: () => null }));
 vi.mock("./TailscalePanel", () => ({ TailscalePanel: () => null }));
 vi.mock("./LlmPanel", () => ({ LlmPanel: () => null }));
 vi.mock("./ComfyPanel", () => ({ ComfyPanel: () => null }));
-vi.mock("./LlmModelsPanel", () => ({ LlmModelsPanel: () => null }));
+vi.mock("./LlmModelsPanel", () => ({ LlmModelsPanel: () => <section data-testid="models" /> }));
 vi.mock("./RocePanel", () => ({ RocePanel: () => null }));
 vi.mock("./UnifiedMemoryPanel", () => ({ UnifiedMemoryPanel: () => null }));
 vi.mock("./SparkHeader", () => ({ SparkHeader: () => null }));
@@ -33,6 +33,13 @@ beforeEach(() => {
 });
 
 describe("SparkPage History panel", () => {
+  it("places one Models control surface on an agent Mac", async () => {
+    const spark = { ...makeSpark(), kind: "mac" as const, macTransport: "agent" as const };
+    const { container } = render(<SparkPage spark={spark} temperatureUnit="celsius" />);
+    await flush();
+    expect(container.querySelectorAll('[data-testid="models"]')).toHaveLength(1);
+    expect(container.textContent).not.toContain("Runtime launcher");
+  });
   it("is absent while the setting is off — the page is unchanged", async () => {
     const { container } = render(<SparkPage spark={makeSpark()} temperatureUnit="celsius" />);
     await flush();

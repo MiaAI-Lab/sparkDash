@@ -19,7 +19,8 @@
  */
 import { Agent, fetch as undiciFetch } from "undici";
 import { severityRank } from "./conditions.js";
-import { OutboundPolicyError, pinnedLookup, resolveChannelTarget } from "./outbound.js";
+import { pinnedLookup } from "../validate.js";
+import { OutboundPolicyError, resolveChannelTarget } from "./outbound.js";
 import { capText } from "./text.js";
 
 const DEFAULT_TIMEOUT_MS = 10_000;

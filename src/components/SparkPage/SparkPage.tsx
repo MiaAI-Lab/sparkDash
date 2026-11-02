@@ -13,6 +13,7 @@ import { NetworkPanel } from "./NetworkPanel";
 import { TailscalePanel } from "./TailscalePanel";
 import { LlmPanel } from "./LlmPanel";
 import { ComfyPanel } from "./ComfyPanel";
+import { RuntimesPanel } from "../ui/RuntimeChips";
 import { LlmModelsPanel } from "./LlmModelsPanel";
 import { RocePanel } from "./RocePanel";
 import { UnifiedMemoryPanel } from "./UnifiedMemoryPanel";
@@ -70,6 +71,7 @@ export function SparkPage({
   );
   const [showAddPort, setShowAddPort] = useState(false);
   const [newPortDraft, setNewPortDraft] = useState("");
+
   // Sync when spark data changes (WS push)
   useEffect(() => {
     setDisabledDevices(spark.disabledDevices || []);
@@ -143,9 +145,9 @@ export function SparkPage({
   // Everything on one page: hardware and services together (no sub-tabs).
   const view: SparkView = showServices ? "all" : "resources";
   const showSvc = showServices && view !== "resources";
-  // Models you start/stop with your own start.sh / stop.sh. Shown on every Spark and in every tab,
-  // so it is always easy to find (a worker may have its own scripts too).
+  // Agent Macs use verified runtime profiles; other units retain script launchers.
   const modelsPanel = <LlmModelsPanel spark={spark} />;
+  const profileModels = spark.kind === "mac" && spark.macTransport === "agent";
   const primaryPort = llmPorts[0];
   const extraPorts = llmPorts.slice(1);
   const unified = metrics.unifiedMemory;
@@ -278,10 +280,24 @@ export function SparkPage({
                 vramContext={showVramBreakdown ? vramContextFor(spark, fleet) : null}
                 sparkId={spark.id}
                 temperatureUnit={temperatureUnit}
+                mac={spark.kind === "mac"}
+                unavailable={metrics.unavailable}
                 chip={spark.hardware.gpuChip}
                 hideMemory={showUnified}
               />
             </Item>
+            {profileModels && <Item order={5}>{modelsPanel}</Item>}
+            {/* Mac agent transport only: what is actually serving, from the
+                node's own process/port inventory. */}
+            {Array.isArray(metrics.runtimes) && (
+              <Item order={6}>
+                <RuntimesPanel
+                  runtimes={metrics.runtimes}
+                  unavailable={metrics.unavailable}
+                  agentOnline={metrics.agentOnline}
+                />
+              </Item>
+            )}
             {/* Unified memory (or RAM on a dedicated host) and CPU sit side by side (they stack when the column is narrow). */}
             <Item order={2}>
               <div className="sp-pair">
@@ -291,12 +307,14 @@ export function SparkPage({
                   hardware={spark.hardware}
                   sparkId={spark.id}
                   temperatureUnit={temperatureUnit}
+                  mac={spark.kind === "mac"}
+                  unavailable={metrics.unavailable}
                 />
                 {/* Dedicated hosts have system RAM instead of a unified pool: CPU and RAM side by side.
                     A Mac's RAM is its unified pool, already shown above (RAM only when the pool is unknown). */}
-                {spark.kind === "host" && !showUnified && <RamPanel ram={metrics.ram} sparkId={spark.id} />}
+                {(spark.kind === "host" || spark.kind === "mac") && !showUnified && <RamPanel ram={metrics.ram} sparkId={spark.id} />}
                 {/* Models is the third column of the row (Windows PCs have no launchers). */}
-                {spark.platform !== "windows" && modelsPanel}
+                {!profileModels && spark.platform !== "windows" && modelsPanel}
               </div>
             </Item>
             {/* History closes the hardware column: the right column (LLM, storage, network) is
