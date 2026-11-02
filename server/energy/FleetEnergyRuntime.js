@@ -57,9 +57,17 @@ export function runFleetEnergySamplerTick({
   orderedSnapshots,
   monitors,
   now = Date.now,
+  wallReadings = null,
 }) {
   const atMs = now();
   const snapshots = orderedSnapshots();
+  // Latest fresh wall readings from external meters (cached; this never asks a meter).
+  let wall = null;
+  try {
+    wall = wallReadings?.(atMs) ?? null;
+  } catch {
+    wall = null;
+  }
   const trackerInputs = snapshots.map((snapshot) => ({
     ...snapshot,
     telemetryFresh: hasFreshPowerTelemetry(
@@ -67,6 +75,7 @@ export function runFleetEnergySamplerTick({
       monitors?.get?.(snapshot?.id),
       atMs
     ),
+    ...(wall ? { wallWatts: wall.get(snapshot?.id) ?? null } : {}),
   }));
   return tracker.record(trackerInputs, atMs);
 }
@@ -87,6 +96,14 @@ export function registerFleetEnergyRoute(app, tracker) {
       return res.status(400).json({ error: "olderThanMs must be a positive number" });
     }
     return res.json({ removed: tracker.clear({ olderThanMs }) });
+  });
+  // Remove every recorded wall-power figure (minutes and months); the estimate is kept. Meters
+  // that are still configured start recording again with a new boundary.
+  app.delete("/api/fleet-energy/wall", (req, res) => {
+    if (req.query?.confirm !== "delete-wall-power") {
+      return res.status(400).json({ error: "dropping recorded wall power needs confirm=delete-wall-power" });
+    }
+    return res.json(tracker.dropWall());
   });
   // Permanent monthly roll-up. Survives the resets above; clearing it is a separate, explicit call.
   app.get("/api/fleet-energy/monthly", (_req, res) => res.json(tracker.monthlySnapshot()));
@@ -132,6 +149,7 @@ export function createFleetEnergyRuntime({
   setIntervalFn = setInterval,
   clearIntervalFn = clearInterval,
   logError = console.error,
+  wallReadings = null,
 }) {
   let started = false;
   let stopped = false;
@@ -149,7 +167,7 @@ export function createFleetEnergyRuntime({
   const sample = () => {
     if (stopped) return;
     try {
-      runFleetEnergySamplerTick({ tracker, orderedSnapshots, monitors, now });
+      runFleetEnergySamplerTick({ tracker, orderedSnapshots, monitors, now, wallReadings });
     } catch (error) {
       reportError("fleet energy sample error", error);
     }
