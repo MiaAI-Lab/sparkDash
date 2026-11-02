@@ -722,7 +722,10 @@ test("probe: first SGLang poll seeds the prompt baseline, not a lifetime spike (
   assert.equal(snap.generationTps, 0);
 });
 
-test("probe: server_info totals stay authoritative over Prometheus counters", async () => {
+test("probe: server_info totals stay authoritative over Prometheus counters", async (t) => {
+  // Freeze the clock: the rate divides by the real elapsed ms since lastProbeTime, and
+  // scheduler jitter under load turned the exact 50 into 49.98.
+  t.mock.method(Date, "now", () => 1_800_000_000_000);
   const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 30000);
   probe.serverIsOpenAI = true;
   probe.backendType = "sglang";
