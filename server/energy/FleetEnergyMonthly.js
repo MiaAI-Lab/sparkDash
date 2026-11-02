@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { writeStateAtomically } from "./atomicWrite.js";
+import { wallMinute } from "./wallMinute.js";
 
 /**
  * Permanent monthly roll-up of fleet energy.
@@ -17,6 +18,15 @@ import { writeStateAtomically } from "./atomicWrite.js";
  *
  * A month is "closed" once its end is past the late-write grace at the time of
  * reading. There is no separate close step; the current UTC month is open.
+ *
+ * Optional series ride along as pure additions, present only once recorded:
+ *  - GPU and CPU parts of the estimate fold with the estimate, under the same watermark.
+ *  - Wall power has one fixed boundary, `wallStartMs` (see startWall). From it on, wall
+ *    minutes fold under their own watermark (`wallFoldedThroughMs`), and only once the
+ *    meter has settled a minute, because the meter's own record may still replace live
+ *    readings. Before it, the meter's hourly record is imported per hour
+ *    (`importWallHours`), never as minutes; `wallImportedFromMs` per node makes that
+ *    import idempotent. So every hour comes from exactly one of the two.
  */
 
 const FILE_VERSION = 1;
@@ -27,8 +37,13 @@ const LATE_WRITE_GRACE_MS = 10_000;
 const MAX_AHEAD_MS = 24 * 60 * 60_000;
 const MONTH_RE = /^(\d{4})-(0[1-9]|1[0-2])$/;
 
+const HOUR_MS = 60 * MINUTE_MS;
+
 const num = (v) => (Number.isFinite(v) && v >= 0 ? v : 0);
 const round3 = (v) => Math.round(v * 1000) / 1000;
+const NODE_PART_KEYS = ["gpuWh", "cpuWh", "partsCoverageMs"];
+const NODE_WALL_KEYS = ["wallWh", "wallCoverageMs", "wallMeteredMs", "wallFilledWh", "wallFilledMs"];
+const MONTH_WALL_KEYS = ["fleetWallWh", "fleetWallFilledWh", "fleetWallCoverageMs", "wallCoveredOutputTokens", "wallTokenFleetWh"];
 
 /** "2026-10" for a UTC instant. */
 export function monthKey(ms) {
@@ -60,11 +75,21 @@ function cleanMonth(raw) {
   const month = emptyMonth();
   for (const [id, node] of Object.entries(raw?.nodes ?? {})) {
     month.nodes[id] = { wh: num(node?.wh), coverageMs: num(node?.coverageMs) };
+    for (const key of [...NODE_PART_KEYS, ...NODE_WALL_KEYS]) {
+      if (node?.[key] !== undefined) month.nodes[id][key] = num(node[key]);
+    }
   }
   for (const key of ["fleetWh", "fleetCoverageMs", "outputTokens", "coveredOutputTokens", "tokenFleetWh"]) {
     month[key] = num(raw?.[key]);
   }
+  for (const key of MONTH_WALL_KEYS) {
+    if (raw?.[key] !== undefined) month[key] = num(raw[key]);
+  }
   return month;
+}
+
+function addTo(target, key, value) {
+  target[key] = (target[key] ?? 0) + value;
 }
 
 export class MonthlyEnergyArchive {
@@ -80,12 +105,70 @@ export class MonthlyEnergyArchive {
     this._writeState = writeState;
     this._months = new Map();
     this._foldedThroughMs = 0;
+    this._wallFoldedThroughMs = 0;
+    this._wallStartMs = null;
+    this._wallImportedFromMs = {};
     this._dirty = false;
     this._load();
   }
 
   get foldedThroughMs() {
     return this._foldedThroughMs;
+  }
+
+  /** Where wall minutes begin: earlier hours are imported, later minutes folded. Null until wall power starts. */
+  get wallStartMs() {
+    return this._wallStartMs;
+  }
+
+  /**
+   * Fix the wall boundary the first time wall power is recorded; later calls change nothing.
+   * @param {number} startMs  hour-aligned
+   * @returns {boolean} whether the boundary was set now
+   */
+  startWall(startMs) {
+    if (this._wallStartMs !== null || !Number.isSafeInteger(startMs) || startMs < 0 || startMs % (60 * MINUTE_MS) !== 0) return false;
+    this._wallStartMs = startMs;
+    this._wallFoldedThroughMs = Math.max(this._wallFoldedThroughMs, startMs);
+    this._dirty = true;
+    return true;
+  }
+
+  /**
+   * Remove every wall figure: the per-node and per-month wall fields, the months and nodes
+   * that held nothing else, and the wall boundary and watermarks. The estimate is untouched.
+   * @returns {number} months that held wall figures
+   */
+  dropWall() {
+    let touched = 0;
+    for (const [key, month] of this._months) {
+      let had = false;
+      for (const k of MONTH_WALL_KEYS) {
+        if (k in month) {
+          delete month[k];
+          had = true;
+        }
+      }
+      for (const [id, node] of Object.entries(month.nodes)) {
+        for (const k of NODE_WALL_KEYS) {
+          if (k in node) {
+            delete node[k];
+            had = true;
+          }
+        }
+        if (Object.keys(node).every((k) => k === "wh" || k === "coverageMs") && !node.wh && !node.coverageMs) delete month.nodes[id];
+      }
+      if (had) touched += 1;
+      const empty =
+        Object.keys(month.nodes).length === 0 &&
+        ["fleetWh", "fleetCoverageMs", "outputTokens", "coveredOutputTokens", "tokenFleetWh"].every((k) => !month[k]);
+      if (empty) this._months.delete(key);
+    }
+    this._wallFoldedThroughMs = 0;
+    this._wallStartMs = null;
+    this._wallImportedFromMs = {};
+    this._dirty = true;
+    return touched;
   }
 
   /** Start (ms) of the first minute that is no longer open to late writes at `nowMs`. */
@@ -135,17 +218,22 @@ export class MonthlyEnergyArchive {
       const coverageMs = Math.min(num(bucket.nodeCoverageMs?.[id]), MINUTE_MS);
       const energy = num(wh);
       if (energy === 0 && coverageMs === 0) continue;
-      nodes.push([id, energy, coverageMs]);
+      nodes.push([id, energy, coverageMs, bucket.parts?.[id]]);
     }
     const fleetWh = num(bucket.fleetWattMs) / 3_600_000;
     // A discarded bucket adds nothing anywhere (fleet, coverage, tokens or nodes).
     if (!(nodes.length > 0 || fleetWh > 0 || bucket.outputTokens > 0)) return false;
     const key = monthKey(start);
     const month = this._months.get(key) ?? emptyMonth();
-    for (const [id, energy, coverageMs] of nodes) {
+    for (const [id, energy, coverageMs, parts] of nodes) {
       const node = (month.nodes[id] ??= { wh: 0, coverageMs: 0 });
       node.wh += energy;
       node.coverageMs += coverageMs;
+      if (Array.isArray(parts)) {
+        addTo(node, "gpuWh", num(parts[0]));
+        addTo(node, "cpuWh", num(parts[1]));
+        addTo(node, "partsCoverageMs", Math.min(num(parts[2]), MINUTE_MS));
+      }
     }
     month.fleetWh += fleetWh;
     month.fleetCoverageMs += Math.min(num(bucket.fleetCoverageMs), MINUTE_MS);
@@ -156,6 +244,116 @@ export class MonthlyEnergyArchive {
     return true;
   }
 
+  /**
+   * Fold settled wall-power minutes (start before `settledBeforeMs`, and closed): measured
+   * for `wallNodeIds`, plus time the estimate covered without a meter, valued at estimate ×
+   * `ratios` (see wallMinute.js). Same idempotency as foldBuckets, under the wall watermark.
+   * @returns {number} minutes added
+   */
+  foldWall(
+    buckets,
+    { nowMs = this._now(), settledBeforeMs = -Infinity, nodeIds = [], wallNodeIds = nodeIds, ratios = null, trackedSinceMs = null } = {}
+  ) {
+    if (!Number.isFinite(nowMs) || nodeIds.length === 0 || wallNodeIds.length === 0 || this._wallStartMs === null) return 0;
+    const cap = MonthlyEnergyArchive.closedBefore(this._now() + MAX_AHEAD_MS);
+    const settled = Number.isFinite(settledBeforeMs)
+      ? Math.floor(settledBeforeMs / MINUTE_MS) * MINUTE_MS
+      : settledBeforeMs === Infinity ? Infinity : -Infinity;
+    const boundary = Math.min(MonthlyEnergyArchive.closedBefore(nowMs), settled, cap);
+    if (this._wallFoldedThroughMs > cap) {
+      this._wallFoldedThroughMs = Math.max(this._wallStartMs, Math.min(boundary, MonthlyEnergyArchive.closedBefore(nowMs)));
+      this._dirty = true;
+    }
+    if (!(boundary > this._wallFoldedThroughMs)) return 0;
+    const metered = new Set(wallNodeIds);
+    let folded = 0;
+    for (const bucket of buckets ?? []) {
+      const start = bucket?.minuteStartMs;
+      if (!Number.isSafeInteger(start) || start % MINUTE_MS !== 0) continue;
+      if (start < this._wallFoldedThroughMs || start >= boundary) continue;
+      const minute = wallMinute(bucket, nodeIds, metered, ratios);
+      if (!minute) continue;
+      const key = monthKey(start);
+      const month = this._months.get(key) ?? emptyMonth();
+      for (const id of nodeIds) {
+        const n = minute.nodes[id];
+        if (n.coverageMs <= 0 && n.filledMs <= 0) continue;
+        const node = (month.nodes[id] ??= { wh: 0, coverageMs: 0 });
+        addTo(node, "wallWh", num(n.wh));
+        addTo(node, "wallCoverageMs", Math.min(num(n.coverageMs), MINUTE_MS));
+        addTo(node, "wallMeteredMs", Math.min(num(n.meteredMs), MINUTE_MS));
+        addTo(node, "wallFilledWh", num(n.filledWh));
+        addTo(node, "wallFilledMs", Math.min(num(n.filledMs), MINUTE_MS));
+      }
+      if (minute.fleet) {
+        addTo(month, "fleetWallWh", minute.fleet.wh);
+        addTo(month, "fleetWallFilledWh", minute.fleet.filledWh);
+        addTo(month, "fleetWallCoverageMs", minute.fleet.coverageMs);
+        if (minute.fleet.full && trackedSinceMs !== null && start >= trackedSinceMs) {
+          addTo(month, "wallCoveredOutputTokens", Math.trunc(num(bucket.outputTokens)));
+          addTo(month, "wallTokenFleetWh", minute.fleet.wh);
+        }
+      }
+      this._months.set(key, month);
+      folded += 1;
+    }
+    if (folded > 0) {
+      this._wallFoldedThroughMs = boundary === Infinity ? MonthlyEnergyArchive.closedBefore(nowMs) : boundary;
+      this._dirty = true;
+    }
+    return folded;
+  }
+
+  /**
+   * Import a meter's hourly history for each node: hours ending at or before `beforeMs` (and
+   * never after the wall boundary, from which minutes fold instead) and before the node's
+   * earlier imports, each hour once. Hours every node in `fleetNodeIds` reported in this
+   * call also count toward the fleet figures.
+   * @param {Map<string, Array<{ startMs: number, endMs: number, meanW: number }>>} periodsByNode
+   * @returns {number} node-hours added
+   */
+  importWallHours(periodsByNode, { nodeIds = [...periodsByNode.keys()], fleetNodeIds = nodeIds, beforeMs } = {}) {
+    if (!Number.isFinite(beforeMs)) return 0;
+    const before = Math.min(beforeMs, this._wallStartMs ?? beforeMs);
+    const byHour = new Map();
+    let imported = 0;
+    for (const id of nodeIds) {
+      const previous = this._wallImportedFromMs[id];
+      const limit = Math.min(before, previous ?? before);
+      const seen = new Set();
+      let earliest = null;
+      for (const p of periodsByNode.get(id) ?? []) {
+        if (p?.endMs - p?.startMs !== HOUR_MS || p.startMs % HOUR_MS !== 0 || p.endMs > limit) continue;
+        if (!Number.isFinite(p.meanW) || p.meanW < 0 || seen.has(p.startMs)) continue;
+        seen.add(p.startMs);
+        const wh = p.meanW;
+        const month = this._months.get(monthKey(p.startMs)) ?? emptyMonth();
+        const node = (month.nodes[id] ??= { wh: 0, coverageMs: 0 });
+        addTo(node, "wallWh", wh);
+        addTo(node, "wallCoverageMs", HOUR_MS);
+        addTo(node, "wallMeteredMs", HOUR_MS);
+        this._months.set(monthKey(p.startMs), month);
+        const hour = byHour.get(p.startMs) ?? new Map();
+        hour.set(id, wh);
+        byHour.set(p.startMs, hour);
+        imported += 1;
+        if (earliest === null || p.startMs < earliest) earliest = p.startMs;
+      }
+      this._wallImportedFromMs[id] = earliest === null ? limit : Math.min(limit, earliest);
+      if (this._wallImportedFromMs[id] !== previous) this._dirty = true;
+    }
+    if (fleetNodeIds.length > 0 && fleetNodeIds.every((id) => nodeIds.includes(id))) {
+      for (const [start, hour] of byHour) {
+        if (hour.size !== fleetNodeIds.length) continue;
+        const month = this._months.get(monthKey(start));
+        addTo(month, "fleetWallWh", [...hour.values()].reduce((sum, wh) => sum + wh, 0));
+        addTo(month, "fleetWallCoverageMs", HOUR_MS);
+      }
+    }
+    if (imported > 0) this._dirty = true;
+    return imported;
+  }
+
   /** Months oldest first, with derived totals. */
   snapshot(nowMs = this._now()) {
     const months = [...this._months.entries()]
@@ -163,9 +361,16 @@ export class MonthlyEnergyArchive {
       .map(([key, m]) => {
         const [startMs, endMs] = monthRange(key);
         const nodes = Object.fromEntries(
-          Object.entries(m.nodes).map(([id, n]) => [id, { wh: round3(n.wh), coverageMs: Math.round(n.coverageMs) }])
+          Object.entries(m.nodes).map(([id, n]) => {
+            const node = { wh: round3(n.wh), coverageMs: Math.round(n.coverageMs) };
+            for (const key of [...NODE_PART_KEYS, ...NODE_WALL_KEYS]) {
+              if (n[key] !== undefined) node[key] = key.endsWith("Ms") ? Math.round(n[key]) : round3(n[key]);
+            }
+            return [id, node];
+          })
         );
         const totalWh = Object.values(m.nodes).reduce((s, n) => s + n.wh, 0);
+        const hasWall = Object.values(m.nodes).some((n) => n.wallCoverageMs > 0 || n.wallFilledMs > 0);
         return {
           month: key,
           startMs,
@@ -180,6 +385,19 @@ export class MonthlyEnergyArchive {
           coveredOutputTokens: m.coveredOutputTokens,
           whPerOutputToken:
             m.tokenFleetWh > 0 && m.coveredOutputTokens > 0 ? m.tokenFleetWh / m.coveredOutputTokens : null,
+          ...(hasWall
+            ? {
+                // Measured plus filled; totalWallFilledWh says how much was filled from the estimate.
+                totalWallWh: round3(Object.values(m.nodes).reduce((s, n) => s + (n.wallWh ?? 0) + (n.wallFilledWh ?? 0), 0)),
+                totalWallFilledWh: round3(Object.values(m.nodes).reduce((s, n) => s + (n.wallFilledWh ?? 0), 0)),
+                fleetWallWh: round3(m.fleetWallWh ?? 0),
+                fleetWallFilledWh: round3(m.fleetWallFilledWh ?? 0),
+                fleetWallCoverageMs: Math.round(m.fleetWallCoverageMs ?? 0),
+                wallCoveredOutputTokens: m.wallCoveredOutputTokens ?? 0,
+                wallWhPerOutputToken:
+                  m.wallTokenFleetWh > 0 && m.wallCoveredOutputTokens > 0 ? m.wallTokenFleetWh / m.wallCoveredOutputTokens : null,
+              }
+            : {}),
         };
       });
     return { estimated: true, generatedAt: nowMs, foldedThroughMs: this._foldedThroughMs, months };
@@ -207,6 +425,11 @@ export class MonthlyEnergyArchive {
     if (!this.filePath || !this._dirty || this._persistDisabled) return false;
     const months = Object.fromEntries([...this._months.entries()].sort(([a], [b]) => (a < b ? -1 : 1)));
     const state = { version: FILE_VERSION, savedAt: this._now(), foldedThroughMs: this._foldedThroughMs, months };
+    if (this._wallStartMs !== null || Object.keys(this._wallImportedFromMs).length > 0) {
+      state.wallStartMs = this._wallStartMs;
+      state.wallFoldedThroughMs = this._wallFoldedThroughMs;
+      state.wallImportedFromMs = this._wallImportedFromMs;
+    }
     this._writeState(this.filePath, `${JSON.stringify(state)}\n`, this._fs);
     this._dirty = false;
     return true;
@@ -238,6 +461,19 @@ export class MonthlyEnergyArchive {
     }
     for (const [key, value] of Object.entries(raw.months)) {
       if (monthRange(key)) this._months.set(key, cleanMonth(value));
+    }
+    if (Number.isSafeInteger(raw.wallFoldedThroughMs) && raw.wallFoldedThroughMs >= 0) {
+      const cap = MonthlyEnergyArchive.closedBefore(this._now() + MAX_AHEAD_MS);
+      this._wallFoldedThroughMs = Math.min(raw.wallFoldedThroughMs, cap);
+    }
+    if (Number.isSafeInteger(raw.wallStartMs) && raw.wallStartMs >= 0 && raw.wallStartMs % (60 * MINUTE_MS) === 0) {
+      this._wallStartMs = raw.wallStartMs;
+      this._wallFoldedThroughMs = Math.max(this._wallFoldedThroughMs, raw.wallStartMs);
+    }
+    if (raw.wallImportedFromMs && typeof raw.wallImportedFromMs === "object") {
+      for (const [id, ms] of Object.entries(raw.wallImportedFromMs)) {
+        if (Number.isSafeInteger(ms) && ms >= 0) this._wallImportedFromMs[id] = ms;
+      }
     }
     if (Number.isSafeInteger(raw.foldedThroughMs) && raw.foldedThroughMs >= 0) {
       this._foldedThroughMs = raw.foldedThroughMs;

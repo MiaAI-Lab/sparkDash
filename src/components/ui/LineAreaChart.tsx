@@ -11,8 +11,18 @@ export interface LinePoint {
   value: number | null;
 }
 
+/** An extra series drawn as a plain line over the area, one value per point (null = gap). */
+export interface LineOverlay {
+  id: string;
+  label: string;
+  color: string;
+  values: ReadonlyArray<number | null>;
+}
+
 interface LineAreaChartProps {
   points: readonly LinePoint[];
+  /** Optional lines over the area, sharing its axis; listed in the hover read-out. */
+  overlays?: readonly LineOverlay[];
   color?: string;
   height?: number;
   format: (value: number) => string;
@@ -23,9 +33,10 @@ interface LineAreaChartProps {
 
 const PAD = { l: 44, r: 10, t: 10, b: 24 };
 
-/** Single-series area chart with gaps for missing data, nice axis and a hover read-out. */
+/** Area chart (plus optional overlay lines) with gaps for missing data, nice axis and a hover read-out. */
 export function LineAreaChart({
   points,
+  overlays = [],
   color = "var(--color-accent)",
   height = 200,
   format,
@@ -37,7 +48,11 @@ export function LineAreaChart({
   const [ref, width] = useElementWidth();
   const [hover, setHover] = useState<number | null>(null);
   const values = points.map((p) => p.value);
-  const max = Math.max(0, ...values.filter((v): v is number => v != null));
+  const max = Math.max(
+    0,
+    ...values.filter((v): v is number => v != null),
+    ...overlays.flatMap((o) => o.values.filter((v): v is number => v != null))
+  );
   const scale = useMemo(() => niceScale(max), [max]);
   const iw = width - PAD.l - PAD.r;
   const ih = height - PAD.t - PAD.b;
@@ -47,15 +62,19 @@ export function LineAreaChart({
   const labels = useMemo(() => new Set(labelIndexes(n, iw)), [n, iw]);
 
   // Split into runs of consecutive non-null points so gaps are drawn as gaps.
-  const runs: { i: number; v: number }[][] = [];
-  let cur: { i: number; v: number }[] = [];
-  values.forEach((v, i) => {
-    if (v == null) {
-      if (cur.length) runs.push(cur);
-      cur = [];
-    } else cur.push({ i, v });
-  });
-  if (cur.length) runs.push(cur);
+  const toRuns = (series: ReadonlyArray<number | null>) => {
+    const out: { i: number; v: number }[][] = [];
+    let cur: { i: number; v: number }[] = [];
+    series.forEach((v, i) => {
+      if (v == null) {
+        if (cur.length) out.push(cur);
+        cur = [];
+      } else cur.push({ i, v });
+    });
+    if (cur.length) out.push(cur);
+    return out;
+  };
+  const runs = toRuns(values);
   const line = (run: { i: number; v: number }[]) => run.map((p, k) => `${k ? "L" : "M"}${x(p.i).toFixed(1)} ${y(p.v).toFixed(1)}`).join(" ");
   const hovered = hover != null ? points[hover] : null;
 
@@ -84,6 +103,22 @@ export function LineAreaChart({
             </g>
           ) : (
             <circle key={k} cx={x(run[0].i)} cy={y(run[0].v)} r="2.5" fill={color} />
+          )
+        )}
+        {overlays.map((o) =>
+          toRuns(o.values).map((run, k) =>
+            run.length > 1 ? (
+              <path
+                key={`${o.id}-${k}`}
+                d={line(run)}
+                fill="none"
+                stroke={o.color}
+                strokeWidth="1.5"
+                strokeLinejoin="round"
+              />
+            ) : (
+              <circle key={`${o.id}-${k}`} cx={x(run[0].i)} cy={y(run[0].v)} r="2" fill={o.color} />
+            )
           )
         )}
         {hover != null && points[hover].value != null ? (
@@ -118,6 +153,15 @@ export function LineAreaChart({
           <span className="chart__tip-total">
             {hovered.value == null ? "No data" : <em>{format(hovered.value)}{unit ? ` ${unit}` : ""}</em>}
           </span>
+          {overlays.map((o) => {
+            const v = o.values[hover!];
+            return (
+              <span key={o.id} className="chart__tip-row">
+                <i style={{ background: o.color }} aria-hidden="true" />
+                {o.label}: {v == null ? "—" : `${format(v)}${unit ? ` ${unit}` : ""}`}
+              </span>
+            );
+          })}
         </div>
       ) : null}
     </div>

@@ -14,6 +14,8 @@ function statusError(status, message) {
 /**
  * GET a helper URL using only the addresses already approved by assertAllowedTarget.
  * Redirects are rejected. The hostname is used for Host/SNI; DNS is not consulted again.
+ * Other callers name themselves with `label` (errors read "<label> request timed out", …), and
+ * with `allowErrorStatus` get a non-2xx answer back as `{ status, body }` instead of an error.
  *
  * @param {URL|string} target
  * @param {{
@@ -22,17 +24,20 @@ function statusError(status, message) {
  *   timeoutMs?: number,
  *   maxBytes?: number,
  *   signal?: AbortSignal,
+ *   label?: string,
+ *   allowErrorStatus?: boolean,
  * }} opts
  */
 export function fetchPinned(target, opts) {
   const parsed = typeof target === "string" ? new URL(target) : target;
+  const label = opts.label ?? "Helper";
   const addresses = [...new Set((opts.addresses || []).map((item) => String(item || "").trim()).filter(Boolean))];
   if (addresses.length === 0) {
-    return Promise.reject(statusError(400, "Helper target resolved to no addresses"));
+    return Promise.reject(statusError(400, `${label} target resolved to no addresses`));
   }
   const address = addresses[0];
   if (net.isIP(address) === 0) {
-    return Promise.reject(statusError(400, "Pinned helper address is not an IP"));
+    return Promise.reject(statusError(400, opts.label ? `Pinned ${label} address is not an IP` : "Pinned helper address is not an IP"));
   }
   const lib = parsed.protocol === "https:" ? https : http;
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -41,13 +46,13 @@ export function fetchPinned(target, opts) {
 
   return new Promise((resolve, reject) => {
     if (opts.signal?.aborted) {
-      reject(statusError(499, "Helper request aborted"));
+      reject(statusError(499, `${label} request aborted`));
       return;
     }
     let settled = false;
     let response = null;
     let deadline;
-    const onAbort = () => finish(statusError(499, "Helper request aborted"));
+    const onAbort = () => finish(statusError(499, `${label} request aborted`));
     function finish(err, value) {
       if (settled) return;
       settled = true;
@@ -56,7 +61,8 @@ export function fetchPinned(target, opts) {
       if (err) {
         response?.destroy();
         req.destroy();
-        reject(err?.status ? err : statusError(502, "Helper request failed"));
+        // The underlying error (a TLS code, say) stays available as `cause`.
+        reject(err?.status ? err : Object.assign(statusError(502, `${label} request failed`), { cause: err }));
       } else resolve(value);
     }
     const req = lib.request(
@@ -82,9 +88,9 @@ export function fetchPinned(target, opts) {
       (res) => {
         response = res;
         res.on("error", (err) => finish(err));
-        res.on("aborted", () => finish(statusError(502, "Helper response was interrupted")));
+        res.on("aborted", () => finish(statusError(502, `${label} response was interrupted`)));
         res.on("close", () => {
-          if (!res.complete) finish(statusError(502, "Helper response was interrupted"));
+          if (!res.complete) finish(statusError(502, `${label} response was interrupted`));
         });
         if (settled) {
           res.destroy();
@@ -92,7 +98,7 @@ export function fetchPinned(target, opts) {
         }
         const code = res.statusCode || 0;
         if (code >= 300 && code < 400) {
-          finish(statusError(403, "Helper redirects are not followed"));
+          finish(statusError(403, `${label} redirects are not followed`));
           return;
         }
         const chunks = [];
@@ -101,29 +107,29 @@ export function fetchPinned(target, opts) {
           if (settled) return;
           received += chunk.length;
           if (received > maxBytes) {
-            finish(statusError(502, "Helper response exceeded the size cap"));
+            finish(statusError(502, `${label} response exceeded the size cap`));
             return;
           }
           chunks.push(chunk);
         });
         res.on("end", () => {
           if (settled) return;
-          if (code < 200 || code >= 300) {
+          if ((code < 200 || code >= 300) && !opts.allowErrorStatus) {
             // Helper 401 must not open the dashboard access-token dialog.
-            finish(statusError(502, `Helper answered HTTP ${code}`));
+            finish(statusError(502, `${label} answered HTTP ${code}`));
             return;
           }
           finish(null, { status: code, body: Buffer.concat(chunks).toString("utf8") });
         });
       }
     );
-    req.on("timeout", () => finish(statusError(504, "Helper request timed out")));
+    req.on("timeout", () => finish(statusError(504, `${label} request timed out`)));
     req.on("error", (err) => {
       if (err?.code === "ABORT_ERR" || opts.signal?.aborted) onAbort();
       else finish(err);
     });
     // Socket inactivity alone does not bound a peer that trickles bytes forever.
-    deadline = setTimeout(() => finish(statusError(504, "Helper request timed out")), timeoutMs);
+    deadline = setTimeout(() => finish(statusError(504, `${label} request timed out`)), timeoutMs);
     opts.signal?.addEventListener("abort", onAbort, { once: true });
     req.end();
   });
