@@ -39,7 +39,7 @@ const TENSORFOLD_CACHED_PROMPT_COUNTERS = [
   "prefix_cache_hits_total",
 ];
 /** owned_by values that are exactly an engine's own name (each is also its backend type). */
-const OWNED_BY_ENGINES = new Set(["locals", "splash", "tensorfold", "ds4", "sglang", "exl3", "q27", "freetoken", "radiance"]);
+const OWNED_BY_ENGINES = new Set(["locals", "splash", "tensorfold", "ds4", "sglang", "exl3", "q27", "freetoken", "radiance", "ninfer"]);
 /** Current SGLang names first. Deprecated aliases still work but log a warning per hit. */
 const SGLANG_SERVER_INFO_PATHS = ["/server_info", "/get_server_info"];
 const SGLANG_MODEL_INFO_PATHS = ["/model_info", "/get_model_info"];
@@ -126,7 +126,7 @@ export class LlmProbe {
     this._openTunnel = openSshLlmTunnel;
 
     // State
-    this.backendType = null; // 'vllm' | 'llama.cpp' | 'sglang' | 'lmstudio' | 'ollama' | 'ds4' | 'exl3' | 'q27' | 'tensorfold' | 'freetoken' | 'radiance' | 'strata' | 'flare' | null
+    this.backendType = null; // 'vllm' | 'llama.cpp' | 'sglang' | 'lmstudio' | 'ollama' | 'ds4' | 'exl3' | 'q27' | 'tensorfold' | 'ninfer' | 'freetoken' | 'radiance' | 'strata' | 'flare' | null
     this.serverIsOpenAI = null; // true = OpenAI-compatible
     /** Whether /v1/models (or /slots) answered without credentials. null = unknown. */
     this.authOpen = null;
@@ -165,6 +165,14 @@ export class LlmProbe {
     this._tensorfoldLastPrefill = null;
     /** Previous TensorFold /metrics `generation_tokens_total + generation_tokens_running`. */
     this._tensorfoldPromProduced = null;
+    /** Previous ninfer /metrics `ninfer_generation_tokens_total` (cumulative output tokens). */
+    this._ninferPrevGen = null;
+    /** Previous ninfer prefill window: prompt/cached/computed tokens and the prefill-time histogram sum. */
+    this._ninferPrevPrefillSum = null;
+    this._ninferPrevPrefillCount = null;
+    this._ninferPrevPrompt = null;
+    this._ninferPrevCached = null;
+    this._ninferPrevComputed = null;
     /**
      * Average decode tok/s of ONE stream (TensorFold): 1 / mean seconds per
      * output token over the last poll window, from the server's own TPOT
@@ -535,6 +543,12 @@ export class LlmProbe {
     this._tensorfoldPrevCached = null;
     this._tensorfoldLastPrefill = null;
     this._tensorfoldPromProduced = null;
+    this._ninferPrevGen = null;
+    this._ninferPrevPrefillSum = null;
+    this._ninferPrevPrefillCount = null;
+    this._ninferPrevPrompt = null;
+    this._ninferPrevCached = null;
+    this._ninferPrevComputed = null;
     this.perStreamTps = null;
     this._tensorfoldTpotCount = null;
     this._tensorfoldTpotSum = null;
@@ -708,6 +722,8 @@ export class LlmProbe {
       if (/splash/i.test(ownedBy)) return "splash";
       // TensorFold (ashhart/TensorFold) reports owned_by: "tensorfold" on both MLX and CUDA servers.
       if (/tensorfold/i.test(ownedBy)) return "tensorfold";
+      // ninfer reports owned_by: "ninfer" and serves ninfer_* Prometheus series on /metrics.
+      if (/ninfer/i.test(ownedBy)) return "ninfer";
       // FreeToken reports owned_by: "FreeToken".
       if (/freetoken/i.test(ownedBy)) return "freetoken";
       // Radiance (native RDNA engine) reports owned_by: "radiance" and serves vLLM-format /metrics.
@@ -977,6 +993,8 @@ export class LlmProbe {
         this.backendType = "exl3";
       } else if (/tensorfold/i.test(owned) && this.backendType !== "ds4") {
         this.backendType = "tensorfold";
+      } else if (/ninfer/i.test(owned) && this.backendType !== "ds4") {
+        this.backendType = "ninfer";
       } else if (/freetoken/i.test(owned) && this.backendType !== "ds4") {
         this.backendType = "freetoken";
       } else if (/radiance/i.test(owned) && this.backendType !== "ds4") {
@@ -1019,6 +1037,13 @@ export class LlmProbe {
     // Engine pool sizes: only SGLang and vLLM report them, and they re-read
     // them every poll below, so a size never outlives the payload it came from.
     this._clearEngineMemory();
+
+    // ninfer: Prometheus-only engine. /metrics carries cumulative generation tokens,
+    // per-pool KV-cache ratios and spec-decode draft/accepted counters per position.
+    if (this.backendType === "ninfer") {
+      await this._applyNinferMetrics(dtSec);
+      return this._getSnapshot();
+    }
 
     // TensorFold: no Prometheus. /health carries cumulative token totals when the
     // server publishes them; without them tok/s stays 0 rather than guessing.
@@ -2058,6 +2083,139 @@ export class LlmProbe {
       this.requestsRunning = Math.round(conns);
       this.slotsActive = Math.round(conns);
     }
+  }
+
+  /**
+   * ninfer: Prometheus-only engine (/metrics). Reads cumulative output tokens for the
+   * live tok/s rate, per-pool KV-cache usage, spec-decode acceptance per position, and
+   * the inter-token-latency histogram when the build exports buckets.
+   * @param {number} dtSec seconds since the previous poll
+   */
+  async _applyNinferMetrics(dtSec) {
+    let txt;
+    try {
+      const res = await this._fetch(`${this.baseUrl}/metrics`);
+      if (!res.ok) return;
+      txt = await res.text();
+    } catch {
+      return;
+    }
+    if (typeof txt !== "string" || !txt.includes("ninfer_")) return;
+
+    // Cumulative output tokens → total + live rate (counter diff).
+    const gen = this._getPromMetric(txt, "ninfer_generation_tokens_total");
+    if (Number.isFinite(gen) && gen >= 0) {
+      this.totalOutputTokens = gen;
+      this.lastTokenCounts.output = gen;
+      const prev = this._ninferPrevGen;
+      if (dtSec > 0 && prev != null && gen >= prev) {
+        this.generationTps = Math.round(((gen - prev) / dtSec) * 100) / 100;
+      } else {
+        this.generationTps = 0;
+      }
+      this._ninferPrevGen = gen;
+    }
+
+    // KV-cache usage is reported per pool; the text pool is the one that reflects
+    // the served sequence cache, mtp is the spec-decode draft cache.
+    const kvText = this._getPromMetricLabeled(txt, "ninfer_kv_cache_usage_ratio", "pool", "text");
+    const kvMtp = this._getPromMetricLabeled(txt, "ninfer_kv_cache_usage_ratio", "pool", "mtp");
+    if (Number.isFinite(kvText)) this.kvCacheUsage = Math.min(1, Math.max(0, kvText));
+    else if (Number.isFinite(kvMtp)) this.kvCacheUsage = Math.min(1, Math.max(0, kvMtp));
+
+    // Spec-decode acceptance: accepted / drafted across every reported position.
+    let drafted = 0;
+    let accepted = 0;
+    let anyPosition = false;
+    for (let pos = 1; pos <= 16; pos += 1) {
+      const d = this._getPromMetricLabeled(
+        txt,
+        "ninfer_spec_decode_draft_tokens_per_pos_total",
+        "position",
+        String(pos)
+      );
+      const a = this._getPromMetricLabeled(
+        txt,
+        "ninfer_spec_decode_accepted_tokens_per_pos_total",
+        "position",
+        String(pos)
+      );
+      if (Number.isFinite(d)) {
+        drafted += d;
+        anyPosition = true;
+      }
+      if (Number.isFinite(a)) accepted += a;
+    }
+    this.mtpAcceptanceRate =
+      anyPosition && drafted > 0 ? Math.round((accepted / drafted) * 10000) / 10000 : null;
+
+    // Inter-token latency p95 when the build exports histogram buckets.
+    const itlHist = this._parseHistogram(txt, "ninfer_inter_token_latency_seconds", "ninfer_inter_token_latency_seconds_count");
+    const itlP95 = this._histogramQuantile(itlHist.buckets, itlHist.total, 0.95);
+    this.itlP95Seconds = itlP95 == null ? null : Math.round(itlP95 * 1000) / 1000;
+
+    // Prompt accounting: all input tokens (including prefix-cache hits), the cached
+    // share, and the computed (uncached) prefill tokens the engine actually processed.
+    const prompt = this._getPromMetric(txt, "ninfer_prompt_tokens_total");
+    const cached = this._getPromMetric(txt, "ninfer_prompt_tokens_cached_total");
+    const computedPrefill = this._getPromMetric(txt, "ninfer_prefill_tokens_total");
+    if (Number.isFinite(prompt) && prompt >= 0) {
+      this.totalPromptTokens = prompt;
+      this.lastTokenCounts.input = prompt;
+    }
+    if (Number.isFinite(cached) && cached >= 0) {
+      this.totalCachedTokens = Number.isFinite(prompt) ? Math.min(cached, prompt) : cached;
+    }
+
+    // Prefill rate uses the per-request prefill-time histogram as the denominator:
+    // prompt tokens include prefix-cache hits, so a computed-only numerator can look
+    // flat while prefill traffic is heavy. Split cached vs computed over that window.
+    const pfSum = this._getPromMetric(txt, "ninfer_request_prefill_time_seconds_sum");
+    const pfCount = this._getPromMetric(txt, "ninfer_request_prefill_time_seconds_count");
+    if (dtSec > 0 && Number.isFinite(pfSum) && this._ninferPrevPrefillSum != null) {
+      const dPrefillSeconds = pfSum - this._ninferPrevPrefillSum;
+      const dPrompt = Number.isFinite(prompt) && this._ninferPrevPrompt != null ? prompt - this._ninferPrevPrompt : null;
+      const dCached = Number.isFinite(cached) && this._ninferPrevCached != null ? cached - this._ninferPrevCached : null;
+      const dComputed =
+        Number.isFinite(computedPrefill) && this._ninferPrevComputed != null
+          ? computedPrefill - this._ninferPrevComputed
+          : null;
+      if (dPrefillSeconds > 0) {
+        const perSecond = (n) => Math.max(0, Math.round((n / dPrefillSeconds) * 100) / 100);
+        // Headline is the COMPUTED prefill rate: prompt tokens are mostly prefix-cache
+        // hits (83-98% on this fleet), so dividing all input by prefill time reports a
+        // cache-ingestion rate that swings with hit ratio and reads absurd on a 5090.
+        // The cached share stays visible as its own series.
+        if (dComputed != null && dComputed >= 0) {
+          this.prefillTps = perSecond(dComputed);
+          this.uncachedPrefillTps = this.prefillTps;
+        } else if (dPrompt != null && dPrompt >= 0) {
+          this.prefillTps = perSecond(dPrompt);
+        }
+        if (dCached != null && dCached >= 0) this.cachedPrefillTps = perSecond(dCached);
+        this.prefillActive = true;
+      } else {
+        // No prefill work finished in this window: idle, not a zero rate to display.
+        this.prefillTps = 0;
+        this.cachedPrefillTps = 0;
+        this.uncachedPrefillTps = 0;
+        this.prefillActive = false;
+      }
+    }
+    if (Number.isFinite(pfSum)) this._ninferPrevPrefillSum = pfSum;
+    if (Number.isFinite(pfCount)) this._ninferPrevPrefillCount = pfCount;
+    if (Number.isFinite(prompt)) this._ninferPrevPrompt = prompt;
+    if (Number.isFinite(cached)) this._ninferPrevCached = cached;
+    if (Number.isFinite(computedPrefill)) this._ninferPrevComputed = computedPrefill;
+
+    // Time to first token p95 (same histogram shape as the inter-token latency).
+    const ttftHist = this._parseHistogram(
+      txt,
+      "ninfer_time_to_first_token_seconds",
+      "ninfer_time_to_first_token_seconds_count"
+    );
+    const ttftP95 = this._histogramQuantile(ttftHist.buckets, ttftHist.total, 0.95);
+    this.ttftP95Seconds = ttftP95 == null ? null : Math.round(ttftP95 * 1000) / 1000;
   }
 
   /**
