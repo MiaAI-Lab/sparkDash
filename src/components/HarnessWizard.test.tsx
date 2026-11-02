@@ -44,7 +44,7 @@ describe("HarnessWizard", () => {
       ok: true,
       observedAt: 1,
       rowCount: 3,
-      adapters: { opencode: { coverage: "supported", stale: false, rows: 3, error: null } },
+      adapters: { opencode: { coverage: "supported", stale: false, rows: 3, dropped: 0, error: null } },
     });
     vi.mocked(deleteOccupancyHelper).mockResolvedValue({ helpers: [] });
   });

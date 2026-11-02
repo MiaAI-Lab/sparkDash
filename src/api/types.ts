@@ -1063,6 +1063,8 @@ export interface OccupancyAdapterSummary {
   coverage: "supported" | "unsupported" | "unavailable" | "partial" | string;
   stale: boolean;
   rows: number;
+  /** Rows this adapter lost to the shared 500-row budget; 0 means all were included. */
+  dropped: number;
   error: string | null;
 }
 
