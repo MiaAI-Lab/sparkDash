@@ -10,6 +10,7 @@ import {
   monthNodeRows,
   monthOptions,
   nodeColors,
+  type YearBar,
   yearBars,
   yearOptions,
   yearTotalKwh,
@@ -227,6 +228,11 @@ function YearView({
         height={220}
         format={formatKwh}
         unit="kWh"
+        footer={(bucket) => {
+          // The year aggregate above is the only money in this view; give each month its own.
+          const bar = bucket as YearBar;
+          return price != null && bar.kwh > 0 ? `≈ ${formatMoney(bar.kwh * price, currency)}` : null;
+        }}
         empty={`No energy recorded in ${year}.`}
         ariaLabel={`Energy in kWh per month, ${year}`}
       />
