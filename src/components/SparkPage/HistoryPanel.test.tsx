@@ -219,7 +219,7 @@ describe("HistoryPanel", () => {
     expect(mem.textContent).toContain("low 2.0 GB");
   });
 
-  it("adds a RAM chart on a host, next to the Mac's unified free-memory chart", async () => {
+  it("adds a RAM chart on a discrete host, but not on a Mac, whose RAM is the unified pool", async () => {
     const withRam = data();
     withRam.points = withRam.points.map((p) => ({ ...p, ramUsedMB: { avg: 40_000, max: 41_000 } }));
     fetchHistory.mockResolvedValue(withRam);
@@ -227,11 +227,10 @@ describe("HistoryPanel", () => {
     await flush();
     expect(chart(linux.container, "ramUsed").textContent).toContain("RAM used");
 
-    // A Mac's RAM is the unified pool, so the free chart reads unified; the host RAM chart
-    // (the pool's system side over time) still renders alongside it.
+    // A Mac's RAM is the unified pool charted above, so only a discrete host gets the RAM chart.
     const mac = render(<HistoryPanel sparkId="m" kind="host" platform="darwin" temperatureUnit="celsius" />);
     await flush();
-    expect(chart(mac.container, "ramUsed").textContent).toContain("RAM used");
+    expect(mac.container.querySelector('[data-chart="ramUsed"]')).toBeNull();
     expect(chart(mac.container, "memFree").textContent).toContain("Memory free (unified)");
   });
 
