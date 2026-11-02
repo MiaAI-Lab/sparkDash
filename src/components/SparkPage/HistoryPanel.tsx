@@ -116,6 +116,18 @@ function aligned<P extends { t: number }>(
 
 const hasAny = (values: ReadonlyArray<HistoryStat | null>) => values.some(Boolean);
 
+/**
+ * Domain rank for the small multiples: hardware first, then the per-port LLM charts, then
+ * system/IO. The charts are built in metric order, so the rank is applied as a stable sort at
+ * the end: a new chart joins its domain without reordering every push site.
+ */
+const SYSTEM_CHART_IDS = new Set(["ramUsed", "network"]);
+
+function chartDomain(id: string): number {
+  if (id.startsWith("llm-")) return 1;
+  return SYSTEM_CHART_IDS.has(id) ? 2 : 0;
+}
+
 function buildCharts(
   data: MetricsHistoryData,
   timeline: readonly number[],
@@ -238,7 +250,8 @@ function buildCharts(
       });
     }
   }
-  return charts;
+  // Stable sort: within a domain the metric order above is kept.
+  return charts.sort((a, b) => chartDomain(a.id) - chartDomain(b.id));
 }
 
 /**
