@@ -473,7 +473,7 @@ export interface LlmMetrics {
   measurementValid?: boolean;
   /** Why the last poll's stats could not be read; null while they can. */
   measurementError?: string | null;
-  backend: "vllm" | "llama.cpp" | "sglang" | "lmstudio" | "ollama" | "ds4" | "exl3" | "q27" | "tensorfold" | "freetoken" | "radiance" | "strata" | "flare" | "locals" | "splash" | "omlx" | null;
+  backend: "vllm" | "mlx-serve" | "llama.cpp" | "sglang" | "lmstudio" | "ollama" | "ds4" | "exl3" | "q27" | "tensorfold" | "freetoken" | "radiance" | "strata" | "flare" | "locals" | "splash" | "omlx" | null;
   /** How the monitor reaches the engine: its own address, or an SSH forward when only SSH gets there. */
   via?: "direct" | "ssh-tunnel";
   modelId: string | null;
@@ -553,7 +553,7 @@ export interface LlmMetrics {
   ttftSeconds?: number | null;
   /** vLLM cumulative preemption count. null when unavailable. */
   preemptionsTotal?: number | null;
-  /** vLLM prefix-cache hit rate (hits/queries, 0–1). null when unavailable. */
+  /** Prefix-cache hit ratio (hits/queries, 0–1); mlx-serve counts requests, not tokens. null when unavailable. */
   prefixCacheHitRate?: number | null;
   /** vLLM end-to-end request latency p95 in seconds. null when unavailable. */
   e2eP95Seconds?: number | null;

@@ -7,6 +7,12 @@
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "../index.css";
+import "../styles/shell.css";
+import "../styles/spark.css";
+import "../styles/overview.css";
+import "../styles/tokens.css";
+import { SparkCard } from "../components/OverviewPage/SparkCard";
+import { makeSpark } from "./fixtures";
 import { LlmPanel } from "../components/SparkPage/LlmPanel";
 import type { ConversationRow, LlmMetrics } from "../api/types";
 import {
@@ -31,7 +37,7 @@ const LONG_MODEL_ID =
 const RANGES = new Set(["all", "today", "7d", "14d", "30d"]);
 const PREVIEW_ONLY = "Preview only — no live requests";
 
-type PreviewState = "active" | "idle" | "unavailable";
+type PreviewState = "active" | "idle" | "unavailable" | "unknown" | "prefilling";
 type Theme = "dark" | "light" | "white" | "oled";
 
 function installPreviewFetch(now: number) {
@@ -70,7 +76,24 @@ function deepseekFor(state: PreviewState, now: number, longName: boolean): LlmMe
       : state === "unavailable"
         ? makeDeepSeekUnavailable(now)
         : makeDeepSeekActive(now);
-  return longName ? { ...base, modelId: LONG_MODEL_ID } : base;
+  const native = new URLSearchParams(window.location.search).get("backend") === "mlx-serve";
+  const model = native ? { ...base, backend: "mlx-serve" as const,
+    modelId: "DeepSeek-V4.1-Flash", contextLength: 500_000,
+    requestsRunning: state === "active" ? 2 : state === "idle" ? 0 : null,
+    requestsWaiting: state === "active" ? 1 : state === "idle" ? 0 : null,
+    cachedPrefillTps: null, uncachedPrefillTps: null,
+    prefixCacheHitRate: state === "unavailable" ? null : 0.75,
+  } : base;
+  const observed = native && state === "unknown" ? { ...model,
+    status: "active" as const, generationTps: null, prefillTps: null,
+    requestsRunning: 1, requestsWaiting: 0, prefillActive: false, decodeActive: false,
+  } : model;
+  const presented = native && state === "prefilling" ? { ...observed,
+    status: "active" as const, generationTps: 0, prefillTps: 1000,
+    uncachedPrefillTps: 1000, cachedPrefillTps: null,
+    requestsRunning: 1, requestsWaiting: 0, prefillActive: true, decodeActive: false,
+  } : observed;
+  return longName ? { ...presented, modelId: LONG_MODEL_ID } : presented;
 }
 
 function PreviewApp({ now }: { now: number }) {
@@ -88,6 +111,12 @@ function PreviewApp({ now }: { now: number }) {
   const sessions: ConversationRow[] = populated ? makeSessionRows(now) : [];
   const openHarness = () => setNote("Harness wizard is disabled in the layout preview.");
   const laneClass = narrow ? undefined : "md:col-span-2";
+  const native = new URLSearchParams(window.location.search).get("backend") === "mlx-serve";
+  const overview = makeSpark(LLM_PREVIEW_SPARK_ID);
+  overview.name = "Synthetic mlx-serve unit";
+  overview.llmPort = DEEPSEEK_PORT;
+  overview.llmPorts = [DEEPSEEK_PORT];
+  overview.metrics.llm = [deepseekFor(state, now, longName)];
 
   return (
     <main
@@ -113,6 +142,8 @@ function PreviewApp({ now }: { now: number }) {
             <option value="active">Active</option>
             <option value="idle">Idle</option>
             <option value="unavailable">Unavailable</option>
+            {native && <option value="unknown">Active, rates unknown</option>}
+            {native && <option value="prefilling">Computed prefill, cache rate unknown</option>}
           </select>
         </label>
         <label>
@@ -138,6 +169,10 @@ function PreviewApp({ now }: { now: number }) {
         </label>
       </div>
       {note && <p style={{ margin: 0, fontSize: 12 }}>{note}</p>}
+      {native && <section className="ov" aria-label="Overview card preview" style={{ maxWidth: 400 }}>
+        <SparkCard spark={overview} temperatureUnit="celsius"
+          onSelect={() => setNote("Selected synthetic mlx-serve unit; detail card is below.")} />
+      </section>}
       <div
         className="spark-page grid grid-cols-1 md:grid-cols-2"
         style={{

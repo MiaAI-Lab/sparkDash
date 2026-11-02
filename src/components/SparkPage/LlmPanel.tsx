@@ -602,6 +602,7 @@ export function LlmPanel({
   const generationTps = llm?.generationTps ?? 0;
   const prefillTps = llm?.prefillTps ?? 0;
   const isStrata = llm?.backend === "strata";
+  const isMlxServe = llm?.backend === "mlx-serve";
   const showPrefillSplit = llm?.cachedPrefillTps != null || llm?.uncachedPrefillTps != null;
   const cachedPrefillTps = llm?.cachedPrefillTps ?? null;
   const uncachedPrefillTps = llm?.uncachedPrefillTps ?? null;
@@ -625,7 +626,7 @@ export function LlmPanel({
   // The endpoint answered but its stats could not be read: show no rate rather than 0.
   const measured = llm?.measurementValid !== false;
   // While nothing is flowing, say when the endpoint last served.
-  const idleNote = available && measured && isLlmIdle({ generationTps, prefillTps, prefillActive: llm?.prefillActive, decodeActive: llm?.decodeActive })
+  const idleNote = available && measured && (!isMlxServe || status === "idle") && isLlmIdle({ generationTps, prefillTps, prefillActive: llm?.prefillActive, decodeActive: llm?.decodeActive })
     ? idleLabel(llm?.lastActiveAt)
     : null;
 
@@ -722,7 +723,7 @@ export function LlmPanel({
   const isVllm = llm != null && (llm.backend === "vllm" || llm.backend === "q27" || llm.backend === "radiance" || llm.backend === "flare" || llm.backend === "locals" || llm.backend === "splash");
   // FreeToken reports KV use, active requests and a TTFT mean in /v1/stats; the tiles below are null-gated.
   const isFreeToken = llm?.backend === "freetoken";
-  const showEngineTiles = isVllm || isFreeToken || isStrata;
+  const showEngineTiles = isVllm || isFreeToken || isStrata || llm?.backend === "mlx-serve";
   const kvTone =
     llm?.kvCacheUsage == null
       ? ""
@@ -1015,7 +1016,7 @@ export function LlmPanel({
                   >
                     <span className="eyebrow">Decode</span>
                     <div className="big-num sp-big-lg">
-                      {!measured ? (
+                      {!measured || (isMlxServe && llm?.generationTps == null) ? (
                         <span title={llm?.measurementError ?? undefined}>—</span>
                       ) : isStrata && llm?.decodeActive && generationTps <= 0 ? (
                         <>
@@ -1030,7 +1031,7 @@ export function LlmPanel({
                       )}
                     </div>
                     <TrendLine data={genHistory} height={44} color="var(--color-accent)" />
-                    {genAvg != null && <AvgVsLive avg={genAvg} live={generationTps} />}
+                    {genAvg != null && <AvgVsLive avg={genAvg} live={isMlxServe ? llm?.generationTps : generationTps} />}
                     {isStrata && llm?.generationTpsSource === "slot-mean" && <span className="sp-avg">active-slot mean</span>}
                     {measured && llm?.perStreamTps != null && (
                       <span
@@ -1056,6 +1057,8 @@ export function LlmPanel({
                     title={
                       isStrata
                         ? "Engine-reported mean for computed/new prompt tokens. It may be from an earlier prefill and is not an aggregate across slots."
+                        : llm?.backend === "mlx-serve"
+                          ? "Computed prompt tokens observed over the poll window, excluding prefix-cache restores. Ambiguous cancellation or concurrent prefill handoffs are unavailable. This is observed wall-clock throughput, not GPU-only prefill speed."
                         : llm?.backend === "vllm"
                           ? "Prompt work per second over the last poll window, excluding cached tokens when the engine reports computed work or cache counters. This is aggregate wall-clock throughput, not speed during an individual prefill. Zero means no prompt work was observed in that window."
                         : "Prompt tokens/sec taken in during the last poll window — cache-served + computed. Opening a saved chat in the UI does not hit the GPU; send (or regenerate) so the history is sent as the prompt. Cached prefill does little GPU work; uncached prefill is what builds KV cache."
@@ -1063,12 +1066,12 @@ export function LlmPanel({
                   >
                     <span className="eyebrow">Prefill</span>
                     <div className="big-num sp-big-lg">
-                      {!measured ? (
+                      {!measured || (isMlxServe && llm?.prefillTps == null && !llm?.prefillActive) ? (
                         <span title={llm?.measurementError ?? undefined}>—</span>
                       ) : llm?.prefillActive && prefillTps <= 0 ? (
                         <>
                           <span className="ov-tps__dots" aria-hidden />
-                          <small title={isStrata ? "A prompt is being processed; no current prefill rate is available." : "A prompt is being processed. The engine reports its speed only when the request finishes."}>prefilling</small>
+                          <small title={isStrata || isMlxServe ? "A prompt is being processed; no current prefill rate is available." : "A prompt is being processed. The engine reports its speed only when the request finishes."}>prefilling</small>
                         </>
                       ) : (
                         <>
@@ -1077,7 +1080,7 @@ export function LlmPanel({
                         </>
                       )}
                     </div>
-                    {showPrefillSplit && (
+                    {showPrefillSplit && cachedPrefillAvg != null && uncachedPrefillAvg != null && (
                       <SplitBar
                         segments={[
                           { label: "cached (avg)", value: cachedPrefillAvg ?? 0, color: "var(--color-muted)" },
@@ -1086,7 +1089,7 @@ export function LlmPanel({
                       />
                     )}
                     <TrendLine data={prefillHistory} height={44} color="var(--color-info)" />
-                    {prefillAvg != null && <AvgVsLive avg={prefillAvg} live={prefillTps} />}
+                    {prefillAvg != null && <AvgVsLive avg={prefillAvg} live={isMlxServe ? llm?.prefillTps : prefillTps} />}
                     {isStrata && prefillTps > 0 && <span className="sp-avg">last reported mean</span>}
                     {measured && llm?.perStreamPrefillTps != null && (
                       <span
@@ -1100,30 +1103,30 @@ export function LlmPanel({
                 </div>
                 {showPrefillSplit && (
                   <div className="sp-decode sp-decode--split">
-                    <div
+                    {cachedPrefillTps != null && <div
                       className="sp-metric"
                       title="Prefill tokens served from prefix cache (little GPU work). High values mean prompt reuse, not a faster cold prefill."
                     >
                       <span className="eyebrow">Cached prefill</span>
                       <div className="big-num sp-big-md">
-                        {fmtTps(cachedPrefillTps ?? 0)}
+                        {fmtTps(cachedPrefillTps)}
                         <small>tok/s</small>
                       </div>
                       <TrendLine data={cachedPrefillHistory} height={30} color="var(--color-muted)" />
                       {cachedPrefillAvg != null && <AvgVsLive avg={cachedPrefillAvg} live={cachedPrefillTps} />}
-                    </div>
-                    <div
+                    </div>}
+                    {uncachedPrefillTps != null && <div
                       className="sp-metric"
                       title="Uncached (computed) prefill — tokens that actually build KV cache on the GPU."
                     >
                       <span className="eyebrow">Uncached prefill</span>
                       <div className="big-num sp-big-md">
-                        {fmtTps(uncachedPrefillTps ?? 0)}
+                        {fmtTps(uncachedPrefillTps)}
                         <small>tok/s</small>
                       </div>
                       <TrendLine data={uncachedPrefillHistory} height={30} color="var(--color-violet)" />
                       {uncachedPrefillAvg != null && <AvgVsLive avg={uncachedPrefillAvg} live={uncachedPrefillTps} />}
-                    </div>
+                    </div>}
                   </div>
                 )}
                 <div className="llm-cockpit-launchers pt-1">

@@ -209,12 +209,14 @@ export class LlmProbe {
     this._openTunnel = openSshLlmTunnel;
 
     // State
-    this.backendType = null; // 'vllm' | 'llama.cpp' | 'sglang' | 'lmstudio' | 'ollama' | 'ds4' | 'exl3' | 'q27' | 'tensorfold' | 'freetoken' | 'radiance' | 'strata' | 'flare' | 'omlx' | null
+    this.backendType = null; // 'vllm' | 'mlx-serve' | 'llama.cpp' | 'sglang' | 'lmstudio' | 'ollama' | 'ds4' | 'exl3' | 'q27' | 'tensorfold' | 'freetoken' | 'radiance' | 'strata' | 'flare' | 'omlx' | null
     /** oMLX admin session cookie, the time before which login is not retried, and the last per-request decode sample. */
     this._omlxAdminCookie = null;
     this._omlxAdminRetryAt = 0;
     this._omlxPrevGen = new Map();
-    /** Last mlx-serve live token sums ({ gen, prefill }); null until first sample. */
+    /** Native identity survives unavailable observations; rates must re-seed. */
+    this._mlxServeDetected = false;
+    /** Last native mlx-serve observation, never a sum of completed + live prefill. */
     this._mlxServeLive = null;
     this.serverIsOpenAI = null; // true = OpenAI-compatible
     /** Whether /v1/models (or /slots) answered without credentials. null = unknown. */
@@ -454,6 +456,7 @@ export class LlmProbe {
       this._tunnelRetryAt = 0;
       this._tunnelBackoffMs = TUNNEL_RETRY_MIN_MS;
       this.baseUrl = this._directBase;
+      this._mlxServeDetected = false;
       this._resetDetection();
       this._lastDetectAt = 0;
       this._consecutiveFailures = 0;
@@ -473,6 +476,7 @@ export class LlmProbe {
       this._tunnelRetryAt = 0;
       this._tunnelBackoffMs = TUNNEL_RETRY_MIN_MS;
       this.baseUrl = this._directBase;
+      this._mlxServeDetected = false;
       this._resetDetection();
       this._lastDetectAt = 0;
       this._consecutiveFailures = 0;
@@ -564,6 +568,7 @@ export class LlmProbe {
       this._closeTunnel();
       this._scheduleTunnelRetry();
       this.baseUrl = this._directBase;
+      this._mlxServeDetected = false;
       this._resetDetection();
       this._lastDetectAt = 0;
       this._consecutiveFailures = 0;
@@ -601,6 +606,7 @@ export class LlmProbe {
     this.models = [];
     this.error = message;
     this.metricsAvailable = false;
+    this._mlxServeLive = null;
     this._metricsModelMatched = false;
     this._metricsModelSeen = false;
     this.statusReason = message || "telemetry_unavailable";
@@ -615,7 +621,7 @@ export class LlmProbe {
 
   _resetDetection() {
     this.serverIsOpenAI = null;
-    this.backendType = null;
+    this.backendType = this._mlxServeDetected ? "mlx-serve" : null;
     this.authOpen = null;
     this.modelId = null;
     this.modelPath = null;
@@ -806,6 +812,7 @@ export class LlmProbe {
     }
     const running =
       (this.requestsRunning != null && this.requestsRunning > 0) ||
+      (this.backendType === "mlx-serve" && this.prefillActive) ||
       this.slotsActive > 0 ||
       this.generationTps > 0 ||
       this.prefillTps > 0;
@@ -892,6 +899,7 @@ export class LlmProbe {
     // the type is unknown, or when the backend was previously llama.cpp.
     if (
       this.backendType !== "vllm" &&
+      this.backendType !== "mlx-serve" &&
       this.backendType !== "sglang" &&
       this.backendType !== "lmstudio" &&
       this.backendType !== "ollama" &&
@@ -957,7 +965,7 @@ export class LlmProbe {
     } catch {}
 
     this.serverIsOpenAI = null;
-    this.backendType = null;
+    this.backendType = this._mlxServeDetected ? "mlx-serve" : null;
   }
 
   /**
@@ -966,18 +974,42 @@ export class LlmProbe {
    * @param {unknown} ownedBy
    * @param {boolean} [flareCard] `/v1/models` carried Flare's `flare` object (its
    *   `owned_by` is the generic "local", so the card shape is the signal)
-   * @returns {Promise<"lmstudio" | "ollama" | "omlx" | "ds4" | "sglang" | "exl3" | "q27" | "tensorfold" | "freetoken" | "radiance" | "flare" | "vllm">}
+   * @returns {Promise<"lmstudio" | "ollama" | "omlx" | "mlx-serve" | "ds4" | "sglang" | "exl3" | "q27" | "tensorfold" | "freetoken" | "radiance" | "flare" | "vllm">}
    */
   async _classifyOpenAIBackend(ownedBy, flareCard = false) {
     // LM Studio first: it answers 200 + JSON on every path, so the heuristic
     // probes below (notably SGLang's /server_info) would misfire on it.
-    if (await this._probeIsLmStudio()) return "lmstudio";
+    if (await this._probeIsLmStudio()) {
+      this._mlxServeDetected = false;
+      return "lmstudio";
+    }
     // Locals (Generated-Computers/Locals) reports owned_by: "locals" and also answers Ollama's /api/tags,
     // so it has to be recognised before the Ollama probe claims it.
     if (typeof ownedBy === "string" && /^locals$/i.test(ownedBy)) return "locals";
     // mlx-serve (often behind a model switch that also answers Ollama's /api/tags)
-    // exports vLLM counters plus its own live series: read it as vLLM.
-    if (typeof ownedBy === "string" && /^mlx-serve$/i.test(ownedBy)) return "vllm";
+    // has different completion/cache semantics from its vLLM compatibility names.
+    if (typeof ownedBy === "string" && /^mlx-serve$/i.test(ownedBy)) {
+      this._mlxServeDetected = true;
+      return "mlx-serve";
+    }
+    const genericOwner = !ownedBy || /^(?:local|vllm)$/i.test(String(ownedBy));
+    if (!genericOwner) this._mlxServeDetected = false;
+    if (!this._mlxServeDetected && genericOwner) {
+      // A proxy may answer Ollama tags as well: native metrics are stronger
+      // evidence than that compatibility endpoint, even on first contact.
+      try {
+        const res = await this._fetch(`${this.baseUrl}/metrics`);
+        if (res.ok && LlmProbe._metricsLookLikeMlxServe(await res.text())) {
+          this._mlxServeDetected = true;
+          return "mlx-serve";
+        }
+      } catch { /* Normal classification still handles unavailable metrics. */ }
+    }
+    // A known native endpoint can return a generic proxy card on redetection.
+    // Keep its stronger metric fingerprint rather than accepting /api/tags.
+    if (this._mlxServeDetected && genericOwner) {
+      return "mlx-serve";
+    }
     // Ollama second: its native /api/tags contract is unique among engines.
     if (await this._probeIsOllama()) return "ollama";
     if (flareCard) return "flare";
@@ -1167,28 +1199,130 @@ export class LlmProbe {
   }
 
   static _metricsLookLikeMlxServe(body) {
-    return /(?:^|\n)mlx_serve:prefill_tokens_live(?:\{|\s)/m.test(String(body || ""));
+    return /(?:^|\n)mlx_serve:(?:prefill_tokens_(?:live|total)|generation_tokens_live|prefix_cache_tokens_total|process_start_time_seconds)(?:\{|\s)/m.test(String(body || ""));
   }
 
   /**
-   * mlx-serve exports vLLM token counters but bumps them only when a request
-   * finishes, so mid-request deltas are 0 and completion spikes. Its own series
-   * move live: generation_tokens_live is cumulative including in-flight tokens,
-   * and prefill_tokens_live is the in-flight prefill progress that
-   * prefill_tokens_total absorbs at completion.
+   * mlx-serve's completed counters are ledgers, not live throughput. In
+   * particular, live prefill disappears at the end of the prefill phase, but
+   * completed prefill/cache tokens are credited only after decode completes.
+   * Never replay that credit as live work. The two-second aggregate sampler
+   * has no request IDs: prefill rates assume observed single-request continuity
+   * with an unchanged target, and refuse resets, turnover and concurrent work.
+   * Even an accepted rate is work per scrape window, not GPU execution time;
+   * cancellation/replacement entirely between samples is unobservable.
    */
-  _applyMlxServeLiveRates(txt, dtSec) {
-    const gen = this._getPromMetric(txt, "mlx_serve:generation_tokens_live");
-    const prefillDone = this._getPromMetric(txt, "mlx_serve:prefill_tokens_total");
-    const prefillLive = this._getPromMetric(txt, "mlx_serve:prefill_tokens_live");
-    if (gen == null || prefillDone == null || prefillLive == null) return;
+  _applyMlxServeMetrics(txt, dtSec) {
+    const metric = (name) => {
+      const value = this._getPromMetric(txt, name);
+      return value != null && value >= 0 ? value : null;
+    };
+    const cur = {
+      start: metric("mlx_serve:process_start_time_seconds"),
+      gen: metric("mlx_serve:generation_tokens_live"),
+      prefill: metric("mlx_serve:prefill_tokens_live"),
+      expected: metric("mlx_serve:prefill_tokens_expected"),
+      prefilling: metric("mlx_serve:requests_prefilling"),
+      computed: metric("mlx_serve:prefill_tokens_total"),
+      cached: metric("mlx_serve:prefix_cache_tokens_total"),
+      prompt: metric("vllm:prompt_tokens_total"),
+      output: metric("vllm:generation_tokens_total"),
+      completed: metric("vllm:request_success_total"),
+      cancelled: metric("vllm:request_cancelled_total"),
+      failed: metric("mlx_serve:request_failed_total"),
+      running: metric("vllm:num_requests_running"),
+    };
     const prev = this._mlxServeLive;
-    const cur = { gen, prefill: prefillDone + prefillLive };
     this._mlxServeLive = cur;
-    if (!prev || !(dtSec > 0 && dtSec < 10)) return;
-    const rate = (d) => Math.max(0, Math.round((d / dtSec) * 100) / 100);
-    this.generationTps = rate(cur.gen - prev.gen);
-    this.prefillTps = rate(cur.prefill - prev.prefill);
+    this.generationTps = null;
+    this.prefillTps = null;
+    this.cachedPrefillTps = null;
+    this.uncachedPrefillTps = null;
+    this.perStreamTps = null;
+    this.perStreamPrefillTps = null;
+    const continuityFields = ["computed", "cached", "prompt", "output", "completed", "cancelled", "failed", "gen"];
+    const continuous = prev != null && !this._seedNext && dtSec > 0 && dtSec < 10 &&
+      cur.start != null && prev.start === cur.start &&
+      !continuityFields.some((key) => cur[key] != null && prev[key] != null && cur[key] < prev[key]);
+    this._seedNext = false;
+    // A cancellation/error can remove in-flight decode tokens from the live
+    // aggregate, masking work even when the overall gauge still increased.
+    const losslessDecode = prev != null && ["cancelled", "failed"].every(
+      (key) => cur[key] != null && prev[key] != null && cur[key] === prev[key]);
+    const rate = (delta) => Math.round((delta / dtSec) * 100) / 100;
+    if (continuous && losslessDecode && cur.gen != null && prev.gen != null) {
+      this.generationTps = rate(cur.gen - prev.gen);
+      this.generationTpsSource = "mlx_serve:generation_tokens_live";
+    } else {
+      this.generationTpsSource = null;
+    }
+    if (continuous && cur.prefill != null && prev.prefill != null) {
+      const sameLedger = ["computed", "completed", "cancelled", "failed"].every(
+        (key) => cur[key] != null && cur[key] === prev[key]);
+      const singlePrefill = cur.running === 1 && prev.running === 1 &&
+        cur.prefilling === 1 && prev.prefilling === 1 &&
+        cur.expected != null && cur.expected > 0 && cur.expected === prev.expected;
+      if (sameLedger && singlePrefill && cur.prefill >= prev.prefill && cur.prefill <= cur.expected) {
+        this.prefillTps = rate(cur.prefill - prev.prefill);
+      } else if (sameLedger && cur.prefilling === 0 && prev.prefilling === 0 &&
+                 cur.prefill === 0 && prev.prefill === 0) {
+        this.prefillTps = 0;
+      } else if (cur.running === 0 && cur.prefilling === 0 && cur.prefill === 0) {
+        // Explicit idle is a zero-work fact; completed prefill is never a rate.
+        this.prefillTps = 0;
+      }
+    }
+    this.uncachedPrefillTps = this.prefillTps;
+    this.prefillActive = cur.prefilling != null && cur.prefilling > 0;
+    this.decodeActive = this.generationTps != null && this.generationTps > 0;
+    this.totalPromptTokens = cur.prompt;
+    this.totalOutputTokens = cur.output;
+    this.totalCachedTokens = cur.cached;
+    this.completedRequestsTotal = cur.completed;
+    this._promptCounterObserved = cur.prompt != null;
+    this._outputCounterObserved = cur.output != null;
+    this._completedCounterObserved = cur.completed != null;
+    this.requestsRunning = cur.running;
+    this.requestsWaiting = metric("vllm:num_requests_waiting");
+    this.slotsActive = cur.running;
+    this.slotsTotal = 0;
+    if (cur.running != null && cur.running > 0) {
+      if (this._runningSince == null || !continuous) this._runningSince = Date.now();
+    } else {
+      this._runningSince = null;
+    }
+    this.inFlightSeconds = this._runningSince == null
+      ? null : Math.round((Date.now() - this._runningSince) / 100) / 10;
+    const hits = metric("vllm:prefix_cache_hits_total");
+    const queries = metric("vllm:prefix_cache_queries_total");
+    // Unlike stock vLLM these count lookups/requests, never cached tokens.
+    this.prefixCacheHitRate = hits != null && queries > 0 && hits <= queries
+      ? Math.round((hits / queries) * 10000) / 10000 : null;
+    for (const [field, name] of [
+      ["ttftP95Seconds", "time_to_first_token_seconds"],
+      ["e2eP95Seconds", "e2e_request_latency_seconds"],
+      ["itlP95Seconds", "inter_token_latency_seconds"],
+    ]) {
+      const hist = this._parseVllmHistogram(txt, `vllm:${name}`);
+      const value = this._histogramQuantile(hist.buckets, hist.total, 0.95);
+      this[field] = value == null ? null : Math.round(value * 1000) / 1000;
+    }
+    const ttftSum = metric("vllm:time_to_first_token_seconds_sum");
+    const ttftCount = metric("vllm:time_to_first_token_seconds_count");
+    this.ttftSeconds = continuous && ttftSum != null && this.lastTtftSum != null &&
+      ttftCount != null && this.lastTtftCount != null && ttftCount > this.lastTtftCount &&
+      ttftSum >= this.lastTtftSum
+      ? Math.round(((ttftSum - this.lastTtftSum) / (ttftCount - this.lastTtftCount)) * 1000) / 1000
+      : null;
+    this.lastTtftSum = ttftSum;
+    this.lastTtftCount = ttftCount;
+    // No native measurements support the vLLM KV/preemption/speculation tiles.
+    this.kvCacheUsage = null;
+    this.kvCacheCapacityTokens = null;
+    this.kvCacheMaxConcurrency = null;
+    this._clearEngineMemory();
+    this.preemptionsTotal = null;
+    this.mtpAcceptanceRate = null;
   }
 
   /**
@@ -1255,6 +1389,7 @@ export class LlmProbe {
         this.models = [];
         this.modelId = null;
         this.benchmarkModel = null;
+        this._mlxServeLive = null;
         return this._getSnapshot();
       }
       if (auth === "ok") {
@@ -1288,7 +1423,10 @@ export class LlmProbe {
     if (flareCard && this.backendType !== "ds4" && this.backendType !== "omlx") {
       this.backendType = "flare";
     } else if (typeof owned === "string") {
-      if (/^omlx$/i.test(owned)) this.backendType = "omlx";
+      if (/^mlx-serve$/i.test(owned)) {
+        this._mlxServeDetected = true;
+        this.backendType = "mlx-serve";
+      } else if (/^omlx$/i.test(owned)) this.backendType = "omlx";
       else if (/ds4/i.test(owned)) this.backendType = "ds4";
       else if (/sglang/i.test(owned) && this.backendType !== "ds4") {
         this.backendType = "sglang";
@@ -1301,6 +1439,10 @@ export class LlmProbe {
       } else if (/radiance/i.test(owned) && this.backendType !== "ds4") {
         this.backendType = "radiance";
       }
+    }
+
+    if (this.backendType && this.backendType !== "mlx-serve" && this.backendType !== "vllm") {
+      this._mlxServeDetected = false;
     }
 
     // oMLX (Apple Silicon MLX server): no Prometheus exposition; its JSON
@@ -1496,6 +1638,7 @@ export class LlmProbe {
     const wantsPrometheus =
       this.backendType == null ||
       this.backendType === "vllm" ||
+      this.backendType === "mlx-serve" ||
       this.backendType === "radiance" ||
       this.backendType === "ds4" ||
       this.backendType === "q27" ||
@@ -1506,7 +1649,11 @@ export class LlmProbe {
         const metricsRes = await this._fetch(`${this.baseUrl}/metrics`);
         if (metricsRes.ok) {
           const txt = await metricsRes.text();
-          if (
+          if (this.backendType === "mlx-serve" || LlmProbe._metricsLookLikeMlxServe(txt)) {
+            this._mlxServeDetected = true;
+            this.backendType = "mlx-serve";
+            this._applyMlxServeMetrics(txt, dtSec);
+          } else if (
             this.backendType === "ds4" ||
             LlmProbe._metricsLookLikeDs4(txt)
           ) {
@@ -1536,7 +1683,6 @@ export class LlmProbe {
             } else if (this.backendType == null || this.backendType === "vllm") {
               this.backendType = "vllm";
               this._applyVllmMetrics(txt, dtSec);
-              if (LlmProbe._metricsLookLikeMlxServe(txt)) this._applyMlxServeLiveRates(txt, dtSec);
             }
           }
           this._noteFreshTelemetry(Date.now());
@@ -1545,6 +1691,7 @@ export class LlmProbe {
         } else {
           this.status = "unavailable";
           this.statusReason = "metrics_unavailable";
+          this._mlxServeLive = null;
           if (
             (this.backendType == null || this.backendType === "vllm") &&
             this.backendType !== "ds4" &&
@@ -1560,6 +1707,7 @@ export class LlmProbe {
         } else {
           this.status = "unavailable";
           this.statusReason = "metrics_unavailable";
+          this._mlxServeLive = null;
           if (
             (this.backendType == null || this.backendType === "vllm") &&
             this.backendType !== "ds4" &&
@@ -4133,6 +4281,7 @@ export class LlmProbe {
       // otherwise), so show it even while "available" is false.
       if (directRateBackend) return Math.max(0, value);
       if (!metricsLive) return null;
+      if (this.backendType === "mlx-serve") return Math.max(0, value);
       if (status === "idle") return 0;
       return value > 0 ? value : null;
     };
@@ -4170,7 +4319,8 @@ export class LlmProbe {
       uncachedPrefillTps: liveRate(this.uncachedPrefillTps),
       totalPromptTokens: liveCounter(this.totalPromptTokens, this._promptCounterObserved),
       totalOutputTokens: liveCounter(this.totalOutputTokens, this._outputCounterObserved),
-      totalCachedTokens: this.totalCachedTokens ?? null,
+      totalCachedTokens: this.backendType === "mlx-serve" && !available
+        ? null : this.totalCachedTokens ?? null,
       completedRequestsTotal: liveCounter(
         this.completedRequestsTotal,
         this._completedCounterObserved

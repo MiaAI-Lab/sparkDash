@@ -74,6 +74,37 @@ async function renderPanel(props: Partial<ComponentProps<typeof LlmPanel>> = {})
 }
 
 describe("LlmPanel layout", () => {
+  it("keeps missing native main rates unavailable rather than zero", async () => {
+    mockApi();
+    const rendered = await renderPanel({ llm: { ...makeDeepSeekActive(NOW), backend: "mlx-serve",
+      generationTps: null, prefillTps: null, prefillActive: false,
+      cachedPrefillTps: null, uncachedPrefillTps: null } });
+    expect(rendered.container.querySelector("[data-llm-idle]")).toBeNull();
+    for (const label of ["Decode", "Prefill"]) {
+      const tile = screen.getByText(label, { selector: ".eyebrow" }).closest(".sp-metric");
+      expect(tile).toHaveTextContent("—");
+      expect(tile).not.toHaveTextContent("0.0");
+    }
+  });
+
+  it("does not invent cached throughput when only computed prefill is measured", async () => {
+    mockApi();
+    await renderPanel({ llm: { ...makeDeepSeekActive(NOW), backend: "mlx-serve",
+      prefillTps: 1000, uncachedPrefillTps: 1000, cachedPrefillTps: null } });
+    expect(screen.getByText("Uncached prefill")).toBeInTheDocument();
+    expect(screen.queryByText("Cached prefill")).not.toBeInTheDocument();
+  });
+
+  it("identifies native mlx-serve and exposes its request telemetry", async () => {
+    mockApi();
+    await renderPanel({ llm: { ...makeDeepSeekActive(NOW), backend: "mlx-serve",
+      requestsRunning: 2, requestsWaiting: 1, prefixCacheHitRate: 0.75,
+      generationTps: 80, prefillTps: null, cachedPrefillTps: null, uncachedPrefillTps: null } });
+    expect(screen.getByText("mlx-serve").closest(".llm-badge")).not.toBeNull();
+    expect(screen.getByText("2 / 1")).toBeInTheDocument();
+    expect(screen.getByText("75%")).toBeInTheDocument();
+  });
+
   beforeEach(() => {
     _resetStore();
   });

@@ -132,7 +132,7 @@ Full history: [CHANGELOG.md](./CHANGELOG.md)
 | **Windows hosts** | Windows machines with an AMD iGPU (Strix Halo and friends) are first-class units too: agentless PowerShell over OpenSSH, CPU/RAM/disks/network collectors, and GPU usage straight from the engine performance counters (reads like Task Manager). The Add/Edit wizard has a **Strix Halo / Windows host** unit type |
 | **Live streaming** | WebSocket metrics with configurable poll intervals; central history store for sparklines across tab switches |
 | **Local + remote** | Host metrics via sysfs/proc/`nvidia-smi`; remotes over SSH (key or password) |
-| **LLM probe** | Auto-detects llama.cpp, vLLM, sglang, LM Studio, Ollama, ds4-server, EXL3, TensorFold, FreeToken, Strata, q27, NVIDIA Flare, Locals, or Splash; live decode/prefill tok/s from the engine's own counters where it publishes them (not LM Studio or Ollama); cached vs uncached prefill on ds4, llama.cpp, SGLang, and q27; **daily peak** history on the LLM card |
+| **LLM probe** | Auto-detects llama.cpp, vLLM, native mlx-serve, sglang, LM Studio, Ollama, ds4-server, EXL3, TensorFold, FreeToken, Strata, q27, NVIDIA Flare, Locals, or Splash; live decode/prefill tok/s from the engine's own counters where it publishes them (not LM Studio or Ollama); cached vs uncached prefill on ds4, llama.cpp, SGLang, and q27; **daily peak** history on the LLM card |
 | **LLM server presets** | One-click **LM Studio :1234** / **Ollama :11434** / **TensorFold :8888** presets in the Add wizard's LLM-ports step, the "+ Add LLM port" panel, and each LLM panel's settings (they fill the port number — they install nothing) |
 | **ComfyUI** | Opt-in probe: queue/jobs, progress, cancel, Open link, inventory, overview chip |
 | **Hermes Agent** | Opt-in per unit: background update check (10 min), status badges, one-click or batch `hermes update` |
@@ -1330,6 +1330,12 @@ Collectors catch errors and return zero/default metrics instead of crashing the 
 Name, IP, SSH credentials, LLM port, and device/interface filters update the running `SparkMonitor` without tearing down poll loops or losing rate baselines. Registry writes are atomic (temp file + rename).
 
 ### LLM probe
+
+Native **mlx-serve** is identified separately from vLLM despite its compatible metric names. Decode uses `mlx_serve:generation_tokens_live`; computed prefill follows observable in-flight progress, excluding prefix-cache restores. Completion totals are not replayed as fresh prefill. Missing or ambiguous prefill intervals (including concurrent handoffs or cancellation) stay unavailable rather than showing a guessed GPU speed. Gauges are sampled by the server, so these rates are polling-window throughput.
+
+Cached token totals come from `mlx_serve:prefix_cache_tokens_total`. Its compatible `vllm:prefix_cache_hits_total` counts requests, so **Prefix hit** is a request lookup ratio, not a token cache fraction. Completed prompt/output totals remain separate from live rates. Restart and telemetry-gap observations re-seed rate baselines.
+
+Configure a resident's canonical endpoint once for fleet accounting. An alias port and its canonical port can both display the same model; token ledgers are keyed by host and port and do not automatically deduplicate aliases. No endpoint configuration is changed by backend detection. For an isolated UI check, append `?backend=mlx-serve` to the dev LLM layout preview.
 
 Each configured LLM port gets its own `LlmProbe` instance running in parallel. Probes auto-detect backends:
 

@@ -7,6 +7,7 @@
  */
 export const BACKEND_LABELS = Object.freeze({
   vllm: "vLLM",
+  "mlx-serve": "mlx-serve",
   "llama.cpp": "llama.cpp",
   sglang: "SGLang",
   lmstudio: "LM Studio",
