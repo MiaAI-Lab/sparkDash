@@ -18,6 +18,7 @@ config/model-prices.json
 config/model-prices.json.*
 config/fleet-energy.json
 config/fleet-energy-monthly.json*
+config/power-meters.json
 config/fleet-energy-monthly.unreadable-*
 config/.fleet-energy.json.*.tmp
 config/fleet-energy.recent.json
