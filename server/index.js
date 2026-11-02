@@ -71,6 +71,7 @@ import { EventLog } from "./events/EventLog.js";
 import { planListenRetry } from "./listenRetry.js";
 import { UnitHistory } from "./metrics/UnitHistory.js";
 import { createUnitHistoryRuntime, registerUnitHistoryRoutes } from "./metrics/UnitHistoryRuntime.js";
+import { CacheHistory } from "./metrics/CacheHistory.js";
 import { LauncherStore } from "./llmlaunch/LauncherStore.js";
 import { LauncherManager, defaultExec } from "./llmlaunch/LauncherManager.js";
 import { discoverModelCandidates } from "./models/discovery.js";
@@ -490,8 +491,15 @@ const fleetEnergyRuntime = createFleetEnergyRuntime({
   wallReadings: powerMeters.wallReadings,
 });
 
+// TensorFold's shared-cache sidecar: separate grid, separate file, so dropping the cache panels
+// leaves no format to unwind. Sampled by the same tick, enabled with the same history setting.
+const cacheHistory = new CacheHistory({
+  file: process.env.CACHE_HISTORY_JSON_PATH || path.join(ROOT, "config", "cache-history.json"),
+});
+
 const unitHistoryRuntime = createUnitHistoryRuntime({
   store: unitHistory,
+  cacheStore: cacheHistory,
   orderedSnapshots,
   monitors,
   isEnabled: metricsHistoryEnabled,
@@ -811,6 +819,7 @@ app.get("/api/inference/activity", async (_req, res) => {
 // GET /api/sparks/:id/gpu-history (GPU raw tier, newest last) and /api/sparks/:id/history (bucketed tiers).
 registerUnitHistoryRoutes(app, {
   store: unitHistory,
+  cacheStore: cacheHistory,
   hasUnit: (id) => Boolean(registry.getSpark(id)),
   isEnabled: metricsHistoryEnabled,
 });

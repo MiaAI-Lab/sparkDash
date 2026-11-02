@@ -446,3 +446,59 @@ describe("HistoryPanel", () => {
     expect(mem.textContent).not.toContain("*");
   });
 });
+
+// ─── TensorFold cache history ────────────────────────────────────────────
+describe("HistoryPanel cache", () => {
+  const cacheData = () =>
+    data({
+      cache: {
+        range: "6h",
+        stepMs: STEP,
+        from: T0,
+        to: T0 + 6 * STEP,
+        endpoints: [
+          {
+            port: 8888,
+            engineEpoch: "1793692800123456789",
+            points: [0, 1, 2].map((i) => ({
+              t: T0 + i * STEP,
+              n: 30,
+              pool: {
+                capacity: 8_388_608,
+                active: 1_048_576,
+                prefix: 2_097_152 + i * 1024,
+                growth: 524_288,
+                unclaimed: 4_718_592 - i * 1024,
+              },
+              store: { held: 268_435_456, spare: 268_435_456, entries: 7, budget: 536_870_912 },
+              running: 2,
+              waiting: 0,
+              reusePct: 80 + i,
+              ttftP95: { value: 0.42, exact: false },
+            })),
+          },
+        ],
+        events: [{ t: T0 + STEP, port: 8888, kind: "engine_restart" }],
+      },
+    });
+
+  it("draws the shared pool stack and the cache scalar charts", async () => {
+    const { container } = await mount(cacheData());
+    const pool = container.querySelector<HTMLElement>("[data-cache-pool-chart]");
+    expect(pool).not.toBeNull();
+    expect(pool!.textContent).toContain("Shared pool");
+    expect(pool!.querySelectorAll("polygon[data-band]").length).toBeGreaterThan(0);
+    expect(chart(container, "cache-8888-reuse").textContent).toContain("Cache reuse");
+    expect(chart(container, "cache-8888-store").textContent).toContain("Snapshot store");
+  });
+
+  it("anchors itself for the live panel's cache-history link", async () => {
+    const { container } = await mount(cacheData());
+    expect(container.querySelector("#history")).not.toBeNull();
+  });
+
+  it("shows no pool chart when the engine reported none", async () => {
+    const { container } = await mount(data());
+    expect(container.querySelector("[data-cache-pool-chart]")).toBeNull();
+  });
+});
