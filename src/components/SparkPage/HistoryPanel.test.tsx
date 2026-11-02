@@ -56,6 +56,11 @@ function chartsWithData(container: HTMLElement) {
   );
 }
 
+/** Chart ids in DOM order — the small-multiple sequence the panel renders. */
+function chartOrder(container: HTMLElement): string[] {
+  return [...container.querySelectorAll<HTMLElement>("[data-chart]")].map((el) => el.dataset.chart!);
+}
+
 function plot(container: HTMLElement, id: string): HTMLElement {
   return chart(container, id).querySelector<HTMLElement>('[role="group"]')!;
 }
@@ -176,6 +181,25 @@ describe("HistoryPanel", () => {
     await flush();
     expect(mac.container.querySelector('[data-chart="ramUsed"]')).toBeNull();
     expect(chart(mac.container, "memFree").textContent).toContain("Memory free (unified)");
+  });
+
+  it("groups the small multiples by domain: hardware, LLM ports, then system/IO", async () => {
+    const withRam = data();
+    withRam.points = withRam.points.map((p) => ({ ...p, ramUsedMB: { avg: 40_000, max: 41_000 } }));
+
+    const unified = await mount(withRam);
+    expect(chartOrder(unified.container)).toEqual([
+      "gpuUtil", "gpuTemp", "gpuPower", "memFree", "cpuUtil", "cpuTemp",
+      "llm-8888-gen", "llm-8888-prefill", "llm-8888-kv", "network",
+    ]);
+
+    // A discrete host adds RAM used, which belongs with Network in the system/IO domain.
+    const linux = render(<HistoryPanel sparkId="h" kind="host" platform="linux" temperatureUnit="celsius" />);
+    await flush();
+    expect(chartOrder(linux.container)).toEqual([
+      "gpuUtil", "gpuTemp", "gpuPower", "memFree", "cpuUtil", "cpuTemp",
+      "llm-8888-gen", "llm-8888-prefill", "llm-8888-kv", "ramUsed", "network",
+    ]);
   });
 
   it("charts each LLM endpoint, KV only when reported", async () => {
