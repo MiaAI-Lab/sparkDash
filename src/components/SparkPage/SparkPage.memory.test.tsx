@@ -14,6 +14,9 @@ vi.mock("./LlmPanel", () => ({ LlmPanel: () => null }));
 vi.mock("./ComfyPanel", () => ({ ComfyPanel: () => null }));
 vi.mock("./LlmModelsPanel", () => ({ LlmModelsPanel: () => null }));
 vi.mock("./RocePanel", () => ({ RocePanel: () => null }));
+// The Mac launcher tile reaches for the control API; which memory panel the
+// page picks is all that is under test here.
+vi.mock("./RuntimeLauncher", () => ({ RuntimeLauncher: () => null }));
 vi.mock("./SparkHeader", () => ({ SparkHeader: () => null }));
 vi.mock("./SparkActions", () => ({ SparkActions: () => null }));
 vi.mock("../../api/client", () => ({
@@ -32,6 +35,14 @@ function host(platform: string, unified: typeof pool | null) {
   const spark = makeSpark("h");
   spark.kind = "host";
   spark.platform = platform as never;
+  spark.metrics.unifiedMemory = unified as never;
+  return spark;
+}
+
+function macNode(unified: typeof pool | null) {
+  const spark = makeSpark("mac-node");
+  spark.kind = "mac";
+  spark.platform = "darwin" as never;
   spark.metrics.unifiedMemory = unified as never;
   return spark;
 }
@@ -62,6 +73,20 @@ describe("SparkPage memory panels", () => {
 
   it("keeps VRAM in the GPU panel and RAM beside the CPU on a discrete host", async () => {
     const { shown, gpuHidesMemory } = await panels(host("linux", pool));
+    expect(shown).not.toContain("unified");
+    expect(shown).toContain("ram");
+    expect(gpuHidesMemory).toBe("false");
+  });
+
+  it("gives an agent-connected Mac the unified memory panel and no separate RAM panel", async () => {
+    const { shown, gpuHidesMemory } = await panels(macNode(pool));
+    expect(shown).toContain("unified");
+    expect(shown).not.toContain("ram");
+    expect(gpuHidesMemory).toBe("true");
+  });
+
+  it("still shows RAM on a Mac whose agent cannot report the pool", async () => {
+    const { shown, gpuHidesMemory } = await panels(macNode(null));
     expect(shown).not.toContain("unified");
     expect(shown).toContain("ram");
     expect(gpuHidesMemory).toBe("false");

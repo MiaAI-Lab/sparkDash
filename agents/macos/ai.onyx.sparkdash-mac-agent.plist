@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>ai.onyx.sparkdash-mac-agent</string>
+
+    <!-- The Mac node agent: stdlib-only, so the system python3 is enough.
+         Point PROGRAM at your checkout (sed the path in the install note) and
+         adjust the interpreter if you would rather run a Homebrew/pyenv one. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>/Users/PLACEHOLDER/REPOS/sparkDash/agents/macos/sparkdash_mac_agent.py</string>
+        <string>--serve</string>
+        <string>--host</string>
+        <string>0.0.0.0</string>
+        <string>--port</string>
+        <string>8790</string>
+        <string>--config</string>
+        <string>/Users/PLACEHOLDER/REPOS/sparkDash/agents/macos/runtimes.json</string>
+    </array>
+
+    <!-- Bind 0.0.0.0 so the sparkDash host can reach it. /metrics and
+         /health stay read-only and unauthenticated. /control start and stop
+         stay refused until SPARKDASH_MAC_CONTROL_TOKEN is set here; do not
+         put a placeholder token in this template. Keep the listener on a
+         trusted network (LAN or tailnet); use --host 127.0.0.1 when something
+         on this Mac scrapes it instead. -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>HOME</key>
+        <string>/Users/PLACEHOLDER</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/PLACEHOLDER/Library/Logs/sparkdash-mac-agent.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/PLACEHOLDER/Library/Logs/sparkdash-mac-agent.err.log</string>
+</dict>
+</plist>
