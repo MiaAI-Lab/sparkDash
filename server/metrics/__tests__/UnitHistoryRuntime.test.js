@@ -72,7 +72,7 @@ function fakeTimers() {
   };
 }
 
-function setup(t, { enabled = false, snapshots = [snapshot("a")], monitor } = {}) {
+function setup(t, { enabled = false, snapshots = [snapshot("a")], monitor, cacheStore = null } = {}) {
   const dir = tmpDir(t);
   let clock = T0;
   const state = { enabled, snapshots };
@@ -86,6 +86,7 @@ function setup(t, { enabled = false, snapshots = [snapshot("a")], monitor } = {}
   const timers = fakeTimers();
   const runtime = createUnitHistoryRuntime({
     store,
+    cacheStore,
     orderedSnapshots: () => state.snapshots,
     monitors: { get: () => monitor ?? fakeMonitor({ collectedAt: clock }) },
     isEnabled: () => state.enabled,
@@ -255,4 +256,65 @@ test("gpu-history serves windows over 8 h from the long series, up to 7 days", a
   assert.deepEqual(await temps(`?windowMs=${DAY}`), [50, 60], "a day from the long series");
   assert.deepEqual(await temps(`?windowMs=${7 * DAY}`), [40, 50, 60], "a week");
   assert.deepEqual(await temps(`?windowMs=${30 * DAY}`), [40, 50, 60], "capped at 7 days");
+});
+
+test("cache history rides the same tick and the history route returns it", async (t) => {
+  const { CacheHistory } = await import("../CacheHistory.js");
+  const cacheStore = new CacheHistory({ file: null, now: () => T0 });
+  const { state, store, runtime, timers } = setup(t, { enabled: true, cacheStore });
+  runtime.start();
+  const observedAt = T0 + 1_000;
+  state.snapshots = [
+    {
+      ...snapshot("a"),
+      llmPorts: [8888],
+      metrics: {
+        ...snapshot("a").metrics,
+        llm: [
+          {
+            port: 8888,
+            available: true,
+            cache: {
+              status: "full",
+              source: "health",
+              engineEpoch: "42",
+              observedAt,
+              contextLimitPositions: 1_048_576,
+              streamCapacity: 16,
+              pool: {
+                capacityPositions: 8_388_608,
+                activeReservedPositions: 1_048_576,
+                retainedPrefixPositions: 2_097_152,
+                retainedGrowthPositions: 524_288,
+                unclaimedPositions: 4_718_592,
+                validStates: 1,
+                invalidationsTotal: 0,
+                placementBlocksTotal: 0,
+              },
+              promptState: null,
+              missing: ["prompt_state"],
+            },
+          },
+        ],
+      },
+    },
+  ];
+  runtime.sample();
+  const out = cacheStore.query("a", "1h", T0 + 2_000);
+  assert.equal(out.endpoints.length, 1, "the tick fed the sidecar");
+  assert.equal(out.endpoints[0].points.length, 1);
+
+  const app = express();
+  registerUnitHistoryRoutes(app, {
+    store,
+    cacheStore,
+    hasUnit: (id) => id === "a",
+    isEnabled: () => state.enabled,
+    now: () => T0 + 2_000,
+  });
+  const server = app.listen(0, "127.0.0.1");
+  t.after(() => server.close());
+  await new Promise((r) => server.once("listening", r));
+  const body = await (await fetch(`http://127.0.0.1:${server.address().port}/api/sparks/a/history`)).json();
+  assert.equal(body.cache.endpoints[0].port, 8888);
 });

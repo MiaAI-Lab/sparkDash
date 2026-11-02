@@ -3,6 +3,8 @@ import type { TFunction } from "i18next";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getUnitHistory } from "../../api/client";
 import type {
+  MetricsHistoryCachePoint,
+  MetricsHistoryCache,
   HistoryStat,
   MetricsHistoryData,
   MetricsHistoryRange,
@@ -14,6 +16,7 @@ import { HEADROOM_THRESHOLDS_MB, memoryModelFor } from "../../shared/vramBreakdo
 import { Panel } from "../ui/Panel";
 import { ChartIcon } from "../ui/icons";
 import { HistoryChart, type HistoryChartSeries, type HistoryThreshold } from "./HistoryChart";
+import { CachePoolChart } from "./CachePoolChart";
 
 /**
  * The unit's server-side history (Settings → Metrics history): 48 h of 1-minute and
@@ -99,6 +102,7 @@ export function buildTimeline(data: MetricsHistoryData): number[] {
   const ts = new Set<number>();
   for (const p of data.points) ts.add(p.t);
   for (const e of data.llm) for (const p of e.points) ts.add(p.t);
+  for (const e of data.cache?.endpoints ?? []) for (const p of e.points) ts.add(p.t);
   return [...ts].sort((a, b) => a - b);
 }
 
@@ -126,8 +130,100 @@ const hasAny = (values: ReadonlyArray<HistoryStat | null>) => values.some(Boolea
 const SYSTEM_CHART_IDS = new Set(["ramUsed", "network"]);
 
 function chartDomain(id: string): number {
-  if (id.startsWith("llm-")) return 1;
+  if (id.startsWith("llm-") || id.startsWith("cache-")) return 1;
   return SYSTEM_CHART_IDS.has(id) ? 2 : 0;
+}
+
+/**
+ * The cache's scalar series on the shared timeline: token-weighted reuse, the snapshot store, the
+ * engine's own window quantiles and request counts. The pool categories get their own stacked chart.
+ */
+function cacheScalars(
+  timeline: readonly number[],
+  cache: MetricsHistoryCache,
+): { points: Array<MetricsHistoryCachePoint | undefined>; port: number } | null {
+  const endpoint = [...cache.endpoints].sort((a, b) => b.points.length - a.points.length)[0];
+  if (!endpoint || endpoint.points.length === 0) return null;
+  const at = new Map<number, MetricsHistoryCachePoint>();
+  for (const p of endpoint.points) at.set(p.t, p);
+  return { points: timeline.map((t) => at.get(t)), port: endpoint.port };
+}
+
+const gibFrom = (bytes: number) => bytes / 1024 ** 3;
+const gibLabel = (v: number) => `${v < 10 ? v.toFixed(2) : v.toFixed(1)} GiB`;
+/** A figure with no meaningful peak of its own (percentages, counts, quantiles). */
+const flat = (v: number | undefined | null): HistoryStat | null => (v == null ? null : { avg: v, max: v });
+
+function buildCacheCharts(data: MetricsHistoryData, timeline: readonly number[]): ChartDef[] {
+  const cache = data.cache;
+  if (!cache) return [];
+  const scalar = cacheScalars(timeline, cache);
+  if (!scalar) return [];
+  const p = scalar.points;
+  const port = scalar.port;
+  const charts: ChartDef[] = [];
+
+  const reuse = p.map((x) => flat(x?.reusePct));
+  if (hasAny(reuse)) {
+    charts.push({
+      id: `cache-${port}-reuse`,
+      title: `Cache reuse · :${port}`,
+      format: pct,
+      yMin: 0,
+      yMax: 100,
+      series: [{ key: "reuse", label: "Prompt tokens reused", color: "var(--color-accent)", values: reuse }],
+    });
+  }
+
+  const held = p.map((x) => (x?.store?.held == null ? null : { avg: gibFrom(x.store.held), max: gibFrom(x.store.held) }));
+  const budget = p.map((x) =>
+    x?.store?.budget == null ? null : { avg: gibFrom(x.store.budget), max: gibFrom(x.store.budget) },
+  );
+  if (hasAny(held)) {
+    const budgetBytes = p.find((x) => x?.store?.budget != null)?.store?.budget;
+    charts.push({
+      id: `cache-${port}-store`,
+      title: `Snapshot store · :${port}`,
+      format: gibLabel,
+      yMin: 0,
+      thresholds:
+        budgetBytes != null ? [{ value: gibFrom(budgetBytes), label: "budget", color: "var(--color-warning)" }] : undefined,
+      series: [
+        { key: "held", label: "Charged", color: "var(--color-violet)", values: held },
+        ...(hasAny(budget)
+          ? [{ key: "budget", label: "Budget", color: "var(--color-muted)", values: budget } as HistoryChartSeries]
+          : []),
+      ],
+    });
+  }
+
+  // A p95 that fell in the +Inf bucket has no value: it stays a gap rather than a clamped number.
+  const ttft = p.map((x) => flat(x?.ttftP95?.value ?? null));
+  if (hasAny(ttft)) {
+    charts.push({
+      id: `cache-${port}-ttft`,
+      title: `TTFT p95 · :${port}`,
+      format: (v) => `${Math.round(v * 1000)} ms`,
+      yMin: 0,
+      series: [{ key: "ttftP95", label: "p95", color: "var(--color-info)", values: ttft }],
+    });
+  }
+
+  const running = p.map((x) => flat(x?.running));
+  const waiting = p.map((x) => flat(x?.waiting));
+  if (hasAny(running) || hasAny(waiting)) {
+    charts.push({
+      id: `cache-${port}-running`,
+      title: `Requests · :${port}`,
+      format: (v) => v.toFixed(1),
+      yMin: 0,
+      series: [
+        { key: "running", label: "Running", color: "var(--color-mem-engine)", values: running },
+        { key: "waiting", label: "Waiting", color: "var(--color-warning)", values: waiting },
+      ],
+    });
+  }
+  return charts;
 }
 
 function buildCharts(
@@ -279,6 +375,7 @@ function buildCharts(
       });
     }
   }
+  charts.push(...buildCacheCharts(data, timeline));
   // Stable sort: within a domain the metric order above is kept.
   return charts.sort((a, b) => chartDomain(a.id) - chartDomain(b.id));
 }
@@ -426,6 +523,20 @@ export function HistoryPanel({
           {t("history.hint", { step: stepLabel(enabled.stepMs) })}
         </p>
         <div className="sp-hist-grid">
+          {(() => {
+            const cache = enabled.cache;
+            if (!cache || cache.endpoints.length === 0) return null;
+            const scalar = cacheScalars(timeline, cache);
+            if (!scalar) return null;
+            return (
+              <CachePoolChart
+                timeline={timeline}
+                stepMs={enabled.stepMs}
+                points={scalar.points}
+                formatTime={formats.tooltip}
+              />
+            );
+          })()}
           {charts.map((c) => (
             <HistoryChart
               key={c.id}
@@ -461,7 +572,7 @@ export function HistoryPanel({
     ) : null;
 
   return (
-    <div ref={screenRef} className="sp-hist">
+    <div ref={screenRef} className="sp-hist" id="history">
       <Panel title={t("history.title", { range: rangeTitles(t)[range] })} icon={<ChartIcon />} actions={chips} bodyClassName="sp-stack sp-stack--tight">
         {stale}
         {body}
