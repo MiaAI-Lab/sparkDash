@@ -51,3 +51,5 @@ config/metrics-history.json.corrupt-*
 config/fleet-energy.scope-*.json
 config/*.tmp
 config/*.json.*.tmp
+__pycache__/
+*.pyc
