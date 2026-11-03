@@ -1,0 +1,12 @@
+{
+  "domain": "sparkdash",
+  "name": "sparkDash",
+  "codeowners": ["@vincenzopalazzo"],
+  "config_flow": true,
+  "documentation": "https://github.com/MiaAI-Lab/sparkDash/blob/main/homeassistant/README.md",
+  "integration_type": "hub",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/MiaAI-Lab/sparkDash/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}
