@@ -91,13 +91,13 @@ function GpuCardBar({ card, fmtTemp }: { card: GpuDevice; fmtTemp: (c: number) =
       footer={
         <div className="ov-gpu-stats">
           <span>
-            Load <b className="mono">{avail?.usage === false ? "—" : `${Math.round(card.usage)}%`}</b>
+            {t("card.gpuLoad")} <b className="mono">{avail?.usage === false ? "—" : `${Math.round(card.usage)}%`}</b>
           </span>
           <span>
-            Temp <b className={hot ? "mono ov-gpu-stats__hot" : "mono"}>{avail?.temperature === false ? "—" : fmtTemp(card.temperature)}</b>
+            {t("card.gpuTemperature")} <b className={hot ? "mono ov-gpu-stats__hot" : "mono"}>{avail?.temperature === false ? "—" : fmtTemp(card.temperature)}</b>
           </span>
           <span>
-            Power <b className="mono">{power}</b>
+            {t("card.gpuPowerShort")} <b className="mono">{power}</b>
           </span>
         </div>
       }
@@ -411,7 +411,12 @@ function SparkCardImpl({
               )}
               <div className="ov-launch__hint">
                 {headLlm
-                  ? `${backendLabel(headLlm.backend) ?? headLlm.backend ?? "LLM"} · ${headLlm.measurementValid === false ? "—" : headLlm.generationTps.toFixed(1)} tok/s decode${headLlm.perStreamTps != null ? ` · ${headLlm.perStreamTps.toFixed(1)} last completed decode` : ""}${headLlm.prefillTpsSource?.startsWith("completed-") ? ` · ${Math.round(headLlm.prefillTps).toLocaleString()} last completed prefill (effective, incl. cached)` : ""}`
+                  ? t("card.workerHeadThroughput", {
+                      backend: backendLabel(headLlm.backend) ?? headLlm.backend ?? "LLM",
+                      decode: headLlm.measurementValid === false ? "—" : headLlm.generationTps.toFixed(1),
+                      perStream: headLlm.perStreamTps != null ? t("card.workerHeadCompletedDecode", { value: headLlm.perStreamTps.toFixed(1) }) : "",
+                      prefill: headLlm.prefillTpsSource?.startsWith("completed-") ? t("card.workerHeadCompletedPrefill", { value: Math.round(headLlm.prefillTps).toLocaleString() }) : "",
+                    })
                   : headSpark
                     ? headSpark.online
                       ? headLlmList.length
@@ -441,7 +446,7 @@ function SparkCardImpl({
                     : undefined
                 }
               >
-                <div className="eyebrow">{isTensorFold ? "Decode · aggregate" : "Decode"}</div>
+                <div className="eyebrow">{isTensorFold ? t("card.decodeAggregate") : t("card.decode")}</div>
                 {llm.measurementValid === false ? (
                   <div className="big-num ov-tps__num" title={llm.measurementError ?? t("card.statsCouldNotBeRead")}>—</div>
                 ) : isStrata && llm.decodeActive && llm.generationTps <= 0 ? (
@@ -457,10 +462,10 @@ function SparkCardImpl({
                   <small
                     className="text-muted"
                     title={isTensorFold
-                      ? "Completed-request decode rate; held between completions, not the speed of a currently running stream."
-                      : "Average decode throughput of one running stream (1 / mean seconds per output token). Only engines that publish a per-token latency histogram report it."}
+                      ? t("card.completedDecodeHelp")
+                      : t("card.perStreamDecodeHelp")}
                   >
-                    {llm.perStreamTps.toFixed(1)} tok/s{isTensorFold ? " · last completions" : " per stream"}
+                    {isTensorFold ? t("card.completedDecodeRate", { value: llm.perStreamTps.toFixed(1) }) : t("card.tokPerSecondPerStream", { value: llm.perStreamTps.toFixed(1) })}
                   </small>
                 )}
               </div>
@@ -471,7 +476,7 @@ function SparkCardImpl({
                     : undefined
                 }
               >
-                <div className="eyebrow">{completedPrefill ? "Prefill · last completed" : "Prefill"}</div>
+                <div className="eyebrow">{completedPrefill ? t("card.prefillCompleted") : t("card.prefill")}</div>
                 {llm.measurementValid === false ? (
                   <div className="big-num ov-tps__num" title={llm.measurementError ?? t("card.statsCouldNotBeRead")}>—</div>
                 ) : llm.prefillActive && llm.prefillTps <= 0 ? (
@@ -480,14 +485,14 @@ function SparkCardImpl({
                     <small>{t("card.prefilling")}</small>
                   </div>
                 ) : isTensorFold && llm.prefillTps <= 0 && !completedPrefill ? (
-                  <div className="big-num ov-tps__num" title="No current prefill measurement; zero is not evidence of no prefill.">—</div>
+                  <div className="big-num ov-tps__num" title={t("card.prefillNotMeasuredHelp")}>—</div>
                 ) : (
                   <div className="big-num ov-tps__num">{Math.round(llm.prefillTps).toLocaleString()}<small>{t("card.tokPerSecond")}</small></div>
                 )}
-                {isTensorFold && !completedPrefill && llm.prefillTps <= 0 && <small className="text-muted">Not measured live</small>}
+                {isTensorFold && !completedPrefill && llm.prefillTps <= 0 && <small className="text-muted">{t("card.notMeasuredLive")}</small>}
                 {llm.measurementValid !== false && completedPrefill && (
-                  <small className="text-muted" title="Completion-window tokens divided by prefill seconds; not continuous live throughput.">
-                    Effective rate · includes cached tokens
+                  <small className="text-muted" title={t("card.completedPrefillHelp")}>
+                    {t("card.effectiveIncludesCached")}
                   </small>
                 )}
                 {isStrata && llm.prefillTps > 0 && <small className="text-muted">{t("card.lastReportedMean")}</small>}
