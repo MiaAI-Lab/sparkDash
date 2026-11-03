@@ -104,6 +104,8 @@
       "cacheUnreported": "This engine does not report prefix-cache hits",
       "noPrompt": "No measured prompt tokens",
       "cachedPrompt": "{{count}} cached prompt tokens",
+      "promptTitle": "{{prompt}} ({{computed}} computed)",
+      "promptTitleUnreported": "{{prompt}} ({{computed}} computed, {{unreported}} not reported)",
       "model": "Model",
       "generated": "Generated",
       "prompt": "Prompt",

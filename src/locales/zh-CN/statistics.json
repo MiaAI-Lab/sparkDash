@@ -104,6 +104,8 @@
       "cacheUnreported": "此引擎不报告前缀缓存命中",
       "noPrompt": "没有已测量的提示词 Token",
       "cachedPrompt": "{{count}} 个已缓存提示词 Token",
+      "promptTitle": "{{prompt}}（{{computed}} 个计算）",
+      "promptTitleUnreported": "{{prompt}}（{{computed}} 个计算，{{unreported}} 个未报告）",
       "model": "模型",
       "generated": "已生成",
       "prompt": "提示词",
