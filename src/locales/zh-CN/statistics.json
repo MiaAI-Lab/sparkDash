@@ -214,7 +214,12 @@
     "unknown": "未知",
     "noLlmGpu": "无 LLM 响应 · GPU 使用中",
     "noLlm": "无 LLM 响应",
-    "tracePrefill": "预填充"
+    "tracePrefill": "预填充",
+    "model": "模型",
+    "system": "系统",
+    "other": "其他",
+    "roleHead": "主节点",
+    "roleWorker": "工作节点"
   },
   "cost": {
     "usageLoadFailed": "无法加载使用历史",

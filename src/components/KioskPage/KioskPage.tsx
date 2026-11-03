@@ -163,7 +163,7 @@ const KioskCardView = memo(function KioskCardView({
           <span className="kiosk-card__name">{c.name}</span>
           {c.role !== "standalone" ? (
             <span className="kiosk-card__role" title={c.workerOf ? t("kiosk.workerOf", { name: c.workerOf.name }) : undefined}>
-              {c.workerOf ? t("kiosk.workerOfShort", { name: c.workerOf.name }) : c.role}
+              {c.workerOf ? t("kiosk.workerOfShort", { name: c.workerOf.name }) : c.role === "head" ? t("kiosk.roleHead") : t("kiosk.roleWorker")}
             </span>
           ) : null}
           {c.online && c.model ? (
