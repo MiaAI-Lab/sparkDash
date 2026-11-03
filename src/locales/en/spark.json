@@ -1,0 +1,84 @@
+{
+  "cpu": {
+    "packageZoneHelp": "ACPI package zone (TSOC on GB10). This is the SoC, not a CPU die and not the GPU junction temperature from nvidia-smi.",
+    "usage": "Usage",
+    "temperature": "Temperature",
+    "namedTemperature": "Temperature ({{label}})",
+    "cpuSensorHelp": "Reading from {{source}} — the CPU package sensor",
+    "boardSensorHelp": "Reading from {{source}} — an ACPI/board thermal zone, not a CPU package sensor",
+    "power": "CPU power",
+    "model": "Model",
+    "cores": " · {{count}} cores"
+  },
+  "ram": {
+    "title": "RAM",
+    "usage": "Usage"
+  },
+  "memory": {
+    "title": "Unified memory",
+    "usedOf": "{{used}} of {{total}} · {{percentage}}%",
+    "usedLabel": "Unified memory {{percentage}}% used",
+    "segments": {
+      "weights": "Model weights",
+      "gpu": "GPU processes",
+      "kv": "KV cache",
+      "system": "System",
+      "free": "Free"
+    },
+    "highOomRisk": "OOM risk: high",
+    "pressure": "Memory pressure",
+    "bandwidthHelp": "GPU memory bandwidth (nvidia-smi dmon)",
+    "waiting": "Waiting for memory reading…"
+  },
+  "gpu": {
+    "throttle": {
+      "thermal": "Thermal throttle",
+      "power": "Power cap",
+      "hw": "HW slowdown",
+      "unknown": "Throttled",
+      "ok": "No throttle"
+    },
+    "heat": { "hot": "Hot", "warm": "Warm", "normal": "Normal" },
+    "windows": { "thirtyMinutes": "30 min", "oneHour": "1 h", "eightHours": "8 h" },
+    "chartWindow": "Chart window",
+    "usage": "Usage",
+    "utilization": "utilization",
+    "temperature": "Temperature",
+    "power": "Power",
+    "powerDraw": "Power draw",
+    "allCardsPower": "Power (all cards)",
+    "systemPower": "System ≈ {{watts}} W",
+    "smClock": "SM clock",
+    "clockCapHelp": "Locked with nvidia-smi -lgc",
+    "clockCap": "cap {{mhz}} MHz",
+    "utilizationLegend": "GPU utilization %",
+    "powerLegend": "Power % of limit",
+    "temperatureLegend": "Temperature °C",
+    "cardCount": "{{count}} GPUs",
+    "vram": "VRAM",
+    "allCardsVram": "VRAM (all cards)",
+    "vramUnreadable": "VRAM use could not be read on this card",
+    "totalMemory": "{{memory}} total",
+    "usedMemory": "{{memory}} used",
+    "available": "Available",
+    "allocationErrorsHelp": "NVRM kernel NV_ERR_NO_MEMORY lines since boot (journal). GPU memory allocation failures under pressure.",
+    "allocationErrors": "GPU memory allocation errors since boot"
+  },
+  "gpuChart": {
+    "combined": "Combined",
+    "allGpus": "All GPUs",
+    "viewGroup": "GPUs to plot",
+    "metricGroup": "Metric to plot",
+    "metrics": { "utilization": "Utilization", "power": "Power", "temperature": "Temperature" },
+    "series": { "utilization": "GPU utilization %", "power": "Power % of limit", "temperature": "Temperature °C" },
+    "collecting": "Collecting history. The chart fills in while this page is open.",
+    "historyLabel": "GPU utilization, power and temperature history",
+    "elapsedMinutes": "−{{count}} min",
+    "elapsedHours": "−{{count}} h",
+    "now": "now"
+  },
+  "processes": {
+    "process": "Process",
+    "memory": "Memory"
+  }
+}
