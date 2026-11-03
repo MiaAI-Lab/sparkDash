@@ -44,6 +44,7 @@ Monitored units run **Linux**, **macOS**, or **Windows** (a Windows PC with an N
 - [ComfyUI monitoring](#comfyui-monitoring)
 - [Hermes Agent monitoring](#hermes-agent-monitoring)
 - [Tailnet monitoring](#tailnet-monitoring)
+- [Display carveout monitoring](#display-carveout-monitoring)
 - [Tailscale Serve (HTTPS)](#tailscale-serve-https)
 - [Mobile PWA (install on a phone)](#mobile-pwa-install-on-a-phone)
 - [Kiosk (wall display)](#kiosk-wall-display)
@@ -152,6 +153,7 @@ Full history: [CHANGELOG.md](./CHANGELOG.md)
 | **ComfyUI** | Opt-in probe: queue/jobs, progress, cancel, Open link, inventory, overview chip |
 | **Hermes Agent** | Opt-in per unit: background update check (10 min), status badges, one-click or batch `hermes update` |
 | **Tailnet** | Opt-in probe: flags a unit that is healthy on the LAN but off its tailnet |
+| **Display carveout** | Opt-in per Spark: whether spark-attic lends the GB10's display carveout to CUDA, and how much of it |
 | **Decode benchmark** | Multi-concurrency streaming decode tok/s; type picker (Structured / Prose / Code / JSON). Code is a different Python task per stream. Temperature (default 0.7) and thinking on/off (default on) are selectable; persisted last run. **Start context** (16k to 256k or a custom size) prefills every stream to that depth first, then measures decode from there; it needs prefix caching, and a wave whose context was recomputed is flagged instead of reported as clean. Remote units: LAN HTTP, or SSH tunnel to loopback. **Remote** button for an on-demand HTTPS/host:port target |
 | **Prefill benchmark** | Context-size sweep (1k–300k) of prefill tok/s and TTFT; unique prefix per size; persisted last run. Same remote targeting as decode |
 | **Quality benchmark** | Fixed, seeded quality suite (QA, reasoning, arithmetic, state tracking, GSM8K, MMLU, plus optional instruction following and long-context recall) at temperature 0; per-category and overall score; last 30 runs kept; paired compare with McNemar p-value. Same remote targeting as decode |
@@ -324,6 +326,45 @@ Asked of **each node about itself**. Peer state is never the verdict. The probe 
 | `tailscaleMonitoring` | `false` | Run `tailscale status --json` and show the Tailnet card |
 
 Env (optional): `POLL_INTERVAL_TAILSCALE` (default `30000`), `TAILSCALE_PROBE_TIMEOUT_MS` (default `8000`).
+
+---
+
+## Display carveout monitoring
+
+Opt-in per Spark (default **off**). Shows a **Display carveout** card under Resources: what [spark-attic](https://github.com/bertholomus/spark-attic) does with the GB10's display carveout, and how much of it is lent to CUDA programs.
+
+A GB10 keeps a display carveout (about 2 GiB) outside the kernel's System RAM, so MemAvailable never counts it. spark-attic's daemon, atticd (unit `attic.service`), lends it to CUDA programs, such as an engine's KV cache, and keeps a keyless status file that says what it does.
+
+### What is supported
+
+| Capability | Details |
+|------------|---------|
+| **Opt-in per unit** | `atticMonitoring` (default **off**) in **Edit Spark**; Linux Sparks only. When off, nothing runs on the unit |
+| **States** | **not installed** (no `attic.service`, no status file), **off** (`attic.service` stopped or failed), **refusing** (atticd lends nothing; the card shows its reason), **driver not yet validated** (atticd waits until the running NVIDIA driver is validated), **lending** (N of the carveout's MiB) |
+| **Numbers** | From atticd's keyless status file `/run/spark-attic/status.json` (mode 0644, no key in it): MiB lent, free and in the largest free block, MiB still returning, clients, mode, driver and whether that driver is validated |
+| **Unknown stays unknown** | atticd rewrites its file on every change and at least once a period (`every_s` in the file, 10 s by default): a file older than three of its periods is **stale** and shows no numbers, one that cannot be read is **unreadable**, and with no status file the card needs systemd's word for **off** or **not installed**. Anything else reads **unknown**, with the reason |
+
+The probe is one read-only shell command as the SSH user: no root, no socket, no key, no new port.
+
+### How to enable
+
+1. Open **Edit Spark**.
+2. Tick **Display carveout**.
+3. Save. The Display carveout card appears under Resources.
+
+### Host requirements
+
+- [spark-attic](https://github.com/bertholomus/spark-attic) on the Spark: atticd writes the status file.
+- `systemctl`, for `attic.service`'s state. Without it, **off** and **not installed** read unknown.
+- Remote units: existing SSH. Local Docker: `nsenter` into the host mount namespace (same as the Tailnet probe).
+
+### Config fields
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `atticMonitoring` | `false` | Read spark-attic's state and show the Display carveout card |
+
+Env (optional): `POLL_INTERVAL_ATTIC` (default `15000`), `ATTIC_PROBE_TIMEOUT_MS` (default `8000`).
 
 ---
 
@@ -1185,6 +1226,8 @@ Copy `.env.example` to `.env` if needed:
 | `POLL_INTERVAL_HERMES` | `600000` | Hermes Agent update check poll (ms) |
 | `POLL_INTERVAL_TAILSCALE` | `30000` | Tailnet probe poll (ms) |
 | `TAILSCALE_PROBE_TIMEOUT_MS` | `8000` | Timeout for `tailscale status --json` (ms) |
+| `POLL_INTERVAL_ATTIC` | `15000` | Display-carveout probe poll (ms) |
+| `ATTIC_PROBE_TIMEOUT_MS` | `8000` | Timeout for the display-carveout probe (ms) |
 | `POLL_INTERVAL_NVERR` | `60000` | Incremental kernel journal reads for NV_ERR, Xid and OOM counters (ms), after the initial backfill |
 | `HERMES_UPDATE_TIMEOUT_MS` | `600000` | Hard timeout for running `hermes update` over SSH (ms) |
 | `POLL_INTERVAL_LIVENESS` | `5000` | Online/SSH liveness check (ms) |

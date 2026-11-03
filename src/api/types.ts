@@ -99,6 +99,11 @@ export interface SparkConfig {
    * Report tailnet presence via `tailscale status --json` (default false; all roles).
    */
   tailscaleMonitoring?: boolean;
+  /**
+   * Show the display-carveout card: what spark-attic does with the GB10's
+   * display carveout and how much of it is lent (default false; Linux Sparks).
+   */
+  atticMonitoring?: boolean;
   /** When true, storage is only updated on manual refresh, not auto-polled. */
   storagePollDisabled?: boolean;
 }
@@ -842,6 +847,71 @@ export interface TailscaleMetrics {
   error: string | null;
 }
 
+/** attic.service's state on the unit; nulls when systemd could not be asked. */
+export interface AtticUnit {
+  /** false: not installed. */
+  present: boolean | null;
+  /** true while it runs, false when stopped or failed, null while it starts or stops. */
+  active: boolean | null;
+  /** systemd's ActiveState ("active", "inactive", "failed", …) or "not installed". */
+  state: string | null;
+}
+
+/**
+ * spark-attic's keyless status file. The numbers are set only while it is
+ * fresh (status "ready" or "refusing"): a stale file says nothing about what
+ * is lent now.
+ */
+export interface AtticStatus {
+  /**
+   * ready / refusing: atticd's own state. stale: not rewritten for three of its
+   * periods (atticd is not running). unreadable: no permission, or not a
+   * spark-attic status file. unknown: no clock reading to judge it by.
+   */
+  status: "ready" | "refusing" | "stale" | "unreadable" | "unknown";
+  /** Why atticd refuses, or why the file could not be read. */
+  why: string | null;
+  version: string | null;
+  driver: string | null;
+  /** "heap" or "list". */
+  mode: string | null;
+  /** The running driver's build is validated for this mode. */
+  validated: boolean | null;
+  validatedAt: string | null;
+  sizeMib: number | null;
+  freeMib: number | null;
+  largestMib: number | null;
+  lentMib: number | null;
+  /** Given back by clients, not yet free (CUDA may still map it). */
+  drainingMib: number | null;
+  clients: number | null;
+  /** Seconds since atticd last wrote the file, by the unit's own clock. */
+  ageS: number | null;
+  everyS: number | null;
+}
+
+/**
+ * What spark-attic does on the unit. lending: atticd lends (`attic.lentMib`
+ * of `attic.sizeMib`). refusing: it lends nothing, `attic.why` says why.
+ * unvalidated: it lends nothing until the running driver is validated. off:
+ * attic.service is stopped or failed. not installed: no attic.service and no
+ * status file. unknown: the probe failed, or its answer cannot be trusted (a
+ * stale or unreadable status file, no clock, no systemd, a unit that runs
+ * without its file).
+ */
+export type AtticState = "lending" | "refusing" | "unvalidated" | "off" | "not installed" | "unknown";
+
+export interface AtticMetrics {
+  /** True when the probe ran and its output was understood. */
+  available: boolean;
+  state: AtticState;
+  /** spark-attic's status file; null when there is none. */
+  attic: AtticStatus | null;
+  /** attic.service, atticd's unit. */
+  atticd: AtticUnit;
+  error: string | null;
+}
+
 // ─── Full metrics snapshot ────────────────────────────────
 export interface SparkMetrics {
   gpu: GpuMetrics | null;
@@ -860,6 +930,8 @@ export interface SparkMetrics {
   comfy?: ComfyMetrics | null;
   /** Tailnet probe result when monitoring is enabled; null when off or not yet polled. */
   tailscale?: TailscaleMetrics | null;
+  /** Display-carveout probe result when monitoring is enabled; null when off or not yet polled. */
+  attic?: AtticMetrics | null;
   /**
    * Mac-agent units: model runtimes detected on the machine. null for other
    * transports (DGX Sparks, macs read over SSH) — an empty array only when the
@@ -1016,6 +1088,8 @@ export interface SparkSnapshot {
   comfyPort?: number;
   /** Whether tailnet presence is probed (opt-in; all roles) */
   tailscaleMonitoring?: boolean;
+  /** Whether the display carveout is probed (opt-in; Linux Sparks) */
+  atticMonitoring?: boolean;
   /** Hermes Agent update monitoring state (present in every snapshot). */
   hermes?: HermesStatus;
   hardware: HardwareInfo;
