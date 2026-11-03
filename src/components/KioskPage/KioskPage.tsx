@@ -7,7 +7,7 @@ import { resolveSparkRole } from "../../api/sparkRole";
 import { OVERVIEW_ID, idToPath } from "../../constants";
 import { useSnapshot } from "../../hooks/useSnapshot";
 import { useFleetAlerts } from "../../hooks/useFleetAlerts";
-import { formatTemperature } from "../../shared/fleetExceptions";
+import { fleetExceptions, formatTemperature } from "../../shared/fleetExceptions";
 import { formatDiskSize } from "../../shared/formatBytes";
 import { headroomTextClass } from "../../shared/vramBreakdown";
 import { makeHeadResolver } from "../../shared/sparkHead";
@@ -389,6 +389,19 @@ export function KioskPage() {
   const stats = useMemo(() => kioskFleetStats(sparks), [sparks]);
   const traces = useKioskTraces(sparks);
   const alerts = useFleetAlerts({ sparks, alertsEnabled: Boolean(settings?.alertsEnabled), serverAlerts, temperatureUnit: tempUnit });
+  const localizedAlertLabels = useMemo(() => {
+    const labelFor = (id: string, label: string) => {
+      switch (id) {
+        case "offline": return t("kiosk.alertOffline");
+        case "disk": return t("kiosk.alertDisk");
+        case "llm": return t("kiosk.alertLlm");
+        case "tailnet": return t("kiosk.alertTailnet");
+        case "throttle": return label === "is thermal throttling" ? t("kiosk.alertThermalThrottle") : t("kiosk.alertHardwareSlowdown");
+        default: return label;
+      }
+    };
+    return new Map(sparks.flatMap((spark) => fleetExceptions(spark, tempUnit).map((exception) => [`${spark.id}:${exception.id}`, labelFor(exception.id, exception.label)])));
+  }, [sparks, t, tempUnit]);
 
   const fleetGen = useMemo(() => sumTraces(Object.values(traces).map((t) => t.gen)), [traces]);
   const showBreakdown = settings?.showVramBreakdown !== false;
@@ -460,7 +473,7 @@ export function KioskPage() {
         <section className="kiosk-alerts" aria-label={t("kiosk.activeAlerts")}>
           {alerts.rows.map((a) => (
             <span key={a.key} className={`kiosk-alert is-${a.severity}`}>
-              <b>{a.unitName}</b> {a.label}
+              <b>{a.unitName}</b> {localizedAlertLabels.get(a.key) ?? a.label}
             </span>
           ))}
         </section>

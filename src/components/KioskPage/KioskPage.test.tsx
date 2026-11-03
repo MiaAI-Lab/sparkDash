@@ -1,20 +1,22 @@
 import { act } from "react";
 import { setLocale } from "../../i18n";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { SparkSnapshot } from "../../api/types";
+import type { AlertInstance, SparkSnapshot } from "../../api/types";
 import { makeSpark } from "../../testing/fixtures";
 import { cleanupRenders, flush, render } from "../../testing/render";
 import { KioskPage } from "./KioskPage";
 
 let sparks: SparkSnapshot[] = [];
 let lastValidSnapshotAt: number | null = Date.now();
+let serverAlerts: AlertInstance[] | null = null;
+let alertsEnabled = false;
 
 vi.mock("../../hooks/useSnapshot", () => ({
-  useSnapshot: () => ({ sparks, connected: true, lastValidSnapshotAt, refreshInterval: 2_000, serverAlerts: null }),
+  useSnapshot: () => ({ sparks, connected: true, lastValidSnapshotAt, refreshInterval: 2_000, serverAlerts }),
 }));
 
 vi.mock("../../api/client", () => ({
-  fetchSettings: () => Promise.resolve({ temperatureUnit: "celsius", alertsEnabled: false, hideWorkers: false, timeZone: null }),
+  fetchSettings: () => Promise.resolve({ temperatureUnit: "celsius", alertsEnabled, hideWorkers: false, timeZone: null }),
   fetchFleetEnergy: () => Promise.resolve({ estimated: true, energy24hKwh: 7.86, outputTokens24h: 951_451 }),
   getUnitHistory: () => Promise.resolve({ enabled: false }),
 }));
@@ -23,6 +25,8 @@ describe("KioskPage", () => {
   beforeEach(() => {
     window.history.replaceState(null, "", "/kiosk");
     lastValidSnapshotAt = Date.now();
+    serverAlerts = null;
+    alertsEnabled = false;
   });
   afterEach(() => {
     cleanupRenders();
@@ -90,6 +94,25 @@ describe("KioskPage", () => {
     expect(card.textContent).toContain("SSH timed out");
     expect(card.querySelector(".kiosk-card__trace")).toBeNull();
     expect(container.querySelector(".kiosk-alerts")?.textContent).toContain("Spark down");
+  });
+
+  it("localizes known live server alerts while preserving raw unknown server labels", async () => {
+    const a = makeSpark("a");
+    a.metrics.llm[0].available = false;
+    sparks = [a];
+    alertsEnabled = true;
+    serverAlerts = [
+      { key: "a:llm", ruleId: "llm", ruleName: "LLM", unitId: "a", unitName: "Spark a", severity: "warning", state: "firing", label: "LLM is unavailable", summary: "LLM is unavailable", startsAt: Date.now(), firingAt: Date.now() },
+      { key: "a:server-only", ruleId: "server-only", ruleName: "Server only", unitId: "a", unitName: "Spark a", severity: "warning", state: "firing", label: "Raw server finding <keep>", summary: "Raw server finding <keep>", startsAt: Date.now(), firingAt: Date.now() },
+    ];
+    await setLocale("zh-CN");
+    const { container } = render(<KioskPage />);
+    await flush();
+    const text = container.querySelector(".kiosk-alerts")!.textContent!;
+    expect(text).toContain("Spark a");
+    expect(text).toContain("LLM 不可用");
+    expect(text).toContain("Raw server finding <keep>");
+    await act(async () => setLocale("en"));
   });
 
   it("shows the served model with its rates", async () => {
