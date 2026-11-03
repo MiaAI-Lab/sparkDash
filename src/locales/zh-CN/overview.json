@@ -193,7 +193,20 @@
     "perRequestPrefillHelp": "单个请求的有效预填充速率（提示词 token ÷ 已完成请求的预填充秒数）。提示词计数器包含前缀缓存 token，因此这是有效速度而非原始 GPU 速度；在完成之间保持不变。",
     "tokPerSecondPerRequestEffective": "{{value}} tok/s 每请求 — 有效（含缓存 token）",
     "storageUsed": "已用 {{used}} / {{total}}（{{percentage}}%）",
-    "loadedModelTitle": "{{name}} · 已加载模型；吞吐量显示在上方受监控端点中"
+    "loadedModelTitle": "{{name}} · 已加载模型；吞吐量显示在上方受监控端点中",
+    "decodeAggregate": "解码 · 总计",
+    "completedDecodeHelp": "已完成请求的解码速率；在两次完成之间保持，不代表当前运行流的速度。",
+    "prefillCompleted": "预填充 · 最近完成",
+    "prefillNotMeasuredHelp": "暂无当前预填充测量值；零值不能说明没有预填充。",
+    "notMeasuredLive": "未实时测量",
+    "completedPrefillHelp": "完成窗口内的 Token 数除以预填充秒数；并非持续的实时吞吐。",
+    "effectiveIncludesCached": "有效速率 · 包含缓存 Token",
+    "gpuLoad": "负载",
+    "gpuTemperature": "温度",
+    "gpuPowerShort": "功耗",
+    "workerHeadCompletedDecode": " · {{value}} 最近完成的解码",
+    "workerHeadCompletedPrefill": " · {{value}} 最近完成的预填充（有效值，含缓存）",
+    "completedDecodeRate": "{{value}} tok/s · 最近完成"
   },
   "launcher": {
     "modelsUnavailable": "模型不可用",

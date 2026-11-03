@@ -193,7 +193,20 @@
     "perRequestPrefillHelp": "Effective prefill rate of one request (prompt tokens ÷ prefill seconds over finished requests). The prompt counter includes prefix-cache tokens, so this is an effective speed, not raw GPU speed; it is held between completions.",
     "tokPerSecondPerRequestEffective": "{{value}} tok/s per request — effective (incl. cached tokens)",
     "storageUsed": "{{used}} of {{total}} used ({{percentage}}%)",
-    "loadedModelTitle": "{{name}} · loaded model; throughput shown for the monitored endpoint above"
+    "loadedModelTitle": "{{name}} · loaded model; throughput shown for the monitored endpoint above",
+    "decodeAggregate": "Decode · aggregate",
+    "completedDecodeHelp": "Completed-request decode rate; held between completions, not the speed of a currently running stream.",
+    "prefillCompleted": "Prefill · last completed",
+    "prefillNotMeasuredHelp": "No current prefill measurement; zero is not evidence of no prefill.",
+    "notMeasuredLive": "Not measured live",
+    "completedPrefillHelp": "Completion-window tokens divided by prefill seconds; not continuous live throughput.",
+    "effectiveIncludesCached": "Effective rate · includes cached tokens",
+    "gpuLoad": "Load",
+    "gpuTemperature": "Temp",
+    "gpuPowerShort": "Power",
+    "workerHeadCompletedDecode": " · {{value}} last completed decode",
+    "workerHeadCompletedPrefill": " · {{value}} last completed prefill (effective, incl. cached)",
+    "completedDecodeRate": "{{value}} tok/s · last completions"
   },
   "launcher": {
     "modelsUnavailable": "Models unavailable",

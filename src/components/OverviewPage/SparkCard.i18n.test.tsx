@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const wakeSpark = vi.fn();
 vi.mock("../../api/client", () => ({ wakeSpark: (...args: unknown[]) => wakeSpark(...args) }));
+import type { GpuDevice } from "../../api/types";
 import { SparkCard } from "./SparkCard";
 import { i18n, setLocale } from "../../i18n";
 import { makeSpark } from "../../testing/fixtures";
@@ -75,5 +76,42 @@ describe("SparkCard locale changes", () => {
     expect(bar.textContent).toContain("Unified memory");
     expect(container.textContent).toContain("GPU temp");
     expect(container.textContent).toContain(rawModel);
+  });
+  it("localizes the retained multi-GPU footer labels", async () => {
+    const spark = makeSpark("multi-gpu");
+    const cards: GpuDevice[] = [0, 1].map((index) => ({
+      index,
+      physicalIndex: index,
+      uuid: `gpu-${index}`,
+      name: `GPU ${index}`,
+      usage: 42,
+      temperature: 55,
+      power: { draw: 50, limit: 100 },
+      vram: { used: 1024, total: 4096, available: 3072, percentage: 25 },
+    }));
+    spark.metrics.gpu!.gpus = cards;
+    const { container } = render(<SparkCard spark={spark} temperatureUnit="celsius" />);
+    expect(container.textContent).toContain("Load");
+    expect(container.textContent).toContain("Temp");
+    expect(container.querySelector(".ov-gpu-stats")?.textContent).toContain("Power");
+    expect(container.querySelector(".ov-gpu-stats")?.textContent).not.toContain("GPU power");
+
+    await act(async () => setLocale("zh-CN"));
+    expect(container.textContent).toContain("负载");
+    expect(container.textContent).toContain("温度");
+    expect(container.querySelector(".ov-gpu-stats")?.textContent).toContain("功耗");
+  });
+  it("keeps completion-based measurements distinct from live throughput across locales", async () => {
+    const spark = makeSpark("tensorfold");
+    Object.assign(spark.metrics.llm[0], { available: true, backend: "tensorfold", measurementValid: true, generationTps: 25, perStreamTps: 8, prefillTps: 1000, prefillTpsSource: "completed-metrics" });
+    const { container } = render(<SparkCard spark={spark} temperatureUnit="celsius" />);
+    expect(container.textContent).toContain("Decode · aggregate");
+    expect(container.textContent).toContain("Prefill · last completed");
+    expect(container.textContent).toContain("Effective rate · includes cached tokens");
+    await act(async () => setLocale("zh-CN"));
+    expect(container.textContent).toContain("解码 · 总计");
+    expect(container.textContent).toContain("预填充 · 最近完成");
+    expect(container.textContent).toContain("有效速率 · 包含缓存 Token");
+    expect(container.textContent).toContain("25.0");
   });
 });
