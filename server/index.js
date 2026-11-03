@@ -76,6 +76,7 @@ import { LauncherManager } from "./llmlaunch/LauncherManager.js";
 import { ToolEvalStore } from "./tooleval/ToolEvalStore.js";
 import { ToolEvalManager } from "./tooleval/ToolEvalManager.js";
 import { registerToolEvalRoutes } from "./tooleval/routes.js";
+import { registerApiKeysRoutes } from "./apiKeys/routes.js";
 import { benchEvent } from "./events/eventFormat.js";
 import {
   createFleetEnergyRuntime,
@@ -843,6 +844,16 @@ registerToolEvalRoutes(app, {
   manager: toolEvalManager,
   store: toolEvalStore,
   allowRun: allowToolEval,
+  principalKey,
+  rejectLimited,
+});
+
+// ─── API Keys (opt-in, Settings → API Keys) ───
+// Read-only views of LiteLLM virtual keys through a host-side bridge on a unix socket
+// (SPARKDASH_APIKEYS_BRIDGE_SOCKET / SPARKDASH_APIKEYS_BRIDGE_TOKEN). 404 while the setting is off.
+registerApiKeysRoutes(app, {
+  getSettings,
+  allow: createRateLimiter(60, 60_000),
   principalKey,
   rejectLimited,
 });
