@@ -6,7 +6,12 @@ const DEFAULT_DISCOVERY_PREFIX = "homeassistant";
  * The dashboard's HA ids live outside the per-unit namespace (`sparkdash_{id}`),
  * so no Spark id — "dashboard" included — can collide with them.
  */
-const DASHBOARD_HA_ID = "sparkdash-dashboard";
+export const DASHBOARD_HA_ID = "sparkdash-dashboard";
+
+/** Where the dashboard's own discovery config lives. */
+export function dashboardDiscoveryTopic(discoveryPrefix) {
+  return `${discoveryPrefix}/binary_sensor/${DASHBOARD_HA_ID}/connected/config`;
+}
 
 /**
  * Home Assistant MQTT discovery: the retained config messages that make HA
@@ -63,7 +68,8 @@ function sensorConfig(out, snap, ctx, component, object, label, extra, stateTopi
   });
 }
 
-function nodeId(id) {
+/** The HA node id a unit's discovery topics use: `{discovery}/{component}/{nodeId}/{object}/config`. */
+export function nodeId(id) {
   return `sparkdash_${slug(id) || "unit"}`;
 }
 
@@ -275,7 +281,7 @@ export function unitDiscoveryMessages(snap, ctx) {
 export function dashboardDiscoveryMessages({ prefix, discoveryPrefix }) {
   return [
     {
-      topic: `${discoveryPrefix}/binary_sensor/${DASHBOARD_HA_ID}/connected/config`,
+      topic: dashboardDiscoveryTopic(discoveryPrefix),
       payload: JSON.stringify({
         name: "sparkDash dashboard",
         unique_id: `${DASHBOARD_HA_ID}_connected`,

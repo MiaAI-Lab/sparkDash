@@ -43,7 +43,7 @@ function fakeClient({ autoAck = true, ...overrides } = {}) {
 const ENABLED = { mqttEnabled: true, mqttUrl: "mqtt://broker.local:1883", mqttUsername: "", mqttTopicPrefix: "sparkdash" };
 
 /** Build a publisher wired to a stub client; `connect` records every attempt. */
-function harness({ settings = {}, client: clientOverrides = {}, now } = {}) {
+function harness({ settings = {}, client: clientOverrides = {}, now, publisher: publisherOpts = {} } = {}) {
   let current = { ...ENABLED, ...settings };
   const attempts = [];
   const warnings = [];
@@ -57,6 +57,7 @@ function harness({ settings = {}, client: clientOverrides = {}, now } = {}) {
     },
     log: { warn: (m) => warnings.push(m), error: (m) => warnings.push(m) },
     ...(now ? { now } : {}),
+    ...publisherOpts,
   });
   const h = {
     publisher,
@@ -68,8 +69,8 @@ function harness({ settings = {}, client: clientOverrides = {}, now } = {}) {
       current = { ...current, ...patch };
     },
     /** Fire a lifecycle event on the stub client, like mqtt.js would. */
-    fire(event, arg) {
-      calls.handlers[event]?.(arg);
+    fire(event, ...args) {
+      calls.handlers[event]?.(...args);
     },
     /** Connect, let the broker accept, and forget the availability announcement. */
     ready() {
@@ -776,4 +777,208 @@ test("at most MAX_PENDING_DISCOVERY_REMOVALS discovery removals are kept", () =>
   }
   assert.equal(sent, MAX_PENDING_DISCOVERY_REMOVALS);
   assert.ok(h.warnings.some((w) => w.includes("discovery removals awaiting the broker")));
+});
+
+// ─── Discovery cleanup: MQTT switched off, and reconciling after a restart ───
+
+const ALPHA = { snapshot: { id: "alpha", name: "Alpha", kind: "spark", online: true, uptime: 1 } };
+
+/** Model of the broker's retained discovery configs, from everything published. */
+function retainedConfigs(publishes, start = new Map()) {
+  const m = new Map(start);
+  for (const { topic, payload } of publishes) {
+    if (!topic.endsWith("/config")) continue;
+    if (payload) m.set(topic, payload);
+    else m.delete(topic);
+  }
+  return m;
+}
+
+/** MQTT topic filter match (`+` one level, `#` the rest). */
+function matches(filter, topic) {
+  const f = filter.split("/");
+  const t = topic.split("/");
+  for (let i = 0; i < f.length; i += 1) {
+    if (f[i] === "#") return true;
+    if (i >= t.length || (f[i] !== "+" && f[i] !== t[i])) return false;
+  }
+  return f.length === t.length;
+}
+
+/**
+ * A stub client backed by retained messages: subscribe acks and then delivers
+ * the matching retained ones, like a broker. `refuse` makes the SUBACK a failure.
+ */
+function brokerClient(retained, { refuse = false } = {}) {
+  const subscribes = [];
+  return {
+    subscribes,
+    overrides: {
+      subscribe(filter, opts, cb) {
+        subscribes.push(filter);
+        if (refuse) return cb?.(null, [{ topic: filter, qos: 128 }]);
+        cb?.(null, [{ topic: filter, qos: 0 }]);
+        for (const [topic, payload] of retained) {
+          if (matches(filter, topic)) this._handlers?.message?.(topic, Buffer.from(payload), { retain: true });
+        }
+      },
+      unsubscribe() {},
+    },
+  };
+}
+
+/** Configs a previous process left at the broker for `fleet`. */
+function leftBy(fleet, settings = DISCOVERY) {
+  const h = harness({ settings });
+  h.publisher.applySettings();
+  h.publisher.publishFleet(fleet);
+  return retainedConfigs(h.calls.publishes);
+}
+
+/** A fresh process (`settings`) connecting to a broker holding `retained`. */
+function restart(retained, settings = DISCOVERY, opts = {}) {
+  const broker = brokerClient(retained, opts);
+  const h = harness({ settings, client: broker.overrides, publisher: { discoveryReadQuietMs: 0, discoveryReadMaxMs: 50 } });
+  h.client._handlers = h.calls.handlers;
+  h.publisher.applySettings();
+  h.fire("connect");
+  return { h, broker, retained: () => retainedConfigs(h.calls.publishes, retained) };
+}
+
+const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
+
+test("switching MQTT off empties the discovery configs before disconnecting", () => {
+  const h = harness({ settings: DISCOVERY, client: { autoAck: false } });
+  h.ready();
+  h.publisher.publishFleet([ALPHA]);
+  while (h.calls.pending.length) h.ack();
+  const announced = [...retainedConfigs(h.calls.publishes).keys()];
+  assert.ok(announced.length >= 3);
+  const mark = h.calls.publishes.length;
+  h.set({ mqttEnabled: false });
+  h.publisher.applySettings();
+  assert.deepEqual(h.topics(mark).sort(), [...announced].sort());
+  assert.ok(h.calls.publishes.slice(mark).every((p) => p.payload === "" && p.opts.retain && p.opts.qos === 1));
+  // Held open until the broker acknowledges them all, then closed.
+  assert.equal(h.calls.ended, 0);
+  while (h.calls.pending.length) h.ack();
+  assert.equal(h.calls.ended, 1);
+  assert.equal(retainedConfigs(h.calls.publishes).size, 0);
+});
+
+test("switching MQTT off bypasses the in-flight cap for the removals", () => {
+  const h = harness({ settings: DISCOVERY, client: { autoAck: false } });
+  h.ready();
+  h.publisher.publishFleet([ALPHA]);
+  while (h.calls.pending.length) h.ack();
+  const announced = retainedConfigs(h.calls.publishes).size;
+  for (let i = 0; i < MAX_IN_FLIGHT; i += 1) h.publisher.publishEvent({ id: i });
+  const mark = h.calls.publishes.length;
+  h.set({ mqttEnabled: false });
+  h.publisher.applySettings();
+  assert.equal(h.calls.publishes.slice(mark).filter((p) => p.payload === "").length, announced);
+});
+
+test("switching MQTT off gives up waiting for removal acks after its timeout", async () => {
+  const h = harness({ settings: DISCOVERY, client: { autoAck: false }, publisher: { retireTimeoutMs: 5 } });
+  h.ready();
+  h.publisher.publishFleet([ALPHA]);
+  while (h.calls.pending.length) h.ack();
+  h.set({ mqttEnabled: false });
+  h.publisher.applySettings();
+  assert.equal(h.calls.ended, 0);
+  await settle();
+  assert.equal(h.calls.ended, 1);
+  assert.match(h.warnings.join("\n"), /discovery removals not acknowledged/);
+});
+
+test("switching MQTT off with discovery off disconnects at once", () => {
+  const h = harness({ client: { autoAck: false } });
+  h.ready();
+  h.publisher.publishFleet([ALPHA]);
+  h.set({ mqttEnabled: false });
+  h.publisher.applySettings();
+  assert.equal(h.calls.ended, 1);
+});
+
+test("switching MQTT back on closes a connection still delivering removals first", () => {
+  const h = harness({ settings: DISCOVERY, client: { autoAck: false } });
+  h.ready();
+  h.publisher.publishFleet([ALPHA]);
+  while (h.calls.pending.length) h.ack();
+  h.set({ mqttEnabled: false });
+  h.publisher.applySettings();
+  h.set({ mqttEnabled: true });
+  h.publisher.applySettings();
+  assert.equal(h.calls.ended, 1);
+  assert.equal(h.attempts.length, 2);
+});
+
+test("after a restart, configs left for a deleted unit are emptied; the rest are kept", async () => {
+  const beta = { snapshot: { id: "beta", name: "Beta", kind: "spark", online: true, uptime: 1 } };
+  const before = leftBy([ALPHA, beta]);
+  const { h, broker, retained } = restart(before);
+  assert.deepEqual(broker.subscribes, ["homeassistant/+/+/+/config"]);
+  await settle();
+  h.publisher.publishFleet([ALPHA]); // beta was deleted while sparkDash was down
+  const after = retained();
+  assert.ok([...before.keys()].some((t) => t.includes("/sparkdash_beta/")));
+  assert.ok(![...after.keys()].some((t) => t.includes("/sparkdash_beta/")), "beta's configs remain");
+  assert.ok([...after.keys()].some((t) => t.includes("/sparkdash_alpha/")));
+});
+
+test("after a restart, an offline unit keeps the entities it had", async () => {
+  const gpuAlpha = {
+    snapshot: { ...ALPHA.snapshot, metrics: { gpu: { gpus: [{ index: 0, usage: 5, temperature: 40, power: { draw: 9 }, vram: { used: 1, total: 2 } }] } } },
+  };
+  const before = leftBy([gpuAlpha]);
+  const { h, retained } = restart(before);
+  await settle();
+  h.publisher.publishFleet([{ id: "alpha", online: false }]);
+  assert.deepEqual([...retained().keys()].sort(), [...before.keys()].sort());
+  // And once it is back without its GPU, the GPU's entities go.
+  h.publisher.publishFleet([ALPHA]);
+  assert.ok(![...retained().keys()].some((t) => t.includes("gpu_0_")));
+  assert.ok([...retained().keys()].some((t) => t.endsWith("sparkdash_alpha/online/config")));
+});
+
+test("the restart cleanup leaves other publishers' configs alone", async () => {
+  const before = leftBy([ALPHA]);
+  const other = leftBy([{ snapshot: { id: "gamma", name: "G", kind: "spark", online: true, uptime: 1 } }], { ...DISCOVERY, mqttTopicPrefix: "lab" });
+  const zigbee = new Map([["homeassistant/sensor/0x00158d/temperature/config", JSON.stringify({ state_topic: "zigbee2mqtt/0x00158d" })]]);
+  const gammaTopics = [...other.keys()].filter((t) => t.includes("sparkdash_gamma"));
+  const { h, retained } = restart(new Map([...before, ...zigbee, ...gammaTopics.map((t) => [t, other.get(t)])]));
+  await settle();
+  h.publisher.publishFleet([ALPHA]);
+  const after = retained();
+  assert.ok(after.has("homeassistant/sensor/0x00158d/temperature/config"));
+  for (const t of gammaTopics) assert.ok(after.has(t), `another dashboard's ${t} was removed`);
+});
+
+test("with discovery off, a restart empties discovery configs left behind", async () => {
+  const before = leftBy([ALPHA]);
+  const { h, broker, retained } = restart(before, { mqttDiscovery: false, mqttDiscoveryPrefix: "homeassistant" });
+  await settle();
+  assert.deepEqual(broker.subscribes, [
+    "homeassistant/binary_sensor/sparkdash-dashboard/connected/config",
+    "homeassistant/+/+/+/config",
+  ]);
+  h.publisher.publishFleet([ALPHA]);
+  assert.equal(retained().size, 0);
+});
+
+test("with discovery off and nothing left behind, only the dashboard's config topic is read", async () => {
+  const { broker } = restart(new Map(), { mqttDiscovery: false, mqttDiscoveryPrefix: "homeassistant" });
+  await settle();
+  assert.deepEqual(broker.subscribes, ["homeassistant/binary_sensor/sparkdash-dashboard/connected/config"]);
+});
+
+test("a refused discovery read removes nothing and says why", async () => {
+  const before = leftBy([ALPHA]);
+  const { h, retained } = restart(before, DISCOVERY, { refuse: true });
+  await settle();
+  h.publisher.publishFleet([]);
+  // The deleted unit's configs stay (nothing was read), and the log says so.
+  assert.ok([...retained().keys()].some((t) => t.includes("/sparkdash_alpha/")));
+  assert.match(h.warnings.join("\n"), /could not read the broker's discovery configs/);
 });
