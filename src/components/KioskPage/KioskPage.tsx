@@ -114,7 +114,7 @@ function UnitTrace({ traces }: { traces: KioskTraces | undefined }) {
   if (traces.prefill.some((v) => v != null)) {
     const max = rateScale(traces.prefill, 100);
     series.push({ key: "prefill", label: t("kiosk.prefillRate"), values: traces.prefill, max, dashed: true, format: rateText });
-    scales.push(t("kiosk.traceScale", { name: t("kiosk.prefill"), max }));
+    scales.push(t("kiosk.traceScale", { name: t("kiosk.tracePrefill"), max }));
   }
   // The % lines share 0–100; each tok/s line gets its own auto peak, so name both tops.
   const caption = scales.length ? t("kiosk.traceAutoPeak", { scales: scales.join(" · ") }) : undefined;
