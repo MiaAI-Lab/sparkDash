@@ -1002,6 +1002,10 @@ export interface Settings {
   mqttUsername: string;
   /** Topic root for everything published (events, status, metrics). */
   mqttTopicPrefix: string;
+  /** Publish Home Assistant MQTT discovery configs (requires MQTT publishing). */
+  mqttDiscovery: boolean;
+  /** Discovery prefix — match the integration's setting in Home Assistant (default "homeassistant"). */
+  mqttDiscoveryPrefix: string;
   /**
    * Hide harness sessions older than this. Finite: 1 minute through 14 days.
    * Missing or out of range becomes 12 hours.

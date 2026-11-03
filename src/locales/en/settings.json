@@ -37,7 +37,9 @@
     "publishing": { "title": "MQTT publishing", "help": "Publishes the activity feed events and every unit's readings to your MQTT broker (Home Assistant, Node-RED, …) as they change. Off by default. The README's MQTT section lists the topics." },
     "url": { "title": "MQTT broker URL", "help": "mqtt://host:1883, mqtts:// for TLS, ws(s):// for a websocket broker. The password is read from the SPARKDASH_MQTT_PASSWORD environment variable, never stored in settings.json." },
     "username": { "title": "MQTT username", "help": "Leave empty for a broker that allows anonymous publish.", "placeholder": "empty" },
-    "prefix": { "title": "MQTT topic prefix", "help": "Topic root for everything published: PREFIX/events, PREFIX/status/… and PREFIX/metrics/…" }
+    "prefix": { "title": "MQTT topic prefix", "help": "Topic root for everything published: PREFIX/events, PREFIX/status/… and PREFIX/metrics/…" },
+    "discovery": { "title": "Home Assistant discovery", "help": "Publishes retained discovery configs, so Home Assistant creates a device per unit with its sensors automatically. Requires MQTT publishing above." },
+    "discoveryPrefix": { "title": "Discovery prefix", "help": "Must match the MQTT integration's discovery prefix in Home Assistant (default homeassistant)." }
   },
   "gpuClock": {
     "title": "GPU clock cap",

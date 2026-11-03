@@ -92,6 +92,10 @@ const DEFAULTS = Object.freeze({
   mqttUsername: "",
   /** Topic root for everything published (no wildcards, no slashes at the edges). */
   mqttTopicPrefix: "sparkdash",
+  /** Publish Home Assistant MQTT discovery configs (requires MQTT publishing). */
+  mqttDiscovery: false,
+  /** Discovery prefix — match the integration's setting in Home Assistant. */
+  mqttDiscoveryPrefix: "homeassistant",
   /**
    * Hide harness sessions older than this. Finite: 1 minute through 14 days.
    * A missing or out-of-range value becomes 12 hours. There is no unlimited value.
@@ -253,6 +257,9 @@ function _clampSettings(settings) {
   // Trailing slashes are normal while typing; strip them instead of rejecting.
   const prefix = typeof s.mqttTopicPrefix === "string" ? s.mqttTopicPrefix.trim().replace(/\/+$/, "") : "";
   s.mqttTopicPrefix = isValidMqttPrefix(prefix) ? prefix : DEFAULTS.mqttTopicPrefix;
+  s.mqttDiscovery = Boolean(s.mqttDiscovery);
+  const discoveryPrefix = typeof s.mqttDiscoveryPrefix === "string" ? s.mqttDiscoveryPrefix.trim().replace(/\/+$/, "") : "";
+  s.mqttDiscoveryPrefix = isValidMqttPrefix(discoveryPrefix) ? discoveryPrefix : DEFAULTS.mqttDiscoveryPrefix;
   const age = Number(s.occupancyMaxAgeMs);
   s.occupancyMaxAgeMs =
     Number.isFinite(age) && age >= OCCUPANCY_AGE_MIN_MS && age <= OCCUPANCY_AGE_MAX_MS

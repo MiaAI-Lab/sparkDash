@@ -37,7 +37,9 @@
     "publishing": { "title": "MQTT 发布", "help": "在动态事件和各设备的监控读数变化时，将其发布到你的 MQTT 服务器（Home Assistant、Node-RED 等）。默认关闭，主题列表见 README 的 MQTT 章节。" },
     "url": { "title": "MQTT 服务器地址", "help": "使用 mqtt://host:1883，TLS 使用 mqtts://，WebSocket 使用 ws(s)://。密码从 SPARKDASH_MQTT_PASSWORD 环境变量读取，不会写入 settings.json。" },
     "username": { "title": "MQTT 用户名", "help": "服务器允许匿名发布时可留空。", "placeholder": "留空" },
-    "prefix": { "title": "MQTT 主题前缀", "help": "所有发布主题的根前缀：PREFIX/events、PREFIX/status/… 和 PREFIX/metrics/…" }
+    "prefix": { "title": "MQTT 主题前缀", "help": "所有发布主题的根前缀：PREFIX/events、PREFIX/status/… 和 PREFIX/metrics/…" },
+    "discovery": { "title": "Home Assistant 自动发现", "help": "发布保留的自动发现配置，让 Home Assistant 为每台设备自动创建设备及其传感器。需要先开启上方的 MQTT 发布。" },
+    "discoveryPrefix": { "title": "自动发现前缀", "help": "必须与 Home Assistant 中 MQTT 集成的自动发现前缀一致（默认 homeassistant）。" }
   },
   "gpuClock": {
     "title": "GPU 频率上限",

@@ -75,6 +75,11 @@ test("mqtt publishing is opt-in with a validated broker URL and topic prefix", (
   assert.equal(updateSettings({ mqttTopicPrefix: "trailing/" }).mqttTopicPrefix, "trailing");
   assert.equal(updateSettings({ mqttTopicPrefix: "+" }).mqttTopicPrefix, "sparkdash");
   assert.equal(updateSettings({ mqttTopicPrefix: "" }).mqttTopicPrefix, "sparkdash");
+  assert.equal(loadSettings().mqttDiscovery, false);
+  assert.equal(loadSettings().mqttDiscoveryPrefix, "homeassistant");
+  assert.equal(updateSettings({ mqttDiscovery: "yes" }).mqttDiscovery, true);
+  assert.equal(updateSettings({ mqttDiscoveryPrefix: " ha/ " }).mqttDiscoveryPrefix, "ha");
+  assert.equal(updateSettings({ mqttDiscoveryPrefix: "bad#prefix" }).mqttDiscoveryPrefix, "homeassistant");
   assert.equal(updateSettings({ mqttUsername: "  mia " }).mqttUsername, "mia");
 });
 

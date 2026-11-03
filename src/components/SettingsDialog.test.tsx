@@ -44,6 +44,8 @@ const SETTINGS: Settings = {
   mqttUrl: "",
   mqttUsername: "",
   mqttTopicPrefix: "sparkdash",
+  mqttDiscovery: false,
+  mqttDiscoveryPrefix: "homeassistant",
   occupancyMaxAgeMs: 12 * 60 * 60 * 1000,
   healthTempWarnC: 85,
   healthTempCriticalC: 90,
