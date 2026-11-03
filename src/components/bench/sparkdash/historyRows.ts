@@ -18,12 +18,25 @@ export interface HistoryRow {
   detail: string;
 }
 
+export interface BenchmarkHistoryLabels {
+  peakAt: string;
+  streamAtOne: string;
+  startContext: string;
+  bestAt: string;
+  category: string;
+  categories: string;
+}
+
+const DEFAULT_LABELS: BenchmarkHistoryLabels = {
+  peakAt: "peak at", streamAtOne: "/stream at ×1", startContext: "start ctx", bestAt: "best at", category: "category", categories: "categories",
+};
+
 function aggregate(r: DecodeBenchJob["results"][number]): number {
   return r.aggregateDecodeTps > 0 ? r.aggregateDecodeTps : r.meanDecodeTps;
 }
 
 /** Peak aggregate decode tok/s over the levels that produced tokens. */
-export function decodeHistoryRow(job: DecodeBenchJob): HistoryRow {
+export function decodeHistoryRow(job: DecodeBenchJob, labels: BenchmarkHistoryLabels = DEFAULT_LABELS): HistoryRow {
   const ok = job.results.filter((r) => r.totalDecodeTokens > 0 || r.totalCompletionTokens > 0);
   const best = ok.reduce<DecodeBenchJob["results"][number] | null>(
     (b, r) => (b == null || aggregate(r) > aggregate(b) ? r : b),
@@ -38,10 +51,10 @@ export function decodeHistoryRow(job: DecodeBenchJob): HistoryRow {
     model: job.config.modelId ?? job.results.find((r) => r.model)?.model ?? null,
     headline: best ? `${aggregate(best).toFixed(1)} tok/s` : "—",
     detail: [
-      best ? `peak at ×${best.concurrency}` : null,
-      single ? `${single.meanDecodeTps.toFixed(1)}/stream at ×1` : null,
+      best ? `${labels.peakAt} ×${best.concurrency}` : null,
+      single ? `${single.meanDecodeTps.toFixed(1)}${labels.streamAtOne}` : null,
       decodeBenchSamplingLabel(job.config),
-      job.config.contextTokens ? `${formatContextSize(job.config.contextTokens)} start ctx` : null,
+      job.config.contextTokens ? `${formatContextSize(job.config.contextTokens)} ${labels.startContext}` : null,
     ]
       .filter(Boolean)
       .join(" · "),
@@ -49,7 +62,7 @@ export function decodeHistoryRow(job: DecodeBenchJob): HistoryRow {
 }
 
 /** Fastest prefill tok/s over the context sizes that completed. */
-export function prefillHistoryRow(job: PrefillBenchJob): HistoryRow {
+export function prefillHistoryRow(job: PrefillBenchJob, labels: BenchmarkHistoryLabels = DEFAULT_LABELS): HistoryRow {
   const ok = job.results.filter((r) => r.prefillTps > 0);
   const best = ok.reduce<PrefillBenchJob["results"][number] | null>(
     (b, r) => (b == null || r.prefillTps > b.prefillTps ? r : b),
@@ -63,11 +76,11 @@ export function prefillHistoryRow(job: PrefillBenchJob): HistoryRow {
     label: sizes.length ? sizes.map(formatContextSize).join(", ") : "—",
     model: job.config.modelId ?? job.results.find((r) => r.model)?.model ?? null,
     headline: best ? `${best.prefillTps.toFixed(1)} tok/s` : "—",
-    detail: best ? `best at ${formatContextSize(best.targetTokens)}` : "",
+    detail: best ? `${labels.bestAt} ${formatContextSize(best.targetTokens)}` : "",
   };
 }
 
-export function qualityHistoryRow(job: QualityBenchJob): HistoryRow {
+export function qualityHistoryRow(job: QualityBenchJob, labels: BenchmarkHistoryLabels = DEFAULT_LABELS): HistoryRow {
   const overall = job.results?.overallPct;
   const cats = Object.keys(job.results?.categories ?? {}).length;
   return {
@@ -78,6 +91,6 @@ export function qualityHistoryRow(job: QualityBenchJob): HistoryRow {
     model: job.config.modelId ?? null,
     port: Number.isInteger(job.config.port) ? job.config.port : null,
     headline: overall == null ? "—" : `${overall.toFixed(1)}%`,
-    detail: cats ? `${cats} categor${cats === 1 ? "y" : "ies"}` : "",
+    detail: cats ? `${cats} ${cats === 1 ? labels.category : labels.categories}` : "",
   };
 }

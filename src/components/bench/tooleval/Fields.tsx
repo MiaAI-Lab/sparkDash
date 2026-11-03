@@ -1,8 +1,11 @@
+import type { TFunction } from "i18next";
+import { useToolEvalCategories } from "./labels";
+import { useTranslation } from "react-i18next";
 import { useState } from "react";
 import type { ToolEvalArgSpec } from "../../../api/types";
 import { byteLength, jsonObjectError, splitList, type FieldValue } from "./options";
 import { fmtBytes } from "./format";
-import { CATEGORY_NAMES } from "./normalize";
+import { useToolEvalPresentation } from "./presentation";
 
 interface FieldProps {
   arg: ToolEvalArgSpec;
@@ -13,17 +16,19 @@ interface FieldProps {
 
 const idOf = (name: string) => `te-f-${name}`;
 
-function rangeHint(a: ToolEvalArgSpec): string {
+function rangeHint(a: ToolEvalArgSpec, t: TFunction): string {
   const parts: string[] = [];
   if (a.min != null && a.max != null) parts.push(`${a.min}–${a.max}`);
-  else if (a.min != null) parts.push(`min ${a.min}`);
-  else if (a.max != null) parts.push(`max ${a.max}`);
-  if (a.default !== undefined && a.default !== "") parts.push(`default ${a.default}`);
+  else if (a.min != null) parts.push(t("fields.min", { value: a.min }));
+  else if (a.max != null) parts.push(t("fields.max", { value: a.max }));
+  if (a.default !== undefined && a.default !== "") parts.push(t("fields.default", { value: a.default }));
   return parts.join(" · ");
 }
 
 /** One generated form control, chosen by the option's kind. */
 export function Field({ arg, value, error, onChange }: FieldProps) {
+  const { t } = useTranslation("tooleval");
+  const presentation = useToolEvalPresentation();
   const id = idOf(arg.name);
   const set = (v: FieldValue) => onChange(arg.name, v);
   const err = error ? (
@@ -77,7 +82,7 @@ export function Field({ arg, value, error, onChange }: FieldProps) {
     case "choice":
       control = (
         <select id={id} value={typeof value === "string" ? value : ""} onChange={(e) => set(e.target.value)} aria-describedby={describedBy}>
-          <option value="">{arg.default !== undefined ? `Default (${arg.default})` : "Default"}</option>
+          <option value="">{arg.default !== undefined ? t("fields.defaultChoice", { value: arg.default }) : t("ui.fields.default")}</option>
           {(arg.choices ?? []).map((c) => (
             <option key={c} value={c}>
               {c}
@@ -94,7 +99,7 @@ export function Field({ arg, value, error, onChange }: FieldProps) {
         <>
           <textarea id={id} rows={4} value={text} onChange={(e) => set(e.target.value)} aria-invalid={Boolean(error)} aria-describedby={describedBy} spellCheck={false} />
           <p className={`te-counter ${bytes > max ? "is-over" : ""}`} aria-live="polite">
-            {fmtBytes(bytes)} of {fmtBytes(max)}
+            {t("fields.bytes", { used: fmtBytes(bytes), total: fmtBytes(max) })}
           </p>
         </>
       );
@@ -102,11 +107,11 @@ export function Field({ arg, value, error, onChange }: FieldProps) {
     }
     case "json": {
       const text = typeof value === "string" ? value : "";
-      const bad = text.trim() ? jsonObjectError(text) : null;
+      const bad = text.trim() ? jsonObjectError(text, presentation) : null;
       control = (
         <>
           <textarea id={id} rows={3} className="te-mono-input" value={text} placeholder='{"chat_template_kwargs": {"enable_thinking": false}}' onChange={(e) => set(e.target.value)} aria-invalid={Boolean(error)} aria-describedby={describedBy} spellCheck={false} />
-          {text.trim() ? <p className={`te-counter ${bad ? "is-over" : "is-ok"}`}>{bad ? `JSON ${bad}` : "Valid JSON object"}</p> : null}
+          {text.trim() ? <p className={`te-counter ${bad ? "is-over" : "is-ok"}`}>{bad ? `JSON ${bad}` : t("ui.fields.validJson")}</p> : null}
         </>
       );
       break;
@@ -116,8 +121,8 @@ export function Field({ arg, value, error, onChange }: FieldProps) {
         <CategoryPicker id={id} value={Array.isArray(value) ? value : []} choices={arg.choices} onChange={set} />
       ) : (
         <>
-          <input id={id} type="text" value={typeof value === "string" ? value : ""} placeholder={arg.name === "scenarios" ? "TC-01 TC-07 TC-12" : "space separated"} onChange={(e) => set(e.target.value)} aria-invalid={Boolean(error)} aria-describedby={describedBy} autoComplete="off" spellCheck={false} />
-          {typeof value === "string" && value.trim() ? <p className="te-counter">{splitList(value).length} item(s)</p> : null}
+          <input id={id} type="text" value={typeof value === "string" ? value : ""} placeholder={arg.name === "scenarios" ? "TC-01 TC-07 TC-12" : t("ui.fields.spaceSeparated")} onChange={(e) => set(e.target.value)} aria-invalid={Boolean(error)} aria-describedby={describedBy} autoComplete="off" spellCheck={false} />
+          {typeof value === "string" && value.trim() ? <p className="te-counter">{t("fields.items", { count: splitList(value).length })}</p> : null}
         </>
       );
       break;
@@ -140,7 +145,7 @@ export function Field({ arg, value, error, onChange }: FieldProps) {
         />
       );
   }
-  const hint = rangeHint(arg);
+  const hint = rangeHint(arg, t);
   return (
     <div className={`te-field ${error ? "has-error" : ""} ${arg.kind === "text" || arg.kind === "json" || arg.kind === "repeat" || arg.kind === "list" ? "te-field--wide" : ""}`}>
       <label className="field-label" htmlFor={arg.kind === "list" && arg.choices ? undefined : id}>
@@ -154,22 +159,24 @@ export function Field({ arg, value, error, onChange }: FieldProps) {
 }
 
 function CategoryPicker({ id, value, choices, onChange }: { id: string; value: string[]; choices: string[]; onChange: (v: string[]) => void }) {
+  const categoryNames = useToolEvalCategories();
+  const { t } = useTranslation("tooleval");
   const on = new Set(value.map((v) => v.toUpperCase()));
   const toggle = (c: string) => onChange(choices.filter((x) => (x === c ? !on.has(x) : on.has(x))));
   return (
-    <div className="te-cats" role="group" aria-label="Categories" id={id}>
+    <div className="te-cats" role="group" aria-label={t("ui.quality.categories")} id={id}>
       {choices.map((c) => (
-        <button key={c} type="button" className={`te-chip ${on.has(c) ? "is-on" : ""}`} aria-pressed={on.has(c)} onClick={() => toggle(c)} title={CATEGORY_NAMES[c] ? `${c}: ${CATEGORY_NAMES[c]}` : c}>
+        <button key={c} type="button" className={`te-chip ${on.has(c) ? "is-on" : ""}`} aria-pressed={on.has(c)} onClick={() => toggle(c)} title={categoryNames[c] ? `${c}: ${categoryNames[c]}` : c}>
           <b>{c}</b>
-          <span>{CATEGORY_NAMES[c] ?? ""}</span>
+          <span>{categoryNames[c] ?? ""}</span>
         </button>
       ))}
       <span className="te-cats__tools">
         <button type="button" className="btn btn--sm btn--ghost" onClick={() => onChange([...choices])}>
-          All
+          {t("ui.range.all")}
         </button>
         <button type="button" className="btn btn--sm btn--ghost" onClick={() => onChange([])} disabled={on.size === 0}>
-          None
+          {t("ui.tile.none")}
         </button>
       </span>
     </div>
@@ -177,6 +184,7 @@ function CategoryPicker({ id, value, choices, onChange }: { id: string; value: s
 }
 
 function RepeatRows({ id, arg, rows, onChange }: { id: string; arg: ToolEvalArgSpec; rows: string[]; onChange: (v: string[]) => void }) {
+  const { t } = useTranslation("tooleval");
   const [reveal, setReveal] = useState(false);
   const list = rows.length ? rows : [""];
   const max = arg.maxItems ?? 20;
@@ -190,23 +198,23 @@ function RepeatRows({ id, arg, rows, onChange }: { id: string; arg: ToolEvalArgS
             className="te-mono-input"
             value={row}
             placeholder={placeholder}
-            aria-label={`${arg.label} ${i + 1}`}
+            aria-label={t("fields.rowAria", { label: arg.label, row: i + 1 })}
             autoComplete="off"
             spellCheck={false}
             onChange={(e) => onChange(list.map((r, j) => (j === i ? e.target.value : r)))}
           />
-          <button type="button" className="btn btn--sm btn--ghost" aria-label={`Remove ${arg.label} ${i + 1}`} onClick={() => onChange(list.filter((_, j) => j !== i))} disabled={list.length === 1 && !row}>
-            Remove
+          <button type="button" className="btn btn--sm btn--ghost" aria-label={t("fields.removeAria", { label: arg.label, row: i + 1 })} onClick={() => onChange(list.filter((_, j) => j !== i))} disabled={list.length === 1 && !row}>
+            {t("ui.action.remove")}
           </button>
         </div>
       ))}
       <div className="te-rows__tools">
         <button type="button" className="btn btn--sm" onClick={() => onChange([...list, ""])} disabled={list.length >= max}>
-          Add row
+          {t("ui.fields.addRow")}
         </button>
         {arg.secret ? (
           <button type="button" className="btn btn--sm btn--ghost" onClick={() => setReveal((r) => !r)}>
-            {reveal ? "Hide values" : "Show values"}
+            {reveal ? t("ui.fields.hideValues") : t("ui.fields.showValues")}
           </button>
         ) : null}
       </div>

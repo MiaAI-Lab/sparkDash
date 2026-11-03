@@ -1,5 +1,6 @@
 import type { ToolEvalArgSpec, ToolEvalRun, ToolEvalSpec } from "../../../api/types";
 import { PRESETS, type Preset } from "./presets";
+import { message, type ToolEvalPresentation } from "./presentation";
 
 /**
  * Form state for the Tool Eval pages and its mapping to the API payload.
@@ -176,7 +177,7 @@ export function buildRequest(spec: ToolEvalSpec, type: string, state: FormState,
 }
 
 /** Client-side check of one raw field value, mirroring the server so errors show while typing. */
-export function validateField(spec: ToolEvalArgSpec, v: FieldValue | undefined): string | null {
+export function validateField(spec: ToolEvalArgSpec, v: FieldValue | undefined, presentation?: ToolEvalPresentation): string | null {
   if (isBlank(v)) return null;
   const label = spec.label;
   const s = typeof v === "string" ? v.trim() : "";
@@ -186,50 +187,50 @@ export function validateField(spec: ToolEvalArgSpec, v: FieldValue | undefined):
     case "int":
     case "float": {
       const n = Number(s);
-      if (!s || !Number.isFinite(n)) return `${label} must be a number`;
-      if (spec.kind === "int" && !Number.isInteger(n)) return `${label} must be a whole number`;
-      if (spec.min != null && n < spec.min) return `${label} must be at least ${spec.min}`;
-      if (spec.max != null && n > spec.max) return `${label} must be at most ${spec.max}`;
+      if (!s || !Number.isFinite(n)) return message(presentation, "validation.number", `${label} must be a number`, { label });
+      if (spec.kind === "int" && !Number.isInteger(n)) return message(presentation, "validation.whole", `${label} must be a whole number`, { label });
+      if (spec.min != null && n < spec.min) return message(presentation, "validation.atLeast", `${label} must be at least ${spec.min}`, { label, value: spec.min });
+      if (spec.max != null && n > spec.max) return message(presentation, "validation.atMost", `${label} must be at most ${spec.max}`, { label, value: spec.max });
       return null;
     }
     case "choice":
-      return spec.choices?.includes(s) ? null : `${label} must be one of ${spec.choices?.join(", ")}`;
+      return spec.choices?.includes(s) ? null : message(presentation, "validation.oneOf", `${label} must be one of ${spec.choices?.join(", ")}`, { label, choices: spec.choices?.join(", ") ?? "" });
     case "string":
     case "csv":
     case "range":
-      if (s.length > (spec.maxLen ?? 500)) return `${label} is too long`;
-      if (spec.pattern && !new RegExp(spec.pattern).test(s)) return `${label} has an invalid format`;
+      if (s.length > (spec.maxLen ?? 500)) return message(presentation, "validation.tooLong", `${label} is too long`, { label });
+      if (spec.pattern && !new RegExp(spec.pattern).test(s)) return message(presentation, "validation.invalidFormat", `${label} has an invalid format`, { label });
       return null;
     case "text": {
       const bytes = byteLength(typeof v === "string" ? v : "");
-      return bytes > (spec.maxBytes ?? 32768) ? `${label} is longer than ${(spec.maxBytes ?? 32768) / 1024} KiB` : null;
+      return bytes > (spec.maxBytes ?? 32768) ? message(presentation, "validation.byteLimit", `${label} is longer than ${(spec.maxBytes ?? 32768) / 1024} KiB`, { label, value: (spec.maxBytes ?? 32768) / 1024 }) : null;
     }
     case "path":
-      if (!/^(~\/|\/)[A-Za-z0-9._@+=,/ -]{0,300}$/.test(s)) return `${label} must be an absolute path (or start with ~/)`;
-      return s.split("/").includes("..") ? `${label} must not contain ..` : null;
+      if (!/^(~\/|\/)[A-Za-z0-9._@+=,/ -]{0,300}$/.test(s)) return message(presentation, "validation.absolutePath", `${label} must be an absolute path (or start with ~/)`, { label });
+      return s.split("/").includes("..") ? message(presentation, "validation.noParent", `${label} must not contain ..`, { label }) : null;
     case "url":
       try {
         const u = new URL(s);
-        if (u.protocol !== "http:" && u.protocol !== "https:") return `${label} must start with http:// or https://`;
-        return u.username || u.password ? `${label} must not contain credentials (use the API key field)` : null;
+        if (u.protocol !== "http:" && u.protocol !== "https:") return message(presentation, "validation.urlProtocol", `${label} must start with http:// or https://`, { label });
+        return u.username || u.password ? message(presentation, "validation.urlCredentials", `${label} must not contain credentials (use the API key field)`, { label }) : null;
       } catch {
-        return `${label} is not a valid URL`;
+        return message(presentation, "validation.urlInvalid", `${label} is not a valid URL`, { label });
       }
     case "json":
-      return jsonObjectError(s) ? `${label}: ${jsonObjectError(s)}` : null;
+      { const error = jsonObjectError(s, presentation); return error ? `${label}: ${error}` : null; }
     case "list": {
       const items = Array.isArray(v) ? v : splitList(String(v));
-      if (spec.maxItems && items.length > spec.maxItems) return `${label} has too many items`;
+      if (spec.maxItems && items.length > spec.maxItems) return message(presentation, "validation.tooMany", `${label} has too many items`, { label });
       const re = spec.itemPattern ? new RegExp(spec.itemPattern) : null;
       const bad = re ? items.find((i) => !re.test(i)) : undefined;
-      return bad ? `${label} has an invalid item "${bad.slice(0, 40)}"` : null;
+      return bad ? message(presentation, "validation.invalidItem", `${label} has an invalid item "${bad.slice(0, 40)}"`, { label, value: bad.slice(0, 40) }) : null;
     }
     case "repeat": {
       const items = (Array.isArray(v) ? v : [String(v)]).map((x) => x.trim()).filter(Boolean);
-      if (spec.maxItems && items.length > spec.maxItems) return `${label} has too many items`;
+      if (spec.maxItems && items.length > spec.maxItems) return message(presentation, "validation.tooMany", `${label} has too many items`, { label });
       const re = spec.itemPattern ? new RegExp(spec.itemPattern) : null;
       const bad = re ? items.find((i) => !re.test(i)) : undefined;
-      return bad ? `${label} has an invalid entry "${bad.slice(0, 40)}"` : null;
+      return bad ? message(presentation, "validation.invalidEntry", `${label} has an invalid entry "${bad.slice(0, 40)}"`, { label, value: bad.slice(0, 40) }) : null;
     }
     default:
       return null;
@@ -241,32 +242,32 @@ export function byteLength(s: string): number {
 }
 
 /** null when `s` is a JSON object; otherwise a short reason. */
-export function jsonObjectError(s: string): string | null {
+export function jsonObjectError(s: string, presentation?: ToolEvalPresentation): string | null {
   try {
     const p = JSON.parse(s);
-    return p && typeof p === "object" && !Array.isArray(p) ? null : "must be a JSON object";
+    return p && typeof p === "object" && !Array.isArray(p) ? null : message(presentation, "validation.jsonObject", "must be a JSON object");
   } catch {
-    return "is not valid JSON";
+    return message(presentation, "validation.jsonInvalid", "is not valid JSON");
   }
 }
 
 /** Errors per option name plus form-level ones (cross-field rules). */
-export function validateState(spec: ToolEvalSpec, type: string, state: FormState): { fields: Record<string, string>; form: string[] } {
+export function validateState(spec: ToolEvalSpec, type: string, state: FormState, presentation?: ToolEvalPresentation): { fields: Record<string, string>; form: string[] } {
   const fields: Record<string, string> = {};
   const managed = managedNames(type);
   for (const arg of spec.args) {
     if (arg.kind === "secret" || managed.has(arg.name)) continue;
-    const e = validateField(arg, state.values[arg.name]);
+    const e = validateField(arg, state.values[arg.name], presentation);
     if (e) fields[arg.name] = e;
   }
   const form: string[] = [];
   const set = (n: string) => !isBlank(state.values[n]);
-  if (set("system-prompt") && set("system-prompt-file")) form.push("Use either the system prompt text or the system prompt file, not both");
-  if (set("context-pressure") && set("context-pressure-sweep")) form.push("Use either a single context pressure or a sweep, not both");
-  if (set("short") && set("scenarios")) form.push("A short run and a specific scenario list cannot be combined");
-  if (type === "accuracy" && state.suites.length === 0) form.push("Tick at least one suite to run");
+  if (set("system-prompt") && set("system-prompt-file")) form.push(message(presentation, "validation.systemPrompt", "Use either the system prompt text or the system prompt file, not both"));
+  if (set("context-pressure") && set("context-pressure-sweep")) form.push(message(presentation, "validation.pressure", "Use either a single context pressure or a sweep, not both"));
+  if (set("short") && set("scenarios")) form.push(message(presentation, "validation.shortScenarios", "A short run and a specific scenario list cannot be combined"));
+  if (type === "accuracy" && state.suites.length === 0) form.push(message(presentation, "validation.suite", "Tick at least one suite to run"));
   if (type === "context-pressure" && !set("context-pressure") && !set("context-pressure-sweep")) {
-    form.push("Set a pressure ratio or a sweep range, otherwise this is a plain tool-call run");
+    form.push(message(presentation, "validation.pressureRequired", "Set a pressure ratio or a sweep range, otherwise this is a plain tool-call run"));
   }
   return { fields, form };
 }
