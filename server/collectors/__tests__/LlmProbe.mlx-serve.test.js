@@ -118,7 +118,7 @@ test("live prefill ends before completion: no completion replay", () => {
     "vllm:request_success_total": 3, "vllm:num_requests_running": 0,
   });
   assert.equal(snap.prefillTps, 0);
-  assert.equal(snap.generationTps, 10);
+  assert.equal(snap.generationTps, 0); // explicit idle clears the recent window; the ledger still credits 220
   assert.equal(snap.totalOutputTokens, 220);
   assert.equal(snap.totalCachedTokens, 1500);
   assert.equal(snap.cachedPrefillTps, null);
@@ -393,3 +393,47 @@ for (const missing of ["vllm:request_cancelled_total", "mlx_serve:request_failed
     });
   }
 }
+
+test("one-second scrapes of two-second decode gauges include unchanged intervals", () => {
+  const p = directProbe();
+  const base = { "mlx_serve:requests_prefilling": 0, "mlx_serve:prefill_tokens_live": 0, "vllm:num_requests_running": 2 };
+  sample(p, base, [], 1);
+  const rates = [];
+  for (let i = 1; i <= 12; i++) {
+    const snap = sample(p, { ...base, "mlx_serve:generation_tokens_live": 100 + Math.floor(i / 2) * 200 }, [], 1);
+    rates.push(snap.generationTps);
+  }
+  assert.equal(rates[0], null); // one second cannot resolve a two-second gauge
+  for (const value of rates.slice(5)) assert.equal(value, 100);
+});
+
+test("prefill rate includes repeated gauge samples without completion credit", () => {
+  const p = directProbe();
+  sample(p, {}, [], 1);
+  const rates = [];
+  for (let i = 1; i <= 8; i++) rates.push(sample(p, {
+    "mlx_serve:prefill_tokens_live": 100 + Math.floor(i / 2) * 1000,
+  }, [], 1).prefillTps);
+  assert.equal(rates[0], null);
+  for (const value of rates.slice(5)) assert.equal(value, 500);
+});
+
+test("explicit idle clears the decode window immediately", () => {
+  const p = directProbe();
+  const base = { "mlx_serve:requests_prefilling": 0, "mlx_serve:prefill_tokens_live": 0 };
+  sample(p, base);
+  assert.equal(sample(p, { ...base, "mlx_serve:generation_tokens_live": 300 }).generationTps, 100);
+  const snap = sample(p, { ...base, "mlx_serve:generation_tokens_live": 300, "vllm:num_requests_running": 0 });
+  assert.equal(snap.status, "idle");
+  assert.equal(snap.generationTps, 0);
+});
+
+test("irregular native polls use their actual elapsed duration", () => {
+  const p = directProbe();
+  const base = { "mlx_serve:requests_prefilling": 0, "mlx_serve:prefill_tokens_live": 0 };
+  sample(p, base);
+  sample(p, base, [], 1.4);
+  sample(p, { ...base, "mlx_serve:generation_tokens_live": 300 }, [], 1.1);
+  const snap = sample(p, { ...base, "mlx_serve:generation_tokens_live": 620 }, [], 2.7);
+  assert.equal(snap.generationTps, 100); // 520 tokens / 5.2 seconds, not the last scrape's burst
+});

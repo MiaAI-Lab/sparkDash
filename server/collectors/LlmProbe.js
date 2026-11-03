@@ -17,6 +17,21 @@ const TUNNEL_DROP_AFTER_FAILURES = 5;
 const TUNNEL_RETRY_MIN_MS = 60_000;
 const TUNNEL_RETRY_MAX_MS = 15 * 60_000;
 const REDETECT_INTERVAL_MS = 60_000;
+/** mlx-serve publishes gauges every two seconds, independently of our polls. */
+function mlxSampledRate(previous, before, value, dtSec) {
+  const samples = [...(previous ?? [{ seconds: 0, value: before }])];
+  const seconds = samples[samples.length - 1].seconds + dtSec;
+  samples.push({ seconds, value });
+  // Keep a real elapsed-time denominator, including unchanged gauge samples.
+  // One preceding anchor avoids shortening the window at irregular cadences.
+  while (samples.length > 2 && samples[1].seconds <= seconds - 6) samples.shift();
+  if (samples.length > 64) samples.splice(0, samples.length - 64);
+  const elapsed = seconds - samples[0].seconds;
+  return {
+    samples,
+    rate: elapsed >= 2 ? Math.round(((value - samples[0].value) / elapsed) * 100) / 100 : null,
+  };
+}
 /** Current SGLang names first. Deprecated aliases still work but log a warning per hit. */
 const SGLANG_SERVER_INFO_PATHS = ["/server_info", "/get_server_info"];
 const SGLANG_MODEL_INFO_PATHS = ["/model_info", "/get_model_info"];
@@ -1249,9 +1264,15 @@ export class LlmProbe {
     // aggregate, masking work even when the overall gauge still increased.
     const losslessDecode = prev != null && ["cancelled", "failed"].every(
       (key) => cur[key] != null && prev[key] != null && cur[key] === prev[key]);
-    const rate = (delta) => Math.round((delta / dtSec) * 100) / 100;
     if (continuous && losslessDecode && cur.gen != null && prev.gen != null) {
-      this.generationTps = rate(cur.gen - prev.gen);
+      if (cur.running === 0 || (cur.prefilling > 0 && cur.prefilling === cur.running && cur.gen === prev.gen)) {
+        this.generationTps = 0;
+        cur.decodeWindow = [{ seconds: 0, value: cur.gen }];
+      } else {
+        const window = mlxSampledRate(prev.decodeWindow, prev.gen, cur.gen, dtSec);
+        cur.decodeWindow = window.samples;
+        this.generationTps = window.rate;
+      }
       this.generationTpsSource = "mlx_serve:generation_tokens_live";
     } else {
       this.generationTpsSource = null;
@@ -1263,7 +1284,9 @@ export class LlmProbe {
         cur.prefilling === 1 && prev.prefilling === 1 &&
         cur.expected != null && cur.expected > 0 && cur.expected === prev.expected;
       if (sameLedger && singlePrefill && cur.prefill >= prev.prefill && cur.prefill <= cur.expected) {
-        this.prefillTps = rate(cur.prefill - prev.prefill);
+        const window = mlxSampledRate(prev.prefillWindow, prev.prefill, cur.prefill, dtSec);
+        cur.prefillWindow = window.samples;
+        this.prefillTps = window.rate;
       } else if (sameLedger && cur.prefilling === 0 && prev.prefilling === 0 &&
                  cur.prefill === 0 && prev.prefill === 0) {
         this.prefillTps = 0;

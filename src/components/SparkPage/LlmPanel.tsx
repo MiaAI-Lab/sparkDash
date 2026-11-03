@@ -1030,6 +1030,7 @@ export function LlmPanel({
                         </>
                       )}
                     </div>
+                    {isMlxServe && <span className="sp-avg">aggregate · ~6s window</span>}
                     <TrendLine data={genHistory} height={44} color="var(--color-accent)" />
                     {genAvg != null && <AvgVsLive avg={genAvg} live={isMlxServe ? llm?.generationTps : generationTps} />}
                     {isStrata && llm?.generationTpsSource === "slot-mean" && <span className="sp-avg">active-slot mean</span>}
@@ -1058,7 +1059,7 @@ export function LlmPanel({
                       isStrata
                         ? "Engine-reported mean for computed/new prompt tokens. It may be from an earlier prefill and is not an aggregate across slots."
                         : llm?.backend === "mlx-serve"
-                          ? "Computed prompt tokens observed over the poll window, excluding prefix-cache restores. Ambiguous cancellation or concurrent prefill handoffs are unavailable. This is observed wall-clock throughput, not GPU-only prefill speed."
+                          ? "Computed prompt tokens observed over a recent ~6-second window, excluding prefix-cache restores. Ambiguous cancellation or concurrent prefill handoffs are unavailable. This is observed wall-clock throughput, not GPU-only prefill speed."
                         : llm?.backend === "vllm"
                           ? "Prompt work per second over the last poll window, excluding cached tokens when the engine reports computed work or cache counters. This is aggregate wall-clock throughput, not speed during an individual prefill. Zero means no prompt work was observed in that window."
                         : "Prompt tokens/sec taken in during the last poll window — cache-served + computed. Opening a saved chat in the UI does not hit the GPU; send (or regenerate) so the history is sent as the prompt. Cached prefill does little GPU work; uncached prefill is what builds KV cache."
