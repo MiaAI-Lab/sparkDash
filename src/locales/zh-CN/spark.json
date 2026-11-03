@@ -1,0 +1,56 @@
+{
+  "llmTrend": {
+    "title": "tok/s 历史",
+    "window": "最近 30 分钟 · 均值从页面打开时统计（最多 {{span}}）",
+    "empty": "暂无采样。",
+    "chartLabel": "最近 30 分钟每秒生成和预填充的 Token 数",
+    "generationAverage": "生成均值",
+    "prefillAverage": "预填充均值",
+    "ttftAverage": "TTFT 均值",
+    "busyOnly": "仅对忙碌时的采样求均值"
+  },
+  "llmTokens": {
+    "title": "按模型累计 Token",
+    "ledgerHint": "由 sparkDash 自开始跟踪起累计",
+    "ledgerTitle": "由 sparkDash 自开始跟踪起累计，并按所选时间范围筛选。引擎重启后仍保留，因此可能大于引擎自身的已生成计数。",
+    "rangeLabel": "Token 累计时间范围",
+    "ranges": {
+      "all": "全部时间",
+      "today": "最近 24 小时",
+      "sixHours": "最近 6 小时",
+      "oneHour": "最近 1 小时",
+      "sevenDays": "最近 7 天",
+      "fourteenDays": "最近 14 天",
+      "month": "最近一个月"
+    },
+    "cached": "缓存",
+    "prefill": "预填充",
+    "generated": "已生成",
+    "empty": "此时间段没有 Token 记录。",
+    "rowTitle": "{{prompt}} 提示词 · {{cached}} 缓存 · {{prefill}} 预填充{{unreported}} · {{generated}} 已生成{{seen}}",
+    "rowUnreported": " · {{tokens}} 未报告",
+    "lastSeen": " · {{age}} 前"
+  },
+  "llmDaily": {
+    "title": "每日峰值 tok/s",
+    "decode": "解码",
+    "prefill": "预填充",
+    "uncachedPrefill": "未缓存预填充",
+    "ownScales": "独立刻度",
+    "days": "{{count}}天",
+    "empty": "最近 {{count}} 天没有繁忙采样。",
+    "axis": {
+      "decodeTitle": "解码刻度：图表顶部为 {{value}}",
+      "prefillTitle": "{{series}}刻度：图表顶部为 {{value}}"
+    },
+    "aria": {
+      "chart": "最近 {{count}} 天的每日解码和预填充峰值 tok/s。每个序列使用独立刻度：解码 0 至 {{decodeMax}}，{{prefillName}} 0 至 {{prefillMax}}。使用方向键读取每天的数据。"
+    },
+    "tooltip": {
+      "decode": "解码峰值 {{peak}} tok/s（平均 {{average}}）",
+      "prefill": "预填充峰值 {{peak}} tok/s（平均 {{average}}）",
+      "uncachedPrefill": "未缓存预填充峰值 {{peak}} tok/s（平均 {{average}}）",
+      "cachedPrefill": "缓存预填充峰值 {{peak}} tok/s（平均 {{average}}）"
+    }
+  }
+}
