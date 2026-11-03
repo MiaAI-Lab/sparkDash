@@ -10,24 +10,42 @@ export interface ClearChoice<T = number | string | undefined> {
   arg: T;
 }
 
+export interface ClearMenuCopy {
+  cancel: string;
+  delete: string;
+  deleting: string;
+  irreversible: string;
+  nothing: string;
+  deleted: (count: number) => string;
+  failed: string;
+}
+
+const DEFAULT_COPY: ClearMenuCopy = {
+  cancel: "Cancel", delete: "Delete", deleting: "Deleting…", irreversible: "This can't be undone.",
+  nothing: "Nothing to delete", deleted: (count) => `Deleted ${count} event${count === 1 ? "" : "s"}`, failed: "Could not delete",
+};
+
 /** Menu button: pick what to delete, confirm in place, then run it. `onRun` resolves to the number removed. */
 export function ClearMenu<T>({
   label,
   choices,
   onRun,
   disabled,
-  note = "This can't be undone.",
+  note,
+  copy = DEFAULT_COPY,
 }: {
   label: string;
   choices: readonly ClearChoice<T>[];
   onRun: (arg: T) => Promise<number>;
   disabled?: boolean;
   note?: string;
+  copy?: ClearMenuCopy;
 }) {
   const [open, setOpen] = useState(false);
-  const [pick, setPick] = useState<ClearChoice<T> | null>(null);
+  const [pickId, setPick] = useState<string | null>(null);
+  const pick = choices.find((choice) => choice.id === pickId) ?? null;
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [msg, setMsg] = useState<{ ok: true; count: number } | { ok: false; error: string | null } | null>(null);
   const root = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
@@ -63,11 +81,11 @@ export function ClearMenu<T>({
     setBusy(true);
     try {
       const n = await onRun(pick.arg);
-      setMsg({ ok: true, text: n === 0 ? "Nothing to delete" : `Deleted ${n} event${n === 1 ? "" : "s"}` });
+      setMsg({ ok: true, count: n });
       setOpen(false);
       setPick(null);
     } catch (err) {
-      setMsg({ ok: false, text: err instanceof Error ? err.message : "Could not delete" });
+      setMsg({ ok: false, error: err instanceof Error ? err.message : null });
     } finally {
       setBusy(false);
     }
@@ -93,19 +111,19 @@ export function ClearMenu<T>({
           {pick ? (
             <div className="ac-clear__confirm">
               <p>{pick.ask}</p>
-              <p className="ac-clear__note">{note}</p>
+              <p className="ac-clear__note">{note ?? copy.irreversible}</p>
               <div className="ac-clear__row">
                 <button type="button" className="btn btn--sm" onClick={() => setPick(null)} disabled={busy}>
-                  Cancel
+                  {copy.cancel}
                 </button>
                 <button type="button" className="btn btn--sm btn--danger" onClick={() => void run()} disabled={busy}>
-                  {busy ? "Deleting…" : "Delete"}
+                  {busy ? copy.deleting : copy.delete}
                 </button>
               </div>
             </div>
           ) : (
             choices.map((c) => (
-              <button key={c.id} type="button" role="menuitem" className="ac-clear__item" onClick={() => setPick(c)}>
+              <button key={c.id} type="button" role="menuitem" className="ac-clear__item" onClick={() => setPick(c.id)}>
                 {c.label}
               </button>
             ))
@@ -113,7 +131,7 @@ export function ClearMenu<T>({
         </div>
       ) : null}
       <span className={`ac-toast${msg ? (msg.ok ? " is-ok" : " is-err") : ""}`} role="status" aria-live="polite">
-        {msg?.text}
+        {msg ? (msg.ok ? (msg.count === 0 ? copy.nothing : copy.deleted(msg.count)) : msg.error ?? copy.failed) : null}
       </span>
     </span>
   );

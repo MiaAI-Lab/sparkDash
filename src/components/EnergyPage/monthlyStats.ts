@@ -12,10 +12,15 @@ const MONTH_NAMES = [
   "July", "August", "September", "October", "November", "December",
 ];
 
-/** "October 2026" for a "YYYY-MM" key. */
-export function monthLabel(key: string): string {
+/** Locale-formatted UTC month for a "YYYY-MM" key. */
+export function monthLabel(key: string, locale = "en"): string {
   const [year, month] = key.split("-").map(Number);
-  return `${MONTH_NAMES[(month || 1) - 1]} ${year}`;
+  return new Intl.DateTimeFormat(locale, { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(Date.UTC(year, (month || 1) - 1, 1)));
+}
+
+function monthShortLabel(key: string, locale: string): string {
+  const [year, month] = key.split("-").map(Number);
+  return new Intl.DateTimeFormat(locale, { month: "short", timeZone: "UTC" }).format(new Date(Date.UTC(year, (month || 1) - 1, 1)));
 }
 
 const monthKeyOf = (ms: number) => {
@@ -80,10 +85,8 @@ export interface YearBar extends BarBucket {
   kwh: number;
 }
 
-const SHORT = MONTH_NAMES.map((n) => n.slice(0, 3));
-
 /** Twelve bars (Jan to Dec) of kWh per node; months without data are empty bars. */
-export function yearBars(months: readonly MonthlyEnergyMonth[], year: number): YearBar[] {
+export function yearBars(months: readonly MonthlyEnergyMonth[], year: number, locale = "en"): YearBar[] {
   const byKey = new Map(months.map((m) => [m.month, m]));
   return Array.from({ length: 12 }, (_, i) => {
     const key = `${year}-${String(i + 1).padStart(2, "0")}`;
@@ -92,8 +95,8 @@ export function yearBars(months: readonly MonthlyEnergyMonth[], year: number): Y
     return {
       key,
       month: key,
-      label: SHORT[i],
-      title: `${MONTH_NAMES[i]} ${year}`,
+      label: monthShortLabel(key, locale),
+      title: monthLabel(key, locale),
       values,
       hasData: m != null && m.totalWh > 0,
       kwh: (m?.totalWh ?? 0) / 1000,

@@ -9,14 +9,12 @@ export type TempsRange = "24h" | "7d";
 
 export interface TempsRangeDef {
   id: TempsRange;
-  label: string;
-  long: string;
   ms: number;
 }
 
 export const TEMPS_RANGES: TempsRangeDef[] = [
-  { id: "24h", label: "Last 24 h", long: "24 hours", ms: 24 * 3600_000 },
-  { id: "7d", label: "Last 7 d", long: "7 days", ms: 7 * 24 * 3600_000 },
+  { id: "24h", ms: 24 * 3600_000 },
+  { id: "7d", ms: 7 * 24 * 3600_000 },
 ];
 
 /** The selected range id, or the default when the stored preference is unknown. */
