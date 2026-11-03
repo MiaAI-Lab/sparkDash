@@ -111,9 +111,12 @@ function ShareBar({ share }: { share: number }) {
 }
 
 /** The prompt cell's hover: its exact count and split (prompt the engine never measured is its own part). */
-function promptTitle(r: Pick<ModelRow, "prompt" | "computed" | "unreported">): string {
-  const unreported = r.unreported > 0 ? `, ${r.unreported.toLocaleString()} not reported` : "";
-  return `${r.prompt.toLocaleString()} (${r.computed.toLocaleString()} computed${unreported})`;
+function promptTitle(
+  r: Pick<ModelRow, "prompt" | "computed" | "unreported">,
+  t: (key: string, values: Record<string, string | number>) => string,
+): string {
+  const values = { prompt: r.prompt.toLocaleString(), computed: r.computed.toLocaleString(), unreported: r.unreported.toLocaleString() };
+  return r.unreported > 0 ? t("tokens.table.promptTitleUnreported", values) : t("tokens.table.promptTitle", values);
 }
 
 function CacheCell({ rate, cached, reported }: { rate: number | null; cached: number; reported?: boolean }) {
@@ -168,7 +171,7 @@ export function ModelTable({ rows, sparkName, nowMs }: { rows: readonly ModelRow
           case "generated":
             return <span title={r.generated.toLocaleString()}>{fmt(r.generated)}</span>;
           case "prompt":
-            return <span title={promptTitle(r)}>{fmt(r.prompt)}</span>;
+            return <span title={promptTitle(r, t)}>{fmt(r.prompt)}</span>;
           case "cache":
             return <CacheCell rate={r.cacheRate} cached={r.cached} reported={r.cacheReported} />;
           case "total":
@@ -233,7 +236,7 @@ export function EndpointTable({
           case "generated":
             return <span title={r.generated.toLocaleString()}>{fmt(r.generated)}</span>;
           case "prompt":
-            return <span title={promptTitle(r)}>{fmt(r.prompt)}</span>;
+            return <span title={promptTitle(r, t)}>{fmt(r.prompt)}</span>;
           case "cache":
             return <CacheCell rate={r.cacheRate} cached={r.cached} reported={r.cacheReported} />;
           case "total":

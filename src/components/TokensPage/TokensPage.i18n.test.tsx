@@ -39,6 +39,7 @@ it("keeps token range, grouping, chart geometry, raw model and unreported-cache 
   const before = geometry(container);
   expect(container.textContent).toContain("raw/model:Q4");
   expect(container.textContent).toContain("does not report prefix-cache hits");
+  expect(container.querySelector('[title="1,000 (0 computed, 1,000 not reported)"]')).not.toBeNull();
   expect(fetchHistory).toHaveBeenCalledTimes(1);
   expect(fetchTotals).toHaveBeenCalledTimes(1);
 
@@ -48,6 +49,7 @@ it("keeps token range, grouping, chart geometry, raw model and unreported-cache 
   expect(container.querySelectorAll('[aria-pressed="true"]')).toHaveLength(2);
   expect(container.textContent).toContain("raw/model:Q4");
   expect(container.textContent).toContain("不报告前缀缓存命中");
+  expect(container.querySelector('[title="1,000（0 个计算，1,000 个未报告）"]')).not.toBeNull();
   expect(geometry(container)).toEqual(before);
   expect(fetchHistory).toHaveBeenCalledTimes(1);
   expect(fetchTotals).toHaveBeenCalledTimes(1);
