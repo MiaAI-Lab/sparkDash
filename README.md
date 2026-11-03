@@ -43,6 +43,7 @@ Monitored units run **Linux**, **macOS**, or **Windows** (a Windows PC with an N
 - [Mobile PWA (install on a phone)](#mobile-pwa-install-on-a-phone)
 - [Kiosk (wall display)](#kiosk-wall-display)
 - [Glance integration](#glance-integration)
+- [Home Assistant](#home-assistant)
 - [Quality bench](#quality-bench)
 - [Prometheus](#prometheus)
 - [Alert notifications](#alert-notifications)
@@ -161,6 +162,7 @@ Full history: [CHANGELOG.md](./CHANGELOG.md)
 | **Secrets** | SSH passwords AES-256-GCM encrypted; never in `sparks.json` or API responses |
 | **Docker-first** | Single privileged container for host metrics; prod and dev Compose files |
 | **Hot config** | Add / edit / remove / reorder Sparks from the UI with no process restart |
+| **Home Assistant** | Custom integration: one device per unit already on this dashboard ([Home Assistant](#home-assistant)) |
 
 ---
 
@@ -421,6 +423,16 @@ URL flags choose the layout without touching settings:
 | `SPARKDASH_DASHBOARD_URL` | Dashboard base URL, used for the card's title link |
 
 `/api/sparks/:id/metrics` is unauthenticated on loopback, the same as the rest of the dashboard. Read [Security](#security) before exposing it beyond a trusted network.
+
+---
+
+## Home Assistant
+
+Home Assistant can poll this dashboard directly. Copy [`homeassistant/custom_components/sparkdash`](./homeassistant/custom_components/sparkdash) into `config/custom_components/sparkdash`, restart, then **Settings → Devices & services → Add integration → sparkDash**. The URL is fetched by Home Assistant, not by the browser. sparkDash listens on loopback by default; a Home Assistant host on another machine needs a reachable address (`BIND_HOST`) and, unless you accept an open LAN port, `SPARKDASH_TOKEN`. The integration sends that token as `Authorization: Bearer` and never writes settings or power state.
+
+Each Spark already listed by `GET /api/sparks` becomes a device. Sensors cover GPU temperature, usage and power, system power, VRAM, CPU, memory, OOM risk, the first probed model, decode tok/s, active slots and uptime, plus an online flag. The poll interval is 30 seconds. One Spark that misses its metrics call does not drop the others. Reload the integration after you add a Spark.
+
+If you already run a broker, [MQTT](#mqtt) is the other path. Install steps, the entity list and the limits are in [homeassistant/README.md](./homeassistant/README.md).
 
 ---
 
@@ -870,6 +882,8 @@ sparkDash/
 │   ├── llmlaunch/       Model launchers · tooleval/ Tool Eval Bench
 │   ├── secretsStore.js  Encrypted password persistence
 │   └── validate.js      Host/user validation (SSRF-minded)
+├── homeassistant/       Home Assistant custom integration
+│   └── custom_components/sparkdash
 ├── config/              Runtime state (volume; secrets gitignored)
 ├── assets/              Logo (bolt.svg) and legacy media
 ├── .github/             README screenshot and Showcase video; image publish workflow
