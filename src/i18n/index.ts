@@ -1,3 +1,5 @@
+import enHardware from "../locales/en/hardware.json";
+import zhHardware from "../locales/zh-CN/hardware.json";
 import { createInstance } from "i18next";
 import { initReactI18next } from "react-i18next";
 import enSettings from "../locales/en/settings.json";
@@ -29,15 +31,15 @@ export function detectLocale(): Locale {
 export const i18n = createInstance();
 void i18n.use(initReactI18next).init({
   resources: {
-    en: { settings: enSettings, language: enLanguage },
-    "zh-CN": { settings: zhSettings, language: zhLanguage },
+    en: { settings: enSettings, language: enLanguage, hardware: enHardware },
+    "zh-CN": { settings: zhSettings, language: zhLanguage, hardware: zhHardware },
   },
   lng: detectLocale(),
   fallbackLng: "en",
   supportedLngs: ["en", "zh-CN"],
   load: "currentOnly",
   defaultNS: "settings",
-  ns: ["settings", "language"],
+  ns: ["settings", "language", "hardware"],
   interpolation: { escapeValue: false },
   returnEmptyString: false,
   initAsync: false,
