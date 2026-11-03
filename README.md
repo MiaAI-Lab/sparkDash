@@ -608,6 +608,14 @@ Set two variables in the server's environment (never in `config/settings.json`, 
 | `SPARKDASH_APIKEYS_BRIDGE_SOCKET` | Path of the bridge's unix socket as seen by the sparkDash process |
 | `SPARKDASH_APIKEYS_BRIDGE_TOKEN` | Token sparkDash sends to the bridge as `Authorization: Bearer …`; the bridge stores only its sha256. Read once at startup |
 
+**Rotating the bridge token.** sparkDash reads `SPARKDASH_APIKEYS_BRIDGE_TOKEN` once at startup, and the reference bridge reads the token's sha256 from `APIKEYS_BRIDGE_TOKEN_SHA256` once at startup. The reference bridge accepts a single token, so the old and the new one are never valid at the same time: between the two restarts below, the API Keys page shows an error (nothing else in the dashboard uses the bridge). Rotate in this order:
+
+1. Make a token and its hash: `TOKEN=$(openssl rand -hex 32)`, then `printf %s "$TOKEN" | sha256sum` (the hash is the 64 hex characters before the `-`).
+2. Bridge first: put the hash in `APIKEYS_BRIDGE_TOKEN_SHA256` (edit the unit and run `systemctl daemon-reload`, or add a drop-in with `systemctl edit sparkdash-apikeys-bridge`, which reloads by itself), then run `systemctl restart sparkdash-apikeys-bridge`. From then on the old token gets `401`.
+3. Then sparkDash: put the new token in `SPARKDASH_APIKEYS_BRIDGE_TOKEN` where you set it, and restart sparkDash. With Docker, recreate the container (`docker compose up -d --force-recreate`); `docker compose restart` keeps the old environment.
+
+Until step 3, sparkDash backs off after each rejection (see **Bad token, lockout and backoff** below), which keeps its rejected calls few and normally well under the bridge's lockout; the restart in step 3 clears that backoff, so the page works again at once. In the other order, the restarted sparkDash can start backing off against the old bridge and keep the page waiting after the bridge is updated. Under Docker the order matters for one more reason: with the example unit, systemd removes and recreates the socket's directory whenever the bridge restarts, and a container started before that keeps seeing the old, empty directory until it is restarted or recreated. If the bridge does lock out (for example because another process on the socket kept sending a wrong token), the lockout ends when the oldest rejection leaves the 10-minute window, or at once when the bridge restarts, since the count is kept in memory only; under Docker, restart or recreate the sparkDash container after such a bridge restart, for the reason above.
+
 **Bridge protocol** (version 1). Every request is `GET` with `Authorization: Bearer <token>` and gets a JSON reply:
 
 | Call | Reply |
