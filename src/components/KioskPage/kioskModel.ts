@@ -140,6 +140,7 @@ export type KioskLabels = (key: string, values?: Record<string, unknown>) => str
 /** Pure-model callers do not mount i18n; preserve the historic English contract. */
 const defaultKioskLabels: KioskLabels = (key, values) => {
   const copy: Record<string, string> = {
+    "kiosk.model": "Model", "kiosk.system": "System", "kiosk.other": "Other", "kiosk.gpu": "GPU",
     "kiosk.unifiedMemory": "Unified memory", "kiosk.vram": "VRAM", "kiosk.inUse": "In use",
     "kiosk.headOffline": "Head offline", "kiosk.headApiNotReady": "Head API not ready", "kiosk.noHeadPort": "No LLM port watched on the head",
     "kiosk.unknown": "unknown", "kiosk.noLlmGpu": "No LLM answering · GPU in use", "kiosk.noLlm": "No LLM answering", "kiosk.prefilling": "prefilling",
@@ -190,7 +191,7 @@ export function kioskCard(
       free: tr("kiosk.free", { value: formatMb(breakdown.freeMB) }),
       tone: breakdown.tone,
       segments: breakdown.segments.map((x) => ({ key: x.key, pct: Math.min(100, (x.mb / breakdown.totalMB) * 100) })),
-      legend: legendItems(breakdown).filter((x): x is { key: VramSegmentKey; label: string; gb: string } => x.key !== "free"),
+      legend: legendItems(breakdown).filter((x): x is { key: VramSegmentKey; label: string; gb: string } => x.key !== "free").map((x) => ({ ...x, label: tr(x.key === "engine" ? "kiosk.model" : x.key === "system" ? "kiosk.system" : x.key === "other" ? "kiosk.other" : "kiosk.gpu") })),
       ram,
     };
     // On a Mac the collector reports the whole pool's use as GPU use (the same figure as RAM in use,

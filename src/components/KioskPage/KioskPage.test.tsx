@@ -1,3 +1,5 @@
+import { act } from "react";
+import { setLocale } from "../../i18n";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SparkSnapshot } from "../../api/types";
 import { makeSpark } from "../../testing/fixtures";
@@ -25,6 +27,22 @@ describe("KioskPage", () => {
   afterEach(() => {
     cleanupRenders();
     document.documentElement.setAttribute("data-theme", "dark");
+  });
+
+  it("switches memory legends and role badges while preserving raw names", async () => {
+    const a = makeSpark("legend"); a.role = "head";
+    a.metrics.llm[0].modelId = "raw/<tag>-model";
+    sparks = [a];
+    await setLocale("en");
+    const { container } = render(<KioskPage />); await flush();
+    expect(container.querySelector(".kiosk-mem__legend")?.textContent).toContain("Model");
+    expect(container.querySelector(".kiosk-card__role")?.textContent).toBe("head");
+    await act(async () => setLocale("zh-CN"));
+    expect(container.querySelector(".kiosk-mem__legend")?.textContent).toContain("模型");
+    expect(container.querySelector(".kiosk-card__role")?.textContent).toBe("主节点");
+    expect(container.textContent).toContain("raw/<tag>-model");
+    await act(async () => setLocale("en"));
+    expect(container.querySelector(".kiosk-mem__legend")?.textContent).toContain("Model");
   });
 
   it("shows a card per unit, the fleet totals and the 24-hour energy", async () => {
