@@ -160,12 +160,12 @@ function tzOffset(ms: number, offsetMin?: number): number {
  * Short x-axis label. Days are UTC dates ("7 Oct"); hours are LOCAL clock hours ("14:00").
  * `offsetMin` (minutes east of UTC) overrides the browser's zone — used by tests.
  */
-export function bucketLabel(key: string, unit: BucketUnit, offsetMin?: number): string {
+export function bucketLabel(key: string, unit: BucketUnit, offsetMin?: number, locale?: string): string {
   const ms = parseKey(key);
   if (ms == null) return key;
   if (unit === "day") {
     const d = new Date(ms);
-    return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
+    return locale?.startsWith("zh") ? `${d.getUTCMonth() + 1}月${d.getUTCDate()}日` : `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
   }
   const d = new Date(ms + tzOffset(ms, offsetMin) * 60_000);
   return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;

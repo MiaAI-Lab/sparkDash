@@ -90,6 +90,9 @@ it("uses localized calendar titles and a coherent Chinese previous-period label"
   await flush();
   await act(() => setLocale("zh-CN"));
   expect(container.textContent).toContain("对比前7天");
+  expect([...container.querySelectorAll("svg text")].some((node) => /月.*日/.test(node.textContent ?? ""))).toBe(true);
+  const busiest = [...container.querySelectorAll(".tk-tile")].find((node) => node.textContent?.includes("最繁忙的天"));
+  expect(busiest?.querySelector(".tk-tile__sub")?.textContent).toMatch(/\d{4}年\d{1,2}月\d{1,2}日/);
   expect(container.textContent).toMatch(/\d{4}年\d{1,2}月\d{1,2}日/);
   expect([...container.querySelectorAll<SVGRectElement>("svg rect[aria-label]")].some((node) => /年.*（UTC）/.test(node.getAttribute("aria-label") ?? ""))).toBe(true);
 });
