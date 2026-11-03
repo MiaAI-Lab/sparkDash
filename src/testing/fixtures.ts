@@ -12,6 +12,7 @@ export function makeSpark(id = "spark-1", online = true): SparkSnapshot {
     llmMonitoring: true,
     comfyMonitoring: false,
     tailscaleMonitoring: false,
+    atticMonitoring: false,
     llmPort: 8888,
     llmPorts: [8888],
     disabledDevices: [],
@@ -60,6 +61,7 @@ export function makeSpark(id = "spark-1", online = true): SparkSnapshot {
       }] : [],
       comfy: null,
       tailscale: null,
+      attic: null,
     },
   } as unknown as SparkSnapshot;
 }

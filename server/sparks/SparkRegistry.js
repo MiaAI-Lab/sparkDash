@@ -683,6 +683,17 @@ export class SparkRegistry {
        * the SparkMonitor checks for updates and allows one-click `hermes update`.
        */
       hermesMonitoring: config.platform !== "windows" && Boolean(config.hermesMonitoring),
+      /**
+       * Opt-in display-carveout card (default false): what spark-attic does
+       * with a GB10's display carveout and how much of it is lent. The
+       * carveout is a DGX Spark one, so Linux Sparks only.
+       */
+      atticMonitoring:
+        config.kind !== "host" &&
+        config.kind !== "mac" &&
+        config.platform !== "windows" &&
+        config.platform !== "darwin" &&
+        Boolean(config.atticMonitoring),
       disabledDevices: Array.isArray(config.disabledDevices) ? config.disabledDevices : [],
       disabledInterfaces: Array.isArray(config.disabledInterfaces) ? config.disabledInterfaces : [],
       storagePollDisabled: Boolean(config.storagePollDisabled),

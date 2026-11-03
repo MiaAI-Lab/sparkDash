@@ -12,6 +12,7 @@ import { RamPanel } from "./RamPanel";
 import { StoragePanel } from "./StoragePanel";
 import { NetworkPanel } from "./NetworkPanel";
 import { TailscalePanel } from "./TailscalePanel";
+import { AtticPanel } from "./AtticPanel";
 import { LlmPanel } from "./LlmPanel";
 import { ComfyPanel } from "./ComfyPanel";
 import { RuntimesPanel } from "../ui/RuntimeChips";
@@ -143,6 +144,7 @@ export function SparkPage({
   const llmOn = isLlmMonitoringEnabled(spark);
   const comfyOn = Boolean(spark.comfyMonitoring);
   const tailscaleOn = Boolean(spark.tailscaleMonitoring);
+  const atticOn = Boolean(spark.atticMonitoring);
   const showServices = llmOn || comfyOn;
   // Everything on one page: hardware and services together (no sub-tabs).
   const view: SparkView = showServices ? "all" : "resources";
@@ -368,6 +370,12 @@ export function SparkPage({
             {tailscaleOn && (
               <Item order={9}>
                 <TailscalePanel tailscale={metrics.tailscale ?? null} />
+              </Item>
+            )}
+            {/* Same order as Tailnet (DOM order breaks the tie): stays below it when the columns stack. */}
+            {atticOn && (
+              <Item order={9}>
+                <AtticPanel attic={metrics.attic ?? null} />
               </Item>
             )}
           </div>
