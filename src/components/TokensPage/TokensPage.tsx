@@ -200,7 +200,7 @@ export function TokensPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[];
   }));
   const buckets: BarBucket[] = (grouped?.buckets ?? []).map((b) => ({
     key: b.key,
-    label: bucketLabel(b.key, spec.unit),
+    label: bucketLabel(b.key, spec.unit, undefined, i18n.language),
     title: bucketTitle(b.key, spec.unit, undefined, i18n.language),
     values: b.values,
   }));
@@ -491,7 +491,7 @@ function Tiles({ s, cmp, spec }: { s: Summary; cmp: Comparison | null; spec: (ty
       <Tile
         label={t("tokens.busiest", { unit: per })}
         value={s.busiest ? fmt(s.busiest.total) : "—"}
-        sub={s.busiest ? bucketTitle(s.busiest.key, spec.unit).replace(/ \((UTC|local)\)$/, "") : t("tokens.noTrafficYet")}
+        sub={s.busiest ? bucketTitle(s.busiest.key, spec.unit, undefined, i18n.language).replace(/(?: \((?:UTC|local)\)|（(?:UTC|本地时间)）)$/, "") : t("tokens.noTrafficYet")}
         title={s.busiest ? s.busiest.total.toLocaleString() : undefined}
       />
     </section>
