@@ -172,18 +172,23 @@ export function bucketLabel(key: string, unit: BucketUnit, offsetMin?: number): 
 }
 
 /** Tooltip heading: "Wed 7 Oct 2026 (UTC)" or "Wed 7 Oct, 14:00–15:00 (local)". */
-export function bucketTitle(key: string, unit: BucketUnit, offsetMin?: number): string {
+export function bucketTitle(key: string, unit: BucketUnit, offsetMin?: number, locale?: string): string {
   const ms = parseKey(key);
   if (ms == null) return key;
+  const zone = (kind: "UTC" | "local") => locale?.startsWith("zh") ? `（${kind === "UTC" ? "UTC" : "本地时间"}）` : ` (${kind})`;
+  const date = (d: Date, includeYear: boolean) =>
+    locale
+      ? new Intl.DateTimeFormat(locale, { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).format(d)
+      : `${WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}${includeYear ? ` ${d.getUTCFullYear()}` : ""}`;
   if (unit === "day") {
     const d = new Date(ms);
-    return `${WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()} (UTC)`;
+    return `${date(d, true)}${zone("UTC")}`;
   }
   const off = tzOffset(ms, offsetMin);
   const d = new Date(ms + off * 60_000);
   // Hour buckets are UTC hours, so a half-hour zone (India, Nepal...) starts them at :30 or :45.
   const clock = (t: Date) => `${String(t.getUTCHours()).padStart(2, "0")}:${String(t.getUTCMinutes()).padStart(2, "0")}`;
-  return `${WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}, ${clock(d)}–${clock(new Date(d.getTime() + 3_600_000))} (local)`;
+  return `${date(d, false)}, ${clock(d)}–${clock(new Date(d.getTime() + 3_600_000))}${zone("local")}`;
 }
 
 export interface RangeWindow {
@@ -517,6 +522,8 @@ export interface InsightInput {
   firstKey: string | null;
   sparkName: (id: string) => string;
   tzOffsetMin?: number;
+  /** UI callers may localize calendar text without changing the stable pure-helper default. */
+  formatBucketTitle?: (key: string, unit: BucketUnit, offsetMin?: number) => string;
   labels?: TokenInsightLabels;
 }
 
@@ -550,7 +557,7 @@ export function buildInsights(i: InsightInput): string[] {
 
   if (s.busiest && s.activeBuckets >= 2) {
     const share = s.busiest.total / Math.max(1, i.totals.reduce((a, b) => a + b.total, 0));
-    const when = bucketTitle(s.busiest.key, i.spec.unit, i.tzOffsetMin).replace(/ \((UTC|local)\)$/, "");
+    const when = (i.formatBucketTitle?.(s.busiest.key, i.spec.unit, i.tzOffsetMin) ?? bucketTitle(s.busiest.key, i.spec.unit, i.tzOffsetMin)).replace(/(?: \((?:UTC|local)\)|（(?:UTC|本地时间)）)$/, "");
     out.push(i.labels?.busiest({ unit: unitWord, when, tokens: compact(s.busiest.total), share: fmtPct(share), period: period === "all time" ? "the retained history" : period }) ?? `The busiest ${unitWord} was ${when} with ${compact(s.busiest.total)} tokens, ${fmtPct(share)} of ${period === "all time" ? "the retained history" : period}.`);
   }
 
