@@ -86,7 +86,7 @@
     "aboutRestart": "计数器回退（引擎重启）时会从新值重新播种，因此重启不会抬高总数。重启前刚服务的 Token 可能遗漏。",
     "aboutLifetime": "全部时间是自开始跟踪以来的生命周期总量；图表显示保留的每日数据桶。",
     "aboutLifetimeFallback": "全部时间当前不可用，因此改为汇总保留天数；图表显示保留的每日数据桶。",
-    "previousPeriod": "对比上一{{period}}",
+    "previousPeriod": "对比前{{period}}",
     "shareOfAll": "占全部 Token 的 {{share}}",
     "promptBreakdown": "计算 {{computed}}，缓存 {{cached}}",
     "promptBreakdownUnreported": "计算 {{computed}}，缓存 {{cached}}，未报告 {{unreported}}",

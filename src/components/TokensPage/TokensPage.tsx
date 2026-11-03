@@ -59,7 +59,7 @@ interface LoadError {
 }
 
 export function TokensPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[]; onSelectSpark?: (id: string) => void }) {
-  const { t } = useTranslation("statistics");
+  const { t, i18n } = useTranslation("statistics");
   const [range, setRange] = useState<RangeKey>("7d");
   const [groupBy, setGroupBy] = useState<GroupBy>("type");
   const [data, setData] = useState<Loaded | null>(null);
@@ -149,10 +149,11 @@ export function TokensPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[];
             totals: view.totals,
             firstKey: view.w.firstKey,
             sparkName,
+            formatBucketTitle: (key, unit, offsetMin) => bucketTitle(key, unit, offsetMin, i18n.language),
             labels: tokenInsightLabels(t, view.w.spec, view.summary),
           })
         : [],
-    [view, sparkName, t]
+    [view, sparkName, t, i18n.language]
   );
 
   const copyCsv = async () => {
@@ -200,7 +201,7 @@ export function TokensPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[];
   const buckets: BarBucket[] = (grouped?.buckets ?? []).map((b) => ({
     key: b.key,
     label: bucketLabel(b.key, spec.unit),
-    title: bucketTitle(b.key, spec.unit),
+    title: bucketTitle(b.key, spec.unit, undefined, i18n.language),
     values: b.values,
   }));
   const chartEmpty =
@@ -429,10 +430,13 @@ function Tile({ label, value, unit, sub, delta, title }: { label: string; value:
 }
 
 function Tiles({ s, cmp, spec }: { s: Summary; cmp: Comparison | null; spec: (typeof RANGES)[number] }) {
-  const { t } = useTranslation("statistics");
+  const { t, i18n } = useTranslation("statistics");
   const per = spec.unit === "hour" ? t("tokens.hour") : t("tokens.day");
   const period = rangePhrase(t, spec.key);
-  const prevWord = t("tokens.previousPeriod", { period: spec.count == null ? t("tokens.periodAll") : `${spec.count} ${spec.unit === "hour" ? t("tokens.hour", { count: spec.count }) : t("tokens.day", { count: spec.count })}` });
+  const count = spec.count ?? 0;
+  const unit = spec.unit === "hour" ? t("tokens.hour", { count }) : t("tokens.day", { count });
+  const previousPeriod = spec.count == null ? t("tokens.periodAll") : i18n.language.startsWith("zh") ? `${count}${unit}` : `${count} ${unit}`;
+  const prevWord = t("tokens.previousPeriod", { period: previousPeriod });
   const ratio = s.genPerPrompt != null && s.generated > 0 ? s.prompt / s.generated : null;
   return (
     <section className="tk-tiles" aria-label={t("tokens.summaryFor", { period })}>
