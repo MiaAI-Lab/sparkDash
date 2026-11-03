@@ -213,7 +213,8 @@
     "noHeadPort": "主节点未监控 LLM 端口",
     "unknown": "未知",
     "noLlmGpu": "无 LLM 响应 · GPU 使用中",
-    "noLlm": "无 LLM 响应"
+    "noLlm": "无 LLM 响应",
+    "tracePrefill": "预填充"
   },
   "cost": {
     "usageLoadFailed": "无法加载使用历史",

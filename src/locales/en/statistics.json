@@ -213,7 +213,8 @@
     "noHeadPort": "No LLM port watched on the head",
     "unknown": "unknown",
     "noLlmGpu": "No LLM answering · GPU in use",
-    "noLlm": "No LLM answering"
+    "noLlm": "No LLM answering",
+    "tracePrefill": "prefill"
   },
   "cost": {
     "usageLoadFailed": "Could not load usage history",
