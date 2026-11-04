@@ -293,7 +293,7 @@ Suggested remaining-group order: fleet reports → device setup → Spark detail
 
 ## Scope and conventions
 
-This branch owns **fleet reports**, using `statistics`, `activity`, alongside the baseline `settings` and `language` namespaces. Token totals, cost comparison, energy and monthly archives, temperature charts, activity filters/exports and kiosk presentation now use English and Simplified Chinese catalogs. Locale changes retain selected ranges, filters, graph geometry, pending clears and raw event details.
+This integration branch combines the shell (#315), Overview (#316), Spark resource-panel (#317), LLM live (#318) and LLM history (#319) slices with the **fleet reports** (`statistics`, `activity`), **device setup** (`devices`), **spark details** (`hardware`), **benchmarks** (`benchmarks`, `tooleval`, `toolMessages`, `shareCards`) and **showcase** (`showcase`) reviews, alongside the baseline `settings` and `language` namespaces. Token totals, cost comparison, energy and monthly archives, temperature charts, activity filters/exports and kiosk presentation use English and Simplified Chinese catalogs; locale changes retain selected ranges, filters, graph geometry, pending clears and raw event details.
 
 English catalogs are the source/fallback. Reuse the single loader in `src/i18n/index.ts`, static keys and ordinary i18next interpolation/plurals. Do not translate user data, IDs, protocol values, commands, URLs, raw logs or model/product names. #194 remains the unchanged integration/design reference; current main remains the implementation base.
 
