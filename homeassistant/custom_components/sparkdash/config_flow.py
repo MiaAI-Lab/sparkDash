@@ -34,9 +34,13 @@ class SparkDashConfigFlow(ConfigFlow, domain=DOMAIN):
                     session = async_get_clientsession(self.hass)
                     async with asyncio.timeout(15):
                         async with session.get(
-                            f"{url}/api/sparks", headers=auth_headers(token)
+                            f"{url}/api/sparks",
+                            headers=auth_headers(token),
+                            allow_redirects=False,
                         ) as resp:
-                            if resp.status in (401, 403):
+                            # 401 is a rejected token; 403 is the hub's Host/remote
+                            # guard refusing the request, which no token fixes.
+                            if resp.status == 401:
                                 errors["base"] = "invalid_auth"
                             else:
                                 resp.raise_for_status()

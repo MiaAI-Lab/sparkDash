@@ -25,6 +25,7 @@ The package uses ESM throughout. `server/index.js` runs directly in Node and cre
 | `src/shared/` | Shared pure logic, including benchmark prompts and formatting |
 | `config/` | Runtime configuration and persisted histories; never use live files in tests |
 | `docs/` | Design, operational notes and feature documentation |
+| `homeassistant/` | Home Assistant custom component (Python) that polls a hub's `/api/sparks` endpoints; not run by `npm test`, only its docs are checked |
 
 Most API routes are inline in `server/index.js`; larger existing feature modules register their routes there. Snapshot payloads contain a list of self-contained units. Frontend history and summary views consume those shared records. A failure in one collector must not stop other units or the polling loop; missing measurement data must not be fabricated as observed zero.
 

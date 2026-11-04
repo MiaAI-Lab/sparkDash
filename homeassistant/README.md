@@ -12,7 +12,7 @@ If you already publish to a broker, the [MQTT](../README.md#mqtt) feed is the ot
 - A sparkDash hub the Home Assistant **host** can reach. The URL is fetched by Home Assistant, not by the browser you use to add the integration.
 - sparkDash listens on `127.0.0.1:5555` by default. That address works only when Home Assistant runs on the same machine. From another machine, publish the port (`BIND_HOST`) on an address Home Assistant can route to.
 
-`/api/sparks` is unauthenticated unless `SPARKDASH_TOKEN` is set. A LAN bind without a token is open: anyone who can reach the port can change settings and power units off. Prefer one of:
+`/api/sparks` is unauthenticated unless `SPARKDASH_TOKEN` is set. A LAN bind without a token is readable by anyone who can reach the port (the server refuses state-changing requests on a tokenless remote bind, and `SPARKDASH_ALLOW_OPEN_REMOTE=0` closes the reads too). Prefer one of:
 
 - Home Assistant on the same host, talking to `http://127.0.0.1:5555`
 - Tailscale, or an SSH tunnel, to the loopback port

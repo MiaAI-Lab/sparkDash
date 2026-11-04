@@ -143,19 +143,29 @@ def _value(metrics: dict, key: str):
     unified = _dig(metrics, "metrics", "unifiedMemory") or {}
     llms = _dig(metrics, "metrics", "llm") or []
     llm = llms[0] if isinstance(llms, list) and llms else {}
+    # The server reports an unavailable GPU reading as 0 and flags it in
+    # metricAvailability; keep those unknown instead of recording a zero.
+    availability = gpu.get("metricAvailability") or {}
+
+    def gpu_reading(flag: str, value):
+        return None if availability.get(flag) is False else value
+
+    # An engine the probe could not reach or measure must not read as 0 tok/s.
+    llm_unavailable = llm.get("available") is False
+    llm_unmeasured = llm_unavailable or llm.get("measurementValid") is False
     return {
-        "gpu_temperature": gpu.get("temperature"),
-        "gpu_usage": gpu.get("usage"),
-        "gpu_power": _dig(gpu, "power", "draw"),
+        "gpu_temperature": gpu_reading("temperature", gpu.get("temperature")),
+        "gpu_usage": gpu_reading("usage", gpu.get("usage")),
+        "gpu_power": gpu_reading("powerDraw", _dig(gpu, "power", "draw")),
         "system_power": _dig(gpu, "power", "systemDraw"),
         "vram_percent": _dig(gpu, "vram", "percentage"),
         "cpu_usage": cpu.get("usage"),
         "cpu_temperature": cpu.get("temperature"),
         "ram_percent": ram.get("percentage"),
         "oom_risk": unified.get("oomRisk"),
-        "llm_model": llm.get("modelId"),
-        "llm_generation_tps": llm.get("generationTps"),
-        "llm_slots_active": llm.get("slotsActive"),
+        "llm_model": None if llm_unavailable else llm.get("modelId"),
+        "llm_generation_tps": None if llm_unmeasured else llm.get("generationTps"),
+        "llm_slots_active": None if llm_unavailable else llm.get("slotsActive"),
         "uptime": metrics.get("uptime"),
     }.get(key)
 

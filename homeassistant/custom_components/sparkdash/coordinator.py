@@ -34,9 +34,13 @@ class SparkDashCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         headers = auth_headers(self._token)
         try:
             async with asyncio.timeout(25):
-                async with session.get(f"{self.url}/api/sparks", headers=headers) as resp:
-                    if resp.status in (401, 403):
+                async with session.get(
+                    f"{self.url}/api/sparks", headers=headers, allow_redirects=False
+                ) as resp:
+                    if resp.status == 401:
                         raise UpdateFailed("sparkDash rejected the access token")
+                    if resp.status == 403:
+                        raise UpdateFailed("sparkDash refused the request (host or remote-access guard)")
                     resp.raise_for_status()
                     listing = await resp.json(content_type=None)
                 sparks = listing.get("sparks") or []
@@ -47,7 +51,9 @@ class SparkDashCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         continue
                     try:
                         async with session.get(
-                            f"{self.url}/api/sparks/{sid}/metrics", headers=headers
+                            f"{self.url}/api/sparks/{sid}/metrics",
+                            headers=headers,
+                            allow_redirects=False,
                         ) as mresp:
                             mresp.raise_for_status()
                             metrics[sid] = await mresp.json(content_type=None)
