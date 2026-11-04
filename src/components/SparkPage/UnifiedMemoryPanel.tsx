@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import type { GpuMetrics, LlmMetrics, UnifiedMemoryMetrics } from "../../api/types";
 import { Panel } from "../ui/Panel";
 import { Tag } from "../ui/Tag";
@@ -20,6 +21,14 @@ interface UnifiedMemoryPanelProps {
  * pool (vLLM `cache_config_info`); without it the GPU slice stays whole.
  */
 export function UnifiedMemoryPanel({ um, gpu, llm, className }: UnifiedMemoryPanelProps) {
+  const { t } = useTranslation("spark");
+  const segmentLabels = {
+    weights: t("memory.segments.weights"),
+    gpu: t("memory.segments.gpu"),
+    kv: t("memory.segments.kv"),
+    system: t("memory.segments.system"),
+    free: t("memory.segments.free"),
+  };
   const total = um?.total ?? 0;
   const segments = useMemo(() => {
     if (!um || um.total <= 0) return [];
@@ -40,21 +49,21 @@ export function UnifiedMemoryPanel({ um, gpu, llm, className }: UnifiedMemoryPan
 
   return (
     <Panel
-      title="Unified memory"
+      title={t("memory.title")}
       icon={<MemoryIcon />}
       className={`panel-memory ${className ?? ""}`}
       bodyClassName="sp-stack"
       actions={
         total > 0 ? (
           <span className="mono sp-muted">
-            {formatMb(used)} of {formatMb(total)} · {pct}%
+            {t("memory.usedOf", { used: formatMb(used), total: formatMb(total), percentage: pct })}
           </span>
         ) : undefined
       }
     >
       {total > 0 ? (
         <>
-          <div className="seg-bar sp-seg-bar" role="img" aria-label={`Unified memory ${pct}% used`}>
+          <div className="seg-bar sp-seg-bar" role="img" aria-label={t("memory.usedLabel", { percentage: pct })}>
             {segments
               .filter((s) => s.mb > 0)
               .map((s) => (
@@ -62,32 +71,32 @@ export function UnifiedMemoryPanel({ um, gpu, llm, className }: UnifiedMemoryPan
                   key={s.key}
                   className={`sp-seg sp-seg--${s.key}`}
                   style={{ width: `${(s.mb / total) * 100}%` }}
-                  title={`${s.label} ${formatMb(s.mb)}`}
+                  title={`${segmentLabels[s.key]} ${formatMb(s.mb)}`}
                 />
               ))}
           </div>
           <div className="legend">
             {segments.map((s) => (
               <span key={s.key} className={`sp-key sp-key--${s.key}`}>
-                {s.label} {formatMb(s.mb)}
+                {segmentLabels[s.key]} {formatMb(s.mb)}
               </span>
             ))}
           </div>
           <div className="sp-chips">
             {um && um.oomRisk !== "low" && (
               <Tag tone={um.oomRisk === "high" ? "bad" : "warn"}>
-                {um.oomRisk === "high" ? "OOM risk: high" : "Memory pressure"}
+                {um.oomRisk === "high" ? t("memory.highOomRisk") : t("memory.pressure")}
               </Tag>
             )}
             {um && um.bandwidth.current > 0 && (
-              <Tag title="GPU memory bandwidth (nvidia-smi dmon)">
+              <Tag title={t("memory.bandwidthHelp")}>
                 {um.bandwidth.current.toFixed(1)} / {um.bandwidth.peak} GB/s
               </Tag>
             )}
           </div>
         </>
       ) : (
-        <p className="sp-muted">Waiting for memory reading…</p>
+        <p className="sp-muted">{t("memory.waiting")}</p>
       )}
       {processes.length > 0 && <GpuProcessTable processes={processes} />}
     </Panel>

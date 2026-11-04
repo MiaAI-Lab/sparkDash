@@ -2,6 +2,7 @@ import { RestartButton } from "../ui/RestartButton";
 import { AppLink } from "../ui/AppLink";
 import { ENERGY_ID, idToPath } from "../../constants";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { fetchFleetEnergy } from "../../api/client";
 import type { FleetEnergy, FleetWallEnergy } from "../../api/types";
 
@@ -29,6 +30,7 @@ export function FleetEnergyCard({
   nodeNames?: Record<string, string>;
   onOpenDetails?: () => void;
 }) {
+  const { t } = useTranslation("overview");
   const [data, setData] = useState<FleetEnergy | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,9 +50,9 @@ export function FleetEnergyCard({
     const total = w.energy24hKwh;
     const filled = w.filledEnergy24hKwh;
     if (total != null && total > 0 && filled != null && filled > 0) {
-      return `Wall-metered, ${Math.min(100, Math.round((filled / total) * 100))}% filled from estimate`;
+      return t("energy.wallMeteredFilled", { percent: Math.min(100, Math.round((filled / total) * 100)) });
     }
-    return w.currentFilled ? "Wall-metered, now filled from estimate" : "Wall-metered";
+    return w.currentFilled ? t("energy.wallMeteredNowFilled") : t("energy.wallMetered");
   };
   const wall = data?.wall ?? null;
   const view = wall ?? data;
@@ -65,20 +67,18 @@ export function FleetEnergyCard({
   const stale = (view?.staleNodeIds ?? []).map((id) => nodeNames?.[id] ?? id);
   const partialHelp =
     data && !data.membershipChanged && freshCount < nodeCount
-      ? `${wall ? "Energy is measured at the wall; nodes without a reading are filled from the estimate." : "Energy is estimated from each node's live GPU and CPU readings."} ${
-          stale.length ? `No fresh reading from: ${stale.join(", ")}. ` : ""
-        }A node that is offline, unreachable or not reporting power stops the fleet total from being measured for that time, so 24h coverage drops. It recovers by itself once the node reports again.`
+      ? t(wall ? "energy.partialHelpWall" : "energy.partialHelp", { stale: stale.length ? t("energy.noFreshReading", { nodes: stale.join(", ") }) : "" })
       : null;
   const state = error
-    ? `Energy telemetry unavailable: ${error}`
+    ? t("energy.unavailable", { error })
     : data?.membershipChanged
-      ? "Fleet membership changed. Restart sparkDash to establish a truthful new accounting scope."
+      ? t("energy.membershipChanged")
       : !data
-        ? "Loading fleet energy…"
+        ? t("energy.loading")
         : freshCount < nodeCount
-          ? `Partial coverage: ${freshCount}/${nodeCount} nodes currently fresh.`
+          ? t("energy.partialCoverage", { fresh: freshCount, total: nodeCount })
           : view?.energy24hKwh == null
-            ? "Warming up — no complete energy interval recorded yet."
+            ? t("energy.warmingUp")
             : null;
 
   const hourly = view?.hourlyWatts24h ?? Array(24).fill(null);
@@ -86,12 +86,12 @@ export function FleetEnergyCard({
   return (
     <section className="panel ov-card" aria-labelledby="fleet-energy-title">
       <div className="ov-card__head">
-        <h2 id="fleet-energy-title" className="ov-card__title">Fleet energy</h2>
+        <h2 id="fleet-energy-title" className="ov-card__title">{t("energy.title")}</h2>
         <div className="ov-card__tools">
-          <span className="tag">{data ? `${freshCount}/${nodeCount} fresh` : "\u2014"}</span>
+          <span className="tag">{data ? t("energy.fresh", { fresh: freshCount, total: nodeCount }) : "\u2014"}</span>
           {onOpenDetails ? (
             <AppLink href={idToPath(ENERGY_ID)} className="btn btn--sm btn--ghost" onNavigate={onOpenDetails}>
-              Details
+              {t("energy.details")}
             </AppLink>
           ) : null}
         </div>
@@ -109,28 +109,28 @@ export function FleetEnergyCard({
       )}
       {data?.membershipChanged && !error ? <RestartButton /> : null}
       <div>
-        <div className="big-num">{number(view?.energy24hKwh ?? null)}<small>kWh / 24 h</small></div>
+        <div className="big-num">{number(view?.energy24hKwh ?? null)}<small>{t("energy.kwhPer24Hours")}</small></div>
         <div className="ov-card__sub mono">
           {wall
-            ? `${wallLabel(wall)} · 24h coverage ${coverage.toFixed(1)}%`
-            : `Estimated, not wall-metered · 24h coverage ${coverage.toFixed(1)}%`}
+            ? t("energy.wallCoverage", { label: wallLabel(wall), coverage: coverage.toFixed(1) })
+            : t("energy.estimatedCoverage", { coverage: coverage.toFixed(1) })}
         </div>
       </div>
-      <div className="ov-bars" aria-label={`Hourly ${wall ? "wall" : "estimated"} watts for the last 24 hours, with gaps shown empty`}>
+      <div className="ov-bars" aria-label={t(wall ? "energy.hourlyWallWattsAria" : "energy.hourlyWattsAria")}>
         {hourly.map((watts, index) => (
           <span
             key={index}
             className={index === hourly.length - 1 ? "is-now" : undefined}
             style={{ height: watts == null ? 0 : `${Math.max(4, (watts / max) * 100)}%` }}
-            title={watts == null ? "No complete coverage" : `${watts.toFixed(0)} W`}
+            title={watts == null ? t("energy.noCompleteCoverage") : `${watts.toFixed(0)} W`}
           />
         ))}
       </div>
-      <div className="ov-axis mono"><span>24h ago</span><span>12h</span><span>now</span></div>
+      <div className="ov-axis mono"><span>{t("energy.hoursAgo", { count: 24 })}</span><span>{t("energy.hours", { count: 12 })}</span><span>{t("energy.now")}</span></div>
       <dl className="ov-stats">
-        <div><dt>Current</dt><dd className="mono">{number(view?.currentWatts30s ?? null, 0)} W</dd></div>
-        <div><dt>31 days</dt><dd className="mono">{number(view?.energy31dKwh ?? null)} kWh</dd></div>
-        <div><dt>Efficiency</dt><dd className="mono">{significant(view?.whPerOutputToken24h ?? null)} Wh/token</dd></div>
+        <div><dt>{t("energy.current")}</dt><dd className="mono">{number(view?.currentWatts30s ?? null, 0)} W</dd></div>
+        <div><dt>{t("energy.days", { count: 31 })}</dt><dd className="mono">{number(view?.energy31dKwh ?? null)} kWh</dd></div>
+        <div><dt>{t("energy.efficiency")}</dt><dd className="mono">{significant(view?.whPerOutputToken24h ?? null)} Wh/token</dd></div>
       </dl>
     </section>
   );

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { GpuMetrics } from "../../api/types";
 import { getGpuHistory } from "../../api/client";
 import { backfillHistory, getMetricHistorySamples, useTimedMetricsHistory } from "../../hooks/metricsStore";
-import { seriesSegments, windowAxisLabels, type Pt } from "./chartMath";
+import { seriesSegments, type Pt } from "./chartMath";
 import {
   GPU_METRICS,
   chartSeriesSpecs,
@@ -109,6 +110,7 @@ export function GpuHistoryChart({
   gpu: GpuMetrics | null;
   windowMs: number;
 }) {
+  const { t } = useTranslation("spark");
   const gradId = useId();
   const usage = useTimedMetricsHistory(sparkId, "gpu.usage");
   const temp = useTimedMetricsHistory(sparkId, "gpu.temp");
@@ -128,6 +130,16 @@ export function GpuHistoryChart({
   const [metric, setMetric] = useState<GpuMetric>(() => parseGpuMetric(readPref(METRIC_KEY)));
   const view: GpuView = multi ? parseGpuView(viewRaw, indices) : "combined";
   const specs = useMemo(() => chartSeriesSpecs(view, metric, indices, deviceLabels), [view, metric, indexKey, gpu?.gpus]);
+  const metricLabels: Record<GpuMetric, string> = {
+    usage: t("gpuChart.metrics.utilization"),
+    powerPct: t("gpuChart.metrics.power"),
+    temp: t("gpuChart.metrics.temperature"),
+  };
+  const seriesLabels: Record<GpuMetric, string> = {
+    usage: t("gpuChart.series.utilization"),
+    powerPct: t("gpuChart.series.power"),
+    temp: t("gpuChart.series.temperature"),
+  };
 
   const lines = useMemo<Line[]>(() => {
     // The aggregate series change on every sample and on backfill, which is also when the per-card ones do.
@@ -155,7 +167,14 @@ export function GpuHistoryChart({
   const xOf = (at: number) => PAD.l + ((at - startAt) / windowMs) * iw;
   const yOf = (v: number) => PAD.t + ih - (Math.max(0, Math.min(100, v)) / 100) * ih;
   const d = (seg: Pt[]) => seg.map((p, i) => `${i ? "L" : "M"}${xOf(p.at).toFixed(1)} ${yOf(p.value).toFixed(1)}`).join(" ");
-  const [axA, axB] = windowAxisLabels(windowMs);
+  const elapsedLabel = (durationMs: number) => {
+    const minutes = Math.round(durationMs / 60_000);
+    return minutes >= 60 && minutes % 60 === 0
+      ? t("gpuChart.elapsedHours", { count: minutes / 60 })
+      : t("gpuChart.elapsedMinutes", { count: minutes });
+  };
+  const axA = elapsedLabel(windowMs);
+  const axB = elapsedLabel(windowMs / 2);
   const hasData = lines.some((l) => l.segs.some((s) => s.length > 1));
 
   const pickView = (v: GpuView) => {
@@ -166,10 +185,14 @@ export function GpuHistoryChart({
     setMetric(m);
     writePref(METRIC_KEY, m);
   };
-  const viewOptions: Array<[GpuView, string]> = [["combined", "Combined"], ["all", "All GPUs"], ...indices.map((i): [GpuView, string] => [i, deviceLabels.get(i) ?? `GPU ${i}`])];
+  const viewOptions: Array<[GpuView, string]> = [
+    ["combined", t("gpuChart.combined")],
+    ["all", t("gpuChart.allGpus")],
+    ...indices.map((i): [GpuView, string] => [i, deviceLabels.get(i) ?? `GPU ${i}`]),
+  ];
   const controls = multi ? (
     <div className="sp-chart__controls">
-      <div className="seg" role="group" aria-label="GPUs to plot">
+      <div className="seg" role="group" aria-label={t("gpuChart.viewGroup")}>
         {viewOptions.map(([v, label]) => (
           <button
             key={String(v)}
@@ -184,7 +207,7 @@ export function GpuHistoryChart({
         ))}
       </div>
       {view === "all" && (
-        <div className="seg" role="group" aria-label="Metric to plot">
+        <div className="seg" role="group" aria-label={t("gpuChart.metricGroup")}>
           {GPU_METRICS.map((m) => (
             <button
               key={m.id}
@@ -193,7 +216,7 @@ export function GpuHistoryChart({
               aria-pressed={m.id === metric}
               onClick={() => pickMetric(m.id)}
             >
-              {m.label}
+              {metricLabels[m.id]}
             </button>
           ))}
         </div>
@@ -204,7 +227,7 @@ export function GpuHistoryChart({
     <div className="legend">
       {specs.map((sp) => (
         <span key={sp.key} style={{ "--c": sp.color } as React.CSSProperties}>
-          {sp.label}
+          {view === "all" ? sp.label : seriesLabels[sp.key as GpuMetric]}
         </span>
       ))}
     </div>
@@ -217,7 +240,7 @@ export function GpuHistoryChart({
       <div>
         {controls}
         <div className="sp-chart sp-chart--empty" ref={wrapRef}>
-          <p className="sp-chart__note">Collecting history. The chart fills in while this page is open.</p>
+          <p className="sp-chart__note">{t("gpuChart.collecting")}</p>
         </div>
       </div>
     );
@@ -231,7 +254,7 @@ export function GpuHistoryChart({
         height={HEIGHT}
         viewBox={`0 0 ${width} ${HEIGHT}`}
         role="img"
-        aria-label="GPU utilization, power and temperature history"
+        aria-label={t("gpuChart.historyLabel")}
       >
         <defs>
           <clipPath id={`${gradId}-plot`}>
@@ -264,7 +287,7 @@ export function GpuHistoryChart({
           {axB}
         </text>
         <text x={width - PAD.r} y={HEIGHT - 4} textAnchor="end">
-          now
+          {t("gpuChart.now")}
         </text>
         <g clipPath={`url(#${gradId}-plot)`}>
           {hasData &&

@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ImageIcon } from "../../ui/icons";
@@ -22,7 +23,8 @@ interface ShowCardButtonProps {
  * prefill and quality benchmarks make) and opens it in a window where it can be
  * copied to the clipboard or saved as a PNG.
  */
-export function ShowCardButton({ build, kind, label = "Show card", dialogLabel, imgAlt, title }: ShowCardButtonProps) {
+export function ShowCardButton({ build, kind, label, dialogLabel, imgAlt, title }: ShowCardButtonProps) {
+  const { t } = useTranslation("tooleval");
   const [state, setState] = useState<"idle" | "working" | "error">("idle");
   const [card, setCard] = useState<{ url: string; blob: Blob; model: ShareCardModel } | null>(null);
   const [copied, setCopied] = useState<"idle" | "ok" | "err">("idle");
@@ -100,7 +102,7 @@ export function ShowCardButton({ build, kind, label = "Show card", dialogLabel, 
         title={title}
       >
         <ImageIcon className="h-3.5 w-3.5" />
-        {state === "working" ? "Rendering…" : state === "error" ? "Could not render — retry" : label}
+        {state === "working" ? t("card.rendering") : state === "error" ? t("card.failed") : (label ?? t("card.show"))}
       </button>
       {card
         ? createPortal(
@@ -110,18 +112,17 @@ export function ShowCardButton({ build, kind, label = "Show card", dialogLabel, 
               imgAlt={imgAlt}
               hint={
                 imageClipboard ? (
-                  <>Copy it to the clipboard or save it as a PNG. The card follows the dashboard's current theme.</>
+                  <>{t("card.help")}</>
                 ) : (
                   <>
-                    Right-click → <strong>Copy Image</strong>, or drag the card into your post. Browsers only let a page copy
-                    images over HTTPS or localhost, so the card is shown here for your browser to copy.
+                    {t("ui.copy.previewHintLead")} <strong>{t("ui.copy.previewHintStrong")}</strong>{t("ui.copy.previewHintBody")}
                   </>
                 )
               }
               onClose={close}
               onDownload={download}
               onCopy={imageClipboard ? () => void copy() : undefined}
-              copyLabel={copied === "ok" ? "Copied!" : copied === "err" ? "Copy failed" : "Copy image"}
+              copyLabel={copied === "ok" ? t("ui.copiedExclamation") : copied === "err" ? t("ui.actions.copyFailed") : t("card.copy")}
             />,
             document.body
           )

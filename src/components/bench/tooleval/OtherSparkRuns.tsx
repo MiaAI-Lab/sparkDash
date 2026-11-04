@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useEffect, useState } from "react";
 import type { SparkSnapshot, ToolEvalRun } from "../../../api/types";
 import { fetchToolEvalRuns } from "../../../api/client";
@@ -15,6 +16,7 @@ interface OtherSparkRunsProps {
 
 /** Pick one finished run from another Spark to compare against a run of this one. */
 export function OtherSparkRuns({ sparks, type, selected, onSelect }: OtherSparkRunsProps) {
+  const { t } = useTranslation("tooleval");
   const [sparkId, setSparkId] = useState<string | null>(selected?.sparkId ?? null);
   const [runs, setRuns] = useState<ToolEvalRun[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -44,13 +46,13 @@ export function OtherSparkRuns({ sparks, type, selected, onSelect }: OtherSparkR
 
   return (
     <div className="te-xspark">
-      <p className="te-note">Compare a run on this Spark with a finished run from another Spark. Tick a run below, then pick the Spark and run to compare it with.</p>
-      <SparkChips sparks={sparks} activeId={sparkId} onSelect={choose} ariaLabel="Spark to compare with" />
+      <p className="te-note">{t("other.help")}</p>
+      <SparkChips sparks={sparks} activeId={sparkId} onSelect={choose} ariaLabel={t("other.spark")} />
       {sparkId && !runs && !error ? <Skeleton lines={2} /> : null}
-      {error ? <p className="te-bad">Could not load that Spark's runs: {error}</p> : null}
-      {runs && !runs.length ? <p className="te-faint">No finished runs of this benchmark on that Spark.</p> : null}
+      {error ? <p className="te-bad">{t("other.failed", { error })}</p> : null}
+      {runs && !runs.length ? <p className="te-faint">{t("other.empty")}</p> : null}
       {runs?.length ? (
-        <ul className="te-xspark__list" role="radiogroup" aria-label="Run from the other Spark">
+        <ul className="te-xspark__list" role="radiogroup" aria-label={t("other.run")}>
           {runs.map((r) => (
             <li key={r.id}>
               <label className={`te-xspark__run ${selected?.id === r.id ? "is-on" : ""}`}>
@@ -59,7 +61,7 @@ export function OtherSparkRuns({ sparks, type, selected, onSelect }: OtherSparkR
                   <b>{r.label || fmtDate(r.startedAt)}</b>
                   <span className="te-faint">
                     {r.label ? `${fmtDate(r.startedAt)} · ` : ""}
-                    {r.model ?? "auto model"}
+                    {r.model ?? t("ui.autoModel")}
                   </span>
                 </span>
                 <b className="te-xspark__score">{r.summary?.finalScore != null ? fmtNum(r.summary.finalScore, 1) : "–"}</b>
@@ -70,7 +72,7 @@ export function OtherSparkRuns({ sparks, type, selected, onSelect }: OtherSparkR
       ) : null}
       {selected ? (
         <button type="button" className="btn btn--sm btn--ghost" onClick={() => onSelect(null)}>
-          Clear selection
+          {t("other.clear")}
         </button>
       ) : null}
     </div>

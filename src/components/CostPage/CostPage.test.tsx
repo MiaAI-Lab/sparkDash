@@ -1,6 +1,7 @@
 import { act } from "react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { render, flush } from "../../testing/render";
+import { setLocale } from "../../i18n";
 import { CostPage } from "./CostPage";
 import type { TokenHistoryRow } from "../../api/types";
 import { bucketKeys } from "../TokensPage/tokenStats";
@@ -15,9 +16,19 @@ vi.mock("../../api/costClient", () => ({ fetchModelPrices: vi.fn(async () => ({
 })) }));
 
 beforeEach(() => {
+  void setLocale("en");
   localStorage.clear();
   history.hour = [];
   history.day = [];
+});
+
+it("localizes range phrases and units instead of rendering English range constants", async () => {
+  localStorage.setItem("sparkdash.cost.model", "unrelated-first-model");
+  const { container } = render(<CostPage />);
+  await flush();
+  await act(() => setLocale("zh-CN"));
+  expect(container.textContent).toContain("每 天 费用");
+  expect(container.textContent).toContain("最近 7 天 按 unrelated-first-model 标价");
 });
 
 /** One day bucket of usage on the day the test runs. */

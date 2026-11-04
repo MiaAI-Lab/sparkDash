@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ReactNode } from "react";
@@ -257,6 +258,7 @@ function ChangelogBody({ body }: { body: string }) {
 // ─── Dialog ──────────────────────────────────────────────────────────
 
 function PendingCommitsList({ upd }: { upd: HermesUpdatesResponse }) {
+  const { t } = useTranslation("hardware");
   const pending = upd.pending;
   const commits = pending?.commits ?? [];
   return (
@@ -273,7 +275,7 @@ function PendingCommitsList({ upd }: { upd: HermesUpdatesResponse }) {
       </ul>
       {pending && pending.count > commits.length && (
         <p className="mt-2 text-[10px] text-muted">
-          …and {pending.count - commits.length} more (showing first {commits.length}).
+          {t("hermes.more", { remaining: pending.count - commits.length, shown: commits.length })}
         </p>
       )}
     </div>
@@ -281,6 +283,7 @@ function PendingCommitsList({ upd }: { upd: HermesUpdatesResponse }) {
 }
 
 export function HermesUpdateDialog() {
+  const { t } = useTranslation("hardware");
   const target = useHermesUpdateDialog();
   const open = target !== null;
   const { mounted, visible } = useModalPresence(open);
@@ -346,7 +349,7 @@ export function HermesUpdateDialog() {
 
   if (!mounted) return null;
 
-  const targetName = upd?.release?.name || upd?.release?.tagName || "latest release";
+  const targetName = upd?.release?.name || upd?.release?.tagName || t("hermes.latest");
 
   return createPortal(
     <div
@@ -363,11 +366,11 @@ export function HermesUpdateDialog() {
           <div className="modal-sheet__heading">
             <h2 className="modal-sheet__title" id="hermes-update-dialog-title">
               <RotateIcon className="h-4 w-4 shrink-0 text-accent" />
-              Update Hermes Agent
+              {t("hermes.title")}
             </h2>
             <p className="modal-sheet__sub">
               {target?.sparkName}
-              {target?.currentVersion ? ` · installed v${target.currentVersion}` : ""}
+              {target?.currentVersion ? t("hermes.installedSub", { version: target.currentVersion }) : ""}
             </p>
           </div>
           <button
@@ -375,7 +378,7 @@ export function HermesUpdateDialog() {
             className="modal-sheet__close"
             onClick={closeHermesUpdateDialog}
             disabled={updating}
-            aria-label="Close"
+            aria-label={t("hermes.close")}
           >
             <XIcon className="h-4 w-4" />
           </button>
@@ -385,14 +388,14 @@ export function HermesUpdateDialog() {
           {loading && (
             <div className="flex items-center gap-2 text-xs text-muted">
               <RotateIcon className="h-3.5 w-3.5 animate-spin text-accent" />
-              Loading release notes…
+              {t("hermes.loading")}
             </div>
           )}
 
           {error && !loading && (
             <div className="danger-box">
               <p className="text-[11px] font-medium text-danger">
-                Couldn't load the changelog. You can still update.
+                {t("hermes.failed")}
               </p>
               <p className="mt-1 break-words text-[11px] text-muted">{error}</p>
               <div className="mt-2 flex items-center gap-3">
@@ -411,7 +414,7 @@ export function HermesUpdateDialog() {
                   }}
                   className="btn btn--sm"
                 >
-                  Retry
+                  {t("hermes.retry")}
                 </button>
                 <a
                   href="https://github.com/NousResearch/hermes-agent/releases"
@@ -419,7 +422,7 @@ export function HermesUpdateDialog() {
                   rel="noreferrer"
                   className="inline-flex items-center gap-1 text-[11px] text-accent hover:underline"
                 >
-                  Open releases page
+                  {t("hermes.releases")}
                   <ExternalLinkIcon className="h-3 w-3" />
                 </a>
               </div>
@@ -430,10 +433,10 @@ export function HermesUpdateDialog() {
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="tag tag--acc">
-                  {upd.pending.count} commit{upd.pending.count === 1 ? "" : "s"} behind main
+                  {t("hermes.behind", { count: upd.pending.count })}
                 </span>
                 {upd.installedVersion && (
-                  <span className="text-[11px] text-muted">(installed v{upd.installedVersion})</span>
+                  <span className="text-[11px] text-muted">{t("hermes.installed", { version: upd.installedVersion })}</span>
                 )}
                 {upd.release && upd.release.semver && (
                   <a
@@ -441,17 +444,15 @@ export function HermesUpdateDialog() {
                     target="_blank"
                     rel="noreferrer"
                     className="ml-auto inline-flex items-center gap-1 text-[11px] text-accent hover:underline"
-                    title={`These commits are ahead of release v${upd.release.semver}`}
+                    title={t("hermes.ahead", { version: upd.release.semver })}
                   >
-                    View release notes (v{upd.release.semver})
+                    {t("hermes.releaseNotes", { version: upd.release.semver })}
                     <ExternalLinkIcon className="h-3 w-3" />
                   </a>
                 )}
               </div>
               <p className="text-[11px] leading-relaxed text-muted">
-                No tagged release covers these commits — updating pulls only these changes on
-                top of v{upd.installedVersion ?? "your install"}; the full release changelog
-                doesn't apply here.
+                {t("hermes.unreleased", { version: upd.installedVersion ?? t("hermes.yourInstall") })}
               </p>
               <PendingCommitsList upd={upd} />
             </div>
@@ -459,8 +460,7 @@ export function HermesUpdateDialog() {
             <div className="space-y-3">
               {upd.pending?.commits?.length ? (
                 <p className="text-[11px] text-muted">
-                  This update also includes {upd.pending.count} commit
-                  {upd.pending.count === 1 ? "" : "s"} on top of the release below.
+                  {t("hermes.also", { count: upd.pending.count })}
                 </p>
               ) : null}
               <div className="flex flex-wrap items-center gap-2">
@@ -469,7 +469,7 @@ export function HermesUpdateDialog() {
                 </span>
                 {target?.currentVersion && (
                   <span className="text-[11px] text-muted">
-                    (installed v{target.currentVersion})
+                    {t("hermes.installed", { version: target.currentVersion })}
                   </span>
                 )}
                 {upd.release.publishedAt && (
@@ -482,9 +482,9 @@ export function HermesUpdateDialog() {
                   target="_blank"
                   rel="noreferrer"
                   className="ml-auto inline-flex items-center gap-1 text-[11px] text-accent hover:underline"
-                  title="View this release on GitHub"
+                  title={t("hermes.githubHint")}
                 >
-                  View on GitHub
+                  {t("hermes.github")}
                   <ExternalLinkIcon className="h-3 w-3" />
                 </a>
               </div>
@@ -492,17 +492,17 @@ export function HermesUpdateDialog() {
                 {upd.release.body ? (
                   <ChangelogBody body={upd.release.body} />
                 ) : (
-                  <p className="text-xs text-muted">No release notes provided for this version.</p>
+                  <p className="text-xs text-muted">{t("hermes.empty")}</p>
                 )}
               </div>
             </div>
           ) : upd && !loading ? (
             <div className="danger-box">
               <p className="text-[11px] font-medium text-danger">
-                Couldn't determine what this update contains. You can still update.
+                {t("hermes.unknown")}
               </p>
               <p className="mt-1 break-words text-[11px] text-muted">
-                {upd.releaseError ?? "No release or commit information available."}
+                {upd.releaseError ?? t("hermes.missing")}
               </p>
             </div>
           ) : null}
@@ -510,8 +510,7 @@ export function HermesUpdateDialog() {
 
         <div className="modal-sheet__footer">
           <p className="text-[10px] text-muted">
-            Runs <code className="rounded bg-surface-elevated px-1 font-mono">hermes update</code> on{" "}
-            {target?.sparkName} via SSH.
+            {t("hermes.command", { name: target?.sparkName })}
           </p>
           <div className="modal-sheet__footer-actions">
             <button
@@ -520,7 +519,7 @@ export function HermesUpdateDialog() {
               disabled={updating}
               className="btn btn--ghost"
             >
-              Cancel
+              {t("hermes.cancel")}
             </button>
             <button
               type="button"
@@ -531,10 +530,10 @@ export function HermesUpdateDialog() {
               {updating ? (
                 <>
                   <RotateIcon className="h-3 w-3 animate-spin" />
-                  Updating…
+                  {t("hermes.updating")}
                 </>
               ) : (
-                "Update now"
+                t("hermes.now")
               )}
             </button>
           </div>

@@ -1,4 +1,5 @@
 import type { ToolEvalRunStatus } from "../../../api/types";
+import { message, type ToolEvalPresentation } from "./presentation";
 
 export type StatusTone = "good" | "bad" | "warn" | "acc" | "neutral";
 
@@ -18,18 +19,18 @@ export function statusTone(status: ToolEvalRunStatus): StatusTone {
   }
 }
 
-export function statusLabel(status: ToolEvalRunStatus, watching = true): string {
+export function statusLabel(status: ToolEvalRunStatus, watching = true, presentation?: ToolEvalPresentation): string {
   switch (status) {
     case "running":
-      return watching ? "Running" : "Running (not watched)";
+      return watching ? message(presentation, "status.running", "Running") : message(presentation, "status.unwatched", "Running (not watched)");
     case "completed":
-      return "Completed";
+      return message(presentation, "status.completed", "Completed");
     case "failed":
-      return "Failed";
+      return message(presentation, "status.failed", "Failed");
     case "stopped":
-      return "Stopped";
+      return message(presentation, "status.stopped", "Stopped");
     case "gone":
-      return "Gone";
+      return message(presentation, "status.gone", "Gone");
     default:
       return status;
   }
