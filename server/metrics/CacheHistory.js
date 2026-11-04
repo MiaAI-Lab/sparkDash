@@ -17,11 +17,11 @@
  * Exactly-once: an observation is identified by (port, engine epoch, observed_unix_ns). A repeat or
  * older stamp is skipped, a new epoch or a backwards stamp rebaselines and records an event.
  *
- * Disk: bounded, so it sits beside UnitHistory without a size conversation. Measured worst case for
- * one port — both tiers saturated (2,880 buckets each: 48 h at 1 m, 30 d at 15 m), every gauge and
- * counter present, the engine's 19 histogram buckets for ttft and latency every minute — is
- * 7,866,328 bytes (~7.5 MiB); add at most MAX_EVENTS (200) events of a few hundred bytes each. A unit
- * with several probed ports costs that much per port. The file does not grow with uptime: retention
+ * Disk: bounded by slots, not request volume. A saturated one-port fixture (2,880 buckets per tier,
+ * every gauge, coverage duration, 13 deltas above 2^32, 20 histogram bounds, 200 numeric events)
+ * serialized to 8,548,723 bytes (~8.2 MiB). Its post-GC V8 heap delta was ~12.5 MiB, a process-level
+ * estimate rather than allocation-event profiling. Several ports scale with their fixed tiers;
+ * MAX_EVENTS (200) is shared per unit. The file does not grow with uptime: retention
  * prunes on write, and it is replaced atomically (temp file + rename), so a crash mid-write leaves the
  * previous file intact rather than a truncated one.
  */
@@ -46,6 +46,8 @@ const MAX_EVENTS = 200;
 const EVENT_COALESCE_MS = 60_000;
 /** An engine clock this far from the dashboard's is reported once. */
 const CLOCK_SKEW_MS = 30_000;
+/** Beyond this, the observation window is unknown: never backfill its counter deltas. */
+const MAX_GAP_MS = 90_000;
 
 /** Gauges: `max` keeps the peak, `step` marks a configuration value (never averaged). */
 const GAUGES = {
@@ -154,15 +156,24 @@ export class CacheHistory {
       const port = Number.isInteger(entry?.port) ? entry.port : ports[i];
       if (!Number.isInteger(port) || (ports.length > 0 && !ports.includes(port))) return;
       if (entry?.available !== true || entry?.measurementValid === false) {
-        this._event(id, port, atMs, "telemetry_lost", { reason: entry?.measurementError ?? null });
+        this._rebaseline(this._units.get(id)?.ports.get(port));
+        this._event(id, port, atMs, "telemetry_lost", { reason: entry?.measurementValid === false ? "measurement_invalid" : "endpoint_unavailable" });
         return;
       }
       const cache = entry?.cache;
-      if (!cache || typeof cache !== "object") return;
+      if (!cache || typeof cache !== "object") {
+        const state = this._units.get(id)?.ports.get(port);
+        if (state) {
+          this._rebaseline(state);
+          this._event(id, port, atMs, "telemetry_lost", { reason: "cache_group_missing" });
+        }
+        return;
+      }
       if (cache.status !== "full" && cache.status !== "partial") {
+        this._rebaseline(this._units.get(id)?.ports.get(port));
         this._event(id, port, atMs, cache.status === "unavailable" ? "telemetry_lost" : "telemetry_invalid", {
-          status: cache.status,
-          reason: cache.reason ?? null,
+          status: ["unavailable", "inconsistent", "invalid", "unsupported"].includes(cache.status) ? cache.status : "unknown",
+          reason: "cache_telemetry_unavailable_or_invalid",
         });
         return;
       }
@@ -199,10 +210,11 @@ export class CacheHistory {
 
   _ingest(unitId, port, entry, cache, atMs) {
     const state = this._portState(unitId, port);
+    state.firstAvailableAt ??= atMs;
     const epoch = typeof cache.engineEpoch === "string" ? cache.engineEpoch : null;
     const observedAt = finite(cache.observedAt) ? cache.observedAt : null;
     if (observedAt != null && state.observedAt != null) {
-      if (observedAt === state.observedAt) return; // same observation already consumed
+      if (observedAt === state.observedAt && epoch === state.epoch) return; // same observation already consumed
       if (epoch !== state.epoch) {
         this._event(unitId, port, atMs, "engine_restart", { from: state.epoch, to: epoch });
         this._rebaseline(state);
@@ -221,6 +233,11 @@ export class CacheHistory {
       }
       state.observedAt = observedAt;
     }
+    if (state.lastAt != null && atMs - state.lastAt > MAX_GAP_MS) {
+      this._event(unitId, port, atMs, "collection_gap", { durationMs: atMs - state.lastAt });
+      this._rebaseline(state);
+    }
+    let coveredMs = state.lastAt == null ? 0 : Math.max(0, atMs - state.lastAt);
     state.epoch = epoch;
     state.lastAt = atMs;
 
@@ -274,12 +291,21 @@ export class CacheHistory {
       if (previous == null) continue; // baseline only
       if (value < previous) {
         resetSeen = true;
-        deltas[key] = value; // counters restarted: this observation is the new epoch's first delta
-        continue;
+        continue; // This whole observation becomes a baseline, not invented first-window traffic.
       }
       deltas[key] = value - previous;
     }
-    if (resetSeen) this._event(unitId, port, atMs, "counter_reset", null);
+    const invalidReuse = finite(deltas.promptTokens) && finite(deltas.cachedTokens) && deltas.cachedTokens > deltas.promptTokens;
+    if (resetSeen || invalidReuse) {
+      this._event(unitId, port, atMs, resetSeen ? "counter_reset" : "telemetry_invalid", invalidReuse ? { reason: "cached_delta_exceeds_prompt_delta" } : null);
+      for (const key of Object.keys(deltas)) delete deltas[key];
+      state.histograms = null;
+      coveredMs = 0;
+    }
+    const pressure = Object.fromEntries(["evictions", "invalidations", "refusals", "failures", "failuresKeep", "failuresRestore", "failuresPeerForget", "placementBlocks"]
+      .filter((key) => deltas[key] > 0).map((key) => [key, deltas[key]]));
+    if (entry.requestsWaiting > 0) pressure.waiting = entry.requestsWaiting;
+    if (Object.keys(pressure).length) this._event(unitId, port, atMs, "cache_pressure", pressure);
 
     let histDeltas = null;
     if (histOk) {
@@ -313,17 +339,19 @@ export class CacheHistory {
       state.histograms = { ttft: hist.ttft.counts.slice(), latency: hist.latency.counts.slice() };
     }
 
-    this._writeBucket(state, atMs, gauges, deltas, histDeltas, hist ? { ttft: hist.ttft.edges, latency: hist.latency.edges } : null);
+    this._writeBucket(state, atMs, gauges, deltas, histDeltas, hist ? { ttft: hist.ttft.edges, latency: hist.latency.edges } : null, coveredMs);
     void entry;
   }
 
   _rebaseline(state) {
+    if (!state) return;
+    state.lastAt = null;
     state.counters = {};
     state.histograms = null;
     state.edges = null;
   }
 
-  _writeBucket(state, atMs, gauges, deltas, histDeltas, edges) {
+  _writeBucket(state, atMs, gauges, deltas, histDeltas, edges, coveredMs) {
     for (let ti = 0; ti < TIERS.length; ti += 1) {
       const tier = TIERS[ti];
       const slot = Math.floor(atMs / tier.stepMs) % tier.slots;
@@ -335,6 +363,8 @@ export class CacheHistory {
         ring.set(slot, bucket);
         this._prune(ring, tier, atMs);
       }
+      if (bucket.n > 0 && !finite(bucket.coveredMs)) bucket.coveragePartial = true;
+      bucket.coveredMs = (bucket.coveredMs ?? 0) + coveredMs;
       bucket.n += 1;
       for (const [key, spec] of Object.entries(GAUGES)) {
         const value = gauges[key];
@@ -354,7 +384,7 @@ export class CacheHistory {
       }
       if (finite(deltas.promptTokens) && finite(deltas.cachedTokens)) {
         bucket.reuse[0] += deltas.promptTokens;
-        bucket.reuse[1] += Math.min(deltas.cachedTokens, deltas.promptTokens);
+        bucket.reuse[1] += deltas.cachedTokens;
       }
       if (finite(deltas.completions)) bucket.reuse[2] += deltas.completions;
       if (tier.histograms && histDeltas) {
@@ -383,9 +413,22 @@ export class CacheHistory {
     if (!this._units.has(unitId)) this._units.set(unitId, unit);
     const events = unit.events;
     const last = events[events.length - 1];
-    if (last && last.port === port && last.kind === kind && atMs - last.at < EVENT_COALESCE_MS) return;
+    if (last && last.port === port && last.kind === kind && atMs - last.t < EVENT_COALESCE_MS) {
+      if (kind === "cache_pressure") {
+        last.until = atMs;
+        for (const [key, value] of Object.entries(detail ?? {})) {
+          last.detail[key] = key === "waiting" ? Math.max(last.detail[key] ?? 0, value) : (last.detail[key] ?? 0) + value;
+        }
+        this._dirty = true;
+      }
+      return;
+    }
+    this._dirty = true;
     events.push({ t: atMs, port, kind, ...(detail ? { detail } : {}) });
-    if (events.length > MAX_EVENTS) events.splice(0, events.length - MAX_EVENTS);
+    while (events.length > MAX_EVENTS) {
+      const pressure = events.findIndex((e) => e.kind === "cache_pressure");
+      events.splice(pressure < 0 ? 0 : pressure, 1); // Keep epoch/gap boundaries ahead of noisy churn.
+    }
     for (const state of unit.ports.values()) state.events = events;
   }
 
@@ -410,6 +453,7 @@ export class CacheHistory {
         endpoints.push({
           port,
           engineEpoch: state.epoch,
+          ...(finite(state.firstAvailableAt) ? { firstAvailableAt: state.firstAvailableAt } : {}),
           points: merged.map((m) => this._pointOut(m, spec.stepMs)),
         });
       }
@@ -427,7 +471,7 @@ export class CacheHistory {
   /** Merge closed buckets into the range's step grid (weighted means, summed deltas). */
   _merge(ring, spec, gridFrom, atMs) {
     const merged = new Map();
-    for (const bucket of ring.values()) {
+    for (const bucket of [...ring.values()].sort((a, b) => a.t - b.t)) {
       if (bucket.t < gridFrom || bucket.t > atMs) continue;
       const t = Math.floor(bucket.t / spec.stepMs) * spec.stepMs;
       let m = merged.get(t);
@@ -435,6 +479,8 @@ export class CacheHistory {
         m = { t, n: 0, g: {}, c: {}, reuse: [0, 0, 0], h: null };
         merged.set(t, m);
       }
+      if (finite(bucket.coveredMs)) m.coveredMs = (m.coveredMs ?? 0) + bucket.coveredMs;
+      if (!finite(bucket.coveredMs) || bucket.coveragePartial) m.coveragePartial = true;
       m.n += bucket.n;
       for (const [key, g] of Object.entries(bucket.g)) {
         const agg = (m.g[key] ??= { s: 0, n: 0, max: -Infinity, last: 0, changed: false, anyLast: false, first: null });
@@ -466,6 +512,8 @@ export class CacheHistory {
 
   _pointOut(m, stepMs) {
     const point = { t: m.t, n: m.n };
+    if (finite(m.coveredMs)) point.coveredMs = m.coveredMs;
+    if (m.coveragePartial) point.coveragePartial = true;
     const mean = (g) => (g && g.n > 0 ? round(g.s / g.n) : null);
     const max = (g) => (g && g.n > 0 && Number.isFinite(g.max) ? round(g.max) : null);
     const step = (g) => (g && g.n > 0 ? round(g.last) : null);
@@ -496,12 +544,12 @@ export class CacheHistory {
     if (m.g.validStates) point.validStates = mean(m.g.validStates);
 
     // Weighted reuse over the window: tokens, not a mean of per-sample percentages.
-    if (m.reuse[0] > 0) {
-      point.reusePct = round((Math.min(m.reuse[1], m.reuse[0]) / m.reuse[0]) * 100);
+    if (finite(m.c.promptTokens) && finite(m.c.cachedTokens)) {
       point.promptTokens = Math.round(m.reuse[0]);
       point.cachedTokens = Math.round(m.reuse[1]);
+      if (m.reuse[0] > 0 && m.reuse[1] <= m.reuse[0]) point.reusePct = round((m.reuse[1] / m.reuse[0]) * 100);
     }
-    if (m.reuse[2] > 0) point.completions = Math.round(m.reuse[2]);
+    if (finite(m.c.completions)) point.completions = Math.round(m.reuse[2]);
     if (Object.keys(m.c).length) {
       point.churn = {...m.c};
       delete point.churn.promptTokens;
@@ -510,6 +558,7 @@ export class CacheHistory {
     }
     if (m.h && m.h.ttft.length) {
       // Prometheus deltas remain cumulative across bounds; interpolation needs exclusive bins.
+      point.histogramSamples = { ttft: m.h.ttft.at(-1) ?? 0, latency: m.h.latency.at(-1) ?? 0 };
       const ttft = quantileFromCounts(m.h.ttft.map((c, i, a) => c - (a[i - 1] ?? 0)), m.h.edges?.ttft ?? []);
       const latency = quantileFromCounts(m.h.latency.map((c, i, a) => c - (a[i - 1] ?? 0)), m.h.edges?.latency ?? []);
       if (ttft) point.ttftP95 = ttft;
@@ -527,6 +576,7 @@ export class CacheHistory {
       for (const [port, state] of unit.ports) {
         ports[port] = {
           epoch: state.epoch,
+          firstAvailableAt: state.firstAvailableAt,
           observedAt: state.observedAt,
           lastAt: state.lastAt,
           counters: state.counters,
@@ -559,6 +609,8 @@ export class CacheHistory {
             ring.set(slot, {
               t: bucket.t,
               n: finite(bucket.n) ? bucket.n : 0,
+              ...(finite(bucket.coveredMs) ? { coveredMs: bucket.coveredMs } : {}),
+              ...(bucket.coveragePartial ? { coveragePartial: true } : {}),
               g: bucket.g && typeof bucket.g === "object" ? bucket.g : {},
               c: bucket.c && typeof bucket.c === "object" ? bucket.c : {},
               reuse: Array.isArray(bucket.reuse) ? bucket.reuse.map((v) => (finite(v) ? v : 0)) : [0, 0, 0],
@@ -567,8 +619,10 @@ export class CacheHistory {
           }
           return ring;
         });
+        const firstBucket = Math.min(...[...(tiers[0].size ? tiers[0] : tiers[1]).values()].map((b) => b.t));
         ports.set(n, {
           epoch: state.epoch ?? null,
+          firstAvailableAt: finite(state.firstAvailableAt) ? state.firstAvailableAt : finite(firstBucket) ? firstBucket : null,
           observedAt: finite(state.observedAt) ? state.observedAt : null,
           lastAt: finite(state.lastAt) ? state.lastAt : null,
           counters: state.counters && typeof state.counters === "object" ? state.counters : {},
@@ -650,4 +704,3 @@ export class CacheHistory {
     return { units: this._units.size, buckets, events, maxSlots: SLOT_COUNT };
   }
 }
-

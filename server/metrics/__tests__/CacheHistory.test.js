@@ -160,6 +160,18 @@ test("a new engine epoch rebaselines instead of subtracting a restarted counter"
   assert.equal(last.pool.capacity, 8_388_608);
 });
 
+test("observation identity includes epoch even when the source timestamp repeats", () => {
+  const s = store();
+  const a = endpoint();
+  s.record(snapshot(a), T0);
+  const b = structuredClone(a);
+  b.cache.engineEpoch = "new-epoch";
+  s.record(snapshot(b), T0 + 1000);
+  const out = s.query("spark-1", "1h", T0 + 2000);
+  assert.equal(out.endpoints[0].engineEpoch, "new-epoch");
+  assert.ok(out.events.some((e) => e.kind === "engine_restart"));
+});
+
 test("counters that go backwards on the same epoch are a reset, not negative churn", () => {
   const s = store();
   const first = endpoint();
@@ -254,10 +266,116 @@ test("the sidecar round-trips through JSON and stays bounded", () => {
     b.stop();
     assert.equal(out.endpoints[0].points.length, 2);
     assert.equal(out.endpoints[0].engineEpoch, "1000");
+    assert.equal(out.endpoints[0].firstAvailableAt, T0);
+    assert.equal(out.endpoints[0].points[1].coveredMs, 60_000);
     assert.ok(out.endpoints[0].points[0].pool.capacity > 0);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("coverage measures observed intervals, never a collection outage", () => {
+  const s = store();
+  const a = endpoint();
+  const b = advance(a, { add: { prompt: 100, cached: 80 }, obsMs: 10_000 });
+  s.record(snapshot(a), T0);
+  s.record(snapshot(b), T0 + 10_000);
+  const c = advance(b, { add: { prompt: 10_000, cached: 9_000 }, obsMs: 600_000 });
+  s.record(snapshot(c), T0 + 610_000);
+  const out = s.query("spark-1", "1h", T0 + 620_000);
+  assert.equal(out.endpoints[0].points[0].coveredMs, 10_000);
+  assert.equal(out.endpoints[0].points.at(-1).promptTokens, undefined);
+  assert.equal(out.endpoints[0].points.at(-1).coveredMs, 0);
+  assert.ok(out.events.some((e) => e.kind === "collection_gap"));
+});
+
+test("unavailable telemetry and same-epoch counter resets rebaseline all deltas", () => {
+  const s = store();
+  const a = endpoint();
+  s.record(snapshot(a), T0);
+  s.record(snapshot({ ...a, available: false }), T0 + 10_000);
+  const b = advance(a, { add: { prompt: 1000, cached: 900 } });
+  s.record(snapshot(b), T0 + 60_000);
+  assert.equal(s.query("spark-1", "1h", T0 + 61_000).endpoints[0].points.at(-1).promptTokens, undefined);
+  const c = advance(b, { add: { prompt: 100, cached: 80 } });
+  c.cache.pool.invalidationsTotal = 0;
+  s.record(snapshot(c), T0 + 120_000);
+  const last = s.query("spark-1", "1h", T0 + 121_000).endpoints[0].points.at(-1);
+  assert.equal(last.churn, undefined);
+  assert.equal(last.reusePct, undefined);
+});
+
+test("invalid delta reuse is a gap, not a clamped healthy percentage", () => {
+  const s = store();
+  const a = endpoint();
+  s.record(snapshot(a), T0);
+  s.record(snapshot(advance(a, { add: { prompt: 10, cached: 100 } })), T0 + 60_000);
+  const out = s.query("spark-1", "1h", T0 + 61_000);
+  assert.equal(out.endpoints[0].points.at(-1).reusePct, undefined);
+  assert.ok(out.events.some((e) => e.kind === "telemetry_invalid"));
+});
+
+test("pressure events coalesce and preserve numeric sums and zero completions", () => {
+  const s = store();
+  const a = endpoint();
+  s.record(snapshot(a), T0);
+  for (let i = 1; i <= 3; i++) {
+    const b = advance(a, { obsMs: i * 10_000 });
+    b.cache.promptState.evictionsTotal += i;
+    s.record(snapshot(b), T0 + i * 10_000);
+  }
+  const out = s.query("spark-1", "1h", T0 + 40_000);
+  const events = out.events.filter((e) => e.kind === "cache_pressure");
+  assert.equal(events.length, 1);
+  assert.equal(events[0].detail.evictions, 3);
+  assert.equal(out.endpoints[0].points[0].completions, 0);
+  assert.deepEqual(out.endpoints[0].points[0].histogramSamples, { ttft: 0, latency: 0 });
+});
+
+test("counts above 2^32 stay exact, including after coarse rollup", () => {
+  const s = store();
+  const a = endpoint();
+  s.record(snapshot(a), T0);
+  const add = 2 ** 32 + 17;
+  s.record(snapshot(advance(a, { add: { prompt: add, cached: add - 1 } })), T0 + 60_000);
+  const p = s.query("spark-1", "7d", T0 + 120_000).endpoints[0].points.at(-1);
+  assert.equal(p.promptTokens, add);
+  assert.equal(p.cachedTokens, add - 1);
+  assert.equal(p.coveredMs, 60_000);
+});
+
+test("legacy duration coverage remains unknown rather than inferred from sample count", () => {
+  const a = store();
+  a.record(snapshot(endpoint()), T0);
+  const raw = a._serialize();
+  for (const state of Object.values(raw.units["spark-1"].ports)) {
+    delete state.firstAvailableAt;
+    for (const tier of state.tiers) for (const bucket of tier) delete bucket.coveredMs;
+  }
+  const b = store();
+  b._deserialize(raw);
+  const out = b.query("spark-1", "1h", T0 + 60_000).endpoints[0];
+  assert.equal(out.points[0].coveredMs, undefined);
+  assert.equal(out.points[0].coveragePartial, true);
+  assert.equal(out.firstAvailableAt, T0);
+});
+
+test("telemetry-only events dirty persistence and repeated gaps coalesce", () => {
+  const s = store();
+  s.record(snapshot(endpoint()), T0);
+  s._dirty = false;
+  const lost = { ...endpoint(), available: false };
+  s.record(snapshot(lost), T0 + 10_000);
+  assert.equal(s._dirty, true);
+  s.record(snapshot(lost), T0 + 20_000);
+  assert.equal(s.query("spark-1", "1h", T0 + 30_000).events.filter((e) => e.kind === "telemetry_lost").length, 1);
+});
+
+test("event persistence stores classifications, not free-form endpoint errors", () => {
+  const s = store();
+  s.record(snapshot({ ...endpoint(), available: false, measurementError: "private prompt or raw log" }), T0);
+  s.record(snapshot({ ...endpoint(), cache: { status: "invalid", reason: "private prompt or raw log" } }), T0 + 1000);
+  assert.ok(!JSON.stringify(s._serialize()).includes("private prompt or raw log"));
 });
 
 test("long ranges read the 15-minute tier and prune units that are gone", () => {
