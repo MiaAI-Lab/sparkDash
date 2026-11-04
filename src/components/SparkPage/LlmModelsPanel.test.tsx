@@ -14,6 +14,8 @@ vi.mock("../../api/client", () => ({
   updateLauncher: vi.fn(),
   readLauncherJob: vi.fn(() => new Promise(() => {})),
   cancelLauncherJob: vi.fn(),
+  // The Add-a-model dialog scans on open; keep it pending so the validation alert is the only one.
+  discoverModels: vi.fn(() => new Promise(() => {})),
 }));
 
 import type { LauncherJob } from "../../api/types";
