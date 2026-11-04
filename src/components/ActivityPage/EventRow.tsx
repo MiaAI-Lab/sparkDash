@@ -4,6 +4,7 @@ import { useActivityLabels } from "./useActivityLabels";
 import type { ActivityEvent } from "../../api/types";
 import { ChevronRightIcon } from "../ui/icons";
 import { Tag, type TagTone } from "../ui/Tag";
+import { useServerMessage } from "../../i18n/serverMessages";
 import { splitMessage } from "../OverviewPage/activityFormat";
 import { categorize, formatClock, formatStamp } from "./activityStats";
 
@@ -33,7 +34,9 @@ function formatAgo(ts: number, now: number): string {
 }
 
 
-  const { before, name, after } = splitMessage(e.message, e.sparkName);
+  const renderServerMessage = useServerMessage();
+  const summaryMessage = renderServerMessage(e.i18n?.message, e.message);
+  const { before, name, after } = splitMessage(summaryMessage, e.sparkName);
   const clickable = Boolean(e.sparkId && onSelectSpark);
   const label = eventType(e.type);
   const detailId = `ac-ev-${e.id}`;
