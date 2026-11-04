@@ -1325,6 +1325,7 @@ export type HistoryUnitSeries =
   | "gpuPower"
   | "memUsedMB"
   | "memFreeMB"
+  | "memAvailableMB"
   | "memGpuMB"
   | "memSysMB"
   | "cpuUtil"
@@ -1362,6 +1363,10 @@ export interface MetricsHistoryCachePoint {
   t: number;
   /** Observations behind this bucket. */
   n: number;
+  /** Sum of valid observation-pair durations, not assumed wall-clock coverage. Absent on legacy data. */
+  coveredMs?: number;
+  coveragePartial?: boolean;
+  histogramSamples?: { ttft: number; latency: number };
   /** Pool in positions: means of the categories, `capacity` is the bucket's effective step value. */
   pool?: {
     capacity: number;
@@ -1402,11 +1407,13 @@ export interface MetricsHistoryCachePoint {
 export interface MetricsHistoryCacheEndpoints {
   port: number;
   engineEpoch: string | null;
+  firstAvailableAt?: number;
   points: MetricsHistoryCachePoint[];
 }
 
 export interface MetricsHistoryCacheEvent {
   t: number;
+  until?: number;
   port: number;
   kind:
     | "engine_restart"
@@ -1415,7 +1422,9 @@ export interface MetricsHistoryCacheEvent {
     | "telemetry_lost"
     | "telemetry_invalid"
     | "histogram_edges_changed"
-    | "clock_skew";
+    | "clock_skew"
+    | "collection_gap"
+    | "cache_pressure";
   detail?: Record<string, unknown> | null;
 }
 

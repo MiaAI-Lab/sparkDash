@@ -115,6 +115,12 @@ export function extractSample(snapshot, isFresh = () => true) {
     set("memSysMB", mem.sysMB);
   }
 
+  // Unlike legacy memFreeMB, this has no GPU or total-minus-used fallback.
+  const um = m.unifiedMemory;
+  if (isFresh("memory") && um?.availableSource === "linux-memavailable" && finite(um.available) && um.available >= 0) {
+    set("memAvailableMB", um.available);
+  }
+
   const cpu = m.cpu;
   if (cpu && isFresh("cpu") && !isDefaultCpu(cpu)) {
     set("cpuUtil", cpu.usage);

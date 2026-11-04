@@ -1,4 +1,4 @@
-import type { MetricsHistoryCachePoint } from "../../api/types";
+import type { MetricsHistoryCachePoint, MetricsHistoryCacheEvent } from "../../api/types";
 
 /**
  * The shared pool over time, as stacked categories in positions.
@@ -30,7 +30,7 @@ const positions = (n: number): string => {
 };
 
 /** Contiguous runs of indices with a complete pool observation, breaking on gaps. */
-function runsOf(timeline: readonly number[], points: ReadonlyArray<MetricsHistoryCachePoint | undefined>, stepMs: number): number[][] {
+function runsOf(timeline: readonly number[], points: ReadonlyArray<MetricsHistoryCachePoint | undefined>, stepMs: number, events: readonly MetricsHistoryCacheEvent[]): number[][] {
   const runs: number[][] = [];
   let run: number[] = [];
   let previousT: number | null = null;
@@ -44,7 +44,8 @@ function runsOf(timeline: readonly number[], points: ReadonlyArray<MetricsHistor
       continue;
     }
     const t = timeline[i];
-    if (previousT != null && t - previousT > stepMs * GAP_STEPS) {
+    if (previousT != null && (t - previousT > stepMs * GAP_STEPS || events.some((e) =>
+      e.kind !== "cache_pressure" && e.t >= previousT! && e.t < t + stepMs))) {
       if (run.length) runs.push(run);
       run = [];
     }
@@ -60,21 +61,28 @@ export function CachePoolChart({
   stepMs,
   points,
   formatTime,
+  events = [],
+  from = timeline[0],
+  to = timeline[timeline.length - 1],
 }: {
   timeline: readonly number[];
   stepMs: number;
   points: ReadonlyArray<MetricsHistoryCachePoint | undefined>;
   formatTime: (t: number) => string;
+  events?: readonly MetricsHistoryCacheEvent[];
+  from?: number;
+  to?: number;
 }) {
   const present = points.filter((p): p is MetricsHistoryCachePoint => p?.pool != null);
   if (present.length === 0) return null;
   const capacity = Math.max(...present.map((p) => p.pool!.capacity));
   const y = (v: number) => VIEW_H - PAD_Y - (Math.max(0, Math.min(v, capacity)) / capacity) * (VIEW_H - PAD_Y * 2);
-  const x = (i: number) => (timeline.length <= 1 ? VIEW_W / 2 : (i / (timeline.length - 1)) * VIEW_W);
-  const runs = runsOf(timeline, points, stepMs);
+  const timeX = (t: number) => to <= from ? VIEW_W / 2 : Math.max(0, Math.min(VIEW_W, (t - from) / (to - from) * VIEW_W));
+  const x = (i: number) => timeX(timeline[i]);
+  const runs = runsOf(timeline, points, stepMs, events);
   const latest = present[present.length - 1];
   const last = latest.pool!;
-  const summary = `Shared pool over ${present.length} buckets, ${positions(capacity)} positions: active ${positions(last.active ?? 0)}, kept prefixes ${positions(last.prefix ?? 0)}, reclaimable ${positions(last.growth ?? 0)}, unclaimed ${positions(last.unclaimed ?? 0)}`;
+  const summary = `Shared pool over ${present.length} buckets, scale maximum ${positions(capacity)} positions: active ${positions(last.active ?? NaN)}, kept prefixes ${positions(last.prefix ?? NaN)}, reclaimable ${positions(last.growth ?? NaN)}, unclaimed ${positions(last.unclaimed ?? NaN)}`;
 
   return (
     <div className="sp-cachepool" data-cache-pool-chart>
@@ -102,12 +110,15 @@ export function CachePoolChart({
             });
           }
           return BANDS.map((band, bi) => {
-            const upper = run.map((i, k) => `${x(i)},${y(cumulative[bi][k])}`).join(" ");
-            const lowerBand = bi === 0 ? null : cumulative[bi - 1];
-            const lower = run
-              .map((i, k) => `${x(i)},${y(lowerBand ? lowerBand[k] : 0)}`)
-              .reverse()
-              .join(" ");
+            const outline = (values: number[]) => {
+              const path = run.flatMap((i, k) => k === 0 ? [`${x(i)},${y(values[k])}`]
+                : [`${x(i)},${y(values[k - 1])}`, `${x(i)},${y(values[k])}`]);
+              const last = run[run.length - 1];
+              path.push(`${timeX(Math.min(to, timeline[last] + stepMs))},${y(values[values.length - 1])}`);
+              return path;
+            };
+            const upper = outline(cumulative[bi]).join(" ");
+            const lower = outline(bi === 0 ? run.map(() => 0) : cumulative[bi - 1]).reverse().join(" ");
             return (
               <polygon
                 key={`${ri}-${band.key}`}
@@ -120,8 +131,14 @@ export function CachePoolChart({
             );
           });
         })}
+        {events.map((event, i) => <line key={`event-${i}`} data-cache-event={event.kind}
+          x1={timeX(event.t)} x2={timeX(event.t)} y1={0} y2={VIEW_H}
+          stroke={event.kind === "cache_pressure" ? "var(--color-warning)" : "var(--color-danger)"}
+          strokeDasharray="3 2" strokeWidth={1} vectorEffect="non-scaling-stroke">
+          <title>{formatTime(event.t)} · {event.kind.replaceAll("_", " ")}</title>
+        </line>)}
         {present
-          .filter((p) => p.capacityChanged)
+          .filter((p) => p.capacityChanged || p.budgetChanged)
           .map((p) => {
             const i = timeline.indexOf(p.t);
             if (i < 0) return null;
@@ -147,6 +164,7 @@ export function CachePoolChart({
             {band.label}
           </span>
         ))}
+        {events.length > 0 && <span>Dashed markers: restart/reset, gaps or pressure (details below)</span>}
         <span className="sp-cachepool__time">
           {formatTime(timeline[0])} – {formatTime(timeline[timeline.length - 1])}
         </span>

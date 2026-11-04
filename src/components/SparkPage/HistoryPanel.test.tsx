@@ -14,6 +14,47 @@ import { getUnitHistory } from "../../api/client";
 
 const fetchHistory = vi.mocked(getUnitHistory);
 
+describe("complete cache history", () => {
+  it("renders churn, spare/entries, latency, boundaries, duration coverage and weighted reuse without averaging p95", async () => {
+    const point = {
+      t: T0, n: 3, coveredMs: 30_000, promptTokens: 1000, cachedTokens: 900, reusePct: 90, completions: 10,
+      pool: { capacity: 100, active: 20, prefix: 30, growth: 10, unclaimed: 40 },
+      store: { held: 100, spare: 200, budget: 500, entries: 2 }, waiting: 1,
+      churn: { evictions: 3, invalidations: 1, failures: 0, refusals: 0, placementBlocks: 0 },
+      ttftP95: { value: 1, upperBound: 2, exact: false as const },
+      latencyP95: { value: null, lowerBound: 300, open: true, exact: false as const },
+      histogramSamples: { ttft: 10, latency: 10 },
+    };
+    const { container } = await mount(data({
+      points: [{ t: T0, memAvailableMB: { avg: 20_000, min: 18_000, max: 21_000 } }],
+      cache: { range: "1h", stepMs: STEP, from: T0, to: T0 + 6 * STEP,
+        endpoints: [{ port: 8888, engineEpoch: "2", firstAvailableAt: T0, points: [point, {
+          ...point, t: T0 + STEP, promptTokens: 10, cachedTokens: 0, reusePct: 0,
+          coveredMs: undefined, coveragePartial: true, waiting: 0,
+          churn: { evictions: 0, invalidations: 0, failures: 0, refusals: 0, placementBlocks: 0 },
+          latencyP95: { value: 2, upperBound: 3, exact: false },
+        }] }],
+        events: [{ t: T0 + 30_000, port: 8888, kind: "engine_restart" }, { t: T0 + 90_000, port: 8888, kind: "counter_reset" }],
+      },
+    }));
+    expect(chart(container, "cache-8888-churn").textContent).toContain("Invalidations");
+    expect(chart(container, "cache-8888-store").textContent).toContain("Spare");
+    expect(chart(container, "cache-8888-entries")).toBeTruthy();
+    expect(chart(container, "cache-8888-latency").textContent).toContain("Request latency p95");
+    expect(chart(container, "cache-8888-ttft").querySelector('[aria-label="window summary"]')!.textContent).not.toContain("avg");
+    expect(chart(container, "cache-8888-reuse").querySelector('[aria-label="window summary"]')!.textContent).not.toContain("avg");
+    expect(chart(container, "memAvailable").textContent).toContain("this rank only");
+    expect(container.querySelectorAll("[data-cache-event]").length).toBe(2);
+    expect(container.textContent).toContain("89.11%");
+    expect(container.textContent).toContain("legacy duration coverage not recorded");
+    expect(container.textContent).toContain("above 300 s (open upper bound)");
+    expect(container.textContent).toContain("6.00"); // 3 evictions / 30 covered seconds
+    expect(container.textContent).toContain("engine restart");
+    expect(container.textContent).toContain("counter reset");
+    expect(container.textContent).toContain("Demand / latency / headroom");
+  });
+});
+
 const STEP = 60_000;
 const T0 = Date.UTC(2026, 9, 1, 12, 0, 0);
 

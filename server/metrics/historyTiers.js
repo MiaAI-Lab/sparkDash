@@ -48,6 +48,7 @@ export const UNIT_SERIES = Object.freeze([
   "gpuPower",
   "memUsedMB",
   "memFreeMB",
+  "memAvailableMB",
   "memGpuMB",
   "memSysMB",
   "cpuUtil",
@@ -61,7 +62,7 @@ export const UNIT_SERIES = Object.freeze([
 export const LLM_SERIES = Object.freeze(["genTps", "prefillTps", "kvUsage"]);
 
 /** Series whose buckets also keep the minimum. */
-const MIN_SERIES = new Set(["memFreeMB"]);
+const MIN_SERIES = new Set(["memFreeMB", "memAvailableMB"]);
 
 const UNIT_SERIES_SET = new Set(UNIT_SERIES);
 const LLM_SERIES_SET = new Set(LLM_SERIES);
