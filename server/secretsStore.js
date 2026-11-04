@@ -134,6 +134,8 @@ let lastLoggedHelperTokens = -1;
  *   helperTokens: Map<string, string>,
  * }}
  */
+let tightenWarned = false;
+
 export function loadSecrets() {
   /** @type {Map<string, string>} */
   const passwords = new Map();
@@ -147,11 +149,17 @@ export function loadSecrets() {
   }
 
   // Versions before the save-time mode was tightened left this file 0644, and a
-  // stable fleet may never save again, so close it here too.
+  // stable fleet may never save again, so close it here too. Only a regular
+  // file is touched: a symlink is left alone so its target's mode is never
+  // changed, and a failure is logged once rather than on every load.
   try {
-    if ((fs.statSync(SPARKS_SECRETS_PATH).mode & 0o077) !== 0) fs.chmodSync(SPARKS_SECRETS_PATH, 0o600);
-  } catch {
-    /* another user's file or a read-only mount: the next save rewrites it */
+    const st = fs.lstatSync(SPARKS_SECRETS_PATH);
+    if (st.isFile() && (st.mode & 0o077) !== 0) fs.chmodSync(SPARKS_SECRETS_PATH, 0o600);
+  } catch (err) {
+    if (!tightenWarned) {
+      tightenWarned = true;
+      console.warn(`[secretsStore] Could not make ${SPARKS_SECRETS_PATH} owner-only (${err?.message ?? err}); the next save rewrites it`);
+    }
   }
 
   try {

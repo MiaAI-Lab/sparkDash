@@ -213,6 +213,25 @@ test("the secrets file is written owner-only, also over an older world-readable 
   assert.equal(fs.statSync(file).mode & 0o777, 0o600);
 });
 
+test("loading leaves a symlinked secrets file and its target alone", async () => {
+  const { loadSecrets } = await import("../../secretsStore.js");
+  const file = process.env.SPARKS_SECRETS_PATH;
+  saveSecrets(new Map([[SPARK_ID, "synthetic-test-password"]]));
+  const target = `${file}.real`;
+  fs.renameSync(file, target);
+  fs.chmodSync(target, 0o644);
+  fs.symlinkSync(target, file);
+  try {
+    const { passwords } = loadSecrets();
+    assert.equal(passwords.get(SPARK_ID), "synthetic-test-password");
+    // The symlink is not a regular file, so the target's mode is not rewritten.
+    assert.equal(fs.statSync(target).mode & 0o777, 0o644);
+  } finally {
+    fs.unlinkSync(file);
+    fs.renameSync(target, file);
+  }
+});
+
 test("loading tightens a secrets file left world-readable by an older version", async () => {
   const { loadSecrets } = await import("../../secretsStore.js");
   const file = process.env.SPARKS_SECRETS_PATH;
