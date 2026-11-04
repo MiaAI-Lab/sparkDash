@@ -378,7 +378,7 @@ export function AppSidebar({
               aria-current={activeId === API_KEYS_ID ? "page" : undefined}
             >
               <KeyIcon className="h-4 w-4" />
-              <span className="rail-item__name">API Keys</span>
+              <span className="rail-item__name">{t("nav.apiKeys")}</span>
             </a>
           ) : null}
           <a

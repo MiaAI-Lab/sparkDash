@@ -8,7 +8,9 @@ import http from "node:http";
 /** Bridge paths this module may call. Read-only: there is no write method in this module. */
 export const KEY_ID_RE = /^[0-9a-f]{64}$/;
 export const BRIDGE_CALLS = Object.freeze(["/v1/health", "/v1/keys", "/v1/keys/:id"]);
-const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
+// Matches the reference bridge's MAX_UPSTREAM_BYTES: a reply the bridge was willing to
+// produce must not fail here as "too large".
+const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 
 /** True when `path` is one of BRIDGE_CALLS (":id" = a 64-hex hashed key id). */
 export function isBridgeCall(path) {

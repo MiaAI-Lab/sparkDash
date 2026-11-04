@@ -531,7 +531,7 @@ function DashboardApp() {
       { id: "act:harness", group: t("commands.actions"), label: t("commands.harness"), icon: <BotIcon className="h-4 w-4" />, keywords: "Set up harness sessions occupancy openclaw opencode hermes oh-my-pi wizard", run: () => { setHarnessSparkId(undefined); setShowHarness(true); } }
     );
     if (apiKeysEnabled) {
-      cmds.push({ id: "nav:apikeys", group: "Go to", label: "API Keys", hint: "Page", icon: <KeyIcon className="h-4 w-4" />, keywords: "api keys litellm virtual keys spend budget", run: () => navigate(API_KEYS_ID) });
+      cmds.push({ id: "nav:apikeys", group: t("commands.goTo"), label: t("nav.apiKeys"), hint: t("commands.page"), icon: <KeyIcon className="h-4 w-4" />, keywords: "api keys litellm virtual keys spend budget", run: () => navigate(API_KEYS_ID) });
     }
     return cmds;
   }, [displaySparks, displayActive, navigate, toggleSidebar, t, benchLabels, apiKeysEnabled]);
