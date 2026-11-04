@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { GpuDevice, GpuMetrics } from "../../api/types";
+import type { GpuDevice, GpuMetrics, MetricGap } from "../../api/types";
 import { Sparkline } from "../ui/Sparkline";
 import { Panel } from "../ui/Panel";
 import { Ring } from "../ui/Ring";
 import { Tag, type TagTone } from "../ui/Tag";
 import { ActivityIcon } from "../ui/icons";
 import { MetricBar } from "../ui/MetricBar";
+import { honestGap } from "../ui/platform";
 import { VramBreakdownBar } from "../ui/VramBreakdownBar";
 import { shortProcessName } from "../../shared/processName";
 import { useMetricsHistoryTail } from "../../hooks/metricsStore";
@@ -36,6 +37,10 @@ interface GpuPanelProps {
    */
   hideMemory?: boolean;
   className?: string;
+  /** Apple Silicon Mac: no GPU power limit is available. */
+  mac?: boolean;
+  /** Metrics this node declared unavailable (mac agent transport). */
+  unavailable?: MetricGap[] | null;
 }
 
 function celsiusToFahrenheit(c: number): number {
@@ -163,6 +168,8 @@ export function GpuPanel({
   chip,
   hideMemory = false,
   className,
+  mac = false,
+  unavailable = null,
 }: GpuPanelProps) {
   const { t: tr } = useTranslation("spark");
   const throttleLabels = {
@@ -192,7 +199,7 @@ export function GpuPanel({
   const tempUnit = temperatureUnit === "fahrenheit" ? "°F" : "°C";
   const usage = gpu?.usage ?? 0;
   const powerDraw = gpu?.power?.draw ?? 0;
-  const powerLimit = gpu?.power?.limit ?? 0;
+  const powerLimit = metrics?.powerLimit === false ? 0 : gpu?.power?.limit ?? 0;
   const systemDraw = gpu?.power?.systemDraw;
 
   const vramUsed = gpu?.vram?.used ?? 0;
@@ -202,6 +209,42 @@ export function GpuPanel({
   const vramAvailable = metrics?.vramUsed !== false && metrics?.vramTotal !== false;
   const breakdown =
     gpu && vramAvailable && vramContext ? computeVramBreakdown(gpu.vram, gpu.processes, vramContext) : null;
+
+  // On a Mac, GPU busy and power come from powermetrics, which needs root. When
+  // the node said it could not read them (a declared gap, or the older
+  // powermetricsAvailable flag), say so: 0W reads as an idle GPU, not as
+  // "not measurable here".
+  const declaredGaps = gpu?.unavailable ?? unavailable ?? [];
+  const gaps = [...declaredGaps];
+  for (const [field, metric] of [["temperature", "gpu.temperature"], ["usage", "gpu.utilization"], ["powerDraw", "gpu.power"]] as const) {
+    if (metrics?.[field] === false && !gaps.some((gap) => gap.metric === metric)) gaps.push({ metric, reason: `${metric} is unavailable in this sample` });
+  }
+  const macUnmeasured = mac && gpu?.powermetricsAvailable === false;
+  const powerView = honestGap(
+    gaps,
+    "gpu.power",
+    mac
+      ? `${powerDraw}W · system ${gpu?.power?.systemDraw ?? 0}W`
+      : `${powerDraw}W / ${powerLimit}W`,
+    { nonDgx: macUnmeasured }
+  );
+  if (powerView.muted && !powerView.title) {
+    powerView.title = "powermetrics needs root on macOS";
+  }
+  const usageView = honestGap(gaps, "gpu.utilization", `${usage}%`, {
+    nonDgx: macUnmeasured,
+  });
+
+  const hasTemperature =
+    typeof gpu?.temperature === "number" && Number.isFinite(gpu.temperature) && gpu.temperature > 0;
+  const tempValueText = temperatureAvailable ? `${displayTemp}${tempUnit}` : "—";
+  const tempView = honestGap(gaps, "gpu.temperature", tempValueText, {
+    nonDgx: !hasTemperature && (mac || gpu?.temperature == null),
+  });
+  // A node that declared the gap (or a platform without the sensor) gets the
+  // reason inline; a sample the probe merely could not read keeps the dash.
+  const tempGapExplained =
+    declaredGaps.some((gap) => gap?.metric === "gpu.temperature") || (!hasTemperature && (mac || gpu?.temperature == null));
 
   const t = gpu?.throttle;
   const thermal = t?.reason === "thermal";
@@ -239,34 +282,61 @@ export function GpuPanel({
     >
       <div className="sp-gpu-top">
         <Ring
-          value={usage}
+          value={usageView.muted ? 0 : usage}
           size={140}
           strokeWidth={11}
           color={ringColor}
-          label={metrics?.usage === false ? "—" : `${usage}%`}
+          label={
+            usageView.muted ? (
+              <span className="font-normal text-muted" title={usageView.title}>
+                —
+              </span>
+            ) : (
+              usageView.text
+            )
+          }
           caption={tr("gpu.utilization")}
           className="sp-gpu-top__ring"
         />
         <div className="sp-stat">
           <span className="eyebrow">{tr("gpu.temperature")}</span>
-          <div className="big-num">
-            {temperatureAvailable ? displayTemp : "—"}
-            {temperatureAvailable ? <small>{tempUnit}</small> : null}
+          <div className="big-num" title={tempView.title}>
+            {tempView.muted ? (
+              <span className="font-normal text-muted">
+                {tempGapExplained ? tr("gpu.unavailableReason", { reason: tempView.title }) : "—"}
+              </span>
+            ) : (
+              <>
+                {displayTemp}
+                <small>{tempUnit}</small>
+              </>
+            )}
           </div>
-          <Tag tone={temp.tone}>{temperatureLabels[temp.label]}</Tag>
+          {tempView.muted ? null : <Tag tone={temp.tone}>{temperatureLabels[temp.label]}</Tag>}
         </div>
         <div className="sp-stat">
           <span className="eyebrow">{multiGpu ? tr("gpu.allCardsPower") : tr("gpu.powerDraw")}</span>
-          <div className="big-num">
-            {metrics?.powerDraw === false ? "—" : powerDraw}
-            {metrics?.powerDraw === false ? null : <small>{metrics?.powerLimit === false ? "W" : powerLimit > 0 ? `/ ${powerLimit} W` : "W"}</small>}
+          <div className="big-num" title={powerView.title}>
+            {powerView.muted ? (
+              <span className="font-normal text-muted">—</span>
+            ) : mac ? (
+              <>
+                {powerDraw}
+                <small>W</small>
+              </>
+            ) : (
+              <>
+                {powerDraw}
+                <small>{powerLimit > 0 ? `/ ${powerLimit} W` : "W"}</small>
+              </>
+            )}
           </div>
           {systemDraw != null && systemDraw > 0 ? (
             <span className="sp-stat__sub mono">{tr("gpu.systemPower", { watts: systemDraw })}</span>
           ) : null}
         </div>
         <div className="sp-stat" title={t?.detail ?? undefined}>
-          <span className="eyebrow">{tr("gpu.smClock")}</span>
+          <span className="eyebrow">{mac ? tr("gpu.gpuClock") : tr("gpu.smClock")}</span>
           <div className="big-num">
             {clock.value}
             <small>{clock.unit}</small>
@@ -279,6 +349,14 @@ export function GpuPanel({
           ) : null}
         </div>
       </div>
+      {mac ? (
+        <div className="sp-row">
+          <span className="text-muted">Thermal pressure (last recorded)</span>
+          <span className="mono text-text" title={gpu?.thermal?.lastRecordedEvents?.join("\n")}>
+            {gpu?.thermalPressure ?? "unknown"}
+          </span>
+        </div>
+      ) : null}
 
       <GpuHistoryChart sparkId={sparkId} gpu={gpu} windowMs={windowMs} />
       {!multiGpu && (
@@ -335,7 +413,7 @@ export function GpuPanel({
           ) : vramTotal > 0 ? (
             <>
               <MetricBar
-                label={multiGpu ? tr("gpu.allCardsVram") : tr("gpu.vram")}
+                label={mac ? tr("gpu.unifiedMemoryInUse") : multiGpu ? tr("gpu.allCardsVram") : tr("gpu.vram")}
                 value={vramUsed}
                 max={vramTotal}
                 color="bg-info"
@@ -350,7 +428,7 @@ export function GpuPanel({
             </>
           ) : (
             <div className="sp-row">
-              <span className="text-muted">{tr("gpu.vram")}</span>
+              <span className="text-muted">{mac ? tr("gpu.unifiedMemoryInUse") : tr("gpu.vram")}</span>
               <span className="mono text-text">{vramUsed > 0 ? tr("gpu.usedMemory", { memory: formatMb(vramUsed) }) : "—"}</span>
             </div>
           )}

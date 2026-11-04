@@ -86,7 +86,7 @@ export function kioskFleetStats(sparks: readonly SparkSnapshot[]): KioskFleetSta
     if (!spark.online) continue;
     s.online += 1;
     const gpu = spark.metrics?.gpu;
-    if (gpu && gpu.metricAvailability?.temperature !== false && gpu.temperature > 0) {
+    if (gpu && gpu.metricAvailability?.temperature !== false && gpu.temperature != null && gpu.temperature > 0) {
       s.gpuTempMaxC = Math.max(s.gpuTempMaxC ?? -Infinity, gpu.temperature);
     }
     for (const llm of spark.metrics?.llm ?? []) {
@@ -268,10 +268,10 @@ export function kioskCard(
     offlineReason: spark.offlineReason ?? null,
     memory,
     gpuPct: gpu && availabilityOk(av?.usage) ? gpu.usage : null,
-    gpuTempC: gpu && availabilityOk(av?.temperature) && gpu.temperature > 0 ? gpu.temperature : null,
+    gpuTempC: gpu && availabilityOk(av?.temperature) && gpu.temperature != null && gpu.temperature > 0 ? gpu.temperature : null,
     gpuW: gpu && availabilityOk(av?.powerDraw) ? gpu.power.draw : null,
     cpuPct: m?.cpu ? m.cpu.usage : null,
-    cpuTempC: m?.cpu && Number.isFinite(m.cpu.temperature) && m.cpu.temperature > 0 ? m.cpu.temperature : null,
+    cpuTempC: m?.cpu && m.cpu.temperature != null && Number.isFinite(m.cpu.temperature) && m.cpu.temperature > 0 ? m.cpu.temperature : null,
     diskFreeMb: rootDisk ? rootDisk.available : null,
     rates,
     workerOf,

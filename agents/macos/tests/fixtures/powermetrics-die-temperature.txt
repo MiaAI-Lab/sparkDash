@@ -1,0 +1,8 @@
+**** SMC sensors ****
+
+CPU Thermal level: 12
+GPU Thermal level: 8
+IO Thermal level: 3
+Fan: 1800 rpm
+CPU die temperature: 46.23 C
+GPU die temperature: 42.11 C

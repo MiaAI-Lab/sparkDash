@@ -19,9 +19,9 @@
  */
 import dns from "node:dns/promises";
 import WebSocket from "ws";
-import { channelHost, pinnedLookup } from "../../alerts/outbound.js";
+import { channelHost } from "../../alerts/outbound.js";
 import { fetchPinned } from "../../occupancy/pinnedFetch.js";
-import { assertAllowedTarget, isAllowedTargetHost } from "../../validate.js";
+import { assertAllowedTarget, isAllowedTargetHost, pinnedLookup } from "../../validate.js";
 import { PowerMeterProvider } from "./PowerMeterProvider.js";
 
 const ENTITY_PATTERN = /^[a-z0-9_]+\.[a-z0-9_]+$/;

@@ -134,6 +134,21 @@ export async function assertAllowedTarget(host, allowedHosts, { lookup = dns.loo
 }
 
 /**
+ * A connection lookup that returns only addresses already checked by the
+ * outbound-target policy, without asking DNS a second time.
+ * @param {string[]} addresses
+ */
+export function pinnedLookup(addresses) {
+  const entries = addresses.map((address) => ({ address, family: net.isIP(address) || 4 }));
+  return (_hostname, options, callback) => {
+    const cb = typeof options === "function" ? options : callback;
+    const all = typeof options === "object" && options?.all;
+    if (all) cb(null, entries);
+    else cb(null, entries[0].address, entries[0].family);
+  };
+}
+
+/**
  * Classify a probe target for security-posture hints.
  * Uses the configured host only — not the process bind address.
  * Hostnames (except localhost) are "unknown" (no DNS lookup).
@@ -222,6 +237,39 @@ export function validateSparkTarget(body) {
   const llmHost = typeof body?.llmHost === "string" ? body.llmHost.trim() : body?.llmHost;
   if (llmHost != null && llmHost !== "" && !isAllowedTargetHost(llmHost)) {
     return `Invalid or disallowed llmHost: ${llmHost}`;
+  }
+  // Validate the optional Mac agent target where it is saved. A value that is
+  // stored but rejected by the collector constructor throws during startup.
+  const agentUrl = typeof body?.agent?.url === "string" ? body.agent.url.trim() : "";
+  if (agentUrl) {
+    try {
+      const parsed = new URL(agentUrl);
+      if (
+        !["http:", "https:"].includes(parsed.protocol) ||
+        parsed.username ||
+        parsed.password ||
+        parsed.search ||
+        parsed.hash ||
+        parsed.pathname !== "/" ||
+        !isAllowedTargetHost(parsed.hostname.replace(/^\[|\]$/g, ""))
+      ) {
+        return "Invalid Mac agent URL: use an HTTP(S) base URL without credentials, query or path and an allowed host";
+      }
+    } catch {
+      return "Invalid Mac agent URL";
+    }
+  }
+  if (body?.agent?.host != null && body.agent.host !== "" && !isAllowedTargetHost(String(body.agent.host))) {
+    return `Invalid or disallowed Mac agent host: ${body.agent.host}`;
+  }
+  if (body?.agent && Object.prototype.hasOwnProperty.call(body.agent, "port")) {
+    const raw = body.agent.port;
+    if (raw != null && raw !== "") {
+      const port = Number.parseInt(String(raw), 10);
+      if (!Number.isInteger(port) || port < 1 || port > 65535) {
+        return "Mac agent port must be an integer from 1 to 65535";
+      }
+    }
   }
   const lanIp = body?.lanIp || "";
   const sshHost = body?.ssh?.host || "";

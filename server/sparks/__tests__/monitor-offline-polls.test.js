@@ -35,6 +35,16 @@ function spark(overrides = {}) {
   };
 }
 
+test("snapshot carries configured Mac transport even while the agent is offline", () => {
+  const monitor = new SparkMonitor(spark({ kind: "mac", agent: { port: 8791 } }));
+  assert.equal(monitor.online, false);
+  assert.equal(monitor.snapshot().macTransport, "agent");
+  const sshMac = new SparkMonitor(spark({ kind: "mac" }));
+  assert.equal(sshMac.snapshot().macTransport, "ssh");
+  const host = new SparkMonitor(spark());
+  assert.equal(host.snapshot().macTransport, undefined);
+});
+
 /** Monitor whose collector calls are counted rather than executed. */
 function countingMonitor(overrides) {
   const monitor = new SparkMonitor(spark(overrides));
