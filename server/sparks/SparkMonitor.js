@@ -123,6 +123,13 @@ export class SparkMonitor {
    *   llmProbeOptions: per-probe options for every LlmProbe this monitor builds
    *   (e.g. the opt-in stream-sample callbacks); evaluated at construction time.
    */
+  _createLlmProbe(spark, port) {
+    return new LlmProbe(spark, port, {
+      ...this._llmProbeOptions?.(),
+      readNativeSharedPool: (targetPort) => this.collector.probeNativeTensorFoldCapacity?.(targetPort),
+    });
+  }
+
   constructor(spark, options = {}) {
     this.spark = spark;
     this._onWolMac = typeof options.onWolMac === "function" ? options.onWolMac : null;
@@ -158,7 +165,7 @@ export class SparkMonitor {
     this.llmProbes = new Map();
     if (this._llmMonitoringEnabled(spark)) {
       for (const port of this._llmPorts()) {
-        this.llmProbes.set(port, new LlmProbe(spark, port, this._llmProbeOptions ? this._llmProbeOptions() : undefined));
+        this.llmProbes.set(port, this._createLlmProbe(spark, port));
       }
     }
 
@@ -308,9 +315,10 @@ export class SparkMonitor {
       const existing = prevProbes.get(port);
       if (existing) {
         existing.spark = spark;
+        existing.setPort(port);
         this.llmProbes.set(port, existing);
       } else {
-        this.llmProbes.set(port, new LlmProbe(spark, port, this._llmProbeOptions ? this._llmProbeOptions() : undefined));
+        this.llmProbes.set(port, this._createLlmProbe(spark, port));
       }
     }
     for (const [port, probe] of prevProbes) {

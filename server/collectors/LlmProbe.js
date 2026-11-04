@@ -9,6 +9,7 @@ import { classifyHostScope } from "../validate.js";
 import { llmProbeHost } from "./llmHost.js";
 import { openSshLlmTunnel } from "./llmTunnel.js";
 import { applyThinkingFlags } from "./LlmStreaming.js";
+import { parseNativeTensorFoldCapacity } from "./tensorfoldCapacity.js";
 
 const FAIL_RESET_THRESHOLD = 3;
 /** Direct failures in a row before the probe tries an SSH tunnel to the unit's loopback. */
@@ -148,6 +149,9 @@ export class LlmProbe {
     this._streamSampleNow = typeof options.now === "function" ? options.now : Date.now;
     this._streamSampleLastAt = 0;
     this._streamSampleBusy = false;
+    this._nativeCapacityRequest = 0;
+    this._readNativeSharedPool = typeof options.readNativeSharedPool === "function"
+      ? options.readNativeSharedPool : null;
     /** The unit's own address; baseUrl switches to a local forward when only SSH reaches the engine. */
     this._directBase = `http://${llmProbeHost(spark)}:${port}`;
     this.baseUrl = this._directBase;
@@ -444,6 +448,7 @@ export class LlmProbe {
     this.decodeActive = false;
     this.generationTpsSource = null;
     this.prefillActive = false;
+    if (this.backendType === "tensorfold") this._clearKvPool();
     if (this.backendType === "strata") this._clearStrataRates();
     try {
       const shouldDetect =
@@ -1138,14 +1143,22 @@ export class LlmProbe {
       // queue-only scrape must not leave an earlier position looking current.
       this.prefillProgressTokens = null;
       this.generationProgressTokens = null;
+      const spark = this.spark;
+      const target = this._tensorFoldCapacityTarget();
+      const current = () => this.backendType === "tensorfold" && this.spark === spark &&
+        this._tensorFoldCapacityTarget() === target;
       try {
         const healthRes = await this._fetch(`${this.baseUrl}/health`);
+        if (!current()) return this._getSnapshot();
         if (healthRes.ok) {
           const health = await healthRes.json().catch(() => null);
+          if (!current()) return this._getSnapshot();
           this.prefillTpsSource = null;
           this._applyTensorFoldHealth(health, dtSec);
           this._applyTensorFoldCache(health?.live?.cache);
           this._applyTensorFoldLive(health);
+          await this._refreshNativeSharedPool(health);
+          if (!current()) return this._getSnapshot();
           // TensorFold's open /health names the release when the build carries one
           // (zig/src/server/identity.zig; status_routes.zig's openHealth). Older builds
           // omit the field, so it stays null rather than being inferred from a model name.
@@ -1169,7 +1182,7 @@ export class LlmProbe {
           this._applyTensorFoldHealth(null, dtSec);
         }
       } catch {
-        this._applyTensorFoldHealth(null, dtSec);
+        if (current()) this._applyTensorFoldHealth(null, dtSec);
       }
       return this._getSnapshot();
     }
@@ -2240,12 +2253,7 @@ export class LlmProbe {
     this.slotsActive = this.requestsRunning;
     // 0.6.0 CUDA sizes its KV pool in tokens: `pool_tokens` in all,
     // `pool_free_tokens` not held by a request (kept prompts count as held).
-    const pool = count(health.pool_tokens);
-    const poolFree = count(health.pool_free_tokens);
-    if (Number.isFinite(pool) && pool > 0 && Number.isFinite(poolFree) && poolFree >= 0) {
-      const used = 1 - Math.min(poolFree, pool) / pool;
-      this.kvCacheUsage = Math.round(used * 10000) / 10000;
-    }
+    this._applyTensorFoldPool(health);
     if (!Number.isFinite(prefillSec) || !Number.isFinite(prompt)) return;
     if (prevPrefillSec == null) {
       this._tensorfoldPrefillSeconds = prefillSec;
@@ -2273,6 +2281,116 @@ export class LlmProbe {
       this.prefillTps = 0;
     }
     this._tensorfoldPrefillSeconds = prefillSec;
+  }
+
+  _tensorFoldCapacityTarget() {
+    return JSON.stringify([this.port, this.baseUrl, this.spark?.id, this.spark?.isLocal,
+      this.spark?.platform, this.spark?.lanIp, this.spark?.llmHost,
+      this.spark?.ssh?.host, this.spark?.ssh?.user, this.spark?.ssh?.port]);
+  }
+
+  _tensorFoldHealthReady(health) {
+    return health && typeof health === "object" && !Array.isArray(health) &&
+      (health.status == null || health.status === "ok") &&
+      (health.ok == null || health.ok === true) &&
+      (health.status === "ok" || health.ok === true) && health.warming !== true;
+  }
+
+  /** Explicit health metadata takes precedence over process inference. */
+  _tensorFoldHealthCapacity(health) {
+    if (!this._tensorFoldHealthReady(health)) return null;
+    const integer = (value) => {
+      if (typeof value !== "number" && (typeof value !== "string" || !value.trim())) return null;
+      const number = Number(value);
+      return Number.isSafeInteger(number) && number >= 0 ? number : null;
+    };
+    const legacyPool = integer(health.pool_tokens);
+    const cache = health.live?.cache;
+    const hasCache = cache?.schema_version === 1 && cache.consistent === true;
+    const pool = hasCache ? cache.pool : null;
+    const capacity = integer(pool?.capacity_positions);
+    const spans = [pool?.active_reserved_positions, pool?.retained_prefix_positions,
+      pool?.retained_growth_positions, pool?.unclaimed_positions].map(integer);
+    const cachePool = capacity > 0 && spans.every((span) => span != null) &&
+      spans.reduce((sum, span) => sum + span, 0) === capacity ? capacity : null;
+    // The cache group's unclaimed positions and the legacy free count have different meanings.
+    const capacityTokens = legacyPool > 0 ? legacyPool : cachePool;
+    const free = legacyPool > 0 ? integer(health.pool_free_tokens) : null;
+    const samePool = cachePool != null && cachePool === capacityTokens;
+    const contextTokens = samePool ? integer(cache.context_limit_positions) : null;
+    if (capacityTokens == null) return null;
+    return { capacityTokens, contextTokens: contextTokens > 0 ? contextTokens : null,
+      availableTokens: free != null && free <= capacityTokens ? free : null,
+      source: legacyPool > 0 ? "tensorfold-health-pool" : "tensorfold-health-cache",
+      observedAt: Date.now() };
+  }
+
+  _applyTensorFoldCapacity(observation) {
+    if (!observation) return;
+    this.kvCacheTokens = observation.capacityTokens;
+    this._nativeContextTokens = observation.contextTokens;
+    this.kvCacheTokensSource = observation.capacityTokens == null ? null : observation.source;
+    this.kvCacheTokensObservedAt = observation.capacityTokens == null ? null : observation.observedAt;
+    this.kvCacheTokensAvailable = observation.availableTokens;
+    if (observation.availableTokens != null) {
+      this.kvCacheUsage = Math.round((1 - observation.availableTokens / observation.capacityTokens) * 10000) / 10000;
+    }
+  }
+
+  _applyTensorFoldPool(health) {
+    this._clearKvPool();
+    this._applyTensorFoldCapacity(this._tensorFoldHealthCapacity(health));
+  }
+
+  async _resolveTensorFoldCapacity(health, direct) {
+    if (direct?.contextTokens != null || !this._readNativeSharedPool ||
+        String(this.spark?.llmHost || "").trim() || !this._tensorFoldHealthReady(health) ||
+        health.status !== "ok" || health.warming !== false ||
+        (!direct && (Object.hasOwn(health, "pool_tokens") || health.live?.cache != null))) return direct;
+    let observation;
+    try {
+      observation = parseNativeTensorFoldCapacity(await this._readNativeSharedPool(this.port));
+    } catch {
+      return direct;
+    }
+    if (direct) {
+      return observation?.poolTokens === direct.capacityTokens
+        ? { ...direct, contextTokens: observation.capacityTokens } : direct;
+    }
+    // Launch arguments can establish context; a recipe may size its pool independently.
+    if (!observation || observation.poolTokens != null) return null;
+    return { capacityTokens: null, contextTokens: observation.capacityTokens,
+      availableTokens: null, source: observation.source, observedAt: observation.observedAt };
+  }
+
+  async _refreshNativeSharedPool(health) {
+    const target = this._tensorFoldCapacityTarget();
+    const spark = this.spark;
+    const request = ++this._nativeCapacityRequest;
+    const direct = this._tensorFoldHealthCapacity(health);
+    const observation = await this._resolveTensorFoldCapacity(health, direct);
+    if (request === this._nativeCapacityRequest && this.spark === spark &&
+        this._tensorFoldCapacityTarget() === target) this._applyTensorFoldCapacity(observation);
+  }
+
+  /** Read current capacity for admission consumers without changing the poll snapshot. */
+  async getSharedPoolCapacity() {
+    if (this.backendType !== "tensorfold" || this.authOpen === false) return null;
+    const target = this._tensorFoldCapacityTarget();
+    const spark = this.spark;
+    const auth = this.authOpen;
+    const current = () => this.backendType === "tensorfold" && this.authOpen === auth &&
+      this.spark === spark && this._tensorFoldCapacityTarget() === target;
+    try {
+      const response = await this._fetch(`${this.baseUrl}/health`);
+      if (!response.ok || !current()) return null;
+      const health = await response.json();
+      if (!current()) return null;
+      const observation = await this._resolveTensorFoldCapacity(health, this._tensorFoldHealthCapacity(health));
+      return current() && observation?.capacityTokens != null ? observation : null;
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -3868,6 +3986,10 @@ export class LlmProbe {
     this.kvCacheTokens = null;
     this.kvCacheTokensAvailable = null;
     this.kvCacheMemoryBytes = null;
+    this.kvCacheTokensSource = null;
+    this.kvCacheTokensObservedAt = null;
+    this._nativeContextTokens = null;
+    this._nativeCapacityRequest = (this._nativeCapacityRequest || 0) + 1;
   }
 
   /**
@@ -4089,7 +4211,9 @@ export class LlmProbe {
       models: metricsLive ? [...this.models] : [],
       // Strata advertises aliases for one loaded engine, sharing its native
       // context limit. Genuine multi-model routers still have no shared limit.
-      contextLength: this.models.length > 1 && this.backendType !== "strata" ? null : this.contextLength,
+      contextLength: metricsLive && this._nativeContextTokens != null
+        ? this._nativeContextTokens
+        : this.models.length > 1 && this.backendType !== "strata" ? null : this.contextLength,
       gpuMemoryUtilization: this.gpuMemoryUtilization,
       slotsActive: this.slotsActive,
       slotsTotal: this.slotsTotal,
@@ -4113,6 +4237,8 @@ export class LlmProbe {
       cacheHistograms: this.cacheHistograms,
       kvCacheTokens: this.kvCacheTokens,
       kvCacheTokensAvailable: this.kvCacheTokensAvailable,
+      kvCacheTokensSource: this.kvCacheTokensSource ?? null,
+      kvCacheTokensObservedAt: this.kvCacheTokensObservedAt ?? null,
       kvCacheMemoryBytes: this.kvCacheMemoryBytes,
       kvCacheGb: this.kvCacheGb,
       weightsGb: this.weightsGb,
@@ -4165,6 +4291,8 @@ export class LlmProbe {
       cacheHistograms: null,
       kvCacheTokens: null,
       kvCacheTokensAvailable: null,
+      kvCacheTokensSource: null,
+      kvCacheTokensObservedAt: null,
       kvCacheMemoryBytes: null,
       kvCacheGb: null,
       weightsGb: null,
