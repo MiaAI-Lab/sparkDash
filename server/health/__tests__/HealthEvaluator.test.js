@@ -157,6 +157,26 @@ test("low-power finding describes the observation and recommends checking progre
   assert.doesNotMatch(finding.hint, /reset|reboot/);
 });
 
+// An integrated GPU draws about as much at idle as it does while stalled in a
+// collective, so a ceiling written for discrete cards flags ordinary decode.
+test("low-power: a stall at well-above-idle draw does not fire", () => {
+  const h = new HealthEvaluator();
+  // GB10 measured: ~10 W idle, ~14 W stalled in an all-gather, 34-55 W decoding.
+  for (let i = 0; i < LOW_POWER_STREAK * 4; i++) {
+    assert.deepEqual(h.evaluate({ gpu: { usage: 96, power: { draw: 14.1 } } }, "gpu"), []);
+  }
+  for (let i = 0; i < LOW_POWER_STREAK * 4; i++) {
+    assert.deepEqual(h.evaluate({ gpu: { usage: 96, power: { draw: 45 } } }, "gpu"), []);
+  }
+});
+
+test("low-power: busy at idle-level draw still fires after the streak", () => {
+  const h = new HealthEvaluator();
+  const idleBusy = { gpu: { usage: 96, power: { draw: 10.3 } } };
+  for (let i = 0; i < LOW_POWER_STREAK - 1; i++) assert.deepEqual(h.evaluate(idleBusy, "gpu"), []);
+  assert.deepEqual(ids(h.evaluate(idleBusy, "gpu")), ["low-power"]);
+});
+
 test("thermal: configured thresholds move the finding and its text, and apply without a new evaluator", () => {
   let t = { warnC: 78, criticalC: 88 };
   const h = new HealthEvaluator({ thresholds: () => t });
