@@ -85,7 +85,8 @@ function advance(entry, { add = {}, obsMs = 60_000, ...rest } = {}) {
   next.cache.promptState.hitsTotal = entry.cache.promptState.hitsTotal + (add.hits ?? 0);
   const bumpHist = (hist, by) => ({
     ...hist,
-    counts: hist.counts.map((c) => c + by),
+    // Put the added observations above the largest finite edge: only +Inf grows.
+    counts: hist.counts.map((c, i) => c + (i === hist.counts.length - 1 ? by : 0)),
   });
   next.cacheHistograms = {
     ttft: bumpHist(entry.cacheHistograms.ttft, add.completions ?? 0),
@@ -104,6 +105,25 @@ test("quantileFromCounts interpolates within a finite bucket and marks the +Inf 
   assert.equal(open.open, true);
   assert.equal(open.lowerBound, 5);
   assert.equal(quantileFromCounts([0, 0, 0], [1, 5, Infinity]), null);
+});
+
+test("history quantiles convert cumulative bucket deltas before interpolation", () => {
+  const s = store();
+  const first = endpoint();
+  const edges = [0.1, 1, 2.5, 5, 300, Infinity];
+  first.cacheHistograms = {
+    ttft: { edges, counts: [0, 0, 0, 0, 0, 0] },
+    latency: { edges, counts: [0, 0, 0, 0, 0, 0] },
+  };
+  s.record(snapshot(first), T0);
+  const next = structuredClone(first);
+  next.cache.observedAt += 60_000;
+  next.cacheHistograms.ttft.counts = [0, 5, 10, 10, 10, 10];
+  next.cacheHistograms.latency.counts = [0, 5, 10, 10, 10, 10];
+  s.record(snapshot(next), T0 + 60_000);
+  const last = s.query("spark-1", "1h", T0 + 120_000).endpoints[0].points.at(-1);
+  assert.equal(last.ttftP95.value, 2.35);
+  assert.equal(last.latencyP95.value, 2.35);
 });
 
 test("one observation is consumed once; a repeat adds nothing", () => {

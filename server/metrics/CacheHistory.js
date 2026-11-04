@@ -509,8 +509,9 @@ export class CacheHistory {
       if (Object.keys(point.churn).length === 0) delete point.churn;
     }
     if (m.h && m.h.ttft.length) {
-      const ttft = quantileFromCounts(m.h.ttft, m.h.edges?.ttft ?? []);
-      const latency = quantileFromCounts(m.h.latency, m.h.edges?.latency ?? []);
+      // Prometheus deltas remain cumulative across bounds; interpolation needs exclusive bins.
+      const ttft = quantileFromCounts(m.h.ttft.map((c, i, a) => c - (a[i - 1] ?? 0)), m.h.edges?.ttft ?? []);
+      const latency = quantileFromCounts(m.h.latency.map((c, i, a) => c - (a[i - 1] ?? 0)), m.h.edges?.latency ?? []);
       if (ttft) point.ttftP95 = ttft;
       if (latency) point.latencyP95 = latency;
     }
