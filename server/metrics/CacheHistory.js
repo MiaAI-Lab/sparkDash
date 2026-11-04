@@ -288,8 +288,9 @@ export class CacheHistory {
         state.edges != null &&
         state.edges.ttft.length === edges.ttft.length &&
         state.edges.latency.length === edges.latency.length &&
-        state.edges.ttft.every((e, i) => e === edges.ttft[i]) &&
-        state.edges.latency.every((e, i) => e === edges.latency[i]);
+        // JSON encodes the persisted +Inf boundary as null; it is not a new edge.
+        state.edges.ttft.every((e, i) => (e ?? Infinity) === edges.ttft[i]) &&
+        state.edges.latency.every((e, i) => (e ?? Infinity) === edges.latency[i]);
       if (!sameEdges) {
         if (state.edges != null) this._event(unitId, port, atMs, "histogram_edges_changed", null);
         state.histograms = null;

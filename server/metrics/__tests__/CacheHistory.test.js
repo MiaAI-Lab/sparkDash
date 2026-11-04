@@ -194,6 +194,32 @@ test("window p95 comes from summed histogram deltas, with a completion count", (
   assert.equal(last.ttftP95.open, true);
 });
 
+test("a JSON-round-tripped infinite edge preserves the first histogram delta, not a false change", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cachehistory-edge-"));
+  let b;
+  try {
+    const file = join(dir, "cache-history.json");
+    const first = endpoint();
+    const a = new CacheHistory({ file, now: () => T0 });
+    a.record(snapshot(first), T0);
+    assert.equal(a.save(), true);
+    b = new CacheHistory({ file, now: () => T0 + 120_000 });
+    b.start();
+    const next = advance(first, { add: { completions: 4 } });
+    b.record(snapshot(next), T0 + 60_000);
+    const out = b.query("spark-1", "1h", T0 + 120_000);
+    assert.ok(out.endpoints[0].points.at(-1).ttftP95);
+    assert.ok(!out.events.some((e) => e.kind === "histogram_edges_changed"));
+    const changed = advance(next, { add: { completions: 1 } });
+    changed.cacheHistograms.ttft.edges = [1, 6, Infinity];
+    b.record(snapshot(changed), T0 + 120_000);
+    assert.ok(b.query("spark-1", "1h", T0 + 180_000).events.some((e) => e.kind === "histogram_edges_changed"));
+  } finally {
+    b?.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("the sidecar round-trips through JSON and stays bounded", () => {
   const dir = mkdtempSync(join(tmpdir(), "cachehistory-"));
   try {
