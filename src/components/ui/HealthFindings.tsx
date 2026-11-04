@@ -3,6 +3,7 @@ import type { TFunction } from "i18next";
 import { Tag } from "./Tag";
 import { AlertTriangleIcon } from "./icons";
 import { useTranslation } from "react-i18next";
+import { useServerMessage } from "../../i18n/serverMessages";
 
 const RANK = { critical: 0, warn: 1 } as const;
 const THERMAL_WARNING = "GPU is running hot";
@@ -11,7 +12,7 @@ const THERMAL_HINT = "Check airflow and the room temperature, and that nothing b
 const THERMAL_DETAIL = /^(-?\d+)°C \(warns at (\d+(?:\.\d+)?)°C, critical at (\d+(?:\.\d+)?)°C\)\.$/;
 
 /** Localize the HealthEvaluator thermal template while retaining custom diagnostics. */
-function findingText(finding: HealthFinding, t: TFunction<"overview">) {
+function legacyFindingText(finding: HealthFinding, t: TFunction<"overview">) {
   const { id, severity, title, detail, hint } = finding;
   const critical = severity === "critical";
   if (id !== "thermal" || title !== (critical ? THERMAL_CRITICAL : THERMAL_WARNING)) {
@@ -24,6 +25,15 @@ function findingText(finding: HealthFinding, t: TFunction<"overview">) {
       ? t("health.thermal.detail", { current: temperatures[1], warning: temperatures[2], critical: temperatures[3] })
       : detail,
     hint: hint === THERMAL_HINT ? t("health.thermal.hint") : hint,
+  };
+}
+
+function findingText(finding: HealthFinding, t: TFunction<"overview">, render: ReturnType<typeof useServerMessage>) {
+  const { title, detail, hint } = legacyFindingText(finding, t);
+  return {
+    title: render(finding.i18n?.title, title),
+    detail: render(finding.i18n?.detail, detail),
+    hint: render(finding.i18n?.hint, hint),
   };
 }
 
@@ -43,6 +53,7 @@ export function worstSeverity(list: readonly HealthFinding[] | undefined): Healt
 /** Alert strip for an Overview card: icon + title per finding, details in the tooltip. */
 export function HealthChips({ findings }: { findings: readonly HealthFinding[] | undefined }) {
   const { t } = useTranslation("overview");
+  const render = useServerMessage(t);
   const list = sortFindings(findings);
   if (list.length === 0) return null;
   const shown = list.slice(0, 2);
@@ -50,7 +61,7 @@ export function HealthChips({ findings }: { findings: readonly HealthFinding[] |
   return (
     <div className="health-strip" role="status" aria-label={t("health.findings")}>
       {shown.map((f) => {
-        const { title, detail, hint } = findingText(f, t);
+        const { title, detail, hint } = findingText(f, t, render);
         return (
           <div key={f.id} className={`health-row health-row--${f.severity}`} title={`${detail} ${hint}`}>
             <AlertTriangleIcon className="health-row__icon" />
@@ -59,7 +70,7 @@ export function HealthChips({ findings }: { findings: readonly HealthFinding[] |
         );
       })}
       {more > 0 ? (
-        <div className="health-more" title={list.slice(2).map((f) => findingText(f, t).title).join("\n")}>
+        <div className="health-more" title={list.slice(2).map((f) => findingText(f, t, render).title).join("\n")}>
           {t("health.more", { count: more })}
         </div>
       ) : null}
@@ -70,12 +81,13 @@ export function HealthChips({ findings }: { findings: readonly HealthFinding[] |
 /** Full list for the Spark page: what is wrong, the evidence, and what to try. */
 export function HealthList({ findings }: { findings: readonly HealthFinding[] | undefined }) {
   const { t } = useTranslation("overview");
+  const render = useServerMessage(t);
   const list = sortFindings(findings);
   if (list.length === 0) return null;
   return (
     <section className="health-list" aria-label={t("health.findings")}>
       {list.map((f) => {
-        const { title, detail, hint } = findingText(f, t);
+        const { title, detail, hint } = findingText(f, t, render);
         const critical = f.severity === "critical";
         return (
           <div key={f.id} className={`health-item health-item--${f.severity}`}>

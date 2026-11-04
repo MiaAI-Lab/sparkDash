@@ -6,6 +6,7 @@ import type {
   AlertsResponse,
   ActivityEvent,
   ActivityEventsPage,
+  ApiError as ApiErrorBody,
   GpuClockPersistKind,
   EnergyHistory,
   MonthlyEnergy,
@@ -78,12 +79,14 @@ export class ApiError extends Error {
   readonly code: string | undefined;
   /** Set by delete routes when part of the work was done before the failure. */
   readonly partial: boolean;
-  constructor(message: string, status: number, code?: string, partial = false) {
+  readonly i18n?: ApiErrorBody["i18n"];
+  constructor(message: string, status: number, code?: string, partial = false, i18n?: ApiErrorBody["i18n"]) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
     this.partial = partial;
+    this.i18n = i18n;
   }
 }
 
@@ -101,12 +104,13 @@ export async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> 
   if (!res.ok) {
     // The server wants a token we do not have (or ours is stale): ask for one.
     if (res.status === 401) reportAuthRequired();
-    const body = await res.json().catch(() => ({ error: res.statusText }));
+    const body = await res.json().catch(() => ({ error: res.statusText })) as Partial<ApiErrorBody> | null;
     throw new ApiError(
-      body.error || `HTTP ${res.status}`,
+      body?.error || `HTTP ${res.status}`,
       res.status,
-      typeof body.code === "string" ? body.code : undefined,
-      body.partial === true
+      typeof body?.code === "string" ? body.code : undefined,
+      body?.partial === true,
+      body?.i18n,
     );
   }
   return res.json();
@@ -644,6 +648,7 @@ export function checkHermes(id: string): Promise<{ success: boolean }> {
 export interface PowerResult {
   success: boolean;
   message?: string;
+  i18n?: ApiErrorBody["i18n"];
   output?: string;
   mac?: string;
   broadcast?: string;
