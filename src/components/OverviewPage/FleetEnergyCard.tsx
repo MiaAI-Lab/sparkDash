@@ -67,7 +67,9 @@ export function FleetEnergyCard({
   const stale = (view?.staleNodeIds ?? []).map((id) => nodeNames?.[id] ?? id);
   const partialHelp =
     data && !data.membershipChanged && freshCount < nodeCount
-      ? t(wall ? "energy.partialHelpWall" : "energy.partialHelp", { stale: stale.length ? t("energy.noFreshReading", { nodes: stale.join(", ") }) : "" })
+      ? wall
+        ? t("energy.partialHelpWall", { stale: stale.length ? t("energy.noFreshReading", { nodes: stale.join(", ") }) : "" })
+        : t("energy.partialHelp", { stale: stale.length ? t("energy.noFreshReading", { nodes: stale.join(", ") }) : "" })
       : null;
   const state = error
     ? t("energy.unavailable", { error })
@@ -116,7 +118,7 @@ export function FleetEnergyCard({
             : t("energy.estimatedCoverage", { coverage: coverage.toFixed(1) })}
         </div>
       </div>
-      <div className="ov-bars" aria-label={t(wall ? "energy.hourlyWallWattsAria" : "energy.hourlyWattsAria")}>
+      <div className="ov-bars" aria-label={wall ? t("energy.hourlyWallWattsAria") : t("energy.hourlyWattsAria")}>
         {hourly.map((watts, index) => (
           <span
             key={index}
