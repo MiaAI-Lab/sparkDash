@@ -216,7 +216,7 @@ export class HomeAssistantProvider extends PowerMeterProvider {
     if (typeof token !== "string" || token.trim() === "") {
       throw new Error(`environment variable ${TOKEN_ENV} is not set`);
     }
-    this.#token = token;
+    this.#token = token.trim();
     this.#base = String(spec.url).replace(/\/+$/, "");
     this.#host = channelHost(new URL(this.#base));
     this.#wsUrl = `${this.#base.replace(/^http/, "ws")}/api/websocket`;

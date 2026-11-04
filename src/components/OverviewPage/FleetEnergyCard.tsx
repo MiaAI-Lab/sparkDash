@@ -3,7 +3,7 @@ import { AppLink } from "../ui/AppLink";
 import { ENERGY_ID, idToPath } from "../../constants";
 import { useEffect, useState } from "react";
 import { fetchFleetEnergy } from "../../api/client";
-import type { FleetEnergy } from "../../api/types";
+import type { FleetEnergy, FleetWallEnergy } from "../../api/types";
 
 const DAY_MS = 86_400_000;
 
@@ -43,6 +43,15 @@ export function FleetEnergyCard({
   }, []);
 
   // With power meters configured the card shows wall power (gaps filled from the estimate).
+  // The share filled from the estimate is said out loud, so a meter outage is not read as measured.
+  const wallLabel = (w: FleetWallEnergy) => {
+    const total = w.energy24hKwh;
+    const filled = w.filledEnergy24hKwh;
+    if (total != null && total > 0 && filled != null && filled > 0) {
+      return `Wall-metered, ${Math.min(100, Math.round((filled / total) * 100))}% filled from estimate`;
+    }
+    return w.currentFilled ? "Wall-metered, now filled from estimate" : "Wall-metered";
+  };
   const wall = data?.wall ?? null;
   const view = wall ?? data;
   // Fleet coverage is wall-clock time during which every node was fresh, so
@@ -103,7 +112,7 @@ export function FleetEnergyCard({
         <div className="big-num">{number(view?.energy24hKwh ?? null)}<small>kWh / 24 h</small></div>
         <div className="ov-card__sub mono">
           {wall
-            ? `Wall-metered · 24h coverage ${coverage.toFixed(1)}%`
+            ? `${wallLabel(wall)} · 24h coverage ${coverage.toFixed(1)}%`
             : `Estimated, not wall-metered · 24h coverage ${coverage.toFixed(1)}%`}
         </div>
       </div>

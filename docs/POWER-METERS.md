@@ -57,7 +57,7 @@ Create `config/power-meters.json`, or point `POWER_METERS_CONFIG_PATH` at the fi
 | `units.<unitId>.channel` | The provider's name for that outlet's power reading (for Home Assistant, a power sensor's entity id). |
 | `units.<unitId>.since` | Optional ISO time the unit was plugged into that outlet. Meter history from before it is ignored, so readings from whatever used the outlet earlier are not counted. |
 | `pollIntervalMs` | How often each meter is read, default `10000` (5–300 s). The tracker's 2 s energy sampler only uses the last reading; it never contacts the meter. |
-| `staleAfterMs` | A reading older than this (by the meter's own timestamp) is not used; default `max(30 s, 3 × poll)`. |
+| `staleAfterMs` | A reading older than this (by the meter's own timestamp) is not used; default `max(30 s, 3 × poll)`. Plugs that report only on change (many Zigbee and Z-Wave meters report every 1–5 minutes) need a larger value, up to 900 s; the symptom of a value that is too small is a meter that flaps between "stopped reading" and "recovered" while nothing is recorded. |
 | `history.enabled` | Read the meters' own history, default `true`. |
 | `history.backfillDays` | How far back the first start backfills, default `400`. |
 | `enabled` | `false` switches the feature off without deleting the file. |
@@ -116,7 +116,8 @@ meter's record is counted on exactly one side of it:
   minutes. An import mark per unit stops an hour from being imported twice. The hours inside
   the 31-day window are also kept as they are (`wallHours` in `fleet-energy.json`, at most 744
   per unit) for the Energy page's views to read. They are only shown: Monthly already has
-  them, and nothing folds them.
+  them, and nothing folds them. Months before the boundary carry per-unit wall totals, but
+  fleet figures (and so Wh per token) only when every configured unit was imported together.
 - *From the boundary on*, wall power lives in minutes: the first pass loads the last day from
   the meter's 5-minute statistics (the same step every later pass repeats over its 6-hour
   lookback), then live readings and the passes above take over. Monthly folds these minutes.

@@ -281,7 +281,8 @@ describe("Overview energy card with wall power", () => {
     const { container } = render(<FleetEnergyCard nodeCount={2} />);
     await settle();
     expect(container.textContent).toContain("2.90kWh / 24 h");
-    expect(container.textContent).toContain("Wall-metered · 24h coverage 100.0%");
+    // 1.3 of 2.9 kWh came from estimate × ratio, and the card says so.
+    expect(container.textContent).toContain("Wall-metered, 45% filled from estimate · 24h coverage 100.0%");
     expect(container.textContent).not.toContain("1.90");
     expect(container.textContent).toContain("111 W");
     expect(container.textContent).toContain("2/2 fresh");
