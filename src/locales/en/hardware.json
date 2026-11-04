@@ -322,5 +322,9 @@
   "hermes.ahead": "These commits are ahead of release v{{version}}",
   "hermes.unreleased": "No tagged release covers these commits — updating pulls only these changes on top of v{{version}}; the full release changelog doesn’t apply here.",
   "hermes.yourInstall": "your install",
-  "hermes.command": "Runs hermes update on {{name}} via SSH."
+  "hermes.command": "Runs hermes update on {{name}} via SSH.",
+  "launcher.discover.ollamaHint": "Ollama keeps its weights in the engine — enter the directory whose start.sh serves this model.",
+  "launcher.discover.scanning": "Scanning…",
+  "launcher.discover.button": "Discover on this Spark",
+  "launcher.discover.failed": "Discovery failed: {{error}}"
 }

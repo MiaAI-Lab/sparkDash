@@ -157,6 +157,23 @@ test("hardening: the templates are exactly the fixed commands from the spec", ()
   assert.equal(buildHfCacheCommand(), "ls -1 $HOME/.cache/huggingface/hub 2>/dev/null | head -30");
 });
 
+test("hardening: every discovery command is read-only (list/probe, never pull, start or remove)", () => {
+  const commands = [
+    buildFindStartsCommand(ROOTS),
+    buildFindStopsCommand(ROOTS),
+    buildOllamaRunningCommand(),
+    buildOllamaListCommand(),
+    buildHfCacheCommand(),
+  ];
+  for (const cmd of commands) {
+    // The first word is a reader; a docker command may only list or run `ollama list`.
+    const body = cmd.replaceAll(" 2>/dev/null", "");
+    assert.match(body, /^(find|ls|docker (ps|exec \S+ ollama list)) /, cmd);
+    // No writes: no redirects, substitutions, or verbs that pull, start, stop or delete.
+    assert.doesNotMatch(body, /\b(pull|run|start|stop|rm|push|create)\b|[>]|\$\(|`/, cmd);
+  }
+});
+
 test("hardening: execHost only ever sees the fixed command templates", async () => {
   // Hostile names and paths flow BACK from the host: they must never re-enter
   // a command. sshUser is config, not scan output, but is refused if malformed.

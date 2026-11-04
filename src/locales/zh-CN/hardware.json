@@ -322,5 +322,9 @@
   "hermes.ahead": "这些提交晚于发行版本 v{{version}}",
   "hermes.unreleased": "这些提交尚未包含在正式版本中；更新只会在 v{{version}} 的基础上拉取这些更改，完整发行日志不适用于此。",
   "hermes.yourInstall": "当前安装版本",
-  "hermes.command": "通过 SSH 在 {{name}} 上运行 hermes update。"
+  "hermes.command": "通过 SSH 在 {{name}} 上运行 hermes update。",
+  "launcher.discover.ollamaHint": "Ollama 的权重保存在引擎内——请输入其 start.sh 用于服务此模型的目录。",
+  "launcher.discover.scanning": "正在扫描…",
+  "launcher.discover.button": "在此 Spark 上发现模型",
+  "launcher.discover.failed": "发现失败：{{error}}"
 }
