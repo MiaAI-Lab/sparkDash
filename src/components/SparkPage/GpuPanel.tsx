@@ -214,7 +214,8 @@ export function GpuPanel({
   // the node said it could not read them (a declared gap, or the older
   // powermetricsAvailable flag), say so: 0W reads as an idle GPU, not as
   // "not measurable here".
-  const gaps = [...(gpu?.unavailable ?? unavailable ?? [])];
+  const declaredGaps = gpu?.unavailable ?? unavailable ?? [];
+  const gaps = [...declaredGaps];
   for (const [field, metric] of [["temperature", "gpu.temperature"], ["usage", "gpu.utilization"], ["powerDraw", "gpu.power"]] as const) {
     if (metrics?.[field] === false && !gaps.some((gap) => gap.metric === metric)) gaps.push({ metric, reason: `${metric} is unavailable in this sample` });
   }
@@ -240,6 +241,10 @@ export function GpuPanel({
   const tempView = honestGap(gaps, "gpu.temperature", tempValueText, {
     nonDgx: !hasTemperature && (mac || gpu?.temperature == null),
   });
+  // A node that declared the gap (or a platform without the sensor) gets the
+  // reason inline; a sample the probe merely could not read keeps the dash.
+  const tempGapExplained =
+    declaredGaps.some((gap) => gap?.metric === "gpu.temperature") || (!hasTemperature && (mac || gpu?.temperature == null));
 
   const t = gpu?.throttle;
   const thermal = t?.reason === "thermal";
@@ -297,7 +302,9 @@ export function GpuPanel({
           <span className="eyebrow">{tr("gpu.temperature")}</span>
           <div className="big-num" title={tempView.title}>
             {tempView.muted ? (
-              <span className="font-normal text-muted">{tr("gpu.unavailableReason", { reason: tempView.title })}</span>
+              <span className="font-normal text-muted">
+                {tempGapExplained ? tr("gpu.unavailableReason", { reason: tempView.title }) : "—"}
+              </span>
             ) : (
               <>
                 {displayTemp}
