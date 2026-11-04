@@ -122,6 +122,17 @@ test("value templates guard missing readings instead of rendering a fake zero", 
   snap.metrics.cpu = { usage: 23.5 }; // no sensor on this board
   const template = payloadOf(unitDiscoveryMessages(snap, CTX), "cpu_temperature").value_template;
   assert.match(template, /value_json\.cpu\.temperature_celsius is defined/);
+  // HA ignores an empty rendering and keeps the stale value; `None` reads unknown.
+  assert.match(template, /\{% else %\}None\{% endif %\}$/);
+  const gpuTemplate = payloadOf(unitDiscoveryMessages(snap, CTX), "gpu_0_power").value_template;
+  assert.match(gpuTemplate, /\{% else %\}None\{% endfor %\}$/);
+});
+
+test("the board-power template reads unknown unless every GPU reported a draw", () => {
+  const template = payloadOf(unitDiscoveryMessages(snapshot(), CTX), "power").value_template;
+  assert.match(template, /if d\.power_watts is defined/);
+  assert.match(template, /total\.n == \(value_json\.gpu \| length\)/);
+  assert.match(template, /\{% else %\}None\{% endif %\}$/);
 });
 
 test("a unit without sections yields only the always-present entities", () => {

@@ -694,6 +694,29 @@ test("changing the discovery prefix moves the entities", () => {
   assert.deepEqual(moved.sort(), old.map((t) => t.replace(/^homeassistant\//, "ha/")).sort());
 });
 
+test("changing the discovery prefix empties an offline unit's configs under the old prefix", () => {
+  const h = harness({ settings: DISCOVERY });
+  h.ready();
+  h.publisher.publishFleet([alpha()]);
+  const old = configs(h).map((c) => c.topic);
+  h.set({ mqttDiscoveryPrefix: "ha" });
+  h.publisher.applySettings();
+  const mark = h.calls.publishes.length;
+  h.publisher.publishFleet([{ id: "alpha", online: false }]);
+  assert.deepEqual(clears(h, mark).sort(), old.sort());
+  // Only the dashboard's own config moves now; alpha's wait for it to come back.
+  assert.deepEqual(
+    configs(h, mark).filter((c) => c.payload !== "").map((c) => c.topic),
+    [DASHBOARD_CONFIG.replace(/^homeassistant\//, "ha/")]
+  );
+  // Back online: the entities are rebuilt under the current prefix.
+  const mark2 = h.calls.publishes.length;
+  h.publisher.publishFleet([alpha()]);
+  const moved = configs(h, mark2).filter((c) => c.payload !== "").map((c) => c.topic);
+  const expected = old.filter((t) => t !== DASHBOARD_CONFIG).map((t) => t.replace(/^homeassistant\//, "ha/"));
+  assert.deepEqual(moved.sort(), expected.sort());
+});
+
 test("a topic produced again is not emptied by a removal still queued for it", () => {
   const h = harness({ settings: DISCOVERY });
   h.ready();

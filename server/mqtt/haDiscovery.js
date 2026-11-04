@@ -17,7 +17,8 @@ export function dashboardDiscoveryTopic(discoveryPrefix) {
  * Home Assistant MQTT discovery: the retained config messages that make HA
  * create the entities itself. Every metric entity reads the unit's metrics
  * topic with a guarded value_template (a reading sparkDash could not take
- * renders empty instead of a fake zero), availability follows both the
+ * renders `None`, which HA shows as unknown, instead of a fake zero; HA ignores
+ * an empty rendering and would keep the stale value), availability follows both the
  * dashboard's and the unit's own status topics, and all entities of a unit
  * group under one HA device. Structure-driven: one entity per GPU / LLM port /
  * interface / disk the fleet actually has.
@@ -75,7 +76,9 @@ export function nodeId(id) {
 
 /** A template that picks one array entry by `field` and renders `expr` when the guard holds. */
 function pickTemplate(list, guard, expr) {
-  return `{% for item in value_json.${list} | default([]) if ${guard} %}{{ ${expr} }}{% endfor %}`;
+  // Home Assistant ignores an empty rendering and keeps the last state; the
+  // literal `None` is what makes the entity read unknown.
+  return `{% for item in value_json.${list} | default([]) if ${guard} %}{{ ${expr} }}{% else %}None{% endfor %}`;
 }
 
 const GPU_RATIO = "(item.utilization_ratio * 100) | round(1)";
@@ -109,7 +112,7 @@ export function unitDiscoveryMessages(snap, ctx) {
     config("sensor", "uptime", "last boot", {
       device_class: "timestamp",
       value_template:
-        "{% if value_json.uptime_seconds is defined %}{{ (now() - timedelta(seconds=value_json.uptime_seconds)).isoformat() }}{% endif %}",
+        "{% if value_json.uptime_seconds is defined %}{{ (now() - timedelta(seconds=value_json.uptime_seconds)).isoformat() }}{% else %}None{% endif %}",
     });
   }
 
@@ -120,14 +123,14 @@ export function unitDiscoveryMessages(snap, ctx) {
       state_class: "measurement",
       icon: "mdi:cpu-64-bit",
       value_template:
-        "{% if value_json.cpu is defined and value_json.cpu.utilization_ratio is defined %}{{ (value_json.cpu.utilization_ratio * 100) | round(1) }}{% endif %}",
+        "{% if value_json.cpu is defined and value_json.cpu.utilization_ratio is defined %}{{ (value_json.cpu.utilization_ratio * 100) | round(1) }}{% else %}None{% endif %}",
     });
     config("sensor", "cpu_temperature", "CPU temperature", {
       device_class: "temperature",
       unit_of_measurement: "°C",
       state_class: "measurement",
       value_template:
-        "{% if value_json.cpu is defined and value_json.cpu.temperature_celsius is defined %}{{ value_json.cpu.temperature_celsius }}{% endif %}",
+        "{% if value_json.cpu is defined and value_json.cpu.temperature_celsius is defined %}{{ value_json.cpu.temperature_celsius }}{% else %}None{% endif %}",
     });
   }
 
@@ -138,7 +141,7 @@ export function unitDiscoveryMessages(snap, ctx) {
       unit_of_measurement: "GB",
       state_class: "measurement",
       value_template:
-        "{% if value_json.ram is defined and value_json.ram.used_bytes is defined %}{{ (value_json.ram.used_bytes / 1073741824) | round(2) }}{% endif %}",
+        "{% if value_json.ram is defined and value_json.ram.used_bytes is defined %}{{ (value_json.ram.used_bytes / 1073741824) | round(2) }}{% else %}None{% endif %}",
     });
   }
 
@@ -155,7 +158,7 @@ export function unitDiscoveryMessages(snap, ctx) {
       state_class: "measurement",
       icon: "mdi:memory",
       value_template:
-        "{% if value_json.memory_available_bytes is defined %}{{ (value_json.memory_available_bytes / 1073741824) | round(2) }}{% endif %}",
+        "{% if value_json.memory_available_bytes is defined %}{{ (value_json.memory_available_bytes / 1073741824) | round(2) }}{% else %}None{% endif %}",
     });
   }
 
@@ -198,7 +201,8 @@ export function unitDiscoveryMessages(snap, ctx) {
       unit_of_measurement: "W",
       state_class: "measurement",
       value_template:
-        "{% if value_json.gpu is defined %}{% set total = namespace(w=0) %}{% for d in value_json.gpu %}{% if d.power_watts is defined %}{% set total.w = total.w + d.power_watts %}{% endif %}{% endfor %}{{ total.w | round(1) }}{% endif %}",
+        // Only when every card reported: a missing reading would be a measured-looking undercount.
+        "{% set total = namespace(w=0, n=0) %}{% for d in value_json.gpu | default([]) if d.power_watts is defined %}{% set total.w = total.w + d.power_watts %}{% set total.n = total.n + 1 %}{% endfor %}{% if total.n > 0 and total.n == (value_json.gpu | length) %}{{ total.w | round(1) }}{% else %}None{% endif %}",
     });
   }
 

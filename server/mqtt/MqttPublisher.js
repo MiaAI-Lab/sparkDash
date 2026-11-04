@@ -286,9 +286,17 @@ export class MqttPublisher {
       seen.add(id);
       const previous = this._discoveryByUnit.get(id) ?? [];
       // Offline: its snapshot no longer lists its hardware. Keep the entities;
-      // its availability topic already reports the outage.
+      // its availability topic already reports the outage. Configs under a
+      // former discovery prefix are emptied, not kept: the unit's entities are
+      // rebuilt under the current prefix when it comes back.
       if (snap.online !== true) {
-        wanted.push(...previous);
+        const current = previous.filter((m) => m.topic.startsWith(`${discoveryPrefix}/`));
+        for (const m of previous) {
+          if (!current.includes(m)) this._removeDiscovery(m.topic);
+        }
+        if (current.length) this._discoveryByUnit.set(id, current);
+        else this._discoveryByUnit.delete(id);
+        wanted.push(...current);
         continue;
       }
       const messages = unitDiscoveryMessages(snap, ctx);
