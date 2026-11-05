@@ -98,8 +98,10 @@ const CATEGORY_HINTS: Record<QualityCategory, string> = {
   reason: "Multi-step word problems in five shapes, each with a two-number answer.",
   arith: "Ten- and twenty-step arithmetic chains, graded by every step's value.",
   track: "Token-transfer stories of 25 and 50 events, graded by every person's total.",
-  gsm8k: "Grade-school maths from the public GSM8K test set (fixed sample).",
-  mmlu: "Multiple choice from the public MMLU test set, 5 per subject across 57 subjects.",
+  gsm8k: "Grade-school maths from the GSM8K test set with the GSM8K-Platinum labels (188 items).",
+  mmlupro: "MMLU-Pro: ten-option multiple choice that needs reasoning, 300 across 14 categories.",
+  math500: "MATH-500: competition maths with LaTeX answers, 500 problems at five levels.",
+  mmlu: "Plain MMLU, 5 per subject across 57 subjects: saturated; kept for older comparisons.",
   follow: "Prompts with verifiable formatting rules, checked by code, not a judge.",
   long: "Needle recall: 16 codes, 4 corrected late in the text, at three depths. Sequential.",
   tokenizer: "String reversal, letter counts and binary: decided by how the tokenizer splits text, not by reasoning.",
@@ -108,9 +110,9 @@ const CATEGORY_HINTS: Record<QualityCategory, string> = {
 };
 
 /** Fixed item counts; long recall depends on the chosen sizes. */
-const CATEGORY_ITEMS: Record<Exclude<QualityCategory, "long">, number> = { qa: 150, reason: 200, arith: 200, track: 200, gsm8k: 200, mmlu: 285, follow: 40, tokenizer: 44, fidelity: 9, divergence: 120 };
+const CATEGORY_ITEMS: Record<Exclude<QualityCategory, "long">, number> = { qa: 150, reason: 200, arith: 200, track: 200, gsm8k: 188, mmlupro: 300, math500: 500, mmlu: 285, follow: 40, tokenizer: 44, fidelity: 9, divergence: 120 };
 /** Categories that run with thinking on (slow, many tokens). */
-const THINKING_CATEGORIES: readonly QualityCategory[] = ["reason", "arith", "track", "gsm8k"];
+const THINKING_CATEGORIES: readonly QualityCategory[] = ["reason", "arith", "track", "gsm8k", "mmlupro", "math500"];
 
 function useEscape(onClose: () => void, enabled: boolean) {
   useEffect(() => {
@@ -232,7 +234,7 @@ function categoryNotes(cat: QualityCategory, s: QualityCategorySummary): string 
     notes.push(`coverage ${s.coveragePct.toFixed(1)}%`);
     if (s.budgetedPct != null) notes.push(`budgeted ${s.budgetedPct.toFixed(1)}%`);
   }
-  if (cat === "reason" || cat === "arith" || cat === "track" || cat === "gsm8k") {
+  if (cat === "reason" || cat === "arith" || cat === "track" || cat === "gsm8k" || cat === "mmlupro" || cat === "math500") {
     notes.push(`mean ${s.meanCompletionTokens.toLocaleString()} tok`);
     notes.push(`${s.hitMaxTokens} hit max_tokens`);
   }

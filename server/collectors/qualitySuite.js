@@ -23,7 +23,8 @@ import { qualityLongFitsContext } from "../../src/shared/contextFit.js";
  *   2: reasoning 200 in five problem shapes; arithmetic 200 (100 ten-step, 100 twenty-step) and
  *      tracking 200 (100 × 25 events, 100 × 50 events) graded by intermediate values; long recall
  *      5 per size with three needle depths; string reversal, letter counts and binary moved from
- *      QA to the optional Tokenizer category; QA budget 256 tokens
+ *      QA to the optional Tokenizer category; QA budget 256 tokens; GSM8K re-labelled with
+ *      GSM8K-Platinum (188 items); MMLU-Pro (300, thinking on) and MATH-500 added, plain MMLU optional
  */
 export const SUITE_VERSION = 2;
 /**
@@ -690,6 +691,9 @@ function genTrack() {
 
 const GSM8K_MAX_TOKENS = 8192;
 const MMLU_MAX_TOKENS = 1024;
+/** MMLU-Pro needs reasoning (ten options, harder stems): thinking on with room for it. */
+const MMLUPRO_MAX_TOKENS = 6144;
+const MATH_MAX_TOKENS = 8192;
 
 /**
  * GSM8K test-split items whose reference answer is wrong or whose wording admits more than one
@@ -715,6 +719,8 @@ function loadData(name) {
 
 let gsm8kRows = null;
 let mmluRows = null;
+let mmluProRows = null;
+let math500Rows = null;
 let fidelityCorpus = null;
 
 /**
@@ -747,8 +753,14 @@ export function fidelityItems() {
   }));
 }
 
+/**
+ * Suite v2 reads the GSM8K-Platinum labels (data/gsm8k-platinum-200.json): the same 200 test items,
+ * 188 of which Platinum kept, with two references revised to the answers the disputed list argued
+ * for (952 → 1,800; 1,035 → 40) and the other disputed items removed. Nothing is disputed any more;
+ * the map stays for the record and for runs saved from the original file.
+ */
 function genGsm8k() {
-  gsm8kRows ||= loadData("gsm8k-200.json");
+  gsm8kRows ||= loadData("gsm8k-platinum-200.json");
   return gsm8kRows.map((r) => ({
     id: `gsm8k-${String(r.n).padStart(4, "0")}`,
     category: "gsm8k",
@@ -756,7 +768,45 @@ function genGsm8k() {
     expected: r.a,
     maxTokens: GSM8K_MAX_TOKENS,
     thinking: true,
-    ...(GSM8K_DISPUTED[r.n] ? { disputed: GSM8K_DISPUTED[r.n] } : {}),
+    ...(r.status ? {} : GSM8K_DISPUTED[r.n] ? { disputed: GSM8K_DISPUTED[r.n] } : {}),
+  }));
+}
+
+const OPTION_LETTERS = "ABCDEFGHIJ";
+
+/** MMLU-Pro (TIGER-Lab, MIT): up to ten options, reasoning required; a fixed stratified sample of 300. */
+function genMmluPro() {
+  mmluProRows ||= loadData("mmlu-pro-300.json");
+  return mmluProRows.map((r) => ({
+    id: `mmlupro-${String(r.n).padStart(5, "0")}`,
+    category: "mmlupro",
+    subject: r.cat,
+    prompt:
+      `The following is a multiple choice question about ${r.cat}.\n\n${r.q}\n` +
+      r.o.map((c, i) => `${OPTION_LETTERS[i]}. ${c}`).join("\n") +
+      `\n\nThink it through, then end your reply with a line 'Answer: <letter>'.`,
+    expected: r.a,
+    options: r.o.length,
+    maxTokens: MMLUPRO_MAX_TOKENS,
+    thinking: true,
+  }));
+}
+
+/** MATH-500 (Hendrycks MATH, MIT): competition problems with LaTeX answers. */
+function genMath500() {
+  math500Rows ||= loadData("math500.json");
+  return math500Rows.map((r, i) => ({
+    id: `math500-${String(i + 1).padStart(3, "0")}`,
+    category: "math500",
+    source: r.id,
+    subject: r.subject,
+    level: r.level,
+    prompt:
+      `${r.q}\n\nSolve it step by step. End your reply with a line 'Answer: <final answer>' giving only the final answer, ` +
+      `in LaTeX where needed (a fraction as \\frac{a}{b}, a point as (x, y), an interval as [a, b)); no units, no sentence.`,
+    expected: r.a,
+    maxTokens: MATH_MAX_TOKENS,
+    thinking: true,
   }));
 }
 
@@ -908,7 +958,7 @@ export function longSizesForContext(sizes, contextLength) {
 
 // ─── Suite assembly ──────────────────────────────────────
 
-const GENERATORS = { qa: genQa, tokenizer: genTokenizer, reason: genReason, arith: genArith, track: genTrack, gsm8k: genGsm8k, mmlu: genMmlu, follow: genFollow };
+const GENERATORS = { qa: genQa, tokenizer: genTokenizer, reason: genReason, arith: genArith, track: genTrack, gsm8k: genGsm8k, mmlu: genMmlu, mmlupro: genMmluPro, math500: genMath500, follow: genFollow };
 
 /**
  * @param {{ categories?: string[], longSizes?: number[], longItems?: number }} [opts]
@@ -1283,9 +1333,9 @@ export function scoreFollow(item, reply) {
 // hedge after it ("B or C", "B, C", "B / C") is rejected.
 const MMLU_LABEL_RE = /\banswer\b[*\s]*(?::|is)/i;
 const MMLU_LINE_RE =
-  /\banswer\b[*\s]*(?::|is)[*\s"'`_]*(?:(?:option|choice)\s+)?(?:\(([ABCDabcd])\)|([ABCD])(?![A-Za-z0-9]))[*\s"'`_]*(.*)$/i;
+  /\banswer\b[*\s]*(?::|is)[*\s"'`_]*(?:(?:option|choice)\s+)?(?:\(([A-Ja-j])\)|([A-J])(?![A-Za-z0-9]))[*\s"'`_]*(.*)$/i;
 const MMLU_HEDGE_AFTER_RE =
-  /^[\s,;/&]*(?:or|and|\/|&)\b|^\s*[,;/&]\s*(?:\(?[ABCDabcd]\)?(?![A-Za-z0-9])|but|though|however|also|maybe|perhaps)/i;
+  /^[\s,;/&]*(?:or|and|\/|&)\b|^\s*[,;/&]\s*(?:\(?[A-Ja-j]\)?(?![A-Za-z0-9])|but|though|however|also|maybe|perhaps)/i;
 
 function mmluLetter(rawLine) {
   // Only the LaTeX / currency / minus normalisation: "(B)" is the answer here, not a working.
@@ -1293,7 +1343,7 @@ function mmluLetter(rawLine) {
   const m = line.match(MMLU_LINE_RE);
   if (!m) return null;
   const paren = m[1] != null;
-  // The 'i' flag makes ([ABCD]) match lowercase too; re-impose uppercase for the bare form.
+  // The 'i' flag makes ([A-J]) match lowercase too; re-impose uppercase for the bare form.
   const letter = m[1] ?? m[2];
   if (!paren && letter !== letter.toUpperCase()) return null;
   const rest = m[3] ?? "";
@@ -1316,12 +1366,67 @@ export function parseMmluAnswer(text) {
   }
   if (last) return last;
   const final = normalizeAnswerRemainder([...lines].reverse().find((l) => l.trim()), { paren: false });
-  const bare = final?.match(/^[*\s(]*([ABCDabcd])[*\s).:]*$/);
+  const bare = final?.match(/^[*\s(]*([A-Ja-j])[*\s).:]*$/);
   if (bare) return bare[1].toUpperCase();
   // A final line that is the option itself: "C. 24", "C) Paris", "(C) Paris". The letter must be
   // uppercase and closed by "." or ")" so "A cat…" is not A.
-  const option = final?.match(/^[*\s]*\(?([ABCD])[.)]\s+\S/);
+  const option = final?.match(/^[*\s]*\(?([A-J])[.)]\s+\S/);
   return option ? option[1] : null;
+}
+
+/**
+ * MATH answers in one canonical form: \boxed, $, \left/\right, \text, spaces, degree and percent
+ * signs and a trailing period go; \dfrac/\tfrac become \frac and a simple \frac{a}{b} becomes a/b;
+ * thousands commas inside a number go; a leading "x =" goes. Two numbers (plain or a/b) compare by value.
+ * @param {string} s
+ */
+export function normalizeMathAnswer(s) {
+  let r = String(s ?? "").trim();
+  // \boxed{…} and the text wrappers go, with balanced braces (\boxed{\frac{3}{4}} nests them).
+  for (let i = 0; i < 6; i++) {
+    const m = r.match(/\\(?:boxed|text|textbf|mathrm|mathbf|mbox)\s*\{/);
+    if (!m) break;
+    const open = m.index + m[0].length;
+    let depth = 1;
+    let j = open;
+    while (j < r.length && depth > 0) {
+      if (r[j] === "{") depth += 1;
+      else if (r[j] === "}") depth -= 1;
+      j += 1;
+    }
+    if (depth !== 0) break;
+    r = r.slice(0, m.index) + r.slice(open, j - 1) + r.slice(j);
+  }
+  r = r.replace(/\$/g, "").replace(/\\[dt]frac/g, "\\frac").replace(/\\left|\\right/g, "").replace(/\\[,;!: ]/g, "");
+  r = r.replace(/\^\{?\\circ\}?/g, "").replace(/\\%|%/g, "").replace(/\\(?:cdot|times)/g, "*");
+  for (let i = 0; i < 3; i++) r = r.replace(/\\frac\{([^{}]*)\}\{([^{}]*)\}/g, (m, a, b) => (/^[\w.\\]+$/.test(a) && /^[\w.\\]+$/.test(b) ? `${a}/${b}` : m));
+  r = r.replace(/\\frac(\d)(\d)/g, "$1/$2");
+  r = r.replace(/(\d),(?=\d{3}(?!\d))/g, "$1");
+  r = r.replace(/\s+/g, "");
+  r = r.replace(/^[a-z]\s*=\s*/i, "").replace(/^[a-z]\\in/i, "").replace(/\.$/, "").replace(/^\((-?[\w./\\]+)\)$/, "$1");
+  r = r.replace(/^\{(.*)\}$/, "$1");
+  return r;
+}
+
+function mathValue(s) {
+  const frac = s.match(/^(-?\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)$/);
+  if (frac) return Number(frac[1]) / Number(frac[2]);
+  return /^-?\d+(?:\.\d+)?$/.test(s) ? Number(s) : null;
+}
+
+/** MATH-500: the last 'Answer:' line in canonical form against the reference. */
+export function scoreMath(item, reply) {
+  const rest = lastAnswerRemainder(reply);
+  if (rest == null) return { ok: false, parsed: null, labeled: false };
+  const got = normalizeMathAnswer(rest);
+  const want = normalizeMathAnswer(item.expected);
+  let ok = got !== "" && got === want;
+  if (!ok) {
+    const a = mathValue(got);
+    const b = mathValue(want);
+    if (a != null && b != null) ok = Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(b));
+  }
+  return { ok, parsed: got || null, labeled: true };
 }
 
 export function scoreMmlu(item, reply) {
@@ -1344,7 +1449,10 @@ export function scoreItem(item, reply) {
     case "gsm8k":
       return scoreSingle(item, reply);
     case "mmlu":
+    case "mmlupro":
       return scoreMmlu(item, reply);
+    case "math500":
+      return scoreMath(item, reply);
     case "follow":
       return scoreFollow(item, reply);
     case "long":

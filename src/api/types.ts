@@ -1565,7 +1565,7 @@ export interface StartPrefillBenchRequest {
 }
 
 // ─── LLM quality benchmark ───────────────────────────────
-export type QualityCategory = "qa" | "reason" | "arith" | "track" | "gsm8k" | "mmlu" | "follow" | "long" | "tokenizer" | "fidelity" | "divergence";
+export type QualityCategory = "qa" | "reason" | "arith" | "track" | "gsm8k" | "mmlu" | "mmlupro" | "math500" | "follow" | "long" | "tokenizer" | "fidelity" | "divergence";
 
 /** WP3: the divergence category's structural rates (no pass rate). */
 export interface QualityDivergenceSummary {

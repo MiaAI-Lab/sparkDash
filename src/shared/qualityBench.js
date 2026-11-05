@@ -7,24 +7,30 @@
  * Run order and display order. "fidelity" scores a corpus by log-probabilities and "divergence"
  * compares stored replies; neither has a pass rate or enters the overall.
  */
-export const QUALITY_CATEGORIES = ["qa", "reason", "arith", "track", "gsm8k", "mmlu", "follow", "long", "tokenizer", "fidelity", "divergence"];
+export const QUALITY_CATEGORIES = ["qa", "reason", "arith", "track", "gsm8k", "mmlupro", "math500", "mmlu", "follow", "long", "tokenizer", "fidelity", "divergence"];
 
 /** Categories without a pass rate (graded or structural): out of the overall and of the McNemar pairing. */
 export const QUALITY_GRADED_CATEGORIES = ["fidelity", "divergence"];
 
 /** The generation categories: everything that has a pass/fail per item. */
-export const QUALITY_GENERATION_CATEGORIES = ["qa", "reason", "arith", "track", "gsm8k", "mmlu", "follow", "long", "tokenizer"];
+export const QUALITY_GENERATION_CATEGORIES = ["qa", "reason", "arith", "track", "gsm8k", "mmlupro", "math500", "mmlu", "follow", "long", "tokenizer"];
 /** The suite v1 generation set, so runs saved before the Tokenizer category still read as "full". */
 const QUALITY_GENERATION_CATEGORIES_V1 = ["qa", "reason", "arith", "track", "gsm8k", "mmlu", "follow", "long"];
+/** The "full" set of suite v2 before the datasets step (with the Tokenizer category, plain MMLU only). */
+const QUALITY_GENERATION_CATEGORIES_V2A = ["qa", "reason", "arith", "track", "gsm8k", "mmlu", "follow", "long", "tokenizer"];
 
-export const QUALITY_DEFAULT_CATEGORIES = ["qa", "reason", "arith", "track", "gsm8k", "mmlu"];
+export const QUALITY_DEFAULT_CATEGORIES = ["qa", "reason", "arith", "track", "gsm8k", "mmlupro"];
+/** The default set before MMLU-Pro replaced plain MMLU, so older runs still read as "default". */
+const QUALITY_DEFAULT_CATEGORIES_V1 = ["qa", "reason", "arith", "track", "gsm8k", "mmlu"];
 
 export const QUALITY_CATEGORY_LABELS = {
   qa: "QA",
   reason: "Reasoning",
   arith: "Arithmetic chain",
   track: "State tracking",
-  gsm8k: "GSM8K",
+  gsm8k: "GSM8K (Platinum)",
+  mmlupro: "MMLU-Pro",
+  math500: "MATH-500",
   mmlu: "MMLU",
   follow: "Instruction following",
   long: "Long-context recall",
@@ -125,7 +131,13 @@ export function qualityProfile(categories) {
   const list = Array.isArray(categories) ? categories : [];
   const generation = new Set(list.filter((c) => !QUALITY_GRADED_CATEGORIES.includes(c)));
   if (!generation.size) return list.some((c) => QUALITY_GRADED_CATEGORIES.includes(c)) ? "fidelity" : "custom";
-  for (const [name, cats] of [["default", QUALITY_PROFILES.default], ["full", QUALITY_PROFILES.full], ["full", QUALITY_GENERATION_CATEGORIES_V1]]) {
+  for (const [name, cats] of [
+    ["default", QUALITY_PROFILES.default],
+    ["default", QUALITY_DEFAULT_CATEGORIES_V1],
+    ["full", QUALITY_PROFILES.full],
+    ["full", QUALITY_GENERATION_CATEGORIES_V2A],
+    ["full", QUALITY_GENERATION_CATEGORIES_V1],
+  ]) {
     if (cats.length === generation.size && cats.every((c) => generation.has(c))) return name;
   }
   return "custom";

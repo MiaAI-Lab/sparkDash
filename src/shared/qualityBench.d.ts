@@ -1,4 +1,4 @@
-export type QualityCategoryId = "qa" | "reason" | "arith" | "track" | "gsm8k" | "mmlu" | "follow" | "long" | "tokenizer" | "fidelity" | "divergence";
+export type QualityCategoryId = "qa" | "reason" | "arith" | "track" | "gsm8k" | "mmlu" | "mmlupro" | "math500" | "follow" | "long" | "tokenizer" | "fidelity" | "divergence";
 
 export const QUALITY_CATEGORIES: QualityCategoryId[];
 export const QUALITY_DEFAULT_CATEGORIES: QualityCategoryId[];

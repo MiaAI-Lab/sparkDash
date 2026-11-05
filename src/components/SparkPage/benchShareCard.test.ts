@@ -583,7 +583,7 @@ describe("quality share card", () => {
     expect(m.quality?.overall).toBe(91.2);
     expect(m.quality?.tiles.map((t) => [t.label, t.pct, t.detail])).toEqual([
       ["QA", 90, "45/50 items"],
-      ["GSM8K", 50, "10/20 items"],
+      ["GSM8K (Platinum)", 50, "10/20 items"],
     ]);
     expect(m.quality?.summary).toBe("2 categories · 70 items · 1m 0s");
     expect([m.quality?.modelName, m.quality?.target, m.quality?.runLabel]).toEqual(["m", "Port 8888", "fp8"]);

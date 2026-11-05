@@ -10,6 +10,8 @@ import path from "path";
 import fs from "fs";
 import {
   GSM8K_DISPUTED,
+  normalizeMathAnswer,
+  scoreMath,
   SCORING_VERSION,
   buildLongPrompt,
   followRuleName,
@@ -30,7 +32,7 @@ import {
 import { QualityBenchManager, normalizeQualityOptions } from "../QualityBench.js";
 import { compareQualityRuns, mcnemarExactP, qualityRowUnscored } from "../../../src/shared/qualityBench.js";
 
-const ALL = ["qa", "reason", "arith", "track", "gsm8k", "mmlu", "follow", "long", "tokenizer"];
+const ALL = ["qa", "reason", "arith", "track", "gsm8k", "mmlupro", "math500", "mmlu", "follow", "long", "tokenizer"];
 
 // ─── Generation ──────────────────────────────────────────
 
@@ -64,7 +66,9 @@ test("category counts", () => {
   assert.equal(count("reason"), 200);
   assert.equal(count("arith"), 200);
   assert.equal(count("track"), 200);
-  assert.equal(count("gsm8k"), 200);
+  assert.equal(count("gsm8k"), 188); // GSM8K-Platinum kept 188 of the 200
+  assert.equal(count("mmlupro"), 300);
+  assert.equal(count("math500"), 500);
   assert.equal(count("mmlu"), 285);
   assert.equal(count("follow"), 40);
   assert.equal(count("long"), 6);
@@ -385,10 +389,10 @@ test("GSM8K and MMLU subsets: sizes, ids, shape and 5 questions for each of 57 s
   const s = generateSuite({ categories: ["gsm8k", "mmlu"] });
   const g = s.filter((i) => i.category === "gsm8k");
   const m = s.filter((i) => i.category === "mmlu");
-  assert.equal(g.length, 200);
+  assert.equal(g.length, 188); // the 200-item sample under the GSM8K-Platinum labels
   assert.equal(m.length, 285);
   assert.equal(new Set(s.map((i) => i.id)).size, s.length);
-  assert.ok(g.every((i) => Number.isInteger(i.expected) && i.thinking === true && /^gsm8k-\d{4}$/.test(i.id)));
+  assert.ok(g.every((i) => Number.isInteger(i.expected) && i.thinking === true && /^gsm8k-\d{4}$/.test(i.id) && !i.disputed));
   assert.ok(m.every((i) => /^[ABCD]$/.test(i.expected) && i.thinking === false && /\nA\. .+\nB\. .+\nC\. .+\nD\. /s.test(i.prompt)));
   const perSubject = new Map();
   for (const i of m) perSubject.set(i.subject, (perSubject.get(i.subject) || 0) + 1);
@@ -461,7 +465,7 @@ test("compareQualityRuns pairs by id and counts discordant items", () => {
 
 test("normalizeQualityOptions clamps and defaults", () => {
   const d = normalizeQualityOptions({});
-  assert.deepEqual(d.categories, ["qa", "reason", "arith", "track", "gsm8k", "mmlu"]);
+  assert.deepEqual(d.categories, ["qa", "reason", "arith", "track", "gsm8k", "mmlupro"]);
   assert.deepEqual(d.longSizes, []);
   assert.equal(d.concurrency, 4);
   const o = normalizeQualityOptions({
@@ -762,18 +766,15 @@ test("scoring v3: a reply cut off by max_tokens before its answer is truncated, 
 });
 
 test("scoring v3: disputed GSM8K items run but never move the score, and compare leaves them out", () => {
+  // Suite v2 reads the GSM8K-Platinum labels: the disputed list is resolved (removed or revised),
+  // so no generated item is disputed; the map stays for runs saved from the original file.
   const items = generateSuite({ categories: ["gsm8k"] });
-  const disputed = items.filter((it) => it.disputed);
-  assert.deepEqual(
-    disputed.map((it) => it.id).sort(),
-    Object.keys(GSM8K_DISPUTED).map((n) => `gsm8k-${String(n).padStart(4, "0")}`).sort()
-  );
-  assert.equal(disputed.length, 6);
-  assert.ok(items.length === 200, "the item set is unchanged (ids pair with older runs)");
-  for (const it of disputed) assert.equal(typeof it.disputed, "string");
-  // The reference says 360; 1,800 is right. Either way the row is reported, not scored.
+  assert.equal(items.filter((it) => it.disputed).length, 0);
+  assert.equal(Object.keys(GSM8K_DISPUTED).length, 6);
+  for (const n of Object.keys(GSM8K_DISPUTED)) assert.equal(typeof GSM8K_DISPUTED[n], "string");
+  // The original reference said 360; Platinum revised it to 1,800.
   const r952 = items.find((it) => it.id === "gsm8k-0952");
-  assert.equal(r952.expected, 360);
+  assert.equal(r952.expected, 1800);
   const rows = [
     { id: "gsm8k-0952", category: "gsm8k", ok: false, finishReason: "stop", disputed: true },
     { id: "gsm8k-0003", category: "gsm8k", ok: true, finishReason: "stop" },
@@ -871,4 +872,47 @@ test("scoring v4: a restated instruction ('Answer: <final number>') is not an an
   assert.equal(s.ok, false);
   assert.equal(s.labeled, false);
   assert.equal(s.gradeCorrect, 2);
+});
+
+
+test("datasets (WP6): Platinum labels, MMLU-Pro letters to J, MATH-500 canonical answers", () => {
+  const s = generateSuite({ categories: ["gsm8k", "mmlupro", "math500"] });
+  const gsm = s.filter((i) => i.category === "gsm8k");
+  assert.equal(gsm.filter((i) => i.disputed).length, 0, "Platinum resolved the disputed items");
+  assert.equal(gsm.find((i) => i.id === "gsm8k-0952").expected, 1800);
+  assert.equal(gsm.find((i) => i.id === "gsm8k-1035").expected, 40);
+  assert.equal(gsm.find((i) => i.id === "gsm8k-0675"), undefined);
+  const pro = s.filter((i) => i.category === "mmlupro");
+  assert.equal(pro.length, 300);
+  assert.equal(new Set(pro.map((i) => i.subject)).size, 14);
+  assert.ok(pro.every((i) => i.thinking === true && i.maxTokens === 6144 && /^[A-J]$/.test(i.expected) && i.options >= 3 && i.options <= 10));
+  assert.ok(pro[0].prompt.includes("\nA. ") && pro.some((i) => i.prompt.includes("\nJ. ")));
+  assert.equal(parseMmluAnswer("Answer: J"), "J");
+  assert.equal(parseMmluAnswer("Reasoning.\nAnswer: (h)"), "H");
+  assert.equal(parseMmluAnswer("Reasoning.\nE) the fifth option"), "E");
+  assert.equal(parseMmluAnswer("Answer: B or C"), null);
+  assert.equal(scoreItem(pro.find((i) => i.expected === "J") ?? { category: "mmlupro", expected: "J" }, "**Answer:** J").ok, true);
+  const math = s.filter((i) => i.category === "math500");
+  assert.equal(math.length, 500);
+  assert.ok(math.every((i) => i.thinking === true && i.maxTokens === 8192 && i.source.startsWith("test/")));
+  for (const [got, want] of [
+    ["\\boxed{\\frac{3}{4}}", "\\frac{3}{4}"],
+    ["$0.75$", "\\frac34"],
+    ["\\left( 3, \\frac{\\pi}{2} \\right)", "(3,\\frac{\\pi}{2})"],
+    ["x = 5", "5"],
+    ["1,000", "1000"],
+    ["90^\\circ", "90"],
+    ["\\dfrac{1}{2}", "\\frac{1}{2}"],
+    ["-\\frac{2}{3}", "-2/3"],
+    ["10\\%", "10"],
+    ["\\text{(B)}", "(B)"],
+    ["[-2, 7]", "x\\in[-2,7]"],
+    ["\\boxed{(1, 2)}", "(1,2)"],
+  ]) {
+    assert.equal(scoreMath({ expected: want }, `Working…\nAnswer: ${got}`).ok, true, `${got} vs ${want}`);
+  }
+  assert.equal(scoreMath({ expected: "\\frac{3}{4}" }, "Answer: \\frac{3}{5}").ok, false);
+  assert.equal(scoreMath({ expected: "5" }, "The answer is 5").ok, false);
+  assert.equal(scoreMath({ expected: "5" }, "The answer is 5").labeled, false);
+  assert.equal(normalizeMathAnswer("\\boxed{(1, 2)}"), "(1,2)");
 });
