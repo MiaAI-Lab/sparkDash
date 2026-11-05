@@ -1565,7 +1565,80 @@ export interface StartPrefillBenchRequest {
 }
 
 // ─── LLM quality benchmark ───────────────────────────────
-export type QualityCategory = "qa" | "reason" | "arith" | "track" | "gsm8k" | "mmlu" | "follow" | "long";
+export type QualityCategory = "qa" | "reason" | "arith" | "track" | "gsm8k" | "mmlu" | "follow" | "long" | "tokenizer" | "fidelity" | "divergence";
+
+/** WP3: the divergence category's structural rates (no pass rate). */
+export interface QualityDivergenceSummary {
+  rows: number;
+  terminatedPct: number | null;
+  loops: number;
+  loopPct: number | null;
+  jsonValidPct: number | null;
+  jsonSchemaPct: number | null;
+  toolOkPct: number | null;
+  meanChars: number | null;
+  meanTokens: number | null;
+}
+
+/** WP2: the fidelity category's token-weighted corpus statistics (no pass rate). */
+export interface QualityFidelitySummary {
+  docs: number;
+  tokens: number;
+  bytes: number;
+  sumNll: number;
+  k: number;
+  nll?: number;
+  ppl?: number;
+  bitsPerByte?: number | null;
+}
+
+/** WP2: what a run's fidelity category scored against. */
+export interface QualityFidelityInfo {
+  corpusVersion: number | null;
+  corpusSha256: string | null;
+  k: number;
+  docs: number;
+  /** True once the per-position side file was written (needed for a fidelity comparison). */
+  sideFile?: boolean;
+}
+
+export interface QualityFidelityCompareDoc {
+  id: string;
+  tokens: number;
+  match: boolean;
+  nllA?: number;
+  nllB?: number;
+  dNll?: number;
+  top1AgreementPct?: number | null;
+  tailLossPct?: number | null;
+  divergence?: number | null;
+  scoredTop?: number;
+}
+
+/** WP2: `GET …/quality-bench/:benchId/fidelity-compare?with=<ref>` — A is the test run, B the reference. */
+export interface QualityFidelityCompare {
+  a: string;
+  b: string;
+  comparable: boolean;
+  reason: string | null;
+  k?: { a: number | null; b: number | null };
+  tokens?: number;
+  matchedDocs?: number;
+  mismatchedDocs?: number;
+  nllA?: number;
+  nllB?: number;
+  pplA?: number;
+  pplB?: number;
+  /** NLL(A) − NLL(B) per token, positive = the test run is worse; with a document-bootstrap 95 % CI. */
+  dNll?: number;
+  dNllCi?: [number, number];
+  top1AgreementPct?: number | null;
+  /** Share of positions where the reference's top-1 token is outside the test run's top-K. */
+  tailLossPct?: number | null;
+  /** Truncated-support divergence (ref ‖ test) over the shared top-K with an "other" bucket: a diagnostic, not a KL. */
+  divergence?: number | null;
+  docs?: QualityFidelityCompareDoc[];
+}
 
 export interface QualityBenchConfig {
   port: number;
@@ -1581,8 +1654,63 @@ export interface QualityBenchConfig {
   concurrency: number;
   /** Free-text run label, e.g. "fp4 KV". */
   label: string;
+  /** WP0: the run repeats every category (and runs it serially when batched) to measure noise. */
+  noiseFloor?: boolean;
+  /** WP1: "default" | "full" carry a headline overall; "custom" is a partial run. Absent on old runs. */
+  profile?: "default" | "full" | "fidelity" | "custom";
   host?: string;
   tls?: boolean;
+}
+
+/** WP0: the served build, read from `/v1/models` (TensorFold's `tensorfold` object, vLLM's `/version`, …). */
+export interface QualityEngineRecord {
+  backend: string | null;
+  modelId: string | null;
+  ownedBy: string | null;
+  engineVersion: string | null;
+  gitCommit: string | null;
+  patches: string | null;
+  device: string | null;
+  checkpoint: string | null;
+  checkpointSha256: string | null;
+  quantization: Record<string, unknown> | null;
+  computeDtype: string | null;
+  kvCacheDtype: string | null;
+  tensorParallel: number | null;
+  contextLength: number | null;
+  speculative: { enabled?: boolean; kind?: string; name?: string } | null;
+  tokenizerSha256: string | null;
+  tokenizerName: string | null;
+  promptBos: boolean | null;
+  promptLogprobsCap: number | null;
+  reasoning: Record<string, unknown> | null;
+  params?: number | null;
+  fileSizeBytes?: number | null;
+}
+
+/** WP0: what the engine was measured to do (never inferred from its name). */
+export interface QualityEngineCapabilities {
+  promptLogprobs: boolean;
+  /** "openai-completions" (vLLM / TensorFold shape) when supported. */
+  shape: string | null;
+  reason: string | null;
+  probedAt: number;
+  positions?: number;
+  promptTokens?: number | null;
+  aligned?: boolean | null;
+  actualIncluded?: boolean;
+  promptTokenIds?: boolean;
+  exactMode?: string | null;
+  cap?: number;
+  capSource?: "advertised" | "probed";
+}
+
+export interface QualityEngineInfo {
+  record: QualityEngineRecord | null;
+  capabilities: QualityEngineCapabilities | null;
+  modelsReachable?: boolean;
+  error?: string;
+  probedAt: number;
 }
 
 export interface QualityItemResult {
@@ -1600,6 +1728,42 @@ export interface QualityItemResult {
   error: string | null;
   /** Parsed answer, failing test line, or long-recall key counts. */
   detail: string | null;
+  /** Full visible reply (capped), kept on rows that need auditing: failed, truncated or disputed. Scoring v3. */
+  reply?: string;
+  /** The item's reference answer is wrong or ambiguous; the row is reported, never scored. Scoring v3. */
+  disputed?: boolean;
+  /** Reasoning tokens as the server counted them; null when it reports none. WP0. */
+  reasoningTokens?: number | null;
+  /** Length of the reasoning text the stream carried. WP0. */
+  reasoningChars?: number;
+  /** Reasoning tail (capped), kept on failed rows only. WP0. */
+  reasoning?: string;
+  /** Long-context items: the size the prompt was built for. WP0. */
+  size?: number;
+  /** Whether the item asked for thinking. WP1. */
+  thinking?: boolean;
+  /** Suite v2 grades: correct units (steps, people, keys) over the item's units. */
+  gradeCorrect?: number;
+  gradeTotal?: number;
+  /** WP3 divergence rows: structural checks on the stored reply. */
+  chars?: number;
+  terminated?: boolean;
+  loop?: { loop: boolean; cycle: number | null; tailShare: number };
+  json?: { valid: boolean; schema: boolean; fenced: boolean; missing: string[] };
+  tool?: { called: boolean; nameOk: boolean; argsOk: boolean; name: string | null; wrong: string[] };
+  toolCalls?: Array<{ name: string | null; arguments: string }>;
+  /** WP2 fidelity rows: the document and its token-weighted scores. */
+  docId?: string;
+  kind?: string;
+  lang?: string;
+  bytes?: number;
+  k?: number;
+  tokens?: number;
+  sumNll?: number;
+  nll?: number;
+  ppl?: number;
+  bitsPerByte?: number | null;
+  top1Pct?: number;
   longCorrect?: number;
   longTotal?: number;
   longStale?: number;
@@ -1614,7 +1778,33 @@ export interface QualityCategorySummary {
   scored?: number;
   pct: number | null;
   errors: number;
+  /** Replies cut off by max_tokens before an answer: not scored (scoring v3; absent on older runs). */
+  truncated?: number;
+  /** Items with a disputed reference answer: not scored (scoring v3; absent on older runs). */
+  disputed?: number;
+  /** True when `truncated` > 0: pct covers only the replies that finished under this budget. */
+  budgetLimited?: boolean;
+  /** WP1: scored ÷ total, in percent. */
+  coveragePct?: number | null;
+  /** WP1: passed ÷ everything that ran (scored + truncated), in percent. */
+  budgetedPct?: number | null;
+  /** WP1: Wilson 95 % interval of pct / budgetedPct, in percent. */
+  ci?: [number, number] | null;
+  budgetedCi?: [number, number] | null;
+  /** WP1, long recall: keys found share and its prompt-clustered bootstrap interval. */
+  keysPct?: number;
+  keysCi?: [number, number] | null;
+  /** Suite v2 grades (arithmetic steps, tracked people): correct units over all units, with an item-clustered interval. */
+  gradeCorrect?: number;
+  gradeTotal?: number;
+  gradePct?: number;
+  gradeCi?: [number, number] | null;
+  /** WP2, fidelity only. */
+  fidelity?: QualityFidelitySummary;
+  /** WP3, divergence only. */
+  divergence?: QualityDivergenceSummary;
   meanCompletionTokens: number;
+  /** Every reply that hit max_tokens, whether or not it had answered by then. */
   hitMaxTokens: number;
   keysFound?: number;
   keysTotal?: number;
@@ -1626,10 +1816,60 @@ export interface QualityBenchResults {
   items?: QualityItemResult[];
   itemCount?: number;
   categories: Partial<Record<QualityCategory, QualityCategorySummary>>;
-  /** Mean of the category percentages. */
+  /** Mean of the category percentages; null for a custom (partial) profile since WP1. */
   overallPct: number | null;
+  /** WP1: stratified bootstrap 95 % interval of the overall. */
+  overallCi?: [number, number] | null;
+  /** WP1: run hygiene warnings, e.g. a thinking-off category whose replies carried reasoning. */
+  warnings?: QualityRunWarning[];
+  /** WP2: corpus and K the fidelity category scored with. */
+  fidelity?: QualityFidelityInfo;
+  /** WP2: why the fidelity category was skipped on this engine. */
+  fidelityUnsupported?: string;
   /** Long sizes skipped because they exceed the model context. */
   skippedLongSizes: number[];
+  /** Noise-floor passes beyond the primary one (full runs only). WP0. */
+  passes?: QualityNoisePassRows[];
+  /** Noise floor: the extra passes paired with the primary pass. WP0. */
+  noise?: QualityNoiseSummary | null;
+  /** Measured prompt tokens per long size (the sizes are word-count estimates). WP0. */
+  longTokens?: Record<string, number>;
+}
+
+export interface QualityRunWarning {
+  kind: "thinkingNotHonoured";
+  category: QualityCategory;
+  rows: number;
+  reasoningRows: number;
+  truncated: number;
+}
+
+export interface QualityNoisePassRows {
+  index: number;
+  kind: "repeat" | "serial";
+  concurrency: number;
+  items: QualityItemResult[];
+}
+
+export interface QualityNoisePass {
+  index: number;
+  kind: "repeat" | "serial";
+  concurrency: number;
+  pairs: number;
+  discordant: number;
+  identical: number;
+  flipPct: number | null;
+  identicalPct: number | null;
+  categories: Partial<Record<QualityCategory, { pairs: number; discordant: number; identical: number; flipPct: number | null }>>;
+}
+
+export interface QualityNoiseSummary {
+  primaryConcurrency: number;
+  passes: QualityNoisePass[];
+  /** Largest flip rate between passes at identical settings. */
+  repeatFlipPct: number | null;
+  /** Largest flip rate between the batched primary pass and a concurrency-1 pass. */
+  batchFlipPct: number | null;
 }
 
 export interface QualityBenchProgress {
@@ -1650,8 +1890,44 @@ export interface QualityBenchJob {
   config: QualityBenchConfig;
   progress: QualityBenchProgress;
   results: QualityBenchResults;
+  /** WP0: engine record and measured capabilities; null until probed, absent on older runs. */
+  engine?: QualityEngineInfo | null;
+  /** WP4: the unit the run was made on (absent on older runs). */
+  unit?: { id: string; name: string } | null;
+  /** WP4: the cost side read from the probe and the last decode bench at start. */
+  cost?: QualityRunCost | null;
   error: string | null;
   durationMs: number;
+}
+
+/** WP4: what serving this model costs on the unit, read at run start; every field may be null. */
+export interface QualityRunCost {
+  /** Live per-stream decode tok/s from the probe at start. */
+  perStreamTps?: number | null;
+  /** Live aggregate generation tok/s from the probe at start. */
+  generationTps?: number | null;
+  /** Last decode benchmark on this port: single-stream tok/s and the best aggregate. */
+  decodeTps1?: number | null;
+  decodeTpsBest?: number | null;
+  decodeBenchAt?: number | null;
+  weightsGb?: number | null;
+  kvCacheGb?: number | null;
+  vramUsedGb?: number | null;
+  vramTotalGb?: number | null;
+}
+
+/** WP4: a pinned reference run for a model family (`qualityFamilyKey`). */
+export interface QualityReference {
+  sparkId: string;
+  benchId: string;
+  modelId: string | null;
+  pinnedAt: number;
+}
+
+/** WP4: `GET /api/quality-bench/runs` — every unit's saved runs (summaries) and the pinned references. */
+export interface QualityFleetResponse {
+  runs: QualityBenchJob[];
+  references: Record<string, QualityReference>;
 }
 
 export interface QualityBenchDefaults {
@@ -1680,6 +1956,7 @@ export interface StartQualityBenchRequest {
   longItems?: number;
   concurrency?: number;
   label?: string;
+  noiseFloor?: boolean;
   modelId?: string | null;
   host?: string;
   tls?: boolean;

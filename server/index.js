@@ -1879,6 +1879,7 @@ app.post("/api/sparks/:id/llm/quality-bench", async (req, res) => {
   // Model id + context length from the live probe; the job falls back to /v1/models.
   let modelId = req.body?.modelId || null;
   let contextLength = null;
+  let backend = null;
   if (!target.custom && monitor) {
     const snap = monitor.snapshot();
     const llmList = Array.isArray(snap?.metrics?.llm) ? snap.metrics.llm : [];
@@ -1889,6 +1890,33 @@ app.post("/api/sparks/:id/llm/quality-bench", async (req, res) => {
       llmList[0];
     if (!modelId) modelId = llm?.modelId || null;
     contextLength = llm?.contextLength ?? null;
+    backend = typeof llm?.backend === "string" ? llm.backend : null;
+  }
+
+  // WP4: the cost side of the run, read once at start: live probe rates and memory, and the last
+  // decode benchmark on this port. Every field may be null; the dashboard shows what it has.
+  const toGb = (v, unit) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Math.round((Number(v) / unit) * 100) / 100 : null);
+  let cost = null;
+  if (!target.custom && monitor) {
+    const snap = monitor.snapshot();
+    const llmList = Array.isArray(snap?.metrics?.llm) ? snap.metrics.llm : [];
+    const portIndex = ports.indexOf(port);
+    const llm = (portIndex >= 0 ? llmList[portIndex] : null) || llmList.find((m) => m?.available) || llmList[0];
+    const gpu = snap?.metrics?.gpu;
+    const decode = decodeBenchManager.getLast(spark.id, port);
+    const waves = Array.isArray(decode?.results) ? decode.results : [];
+    const single = waves.find((w) => Number(w?.concurrency) === 1);
+    cost = {
+      perStreamTps: Number.isFinite(Number(llm?.perStreamTps)) && llm.perStreamTps > 0 ? Math.round(llm.perStreamTps * 10) / 10 : null,
+      generationTps: Number.isFinite(Number(llm?.generationTps)) && llm.generationTps > 0 ? Math.round(llm.generationTps * 10) / 10 : null,
+      decodeTps1: single ? Number(single.medianDecodeTps ?? single.meanDecodeTps) || null : null,
+      decodeTpsBest: waves.length ? Math.max(...waves.map((w) => Number(w?.aggregateDecodeTps) || 0)) || null : null,
+      decodeBenchAt: decode?.startedAt ?? null,
+      weightsGb: Number.isFinite(Number(llm?.weightsGb)) && llm.weightsGb > 0 ? Math.round(llm.weightsGb * 100) / 100 : null,
+      kvCacheGb: Number.isFinite(Number(llm?.kvCacheGb)) && llm.kvCacheGb > 0 ? Math.round(llm.kvCacheGb * 100) / 100 : null,
+      vramUsedGb: toGb(gpu?.vram?.used, 1024),
+      vramTotalGb: toGb(gpu?.vram?.total, 1024),
+    };
   }
 
   try {
@@ -1899,6 +1927,9 @@ app.post("/api/sparks/:id/llm/quality-bench", async (req, res) => {
       port,
       modelId,
       contextLength,
+      backend,
+      unit: { id: spark.id, name: spark.name || spark.id },
+      cost,
       ...options,
       apiKey: target.apiKey,
       host: target.host,
@@ -1977,6 +2008,59 @@ app.get("/api/sparks/:id/llm/quality-bench/:benchId", (req, res) => {
     return res.status(404).json({ error: "Benchmark not found" });
   }
   res.json(job);
+});
+
+/**
+ * Fidelity comparison of two saved runs on the unit: `?with=<benchId>` is the reference (B), the
+ * route's run is the test (A). Paired ΔNLL with a document bootstrap interval, top-1 agreement,
+ * tail loss and the truncated-support divergence, per document and overall.
+ */
+app.get("/api/sparks/:id/llm/quality-bench/:benchId/fidelity-compare", (req, res) => {
+  const spark = registry.getSpark(req.params.id);
+  if (!spark) return res.status(404).json({ error: "Spark not found" });
+  const withId = typeof req.query.with === "string" ? req.query.with : "";
+  if (!withId) return res.status(400).json({ error: "Pass ?with=<benchId> naming the reference run" });
+  // WP4: the reference may sit on another unit (`withSpark`).
+  const withSpark = typeof req.query.withSpark === "string" && req.query.withSpark ? req.query.withSpark : spark.id;
+  if (withSpark !== spark.id && !registry.getSpark(withSpark)) return res.status(404).json({ error: "Reference unit not found" });
+  const out = qualityBenchManager.compareFidelityRuns(spark.id, req.params.benchId, withId, withSpark);
+  if (!out) return res.status(404).json({ error: "Benchmark not found" });
+  res.json(out);
+});
+
+/**
+ * WP4: every unit's saved quality runs (summaries, newest first) with the unit's name, and the
+ * pinned reference run per model family. The dialog offers these as cross-unit compare targets.
+ */
+app.get("/api/quality-bench/runs", (req, res) => {
+  const names = new Map(registry.publicSparks.map((s) => [s.id, s.name || s.id]));
+  const runs = qualityBenchManager.getFleetSummaries().map((j) => ({
+    ...j,
+    unit: j.unit || { id: j.sparkId, name: names.get(j.sparkId) || j.sparkId },
+  }));
+  res.json({ runs, references: qualityBenchManager.getReferences() });
+});
+
+/** WP4: pin a saved run as the reference for its model family; comparisons default to it. */
+app.put("/api/quality-bench/reference", (req, res) => {
+  const sparkId = typeof req.body?.sparkId === "string" ? req.body.sparkId : "";
+  const benchId = typeof req.body?.benchId === "string" ? req.body.benchId : "";
+  if (!sparkId || !benchId) return res.status(400).json({ error: "sparkId and benchId are required" });
+  if (!registry.getSpark(sparkId)) return res.status(404).json({ error: "Spark not found" });
+  const out = qualityBenchManager.setReference(sparkId, benchId);
+  if (!out.ok) {
+    const status = out.reason === "missing" ? 404 : 409;
+    const message =
+      out.reason === "missing" ? "Benchmark not found" : out.reason === "running" ? "This run is still in flight" : "The run has no model id to pin by";
+    return res.status(status).json({ error: message });
+  }
+  res.json({ ok: true, key: out.key, references: qualityBenchManager.getReferences() });
+});
+
+app.delete("/api/quality-bench/reference/:key", (req, res) => {
+  const out = qualityBenchManager.clearReference(req.params.key);
+  if (!out.ok) return res.status(404).json({ error: "No reference pinned under that key" });
+  res.json({ ok: true, references: qualityBenchManager.getReferences() });
 });
 
 app.delete("/api/sparks/:id/llm/quality-bench/:benchId", (req, res) => {

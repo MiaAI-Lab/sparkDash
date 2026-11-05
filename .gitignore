@@ -9,6 +9,8 @@ config/bench-active.json
 config/prefill-bench-history.json
 config/prefill-bench-active.json
 config/quality-bench-history.json
+config/quality-bench-references.json
+config/quality-fidelity/
 config/quality-bench-active.json
 config/showcase-history.json
 config/llm-daily.json

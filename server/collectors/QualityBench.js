@@ -45,6 +45,18 @@ import {
   QUALITY_MAX_LONG_ITEMS,
 } from "../../src/shared/qualityBench.js";
 import { formatLlmBaseUrl } from "../../src/shared/llmTarget.js";
+import { noiseSummary, planPasses, probeEngine, thinkingWarnings } from "./qualityEngine.js";
+import { qualityFamilyKey, qualityIntervals, qualityProfile } from "../../src/shared/qualityBench.js";
+import { runDivergenceItem } from "./qualityDivergence.js";
+import {
+  compareFidelity,
+  deleteFidelitySide,
+  fidelityK,
+  pruneFidelitySides,
+  readFidelitySide,
+  runFidelityItem,
+  writeFidelitySide,
+} from "./qualityFidelity.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -55,9 +67,20 @@ const HISTORY_PATH =
 const ACTIVE_PATH =
   process.env.QUALITY_BENCH_ACTIVE_PATH ||
   path.join(ROOT, "config", "quality-bench-active.json");
+/** WP4: the pinned reference run per model family. */
+const REFERENCES_PATH =
+  process.env.QUALITY_BENCH_REFERENCES_PATH ||
+  path.join(ROOT, "config", "quality-bench-references.json");
 
 const HISTORY_LIMIT = 30;
 const EXCERPT_CHARS = 160;
+/**
+ * Full visible reply kept on rows that need auditing (failed, truncated, disputed), capped so a
+ * 30-run history stays small; thinking categories keep the tail, where the verdict is.
+ */
+const REPLY_KEEP_CHARS = 4000;
+/** Reasoning tail kept on failed thinking rows: where the model went wrong is usually at the end. */
+const REASONING_KEEP_CHARS = 2000;
 /** Abort the run after this many back-to-back request errors (server down, bad model id, …). */
 const MAX_CONSECUTIVE_ERRORS = 8;
 const CHECKPOINT_INTERVAL_MS = 2_000;
@@ -90,7 +113,10 @@ export function normalizeQualityOptions(raw = {}) {
   const concurrency =
     Number.isInteger(cc) && cc >= 1 ? Math.min(cc, QUALITY_MAX_CONCURRENCY) : QUALITY_DEFAULT_CONCURRENCY;
   const label = typeof r.label === "string" ? r.label.replace(/\s+/g, " ").trim().slice(0, QUALITY_LABEL_MAX) : "";
-  return { categories, longSizes, longItems, concurrency, label };
+  // Noise floor: every category runs again at the same settings, and twice more at concurrency 1
+  // when the run is batched, so run-to-run and batch noise are measured beside the score.
+  const noiseFloor = r.noiseFloor === true || r.noiseFloor === "true" || r.noiseFloor === 1;
+  return { categories, longSizes, longItems, concurrency, label, noiseFloor };
 }
 
 /**
@@ -124,6 +150,13 @@ export async function fetchModelInfo(baseUrl, { apiKey = null, signal = null } =
 
 function replyHash(text) {
   return createHash("sha256").update(String(text ?? "")).digest("hex").slice(0, 16);
+}
+
+/** The reply to keep for an audit: the whole visible answer, or its head / tail when very long. */
+function replyKeep(item, answer) {
+  const text = visibleAnswer(answer);
+  if (text.length <= REPLY_KEEP_CHARS) return text;
+  return item.thinking ? `…${text.slice(-REPLY_KEEP_CHARS)}` : `${text.slice(0, REPLY_KEEP_CHARS)}…`;
 }
 
 function excerptOf(item, answer, reasoning) {
@@ -177,6 +210,7 @@ export async function runQualityItem({ baseUrl, modelId, item, abortSignal, apiK
     );
     const answer = String(result.answer || "");
     const reasoning = String(result.reasoning || "");
+    const reasoningTokens = result.usage?.reasoningTokens;
     const row = {
       id: item.id,
       category: item.category,
@@ -186,11 +220,17 @@ export async function runQualityItem({ baseUrl, modelId, item, abortSignal, apiK
       finishReason: result.finishReason || null,
       completionTokens: Number(result.usage?.completionTokens ?? result.completionTokens) || 0,
       promptTokens: Number(result.usage?.promptTokens ?? result.prefillTokens) || 0,
+      // Reasoning as the server counted it (null when it reports none), and the reasoning text's
+      // length, so a thinking-off category that still reasons is visible per row.
+      reasoningTokens: Number.isFinite(reasoningTokens) ? reasoningTokens : null,
+      reasoningChars: reasoning.length,
       durationMs: round2(performance.now() - t0),
       model: result.model || null,
       error: null,
       detail: null,
     };
+    if (item.category === "long") row.size = item.size;
+    row.thinking = Boolean(item.thinking);
     if (timedOut) {
       row.error = `Timed out after ${Math.round(timeoutMs / 1000)}s`;
       return row;
@@ -201,19 +241,33 @@ export async function runQualityItem({ baseUrl, modelId, item, abortSignal, apiK
     }
     const s = scoreItem(item, answer);
     row.ok = Boolean(s.ok);
+    if (item.disputed) row.disputed = true;
+    // Only rows a reader may need to audit carry the full reply: a pass is its own evidence.
+    if (!row.ok || row.disputed) row.reply = replyKeep(item, answer);
+    if (!row.ok && reasoning) {
+      row.reasoning = reasoning.length <= REASONING_KEEP_CHARS ? reasoning : `…${reasoning.slice(-REASONING_KEEP_CHARS)}`;
+    }
     if (item.category === "long") {
       row.longCorrect = s.correct;
       row.longTotal = s.total;
       row.longStale = s.stale;
+      row.gradeCorrect = s.correct;
+      row.gradeTotal = s.total;
       row.detail = `${s.correct}/${s.total} keys${s.stale ? `, ${s.stale} stale` : ""}`;
+    } else if (Number(s.gradeTotal) > 0) {
+      // Suite v2 graded scorers (arithmetic steps, tracked people): the grade beside the parsed answer.
+      row.gradeCorrect = s.gradeCorrect;
+      row.gradeTotal = s.gradeTotal;
+      row.detail = [s.parsed != null ? `parsed ${s.parsed}` : s.labeled === false ? "no 'Answer:' line" : "could not read the 'Answer:' line", s.detail].filter(Boolean).join(" · ");
     } else if (item.category === "follow") {
-      row.detail = `${s.passed}/${s.total} rules`;
+      row.detail = `${s.passed}/${s.total} rules${s.failed?.length ? ` · failed: ${s.failed.join(", ")}` : ""}`;
     } else if ("parsed" in s) {
       // "no 'Answer:' line" only when the reply truly has none; a present-but-unreadable line
       // (e.g. "Answer: five", "Answer: B or C") says so.
       if (s.parsed != null) row.detail = `parsed ${s.parsed}`;
       else row.detail = s.labeled === false ? "no 'Answer:' line" : "could not read the 'Answer:' line";
     }
+    if (item.disputed) row.detail = `${row.detail ? `${row.detail} · ` : ""}disputed reference, not scored: ${item.disputed}`;
     return row;
   } finally {
     clearTimeout(timer);
@@ -227,9 +281,23 @@ function summaryOf(job) {
   const { results, ...rest } = job;
   return {
     ...rest,
-    results: results
-      ? { categories: results.categories, overallPct: results.overallPct, skippedLongSizes: results.skippedLongSizes, itemCount: results.items?.length ?? 0 }
-      : results,
+    results: results ? resultsSummary(results) : results,
+  };
+}
+
+/** The results without per-item rows (and without the noise-floor passes' rows). */
+function resultsSummary(results) {
+  return {
+    categories: results.categories,
+    overallPct: results.overallPct,
+    skippedLongSizes: results.skippedLongSizes,
+    itemCount: results.items?.length ?? 0,
+    ...(results.noise ? { noise: results.noise } : {}),
+    ...(results.longTokens ? { longTokens: results.longTokens } : {}),
+    ...(results.overallCi ? { overallCi: results.overallCi } : {}),
+    ...(results.warnings?.length ? { warnings: results.warnings } : {}),
+    ...(results.fidelity ? { fidelity: results.fidelity } : {}),
+    ...(results.fidelityUnsupported ? { fidelityUnsupported: results.fidelityUnsupported } : {}),
   };
 }
 
@@ -239,15 +307,7 @@ function summaryOf(job) {
  *   default (the dialog polls every second; the rows are only needed once it finishes).
  */
 function publicJob(job, { full = job.status !== "running" } = {}) {
-  const results =
-    full || !job.results
-      ? job.results
-      : {
-          categories: job.results.categories,
-          overallPct: job.results.overallPct,
-          skippedLongSizes: job.results.skippedLongSizes,
-          itemCount: job.results.items?.length ?? 0,
-        };
+  const results = full || !job.results ? job.results : resultsSummary(job.results);
   return {
     benchId: job.benchId,
     sparkId: job.sparkId,
@@ -257,6 +317,11 @@ function publicJob(job, { full = job.status !== "running" } = {}) {
     config: { ...job.config },
     progress: { ...job.progress },
     results,
+    // WP0: the engine's build record and measured capabilities (null until probed).
+    engine: job.engine ?? null,
+    // WP4: the unit the run was made on and the cost side read from the probe at start.
+    unit: job.unit ?? null,
+    cost: job.cost ?? null,
     error: job.error,
     durationMs:
       job.completedAt != null ? job.completedAt - job.startedAt : Date.now() - job.startedAt,
@@ -269,9 +334,15 @@ function emptyResults() {
 }
 
 export class QualityBenchManager {
-  constructor(historyPath = HISTORY_PATH, activePath = ACTIVE_PATH) {
+  constructor(historyPath = HISTORY_PATH, activePath = ACTIVE_PATH, fidelityDir = undefined, referencesPath = REFERENCES_PATH) {
     /** @type {Map<string, object>} */
     this.jobs = new Map();
+    /** Where fidelity side files live; undefined = the module default (config/quality-fidelity). */
+    this.fidelityDir = fidelityDir;
+    this.referencesPath = referencesPath;
+    /** @type {Record<string, { sparkId: string, benchId: string, modelId: string | null, pinnedAt: number }>} family key → reference run */
+    this.references = {};
+    this._loadReferences();
     /** @type {Map<string, string>} */
     this.activeBySpark = new Map();
     /** @type {Map<string, object[]>} */
@@ -362,7 +433,95 @@ export class QualityBenchManager {
       }
     }
     this._saveHistory();
+    this._pruneFidelity();
     return { ok: true };
+  }
+
+  // ── WP4: fleet listing and reference pinning ────────────────────────────────────────────
+
+  /** Every unit's saved runs, summaries only, newest first across the fleet. */
+  getFleetSummaries() {
+    const out = [];
+    for (const [sparkId, list] of this.historyBySpark.entries()) {
+      for (const j of list) out.push({ ...summaryOf(j), sparkId });
+    }
+    out.sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
+    return out;
+  }
+
+  _loadReferences() {
+    try {
+      if (!fs.existsSync(this.referencesPath)) return;
+      const data = JSON.parse(fs.readFileSync(this.referencesPath, "utf8"));
+      if (data && typeof data === "object" && !Array.isArray(data)) this.references = data;
+    } catch (err) {
+      console.warn("[QualityBench] failed to load references:", err?.message || err);
+    }
+  }
+
+  _saveReferences() {
+    try {
+      atomicWrite(this.referencesPath, JSON.stringify(this.references, null, 2), 0o600);
+    } catch (err) {
+      console.warn("[QualityBench] failed to save references:", err?.message || err);
+    }
+  }
+
+  getReferences() {
+    return { ...this.references };
+  }
+
+  /** The pinned reference for a model id's family, or null. */
+  referenceFor(modelId) {
+    const key = qualityFamilyKey(modelId);
+    return key && this.references[key] ? { key, ...this.references[key] } : null;
+  }
+
+  /**
+   * Pin a saved run as the reference for its model family (comparisons default to it).
+   * @returns {{ ok: true, key: string } | { ok: false, reason: "missing" | "running" | "no-model" }}
+   */
+  setReference(sparkId, benchId) {
+    const job = this.getJob(benchId);
+    if (!job || job.sparkId !== sparkId) return { ok: false, reason: "missing" };
+    if (job.status === "running") return { ok: false, reason: "running" };
+    const key = qualityFamilyKey(job.config?.modelId);
+    if (!key) return { ok: false, reason: "no-model" };
+    this.references[key] = { sparkId, benchId, modelId: job.config.modelId, pinnedAt: Date.now() };
+    this._saveReferences();
+    return { ok: true, key };
+  }
+
+  clearReference(key) {
+    if (!this.references[key]) return { ok: false, reason: "missing" };
+    delete this.references[key];
+    this._saveReferences();
+    return { ok: true };
+  }
+
+  /** Every run id still in some history list; fidelity side files outside it are dropped. */
+  _pruneFidelity() {
+    const keep = [];
+    for (const list of this.historyBySpark.values()) for (const j of list) keep.push(j.benchId);
+    for (const job of this.jobs.values()) keep.push(job.benchId);
+    pruneFidelitySides(keep, this.fidelityDir);
+  }
+
+  /** The per-position fidelity data of a saved run (null when the run has none). */
+  getFidelitySide(benchId) {
+    return readFidelitySide(benchId, this.fidelityDir);
+  }
+
+  /**
+   * Fidelity comparison of a test run (A) against a reference run (B). The reference may sit on
+   * another unit (WP4 cross-unit compare); each run must exist on the unit named for it.
+   */
+  compareFidelityRuns(sparkId, benchIdA, benchIdB, sparkIdB = sparkId) {
+    const a = this.getJob(benchIdA);
+    const b = this.getJob(benchIdB);
+    if (!a || a.sparkId !== sparkId || !b || b.sparkId !== sparkIdB) return null;
+    const out = compareFidelity(this.getFidelitySide(benchIdA), this.getFidelitySide(benchIdB));
+    return { a: benchIdA, b: benchIdB, ...out };
   }
 
   /**
@@ -384,6 +543,7 @@ export class QualityBenchManager {
     // `GET …/:benchId` stops answering for a run the user deleted.
     if (job && job.sparkId === sparkId) this.jobs.delete(benchId);
     this._saveHistory();
+    deleteFidelitySide(benchId, this.fidelityDir);
     return { ok: true };
   }
 
@@ -578,6 +738,9 @@ export class QualityBenchManager {
       host: rawHost = null,
       tls: rawTls = false,
       owner = null,
+      backend = null,
+      unit = null,
+      cost = null,
     } = opts;
 
     if (this.activeBySpark.has(sparkId)) {
@@ -623,6 +786,8 @@ export class QualityBenchManager {
         contextLength: Number.isFinite(ctx) && ctx > 0 ? Math.round(ctx) : null,
         suiteVersion: SUITE_VERSION,
         scoringVersion: SCORING_VERSION,
+        // WP1: only a named profile carries a headline overall; a custom category set is a partial run.
+        profile: qualityProfile(settings.categories),
         ...settings,
         ...(rawHost ? { host: String(rawHost).trim(), tls: Boolean(rawTls) } : {}),
       },
@@ -635,9 +800,13 @@ export class QualityBenchManager {
         message: "Starting…",
       },
       results: emptyResults(),
+      engine: null,
+      unit: unit && typeof unit === "object" && unit.id ? { id: String(unit.id), name: String(unit.name || unit.id) } : { id: sparkId, name: sparkId },
+      cost: cost && typeof cost === "object" ? { ...cost } : null,
       error: null,
       _abort: new AbortController(),
       _fatal: null,
+      _backend: typeof backend === "string" && backend.trim() ? backend.trim() : null,
       _apiKey: apiKey != null && String(apiKey).trim() ? String(apiKey).trim() : null,
       _resolveTarget: typeof resolveTarget === "function" ? resolveTarget : null,
       _closeTarget: null,
@@ -673,16 +842,41 @@ export class QualityBenchManager {
   _updateSummary(job) {
     const { categories, overallPct } = summarize(job.results.items);
     job.results.categories = categories;
-    job.results.overallPct = overallPct;
+    job.results.overallPct = job.config.profile === "custom" ? null : overallPct;
+    // Early warning while the run is still going, so a model that ignores "thinking off" is
+    // noticed after ten rows rather than after a wasted hour.
+    job.results.warnings = thinkingWarnings(job.results.items);
   }
 
   /** Sort rows into suite order and summarize — once, when the job ends. */
   _finalizeResults(job) {
     const order = new Map((job._suiteOrder || []).map((id, i) => [id, i]));
-    job.results.items.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+    const bySuite = (a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0);
+    job.results.items.sort(bySuite);
     const { categories, overallPct } = summarize(job.results.items);
     job.results.categories = categories;
-    job.results.overallPct = overallPct;
+    job.results.overallPct = job.config.profile === "custom" ? null : overallPct;
+    job.results.warnings = thinkingWarnings(job.results.items, { final: true });
+    // WP1 intervals: the overall's stratified bootstrap and the prompt-clustered long-recall interval.
+    const intervals = qualityIntervals(job.results.items);
+    job.results.overallCi = job.results.overallPct != null ? intervals.overallCi : null;
+    if (intervals.keysCi && categories.long) categories.long.keysCi = intervals.keysCi;
+    for (const [category, ci] of Object.entries(intervals.gradeCi)) if (categories[category]) categories[category].gradeCi = ci;
+    if (Array.isArray(job.results.passes) && job.results.passes.length) {
+      for (const p of job.results.passes) p.items.sort(bySuite);
+      job.results.noise = noiseSummary(job.results.items, job.results.passes, job.config.concurrency);
+    }
+    // Measured prompt tokens per long size (the sizes themselves are word-count estimates).
+    const longRows = job.results.items.filter((r) => r.category === "long" && r.size && r.promptTokens > 0);
+    if (longRows.length) {
+      /** @type {Record<string, number>} */
+      const longTokens = {};
+      for (const size of new Set(longRows.map((r) => r.size))) {
+        const rows = longRows.filter((r) => r.size === size);
+        longTokens[size] = Math.round(rows.reduce((n, r) => n + r.promptTokens, 0) / rows.length);
+      }
+      job.results.longTokens = longTokens;
+    }
   }
 
   async _runJob(job, lanIp) {
@@ -715,67 +909,150 @@ export class QualityBenchManager {
         if (job.config.contextLength == null && info.contextLength) job.config.contextLength = info.contextLength;
       }
 
+      // WP0: what the engine is and what it can do, on the run itself. A probe that fails leaves
+      // a reason, never a failed run.
+      if (!signal.aborted) {
+        job.progress.message = "Probing engine…";
+        this._checkpointActive();
+        try {
+          job.engine = await probeEngine(baseUrl, {
+            modelId: job.config.modelId,
+            apiKey: job._apiKey,
+            signal,
+            backend: job._backend,
+          });
+        } catch (err) {
+          job.engine = { record: null, capabilities: null, error: err?.message || String(err), probedAt: Date.now() };
+        }
+        if (!job.config.modelId && job.engine?.record?.modelId) job.config.modelId = job.engine.record.modelId;
+        if (job.config.contextLength == null && job.engine?.record?.contextLength) {
+          job.config.contextLength = job.engine.record.contextLength;
+        }
+      }
+
       const { run: longSizes, skipped } = longSizesForContext(job.config.longSizes, job.config.contextLength);
       job.results.skippedLongSizes = skipped;
-      const items = generateSuite({
+      let items = generateSuite({
         categories: job.config.categories,
         longSizes,
         longItems: job.config.longItems,
       });
+      // WP2 fidelity: only where the probe measured prompt logprobs; "unsupported" is reported on
+      // the run, never run into eight errors.
+      const fidelityItems = items.filter((it) => it.category === "fidelity");
+      if (fidelityItems.length) {
+        const cap = job.engine?.capabilities;
+        if (cap && cap.promptLogprobs === false) {
+          job.results.fidelityUnsupported = cap.reason || "the engine returns no prompt log-probabilities";
+          items = items.filter((it) => it.category !== "fidelity");
+        } else {
+          const k = fidelityK(cap);
+          job.results.fidelity = {
+            corpusVersion: fidelityItems[0].corpusVersion,
+            corpusSha256: fidelityItems[0].corpusSha256,
+            k,
+            docs: fidelityItems.length,
+          };
+          job._fidelityK = k;
+          job._fidelitySide = { docs: {} };
+        }
+      }
       job._suiteOrder = items.map((it) => it.id);
-      job.progress.total = items.length;
-      if (!items.length) throw new Error("Nothing to run — every selected long size exceeds the model context");
-
-      let consecutiveErrors = 0;
-      for (const category of QUALITY_CATEGORIES) {
-        if (signal.aborted) break;
-        const catItems = items.filter((it) => it.category === category);
-        if (!catItems.length) continue;
-        job.progress.currentCategory = category;
-        job.progress.categoryDone = 0;
-        job.progress.categoryTotal = catItems.length;
-        job.progress.message = `${QUALITY_CATEGORY_LABELS[category]}…`;
-        this._checkpointActive();
-
-        const width = category === "long" ? 1 : job.config.concurrency;
-        let next = 0;
-        const worker = async () => {
-          while (!signal.aborted) {
-            const item = catItems[next++];
-            if (!item) return;
-            if (category === "long") {
-              job.progress.message = `Long-context recall ${longSizeLabel(item.size)}…`;
-            }
-            const row = await runQualityItem({
-              baseUrl,
-              modelId: job.config.modelId,
-              item,
-              abortSignal: signal,
-              apiKey: job._apiKey,
-            });
-            if (signal.aborted) return;
-            if (row.model && !job.config.modelId) job.config.modelId = row.model;
-            delete row.model;
-            job.results.items.push(row);
-            job.progress.categoryDone += 1;
-            job.progress.done += 1;
-            if (row.error) {
-              consecutiveErrors += 1;
-              if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS && !job._fatal) {
-                job._fatal = `Stopped after ${MAX_CONSECUTIVE_ERRORS} failed requests in a row: ${row.error}`;
-                job._abort.abort();
-              }
-            } else {
-              consecutiveErrors = 0;
-            }
-            this._updateSummary(job);
-            this._checkpointActive(false);
-          }
-        };
-        await Promise.all(Array.from({ length: Math.min(width, catItems.length) }, worker));
+      const passes = planPasses(job.config.concurrency, job.config.noiseFloor);
+      if (passes.length > 1) {
+        job.results.passes = passes.slice(1).map((p) => ({ index: p.index, kind: p.kind, concurrency: p.concurrency, items: [] }));
+      }
+      job.progress.total = items.length * passes.length;
+      if (!items.length) {
+        throw new Error(
+          job.results.fidelityUnsupported
+            ? `Nothing to run — fidelity is unsupported on this engine: ${job.results.fidelityUnsupported}`
+            : "Nothing to run — every selected long size exceeds the model context"
+        );
       }
 
-      if (job._fatal) {
+      let consecutiveErrors = 0;
+      for (const pass of passes) {
+        if (signal.aborted) break;
+        const sink = pass.index === 0 ? job.results.items : job.results.passes[pass.index - 1].items;
+        const passTag = passes.length > 1 ? ` (pass ${pass.index + 1}/${passes.length}, concurrency ${pass.concurrency})` : "";
+        for (const category of QUALITY_CATEGORIES) {
+          if (signal.aborted) break;
+          const catItems = items.filter((it) => it.category === category);
+          if (!catItems.length) continue;
+          job.progress.currentCategory = category;
+          job.progress.categoryDone = 0;
+          job.progress.categoryTotal = catItems.length;
+          job.progress.message = `${QUALITY_CATEGORY_LABELS[category]}${passTag}…`;
+          this._checkpointActive();
+
+          const width = category === "long" || category === "fidelity" ? 1 : pass.concurrency;
+          let next = 0;
+          const worker = async () => {
+            while (!signal.aborted) {
+              const item = catItems[next++];
+              if (!item) return;
+              if (category === "long") {
+                job.progress.message = `Long-context recall ${longSizeLabel(item.size)}${passTag}…`;
+              }
+              let row;
+              if (category === "fidelity") {
+                job.progress.message = `Fidelity ${item.docId} (~${Math.round(item.chars / 3).toLocaleString("en-US")} tokens)${passTag}…`;
+                const out = await runFidelityItem({
+                  baseUrl,
+                  modelId: job.config.modelId,
+                  item,
+                  k: job._fidelityK,
+                  abortSignal: signal,
+                  apiKey: job._apiKey,
+                });
+                row = out.row;
+                if (out.side && pass.index === 0 && job._fidelitySide) job._fidelitySide.docs[item.id] = out.side;
+              } else if (category === "divergence") {
+                row = await runDivergenceItem({
+                  baseUrl,
+                  modelId: job.config.modelId,
+                  item,
+                  abortSignal: signal,
+                  apiKey: job._apiKey,
+                });
+              } else {
+                row = await runQualityItem({
+                  baseUrl,
+                  modelId: job.config.modelId,
+                  item,
+                  abortSignal: signal,
+                  apiKey: job._apiKey,
+                });
+              }
+              if (signal.aborted) return;
+              if (row.model && !job.config.modelId) job.config.modelId = row.model;
+              delete row.model;
+              sink.push(row);
+              job.progress.categoryDone += 1;
+              job.progress.done += 1;
+              if (row.error) {
+                consecutiveErrors += 1;
+                if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS && !job._fatal) {
+                  job._fatal = `Stopped after ${MAX_CONSECUTIVE_ERRORS} failed requests in a row: ${row.error}`;
+                  job._abort.abort();
+                }
+              } else {
+                consecutiveErrors = 0;
+              }
+              if (pass.index === 0) this._updateSummary(job);
+              this._checkpointActive(false);
+            }
+          };
+          await Promise.all(Array.from({ length: Math.min(width, catItems.length) }, worker));
+        }
+      }
+
+      // A run interruptAll already closed (server shutdown or reload) keeps its "failed" status and
+      // reason; the abort it saw was not a user's cancel.
+      if (job.status !== "running") {
+        /* already finalised */
+      } else if (job._fatal) {
         job.status = "failed";
         job.error = job._fatal;
         job.progress.message = "Failed";
@@ -783,7 +1060,7 @@ export class QualityBenchManager {
         job.status = "cancelled";
         job.error = "Cancelled by user";
         job.progress.message = "Cancelled";
-      } else if (job.status === "running") {
+      } else {
         job.status = "completed";
         job.progress.message = "Done";
       }
@@ -813,6 +1090,27 @@ export class QualityBenchManager {
       job._closeTarget = null;
       if (job.completedAt == null) job.completedAt = Date.now();
       this._finalizeResults(job);
+      // The per-position fidelity data goes to its side file; the history keeps only the summary.
+      if (job._fidelitySide && Object.keys(job._fidelitySide.docs).length) {
+        try {
+          writeFidelitySide(
+            job.benchId,
+            {
+              benchId: job.benchId,
+              sparkId: job.sparkId,
+              modelId: job.config.modelId,
+              corpusVersion: job.results.fidelity?.corpusVersion ?? null,
+              corpusSha256: job.results.fidelity?.corpusSha256 ?? null,
+              k: job._fidelityK,
+              docs: job._fidelitySide.docs,
+            },
+            this.fidelityDir
+          );
+          if (job.results.fidelity) job.results.fidelity.sideFile = true;
+        } catch (err) {
+          console.warn("[QualityBench] failed to save fidelity side data:", err?.message || err);
+        }
+      }
       // Only release the Spark if it still points at this job.
       if (this.activeBySpark.get(job.sparkId) === job.benchId) this.activeBySpark.delete(job.sparkId);
       this._pushHistory(job);
@@ -829,8 +1127,10 @@ export class QualityBenchManager {
     const existing = list.findIndex((j) => j.benchId === pub.benchId);
     if (existing >= 0) list.splice(existing, 1);
     list.unshift(pub);
-    this.historyBySpark.set(job.sparkId, list.slice(0, HISTORY_LIMIT));
+    const trimmed = list.slice(0, HISTORY_LIMIT);
+    this.historyBySpark.set(job.sparkId, trimmed);
     this._saveHistory();
+    if (list.length > trimmed.length) this._pruneFidelity();
   }
 }
 

@@ -47,6 +47,8 @@ import type {
   StartPrefillBenchRequest,
   QualityBenchJob,
   QualityBenchListResponse,
+  QualityFidelityCompare,
+  QualityFleetResponse,
   StartQualityBenchRequest,
 } from "./types";
 import { authHeaders, reportAuthRequired } from "./authToken";
@@ -377,6 +379,32 @@ export function startQualityBench(
 }
 
 /** Full run (with per-item rows) — active or from history. */
+/** WP2: fidelity comparison of run `benchId` (test) against `withId` (reference); WP4: the reference may be on `withSpark`. */
+export function getQualityFidelityCompare(
+  id: string,
+  benchId: string,
+  withId: string,
+  withSpark?: string | null
+): Promise<QualityFidelityCompare> {
+  const params = new URLSearchParams({ with: withId });
+  if (withSpark && withSpark !== id) params.set("withSpark", withSpark);
+  return apiFetch(`/api/sparks/${id}/llm/quality-bench/${benchId}/fidelity-compare?${params}`);
+}
+
+/** WP4: every unit's saved quality runs (summaries) and the pinned references. */
+export function listQualityBenchFleet(): Promise<QualityFleetResponse> {
+  return apiFetch("/api/quality-bench/runs");
+}
+
+/** WP4: pin a saved run as the reference for its model family. */
+export function setQualityReference(sparkId: string, benchId: string): Promise<{ ok: boolean; key?: string }> {
+  return apiFetch("/api/quality-bench/reference", { method: "PUT", body: JSON.stringify({ sparkId, benchId }) });
+}
+
+export function clearQualityReference(key: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/quality-bench/reference/${encodeURIComponent(key)}`, { method: "DELETE" });
+}
+
 export function getQualityBench(
   id: string,
   benchId: string
