@@ -501,6 +501,27 @@ describe("QualityBenchDialog", () => {
     expect(document.querySelector('[role="status"][aria-live="polite"]')?.textContent).toContain("Running");
   });
 
+  it("offers to resume an interrupted run from its scored rows and polls the relaunched job", async () => {
+    const interrupted = run("b4", "exl3", [true, true, false], "a");
+    interrupted.status = "failed";
+    interrupted.error = "Interrupted — server restarted while the benchmark was running";
+    interrupted.resumable = true;
+    interrupted.progress = { ...interrupted.progress, done: 3, total: 40 };
+    const relaunched = { ...interrupted, status: "running" as const, error: null, resumable: undefined, resumes: 1, resumedFrom: 3, progress: { ...interrupted.progress, message: "Resuming from 3 scored items…" } };
+    vi.mocked(listQualityBench).mockReset().mockResolvedValue({ active: null, last: interrupted, history: [interrupted], defaults });
+    vi.mocked(resumeQualityBench).mockResolvedValue(relaunched);
+    vi.mocked(getQualityBench).mockResolvedValue(relaunched);
+    render(<QualityBenchDialog open onClose={() => {}} sparkId="s1" llmPort={8888} modelId="test-model" contextLength={32768} />);
+    await flush();
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    const resume = [...dialog.querySelectorAll("button")].filter((b) => b.textContent === "Resume from 3 scored");
+    expect(resume.length).toBeGreaterThan(0);
+    await act(async () => resume[0].click());
+    await flush();
+    expect(resumeQualityBench).toHaveBeenCalledWith("s1", "b4");
+    expect(document.querySelector('[role="status"][aria-live="polite"]')?.textContent).toContain("Running");
+  });
+
   it("disables long sizes with the server's context rule (1.2x + 512)", async () => {
     const current = run("b2", "x", [true], "a");
     current.config.categories = ["long"];

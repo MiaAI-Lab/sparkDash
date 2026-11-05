@@ -439,7 +439,10 @@ export function pauseQualityBench(id: string, benchId: string): Promise<QualityB
   return apiFetch(`/api/sparks/${id}/llm/quality-bench/${benchId}/pause`, { method: "POST" });
 }
 
-/** Resume a paused run from the next item. */
+/**
+ * Resume a paused run from the next item, or relaunch a finished run (interrupted, stopped or
+ * cancelled) from its saved rows under the same id. 409 when there is nothing to continue.
+ */
 export function resumeQualityBench(id: string, benchId: string): Promise<QualityBenchJob> {
   return apiFetch(`/api/sparks/${id}/llm/quality-bench/${benchId}/resume`, { method: "POST" });
 }

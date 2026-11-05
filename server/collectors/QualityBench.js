@@ -278,11 +278,30 @@ export async function runQualityItem({ baseUrl, modelId, item, abortSignal, apiK
 /** Summary-only copy for history listings (drops per-item rows). */
 function summaryOf(job) {
   if (!job) return job;
-  const { results, ...rest } = job;
+  const { results, ...rest } = withResumable(job);
   return {
     ...rest,
     results: results ? resultsSummary(results) : results,
   };
+}
+
+/**
+ * A finished run that still has items to score can be relaunched from its saved rows: one killed
+ * by a server restart, stopped by an error streak, or cancelled. It must have been scored by this
+ * server's suite and scoring rules, or the old and new rows would not be comparable.
+ */
+export function isResumable(record) {
+  if (!record || record.status === "running" || record.status === "completed") return false;
+  const c = record.config || {};
+  if (c.suiteVersion !== SUITE_VERSION || c.scoringVersion !== SCORING_VERSION) return false;
+  const total = Number(record.progress?.total) || 0;
+  const done = Number(record.progress?.done) || 0;
+  return total > 0 && done < total && done > 0 && Array.isArray(record.results?.items);
+}
+
+/** A stored record with `resumable` set for the dialog. */
+function withResumable(record) {
+  return record && record.status !== "running" ? { ...record, resumable: isResumable(record) } : record;
 }
 
 /** The results without per-item rows (and without the noise-floor passes' rows). */
@@ -325,6 +344,8 @@ function publicJob(job, { full = job.status !== "running" } = {}) {
     error: job.error,
     // Paused: the gate is closed between items; in-flight replies finish first. The clock below
     // excludes the time spent paused, so a run paused overnight still reports its working time.
+    // Relaunched from saved rows: how many times, when last, and how many rows it took over.
+    ...(job.resumes ? { resumes: job.resumes, resumedAt: job.resumedAt ?? null, resumedFrom: job.resumedFrom ?? null } : {}),
     paused: Boolean(job.paused),
     pausedAt: job.pausedAt ?? null,
     pausedMs: pausedMsOf(job),
@@ -391,10 +412,10 @@ export class QualityBenchManager {
   /** @param {{ full?: boolean }} [opts] full: include per-item rows even while running */
   getJob(benchId, opts = {}) {
     const job = this.jobs.get(benchId);
-    if (job) return publicJob(job, opts.full ? { full: true } : undefined);
+    if (job) return withResumable(publicJob(job, opts.full ? { full: true } : undefined));
     for (const list of this.historyBySpark.values()) {
       const found = list.find((j) => j.benchId === benchId);
-      if (found) return found;
+      if (found) return withResumable(found);
     }
     return null;
   }
@@ -424,11 +445,11 @@ export class QualityBenchManager {
     if (port != null) {
       const p = Number(port);
       const match = hist.find((j) => j.config?.port === p && j.results?.items?.length > 0);
-      if (match) return match;
+      if (match) return withResumable(match);
       const anyPort = hist.find((j) => j.config?.port === p);
-      if (anyPort) return anyPort;
+      if (anyPort) return withResumable(anyPort);
     }
-    return hist[0] || null;
+    return withResumable(hist[0] || null);
   }
 
   clearHistory(sparkId, port = null) {
@@ -754,21 +775,7 @@ export class QualityBenchManager {
       cost = null,
     } = opts;
 
-    if (this.activeBySpark.has(sparkId)) {
-      const err = new Error("A quality benchmark is already running for this Spark");
-      err.status = 409;
-      throw err;
-    }
-    if (decodeBenchManager.getActive(sparkId)) {
-      const err = new Error("A decode benchmark is already running for this Spark");
-      err.status = 409;
-      throw err;
-    }
-    if (prefillBenchManager.getActive(sparkId)) {
-      const err = new Error("A prefill benchmark is already running for this Spark");
-      err.status = 409;
-      throw err;
-    }
+    this._assertUnitFree(sparkId);
 
     const settings = normalizeQualityOptions(opts);
     if (!settings.categories.length) {
@@ -829,8 +836,30 @@ export class QualityBenchManager {
       owner: owner ? { id: owner.id, via: owner.via } : null,
     };
 
-    this.jobs.set(benchId, job);
-    this.activeBySpark.set(sparkId, benchId);
+    return this._launch(job, lanIp);
+  }
+
+  _assertUnitFree(sparkId) {
+    if (this.activeBySpark.has(sparkId)) {
+      const err = new Error("A quality benchmark is already running for this Spark");
+      err.status = 409;
+      throw err;
+    }
+    if (decodeBenchManager.getActive(sparkId)) {
+      const err = new Error("A decode benchmark is already running for this Spark");
+      err.status = 409;
+      throw err;
+    }
+    if (prefillBenchManager.getActive(sparkId)) {
+      const err = new Error("A prefill benchmark is already running for this Spark");
+      err.status = 409;
+      throw err;
+    }
+  }
+
+  _launch(job, lanIp) {
+    this.jobs.set(job.benchId, job);
+    this.activeBySpark.set(job.sparkId, job.benchId);
     this._checkpointActive();
 
     this._runJob(job, lanIp).catch(() => {
@@ -838,6 +867,91 @@ export class QualityBenchManager {
     });
 
     return publicJob(job);
+  }
+
+  /**
+   * Relaunch a finished run from its saved rows, under the same id. The rows already scored stay
+   * and their items are skipped; the rest run as a new job with the record's settings. Fidelity
+   * rows are rerun (their per-position data is only written when a run finishes). The time the
+   * run was down counts as paused, so its clock stays the working time. The record leaves the
+   * history while the run is live and takes its place again when it ends.
+   * @param {string} sparkId
+   * @param {string} benchId
+   * @param {{ lanIp: string, apiKey?: string | null, resolveTarget?: Function | null, backend?: string | null,
+   *   unit?: { id: string, name: string } | null, cost?: object | null, owner?: object | null }} opts
+   */
+  resumeRun(sparkId, benchId, opts) {
+    const list = this.getHistory(sparkId);
+    const record = list.find((j) => j.benchId === benchId);
+    if (!record) {
+      const err = new Error("Benchmark not found");
+      err.status = 404;
+      throw err;
+    }
+    if (!isResumable(record)) {
+      const err = new Error(
+        record.status === "completed"
+          ? "This run finished; nothing to resume"
+          : record.config?.suiteVersion !== SUITE_VERSION || record.config?.scoringVersion !== SCORING_VERSION
+            ? "This run was scored by an older suite; its rows cannot be continued with the current rules"
+            : "This run has no scored rows to continue from"
+      );
+      err.status = 409;
+      throw err;
+    }
+    this._assertUnitFree(sparkId);
+
+    const now = Date.now();
+    const keep = (rows) => (Array.isArray(rows) ? rows.filter((r) => r && r.category !== "fidelity") : []);
+    const passes = Array.isArray(record.results.passes)
+      ? record.results.passes.map((p) => ({ index: p.index, kind: p.kind, concurrency: p.concurrency, items: keep(p.items) }))
+      : undefined;
+    const items = keep(record.results.items);
+    const done = items.length + (passes ? passes.reduce((n, p) => n + p.items.length, 0) : 0);
+    const downtime = record.completedAt != null ? Math.max(0, now - record.completedAt) : 0;
+    const job = {
+      benchId,
+      sparkId,
+      status: "running",
+      startedAt: record.startedAt,
+      completedAt: null,
+      config: { ...record.config },
+      progress: {
+        currentCategory: null,
+        categoryDone: 0,
+        categoryTotal: 0,
+        done,
+        total: record.progress.total,
+        message: `Resuming from ${done.toLocaleString("en-US")} scored items…`,
+      },
+      results: { ...emptyResults(), items, skippedLongSizes: record.results.skippedLongSizes || [], ...(passes ? { passes } : {}) },
+      engine: record.engine ?? null,
+      unit: opts.unit && opts.unit.id ? { id: String(opts.unit.id), name: String(opts.unit.name || opts.unit.id) } : record.unit ?? null,
+      cost: opts.cost && typeof opts.cost === "object" ? { ...opts.cost } : record.cost ?? null,
+      error: null,
+      paused: false,
+      pausedAt: null,
+      pausedMs: (record.pausedMs || 0) + downtime,
+      resumes: (record.resumes || 0) + 1,
+      resumedAt: now,
+      resumedFrom: done,
+      _abort: new AbortController(),
+      _fatal: null,
+      _resume: null,
+      _inFlight: 0,
+      _backend: typeof opts.backend === "string" && opts.backend.trim() ? opts.backend.trim() : record.engine?.record?.backend ?? null,
+      _apiKey: opts.apiKey != null && String(opts.apiKey).trim() ? String(opts.apiKey).trim() : null,
+      _resolveTarget: typeof opts.resolveTarget === "function" ? opts.resolveTarget : null,
+      _closeTarget: null,
+      owner: opts.owner ? { id: opts.owner.id, via: opts.owner.via } : record.owner || null,
+    };
+    this._updateSummary(job);
+    // The record comes back under the same id when the run ends (or is interrupted again).
+    const rest = list.filter((j) => j.benchId !== benchId);
+    if (rest.length) this.historyBySpark.set(sparkId, rest);
+    else this.historyBySpark.delete(sparkId);
+    this._saveHistory();
+    return this._launch(job, opts.lanIp);
   }
 
   cancel(sparkId, benchId) {
@@ -1039,9 +1153,21 @@ export class QualityBenchManager {
       job._suiteOrder = items.map((it) => it.id);
       const passes = planPasses(job.config.concurrency, job.config.noiseFloor);
       if (passes.length > 1) {
-        job.results.passes = passes.slice(1).map((p) => ({ index: p.index, kind: p.kind, concurrency: p.concurrency, items: [] }));
+        // A resumed run brings the rows its extra passes already scored.
+        const prior = Array.isArray(job.results.passes) ? job.results.passes : [];
+        job.results.passes = passes
+          .slice(1)
+          .map((p) => ({ index: p.index, kind: p.kind, concurrency: p.concurrency, items: prior.find((q) => q.index === p.index)?.items ?? [] }));
       }
       job.progress.total = items.length * passes.length;
+      if (job.resumes) {
+        // Rows of items the current suite no longer generates (a dropped category) are let go.
+        const known = new Set(items.map((it) => it.id));
+        job.results.items = job.results.items.filter((r) => known.has(r.id));
+        for (const p of job.results.passes || []) p.items = p.items.filter((r) => known.has(r.id));
+        job.progress.done = job.results.items.length + (job.results.passes || []).reduce((n, p) => n + p.items.length, 0);
+        this._updateSummary(job);
+      }
       if (!items.length) {
         throw new Error(
           job.results.fidelityUnsupported
@@ -1055,15 +1181,19 @@ export class QualityBenchManager {
         if (signal.aborted) break;
         const sink = pass.index === 0 ? job.results.items : job.results.passes[pass.index - 1].items;
         const passTag = passes.length > 1 ? ` (pass ${pass.index + 1}/${passes.length}, concurrency ${pass.concurrency})` : "";
+        // A resumed run: the rows this pass already holds are kept and their items skipped.
+        const doneIds = new Set(sink.map((r) => r.id));
         for (const category of QUALITY_CATEGORIES) {
           if (signal.aborted) break;
-          const catItems = items.filter((it) => it.category === category);
+          const catAll = items.filter((it) => it.category === category);
+          if (!catAll.length) continue;
+          const catItems = doneIds.size ? catAll.filter((it) => !doneIds.has(it.id)) : catAll;
           if (!catItems.length) continue;
           await this._waitWhilePaused(job);
           if (signal.aborted) break;
           job.progress.currentCategory = category;
-          job.progress.categoryDone = 0;
-          job.progress.categoryTotal = catItems.length;
+          job.progress.categoryDone = catAll.length - catItems.length;
+          job.progress.categoryTotal = catAll.length;
           job.progress.message = `${QUALITY_CATEGORY_LABELS[category]}${passTag}…`;
           this._checkpointActive();
 
@@ -1198,13 +1328,16 @@ export class QualityBenchManager {
           console.warn("[QualityBench] failed to save fidelity side data:", err?.message || err);
         }
       }
+      // A run interrupted in-process and already relaunched under its id must not release the
+      // relaunch's slot or put its stale record back into the history.
+      const superseded = this.jobs.get(job.benchId) !== job;
       // Only release the Spark if it still points at this job.
-      if (this.activeBySpark.get(job.sparkId) === job.benchId) this.activeBySpark.delete(job.sparkId);
-      this._pushHistory(job);
+      if (!superseded && this.activeBySpark.get(job.sparkId) === job.benchId) this.activeBySpark.delete(job.sparkId);
+      if (!superseded) this._pushHistory(job);
       this._checkpointActive();
       this._emitFinished(job);
       // History now holds the finished run; drop the live job (and its AbortController etc.).
-      this.jobs.delete(job.benchId);
+      if (!superseded) this.jobs.delete(job.benchId);
     }
   }
 

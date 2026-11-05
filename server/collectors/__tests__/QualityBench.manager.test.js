@@ -8,7 +8,7 @@ import http from "http";
 import os from "os";
 import path from "path";
 import fs from "fs";
-import { QualityBenchManager, timeoutMsForItem, runQualityItem } from "../QualityBench.js";
+import { QualityBenchManager, isResumable, timeoutMsForItem, runQualityItem } from "../QualityBench.js";
 import { timeoutMsForSize } from "../PrefillBench.js";
 import { generateSuite, SCORING_VERSION, SUITE_VERSION } from "../qualitySuite.js";
 
@@ -577,9 +577,12 @@ test("pause closes the gate between items, keeps the slot, stops the clock; resu
 test("a run that finishes while paused settles the pause into its history record", async () => {
   const { mgr } = tmpManager();
   const srv = await server((req, res) => {
-    res.writeHead(200, { "Content-Type": "text/event-stream" });
-    res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "ok" } }] })}\n\n`);
-    res.end("data: [DONE]\n\n");
+    // Slow enough that the run is still going when the pause lands.
+    setTimeout(() => {
+      res.writeHead(200, { "Content-Type": "text/event-stream" });
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "ok" } }] })}\n\n`);
+      res.end("data: [DONE]\n\n");
+    }, 15);
   });
   try {
     const job = mgr.start(startOpts(srv.port, { categories: ["follow"], concurrency: 4 }));
@@ -595,4 +598,115 @@ test("a run that finishes while paused settles the pause into its history record
   } finally {
     await srv.close();
   }
+});
+
+/** A chat server that answers the first `answerFirst` requests at once and hangs the rest until `release()`. */
+function gatedServer(answerFirst) {
+  let hits = 0;
+  let open = false;
+  const waiting = [];
+  const reply = (res) => {
+    res.writeHead(200, { "Content-Type": "text/event-stream" });
+    res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "ok" } }] })}\n\n`);
+    res.end("data: [DONE]\n\n");
+  };
+  const srvP = server((req, res) => {
+    hits += 1;
+    if (open || hits <= answerFirst) reply(res);
+    else waiting.push(res);
+  });
+  return srvP.then((srv) => ({
+    ...srv,
+    hits: () => hits,
+    release: () => {
+      open = true;
+      for (const res of waiting.splice(0)) reply(res);
+    },
+  }));
+}
+
+test("resumeRun: an interrupted run relaunches from its rows under the same id, skips what it scored, counts downtime as paused", async () => {
+  const { mgr } = tmpManager();
+  const srv = await gatedServer(6);
+  try {
+    const job = mgr.start(startOpts(srv.port, { categories: ["follow"], concurrency: 2 })); // 40 items
+    await until(() => mgr.getJob(job.benchId).progress.done >= 6);
+    mgr.interruptAll("Interrupted — server restarted while the benchmark was running");
+    const record = mgr.getJob(job.benchId);
+    assert.equal(record.status, "failed");
+    assert.equal(record.resumable, true);
+    assert.equal(mgr.getHistorySummaries("s1")[0].resumable, true);
+    assert.equal(mgr.getLast("s1").resumable, true);
+    const scored = record.results.items.length;
+    assert.ok(scored >= 6 && scored < 40, `scored ${scored}`);
+    assert.equal(mgr.activeBySpark.has("s1"), false);
+
+    await new Promise((r) => setTimeout(r, 60));
+    srv.release();
+    const hitsBefore = srv.hits();
+    const resumed = mgr.resumeRun("s1", job.benchId, { lanIp: "127.0.0.1", unit: { id: "s1", name: "Spark one" } });
+    assert.equal(resumed.benchId, job.benchId);
+    assert.equal(resumed.status, "running");
+    assert.equal(resumed.resumes, 1);
+    assert.equal(resumed.resumedFrom, scored);
+    assert.equal(resumed.progress.done, scored);
+    assert.ok(resumed.pausedMs >= 60, `downtime ${resumed.pausedMs}`);
+    assert.equal(resumed.startedAt, record.startedAt);
+    assert.equal(mgr.getHistory("s1").some((j) => j.benchId === job.benchId), false); // out of the history while live
+    assert.throws(() => mgr.resumeRun("s1", job.benchId, { lanIp: "127.0.0.1" }), /not found/i);
+
+    await until(() => !mgr.activeBySpark.has("s1"));
+    const done = mgr.getJob(job.benchId);
+    assert.equal(done.status, "completed");
+    assert.equal(done.resumable, false);
+    assert.equal(done.results.items.length, 40);
+    assert.equal(new Set(done.results.items.map((r) => r.id)).size, 40); // no item twice
+    assert.equal(srv.hits() - hitsBefore, 40 - scored); // only the rest was sent
+    assert.equal(done.progress.done, 40);
+    assert.equal(done.unit.name, "Spark one");
+    assert.ok(done.pausedMs >= 60);
+    assert.equal(done.durationMs, done.completedAt - done.startedAt - done.pausedMs);
+    assert.equal(mgr.getHistory("s1").filter((j) => j.benchId === job.benchId).length, 1); // one record, replaced
+    assert.throws(() => mgr.resumeRun("s1", job.benchId, { lanIp: "127.0.0.1" }), /finished/);
+  } finally {
+    await srv.close();
+  }
+});
+
+test("resumeRun: a noise-floor run interrupted in its second pass keeps the first pass whole and finishes the second", async () => {
+  const { mgr } = tmpManager();
+  const srv = await gatedServer(40 + 5);
+  try {
+    const job = mgr.start(startOpts(srv.port, { categories: ["follow"], concurrency: 1, noiseFloor: true })); // 2 passes of 40
+    await until(() => mgr.getJob(job.benchId).progress.done >= 45);
+    mgr.interruptAll("Interrupted — server restarted while the benchmark was running");
+    const record = mgr.getJob(job.benchId);
+    assert.equal(record.results.items.length, 40);
+    const secondBefore = record.results.passes[0].items.length;
+    assert.ok(secondBefore >= 5 && secondBefore < 40);
+    srv.release();
+    const hitsBefore = srv.hits();
+    mgr.resumeRun("s1", job.benchId, { lanIp: "127.0.0.1" });
+    await until(() => !mgr.activeBySpark.has("s1"));
+    const done = mgr.getJob(job.benchId);
+    assert.equal(done.status, "completed");
+    assert.equal(done.results.items.length, 40);
+    assert.equal(done.results.passes[0].items.length, 40);
+    assert.equal(srv.hits() - hitsBefore, 40 - secondBefore);
+    assert.ok(done.results.noise, "the noise floor is summarised from both passes");
+  } finally {
+    await srv.close();
+  }
+});
+
+test("isResumable: not a completed run, not one from another suite or scoring version, not one without rows", () => {
+  const base = { status: "failed", config: { suiteVersion: SUITE_VERSION, scoringVersion: SCORING_VERSION }, progress: { done: 3, total: 10 }, results: { items: [{}, {}, {}] } };
+  assert.equal(isResumable(base), true);
+  assert.equal(isResumable({ ...base, status: "cancelled" }), true);
+  assert.equal(isResumable({ ...base, status: "completed" }), false);
+  assert.equal(isResumable({ ...base, status: "running" }), false);
+  assert.equal(isResumable({ ...base, config: { suiteVersion: 1, scoringVersion: SCORING_VERSION } }), false);
+  assert.equal(isResumable({ ...base, config: { suiteVersion: SUITE_VERSION, scoringVersion: 3 } }), false);
+  assert.equal(isResumable({ ...base, progress: { done: 0, total: 10 } }), false);
+  assert.equal(isResumable({ ...base, progress: { done: 10, total: 10 } }), false);
 });

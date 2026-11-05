@@ -125,7 +125,9 @@
     "resumeTitle": "从下一项继续",
     "pauseTitle": "已发出的请求会完成并计入；在继续之前不再发送新的请求。运行保留进度、结果和单元占用，计时暂停。",
     "resumeRun": "继续",
-    "pauseRun": "暂停"
+    "pauseRun": "暂停",
+    "resumeRunTitle": "从已评分的行继续这次运行：被服务器重启中断、因连续错误停止或被取消的运行保留这些行，只运行其余部分。保真度类别会重新运行。停机时间不计入。",
+    "resumeSaved": "从已评分的 {{count}} 项继续"
   },
   "share": {
     "completed": "已完成", "running": "运行中", "failed": "失败", "cancelled": "已取消",

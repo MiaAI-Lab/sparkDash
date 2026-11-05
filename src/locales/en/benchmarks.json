@@ -125,7 +125,9 @@
     "resumeTitle": "Carry on from the next item",
     "pauseTitle": "Replies already in flight finish and count; nothing new is sent until you resume. The run keeps its place, its results and its unit slot, and the clock stops.",
     "resumeRun": "Resume",
-    "pauseRun": "Pause"
+    "pauseRun": "Pause",
+    "resumeRunTitle": "Carry on with this run from the rows it already scored: a run killed by a server restart, stopped by an error streak or cancelled keeps those rows and runs only the rest. Fidelity is rerun. The time it was down is not counted.",
+    "resumeSaved": "Resume from {{count}} scored"
   },
   "share": {
     "completed": "COMPLETED", "running": "RUNNING", "failed": "FAILED", "cancelled": "CANCELLED",

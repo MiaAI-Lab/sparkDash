@@ -1837,47 +1837,50 @@ app.delete("/api/sparks/:id/llm/prefill-bench/:benchId", (req, res) => {
  * Returns 202 job; poll GET :benchId. GET collection returns active, last (full)
  * and history summaries (no per-item rows; fetch a run by id to compare).
  */
-app.post("/api/sparks/:id/llm/quality-bench", async (req, res) => {
-  if (activeBenchJobCount() >= MAX_ACTIVE_BENCH_JOBS) {
-    return res.status(429).json({ error: `Global active benchmark cap (${MAX_ACTIVE_BENCH_JOBS}) reached; wait for a job to finish` });
-  }
-  const spark = registry.getSpark(req.params.id);
-  if (!spark) return res.status(404).json({ error: "Spark not found" });
+/**
+ * Quality bench start checks shared by start and resume: answers the request and returns false
+ * when the unit cannot run one now.
+ */
+function qualityBenchAllowed(spark, res) {
   if (spark.workerNode) {
-    return res.status(400).json({ error: "Worker nodes do not expose a local LLM API" });
+    res.status(400).json({ error: "Worker nodes do not expose a local LLM API" });
+    return false;
   }
   if (spark.llmMonitoring === false) {
-    return res.status(400).json({ error: "LLM monitoring is disabled for this Spark" });
+    res.status(400).json({ error: "LLM monitoring is disabled for this Spark" });
+    return false;
   }
   if (showcaseManager.getActive(spark.id)) {
-    return res.status(409).json({ error: "A prompt showcase is already running for this Spark" });
+    res.status(409).json({ error: "A prompt showcase is already running for this Spark" });
+    return false;
   }
   if (decodeBenchManager.getActive(spark.id)) {
-    return res.status(409).json({ error: "A decode benchmark is already running for this Spark" });
+    res.status(409).json({ error: "A decode benchmark is already running for this Spark" });
+    return false;
   }
   if (prefillBenchManager.getActive(spark.id)) {
-    return res.status(409).json({ error: "A prefill benchmark is already running for this Spark" });
+    res.status(409).json({ error: "A prefill benchmark is already running for this Spark" });
+    return false;
   }
 
-  const monitor = monitors.get(req.params.id);
+  return true;
+}
+
+/**
+ * What a quality run needs from the unit at start, shared by start and resume: the HTTP target
+ * (direct, SSH forward or a custom host), the model id and context length from the live probe,
+ * the engine backend, and the cost side of the run. Throws with `status` on a bad target.
+ */
+async function qualityRunContext(spark, body) {
+  const monitor = monitors.get(spark.id);
   const ports = Array.isArray(spark.llmPorts) && spark.llmPorts.length
     ? spark.llmPorts
     : [resolveLlmPort(spark)];
 
-  let target;
-  try {
-    target = await benchHttpTarget(spark, ports, req.body || {});
-  } catch (err) {
-    return res.status(err.status || 400).json({ error: err.message });
-  }
+  const target = await benchHttpTarget(spark, ports, body);
   const port = target.port;
-  const options = normalizeQualityOptions(req.body || {});
-  if (!options.categories.length) {
-    return res.status(400).json({ error: "Select at least one category" });
-  }
-
   // Model id + context length from the live probe; the job falls back to /v1/models.
-  let modelId = req.body?.modelId || null;
+  let modelId = body?.modelId || null;
   let contextLength = null;
   let backend = null;
   if (!target.custom && monitor) {
@@ -1918,6 +1921,28 @@ app.post("/api/sparks/:id/llm/quality-bench", async (req, res) => {
       vramTotalGb: toGb(gpu?.vram?.total, 1024),
     };
   }
+
+  return { target, port, modelId, contextLength, backend, cost };
+}
+
+app.post("/api/sparks/:id/llm/quality-bench", async (req, res) => {
+  if (activeBenchJobCount() >= MAX_ACTIVE_BENCH_JOBS) {
+    return res.status(429).json({ error: `Global active benchmark cap (${MAX_ACTIVE_BENCH_JOBS}) reached; wait for a job to finish` });
+  }
+  const spark = registry.getSpark(req.params.id);
+  if (!spark) return res.status(404).json({ error: "Spark not found" });
+  if (!qualityBenchAllowed(spark, res)) return;
+  const options = normalizeQualityOptions(req.body || {});
+  if (!options.categories.length) {
+    return res.status(400).json({ error: "Select at least one category" });
+  }
+  let ctx;
+  try {
+    ctx = await qualityRunContext(spark, req.body || {});
+  } catch (err) {
+    return res.status(err.status || 400).json({ error: err.message });
+  }
+  const { target, port, modelId, contextLength, backend, cost } = ctx;
 
   try {
     if (!consumeBenchStartQuota(req, res)) return;
@@ -2085,20 +2110,68 @@ app.delete("/api/sparks/:id/llm/quality-bench/:benchId", (req, res) => {
  * flight finish and count, nothing new is sent until resume; the run keeps its unit slot and its
  * place. Both are idempotent; a finished run answers 409.
  */
-for (const action of ["pause", "resume"]) {
-  app.post(`/api/sparks/:id/llm/quality-bench/:benchId/${action}`, (req, res) => {
-    const spark = registry.getSpark(req.params.id);
-    if (!spark) return res.status(404).json({ error: "Spark not found" });
-    const job = qualityBenchManager.getJob(req.params.benchId);
-    if (!job || job.sparkId !== spark.id) {
-      return res.status(404).json({ error: "Benchmark not found" });
-    }
-    if (job.status !== "running") {
-      return res.status(409).json({ error: `This run has already finished; nothing to ${action}` });
-    }
-    res.json(qualityBenchManager[action](spark.id, req.params.benchId));
-  });
-}
+app.post("/api/sparks/:id/llm/quality-bench/:benchId/pause", (req, res) => {
+  const spark = registry.getSpark(req.params.id);
+  if (!spark) return res.status(404).json({ error: "Spark not found" });
+  const job = qualityBenchManager.getJob(req.params.benchId);
+  if (!job || job.sparkId !== spark.id) {
+    return res.status(404).json({ error: "Benchmark not found" });
+  }
+  if (job.status !== "running") {
+    return res.status(409).json({ error: "This run has already finished; nothing to pause" });
+  }
+  res.json(qualityBenchManager.pause(spark.id, req.params.benchId));
+});
+
+/**
+ * Resume reopens a paused run (200), or relaunches a finished one from its saved rows (202): a run
+ * interrupted by a server restart, stopped by an error streak or cancelled keeps the items it
+ * scored and carries on with the rest under the same id. 409 when there is nothing to continue.
+ */
+app.post("/api/sparks/:id/llm/quality-bench/:benchId/resume", async (req, res) => {
+  const spark = registry.getSpark(req.params.id);
+  if (!spark) return res.status(404).json({ error: "Spark not found" });
+  const job = qualityBenchManager.getJob(req.params.benchId);
+  if (!job || job.sparkId !== spark.id) {
+    return res.status(404).json({ error: "Benchmark not found" });
+  }
+  if (job.status === "running") {
+    return res.json(qualityBenchManager.resume(spark.id, req.params.benchId));
+  }
+  if (!job.resumable) {
+    return res.status(409).json({
+      error: job.status === "completed" ? "This run finished; nothing to resume" : "This run cannot be continued from its saved rows",
+    });
+  }
+  if (activeBenchJobCount() >= MAX_ACTIVE_BENCH_JOBS) {
+    return res.status(429).json({ error: `Global active benchmark cap (${MAX_ACTIVE_BENCH_JOBS}) reached; wait for a job to finish` });
+  }
+  if (!qualityBenchAllowed(spark, res)) return;
+  let ctx;
+  try {
+    ctx = await qualityRunContext(spark, {
+      port: job.config.port,
+      modelId: job.config.modelId,
+      ...(job.config.host ? { host: job.config.host, tls: job.config.tls } : {}),
+    });
+  } catch (err) {
+    return res.status(err.status || 400).json({ error: err.message });
+  }
+  try {
+    if (!consumeBenchStartQuota(req, res)) return;
+    const started = qualityBenchManager.resumeRun(spark.id, job.benchId, {
+      lanIp: llmProbeHost(spark),
+      apiKey: ctx.target.apiKey,
+      resolveTarget: ctx.target.resolveTarget,
+      backend: ctx.backend,
+      unit: { id: spark.id, name: spark.name || spark.id },
+      cost: ctx.cost,
+    });
+    res.status(202).json(started);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
 
 /**
  * LLM Prompt Showcase — concurrent streaming demos.

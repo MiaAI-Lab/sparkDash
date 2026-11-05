@@ -1680,6 +1680,26 @@ export function QualityBenchDialog({
     }
   };
 
+  /** Relaunch a finished run from its saved rows; the server answers with the live job. */
+  const handleResumeRun = async () => {
+    if (!job || job.status === "running" || !job.resumable || startLockRef.current) return;
+    startLockRef.current = true;
+    setStarting(true);
+    setError(null);
+    try {
+      const started = await resumeQualityBench(sparkId, job.benchId);
+      setJob(started);
+      setCompareId("");
+      startPolling(started.benchId);
+      if (isPage) refreshHistory();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      startLockRef.current = false;
+      setStarting(false);
+    }
+  };
+
   const handleNewRun = () => {
     stopPoll();
     setJob(null);
@@ -1781,9 +1801,16 @@ export function QualityBenchDialog({
       </button>
     </>
   ) : (
-    <button type="button" className="btn btn--primary" onClick={() => void handleStart()} disabled={starting || categories.length === 0}>
-      {starting ? "Starting…" : "Run quality bench"}
-    </button>
+    <>
+      {job?.resumable ? (
+        <button type="button" className="btn btn--primary" onClick={() => void handleResumeRun()} disabled={starting} title={t("quality.resumeRunTitle")}>
+          {starting ? "Starting…" : t("quality.resumeSaved", { count: job.progress.done })}
+        </button>
+      ) : null}
+      <button type="button" className={`btn ${job?.resumable ? "" : "btn--primary"}`} onClick={() => void handleStart()} disabled={starting || categories.length === 0}>
+        {starting ? "Starting…" : "Run quality bench"}
+      </button>
+    </>
   );
 
   const configNode = (
@@ -2269,6 +2296,11 @@ export function QualityBenchDialog({
             </>
           ) : job ? (
             <>
+              {job.resumable && (
+                <button type="button" className="bench-btn bench-btn--primary" onClick={() => void handleResumeRun()} disabled={starting} title={t("quality.resumeRunTitle")}>
+                  {t("quality.resumeSaved", { count: job.progress.done })}
+                </button>
+              )}
               {hasItems && (
                 <button type="button" className="bench-btn bench-btn--ghost" onClick={() => void handlePin()} title={t("quality.pinTitle")}>
                   {isReference ? t("quality.unpinReference") : t("quality.pinReference")}

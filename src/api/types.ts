@@ -1902,8 +1902,14 @@ export interface QualityBenchJob {
   /** True while the run waits at the pause gate (status stays "running"); absent on older runs. */
   paused?: boolean;
   pausedAt?: number | null;
-  /** Time spent paused so far, the open pause included. */
+  /** Time spent paused so far, the open pause included; a resumed run counts its downtime here. */
   pausedMs?: number;
+  /** A finished run that can be relaunched from its saved rows (set on records, never on a running job). */
+  resumable?: boolean;
+  /** Times the run was relaunched from its rows, when last, and how many rows it took over. */
+  resumes?: number;
+  resumedAt?: number | null;
+  resumedFrom?: number | null;
 }
 
 /** WP4: what serving this model costs on the unit, read at run start; every field may be null. */
