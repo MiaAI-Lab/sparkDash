@@ -2173,8 +2173,22 @@
   font-weight: 700;
   cursor: help;
 }
+/* A budget-limited row is a note, not a fault: plain text with a small tag; only the * carries the warning colour. */
 .q-cat-table tr.is-budget-limited .q-cat-table__note {
-  color: var(--color-warning);
+  color: var(--color-muted);
+}
+.q-note-tag {
+  display: inline-block;
+  margin-right: 6px;
+  border-radius: 999px;
+  padding: 0 7px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-elevated);
+  color: var(--color-text);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
 }
 .q-reply {
   margin-top: 0.25rem;
@@ -2386,4 +2400,60 @@
   font-size: 10.5px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+/* Quality bench WP4: the plain-words verdict and the compare page. */
+.q-verdicts {
+  margin: 8px 0 12px;
+}
+.q-verdicts__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.q-verdict-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 220px) minmax(110px, 160px) 1fr;
+  gap: 8px;
+  align-items: baseline;
+  padding: 5px 8px;
+  border-radius: 4px;
+  background: var(--color-surface-elevated);
+  font-size: 12px;
+}
+.q-verdict-row__area {
+  font-weight: 600;
+}
+.q-verdict-row__tag {
+  font-weight: 600;
+  color: var(--color-muted);
+}
+.q-verdict-row--A .q-verdict-row__tag {
+  color: var(--color-success);
+}
+.q-verdict-row--B .q-verdict-row__tag {
+  color: var(--color-danger);
+}
+.q-verdict-row__ev {
+  color: var(--color-muted);
+  overflow-wrap: anywhere;
+}
+.q-compare__pickers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 8px 0;
+}
+.q-pick--wide select {
+  max-width: 100%;
+  min-width: 18rem;
+}
+@media (max-width: 640px) {
+  .q-verdict-row {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
 }

@@ -13,6 +13,7 @@ export function useBenchLabels(): Record<string, BenchLabel> {
     decode: { label: t("bench.decode.label"), blurb: t("bench.decode.blurb") },
     prefill: { label: t("bench.prefill.label"), blurb: t("bench.prefill.blurb") },
     quality: { label: t("bench.quality.label"), blurb: t("bench.quality.blurb") },
+    "quality-compare": { label: t("bench.qualityCompare.label"), blurb: t("bench.qualityCompare.blurb") },
     "tool-eval": { label: t("bench.toolEval.label"), blurb: t("bench.toolEval.blurb") },
   }), [t]);
 }

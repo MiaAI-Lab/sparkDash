@@ -42,8 +42,8 @@ export const QUALITY_CATEGORY_LABELS = {
 /** Needle-recall sizes (tokens). Labels match the prefill bench (8k … 256k). */
 export const QUALITY_LONG_SIZES = [8192, 16384, 32768, 65536, 131072, 262144];
 export const QUALITY_DEFAULT_LONG_SIZES = [32768];
-/** Suite v2: five items per size cover the three needle depths. */
-export const QUALITY_DEFAULT_LONG_ITEMS = 5;
+/** Suite v2: three items per size cover the three needle depths once; more only tightens an all-or-nothing score. */
+export const QUALITY_DEFAULT_LONG_ITEMS = 3;
 export const QUALITY_MAX_LONG_ITEMS = 5;
 
 export const QUALITY_DEFAULT_CONCURRENCY = 4;

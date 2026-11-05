@@ -21,6 +21,7 @@ export const BENCH_TYPES: readonly BenchType[] = [
   { id: "decode", label: "Decode", blurb: "Generation speed (tokens/s) at rising concurrency.", engine: "sparkdash", family: "sparkDash" },
   { id: "prefill", label: "Prefill", blurb: "Prompt processing speed and time to first token across context sizes.", engine: "sparkdash", family: "sparkDash" },
   { id: "quality", label: "Quality", blurb: "A fixed, seeded quality suite to compare models, quantisations and KV-cache formats.", engine: "sparkdash", family: "sparkDash" },
+  { id: "quality-compare", label: "Quality compare", blurb: "Any two saved quality runs side by side, from any units: where one build is better, in plain words and in numbers.", engine: "sparkdash", family: "sparkDash" },
   { id: "tool-eval", label: "Tool Eval Bench", blurb: "Tool-calling quality across 69 deterministic scenarios (selection, parameters, multi-step, safety).", engine: "tool-eval", family: "Tool Eval Bench" },
 ];
 

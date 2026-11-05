@@ -434,6 +434,16 @@ export function cancelQualityBench(
   });
 }
 
+/** Pause a run in flight: in-flight replies finish, nothing new is sent until resumed. 409 once finished. */
+export function pauseQualityBench(id: string, benchId: string): Promise<QualityBenchJob> {
+  return apiFetch(`/api/sparks/${id}/llm/quality-bench/${benchId}/pause`, { method: "POST" });
+}
+
+/** Resume a paused run from the next item. */
+export function resumeQualityBench(id: string, benchId: string): Promise<QualityBenchJob> {
+  return apiFetch(`/api/sparks/${id}/llm/quality-bench/${benchId}/resume`, { method: "POST" });
+}
+
 export function clearQualityBenchHistory(
   id: string,
   port?: number

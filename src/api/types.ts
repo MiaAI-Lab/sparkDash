@@ -1897,7 +1897,13 @@ export interface QualityBenchJob {
   /** WP4: the cost side read from the probe and the last decode bench at start. */
   cost?: QualityRunCost | null;
   error: string | null;
+  /** Working time: wall clock minus the time spent paused. */
   durationMs: number;
+  /** True while the run waits at the pause gate (status stays "running"); absent on older runs. */
+  paused?: boolean;
+  pausedAt?: number | null;
+  /** Time spent paused so far, the open pause included. */
+  pausedMs?: number;
 }
 
 /** WP4: what serving this model costs on the unit, read at run start; every field may be null. */

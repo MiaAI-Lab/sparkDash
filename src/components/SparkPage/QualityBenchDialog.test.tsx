@@ -1,6 +1,6 @@
 import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { getQualityBench, getQualityFidelityCompare, listQualityBench, listQualityBenchFleet, deleteQualityBenchRun } from "../../api/client";
+import { deleteQualityBenchRun, getQualityBench, getQualityFidelityCompare, listQualityBench, listQualityBenchFleet, pauseQualityBench, resumeQualityBench } from "../../api/client";
 import type { QualityBenchDefaults, QualityBenchJob } from "../../api/types";
 import { mcnemarExactP } from "../../shared/qualityBench.js";
 import { flush, render } from "../../testing/render";
@@ -8,6 +8,8 @@ import { QualityBenchDialog } from "./QualityBenchDialog";
 
 vi.mock("../../api/client", () => ({
   cancelQualityBench: vi.fn(),
+  pauseQualityBench: vi.fn(),
+  resumeQualityBench: vi.fn(),
   clearQualityBenchHistory: vi.fn(),
   deleteQualityBenchRun: vi.fn(),
   getQualityBench: vi.fn(),
@@ -129,7 +131,7 @@ describe("QualityBenchDialog", () => {
     await flush();
     const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
     const text = dialog.textContent ?? "";
-    expect(text).toContain("1 cut off by max_tokens, not scored");
+    expect(text).toContain("1 reply ran out of token budget before answering, left out");
     expect(text).toContain("budget-limited");
     expect(text).toContain("1 disputed, not scored");
     expect(dialog.querySelector(".q-flag")).not.toBeNull();
@@ -467,6 +469,35 @@ describe("QualityBenchDialog", () => {
     await flush();
     const bar = document.querySelector('[role="progressbar"]') as HTMLElement;
     expect(bar.getAttribute("aria-valuenow")).toBe("25");
+    expect(document.querySelector('[role="status"][aria-live="polite"]')?.textContent).toContain("Running");
+  });
+
+  it("pauses and resumes a running job from the footer, and reads a paused job as Paused", async () => {
+    const running = run("b3", "", [true], "a");
+    running.status = "running";
+    running.progress = { currentCategory: "qa", categoryDone: 1, categoryTotal: 4, done: 1, total: 4, message: "QA…" };
+    running.results = { overallPct: 100, skippedLongSizes: [], itemCount: 1, categories: running.results.categories };
+    const paused = { ...running, paused: true, pausedAt: 1, pausedMs: 0, progress: { ...running.progress, message: "Paused" } };
+    vi.mocked(listQualityBench).mockReset().mockResolvedValue({ active: running, last: null, history: [], defaults });
+    vi.mocked(getQualityBench).mockResolvedValue(running);
+    vi.mocked(pauseQualityBench).mockResolvedValue(paused);
+    vi.mocked(resumeQualityBench).mockResolvedValue(running);
+    render(<QualityBenchDialog open onClose={() => {}} sparkId="s1" llmPort={8888} modelId="test-model" contextLength={32768} />);
+    await flush();
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    const footer = dialog.querySelector("footer") as HTMLElement;
+    const pause = [...footer.querySelectorAll("button")].find((b) => b.textContent === "Pause") as HTMLButtonElement;
+    expect(pause).toBeTruthy();
+    expect([...footer.querySelectorAll("button")].some((b) => b.textContent === "Cancel")).toBe(true);
+    await act(async () => pause.click());
+    await flush();
+    expect(pauseQualityBench).toHaveBeenCalledWith("s1", "b3");
+    expect(document.querySelector('[role="status"][aria-live="polite"]')?.textContent).toContain("Paused");
+    const resume = [...footer.querySelectorAll("button")].find((b) => b.textContent === "Resume") as HTMLButtonElement;
+    expect(resume).toBeTruthy();
+    await act(async () => resume.click());
+    await flush();
+    expect(resumeQualityBench).toHaveBeenCalledWith("s1", "b3");
     expect(document.querySelector('[role="status"][aria-live="polite"]')?.textContent).toContain("Running");
   });
 

@@ -10,7 +10,11 @@
     "decode": { "label": "解码", "blurb": "在逐步提高并发时测试生成速度（tokens/s）。" },
     "prefill": { "label": "预填充", "blurb": "跨上下文长度测试提示词处理速度和首个 token 时间。" },
     "quality": { "label": "质量", "blurb": "使用固定随机种子的质量套件比较模型、量化方式和 KV 缓存格式。" },
-    "toolEval": { "label": "工具调用评测", "blurb": "通过 69 个确定性场景评测工具调用质量（选择、参数、多步和安全）。", "family": "工具调用评测" }
+    "toolEval": { "label": "工具调用评测", "blurb": "通过 69 个确定性场景评测工具调用质量（选择、参数、多步和安全）。", "family": "工具调用评测" },
+    "qualityCompare": {
+      "label": "质量比较",
+      "blurb": "任意两次已保存的质量运行并排比较，可跨单元：用通俗语言和数字说明哪个构建更好。"
+    }
   },
   "sparkChips": {
     "group": "要进行基准测试的 Spark",
@@ -51,7 +55,8 @@
     "model": "模型", "running": "运行中", "completedLevels": "已完成级别", "load": "负载", "aggregate": "聚合", "stream": "单流",
     "loadingLast": "正在加载上次结果…", "cancelRun": "取消运行", "starting": "正在开始…", "run": "运行基准测试", "progress": "进度", "results": "结果",
     "clearTitle": "清除此端口已保存的结果", "clearHistory": "清除历史", "noRuns": "尚无运行", "history": "历史记录 · {{count}}",
-    "closeDialog": "关闭对话框", "close": "关闭", "cancel": "取消", "clear": "清除", "done": "完成", "runAgain": "再次运行", "customExample": "自定义，例如 100k"
+    "closeDialog": "关闭对话框", "close": "关闭", "cancel": "取消", "clear": "清除", "done": "完成", "runAgain": "再次运行", "customExample": "自定义，例如 100k",
+    "paused": "已暂停"
   },
   "decode": {
     "title": "解码基准测试", "modelHint": "选择基准测试目标模型。", "noModels": "此目标当前没有提供服务的模型。",
@@ -98,11 +103,46 @@
     "quantPreset":"量化检查", "quantPresetTitle":"算术链、状态跟踪、长上下文回忆、保真度和发散度，并发 1：能看出量化影响的类别，且无批处理噪声",
     "partialRun":"部分运行 — 无总分", "partialRunHint":"只有默认和完整配置才有总分；本次运行评分的类别：{{categories}}。",
     "thinkingWarning":"{{model}} 在 {{category}} 中未遵守“关闭思考”：{{rows}} 条回复中有 {{reasoningRows}} 条包含推理，{{truncated}} 条被截断。该类别的得分反映的是预算，而非模型。",
-    "legendV2":"得分 — 通过的项目，附 Wilson 95% 置信区间；总分附分层自助法区间。覆盖率 — 计分数 ÷ 总数；预算内 — 通过数 ÷ 全部已运行项目，因此截断更多的模型不会显得更好。p — 仅一方答对的项目采用精确 McNemar 检验，并按类别做 Holm 校正；p ≥ 0.05 表示证据不足以判定差异，而非等价。等价 — 配对差值的区间位于 ±2 分以内。差值处于本次运行实测噪声基线之内时，无论 p 值如何都应视为噪声。请求错误或超时的项目、在作答前被 max_tokens 截断的回复，以及参考答案存疑的项目均不计分，也不参与比较。* — 受预算限制：部分回复被截断，得分仅覆盖完整作答的项目。"
+    "legendV2":"得分 — 通过的项目，附 Wilson 95% 置信区间；总分附分层自助法区间。覆盖率 — 计分数 ÷ 总数；预算内 — 通过数 ÷ 全部已运行项目，因此截断更多的模型不会显得更好。p — 仅一方答对的项目采用精确 McNemar 检验，并按类别做 Holm 校正；p ≥ 0.05 表示证据不足以判定差异，而非等价。等价 — 配对差值的区间位于 ±2 分以内。差值处于本次运行实测噪声基线之内时，无论 p 值如何都应视为噪声。请求错误或超时的项目、在作答前被 max_tokens 截断的回复，以及参考答案存疑的项目均不计分，也不参与比较。* — 受预算限制：部分回复被截断，得分仅覆盖完整作答的项目。",
+    "area": {
+      "maths": "数学与推理",
+      "knowledge": "知识问答",
+      "coding": "编程",
+      "prose": "写作与散文",
+      "languages": "其他语言",
+      "instructions": "指令遵循与结构化输出",
+      "longdocs": "长文档",
+      "facts": "快速事实与算术",
+      "reliability": "输出可靠性",
+      "cost": "速度与内存"
+    },
+    "verdictUnknown": "未测量",
+    "verdictSame": "大致相同",
+    "verdictB": "{{name}} 更好",
+    "verdictA": "{{name}} 更好",
+    "verdictHint": "对下方数字的通俗解读。A = {{a}}，B = {{b}}。“更好”表示差异超出噪声；“大致相同”表示没有明确差异或差异处于实测噪声基线之内。",
+    "verdictHead": "差异所在",
+    "resumeTitle": "从下一项继续",
+    "pauseTitle": "已发出的请求会完成并计入；在继续之前不再发送新的请求。运行保留进度、结果和单元占用，计时暂停。",
+    "resumeRun": "继续",
+    "pauseRun": "暂停"
   },
   "share": {
     "completed": "已完成", "running": "运行中", "failed": "失败", "cancelled": "已取消",
     "score": "得分", "category": "类别", "versusOther": "与另一运行比较"
   },
-  "liveTps": { "aria": "实时生成速度", "live": "实时生成", "peak": "峰值 {{value}} tok/s" }
+  "liveTps": { "aria": "实时生成速度", "live": "实时生成", "peak": "峰值 {{value}} tok/s" },
+  "compare": {
+    "title": "选择两次运行",
+    "resultTitle": "比较结果",
+    "pickA": "A · 被测运行",
+    "pickB": "B · 参考运行",
+    "swap": "交换 A 和 B",
+    "swapTitle": "交换两次运行：差值始终为 A 减 B",
+    "hint": "以 B 为基准解读 A：差值为正表示 A 更好。来自不同单元或引擎构建的运行比较的是推理配置，而不仅是权重；表头会指出哪些项不同。",
+    "noRuns": "所有单元上都还没有完成的质量运行。",
+    "loading": "正在加载两次运行…",
+    "emptyTitle": "尚无可比较的内容",
+    "emptyBody": "选择一个被测运行和一个参考运行。若 A 的模型系列已固定参考运行，B 会自动填入。"
+  }
 }

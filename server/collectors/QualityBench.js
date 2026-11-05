@@ -323,10 +323,20 @@ function publicJob(job, { full = job.status !== "running" } = {}) {
     unit: job.unit ?? null,
     cost: job.cost ?? null,
     error: job.error,
-    durationMs:
-      job.completedAt != null ? job.completedAt - job.startedAt : Date.now() - job.startedAt,
+    // Paused: the gate is closed between items; in-flight replies finish first. The clock below
+    // excludes the time spent paused, so a run paused overnight still reports its working time.
+    paused: Boolean(job.paused),
+    pausedAt: job.pausedAt ?? null,
+    pausedMs: pausedMsOf(job),
+    durationMs: (job.completedAt != null ? job.completedAt - job.startedAt : Date.now() - job.startedAt) - pausedMsOf(job),
     owner: job.owner || null,
   };
+}
+
+/** Time the job has spent paused so far, the current pause included. */
+function pausedMsOf(job) {
+  const settled = job.pausedMs || 0;
+  return job.paused && job.pausedAt != null ? settled + Date.now() - job.pausedAt : settled;
 }
 
 function emptyResults() {
@@ -700,6 +710,7 @@ export class QualityBenchManager {
       job.progress.message = "Interrupted";
       job.progress.currentCategory = null;
       job.completedAt = Date.now();
+      this._settlePause(job);
       this._finalizeResults(job);
       if (this.activeBySpark.get(job.sparkId) === job.benchId) this.activeBySpark.delete(job.sparkId);
       this._pushHistory(job);
@@ -804,8 +815,13 @@ export class QualityBenchManager {
       unit: unit && typeof unit === "object" && unit.id ? { id: String(unit.id), name: String(unit.name || unit.id) } : { id: sparkId, name: sparkId },
       cost: cost && typeof cost === "object" ? { ...cost } : null,
       error: null,
+      paused: false,
+      pausedAt: null,
+      pausedMs: 0,
       _abort: new AbortController(),
       _fatal: null,
+      _resume: null,
+      _inFlight: 0,
       _backend: typeof backend === "string" && backend.trim() ? backend.trim() : null,
       _apiKey: apiKey != null && String(apiKey).trim() ? String(apiKey).trim() : null,
       _resolveTarget: typeof resolveTarget === "function" ? resolveTarget : null,
@@ -836,6 +852,67 @@ export class QualityBenchManager {
     job._abort.abort();
     job.progress.message = "Cancelling…";
     return publicJob(job);
+  }
+
+  /**
+   * Close the gate the workers pass between items: replies already in flight finish and are
+   * kept, nothing new is sent until `resume`. A paused run stays "running" (its unit slot, the
+   * history and the delete rules are unchanged); `paused` on the job says so. Idempotent.
+   * @returns {object | null} the public job, null when unknown
+   */
+  pause(sparkId, benchId) {
+    const job = this.jobs.get(benchId);
+    if (!job || job.sparkId !== sparkId) return null;
+    if (job.status !== "running" || job.paused) return publicJob(job);
+    job.paused = true;
+    job.pausedAt = Date.now();
+    job._pausedMessage = job.progress.message;
+    job.progress.message = job._inFlight > 0 ? `Pausing — ${job._inFlight} in flight finishing…` : "Paused";
+    this._checkpointActive();
+    return publicJob(job);
+  }
+
+  /** Reopen the gate; the run carries on from the next item. Idempotent. */
+  resume(sparkId, benchId) {
+    const job = this.jobs.get(benchId);
+    if (!job || job.sparkId !== sparkId) return null;
+    if (job.status !== "running" || !job.paused) return publicJob(job);
+    job.pausedMs = (job.pausedMs || 0) + (Date.now() - job.pausedAt);
+    job.paused = false;
+    job.pausedAt = null;
+    job.progress.message = job._pausedMessage || job.progress.message;
+    job._pausedMessage = null;
+    this._releaseGate(job);
+    this._checkpointActive();
+    return publicJob(job);
+  }
+
+  /** A run that ends while paused folds the open pause into `pausedMs` and clears the flag. */
+  _settlePause(job) {
+    if (!job.paused) return;
+    if (job.pausedAt != null) job.pausedMs = (job.pausedMs || 0) + (Date.now() - job.pausedAt);
+    job.paused = false;
+    job.pausedAt = null;
+  }
+
+  _releaseGate(job) {
+    const wake = job._resume;
+    job._resume = null;
+    job._gate = null;
+    wake?.();
+  }
+
+  /** Workers call this between items: parks until resumed or aborted. */
+  async _waitWhilePaused(job) {
+    const signal = job._abort.signal;
+    while (job.paused && !signal.aborted) {
+      if (!job._gate) job._gate = new Promise((resolve) => (job._resume = resolve));
+      if (job._inFlight === 0 && job.progress.message !== "Paused") {
+        job.progress.message = "Paused";
+        this._checkpointActive();
+      }
+      await job._gate;
+    }
   }
 
   /** Refresh the category summary only (cheap; per item). */
@@ -884,6 +961,8 @@ export class QualityBenchManager {
     let port = job.config.port;
     let tls = Boolean(job.config.tls);
     const signal = job._abort.signal;
+    // A cancel, a fatal stop or a shutdown must wake parked workers so the run can finish.
+    signal.addEventListener("abort", () => this._releaseGate(job), { once: true });
     try {
       if (typeof job._resolveTarget === "function") {
         job.progress.message = "Connecting to LLM…";
@@ -980,6 +1059,8 @@ export class QualityBenchManager {
           if (signal.aborted) break;
           const catItems = items.filter((it) => it.category === category);
           if (!catItems.length) continue;
+          await this._waitWhilePaused(job);
+          if (signal.aborted) break;
           job.progress.currentCategory = category;
           job.progress.categoryDone = 0;
           job.progress.categoryTotal = catItems.length;
@@ -990,8 +1071,11 @@ export class QualityBenchManager {
           let next = 0;
           const worker = async () => {
             while (!signal.aborted) {
+              await this._waitWhilePaused(job);
+              if (signal.aborted) return;
               const item = catItems[next++];
               if (!item) return;
+              job._inFlight += 1;
               if (category === "long") {
                 job.progress.message = `Long-context recall ${longSizeLabel(item.size)}${passTag}…`;
               }
@@ -1025,7 +1109,9 @@ export class QualityBenchManager {
                   apiKey: job._apiKey,
                 });
               }
+              job._inFlight -= 1;
               if (signal.aborted) return;
+              if (job.paused && job._inFlight > 0) job.progress.message = `Pausing — ${job._inFlight} in flight finishing…`;
               if (row.model && !job.config.modelId) job.config.modelId = row.model;
               delete row.model;
               sink.push(row);
@@ -1089,6 +1175,7 @@ export class QualityBenchManager {
       }
       job._closeTarget = null;
       if (job.completedAt == null) job.completedAt = Date.now();
+      this._settlePause(job);
       this._finalizeResults(job);
       // The per-position fidelity data goes to its side file; the history keeps only the summary.
       if (job._fidelitySide && Object.keys(job._fidelitySide.docs).length) {

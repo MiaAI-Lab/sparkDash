@@ -80,7 +80,7 @@ export const QUALITY_CATEGORY_INFO: Record<QualityCategory, QualityCategoryInfo>
   },
   long: {
     measures: "Remembering and updating facts in a long document: whether the model finds the latest value, not a stale one, deep in a large context.",
-    how: "A long filler text with 16 “Remember this: the code for <animal> is <5 digits>” facts placed early, in the middle or spread through the first part (three needle depths, by item), four of them corrected near the end. The model is asked for the current code of every animal. You choose the context sizes (8k up to 256k) and how many items per size (default 5, covering the depths).",
+    how: "A long filler text with 16 “Remember this: the code for <animal> is <5 digits>” facts placed early, in the middle or spread through the first part (three needle depths, by item), four of them corrected near the end. The model is asked for the current code of every animal. You choose the context sizes (8k up to 256k) and how many items per size (default 3, one per depth).",
     scoring: "Passes when all 16 latest codes are right; graded as well by the share of keys found, with a prompt-clustered interval. A code that was corrected but answered with its old value counts as stale.",
     example: "… Remember this: the code for otter is 48213. … Correction: the code for otter has changed, it is now 90471. … What is the current code for every animal?",
     settings: "Thinking off · sequential, one at a time · can take many minutes at large sizes, and sizes that do not fit the model's context are skipped.",

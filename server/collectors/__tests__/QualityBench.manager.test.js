@@ -514,3 +514,85 @@ test("WP4: fleet summaries carry the unit, references pin per model family and s
     await srv.close();
   }
 });
+
+test("pause closes the gate between items, keeps the slot, stops the clock; resume carries on; cancel while paused ends the run", async () => {
+  const { mgr } = tmpManager();
+  let hits = 0;
+  const srv = await server((req, res) => {
+    hits += 1;
+    setTimeout(() => {
+      res.writeHead(200, { "Content-Type": "text/event-stream" });
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "ok" } }] })}\n\n`);
+      res.end("data: [DONE]\n\n");
+    }, 20);
+  });
+  try {
+    const job = mgr.start(startOpts(srv.port, { categories: ["follow"], concurrency: 2 })); // 40 items
+    await until(() => mgr.getJob(job.benchId).progress.done >= 2);
+    const paused = mgr.pause("s1", job.benchId);
+    assert.equal(paused.paused, true);
+    assert.equal(paused.status, "running");
+    assert.match(paused.progress.message, /^Pausing|^Paused$/);
+    // In-flight replies finish, then nothing new is sent.
+    await until(() => mgr.getJob(job.benchId).progress.message === "Paused");
+    const doneAtPause = mgr.getJob(job.benchId).progress.done;
+    const hitsAtPause = hits;
+    await new Promise((r) => setTimeout(r, 120));
+    assert.equal(mgr.getJob(job.benchId).progress.done, doneAtPause);
+    assert.equal(hits, hitsAtPause);
+    assert.equal(mgr.activeBySpark.get("s1"), job.benchId); // the unit slot stays taken
+    const snap = mgr.getJob(job.benchId);
+    assert.ok(snap.pausedMs >= 100, `pausedMs ${snap.pausedMs}`);
+    assert.ok(snap.durationMs < Date.now() - snap.startedAt - 100, "the clock excludes the pause");
+    assert.equal(mgr.pause("s1", job.benchId).paused, true); // idempotent
+    // The active file carries the paused flag for the dialog after a reload.
+    const active = JSON.parse(fs.readFileSync(mgr.activePath, "utf8"));
+    assert.equal(active.jobs[0].paused, true);
+
+    const resumed = mgr.resume("s1", job.benchId);
+    assert.equal(resumed.paused, false);
+    assert.equal(resumed.pausedAt, null);
+    assert.ok(resumed.pausedMs >= 100);
+    assert.match(resumed.progress.message, /Instruction following/);
+    await until(() => mgr.getJob(job.benchId).progress.done > doneAtPause);
+    assert.equal(mgr.resume("s1", job.benchId).paused, false); // idempotent
+
+    // Pause again, then cancel: parked workers wake up and the run ends as cancelled, not paused.
+    mgr.pause("s1", job.benchId);
+    await until(() => mgr.getJob(job.benchId).progress.message === "Paused");
+    mgr.cancel("s1", job.benchId);
+    await until(() => !mgr.activeBySpark.has("s1"));
+    const done = mgr.getJob(job.benchId);
+    assert.equal(done.status, "cancelled");
+    assert.equal(done.paused, false);
+    assert.ok(done.pausedMs >= 100);
+    assert.equal(done.durationMs, done.completedAt - done.startedAt - done.pausedMs);
+    assert.ok(done.results.items.length >= doneAtPause);
+    assert.equal(mgr.pause("s1", job.benchId), null); // pruned from jobs: unknown
+  } finally {
+    await srv.close();
+  }
+});
+
+test("a run that finishes while paused settles the pause into its history record", async () => {
+  const { mgr } = tmpManager();
+  const srv = await server((req, res) => {
+    res.writeHead(200, { "Content-Type": "text/event-stream" });
+    res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "ok" } }] })}\n\n`);
+    res.end("data: [DONE]\n\n");
+  });
+  try {
+    const job = mgr.start(startOpts(srv.port, { categories: ["follow"], concurrency: 4 }));
+    await until(() => mgr.getJob(job.benchId).progress.done >= 1);
+    mgr.pause("s1", job.benchId);
+    await new Promise((r) => setTimeout(r, 30));
+    mgr.resume("s1", job.benchId);
+    await until(() => !mgr.activeBySpark.has("s1"));
+    const done = mgr.getHistory("s1").find((j) => j.benchId === job.benchId);
+    assert.equal(done.status, "completed");
+    assert.equal(done.paused, false);
+    assert.ok(done.pausedMs >= 25);
+  } finally {
+    await srv.close();
+  }
+});

@@ -6,6 +6,8 @@ import {
   clearQualityReference,
   getQualityFidelityCompare,
   cancelQualityBench,
+  pauseQualityBench,
+  resumeQualityBench,
   clearQualityBenchHistory,
   deleteQualityBenchRun,
   getQualityBench,
@@ -66,6 +68,7 @@ import {
   wilsonInterval,
 } from "../../shared/qualityBench.js";
 import { compareDivergence } from "../../shared/qualityDivergence.js";
+import { plainVerdict, type AreaVerdict } from "./qualityVerdict";
 import { QUALITY_CATEGORY_INFO } from "./qualityCategoryInfo";
 import { HistoryTable, PageCard, PageEmpty, PageLayout } from "../bench/sparkdash/pageParts";
 import { qualityHistoryRow } from "../bench/sparkdash/historyRows";
@@ -240,9 +243,9 @@ function categoryNotes(cat: QualityCategory, s: QualityCategorySummary): string 
   }
   if (s.errors > 0) notes.push(`${s.errors} request error${s.errors === 1 ? "" : "s"}`);
   // Scoring v3: unscored rows are named, and a category whose replies were cut off is not a clean score.
-  if (s.truncated) notes.push(`${s.truncated} cut off by max_tokens, not scored`);
+  if (s.truncated) notes.push(`${s.truncated} ${s.truncated === 1 ? "reply" : "replies"} ran out of token budget before answering, left out`);
   if (s.disputed) notes.push(`${s.disputed} disputed, not scored`);
-  if (s.budgetLimited) notes.push("budget-limited: score covers finished replies only");
+  if (s.budgetLimited) notes.push("score covers the finished replies; see budgeted for the rate with them counted as failed");
   return notes.join(" · ");
 }
 
@@ -909,10 +912,13 @@ function CategoryTable({ job }: { job: QualityBenchJob }) {
                 </td>
                 <td className="is-num q-ci">{ci ? formatCi(ci) : "—"}</td>
                 <td className="is-num q-ci" title={t("quality.coverageTitle")}>
-                  {s.coveragePct != null ? `${s.coveragePct.toFixed(0)}%` : "—"}
+                  {s.coveragePct != null ? `${Number.isInteger(s.coveragePct) ? s.coveragePct : s.coveragePct.toFixed(1)}%` : "—"}
                   {s.budgetedPct != null && s.budgetedPct !== s.pct ? ` · ${t("quality.budgeted")} ${s.budgetedPct.toFixed(1)}%` : ""}
                 </td>
-                <td className="q-cat-table__note">{categoryNotes(cat, s)}</td>
+                <td className="q-cat-table__note">
+                  {s.budgetLimited ? <span className="q-note-tag" title={t("quality.budgetLimitedTitle")}>{t("quality.budgetLimited")}</span> : null}
+                  {categoryNotes(cat, s)}
+                </td>
               </tr>
             );
           })}
@@ -1232,6 +1238,103 @@ function ItemTable({ job }: { job: QualityBenchJob }) {
         </div>
       </div>
     </details>
+  );
+}
+
+/**
+ * WP4: two finished runs side by side, from any units: the plain-words verdict, the score card
+ * and bars, the serving configuration header, the quantisation dashboard, the disagreement table,
+ * and the fidelity and divergence comparisons. The Quality compare page renders it for the pair
+ * the user picked; the run view renders the same pieces inline.
+ */
+export function QualityRunComparison({ job, compareJob }: { job: QualityBenchJob; compareJob: QualityBenchJob }) {
+  const { t } = useTranslation("benchmarks");
+  const [fidelityCmp, setFidelityCmp] = useState<QualityFidelityCompare | null>(null);
+  const compareRows = useMemo(() => compareQualityRuns(job, compareJob), [job, compareJob]);
+  const comparable = useMemo(() => checkQualityComparable(job, compareJob), [job, compareJob]);
+  const hasItems = (job.results.items?.length ?? 0) > 0 && (compareJob.results.items?.length ?? 0) > 0;
+  return (
+    <div className="q-compare">
+      {comparable.ok && <PlainVerdictCard job={job} compareJob={compareJob} compareRows={compareRows} fidelity={fidelityCmp} />}
+      <div className="q-cmp">
+        <ScoreCard job={job} compareJob={comparable.ok ? compareJob : null} compareRows={comparable.ok ? compareRows : []} />
+        <CategoryBars job={job} compareJob={comparable.ok ? compareJob : null} compareRows={comparable.ok ? compareRows : []} />
+      </div>
+      {!comparable.ok && <p className="bench-sheet__error">{comparable.reason}</p>}
+      {comparable.ok && <ComparisonHeader job={job} compareJob={compareJob} />}
+      {comparable.ok && <QuantDashboard job={job} compareJob={compareJob} compareRows={compareRows} fidelity={fidelityCmp} />}
+      {comparable.ok && hasItems && compareRows.length === 0 && <p className="bench-sheet__hint">{t("quality.noSharedItems")}</p>}
+      {comparable.ok && compareRows.length > 0 && <DisagreementTable job={job} compareJob={compareJob} />}
+      <FidelityCard job={job} compareJob={comparable.ok ? compareJob : null} sparkId={job.sparkId} onCompare={setFidelityCmp} />
+      <DivergenceCard job={job} compareJob={comparable.ok ? compareJob : null} />
+      <p className="bench-legend">{t("quality.legendV2")}</p>
+    </div>
+  );
+}
+
+/** The plain-text summary of a comparison, for the copy button on the compare page. */
+export function qualityComparisonText(job: QualityBenchJob, compareJob: QualityBenchJob): string {
+  const rows = checkQualityComparable(job, compareJob).ok ? compareQualityRuns(job, compareJob) : [];
+  const verdict = plainVerdict({ job, compareJob, rows, fidelity: null, divergence: compareDivergence(job, compareJob), band: noiseBand(job, compareJob) });
+  const lines = buildShareText(job, compareJob, rows).split("\n");
+  const head = [`Where it differs (A = ${shortRunName(job, "this run")}, B = ${shortRunName(compareJob, "other run")}): ${verdict.summary}`];
+  for (const v of verdict.areas) head.push(`  ${v.area.padEnd(28)} ${v.tag.padEnd(12)} ${v.evidence}`);
+  return [...lines.slice(0, 1), ...head, "", ...lines.slice(1)].join("\n");
+}
+
+/**
+ * WP4: the comparison in ordinary words — one line per area (maths, coding, prose, …) saying which
+ * build is better or that they are the same, with the evidence behind it.
+ */
+function PlainVerdictCard({
+  job,
+  compareJob,
+  compareRows,
+  fidelity,
+}: {
+  job: QualityBenchJob;
+  compareJob: QualityBenchJob;
+  compareRows: QualityCompareRow[];
+  fidelity: QualityFidelityCompare | null;
+}) {
+  const { t } = useTranslation("benchmarks");
+  const divergence = useMemo(() => compareDivergence(job, compareJob), [job, compareJob]);
+  const band = useMemo(() => noiseBand(job, compareJob), [job, compareJob]);
+  const verdict = useMemo(() => plainVerdict({ job, compareJob, rows: compareRows, fidelity, divergence, band }), [job, compareJob, compareRows, fidelity, divergence, band]);
+  const nameA = shortRunName(job, t("quality.thisRun"));
+  const nameB = shortRunName(compareJob, t("quality.otherRun"));
+  const tagLabel = (tag: AreaVerdict["tag"]) =>
+    tag === "A" ? t("quality.verdictA", { name: nameA }) : tag === "B" ? t("quality.verdictB", { name: nameB }) : tag === "same" ? t("quality.verdictSame") : t("quality.verdictUnknown");
+  // Static keys only (the i18n check refuses a computed key).
+  const areaLabel: Record<AreaVerdict["key"], string> = {
+    maths: t("quality.area.maths"),
+    knowledge: t("quality.area.knowledge"),
+    coding: t("quality.area.coding"),
+    prose: t("quality.area.prose"),
+    languages: t("quality.area.languages"),
+    instructions: t("quality.area.instructions"),
+    longdocs: t("quality.area.longdocs"),
+    facts: t("quality.area.facts"),
+    reliability: t("quality.area.reliability"),
+    cost: t("quality.area.cost"),
+  };
+  return (
+    <div className="q-verdicts">
+      <div className="q-main__head">
+        <h3 className="bench-sheet__section-title">{t("quality.verdictHead")}</h3>
+        <span className="q-muted">{verdict.summary}</span>
+      </div>
+      <ul className="q-verdicts__list">
+        {verdict.areas.map((v) => (
+          <li key={v.key} className={`q-verdict-row q-verdict-row--${v.tag}`}>
+            <span className="q-verdict-row__area">{areaLabel[v.key]}</span>
+            <span className="q-verdict-row__tag">{tagLabel(v.tag)}</span>
+            <span className="q-verdict-row__ev">{v.evidence}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="bench-sheet__hint">{t("quality.verdictHint", { a: nameA, b: nameB })}</p>
+    </div>
   );
 }
 
@@ -1567,6 +1670,16 @@ export function QualityBenchDialog({
     }
   };
 
+  const handlePauseResume = async () => {
+    if (!job || job.status !== "running") return;
+    try {
+      const j = job.paused ? await resumeQualityBench(sparkId, job.benchId) : await pauseQualityBench(sparkId, job.benchId);
+      setJob(j);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   const handleNewRun = () => {
     stopPoll();
     setJob(null);
@@ -1656,10 +1769,17 @@ export function QualityBenchDialog({
     ) : null;
   const hasItems = (job?.results?.items?.length ?? 0) > 0;
 
+  const pauseLabel = job?.paused ? t("quality.resumeRun") : t("quality.pauseRun");
+  const pauseTitle = job?.paused ? t("quality.resumeTitle") : t("quality.pauseTitle");
   const runControl = isRunning ? (
-    <button type="button" className="btn" onClick={() => void handleCancel()}>
-      {t("quality.cancelRun")}
-    </button>
+    <>
+      <button type="button" className="btn" onClick={() => void handlePauseResume()} title={pauseTitle}>
+        {pauseLabel}
+      </button>
+      <button type="button" className="btn" onClick={() => void handleCancel()}>
+        {t("quality.cancelRun")}
+      </button>
+    </>
   ) : (
     <button type="button" className="btn btn--primary" onClick={() => void handleStart()} disabled={starting || categories.length === 0}>
       {starting ? "Starting…" : "Run quality bench"}
@@ -1884,7 +2004,7 @@ export function QualityBenchDialog({
               <div className="bench-progress">
                 <div className="bench-progress__row">
                   <span className="bench-progress__status" role="status" aria-live="polite">
-                    {t("dialog.running")}
+                    {job.paused ? t("dialog.paused") : t("dialog.running")}
                     {job.progress.currentCategory
                       ? ` · ${QUALITY_CATEGORY_LABELS[job.progress.currentCategory]} ${job.progress.categoryDone}/${job.progress.categoryTotal}`
                       : ""}
@@ -1966,6 +2086,7 @@ export function QualityBenchDialog({
                       <CategoryBars job={job} compareJob={cmp && comparable.ok ? cmp : null} compareRows={cmp ? compareRows : []} />
                     </div>
                     {cmp && !comparable.ok && <p className="bench-sheet__error">{comparable.reason}</p>}
+                    {cmp && comparable.ok && <PlainVerdictCard job={job} compareJob={cmp} compareRows={compareRows} fidelity={fidelityCmp} />}
                     {cmp && comparable.ok && <ComparisonHeader job={job} compareJob={cmp} />}
                     {cmp && comparable.ok && <QuantDashboard job={job} compareJob={cmp} compareRows={compareRows} fidelity={fidelityCmp} />}
                     {cmp && comparable.ok && compareRows.length === 0 && (
@@ -2138,9 +2259,14 @@ export function QualityBenchDialog({
 
         <footer className="bench-sheet__footer">
           {job?.status === "running" ? (
-            <button type="button" className="bench-btn bench-btn--ghost" onClick={() => void handleCancel()}>
-              {t("dialog.cancel")}
-            </button>
+            <>
+              <button type="button" className="bench-btn bench-btn--ghost" onClick={() => void handlePauseResume()} title={pauseTitle}>
+                {pauseLabel}
+              </button>
+              <button type="button" className="bench-btn bench-btn--ghost" onClick={() => void handleCancel()}>
+                {t("dialog.cancel")}
+              </button>
+            </>
           ) : job ? (
             <>
               {hasItems && (

@@ -2081,6 +2081,26 @@ app.delete("/api/sparks/:id/llm/quality-bench/:benchId", (req, res) => {
 });
 
 /**
+ * Pause / resume a run in flight. Pause closes the gate between items: the replies already in
+ * flight finish and count, nothing new is sent until resume; the run keeps its unit slot and its
+ * place. Both are idempotent; a finished run answers 409.
+ */
+for (const action of ["pause", "resume"]) {
+  app.post(`/api/sparks/:id/llm/quality-bench/:benchId/${action}`, (req, res) => {
+    const spark = registry.getSpark(req.params.id);
+    if (!spark) return res.status(404).json({ error: "Spark not found" });
+    const job = qualityBenchManager.getJob(req.params.benchId);
+    if (!job || job.sparkId !== spark.id) {
+      return res.status(404).json({ error: "Benchmark not found" });
+    }
+    if (job.status !== "running") {
+      return res.status(409).json({ error: `This run has already finished; nothing to ${action}` });
+    }
+    res.json(qualityBenchManager[action](spark.id, req.params.benchId));
+  });
+}
+
+/**
  * LLM Prompt Showcase — concurrent streaming demos.
  *
  * POST body: { port, modelId?, maxTokens?, temperature?, thinking?, promptType?, prompts: string[] }

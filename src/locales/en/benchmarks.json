@@ -10,7 +10,11 @@
     "decode": { "label": "Decode", "blurb": "Generation speed (tokens/s) at rising concurrency." },
     "prefill": { "label": "Prefill", "blurb": "Prompt processing speed and time to first token across context sizes." },
     "quality": { "label": "Quality", "blurb": "A fixed, seeded quality suite to compare models, quantisations and KV-cache formats." },
-    "toolEval": { "label": "Tool Eval Bench", "blurb": "Tool-calling quality across 69 deterministic scenarios (selection, parameters, multi-step, safety).", "family": "Tool Eval Bench" }
+    "toolEval": { "label": "Tool Eval Bench", "blurb": "Tool-calling quality across 69 deterministic scenarios (selection, parameters, multi-step, safety).", "family": "Tool Eval Bench" },
+    "qualityCompare": {
+      "label": "Quality compare",
+      "blurb": "Any two saved quality runs side by side, from any units: where one build is better, in plain words and in numbers."
+    }
   },
   "sparkChips": {
     "group": "Spark to benchmark",
@@ -51,7 +55,8 @@
     "model": "Model", "running": "Running", "completedLevels": "Completed levels", "load": "Load", "aggregate": "Aggregate", "stream": "Stream",
     "loadingLast": "Loading last results…", "cancelRun": "Cancel run", "starting": "Starting…", "run": "Run benchmark", "progress": "Progress", "results": "Results",
     "clearTitle": "Clear saved results for this port", "clearHistory": "Clear history", "noRuns": "No runs yet", "history": "History · {{count}}",
-    "closeDialog": "Close dialog", "close": "Close", "cancel": "Cancel", "clear": "Clear", "done": "Done", "runAgain": "Run again", "customExample": "Custom, e.g. 100k"
+    "closeDialog": "Close dialog", "close": "Close", "cancel": "Cancel", "clear": "Clear", "done": "Done", "runAgain": "Run again", "customExample": "Custom, e.g. 100k",
+    "paused": "Paused"
   },
   "decode": {
     "title": "Decode benchmark", "modelHint": "Select which model the benchmark targets.", "noModels": "No models are currently served by this target.",
@@ -98,11 +103,46 @@
     "quantPreset":"Quant check", "quantPresetTitle":"Arithmetic chain, state tracking, long-context recall, fidelity and divergence at concurrency 1: the categories that see a quantisation, without batching noise",
     "partialRun":"Partial run — no headline overall", "partialRunHint":"Only the default and full profiles carry an overall score; this run scored {{categories}}.",
     "thinkingWarning":"Thinking off was not honoured by {{model}} in {{category}}: {{reasoningRows}} of {{rows}} replies carried reasoning and {{truncated}} were cut off. This category's score reflects the budget, not the model.",
-    "legendV2":"Score — items passed, with a Wilson 95% interval; the overall carries a stratified bootstrap interval. Coverage — scored ÷ total; budgeted — passed ÷ everything that ran, so a model that truncates more cannot look better. p — exact McNemar test on the items only one run got right, Holm-adjusted across categories; p ≥ 0.05 is insufficient evidence of a difference, not equivalence. Equivalent — the paired delta's interval sits inside ±2 pts. A delta inside the run's measured noise floor reads as noise whatever p says. Items with a request error or timeout, replies cut off by max_tokens before an answer, and items with a disputed reference answer are not scored and are left out of the comparison. * — budget-limited: some replies were cut off, so the score covers only the ones that finished."
+    "legendV2":"Score — items passed, with a Wilson 95% interval; the overall carries a stratified bootstrap interval. Coverage — scored ÷ total; budgeted — passed ÷ everything that ran, so a model that truncates more cannot look better. p — exact McNemar test on the items only one run got right, Holm-adjusted across categories; p ≥ 0.05 is insufficient evidence of a difference, not equivalence. Equivalent — the paired delta's interval sits inside ±2 pts. A delta inside the run's measured noise floor reads as noise whatever p says. Items with a request error or timeout, replies cut off by max_tokens before an answer, and items with a disputed reference answer are not scored and are left out of the comparison. * — budget-limited: some replies were cut off, so the score covers only the ones that finished.",
+    "area": {
+      "maths": "Maths and reasoning",
+      "knowledge": "Knowledge questions",
+      "coding": "Coding",
+      "prose": "Writing and prose",
+      "languages": "Other languages",
+      "instructions": "Instructions and structured output",
+      "longdocs": "Long documents",
+      "facts": "Quick facts and arithmetic",
+      "reliability": "Reliability of the output",
+      "cost": "Speed and memory"
+    },
+    "verdictUnknown": "not measured",
+    "verdictSame": "about the same",
+    "verdictB": "{{name}} better",
+    "verdictA": "{{name}} better",
+    "verdictHint": "Plain-words reading of the numbers below. A = {{a}}, B = {{b}}. \"Better\" means a difference beyond noise; \"about the same\" means no clear difference or one inside the measured noise floor.",
+    "verdictHead": "Where it differs",
+    "resumeTitle": "Carry on from the next item",
+    "pauseTitle": "Replies already in flight finish and count; nothing new is sent until you resume. The run keeps its place, its results and its unit slot, and the clock stops.",
+    "resumeRun": "Resume",
+    "pauseRun": "Pause"
   },
   "share": {
     "completed": "COMPLETED", "running": "RUNNING", "failed": "FAILED", "cancelled": "CANCELLED",
     "score": "Score", "category": "Category", "versusOther": "vs other"
   },
-  "liveTps": { "aria": "Live generation speed", "live": "Live generation", "peak": "peak {{value}} tok/s" }
+  "liveTps": { "aria": "Live generation speed", "live": "Live generation", "peak": "peak {{value}} tok/s" },
+  "compare": {
+    "title": "Pick two runs",
+    "resultTitle": "Comparison",
+    "pickA": "A · the run under test",
+    "pickB": "B · the reference",
+    "swap": "Swap A and B",
+    "swapTitle": "Exchange the two runs: deltas are always A minus B",
+    "hint": "A is read against B: a positive delta means A did better. Runs from different units or engine builds compare serving configurations, not only weights; the header says which keys differ.",
+    "noRuns": "No finished quality runs on any unit yet.",
+    "loading": "Loading both runs…",
+    "emptyTitle": "Nothing to compare yet",
+    "emptyBody": "Pick a run under test and a reference. When A's model family has a pinned reference, B is filled in for you."
+  }
 }
