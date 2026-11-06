@@ -153,7 +153,9 @@ export class SparkMonitor {
     this.llmProbes = new Map();
     if (this._llmMonitoringEnabled(spark)) {
       for (const port of this._llmPorts()) {
-        this.llmProbes.set(port, new LlmProbe(spark, port));
+        this.llmProbes.set(port, new LlmProbe(spark, port, {
+          readNativeSharedPool: (targetPort) => this.collector.probeNativeTensorFoldCapacity(targetPort),
+        }));
       }
     }
 
@@ -305,7 +307,9 @@ export class SparkMonitor {
         existing.spark = spark;
         this.llmProbes.set(port, existing);
       } else {
-        this.llmProbes.set(port, new LlmProbe(spark, port));
+        this.llmProbes.set(port, new LlmProbe(spark, port, {
+          readNativeSharedPool: (targetPort) => this.collector.probeNativeTensorFoldCapacity(targetPort),
+        }));
       }
     }
     for (const [port, probe] of prevProbes) {
