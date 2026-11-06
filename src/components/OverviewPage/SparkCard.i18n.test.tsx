@@ -105,13 +105,13 @@ describe("SparkCard locale changes", () => {
     const spark = makeSpark("tensorfold");
     Object.assign(spark.metrics.llm[0], { available: true, backend: "tensorfold", measurementValid: true, generationTps: 25, perStreamTps: 8, prefillTps: 1000, prefillTpsSource: "completed-metrics" });
     const { container } = render(<SparkCard spark={spark} temperatureUnit="celsius" />);
-    expect(container.textContent).toContain("Decode · aggregate");
-    expect(container.textContent).toContain("Prefill · last completed");
-    expect(container.textContent).toContain("Effective rate · includes cached tokens");
+    expect(container.textContent).toContain("Decode · total");
+    expect(container.textContent).toContain("Prefill · completed");
+    expect(container.textContent).toContain("incl. cached tokens");
     await act(async () => setLocale("zh-CN"));
     expect(container.textContent).toContain("解码 · 总计");
-    expect(container.textContent).toContain("预填充 · 最近完成");
-    expect(container.textContent).toContain("有效速率 · 包含缓存 Token");
+    expect(container.textContent).toContain("预填充 · 已完成");
+    expect(container.textContent).toContain("含缓存 Token");
     expect(container.textContent).toContain("25.0");
   });
 });
