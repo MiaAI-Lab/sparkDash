@@ -282,6 +282,18 @@ function SparkCardImpl({
     : null;
   const llmChipTitle =
     parallel != null && llm?.requestsRunning != null ? t("card.parallelRequests", { count: parallel }) : undefined;
+  // TensorFold's shared cache: how much of the pool is reserved and how much is kept, from the
+  // engine's own accounting. Absent for engines or builds that report no cache group.
+  const cache = llm?.cache?.pool ? llm.cache : null;
+  const cacheCapacity = cache?.pool?.capacityPositions ?? 0;
+  const cachePct = (n: number) => (cacheCapacity > 0 ? Math.round((n / cacheCapacity) * 100) : 0);
+  const cacheChip = cache
+    ? `${cachePct(cache.pool!.activeReservedPositions)}% active · ${cachePct(cache.pool!.retainedPrefixPositions)}% kept`
+    : null;
+  const cacheChipTitle = cache
+    ? `Shared pool ${cache.pool!.capacityPositions.toLocaleString()} positions, ${cache.contextLimitPositions?.toLocaleString() ?? "?"} per request, ${cache.streamCapacity ?? "?"} streams; ` +
+      `snapshot store ${cache.promptState?.enabled ? `${cache.promptState.heldBytes ?? 0} of ${cache.promptState.budgetBytes ?? 0} bytes` : "not reported"}`
+    : undefined;
 
   const chips = (
     <div className="ov-chips">
@@ -297,6 +309,7 @@ function SparkCardImpl({
         </Tag>
       ) : null}
       {online && llmChip ? <Tag tone={(llm?.requestsRunning ?? llm?.slotsActive ?? 0) > 0 ? "good" : "neutral"} title={llmChipTitle}>{llmChip}</Tag> : null}
+      {online && cacheChip ? <Tag title={cacheChipTitle}>{cacheChip}</Tag> : null}
       {comfy !== undefined || spark.comfyMonitoring ? (
         !comfy?.available ? (
           <Tag title={t("card.comfyUnavailable")}>Comfy</Tag>

@@ -59,6 +59,8 @@ export function windowStats(values: ReadonlyArray<HistoryStat | null>): WindowSt
 }
 
 export interface HistoryChartSeries {
+  /** Configuration values remain steps, not interpolated intermediate configurations. */
+  step?: boolean;
   key: string;
   label: string;
   /** A theme token, e.g. `var(--color-accent)`. */
@@ -91,6 +93,8 @@ export interface HistoryChartProps {
   /** Round an auto y range to this unit (1024 for MB → whole GB, 5 for degrees). */
   yUnit?: number;
   thresholds?: readonly HistoryThreshold[];
+  /** Quantiles and ratios must not get a mean-of-bucket-values window summary. */
+  showWindowSummary?: boolean;
   /** The shared crosshair timestamp, or null. */
   cursorT: number | null;
   onCursor: (t: number | null) => void;
@@ -212,6 +216,7 @@ export function HistoryChart({
   yMax,
   yUnit,
   thresholds = [],
+  showWindowSummary = true,
   cursorT,
   onCursor,
   formatTime,
@@ -275,7 +280,7 @@ export function HistoryChart({
 
   // One window summary per series, computed once: the stats row under the header
   // and the tooltip's summary line read the same numbers.
-  const windowRows = series.flatMap((s) => {
+  const windowRows = (showWindowSummary ? series : []).flatMap((s) => {
     const w = windowStats(s.values);
     return w.avg == null
       ? []
@@ -286,9 +291,9 @@ export function HistoryChart({
 
   return (
     <div className="sp-hist-chart" data-chart={id}>
-      <div className="sp-hist-chart__head">
+      <div className="sp-hist-chart__head" style={{ flexWrap: "wrap" }}>
         <span className="eyebrow sp-clip">{title}</span>
-        <span className="sp-hist-chart__readouts mono">
+        <span className="sp-hist-chart__readouts mono" style={{ flexWrap: "wrap", minWidth: 0, maxWidth: "100%" }}>
           {series.map((s) => {
             const v = readIdx != null ? s.values[readIdx] : null;
             return (
@@ -384,7 +389,9 @@ export function HistoryChart({
             {domain &&
               series.map((s) =>
                 segmentRuns(timeline, s.values, stepMs).map((run, r) => {
-                  const avgPts = run.map((i) => point(i, s.values[i]!.avg));
+                  const avgPts = run.flatMap((i, k) => s.step && k > 0
+                    ? [point(i, s.values[run[k - 1]]!.avg), point(i, s.values[i]!.avg)]
+                    : [point(i, s.values[i]!.avg)]);
                   const bandPts = s.band
                     ? run.map((i) => {
                         const v = s.values[i]!;
