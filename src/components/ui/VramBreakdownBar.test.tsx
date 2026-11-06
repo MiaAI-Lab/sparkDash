@@ -61,14 +61,20 @@ describe("VramBreakdownBar", () => {
     expect(container.querySelector("[data-legend]")).toBeNull();
   });
 
-  it("keeps KV out of the legend and marks a nearly full pool amber in the breakdown", () => {
-    const { container } = render(
-      <VramBreakdownBar label="VRAM" breakdown={spark1(0.93)} showLegend />,
-    );
+  it("marks a nearly full pool amber for an engine whose ratio is pool occupancy", () => {
+    const breakdown = rtx({ available: true, backend: "sglang", kvCacheUsage: 0.93 });
+    const { container } = render(<VramBreakdownBar label="VRAM" breakdown={breakdown} showLegend />);
     expect(container.querySelector("[data-legend]")!.textContent).not.toContain("KV");
     const tip = container.querySelector('[role="tooltip"]')!;
     const row = Array.from(tip.querySelectorAll("span")).find((s) => s.textContent === "93%");
     expect(row?.className).toContain("text-warning");
+  });
+
+  it("does not read TensorFold's per-stream ratio as pool fill", () => {
+    const { container } = render(<VramBreakdownBar label="VRAM" breakdown={spark1(0.93)} showLegend />);
+    const tip = container.querySelector('[role="tooltip"]')!;
+    expect(tip.textContent).toContain("KV in use not reported by TensorFold");
+    expect(Array.from(tip.querySelectorAll("span")).some((s) => s.textContent === "93%")).toBe(false);
   });
 
   it("opens the breakdown on keyboard focus, describes the bar with it, and closes on Escape", () => {
@@ -84,7 +90,7 @@ describe("VramBreakdownBar", () => {
     expect(text).toContain("Unified memory · 114.5 GB of 121.7 GB used");
     expect(text).toContain("python3 · pid 92271");
     expect(text).toContain("98.6 GB");
-    expect(text).toContain("KV in use 5%");
+    expect(text).toContain("KV in use not reported by TensorFold");
     expect(text).toContain("System / CPU 15.8 GB");
     expect(text).toContain("Free 7.2 GB");
     expect(text).not.toContain("Weights"); // TensorFold reports no GB split

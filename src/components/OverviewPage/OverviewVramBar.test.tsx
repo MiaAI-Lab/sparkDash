@@ -94,7 +94,9 @@ describe("Overview VRAM bar", () => {
     const { container } = render(<OverviewPage sparks={[spark1(), workerOf("spark-1")]} />);
     const bar = cards(container)[1].querySelector<HTMLElement>("[data-vram-breakdown]")!;
     expect(bar.querySelector('[data-segment="engine"]')).not.toBeNull();
-    expect(bar.querySelector('[role="tooltip"]')?.textContent).toContain("KV in use 5%");
+    // TensorFold's ratio is one stream's share of its own window, so it is not shown as pool fill;
+    // other backends keep it.
+    expect(bar.querySelector('[role="tooltip"]')?.textContent).toContain("KV in use not reported by TensorFold");
   });
 
   it("keeps a worker's GPU as one segment when its head is offline", () => {

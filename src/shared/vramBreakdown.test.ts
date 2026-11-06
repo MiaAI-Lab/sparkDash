@@ -163,7 +163,9 @@ describe("computeVramBreakdown", () => {
     expect(b.otherMB).toBe(0);
     expect(b.freeMB).toBe(7_412);
     expect(b.tone).toBe("low");
-    expect(b.kv).toEqual({ usage: 0.0549, poolGb: null, weightsGb: null, backend: "TensorFold" });
+    // TensorFold's ratio is one stream's share of its own window, not the shared pool's occupancy:
+    // it is not passed through as pool fill (the engine's own cache group carries the pool).
+    expect(b.kv).toEqual({ usage: null, poolGb: null, weightsGb: null, backend: "TensorFold" });
     expect(legendItems(b).map((i) => `${i.label} ${i.gb}`)).toEqual([
       "Model 98.6",
       "System 15.8",
@@ -220,6 +222,17 @@ describe("computeVramBreakdown", () => {
     )!;
     expect(b.freeMB).toBe(97_887);
     expect(b.segments).toEqual([]);
+  });
+
+  it("does not call a TensorFold pool nearly full from the per-stream ratio", () => {
+    const b = computeVramBreakdown(SPARK1_VRAM, SPARK1_PROCS, {
+      model: "unified",
+      unified: { ...SPARK1_UM, available: 60_000, cpuUsed: 4_000, gpuUsed: 50_000 },
+      serving: true,
+      endpoint: { available: true, backend: "tensorfold", kvCacheUsage: 0.97 },
+    })!;
+    expect(b.kv?.usage).toBeNull();
+    expect(verdict(b)).toBe("Plenty of headroom");
   });
 
   it("flags a nearly full KV pool and a critical discrete card in the verdict", () => {
