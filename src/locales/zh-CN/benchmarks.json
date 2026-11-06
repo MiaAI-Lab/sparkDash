@@ -96,7 +96,7 @@
     "divergenceHead":"发散度", "divergenceSub":"{{count}} 条已存储回复，贪心解码，关闭思考", "divTerminated":"正常结束", "divLoops":"循环", "divJson":"JSON 结构", "divJsonValid":"有效", "divTool":"工具调用", "divLength":"平均长度（字符）",
     "divIdentical":"相同回复", "divFirst":"首次分歧（中位数）", "divEdit":"编辑距离", "divLenRatio":"长度比", "divDrift":"长文相同至", "divKind":"类型",
     "divNoCompare":"所比较的运行没有可配对的发散度回复。", "divCompareHint":"回复是否相同衡量的是输出对推理栈的敏感程度，而非正确性：请在相同引擎和设置下比较，才能把差异归因于模型构建。编辑距离在前 1,200 个字符上归一化；漂移在约 256、1,024 和 2,048 token 对应的字符偏移处读取。",
-    "otherUnits":"其他单元", "referenceTag":"参考", "pinReference":"设为参考", "unpinReference":"取消参考", "pinTitle":"该模型系列的参考运行：任何单元上该模型任一构建的比较都默认与之对比",
+    "compareGone":"所选的对比运行已不存在——它已从历史中删除；如果它是固定的参考运行，请另行设为参考", "otherUnits":"其他单元", "referenceTag":"参考", "pinReference":"设为参考", "unpinReference":"取消参考", "pinTitle":"该模型系列的参考运行：任何单元上该模型任一构建的比较都默认与之对比",
     "servingMismatch":"两次运行在 {{keys}} 上不同：这是在比较推理配置，而不仅是权重。", "servingSame":"两侧单元、引擎、构建和设置相同：差异来自权重。",
     "quantHead":"量化仪表板", "quantSub":"A = 本次运行，B = 所比较的运行", "quantHint":"ΔNLL 和困惑度来自保真度语料；相同回复、首次分歧和循环来自发散度集；推理 token 和截断统计自两次运行都评分的生成类别；各类别配对差值附 95% 区间；解码 tok/s 来自该端口最近一次解码基准（或实时探测），内存来自运行开始时的探测。",
     "quantReasoning":"平均推理 token", "quantTruncated":"被截断的回复", "quantDecode":"解码 tok/s", "quantMemory":"内存",

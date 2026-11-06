@@ -113,6 +113,33 @@ describe("QualityBenchDialog", () => {
     await act(async () => root.unmount());
   });
 
+  it("drops a pinned reference whose run was deleted instead of showing 'Benchmark not found'", async () => {
+    const current = run("b-rtx", "exl3 4-bit", [true, true, true, false], "a");
+    current.config.modelId = "GLM-5.3-Flash";
+    const older = run("b-old", "older", [true, true, false, false], "c");
+    vi.mocked(listQualityBench).mockResolvedValue({ active: null, last: current, history: [current, older], defaults });
+    vi.mocked(listQualityBenchFleet).mockResolvedValue({
+      runs: [],
+      references: { "glm-5.3-flash": { sparkId: "s1", benchId: "b-gone", modelId: "GLM-5.3-Flash", pinnedAt: 1 } },
+    });
+    vi.mocked(getQualityBench).mockImplementation((_id, benchId) =>
+      benchId === "b-gone" ? Promise.reject(new Error("Benchmark not found")) : Promise.resolve(current)
+    );
+    const { root } = render(
+      <QualityBenchDialog open sparkId="s1" llmPort={8888} modelId="GLM-5.3-Flash" contextLength={32768} onClose={() => {}} />
+    );
+    await flush();
+    await flush();
+    await flush();
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    expect(getQualityBench).toHaveBeenCalledWith("s1", "b-gone");
+    const text = dialog.textContent ?? "";
+    expect(text).not.toContain("Benchmark not found");
+    expect(text).toContain("The run picked for comparison is no longer saved");
+    expect((dialog.querySelector("select") as HTMLSelectElement).value).toBe("");
+    await act(async () => root.unmount());
+  });
+
   it("reports truncated and disputed items as unscored with the stored reply, and flags a budget-limited score", async () => {
     const job = run("b-v3", "v3", [true, true, false, false], "x");
     job.config.scoringVersion = 3;

@@ -1567,12 +1567,20 @@ export function QualityBenchDialog({
         if (!cancelled) setCompareJob(j);
       })
       .catch((err: Error) => {
-        if (!cancelled) setError(err.message);
+        if (cancelled) return;
+        // A deleted run can still be the pinned reference of its family: drop it and say so,
+        // instead of surfacing the raw 404 and keeping the dead target selected.
+        if (err.message === "Benchmark not found") {
+          setCompareId("");
+          setError(t("quality.compareGone"));
+          return;
+        }
+        setError(err.message);
       });
     return () => {
       cancelled = true;
     };
-  }, [sparkId, compareId, compareSparkOf]);
+  }, [sparkId, compareId, compareSparkOf, t]);
 
   // Only the run picked in "compare with" counts (a stale compareJob must not leak into the card or text).
   const activeCompare = compareJob && compareJob.benchId === compareId ? compareJob : null;
