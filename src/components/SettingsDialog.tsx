@@ -552,8 +552,8 @@ export function SettingsDialog({ open, onClose, onSaved, onOpenHarness, serverVe
                 onChange={(v) => update({ mqttEnabled: v })}
               />
               <ToggleRow
-                title="API Keys page"
-                help="Read-only view of LiteLLM virtual keys, served by a host-side bridge on a unix socket. Off by default; needs SPARKDASH_APIKEYS_BRIDGE_SOCKET and SPARKDASH_APIKEYS_BRIDGE_TOKEN in the server's environment. See the README's API Keys section."
+                title={t("toggles.apiKeys.title")}
+                help={t("toggles.apiKeys.help")}
                 checked={Boolean(settings.apiKeysEnabled)}
                 onChange={(v) => update({ apiKeysEnabled: v })}
               />

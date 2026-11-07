@@ -9,6 +9,9 @@ Format: version sections are listed newest first.
 
 ## [Unreleased]
 
+### Added
+- Localize the opt-in, read-only API Keys page and its Settings entry in English and Simplified Chinese while preserving raw identifiers, diagnostics and unknown-versus-zero values. Thanks to @oscarlius.
+
 ### Fixed
 - **The cache-history sidecar's disk bound is unconditional.** The measured 8.2 MiB worst case assumed the engine's own ~20-bucket histograms and short epoch strings, but `bucket.h` stored one number per engine-exposed bucket and `engine_epoch` was kept verbatim, so a broken or hostile exposition publishing a 1,000-bucket histogram could push the sidecar past the documented bound. Histograms above 64 buckets per series (or with mismatched counts and edges) are now refused at ingest — recorded as `telemetry_invalid`, with no quantile invented from them — and epochs are clamped to 128 characters. Follow-up to the cache-history work by @tfolkman (#362).
 - **Main typechecks and builds again.** e89f8d1 switched the Overview card's root-disk pick to the shared "main disk" policy but committed only the caller; `src/shared/mainFilesystem.js` — with its type declarations, the shared disk-layout fixtures and a test that runs every layout through both call shapes — is now on main, so `tsc --noEmit`, `vite build` and the Overview test files resolve again. Reported by @mapfde (#370).
