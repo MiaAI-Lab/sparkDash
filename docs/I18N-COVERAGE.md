@@ -4,6 +4,8 @@
 
 ## API Keys follow-up (2026-11-07)
 
+Review: [#372](https://github.com/MiaAI-Lab/sparkDash/pull/372), pending upstream; local implementation and acceptance complete.
+
 Current upstream source is `e89f8d1`. The maintainer has ported #315–#324 into main; #315 is closed and #316–#324 still have open PR records. #325 remains an independent pending review. These source-landing and PR-lifecycle facts must not be conflated with the older inventory snapshots below.
 
 This follow-up adds a standalone `apiKeys` namespace and translates the opt-in read-only page plus its Settings toggle. Headers, controls, finite status labels, retry/error wrappers, table/detail fields, empty/pending feedback and unknown/unlimited/all fallbacks switch immediately. English fallback and the formatter defaults remain stable. Aliases, hashed IDs, model names, bridge diagnostics, budget durations and wire state values remain raw; CSS status values and date/money formatting are unchanged. Locale changes retain the selected key and do not request data again. This does not enable the feature or configure a bridge.
