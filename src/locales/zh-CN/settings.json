@@ -25,7 +25,8 @@
     "memoryInUse": { "title": "显示已用内存磁贴", "help": "Overview 磁贴显示集群已用内存总量。" },
     "tokens24Hours": { "title": "显示最近 24 小时 Token 磁贴", "help": "Overview 磁贴显示最近 24 小时生成的 Token（尚未跟踪 Token 时显示在线节点数）。" },
     "fleetExceptions": { "title": "显示活跃集群异常", "help": "Overview 条带显示离线主机、GPU 降频、磁盘、LLM 和 Tailnet 告警。默认关闭。" },
-    "benchDebugTraces": { "title": "保存基准测试调试追踪", "help": "在基准测试历史中存储 prompts、HTTP/completion ID、内容预览和 GPU 样本。默认关闭；会产生更大的历史文件。" }
+    "benchDebugTraces": { "title": "保存基准测试调试追踪", "help": "在基准测试历史中存储 prompts、HTTP/completion ID、内容预览和 GPU 样本。默认关闭；会产生更大的历史文件。" },
+    "apiKeys": { "title": "API 密钥页面", "help": "通过 Unix socket 上的主机端桥接服务，只读查看 LiteLLM 虚拟密钥。默认关闭；需要在服务器环境中设置 SPARKDASH_APIKEYS_BRIDGE_SOCKET 和 SPARKDASH_APIKEYS_BRIDGE_TOKEN。详见 README 的 API Keys 章节。" }
   },
   "electricityPrice": { "title": "电价", "help": "每 kWh 的价格，用于 Fleet energy 页面上的估算成本。留空可隐藏成本。", "currency": "货币符号" },
   "alertNotifications": { "title": "告警通知", "help": "当 Health 发现和 Overview 异常持续一段时间后，以及它们恢复时，发送到 ntfy、Discord、Slack、Gotify 或 webhook。默认关闭。", "on": "开启", "off": "关闭", "configure": "配置…" },

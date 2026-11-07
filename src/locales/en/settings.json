@@ -25,7 +25,8 @@
     "memoryInUse": { "title": "Show Memory in use tile", "help": "Overview tile with the fleet's total memory in use." },
     "tokens24Hours": { "title": "Show Tokens in last 24 hours tile", "help": "Overview tile with the tokens generated in the last 24 hours (or the online unit count, when no tokens are tracked yet)." },
     "fleetExceptions": { "title": "Show active fleet exceptions", "help": "Overview strip for offline hosts, GPU throttle, disk, LLM, and Tailnet alerts. Off by default." },
-    "benchDebugTraces": { "title": "Save benchmark debug traces", "help": "Stores prompts, HTTP/completion IDs, content previews, and GPU samples in bench history. Off by default; larger history files." }
+    "benchDebugTraces": { "title": "Save benchmark debug traces", "help": "Stores prompts, HTTP/completion IDs, content previews, and GPU samples in bench history. Off by default; larger history files." },
+    "apiKeys": { "title": "API Keys page", "help": "Read-only view of LiteLLM virtual keys, served by a host-side bridge on a unix socket. Off by default; needs SPARKDASH_APIKEYS_BRIDGE_SOCKET and SPARKDASH_APIKEYS_BRIDGE_TOKEN in the server's environment. See the README's API Keys section." }
   },
   "electricityPrice": { "title": "Electricity price", "help": "Per kWh, used for the estimated cost on the Fleet energy page. Leave empty to hide cost.", "currency": "Currency symbol" },
   "alertNotifications": { "title": "Alert notifications", "help": "Send Health findings and Overview exceptions to ntfy, Discord, Slack, Gotify or a webhook once they hold for a while, and when they clear. Off by default.", "on": "On", "off": "Off", "configure": "Configure…" },
