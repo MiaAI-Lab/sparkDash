@@ -278,6 +278,27 @@ function buildCharts(
         series: [{ key: "kvUsage", label: "KV", color: "var(--color-mem-engine)", band: "max", values: kv }],
       });
     }
+    const prefixHit = aligned(timeline, lp, (p) => p.prefixHitRate, (v) => v * 100);
+    if (hasAny(prefixHit)) {
+      charts.push({
+        id: `llm-${port}-prefix`,
+        title: t("history.prefixHitTitle", { port }),
+        format: pct,
+        yMin: 0,
+        yMax: 100,
+        series: [{ key: "prefixHitRate", label: t("history.prefixHit"), color: "var(--color-accent)", band: "max", values: prefixHit }],
+      });
+    }
+    const promptCache = aligned(timeline, lp, (p) => p.promptCacheBytes, (v) => v / (1024 * 1024 * 1024));
+    if (hasAny(promptCache)) {
+      charts.push({
+        id: `llm-${port}-prompt-cache`,
+        title: t("history.promptCacheTitle", { port }),
+        format: (v) => `${v.toFixed(1)} GB`,
+        yMin: 0,
+        series: [{ key: "promptCacheBytes", label: t("history.promptCache"), color: "var(--color-violet)", band: "max", values: promptCache }],
+      });
+    }
   }
   // Stable sort: within a domain the metric order above is kept.
   return charts.sort((a, b) => chartDomain(a.id) - chartDomain(b.id));

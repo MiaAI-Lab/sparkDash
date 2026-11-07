@@ -552,6 +552,14 @@ export interface LlmMetrics {
   preemptionsTotal?: number | null;
   /** vLLM prefix-cache hit rate (hits/queries, 0–1). null when unavailable. */
   prefixCacheHitRate?: number | null;
+  /** Retained prompt-cache tier, bytes funded (TensorFold). null on engines without the tier. */
+  promptCacheBytes?: number | null;
+  /** Bytes the prompt-cache cap asked for; above promptCacheBytes when the room could not fund it. */
+  promptCacheBudgetBytes?: number | null;
+  /** Saved states the prompt cache holds. null on engines without the tier. */
+  promptCacheStates?: number | null;
+  /** False when the startup budget could not hold one state, so every turn re-prefills. */
+  promptCacheCanKeepState?: boolean | null;
   /** vLLM end-to-end request latency p95 in seconds. null when unavailable. */
   e2eP95Seconds?: number | null;
   /** vLLM inter-token latency p95 in seconds. null when unavailable. */
@@ -1249,8 +1257,9 @@ export type HistoryUnitSeries =
   | "netRx"
   | "netTx";
 
-/** Per LLM endpoint: tok/s, and the KV pool fill as 0–1. */
-export type HistoryLlmSeries = "genTps" | "prefillTps" | "kvUsage";
+/** Per LLM endpoint: tok/s, the KV pool fill as 0–1, the prefix-cache hit rate as 0–1, and the
+ * retained prompt-cache tier in bytes. */
+export type HistoryLlmSeries = "genTps" | "prefillTps" | "kvUsage" | "prefixHitRate" | "promptCacheBytes";
 
 /** A bucket; a series the unit did not report in it is absent (a gap). */
 export type HistoryPoint = { t: number } & Partial<Record<HistoryUnitSeries, HistoryStat>>;

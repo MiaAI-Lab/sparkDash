@@ -112,7 +112,8 @@
       "prefixCache": "自启动以来前缀缓存查询的命中比例（命中次数 ÷ 查询次数）。越高表示提示词复用越多、预填充工作越少；没有指标或尚未使用时显示 —。",
       "e2eP95": "引擎请求历史中的端到端延迟第 95 百分位数：从请求到达到请求结束的时间。包含排队、预填充和解码，并非仅统计 Token 生成速度。",
       "itlP95": "引擎请求历史中相邻输出 Token 间隔的第 95 百分位数。突增表示解码停顿或资源争用；越低表示流式输出越平稳。",
-      "mtpAccept": "自启动以来推测解码 / MTP 的接受率（接受的草稿 Token 数 ÷ 草稿 Token 总数）。越高表示推测解码收益越大；未启用或尚未使用时显示 —。"
+      "mtpAccept": "自启动以来推测解码 / MTP 的接受率（接受的草稿 Token 数 ÷ 草稿 Token 总数）。越高表示推测解码收益越大；未启用或尚未使用时显示 —。",
+      "promptCache": "请求之间保留的提示状态（TensorFold）。已分配容量与上限；这些状态让多轮会话恢复，而不必重新预填充。"
     },
     "showcase": "演示",
     "remote": {
@@ -195,7 +196,8 @@
       "prefixCache": "前缀命中率",
       "e2eP95": "E2E p95",
       "itlP95": "Token 间隔 p95",
-      "mtpAccept": "MTP 接受率"
+      "mtpAccept": "MTP 接受率",
+      "promptCache": "提示缓存"
     },
     "metricInfo": "{{label}}说明",
     "idleLastServed": "空闲 · 上次服务于 {{age}} 前",
@@ -225,7 +227,9 @@
     "notMeasuredLive": "未实时测量",
     "completedPrefillHelp": "同一窗口内已完成请求的 Token 与预填充耗时增量；并非持续的实时吞吐。",
     "effectiveIncludesCached": "有效速率 · 包含缓存 Token",
-    "completedDecodeRate": "{{rate}} tok/s · 最近完成"
+    "completedDecodeRate": "{{rate}} tok/s · 最近完成",
+    "promptCacheStates": "{{count}} 个状态",
+    "promptCacheUnusable": "无法容纳任何状态 — 每轮都会重新预填充"
   },
   "sessions": {
     "title": "会话",

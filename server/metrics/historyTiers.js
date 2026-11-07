@@ -57,8 +57,9 @@ export const UNIT_SERIES = Object.freeze([
   "netTx",
 ]);
 
-/** Per LLM endpoint. kvUsage is the 0–1 share of the engine's KV pool. */
-export const LLM_SERIES = Object.freeze(["genTps", "prefillTps", "kvUsage"]);
+/** Per LLM endpoint. kvUsage is the 0–1 share of the engine's KV pool; prefixHitRate the 0–1 share of
+ * prompt tokens served from the prefix cache; promptCacheBytes the retained saved-state tier in bytes. */
+export const LLM_SERIES = Object.freeze(["genTps", "prefillTps", "kvUsage", "prefixHitRate", "promptCacheBytes"]);
 
 /** Series whose buckets also keep the minimum. */
 const MIN_SERIES = new Set(["memFreeMB"]);

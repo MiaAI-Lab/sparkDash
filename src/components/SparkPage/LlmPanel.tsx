@@ -572,6 +572,15 @@ export function LlmPanel({
     .filter(Boolean)
     .join(" · ");
 
+  // The saved-state tier's sub-line: how many states it holds, and a warning when the startup
+  // budget could not hold even one (every turn then re-prefills).
+  const promptCacheSub = [
+    llm?.promptCacheStates != null ? t("llm.promptCacheStates", { count: llm.promptCacheStates }) : null,
+    llm?.promptCacheCanKeepState === false ? t("llm.promptCacheUnusable") : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
   return (
     <Panel
       title={t("llm.title")}
@@ -918,6 +927,14 @@ export function LlmPanel({
             {showEngineTiles &&
               llm?.prefixCacheHitRate != null &&
               tile("prefixCache", t("llm.tiles.prefixCache"), `${(llm.prefixCacheHitRate * 100).toFixed(0)}%`)}
+            {showEngineTiles &&
+              llm?.promptCacheBytes != null &&
+              tile(
+                "promptCache",
+                t("llm.tiles.promptCache"),
+                `${formatKvBytes(llm.promptCacheBytes)}${llm.promptCacheBudgetBytes != null ? ` / ${formatKvBytes(llm.promptCacheBudgetBytes)}` : ""}`,
+                { align: "right", sub: promptCacheSub || undefined, tone: llm.promptCacheCanKeepState === false ? "bad" : undefined }
+              )}
             {showEngineTiles && llm?.e2eP95Seconds != null && tile("e2eP95", t("llm.tiles.e2eP95"), `${llm.e2eP95Seconds.toFixed(2)}s`, { align: "right" })}
             {showEngineTiles && llm?.itlP95Seconds != null && tile("itlP95", t("llm.tiles.itlP95"), `${Math.round(llm.itlP95Seconds * 1000)} ms`)}
             {showEngineTiles &&

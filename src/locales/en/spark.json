@@ -112,7 +112,8 @@
       "prefixCache": "Lifetime fraction of prefix-cache lookups that hit (hits ÷ queries). Higher means more prompt reuse and less prefill work; — when the series is missing or unused.",
       "e2eP95": "95th percentile end-to-end request latency from the engine’s request history: arrival until the request finishes. Includes queue wait, prefill, and decode—not just token generation speed.",
       "itlP95": "95th percentile inter-token latency (time between successive output tokens) from the engine’s request history. Spikes mean decode stalls or contention; lower is smoother streaming.",
-      "mtpAccept": "Lifetime speculative / MTP acceptance rate (accepted draft tokens ÷ drafted tokens). Higher means speculative decoding is paying off; — when speculation is off or unused."
+      "mtpAccept": "Lifetime speculative / MTP acceptance rate (accepted draft tokens ÷ drafted tokens). Higher means speculative decoding is paying off; — when speculation is off or unused.",
+      "promptCache": "Saved prompt states kept between requests (TensorFold). Funded of the cap asked for; the states let a multi-turn session resume instead of re-prefilling."
     },
     "showcase": "Showcase",
     "remote": {
@@ -195,7 +196,8 @@
       "prefixCache": "Prefix hit",
       "e2eP95": "E2E p95",
       "itlP95": "Inter-token p95",
-      "mtpAccept": "MTP accept"
+      "mtpAccept": "MTP accept",
+      "promptCache": "Prompt cache"
     },
     "metricInfo": "{{label}} info",
     "idleLastServed": "Idle · last served {{age}} ago",
@@ -225,7 +227,9 @@
     "notMeasuredLive": "Not measured live",
     "completedPrefillHelp": "Token and prefill-time deltas over requests that finished in the same window; not continuous live throughput.",
     "effectiveIncludesCached": "Effective rate · includes cached tokens",
-    "completedDecodeRate": "{{rate}} tok/s · last completions"
+    "completedDecodeRate": "{{rate}} tok/s · last completions",
+    "promptCacheStates": "{{count}} states",
+    "promptCacheUnusable": "no state fits — every turn re-prefills"
   },
   "sessions": {
     "title": "Sessions",

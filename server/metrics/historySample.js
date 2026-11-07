@@ -147,6 +147,14 @@ export function extractSample(snapshot, isFresh = () => true) {
       if (finite(entry.kvCacheUsage)) {
         set(llmKey(port, "kvUsage"), Math.min(1, Math.max(0, entry.kvCacheUsage)));
       }
+      // Token-weighted prefix-cache hit rate: near 1 means almost no re-prefill.
+      if (finite(entry.prefixCacheHitRate)) {
+        set(llmKey(port, "prefixHitRate"), Math.min(1, Math.max(0, entry.prefixCacheHitRate)));
+      }
+      // Retained prompt-cache tier (TensorFold): the bytes actually funded for saved states.
+      if (finite(entry.promptCacheBytes)) {
+        set(llmKey(port, "promptCacheBytes"), Math.max(0, entry.promptCacheBytes));
+      }
     });
   }
   return out;

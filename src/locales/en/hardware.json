@@ -326,5 +326,9 @@
   "launcher.discover.ollamaHint": "Ollama keeps its weights in the engine — enter the directory whose start.sh serves this model.",
   "launcher.discover.scanning": "Scanning…",
   "launcher.discover.button": "Discover on this Spark",
-  "launcher.discover.failed": "Discovery failed: {{error}}"
+  "launcher.discover.failed": "Discovery failed: {{error}}",
+  "history.prefixHitTitle": "Prefix cache hit rate · :{{port}}",
+  "history.prefixHit": "Prefix hit",
+  "history.promptCacheTitle": "Prompt cache · :{{port}}",
+  "history.promptCache": "Saved states"
 }

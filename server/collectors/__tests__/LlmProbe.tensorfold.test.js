@@ -1079,3 +1079,50 @@ test("_applyTensorFoldMetrics: a single fleet-wide KV ratio is unchanged", async
   await probe._applyTensorFoldMetrics(2);
   assert.equal(probe.kvCacheUsage, 0.42);
 });
+
+test("_applyTensorFoldMetrics: prompt-cache tier parses funded bytes, cap, states and usability", async () => {
+  // Shape captured from the 1104 recipe on spark-1 with CACHE_FIRST=1 PROMPT_CACHE_GIB=8:
+  // the room funded 7.7 GiB of the 8.0 GiB asked and kept states.
+  const probe = metricsProbe(() =>
+    [
+      tfMetrics({ gen: 1000 }).trimEnd(),
+      "tensorfold:prompt_cache_bytes 8319401984",
+      "tensorfold:prompt_cache_budget_bytes 8319448832",
+      "tensorfold:prompt_cache_minimum_state_bytes 272629760",
+      "tensorfold:prompt_cache_states 14",
+      "tensorfold:prompt_cache_can_keep_state 1",
+      "",
+    ].join("\n")
+  );
+  await probe._applyTensorFoldMetrics(2);
+  assert.equal(probe.promptCacheBytes, 8319401984);
+  assert.equal(probe.promptCacheBudgetBytes, 8319448832);
+  assert.equal(probe.promptCacheStates, 14);
+  assert.equal(probe.promptCacheCanKeepState, true);
+});
+
+test("_applyTensorFoldMetrics: a build without the prompt-cache tier leaves it null", async () => {
+  // The DeepSeek-V4.1 stack publishes prefix-cache counters but no saved-state tier; the
+  // fields must stay null rather than read as "0 bytes of 0", which the UI would show as full.
+  const probe = metricsProbe(() => tfMetrics({ gen: 1000 }));
+  await probe._applyTensorFoldMetrics(2);
+  assert.equal(probe.promptCacheBytes, null);
+  assert.equal(probe.promptCacheBudgetBytes, null);
+  assert.equal(probe.promptCacheStates, null);
+  assert.equal(probe.promptCacheCanKeepState, null);
+});
+
+test("_applyTensorFoldMetrics: can_keep_state 0 is reported as unusable, not as absent", async () => {
+  const probe = metricsProbe(() =>
+    [
+      tfMetrics({ gen: 1000 }).trimEnd(),
+      "tensorfold:prompt_cache_bytes 268435456",
+      "tensorfold:prompt_cache_states 1",
+      "tensorfold:prompt_cache_can_keep_state 0",
+      "",
+    ].join("\n")
+  );
+  await probe._applyTensorFoldMetrics(2);
+  assert.equal(probe.promptCacheCanKeepState, false);
+  assert.equal(probe.promptCacheStates, 1);
+});

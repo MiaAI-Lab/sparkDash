@@ -326,5 +326,9 @@
   "launcher.discover.ollamaHint": "Ollama 的权重保存在引擎内——请输入其 start.sh 用于服务此模型的目录。",
   "launcher.discover.scanning": "正在扫描…",
   "launcher.discover.button": "在此 Spark 上发现模型",
-  "launcher.discover.failed": "发现失败：{{error}}"
+  "launcher.discover.failed": "发现失败：{{error}}",
+  "history.prefixHitTitle": "前缀缓存命中率 · :{{port}}",
+  "history.prefixHit": "前缀命中",
+  "history.promptCacheTitle": "提示缓存 · :{{port}}",
+  "history.promptCache": "已保存状态"
 }

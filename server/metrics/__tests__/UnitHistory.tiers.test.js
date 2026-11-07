@@ -556,3 +556,54 @@ test("turning the setting off stops tier writes, buckets still pending included"
   assert.equal(s.flush(), true, "turned on again before a restart: the pending buckets are written");
   assert.deepEqual(JSON.parse(fs.readFileSync(tiersFile, "utf8")).units.a["1m"].t, [T0]);
 });
+
+test("extractSample records the prefix-cache hit rate and the retained prompt cache", () => {
+  const snap = gb10Snapshot();
+  snap.metrics.llm = [
+    {
+      port: 8888,
+      available: true,
+      generationTps: 41.2,
+      prefillTps: 1_800,
+      kvCacheUsage: 0.05,
+      prefixCacheHitRate: 0.87,
+      promptCacheBytes: 8_319_401_984,
+    },
+  ];
+  const v = extractSample(snap);
+  assert.equal(v[llmKey(8888, "prefixHitRate")], 0.87);
+  assert.equal(v[llmKey(8888, "promptCacheBytes")], 8_319_401_984);
+});
+
+test("a stack without the prompt-cache tier records no prompt-cache series", () => {
+  // The DeepSeek-V4.1 stack reports prefix counters but no saved-state tier.
+  const snap = gb10Snapshot();
+  snap.metrics.llm = [{ port: 8888, available: true, generationTps: 10, prefixCacheHitRate: 0.99, promptCacheBytes: null }];
+  const v = extractSample(snap);
+  assert.equal(v[llmKey(8888, "prefixHitRate")], 0.99);
+  assert.equal(v[llmKey(8888, "promptCacheBytes")], undefined);
+});
+
+test("the prompt cache and prefix hit rate are grouped per endpoint like the KV series", () => {
+  const s = store();
+  rec(
+    s,
+    T0,
+    {
+      gpuUtil: 5,
+      [llmKey(8888, "genTps")]: 40,
+      [llmKey(8888, "prefixHitRate")]: 0.9,
+      [llmKey(8888, "promptCacheBytes")]: 8_319_401_984,
+    },
+    { llmPorts: [8888] }
+  );
+  const res = s.query("a", "1h", T0);
+  assert.deepEqual(res.llm[0].points, [
+    {
+      t: T0,
+      genTps: { avg: 40, max: 40 },
+      prefixHitRate: { avg: 0.9, max: 0.9 },
+      promptCacheBytes: { avg: 8_319_401_984, max: 8_319_401_984 },
+    },
+  ]);
+});

@@ -254,6 +254,14 @@ export class LlmProbe {
     this.preemptionsTotal = null; // cumulative counter
     /** Prefix cache hit rate 0–1 (hits/queries). */
     this.prefixCacheHitRate = null;
+    /**
+     * Retained prompt-cache tier (TensorFold only): bytes funded, bytes the cap asked for, retained
+     * states, and whether one state fits. null on engines without a saved-state tier.
+     */
+    this.promptCacheBytes = null;
+    this.promptCacheBudgetBytes = null;
+    this.promptCacheStates = null;
+    this.promptCacheCanKeepState = null;
     /** End-to-end request latency p95 (seconds). */
     this.e2eP95Seconds = null;
     /** Inter-token latency p95 (seconds). */
@@ -527,6 +535,10 @@ export class LlmProbe {
     this.ttftSeconds = null;
     this.preemptionsTotal = null;
     this.prefixCacheHitRate = null;
+    this.promptCacheBytes = null;
+    this.promptCacheBudgetBytes = null;
+    this.promptCacheStates = null;
+    this.promptCacheCanKeepState = null;
     this.e2eP95Seconds = null;
     this.itlP95Seconds = null;
     this.mtpAcceptanceRate = null;
@@ -2345,6 +2357,19 @@ export class LlmProbe {
       const preemptions = m("preemptions_total");
       this.preemptionsTotal =
         Number.isFinite(preemptions) && preemptions >= 0 ? Math.round(preemptions) : null;
+
+      // The retained prompt-cache tier: states saved between requests, so a multi-turn
+      // session resumes instead of re-prefilling. Absent on builds without the tier (a
+      // DeepSeek stack leaves these null) and on engines that keep no saved states.
+      const cacheBytes = m("prompt_cache_bytes");
+      if (Number.isFinite(cacheBytes) && cacheBytes >= 0) this.promptCacheBytes = cacheBytes;
+      const cacheBudget = m("prompt_cache_budget_bytes");
+      if (Number.isFinite(cacheBudget) && cacheBudget >= 0) this.promptCacheBudgetBytes = cacheBudget;
+      const cacheStates = m("prompt_cache_states");
+      if (Number.isFinite(cacheStates) && cacheStates >= 0) this.promptCacheStates = Math.round(cacheStates);
+      // 0 means the startup budget could not hold even one planned state: every turn re-prefills.
+      const canKeepState = m("prompt_cache_can_keep_state");
+      if (Number.isFinite(canKeepState)) this.promptCacheCanKeepState = canKeepState >= 1;
     }
 
     // A multi-pool engine exports one 0–1 ratio per pool/stream. `m()` sums every
