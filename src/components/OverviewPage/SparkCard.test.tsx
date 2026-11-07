@@ -25,6 +25,29 @@ function head(online: boolean): SparkSnapshot {
 }
 
 describe("SparkCard", () => {
+  it("prefers the root filesystem and never uses the EFI volume as the main disk", () => {
+    const disk = (device: string, label: string, used: number, total: number) => ({
+      device, label, used, total, available: total - used, percentage: (used / total) * 100, readSpeed: 0, writeSpeed: 0,
+    });
+    const spark = makeSpark("storage");
+    spark.metrics.storage = [
+      disk("nvme0n1p1", "/boot/efi", 8, 16),
+      disk("nvme0n1p2", "/legacy-root", 2048, 4096),
+      disk("nvme1n1p1", "/", 3072, 6144),
+    ];
+
+    const { container } = render(<SparkCard spark={spark} temperatureUnit="celsius" />);
+    expect(container.querySelector(".ov-foot")?.textContent).toContain("3 GB / 6 GB");
+
+    const legacyOnly = makeSpark("legacy-storage");
+    legacyOnly.metrics.storage = [
+      disk("nvme0n1p1", "/boot/efi", 8, 16),
+      disk("nvme0n1p2", "/legacy-root", 2048, 4096),
+    ];
+    const fallback = render(<SparkCard spark={legacyOnly} temperatureUnit="celsius" />);
+    expect(fallback.container.querySelector(".ov-foot")?.textContent).toContain("2 GB / 4 GB");
+  });
+
   it("shows one bar per card on a multi-GPU host, with load, temperature and power under it", () => {
     const spark = makeSpark("rtx");
     const card = (index: number, used: number, temperature: number, draw: number) => ({

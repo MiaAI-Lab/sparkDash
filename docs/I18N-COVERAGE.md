@@ -2,6 +2,18 @@
 
 **Snapshot baseline:** `main` at `7c2b9638b025cd39fb43f95c225de62980f130ee` on 2026-11-03. This is an inventory and update checklist, not a completion metric: passing tests or a successful build do not establish that a page is localized.
 
+## API Keys follow-up (2026-11-07)
+
+Review: [#372](https://github.com/MiaAI-Lab/sparkDash/pull/372), pending upstream; local implementation and acceptance complete.
+
+Current upstream source is `e89f8d1`. The maintainer has ported #315–#324 into main; #315 is closed and #316–#324 still have open PR records. #325 remains an independent pending review. These source-landing and PR-lifecycle facts must not be conflated with the older inventory snapshots below.
+
+This follow-up adds a standalone `apiKeys` namespace and translates the opt-in read-only page plus its Settings toggle. Headers, controls, finite status labels, retry/error wrappers, table/detail fields, empty/pending feedback and unknown/unlimited/all fallbacks switch immediately. English fallback and the formatter defaults remain stable. Aliases, hashed IDs, model names, bridge diagnostics, budget durations and wire state values remain raw; CSS status values and date/money formatting are unchanged. Locale changes retain the selected key and do not request data again. This does not enable the feature or configure a bridge.
+
+Validation completed locally before publication: integrated frontend 972 tests/146 files, Linux server 1,695 tests (zero failures/skips), all 11 catalog-checker regressions, catalog validation, typecheck and build. The server tree is unchanged from the Linux-tested source. The standalone PR also receives catalog/type/build and affected API Keys/Settings/Overview checks. Local browser inspection covered English/Chinese desktop, Chinese 390px, selected detail, unknown/zero values, empty/error feedback and raw markup-like aliases/models. The preview uses explicit fake data and no real bridge; wide tables retain internal horizontal scrolling. These are representative checks, not a complete accessibility certification or every theme/state.
+
+The first commit restores Overview's previous disk-selection policy because current main references an absent `mainFilesystem` module. This build prerequisite is separate from the locale commit, preserves `/` precedence and excludes `/boot/efi`; it changes no collector, bridge, action or configuration. Existing Settings/Shell/Overview/Spark/fleet/benchmark/Showcase namespaces remain registered.
+
 ## Unified progress index
 
 Keep one progress list while retaining separate, complete-feature pull requests. This inventory tracks all reviews; a pending row does not mean its source is included in every branch. Open status was checked on 2026-10-31; an open PR is implemented work awaiting review, not shipped coverage.
