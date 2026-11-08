@@ -234,6 +234,17 @@ export class LlmProbe {
      * prefill counter is computed-only, so prompt = computed + cached).
      */
     this.totalCachedTokens = null;
+    /**
+     * TensorFold live prompt-position gauge (`tensorfold:prefill_progress_tokens`):
+     * tokens of the prompt currently being prefilled. null when the build does not
+     * publish it or the last full /metrics scrape failed.
+     */
+    this.prefillProgressTokens = null;
+    /**
+     * TensorFold live generation position: `generation_tokens_total` plus the
+     * nonnegative `generation_tokens_running`. null when unavailable.
+     */
+    this.generationProgressTokens = null;
 
     // vLLM inference metrics from /metrics (null when not vLLM / missing series)
     // Metric names follow stock vLLM Prometheus exposition (versions may differ).
@@ -535,6 +546,8 @@ export class LlmProbe {
     this.totalOutputTokens = 0;
     this.totalPromptTokens = null;
     this.totalCachedTokens = null;
+    this.prefillProgressTokens = null;
+    this.generationProgressTokens = null;
     this.kvCacheUsage = null;
     this.cache = null;
     this.cacheHistograms = null;
@@ -1078,6 +1091,10 @@ export class LlmProbe {
     // TensorFold: no Prometheus. /health carries cumulative token totals when the
     // server publishes them; without them tok/s stays 0 rather than guessing.
     if (this.backendType === "tensorfold") {
+      // The live position gauges describe this poll only: a failed /health or a
+      // queue-only scrape must not leave an earlier position looking current.
+      this.prefillProgressTokens = null;
+      this.generationProgressTokens = null;
       try {
         const healthRes = await this._fetch(`${this.baseUrl}/health`);
         if (healthRes.ok) {
@@ -2443,6 +2460,11 @@ export class LlmProbe {
   }
 
   async _applyTensorFoldMetrics(dtSec, queueOnly = false, preserveLiveDecode = false) {
+    // A full scrape is the only source of the live position gauges. Clear them
+    // first so a failed, counterless or queue-only scrape reports unknown
+    // instead of a position measured by an earlier poll.
+    this.prefillProgressTokens = null;
+    this.generationProgressTokens = null;
     let txt;
     try {
       const res = await this._fetch(`${this.baseUrl}/metrics`);
@@ -2457,6 +2479,14 @@ export class LlmProbe {
     const prompt = queueOnly ? null : m("prompt_tokens_total");
     if (Number.isFinite(gen) && gen >= 0) this.totalOutputTokens = gen;
     if (Number.isFinite(prompt) && prompt >= 0) this.totalPromptTokens = prompt;
+    // Live prompt position: the tokens of the prompt being prefilled right now.
+    // It advances during a long prefill while the completed counters stay frozen.
+    if (!queueOnly) {
+      const prefillProgress = m("prefill_progress_tokens");
+      if (Number.isFinite(prefillProgress) && prefillProgress >= 0) {
+        this.prefillProgressTokens = prefillProgress;
+      }
+    }
     // TensorFold publishes the prompt-cache split of finished requests under one of
     // several names (TENSORFOLD_CACHED_PROMPT_COUNTERS, in precedence order). Keep it
     // from this scrape's prompt total and never let a cached count exceed the prompt it
@@ -2482,6 +2512,11 @@ export class LlmProbe {
     if (Number.isFinite(gen) && gen >= 0) {
       const inFlight = m("generation_tokens_running");
       const produced = gen + (Number.isFinite(inFlight) && inFlight >= 0 ? inFlight : 0);
+      // Progress evidence needs both halves of the position: a missing running
+      // count would make the completed total look like a position and hide the
+      // tokens of an in-flight request. The rate fallback below keeps `produced`.
+      this.generationProgressTokens =
+        Number.isFinite(inFlight) && inFlight >= 0 ? produced : null;
       const prev = this._tensorfoldPromProduced;
       this._tensorfoldPromProduced = produced;
       if (!preserveLiveDecode && prev != null && Number.isFinite(dtSec) && dtSec > 0) {
@@ -3906,6 +3941,8 @@ export class LlmProbe {
       totalOutputTokens: this.totalOutputTokens,
       totalPromptTokens: this.totalPromptTokens ?? null,
       totalCachedTokens: this.totalCachedTokens ?? null,
+      prefillProgressTokens: this.backendType === "tensorfold" ? this.prefillProgressTokens ?? null : null,
+      generationProgressTokens: this.backendType === "tensorfold" ? this.generationProgressTokens ?? null : null,
       kvCacheUsage: this.kvCacheUsage,
       cache: this.cache,
       cacheHistograms: this.cacheHistograms,
@@ -3956,6 +3993,8 @@ export class LlmProbe {
       uncachedPrefillTps: null,
       totalOutputTokens: 0,
       totalCachedTokens: null,
+      prefillProgressTokens: null,
+      generationProgressTokens: null,
       kvCacheUsage: null,
       cache: null,
       cacheHistograms: null,

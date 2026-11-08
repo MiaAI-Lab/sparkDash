@@ -441,6 +441,8 @@ function startMonitor(spark) {
     // Returns null when the head is unknown/offline/model-less so workers
     // never display a stale model. Display-only; never writes to config.
     resolveHeadModelId: (headId) => monitors.get(headId)?.headLlmModelId() ?? null,
+    // Tensor-parallel workers use measured progress from their explicitly paired head.
+    resolveHeadLlmProgressAt: (headId) => monitors.get(headId)?.llmProgressAt() ?? null,
     // Settings → Poll interval drives the collectors, not just the broadcast.
     pollIntervalMs: getSettings().pollIntervalMs,
   });
