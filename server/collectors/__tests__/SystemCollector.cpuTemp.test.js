@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
 import { SystemCollector } from "../SystemCollector.js";
 
 const c = Object.create(SystemCollector.prototype);
@@ -136,4 +138,55 @@ test("remote sensor dump parsing tolerates both formats", () => {
   ]);
   assert.deepEqual(c._parseSensorCandidates("\n70900\n"), [{ source: null, millidegrees: 70900 }]);
   assert.deepEqual(c._parseSensorCandidates(""), []);
+});
+
+// Outside Docker there is no /host/sys: the local CPU temperature must come from /sys, not read as "no sensor".
+test("_sysRoot: the host bind mount when it exists, else /sys", () => {
+  const dir = fs.mkdtempSync(os.tmpdir() + "/sysroot-");
+  try {
+    assert.equal(c._sysRoot([dir + "/missing", dir]), dir);
+    assert.equal(c._sysRoot([dir, "/sys"]), dir);
+    assert.equal(c._sysRoot([dir + "/missing", dir + "/also-missing"]), dir + "/also-missing");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("local CPU temperature is read from the given sysfs root (acpitz zones on a GB10, no /host/sys)", () => {
+  const root = fs.mkdtempSync(os.tmpdir() + "/sysfs-");
+  try {
+    // A GB10-shaped tree: hwmon chips named acpitz_0.., nvme, mlx5; thermal zones of type acpitz.
+    for (const [chip, name] of [["hwmon0", "acpitz_0"], ["hwmon7", "nvme"], ["hwmon8", "mlx5"]]) {
+      fs.mkdirSync(`${root}/class/hwmon/${chip}`, { recursive: true });
+      fs.writeFileSync(`${root}/class/hwmon/${chip}/name`, `${name}\n`);
+      fs.writeFileSync(`${root}/class/hwmon/${chip}/temp1_input`, "41000\n");
+    }
+    for (const [zone, milli] of [["thermal_zone0", "78800"], ["thermal_zone1", "66100"]]) {
+      fs.mkdirSync(`${root}/class/thermal/${zone}`, { recursive: true });
+      fs.writeFileSync(`${root}/class/thermal/${zone}/type`, "acpitz\n");
+      fs.writeFileSync(`${root}/class/thermal/${zone}/temp`, `${milli}\n`);
+    }
+    const reading = pick(c._localCpuTempCandidates(root));
+    assert.equal(reading.temperature, 78.8);
+    assert.equal(reading.temperatureSource, "acpitz");
+    assert.equal(reading.temperatureLabel, "ACPI");
+    // No sysfs there at all: nothing readable, no throw.
+    assert.equal(pick(c._localCpuTempCandidates(root + "/none")).temperature, 0);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("_getNetworkLinkSpeedMbps reads the link speed from the sysfs root in use", async () => {
+  const root = fs.mkdtempSync(os.tmpdir() + "/sysnet-");
+  try {
+    fs.mkdirSync(`${root}/class/net/eth9`, { recursive: true });
+    fs.writeFileSync(`${root}/class/net/eth9/speed`, "10000\n");
+    const col = Object.create(SystemCollector.prototype);
+    col._sysRoots = () => [root + "/nope", root];
+    assert.equal(await col._getNetworkLinkSpeedMbps("eth9"), 10000);
+    assert.equal(await col._getNetworkLinkSpeedMbps("eth0"), null);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });

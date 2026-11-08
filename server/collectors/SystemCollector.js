@@ -953,6 +953,14 @@ export class SystemCollector {
   }
 
   /**
+   * The sysfs root to read: the host bind mount when it exists (Docker), else /sys. Outside a container
+   * `/host/sys` does not exist, and a read that joined HOST_PATHS.SYS directly found no sensor at all.
+   */
+  _sysRoot(roots = this._sysRoots()) {
+    return roots.find((root) => fs.existsSync(root)) ?? roots[roots.length - 1];
+  }
+
+  /**
    * Whether an `xe`-driver card is present, read from sysfs without spawning
    * anything. Cached; re-checked every 10 minutes so a hot-added card is found
    * eventually. A failed read counts as "maybe" and is not cached.
@@ -1612,10 +1620,10 @@ export class SystemCollector {
   }
 
   /** Local sensor candidates: hwmon chips by allowlist, then thermal zones. */
-  _localCpuTempCandidates() {
+  _localCpuTempCandidates(sysRoot = this._sysRoot()) {
     const candidates = [];
     try {
-      const hwmonDir = path.join(HOST_PATHS.SYS, "class/hwmon");
+      const hwmonDir = path.join(sysRoot, "class/hwmon");
       if (fs.existsSync(hwmonDir)) {
         for (const entry of fs.readdirSync(hwmonDir)) {
           const nameFile = path.join(hwmonDir, entry, "name");
@@ -1637,7 +1645,7 @@ export class SystemCollector {
       /* fall through to thermal zones */
     }
     try {
-      const thermalDir = path.join(HOST_PATHS.SYS, "class/thermal");
+      const thermalDir = path.join(sysRoot, "class/thermal");
       if (fs.existsSync(thermalDir)) {
         const zones = fs.readdirSync(thermalDir).filter((z) => z.startsWith("thermal_zone"));
         for (const zone of zones) {
@@ -2038,7 +2046,7 @@ export class SystemCollector {
 
   async _getNetworkLinkSpeedMbps(iface) {
     try {
-      const speedFile = path.join(HOST_PATHS.SYS, "class/net", iface, "speed");
+      const speedFile = path.join(this._sysRoot(), "class/net", iface, "speed");
       const raw = fs.readFileSync(speedFile, "utf-8").trim();
       const n = parseInt(raw, 10);
       return Number.isFinite(n) && n > 0 ? n : null;
