@@ -516,7 +516,7 @@ Unknown is left out rather than written as zero: a failed GPU read, a sensor tha
 
 ## Alert notifications
 
-Opt-in (default **off**): **Settings → Alert notifications → Configure…**. The server sends a notification to ntfy, Discord, Slack or a JSON webhook when a problem has held for a while, and again when it clears — whether or not a dashboard is open.
+Opt-in (default **off**): **Settings → Alert notifications → Configure…**. The server sends a notification to ntfy, Discord, Slack, Gotify or a JSON webhook when a problem has held for a while, and again when it clears — whether or not a dashboard is open.
 
 ### What notifies
 
@@ -536,6 +536,7 @@ The Activity log keeps recording what happened, as before; on top, every notific
 | `ntfy` | `POST` plain text to the topic URL with `Title`, `Priority` (5 critical, 4 warning, 3 resolved) and `Tags` headers — ntfy.sh or self-hosted |
 | `discord` | Discord webhook JSON: `content` plus one embed per alert (mentions disabled) |
 | `slack` | Slack incoming-webhook JSON `{ "text": … }`; `&`, `<` and `>` are escaped, so unit names and remote text cannot add mentions or links |
+| `gotify` | Gotify message JSON `{ title, message, priority, extras }` to `https://<server>/message?token=<app token>`. The token is sent in the `X-Gotify-Key` header, not the request URL. Priority 8 critical, 5 warning, 3 resolved (silent in the Android app); Markdown is off |
 | `webhook` | Generic JSON `{ source, status, severity, title, reminder, sentAt, alerts: [{ status, severity, rule, ruleName, unit, unitId, label, summary, startsAt, endsAt }] }` |
 
 Everything that fires or clears in one evaluation goes out as one message per channel, filtered by the channel's minimum severity. **Remind while still firing** (off by default) repeats firing alerts every 1 h / 4 h / 12 h / 24 h. Text that comes from elsewhere (unit names, SSH errors, kernel Xid lines, model ids) is cut to 120 characters.
@@ -549,6 +550,8 @@ How sends are made:
 - **Channel URLs may point at your LAN.** Like unit and LLM targets, a channel can be a private or loopback address (a self-hosted ntfy), so `POST /api/alerts/test` shows, to anyone who holds the dashboard token, whether a host and port on those networks answers (a status code or a fixed reason, never the response body). Link-local, metadata, unspecified and multicast addresses are refused, and the connection is pinned to the addresses that were checked. Set `SPARKDASH_TOKEN` if the dashboard is reachable beyond your own machine.
 
 Example — phone notifications with [ntfy](https://ntfy.sh): subscribe the ntfy app to a topic nobody will guess (e.g. `sparkdash-7f3k9q`), turn notifications on, **Add channel** with type `ntfy` and URL `https://ntfy.sh/sparkdash-7f3k9q` (or your own server), **Save**, then **Send test**.
+
+Example, phone notifications with [Gotify](https://gotify.net): in Gotify's web UI open **Apps → Create Application** (e.g. `sparkDash`) and copy its token, then **Add channel** with type `gotify` and URL `https://gotify.example.com/message?token=<token>`, **Save**, then **Send test**. Every app's messages reach the Gotify phone app, so nothing else needs subscribing.
 
 ### Where the configuration lives
 

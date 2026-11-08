@@ -1034,7 +1034,7 @@ export interface AlertRule {
   overrides: { enabled?: boolean; forSec?: number };
 }
 
-export type AlertChannelType = "ntfy" | "discord" | "slack" | "webhook";
+export type AlertChannelType = "ntfy" | "discord" | "slack" | "gotify" | "webhook";
 
 export interface AlertChannel {
   /** Absent on a channel added in the dialog and not yet saved. */
