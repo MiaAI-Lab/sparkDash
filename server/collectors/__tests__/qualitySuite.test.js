@@ -69,6 +69,9 @@ test("category counts", () => {
     assert.equal(n, { fixed: 30, mul: 20, addsub: 15, rev: 15, count: 15, sort: 15, bin: 10, date: 15, lcm: 15 }[prefix], prefix);
   }
   assert.ok(qa.every((i) => i.maxTokens >= 64 && i.thinking === false));
+  // The cap must leave room for a correct verbose answer: sort replies enumerate the
+  // list after a short preamble, and 64 tokens cut them mid-answer (scored wrong).
+  assert.ok(qa.filter((i) => i.id.startsWith("qa-sort-")).every((i) => i.maxTokens >= 192));
   assert.ok(s.filter((i) => i.category === "reason").every((i) => i.maxTokens === 8192 && i.thinking));
   assert.ok(s.filter((i) => ["arith", "track"].includes(i.category)).every((i) => i.maxTokens === 12288 && i.thinking));
 });
@@ -566,7 +569,7 @@ test("end-to-end: fake server, perfect answers except one, long size skipped by 
     assert.equal(req.chat_template_kwargs.enable_thinking, true);
     const qaReq = seen.find((b) => b.messages[0].content.startsWith("What is 17 * 23"));
     assert.equal(qaReq.chat_template_kwargs.enable_thinking, false);
-    assert.equal(qaReq.max_tokens, 64);
+    assert.equal(qaReq.max_tokens, 192);
     // History persisted with per-item hashes; summaries drop the rows.
     assert.equal(mgr.getHistory("s1")[0].results.items[0].hash.length, 16);
     assert.equal(mgr.getHistorySummaries("s1")[0].results.items, undefined);
