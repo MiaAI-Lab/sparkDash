@@ -389,6 +389,45 @@ test("probe: TensorFold with cumulative counters in /health reads only the queue
   assert.equal(snap.totalOutputTokens, 20); // /health totals stay authoritative (999 not applied)
 });
 
+test("probe: Zig TensorFold /health with generation_tokens_total still reads TTFT, prefix hits and drafts from /metrics", async () => {
+  // Shape captured from the DeepSeek-V4.1 Zig engine on john (2026-11-07): /health carries
+  // generation_tokens_total and live.waiting, but TTFT, prefix-cache and draft counters exist only on /metrics.
+  const probe = new LlmProbe({ lanIp: "192.0.2.10" }, 8888);
+  const seen = [];
+  probe._fetch = async (url) => {
+    const u = String(url);
+    seen.push(u);
+    if (u.endsWith("/slots")) return notFound();
+    if (u.endsWith("/v1/models")) return jsonRes(CUDA_MODELS);
+    if (u.endsWith("/health")) {
+      return jsonRes({
+        status: "ok",
+        prompt_tokens_total: 1000,
+        cached_tokens_total: 900,
+        generation_tokens_total: 50,
+        live: { connections: 4, waiting: 3, decode_tokens_per_second: 0.0, prefill_tokens_per_second: 0.0 },
+      });
+    }
+    if (u.endsWith("/metrics")) {
+      const txt = [
+        "tensorfold:requests_running 1",
+        "tensorfold:requests_waiting 3",
+        "tensorfold:prompt_tokens_total 1000",
+        "tensorfold:prompt_tokens_cached_total 900",
+        "tensorfold:generation_tokens_total 50",
+        "tensorfold:mtp_drafted_total 100",
+        "tensorfold:mtp_accepted_total 68",
+        "",
+      ].join("\n");
+      return { ok: true, status: 200, text: async () => txt, json: async () => ({}) };
+    }
+    return notFound();
+  };
+  await probe.probe();
+  assert.equal(seen.some((u) => u.endsWith("/metrics")), true);
+  assert.equal(probe.mtpAcceptanceRate, 0.68);
+});
+
 test("_applyTensorFoldHealth: CUDA 0.6.0 KV pool tokens give the KV fill", () => {
   const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888);
   // spark-1, TensorFold 0.6.0 CUDA, idle with 32 kept prompts.

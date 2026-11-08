@@ -272,6 +272,10 @@ export class LlmProbe {
     this.lastTokenCounts = { input: 0, output: 0 };
     /** TensorFold: first /health sample with counters seeds the baseline (lifetime total is not a rate). */
     this._tensorfoldSeeded = false;
+    this._tensorfoldMetricsPrompt = null;
+    this._tensorfoldMetricsCached = null;
+    this._tensorfoldMetricsPrefillSec = null;
+    this._tensorfoldMetricsLastPrefill = null;
     /** Previous TensorFold `prefill_seconds_total`. null until a sample includes it. */
     this._tensorfoldPrefillSeconds = null;
     this._tensorfoldPrevCached = null;
@@ -691,6 +695,10 @@ export class LlmProbe {
     // reported as one interval's worth of tokens.
     this.lastProbeTime = 0;
     this._tensorfoldSeeded = false;
+    this._tensorfoldMetricsPrompt = null;
+    this._tensorfoldMetricsCached = null;
+    this._tensorfoldMetricsPrefillSec = null;
+    this._tensorfoldMetricsLastPrefill = null;
     this._tensorfoldPrefillSeconds = null;
     this._tensorfoldPrevCached = null;
     this._tensorfoldLastPrefill = null;
@@ -1534,12 +1542,16 @@ export class LlmProbe {
           this._applyTensorFoldHealth(health, dtSec);
           this._applyTensorFoldLive(health);
           // Newer builds report live rates in /health but cumulative totals only on Prometheus /metrics.
+          // Only the Python engine's completion_tokens_total makes /health the authority: the Zig
+          // engine's /health also carries generation_tokens_total, yet TTFT, KV usage, prefix hits and
+          // drafts exist only on /metrics, so that field must not skip the /metrics read.
           const totalRaw = health?.completion_tokens_total;
           if (totalRaw == null || !Number.isFinite(Number(totalRaw))) {
-            // A decode rate the server reports itself wins over the /metrics counter diff.
-            const liveDecode = health?.live?.decode_tokens_per_second;
-            const hasLiveDecode = liveDecode != null && Number.isFinite(Number(liveDecode));
-            await this._applyTensorFoldMetrics(hasLiveDecode ? undefined : dtSec);
+            await this._applyTensorFoldMetrics(dtSec);
+            // A nonzero decode rate the server reports itself wins over the /metrics counter diff;
+            // a gauge reading 0 mid-stream leaves the diff in place.
+            const liveDecode = Number(health?.live?.decode_tokens_per_second);
+            if (Number.isFinite(liveDecode) && liveDecode > 0) this.generationTps = Math.round(liveDecode * 100) / 100;
           } else if (this.requestsWaiting == null) {
             // A /health with token totals but no waiting count (TensorFold's Python engine) keeps
             // its queue gauge in /metrics alone: poll it queue-only, so /health stays the authority
@@ -2684,7 +2696,8 @@ export class LlmProbe {
     this.prefillActive = Number(health.streams?.prefilling ?? health.streams?.filling) > 0;
     // Number(null) is 0: a null counter means "absent", not "zero".
     const prompt = health.prompt_tokens_total == null ? NaN : Number(health.prompt_tokens_total);
-    const completion = health.completion_tokens_total == null ? NaN : Number(health.completion_tokens_total);
+    const completionRaw = health.completion_tokens_total ?? health.generation_tokens_total;
+    const completion = completionRaw == null ? NaN : Number(completionRaw);
     const prefillSec = Number(health.prefill_seconds_total);
     if (Number.isFinite(completion) && !this._tensorfoldSeeded) {
       if (Number.isFinite(prompt)) this.lastTokenCounts.input = prompt;
@@ -2782,11 +2795,12 @@ export class LlmProbe {
     };
     const decode = rate(live.decode_tokens_per_second);
     const prefill = rate(live.prefill_tokens_per_second);
-    if (decode != null) this.generationTps = decode;
-    if (prefill != null) this.prefillTps = prefill;
     const waiting = live.waiting == null ? NaN : Number(live.waiting);
-    if (Number.isFinite(waiting) && waiting >= 0) this.requestsWaiting = Math.round(waiting);
     const conns = live.connections == null ? NaN : Number(live.connections);
+    // The /metrics production diff is authoritative; a gauge that reports 0 mid-stream must not erase it.
+    if (decode != null && decode > 0) this.generationTps = decode;
+    if (prefill != null && prefill > 0) this.prefillTps = prefill;
+    if (Number.isFinite(waiting) && waiting >= 0) this.requestsWaiting = Math.round(waiting);
     if (Number.isFinite(conns) && conns >= 0 && this.requestsRunning == null) {
       this.requestsRunning = Math.round(conns);
       this.slotsActive = Math.round(conns);
@@ -2839,6 +2853,27 @@ export class LlmProbe {
     if (cachedTotal != null) {
       this.totalCachedTokens =
         Number.isFinite(prompt) && prompt >= 0 ? Math.min(cachedTotal, prompt) : cachedTotal;
+    }
+    if (!queueOnly && Number.isFinite(prompt) && prompt >= 0) {
+      const prefillSec = m("request_prefill_seconds_sum");
+      const prevPrompt = this._tensorfoldMetricsPrompt;
+      const prevCached = this._tensorfoldMetricsCached;
+      const prevSec = this._tensorfoldMetricsPrefillSec;
+      if (prevPrompt != null && prevSec != null && Number.isFinite(prefillSec) && Number.isFinite(dtSec) && dtSec > 0) {
+        const dSec = prefillSec - prevSec;
+        const dIn = prompt - prevPrompt;
+        const dCached = prevCached != null && cachedTotal != null ? Math.max(0, cachedTotal - prevCached) : 0;
+        const computed = Math.max(0, dIn - dCached);
+        if (dSec > 0 && computed > 0) {
+          this._tensorfoldMetricsLastPrefill = { tps: Math.max(0, Math.round((computed / dSec) * 100) / 100), at: Date.now() };
+          this.prefillTps = this._tensorfoldMetricsLastPrefill.tps;
+        } else if (this._tensorfoldMetricsLastPrefill && Date.now() - this._tensorfoldMetricsLastPrefill.at < 20_000) {
+          this.prefillTps = this._tensorfoldMetricsLastPrefill.tps;
+        }
+      }
+      this._tensorfoldMetricsPrompt = prompt;
+      this._tensorfoldMetricsPrefillSec = Number.isFinite(prefillSec) ? prefillSec : prevSec;
+      if (cachedTotal != null) this._tensorfoldMetricsCached = cachedTotal;
     }
     // The total moves only when a request finishes; `generation_tokens_running` counts the
     // tokens of requests still decoding. Their sum grows steadily while tokens are produced
