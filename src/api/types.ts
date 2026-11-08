@@ -319,6 +319,13 @@ export interface GpuMetrics {
   gpus?: GpuDevice[];
 }
 
+export interface GpuPcieLink {
+  gen: number | null;
+  genMax: number | null;
+  width: number | null;
+  widthMax: number | null;
+}
+
 /** One physical GPU; `index` is a stable dashboard identity and `physicalIndex` is the vendor's index (nvidia-smi, amd-smi, or Intel sysfs). */
 export interface GpuDevice {
   /** Stable dashboard identity; AMD indices use a separate internal range. */
@@ -338,6 +345,10 @@ export interface GpuDevice {
   throttle?: GpuThrottle | null;
   /** Processes holding memory on this card only. */
   processes?: Array<{ pid: number; name: string; vramMB: number }>;
+  /** NVIDIA: fan speed in % of maximum (nvidia-smi fan.speed); null when the card reports none. */
+  fanPct?: number | null;
+  /** NVIDIA: PCIe link now and at its best (nvidia-smi pcie.link.*); null when unknown or not a PCIe-attached card. */
+  pcie?: GpuPcieLink | null;
   /** Intel only: fan speed in rpm, null when the card has no fan sensor. */
   fanRpm?: number | null;
   /** Intel only: "debugfs" = measured VRAM use; "pci-bar" = total only, used is unknown (shown as 0). */

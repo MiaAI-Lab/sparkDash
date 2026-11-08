@@ -75,7 +75,15 @@
     "allocationErrors": "自启动以来 GPU 内存分配错误",
     "unavailableReason": "不可用：{{reason}}",
     "gpuClock": "GPU 时钟",
-    "unifiedMemoryInUse": "已用统一内存"
+    "unifiedMemoryInUse": "已用统一内存",
+    "card": "显卡",
+    "fan": "风扇",
+    "pcieLink": "PCIe 链路",
+    "pcieLinkHelp": "当前 PCIe 链路（显卡空闲时会降低链路速率）及其最高能力",
+    "pcieBest": "最高 {{link}}",
+    "throttleReasons": "限频原因",
+    "throttleNone": "无",
+    "clockLocked": "频率锁定 ≤ {{mhz}} MHz"
   },
   "gpuChart": {
     "combined": "合并",

@@ -13,6 +13,7 @@ import { shortProcessName } from "../../shared/processName";
 import { useMetricsHistoryTail } from "../../hooks/metricsStore";
 import { formatMb } from "../../shared/formatBytes";
 import { shortGpuName } from "../../shared/gpuName";
+import { formatFan, pcieLinkText, throttleReasons } from "../../shared/gpuCard";
 import { GpuHistoryChart, GPU_CHART_WINDOWS } from "./GpuHistoryChart";
 import {
   computeVramBreakdown,
@@ -64,6 +65,41 @@ function tempTag(celsius: number): { label: "hot" | "warm" | "normal"; tone: Tag
 
 function tempColorFor(celsius: number, idle = "var(--color-text)"): string {
   return celsius > 85 ? "var(--color-danger)" : celsius > 65 ? "var(--color-warning)" : idle;
+}
+
+/**
+ * Fan, PCIe link and the throttle reasons of one card, as label / value rows. The fan and PCIe rows
+ * show only when the server sent those readings (an NVIDIA card; "—" when the card has none).
+ */
+function GpuCardFacts({ device: d, rowClass }: { device: GpuDevice; rowClass: string }) {
+  const { t: tr } = useTranslation("spark");
+  const hasNvidiaReadings = "fanPct" in d || "pcie" in d;
+  const link = pcieLinkText(d.pcie);
+  const reasonLabel = (r: ReturnType<typeof throttleReasons>[number]) =>
+    r.reason === "clockCap" ? tr("gpu.clockLocked", { mhz: r.mhz }) : tr(`gpu.throttle.${r.reason}`);
+  const reasons = d.throttle ? throttleReasons(d.throttle).map(reasonLabel).join(" · ") || tr("gpu.throttleNone") : "—";
+  return (
+    <>
+      {hasNvidiaReadings ? (
+        <>
+          <div className={rowClass} data-testid="gpu-fan">
+            <span className="text-muted">{tr("gpu.fan")}</span>
+            <span className="font-tabular text-text">{formatFan(d.fanPct)}</span>
+          </div>
+          <div className={rowClass} data-testid="gpu-pcie" title={tr("gpu.pcieLinkHelp")}>
+            <span className="text-muted">{tr("gpu.pcieLink")}</span>
+            <span className="font-tabular text-text">
+              {link ? (link.best ? `${link.now} (${tr("gpu.pcieBest", { link: link.best })})` : link.now) : "—"}
+            </span>
+          </div>
+        </>
+      ) : null}
+      <div className={rowClass} data-testid="gpu-throttle-reasons">
+        <span className="text-muted">{tr("gpu.throttleReasons")}</span>
+        <span className="font-tabular text-text">{reasons}</span>
+      </div>
+    </>
+  );
 }
 
 /** One physical GPU on a multi-card host: name, throttle chip, usage/temp sparklines, VRAM. */
@@ -132,6 +168,7 @@ function GpuDeviceRow({
           {d.metricAvailability?.powerDraw === false ? "—" : `${d.power.draw}W`} / {d.metricAvailability?.powerLimit === false ? "—" : `${d.power.limit}W`}
         </span>
       </div>
+      <GpuCardFacts device={d} rowClass="flex justify-between gap-2 text-xs" />
       {d.vramSource === "pci-bar" ? (
         <div className="flex justify-between text-xs" title={tr("gpu.vramUnreadable")}>
           <span className="text-muted">{tr("gpu.vram")}</span>
@@ -382,6 +419,19 @@ export function GpuPanel({
               />
             ))}
           </div>
+        </div>
+      )}
+
+      {/* The one card of a single-GPU host: its full name, fan, PCIe link and throttle reasons */}
+      {!multiGpu && devices.length === 1 && (
+        <div className="sp-section" data-testid="gpu-card">
+          <div className="sp-row">
+            <span className="text-muted">{tr("gpu.card")}</span>
+            <span className="min-w-0 truncate text-text" title={devices[0].name ?? undefined}>
+              {devices[0].name ?? "—"}
+            </span>
+          </div>
+          <GpuCardFacts device={devices[0]} rowClass="sp-row" />
         </div>
       )}
 
