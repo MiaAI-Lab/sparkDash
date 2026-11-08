@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act } from "react";
 import { FleetAlertStrip, deriveAlerts, stripAlerts } from "./FleetAlertStrip";
 import type { AlertInstance, SparkSnapshot } from "../../api/types";
 import { makeSpark } from "../../testing/fixtures";
@@ -104,5 +105,42 @@ describe("FleetAlertStrip", () => {
   it("notifications on with nothing firing shows nothing, even where the browser would derive one", () => {
     render(<FleetAlertStrip sparks={[makeSpark("a", false)]} alertsEnabled serverAlerts={[]} />);
     expect(rows()).toEqual([]);
+  });
+
+  it("a dismissed alert hides until the page is refreshed (remount)", () => {
+    const sparks = [makeSpark("spark-1")];
+    const alerts = [serverAlert()];
+    const { root } = render(<FleetAlertStrip sparks={sparks} alertsEnabled serverAlerts={alerts} />);
+    expect(rows()).toHaveLength(1);
+    act(() => document.querySelector<HTMLButtonElement>(".ov-alert__dismiss")!.click());
+    expect(rows()).toEqual([]);
+    // Page refresh = fresh mount: the warning reappears.
+    act(() => root.unmount());
+    render(<FleetAlertStrip sparks={sparks} alertsEnabled serverAlerts={alerts} />);
+    expect(rows()).toHaveLength(1);
+  });
+
+  it("a dismissed alert reappears once the condition clears and fires again", () => {
+    const sparks = [makeSpark("spark-1")];
+    const { root } = render(<FleetAlertStrip sparks={sparks} alertsEnabled serverAlerts={[serverAlert()]} />);
+    act(() => document.querySelector<HTMLButtonElement>(".ov-alert__dismiss")!.click());
+    expect(rows()).toEqual([]);
+    // Condition clears (no server alerts)…
+    act(() => root.render(<FleetAlertStrip sparks={sparks} alertsEnabled serverAlerts={[]} />));
+    // …then fires again: visible without a refresh.
+    act(() => root.render(<FleetAlertStrip sparks={sparks} alertsEnabled serverAlerts={[serverAlert()]} />));
+    expect(rows()).toHaveLength(1);
+  });
+
+  it("throttle alerts are safety-relevant and get no dismiss button", () => {
+    render(
+      <FleetAlertStrip
+        sparks={[makeSpark("spark-1"), throttled("b", "thermal")]}
+        alertsEnabled
+        serverAlerts={[serverAlert(), serverAlert({ key: "b:throttle", ruleId: "throttle", unitId: "b", label: "is thermal throttling", summary: "HW thermal slowdown", severity: "critical" })]}
+      />
+    );
+    expect(rows()).toHaveLength(2);
+    expect(document.querySelectorAll(".ov-alert__dismiss")).toHaveLength(1);
   });
 });

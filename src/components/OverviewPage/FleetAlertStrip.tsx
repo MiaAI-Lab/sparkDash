@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { AlertInstance, SparkSnapshot } from "../../api/types";
 import { fleetExceptions, formatTemperature } from "../../shared/fleetExceptions";
-import { AlertTriangleIcon, ChevronRightIcon } from "../ui/icons";
+import { AlertTriangleIcon, ChevronRightIcon, XIcon } from "../ui/icons";
 
 export type FleetAlert = {
   /** `${unitId}:${id}` — the server's alerts use the same keys. */
@@ -136,17 +136,27 @@ export function FleetAlertStrip({
   }, [sparks, temperatureUnit, t]);
   const firstSeen = useRef(new Map<string, number>());
   const [now, setNow] = useState(Date.now());
+  // Dismissed alert keys (session-only: a page refresh clears them, so a
+  // dismissed warning reappears on reload). Pruned when the condition clears,
+  // so a re-firing alert is visible again without a refresh.
+  const [dismissed, setDismissed] = useState<ReadonlySet<string>>(new Set());
   useEffect(() => {
     const active = new Set(alerts.map((alert) => alert.key));
     for (const alert of alerts) if (!firstSeen.current.has(alert.key)) firstSeen.current.set(alert.key, Date.now());
     for (const key of firstSeen.current.keys()) if (!active.has(key)) firstSeen.current.delete(key);
+    setDismissed((prev) => {
+      let next: Set<string> | null = null;
+      for (const key of prev) if (!active.has(key)) (next ??= new Set(prev)).delete(key);
+      return next ?? prev;
+    });
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(timer);
   }, [alerts]);
-  if (alerts.length === 0) return null;
+  const visible = alerts.filter((alert) => !dismissed.has(alert.key));
+  if (visible.length === 0) return null;
   return (
     <section className="ov-alerts" aria-label={t("alerts.title")}>
-      {alerts.map((alert) => {
+      {visible.map((alert) => {
         const since = alert.startsAt ?? firstSeen.current.get(alert.key) ?? now;
         const mins = Math.max(0, Math.floor((now - since) / 60_000));
         const text = liveText.get(alert.key) ?? alert;
@@ -161,6 +171,18 @@ export function FleetAlertStrip({
               {t("alerts.open", { name: alert.unitName })}
               <ChevronRightIcon className="h-3.5 w-3.5" />
             </button>
+            {/* Throttle alerts are safety-relevant (always shown, per showExceptions) — not dismissible. */}
+            {!alert.throttle && (
+              <button
+                type="button"
+                className="ov-alert__dismiss"
+                aria-label={t("alerts.dismiss")}
+                title={t("alerts.dismiss")}
+                onClick={() => setDismissed((prev) => new Set(prev).add(alert.key))}
+              >
+                <XIcon className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
         );
       })}
