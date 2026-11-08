@@ -2,7 +2,7 @@
  * alerts.json — rule overrides, channel settings and the firing set. No URLs.
  *
  * A channel URL is the channel's credential (an ntfy topic, a Discord or Slack
- * webhook), so it lives in the encrypted secrets store next to SSH passwords and
+ * webhook, a Gotify app token), so it lives in the encrypted secrets store next to SSH passwords and
  * LLM API keys (secretsStore.saveAlertChannelUrls); this file keeps only the
  * channel's id, name, type, switch and minimum severity. A file written by an
  * earlier build may still hold plaintext URLs: `loadAlertsFile` hands them back
@@ -22,7 +22,7 @@ import { MAX_FOR_SEC, RULES, SEVERITIES, ruleById } from "./conditions.js";
 import { channelUrlProblem } from "./outbound.js";
 import { MAX_NAME_CHARS } from "./text.js";
 
-export const CHANNEL_TYPES = Object.freeze(["ntfy", "discord", "slack", "webhook"]);
+export const CHANNEL_TYPES = Object.freeze(["ntfy", "discord", "slack", "gotify", "webhook"]);
 export const MAX_CHANNELS = 20;
 /** Repeat reminders: 0 = off, otherwise 5 minutes … 7 days. */
 export const REPEAT_MIN_MINUTES = 5;
@@ -162,6 +162,9 @@ export function validateChannel(input, existing) {
     throw new ValidationError(`${name}: the URL is masked — enter the full URL again`);
   } else {
     url = validateChannelUrl(input.url);
+  }
+  if (input.type === "gotify" && !new URL(url).searchParams.get("token")?.trim()) {
+    throw new ValidationError(`${name}: a Gotify URL needs the app token, as in https://gotify.example.com/message?token=...`);
   }
   const minSeverity = input.minSeverity === undefined ? "warning" : input.minSeverity;
   if (!SEVERITIES.includes(minSeverity)) throw new ValidationError("minSeverity must be warning or critical");

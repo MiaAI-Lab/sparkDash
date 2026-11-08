@@ -21,6 +21,7 @@ const CHANNEL_TYPES: Array<{ value: AlertChannelType; label: string; placeholder
   { value: "ntfy", label: "ntfy", placeholder: "https://ntfy.sh/your-topic or http://192.168.1.10/topic" },
   { value: "discord", label: "Discord", placeholder: "https://discord.com/api/webhooks/…" },
   { value: "slack", label: "Slack", placeholder: "https://hooks.slack.com/services/…" },
+  { value: "gotify", label: "Gotify", placeholder: "https://gotify.example.com/message?token=APP_TOKEN" },
   { value: "webhook", label: "Webhook (JSON)", placeholder: "https://example.com/hook" },
 ];
 
