@@ -29,7 +29,8 @@
     "clock": "SM 时钟 {{frequency}} GHz",
     "clockWithMax": "SM 时钟 {{frequency}} GHz（最大值的 {{percent}}%）",
     "active": "已持续 {{count}} 分钟",
-    "open": "打开 {{name}}"
+    "open": "打开 {{name}}",
+    "dismiss": "忽略此警报"
   },
   "page": {
     "title": "总览",
