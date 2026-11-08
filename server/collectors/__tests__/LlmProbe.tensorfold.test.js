@@ -1079,3 +1079,171 @@ test("_applyTensorFoldMetrics: a single fleet-wide KV ratio is unchanged", async
   await probe._applyTensorFoldMetrics(2);
   assert.equal(probe.kvCacheUsage, 0.42);
 });
+
+/** TensorFold probe whose /metrics body the test controls; null means the scrape fails. */
+function progressProbe() {
+  let metrics = null;
+  let health = { status: "ok" };
+  const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888);
+  probe.backendType = "tensorfold";
+  probe._fetch = async (url) => {
+    const u = String(url);
+    if (u.endsWith("/v1/models")) return jsonRes(CUDA_MODELS);
+    if (u.endsWith("/health")) {
+      return health == null ? { ok: false, status: 500, json: async () => ({}) } : jsonRes(health);
+    }
+    if (u.endsWith("/metrics")) {
+      if (metrics == null) return { ok: false, status: 500, text: async () => "" };
+      return { ok: true, status: 200, text: async () => metrics };
+    }
+    return notFound();
+  };
+  return {
+    probe,
+    setMetrics: (lines) => { metrics = lines == null ? null : lines.join("\n"); },
+    setHealth: (value) => { health = value; },
+    poll: async () => {
+      probe.lastProbeTime = Date.now() - 2000;
+      return probe._probeOpenAICompatible();
+    },
+  };
+}
+
+test("TensorFold /metrics exposes live prefill and generation position gauges", async () => {
+  const f = progressProbe();
+  f.setMetrics([
+    "tensorfold:generation_tokens_total 1000",
+    "tensorfold:generation_tokens_running 0",
+    "tensorfold:prompt_tokens_total 5000",
+    "tensorfold:prefill_progress_tokens 0",
+  ]);
+  let snap = await f.poll();
+  assert.equal(snap.prefillProgressTokens, 0);
+  assert.equal(snap.generationProgressTokens, 1000);
+
+  // A long prefill advances the live gauge while the completed counters stay frozen.
+  f.setMetrics([
+    "tensorfold:generation_tokens_total 1000",
+    "tensorfold:generation_tokens_running 0",
+    "tensorfold:prompt_tokens_total 5000",
+    "tensorfold:prefill_progress_tokens 2048",
+  ]);
+  snap = await f.poll();
+  assert.equal(snap.prefillProgressTokens, 2048);
+  assert.equal(snap.totalPromptTokens, 5000);
+  assert.equal(snap.generationProgressTokens, 1000);
+
+  // Decode in flight: the generation position includes the running tokens.
+  f.setMetrics([
+    "tensorfold:generation_tokens_total 1000",
+    "tensorfold:generation_tokens_running 150",
+    "tensorfold:prompt_tokens_total 5000",
+    "tensorfold:prefill_progress_tokens 2048",
+  ]);
+  snap = await f.poll();
+  assert.equal(snap.generationProgressTokens, 1150);
+});
+
+test("TensorFold position gauges report the new raw value after a counter reset", async () => {
+  const f = progressProbe();
+  f.setMetrics([
+    "tensorfold:generation_tokens_total 1000",
+    "tensorfold:generation_tokens_running 0",
+    "tensorfold:prompt_tokens_total 5000",
+    "tensorfold:prefill_progress_tokens 2048",
+  ]);
+  let snap = await f.poll();
+  assert.equal(snap.prefillProgressTokens, 2048);
+  assert.equal(snap.generationProgressTokens, 1000);
+
+  // The engine restarted: the gauges follow the reset counters, not the old position.
+  f.setMetrics([
+    "tensorfold:generation_tokens_total 0",
+    "tensorfold:generation_tokens_running 0",
+    "tensorfold:prompt_tokens_total 0",
+    "tensorfold:prefill_progress_tokens 0",
+  ]);
+  snap = await f.poll();
+  assert.equal(snap.prefillProgressTokens, 0);
+  assert.equal(snap.generationProgressTokens, 0);
+});
+
+test("TensorFold position gauges are null when the raw gauge is missing or invalid", async () => {
+  const f = progressProbe();
+  f.setMetrics([
+    "tensorfold:generation_tokens_total 1000",
+    "tensorfold:generation_tokens_running 0",
+    "tensorfold:prompt_tokens_total 5000",
+    "tensorfold:prefill_progress_tokens 2048",
+  ]);
+  let snap = await f.poll();
+  assert.equal(snap.prefillProgressTokens, 2048);
+  assert.equal(snap.generationProgressTokens, 1000);
+
+  // Missing prefill gauge: unknown, never the previous position.
+  f.setMetrics([
+    "tensorfold:generation_tokens_total 10",
+    "tensorfold:generation_tokens_running 0",
+    "tensorfold:prompt_tokens_total 10",
+  ]);
+  snap = await f.poll();
+  assert.equal(snap.prefillProgressTokens, null);
+  assert.equal(snap.generationProgressTokens, 10);
+
+  // Missing running count: the generation position is unknown, not the completed total.
+  f.setMetrics([
+    "tensorfold:generation_tokens_total 10",
+    "tensorfold:prompt_tokens_total 10",
+    "tensorfold:prefill_progress_tokens 512",
+  ]);
+  snap = await f.poll();
+  assert.equal(snap.prefillProgressTokens, 512);
+  assert.equal(snap.generationProgressTokens, null);
+
+  // Invalid (negative) gauges: unknown.
+  f.setMetrics([
+    "tensorfold:generation_tokens_total 10",
+    "tensorfold:generation_tokens_running -5",
+    "tensorfold:prompt_tokens_total 10",
+    "tensorfold:prefill_progress_tokens -1",
+  ]);
+  snap = await f.poll();
+  assert.equal(snap.prefillProgressTokens, null);
+  assert.equal(snap.generationProgressTokens, null);
+
+  // A failed scrape must not keep claiming the last measured position.
+  f.setMetrics(null);
+  snap = await f.poll();
+  assert.equal(snap.prefillProgressTokens, null);
+  assert.equal(snap.generationProgressTokens, null);
+
+  // A failed /health poll is not a measurement either.
+  f.setMetrics([
+    "tensorfold:generation_tokens_total 10",
+    "tensorfold:generation_tokens_running 0",
+    "tensorfold:prompt_tokens_total 10",
+    "tensorfold:prefill_progress_tokens 512",
+  ]);
+  snap = await f.poll();
+  assert.equal(snap.prefillProgressTokens, 512);
+  f.setHealth(null);
+  snap = await f.poll();
+  assert.equal(snap.prefillProgressTokens, null);
+  assert.equal(snap.generationProgressTokens, null);
+});
+
+test("TensorFold queue-only /metrics scrape reports the position gauges as unknown", async () => {
+  const f = progressProbe();
+  f.setMetrics([
+    "tensorfold:generation_tokens_total 1000",
+    "tensorfold:generation_tokens_running 0",
+    "tensorfold:prompt_tokens_total 5000",
+    "tensorfold:prefill_progress_tokens 2048",
+  ]);
+  await f.poll();
+  assert.equal(f.probe.prefillProgressTokens, 2048);
+  assert.equal(f.probe.generationProgressTokens, 1000);
+  await f.probe._applyTensorFoldMetrics(undefined, true);
+  assert.equal(f.probe.prefillProgressTokens, null);
+  assert.equal(f.probe.generationProgressTokens, null);
+});

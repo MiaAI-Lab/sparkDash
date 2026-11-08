@@ -526,6 +526,18 @@ export interface LlmMetrics {
   /** Cumulative total prompt (prefill) tokens as reported by the LLM server. null when the backend does not expose it. */
   totalPromptTokens: number | null;
   /**
+   * TensorFold live prompt-position gauge: tokens of the prompt currently being
+   * prefilled (`tensorfold:prefill_progress_tokens`). It advances during a long
+   * prefill while the completed counters stay frozen. null when the build does
+   * not publish it or the last full /metrics scrape failed.
+   */
+  prefillProgressTokens?: number | null;
+  /**
+   * TensorFold live generation position: `generation_tokens_total` plus the
+   * nonnegative `generation_tokens_running`. null when unavailable.
+   */
+  generationProgressTokens?: number | null;
+  /**
    * Share of the engine's KV cache pool held by requests (0–1): vLLM, q27,
    * SGLang (`token_usage`) and TensorFold (`pool_tokens`). null when unknown.
    */
