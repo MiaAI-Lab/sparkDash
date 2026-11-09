@@ -2300,6 +2300,14 @@ export class LlmProbe {
       this.requestsRunning = Math.round(conns);
       this.slotsActive = Math.round(conns);
     }
+    // A build that publishes `live` and no `streams` block (this engine) leaves prefillActive to
+    // the streams field, so a long prompt pass reads as "not measured live" for minutes while the
+    // GPU is pegged. An open connection that is decoding nothing is a prompt pass; the vLLM path
+    // already marks prefill the same way (running > 0 and no new output). An idle but still-open
+    // connection reads the same way: it shows as a prompt pass until the connection closes.
+    if (data.streams == null && Number.isFinite(conns) && conns > 0 && decode === 0) {
+      this.prefillActive = true;
+    }
   }
 
   /**
