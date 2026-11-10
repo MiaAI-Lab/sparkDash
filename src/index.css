@@ -813,6 +813,10 @@ html {
 .app-content > main {
   view-transition-name: page;
 }
+.page-vt .app-content > main {
+  height: var(--page-vt-height);
+  overflow-y: clip;
+}
 ::view-transition-group(root) {
   animation-duration: 0.18s;
 }
