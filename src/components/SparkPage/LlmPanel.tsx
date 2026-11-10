@@ -20,6 +20,7 @@ import { LlmTokenTotals } from "./LlmTokenTotals";
 import { ENGINE_GENERATED_LABEL, ENGINE_GENERATED_TITLE } from "./tokenTotalsCopy";
 import { parseLlmTargetInput } from "../../shared/llmTarget.js";
 import { backendLabel } from "../../shared/llmBackends.js";
+import { formatTokensCompact } from "../../shared/tokenFormat.js";
 import { LlmTrendChart } from "./LlmTrendChart";
 import type { BenchKind } from "./BenchSwitcher";
 import { engineStateLabel } from "./llmEngineState";
@@ -1222,19 +1223,26 @@ export function LlmPanel({
                       </button>
                     </div>
                   </div>
-                  <div className="sp-tile" title={ENGINE_GENERATED_TITLE}>
-                    <b>{llm?.totalOutputTokens != null && llm.totalOutputTokens > 0 ? llm.totalOutputTokens.toLocaleString() : "—"}</b>
+                  <div
+                    className="sp-tile"
+                    title={
+                      llm?.totalOutputTokens != null && llm.totalOutputTokens > 0
+                        ? `${llm.totalOutputTokens.toLocaleString()} tokens · ${ENGINE_GENERATED_TITLE}`
+                        : ENGINE_GENERATED_TITLE
+                    }
+                  >
+                    <b>{llm?.totalOutputTokens != null && llm.totalOutputTokens > 0 ? formatTokensCompact(llm.totalOutputTokens) : "—"}</b>
                     <span>{ENGINE_GENERATED_LABEL}</span>
                   </div>
                   {llm?.totalPromptTokens != null && (
-                    <div className="sp-tile">
-                      <b>{llm.totalPromptTokens.toLocaleString()}</b>
+                    <div className="sp-tile" title={`${llm.totalPromptTokens.toLocaleString()} tokens`}>
+                      <b>{formatTokensCompact(llm.totalPromptTokens)}</b>
                       <span>Process prompt</span>
                     </div>
                   )}
                   {llm?.completedRequestsTotal != null && (
-                    <div className="sp-tile">
-                      <b>{llm.completedRequestsTotal.toLocaleString()}</b>
+                    <div className="sp-tile" title={`${llm.completedRequestsTotal.toLocaleString()} requests`}>
+                      <b>{formatTokensCompact(llm.completedRequestsTotal)}</b>
                       <span>Completed requests</span>
                     </div>
                   )}

@@ -109,6 +109,17 @@ describe("LlmPanel layout", () => {
     _resetStore();
   });
 
+  it("compacts billion-scale engine counters so a tile never splits a number, keeping the exact value", async () => {
+    mockApi();
+    await renderPanel({ llm: { ...makeDeepSeekActive(NOW), totalPromptTokens: 1_248_218_233,
+      totalOutputTokens: 4_208_139, completedRequestsTotal: 6_371 } });
+    const prompt = screen.getByText("Process prompt").closest(".sp-tile")!;
+    expect(within(prompt as HTMLElement).getByText("1.25B")).toBeInTheDocument();
+    expect(prompt.getAttribute("title")).toBe("1,248,218,233 tokens");
+    const completed = screen.getByText("Completed requests").closest(".sp-tile")!;
+    expect(completed.getAttribute("title")).toBe("6,371 requests");
+  });
+
   it("keeps a long model name as a readable heading apart from badges and port", async () => {
     mockApi();
     const longName =

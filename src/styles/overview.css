@@ -300,11 +300,19 @@
 .ov .ov-sc__head {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
+  container: ov-sc-head / inline-size;
 }
+/* The role tag's wide tracking costs the name its last characters on a narrow card. */
+.ov .ov-sc__head .tag.tag--role {
+  padding-inline: 9px;
+  letter-spacing: 0.06em;
+}
+/* The name is the one thing a header must show: it truncates only once the IP is gone. */
 .ov .ov-sc__name {
   margin: 0;
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -319,6 +327,13 @@
   flex: none;
   font-size: 12px;
   color: var(--color-faint, var(--color-muted));
+}
+/* A clipped address ("10…") says nothing: on a header too narrow for the whole
+   IP, drop it (the name's tooltip carries it) instead of squeezing the name. */
+@container ov-sc-head (max-width: 400px) {
+  .ov .ov-sc__ip {
+    display: none;
+  }
 }
 .ov .ov-sc__off {
   display: flex;

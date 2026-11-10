@@ -274,7 +274,7 @@ function SparkCardImpl({
           {onSelect ? (
             // Stretched link: this button's ::after covers the whole card (overview.css), so the card
             // is clickable without being a button that contains buttons.
-            <AppLink href={idToPath(spark.id)} className="ov-sc__link" onNavigate={() => onSelect(spark.id)} title={`Open ${spark.name}`}>
+            <AppLink href={idToPath(spark.id)} className="ov-sc__link" onNavigate={() => onSelect(spark.id)} title={spark.lanIp ? `Open ${spark.name} · ${spark.lanIp}` : `Open ${spark.name}`}>
               {spark.name}
             </AppLink>
           ) : (
