@@ -116,6 +116,9 @@ const POLL_INTERVAL_TAILSCALE = parseInt(process.env.POLL_INTERVAL_TAILSCALE || 
 const POLL_INTERVAL_NVERR = parseInt(process.env.POLL_INTERVAL_NVERR || "60000", 10);
 // dmon -c 1 -d 1 blocks ~1s; default 2s avoids stacking with in-flight guards
 const POLL_INTERVAL_BANDWIDTH = parseInt(process.env.POLL_INTERVAL_BANDWIDTH || "2000", 10);
+// Local nvidia-smi --query-compute-apps refresh while the long-lived GPU readers
+// are on (the per-process list is the one query still spawned per read).
+const POLL_INTERVAL_COMPUTE_APPS = parseInt(process.env.POLL_INTERVAL_COMPUTE_APPS || "5000", 10);
 // Dedicated liveness (sshTest / local ping) cadence — not a metric domain.
 const POLL_INTERVAL_LIVENESS = parseInt(process.env.POLL_INTERVAL_LIVENESS || "5000", 10);
 // Hermes Agent update check cadence. `hermes update --check` runs `git fetch`
@@ -278,6 +281,7 @@ export {
   POLL_INTERVAL_TAILSCALE,
   POLL_INTERVAL_NVERR,
   POLL_INTERVAL_BANDWIDTH,
+  POLL_INTERVAL_COMPUTE_APPS,
   POLL_INTERVAL_LIVENESS,
   POLL_INTERVAL_HERMES,
   BANDWIDTH_MIN_INTERVAL_MS,

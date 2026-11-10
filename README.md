@@ -1182,6 +1182,7 @@ Copy `.env.example` to `.env` if needed:
 | `POLL_INTERVAL_STORAGE` | `5000` | Storage poll (ms): disk usage and the read/write speed on the Storage panel |
 | `POLL_INTERVAL_LLM` | _(setting)_ | LLM probe poll (ms); same rule |
 | `POLL_INTERVAL_BANDWIDTH` | _(setting, ≥ 2000)_ | Memory bandwidth / dmon poll (ms); same rule, and when it follows the setting it never drops below 2000 |
+| `POLL_INTERVAL_COMPUTE_APPS` | `5000` | Local unit: how often the GPU process list (`nvidia-smi --query-compute-apps`) is re-read (ms). The local unit's other `nvidia-smi` readings come from two long-running `nvidia-smi` processes (`--query-gpu … -lms`, `dmon`) at the GPU and bandwidth intervals; a reading older than three intervals is reported as missing |
 | `POLL_INTERVAL_HERMES` | `600000` | Hermes Agent update check poll (ms) |
 | `POLL_INTERVAL_TAILSCALE` | `30000` | Tailnet probe poll (ms) |
 | `TAILSCALE_PROBE_TIMEOUT_MS` | `8000` | Timeout for `tailscale status --json` (ms) |
