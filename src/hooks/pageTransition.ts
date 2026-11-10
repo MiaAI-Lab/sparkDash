@@ -1,7 +1,7 @@
 import { flushSync } from "react-dom";
 
 type ViewTransitionDocument = Document & {
-  startViewTransition?: (update: () => void) => unknown;
+  startViewTransition?: (update: () => void) => { finished?: Promise<unknown> } | undefined;
 };
 
 export interface PageTransitionOptions {
@@ -39,10 +39,14 @@ export function withPageTransition(update: () => void, options: PageTransitionOp
     return;
   }
   try {
-    doc.startViewTransition(() => {
+    const root = doc.documentElement;
+    const transition = doc.startViewTransition(() => {
       flushSync(update);
       if (scrollTop) scrollToTop();
+      root.style.setProperty("--page-vt-height", `${window.scrollY + window.innerHeight}px`);
+      root.classList.add("page-vt");
     });
+    transition?.finished?.finally(() => root.classList.remove("page-vt")).catch(() => {});
   } catch {
     run();
   }
