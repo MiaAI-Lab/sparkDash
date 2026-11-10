@@ -75,7 +75,7 @@ import {
 } from "./energy/FleetEnergyRuntime.js";
 import { testSparkConnectivity } from "./connectivity.js";
 import {
-  actRuntimeControl,
+  beginRuntimeControl,
   assertMacControlSpark,
   readRuntimeControl,
   runtimeControlHttpStatus,
@@ -835,8 +835,8 @@ app.post("/api/sparks/:id/runtime-control/:action", async (req, res) => {
   const blocked = assertMacControlSpark(spark);
   if (blocked) return res.status(blocked.status).json(blocked.body);
   try {
-    const result = await actRuntimeControl(spark, req.params.action, req.body || {});
-    res.status(runtimeControlHttpStatus(result)).json(result);
+    const result = await beginRuntimeControl(spark, req.params.action, req.body || {});
+    res.status(result.state === "ready" && result.busy ? 202 : runtimeControlHttpStatus(result)).json(result);
   } catch (err) {
     res.status(503).json({ state: "unavailable", reason: err.message, error: err.message, serving: null, targets: [] });
   }

@@ -917,20 +917,28 @@ def _entry_matches(entry: dict[str, object], proc: dict[str, object]) -> bool:
     return bool(entry.get("argvAll") or exe)
 
 
-def health_check(port: int, path: str, timeout_ms: int) -> dict[str, object]:
+def health_check(port: int, path: str, timeout_ms: int, api_key_file=None) -> dict[str, object]:
     """GET the entry's health path on loopback: proves 'serving', and often names the model."""
     url = f"http://127.0.0.1:{port}{path}"
     try:
-        with urllib.request.urlopen(url, timeout=timeout_ms / 1000) as response:
-            body = response.read(65536).decode("utf-8", "replace")
-            status = int(getattr(response, "status", 200))
-    except (urllib.error.URLError, OSError, ValueError):
+        if api_key_file:
+            # Share the control runner's private-file and loopback-only HTTP
+            # boundary. No proxy, redirect, argv, or public payload sees the key.
+            from profile_runner import load_api_key, request_json
+            data = request_json(port, path, timeout=timeout_ms / 1000,
+                                api_key=load_api_key(Path(api_key_file).expanduser()))
+            status = 200
+        else:
+            with urllib.request.urlopen(url, timeout=timeout_ms / 1000) as response:
+                body = response.read(65536).decode("utf-8", "replace")
+                status = int(getattr(response, "status", 200))
+            try:
+                data = json.loads(body)
+            except ValueError:
+                data = None
+    except Exception:
         return {"ok": False, "url": url}
     model = None
-    try:
-        data = json.loads(body)
-    except ValueError:
-        data = None
     if isinstance(data, dict):
         for key in ("data", "models"):
             rows = data.get(key)
@@ -994,8 +1002,9 @@ def detect_runtimes(inventory: dict[str, object], procs: dict[int, dict[str, obj
             }
             if role != "watchdog" and port:
                 spec = entry.get("health") or default_health
+                auth = {"api_key_file": spec["apiKeyFile"]} if spec.get("apiKeyFile") else {}
                 health = health_check(int(port), str(spec.get("path", "/v1/models")),
-                                      int(spec.get("timeoutMs", 750)))
+                                      int(spec.get("timeoutMs", 750)), **auth)
                 record["health"] = {"ok": health["ok"], "url": health["url"]}
                 if health.get("model"):
                     record["model"] = health["model"]
@@ -1319,7 +1328,7 @@ class Handler(BaseHTTPRequestHandler):
                 "targets": [],
             })
             return
-        self._json(self.control.status())
+        self._json(self.control.status(self.headers))
 
     def _control_action(self, action: str) -> None:
         refused = self._root_control_refusal()

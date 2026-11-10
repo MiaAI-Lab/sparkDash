@@ -101,6 +101,25 @@ class InventoryDetectionTests(unittest.TestCase):
         self.assertEqual([row["name"] for row in found], ["splash-35b"])
         self.assertEqual(found[0]["model"], "incoai/Qwen3.6-35B-A3B-Splash")
 
+    def test_splash_public_launcher_matches_cellar_binary_and_current_model(self):
+        model = "bottlecapai/ThinkingCap-Qwen3.8-27B-MLX-4bit-DWQ"
+        procs = {35930: proc(35930,
+            "/opt/homebrew/Cellar/splash/1.4.0/libexec/python/bin/python3 -u -P -m server.server "
+            f"--model {model} --binary /opt/homebrew/Cellar/splash/1.4.0/libexec/engine/splash --port 8100")}
+        found = self.detect(procs, owned(35930, 8100), health=ok(8100, model))
+        self.assertEqual(found[0]["name"], "splash")
+        self.assertEqual(found[0]["model"], model)
+
+    def test_mtplx_module_server_is_a_model_runtime_not_the_mux(self):
+        model = "Youssofal/Qwen3.8-27B-MTPLX-Optimized-Speed"
+        procs = {351: proc(351, f"/opt/homebrew/bin/python3 -P -m mtplx.server.openai --model {model} --port 8210")}
+        found = self.detect(procs, owned(351, 8210), health=ok(8210, model))
+        self.assertEqual(found[0]["name"], "mtplx-27b")
+
+    def test_native_omlx_server_matches_its_listener(self):
+        found = self.detect({777: proc(777, "omlx-server")}, owned(777, 8000), health=ok(8000, "model"))
+        self.assertEqual(found[0]["name"], "omlx")
+
     def test_listener_without_a_matching_entry_is_other_runtime(self):
         # A Python server nobody catalogued keeps its own name; it is never
         # renamed into a catalogued engine.
@@ -726,3 +745,36 @@ class ServeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class AuthenticatedHealthTests(unittest.TestCase):
+    def test_private_key_is_used_only_for_authenticated_loopback_health(self):
+        import sys
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        calls = []
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                calls.append(self.headers.get("Authorization"))
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b'{"data":[{"id":"private-model"}]}')
+            def log_message(self, *args):
+                pass
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with tempfile.TemporaryDirectory() as directory, patch.object(sys, "path", [str(HERE), *sys.path]):
+                key = Path(directory) / "key"
+                key.write_text("test-health-key")
+                key.chmod(0o600)
+                result = agent.health_check(server.server_port, "/v1/models", 1000, api_key_file=str(key))
+                self.assertTrue(result["ok"])
+                self.assertEqual(result["model"], "private-model")
+                self.assertEqual(calls, ["Bearer test-health-key"])
+                key.chmod(0o644)
+                self.assertFalse(agent.health_check(server.server_port, "/v1/models", 1000, api_key_file=str(key))["ok"])
+                self.assertEqual(calls, ["Bearer test-health-key"])
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(2)

@@ -6,13 +6,41 @@
  */
 
 import { macAgentBaseUrl } from "./MacAgentCollector.js";
+import fs from "node:fs";
+import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
+import { Agent, fetch as undiciFetch } from "undici";
 
 export const CONTROL_SCHEMA = "sparkdash.mac-control/1";
 const STATUS_TIMEOUT_MS = 8000;
-const ACTION_TIMEOUT_MS = 50000;
+const ACTION_TIMEOUT_MS = 680000;
+// The command can take 600s, followed by a 60s readiness check. Undici's
+// default 300s header/body limits apply independently of AbortSignal.
+const controlDispatcher = new Agent({ headersTimeout: ACTION_TIMEOUT_MS, bodyTimeout: ACTION_TIMEOUT_MS });
+// One current/last job per Spark, never a history. Completed fallbacks expire
+// when the Mac supplies a newer operation, a new action starts, or after 10m.
+const jobs = new Map();
+const COMPLETED_TTL_MS = 600000;
+
+function currentJob(id) {
+  for (const [key, job] of jobs) {
+    if (!job.pending && Date.now() - job.completedAt >= COMPLETED_TTL_MS) jobs.delete(key);
+  }
+  return jobs.get(id);
+}
 
 export function macControlToken(env = process.env) {
-  return String(env.SPARKDASH_MAC_CONTROL_TOKEN || "").trim();
+  const token = String(env.SPARKDASH_MAC_CONTROL_TOKEN || "").trim();
+  if (token) return token;
+  const path = env.SPARKDASH_MAC_CONTROL_TOKEN_FILE || fileURLToPath(new URL("../../config/mac-control-token", import.meta.url));
+  try {
+    const fd = fs.openSync(path, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+    try {
+      const info = fs.fstatSync(fd);
+      if (!info.isFile() || info.size > 4096 || (info.mode & 0o077) || info.uid !== process.geteuid()) return "";
+      return fs.readFileSync(fd, "utf8").trim();
+    } finally { fs.closeSync(fd); }
+  } catch { return ""; }
 }
 
 export function assertMacControlSpark(spark) {
@@ -40,6 +68,7 @@ function unavailable(reason, extra = {}) {
 
 function denied(reason, extra = {}) {
   return {
+    ...extra,
     state: "denied",
     reason,
     error: reason,
@@ -65,6 +94,8 @@ function mapPayload(payload, { authorized }) {
     runtime: payload.runtime ?? null,
     model: payload.model ?? null,
     exitCode: payload.exitCode,
+    busy: typeof payload.busy === "boolean" ? payload.busy : undefined,
+    operation: mapOperation(payload.operation),
   };
   if (payload.control === "denied") {
     return denied(payload.reason || payload.error || "runtime control permission denied", shared);
@@ -90,6 +121,19 @@ function mapPayload(payload, { authorized }) {
   };
 }
 
+function mapOperation(operation) {
+  if (!operation || typeof operation.id !== "string" || !operation.id
+      || !["running", "complete"].includes(operation.state)) return undefined;
+  const mapped = { id: operation.id, state: operation.state };
+  for (const key of ["runtime", "model", "action", "error", "output"]) {
+    if (typeof operation[key] === "string" || (["error", "output"].includes(key) && operation[key] === null)) {
+      mapped[key] = operation[key];
+    }
+  }
+  if (typeof operation.ok === "boolean") mapped.ok = operation.ok;
+  return mapped;
+}
+
 async function readBody(response) {
   try {
     return await response.json();
@@ -99,7 +143,9 @@ async function readBody(response) {
 }
 
 async function callAgent(spark, path, { fetchImpl, method = "GET", body, token, timeoutMs }) {
-  const baseUrl = macAgentBaseUrl(spark);
+  const endpoint = new URL(macAgentBaseUrl(spark));
+  if (spark.agent?.controlPort) endpoint.port = String(spark.agent.controlPort);
+  const baseUrl = endpoint.toString().replace(/\/$/, "");
   let response;
   try {
     response = await fetchImpl(`${baseUrl}${path}`, {
@@ -110,6 +156,7 @@ async function callAgent(spark, path, { fetchImpl, method = "GET", body, token, 
       },
       body: body ? JSON.stringify(body) : undefined,
       signal: AbortSignal.timeout(timeoutMs),
+      dispatcher: controlDispatcher,
     });
   } catch (err) {
     return unavailable(`mac agent unreachable at ${baseUrl} (${err.message})`);
@@ -133,36 +180,129 @@ export function runtimeControlHttpStatus(result) {
   return 200;
 }
 
-export async function readRuntimeControl(spark, { fetchImpl = globalThis.fetch, token = macControlToken() } = {}) {
+function mergeJob(spark, status) {
+  const job = currentJob(spark.id);
+  if (!job) return status;
+  if (job.pending) {
+    return {
+      ...status,
+      busy: true,
+      operation: status.operation?.state === "running" ? status.operation : job.operation,
+    };
+  }
+  // A lost Node connection does not release the Mac's action lock. Only a
+  // subsequent Mac status read can establish whether the command is done.
+  if (status.busy) {
+    return { ...status, operation: status.operation ?? job.operation, error: status.error || job.result.error };
+  }
+  if (status.operation && status.operation.id !== job.previousOperationId) {
+    jobs.delete(spark.id);
+    return status;
+  }
+  return {
+    ...status,
+    busy: status.state === "ready" ? false : status.busy,
+    operation: job.operation,
+    ok: job.operation.ok,
+    error: job.operation.error ?? status.error,
+    output: job.operation.output,
+  };
+}
+
+export async function readRuntimeControl(spark, { fetchImpl = undiciFetch, token = macControlToken() } = {}) {
   const blocked = assertMacControlSpark(spark);
   if (blocked) return blocked.body;
   if (!spark.agent) {
     return unavailable("Mac node agent is not configured; runtime control has nowhere to send an action");
   }
-  return callAgent(spark, "/control", {
+  const status = await callAgent(spark, "/control", {
     fetchImpl,
     token,
     timeoutMs: STATUS_TIMEOUT_MS,
   });
+  return mergeJob(spark, status);
+}
+
+function actionProblem(spark, action, request, token) {
+  const blocked = assertMacControlSpark(spark);
+  if (blocked) return blocked.body;
+  if (!spark.agent) return unavailable("Mac node agent is not configured; runtime control has nowhere to send an action");
+  if (action !== "start" && action !== "stop") return unavailable("runtime control action must be start or stop");
+  if (!token) return denied("dashboard has no SPARKDASH_MAC_CONTROL_TOKEN; runtime control is not authorized");
+  if (typeof request.runtime !== "string" || !request.runtime.trim() || request.runtime.trim().length > 64) {
+    return unavailable("runtime is required (a name of at most 64 characters)");
+  }
+  if (request.model != null && typeof request.model !== "string") return unavailable("model must be a string");
+  return null;
+}
+
+/** Validate and reserve synchronously, then dispatch once without tying the
+ * browser connection to the command lifetime. Reads never dispatch actions. */
+export async function beginRuntimeControl(spark, action, request = {}, {
+  fetchImpl = undiciFetch, token = macControlToken(),
+} = {}) {
+  const problem = actionProblem(spark, action, request, token);
+  if (problem) return problem;
+  const existing = currentJob(spark.id);
+  if (existing?.pending) {
+    return {
+      state: "ready", reason: null, authorized: true, serving: null, targets: [],
+      ...existing.view, busy: true, operation: existing.operation,
+    };
+  }
+  // Reserve before the status await: concurrent requests must not both pass
+  // an idle agent status and then dispatch duplicate actions.
+  const job = { pending: true };
+  jobs.set(spark.id, job);
+  try {
+    const status = await callAgent(spark, "/control", { fetchImpl, token, timeoutMs: STATUS_TIMEOUT_MS });
+    if (status.state !== "ready" || status.busy) return status;
+    const runtime = request.runtime.trim();
+    const target = status.targets.find((row) => row.name === runtime);
+    const refuse = (reason) => unavailable(reason, { ...status, ok: false });
+    if (!target) return refuse(`unknown runtime ${runtime}`);
+    if (target[action === "start" ? "startable" : "stoppable"] !== true) {
+      return refuse(target.reason || `${runtime} cannot ${action}`);
+    }
+    const models = Array.isArray(target.models) ? target.models : [];
+    let model = request.model?.trim() || undefined;
+    if (model && !models.some((row) => row.id === model)) return refuse(`unknown model ${model} for runtime ${runtime}`);
+    if (!model && action === "start") {
+      if (models.length > 1) return refuse("model is required");
+      model = models[0]?.id;
+    }
+    job.previousOperationId = status.operation?.id;
+    job.operation = { id: randomUUID(), state: "running", runtime, ...(model ? { model } : {}), action };
+    job.view = { ...status, busy: true, operation: job.operation, ok: undefined, error: null, output: null };
+    const complete = (result) => {
+      job.result = result;
+      job.operation = result.operation?.state === "complete" ? result.operation : {
+        ...job.operation, state: "complete", ok: result.ok === true,
+        error: result.error ?? result.reason ?? null, output: result.output ?? null,
+      };
+      job.completedAt = Date.now();
+      job.pending = false;
+    };
+    // actRuntimeControl owns the sole POST and its long timeout; never retry a
+    // connection failure, since the Mac may still be executing the command.
+    void actRuntimeControl(spark, action, { runtime, model }, { fetchImpl, token })
+      .then(complete, (err) => complete(unavailable(`runtime control ${action} failed (${err.message})`)));
+    return job.view;
+  } finally {
+    if (!job.operation) {
+      if (existing) jobs.set(spark.id, existing);
+      else jobs.delete(spark.id);
+    }
+  }
 }
 
 export async function actRuntimeControl(spark, action, request = {}, {
-  fetchImpl = globalThis.fetch,
+  fetchImpl = undiciFetch,
   token = macControlToken(),
 } = {}) {
-  const blocked = assertMacControlSpark(spark);
-  if (blocked) return blocked.body;
-  if (!spark.agent) {
-    return unavailable("Mac node agent is not configured; runtime control has nowhere to send an action");
-  }
-  if (action !== "start" && action !== "stop") {
-    return unavailable(`unknown runtime control action ${action}`);
-  }
-  if (!token) {
-    return denied("dashboard has no SPARKDASH_MAC_CONTROL_TOKEN; runtime control is not authorized");
-  }
-  const runtime = String(request.runtime || "").trim();
-  if (!runtime) return unavailable("runtime is required");
+  const problem = actionProblem(spark, action, request, token);
+  if (problem) return problem;
+  const runtime = request.runtime.trim();
   const body = { runtime };
   if (request.model) body.model = String(request.model);
   return callAgent(spark, `/control/${action}`, {

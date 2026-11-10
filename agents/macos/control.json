@@ -1,120 +1,121 @@
 {
   "schema": "sparkdash.mac-control/1",
-  "source": "Launch commands mirror model-start / model-stop on the captain's Mac (MK-MacBook-Pro-5). The agent does not bake those engine names into code; edit this catalog to retarget a machine.",
-  "notes": [
-    "GET /control and the serving probe never execute these commands.",
-    "POST /control/start and POST /control/stop run the matching argv only after SPARKDASH_MAC_CONTROL_TOKEN matches.",
-    "The privileged root collector refuses control even if this file is present.",
-    "A request names a catalog entry. It is not interpolated into the command."
-  ],
+  "source": "Explicit locally installed profiles. Configure private ~/.config/sparkdash/profiles.json before enabling control. The profile runner owns stop, release, launch and readiness.",
   "targets": [
     {
-      "name": "omlx",
-      "label": "oMLX",
+      "name": "omlx-thinkingcap",
+      "label": "ThinkingCap Qwen3.8 27B \u00b7 32K",
       "group": "omlx",
       "groupLabel": "oMLX",
-      "models": [{ "id": "default", "label": "start-command default" }],
-      "start": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-start omlx"],
-      "stop": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-stop omlx"]
+      "models": [
+        {
+          "id": "bottlecapai--ThinkingCap-Qwen3.8-27B-MLX-4bit-DWQ",
+          "label": "ThinkingCap Qwen3.8 27B \u00b7 32K"
+        }
+      ],
+      "start": [
+        "/bin/zsh",
+        "-c",
+        "exec /usr/bin/python3 \"$HOME/projects/sparkDash/agents/macos/profile_runner.py\" --profiles \"$HOME/.config/sparkdash/profiles.json\" --inventory \"$HOME/projects/sparkDash/agents/macos/runtimes.json\" start omlx-thinkingcap"
+      ],
+      "stop": [
+        "/bin/zsh",
+        "-c",
+        "exec /usr/bin/python3 \"$HOME/projects/sparkDash/agents/macos/profile_runner.py\" --profiles \"$HOME/.config/sparkdash/profiles.json\" --inventory \"$HOME/projects/sparkDash/agents/macos/runtimes.json\" stop omlx-thinkingcap"
+      ],
+      "timeoutSeconds": 600
     },
     {
-      "name": "qflash",
-      "label": "qflash (mlx-serve)",
+      "name": "mlx-serve-27b",
+      "label": "Qwen3.8 27B 4-bit \u00b7 128K",
       "group": "qflash",
-      "groupLabel": "qflash",
-      "models": [{ "id": "default", "label": "start-command default" }],
-      "start": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-start qflash"],
-      "stop": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-stop qflash"]
+      "groupLabel": "mlx-serve",
+      "models": [
+        {
+          "id": "Qwen3.8-27B-4bit",
+          "label": "Qwen3.8 27B 4-bit \u00b7 128K"
+        }
+      ],
+      "start": [
+        "/bin/zsh",
+        "-c",
+        "exec /usr/bin/python3 \"$HOME/projects/sparkDash/agents/macos/profile_runner.py\" --profiles \"$HOME/.config/sparkdash/profiles.json\" --inventory \"$HOME/projects/sparkDash/agents/macos/runtimes.json\" start mlx-serve-27b"
+      ],
+      "stop": [
+        "/bin/zsh",
+        "-c",
+        "exec /usr/bin/python3 \"$HOME/projects/sparkDash/agents/macos/profile_runner.py\" --profiles \"$HOME/.config/sparkdash/profiles.json\" --inventory \"$HOME/projects/sparkDash/agents/macos/runtimes.json\" stop mlx-serve-27b"
+      ],
+      "timeoutSeconds": 600
     },
     {
-      "name": "splash",
-      "label": "Splash default",
+      "name": "mlx-serve-35b",
+      "label": "Qwen3.6 35B A3B oQ8e \u00b7 128K",
+      "group": "qflash",
+      "groupLabel": "mlx-serve",
+      "models": [
+        {
+          "id": "Qwen3.6-35B-A3B-oQ8e-mtp",
+          "label": "Qwen3.6 35B A3B oQ8e \u00b7 128K"
+        }
+      ],
+      "start": [
+        "/bin/zsh",
+        "-c",
+        "exec /usr/bin/python3 \"$HOME/projects/sparkDash/agents/macos/profile_runner.py\" --profiles \"$HOME/.config/sparkdash/profiles.json\" --inventory \"$HOME/projects/sparkDash/agents/macos/runtimes.json\" start mlx-serve-35b"
+      ],
+      "stop": [
+        "/bin/zsh",
+        "-c",
+        "exec /usr/bin/python3 \"$HOME/projects/sparkDash/agents/macos/profile_runner.py\" --profiles \"$HOME/.config/sparkdash/profiles.json\" --inventory \"$HOME/projects/sparkDash/agents/macos/runtimes.json\" stop mlx-serve-35b"
+      ],
+      "timeoutSeconds": 600
+    },
+    {
+      "name": "splash-thinkingcap",
+      "label": "ThinkingCap Qwen3.8 27B",
       "group": "splash",
       "groupLabel": "Splash",
-      "models": [{ "id": "incoai/Qwen3.6-35B-A3B-Splash", "label": "Qwen3.6-35B-A3B (default)" }],
-      "start": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-start splash"],
-      "stop": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-stop splash"]
-    },
-    {
-      "name": "splash-27b",
-      "label": "Splash 27B",
-      "group": "splash",
-      "groupLabel": "Splash",
-      "models": [{ "id": "incoai/Qwen3.8-27B-Splash", "label": "Qwen3.8-27B" }],
-      "start": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-start splash-27b"],
-      "stop": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-stop splash"]
-    },
-    {
-      "name": "splash-35b",
-      "label": "Splash 35B",
-      "group": "splash",
-      "groupLabel": "Splash",
-      "models": [{ "id": "incoai/Qwen3.6-35B-A3B-Splash", "label": "Qwen3.6-35B-A3B" }],
-      "start": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-start splash-35b"],
-      "stop": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-stop splash"]
-    },
-    {
-      "name": "ds4",
-      "label": "DS4 / DwarfStar",
-      "group": "ds4",
-      "groupLabel": "DS4",
-      "models": [{ "id": "default", "label": "start-command default" }],
-      "start": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-start ds4"],
-      "stop": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-stop ds4"]
-    },
-    {
-      "name": "ds4-serve",
-      "label": "DS4 on-demand",
-      "group": "ds4",
-      "groupLabel": "DS4",
-      "models": [{ "id": "default", "label": "start-command default" }],
-      "start": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-start ds4-serve"],
-      "stop": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-stop ds4"]
-    },
-    {
-      "name": "mtplx",
-      "label": "MTPLX default",
-      "group": "mtplx",
-      "groupLabel": "MTPLX",
-      "models": [{ "id": "Youssofal/Qwen3.8-27B-MTPLX-Optimized-Speed", "label": "Qwen3.8-27B (default)" }],
-      "start": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-start mtplx"],
-      "stop": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-stop mtplx"]
+      "models": [
+        {
+          "id": "bottlecapai/ThinkingCap-Qwen3.8-27B-MLX-4bit-DWQ",
+          "label": "ThinkingCap Qwen3.8 27B"
+        }
+      ],
+      "start": [
+        "/bin/zsh",
+        "-c",
+        "exec /usr/bin/python3 \"$HOME/projects/sparkDash/agents/macos/profile_runner.py\" --profiles \"$HOME/.config/sparkdash/profiles.json\" --inventory \"$HOME/projects/sparkDash/agents/macos/runtimes.json\" start splash-thinkingcap"
+      ],
+      "stop": [
+        "/bin/zsh",
+        "-c",
+        "exec /usr/bin/python3 \"$HOME/projects/sparkDash/agents/macos/profile_runner.py\" --profiles \"$HOME/.config/sparkdash/profiles.json\" --inventory \"$HOME/projects/sparkDash/agents/macos/runtimes.json\" stop splash-thinkingcap"
+      ],
+      "timeoutSeconds": 600
     },
     {
       "name": "mtplx-27b",
-      "label": "MTPLX 27B",
+      "label": "Qwen3.8 27B MTP \u00b7 256K",
       "group": "mtplx",
       "groupLabel": "MTPLX",
-      "models": [{ "id": "Youssofal/Qwen3.8-27B-MTPLX-Optimized-Speed", "label": "Qwen3.8-27B" }],
-      "start": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-start mtplx-27b"],
-      "stop": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-stop mtplx"]
-    },
-    {
-      "name": "mtplx-flash",
-      "label": "MTPLX Flash-Next",
-      "group": "mtplx",
-      "groupLabel": "MTPLX",
-      "models": [{ "id": "Youssofal/Qwen3.8-Flash-Next-MTPLX-Optimized-Speed", "label": "Qwen3.8 Flash-Next" }],
-      "start": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-start mtplx-flash"],
-      "stop": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-stop mtplx"]
-    },
-    {
-      "name": "mtplx-35b",
-      "label": "MTPLX 35B",
-      "group": "mtplx",
-      "groupLabel": "MTPLX",
-      "models": [{ "id": "qwen3.6-35b-a3b", "label": "Qwen3.6-35B-A3B" }],
-      "start": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-start mtplx-35b"],
-      "stop": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-stop mtplx-35b"]
-    },
-    {
-      "name": "tensorfold",
-      "label": "TensorFold",
-      "group": "tensorfold",
-      "groupLabel": "TensorFold",
-      "models": [{ "id": "Vontra/Qwen3.8-27B-MLX-4bit", "label": "Qwen3.8-27B" }],
-      "start": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-start tensorfold"],
-      "stop": ["/bin/zsh", "-c", "source \"$HOME/.zshrc\" && model-stop tensorfold"]
+      "models": [
+        {
+          "id": "mtplx-qwen38-27b-optimized-speed",
+          "label": "Qwen3.8 27B MTP \u00b7 256K"
+        }
+      ],
+      "start": [
+        "/bin/zsh",
+        "-c",
+        "exec /usr/bin/python3 \"$HOME/projects/sparkDash/agents/macos/profile_runner.py\" --profiles \"$HOME/.config/sparkdash/profiles.json\" --inventory \"$HOME/projects/sparkDash/agents/macos/runtimes.json\" start mtplx-27b"
+      ],
+      "stop": [
+        "/bin/zsh",
+        "-c",
+        "exec /usr/bin/python3 \"$HOME/projects/sparkDash/agents/macos/profile_runner.py\" --profiles \"$HOME/.config/sparkdash/profiles.json\" --inventory \"$HOME/projects/sparkDash/agents/macos/runtimes.json\" stop mtplx-27b"
+      ],
+      "timeoutSeconds": 600
     }
   ]
 }

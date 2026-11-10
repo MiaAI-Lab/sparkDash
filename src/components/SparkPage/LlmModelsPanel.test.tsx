@@ -3,7 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const fetchLaunchers = vi.fn();
 const runLauncher = vi.fn();
+const fetchRuntimeControl = vi.fn();
 vi.mock("../../api/client", () => ({
+  fetchRuntimeControl: (...a: unknown[]) => fetchRuntimeControl(...a),
+  startMacRuntime: vi.fn(),
+  stopMacRuntime: vi.fn(),
   fetchLaunchers: (...a: unknown[]) => fetchLaunchers(...a),
   runLauncher: (...a: unknown[]) => runLauncher(...a),
   removeLauncher: vi.fn(),
@@ -21,6 +25,21 @@ import { flush, render } from "../../testing/render";
 import { terminalText } from "../ui/LiveTerminal";
 import { validateLauncherForm } from "./LlmLauncherDialog";
 import { formatElapsed, jobHeadline, jobTone, LlmModelsPanel } from "./LlmModelsPanel";
+
+describe("Mac Models profiles", () => {
+  it("uses the authenticated profile catalog instead of script registration on agent Macs", async () => {
+    fetchRuntimeControl.mockResolvedValue({ state: "ready", serving: [], targets: [] });
+    fetchLaunchers.mockClear();
+    const spark = { ...makeSpark("mac"), kind: "mac" as const, macTransport: "agent" as const };
+    const { container } = render(<LlmModelsPanel spark={spark} />);
+    await flush();
+    expect(container.querySelector(".panel-title")?.textContent).toBe("Models");
+    expect(container.querySelector('[data-testid="runtime-launcher"]')).not.toBeNull();
+    expect(container.textContent).not.toContain("Add your first model");
+    expect(fetchLaunchers).not.toHaveBeenCalled();
+    expect(fetchRuntimeControl).toHaveBeenCalledWith("mac");
+  });
+});
 
 const job = (over: Partial<LauncherJob>): LauncherJob => ({
   id: "j1",

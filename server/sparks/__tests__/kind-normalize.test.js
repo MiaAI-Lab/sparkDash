@@ -41,3 +41,8 @@ test("mac agent endpoint normalizes, and only for mac units", () => {
   // A DGX Spark carrying an agent block ignores it.
   assert.equal(n({ kind: "spark", agent: { port: 8790 } }).agent, null);
 });
+
+test("Mac control uses an optional independent validated port", () => {
+  assert.equal(n({ kind: "mac", agent: { port: 8791, controlPort: 8790 } }).agent.controlPort, 8790);
+  assert.equal(n({ kind: "mac", agent: { port: 8791, controlPort: 70000 } }).agent.controlPort, undefined);
+});

@@ -1,27 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import type { LauncherAction, LauncherJob, LauncherRunState, LlmLauncher, SparkSnapshot } from "../../api/types";
 import { removeLauncher, runLauncher } from "../../api/client";
 import { fetchLaunchersCached, invalidateLaunchers, patchCachedStatus } from "../../hooks/launcherCache";
 import { useLauncherJob } from "../../hooks/useLauncherJob";
-import { useModalPresence } from "../../hooks/useModalPresence";
-import { useOverlayClose } from "../../hooks/useOverlayClose";
 import { LiveTerminal, terminalText } from "../ui/LiveTerminal";
 import { Panel } from "../ui/Panel";
 import { Tag, type TagTone } from "../ui/Tag";
 import { BotIcon, EditIcon, ExpandIcon, PlusIcon, XIcon } from "../ui/icons";
+import { useModelOutputPreference, TerminalModal } from "../ui/ModelOutput";
+import { RuntimeLauncher } from "./RuntimeLauncher";
 import { LlmLauncherDialog } from "./LlmLauncherDialog";
 
-const AUTOSHOW_KEY = "sparkdash.llm.autoShowOutput";
 const STATUS_REFRESH_MS = 20_000;
-
-function readAutoShow(): boolean {
-  try {
-    return localStorage.getItem(AUTOSHOW_KEY) !== "0";
-  } catch {
-    return true;
-  }
-}
 
 export function formatElapsed(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000));
@@ -72,52 +62,6 @@ function Elapsed({ job }: { job: LauncherJob }) {
   return <span className="mono">{formatElapsed(end - job.startedAt)}</span>;
 }
 
-function TerminalModal({
-  open,
-  title,
-  lines,
-  partial,
-  running,
-  onClose,
-}: {
-  open: boolean;
-  title: string;
-  lines: { seq: number; text: string }[];
-  partial: string;
-  running: boolean;
-  onClose: () => void;
-}) {
-  const { mounted, visible } = useModalPresence(open);
-  const overlayClose = useOverlayClose(onClose);
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
-  if (!mounted) return null;
-  return createPortal(
-    <div
-      className={`modal-overlay${visible ? " is-open" : ""}`}
-      {...overlayClose}
-    >
-      <div className="modal-sheet term-modal" role="dialog" aria-modal="true" aria-label={title}>
-        <div className="modal-sheet__header">
-          <h2 className="modal-sheet__title">{title}</h2>
-          <button type="button" className="icon-circle ml-auto" onClick={onClose} aria-label="Close output">
-            <XIcon className="h-4 w-4" />
-          </button>
-        </div>
-        <div className="modal-sheet__body term-modal__body">
-          <LiveTerminal lines={lines} partial={partial} running={running} maxVisible={5000} className="live-term--tall" />
-        </div>
-      </div>
-    </div>,
-    document.body
-  );
-}
 
 type Confirm =
   | { kind: "stop"; id: string }
@@ -125,12 +69,16 @@ type Confirm =
   | { kind: "switch"; id: string; otherId: string };
 
 /**
- * Models you can start and stop from the dashboard: each is a folder on the Spark
- * with a start.sh and a stop.sh. The scripts run there and their output streams
- * into the terminal below the list.
+ * Agent Macs use the authenticated profile catalog. Other hosts use registered
+ * start/stop scripts and their SSH output watcher.
  */
 export function LlmModelsPanel(props: { spark: SparkSnapshot; className?: string }) {
   // Keyed by Spark: the page is reused when switching Sparks, and none of this state belongs to the next one.
+  if (props.spark.kind === "mac" && props.spark.macTransport === "agent") {
+    return <RuntimeLauncher key={props.spark.id} sparkId={props.spark.id}
+      metricsRuntimes={props.spark.metrics.runtimes} agentOnline={props.spark.metrics.agentOnline}
+      className={props.className} />;
+  }
   return <LlmModelsPanelFor key={props.spark.id} {...props} />;
 }
 
@@ -145,7 +93,7 @@ function LlmModelsPanelFor({ spark, className }: { spark: SparkSnapshot; classNa
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [termOpen, setTermOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const [autoShow, setAutoShow] = useState(readAutoShow);
+  const [autoShow, toggleAutoShow] = useModelOutputPreference();
   const [queuedStart, setQueuedStart] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const { job, lines, partial, truncated, error: jobError, follow, cancel } = useLauncherJob(sparkId);
@@ -248,15 +196,6 @@ function LlmModelsPanelFor({ spark, className }: { spark: SparkSnapshot; classNa
       setLaunchers((ls) => ls.filter((x) => x.id !== id));
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e));
-    }
-  }
-
-  function toggleAutoShow(v: boolean) {
-    setAutoShow(v);
-    try {
-      localStorage.setItem(AUTOSHOW_KEY, v ? "1" : "0");
-    } catch {
-      /* private mode */
     }
   }
 

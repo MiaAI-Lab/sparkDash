@@ -176,3 +176,74 @@ python3 -m unittest discover -s agents/macos/tests
 
 They reuse the SSH collector's macOS fixtures, so both transports are asserted to
 produce the same unified-memory and powermetrics numbers from the same capture.
+
+### Verified model profiles
+
+The launcher selects an explicit runtime/model profile. `control.json` contains
+only allowlisted commands; per-model `start` argv is supported when a target has
+multiple models. Ambiguous multi-model commands are refused. Actions serialize,
+and a concurrent switch is refused rather than queued for an unexpected later
+model change. `timeoutSeconds` may be set between 10 and 600 for cold startup.
+
+`profile_runner.py --profiles PATH --inventory PATH start|stop PROFILE` owns the
+single heavy-model slot. Its private, current-user-owned `0600` JSON file defines
+`stop` (an absolute argv) and a `profiles` object. Each named profile declares
+`argv`, `port`, exact API `model`, `requiredPaths`, `readyTimeout` (up to 300
+seconds), and optional `warmup`. Validate binaries and cached paths before
+stopping the current engine. The stop command must stop supervisors as well as
+servers; the Mac's `model-stop-all` avoids `model-stop`'s TensorFold auto-reclaim
+path. The runner waits for the old processes and model listeners to disappear,
+then detaches the selected server and verifies its exact `/v1/models` ID.
+Optional warmup loads the selected model and checks one-token inference.
+The MTPLX mux and dedicated VoiceInk/Bonsai service remain outside the heavy slot.
+A failed launch reports an error and cleans its own process tree; it does not
+silently restore or start another model. Logs are private files under the user's
+cache. Adding a profile does not install or download models.
+
+Keep privileged telemetry separate: configure a Mac agent with `port: 8791` and
+`controlPort: 8790` when those are its actual telemetry and user-control ports.
+The control endpoint uses the same configured host and optional URL, with only
+the port overridden. Keep the user listener on loopback and use a private tailnet
+forward for remote access. Root collectors still cannot launch runtimes.
+
+Set the same `SPARKDASH_MAC_CONTROL_TOKEN` on the user agent and dashboard.
+Alternatively, the dashboard reads `SPARKDASH_MAC_CONTROL_TOKEN_FILE` or
+`config/mac-control-token`; the file must be regular, not a symlink, owned by the
+server UID, and have no group/world permissions. It is never sent to the browser.
+Control POSTs without the correct token are denied. Status GETs never execute
+commands. Protect the LaunchAgent plist containing the agent token with `0600`.
+
+Profiles that use authenticated APIs can set `apiKeyFile` to an absolute,
+private current-user-owned `0600` file. Its value is used only in loopback
+Authorization headers. For oMLX, use a profile-specific `--base-path` when
+launch arguments must not change the existing server settings. Use the API
+model ID in the profile, which may differ from its Hugging Face repository ID.
+
+For an authenticated runtime's inventory health check, set its optional
+`health.apiKeyFile` to that private key file and use `path: "/v1/models"`.
+This requires `profile_runner.py` alongside the user agent; unavailable or unsafe
+key files leave health unavailable. Keys never appear in metrics. The native
+oMLX `omlx-server` process and current MTPLX module server are recognized even
+when their launcher changes its process title. The stop helper is followed by
+an inventory-owned, same-UID stop fallback; unknown processes are never signaled.
+All captured PIDs must disappear before another profile starts. An argv change
+or ambiguous PID reuse does not count as proof of memory release.
+
+### Long starts and operation status
+
+The dashboard submits start/stop once and returns HTTP202 while it runs. It
+polls the agent's read-only control status instead of holding the browser's
+connection open through model loading. `busy` and the current/latest UUID
+`operation` come from the Mac's action lock, so losing the dashboard connection
+does not imply the engine stopped. Controls remain locked while the operation
+is unresolved. Polling never starts, stops, or retries a model. A completed
+operation carries its actual success/error and command output; a failed HTTP
+submission is reconciled against authoritative status before another action.
+Agent-backed Macs use the dashboard's Models panel for these profiles. Its output
+viewer follows authenticated operation snapshots (the newest 4,000 characters),
+including stopping, memory release, startup, exact-model readiness and warmup.
+Copy, expand and the saved output preference use the same viewer as script
+models. Full engine logs remain in the private log path reported on completion.
+Unauthenticated status reads do not expose the current or last operation output.
+A wrapper timeout sends TERM and allows 60 seconds for owned-tree cleanup before
+KILL; long agent requests also use explicit HTTP header/body timeouts.

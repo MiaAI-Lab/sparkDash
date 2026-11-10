@@ -738,6 +738,7 @@ export class SparkMonitor {
       id: this.spark.id,
       name: this.spark.name,
       kind: this.spark.kind || "spark",
+      ...(this.spark.kind === "mac" ? { macTransport: this.spark.agent ? "agent" : "ssh" } : {}),
       platform: this.spark.platform || "linux",
       online: this.online,
       /** Last liveness failure, or null. "offline" with no reason is a bug. */

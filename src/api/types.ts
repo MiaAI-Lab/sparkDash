@@ -772,6 +772,8 @@ export interface MacAgentConfig {
   host?: string | null;
   /** Agent listen port (default 8790). */
   port?: number | null;
+  /** Optional user-agent control port when telemetry uses a privileged collector. */
+  controlPort?: number | null;
 }
 
 /** One detected model runtime, from the Mac agent's data-driven inventory. */
@@ -825,11 +827,26 @@ export interface RuntimeControlView {
   output?: string | null;
   ok?: boolean;
   authorized?: boolean;
+  /** Browser transport failed; the action's outcome must be reconciled by polling. */
+  transportError?: boolean;
+  busy?: boolean;
+  operation?: {
+    id: string;
+    state: "running" | "complete";
+    runtime?: string;
+    model?: string;
+    action?: string;
+    ok?: boolean;
+    error?: string | null;
+    output?: string | null;
+  };
 }
 
 // ─── Spark snapshot (server pushes this) ──────────────────
 export interface SparkSnapshot {
   id: string;
+  /** Configured Mac collection transport; independent of current agent reachability. */
+  macTransport?: "ssh" | "agent";
   /** Active health findings, most important first is not guaranteed; sort with sortFindings. */
   health?: HealthFinding[];
   name: string;
