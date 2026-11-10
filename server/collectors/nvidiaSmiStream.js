@@ -11,6 +11,8 @@
  *     `read()` returns null instead of the last good value;
  *   - an exited process is restarted with exponential backoff, a silent one
  *     is killed and restarted;
+ *   - optionally (`maxQuickFailures`), a command that keeps failing at startup
+ *     is treated as unsupported and not restarted again (see `_exited`);
  *   - `dispose()` and process exit kill the child.
  *
  * The child must be the reader itself (`exec nvidia-smi ...`), so a signal
@@ -98,10 +100,14 @@ export function gpuQueryAssembler({ fieldCount, indexField }) {
   };
 }
 
-/** `dmon` prints `#` header lines (repeated now and then) and one data line per GPU. */
+/**
+ * `dmon` prints `#` header lines (repeated now and then) and one data line per
+ * GPU, which starts with the GPU index. Anything else (usage or error text) is
+ * not a sample.
+ */
 export function dmonAssembler() {
   return {
-    onLine: (line) => (line.startsWith("#") || !line.trim() ? null : line),
+    onLine: (line) => (/^\s*\d+\s/.test(line) ? line : null),
     reset() {},
   };
 }
@@ -112,13 +118,25 @@ export class NvidiaSmiStream {
    * @param {() => import("child_process").ChildProcess} opts.spawn starts the loop-mode process
    * @param {{ onLine: (line: string) => string | null, reset: () => void }} opts.assembler
    * @param {number} opts.intervalMs loop interval the process prints at
-   * @param {(info: { code: number | null, signal: string | null, error?: Error, stderr: string, hadSample: boolean }) => void} [opts.onExit]
+   * @param {(info: { code: number | null, signal: string | null, error?: Error, stderr: string, hadSample: boolean, gaveUp: boolean }) => void} [opts.onExit]
    *   called after every exit, before the restart is scheduled
    * @param {() => number} [opts.now]
    * @param {number} [opts.initialBackoffMs]
    * @param {number} [opts.maxBackoffMs]
+   * @param {number} [opts.maxQuickFailures] give up after this many consecutive quick failures (default: never)
+   * @param {number} [opts.quickExitMs] an exit this soon after the start, with no sample, is a quick failure
    */
-  constructor({ spawn, assembler, intervalMs, onExit = () => {}, now = Date.now, initialBackoffMs = 1000, maxBackoffMs = 30_000 }) {
+  constructor({
+    spawn,
+    assembler,
+    intervalMs,
+    onExit = () => {},
+    now = Date.now,
+    initialBackoffMs = 1000,
+    maxBackoffMs = 30_000,
+    maxQuickFailures = Infinity,
+    quickExitMs = 10_000,
+  }) {
     this._spawn = spawn;
     this._assembler = assembler;
     this.intervalMs = intervalMs;
@@ -129,6 +147,11 @@ export class NvidiaSmiStream {
     this._initialBackoffMs = initialBackoffMs;
     this._maxBackoffMs = maxBackoffMs;
     this._backoffMs = initialBackoffMs;
+    this._maxQuickFailures = maxQuickFailures;
+    this._quickExitMs = quickExitMs;
+    this._quickFailures = 0;
+    /** True once the command was judged unsupported: no further starts. */
+    this.gaveUp = false;
     this._child = null;
     this._buffer = "";
     this._stderr = "";
@@ -153,7 +176,7 @@ export class NvidiaSmiStream {
    * @returns {Promise<string | null>}
    */
   async read({ waitMs = 0 } = {}) {
-    if (this._disposed) return null;
+    if (this._disposed || this.gaveUp) return null;
     if (!this._child && !this._restartTimer) this._start();
     this._killIfHung();
     const fresh = this._fresh();
@@ -199,6 +222,7 @@ export class NvidiaSmiStream {
     this._stderr = "";
     this._gotSampleSinceSpawn = false;
     this._assembler.reset();
+    this._spawnedAt = this._now();
     let child;
     try {
       child = this._spawn();
@@ -208,7 +232,6 @@ export class NvidiaSmiStream {
       return;
     }
     this._child = child;
-    this._spawnedAt = this._now();
     this._lastOutputAt = 0;
     track(child);
     child.stdout?.setEncoding("utf8");
@@ -243,6 +266,7 @@ export class NvidiaSmiStream {
     this._sample = { value, at: this._now() };
     this._gotSampleSinceSpawn = true;
     this._backoffMs = this._initialBackoffMs;
+    this._quickFailures = 0;
     this._settleWaiters(value);
   }
 
@@ -253,17 +277,29 @@ export class NvidiaSmiStream {
     this._exited({ ...info, stderr: this._stderr.trim() });
   }
 
+  /**
+   * After an exit: drop the sample, then restart with backoff. A failure is
+   * "quick" when the process (or its spawn) ended within `quickExitMs` of the
+   * start without one valid sample. `maxQuickFailures` of them in a row - with
+   * the 1 s, 2 s, ... backoff, within seconds - mean the command does not work
+   * here (for example an option this driver's nvidia-smi does not have), so
+   * the stream gives up for good and `read()` keeps answering null. Any valid
+   * sample resets the count, so a reader that has worked restarts as usual.
+   */
   _exited(info) {
     const hadSample = this._gotSampleSinceSpawn;
+    const quick = !hadSample && this._now() - this._spawnedAt <= this._quickExitMs;
+    this._quickFailures = quick ? this._quickFailures + 1 : 0;
+    if (!this._disposed && this._quickFailures >= this._maxQuickFailures) this.gaveUp = true;
     // A dead reader's last line is not a current measurement.
     this._sample = null;
     this._settleWaiters(null);
     try {
-      this._onExitCb({ ...info, hadSample });
+      this._onExitCb({ ...info, hadSample, gaveUp: this.gaveUp });
     } catch {
       /* diagnostics only */
     }
-    if (this._disposed) return;
+    if (this._disposed || this.gaveUp) return;
     const delay = this._backoffMs;
     this._backoffMs = Math.min(this._maxBackoffMs, this._backoffMs * 2);
     this._restartTimer = setTimeout(() => {

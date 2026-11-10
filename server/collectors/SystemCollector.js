@@ -577,6 +577,12 @@ const NVIDIA_GPU_QUERY_FIELD_COUNT = 18;
 const NVIDIA_GPU_INDEX_FIELD = 10;
 const NVIDIA_COMPUTE_APPS_QUERY =
   "--query-compute-apps=pid,process_name,used_gpu_memory,gpu_uuid --format=csv,noheader,nounits";
+/**
+ * `dmon -s B` does not exist on every driver (GB10 / 580.159.03 rejects it), so
+ * a dmon reader that fails this many times in a row right after starting is
+ * given up on: bandwidth is then unavailable until the readers are restarted.
+ */
+const NVIDIA_DMON_MAX_QUICK_FAILURES = 3;
 /** How long a read waits for the first sample of a just-started nvidia-smi reader, on top of one interval. */
 const NVIDIA_SMI_FIRST_SAMPLE_WAIT_MS = 5000;
 
@@ -2124,8 +2130,9 @@ export class SystemCollector {
     const percentage = totalMB > 0 ? Math.round((usedMB / totalMB) * 100) : 0;
     const oomRisk = percentage > 85 ? "high" : percentage > 60 ? "medium" : "low";
 
-    // Memory bandwidth (nvidia-smi dmon) — host namespaces when in Docker
-    let bandwidth = { current: 0, peak: 400 };
+    // Memory bandwidth (nvidia-smi dmon) — host namespaces when in Docker.
+    // `current: null` = not measured (dmon failed, unsupported, stale or unparsable), never 0.
+    let bandwidth = { current: null, peak: 400 };
     try {
       const dmonStream = this._nvidiaDmonStream();
       // No fresh streamed sample: no data line, so bandwidth stays unreported.
@@ -2136,10 +2143,12 @@ export class SystemCollector {
       const dmonLines = dmonOut.split("\n").filter((l) => !l.startsWith("#") && l.trim());
       if (dmonLines.length > 0) {
         const parts = dmonLines[dmonLines.length - 1].split(/\s+/);
-        const readMBs = parseFloat(parts[2]) || 0;
-        const writeMBs = parseFloat(parts[3]) || 0;
-        const totalGBs = (readMBs + writeMBs) / 1024;
-        bandwidth = { current: Math.round(totalGBs * 100) / 100, peak: 400 };
+        const readMBs = parseFloat(parts[2]);
+        const writeMBs = parseFloat(parts[3]);
+        if (Number.isFinite(readMBs) && Number.isFinite(writeMBs)) {
+          const totalGBs = (readMBs + writeMBs) / 1024;
+          bandwidth = { current: Math.round(totalGBs * 100) / 100, peak: 400 };
+        }
       }
     } catch {}
 
@@ -3321,22 +3330,31 @@ export class SystemCollector {
   _nvidiaDmonStream() {
     if (!this._smiStreamIntervals) return null;
     const seconds = Math.max(1, Math.round(this._smiStreamIntervals.memory / 1000));
-    this._smiDmonStream ??= this._createNvidiaSmiStream(`dmon -d ${seconds} -s B`, dmonAssembler(), seconds * 1000);
+    this._smiDmonStream ??= this._createNvidiaSmiStream(`dmon -d ${seconds} -s B`, dmonAssembler(), seconds * 1000, {
+      maxQuickFailures: NVIDIA_DMON_MAX_QUICK_FAILURES,
+    });
     return this._smiDmonStream;
   }
 
-  _createNvidiaSmiStream(smiArgs, assembler, intervalMs) {
+  _createNvidiaSmiStream(smiArgs, assembler, intervalMs, { maxQuickFailures } = {}) {
+    const label = `nvidia-smi ${smiArgs.split(" ")[0]}`;
     return new NvidiaSmiStream({
       spawn: () => this._spawnNvidiaSmi(smiArgs),
       assembler,
       intervalMs,
-      onExit: ({ code, signal, error, stderr, hadSample }) => {
+      maxQuickFailures,
+      onExit: ({ code, signal, error, stderr, hadSample, gaveUp }) => {
         // Same rootless classification as _execHostNs: later restarts run in the container.
         if (stderr && this._hasHostProc() && !this._nsenterBroken && this._isNsenterPermError({ stderr })) {
           this._markNsenterBroken(new Error(stderr));
+        }
+        if (gaveUp) {
+          console.warn(
+            `[SystemCollector] ${label} on ${this.spark.id} failed ${maxQuickFailures} times at start without output (\`${smiArgs}\` unsupported?); not restarting it.`
+          );
         } else if (hadSample) {
           console.warn(
-            `[SystemCollector] nvidia-smi ${smiArgs.split(" ")[0]} reader on ${this.spark.id} exited (${error?.message ?? signal ?? `code ${code}`}); restarting.`
+            `[SystemCollector] ${label} reader on ${this.spark.id} exited (${error?.message ?? signal ?? `code ${code}`}); restarting.`
           );
         }
       },

@@ -7,7 +7,7 @@ import { NvidiaSmiStream, dmonAssembler, gpuQueryAssembler, staleAfterMs } from 
 
 const shape = { fieldCount: 3, indexField: 1 };
 
-function harness({ intervalMs = 1000, assembler = gpuQueryAssembler(shape), onExit } = {}) {
+function harness({ intervalMs = 1000, assembler = gpuQueryAssembler(shape), onExit, maxQuickFailures } = {}) {
   const clock = { now: 1_000_000 };
   const children = [];
   const stream = new NvidiaSmiStream({
@@ -19,6 +19,7 @@ function harness({ intervalMs = 1000, assembler = gpuQueryAssembler(shape), onEx
     assembler,
     intervalMs,
     onExit,
+    maxQuickFailures,
     now: () => clock.now,
   });
   return { stream, children, clock };
@@ -54,9 +55,11 @@ test("gpuQueryAssembler: error text and short lines are ignored", () => {
   assert.equal(a.onLine("51, 0, a"), "51, 0, a");
 });
 
-test("dmonAssembler: headers are skipped, each data line is a sample", () => {
+test("dmonAssembler: headers and error text are skipped, each data line is a sample", () => {
   const a = dmonAssembler();
   assert.equal(a.onLine("# gpu  rxpci  txpci"), null);
+  assert.equal(a.onLine("Invalid combination of input arguments. Please run 'nvidia-smi -h' for help."), null);
+  assert.equal(a.onLine(""), null);
   assert.equal(a.onLine("    0    120    340"), "    0    120    340");
 });
 
@@ -110,7 +113,7 @@ test("an exited process drops its sample and restarts with backoff", async (t) =
   children[0].stderr.emit("data", "boom");
   children[0].exit(1);
   assert.equal(exits.length, 1);
-  assert.deepEqual({ ...exits[0], error: undefined }, { code: 1, signal: null, stderr: "boom", hadSample: true, error: undefined });
+  assert.deepEqual({ ...exits[0], error: undefined }, { code: 1, signal: null, stderr: "boom", hadSample: true, gaveUp: false, error: undefined });
   assert.equal(await stream.read(), null, "a dead reader's last sample is not current");
   assert.equal(children.length, 1, "no restart before the backoff");
   t.mock.timers.tick(1000);
@@ -210,4 +213,73 @@ test("a real child is stopped by dispose (no orphan, no zombie)", async () => {
   stream.dispose();
   assert.equal(await closed, "SIGTERM");
   assert.equal(stream.running, false);
+});
+
+test("a command that keeps failing at startup is given up on: no more restarts", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const exits = [];
+  const { stream, children } = harness({ maxQuickFailures: 3, onExit: (info) => exits.push(info) });
+  await stream.read();
+  children[0].write("Invalid combination of input arguments.\n");
+  children[0].exit(255);
+  t.mock.timers.tick(1000);
+  children[1].exit(255);
+  t.mock.timers.tick(2000);
+  assert.equal(children.length, 3);
+  children[2].exit(255);
+  assert.equal(stream.gaveUp, true);
+  assert.deepEqual(exits.map((e) => e.gaveUp), [false, false, true]);
+  t.mock.timers.tick(10 * 60_000);
+  assert.equal(await stream.read({ waitMs: 1000 }), null);
+  assert.equal(children.length, 3, "never started again");
+});
+
+test("slow failures or a sample in between do not count toward giving up", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { stream, children, clock } = harness({ maxQuickFailures: 3 });
+  await stream.read();
+  children[0].exit(1);
+  t.mock.timers.tick(1000);
+  children[1].exit(1); // two quick failures
+  t.mock.timers.tick(2000);
+  children[2].write("50, 0, a\n51, 0, a\n"); // works: count reset
+  children[2].exit(null, "SIGSEGV");
+  t.mock.timers.tick(1000);
+  children[3].exit(1); // quick failure 1 after the reset
+  t.mock.timers.tick(2000);
+  clock.now += 10_001; // ran for a while before dying: not a startup failure
+  children[4].exit(1);
+  t.mock.timers.tick(4000);
+  assert.equal(stream.gaveUp, false);
+  assert.equal(children.length, 6);
+  stream.dispose();
+});
+
+test("a reader that produced samples keeps restarting after transient crashes", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { stream, children } = harness({ maxQuickFailures: 3 });
+  await stream.read();
+  for (let i = 0; i < 5; i++) {
+    children[i].write("50, 0, a\n51, 0, a\n");
+    children[i].exit(null, "SIGKILL");
+    t.mock.timers.tick(1000);
+  }
+  assert.equal(stream.gaveUp, false);
+  assert.equal(children.length, 6);
+  children[5].write("52, 0, a\n53, 0, a\n");
+  assert.equal(await stream.read(), "53, 0, a");
+  stream.dispose();
+});
+
+test("without maxQuickFailures (GPU query) startup failures never give up", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { stream, children } = harness();
+  await stream.read();
+  for (let i = 0; i < 6; i++) {
+    children[i].exit(1);
+    t.mock.timers.tick(30_000);
+  }
+  assert.equal(stream.gaveUp, false);
+  assert.equal(children.length, 7);
+  stream.dispose();
 });
