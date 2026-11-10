@@ -59,6 +59,7 @@
     "powerDraw": "Power draw",
     "allCardsPower": "Power (all cards)",
     "systemPower": "System ≈ {{watts}} W",
+    "systemPowerEstimateHelp": "Adds Apple's published idle draw for this desktop: powermetrics only reports the CPU, GPU and ANE rails, so memory, storage, networking and supply losses are estimated, not measured. A wall meter replaces this figure.",
     "smClock": "SM clock",
     "clockCapHelp": "Locked with nvidia-smi -lgc",
     "clockCap": "cap {{mhz}} MHz",

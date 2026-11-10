@@ -333,6 +333,12 @@ export interface GpuMetrics {
     limit: number;
     /** Estimated total system power draw (GPU + CPU + CX7/peripherals). */
     systemDraw?: number;
+    /**
+     * What systemDraw rests on: "powermetrics" for the SoC rails the Mac reported,
+     * "apple-idle" or "desktop-idle" when a published idle figure was added to them,
+     * null when there is no total.
+     */
+    systemPowerSource?: string | null;
   };
   vram: {
     used: number;

@@ -59,6 +59,7 @@
     "powerDraw": "功耗",
     "allCardsPower": "功耗（所有显卡）",
     "systemPower": "系统 ≈ {{watts}} W",
+    "systemPowerEstimateHelp": "该数值加上 Apple 公布的此机型待机功耗：powermetrics 只能报告 CPU、GPU 与 ANE 功耗轨，内存、存储、网络与电源损耗均为估算而非实测。接上市电电表后可替换。",
     "smClock": "SM 频率",
     "clockCapHelp": "通过 nvidia-smi -lgc 锁定",
     "clockCap": "上限 {{mhz}} MHz",

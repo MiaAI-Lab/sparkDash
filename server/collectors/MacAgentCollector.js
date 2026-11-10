@@ -20,6 +20,7 @@ import { MacSystemCollector, macGpuAvailability } from "./MacSystemCollector.js"
 import { tagCollectionResult } from "./SystemCollector.js";
 import { isAllowedTargetHost, assertAllowedTarget, pinnedLookup } from "../validate.js";
 import { llmProbeHost } from "./llmHost.js";
+import { estimateSystemPowerW } from "./macModelPower.js";
 
 export const MAC_AGENT_DEFAULT_PORT = 8790;
 const SNAPSHOT_TTL_MS = 1500;
@@ -247,6 +248,15 @@ export class MacAgentCollector extends MacSystemCollector {
     const usage = read && Number.isFinite(gpu.activePercent) ? Math.round(gpu.activePercent) : null;
     const draw = read && Number.isFinite(gpu.powerW) ? gpu.powerW : null;
     const systemDraw = read && Number.isFinite(gpu.combinedPowerW) ? gpu.combinedPowerW : null;
+    // powermetrics answers for the CPU, GPU and ANE rails only, so the total needs
+    // the model's published idle wall draw under it. Null for a machine Apple has
+    // no desktop row for, and for a laptop, where it would be wrong more often than
+    // right, and then the package figure stands alone as it always did.
+    const systemEstimate = estimateSystemPowerW({
+      model: snapshot.host?.model,
+      chip: snapshot.host?.chip,
+      packageW: systemDraw,
+    });
     return tagCollectionResult({
       ...base,
       temperature: finiteTemperature(gpu.temperature) ? gpu.temperature : null,
@@ -254,7 +264,12 @@ export class MacAgentCollector extends MacSystemCollector {
       // AppleSMC key when powermetrics printed no temperature line at all.
       temperatureSource: finiteTemperature(gpu.temperature) ? (gpu.temperatureSource ?? null) : null,
       usage,
-      power: { draw, limit: 0, systemDraw },
+      power: {
+        draw,
+        limit: 0,
+        systemDraw: systemEstimate?.watts ?? systemDraw,
+        systemPowerSource: systemEstimate?.source ?? (systemDraw == null ? null : "powermetrics"),
+      },
       vram: {
         used: mem.used ?? 0,
         total: mem.total ?? 0,

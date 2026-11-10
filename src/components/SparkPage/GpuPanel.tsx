@@ -389,7 +389,18 @@ export function GpuPanel({
             )}
           </div>
           {systemDraw != null && systemDraw > 0 ? (
-            <span className="sp-stat__sub mono">{tr("gpu.systemPower", { watts: systemDraw })}</span>
+            <span
+              className="sp-stat__sub mono"
+              // Say when part of the total is Apple's published idle figure rather
+              // than something this Mac measured: powermetrics sees three rails.
+              title={
+                gpu?.power?.systemPowerSource === "apple-idle" || gpu?.power?.systemPowerSource === "desktop-idle"
+                  ? tr("gpu.systemPowerEstimateHelp")
+                  : undefined
+              }
+            >
+              {tr("gpu.systemPower", { watts: systemDraw })}
+            </span>
           ) : null}
         </div>
         <div className="sp-stat" title={t?.detail ?? undefined}>

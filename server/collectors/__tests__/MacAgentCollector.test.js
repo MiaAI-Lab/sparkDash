@@ -565,6 +565,46 @@ test("a powermetrics die read is reported as one", async () => {
   assert.equal((await collector.collectGpu()).temperatureSource, "powermetrics");
 });
 
+test("a laptop keeps the package figure alone and claims no estimate", async () => {
+  const data = structuredClone(snapshot);
+  data.host = { ...data.host, model: "MacBookPro21,1", chip: "Apple M5 Pro" };
+  data.gpu.powermetrics = "ok";
+  data.gpu.combinedPowerW = 12.5;
+  const { collector } = collectorWith("ok", {
+    fetchImpl: async () => ({ ok: true, json: async () => structuredClone(data) }),
+  });
+  const gpu = await collector.collectGpu();
+  assert.equal(gpu.power.systemDraw, 12.5);
+  assert.equal(gpu.power.systemPowerSource, "powermetrics", "measured rails only");
+});
+
+test("a Mac desktop's system total carries the published idle floor and says so", async () => {
+  const data = structuredClone(snapshot);
+  data.host = { ...data.host, model: "Mac17,14", chip: "Apple M5 Max" };
+  data.gpu.powermetrics = "ok";
+  data.gpu.powerW = 0;
+  data.gpu.combinedPowerW = 0.2;
+  const { collector } = collectorWith("ok", {
+    fetchImpl: async () => ({ ok: true, json: async () => structuredClone(data) }),
+  });
+  const gpu = await collector.collectGpu();
+  assert.equal(gpu.power.systemDraw, 7.2, "package 0.2 W over Apple's 7 W idle for an M5 Max");
+  assert.equal(gpu.power.systemPowerSource, "apple-idle", "the tile has to say it is an estimate");
+});
+
+test("a machine with no published row still gets the desktop floor", async () => {
+  const data = structuredClone(snapshot);
+  data.host = { ...data.host, model: "Mac99,1", chip: "Apple M7 Max" };
+  data.gpu.powermetrics = "ok";
+  data.gpu.combinedPowerW = 40;
+  const { collector } = collectorWith("ok", {
+    fetchImpl: async () => ({ ok: true, json: async () => structuredClone(data) }),
+  });
+  const gpu = await collector.collectGpu();
+  assert.equal(gpu.power.systemDraw, 48);
+  assert.equal(gpu.power.systemPowerSource, "desktop-idle");
+});
+
 test("a temperature that was never read carries no sensor provenance", async () => {
   // The checked-in fixture is the unprivileged shape: both temperatures null.
   const { collector } = collectorWith("ok");
