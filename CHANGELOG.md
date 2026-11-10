@@ -38,6 +38,9 @@ Format: version sections are listed newest first.
 - Build the replacement image before recreating the service, retry the Node base image from Docker Hub if the default registry fails, and refresh the host-mounted frontend bundle from the image.
 - Make the spark-attic help control accessible by click or keyboard without toggling monitoring.
 
+### Changed
+- **The local unit no longer starts nvidia-smi on every poll.** Each GPU poll ran three `nvidia-smi` queries (GPU metrics, memory, compute apps) and each bandwidth poll a one-shot `nvidia-smi dmon -c 1` that blocked for a second, every one through `nsenter` and `sh` in Docker. The GPU and memory fields are now one `nvidia-smi --query-gpu … -lms <GPU interval>` process and bandwidth one continuous `nvidia-smi dmon -d <seconds>`, supervised by the collector: output is read line by line, a sample older than three intervals (at least 3 s) is reported as missing rather than repeated, an exited reader is restarted with backoff (1 s doubling to 30 s), a silent one is killed and restarted, and the readers are stopped with the monitor and on exit. The process list (`--query-compute-apps`) is still a one-shot query, at most every `POLL_INTERVAL_COMPUTE_APPS` (default 5 s), because an empty list cannot be told apart from a stalled loop. One-shot collectors (the connectivity test) keep the previous per-call path.
+
 ## [2.90.0] — 2026-11-12
 
 ### Added
