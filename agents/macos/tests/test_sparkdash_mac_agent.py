@@ -267,6 +267,34 @@ class ParsingTests(unittest.TestCase):
         self.assertEqual(parsed["combinedW"], 90)
         self.assertEqual(parsed["thermalPressure"], "Nominal")
 
+    def test_powermetrics_zero_stays_a_measured_zero(self):
+        # An idle M-series GPU really does read 0 mW, and the tiles have to be
+        # able to tell that apart from a rail that never answered.
+        parsed = agent.parse_powermetrics(
+            "CPU Power: 24 mW\nGPU Power: 0 mW\nANE Power: 0 mW\n"
+            "Combined Power (CPU + GPU + ANE): 24 mW\n"
+        )
+        self.assertEqual(parsed["cpuW"], 0.0)
+        self.assertEqual(parsed["gpuW"], 0.0)
+        self.assertEqual(parsed["aneW"], 0.0)
+        self.assertEqual(parsed["combinedW"], 0.0)
+
+    def test_powermetrics_invalid_marker_is_not_a_zero(self):
+        # --handle-invalid-values prints this marker instead of aborting the
+        # sample. A rail carrying it reported nothing, so it must not become a
+        # measured 0 W that the fleet energy totals then sum.
+        parsed = agent.parse_powermetrics(
+            "CPU Power: 0 mW invalid=true\nGPU Power: 0 mW\nANE Power: 0 mW\n"
+            "Combined Power (CPU + GPU + ANE): 0 mW invalid=true\n"
+        )
+        self.assertIsNone(parsed["cpuW"])
+        self.assertIsNone(parsed["combinedW"])
+        self.assertEqual(parsed["gpuW"], 0.0)
+        self.assertEqual(parsed["aneW"], 0.0)
+
+    def test_powermetrics_asks_for_invalid_values_instead_of_aborting(self):
+        self.assertIn("--handle-invalid-values", agent.POWERMETRICS_CMD)
+
     def test_netstat_link_row(self):
         self.assertEqual(agent.parse_netstat_bytes(fixture("netstat.txt")),
                          {"name": "en1", "rxBytes": 392966387598, "txBytes": 7952987339})

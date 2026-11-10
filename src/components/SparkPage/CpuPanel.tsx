@@ -65,8 +65,12 @@ export function CpuPanel({
   const tempView = honestGap(gaps, "cpu.temperature", tempValueText, {
     nonDgx: !hasTemperature && (mac || cpu?.temperature == null),
   });
+  // Both Mac paths give null when powermetrics did not answer that rail and a
+  // number when it did, so only null is a gap. A measured zero has to render as
+  // zero: powermetrics reports 0 mW for an idle GPU, and calling that "not
+  // reported by this platform" contradicts the GPU tile next to it.
   const powerView = honestGap(gaps, "cpu.power", `${draw}W${tdp > 0 ? ` / ${tdp}W` : ""}`, {
-    nonDgx: mac && draw === 0,
+    nonDgx: mac && cpu?.draw == null,
   });
 
   // Say where a temperature came from, rather than letting any number read as a
