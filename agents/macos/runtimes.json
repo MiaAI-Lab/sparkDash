@@ -109,6 +109,13 @@
       "model": { "flags": ["--model", "--model-id"], "positional": false }
     },
     {
+      "name": "mlx-serve",
+      "label": "mlx-serve",
+      "exe": "(^|/)mlx-serve$",
+      "argvAll": ["(^|/)mlx-serve\\s.*--serve(\\s|$)"],
+      "model": { "flags": ["--model"], "positional": false }
+    },
+    {
       "name": "tensorfold",
       "label": "TensorFold",
       "ports": [8300],

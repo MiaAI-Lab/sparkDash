@@ -16,7 +16,7 @@ import { formatCtx } from "./fleetStats";
 import { ModelLauncher } from "./ModelLauncher";
 import { OverviewLlmFooter } from "./OverviewLlmFooter";
 import { PlatformBadge, gapFor, honestValue } from "../ui/platform";
-import { RuntimeChips } from "../ui/RuntimeChips";
+import { RuntimeChips, emptyInventoryText } from "../ui/RuntimeChips";
 
 type LlmList = SparkSnapshot["metrics"]["llm"];
 
@@ -419,8 +419,10 @@ function SparkCardImpl({
               {spark.metrics.runtimes.length > 0 ? (
                 <RuntimeChips runtimes={spark.metrics.runtimes} />
               ) : (
-                <span className="text-muted">
-                  {spark.metrics.agentOnline === false ? "Unknown — the Mac agent is not answering" : "Nothing serving"}
+                <span className="text-[12px] text-muted">
+                  {spark.metrics.agentOnline === false
+                    ? "Unknown — the Mac agent is not answering"
+                    : emptyInventoryText(llmList, spark.llmPorts)}
                 </span>
               )}
             </div>

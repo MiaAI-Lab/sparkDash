@@ -37,6 +37,7 @@ import platform
 import re
 import signal
 import socket
+import stat
 import subprocess
 import sys
 import threading
@@ -802,10 +803,22 @@ def load_inventory(path: Path) -> dict[str, object]:
     try:
         with open(path, "r", encoding="utf-8") as handle:
             data = json.load(handle)
+            file_stat = os.fstat(handle.fileno())
     except (OSError, ValueError) as err:
         raise SystemExit(f"sparkdash-mac-agent: cannot read runtime inventory {path}: {err}")
     if not isinstance(data, dict) or not isinstance(data.get("runtimes"), list):
         raise SystemExit(f"sparkdash-mac-agent: {path} has no 'runtimes' array")
+    # Only this loader can grant a privileged collector an explicit headless owner.
+    data.pop("_trustedRuntimeOwnerUid", None)
+    owner = data.get("runtimeOwnerUid")
+    if owner is not None:
+        if isinstance(owner, bool) or not isinstance(owner, int) or owner <= 0:
+            raise SystemExit("sparkdash-mac-agent: runtimeOwnerUid must be a non-root UID")
+        if os.geteuid() == 0:
+            if (file_stat.st_uid != 0 or file_stat.st_mode & 0o022
+                    or not stat.S_ISREG(file_stat.st_mode)):
+                raise SystemExit("sparkdash-mac-agent: explicit runtime owner requires a root-owned, non-writable inventory")
+            data["_trustedRuntimeOwnerUid"] = owner
     return data
 
 
@@ -952,10 +965,12 @@ def health_check(port: int, path: str, timeout_ms: int, api_key_file=None) -> di
 def detect_runtimes(inventory: dict[str, object], procs: dict[int, dict[str, object]],
                     listeners: dict[int, list[dict[str, object]]]) -> list[dict[str, object]]:
     if os.geteuid() == 0:
-        try:
-            console_uid = os.stat("/dev/console").st_uid
-        except OSError:
-            return []
+        console_uid = inventory.get("_trustedRuntimeOwnerUid")
+        if console_uid is None:
+            try:
+                console_uid = os.stat("/dev/console").st_uid
+            except OSError:
+                return []
         if console_uid == 0:
             return []
         procs = {pid: proc for pid, proc in procs.items() if proc.get("uid") == console_uid}

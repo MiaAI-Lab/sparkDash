@@ -163,6 +163,22 @@ describe("overview card for a Mac node", () => {
     expect(down.container.textContent).not.toContain("Nothing serving");
   });
 
+  it("names an engine the probe sees answering when the agent's inventory does not list it", () => {
+    const base = withAgent(makeMacSpark());
+    const uncatalogued = {
+      ...base,
+      llmPorts: [8890],
+      metrics: {
+        ...base.metrics,
+        runtimes: [],
+        llm: [{ available: true, backend: "mlx-serve", modelId: "DeepSeek-V4.1-Flash", models: ["DeepSeek-V4.1-Flash"] }],
+      },
+    } as unknown as SparkSnapshot;
+    const { container } = render(<OverviewPage sparks={[uncatalogued]} />);
+    expect(container.textContent).toContain("mlx-serve :8890 answering · not in this Mac's runtime inventory");
+    expect(container.textContent).not.toContain("Nothing serving");
+  });
+
   it("shows no runtime section at all for a Mac read over SSH", () => {
     const { container } = render(<OverviewPage sparks={[makeMacSpark()]} />);
     expect(container.textContent).not.toContain("Nothing serving");

@@ -543,6 +543,8 @@ export interface LlmMetrics {
   kvCacheGb?: number | null;
   /** Engine model weights resident in GPU memory, GB (SGLang). null when not reported. */
   weightsGb?: number | null;
+  /** Bytes the engine reports the served model holds in memory (mlx-serve). null when not reported. */
+  residentBytes?: number | null;
   /** vLLM running request count. null when unavailable. */
   requestsRunning?: number | null;
   /** vLLM waiting request count. null when unavailable. */

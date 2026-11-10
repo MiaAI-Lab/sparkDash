@@ -1,5 +1,23 @@
-import type { MacRuntime, MetricGap } from "../../api/types";
+import type { LlmMetrics, MacRuntime, MetricGap } from "../../api/types";
+import { backendLabel } from "../../shared/llmBackends.js";
 import { Panel } from "./Panel";
+
+/**
+ * The agent's inventory only names processes its runtimes.json catalogues (plus
+ * Python servers). An engine it does not know about, e.g. a native mlx-serve
+ * binary, leaves the list empty while the dashboard's own probe has it answering.
+ * Say that instead of "Nothing serving". `ports` is in `llm` order.
+ */
+export function emptyInventoryText(
+  llm: readonly (Partial<LlmMetrics> | null | undefined)[] | null | undefined,
+  ports: readonly number[] | null | undefined,
+): string {
+  const answering = (llm ?? [])
+    .map((entry, i) => (entry?.available ? `${backendLabel(entry.backend ?? null) ?? "An engine"}${ports?.[i] ? ` :${ports[i]}` : ""}` : null))
+    .filter((text): text is string => text != null);
+  if (answering.length === 0) return "Nothing serving";
+  return `${answering.join(", ")} answering · not in this Mac's runtime inventory`;
+}
 
 /**
  * What is actually serving on this machine, straight from the node agent's
@@ -67,13 +85,19 @@ export function RuntimesPanel({
   runtimes,
   unavailable,
   agentOnline,
+  llm,
+  llmPorts,
   className = "",
 }: {
   runtimes: MacRuntime[];
   unavailable?: MetricGap[] | null;
   agentOnline?: boolean | null;
+  /** The dashboard's own engine probes, so an uncatalogued engine is not "nothing serving". */
+  llm?: readonly (Partial<LlmMetrics> | null | undefined)[] | null;
+  llmPorts?: readonly number[] | null;
   className?: string;
 }) {
+  const emptyText = emptyInventoryText(llm, llmPorts);
   const agentGap = (unavailable ?? []).find((row) => row.metric === "agent");
   return (
     <Panel title="Model runtimes" className={`panel-runtimes ${className}`}>
@@ -83,7 +107,7 @@ export function RuntimesPanel({
         </p>
       ) : runtimes.length === 0 ? (
         <p className="text-[12px] text-muted">
-          Nothing serving — no runtime owns a listening port
+          {emptyText === "Nothing serving" ? "Nothing serving — no runtime owns a listening port" : emptyText}
         </p>
       ) : (
         <div className="flex flex-col gap-2.5">

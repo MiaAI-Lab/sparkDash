@@ -297,6 +297,8 @@ export function SparkPage({
                   runtimes={metrics.runtimes}
                   unavailable={metrics.unavailable}
                   agentOnline={metrics.agentOnline}
+                  llm={Array.isArray(metrics.llm) ? metrics.llm : null}
+                  llmPorts={llmPorts}
                 />
               </Item>
             )}

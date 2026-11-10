@@ -355,6 +355,11 @@ export class LlmProbe {
     this.kvCacheGb = null;
     /** Engine model weights resident in GPU memory, GB (SGLang only). null when not reported. */
     this.weightsGb = null;
+    /**
+     * Bytes the engine says the served model holds in memory (mlx-serve's
+     * /v1/models `bytes_resident`). null when the catalog does not report it.
+     */
+    this.residentBytes = null;
     this.requestsRunning = null;
     this.requestsWaiting = null;
     this.ttftP95Seconds = null;
@@ -795,6 +800,7 @@ export class LlmProbe {
     }
 
     if (selection.modelId && selection.model) {
+      this.residentBytes = LlmProbe._positiveNumber(selection.model.bytes_resident);
       this.modelId = selection.modelId;
       this.benchmarkModel = selection.modelId;
       this.modelPath = isHfHubCachePath(selection.model.id) ? null : String(selection.model.id);
@@ -807,6 +813,7 @@ export class LlmProbe {
     }
 
     this.modelId = null;
+    this.residentBytes = null;
     this.modelPath = selection.models.join(", ") || null;
     this.benchmarkModel = null;
     this.contextLength = null;
@@ -4395,6 +4402,7 @@ export class LlmProbe {
       kvCacheMemoryBytes: available ? this.kvCacheMemoryBytes : null,
       kvCacheGb: available ? this.kvCacheGb : null,
       weightsGb: available ? this.weightsGb : null,
+      residentBytes: available ? this.residentBytes : null,
       requestsRunning: available ? this.requestsRunning : null,
       requestsWaiting: available ? this.requestsWaiting : null,
       ttftP95Seconds: available ? this.ttftP95Seconds : null,

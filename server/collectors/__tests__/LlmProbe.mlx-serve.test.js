@@ -53,13 +53,15 @@ function endpoint(t, { owner = "mlx-serve", backend = null } = {}) {
   let metricsStatus = 200;
   let modelsStatus = 200;
   let modelId = "synthetic-model";
+  let resident;
   const paths = [];
   probe._fetch = async (url) => {
     const path = new URL(url).pathname;
     paths.push(path);
     if (path === "/v1/models") return {
       ok: modelsStatus === 200, status: modelsStatus,
-      json: async () => ({ data: [{ id: modelId, owned_by: owner, max_model_len: 8192 }] }),
+      json: async () => ({ data: [{ id: modelId, owned_by: owner, max_model_len: 8192,
+        ...(resident === undefined ? {} : { bytes_resident: resident }) }] }),
     };
     if (path === "/metrics") return { ok: metricsStatus === 200, status: metricsStatus, text: async () => body };
     // A model-switch proxy also speaks Ollama. Explicit native ownership wins.
@@ -74,6 +76,7 @@ function endpoint(t, { owner = "mlx-serve", backend = null } = {}) {
       metricsStatus = options.metricsStatus ?? 200;
       modelsStatus = options.modelsStatus ?? 200;
       modelId = options.modelId ?? modelId;
+      if ("resident" in options) resident = options.resident;
       return probe.probe();
     },
   };
@@ -88,6 +91,16 @@ test("native ownership wins over Ollama and bypasses /slots on redetection", asy
   snap = await e.poll({}, { elapsed: 61_000 });
   assert.equal(snap.backend, "mlx-serve");
   assert.ok(!e.paths.includes("/slots"));
+});
+
+test("the catalog's resident bytes reach the snapshot and clear when the engine stops reporting them", async (t) => {
+  const e = endpoint(t);
+  let snap = await e.poll({}, { resident: 222_214_923_079 });
+  assert.equal(snap.residentBytes, 222_214_923_079);
+  snap = await e.poll({}, { resident: undefined });
+  assert.equal(snap.residentBytes, null);
+  snap = await e.poll({}, { resident: 0 });
+  assert.equal(snap.residentBytes, null);
 });
 
 test("native metric signature upgrades a generic vLLM card", async (t) => {

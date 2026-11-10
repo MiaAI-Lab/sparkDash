@@ -250,6 +250,40 @@ describe("computeVramBreakdown", () => {
     expect(b.segments).toEqual([{ key: "engine", mb: 101_008 }]);
   });
 
+  describe("a Mac whose MLX engine's buffers are unwired between requests", () => {
+    /** qualitycorp as observed idle: 4.7 GB wired, the 207 GiB model counted as app memory. */
+    const IDLE_UM = { total: 262_144, gpuUsed: 4_835, cpuUsed: 222_451, available: 34_858 };
+    const MLX_EP = { available: true, backend: "mlx-serve" as const, residentBytes: 222_214_923_079 };
+    const residentMB = 222_214_923_079 / 1048576;
+
+    it("counts the engine-reported resident model as Model, not System", () => {
+      const b = computeVramBreakdown(null, null, {
+        model: "unified", unified: IDLE_UM, serving: true, endpoint: MLX_EP,
+      })!;
+      expect(b.segments.map((s) => s.key)).toEqual(["system", "engine"]);
+      expect(b.segments[1].mb).toBeCloseTo(residentMB);
+      expect(b.systemMB).toBeCloseTo(4_835 + 222_451 - residentMB);
+      expect(b.usedMB).toBe(4_835 + 222_451);
+      expect(b.freeMB).toBe(34_858);
+    });
+
+    it("leaves the split alone when wired memory already covers the model, or nothing serves", () => {
+      const busy = { ...IDLE_UM, gpuUsed: 223_374, cpuUsed: 2_862 };
+      const b = computeVramBreakdown(null, null, { model: "unified", unified: busy, serving: true, endpoint: MLX_EP })!;
+      expect(b.segments).toEqual([{ key: "system", mb: 2_862 }, { key: "engine", mb: 223_374 }]);
+      const idle = computeVramBreakdown(null, null, { model: "unified", unified: IDLE_UM, serving: false, endpoint: MLX_EP })!;
+      expect(idle.segments).toEqual([{ key: "system", mb: 222_451 }, { key: "gpu", mb: 4_835 }]);
+    });
+
+    it("never moves more than System holds", () => {
+      const b = computeVramBreakdown(null, null, {
+        model: "unified", unified: { ...IDLE_UM, cpuUsed: 1_000 }, serving: true, endpoint: MLX_EP,
+      })!;
+      expect(b.systemMB).toBe(0);
+      expect(b.segments).toEqual([{ key: "engine", mb: 5_835 }]);
+    });
+  });
+
   it("never gives the engine more than is in use, and needs a total", () => {
     const b = computeVramBreakdown({ used: 4_000, total: 8_000, available: 4_000 }, [
       { pid: 1, name: "x", vramMB: 6_000 },

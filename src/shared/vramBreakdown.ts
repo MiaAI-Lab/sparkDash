@@ -269,6 +269,17 @@ export function computeVramBreakdown(
         : Math.max(0, totalMB - gpuUsedMB);
   }
 
+  // Apple Silicon counts only wired pages as GPU memory, and Metal unwires an idle
+  // model's buffers: an MLX engine holding 200 GB can read as 5 GB "GPU" plus
+  // 200 GB "System" until its next request. When the engine itself reports how much
+  // the model holds, move that share out of System so the split stops flipping.
+  const residentMB = ctx.serving ? (finite(ctx.endpoint?.residentBytes) ?? 0) / 1048576 : 0;
+  if (systemMB != null && residentMB > gpuUsedMB && !hasProcesses(processes)) {
+    const shift = Math.min(residentMB - gpuUsedMB, systemMB);
+    gpuUsedMB += shift;
+    systemMB -= shift;
+  }
+
   const largest = ctx.serving && gpuUsedMB > 0 ? largestProcess(processes) : null;
   const engine: VramEngineInfo | null = largest
     ? { name: largest.name, pid: largest.pid, mb: Math.min(largest.vramMB, gpuUsedMB) }

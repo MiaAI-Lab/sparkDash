@@ -201,6 +201,45 @@ class InventoryDetectionTests(unittest.TestCase):
             ):
                 self.assertEqual(self.detect(procs, listeners), [])
 
+    def test_explicit_runtime_owner_scopes_a_headless_mac_only_from_a_root_owned_inventory(self):
+        procs, listeners = {}, {}
+        for uid in (501, 502):
+            pid = uid * 10
+            procs[pid] = {**proc(pid, "/usr/bin/python3 /opt/infer.py --port 9099"), "uid": uid}
+            listeners.update(owned(pid, 9000 + uid))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "runtimes.json"
+            path.write_text(json.dumps({"runtimeOwnerUid": 502, "runtimes": []}))
+            real_fstat = agent.os.fstat
+
+            def fstat_as(uid, mode):
+                def fake(fd):
+                    real = real_fstat(fd)
+                    return SimpleNamespace(st_uid=uid, st_mode=(real.st_mode & ~0o777) | mode)
+                return fake
+
+            with patch.object(agent.os, "geteuid", return_value=0), patch.object(
+                agent.os, "stat", return_value=SimpleNamespace(st_uid=0)
+            ):
+                # Root-owned, not group/world writable: nobody at the console, the named UID is reported.
+                with patch.object(agent.os, "fstat", side_effect=fstat_as(0, 0o644)):
+                    inventory = agent.load_inventory(path)
+                self.assertEqual([row["pid"] for row in agent.detect_runtimes(inventory, procs, listeners)], [5020])
+                # A user-owned or writable inventory cannot grant it.
+                for uid, mode in ((501, 0o644), (0, 0o666)):
+                    with patch.object(agent.os, "fstat", side_effect=fstat_as(uid, mode)):
+                        with self.assertRaises(SystemExit):
+                            agent.load_inventory(path)
+                # The trust marker cannot be smuggled in through the file itself.
+                path.write_text(json.dumps({"_trustedRuntimeOwnerUid": 502, "runtimes": []}))
+                with patch.object(agent.os, "fstat", side_effect=fstat_as(501, 0o644)):
+                    inventory = agent.load_inventory(path)
+                self.assertEqual(agent.detect_runtimes(inventory, procs, listeners), [])
+            for bad in (0, -1, True, "502"):
+                path.write_text(json.dumps({"runtimeOwnerUid": bad, "runtimes": []}))
+                with self.assertRaises(SystemExit):
+                    agent.load_inventory(path)
+
     def test_process_ownership_is_parsed_with_the_full_command(self):
         with patch.object(agent, "run", return_value="10 1 501 /usr/bin/python3 /opt/infer.py --model one/two\n11 1 502 /bin/zsh /opt/ds4-serve.sh\n"):
             procs = agent.list_processes()

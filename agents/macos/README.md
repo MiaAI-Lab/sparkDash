@@ -98,7 +98,11 @@ Uninstall confirms that the daemon is absent before deleting its plist; the
 protected collector files and logs remain on disk. Authentication or service
 inspection errors stop either script before changing the service.
 Elevated runtime detection remains limited to the console user's processes;
-without a console user it reports no runtimes. Agent processes are excluded.
+without a console user it reports no runtimes. A headless Mac that nobody logs
+into can set a top-level `"runtimeOwnerUid"` (a non-root UID) in the installed
+`runtimes.json`; the root collector honours it only when that file is root-owned
+and not group- or world-writable, and then reports that account's engines in
+place of the console user's. Agent processes are excluded.
 
 Security: the daemon runs as root so it can read hardware counters. It reads
 `powermetrics` text and, when a CPU or GPU die-temperature reading is missing,
