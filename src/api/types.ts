@@ -324,6 +324,8 @@ export interface GpuMetrics {
   thermalPressure?: string | null;
   /** Mac units: false when `sudo -n powermetrics` is not permitted, so GPU activity and power are unknown. */
   powermetricsAvailable?: boolean;
+  /** Mac node agent only: sensor behind `temperature` — "powermetrics" die read, or "smc" for an AppleSMC key. */
+  temperatureSource?: string | null;
   /** Mac-agent units: what this node could not read (e.g. gpu.power without root). */
   unavailable?: MetricGap[];
   power: {

@@ -533,3 +533,45 @@ test("agent targets reject unsafe URLs and forbidden DNS answers", async () => {
   const { assertMacAgentTarget } = await import("../MacAgentCollector.js");
   await assert.rejects(() => assertMacAgentTarget("http://fixture.example", { lookup: async () => [{ address: "169.254.169.254" }] }), /forbidden/);
 });
+
+test("an elevated snapshot keeps the sensor provenance the tiles show", async () => {
+  const data = structuredClone(snapshot);
+  data.cpu.temperature = 61.5;
+  data.cpu.temperatureUnit = "celsius";
+  data.cpu.temperatureSource = "smc";
+  data.gpu.temperature = 58.25;
+  data.gpu.temperatureSource = "smc";
+  const { collector } = collectorWith("ok", {
+    fetchImpl: async () => ({ ok: true, json: async () => structuredClone(data) }),
+  });
+  const cpu = await collector.collectCpu();
+  const gpu = await collector.collectGpu();
+  assert.equal(cpu.temperature, 61.5);
+  assert.equal(cpu.temperatureSource, "smc", "the panel needs to say which sensor answered");
+  assert.equal(gpu.temperature, 58.25);
+  assert.equal(gpu.temperatureSource, "smc");
+});
+
+test("a powermetrics die read is reported as one", async () => {
+  const data = structuredClone(snapshot);
+  data.cpu.temperature = 70;
+  data.cpu.temperatureSource = "powermetrics";
+  data.gpu.temperature = 69;
+  data.gpu.temperatureSource = "powermetrics";
+  const { collector } = collectorWith("ok", {
+    fetchImpl: async () => ({ ok: true, json: async () => structuredClone(data) }),
+  });
+  assert.equal((await collector.collectCpu()).temperatureSource, "powermetrics");
+  assert.equal((await collector.collectGpu()).temperatureSource, "powermetrics");
+});
+
+test("a temperature that was never read carries no sensor provenance", async () => {
+  // The checked-in fixture is the unprivileged shape: both temperatures null.
+  const { collector } = collectorWith("ok");
+  const cpu = await collector.collectCpu();
+  const gpu = await collector.collectGpu();
+  assert.equal(cpu.temperature, null);
+  assert.equal(cpu.temperatureSource, null, "no reading, so no claim about a sensor");
+  assert.equal(gpu.temperature, null);
+  assert.equal(gpu.temperatureSource, null);
+});

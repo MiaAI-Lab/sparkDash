@@ -346,7 +346,17 @@ export function GpuPanel({
           className="sp-gpu-top__ring"
         />
         <div className="sp-stat">
-          <span className="eyebrow">{tr("gpu.temperature")}</span>
+          <span
+            className="eyebrow"
+            // An AppleSMC key is a power-controller reading, not the die: say which.
+            title={
+              gpu?.temperatureSource === "smc"
+                ? tr("gpu.smcSensorHelp", { source: gpu.temperatureSource })
+                : undefined
+            }
+          >
+            {tr("gpu.temperature")}
+          </span>
           <div className="big-num" title={tempView.title}>
             {tempView.muted ? (
               <span className="font-normal text-muted">

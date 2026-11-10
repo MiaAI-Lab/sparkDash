@@ -250,6 +250,9 @@ export class MacAgentCollector extends MacSystemCollector {
     return tagCollectionResult({
       ...base,
       temperature: finiteTemperature(gpu.temperature) ? gpu.temperature : null,
+      // The agent says which sensor answered: a powermetrics die read, or an
+      // AppleSMC key when powermetrics printed no temperature line at all.
+      temperatureSource: finiteTemperature(gpu.temperature) ? (gpu.temperatureSource ?? null) : null,
       usage,
       power: { draw, limit: 0, systemDraw },
       vram: {
@@ -286,6 +289,9 @@ export class MacAgentCollector extends MacSystemCollector {
       usageAvailable: valid,
       unavailable: this._agentEntries(snapshot),
       temperature: finiteTemperature(snapshot.cpu?.temperature) ? snapshot.cpu.temperature : null,
+      temperatureSource: finiteTemperature(snapshot.cpu?.temperature)
+        ? (snapshot.cpu?.temperatureSource ?? null)
+        : null,
       draw: snapshot.gpu?.powermetrics === "ok" && Number.isFinite(snapshot.gpu?.cpuW) ? snapshot.gpu.cpuW : null,
       tdp: 0,
     }, valid);
