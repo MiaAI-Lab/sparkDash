@@ -540,7 +540,8 @@ export interface UnifiedMemoryMetrics {
   physical?: MacPhysicalMemory | null;
   swap?: { total: number; used: number; free: number };
   bandwidth: {
-    current: number;
+    /** GB/s; null when the local unit's dmon read failed or is unsupported (not measured). */
+    current: number | null;
     peak: number;
   };
 }

@@ -150,7 +150,41 @@ test("bandwidth comes from a continuous dmon and disappears when it goes stale",
   assert.equal((await pending).bandwidth.current, 2);
 
   t.mock.timers.tick(6001);
-  assert.equal((await collector._getUnifiedMemory()).bandwidth.current, 0, "stale: unreported, as when dmon fails");
+  assert.equal((await collector._getUnifiedMemory()).bandwidth.current, null, "stale: not measured, not 0");
+});
+
+test("dmon -s B unsupported (GB10 / driver 580): three quick failures stop the reader, bandwidth stays unavailable", async (t) => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1_000_000 });
+  const { collector, spawned } = localCollector(t);
+  const warn = t.mock.method(console, "warn", () => {});
+  collector.useNvidiaSmiStreams({ gpu: 1000, memory: 2000 });
+  const dmonSpawns = () => spawned.filter((s) => /dmon/.test(s.args.at(-1)));
+  for (const delay of [1000, 2000, 0]) {
+    const pending = collector._getUnifiedMemory();
+    await new Promise((resolve) => setImmediate(resolve));
+    const { child } = dmonSpawns().at(-1);
+    child.write("Invalid combination of input arguments. Please run 'nvidia-smi -h' for help.\n");
+    child.exit(255);
+    assert.equal((await pending).bandwidth.current, null);
+    t.mock.timers.tick(delay);
+  }
+  assert.equal(dmonSpawns().length, 3);
+  t.mock.timers.tick(10 * 60_000);
+  const um = await collector._getUnifiedMemory();
+  assert.equal(um.bandwidth.current, null, "unavailable, not 0");
+  assert.equal(dmonSpawns().length, 3, "not restarted");
+  assert.equal(warn.mock.callCount(), 1);
+  assert.match(String(warn.mock.calls[0].arguments[0]), /not restarting/);
+});
+
+test("per-call dmon failure (streams off) is unavailable, not 0", async (t) => {
+  const { collector } = localCollector(t);
+  collector._nvidiaSmi = async () => {
+    throw new Error("Command failed: nvidia-smi dmon -c 1 -d 1 -s B");
+  };
+  assert.equal((await collector._getUnifiedMemory()).bandwidth.current, null);
+  collector._nvidiaSmi = async () => "# gpu  rxpci  txpci\n# Idx   MB/s   MB/s\n    0      -      -";
+  assert.equal((await collector._getUnifiedMemory()).bandwidth.current, null, "N/A columns are not 0");
 });
 
 test("per-call dmon output (streams off) parses as before", async (t) => {
