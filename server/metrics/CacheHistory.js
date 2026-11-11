@@ -20,7 +20,9 @@
  * Disk: bounded by slots, not request volume. A saturated one-port fixture (2,880 buckets per tier,
  * every gauge, coverage duration, 13 deltas above 2^32, 20 histogram bounds, 200 numeric events)
  * serialized to 8,548,723 bytes (~8.2 MiB). Its post-GC V8 heap delta was ~12.5 MiB, a process-level
- * estimate rather than allocation-event profiling. Several ports scale with their fixed tiers;
+ * estimate rather than allocation-event profiling. The bound is unconditional, not fixture-dependent:
+ * histograms above 64 buckets per series are refused (recorded as `telemetry_invalid`) and epochs are
+ * clamped to 128 characters at ingest. Several ports scale with their fixed tiers;
  * MAX_EVENTS (200) is shared per unit. The file does not grow with uptime: retention
  * prunes on write, and it is replaced atomically (temp file + rename), so a crash mid-write leaves the
  * previous file intact rather than a truncated one.
@@ -39,6 +41,13 @@ const TIERS = [
   { stepMs: MINUTE_MS, retentionMs: 48 * 60 * MINUTE_MS, slots: 2880, histograms: true },
   { stepMs: 15 * MINUTE_MS, retentionMs: 30 * DAY_MS, slots: 2880, histograms: false },
 ];
+
+/** A real TensorFold histogram has ~19 buckets; beyond this the exposition is broken or hostile,
+ * not finer — the series is treated as absent rather than stored (and the disk bound holds unconditionally). */
+const MAX_HISTOGRAM_BUCKETS = 64;
+/** Engine epochs are numeric strings (~19 chars); clamped so a pathological engine cannot bloat
+ * the sidecar or the event ring through `engine_epoch`. */
+const MAX_EPOCH_CHARS = 128;
 const SLOT_COUNT = Math.max(...TIERS.map((t) => t.slots));
 /** Bounded event log per unit; oldest dropped. */
 const MAX_EVENTS = 200;
@@ -211,7 +220,7 @@ export class CacheHistory {
   _ingest(unitId, port, entry, cache, atMs) {
     const state = this._portState(unitId, port);
     state.firstAvailableAt ??= atMs;
-    const epoch = typeof cache.engineEpoch === "string" ? cache.engineEpoch : null;
+    const epoch = typeof cache.engineEpoch === "string" ? cache.engineEpoch.slice(0, MAX_EPOCH_CHARS) : null;
     const observedAt = finite(cache.observedAt) ? cache.observedAt : null;
     if (observedAt != null && state.observedAt != null) {
       if (observedAt === state.observedAt && epoch === state.epoch) return; // same observation already consumed
@@ -275,7 +284,17 @@ export class CacheHistory {
     const hist = entry.cacheHistograms;
     const histOk =
       hist && Array.isArray(hist.ttft?.counts) && Array.isArray(hist.latency?.counts) &&
-      Array.isArray(hist.ttft?.edges) && Array.isArray(hist.latency?.edges);
+      Array.isArray(hist.ttft?.edges) && Array.isArray(hist.latency?.edges) &&
+      hist.ttft.counts.length === hist.ttft.edges.length &&
+      hist.latency.counts.length === hist.latency.edges.length &&
+      hist.ttft.counts.length <= MAX_HISTOGRAM_BUCKETS &&
+      hist.latency.counts.length <= MAX_HISTOGRAM_BUCKETS;
+    if (hist && !histOk && (Array.isArray(hist.ttft?.counts) || Array.isArray(hist.latency?.counts))) {
+      this._event(unitId, port, atMs, "telemetry_invalid", {
+        reason: "histogram_arity",
+        buckets: Math.max(hist.ttft?.counts?.length ?? 0, hist.latency?.counts?.length ?? 0),
+      });
+    }
     if (histOk) counters.completions = hist.latency.counts[hist.latency.counts.length - 1] ?? null;
     if (finite(entry.totalPromptTokens)) counters.promptTokens = entry.totalPromptTokens;
     if (finite(entry.totalCachedTokens)) counters.cachedTokens = entry.totalCachedTokens;

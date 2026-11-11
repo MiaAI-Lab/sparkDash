@@ -389,3 +389,54 @@ test("long ranges read the 15-minute tier and prune units that are gone", () => 
   s.prune(new Set(["other"]));
   assert.equal(s.stats().units, 0);
 });
+
+test("histograms above 64 buckets are refused, recorded as invalid, and never stored", () => {
+  const s = store();
+  const big = (n) => ({
+    edges: Array.from({ length: n }, (_, i) => (i === n - 1 ? Infinity : i + 1)),
+    counts: Array.from({ length: n }, () => 0),
+  });
+  const first = endpoint();
+  first.cacheHistograms = { ttft: big(200), latency: big(200) };
+  s.record(snapshot(first), T0);
+  const next = structuredClone(first);
+  next.cache.observedAt += 60_000;
+  next.cacheHistograms.ttft.counts[199] = 10;
+  next.cacheHistograms.latency.counts[199] = 10;
+  s.record(snapshot(next), T0 + 60_000);
+  const out = s.query("spark-1", "1h", T0 + 120_000);
+  assert.ok(
+    out.events.some((e) => e.kind === "telemetry_invalid" && e.detail?.reason === "histogram_arity"),
+    "the over-arity histogram is recorded as invalid telemetry"
+  );
+  const last = out.endpoints[0].points.at(-1);
+  assert.equal(last.ttftP95, undefined, "no p95 is invented from a refused histogram");
+  assert.equal(last.latencyP95, undefined);
+});
+
+test("histograms with mismatched counts and edges are refused instead of producing NaN quantiles", () => {
+  const s = store();
+  const first = endpoint();
+  first.cacheHistograms = {
+    ttft: { edges: [1, 5, Infinity], counts: [0, 1, 2, 3] },
+    latency: { edges: [1, 5, Infinity], counts: [0, 1, 2, 3] },
+  };
+  s.record(snapshot(first), T0);
+  const next = structuredClone(first);
+  next.cache.observedAt += 60_000;
+  next.cacheHistograms.ttft.counts = [0, 1, 2, 9];
+  next.cacheHistograms.latency.counts = [0, 1, 2, 9];
+  s.record(snapshot(next), T0 + 60_000);
+  const out = s.query("spark-1", "1h", T0 + 120_000);
+  const last = out.endpoints[0].points.at(-1);
+  assert.equal(last.ttftP95, undefined);
+  assert.equal(last.latencyP95, undefined);
+});
+
+test("a pathological engine epoch is clamped at ingest", () => {
+  const s = store();
+  const entry = endpoint({ cache: { engineEpoch: "9".repeat(10_000) } });
+  s.record(snapshot(entry), T0);
+  const out = s.query("spark-1", "1h", T0 + 60_000);
+  assert.equal(out.endpoints[0].engineEpoch.length, 128);
+});
