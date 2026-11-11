@@ -275,7 +275,7 @@ export interface ShareCardLabels extends BenchmarkShareCardLabels {
   lowConfidence: string;
   prefillMeta: (contexts: string, duration: string) => string;
   prefillLegend: string;
-  qualityDetail: (passed: number, scored: number, errors: number) => string;
+  qualityDetail: (passed: number, scored: number, errors: number, unscored?: number) => string;
   qualitySummary: (categories: number, items: string, duration: string) => string;
   qualityMeta: (overall: string, runLabel: string, duration: string) => string;
   qualityLegend: string;
@@ -316,7 +316,8 @@ export const DEFAULT_SHARE_CARD_LABELS: ShareCardLabels = {
   samples: (actual, requested) => `${actual}/${requested} samples`, lowConfidence: "low confidence",
   prefillMeta: (contexts, duration) => `${contexts || "—"}${duration ? ` · ${duration}` : ""}`,
   prefillLegend: "Prefill — server prompt timing, else tokens ÷ (TTFT − request overhead), cache hits excluded. TTFT — time to first token. Median-rate sample.",
-  qualityDetail: (passed, scored, errors) => `${passed}/${scored} items${errors > 0 ? ` · ${errors} error${errors === 1 ? "" : "s"}` : ""}`,
+  qualityDetail: (passed, scored, errors, unscored = 0) =>
+    `${passed}/${scored} items${errors > 0 ? ` · ${errors} error${errors === 1 ? "" : "s"}` : ""}${unscored > 0 ? ` · ${unscored} not scored` : ""}`,
   qualitySummary: (categories, items, duration) => `${categories} ${categories === 1 ? "category" : "categories"} · ${items} items${duration ? ` · ${duration}` : ""}`,
   qualityMeta: (overall, runLabel, duration) => `Overall ${overall}${runLabel ? ` · ${runLabel}` : ""}${duration ? ` · ${duration}` : ""}`,
   qualityLegend: "Score — share of items passed. Temperature 0, fixed seed.",
@@ -502,7 +503,7 @@ export function buildQualityShareCard(
     const delta = s.pct != null && other?.pct != null ? Math.round((s.pct - other.pct) * 10) / 10 : null;
     rows.push({
       load: QUALITY_CATEGORY_LABELS[cat],
-      detail: painterLabels.qualityDetail(s.passed, s.scored ?? s.total, s.errors),
+      detail: painterLabels.qualityDetail(s.passed, s.scored ?? s.total, s.errors, (s.truncated ?? 0) + (s.disputed ?? 0)),
       primary: s.pct == null ? "—" : s.pct.toFixed(1),
       secondary: delta == null ? "" : `${delta > 0 ? "+" : ""}${delta.toFixed(1)}`,
       primaryUnit: "%",
@@ -540,7 +541,11 @@ export function buildQualityShareCard(
     subtitle: shareCardSubtitle(src),
     chips: shareCardChips(src),
     status: shareCardStatus(job.status, labels),
-    meta: painterLabels.qualityMeta(overall == null ? "—" : `${overall.toFixed(1)}%`, job.config?.label || "", job.durationMs != null ? formatDuration(job.durationMs) : ""),
+    meta: painterLabels.qualityMeta(
+      overall == null ? "—" : `${overall.toFixed(1)}%${job.results?.overallCi ? ` (${job.results.overallCi[0].toFixed(1)}–${job.results.overallCi[1].toFixed(1)})` : ""}`,
+      [job.config?.label, job.config?.suiteVersion != null ? `suite v${job.config.suiteVersion}/${job.config.scoringVersion ?? 1}` : null].filter(Boolean).join(" · "),
+      job.durationMs != null ? formatDuration(job.durationMs) : ""
+    ),
     columns: { load: labels.category, primary: labels.score, secondary: compare ? labels.versusOther : "" },
     rows,
     legend: painterLabels.qualityLegend,

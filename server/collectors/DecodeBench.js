@@ -717,6 +717,13 @@ export class DecodeBenchManager {
     return job ? publicJob(job) : null;
   }
 
+  /** Rolling token rate for this unit's own benchmark, never a custom remote target. */
+  getLiveDecodeTps(sparkId, port) {
+    const job = this.jobs.get(this.activeBySpark.get(sparkId));
+    if (!job || job.status !== "running" || job.config.port !== port || job.config.host) return null;
+    return Number.isFinite(job.progress.liveTps) ? Math.max(0, job.progress.liveTps) : 0;
+  }
+
   getHistory(sparkId) {
     return this.historyBySpark.get(sparkId) || [];
   }

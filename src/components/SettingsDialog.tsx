@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { isValidTimeZone, listTimeZones } from "../shared/timeZone";
+import { reloadPage } from "../shared/reloadPage";
 import { fetchSettings, updateSettings } from "../api/client";
 import { clearToken, getToken, onTokenChange, requestTokenPrompt } from "../api/authToken";
 import type { Settings } from "../api/types";
@@ -158,6 +159,9 @@ export function SettingsDialog({ open, onClose, onSaved, onOpenHarness, serverVe
   const [theme, setTheme] = useState<ThemeId>(readTheme);
   const [tokenSet, setTokenSet] = useState(() => getToken() !== "");
   const [showAlerts, setShowAlerts] = useState(false);
+  // What the server had when the dialog opened: pages read whether a sudo password may be typed
+  // when they load, so changing it takes a reload to show.
+  const plainPasswordAtOpen = useRef<boolean | null>(null);
 
   // While the Alerts dialog is open on top, Escape belongs to it alone.
   const closeOnEscape = useCallback(() => {
@@ -181,7 +185,9 @@ export function SettingsDialog({ open, onClose, onSaved, onOpenHarness, serverVe
     setLoading(true);
     fetchSettings()
       .then((s) => {
-        if (!cancelled) setSettings(s);
+        if (cancelled) return;
+        plainPasswordAtOpen.current = Boolean(s.allowPlainSudoPassword);
+        setSettings(s);
       })
       .catch((err: Error) => {
         if (!cancelled) setError(err.message);
@@ -258,6 +264,9 @@ export function SettingsDialog({ open, onClose, onSaved, onOpenHarness, serverVe
       setDirty(false);
       onSaved(result);
       onClose();
+      if (plainPasswordAtOpen.current !== null && Boolean(result.allowPlainSudoPassword) !== plainPasswordAtOpen.current) {
+        reloadPage();
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -534,6 +543,12 @@ export function SettingsDialog({ open, onClose, onSaved, onOpenHarness, serverVe
                 onChange={(v) => update({ prometheusExport: v })}
               />
               <ToggleRow
+                title="Allow sudo password over plain http"
+                help="Lets you type a sudo password in the dashboard (Storage Manager, GPU clock cap) when you open it over plain http from another machine. The password then crosses your network unencrypted, so turn this on only on a network you trust. Off by default: a password is otherwise only accepted over https or from the Spark itself. The page reloads when you save this."
+                checked={Boolean(settings.allowPlainSudoPassword)}
+                onChange={(v) => update({ allowPlainSudoPassword: v })}
+              />
+              <ToggleRow
                 title={t("toggles.intelVramSudo.title")}
                 help={t("toggles.intelVramSudo.help")}
                 checked={Boolean(settings.intelVramSudo)}
@@ -544,6 +559,12 @@ export function SettingsDialog({ open, onClose, onSaved, onOpenHarness, serverVe
                 help={t("toggles.metricsHistory.help")}
                 checked={Boolean(settings.metricsHistory)}
                 onChange={(v) => update({ metricsHistory: v })}
+              />
+              <ToggleRow
+                title={t("toggles.llmStreamSample.title")}
+                help={t("toggles.llmStreamSample.help")}
+                checked={Boolean(settings.llmStreamSample)}
+                onChange={(v) => update({ llmStreamSample: v })}
               />
               <ToggleRow
                 title={t("mqtt.publishing.title")}

@@ -23,6 +23,7 @@ export const CONFIG_PATH_VARS = [
   "PREFILL_BENCH_ACTIVE_PATH",
   "QUALITY_BENCH_HISTORY_PATH",
   "QUALITY_BENCH_ACTIVE_PATH",
+  "QUALITY_BENCH_REFERENCES_PATH",
   "GPU_MEMORY_JSON_PATH",
   "GPU_HISTORY_JSON_PATH",
   "GPU_HISTORY_LONG_JSON_PATH",
@@ -34,18 +35,20 @@ export const CONFIG_PATH_VARS = [
   "ALERTS_JSON_PATH",
   "OCCUPANCY_HELPERS_JSON_PATH",
   "MODEL_PRICES_JSON_PATH",
+  "STORAGE_SCANS_JSON_PATH",
+  "STORAGE_SUDO_JSON_PATH",
+  "STORAGE_ACKS_JSON_PATH",
   "MODEL_PRICES_FETCH",
   // Opt-in power meters: the isolated path never exists, so tests run with them off.
   "POWER_METERS_CONFIG_PATH",
 ];
 
 /** Variables that point at a directory the server writes into. */
-export const CONFIG_DIR_VARS = ["TOOL_EVAL_RESULTS_DIR"];
+export const CONFIG_DIR_VARS = ["TOOL_EVAL_RESULTS_DIR", "QUALITY_FIDELITY_DIR"];
 
 /** Env entries mapping each config path variable to a file (or directory) inside `dir`. */
 export function isolatedConfigEnv(dir) {
   return {
-    // Tests must not contact an operator's opt-in inference activity source.
     SPARKDASH_INFERENCE_ACTIVITY_URL: "",
     SPARKDASH_INFERENCE_ACTIVITY_LABELS: "",
     ...Object.fromEntries(

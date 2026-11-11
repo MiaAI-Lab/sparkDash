@@ -3,12 +3,17 @@ dist/
 .env
 sparks.json
 config/sparks-secrets.json
+config/storage-sudo.json
+config/storage-scans.json
+config/storage-acks.json
 config/.secrets-key
 config/bench-history.json
 config/bench-active.json
 config/prefill-bench-history.json
 config/prefill-bench-active.json
 config/quality-bench-history.json
+config/quality-bench-references.json
+config/quality-fidelity/
 config/quality-bench-active.json
 config/showcase-history.json
 config/llm-daily.json

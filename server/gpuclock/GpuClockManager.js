@@ -1,12 +1,14 @@
 /**
- * Runs the GPU clock cap programs on a unit: locally through the host mount
- * namespace (as root, like the shutdown helper), or over SSH with `sudo -n`.
- * One action per unit at a time. Supported on Linux Spark units only.
+ * Runs the GPU clock cap and power limit programs on a unit: locally through the
+ * host mount namespace (as root, like the shutdown helper), or over SSH with `sudo -n`.
+ * One action per unit at a time. Clock caps are for Linux Spark units, power limits
+ * for Linux GPU hosts (a Spark's GPU reports none).
  */
 import { execFile } from "node:child_process";
 import { sshExec } from "../collectors/ssh.js";
 import { hostMountNs } from "../shutdown.js";
 import { scrubbedChildEnv } from "../llmlaunch/childEnv.js";
+import { SudoPasswordGuard } from "../util/sudoPasswordGuard.js";
 import {
   buildApplyProgram,
   buildManualCommand,
@@ -16,6 +18,13 @@ import {
   parseProgramOutput,
   parseSudoPassword,
 } from "./commands.js";
+import {
+  buildPowerApplyProgram,
+  buildPowerStatusProgram,
+  parseBootLimits,
+  parseCards,
+  parsePowerRequest,
+} from "./powerCommands.js";
 
 const ACTION_TIMEOUT_MS = 45_000;
 const STATUS_TIMEOUT_MS = 15_000;
@@ -28,6 +37,8 @@ const CODE_STATUS = {
   "no-systemd": 409,
   busy: 409,
   "lock-failed": 409,
+  "no-card": 409,
+  "not-adjustable": 409,
   range: 400,
   "bad-output": 502,
   "bad-password": 403,
@@ -37,13 +48,11 @@ const CODE_STATUS = {
   "cron-failed": 422,
   "rgc-failed": 422,
   "marker-failed": 422,
+  "pl-failed": 422,
+  "pl-not-held": 422,
 };
 /** After a transport failure the outcome on the unit is unknown: refuse a second action for a while. */
 const HOLD_AFTER_TRANSPORT_ERROR_MS = 30_000;
-const PASSWORD_ATTEMPTS = 3;
-const PASSWORD_LOCK_MS = 5 * 60_000;
-/** Across all units, so a second registry entry for the same machine does not reset the guess budget. */
-const PASSWORD_ATTEMPTS_GLOBAL = 9;
 
 const httpError = (status, message, code) => Object.assign(new Error(message), { status, code });
 
@@ -67,6 +76,15 @@ export function assertSupported(spark) {
   if (reason) throw httpError(spark ? 400 : 404, reason);
 }
 
+/** @param {object} spark registry entry */
+export function assertPowerSupported(spark) {
+  if (!spark) throw httpError(404, "Spark not found");
+  if (spark.kind !== "host") throw httpError(400, "GPU power limits are only supported on dedicated GPU hosts");
+  if (spark.platform === "windows" || spark.platform === "darwin") {
+    throw httpError(400, "GPU power limits are only supported on Linux hosts");
+  }
+}
+
 /**
  * The one command line sent over ssh. With a password the outer sh reads it from stdin into
  * the environment of the inner program, which moves it into a plain variable at once; the
@@ -84,10 +102,10 @@ export function remoteCommand(program, withPassword) {
  * A sudo password (`input`) travels on stdin (remote) or in the child's environment (local,
  * where it is only readable by the same user and root); it is never part of an argument list.
  */
-export function runProgram(spark, program, { timeoutMs = ACTION_TIMEOUT_MS, input = null } = {}) {
+export function runProgram(spark, program, { timeoutMs = ACTION_TIMEOUT_MS, input = null, maxBuffer = 10 * 1024 * 1024 } = {}) {
   if (!spark.isLocal) {
     const cmd = remoteCommand(program, input != null);
-    return sshExec(spark, cmd, input == null ? { timeoutMs } : { timeoutMs, input: `${input}\n` });
+    return sshExec(spark, cmd, input == null ? { timeoutMs, maxBuffer } : { timeoutMs, maxBuffer, input: `${input}\n` });
   }
   const mntNs = hostMountNs();
   const [file, args] = mntNs
@@ -96,7 +114,7 @@ export function runProgram(spark, program, { timeoutMs = ACTION_TIMEOUT_MS, inpu
   const env = scrubbedChildEnv();
   if (input != null) env.SPARKDASH_SUDO_PW = input;
   return new Promise((resolve, reject) => {
-    execFile(file, args, { timeout: timeoutMs, env, maxBuffer: 1024 * 1024 }, (err, stdout, stderr) => {
+    execFile(file, args, { timeout: timeoutMs, env, maxBuffer }, (err, stdout, stderr) => {
       if (err) reject(new Error(String(stderr || err.message).trim().slice(0, 300)));
       else resolve(String(stdout).trim());
     });
@@ -108,8 +126,7 @@ export class GpuClockManager {
   constructor({ run = runProgram, paths = {}, holdMs = HOLD_AFTER_TRANSPORT_ERROR_MS, now = Date.now } = {}) {
     this._run = run;
     this._now = now;
-    /** @type {Map<string, { n: number, until: number }>} wrong sudo passwords per unit */
-    this._pwFails = new Map();
+    this._pwGuard = new SudoPasswordGuard({ now });
     this._holdMs = holdMs;
     this._paths = paths;
     /** @type {Set<string>} */
@@ -130,40 +147,14 @@ export class GpuClockManager {
     return parseProgramOutput(out);
   }
 
-  /** What a password is a guess against: the account on the machine, not the registry entry. */
-  _pwKey(spark) {
-    if (spark.isLocal) return "local";
-    const ssh = spark.ssh || {};
-    return `${ssh.user || ""}@${ssh.host || spark.lanIp || spark.id}:${ssh.port || 22}`.toLowerCase();
-  }
-
   /** Refuse further password attempts for a while after repeated wrong ones. */
   _checkPasswordLock(spark) {
-    const now = this._now();
-    const f = [this._pwFails.get(this._pwKey(spark)), this._pwFails.get("*")]
-      .filter((x) => x && x.until > now)
-      .sort((x, y) => y.until - x.until)[0];
-    if (f) {
-      const secs = Math.ceil((f.until - now) / 1000);
-      throw httpError(429, `Too many wrong sudo passwords. Try again in ${secs} s.`, "password-locked");
-    }
-  }
-
-  _bump(key, limit) {
-    const f = this._pwFails.get(key) ?? { n: 0, until: 0 };
-    f.n += 1;
-    if (f.n >= limit) {
-      f.until = this._now() + PASSWORD_LOCK_MS;
-      f.n = 0;
-    }
-    this._pwFails.set(key, f);
+    const secs = this._pwGuard.lockedForSeconds(spark);
+    if (secs > 0) throw httpError(429, `Too many wrong sudo passwords. Try again in ${secs} s.`, "password-locked");
   }
 
   _notePasswordResult(spark, wrong) {
-    const key = this._pwKey(spark);
-    if (!wrong) return void this._pwFails.delete(key);
-    this._bump(key, PASSWORD_ATTEMPTS);
-    this._bump("*", PASSWORD_ATTEMPTS_GLOBAL);
+    this._pwGuard.note(spark, wrong);
   }
 
   _fail(res) {
@@ -172,7 +163,7 @@ export class GpuClockManager {
   }
 
   async _exclusive(spark, fn) {
-    if (this._busy.has(spark.id)) throw httpError(409, "Another GPU clock action is still running on this unit");
+    if (this._busy.has(spark.id)) throw httpError(409, "Another GPU action is still running on this unit");
     this._busy.add(spark.id);
     let hold = false;
     try {
@@ -277,6 +268,49 @@ export class GpuClockManager {
       const program = buildResetProgram({ ...this._paths, password: password != null });
       await this._privileged(spark, program, password);
       return {};
+    });
+  }
+
+  /** Read-only: each card's limit and range, sudo availability and the boot services. */
+  async powerStatus(spark) {
+    assertPowerSupported(spark);
+    const res = await this._exec(spark, buildPowerStatusProgram(this._paths), STATUS_TIMEOUT_MS);
+    if (res.RESULT !== "ok") {
+      if (res.CODE === "no-nvidia" || res.CODE === "no-gpu") return { supported: false, reason: res.MSG };
+      throw this._fail(res);
+    }
+    const boot = parseBootLimits(res.SVC_CARD);
+    const cards = parseCards(res.CARD).map((card) => ({ ...card, bootW: boot.get(card.uuid) ?? null }));
+    if (cards.length === 0) return { supported: false, reason: "nvidia-smi reported no cards on this unit" };
+    return {
+      supported: true,
+      cards,
+      sudo: ["root", "yes", "no"].includes(res.SUDO) ? res.SUDO : "no",
+      service: {
+        installed: res.SVC_INSTALLED === "1",
+        enabled: res.SVC_ENABLED || null,
+        active: res.SVC_ACTIVE || null,
+      },
+      otherServices: res.OTHER_SVC ?? [],
+    };
+  }
+
+  /**
+   * Set the power limit of one or more cards; `persist` writes the boot service, and false removes
+   * it. `body.sudoPassword` (optional) is used for sudo on this one call and never stored.
+   */
+  async setPower(spark, body) {
+    assertPowerSupported(spark);
+    const req = parsePowerRequest(body);
+    const password = parseSudoPassword(body?.sudoPassword);
+    return this._exclusive(spark, async () => {
+      const program = buildPowerApplyProgram(req, { ...this._paths, password: password != null });
+      const res = await this._privileged(spark, program, password);
+      const cards = parseCards(res.CARD);
+      return {
+        limits: req.limits.map((l) => ({ ...l, index: cards.find((c) => c.uuid === l.uuid)?.index ?? null })),
+        persist: res.PERSIST === "1",
+      };
     });
   }
 

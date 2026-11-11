@@ -43,11 +43,13 @@ import {
   CoinsIcon,
   ExpandIcon,
   KeyIcon,
+  DiskIcon,
 } from "./components/ui/icons";
 import { ConnectionBanner } from "./components/ui/ConnectionBanner";
 import { ErrorBanner } from "./components/ui/ErrorBanner";
 import {
   ACTIVITY_ID,
+  STORAGE_ID,
   SHOWCASE_ID,
   ENERGY_ID,
   OVERVIEW_ID,
@@ -68,8 +70,9 @@ import { ApiKeysPage } from "./components/ApiKeysPage/ApiKeysPage";
 import { EnergyPage } from "./components/EnergyPage/EnergyPage";
 import { TempsPage } from "./components/TempsPage/TempsPage";
 import { ActivityPage } from "./components/ActivityPage/ActivityPage";
+import { StoragePage } from "./components/StoragePage/StoragePage";
 import { BenchPage } from "./components/bench/BenchPage";
-import { BENCH_SPARK_KEY, BENCH_TYPES } from "./components/bench/benchCatalog";
+import { BENCH_SPARK_KEY, NAV_BENCH_TYPES } from "./components/bench/benchCatalog";
 import type { AuthMode, Settings, SparkSnapshot } from "./api/types";
 import { AccessTokenPrompt } from "./components/AccessTokenDialog";
 import { onTokenChange } from "./api/authToken";
@@ -493,6 +496,7 @@ function DashboardApp() {
       { id: "nav:showcase", group: t("commands.goTo"), label: t("nav.showcase"), hint: t("commands.page"), icon: <TerminalIcon className="h-4 w-4" />, keywords: "Showcase prompts terminals stream demo", run: () => navigate(SHOWCASE_ID) },
       { id: "nav:activity", group: t("commands.goTo"), label: t("nav.activity"), hint: t("commands.page"), icon: <ListIcon className="h-4 w-4" />, keywords: "Activity events log history recent", run: () => navigate(ACTIVITY_ID) },
       { id: "nav:kiosk", group: t("commands.goTo"), label: t("nav.kiosk"), hint: t("commands.wallDisplay"), icon: <ExpandIcon className="h-4 w-4" />, keywords: "Kiosk wall tv display fullscreen full screen", run: () => window.location.assign(idToPath(KIOSK_ID)) },
+      { id: "nav:storage", group: "Go to", label: "Storage Manager", hint: "Page", icon: <DiskIcon className="h-4 w-4" />, keywords: "storage disk space folders files docker images delete clean cleanup du", run: () => navigate(STORAGE_ID) },
     );
     for (const s of displaySparks) {
       cmds.push({
@@ -505,7 +509,7 @@ function DashboardApp() {
         run: () => navigate(s.id),
       });
     }
-    for (const b of BENCH_TYPES) {
+    for (const b of NAV_BENCH_TYPES) {
       cmds.push({
         id: `bench:${b.id}`,
         group: t("commands.benchmarks"),
@@ -607,6 +611,8 @@ function DashboardApp() {
                 <TempsPage sparks={displaySparks} onSelectSpark={navigate} />
               ) : activeId === ACTIVITY_ID ? (
                 <ActivityPage sparks={displaySparks} onSelectSpark={navigate} />
+              ) : activeId === STORAGE_ID ? (
+                <StoragePage sparks={displaySparks} />
               ) : activeId === SHOWCASE_ID ? (
                 <ShowcaseView sparks={displaySparks} />
               ) : benchType ? (

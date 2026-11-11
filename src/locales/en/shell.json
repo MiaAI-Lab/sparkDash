@@ -12,6 +12,8 @@
     "stats": "Stats",
     "settings": "Settings",
     "benchmarks": "Benchmarks",
+    "benchsTools": "Benchs & Tools",
+    "storage": "Storage",
     "fleet": "Fleet",
     "brandOverview": "sparkDash overview",
     "openSearch": "Open command palette",
@@ -74,6 +76,10 @@
     "toolEval": {
       "label": "Tool Eval Bench",
       "blurb": "Tool-calling quality across 69 deterministic scenarios (selection, parameters, multi-step, safety)."
+    },
+    "qualityCompare": {
+      "label": "Quality compare",
+      "blurb": "Any two saved quality runs side by side, from any units."
     }
   },
   "palette": {

@@ -15,6 +15,15 @@ const SPARKS_SECRETS_PATH =
 /** AES key file (auto-generated if SPARKDASH_SECRETS_KEY unset). */
 const SECRETS_KEY_PATH =
   process.env.SECRETS_KEY_PATH || path.join(ROOT, "config", ".secrets-key");
+/** Storage Manager: the latest disk analysis per unit, so it survives a restart (gitignored). */
+const STORAGE_SCANS_JSON_PATH =
+  process.env.STORAGE_SCANS_JSON_PATH || path.join(ROOT, "config", "storage-scans.json");
+/** Storage Manager: sudo passwords the user chose to remember, encrypted with the secrets key (gitignored). */
+const STORAGE_SUDO_JSON_PATH =
+  process.env.STORAGE_SUDO_JSON_PATH || path.join(ROOT, "config", "storage-sudo.json");
+/** Storage Manager: per-Spark acknowledgements that allow deleting folders as administrator (gitignored). */
+const STORAGE_ACKS_JSON_PATH =
+  process.env.STORAGE_ACKS_JSON_PATH || path.join(ROOT, "config", "storage-acks.json");
 /** Daily LLM tok/s rollups (gitignored). */
 const LLM_DAILY_JSON_PATH =
   process.env.LLM_DAILY_JSON_PATH || path.join(ROOT, "config", "llm-daily.json");
@@ -234,6 +243,9 @@ const HOST_PATHS = {
 };
 
 export {
+  STORAGE_SCANS_JSON_PATH,
+  STORAGE_SUDO_JSON_PATH,
+  STORAGE_ACKS_JSON_PATH,
   SPARKS_JSON_PATH,
   GPU_MEMORY_JSON_PATH,
   SPARKS_SECRETS_PATH,

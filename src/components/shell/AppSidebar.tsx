@@ -21,9 +21,9 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import type { AuthMode, SparkSnapshot } from "../../api/types";
 import { isWorkerSpark } from "../../api/sparkRole";
-import { ACTIVITY_ID, API_KEYS_ID, COST_ID, ENERGY_ID, KIOSK_ID, OVERVIEW_ID, SHOWCASE_ID, TEMPS_ID, TOKENS_ID, benchId, idToPath } from "../../constants";
-import { BENCH_TYPES } from "../bench/benchCatalog";
-import { BoltIcon, ChevronDownIcon, CoinsIcon, ExpandIcon, GearIcon, GithubIcon, GlobeIcon, GridIcon, ListIcon, PanelLeftIcon, PlusIcon, SearchIcon, TerminalIcon, ThermometerIcon, TokensIcon, XLogoIcon, KeyIcon } from "../ui/icons";
+import { ACTIVITY_ID, API_KEYS_ID, benchId, COST_ID, ENERGY_ID, idToPath, KIOSK_ID, OVERVIEW_ID, SHOWCASE_ID, STORAGE_ID, TEMPS_ID, TOKENS_ID } from "../../constants";
+import { NAV_BENCH_TYPES, benchNavActive } from "../bench/benchCatalog";
+import { BoltIcon, ChevronDownIcon, CoinsIcon, DiskIcon, ExpandIcon, GearIcon, GithubIcon, GlobeIcon, GridIcon, KeyIcon, ListIcon, PanelLeftIcon, PlusIcon, SearchIcon, TerminalIcon, ThermometerIcon, TokensIcon, XLogoIcon } from "../ui/icons";
 import { OpenAccessChip } from "../OpenAccessChip";
 import { ThemeSwitch } from "../ThemeSwitch";
 import { isThrottling, railSubLabel } from "./sparkSummary";
@@ -409,6 +409,15 @@ export function AppSidebar({
             <span className="rail-item__name">{t("nav.activity")}</span>
           </a>
           <a
+            href={idToPath(STORAGE_ID)}
+            className={`rail-item ${activeId === STORAGE_ID ? "is-active" : ""}`}
+            onClick={inApp(() => onSelect(STORAGE_ID))}
+            aria-current={activeId === STORAGE_ID ? "page" : undefined}
+          >
+            <DiskIcon className="h-4 w-4" />
+            <span className="rail-item__name">Storage</span>
+          </a>
+          <a
             href={idToPath(SHOWCASE_ID)}
             className={`rail-item ${activeId === SHOWCASE_ID ? "is-active" : ""}`}
             onClick={inApp(() => onSelect(SHOWCASE_ID))}
@@ -437,13 +446,13 @@ export function AppSidebar({
             <ChevronDownIcon className={`h-3 w-3 transition-transform ${benchOpen || benchType != null ? "" : "-rotate-90"}`} />
           </button>
           <nav className="rail-list" id="rail-benchmarks" aria-label={t("nav.benchmarks")} hidden={!(benchOpen || benchType != null)}>
-            {BENCH_TYPES.map((b) => (
+            {NAV_BENCH_TYPES.map((b) => (
               <div key={b.id}>
                 <a
                   href={idToPath(benchId(b.id))}
-                  className={`rail-item rail-item--compact ${benchType === b.id ? "is-active" : ""}`}
+                  className={`rail-item rail-item--compact ${benchNavActive(b, benchType) ? "is-active" : ""}`}
                   onClick={inApp(() => onSelectBench(b.id))}
-                  aria-current={benchType === b.id ? "page" : undefined}
+                  aria-current={benchNavActive(b, benchType) ? "page" : undefined}
                   title={benchLabels[b.id]?.blurb ?? b.blurb}
                 >
                   <BenchIcon id={b.id} className="h-3.5 w-3.5" />

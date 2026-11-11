@@ -63,6 +63,12 @@ const DEFAULTS = Object.freeze({
    */
   prometheusExport: false,
   /**
+   * Let a sudo password be typed in the dashboard over plain http from another machine. Off by
+   * default: the password would cross the network unencrypted, so it is otherwise only accepted over
+   * https or from the machine itself. For a LAN you trust.
+   */
+  allowPlainSudoPassword: false,
+  /**
    * Let the Intel (xe) probe read root-only debugfs VRAM through `sudo -n`.
    * Off by default: without it VRAM falls back to the PCI BAR size and no sudo runs.
    */
@@ -114,6 +120,13 @@ const DEFAULTS = Object.freeze({
    */
   healthTempWarnC: 85,
   healthTempCriticalC: 90,
+  /**
+   * Stream-sample engines without gauges (Settings → LLM). Off by default: while on, the
+   * probe of a gauge-less engine (Pico) sends one tiny streamed completion every 15 s and
+   * measures its own decode tok/s from the token window. Sampling pauses while a bench,
+   * showcase or model launch owns the unit.
+   */
+  llmStreamSample: false,
 });
 
 const POLL_INTERVAL_MIN_MS = 500;
@@ -254,6 +267,8 @@ function _clampSettings(settings) {
   s.timeZone = isValidTimeZone(s.timeZone) ? String(s.timeZone).trim() : "";
   s.showVramBreakdown = Boolean(s.showVramBreakdown);
   s.prometheusExport = Boolean(s.prometheusExport);
+  // Only a real `true` turns it on: a string like "false" must not count as enabled.
+  s.allowPlainSudoPassword = s.allowPlainSudoPassword === true;
   s.intelVramSudo = Boolean(s.intelVramSudo);
   s.metricsHistory = Boolean(s.metricsHistory);
   s.alertsEnabled = Boolean(s.alertsEnabled);
@@ -283,6 +298,8 @@ function _clampSettings(settings) {
     s.healthTempWarnC = DEFAULTS.healthTempWarnC;
     s.healthTempCriticalC = DEFAULTS.healthTempCriticalC;
   }
+  // Ensure the stream-sample switch is boolean
+  s.llmStreamSample = Boolean(s.llmStreamSample);
   // Ensure temperatureUnit is valid
   if (s.temperatureUnit !== "celsius" && s.temperatureUnit !== "fahrenheit") {
     s.temperatureUnit = DEFAULTS.temperatureUnit;
@@ -296,9 +313,10 @@ function _clampSettings(settings) {
 
 /** Load settings from disk, falling back to defaults. */
 export function loadSettings() {
+  let parsed = null;
   try {
     const raw = fs.readFileSync(SETTINGS_PATH, "utf-8");
-    const parsed = JSON.parse(raw);
+    parsed = JSON.parse(raw);
     _settings = _clampSettings({ ...DEFAULTS, ..._whitelist(parsed) });
     // A broker URL with credentials written by an older build (or by hand) is
     // dropped above; rewrite the file so the secret does not linger on disk.

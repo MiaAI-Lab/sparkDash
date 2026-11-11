@@ -8,6 +8,7 @@ import { LLM_PROBE_TIMEOUT_MS } from "../config.js";
 import { classifyHostScope } from "../validate.js";
 import { llmProbeHost } from "./llmHost.js";
 import { openSshLlmTunnel } from "./llmTunnel.js";
+import { applyThinkingFlags } from "./LlmStreaming.js";
 
 const FAIL_RESET_THRESHOLD = 3;
 /** Direct failures in a row before the probe tries an SSH tunnel to the unit's loopback. */
@@ -19,6 +20,23 @@ const TUNNEL_RETRY_MAX_MS = 15 * 60_000;
 const REDETECT_INTERVAL_MS = 60_000;
 /** How long a vLLM `/version` answer is reused before it is asked for again. */
 const ENGINE_VERSION_TTL_MS = 10 * 60_000;
+
+// ─── Stream-sample (engines without gauges, e.g. Pico) ────
+// An engine that publishes no counters offers no honest live rate. When the
+// operator opts in (Settings → stream-sample), the probe measures decode by
+// sending one tiny streamed completion and timing its own tokens — the same
+// first-visible-token → last-visible-token window the decode bench uses.
+// It is a probe of the engine, not a reading of other clients' traffic.
+/** Minimum spacing between samples; a failed or slow sample also waits this out. */
+const STREAM_SAMPLE_MIN_INTERVAL_MS = 15_000;
+/** Small but not tiny: a fast engine batches several tokens per flush, and a
+    two-token reply has no measurable first→last window. 128 tokens is about a
+    second of decode on the engines this targets — negligible at a 15 s spacing. */
+const STREAM_SAMPLE_MAX_TOKENS = 128;
+/** A stalled sample is abandoned, not allowed to hang the poll. */
+const STREAM_SAMPLE_TIMEOUT_MS = 12_000;
+const STREAM_SAMPLE_PROMPT =
+  "Count from 1 to 60, with each number separated by a single space. Output only the numbers.";
 /**
  * TensorFold prefill rates are the computed (and the cached) tokens of the requests that finished in the
  * last minute divided by their prefill seconds. One poll window holds one to a few requests, and a request
@@ -111,9 +129,25 @@ function applyModelRef(probe, raw) {
 }
 
 export class LlmProbe {
-  constructor(spark, port = 8888) {
+  constructor(spark, port = 8888, options = {}) {
     this.spark = spark;
     this.port = port;
+    /** Tokens observed in sparkDash's own active benchmark or Showcase on this port. */
+    this._liveDecodeTps = typeof options.liveDecodeTps === "function" ? options.liveDecodeTps : null;
+    /** Opt-in (Settings): stream-sample engines that publish no gauges. */
+    this._streamSampleEnabled = typeof options.streamSampleEnabled === "function" ? options.streamSampleEnabled : null;
+    /** True while a bench, showcase or model launch owns the unit — samples pause. */
+    this._streamSampleBlocked = typeof options.streamSampleBlocked === "function" ? options.streamSampleBlocked : null;
+    this._streamSampleMinIntervalMs = Number.isFinite(options.streamSampleMinIntervalMs)
+      ? options.streamSampleMinIntervalMs
+      : STREAM_SAMPLE_MIN_INTERVAL_MS;
+    this._streamSampleMaxTokens = Number.isFinite(options.streamSampleMaxTokens)
+      ? options.streamSampleMaxTokens
+      : STREAM_SAMPLE_MAX_TOKENS;
+    /** Replaceable clock so tests can make the token window deterministic. */
+    this._streamSampleNow = typeof options.now === "function" ? options.now : Date.now;
+    this._streamSampleLastAt = 0;
+    this._streamSampleBusy = false;
     /** The unit's own address; baseUrl switches to a local forward when only SSH reaches the engine. */
     this._directBase = `http://${llmProbeHost(spark)}:${port}`;
     this.baseUrl = this._directBase;
@@ -126,7 +160,7 @@ export class LlmProbe {
     this._openTunnel = openSshLlmTunnel;
 
     // State
-    this.backendType = null; // 'vllm' | 'llama.cpp' | 'sglang' | 'lmstudio' | 'ollama' | 'ds4' | 'exl3' | 'q27' | 'tensorfold' | 'ninfer' | 'freetoken' | 'radiance' | 'strata' | 'flare' | null
+    this.backendType = null; // 'vllm' | 'llama.cpp' | 'sglang' | 'lmstudio' | 'ollama' | 'ds4' | 'exl3' | 'q27' | 'tensorfold' | 'ninfer' | 'freetoken' | 'radiance' | 'strata' | 'flare' | 'pico' | null
     this.serverIsOpenAI = null; // true = OpenAI-compatible
     /** Whether /v1/models (or /slots) answered without credentials. null = unknown. */
     this.authOpen = null;
@@ -670,7 +704,8 @@ export class LlmProbe {
       this.backendType !== "tensorfold" &&
       this.backendType !== "freetoken" &&
       this.backendType !== "radiance" &&
-      this.backendType !== "flare"
+      this.backendType !== "flare" &&
+      this.backendType !== "pico"
     ) {
       const slotUrl = `${this.baseUrl}/slots`;
       try {
@@ -728,11 +763,11 @@ export class LlmProbe {
 
   /**
    * Classify an OpenAI-compatible server: LM Studio, Ollama, ds4, SGLang,
-   * EXL3, q27, TensorFold, FreeToken, Flare, or vLLM (default).
+   * EXL3, q27, TensorFold, FreeToken, Flare, Pico, or vLLM (default).
    * @param {unknown} ownedBy
    * @param {boolean} [flareCard] `/v1/models` carried Flare's `flare` object (its
    *   `owned_by` is the generic "local", so the card shape is the signal)
-   * @returns {Promise<"lmstudio" | "ollama" | "ds4" | "sglang" | "exl3" | "q27" | "tensorfold" | "freetoken" | "radiance" | "flare" | "vllm">}
+   * @returns {Promise<"lmstudio" | "ollama" | "ds4" | "sglang" | "exl3" | "q27" | "tensorfold" | "freetoken" | "radiance" | "flare" | "pico" | "vllm">}
    */
   async _classifyOpenAIBackend(ownedBy, flareCard = false) {
     // An owned_by that is exactly an engine's own name is classified from the card alone: detection
@@ -747,6 +782,12 @@ export class LlmProbe {
     // LM Studio probe it would both log a 404 a minute and, on the compatibility proxy this is
     // about (200 + JSON on every path), be misclassified as LM Studio before ever being reached.
     if (typeof ownedBy === "string" && /^mlx-serve$/i.test(ownedBy)) return "vllm";
+    // Pico names its model namespace rather than itself: the DeepSeek-on-GB10 card reads
+    // owned_by "dsgb10". Like mlx-serve above it cannot ride OWNED_BY_ENGINES (which returns
+    // the name as the backend), and it must not reach the LM Studio/Ollama probes: detection
+    // re-runs every minute and a Pico would log a 404 each time. The match is exact — a
+    // substring would reach into other engines' namespaces.
+    if (typeof ownedBy === "string" && /^dsgb10$/i.test(ownedBy)) return "pico";
     // LM Studio first: it answers 200 + JSON on every path, so the heuristic
     // probes below (notably SGLang's /server_info) would misfire on it.
     if (await this._probeIsLmStudio()) return "lmstudio";
@@ -1036,6 +1077,8 @@ export class LlmProbe {
         this.backendType = "exl3";
       } else if (/tensorfold/i.test(owned) && this.backendType !== "ds4") {
         this.backendType = "tensorfold";
+      } else if (/^dsgb10$/i.test(owned) && this.backendType !== "ds4") {
+        this.backendType = "pico";
       } else if (/ninfer/i.test(owned) && this.backendType !== "ds4") {
         this.backendType = "ninfer";
       } else if (/freetoken/i.test(owned) && this.backendType !== "ds4") {
@@ -1299,7 +1342,129 @@ export class LlmProbe {
 
     if (this.backendType === "vllm") await this._refreshEngineVersion();
 
+    // Pico has no live counters. A sample belongs only to the poll that measured
+    // it; replaying it on later polls makes an idle engine look busy forever.
+    if (this.backendType === "pico") {
+      this.generationTps = 0;
+      const liveTps = this._liveDecodeTps?.(this.port);
+      if (Number.isFinite(liveTps) && liveTps >= 0) {
+        this.generationTps = liveTps;
+        this.generationTpsSource = "dashboard-stream";
+        this.decodeActive = liveTps > 0;
+      } else {
+        await this._maybeStreamSample();
+        if (this._liveDecodeTps && this.generationTpsSource == null) {
+          this.generationTpsSource = "dashboard-stream";
+        }
+      }
+    }
+
     return this._getSnapshot();
+  }
+
+  /** Run at most one sample per minimum interval; never two at once; never while blocked. */
+  async _maybeStreamSample() {
+    if (!this._streamSampleEnabled || !this._streamSampleEnabled()) return;
+    this.generationTpsSource = "probe-sample";
+    if (this._streamSampleBusy) return;
+    if (this._streamSampleBlocked && this._streamSampleBlocked()) return;
+    const now = this._streamSampleNow();
+    if (now - this._streamSampleLastAt < this._streamSampleMinIntervalMs) return;
+    this._streamSampleLastAt = now;
+    this._streamSampleBusy = true;
+    try {
+      const sample = await this._streamSampleDecode();
+      // Never fall back to an old rate when the current sample cannot be measured.
+      if (sample && sample.tps > 0) {
+        this.generationTps = sample.tps;
+        this.generationTpsSource = "probe-sample";
+      } else {
+        this._markUnmeasured("stream sample has no measurable token window");
+      }
+    } catch {
+      this._markUnmeasured("stream sample failed");
+    } finally {
+      this._streamSampleBusy = false;
+    }
+  }
+
+  /**
+   * One tiny streamed chat completion, measured the way the decode bench measures:
+   * first visible token → last visible token, token count from the usage chunk when
+   * the engine sends one (visible-chunk count as fallback). Thinking is explicitly
+   * off so the window measures decode, not reasoning.
+   */
+  async _streamSampleDecode() {
+    const body = {
+      model: this.modelId || undefined,
+      messages: [{ role: "user", content: STREAM_SAMPLE_PROMPT }],
+      max_tokens: this._streamSampleMaxTokens,
+      temperature: 0,
+      top_p: 1,
+      stream: true,
+      stream_options: { include_usage: true },
+    };
+    applyThinkingFlags(body, this.modelId, false);
+    const started = this._streamSampleNow();
+    const res = await this._fetch(`${this.baseUrl}/v1/chat/completions`, STREAM_SAMPLE_TIMEOUT_MS, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok || !res.body) return null;
+    let firstTokAt = null;
+    let lastTokAt = null;
+    let visibleChunks = 0;
+    let usageTokens = null;
+    for await (const line of LlmProbe._sseLines(res.body)) {
+      if (!line.startsWith("data:")) continue;
+      const payload = line.slice(5).trim();
+      if (!payload || payload === "[DONE]") continue;
+      let chunk = null;
+      try {
+        chunk = JSON.parse(payload);
+      } catch {
+        continue;
+      }
+      const delta = chunk?.choices?.[0]?.delta;
+      const content = typeof delta?.content === "string" ? delta.content : "";
+      const reasoning = typeof delta?.reasoning_content === "string" ? delta.reasoning_content : "";
+      if (content || reasoning) {
+        visibleChunks += 1;
+        const t = this._streamSampleNow();
+        if (firstTokAt == null) firstTokAt = t;
+        lastTokAt = t;
+      }
+      if (chunk?.usage?.completion_tokens != null) {
+        const n = Number(chunk.usage.completion_tokens);
+        if (Number.isFinite(n) && n > 0) usageTokens = n;
+      }
+    }
+    if (firstTokAt == null || lastTokAt == null || lastTokAt <= firstTokAt) return null;
+    const tokens = usageTokens != null ? usageTokens : visibleChunks;
+    if (!(tokens >= 2)) return null;
+    const windowSec = (lastTokAt - firstTokAt) / 1000;
+    // N tokens span N−1 decode intervals.
+    const tps = Math.round((tokens - 1) / windowSec * 100) / 100;
+    return { tps, at: started };
+  }
+
+  /** Yield non-empty SSE lines from a response body (web ReadableStream or async-iterable). */
+  static async *_sseLines(body) {
+    const decoder = new TextDecoder();
+    let buffer = "";
+    for await (const piece of body) {
+      buffer += decoder.decode(piece, { stream: true });
+      let idx;
+      while ((idx = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, idx).replace(/\r$/, "");
+        buffer = buffer.slice(idx + 1);
+        if (line) yield line;
+      }
+    }
+    buffer += decoder.decode();
+    const rest = buffer.trim();
+    if (rest) yield rest;
   }
 
   /**

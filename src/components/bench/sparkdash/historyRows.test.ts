@@ -73,12 +73,16 @@ describe("history rows", () => {
       benchId: "q1",
       startedAt: 1,
       status: "completed",
-      config: { label: "fp4 KV", modelId: "m" },
-      results: { overallPct: 71.234, categories: { qa: {}, code: {} } },
+      config: { label: "fp4 KV", modelId: "m", profile: "default" },
+      results: { overallPct: 71.234, overallCi: [66.1, 75.9], categories: { qa: {}, code: {} } },
     } as unknown as QualityBenchJob;
     const row = qualityHistoryRow(job);
     expect(row.headline).toBe("71.2%");
     expect(row.label).toBe("fp4 KV");
-    expect(row.detail).toBe("2 categories");
+    expect(row.detail).toBe("2 categories · 66.1–75.9 · suite v1 · scoring v1");
+    // WP1: a partial run (custom categories, or saved before profiles) carries no headline.
+    const partial = { ...job, config: { label: "qa only", modelId: "m", categories: ["qa"] } } as unknown as QualityBenchJob;
+    expect(qualityHistoryRow(partial).headline).toBe("—");
+    expect(qualityHistoryRow(partial).detail).toBe("2 categories · suite v1 · scoring v1");
   });
 });

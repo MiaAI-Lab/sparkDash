@@ -34,6 +34,11 @@ import { broadcastForLanIp, effectiveMac, normalizeMac, sendWol } from "./wol.js
 import { checkLocalShutdown, remoteShutdownCommand, spawnLocalShutdown } from "./shutdown.js";
 import { GpuClockManager } from "./gpuclock/GpuClockManager.js";
 import { registerGpuClockFleetRoute, registerGpuClockRoutes } from "./gpuclock/routes.js";
+import { StorageManager } from "./storage/StorageManager.js";
+import { SudoVault } from "./storage/sudoVault.js";
+import { ElevatedDeleteAcks } from "./storage/ackStore.js";
+import { decryptSecret, encryptSecret } from "./secretsStore.js";
+import { registerStorageRoutes } from "./storage/routes.js";
 import {
   backendForPort,
   decodeBenchManager,
@@ -64,7 +69,7 @@ import {
 import { closeLlmStreamAgent } from "./collectors/LlmStreaming.js";
 import { compareSemver, getLatestRelease } from "./collectors/HermesReleases.js";
 import { createModelPricesHandler } from "./prices/ModelPrices.js";
-import { ALERTS_JSON_PATH, FLEET_ENERGY_JSON_PATH, FLEET_ENERGY_MONTHLY_JSON_PATH, MAX_ACTIVE_BENCH_JOBS, METRICS_HISTORY_JSON_PATH } from "./config.js";
+import { ALERTS_JSON_PATH, FLEET_ENERGY_JSON_PATH, FLEET_ENERGY_MONTHLY_JSON_PATH, MAX_ACTIVE_BENCH_JOBS, METRICS_HISTORY_JSON_PATH, STORAGE_ACKS_JSON_PATH, STORAGE_SCANS_JSON_PATH, STORAGE_SUDO_JSON_PATH } from "./config.js";
 import { createAlertsRuntime, registerAlertRoutes } from "./alerts/runtime.js";
 import { FleetEnergyTracker } from "./energy/FleetEnergyTracker.js";
 import { EventLog } from "./events/EventLog.js";
@@ -265,6 +270,9 @@ function rejectLimited(res, message) {
 }
 
 const allowTest = createRateLimiter(20, 60_000);
+// Storage Manager reads have their own bucket: opening the image dialog checks every other Spark at
+// once, and the page also polls, so sharing the 20-a-minute test bucket made those checks fail.
+const allowStorageRead = createRateLimiter(120, 60_000);
 const allowDestructive = createRateLimiter(10, 60_000);
 /** Decode + prefill starts per principal (retries that 400/409 do not count). */
 const allowBench = createRateLimiter(20, 60_000);
@@ -423,6 +431,17 @@ const allowToolEval = createRateLimiter(30, 60_000);
 // ─── Monitor map ─────────────────────────────────────────
 const monitors = new Map();
 
+/** True while a bench, showcase or model launch owns the unit: stream-samples pause. */
+function llmStreamSampleBlocked(sparkId) {
+  return Boolean(
+    decodeBenchManager.getActive(sparkId) ||
+    prefillBenchManager.getActive(sparkId) ||
+    qualityBenchManager.getActive(sparkId) ||
+    showcaseManager.getActive(sparkId) ||
+    launcherManager.activeJob(sparkId)
+  );
+}
+
 // ─── Start monitor for a Spark ───────────────────────────
 function startMonitor(spark) {
   if (monitors.has(spark.id)) return;
@@ -445,6 +464,15 @@ function startMonitor(spark) {
     resolveHeadLlmProgressAt: (headId) => monitors.get(headId)?.llmProgressAt() ?? null,
     // Settings → Poll interval drives the collectors, not just the broadcast.
     pollIntervalMs: getSettings().pollIntervalMs,
+    // Settings → Stream-sample engines without gauges (Pico): the probe measures
+    // decode from its own tiny streamed completion, never while a bench, showcase
+    // or model launch owns the unit.
+    llmProbeOptions: () => ({
+      liveDecodeTps: (port) => decodeBenchManager.getLiveDecodeTps(spark.id, port)
+        ?? showcaseManager.getLiveDecodeTps(spark.id, port),
+      streamSampleEnabled: () => getSettings().llmStreamSample === true,
+      streamSampleBlocked: () => llmStreamSampleBlocked(spark.id),
+    }),
   });
   monitors.set(spark.id, monitor);
   monitor.start();
@@ -1848,48 +1876,52 @@ app.delete("/api/sparks/:id/llm/prefill-bench/:benchId", (req, res) => {
  * Returns 202 job; poll GET :benchId. GET collection returns active, last (full)
  * and history summaries (no per-item rows; fetch a run by id to compare).
  */
-app.post("/api/sparks/:id/llm/quality-bench", async (req, res) => {
-  if (activeBenchJobCount() >= MAX_ACTIVE_BENCH_JOBS) {
-    return res.status(429).json({ error: `Global active benchmark cap (${MAX_ACTIVE_BENCH_JOBS}) reached; wait for a job to finish` });
-  }
-  const spark = registry.getSpark(req.params.id);
-  if (!spark) return res.status(404).json({ error: "Spark not found" });
+/**
+ * Quality bench start checks shared by start and resume: answers the request and returns false
+ * when the unit cannot run one now.
+ */
+function qualityBenchAllowed(spark, res) {
   if (spark.workerNode) {
-    return res.status(400).json({ error: "Worker nodes do not expose a local LLM API" });
+    res.status(400).json({ error: "Worker nodes do not expose a local LLM API" });
+    return false;
   }
   if (spark.llmMonitoring === false) {
-    return res.status(400).json({ error: "LLM monitoring is disabled for this Spark" });
+    res.status(400).json({ error: "LLM monitoring is disabled for this Spark" });
+    return false;
   }
   if (showcaseManager.getActive(spark.id)) {
-    return res.status(409).json({ error: "A prompt showcase is already running for this Spark" });
+    res.status(409).json({ error: "A prompt showcase is already running for this Spark" });
+    return false;
   }
   if (decodeBenchManager.getActive(spark.id)) {
-    return res.status(409).json({ error: "A decode benchmark is already running for this Spark" });
+    res.status(409).json({ error: "A decode benchmark is already running for this Spark" });
+    return false;
   }
   if (prefillBenchManager.getActive(spark.id)) {
-    return res.status(409).json({ error: "A prefill benchmark is already running for this Spark" });
+    res.status(409).json({ error: "A prefill benchmark is already running for this Spark" });
+    return false;
   }
 
-  const monitor = monitors.get(req.params.id);
+  return true;
+}
+
+/**
+ * What a quality run needs from the unit at start, shared by start and resume: the HTTP target
+ * (direct, SSH forward or a custom host), the model id and context length from the live probe,
+ * the engine backend, and the cost side of the run. Throws with `status` on a bad target.
+ */
+async function qualityRunContext(spark, body) {
+  const monitor = monitors.get(spark.id);
   const ports = Array.isArray(spark.llmPorts) && spark.llmPorts.length
     ? spark.llmPorts
     : [resolveLlmPort(spark)];
 
-  let target;
-  try {
-    target = await benchHttpTarget(spark, ports, req.body || {});
-  } catch (err) {
-    return res.status(err.status || 400).json({ error: err.message });
-  }
+  const target = await benchHttpTarget(spark, ports, body);
   const port = target.port;
-  const options = normalizeQualityOptions(req.body || {});
-  if (!options.categories.length) {
-    return res.status(400).json({ error: "Select at least one category" });
-  }
-
   // Model id + context length from the live probe; the job falls back to /v1/models.
-  let modelId = req.body?.modelId || null;
+  let modelId = body?.modelId || null;
   let contextLength = null;
+  let backend = null;
   if (!target.custom && monitor) {
     const snap = monitor.snapshot();
     const llmList = Array.isArray(snap?.metrics?.llm) ? snap.metrics.llm : [];
@@ -1900,7 +1932,56 @@ app.post("/api/sparks/:id/llm/quality-bench", async (req, res) => {
       llmList[0];
     if (!modelId) modelId = llm?.modelId || null;
     contextLength = llm?.contextLength ?? null;
+    backend = typeof llm?.backend === "string" ? llm.backend : null;
   }
+
+  // WP4: the cost side of the run, read once at start: live probe rates and memory, and the last
+  // decode benchmark on this port. Every field may be null; the dashboard shows what it has.
+  const toGb = (v, unit) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Math.round((Number(v) / unit) * 100) / 100 : null);
+  let cost = null;
+  if (!target.custom && monitor) {
+    const snap = monitor.snapshot();
+    const llmList = Array.isArray(snap?.metrics?.llm) ? snap.metrics.llm : [];
+    const portIndex = ports.indexOf(port);
+    const llm = (portIndex >= 0 ? llmList[portIndex] : null) || llmList.find((m) => m?.available) || llmList[0];
+    const gpu = snap?.metrics?.gpu;
+    const decode = decodeBenchManager.getLast(spark.id, port);
+    const waves = Array.isArray(decode?.results) ? decode.results : [];
+    const single = waves.find((w) => Number(w?.concurrency) === 1);
+    cost = {
+      perStreamTps: Number.isFinite(Number(llm?.perStreamTps)) && llm.perStreamTps > 0 ? Math.round(llm.perStreamTps * 10) / 10 : null,
+      generationTps: Number.isFinite(Number(llm?.generationTps)) && llm.generationTps > 0 ? Math.round(llm.generationTps * 10) / 10 : null,
+      decodeTps1: single ? Number(single.medianDecodeTps ?? single.meanDecodeTps) || null : null,
+      decodeTpsBest: waves.length ? Math.max(...waves.map((w) => Number(w?.aggregateDecodeTps) || 0)) || null : null,
+      decodeBenchAt: decode?.startedAt ?? null,
+      weightsGb: Number.isFinite(Number(llm?.weightsGb)) && llm.weightsGb > 0 ? Math.round(llm.weightsGb * 100) / 100 : null,
+      kvCacheGb: Number.isFinite(Number(llm?.kvCacheGb)) && llm.kvCacheGb > 0 ? Math.round(llm.kvCacheGb * 100) / 100 : null,
+      vramUsedGb: toGb(gpu?.vram?.used, 1024),
+      vramTotalGb: toGb(gpu?.vram?.total, 1024),
+    };
+  }
+
+  return { target, port, modelId, contextLength, backend, cost };
+}
+
+app.post("/api/sparks/:id/llm/quality-bench", async (req, res) => {
+  if (activeBenchJobCount() >= MAX_ACTIVE_BENCH_JOBS) {
+    return res.status(429).json({ error: `Global active benchmark cap (${MAX_ACTIVE_BENCH_JOBS}) reached; wait for a job to finish` });
+  }
+  const spark = registry.getSpark(req.params.id);
+  if (!spark) return res.status(404).json({ error: "Spark not found" });
+  if (!qualityBenchAllowed(spark, res)) return;
+  const options = normalizeQualityOptions(req.body || {});
+  if (!options.categories.length) {
+    return res.status(400).json({ error: "Select at least one category" });
+  }
+  let ctx;
+  try {
+    ctx = await qualityRunContext(spark, req.body || {});
+  } catch (err) {
+    return res.status(err.status || 400).json({ error: err.message });
+  }
+  const { target, port, modelId, contextLength, backend, cost } = ctx;
 
   try {
     if (!consumeBenchStartQuota(req, res)) return;
@@ -1910,6 +1991,9 @@ app.post("/api/sparks/:id/llm/quality-bench", async (req, res) => {
       port,
       modelId,
       contextLength,
+      backend,
+      unit: { id: spark.id, name: spark.name || spark.id },
+      cost,
       ...options,
       apiKey: target.apiKey,
       host: target.host,
@@ -1990,6 +2074,59 @@ app.get("/api/sparks/:id/llm/quality-bench/:benchId", (req, res) => {
   res.json(job);
 });
 
+/**
+ * Fidelity comparison of two saved runs on the unit: `?with=<benchId>` is the reference (B), the
+ * route's run is the test (A). Paired ΔNLL with a document bootstrap interval, top-1 agreement,
+ * tail loss and the truncated-support divergence, per document and overall.
+ */
+app.get("/api/sparks/:id/llm/quality-bench/:benchId/fidelity-compare", (req, res) => {
+  const spark = registry.getSpark(req.params.id);
+  if (!spark) return res.status(404).json({ error: "Spark not found" });
+  const withId = typeof req.query.with === "string" ? req.query.with : "";
+  if (!withId) return res.status(400).json({ error: "Pass ?with=<benchId> naming the reference run" });
+  // WP4: the reference may sit on another unit (`withSpark`).
+  const withSpark = typeof req.query.withSpark === "string" && req.query.withSpark ? req.query.withSpark : spark.id;
+  if (withSpark !== spark.id && !registry.getSpark(withSpark)) return res.status(404).json({ error: "Reference unit not found" });
+  const out = qualityBenchManager.compareFidelityRuns(spark.id, req.params.benchId, withId, withSpark);
+  if (!out) return res.status(404).json({ error: "Benchmark not found" });
+  res.json(out);
+});
+
+/**
+ * WP4: every unit's saved quality runs (summaries, newest first) with the unit's name, and the
+ * pinned reference run per model family. The dialog offers these as cross-unit compare targets.
+ */
+app.get("/api/quality-bench/runs", (req, res) => {
+  const names = new Map(registry.publicSparks.map((s) => [s.id, s.name || s.id]));
+  const runs = qualityBenchManager.getFleetSummaries().map((j) => ({
+    ...j,
+    unit: j.unit || { id: j.sparkId, name: names.get(j.sparkId) || j.sparkId },
+  }));
+  res.json({ runs, references: qualityBenchManager.getReferences() });
+});
+
+/** WP4: pin a saved run as the reference for its model family; comparisons default to it. */
+app.put("/api/quality-bench/reference", (req, res) => {
+  const sparkId = typeof req.body?.sparkId === "string" ? req.body.sparkId : "";
+  const benchId = typeof req.body?.benchId === "string" ? req.body.benchId : "";
+  if (!sparkId || !benchId) return res.status(400).json({ error: "sparkId and benchId are required" });
+  if (!registry.getSpark(sparkId)) return res.status(404).json({ error: "Spark not found" });
+  const out = qualityBenchManager.setReference(sparkId, benchId);
+  if (!out.ok) {
+    const status = out.reason === "missing" ? 404 : 409;
+    const message =
+      out.reason === "missing" ? "Benchmark not found" : out.reason === "running" ? "This run is still in flight" : "The run has no model id to pin by";
+    return res.status(status).json({ error: message });
+  }
+  res.json({ ok: true, key: out.key, references: qualityBenchManager.getReferences() });
+});
+
+app.delete("/api/quality-bench/reference/:key", (req, res) => {
+  const out = qualityBenchManager.clearReference(req.params.key);
+  if (!out.ok) return res.status(404).json({ error: "No reference pinned under that key" });
+  res.json({ ok: true, references: qualityBenchManager.getReferences() });
+});
+
 app.delete("/api/sparks/:id/llm/quality-bench/:benchId", (req, res) => {
   const spark = registry.getSpark(req.params.id);
   if (!spark) return res.status(404).json({ error: "Spark not found" });
@@ -2005,6 +2142,74 @@ app.delete("/api/sparks/:id/llm/quality-bench/:benchId", (req, res) => {
     });
   }
   res.json(qualityBenchManager.cancel(spark.id, req.params.benchId));
+});
+
+/**
+ * Pause / resume a run in flight. Pause closes the gate between items: the replies already in
+ * flight finish and count, nothing new is sent until resume; the run keeps its unit slot and its
+ * place. Both are idempotent; a finished run answers 409.
+ */
+app.post("/api/sparks/:id/llm/quality-bench/:benchId/pause", (req, res) => {
+  const spark = registry.getSpark(req.params.id);
+  if (!spark) return res.status(404).json({ error: "Spark not found" });
+  const job = qualityBenchManager.getJob(req.params.benchId);
+  if (!job || job.sparkId !== spark.id) {
+    return res.status(404).json({ error: "Benchmark not found" });
+  }
+  if (job.status !== "running") {
+    return res.status(409).json({ error: "This run has already finished; nothing to pause" });
+  }
+  res.json(qualityBenchManager.pause(spark.id, req.params.benchId));
+});
+
+/**
+ * Resume reopens a paused run (200), or relaunches a finished one from its saved rows (202): a run
+ * interrupted by a server restart, stopped by an error streak or cancelled keeps the items it
+ * scored and carries on with the rest under the same id. 409 when there is nothing to continue.
+ */
+app.post("/api/sparks/:id/llm/quality-bench/:benchId/resume", async (req, res) => {
+  const spark = registry.getSpark(req.params.id);
+  if (!spark) return res.status(404).json({ error: "Spark not found" });
+  const job = qualityBenchManager.getJob(req.params.benchId);
+  if (!job || job.sparkId !== spark.id) {
+    return res.status(404).json({ error: "Benchmark not found" });
+  }
+  if (job.status === "running") {
+    return res.json(qualityBenchManager.resume(spark.id, req.params.benchId));
+  }
+  if (!job.resumable) {
+    return res.status(409).json({
+      error: job.status === "completed" ? "This run finished; nothing to resume" : "This run cannot be continued from its saved rows",
+    });
+  }
+  if (activeBenchJobCount() >= MAX_ACTIVE_BENCH_JOBS) {
+    return res.status(429).json({ error: `Global active benchmark cap (${MAX_ACTIVE_BENCH_JOBS}) reached; wait for a job to finish` });
+  }
+  if (!qualityBenchAllowed(spark, res)) return;
+  let ctx;
+  try {
+    ctx = await qualityRunContext(spark, {
+      port: job.config.port,
+      modelId: job.config.modelId,
+      ...(job.config.host ? { host: job.config.host, tls: job.config.tls } : {}),
+    });
+  } catch (err) {
+    return res.status(err.status || 400).json({ error: err.message });
+  }
+  try {
+    if (!consumeBenchStartQuota(req, res)) return;
+    const started = qualityBenchManager.resumeRun(spark.id, job.benchId, {
+      lanIp: llmProbeHost(spark),
+      apiKey: ctx.target.apiKey,
+      resolveTarget: ctx.target.resolveTarget,
+      backend: ctx.backend,
+      unit: { id: spark.id, name: spark.name || spark.id },
+      cost: ctx.cost,
+    });
+    res.status(202).json(started);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
 });
 
 /**
@@ -2347,8 +2552,8 @@ registerGpuClockFleetRoute(app, {
   rejectLimited,
 });
 
-// GPU clock cap (nvidia-smi -lgc, optionally kept across reboots by a systemd service).
-// Needs root on the unit: the local unit runs as root in the host mount namespace, a
+// GPU clock cap (nvidia-smi -lgc) and per-card power limit (nvidia-smi -pl), each optionally
+// kept across reboots by a systemd service. Needs root on the unit: the local unit runs as root in the host mount namespace, a
 // remote one uses `sudo -n` as its SSH user. Same auth and limiters as power actions.
 registerGpuClockRoutes(app, {
   manager: gpuClockManager,
@@ -2357,6 +2562,31 @@ registerGpuClockRoutes(app, {
   allowRead: (req) => allowTest(principalKey(req)),
   allowChange: (req) => allowDestructive(principalKey(req)) && allowGlobalDestructive(clientKey(req)),
   rejectLimited,
+  allowPlainPassword: () => getSettings().allowPlainSudoPassword === true,
+});
+
+// Storage Manager: disk use of a Spark's folders and Docker images, and deleting them. Deleting
+// needs the right to remove the item: the unit's SSH user, or root through sudo (a typed password
+// is used once). Same auth and limiters as the GPU clock.
+registerStorageRoutes(app, {
+  manager: new StorageManager({
+    scansFile: STORAGE_SCANS_JSON_PATH,
+    vault: new SudoVault({ file: STORAGE_SUDO_JSON_PATH, encrypt: encryptSecret, decrypt: decryptSecret }),
+    acks: new ElevatedDeleteAcks({ file: STORAGE_ACKS_JSON_PATH }),
+    // A delete on the machine the dashboard runs on never removes or reaches into its own config or install.
+    protectedPaths: [path.dirname(STORAGE_SCANS_JSON_PATH), ROOT],
+  }),
+  registry,
+  recordEvent,
+  allowRead: (req) => allowStorageRead(principalKey(req)),
+  allowChange: (req) => allowDestructive(principalKey(req)) && allowGlobalDestructive(clientKey(req)),
+  rejectLimited,
+  allowPlainPassword: () => getSettings().allowPlainSudoPassword === true,
+  // The delete advisor's "referenced by SparkDash": this Spark's model launchers and the LLM servers it watches.
+  adviceRefs: (spark) => ({
+    launchers: launcherStore.list(spark.id),
+    llm: monitors.get(spark.id)?.snapshot()?.metrics?.llm ?? [],
+  }),
 });
 
 app.post("/api/sparks/:id/wake", async (req, res) => {

@@ -12,6 +12,8 @@
     "stats": "统计",
     "settings": "设置",
     "benchmarks": "基准测试",
+    "benchsTools": "基准与工具",
+    "storage": "存储",
     "fleet": "集群",
     "brandOverview": "sparkDash 总览",
     "openSearch": "打开命令面板",
@@ -74,6 +76,10 @@
     "toolEval": {
       "label": "工具评测",
       "blurb": "涵盖 69 个确定性场景的工具调用质量（选择、参数、多步、安全）。"
+    },
+    "qualityCompare": {
+      "label": "质量比较",
+      "blurb": "任意两次已保存的质量运行并排比较，可跨单元。"
     }
   },
   "palette": {

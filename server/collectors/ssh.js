@@ -356,6 +356,8 @@ export function remoteArgvFor(spark, cmd) {
 export async function sshExec(spark, cmd, options = {}) {
   const timeoutMs =
     Number.isFinite(options.timeoutMs) && options.timeoutMs > 0 ? options.timeoutMs : 10000;
+  // Largest answer accepted (default 10 MB); a caller that expects more, like a disk scan, says so.
+  const maxBuffer = Number.isFinite(options.maxBuffer) && options.maxBuffer > 0 ? options.maxBuffer : 10 * 1024 * 1024;
 
   if (typeof cmd !== "string" || !cmd) {
     throw new Error("SSH command must be a non-empty string");
@@ -369,7 +371,7 @@ export async function sshExec(spark, cmd, options = {}) {
 
   const execute = (execArgs) =>
     new Promise((resolve, reject) => {
-      const child = execFile(file, execArgs, { timeout: timeoutMs, env, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
+      const child = execFile(file, execArgs, { timeout: timeoutMs, env, maxBuffer }, (err, stdout, stderr) => {
         const outcome = sshExecOutcome({
           error: err,
           stdout,

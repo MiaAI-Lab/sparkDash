@@ -24,7 +24,7 @@ describe("quality compare view logic", () => {
     expect(v?.tone).toBe("noise");
     expect(v?.onlyA).toBe(1);
     expect(v?.onlyB).toBe(1);
-    expect(v?.text).toContain("within noise");
+    expect(v?.text).toContain("insufficient evidence of a difference");
   });
 
   it("calls a lopsided split significant in the right direction", () => {

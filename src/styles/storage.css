@@ -1,0 +1,2940 @@
+/* Storage Manager page. Everything is scoped under .st (page) or .st-dialog (confirmations). */
+.st {
+  --st-c0: var(--color-accent);
+  --st-c1: var(--color-info);
+  --st-c2: var(--color-violet);
+  --st-c3: var(--color-success);
+  --st-c4: var(--color-mem-engine);
+  --st-c5: var(--color-warning);
+  --st-c-rest: var(--color-border-strong);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+.st > .page-head {
+  margin-bottom: 2px;
+}
+.st [hidden] {
+  display: none !important;
+}
+.st .mono,
+.st-dialog .mono {
+  font-family: "Geist Mono Variable", "Geist Mono", ui-monospace, monospace;
+}
+
+/* ─── Page-level fields ──────────────────────────────────── */
+.st :is(input[type="text"], input[type="password"], input[type="search"]) {
+  min-height: 2.5rem;
+  min-width: 0;
+  padding: 0.5rem 0.8rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 10px;
+  background: var(--color-surface-elevated);
+  color: var(--color-text);
+  font-size: 0.8125rem;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.st :is(input[type="text"], input[type="password"], input[type="search"]):focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-soft);
+}
+.st .field,
+.st-dialog .field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.st .field > label,
+.st-dialog .field > label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-muted-strong);
+}
+.st-hint {
+  font-size: 0.6875rem;
+  line-height: 1.45;
+  color: var(--color-muted);
+}
+.st :focus-visible,
+.st-dialog :focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* ─── Shared bars ────────────────────────────────────────── */
+.st-bar,
+.st-spark__bar {
+  display: block;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: var(--color-surface-hover);
+}
+.st-bar > i,
+.st-spark__bar > i {
+  display: block;
+  width: var(--w, 0%);
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-info);
+  transition: width 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.st-bar > i.is-warn,
+.st-spark__bar > i.is-warn {
+  background: var(--color-warning);
+}
+.st-bar > i.is-bad,
+.st-spark__bar > i.is-bad {
+  background: var(--color-danger);
+}
+
+/* ─── Spark picker ───────────────────────────────────────── */
+.st-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(230px, 100%), 1fr));
+  gap: 10px;
+}
+.st-spark {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+.st-spark:hover:not(:disabled) {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-elevated);
+}
+.st-spark.is-active {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-soft);
+}
+.st-spark:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.st-spark__top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.st-spark__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.st-spark__sub {
+  font-size: 12px;
+  color: var(--color-muted);
+}
+
+/* ─── Disk summary ───────────────────────────────────────── */
+.st-disks {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr));
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+.st-disk {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 16px 18px;
+}
+.st-disk + .st-disk {
+  border-left: 1px solid var(--color-border);
+}
+.st-disk__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+.st-disk__name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--color-muted);
+}
+.st-disk__name b {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.st-disk__dev {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+  color: var(--color-faint);
+}
+.st-disk__free {
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-strong);
+}
+.st-disk__free.is-warn {
+  color: var(--color-warning);
+}
+.st-disk__free.is-bad {
+  color: var(--color-danger);
+}
+.st-disk__foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+}
+.st-disk__warn {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-danger);
+}
+@media (max-width: 720px) {
+  .st-disk + .st-disk {
+    border-left: 0;
+    border-top: 1px solid var(--color-border);
+  }
+}
+
+/* ─── Tabs ───────────────────────────────────────────────── */
+.st-tabs {
+  align-self: flex-start;
+  max-width: 100%;
+}
+.st-tabs > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 14px;
+  font-size: 13px;
+}
+.st-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+/* ─── Messages and states ────────────────────────────────── */
+.st-state {
+  padding: 30px 22px;
+  text-align: center;
+}
+.st-state h2 {
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.st-state p {
+  max-width: 62ch;
+  margin: 0 auto 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-muted);
+}
+.st-state p:last-child {
+  margin-bottom: 0;
+}
+.st-state__admin {
+  max-width: 420px;
+  margin: 0 auto 14px;
+  text-align: left;
+}
+.st-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 14px;
+  border: 1px solid var(--st-tone-line, var(--color-border));
+  border-radius: 12px;
+  background: var(--st-tone-bg, var(--color-surface));
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-text);
+}
+.st-banner__icon {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--st-tone, var(--color-muted));
+}
+.st-banner__text {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.st-banner__action {
+  flex-shrink: 0;
+}
+.st-banner__x {
+  flex-shrink: 0;
+  padding: 4px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--color-muted);
+}
+.st-banner__x:hover {
+  color: var(--color-text);
+  background: var(--color-surface-hover);
+}
+.st-banner.is-ok {
+  --st-tone: var(--color-success);
+  --st-tone-line: color-mix(in srgb, var(--color-success) 35%, transparent);
+  --st-tone-bg: color-mix(in srgb, var(--color-success) 9%, var(--color-surface));
+}
+.st-banner.is-info {
+  --st-tone: var(--color-info);
+  --st-tone-line: color-mix(in srgb, var(--color-info) 35%, transparent);
+  --st-tone-bg: color-mix(in srgb, var(--color-info) 9%, var(--color-surface));
+}
+.st-banner.is-warn {
+  --st-tone: var(--color-warning);
+  --st-tone-line: color-mix(in srgb, var(--color-warning) 38%, transparent);
+  --st-tone-bg: color-mix(in srgb, var(--color-warning) 10%, var(--color-surface));
+}
+.st-banner.is-error {
+  --st-tone: var(--color-danger);
+  --st-tone-line: color-mix(in srgb, var(--color-danger) 38%, transparent);
+  --st-tone-bg: color-mix(in srgb, var(--color-danger) 10%, var(--color-surface));
+}
+@media (max-width: 640px) {
+  .st-banner {
+    flex-wrap: wrap;
+  }
+  .st-banner__action {
+    width: 100%;
+    padding-left: 26px;
+  }
+}
+
+/* ─── Analyse panel ──────────────────────────────────────── */
+.st-analyse {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 22px;
+}
+.st-analyse__head h2 {
+  margin: 0 0 4px;
+  font-size: 18px;
+  font-weight: 620;
+  letter-spacing: -0.015em;
+  color: var(--color-text-strong);
+}
+.st-analyse__head p {
+  max-width: 68ch;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--color-muted);
+}
+.st-choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr));
+  gap: 10px;
+}
+.st-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+.st-choice:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-elevated);
+}
+.st-choice.is-active {
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 7%, var(--color-surface));
+  box-shadow: 0 0 0 3px var(--color-accent-soft);
+}
+.st-choice__icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: var(--color-surface-hover);
+  color: var(--color-muted-strong);
+}
+.st-choice.is-active .st-choice__icon {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-text);
+}
+.st-choice__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.st-choice__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.st-choice__path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+  color: var(--color-accent-text);
+}
+.st-choice__hint {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--color-muted);
+}
+.st-analyse__custom {
+  max-width: 560px;
+}
+.st-folderpicker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.st-picker__crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  min-height: 30px;
+  font-size: 13px;
+}
+.st-picker__crumbwrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--color-muted);
+}
+.st-picker__crumb {
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-accent-text);
+  font: inherit;
+  cursor: pointer;
+}
+.st-picker__crumb:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+}
+.st-picker__crumb:disabled {
+  color: var(--color-text-strong);
+  font-weight: 600;
+  cursor: default;
+}
+.st-picker__list {
+  height: 15rem;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+}
+.st-picker__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.st-picker__row:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+}
+.st-picker__row.is-up {
+  color: var(--color-muted-strong);
+}
+.st-picker__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.st-picker__note {
+  padding: 10px;
+  font-size: 12.5px;
+  color: var(--color-muted);
+}
+.st-picker__note.is-warn {
+  color: var(--color-warning);
+}
+.st-picker__chosen {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-muted-strong);
+  overflow-wrap: anywhere;
+}
+
+/* ─── Administrator access ───────────────────────────────── */
+.st-admin {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface-elevated);
+}
+.st-admin.is-on {
+  border-color: color-mix(in srgb, var(--color-info) 40%, var(--color-border));
+}
+.st-admin__note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-muted);
+}
+.st-admin__note.is-warn {
+  color: var(--color-warning);
+}
+.st-admin__field {
+  max-width: 460px;
+}
+.st-admin__row {
+  display: flex;
+  gap: 8px;
+}
+.st-admin__row input {
+  flex: 1 1 0;
+}
+.st-switch {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  cursor: pointer;
+}
+.st-switch input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+.st-switch__track {
+  position: relative;
+  flex-shrink: 0;
+  width: 36px;
+  height: 20px;
+  margin-top: 1px;
+  border-radius: 99px;
+  background: var(--toggle-track-off);
+  transition: background 0.15s;
+}
+.st-switch__track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--toggle-dot);
+  transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.st-switch input:checked + .st-switch__track {
+  background: var(--toggle-track-on);
+}
+.st-switch input:checked + .st-switch__track::after {
+  transform: translateX(16px);
+}
+.st-switch input:focus-visible + .st-switch__track {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+.st-switch input:disabled ~ * {
+  opacity: 0.6;
+}
+.st-switch__label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.st-switch__label b {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.st-switch__label small {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--color-muted);
+}
+.st-analyse__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.st-analyse__go {
+  max-width: 100%;
+  min-width: 0;
+  padding: 10px 20px;
+  font-size: 14px;
+}
+.st-analyse__busy {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  text-align: right;
+  color: var(--color-muted-strong);
+}
+.st-looking__note {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12.5px;
+  text-align: center;
+  color: var(--color-warning);
+}
+.st-problem {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  line-height: 1.45;
+}
+.st-problem svg {
+  margin-top: 2px;
+}
+
+/* ─── Progress ───────────────────────────────────────────── */
+.st-progress {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 34px 22px 26px;
+  text-align: center;
+}
+.st-progress__spin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--color-accent-soft);
+  color: var(--color-accent-text);
+}
+.st-progress__spin svg,
+.st-looking__spin {
+  animation: st-spin 1.1s linear infinite;
+}
+.st-progress h2 {
+  margin: 4px 0 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  font-size: 17px;
+  font-weight: 620;
+  color: var(--color-text-strong);
+}
+.st-progress p {
+  max-width: 56ch;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--color-muted);
+}
+.st-progress__bar {
+  position: relative;
+  width: min(440px, 100%);
+  height: 6px;
+  margin-top: 6px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: var(--color-surface-hover);
+}
+.st-progress__bar > i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 34%;
+  border-radius: inherit;
+  background: var(--color-accent);
+  animation: st-slide 1.5s ease-in-out infinite;
+}
+.st-progress__meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12.5px;
+  color: var(--color-muted);
+}
+/* What stopping can and cannot do here: two lines are reserved, so the card does not jump when it appears. */
+.st-progress .st-progress__note {
+  min-height: calc(2 * 1.55em);
+  font-size: 12.5px;
+}
+.st-progress .st-progress__note.is-warn {
+  color: var(--color-warning);
+}
+/* "Stop scan" / "Stopping…" / "Try stopping again" share one width; "Stops by itself" is plain text. */
+.st-stop {
+  min-width: 9.5em;
+  justify-content: center;
+}
+.st-stop--self {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  font-size: 12.5px;
+  color: var(--color-muted-strong);
+}
+@keyframes st-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes st-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .st-progress__spin svg,
+  .st-looking__spin {
+    animation: none;
+  }
+  .st-progress__bar > i {
+    width: 100%;
+    animation: none;
+    opacity: 0.45;
+  }
+  .st-bar > i,
+  .st-spark__bar > i,
+  .st-row__bar > i {
+    transition: none;
+  }
+}
+
+/* ─── Folder browser ─────────────────────────────────────── */
+.st-browser {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+}
+.st-browser__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 14px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+.st-browser__tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.st-crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  font-size: 13.5px;
+}
+.st-crumbs__sep {
+  flex-shrink: 0;
+  color: var(--color-faint);
+}
+.st-crumbs__link {
+  padding: 3px 7px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--color-muted-strong);
+  font: inherit;
+  cursor: pointer;
+}
+.st-crumbs__link:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-strong);
+}
+.st-crumbs__here {
+  padding: 3px 7px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+  overflow-wrap: anywhere;
+}
+.st-folder {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 18px 16px;
+}
+.st-folder__size {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+}
+.st-folder__num {
+  font-size: 34px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  color: var(--color-text-strong);
+}
+.st-folder__label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 13.5px;
+  color: var(--color-muted);
+}
+.st-folder__label b {
+  font-weight: 500;
+  color: var(--color-muted-strong);
+}
+.st-share {
+  display: flex;
+  gap: 2px;
+  height: 14px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: var(--color-surface-hover);
+}
+.st-share > i {
+  flex: 0 0 var(--w);
+  min-width: 2px;
+  background: var(--c);
+}
+.st-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.st-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  font-size: 12.5px;
+  color: var(--color-muted-strong);
+}
+.st-legend li > i {
+  flex-shrink: 0;
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  background: var(--c);
+}
+.st-legend__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.st-legend__pct {
+  color: var(--color-muted);
+}
+.st-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--color-border);
+}
+.st-images .st-toolbar {
+  border-top: 0;
+  padding-inline: 0;
+}
+.st-search {
+  display: flex;
+  flex: 1 1 200px;
+  align-items: center;
+  gap: 8px;
+  max-width: 340px;
+  padding-left: 11px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 10px;
+  background: var(--color-surface-elevated);
+  color: var(--color-muted);
+}
+.st-search:focus-within {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-soft);
+}
+.st .st-search input {
+  flex: 1 1 0;
+  min-height: 2.25rem;
+  padding: 0.3rem 0.4rem 0.3rem 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+.st-search button {
+  padding: 8px 10px;
+  border: 0;
+  background: none;
+  color: var(--color-muted);
+}
+
+/* ─── Rows ───────────────────────────────────────────────── */
+/* Name | bar | size | share | last changed | (frees, only when something here is shared) | delete */
+.st-list {
+  --st-act-w: 34px;
+  --st-bar: minmax(80px, 22%);
+  --st-cols: minmax(0, 1fr) var(--st-bar) 78px 46px 96px var(--st-act-w);
+}
+.st-list.has-frees {
+  --st-bar: minmax(80px, 18%);
+  --st-cols: minmax(0, 1fr) var(--st-bar) 78px 46px 96px 82px var(--st-act-w);
+}
+/* Middle widths: a shorter bar, so the names keep their room next to the number columns. */
+@media (max-width: 1180px) {
+  .st-list,
+  .st-list.has-frees {
+    --st-bar: minmax(40px, 10%);
+  }
+}
+.st-cols,
+.st-row {
+  display: grid;
+  grid-template-columns: var(--st-cols);
+  align-items: center;
+  gap: 12px;
+}
+.st-cols {
+  padding: 7px 16px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface-elevated);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+.st-cols > :nth-child(n + 3) {
+  text-align: right;
+}
+.st-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.st-row {
+  padding: 0 16px;
+  border-top: 1px solid var(--color-border);
+  transition: background 0.12s;
+}
+.st-row:first-child {
+  border-top: 0;
+}
+.st-row:hover {
+  background: var(--color-surface-elevated);
+}
+.st-row__open {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 6px 0;
+  border: 0;
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+}
+button.st-row__open {
+  cursor: pointer;
+}
+button.st-row__open:disabled {
+  cursor: progress;
+  opacity: 0.55;
+}
+.st-row__icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--color-faint);
+}
+.st-row__icon.is-dir {
+  color: var(--color-accent-text);
+}
+.st-row__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 500;
+}
+button.st-row__open:hover:not(:disabled) .st-row__name {
+  color: var(--color-text-strong);
+  text-decoration: underline;
+  text-decoration-color: var(--color-border-strong);
+  text-underline-offset: 3px;
+}
+.st-row__chev {
+  flex-shrink: 0;
+  color: var(--color-faint);
+  opacity: 0;
+  transition: opacity 0.12s, transform 0.12s;
+}
+.st-row:hover .st-row__chev,
+button.st-row__open:focus-visible .st-row__chev {
+  opacity: 1;
+  transform: translateX(2px);
+}
+.st-row__bar {
+  display: block;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: var(--color-surface-hover);
+}
+.st-row__bar > i {
+  display: block;
+  width: var(--w);
+  height: 100%;
+  border-radius: inherit;
+  background: var(--c);
+  transition: width 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.st-row__size {
+  font-size: 13px;
+  font-weight: 500;
+  text-align: right;
+  color: var(--color-text-strong);
+}
+.st-row__pct {
+  font-size: 12px;
+  text-align: right;
+  color: var(--color-muted);
+}
+/* Its cells are the row's own columns here; on narrow screens it becomes the line under the size. */
+.st-row__meta {
+  display: contents;
+}
+/* When anything inside last changed. Quiet: recent reads muted, a year or more slightly stronger. */
+.st-row__date {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+  color: var(--color-muted);
+}
+.st-row__date.is-old {
+  color: var(--color-muted-strong);
+}
+.st-row__date.is-unknown {
+  color: var(--color-faint);
+  cursor: help;
+}
+.st-row__act {
+  display: flex;
+  justify-content: flex-end;
+}
+.st-del,
+.st-lock {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--color-muted);
+  opacity: 0.7;
+  transition: background 0.12s, color 0.12s, opacity 0.12s;
+}
+.st-del {
+  cursor: pointer;
+}
+.st-row:hover .st-del,
+.st-del:focus-visible {
+  opacity: 1;
+}
+.st-del:hover {
+  background: color-mix(in srgb, var(--color-danger) 14%, transparent);
+  color: var(--color-danger);
+}
+.st-lock {
+  cursor: help;
+  color: var(--color-faint);
+}
+.st-row--rest .st-row__open {
+  color: var(--color-muted);
+  font-style: italic;
+}
+.st-row--rest .st-row__name {
+  font-weight: 400;
+}
+.st-rows__none {
+  padding: 22px 16px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--color-muted);
+}
+.st-empty {
+  padding: 22px 18px 26px;
+  border-top: 1px solid var(--color-border);
+  text-align: center;
+  font-size: 13px;
+  color: var(--color-muted);
+}
+.st-empty p {
+  margin: 0;
+}
+.st-looking {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 12px;
+  color: var(--color-muted-strong);
+}
+.st-looking p {
+  margin: 0;
+  max-width: 60ch;
+}
+.st-looking.is-error {
+  flex-direction: column;
+  color: var(--color-danger);
+}
+.st-looking.is-error > div {
+  align-self: stretch;
+  max-width: 420px;
+  margin-inline: auto;
+  text-align: left;
+}
+@media (max-width: 720px) {
+  .st-cols {
+    display: none;
+  }
+  .st-row {
+    grid-template-columns: minmax(0, 1fr) auto 34px;
+    gap: 8px;
+    padding-inline: 12px;
+  }
+  .st-row__bar,
+  .st-row__pct {
+    display: none;
+  }
+  .st-del {
+    opacity: 1;
+  }
+  .st-folder__num {
+    font-size: 28px;
+  }
+}
+
+/* ─── Docker ─────────────────────────────────────────────── */
+.st-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr));
+  gap: 10px;
+}
+.st-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface);
+}
+.st-tile__label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+.st-tile__size {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--color-text-strong);
+}
+.st-tile__sub {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--color-muted);
+}
+.st-tiles__root {
+  grid-column: 1 / -1;
+  margin: 2px 2px 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-muted);
+}
+.st-images {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px 14px;
+}
+.st-images__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px 16px;
+}
+.st-images__head h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 620;
+  color: var(--color-text-strong);
+}
+.st-images__head p {
+  max-width: 70ch;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-muted);
+}
+.st-images__head p b {
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.st-images__tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.st-images__foot {
+  margin: 0;
+}
+.st-imgs {
+  margin: 0 -18px;
+  padding: 0;
+  list-style: none;
+  border-block: 1px solid var(--color-border);
+}
+.st-img {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto 78px;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 18px;
+  transition: background 0.12s;
+}
+.st-img + .st-img {
+  border-top: 1px solid var(--color-border);
+}
+.st-img:hover {
+  background: var(--color-surface-elevated);
+}
+.st-img.is-selected {
+  background: color-mix(in srgb, var(--color-danger) 7%, var(--color-surface));
+}
+.st-img__check {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--color-danger);
+}
+.st-img__check:disabled {
+  opacity: 0.35;
+}
+.st-img__main {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.st-img__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-strong);
+}
+.st-img.is-locked .st-img__name {
+  color: var(--color-text);
+}
+.st-img__more {
+  font-weight: 400;
+  color: var(--color-muted);
+}
+.st-img__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.st-img__size {
+  font-size: 13px;
+  font-weight: 500;
+  text-align: right;
+  color: var(--color-text-strong);
+}
+.st-actionbar {
+  position: sticky;
+  bottom: 14px;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 14px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-shell);
+  font-size: 13px;
+  color: var(--color-muted-strong);
+}
+.st-actionbar > span {
+  margin-right: auto;
+}
+@media (max-width: 640px) {
+  .st-img {
+    grid-template-columns: 22px minmax(0, 1fr) 68px;
+    gap: 10px;
+    padding-inline: 14px;
+  }
+  .st-img__tag {
+    display: none;
+  }
+  .st-imgs {
+    margin-inline: -18px;
+  }
+  .st-actionbar {
+    bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* ─── Confirmation dialogs ───────────────────────────────── */
+.st-dialog {
+  max-width: 32rem;
+}
+.st-target {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface-elevated);
+}
+.st-target__icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
+}
+.st-target__name {
+  overflow-wrap: anywhere;
+  font-size: 15px;
+  font-weight: 620;
+  color: var(--color-text-strong);
+}
+.st-target__path {
+  margin-top: 1px;
+  overflow-wrap: anywhere;
+  font-size: 11.5px;
+  color: var(--color-muted);
+}
+.st-target__meta {
+  margin-top: 4px;
+  font-size: 12.5px;
+  color: var(--color-muted-strong);
+}
+.st-target__meta b {
+  color: var(--color-text-strong);
+}
+.st-dialog .st-hint {
+  font-size: 0.75rem;
+}
+.st-dialog .check-row small {
+  display: block;
+}
+.st-dialog .st-admin__note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-muted);
+}
+.st-dialog .st-admin__note.is-warn {
+  color: var(--color-warning);
+}
+.st-dialog .st-admin__row {
+  display: flex;
+  gap: 8px;
+}
+.st-dialog .st-admin__row input {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.st-command {
+  width: 100%;
+  resize: none;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 10px;
+  background: var(--color-surface-elevated);
+  color: var(--color-text);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.st-imglist {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.st-imglist li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 12px;
+  align-items: baseline;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+.st-imglist li + li {
+  border-top: 1px solid var(--color-border);
+}
+.st-imglist__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--color-text-strong);
+}
+.st-imglist__id,
+.st-imglist__size {
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.st-imglist .st-imglist__more {
+  display: block;
+  color: var(--color-muted);
+  font-size: 12.5px;
+}
+
+.st-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-accent-text);
+  font: inherit;
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--color-accent-text) 40%, transparent);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.st-link:hover {
+  text-decoration-color: currentColor;
+}
+.st-toolbar__group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.st-img--container {
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+}
+
+.st-peers {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface-elevated);
+}
+.st-peers__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.st-peers__row {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-muted-strong);
+}
+.st-peers__row.is-error {
+  color: var(--color-warning);
+}
+.st-peers .st-hint {
+  margin: 0;
+}
+.st-peers__detail {
+  min-height: 1.45em;
+}
+.st-peers__row.is-error .st-peers__detail {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.st-peers__row.is-none {
+  opacity: 0.6;
+}
+
+.st-analysed {
+  align-self: center;
+  padding-right: 4px;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.st-analysed.is-old {
+  color: var(--color-warning);
+}
+.st-admin__saved {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+.st-admin__saved .st-admin__note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  flex: 1 1 260px;
+}
+.st-admin__remember {
+  font-size: 12.5px;
+}
+
+/* ─── Shared (hard-linked) bytes ─────────────────────────── */
+.st-row__bar > i {
+  position: relative;
+  display: block;
+}
+/* The part of the bar held by files that are also linked from elsewhere: hatched, in the same colour. */
+.st-row__bar > i > b {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--sw);
+  border-radius: inherit;
+  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--color-surface) 62%, transparent) 0 3px, transparent 3px 6px);
+}
+.st-hatch {
+  display: inline-block;
+  width: 14px;
+  height: 8px;
+  margin-right: 4px;
+  border-radius: 3px;
+  background: repeating-linear-gradient(135deg, var(--color-muted) 0 2px, transparent 2px 4px);
+  vertical-align: baseline;
+}
+.st-note {
+  margin: 0;
+  padding: 9px 16px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface-elevated);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-muted);
+}
+.st-note b {
+  font-weight: 600;
+  color: var(--color-muted-strong);
+}
+.st-folder__shared {
+  color: var(--color-muted);
+}
+.st-row__frees {
+  font-size: 12.5px;
+  text-align: right;
+  color: var(--color-muted-strong);
+}
+.st-row__frees.is-zero,
+.st-target__meta b.is-zero {
+  color: var(--color-warning);
+}
+.st-shared-box {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.8rem 0.95rem;
+  border: 1px solid color-mix(in srgb, var(--color-info) 35%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-info) 9%, transparent);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--color-muted-strong);
+}
+.st-shared-box b {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.st-shared-box.is-zero {
+  border-color: color-mix(in srgb, var(--color-warning) 45%, transparent);
+  background: color-mix(in srgb, var(--color-warning) 11%, transparent);
+}
+.st-shared-box.is-zero b {
+  color: var(--color-warning);
+}
+
+
+.st-dialog .st-admin__field {
+  max-width: none;
+}
+.st-admin__remember span {
+  white-space: nowrap;
+}
+.st-dialog .st-admin__row input {
+  max-width: none;
+}
+
+/* ─── One size, whatever is ticked ───────────────────────── */
+.st-dialog {
+  width: min(32rem, 100%);
+  max-width: 32rem;
+  box-sizing: border-box;
+}
+/* Parts that appear on a tick stay laid out but invisible, so the dialog is exactly as big as it needs to be
+   and ticking changes nothing about it. */
+.st-reserve.is-off,
+.st-admin__rememberhint.is-off {
+  visibility: hidden;
+}
+.st-admin__remember span {
+  white-space: normal;
+}
+
+/* Compact spacing inside the dialogs, so the longest state fits without a scrollbar on a normal window. */
+.st-dialog .modal-sheet__stack {
+  gap: 0.75rem;
+}
+.st-dialog .danger-box {
+  gap: 0.2rem;
+  padding: 0.65rem 0.85rem;
+}
+.st-dialog .st-admin__field {
+  gap: 0.3rem;
+}
+
+.st-dialog .modal-sheet__body {
+  padding-block: 1rem;
+}
+.st-dialog .danger-box {
+  display: block;
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+.st-dialog .danger-box b {
+  display: inline;
+  margin-right: 0.35rem;
+}
+.st-dialog .st-target {
+  padding: 0.65rem 0.8rem;
+}
+
+/* A label in front of a text field points at the field: show the text cursor, not the hand (check boxes keep it). */
+.st .field > label:not(.check-row),
+.st-dialog .field > label:not(.check-row) {
+  cursor: text;
+}
+.st-dialog .check-row,
+.st .st-switch {
+  cursor: pointer;
+}
+
+/* A caption that is text to select, not a label that grabs focus (see DeleteDialog). */
+.st-dialog .st-field-label {
+  display: block;
+  line-height: 1.5;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-muted-strong);
+  cursor: text;
+  user-select: text;
+}
+/* One click selects the whole name, ready to copy. */
+.st-selectable {
+  margin-inline: 0.2em;
+  user-select: all;
+  cursor: text;
+}
+
+/* ─── Slice 0: offline Sparks, execution context, trust note, Docker provenance ─── */
+/* An offline Spark can be picked to view its saved analysis: a dashed edge says it is not live. */
+.st-spark.is-offline {
+  border-style: dashed;
+}
+.st-spark.is-offline .st-spark__name {
+  color: var(--color-muted-strong);
+}
+.st-disk__ctx {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--color-muted);
+}
+.st-trust {
+  margin: 2px 2px 0;
+}
+.st-trust b {
+  font-weight: 600;
+  color: var(--color-muted-strong);
+}
+.st-class {
+  margin-right: 4px;
+  vertical-align: 1px;
+}
+.st-imglist__built {
+  color: var(--color-warning);
+}
+/* The check box's tap target: the label around it (sized for touch below). */
+.st-img__hit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+/* ─── Touch targets: at least 44 px on touch screens and narrow layouts (roadmap B7, §6.5) ─── */
+@media (pointer: coarse), (max-width: 720px) {
+  .st-list {
+    --st-act-w: 44px;
+  }
+  .st-del,
+  .st-lock {
+    width: 44px;
+    height: 44px;
+  }
+  /* No hover on a touch screen: the delete button is always fully visible. */
+  .st-del {
+    opacity: 1;
+  }
+  .st-img {
+    grid-template-columns: 44px minmax(0, 1fr) auto 78px;
+  }
+  .st-img--container {
+    grid-template-columns: 44px minmax(0, 1fr) auto;
+  }
+  .st-img__hit {
+    width: 44px;
+    height: 44px;
+  }
+  .st-img__check {
+    width: 20px;
+    height: 20px;
+  }
+  .st .btn,
+  .st .seg > button,
+  .st-dialog .btn {
+    min-height: 44px;
+  }
+  .st .st-search input {
+    min-height: 2.75rem;
+  }
+  .st-crumbs__link,
+  .st-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+  .st-banner__x,
+  .st-search button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .st-dialog .check-row,
+  .st .check-row {
+    min-height: 44px;
+    /* In a dialog whose body scrolls, a row must not shrink below its content and be drawn over. */
+    flex-shrink: 0;
+  }
+}
+
+/* ─── Narrow layouts: nothing that tells risk or status is hidden ─── */
+@media (max-width: 720px) {
+  /* Under the size, in the same two-line row: when it last changed and, only where it differs from the size,
+     what deleting frees (the column headings are hidden here, so it says "frees"). */
+  .st-row {
+    grid-template-columns: minmax(0, 1fr) auto 44px;
+    grid-template-areas:
+      "open size act"
+      "open meta act";
+    column-gap: 8px;
+    row-gap: 0;
+  }
+  .st-row > .st-row__open {
+    grid-area: open;
+  }
+  .st-row > .st-row__size {
+    grid-area: size;
+    align-self: end;
+  }
+  .st-row > .st-row__meta {
+    display: flex;
+    grid-area: meta;
+    align-self: start;
+    justify-content: flex-end;
+    gap: 4px;
+    font-size: 11.5px;
+    white-space: nowrap;
+  }
+  .st-row__meta > .st-row__date,
+  .st-row__meta > .st-row__frees {
+    font-size: inherit;
+  }
+  .st-row__meta > .st-row__frees {
+    display: none;
+    order: -1;
+  }
+  .st-row__meta > .st-row__frees.is-shared {
+    display: block;
+  }
+  .st-row__meta > .st-row__frees.is-shared::before {
+    content: "frees ";
+    color: var(--color-muted);
+  }
+  .st-row__meta > .st-row__frees.is-shared::after {
+    content: " \00b7";
+    color: var(--color-muted);
+  }
+  .st-row--rest > .st-row__meta {
+    display: none;
+  }
+  .st-row > .st-row__act {
+    grid-area: act;
+  }
+}
+@media (max-width: 640px) {
+  /* An image's status (in use, stopped container, unused) moves under its name instead of disappearing. */
+  .st-img {
+    grid-template-columns: 44px minmax(0, 1fr) auto;
+    grid-template-areas:
+      "hit main size"
+      "hit tag size";
+    row-gap: 4px;
+  }
+  .st-img > .st-img__hit {
+    grid-area: hit;
+  }
+  .st-img > .st-img__main {
+    grid-area: main;
+  }
+  .st-img > .st-img__tag {
+    display: block;
+    grid-area: tag;
+    justify-self: start;
+  }
+  .st-img > .st-img__size {
+    grid-area: size;
+  }
+  .st-img--container {
+    grid-template-columns: 44px minmax(0, 1fr) auto;
+    grid-template-areas: "hit main tag";
+  }
+  .st-img--container > .st-img__tag {
+    justify-self: end;
+  }
+}
+/* A delete that cannot be started (the Spark is offline) looks it, not just dimmed like the idle state. */
+.st-del:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+/* ─── Needs attention (delete v2 recovery records) ───────── */
+.st-attention {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border-color: color-mix(in srgb, var(--color-warning) 40%, var(--color-border));
+}
+.st-attention__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--color-warning);
+}
+.st-attention__head svg {
+  margin-top: 3px;
+}
+.st-attention__head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.st-attention__head p {
+  margin: 2px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-muted);
+}
+.st-attention__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.st-attention__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface-elevated);
+}
+.st-attention__main {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.st-attention__state {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--color-muted-strong);
+}
+.st-attention__actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+}
+.st-attention__actions .btn {
+  min-height: 44px;
+}
+@media (max-width: 640px) {
+  .st-attention__item {
+    flex-wrap: wrap;
+  }
+  .st-attention__actions {
+    width: 100%;
+    padding-left: 48px;
+  }
+}
+
+/* The administrator-delete statement (in the delete dialogs) and the note while it is given. */
+.st-ack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.6rem;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--color-warning) 40%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-warning) 9%, transparent);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--color-muted-strong);
+}
+.st-ack b {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-warning);
+}
+.st-ack .check-row span {
+  color: var(--color-text);
+}
+.st-ack-note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-muted);
+}
+.st-ack-note svg {
+  color: var(--color-warning);
+}
+.st-ack-note > span {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.st-ack-note__problem {
+  color: var(--color-danger);
+}
+
+/* ─── Docker: Quick clean-up (card on the Docker tab, and its confirm sheet) ─── */
+.st-quick {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px 14px;
+}
+.st-quick__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px 16px;
+}
+.st-quick__head h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 620;
+  color: var(--color-text-strong);
+}
+.st-quick__head p {
+  max-width: 70ch;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-muted);
+}
+.st-quick__age {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.st-quick__agelabel {
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.st-quick__rec {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface-elevated);
+}
+.st-quick__recnote {
+  flex: 1 1 260px;
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--color-muted-strong);
+}
+.st-quick__recnote b {
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.st-quick__rows {
+  margin: 0 -18px;
+  padding: 0;
+  list-style: none;
+  border-block: 1px solid var(--color-border);
+}
+.st-quick__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, auto) auto;
+  align-items: center;
+  gap: 6px 16px;
+  padding: 10px 18px;
+}
+.st-quick__row + .st-quick__row {
+  border-top: 1px solid var(--color-border);
+}
+.st-quick__main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.st-quick__title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-strong);
+}
+.st-quick__desc {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--color-muted);
+}
+.st-quick__kept {
+  font-size: 12px;
+  color: var(--color-warning);
+}
+.st-quick__figure {
+  max-width: 32ch;
+  font-size: 12.5px;
+  line-height: 1.4;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-muted-strong);
+}
+.st-quick__row.is-empty .st-quick__figure,
+.st-quick__row.is-empty .st-quick__title {
+  color: var(--color-muted);
+}
+/* Unavailable buttons stay focusable (aria-disabled) so focus can return to them and their reason is read out. */
+.st-quick .btn[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.st-quick .btn[aria-disabled="true"]:hover {
+  background: var(--color-surface);
+}
+.st-quick .btn--primary[aria-disabled="true"]:hover {
+  background: var(--color-accent);
+}
+.st-quick__volumes {
+  margin: 0;
+}
+.st-quick__volumes b {
+  font-weight: 600;
+  color: var(--color-muted-strong);
+}
+.st-quick__result {
+  margin: 0;
+}
+.st-quick__problems {
+  margin-top: 6px;
+  font-size: 12px;
+}
+.st-quick__problems summary {
+  cursor: pointer;
+  font-weight: 500;
+}
+.st-quick__problems ul {
+  margin: 4px 0 6px;
+  padding-left: 1.1rem;
+  list-style: disc;
+}
+@media (max-width: 640px) {
+  .st-quick__row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+    padding-inline: 14px;
+  }
+  .st-quick__figure {
+    max-width: none;
+    text-align: left;
+  }
+  .st-quick__go,
+  .st-quick__recbtn {
+    width: 100%;
+  }
+  .st-quick__age {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
+
+/* The sheet: one card per category, a fixed-height list when opened, one line reserved for progress. */
+.st-quick-cats {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.st-quick-cat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface-elevated);
+}
+.st-quick-cat.is-empty .st-quick-cat__title {
+  color: var(--color-muted);
+}
+.st-quick-cat__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.st-quick-cat__title {
+  font-weight: 500;
+  color: var(--color-text-strong);
+}
+.st-quick-cat__more {
+  align-self: flex-start;
+  margin-left: calc(13px + 0.6rem);
+  font-size: 12px;
+}
+.st-quick-cat__list {
+  max-height: 11.5rem;
+  overflow-y: auto;
+}
+.st-dialog .st-quick-progress {
+  margin: 0;
+  min-height: 1.45em;
+}
+/* The body scrolls instead: with the 44 px touch minimum replacing "auto", a check row would otherwise shrink below
+   its text and be drawn over by the next block. */
+.st-dialog .modal-sheet__stack:has(.st-quick-cats) > * {
+  flex-shrink: 0;
+}
+/* Its label says exactly what it does: it wraps inside the button, next to Cancel, instead of moving to a row of its own. */
+.st-dialog .modal-sheet__footer-actions:has(.st-quick-go) {
+  flex: 1 1 auto;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+.st-dialog .modal-sheet__footer-actions:has(.st-quick-go) > .btn:not(.st-quick-go) {
+  flex-shrink: 0;
+}
+.st-dialog .modal-sheet__footer-actions > .st-quick-go {
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: normal;
+  text-align: center;
+}
+/* Every Spark's detail is one line (cut with an ellipsis, full text on hover), so answers never resize the sheet. */
+.st-peers__row > span {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.st-peers__detail {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* ─── Several at once: tick boxes, the selection bar and the bulk delete dialog ─── */
+/* A leading tick box column. The rows keep their height (44 px); the column headings stay at the top of the
+   screen while the list scrolls, and with anything ticked the selection bar covers them in the same place. */
+.st-list {
+  --st-pick-w: 28px;
+  --st-pad-l: 6px;
+  --st-gap: 12px;
+  --st-head-h: 40px;
+  --st-cols: var(--st-pick-w) minmax(0, 1fr) var(--st-bar) 78px 46px 96px var(--st-act-w);
+}
+.st-list.has-frees {
+  --st-cols: var(--st-pick-w) minmax(0, 1fr) var(--st-bar) 78px 46px 96px 82px var(--st-act-w);
+}
+/* `hidden` made the panel a scroll container, so nothing in it could stick to the top of the screen; `clip`
+   cuts to the rounded corners the same way without that. */
+.st-browser {
+  overflow: clip;
+}
+.st-cols {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  min-height: var(--st-head-h);
+  padding-block: 0;
+  padding-left: var(--st-pad-l);
+  border-bottom: 1px solid var(--color-border);
+}
+.st-row {
+  padding-left: var(--st-pad-l);
+}
+.st-row__pick {
+  display: flex;
+  align-self: stretch;
+}
+.st-pick {
+  position: relative;
+  display: inline-flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--st-pick-w);
+  cursor: pointer;
+}
+.st-pick--all {
+  align-self: stretch;
+}
+.st-cols__all {
+  display: none;
+}
+.st-pick__box {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+.st-pick__box:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+.st-pick__box:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+/* Ticked with the folder it is in: shown ticked, not changeable on its own. */
+.st-pick.is-included .st-pick__box:disabled {
+  opacity: 0.7;
+}
+/* A locked row: the tap lands on the box's frame, which shows why it cannot be ticked. */
+.st-pick.is-locked {
+  cursor: help;
+}
+.st-pick.is-locked .st-pick__box {
+  pointer-events: none;
+}
+.st-pick__why {
+  position: absolute;
+  top: 50%;
+  left: calc(100% - 4px);
+  z-index: 6;
+  width: max-content;
+  max-width: min(300px, 70vw);
+  padding: 6px 9px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 8px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-shell);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: normal;
+  text-align: left;
+  text-transform: none;
+  white-space: normal;
+  color: var(--color-text);
+  transform: translateY(-50%);
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s, visibility 0s linear 0.12s;
+}
+.st-pick.is-locked:hover .st-pick__why {
+  visibility: visible;
+  opacity: 1;
+  transition: opacity 0.12s 0.35s, visibility 0s linear 0.35s;
+}
+.st-pick.is-open .st-pick__why {
+  visibility: visible;
+  opacity: 1;
+  transition: opacity 0.12s;
+}
+/* Ticked rows: a tint and an edge in the accent colour (the tick box itself is the cue that is not colour). */
+.st-row.is-selected {
+  background: color-mix(in srgb, var(--color-accent) 8%, var(--color-surface));
+  box-shadow: inset 3px 0 0 var(--color-accent);
+}
+.st-row.is-selected:hover {
+  background: color-mix(in srgb, var(--color-accent) 13%, var(--color-surface));
+}
+.st-cols.is-selecting > .st-col {
+  visibility: hidden;
+}
+.st-selbar {
+  position: absolute;
+  inset: 0 10px 0 calc(var(--st-pad-l) + var(--st-pick-w) + var(--st-gap));
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  background: var(--color-surface-elevated);
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--color-text);
+}
+.st-selbar__sum {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  margin-right: auto;
+  overflow: hidden;
+  white-space: nowrap;
+  color: var(--color-muted-strong);
+}
+.st-selbar__dot {
+  margin-inline: 0.4em;
+}
+.st-selbar__sum b {
+  flex-shrink: 0;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.st-selbar__sum > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.st-selbar .btn {
+  flex-shrink: 0;
+}
+.st-selbar__delshort {
+  display: none;
+}
+@media (max-width: 900px) {
+  /* Under the phone layout's top bar, which stays at the top of the screen too (.app-topbar: 10 px padding,
+     36 px controls, 10 px padding and a 1 px border, below the safe area). */
+  .st-cols {
+    top: calc(57px + env(safe-area-inset-top, 0px));
+  }
+}
+@media (pointer: coarse), (max-width: 720px) {
+  .st-list {
+    --st-pick-w: 44px;
+    --st-pad-l: 2px;
+    --st-head-h: 52px;
+  }
+  .st-pick__box {
+    width: 20px;
+    height: 20px;
+  }
+}
+@media (max-width: 720px) {
+  .st-list {
+    --st-gap: 8px;
+  }
+  .st-row {
+    grid-template-columns: var(--st-pick-w) minmax(0, 1fr) auto 44px;
+    grid-template-areas:
+      "pick open size act"
+      "pick open meta act";
+  }
+  .st-row > .st-row__pick {
+    grid-area: pick;
+  }
+  /* The headings row keeps only "select all", with its words: the other headings are not shown here. */
+  .st-cols {
+    display: grid;
+    grid-template-columns: var(--st-pick-w) minmax(0, 1fr);
+    column-gap: var(--st-gap);
+  }
+  .st-cols > .st-col {
+    display: none;
+  }
+  .st-pick--all {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+    gap: 22px;
+    padding-left: 12px;
+  }
+  .st-cols__all {
+    display: inline;
+    font-size: 12.5px;
+    font-weight: 500;
+    letter-spacing: normal;
+    text-transform: none;
+    color: var(--color-muted-strong);
+  }
+  .st-selbar {
+    right: 6px;
+    gap: 6px;
+  }
+  .st-selbar__sum {
+    flex-direction: column;
+    align-items: flex-start;
+    line-height: 1.3;
+  }
+  .st-selbar__sum > span {
+    max-width: 100%;
+    font-size: 11.5px;
+    white-space: nowrap;
+  }
+  .st-selbar__dot,
+  .st-selbar .st-selbar__all {
+    display: none;
+  }
+  .st-selbar__dellong {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .st-selbar__delshort {
+    display: inline;
+  }
+}
+
+/* The bulk delete dialog: the items (the first few by name), the phrase or the progress in one place. */
+.st-dialog .st-bulk {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+.st-bulk__head {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--color-muted-strong);
+}
+.st-bulk__head b {
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.st-bulk__head b.is-zero {
+  color: var(--color-warning);
+}
+.st-bulk__list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.st-bulk__list > li {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) 5.4em 5.4em;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+  border-top: 1px solid var(--color-border);
+  font-size: 13px;
+}
+.st-bulk__list > li.st-bulk__cols {
+  padding-block: 0 2px;
+  border-top: 0;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: right;
+  color: var(--color-muted);
+}
+.st-bulk__icon {
+  display: inline-flex;
+  color: var(--color-faint);
+}
+.st-bulk__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--color-text-strong);
+}
+.st-bulk__size,
+.st-bulk__frees {
+  font-size: 12px;
+  text-align: right;
+  white-space: nowrap;
+}
+.st-bulk__size {
+  color: var(--color-muted-strong);
+}
+.st-bulk__frees {
+  color: var(--color-muted);
+}
+.st-bulk__frees.is-shared {
+  color: var(--color-warning);
+}
+.st-bulk__more {
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.st-swap {
+  display: grid;
+}
+.st-swap > * {
+  grid-area: 1 / 1;
+  min-width: 0;
+}
+.st-swap > .is-off {
+  visibility: hidden;
+}
+.st-bulk-progress {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+}
+.st-bulk-progress__line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+}
+.st-bulk-progress__line b {
+  flex-shrink: 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-strong);
+}
+.st-bulk-progress__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.st-bulk-progress__bar {
+  display: block;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: var(--color-surface-hover);
+}
+.st-bulk-progress__bar > i {
+  display: block;
+  width: var(--w);
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-accent);
+  transition: width 0.3s ease;
+}
+.st-bulk-progress__note {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--color-muted);
+}
+/* One width for "Delete 12 permanently", "Deleting 3 of 12…" and the rest, so the footer does not move. */
+.st-dialog .st-bulk__go {
+  min-width: 15.5em;
+}
+/* The result, under the page's other notes. */
+.st-bulk-report {
+  margin-top: 6px;
+  font-size: 12.5px;
+}
+.st-bulk-report summary {
+  cursor: pointer;
+  font-weight: 500;
+  color: var(--color-text);
+}
+.st-bulk-report ul {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 260px;
+  margin: 8px 0 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+.st-bulk-report li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+}
+.st-bulk-report__path {
+  font-size: 11.5px;
+  color: var(--color-muted);
+  overflow-wrap: anywhere;
+}
+.st-bulk-report__why {
+  flex-basis: 100%;
+  color: var(--color-muted-strong);
+}
+.st-bulk-report__cmd {
+  flex-basis: 100%;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: var(--color-surface-elevated);
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+@media (pointer: coarse), (max-width: 720px) {
+  .st-bulk-report summary {
+    display: flex;
+    align-items: center;
+    min-height: 44px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .st-bulk-progress__bar > i,
+  .st-pick__why {
+    transition: none;
+  }
+}
+
+/* ─── The delete check (DeleteAdvice.tsx) ─────────────────── */
+/* One size in every state: the head is one line, the details scroll inside a fixed area, and the confirmations share
+   one place (.st-swap), so nothing in the dialog moves when the answer arrives. The tone colours the edge and the
+   badge; the level is always written out as well. */
+.st-advice {
+  --st-advice-tone: var(--color-muted);
+  --st-advice-bg: color-mix(in srgb, var(--st-advice-tone) 6%, var(--color-surface-elevated));
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.6rem 0.8rem 0.7rem;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--st-advice-bg);
+}
+.st-advice.is-low {
+  --st-advice-tone: var(--color-success);
+}
+.st-advice.is-review {
+  --st-advice-tone: var(--color-warning);
+}
+.st-advice.is-high {
+  --st-advice-tone: var(--color-danger);
+}
+.st-advice:is(.is-low, .is-review, .is-high) {
+  border-color: color-mix(in srgb, var(--st-advice-tone) 40%, transparent);
+}
+.st-advice__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 1.5rem;
+}
+.st-advice__badge {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  min-width: 5.6rem;
+  padding: 2px 8px;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--st-advice-tone) 15%, transparent);
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--st-advice-tone) 80%, var(--color-text-strong));
+}
+.st-advice__title {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.st-advice__spin {
+  animation: st-spin 1s linear infinite;
+}
+/* Shadows at an edge only while there is more to scroll to that way: the covers move with the content, the shadows
+   stay with the box (background-attachment local / scroll). */
+.st-advice__body {
+  --st-advice-shade: color-mix(in srgb, var(--color-text) 22%, transparent);
+  height: 7.5rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+  background:
+    linear-gradient(var(--st-advice-bg) 30%, transparent) top / 100% 1.25rem no-repeat local,
+    linear-gradient(transparent, var(--st-advice-bg) 70%) bottom / 100% 1.25rem no-repeat local,
+    radial-gradient(farthest-side at 50% 0, var(--st-advice-shade), transparent) top / 100% 0.55rem no-repeat scroll,
+    radial-gradient(farthest-side at 50% 100%, var(--st-advice-shade), transparent) bottom / 100% 0.55rem no-repeat scroll;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--color-muted-strong);
+}
+.st-advice--bulk .st-advice__body {
+  height: 9.5rem;
+}
+.st-advice__body > p {
+  margin: 0 0 6px;
+}
+.st-advice__muted {
+  color: var(--color-muted);
+}
+.st-advice__sum {
+  font-weight: 600;
+  color: var(--color-text);
+}
+.st-advice__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.st-advice__list > li {
+  display: grid;
+  grid-template-columns: 5.6rem minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+  overflow-wrap: anywhere;
+}
+.st-advice__mark {
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+.st-advice__list > li.is-high .st-advice__mark {
+  color: var(--color-danger);
+}
+.st-advice__list > li:is(.is-review, .is-unchecked) .st-advice__mark {
+  color: var(--color-warning);
+}
+.st-advice__list > li.is-note {
+  color: var(--color-muted);
+}
+.st-advice__shared {
+  margin-bottom: 8px;
+}
+.st-advice__items {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 6px;
+  padding: 0;
+  list-style: none;
+}
+.st-advice__item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--color-border);
+}
+.st-advice__itemhead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+.st-advice__itemhead b {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.st-advice__itemlevel {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+.st-advice__item.is-high .st-advice__itemlevel {
+  color: var(--color-danger);
+}
+.st-advice__item.is-review .st-advice__itemlevel {
+  color: var(--color-warning);
+}
+.st-advice__skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.st-advice__skeleton > i {
+  display: block;
+  height: 9px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-text) 12%, transparent);
+  animation: st-advice-pulse 1.4s ease-in-out infinite;
+}
+.st-advice__skeleton > i:nth-child(2) {
+  width: 82%;
+}
+.st-advice__skeleton > i:nth-child(3) {
+  width: 58%;
+}
+@keyframes st-advice-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+.st-advice__confirm {
+  align-items: start;
+  min-height: 2.5rem;
+}
+.st-advice__wait,
+.st-advice__none {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.st-dialog .st-advice__typed {
+  gap: 0.3rem;
+}
+/* Phones: the mark goes in front of the text instead of in its own column, so the text keeps the width. */
+@media (max-width: 520px) {
+  .st-advice__list > li {
+    display: block;
+  }
+  .st-advice__mark {
+    margin-right: 6px;
+  }
+  .st-advice__badge {
+    min-width: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .st-advice__skeleton > i,
+  .st-advice__spin {
+    animation: none;
+  }
+}

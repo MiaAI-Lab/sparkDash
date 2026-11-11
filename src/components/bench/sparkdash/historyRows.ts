@@ -1,5 +1,6 @@
 import type { DecodeBenchJob, PrefillBenchJob, QualityBenchJob } from "../../../api/types";
 import { formatContextSize } from "../../../shared/prefillBench.js";
+import { qualityProfile } from "../../../shared/qualityBench.js";
 import { decodeBenchSamplingLabel } from "../../SparkPage/decodeSampling";
 
 /** One line of a bench page's run-history table. */
@@ -81,8 +82,13 @@ export function prefillHistoryRow(job: PrefillBenchJob, labels: BenchmarkHistory
 }
 
 export function qualityHistoryRow(job: QualityBenchJob, labels: BenchmarkHistoryLabels = DEFAULT_LABELS): HistoryRow {
-  const overall = job.results?.overallPct;
+  // WP1: only a named profile carries a headline overall; a partial run (also one saved before
+  // profiles existed) shows its categories instead.
+  const profile = job.config.profile ?? qualityProfile(job.config.categories);
+  const overall = profile === "custom" ? null : job.results?.overallPct;
+  const ci = profile === "custom" ? null : job.results?.overallCi;
   const cats = Object.keys(job.results?.categories ?? {}).length;
+  const catsText = cats ? `${cats} ${cats === 1 ? labels.category : labels.categories}` : "";
   return {
     id: job.benchId,
     startedAt: job.startedAt,
@@ -91,6 +97,9 @@ export function qualityHistoryRow(job: QualityBenchJob, labels: BenchmarkHistory
     model: job.config.modelId ?? null,
     port: Number.isInteger(job.config.port) ? job.config.port : null,
     headline: overall == null ? "—" : `${overall.toFixed(1)}%`,
-    detail: cats ? `${cats} ${cats === 1 ? labels.category : labels.categories}` : "",
+    // WP7: suite and scoring versions on the row, so runs that cannot pair are visible before a compare is refused.
+    detail: [catsText, ci ? `${ci[0].toFixed(1)}–${ci[1].toFixed(1)}` : null, `suite v${job.config.suiteVersion ?? 1} · scoring v${job.config.scoringVersion ?? 1}`]
+      .filter(Boolean)
+      .join(" · "),
   };
 }

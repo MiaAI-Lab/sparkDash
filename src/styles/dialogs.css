@@ -1668,12 +1668,12 @@
   color: var(--color-muted);
 }
 
-/* Quality: category picker header with bulk actions */
+/* Quality: category picker header with bulk actions beside the title */
 .qsel-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 8px 12px;
 }
 .qsel-bulk {
   display: inline-flex;
@@ -1925,6 +1925,13 @@
   resize: vertical;
 }
 
+/* GPU power limit block in Edit unit: one of these per card, inside .gpu-clock */
+.gpu-power__card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 /* Settings → Tab badge / Desktop notifications: why a switch is unavailable. */
 .set-row__note {
   display: block;
@@ -2164,4 +2171,296 @@
 .bench-status-pill--cancelled {
   background: var(--color-surface-elevated);
   color: var(--color-muted);
+}
+
+/* Quality bench — scoring v3 flags: budget-limited score, stored full reply */
+.q-flag {
+  margin-left: 0.15em;
+  color: var(--color-warning);
+  font-weight: 700;
+  cursor: help;
+}
+/* A budget-limited row is a note, not a fault: plain text with a small tag; only the * carries the warning colour. */
+.q-cat-table tr.is-budget-limited .q-cat-table__note {
+  color: var(--color-muted);
+}
+.q-note-tag {
+  display: inline-block;
+  margin-right: 6px;
+  border-radius: 999px;
+  padding: 0 7px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-elevated);
+  color: var(--color-text);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.q-reply {
+  margin-top: 0.25rem;
+}
+.q-reply__text {
+  margin: 0.25rem 0 0;
+  max-height: 14rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 10px;
+  line-height: 1.4;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-surface-elevated);
+  color: var(--color-text);
+}
+
+/* Quality bench WP0: the engine record line and the noise floor. */
+.qrun__check {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.qrun__field.qrun__check input {
+  width: auto;
+  accent-color: var(--color-accent);
+}
+.q-engine {
+  font-size: 11px;
+  color: var(--color-muted);
+}
+.q-engine__line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  cursor: pointer;
+  list-style: none;
+}
+.q-engine__line::-webkit-details-marker {
+  display: none;
+}
+.q-engine__label {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 10px;
+}
+.q-engine__cap {
+  border-radius: 999px;
+  padding: 1px 8px;
+  border: 1px solid var(--color-border);
+}
+.q-engine__cap.is-yes {
+  color: var(--color-success);
+  border-color: color-mix(in srgb, var(--color-success) 50%, transparent);
+}
+.q-engine__cap.is-no {
+  color: var(--color-warning);
+  border-color: color-mix(in srgb, var(--color-warning) 50%, transparent);
+}
+.q-engine__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 2px 16px;
+  margin: 8px 0 0;
+  padding: 8px;
+  border-radius: 4px;
+  background: var(--color-surface-elevated);
+}
+.q-engine__grid div {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+.q-engine__grid dt {
+  flex: 0 0 140px;
+  color: var(--color-muted);
+}
+.q-engine__grid dd {
+  margin: 0;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+.q-noise {
+  margin-top: 8px;
+}
+.q-noise__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+.q-noise__head span {
+  color: var(--color-muted);
+}
+.q-reply__text--reasoning {
+  opacity: 0.85;
+}
+
+/* Quality bench WP1: intervals, coverage and run warnings. */
+.q-ci {
+  font-size: 10.5px;
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.q-score__ci {
+  display: block;
+  margin-top: 2px;
+}
+.q-score__partial {
+  color: var(--color-warning);
+}
+.q-warnings {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0;
+}
+.q-warning {
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 4px;
+  border: 1px solid color-mix(in srgb, var(--color-warning) 50%, transparent);
+  background: color-mix(in srgb, var(--color-warning) 10%, transparent);
+  color: var(--color-text);
+  font-size: 11.5px;
+}
+
+/* Quality bench WP2: the fidelity card. */
+.q-fid {
+  margin-top: 10px;
+}
+.q-fid__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin: 6px 0 8px;
+}
+.q-fid__stat {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 96px;
+}
+.q-fid__stat b {
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+.q-fid__stat--cmp b {
+  font-size: 15px;
+}
+.q-fid__stat .is-up {
+  color: var(--color-success);
+}
+.q-fid__stat .is-down {
+  color: var(--color-danger);
+}
+.q-fid__unsupported {
+  color: var(--color-warning);
+}
+.q-fid__docs small {
+  font-size: 10px;
+}
+
+/* Quality bench WP3: the divergence card. */
+.q-div__drift {
+  margin: 0 0 6px;
+  font-size: 11.5px;
+  color: var(--color-muted);
+}
+.q-div__kinds td.q-cat-table__name {
+  text-transform: capitalize;
+}
+
+/* Quality bench WP4: comparison header, quant dashboard, reference badge. */
+.q-cmphead {
+  margin: 8px 0;
+}
+.q-cmphead__table td {
+  overflow-wrap: anywhere;
+}
+.q-cmphead__table tr.is-diff td {
+  color: var(--color-warning);
+}
+.q-quant {
+  margin: 8px 0;
+}
+.q-quant__table td.is-up {
+  color: var(--color-success);
+}
+.q-quant__table td.is-down {
+  color: var(--color-danger);
+}
+.q-ref-badge {
+  margin-left: 8px;
+  border-radius: 999px;
+  padding: 1px 8px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 50%, transparent);
+  color: var(--color-accent);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Quality bench WP4: the plain-words verdict and the compare page. */
+.q-verdicts {
+  margin: 8px 0 12px;
+}
+.q-verdicts__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.q-verdict-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 220px) minmax(110px, 160px) 1fr;
+  gap: 8px;
+  align-items: baseline;
+  padding: 5px 8px;
+  border-radius: 4px;
+  background: var(--color-surface-elevated);
+  font-size: 12px;
+}
+.q-verdict-row__area {
+  font-weight: 600;
+}
+.q-verdict-row__tag {
+  font-weight: 600;
+  color: var(--color-muted);
+}
+.q-verdict-row--A .q-verdict-row__tag {
+  color: var(--color-success);
+}
+.q-verdict-row--B .q-verdict-row__tag {
+  color: var(--color-danger);
+}
+.q-verdict-row__ev {
+  color: var(--color-muted);
+  overflow-wrap: anywhere;
+}
+.q-compare__pickers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 8px 0;
+}
+.q-pick--wide select {
+  max-width: 100%;
+  min-width: 18rem;
+}
+@media (max-width: 640px) {
+  .q-verdict-row {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
 }

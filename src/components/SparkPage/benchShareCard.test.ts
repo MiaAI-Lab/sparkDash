@@ -505,6 +505,15 @@ describe("copy formats", () => {
     expect(canvas.height).toBe(shareCardHeight(model) * 2);
   });
 
+  it("reports a blank bitmap as a failed render instead of encoding an empty card", async () => {
+    const { canvas, ctx } = fakeCanvas();
+    (ctx as unknown as { getImageData: () => ImageData }).getImageData = () => ({ data: new Uint8ClampedArray([0, 0, 0, 0]) }) as unknown as ImageData;
+    expect(await renderShareCardPng(model, { createCanvas: () => canvas })).toBeNull();
+    const painted = fakeCanvas();
+    (painted.ctx as unknown as { getImageData: () => ImageData }).getImageData = () => ({ data: new Uint8ClampedArray([10, 12, 15, 255]) }) as unknown as ImageData;
+    expect(await renderShareCardPng(model, { createCanvas: () => painted.canvas })).not.toBeNull();
+  });
+
   it("copies text through the async clipboard", async () => {
     const writeText = vi.fn(async () => {});
     await copyTextOnly("summary text", { writeText });
@@ -583,7 +592,7 @@ describe("quality share card", () => {
     expect(m.quality?.overall).toBe(91.2);
     expect(m.quality?.tiles.map((t) => [t.label, t.pct, t.detail])).toEqual([
       ["QA", 90, "45/50 items"],
-      ["GSM8K", 50, "10/20 items"],
+      ["GSM8K (Platinum)", 50, "10/20 items"],
     ]);
     expect(m.quality?.summary).toBe("2 categories · 70 items · 1m 0s");
     expect([m.quality?.modelName, m.quality?.target, m.quality?.runLabel]).toEqual(["m", "Port 8888", "fp8"]);

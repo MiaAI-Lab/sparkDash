@@ -1,7 +1,8 @@
 /**
- * GET/PUT/DELETE /api/sparks/:id/gpu-clock. Registered after the auth and
- * Host/Origin middleware, so a token (when SPARKDASH_TOKEN is set) is required
- * exactly as for power actions. Changing a cap uses the destructive limiter.
+ * GET/PUT/DELETE /api/sparks/:id/gpu-clock and GET/PUT /api/sparks/:id/gpu-power.
+ * Registered after the auth and Host/Origin middleware, so a token (when
+ * SPARKDASH_TOKEN is set) is required exactly as for power actions. Changing a
+ * cap or a limit uses the destructive limiter.
  */
 import { gpuClockUnsupportedReason } from "./GpuClockManager.js";
 import { parseCapRequest } from "./commands.js";
@@ -30,7 +31,15 @@ const keptText = (persistKind) => (persistKind === "cron" ? " by the @reboot cro
 /** Whole-batch budget for the fleet route; one unit's own timeout is 45 s, so this fits a few slow ones. */
 export const FLEET_DEADLINE_MS = 3 * 60_000;
 
-export function registerGpuClockRoutes(app, { manager, registry, recordEvent, allowRead, allowChange, rejectLimited }) {
+/**
+ * Whether a typed sudo password may be accepted on this request: https or the machine itself, or the
+ * person turned on "Allow sudo password over plain http" in Settings (`allowPlain`).
+ */
+export function passwordAllowed(req, allowPlain = false) {
+  return allowPlain === true || isSecureRequest(req);
+}
+
+export function registerGpuClockRoutes(app, { manager, registry, recordEvent, allowRead, allowChange, rejectLimited, allowPlainPassword = () => false }) {
   const handle = (fn) => async (req, res) => {
     try {
       const spark = registry.getSpark(req.params.id);
@@ -39,16 +48,22 @@ export function registerGpuClockRoutes(app, { manager, registry, recordEvent, al
     } catch (err) {
       // Errors from the manager carry a status and a curated message; anything else stays generic.
       const known = Number.isInteger(err?.status);
-      res.status(known ? err.status : 500).json({ error: known ? err.message : "GPU clock action failed", code: err?.code });
+      res.status(known ? err.status : 500).json({ error: known ? err.message : "GPU action failed", code: err?.code });
     }
   };
+
+  // Tell the page whether a typed password would be accepted from here, so it never offers a field the server refuses.
+  const passwordFlags = (req) => ({
+    passwordAllowed: passwordAllowed(req, allowPlainPassword()),
+    // The page's own secure-context check does not apply when this is on.
+    plainPasswordAllowed: allowPlainPassword() === true,
+  });
 
   app.get(
     "/api/sparks/:id/gpu-clock",
     handle(async (spark, req, res) => {
       if (!allowRead(req)) return rejectLimited(res, "Too many requests");
-      // Tell the page whether a typed password would be accepted from here, so it never offers a field the server refuses.
-      res.json({ ...(await manager.status(spark)), passwordAllowed: isSecureRequest(req) });
+      res.json({ ...(await manager.status(spark)), ...passwordFlags(req) });
     })
   );
 
@@ -62,9 +77,9 @@ export function registerGpuClockRoutes(app, { manager, registry, recordEvent, al
   );
 
   const refuseInsecurePassword = (req, res) => {
-    if (!req.body?.sudoPassword || isSecureRequest(req)) return false;
+    if (!req.body?.sudoPassword || passwordAllowed(req, allowPlainPassword())) return false;
     res.status(400).json({
-      error: "Open the dashboard over https or from the Spark itself to type a sudo password here, or use the command to run on the Spark.",
+      error: "Open the dashboard over https or from the Spark itself to type a sudo password here, turn on Settings → Allow sudo password over plain http, or use the command to run on the Spark.",
       code: "insecure-transport",
     });
     return true;
@@ -94,6 +109,33 @@ export function registerGpuClockRoutes(app, { manager, registry, recordEvent, al
       await manager.reset(spark, req.body);
       recordEvent({ type: "gpu.clock.reset", severity: "info", sparkId: spark.id, message: "GPU clock cap removed" });
       res.json({ success: true });
+    })
+  );
+
+  app.get(
+    "/api/sparks/:id/gpu-power",
+    handle(async (spark, req, res) => {
+      if (!allowRead(req)) return rejectLimited(res, "Too many requests");
+      res.json({ ...(await manager.powerStatus(spark)), ...passwordFlags(req) });
+    })
+  );
+
+  app.put(
+    "/api/sparks/:id/gpu-power",
+    handle(async (spark, req, res) => {
+      if (!allowChange(req)) return rejectLimited(res, "Too many GPU power limit changes, try again in a minute");
+      if (refuseInsecurePassword(req, res)) return;
+      const out = await manager.setPower(spark, req.body);
+      const set = out.limits.map((l) => `GPU ${l.index ?? l.uuid} ${l.watts} W`).join(", ");
+      recordEvent({
+        type: "gpu.power.set",
+        severity: "info",
+        sparkId: spark.id,
+        message: set
+          ? `GPU power limit: ${set} (${out.persist ? "kept after reboot" : "until the next reboot"})`
+          : out.persist ? "GPU power limits kept after reboot" : "GPU power limits no longer kept after reboot",
+      });
+      res.json({ success: true, ...out });
     })
   );
 }
