@@ -1511,15 +1511,20 @@ export function QualityBenchDialog({
         const current = data.active || data.last;
         if (current) {
           setJob(current);
+          // A new run starts from the Defaults preset, not from the last run's categories
+          // and settings. Only a run that is live right now is mirrored into the form
+          // (its controls are disabled while it runs).
           const c = current.config;
-          if (Array.isArray(c?.categories) && c.categories.length) {
-            // A saved run may list a category that no longer exists (e.g. the removed Code one).
-            const known = c.categories.filter((x) => (QUALITY_CATEGORIES as readonly string[]).includes(x));
-            if (known.length) setCategories(known);
+          if (current.status === "running") {
+            if (Array.isArray(c?.categories) && c.categories.length) {
+              // A saved run may list a category that no longer exists (e.g. the removed Code one).
+              const known = c.categories.filter((x) => (QUALITY_CATEGORIES as readonly string[]).includes(x));
+              if (known.length) setCategories(known);
+            }
+            if (Array.isArray(c?.longSizes) && c.longSizes.length) setLongSizes(c.longSizes);
+            if (c?.longItems) setLongItems(String(c.longItems));
+            if (c?.concurrency) setConcurrency(String(c.concurrency));
           }
-          if (Array.isArray(c?.longSizes) && c.longSizes.length) setLongSizes(c.longSizes);
-          if (c?.longItems) setLongItems(String(c.longItems));
-          if (c?.concurrency) setConcurrency(String(c.concurrency));
           // A finished run's label belongs to that run; a new run starts blank.
           setLabel(current.status === "running" ? (c?.label ?? "") : "");
           if (current.status === "running") startPolling(current.benchId);

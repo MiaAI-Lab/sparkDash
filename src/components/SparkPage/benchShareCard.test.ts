@@ -505,6 +505,15 @@ describe("copy formats", () => {
     expect(canvas.height).toBe(shareCardHeight(model) * 2);
   });
 
+  it("reports a blank bitmap as a failed render instead of encoding an empty card", async () => {
+    const { canvas, ctx } = fakeCanvas();
+    (ctx as unknown as { getImageData: () => ImageData }).getImageData = () => ({ data: new Uint8ClampedArray([0, 0, 0, 0]) }) as unknown as ImageData;
+    expect(await renderShareCardPng(model, { createCanvas: () => canvas })).toBeNull();
+    const painted = fakeCanvas();
+    (painted.ctx as unknown as { getImageData: () => ImageData }).getImageData = () => ({ data: new Uint8ClampedArray([10, 12, 15, 255]) }) as unknown as ImageData;
+    expect(await renderShareCardPng(model, { createCanvas: () => painted.canvas })).not.toBeNull();
+  });
+
   it("copies text through the async clipboard", async () => {
     const writeText = vi.fn(async () => {});
     await copyTextOnly("summary text", { writeText });

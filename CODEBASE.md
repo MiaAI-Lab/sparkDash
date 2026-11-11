@@ -17,14 +17,15 @@ The package uses ESM throughout. `server/index.js` runs directly in Node and cre
 | `server/metrics/`, `server/llmtokens/`, `server/energy/` | Metric histories, token accounting and fleet energy |
 | `server/powermeter/` | Opt-in external power meters: provider base class and registry, polling, reconciliation with the meter's own history. Wall power is recorded by `server/energy/` (docs/POWER-METERS.md) |
 | `server/health/`, `server/alerts/`, `server/events/` | Findings, optional notifications and bounded activity history |
-| `server/llmlaunch/`, `server/tooleval/`, `server/gpuclock/` | Model launcher jobs, tool evaluation and GPU-clock management |
+| `server/llmlaunch/`, `server/tooleval/`, `server/gpuclock/` | Model launcher jobs, tool evaluation, GPU-clock management and per-card power limits on GPU hosts (`gpuclock/powerCommands.js`) |
 | `server/prices/` | Opt-in hosted-model price catalog and offline cache |
 | `server/apiKeys/`, `scripts/apikeys-bridge/` | Opt-in read-only API Keys views and the reference host bridge they call over a unix socket |
+| `server/storage/` | Storage Manager: disk scans, Docker images, deletes. Shell programs in `scripts/`, path safety in `policy.js`, execution contexts (ssh / native-local / container-local) and the per-feature `supports()` table in `context.js`, what may start (one job per Spark, two scans per fleet) in `admission.js`, scan stop and reconcile rules in `scanJob.js` (unit-side lock and job records in `scripts/unit-state.sh`, stop in `scripts/job.sh`), the delete advisor's rules and known-place table in `advice.js` (pure; evidence from the read-only `scripts/advise.sh`, parsed by `parseAdviseOutput` in `commands.js`), routes under `/api/sparks/:id/storage` |
 | `src/api/` | API clients and browser-facing data types |
 | `src/hooks/` | Snapshot subscription, metric history and UI hooks |
-| `src/components/` | Shell, overview, unit panels and feature pages |
+| `src/components/` | Shell, overview, unit panels and feature pages; the Storage Manager's delete check is `StoragePage/DeleteAdvice.tsx` with its pure rules for friction in `deleteAdvice.ts` and its request in `useDeleteAdvice.ts` |
 | `src/styles/`, `src/index.css` | Component styles, Tailwind entry and theme variables |
-| `src/shared/` | Shared pure logic, including benchmark prompts and formatting |
+| `src/shared/` | Shared pure logic, including benchmark prompts, formatting and the one "main disk" policy (`mainFilesystem.js`, also imported by the server) |
 | `config/` | Runtime configuration and persisted histories; never use live files in tests |
 | `docs/` | Design, operational notes and feature documentation |
 | `homeassistant/` | Home Assistant custom component (Python) that polls a hub's `/api/sparks` endpoints; not run by `npm test`, only its docs are checked |

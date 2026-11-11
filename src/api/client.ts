@@ -18,6 +18,7 @@ import type {
   HermesBatchUpdateResponse,
   GpuClockStatus,
   FleetGpuClockResult,
+  GpuPowerStatus,
   HermesUpdatesResponse,
   LauncherAction,
   LauncherJob,
@@ -50,10 +51,40 @@ import type {
   QualityFidelityCompare,
   QualityFleetResponse,
   StartQualityBenchRequest,
+  DockerRemoveResult,
+  DockerBuilderPruneResult,
+  DockerStorage,
+  StorageElevation,
+  StorageScanJob,
+  StorageScanRequest,
+  StorageScanSnapshot,
+  StorageStatus,
+  StorageContext,
+  StorageFolders,
+  StorageElevatedDeleteAck,
+  StorageBulkDeleteJob,
+  StorageQuarantineItem,
+  StorageQuarantineResult,
+  StorageAdvice,
 } from "./types";
 import { authHeaders, reportAuthRequired } from "./authToken";
 
 const BASE = "";
+
+/** A failed API call. `message` is the server's text; `code` is a machine-readable reason when the route gives one. */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly code: string | undefined;
+  /** Set by delete routes when part of the work was done before the failure. */
+  readonly partial: boolean;
+  constructor(message: string, status: number, code?: string, partial = false) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.code = code;
+    this.partial = partial;
+  }
+}
 
 // ─── Generic fetch wrapper ────────────────────────────────
 export async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
@@ -70,7 +101,12 @@ export async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> 
     // The server wants a token we do not have (or ours is stale): ask for one.
     if (res.status === 401) reportAuthRequired();
     const body = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(body.error || `HTTP ${res.status}`);
+    throw new ApiError(
+      body.error || `HTTP ${res.status}`,
+      res.status,
+      typeof body.code === "string" ? body.code : undefined,
+      body.partial === true
+    );
   }
   return res.json();
 }
@@ -758,6 +794,130 @@ export function resetFleetGpuClock(): Promise<{ success: boolean; applied: numbe
     method: "POST",
     body: JSON.stringify({ reset: true }),
   });
+}
+
+// ─── GPU power limit (dedicated GPU hosts) ───────────────
+export function fetchGpuPower(id: string): Promise<GpuPowerStatus> {
+  return apiFetch(`/api/sparks/${encodeURIComponent(id)}/gpu-power`);
+}
+
+/** Set the listed cards' power limits now; `persist` writes the boot service, false removes it. */
+export function setGpuPower(
+  id: string,
+  body: { limits: { uuid: string; watts: number }[]; persist: boolean; sudoPassword?: string }
+): Promise<{ success: boolean; limits: { uuid: string; watts: number; index: number | null }[]; persist: boolean }> {
+  return apiFetch(`/api/sparks/${encodeURIComponent(id)}/gpu-power`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+// ─── Storage Manager (Spark units) ───────────────────────
+const storageUrl = (id: string, rest = "") => `/api/sparks/${encodeURIComponent(id)}/storage${rest}`;
+
+/** Forget the sudo password the dashboard remembers for this Spark's account. */
+export function forgetStorageSudo(id: string): Promise<{ success: boolean; forgotten: boolean }> {
+  return apiFetch(storageUrl(id, "/sudo-password"), { method: "DELETE" });
+}
+
+export function fetchStorageStatus(id: string): Promise<StorageStatus> {
+  return apiFetch(storageUrl(id));
+}
+
+/** The folders directly inside `path` on the Spark (read-only), for choosing a folder by clicking. */
+export function fetchStorageFolders(id: string, path: string): Promise<StorageFolders> {
+  return apiFetch(storageUrl(id, `/folders?path=${encodeURIComponent(path)}`));
+}
+
+/** How the dashboard reaches the Spark and which features that allows (probed once, cached by the server). */
+export function fetchStorageContext(id: string): Promise<StorageContext> {
+  return apiFetch(storageUrl(id, "/context"));
+}
+
+/** The latest scan job and, when it changed since `since`, the scan result. */
+export function fetchStorageScan(id: string, since?: number): Promise<StorageScanSnapshot> {
+  return apiFetch(storageUrl(id, since ? `/scan?since=${since}` : "/scan"));
+}
+
+export function startStorageScan(id: string, body: StorageScanRequest): Promise<{ job: StorageScanJob }> {
+  return apiFetch(storageUrl(id, "/scan"), { method: "POST", body: JSON.stringify(body) });
+}
+
+/**
+ * Stop the scan on the Spark. Answers at once with the job "stopping"; the outcome follows in `job.stop`, and
+ * the Spark stays busy until it is confirmed. 409 `not-cancellable` for a scan run through sudo.
+ */
+export function cancelStorageScan(id: string): Promise<{ job: StorageScanJob | null }> {
+  return apiFetch(storageUrl(id, "/scan"), { method: "DELETE" });
+}
+
+/** Permanently delete a file or folder on the unit. */
+export function deleteStoragePath(id: string, body: StorageElevation & { path: string }): Promise<{ success: boolean; path: string }> {
+  return apiFetch(storageUrl(id, "/delete"), { method: "POST", body: JSON.stringify(body) });
+}
+
+/**
+ * The delete advisor: what the Spark and the dashboard know about these paths before they are deleted (programs or
+ * containers using them, git work, keys, recent changes, references, same-name-and-size items on other Sparks).
+ * Read-only. `signal` stops waiting (the dialog closed or gave up).
+ */
+export function adviseStorageDelete(id: string, paths: string[], signal?: AbortSignal): Promise<StorageAdvice> {
+  return apiFetch(storageUrl(id, "/advise"), { method: "POST", body: JSON.stringify({ paths }), signal });
+}
+
+/**
+ * Delete several files and folders on the unit, one after another under one busy lock. Every path is checked
+ * first (one that may not be deleted refuses the whole request). Answers at once with the job; follow it with
+ * `fetchStorageDeleteMany`.
+ */
+export function startStorageDeleteMany(id: string, body: StorageElevation & { paths: string[] }): Promise<{ job: StorageBulkDeleteJob }> {
+  return apiFetch(storageUrl(id, "/delete-many"), { method: "POST", body: JSON.stringify(body) });
+}
+
+/** A bulk delete by id (404 once it is no longer the latest), or without an id the latest one on the Spark (or null). */
+export function fetchStorageDeleteMany(id: string, jobId?: string): Promise<{ job: StorageBulkDeleteJob | null }> {
+  return apiFetch(storageUrl(id, jobId ? `/delete-many/${encodeURIComponent(jobId)}` : "/delete-many"));
+}
+
+/** Deletes that were staged on the Spark and never finished ("Needs attention"). */
+export function fetchStorageQuarantine(id: string): Promise<{ items: StorageQuarantineItem[] }> {
+  return apiFetch(storageUrl(id, "/quarantine"));
+}
+
+/**
+ * Put a Needs-attention item back where it was (never replacing anything), delete it for good, or `forget` a
+ * record whose item is no longer staged (refused with `payload-present` when something is staged there).
+ */
+export function resolveStorageQuarantine(id: string, qid: string, action: "restore" | "delete" | "forget", body: StorageElevation = {}): Promise<StorageQuarantineResult> {
+  return apiFetch(storageUrl(id, `/quarantine/${encodeURIComponent(qid)}/${action}`), { method: "POST", body: JSON.stringify(body) });
+}
+
+/** Allow deleting folders as administrator on this Spark: the owner confirms the account is trusted like root. */
+export function acknowledgeElevatedDelete(id: string, user: string | null): Promise<{ success: boolean; ack: StorageElevatedDeleteAck }> {
+  return apiFetch(storageUrl(id, "/elevated-delete-ack"), { method: "POST", body: JSON.stringify({ confirm: true, ...(user ? { user } : {}) }) });
+}
+
+/** Turn that off again. */
+export function revokeElevatedDelete(id: string): Promise<{ success: boolean; revoked: boolean }> {
+  return apiFetch(storageUrl(id, "/elevated-delete-ack"), { method: "DELETE" });
+}
+
+/** `light`: only images and containers, without Docker's slow disk-use totals. */
+export function fetchDockerStorage(id: string, body: StorageElevation & { light?: boolean } = {}): Promise<DockerStorage> {
+  return apiFetch(storageUrl(id, "/docker"), { method: "POST", body: JSON.stringify(body) });
+}
+
+export function removeDockerContainers(id: string, body: StorageElevation & { ids: string[] }): Promise<DockerRemoveResult> {
+  return apiFetch(storageUrl(id, "/docker/remove-containers"), { method: "POST", body: JSON.stringify(body) });
+}
+
+export function removeDockerImages(id: string, body: StorageElevation & { ids: string[] }): Promise<DockerRemoveResult> {
+  return apiFetch(storageUrl(id, "/docker/remove-images"), { method: "POST", body: JSON.stringify(body) });
+}
+
+/** Clear Docker's unused build cache last used more than `olderThanDays` (1 to 365) days ago, on the daemon's own builder. */
+export function pruneDockerBuilderCache(id: string, body: StorageElevation & { olderThanDays: number }): Promise<DockerBuilderPruneResult> {
+  return apiFetch(storageUrl(id, "/docker/prune-builder-cache"), { method: "POST", body: JSON.stringify(body) });
 }
 
 // ─── Hermes update preview ───────────────────────────────

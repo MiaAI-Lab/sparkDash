@@ -17,6 +17,7 @@ import { useOverlayClose } from "../hooks/useOverlayClose";
 import { InfoIcon } from "./ui/icons";
 import { TestResultList } from "./TestResultList";
 import { GpuClockSection } from "./GpuClockSection";
+import { GpuPowerSection } from "./GpuPowerSection";
 import { XIcon } from "./ui/icons";
 import { MacAgentFields } from "./MacAgentFields";
 import "../styles/dialogs.css";
@@ -688,6 +689,9 @@ export function EditSparkDialog({
 
               {sparkId && config.kind !== "host" && config.platform !== "windows" && config.platform !== "darwin" && (
                 <GpuClockSection sparkId={sparkId} />
+              )}
+              {sparkId && config.kind === "host" && config.platform !== "windows" && config.platform !== "darwin" && (
+                <GpuPowerSection sparkId={sparkId} />
               )}
             </div>
           )}

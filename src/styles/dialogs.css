@@ -1668,12 +1668,12 @@
   color: var(--color-muted);
 }
 
-/* Quality: category picker header with bulk actions */
+/* Quality: category picker header with bulk actions beside the title */
 .qsel-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 8px 12px;
 }
 .qsel-bulk {
   display: inline-flex;
@@ -1923,6 +1923,13 @@
   font-size: 11px;
   line-height: 1.4;
   resize: vertical;
+}
+
+/* GPU power limit block in Edit unit: one of these per card, inside .gpu-clock */
+.gpu-power__card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 /* Settings → Tab badge / Desktop notifications: why a switch is unavailable. */

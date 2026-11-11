@@ -118,8 +118,10 @@ const HEALTH_LABELS = {
 export class SparkMonitor {
   /**
    * @param {object} spark
-   * @param {{ onWolMac?: (sparkId: string, mac: string) => void, onHermesChange?: () => void, resolveHeadModelId?: ((headId: string) => string | null), pollIntervalMs?: number }} [options]
+   * @param {{ onWolMac?: (sparkId: string, mac: string) => void, onHermesChange?: () => void, resolveHeadModelId?: ((headId: string) => string | null), pollIntervalMs?: number, llmProbeOptions?: () => object }} [options]
    *   pollIntervalMs: Settings → Poll interval; drives the fast collector timers.
+   *   llmProbeOptions: per-probe options for every LlmProbe this monitor builds
+   *   (e.g. the opt-in stream-sample callbacks); evaluated at construction time.
    */
   constructor(spark, options = {}) {
     this.spark = spark;
@@ -147,13 +149,14 @@ export class SparkMonitor {
     // map; never writes back to registry config (derived display only).
     this._resolveHeadModelId =
       typeof options.resolveHeadModelId === "function" ? options.resolveHeadModelId : null;
+    this._llmProbeOptions = typeof options.llmProbeOptions === "function" ? options.llmProbeOptions : null;
     this.collector = createCollector(spark);
 
     // One LlmProbe per port — none when LLM monitoring is off
     this.llmProbes = new Map();
     if (this._llmMonitoringEnabled(spark)) {
       for (const port of this._llmPorts()) {
-        this.llmProbes.set(port, new LlmProbe(spark, port));
+        this.llmProbes.set(port, new LlmProbe(spark, port, this._llmProbeOptions ? this._llmProbeOptions() : undefined));
       }
     }
 
@@ -305,7 +308,7 @@ export class SparkMonitor {
         existing.spark = spark;
         this.llmProbes.set(port, existing);
       } else {
-        this.llmProbes.set(port, new LlmProbe(spark, port));
+        this.llmProbes.set(port, new LlmProbe(spark, port, this._llmProbeOptions ? this._llmProbeOptions() : undefined));
       }
     }
     for (const [port, probe] of prevProbes) {

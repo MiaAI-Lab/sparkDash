@@ -12,6 +12,8 @@
     "stats": "统计",
     "settings": "设置",
     "benchmarks": "基准测试",
+    "benchsTools": "基准与工具",
+    "storage": "存储",
     "fleet": "集群",
     "brandOverview": "sparkDash 总览",
     "openSearch": "打开命令面板",

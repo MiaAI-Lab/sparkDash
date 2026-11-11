@@ -131,6 +131,15 @@ function decrypt(blobB64, key) {
 }
 
 let lastLoggedHelperTokens = -1;
+/** Encrypt one value with the dashboard's secrets key (for stores that keep their own file). */
+export function encryptSecret(plaintext) {
+  return encrypt(plaintext, resolveKey());
+}
+
+/** Decrypt a value made by {@link encryptSecret}. Throws when the key is wrong or the data was changed. */
+export function decryptSecret(blob) {
+  return decrypt(blob, resolveKey());
+}
 
 /**
  * @returns {{

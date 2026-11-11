@@ -34,6 +34,11 @@ import { broadcastForLanIp, effectiveMac, normalizeMac, sendWol } from "./wol.js
 import { remoteShutdownCommand, spawnLocalShutdown } from "./shutdown.js";
 import { GpuClockManager } from "./gpuclock/GpuClockManager.js";
 import { registerGpuClockFleetRoute, registerGpuClockRoutes } from "./gpuclock/routes.js";
+import { StorageManager } from "./storage/StorageManager.js";
+import { SudoVault } from "./storage/sudoVault.js";
+import { ElevatedDeleteAcks } from "./storage/ackStore.js";
+import { decryptSecret, encryptSecret } from "./secretsStore.js";
+import { registerStorageRoutes } from "./storage/routes.js";
 import {
   backendForPort,
   decodeBenchManager,
@@ -64,7 +69,7 @@ import {
 import { closeLlmStreamAgent } from "./collectors/LlmStreaming.js";
 import { compareSemver, getLatestRelease } from "./collectors/HermesReleases.js";
 import { createModelPricesHandler } from "./prices/ModelPrices.js";
-import { ALERTS_JSON_PATH, FLEET_ENERGY_JSON_PATH, FLEET_ENERGY_MONTHLY_JSON_PATH, MAX_ACTIVE_BENCH_JOBS, METRICS_HISTORY_JSON_PATH } from "./config.js";
+import { ALERTS_JSON_PATH, FLEET_ENERGY_JSON_PATH, FLEET_ENERGY_MONTHLY_JSON_PATH, MAX_ACTIVE_BENCH_JOBS, METRICS_HISTORY_JSON_PATH, STORAGE_ACKS_JSON_PATH, STORAGE_SCANS_JSON_PATH, STORAGE_SUDO_JSON_PATH } from "./config.js";
 import { createAlertsRuntime, registerAlertRoutes } from "./alerts/runtime.js";
 import { FleetEnergyTracker } from "./energy/FleetEnergyTracker.js";
 import { EventLog } from "./events/EventLog.js";
@@ -264,6 +269,9 @@ function rejectLimited(res, message) {
 }
 
 const allowTest = createRateLimiter(20, 60_000);
+// Storage Manager reads have their own bucket: opening the image dialog checks every other Spark at
+// once, and the page also polls, so sharing the 20-a-minute test bucket made those checks fail.
+const allowStorageRead = createRateLimiter(120, 60_000);
 const allowDestructive = createRateLimiter(10, 60_000);
 /** Decode + prefill starts per principal (retries that 400/409 do not count). */
 const allowBench = createRateLimiter(20, 60_000);
@@ -422,6 +430,17 @@ const allowToolEval = createRateLimiter(30, 60_000);
 // ─── Monitor map ─────────────────────────────────────────
 const monitors = new Map();
 
+/** True while a bench, showcase or model launch owns the unit: stream-samples pause. */
+function llmStreamSampleBlocked(sparkId) {
+  return Boolean(
+    decodeBenchManager.getActive(sparkId) ||
+    prefillBenchManager.getActive(sparkId) ||
+    qualityBenchManager.getActive(sparkId) ||
+    showcaseManager.getActive(sparkId) ||
+    launcherManager.activeJob(sparkId)
+  );
+}
+
 // ─── Start monitor for a Spark ───────────────────────────
 function startMonitor(spark) {
   if (monitors.has(spark.id)) return;
@@ -442,6 +461,13 @@ function startMonitor(spark) {
     resolveHeadModelId: (headId) => monitors.get(headId)?.headLlmModelId() ?? null,
     // Settings → Poll interval drives the collectors, not just the broadcast.
     pollIntervalMs: getSettings().pollIntervalMs,
+    // Settings → Stream-sample engines without gauges (Pico): the probe measures
+    // decode from its own tiny streamed completion, never while a bench, showcase
+    // or model launch owns the unit.
+    llmProbeOptions: () => ({
+      streamSampleEnabled: () => getSettings().llmStreamSample === true,
+      streamSampleBlocked: () => llmStreamSampleBlocked(spark.id),
+    }),
   });
   monitors.set(spark.id, monitor);
   monitor.start();
@@ -2498,8 +2524,8 @@ registerGpuClockFleetRoute(app, {
   rejectLimited,
 });
 
-// GPU clock cap (nvidia-smi -lgc, optionally kept across reboots by a systemd service).
-// Needs root on the unit: the local unit runs as root in the host mount namespace, a
+// GPU clock cap (nvidia-smi -lgc) and per-card power limit (nvidia-smi -pl), each optionally
+// kept across reboots by a systemd service. Needs root on the unit: the local unit runs as root in the host mount namespace, a
 // remote one uses `sudo -n` as its SSH user. Same auth and limiters as power actions.
 registerGpuClockRoutes(app, {
   manager: gpuClockManager,
@@ -2508,6 +2534,31 @@ registerGpuClockRoutes(app, {
   allowRead: (req) => allowTest(principalKey(req)),
   allowChange: (req) => allowDestructive(principalKey(req)) && allowGlobalDestructive(clientKey(req)),
   rejectLimited,
+  allowPlainPassword: () => getSettings().allowPlainSudoPassword === true,
+});
+
+// Storage Manager: disk use of a Spark's folders and Docker images, and deleting them. Deleting
+// needs the right to remove the item: the unit's SSH user, or root through sudo (a typed password
+// is used once). Same auth and limiters as the GPU clock.
+registerStorageRoutes(app, {
+  manager: new StorageManager({
+    scansFile: STORAGE_SCANS_JSON_PATH,
+    vault: new SudoVault({ file: STORAGE_SUDO_JSON_PATH, encrypt: encryptSecret, decrypt: decryptSecret }),
+    acks: new ElevatedDeleteAcks({ file: STORAGE_ACKS_JSON_PATH }),
+    // A delete on the machine the dashboard runs on never removes or reaches into its own config or install.
+    protectedPaths: [path.dirname(STORAGE_SCANS_JSON_PATH), ROOT],
+  }),
+  registry,
+  recordEvent,
+  allowRead: (req) => allowStorageRead(principalKey(req)),
+  allowChange: (req) => allowDestructive(principalKey(req)) && allowGlobalDestructive(clientKey(req)),
+  rejectLimited,
+  allowPlainPassword: () => getSettings().allowPlainSudoPassword === true,
+  // The delete advisor's "referenced by SparkDash": this Spark's model launchers and the LLM servers it watches.
+  adviceRefs: (spark) => ({
+    launchers: launcherStore.list(spark.id),
+    llm: monitors.get(spark.id)?.snapshot()?.metrics?.llm ?? [],
+  }),
 });
 
 app.post("/api/sparks/:id/wake", async (req, res) => {

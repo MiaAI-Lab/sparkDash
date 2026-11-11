@@ -4,7 +4,7 @@ import express from "express";
 import { registerGpuClockRoutes, isSecureRequest } from "../routes.js";
 import { GpuClockManager } from "../GpuClockManager.js";
 
-async function withApp({ run, allow = () => true, sparks, remoteAddr }, fn) {
+async function withApp({ run, allow = () => true, sparks, remoteAddr, plain = false }, fn) {
   const events = [];
   const app = express();
   app.use(express.json());
@@ -18,6 +18,7 @@ async function withApp({ run, allow = () => true, sparks, remoteAddr }, fn) {
     allowRead: allow,
     allowChange: allow,
     rejectLimited: (res, message) => res.status(429).json({ error: message }),
+    allowPlainPassword: () => plain,
   });
   const server = await new Promise((r) => { const s = app.listen(0, "127.0.0.1", () => r(s)); });
   const base = `http://127.0.0.1:${server.address().port}/api/sparks`;
@@ -169,5 +170,114 @@ test("the status tells the page whether a typed password would be accepted from 
   });
   await withApp({ run, remoteAddr: "192.168.1.9" }, async (base) => {
     assert.equal((await (await fetch(`${base}/s1/gpu-clock`)).json()).passwordAllowed, false);
+  });
+});
+
+test("Settings can allow a typed sudo password over plain http", async () => {
+  const run = async () => "RESULT=ok\nHWMAX=3003\nSUDO=no\nCAP=\nCAP=1800\nPERSIST=0\nSVC_INSTALLED=0";
+  await withApp({ run, remoteAddr: "192.168.1.9", plain: true }, async (base) => {
+    const status = await (await fetch(`${base}/s1/gpu-clock`)).json();
+    assert.equal(status.passwordAllowed, true);
+    assert.equal(status.plainPasswordAllowed, true);
+    const res = await fetch(`${base}/s1/gpu-clock`, json("PUT", { maxMHz: 1800, sudoPassword: "pw" }));
+    assert.equal(res.status, 200);
+  });
+  await withApp({ run, remoteAddr: "192.168.1.9" }, async (base) => {
+    const res = await fetch(`${base}/s1/gpu-clock`, json("PUT", { maxMHz: 1800, sudoPassword: "pw" }));
+    assert.equal(res.status, 400);
+    assert.equal((await res.json()).code, "insecure-transport");
+  });
+});
+
+const CARD_A = "GPU-aaaaaaaa-0000-0000-0000-000000000001";
+const powerStatus = `RESULT=ok\nSUDO=no\nCARD=0,${CARD_A},300.00,300.00,600.00,150.00,600.00,RTX\nOTHER_SVC=nvidia-power-limit.service`;
+const powerDone = (persist) => `RESULT=ok\nPERSIST=${persist}\nCARD=0,${CARD_A},250.00,250.00,600.00,150.00,600.00,RTX`;
+const powerBody = (extra = {}) => ({ limits: [{ uuid: CARD_A, watts: 250 }], persist: false, ...extra });
+
+test("gpu-power: PUT validates, applies, records an Activity event and answers with the limits", async () => {
+  const seen = [];
+  await withApp({ run: async (_s, program) => { seen.push(program); return powerDone(1); } }, async (base, events) => {
+    for (const bad of [{ limits: [{ uuid: "GPU-$(id)", watts: 250 }], persist: false }, { limits: [{ uuid: CARD_A, watts: 250 }] }, {}]) {
+      assert.equal((await fetch(`${base}/h1/gpu-power`, json("PUT", bad))).status, 400);
+    }
+    assert.equal(seen.length, 0, "an invalid request never reaches the host");
+
+    const ok = await fetch(`${base}/h1/gpu-power`, json("PUT", powerBody({ persist: true })));
+    assert.equal(ok.status, 200);
+    assert.deepEqual(await ok.json(), { success: true, limits: [{ uuid: CARD_A, watts: 250, index: 0 }], persist: true });
+    assert.equal(events.length, 1);
+    assert.equal(events[0].type, "gpu.power.set");
+    assert.equal(events[0].sparkId, "h1");
+    assert.match(events[0].message, /GPU 0 250 W.*kept after reboot/);
+
+    // Only the boot service changes: the event says that, not a limit.
+    await fetch(`${base}/h1/gpu-power`, json("PUT", { limits: [], persist: true }));
+    assert.equal(events[1].message, "GPU power limits kept after reboot");
+  });
+  await withApp({ run: async () => powerDone(0) }, async (base, events) => {
+    await fetch(`${base}/h1/gpu-power`, json("PUT", { limits: [], persist: false }));
+    assert.equal(events[0].message, "GPU power limits no longer kept after reboot");
+  });
+});
+
+test("gpu-power: Spark units, unknown units and rate-limited callers are refused before anything runs", async () => {
+  let ran = 0;
+  const run = async () => { ran += 1; return powerStatus; };
+  await withApp({ run }, async (base) => {
+    assert.equal((await fetch(`${base}/s1/gpu-power`)).status, 400);
+    assert.equal((await fetch(`${base}/s1/gpu-power`, json("PUT", powerBody()))).status, 400);
+    assert.equal((await fetch(`${base}/nope/gpu-power`)).status, 404);
+    assert.equal(ran, 0);
+  });
+  await withApp({ run, allow: () => false }, async (base) => {
+    assert.equal((await fetch(`${base}/h1/gpu-power`)).status, 429);
+    assert.equal((await fetch(`${base}/h1/gpu-power`, json("PUT", powerBody()))).status, 429);
+    assert.equal(ran, 0);
+  });
+});
+
+test("gpu-power: a refused change comes back with its code and no event is recorded", async () => {
+  await withApp({ run: async () => "RESULT=error\nCODE=range\nMSG=700 W is outside the range" }, async (base, events) => {
+    const res = await fetch(`${base}/h1/gpu-power`, json("PUT", powerBody()));
+    assert.equal(res.status, 400);
+    assert.deepEqual(await res.json(), { error: "700 W is outside the range", code: "range" });
+    assert.equal(events.length, 0);
+  });
+});
+
+test("gpu-power: the status tells the page about sudo, the connection and other boot units", async () => {
+  await withApp({ run: async () => powerStatus }, async (base) => {
+    const s = await (await fetch(`${base}/h1/gpu-power`)).json();
+    assert.equal(s.supported, true);
+    assert.equal(s.sudo, "no");
+    assert.equal(s.passwordAllowed, true);
+    assert.equal(s.plainPasswordAllowed, false);
+    assert.equal(s.cards[0].uuid, CARD_A);
+    assert.deepEqual(s.otherServices, ["nvidia-power-limit.service"]);
+  });
+  await withApp({ run: async () => powerStatus, remoteAddr: "192.168.1.9" }, async (base) => {
+    assert.equal((await (await fetch(`${base}/h1/gpu-power`)).json()).passwordAllowed, false);
+  });
+  await withApp({ run: async () => powerStatus, remoteAddr: "192.168.1.9", plain: true }, async (base) => {
+    const s = await (await fetch(`${base}/h1/gpu-power`)).json();
+    assert.equal(s.passwordAllowed, true);
+    assert.equal(s.plainPasswordAllowed, true);
+  });
+});
+
+test("gpu-power: a sudo password over plain http is refused unless Settings allows it, and is never echoed", async () => {
+  let ran = 0;
+  const run = async () => { ran += 1; return powerDone(0); };
+  await withApp({ run, remoteAddr: "192.168.1.9" }, async (base) => {
+    const res = await fetch(`${base}/h1/gpu-power`, json("PUT", powerBody({ sudoPassword: "very-secret-pw" })));
+    assert.equal(res.status, 400);
+    assert.equal((await res.json()).code, "insecure-transport");
+    assert.equal(ran, 0);
+  });
+  await withApp({ run, remoteAddr: "192.168.1.9", plain: true }, async (base, events) => {
+    const res = await fetch(`${base}/h1/gpu-power`, json("PUT", powerBody({ sudoPassword: "very-secret-pw" })));
+    assert.equal(res.status, 200);
+    assert.doesNotMatch(await res.text(), /very-secret-pw/);
+    assert.doesNotMatch(JSON.stringify(events), /very-secret-pw/);
   });
 });

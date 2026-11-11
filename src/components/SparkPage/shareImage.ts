@@ -93,6 +93,22 @@ async function defaultLoadFonts(): Promise<void> {
   ]);
 }
 
+/**
+ * Whether the paint left nothing on the bitmap. The card always starts with an opaque page fill,
+ * so a transparent pixel under the brand tile means the browser did not draw: a canvas
+ * fingerprinting protection (a browser setting or an extension) answering with a blank image,
+ * or a lost GPU context. Reported as a failure rather than shown as an empty card.
+ */
+function isBlankRender(ctx: CanvasRenderingContext2D): boolean {
+  if (typeof ctx.getImageData !== "function") return false;
+  try {
+    const px = ctx.getImageData(SHARE_CARD_SCALE * 76, SHARE_CARD_SCALE * 52, 1, 1).data;
+    return px[3] === 0;
+  } catch {
+    return false;
+  }
+}
+
 /** Paint the card at 2× in the active theme and encode it, or `null` when the browser cannot. */
 export async function renderShareCardPng(
   model: ShareCardModel,
@@ -107,6 +123,7 @@ export async function renderShareCardPng(
     if (!ctx) return null;
     ctx.scale(SHARE_CARD_SCALE, SHARE_CARD_SCALE);
     paintShareCard(ctx, model, deps.theme ?? detectShareCardTheme());
+    if (isBlankRender(ctx)) return null;
     return await new Promise<Blob | null>((resolve) => {
       canvas.toBlob((blob) => resolve(blob ?? null), "image/png");
     });

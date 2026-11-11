@@ -72,6 +72,19 @@ describe("QualityBenchDialog", () => {
     vi.mocked(listQualityBenchFleet).mockResolvedValue({ runs: [], references: {} });
   });
 
+  it("starts a new run from the Defaults preset, not the last run's categories", async () => {
+    const last = run("b-last", "custom run", [true, true, false, true], "z");
+    last.config.categories = ["qa"];
+    vi.mocked(listQualityBench).mockResolvedValue({ active: null, last, history: [last], defaults });
+    render(
+      <QualityBenchDialog variant="page" sparkId="s1" llmPort={8888} modelId="GLM-5.3-Flash" contextLength={32768} onClose={() => {}} />
+    );
+    await flush();
+    await flush();
+    // The six default categories are selected; the last run's ["qa"]-only set was not copied in.
+    expect(document.querySelectorAll(".qsel-item.is-on")).toHaveLength(6);
+  });
+
   it("WP4: offers other units' runs as compare targets, defaults to the pinned reference and names serving differences", async () => {
     const current = run("b-rtx", "exl3 4-bit", [true, true, true, false], "a");
     current.unit = { id: "s1", name: "RTX" };

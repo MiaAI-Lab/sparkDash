@@ -229,6 +229,8 @@ export type GpuClockStatus =
       capMHz: number | null;
       /** The server accepts a typed sudo password on this connection (https or the machine itself). */
       passwordAllowed?: boolean;
+  /** Settings allows typing it over plain http, so the page's secure-context check is skipped. */
+  plainPasswordAllowed?: boolean;
       /** "root" runs directly, "yes" = passwordless sudo works, "no" = it does not. */
       sudo: "root" | "yes" | "no";
       /** What "keep after reboot" would install on this unit. */
@@ -255,6 +257,44 @@ export type FleetGpuClockResult =
   | { id: string; ok: true; capMHz: number | null; persistKind: GpuClockPersistKind }
   | { id: string; ok: true; supported: false; reason: string }
   | { id: string; ok: false; error: string };
+/** One card in GET /api/sparks/:id/gpu-power. A value nvidia-smi could not give is null. */
+export interface GpuPowerCard {
+  /** nvidia-smi index, for display. Changes are made by `uuid`. */
+  index: number | null;
+  uuid: string;
+  name: string | null;
+  limitW: number | null;
+  /** Limit the card actually enforces; can be lower than `limitW`. */
+  enforcedW: number | null;
+  defaultW: number | null;
+  minW: number | null;
+  maxW: number | null;
+  /** The card reports a limit and a range, so a limit can be set. */
+  adjustable: boolean;
+  /** Limit the boot service sets for this card, null when it does not list it. */
+  bootW: number | null;
+}
+
+/** GET /api/sparks/:id/gpu-power: per-card power limits (`nvidia-smi -pl`) and their boot service. */
+export type GpuPowerStatus =
+  | { supported: false; reason?: string }
+  | {
+      supported: true;
+      cards: GpuPowerCard[];
+      /** The server accepts a typed sudo password on this connection (https or the machine itself). */
+      passwordAllowed?: boolean;
+      /** Settings allows typing it over plain http, so the page's secure-context check is skipped. */
+      plainPasswordAllowed?: boolean;
+      /** "root" runs directly, "yes" = passwordless sudo works, "no" = it does not. */
+      sudo: "root" | "yes" | "no";
+      service: {
+        installed: boolean;
+        enabled: string | null;
+        active: string | null;
+      };
+      /** Other enabled boot units on the host that also set a power limit. */
+      otherServices: string[];
+    };
 
 /** One health finding for a Spark (server rules in server/health/HealthEvaluator.js). */
 export interface HealthFinding {
@@ -478,7 +518,7 @@ export interface LlmMetrics {
   measurementValid?: boolean;
   /** Why the last poll's stats could not be read; null while they can. */
   measurementError?: string | null;
-  backend: "vllm" | "llama.cpp" | "sglang" | "lmstudio" | "ollama" | "ds4" | "exl3" | "q27" | "tensorfold" | "freetoken" | "radiance" | "strata" | "flare" | "locals" | "splash" | null;
+  backend: "vllm" | "llama.cpp" | "sglang" | "lmstudio" | "ollama" | "ds4" | "exl3" | "q27" | "tensorfold" | "freetoken" | "radiance" | "strata" | "flare" | "locals" | "splash" | "pico" | null;
   /** How the monitor reaches the engine: its own address, or an SSH forward when only SSH gets there. */
   via?: "direct" | "ssh-tunnel";
   modelId: string | null;
@@ -495,7 +535,7 @@ export interface LlmMetrics {
   slotsTotal: number;
   generationTps: number;
   /** How generationTps was measured when a backend exposes a fallback. */
-  generationTpsSource?: "window" | "slot-mean" | null;
+  generationTpsSource?: "window" | "slot-mean" | "probe-sample" | null;
   /**
    * Average decode tok/s of ONE stream (aggregate ÷ active streams when all
    * decode in lockstep). Only engines publishing a per-token latency histogram
@@ -1128,6 +1168,8 @@ export interface Settings {
   showVramBreakdown: boolean;
   /** Serve GET /metrics in Prometheus text format. Off by default (404 when off). */
   prometheusExport: boolean;
+  /** Allow typing a sudo password over plain http from another machine. Off by default. */
+  allowPlainSudoPassword?: boolean;
   /** Let the Intel (xe) probe read debugfs VRAM through sudo -n. Off by default. */
   intelVramSudo: boolean;
   /**
@@ -1162,6 +1204,8 @@ export interface Settings {
    */
   healthTempWarnC: number;
   healthTempCriticalC: number;
+  /** Stream-sample engines without gauges (Pico): measured from one tiny streamed completion every 15 s. Off by default. */
+  llmStreamSample?: boolean;
 }
 
 export type OccupancyBadge = "unknown" | "generating" | "stalled";
@@ -2500,4 +2544,340 @@ export class ToolEvalApiError extends Error {
     this.errors = errors;
     this.active = active;
   }
+}
+
+// ─── Storage Manager ─────────────────────────────────────
+/** Run a storage action as an administrator. The password is used for this call only. */
+export interface StorageElevation {
+  sudo?: boolean;
+  sudoPassword?: string;
+  /** Keep a typed password on the dashboard server (encrypted) once sudo has accepted it. */
+  remember?: boolean;
+}
+
+export interface StorageFilesystem {
+  source: string;
+  fstype: string;
+  mount: string;
+  totalBytes: number;
+  usedBytes: number;
+  availBytes: number;
+}
+
+/** The folders directly inside one folder, for the folder picker. */
+export interface StorageFolders {
+  path: string;
+  dirs: string[];
+  /** The list was cut: the folder holds more folders than are shown. */
+  more: boolean;
+}
+
+export interface StorageStatus {
+  user: string | null;
+  /** The dashboard remembers this account's sudo password (encrypted), so none needs typing. */
+  sudoSaved?: boolean;
+  /** "root" runs directly, "yes" = passwordless sudo works, "no" = a password is needed. */
+  sudo: "root" | "yes" | "no";
+  filesystems: StorageFilesystem[];
+  docker: { state: "ok" | "missing" | "denied" | "down"; rootDir: string | null };
+  /** The home folder of the account the dashboard uses on this Spark. */
+  homeDir?: string | null;
+  /** Home folders of ordinary people under /home (used when the account itself is root). */
+  peopleHomes?: string[];
+  /** The server accepts a typed sudo password on this connection (https or the machine itself). */
+  passwordAllowed?: boolean;
+  /** Settings allows typing it over plain http, so the page's secure-context check is skipped. */
+  plainPasswordAllowed?: boolean;
+  /** The owner allowed deleting folders as administrator on this Spark for this account, or null. */
+  elevatedDeleteAck?: StorageElevatedDeleteAck | null;
+}
+
+/** The owner's acknowledgement that processes of the Spark's account are treated as having root access. */
+export interface StorageElevatedDeleteAck {
+  /** The account name the page showed when it was confirmed. */
+  user: string | null;
+  acknowledgedAt: number;
+}
+
+/**
+ * A delete that was staged on the Spark and never finished ("Needs attention"). `staged`: the item waits in
+ * the staging folder. `interrupted`: its delete stopped part way. `conflict`: it could not be put back because
+ * its name was taken. `in-place`: it never moved. `gone`: neither it nor the staged copy is there any more.
+ * `unknown` / `unreadable`: something else is in the way; check by hand.
+ */
+export interface StorageQuarantineItem {
+  id: string;
+  state: "staged" | "interrupted" | "conflict" | "in-place" | "gone" | "unknown" | "unreadable";
+  elevated: boolean;
+  type: StorageEntryType;
+  createdAt: number | null;
+  /** Where it was. */
+  path: string;
+  /** Where it waits now. */
+  stagedPath: string;
+  reason: string | null;
+}
+
+/** One item of a bulk delete that was tried and not deleted. */
+export interface StorageBulkDeleteFailure {
+  path: string;
+  /** The single delete's error code (`permission`, `not-found`, `protected-descendant`, `unreachable`, …). */
+  code: string;
+  message: string;
+  /** Part of it may already be gone. */
+  partial: boolean;
+  /** Kept on the Spark under "Needs attention". */
+  quarantineId?: string;
+  /** As administrator: the command to run on the Spark by hand. */
+  command?: string;
+}
+
+/**
+ * A bulk delete (POST …/storage/delete-many): its items run one after another on the server under one busy lock,
+ * each as a full single delete. `done` items of `total` have been tried; `current` is the one being deleted.
+ * `covered` paths were inside another listed folder (deleted with it, not run on their own). `stopped`: why the
+ * run ended early (`bad-password`, `password-locked`, `no-ack`, `unreachable`, `unit-busy`, `no-sudo`, `time-limit`, …),
+ * with the rest in `skipped`.
+ */
+export interface StorageBulkDeleteJob {
+  id: string;
+  state: "running" | "done";
+  elevated: boolean;
+  total: number;
+  done: number;
+  current: string | null;
+  startedAt: number;
+  finishedAt: number | null;
+  /** Finished, and every item was deleted. */
+  success: boolean;
+  deleted: string[];
+  failed: StorageBulkDeleteFailure[];
+  skipped: { path: string; reason: string }[];
+  covered: string[];
+  stopped: { code: string; message: string } | null;
+}
+
+/**
+ * The delete advisor (POST …/storage/advise): how careful to be before deleting, from evidence only. "low": nothing
+ * found and everything checked. "review": something worth a look, or not everything could be checked. "high": in use
+ * now, work that exists only here (git), or what looks like credentials.
+ */
+export type StorageAdviceLevel = "low" | "review" | "high";
+
+/** One thing the advisor saw. "note": context that never changes the level (a date, a copy elsewhere, a known place). */
+export interface StorageAdviceReason {
+  rule: string;
+  level: StorageAdviceLevel | "note";
+  text: string;
+}
+
+export interface StorageAdviceItem {
+  path: string;
+  level: StorageAdviceLevel;
+  /** Every check ran in full. False: see `unchecked`; the level is then at least "review". */
+  complete: boolean;
+  /** Highest first, notes last. */
+  reasons: StorageAdviceReason[];
+  /** What could not be checked, and why. */
+  unchecked: { rule: string; text: string }[];
+}
+
+export interface StorageAdvice {
+  /** Server time of the check. */
+  checkedAt: number;
+  /** Changes within this many minutes counted as recent. */
+  recentMinutes: number;
+  /** The highest item level. */
+  level: StorageAdviceLevel;
+  complete: boolean;
+  /** The paths checked, in the order sent (without those inside another listed folder). */
+  items: StorageAdviceItem[];
+  /** Paths inside another listed folder: checked as part of it. */
+  covered: string[];
+}
+
+/** How dealing with a Needs-attention item ended: put back, deleted, or only its record dropped. */
+export interface StorageQuarantineResult {
+  success: boolean;
+  id: string;
+  outcome: "restored" | "deleted" | "in-place" | "gone" | "forgotten" | null;
+}
+
+/** How the dashboard reaches a Spark (roadmap §4), what the probe found there, and what that allows. */
+export interface StorageContext {
+  /** "ssh": over SSH as that account. "native-local": the dashboard runs on the Spark itself. "container-local": from the dashboard's container through the host's mount namespace. */
+  kind: "ssh" | "native-local" | "container-local";
+  transport: "ssh" | "nsenter" | "local";
+  uid: number | null;
+  account: string | null;
+  /** $HOME as the programs see it, and the account's home from the user database. */
+  home: string | null;
+  accountHome: string | null;
+  hostname: string | null;
+  bootId: string | null;
+  /** Shares the host's PID namespace: true, false, or null when that could not be read. */
+  hostPidNs: boolean | null;
+  inContainer: boolean;
+  sudo: "root" | "yes" | "no";
+  linger: "yes" | "no" | "unknown";
+  capabilities: string[];
+  probedAt: number;
+  /** Each feature's verdict: offered, or not with the reason. */
+  features: Record<string, { supported: boolean; reason: string | null }>;
+}
+
+export type StorageEntryType = "dir" | "file" | "link" | "other";
+
+export interface StorageEntry {
+  path: string;
+  bytes: number;
+  type: StorageEntryType;
+  /** Children were scanned: anything not listed is part of the folder's "smaller items". */
+  expanded: boolean;
+  /** Why this cannot be deleted from the dashboard, or null when it can. */
+  locked: string | null;
+  /** The name has bytes that cannot be sent back to the unit. */
+  unsafe?: true;
+  /**
+   * Part of `bytes` held by files that also have hard links outside this entry: deleting it does not free
+   * them. `bytes` counts every file once, like `du -s` of this entry alone.
+   */
+  sharedBytes?: number;
+  /**
+   * The newest modification time of anything in it (a file's or link's own), in whole seconds since 1970 by
+   * the Spark's clock. Left out when not known: the basic scan, analyses from before dates were recorded,
+   * a scan stopped early, or nothing readable.
+   */
+  modifiedAt?: number;
+}
+
+export interface StorageScanRequest extends StorageElevation {
+  path?: string;
+  depth?: number;
+  /** "new" replaces the result on the page; "drill" rescans one folder and swaps it in. */
+  mode?: "new" | "drill";
+}
+
+/**
+ * What a stop request achieved: "pending" (asked), "terminated" (stopped, nothing left running),
+ * "already-gone" (it had ended), or "not-terminated" / "unknown" (could not be confirmed: the Spark stays busy).
+ */
+export type StorageStopOutcome = "pending" | "terminated" | "already-gone" | "not-terminated" | "unknown";
+
+export interface StorageScanJob {
+  id: string;
+  /** "stopping": a stop was asked for and is not confirmed yet. */
+  state: "running" | "stopping" | "done" | "error" | "cancelled";
+  path: string;
+  depth: number;
+  mode: "new" | "drill";
+  elevated: boolean;
+  startedAt: number;
+  finishedAt: number | null;
+  error: { code: string; message: string } | null;
+  /** "Stop scan" is offered. False for a scan run through sudo: the dashboard's account cannot stop it. */
+  cancellable?: boolean;
+  /** Stopping is best effort here (the dashboard runs in a container that may not see the Spark's processes). */
+  cancelBestEffort?: boolean;
+  /** Server time by which the Spark ends the scan by itself (scans run through sudo), else null. */
+  stopsByItselfAt?: number | null;
+  stop?: { requestedAt: number; outcome: StorageStopOutcome; message: string | null } | null;
+  /** The Spark stays busy for this job: other storage work is refused until its processes are known to be gone. */
+  holdsSpark?: boolean;
+  holdReason?: "running" | "stopping" | "unconfirmed" | "unreachable" | null;
+  /** Server time by which the hold ends by itself at the latest, when known. */
+  holdUntil?: number | null;
+}
+
+export interface StorageSession {
+  root: string;
+  scannedAt: number;
+  /** When the analysis was made. Looking inside a folder later refreshes that folder only. */
+  analysedAt?: number;
+  elevated: boolean;
+  /** Folders the scan was not allowed to read. */
+  unreadable: number;
+  /** The unit stopped the scan before it finished, so sizes are incomplete. */
+  timedOut: boolean;
+  /** "exact": every file counted once, shared sizes known. "approx": hard-linked files may be counted in several folders. */
+  hardlinks?: "exact" | "approx";
+  /** The scan that made this analysis recorded modification times (the basic scan and older analyses did not). */
+  dated?: boolean;
+  entries: StorageEntry[];
+}
+
+export interface StorageScanSnapshot {
+  job: StorageScanJob | null;
+  revision: number;
+  /** Null when `since` already matches. */
+  session: StorageSession | null;
+  /** Server clock, to time a running scan without trusting this browser's clock. */
+  now?: number;
+}
+
+export interface DockerUsageRow {
+  count: number | null;
+  active: number | null;
+  sizeBytes: number | null;
+  reclaimableBytes: number | null;
+}
+
+export interface DockerImage {
+  id: string;
+  tags: string[];
+  sizeBytes: number | null;
+  created: string | null;
+  usedBy: { name: string; state: string }[];
+  /** "unused" images are the ones that can be removed. */
+  /** "unknown": the Spark could not list its containers, so nobody can say whether one uses it (never removable). */
+  status: "running" | "stopped" | "unused" | "unknown";
+  /**
+   * A registry digest is recorded (pulled from, or pushed to, a registry). false: none, so it was built or
+   * loaded on this Spark and may be the only copy. null or missing: not reported.
+   */
+  registryDigest?: boolean | null;
+}
+
+export interface DockerContainer {
+  id: string;
+  name: string;
+  /** Docker's state word: running, exited, created, paused, dead… */
+  state: string;
+  /** The image it was made from. */
+  imageId: string;
+  created: string | null;
+  /** Not running, so it can be removed. */
+  removable: boolean;
+  /** When it last stopped, as Docker reported it. Missing when it never ran or the Spark did not say. */
+  finishedAt?: string | null;
+}
+
+export interface DockerStorage {
+  rootDir: string | null;
+  usage: Partial<Record<"images" | "containers" | "volumes" | "buildCache", DockerUsageRow>>;
+  images: DockerImage[];
+  /** Stopped containers first. */
+  containers: DockerContainer[];
+  /** What the Spark could list. Containers not "ok": no image counts as unused. */
+  listing?: { images: "ok" | "partial" | "failed"; containers: "ok" | "failed" };
+}
+
+/** The outcome of removing images or containers: IDs removed, skipped (in use, gone…) and failed. */
+export interface DockerRemoveResult {
+  success: boolean;
+  removed: string[];
+  skipped: { id: string; reason: string }[];
+  failed: { id: string; message: string }[];
+}
+
+/**
+ * Clearing Docker's unused build cache last used more than `olderThanDays` ago, on the builder built into the
+ * daemon. `adapter`: "buildx" (pinned to the Docker context's own builder) or "daemon" (no buildx).
+ * `reclaimedBytes`: what Docker says it reclaimed, null when it did not say.
+ */
+export interface DockerBuilderPruneResult {
+  success: boolean;
+  olderThanDays: number;
+  adapter: "buildx" | "daemon" | null;
+  reclaimedBytes: number | null;
 }

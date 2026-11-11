@@ -21,6 +21,7 @@ export const BACKEND_LABELS = Object.freeze({
   flare: "Flare",
   locals: "Locals",
   splash: "Splash",
+  pico: "Pico",
 });
 
 /**

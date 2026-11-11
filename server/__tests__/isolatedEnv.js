@@ -34,6 +34,9 @@ export const CONFIG_PATH_VARS = [
   "ALERTS_JSON_PATH",
   "OCCUPANCY_HELPERS_JSON_PATH",
   "MODEL_PRICES_JSON_PATH",
+  "STORAGE_SCANS_JSON_PATH",
+  "STORAGE_SUDO_JSON_PATH",
+  "STORAGE_ACKS_JSON_PATH",
   "MODEL_PRICES_FETCH",
   // Opt-in power meters: the isolated path never exists, so tests run with them off.
   "POWER_METERS_CONFIG_PATH",
@@ -45,7 +48,6 @@ export const CONFIG_DIR_VARS = ["TOOL_EVAL_RESULTS_DIR", "QUALITY_FIDELITY_DIR"]
 /** Env entries mapping each config path variable to a file (or directory) inside `dir`. */
 export function isolatedConfigEnv(dir) {
   return {
-    // Tests must not contact an operator's opt-in inference activity source.
     SPARKDASH_INFERENCE_ACTIVITY_URL: "",
     SPARKDASH_INFERENCE_ACTIVITY_LABELS: "",
     ...Object.fromEntries(
