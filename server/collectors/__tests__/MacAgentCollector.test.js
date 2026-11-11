@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -27,9 +28,9 @@ const spark = {
   id: "macbook-m5",
   kind: "mac",
   isLocal: false,
-  lanIp: "192.168.4.125",
+  lanIp: "10.0.0.9",
   agent: { port: 8790 },
-  ssh: { user: "kesslerio", host: "192.168.4.125", auth: "key" },
+  ssh: { user: "macuser", host: "10.0.0.9", auth: "key" },
 };
 
 /** Collector over a stub agent; `mode` decides how /metrics answers. */
@@ -107,8 +108,9 @@ test("vitals come from one agent read and keep the existing shapes", async () =>
 test("powermetrics refusal shows as a declared gap, not a zero", async () => {
   const { collector } = collectorWith("ok");
   const gpu = await collector.collectGpu();
-  assert.equal(gpu.usage, 0);
-  assert.equal(gpu.power.draw, 0);
+  assert.equal(gpu.usage, null);
+  assert.equal(gpu.power.draw, null);
+  assert.equal(gpu.power.systemDraw, null);
   assert.equal(gpu.powermetricsAvailable, false);
   const gap = gpu.unavailable.find((row) => row.metric === "gpu.power");
   assert.match(gap.reason, /root/);
@@ -130,7 +132,7 @@ test("network: interface, ip, reachability probes, and counter-delta speeds", as
   const { collector } = collectorWith("ok");
   const first = await collector.collectNetwork();
   assert.equal(first.primaryInterface, "en0");
-  assert.equal(first.interfaces[0].ip, "192.168.4.125");
+  assert.equal(first.interfaces[0].ip, "10.0.0.9");
   assert.equal(first.interfaces[0].rxSpeed, 0, "no previous sample to difference against");
   assert.deepEqual(
     first.reachability.map((row) => row.ok),
@@ -462,4 +464,72 @@ test("a healthy runtimes read does not retry or poll", async () => {
   assert.equal(result.agentOnline, true);
   assert.equal(result.agentVersion, snapshot.agentVersion);
   assert.equal(result.collectedAt, snapshot.collectedAt);
+});
+
+test("valid agent CPU and memory readings participate in history/export collection", async () => {
+  const { collectionWasSuccessful } = await import("../SystemCollector.js");
+  const { collector } = collectorWith("ok");
+  assert.equal(collectionWasSuccessful(await collector.collectCpu()), true);
+  assert.equal(collectionWasSuccessful(await collector.collectGpu()), true);
+});
+
+test("a missing agent CPU reading is unavailable rather than a measured idle zero", async () => {
+  const { collectionWasSuccessful } = await import("../SystemCollector.js");
+  const data = structuredClone(snapshot);
+  data.cpu.usagePercent = null;
+  const { collector } = collectorWith("ok", { fetchImpl: async () => ({ ok: true, json: async () => data }) });
+  const cpu = await collector.collectCpu();
+  assert.equal(cpu.usageAvailable, false);
+  assert.equal(collectionWasSuccessful(cpu), false);
+});
+
+test("stale agent payloads cannot refresh vitals or runtime inventory", async () => {
+  const data = { ...structuredClone(snapshot), sampleStale: true, sampleAgeSeconds: 60 };
+  const { collector } = collectorWith("ok", { fetchImpl: async () => ({ ok: true, json: async () => data }) });
+  assert.equal(await collector._agentSnapshot(), null);
+  const probe = await collector._probeAgentOnce(100);
+  assert.deepEqual(probe, { ok: false, retryable: true, reason: "stale" });
+});
+
+test("agent requests connect to the single checked address while keeping the URL host", async () => {
+  let lookupCalls = 0;
+  let observedHost;
+  const server = createServer((request, response) => {
+    observedHost = request.headers.host;
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ schema: "sparkdash.mac-agent/1" }));
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+  const hostname = "mac-agent.fixture.test";
+  const collector = new MacAgentCollector(
+    { ...spark, agent: { url: `http://${hostname}:${port}/` } },
+    {
+      lookup: async (host, options) => {
+        lookupCalls += 1;
+        assert.equal(host, hostname);
+        assert.equal(options.all, true);
+        return [{ address: "127.0.0.1", family: 4 }];
+      },
+    }
+  );
+
+  try {
+    const result = await collector._probeAgentOnce(1_000);
+    assert.equal(result.ok, true);
+    assert.equal(lookupCalls, 1, "the fetch must not resolve the hostname again");
+    assert.equal(observedHost, `${hostname}:${port}`, "the request keeps the original Host header");
+  } finally {
+    await new Promise((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+});
+
+test("agent targets reject unsafe URLs and forbidden DNS answers", async () => {
+  for (const url of ["http://169.254.169.254", "http://2852039166", "http://user:pass@10.0.0.9", "file:///etc/passwd", "http://10.0.0.9/redirect"]) {
+    assert.throws(() => macAgentBaseUrl({ agent: { url } }));
+  }
+  const { assertMacAgentTarget } = await import("../MacAgentCollector.js");
+  await assert.rejects(() => assertMacAgentTarget("http://fixture.example", { lookup: async () => [{ address: "169.254.169.254" }] }), /forbidden/);
 });

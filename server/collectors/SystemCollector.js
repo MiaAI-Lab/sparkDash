@@ -454,7 +454,7 @@ const AMD_SMI_RESOLVER = [
 const AMD_GPU_INDEX_OFFSET = 1000;
 const INTEL_GPU_INDEX_OFFSET = 2000;
 
-function tagCollectionResult(result, successful) {
+export function tagCollectionResult(result, successful) {
   Object.defineProperty(result, COLLECTION_SUCCESS, {
     value: successful === true,
     enumerable: false,

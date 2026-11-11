@@ -95,8 +95,17 @@ export function TerminalModal({
   running: boolean;
   onClose: () => void;
 }) {
-  const { mounted, visible } = useModalPresence(open, 240, { escapeOnClose: open ? onClose : undefined });
+  const { mounted, visible } = useModalPresence(open, 240);
   const overlayClose = useOverlayClose(onClose);
+  // Escape closes the dialog, as it did before the output viewer moved here.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
   if (!mounted) return null;
   return createPortal(
     <div

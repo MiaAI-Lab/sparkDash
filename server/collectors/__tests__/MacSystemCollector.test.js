@@ -190,7 +190,8 @@ test("sudo refusal leaves GPU fields at defaults and backs off", async () => {
   const { collector, calls } = collectorWith((cmd) => (cmd.includes("powermetrics") ? "" : snapshotOutput()));
   const gpu = await collector.collectGpu();
   assert.equal(gpu.powermetricsAvailable, false);
-  assert.equal(gpu.usage, 0);
+  assert.equal(gpu.usage, null);
+  assert.equal(gpu.power.draw, null);
   assert.equal(gpu.vram.total, 262144);
   collector._snapshotCache = null;
   await collector.collectGpu();
@@ -243,4 +244,21 @@ test("Mac GPU availability: memory always, busy and power only with powermetrics
   assert.deepEqual(macGpuAvailability({ powermetrics: false, temperature: 61 }), {
     temperature: true, usage: false, powerDraw: false, powerLimit: false, vramUsed: true, vramTotal: true,
   });
+});
+
+test("successful SSH readings carry collection provenance and a failed power read expires", async () => {
+  const { collectionWasSuccessful } = await import("../SystemCollector.js");
+  let fail = false;
+  const collector = new MacSystemCollector(spark, { exec: async (_spark, cmd) => {
+    if (cmd.startsWith("sudo")) { if (fail) throw new Error("permission refused"); return fx("powermetrics.txt"); }
+    return snapshotOutput();
+  } });
+  assert.equal(collectionWasSuccessful(await collector.collectCpu()), true);
+  const first = await collector.collectGpu();
+  assert.equal(collectionWasSuccessful(first), true);
+  assert.equal(first.powermetricsAvailable, true);
+  fail = true;
+  const next = await collector.collectGpu();
+  assert.equal(next.powermetricsAvailable, false);
+  assert.equal(next.metricAvailability.powerDraw, false);
 });

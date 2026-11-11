@@ -343,6 +343,10 @@ export interface GpuDevice {
 // ─── CPU metrics ─────────────────────────────────────────
 export interface CpuMetrics {
   usage: number;
+  /** False when the CPU usage read was unavailable; the numeric placeholder is not a measured zero. */
+  usageAvailable?: boolean;
+  /** Availability entries from the same CPU sample. */
+  unavailable?: MetricGap[];
   temperature: number | null;
   /** What the temperature reading is: "CPU", or "ACPI"/"SoC" for a board zone. */
   temperatureLabel?: string | null;

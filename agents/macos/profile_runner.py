@@ -198,7 +198,13 @@ class MacBackend:
             raise ProbeError("ps probe did not include this runner; cannot prove process state")
         return procs
 
-    def _probe(self, argv, timeout=4.0):
+    def _probe(self, argv, timeout=4.0, *, strict=False, allowed_codes=(0,)):
+        # The collector calls these probes with strict=True so an unreadable
+        # inventory can never be read as an empty one. Every probe here already
+        # fails closed: _strict_probe raises ProbeError instead of returning an
+        # empty sentinel, and it accepts only lsof's status 1 with no
+        # diagnostics, which is the one answer that legitimately means "no
+        # listeners". So the strict request needs no weaker path here.
         if argv == ["ps", "-Ao", "pid=,ppid=,uid=,args="]:
             # Include zombie state in the same probe, then preserve the existing
             # collector parser's input shape. Cold loads must not run two ps calls.

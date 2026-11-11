@@ -7,7 +7,7 @@
   "bootTime": 1790917878,
   "host": {
     "platform": "macos",
-    "hostname": "MK-MacBook-Pro-5.local",
+    "hostname": "fixture-mac.local",
     "osVersion": "macOS 26.7.1",
     "arch": "arm64",
     "model": "Mac17,6",
@@ -51,7 +51,7 @@
         "name": "en0",
         "rxBytes": 164425824824,
         "txBytes": 92839260191,
-        "ip": "192.168.4.125",
+        "ip": "10.0.0.9",
         "operstate": "up"
       }
     ],

@@ -153,15 +153,7 @@ function targetForServing(
   }) ?? null;
 }
 
-export function RuntimeLauncher({
-  sparkId,
-  metricsRuntimes,
-  agentOnline,
-  className,
-  load = fetchRuntimeControl,
-  start = startMacRuntime,
-  stop = stopMacRuntime,
-}: {
+interface RuntimeLauncherProps {
   sparkId: string;
   metricsRuntimes?: MacRuntime[] | null;
   agentOnline?: boolean | null;
@@ -169,7 +161,21 @@ export function RuntimeLauncher({
   load?: Load;
   start?: Act;
   stop?: (sparkId: string, runtime: string) => Promise<RuntimeControlView>;
-}) {
+}
+
+export function RuntimeLauncher(props: RuntimeLauncherProps) {
+  return <RuntimeLauncherForNode key={props.sparkId} {...props} />;
+}
+
+function RuntimeLauncherForNode({
+  sparkId,
+  metricsRuntimes,
+  agentOnline,
+  className,
+  load = fetchRuntimeControl,
+  start = startMacRuntime,
+  stop = stopMacRuntime,
+}: RuntimeLauncherProps) {
   const [status, setStatus] = useState<RuntimeControlView | null>(null);
   const [group, setGroup] = useState<string>("");
   const [targetName, setTargetName] = useState<string>("");
@@ -264,11 +270,14 @@ export function RuntimeLauncher({
 
   // A control response is a fresh process probe. It takes precedence over the
   // metrics snapshot, which can lag a start or stop by a full polling cycle.
-  const serving = status
-    ? status.serving
-    : agentOnline === false
-      ? null
-      : Array.isArray(metricsRuntimes)
+  // An offline agent or a snapshot that explicitly says it could not read the
+  // runtimes is newer knowledge that nothing was proven, so neither is ever
+  // answered with a stale serving list.
+  const serving = agentOnline === false || metricsRuntimes === null
+    ? null
+    : status
+      ? status.serving
+      : metricsRuntimes !== undefined
         ? metricsRuntimes
         : null;
 

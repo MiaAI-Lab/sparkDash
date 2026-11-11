@@ -5,18 +5,16 @@
  * start and stop run only when the dashboard asks, and only for a Mac node.
  */
 
-import { macAgentBaseUrl } from "./MacAgentCollector.js";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { Agent, fetch as undiciFetch } from "undici";
+import { macAgentBaseUrl, assertMacAgentTarget } from "./MacAgentCollector.js";
+import { pinnedLookup } from "../validate.js";
 
 export const CONTROL_SCHEMA = "sparkdash.mac-control/1";
 const STATUS_TIMEOUT_MS = 8000;
 const ACTION_TIMEOUT_MS = 680000;
-// The command can take 600s, followed by a 60s readiness check. Undici's
-// default 300s header/body limits apply independently of AbortSignal.
-const controlDispatcher = new Agent({ headersTimeout: ACTION_TIMEOUT_MS, bodyTimeout: ACTION_TIMEOUT_MS });
 // One current/last job per Spark, never a history. Completed fallbacks expire
 // when the Mac supplies a newer operation, a new action starts, or after 10m.
 const jobs = new Map();
@@ -142,34 +140,58 @@ async function readBody(response) {
   }
 }
 
-async function callAgent(spark, path, { fetchImpl, method = "GET", body, token, timeoutMs }) {
-  const endpoint = new URL(macAgentBaseUrl(spark));
-  if (spark.agent?.controlPort) endpoint.port = String(spark.agent.controlPort);
-  const baseUrl = endpoint.toString().replace(/\/$/, "");
-  let response;
+async function callAgent(spark, path, { fetchImpl = undiciFetch, method = "GET", body, token, timeoutMs, lookup }) {
+  let baseUrl;
+  let status = 0;
+  let payload = null;
   try {
-    response = await fetchImpl(`${baseUrl}${path}`, {
-      method,
-      headers: {
-        ...(body ? { "Content-Type": "application/json" } : {}),
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: body ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(timeoutMs),
-      dispatcher: controlDispatcher,
+    // The control listener is the agent's unprivileged port and can differ from
+    // the one serving privileged telemetry, so it replaces the port only.
+    const endpoint = new URL(macAgentBaseUrl(spark));
+    if (spark.agent?.controlPort) endpoint.port = String(spark.agent.controlPort);
+    baseUrl = endpoint.toString().replace(/\/$/, "");
+    // Resolve once and hand the checked addresses to the connection. Validating
+    // here and letting the fetch resolve again would be two answers to one
+    // question: the second could return a different address than was checked.
+    const addresses = await assertMacAgentTarget(baseUrl, lookup ? { lookup } : undefined);
+    // The command can take 600s, followed by a 60s readiness check. Undici's
+    // default 300s header/body limits apply independently of AbortSignal, so the
+    // pinned dispatcher has to carry that budget too.
+    const dispatcher = new Agent({
+      headersTimeout: ACTION_TIMEOUT_MS,
+      bodyTimeout: ACTION_TIMEOUT_MS,
+      connect: { lookup: pinnedLookup(addresses) },
     });
+    try {
+      const response = await fetchImpl(`${baseUrl}${path}`, {
+        method,
+        headers: {
+          ...(body ? { "Content-Type": "application/json" } : {}),
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: body ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(timeoutMs),
+        redirect: "error",
+        dispatcher,
+      });
+      status = response.status;
+      // Read the answer while the pinned connection is still open: closing the
+      // dispatcher first would strand the body.
+      payload = await readBody(response);
+    } finally {
+      await dispatcher.close();
+    }
   } catch (err) {
     return unavailable(`mac agent unreachable at ${baseUrl} (${err.message})`);
   }
-  const payload = await readBody(response);
-  if (response.status === 404 && (!payload || payload.schema !== CONTROL_SCHEMA)) {
+  if (status === 404 && (!payload || payload.schema !== CONTROL_SCHEMA)) {
     return unavailable("this agent has no runtime control endpoint");
   }
   if (!payload || payload.schema !== CONTROL_SCHEMA) {
-    if (response.status === 403) {
+    if (status === 403) {
       return denied(payload?.error || payload?.reason || "runtime control permission denied");
     }
-    return unavailable(payload?.error || `agent responded ${response.status}`);
+    return unavailable(payload?.error || `agent responded ${status}`);
   }
   return mapPayload(payload, { authorized: Boolean(token) });
 }
@@ -209,7 +231,7 @@ function mergeJob(spark, status) {
   };
 }
 
-export async function readRuntimeControl(spark, { fetchImpl = undiciFetch, token = macControlToken() } = {}) {
+export async function readRuntimeControl(spark, { fetchImpl, token = macControlToken(), lookup } = {}) {
   const blocked = assertMacControlSpark(spark);
   if (blocked) return blocked.body;
   if (!spark.agent) {
@@ -219,6 +241,7 @@ export async function readRuntimeControl(spark, { fetchImpl = undiciFetch, token
     fetchImpl,
     token,
     timeoutMs: STATUS_TIMEOUT_MS,
+    lookup,
   });
   return mergeJob(spark, status);
 }
@@ -239,7 +262,7 @@ function actionProblem(spark, action, request, token) {
 /** Validate and reserve synchronously, then dispatch once without tying the
  * browser connection to the command lifetime. Reads never dispatch actions. */
 export async function beginRuntimeControl(spark, action, request = {}, {
-  fetchImpl = undiciFetch, token = macControlToken(),
+  fetchImpl = undiciFetch, token = macControlToken(), lookup,
 } = {}) {
   const problem = actionProblem(spark, action, request, token);
   if (problem) return problem;
@@ -255,7 +278,7 @@ export async function beginRuntimeControl(spark, action, request = {}, {
   const job = { pending: true };
   jobs.set(spark.id, job);
   try {
-    const status = await callAgent(spark, "/control", { fetchImpl, token, timeoutMs: STATUS_TIMEOUT_MS });
+    const status = await callAgent(spark, "/control", { fetchImpl, token, timeoutMs: STATUS_TIMEOUT_MS, lookup });
     if (status.state !== "ready" || status.busy) return status;
     const runtime = request.runtime.trim();
     const target = status.targets.find((row) => row.name === runtime);
@@ -285,7 +308,7 @@ export async function beginRuntimeControl(spark, action, request = {}, {
     };
     // actRuntimeControl owns the sole POST and its long timeout; never retry a
     // connection failure, since the Mac may still be executing the command.
-    void actRuntimeControl(spark, action, { runtime, model }, { fetchImpl, token })
+    void actRuntimeControl(spark, action, { runtime, model }, { fetchImpl, token, lookup })
       .then(complete, (err) => complete(unavailable(`runtime control ${action} failed (${err.message})`)));
     return job.view;
   } finally {
@@ -299,6 +322,7 @@ export async function beginRuntimeControl(spark, action, request = {}, {
 export async function actRuntimeControl(spark, action, request = {}, {
   fetchImpl = undiciFetch,
   token = macControlToken(),
+  lookup,
 } = {}) {
   const problem = actionProblem(spark, action, request, token);
   if (problem) return problem;
@@ -311,5 +335,6 @@ export async function actRuntimeControl(spark, action, request = {}, {
     body,
     token,
     timeoutMs: ACTION_TIMEOUT_MS,
+    lookup,
   });
 }

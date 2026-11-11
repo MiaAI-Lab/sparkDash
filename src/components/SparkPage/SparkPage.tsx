@@ -314,10 +314,9 @@ export function SparkPage({
                   mac={spark.kind === "mac"}
                   unavailable={metrics.unavailable}
                 />
-                {/* Dedicated hosts (and Macs) have system RAM instead of a unified pool: CPU and RAM side by side. */}
-                {(spark.kind === "host" || spark.kind === "mac") && (
-                  <RamPanel ram={metrics.ram} sparkId={spark.id} />
-                )}
+                {/* Dedicated hosts have system RAM instead of a unified pool: CPU and RAM side by side.
+                    A Mac's RAM is its unified pool, already shown above (RAM only when the pool is unknown). */}
+                {(spark.kind === "host" || spark.kind === "mac") && !showUnified && <RamPanel ram={metrics.ram} sparkId={spark.id} />}
                 {/* Models is the third column of the row (Windows PCs have no launchers). */}
                 {!profileModels && spark.platform !== "windows" && modelsPanel}
               </div>

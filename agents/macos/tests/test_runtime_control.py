@@ -77,7 +77,7 @@ class ControlUnitTests(unittest.TestCase):
         ctl = control.RuntimeControl(
             catalog(), token="secret", euid=501, probe_serving=probe, runner=runner,
         )
-        payload = ctl.status()
+        payload = ctl.status({"Authorization": "Bearer secret"})
         self.assertEqual(payload["schema"], control.CONTROL_SCHEMA)
         self.assertEqual(payload["control"], "ready")
         self.assertEqual(payload["serving"][0]["name"], "splash-35b")
@@ -213,7 +213,7 @@ class ProfileControlTests(unittest.TestCase):
                 self.assertTrue(payload["ok"])
                 self.assertEqual(payload["model"], model)
                 self.assertEqual(self.calls[-1], (["/owned/launcher", "start", model], 45))
-        public = self.ctl.status()["targets"][1]
+        public = self.ctl.status(self.headers)["targets"][1]
         self.assertTrue(public["startable"])
         self.assertEqual(public["models"], [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}])
         self.assertNotIn("/owned", json.dumps(public))
@@ -412,7 +412,9 @@ class ProfileControlTests(unittest.TestCase):
         self.ctl._probe = probe
 
         def switch(argv, timeout):
-            self.assertEqual(probe.call_count, 0)
+            # The pre-launch check only asks whether the serving state is knowable
+            # at all; the wrapper still owns stopping, detaching, and waiting.
+            self.assertEqual(probe.call_count, 1)
             self.serving = [{"name": "tensorfold", "state": "serving", "model": "a"}]
             return self.run_command(argv, timeout)
 
@@ -421,7 +423,8 @@ class ProfileControlTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["serving"][0]["model"], "a")
-        self.assertEqual(probe.call_count, 1)
+        # One bounded read before the launch, one after it to report the result.
+        self.assertEqual(probe.call_count, 2)
 
     def test_timeout_reports_failure_even_when_cancelled_wrapper_exits_zero(self):
         self.ctl._runner = lambda argv, timeout: {
@@ -472,7 +475,7 @@ class ProfileControlTests(unittest.TestCase):
                     if not ok:
                         self.assertIn("served-a", payload["error"])
             request.assert_called_with("http://127.0.0.1:8100/v1/models", timeout=1.0)
-        self.assertNotIn("health", json.dumps(self.ctl.status()["targets"]))
+        self.assertNotIn("health", json.dumps(self.ctl.status(self.headers)["targets"]))
 
     def test_health_failure_and_invalid_health_configuration_fail_closed(self):
         health = {"port": 8100, "expectedModel": "served-a"}
@@ -728,6 +731,16 @@ class ControlHttpTests(unittest.TestCase):
         release.set()
         worker.join(2)
 
+    def test_status_read_rejects_a_mismatched_token(self):
+        # _get reports the HTTP status rather than raising, so a refused status
+        # read is asserted on its code and payload.
+        status, payload = self._get("/control", token="wrong")
+        self.assertEqual(status, 403)
+        self.assertEqual(payload["control"], "denied")
+        self.assertIsNone(payload["serving"])
+        self.assertEqual(payload["targets"], [])
+        self.assertEqual(self.calls, [])
+
 
 class ControlCommandTests(unittest.TestCase):
     def test_real_command_output_is_visible_only_to_authorized_polling_before_exit(self):
@@ -923,9 +936,43 @@ class ShippedCatalogTests(unittest.TestCase):
         ctl = control.RuntimeControl(data, token="", euid=501, probe_serving=lambda: [], runner=lambda *a: self.fail("ran"))
         payload = ctl.status()
         self.assertEqual(payload["control"], "disabled")
-        self.assertTrue(all(row["startable"] for row in payload["targets"]))
-        self.assertTrue(all("start" not in row for row in payload["targets"]))
         self.assertNotIn("profile_runner.py", json.dumps(payload))
+        # The catalog is only rendered for an authorized caller; there every
+        # target must still be launchable and still hide every command.
+        authorized_ctl = control.RuntimeControl(
+            data, token="secret", euid=501, probe_serving=lambda: [], runner=lambda *a: self.fail("ran"),
+        )
+        authorized = authorized_ctl.status({"Authorization": "Bearer secret"})
+        self.assertEqual(authorized["control"], "ready")
+        self.assertTrue(all(row["startable"] for row in authorized["targets"]))
+        self.assertTrue(all("start" not in row for row in authorized["targets"]))
+        self.assertNotIn("profile_runner.py", json.dumps(authorized))
+
+
+
+
+class ReviewControlRegressionTests(unittest.TestCase):
+    def test_status_rejects_wrong_token_without_probing_or_running(self):
+        calls = []
+        ctl = control.RuntimeControl(catalog(), token="secret", euid=501, probe_serving=lambda: calls.append("probe"), runner=lambda *a: calls.append("run"))
+        result = ctl.status({"Authorization": "Bearer wrong"})
+        self.assertEqual(result["control"], "denied")
+        self.assertIsNone(result["serving"])
+        self.assertEqual(result["targets"], [])
+        self.assertEqual(calls, [])
+
+    def test_unknown_serving_state_blocks_launch_before_command(self):
+        calls = []
+        def failed_probe():
+            raise RuntimeError("synthetic process probe failure")
+        ctl = control.RuntimeControl(catalog(), token="secret", euid=501, probe_serving=failed_probe, runner=lambda *a: calls.append("run"))
+        result = ctl.status({"Authorization": "Bearer secret"})
+        self.assertIsNone(result["serving"])
+        self.assertIn("probe failed", result["servingError"])
+        status, result = ctl.act("start", {"Authorization": "Bearer secret"}, {"runtime": "splash-35b"})
+        self.assertEqual(status, 503)
+        self.assertFalse(result["ok"])
+        self.assertEqual(calls, [])
 
 
 if __name__ == "__main__":

@@ -42,6 +42,12 @@ test("mac agent endpoint normalizes, and only for mac units", () => {
   assert.equal(n({ kind: "spark", agent: { port: 8790 } }).agent, null);
 });
 
+test("a Mac always uses darwin and remote collection, including legacy Windows configurations", () => {
+  const normalized = n({ kind: "mac", platform: "windows", isLocal: true });
+  assert.equal(normalized.platform, "darwin");
+  assert.equal(normalized.isLocal, false);
+});
+
 test("Mac control uses an optional independent validated port", () => {
   assert.equal(n({ kind: "mac", agent: { port: 8791, controlPort: 8790 } }).agent.controlPort, 8790);
   assert.equal(n({ kind: "mac", agent: { port: 8791, controlPort: 70000 } }).agent.controlPort, undefined);

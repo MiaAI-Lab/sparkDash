@@ -15,7 +15,10 @@
  * absence is itself reported, never hidden.
  */
 
+import { Agent, fetch as undiciFetch } from "undici";
 import { MacSystemCollector, macGpuAvailability } from "./MacSystemCollector.js";
+import { tagCollectionResult } from "./SystemCollector.js";
+import { isAllowedTargetHost, assertAllowedTarget, pinnedLookup } from "../validate.js";
 import { llmProbeHost } from "./llmHost.js";
 
 export const MAC_AGENT_DEFAULT_PORT = 8790;
@@ -92,15 +95,29 @@ export function runtimesProbeSchedule() {
 /** Resolve where the agent lives for this unit. */
 export function macAgentBaseUrl(spark) {
   const configured = String(spark?.agent?.url || "").trim();
-  if (configured) return configured.replace(/\/+$/, "");
   const host = String(spark?.agent?.host || "").trim() || llmProbeHost(spark) || "127.0.0.1";
   const port = Number(spark?.agent?.port) || MAC_AGENT_DEFAULT_PORT;
-  return `http://${host}:${port}`;
+  const url = new URL(configured || `http://${host.includes(":") ? `[${host}]` : host}:${port}`);
+  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash || url.pathname !== "/" || !isAllowedTargetHost(url.hostname.replace(/^\[|\]$/g, ""))) {
+    throw new Error("Invalid Mac agent target: use an HTTP(S) base URL without credentials, query or path and an allowed host");
+  }
+  return url.origin;
+
+}
+
+/** Apply the same DNS/address policy as other administrator-configured targets. */
+export async function assertMacAgentTarget(baseUrl, options) {
+  const host = new URL(baseUrl).hostname.replace(/^\[|\]$/g, "");
+  return assertAllowedTarget(host, [host], options);
 }
 
 /** True when a snapshot entry says this metric could not be read. */
 export function isUnavailable(unavailable, metric) {
   return Array.isArray(unavailable) && unavailable.some((row) => row?.metric === metric);
+}
+
+function staleSnapshot(data) {
+  return data?.sampleStale === true || (Number.isFinite(data?.sampleAgeSeconds) && data.sampleAgeSeconds > 30) || isUnavailable(data?.unavailable, "agent.sample");
 }
 
 function finiteTemperature(value) {
@@ -115,16 +132,18 @@ function reasonFor(unavailable, metric, fallback) {
 export class MacAgentCollector extends MacSystemCollector {
   /**
    * @param {object} spark
-   * @param {{ fetchImpl?: typeof fetch, exec?: Function }} [options]
+   * @param {{ fetchImpl?: typeof fetch, exec?: Function, lookup?: Function }} [options]
    */
   constructor(spark, {
-    fetchImpl = globalThis.fetch,
+    fetchImpl = undiciFetch,
     exec,
+    lookup,
     sleep = delay,
     createTimeoutSignal = (ms) => AbortSignal.timeout(ms),
   } = {}) {
     super(spark, exec ? { exec } : {});
     this._fetch = fetchImpl;
+    this._lookup = lookup;
     this._sleep = sleep;
     this._createTimeoutSignal = createTimeoutSignal;
     this.baseUrl = macAgentBaseUrl(spark);
@@ -144,6 +163,29 @@ export class MacAgentCollector extends MacSystemCollector {
     this._probeGeneration += 1;
   }
 
+  /** Resolve once, then pin the request's connection to those checked addresses. */
+  async _withAgentMetrics(signal, consume) {
+    const addresses = await assertMacAgentTarget(
+      this.baseUrl,
+      this._lookup ? { lookup: this._lookup } : undefined
+    );
+    const dispatcher = new Agent({ connect: { lookup: pinnedLookup(addresses) } });
+    let response;
+    try {
+      response = await this._fetch(`${this.baseUrl}/metrics`, {
+        signal,
+        redirect: "error",
+        dispatcher,
+      });
+      return await consume(response);
+    } finally {
+      if (response?.body && !response.bodyUsed) {
+        await response.body.cancel().catch(() => {});
+      }
+      await dispatcher.close();
+    }
+  }
+
   /**
    * One agent snapshot, shared inside the TTL. Named apart from the parent's
    * SSH `_snapshot()` on purpose: with the same name, every SSH fallback the
@@ -155,19 +197,17 @@ export class MacAgentCollector extends MacSystemCollector {
       return this._agentCache.data;
     }
     if (this._inflight) return this._inflight;
-    this._inflight = this._fetch(`${this.baseUrl}/metrics`, {
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    this._inflight = this._withAgentMetrics(AbortSignal.timeout(FETCH_TIMEOUT_MS), async (response) => {
+      if (!response.ok) throw new Error(`agent responded ${response.status}`);
+      const data = await response.json();
+      if (!data || typeof data !== "object" || data.schema !== AGENT_SCHEMA) {
+        throw new Error("unexpected agent payload");
+      }
+      if (staleSnapshot(data)) throw new Error("stale agent sample");
+      this._agentCache = { at: Date.now(), data };
+      this._agentDown = false;
+      return data;
     })
-      .then(async (response) => {
-        if (!response.ok) throw new Error(`agent responded ${response.status}`);
-        const data = await response.json();
-        if (!data || typeof data !== "object" || data.schema !== AGENT_SCHEMA) {
-          throw new Error("unexpected agent payload");
-        }
-        this._agentCache = { at: Date.now(), data };
-        this._agentDown = false;
-        return data;
-      })
       .catch(() => {
         this._agentDown = true;
         return null;
@@ -202,15 +242,16 @@ export class MacAgentCollector extends MacSystemCollector {
     const read = gpu.powermetrics === "ok";
     const base = this._defaultGpu();
     const thermal = gpu.thermalPressure && gpu.thermalPressure !== "Nominal";
-    return {
+    // Unread privileged fields stay null; a zero here is indistinguishable
+    // from a measured 0 W / 0% and drags fleet energy down as if measured.
+    const usage = read && Number.isFinite(gpu.activePercent) ? Math.round(gpu.activePercent) : null;
+    const draw = read && Number.isFinite(gpu.powerW) ? gpu.powerW : null;
+    const systemDraw = read && Number.isFinite(gpu.combinedPowerW) ? gpu.combinedPowerW : null;
+    return tagCollectionResult({
       ...base,
       temperature: finiteTemperature(gpu.temperature) ? gpu.temperature : null,
-      usage: read ? Math.round(gpu.activePercent ?? 0) : 0,
-      power: {
-        draw: read ? gpu.powerW ?? 0 : 0,
-        limit: 0,
-        systemDraw: read ? gpu.combinedPowerW ?? 0 : 0,
-      },
+      usage,
+      power: { draw, limit: 0, systemDraw },
       vram: {
         used: mem.used ?? 0,
         total: mem.total ?? 0,
@@ -224,23 +265,30 @@ export class MacAgentCollector extends MacSystemCollector {
       powermetricsAvailable: read,
       metricAvailability: macGpuAvailability({
         powermetrics: read,
+        usage: gpu.activePercent ?? null,
+        powerDraw: gpu.powerW ?? null,
+        memory: mem.total ?? 0,
         temperature: finiteTemperature(gpu.temperature) ? gpu.temperature : null,
       }),
       unavailable: this._agentEntries(snapshot),
-    };
+    }, Number(mem.total) > 0);
   }
 
   async collectCpu() {
     const snapshot = await this._agentSnapshot();
     if (!snapshot) return super.collectCpu();
-    const usage = Number(snapshot.cpu?.usagePercent ?? 0);
+    const value = snapshot.cpu?.usagePercent;
+    const valid = typeof value === "number" && Number.isFinite(value) && !isUnavailable(snapshot.unavailable, "cpu.usage");
+    const usage = valid ? value : null;
     this.lastCpuUsagePct = usage;
-    return {
+    return tagCollectionResult({
       usage,
+      usageAvailable: valid,
+      unavailable: this._agentEntries(snapshot),
       temperature: finiteTemperature(snapshot.cpu?.temperature) ? snapshot.cpu.temperature : null,
-      draw: snapshot.gpu?.powermetrics === "ok" ? snapshot.gpu?.cpuW ?? 0 : 0,
+      draw: snapshot.gpu?.powermetrics === "ok" && Number.isFinite(snapshot.gpu?.cpuW) ? snapshot.gpu.cpuW : null,
       tdp: 0,
-    };
+    }, valid);
   }
 
   async collectRam() {
@@ -252,6 +300,7 @@ export class MacAgentCollector extends MacSystemCollector {
       total: mem.total ?? 0,
       percentage: mem.percentage ?? 0,
       swap: mem.swap || { total: 0, used: 0, free: 0 },
+      unavailable: this._agentEntries(snapshot).filter((row) => String(row.metric).startsWith("memory")),
     };
   }
 
@@ -268,6 +317,7 @@ export class MacAgentCollector extends MacSystemCollector {
       percentage: mem.percentage ?? 0,
       oomRisk: mem.oomRisk || "low",
       bandwidth: { current: 0, peak: 0 },
+      unavailable: this._agentEntries(snapshot).filter((row) => String(row.metric).startsWith("memory")),
     };
   }
 
@@ -333,28 +383,27 @@ export class MacAgentCollector extends MacSystemCollector {
    * @returns {Promise<{ok: true, data: object} | {ok: false, retryable: boolean, reason: string}>}
    */
   async _probeAgentOnce(timeoutMs) {
-    let response;
     try {
-      response = await this._fetch(`${this.baseUrl}/metrics`, {
-        signal: this._createTimeoutSignal(timeoutMs),
+      return await this._withAgentMetrics(this._createTimeoutSignal(timeoutMs), async (response) => {
+        let data = null;
+        try {
+          data = await response.json();
+        } catch {
+          return { ok: false, retryable: false, reason: "json" };
+        }
+        if (isPendingBody(data)) return { ok: false, retryable: true, reason: "pending" };
+        if (!response.ok) return { ok: false, retryable: false, reason: "http" };
+        if (!data || typeof data !== "object" || data.schema !== AGENT_SCHEMA) {
+          return { ok: false, retryable: false, reason: "schema" };
+        }
+        if (staleSnapshot(data)) return { ok: false, retryable: true, reason: "stale" };
+        this._agentCache = { at: Date.now(), data };
+        this._agentDown = false;
+        return { ok: true, data };
       });
     } catch {
       return { ok: false, retryable: true, reason: "unreachable" };
     }
-    let data = null;
-    try {
-      data = await response.json();
-    } catch {
-      return { ok: false, retryable: false, reason: "json" };
-    }
-    if (isPendingBody(data)) return { ok: false, retryable: true, reason: "pending" };
-    if (!response.ok) return { ok: false, retryable: false, reason: "http" };
-    if (!data || typeof data !== "object" || data.schema !== AGENT_SCHEMA) {
-      return { ok: false, retryable: false, reason: "schema" };
-    }
-    this._agentCache = { at: Date.now(), data };
-    this._agentDown = false;
-    return { ok: true, data };
   }
 
   _offlineRuntimes() {
@@ -373,7 +422,7 @@ export class MacAgentCollector extends MacSystemCollector {
 
   _onlineRuntimes(snapshot) {
     return {
-      runtimes: Array.isArray(snapshot.runtimes) ? snapshot.runtimes : [],
+      runtimes: Array.isArray(snapshot.runtimes) ? snapshot.runtimes : null,
       agentOnline: true,
       agentVersion: snapshot.agentVersion ?? null,
       collectedAt: snapshot.collectedAt ?? null,

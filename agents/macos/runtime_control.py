@@ -21,6 +21,7 @@ its detached engine before its owned process group is forcibly killed.
 
 from __future__ import annotations
 
+import hmac
 import json
 import codecs
 import math
@@ -299,8 +300,11 @@ class RuntimeControl:
         return rows, None
 
     def status(self, headers=None) -> dict[str, object]:
-        """List public capabilities; expose operation output only to its authorized caller."""
-        control, reason = self.capability()
+        """Report capabilities. Only an authorized caller sees the catalog, the
+        serving list, or any operation output; a refused read never probes."""
+        control, reason = self.authorize(headers or {})
+        if control == "denied":
+            return self._refused(control, reason or "control token rejected")
         serving, serving_error = self._serving()
         return {
             "schema": CONTROL_SCHEMA,
@@ -308,8 +312,8 @@ class RuntimeControl:
             "reason": reason,
             "serving": serving,
             "servingError": serving_error,
-            "targets": self._public_targets(),
-            **self._operation_status(include_operation=self.authorize(headers)[0] == "ready"),
+            "targets": self._public_targets() if control == "ready" else [],
+            **self._operation_status(include_operation=control == "ready"),
         }
 
     def _operation_status(self, *, include_operation=True) -> dict[str, object]:
@@ -402,6 +406,12 @@ class RuntimeControl:
         health = profile.get("health", target.get("health")) if action == "start" else None
         if health is not None and (problem := _health_problem(health)):
             return 409, self._refused("ready", f"{name}: {problem}")
+        if action == "start":
+            # An unknown serving state cannot prove the current engine is gone,
+            # so a launch is refused rather than guessed at.
+            serving, serving_error = self._serving()
+            if serving is None:
+                return 503, self._refused("ready", serving_error or "serving state is unknown")
         with self._state_lock:
             self._operation = {**self._operation, "runtime": name, "model": model}
         # The request selects a catalog entry. It never becomes part of the command.
@@ -485,9 +495,4 @@ class RuntimeControl:
 
 
 def _tokens_equal(left: str, right: str) -> bool:
-    if len(left) != len(right):
-        return False
-    diff = 0
-    for a, b in zip(left, right):
-        diff |= ord(a) ^ ord(b)
-    return diff == 0
+    return hmac.compare_digest(left, right)

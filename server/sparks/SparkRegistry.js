@@ -651,7 +651,7 @@ export class SparkRegistry {
        * which always goes through the agent above instead.
        */
       platform:
-        config.platform === "darwin" ? "darwin" : config.platform === "windows" ? "windows" : "linux",
+        config.kind === "mac" || config.platform === "darwin" ? "darwin" : config.platform === "windows" ? "windows" : "linux",
       lanIp: config.lanIp || "",
       /** Optional pinned HTTP target for LLM probes/actions; SSH still uses ssh.host. */
       llmHost:

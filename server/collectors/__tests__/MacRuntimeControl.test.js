@@ -50,6 +50,10 @@ test("begin returns immediately, polls progress, and lets completed Mac status w
   assert.equal(started.operation.action, "start");
   assert.ok(started.operation.id);
   assert.equal(JSON.stringify(started).includes(options.token), false);
+  // Control requests check the address before connecting, so the POST reaches
+  // the fixture one tick after the reservation. It still never waits on the
+  // Mac's answer.
+  await finishBackground();
   assert.equal(calls.length, 2);
   assert.equal(calls[1].options.headers.Authorization, `Bearer ${options.token}`);
   assert.ok(calls[1].options.dispatcher);
@@ -88,8 +92,12 @@ test("reservation precedes the status await and failed validation releases it", 
     return reads === 1 ? status.promise : jsonResponse(200, ready());
   } };
   const first = beginRuntimeControl(node, "start", { runtime: "unknown" }, options);
-  const second = await beginRuntimeControl(node, "start", { runtime: "omlx", model: "model-a" }, options);
-  assert.equal(second.busy, true);
+  const second = beginRuntimeControl(node, "start", { runtime: "omlx", model: "model-a" }, options);
+  // Both begin before either address check settles, then get a tick to reach
+  // the fixture: the reservation, not the agent's idle answer, is what keeps
+  // the second request from reading status and dispatching a duplicate action.
+  await finishBackground();
+  assert.equal((await second).busy, true);
   assert.equal(reads, 1);
   status.resolve(jsonResponse(200, ready()));
   assert.match((await first).error, /unknown runtime/);
@@ -328,7 +336,7 @@ test("HTTP POST returns 202 before the Mac command completes and GET polls witho
 const spark = {
   id: "macbook",
   kind: "mac",
-  lanIp: "192.168.4.125",
+  lanIp: "10.0.0.9",
   agent: { port: 8790 },
 };
 
@@ -380,9 +388,9 @@ test("list, start, and stop talk only to the control endpoint", async () => {
   assert.deepEqual(stopped.serving, []);
 
   assert.deepEqual(requested.map((row) => `${row.method} ${row.url}`), [
-    "GET http://192.168.4.125:8790/control",
-    "POST http://192.168.4.125:8790/control/start",
-    "POST http://192.168.4.125:8790/control/stop",
+    "GET http://10.0.0.9:8790/control",
+    "POST http://10.0.0.9:8790/control/start",
+    "POST http://10.0.0.9:8790/control/stop",
   ]);
   assert.equal(requested.some((row) => row.url.includes("/metrics")), false);
   assert.equal(requested[1].auth, "Bearer secret");
@@ -447,10 +455,93 @@ test("an old agent without /control is unavailable rather than an empty success"
   assert.match(result.reason, /no runtime control endpoint/);
 });
 
+test("invalid agent targets never receive the control credential and redirects are refused", async () => {
+  let calls = 0;
+  const result = await readRuntimeControl({ ...spark, agent: { url: "http://169.254.169.254" } }, {
+    token: "synthetic-secret", fetchImpl: async () => { calls += 1; throw new Error("must not be called"); },
+  });
+  assert.equal(calls, 0);
+  assert.equal(result.state, "unavailable");
+  await readRuntimeControl(spark, { token: "synthetic-secret", fetchImpl: async (_url, options) => {
+    assert.equal(options.redirect, "error");
+    return jsonResponse(404, {});
+  } });
+});
+
+test("control requests connect to the single checked address and keep the URL host", async () => {
+  let lookupCalls = 0;
+  const seen = [];
+  const server = createServer((request, response) => {
+    let raw = "";
+    request.on("data", (chunk) => {
+      raw += chunk;
+    });
+    request.on("end", () => {
+      seen.push({
+        url: request.url,
+        host: request.headers.host,
+        auth: request.headers.authorization,
+        raw,
+      });
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({
+          schema: "sparkdash.mac-control/1",
+          ok: true,
+          control: "ready",
+          action: "start",
+          runtime: "splash-35b",
+          serving: [{ name: "splash-35b", state: "serving" }],
+          targets: [],
+          error: null,
+        })
+      );
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+  // A name that resolves nowhere: the request only reaches the server if it
+  // connects to the address the policy already checked.
+  const hostname = "mac-agent.fixture.test";
+  const target = { id: "macbook", kind: "mac", agent: { url: `http://${hostname}:${port}/` } };
+
+  try {
+    const result = await actRuntimeControl(
+      target,
+      "start",
+      { runtime: "splash-35b" },
+      {
+        token: "secret",
+        lookup: async (host, options) => {
+          lookupCalls += 1;
+          assert.equal(host, hostname);
+          assert.equal(options.all, true);
+          return [{ address: "127.0.0.1", family: 4 }];
+        },
+      }
+    );
+    assert.equal(result.state, "ready");
+    assert.equal(result.ok, true);
+    assert.equal(lookupCalls, 1, "the connection must not resolve the hostname a second time");
+    assert.deepEqual(seen.map((row) => row.url), ["/control/start"]);
+    assert.equal(seen[0].host, `${hostname}:${port}`, "the request keeps the original Host header");
+    assert.equal(seen[0].auth, "Bearer secret", "the control credential still rides");
+    assert.deepEqual(JSON.parse(seen[0].raw), { runtime: "splash-35b" });
+  } finally {
+    await new Promise((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+});
+
 test("control port is independent of privileged telemetry", async () => {
   let url;
   await readRuntimeControl({ ...spark, agent: { host: "mac.tailnet", port: 8791, controlPort: 8790 } }, {
-    token: "secret", fetchImpl: async (value) => { url = value; return jsonResponse(404, {}); },
+    token: "secret",
+    // Control requests pin the address the policy checked, so the fixture
+    // supplies the resolver instead of trusting a host name on this host.
+    lookup: async () => [{ address: "10.0.0.9", family: 4 }],
+    fetchImpl: async (value) => { url = value; return jsonResponse(404, {}); },
   });
   assert.equal(url, "http://mac.tailnet:8790/control");
 });
