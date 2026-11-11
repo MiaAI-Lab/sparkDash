@@ -803,7 +803,7 @@ export function LlmPanel({
                     <span className="ov-tps__dots" aria-hidden />
                     <small>{t("llm.decoding")}</small>
                   </>
-                ) : isPico && !sampledDecode ? (
+                ) : isPico && !sampledDecode && llm?.generationTpsSource !== "dashboard-stream" ? (
                   <span title={t("llm.sampleOffHelp")}>—</span>
                 ) : (
                   <>
@@ -815,6 +815,11 @@ export function LlmPanel({
               <TrendLine data={genHistory} height={44} color="var(--color-accent)" />
               {genAvg != null && <span className="sp-avg mono">{t("llm.average", { value: fmtAvg(genAvg) })}</span>}
               {isStrata && llm?.generationTpsSource === "slot-mean" && <span className="sp-avg">{t("llm.activeSlotMean")}</span>}
+              {llm?.generationTpsSource === "dashboard-stream" && (
+                <span className="sp-avg" title={t("llm.dashboardStreamHelp")}>
+                  {t("llm.dashboardStream")}
+                </span>
+              )}
               {sampledDecode && (
                 <span className="sp-avg" title={t("llm.sampledHelp")}>
                   {t("llm.sampled")}

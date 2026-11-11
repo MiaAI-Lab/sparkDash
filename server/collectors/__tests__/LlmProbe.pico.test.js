@@ -188,8 +188,8 @@ test("samples respect the minimum interval: back-to-back polls sample once", asy
   await probe.probe();
   await probe.probe();
   assert.equal(requested.filter((r) => r.path === "/v1/chat/completions").length, 1);
-  // The measured rate is kept (and re-labelled) between samples.
-  assert.equal(probe.generationTps, 10);
+  // An idle poll must not replay the previous completion as current throughput.
+  assert.equal(probe.generationTps, 0);
   assert.equal(probe.generationTpsSource, "probe-sample");
 });
 
@@ -201,9 +201,9 @@ test("sampling pauses while a bench, showcase or launch owns the unit", async ()
   assert.deepEqual(requested.filter((r) => r.path === "/v1/chat/completions"), []);
 });
 
-test("a failed sample keeps the previous measured rate and never fails the poll", async () => {
+test("a failed sample does not replay the previous rate or fail the poll", async () => {
   const requested = [];
-  const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888, sampleOptions());
+  const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888, sampleOptions({ streamSampleMinIntervalMs: 0 }));
   probe._fetch = picoFetchWithSample(requested, { stream: SAMPLE_STREAM });
   await probe.probe();
   assert.equal(probe.generationTps, 10);
@@ -211,19 +211,63 @@ test("a failed sample keeps the previous measured rate and never fails the poll"
   probe._fetch = picoFetchWithSample([], { sampleStatus: 503 });
   const snap = await probe.probe();
   assert.equal(snap.available, true);
-  assert.equal(probe.generationTps, 10);
-  assert.equal(probe.generationTpsSource, "probe-sample");
+  assert.equal(probe.generationTps, 0);
+  assert.equal(probe.measurementValid, false);
 });
 
-test("a degenerate sample window (one token) keeps the previous rate", async () => {
+test("a degenerate sample window does not replay the previous rate", async () => {
   const requested = [];
-  const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888, sampleOptions());
+  const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888, sampleOptions({ streamSampleMinIntervalMs: 0 }));
   probe._fetch = picoFetchWithSample(requested, { stream: SAMPLE_STREAM });
   await probe.probe();
   assert.equal(probe.generationTps, 10);
   const single = () => sseBody([deltaChunk("ok"), `data: ${JSON.stringify({ choices: [], usage: { completion_tokens: 1 } })}\n\n`, "data: [DONE]\n\n"]);
   probe._fetch = picoFetchWithSample([], { stream: single });
   await probe.probe();
-  assert.equal(probe.generationTps, 10);
-  assert.equal(probe.generationTpsSource, "probe-sample");
+  assert.equal(probe.generationTps, 0);
+  assert.equal(probe.measurementValid, false);
+});
+
+test("disabling or blocking sampling clears the last decode rate", async () => {
+  for (const mode of ["disabled", "blocked"]) {
+    let enabled = true;
+    let blocked = false;
+    const requested = [];
+    const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888, sampleOptions({
+      streamSampleEnabled: () => enabled,
+      streamSampleBlocked: () => blocked,
+    }));
+    probe._fetch = picoFetchWithSample(requested, { stream: SAMPLE_STREAM });
+    await probe.probe();
+    assert.equal(probe.generationTps, 10);
+    enabled = mode !== "disabled";
+    blocked = mode === "blocked";
+    const snap = await probe.probe();
+    assert.equal(snap.generationTps, 0);
+    assert.equal(snap.decodeActive, false);
+    assert.equal(requested.filter((r) => r.path === "/v1/chat/completions").length, 1);
+  }
+});
+
+test("Pico uses its port's dashboard stream rate while synthetic sampling is blocked", async () => {
+  for (const enabled of [true, false]) {
+    const requested = [];
+    let liveRate = 75;
+    const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888, sampleOptions({
+      streamSampleEnabled: () => enabled,
+      streamSampleBlocked: () => true,
+      liveDecodeTps: (port) => { assert.equal(port, 8888); return liveRate; },
+    }));
+    probe._fetch = picoFetchWithSample(requested, { stream: SAMPLE_STREAM });
+    const active = await probe.probe();
+    assert.equal(active.generationTps, 75);
+    assert.equal(active.generationTpsSource, "dashboard-stream");
+    assert.equal(active.decodeActive, true);
+    liveRate = null;
+    const idle = await probe.probe();
+    assert.equal(idle.generationTps, 0);
+    assert.equal(idle.decodeActive, false);
+    assert.ok(idle.generationTpsSource);
+    assert.equal(requested.filter((r) => r.path === "/v1/chat/completions").length, 0);
+  }
 });

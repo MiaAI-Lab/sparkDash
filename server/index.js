@@ -465,6 +465,8 @@ function startMonitor(spark) {
     // decode from its own tiny streamed completion, never while a bench, showcase
     // or model launch owns the unit.
     llmProbeOptions: () => ({
+      liveDecodeTps: (port) => decodeBenchManager.getLiveDecodeTps(spark.id, port)
+        ?? showcaseManager.getLiveDecodeTps(spark.id, port),
       streamSampleEnabled: () => getSettings().llmStreamSample === true,
       streamSampleBlocked: () => llmStreamSampleBlocked(spark.id),
     }),

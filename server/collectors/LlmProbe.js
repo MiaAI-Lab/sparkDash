@@ -132,6 +132,8 @@ export class LlmProbe {
   constructor(spark, port = 8888, options = {}) {
     this.spark = spark;
     this.port = port;
+    /** Tokens observed in sparkDash's own active benchmark or Showcase on this port. */
+    this._liveDecodeTps = typeof options.liveDecodeTps === "function" ? options.liveDecodeTps : null;
     /** Opt-in (Settings): stream-sample engines that publish no gauges. */
     this._streamSampleEnabled = typeof options.streamSampleEnabled === "function" ? options.streamSampleEnabled : null;
     /** True while a bench, showcase or model launch owns the unit — samples pause. */
@@ -144,8 +146,6 @@ export class LlmProbe {
       : STREAM_SAMPLE_MAX_TOKENS;
     /** Replaceable clock so tests can make the token window deterministic. */
     this._streamSampleNow = typeof options.now === "function" ? options.now : Date.now;
-    /** Last successful sample: { tps, at }. Kept (labelled probe-sample) until the next one. */
-    this._streamSample = null;
     this._streamSampleLastAt = 0;
     this._streamSampleBusy = false;
     /** The unit's own address; baseUrl switches to a local forward when only SSH reaches the engine. */
@@ -1306,29 +1306,30 @@ export class LlmProbe {
 
     if (this.backendType === "vllm") await this._refreshEngineVersion();
 
-    // Pico publishes no counters or gauges: the only honest live decode number is
-    // one the dashboard measures itself (opt-in stream sample). Between samples
-    // the last measured rate is kept, labelled probe-sample, and prefill stays
-    // unmeasured — a synthetic prompt large enough to time prefill would be real
-    // load, not a probe.
+    // Pico has no live counters. A sample belongs only to the poll that measured
+    // it; replaying it on later polls makes an idle engine look busy forever.
     if (this.backendType === "pico") {
-      this._applyStreamSample();
-      await this._maybeStreamSample();
+      this.generationTps = 0;
+      const liveTps = this._liveDecodeTps?.(this.port);
+      if (Number.isFinite(liveTps) && liveTps >= 0) {
+        this.generationTps = liveTps;
+        this.generationTpsSource = "dashboard-stream";
+        this.decodeActive = liveTps > 0;
+      } else {
+        await this._maybeStreamSample();
+        if (this._liveDecodeTps && this.generationTpsSource == null) {
+          this.generationTpsSource = "dashboard-stream";
+        }
+      }
     }
 
     return this._getSnapshot();
   }
 
-  /** Re-apply the last successful stream sample so the per-poll reset cannot blank it. */
-  _applyStreamSample() {
-    if (!this._streamSample) return;
-    this.generationTps = this._streamSample.tps;
-    this.generationTpsSource = "probe-sample";
-  }
-
   /** Run at most one sample per minimum interval; never two at once; never while blocked. */
   async _maybeStreamSample() {
     if (!this._streamSampleEnabled || !this._streamSampleEnabled()) return;
+    this.generationTpsSource = "probe-sample";
     if (this._streamSampleBusy) return;
     if (this._streamSampleBlocked && this._streamSampleBlocked()) return;
     const now = this._streamSampleNow();
@@ -1337,14 +1338,15 @@ export class LlmProbe {
     this._streamSampleBusy = true;
     try {
       const sample = await this._streamSampleDecode();
-      // A degenerate window (one token, stalled stream) keeps the previous sample.
+      // Never fall back to an old rate when the current sample cannot be measured.
       if (sample && sample.tps > 0) {
-        this._streamSample = sample;
         this.generationTps = sample.tps;
         this.generationTpsSource = "probe-sample";
+      } else {
+        this._markUnmeasured("stream sample has no measurable token window");
       }
     } catch {
-      /* a failed sample keeps the previous one; the poll itself succeeded */
+      this._markUnmeasured("stream sample failed");
     } finally {
       this._streamSampleBusy = false;
     }

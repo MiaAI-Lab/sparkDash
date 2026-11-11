@@ -11,7 +11,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { atomicWrite } from "../util/atomicWrite.js";
-import { decodeBenchManager } from "./DecodeBench.js";
+import { createLiveRate, decodeBenchManager } from "./DecodeBench.js";
 import { prefillBenchManager } from "./PrefillBench.js";
 import { qualityBenchManager } from "./QualityBench.js";
 import {
@@ -279,6 +279,14 @@ export class ShowcaseManager {
     const session = this.sessions.get(id);
     if (!session || session.status !== "running") return null;
     return { sessionId: session.sessionId, status: session.status };
+  }
+
+  /** Read telemetry without touching the browser heartbeat or consuming stream deltas. */
+  getLiveDecodeTps(sparkId, port) {
+    const session = this.sessions.get(this.activeBySpark.get(sparkId));
+    if (!session || session.status !== "running" || session.port !== port) return null;
+    if (!session.streams.some((stream) => stream.status === "streaming")) return 0;
+    return Number.isFinite(session._liveDecodeTps) ? Math.max(0, session._liveDecodeTps) : 0;
   }
 
   touch(sparkId, sessionId) {
@@ -680,7 +688,10 @@ export class ShowcaseManager {
       }
     );
 
-    const promises = session.streams.map((stream) => {
+    const live = createLiveRate(session.streams.length, (tps) => {
+      session._liveDecodeTps = tps;
+    });
+    const promises = session.streams.map((stream, streamIndex) => {
       const ctrl = new AbortController();
       stream._abort = ctrl;
 
@@ -725,6 +736,7 @@ export class ShowcaseManager {
             reasoning: info?.reasoning,
           });
           this._updateLiveMetrics(stream, info);
+          live.note(streamIndex, stream.tokenCount);
           this._bumpRev(session);
         },
       })
@@ -752,6 +764,7 @@ export class ShowcaseManager {
                     reasoning: info?.reasoning,
                   });
                   this._updateLiveMetrics(stream, info);
+                  live.note(streamIndex, stream.tokenCount);
                   this._bumpRev(session);
                 },
               }
@@ -819,6 +832,7 @@ export class ShowcaseManager {
     } catch {
       /* per-stream errors recorded */
     } finally {
+      live.stop();
       ratePollAbort.abort();
       session._abort.signal.removeEventListener("abort", onParentForPoll);
       const rateStats = await ratePollPromise;

@@ -7,7 +7,11 @@ Format: version sections are listed newest first.
 
 ---
 
-## [2.90.0] — 2026-11-11
+## [2.9.0] — 2026-11-12
+
+### Fixed
+- **Pico decode follows benchmark and Showcase generation.** The live panel uses a rolling rate from sparkDash’s own streams on the matching unit and port, even while synthetic sampling is paused or disabled. It clears on completion or cancellation instead of keeping the last sampled decode rate. The rate is labelled **Dashboard streams** and excludes custom remote benchmark targets and other clients’ requests.
+
 
 ### Added
 - **Pico LLM engine support.** Pico (an OpenAI-compatible chat-completions engine; verified serving DeepSeek V4.1 Flash on a DGX Spark) is now identified as its own backend instead of reading as vLLM: `/v1/models` with `owned_by: dsgb10` — the engine tags its model namespace, not itself — classifies it from the card alone, so the probe asks it for nothing but the model card and the panel badge reads **Pico**. Pico publishes no counters, gauges or stats endpoints, so nothing can be read live from the engine, and the stopped /metrics, /slots, LM Studio and Ollama probes no longer log a 404 in its access log every poll. New **Settings → Stream-sample engines without gauges** (off by default): the probe then measures decode tok/s by sending one tiny streamed completion — a count to 60, greedy, thinking off, ~120 tokens, about a second of decode — every 15 s and timing its own first-to-last token window; the panel labels the figure **sampled** (the engine's single-stream decode speed, not other clients' traffic), pauses while a benchmark, showcase or model launch owns the unit, and leaves prefill unmeasured, since timing it would take real load. The decode and prefill benches and the showcase work over its standard streaming chat completions, thinking flag included, and the engine tiles (KV pool, TTFT histograms) stay hidden as with other gauge-less engines.
