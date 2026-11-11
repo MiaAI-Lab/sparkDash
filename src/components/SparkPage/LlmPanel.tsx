@@ -803,8 +803,6 @@ export function LlmPanel({
                     <span className="ov-tps__dots" aria-hidden />
                     <small>{t("llm.decoding")}</small>
                   </>
-                ) : isPico ? (
-                  <span title={sampledDecodeTps != null ? t("llm.sampledHelp") : t("llm.sampleOffHelp")}>—</span>
                 ) : (
                   <>
                     {fmtTps(generationTps)}

@@ -1309,11 +1309,14 @@ export class LlmProbe {
 
     if (this.backendType === "vllm") await this._refreshEngineVersion();
 
-    // Pico publishes no counters or gauges, so there is no live traffic figure to
-    // read and generationTps stays 0 — an idle engine must not display its last
-    // sampled speed forever. With the opt-in sample on, the measured figure is
-    // carried as sampledDecodeTps (a labelled panel line), never as a live rate.
+    // Pico publishes no counters or gauges: its live stats cannot be read, so the
+    // poll is unmeasured rather than 0 — the Overview card, the fleet decode total
+    // and the trends show "—", never a fake idle zero while another client is
+    // generating. With the opt-in sample on, the measured engine speed is carried
+    // as sampledDecodeTps (a labelled panel line), never as a live rate.
     if (this.backendType === "pico") {
+      this.measurementValid = false;
+      this.measurementError = "the engine publishes no live counters";
       await this._maybeStreamSample();
     }
 

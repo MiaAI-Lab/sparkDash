@@ -154,13 +154,17 @@ test("with sampling off (default) a poll sends no sample request", async () => {
   const requested = [];
   const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888);
   probe._fetch = picoFetchWithSample(requested, { stream: SAMPLE_STREAM });
-  await probe.probe();
+  const snap = await probe.probe();
   assert.equal(probe.backendType, "pico");
   assert.deepEqual(requested.filter((r) => r.path === "/v1/chat/completions"), []);
   assert.equal(probe.generationTps, 0);
   assert.equal(probe.generationTpsSource, null);
   assert.equal(probe.sampledDecodeTps, null);
   assert.equal(probe.sampledDecodeAt, null);
+  // The live stats cannot be read (the engine publishes none): unmeasured, never 0.
+  assert.equal(snap.measurementValid, false);
+  assert.match(String(snap.measurementError), /no live counters/);
+  assert.equal(snap.available, true);
 });
 
 test("the stream sample measures decode tok/s as a sampled figure, never a live rate", async () => {
@@ -169,12 +173,13 @@ test("the stream sample measures decode tok/s as a sampled figure, never a live 
   probe._fetch = picoFetchWithSample(requested, { stream: SAMPLE_STREAM });
   const snap = await probe.probe();
   assert.equal(probe.backendType, "pico");
-  // The live figure stays 0: the sample measures the engine's speed, not traffic,
-  // so an idle engine must not display it as one.
+  // The live figure stays unmeasured: the sample measures the engine's speed, not traffic,
+  // so an idle or busy engine must not show a live rate either way.
   assert.equal(probe.generationTps, 0);
   assert.equal(probe.generationTpsSource, null);
   assert.equal(snap.generationTps, 0);
   assert.equal(snap.generationTpsSource, null);
+  assert.equal(snap.measurementValid, false);
   // The measured figure is carried as the sampled line instead.
   assert.equal(probe.sampledDecodeTps, 10);
   assert.equal(snap.sampledDecodeTps, 10);
@@ -197,7 +202,7 @@ test("samples respect the minimum interval: back-to-back polls sample once", asy
   await probe.probe();
   await probe.probe();
   assert.equal(requested.filter((r) => r.path === "/v1/chat/completions").length, 1);
-  // The sampled figure is kept between samples; the live rate stays 0.
+  // The sampled figure is kept between samples; the live rate stays unmeasured.
   assert.equal(probe.sampledDecodeTps, 10);
   assert.equal(probe.generationTps, 0);
 });

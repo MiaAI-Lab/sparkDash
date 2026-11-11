@@ -224,7 +224,7 @@
     "prefillNotMeasuredHelp": "No current prefill measurement; zero is not evidence that no prompt is being processed.",
     "notMeasuredLive": "Not measured live",
     "sampledLine": "Sampled · {{rate}} tok/s",
-    "sampledHelp": "Measured from a tiny streamed completion the dashboard itself sends every 15 s (Settings → Stream-sample engines without gauges), refreshed while the endpoint answers. This is the engine's single-stream decode speed, not other clients' traffic — the live tile stays at 0 because the engine publishes no counters.",
+    "sampledHelp": "Measured from a tiny streamed completion the dashboard itself sends every 15 s (Settings → Stream-sample engines without gauges), refreshed while the endpoint answers. This is the engine's single-stream decode speed, not other clients' traffic — the live tile reads not measured, because the engine publishes no counters and the dashboard cannot see other clients' traffic.",
     "sampleOffHelp": "This engine publishes no live counters. Turn on Settings → Stream-sample engines without gauges to have the dashboard measure its decode speed and show it here.",
     "completedPrefillHelp": "Token and prefill-time deltas over requests that finished in the same window; not continuous live throughput.",
     "effectiveIncludesCached": "Effective rate · includes cached tokens",
