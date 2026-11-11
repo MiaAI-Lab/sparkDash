@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { AlertInstance, SparkSnapshot } from "../../api/types";
-import { isWorkerSpark } from "../../api/sparkRole";
+import { isWorkerSpark, resolveSparkRole } from "../../api/sparkRole";
 import { updateAllHermes, wakeAllSparks } from "../../api/client";
 import { ShutdownAll } from "../ShutdownAll";
 import { FleetEnergyCard } from "./FleetEnergyCard";
@@ -85,11 +85,20 @@ export function OverviewPage({
   // Head lookup and VRAM contexts for the whole fleet in one pass (not one scan per card).
   const cardContext = useMemo(() => {
     const resolveHead = makeHeadResolver(sparks);
-    const byId = new Map<string, { head: SparkSnapshot | null; vram: ReturnType<typeof vramContextFor> | null }>();
+    const servingIds = new Set(
+      sparks
+        .filter((s) => resolveSparkRole(s) !== "worker" && Array.isArray(s.metrics.llm) && s.metrics.llm.some((l) => l.available))
+        .map((s) => s.id),
+    );
+    const byId = new Map<
+      string,
+      { head: SparkSnapshot | null; vram: ReturnType<typeof vramContextFor> | null; siblingServing: boolean }
+    >();
     for (const spark of sparks) {
       byId.set(spark.id, {
         head: resolveHead(spark),
         vram: showVramBreakdown ? vramContextFor(spark, sparks, resolveHead) : null,
+        siblingServing: servingIds.size > (servingIds.has(spark.id) ? 1 : 0),
       });
     }
     return byId;
@@ -348,6 +357,7 @@ export function OverviewPage({
                 spark={spark}
                 headSpark={ctx?.head ?? null}
                 vramContext={ctx?.vram ?? null}
+                siblingServing={ctx?.siblingServing ?? false}
                 temperatureUnit={temperatureUnit}
                 onSelect={onSelectSpark}
               />

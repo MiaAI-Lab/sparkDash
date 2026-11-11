@@ -169,6 +169,22 @@ describe("ModelLauncher", () => {
       expect(container.textContent).toContain("flare (107.7 GB)");
       expect(container.textContent).toContain("Add LLM port");
       expect(container.textContent).not.toContain("Something is loading");
+      expect(container.querySelector(".ov-launch__hint--worker")).toBeNull();
+    });
+
+    it("suggests setting Worker role when flagged as part of a multi-node engine", async () => {
+      fetchLaunchers.mockResolvedValue(list({ a: "stopped", b: "stopped" }));
+      const { container } = render(
+        <ModelLauncher
+          spark={makeSpark("s1")}
+          busy="In use by tensorfold (90.0 GB) · 90.0 GB VRAM in use · GPU 95%"
+          busyHolders
+          suggestWorkerRole
+        />,
+      );
+      await flush();
+      expect(container.textContent).toContain("GPU is in use");
+      expect(container.querySelector(".ov-launch__hint--worker")?.textContent).toContain("Worker");
     });
 
     it("keeps the loading wording when no process is named", async () => {

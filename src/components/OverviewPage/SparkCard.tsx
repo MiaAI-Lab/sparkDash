@@ -24,6 +24,8 @@ import { ModelLauncher } from "./ModelLauncher";
 type Unit = "celsius" | "fahrenheit";
 type WakeMessage = "sent" | "failed" | { raw: string } | null;
 
+const MULTI_RANK_HOLDER = /(?:^|[\s/\\_-])(?:tensorfold|strata|vllm|sglang|mpirun|torchrun)(?:$|[\s._-])/i;
+
 function toF(c: number): number {
   return Math.round((c * 9) / 5 + 32);
 }
@@ -112,6 +114,7 @@ function SparkCardImpl({
   spark,
   headSpark,
   vramContext = null,
+  siblingServing = false,
   temperatureUnit,
   onSelect,
 }: {
@@ -120,6 +123,8 @@ function SparkCardImpl({
   headSpark?: SparkSnapshot | null;
   /** Breakdown inputs (see `vramContextFor`); null keeps the plain VRAM bar. */
   vramContext?: VramBreakdownContext | null;
+  /** True when another non-worker Spark in the fleet is currently serving an LLM endpoint. */
+  siblingServing?: boolean;
   temperatureUnit: Unit;
   onSelect?: (id: string) => void;
 }) {
@@ -258,6 +263,8 @@ function SparkCardImpl({
     .filter((p) => p.vramMB > 0)
     .slice(0, 3)
     .map((p) => `${shortProcessName(p.name)} (${formatMb(p.vramMB)})`);
+  const hasMultiRankHolder = (gpu?.processes ?? []).some((p) => p.vramMB > 0 && MULTI_RANK_HOLDER.test(p.name));
+  const suggestWorkerRole = role === "standalone" && (siblingServing || hasMultiRankHolder);
   const loadingHint =
     !llm && (memUsed >= 2048 || usage >= 10)
       ? gpuHolders.length > 0
@@ -452,7 +459,7 @@ function SparkCardImpl({
               ) : null}
             </div>
           </div>
-          {showLauncher ? <ModelLauncher spark={spark} onOpen={onSelect} busy={loadingHint} busyHolders={gpuHolders.length > 0} freeMb={memTotal > 0 ? memAvail : null} lowFreeMb={HEADROOM_THRESHOLDS_MB[memoryModelFor(spark.kind, spark.platform)].low} /> : null}
+          {showLauncher ? <ModelLauncher spark={spark} onOpen={onSelect} busy={loadingHint} busyHolders={gpuHolders.length > 0} suggestWorkerRole={suggestWorkerRole} freeMb={memTotal > 0 ? memAvail : null} lowFreeMb={HEADROOM_THRESHOLDS_MB[memoryModelFor(spark.kind, spark.platform)].low} /> : null}
           {role === "worker" ? (
             <div className="ov-launch ov-launch--worker">
               <div className="eyebrow">{t("card.workerOfLabel")}</div>
