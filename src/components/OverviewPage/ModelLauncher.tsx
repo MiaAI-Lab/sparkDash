@@ -25,6 +25,7 @@ export function ModelLauncher({
   onOpen,
   busy = null,
   busyHolders = false,
+  suggestWorkerRole = false,
   freeMb = null,
   lowFreeMb = 0,
 }: {
@@ -34,6 +35,8 @@ export function ModelLauncher({
   busy?: string | null;
   /** The busy text names the processes holding the GPU, so it is not a model that is starting. */
   busyHolders?: boolean;
+  /** Set on standalone nodes whose busy GPU likely belongs to a multi-node worker rank. */
+  suggestWorkerRole?: boolean;
   /** Free memory in MB; null when unknown. */
   freeMb?: number | null;
   /** Below this much free memory, "Start anyway" asks a second time. */
@@ -151,6 +154,11 @@ export function ModelLauncher({
             ? t("launcher.addLlmPort")
             : t("launcher.startCouldRunOut")}
         </div>
+        {suggestWorkerRole ? (
+          <div className="ov-launch__hint ov-launch__hint--worker">
+            {t("launcher.workerRoleHint")}
+          </div>
+        ) : null}
         {confirmLow ? (
           <div className="ov-launch__err" role="alert">
             {t("launcher.lowMemoryWarning", { free: formatMb(freeMb ?? 0) })}

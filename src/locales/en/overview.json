@@ -217,6 +217,7 @@
     "gpuInUse": "GPU is in use",
     "somethingLoading": "Something is loading",
     "addLlmPort": "If this is an LLM server, add its port under + Add LLM port on the Spark page to monitor it.",
+    "workerRoleHint": "Part of a multi-node engine? Set this Spark’s role to Worker on the Spark page to mirror the head’s model here.",
     "startCouldRunOut": "Starting another model now could run out of memory.",
     "lowMemoryWarning": "Only {{free}} of memory is free. Starting a model now will probably run out of memory.",
     "openSpark": "Open Spark",

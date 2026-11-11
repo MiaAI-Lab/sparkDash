@@ -217,6 +217,7 @@
     "gpuInUse": "GPU 正在使用",
     "somethingLoading": "正在加载内容",
     "addLlmPort": "如果这是 LLM 服务器，请在 Spark 页面通过“添加 LLM 端口”监控它。",
+    "workerRoleHint": "属于多节点引擎？在 Spark 页面将此节点角色设为 Worker，即可在此镜像主节点的模型。",
     "startCouldRunOut": "现在启动另一个模型可能会耗尽内存。",
     "lowMemoryWarning": "仅剩 {{free}} 可用内存。现在启动模型很可能耗尽内存。",
     "openSpark": "打开 Spark",
