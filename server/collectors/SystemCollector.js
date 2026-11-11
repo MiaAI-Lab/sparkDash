@@ -8,6 +8,7 @@ import { getSettings } from "../settings.js";
 import { RoceSampler } from "./roce.js";
 import { KernelJournal } from "./kernelJournal.js";
 import { IntelSudoGate, IntelVramCache, buildIntelProbeScript, parseIntelProbe, sampleIntelCards } from "./intelGpu.js";
+import { nativeTensorFoldCapacityCommand, parseNativeTensorFoldCapacity } from "./tensorfoldCapacity.js";
 import {
   WINDOWS_GPU_SCRIPT,
   WINDOWS_SYSTEM_SCRIPT,
@@ -637,6 +638,32 @@ export class SystemCollector {
   /** Like probeResidentModels, but an unknown result is an empty list. */
   async collectResidentModels(execute = sshExec) {
     return (await this.probeResidentModels(execute)) ?? [];
+  }
+
+  /**
+   * Fresh native dsv41 capacity from the actual Linux listener. No privilege
+   * changes or launcher-file inference: unreadable/unsupported is unknown.
+   * A pinned HTTP host might be a different machine than this unit's SSH host.
+   */
+  async probeNativeTensorFoldCapacity(port) {
+    const spark = this.spark;
+    const identity = () => JSON.stringify([this.spark?.id, this.spark?.isLocal, this.spark?.platform,
+      this.spark?.lanIp, this.spark?.llmHost, this.spark?.ssh?.host, this.spark?.ssh?.user, this.spark?.ssh?.port]);
+    const target = identity();
+    if (spark.platform === "windows" || spark.platform === "darwin" ||
+        String(spark.llmHost || "").trim()) return null;
+    const host = spark.isLocal ? "127.0.0.1" : String(spark.lanIp || "").trim();
+    const command = nativeTensorFoldCapacityCommand(port, host);
+    if (!command) return null;
+    try {
+      const raw = spark.isLocal
+        ? await this._execOnHostNet(command, { allowContainerFallback: false, maxBuffer: 8192 })
+        : await sshExec(spark, command, { timeoutMs: 8000 });
+      if (this.spark !== spark || identity() !== target) return null;
+      return parseNativeTensorFoldCapacity(raw);
+    } catch {
+      return null;
+    }
   }
 
   /** Collect GPU metrics (temperature, usage, power, VRAM). */

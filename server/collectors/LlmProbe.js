@@ -8,6 +8,7 @@ import { LLM_PROBE_TIMEOUT_MS } from "../config.js";
 import { classifyHostScope } from "../validate.js";
 import { llmProbeHost } from "./llmHost.js";
 import { openSshLlmTunnel } from "./llmTunnel.js";
+import { parseNativeTensorFoldCapacity } from "./tensorfoldCapacity.js";
 
 const FAIL_RESET_THRESHOLD = 3;
 /** Direct failures in a row before the probe tries an SSH tunnel to the unit's loopback. */
@@ -111,9 +112,12 @@ function applyModelRef(probe, raw) {
 }
 
 export class LlmProbe {
-  constructor(spark, port = 8888) {
+  constructor(spark, port = 8888, options = {}) {
     this.spark = spark;
     this.port = port;
+    this._nativeCapacityRequest = 0;
+    this._readNativeSharedPool = typeof options.readNativeSharedPool === "function"
+      ? options.readNativeSharedPool : null;
     /** The unit's own address; baseUrl switches to a local forward when only SSH reaches the engine. */
     this._directBase = `http://${llmProbeHost(spark)}:${port}`;
     this.baseUrl = this._directBase;
@@ -383,6 +387,7 @@ export class LlmProbe {
     this.decodeActive = false;
     this.generationTpsSource = null;
     this.prefillActive = false;
+    if (this.backendType === "tensorfold") this._clearKvPool();
     if (this.backendType === "strata") this._clearStrataRates();
     try {
       const shouldDetect =
@@ -1067,6 +1072,7 @@ export class LlmProbe {
           this.prefillTpsSource = null;
           this._applyTensorFoldHealth(health, dtSec);
           this._applyTensorFoldLive(health);
+          await this._refreshNativeSharedPool(health);
           // TensorFold's open /health names the release when the build carries one
           // (zig/src/server/identity.zig; status_routes.zig's openHealth). Older builds
           // omit the field, so it stays null rather than being inferred from a model name.
@@ -2037,12 +2043,7 @@ export class LlmProbe {
     this.slotsActive = this.requestsRunning;
     // 0.6.0 CUDA sizes its KV pool in tokens: `pool_tokens` in all,
     // `pool_free_tokens` not held by a request (kept prompts count as held).
-    const pool = count(health.pool_tokens);
-    const poolFree = count(health.pool_free_tokens);
-    if (Number.isFinite(pool) && pool > 0 && Number.isFinite(poolFree) && poolFree >= 0) {
-      const used = 1 - Math.min(poolFree, pool) / pool;
-      this.kvCacheUsage = Math.round(used * 10000) / 10000;
-    }
+    this._applyTensorFoldPool(health);
     if (!Number.isFinite(prefillSec) || !Number.isFinite(prompt)) return;
     if (prevPrefillSec == null) {
       this._tensorfoldPrefillSeconds = prefillSec;
@@ -2070,6 +2071,94 @@ export class LlmProbe {
       this.prefillTps = 0;
     }
     this._tensorfoldPrefillSeconds = prefillSec;
+  }
+
+  _tensorFoldCapacityTarget() {
+    return JSON.stringify([this.port, this.baseUrl, this.spark?.id, this.spark?.isLocal,
+      this.spark?.platform, this.spark?.lanIp, this.spark?.llmHost,
+      this.spark?.ssh?.host, this.spark?.ssh?.user, this.spark?.ssh?.port]);
+  }
+
+  _tensorFoldHealthReady(health) {
+    return health && typeof health === "object" && !Array.isArray(health) &&
+      (health.status == null || health.status === "ok") &&
+      (health.ok == null || health.ok === true) &&
+      (health.status === "ok" || health.ok === true) && health.warming !== true;
+  }
+
+  /** Explicit shared-pool counts only; a generic context window is not capacity. */
+  _applyTensorFoldPool(health) {
+    this._clearKvPool();
+    if (!this._tensorFoldHealthReady(health)) return;
+    const integer = (v) => {
+      if (typeof v !== "number" && typeof v !== "string") return null;
+      if (typeof v === "string" && !v.trim()) return null;
+      const n = Number(v);
+      return Number.isSafeInteger(n) && n >= 0 ? n : null;
+    };
+    const pool = integer(health?.pool_tokens);
+    if (!(pool > 0)) return;
+    this.kvCacheTokens = pool;
+    this.kvCacheTokensSource = "tensorfold-health-pool";
+    this.kvCacheTokensObservedAt = Date.now();
+    const free = integer(health?.pool_free_tokens);
+    if (free != null && free <= pool) {
+      this.kvCacheTokensAvailable = free;
+      this.kvCacheUsage = Math.round((1 - free / pool) * 10000) / 10000;
+    }
+  }
+
+  /** Older native dsv41 builds omit counts; qualify the current listening process. */
+  async _refreshNativeSharedPool(health) {
+    if (this.kvCacheTokens != null || !this._readNativeSharedPool ||
+        String(this.spark?.llmHost || "").trim() ||
+        Object.hasOwn(health || {}, "pool_tokens") ||
+        health?.status !== "ok" || health?.warming !== false) return;
+    const target = this._tensorFoldCapacityTarget();
+    const spark = this.spark;
+    const request = ++this._nativeCapacityRequest;
+    try {
+      const observation = parseNativeTensorFoldCapacity(await this._readNativeSharedPool(this.port));
+      if (!observation || request !== this._nativeCapacityRequest ||
+          this.spark !== spark || this._tensorFoldCapacityTarget() !== target) return;
+      this.kvCacheTokens = observation.capacityTokens;
+      this._nativeContextTokens = observation.capacityTokens;
+      this.kvCacheTokensSource = observation.source;
+      this.kvCacheTokensObservedAt = observation.observedAt;
+      // Process arguments establish capacity, not current allocation/available space.
+      this.kvCacheTokensAvailable = null;
+    } catch {
+      // Missing host visibility does not turn an unknown pool into zero or a guess.
+    }
+  }
+
+  /**
+   * Fresh TensorFold capacity for policy consumers. Does not run generation or
+   * retain a previous process: every call re-reads health and, if needed, the
+   * native listener. Other engines retain their own capacity contracts.
+   */
+  async getSharedPoolCapacity() {
+    if (this.backendType !== "tensorfold") return null;
+    this._clearKvPool();
+    if (this.authOpen === false) return null;
+    const target = this._tensorFoldCapacityTarget();
+    const spark = this.spark;
+    try {
+      const res = await this._fetch(`${this.baseUrl}/health`);
+      if (!res.ok || this.spark !== spark || this._tensorFoldCapacityTarget() !== target) return null;
+      const health = await res.json();
+      if (this.spark !== spark || this._tensorFoldCapacityTarget() !== target) return null;
+      this._applyTensorFoldPool(health);
+      await this._refreshNativeSharedPool(health);
+      if (this.kvCacheTokens == null || this.spark !== spark ||
+          this._tensorFoldCapacityTarget() !== target) return null;
+      return { capacityTokens: this.kvCacheTokens, contextTokens: this._nativeContextTokens,
+        availableTokens: this.kvCacheTokensAvailable, source: this.kvCacheTokensSource,
+        observedAt: this.kvCacheTokensObservedAt };
+    } catch {
+      this._clearKvPool();
+      return null;
+    }
   }
 
   /**
@@ -3442,6 +3531,10 @@ export class LlmProbe {
     this.kvCacheTokens = null;
     this.kvCacheTokensAvailable = null;
     this.kvCacheMemoryBytes = null;
+    this.kvCacheTokensSource = null;
+    this.kvCacheTokensObservedAt = null;
+    this._nativeContextTokens = null;
+    this._nativeCapacityRequest = (this._nativeCapacityRequest || 0) + 1;
   }
 
   /**
@@ -3663,7 +3756,9 @@ export class LlmProbe {
       models: metricsLive ? [...this.models] : [],
       // Strata advertises aliases for one loaded engine, sharing its native
       // context limit. Genuine multi-model routers still have no shared limit.
-      contextLength: this.models.length > 1 && this.backendType !== "strata" ? null : this.contextLength,
+      contextLength: metricsLive && this._nativeContextTokens != null
+        ? this._nativeContextTokens
+        : this.models.length > 1 && this.backendType !== "strata" ? null : this.contextLength,
       gpuMemoryUtilization: this.gpuMemoryUtilization,
       slotsActive: this.slotsActive,
       slotsTotal: this.slotsTotal,
@@ -3683,6 +3778,8 @@ export class LlmProbe {
       kvCacheUsage: this.kvCacheUsage,
       kvCacheTokens: this.kvCacheTokens,
       kvCacheTokensAvailable: this.kvCacheTokensAvailable,
+      kvCacheTokensSource: this.kvCacheTokensSource ?? null,
+      kvCacheTokensObservedAt: this.kvCacheTokensObservedAt ?? null,
       kvCacheMemoryBytes: this.kvCacheMemoryBytes,
       kvCacheGb: this.kvCacheGb,
       weightsGb: this.weightsGb,
@@ -3731,6 +3828,8 @@ export class LlmProbe {
       kvCacheUsage: null,
       kvCacheTokens: null,
       kvCacheTokensAvailable: null,
+      kvCacheTokensSource: null,
+      kvCacheTokensObservedAt: null,
       kvCacheMemoryBytes: null,
       kvCacheGb: null,
       weightsGb: null,
