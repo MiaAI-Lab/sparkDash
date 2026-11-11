@@ -44,6 +44,7 @@ import {
 } from "./collectors/QualityBench.js";
 import { showcaseManager } from "./collectors/ShowcaseManager.js";
 import { InferenceActivityStore } from "./collectors/InferenceActivity.js";
+import { DelegationDesk, registerDelegationDeskRoutes } from "./delegationDesk.js";
 import { llmProbeHost } from "./collectors/llmHost.js";
 import { onceClose, resolveLlmHttpTarget } from "./collectors/llmTunnel.js";
 import { formatLlmBaseUrl, parseLlmTargetInput } from "../src/shared/llmTarget.js";
@@ -800,6 +801,14 @@ app.put("/api/settings", (req, res) => {
 app.get("/api/inference/activity", async (_req, res) => {
   await inferenceActivity.refreshIfDue();
   res.set("Cache-Control", "no-store").json(inferenceActivity.snapshot());
+});
+
+// Delegation desk panel: a read-through of the desk's status plus token-guarded budget overrides.
+registerDelegationDeskRoutes(app, {
+  desk: new DelegationDesk(),
+  isEnabled: () => getSettings().showDelegationDesk === true,
+  allowChange: (req) => allowDestructive(principalKey(req)) && allowGlobalDestructive(clientKey(req)),
+  rejectLimited,
 });
 
 // GET /api/sparks/:id/gpu-history (GPU raw tier, newest last) and /api/sparks/:id/history (bucketed tiers).

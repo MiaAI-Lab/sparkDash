@@ -150,6 +150,14 @@ export function EditIcon({ className = "" }: { className?: string }) {
   );
 }
 
+export function MinusIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg {...baseProps(className)}>
+      <path d="M5 12h14" />
+    </svg>
+  );
+}
+
 export function PlusIcon({ className = "" }: { className?: string }) {
   return (
     <svg {...baseProps(className)}>

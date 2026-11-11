@@ -46,6 +46,9 @@ export function isolatedConfigEnv(dir) {
     // Tests must not contact an operator's opt-in inference activity source.
     SPARKDASH_INFERENCE_ACTIVITY_URL: "",
     SPARKDASH_INFERENCE_ACTIVITY_LABELS: "",
+    // ...nor an operator's delegation desk.
+    DELEGATION_DESK_URL: "",
+    DELEGATION_DESK_TOKEN: "",
     ...Object.fromEntries(
       CONFIG_PATH_VARS.map((name) => [
         name,

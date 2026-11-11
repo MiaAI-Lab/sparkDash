@@ -1,4 +1,5 @@
 import { isIP } from "node:net";
+import { readCappedBody } from "../util/readCappedBody.js";
 
 const POLL_INTERVAL_MS = 5_000;
 const SOURCE_MAX_AGE_MS = 30_000;
@@ -52,24 +53,9 @@ export async function readActivity(url) {
     await response.body?.cancel();
     throw new Error("activity-source-unavailable");
   }
-  const reader = response.body.getReader();
-  const chunks = [];
-  let size = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
-      if (size > MAX_BODY_BYTES) {
-        await reader.cancel();
-        throw new Error("activity-source-unavailable");
-      }
-      chunks.push(value);
-    }
-    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
-  } finally {
-    reader.releaseLock();
-  }
+  const bytes = await readCappedBody(response.body, MAX_BODY_BYTES);
+  if (!bytes) throw new Error("activity-source-unavailable");
+  return JSON.parse(bytes.toString("utf8"));
 }
 
 function duration(value) {

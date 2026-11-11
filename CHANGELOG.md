@@ -9,6 +9,8 @@ Format: version sections are listed newest first.
 
 ## [Unreleased]
 
+- **Delegation desk panel:** an optional Overview card (Settings → Show delegation desk, off by default) shows delegate capacity by machine and cloud quota from a delegation desk set by `DELEGATION_DESK_URL`. With `DELEGATION_DESK_TOKEN` on the server, **Adjust budgets** sets expiring budget overrides, and can make one permanent through a `delegation.md` PR. Changes show only after the desk acknowledges them, and unreported readings stay *not reported*. See [Delegation desk panel](./README.md#delegation-desk-panel).
+
 - **mlx-serve sampling cadence:** measure decode and computed prefill over a recent time window that includes unchanged two-second gauge samples; clear the window at idle or broken continuity instead of generating false zero/burst rates.
 
 - **Native mlx-serve telemetry:** identify the engine correctly, use live decode and conservative computed-prefill observations, and read cached token totals without confusing request hit counts with tokens. Missing and ambiguous intervals stay unavailable.

@@ -23,6 +23,8 @@ const DEFAULTS = Object.freeze({
   density: "compact",
   /** Overview Fleet Energy card. On by default. */
   showFleetEnergy: true,
+  /** Overview delegation desk panel (needs DELEGATION_DESK_URL). Off by default; while off nothing is fetched. */
+  showDelegationDesk: false,
   /** Overview active fleet exceptions strip. Off by default. */
   showFleetExceptions: false,
   /** Overview search + status filter row. Off by default. */
@@ -194,6 +196,7 @@ function _clampSettings(settings) {
   // Ensure benchDebugTraces is boolean
   s.benchDebugTraces = Boolean(s.benchDebugTraces);
   s.showFleetEnergy = Boolean(s.showFleetEnergy);
+  s.showDelegationDesk = Boolean(s.showDelegationDesk);
   s.showFleetExceptions = Boolean(s.showFleetExceptions);
   s.showOverviewSearch = Boolean(s.showOverviewSearch);
   s.showLlmTokenTotals = Boolean(s.showLlmTokenTotals);

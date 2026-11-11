@@ -11,6 +11,7 @@
  */
 import fs from "fs";
 import { atomicWrite } from "../util/atomicWrite.js";
+import { readCappedBody } from "../util/readCappedBody.js";
 import { MODEL_PRICES_JSON_PATH, MODEL_PRICES_FETCH } from "../config.js";
 
 export const LITELLM_PRICES_URL =
@@ -81,23 +82,9 @@ export async function fetchJsonCapped(url) {
   if (declared > MAX_BODY_BYTES) {
     throw new Error(`price source body too large (${declared} bytes)`);
   }
-  // Count bytes as they arrive: a body without Content-Length, or a compressed one (the header
-  // is the compressed size), must not be buffered whole before the cap applies.
-  const chunks = [];
-  let received = 0;
-  const reader = res.body.getReader();
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    received += value.byteLength;
-    if (received > MAX_BODY_BYTES) {
-      await reader.cancel().catch(() => {});
-      throw new Error(`price source body too large (over ${MAX_BODY_BYTES} bytes)`);
-    }
-    chunks.push(value);
-  }
-  const text = Buffer.concat(chunks).toString("utf8");
-  return JSON.parse(text);
+  const bytes = await readCappedBody(res.body, MAX_BODY_BYTES);
+  if (!bytes) throw new Error(`price source body too large (over ${MAX_BODY_BYTES} bytes)`);
+  return JSON.parse(bytes.toString("utf8"));
 }
 
 /**

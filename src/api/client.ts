@@ -13,6 +13,9 @@ import type {
   DecodeBenchJob,
   DecodeBenchListResponse,
   FleetEnergy,
+  DelegationDeskStatus,
+  DeskOverride,
+  DeskPullRequest,
   HealthResponse,
   InferenceActivity,
   HermesBatchUpdateResponse,
@@ -53,6 +56,14 @@ import { authHeaders, reportAuthRequired } from "./authToken";
 const BASE = "";
 
 // ─── Generic fetch wrapper ────────────────────────────────
+/** A non-2xx API answer: the server's error text plus the HTTP status it came with. */
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
   // Only set Content-Type for requests that actually carry a body. Setting it
   // on GET/DELETE was a no-op but could trigger an unnecessary CORS preflight
@@ -67,7 +78,7 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
     // The server wants a token we do not have (or ours is stale): ask for one.
     if (res.status === 401) reportAuthRequired();
     const body = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(body.error || `HTTP ${res.status}`);
+    throw new ApiError(body.error || `HTTP ${res.status}`, res.status);
   }
   return res.json();
 }
@@ -84,6 +95,27 @@ export function fetchFleetEnergy(): Promise<FleetEnergy> {
 /** Optional, sanitized inference request activity from a configured private source. */
 export function fetchInferenceActivity(): Promise<InferenceActivity> {
   return apiFetch("/api/inference/activity");
+}
+
+// ─── Delegation desk ─────────────────────────────────────
+export function fetchDelegationDesk(): Promise<DelegationDeskStatus> {
+  return apiFetch("/api/delegation-desk");
+}
+
+const deskOverridePath = (route: string) => `/api/delegation-desk/overrides/${encodeURIComponent(route)}`;
+
+/** Resolves only once the desk has acknowledged; `override` is null when the value equals the roster. */
+export function setDeskOverride(route: string, budget: number): Promise<{ override: DeskOverride | null }> {
+  return apiFetch(deskOverridePath(route), { method: "PUT", body: JSON.stringify({ budget }) });
+}
+
+export function removeDeskOverride(route: string): Promise<{ removed: boolean }> {
+  return apiFetch(deskOverridePath(route), { method: "DELETE" });
+}
+
+/** The desk opens a delegation.md PR and holds the override until it merges or closes. */
+export function makeDeskOverridePermanent(route: string): Promise<{ override: DeskOverride; pr: DeskPullRequest }> {
+  return apiFetch(`${deskOverridePath(route)}/permanent`, { method: "POST", body: "{}" });
 }
 
 /** Fleet activity log, newest first. */

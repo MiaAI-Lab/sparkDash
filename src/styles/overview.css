@@ -883,3 +883,471 @@
 .ov .ov-help:focus-visible {
   opacity: 1;
 }
+
+/* Delegation desk panel. Columns are divided by hairlines, never nested cards. */
+.ov .ov-side {
+  container: ov-side / inline-size;
+}
+/* Two side-grid columns once two fit (2 x 300px + gap); spanning two rows keeps neighbours card-height. */
+@container ov-side (min-width: 612px) {
+  .ov .ov-dd--wide {
+    grid-column: span 2;
+    grid-row: span 2;
+  }
+}
+.ov .ov-dd {
+  container: ov-dd / inline-size;
+  gap: 16px;
+  font-size: 13px;
+  /* Warning and danger text darkened toward the text colour, so small text on tinted notes stays above 4.5:1 in light theme. */
+  --dd-warn-text: color-mix(in srgb, var(--color-warning) 78%, var(--color-text));
+  --dd-bad-text: color-mix(in srgb, var(--color-danger) 85%, var(--color-text));
+}
+.ov .ov-dd code {
+  font-family: "Geist Mono Variable", "Geist Mono", ui-monospace, monospace;
+  font-size: 0.95em;
+}
+.ov .ov-dd .ov-card__head {
+  flex-wrap: wrap;
+}
+.ov .ov-dd .ov-card__tools {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ov .ov-dd .dd-edit-toggle[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+  background: var(--color-accent-soft);
+  color: var(--color-accent-text);
+}
+.ov .ov-dd .dd-num {
+  font-variant-numeric: tabular-nums;
+}
+.ov .ov-dd .dd-trunc {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ov .ov-dd .dd-sub {
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.ov .ov-dd .dd-note {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding: 9px 12px;
+  border-radius: 10px;
+}
+.ov .ov-dd .dd-note--bad {
+  background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+  color: var(--dd-bad-text);
+}
+.ov .ov-dd .dd-note--acc {
+  background: var(--color-accent-soft);
+  color: var(--color-text);
+}
+.ov .ov-dd .dd-note__sub {
+  color: var(--color-muted-strong);
+}
+
+/* Sections and columns */
+.ov .ov-dd .dd-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.ov .ov-dd .dd-sec__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--color-border);
+}
+.ov .ov-dd .dd-sec__head h3 {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.ov .ov-dd .dd-sec__meta {
+  font-size: 12px;
+  text-align: right;
+  color: var(--color-muted);
+}
+.ov .ov-dd .dd-sec__meta b {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-success);
+}
+.ov .ov-dd .dd-cols {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+}
+.ov .ov-dd .dd-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 4px 16px 2px;
+}
+.ov .ov-dd .dd-col + .dd-col {
+  border-left: 1px solid var(--color-border);
+}
+.ov .ov-dd .dd-col:first-child {
+  padding-left: 0;
+}
+.ov .ov-dd .dd-col:last-child {
+  padding-right: 0;
+}
+@container ov-dd (max-width: 520px) {
+  .ov .ov-dd .dd-cols {
+    grid-auto-flow: row;
+  }
+  .ov .ov-dd .dd-col {
+    padding: 12px 0;
+  }
+  .ov .ov-dd .dd-col:first-child {
+    padding-top: 2px;
+  }
+  .ov .ov-dd .dd-col + .dd-col {
+    border-left: 0;
+    border-top: 1px solid var(--color-border);
+  }
+}
+.ov .ov-dd .dd-name {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 22px;
+}
+.ov .ov-dd .dd-name b {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+.ov .ov-dd .dd-model {
+  margin-top: -8px;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.ov .ov-dd .dd-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ov .ov-dd .dd-k {
+  color: var(--color-muted);
+}
+.ov .ov-dd .dd-v {
+  text-align: right;
+  color: var(--color-text);
+}
+.ov .ov-dd .dd-of,
+.ov .ov-dd .dd-unknown {
+  color: var(--color-muted);
+}
+.ov .ov-dd .dd-waiting {
+  color: var(--dd-warn-text);
+}
+.ov .ov-dd .dd-ovr-badge {
+  font-size: 12px;
+  color: var(--color-accent-text);
+}
+
+/* Delegate slot bar: one segment per budgeted slot */
+.ov .ov-dd .dd-slots {
+  display: flex;
+  gap: 3px;
+  height: 8px;
+  margin-top: 5px;
+}
+.ov .ov-dd .dd-slots i {
+  flex: 1;
+  border-radius: 2px;
+  background: var(--color-surface-hover);
+  transition: background-color 180ms ease;
+}
+.ov .ov-dd .dd-slots i.is-held {
+  background: var(--color-accent);
+}
+.ov .ov-dd .dd-slots i.is-over {
+  background: var(--color-warning);
+}
+.ov .ov-dd .dd-slots.is-paused i,
+.ov .ov-dd .dd-legend i.is-paused {
+  background: repeating-linear-gradient(135deg, var(--color-border-strong) 0 3px, transparent 3px 6px);
+}
+.ov .ov-dd .dd-verdict {
+  font-size: 12px;
+}
+.ov .ov-dd .dd-verdict--free {
+  color: var(--color-success);
+}
+.ov .ov-dd .dd-verdict--muted {
+  color: var(--color-muted-strong);
+}
+.ov .ov-dd .dd-verdict--warn {
+  color: var(--dd-warn-text);
+}
+
+/* Quota bars show what is left, with a tick at the desk's cut-off */
+.ov .ov-dd .dd-q {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.ov .ov-dd .dd-qbar {
+  position: relative;
+  height: 6px;
+  border-radius: 99px;
+  background: var(--color-surface-hover);
+}
+.ov .ov-dd .dd-qbar > i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 99px;
+  background: var(--color-accent);
+}
+.ov .ov-dd .dd-qbar > i.is-mid {
+  background: var(--color-warning);
+}
+.ov .ov-dd .dd-qbar > i.is-low {
+  background: var(--color-danger);
+}
+.ov .ov-dd .dd-qbar > b {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  left: 10%;
+  width: 1px;
+  background: var(--color-muted);
+}
+
+/* Edit mode */
+.ov .ov-dd .dd-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px 0 2px;
+  border-top: 1px dashed var(--color-border-strong);
+}
+.ov .ov-dd .dd-budget {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.ov .ov-dd .dd-budget__k {
+  font-weight: 500;
+  color: var(--color-text);
+}
+.ov .ov-dd .dd-hint,
+.ov .ov-dd .dd-pending {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--color-muted-strong);
+}
+.ov .ov-dd .dd-err {
+  font-size: 12px;
+  color: var(--dd-bad-text);
+}
+.ov .ov-dd .dd-stepper {
+  display: inline-flex;
+  flex: none;
+  align-items: stretch;
+  overflow: hidden;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 10px;
+  background: var(--color-surface);
+}
+.ov .ov-dd .dd-stepper.is-busy {
+  opacity: 0.6;
+}
+.ov .ov-dd .dd-stepper button {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-muted-strong);
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+/* Extends the hit area past the visible 36 x 34 target. */
+.ov .ov-dd .dd-stepper button::after {
+  content: "";
+  position: absolute;
+  inset: -5px -4px;
+}
+.ov .ov-dd .dd-stepper button:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+  color: var(--color-text-strong);
+}
+.ov .ov-dd .dd-stepper button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.ov .ov-dd .dd-stepper button[aria-disabled="true"] {
+  cursor: progress;
+}
+.ov .ov-dd .dd-stepper button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -3px;
+}
+.ov .ov-dd .dd-stepper output {
+  display: grid;
+  place-items: center;
+  min-width: 34px;
+  border-left: 1px solid var(--color-border);
+  border-right: 1px solid var(--color-border);
+  font-weight: 500;
+  color: var(--color-text-strong);
+}
+.ov .ov-dd .dd-ovr {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: var(--color-accent-soft);
+}
+.ov .ov-dd .dd-ovr p {
+  margin: 0;
+  color: var(--color-text);
+}
+.ov .ov-dd .dd-what {
+  font-weight: 500;
+  color: var(--color-accent-text);
+}
+.ov .ov-dd .dd-when {
+  font-size: 12px;
+  color: var(--color-muted-strong);
+}
+.ov .ov-dd .dd-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.ov .ov-dd .dd-acts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 16px;
+}
+.ov .ov-dd .dd-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  color: var(--color-text);
+  font-size: 12px;
+  white-space: nowrap;
+  text-decoration: underline;
+  text-decoration-color: var(--color-border-strong);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.ov .ov-dd .dd-link:hover {
+  text-decoration-color: currentColor;
+}
+.ov .ov-dd .dd-link[aria-disabled="true"],
+.ov .ov-dd .dd-ovr .btn[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: progress;
+}
+
+/* Disclosures: holders, accounts, waiting requests */
+.ov .ov-dd .dd-disclosure > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 0;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--color-muted-strong);
+  list-style: none;
+  cursor: pointer;
+}
+.ov .ov-dd .dd-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+.ov .ov-dd .dd-disclosure > summary svg {
+  transform: rotate(-90deg);
+  transition: transform 180ms ease;
+}
+.ov .ov-dd .dd-disclosure[open] > summary svg {
+  transform: rotate(0);
+}
+.ov .ov-dd .dd-disclosure > summary:hover {
+  color: var(--color-text);
+}
+.ov .ov-dd .dd-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.ov .ov-dd .dd-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--color-text);
+}
+.ov .ov-dd .dd-list li.is-stale {
+  opacity: 0.72;
+}
+.ov .ov-dd .dd-waits {
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-warning) 10%, transparent);
+}
+.ov .ov-dd .dd-waits > summary {
+  color: var(--dd-warn-text);
+}
+.ov .ov-dd .dd-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding-top: 2px;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.ov .ov-dd .dd-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ov .ov-dd .dd-legend i {
+  width: 12px;
+  height: 6px;
+  border-radius: 2px;
+  background: var(--color-accent);
+}
+.ov .ov-dd .dd-legend i.is-tick {
+  width: 1px;
+  height: 10px;
+  background: var(--color-muted);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ov .ov-dd .dd-slots i,
+  .ov .ov-dd .dd-disclosure > summary svg {
+    transition: none;
+  }
+}

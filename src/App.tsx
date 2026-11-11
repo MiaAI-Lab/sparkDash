@@ -585,6 +585,7 @@ function DashboardApp() {
                   hideOffline={settings?.autoHideOffline ?? false}
                   hideWorkers={hideWorkers}
                   showFleetEnergy={settings?.showFleetEnergy ?? true}
+                  showDelegationDesk={settings?.showDelegationDesk === true}
                   showInferenceActivity={settings?.inferenceActivityEnabled === true}
                   showFleetExceptions={settings?.showFleetExceptions ?? false}
                   alertsEnabled={settings?.alertsEnabled ?? false}

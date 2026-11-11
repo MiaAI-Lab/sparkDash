@@ -516,6 +516,12 @@ export function SettingsDialog({ open, onClose, onSaved, onOpenHarness }: Settin
                 checked={Boolean(settings.showFleetEnergy)}
                 onChange={(v) => update({ showFleetEnergy: v })}
               />
+              <ToggleRow
+                title={t("toggles.delegationDesk.title")}
+                help={t("toggles.delegationDesk.help")}
+                checked={Boolean(settings.showDelegationDesk)}
+                onChange={(v) => update({ showDelegationDesk: v })}
+              />
               <SettingRow
                 title={t("electricityPrice.title")}
                 help={t("electricityPrice.help")}

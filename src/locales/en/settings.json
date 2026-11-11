@@ -15,6 +15,7 @@
     "intelVramSudo": { "title": "Intel Arc VRAM via sudo", "help": "Reads exact Intel Arc VRAM use from root-only debugfs with sudo -n on each host. Off by default: VRAM then shows the PCI BAR size and nothing runs with sudo." },
     "metricsHistory": { "title": "Metrics history", "help": "Keeps 48 hours of 1-minute and 30 days of 15-minute history per unit on the server (GPU, memory headroom, CPU, network, LLM tok/s and KV; at most about 1 MB per unit on disk) and charts it in a History panel on each unit's page. Off by default." },
     "fleetEnergy": { "title": "Show Fleet Energy", "help": "Overview card with rolling fleet power estimates. The full Fleet energy page is always available from the sidebar." },
+    "delegationDesk": { "title": "Show delegation desk", "help": "Overview card with delegate capacity by machine and cloud quota, read from the delegation desk set by DELEGATION_DESK_URL on the server. Budgets can be changed only when the server also holds DELEGATION_DESK_TOKEN. Off by default; while off nothing is fetched." },
     "llmTokenTotals": { "title": "Show LLM Token Totals", "help": "Overview card with cumulative prompt/generated tokens per model. The full Token totals page is always available from the sidebar." },
     "recentActivity": { "title": "Show Recent activity", "help": "Overview card with the latest health and kernel events. The full Activity page is always available from the sidebar." },
     "fleetDecode": { "title": "Show Fleet decode tile", "help": "Overview tile with the fleet's total generation tok/s." },

@@ -47,6 +47,7 @@ Monitored units run **Linux**, **macOS**, or **Windows** (a Windows PC with an N
 - [Quality bench](#quality-bench)
 - [Prometheus](#prometheus)
 - [Alert notifications](#alert-notifications)
+- [Delegation desk panel](#delegation-desk-panel)
 - [RoCE / RDMA monitoring](#roce--rdma-monitoring)
 - [Intel Arc GPUs](#intel-arc-gpus)
 - [Windows PCs](#windows-pcs)
@@ -883,6 +884,7 @@ sparkDash/
 | PUT | `/api/sparks/order` | Persist tab order |
 | GET | `/api/sparks/:id/metrics` | One-shot metrics snapshot |
 | GET | `/api/fleet-energy` | Estimated fleet watts, rolling energy, coverage, and Wh/output-token |
+| GET · PUT · DELETE · POST | `/api/delegation-desk` · `/api/delegation-desk/overrides/:route[/permanent]` | Delegation desk status (plus `canEdit`) and its budget overrides, relayed to the desk; 404 while the panel is off (see [Delegation desk panel](#delegation-desk-panel)) |
 | GET | `/api/fleet-energy/history` | Hourly / daily energy buckets for the Fleet energy page |
 | GET/DELETE | `/api/fleet-energy/monthly` | Permanent per-UTC-month energy totals; `DELETE` needs `?month=YYYY-MM` or `?all=true&confirm=delete-all-history` |
 | GET | `/api/llm-token-totals` · `/api/llm-token-totals/history` | Cumulative LLM tokens by model, and the hourly / daily history behind the Token totals page |
@@ -1354,6 +1356,26 @@ Each configured LLM port gets its own `LlmProbe` instance running in parallel. P
 Rates are derived from per-probe cumulative counter diffs (or SGLang sticky throughput while it moves). A rate of `0` means fresh telemetry proved the engine idle; stale, unavailable, ambiguous, and model-mismatched telemetry remains nullable and is shown as `—` with a reason. The dashboard also retains seven days of ten-second forensic points, including model and status fields, and reads older point files without migration downtime. Multiple ports can be added or removed at runtime without restarting the monitor.
 
 Live probes use the LAN IP on remote units, and fall back to an SSH forward to the unit's loopback after two failed direct probes (the LLM panel then shows a **via SSH** chip). **Decode, prefill and quality benches** try that same HTTP target first; if it is closed they open an SSH local-forward onto the remote’s `127.0.0.1` so loopback-bound servers (ds4 `start.sh` default) can still be measured. The tunnel is torn down when the job finishes or is cancelled.
+
+---
+
+## Delegation desk panel
+
+An optional Overview card for a delegation desk: the service that tells agent dispatchers which delegate route has room. It is organised by machine. **Local** routes show delegates against their budget as a slot bar, the unit's live requests and KV cache with the age of the reading, and a one-line verdict such as *Budget full · runtime idle*. **Cloud** routes show quota bars with reset times and a tick at the desk's 10% cut-off. When the dispatching hosts report different quota for a route, the card says so and shows the lowest reading. For the Claude hub it shows the tightest account window, with every account behind **All N accounts**. Who holds each slot, and any requests waiting for one, sit behind disclosures.
+
+Anything the desk does not report reads **not reported**, never 0. A route without a live sparkDash reading is not counted as free capacity, and a host that stops reporting is named in the card header.
+
+The card is off by default: switch on **Settings → Show delegation desk**. While it is off the browser makes no requests and the server's routes answer 404, so nothing is fetched from the desk. The desk's address and its admin token come from the **server's environment**:
+
+```dotenv
+DELEGATION_DESK_URL=https://desk.example.ts.net:8791
+# Optional. Without it the card is read-only.
+DELEGATION_DESK_TOKEN=...
+```
+
+`GET /api/delegation-desk` relays the desk's `/v1/status` with `canEdit` added. It times out after 3 seconds, is cached for 5 seconds, and is shared between viewers. An unreachable desk answers 503 with the reason, and the card shows it as unreachable rather than empty.
+
+**Budget changes.** With `DELEGATION_DESK_TOKEN` set, **Adjust budgets** reveals a stepper per budgeted route. A change is a desk override: it applies once the desk acknowledges it, lasts 4 hours, and can be any value from 0 (pause new delegations) to twice the roster budget. Lowering a budget never stops running delegates. The card shows *Saving…* until the desk answers, and the desk's reason if it refuses. **Make permanent…** asks the desk to open a pull request that changes that route's budget in `delegation.md`. The override then holds until the PR merges, and ends if the PR is closed unmerged. The write routes (`PUT` / `DELETE /api/delegation-desk/overrides/:route`, `POST …/:route/permanent`) need the dashboard's normal authentication and share the destructive-action rate limit. They forward the admin token from the server's environment and answer 503 when it is unset. The token is never sent to the browser or written to a response or a log. A desk that rejects the token gives a 502 error, not a 401, so the browser doesn't mistake it for its own dashboard token failing.
 
 ---
 
