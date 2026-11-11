@@ -136,6 +136,24 @@
 .ov .ov-alert--bad > svg {
   color: var(--color-danger);
 }
+.ov .ov-alert__dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-muted);
+  cursor: pointer;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+.ov .ov-alert__dismiss:hover {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+}
 
 /* KPI tiles */
 .ov .ov-kpis {

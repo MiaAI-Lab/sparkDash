@@ -516,7 +516,7 @@ Unknown is left out rather than written as zero: a failed GPU read, a sensor tha
 
 ## Alert notifications
 
-Opt-in (default **off**): **Settings → Alert notifications → Configure…**. The server sends a notification to ntfy, Discord, Slack or a JSON webhook when a problem has held for a while, and again when it clears — whether or not a dashboard is open.
+Opt-in (default **off**): **Settings → Alert notifications → Configure…**. The server sends a notification to ntfy, Discord, Slack, Gotify or a JSON webhook when a problem has held for a while, and again when it clears — whether or not a dashboard is open.
 
 ### What notifies
 
@@ -536,6 +536,7 @@ The Activity log keeps recording what happened, as before; on top, every notific
 | `ntfy` | `POST` plain text to the topic URL with `Title`, `Priority` (5 critical, 4 warning, 3 resolved) and `Tags` headers — ntfy.sh or self-hosted |
 | `discord` | Discord webhook JSON: `content` plus one embed per alert (mentions disabled) |
 | `slack` | Slack incoming-webhook JSON `{ "text": … }`; `&`, `<` and `>` are escaped, so unit names and remote text cannot add mentions or links |
+| `gotify` | Gotify message JSON `{ title, message, priority, extras }` to `https://<server>/message?token=<app token>`. The token is sent in the `X-Gotify-Key` header, not the request URL. Priority 8 critical, 5 warning, 3 resolved (silent in the Android app); Markdown is off |
 | `webhook` | Generic JSON `{ source, status, severity, title, reminder, sentAt, alerts: [{ status, severity, rule, ruleName, unit, unitId, label, summary, startsAt, endsAt }] }` |
 
 Everything that fires or clears in one evaluation goes out as one message per channel, filtered by the channel's minimum severity. **Remind while still firing** (off by default) repeats firing alerts every 1 h / 4 h / 12 h / 24 h. Text that comes from elsewhere (unit names, SSH errors, kernel Xid lines, model ids) is cut to 120 characters.
@@ -549,6 +550,8 @@ How sends are made:
 - **Channel URLs may point at your LAN.** Like unit and LLM targets, a channel can be a private or loopback address (a self-hosted ntfy), so `POST /api/alerts/test` shows, to anyone who holds the dashboard token, whether a host and port on those networks answers (a status code or a fixed reason, never the response body). Link-local, metadata, unspecified and multicast addresses are refused, and the connection is pinned to the addresses that were checked. Set `SPARKDASH_TOKEN` if the dashboard is reachable beyond your own machine.
 
 Example — phone notifications with [ntfy](https://ntfy.sh): subscribe the ntfy app to a topic nobody will guess (e.g. `sparkdash-7f3k9q`), turn notifications on, **Add channel** with type `ntfy` and URL `https://ntfy.sh/sparkdash-7f3k9q` (or your own server), **Save**, then **Send test**.
+
+Example, phone notifications with [Gotify](https://gotify.net): in Gotify's web UI open **Apps → Create Application** (e.g. `sparkDash`) and copy its token, then **Add channel** with type `gotify` and URL `https://gotify.example.com/message?token=<token>`, **Save**, then **Send test**. Every app's messages reach the Gotify phone app, so nothing else needs subscribing.
 
 ### Where the configuration lives
 
@@ -1131,8 +1134,8 @@ Copy `.env.example` to `.env` if needed:
 | `GPU_HISTORY_LONG_JSON_PATH` | `config/gpu-history-long.json` | 7-day minute-resolution GPU history (Temps page) |
 | `METRICS_HISTORY_JSON_PATH` | `config/metrics-history.json` | 48 h / 30 d unit history (only with `metricsHistory` on) |
 | `ALERTS_JSON_PATH` | `config/alerts.json` | Alert rule switches, channel settings (no URLs) and the firing set |
-| `MODEL_PRICES_FETCH` | `0` | **Cost compare**: when `1`, the server refreshes the hosted-model price catalog once a day from `raw.githubusercontent.com` (the community litellm list). Opt-in so an install never phones out unasked; while off, the Cost compare page serves the last catalog on disk and makes no requests |
-| `MODEL_PRICES_JSON_PATH` | `config/model-prices.json` | **Cost compare**: where the last good price catalog is persisted (the offline / opt-out fallback). Pre-seed it to use the page with `MODEL_PRICES_FETCH` off |
+| `MODEL_PRICES_FETCH` | `0` | **Cost compare**: when `1`, the server refreshes the hosted-model price catalog once a day from `raw.githubusercontent.com` (the community litellm list). Opt-in so an install never phones out unasked; while off, the Cost compare page serves the last catalog on disk and makes no requests. Docker compose passes it through; set it in `.env` |
+| `MODEL_PRICES_JSON_PATH` | `config/model-prices.json` | **Cost compare**: where the last good price catalog is persisted (the offline / opt-out fallback). Pre-seed it to use the page with `MODEL_PRICES_FETCH` off. Docker compose passes it through; set it in `.env` |
 
 For compatibility, `SSH_CONTROL_PERSIST` is accepted as a seconds-based fallback when `SSH_CONTROL_PERSIST_SECONDS` is unset. The existing `SSH_MULTIPLEX=0` switch also disables reuse. SSH tunnels always use an independent connection.
 
@@ -1344,6 +1347,8 @@ If host memory remains low, compare Linux `MemAvailable` and per-process residen
 ### Health findings
 
 `server/health/HealthEvaluator.js` runs a handful of rules over metrics sparkDash already collects, once per Spark, and reports them as `health[]` on the unit's snapshot. A rule never guesses: a missing metric raises nothing. Findings carry a severity, a detail and a hint, show up as chips on the Overview cards and in full on the unit page, and the monitor writes an Activity event when one appears or clears (never for the first baseline after a restart). The kernel NV_ERR / Xid / OOM counters share one cached journal cursor. Reads process at most 10,000 records and have a host-side 3-second hard timeout, including over SSH. Initial history is backfilled one page per 10 seconds (when polled); counters remain unknown until the baseline is complete. Later reads resume after the cursor at `POLL_INTERVAL_NVERR` cadence rather than scanning the whole boot journal again. Failed reads retain the last complete reading and retry after that interval.
+
+The low-power warning requires at least 90% GPU utilisation and under 11 W for 30 consecutive GPU samples. Advancing token counters suppress this warning for 60 seconds after the last measured progress; new progress also clears a warning retained by the normal 90-second finding hold. TensorFold's live prefill position and completed-plus-running generation count cover long requests whose completion totals have not moved yet. Rates, busy flags, initial counter baselines and counter resets are not proof of progress. A configured worker inherits progress only from its explicitly paired, online head; unrelated units do not. If progress is unknown or stops advancing for 60 seconds, the usual low-power warning remains eligible—it is an observation to investigate, not proof of a stuck GPU.
 
 ### Windows units
 

@@ -91,3 +91,14 @@ test("a corrupt file is treated as fresh", () => {
   fs.writeFileSync(file, "{not json");
   assert.deepEqual(loadAlertsFile(file, quietLog).config, defaultConfig());
 });
+
+test("a gotify channel needs its app token, and the API never shows it", () => {
+  assert.throws(() => validateConfig({ channels: [{ name: "Phone", type: "gotify", url: "https://gotify.example.com/message" }] }), /needs the app token/);
+  assert.throws(() => validateConfig({ channels: [{ name: "Phone", type: "gotify", url: "https://gotify.example.com/message?token=" }] }), /needs the app token/);
+  const url = "https://gotify.example.com/message?token=AppTokenSecret";
+  const cfg = validateConfig({ channels: [{ name: "Phone", type: "gotify", url }] });
+  assert.equal(cfg.channels[0].url, url);
+  const pub = publicConfig(cfg);
+  assert.equal(pub.channels[0].url, "https://gotify.example.com/…");
+  assert.ok(!JSON.stringify(pub).includes("AppTokenSecret"));
+});

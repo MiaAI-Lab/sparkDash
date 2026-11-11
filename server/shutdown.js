@@ -70,9 +70,85 @@ export function remoteShutdownCommand(bin = SHUTDOWN_BIN) {
 }
 
 /**
- * Start the helper on the dashboard's own host. Resolves once it is detached —
- * the route has already answered the browser by then, because the host (and
- * this process) is about to go down.
+ * Local check command: proves the helper exists and passwordless sudo covers it
+ * before anything is scheduled — the same probe the remote command runs, for the
+ * dashboard's own host. A container enters the host mount namespace so `sh`,
+ * `sudo` and the helper all resolve against the host's filesystem.
+ * @param {{ bin?: string, mntNs?: string | null }} [opts]
+ * @returns {{ file: string, args: string[] }}
+ */
+export function localShutdownCheckCommand({
+  bin = SHUTDOWN_BIN,
+  mntNs = hostMountNs(),
+} = {}) {
+  const script = [
+    `test -x ${bin} || { echo "missing ${bin}" >&2; exit 127; }`,
+    `sudo -n ${bin} --check >/dev/null 2>&1 || sudo -n true >/dev/null 2>&1 || { echo "passwordless sudo required for ${bin}" >&2; exit 126; }`,
+    `exit 0`,
+  ].join("\n");
+  return mntNs
+    ? { file: "nsenter", args: [`--mount=${mntNs}`, "--", "sh", "-c", script] }
+    : { file: "sh", args: ["-c", script] };
+}
+
+/**
+ * Run the local check and settle on the child's exit status. Resolves only when
+ * the helper is present and authorized; every failure mode rejects with the
+ * reason the power-off would not happen (GitHub #379).
+ * @param {{ bin?: string, mntNs?: string | null, spawnFn?: typeof spawn, timeoutMs?: number }} [opts]
+ * @returns {Promise<true>}
+ */
+export function checkLocalShutdown({
+  bin = SHUTDOWN_BIN,
+  mntNs = hostMountNs(),
+  spawnFn = spawn,
+  timeoutMs = 8000,
+} = {}) {
+  return new Promise((resolve, reject) => {
+    const { file, args } = localShutdownCheckCommand({ bin, mntNs });
+    let settled = false;
+    let timer;
+    const settle = (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (err) reject(err);
+      else resolve(true);
+    };
+    timer = setTimeout(
+      () => settle(new Error(`the local shutdown check timed out after ${timeoutMs}ms`)),
+      timeoutMs
+    );
+    const child = spawnFn(file, args, { stdio: "ignore" });
+    child.on("error", (err) => {
+      const msg = err?.message || String(err);
+      settle(
+        new Error(
+          /ENOENT|not found/i.test(msg)
+            ? `${file} not found — ${msg}`
+            : msg
+        )
+      );
+    });
+    child.on("exit", (code) => {
+      if (code === 0) return settle(null);
+      if (code === 127) {
+        return settle(new Error(`${bin} not found on this host — the helper is installed on the Spark itself (README: "Power off a unit")`));
+      }
+      if (code === 126) {
+        return settle(new Error(`passwordless sudo for ${bin} is required — check the sudoers rule for the helper`));
+      }
+      settle(new Error(`the shutdown helper check exited with status ${code ?? "a signal"}`));
+    });
+  });
+}
+
+/**
+ * Start the helper on the dashboard's own host. Settles on the child's exit
+ * status so a helper that fails (missing, unauthorized, error) is reported
+ * instead of answered with success while the host stays up (GitHub #379) —
+ * the success path still returns quickly, and the caller answers the browser
+ * before the helper's power-off takes effect.
  * @param {{ bin?: string, mntNs?: string | null, spawnFn?: typeof spawn }} [opts]
  */
 export function spawnLocalShutdown({
@@ -84,9 +160,9 @@ export function spawnLocalShutdown({
     try {
       const { file, args } = localShutdownCommand({ bin, mntNs });
       const child = spawnFn(file, args, { detached: true, stdio: "ignore" });
-      // Settle on 'spawn', not on the return of spawn() — a missing binary
-      // reports through the async 'error' event, which resolving here would
-      // swallow (the caller would log success and the host would stay up).
+      // A missing binary reports through the async 'error' event, which
+      // resolving on 'spawn' would swallow (the caller would log success and
+      // the host would stay up).
       child.on("error", (err) => {
         const msg = err?.message || String(err);
         reject(
@@ -99,7 +175,12 @@ export function spawnLocalShutdown({
       });
       child.on("spawn", () => {
         child.unref();
-        resolve("Shutdown initiated");
+      });
+      child.on("exit", (code) => {
+        if (code === 0) resolve("Shutdown initiated");
+        else if (code === 127) reject(new Error(`${bin} not found — ${bin} is installed on the Spark itself, not in the container`));
+        else if (code === 126) reject(new Error(`passwordless sudo required for ${bin}`));
+        else reject(new Error(`the shutdown helper exited with status ${code ?? "a signal"} — the host was not powered off`));
       });
     } catch (err) {
       reject(err);

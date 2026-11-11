@@ -1079,3 +1079,328 @@ test("_applyTensorFoldMetrics: a single fleet-wide KV ratio is unchanged", async
   await probe._applyTensorFoldMetrics(2);
   assert.equal(probe.kvCacheUsage, 0.42);
 });
+
+// ─── live.cache group (zig/src/core/lanes/cache.zig) ───────────────────────
+
+const EPOCH = "1793692800123456789";
+const OBSERVED_NS = 1793692800123456789;
+
+/** A consistent observation of the production defaults' shape. */
+function cacheGroup(overrides = {}) {
+  return {
+    schema_version: 1,
+    engine_epoch: EPOCH,
+    observed_unix_ns: OBSERVED_NS,
+    consistent: true,
+    context_limit_positions: 1048576,
+    stream_capacity: 16,
+    pool: {
+      capacity_positions: 8388608,
+      active_reserved_positions: 1048576,
+      retained_prefix_positions: 2097152,
+      retained_growth_positions: 524288,
+      unclaimed_positions: 4718592,
+      valid_states: 7,
+      invalidations_total: 3,
+      placement_blocks_total: 11,
+    },
+    prompt_state: {
+      enabled: true,
+      budget_bytes: 536870912,
+      held_bytes: 268435456,
+      spare_bytes: 268435456,
+      entries: 7,
+      hits_total: 120,
+      misses_total: 30,
+      evictions_total: 4,
+      refusals_total: 1,
+      failures_total: 3,
+      failures_keep_total: 1,
+      failures_restore_total: 1,
+      failures_peer_forget_total: 1,
+    },
+    ...overrides,
+  };
+}
+
+test("cache: a consistent group passes through with its four disjoint categories", () => {
+  const probe = new LlmProbe({ lanIp: "192.0.2.10" }, 8888);
+  probe._applyTensorFoldCache(cacheGroup());
+  const c = probe.cache;
+  assert.equal(c.status, "full");
+  assert.equal(c.schemaVersion, 1);
+  assert.equal(c.engineEpoch, EPOCH);
+  assert.equal(c.observedAt, Math.round(OBSERVED_NS / 1e6));
+  assert.equal(c.contextLimitPositions, 1048576);
+  assert.equal(c.streamCapacity, 16);
+  assert.equal(c.pool.capacityPositions, 8388608);
+  const spans = [
+    c.pool.activeReservedPositions,
+    c.pool.retainedPrefixPositions,
+    c.pool.retainedGrowthPositions,
+    c.pool.unclaimedPositions,
+  ];
+  assert.equal(spans.reduce((a, b) => a + b, 0), c.pool.capacityPositions);
+  assert.equal(c.promptState.failuresKeepTotal, 1);
+  assert.equal(probe._getSnapshot().cache, c);
+});
+
+test("cache: an engine without the group is unavailable, never a measured zero", () => {
+  const probe = new LlmProbe({ lanIp: "192.0.2.10" }, 8888);
+  probe.kvCacheUsage = 0.204385; // the old per-stream ratio must not leak in
+  probe._applyTensorFoldCache(undefined);
+  assert.equal(probe.cache.status, "unavailable");
+  assert.equal(probe.cache.pool, undefined);
+  assert.equal(probe.cache.promptState, undefined);
+  assert.match(probe.cache.reason, /no cache group/);
+});
+
+test("cache: consistent=false carries no values", () => {
+  const probe = new LlmProbe({ lanIp: "192.0.2.10" }, 8888);
+  probe._applyTensorFoldCache(cacheGroup({ consistent: false }));
+  assert.equal(probe.cache.status, "inconsistent");
+  assert.equal(probe.cache.pool, null);
+  assert.equal(probe.cache.promptState, null);
+  assert.equal(probe.cache.engineEpoch, EPOCH);
+});
+
+test("cache: categories that do not sum to the capacity are inconsistent, not partial", () => {
+  const probe = new LlmProbe({ lanIp: "192.0.2.10" }, 8888);
+  const group = cacheGroup();
+  group.pool.unclaimed_positions = 4718591;
+  probe._applyTensorFoldCache(group);
+  assert.equal(probe.cache.status, "inconsistent");
+  assert.equal(probe.cache.pool, null);
+  assert.match(probe.cache.reason, /sum/);
+});
+
+test("cache: a disabled store is partial and keeps enabled=false distinct from absent", () => {
+  const probe = new LlmProbe({ lanIp: "192.0.2.10" }, 8888);
+  const group = cacheGroup();
+  group.prompt_state = { ...group.prompt_state, enabled: false };
+  probe._applyTensorFoldCache(group);
+  assert.equal(probe.cache.status, "partial");
+  assert.equal(probe.cache.promptState.enabled, false);
+  assert.deepEqual(probe.cache.missing, ["prompt_state"]);
+  assert.equal(probe.cache.pool.capacityPositions, 8388608);
+});
+
+test("cache: storage over budget and unknown schemas are refused", () => {
+  const probe = new LlmProbe({ lanIp: "192.0.2.10" }, 8888);
+  const group = cacheGroup();
+  group.prompt_state.held_bytes = group.prompt_state.budget_bytes + 1;
+  probe._applyTensorFoldCache(group);
+  assert.equal(probe.cache.status, "inconsistent");
+  assert.equal(probe.cache.promptState, null);
+
+  probe._applyTensorFoldCache(cacheGroup({ schema_version: 2 }));
+  assert.equal(probe.cache.status, "unsupported");
+  assert.equal(probe.cache.schemaVersion, 2);
+});
+
+test("cache: a window spanning an engine restart claims no reuse share", () => {
+  // 900k of a million prompt tokens were served from the prefix cache before the restart; the new
+  // process has its own counters. Carried over, the panel would show 90% reuse for a cold engine.
+  const probe = new LlmProbe({ lanIp: "192.0.2.10" }, 8888);
+  probe._applyTensorFoldHealth(
+    { status: "ok", prompt_tokens_total: 1_000_000, completion_tokens_total: 900_000, cached_tokens_total: 900_000 },
+    2
+  );
+  probe._applyTensorFoldCache(cacheGroup());
+  assert.equal(probe.totalCachedTokens, 900_000);
+  const reuse = () => probe.totalCachedTokens / probe.totalPromptTokens;
+
+  // The same engine on the next poll: nothing is dropped.
+  probe._applyTensorFoldCache(cacheGroup());
+  assert.equal(reuse(), 0.9);
+
+  // A new epoch: the cached total belonged to a process that is gone.
+  probe._applyTensorFoldCache(cacheGroup({ engine_epoch: "1793692800999999999" }));
+  assert.equal(probe.totalCachedTokens, null);
+  assert.equal(probe.prefixCacheHitRate, null);
+  assert.equal(probe.cache.engineEpoch, "1793692800999999999");
+
+  // A transient failed read is not a restart: the epoch and the reuse inputs survive it.
+  probe._applyTensorFoldCache(cacheGroup({ engine_epoch: "1793692800999999999" }));
+  probe._applyTensorFoldHealth({ status: "ok", prompt_tokens_total: 2_000, cached_tokens_total: 100 }, 2);
+  probe._applyTensorFoldCache(null);
+  assert.equal(probe.cache.status, "unavailable");
+  probe._applyTensorFoldCache(cacheGroup({ engine_epoch: "1793692800999999999" }));
+  assert.equal(probe.totalCachedTokens, 100);
+});
+
+test("cache: a failed health read clears the previous observation", () => {
+  const probe = new LlmProbe({ lanIp: "192.0.2.10" }, 8888);
+  probe._applyTensorFoldCache(cacheGroup());
+  assert.equal(probe.cache.status, "full");
+  probe._applyTensorFoldHealth(null, 2);
+  assert.equal(probe.cache, null);
+});
+
+/** TensorFold probe whose /metrics body the test controls; null means the scrape fails. */
+function progressProbe() {
+  let metrics = null;
+  let health = { status: "ok" };
+  const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888);
+  probe.backendType = "tensorfold";
+  probe._fetch = async (url) => {
+    const u = String(url);
+    if (u.endsWith("/v1/models")) return jsonRes(CUDA_MODELS);
+    if (u.endsWith("/health")) {
+      return health == null ? { ok: false, status: 500, json: async () => ({}) } : jsonRes(health);
+    }
+    if (u.endsWith("/metrics")) {
+      if (metrics == null) return { ok: false, status: 500, text: async () => "" };
+      return { ok: true, status: 200, text: async () => metrics };
+    }
+    return notFound();
+  };
+  return {
+    probe,
+    setMetrics: (lines) => { metrics = lines == null ? null : lines.join("\n"); },
+    setHealth: (value) => { health = value; },
+    poll: async () => {
+      probe.lastProbeTime = Date.now() - 2000;
+      return probe._probeOpenAICompatible();
+    },
+  };
+}
+
+test("TensorFold /metrics exposes live prefill and generation position gauges", async () => {
+  const f = progressProbe();
+  f.setMetrics([
+    "tensorfold:generation_tokens_total 1000",
+    "tensorfold:generation_tokens_running 0",
+    "tensorfold:prompt_tokens_total 5000",
+    "tensorfold:prefill_progress_tokens 0",
+  ]);
+  let snap = await f.poll();
+  assert.equal(snap.prefillProgressTokens, 0);
+  assert.equal(snap.generationProgressTokens, 1000);
+
+  // A long prefill advances the live gauge while the completed counters stay frozen.
+  f.setMetrics([
+    "tensorfold:generation_tokens_total 1000",
+    "tensorfold:generation_tokens_running 0",
+    "tensorfold:prompt_tokens_total 5000",
+    "tensorfold:prefill_progress_tokens 2048",
+  ]);
+  snap = await f.poll();
+  assert.equal(snap.prefillProgressTokens, 2048);
+  assert.equal(snap.totalPromptTokens, 5000);
+  assert.equal(snap.generationProgressTokens, 1000);
+
+  // Decode in flight: the generation position includes the running tokens.
+  f.setMetrics([
+    "tensorfold:generation_tokens_total 1000",
+    "tensorfold:generation_tokens_running 150",
+    "tensorfold:prompt_tokens_total 5000",
+    "tensorfold:prefill_progress_tokens 2048",
+  ]);
+  snap = await f.poll();
+  assert.equal(snap.generationProgressTokens, 1150);
+});
+
+test("TensorFold position gauges report the new raw value after a counter reset", async () => {
+  const f = progressProbe();
+  f.setMetrics([
+    "tensorfold:generation_tokens_total 1000",
+    "tensorfold:generation_tokens_running 0",
+    "tensorfold:prompt_tokens_total 5000",
+    "tensorfold:prefill_progress_tokens 2048",
+  ]);
+  let snap = await f.poll();
+  assert.equal(snap.prefillProgressTokens, 2048);
+  assert.equal(snap.generationProgressTokens, 1000);
+
+  // The engine restarted: the gauges follow the reset counters, not the old position.
+  f.setMetrics([
+    "tensorfold:generation_tokens_total 0",
+    "tensorfold:generation_tokens_running 0",
+    "tensorfold:prompt_tokens_total 0",
+    "tensorfold:prefill_progress_tokens 0",
+  ]);
+  snap = await f.poll();
+  assert.equal(snap.prefillProgressTokens, 0);
+  assert.equal(snap.generationProgressTokens, 0);
+});
+
+test("TensorFold position gauges are null when the raw gauge is missing or invalid", async () => {
+  const f = progressProbe();
+  f.setMetrics([
+    "tensorfold:generation_tokens_total 1000",
+    "tensorfold:generation_tokens_running 0",
+    "tensorfold:prompt_tokens_total 5000",
+    "tensorfold:prefill_progress_tokens 2048",
+  ]);
+  let snap = await f.poll();
+  assert.equal(snap.prefillProgressTokens, 2048);
+  assert.equal(snap.generationProgressTokens, 1000);
+
+  // Missing prefill gauge: unknown, never the previous position.
+  f.setMetrics([
+    "tensorfold:generation_tokens_total 10",
+    "tensorfold:generation_tokens_running 0",
+    "tensorfold:prompt_tokens_total 10",
+  ]);
+  snap = await f.poll();
+  assert.equal(snap.prefillProgressTokens, null);
+  assert.equal(snap.generationProgressTokens, 10);
+
+  // Missing running count: the generation position is unknown, not the completed total.
+  f.setMetrics([
+    "tensorfold:generation_tokens_total 10",
+    "tensorfold:prompt_tokens_total 10",
+    "tensorfold:prefill_progress_tokens 512",
+  ]);
+  snap = await f.poll();
+  assert.equal(snap.prefillProgressTokens, 512);
+  assert.equal(snap.generationProgressTokens, null);
+
+  // Invalid (negative) gauges: unknown.
+  f.setMetrics([
+    "tensorfold:generation_tokens_total 10",
+    "tensorfold:generation_tokens_running -5",
+    "tensorfold:prompt_tokens_total 10",
+    "tensorfold:prefill_progress_tokens -1",
+  ]);
+  snap = await f.poll();
+  assert.equal(snap.prefillProgressTokens, null);
+  assert.equal(snap.generationProgressTokens, null);
+
+  // A failed scrape must not keep claiming the last measured position.
+  f.setMetrics(null);
+  snap = await f.poll();
+  assert.equal(snap.prefillProgressTokens, null);
+  assert.equal(snap.generationProgressTokens, null);
+
+  // A failed /health poll is not a measurement either.
+  f.setMetrics([
+    "tensorfold:generation_tokens_total 10",
+    "tensorfold:generation_tokens_running 0",
+    "tensorfold:prompt_tokens_total 10",
+    "tensorfold:prefill_progress_tokens 512",
+  ]);
+  snap = await f.poll();
+  assert.equal(snap.prefillProgressTokens, 512);
+  f.setHealth(null);
+  snap = await f.poll();
+  assert.equal(snap.prefillProgressTokens, null);
+  assert.equal(snap.generationProgressTokens, null);
+});
+
+test("TensorFold queue-only /metrics scrape reports the position gauges as unknown", async () => {
+  const f = progressProbe();
+  f.setMetrics([
+    "tensorfold:generation_tokens_total 1000",
+    "tensorfold:generation_tokens_running 0",
+    "tensorfold:prompt_tokens_total 5000",
+    "tensorfold:prefill_progress_tokens 2048",
+  ]);
+  await f.poll();
+  assert.equal(f.probe.prefillProgressTokens, 2048);
+  assert.equal(f.probe.generationProgressTokens, 1000);
+  await f.probe._applyTensorFoldMetrics(undefined, true);
+  assert.equal(f.probe.prefillProgressTokens, null);
+  assert.equal(f.probe.generationProgressTokens, null);
+});

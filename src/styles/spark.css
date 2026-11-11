@@ -496,6 +496,110 @@
   font-size: 11px;
   color: var(--color-muted);
 }
+/* TensorFold shared cache (LlmCachePanel): the four pool categories as one partition bar. */
+.sp-cache {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border);
+}
+.sp-cache-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.sp-cache-headline {
+  font-size: 12.5px;
+  color: var(--color-text-strong);
+}
+.sp-cache-badge {
+  font-size: 11px;
+  color: var(--color-muted);
+}
+.sp-cache-bar {
+  display: flex;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--color-surface-elevated);
+  gap: 1px;
+}
+.sp-cache-seg {
+  display: block;
+  min-width: 0;
+}
+.sp-cache-seg--active,
+.sp-cache-swatch.sp-cache-seg--active {
+  background: var(--color-mem-engine);
+}
+.sp-cache-seg--prefix,
+.sp-cache-swatch.sp-cache-seg--prefix {
+  background: var(--color-accent);
+}
+.sp-cache-seg--growth,
+.sp-cache-swatch.sp-cache-seg--growth {
+  background: var(--color-mem-system);
+}
+.sp-cache-seg--free,
+.sp-cache-swatch.sp-cache-seg--free {
+  background: var(--color-mem-other);
+}
+.sp-cache-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 11.5px;
+  color: var(--color-muted);
+}
+.sp-cache-legend li {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.sp-cache-legend b {
+  color: var(--color-text);
+  font-weight: 600;
+}
+.sp-cache-swatch {
+  align-self: center;
+  width: 6px;
+  height: 6px;
+  border-radius: 2px;
+}
+.sp-cache-tiles {
+  margin-top: 2px;
+}
+.sp-cache-note {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--color-muted);
+}
+.sp-cache-details > summary {
+  cursor: pointer;
+  font-size: 11.5px;
+  color: var(--color-muted);
+}
+.sp-cache-grid {
+  display: grid;
+  grid-template-columns: minmax(96px, max-content) 1fr;
+  gap: 4px 12px;
+  margin: 8px 0;
+  font-size: 11.5px;
+}
+.sp-cache-grid dt {
+  color: var(--color-muted);
+}
+.sp-cache-grid dd {
+  margin: 0;
+  color: var(--color-text);
+}
+
 .sp-tiles {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
@@ -1187,6 +1291,53 @@
   .sp-hist-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+}
+/* Shared-pool stack: full width of the history grid, same card chrome as a chart. */
+.sp-cachepool {
+  grid-column: 1 / -1;
+  min-width: 0;
+  padding: 10px 12px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+}
+.sp-cachepool__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--color-text-strong);
+}
+.sp-cachepool__cap {
+  font-size: 11px;
+  color: var(--color-muted);
+}
+.sp-cachepool__svg {
+  display: block;
+  width: 100%;
+  height: 72px;
+  margin-top: 6px;
+}
+.sp-cachepool__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 4px;
+  font-size: 10.5px;
+  color: var(--color-muted);
+}
+.sp-cachepool__legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.sp-cachepool__swatch {
+  width: 6px;
+  height: 6px;
+  border-radius: 2px;
+}
+.sp-cachepool__time {
+  margin-left: auto;
 }
 .sp-hist-chart {
   min-width: 0;

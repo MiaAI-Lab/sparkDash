@@ -5,7 +5,7 @@
  */
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
-import { Notifier, buildRequest, describeGroup, filterGroupForChannel, slackEscape } from "../notifier.js";
+import { Notifier, buildRequest, describeGroup, filterGroupForChannel, gotifyTarget, slackEscape } from "../notifier.js";
 import { POLICY_BLOCKED, POLICY_UNRESOLVED } from "../outbound.js";
 import { LEAK, quietLog, receiver, stubFetch, stubLookup } from "./fixtures.js";
 
@@ -173,4 +173,38 @@ test("dispatch skips disabled channels and channels whose minimum the group does
   );
   assert.deepEqual(results.map((x) => x.channelId), ["a"]);
   assert.equal(fetchImpl.calls[0].init.redirect, "manual");
+});
+
+test("gotify: message JSON with the token in X-Gotify-Key, never in the request URL or body", () => {
+  const { url, init } = buildRequest({ type: "gotify", url: "https://gotify.example.com/message?token=AbC.123" }, firing, NOW);
+  assert.equal(url, "https://gotify.example.com/message");
+  assert.equal(init.headers["X-Gotify-Key"], "AbC.123");
+  assert.equal(init.headers["Content-Type"], "application/json");
+  const body = JSON.parse(init.body);
+  assert.equal(body.title, "[CRITICAL] spark-1: GPU is close to its shutdown temperature");
+  assert.match(body.message, /CRITICAL spark-1 · GPU temperature: 91°C .* \(for 5m\)/);
+  assert.equal(body.priority, 8);
+  assert.deepEqual(body.extras, { "client::display": { contentType: "text/plain" } });
+  assert.ok(!init.body.includes("AbC.123"));
+});
+
+test("gotify: priority follows the tone; a server URL gets /message; other query parameters stay", () => {
+  const prio = (group) => JSON.parse(buildRequest({ type: "gotify", url: "https://g.example/message?token=t" }, group, NOW).init.body).priority;
+  assert.equal(prio({ firing: [alert({ severity: "warning" })], resolved: [] }), 5);
+  assert.equal(prio({ firing: [], resolved: [alert({ endsAt: NOW })] }), 3);
+  assert.equal(prio({ test: true, firing: [], resolved: [] }), 5);
+  assert.deepEqual(gotifyTarget("https://g.example?token=t"), { url: "https://g.example/message", token: "t" });
+  assert.deepEqual(gotifyTarget("https://h.example/gotify/?token=t"), { url: "https://h.example/gotify/message", token: "t" });
+  assert.deepEqual(gotifyTarget("http://192.168.1.84:8070/message/?token=%20t%20&x=1"), { url: "http://192.168.1.84:8070/message?x=1", token: "t" });
+});
+
+test("send: gotify reaches the server with the token in the header only", async (t) => {
+  const rx = await receiver();
+  t.after(rx.close);
+  const n = new Notifier({ lookup: stubLookup(["127.0.0.1"]), log: quietLog });
+  const r = await n.send({ id: "g", name: "Phone", type: "gotify", url: `http://gotify.example.test:${rx.port}/message?token=sekret-app-token` }, firing);
+  assert.deepEqual(r, { ok: true, status: 200 });
+  assert.equal(rx.requests[0].url, "/message");
+  assert.equal(rx.requests[0].headers["x-gotify-key"], "sekret-app-token");
+  assert.equal(JSON.parse(rx.requests[0].body).priority, 8);
 });

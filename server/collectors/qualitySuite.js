@@ -28,7 +28,7 @@ export const SCORING_VERSION = 2;
 /** Fixed `seed` field sent with every request (servers that honour it stay reproducible). */
 export const REQUEST_SEED = 1234;
 
-const QA_MIN_TOKENS = 64;
+const QA_MIN_TOKENS = 192;
 const REASON_MAX_TOKENS = 8192;
 const CHAIN_MAX_TOKENS = 12288;
 const LONG_MAX_TOKENS = 512;

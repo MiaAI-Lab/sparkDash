@@ -845,7 +845,7 @@ export class SystemCollector {
     const vramRead = this._intelVram.stale;
     const [gpuOut, amd, clockCapMHz, intelOut] = await Promise.all([
       this._nvidiaSmi(
-        "--query-gpu=temperature.gpu,utilization.gpu,power.draw,power.limit,clocks.current.sm,clocks.max.sm,clocks_throttle_reasons.hw_thermal_slowdown,clocks_throttle_reasons.sw_thermal_slowdown,clocks_throttle_reasons.hw_slowdown,clocks_throttle_reasons.sw_power_cap,index,name,uuid --format=csv,noheader,nounits"
+        "--query-gpu=temperature.gpu,utilization.gpu,power.draw,power.limit,clocks.current.sm,clocks.max.sm,clocks_throttle_reasons.hw_thermal_slowdown,clocks_throttle_reasons.sw_thermal_slowdown,clocks_throttle_reasons.hw_slowdown,clocks_throttle_reasons.sw_power_cap,index,name,uuid,fan.speed,pcie.link.gen.current,pcie.link.gen.max,pcie.link.width.current,pcie.link.width.max --format=csv,noheader,nounits"
       ).catch(() => null),
       this._probeLocalAmd(),
       this._readLocalClockCap(),
@@ -950,6 +950,14 @@ export class SystemCollector {
   /** Where sysfs may be mounted: the host bind mount in the container, else /sys. */
   _sysRoots() {
     return [HOST_PATHS.SYS, "/sys"];
+  }
+
+  /**
+   * The sysfs root to read: the host bind mount when it exists (Docker), else /sys. Outside a container
+   * `/host/sys` does not exist, and a read that joined HOST_PATHS.SYS directly found no sensor at all.
+   */
+  _sysRoot(roots = this._sysRoots()) {
+    return roots.find((root) => fs.existsSync(root)) ?? roots[roots.length - 1];
   }
 
   /**
@@ -1193,7 +1201,7 @@ export class SystemCollector {
 
   /**
    * Parse every line of the `--query-gpu` output — one per physical GPU.
-   * Fields 0-9 are the metrics; 10-12 (`index,name,uuid`) identify the card.
+   * Fields 0-9 are the metrics; 10-12 (`index,name,uuid`) identify the card; 13-17 are fan % and the PCIe link.
    * Returns [] when nvidia-smi printed nothing.
    */
   _parseGpuLines(output, { source = "nvidia" } = {}) {
@@ -1213,6 +1221,16 @@ export class SystemCollector {
       const index = this._parseSmiNumber(parts[10]) ?? i;
       const name = parts[11] && !/^\[?n\/a\]?$/i.test(parts[11]) ? parts[11] : null;
       const uuid = parts[12] && /^GPU-/i.test(parts[12]) ? parts[12] : null;
+      // Fields 13-17 (fan, PCIe link) come from the same read-only query; an older fixture or a card
+      // that says [N/A] (a laptop, a GB10, a passively cooled card) leaves them null.
+      const fanPct = this._parseSmiNumber(parts[13]);
+      const pcieGen = this._parseSmiNumber(parts[14]);
+      const pcieGenMax = this._parseSmiNumber(parts[15]);
+      const pcieWidth = this._parseSmiNumber(parts[16]);
+      const pcieWidthMax = this._parseSmiNumber(parts[17]);
+      const pcie = pcieGen == null && pcieWidth == null
+        ? null
+        : { gen: pcieGen, genMax: pcieGenMax, width: pcieWidth, widthMax: pcieWidthMax };
       const vendor = /nvidia/i.test(name || "") ? "nvidia" : /amd|radeon/i.test(name || "") ? "amd" : source === "windows" ? "unknown" : "nvidia";
       const windowsAdapter = source === "windows" && vendor !== "nvidia";
       const temperature = rawTemperature ?? 0;
@@ -1225,6 +1243,8 @@ export class SystemCollector {
         physicalIndex: index,
         name,
         uuid,
+        fanPct,
+        pcie,
         temperature,
         usage,
         powerDraw,
@@ -1378,6 +1398,10 @@ export class SystemCollector {
         temperature: d.temperature,
         usage: d.usage,
         power: { draw: d.powerDraw, limit: d.powerLimit },
+        // Fan speed in % of its maximum, and the PCIe link now and at its best. A card with no memory
+        // figures of its own (the GB10) shares the CPU's link, so its PCIe numbers say nothing and are left out.
+        fanPct: d.fanPct ?? null,
+        pcie: mem.total == null ? null : d.pcie ?? null,
         vram,
         throttle: d.throttle,
         processes: this._topProcesses(own),
@@ -1612,10 +1636,10 @@ export class SystemCollector {
   }
 
   /** Local sensor candidates: hwmon chips by allowlist, then thermal zones. */
-  _localCpuTempCandidates() {
+  _localCpuTempCandidates(sysRoot = this._sysRoot()) {
     const candidates = [];
     try {
-      const hwmonDir = path.join(HOST_PATHS.SYS, "class/hwmon");
+      const hwmonDir = path.join(sysRoot, "class/hwmon");
       if (fs.existsSync(hwmonDir)) {
         for (const entry of fs.readdirSync(hwmonDir)) {
           const nameFile = path.join(hwmonDir, entry, "name");
@@ -1637,7 +1661,7 @@ export class SystemCollector {
       /* fall through to thermal zones */
     }
     try {
-      const thermalDir = path.join(HOST_PATHS.SYS, "class/thermal");
+      const thermalDir = path.join(sysRoot, "class/thermal");
       if (fs.existsSync(thermalDir)) {
         const zones = fs.readdirSync(thermalDir).filter((z) => z.startsWith("thermal_zone"));
         for (const zone of zones) {
@@ -2038,7 +2062,7 @@ export class SystemCollector {
 
   async _getNetworkLinkSpeedMbps(iface) {
     try {
-      const speedFile = path.join(HOST_PATHS.SYS, "class/net", iface, "speed");
+      const speedFile = path.join(this._sysRoot(), "class/net", iface, "speed");
       const raw = fs.readFileSync(speedFile, "utf-8").trim();
       const n = parseInt(raw, 10);
       return Number.isFinite(n) && n > 0 ? n : null;
@@ -2097,6 +2121,7 @@ export class SystemCollector {
       cpuUsed: usedMB - gpuUsedMB,
       used: usedMB,
       available: Math.round(availKB / 1024),
+      availableSource: availMatch ? "linux-memavailable" : null,
       percentage,
       oomRisk,
       bandwidth,
@@ -2108,7 +2133,7 @@ export class SystemCollector {
     try {
       const vramRead = this._intelVram.stale;
       const cmd = [
-        "if command -v nvidia-smi >/dev/null 2>&1; then printf '\\n__NVIDIA__\\n'; nvidia-smi --query-gpu=temperature.gpu,utilization.gpu,power.draw,power.limit,clocks.current.sm,clocks.max.sm,clocks_throttle_reasons.hw_thermal_slowdown,clocks_throttle_reasons.sw_thermal_slowdown,clocks_throttle_reasons.hw_slowdown,clocks_throttle_reasons.sw_power_cap,index,name,uuid --format=csv,noheader,nounits 2>/dev/null; printf '\\n__NVIDIA_VRAM__\\n'; nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader,nounits 2>/dev/null; printf '\\n__NVIDIA_APPS__\\n'; nvidia-smi --query-compute-apps=pid,process_name,used_gpu_memory,gpu_uuid --format=csv,noheader,nounits 2>/dev/null; fi",
+        "if command -v nvidia-smi >/dev/null 2>&1; then printf '\\n__NVIDIA__\\n'; nvidia-smi --query-gpu=temperature.gpu,utilization.gpu,power.draw,power.limit,clocks.current.sm,clocks.max.sm,clocks_throttle_reasons.hw_thermal_slowdown,clocks_throttle_reasons.sw_thermal_slowdown,clocks_throttle_reasons.hw_slowdown,clocks_throttle_reasons.sw_power_cap,index,name,uuid,fan.speed,pcie.link.gen.current,pcie.link.gen.max,pcie.link.width.current,pcie.link.width.max --format=csv,noheader,nounits 2>/dev/null; printf '\\n__NVIDIA_VRAM__\\n'; nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader,nounits 2>/dev/null; printf '\\n__NVIDIA_APPS__\\n'; nvidia-smi --query-compute-apps=pid,process_name,used_gpu_memory,gpu_uuid --format=csv,noheader,nounits 2>/dev/null; fi",
         `${AMD_SMI_RESOLVER}; if [ -n "$amd_smi" ]; then printf '\\n__AMD__\\n'; "$amd_smi" metric -u -p -m -t --json 2>/dev/null; printf '\\n__AMD_LIMITS__\\n'; "$amd_smi" static -l --json 2>/dev/null; fi`,
         `printf '\\n__INTEL__\\n'; ${buildIntelProbeScript({ sudo: this._intelSudo.allowed && getSettings().intelVramSudo, vram: vramRead })}`,
         "printf '\\n__MEMINFO__\\n'; grep -E 'MemTotal|MemAvailable' /proc/meminfo 2>/dev/null",
@@ -2887,6 +2912,7 @@ export class SystemCollector {
         cpuUsed: cpuUsedMB,
         used: usedMB,
         available: Math.round(availKB / 1024),
+        availableSource: availMatch ? "linux-memavailable" : null,
         percentage,
         oomRisk,
         bandwidth: { current: 0, peak: 400 },

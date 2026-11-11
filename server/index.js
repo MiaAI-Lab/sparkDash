@@ -31,7 +31,7 @@ import { createOccupancyRuntime } from "./occupancy/runtime.js";
 import { formatContextSize, parseContextSize } from "../src/shared/prefillBench.js";
 import { PREFILL_RESERVE_TOKENS, sizeFitsContext } from "../src/shared/contextFit.js";
 import { broadcastForLanIp, effectiveMac, normalizeMac, sendWol } from "./wol.js";
-import { remoteShutdownCommand, spawnLocalShutdown } from "./shutdown.js";
+import { checkLocalShutdown, remoteShutdownCommand, spawnLocalShutdown } from "./shutdown.js";
 import { GpuClockManager } from "./gpuclock/GpuClockManager.js";
 import { registerGpuClockFleetRoute, registerGpuClockRoutes } from "./gpuclock/routes.js";
 import {
@@ -71,6 +71,7 @@ import { EventLog } from "./events/EventLog.js";
 import { planListenRetry } from "./listenRetry.js";
 import { UnitHistory } from "./metrics/UnitHistory.js";
 import { createUnitHistoryRuntime, registerUnitHistoryRoutes } from "./metrics/UnitHistoryRuntime.js";
+import { CacheHistory } from "./metrics/CacheHistory.js";
 import { LauncherStore } from "./llmlaunch/LauncherStore.js";
 import { LauncherManager, defaultExec } from "./llmlaunch/LauncherManager.js";
 import { discoverModelCandidates } from "./models/discovery.js";
@@ -440,6 +441,8 @@ function startMonitor(spark) {
     // Returns null when the head is unknown/offline/model-less so workers
     // never display a stale model. Display-only; never writes to config.
     resolveHeadModelId: (headId) => monitors.get(headId)?.headLlmModelId() ?? null,
+    // Tensor-parallel workers use measured progress from their explicitly paired head.
+    resolveHeadLlmProgressAt: (headId) => monitors.get(headId)?.llmProgressAt() ?? null,
     // Settings → Poll interval drives the collectors, not just the broadcast.
     pollIntervalMs: getSettings().pollIntervalMs,
   });
@@ -490,8 +493,15 @@ const fleetEnergyRuntime = createFleetEnergyRuntime({
   wallReadings: powerMeters.wallReadings,
 });
 
+// TensorFold's shared-cache sidecar: separate grid, separate file, so dropping the cache panels
+// leaves no format to unwind. Sampled by the same tick, enabled with the same history setting.
+const cacheHistory = new CacheHistory({
+  file: process.env.CACHE_HISTORY_JSON_PATH || path.join(ROOT, "config", "cache-history.json"),
+});
+
 const unitHistoryRuntime = createUnitHistoryRuntime({
   store: unitHistory,
+  cacheStore: cacheHistory,
   orderedSnapshots,
   monitors,
   isEnabled: metricsHistoryEnabled,
@@ -811,6 +821,7 @@ app.get("/api/inference/activity", async (_req, res) => {
 // GET /api/sparks/:id/gpu-history (GPU raw tier, newest last) and /api/sparks/:id/history (bucketed tiers).
 registerUnitHistoryRoutes(app, {
   store: unitHistory,
+  cacheStore: cacheHistory,
   hasUnit: (id) => Boolean(registry.getSpark(id)),
   isEnabled: metricsHistoryEnabled,
 });
@@ -2225,8 +2236,15 @@ app.post("/api/sparks/shutdown-all", async (_req, res) => {
       continue;
     }
     try {
-      // Local dashboard host: acknowledge before power-off kills this process.
+      // Local dashboard host: verify the helper first (#379), then acknowledge
+      // before power-off kills this process.
       if (spark.isLocal) {
+        try {
+          await checkLocalShutdown();
+        } catch (err) {
+          results.push({ id: spark.id, ok: false, error: err.message || String(err) });
+          continue;
+        }
         results.push({ id: spark.id, ok: true, message: "Shutdown initiated" });
         setImmediate(() => {
           void initiateSparkShutdown(spark).catch((err) => {
@@ -2282,9 +2300,17 @@ app.post("/api/sparks/:id/shutdown", async (req, res) => {
     const spark = registry.getSpark(req.params.id);
     if (!spark) return res.status(404).json({ error: "Spark not found" });
 
-    // Local: send JSON first, then power off — otherwise the process dies mid-response
-    // and the UI shows "Failed to fetch".
+    // Local: verify the helper first — a missing or unauthorized helper is an
+    // error, not a success (#379) — then send JSON before the power-off,
+    // otherwise the process dies mid-response and the UI shows "Failed to
+    // fetch".
     if (spark.isLocal) {
+      try {
+        await checkLocalShutdown();
+      } catch (err) {
+        const msg = err.message || String(err);
+        return res.status(shutdownErrorStatus(msg)).json({ error: msg });
+      }
       res.json({ success: true, message: "Shutdown initiated" });
       setImmediate(() => {
         void initiateSparkShutdown(spark).catch((err) => {

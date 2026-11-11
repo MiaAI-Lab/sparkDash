@@ -319,6 +319,13 @@ export interface GpuMetrics {
   gpus?: GpuDevice[];
 }
 
+export interface GpuPcieLink {
+  gen: number | null;
+  genMax: number | null;
+  width: number | null;
+  widthMax: number | null;
+}
+
 /** One physical GPU; `index` is a stable dashboard identity and `physicalIndex` is the vendor's index (nvidia-smi, amd-smi, or Intel sysfs). */
 export interface GpuDevice {
   /** Stable dashboard identity; AMD indices use a separate internal range. */
@@ -338,6 +345,10 @@ export interface GpuDevice {
   throttle?: GpuThrottle | null;
   /** Processes holding memory on this card only. */
   processes?: Array<{ pid: number; name: string; vramMB: number }>;
+  /** NVIDIA: fan speed in % of maximum (nvidia-smi fan.speed); null when the card reports none. */
+  fanPct?: number | null;
+  /** NVIDIA: PCIe link now and at its best (nvidia-smi pcie.link.*); null when unknown or not a PCIe-attached card. */
+  pcie?: GpuPcieLink | null;
   /** Intel only: fan speed in rpm, null when the card has no fan sensor. */
   fanRpm?: number | null;
   /** Intel only: "debugfs" = measured VRAM use; "pci-bar" = total only, used is unknown (shown as 0). */
@@ -526,10 +537,30 @@ export interface LlmMetrics {
   /** Cumulative total prompt (prefill) tokens as reported by the LLM server. null when the backend does not expose it. */
   totalPromptTokens: number | null;
   /**
+   * TensorFold live prompt-position gauge: tokens of the prompt currently being
+   * prefilled (`tensorfold:prefill_progress_tokens`). It advances during a long
+   * prefill while the completed counters stay frozen. null when the build does
+   * not publish it or the last full /metrics scrape failed.
+   */
+  prefillProgressTokens?: number | null;
+  /**
+   * TensorFold live generation position: `generation_tokens_total` plus the
+   * nonnegative `generation_tokens_running`. null when unavailable.
+   */
+  generationProgressTokens?: number | null;
+  /**
    * Share of the engine's KV cache pool held by requests (0–1): vLLM, q27,
    * SGLang (`token_usage`) and TensorFold (`pool_tokens`). null when unknown.
    */
   kvCacheUsage?: number | null;
+  /**
+   * TensorFold's own cache observation (`/health.live.cache`): the shared pool's disjoint
+   * categories, the prompt-state snapshot store, and the engine's limits. Never derived from
+   * `kvCacheUsage`, which is one stream's share of its window. Null for other backends.
+   */
+  cache?: LlmCacheMetrics | null;
+  /** Cumulative TTFT / request-latency histogram buckets for the history sampler. TensorFold only. */
+  cacheHistograms?: LlmCacheHistograms | null;
   /** Allocated KV-cache pool in tokens (vLLM `cache_config_info`). null when unknown. */
   kvCacheTokens?: number | null;
   /** Free tokens in that pool (pool × (1 − usage)). null when pool or usage is unknown. */
@@ -570,6 +601,82 @@ export interface LlmMetrics {
    */
   lastActiveAt?: number | null;
   error: string | null;
+}
+
+/**
+ * One TensorFold cache observation. `status` decides what may be read:
+ * - full: pool and an enabled prompt-state store are both present and consistent;
+ * - partial: one of them is (a disabled store is partial, not absent);
+ * - unavailable: the engine publishes no cache group (an older build) — not a measured 0;
+ * - inconsistent: the engine itself reports accounting that does not add up; no values;
+ * - unsupported: a schema version this dashboard does not read; no values;
+ * - invalid: the group was not an object.
+ */
+export interface LlmCacheMetrics {
+  status: "full" | "partial" | "unavailable" | "inconsistent" | "unsupported" | "invalid";
+  source: "health";
+  schemaVersion?: number | null;
+  /** Engine process identity (a u64 nanosecond stamp as a string), for reset detection. */
+  engineEpoch?: string | null;
+  /** Engine-clock epoch ms of the observation; null when absent. */
+  observedAt?: number | null;
+  /** One request's positions at most. */
+  contextLimitPositions?: number | null;
+  /** Requests the engine admits at once. */
+  streamCapacity?: number | null;
+  pool?: LlmCachePool | null;
+  promptState?: LlmCachePromptState | null;
+  /** Which groups were missing from a consistent report: "pool", "prompt_state". */
+  missing?: string[];
+  reason?: string | null;
+}
+
+/**
+ * The shared pool in positions. The four categories are a partition of `capacityPositions`;
+ * `invalidationsTotal` counts valid-to-stale transitions (a later resume of that prefix must
+ * reprocess it), `placementBlocksTotal` counts placements refused for lack of room.
+ */
+export interface LlmCachePool {
+  capacityPositions: number;
+  activeReservedPositions: number;
+  retainedPrefixPositions: number;
+  retainedGrowthPositions: number;
+  unclaimedPositions: number;
+  validStates: number | null;
+  invalidationsTotal: number | null;
+  placementBlocksTotal: number | null;
+}
+
+/**
+ * The prompt-state snapshot store: a byte budget separate from the pool. `heldBytes` is charged
+ * storage, `spareBytes` reusable backend storage; `failuresTotal` is the legacy aggregate and the
+ * three stages partition it (null on a build that predates the classification).
+ */
+export interface LlmCachePromptState {
+  enabled: boolean;
+  budgetBytes: number | null;
+  heldBytes: number | null;
+  spareBytes: number | null;
+  entries: number | null;
+  hitsTotal: number | null;
+  missesTotal: number | null;
+  evictionsTotal: number | null;
+  refusalsTotal: number | null;
+  failuresTotal: number | null;
+  failuresKeepTotal: number | null;
+  failuresRestoreTotal: number | null;
+  failuresPeerForgetTotal: number | null;
+}
+
+/** Cumulative Prometheus-style bucket counts; `edges` ends at Infinity. */
+export interface LlmCacheHistogram {
+  edges: number[];
+  counts: number[];
+}
+
+export interface LlmCacheHistograms {
+  ttft: LlmCacheHistogram;
+  latency: LlmCacheHistogram;
 }
 
 /** One UTC day of busy tok/s rollups (null avg = no busy samples). */
@@ -950,7 +1057,7 @@ export interface AlertRule {
   overrides: { enabled?: boolean; forSec?: number };
 }
 
-export type AlertChannelType = "ntfy" | "discord" | "slack" | "webhook";
+export type AlertChannelType = "ntfy" | "discord" | "slack" | "gotify" | "webhook";
 
 export interface AlertChannel {
   /** Absent on a channel added in the dialog and not yet saved. */
@@ -1241,6 +1348,7 @@ export type HistoryUnitSeries =
   | "gpuPower"
   | "memUsedMB"
   | "memFreeMB"
+  | "memAvailableMB"
   | "memGpuMB"
   | "memSysMB"
   | "cpuUtil"
@@ -1266,6 +1374,90 @@ export interface MetricsHistoryData {
   to: number;
   points: HistoryPoint[];
   llm: Array<{ port: number; points: HistoryLlmPoint[] }>;
+  /** TensorFold shared-cache history: a separate grid fed by counter deltas. Null when absent. */
+  cache?: MetricsHistoryCache | null;
+}
+
+/**
+ * One aggregated cache bucket. Every field is optional: a bucket exists only where an observation
+ * landed, and a figure the engine did not report stays absent rather than zero.
+ */
+export interface MetricsHistoryCachePoint {
+  t: number;
+  /** Observations behind this bucket. */
+  n: number;
+  /** Sum of valid observation-pair durations, not assumed wall-clock coverage. Absent on legacy data. */
+  coveredMs?: number;
+  coveragePartial?: boolean;
+  histogramSamples?: { ttft: number; latency: number };
+  /** Pool in positions: means of the categories, `capacity` is the bucket's effective step value. */
+  pool?: {
+    capacity: number;
+    active: number | null;
+    prefix: number | null;
+    growth: number | null;
+    unclaimed: number | null;
+  };
+  /** Bucket peaks of the pool categories. */
+  poolMax?: { active: number | null; prefix: number | null; growth: number | null };
+  /** The pool capacity or the snapshot budget changed inside this bucket (a configuration step). */
+  capacityChanged?: boolean;
+  budgetChanged?: boolean;
+  /** Snapshot store: charged/spare bytes (mean), budget bytes (step), entries (mean). */
+  store?: { held: number | null; spare: number | null; entries: number | null; budget: number | null };
+  running?: number;
+  waiting?: number;
+  validStates?: number;
+  /** Token-weighted reuse over the bucket: cached prompt tokens / prompt tokens. */
+  reusePct?: number;
+  promptTokens?: number;
+  cachedTokens?: number;
+  completions?: number;
+  /** Counter deltas: replacements, invalidations, refusals, classified failures. */
+  churn?: Partial<Record<
+    "completions" | "hits" | "misses" | "evictions" | "refusals" | "failures" | "failuresKeep" |
+    "failuresRestore" | "failuresPeerForget" | "invalidations" | "placementsBlocked" | "placementBlocks",
+    number
+  >>;
+  /**
+   * Window p95 from summed histogram bucket counts. `value` is null with `open: true` when the
+   * percentile falls in the +Inf bucket (the figure is then only bounded below).
+   */
+  ttftP95?: { value: number | null; lowerBound?: number; upperBound?: number | null; open?: boolean; exact: false };
+  latencyP95?: { value: number | null; lowerBound?: number; upperBound?: number | null; open?: boolean; exact: false };
+}
+
+export interface MetricsHistoryCacheEndpoints {
+  port: number;
+  engineEpoch: string | null;
+  firstAvailableAt?: number;
+  points: MetricsHistoryCachePoint[];
+}
+
+export interface MetricsHistoryCacheEvent {
+  t: number;
+  until?: number;
+  port: number;
+  kind:
+    | "engine_restart"
+    | "counter_reset"
+    | "observation_backwards"
+    | "telemetry_lost"
+    | "telemetry_invalid"
+    | "histogram_edges_changed"
+    | "clock_skew"
+    | "collection_gap"
+    | "cache_pressure";
+  detail?: Record<string, unknown> | null;
+}
+
+export interface MetricsHistoryCache {
+  range: MetricsHistoryRange;
+  stepMs: number;
+  from: number;
+  to: number;
+  endpoints: MetricsHistoryCacheEndpoints[];
+  events: MetricsHistoryCacheEvent[];
 }
 
 export type MetricsHistoryResponse = MetricsHistoryData | { enabled: false };

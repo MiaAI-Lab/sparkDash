@@ -75,7 +75,15 @@
     "allocationErrors": "GPU memory allocation errors since boot",
     "unavailableReason": "unavailable: {{reason}}",
     "gpuClock": "GPU clock",
-    "unifiedMemoryInUse": "Unified memory in use"
+    "unifiedMemoryInUse": "Unified memory in use",
+    "card": "Card",
+    "fan": "Fan",
+    "pcieLink": "PCIe link",
+    "pcieLinkHelp": "PCIe link now (a card parks its link lower when idle) and the best it can do",
+    "pcieBest": "best {{link}}",
+    "throttleReasons": "Throttle reasons",
+    "throttleNone": "None",
+    "clockLocked": "Clock locked ≤ {{mhz}} MHz"
   },
   "gpuChart": {
     "combined": "Combined",

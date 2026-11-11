@@ -24,7 +24,7 @@ The package uses ESM throughout. `server/index.js` runs directly in Node and cre
 | `src/hooks/` | Snapshot subscription, metric history and UI hooks |
 | `src/components/` | Shell, overview, unit panels and feature pages |
 | `src/styles/`, `src/index.css` | Component styles, Tailwind entry and theme variables |
-| `src/shared/` | Shared pure logic, including benchmark prompts and formatting |
+| `src/shared/` | Shared pure logic, including benchmark prompts, formatting and the one "main disk" policy (`mainFilesystem.js`, also imported by the server) |
 | `config/` | Runtime configuration and persisted histories; never use live files in tests |
 | `docs/` | Design, operational notes and feature documentation |
 | `homeassistant/` | Home Assistant custom component (Python) that polls a hub's `/api/sparks` endpoints; not run by `npm test`, only its docs are checked |

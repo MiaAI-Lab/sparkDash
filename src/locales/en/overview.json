@@ -29,7 +29,8 @@
     "clock": "SM clock {{frequency}} GHz",
     "clockWithMax": "SM clock {{frequency}} GHz ({{percent}}% of max)",
     "active": "{{count}}m active",
-    "open": "Open {{name}}"
+    "open": "Open {{name}}",
+    "dismiss": "Dismiss alert"
   },
   "page": {
     "title": "Overview",

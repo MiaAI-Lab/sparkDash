@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { SparkMonitor, HEALTH_CLEAR_HOLD_MS } from "../SparkMonitor.js";
+import { LOW_POWER_STREAK, LOW_POWER_PROGRESS_MS } from "../../health/HealthEvaluator.js";
+import { llmDaily } from "../../collectors/LlmDaily.js";
 import {
   COLLECTION_SUCCESS,
   SystemCollector,
@@ -388,4 +390,82 @@ test("a finding clears once its rule has stayed quiet for the hold time, and a n
   assert.equal(events.filter((e) => e.type === "health.cleared").length, 1);
   now += 1000; reading(88); // episode 2
   assert.equal(events.filter((e) => e.type === "health.thermal").length, 2);
+});
+
+test("fresh LLM progress clears a held low-power warning immediately, but not thermal findings", async (t) => {
+  let now = 1_000_000;
+  t.mock.method(Date, "now", () => now);
+  t.mock.method(llmDaily, "record", () => {});
+  const events = [];
+  const monitor = new SparkMonitor({ ...spark(), llmMonitoring: true, llmPorts: [8888] }, {
+    onEvent: (event) => events.push(event),
+  });
+  monitor._running = true;
+  let output = 100;
+  monitor.llmProbes.get(8888).probe = async () => ({
+    port: 8888, available: true, backend: "tensorfold", modelId: "m",
+    totalOutputTokens: output, generationTps: 0, prefillTps: 0,
+  });
+  monitor.collector.collectGpu = async () => ({
+    ...validGpu(88), usage: 96, power: { draw: 9 },
+  });
+  await monitor._pollDomain("llm");
+  for (let i = 0; i < LOW_POWER_STREAK; i++) {
+    now += 2000;
+    await monitor._pollDomain("gpu");
+  }
+  assert.deepEqual(monitor.snapshot().health.map((f) => f.id).sort(), ["low-power", "thermal"]);
+  output += 10;
+  await monitor._pollDomain("llm");
+  assert.deepEqual(monitor.snapshot().health.map((f) => f.id), ["thermal"]);
+  assert.equal(events.filter((e) => e.type === "health.cleared").length, 1);
+
+  // Re-reading the same snapshot on GPU polls must not renew evidence of progress.
+  now += LOW_POWER_PROGRESS_MS;
+  await monitor._pollDomain("gpu");
+  assert.deepEqual(monitor.snapshot().health.map((f) => f.id).sort(), ["low-power", "thermal"]);
+});
+
+test("only paired workers inherit fresh progress from an online head", async (t) => {
+  let now = 1_000_000;
+  t.mock.method(Date, "now", () => now);
+  t.mock.method(llmDaily, "record", () => {});
+  const head = new SparkMonitor({ ...spark(), id: "head", role: "head", llmMonitoring: true, llmPorts: [8888] });
+  head.online = true;
+  head._running = true;
+  let position = 2048;
+  head.llmProbes.get(8888).probe = async () => ({
+    port: 8888, available: true, backend: "tensorfold", modelId: "m",
+    prefillProgressTokens: position, generationTps: 0, prefillTps: 0,
+  });
+  const worker = (id, workerHeadId, role = "worker") => {
+    const monitor = new SparkMonitor({
+      ...spark(), id, role, workerHeadId, llmMonitoring: role !== "worker", llmPorts: [8888],
+    }, { resolveHeadLlmProgressAt: (headId) => headId === "head" ? head.llmProgressAt() : null });
+    monitor._running = true;
+    monitor.collector.collectGpu = async () => ({
+      ...validGpu(), usage: 96, power: { draw: 9 },
+    });
+    return monitor;
+  };
+  const paired = worker("paired", "head");
+  const unrelated = worker("unrelated", "missing");
+  const local = worker("local", "head", "standalone");
+  const workers = [paired, unrelated, local];
+  await head._pollDomain("llm");
+  for (let i = 0; i < LOW_POWER_STREAK; i++) {
+    now += 2000;
+    for (const monitor of workers) await monitor._pollDomain("gpu");
+  }
+  assert.ok(workers.every((m) => m.snapshot().health.some((f) => f.id === "low-power")));
+  position += 2048;
+  await head._pollDomain("llm");
+  for (const monitor of workers) await monitor._pollDomain("gpu");
+  assert.deepEqual(paired.snapshot().health, []);
+  assert.ok(unrelated.snapshot().health.some((f) => f.id === "low-power"));
+  assert.ok(local.snapshot().health.some((f) => f.id === "low-power"));
+
+  head.online = false;
+  await paired._pollDomain("gpu");
+  assert.ok(paired.snapshot().health.some((f) => f.id === "low-power"));
 });
