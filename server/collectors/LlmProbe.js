@@ -210,6 +210,8 @@ export class LlmProbe {
     this.lastPromptCompute = null;
     /** Previous per-request prefill totals (count / seconds / computed / cached). */
     this._lastPrefillTotals = null;
+    /** When the last per-request prefill completion was seen (hold expires after 20 s). */
+    this._vllmPrefillCompletedAt = null;
     /** Seconds the oldest running request has been open; null when idle. */
     this.inFlightSeconds = null;
     this._runningSince = null;
@@ -2867,12 +2869,29 @@ export class LlmProbe {
             this.prefillTps = prefillRate;
             this.uncachedPrefillTps = prefillRate;
             this.cachedPrefillTps = Math.max(0, Math.round((dCacheServed / dPrefillTime) * 100) / 100);
+            this._vllmPrefillCompletedAt = Date.now();
             completedPrefill = true;
           }
         }
         this._lastPrefillTotals = {
           count: prefillCount, time: prefillTime, kv: kvComputed, cache: cacheServed,
         };
+        // The completed-window rate describes the window that ended, not the
+        // engine now: hold it for the same 20 s the TensorFold window holds a
+        // finished-request rate, then clear it once no new prefill has finished.
+        // Without this the last rate latched forever on builds that publish the
+        // per-request prefill histograms — `prefillTps > 0` re-stamped
+        // lastActiveAt on every poll, so the card never went Idle (GitHub #384).
+        if (
+          !completedPrefill &&
+          this._vllmPrefillCompletedAt != null &&
+          Date.now() - this._vllmPrefillCompletedAt >= 20_000
+        ) {
+          this.prefillTps = 0;
+          this.uncachedPrefillTps = null;
+          this.cachedPrefillTps = null;
+          this._vllmPrefillCompletedAt = null;
+        }
       }
       const prevCached = this.lastPrefillKinds?.cached;
       const deltaCached =
