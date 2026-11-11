@@ -1,0 +1,96 @@
+{
+  "error": {
+    "sparkNotFound": "找不到 Spark",
+    "invalidUrl": "无效 URL",
+    "authenticationRequired": "需要认证",
+    "remoteTokenRequired": "远程访问需要 SPARKDASH_TOKEN",
+    "hostRequired": "需要 lanIp 或 ssh.host",
+    "passwordRequired": "需要密码",
+    "promptIdRequired": "需要 promptId",
+    "orderArray": "body.order 必须是 Spark ID 数组",
+    "disabledDevicesArray": "disabledDevices 必须是数组",
+    "disabledInterfacesArray": "disabledInterfaces 必须是数组",
+    "llmPortsArray": "llmPorts 必须是数组",
+    "invalidPort": "端口无效",
+    "portRequired": "需要端口",
+    "portUnconfigured": "此 Spark 未配置该端口",
+    "primaryPort": "无法移除主 LLM 端口",
+    "lastPort": "无法移除最后一个 LLM 端口",
+    "workerApi": "工作节点不提供本地 LLM API",
+    "llmDisabled": "此 Spark 的 LLM 监控已禁用",
+    "comfyDisabled": "此 Spark 的 ComfyUI 监控已禁用",
+    "categoryRequired": "至少选择一个类别",
+    "benchmarkNotFound": "找不到基准测试",
+    "showcaseNotFound": "找不到 Showcase 会话",
+    "modelNotFound": "找不到模型",
+    "jobNotFound": "找不到作业（它可能已被较新的作业替换）",
+    "cancelled": "已取消"
+  },
+  "message": {
+    "shutdownInitiated": "已开始关机",
+    "gpuCapRemoved": "GPU 时钟上限已移除"
+  },
+  "health": {
+    "thermal": {
+      "titleWarn": "GPU 温度过高",
+      "titleCritical": "GPU 接近关机温度",
+      "hint": "检查气流、室温及通风口是否被遮挡。若持续升温，请降低功耗上限或负载。",
+      "detail": "{{temperature}}°C（警告阈值 {{warn}}°C，严重阈值 {{critical}}°C）。"
+    },
+    "lowPower": {
+      "title": "GPU 高利用率但功耗偏低",
+      "hint": "内存受限解码时可能正常。先检查工作负载进度和令牌吞吐；若无进度，请检查驱动日志和电源管理设置。",
+      "detail": "连续 {{samples}} 次采样中，利用率为 {{util}}%，但功耗仅 {{power}} W。"
+    },
+    "memory": {
+      "titleWarn": "统一内存不足",
+      "titleCritical": "统一内存接近耗尽",
+      "hint": "内核可能开始终止进程。停止未使用的模型，降低上下文长度或 GPU 内存利用率。",
+      "detail": "总计 {{total}} GB，可用 {{available}} GB。"
+    },
+    "xid": {
+      "title": "NVIDIA Xid 错误",
+      "hint": "在 NVIDIA Xid 目录中查找该代码。重复的驱动类 Xid 可能指向硬件或驱动缺陷。",
+      "detail": "最近一小时内内核记录了 GPU 或驱动错误（启动以来 {{count}} 次）。",
+      "latest": " 最近记录：{{last}}。"
+    },
+    "oom": {
+      "title": "内核因内存不足终止进程",
+      "hint": "某项工作耗尽了内存。降低模型内存使用或停止其他负载。",
+      "detail": "最近一小时内内核因内存不足终止了进程（启动以来 {{count}} 次）。"
+    },
+    "concurrency": {
+      "title": "此节点加载了多个模型",
+      "hint": "重型后端会竞争统一内存。停止未使用的模型以避免内存不足终止。",
+      "detail": "{{count}} 个不同模型正在提供服务，内存使用率为 {{percent}}%。"
+    },
+    "linkSpeed": {
+      "title": "网络链路低于 1 Gb/s",
+      "hint": "检查线缆和交换机端口。降级链路会拖慢每个张量并行步骤。",
+      "detail": "{{device}} 的协商速率为 {{speed}} Mb/s。"
+    },
+    "roceLink": {
+      "hint": "检查线缆、收发器和交换机端口。此端口上的张量并行和 NCCL 流量可能停滞或回退。",
+      "title_one": "一条 RoCE 链路已断开",
+      "title_other": "{{count}} 条 RoCE 链路已断开"
+    },
+    "roceLoss": {
+      "title": "RoCE 正在丢包",
+      "hint": "out_of_buffer、序列或确认超时错误持续增加，可能是网络拥塞或无损网络（PFC/ECN）配置不正确。请对比每台 Spark 与交换机上的 PFC 和信任设置。"
+    }
+  },
+  "event": {
+    "sparkOnline": "{{name}} 已上线",
+    "sparkOffline": "{{name}} 已离线",
+    "sparkAdded": "已添加 {{name}}",
+    "sparkRemoved": "已移除 {{name}}",
+    "shutdownRequested": "已请求关闭 {{name}}",
+    "wakeSent": "已向 {{name}} 发送 Wake-on-LAN"
+  },
+  "ui": {
+    "healthFindings": "健康状况",
+    "critical": "严重",
+    "warning": "警告",
+    "more": "另有 {{count}} 项"
+  }
+}
