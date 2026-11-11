@@ -442,7 +442,7 @@ export function LlmPanel({
   const isStrata = llm?.backend === "strata";
   const isTensorFold = llm?.backend === "tensorfold";
   const isPico = llm?.backend === "pico";
-  const sampledDecodeTps = llm?.sampledDecodeTps ?? null;
+  const sampledDecode = llm?.generationTpsSource === "probe-sample";
   const completedPrefill = llm?.prefillTpsSource?.startsWith("completed-") === true;
   const showPrefillSplit = llm?.cachedPrefillTps != null || llm?.uncachedPrefillTps != null;
   const cachedPrefillTps = llm?.cachedPrefillTps ?? 0;
@@ -803,6 +803,8 @@ export function LlmPanel({
                     <span className="ov-tps__dots" aria-hidden />
                     <small>{t("llm.decoding")}</small>
                   </>
+                ) : isPico && !sampledDecode ? (
+                  <span title={t("llm.sampleOffHelp")}>—</span>
                 ) : (
                   <>
                     {fmtTps(generationTps)}
@@ -813,9 +815,9 @@ export function LlmPanel({
               <TrendLine data={genHistory} height={44} color="var(--color-accent)" />
               {genAvg != null && <span className="sp-avg mono">{t("llm.average", { value: fmtAvg(genAvg) })}</span>}
               {isStrata && llm?.generationTpsSource === "slot-mean" && <span className="sp-avg">{t("llm.activeSlotMean")}</span>}
-              {isPico && sampledDecodeTps != null && (
-                <span className="sp-avg mono" title={t("llm.sampledHelp")}>
-                  {t("llm.sampledLine", { rate: fmtTps(sampledDecodeTps) })}
+              {sampledDecode && (
+                <span className="sp-avg" title={t("llm.sampledHelp")}>
+                  {t("llm.sampled")}
                 </span>
               )}
               {measured && llm?.perStreamTps != null && (
