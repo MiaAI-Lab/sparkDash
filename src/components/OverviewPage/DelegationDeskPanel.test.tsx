@@ -23,11 +23,16 @@ const openPr = vi.mocked(makeDeskOverridePermanent);
 
 const NOW = () => Math.floor(Date.now() / 1000);
 const UNITS = { qualitycorp: "QualityCorp", john: "John", mama: "mama" };
+const LOCAL_NAMES: Record<string, string> = {
+  qualitycorp: "DeepSeek V4.1, QualityCorp",
+  john: "DeepSeek V4.1, John",
+  mama: "Qwen 3.8 27B, mama",
+};
 
 function local(key: string, unit: string, extra: Partial<DeskRoute> = {}, signal: Partial<NonNullable<DeskRoute["signal"]>> = {}): DeskRoute {
   return {
-    key, provider: "Pi", model: `${unit}-oq/DeepSeek-V4.1-Flash`, budget: 2, roster_budget: 2, load: 0, live: [],
-    signal: { kind: "saturation", unit, age: 8.7, state: "room", detail: "waiting 0, KV cache 0.355732", running: 1, ...signal },
+    key, name: LOCAL_NAMES[unit], provider: "Pi", model: `${unit}-oq/DeepSeek-V4.1-Flash`, budget: 2, roster_budget: 2, load: 0, live: [],
+    signal: { kind: "saturation", unit, age: 8.7, state: "room", detail: "waiting 0, KV cache 0.355732", running: 1, waiting: 0, kv_cache: 0.355732, ...signal },
     signals: null,
     ...extra,
   };
@@ -51,21 +56,21 @@ function snapshot(overrides: Partial<DelegationDeskStatus> = {}): DelegationDesk
           { id: "a", title: "[c4 mechanical-ui] QC: finish walkthrough fixes", host: "MK-MacBook-Pro-5", source: "t3:~/.t3" },
           { id: "b", title: "[c5 test] QC: skill wrapper tests", host: "MK-MacBook-Pro-5", source: "t3:~/.t3" },
         ],
-      }, { detail: "waiting 0, KV cache n/a", running: 0 }),
+      }, { detail: "waiting 0, KV cache n/a", running: 0, kv_cache: null }),
       local("deepseek-john", "john", { budget: 6, roster_budget: 6, load: 3 }),
-      local("qwen-mama", "mama", { budget: 1, roster_budget: 1, load: 1 }, { detail: "waiting 0, KV cache n/a", running: 0 }),
+      local("qwen-mama", "mama", { budget: 1, roster_budget: 1, load: 1 }, { detail: "waiting 0, KV cache n/a", running: 0, kv_cache: null }),
       {
-        key: "gemini-flash", provider: "Antigravity", model: "gemini-3.8-flash", budget: null, roster_budget: null, load: 0, live: [],
+        key: "gemini-flash", name: "Gemini 3.8 Flash", provider: "Antigravity", model: "gemini-3.8-flash", budget: null, roster_budget: null, load: 0, live: [],
         signal: null,
         signals: { "MK-MacBook-Pro-5": quotaSignal(15), zeppola: quotaSignal(15), theshop: quotaSignal(15) },
       },
       {
-        key: "sol", provider: "Codex", model: "gpt-6.1-sol", budget: 4, roster_budget: 4, load: 3, live: [],
+        key: "sol", name: "GPT-6.1 Sol", provider: "Codex", model: "gpt-6.1-sol", budget: 4, roster_budget: 4, load: 3, live: [],
         signal: null,
         signals: { zeppola: { kind: "quota", source: "codex", age: 143, state: "room", windows: [{ name: "weekly", remaining: 87, resets_at: NOW() + 5 * 86_400 }] } },
       },
       {
-        key: "opus", provider: "Claude", model: "claude-opus-5-5", budget: null, roster_budget: null, load: 0, live: [],
+        key: "opus", name: "Opus 5.5", provider: "Claude", model: "claude-opus-5-5", budget: null, roster_budget: null, load: 0, live: [],
         signal: {
           kind: "quota", source: "hub", age: 28.7, state: "room", detail: "2 of 2 hub accounts have room",
           accounts: [
@@ -141,7 +146,7 @@ describe("DelegationDeskPanel reading", () => {
   it("shows each local route's delegates and budget, requests, KV cache, age and verdict", async () => {
     const { container } = await renderPanel();
     const qc = column(container, "QualityCorp");
-    expect(qc.textContent).toContain("DeepSeek-V4.1-Flash");
+    expect(qc.textContent).toContain("DeepSeek V4.1");
     expect(qc.textContent).toContain("Delegates2 / 2");
     expect(qc.querySelectorAll(".dd-slots i.is-held")).toHaveLength(2);
     expect(qc.textContent).toContain("0 running");
@@ -153,6 +158,55 @@ describe("DelegationDeskPanel reading", () => {
     expect(john.textContent).toContain("36%");
     expect(john.textContent).toContain("3 delegate slots free");
     expect(container.querySelector(".dd-sec__meta")?.textContent).toBe("3 free slots");
+  });
+
+  it("names local columns by machine and model parts and cloud columns by their route name", async () => {
+    const { container } = await renderPanel();
+    expect(column(container, "QualityCorp").querySelector(".dd-model")?.textContent).toBe("DeepSeek V4.1");
+    expect(column(container, "John").querySelector(".dd-model")?.textContent).toBe("DeepSeek V4.1");
+    expect(column(container, "mama").querySelector(".dd-model")?.textContent).toBe("Qwen 3.8 27B");
+    expect(column(container, "Gemini 3.8 Flash").querySelector(".dd-model")?.textContent).toBe("Antigravity");
+    expect(column(container, "GPT-6.1 Sol").querySelector(".dd-model")?.textContent).toBe("Codex");
+    expect(column(container, "Opus 5.5").querySelector(".dd-model")?.textContent).toBe("Claude");
+  });
+
+  it("reads waiting and KV cache from the structured gauges, not the detail text", async () => {
+    const data = snapshot();
+    data.routes[1] = local("deepseek-john", "john", { budget: 6, load: 3 }, { detail: "waiting 4, KV cache 0.7", running: 5, waiting: 2, kv_cache: 0.42 });
+    const { container } = await renderPanel(data);
+    const john = column(container, "John");
+    expect(john.textContent).toContain("5 running · 2 waiting");
+    expect(john.textContent).toContain("42%");
+    expect(john.textContent).not.toContain("70%");
+  });
+
+  it("keeps a null structured gauge as not reported and does not parse the detail", async () => {
+    const data = snapshot();
+    data.routes[1] = local("deepseek-john", "john", { budget: 6, load: 3 }, { detail: "waiting 4, KV cache 0.7", running: 5, waiting: null, kv_cache: null });
+    const { container } = await renderPanel(data);
+    const john = column(container, "John");
+    expect(john.textContent).toContain("5 running");
+    expect(john.textContent).not.toContain("4 waiting");
+    expect(john.textContent).not.toContain("70%");
+    expect(john.textContent).toContain("KV cache");
+    expect(john.textContent).toContain("not reported");
+  });
+
+  it("an older desk keeps the unit and model titles and its detail readings", async () => {
+    const data = snapshot();
+    for (const route of data.routes) {
+      delete route.name;
+      if (route.signal) {
+        delete route.signal.waiting;
+        delete route.signal.kv_cache;
+      }
+    }
+    const { container } = await renderPanel(data);
+    expect(column(container, "QualityCorp").querySelector(".dd-model")?.textContent).toBe("DeepSeek-V4.1-Flash");
+    expect(column(container, "John").querySelector(".dd-model")?.textContent).toBe("DeepSeek-V4.1-Flash");
+    expect(column(container, "gemini-3.8-flash")).toBeTruthy();
+    expect(column(container, "claude-opus-5-5")).toBeTruthy();
+    expect(column(container, "John").textContent).toContain("36%");
   });
 
   it("renders an unreported counter as not reported, never 0", async () => {
@@ -178,7 +232,7 @@ describe("DelegationDeskPanel reading", () => {
     const gemini = data.routes[3];
     gemini.signals = { "MK-MacBook-Pro-5": quotaSignal(8, "full"), zeppola: quotaSignal(12), theshop: quotaSignal(8, "full") };
     const { container } = await renderPanel(data);
-    const col = column(container, "gemini-3.8-flash");
+    const col = column(container, "Gemini 3.8 Flash");
     expect(col.textContent).toContain("Hosts disagree: MK-MacBook-Pro-5 8% · zeppola 12% · theshop 8%. Showing the lowest.");
     expect(col.textContent).toContain("Weekly8% left");
     expect(col.textContent).toContain("Quota low");
@@ -193,7 +247,7 @@ describe("DelegationDeskPanel reading", () => {
     });
     data.routes[3].signals = { zeppola: reading(8, 90), theshop: reading(20, 12) };
     const { container } = await renderPanel(data);
-    const col = column(container, "gemini-3.8-flash");
+    const col = column(container, "Gemini 3.8 Flash");
     expect(col.textContent).toContain("Weekly8% left");
     expect(col.textContent).toContain("5-hour12% left");
     expect(col.textContent).not.toContain("90% left");
@@ -221,8 +275,8 @@ describe("DelegationDeskPanel reading", () => {
 
   it("agreeing hosts show one reading; Opus shows its tightest account window with the rest disclosed", async () => {
     const { container } = await renderPanel();
-    expect(column(container, "gemini-3.8-flash").textContent).toContain("3 hosts agree");
-    const opus = column(container, "claude-opus-5-5");
+    expect(column(container, "Gemini 3.8 Flash").textContent).toContain("3 hosts agree");
+    const opus = column(container, "Opus 5.5");
     const visible = opus.querySelector(":scope > .dd-q");
     expect(visible?.textContent).toContain("account 2 weekly25% left");
     expect(opus.querySelector("details summary")?.textContent).toBe("All 2 accounts");
@@ -282,8 +336,8 @@ describe("DelegationDeskPanel edit mode", () => {
     const qc = column(container, "QualityCorp");
     expect(qc.textContent).toContain("Roster 2. A change applies now for 4 h, up to 4. 0 pauses new delegations.");
     // Quota-only routes have no budget to change.
-    expect(column(container, "claude-opus-5-5").querySelector(".dd-stepper")).toBeNull();
-    expect(column(container, "gpt-6.1-sol").querySelector(".dd-stepper")).not.toBeNull();
+    expect(column(container, "Opus 5.5").querySelector(".dd-stepper")).toBeNull();
+    expect(column(container, "GPT-6.1 Sol").querySelector(".dd-stepper")).not.toBeNull();
   });
 
   it("shows Saving… and the new value only after the desk acknowledges", async () => {

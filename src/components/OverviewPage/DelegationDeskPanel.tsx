@@ -19,9 +19,11 @@ import {
   OVERRIDE_HOURS,
   QUOTA_CUTOFF,
   ago,
+  cloudHeading,
   cloudVerdict,
   isLocal,
   localCapacity,
+  localHeading,
   localReading,
   plural,
   prIsOpen,
@@ -29,7 +31,6 @@ import {
   rosterBudget,
   routeName,
   safePrUrl,
-  shortModel,
   slotVerdict,
   timeLeft,
   windowName,
@@ -340,11 +341,12 @@ function ColumnHead({ name, sub, title, state }: { name: string; sub: string; ti
 
 function LocalColumn({ route, data, unitNames, editing, io, confirming, actions, nowSec }: ColumnProps) {
   const name = routeName(route, unitNames);
+  const heading = localHeading(route, unitNames);
   const reading = localReading(route.signal);
   const override = data.overrides?.[route.key];
   return (
     <div className="dd-col">
-      <ColumnHead name={name} sub={shortModel(route.model)} title={route.model} state={reading.state} />
+      <ColumnHead name={heading.title} sub={heading.sub} title={route.model} state={reading.state} />
       <Delegates route={route} override={override} />
       <div className="dd-row">
         <span className="dd-k">Requests</span>
@@ -375,6 +377,7 @@ function LocalColumn({ route, data, unitNames, editing, io, confirming, actions,
 
 function CloudColumn({ route, data, unitNames, editing, io, confirming, actions, nowSec }: ColumnProps) {
   const name = routeName(route, unitNames);
+  const heading = cloudHeading(route);
   const quota = quotaView(route, nowSec);
   const override = data.overrides?.[route.key];
   let bars: ReactNode;
@@ -425,7 +428,7 @@ function CloudColumn({ route, data, unitNames, editing, io, confirming, actions,
   const verdict = cloudVerdict(route, quota.state);
   return (
     <div className="dd-col">
-      <ColumnHead name={name} sub={route.provider} title={`${route.provider} · ${route.model}`} state={quota.state} />
+      <ColumnHead name={heading.title} sub={heading.sub} title={`${route.provider} · ${route.model}`} state={quota.state} />
       <Delegates route={route} override={override} />
       {bars}
       {verdict ? <VerdictLine verdict={verdict} /> : null}

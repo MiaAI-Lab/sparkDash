@@ -1086,9 +1086,10 @@ export interface DeskSignal {
   /** sparkDash unit id (saturation signals). */
   unit?: string | null;
   running?: number | null;
+  /** Requests waiting on the unit. null when unreported. */
   waiting?: number | null;
-  /** KV cache use as a 0–1 fraction. */
-  kv?: number | null;
+  /** KV cache use as a 0–1 fraction. null when unreported. */
+  kv_cache?: number | null;
   source?: string;
   windows?: DeskQuotaWindow[];
   accounts?: DeskHubAccount[];
@@ -1106,6 +1107,8 @@ export interface DeskDelegate {
 
 export interface DeskRoute {
   key: string;
+  /** The roster's human route name, e.g. "DeepSeek V4.1, QualityCorp". An older desk omits it. */
+  name?: string;
   provider: string;
   model: string;
   /** Effective budget: an override's value while one is active; null for quota-only routes. */

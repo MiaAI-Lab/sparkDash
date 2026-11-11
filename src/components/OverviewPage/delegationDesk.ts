@@ -51,6 +51,34 @@ export function routeName(route: DeskRoute, unitNames: Record<string, string> = 
   return isLocal(route) ? route.key : route.model;
 }
 
+/** A roster name like "DeepSeek V4.1, QualityCorp": the model is before the comma, the machine after it. */
+function splitLocalName(name: string): { title: string; sub: string } | null {
+  const parts = name.split(",");
+  if (parts.length !== 2) return null;
+  const model = parts[0].trim();
+  const machine = parts[1].trim();
+  return model && machine ? { title: machine, sub: model } : null;
+}
+
+/**
+ * A local column's heading: the desk's roster name split into the machine and
+ * model parts. An older desk omits the name, so fall back to the unit name and
+ * the dispatch model id as before.
+ */
+export function localHeading(route: DeskRoute, unitNames: Record<string, string> = {}): { title: string; sub: string } {
+  const name = typeof route.name === "string" ? route.name.trim() : "";
+  return splitLocalName(name) ?? { title: routeName(route, unitNames), sub: shortModel(route.model) };
+}
+
+/**
+ * A cloud column's heading: the desk's roster name. An older desk omits it, so
+ * fall back to the model id as before. The subtitle stays the provider.
+ */
+export function cloudHeading(route: DeskRoute): { title: string; sub: string } {
+  const name = typeof route.name === "string" ? route.name.trim() : "";
+  return { title: name || route.model, sub: route.provider };
+}
+
 export function rosterBudget(route: DeskRoute): number | null {
   return route.roster_budget !== undefined ? route.roster_budget : route.budget;
 }
@@ -76,10 +104,15 @@ export function localReading(signal: DeskSignal | null | undefined): LocalReadin
   const state = signal?.state ?? "no-signal";
   const detail = signal?.detail ?? "";
   const live = state !== "no-signal";
-  const waiting = finite(signal?.waiting)
-    ?? fromDetail(detail, /\bwaiting (\d+(?:\.\d+)?)/)
-    ?? fromDetail(detail, /(\d+(?:\.\d+)?) requests waiting/);
-  const kv = finite(signal?.kv) ?? fromDetail(detail, /KV cache (\d+(?:\.\d+)?)/);
+  // A current desk reports the gauges directly. Only an older desk, which has
+  // no structured fields at all, keeps them in the detail text. A null gauge
+  // stays null: never fall back to a stale number on the other path.
+  const waiting = signal?.waiting !== undefined
+    ? finite(signal?.waiting)
+    : fromDetail(detail, /\bwaiting (\d+(?:\.\d+)?)/) ?? fromDetail(detail, /(\d+(?:\.\d+)?) requests waiting/);
+  const kv = signal?.kv_cache !== undefined
+    ? finite(signal?.kv_cache)
+    : fromDetail(detail, /KV cache (\d+(?:\.\d+)?)/);
   return {
     state,
     age: finite(signal?.age),
