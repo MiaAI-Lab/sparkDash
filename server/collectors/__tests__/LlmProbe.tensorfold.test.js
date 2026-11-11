@@ -1079,3 +1079,41 @@ test("_applyTensorFoldMetrics: a single fleet-wide KV ratio is unchanged", async
   await probe._applyTensorFoldMetrics(2);
   assert.equal(probe.kvCacheUsage, 0.42);
 });
+
+test("_applyTensorFoldLive: a live-only /health marks prefill when a connection decodes nothing", () => {
+  // This engine publishes live.connections/decode and no `streams` block. A 380k-token prompt
+  // pass reports decode 0 for minutes, and the card said "not measured live" the whole time.
+  const probe = new LlmProbe({ lanIp: "192.0.2.10" }, 8888);
+  const health = {
+    status: "ok",
+    live: { connections: 2, waiting: 0, decode_tokens_per_second: 0, prefill_tokens_per_second: 0 },
+  };
+  probe._applyTensorFoldHealth(health, 2);
+  probe._applyTensorFoldLive(health);
+  assert.equal(probe.prefillActive, true);
+  assert.equal(probe.generationTps, 0);
+});
+
+test("_applyTensorFoldLive: a connection that is decoding is not marked as prefilling", () => {
+  const probe = new LlmProbe({ lanIp: "192.0.2.10" }, 8888);
+  const health = {
+    status: "ok",
+    live: { connections: 2, waiting: 0, decode_tokens_per_second: 46.5, prefill_tokens_per_second: 0 },
+  };
+  probe._applyTensorFoldHealth(health, 2);
+  probe._applyTensorFoldLive(health);
+  assert.equal(probe.prefillActive, false);
+  assert.equal(probe.generationTps, 46.5);
+});
+
+test("_applyTensorFoldLive: a build that publishes streams keeps its own prefill signal", () => {
+  const probe = new LlmProbe({ lanIp: "192.0.2.10" }, 8888);
+  const health = {
+    status: "ok",
+    streams: { decoding: 1, prefilling: 0, max: 4 },
+    live: { connections: 1, waiting: 0, decode_tokens_per_second: 0 },
+  };
+  probe._applyTensorFoldHealth(health, 2);
+  probe._applyTensorFoldLive(health);
+  assert.equal(probe.prefillActive, false);
+});

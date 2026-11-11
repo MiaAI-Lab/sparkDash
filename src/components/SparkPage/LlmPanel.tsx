@@ -863,7 +863,9 @@ export function LlmPanel({
               <TrendLine data={prefillHistory} height={44} color="var(--color-info)" />
               {prefillAvg != null && <span className="sp-avg mono">{t("llm.average", { value: fmtAvg(prefillAvg) })}</span>}
               {isStrata && prefillTps > 0 && <span className="sp-avg">{t("llm.lastReportedMean")}</span>}
-              {isTensorFold && !completedPrefill && prefillTps <= 0 && <span className="sp-avg">{t("llm.notMeasuredLive")}</span>}
+              {isTensorFold && !completedPrefill && prefillTps <= 0 && !llm?.prefillActive && (
+                <span className="sp-avg">{t("llm.notMeasuredLive")}</span>
+              )}
               {measured && completedPrefill && (
                 <span className="sp-avg" title={t("llm.completedPrefillHelp")}>
                   {t("llm.effectiveIncludesCached")}
