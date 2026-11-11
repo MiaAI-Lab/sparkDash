@@ -31,7 +31,7 @@ import { createOccupancyRuntime } from "./occupancy/runtime.js";
 import { formatContextSize, parseContextSize } from "../src/shared/prefillBench.js";
 import { PREFILL_RESERVE_TOKENS, sizeFitsContext } from "../src/shared/contextFit.js";
 import { broadcastForLanIp, effectiveMac, normalizeMac, sendWol } from "./wol.js";
-import { remoteShutdownCommand, spawnLocalShutdown } from "./shutdown.js";
+import { checkLocalShutdown, remoteShutdownCommand, spawnLocalShutdown } from "./shutdown.js";
 import { GpuClockManager } from "./gpuclock/GpuClockManager.js";
 import { registerGpuClockFleetRoute, registerGpuClockRoutes } from "./gpuclock/routes.js";
 import {
@@ -2225,8 +2225,15 @@ app.post("/api/sparks/shutdown-all", async (_req, res) => {
       continue;
     }
     try {
-      // Local dashboard host: acknowledge before power-off kills this process.
+      // Local dashboard host: verify the helper first (#379), then acknowledge
+      // before power-off kills this process.
       if (spark.isLocal) {
+        try {
+          await checkLocalShutdown();
+        } catch (err) {
+          results.push({ id: spark.id, ok: false, error: err.message || String(err) });
+          continue;
+        }
         results.push({ id: spark.id, ok: true, message: "Shutdown initiated" });
         setImmediate(() => {
           void initiateSparkShutdown(spark).catch((err) => {
@@ -2282,9 +2289,17 @@ app.post("/api/sparks/:id/shutdown", async (req, res) => {
     const spark = registry.getSpark(req.params.id);
     if (!spark) return res.status(404).json({ error: "Spark not found" });
 
-    // Local: send JSON first, then power off — otherwise the process dies mid-response
-    // and the UI shows "Failed to fetch".
+    // Local: verify the helper first — a missing or unauthorized helper is an
+    // error, not a success (#379) — then send JSON before the power-off,
+    // otherwise the process dies mid-response and the UI shows "Failed to
+    // fetch".
     if (spark.isLocal) {
+      try {
+        await checkLocalShutdown();
+      } catch (err) {
+        const msg = err.message || String(err);
+        return res.status(shutdownErrorStatus(msg)).json({ error: msg });
+      }
       res.json({ success: true, message: "Shutdown initiated" });
       setImmediate(() => {
         void initiateSparkShutdown(spark).catch((err) => {

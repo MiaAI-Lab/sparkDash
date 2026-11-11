@@ -64,13 +64,14 @@ ${command}
 }
 
 /** Stub spawn that records invocations and drives the child lifecycle. */
-function fakeSpawn(calls, { error = null } = {}) {
+function fakeSpawn(calls, { error = null, exitCode = 0 } = {}) {
   return (file, args, opts) => {
     calls.push({ file, args, opts });
     const child = { unref() {} };
     child.on = (event, cb) => {
       if (error && event === "error") setImmediate(() => cb(error));
       if (!error && event === "spawn") setImmediate(() => cb());
+      if (!error && event === "exit") setImmediate(() => cb(exitCode));
       return child;
     };
     return child;
@@ -141,7 +142,7 @@ test("hostMountNs: null when there is no host proc mount", () => {
   assert.equal(hostMountNs(path.join(os.tmpdir(), "sparkdash-absent-proc")), null);
 });
 
-test("spawnLocalShutdown: detaches nsenter + sudo, resolves when spawned", async () => {
+test("spawnLocalShutdown: detaches nsenter + sudo, resolves when the helper exits 0", async () => {
   const calls = [];
   const message = await spawnLocalShutdown({
     mntNs: "/host/proc/1/ns/mnt",
@@ -153,6 +154,14 @@ test("spawnLocalShutdown: detaches nsenter + sudo, resolves when spawned", async
   assert.deepEqual(calls[0].args, ["--mount=/host/proc/1/ns/mnt", "--", "sudo", "-n", SHUTDOWN_BIN]);
   assert.equal(calls[0].opts.detached, true);
   assert.equal(calls[0].opts.stdio, "ignore");
+});
+
+test("spawnLocalShutdown: a helper that exits nonzero rejects instead of reporting success (#379)", async () => {
+  const calls = [];
+  await assert.rejects(
+    spawnLocalShutdown({ mntNs: null, spawnFn: fakeSpawn(calls, { exitCode: 1 }) }),
+    /status 1/
+  );
 });
 
 test("spawnLocalShutdown: a missing binary rejects instead of logging success", async () => {
