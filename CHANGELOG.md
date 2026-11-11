@@ -7,6 +7,13 @@ Format: version sections are listed newest first.
 
 ---
 
+## [Unreleased]
+
+### Fixed
+- **Pico: the sampled decode figure no longer reads as live traffic.** The stream sample measured the engine's single-stream decode speed, but the figure was re-applied as the live decode rate on every poll, so an idle engine kept displaying its last sampled speed forever — and nothing in the sample can tell idle from busy, since Pico publishes no counters. The live decode figure now stays 0 (the LLM panel's tile, the Overview card, the fleet decode total and the trends included), and the measured speed appears only as a **Sampled · N tok/s** line on the unit's LLM panel, refreshed while the endpoint answers. The Settings toggle's description states the same.
+
+---
+
 ## [2.90.0] — 2026-11-11
 
 ### Added

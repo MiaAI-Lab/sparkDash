@@ -159,18 +159,27 @@ test("with sampling off (default) a poll sends no sample request", async () => {
   assert.deepEqual(requested.filter((r) => r.path === "/v1/chat/completions"), []);
   assert.equal(probe.generationTps, 0);
   assert.equal(probe.generationTpsSource, null);
+  assert.equal(probe.sampledDecodeTps, null);
+  assert.equal(probe.sampledDecodeAt, null);
 });
 
-test("the stream sample measures decode tok/s from the token window and labels it probe-sample", async () => {
+test("the stream sample measures decode tok/s as a sampled figure, never a live rate", async () => {
   const requested = [];
   const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888, sampleOptions());
   probe._fetch = picoFetchWithSample(requested, { stream: SAMPLE_STREAM });
   const snap = await probe.probe();
   assert.equal(probe.backendType, "pico");
-  assert.equal(probe.generationTps, 10);
-  assert.equal(probe.generationTpsSource, "probe-sample");
-  assert.equal(snap.generationTps, 10);
-  assert.equal(snap.generationTpsSource, "probe-sample");
+  // The live figure stays 0: the sample measures the engine's speed, not traffic,
+  // so an idle engine must not display it as one.
+  assert.equal(probe.generationTps, 0);
+  assert.equal(probe.generationTpsSource, null);
+  assert.equal(snap.generationTps, 0);
+  assert.equal(snap.generationTpsSource, null);
+  // The measured figure is carried as the sampled line instead.
+  assert.equal(probe.sampledDecodeTps, 10);
+  assert.equal(snap.sampledDecodeTps, 10);
+  assert.equal(typeof snap.sampledDecodeAt, "number");
+  assert.ok(snap.sampledDecodeAt > 0);
   // The sample request is a tiny, greedy, non-thinking streamed completion.
   const sample = requested.find((r) => r.path === "/v1/chat/completions");
   assert.equal(sample.method, "POST");
@@ -188,9 +197,9 @@ test("samples respect the minimum interval: back-to-back polls sample once", asy
   await probe.probe();
   await probe.probe();
   assert.equal(requested.filter((r) => r.path === "/v1/chat/completions").length, 1);
-  // The measured rate is kept (and re-labelled) between samples.
-  assert.equal(probe.generationTps, 10);
-  assert.equal(probe.generationTpsSource, "probe-sample");
+  // The sampled figure is kept between samples; the live rate stays 0.
+  assert.equal(probe.sampledDecodeTps, 10);
+  assert.equal(probe.generationTps, 0);
 });
 
 test("sampling pauses while a bench, showcase or launch owns the unit", async () => {
@@ -199,31 +208,32 @@ test("sampling pauses while a bench, showcase or launch owns the unit", async ()
   probe._fetch = picoFetchWithSample(requested, { stream: SAMPLE_STREAM });
   await probe.probe();
   assert.deepEqual(requested.filter((r) => r.path === "/v1/chat/completions"), []);
+  assert.equal(probe.sampledDecodeTps, null);
 });
 
-test("a failed sample keeps the previous measured rate and never fails the poll", async () => {
+test("a failed sample keeps the previous sampled figure and never fails the poll", async () => {
   const requested = [];
   const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888, sampleOptions());
   probe._fetch = picoFetchWithSample(requested, { stream: SAMPLE_STREAM });
   await probe.probe();
-  assert.equal(probe.generationTps, 10);
+  assert.equal(probe.sampledDecodeTps, 10);
   // The endpoint stops answering samples; the poll itself still succeeds.
   probe._fetch = picoFetchWithSample([], { sampleStatus: 503 });
   const snap = await probe.probe();
   assert.equal(snap.available, true);
-  assert.equal(probe.generationTps, 10);
-  assert.equal(probe.generationTpsSource, "probe-sample");
+  assert.equal(probe.sampledDecodeTps, 10);
+  assert.equal(probe.generationTps, 0);
 });
 
-test("a degenerate sample window (one token) keeps the previous rate", async () => {
+test("a degenerate sample window (one token) keeps the previous sampled figure", async () => {
   const requested = [];
   const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888, sampleOptions());
   probe._fetch = picoFetchWithSample(requested, { stream: SAMPLE_STREAM });
   await probe.probe();
-  assert.equal(probe.generationTps, 10);
+  assert.equal(probe.sampledDecodeTps, 10);
   const single = () => sseBody([deltaChunk("ok"), `data: ${JSON.stringify({ choices: [], usage: { completion_tokens: 1 } })}\n\n`, "data: [DONE]\n\n"]);
   probe._fetch = picoFetchWithSample([], { stream: single });
   await probe.probe();
-  assert.equal(probe.generationTps, 10);
-  assert.equal(probe.generationTpsSource, "probe-sample");
+  assert.equal(probe.sampledDecodeTps, 10);
+  assert.equal(probe.generationTps, 0);
 });

@@ -223,9 +223,9 @@
     "prefillCompleted": "预填充 · 最近完成",
     "prefillNotMeasuredHelp": "暂无当前预填充测量值；零值不能说明没有正在处理的提示。",
     "notMeasuredLive": "未实时测量",
-    "sampled": "采样值",
-    "sampledHelp": "由面板每 15 秒发送的一次微型流式补全测得（设置 → 对流采样无指标引擎）。这是引擎的单流解码速度，不是其他客户端的流量。",
-    "sampleOffHelp": "该引擎不发布任何实时计数器。在设置中开启“对流采样无指标引擎”，让面板自行测量解码 tok/s。",
+    "sampledLine": "采样 · {{rate}} tok/s",
+    "sampledHelp": "由面板每 15 秒发送的一次微型流式补全测得（设置 → 对流采样无指标引擎），端点正常应答时会持续刷新。这是引擎的单流解码速度，不是其他客户端的流量——实时数值保持 0，因为该引擎不发布任何计数器。",
+    "sampleOffHelp": "该引擎不发布任何实时计数器。在设置中开启“对流采样无指标引擎”，面板会测量其解码速度并在此显示。",
     "completedPrefillHelp": "同一窗口内已完成请求的 Token 与预填充耗时增量；并非持续的实时吞吐。",
     "effectiveIncludesCached": "有效速率 · 包含缓存 Token",
     "completedDecodeRate": "{{rate}} tok/s · 最近完成"

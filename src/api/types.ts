@@ -535,7 +535,16 @@ export interface LlmMetrics {
   slotsTotal: number;
   generationTps: number;
   /** How generationTps was measured when a backend exposes a fallback. */
-  generationTpsSource?: "window" | "slot-mean" | "probe-sample" | null;
+  generationTpsSource?: "window" | "slot-mean" | null;
+  /**
+   * Decode tok/s measured from the probe's own tiny streamed completion
+   * (Settings → Stream-sample engines without gauges). A labelled panel figure
+   * for engines without gauges (Pico) — never a live rate; the live decode
+   * figure stays 0 because the engine publishes no counters.
+   */
+  sampledDecodeTps?: number | null;
+  /** When sampledDecodeTps was measured (epoch ms); null until a sample succeeds. */
+  sampledDecodeAt?: number | null;
   /**
    * Average decode tok/s of ONE stream (aggregate ÷ active streams when all
    * decode in lockstep). Only engines publishing a per-token latency histogram
