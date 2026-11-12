@@ -1,3 +1,5 @@
+import type { EnergyPricePeriod } from "../shared/energyTariff";
+
 // ─── Spark config (matches server/sparks.json) ────────────
 export interface SparkConfig {
   id: string;
@@ -1268,6 +1270,10 @@ export interface Settings {
   energyPricePerKwh: number | null;
   /** Currency symbol shown with cost estimates. */
   energyCurrency: string;
+  /** "tou": the hours in energyPricePeriods have their own price; other hours cost energyPricePerKwh. */
+  energyPriceMode?: "flat" | "tou";
+  /** Time-of-use periods (whole local hours [from, to), wrapping past midnight when from > to). */
+  energyPricePeriods?: EnergyPricePeriod[];
   /**
    * VRAM bars split by engine / system / free and judged by headroom. On by
    * default (server DEFAULTS and the UI's pre-load fallback both say true).

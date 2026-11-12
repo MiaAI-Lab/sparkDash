@@ -1393,6 +1393,28 @@
   text-align: right;
 }
 
+/* Settings: flat or time-of-use electricity price, one row per period. */
+.set-tariff {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.set-tariff__unit {
+  color: var(--color-muted);
+  font-size: 0.85em;
+}
+.set-tariff__period {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.set-tariff__period .field-input--price {
+  width: 6rem;
+  text-align: right;
+}
+
 /* "Show card" window: the share image in a proper panel on a blurred scrim. */
 .card-preview {
   position: fixed;
