@@ -405,6 +405,8 @@ export class FleetEnergyTracker {
 
     if (load) {
       this._load();
+      // Before the first fold: months from before hourly records get the hours still kept here.
+      this.monthly.backfillHours(this._buckets.values());
       this._foldClosedMinutes(this._now());
     }
 

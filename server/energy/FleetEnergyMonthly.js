@@ -27,6 +27,15 @@ import { wallMinute } from "./wallMinute.js";
  *    readings. Before it, the meter's hourly record is imported per hour
  *    (`importWallHours`), never as minutes; `wallImportedFromMs` per node makes that
  *    import idempotent. So every hour comes from exactly one of the two.
+ *
+ * Hourly energy: each node also keeps its month's energy per UTC hour (`hourWh`, and
+ * `wallHourWh` for wall power, filled time included), index 0 being the month's first hour.
+ * Prices that vary by hour (time of use) are applied to these when the month is shown, so a
+ * changed tariff or time zone re-prices every month exactly; no money is ever stored. A month is
+ * at most 744 hours, so the series is bounded per month. `binnedFromMs` marks a month whose
+ * hours were recorded (or backfilled) from that instant on; months from before hourly records
+ * have none until backfillHours, which adds the minutes the tracker still keeps, once. Whatever
+ * energy a month holds beyond its hours (minutes the tracker no longer keeps) is unbinned.
  */
 
 const FILE_VERSION = 1;
@@ -41,6 +50,37 @@ const HOUR_MS = 60 * MINUTE_MS;
 
 const num = (v) => (Number.isFinite(v) && v >= 0 ? v : 0);
 const round3 = (v) => Math.round(v * 1000) / 1000;
+const round2 = (v) => Math.round(v * 100) / 100;
+const HOUR_KEYS = ["hourWh", "wallHourWh"];
+
+/** Hours in a "YYYY-MM" month (672 to 744). */
+function hoursIn(key) {
+  const range = monthRange(key);
+  return range ? (range[1] - range[0]) / HOUR_MS : 0;
+}
+
+/** A stored hour series, cleaned: non-negative numbers, no longer than the month, or null. */
+function cleanHours(raw, length) {
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > length) return null;
+  return raw.map(num);
+}
+
+/** The series rounded for writing, without trailing empty hours. */
+function packHours(hours) {
+  const out = hours.map((v) => round2(v ?? 0));
+  while (out.length > 0 && out[out.length - 1] === 0) out.pop();
+  return out;
+}
+
+/** Add `wh` to the hour of `atMs` in a node's series. */
+function addHour(node, key, monthStartMs, atMs, wh) {
+  if (!(wh > 0)) return;
+  const index = Math.floor((atMs - monthStartMs) / HOUR_MS);
+  if (index < 0 || index >= 744) return;
+  const hours = (node[key] ??= []);
+  while (hours.length <= index) hours.push(0);
+  hours[index] += wh;
+}
 const NODE_PART_KEYS = ["gpuWh", "cpuWh", "partsCoverageMs"];
 const NODE_WALL_KEYS = ["wallWh", "wallCoverageMs", "wallMeteredMs", "wallFilledWh", "wallFilledMs"];
 const MONTH_WALL_KEYS = ["fleetWallWh", "fleetWallFilledWh", "fleetWallCoverageMs", "wallCoveredOutputTokens", "wallTokenFleetWh"];
@@ -71,13 +111,23 @@ function emptyMonth() {
   };
 }
 
-function cleanMonth(raw) {
+function cleanMonth(raw, key) {
   const month = emptyMonth();
+  const range = monthRange(key);
+  const hours = hoursIn(key);
   for (const [id, node] of Object.entries(raw?.nodes ?? {})) {
     month.nodes[id] = { wh: num(node?.wh), coverageMs: num(node?.coverageMs) };
-    for (const key of [...NODE_PART_KEYS, ...NODE_WALL_KEYS]) {
-      if (node?.[key] !== undefined) month.nodes[id][key] = num(node[key]);
+    for (const k of [...NODE_PART_KEYS, ...NODE_WALL_KEYS]) {
+      if (node?.[k] !== undefined) month.nodes[id][k] = num(node[k]);
     }
+    for (const k of HOUR_KEYS) {
+      const series = cleanHours(node?.[k], hours);
+      if (series) month.nodes[id][k] = series;
+    }
+  }
+  // Months from before hourly records have no marker; backfillHours sets it.
+  if (range && Number.isSafeInteger(raw?.binnedFromMs) && raw.binnedFromMs >= range[0] && raw.binnedFromMs <= range[1]) {
+    month.binnedFromMs = raw.binnedFromMs;
   }
   for (const key of ["fleetWh", "fleetCoverageMs", "outputTokens", "coveredOutputTokens", "tokenFleetWh"]) {
     month[key] = num(raw?.[key]);
@@ -109,6 +159,8 @@ export class MonthlyEnergyArchive {
     this._wallStartMs = null;
     this._wallImportedFromMs = {};
     this._dirty = false;
+    // Minutes before this were folded by an earlier run (see backfillHours).
+    this._foldedAtLoadMs = 0;
     this._load();
   }
 
@@ -150,13 +202,13 @@ export class MonthlyEnergyArchive {
         }
       }
       for (const [id, node] of Object.entries(month.nodes)) {
-        for (const k of NODE_WALL_KEYS) {
+        for (const k of [...NODE_WALL_KEYS, "wallHourWh"]) {
           if (k in node) {
             delete node[k];
             had = true;
           }
         }
-        if (Object.keys(node).every((k) => k === "wh" || k === "coverageMs") && !node.wh && !node.coverageMs) delete month.nodes[id];
+        if (Object.keys(node).every((k) => k === "wh" || k === "coverageMs" || k === "hourWh") && !node.wh && !node.coverageMs) delete month.nodes[id];
       }
       if (had) touched += 1;
       const empty =
@@ -169,6 +221,54 @@ export class MonthlyEnergyArchive {
     this._wallImportedFromMs = {};
     this._dirty = true;
     return touched;
+  }
+
+  /** The month for `key`, created with hours recorded from its start when new. */
+  _month(key) {
+    let month = this._months.get(key);
+    if (!month) {
+      month = emptyMonth();
+      month.binnedFromMs = monthRange(key)[0];
+      this._months.set(key, month);
+    }
+    return month;
+  }
+
+  /**
+   * Once per month from before hourly records: add the hours of minutes the tracker still
+   * keeps that were folded into totals before this run (only those, so nothing counts twice),
+   * then mark the month. Energy older than the tracker's window stays unbinned.
+   * @param {Iterable<object>} buckets  tracker minute buckets
+   * @returns {number} months backfilled
+   */
+  backfillHours(buckets) {
+    const pending = [...this._months.entries()].filter(([, m]) => m.binnedFromMs === undefined);
+    if (pending.length === 0) return 0;
+    const before = this._foldedAtLoadMs;
+    const keys = new Set(pending.map(([key]) => key));
+    const earliest = new Map();
+    for (const bucket of buckets ?? []) {
+      const start = bucket?.minuteStartMs;
+      if (!Number.isSafeInteger(start) || start % MINUTE_MS !== 0 || start >= before) continue;
+      const key = monthKey(start);
+      if (!keys.has(key)) continue;
+      const month = this._months.get(key);
+      const monthStart = monthRange(key)[0];
+      let added = false;
+      for (const [id, wh] of Object.entries(bucket.nodeWh ?? {})) {
+        const node = month.nodes[id];
+        if (!node || !(num(wh) > 0)) continue;
+        addHour(node, "hourWh", monthStart, start, num(wh));
+        added = true;
+      }
+      if (added) earliest.set(key, Math.min(earliest.get(key) ?? start, start));
+    }
+    for (const [key, month] of pending) {
+      const [startMs, endMs] = monthRange(key);
+      month.binnedFromMs = earliest.has(key) ? Math.max(startMs, Math.floor(earliest.get(key) / HOUR_MS) * HOUR_MS) : endMs;
+    }
+    this._dirty = true;
+    return pending.length;
   }
 
   /** Start (ms) of the first minute that is no longer open to late writes at `nowMs`. */
@@ -224,11 +324,13 @@ export class MonthlyEnergyArchive {
     // A discarded bucket adds nothing anywhere (fleet, coverage, tokens or nodes).
     if (!(nodes.length > 0 || fleetWh > 0 || bucket.outputTokens > 0)) return false;
     const key = monthKey(start);
-    const month = this._months.get(key) ?? emptyMonth();
+    const month = this._month(key);
+    const monthStart = monthRange(key)[0];
     for (const [id, energy, coverageMs, parts] of nodes) {
       const node = (month.nodes[id] ??= { wh: 0, coverageMs: 0 });
       node.wh += energy;
       node.coverageMs += coverageMs;
+      addHour(node, "hourWh", monthStart, start, energy);
       if (Array.isArray(parts)) {
         addTo(node, "gpuWh", num(parts[0]));
         addTo(node, "cpuWh", num(parts[1]));
@@ -274,11 +376,13 @@ export class MonthlyEnergyArchive {
       const minute = wallMinute(bucket, nodeIds, metered, ratios);
       if (!minute) continue;
       const key = monthKey(start);
-      const month = this._months.get(key) ?? emptyMonth();
+      const month = this._month(key);
+      const monthStart = monthRange(key)[0];
       for (const id of nodeIds) {
         const n = minute.nodes[id];
         if (n.coverageMs <= 0 && n.filledMs <= 0) continue;
         const node = (month.nodes[id] ??= { wh: 0, coverageMs: 0 });
+        addHour(node, "wallHourWh", monthStart, start, num(n.wh) + num(n.filledWh));
         addTo(node, "wallWh", num(n.wh));
         addTo(node, "wallCoverageMs", Math.min(num(n.coverageMs), MINUTE_MS));
         addTo(node, "wallMeteredMs", Math.min(num(n.meteredMs), MINUTE_MS));
@@ -327,8 +431,9 @@ export class MonthlyEnergyArchive {
         if (!Number.isFinite(p.meanW) || p.meanW < 0 || seen.has(p.startMs)) continue;
         seen.add(p.startMs);
         const wh = p.meanW;
-        const month = this._months.get(monthKey(p.startMs)) ?? emptyMonth();
+        const month = this._month(monthKey(p.startMs));
         const node = (month.nodes[id] ??= { wh: 0, coverageMs: 0 });
+        addHour(node, "wallHourWh", monthRange(monthKey(p.startMs))[0], p.startMs, wh);
         addTo(node, "wallWh", wh);
         addTo(node, "wallCoverageMs", HOUR_MS);
         addTo(node, "wallMeteredMs", HOUR_MS);
@@ -366,6 +471,9 @@ export class MonthlyEnergyArchive {
             for (const key of [...NODE_PART_KEYS, ...NODE_WALL_KEYS]) {
               if (n[key] !== undefined) node[key] = key.endsWith("Ms") ? Math.round(n[key]) : round3(n[key]);
             }
+            for (const key of HOUR_KEYS) {
+              if (n[key]) node[key] = packHours(n[key]);
+            }
             return [id, node];
           })
         );
@@ -385,6 +493,7 @@ export class MonthlyEnergyArchive {
           coveredOutputTokens: m.coveredOutputTokens,
           whPerOutputToken:
             m.tokenFleetWh > 0 && m.coveredOutputTokens > 0 ? m.tokenFleetWh / m.coveredOutputTokens : null,
+          ...(m.binnedFromMs !== undefined ? { binnedFromMs: m.binnedFromMs } : {}),
           ...(hasWall
             ? {
                 // Measured plus filled; totalWallFilledWh says how much was filled from the estimate.
@@ -423,7 +532,23 @@ export class MonthlyEnergyArchive {
 
   flush() {
     if (!this.filePath || !this._dirty || this._persistDisabled) return false;
-    const months = Object.fromEntries([...this._months.entries()].sort(([a], [b]) => (a < b ? -1 : 1)));
+    const months = Object.fromEntries(
+      [...this._months.entries()]
+        .sort(([a], [b]) => (a < b ? -1 : 1))
+        .map(([key, m]) => [
+          key,
+          {
+            ...m,
+            nodes: Object.fromEntries(
+              Object.entries(m.nodes).map(([id, n]) => {
+                const node = { ...n };
+                for (const k of HOUR_KEYS) if (node[k]) node[k] = packHours(node[k]);
+                return [id, node];
+              })
+            ),
+          },
+        ])
+    );
     const state = { version: FILE_VERSION, savedAt: this._now(), foldedThroughMs: this._foldedThroughMs, months };
     if (this._wallStartMs !== null || Object.keys(this._wallImportedFromMs).length > 0) {
       state.wallStartMs = this._wallStartMs;
@@ -460,7 +585,7 @@ export class MonthlyEnergyArchive {
       return;
     }
     for (const [key, value] of Object.entries(raw.months)) {
-      if (monthRange(key)) this._months.set(key, cleanMonth(value));
+      if (monthRange(key)) this._months.set(key, cleanMonth(value, key));
     }
     if (Number.isSafeInteger(raw.wallFoldedThroughMs) && raw.wallFoldedThroughMs >= 0) {
       const cap = MonthlyEnergyArchive.closedBefore(this._now() + MAX_AHEAD_MS);
@@ -484,6 +609,7 @@ export class MonthlyEnergyArchive {
         this._dirty = true;
       }
     }
+    this._foldedAtLoadMs = this._foldedThroughMs;
   }
 
   /** An unreadable archive is kept beside the live file, never overwritten. */

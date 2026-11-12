@@ -306,7 +306,7 @@ export function EnergyPage({
       </div>
       <MeterAlert status={meterStatus} />
       {body}
-      <MonthlyEnergy nameOf={nameOf} price={tou ? null : price} currency={currency} reloadToken={monthlyReload} />
+      <MonthlyEnergy nameOf={nameOf} price={price} hourPrice={tou ? hourPrice : null} currency={currency} reloadToken={monthlyReload} />
     </div>
   );
 }
