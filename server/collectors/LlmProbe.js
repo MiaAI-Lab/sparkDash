@@ -806,6 +806,9 @@ export class LlmProbe {
       if (/splash/i.test(ownedBy)) return "splash";
       // TensorFold (ashhart/TensorFold) reports owned_by: "tensorfold" on both MLX and CUDA servers.
       if (/tensorfold/i.test(ownedBy)) return "tensorfold";
+      // Pico dsgb10 (Picom-code/pico-dgx-ds4) reports owned_by: "dsgb10" and publishes the
+      // `tensorfold:*` Prometheus counters its front end was given, so it reads as tensorfold.
+      if (/dsgb10/i.test(ownedBy)) return "tensorfold";
       // ninfer reports owned_by: "ninfer" and serves ninfer_* Prometheus series on /metrics.
       if (/ninfer/i.test(ownedBy)) return "ninfer";
       // FreeToken reports owned_by: "FreeToken".
@@ -1075,7 +1078,7 @@ export class LlmProbe {
         this.backendType = "sglang";
       } else if (/exl3/i.test(owned) && this.backendType !== "ds4") {
         this.backendType = "exl3";
-      } else if (/tensorfold/i.test(owned) && this.backendType !== "ds4") {
+      } else if (/tensorfold|dsgb10/i.test(owned) && this.backendType !== "ds4") {
         this.backendType = "tensorfold";
       } else if (/^dsgb10$/i.test(owned) && this.backendType !== "ds4") {
         this.backendType = "pico";
