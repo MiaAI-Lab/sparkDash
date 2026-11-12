@@ -136,6 +136,13 @@ export class LlmProbe {
     this._liveDecodeTps = typeof options.liveDecodeTps === "function" ? options.liveDecodeTps : null;
     /** Opt-in (Settings): stream-sample engines that publish no gauges. */
     this._streamSampleEnabled = typeof options.streamSampleEnabled === "function" ? options.streamSampleEnabled : null;
+    /**
+     * Pico only: follows the engine front end's own request log on the unit
+     * (picoFrontLog.js). Given as a follower or as `(port) => follower`; absent
+     * unless the caller provides one, and then the probe behaves exactly as before.
+     */
+    const picoLog = typeof options.picoLog === "function" ? options.picoLog(port) : options.picoLog;
+    this._picoLog = picoLog && typeof picoLog.poll === "function" ? picoLog : null;
     /** True while a bench, showcase or model launch owns the unit — samples pause. */
     this._streamSampleBlocked = typeof options.streamSampleBlocked === "function" ? options.streamSampleBlocked : null;
     this._streamSampleMinIntervalMs = Number.isFinite(options.streamSampleMinIntervalMs)
@@ -559,6 +566,8 @@ export class LlmProbe {
   }
 
   _resetDetection() {
+    // Token totals go back to zero below; the log follower's must go with them.
+    this._picoLog?.reset?.();
     this.serverIsOpenAI = null;
     this.backendType = null;
     this.authOpen = null;
@@ -1346,20 +1355,44 @@ export class LlmProbe {
     // it; replaying it on later polls makes an idle engine look busy forever.
     if (this.backendType === "pico") {
       this.generationTps = 0;
+      // The engine's own request log, when it can be followed: every client's
+      // finished requests, so also the traffic the dashboard did not send.
+      const logged = await this._pollPicoLog();
       const liveTps = this._liveDecodeTps?.(this.port);
       if (Number.isFinite(liveTps) && liveTps >= 0) {
         this.generationTps = liveTps;
         this.generationTpsSource = "dashboard-stream";
         this.decodeActive = liveTps > 0;
+      } else if (logged && logged.generationTps > 0) {
+        this.generationTps = logged.generationTps;
+        this.generationTpsSource = "engine-log";
+        this.decodeActive = true;
       } else {
         await this._maybeStreamSample();
+        // Idle by the engine's own log is a measured zero, not a missing figure.
+        if (logged && this.generationTpsSource == null) this.generationTpsSource = "engine-log";
         if (this._liveDecodeTps && this.generationTpsSource == null) {
           this.generationTpsSource = "dashboard-stream";
         }
       }
+      if (logged) {
+        this.totalOutputTokens = logged.totalOutputTokens;
+        this.totalPromptTokens = logged.totalPromptTokens;
+        this.totalCachedTokens = logged.totalCachedTokens;
+      }
     }
 
     return this._getSnapshot();
+  }
+
+  /** Figures from the Pico front-end log, or null when there is none to follow. Never throws. */
+  async _pollPicoLog() {
+    if (!this._picoLog) return null;
+    try {
+      return await this._picoLog.poll();
+    } catch {
+      return null;
+    }
   }
 
   /** Run at most one sample per minimum interval; never two at once; never while blocked. */
