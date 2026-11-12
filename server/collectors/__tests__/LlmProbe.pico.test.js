@@ -271,3 +271,102 @@ test("Pico uses its port's dashboard stream rate while synthetic sampling is blo
     assert.equal(requested.filter((r) => r.path === "/v1/chat/completions").length, 0);
   }
 });
+
+// ─── The engine front end's own request log ─────────────
+/** Stands in for PicoFrontLog: what the log follower reports on each poll. */
+function fakeLog(answers) {
+  const calls = { polls: 0, resets: 0 };
+  return {
+    calls,
+    poll: async () => { calls.polls += 1; const next = answers.shift(); if (next instanceof Error) throw next; return next ?? null; },
+    reset: () => { calls.resets += 1; },
+  };
+}
+const logged = (generationTps, output = 0) => ({
+  generationTps, totalOutputTokens: output, totalPromptTokens: output * 40, totalCachedTokens: output * 30,
+});
+
+test("Pico's decode comes from the engine log when it can be followed, with its token totals", async () => {
+  const requested = [];
+  const log = fakeLog([logged(131.5, 1421), logged(0, 1421), null]);
+  const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888, { picoLog: (port) => { assert.equal(port, 8888); return log; } });
+  probe._fetch = picoFetch(requested);
+  const active = await probe.probe();
+  assert.equal(active.backend, "pico");
+  assert.equal(active.generationTps, 131.5);
+  assert.equal(active.generationTpsSource, "engine-log");
+  assert.equal(active.decodeActive, true);
+  assert.equal(active.totalOutputTokens, 1421);
+  assert.equal(active.totalPromptTokens, 56840);
+  assert.equal(active.totalCachedTokens, 42630);
+  // Idle by the log: a measured zero, still attributed to the log.
+  const idle = await probe.probe();
+  assert.equal(idle.generationTps, 0);
+  assert.equal(idle.generationTpsSource, "engine-log");
+  assert.equal(idle.decodeActive, false);
+  assert.equal(idle.totalOutputTokens, 1421);
+  // The log cannot be followed: no figure and no source, and the totals do not step back.
+  const lost = await probe.probe();
+  assert.equal(lost.generationTps, 0);
+  assert.equal(lost.generationTpsSource, null);
+  assert.equal(lost.totalOutputTokens, 1421);
+  // The figures came from the log: the engine was asked for no counters and sent no completion.
+  assert.deepEqual(requested.filter((p) => p === "/metrics" || p === "/v1/chat/completions"), []);
+});
+
+test("the dashboard's own live stream outranks the log; the log outranks a synthetic sample", async () => {
+  const requested = [];
+  let liveRate = 75;
+  const log = fakeLog([logged(140, 100), logged(140, 200), logged(0, 200)]);
+  const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888, sampleOptions({
+    liveDecodeTps: () => liveRate,
+    picoLog: log,
+  }));
+  probe._fetch = picoFetchWithSample(requested, { stream: SAMPLE_STREAM });
+  const bench = await probe.probe();
+  assert.equal(bench.generationTps, 75);
+  assert.equal(bench.generationTpsSource, "dashboard-stream");
+  assert.equal(bench.totalOutputTokens, 100); // the log still counts what finished
+  liveRate = null;
+  const traffic = await probe.probe();
+  assert.equal(traffic.generationTps, 140);
+  assert.equal(traffic.generationTpsSource, "engine-log");
+  // Real traffic was measured, so no synthetic completion was sent on top of it.
+  assert.equal(requested.filter((r) => r.path === "/v1/chat/completions").length, 0);
+  // Idle by the log with sampling on: the opt-in sample behaves as it did before.
+  const idle = await probe.probe();
+  assert.equal(idle.generationTpsSource, "probe-sample");
+  assert.equal(requested.filter((r) => r.path === "/v1/chat/completions").length, 1);
+});
+
+test("a failing log follower never fails the probe, and is reset with the detection state", async () => {
+  const requested = [];
+  const log = fakeLog([new Error("ssh down"), logged(50, 10)]);
+  const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888, { picoLog: log });
+  probe._fetch = picoFetch(requested);
+  const failed = await probe.probe();
+  assert.equal(failed.available, true);
+  assert.equal(failed.generationTps, 0);
+  assert.equal(failed.generationTpsSource, null);
+  assert.equal((await probe.probe()).totalOutputTokens, 10);
+  probe._resetDetection();
+  assert.equal(log.calls.resets, 1);
+  assert.equal(probe.totalOutputTokens, 0);
+});
+
+test("the log follower is polled for Pico only", async () => {
+  const log = fakeLog([logged(99, 99)]);
+  const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888, { picoLog: log });
+  probe._fetch = async (url) => {
+    const path = new URL(String(url)).pathname;
+    if (path === "/v1/models") {
+      const payload = { data: [{ id: "m", owned_by: "vllm" }] };
+      return { ok: true, status: 200, json: async () => payload, text: async () => JSON.stringify(payload) };
+    }
+    return { ok: false, status: 404, json: async () => ({}), text: async () => "" };
+  };
+  const snap = await probe.probe();
+  assert.notEqual(snap.backend, "pico");
+  assert.equal(log.calls.polls, 0);
+  assert.notEqual(snap.generationTpsSource, "engine-log");
+});

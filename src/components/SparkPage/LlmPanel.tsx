@@ -444,6 +444,7 @@ export function LlmPanel({
   const isTensorFold = llm?.backend === "tensorfold";
   const isPico = llm?.backend === "pico";
   const sampledDecode = llm?.generationTpsSource === "probe-sample";
+  const loggedDecode = llm?.generationTpsSource === "engine-log";
   const completedPrefill = llm?.prefillTpsSource?.startsWith("completed-") === true;
   const showPrefillSplit = llm?.cachedPrefillTps != null || llm?.uncachedPrefillTps != null;
   const cachedPrefillTps = llm?.cachedPrefillTps ?? 0;
@@ -804,7 +805,7 @@ export function LlmPanel({
                     <span className="ov-tps__dots" aria-hidden />
                     <small>{t("llm.decoding")}</small>
                   </>
-                ) : isPico && !sampledDecode && llm?.generationTpsSource !== "dashboard-stream" ? (
+                ) : isPico && !sampledDecode && !loggedDecode && llm?.generationTpsSource !== "dashboard-stream" ? (
                   <span title={t("llm.sampleOffHelp")}>—</span>
                 ) : (
                   <>
@@ -824,6 +825,11 @@ export function LlmPanel({
               {sampledDecode && (
                 <span className="sp-avg" title={t("llm.sampledHelp")}>
                   {t("llm.sampled")}
+                </span>
+              )}
+              {loggedDecode && (
+                <span className="sp-avg" title={t("llm.engineLogHelp")}>
+                  {t("llm.engineLog")}
                 </span>
               )}
               {measured && llm?.perStreamTps != null && (
