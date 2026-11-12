@@ -32,7 +32,7 @@ export function EnergyPriceSetting({ settings, update }: { settings: Settings; u
   const message = energyPeriodsMessage(settings, t);
 
   return (
-    <SettingRow title={t("electricityPrice.title")} help={tou ? t("electricityPrice.touHelp") : t("electricityPrice.help")} htmlFor="settings-energy-price" stack>
+    <SettingRow id="settings-section-energy" title={t("electricityPrice.title")} help={tou ? t("electricityPrice.touHelp") : t("electricityPrice.help")} htmlFor="settings-energy-price" stack>
       <div className="set-tariff">
         <div className="seg" role="radiogroup" aria-label={t("electricityPrice.mode")}>
           {(["flat", "tou"] as const).map((mode) => (
@@ -60,6 +60,7 @@ export function EnergyPriceSetting({ settings, update }: { settings: Settings; u
           />
           <input
             id="settings-energy-price"
+            data-settings-focus
             type="number"
             min={0}
             max={100}

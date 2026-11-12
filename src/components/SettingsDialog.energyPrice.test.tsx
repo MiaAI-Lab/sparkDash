@@ -85,6 +85,16 @@ describe("SettingsDialog electricity price", () => {
     );
   });
 
+  it("opened at the energy section, shows and focuses the price", async () => {
+    const scrolled = vi.fn();
+    Element.prototype.scrollIntoView = scrolled;
+    render(<SettingsDialog open section="energy" onClose={vi.fn()} onSaved={vi.fn()} />);
+    await flush();
+    expect(scrolled).toHaveBeenCalledTimes(1);
+    expect(document.getElementById("settings-section-energy")?.textContent).toContain("Electricity price");
+    expect(document.activeElement?.id).toBe("settings-energy-price");
+  });
+
   it("says which periods overlap and does not save", async () => {
     vi.mocked(fetchSettings).mockResolvedValue({ ...settings, energyPriceMode: "tou", energyPricePeriods: [{ from: 22, to: 6, price: 0.1, days: "all" }] });
     render(<SettingsDialog open onClose={vi.fn()} onSaved={vi.fn()} />);

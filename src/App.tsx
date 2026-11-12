@@ -78,6 +78,7 @@ import { AccessTokenPrompt } from "./components/AccessTokenDialog";
 import { onTokenChange } from "./api/authToken";
 import { isWorkerSpark } from "./api/sparkRole";
 import { mergeTabOrderKeepingHidden } from "./api/tabOrder";
+import { clearSettingsHash, useSettingsHash } from "./hooks/settingsLink";
 
 function placeholderSnapshot(
   id: string,
@@ -188,6 +189,18 @@ function DashboardApp() {
   const [showAdd, setShowAdd] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  // A "#settings/<section>" link (e.g. the Energy page's price hint) opens Settings at that section.
+  const [settingsSection, setSettingsSection] = useState<string | null>(null);
+  const openSettingsAt = useCallback((section: string | null) => {
+    setSettingsSection(section);
+    setShowSettings(true);
+  }, []);
+  useSettingsHash(openSettingsAt);
+  const closeSettings = useCallback(() => {
+    clearSettingsHash();
+    setSettingsSection(null);
+    setShowSettings(false);
+  }, []);
   const [showHarness, setShowHarness] = useState(false);
   const [harnessSparkId, setHarnessSparkId] = useState<string | undefined>();
   // Desktop sidebar can be hidden to give the page the full width; remembered per browser.
@@ -695,11 +708,12 @@ function DashboardApp() {
       />
       <SettingsDialog
         open={showSettings}
-        onClose={() => setShowSettings(false)}
+        section={settingsSection}
+        onClose={closeSettings}
         onSaved={handleSettingsSaved}
         serverVersion={serverVersion}
         onOpenHarness={() => {
-          setShowSettings(false);
+          closeSettings();
           setHarnessSparkId(displayActive?.id);
           setShowHarness(true);
         }}
