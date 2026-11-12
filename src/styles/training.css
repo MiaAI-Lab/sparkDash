@@ -1,0 +1,24 @@
+/* Copyright 2026 Maxrio9. SPDX-License-Identifier: Apache-2.0 */
+.training-page { display: grid; gap: 16px; min-width: 0; }
+.training-page .page-head { margin-bottom: 0; }
+.training-run { padding: 20px; min-width: 0; }
+.training-run-head, .training-source > header, .training-stage-head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.training-run h2 { font-size: 15px; font-weight: 650; }
+.training-run-head > span, .training-source > header > span, .training-reported, .training-eta { color: var(--color-muted); font-size: 12px; }
+.training-source { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--color-border); min-width: 0; }
+.training-source h3 { font-size: 13px; font-weight: 600; }
+.training-reported { margin-top: 5px; }
+.training-stage-group { margin-top: 18px; }
+.training-stage-group h4 { font-size: 12px; font-weight: 600; color: var(--color-muted); }
+.training-stage-group ul { list-style: none; padding: 0; margin: 8px 0 0; }
+.training-stage { padding: 12px 0; border-top: 1px solid var(--color-border); font-size: 12px; overflow-wrap: anywhere; }
+.training-count, .training-eta { margin-top: 6px; }
+.training-metrics { display: flex; flex-wrap: wrap; gap: 10px 24px; margin-top: 10px; }
+.training-metrics dt { color: var(--color-muted); font-size: 11px; }
+.training-metrics dd { margin: 3px 0 0; }
+.training-source[data-status="stale"] .training-count, .training-source[data-status="stale"] .training-metrics { color: var(--color-muted); }
+.training-notice { border-left: 2px solid var(--color-accent); padding-left: 12px; font-size: 12px; overflow-wrap: anywhere; }
+.training-diagnostic { display: block; margin-top: 4px; color: var(--color-muted); }
+.training-empty { padding: 24px; color: var(--color-muted); font-size: 13px; }
+.training-run-head, .training-source > header { overflow-wrap: anywhere; }
+@media (max-width: 600px) { .training-run { padding: 14px; } }

@@ -1,3 +1,4 @@
+// Modified by Maxrio9, 2026: optional JSON training progress capability.
 // ─── Spark config (matches server/sparks.json) ────────────
 export interface SparkConfig {
   id: string;
@@ -1235,6 +1236,8 @@ export interface InferenceActivity {
 }
 
 export interface Settings {
+  /** Read-only capability configured by TRAINING_PROGRESS_ENABLED on the server. */
+  trainingProgressEnabled?: boolean;
   /** Read-only server capability; configured through environment variables. */
   inferenceActivityEnabled?: boolean;
   pollIntervalMs: number;

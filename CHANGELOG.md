@@ -7,6 +7,11 @@ Format: version sections are listed newest first.
 
 ---
 
+## [Unreleased]
+
+### Added
+- Opt-in, read-only JSON training reports on a dedicated Training page. One collector reads only `training-progress.json` directly inside explicit output folders; worker-reported stages, counters, metrics and ETA retain unknown/stale semantics and bounded retention. Includes a synthetic example and English/Simplified Chinese UI. First slice of #387.
+
 ## [2.90.0] — 2026-11-12
 
 ### Added

@@ -75,6 +75,10 @@ services:
       - PORT=5555
       - LLM_PORT=8888
       - NODE_ENV=production
+      # Optional JSON training reports; roots are output directories, not search trees.
+      - TRAINING_PROGRESS_ENABLED=${TRAINING_PROGRESS_ENABLED:-0}
+      - TRAINING_PROGRESS_ROOTS=${TRAINING_PROGRESS_ROOTS:-[]}
+      - TRAINING_PROGRESS_ROOTS_BY_UNIT=${TRAINING_PROGRESS_ROOTS_BY_UNIT:-}
       # Opt in only if this process shares the physical host's network namespace.
       # RootlessKit can isolate the daemon even with network_mode: host above.
       - SPARKDASH_HOST_NETWORK=${SPARKDASH_HOST_NETWORK:-0}

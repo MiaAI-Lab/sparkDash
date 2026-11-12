@@ -1,5 +1,6 @@
+// Modified by Maxrio9, 2026: training page route regression.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { benchId, benchTypeOf, ENERGY_ID, idToPath, initialActiveId, isPageId, isStaleSparkId, KIOSK_ID, OVERVIEW_ID, pathToId, STORAGE_ID, TEMPS_ID } from "./constants";
+import { benchId, benchTypeOf, ENERGY_ID, idToPath, initialActiveId, isPageId, isStaleSparkId, KIOSK_ID, OVERVIEW_ID, pathToId, STORAGE_ID, TRAINING_ID, TEMPS_ID } from "./constants";
 
 describe("route helpers", () => {
   it("round-trips ids and paths", () => {
@@ -9,6 +10,9 @@ describe("route helpers", () => {
     expect(pathToId("/storage")).toBe(STORAGE_ID);
     expect(idToPath(STORAGE_ID)).toBe("/storage");
     expect(isPageId(STORAGE_ID)).toBe(true);
+    expect(pathToId("/training")).toBe(TRAINING_ID);
+    expect(idToPath(TRAINING_ID)).toBe("/training");
+    expect(isPageId(TRAINING_ID)).toBe(true);
     expect(pathToId("/spark/a%20b")).toBe("a b");
     expect(idToPath("a b")).toBe("/spark/a%20b");
     expect(pathToId(idToPath(benchId("decode")))).toBe(benchId("decode"));
@@ -47,4 +51,12 @@ describe("route helpers", () => {
       expect(isStaleSparkId("gone", [], false)).toBe(false);
     });
   });
+});
+
+// The internal page id cannot collide with an existing valid physical-unit id.
+it("keeps a physical __training__ unit separate from the optional training page", () => {
+  expect(isPageId("__training__")).toBe(false);
+  expect(idToPath("__training__")).toBe("/spark/__training__");
+  expect(pathToId("/spark/__training__")).toBe("__training__");
+  expect(pathToId("/training")).toBe(TRAINING_ID);
 });

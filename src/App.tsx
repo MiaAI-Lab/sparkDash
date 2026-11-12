@@ -1,3 +1,4 @@
+// Modified by Maxrio9, 2026: optional JSON training progress page.
 import { BenchIcon } from "./components/bench/BenchIcon";
 import { setConfiguredTimeZone } from "./shared/timeZone";
 import { useState, useCallback, useEffect, useMemo } from "react";
@@ -58,6 +59,7 @@ import {
   COST_ID,
   KIOSK_ID,
   API_KEYS_ID,
+  TRAINING_ID,
   benchId,
   benchTypeOf,
   idToPath,
@@ -67,6 +69,7 @@ import {
 import { TokensPage } from "./components/TokensPage/TokensPage";
 import { CostPage } from "./components/CostPage/CostPage";
 import { ApiKeysPage } from "./components/ApiKeysPage/ApiKeysPage";
+import { TrainingPage } from "./components/TrainingPage/TrainingPage";
 import { EnergyPage } from "./components/EnergyPage/EnergyPage";
 import { TempsPage } from "./components/TempsPage/TempsPage";
 import { ActivityPage } from "./components/ActivityPage/ActivityPage";
@@ -290,6 +293,7 @@ function DashboardApp() {
 
   const isOverview = activeId === OVERVIEW_ID;
   const apiKeysEnabled = settings?.apiKeysEnabled === true;
+  const trainingEnabled = settings?.trainingProgressEnabled === true;
   const onPage = isPageId(activeId);
   const benchType = benchTypeOf(activeId);
   const hideWorkers = settings?.hideWorkers ?? false;
@@ -482,7 +486,8 @@ function DashboardApp() {
   // The opt-in API Keys page does not exist while its setting is off: a deep link lands on Overview.
   useEffect(() => {
     if (settings && activeId === API_KEYS_ID && !apiKeysEnabled) navigate(OVERVIEW_ID);
-  }, [settings, activeId, apiKeysEnabled, navigate]);
+    if (settings && activeId === TRAINING_ID && !trainingEnabled) navigate(OVERVIEW_ID);
+  }, [settings, activeId, apiKeysEnabled, trainingEnabled, navigate]);
 
   const paletteCommands = useMemo<PaletteCommand[]>(() => {
     const cmds: PaletteCommand[] = [
@@ -534,11 +539,14 @@ function DashboardApp() {
       { id: "act:settings", group: t("commands.actions"), label: t("commands.settings"), icon: <GearIcon className="h-4 w-4" />, keywords: "Open settings preferences density refresh", run: () => setShowSettings(true) },
       { id: "act:harness", group: t("commands.actions"), label: t("commands.harness"), icon: <BotIcon className="h-4 w-4" />, keywords: "Set up harness sessions occupancy openclaw opencode hermes oh-my-pi wizard", run: () => { setHarnessSparkId(undefined); setShowHarness(true); } }
     );
+    if (trainingEnabled) {
+      cmds.push({ id: "nav:training", group: t("commands.goTo"), label: t("nav.training"), hint: t("commands.page"), icon: <ListIcon className="h-4 w-4" />, keywords: "training evaluation progress stages", run: () => navigate(TRAINING_ID) });
+    }
     if (apiKeysEnabled) {
       cmds.push({ id: "nav:apikeys", group: t("commands.goTo"), label: t("nav.apiKeys"), hint: t("commands.page"), icon: <KeyIcon className="h-4 w-4" />, keywords: "api keys litellm virtual keys spend budget", run: () => navigate(API_KEYS_ID) });
     }
     return cmds;
-  }, [displaySparks, displayActive, navigate, toggleSidebar, t, benchLabels, apiKeysEnabled]);
+  }, [displaySparks, displayActive, navigate, toggleSidebar, t, benchLabels, apiKeysEnabled, trainingEnabled]);
 
   return (
     <div className="min-h-screen text-text">
@@ -558,6 +566,7 @@ function DashboardApp() {
           refreshInterval={refreshInterval}
           authMode={authMode}
           showApiKeys={apiKeysEnabled}
+          showTraining={trainingEnabled}
         />
         <div className="side-strip" aria-hidden={!sideHidden}>
           <button type="button" className="icon-circle" onClick={toggleSidebar} tabIndex={sideHidden ? 0 : -1} title={t("nav.showSidebarTitle")} aria-label={t("nav.showSidebar")}>
@@ -605,6 +614,8 @@ function DashboardApp() {
                 <CostPage />
               ) : activeId === API_KEYS_ID ? (
                 apiKeysEnabled ? <ApiKeysPage /> : null
+              ) : activeId === TRAINING_ID ? (
+                trainingEnabled ? <TrainingPage /> : null
               ) : activeId === ENERGY_ID ? (
                 <EnergyPage sparks={displaySparks} settings={settings} onSelectSpark={navigate} />
               ) : activeId === TEMPS_ID ? (
@@ -680,6 +691,7 @@ function DashboardApp() {
         onAdd={() => setShowAdd(true)}
         onOpenSettings={() => setShowSettings(true)}
         showApiKeys={apiKeysEnabled}
+        showTraining={trainingEnabled}
       />
       <InstallPrompt />
       <CommandPalette open={showPalette} onClose={() => setShowPalette(false)} commands={paletteCommands} />
