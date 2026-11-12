@@ -2493,3 +2493,45 @@
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+
+/* Settings tabs: one row of sections under the title; the body scrolls beneath it. */
+.set-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--color-border);
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex-shrink: 0;
+}
+
+.set-tabs__tab {
+  padding: 8px 10px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  background: none;
+  color: var(--color-muted);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.set-tabs__tab:hover {
+  color: var(--color-text);
+}
+
+.set-tabs__tab.is-on {
+  color: var(--color-text);
+  border-bottom-color: var(--color-accent);
+}
+
+.set-tabs__tab:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+
+.set-tabpanel[hidden] {
+  display: none;
+}

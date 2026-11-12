@@ -1,4 +1,5 @@
 {
+  "tabs": { "aria": "Settings sections", "general": "General", "overview": "Overview", "sparks": "Sparks & LLM", "energy": "Power & energy", "integrations": "Alerts & integrations", "security": "Security" },
   "dialog": { "title": "Settings", "close": "Close", "loading": "Loading…", "cancel": "Cancel", "save": "Save", "saving": "Saving..." },
   "appearance": { "title": "Appearance", "help": "Applies instantly on this device. Saved in this browser.", "theme": "Theme", "white": "White", "light": "Light", "dark": "Dark", "oled": "OLED" },
   "refresh": { "title": "Refresh rate", "help": "How often every unit is polled for GPU, CPU, memory, network and LLM metrics, and how often the dashboard updates. Remote units are polled over SSH, so 1s costs the most; storage and liveness keep their own slower checks.", "interval": "Poll interval", "oneSecond": "1s", "twoSeconds": "2s", "fiveSeconds": "5s", "tenSeconds": "10s" },

@@ -1,4 +1,5 @@
 {
+  "tabs": { "aria": "设置分类", "general": "常规", "overview": "概览", "sparks": "Spark 与 LLM", "energy": "功耗与能源", "integrations": "告警与集成", "security": "安全" },
   "dialog": { "title": "设置", "close": "关闭", "loading": "正在加载…", "cancel": "取消", "save": "保存", "saving": "正在保存..." },
   "appearance": { "title": "外观", "help": "立即在此设备上生效，并保存在此浏览器中。", "theme": "主题", "white": "白色", "light": "浅色", "dark": "深色", "oled": "OLED" },
   "refresh": { "title": "刷新频率", "help": "轮询每个节点的 GPU、CPU、内存、网络和 LLM 指标以及更新仪表盘的频率。远程节点通过 SSH 轮询，因此 1 秒的开销最大；存储和存活状态有各自更慢的检查。", "interval": "轮询间隔", "oneSecond": "1秒", "twoSeconds": "2秒", "fiveSeconds": "5秒", "tenSeconds": "10秒" },
