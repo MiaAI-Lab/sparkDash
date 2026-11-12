@@ -66,6 +66,7 @@ Monitored units run **Linux**, **macOS**, or **Windows** (a Windows PC with an N
 - [Security](#security)
 - [Scripts](#scripts)
 - [How it works](#how-it-works)
+- [JSON training progress](#json-training-progress)
 - [Contributing](#contributing)
 - [License](#license)
 - [Acknowledgements](#acknowledgements)
@@ -1486,6 +1487,12 @@ The source must return `application/json` with this shape:
 The source is read at most once per 5 seconds, shared between dashboard viewers. The server judges sample freshness: samples older than 30 seconds, invalid payloads and failed reads show **unknown**, not zero. The browser trusts the server's `available`, without comparing server timestamps to its own clock. A separate 30-second no-response timer hides the last live display if a later browser fetch hangs, and resets on a successful response. A fresh empty `active` array is a measured zero. The read-only `/api/inference/activity` route uses the dashboard's existing GET access policy and `Cache-Control: no-store`: loopback GETs remain open, while a token-protected remote bind requires the dashboard token. Configuration is not writable through that route or Settings. The card is absent when no URL is configured, including when the normal sidebar cards are hidden.
 
 **In flight includes queued, prefill and decoding HTTP requests.** It is not the number of active GPU slots, does not distinguish engine queueing, and does not measure per-key token throughput. This card needs an external sanitized activity source; an unmodified model server without that source remains unchanged.
+
+## JSON training progress
+
+Opt-in, read-only reporting for training workers. Set `TRAINING_PROGRESS_ENABLED=1` and explicitly configure output folders with `TRAINING_PROGRESS_ROOTS='["/srv/training/example-run"]'`. Each folder supplies one `training-progress.json`; the collector does not search subfolders or parse framework logs. The **Training** page displays the worker's reported stages, counters, metrics and remaining time, with explicit unknown/stale/unavailable readings. Worker timestamps determine freshness and bounded retention; successful polling does not make an abandoned report current.
+
+The module defaults off with no roots. It does not launch jobs, infer ETA, compare checkpoints or allocate resources. See [the document contract and limits](server/training/README.md) and [the synthetic worker example](examples/training-json/). Python 3 is required for the local/SSH reader; container roots are paths visible to the collection process. Windows collection is unsupported in this first slice.
 
 ## Contributing
 

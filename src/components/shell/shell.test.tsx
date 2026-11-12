@@ -1,4 +1,6 @@
+// Modified by Maxrio9, 2026: optional training navigation regressions.
 import { act } from "react";
+import { TRAINING_ID } from "../../constants";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppSidebar, RAIL_KEYBOARD_CODES, markRailDrop } from "./AppSidebar";
 import { MobileTabBar } from "./MobileTabBar";
@@ -90,6 +92,17 @@ describe("AppSidebar", () => {
     expect(off.container.querySelector('a[href="/api-keys"]')).toBeNull();
     const on = render(<AppSidebar {...props} showApiKeys />);
     expect(on.container.querySelector('a[href="/api-keys"]')?.textContent).toContain("API Keys");
+  });
+
+  it("shows training navigation only when the server capability is enabled", () => {
+    const props = { sparks: [], activeId: TRAINING_ID, onSelect: vi.fn(), onAdd: vi.fn(), onOpenSettings: vi.fn(), onOpenSearch: vi.fn(), connected: true };
+    const off = render(<AppSidebar {...props} />);
+    expect(off.container.querySelector('a[href="/training"]')).toBeNull();
+    const on = render(<AppSidebar {...props} showTraining />);
+    const link = on.container.querySelector<HTMLAnchorElement>('a[href="/training"]')!;
+    expect(link.getAttribute("aria-current")).toBe("page");
+    act(() => link.click());
+    expect(props.onSelect).toHaveBeenCalledWith(TRAINING_ID);
   });
 
   it("links the Temps page with a deep-linkable href", () => {
@@ -276,6 +289,21 @@ describe("MobileTabBar sheet", () => {
     act(() => vi.advanceTimersByTime(400));
     expect(document.querySelector(".sheet")).toBeNull();
     expect(document.activeElement).toBe(opener);
+  });
+
+  it("gates training in the mobile Stats sheet and highlights the selected training page", () => {
+    const props = { sparks: [], activeId: TRAINING_ID, onSelect: vi.fn(), onAdd: vi.fn(), onOpenSettings: vi.fn() };
+    const off = render(<MobileTabBar {...props} />);
+    act(() => [...off.container.querySelectorAll("button")].find((b) => b.textContent === "Stats")!.click());
+    expect([...document.querySelectorAll(".sheet .rail-item__name")].map((row) => row.textContent)).not.toContain("Training");
+    act(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    act(() => vi.advanceTimersByTime(400));
+    const on = render(<MobileTabBar {...props} showTraining />);
+    expect(on.container.querySelector("nav")?.getAttribute("data-tab")).toBe("2");
+    act(() => [...on.container.querySelectorAll("button")].find((b) => b.textContent === "Stats")!.click());
+    const entry = [...document.querySelectorAll<HTMLButtonElement>(".sheet .rail-item")].find((b) => b.textContent === "Training")!;
+    act(() => entry.click());
+    expect(props.onSelect).toHaveBeenCalledWith(TRAINING_ID);
   });
 
   it("Stats opens Token totals, Fleet energy, Temps, Activity and Storage; Sparks lists Storage under Benchs & Tools; Showcase follows Prefill", () => {

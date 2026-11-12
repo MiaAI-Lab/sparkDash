@@ -1,0 +1,39 @@
+{
+  "title": "训练进度",
+  "subtitle": "只读显示工作进程报告的阶段、计数和剩余时间。",
+  "loading": "正在加载进度…",
+  "empty": "配置的目录中没有可用的进度文档。",
+  "disabled": "此服务器未启用训练进度。",
+  "truncated": "快照已达到采集上限；部分文档未显示。",
+  "unknown": "未知",
+  "reportedAt": "报告时间：{{time}}",
+  "lastState": "上次报告：{{state}}",
+  "progress": "{{completed}} / {{total}}",
+  "reportedEta": "报告的剩余时间：{{seconds}} 秒",
+  "errors": {
+    "load": "无法加载训练进度。将自动重试。",
+    "stale": "无法刷新进度。上次收到的报告显示为过期。",
+    "configuration": "配置：{{error}}"
+  },
+  "unit": {
+    "unavailable": "无法采集",
+    "unsupported": "不支持采集",
+    "partial": "部分采集"
+  },
+  "source": {
+    "live": "工作进程的最新报告",
+    "stale": "过期报告"
+  },
+  "groups": {
+    "data": "数据准备",
+    "training": "训练",
+    "evaluation": "评估"
+  },
+  "states": {
+    "running": "运行中",
+    "waiting": "等待中",
+    "complete": "已完成",
+    "stopped": "已停止",
+    "failed": "失败"
+  }
+}

@@ -19,7 +19,8 @@
     "openSearch": "Open command palette",
     "showSidebar": "Show sidebar",
     "showSidebarTitle": "Show sidebar (Ctrl+B)",
-    "apiKeys": "API Keys"
+    "apiKeys": "API Keys",
+    "training": "Training"
   },
   "sidebar": {
     "sortable": "sortable",
