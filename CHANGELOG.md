@@ -7,7 +7,7 @@ Format: version sections are listed newest first.
 
 ---
 
-## [2.9.0] — 2026-11-12
+## [2.90.0] — 2026-11-12
 
 ### Added
 - Localize the opt-in, read-only API Keys page and its Settings entry in English and Simplified Chinese while preserving raw identifiers, diagnostics and unknown-versus-zero values. Thanks to @oscarlius (#372).

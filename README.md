@@ -1,6 +1,7 @@
 # sparkDash ⚡ — Multi-unit monitoring dashboard for NVIDIA DGX Spark
 
 <p align="center">
+  <a href="#latest-version-changelog"><img src="https://img.shields.io/badge/version-v2.90.0-2d9d78?style=flat-square" alt="Latest version: v2.90.0"></a>
   <img src="https://img.shields.io/badge/platform-arm64-2d9d78?style=flat-square" alt="Platform: ARM64">
   <img src="https://img.shields.io/badge/React-19-58c4dc?style=flat-square&logo=react" alt="React 19">
   <img src="https://img.shields.io/badge/Express-5-000000?style=flat-square&logo=express" alt="Express 5">
@@ -12,6 +13,8 @@
 </p>
 
 <p align="center"><sub>macOS (darwin) SSH collectors authored by <a href="https://github.com/MikeGibbsOnyx">C. Michael Gibbs</a> and <a href="https://x.com/nyxvoss_ai">Nyx Voss</a> (Onyx AI Labs) — <a href="https://github.com/MikeGibbsOnyx/sparkDash/commits?author=MikeGibbsOnyx">commits</a>. sparkDash by <a href="https://github.com/MiaAI-Lab">Mia's AI Lab</a>.</sub></p>
+
+> **New in v2.90.0:** Storage Manager with staged deletes, batch deletion, pre-delete checks and Docker cleanup; Quality bench v2; Pico engine support; and per-card GPU power limits. [See the release highlights](#latest-version-changelog).
 
 sparkDash is a real-time web dashboard for one or more **NVIDIA DGX Spark (GB10)** machines in a single browser window. It streams GPU, CPU, unified memory, storage, network, and local LLM metrics — and lets you add, edit, reorder, or remove Sparks from the UI without restarts or code changes.
 
@@ -71,7 +74,7 @@ Monitored units run **Linux**, **macOS**, or **Windows** (a Windows PC with an N
 
 ## Latest version changelog
 
-### Version 2.9.0
+### Version 2.90.0
 
 - **Pico live decode:** benchmark and Showcase streams now drive the decode rate while generating and clear it when the run ends; old sample results no longer remain as current throughput.
 - **Quality bench v2**: a larger, graded suite with fidelity and divergence categories, engine records and noise floors, compare across units with pinned per-family references and a quantisation dashboard, and runs that can be paused, resumed and continued after an interruption.
