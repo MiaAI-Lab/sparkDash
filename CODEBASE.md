@@ -23,7 +23,7 @@ The package uses ESM throughout. `server/index.js` runs directly in Node and cre
 | `server/storage/` | Storage Manager: disk scans, Docker images, deletes. Shell programs in `scripts/`, path safety in `policy.js`, execution contexts (ssh / native-local / container-local) and the per-feature `supports()` table in `context.js`, what may start (one job per Spark, two scans per fleet) in `admission.js`, scan stop and reconcile rules in `scanJob.js` (unit-side lock and job records in `scripts/unit-state.sh`, stop in `scripts/job.sh`), the delete advisor's rules and known-place table in `advice.js` (pure; evidence from the read-only `scripts/advise.sh`, parsed by `parseAdviseOutput` in `commands.js`), routes under `/api/sparks/:id/storage` |
 | `src/api/` | API clients and browser-facing data types |
 | `src/hooks/` | Snapshot subscription, metric history and UI hooks |
-| `src/components/` | Shell, overview, unit panels and feature pages; the Storage Manager's delete check is `StoragePage/DeleteAdvice.tsx` with its pure rules for friction in `deleteAdvice.ts` and its request in `useDeleteAdvice.ts` |
+| `src/components/` | Shell, overview, unit panels and feature pages; the Storage Manager's delete check is `StoragePage/DeleteAdvice.tsx` with its pure rules for friction in `deleteAdviceRules.ts` and its request in `useDeleteAdvice.ts` |
 | `src/styles/`, `src/index.css` | Component styles, Tailwind entry and theme variables |
 | `src/shared/` | Shared pure logic, including benchmark prompts, formatting and the one "main disk" policy (`mainFilesystem.js`, also imported by the server) |
 | `config/` | Runtime configuration and persisted histories; never use live files in tests |

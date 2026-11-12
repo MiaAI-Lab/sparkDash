@@ -1,7 +1,7 @@
 import { useId } from "react";
 import type { StorageAdviceItem, StorageAdviceReason } from "../../api/types";
 import { AlertTriangleIcon, CheckIcon, InfoIcon, RotateIcon } from "../ui/icons";
-import { ADVICE_CONFIRM_PHRASE, LEVEL_LABEL, adviceHeadline, effectiveLevel, flaggedItems, levelCounts, ownUnchecked, sharedUnchecked } from "./deleteAdvice";
+import { ADVICE_CONFIRM_PHRASE, LEVEL_LABEL, adviceHeadline, effectiveLevel, flaggedItems, levelCounts, ownUnchecked, sharedUnchecked } from "./deleteAdviceRules";
 import { baseName } from "./storageTree";
 import type { DeleteAdvice } from "./useDeleteAdvice";
 
