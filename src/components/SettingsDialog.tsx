@@ -22,6 +22,8 @@ interface SettingsDialogProps {
   onClose: () => void;
   onSaved: (settings: Settings) => void;
   onOpenHarness?: () => void;
+  /** Open at this section (id "settings-section-<section>"), e.g. "energy"; see hooks/settingsLink. */
+  section?: string | null;
   /** Version reported by the running server; absent when health could not be read. */
   serverVersion?: string | null;
 }
@@ -127,7 +129,7 @@ const AGE_PRESETS = [
   { unit: "days", count: 14, value: 14 * 24 * 60 * 60 * 1000 },
 ];
 
-export function SettingsDialog({ open, onClose, onSaved, onOpenHarness, serverVersion }: SettingsDialogProps) {
+export function SettingsDialog({ open, onClose, onSaved, onOpenHarness, section = null, serverVersion }: SettingsDialogProps) {
   const { t } = useTranslation("settings");
   /** The server's own version wins: a stale dist must not report its build as the server's. */
   const displayVersion = serverVersion || packageJson.version;
@@ -171,6 +173,16 @@ export function SettingsDialog({ open, onClose, onSaved, onOpenHarness, serverVe
   useEscape(closeOnEscape);
 
   useEffect(() => onTokenChange((token) => setTokenSet(token !== "")), []);
+
+  // Opened at a section: bring it into view once the settings have loaded, and focus its main field.
+  const settingsReady = open && !loading && settings != null;
+  useEffect(() => {
+    if (!settingsReady || !section) return;
+    const el = document.getElementById(`settings-section-${section}`);
+    if (!el) return;
+    el.scrollIntoView?.({ block: "start" });
+    el.querySelector<HTMLElement>("[data-settings-focus]")?.focus({ preventScroll: true });
+  }, [settingsReady, section]);
 
   useEffect(() => {
     if (!open) {

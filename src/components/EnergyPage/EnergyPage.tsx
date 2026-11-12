@@ -10,6 +10,7 @@ import type { EnergyTariff } from "../../shared/energyTariff";
 import { LineAreaChart, type LineOverlay, type LinePoint } from "../ui/LineAreaChart";
 import { Tag } from "../ui/Tag";
 import { MonthlyEnergy } from "./MonthlyEnergy";
+import { SettingsLink } from "../ui/SettingsLink";
 import { MeterAlert, MeterChips } from "./MeterStatus";
 import { filledShare, formatRatio, hasWall, hourLines, nodeParts, wallRows, type HourLines, type NodeParts } from "./wallStats";
 import { usePowerMeterStatus } from "../../hooks/usePowerMeters";
@@ -468,11 +469,11 @@ function EnergyBody({
           <div className="big-num mono">{summary.cost != null && !noData ? formatMoney(summary.cost, currency) : "—"}</div>
           <div className="en-tile__sub">
             {!priced ? (
-              <span>{t("energy.setPrice")}</span>
+              <SettingsLink section="energy">{t("energy.setPrice")}</SettingsLink>
             ) : tou ? (
               <span>
                 {summary.cost == null
-                  ? t("energy.setBasePrice")
+                  ? <SettingsLink section="energy">{t("energy.setBasePrice")}</SettingsLink>
                   : summary.costPerDay != null && avgPrice != null
                     ? t("energy.costRateTou", { daily: formatMoney(summary.costPerDay, currency), price: `${currency}${avgPrice.toFixed(avgPrice < 1 ? 3 : 2)}` })
                     : "—"}

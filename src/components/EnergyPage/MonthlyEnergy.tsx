@@ -4,6 +4,7 @@ import { fetchMonthlyEnergy } from "../../api/client";
 import type { MonthlyEnergy as MonthlyEnergyData, MonthlyEnergyMonth } from "../../api/types";
 import { StackedBarChart, type BarLine, type BarSeries } from "../ui/StackedBarChart";
 import { Tag } from "../ui/Tag";
+import { SettingsLink } from "../ui/SettingsLink";
 import { formatKwh, formatMoney, type HourPrice } from "./energyStats";
 import { wallMonth } from "./wallStats";
 import {
@@ -215,7 +216,7 @@ function MonthView({
         {tou && cost != null && unbinnedKwh > 0 ? (
           <> {t("energy.monthly.unbinned", { kwh: formatKwh(unbinnedKwh), price: `${currency}${pricing.flat}` })}</>
         ) : null}
-        {tou && cost == null ? <> {unbinnedKwh > 0 ? t("energy.monthly.unbinnedNoPrice", { kwh: formatKwh(unbinnedKwh) }) : t("energy.setBasePrice")}</> : null}
+        {tou && cost == null ? <> <SettingsLink section="energy">{unbinnedKwh > 0 ? t("energy.monthly.unbinnedNoPrice", { kwh: formatKwh(unbinnedKwh) }) : t("energy.setBasePrice")}</SettingsLink></> : null}
       </p>
     </>
   );
@@ -291,7 +292,7 @@ function YearView({
         <p className="en-panel__sub en-panel__foot">
           {yearCost != null
             ? t("energy.monthly.unbinned", { kwh: formatKwh(unbinned), price: `${currency}${pricing.flat}` })
-            : t("energy.monthly.unbinnedNoPrice", { kwh: formatKwh(unbinned) })}
+            : <SettingsLink section="energy">{t("energy.monthly.unbinnedNoPrice", { kwh: formatKwh(unbinned) })}</SettingsLink>}
         </p>
       ) : null}
     </>

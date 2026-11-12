@@ -89,6 +89,8 @@ describe("Energy page cost", () => {
     const { container } = render(<EnergyPage sparks={sparks} settings={null} />);
     await settle();
     expect(costTile(container).textContent).toContain("Set an electricity price in Settings");
+    // The hint goes straight to the price in Settings.
+    expect(costTile(container).querySelector("a")?.getAttribute("href")).toBe("#settings/energy");
     expect(energyChart(container).querySelector("path")).toBeNull();
   });
 
