@@ -12,7 +12,9 @@ import fs from "node:fs";
 import { hasUnsafeName, parentOf, parseAbsolutePath } from "./policy.js";
 
 const SCRIPT_DIR = new URL("./scripts/", import.meta.url);
-const read = (name) => fs.readFileSync(new URL(name, SCRIPT_DIR), "utf8");
+// A Windows checkout with core.autocrlf gives the scripts CRLF endings, and the unit's sh then
+// stops with "end of file unexpected"; the programs always travel with LF.
+const read = (name) => fs.readFileSync(new URL(name, SCRIPT_DIR), "utf8").replace(/\r\n/g, "\n");
 
 const COMMON = read("common.sh");
 /** Delete v2 (stage-then-delete): the perl helper as $SD_PL, then the shared rename/staging functions. */
