@@ -169,6 +169,7 @@ function createSlot(id, opts, env) {
       : await loadDsh({
           webUrl: opts.dshWebUrl ?? env.DSH_WEB_URL,
           profileDir: opts.dshProfileDir ?? env.DSH_PROFILE_DIR,
+          token: opts.dshWebToken ?? env.DSH_WEB_TOKEN,
           fetchFn: opts.fetchFn,
           readProfiles: opts.readProfiles,
           signal,

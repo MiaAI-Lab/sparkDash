@@ -27,7 +27,7 @@ test("running is the only generating signal and a models failure keeps the sessi
     readProfiles: false,
     fetchFn: async (url) => {
       calls.push(url);
-      if (String(url).endsWith("/api/session.list")) {
+      if (String(url).endsWith("/api/session/list")) {
         return response({
           result: {
             ok: true,
@@ -59,7 +59,7 @@ test("running is the only generating signal and a models failure keeps the sessi
   const idle = loaded.rows.find((row) => row.sessionId === "idle");
   assert.equal(idle.activity, "unknown");
   assert.equal(idle.updatedAt, new Date(1_700_000_000_000).toISOString());
-  assert.equal(calls.some((url) => String(url).includes("session.models")), true);
+  assert.equal(calls.some((url) => String(url).includes("session/models")), true);
 });
 
 test("a provider base URL becomes a native origin", () => {
@@ -133,7 +133,7 @@ test("optional model lookups share the list deadline instead of restarting it", 
   let signal;
   const result = await loadDsh({ readProfiles: false, timeoutMs: 30, fetchFn: async (url, opts) => {
     signal = opts.signal;
-    if (url.endsWith('session.list')) return response({ result: { ok: true, value: { items: [{ sessionId: 'one' }] } } });
+    if (url.endsWith('session/list')) return response({ result: { ok: true, value: { items: [{ sessionId: 'one' }] } } });
     return new Promise(() => {});
   } });
   assert.equal(result.coverage, 'unavailable');
