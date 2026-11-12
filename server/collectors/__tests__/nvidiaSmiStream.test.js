@@ -283,3 +283,46 @@ test("without maxQuickFailures (GPU query) startup failures never give up", asyn
   assert.equal(children.length, 7);
   stream.dispose();
 });
+
+/**
+ * Runs `body` as an ES module in a fresh Node with nothing else keeping the
+ * event loop alive (the test runner's own handles differ between Node lines),
+ * so it shows what the stream itself holds open. Exit code 13 means a promise
+ * was left pending when the loop ran dry.
+ */
+function runAlone(body) {
+  const moduleUrl = new URL("../nvidiaSmiStream.js", import.meta.url).href;
+  const source = `import { NvidiaSmiStream, gpuQueryAssembler } from ${JSON.stringify(moduleUrl)};\n${body}`;
+  return new Promise((resolve) => {
+    childProcess.execFile(process.execPath, ["--input-type=module", "-e", source], { timeout: 10_000 }, (error, stdout) => {
+      resolve({ code: error ? (error.code ?? 1) : 0, stdout: stdout.trim() });
+    });
+  });
+}
+
+test("a pending read keeps Node alive until its waitMs runs out", async () => {
+  const { code, stdout } = await runAlone(`
+    const silent = { stdout: null, stderr: null, on() {}, unref() {}, kill() { return true; } };
+    const stream = new NvidiaSmiStream({ spawn: () => silent, assembler: gpuQueryAssembler({ fieldCount: 3, indexField: 1 }), intervalMs: 1000 });
+    console.log(String(await stream.read({ waitMs: 50 })));
+    stream.dispose();
+  `);
+  assert.deepEqual({ code, stdout }, { code: 0, stdout: "null" });
+});
+
+test("a child being stopped keeps Node alive until it is reaped", async () => {
+  const { code, stdout } = await runAlone(`
+    import { spawn } from "node:child_process";
+    const stream = new NvidiaSmiStream({
+      spawn: () => spawn("sh", ["-c", 'exec sh -c \\'while :; do echo "50, 0, a"; sleep 0.05; done\\''], { stdio: ["ignore", "pipe", "pipe"] }),
+      assembler: gpuQueryAssembler({ fieldCount: 3, indexField: 1 }),
+      intervalMs: 50,
+    });
+    await stream.read({ waitMs: 5000 });
+    const child = stream._child;
+    const closed = new Promise((resolve) => child.once("close", (code, signal) => resolve(signal)));
+    stream.dispose();
+    console.log(await closed);
+  `);
+  assert.deepEqual({ code, stdout }, { code: 0, stdout: "SIGTERM" });
+});

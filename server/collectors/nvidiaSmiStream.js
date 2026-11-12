@@ -15,6 +15,11 @@
  *     is treated as unsupported and not restarted again (see `_exited`);
  *   - `dispose()` and process exit kill the child.
  *
+ * Timer ownership: the running reader, the restart backoff and the SIGKILL
+ * grace timer are background work and are unref'd, so a reader never keeps
+ * Node alive by itself. Work someone waits for is ref'd: the `waitMs` timer of
+ * a pending `read()`, and a child being stopped until it is reaped.
+ *
  * The child must be the reader itself (`exec nvidia-smi ...`), so a signal
  * sent to it reaches nvidia-smi. If Node dies without running its exit hooks
  * (SIGKILL), nvidia-smi's next write hits a closed pipe and it exits on
@@ -189,9 +194,10 @@ export class NvidiaSmiStream {
           this._waiters.delete(waiter);
           resolve(value);
         },
+        // Ref'd on purpose: the caller is awaiting this read, so Node must
+        // stay up until it settles (at most `waitMs`).
         timer: setTimeout(() => waiter.resolve(null), waitMs),
       };
-      waiter.timer.unref?.();
       this._waiters.add(waiter);
     });
   }
@@ -319,6 +325,11 @@ export class NvidiaSmiStream {
   _terminate(child) {
     if (this._terminating.has(child)) return;
     this._terminating.add(child);
+    // Stopping is not background work: until the child is reaped (SIGTERM,
+    // then SIGKILL after KILL_GRACE_MS) it keeps Node alive again.
+    child.ref?.();
+    /** @type {any} */ (child.stdout)?.ref?.();
+    /** @type {any} */ (child.stderr)?.ref?.();
     try {
       child.kill("SIGTERM");
     } catch {
