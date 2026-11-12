@@ -15,6 +15,7 @@ export async function loadDsh({
   readProfiles = true,
   timeoutMs = 8_000,
   maxBytes = 1_000_000,
+  token = "",
   signal,
 } = {}) {
   let parsed;
@@ -31,14 +32,19 @@ export async function loadDsh({
   signal?.addEventListener("abort", abort, { once: true });
   if (signal?.aborted) abort();
   const timer = setTimeout(() => controller.abort(new Error("DSH refresh timed out")), timeoutMs);
-  const rpcOptions = { signal: controller.signal, maxBytes };
+  const rpcOptions = { signal: controller.signal, maxBytes, token: String(token || ""), cookie: "" };
   try {
     const origins = readProfiles ? loadProviderOrigins(profileDir) : new Map();
     const items = await fetchSessionList(fetchFn, parsed, rpcOptions);
     const active = items.filter((item) => item && item.blank !== true).slice(0, MAX_SESSIONS);
     const rows = [];
+    let modelsOk = true;
     for (const item of active) {
-      const models = await fetchSessionModels(fetchFn, parsed, item.sessionId, rpcOptions);
+      // Newer DSH builds have no session/models endpoint: stop asking after one miss.
+      const models = modelsOk
+        ? await fetchSessionModels(fetchFn, parsed, item.sessionId, rpcOptions)
+        : { provider: "", model: "" };
+      if (modelsOk && !models.model) modelsOk = false;
       rows.push(mapDshSession(item, models, origins));
     }
     return { coverage: "supported", stale: false, error: null, rows: rows.filter(Boolean) };
@@ -51,15 +57,15 @@ export async function loadDsh({
 }
 
 async function fetchSessionList(fetchFn, webUrl, options) {
-  const body = await rpc(fetchFn, webUrl, "session.list", { cursor: "" }, options);
+  const body = await rpc(fetchFn, webUrl, "session/list", { args: { _request: { cursor: "" } } }, options);
   const items = body?.value?.items;
-  if (!Array.isArray(items)) throw new Error("session.list returned no items");
+  if (!Array.isArray(items)) throw new Error("session/list returned no items");
   return items;
 }
 
 async function fetchSessionModels(fetchFn, webUrl, sessionId, options) {
   try {
-    const body = await rpc(fetchFn, webUrl, "session.models", { sessionId }, options);
+    const body = await rpc(fetchFn, webUrl, "session/models", { args: { _request: { sessionId } } }, options);
     const current = body?.value?.current;
     return {
       provider: typeof current?.provider === "string" ? current.provider : "",
@@ -71,7 +77,24 @@ async function fetchSessionModels(fetchFn, webUrl, sessionId, options) {
   }
 }
 
-async function rpc(fetchFn, webUrl, method, payload, { signal, maxBytes }) {
+// DSH web gates /api behind a cookie it hands out for its launch token
+// (GET /?token=...). Exchange once per refresh, only when a token is set.
+async function authCookie(fetchFn, webUrl, token, signal) {
+  const res = await fetchFn(`${webUrl.origin}/?token=${encodeURIComponent(token)}`, { redirect: "manual", signal });
+  void res.body?.cancel().catch(() => {});
+  const raw = typeof res.headers.getSetCookie === "function" ? res.headers.getSetCookie() : [];
+  const pair = raw.map((line) => String(line).split(";", 1)[0]).find((line) => line.startsWith("dsh-auth-"));
+  if (!pair) throw new Error("DSH web token was not accepted");
+  return pair;
+}
+
+async function rpc(fetchFn, webUrl, method, payload, options) {
+  const { signal } = options;
+  if (options.token && !options.cookie) options.cookie = await authCookie(fetchFn, webUrl, options.token, signal);
+  return rpcOnce(fetchFn, webUrl, method, payload, options);
+}
+
+async function rpcOnce(fetchFn, webUrl, method, payload, { signal, maxBytes, cookie }) {
   let reader;
   let rejectCancelled;
   const onAbort = () => rejectCancelled(signal.reason);
@@ -85,7 +108,7 @@ async function rpc(fetchFn, webUrl, method, payload, { signal, maxBytes }) {
       const res = await fetchFn(`${webUrl.origin}/api/${method}`, {
         method: "POST",
         signal,
-        headers: { "content-type": "application/json", accept: "application/json" },
+        headers: { "content-type": "application/json", accept: "application/json", ...(cookie ? { cookie } : {}) },
         body: JSON.stringify({ type: "client-request", rpcId: `occupancy-${method}`, method, payload }),
       });
       if (signal.aborted) { void res.body?.cancel().catch(() => {}); throw signal.reason; }

@@ -137,7 +137,7 @@ test("DSH timeout preserves stale rows and a later successful refresh replaces t
   const helper = createOccupancyHelper({ adapters: 'dsh', dshTimeoutMs: 25, readProfiles: false,
     fetchFn: async (url) => {
       if (mode === 'stall') return new Promise(() => {});
-      return new Response(JSON.stringify({ result: { ok: true, value: url.endsWith('session.list') ? { items: mode === 'empty' ? [] : [{ sessionId: 'one' }] } : {} } }));
+      return new Response(JSON.stringify({ result: { ok: true, value: url.endsWith('session/list') ? { items: mode === 'empty' ? [] : [{ sessionId: 'one' }] } : {} } }));
     },
   });
   try {
