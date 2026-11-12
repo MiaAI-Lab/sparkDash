@@ -1260,7 +1260,7 @@ A unit with **Unit type → Apple Silicon Mac** (`kind: "mac"`) is always remote
 | Uptime | `kern.boottime` |
 | Hardware header (model, chip, cores, memory) | `sysctl` |
 
-The non-privileged reads share one SSH call per poll. Metal wires MLX weights and KV cache while a model is working, but macOS can un-wire an idle model back into ordinary app memory without freeing it, so memory in use counts app memory as well as wired pages; the wired share is reported separately. SSH does not supply CPU or GPU temperatures. For measured temperatures, see the agent's [opt-in root collector](agents/macos/README.md#opt-in-root-temperatures).
+The non-privileged reads share one SSH call per poll. Metal wires MLX weights and KV cache while a model is working, but macOS can un-wire an idle model back into ordinary app memory without freeing it, so memory in use counts app memory as well as wired pages; the wired share is reported separately. SSH does not supply CPU or GPU temperatures. For measured temperatures, see the agent's [opt-in root collector](agents/macos/README.md#opt-in-root-temperatures). On a Mac Studio, Mac mini or Mac Pro, the GPU card's system figure adds Apple's published idle wall draw for the model to the three rails `powermetrics` reports and marks the total as an estimate; a [wall meter](docs/POWER-METERS.md) replaces it.
 
 **Requirements on the Mac**
 - Remote Login (SSH) enabled, and the sparkDash host's key in the account's `authorized_keys`.

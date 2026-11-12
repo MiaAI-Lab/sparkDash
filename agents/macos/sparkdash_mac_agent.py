@@ -65,7 +65,7 @@ MB = 1024 * 1024
 REACHABILITY_PROBES = (("1.1.1.1", 53), ("8.8.8.8", 53))
 
 POWERMETRICS_CMD = [
-    "powermetrics", "-n", "1", "-i", "250",
+    "powermetrics", "-n", "1", "-i", "250", "--handle-invalid-values",
     "--samplers", "gpu_power,cpu_power,thermal",
 ]
 
@@ -477,18 +477,27 @@ def parse_powermetrics(text: str) -> dict[str, object]:
         match = re.search(pattern, src)
         return float(match.group(1)) if match else None
 
-    def watts(pattern: str) -> float | None:
-        value = num(pattern)
-        return None if value is None else round(value / 1000, 1)
+    # A rail is read from its own line, so `invalid=true` on that line can be
+    # honoured. `--handle-invalid-values` makes powermetrics print the marker
+    # instead of aborting the sample, and a rail that reported nothing then stays
+    # None rather than reaching the dashboard as a measured 0 W.
+    def watts(label: str) -> float | None:
+        for line in re.findall(rf"^{re.escape(label)}:.*$", src, re.MULTILINE):
+            if "invalid=true" in line:
+                return None
+            match = re.search(r"([\d.]+)\s*mW", line)
+            if match:
+                return round(float(match.group(1)) / 1000, 1)
+        return None
 
     pressure = re.search(r"Current pressure level:\s*(\w+)", src)
     return {
         "gpuActivePct": num(r"GPU HW active residency:\s*([\d.]+)%"),
         "gpuFreqMHz": num(r"GPU HW active frequency:\s*([\d.]+)\s*MHz"),
-        "gpuW": watts(r"GPU Power:\s*([\d.]+)\s*mW"),
-        "cpuW": watts(r"CPU Power:\s*([\d.]+)\s*mW"),
-        "aneW": watts(r"ANE Power:\s*([\d.]+)\s*mW"),
-        "combinedW": watts(r"Combined Power \(CPU \+ GPU \+ ANE\):\s*([\d.]+)\s*mW"),
+        "gpuW": watts("GPU Power"),
+        "cpuW": watts("CPU Power"),
+        "aneW": watts("ANE Power"),
+        "combinedW": watts("Combined Power (CPU + GPU + ANE)"),
         "thermalPressure": pressure.group(1) if pressure else None,
     }
 

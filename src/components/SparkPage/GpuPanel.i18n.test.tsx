@@ -125,3 +125,24 @@ it("retains unknown GPU placeholders and localizes the used-only memory fallback
   await act(() => setLocale("en"));
   expect(container.querySelector(".sp-section")?.textContent).toBe("VRAM512 MB used");
 });
+
+it("names the AppleSMC key behind a Mac GPU temperature, and claims nothing when it is absent", async () => {
+  const smc: GpuMetrics = { ...makeSpark().metrics.gpu!, temperature: 41.5, temperatureSource: "smc" };
+  const { container } = render(
+    <GpuPanel gpu={smc} sparkId="mac-gpu-smc" temperatureUnit="celsius" chip="Apple M5 Max" mac />
+  );
+  await flush();
+  expect(container.textContent).toContain("41.5°C");
+  expect(container.querySelector('[title="Reading from the AppleSMC key smc, not a GPU die sensor"]')).not.toBeNull();
+
+  await act(() => setLocale("zh-CN"));
+  expect(container.querySelector('[title*="AppleSMC 键 smc"]')).not.toBeNull();
+  await act(() => setLocale("en"));
+
+  const unread: GpuMetrics = { ...makeSpark().metrics.gpu!, temperature: null, temperatureSource: null };
+  const blind = render(
+    <GpuPanel gpu={unread} sparkId="mac-gpu-unread" temperatureUnit="celsius" chip="Apple M5 Max" mac />
+  );
+  await flush();
+  expect(blind.container.querySelector("[title*='AppleSMC']")).toBeNull();
+});

@@ -41,8 +41,11 @@ HTTP 503 during initial collection.
 ## Install as a LaunchAgent (one line)
 
 ```bash
-sed "s|/Users/PLACEHOLDER|$HOME|g; s|REPOS/sparkDash|$(pwd)|" agents/macos/ai.onyx.sparkdash-mac-agent.plist > ~/Library/LaunchAgents/ai.onyx.sparkdash-mac-agent.plist && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.onyx.sparkdash-mac-agent.plist
+sed "s|/Users/PLACEHOLDER/REPOS/sparkDash|$PWD|g; s|/Users/PLACEHOLDER|$HOME|g" agents/macos/ai.onyx.sparkdash-mac-agent.plist > ~/Library/LaunchAgents/ai.onyx.sparkdash-mac-agent.plist && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.onyx.sparkdash-mac-agent.plist
 ```
+
+The checkout substitution has to run first: the template's program path begins with the home
+placeholder, so applying them the other way round nests the checkout inside the home twice.
 
 Run from the sparkDash checkout, after editing the plist's `--host`/`--port` if
 the defaults (bind all interfaces, port 8790 — no credentials, so keep it on a

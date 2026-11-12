@@ -324,6 +324,8 @@ export interface GpuMetrics {
   thermalPressure?: string | null;
   /** Mac units: false when `sudo -n powermetrics` is not permitted, so GPU activity and power are unknown. */
   powermetricsAvailable?: boolean;
+  /** Mac node agent only: sensor behind `temperature` — "powermetrics" die read, or "smc" for an AppleSMC key. */
+  temperatureSource?: string | null;
   /** Mac-agent units: what this node could not read (e.g. gpu.power without root). */
   unavailable?: MetricGap[];
   power: {
@@ -331,6 +333,12 @@ export interface GpuMetrics {
     limit: number;
     /** Estimated total system power draw (GPU + CPU + CX7/peripherals). */
     systemDraw?: number;
+    /**
+     * What systemDraw rests on: "powermetrics" for the SoC rails the Mac reported,
+     * "apple-idle" or "desktop-idle" when a published idle figure was added to them,
+     * null when there is no total.
+     */
+    systemPowerSource?: string | null;
   };
   vram: {
     used: number;
@@ -401,13 +409,14 @@ export interface CpuMetrics {
   /** False when the CPU usage read was unavailable; the numeric placeholder is not a measured zero. */
   usageAvailable?: boolean;
   /** Availability entries from the same CPU sample. */
-  unavailable?: MetricGap[];
+  unavailable?: MetricGap[] | null;
   temperature: number | null;
   /** What the temperature reading is: "CPU", or "ACPI"/"SoC" for a board zone. */
   temperatureLabel?: string | null;
   /** Raw sensor name behind the reading (e.g. "acpitz", "coretemp"). */
   temperatureSource?: string | null;
-  draw: number;
+  /** Null when the platform could not read the rail, so a zero stays a measured zero. */
+  draw: number | null;
   tdp: number;
 }
 
