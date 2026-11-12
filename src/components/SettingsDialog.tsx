@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { isValidTimeZone, listTimeZones } from "../shared/timeZone";
 import { reloadPage } from "../shared/reloadPage";
 import { fetchSettings, updateSettings } from "../api/client";
+import { EnergyPriceSetting, energyPeriodsMessage } from "./EnergyPriceSetting";
 import { clearToken, getToken, onTokenChange, requestTokenPrompt } from "../api/authToken";
 import type { Settings } from "../api/types";
 import { useModalPresence } from "../hooks/useModalPresence";
@@ -14,6 +15,8 @@ import { AlertsDialog } from "./AlertsDialog";
 import { BrowserAlertsSettings } from "./BrowserAlertsSettings";
 import { FleetGpuClock, type FleetGpuClockApi } from "./FleetGpuClock";
 import { LanguageSelector } from "./LanguageSelector";
+import { SETTINGS_TABS, tabAfterKey, tabForSection, type SettingsTab } from "./settingsTabs";
+import { settingsHref } from "../hooks/settingsLink";
 import "../styles/dialogs.css";
 
 interface SettingsDialogProps {
@@ -21,6 +24,8 @@ interface SettingsDialogProps {
   onClose: () => void;
   onSaved: (settings: Settings) => void;
   onOpenHarness?: () => void;
+  /** Open at this section (id "settings-section-<section>"), e.g. "energy"; see hooks/settingsLink. */
+  section?: string | null;
   /** Version reported by the running server; absent when health could not be read. */
   serverVersion?: string | null;
 }
@@ -126,7 +131,7 @@ const AGE_PRESETS = [
   { unit: "days", count: 14, value: 14 * 24 * 60 * 60 * 1000 },
 ];
 
-export function SettingsDialog({ open, onClose, onSaved, onOpenHarness, serverVersion }: SettingsDialogProps) {
+export function SettingsDialog({ open, onClose, onSaved, onOpenHarness, section = null, serverVersion }: SettingsDialogProps) {
   const { t } = useTranslation("settings");
   /** The server's own version wins: a stale dist must not report its build as the server's. */
   const displayVersion = serverVersion || packageJson.version;
@@ -171,6 +176,37 @@ export function SettingsDialog({ open, onClose, onSaved, onOpenHarness, serverVe
 
   useEffect(() => onTokenChange((token) => setTokenSet(token !== "")), []);
 
+  // Opened at a section: bring it into view once the settings have loaded, and focus its main field.
+  const settingsReady = open && !loading && settings != null;
+  useEffect(() => {
+    if (!settingsReady || !section) return;
+    const el = document.getElementById(`settings-section-${section}`);
+    if (!el) return;
+    el.scrollIntoView?.({ block: "start" });
+    el.querySelector<HTMLElement>("[data-settings-focus]")?.focus({ preventScroll: true });
+  }, [settingsReady, section]);
+
+  // Tabs: opened at the tab a link names (General otherwise); the open tab is kept in the address.
+  const [tab, setTab] = useState<SettingsTab>(() => tabForSection(section));
+  useEffect(() => {
+    if (open) setTab(tabForSection(section));
+  }, [open, section]);
+  const tabLabels: Record<SettingsTab, string> = {
+    general: t("tabs.general"),
+    overview: t("tabs.overview"),
+    sparks: t("tabs.sparks"),
+    energy: t("tabs.energy"),
+    integrations: t("tabs.integrations"),
+    security: t("tabs.security"),
+  };
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const selectTab = useCallback((next: SettingsTab, focus = false) => {
+    setTab(next);
+    if (bodyRef.current) bodyRef.current.scrollTop = 0;
+    window.history.replaceState(window.history.state, "", window.location.pathname + window.location.search + settingsHref(next));
+    if (focus) document.getElementById(`settings-tab-${next}`)?.focus();
+  }, []);
+
   useEffect(() => {
     if (!open) {
       setShowAlerts(false);
@@ -190,7 +226,10 @@ export function SettingsDialog({ open, onClose, onSaved, onOpenHarness, serverVe
         setSettings(s);
       })
       .catch((err: Error) => {
-        if (!cancelled) setError(err.message);
+        if (cancelled) return;
+        setError(err.message);
+        // A rejected access token is the usual reason; it is set on the Security tab.
+        setTab("security");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -230,23 +269,34 @@ export function SettingsDialog({ open, onClose, onSaved, onOpenHarness, serverVe
       // The server would silently fall back to the browser's zone; say so instead.
       setError(null);
       setInvalidTimeZone(settings.timeZone);
+      setTab("general");
       return;
     }
     if (settings.mqttUrl && mqttUrlHasCredentials(settings.mqttUrl)) {
       // settings.json is world-readable, so the server refuses (and clears) such a URL.
       // Check before the scheme error, which quotes the URL: never echo credentials.
       setError({ kind: "mqttCredentials" });
+      setTab("integrations");
       return;
     }
     if (settings.mqttUrl && !/^(mqtt|ws)s?:\/\//i.test(settings.mqttUrl.trim())) {
       // The server would silently clear it; say so instead.
       setError({ kind: "mqttUrl", url: settings.mqttUrl });
+      setTab("integrations");
       return;
     }
     const tempsError = healthTempsError(settings.healthTempWarnC, settings.healthTempCriticalC, t);
     if (tempsError) {
       setInvalidTimeZone(null);
       setError(tempsError);
+      setTab("sparks");
+      return;
+    }
+    const periodsError = energyPeriodsMessage(settings, t);
+    if (periodsError) {
+      setInvalidTimeZone(null);
+      setError(periodsError);
+      setTab("energy");
       return;
     }
     setSaving(true);
@@ -296,493 +346,579 @@ export function SettingsDialog({ open, onClose, onSaved, onOpenHarness, serverVe
           </button>
         </div>
 
-        <div className="modal-sheet__body">
+        <div
+          className="set-tabs"
+          role="tablist"
+          aria-label={t("tabs.aria")}
+          onKeyDown={(e) => {
+            const next = tabAfterKey(tab, e.key);
+            if (!next) return;
+            e.preventDefault();
+            selectTab(next, true);
+          }}
+        >
+          {SETTINGS_TABS.map((id) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              id={`settings-tab-${id}`}
+              aria-controls={`settings-panel-${id}`}
+              aria-selected={tab === id}
+              tabIndex={tab === id ? 0 : -1}
+              className={`set-tabs__tab${tab === id ? " is-on" : ""}`}
+              onClick={() => selectTab(id)}
+            >
+              {tabLabels[id]}
+            </button>
+          ))}
+        </div>
+
+        <div className="modal-sheet__body" ref={bodyRef}>
           {loading && <p className="bench-sheet__hint">{t("dialog.loading")}</p>}
-
-          <LanguageSelector />
-
-          <SettingRow
-            title={t("appearance.title")}
-            help={t("appearance.help")}
+          <div
+            role="tabpanel"
+            id="settings-panel-general"
+            aria-labelledby="settings-tab-general"
+            className="set-tabpanel"
+            hidden={tab !== "general"}
           >
-            <div className="swatches" role="radiogroup" aria-label={t("appearance.theme")}>
-              {THEME_CHOICES.map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={theme === t.id}
-                  className={`sw sw--${t.id}${theme === t.id ? " is-on" : ""}`}
-                  onClick={() => pickTheme(t.id)}
+            <LanguageSelector />
+            <SettingRow
+              title={t("appearance.title")}
+              help={t("appearance.help")}
+            >
+              <div className="swatches" role="radiogroup" aria-label={t("appearance.theme")}>
+                {THEME_CHOICES.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={theme === t.id}
+                    className={`sw sw--${t.id}${theme === t.id ? " is-on" : ""}`}
+                    onClick={() => pickTheme(t.id)}
+                  >
+                    <i className="sw__dot" aria-hidden />
+                    {themeLabel(t.id)}
+                  </button>
+                ))}
+              </div>
+            </SettingRow>
+            {settings && !loading && (
+              <>
+                <SettingRow title={t("refresh.title")} help={t("refresh.help")}>
+                  <div className="seg" role="radiogroup" aria-label={t("refresh.interval")}>
+                    {POLL_PRESETS.map((preset) => (
+                      <button
+                        key={preset.value}
+                        type="button"
+                        role="radio"
+                        aria-checked={settings.pollIntervalMs === preset.value}
+                        className={settings.pollIntervalMs === preset.value ? "is-on" : ""}
+                        onClick={() => update({ pollIntervalMs: preset.value })}
+                      >
+                        {pollLabel(preset.value)}
+                      </button>
+                    ))}
+                  </div>
+                </SettingRow>
+
+                <SettingRow
+                  title={t("timeZone.title")}
+                  help={t("timeZone.help", { timeZone: browserTimeZone })}
+                  htmlFor="settings-time-zone"
+                  stack
                 >
-                  <i className="sw__dot" aria-hidden />
-                  {themeLabel(t.id)}
-                </button>
-              ))}
-            </div>
-          </SettingRow>
-
-          {settings && !loading && (
-            <>
-              <SettingRow title={t("refresh.title")} help={t("refresh.help")}>
-                <div className="seg" role="radiogroup" aria-label={t("refresh.interval")}>
-                  {POLL_PRESETS.map((preset) => (
+                  <div className="set-tz">
+                    <input
+                      id="settings-time-zone"
+                      type="text"
+                      list="settings-time-zones"
+                      value={settings.timeZone ?? ""}
+                      placeholder={t("timeZone.placeholder")}
+                      title={t("timeZone.inputTitle", { timeZone: browserTimeZone })}
+                      spellCheck={false}
+                      autoComplete="off"
+                      aria-invalid={tzInvalid}
+                      aria-describedby="settings-time-zone-msg"
+                      ref={tzInput}
+                      onChange={(e) => update({ timeZone: e.target.value })}
+                      onFocus={() => setTzFocused(true)}
+                      onBlur={() => {
+                        setTzFocused(false);
+                        setTzTouched(true);
+                      }}
+                      className="field-input"
+                    />
+                    <datalist id="settings-time-zones">
+                      {timeZones.map((zone) => (
+                        <option key={zone} value={zone} />
+                      ))}
+                    </datalist>
                     <button
-                      key={preset.value}
+                      type="button"
+                      className="btn btn--sm btn--ghost"
+                      disabled={!settings.timeZone}
+                      onClick={() => {
+                        update({ timeZone: "" });
+                        setTzTouched(false);
+                        tzInput.current?.focus(); // the button disables itself: keep keyboard focus somewhere sensible
+                      }}
+                    >
+                      {t("timeZone.useBrowser")}
+                    </button>
+                  </div>
+                  {/* One reserved line: the message appears after the field is left, and never moves anything. */}
+                  <small id="settings-time-zone-msg" className="set-tz__msg" role="status" aria-live="polite">
+                    {tzInvalid ? t("timeZone.unknown") : ""}
+                  </small>
+                </SettingRow>
+
+                <SettingRow title={t("temperature.title")}>
+                  <div className="seg" role="radiogroup" aria-label={t("temperature.aria")}>
+                    <button
                       type="button"
                       role="radio"
-                      aria-checked={settings.pollIntervalMs === preset.value}
-                      className={settings.pollIntervalMs === preset.value ? "is-on" : ""}
-                      onClick={() => update({ pollIntervalMs: preset.value })}
+                      aria-checked={settings.temperatureUnit === "celsius"}
+                      className={settings.temperatureUnit === "celsius" ? "is-on" : ""}
+                      onClick={() => update({ temperatureUnit: "celsius" })}
                     >
-                      {pollLabel(preset.value)}
+                      °C
                     </button>
-                  ))}
-                </div>
-              </SettingRow>
-
-              <SettingRow title={t("sessionAge.title")} help={t("sessionAge.help")} stack>
-                <div className="seg" role="radiogroup" aria-label={t("sessionAge.title")}>
-                  {AGE_PRESETS.map((preset) => (
                     <button
-                      key={preset.value}
                       type="button"
                       role="radio"
-                      aria-checked={(settings.occupancyMaxAgeMs ?? AGE_PRESETS[2].value) === preset.value}
-                      className={(settings.occupancyMaxAgeMs ?? AGE_PRESETS[2].value) === preset.value ? "is-on" : ""}
-                      onClick={() => update({ occupancyMaxAgeMs: preset.value })}
+                      aria-checked={settings.temperatureUnit === "fahrenheit"}
+                      className={settings.temperatureUnit === "fahrenheit" ? "is-on" : ""}
+                      onClick={() => update({ temperatureUnit: "fahrenheit" })}
                     >
-                      {preset.unit === "hours"
-                        ? t("sessionAge.hours", { count: preset.count })
-                        : t("sessionAge.days", { count: preset.count })}
+                      °F
                     </button>
-                  ))}
-                </div>
-              </SettingRow>
+                  </div>
+                </SettingRow>
+              </>
+            )}
+          </div>
 
-              <SettingRow title={t("harnessSessions.title")} help={t("harnessSessions.help")}>
-                <button type="button" className="btn btn--sm" onClick={() => onOpenHarness?.()}>
-                  {t("harnessSessions.setup")}
-                </button>
-              </SettingRow>
+          <div
+            role="tabpanel"
+            id="settings-panel-overview"
+            aria-labelledby="settings-tab-overview"
+            className="set-tabpanel"
+            hidden={tab !== "overview"}
+          >
+            {settings && !loading && (
+              <>
+                <ToggleRow
+                  title={t("toggles.hideOffline.title")}
+                  help={t("toggles.hideOffline.help")}
+                  checked={settings.autoHideOffline}
+                  onChange={(v) => update({ autoHideOffline: v })}
+                />
 
-              <SettingRow title={t("temperature.title")}>
-                <div className="seg" role="radiogroup" aria-label={t("temperature.aria")}>
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={settings.temperatureUnit === "celsius"}
-                    className={settings.temperatureUnit === "celsius" ? "is-on" : ""}
-                    onClick={() => update({ temperatureUnit: "celsius" })}
-                  >
-                    °C
+                <ToggleRow
+                  title={t("toggles.hideWorkers.title")}
+                  help={t("toggles.hideWorkers.help")}
+                  checked={Boolean(settings.hideWorkers)}
+                  onChange={(v) => update({ hideWorkers: v })}
+                />
+
+                <ToggleRow
+                  title={t("toggles.overviewSearch.title")}
+                  help={t("toggles.overviewSearch.help")}
+                  checked={Boolean(settings.showOverviewSearch)}
+                  onChange={(v) => update({ showOverviewSearch: v })}
+                />
+
+                <ToggleRow
+                  title={t("toggles.vramBreakdown.title")}
+                  help={t("toggles.vramBreakdown.help")}
+                  checked={settings.showVramBreakdown ?? true}
+                  onChange={(v) => update({ showVramBreakdown: v })}
+                />
+
+                <ToggleRow
+                  title={t("toggles.llmTokenTotals.title")}
+                  help={t("toggles.llmTokenTotals.help")}
+                  checked={Boolean(settings.showLlmTokenTotals)}
+                  onChange={(v) => update({ showLlmTokenTotals: v })}
+                />
+
+                <ToggleRow
+                  title={t("toggles.recentActivity.title")}
+                  help={t("toggles.recentActivity.help")}
+                  checked={settings.showActivityFeed ?? true}
+                  onChange={(v) => update({ showActivityFeed: v })}
+                />
+
+                <ToggleRow
+                  title={t("toggles.fleetDecode.title")}
+                  help={t("toggles.fleetDecode.help")}
+                  checked={settings.showKpiDecode ?? true}
+                  onChange={(v) => update({ showKpiDecode: v })}
+                />
+
+                <ToggleRow
+                  title={t("toggles.fleetPower.title")}
+                  help={t("toggles.fleetPower.help")}
+                  checked={settings.showKpiPower ?? true}
+                  onChange={(v) => update({ showKpiPower: v })}
+                />
+
+                <ToggleRow
+                  title={t("toggles.memoryInUse.title")}
+                  help={t("toggles.memoryInUse.help")}
+                  checked={settings.showKpiMemory ?? true}
+                  onChange={(v) => update({ showKpiMemory: v })}
+                />
+
+                <ToggleRow
+                  title={t("toggles.tokens24Hours.title")}
+                  help={t("toggles.tokens24Hours.help")}
+                  checked={settings.showKpiTokens ?? true}
+                  onChange={(v) => update({ showKpiTokens: v })}
+                />
+
+                <ToggleRow
+                  title={t("toggles.fleetExceptions.title")}
+                  help={t("toggles.fleetExceptions.help")}
+                  checked={Boolean(settings.showFleetExceptions)}
+                  onChange={(v) => update({ showFleetExceptions: v })}
+                />
+              </>
+            )}
+          </div>
+
+          <div
+            role="tabpanel"
+            id="settings-panel-sparks"
+            aria-labelledby="settings-tab-sparks"
+            className="set-tabpanel"
+            hidden={tab !== "sparks"}
+          >
+            {settings && !loading && (
+              <>
+                <SettingRow
+                  title={t("defaultLlmPort.title")}
+                  help={t("defaultLlmPort.help")}
+                  htmlFor="settings-default-llm-port"
+                >
+                  <input
+                    id="settings-default-llm-port"
+                    type="number"
+                    min={1}
+                    max={65535}
+                    value={settings.defaultLlmPort}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10);
+                      if (!isNaN(val)) update({ defaultLlmPort: val });
+                    }}
+                    className="field-input field-input--port"
+                  />
+                </SettingRow>
+
+                <SettingRow
+                  title={t("healthTemps.title")}
+                  help={
+                    <>
+                      {t("healthTemps.help")}
+                      <button
+                        type="button"
+                        className="btn btn--sm btn--ghost set-row__action"
+                        disabled={settings.healthTempWarnC === 85 && settings.healthTempCriticalC === 90}
+                        onClick={() => update({ healthTempWarnC: 85, healthTempCriticalC: 90 })}
+                      >
+                        {t("healthTemps.reset")}
+                      </button>
+                    </>
+                  }
+                  htmlFor="settings-health-temp-warn"
+                >
+                  <div className="set-price">
+                    <input
+                      id="settings-health-temp-warn"
+                      type="number"
+                      aria-label={t("healthTemps.warn")}
+                      min={HEALTH_TEMP_MIN_C}
+                      max={HEALTH_TEMP_MAX_C}
+                      step="1"
+                      inputMode="decimal"
+                      placeholder="85"
+                      value={healthTempValue(settings.healthTempWarnC)}
+                      onChange={(e) => update({ healthTempWarnC: parseHealthTemp(e.target.value) })}
+                      className="field-input field-input--price"
+                    />
+                    <input
+                      id="settings-health-temp-critical"
+                      type="number"
+                      aria-label={t("healthTemps.critical")}
+                      min={HEALTH_TEMP_MIN_C}
+                      max={HEALTH_TEMP_MAX_C}
+                      step="1"
+                      inputMode="decimal"
+                      placeholder="90"
+                      value={healthTempValue(settings.healthTempCriticalC)}
+                      onChange={(e) => update({ healthTempCriticalC: parseHealthTemp(e.target.value) })}
+                      className="field-input field-input--price"
+                    />
+                  </div>
+                </SettingRow>
+
+                <SettingRow title={t("sessionAge.title")} help={t("sessionAge.help")} stack>
+                  <div className="seg" role="radiogroup" aria-label={t("sessionAge.title")}>
+                    {AGE_PRESETS.map((preset) => (
+                      <button
+                        key={preset.value}
+                        type="button"
+                        role="radio"
+                        aria-checked={(settings.occupancyMaxAgeMs ?? AGE_PRESETS[2].value) === preset.value}
+                        className={(settings.occupancyMaxAgeMs ?? AGE_PRESETS[2].value) === preset.value ? "is-on" : ""}
+                        onClick={() => update({ occupancyMaxAgeMs: preset.value })}
+                      >
+                        {preset.unit === "hours"
+                          ? t("sessionAge.hours", { count: preset.count })
+                          : t("sessionAge.days", { count: preset.count })}
+                      </button>
+                    ))}
+                  </div>
+                </SettingRow>
+
+                <SettingRow title={t("harnessSessions.title")} help={t("harnessSessions.help")}>
+                  <button type="button" className="btn btn--sm" onClick={() => onOpenHarness?.()}>
+                    {t("harnessSessions.setup")}
                   </button>
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={settings.temperatureUnit === "fahrenheit"}
-                    className={settings.temperatureUnit === "fahrenheit" ? "is-on" : ""}
-                    onClick={() => update({ temperatureUnit: "fahrenheit" })}
-                  >
-                    °F
-                  </button>
-                </div>
-              </SettingRow>
+                </SettingRow>
 
-              <SettingRow
-                title={t("healthTemps.title")}
-                help={
-                  <>
-                    {t("healthTemps.help")}
-                    <button
-                      type="button"
-                      className="btn btn--sm btn--ghost set-row__action"
-                      disabled={settings.healthTempWarnC === 85 && settings.healthTempCriticalC === 90}
-                      onClick={() => update({ healthTempWarnC: 85, healthTempCriticalC: 90 })}
-                    >
-                      {t("healthTemps.reset")}
+                <ToggleRow
+                  title={t("toggles.metricsHistory.title")}
+                  help={t("toggles.metricsHistory.help")}
+                  checked={Boolean(settings.metricsHistory)}
+                  onChange={(v) => update({ metricsHistory: v })}
+                />
+
+                <ToggleRow
+                  title={t("toggles.llmStreamSample.title")}
+                  help={t("toggles.llmStreamSample.help")}
+                  checked={Boolean(settings.llmStreamSample)}
+                  onChange={(v) => update({ llmStreamSample: v })}
+                />
+
+                <ToggleRow
+                  title={t("toggles.benchShareImage.title")}
+                  help={t("toggles.benchShareImage.help")}
+                  checked={Boolean(settings.benchShareImage)}
+                  onChange={(v) => update({ benchShareImage: v })}
+                />
+
+                <ToggleRow
+                  title={t("toggles.benchDebugTraces.title")}
+                  help={t("toggles.benchDebugTraces.help")}
+                  checked={Boolean(settings.benchDebugTraces)}
+                  onChange={(v) => update({ benchDebugTraces: v })}
+                />
+              </>
+            )}
+          </div>
+
+          <div
+            role="tabpanel"
+            id="settings-panel-energy"
+            aria-labelledby="settings-tab-energy"
+            className="set-tabpanel"
+            hidden={tab !== "energy"}
+          >
+            {settings && !loading && (
+              <>
+                <EnergyPriceSetting settings={settings} update={update} />
+
+                <ToggleRow
+                  title={t("toggles.fleetEnergy.title")}
+                  help={t("toggles.fleetEnergy.help")}
+                  checked={Boolean(settings.showFleetEnergy)}
+                  onChange={(v) => update({ showFleetEnergy: v })}
+                />
+              </>
+            )}
+            {/* Outside the settings block: a fleet GPU action needs no saved settings. */}
+            <SettingRow
+              title={t("gpuClock.title")}
+              help={t("gpuClock.help")}
+              stack
+            >
+              <FleetGpuClock apiRef={fleetClock} onPendingChange={setFleetClockPending} />
+            </SettingRow>
+          </div>
+
+          <div
+            role="tabpanel"
+            id="settings-panel-integrations"
+            aria-labelledby="settings-tab-integrations"
+            className="set-tabpanel"
+            hidden={tab !== "integrations"}
+          >
+            {settings && !loading && (
+              <>
+                <SettingRow
+                  title={t("alertNotifications.title")}
+                  help={t("alertNotifications.help")}
+                >
+                  <div className="set-token">
+                    <span className={`set-token__state${settings.alertsEnabled ? " is-set" : ""}`} data-testid="alerts-state">
+                      <i aria-hidden />
+                      {settings.alertsEnabled ? t("alertNotifications.on") : t("alertNotifications.off")}
+                    </span>
+                    <button type="button" className="btn btn--sm" onClick={() => setShowAlerts(true)}>
+                      {t("alertNotifications.configure")}
                     </button>
-                  </>
-                }
-                htmlFor="settings-health-temp-warn"
-              >
-                <div className="set-price">
-                  <input
-                    id="settings-health-temp-warn"
-                    type="number"
-                    aria-label={t("healthTemps.warn")}
-                    min={HEALTH_TEMP_MIN_C}
-                    max={HEALTH_TEMP_MAX_C}
-                    step="1"
-                    inputMode="decimal"
-                    placeholder="85"
-                    value={healthTempValue(settings.healthTempWarnC)}
-                    onChange={(e) => update({ healthTempWarnC: parseHealthTemp(e.target.value) })}
-                    className="field-input field-input--price"
-                  />
-                  <input
-                    id="settings-health-temp-critical"
-                    type="number"
-                    aria-label={t("healthTemps.critical")}
-                    min={HEALTH_TEMP_MIN_C}
-                    max={HEALTH_TEMP_MAX_C}
-                    step="1"
-                    inputMode="decimal"
-                    placeholder="90"
-                    value={healthTempValue(settings.healthTempCriticalC)}
-                    onChange={(e) => update({ healthTempCriticalC: parseHealthTemp(e.target.value) })}
-                    className="field-input field-input--price"
-                  />
-                </div>
-              </SettingRow>
+                  </div>
+                </SettingRow>
 
-              <SettingRow
-                title={t("timeZone.title")}
-                help={t("timeZone.help", { timeZone: browserTimeZone })}
-                htmlFor="settings-time-zone"
-                stack
-              >
-                <div className="set-tz">
+                <BrowserAlertsSettings />
+
+                <ToggleRow
+                  title={t("mqtt.publishing.title")}
+                  help={t("mqtt.publishing.help")}
+                  checked={Boolean(settings.mqttEnabled)}
+                  onChange={(v) => update({ mqttEnabled: v })}
+                />
+
+                <SettingRow
+                  title={t("mqtt.url.title")}
+                  help={t("mqtt.url.help")}
+                  htmlFor="settings-mqtt-url"
+                >
                   <input
-                    id="settings-time-zone"
+                    id="settings-mqtt-url"
                     type="text"
-                    list="settings-time-zones"
-                    value={settings.timeZone ?? ""}
-                    placeholder={t("timeZone.placeholder")}
-                    title={t("timeZone.inputTitle", { timeZone: browserTimeZone })}
+                    value={settings.mqttUrl ?? ""}
+                    placeholder="mqtt://homeassistant.local:1883"
                     spellCheck={false}
                     autoComplete="off"
-                    aria-invalid={tzInvalid}
-                    aria-describedby="settings-time-zone-msg"
-                    ref={tzInput}
-                    onChange={(e) => update({ timeZone: e.target.value })}
-                    onFocus={() => setTzFocused(true)}
-                    onBlur={() => {
-                      setTzFocused(false);
-                      setTzTouched(true);
-                    }}
+                    onChange={(e) => update({ mqttUrl: e.target.value })}
                     className="field-input"
                   />
-                  <datalist id="settings-time-zones">
-                    {timeZones.map((zone) => (
-                      <option key={zone} value={zone} />
-                    ))}
-                  </datalist>
-                  <button
-                    type="button"
-                    className="btn btn--sm btn--ghost"
-                    disabled={!settings.timeZone}
-                    onClick={() => {
-                      update({ timeZone: "" });
-                      setTzTouched(false);
-                      tzInput.current?.focus(); // the button disables itself: keep keyboard focus somewhere sensible
-                    }}
-                  >
-                    {t("timeZone.useBrowser")}
-                  </button>
-                </div>
-                {/* One reserved line: the message appears after the field is left, and never moves anything. */}
-                <small id="settings-time-zone-msg" className="set-tz__msg" role="status" aria-live="polite">
-                  {tzInvalid ? t("timeZone.unknown") : ""}
-                </small>
-              </SettingRow>
+                </SettingRow>
 
-              <SettingRow
-                title={t("defaultLlmPort.title")}
-                help={t("defaultLlmPort.help")}
-                htmlFor="settings-default-llm-port"
-              >
-                <input
-                  id="settings-default-llm-port"
-                  type="number"
-                  min={1}
-                  max={65535}
-                  value={settings.defaultLlmPort}
-                  onChange={(e) => {
-                    const val = parseInt(e.target.value, 10);
-                    if (!isNaN(val)) update({ defaultLlmPort: val });
-                  }}
-                  className="field-input field-input--port"
-                />
-              </SettingRow>
-
-              <ToggleRow
-                title={t("toggles.hideOffline.title")}
-                help={t("toggles.hideOffline.help")}
-                checked={settings.autoHideOffline}
-                onChange={(v) => update({ autoHideOffline: v })}
-              />
-              <ToggleRow
-                title={t("toggles.hideWorkers.title")}
-                help={t("toggles.hideWorkers.help")}
-                checked={Boolean(settings.hideWorkers)}
-                onChange={(v) => update({ hideWorkers: v })}
-              />
-              <ToggleRow
-                title={t("toggles.overviewSearch.title")}
-                help={t("toggles.overviewSearch.help")}
-                checked={Boolean(settings.showOverviewSearch)}
-                onChange={(v) => update({ showOverviewSearch: v })}
-              />
-              <ToggleRow
-                title={t("toggles.benchShareImage.title")}
-                help={t("toggles.benchShareImage.help")}
-                checked={Boolean(settings.benchShareImage)}
-                onChange={(v) => update({ benchShareImage: v })}
-              />
-              <ToggleRow
-                title={t("toggles.vramBreakdown.title")}
-                help={t("toggles.vramBreakdown.help")}
-                checked={settings.showVramBreakdown ?? true}
-                onChange={(v) => update({ showVramBreakdown: v })}
-              />
-              <ToggleRow
-                title={t("toggles.prometheus.title")}
-                help={t("toggles.prometheus.help", { origin: window.location.origin })}
-                checked={Boolean(settings.prometheusExport)}
-                onChange={(v) => update({ prometheusExport: v })}
-              />
-              <ToggleRow
-                title="Allow sudo password over plain http"
-                help="Lets you type a sudo password in the dashboard (Storage Manager, GPU clock cap) when you open it over plain http from another machine. The password then crosses your network unencrypted, so turn this on only on a network you trust. Off by default: a password is otherwise only accepted over https or from the Spark itself. The page reloads when you save this."
-                checked={Boolean(settings.allowPlainSudoPassword)}
-                onChange={(v) => update({ allowPlainSudoPassword: v })}
-              />
-              <ToggleRow
-                title={t("toggles.intelVramSudo.title")}
-                help={t("toggles.intelVramSudo.help")}
-                checked={Boolean(settings.intelVramSudo)}
-                onChange={(v) => update({ intelVramSudo: v })}
-              />
-              <ToggleRow
-                title={t("toggles.metricsHistory.title")}
-                help={t("toggles.metricsHistory.help")}
-                checked={Boolean(settings.metricsHistory)}
-                onChange={(v) => update({ metricsHistory: v })}
-              />
-              <ToggleRow
-                title={t("toggles.llmStreamSample.title")}
-                help={t("toggles.llmStreamSample.help")}
-                checked={Boolean(settings.llmStreamSample)}
-                onChange={(v) => update({ llmStreamSample: v })}
-              />
-              <ToggleRow
-                title={t("mqtt.publishing.title")}
-                help={t("mqtt.publishing.help")}
-                checked={Boolean(settings.mqttEnabled)}
-                onChange={(v) => update({ mqttEnabled: v })}
-              />
-              <ToggleRow
-                title={t("toggles.apiKeys.title")}
-                help={t("toggles.apiKeys.help")}
-                checked={Boolean(settings.apiKeysEnabled)}
-                onChange={(v) => update({ apiKeysEnabled: v })}
-              />
-              <SettingRow
-                title={t("mqtt.url.title")}
-                help={t("mqtt.url.help")}
-                htmlFor="settings-mqtt-url"
-              >
-                <input
-                  id="settings-mqtt-url"
-                  type="text"
-                  value={settings.mqttUrl ?? ""}
-                  placeholder="mqtt://homeassistant.local:1883"
-                  spellCheck={false}
-                  autoComplete="off"
-                  onChange={(e) => update({ mqttUrl: e.target.value })}
-                  className="field-input"
-                />
-              </SettingRow>
-              <SettingRow
-                title={t("mqtt.username.title")}
-                help={t("mqtt.username.help")}
-                htmlFor="settings-mqtt-username"
-              >
-                <input
-                  id="settings-mqtt-username"
-                  type="text"
-                  value={settings.mqttUsername ?? ""}
-                  placeholder={t("mqtt.username.placeholder")}
-                  spellCheck={false}
-                  autoComplete="off"
-                  onChange={(e) => update({ mqttUsername: e.target.value })}
-                  className="field-input"
-                />
-              </SettingRow>
-              <SettingRow
-                title={t("mqtt.prefix.title")}
-                help={t("mqtt.prefix.help")}
-                htmlFor="settings-mqtt-prefix"
-              >
-                <input
-                  id="settings-mqtt-prefix"
-                  type="text"
-                  value={settings.mqttTopicPrefix ?? ""}
-                  placeholder="sparkdash"
-                  spellCheck={false}
-                  autoComplete="off"
-                  onChange={(e) => update({ mqttTopicPrefix: e.target.value })}
-                  className="field-input"
-                />
-              </SettingRow>
-              <ToggleRow
-                title={t("mqtt.discovery.title")}
-                help={t("mqtt.discovery.help")}
-                checked={Boolean(settings.mqttDiscovery)}
-                onChange={(v) => update({ mqttDiscovery: v })}
-              />
-              <SettingRow
-                title={t("mqtt.discoveryPrefix.title")}
-                help={t("mqtt.discoveryPrefix.help")}
-                htmlFor="settings-mqtt-discovery-prefix"
-              >
-                <input
-                  id="settings-mqtt-discovery-prefix"
-                  type="text"
-                  value={settings.mqttDiscoveryPrefix ?? ""}
-                  placeholder="homeassistant"
-                  spellCheck={false}
-                  autoComplete="off"
-                  onChange={(e) => update({ mqttDiscoveryPrefix: e.target.value })}
-                  className="field-input"
-                />
-              </SettingRow>
-              <ToggleRow
-                title={t("toggles.fleetEnergy.title")}
-                help={t("toggles.fleetEnergy.help")}
-                checked={Boolean(settings.showFleetEnergy)}
-                onChange={(v) => update({ showFleetEnergy: v })}
-              />
-              <SettingRow
-                title={t("electricityPrice.title")}
-                help={t("electricityPrice.help")}
-                htmlFor="settings-energy-price"
-              >
-                <div className="set-price">
+                <SettingRow
+                  title={t("mqtt.username.title")}
+                  help={t("mqtt.username.help")}
+                  htmlFor="settings-mqtt-username"
+                >
                   <input
-                    id="settings-energy-currency"
+                    id="settings-mqtt-username"
                     type="text"
-                    aria-label={t("electricityPrice.currency")}
-                    maxLength={4}
-                    value={settings.energyCurrency ?? "$"}
-                    onChange={(e) => update({ energyCurrency: e.target.value })}
-                    className="field-input field-input--currency"
+                    value={settings.mqttUsername ?? ""}
+                    placeholder={t("mqtt.username.placeholder")}
+                    spellCheck={false}
+                    autoComplete="off"
+                    onChange={(e) => update({ mqttUsername: e.target.value })}
+                    className="field-input"
                   />
+                </SettingRow>
+
+                <SettingRow
+                  title={t("mqtt.prefix.title")}
+                  help={t("mqtt.prefix.help")}
+                  htmlFor="settings-mqtt-prefix"
+                >
                   <input
-                    id="settings-energy-price"
-                    type="number"
-                    min={0}
-                    max={100}
-                    step="0.01"
-                    inputMode="decimal"
-                    placeholder="0.15"
-                    value={settings.energyPricePerKwh ?? ""}
-                    onChange={(e) => {
-                      const raw = e.target.value;
-                      if (raw === "") return update({ energyPricePerKwh: null });
-                      const val = parseFloat(raw);
-                      if (!isNaN(val)) update({ energyPricePerKwh: val });
-                    }}
-                    className="field-input field-input--price"
+                    id="settings-mqtt-prefix"
+                    type="text"
+                    value={settings.mqttTopicPrefix ?? ""}
+                    placeholder="sparkdash"
+                    spellCheck={false}
+                    autoComplete="off"
+                    onChange={(e) => update({ mqttTopicPrefix: e.target.value })}
+                    className="field-input"
                   />
-                </div>
-              </SettingRow>
-              <ToggleRow
-                title={t("toggles.llmTokenTotals.title")}
-                help={t("toggles.llmTokenTotals.help")}
-                checked={Boolean(settings.showLlmTokenTotals)}
-                onChange={(v) => update({ showLlmTokenTotals: v })}
-              />
-              <ToggleRow
-                title={t("toggles.recentActivity.title")}
-                help={t("toggles.recentActivity.help")}
-                checked={settings.showActivityFeed ?? true}
-                onChange={(v) => update({ showActivityFeed: v })}
-              />
-              <ToggleRow
-                title={t("toggles.fleetDecode.title")}
-                help={t("toggles.fleetDecode.help")}
-                checked={settings.showKpiDecode ?? true}
-                onChange={(v) => update({ showKpiDecode: v })}
-              />
-              <ToggleRow
-                title={t("toggles.fleetPower.title")}
-                help={t("toggles.fleetPower.help")}
-                checked={settings.showKpiPower ?? true}
-                onChange={(v) => update({ showKpiPower: v })}
-              />
-              <ToggleRow
-                title={t("toggles.memoryInUse.title")}
-                help={t("toggles.memoryInUse.help")}
-                checked={settings.showKpiMemory ?? true}
-                onChange={(v) => update({ showKpiMemory: v })}
-              />
-              <ToggleRow
-                title={t("toggles.tokens24Hours.title")}
-                help={t("toggles.tokens24Hours.help")}
-                checked={settings.showKpiTokens ?? true}
-                onChange={(v) => update({ showKpiTokens: v })}
-              />
-              <ToggleRow
-                title={t("toggles.fleetExceptions.title")}
-                help={t("toggles.fleetExceptions.help")}
-                checked={Boolean(settings.showFleetExceptions)}
-                onChange={(v) => update({ showFleetExceptions: v })}
-              />
-              <SettingRow
-                title={t("alertNotifications.title")}
-                help={t("alertNotifications.help")}
-              >
-                <div className="set-token">
-                  <span className={`set-token__state${settings.alertsEnabled ? " is-set" : ""}`} data-testid="alerts-state">
-                    <i aria-hidden />
-                    {settings.alertsEnabled ? t("alertNotifications.on") : t("alertNotifications.off")}
-                  </span>
-                  <button type="button" className="btn btn--sm" onClick={() => setShowAlerts(true)}>
-                    {t("alertNotifications.configure")}
-                  </button>
-                </div>
-              </SettingRow>
-              <BrowserAlertsSettings />
-              <ToggleRow
-                title={t("toggles.benchDebugTraces.title")}
-                help={t("toggles.benchDebugTraces.help")}
-                checked={Boolean(settings.benchDebugTraces)}
-                onChange={(v) => update({ benchDebugTraces: v })}
-              />
-            </>
-          )}
+                </SettingRow>
 
-          {/* Outside the settings block: a fleet GPU action needs no saved settings. */}
-          <SettingRow
-            title={t("gpuClock.title")}
-            help={t("gpuClock.help")}
-            stack
-          >
-            <FleetGpuClock apiRef={fleetClock} onPendingChange={setFleetClockPending} />
-          </SettingRow>
+                <ToggleRow
+                  title={t("mqtt.discovery.title")}
+                  help={t("mqtt.discovery.help")}
+                  checked={Boolean(settings.mqttDiscovery)}
+                  onChange={(v) => update({ mqttDiscovery: v })}
+                />
 
-          {/* Outside the settings block: a rejected token is exactly when settings fail to load. */}
-          <SettingRow
-            title={t("accessToken.title")}
-            help={t("accessToken.help")}
+                <SettingRow
+                  title={t("mqtt.discoveryPrefix.title")}
+                  help={t("mqtt.discoveryPrefix.help")}
+                  htmlFor="settings-mqtt-discovery-prefix"
+                >
+                  <input
+                    id="settings-mqtt-discovery-prefix"
+                    type="text"
+                    value={settings.mqttDiscoveryPrefix ?? ""}
+                    placeholder="homeassistant"
+                    spellCheck={false}
+                    autoComplete="off"
+                    onChange={(e) => update({ mqttDiscoveryPrefix: e.target.value })}
+                    className="field-input"
+                  />
+                </SettingRow>
+
+                <ToggleRow
+                  title={t("toggles.prometheus.title")}
+                  help={t("toggles.prometheus.help", { origin: window.location.origin })}
+                  checked={Boolean(settings.prometheusExport)}
+                  onChange={(v) => update({ prometheusExport: v })}
+                />
+
+                <ToggleRow
+                  title={t("toggles.apiKeys.title")}
+                  help={t("toggles.apiKeys.help")}
+                  checked={Boolean(settings.apiKeysEnabled)}
+                  onChange={(v) => update({ apiKeysEnabled: v })}
+                />
+              </>
+            )}
+          </div>
+
+          <div
+            role="tabpanel"
+            id="settings-panel-security"
+            aria-labelledby="settings-tab-security"
+            className="set-tabpanel"
+            hidden={tab !== "security"}
           >
-            <div className="set-token">
-              <span className={`set-token__state${tokenSet ? " is-set" : ""}`} data-testid="access-token-state">
-                <i aria-hidden />
-                {tokenSet ? t("accessToken.set") : t("accessToken.notSet")}
-              </span>
-              <button type="button" className="btn btn--sm" onClick={() => requestTokenPrompt()}>
-                {tokenSet ? t("accessToken.change") : t("accessToken.add")}
-              </button>
-              {tokenSet ? (
-                <button type="button" className="btn btn--sm btn--ghost" onClick={() => clearToken()}>
-                  {t("accessToken.clear")}
+            {/* Outside the settings block: a rejected token is exactly when settings fail to load. */}
+            <SettingRow
+              title={t("accessToken.title")}
+              help={t("accessToken.help")}
+            >
+              <div className="set-token">
+                <span className={`set-token__state${tokenSet ? " is-set" : ""}`} data-testid="access-token-state">
+                  <i aria-hidden />
+                  {tokenSet ? t("accessToken.set") : t("accessToken.notSet")}
+                </span>
+                <button type="button" className="btn btn--sm" onClick={() => requestTokenPrompt()}>
+                  {tokenSet ? t("accessToken.change") : t("accessToken.add")}
                 </button>
-              ) : null}
-            </div>
-          </SettingRow>
+                {tokenSet ? (
+                  <button type="button" className="btn btn--sm btn--ghost" onClick={() => clearToken()}>
+                    {t("accessToken.clear")}
+                  </button>
+                ) : null}
+              </div>
+            </SettingRow>
+            {settings && !loading && (
+              <>
+                <ToggleRow
+                  title="Allow sudo password over plain http"
+                  help="Lets you type a sudo password in the dashboard (Storage Manager, GPU clock cap) when you open it over plain http from another machine. The password then crosses your network unencrypted, so turn this on only on a network you trust. Off by default: a password is otherwise only accepted over https or from the Spark itself. The page reloads when you save this."
+                  checked={Boolean(settings.allowPlainSudoPassword)}
+                  onChange={(v) => update({ allowPlainSudoPassword: v })}
+                />
+
+                <ToggleRow
+                  title={t("toggles.intelVramSudo.title")}
+                  help={t("toggles.intelVramSudo.help")}
+                  checked={Boolean(settings.intelVramSudo)}
+                  onChange={(v) => update({ intelVramSudo: v })}
+                />
+              </>
+            )}
+          </div>
 
           <div className="settings-links">
             <span>{t("about.version", { version: displayVersion })}</span>

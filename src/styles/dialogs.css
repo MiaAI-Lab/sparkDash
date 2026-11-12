@@ -1393,6 +1393,28 @@
   text-align: right;
 }
 
+/* Settings: flat or time-of-use electricity price, one row per period. */
+.set-tariff {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.set-tariff__unit {
+  color: var(--color-muted);
+  font-size: 0.85em;
+}
+.set-tariff__period {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.set-tariff__period .field-input--price {
+  width: 6rem;
+  text-align: right;
+}
+
 /* "Show card" window: the share image in a proper panel on a blurred scrim. */
 .card-preview {
   position: fixed;
@@ -2462,5 +2484,80 @@
   .q-verdict-row {
     grid-template-columns: 1fr;
     gap: 2px;
+  }
+}
+
+/* A hint elsewhere that opens Settings at a section (ui/SettingsLink). */
+.settings-link {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Settings tabs: one row of sections under the title; the body scrolls beneath it. */
+.set-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--color-border);
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex-shrink: 0;
+}
+
+.set-tabs__tab {
+  padding: 8px 10px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  background: none;
+  color: var(--color-muted);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.set-tabs__tab:hover {
+  color: var(--color-text);
+}
+
+/* The selected tab in the brand yellow, like the active sidebar item. The -text shade
+   is the theme's readable one (darker in light themes), so the label keeps its contrast. */
+.set-tabs__tab.is-on {
+  color: var(--color-accent-text);
+  border-bottom-color: var(--color-accent);
+}
+
+.set-tabs__tab:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+
+.set-tabpanel[hidden] {
+  display: none;
+}
+
+/* Settings stays put while tabs change: one fixed width, anchored near the top rather than
+   centred, so the title and tab row never move; a taller tab grows the dialog downward, up
+   to the viewport, then scrolls inside. The scrollbar's room is always reserved. */
+.settings-panel .modal-sheet__body {
+  scrollbar-gutter: stable;
+}
+@media (max-width: 639.98px) {
+  /* The phone sheet rises from the bottom: a fixed height keeps its top still too. */
+  .settings-panel {
+    height: min(94dvh, 100%);
+  }
+}
+@media (min-width: 640px) {
+  .settings-overlay {
+    --settings-top: max(1.5rem, 8vh);
+    align-items: flex-start;
+    padding-top: var(--settings-top);
+  }
+  .settings-panel {
+    width: 34rem;
+    max-height: min(calc(100dvh - var(--settings-top) - 1.5rem), 50rem);
   }
 }

@@ -5,10 +5,12 @@ import { useTranslation } from "react-i18next";
 import { clearFleetEnergy, fetchEnergyHistory, fetchFleetEnergy } from "../../api/client";
 import { ClearMenu } from "../ui/ClearMenu";
 import type { EnergyHistory, FleetEnergy, Settings, SparkSnapshot } from "../../api/types";
-import { StackedBarChart, type BarBucket, type BarSeries } from "../ui/StackedBarChart";
+import { StackedBarChart, type BarBucket, type BarLine, type BarSeries } from "../ui/StackedBarChart";
+import type { EnergyTariff } from "../../shared/energyTariff";
 import { LineAreaChart, type LineOverlay, type LinePoint } from "../ui/LineAreaChart";
 import { Tag } from "../ui/Tag";
 import { MonthlyEnergy } from "./MonthlyEnergy";
+import { SettingsLink } from "../ui/SettingsLink";
 import { MeterAlert, MeterChips } from "./MeterStatus";
 import { filledShare, formatRatio, hasWall, hourLines, nodeParts, wallRows, type HourLines, type NodeParts } from "./wallStats";
 import { usePowerMeterStatus } from "../../hooks/usePowerMeters";
@@ -29,6 +31,7 @@ import {
   rowsInRange,
   sortNodes,
   summarize,
+  tariffHourPrice,
   toCsv,
   type EnergyBucket,
   type EnergyRange,
@@ -153,6 +156,15 @@ export function EnergyPage({
   const names = useMemo(() => new Map(sparks.map((s) => [s.id, s.name])), [sparks]);
   const nameOf = useCallback((id: string) => names.get(id) || id, [names]);
   const tz = browserTzOffset;
+  const priceMode = settings?.energyPriceMode;
+  const periods = settings?.energyPricePeriods;
+  const tariff = useMemo<EnergyTariff>(
+    () => ({ mode: priceMode === "tou" ? "tou" : "flat", base: price, periods: periods ?? [] }),
+    [priceMode, price, periods]
+  );
+  // Time of use: each hour is priced at its own rate. The monthly totals have no hours, so they show no cost then.
+  const tou = tariff.mode === "tou" && tariff.periods.length > 0;
+  const hourPrice = useMemo(() => tariffHourPrice(tariff, tz), [tariff, tz]);
 
   const meterStatus = usePowerMeterStatus();
   const metered = hasWall(history);
@@ -170,15 +182,17 @@ export function EnergyPage({
     const wall = hasWall(history)
       ? { lines: hourLines(rawInRange, nodeIds), parts: nodeParts(rawInRange, nodeIds), filled: filledShare(rawInRange) }
       : null;
-    const summary = summarize(rows, win, nodeIds, price);
+    const summary = summarize(rows, win, nodeIds, tou ? hourPrice : price);
     const mode: "hour" | "day" = range === "24h" ? "hour" : "day";
-    const buckets = buildBuckets(rows, win, mode, tz);
+    const buckets = buildBuckets(rows, win, mode, tz, hourPrice);
     const hourly = buildBuckets(rows, win, "hour", tz);
     const powerBuckets = range === "24h" ? hourly : hourly.filter((b) => b.startMs >= floorHour(win.windowStartMs));
     const delta = previousPeriodDelta(rows, win, summary.kwh);
-    const insights = buildInsights({ summary, buckets, rows: inRange, mode, tz, price, currency, nodeName: nameOf, t });
+    // Under time of use the weekly-pace insight uses the range's average price.
+    const insightPrice = tou ? (summary.cost != null && summary.kwh > 0 ? summary.cost / summary.kwh : null) : price;
+    const insights = buildInsights({ summary, buckets, rows: inRange, mode, tz, price: insightPrice, currency, nodeName: nameOf, t });
     return { rows, inRange, win, summary, mode, buckets, powerBuckets, delta, insights, nodeIds, wall };
-  }, [history, range, price, currency, nameOf, tz, t]);
+  }, [history, range, price, tou, hourPrice, currency, nameOf, tz, t]);
 
   const colorOf = useMemo(() => {
     const map = new Map<string, string>();
@@ -236,6 +250,8 @@ export function EnergyPage({
         nodeTotal={sparks.length || history.nodeIds.length}
         rangeLabel={energyRangeLong(t, range)}
         price={price}
+        tou={tou}
+        priced={hourPrice != null}
         currency={currency}
         nameOf={nameOf}
         colorOf={colorOf}
@@ -291,7 +307,7 @@ export function EnergyPage({
       </div>
       <MeterAlert status={meterStatus} />
       {body}
-      <MonthlyEnergy nameOf={nameOf} price={price} currency={currency} reloadToken={monthlyReload} />
+      <MonthlyEnergy nameOf={nameOf} price={price} hourPrice={tou ? hourPrice : null} currency={currency} reloadToken={monthlyReload} />
     </div>
   );
 }
@@ -317,6 +333,8 @@ function EnergyBody({
   nodeTotal,
   rangeLabel,
   price,
+  tou,
+  priced,
   currency,
   nameOf,
   colorOf,
@@ -332,6 +350,10 @@ function EnergyBody({
   nodeTotal: number;
   rangeLabel: string;
   price: number | null;
+  /** Hours are priced by time of use. */
+  tou: boolean;
+  /** Some price is set (flat or time of use). */
+  priced: boolean;
   currency: string;
   nameOf: (id: string) => string;
   colorOf: (id: string) => string;
@@ -366,6 +388,23 @@ function EnergyBody({
   const bucketById = new Map(buckets.map((b) => [b.key, b]));
   const unit = mode === "hour" ? "hour" : "day";
   const unitLabel = unit === "hour" ? t("energy.unit.hour") : t("energy.unit.day");
+  // Small hourly costs need a third decimal to read as more than 0.
+  const formatCost = (v: number) => (v > 0 && v < 0.1 ? `${currency}${v.toFixed(3)}` : formatMoney(v, currency));
+  const costLine: BarLine | undefined = priced
+    ? {
+        label: t("energy.costLine"),
+        color: "var(--color-warning)",
+        values: buckets.map((b) => b.cost),
+        format: formatCost,
+        detail: (i) => {
+          const p = buckets[i]?.pricePerKwh;
+          if (p == null) return null;
+          const shown = `${currency}${p.toFixed(p < 1 ? 3 : 2)}`;
+          return mode === "hour" ? t("energy.priceAt", { price: shown }) : t("energy.priceAverage", { price: shown });
+        },
+      }
+    : undefined;
+  const avgPrice = summary.cost != null && summary.kwh > 0 ? summary.cost / summary.kwh : null;
 
   const powerPoints: LinePoint[] = powerBuckets.map((b) => ({
     key: b.key,
@@ -429,8 +468,16 @@ function EnergyBody({
         <Tile label={metered ? t("energy.cost") : t("energy.estimatedCost")}>
           <div className="big-num mono">{summary.cost != null && !noData ? formatMoney(summary.cost, currency) : "—"}</div>
           <div className="en-tile__sub">
-            {price == null ? (
-              <span>{t("energy.setPrice")}</span>
+            {!priced ? (
+              <SettingsLink section="energy">{t("energy.setPrice")}</SettingsLink>
+            ) : tou ? (
+              <span>
+                {summary.cost == null
+                  ? <SettingsLink section="energy">{t("energy.setBasePrice")}</SettingsLink>
+                  : summary.costPerDay != null && avgPrice != null
+                    ? t("energy.costRateTou", { daily: formatMoney(summary.costPerDay, currency), price: `${currency}${avgPrice.toFixed(avgPrice < 1 ? 3 : 2)}` })
+                    : "—"}
+              </span>
             ) : (
               <span>{summary.costPerDay != null ? t("energy.costRate", { daily: formatMoney(summary.costPerDay, currency), price: `${currency}${price}` }) : "—"}</span>
             )}
@@ -476,6 +523,7 @@ function EnergyBody({
                 {series.map((s) => (
                   <span key={s.id} style={{ "--c": s.color } as React.CSSProperties}>{s.label}</span>
                 ))}
+                {costLine ? <span style={{ "--c": costLine.color } as React.CSSProperties}>{t("energy.costLineLegend", { currency })}</span> : null}
               </div>
             </header>
             <StackedBarChart
@@ -485,6 +533,7 @@ function EnergyBody({
               format={formatKwh}
               unit="kWh"
               ariaLabel={t("energy.chartAria", { unit: unitLabel, range: rangeLabel })}
+              line={costLine}
               footer={(b) => {
                 const full = bucketById.get(b.key);
                 if (!full || !full.hasData) return t("energy.noTelemetry");
