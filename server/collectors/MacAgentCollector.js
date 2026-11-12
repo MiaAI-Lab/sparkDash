@@ -247,15 +247,13 @@ export class MacAgentCollector extends MacSystemCollector {
     // from a measured 0 W / 0% and drags fleet energy down as if measured.
     const usage = read && Number.isFinite(gpu.activePercent) ? Math.round(gpu.activePercent) : null;
     const draw = read && Number.isFinite(gpu.powerW) ? gpu.powerW : null;
-    const systemDraw = read && Number.isFinite(gpu.combinedPowerW) ? gpu.combinedPowerW : null;
-    // powermetrics answers for the CPU, GPU and ANE rails only, so the total needs
-    // the model's published idle wall draw under it. Null for a machine Apple has
-    // no desktop row for, and for a laptop, where it would be wrong more often than
-    // right, and then the package figure stands alone as it always did.
+    const packageW = read && Number.isFinite(gpu.combinedPowerW) ? gpu.combinedPowerW : null;
+    // A known desktop gets Apple's published idle wall draw under the three rails
+    // powermetrics reads; a laptop keeps the rails alone.
     const systemEstimate = estimateSystemPowerW({
       model: snapshot.host?.model,
       chip: snapshot.host?.chip,
-      packageW: systemDraw,
+      packageW,
     });
     return tagCollectionResult({
       ...base,
@@ -267,8 +265,8 @@ export class MacAgentCollector extends MacSystemCollector {
       power: {
         draw,
         limit: 0,
-        systemDraw: systemEstimate?.watts ?? systemDraw,
-        systemPowerSource: systemEstimate?.source ?? (systemDraw == null ? null : "powermetrics"),
+        systemDraw: systemEstimate?.watts ?? packageW,
+        systemPowerSource: systemEstimate?.source ?? (packageW == null ? null : "powermetrics"),
       },
       vram: {
         used: mem.used ?? 0,

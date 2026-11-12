@@ -18,6 +18,7 @@ import {
   RUNTIMES_POLL_MAX_ATTEMPTS,
   runtimesProbeSchedule,
 } from "../MacAgentCollector.js";
+import { MacSystemCollector } from "../MacSystemCollector.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const snapshot = JSON.parse(
@@ -567,7 +568,7 @@ test("a powermetrics die read is reported as one", async () => {
 
 test("a laptop keeps the package figure alone and claims no estimate", async () => {
   const data = structuredClone(snapshot);
-  data.host = { ...data.host, model: "MacBookPro21,1", chip: "Apple M5 Pro" };
+  data.host = { ...data.host, model: "Mac14,9", chip: "Apple M5 Pro" };
   data.gpu.powermetrics = "ok";
   data.gpu.combinedPowerW = 12.5;
   const { collector } = collectorWith("ok", {
@@ -583,30 +584,62 @@ test("a Mac desktop's system total carries the published idle floor and says so"
   data.host = { ...data.host, model: "Mac17,14", chip: "Apple M5 Max" };
   data.gpu.powermetrics = "ok";
   data.gpu.powerW = 0;
-  data.gpu.combinedPowerW = 0.2;
+  data.gpu.combinedPowerW = 0.024;
   const { collector } = collectorWith("ok", {
     fetchImpl: async () => ({ ok: true, json: async () => structuredClone(data) }),
   });
   const gpu = await collector.collectGpu();
-  assert.equal(gpu.power.systemDraw, 7.2, "package 0.2 W over Apple's 7 W idle for an M5 Max");
+  assert.equal(gpu.power.systemDraw, 7, "an idle package leaves Apple's 7 W for an M5 Max untouched");
   assert.equal(gpu.power.systemPowerSource, "apple-idle", "the tile has to say it is an estimate");
 });
 
 test("a machine with no published row still gets the desktop floor", async () => {
   const data = structuredClone(snapshot);
-  data.host = { ...data.host, model: "Mac99,1", chip: "Apple M7 Max" };
+  data.host = { ...data.host, model: "Mac17,14", chip: "Apple M7 Max" };
   data.gpu.powermetrics = "ok";
   data.gpu.combinedPowerW = 40;
   const { collector } = collectorWith("ok", {
     fetchImpl: async () => ({ ok: true, json: async () => structuredClone(data) }),
   });
   const gpu = await collector.collectGpu();
-  assert.equal(gpu.power.systemDraw, 48);
+  assert.equal(gpu.power.systemDraw, 45.5);
   assert.equal(gpu.power.systemPowerSource, "desktop-idle");
 });
 
+test("the SSH and agent paths put the same floor under the same rails", async () => {
+  // Both paths feed hw.model, the chip string and the Combined Power rails into the
+  // one estimator. A floor added to one path alone would make the same Mac read
+  // differently depending on how it was reached.
+  for (const [model, chip, watts, source] of [
+    ["Mac17,14", "Apple M5 Max", 44.5, "apple-idle"],
+    ["Mac14,9", "Apple M5 Pro", 40, "powermetrics"], // a laptop keeps the rails alone
+  ]) {
+    const data = structuredClone(snapshot);
+    data.host = { ...data.host, model, chip };
+    data.gpu = { ...data.gpu, powermetrics: "ok", powerW: 39, combinedPowerW: 40 };
+    const { collector } = collectorWith("ok", {
+      fetchImpl: async () => ({ ok: true, json: async () => structuredClone(data) }),
+    });
+    const ssh = new MacSystemCollector(spark, { exec: async () => "" });
+    ssh._snapshot = async () => ({
+      sysctl: `hw.memsize: 274877906944\nhw.model: ${model}\nmachdep.cpu.brand_string: ${chip}`,
+      vm_stat: "",
+    });
+    ssh._powermetrics = async () => ({ gpuActivePct: 100, gpuW: 39, combinedW: 40, thermalPressure: "Nominal" });
+
+    const fromAgent = await collector.collectGpu();
+    const fromSsh = await ssh.collectGpu();
+    for (const [path, gpu] of [["agent", fromAgent], ["SSH", fromSsh]]) {
+      assert.deepEqual(
+        { watts: gpu.power.systemDraw, source: gpu.power.systemPowerSource },
+        { watts, source },
+        `${path} path, ${model}`
+      );
+    }
+  }
+});
+
 test("a temperature that was never read carries no sensor provenance", async () => {
-  // The checked-in fixture is the unprivileged shape: both temperatures null.
   const { collector } = collectorWith("ok");
   const cpu = await collector.collectCpu();
   const gpu = await collector.collectGpu();

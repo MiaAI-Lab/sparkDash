@@ -409,13 +409,14 @@ export interface CpuMetrics {
   /** False when the CPU usage read was unavailable; the numeric placeholder is not a measured zero. */
   usageAvailable?: boolean;
   /** Availability entries from the same CPU sample. */
-  unavailable?: MetricGap[];
+  unavailable?: MetricGap[] | null;
   temperature: number | null;
   /** What the temperature reading is: "CPU", or "ACPI"/"SoC" for a board zone. */
   temperatureLabel?: string | null;
   /** Raw sensor name behind the reading (e.g. "acpitz", "coretemp"). */
   temperatureSource?: string | null;
-  draw: number;
+  /** Null when the platform could not read the rail, so a zero stays a measured zero. */
+  draw: number | null;
   tdp: number;
 }
 
