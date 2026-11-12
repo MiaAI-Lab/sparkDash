@@ -123,3 +123,8 @@ it("retains the GPU-only, pressure and waiting states without inventing missing 
   await act(() => setLocale("en"));
   expect(container.textContent).toBe("Unified memoryWaiting for memory reading…");
 });
+
+it("shows no bandwidth tag when bandwidth was not measured", () => {
+  const { container } = render(<UnifiedMemoryPanel um={{ ...memory, bandwidth: { current: null, peak: 400 } }} gpu={null} llm={[]} />);
+  expect(container.textContent).not.toContain("GB/s");
+});

@@ -289,7 +289,9 @@ export class SparkMonitor {
       JSON.stringify(this.spark?.agent ?? null) !== JSON.stringify(spark?.agent ?? null);
     this.spark = spark;
     if (kindChanged || transportChanged) {
+      this.collector.dispose?.();
       this.collector = createCollector(spark);
+      if (this._running) this.collector.useNvidiaSmiStreams?.(this._fastIntervals);
       this._metrics.runtimes = null;
       this._metrics.unavailable = null;
       this._metrics.agentOnline = null;
@@ -625,6 +627,7 @@ export class SparkMonitor {
     const prev = this._fastIntervals;
     this._fastIntervals = resolveFastPollIntervals(pollIntervalMs);
     if (!this._running) return;
+    this.collector.useNvidiaSmiStreams?.(this._fastIntervals);
     for (const domain of FAST_TIMER_DOMAINS) {
       if (prev[domain] === this._fastIntervals[domain]) continue;
       if (this._domainTimers[domain] != null) this._clearTimer(this._domainTimers[domain]);
@@ -646,6 +649,8 @@ export class SparkMonitor {
     this._runGeneration += 1;
     this._running = true;
     this._stopped = false;
+    // Local nvidia-smi then runs as long-lived readers at these cadences.
+    this.collector.useNvidiaSmiStreams?.(this._fastIntervals);
     this._poll();
     for (const domain of FAST_TIMER_DOMAINS) {
       this._domainTimers[domain] = this._armDomainTimer(domain);
@@ -665,6 +670,7 @@ export class SparkMonitor {
   /** Stop background polling. */
   stop() {
     this.collector.invalidatePendingCollections();
+    this.collector.dispose?.();
     this._runGeneration += 1;
     this._metricCollectionSuccessful = { gpu: false, cpu: false };
     this._running = false;

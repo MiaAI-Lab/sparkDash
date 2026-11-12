@@ -515,7 +515,8 @@ export interface UnifiedMemoryMetrics {
   percentage: number;
   oomRisk: "low" | "medium" | "high";
   bandwidth: {
-    current: number;
+    /** GB/s; null when the local unit's dmon read failed or is unsupported (not measured). */
+    current: number | null;
     peak: number;
   };
 }
