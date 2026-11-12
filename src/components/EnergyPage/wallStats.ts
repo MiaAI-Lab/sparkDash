@@ -105,7 +105,14 @@ export function wallMonth(m: MonthlyEnergyMonth): MonthlyEnergyMonth | null {
     nodes: Object.fromEntries(
       nodeIds.map((id) => {
         const n = m.nodes[id];
-        return [id, { wh: (n.wallWh ?? 0) + (n.wallFilledWh ?? 0), coverageMs: (n.wallCoverageMs ?? 0) + (n.wallFilledMs ?? 0) }];
+        return [
+          id,
+          {
+            wh: (n.wallWh ?? 0) + (n.wallFilledWh ?? 0),
+            coverageMs: (n.wallCoverageMs ?? 0) + (n.wallFilledMs ?? 0),
+            ...(n.wallHourWh ? { hourWh: n.wallHourWh } : {}),
+          },
+        ];
       })
     ),
     totalWh: m.totalWallWh,

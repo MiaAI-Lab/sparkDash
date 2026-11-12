@@ -1,12 +1,15 @@
 /** The Settings dialog's row layout, shared with dialogs opened from it (Alerts). */
 
 export function SettingRow({
+  id,
   title,
   help,
   htmlFor,
   stack = false,
   children,
 }: {
+  /** Anchor for links into Settings (see hooks/settingsLink). */
+  id?: string;
   title: string;
   help?: React.ReactNode;
   htmlFor?: string;
@@ -15,7 +18,7 @@ export function SettingRow({
   children: React.ReactNode;
 }) {
   return (
-    <div className={`set-row${stack ? " set-row--stack" : ""}`}>
+    <div id={id} className={`set-row${stack ? " set-row--stack" : ""}`}>
       <div className="set-row__text">
         {htmlFor ? <label htmlFor={htmlFor}>{title}</label> : <span className="set-row__title">{title}</span>}
         {help && <small>{help}</small>}

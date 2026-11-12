@@ -1,6 +1,6 @@
 import type { MonthlyEnergyMonth } from "../../api/types";
 import type { BarBucket } from "../ui/StackedBarChart";
-import { costFor, NODE_COLORS } from "./energyStats";
+import { costFor, HOUR_MS, NODE_COLORS, type HourPrice } from "./energyStats";
 
 /**
  * Maths for the permanent monthly energy view. Months are UTC calendar months,
@@ -44,6 +44,58 @@ export function elapsedMs(m: MonthlyEnergyMonth, nowMs: number): number {
   return Math.max(0, Math.min(nowMs, m.endMs) - m.startMs);
 }
 
+/**
+ * How a month is priced: one flat price, or each hour at its own rate (time of use),
+ * with `flat` (then the price for other hours) for energy the month holds no hours for.
+ */
+export interface MonthPricing {
+  flat: number | null;
+  hourPrice?: HourPrice | null;
+}
+
+export interface MonthCost {
+  cost: number | null;
+  /** kWh priced at the base price because the month has no hourly record of it. */
+  unbinnedKwh: number;
+}
+
+/** Hourly series are stored to 0.01 Wh per hour; a difference below that rounding is no energy. */
+const binTolerance = (hours: readonly number[]) => 0.005 * hours.length + 0.001;
+
+/** Cost of one node's month: each recorded hour at its own price, the rest at the base price. */
+export function nodeMonthCost(m: MonthlyEnergyMonth, wh: number, hours: readonly number[] | undefined, pricing: MonthPricing): MonthCost {
+  if (!pricing.hourPrice) return { cost: costFor(wh / 1000, pricing.flat), unbinnedKwh: 0 };
+  let cost = 0;
+  let binned = 0;
+  for (let i = 0; i < (hours?.length ?? 0); i += 1) {
+    const hourWh = hours![i];
+    if (!(hourWh > 0)) continue;
+    const price = pricing.hourPrice(m.startMs + i * HOUR_MS);
+    if (price == null) return { cost: null, unbinnedKwh: 0 };
+    cost += (hourWh / 1000) * price;
+    binned += hourWh;
+  }
+  const rest = wh - binned;
+  if (rest <= binTolerance(hours ?? [])) return { cost, unbinnedKwh: 0 };
+  const base = costFor(rest / 1000, pricing.flat);
+  return base == null ? { cost: null, unbinnedKwh: rest / 1000 } : { cost: cost + base, unbinnedKwh: rest / 1000 };
+}
+
+/** The whole month: the sum of its nodes, null while any node's cost is. */
+export function monthCost(m: MonthlyEnergyMonth, pricing: MonthPricing): MonthCost {
+  if (!pricing.hourPrice) return { cost: costFor(m.totalWh / 1000, pricing.flat), unbinnedKwh: 0 };
+  let cost: number | null = 0;
+  let unbinnedKwh = 0;
+  for (const id of m.nodeIds) {
+    const node = m.nodes[id];
+    if (!node) continue;
+    const part = nodeMonthCost(m, node.wh, node.hourWh, pricing);
+    unbinnedKwh += part.unbinnedKwh;
+    cost = cost == null || part.cost == null ? null : cost + part.cost;
+  }
+  return { cost, unbinnedKwh };
+}
+
 export interface MonthNodeRow {
   id: string;
   kwh: number;
@@ -56,7 +108,8 @@ export interface MonthNodeRow {
 }
 
 /** Per-node rows for one month, largest consumer first. */
-export function monthNodeRows(m: MonthlyEnergyMonth, nowMs: number, price: number | null): MonthNodeRow[] {
+export function monthNodeRows(m: MonthlyEnergyMonth, nowMs: number, pricing: MonthPricing | number | null): MonthNodeRow[] {
+  const how: MonthPricing = typeof pricing === "object" && pricing !== null ? pricing : { flat: pricing };
   const span = elapsedMs(m, nowMs);
   return m.nodeIds
     .map((id) => {
@@ -67,7 +120,7 @@ export function monthNodeRows(m: MonthlyEnergyMonth, nowMs: number, price: numbe
         share: m.totalWh > 0 ? node.wh / m.totalWh : 0,
         coverageMs: node.coverageMs,
         coverage: span > 0 ? Math.min(1, node.coverageMs / span) : 0,
-        cost: costFor(node.wh / 1000, price),
+        cost: nodeMonthCost(m, node.wh, node.hourWh, how).cost,
       };
     })
     .sort((a, b) => b.kwh - a.kwh);

@@ -1,4 +1,5 @@
 import fs from "fs";
+import { energyPeriodsError, energyPriceValue, normalizeEnergyPeriods } from "../src/shared/energyTariff.js";
 import path from "path";
 import { fileURLToPath } from "url";
 import { atomicWrite } from "./util/atomicWrite.js";
@@ -50,6 +51,13 @@ const DEFAULTS = Object.freeze({
   energyPricePerKwh: null,
   /** Currency symbol shown next to the estimated cost. */
   energyCurrency: "$",
+  /**
+   * "flat": every hour costs energyPricePerKwh. "tou" (time of use): the hours in
+   * energyPricePeriods have their own price, all other hours cost energyPricePerKwh.
+   */
+  energyPriceMode: "flat",
+  /** Time-of-use periods: [{ from: 0-23, to: 1-24, price, days: "all" | "weekdays" | "weekends" }]; see src/shared/energyTariff.js. */
+  energyPricePeriods: [],
   /**
    * VRAM bars on the Overview cards and the GPU panel split memory into LLM
    * engine / system / other / free and judge severity by absolute headroom.
@@ -160,6 +168,20 @@ function assertHealthTemps(current, patch) {
   if (warn >= critical) throw new Error("healthTempWarnC must be lower than healthTempCriticalC");
 }
 
+/** Reject a write whose time-of-use periods are unusable (bad hours or price, or two periods sharing an hour). */
+function assertEnergyPeriods(patch) {
+  if (!("energyPricePeriods" in patch)) return;
+  const err = energyPeriodsError(patch.energyPricePeriods);
+  if (!err) return;
+  if (err.code === "too-many") throw new Error("energyPricePeriods allows at most 12 periods");
+  if (err.code === "overlap") throw new Error(`energyPricePeriods: period ${err.index + 1} overlaps period ${err.other + 1}`);
+  throw new Error(
+    err.index < 0
+      ? "energyPricePeriods must be a list"
+      : `energyPricePeriods: period ${err.index + 1} needs whole hours from 0-23 to 1-24 (not equal), a price from 0 to 100 and days all, weekdays or weekends`
+  );
+}
+
 /** "" (follow the browser) or an IANA zone name this runtime knows. */
 export function isValidTimeZone(value) {
   if (typeof value !== "string") return false;
@@ -258,8 +280,10 @@ function _clampSettings(settings) {
   s.showKpiTokens = Boolean(s.showKpiTokens);
   s.showActivityFeed = Boolean(s.showActivityFeed);
   // Electricity price: a non-negative finite number, otherwise "not set".
-  const price = s.energyPricePerKwh == null || s.energyPricePerKwh === "" ? null : Number(s.energyPricePerKwh);
-  s.energyPricePerKwh = Number.isFinite(price) && price >= 0 && price <= 100 ? price : null;
+  s.energyPricePerKwh = energyPriceValue(s.energyPricePerKwh);
+  s.energyPriceMode = s.energyPriceMode === "tou" ? "tou" : "flat";
+  // A hand-edited list that does not validate is dropped whole: half a tariff would misprice hours.
+  s.energyPricePeriods = normalizeEnergyPeriods(s.energyPricePeriods);
   s.energyCurrency =
     typeof s.energyCurrency === "string" && s.energyCurrency.trim() && s.energyCurrency.trim().length <= 4
       ? s.energyCurrency.trim()
@@ -360,6 +384,7 @@ export function getSettings() {
  */
 export function updateSettings(patch) {
   assertHealthTemps(_settings, _whitelist(patch));
+  assertEnergyPeriods(_whitelist(patch));
   const merged = _clampSettings({ ..._settings, ..._whitelist(patch) });
   _settings = merged;
   saveSettings();

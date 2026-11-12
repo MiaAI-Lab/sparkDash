@@ -1,3 +1,5 @@
+import type { EnergyPricePeriod } from "../shared/energyTariff";
+
 // ─── Spark config (matches server/sparks.json) ────────────
 export interface SparkConfig {
   id: string;
@@ -1268,6 +1270,10 @@ export interface Settings {
   energyPricePerKwh: number | null;
   /** Currency symbol shown with cost estimates. */
   energyCurrency: string;
+  /** "tou": the hours in energyPricePeriods have their own price; other hours cost energyPricePerKwh. */
+  energyPriceMode?: "flat" | "tou";
+  /** Time-of-use periods (whole local hours [from, to), wrapping past midnight when from > to). */
+  energyPricePeriods?: EnergyPricePeriod[];
   /**
    * VRAM bars split by engine / system / free and judged by headroom. On by
    * default (server DEFAULTS and the UI's pre-load fallback both say true).
@@ -2487,6 +2493,8 @@ export interface MonthlyEnergyMonth {
   outputTokens: number;
   coveredOutputTokens: number;
   whPerOutputToken: number | null;
+  /** From this instant on, every node's energy is also kept per hour (hourWh). Absent for months from before hourly records. */
+  binnedFromMs?: number;
   // ── Present only in months with wall power (measured or filled) ──
   totalWallWh?: number;
   totalWallFilledWh?: number;
@@ -2508,6 +2516,10 @@ export interface MonthlyEnergyNode {
   wallMeteredMs?: number;
   wallFilledWh?: number;
   wallFilledMs?: number;
+  /** Wh per UTC hour of the month, index 0 = its first hour; trailing empty hours left out. */
+  hourWh?: number[];
+  /** The same for wall power, filled time included. */
+  wallHourWh?: number[];
 }
 
 export interface MonthlyEnergy {

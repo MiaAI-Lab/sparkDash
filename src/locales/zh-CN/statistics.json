@@ -315,6 +315,12 @@
     "delta": "较前一 {{range}} {{change}}",
     "estimatedCost": "估算费用",
     "costRate": "每天 {{daily}}，电价 {{price}}/kWh",
+    "costRateTou": "每天 {{daily}}，平均 {{price}}/kWh（分时电价）",
+    "setBasePrice": "部分小时没有电价：请在设置中设定其他时段的电价",
+    "costLine": "费用",
+    "costLineLegend": "费用（{{currency}}，右轴）",
+    "priceAt": "电价 {{price}}/kWh",
+    "priceAverage": "平均电价 {{price}}/kWh",
     "localTime": "{{time}}（本地时间）",
     "sinceHistory": "自历史记录开始",
     "ofRange": "所选时段内",
@@ -372,7 +378,9 @@
       "empty": "暂无归档数据。Spark 持续上报一段时间后，每个已结束的分钟将计入对应月份。",
       "coverageNote": "仅列出有上报的设备。覆盖率是每台设备在当月被测量的时间占比",
       "metered": "按电表测量。",
-      "meteredFilled": "按电表测量，{{percent}} 由估算补齐。"
+      "meteredFilled": "按电表测量，{{percent}} 由估算补齐。",
+      "unbinned": "{{kwh}} kWh 记录于按小时记录开始之前，因此按其他时段电价（{{price}}/kWh）估算。",
+      "unbinnedNoPrice": "{{kwh}} kWh 记录于按小时记录开始之前；请在设置中设置其他时段的电价以计算其费用。"
     },
     "title": "集群能耗",
     "loadError": "无法加载能耗历史",
