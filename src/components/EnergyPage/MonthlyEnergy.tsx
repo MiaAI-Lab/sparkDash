@@ -2,12 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { fetchMonthlyEnergy } from "../../api/client";
 import type { MonthlyEnergy as MonthlyEnergyData, MonthlyEnergyMonth } from "../../api/types";
-import { StackedBarChart, type BarSeries } from "../ui/StackedBarChart";
+import { StackedBarChart, type BarLine, type BarSeries } from "../ui/StackedBarChart";
 import { Tag } from "../ui/Tag";
-import { formatKwh, formatMoney } from "./energyStats";
+import { formatKwh, formatMoney, type HourPrice } from "./energyStats";
 import { wallMonth } from "./wallStats";
 import {
   fleetCoverage,
+  monthCost,
+  type MonthPricing,
   monthLabel,
   monthNodeRows,
   monthOptions,
@@ -24,7 +26,7 @@ const pct = (v: number) => `${(v * 100).toFixed(v >= 0.995 ? 0 : 1)}%`;
 interface ViewProps {
   nameOf: (id: string) => string;
   colorOf: (id: string) => string;
-  price: number | null;
+  pricing: MonthPricing;
   currency: string;
 }
 
@@ -32,16 +34,21 @@ interface ViewProps {
 export function MonthlyEnergy({
   nameOf,
   price,
+  hourPrice = null,
   currency,
   reloadToken = 0,
 }: {
   nameOf: (id: string) => string;
+  /** Flat price per kWh; under time of use, the price for other hours. */
   price: number | null;
+  /** Time of use: each recorded hour is priced at its own rate. */
+  hourPrice?: HourPrice | null;
   currency: string;
   /** Change this value (e.g. after a Reset) to refetch immediately. */
   reloadToken?: number;
 }) {
   const { t, i18n } = useTranslation("statistics");
+  const pricing = useMemo<MonthPricing>(() => ({ flat: price, hourPrice }), [price, hourPrice]);
   const [data, setData] = useState<MonthlyEnergyData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"month" | "year">("month");
@@ -126,11 +133,11 @@ export function MonthlyEnergy({
           now={now}
           nameOf={nameOf}
           colorOf={colorOf}
-          price={price}
+          pricing={pricing}
           currency={currency}
         />
       ) : (
-        <YearView months={months} year={activeYear} nameOf={nameOf} colorOf={colorOf} price={price} currency={currency} />
+        <YearView months={months} year={activeYear} nameOf={nameOf} colorOf={colorOf} pricing={pricing} currency={currency} />
       )}
     </section>
   );
@@ -142,7 +149,7 @@ function MonthView({
   now,
   nameOf,
   colorOf,
-  price,
+  pricing,
   currency,
 }: ViewProps & { month: MonthlyEnergyMonth | null; label: string; now: number }) {
   const metered = month?.totalWallWh != null;
@@ -150,9 +157,10 @@ function MonthView({
   if (!month || month.totalWh <= 0) {
     return <p className="en-panel__sub" role="status">{t("energy.monthly.none", { label })}</p>;
   }
-  const rows = monthNodeRows(month, now, price);
+  const rows = monthNodeRows(month, now, pricing);
   const kwh = month.totalWh / 1000;
-  const cost = price != null ? kwh * price : null;
+  const { cost, unbinnedKwh } = monthCost(month, pricing);
+  const tou = pricing.hourPrice != null;
   const eff = month.whPerOutputToken != null ? month.whPerOutputToken * 1000 : null;
   return (
     <>
@@ -204,6 +212,10 @@ function MonthView({
             ? t("energy.monthly.meteredFilled", { percent: pct((month.totalWallFilledWh ?? 0) / month.totalWh) })
             : t("energy.monthly.metered")
           : t("energy.monthly.estimated")}
+        {tou && cost != null && unbinnedKwh > 0 ? (
+          <> {t("energy.monthly.unbinned", { kwh: formatKwh(unbinnedKwh), price: `${currency}${pricing.flat}` })}</>
+        ) : null}
+        {tou && cost == null ? <> {unbinnedKwh > 0 ? t("energy.monthly.unbinnedNoPrice", { kwh: formatKwh(unbinnedKwh) }) : t("energy.setBasePrice")}</> : null}
       </p>
     </>
   );
@@ -214,7 +226,7 @@ function YearView({
   year,
   nameOf,
   colorOf,
-  price,
+  pricing,
   currency,
 }: ViewProps & { months: MonthlyEnergyMonth[]; year: number }) {
   const { t, i18n } = useTranslation("statistics");
@@ -222,16 +234,42 @@ function YearView({
   const ids = [...new Set(bars.flatMap((b) => Object.keys(b.values)))];
   const series: BarSeries[] = ids.map((id) => ({ id, label: nameOf(id), color: colorOf(id) }));
   const total = yearTotalKwh(months, year);
+  const byKey = new Map(months.map((m) => [m.month, m]));
+  const costs = bars.map((b) => {
+    const m = byKey.get(b.month);
+    return m && b.hasData ? monthCost(m, pricing) : null;
+  });
+  const priced = pricing.flat != null || pricing.hourPrice != null;
+  const withData = costs.filter((c) => c != null);
+  const yearCost = priced && withData.length > 0 && withData.every((c) => c.cost != null) ? withData.reduce((s, c) => s + c.cost!, 0) : null;
+  const unbinned = withData.reduce((s, c) => s + c.unbinnedKwh, 0);
+  const tou = pricing.hourPrice != null;
+  const costLine: BarLine | undefined = priced
+    ? {
+        label: t("energy.costLine"),
+        color: "var(--color-warning)",
+        values: costs.map((c) => c?.cost ?? null),
+        format: (v) => formatMoney(v, currency),
+        detail: (i) => {
+          const c = costs[i]?.cost;
+          const kwh = bars[i]?.kwh ?? 0;
+          if (c == null || !(kwh > 0)) return null;
+          const p = c / kwh;
+          return t("energy.priceAverage", { price: `${currency}${p.toFixed(p < 1 ? 3 : 2)}` });
+        },
+      }
+    : undefined;
   return (
     <>
       <p className="en-monthly__year">
         {t("energy.monthly.yearTotal", { total: formatKwh(total), year })}
-        {price != null && total > 0 ? <span> · {formatMoney(total * price, currency)}</span> : null}
+        {yearCost != null && total > 0 ? <span> · {formatMoney(yearCost, currency)}</span> : null}
       </p>
       <div className="legend" aria-label={t("energy.monthly.nodes")}>
         {series.map((s) => (
           <span key={s.id} style={{ "--c": s.color } as React.CSSProperties}>{s.label}</span>
         ))}
+        {costLine ? <span style={{ "--c": costLine.color } as React.CSSProperties}>{t("energy.costLineLegend", { currency })}</span> : null}
       </div>
       <StackedBarChart
         buckets={bars}
@@ -239,14 +277,23 @@ function YearView({
         height={220}
         format={formatKwh}
         unit="kWh"
+        line={costLine}
         footer={(bucket) => {
           // The year aggregate above is the only money in this view; give each month its own.
           const bar = bucket as YearBar;
-          return price != null && bar.kwh > 0 ? `≈ ${formatMoney(bar.kwh * price, currency)}` : null;
+          const c = costs[bars.indexOf(bar)]?.cost ?? null;
+          return c != null && bar.kwh > 0 ? `≈ ${formatMoney(c, currency)}` : null;
         }}
         empty={t("energy.monthly.yearEmpty", { year })}
         ariaLabel={t("energy.monthly.yearChartAria", { year })}
       />
+      {tou && unbinned > 0 ? (
+        <p className="en-panel__sub en-panel__foot">
+          {yearCost != null
+            ? t("energy.monthly.unbinned", { kwh: formatKwh(unbinned), price: `${currency}${pricing.flat}` })
+            : t("energy.monthly.unbinnedNoPrice", { kwh: formatKwh(unbinned) })}
+        </p>
+      ) : null}
     </>
   );
 }

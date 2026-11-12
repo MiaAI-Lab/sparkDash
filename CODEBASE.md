@@ -14,7 +14,7 @@ The package uses ESM throughout. `server/index.js` runs directly in Node and cre
 | `server/collectors/` | Hardware, platform-specific probes, LLM detection, streaming, benchmarks and Showcase |
 | `server/auth.js`, `server/validate.js` | Incoming access checks and configured-target validation |
 | `server/secretsStore.js`, `server/settings.js` | Encrypted credentials and ordinary persistent settings |
-| `server/metrics/`, `server/llmtokens/`, `server/energy/` | Metric histories, token accounting and fleet energy |
+| `server/metrics/`, `server/llmtokens/`, `server/energy/` | Metric histories, token accounting and fleet energy. The permanent monthly archive (`FleetEnergyMonthly.js`) also keeps each node's energy per UTC hour of the month, so any tariff can price past months; it stores energy, never money |
 | `server/powermeter/` | Opt-in external power meters: provider base class and registry, polling, reconciliation with the meter's own history. Wall power is recorded by `server/energy/` (docs/POWER-METERS.md) |
 | `server/health/`, `server/alerts/`, `server/events/` | Findings, optional notifications and bounded activity history |
 | `server/llmlaunch/`, `server/tooleval/`, `server/gpuclock/` | Model launcher jobs, tool evaluation, GPU-clock management and per-card power limits on GPU hosts (`gpuclock/powerCommands.js`) |
@@ -25,7 +25,7 @@ The package uses ESM throughout. `server/index.js` runs directly in Node and cre
 | `src/hooks/` | Snapshot subscription, metric history and UI hooks |
 | `src/components/` | Shell, overview, unit panels and feature pages; the Storage Manager's delete check is `StoragePage/DeleteAdvice.tsx` with its pure rules for friction in `deleteAdvice.ts` and its request in `useDeleteAdvice.ts` |
 | `src/styles/`, `src/index.css` | Component styles, Tailwind entry and theme variables |
-| `src/shared/` | Shared pure logic, including benchmark prompts, formatting and the one "main disk" policy (`mainFilesystem.js`, also imported by the server) and the electricity tariff (`energyTariff.js`: flat or time-of-use price per hour, validated by the server and costed by the Energy page) |
+| `src/shared/` | Shared pure logic, including benchmark prompts, formatting and the one "main disk" policy (`mainFilesystem.js`, also imported by the server) and the electricity tariff (`energyTariff.js`: flat or time-of-use price per hour, validated by the server and costed by the Energy page, including past months from their hourly energy) |
 | `config/` | Runtime configuration and persisted histories; never use live files in tests |
 | `docs/` | Design, operational notes and feature documentation |
 | `homeassistant/` | Home Assistant custom component (Python) that polls a hub's `/api/sparks` endpoints; not run by `npm test`, only its docs are checked |

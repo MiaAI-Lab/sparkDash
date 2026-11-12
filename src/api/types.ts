@@ -2493,6 +2493,8 @@ export interface MonthlyEnergyMonth {
   outputTokens: number;
   coveredOutputTokens: number;
   whPerOutputToken: number | null;
+  /** From this instant on, every node's energy is also kept per hour (hourWh). Absent for months from before hourly records. */
+  binnedFromMs?: number;
   // ── Present only in months with wall power (measured or filled) ──
   totalWallWh?: number;
   totalWallFilledWh?: number;
@@ -2514,6 +2516,10 @@ export interface MonthlyEnergyNode {
   wallMeteredMs?: number;
   wallFilledWh?: number;
   wallFilledMs?: number;
+  /** Wh per UTC hour of the month, index 0 = its first hour; trailing empty hours left out. */
+  hourWh?: number[];
+  /** The same for wall power, filled time included. */
+  wallHourWh?: number[];
 }
 
 export interface MonthlyEnergy {
