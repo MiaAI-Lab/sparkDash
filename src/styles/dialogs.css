@@ -2521,8 +2521,10 @@
   color: var(--color-text);
 }
 
+/* The selected tab in the brand yellow, like the active sidebar item. The -text shade
+   is the theme's readable one (darker in light themes), so the label keeps its contrast. */
 .set-tabs__tab.is-on {
-  color: var(--color-text);
+  color: var(--color-accent-text);
   border-bottom-color: var(--color-accent);
 }
 
@@ -2534,4 +2536,28 @@
 
 .set-tabpanel[hidden] {
   display: none;
+}
+
+/* Settings stays put while tabs change: one fixed width, anchored near the top rather than
+   centred, so the title and tab row never move; a taller tab grows the dialog downward, up
+   to the viewport, then scrolls inside. The scrollbar's room is always reserved. */
+.settings-panel .modal-sheet__body {
+  scrollbar-gutter: stable;
+}
+@media (max-width: 639.98px) {
+  /* The phone sheet rises from the bottom: a fixed height keeps its top still too. */
+  .settings-panel {
+    height: min(94dvh, 100%);
+  }
+}
+@media (min-width: 640px) {
+  .settings-overlay {
+    --settings-top: max(1.5rem, 8vh);
+    align-items: flex-start;
+    padding-top: var(--settings-top);
+  }
+  .settings-panel {
+    width: 34rem;
+    max-height: min(calc(100dvh - var(--settings-top) - 1.5rem), 50rem);
+  }
 }
