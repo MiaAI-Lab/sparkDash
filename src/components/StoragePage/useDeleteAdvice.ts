@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { adviseStorageDelete } from "../../api/client";
-import { ADVICE_TIMEOUT_MS, adviceSatisfied, frictionOf, type AdviceState, type Friction } from "./deleteAdvice";
+import { ADVICE_TIMEOUT_MS, adviceSatisfied, frictionOf, type AdviceState, type Friction } from "./deleteAdviceRules";
 
 export interface DeleteAdvice {
   state: AdviceState;
