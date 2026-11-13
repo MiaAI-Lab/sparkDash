@@ -1102,7 +1102,11 @@ export interface DeskDelegate {
   source?: string;
   model?: string;
   provider?: string;
+  /** A delegate's parent thread, or an interactive fork's parent; null for a top-level thread. */
+  parent?: string | null;
   warning?: string;
+  /** delegate: a dispatched subagent; interactive: the owner's top-level or fork thread. */
+  kind?: "delegate" | "interactive";
 }
 
 export interface DeskRoute {

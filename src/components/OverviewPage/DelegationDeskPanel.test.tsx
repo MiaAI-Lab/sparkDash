@@ -298,6 +298,40 @@ describe("DelegationDeskPanel reading", () => {
     expect(empty.container.textContent).toContain("The desk lists no routes.");
   });
 
+  it("splits delegates and interactive threads and counts both toward the budget", async () => {
+    const data = snapshot();
+    const sol = data.routes[4];
+    sol.load = 3;
+    sol.budget = 5;
+    sol.roster_budget = 5;
+    sol.live = [
+      { id: "owner", title: "Android v1", host: "MK-MacBook-Pro-5", source: "t3:~/.t3", kind: "interactive" },
+      { id: "fork", title: "Google Ads Audience Issue Status", host: "MK-MacBook-Pro-5", source: "t3:~/.t3", kind: "interactive", parent: "root" },
+      { id: "worker", title: "Desk worker", host: "MK-MacBook-Pro-5", source: "t3:~/.t3", kind: "delegate", parent: "root" },
+    ];
+    const { container } = await renderPanel(data);
+    const solColumn = column(container, "GPT-6.1 Sol");
+    expect(solColumn.textContent).toContain("Delegates1 delegate + 2 interactive · 3 / 5");
+    expect(solColumn.querySelectorAll(".dd-slots i.is-held")).toHaveLength(3);
+    const rows = [...solColumn.querySelectorAll(".dd-list li")];
+    expect(rows.some((row) => row.textContent?.includes("Android v1") && row.textContent?.includes("interactive"))).toBe(true);
+    expect(rows.some((row) => row.textContent?.includes("Desktop worker") || row.textContent?.includes("Desk worker"))).toBe(true);
+  });
+
+  it("shows interactive threads alone without claiming a delegate count", async () => {
+    const data = snapshot();
+    const sol = data.routes[4];
+    sol.load = 2;
+    sol.budget = 5;
+    sol.roster_budget = 5;
+    sol.live = [
+      { id: "owner", title: "Owner session", host: "MK-MacBook-Pro-5", source: "t3:~/.t3", kind: "interactive" },
+      { id: "fork", title: "Owner fork", host: "MK-MacBook-Pro-5", source: "t3:~/.t3", kind: "interactive", parent: "root" },
+    ];
+    const { container } = await renderPanel(data);
+    expect(column(container, "GPT-6.1 Sol").textContent).toContain("0 delegates + 2 interactive · 2 / 5");
+  });
+
   it("flags a stale host in the header and on its delegates", async () => {
     const data = snapshot();
     data.hosts["MK-MacBook-Pro-5"] = { age: 214, state: "stale" };

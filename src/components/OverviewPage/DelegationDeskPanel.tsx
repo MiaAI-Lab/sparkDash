@@ -77,11 +77,17 @@ function SlotBar({ load, budget }: { load: number; budget: number }) {
 }
 
 function Delegates({ route, override }: { route: DeskRoute; override?: DeskOverride }) {
+  const interactive = route.live.filter((d) => d.kind === "interactive").length;
+  const delegates = route.live.length - interactive;
+  const mixed = interactive > 0;
   if (route.budget == null) {
     return (
       <div className="dd-row">
         <span className="dd-k">Delegates</span>
-        <span className="dd-v dd-num">{route.load} <span className="dd-of">· quota only</span></span>
+        <span className="dd-v dd-num">
+          {mixed ? `${delegates} ${plural(delegates, "delegate")} + ${interactive} interactive` : route.load}
+          <span className="dd-of"> · quota only</span>
+        </span>
       </div>
     );
   }
@@ -90,7 +96,8 @@ function Delegates({ route, override }: { route: DeskRoute; override?: DeskOverr
       <div className="dd-row">
         <span className="dd-k">Delegates</span>
         <span className="dd-v dd-num">
-          {route.load}<span className="dd-of"> / {route.budget}</span>
+          {mixed ? `${delegates} ${plural(delegates, "delegate")} + ${interactive} interactive` : route.load}
+          <span className="dd-of">{mixed ? ` · ${route.load} / ${route.budget}` : ` / ${route.budget}`}</span>
           {override ? <span className="dd-ovr-badge"> · override</span> : null}
         </span>
       </div>
@@ -275,21 +282,22 @@ function Holders({ route, claims, hosts }: { route: DeskRoute; claims: DeskClaim
       title: d.title || d.id,
       host: d.host,
       via: d.source?.startsWith("firstmate") ? "Firstmate" : "T3",
+      interactive: d.kind === "interactive",
       stale: hosts[d.host]?.state === "stale",
     })),
     ...claims.filter((c) => c.route === route.key).map((c) => ({
-      id: `claim:${c.id}`, title: c.title || "Claimed slot", host: c.host, via: "starting", stale: false,
+      id: `claim:${c.id}`, title: c.title || "Claimed slot", host: c.host, via: "starting", interactive: false, stale: false,
     })),
   ];
   if (!rows.length) return null;
   return (
     <details className="dd-disclosure">
-      <summary><ChevronDownIcon />{rows.length} {plural(rows.length, "delegate")}</summary>
+      <summary><ChevronDownIcon />{rows.length} {plural(rows.length, "holder")}</summary>
       <ul className="dd-list">
         {rows.map((row) => (
           <li key={row.id} className={row.stale ? "is-stale" : undefined}>
             <span className="dd-trunc" title={row.title}>{row.title}</span>
-            <span className="dd-sub">{row.host} · {row.via}{row.stale ? " · host not reporting" : ""}</span>
+            <span className="dd-sub">{row.host} · {row.via}{row.interactive ? " · interactive" : ""}{row.stale ? " · host not reporting" : ""}</span>
           </li>
         ))}
       </ul>
