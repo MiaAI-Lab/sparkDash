@@ -2,6 +2,7 @@ node_modules/
 dist/
 .env
 sparks.json
+config/settings.json
 config/sparks-secrets.json
 config/storage-sudo.json
 config/storage-scans.json
@@ -33,11 +34,13 @@ config/gpu-memory.json
 config/gpu-memory.json.*
 config/bench-exports/
 *.log
+.runtime/
 .DS_Store
 docs/
 !/docs/
 /docs/*
 !/docs/I18N-COVERAGE.md
+!/docs/RTX-SPARK-WINDOWS.md
 mockups/
 PLAN.md
 tetris.html
@@ -65,3 +68,4 @@ __pycache__/
 !/docs/
 /docs/*
 !/docs/I18N-COVERAGE.md
+!/docs/RTX-SPARK-WINDOWS.md

@@ -2,6 +2,8 @@ import { buildToolEvalArgs, mayUseSavedKey, splitExtraArgs, validateBaseUrl } fr
 import { ALLOWED_EXTRAS, installCommandLine, runDirRef } from "./commands.js";
 import { isValidRunId, newRunId } from "./ToolEvalStore.js";
 import { publicSpec } from "./spec.js";
+import { IS_WINDOWS_HOST } from "../util/windowsProgram.js";
+import { TOOL_EVAL_VENV } from "../config.js";
 
 /** Benchmark pages served by the tool-eval-bench engine. */
 export const TOOL_EVAL_TYPES = {
@@ -51,6 +53,13 @@ export function registerToolEvalRoutes(app, { registry, manager, store, allowRun
     }
     return run;
   };
+
+  // The local unit on a Windows host installs with pip into its venv; remote units
+  // (any OS) keep the upstream uv/bash flow. venv is null for remotes.
+  const teInstallCtx = (spark) => ({
+    platform: spark?.isLocal ? (IS_WINDOWS_HOST ? "windows" : spark?.platform || "linux") : spark?.platform || "linux",
+    venv: spark?.isLocal && IS_WINDOWS_HOST ? TOOL_EVAL_VENV : null,
+  });
 
   /** Validate a request body into { type, built, port } or send a 400. */
   const prepare = (req, res, spark, { forPreview = false } = {}) => {
@@ -102,8 +111,10 @@ export function registerToolEvalRoutes(app, { registry, manager, store, allowRun
   });
 
   app.get(`${base}/install-command`, (req, res) => {
+    const spark = sparkOr404(req, res);
+    if (!spark) return;
     const extras = String(req.query.extras ?? "").split(",").filter((e) => ALLOWED_EXTRAS.includes(e));
-    res.json({ command: installCommandLine({ extras, upgrade: req.query.upgrade === "1" }) });
+    res.json({ command: installCommandLine({ extras, upgrade: req.query.upgrade === "1", ...teInstallCtx(spark) }) });
   });
 
   app.post(`${base}/install`, (req, res) => {
@@ -113,7 +124,7 @@ export function registerToolEvalRoutes(app, { registry, manager, store, allowRun
     const extras = Array.isArray(req.body?.extras) ? req.body.extras.filter((e) => ALLOWED_EXTRAS.includes(e)) : [];
     const result = manager.install(spark, { extras, upgrade: req.body?.upgrade === true });
     if (!result.ok) return res.status(409).json({ error: "Another Tool Eval Bench job is running on this Spark", active: result.active });
-    res.status(202).json({ job: manager.summary(result.job), command: installCommandLine({ extras, upgrade: req.body?.upgrade === true }) });
+    res.status(202).json({ job: manager.summary(result.job), command: installCommandLine({ extras, upgrade: req.body?.upgrade === true, ...teInstallCtx(spark) }) });
   });
 
   app.get(`${base}/install/stream`, (req, res) => {

@@ -9,6 +9,9 @@ import { decodeClixml, powershellCommand } from "./windowsMetrics.js";
 import { execFile } from "child_process";
 import crypto from "crypto";
 import fs from "fs";
+import os from "os";
+import path from "path";
+import { fileURLToPath } from "url";
 import {
   COMFY_PORT,
   COMFY_PROBE_TIMEOUT_MS,
@@ -33,14 +36,32 @@ const _multiplexStates = new Map();
 // held. Reconnecting per command is no fix there — it leaks on every new connection too
 // (#2476) and brings back #73's session churn.
 const WINDOWS_MASTER_MAX_AGE_MS = 60 * 60 * 1000;
-// Keep the private directory short even on macOS, where TMPDIR can already
-// consume most of a Unix socket's 104-byte path limit.
-const _controlDir = fs.mkdtempSync("/tmp/sparkdash-ssh-");
+
+// ─── WINDOWS-ARM64-PORT ────────────────────────────────────────────────────
+// There is no /tmp on Windows, and Windows OpenSSH has no ControlMaster support
+// (it cannot use Unix-domain sockets for the control path). Use the OS temp dir
+// and disable multiplexing on this host; remote Linux units keep the upstream
+// behaviour untouched. The deployment's own helper scripts live beside the
+// repo so password auth can use an SSH_ASKPASS shim instead of sshpass.
+export const IS_WINDOWS_HOST = process.platform === "win32";
+const WINDOWS_TOOLS_DIR = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "..",
+  "scripts",
+  "windows"
+);
+export const WINDOWS_ASKPASS = path.join(WINDOWS_TOOLS_DIR, "ssh-askpass.cmd");
+const _controlBase =
+  process.env.SPARKDASH_SSH_CONTROL_DIR ||
+  (IS_WINDOWS_HOST ? path.join(os.tmpdir(), "sparkdash-ssh") : "/tmp");
+if (IS_WINDOWS_HOST) fs.mkdirSync(_controlBase, { recursive: true });
+const _controlDir = fs.mkdtempSync(path.join(_controlBase, "sparkdash-ssh-"));
 const _controlSalt = crypto.randomBytes(32);
 
 /** ssh's own exit code for transport-level failures (dropped connection, auth). */
 const SSH_TRANSPORT_EXIT = 255;
-fs.chmodSync(_controlDir, 0o700);
+if (!IS_WINDOWS_HOST) fs.chmodSync(_controlDir, 0o700);
 
 function controlPersistSeconds() {
   const configured = Number.parseInt(
@@ -61,6 +82,10 @@ function ensureControlDir() {
  * transport; the secret itself is never exposed in argv or the socket path.
  */
 export function sshMultiplexConfig(spark, targetHost, user, auth, password, port = 22) {
+  // WINDOWS-ARM64-PORT: Windows OpenSSH cannot create a Unix control socket.
+  // A per-command connection is the supported path here (remote key auth
+  // remains fast enough; users can pin keys with an ssh agent).
+  if (IS_WINDOWS_HOST) return null;
   const persistSeconds = controlPersistSeconds();
   if (persistSeconds === 0) return null;
 
@@ -136,6 +161,14 @@ process.once("exit", () => {
 
 function sshpassAvailable() {
   if (_sshpassAvailable !== null) return _sshpassAvailable;
+  // WINDOWS-ARM64-PORT: sshpass is a POSIX-only helper. Our own askpass shim
+  // (scripts/windows/ssh-askpass.cmd) supplies the password through
+  // SSH_ASKPASS + SSH_ASKPASS_REQUIRE=force, the mechanism Windows OpenSSH 9.x
+  // supports. The password still travels only through the child environment.
+  if (IS_WINDOWS_HOST) {
+    _sshpassAvailable = fs.existsSync(WINDOWS_ASKPASS);
+    return _sshpassAvailable;
+  }
   try {
     const candidates = [
       "/usr/bin/sshpass",
@@ -226,8 +259,9 @@ export function sshCommandSpec(spark, opts = {}) {
   // The readiness gate and command must use the same socket and persistence.
   // Explicitly disable both creating and joining a master when reuse is off,
   // including when a user's ssh_config enables multiplexing independently.
-  const controlOpts =
-    multiplex?.args ?? ["-o", "ControlMaster=no", "-o", "ControlPath=none"];
+  const controlOpts = IS_WINDOWS_HOST
+    ? [] // WINDOWS-ARM64-PORT: ControlPath/ControlMaster are not available there.
+    : (multiplex?.args ?? ["-o", "ControlMaster=no", "-o", "ControlPath=none"]);
   // `--` stops option parsing before destination.
   let file;
   let args;
@@ -236,7 +270,7 @@ export function sshCommandSpec(spark, opts = {}) {
   // child; this whitelist scopes to PATH, HOME, USER/LOGNAME (ssh logging +
   // known_hosts mixing), TERM, and SSH_AUTH_SOCK so agent-forwarded key auth
   // still works. SSHPASS is added below only for password auth.
-  const env = {
+  const baseEnv = {
     PATH: process.env.PATH || "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
     HOME: process.env.HOME || "/root",
     USER: process.env.USER,
@@ -244,6 +278,25 @@ export function sshCommandSpec(spark, opts = {}) {
     TERM: process.env.TERM || "xterm",
     ...(process.env.SSH_AUTH_SOCK ? { SSH_AUTH_SOCK: process.env.SSH_AUTH_SOCK } : {}),
   };
+  // WINDOWS-ARM64-PORT: ssh.exe needs the Windows user profile (known_hosts,
+  // the default identity), SystemRoot (DLL loading) and a temp dir; the POSIX
+  // whitelist above would otherwise leave it unable to start.
+  const env = IS_WINDOWS_HOST
+    ? {
+        ...baseEnv,
+        HOME: process.env.USERPROFILE || baseEnv.HOME,
+        USERPROFILE: process.env.USERPROFILE || "",
+        HOMEDRIVE: process.env.HOMEDRIVE || "",
+        HOMEPATH: process.env.HOMEPATH || "",
+        SystemRoot: process.env.SystemRoot || "",
+        APPDATA: process.env.APPDATA || "",
+        LOCALAPPDATA: process.env.LOCALAPPDATA || "",
+        TEMP: process.env.TEMP || "",
+        TMP: process.env.TMP || "",
+        ProgramData: process.env.ProgramData || "",
+        USERNAME: process.env.USERNAME || "",
+      }
+    : baseEnv;
 
   if (auth === "pass") {
     if (!password) {
@@ -252,21 +305,46 @@ export function sshCommandSpec(spark, opts = {}) {
       );
     }
     if (!sshpassAvailable()) {
-      throw new Error(`sshpass is not installed. Install it with: sudo apt-get install sshpass`);
+      throw new Error(
+        IS_WINDOWS_HOST
+          ? `Windows password-auth helper is missing: ${WINDOWS_ASKPASS}`
+          : `sshpass is not installed. Install it with: sudo apt-get install sshpass`
+      );
     }
-    // Password via env (sshpass -e) — never on argv or in process list as -p
-    env.SSHPASS = password;
-    file = "sshpass";
-    args = [
-      "-e",
-      "ssh",
-      ...baseOpts,
-      ...controlOpts,
-      ...extraSshArgs,
-      "--",
-      remote,
-      ...remoteArgv,
-    ];
+    if (IS_WINDOWS_HOST) {
+      // WINDOWS-ARM64-PORT: no sshpass on Windows. SSH_ASKPASS_REQUIRE=force
+      // makes OpenSSH ask a helper for the password even without a tty; the
+      // helper reads it from the child environment, never from argv.
+      env.SPARKDASH_SSH_PASSWORD = password;
+      env.SSH_ASKPASS = WINDOWS_ASKPASS;
+      env.SSH_ASKPASS_REQUIRE = "force";
+      env.DISPLAY = process.env.DISPLAY || "localhost:0";
+      file = "ssh.exe";
+      args = [
+        ...baseOpts,
+        ...controlOpts,
+        "-o",
+        "NumberOfPasswordPrompts=1",
+        ...extraSshArgs,
+        "--",
+        remote,
+        ...remoteArgv,
+      ];
+    } else {
+      // Password via env (sshpass -e) — never on argv or in process list as -p
+      env.SSHPASS = password;
+      file = "sshpass";
+      args = [
+        "-e",
+        "ssh",
+        ...baseOpts,
+        ...controlOpts,
+        ...extraSshArgs,
+        "--",
+        remote,
+        ...remoteArgv,
+      ];
+    }
   } else {
     // Key-based SSH (default) — BatchMode prevents hanging on missing keys
     file = "ssh";

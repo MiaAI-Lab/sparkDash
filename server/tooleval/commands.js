@@ -188,10 +188,19 @@ fi
 export const INSTALL_SOURCE = "git+https://github.com/SeraphimSerapis/tool-eval-bench.git";
 export const ALLOWED_EXTRAS = ["perf", "hf"];
 
-/** The install / upgrade command line, shown to the user before they confirm. */
-export function installCommandLine({ extras = [], upgrade = false } = {}) {
+/** The install / upgrade command line, shown to the user before they confirm.
+ *  On a local Windows host the unit installs with pip into its venv (never uv);
+ *  `platform`/`venv` (from the route) select that form. */
+export function installCommandLine({ extras = [], upgrade = false, platform = "linux", venv = null } = {}) {
   const ex = extras.filter((e) => ALLOWED_EXTRAS.includes(e));
   const target = ex.length ? `tool-eval-bench[${ex.join(",")}] @ ${INSTALL_SOURCE}` : INSTALL_SOURCE;
+  // Only the local Windows unit installs with pip (it has the venv). A remote
+  // Windows unit still runs the bash program over SSH, which uses uv.
+  if (platform === "windows" && venv) {
+    const py = `${venv}\\Scripts\\python.exe`;
+    // `pip install --upgrade` is both the first install and the in-place upgrade.
+    return `& "${py}" -m pip install --upgrade "${target}"`;
+  }
   const reinstall = `uv tool install --force "${target}"`;
   // `uv tool upgrade` only knows tools that uv itself installed; a copy put there by pip/pipx makes it
   // fail with "is not installed". In that case fall back to a reinstall from GitHub, which takes over.

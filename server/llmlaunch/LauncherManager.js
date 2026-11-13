@@ -6,6 +6,7 @@ import { spawn, execFile } from "child_process";
 import { HOST_PATHS } from "../config.js";
 import { sshCommandSpec, sshExec } from "../collectors/ssh.js";
 import { chooseLocalInvocation } from "../collectors/HermesProbe.js";
+import { IS_WINDOWS_HOST, resolvePowerShell, windowsProgramArgs, killProcessTree } from "../util/windowsProgram.js";
 import {
   exitPrefix,
   buildAttachCommand,
@@ -13,6 +14,7 @@ import {
   buildStatusCommand,
   buildStopCommand,
 } from "./commands.js";
+import { sdProgramWindows } from "../util/windowsCommands.js";
 
 export const MAX_LINES = 5000;
 const START_WATCH_MAX_MS = 6 * 60 * 60 * 1000;
@@ -76,6 +78,13 @@ export class LineSplitter {
 }
 
 function resolveLocalInvocation(spark, cmd) {
+  // WINDOWS-ARM64-PORT: a local Windows host has no POSIX shell, setpriv or
+  // nsenter. `cmd` here is a POSIX program (bash); the caller detects this and
+  // routes to a PowerShell program instead. If one ever reaches us, run it
+  // through cmd.exe as the current user — never setpriv/nsenter.
+  if (IS_WINDOWS_HOST) {
+    return { file: "cmd.exe", args: ["/d", "/s", "/c", cmd], repair: null };
+  }
   const mntNs = fs.existsSync(path.join(HOST_PATHS.PROC, "1", "ns", "mnt"))
     ? path.join(HOST_PATHS.PROC, "1", "ns", "mnt")
     : null;
@@ -104,6 +113,22 @@ export function defaultSpawn(spark, cmd, opts = {}) {
   // `opts.stdin`: keep stdin open as a pipe so the caller can hand over secrets without argv.
   const stdio = [opts.stdin ? "pipe" : "ignore", "pipe", "pipe"];
   if (spark.isLocal) {
+    if (IS_WINDOWS_HOST) {
+      // WINDOWS-ARM64-PORT: the local host runs a PowerShell program (built by
+      // windowsCommands.js), not a POSIX one. Execute it with powershell.exe.
+      //
+      // detached MUST stay false here: DETACHED_PROCESS gives the child no console,
+      // and powershell.exe on Windows ARM64 then exits immediately (exit 0) without
+      // ever writing a byte — every status/install/run probe came back empty. A
+      // non-detached child keeps the stdio pipes and reports output normally.
+      const wrapped = { b64: Buffer.from(String(cmd), "utf16le").toString("base64") };
+      return spawn(resolvePowerShell(), windowsProgramArgs(wrapped), {
+        env: scrubbedChildEnv(),
+        stdio,
+        detached: false,
+        windowsHide: true,
+      });
+    }
     const inv = resolveLocalInvocation(spark, cmd);
     return spawn(inv.file, inv.args, { env: scrubbedChildEnv(), stdio, detached: true });
   }
@@ -126,6 +151,24 @@ export function defaultSpawn(spark, cmd, opts = {}) {
  * discovery, which scans the local unit with the same identity the launcher
  * scripts run under.
  */
+/**
+ * Choose the on-Spark program for an LLM-launch action: a PowerShell program on a
+ * local Windows host (run natively), else the upstream bash program (run on a
+ * remote unit over SSH). Symmetric with Tool Eval's teCmd; the shell choice is
+ * host-level and matches how defaultSpawn/defaultExec execute it.
+ */
+export function sdCmd(spark, action, opts) {
+  if (IS_WINDOWS_HOST && spark?.isLocal) {
+    return sdProgramWindows(action, opts); // PowerShell text (run via powershell.exe)
+  }
+  return {
+    status: (o) => buildStatusCommand(o.ids || []),
+    start: (o) => buildStartCommand(o),
+    attach: (o) => buildAttachCommand(o),
+    stop: (o) => buildStopCommand(o),
+  }[action](opts);
+}
+
 export function defaultExec(spark, cmd, timeoutMs) {
   if (!spark.isLocal) {
     if (spark.platform === "windows") {
@@ -134,6 +177,15 @@ export function defaultExec(spark, cmd, timeoutMs) {
       );
     }
     return sshExec(spark, cmd, { timeoutMs });
+  }
+  // WINDOWS-ARM64-PORT: local host runs a PowerShell program, not a POSIX one.
+  if (IS_WINDOWS_HOST) {
+    const wrapped = { b64: Buffer.from(String(cmd), "utf16le").toString("base64") };
+    return new Promise((resolve, reject) => {
+      execFile(resolvePowerShell(), windowsProgramArgs(wrapped), { env: scrubbedChildEnv(), timeout: timeoutMs, maxBuffer: 1024 * 1024, windowsHide: true }, (err, stdout) =>
+        err ? reject(err) : resolve(String(stdout).trim())
+      );
+    });
   }
   const inv = resolveLocalInvocation(spark, cmd);
   return new Promise((resolve, reject) => {
@@ -209,7 +261,7 @@ export class LauncherManager {
     for (const l of launchers) out[l.id] = "unknown";
     if (launchers.length === 0) return out;
     try {
-      const text = await this.exec(spark, buildStatusCommand(launchers.map((l) => l.id)), 15000);
+      const text = await this.exec(spark, sdCmd(spark, "status", { ids: launchers.map((l) => l.id) }), 15000);
       for (const line of String(text).split("\n")) {
         const m = /^(\S+) (RUNNING|STOPPED)$/.exec(line.trim());
         if (m && m[1] in out) out[m[1]] = m[2] === "RUNNING" ? "running" : "stopped";
@@ -240,13 +292,13 @@ export class LauncherManager {
     let maxMs;
     const nonce = crypto.randomBytes(12).toString("hex");
     if (action === "start") {
-      cmd = buildStartCommand({ id: launcher.id, dir: launcher.dir, script: launcher.startScript, nonce });
+      cmd = sdCmd(spark, "start", { id: launcher.id, dir: launcher.dir, script: launcher.startScript, nonce });
       maxMs = START_WATCH_MAX_MS;
     } else if (action === "attach") {
-      cmd = buildAttachCommand({ id: launcher.id, nonce });
+      cmd = sdCmd(spark, "attach", { id: launcher.id, nonce });
       maxMs = START_WATCH_MAX_MS;
     } else {
-      cmd = buildStopCommand({ dir: launcher.dir, script: launcher.stopScript, nonce });
+      cmd = sdCmd(spark, "stop", { dir: launcher.dir, script: launcher.stopScript, nonce });
       maxMs = STOP_MAX_MS;
     }
     const markerPrefix = exitPrefix(nonce);
@@ -339,6 +391,20 @@ export class LauncherManager {
   _kill(job) {
     const child = job.child;
     if (!child || child.exitCode != null || child.signalCode != null) return;
+    if (IS_WINDOWS_HOST) {
+      // WINDOWS-ARM64-PORT: there are no POSIX process groups on Windows, so
+      // process.kill(-pid) is meaningless. Kill the child and its direct tree
+      // (a powershell.exe that only watches the log), then fall back to a plain
+      // terminate. Windows child.kill() issues a terminate regardless of signal.
+      const hard = () => {
+        if (child.pid) killProcessTree(child.pid);
+        try { child.kill(); } catch { /* gone */ }
+      };
+      hard();
+      const t = setTimeout(hard, KILL_GRACE_MS);
+      t.unref?.();
+      return;
+    }
     const signal = (sig) => {
       try {
         if (child.pid) process.kill(-child.pid, sig);

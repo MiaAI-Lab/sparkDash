@@ -28,7 +28,14 @@ export function evaluateStartupPreflight(input) {
   if (input.sshIdentity?.configured && input.sshIdentity.safePermissions === false) {
     warnings.push("SSH identity permissions are too open; set the private key to mode 600.");
   }
-  if (!input.localCollectors?.available) warnings.push("Local host metrics are unavailable; verify /proc and /sys host mounts.");
+  // WINDOWS-ARM64-PORT: the local probes are PowerShell/CIM based there, so a
+  // missing /proc mount is not a fault. Let the inspector supply the right text.
+  if (!input.localCollectors?.available) {
+    warnings.push(
+      input.localCollectors?.message ||
+        "Local host metrics are unavailable; verify /proc and /sys host mounts."
+    );
+  }
   return {
     fatal: errors.length > 0,
     authMode: loopback
@@ -52,10 +59,20 @@ function pathWritable(target) {
   }
 }
 
+/** WINDOWS-ARM64-PORT: Windows PowerShell 5.1 is always present on Windows 11. */
+function windowsProbeAvailable() {
+  const configured = process.env.SPARKDASH_POWERSHELL;
+  if (configured) return fs.existsSync(configured);
+  const systemRoot = process.env.SystemRoot || "C:\\Windows";
+  return fs.existsSync(path.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"));
+}
+
 export function inspectStartupPreflight(bindHost) {
   const configDir = path.dirname(SPARKS_JSON_PATH);
   const keyFile = path.join(configDir, ".secrets-key");
-  const identity = process.env.SSH_IDENTITY_FILE || path.join(process.env.HOME || "/root", ".ssh", "id_ed25519");
+  const isWin = process.platform === "win32";
+  const home = isWin ? process.env.USERPROFILE || "." : process.env.HOME || "/root";
+  const identity = process.env.SSH_IDENTITY_FILE || path.join(home, ".ssh", "id_ed25519");
   let identityMode = null;
   try {
     identityMode = fs.statSync(identity).mode & 0o777;
@@ -74,11 +91,20 @@ export function inspectStartupPreflight(bindHost) {
     sshIdentity: {
       configured: identityMode != null,
       path: identity,
-      safePermissions: identityMode == null ? null : (identityMode & 0o077) === 0,
+      // Windows has no POSIX mode bits: fs.stat().mode is a fixed value there,
+      // so the 0600 check would be a permanent false positive. ACLs are the
+      // Windows equivalent (icacls) and are not probed here.
+      safePermissions: isWin || identityMode == null ? null : (identityMode & 0o077) === 0,
     },
-    localCollectors: {
-      available: fs.existsSync(path.join(HOST_PATHS.PROC, "meminfo")) && fs.existsSync(HOST_PATHS.SYS),
-    },
+    localCollectors: isWin
+      ? {
+          available: windowsProbeAvailable(),
+          message: "Local Windows metric probes are unavailable; verify Windows PowerShell (powershell.exe) is installed.",
+        }
+      : {
+          available: fs.existsSync(path.join(HOST_PATHS.PROC, "meminfo")) && fs.existsSync(HOST_PATHS.SYS),
+          message: "Local host metrics are unavailable; verify /proc and /sys host mounts.",
+        },
   });
 }
 

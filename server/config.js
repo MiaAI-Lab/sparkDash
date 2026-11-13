@@ -200,6 +200,16 @@ function resolveFastPollIntervals(pollIntervalMs, overrides = FAST_POLL_ENV_OVER
   return /** @type {any} */ (out);
 }
 
+// ─── Tool Eval Bench (tool-eval-bench CLI) ───────────────
+/**
+ * On a local Windows host the external tool-eval-bench CLI is installed with
+ * pip into this virtual environment (never uv): `D:\llm\venv\Scripts\python.exe
+ * -m pip install git+https://github.com/SeraphimSerapis/tool-eval-bench.git`.
+ * Remote (SSH) units keep the upstream uv/bash flow. Set TOOL_EVAL_VENV to a
+ * different venv path if needed.
+ */
+const TOOL_EVAL_VENV = process.env.TOOL_EVAL_VENV || "D:\\llm\\venv";
+
 // ─── Port ────────────────────────────────────────────────
 const PORT = parseInt(process.env.PORT || "5555", 10);
 const LLM_PORT = parseInt(process.env.LLM_PORT || "8888", 10);
@@ -288,6 +298,7 @@ export {
   PORT,
   LLM_PORT,
   COMFY_PORT,
+  TOOL_EVAL_VENV,
   DGX_SPARK,
   UNIT_CONVERSION,
   HARDWARE_DEFAULTS,

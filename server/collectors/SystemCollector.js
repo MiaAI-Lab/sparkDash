@@ -15,6 +15,8 @@ import {
   splitWindowsGpuOutput,
   windowsGpuAsLinuxOutput,
 } from "./windowsMetrics.js";
+// WINDOWS-ARM64-PORT: run those same probes on this Windows host without SSH.
+import { IS_WINDOWS_HOST, runWindowsLocal } from "./windowsLocal.js";
 
 /**
  * Parse legacy kernel counter output. Exported for tests. Returns null when the
@@ -598,6 +600,9 @@ export class SystemCollector {
     // Cached hardware info
     this._hardwareInfo = null;
     this._kernelJournal = new KernelJournal(async (cmd) => {
+      // WINDOWS-ARM64-PORT: no kernel journal (/dev/kmsg, journalctl) on Windows.
+      // Returning empty keeps the module present with honest "no data" readings.
+      if (this.isWindowsLocal) return "";
       if (!this.spark.isLocal) return sshExec(this.spark, cmd, { timeoutMs: 8000 });
       return this._hasHostProc()
         ? this._execOnHost(cmd, { allowContainerFallback: false, maxBuffer: 10 * 1024 * 1024 })
@@ -646,12 +651,14 @@ export class SystemCollector {
         const macGpu = await this._getRemoteGpuMac();
         return tagCollectionResult(macGpu, macGpu.gpus.length > 0);
       }
-      const gpuData = this.spark.isLocal
-        ? await this._getGPUAll()
-        : this.isWindows
-          ? this._withoutUnmeteredProcesses(
-              await this._getRemoteGpu(async () => windowsGpuAsLinuxOutput(await this._windowsRun("gpu", WINDOWS_GPU_SCRIPT)))
-            )
+      // WINDOWS-ARM64-PORT: a Windows unit (local or remote) uses the PowerShell
+      // probes; only a non-Windows local unit can read /proc + sysfs.
+      const gpuData = this.isWindows
+        ? this._withoutUnmeteredProcesses(
+            await this._getRemoteGpu(async () => windowsGpuAsLinuxOutput(await this._windowsRun("gpu", WINDOWS_GPU_SCRIPT)))
+          )
+        : this.spark.isLocal
+          ? await this._getGPUAll()
           : await this._getRemoteGpu();
       // A broken NVIDIA side must not look healthy just because another vendor's card answered.
       return tagCollectionResult(gpuData, this._isSuccessfulGpuCollection(gpuData) && !nvidiaSideFailed(gpuData));
@@ -665,6 +672,12 @@ export class SystemCollector {
   async collectCpu() {
     const collectionSequence = ++this._cpuCollectionSequence;
     try {
+      // WINDOWS-ARM64-PORT: Win32_Processor instead of /proc/stat, also for the
+      // dashboard's own host (a local Windows unit).
+      if (this.isWindows) {
+        const cpuData = await this._getWindowsCpu(collectionSequence);
+        return tagCollectionResult(cpuData, this._isSuccessfulCpuCollection(cpuData));
+      }
       if (!this.spark.isLocal) {
         if (this.isMac) {
           const macCpu = await this._getRemoteCpuMac();
@@ -756,8 +769,9 @@ export class SystemCollector {
 
   /** Collect RAM metrics. */
   async collectRam() {
+    // WINDOWS-ARM64-PORT: Win32_OperatingSystem, including for a local unit.
+    if (this.isWindows) return this._getWindowsRam();
     if (!this.spark.isLocal) {
-      if (this.isWindows) return this._getWindowsRam();
       if (this.isMac) return (await this._macmonRam()) ?? this._getRemoteRamMac();
       return this._getRemoteRam();
     }
@@ -771,8 +785,9 @@ export class SystemCollector {
 
   /** Collect storage metrics per mount. */
   async collectStorage() {
+    // WINDOWS-ARM64-PORT: Win32_LogicalDisk, including for a local unit.
+    if (this.isWindows) return this._getWindowsStorage();
     if (!this.spark.isLocal) {
-      if (this.isWindows) return this._getWindowsStorage();
       if (this.isMac) return this._getRemoteStorageMac();
       return this._getRemoteStorage();
     }
@@ -786,8 +801,10 @@ export class SystemCollector {
 
   /** Collect network metrics (interfaces, speeds). */
   async collectNetwork() {
+    // WINDOWS-ARM64-PORT: Get-NetAdapter statistics, including for a local unit.
+    if (this.isWindows) return this._getWindowsNetwork();
     if (!this.spark.isLocal && this.isMac) return this._getRemoteNetworkMac();
-    if (!this.spark.isLocal) return this.isWindows ? this._getWindowsNetwork() : this._getRemoteNetwork();
+    if (!this.spark.isLocal) return this._getRemoteNetwork();
     try {
       const interfaces = this._tagDisabledInterfaces(await this._getNetworkMetrics());
       let primaryInterface = await this._getDefaultNetworkInterface();
@@ -830,8 +847,10 @@ export class SystemCollector {
 
   /** Collect unified memory metrics. */
   async collectUnifiedMemory() {
+    // WINDOWS-ARM64-PORT: system RAM + GPU pool, including for a local unit.
+    if (this.isWindows) return this._getWindowsUnifiedMemory();
     if (!this.spark.isLocal && this.isMac) return this._getRemoteUnifiedMemoryMac();
-    if (!this.spark.isLocal) return this.isWindows ? this._getWindowsUnifiedMemory() : this._getRemoteUnifiedMemory();
+    if (!this.spark.isLocal) return this._getRemoteUnifiedMemory();
     try {
       return await this._getUnifiedMemory();
     } catch (err) {
@@ -2928,6 +2947,11 @@ export class SystemCollector {
     return this.spark.platform === "windows";
   }
 
+  /** WINDOWS-ARM64-PORT: the dashboard's own Windows host is the unit. */
+  get isWindowsLocal() {
+    return this.isWindows && Boolean(this.spark.isLocal) && IS_WINDOWS_HOST;
+  }
+
   /**
    * One PowerShell round trip per script, shared by every domain that asks for
    * it within ~1.2 s (the fast domains all poll on the same cadence).
@@ -2940,7 +2964,11 @@ export class SystemCollector {
     // a finished one for ~1.2 s so every domain of one poll shares it.
     if (hit && (!hit.settled || now - hit.at < 1200)) return hit.promise;
     const entry = { at: now, settled: false, promise: null };
-    entry.promise = sshExec(this.spark, script, { timeoutMs: 15000 });
+    // WINDOWS-ARM64-PORT: local units execute the PowerShell probe directly;
+    // remote Windows PCs still go through SSH with the identical script.
+    entry.promise = this.isWindowsLocal
+      ? runWindowsLocal(script, { timeoutMs: 15000 })
+      : sshExec(this.spark, script, { timeoutMs: 15000 });
     entry.promise.then(
       () => {
         entry.settled = true;
@@ -3379,6 +3407,12 @@ export class SystemCollector {
 
   /** Lightweight liveness for local Sparks. */
   async pingHost() {
+    // WINDOWS-ARM64-PORT: there is no /proc/meminfo here. A successful local
+    // PowerShell probe is the equivalent liveness check.
+    if (this.isWindowsLocal) {
+      await this._windowsSystem();
+      return true;
+    }
     await this._readHostFile("/proc/meminfo");
     return true;
   }

@@ -2574,6 +2574,8 @@ export interface ToolEvalStatus {
   python: string | null;
   pythonVersion: string | null;
   workDir: string | null;
+  /** Local Windows units: the venv the CLI is pip-installed into (null for remote/uv units). */
+  venv?: string | null;
   error: string | null;
 }
 

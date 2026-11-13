@@ -80,6 +80,7 @@ import { CacheHistory } from "./metrics/CacheHistory.js";
 import { LauncherStore } from "./llmlaunch/LauncherStore.js";
 import { LauncherManager, defaultExec } from "./llmlaunch/LauncherManager.js";
 import { discoverModelCandidates } from "./models/discovery.js";
+import { MODEL_DISCOVERY_ROOTS, MODEL_DISCOVERY_TIMEOUT_MS } from "./config.js";
 import { ToolEvalStore } from "./tooleval/ToolEvalStore.js";
 import { ToolEvalManager } from "./tooleval/ToolEvalManager.js";
 import { registerToolEvalRoutes } from "./tooleval/routes.js";
@@ -952,9 +953,11 @@ function launcherContext(req, res) {
     res.status(404).json({ error: "Spark not found" });
     return null;
   }
-  if (spark.platform === "windows") {
-    // Launchers run bash start/stop scripts; not supported on Windows PCs (yet).
-    res.status(400).json({ error: "Starting and stopping models from sparkDash is not supported on Windows PCs" });
+  if (spark.platform === "windows" && !spark.isLocal) {
+    // Remote Windows PCs still run the model themselves (no bash over SSH for
+    // start/stop). The LOCAL Windows host is fully supported: its launcher
+    // scripts are run through powershell.exe (see windowsCommands.js).
+    res.status(400).json({ error: "Starting and stopping models on remote Windows units is not supported" });
     return null;
   }
   return spark;
@@ -1079,16 +1082,27 @@ app.get("/api/model-launcher/discover", async (req, res) => {
         error: "Discovery scans the Spark that runs this dashboard. Add this machine as a Spark first.",
       });
     }
-    if (spark.platform === "windows") {
-      return res.status(400).json({ error: "Model discovery is not supported on Windows PCs" });
-    }
+    const isWin = spark.platform === "windows" || process.platform === "win32";
     const now = Date.now();
     if (modelDiscoveryCache && now - modelDiscoveryCache.at < MODEL_DISCOVERY_CACHE_TTL_MS) {
       return res.json(modelDiscoveryCache.payload);
     }
+    // On a Windows host `Get-ChildItem` recursion is far slower than `find`, so
+    // a bare `$HOME` root would time out. Scan the usual model homes instead,
+    // and allow the PowerShell walk a longer per-command budget.
+    let roots = MODEL_DISCOVERY_ROOTS;
+    let timeoutMs = MODEL_DISCOVERY_TIMEOUT_MS;
+    if (isWin) {
+      roots = MODEL_DISCOVERY_ROOTS.filter((r) => r !== "$HOME");
+      if (roots.length === 0) roots = ["$HOME/llms", "$HOME/models", "$HOME/Qwen*"];
+      timeoutMs = Math.max(MODEL_DISCOVERY_TIMEOUT_MS, 30_000);
+    }
     const payload = await discoverModelCandidates({
       execHost: (cmd, timeoutMs) => defaultExec(spark, cmd, timeoutMs),
       sshUser: spark.ssh?.user,
+      windows: isWin,
+      roots,
+      timeoutMs,
     });
     modelDiscoveryCache = { at: now, payload };
     res.json(payload);

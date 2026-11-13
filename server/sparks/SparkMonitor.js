@@ -765,7 +765,9 @@ export class SparkMonitor {
       const boot = await this.collector.readBootTime();
       return boot ? Math.max(0, Math.floor(Date.now() / 1000 - boot)) : null;
     }
-    if (this.spark.platform === "windows" && !this.spark.isLocal) {
+    // WINDOWS-ARM64-PORT: local Windows units also read uptime from
+    // Win32_OperatingSystem (LastBootUpTime), not /proc/uptime.
+    if (this.spark.platform === "windows") {
       return this.collector.readWindowsUptime();
     }
     let content;

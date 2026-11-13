@@ -84,9 +84,12 @@ export function SetupCard({ spark, spec, status, loading, error, reload, busy }:
       </Notice>
     );
   }
-  const uvMissing = !status.uv;
+  // Local Windows unit installs with pip into its venv (uv is not involved).
+  // Remote units still use uv.
+  const isLocalWin = spark.isLocal && spark.platform === "windows";
+  const uvMissing = isLocalWin ? !status.python : !status.uv;
   const failedText = install.lines.map((l) => l.text).join("\n");
-  const uvProblem = install.job?.status === "failed" && /uv: (command )?not found|uv is not installed|No such file/i.test(failedText);
+  const uvProblem = install.job?.status === "failed" && /uv: (command )?not found|uv is not installed|virtual environment was not found|No such file/i.test(failedText);
 
   const installer = (
     <div className="te-installer">
@@ -110,8 +113,10 @@ export function SetupCard({ spark, spec, status, loading, error, reload, busy }:
         {t("ui.setup.internetNote")}
       </p>
       {uvMissing ? (
-        <Notice tone="warn" title={t("ui.setup.uvMissing")}>
-          {t("setup.uvHelp")}
+        <Notice tone="warn" title={isLocalWin ? t("ui.setup.venvMissing") : t("ui.setup.uvMissing")}>
+          {isLocalWin
+            ? t("setup.venvHelp", { venv: status?.venv ?? "the configured venv" })
+            : spark.platform === "darwin" ? t("setup.uvHelpDarwin") : t("setup.uvHelp")}
         </Notice>
       ) : null}
       {install.job ? (

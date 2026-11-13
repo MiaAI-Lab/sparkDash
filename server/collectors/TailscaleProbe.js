@@ -87,6 +87,21 @@ export class TailscaleProbe {
    */
   async _execLocal(cmd) {
     const { execFile } = await import("child_process");
+    // WINDOWS-ARM64-PORT: no /proc, no nsenter, no sh. The native Tailscale
+    // Windows client exposes the same read-only `tailscale status --json`.
+    if (process.platform === "win32") {
+      return new Promise((resolve, reject) => {
+        execFile(
+          process.env.SPARKDASH_TAILSCALE_EXE || "tailscale.exe",
+          ["status", "--json"],
+          { timeout: TAILSCALE_PROBE_TIMEOUT_MS, maxBuffer: 8 * 1024 * 1024, encoding: "utf8" },
+          (err, stdout, stderr) => {
+            if (err) return reject(new Error(String(stderr || "").trim() || err.message));
+            resolve(String(stdout).trim());
+          }
+        );
+      });
+    }
     const useHostNs = this._hasHostProc();
     const file = useHostNs ? "nsenter" : "sh";
     const args = useHostNs

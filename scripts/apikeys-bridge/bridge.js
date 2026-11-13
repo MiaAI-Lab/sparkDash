@@ -170,10 +170,14 @@ async function main() {
     litellmUrl: process.env.LITELLM_URL || "http://127.0.0.1:4000",
     masterKey: fs.readFileSync(keyFile, "utf8").trim(),
   });
-  if (fs.existsSync(socketPath) && fs.lstatSync(socketPath).isSocket()) fs.unlinkSync(socketPath);
-  const old = process.umask(0o117);
+  // WINDOWS-ARM64-PORT: on Windows set APIKEYS_BRIDGE_SOCKET to a named pipe
+  // (\\.\pipe\sparkdash-apikeys). Node's http server/client support that path;
+  // it is not a filesystem object, so there is nothing to unlink.
+  const isNamedPipe = process.platform === "win32" && /^\\\\\.\\pipe\\/.test(socketPath);
+  if (!isNamedPipe && fs.existsSync(socketPath) && fs.lstatSync(socketPath).isSocket()) fs.unlinkSync(socketPath);
+  const old = isNamedPipe ? null : process.umask(0o117);
   server.listen(socketPath, () => {
-    process.umask(old);
+    if (old !== null) process.umask(old);
     console.log(`[apikeys-bridge] v${VERSION} listening on ${socketPath}`);
   });
   const stop = () => server.close(() => process.exit(0));

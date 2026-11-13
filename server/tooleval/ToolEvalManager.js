@@ -15,6 +15,8 @@ import {
   buildStopProgram,
   secretsPayload,
 } from "./commands.js";
+import { teProgramWindows } from "../util/windowsCommands.js";
+import { IS_WINDOWS_HOST, killProcessTree } from "../util/windowsProgram.js";
 
 export const MAX_LINES = 5000;
 export const MAX_EVENTS = 5000;
@@ -26,6 +28,19 @@ const MAX_ONCE_BYTES = 40 * 1024 * 1024;
 const MAX_LINE_CHARS = 64 * 1024;
 const newNonce = () => crypto.randomBytes(9).toString("hex");
 const escapeRe = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Choose the on-Spark program for a Tool Eval action: a PowerShell program on a
+ * local Windows host (run natively), else the upstream bash program (run on a
+ * remote unit over SSH). `spark` is only needed for the isLocal test; the shell
+ * choice is host-level and matches how defaultSpawn executes it.
+ */
+export function teCmd(spark, action, opts) {
+  if (IS_WINDOWS_HOST && spark?.isLocal) {
+    return teProgramWindows(action, opts); // PowerShell text (run via powershell.exe)
+  }
+  return { status: () => buildStatusProgram(), once: (o) => buildOnceProgram(o), "update-check": () => buildUpdateCheckProgram(), install: (o) => buildInstallProgram(o), run: (o) => buildRunProgram(o), attach: (o) => buildAttachProgram(o), stop: (o) => buildStopProgram(o), check: (o) => buildCheckProgram(o), "read-result": (o) => buildReadResultProgram(o), delete: (o) => buildDeleteRunProgram(o) }[action](opts);
+}
 
 /** Fold one JSONL progress event from the tool into the live progress summary. Pure. */
 export function reduceProgress(prev, ev) {
@@ -253,7 +268,7 @@ export class ToolEvalManager {
   }
 
   async _status(spark) {
-    const res = await this.runOnce(spark, buildStatusProgram(), { timeoutMs: 40_000, stdoutOnly: true });
+    const res = await this.runOnce(spark, teCmd(spark, "status", {}), { timeoutMs: 40_000, stdoutOnly: true });
     const kv = {};
     for (const line of res.output.split("\n")) {
       const i = line.indexOf("=");
@@ -268,6 +283,8 @@ export class ToolEvalManager {
       python: kv.PYTHON || null,
       pythonVersion: kv.PYTHON_VERSION || null,
       workDir: kv.WORKDIR || null,
+      // The venv the local unit installs into (null for remote units, which use uv).
+      venv: kv.VENV || null,
       error: res.error,
     };
   }
@@ -282,7 +299,7 @@ export class ToolEvalManager {
     if (!status.installed) return { installed: false, error: null };
     const m = /\+g([0-9a-f]{7,40})/i.exec(status.version ?? "");
     const installedCommit = m ? m[1].toLowerCase() : null;
-    const res = await this.runOnce(spark, buildUpdateCheckProgram(), { timeoutMs: 40_000, stdoutOnly: true });
+    const res = await this.runOnce(spark, teCmd(spark, "update-check", {}), { timeoutMs: 40_000, stdoutOnly: true });
     const kv = {};
     for (const line of res.output.split("\n")) {
       const i = line.indexOf("=");
@@ -307,7 +324,7 @@ export class ToolEvalManager {
   async once(spark, { argvB64, secrets }) {
     const wantStdin = secrets != null;
     const nonce = newNonce();
-    return this.runOnce(spark, buildOnceProgram({ argvB64, wantStdin, nonce }), {
+    return this.runOnce(spark, teCmd(spark, "once", { argvB64, wantStdin, nonce }), {
       nonce,
       stdin: wantStdin ? secrets : null,
       timeoutMs: 100_000,
@@ -421,6 +438,18 @@ export class ToolEvalManager {
 
   _killGroup(child) {
     if (!child || child.exitCode != null || child.signalCode != null) return;
+    if (IS_WINDOWS_HOST) {
+      // WINDOWS-ARM64-PORT: no POSIX process groups on Windows. Kill the child
+      // (a powershell.exe) and its direct tree; Windows child.kill() terminates.
+      const hard = () => {
+        if (child.pid) killProcessTree(child.pid);
+        try { child.kill(); } catch { /* gone */ }
+      };
+      hard();
+      const t = setTimeout(hard, KILL_GRACE_MS);
+      t.unref?.();
+      return;
+    }
     const signal = (sig) => {
       try {
         if (child.pid) process.kill(-child.pid, sig);
@@ -451,7 +480,7 @@ export class ToolEvalManager {
     if (busy) this._detach(busy, spark);
     const argvB64 = Buffer.from(argv.join("\0") + "\0", "utf8").toString("base64");
     const job = this._newJob(spark, { id: run.id, kind: "run", type: run.type });
-    const cmd = buildRunProgram({ runId: run.id, argvB64, displayLine: run.command, nonce: job.nonce });
+    const cmd = teCmd(spark, "run", { runId: run.id, argvB64, displayLine: run.command, nonce: job.nonce });
     this._startJob(spark, job, cmd, { stdin: secretsPayload(env), maxMs: RUN_WATCH_MAX_MS });
     this.onEvent({
       type: "tooleval.run.started",
@@ -472,7 +501,7 @@ export class ToolEvalManager {
       this._detach(busy, spark);
     }
     const job = this._newJob(spark, { id: run.id, kind: "attach", type: run.type });
-    this._startJob(spark, job, buildAttachProgram({ runId: run.id, nonce: job.nonce }), { maxMs: RUN_WATCH_MAX_MS });
+    this._startJob(spark, job, teCmd(spark, "attach", { runId: run.id, nonce: job.nonce }), { maxMs: RUN_WATCH_MAX_MS });
     return { ok: true, job };
   }
 
@@ -481,7 +510,7 @@ export class ToolEvalManager {
     if (busy && busy.kind !== "attach") return { ok: false, reason: "busy", active: this.summary(busy) };
     if (busy) this._detach(busy, spark);
     const job = this._newJob(spark, { id: `install-${crypto.randomBytes(3).toString("hex")}`, kind: "install", type: null });
-    this._startJob(spark, job, buildInstallProgram({ extras, upgrade, nonce: job.nonce }), { maxMs: INSTALL_MAX_MS });
+    this._startJob(spark, job, teCmd(spark, "install", { extras, upgrade, nonce: job.nonce }), { maxMs: INSTALL_MAX_MS });
     return { ok: true, job };
   }
 
@@ -504,7 +533,7 @@ export class ToolEvalManager {
   async stopRun(spark, runId) {
     const live = this.jobs.get(spark.id);
     if (live && live.id === runId) live.stopRequested = true;
-    const res = await this.runOnce(spark, buildStopProgram({ runId }), { timeoutMs: 40_000 });
+    const res = await this.runOnce(spark, teCmd(spark, "stop", { runId }), { timeoutMs: 40_000 });
     return { ok: res.ok, output: res.output };
   }
 
@@ -587,7 +616,7 @@ export class ToolEvalManager {
   }
 
   async _captureResult(spark, runId) {
-    const res = await this.runOnce(spark, buildReadResultProgram({ runId }), { timeoutMs: 90_000, stdoutOnly: true });
+    const res = await this.runOnce(spark, teCmd(spark, "read-result", { runId }), { timeoutMs: 90_000, stdoutOnly: true });
     if (res.overflow) return { ok: false, reason: "too-big" };
     const text = res.output.trim();
     if (!text || text === "__NORESULT__") return { ok: false, reason: "no-result" };
@@ -607,7 +636,7 @@ export class ToolEvalManager {
 
   /** Settle a run whose watcher was lost: is it still alive, or how did it end? */
   async checkRun(spark, runId) {
-    const res = await this.runOnce(spark, buildCheckProgram({ runId }), { timeoutMs: 40_000, stdoutOnly: true });
+    const res = await this.runOnce(spark, teCmd(spark, "check", { runId }), { timeoutMs: 40_000, stdoutOnly: true });
     const out = res.output.trim().split("\n").pop() ?? "";
     if (out === "ALIVE") return { state: "running" };
     if (out === "GONE") {
@@ -627,7 +656,7 @@ export class ToolEvalManager {
 
   /** Remove the run's files on the Spark, best effort. */
   async removeRemote(spark, runId) {
-    if (spark) await this.runOnce(spark, buildDeleteRunProgram({ runId }), { timeoutMs: 40_000, stdoutOnly: true }).catch(() => {});
+    if (spark) await this.runOnce(spark, teCmd(spark, "delete", { runId }), { timeoutMs: 40_000, stdoutOnly: true }).catch(() => {});
   }
 
   /** Remove the run's files on the Spark (best effort) and forget it locally. */

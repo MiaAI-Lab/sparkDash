@@ -648,8 +648,10 @@ export class SparkRegistry {
       macAddress: config.macAddress || null,
       /** Last MAC seen on enP7s7 (auto; not set via public PATCH). */
       detectedMacAddress: config.detectedMacAddress || null,
-      // A Windows PC is always reached over SSH (the local collectors read /proc).
-      isLocal: config.kind !== "mac" && config.platform !== "windows" && Boolean(config.isLocal),
+      // WINDOWS-ARM64-PORT: a Windows dashboard host may be a local unit too;
+      // SystemCollector runs its PowerShell probes locally (no SSH, no /proc).
+      // Linux/mac behaviour is unchanged.
+      isLocal: config.kind !== "mac" && Boolean(config.isLocal),
       ssh,
       llmPorts,
       role,
