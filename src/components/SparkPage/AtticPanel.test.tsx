@@ -227,6 +227,6 @@ describe("AtticPanel", () => {
     expect(v.tags.map((t) => t.text)).toEqual(["借出中"]);
     expect(v.rows["已借出"]).toBe("2,044 / 2,044 MiB");
     expect(v.rows["驱动"]).toBe("580.178.04，已验证");
-    expect(container.querySelector(".panel-title")?.textContent).toContain("显示预留内存");
+    expect(container.querySelector(".panel-title")?.textContent).toContain("闲置 GPU 内存");
   });
 });
