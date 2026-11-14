@@ -20,6 +20,7 @@ import { LlmDailyChart } from "./LlmDailyChart";
 import { LlmTokenTotals } from "./LlmTokenTotals";
 import { parseLlmTargetInput } from "../../shared/llmTarget.js";
 import { backendLabel } from "../../shared/llmBackends.js";
+import { formatTokensCompact } from "../../shared/tokenFormat.js";
 import { LlmTrendChart } from "./LlmTrendChart";
 import type { BenchKind } from "./BenchSwitcher";
 import { engineStateLabel } from "./llmEngineState";
@@ -998,8 +999,15 @@ export function LlmPanel({
                 </button>
               </div>
             </div>
-            <div className="sp-tile" title={t("llm.engineGeneratedHelp")}>
-              <b>{llm && llm.totalOutputTokens > 0 ? llm.totalOutputTokens.toLocaleString() : "—"}</b>
+            <div
+              className="sp-tile"
+              title={
+                llm?.totalOutputTokens != null && llm.totalOutputTokens > 0
+                  ? `${llm.totalOutputTokens.toLocaleString()} tokens · ${t("llm.engineGeneratedHelp")}`
+                  : t("llm.engineGeneratedHelp")
+              }
+            >
+              <b>{llm && llm.totalOutputTokens > 0 ? formatTokensCompact(llm.totalOutputTokens) : "—"}</b>
               <span>{t("llm.engineGenerated")}</span>
             </div>
           </div>
