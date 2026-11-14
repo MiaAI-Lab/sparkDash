@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DockerContainer, DockerImage, DockerStorage, StorageFilesystem } from "../../api/types";
+import { i18n } from "../../i18n";
 import {
   actionLabel,
   buildCacheEmpty,
@@ -23,6 +24,7 @@ import {
 } from "./dockerQuick";
 
 const NOW = Date.UTC(2026, 9, 26, 12, 0, 0);
+const t = i18n.getFixedT("en", "storage");
 const DAY = 86_400_000;
 const iso = (ms: number) => new Date(ms).toISOString();
 const ID = (c: string) => `sha256:${c.repeat(64)}`;
@@ -225,12 +227,12 @@ describe("wording", () => {
   });
 
   it("the primary button says exactly what it does", () => {
-    expect(actionLabel({ images: 12, containers: 3, buildCache: false })).toBe("Remove 12 images and 3 containers");
-    expect(actionLabel({ images: 1, containers: 0, buildCache: true })).toBe("Remove 1 image, clear build cache");
-    expect(actionLabel({ images: 0, containers: 0, buildCache: true })).toBe("Clear build cache");
-    expect(actionLabel({ images: 5, containers: 1, buildCache: true, sparks: 3 })).toBe("Remove 5 images and 1 container on 3 Sparks, clear build cache");
-    expect(actionLabel({ images: 2, containers: 0, buildCache: false, where: "Spark Two" })).toBe("Remove 2 images on Spark Two");
-    expect(actionLabel({ images: 0, containers: 0, buildCache: false })).toBe("Nothing selected");
+    expect(actionLabel({ images: 12, containers: 3, buildCache: false }, t)).toBe("Remove 12 images and 3 containers");
+    expect(actionLabel({ images: 1, containers: 0, buildCache: true }, t)).toBe("Remove 1 image, clear build cache");
+    expect(actionLabel({ images: 0, containers: 0, buildCache: true }, t)).toBe("Clear build cache");
+    expect(actionLabel({ images: 5, containers: 1, buildCache: true, sparks: 3 }, t)).toBe("Remove 5 images and 1 container on 3 Sparks, clear build cache");
+    expect(actionLabel({ images: 2, containers: 0, buildCache: false, where: "Spark Two" }, t)).toBe("Remove 2 images on Spark Two");
+    expect(actionLabel({ images: 0, containers: 0, buildCache: false }, t)).toBe("Nothing selected");
   });
 });
 
@@ -247,7 +249,7 @@ describe("after a run", () => {
 
   it("reports plain counts, Docker's own figures, each other Spark, and the space change, with problems listed apart", () => {
     const peer: SparkRun = { sparkId: "s2", name: "Spark Two", images: null, containers: null, buildCache: null, errors: [{ step: "images", message: "unit busy" }], names: {} };
-    const s = outcomeSummary({ runs: [here, peer], figures: ["Docker reports 954 MB of build cache reclaimed."], space: "Available space on / changed by +2.0 GB while this ran." });
+    const s = outcomeSummary({ runs: [here, peer], figures: ["Docker reports 954 MB of build cache reclaimed."], space: "Available space on / changed by +2.0 GB while this ran." }, t);
     expect(s.text).toBe(
       "Removed 2 images and 1 container, and cleared build cache. Docker reports 954 MB of build cache reclaimed. Spark Two: images could not be cleaned (unit busy). Available space on / changed by +2.0 GB while this ran. 2 items were kept or could not be removed (listed below)."
     );
@@ -257,9 +259,9 @@ describe("after a run", () => {
 
   it("a clean run is 'ok', and nothing removed is 'info'", () => {
     const ok = { ...here, images: { success: true, removed: [ID("a")], skipped: [], failed: [] }, containers: null };
-    expect(outcomeSummary({ runs: [ok], figures: [], space: null }).tone).toBe("ok");
+    expect(outcomeSummary({ runs: [ok], figures: [], space: null }, t).tone).toBe("ok");
     const none = { ...here, images: { success: true, removed: [], skipped: [], failed: [] }, containers: null, buildCache: null };
-    const s = outcomeSummary({ runs: [none], figures: [], space: null });
+    const s = outcomeSummary({ runs: [none], figures: [], space: null }, t);
     expect(s.tone).toBe("info");
     expect(s.text).toBe("Nothing was removed.");
   });
@@ -270,8 +272,8 @@ describe("after a run", () => {
     expect(dockerFilesystem(disks, "/data/docker/root")?.mount).toBe("/data/docker");
     expect(dockerFilesystem(disks, "/var/lib/docker")?.mount).toBe("/");
     expect(dockerFilesystem(disks, null)?.mount).toBe("/");
-    expect(spaceChangeText(fs("/", 1e9), fs("/", 3 * GB + 1e9))).toBe("Available space on / changed by +3.0 GB while this ran.");
-    expect(spaceChangeText(fs("/", 2 * GB), fs("/", GB))).toBe("Available space on / changed by −1.0 GB while this ran.");
-    expect(spaceChangeText(fs("/", 5), fs("/", 5))).toBe("Available space on / did not change while this ran.");
+    expect(spaceChangeText(fs("/", 1e9), fs("/", 3 * GB + 1e9), t)).toBe("Available space on / changed by +3.0 GB while this ran.");
+    expect(spaceChangeText(fs("/", 2 * GB), fs("/", GB), t)).toBe("Available space on / changed by −1.0 GB while this ran.");
+    expect(spaceChangeText(fs("/", 5), fs("/", 5), t)).toBe("Available space on / did not change while this ran.");
   });
 });

@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useId, useMemo, useRef, useState, type RefObject } from "react";
+import { useTranslation } from "react-i18next";
 import type { StorageEntry } from "../../api/types";
 import { formatBytes } from "../../shared/formatBytes";
 import { formatSince } from "../../shared/formatSince";
@@ -82,6 +83,7 @@ type Locked = { reason: string; id?: string } | null;
  * screen readers (aria-describedby) and shown on hover, a tap or a long press, so the box is never just missing.
  */
 function LockedPick({ name, reason }: { name: string; reason: string }) {
+  const { t } = useTranslation("storage");
   const id = useId();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLSpanElement | null>(null);
@@ -113,9 +115,9 @@ function LockedPick({ name, reason }: { name: string; reason: string }) {
         setOpen(true);
       }}
     >
-      <input type="checkbox" className="st-pick__box" disabled aria-label={`Select ${name}`} aria-describedby={id} />
+      <input type="checkbox" className="st-pick__box" disabled aria-label={t("files.selectItem", { name })} aria-describedby={id} />
       <span id={id} className="st-pick__why" role="tooltip">
-        Cannot be selected: {reason}
+        {t("files.cannotSelect", { reason })}
       </span>
     </span>
   );
@@ -133,26 +135,27 @@ interface PickProps {
 
 /** The leading tick box of a row. */
 function PickCell({ entry, name, picked, includedBy, locked, onPick }: PickProps) {
+  const { t } = useTranslation("storage");
   const id = useId();
-  if (!isSelectable(entry)) return <LockedPick name={name} reason={entry.locked ?? "The name has unusual characters, so it cannot be deleted from here."} />;
+  if (!isSelectable(entry)) return <LockedPick name={name} reason={entry.locked ?? t("files.unusualName")} />;
   if (includedBy != null) {
     return (
       <span className="st-pick is-included">
-        <input type="checkbox" className="st-pick__box" checked disabled aria-label={`Select ${name}`} aria-describedby={id} />
+        <input type="checkbox" className="st-pick__box" checked disabled aria-label={t("files.selectItem", { name })} aria-describedby={id} />
         <span id={id} className="sr-only">
-          Included: it is inside {baseName(includedBy)}, which is selected.
+          {t("files.includedInSelection", { name: baseName(includedBy) })}
         </span>
       </span>
     );
   }
   return (
-    <label className="st-pick" title={locked ? `${locked.reason}: nothing can be deleted until it is back.` : undefined}>
+    <label className="st-pick" title={locked ? t("files.deleteLocked", { reason: locked.reason }) : undefined}>
       <input
         type="checkbox"
         className="st-pick__box"
         checked={picked}
         disabled={locked != null}
-        aria-label={`Select ${name}`}
+        aria-label={t("files.selectItem", { name })}
         aria-describedby={locked?.id}
         // A click on the check box or its label, or Space: shift extends the selection from the row toggled last.
         onChange={(e) => onPick(entry.path, (e.nativeEvent as MouseEvent).shiftKey === true)}
@@ -163,28 +166,29 @@ function PickCell({ entry, name, picked, includedBy, locked, onPick }: PickProps
 
 /** "Last changed": how long ago in words, the exact time on hover, and the full date for screen readers. */
 function ChangedCell({ entry, now, dated }: { entry: StorageEntry; now: number; dated: boolean }) {
-  const t = usableSeconds(entry.modifiedAt);
-  const words = relativeTime(t, now);
-  if (t == null || words == null) {
+  const { t } = useTranslation("storage");
+  const timestamp = usableSeconds(entry.modifiedAt);
+  const words = relativeTime(timestamp, now);
+  if (timestamp == null || words == null) {
     const why =
       entry.modifiedAt != null
-        ? "Not known: the date recorded for it is before 1980, which means it was never really set."
+        ? t("files.dateBefore1980")
         : dated
-          ? "Not known: no date could be read for it, or the scan that measured it did not record one."
-          : "Not known: this analysis did not record dates.";
+          ? t("files.dateUnreadable")
+          : t("files.datesNotRecorded");
     return (
       <span className="st-row__date is-unknown" title={why}>
         <span aria-hidden>{"—"}</span>
-        <span className="sr-only">Last changed: {why}</span>
+        <span className="sr-only">{t("files.lastChangedWithReason", { reason: why })}</span>
       </span>
     );
   }
-  const when = new Date(t * 1000);
+  const when = new Date(timestamp * 1000);
   return (
-    <time className={`st-row__date${isStale(t, now) ? " is-old" : ""}`} dateTime={when.toISOString()} title={`Last changed ${when.toLocaleString()}`}>
+    <time className={`st-row__date${isStale(timestamp, now) ? " is-old" : ""}`} dateTime={when.toISOString()} title={t("files.lastChangedAt", { time: when.toLocaleString() })}>
       <span aria-hidden>{words}</span>
       <span className="sr-only">
-        Last changed {words}, {when.toLocaleString(undefined, { dateStyle: "full", timeStyle: "short" })}
+        {t("files.lastChangedFull", { words, time: when.toLocaleString(undefined, { dateStyle: "full", timeStyle: "short" }) })}
       </span>
     </time>
   );
@@ -208,6 +212,7 @@ interface RowItemProps {
 }
 
 function RowItem({ row, onOpen, onDelete, openable, disabled, locked = null, now, dated, showFrees, picked, includedBy, onPick }: RowItemProps) {
+  const { t } = useTranslation("storage");
   const { entry, name } = row;
   const isDir = entry.type === "dir";
   const canOpen = isDir && !entry.unsafe && openable;
@@ -220,8 +225,8 @@ function RowItem({ row, onOpen, onDelete, openable, disabled, locked = null, now
       <span className="st-row__name" title={entry.path}>
         {name}
       </span>
-      {entry.type === "link" ? <Tag>Link</Tag> : null}
-      {entry.type === "other" ? <Tag>Special</Tag> : null}
+      {entry.type === "link" ? <Tag>{t("files.link")}</Tag> : null}
+      {entry.type === "other" ? <Tag>{t("files.special")}</Tag> : null}
     </>
   );
   return (
@@ -230,7 +235,7 @@ function RowItem({ row, onOpen, onDelete, openable, disabled, locked = null, now
         <PickCell entry={entry} name={name} picked={picked} includedBy={includedBy} locked={locked} onPick={onPick} />
       </span>
       {canOpen ? (
-        <button type="button" className="st-row__open" onClick={() => onOpen(entry)} disabled={disabled} aria-label={`Open ${name}`}>
+        <button type="button" className="st-row__open" onClick={() => onOpen(entry)} disabled={disabled} aria-label={t("files.openItem", { name })}>
           {body}
           <ChevronRightIcon className="st-row__chev h-3.5 w-3.5" />
         </button>
@@ -252,8 +257,8 @@ function RowItem({ row, onOpen, onDelete, openable, disabled, locked = null, now
             className={`st-row__frees mono${freesNothing(entry) ? " is-zero" : ""}${sharedOf(entry) > 0 ? " is-shared" : ""}`}
             title={
               sharedOf(entry) > 0
-                ? `${formatBytes(sharedOf(entry))} of this is hard-linked to files outside it, so it stays on disk when this is deleted.`
-                : "Deleting this gives back all of its size."
+                ? t("files.sharedBytesTitle", { bytes: formatBytes(sharedOf(entry)) })
+                : t("files.allBytesFreed")
             }
           >
             {formatBytes(freesOf(entry))}
@@ -262,7 +267,7 @@ function RowItem({ row, onOpen, onDelete, openable, disabled, locked = null, now
       </span>
       <span className="st-row__act">
         {entry.locked ? (
-          <span className="st-lock" title={entry.locked} role="img" aria-label={`Cannot be deleted here: ${entry.locked}`} tabIndex={0}>
+          <span className="st-lock" title={entry.locked} role="img" aria-label={t("files.cannotDelete", { reason: entry.locked })} tabIndex={0}>
             <LockIcon className="h-3.5 w-3.5" />
           </span>
         ) : (
@@ -271,14 +276,14 @@ function RowItem({ row, onOpen, onDelete, openable, disabled, locked = null, now
             className="st-del"
             onClick={() => onDelete(entry)}
             disabled={locked != null}
-            aria-label={`Delete ${name}`}
+            aria-label={t("files.deleteItem", { name })}
             aria-describedby={locked?.id}
             title={
               locked
-                ? `${locked.reason}: nothing can be deleted until it is back.`
+                ? t("files.deleteLocked", { reason: locked.reason })
                 : freesNothing(entry)
-                  ? `Delete ${name}. Deleting frees no space: everything in it is also linked from elsewhere.`
-                  : `Delete ${name}. Frees ${formatBytes(freesOf(entry))}.`
+                  ? t("files.deleteNoSpaceTitle", { name })
+                  : t("files.deleteFreesTitle", { name, bytes: formatBytes(freesOf(entry)) })
             }
           >
             <TrashIcon className="h-3.5 w-3.5" />
@@ -291,6 +296,7 @@ function RowItem({ row, onOpen, onDelete, openable, disabled, locked = null, now
 
 /** "Last analysed 3 h ago". An analysis stays until the next one, so say how old it is. */
 function AnalysedNote({ at, now, elevated }: { at: number | null; now: () => number; elevated: boolean }) {
+  const { t } = useTranslation("storage");
   const [, tick] = useState(0);
   useEffect(() => {
     const t = window.setInterval(() => tick((n) => n + 1), 30_000);
@@ -300,15 +306,16 @@ function AnalysedNote({ at, now, elevated }: { at: number | null; now: () => num
   const age = formatSince(at, now());
   const old = now() - at > 24 * 3_600_000;
   return (
-    <span className={`st-analysed${old ? " is-old" : ""}`} title={`${new Date(at).toLocaleString()}${old ? ". Sizes may have changed since: analyse again to refresh." : ""}`}>
-      Last analysed {age === "0s" ? "just now" : `${age} ago`}
-      {elevated ? " · including protected folders" : ""}
+    <span className={`st-analysed${old ? " is-old" : ""}`} title={t("files.analysedTitle", { time: new Date(at).toLocaleString(), stale: old ? t("files.analysedStale") : "" })}>
+      {t("files.lastAnalysed", { age: age === "0s" ? t("files.justNow") : t("files.ago", { age }) })}
+      {elevated ? ` · ${t("files.includingProtected")}` : ""}
     </span>
   );
 }
 
 /** One folder of the analysis: where you are, what takes the space in it, and what you can delete. */
 export function FolderBrowser(props: FolderBrowserProps) {
+  const { t } = useTranslation("storage");
   const { index, root, analysedAt, serverNow, elevated, hardlinksApprox, dated, view, onView, scanning, sort, onSort, filter, onFilter, onDelete, onOpen, onRescan, onNewAnalysis, disabled, unscannedNote } = props;
   const { selected, onSelect, onDeleteSelected, deleteBlocked = null, selectAllRef } = props;
   const locked: Locked = props.lockedReason ? { reason: props.lockedReason, id: props.lockedReasonId } : null;
@@ -363,9 +370,9 @@ export function FolderBrowser(props: FolderBrowserProps) {
   const dateSort = sort === "newest" || sort === "oldest";
 
   return (
-    <section className="panel st-browser" aria-label="Folder contents">
+    <section className="panel st-browser" aria-label={t("files.folderContents")}>
       <header className="st-browser__head">
-        <nav className="st-crumbs" aria-label="Folder path">
+        <nav className="st-crumbs" aria-label={t("files.folderPath")}>
           {crumbs.map((c, i) => (
             <Fragment key={c.path}>
               {i > 0 ? <ChevronRightIcon className="st-crumbs__sep h-3 w-3" /> : null}
@@ -389,10 +396,10 @@ export function FolderBrowser(props: FolderBrowserProps) {
             onClick={onRescan}
             disabled={disabled || locked != null}
             aria-describedby={locked?.id}
-            title={locked ? `${locked.reason}: it cannot be analysed until it is back` : `Measure ${root} again`}
+            title={locked ? t("files.analyseLocked", { reason: locked.reason }) : t("files.measureAgain", { path: root })}
           >
             <RotateIcon className="h-3.5 w-3.5" />
-            Analyse again
+            {t("files.analyseAgain")}
           </button>
           <button
             type="button"
@@ -400,9 +407,9 @@ export function FolderBrowser(props: FolderBrowserProps) {
             onClick={onNewAnalysis}
             disabled={disabled || locked != null}
             aria-describedby={locked?.id}
-            title={locked ? `${locked.reason}: it cannot be analysed until it is back` : undefined}
+            title={locked ? t("files.analyseLocked", { reason: locked.reason }) : undefined}
           >
-            Look somewhere else
+            {t("files.lookElsewhere")}
           </button>
         </div>
       </header>
@@ -411,9 +418,9 @@ export function FolderBrowser(props: FolderBrowserProps) {
         <div className="st-folder__size">
           <span className="st-folder__num mono">{formatBytes(total)}</span>
           <span className="st-folder__label">
-            in {view === "/" ? <b>the whole disk</b> : <b className="mono">{view}</b>}
+            {t("files.inLocation", { location: view === "/" ? t("files.wholeDisk") : view })}
             {sharedOf(folder.entry) > 0 ? (
-              <span className="st-folder__shared"> · {formatBytes(sharedOf(folder.entry))} shared with files outside it</span>
+              <span className="st-folder__shared"> · {t("files.sharedOutside", { bytes: formatBytes(sharedOf(folder.entry)) })}</span>
             ) : null}
           </span>
         </div>
@@ -424,7 +431,7 @@ export function FolderBrowser(props: FolderBrowserProps) {
                 <i key={s.key} title={`${s.label}: ${formatBytes(s.bytes)}`} style={{ ["--w" as string]: `${s.share * 100}%`, ["--c" as string]: colorVar(s.color) }} />
               ))}
             </div>
-            <ul className="st-legend" aria-label="Biggest items">
+            <ul className="st-legend" aria-label={t("files.biggestItems")}>
               {segments.map((s) => (
                 <li key={s.key}>
                   <i aria-hidden style={{ ["--c" as string]: colorVar(s.color) }} />
@@ -439,21 +446,20 @@ export function FolderBrowser(props: FolderBrowserProps) {
 
       {hardlinksApprox ? (
         <p className="st-note">
-          Basic scan: a file hard-linked into several folders may be counted in each of them here.
-          {dated ? null : " It does not record when things last changed."}
+          {t("files.basicScanNote")}
+          {dated ? null : ` ${t("files.basicScanNoDates")}`}
         </p>
       ) : !dated && hasRows ? (
-        <p className="st-note">This analysis was made before dates were recorded: analyse again to see when things last changed.</p>
+        <p className="st-note">{t("files.oldAnalysisNoDates")}</p>
       ) : null}
       {!hardlinksApprox && (anyShared || folder.overlap) ? (
         <p className="st-note" id="st-shared-note">
           {anyShared ? (
             <>
-              <i className="st-hatch" aria-hidden /> Hatched parts are <b>shared</b>: hard-linked to files outside that folder, so deleting the folder does not free them.{" "}
-              <b>Frees</b> counts only what would really come back.
+              <i className="st-hatch" aria-hidden /> {t("files.sharedNote")}
             </>
           ) : null}
-          {folder.overlap ? " Some folders here hold links to the same files, so their sizes add up to more than the folder." : null}
+          {folder.overlap ? ` ${t("files.overlapNote")}` : null}
         </p>
       ) : null}
 
@@ -461,28 +467,28 @@ export function FolderBrowser(props: FolderBrowserProps) {
         <div className="st-toolbar">
           <div className="st-search">
             <SearchIcon className="h-3.5 w-3.5" />
-            <input type="search" placeholder="Filter this folder" aria-label="Filter this folder" value={filter} onChange={(e) => onFilter(e.target.value)} />
+            <input type="search" placeholder={t("files.filterFolder")} aria-label={t("files.filterFolder")} value={filter} onChange={(e) => onFilter(e.target.value)} />
             {filter ? (
-              <button type="button" onClick={() => onFilter("")} aria-label="Clear filter">
+              <button type="button" onClick={() => onFilter("")} aria-label={t("files.clearFilter")}>
                 <XIcon className="h-3 w-3" />
               </button>
             ) : null}
           </div>
-          <div className="seg" role="group" aria-label="Sort by">
+          <div className="seg" role="group" aria-label={t("files.sortBy")}>
             <button type="button" aria-pressed={sort === "size"} onClick={() => onSort("size")}>
-              Biggest first
+              {t("files.biggestFirst")}
             </button>
             {/* Newest first on the first click; pressed again, oldest first (what has sat untouched longest). */}
             <button
               type="button"
               aria-pressed={dateSort}
               onClick={() => onSort(sort === "newest" ? "oldest" : "newest")}
-              title={sort === "newest" ? "Sorted by last change, newest first. Click for oldest first." : sort === "oldest" ? "Sorted by last change, oldest first. Click for newest first." : "Sort by when anything inside last changed"}
+              title={sort === "newest" ? t("files.newestSortTitle") : sort === "oldest" ? t("files.oldestSortTitle") : t("files.dateSortTitle")}
             >
-              {sort === "oldest" ? "Oldest first" : "Newest first"}
+              {sort === "oldest" ? t("files.oldestFirst") : t("files.newestFirst")}
             </button>
             <button type="button" aria-pressed={sort === "name"} onClick={() => onSort("name")}>
-              A to Z
+              {t("files.aToZ")}
             </button>
           </div>
         </div>
@@ -495,7 +501,7 @@ export function FolderBrowser(props: FolderBrowserProps) {
           {/* The column headings, with the "select all" box first. It stays at the top of the screen while the list
               scrolls; with anything ticked, the selection bar covers the headings (same place, same height). */}
           <div className={`st-cols${selected.size > 0 ? " is-selecting" : ""}`}>
-            <label className="st-pick st-pick--all" title={locked ? `${locked.reason}: nothing can be deleted until it is back.` : shownPickable.length === 0 ? "Nothing shown here can be deleted from the dashboard" : undefined}>
+            <label className="st-pick st-pick--all" title={locked ? t("files.deleteLocked", { reason: locked.reason }) : shownPickable.length === 0 ? t("files.nothingDeletable") : undefined}>
               <input
                 ref={allRef}
                 type="checkbox"
@@ -503,49 +509,49 @@ export function FolderBrowser(props: FolderBrowserProps) {
                 checked={head === "all"}
                 disabled={locked != null || shownPickable.length === 0}
                 aria-describedby={locked?.id}
-                aria-label={head === "all" ? "Deselect all" : `Select all ${shownPickable.length}`}
+                aria-label={head === "all" ? t("files.deselectAll") : t("files.selectAll", { count: shownPickable.length })}
                 onChange={toggleAll}
               />
               <span className="st-cols__all" aria-hidden>
-                {head === "all" ? "Deselect all" : `Select all ${shownPickable.length}`}
+                {head === "all" ? t("files.deselectAll") : t("files.selectAll", { count: shownPickable.length })}
               </span>
             </label>
             <span className="st-col" aria-hidden>
-              Name
+              {t("files.name")}
             </span>
             <span className="st-col" aria-hidden />
             <span className="st-col" aria-hidden>
-              Size
+              {t("files.size")}
             </span>
             <span className="st-col" aria-hidden>
-              Share
+              {t("files.share")}
             </span>
-            <span className="st-col" aria-hidden title="When anything inside it was last modified">
-              Last changed
+            <span className="st-col" aria-hidden title={t("files.lastChangedTitle")}>
+              {t("files.lastChanged")}
             </span>
             {anyShared ? (
-              <span className="st-col" aria-hidden title="Bytes that come back if you delete it. Files that are also hard-linked from outside stay.">
-                Frees
+              <span className="st-col" aria-hidden title={t("files.freesTitle")}>
+                {t("files.frees")}
               </span>
             ) : null}
             <span className="st-col" aria-hidden />
             {selected.size > 0 ? (
-              <div className="st-selbar" role="group" aria-label="Selected items">
+              <div className="st-selbar" role="group" aria-label={t("files.selectedItems")}>
                 <span className="st-selbar__sum" aria-live="polite">
-                  <b>{selected.size} selected</b>
+                  <b>{t("files.selected", { count: selected.size })}</b>
                   <span>
-                    <span className="st-selbar__dot" aria-hidden>·</span>frees about {formatBytes(summary.frees)}
-                    {hiddenPicked > 0 ? ` · ${hiddenPicked} not shown` : ""}
-                    {summary.covered > 0 ? ` · ${summary.covered} inside selected folders ${summary.covered === 1 ? "is" : "are"} included` : ""}
+                    <span className="st-selbar__dot" aria-hidden>·</span>{t("files.freesAbout", { bytes: formatBytes(summary.frees) })}
+                    {hiddenPicked > 0 ? ` · ${t("files.notShown", { count: hiddenPicked })}` : ""}
+                    {summary.covered > 0 ? ` · ${t("files.includedChildren", { count: summary.covered })}` : ""}
                   </span>
                 </span>
                 {shownPickable.length > 0 ? (
                   <button type="button" className="btn btn--sm btn--ghost st-selbar__all" onClick={toggleAll}>
-                    {head === "all" ? "Deselect all" : `Select all ${shownPickable.length}`}
+                    {head === "all" ? t("files.deselectAll") : t("files.selectAll", { count: shownPickable.length })}
                   </button>
                 ) : null}
                 <button type="button" className="btn btn--sm btn--ghost" onClick={() => onSelect(new Set())}>
-                  Clear
+                  {t("files.clear")}
                 </button>
                 <button
                   type="button"
@@ -553,12 +559,12 @@ export function FolderBrowser(props: FolderBrowserProps) {
                   onClick={onDeleteSelected}
                   disabled={locked != null || deleteBlocked != null}
                   aria-describedby={locked?.id}
-                  title={locked ? `${locked.reason}: nothing can be deleted until it is back.` : (deleteBlocked ?? undefined)}
+                  title={locked ? t("files.deleteLocked", { reason: locked.reason }) : (deleteBlocked ?? undefined)}
                 >
                   <TrashIcon className="h-3.5 w-3.5" />
-                  <span className="st-selbar__dellong">Delete selected…</span>
+                  <span className="st-selbar__dellong">{t("files.deleteSelected")}</span>
                   <span className="st-selbar__delshort" aria-hidden>
-                    Delete…
+                    {t("files.delete")}
                   </span>
                 </button>
               </div>
@@ -582,7 +588,7 @@ export function FolderBrowser(props: FolderBrowserProps) {
                 onPick={pick}
               />
             ))}
-            {filter && rows.length === 0 ? <li className="st-rows__none">Nothing in this folder matches &ldquo;{filter}&rdquo;.</li> : null}
+            {filter && rows.length === 0 ? <li className="st-rows__none">{t("files.noFilterMatch", { filter })}</li> : null}
             {!filter && folder.smallerBytes > 0 ? (
               <li className="st-row st-row--rest">
                 <span className="st-row__pick" />
@@ -590,7 +596,7 @@ export function FolderBrowser(props: FolderBrowserProps) {
                   <span className="st-row__icon" aria-hidden>
                     <FolderIcon className="h-4 w-4" />
                   </span>
-                  <span className="st-row__name">Smaller files and folders</span>
+                  <span className="st-row__name">{t("files.smallerItems")}</span>
                 </div>
                 <span className="st-row__bar" aria-hidden>
                   <i style={{ ["--w" as string]: `${total > 0 ? (folder.smallerBytes / total) * 100 : 0}%`, ["--c" as string]: "var(--st-c-rest)" }} />
@@ -609,7 +615,7 @@ export function FolderBrowser(props: FolderBrowserProps) {
       ) : (
         <div className="st-empty">
           <p>
-            <b>Nothing in here.</b> {total > 0 ? "It only holds a few tiny items." : "This folder is empty."}
+            <b>{t("files.nothingHere")}</b> {total > 0 ? t("files.onlyTinyItems") : t("files.folderEmpty")}
           </p>
         </div>
       )}

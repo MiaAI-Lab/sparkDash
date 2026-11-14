@@ -1,7 +1,8 @@
 import { useId } from "react";
-import type { StorageAdviceItem, StorageAdviceReason } from "../../api/types";
+import { useTranslation } from "react-i18next";
+import type { StorageAdviceItem } from "../../api/types";
 import { AlertTriangleIcon, CheckIcon, InfoIcon, RotateIcon } from "../ui/icons";
-import { ADVICE_CONFIRM_PHRASE, LEVEL_LABEL, adviceHeadline, effectiveLevel, flaggedItems, levelCounts, ownUnchecked, sharedUnchecked } from "./deleteAdvice";
+import { ADVICE_CONFIRM_PHRASE, adviceHeadline, effectiveLevel, flaggedItems, levelCounts, ownUnchecked, sharedUnchecked } from "./deleteAdvicePolicy";
 import { baseName } from "./storageTree";
 import type { DeleteAdvice } from "./useDeleteAdvice";
 
@@ -16,23 +17,31 @@ interface DeleteAdviceBlockProps {
   onSubmit: () => void;
 }
 
-const REASON_MARK: Record<StorageAdviceReason["level"], string> = { high: "High", review: "Review", low: "Low", note: "Note" };
+function levelLabel(t: ReturnType<typeof useTranslation>["t"], level: "high" | "review" | "low" | "note") {
+  switch (level) {
+    case "high": return t("advice.high");
+    case "review": return t("advice.review");
+    case "low": return t("advice.low");
+    case "note": return t("advice.note");
+  }
+}
 
 /** One item's findings: the serious ones first, then what was not checked (less what `shared` already said), then notes. */
 function ReasonList({ item, shared = [] }: { item: StorageAdviceItem; shared?: StorageAdviceItem["unchecked"] }) {
+  const { t } = useTranslation("storage");
   return (
     <ul className="st-advice__list">
       {item.reasons
         .filter((r) => r.level !== "note")
         .map((r, k) => (
           <li key={`r${k}`} className={`is-${r.level}`}>
-            <span className="st-advice__mark">{REASON_MARK[r.level]}</span>
+            <span className="st-advice__mark">{levelLabel(t, r.level)}</span>
             <span>{r.text}</span>
           </li>
         ))}
       {ownUnchecked(item, shared).map((u, k) => (
         <li key={`u${k}`} className="is-unchecked">
-          <span className="st-advice__mark">Not checked</span>
+          <span className="st-advice__mark">{t("advice.notChecked")}</span>
           <span>{u.text}</span>
         </li>
       ))}
@@ -40,7 +49,7 @@ function ReasonList({ item, shared = [] }: { item: StorageAdviceItem; shared?: S
         .filter((r) => r.level === "note")
         .map((r, k) => (
           <li key={`n${k}`} className="is-note">
-            <span className="st-advice__mark">Note</span>
+            <span className="st-advice__mark">{t("advice.note")}</span>
             <span>{r.text}</span>
           </li>
         ))}
@@ -55,11 +64,12 @@ function ReasonList({ item, shared = [] }: { item: StorageAdviceItem; shared?: S
  * arrives. The level is written out, never shown by colour alone.
  */
 export function DeleteAdviceBlock({ advice, sparkName, many, disabled, onSubmit }: DeleteAdviceBlockProps) {
+  const { t } = useTranslation("storage");
   const id = useId();
   const { state, friction } = advice;
   const level = effectiveLevel(state);
   const tone = level ?? "wait";
-  const badge = state.status === "loading" ? "Checking" : state.status === "ready" ? LEVEL_LABEL[state.advice.level] : LEVEL_LABEL.review;
+  const badge = state.status === "loading" ? t("advice.checking") : state.status === "ready" ? levelLabel(t, state.advice.level) : t("advice.review");
   const them = many ? "them" : "it";
   const icon =
     state.status === "loading" ? (
@@ -82,7 +92,7 @@ export function DeleteAdviceBlock({ advice, sparkName, many, disabled, onSubmit 
           <i />
         </div>
         <p className="st-advice__muted">
-          Looking on {sparkName} for programs and containers using {them}, recent changes, partial downloads, keys and logins, and git work.
+          {t("advice.looking", { sparkName, target: them })}
         </p>
       </>
     );
@@ -90,17 +100,16 @@ export function DeleteAdviceBlock({ advice, sparkName, many, disabled, onSubmit 
     body = (
       <ul className="st-advice__list">
         <li className="is-unchecked">
-          <span className="st-advice__mark">Not checked</span>
+          <span className="st-advice__mark">{t("advice.notChecked")}</span>
           <span>
-            {state.status === "failed" ? `The check could not be done: ${state.message.replace(/\.$/, "")}.` : "You chose not to wait for the check."} Nothing about{" "}
-            {many ? "these items" : "this item"} was checked, so proceed with care.
+            {state.status === "failed" ? t("advice.checkFailed", { message: state.message.replace(/\.$/, "") }) : t("advice.skip")} {t("advice.proceedCarefully", { target: many ? "these items" : "this item" })}
           </span>
         </li>
       </ul>
     );
   } else {
     const { items, covered } = state.advice;
-    const checked = `Checked on ${sparkName}: programs and running containers using ${them}, recent changes, partial downloads, files that look like keys or logins, git work, and SparkDash's own launchers and LLM servers.`;
+    const checked = t("advice.checked", { sparkName, target: them });
     if (!many || items.length <= 1) {
       const item = items[0];
       body = (
@@ -119,7 +128,7 @@ export function DeleteAdviceBlock({ advice, sparkName, many, disabled, onSubmit 
           <p className="st-advice__sum">
             {(["high", "review", "low"] as const)
               .filter((l) => counts[l] > 0)
-              .map((l) => `${counts[l]} ${LEVEL_LABEL[l]}`)
+              .map((l) => `${counts[l]} ${levelLabel(t, l)}`)
               .join(" · ")}
             {covered.length > 0 ? ` · ${covered.length} inside selected folders, checked with them` : ""}
           </p>
@@ -128,18 +137,18 @@ export function DeleteAdviceBlock({ advice, sparkName, many, disabled, onSubmit 
             <ul className="st-advice__list st-advice__shared">
               {shared.map((u, k) => (
                 <li key={k} className="is-unchecked">
-                  <span className="st-advice__mark">Not checked</span>
-                  <span>For every item: {u.text}</span>
+                  <span className="st-advice__mark">{t("advice.notChecked")}</span>
+                  <span>{t("advice.forEvery", { text: u.text })}</span>
                 </li>
               ))}
             </ul>
           ) : null}
-          <ul className="st-advice__items" aria-label="Items the check has something to say about">
+          <ul className="st-advice__items" aria-label={t("advice.checkItems")}>
             {flagged.map((it) => (
               <li key={it.path} className={`st-advice__item is-${it.level}`}>
                 <div className="st-advice__itemhead">
                   <b title={it.path}>{baseName(it.path)}</b>
-                  <span className="st-advice__itemlevel">{LEVEL_LABEL[it.level]}</span>
+                  <span className="st-advice__itemlevel">{levelLabel(t, it.level)}</span>
                 </div>
                 <ReasonList item={it} shared={shared} />
               </li>
@@ -147,7 +156,7 @@ export function DeleteAdviceBlock({ advice, sparkName, many, disabled, onSubmit 
           </ul>
           {quiet > 0 && (flagged.length > 0 || shared.length > 0) ? (
             <p className="st-advice__muted">
-              {quiet} {flagged.length > 0 ? "other " : ""}item{quiet === 1 ? "" : "s"}: nothing {shared.length > 0 ? "else " : ""}found.
+              {t("advice.quiet", { count: quiet, other: flagged.length > 0 ? "other " : "", else: shared.length > 0 ? "else " : "" })}
             </p>
           ) : null}
         </>
@@ -163,27 +172,27 @@ export function DeleteAdviceBlock({ advice, sparkName, many, disabled, onSubmit 
           {badge}
         </span>
         <p id={`${id}-title`} className="st-advice__title" role="status" aria-live="polite">
-          <span className="sr-only">Delete check: {badge}. </span>
+          <span className="sr-only">{t("advice.deleteCheck", { badge })} </span>
           {adviceHeadline(state)}
         </p>
       </div>
-      <div className="st-advice__body" tabIndex={0} role="group" aria-label="What the delete check found">
+      <div className="st-advice__body" tabIndex={0} role="group" aria-label={t("advice.whatFound")}>
         {body}
       </div>
       {/* Every confirmation laid out in one place, only the one that applies shown: the dialog keeps its size. */}
       <div className="st-swap st-advice__confirm">
         <div className={`st-advice__wait${friction === "wait" ? "" : " is-off"}`} inert={friction !== "wait"} aria-hidden={friction !== "wait"}>
-          <span>Deleting waits for the check.</span>
+          <span>{t("advice.wait")}</span>
           <button type="button" className="btn btn--sm btn--ghost" onClick={advice.skip} disabled={disabled || friction !== "wait"}>
             Don&rsquo;t wait
           </button>
         </div>
         <p className={`st-advice__none${friction === "none" ? "" : " is-off"}`} aria-hidden={friction !== "none"}>
-          Nothing more to confirm.
+          {t("advice.nothingMore")}
         </p>
         <label className={`check-row st-advice__tick${friction === "tick" ? "" : " is-off"}`} inert={friction !== "tick"} aria-hidden={friction !== "tick"}>
           <input type="checkbox" checked={advice.ticked} disabled={disabled || friction !== "tick"} onChange={(e) => advice.setTicked(e.target.checked)} />
-          <span>I have read this and still want to delete {them}.</span>
+          <span>{t("advice.readStillDelete", { target: them })}</span>
         </label>
         <div className={`field st-advice__typed${friction === "typed" ? "" : " is-off"}`} inert={friction !== "typed"} aria-hidden={friction !== "typed"}>
           {/* Not a <label for>: the phrase is meant to be selected and copied (see the name field). */}

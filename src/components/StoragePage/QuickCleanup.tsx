@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useTranslation } from "react-i18next";
 import type { DockerStorage, SparkSnapshot } from "../../api/types";
+import { formatBytes } from "../../shared/formatBytes";
 import { BoxIcon } from "../ui/icons";
 import { Banner } from "./Banner";
 import {
@@ -10,23 +12,20 @@ import {
   buildCacheEmpty,
   buildCacheEstimate,
   containersEstimate,
-  countText,
-  daysText,
-  estimateText,
   imagesEstimate,
   isQuickDays,
+  joinCleanupItems,
   outcomeSummary,
   pickContainers,
   pickImages,
   planFor,
-  presetDescription,
   presetKind,
-  presetTitle,
   usageUnknownReason,
   type QuickDays,
   type QuickOutcome,
   type QuickPresetId,
   type QuickRule,
+  type SizeEstimate,
 } from "./dockerQuick";
 import { QuickCleanupSheet } from "./QuickCleanupSheet";
 import type { AdminAccess } from "./useAdminAccess";
@@ -58,6 +57,7 @@ export function useQuickDays(): [QuickDays, (days: QuickDays) => void] {
 
 /** 1 / 7 / 30 days, as a radio group: arrow keys, Home and End move the choice (roadmap §6.5). */
 function DaysControl({ days, onChange, labelledBy }: { days: QuickDays; onChange: (d: QuickDays) => void; labelledBy: string }) {
+  const { t } = useTranslation("storage");
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
   const onKey = (e: KeyboardEvent<HTMLButtonElement>, i: number) => {
     const n = QUICK_DAYS.length;
@@ -83,7 +83,7 @@ function DaysControl({ days, onChange, labelledBy }: { days: QuickDays; onChange
           onClick={() => onChange(d)}
           onKeyDown={(e) => onKey(e, i)}
         >
-          {daysText(d)}
+          {t("quickCleanup.days", { count: d })}
         </button>
       ))}
     </div>
@@ -99,20 +99,41 @@ interface Row {
   keptBuiltHere: number;
 }
 
-function rowOf(id: QuickPresetId, data: DockerStorage, rule: QuickRule): Row {
+function estimateCopy(estimate: SizeEstimate, kind: ReturnType<typeof presetKind>, t: (key: string, options?: Record<string, unknown>) => string): string {
+  if (estimate.kind === "none") return "";
+  if (estimate.kind === "unknown") return t("quickDetails.sizeUnknown");
+  if (estimate.kind === "about") return t("quickDetails.estimateAbout", { bytes: formatBytes(estimate.bytes) });
+  const scope = kind === "containers" ? t("quickDetails.everyStoppedContainer") : kind === "images" ? t("quickDetails.everyUnusedImage") : t("quickDetails.allUnusedBuildCache");
+  return estimate.basis === "layers"
+    ? t("quickDetails.estimateUpToLayers", { bytes: formatBytes(estimate.bytes) })
+    : t("quickDetails.estimateUpToDocker", { bytes: formatBytes(estimate.bytes), scope });
+}
+
+function presetCopy(id: QuickPresetId, days: QuickDays, t: (key: string, options?: Record<string, unknown>) => string) {
+  const day = t("quickCleanup.days", { count: days });
+  switch (id) {
+    case "old-images": return { title: t("quickDetails.oldImagesTitle", { days: day }), description: t("quickDetails.oldImagesDescription") };
+    case "dangling-images": return { title: t("quickDetails.danglingImagesTitle"), description: t("quickDetails.danglingImagesDescription") };
+    case "unused-images": return { title: t("quickDetails.unusedImagesTitle"), description: t("quickDetails.unusedImagesDescription") };
+    case "old-containers": return { title: t("quickDetails.oldContainersTitle", { days: day }), description: t("quickDetails.oldContainersDescription") };
+    case "build-cache": return { title: t("quickDetails.buildCacheTitle", { days: day }), description: t("quickDetails.buildCacheDescription") };
+  }
+}
+
+function rowOf(id: QuickPresetId, data: DockerStorage, rule: QuickRule, t: (key: string, options?: Record<string, unknown>) => string): Row {
   const kind = presetKind(id);
   if (kind === "build-cache") {
     const empty = buildCacheEmpty(data);
-    return { id, figure: empty ? "Nothing to clean" : estimateText(buildCacheEstimate(data), kind), ok: !empty, keptBuiltHere: 0 };
+    return { id, figure: empty ? t("quickDetails.nothingToClean") : estimateCopy(buildCacheEstimate(data), kind, t), ok: !empty, keptBuiltHere: 0 };
   }
   const unknown = usageUnknownReason(data);
-  if (unknown) return { id, figure: `Usage unknown: ${unknown.charAt(0).toLowerCase()}${unknown.slice(1)}`, ok: false, keptBuiltHere: 0 };
+  if (unknown) return { id, figure: t("quickDetails.usageUnknown"), ok: false, keptBuiltHere: 0 };
   if (kind === "containers") {
     const items = pickContainers(data, rule);
-    return { id, figure: items.length === 0 ? "Nothing to clean" : `${countText(items.length, "container")} · ${estimateText(containersEstimate(items, data), kind)}`, ok: items.length > 0, keptBuiltHere: 0 };
+    return { id, figure: items.length === 0 ? t("quickDetails.nothingToClean") : t("quickDetails.figure", { count: t("quickDetails.containers", { count: items.length }), estimate: estimateCopy(containersEstimate(items, data), kind, t) }), ok: items.length > 0, keptBuiltHere: 0 };
   }
   const pick = pickImages(data, id, rule);
-  const figure = pick.items.length === 0 ? "Nothing to clean" : `${countText(pick.items.length, "image")} · ${estimateText(imagesEstimate(pick.items, data), kind)}`;
+  const figure = pick.items.length === 0 ? t("quickDetails.nothingToClean") : t("quickDetails.figure", { count: t("quickDetails.images", { count: pick.items.length }), estimate: estimateCopy(imagesEstimate(pick.items, data), kind, t) });
   return { id, figure, ok: pick.items.length > 0, keptBuiltHere: pick.keptBuiltHere.length };
 }
 
@@ -135,6 +156,7 @@ interface QuickCleanupProps {
  * offered here.
  */
 export function QuickCleanup({ spark, data, peers, access, asAdmin, onChanged }: QuickCleanupProps) {
+  const { t } = useTranslation("storage");
   const [days, setDays] = useQuickDays();
   const [sheet, setSheet] = useState<readonly QuickPresetId[] | null>(null);
   const [outcome, setOutcome] = useState<QuickOutcome | null>(null);
@@ -146,15 +168,15 @@ export function QuickCleanup({ spark, data, peers, access, asAdmin, onChanged }:
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const now = useMemo(() => Date.now(), [data]);
   const rule = useMemo<QuickRule>(() => ({ days, now, includeBuiltHere: false }), [days, now]);
-  const rows = useMemo(() => QUICK_PRESETS.map((id) => rowOf(id, data, rule)), [data, rule]);
+  const rows = useMemo(() => QUICK_PRESETS.map((id) => rowOf(id, data, rule, t)), [data, rule, t]);
 
   const rec = useMemo(() => planFor(data, RECOMMENDED_PRESETS, rule), [data, rule]);
   const recCache = !buildCacheEmpty(data);
-  const recParts = [rec.images.length > 0 ? countText(rec.images.length, "image") : "", rec.containers.length > 0 ? countText(rec.containers.length, "container") : "", recCache ? "build cache" : ""].filter(Boolean);
+  const recParts = [rec.images.length > 0 ? t("quickDetails.images", { count: rec.images.length }) : "", rec.containers.length > 0 ? t("quickDetails.containers", { count: rec.containers.length }) : "", recCache ? t("quickDetails.buildCache") : ""].filter(Boolean);
   const recOk = recParts.length > 0;
-  const recWhat = recParts.length > 1 ? `${recParts.slice(0, -1).join(", ")} and ${recParts[recParts.length - 1]}` : recParts[0] ?? "";
+  const recWhat = joinCleanupItems(recParts, t);
 
-  const summary = outcome ? outcomeSummary(outcome) : null;
+  const summary = outcome ? outcomeSummary(outcome, t) : null;
   useEffect(() => {
     if (outcome) resultRef.current?.scrollIntoView?.({ block: "nearest" });
   }, [outcome]);
@@ -170,13 +192,13 @@ export function QuickCleanup({ spark, data, peers, access, asAdmin, onChanged }:
       <header className="st-quick__head">
         <div>
           <h2 id={titleId}>
-            <BoxIcon className="h-4 w-4" /> Quick clean-up
+            <BoxIcon className="h-4 w-4" /> {t("quickCleanup.title", { })}
           </h2>
-          <p>Get Docker space back in a click or two. Each button first shows exactly what would go; nothing is removed until you confirm.</p>
+          <p>{t("quickCleanup.description", { })}</p>
         </div>
         <div className="st-quick__age">
           <span id={daysLabelId} className="st-quick__agelabel">
-            Older than
+            {t("quickCleanup.olderThan", { })}
           </span>
           <DaysControl days={days} onChange={setDays} labelledBy={daysLabelId} />
         </div>
@@ -188,7 +210,7 @@ export function QuickCleanup({ spark, data, peers, access, asAdmin, onChanged }:
             <p className="st-quick__result">{summary.text}</p>
             {summary.problems.length > 0 ? (
               <details className="st-quick__problems">
-                <summary>What was kept or could not be removed</summary>
+                <summary>{t("quickCleanup.problems", { })}</summary>
                 {summary.problems.map((p) => (
                   <div key={p.name}>
                     <b>{p.name}</b>
@@ -213,17 +235,17 @@ export function QuickCleanup({ spark, data, peers, access, asAdmin, onChanged }:
           aria-describedby={recNoteId}
           onClick={() => openSheet(RECOMMENDED_PRESETS, recOk)}
         >
-          Recommended clean-up&hellip;
+          {t("quickCleanup.recommended", { })}
         </button>
         <p id={recNoteId} className="st-quick__recnote">
           {recOk ? (
             <>
-              Unused images and stopped containers older than {daysText(days)}, and build cache not used in that time: <b>{recWhat}</b>
-              {rec.keptBuiltHere.length > 0 ? ` (${rec.keptBuiltHere.length} built here ${rec.keptBuiltHere.length === 1 ? "is" : "are"} kept)` : ""}. You can untick
-              any of it.
+              {t("quickDetails.recommendedNote", { days: t("quickCleanup.days", { count: days }), items: recWhat })}{" "}
+              {rec.keptBuiltHere.length > 0 ? <>{t("quickCleanup.builtKept", { count: rec.keptBuiltHere.length })}{t("quickDetails.sentenceEnd")}{" "}</> : null}
+              {t("quickDetails.untick")}
             </>
           ) : (
-            <>Nothing to clean with the recommended rules right now.</>
+            <>{t("quickCleanup.nothingRecommended", { })}</>
           )}
         </p>
       </div>
@@ -234,11 +256,11 @@ export function QuickCleanup({ spark, data, peers, access, asAdmin, onChanged }:
           return (
             <li key={r.id} className={`st-quick__row${r.ok ? "" : " is-empty"}`}>
               <div className="st-quick__main">
-                <span className="st-quick__title">{presetTitle(r.id, days)}</span>
-                <span className="st-quick__desc">{presetDescription(r.id)}</span>
+                <span className="st-quick__title">{presetCopy(r.id, days, t).title}</span>
+                <span className="st-quick__desc">{presetCopy(r.id, days, t).description}</span>
                 {r.keptBuiltHere > 0 ? (
                   <span className="st-quick__kept">
-                    {r.keptBuiltHere} built here {r.keptBuiltHere === 1 ? "is" : "are"} kept
+                    {t("quickCleanup.builtKept", { count: r.keptBuiltHere })}
                   </span>
                 ) : null}
               </div>
@@ -246,7 +268,7 @@ export function QuickCleanup({ spark, data, peers, access, asAdmin, onChanged }:
                 {r.figure}
               </span>
               <button type="button" className="btn btn--sm st-quick__go" aria-disabled={!r.ok} aria-describedby={figureId} onClick={() => openSheet([r.id], r.ok)}>
-                Review &amp; clean
+                {t("quickCleanup.reviewClean", { })}
               </button>
             </li>
           );
@@ -254,8 +276,8 @@ export function QuickCleanup({ spark, data, peers, access, asAdmin, onChanged }:
       </ul>
 
       <p className="st-hint st-quick__volumes">
-        <b>Volumes are never cleaned from here:</b> they can hold data, such as databases or downloaded models, that exists nowhere else, and Docker
-        cannot tell whether something outside a container still needs it.
+        <b>{t("quickCleanup.volumesTitle", { })}</b>{" "}
+        {t("quickCleanup.volumesText", { })}
       </p>
 
       <QuickCleanupSheet

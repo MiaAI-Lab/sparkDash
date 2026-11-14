@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ApiError } from "../../api/client";
 import type { SparkSnapshot, StorageBulkDeleteJob, StorageEntry, StorageStatus } from "../../api/types";
 import { formatBytes } from "../../shared/formatBytes";
@@ -45,10 +46,9 @@ function describeLocation(path: string, status: StorageStatus): { id: LocationId
   return { id: "custom", custom: path };
 }
 
-const errorText = (err: unknown) => (err instanceof Error ? err.message : "Something went wrong");
-
 /** Find what fills the disk: choose a place, analyse, then browse the result biggest first and delete from it. */
 export function FilesTab({ spark, status, readOnlyReason = null, access, scan, view: wantedView, onView, onNotice, onDiskChanged }: FilesTabProps) {
+  const { t } = useTranslation("storage");
   const { job, session } = scan;
   const readOnly = readOnlyReason != null;
   const [location, setLocation] = useState<LocationId>("disk");
@@ -89,8 +89,8 @@ export function FilesTab({ spark, status, readOnlyReason = null, access, scan, v
     const confirmed = job?.stop?.outcome === "terminated" || job?.stop?.outcome === "already-gone";
     if (!job || stopAsked.current !== job.id || !confirmed || job.holdsSpark) return;
     stopAsked.current = null;
-    onNotice({ tone: "ok", text: `Scan stopped. ${job.stop?.message ?? "Nothing of it is left running on the Spark."}` });
-  }, [job, onNotice]);
+    onNotice({ tone: "ok", text: t("scan.stoppedNotice", { message: job.stop?.message ?? t("scan.noProcessLeft") }) });
+  }, [job, onNotice, t]);
 
   // The folder shown: the one in the address bar when this analysis knows it, else the nearest known
   // folder above it, else the top. (A link to a folder that was never scanned lands on its parent.)
@@ -170,7 +170,7 @@ export function FilesTab({ spark, status, readOnlyReason = null, access, scan, v
         return true;
       } catch (err) {
         if (err instanceof ApiError && err.code === "bad-password") access.forget();
-        const text = errorText(err);
+        const text = err instanceof Error ? err.message : t("files.genericError");
         if (mode === "new") {
           startedHere.current = false;
           setProblem(text);
@@ -179,7 +179,7 @@ export function FilesTab({ spark, status, readOnlyReason = null, access, scan, v
         return false;
       }
     },
-    [scan, access, onNotice]
+    [scan, access, onNotice, t]
   );
 
   const analyse = () => {
@@ -228,7 +228,7 @@ export function FilesTab({ spark, status, readOnlyReason = null, access, scan, v
     try {
       await scan.cancel();
     } catch (err) {
-      onNotice({ tone: "error", text: errorText(err) });
+      onNotice({ tone: "error", text: err instanceof Error ? err.message : t("files.genericError") });
     } finally {
       setStopping(false);
     }
@@ -239,7 +239,11 @@ export function FilesTab({ spark, status, readOnlyReason = null, access, scan, v
     const shared = target.sharedBytes ?? 0;
     onNotice({
       tone: "ok",
-      text: `Deleted ${baseName(target.path)}. About ${formatBytes(Math.max(0, target.bytes - shared))} freed.${shared > 0 ? ` ${formatBytes(shared)} of it is hard-linked elsewhere and stays on disk until its other links are deleted.` : ""}`,
+      text: t("files.deletedNotice", {
+        name: baseName(target.path),
+        freed: formatBytes(Math.max(0, target.bytes - shared)),
+        shared: shared > 0 ? t("files.hardLinkedStays", { shared: formatBytes(shared) }) : "",
+      }),
     });
     await scan.refresh();
     onDiskChanged();
@@ -256,7 +260,7 @@ export function FilesTab({ spark, status, readOnlyReason = null, access, scan, v
   if (scan.loading) {
     return (
       <section className="panel st-state" role="status" aria-live="polite">
-        <h2>Checking for an earlier analysis…</h2>
+        <h2>{t("files.checkingPrevious")}</h2>
       </section>
     );
   }
@@ -271,8 +275,8 @@ export function FilesTab({ spark, status, readOnlyReason = null, access, scan, v
   if (!session && (readOnly || !status)) {
     return (
       <section className="panel st-state" role="status">
-        <h2>No saved analysis for {spark.name}</h2>
-        <p>{scan.loadError ? `Could not read the earlier analysis: ${scan.loadError}` : `Analyse ${spark.name} once it can be reached again; the result is kept here for when it is offline.`}</p>
+        <h2>{t("files.noSavedAnalysis", { sparkName: spark.name })}</h2>
+        <p>{scan.loadError ? t("files.previousReadError", { error: scan.loadError }) : t("files.offlineNoAnalysis", { sparkName: spark.name })}</p>
       </section>
     );
   }
@@ -280,7 +284,7 @@ export function FilesTab({ spark, status, readOnlyReason = null, access, scan, v
     if (!status) return null;
     return (
       <>
-        {scan.loadError ? <Banner tone="warn">Could not read the earlier analysis: {scan.loadError}</Banner> : null}
+        {scan.loadError ? <Banner tone="warn">{t("files.previousReadError", { error: scan.loadError })}</Banner> : null}
         <AnalysePanel
           sparkId={spark.id}
           sparkName={spark.name}
@@ -293,7 +297,7 @@ export function FilesTab({ spark, status, readOnlyReason = null, access, scan, v
           asAdmin={asAdmin}
           onAsAdmin={setAsAdmin}
           disabled={scanBusy}
-          busyNote={scanBusy ? scanHoldNote(job, scan.serverNow()) : null}
+          busyNote={scanBusy ? scanHoldNote(job, scan.serverNow(), t) : null}
           onAnalyse={analyse}
           problem={problem ?? failedNew?.message ?? null}
           onBack={session ? () => setChoosing(false) : undefined}
@@ -311,9 +315,9 @@ export function FilesTab({ spark, status, readOnlyReason = null, access, scan, v
   const looking = running && job?.mode === "drill" && job.path === view;
   const busy = scanBusy || deleteTarget != null || bulkTarget != null || bulkRunning;
   const deleteBlocked = scanBusy
-    ? "A scan is using this Spark: nothing can be deleted until it has finished."
+    ? t("files.scanBlocksDelete")
     : bulkRunning
-      ? "A bulk delete is still running on this Spark."
+      ? t("files.bulkDeleteRunning")
       : null;
 
   const deleteSelected = () => {
@@ -328,14 +332,14 @@ export function FilesTab({ spark, status, readOnlyReason = null, access, scan, v
     setBulkReport(null);
     setBulkTarget(picked);
   };
-  const drillNote = looking && job ? scanStopNote(job, scan.serverNow()) : null;
+  const drillNote = looking && job ? scanStopNote(job, scan.serverNow(), t) : null;
   const viewEntry = index.byPath.get(view);
 
   const unscannedNote = looking ? (
     <div className="st-looking" role="status" aria-live="polite">
       <RotateIcon className="st-looking__spin h-4 w-4" />
       <span>
-        Looking inside <b>{baseName(view)}</b>… <span className="mono">{formatElapsed(scan.elapsedMs)}</span>
+        {t("files.lookingInside", { name: baseName(view) })} <span className="mono">{formatElapsed(scan.elapsedMs)}</span>
       </span>
       {job ? <ScanStop job={job} serverNow={scan.serverNow} onStop={() => void stop()} requesting={stopping} /> : null}
       {drillNote ? <p className="st-looking__note">{drillNote}</p> : null}
@@ -343,24 +347,24 @@ export function FilesTab({ spark, status, readOnlyReason = null, access, scan, v
   ) : readOnly ? (
     <div className="st-looking">
       <p>
-        The saved analysis did not measure inside this folder. It can be looked inside once {spark.name} can be reached again.
+        {t("files.offlineFolder", { sparkName: spark.name })}
       </p>
     </div>
   ) : drillError ? (
     <div className="st-looking is-error" role="alert">
       <p>{drillError.message}</p>
       {drillError.code === "no-sudo" || drillError.code === "bad-password" ? (
-        <AdminFields access={access} purpose="to read this folder" problem={null} onSubmit={() => void begin(view, true, "drill")} />
+        <AdminFields access={access} purpose={t("files.readFolderPurpose")} problem={null} onSubmit={() => void begin(view, true, "drill")} />
       ) : null}
       <button type="button" className="btn btn--sm" onClick={() => void begin(view, session.elevated || drillError.code === "no-sudo" || drillError.code === "bad-password", "drill")}>
-        Try again
+        {t("files.tryAgain")}
       </button>
     </div>
   ) : (
     <div className="st-looking">
-      <p>This folder has not been measured yet.</p>
+      <p>{t("files.unmeasuredFolder")}</p>
       <button type="button" className="btn btn--sm btn--primary" onClick={() => void begin(view, session.elevated, "drill")} disabled={scanBusy}>
-        Look inside {viewEntry ? baseName(viewEntry.path) : ""}
+        {t("files.lookInside", { name: viewEntry ? baseName(viewEntry.path) : "" })}
       </button>
     </div>
   );
@@ -378,35 +382,34 @@ export function FilesTab({ spark, status, readOnlyReason = null, access, scan, v
               disabled={busy || readOnly || !(access.available || (status != null && status.sudo !== "no"))}
               aria-describedby={readOnly ? READ_ONLY_REASON_ID : undefined}
             >
-              Analyse as administrator
+              {t("files.analyseAsAdmin")}
             </button>
           }
         >
           <b>
-            {session.unreadable} folder{session.unreadable === 1 ? "" : "s"} could not be opened
+            {t("files.unreadableFolders", { count: session.unreadable })}
           </b>
-          , so the sizes below are incomplete
-          {uncountedNote ? ` (about ${formatBytes(uncounted)} of the used space is not counted)` : ""}. Docker&rsquo;s storage is usually one of them.
+          {t("files.incompleteSizes", { uncounted: uncountedNote ? t("files.uncountedSpace", { bytes: formatBytes(uncounted) }) : "" })}
         </Banner>
       ) : null}
       {session.timedOut ? (
         <Banner tone="warn">
-          The Spark stopped this analysis early because it was taking very long, so sizes are incomplete. Try a smaller folder.
+          {t("files.timedOut")}
         </Banner>
       ) : null}
-      {job?.state === "error" && job.mode === "new" ? <Banner tone="error">The last analysis failed: {job.error?.message}</Banner> : null}
+      {job?.state === "error" && job.mode === "new" ? <Banner tone="error">{t("files.lastAnalysisFailed", { error: job.error?.message })}</Banner> : null}
       {job?.holdsSpark && !running ? (
         <Banner tone="warn" action={job.cancellable !== false ? <ScanStop job={job} serverNow={scan.serverNow} onStop={() => void stop()} requesting={stopping} /> : undefined}>
-          {scanHoldNote(job, scan.serverNow())}
+          {scanHoldNote(job, scan.serverNow(), t)}
         </Banner>
       ) : null}
       {bulkRunning && bulk.job && bulkTarget == null ? (
         // Started before this page was opened (or reloaded): the Spark finishes it; the result shows here when it ends.
         <Banner tone="info">
           <b>
-            Deleting {Math.min(bulk.job.done + 1, bulk.job.total)} of {bulk.job.total} on {spark.name}…
+            {t("files.bulkDeleting", { current: Math.min(bulk.job.done + 1, bulk.job.total), total: bulk.job.total, sparkName: spark.name })}
           </b>{" "}
-          A bulk delete started earlier is still running. The Spark stays busy until it has finished.
+          {t("files.bulkDeleteHold")}
         </Banner>
       ) : null}
       {bulkReport ? <BulkDeleteReport job={bulkReport.job} freed={bulkReport.freed} shared={bulkReport.shared} onDismiss={() => setBulkReport(null)} /> : null}

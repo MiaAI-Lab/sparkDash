@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { acknowledgeElevatedDelete, ApiError, deleteStoragePath } from "../../api/client";
 import type { StorageElevatedDeleteAck } from "../../api/types";
 import { formatBytes } from "../../shared/formatBytes";
@@ -55,6 +56,7 @@ interface Problem {
  * (DeleteAdviceBlock) runs as the dialog opens and may ask for a tick or a typed phrase on top.
  */
 export function DeleteDialog({ sparkId, sparkName, target, access, preferAdmin, onClose, onDeleted, ack = null, account = null, onAckChanged, onAttention }: DeleteDialogProps) {
+  const { t } = useTranslation("storage");
   const [typed, setTyped] = useState("");
   const [asAdmin, setAsAdmin] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -70,7 +72,7 @@ export function DeleteDialog({ sparkId, sparkName, target, access, preferAdmin, 
   // Keep the last target on screen while the dialog fades out.
   const shown = useRef<DeleteTarget | null>(null);
   if (target) shown.current = target;
-  const t = target ?? shown.current;
+  const shownTarget = target ?? shown.current;
   // Asked again each time the dialog opens; dropped when it closes.
   const advice = useDeleteAdvice(sparkId, target ? [target.path] : null);
 
@@ -93,21 +95,22 @@ export function DeleteDialog({ sparkId, sparkName, target, access, preferAdmin, 
     if (problem) problemRef.current?.scrollIntoView?.({ block: "nearest" });
   }, [problem]);
 
-  if (!t) return null;
-  const name = baseName(t.path);
-  const isFolder = t.type === "dir";
+  if (!shownTarget) return null;
+  const targetInfo = shownTarget;
+  const name = baseName(targetInfo.path);
+  const isFolder = targetInfo.type === "dir";
   const typedOk = !isFolder || typed === name;
   const adminOk = !asAdmin || access.ready;
-  const shared = Math.min(t.bytes, Math.max(0, t.sharedBytes ?? 0));
-  const frees = Math.max(0, t.bytes - shared);
+  const shared = Math.min(targetInfo.bytes, Math.max(0, targetInfo.sharedBytes ?? 0));
+  const frees = Math.max(0, targetInfo.bytes - shared);
   // Everything in it is also linked from elsewhere: the delete will remove the names but give nothing back.
-  const freesNone = t.bytes >= 1024 * 1024 && shared > 0 && frees < Math.max(1024 * 1024, t.bytes * 0.01);
+  const freesNone = targetInfo.bytes >= 1024 * 1024 && shared > 0 && frees < Math.max(1024 * 1024, targetInfo.bytes * 0.01);
   // Deleting a folder as administrator needs the owner's acknowledgement for this Spark (not when the dashboard
   // already is root there). Laid out with the administrator fields, so ticking "as administrator" moves nothing.
   const ackNeeded = isFolder && access.sudo !== "root" && (!ack || ackForced);
   const canDelete = !busy && typedOk && adminOk && (!asAdmin || access.available) && (!asAdmin || !ackNeeded || ackTicked) && advice.satisfied;
   const needManualCommand = (asAdmin && access.needsPassword && !access.canTypePassword && !access.saved) || manualShown;
-  const manualCommand = `sudo rm -rf --one-file-system -- ${shellQuote(t.path)}`;
+  const manualCommand = `sudo rm -rf --one-file-system -- ${shellQuote(targetInfo.path)}`;
 
   const run = async () => {
     if (!canDelete) return;
@@ -119,20 +122,20 @@ export function DeleteDialog({ sparkId, sparkName, target, access, preferAdmin, 
         setAckForced(false);
         onAckChanged?.();
       }
-      await deleteStoragePath(sparkId, { path: t.path, ...access.elevation(asAdmin) });
+      await deleteStoragePath(sparkId, { path: targetInfo.path, ...access.elevation(asAdmin) });
       setBusy(false);
-      onDeleted(t);
+      onDeleted(targetInfo);
     } catch (err) {
       setBusy(false);
       onAttention?.();
       const code = err instanceof ApiError ? err.code : undefined;
-      const message = err instanceof Error ? err.message : "The Spark refused the request";
+      const message = err instanceof Error ? err.message : t("deletion.refused");
       const partial = err instanceof ApiError && err.partial;
       if (code === "no-ack") {
         setAsAdmin(true);
         setAckForced(true);
         setAckTicked(false);
-        setProblem({ text: "Deleting folders as administrator is off for this Spark. Read the note below and confirm it to go on." });
+        setProblem({ text: t("deletion.ackRequired") });
       } else if (asAdmin && code && MANUAL_CODES.has(code)) {
         setManualShown(true);
         setProblem({ text: `${message} If you are sure, run the command below on the Spark yourself.` });
@@ -146,7 +149,7 @@ export function DeleteDialog({ sparkId, sparkName, target, access, preferAdmin, 
         });
       } else if (code === "bad-password") {
         access.forget();
-        setProblem({ text: "The sudo password was not accepted. Check it and try again.", password: true });
+        setProblem({ text: t("deletion.badPassword"), password: true });
       } else if (code === "no-sudo") {
         setAsAdmin(true);
         setProblem({ text: message, password: access.needsPassword });
@@ -173,16 +176,16 @@ export function DeleteDialog({ sparkId, sparkName, target, access, preferAdmin, 
       open={open}
       busy={busy}
       onClose={onClose}
-      title={isFolder ? "Delete this folder?" : "Delete this file?"}
+      title={isFolder ? t("deletion.deleteFolderTitle") : t("deletion.deleteFileTitle")}
       icon={<TrashIcon className="h-4 w-4 shrink-0" />}
       footer={
         <>
           <button type="button" className="btn btn--ghost" onClick={onClose} disabled={busy}>
-            Cancel
+            {t("deletion.cancel")}
           </button>
           <button type="button" className="btn btn--danger" onClick={() => void run()} disabled={!canDelete}>
             <TrashIcon className="h-3.5 w-3.5" />
-            {busy ? "Deleting…" : asAdmin ? "Delete as administrator" : freesNone ? "Delete anyway (frees nothing)" : "Delete permanently"}
+            {busy ? t("deletion.deleting") : asAdmin ? t("deletion.deleteAsAdmin") : freesNone ? t("deletion.deleteAnyway") : t("deletion.deletePermanently")}
           </button>
         </>
       }
@@ -193,11 +196,11 @@ export function DeleteDialog({ sparkId, sparkName, target, access, preferAdmin, 
         </span>
         <div className="min-w-0">
           <div className="st-target__name">{name}</div>
-          <div className="st-target__path mono" title={t.path}>
-            {t.path}
+          <div className="st-target__path mono" title={targetInfo.path}>
+            {targetInfo.path}
           </div>
           <div className="st-target__meta">
-            <b>{formatBytes(t.bytes)}</b> on {sparkName} · deleting frees <b className={freesNone ? "is-zero" : undefined}>{formatBytes(frees)}</b>
+            {t("deletion.meta", { bytes: formatBytes(targetInfo.bytes), sparkName, frees: formatBytes(frees) })}
           </div>
         </div>
       </div>
@@ -223,7 +226,7 @@ export function DeleteDialog({ sparkId, sparkName, target, access, preferAdmin, 
       <DeleteAdviceBlock advice={advice} sparkName={sparkName} many={false} disabled={busy} onSubmit={() => void run()} />
 
       <div className="danger-box" role="alert">
-        <b>This cannot be undone.</b>
+          <b>{t("deletion.cannotUndo")}</b>
         <span>
           {isFolder ? "The folder and everything in it are" : "The file is"} deleted from the Spark&rsquo;s disk right away. There is no trash to restore from.
         </span>
@@ -261,8 +264,8 @@ export function DeleteDialog({ sparkId, sparkName, target, access, preferAdmin, 
       <label className="check-row">
         <input type="checkbox" checked={asAdmin} disabled={busy} onChange={(e) => setAsAdmin(e.target.checked)} />
         <span>
-          Delete as administrator (sudo)
-          <small className="st-hint"> Needed for files that belong to root or another account, such as Docker&rsquo;s.</small>
+          {t("deletion.admin")}
+          <small className="st-hint"> {t("deletion.adminHint")}</small>
         </span>
       </label>
 
@@ -272,7 +275,7 @@ export function DeleteDialog({ sparkId, sparkName, target, access, preferAdmin, 
         <AdminFields
           access={access}
           disabled={busy || !asAdmin}
-          purpose="to delete this"
+          purpose={t("deletion.deletePurpose")}
           problem={problem?.password ? problem.text : null}
           autoFocus={problem != null && asAdmin}
           onSubmit={() => void run()}
@@ -281,12 +284,12 @@ export function DeleteDialog({ sparkId, sparkName, target, access, preferAdmin, 
 
       {needManualCommand ? (
         <div className="field">
-          <label htmlFor="st-manual-cmd">Or run this in a terminal on the Spark</label>
+          <label htmlFor="st-manual-cmd">{t("deletion.manual")}</label>
           <textarea id="st-manual-cmd" className="st-command mono" readOnly rows={3} value={manualCommand} onFocus={(e) => e.currentTarget.select()} />
           <div>
             <button type="button" className="btn btn--sm" onClick={() => void copyCommand()}>
               <CopyIcon className="h-3.5 w-3.5" />
-              {copied ? "Copied" : "Copy command"}
+              {copied ? t("deletion.copied") : t("deletion.copy")}
             </button>
           </div>
         </div>

@@ -1,4 +1,5 @@
 import { useEffect, useId, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ApiError, fetchDockerStorage } from "../../api/client";
 import type { DockerStorage, SparkSnapshot } from "../../api/types";
 
@@ -90,10 +91,11 @@ interface PeersBlockProps {
  * never changes size while the answers come in. Nothing is ticked until the person ticks it.
  */
 export function PeersBlock({ hint, rows, picked, busy, onToggle }: PeersBlockProps) {
+  const { t } = useTranslation("storage");
   const baseId = useId();
   return (
     <div className="st-peers" aria-live="polite">
-      <div className="st-peers__title">Also on your other Sparks</div>
+      <div className="st-peers__title">{t("docker.peers.title", { })}</div>
       <p className="st-hint">{hint}</p>
       {rows.map((r, i) => (
         <label key={r.id} className={`check-row st-peers__row${r.tone === "error" ? " is-error" : ""}${r.tone === "none" ? " is-none" : ""}`}>
