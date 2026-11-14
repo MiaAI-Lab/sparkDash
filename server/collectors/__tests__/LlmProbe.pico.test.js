@@ -132,6 +132,14 @@ test("a Pico that publishes /metrics is read: token totals recorded, cached clam
   probe.lastProbeTime = Date.now() - 5000;
   const clamped = await probe._probeOpenAICompatible();
   assert.equal(clamped.totalCachedTokens, 2000);
+  // Nothing produced since the last scrape: a measured zero from the counters, and the
+  // source must say so rather than borrowing the dashboard-stream label.
+  body = PICO_METRICS(2000, 2500, 300);
+  probe.lastProbeTime = Date.now() - 5000;
+  const idle = await probe._probeOpenAICompatible();
+  assert.equal(idle.generationTps, 0);
+  assert.equal(idle.generationTpsSource, "window");
+  assert.equal(idle.decodeActive, false);
 });
 
 // "dsgb10" is a namespace tag, so the match must be exact: another engine's
