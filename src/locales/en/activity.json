@@ -127,6 +127,11 @@
     "hideDetails": "Hide details: {{label}}",
     "showDetails": "Show details: {{label}}"
   },
+  "message": {
+    "throttleStarted": "{{name}} started thermal throttling{{temperature}}",
+    "throttleStopped": "{{name}} stopped thermal throttling{{temperature}}",
+    "temperature": " ({{temperature}}°C)"
+  },
   "detail": {
     "message": "Message",
     "time": "Time",

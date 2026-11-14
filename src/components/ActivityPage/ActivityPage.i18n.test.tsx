@@ -58,6 +58,32 @@ it("retains filters, expanded raw event data and chart geometry across a languag
   expect(container.textContent?.replace("Copied 1 event", "")).toBe(original);
 });
 
+it("localizes canonical persisted thermal-throttle messages without rewriting unrecognized activity", async () => {
+  const onSelectSpark = vi.fn();
+  const throttleEvents: ActivityEvent[] = [
+    { id: 5, ts: now - 60_000, type: "gpu.throttle.thermal", severity: "warn", sparkId: "thermal", sparkName: "Thermal Spark", message: "Thermal Spark started thermal throttling (85°C)" },
+    { id: 4, ts: now - 120_000, type: "gpu.throttle.cleared", severity: "success", sparkId: "thermal", sparkName: "Thermal Spark", message: "Thermal Spark stopped thermal throttling" },
+    { id: 3, ts: now - 180_000, type: "gpu.throttle.cleared", severity: "success", sparkId: "thermal", sparkName: "Thermal Spark", message: "Thermal Spark stopped thermal throttling (warm°C)" },
+  ];
+  vi.mocked(useActivityFeed).mockReturnValue({
+    events: throttleEvents, status: "ready", error: null, reload: vi.fn(), refresh, clear, refreshing: false,
+    paused: false, pollError: false, lastUpdated: now, fresh: new Set(), loadOlder: vi.fn(),
+    loadingMore: false, moreError: null, reachedOldest: true,
+  });
+
+  const { container } = render(<ActivityPage sparks={[]} onSelectSpark={onSelectSpark} />);
+  act(() => (container.querySelector(".ac-row__toggle") as HTMLButtonElement).click());
+  await act(() => setLocale("zh-CN"));
+  expect(container.textContent).toContain("Thermal Spark 开始热降频（85°C）");
+  expect(container.textContent).toContain("Thermal Spark 已停止热降频");
+  expect(container.textContent).toContain("Thermal Spark stopped thermal throttling (warm°C)");
+  expect(container.querySelector(".ac-detail__wide dd")?.textContent).toBe("Thermal Spark 开始热降频（85°C）");
+  act(() => (container.querySelector(".ac-spark") as HTMLButtonElement).click());
+  expect(onSelectSpark).toHaveBeenCalledExactlyOnceWith("thermal");
+  await act(() => setLocale("en"));
+  expect(container.textContent).toContain("Thermal Spark started thermal throttling (85°C)");
+});
+
 it("updates an open deletion choice and pending result without changing its argument or sending an extra operation", async () => {
   let finish!: (n: number) => void;
   clear.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
