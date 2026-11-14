@@ -9,6 +9,11 @@ import { categorize, formatClock, formatStamp } from "./activityStats";
 
 const SEV_TONE: Record<ActivityEvent["severity"], TagTone> = { error: "bad", warn: "warn", success: "good", info: "info" };
 
+const THROTTLE_MESSAGES = {
+  "gpu.throttle.thermal": { suffix: /^ started thermal throttling(?: \((-?\d+)°C\))?$/, started: true },
+  "gpu.throttle.cleared": { suffix: /^ stopped thermal throttling(?: \((-?\d+)°C\))?$/, started: false },
+} as const;
+
 interface EventRowProps {
   event: ActivityEvent;
   open: boolean;
@@ -16,6 +21,22 @@ interface EventRowProps {
   now: number;
   onToggle: (id: number) => void;
   onSelectSpark?: (id: string) => void;
+}
+
+/** Localize only the exact, persisted SparkMonitor throttle message format. */
+function localizedThrottleMessage(e: ActivityEvent, t: ReturnType<typeof useTranslation>["t"]): string | null {
+  const format = THROTTLE_MESSAGES[e.type as keyof typeof THROTTLE_MESSAGES];
+  const name = e.sparkName;
+  if (!format || !name || !e.message.startsWith(name)) return null;
+
+  const match = format.suffix.exec(e.message.slice(name.length));
+  if (!match) return null;
+
+  const values = {
+    name,
+    temperature: match[1] === undefined ? "" : t("message.temperature", { temperature: match[1] }),
+  };
+  return format.started ? t("message.throttleStarted", values) : t("message.throttleStopped", values);
 }
 
 /** One timeline row: summary line plus an expandable detail block. */
@@ -33,7 +54,8 @@ function formatAgo(ts: number, now: number): string {
 }
 
 
-  const { before, name, after } = splitMessage(e.message, e.sparkName);
+  const displayMessage = localizedThrottleMessage(e, t) ?? e.message;
+  const { before, name, after } = splitMessage(displayMessage, e.sparkName);
   const clickable = Boolean(e.sparkId && onSelectSpark);
   const label = eventType(e.type);
   const detailId = `ac-ev-${e.id}`;
@@ -101,7 +123,7 @@ function formatAgo(ts: number, now: number): string {
         <dl className="ac-detail" id={detailId}>
           <div className="ac-detail__wide">
             <dt>{t("detail.message")}</dt>
-            <dd>{e.message}</dd>
+            <dd>{displayMessage}</dd>
           </div>
           <div>
             <dt>{t("detail.time")}</dt>

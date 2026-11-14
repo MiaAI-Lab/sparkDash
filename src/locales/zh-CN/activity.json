@@ -127,6 +127,11 @@
     "hideDetails": "隐藏详情：{{label}}",
     "showDetails": "显示详情：{{label}}"
   },
+  "message": {
+    "throttleStarted": "{{name}} 开始热降频{{temperature}}",
+    "throttleStopped": "{{name}} 已停止热降频{{temperature}}",
+    "temperature": "（{{temperature}}°C）"
+  },
   "detail": {
     "message": "消息",
     "time": "时间",
