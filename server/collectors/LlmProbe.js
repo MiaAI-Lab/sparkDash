@@ -1342,17 +1342,18 @@ export class LlmProbe {
 
     if (this.backendType === "vllm") await this._refreshEngineVersion();
 
-    // Pico publishes no live counters of its own, but its front end can: pico-dgx-ds4
-    // >= f36af01 serves `GET /metrics` with tensorfold:-prefixed counters
-    // (Picom-code/pico-dgx-ds4#12), the same series set the TensorFold reader below
-    // parses. Read them when present; an older dsfront answers 404 and the branch
-    // below behaves exactly as before.
+    // Pico has no live counters of its own… unless the front end is a build that
+    // publishes them: pico-dgx-ds4 >= f36af01 serves `GET /metrics` with
+    // tensorfold:-prefixed counters (Picom-code/pico-dgx-ds4#12), which is the series
+    // set the TensorFold reader below already parses. An older dsfront answers 404
+    // and the branch below behaves exactly as before.
     if (this.backendType === "pico") {
       // Clear first: a rate left by the previous poll's sample must not be mistaken
       // for a counter-derived one, and a failed scrape must not keep a stale figure.
       this.generationTps = 0;
       this.generationTpsSource = null;
       this.decodeActive = false;
+      const hadCounters = Number.isFinite(this._tensorfoldPromProduced);
       await this._applyTensorFoldMetrics(dtSec);
       if (this.generationTps > 0) {
         // Counter-diff window: real tokens, but it only advances when a request
@@ -1360,6 +1361,12 @@ export class LlmProbe {
         // figure is honest and lumpy rather than a smooth live rate.
         this.generationTpsSource = "window";
         this.decodeActive = true;
+      } else if (hadCounters) {
+        // The engine publishes counters and produced nothing this window: a measured
+        // zero, not a missing figure. Labelling it "dashboard-stream" would claim a
+        // source that did not measure it.
+        this.generationTpsSource = "window";
+        this.decodeActive = false;
       } else {
         // A sample belongs only to the poll that measured it; replaying it on later
         // polls makes an idle engine look busy forever.
