@@ -50,7 +50,7 @@ test("owned_by dsgb10 classifies as pico without probing LM Studio or Ollama pat
   );
 });
 
-test("a poll asks Pico for nothing but the model card and invents no rates", async () => {
+test("a poll on an older Pico (no /metrics) asks for nothing else and invents no rates", async () => {
   const requested = [];
   const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888);
   probe._fetch = picoFetch(requested);
@@ -60,9 +60,10 @@ test("a poll asks Pico for nothing but the model card and invents no rates", asy
   assert.equal(probe.backendType, "pico");
   assert.equal(snap.modelId, "deepseek-v4.1-flash-1017");
   assert.equal(snap.contextLength, 1048576);
-  // No /metrics (there is none), no /version (not vLLM), no /slots, no /health re-probe.
-  assert.deepEqual(requested, ["/v1/models"]);
-  // Pico publishes no counters: the panel shows 0 with no active states, never a guessed rate.
+  // /metrics is asked once and 404s harmlessly (builds before f36af01); no /version
+  // (not vLLM), no /slots, no /health re-probe.
+  assert.deepEqual(requested, ["/v1/models", "/metrics"]);
+  // With no counters published: 0 with no active states, never a guessed rate.
   assert.equal(snap.generationTps, 0);
   assert.equal(snap.prefillTps, 0);
   assert.equal(snap.decodeActive, false);
@@ -77,7 +78,60 @@ test("a poll self-heals an earlier vLLM label from the Pico card", async () => {
   probe.backendType = "vllm";
   await probe._probeOpenAICompatible();
   assert.equal(probe.backendType, "pico");
-  assert.deepEqual(requested, ["/v1/models"]);
+  assert.deepEqual(requested, ["/v1/models", "/metrics"]);
+});
+
+// A front end that publishes counters (pico-dgx-ds4 >= f36af01, PR #12) is read through
+// the TensorFold reader: tokens are recorded and the counter diff yields a window rate.
+const PICO_METRICS = (prompt, cached, gen) =>
+  [
+    "# TYPE tensorfold:requests_running gauge",
+    "tensorfold:requests_running 0",
+    "# TYPE tensorfold:requests_waiting gauge",
+    "tensorfold:requests_waiting 0",
+    "# TYPE tensorfold:generation_tokens_total counter",
+    `tensorfold:generation_tokens_total ${gen}`,
+    "# TYPE tensorfold:prompt_tokens_total counter",
+    `tensorfold:prompt_tokens_total ${prompt}`,
+    "# TYPE tensorfold:prompt_tokens_cached_total counter",
+    `tensorfold:prompt_tokens_cached_total ${cached}`,
+  ].join("\n") + "\n";
+
+test("a Pico that publishes /metrics is read: token totals recorded, cached clamped, window rate labelled", async () => {
+  let body = PICO_METRICS(1000, 900, 100);
+  const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888);
+  probe._fetch = async (url) => {
+    const path = new URL(String(url)).pathname;
+    if (path === "/v1/models") {
+      return { ok: true, status: 200, json: async () => PICO_MODELS, text: async () => JSON.stringify(PICO_MODELS) };
+    }
+    if (path === "/metrics") {
+      return { ok: true, status: 200, json: async () => ({}), text: async () => body };
+    }
+    return { ok: false, status: 404, json: async () => ({}), text: async () => "" };
+  };
+  await probe._detectServerType();
+  await probe._probeOpenAICompatible(); // seeds the counter baselines
+  assert.equal(probe.backendType, "pico");
+  assert.equal(probe.totalPromptTokens, 1000);
+  assert.equal(probe.totalCachedTokens, 900);
+  assert.equal(probe.totalOutputTokens, 100);
+
+  body = PICO_METRICS(1500, 1300, 200);
+  probe.lastProbeTime = Date.now() - 5000; // a 5 s poll window
+  const snap = await probe._probeOpenAICompatible();
+  assert.equal(snap.totalPromptTokens, 1500);
+  assert.equal(snap.totalCachedTokens, 1300);
+  assert.equal(snap.totalOutputTokens, 200);
+  // 100 completion tokens over ~5 s: a real rate, from counters rather than a sample.
+  assert.ok(snap.generationTps > 0 && snap.generationTps < 100, `generationTps ${snap.generationTps}`);
+  assert.equal(snap.generationTpsSource, "window");
+  assert.equal(snap.decodeActive, true);
+  // A cached count above the prompt it belongs to is clamped, never carried.
+  body = PICO_METRICS(2000, 2500, 300);
+  probe.lastProbeTime = Date.now() - 5000;
+  const clamped = await probe._probeOpenAICompatible();
+  assert.equal(clamped.totalCachedTokens, 2000);
 });
 
 // "dsgb10" is a namespace tag, so the match must be exact: another engine's
