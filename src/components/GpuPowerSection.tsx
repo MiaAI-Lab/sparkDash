@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Trans, useTranslation } from "react-i18next";
 import { fetchGpuPower, setGpuPower } from "../api/client";
 import type { GpuPowerCard, GpuPowerStatus } from "../api/types";
 import { shortGpuName } from "../shared/gpuName";
@@ -14,13 +15,14 @@ const cardName = (c: GpuPowerCard) => `GPU ${c.index ?? "?"}`;
  * with the saved connection settings: it is not part of the Save button.
  */
 export function GpuPowerSection({ sparkId }: { sparkId: string }) {
+  const { t } = useTranslation("devices");
   const [status, setStatus] = useState<GpuPowerStatus | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | true | null>(null);
   /** Watts typed for each card, by uuid. */
   const [inputs, setInputs] = useState<Record<string, string>>({});
   const [persist, setPersist] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [message, setMessage] = useState<{ ok: true; limits: string; persists: boolean } | { ok: false; detail: string | null } | null>(null);
   /** Typed sudo password: kept in this component's state only, sent with one request, then cleared. */
   const [sudoPw, setSudoPw] = useState("");
   /** Only the newest request may write state: a slow answer for an older unit must not win. */
@@ -43,7 +45,7 @@ export function GpuPowerSection({ sparkId }: { sparkId: string }) {
       } catch (err) {
         if (mine !== latest.current) return;
         // Keep what is on screen after a failed refresh; the message says what went wrong.
-        setLoadError(err instanceof Error ? err.message : "Could not read the GPU power limits");
+        setLoadError(err instanceof Error ? err.message : true);
       }
     },
     [sparkId]
@@ -63,12 +65,13 @@ export function GpuPowerSection({ sparkId }: { sparkId: string }) {
     };
   }, [load]);
 
+  const readError = loadError === true ? t("gpuPower.loadError") : loadError;
   if (!status) {
     return (
       <div className="gpu-clock">
-        <span className="field-label">GPU power limit</span>
+        <span className="field-label">{t("gpuPower.title")}</span>
         <p className={`field-hint${loadError ? " is-warn" : ""}`} role="status">
-          {loadError ?? "Reading the host…"}
+          {readError ?? t("gpuPower.reading")}
         </p>
       </div>
     );
@@ -76,8 +79,8 @@ export function GpuPowerSection({ sparkId }: { sparkId: string }) {
   if (!status.supported) {
     return (
       <div className="gpu-clock">
-        <span className="field-label">GPU power limit</span>
-        <p className="field-hint">{status.reason || "Not available on this host."}</p>
+        <span className="field-label">{t("gpuPower.title")}</span>
+        <p className="field-hint">{status.reason || t("gpuPower.unavailable")}</p>
       </div>
     );
   }
@@ -102,7 +105,7 @@ export function GpuPowerSection({ sparkId }: { sparkId: string }) {
     .join("\n");
 
   const apply = async () => {
-    if (persist && !installed && !confirm("Install a system service on this host that re-applies the limits at every boot? It runs as root through sudo.")) return;
+    if (persist && !installed && !confirm(t("gpuPower.installConfirm"))) return;
     const set = changed.map((c) => `${cardName(c)} ${typed(c)} W`).join(", ");
     setBusy(true);
     setMessage(null);
@@ -112,12 +115,9 @@ export function GpuPowerSection({ sparkId }: { sparkId: string }) {
         persist,
         ...(needPw ? { sudoPassword: sudoPw } : {}),
       });
-      const text = set
-        ? `${set}, ${persist ? "kept after reboot" : "until the next reboot"}.`
-        : persist ? "Limits kept after reboot." : "Boot service removed.";
-      setMessage({ ok: true, text });
+      setMessage({ ok: true, limits: set, persists: persist });
     } catch (err) {
-      setMessage({ ok: false, text: err instanceof Error ? err.message : "The host refused the change" });
+      setMessage({ ok: false, detail: err instanceof Error ? err.message : null });
     } finally {
       // A slow answer for the unit you just left must not wipe what you type for this one.
       if (sparkRef.current === sparkId) {
@@ -138,13 +138,14 @@ export function GpuPowerSection({ sparkId }: { sparkId: string }) {
 
   return (
     <div className="gpu-clock">
-      <span className="field-label">GPU power limit</span>
+      <span className="field-label">{t("gpuPower.title")}</span>
       {status.cards.map((c) => (
         <div className="gpu-power__card" key={c.uuid}>
           <label className="gpu-clock__now" htmlFor={`gpu-power-${c.uuid}`}>
             <b>{cardName(c)}</b>
-            {shortGpuName(c.name) ? ` · ${shortGpuName(c.name)}` : ""} · now {shownW(c.limitW)}
-            {c.enforcedW != null && c.limitW != null && Math.round(c.enforcedW) !== Math.round(c.limitW) ? ` (enforced ${shownW(c.enforcedW)})` : ""}
+            {shortGpuName(c.name) ? ` · ${shortGpuName(c.name)}` : ""} · {t("gpuPower.current", { watts: shownW(c.limitW) })}
+            {c.enforcedW != null && c.limitW != null && Math.round(c.enforcedW) !== Math.round(c.limitW)
+              ? t("gpuPower.enforced", { watts: shownW(c.enforcedW) }) : ""}
           </label>
           {c.adjustable ? (
             <div className="gpu-clock__row">
@@ -159,39 +160,40 @@ export function GpuPowerSection({ sparkId }: { sparkId: string }) {
                 disabled={busy}
               />
               <span className="gpu-clock__unit">
-                W ({lowestW(c)}–{highestW(c)}, default {shownW(c.defaultW)}
-                {installed && c.bootW != null && Math.round(c.bootW) !== Math.round(c.limitW ?? 0) ? `, boot service sets ${shownW(c.bootW)}` : ""})
+                {t("gpuPower.allowedRange", {
+                  min: lowestW(c), max: highestW(c), defaultWatts: shownW(c.defaultW),
+                  bootNote: installed && c.bootW != null && Math.round(c.bootW) !== Math.round(c.limitW ?? 0)
+                    ? t("gpuPower.bootLimit", { watts: shownW(c.bootW) }) : "",
+                })}
               </span>
             </div>
           ) : (
-            <p className="field-hint">This card does not report a power limit range, so it cannot be set here.</p>
+            <p className="field-hint">{t("gpuPower.notAdjustable")}</p>
           )}
           {c.adjustable && typed(c) !== "" && !valid(c) && (
             <p className="field-hint is-warn">
-              Enter a whole number from {lowestW(c)} to {highestW(c)}.
+              {t("gpuPower.invalidWatts", { min: lowestW(c), max: highestW(c) })}
             </p>
           )}
         </div>
       ))}
       <label className="gpu-clock__check">
         <input type="checkbox" checked={persist} onChange={(e) => setPersist(e.target.checked)} disabled={busy} />
-        Keep after reboot (installs a system service)
+        {t("gpuPower.persist")}
       </label>
       {status.service.active === "failed" && (
-        <p className="field-hint is-warn">The boot service failed the last time it ran. Press Apply with this ticked to write it again.</p>
+        <p className="field-hint is-warn">{t("gpuPower.serviceFailed")}</p>
       )}
       {status.otherServices.length > 0 && (
         <p className="field-hint is-warn">
-          {status.otherServices.join(", ")} also {status.otherServices.length > 1 ? "set" : "sets"} a power limit at boot.{" "}
-          {persist
-            ? "The service kept here runs after it, so these limits are the ones that stay."
-            : "Without Keep after reboot, the cards go back to its value at the next reboot."}
+          {t("gpuPower.otherServices", { services: status.otherServices.join(", "), count: status.otherServices.length })}{" "}
+          {persist ? t("gpuPower.oursRunsLast") : t("gpuPower.othersRunAtBoot")}
         </p>
       )}
       {needPw && (
         <div>
           <label className="field-label" htmlFor="gpu-power-sudo-pw">
-            sudo password for this host
+            {t("gpuPower.sudoPassword")}
           </label>
           <input
             id="gpu-power-sudo-pw"
@@ -202,27 +204,24 @@ export function GpuPowerSection({ sparkId }: { sparkId: string }) {
             value={sudoPw}
             onChange={(e) => setSudoPw(e.target.value)}
             disabled={busy}
-            placeholder="used for this change only"
+            placeholder={t("gpu.passwordPlaceholder")}
           />
           <p className="field-hint">
-            This host has no passwordless sudo. The password is sent once, over this connection, to run the change, then
-            discarded: it is never stored or logged.
+            {t("gpuPower.passwordHelp")}
           </p>
         </div>
       )}
       {sudoMissing && !secure && (
         <>
           <p className="field-hint is-warn">
-            This connection is not on https or the machine itself, so a sudo password is not typed here (it would cross the
-            network in the clear). Open the dashboard over https, turn on Settings → Allow sudo password over plain http, or
-            run this on the host (it does not install the boot service):
+            {t("gpuPower.insecureHelp")}
           </p>
           <textarea
             className="gpu-clock__command"
             readOnly
             rows={Math.max(2, rows.length)}
             value={manualCommand}
-            aria-label="Command to run on the host"
+            aria-label={t("gpuPower.commandLabel")}
             onFocus={(e) => e.currentTarget.select()}
           />
         </>
@@ -234,22 +233,26 @@ export function GpuPowerSection({ sparkId }: { sparkId: string }) {
           onClick={() => void apply()}
           disabled={busy || !dirty || !changed.every(valid) || !pwOk || (sudoMissing && !secure)}
         >
-          {busy ? "Working…" : "Apply"}
+          {busy ? t("gpu.working") : t("gpu.apply")}
         </button>
         <button type="button" className="btn btn--sm btn--ghost" onClick={fillDefaults} disabled={busy}>
-          Fill in defaults
+          {t("gpuPower.fillDefaults")}
         </button>
       </div>
       {!sudoMissing && (
         <p className="field-hint">
-          Runs <code>nvidia-smi -i CARD -pl WATTS</code>{status.sudo === "root" ? " as root on this machine" : " through sudo"}, using the
-          saved connection settings. Applies at once; it is not part of Save.
+          <Trans t={t} i18nKey={status.sudo === "root" ? "gpuPower.runsAsRoot" : "gpuPower.runsWithSudo"}
+            components={{ command: <code /> }} />
         </p>
       )}
-      {loadError && <p className="field-hint is-warn" role="status">Could not refresh: {loadError}</p>}
+      {readError && <p className="field-hint is-warn" role="status">{t("gpuPower.refreshError", { detail: readError })}</p>}
       {message && (
         <p className={`field-hint ${message.ok ? "is-ok" : "is-warn"}`} role="status">
-          {message.text}
+          {message.ok
+            ? message.limits
+              ? (message.persists ? t("gpuPower.updatedPersistent", { limits: message.limits }) : t("gpuPower.updatedUntilReboot", { limits: message.limits }))
+              : (message.persists ? t("gpuPower.savedAtBoot") : t("gpuPower.removedBootService"))
+            : (message.detail ?? t("gpuPower.refused"))}
         </p>
       )}
     </div>
