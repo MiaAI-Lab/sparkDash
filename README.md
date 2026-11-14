@@ -349,7 +349,7 @@ The probe is one read-only shell command as the SSH user: no root, no socket, no
 ### How to enable
 
 1. Open **Edit Spark**.
-2. Tick **spark-attic (spare GPU memory)**.
+2. Tick **spark-attic**.
 3. Save. The spark-attic card appears under Resources.
 
 ### Host requirements
