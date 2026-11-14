@@ -1,3 +1,5 @@
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import type { StorageContext, StorageFilesystem } from "../../api/types";
 import { formatBytes } from "../../shared/formatBytes";
 import { mainFilesystem as pickMain, statusView } from "../../shared/mainFilesystem";
@@ -13,47 +15,49 @@ export function mainFilesystem(filesystems: StorageFilesystem[]): StorageFilesys
 }
 
 /** "Runs over SSH as zurih": how the dashboard reaches this Spark. Informative only. */
-export function contextText(ctx: StorageContext): string {
-  const who = ctx.account ? ` as ${ctx.account}` : "";
-  if (ctx.kind === "ssh") return `Runs over SSH${who}`;
-  if (ctx.kind === "native-local") return `Runs on this Spark${who}`;
-  return `Runs via the dashboard's container${who}`;
+function contextText(ctx: StorageContext, t: TFunction<"storage">): string {
+  const account = ctx.account;
+  if (ctx.kind === "ssh") return account ? t("disk.sshAccount", { account }) : t("disk.ssh");
+  if (ctx.kind === "native-local") return account ? t("disk.localAccount", { account }) : t("disk.local");
+  return account ? t("disk.containerAccount", { account }) : t("disk.container");
 }
 
-function contextTitle(ctx: StorageContext): string {
-  const where = ctx.hostname ? `On ${ctx.hostname}. ` : "";
+function contextTitle(ctx: StorageContext, t: TFunction<"storage">): string {
+  const where = ctx.hostname ? t("disk.host", { hostname: ctx.hostname }) : "";
   if (ctx.kind === "container-local") {
-    return `${where}The dashboard runs in a container and enters the Spark's file system from there, so the account, home folder and environment are the container's.`;
+    return where + t("disk.containerHelp");
   }
-  if (ctx.kind === "native-local") return `${where}The dashboard runs directly on this Spark and starts the commands itself.`;
-  return `${where}Commands run over SSH as the account set for this Spark.`;
+  if (ctx.kind === "native-local") return where + t("disk.localHelp");
+  return where + t("disk.sshHelp");
 }
 
 /** How full the main disk is, so it is clear what there is to win back. */
 export function DiskSummary({ filesystems, context = null }: { filesystems: StorageFilesystem[]; context?: StorageContext | null }) {
+  const { t } = useTranslation("storage");
   const main = mainFilesystem(filesystems);
   if (!main) return null;
   return (
-    <section className="panel st-disks" aria-label="Main disk">
+    <section className="panel st-disks" aria-label={t("disk.main")}>
       {[main].map((fs) => {
         const pct = fs.totalBytes > 0 ? Math.min(100, Math.round((fs.usedBytes / fs.totalBytes) * 100)) : 0;
         const tone = usageTone(pct);
+        const name = fs.mount === "/" ? t("disk.main") : fs.mount;
         return (
           <div key={fs.source} className="st-disk">
             <div className="st-disk__head">
               <span className="st-disk__name">
                 <DiskIcon className="h-4 w-4" />
-                <b>{fs.mount === "/" ? "Main disk" : fs.mount}</b>
+                <b>{name}</b>
                 <span className="st-disk__dev mono">
                   {fs.source} · {fs.fstype}
                 </span>
               </span>
-              <span className={`st-disk__free is-${tone}`}>{formatBytes(fs.availBytes)} free</span>
+              <span className={`st-disk__free is-${tone}`}>{t("disk.free", { size: formatBytes(fs.availBytes) })}</span>
             </div>
             <div
               className="st-bar"
               role="meter"
-              aria-label={`${fs.mount === "/" ? "Main disk" : fs.mount} used`}
+              aria-label={t("disk.usedLabel", { name })}
               aria-valuemin={0}
               aria-valuemax={100}
               aria-valuenow={pct}
@@ -62,18 +66,18 @@ export function DiskSummary({ filesystems, context = null }: { filesystems: Stor
             </div>
             <div className="st-disk__foot">
               <span>
-                {formatBytes(fs.usedBytes)} used of {formatBytes(fs.totalBytes)}
+                {t("disk.usedOf", { used: formatBytes(fs.usedBytes), total: formatBytes(fs.totalBytes) })}
               </span>
-              <span>{pct}% full</span>
+              <span>{t("disk.full", { percent: pct })}</span>
             </div>
             {pct >= 90 ? (
               <p className="st-disk__warn" role="status">
-                This disk is almost full. Models may fail to download or load until some space is freed.
+                {t("disk.almostFull")}
               </p>
             ) : null}
             {context ? (
-              <p className="st-disk__ctx" title={contextTitle(context)}>
-                {contextText(context)}
+              <p className="st-disk__ctx" title={contextTitle(context, t)}>
+                {contextText(context, t)}
               </p>
             ) : null}
           </div>

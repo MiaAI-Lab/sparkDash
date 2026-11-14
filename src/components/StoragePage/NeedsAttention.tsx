@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { acknowledgeElevatedDelete, ApiError, fetchStorageQuarantine, resolveStorageQuarantine } from "../../api/client";
 import type { StorageElevatedDeleteAck, StorageQuarantineItem } from "../../api/types";
 import { AlertTriangleIcon, FileIcon, FolderIcon, RotateIcon, TrashIcon } from "../ui/icons";
@@ -13,22 +14,22 @@ import type { AdminAccess } from "./useAdminAccess";
 type Action = "restore" | "delete" | "forget";
 
 /** What is true about an item now, in a sentence. */
-function stateText(item: StorageQuarantineItem): string {
+function stateText(item: StorageQuarantineItem, t: ReturnType<typeof useTranslation>["t"]): string {
   switch (item.state) {
     case "staged":
-      return "A delete moved it aside and did not finish. It still takes space.";
+      return t("recovery.state.staged");
     case "interrupted":
-      return "Its delete stopped part way, so some of it may already be gone.";
+      return t("recovery.state.interrupted");
     case "conflict":
-      return item.reason ?? "It could not be put back because something new has its name.";
+      return item.reason ?? t("recovery.state.conflict");
     case "in-place":
-      return "The delete stopped before anything moved. It is still in its place.";
+      return t("recovery.state.inPlace");
     case "gone":
-      return "It is no longer there. Only the record of the unfinished delete is left.";
+      return t("recovery.state.gone");
     case "unknown":
-      return `Something else is where it was kept. Check ${item.stagedPath} on the Spark by hand.`;
+      return t("recovery.state.unknown", { path: item.stagedPath });
     default:
-      return `The record of this delete cannot be read. Check ${item.stagedPath} on the Spark by hand.`;
+      return t("recovery.state.unreadable", { path: item.stagedPath });
   }
 }
 
@@ -55,6 +56,7 @@ interface NeedsAttentionProps {
  * someone puts them back or deletes them. Shown only when there is something to look at.
  */
 export function NeedsAttention({ sparkId, sparkName, access, account, ack, refreshKey, onNotice, onChanged }: NeedsAttentionProps) {
+  const { t } = useTranslation("storage");
   const [items, setItems] = useState<StorageQuarantineItem[]>([]);
   const [open, setOpen] = useState<{ item: StorageQuarantineItem; action: Action } | null>(null);
   const generation = useRef(0);
@@ -99,10 +101,9 @@ export function NeedsAttention({ sparkId, sparkName, access, account, ack, refre
       <div className="st-attention__head">
         <AlertTriangleIcon className="h-4 w-4 shrink-0" />
         <div>
-          <h2 id="st-attention-title">Needs attention</h2>
+          <h2 id="st-attention-title">{t("recovery.title")}</h2>
           <p>
-            {items.length === 1 ? "A delete" : `${items.length} deletes`} on {sparkName} did not finish. What was moved aside is kept until you put it back or
-            delete it.
+            {t("recovery.intro", { count: items.length, sparkName })}
           </p>
         </div>
       </div>
@@ -117,23 +118,23 @@ export function NeedsAttention({ sparkId, sparkName, access, account, ack, refre
               <div className="st-target__path mono" title={item.path}>
                 {item.path}
               </div>
-              <p className="st-attention__state">{stateText(item)}</p>
+              <p className="st-attention__state">{stateText(item, t)}</p>
             </div>
             {actionable(item) ? (
               <div className="st-attention__actions">
                 {recordOnly(item) ? (
                   <button type="button" className="btn btn--sm" onClick={() => setOpen({ item, action: "forget" })}>
-                    Dismiss
+                    {t("recovery.dismiss")}
                   </button>
                 ) : (
                   <>
                     <button type="button" className="btn btn--sm" onClick={() => setOpen({ item, action: "restore" })}>
                       <RotateIcon className="h-3.5 w-3.5" />
-                      Put back
+                      {t("recovery.putBack")}
                     </button>
                     <button type="button" className="btn btn--sm btn--danger" onClick={() => setOpen({ item, action: "delete" })}>
                       <TrashIcon className="h-3.5 w-3.5" />
-                      Delete
+                      {t("recovery.delete")}
                     </button>
                   </>
                 )}
@@ -172,13 +173,14 @@ interface ResolveDialogProps {
 
 /** Confirm putting one item back, deleting it, or dismissing its record. Same rules as the delete dialog. */
 function ResolveDialog({ sparkId, target, access, account, ack, onClose, onDone, onAckChanged, onRefresh }: ResolveDialogProps) {
+  const { t } = useTranslation("storage");
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<{ text: string; password?: boolean } | null>(null);
   const [ackTicked, setAckTicked] = useState(false);
   const [ackForced, setAckForced] = useState(false);
   const shown = useRef<ResolveDialogProps["target"]>(null);
   if (target) shown.current = target;
-  const t = target ?? shown.current;
+  const activeTarget = target ?? shown.current;
 
   useEffect(() => {
     if (!target) return;
@@ -190,8 +192,8 @@ function ResolveDialog({ sparkId, target, access, account, ack, onClose, onDone,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target?.item.id, target?.action]);
 
-  if (!t) return null;
-  const { item, action } = t;
+  if (!activeTarget) return null;
+  const { item, action } = activeTarget;
   const dismiss = action === "forget";
   // A staged item from an administrator delete belongs to root: putting it back or deleting it needs sudo.
   const asAdmin = item.elevated && !dismiss;
@@ -217,7 +219,7 @@ function ResolveDialog({ sparkId, target, access, account, ack, onClose, onDone,
       const message = err instanceof Error ? err.message : "The Spark refused the request";
       if (code === "bad-password") {
         access.forget();
-        setProblem({ text: "The sudo password was not accepted. Check it and try again.", password: true });
+        setProblem({ text: t("deletion.badPassword"), password: true });
       } else if (code === "payload-present") {
         // Something is staged again: the record is kept, and the list shows what can be done with it now.
         setProblem({ text: message });
@@ -225,14 +227,14 @@ function ResolveDialog({ sparkId, target, access, account, ack, onClose, onDone,
       } else if (code === "no-ack") {
         setAckForced(true);
         setAckTicked(false);
-        setProblem({ text: "Deleting folders as administrator is off for this Spark. Read the note below and confirm it to go on." });
+        setProblem({ text: t("deletion.ackRequired") });
       } else {
         setProblem({ text: message });
       }
     }
   };
 
-  const title = dismiss ? "Dismiss this record?" : action === "restore" ? "Put this back?" : "Delete this for good?";
+  const title = dismiss ? t("recovery.dismissTitle") : action === "restore" ? t("recovery.restoreTitle") : t("recovery.deleteTitle");
   return (
     <StorageDialog
       open={target != null}
@@ -244,10 +246,10 @@ function ResolveDialog({ sparkId, target, access, account, ack, onClose, onDone,
       footer={
         <>
           <button type="button" className="btn btn--ghost" onClick={onClose} disabled={busy}>
-            Cancel
+            {t("deletion.cancel")}
           </button>
           <button type="button" className={`btn ${action === "delete" && !dismiss ? "btn--danger" : "btn--primary"}`} onClick={() => void run()} disabled={!canRun}>
-            {busy ? "Working…" : dismiss ? "Dismiss" : action === "restore" ? "Put back" : asAdmin ? "Delete as administrator" : "Delete permanently"}
+            {busy ? t("deletion.working") : dismiss ? t("recovery.dismiss") : action === "restore" ? t("recovery.putBack") : asAdmin ? t("deletion.deleteAsAdmin") : t("deletion.deletePermanently")}
           </button>
         </>
       }
@@ -261,7 +263,7 @@ function ResolveDialog({ sparkId, target, access, account, ack, onClose, onDone,
           <div className="st-target__path mono" title={item.path}>
             {item.path}
           </div>
-          <div className="st-target__meta">{stateText(item)}</div>
+          <div className="st-target__meta">{stateText(item, t)}</div>
         </div>
       </div>
 
@@ -273,15 +275,15 @@ function ResolveDialog({ sparkId, target, access, account, ack, onClose, onDone,
       ) : null}
 
       {dismiss ? (
-        <p className="st-hint">Only the dashboard&rsquo;s record of the unfinished delete is removed. Nothing on the Spark changes.</p>
+        <p className="st-hint">{t("recovery.recordOnly")}</p>
       ) : action === "restore" ? (
         <p className="st-hint">
-          It goes back to <span className="mono">{item.path}</span>. If something new has that name now, nothing is replaced and it stays here.
+          {t("recovery.restoreHint", { path: item.path })}
         </p>
       ) : (
         <div className="danger-box" role="alert">
-          <b>This cannot be undone.</b>
-          <span>{item.type === "dir" ? "The folder and everything in it are" : "It is"} deleted from the Spark&rsquo;s disk, after the same safety checks as any delete.</span>
+          <b>{t("deletion.cannotUndo")}</b>
+          <span>{t("recovery.deleteWarning", { target: item.type === "dir" ? t("recovery.folderAndContents") : t("recovery.it") })}</span>
         </div>
       )}
 
@@ -291,7 +293,7 @@ function ResolveDialog({ sparkId, target, access, account, ack, onClose, onDone,
         <AdminFields
           access={access}
           disabled={busy}
-          purpose={action === "restore" ? "to put this back" : "to delete this"}
+          purpose={action === "restore" ? t("recovery.restorePurpose") : t("recovery.deletePurpose")}
           problem={problem?.password ? problem.text : null}
           onSubmit={() => void run()}
         />

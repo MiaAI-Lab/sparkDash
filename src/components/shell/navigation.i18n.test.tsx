@@ -20,7 +20,9 @@ describe("shell navigation localization", () => {
     );
 
     const overview = container.querySelector<HTMLAnchorElement>('a[href="/"].rail-item')!;
+    const storage = container.querySelector<HTMLAnchorElement>('a[href="/storage"].rail-item')!;
     expect(overview.textContent).toContain("Overview");
+    expect(storage.textContent).toContain("Storage");
     expect(container.textContent).toContain("Spark alpha");
     act(() => overview.click());
     expect(onSelect).toHaveBeenLastCalledWith("__overview__");
@@ -30,6 +32,8 @@ describe("shell navigation localization", () => {
     await act(async () => setLocale("zh-CN"));
     expect(overview.getAttribute("href")).toBe("/");
     expect(overview.textContent).toContain("总览");
+    expect(storage.getAttribute("href")).toBe("/storage");
+    expect(storage.textContent).toContain("存储");
     expect(container.textContent).toContain("Spark alpha");
 
     await act(async () => setLocale("en"));

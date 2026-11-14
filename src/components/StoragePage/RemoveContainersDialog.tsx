@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ApiError } from "../../api/client";
 import type { DockerContainer, DockerImage } from "../../api/types";
 import { formatSince } from "../../shared/formatSince";
@@ -28,6 +29,7 @@ interface RemoveContainersDialogProps {
 
 /** Confirm removing stopped containers, and optionally the images they leave behind. */
 export function RemoveContainersDialog({ containers, images, alsoImagesDefault, asAdmin, access, onConfirm, onClose }: RemoveContainersDialogProps) {
+  const { t } = useTranslation("storage");
   const open = containers.length > 0;
   const [alsoImages, setAlsoImages] = useState(alsoImagesDefault);
   const [busy, setBusy] = useState(false);
@@ -58,7 +60,7 @@ export function RemoveContainersDialog({ containers, images, alsoImagesDefault, 
       const code = err instanceof ApiError ? err.code : undefined;
       if (code === "bad-password") access.forget();
       setProblem({
-        text: code === "bad-password" ? "The sudo password was not accepted. Check it and try again." : err instanceof Error ? err.message : "Docker refused the request",
+        text: code === "bad-password" ? t("removeContainers.badPassword", { }) : err instanceof Error ? err.message : t("removeContainers.refused", { }),
         password: code === "bad-password" || code === "no-sudo",
       });
     }
@@ -69,25 +71,22 @@ export function RemoveContainersDialog({ containers, images, alsoImagesDefault, 
       open={open}
       busy={busy}
       onClose={onClose}
-      title={containers.length === 1 ? "Remove this container?" : `Remove ${containers.length} containers?`}
+      title={containers.length === 1 ? t("removeContainers.titleOne", { }) : t("removeContainers.titleOther", { count: containers.length })}
       icon={<BoxIcon className="h-4 w-4 shrink-0" />}
       footer={
         <>
           <button type="button" className="btn btn--ghost" onClick={onClose} disabled={busy}>
-            Cancel
+            {t("removeContainers.cancel", { })}
           </button>
           <button type="button" className="btn btn--danger" onClick={() => void run()} disabled={!canRun}>
             <TrashIcon className="h-3.5 w-3.5" />
-            {busy ? "Removing…" : containers.length === 1 ? "Remove container" : `Remove ${containers.length} containers`}
+            {busy ? t("removeContainers.removing", { }) : containers.length === 1 ? t("removeContainers.confirmOne", { }) : t("removeContainers.confirmOther", { count: containers.length })}
           </button>
         </>
       }
     >
       <p className="modal-sheet__lead">
-        <Tag tone="bad" className="st-class">Careful</Tag> {containers.length === 1 ? "This container is" : "These containers are"} stopped. Removing{" "}
-        {containers.length === 1 ? "it" : "them"} deletes {containers.length === 1 ? "its" : "their"} writable layer: everything written inside{" "}
-        {containers.length === 1 ? "it" : "them"} that is not in a volume. That may hold data you can&rsquo;t re-create. Volumes and the images are
-        kept, and a container that started running again is skipped.
+        <Tag tone="bad" className="st-class">{t("removeContainers.careful", { })}</Tag> {containers.length === 1 ? t("removeContainers.leadOne", { }) : t("removeContainers.leadOther", { })}
       </p>
       <ul className="st-imglist">
         {containers.slice(0, SHOWN).map((c) => {
@@ -96,25 +95,24 @@ export function RemoveContainersDialog({ containers, images, alsoImagesDefault, 
           return (
             <li key={c.id}>
               <span className="st-imglist__name">{c.name}</span>
-              <span className="st-imglist__id">{img ? imageName(img) : "image removed"}</span>
-              <span className="st-imglist__size">{age ? `${age} old` : c.state}</span>
+              <span className="st-imglist__id">{img ? imageName(img, t) : t("removeContainers.imageRemoved")}</span>
+              <span className="st-imglist__size">{age ? t("removeContainers.age", { age }) : c.state}</span>
             </li>
           );
         })}
-        {containers.length > SHOWN ? <li className="st-imglist__more">and {containers.length - SHOWN} more</li> : null}
+        {containers.length > SHOWN ? <li className="st-imglist__more">{t("removeContainers.more", { count: containers.length - SHOWN })}</li> : null}
       </ul>
 
       {images.length > 0 ? (
         <label className="check-row">
           <input type="checkbox" checked={alsoImages} disabled={busy} onChange={(e) => setAlsoImages(e.target.checked)} />
           <span>
-            Also remove {images.length === 1 ? "the image" : `the ${images.length} images`} {images.length === 1 ? "it" : "they"} used, if nothing else uses{" "}
-            {images.length === 1 ? "it" : "them"}
+            {t("removeContainers.alsoImages", { count: images.length })}
             <small className="st-hint">
               {" "}
-              This is what frees the disk space. An image another container still uses is kept.
+              {t("removeContainers.alsoImagesHint", { })}
               {images.some(isBuiltHere)
-                ? ` ${images.length === 1 ? "It was" : "Some were"} built here, not pulled: removing ${images.length === 1 ? "it" : "them"} may delete the only copy.`
+                ? t("removeContainers.builtWarning", { count: images.length })
                 : ""}
             </small>
           </span>
@@ -125,7 +123,7 @@ export function RemoveContainersDialog({ containers, images, alsoImagesDefault, 
         <AdminFields
           access={access}
           disabled={busy}
-          purpose="to run Docker as administrator"
+          purpose={t("docker.adminPurpose")}
           problem={problem?.password ? problem.text : null}
           onSubmit={() => void run()}
         />

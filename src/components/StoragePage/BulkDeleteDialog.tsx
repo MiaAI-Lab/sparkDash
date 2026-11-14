@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { acknowledgeElevatedDelete, ApiError } from "../../api/client";
 import type { StorageBulkDeleteJob, StorageElevatedDeleteAck, StorageElevation } from "../../api/types";
 import { formatBytes } from "../../shared/formatBytes";
@@ -128,6 +129,7 @@ interface BulkDeleteDialogProps {
  * (DeleteAdviceBlock) sums up what was found about the items and may ask for a tick or a typed phrase on top.
  */
 export function BulkDeleteDialog({ sparkId, sparkName, selection, access, preferAdmin, ack = null, account = null, onAckChanged, job, onStart, onClose }: BulkDeleteDialogProps) {
+  const { t } = useTranslation("storage");
   const [typed, setTyped] = useState("");
   const [asAdmin, setAsAdmin] = useState(false);
   const [starting, setStarting] = useState(false);
@@ -170,15 +172,15 @@ export function BulkDeleteDialog({ sparkId, sparkName, selection, access, prefer
     if (!mine || mine.state !== "done" || handled.current === mine.id || !bulkFixable(mine)) return;
     handled.current = mine.id;
     const code = mine.stopped?.code;
-    const message = mine.stopped?.message ?? mine.failed[0]?.message ?? "The Spark refused the request";
+    const message = mine.stopped?.message ?? mine.failed[0]?.message ?? t("deletion.refused");
     if (code === "bad-password") {
       access.forget();
-      setProblem({ text: "The sudo password was not accepted. Check it and try again.", password: true });
+      setProblem({ text: t("deletion.badPassword"), password: true });
     } else if (code === "no-ack") {
       setAsAdmin(true);
       setAckForced(true);
       setAckTicked(false);
-      setProblem({ text: "Deleting folders as administrator is off for this Spark. Read the note below and confirm it to go on." });
+      setProblem({ text: t("deletion.ackRequired") });
     } else if (code === "no-sudo") {
       setAsAdmin(true);
       setProblem({ text: message, password: access.needsPassword });
@@ -230,10 +232,10 @@ export function BulkDeleteDialog({ sparkId, sparkName, selection, access, prefer
       setJobId(started.id);
     } catch (err) {
       const code = err instanceof ApiError ? err.code : undefined;
-      const message = err instanceof Error ? err.message : "The Spark refused the request";
+      const message = err instanceof Error ? err.message : t("deletion.refused");
       if (code === "bad-password") {
         access.forget();
-        setProblem({ text: "The sudo password was not accepted. Check it and try again.", password: true });
+        setProblem({ text: t("deletion.badPassword"), password: true });
       } else {
         setProblem({ text: message });
       }
@@ -252,13 +254,13 @@ export function BulkDeleteDialog({ sparkId, sparkName, selection, access, prefer
   };
 
   const label = running
-    ? `Deleting ${step} of ${mine!.total}…`
+    ? t("deletion.progress", { current: step, total: mine!.total })
     : starting
-      ? "Starting…"
+      ? t("deletion.starting")
       : asAdmin
         ? `Delete ${count} as administrator`
         : s.freesNothing
-          ? "Delete anyway (frees nothing)"
+          ? t("deletion.deleteAnyway")
           : `Delete ${count} permanently`;
 
   return (
@@ -266,12 +268,12 @@ export function BulkDeleteDialog({ sparkId, sparkName, selection, access, prefer
       open={open}
       busy={busy}
       onClose={onClose}
-      title={`Delete ${count} item${count === 1 ? "" : "s"}?`}
+      title={t("deletion.deleteItemsTitle", { count })}
       icon={<TrashIcon className="h-4 w-4 shrink-0" />}
       footer={
         <>
           <button type="button" className="btn btn--ghost" onClick={onClose} disabled={busy}>
-            Cancel
+            {t("deletion.cancel")}
           </button>
           <button type="button" className="btn btn--danger st-bulk__go" onClick={() => void run()} disabled={!canDelete}>
             <TrashIcon className="h-3.5 w-3.5" />
@@ -287,7 +289,7 @@ export function BulkDeleteDialog({ sparkId, sparkName, selection, access, prefer
           </b>{" "}
           · <b>{formatBytes(s.bytes)}</b> on {sparkName} · deleting frees about <b className={s.freesNothing ? "is-zero" : undefined}>{formatBytes(s.frees)}</b>
         </div>
-        <ul className="st-bulk__list" aria-label="Items to delete">
+        <ul className="st-bulk__list" aria-label={t("deletion.itemsToDelete")}>
           <li className="st-bulk__cols" aria-hidden>
             <span />
             <span />
@@ -305,7 +307,7 @@ export function BulkDeleteDialog({ sparkId, sparkName, selection, access, prefer
               </span>
               <span className="st-bulk__size mono">{formatBytes(e.bytes)}</span>
               <span className={`st-bulk__frees mono${freesOf(e) < e.bytes ? " is-shared" : ""}`} title={`Deleting it frees ${formatBytes(freesOf(e))}`}>
-                <span className="sr-only">frees </span>
+                <span className="sr-only">{t("deletion.freesAmount")}{" "}</span>
                 {formatBytes(freesOf(e))}
               </span>
             </li>
@@ -341,7 +343,7 @@ export function BulkDeleteDialog({ sparkId, sparkName, selection, access, prefer
       <DeleteAdviceBlock advice={advice} sparkName={sparkName} many disabled={busy} onSubmit={() => void run()} />
 
       <div className="danger-box" role="alert">
-        <b>This cannot be undone.</b>
+          <b>{t("deletion.cannotUndo")}</b>
         <span>
           {anyFolder ? "The items, and everything in the folders, are" : count === 1 ? "The file is" : "The files are"} deleted from the Spark&rsquo;s disk right away, one after
           another. There is no trash to restore from.
@@ -378,21 +380,21 @@ export function BulkDeleteDialog({ sparkId, sparkName, selection, access, prefer
         </div>
         <div className={`st-bulk-progress${running ? "" : " is-off"}`} role="status" aria-live="polite" aria-hidden={!running}>
           <div className="st-bulk-progress__line">
-            <b>{running ? `Deleting ${step} of ${mine!.total}…` : ""}</b>
+            <b>{running ? t("deletion.progress", { current: step, total: mine!.total }) : ""}</b>
             <span className="st-bulk-progress__name mono">{mine?.current ? baseName(mine.current) : ""}</span>
           </div>
           <span className="st-bulk-progress__bar" aria-hidden>
             <i style={{ ["--w" as string]: `${pct}%` }} />
           </span>
-          <span className="st-bulk-progress__note">The Spark deletes them one at a time. It keeps going if you close or reload this page.</span>
+          <span className="st-bulk-progress__note">{t("deletion.continues")}</span>
         </div>
       </div>
 
       <label className="check-row">
         <input type="checkbox" checked={asAdmin} disabled={busy} onChange={(e) => setAsAdmin(e.target.checked)} />
         <span>
-          Delete as administrator (sudo)
-          <small className="st-hint"> Needed for files that belong to root or another account, such as Docker&rsquo;s.</small>
+          {t("deletion.admin")}
+          <small className="st-hint"> {t("deletion.adminHint")}</small>
         </span>
       </label>
 
@@ -402,7 +404,7 @@ export function BulkDeleteDialog({ sparkId, sparkName, selection, access, prefer
         <AdminFields
           access={access}
           disabled={busy || !asAdmin}
-          purpose={`to delete ${count === 1 ? "this" : "these"}`}
+          purpose={count === 1 ? t("deletion.deletePurpose") : t("deletion.deleteMultiplePurpose")}
           problem={problem?.password ? problem.text : null}
           autoFocus={problem != null && asAdmin}
           onSubmit={() => void run()}
@@ -411,12 +413,12 @@ export function BulkDeleteDialog({ sparkId, sparkName, selection, access, prefer
 
       {needManualCommand ? (
         <div className="field">
-          <label htmlFor="st-bulk-manual-cmd">Or run this in a terminal on the Spark</label>
+          <label htmlFor="st-bulk-manual-cmd">{t("deletion.manual")}</label>
           <textarea id="st-bulk-manual-cmd" className="st-command mono" readOnly rows={3} value={manualCommand} onFocus={(e) => e.currentTarget.select()} />
           <div>
             <button type="button" className="btn btn--sm" onClick={() => void copyCommand()}>
               <CopyIcon className="h-3.5 w-3.5" />
-              {copied ? "Copied" : "Copy command"}
+              {copied ? t("deletion.copied") : t("deletion.copy")}
             </button>
           </div>
         </div>

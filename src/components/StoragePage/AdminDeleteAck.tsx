@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { revokeElevatedDelete } from "../../api/client";
 import type { StorageElevatedDeleteAck } from "../../api/types";
 import { ShieldIcon } from "../ui/icons";
@@ -20,13 +21,14 @@ interface AdminDeleteAckFieldProps {
  * on a Spark. Ticking it stores the acknowledgement (per Spark and account) when the delete is started.
  */
 export function AdminDeleteAckField({ account, checked, disabled, onChange }: AdminDeleteAckFieldProps) {
+  const { t } = useTranslation("storage");
   return (
     <div className="st-ack" role="note">
-      <b>Deleting folders as administrator is off for this Spark.</b>
+      <b>{t("admin.ackTitle")}</b>
       <span>{adminDeleteAckText(account)}</span>
       <label className="check-row">
         <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
-        <span>I understand. Allow administrator deletes of folders on this Spark.</span>
+        <span>{t("admin.ackConfirm")}</span>
       </label>
     </div>
   );

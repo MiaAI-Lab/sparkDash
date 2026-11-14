@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import { ApiError, removeDockerImages } from "../../api/client";
 import type { DockerImage, DockerRemoveResult, SparkSnapshot } from "../../api/types";
 import { formatBytes } from "../../shared/formatBytes";
@@ -6,11 +8,11 @@ import { AlertTriangleIcon, BoxIcon, TrashIcon } from "../ui/icons";
 import { Tag } from "../ui/Tag";
 import { AdminFields } from "./AdminFields";
 import { PeersBlock, toggled, usePeerDockerLists, type PeerRowView } from "./dockerPeers";
-import { BUILT_HERE_TITLE, isBuiltHere } from "./dockerProvenance";
+import { isBuiltHere } from "./dockerProvenance";
 import { StorageDialog } from "./StorageDialog";
 import type { AdminAccess } from "./useAdminAccess";
 
-export const imageName = (img: DockerImage) => img.tags[0] ?? "Untagged image";
+export const imageName = (img: DockerImage, t?: TFunction<"storage">) => img.tags[0] ?? (t ? t("docker.untaggedImage") : "Untagged image");
 export const shortId = (id: string) => id.replace(/^sha256:/, "").slice(0, 12);
 
 const SHOWN = 6;
@@ -35,21 +37,23 @@ interface Peer {
 }
 
 /** How one other Spark reads in the dialog: what it holds of the selected images and what would go there. */
-function peerRow(p: Peer, selected: number): PeerRowView {
+function peerRow(p: Peer, selected: number, t: TFunction<"storage">): PeerRowView {
   const has = p.state === "ready" && p.matching.length > 0;
   const detail =
     p.state === "loading"
-      ? "Checking…"
+      ? t("docker.peers.checking")
       : p.state === "error"
-        ? `Could not be checked: ${p.error}`
+        ? t("docker.peers.checkError", { error: p.error ?? t("docker.peers.noAnswer") })
         : !has
-          ? "Does not have this image."
+          ? t("docker.peers.missing")
           : p.removable.length === p.matching.length
-            ? `None is used there${p.elevate ? " (removed as administrator)" : ""}.`
+            ? (p.elevate ? t("docker.peers.unusedAdmin") : t("docker.peers.unused"))
             : p.removable.length === 0
-              ? "Used by containers there, so it would be kept."
-              : `${p.removable.length} unused will go; ${p.matching.length - p.removable.length} used are kept.`;
-  const title = has ? `${p.matching.length === selected ? "has all" : `has ${p.matching.length} of`} ${selected === 1 ? "this image" : `these ${selected} images`}` : "";
+              ? t("docker.peers.inUse")
+              : t("docker.peers.partlyUsed", { unused: p.removable.length, used: p.matching.length - p.removable.length });
+  const title = has
+    ? (p.matching.length === selected ? t("docker.peers.hasAll", { count: selected }) : t("docker.peers.hasSome", { matching: p.matching.length, selected }))
+    : "";
   return {
     id: p.spark.id,
     name: p.spark.name,
@@ -77,6 +81,7 @@ interface RemoveImagesDialogProps {
 
 /** Confirm removing unused Docker images. Only images no container uses can be chosen. */
 export function RemoveImagesDialog({ sparkId, peers: peerSparks, images, estimate, asAdmin, access, onClose, onDone }: RemoveImagesDialogProps) {
+  const { t } = useTranslation("storage");
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<{ text: string; password: boolean } | null>(null);
   const open = images.length > 0;
@@ -119,15 +124,15 @@ export function RemoveImagesDialog({ sparkId, peers: peerSparks, images, estimat
       for (const peer of peers.filter((p) => picked.has(p.spark.id))) {
         const ids = peer.removable.map((i) => i.id);
         if (ids.length === 0) {
-          outcomes.push({ text: `${peer.spark.name}: every copy is in use there, so none were removed.`, failed: false });
+          outcomes.push({ text: t("docker.peers.keptAll", { spark: peer.spark.name }), failed: false });
           continue;
         }
         try {
           const r = await removeDockerImages(peer.spark.id, { ids, ...(peer.elevate ? { sudo: true } : {}) });
-          const extra = [r.skipped.length > 0 ? `${r.skipped.length} skipped` : "", r.failed.length > 0 ? `${r.failed.length} failed` : ""].filter(Boolean).join(", ");
-          outcomes.push({ text: `${peer.spark.name}: removed ${r.removed.length} image${r.removed.length === 1 ? "" : "s"}${extra ? ` (${extra})` : ""}.`, failed: r.failed.length > 0 });
+          const extra = [r.skipped.length > 0 ? t("docker.peers.skipped", { count: r.skipped.length }) : "", r.failed.length > 0 ? t("docker.peers.failed", { count: r.failed.length }) : ""].filter(Boolean).join(", ");
+          outcomes.push({ text: t("docker.peers.outcome", { spark: peer.spark.name, count: r.removed.length, extra: extra ? ` (${extra})` : "" }), failed: r.failed.length > 0 });
         } catch (err) {
-          outcomes.push({ text: `${peer.spark.name}: could not remove (${err instanceof Error ? err.message : "Docker refused"}).`, failed: true });
+          outcomes.push({ text: t("docker.peers.removalError", { spark: peer.spark.name, error: err instanceof Error ? err.message : t("docker.refused") }), failed: true });
         }
       }
       setBusy(false);
@@ -137,7 +142,7 @@ export function RemoveImagesDialog({ sparkId, peers: peerSparks, images, estimat
       const code = err instanceof ApiError ? err.code : undefined;
       if (code === "bad-password") access.forget();
       setProblem({
-        text: code === "bad-password" ? "The sudo password was not accepted. Check it and try again." : err instanceof Error ? err.message : "Docker refused the request",
+        text: code === "bad-password" ? t("removeImages.badPassword", { }) : err instanceof Error ? err.message : t("removeImages.refused", { }),
         password: code === "bad-password" || code === "no-sudo",
       });
     }
@@ -148,53 +153,54 @@ export function RemoveImagesDialog({ sparkId, peers: peerSparks, images, estimat
       open={open}
       busy={busy}
       onClose={onClose}
-      title={images.length === 1 ? "Remove this image?" : `Remove ${images.length} images?`}
+      title={images.length === 1 ? t("removeImages.titleOne", { }) : t("removeImages.titleOther", { count: images.length })}
       icon={<BoxIcon className="h-4 w-4 shrink-0" />}
       footer={
         <>
           <button type="button" className="btn btn--ghost" onClick={onClose} disabled={busy}>
-            Cancel
+            {t("removeImages.cancel", { })}
           </button>
           <button type="button" className="btn btn--danger" onClick={() => void run()} disabled={!canRun}>
             <TrashIcon className="h-3.5 w-3.5" />
-            {busy ? "Removing…" : images.length === 1 ? "Remove image" : `Remove ${images.length} images`}
+            {busy ? t("removeImages.removing", { }) : images.length === 1 ? t("removeImages.confirmOne", { }) : t("removeImages.confirmOther", { count: images.length })}
           </button>
         </>
       }
     >
       <p className="modal-sheet__lead">
-        <Tag tone="warn" className="st-class">Review first</Tag> No container uses {images.length === 1 ? "this image" : "these images"}. Removing{" "}
-        {images.length === 1 ? "it" : "them"} frees <b>{estimate}</b>. A pulled image comes back only by pulling it again, while its registry still
-        has it; one built here has to be built again. Containers, volumes and your files are not touched.
+        <Tag tone="warn" className="st-class">{t("removeImages.reviewFirst", { })}</Tag>{" "}
+        {t("removeImages.lead", { count: images.length, estimate })}
       </p>
       <ul className="st-imglist">
         {images.slice(0, SHOWN).map((img) => (
           <li key={img.id}>
-            <span className="st-imglist__name">{imageName(img)}</span>
+              <span className="st-imglist__name">{imageName(img, t)}</span>
             <span className="st-imglist__id mono">
               {shortId(img.id)}
               {isBuiltHere(img) ? (
-                <span className="st-imglist__built" title={BUILT_HERE_TITLE}>
+                <span className="st-imglist__built" title={t("docker.builtHere.title")}>
                   {" "}
-                  · built here
+                  {t("removeImages.builtHere", { })}
                 </span>
               ) : null}
             </span>
             <span className="st-imglist__size mono">{formatBytes(img.sizeBytes)}</span>
           </li>
         ))}
-        {images.length > SHOWN ? <li className="st-imglist__more">and {images.length - SHOWN} more</li> : null}
+        {images.length > SHOWN ? <li className="st-imglist__more">{t("removeImages.more", { count: images.length - SHOWN })}</li> : null}
       </ul>
       <p className="st-hint">
         {builtCount > 0
-          ? `${builtCount === images.length ? (images.length === 1 ? "It was" : "All were") : `${builtCount} of them ${builtCount === 1 ? "was" : "were"}`} built here, not pulled: removing ${builtCount === 1 ? "it" : "them"} may delete the only copy. `
+          ? (builtCount === images.length
+              ? t("removeImages.allBuiltWarning", { count: builtCount })
+              : t("removeImages.builtWarning", { count: builtCount }))
           : ""}
-        If an image gets a container before this runs, it is skipped.
+        {t("removeImages.changed", { })}
       </p>
       {peerSparks.length > 0 ? (
         <PeersBlock
-          hint="Clusters usually keep the same images on every node. Tick the Sparks to clean up too."
-          rows={peers.map((p) => peerRow(p, images.length))}
+          hint={t("removeImages.peersHint", { })}
+          rows={peers.map((p) => peerRow(p, images.length, t))}
           picked={picked}
           busy={busy}
           onToggle={togglePeer}
@@ -205,7 +211,7 @@ export function RemoveImagesDialog({ sparkId, peers: peerSparks, images, estimat
         <AdminFields
           access={access}
           disabled={busy}
-          purpose="to run Docker as administrator"
+          purpose={t("docker.adminPurpose")}
           problem={problem?.password ? problem.text : null}
           onSubmit={() => void run()}
         />

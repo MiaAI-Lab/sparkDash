@@ -1,4 +1,5 @@
 import { useId } from "react";
+import { useTranslation } from "react-i18next";
 import type { StorageStatus } from "../../api/types";
 import { AlertTriangleIcon, BoxIcon, DiskIcon, FolderIcon, SearchIcon, ShieldIcon } from "../ui/icons";
 import { FolderPicker } from "./FolderPicker";
@@ -28,12 +29,25 @@ export function locationPath(id: LocationId, custom: string, status: StorageStat
   return text.startsWith("/") ? text || "/" : null;
 }
 
-const OPTIONS: { id: LocationId; title: string; hint: string; icon: typeof DiskIcon }[] = [
-  { id: "disk", title: "Whole disk", hint: "Everything on the main drive. The best place to start.", icon: DiskIcon },
-  { id: "home", title: "Home folder", hint: "Your own files: models, datasets, projects.", icon: FolderIcon },
-  { id: "cache", title: "Cache folder", hint: "Caches that programs keep. Often large, and rebuilt when needed.", icon: BoxIcon },
-  { id: "custom", title: "A specific folder", hint: "Click through the folders on the Spark and pick one.", icon: SearchIcon },
+const OPTIONS: { id: LocationId; icon: typeof DiskIcon }[] = [
+  { id: "disk", icon: DiskIcon },
+  { id: "home", icon: FolderIcon },
+  { id: "cache", icon: BoxIcon },
+  { id: "custom", icon: SearchIcon },
 ];
+
+function optionCopy(id: LocationId, t: (key: string) => string) {
+  switch (id) {
+    case "disk":
+      return { title: t("analyse.options.disk.title"), hint: t("analyse.options.disk.hint") };
+    case "home":
+      return { title: t("analyse.options.home.title"), hint: t("analyse.options.home.hint") };
+    case "cache":
+      return { title: t("analyse.options.cache.title"), hint: t("analyse.options.cache.hint") };
+    case "custom":
+      return { title: t("analyse.options.custom.title"), hint: t("analyse.options.custom.hint") };
+  }
+}
 
 interface AnalysePanelProps {
   sparkId: string;
@@ -59,6 +73,7 @@ interface AnalysePanelProps {
 
 /** "Where should I look?": the start of an analysis. */
 export function AnalysePanel(props: AnalysePanelProps) {
+  const { t } = useTranslation("storage");
   const { sparkId, sparkName, status, access, location, onLocation, custom, onCustom, asAdmin, onAsAdmin, disabled, onAnalyse, problem, onBack, busyNote } = props;
   const groupId = useId();
   const path = locationPath(location, custom, status);
@@ -70,16 +85,14 @@ export function AnalysePanel(props: AnalysePanelProps) {
   return (
     <section className="panel st-analyse" aria-labelledby={`${groupId}-title`}>
       <header className="st-analyse__head">
-        <h2 id={`${groupId}-title`}>What should I look at on {sparkName}?</h2>
-        <p>
-          Analyse measures every folder and file below the place you pick and lists the biggest first. It only reads, nothing
-          is changed or deleted until you choose to.
-        </p>
+        <h2 id={`${groupId}-title`}>{t("analyse.title", { sparkName })}</h2>
+        <p>{t("analyse.description")}</p>
       </header>
 
-      <div className="st-choices" role="radiogroup" aria-label="Where to look">
+      <div className="st-choices" role="radiogroup" aria-label={t("analyse.whereToLook")}>
         {options.map((o) => {
           const Icon = o.icon;
+          const copy = optionCopy(o.id, t);
           const optionPath = o.id === "custom" ? null : locationPath(o.id, custom, status);
           return (
             <button
@@ -94,9 +107,9 @@ export function AnalysePanel(props: AnalysePanelProps) {
                 <Icon className="h-4 w-4" />
               </span>
               <span className="st-choice__body">
-                <span className="st-choice__title">{o.title}</span>
+                <span className="st-choice__title">{copy.title}</span>
                 {optionPath ? <span className="st-choice__path mono">{optionPath}</span> : null}
-                <span className="st-choice__hint">{o.hint}</span>
+                <span className="st-choice__hint">{copy.hint}</span>
               </span>
             </button>
           );
@@ -120,19 +133,17 @@ export function AnalysePanel(props: AnalysePanelProps) {
           <span className="st-switch__track" aria-hidden />
           <span className="st-switch__label">
             <b>
-              <ShieldIcon className="h-3.5 w-3.5" /> Include folders only administrators can open
+              <ShieldIcon className="h-3.5 w-3.5" /> {t("analyse.includeProtected")}
             </b>
             <small>
-              Recommended. Without it, protected folders such as Docker&rsquo;s storage are not counted and the totals come up short.
+              {t("analyse.includeProtectedHint")}
             </small>
           </span>
         </label>
-        {asAdmin && !adminLocked ? <AdminFields access={access} disabled={disabled} purpose="to read protected folders" onSubmit={onAnalyse} /> : null}
+        {asAdmin && !adminLocked ? <AdminFields access={access} disabled={disabled} purpose={t("analyse.readProtectedPurpose")} onSubmit={onAnalyse} /> : null}
         {!access.available && !adminLocked ? (
           <p className="st-admin__note is-warn">
-            This Spark asks for a sudo password and this connection is not private, so it cannot be typed here. Open the
-            dashboard over https or from the Spark itself, or turn on Settings &rarr; Allow sudo password over plain http, to
-            include protected folders.
+            {t("analyse.insecureSudoNotice")}
           </p>
         ) : null}
       </div>
@@ -153,7 +164,7 @@ export function AnalysePanel(props: AnalysePanelProps) {
       <div className="st-analyse__actions">
         {onBack ? (
           <button type="button" className="btn btn--ghost" onClick={onBack}>
-            Back to results
+            {t("analyse.backToResults")}
           </button>
         ) : null}
         <button
@@ -164,7 +175,7 @@ export function AnalysePanel(props: AnalysePanelProps) {
           aria-describedby={busyNote ? `${groupId}-busy` : undefined}
         >
           <SearchIcon className="h-3.5 w-3.5" />
-          Analyse
+          {t("analyse.submit")}
         </button>
       </div>
     </section>

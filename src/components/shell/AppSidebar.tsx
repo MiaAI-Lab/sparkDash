@@ -415,7 +415,7 @@ export function AppSidebar({
             aria-current={activeId === STORAGE_ID ? "page" : undefined}
           >
             <DiskIcon className="h-4 w-4" />
-            <span className="rail-item__name">Storage</span>
+            <span className="rail-item__name">{t("nav.storage")}</span>
           </a>
           <a
             href={idToPath(SHOWCASE_ID)}
