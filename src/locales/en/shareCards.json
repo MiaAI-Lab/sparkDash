@@ -1,4 +1,5 @@
 {
+  "preview": { "title": "Share card", "closeLabel": "Close share card", "copy": "Copy image", "download": "Download PNG", "close": "Close" },
   "stopped": "STOPPED",
   "completed": "COMPLETED", "running": "RUNNING", "failed": "FAILED", "cancelled": "CANCELLED", "decodeTitle": "Decode benchmark", "prefillTitle": "Prefill benchmark", "load": "Load", "aggregate": "Aggregate", "stream": "Stream", "context": "Context", "prefill": "Prefill", "versusOther": "vs other",
   "qualityBenchmark": "Quality benchmark", "overall": "OVERALL", "unknownModel": "Unknown model", "same": "same", "pts": "pts",
