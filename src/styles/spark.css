@@ -620,7 +620,10 @@
   letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
   color: var(--color-text-strong);
-  overflow-wrap: anywhere;
+  /* Never split a number across lines; long figures are compacted, with the exact value in the tile's title. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .sp-tile > span,
 .sp-tile__label {
