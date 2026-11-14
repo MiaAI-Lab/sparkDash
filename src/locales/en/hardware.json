@@ -64,7 +64,7 @@
   "tailscale.expired": "EXPIRED — needs re-auth",
   "tailscale.version": "Version",
   "tailscale.waiting": "Waiting for first poll…",
-  "attic.title": "Display carveout",
+  "attic.title": "spark-attic (spare GPU memory)",
   "attic.hint": "What spark-attic does with this GB10's display carveout: atticd's keyless status file and attic.service, read over SSH.",
   "attic.lending": "lending",
   "attic.refusing": "refusing",

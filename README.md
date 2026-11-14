@@ -44,7 +44,7 @@ Monitored units run **Linux**, **macOS**, or **Windows** (a Windows PC with an N
 - [ComfyUI monitoring](#comfyui-monitoring)
 - [Hermes Agent monitoring](#hermes-agent-monitoring)
 - [Tailnet monitoring](#tailnet-monitoring)
-- [Display carveout monitoring](#display-carveout-monitoring)
+- [spark-attic monitoring (spare GPU memory)](#spark-attic-monitoring-spare-gpu-memory)
 - [Tailscale Serve (HTTPS)](#tailscale-serve-https)
 - [Mobile PWA (install on a phone)](#mobile-pwa-install-on-a-phone)
 - [Kiosk (wall display)](#kiosk-wall-display)
@@ -153,7 +153,7 @@ Full history: [CHANGELOG.md](./CHANGELOG.md)
 | **ComfyUI** | Opt-in probe: queue/jobs, progress, cancel, Open link, inventory, overview chip |
 | **Hermes Agent** | Opt-in per unit: background update check (10 min), status badges, one-click or batch `hermes update` |
 | **Tailnet** | Opt-in probe: flags a unit that is healthy on the LAN but off its tailnet |
-| **Display carveout** | Opt-in per Spark: whether spark-attic lends the GB10's display carveout to CUDA, and how much of it |
+| **spark-attic (spare GPU memory)** | Opt-in per Spark: whether spark-attic lends the GB10's display carveout to CUDA, and how much of it |
 | **Decode benchmark** | Multi-concurrency streaming decode tok/s; type picker (Structured / Prose / Code / JSON). Code is a different Python task per stream. Temperature (default 0.7) and thinking on/off (default on) are selectable; persisted last run. **Start context** (16k to 256k or a custom size) prefills every stream to that depth first, then measures decode from there; it needs prefix caching, and a wave whose context was recomputed is flagged instead of reported as clean. Remote units: LAN HTTP, or SSH tunnel to loopback. **Remote** button for an on-demand HTTPS/host:port target |
 | **Prefill benchmark** | Context-size sweep (1k–300k) of prefill tok/s and TTFT; unique prefix per size; persisted last run. Same remote targeting as decode |
 | **Quality benchmark** | Fixed, seeded quality suite (QA, reasoning, arithmetic, state tracking, GSM8K, MMLU, plus optional instruction following and long-context recall) at temperature 0; per-category and overall score; last 30 runs kept; paired compare with McNemar p-value. Same remote targeting as decode |
@@ -329,9 +329,9 @@ Env (optional): `POLL_INTERVAL_TAILSCALE` (default `30000`), `TAILSCALE_PROBE_TI
 
 ---
 
-## Display carveout monitoring
+## spark-attic monitoring (spare GPU memory)
 
-Opt-in per Spark (default **off**). Shows a **Display carveout** card under Resources: what [spark-attic](https://github.com/bertholomus/spark-attic) does with the GB10's display carveout, and how much of it is lent to CUDA programs.
+Opt-in per Spark (default **off**). Shows a **spark-attic (spare GPU memory)** card under Resources: what [spark-attic](https://github.com/bertholomus/spark-attic) does with the GB10's display carveout, and how much of it is lent to CUDA programs.
 
 A GB10 keeps a display carveout (about 2 GiB) outside the kernel's System RAM, so MemAvailable never counts it. spark-attic's daemon, atticd (unit `attic.service`), lends it to CUDA programs, such as an engine's KV cache, and keeps a keyless status file that says what it does.
 
@@ -349,8 +349,8 @@ The probe is one read-only shell command as the SSH user: no root, no socket, no
 ### How to enable
 
 1. Open **Edit Spark**.
-2. Tick **Display carveout**.
-3. Save. The Display carveout card appears under Resources.
+2. Tick **spark-attic (spare GPU memory)**.
+3. Save. The spark-attic card appears under Resources.
 
 ### Host requirements
 
@@ -362,7 +362,7 @@ The probe is one read-only shell command as the SSH user: no root, no socket, no
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `atticMonitoring` | `false` | Read spark-attic's state and show the Display carveout card |
+| `atticMonitoring` | `false` | Read spark-attic's state and show the spark-attic card |
 
 Env (optional): `POLL_INTERVAL_ATTIC` (default `15000`), `ATTIC_PROBE_TIMEOUT_MS` (default `8000`).
 

@@ -64,7 +64,7 @@
   "tailscale.expired": "已过期 — 需要重新认证",
   "tailscale.version": "版本",
   "tailscale.waiting": "等待首次采集…",
-  "attic.title": "显示预留内存",
+  "attic.title": "spark-attic（闲置 GPU 内存）",
   "attic.hint": "spark-attic 如何使用此 GB10 的显示预留内存：通过 SSH 读取 atticd 的无密钥状态文件和 attic.service。",
   "attic.lending": "借出中",
   "attic.refusing": "拒绝借出",
