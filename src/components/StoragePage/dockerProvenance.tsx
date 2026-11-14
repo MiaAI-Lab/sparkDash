@@ -1,4 +1,5 @@
 import type { DockerImage } from "../../api/types";
+import { useTranslation } from "react-i18next";
 import { Tag } from "../ui/Tag";
 
 /**
@@ -12,9 +13,10 @@ export const BUILT_HERE_TITLE =
 
 /** The small "Built here, not pulled" mark next to an image. */
 export function BuiltHereTag() {
+  const { t } = useTranslation("storage");
   return (
-    <Tag tone="warn" title={BUILT_HERE_TITLE} className="st-built">
-      Built here, not pulled
+    <Tag tone="warn" title={t("docker.builtHere.title")} className="st-built">
+      {t("docker.builtHere.label", { })}
     </Tag>
   );
 }

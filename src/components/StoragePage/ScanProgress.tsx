@@ -1,5 +1,8 @@
 import type { StorageScanJob } from "../../api/types";
+import { useTranslation } from "react-i18next";
 import { RotateIcon } from "../ui/icons";
+
+type Translate = (key: string, options?: Record<string, unknown>) => string;
 
 /** m:ss for a running scan. */
 export function formatElapsed(ms: number | null): string {
@@ -23,27 +26,27 @@ export function stopUnconfirmed(job: StorageScanJob): boolean {
  * The line under a running scan that says what stopping can and cannot do here, or null. Kept in a reserved
  * line, so the progress card does not jump when it appears.
  */
-export function scanStopNote(job: StorageScanJob, now: number): string | null {
+export function scanStopNote(job: StorageScanJob, now: number, t: Translate): string | null {
   if (job.cancellable === false) {
     const mins = minutesUntil(job.stopsByItselfAt, now);
-    return `This scan runs as administrator, so the dashboard cannot stop it. It will stop by itself${mins != null ? ` in ${mins} min at the latest` : ""}.`;
+    return t("scan.stopAdminNote", { count: mins, suffix: mins != null ? t("scan.byLatest", { count: mins }) : "" });
   }
-  if (stopUnconfirmed(job)) return job.stop?.message ?? "Could not confirm it stopped — the Spark stays busy until it does.";
-  if (job.cancelBestEffort) return "Stopping is best effort here: the dashboard runs in a container and may not see every process of the scan.";
+  if (stopUnconfirmed(job)) return job.stop?.message ?? t("scan.stopUnconfirmed");
+  if (job.cancelBestEffort) return t("scan.stopBestEffort");
   return null;
 }
 
 /** Why the Spark is still busy because of a scan, in words for a disabled control or a banner; null when it is not. */
-export function scanHoldNote(job: StorageScanJob | null, now: number): string | null {
+export function scanHoldNote(job: StorageScanJob | null, now: number, t: Translate): string | null {
   if (!job || !(job.holdsSpark || job.state === "running" || job.state === "stopping")) return null;
-  if (stopUnconfirmed(job)) return job.stop?.message ?? "Could not confirm the scan stopped — the Spark stays busy until it does.";
-  if (job.state === "stopping") return "The scan on this Spark is being stopped. Other storage work waits until it has.";
+  if (stopUnconfirmed(job)) return job.stop?.message ?? t("scan.stopUnconfirmedHold");
+  if (job.state === "stopping") return t("scan.stoppingHold");
   if (job.state === "running") {
     const mins = job.cancellable === false ? minutesUntil(job.stopsByItselfAt, now) : null;
-    return `A scan is still running on this Spark${mins != null ? `; it will stop by itself in ${mins} min at the latest` : ""}.`;
+    return t("scan.runningHold", { suffix: mins != null ? t("scan.byLatest", { count: mins }) : "" });
   }
   const mins = minutesUntil(job.holdUntil, now);
-  return `The dashboard lost contact with this Spark during the last scan, so the Spark stays busy until the dashboard can confirm the scan has ended${mins != null ? ` (in ${mins} min at the latest)` : ""}.`;
+  return t("scan.lostContactHold", { suffix: mins != null ? t("scan.inLatest", { count: mins }) : "" });
 }
 
 interface ScanStopProps {
@@ -59,11 +62,12 @@ interface ScanStopProps {
  * and "Stops by itself in N min" for a scan run as administrator (which this account cannot stop).
  */
 export function ScanStop({ job, serverNow, onStop, requesting }: ScanStopProps) {
+  const { t } = useTranslation("storage");
   if (job.cancellable === false) {
     const mins = minutesUntil(job.stopsByItselfAt, serverNow());
     return (
-      <span className="st-stop st-stop--self" title="Scans run as administrator cannot be stopped from the dashboard">
-        {mins != null ? `Stops by itself in ${mins} min` : "Stops by itself"}
+      <span className="st-stop st-stop--self" title={t("scan.adminCannotStop")}>
+        {mins != null ? t("scan.stopsByItselfIn", { count: mins }) : t("scan.stopsByItself")}
       </span>
     );
   }
@@ -76,9 +80,9 @@ export function ScanStop({ job, serverNow, onStop, requesting }: ScanStopProps) 
       onClick={onStop}
       disabled={stopping}
       aria-busy={stopping}
-      title={job.cancelBestEffort ? "Stopping is best effort while the dashboard runs in a container" : undefined}
+      title={job.cancelBestEffort ? t("scan.stopBestEffortTitle") : undefined}
     >
-      {stopping ? "Stopping…" : unconfirmed ? "Try stopping again" : "Stop scan"}
+      {stopping ? t("scan.stopping") : unconfirmed ? t("scan.tryStopAgain") : t("scan.stop")}
     </button>
   );
 }
@@ -91,7 +95,8 @@ interface ScanProgressProps extends ScanStopProps {
 
 /** Shown while a whole analysis runs. The scan has no honest percentage, so the bar only says "working". */
 export function ScanProgress({ sparkName, path, elapsedMs, job, serverNow, onStop, requesting }: ScanProgressProps) {
-  const note = scanStopNote(job, serverNow());
+  const { t } = useTranslation("storage");
+  const note = scanStopNote(job, serverNow(), t);
   const unconfirmed = stopUnconfirmed(job);
   return (
     <section className="panel st-progress" role="status" aria-live="polite">
@@ -99,18 +104,17 @@ export function ScanProgress({ sparkName, path, elapsedMs, job, serverNow, onSto
         <RotateIcon className="h-5 w-5" />
       </span>
       <h2>
-        {job.state === "stopping" ? "Stopping the analysis of " : "Analysing "}
+        {job.state === "stopping" ? t("scan.stoppingAnalysis") : t("scan.analysing")}
         <span className="mono">{path}</span>
       </h2>
       <p>
-        Measuring every folder on {sparkName}. A whole disk usually takes under a minute (longer the first time, while the disk is cold). The scan runs at low
-        priority, so models and other work on the Spark keep running normally.
+        {t("scan.progressDescription", { sparkName })}
       </p>
       <div className="st-progress__bar" aria-hidden>
         <i />
       </div>
       <div className="st-progress__meta">
-        <span className="mono">{formatElapsed(elapsedMs)} elapsed</span>
+        <span className="mono">{t("scan.elapsed", { elapsed: formatElapsed(elapsedMs) })}</span>
         <ScanStop job={job} serverNow={serverNow} onStop={onStop} requesting={requesting} />
       </div>
       <p className={`st-progress__note${unconfirmed ? " is-warn" : ""}`} role={unconfirmed ? "alert" : undefined}>

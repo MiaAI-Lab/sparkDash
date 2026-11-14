@@ -5,7 +5,7 @@ import type { StorageAdvice, StorageBulkDeleteJob, StorageEntry, StorageStatus }
 import { adviceOf, lowAdvice } from "../../testing/advice";
 import { cleanupRenders, flush, render } from "../../testing/render";
 import { BulkDeleteDialog } from "./BulkDeleteDialog";
-import { ADVICE_TIMEOUT_MS, adviceConfirmMatches, adviceHeadline, adviceSatisfied, effectiveLevel, flaggedItems, frictionOf, levelCounts, ownUnchecked, sharedUnchecked, type AdviceState } from "./deleteAdvice";
+import { ADVICE_TIMEOUT_MS, adviceConfirmMatches, adviceHeadline, adviceSatisfied, effectiveLevel, flaggedItems, frictionOf, levelCounts, ownUnchecked, sharedUnchecked, type AdviceState } from "./deleteAdvicePolicy";
 import { DeleteDialog, type DeleteTarget } from "./DeleteDialog";
 import { summarize } from "./selection";
 import { useAdminAccess } from "./useAdminAccess";

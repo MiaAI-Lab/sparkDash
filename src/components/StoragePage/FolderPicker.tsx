@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { fetchStorageFolders } from "../../api/client";
 import type { StorageFolders } from "../../api/types";
 import { parentPath } from "./storageTree";
@@ -30,6 +31,7 @@ function crumbs(path: string): { name: string; path: string }[] {
  * nothing to type. The list has a fixed height so the page does not jump while a folder loads.
  */
 export function FolderPicker({ sparkId, value, onChange, startAt, disabled = false }: FolderPickerProps) {
+  const { t } = useTranslation("storage");
   const [at, setAt] = useState(value.startsWith("/") ? value : startAt);
   const [listing, setListing] = useState<StorageFolders | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -48,13 +50,13 @@ export function FolderPicker({ sparkId, value, onChange, startAt, disabled = fal
       .catch((err: unknown) => {
         if (!current) return;
         setListing(null);
-        setError(err instanceof Error ? err.message : "Could not open this folder");
+        setError(err instanceof Error ? err.message : t("folders.openError"));
         setLoading(false);
       });
     return () => {
       current = false;
     };
-  }, [sparkId, at]);
+  }, [sparkId, at, t]);
 
   // The open folder is the chosen one.
   useEffect(() => {
@@ -69,7 +71,7 @@ export function FolderPicker({ sparkId, value, onChange, startAt, disabled = fal
 
   return (
     <div className="st-folderpicker">
-      <nav className="st-picker__crumbs" aria-label="Folder path">
+      <nav className="st-picker__crumbs" aria-label={t("folders.path")}>
         <button type="button" className="st-picker__crumb" onClick={() => open("/")} disabled={disabled || at === "/"} aria-current={at === "/" ? "location" : undefined}>
           /
         </button>
@@ -82,17 +84,17 @@ export function FolderPicker({ sparkId, value, onChange, startAt, disabled = fal
           </span>
         ))}
       </nav>
-      <ul className="st-picker__list" aria-label={`Folders in ${at}`} aria-busy={loading}>
+      <ul className="st-picker__list" aria-label={t("folders.inPath", { path: at })} aria-busy={loading}>
         {up != null ? (
           <li>
             <button type="button" className="st-picker__row is-up" onClick={() => open(up)} disabled={disabled}>
-              <span aria-hidden>↑</span> Up to {up === "/" ? "the top" : up.split("/").pop()}
+              <span aria-hidden>↑</span> {t("folders.upTo", { folder: up === "/" ? t("folders.top") : up.split("/").pop() })}
             </button>
           </li>
         ) : null}
-        {loading ? <li className="st-picker__note">Opening…</li> : null}
+        {loading ? <li className="st-picker__note">{t("folders.opening")}</li> : null}
         {!loading && error ? <li className="st-picker__note is-warn">{error}</li> : null}
-        {!loading && !error && listing && listing.dirs.length === 0 ? <li className="st-picker__note">No folders inside. Analyse this folder, or go up.</li> : null}
+        {!loading && !error && listing && listing.dirs.length === 0 ? <li className="st-picker__note">{t("folders.empty")}</li> : null}
         {!loading && !error
           ? listing?.dirs.map((name) => (
               <li key={name}>
@@ -104,10 +106,10 @@ export function FolderPicker({ sparkId, value, onChange, startAt, disabled = fal
               </li>
             ))
           : null}
-        {!loading && !error && listing?.more ? <li className="st-picker__note">Only the first folders are shown. Open a parent folder to narrow it down.</li> : null}
+        {!loading && !error && listing?.more ? <li className="st-picker__note">{t("folders.more")}</li> : null}
       </ul>
       <p className="st-picker__chosen">
-        Analyse this folder: <b className="mono">{at}</b>
+        {t("folders.analyseThis")}: <b className="mono">{at}</b>
       </p>
     </div>
   );

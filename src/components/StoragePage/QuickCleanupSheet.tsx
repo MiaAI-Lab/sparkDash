@@ -1,4 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import { ApiError, fetchStorageStatus, pruneDockerBuilderCache, removeDockerContainers, removeDockerImages } from "../../api/client";
 import type { DockerRemoveResult, DockerStorage, SparkSnapshot, StorageElevation, StorageStatus } from "../../api/types";
 import { formatBytes } from "../../shared/formatBytes";
@@ -13,18 +15,15 @@ import {
   buildCacheEmpty,
   buildCacheEstimate,
   containersEstimate,
-  countText,
   dockerFilesystem,
-  estimateText,
   imagesEstimate,
+  joinCleanupItems,
   parseDockerTime,
   pickContainers,
   pickImages,
   planFor,
   presetClass,
   presetKind,
-  presetTitle,
-  shortEstimate,
   spaceChangeText,
   usageUnknownReason,
   type QuickDays,
@@ -70,26 +69,45 @@ interface Category {
   blocked: string | null;
 }
 
-function categoryOf(id: QuickPresetId, data: DockerStorage, rule: QuickRule): Category {
+function categoryOf(id: QuickPresetId, data: DockerStorage, rule: QuickRule, t: (key: string, options?: Record<string, unknown>) => string): Category {
   const kind = presetKind(id);
   const unknown = kind === "build-cache" ? null : usageUnknownReason(data);
   if (kind === "images") {
     const items = pickImages(data, id, rule).items;
-    return { id, kind, images: items, containers: [], estimate: imagesEstimate(items, data), blocked: unknown ?? (items.length === 0 ? "Nothing to clean" : null) };
+    return { id, kind, images: items, containers: [], estimate: imagesEstimate(items, data), blocked: unknown ? t("quickDetails.usageUnknown") : items.length === 0 ? t("quickDetails.nothingToClean") : null };
   }
   if (kind === "containers") {
     const items = pickContainers(data, rule);
-    return { id, kind, images: [], containers: items, estimate: containersEstimate(items, data), blocked: unknown ?? (items.length === 0 ? "Nothing to clean" : null) };
+    return { id, kind, images: [], containers: items, estimate: containersEstimate(items, data), blocked: unknown ? t("quickDetails.usageUnknown") : items.length === 0 ? t("quickDetails.nothingToClean") : null };
   }
-  return { id, kind, images: [], containers: [], estimate: buildCacheEstimate(data), blocked: buildCacheEmpty(data) ? "Nothing to clean" : null };
+  return { id, kind, images: [], containers: [], estimate: buildCacheEstimate(data), blocked: buildCacheEmpty(data) ? t("quickDetails.nothingToClean") : null };
 }
 
 /** "4 images · up to 12 GB (images share layers)": the one-line figure of a category. */
-function categoryFigure(c: Category): string {
+function categoryFigure(c: Category, t: (key: string, options?: Record<string, unknown>) => string): string {
   if (c.blocked) return c.blocked;
-  if (c.kind === "build-cache") return `Unused build cache · ${estimateText(c.estimate, c.kind)}`;
-  const n = c.kind === "images" ? countText(c.images.length, "image") : countText(c.containers.length, "container");
-  return `${n} · ${estimateText(c.estimate, c.kind)}`;
+  const n = c.kind === "images" ? t("quickDetails.images", { count: c.images.length }) : t("quickDetails.containers", { count: c.containers.length });
+  const estimate = c.estimate.kind === "about" ? t("quickDetails.estimateAbout", { bytes: formatBytes(c.estimate.bytes) }) : c.estimate.kind === "up-to" ? t("quickDetails.estimateUpToGeneric", { bytes: formatBytes(c.estimate.bytes) }) : t("quickDetails.sizeUnknown");
+  return c.kind === "build-cache" ? t("quickDetails.buildCacheFigure", { estimate }) : t("quickDetails.figure", { count: n, estimate });
+}
+
+function sheetPresetTitle(id: QuickPresetId, days: QuickDays, t: (key: string, options?: Record<string, unknown>) => string): string {
+  const day = t("quickCleanup.days", { count: days });
+  switch (id) {
+    case "old-images": return t("quickDetails.oldImagesTitle", { days: day });
+    case "dangling-images": return t("quickDetails.danglingImagesTitle");
+    case "unused-images": return t("quickDetails.unusedImagesTitle");
+    case "old-containers": return t("quickDetails.oldContainersTitle", { days: day });
+    case "build-cache": return t("quickDetails.buildCacheTitle", { days: day });
+  }
+}
+
+function riskLabel(kind: ReturnType<typeof presetKind>, t: (key: string) => string): string {
+  switch (kind) {
+    case "images": return t("quickDetails.reviewFirst");
+    case "containers": return t("quickDetails.careful");
+    case "build-cache": return t("quickDetails.rebuiltWhenNeeded");
+  }
 }
 
 /** Status of the Spark's disks, or null when it does not answer in time (the space line is then left out). */
@@ -123,7 +141,7 @@ async function removeAll(fn: RemoveFn, sparkId: string, ids: string[], elevation
   return out;
 }
 
-const messageOf = (err: unknown) => (err instanceof Error ? err.message : "Docker refused the request");
+const messageOf = (err: unknown, t: TFunction<"storage">) => err instanceof Error ? err.message : t("removeImages.refused");
 
 /**
  * Run a plan on one Spark: stopped containers, then images, then build cache, one after another. Each request is
@@ -136,36 +154,37 @@ async function runPlan(
   elevation: StorageElevation,
   days: number,
   firstFails: boolean,
-  onStep: (text: string) => void
+  onStep: (text: string) => void,
+  t: TFunction<"storage">,
 ): Promise<SparkRun> {
   const run: SparkRun = { sparkId: target.id, name: target.name, images: null, containers: null, buildCache: null, errors: [], names: {} };
   for (const c of plan.containers) run.names[c.id] = c.name;
   // An untagged image is told apart by its short ID.
-  for (const i of plan.images) run.names[i.id] = i.tags.length > 0 ? imageName(i) : `Untagged image ${shortId(i.id)}`;
+  for (const i of plan.images) run.names[i.id] = i.tags.length > 0 ? imageName(i, t) : t("quickDetails.untaggedWithId", { id: shortId(i.id) });
   let first = firstFails;
   const step = async (kind: SparkRun["errors"][number]["step"], fn: () => Promise<void>) => {
     try {
       await fn();
     } catch (err) {
       if (first) throw err;
-      run.errors.push({ step: kind, message: messageOf(err) });
+      run.errors.push({ step: kind, message: messageOf(err, t) });
     }
     first = false;
   };
   if (plan.containers.length > 0) {
-    onStep(`Removing ${countText(plan.containers.length, "container")} on ${target.name}…`);
+    onStep(t("quickDetails.removingAt", { items: t("quickDetails.containers", { count: plan.containers.length }), name: target.name }));
     await step("containers", async () => {
       run.containers = await removeAll(removeDockerContainers, target.id, plan.containers.map((c) => c.id), elevation);
     });
   }
   if (plan.images.length > 0) {
-    onStep(`Removing ${countText(plan.images.length, "image")} on ${target.name}…`);
+    onStep(t("quickDetails.removingAt", { items: t("quickDetails.images", { count: plan.images.length }), name: target.name }));
     await step("images", async () => {
       run.images = await removeAll(removeDockerImages, target.id, plan.images.map((i) => i.id), elevation);
     });
   }
   if (plan.buildCache) {
-    onStep(`Clearing build cache on ${target.name}…`);
+    onStep(t("quickDetails.clearingCacheAt", { name: target.name }));
     await step("build-cache", async () => {
       const r = await pruneDockerBuilderCache(target.id, { olderThanDays: days, ...elevation });
       run.buildCache = { reclaimedBytes: r.reclaimedBytes };
@@ -178,22 +197,29 @@ async function runPlan(
 const PASSWORD_CODES = new Set(["bad-password", "no-sudo"]);
 
 /** One other Spark under the same rule: what it would remove there, as a fixed one-line row. */
-function peerView(l: PeerDockerList, presets: readonly QuickPresetId[], rule: QuickRule): { view: PeerRowView; plan: QuickPlan | null } {
+function peerView(l: PeerDockerList, presets: readonly QuickPresetId[], rule: QuickRule, t: TFunction<"storage">): { view: PeerRowView; plan: QuickPlan | null } {
   const base = { id: l.spark.id, name: l.spark.name, title: "" };
-  if (l.state === "loading" || (l.state === "ready" && !l.data)) return { view: { ...base, detail: "Checking…", selectable: false }, plan: null };
-  if (l.state === "error" || !l.data) return { view: { ...base, detail: `Could not be checked: ${l.error ?? "no answer"}`, tone: "error", selectable: false }, plan: null };
+  if (l.state === "loading" || (l.state === "ready" && !l.data)) return { view: { ...base, detail: t("docker.peers.checking"), selectable: false }, plan: null };
+  if (l.state === "error" || !l.data) return { view: { ...base, detail: t("docker.peers.checkError", { error: l.error ?? t("docker.peers.noAnswer") }), tone: "error", selectable: false }, plan: null };
   const unknown = usageUnknownReason(l.data);
-  if (unknown) return { view: { ...base, detail: `${unknown} there.`, tone: "none", selectable: false }, plan: null };
-  if (presets.length === 0) return { view: { ...base, detail: "Nothing ticked above applies to other Sparks.", tone: "none", selectable: false }, plan: null };
+  if (unknown) return { view: { ...base, detail: t("quickDetails.peerUnknown"), tone: "none", selectable: false }, plan: null };
+  if (presets.length === 0) return { view: { ...base, detail: t("quickDetails.noPeerSelection"), tone: "none", selectable: false }, plan: null };
   const plan = planFor(l.data, presets, rule);
-  const kept = plan.keptBuiltHere.length > 0 ? `${plan.keptBuiltHere.length} built there kept` : "";
-  if (plan.images.length + plan.containers.length === 0) return { view: { ...base, detail: `Nothing to clean there with this rule${kept ? `; ${kept}` : ""}.`, tone: "none", selectable: false }, plan };
+  const kept = plan.keptBuiltHere.length > 0 ? t("quickDetails.peerBuiltKept", { count: plan.keptBuiltHere.length }) : "";
+  if (plan.images.length + plan.containers.length === 0) {
+    const detail = [t("quickDetails.peerNothingToClean"), kept].filter(Boolean).join(t("quickDetails.clauseSeparator"));
+    return { view: { ...base, detail: detail + t("quickDetails.sentenceEnd"), tone: "none", selectable: false }, plan };
+  }
   // Most telling first, so a narrow screen that cuts the line still shows what goes and how much. The light list
   // has no container sizes, so the size is the images' only.
-  const size = shortEstimate(imagesEstimate(plan.images, l.data));
-  const images = plan.images.length > 0 ? `${countText(plan.images.length, "image")}${size ? ` (${size})` : ""}` : "";
-  const containers = plan.containers.length > 0 ? countText(plan.containers.length, "container") : "";
-  const detail = [`Removes ${[images, containers].filter(Boolean).join(" and ")}`, kept, l.elevate ? "as administrator" : ""].filter(Boolean).join(" · ");
+  const estimate = imagesEstimate(plan.images, l.data);
+  const size = estimate.kind === "about" ? t("quickDetails.estimateAbout", { bytes: formatBytes(estimate.bytes) })
+    : estimate.kind === "up-to" ? t("quickDetails.peerEstimateUpTo", { bytes: formatBytes(estimate.bytes) }) : "";
+  const imageCount = t("quickDetails.images", { count: plan.images.length });
+  const images = plan.images.length > 0 ? (size ? t("quickDetails.withSize", { items: imageCount, size }) : imageCount) : "";
+  const containers = plan.containers.length > 0 ? t("quickDetails.containers", { count: plan.containers.length }) : "";
+  const items = joinCleanupItems([images, containers].filter(Boolean), t);
+  const detail = [t("quickDetails.peerRemoves", { items }), kept, l.elevate ? t("quickDetails.asAdministrator") : ""].filter(Boolean).join(" · ");
   return { view: { ...base, detail, selectable: true }, plan };
 }
 
@@ -203,6 +229,7 @@ function peerView(l: PeerDockerList, presets: readonly QuickPresetId[], rule: Qu
  * Spark are kept unless the person ticks them in. Other Sparks get the same rule on their own lists, only when ticked.
  */
 export function QuickCleanupSheet({ presets, spark, data, days, now, peers: peerSparks, asAdmin, access, onClose, onDone }: QuickCleanupSheetProps) {
+  const { t } = useTranslation("storage");
   const open = presets != null;
   // Keep the last categories on screen while the sheet fades out.
   const shownRef = useRef<readonly QuickPresetId[]>([]);
@@ -221,7 +248,7 @@ export function QuickCleanupSheet({ presets, spark, data, days, now, peers: peer
   const problemRef = useRef<HTMLDivElement | null>(null);
 
   const rule = useMemo<QuickRule>(() => ({ days, now, includeBuiltHere }), [days, now, includeBuiltHere]);
-  const categories = useMemo(() => shown.map((id) => categoryOf(id, data, rule)), [shown, data, rule]);
+  const categories = useMemo(() => shown.map((id) => categoryOf(id, data, rule, t)), [shown, data, rule, t]);
   // Images built here that the image categories match, counted before the person chooses to include them.
   const builtHere = useMemo(() => {
     const imagePresets = shown.filter((id) => presetKind(id) === "images");
@@ -231,7 +258,7 @@ export function QuickCleanupSheet({ presets, spark, data, days, now, peers: peer
   useEffect(() => {
     if (!presets) return;
     // What has something to clean starts ticked; nothing else, and never the built-here images or other Sparks.
-    const start = presets.map((id) => categoryOf(id, data, { days, now, includeBuiltHere: false })).filter((c) => !c.blocked);
+    const start = presets.map((id) => categoryOf(id, data, { days, now, includeBuiltHere: false }, t)).filter((c) => !c.blocked);
     setTicked(new Set(start.map((c) => c.id)));
     setExpanded(new Set());
     setIncludeBuiltHere(false);
@@ -254,7 +281,7 @@ export function QuickCleanupSheet({ presets, spark, data, days, now, peers: peer
   const offersPeers = peerSparks.length > 0 && shown.some((id) => presetKind(id) !== "build-cache");
   const lists = usePeerDockerLists(open && offersPeers, peerSparks);
   const peerPresets = active.filter((c) => c.kind !== "build-cache").map((c) => c.id);
-  const peerRows = lists.map((l) => peerView(l, peerPresets, rule));
+  const peerRows = lists.map((l) => peerView(l, peerPresets, rule, t));
   const pickedPeers = peerRows.filter((r) => r.view.selectable && picked.has(r.view.id) && r.plan);
 
   const hereRemoves = plan.images.length + plan.containers.length > 0;
@@ -266,7 +293,7 @@ export function QuickCleanupSheet({ presets, spark, data, days, now, peers: peer
     sparks: sparksRemoving,
     // One Spark removes anything: say which when other Sparks are on offer (and when it is not this one).
     where: sparksRemoving !== 1 ? undefined : !hereRemoves ? pickedPeers[0]?.view.name : offersPeers ? spark.name : undefined,
-  });
+  }, t);
   const nothing = !hereRemoves && !plan.buildCache && pickedPeers.length === 0;
   const adminReady = !asAdmin || (access.ready && access.available);
   const canRun = !busy && !nothing && adminReady;
@@ -281,7 +308,7 @@ export function QuickCleanupSheet({ presets, spark, data, days, now, peers: peer
     const containersFigure = containersEstimate(plan.containers, data);
     const before = await statusOrNull(spark.id);
     try {
-      runs.push(await runPlan({ id: spark.id, name: spark.name }, plan, access.elevation(asAdmin), days, true, setProgress));
+      runs.push(await runPlan({ id: spark.id, name: spark.name }, plan, access.elevation(asAdmin), days, true, setProgress, t));
     } catch (err) {
       // The first request on this Spark failed: nothing has changed. Stay open with the reason.
       setBusy(false);
@@ -289,7 +316,7 @@ export function QuickCleanupSheet({ presets, spark, data, days, now, peers: peer
       const code = err instanceof ApiError ? err.code : undefined;
       if (code === "bad-password") access.forget();
       setProblem({
-        text: code === "bad-password" ? "The sudo password was not accepted. Check it and try again." : messageOf(err),
+        text: code === "bad-password" ? t("removeImages.badPassword") : messageOf(err, t),
         password: code != null && PASSWORD_CODES.has(code) && asAdmin,
       });
       return;
@@ -298,18 +325,18 @@ export function QuickCleanupSheet({ presets, spark, data, days, now, peers: peer
     for (const r of pickedPeers) {
       const l = lists.find((x) => x.spark.id === r.view.id);
       if (!l || !r.plan) continue;
-      runs.push(await runPlan({ id: l.spark.id, name: l.spark.name }, { ...r.plan, buildCache: false }, l.elevate ? { sudo: true } : {}, days, false, setProgress));
+      runs.push(await runPlan({ id: l.spark.id, name: l.spark.name }, { ...r.plan, buildCache: false }, l.elevate ? { sudo: true } : {}, days, false, setProgress, t));
     }
     const here = runs[0];
-    if (here.images && imagesFigure.kind === "about") figures.push(`Docker estimated about ${formatBytes(imagesFigure.bytes)} reclaimable for the images.`);
-    if (here.containers && containersFigure.kind === "about") figures.push(`Docker estimated about ${formatBytes(containersFigure.bytes)} reclaimable for the containers.`);
-    if (here.buildCache?.reclaimedBytes != null) figures.push(`Docker reports ${formatBytes(here.buildCache.reclaimedBytes)} of build cache reclaimed.`);
+    if (here.images && imagesFigure.kind === "about") figures.push(t("quickDetails.imagesReclaimable", { bytes: formatBytes(imagesFigure.bytes) }));
+    if (here.containers && containersFigure.kind === "about") figures.push(t("quickDetails.containersReclaimable", { bytes: formatBytes(containersFigure.bytes) }));
+    if (here.buildCache?.reclaimedBytes != null) figures.push(t("quickDetails.cacheReclaimed", { bytes: formatBytes(here.buildCache.reclaimedBytes) }));
     let space: string | null = null;
     if (before) {
       const after = await statusOrNull(spark.id);
       const fsBefore = dockerFilesystem(before.filesystems, data.rootDir);
       const fsAfter = fsBefore ? after?.filesystems.find((f) => f.mount === fsBefore.mount && f.source === fsBefore.source) : null;
-      if (fsBefore && fsAfter) space = spaceChangeText(fsBefore, fsAfter);
+      if (fsBefore && fsAfter) space = spaceChangeText(fsBefore, fsAfter, t);
     }
     setBusy(false);
     setProgress("");
@@ -318,7 +345,7 @@ export function QuickCleanupSheet({ presets, spark, data, days, now, peers: peer
 
   const toggleCategory = (id: QuickPresetId) => setTicked((prev) => toggled(prev, id));
   const toggleExpanded = (id: QuickPresetId) => setExpanded((prev) => toggled(prev, id));
-  const title = shown.length === 1 ? "Quick clean-up" : "Recommended clean-up";
+  const title = shown.length === 1 ? t("quickCleanup.sheetTitle", { }) : t("quickCleanup.recommendedTitle", { });
 
   return (
     <StorageDialog
@@ -330,27 +357,26 @@ export function QuickCleanupSheet({ presets, spark, data, days, now, peers: peer
       footer={
         <>
           <button type="button" className="btn btn--ghost" onClick={onClose} disabled={busy}>
-            Cancel
+            {t("quickCleanup.cancel", { })}
           </button>
           <button
             type="button"
             className="btn btn--danger st-quick-go"
             onClick={() => void run()}
             disabled={!canRun}
-            title={!adminReady && !busy && !nothing ? "Type the sudo password first" : undefined}
+            title={!adminReady && !busy && !nothing ? t("quickCleanup.passwordFirst", { }) : undefined}
           >
             <TrashIcon className="h-3.5 w-3.5" />
-            {busy ? "Working…" : label}
+            {busy ? t("quickCleanup.working", { }) : label}
           </button>
         </>
       }
     >
       <p className="modal-sheet__lead">
-        Only what is listed below goes from {spark.name}. The Spark checks each item again right before removing it and skips anything that changed.
-        Running containers, volumes and your files are never touched.
+        {t("quickCleanup.sheetLead", { spark: spark.name })}
       </p>
 
-      <ul className="st-quick-cats" aria-label="What will be cleaned">
+      <ul className="st-quick-cats" aria-label={t("quickCleanup.willClean", { })}>
         {categories.map((c) => {
           const cls = presetClass(c.id);
           const figureId = `${baseId}-${c.id}-figure`;
@@ -370,22 +396,22 @@ export function QuickCleanupSheet({ presets, spark, data, days, now, peers: peer
                 <span className="st-quick-cat__text">
                   <span className="st-quick-cat__title">
                     <Tag tone={cls.tone} className="st-class">
-                      {cls.label}
+                      {riskLabel(c.kind, t)}
                     </Tag>
-                    {presetTitle(c.id, days)}
+                    {sheetPresetTitle(c.id, days, t)}
                   </span>
                   <small className="st-hint st-quick-cat__figure" id={figureId}>
-                    {categoryFigure(c)}
+                    {categoryFigure(c, t)}
                   </small>
                 </span>
               </label>
               {c.kind !== "build-cache" && count > 0 ? (
                 <button type="button" className="st-link st-quick-cat__more" aria-expanded={isOpen} aria-controls={listId} onClick={() => toggleExpanded(c.id)}>
-                  {isOpen ? "Hide the list" : `Show the ${countText(count, c.kind === "images" ? "image" : "container")}`}
+                  {isOpen ? t("quickCleanup.hideList", { }) : t("quickCleanup.showList", { count, item: c.kind === "images" ? "image" : "container" })}
                 </button>
               ) : null}
               {isOpen ? (
-                <ul className="st-imglist st-quick-cat__list" id={listId} aria-label={`${presetTitle(c.id, days)}: what goes`}>
+                <ul className="st-imglist st-quick-cat__list" id={listId} aria-label={t("quickDetails.itemsToRemove", { title: sheetPresetTitle(c.id, days, t) })}>
                   {c.kind === "images"
                     ? c.images.map((img) => {
                         const age = formatSince(parseDockerTime(img.created));
@@ -394,11 +420,11 @@ export function QuickCleanupSheet({ presets, spark, data, days, now, peers: peer
                             <span className="st-imglist__name">{imageName(img)}</span>
                             <span className="st-imglist__id mono">
                               {shortId(img.id)}
-                              {age ? ` · created ${age} ago` : ""}
+                              {age ? ` · ${t("quickDetails.createdAgo", { age })}` : ""}
                               {isBuiltHere(img) ? (
                                 <span className="st-imglist__built" title={BUILT_HERE_TITLE}>
                                   {" "}
-                                  · built here
+                                  · {t("quickDetails.builtHere")}
                                 </span>
                               ) : null}
                             </span>
@@ -412,8 +438,8 @@ export function QuickCleanupSheet({ presets, spark, data, days, now, peers: peer
                         return (
                           <li key={ctr.id}>
                             <span className="st-imglist__name">{ctr.name}</span>
-                            <span className="st-imglist__id">{img ? imageName(img) : "image removed"}</span>
-                            <span className="st-imglist__size">{age ? `exited ${age} ago` : ctr.state}</span>
+                            <span className="st-imglist__id">{img ? imageName(img) : t("quickDetails.imageRemoved")}</span>
+                            <span className="st-imglist__size">{age ? t("quickDetails.exitedAgo", { age }) : ctr.state}</span>
                           </li>
                         );
                       })}
@@ -436,10 +462,9 @@ export function QuickCleanupSheet({ presets, spark, data, days, now, peers: peer
         <label className="check-row st-quick-built">
           <input type="checkbox" checked={includeBuiltHere} disabled={busy} onChange={(e) => setIncludeBuiltHere(e.target.checked)} />
           <span>
-            Also include {builtHere.length === 1 ? "the image" : `the ${builtHere.length} images`} built on this Spark
+            {t("quickCleanup.includeBuilt", { count: builtHere.length })}
             <small className="st-hint">
-              No registry copy is recorded for {builtHere.length === 1 ? "it" : "them"}, so {builtHere.length === 1 ? "it" : "they"} may not be re-creatable:
-              removing one may delete the only copy. Left out unless ticked.
+              {t("quickCleanup.includeBuiltHint", { })}
             </small>
           </span>
         </label>
@@ -447,7 +472,7 @@ export function QuickCleanupSheet({ presets, spark, data, days, now, peers: peer
 
       {offersPeers ? (
         <PeersBlock
-          hint={`Each Spark is checked with the same rule on its own list. Tick the ones to clean up too; build cache is cleared on ${spark.name} only.`}
+          hint={t("quickCleanup.peersHint", { spark: spark.name })}
           rows={peerRows.map((r) => r.view)}
           picked={picked}
           busy={busy}
@@ -456,12 +481,12 @@ export function QuickCleanupSheet({ presets, spark, data, days, now, peers: peer
       ) : null}
 
       {asAdmin ? (
-        <AdminFields access={access} disabled={busy} purpose="to run Docker as administrator" problem={problem?.password ? problem.text : null} onSubmit={() => void run()} />
+        <AdminFields access={access} disabled={busy} purpose={t("quickDetails.runDockerPurpose")} problem={problem?.password ? problem.text : null} onSubmit={() => void run()} />
       ) : null}
 
       {/* Always laid out, shown while it runs: the sheet keeps its size. */}
       <p className={`st-hint st-quick-progress st-reserve${busy ? "" : " is-off"}`} role="status" aria-live="polite">
-        {busy ? progress || "Starting…" : " "}
+        {busy ? progress || t("quickCleanup.starting", { }) : " "}
       </p>
     </StorageDialog>
   );

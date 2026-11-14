@@ -2,6 +2,7 @@ import { act, useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError, deleteStoragePath, fetchDockerStorage, fetchStorageFolders, fetchStorageScan, fetchStorageStatus, removeDockerContainers, removeDockerImages, startStorageScan, forgetStorageSudo } from "../../api/client";
 import type { DockerStorage, SparkSnapshot, StorageEntry, StorageScanSnapshot, StorageStatus } from "../../api/types";
+import { setLocale } from "../../i18n";
 import { flush, render } from "../../testing/render";
 import { makeSpark } from "../../testing/fixtures";
 import { DeleteDialog, type DeleteTarget } from "./DeleteDialog";
@@ -86,6 +87,30 @@ beforeEach(() => {
 });
 
 describe("StoragePage", () => {
+  it("switches Storage labels in place while keeping the chosen Spark and file path", async () => {
+    window.history.replaceState(null, "", "/storage?spark=s1&tab=files");
+    vi.mocked(fetchStorageStatus).mockResolvedValue({ ...STATUS, homeDir: "/home/me" });
+    render(<StoragePage sparks={[makeSpark("s1")]} />);
+    await flush();
+    const route = window.location.href;
+    const path = () => [...document.querySelectorAll(".st-choice__path")].map((entry) => entry.textContent);
+
+    expect(text()).toContain("Storage Manager");
+    expect(path()).toContain("/home/me");
+    try {
+      await act(async () => setLocale("zh-CN"));
+      expect(document.querySelector("h1")?.textContent).toBe("存储管理");
+      expect(byLabel("选择要分析的 Spark").querySelector('[aria-checked="true"]')?.textContent).toContain("Spark s1");
+      expect(text()).toContain("文件和文件夹");
+      expect(byLabel("主磁盘")).not.toBeNull();
+      expect(window.location.href).toBe(route);
+      expect(path()).toContain("/home/me");
+    } finally {
+      await act(async () => setLocale("en"));
+    }
+    expect(text()).toContain("Storage Manager");
+  });
+
   it("offers Sparks only, shows their disks, and starts at the question 'what to look at'", async () => {
     const host = { ...makeSpark("pc"), kind: "host" as const, name: "Gaming PC" };
     render(<StoragePage sparks={[makeSpark("s1"), host]} />);

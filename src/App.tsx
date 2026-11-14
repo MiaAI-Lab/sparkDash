@@ -496,7 +496,7 @@ function DashboardApp() {
       { id: "nav:showcase", group: t("commands.goTo"), label: t("nav.showcase"), hint: t("commands.page"), icon: <TerminalIcon className="h-4 w-4" />, keywords: "Showcase prompts terminals stream demo", run: () => navigate(SHOWCASE_ID) },
       { id: "nav:activity", group: t("commands.goTo"), label: t("nav.activity"), hint: t("commands.page"), icon: <ListIcon className="h-4 w-4" />, keywords: "Activity events log history recent", run: () => navigate(ACTIVITY_ID) },
       { id: "nav:kiosk", group: t("commands.goTo"), label: t("nav.kiosk"), hint: t("commands.wallDisplay"), icon: <ExpandIcon className="h-4 w-4" />, keywords: "Kiosk wall tv display fullscreen full screen", run: () => window.location.assign(idToPath(KIOSK_ID)) },
-      { id: "nav:storage", group: "Go to", label: "Storage Manager", hint: "Page", icon: <DiskIcon className="h-4 w-4" />, keywords: "storage disk space folders files docker images delete clean cleanup du", run: () => navigate(STORAGE_ID) },
+      { id: "nav:storage", group: t("commands.goTo"), label: t("nav.storageManager"), hint: t("commands.page"), icon: <DiskIcon className="h-4 w-4" />, keywords: "storage disk space folders files docker images delete clean cleanup du", run: () => navigate(STORAGE_ID) },
     );
     for (const s of displaySparks) {
       cmds.push({
