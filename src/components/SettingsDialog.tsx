@@ -543,8 +543,8 @@ export function SettingsDialog({ open, onClose, onSaved, onOpenHarness, serverVe
                 onChange={(v) => update({ prometheusExport: v })}
               />
               <ToggleRow
-                title="Allow sudo password over plain http"
-                help="Lets you type a sudo password in the dashboard (Storage Manager, GPU clock cap) when you open it over plain http from another machine. The password then crosses your network unencrypted, so turn this on only on a network you trust. Off by default: a password is otherwise only accepted over https or from the Spark itself. The page reloads when you save this."
+                title={t("toggles.allowPlainSudoPassword.title")}
+                help={t("toggles.allowPlainSudoPassword.help")}
                 checked={Boolean(settings.allowPlainSudoPassword)}
                 onChange={(v) => update({ allowPlainSudoPassword: v })}
               />

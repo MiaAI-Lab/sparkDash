@@ -15,6 +15,7 @@
     "benchShareImage": { "title": "基准测试分享图片", "help": "decode/prefill 的 Copy results 按钮会增加一个菜单，可选择 Copy as text / Copy as image（分享卡片）。关闭后保留纯文本按钮。" },
     "vramBreakdown": { "title": "详细 VRAM 明细", "help": "VRAM 条将内存拆分为 LLM 引擎、系统和空闲，并在空闲内存较低时显示琥珀色或红色，而不是按高百分比显示。关闭后使用单一百分比条。" },
     "prometheus": { "title": "Prometheus 指标", "help": "为 Prometheus / Grafana 提供各节点指标，可从 {{origin}}/metrics 抓取。默认关闭。" },
+    "allowPlainSudoPassword": { "title": "允许通过明文 HTTP 输入 sudo 密码", "help": "从另一台设备通过明文 HTTP 访问仪表盘时，允许在存储管理和 GPU 频率上限功能中输入 sudo 密码。密码会在网络中以未加密形式传输，因此仅应在可信网络中开启。默认关闭；关闭时，只有通过 HTTPS 或从 Spark 本机访问时才接受密码。保存此设置后，页面会重新加载。" },
     "intelVramSudo": { "title": "通过 sudo 读取 Intel Arc VRAM", "help": "通过每台主机上的 sudo -n 从仅 root 可访问的 debugfs 读取精确 Intel Arc VRAM 使用量。默认关闭：此时 VRAM 显示 PCI BAR 大小，且不会以 sudo 运行任何操作。" },
     "metricsHistory": { "title": "指标历史", "help": "在服务器中为每个节点保留 48 小时的 1 分钟历史和 30 天的 15 分钟历史（GPU、内存余量、CPU、网络、LLM tok/s 和 KV；每节点磁盘至多约 1 MB），并在每个节点页面的 History 面板中绘制图表。默认关闭。" },
     "llmStreamSample": { "title": "对流采样无指标引擎", "help": "对于不发布任何实时计数器的 LLM 引擎（Pico），每 15 秒发送一次微型流式补全并对 token 计时，从而测量解码 tok/s；面板会将该数值标注为采样值。默认关闭。当基准测试、展示或模型启动占用该节点时采样会暂停；预填充不做采样——能测出预填充速度的提示词就是真实负载，而非探测。" },
