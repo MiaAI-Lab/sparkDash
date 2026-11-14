@@ -1,7 +1,10 @@
 import type { ToolEvalRun } from "../../../api/types";
 import { CATEGORY_NAMES, flattenNumbers, normalizeToolResult, type NormToolResult, type ScenarioStatus } from "./normalize";
+import { message, type ToolEvalPresentation } from "./presentation";
 
 export interface Delta {
+  /** Stable metric or category identity, independent of display text. */
+  id: string;
   label: string;
   a: number | null;
   b: number | null;
@@ -53,7 +56,8 @@ export interface ToolCompare {
 
 const RANK: Record<ScenarioStatus, number> = { pass: 3, partial: 2, fail: 1, other: 0 };
 
-const d = (label: string, a: number | null, b: number | null, higherIsBetter = true, count = false): Delta => ({
+const d = (id: string, label: string, a: number | null, b: number | null, higherIsBetter = true, count = false): Delta => ({
+  id,
   label,
   a,
   b,
@@ -63,24 +67,24 @@ const d = (label: string, a: number | null, b: number | null, higherIsBetter = t
 });
 
 /** Compare two tool-call results: `a` is the baseline, `b` the newer one. */
-export function compareToolResults(a: NormToolResult, b: NormToolResult): ToolCompare {
+export function compareToolResults(a: NormToolResult, b: NormToolResult, presentation?: ToolEvalPresentation): ToolCompare {
   const hasScenarios = { a: a.scenarios.length > 0, b: b.scenarios.length > 0 };
   // Counts come from scenarios: a side without any has no counts, not zero of everything.
   const cnt = (n: NormToolResult, has: boolean, k: "pass" | "partial" | "fail") => (has ? n.counts[k] : null);
   const headline = [
-    d("Score", a.score, b.score),
-    d("Deployability", a.deployability, b.deployability),
-    d("Responsiveness", a.responsiveness, b.responsiveness),
-    d("Passed", cnt(a, hasScenarios.a, "pass"), cnt(b, hasScenarios.b, "pass"), true, true),
-    d("Partial", cnt(a, hasScenarios.a, "partial"), cnt(b, hasScenarios.b, "partial"), true, true),
-    d("Failed", cnt(a, hasScenarios.a, "fail"), cnt(b, hasScenarios.b, "fail"), false, true),
-    d("Safety warnings", a.safety.length, b.safety.length, false, true),
+    d("score", message(presentation, "compare.score", "Score"), a.score, b.score),
+    d("deployability", message(presentation, "compare.deployability", "Deployability"), a.deployability, b.deployability),
+    d("responsiveness", message(presentation, "compare.responsiveness", "Responsiveness"), a.responsiveness, b.responsiveness),
+    d("passed", message(presentation, "compare.passed", "Passed"), cnt(a, hasScenarios.a, "pass"), cnt(b, hasScenarios.b, "pass"), true, true),
+    d("partial", message(presentation, "compare.partial", "Partial"), cnt(a, hasScenarios.a, "partial"), cnt(b, hasScenarios.b, "partial"), true, true),
+    d("failed", message(presentation, "compare.failed", "Failed"), cnt(a, hasScenarios.a, "fail"), cnt(b, hasScenarios.b, "fail"), false, true),
+    d("safety", message(presentation, "compare.safety", "Safety warnings"), a.safety.length, b.safety.length, false, true),
   ];
   const ids = [...new Set([...a.categories.map((c) => c.id), ...b.categories.map((c) => c.id)])].sort();
   const categories = ids.map((id) => {
     const ca = a.categories.find((c) => c.id === id);
     const cb = b.categories.find((c) => c.id === id);
-    return { ...d(id, ca?.percent ?? null, cb?.percent ?? null), id, name: ca?.name ?? cb?.name ?? CATEGORY_NAMES[id] ?? null };
+    return { ...d(id, id, ca?.percent ?? null, cb?.percent ?? null), id, name: ca?.name ?? cb?.name ?? CATEGORY_NAMES[id] ?? null };
   });
   const mapA = new Map(a.scenarios.map((s) => [s.id, s]));
   const mapB = new Map(b.scenarios.map((s) => [s.id, s]));
@@ -134,18 +138,18 @@ export function compareGeneric(a: unknown, b: unknown, limit = 200): { changed: 
 const IGNORED_OPTIONS = new Set(["label", "output-dir", "api-key", "header", "diff", "resume"]);
 
 /** Differences in model / endpoint / options that make a comparison less meaningful. */
-export function configCaveats(a: Pick<ToolEvalRun, "model" | "baseUrl" | "options" | "type">, b: Pick<ToolEvalRun, "model" | "baseUrl" | "options" | "type">): string[] {
+export function configCaveats(a: Pick<ToolEvalRun, "model" | "baseUrl" | "options" | "type">, b: Pick<ToolEvalRun, "model" | "baseUrl" | "options" | "type">, presentation?: ToolEvalPresentation): string[] {
   const out: string[] = [];
-  if (a.type !== b.type) out.push("The runs are of different benchmark types.");
-  if ((a.model ?? "") !== (b.model ?? "")) out.push(`Different models: ${a.model ?? "auto"} vs ${b.model ?? "auto"}.`);
-  if (a.baseUrl !== b.baseUrl) out.push(`Different endpoints: ${a.baseUrl} vs ${b.baseUrl}.`);
+  if (a.type !== b.type) out.push(message(presentation, "compare.differentType", "The runs are of different benchmark types."));
+  if ((a.model ?? "") !== (b.model ?? "")) out.push(message(presentation, "compare.models", `Different models: ${a.model ?? "auto"} vs ${b.model ?? "auto"}.`, { a: a.model ?? "auto", b: b.model ?? "auto" }));
+  if (a.baseUrl !== b.baseUrl) out.push(message(presentation, "compare.endpoints", `Different endpoints: ${a.baseUrl} vs ${b.baseUrl}.`, { a: a.baseUrl ?? "", b: b.baseUrl ?? "" }));
   const keys = new Set([...Object.keys(a.options ?? {}), ...Object.keys(b.options ?? {})]);
   const differing: string[] = [];
   for (const k of keys) {
     if (IGNORED_OPTIONS.has(k) || k === "model" || k === "base-url") continue;
     if (JSON.stringify(a.options?.[k] ?? null) !== JSON.stringify(b.options?.[k] ?? null)) differing.push(k);
   }
-  if (differing.length) out.push(`Different options: ${differing.map((k) => `--${k}`).join(", ")}.`);
+  if (differing.length) out.push(message(presentation, "compare.options", `Different options: ${differing.map((k) => `--${k}`).join(", ")}.`, { options: differing.map((k) => `--${k}`).join(", ") }));
   return out;
 }
 

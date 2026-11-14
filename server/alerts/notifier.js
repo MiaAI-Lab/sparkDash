@@ -1,5 +1,5 @@
 /**
- * Notification channels: ntfy, Discord, Slack and a generic JSON webhook.
+ * Notification channels: ntfy, Discord, Slack, Gotify and a generic JSON webhook.
  *
  * Everything that fires or resolves in one evaluation goes out as ONE message
  * per channel (Alertmanager-style grouping), filtered by the channel's minimum
@@ -19,7 +19,8 @@
  */
 import { Agent, fetch as undiciFetch } from "undici";
 import { severityRank } from "./conditions.js";
-import { OutboundPolicyError, pinnedLookup, resolveChannelTarget } from "./outbound.js";
+import { pinnedLookup } from "../validate.js";
+import { OutboundPolicyError, resolveChannelTarget } from "./outbound.js";
 import { capText } from "./text.js";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -31,6 +32,12 @@ const MAX_LINES = 20;
 const DISCORD_COLORS = { critical: 0xdc2626, warning: 0xf59e0b, resolved: 0x16a34a, test: 0x6366f1 };
 const NTFY_PRIORITY = { critical: "5", warning: "4", resolved: "3", test: "3" };
 const NTFY_TAGS = { critical: "rotating_light", warning: "warning", resolved: "white_check_mark", test: "test_tube" };
+/**
+ * Gotify priorities, chosen for the default notification channels of Gotify's
+ * Android app: above 7 is high importance (sound and a heads-up banner), 4 to 7
+ * normal (sound), 1 to 3 low (silent). A resolution is good news, so it is quiet.
+ */
+const GOTIFY_PRIORITY = { critical: 8, warning: 5, resolved: 3, test: 5 };
 
 /** "3m", "2h 5m", "1d 4h". */
 export function formatAge(ms) {
@@ -117,6 +124,24 @@ function alertJson(a, status) {
 }
 
 /**
+ * Gotify's message endpoint and application token from a channel URL such as
+ * `https://gotify.example.com/message?token=APP_TOKEN`. A server URL without the
+ * `/message` path (`https://gotify.example.com/?token=...`, or one under a
+ * sub-path) gets it appended. The token travels in the `X-Gotify-Key` header and
+ * is dropped from the request URL, so it never lands in a proxy's access log.
+ * @param {string} raw
+ * @returns {{ url: string, token: string }}
+ */
+export function gotifyTarget(raw) {
+  const url = new URL(raw);
+  const token = (url.searchParams.get("token") || "").trim();
+  url.searchParams.delete("token");
+  const base = url.pathname.replace(/\/+$/, "");
+  url.pathname = /\/message$/.test(base) ? base : `${base}/message`;
+  return { url: url.href, token };
+}
+
+/**
  * Build the HTTP request for one channel. Pure — tests assert on this.
  * @returns {{ url: string, init: { method: string, headers: Record<string,string>, body: string } }}
  */
@@ -177,6 +202,23 @@ export function buildRequest(channel, group, now = Date.now()) {
           }),
         },
       };
+    case "gotify": {
+      const { url, token } = gotifyTarget(channel.url);
+      return {
+        url,
+        init: {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Gotify-Key": token },
+          body: JSON.stringify({
+            title: d.title,
+            message: d.lines.join("\n"),
+            priority: GOTIFY_PRIORITY[d.tone],
+            // Plain text: unit names and remote text must not render as Markdown links.
+            extras: { "client::display": { contentType: "text/plain" } },
+          }),
+        },
+      };
+    }
     case "webhook":
     default: {
       const alerts = [

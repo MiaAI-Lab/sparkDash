@@ -1,0 +1,15 @@
+{
+  "title": "API Keys",
+  "subtitle": "LiteLLM virtual keys, read-only, through the host-side bridge.",
+  "refresh": "Refresh",
+  "refreshing": "Refreshing…",
+  "status": { "bridge": "Bridge {{state}}", "upstream": "LiteLLM {{state}}", "retrying": "retrying in {{seconds}} s" },
+  "errors": { "keys": "Could not load keys: {{error}}", "key": "Could not load key: {{error}}" },
+  "keys": { "title": "Keys ({{count}})", "empty": "The bridge reports no keys." },
+  "table": { "key": "Key", "state": "State", "spend": "Spend", "budget": "Budget", "rpm": "RPM", "tpm": "TPM", "expires": "Expires", "lastActive": "Last active" },
+  "detail": { "spend": "Spend", "budget": "Budget", "budgetResets": "Budget resets", "parallelRequests": "Parallel requests", "created": "Created", "models": "Models", "spendUnknown": "Spend is {{unknown}}: the bridge did not report it for this key." },
+  "states": { "ok": "ok", "down": "down", "unconfigured": "unconfigured", "unknown": "unknown", "active": "active", "blocked": "blocked", "expired": "expired" },
+  "unknown": "unknown",
+  "unlimited": "no limit",
+  "all": "all"
+}

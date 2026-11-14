@@ -286,9 +286,14 @@ export function computeVramBreakdown(
   segments.push({ key: engine ? "other" : wholeGpuIsModel ? "engine" : "gpu", mb: otherMB });
 
   const ep = engine ? ctx.endpoint ?? null : null;
+  // TensorFold's `kv_cache_usage_ratio` is one stream's share of its own window, not the shared
+  // pool's occupancy, so it is not pool fill: using it here would colour the legend and raise the
+  // "pool nearly full" verdict on a pool that is mostly free. The engine's own cache group
+  // (LlmCachePanel / cache history) carries the pool categories instead.
+  const reportsPoolUsage = ep != null && ep.backend !== "tensorfold";
   const kv: VramKvInfo | null = ep
     ? {
-        usage: finite(ep.kvCacheUsage),
+        usage: reportsPoolUsage ? finite(ep.kvCacheUsage) : null,
         poolGb: finite(ep.kvCacheGb),
         weightsGb: finite(ep.weightsGb),
         backend: backendLabel(ep.backend ?? null),

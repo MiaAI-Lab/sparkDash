@@ -62,6 +62,20 @@ function mappedIpv4(host) {
   return `${nums[6] >> 8}.${nums[6] & 255}.${nums[7] >> 8}.${nums[7] & 255}`;
 }
 
+/**
+ * The dotted quad a URL parser (and inet_aton, which ssh uses) reads a host as,
+ * or null when it is not a numeric IPv4 spelling. "2852039166", "0xa9fea9fe",
+ * "0251.0376.0251.0376" and "169.254.43518" are all 169.254.169.254.
+ */
+function canonicalIpv4(host) {
+  try {
+    const parsed = new URL(`http://${host}`).hostname;
+    return net.isIP(parsed) === 4 ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 export function isForbiddenAddress(address) {
   const host = normalizedHost(address);
   const family = net.isIP(host);
@@ -77,7 +91,9 @@ export function isForbiddenAddress(address) {
     if (mapped) return isForbiddenAddress(mapped);
     return false;
   }
-  return false;
+  // Not a literal address as written, but it may still be one to the resolver.
+  const canonical = canonicalIpv4(host);
+  return canonical !== null && isForbiddenAddress(canonical);
 }
 
 /** Resolve an administrator-allowlisted target and reject unsafe DNS answers. */
@@ -115,6 +131,21 @@ export async function assertAllowedTarget(host, allowedHosts, { lookup = dns.loo
     throw err;
   }
   return resolved;
+}
+
+/**
+ * A connection lookup that returns only addresses already checked by the
+ * outbound-target policy, without asking DNS a second time.
+ * @param {string[]} addresses
+ */
+export function pinnedLookup(addresses) {
+  const entries = addresses.map((address) => ({ address, family: net.isIP(address) || 4 }));
+  return (_hostname, options, callback) => {
+    const cb = typeof options === "function" ? options : callback;
+    const all = typeof options === "object" && options?.all;
+    if (all) cb(null, entries);
+    else cb(null, entries[0].address, entries[0].family);
+  };
 }
 
 /**
@@ -206,6 +237,39 @@ export function validateSparkTarget(body) {
   const llmHost = typeof body?.llmHost === "string" ? body.llmHost.trim() : body?.llmHost;
   if (llmHost != null && llmHost !== "" && !isAllowedTargetHost(llmHost)) {
     return `Invalid or disallowed llmHost: ${llmHost}`;
+  }
+  // Validate the optional Mac agent target where it is saved. A value that is
+  // stored but rejected by the collector constructor throws during startup.
+  const agentUrl = typeof body?.agent?.url === "string" ? body.agent.url.trim() : "";
+  if (agentUrl) {
+    try {
+      const parsed = new URL(agentUrl);
+      if (
+        !["http:", "https:"].includes(parsed.protocol) ||
+        parsed.username ||
+        parsed.password ||
+        parsed.search ||
+        parsed.hash ||
+        parsed.pathname !== "/" ||
+        !isAllowedTargetHost(parsed.hostname.replace(/^\[|\]$/g, ""))
+      ) {
+        return "Invalid Mac agent URL: use an HTTP(S) base URL without credentials, query or path and an allowed host";
+      }
+    } catch {
+      return "Invalid Mac agent URL";
+    }
+  }
+  if (body?.agent?.host != null && body.agent.host !== "" && !isAllowedTargetHost(String(body.agent.host))) {
+    return `Invalid or disallowed Mac agent host: ${body.agent.host}`;
+  }
+  if (body?.agent && Object.prototype.hasOwnProperty.call(body.agent, "port")) {
+    const raw = body.agent.port;
+    if (raw != null && raw !== "") {
+      const port = Number.parseInt(String(raw), 10);
+      if (!Number.isInteger(port) || port < 1 || port > 65535) {
+        return "Mac agent port must be an integer from 1 to 65535";
+      }
+    }
   }
   const lanIp = body?.lanIp || "";
   const sshHost = body?.ssh?.host || "";

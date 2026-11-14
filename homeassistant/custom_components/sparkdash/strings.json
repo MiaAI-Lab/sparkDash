@@ -1,0 +1,46 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "sparkDash",
+        "description": "Base URL of a sparkDash dashboard. Every Spark that dashboard already monitors is added. The access token is only needed when SPARKDASH_TOKEN is set.",
+        "data": {
+          "url": "Dashboard URL",
+          "token": "Access token"
+        },
+        "data_description": {
+          "url": "Fetched by Home Assistant, not by this browser. Example: http://127.0.0.1:5555",
+          "token": "Optional. Sent as Authorization: Bearer. Leave empty when the dashboard has no token."
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "sparkDash did not answer /api/sparks",
+      "invalid_url": "URL must start with http:// or https://",
+      "invalid_auth": "sparkDash rejected the access token"
+    },
+    "abort": {
+      "already_configured": "That sparkDash URL is already added"
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "online": { "name": "Online" }
+    },
+    "sensor": {
+      "gpu_temperature": { "name": "GPU temperature" },
+      "gpu_usage": { "name": "GPU usage" },
+      "gpu_power": { "name": "GPU power" },
+      "system_power": { "name": "System power" },
+      "vram_percent": { "name": "VRAM" },
+      "cpu_usage": { "name": "CPU usage" },
+      "cpu_temperature": { "name": "CPU temperature" },
+      "ram_percent": { "name": "Memory" },
+      "oom_risk": { "name": "OOM risk" },
+      "llm_model": { "name": "Model" },
+      "llm_generation_tps": { "name": "Decode speed" },
+      "llm_slots_active": { "name": "Active slots" },
+      "uptime": { "name": "Uptime" }
+    }
+  }
+}

@@ -43,6 +43,27 @@ describe("CommandPalette", () => {
 });
 
 describe("AppSidebar", () => {
+  it("keeps Quality compare out of the rail and highlights Quality while its compare sub-page is open", () => {
+    const { container } = render(
+      <AppSidebar
+        sparks={[]}
+        activeId={null}
+        onSelect={() => {}}
+        onAdd={() => {}}
+        onOpenSettings={() => {}}
+        onOpenSearch={() => {}}
+        connected
+        benchType="quality-compare"
+        onSelectBench={() => {}}
+      />
+    );
+    const names = [...container.querySelectorAll("#rail-benchmarks .rail-item__name")].map((n) => n.textContent);
+    expect(names).toContain("Quality");
+    expect(names).not.toContain("Quality compare");
+    const quality = [...container.querySelectorAll("#rail-benchmarks .rail-item")].find((n) => n.textContent === "Quality");
+    expect(quality?.className).toContain("is-active");
+  });
+
   it("lists every Spark, marks the active one and shows an off label for offline units", () => {
     const sparks = [makeSpark("a"), makeSpark("b", false)];
     const { container } = render(
@@ -51,6 +72,7 @@ describe("AppSidebar", () => {
         activeId="b"
         onSelect={() => {}}
         onAdd={() => {}}
+        onReorder={() => {}}
         onOpenSettings={() => {}}
         onOpenSearch={() => {}}
         connected
@@ -59,6 +81,15 @@ describe("AppSidebar", () => {
     expect(container.querySelector('nav[aria-label="Sparks"]')?.textContent).toContain("Spark a");
     expect(container.querySelector('[aria-current="page"]')?.textContent).toContain("Spark b");
     expect(railSubLabel(sparks[1])).toBe("off");
+    expect(container.querySelector('nav[aria-label="Sparks"] [aria-current="page"]')?.getAttribute("title")).toContain("(offline)");
+  });
+
+  it("shows the opt-in API Keys entry only when enabled", () => {
+    const props = { sparks: [makeSpark()], activeId: null, onSelect: vi.fn(), onAdd: vi.fn(), onOpenSettings: vi.fn(), onOpenSearch: vi.fn(), connected: true };
+    const off = render(<AppSidebar {...props} />);
+    expect(off.container.querySelector('a[href="/api-keys"]')).toBeNull();
+    const on = render(<AppSidebar {...props} showApiKeys />);
+    expect(on.container.querySelector('a[href="/api-keys"]')?.textContent).toContain("API Keys");
   });
 
   it("links the Temps page with a deep-linkable href", () => {
@@ -189,6 +220,15 @@ describe("CommandPalette accessibility", () => {
     expect(document.querySelectorAll('[role="option"]')[1].getAttribute("aria-selected")).toBe("true");
   });
 
+  it("applies two ArrowDown keydowns from one React batch", () => {
+    render(<CommandPalette open onClose={() => {}} commands={[...cmds, cmd("c", "Temps")]} />);
+    act(() => {
+      input().dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+      input().dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    });
+    expect(input().getAttribute("aria-activedescendant")).toBe(document.querySelectorAll('[role="option"]')[2].id);
+  });
+
   it("ignores Enter while an IME is composing", () => {
     const run = vi.fn();
     render(<CommandPalette open onClose={() => {}} commands={[cmd("a", "Overview", "Go to", run)]} />);
@@ -238,15 +278,16 @@ describe("MobileTabBar sheet", () => {
     expect(document.activeElement).toBe(opener);
   });
 
-  it("Stats opens Token totals, Fleet energy, Temps and Activity; Sparks no longer lists them; Showcase follows Prefill", () => {
+  it("Stats opens Token totals, Fleet energy, Temps, Activity and Storage; Sparks lists Storage under Benchs & Tools; Showcase follows Prefill", () => {
+    const onSelect = vi.fn();
     const { container } = render(
-      <MobileTabBar sparks={[makeSpark("a")]} activeId={null} onSelect={() => {}} onAdd={() => {}} onOpenSettings={() => {}} />
+      <MobileTabBar sparks={[makeSpark("a")]} activeId={null} onSelect={onSelect} onAdd={() => {}} onOpenSettings={() => {}} />
     );
     const tab = (name: string) => [...container.querySelectorAll("button")].find((b) => b.textContent === name)!;
     expect(tab("Search")).toBeUndefined();
     act(() => tab("Stats").click());
     let names = [...document.querySelectorAll(".sheet .rail-item__name")].map((n) => n.textContent);
-    expect(names).toEqual(["Token totals", "Cost compare", "Fleet energy", "Temps", "Activity"]);
+    expect(names).toEqual(["Token totals", "Cost compare", "Fleet energy", "Temps", "Activity", "Storage"]);
     act(() => {
       document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     });
@@ -256,6 +297,14 @@ describe("MobileTabBar sheet", () => {
     expect(names).not.toContain("Token totals");
     expect(names).not.toContain("Fleet energy");
     expect(names).not.toContain("Activity");
+    expect(names).toContain("Storage");
     expect(names.indexOf("Showcase")).toBe(names.indexOf("Prefill") + 1);
+    const labels = [...document.querySelectorAll(".sheet .rail-label")].map((n) => n.textContent);
+    expect(labels).toContain("Benchs & Tools");
+    expect(labels).not.toContain("Benchmarks");
+    // Storage sits in the Benchs & Tools section and opens the Storage pane.
+    const storage = [...document.querySelectorAll<HTMLButtonElement>(".sheet .rail-item")].find((b) => b.textContent === "Storage")!;
+    act(() => storage.click());
+    expect(onSelect).toHaveBeenCalledWith("__storage__");
   });
 });

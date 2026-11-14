@@ -41,6 +41,8 @@ const settings = {
   mqttUrl: "",
   mqttUsername: "",
   mqttTopicPrefix: "sparkdash",
+  mqttDiscovery: false,
+  mqttDiscoveryPrefix: "homeassistant",
 } satisfies Settings;
 
 /** Type into a React-controlled number input. */

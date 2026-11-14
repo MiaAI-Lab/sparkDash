@@ -674,6 +674,10 @@ async function runStreamingRequestOnce(
               completionTokens: Number(json.usage.completion_tokens) || 0,
               totalTokens: Number(json.usage.total_tokens) || 0,
             };
+            // Reasoning tokens as the server counts them (OpenAI's completion_tokens_details shape;
+            // TensorFold, vLLM and SGLang report it). null when the engine does not say.
+            const reasoning = Number(json.usage.completion_tokens_details?.reasoning_tokens);
+            usage.reasoningTokens = Number.isFinite(reasoning) && reasoning >= 0 ? reasoning : null;
             if (json.usage.completion_tokens != null) {
               usageCompletionTokens = Number(json.usage.completion_tokens);
             }

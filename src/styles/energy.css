@@ -41,6 +41,16 @@
 .en .en-banner b {
   color: var(--color-text-strong);
 }
+/* Power-meter chip beside "Updated"; details are in its tooltip. */
+.en .en-meter-chip {
+  margin-left: 8px;
+  vertical-align: 1px;
+  cursor: default;
+}
+.en .en-tile__parts {
+  font-size: 12px;
+  color: var(--color-muted);
+}
 .en .en-banner--warn {
   border-color: color-mix(in srgb, var(--color-warning) 35%, transparent);
   background: color-mix(in srgb, var(--color-warning) 11%, transparent);

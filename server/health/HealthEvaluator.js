@@ -7,7 +7,18 @@
  * Rules never throw and never guess: a missing metric simply raises nothing.
  */
 
-export const LOW_POWER_STREAK = 5;
+/**
+ * Samples the low-power condition must hold for. A stall that clears within a
+ * couple of minutes is normal sync/pipeline overhead, not a stuck GPU, so the
+ * streak is long enough to ignore it (30 samples: ~30 s at a 1 s poll, ~60 s at
+ * the 2 s default) while still catching a sustained wedge.
+ */
+export const LOW_POWER_STREAK = 30;
+/**
+ * How long measured inference progress keeps the low-power warning suppressed.
+ * Bound the evidence so an old successful poll cannot hide a sustained stall.
+ */
+export const LOW_POWER_PROGRESS_MS = 60 * 1000;
 /** Kernel-error findings stay visible this long after the counter last rose. */
 export const KERNEL_FINDING_TTL_MS = 60 * 60 * 1000;
 
@@ -15,10 +26,64 @@ const DEFAULT_TEMP_THRESHOLDS = Object.freeze({ warnC: 85, criticalC: 90 });
 const MEM_AVAIL_WARN_MB = 3072;
 const MEM_AVAIL_CRITICAL_MB = 1536;
 const LOW_POWER_UTIL = 90;
-const LOW_POWER_WATTS = 15;
+/**
+ * The draw below which "busy" is not credible. Anchored to idle draw rather
+ * than a fixed guess: on a discrete card idle is ~10-20 W so 15 W sits well
+ * under load, but on an integrated part like the GB10 the GPU draws ~10 W at
+ * idle, so 15 W also caught ordinary memory-bound decode and barrier waits that
+ * report ~96 % kernel residency at ~14 W. 11 W means "at or about idle draw",
+ * which is the state this rule is looking for.
+ */
+const LOW_POWER_WATTS = 11;
 const LINK_MIN_MBPS = 1000;
 
 const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+
+/**
+ * Token counters and live positions that prove work between two polls.
+ * Rates are deliberately absent: a probe can keep a positive rate across a
+ * failed /metrics read or a counterless busy health check, so only counters
+ * that actually rose are evidence.
+ */
+const PROGRESS_COUNTERS = Object.freeze([
+  "totalOutputTokens",
+  "totalPromptTokens",
+  "prefillProgressTokens",
+  "generationProgressTokens",
+]);
+
+/** Stable identity for one probed endpoint: port, backend and served model. */
+function endpointKey(entry) {
+  const port = num(entry?.port);
+  const backend = typeof entry?.backend === "string" ? entry.backend : "";
+  const modelId = typeof entry?.modelId === "string" ? entry.modelId : "";
+  return `${port}|${backend}|${modelId}`;
+}
+
+/** Token counters and live positions, with unusable values as null. */
+function progressCounters(entry) {
+  const out = {};
+  for (const key of PROGRESS_COUNTERS) {
+    const value = num(entry?.[key]);
+    out[key] = value != null && value >= 0 ? value : null;
+  }
+  return out;
+}
+
+/** True when any counter rose. A reset (lower value) is a new baseline, not progress. */
+function countersAdvanced(prev, next) {
+  for (const key of PROGRESS_COUNTERS) {
+    const before = prev[key];
+    const after = next[key];
+    if (before != null && after != null && after > before) return true;
+  }
+  return false;
+}
+
+/** A timestamp is recent only when it is a real past instant inside the window. */
+function isRecentProgress(at, now) {
+  return at != null && at <= now && now - at < LOW_POWER_PROGRESS_MS;
+}
 
 /**
  * The GPU thresholds below are tuned for NVIDIA cards. Other vendors (Intel Arc
@@ -56,13 +121,20 @@ export class HealthEvaluator {
     this._kernel = { xid: null, oom: null };
     this._kernelAt = { xid: 0, oom: 0 };
     this._kernelLast = { xid: null, oom: null };
+    /** Per-endpoint cumulative counters and the last time they advanced. */
+    this._llmProgress = new Map();
+    /** Latest measured progress across the endpoints available right now, or null. */
+    this.llmProgressAt = null;
+    /** Whether local or head progress is recent enough to explain a busy low-power GPU. */
+    this.lowPowerProgressing = false;
     /** Events produced by the latest evaluate() (kernel counters rising). */
     this.pendingEvents = [];
   }
 
   /**
-   * @param {{ gpu?: any, unifiedMemory?: any, network?: any, llm?: any[] }} metrics
-   * @param {"gpu"|"other"} [domain] "gpu" advances the per-sample streaks.
+   * @param {{ gpu?: any, unifiedMemory?: any, network?: any, llm?: any[], headLlmProgressAt?: number|null }} metrics
+   * @param {"gpu"|"llm"|"other"} [domain] "gpu" advances the per-sample streaks,
+   *   "llm" advances the per-endpoint inference-progress counters.
    * @returns {Array<{id:string,severity:string,title:string,detail:string,hint:string}>}
    */
   evaluate(metrics, domain = "other") {
@@ -73,6 +145,7 @@ export class HealthEvaluator {
       const mem = metrics?.unifiedMemory ?? null;
       const net = metrics?.network ?? null;
       const llm = Array.isArray(metrics?.llm) ? metrics.llm : [];
+      this._trackLlmProgress(llm, domain, metrics?.headLlmProgressAt);
       this._thermal(gpu, out);
       this._lowPower(gpu, domain, out);
       this._memory(mem, out);
@@ -101,6 +174,39 @@ export class HealthEvaluator {
     });
   }
 
+  /**
+   * Remember which endpoints are doing real work. Only a fresh LLM poll may
+   * advance the counters; every evaluation prunes endpoints that disappeared,
+   * went unavailable or errored, so a disabled probe cannot keep a stale
+   * "progressing" verdict alive.
+   */
+  _trackLlmProgress(llm, domain, headAt) {
+    const now = this._now();
+    const current = new Map();
+    for (const entry of llm) {
+      if (!entry || entry.available !== true || entry.measurementValid === false || entry.error) continue;
+      current.set(endpointKey(entry), entry);
+    }
+    for (const key of this._llmProgress.keys()) {
+      if (!current.has(key)) this._llmProgress.delete(key);
+    }
+    if (domain === "llm") {
+      for (const [key, entry] of current) {
+        const counters = progressCounters(entry);
+        const prev = this._llmProgress.get(key);
+        const at = prev && countersAdvanced(prev.counters, counters) ? now : prev?.at ?? null;
+        this._llmProgress.set(key, { counters, at });
+      }
+    }
+    let latest = null;
+    for (const key of current.keys()) {
+      const at = this._llmProgress.get(key)?.at ?? null;
+      if (at != null && (latest == null || at > latest)) latest = at;
+    }
+    this.llmProgressAt = latest;
+    this.lowPowerProgressing = isRecentProgress(latest, now) || isRecentProgress(num(headAt), now);
+  }
+
   _lowPower(gpu, domain, out) {
     const util = num(gpu?.usage);
     const draw = num(gpu?.power?.draw);
@@ -111,6 +217,9 @@ export class HealthEvaluator {
     const suspicious = util >= LOW_POWER_UTIL && draw < LOW_POWER_WATTS;
     if (domain === "gpu") this._lowPowerStreak = suspicious ? this._lowPowerStreak + 1 : 0;
     if (this._lowPowerStreak < LOW_POWER_STREAK) return;
+    // Measured inference progress explains a busy GPU at idle draw; the streak
+    // keeps counting so the warning returns as soon as the evidence ages out.
+    if (this.lowPowerProgressing) return;
     out.push({
       id: "low-power",
       severity: "warn",

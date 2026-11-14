@@ -160,30 +160,35 @@ function tzOffset(ms: number, offsetMin?: number): number {
  * Short x-axis label. Days are UTC dates ("7 Oct"); hours are LOCAL clock hours ("14:00").
  * `offsetMin` (minutes east of UTC) overrides the browser's zone — used by tests.
  */
-export function bucketLabel(key: string, unit: BucketUnit, offsetMin?: number): string {
+export function bucketLabel(key: string, unit: BucketUnit, offsetMin?: number, locale?: string): string {
   const ms = parseKey(key);
   if (ms == null) return key;
   if (unit === "day") {
     const d = new Date(ms);
-    return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
+    return locale?.startsWith("zh") ? `${d.getUTCMonth() + 1}月${d.getUTCDate()}日` : `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
   }
   const d = new Date(ms + tzOffset(ms, offsetMin) * 60_000);
   return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
 }
 
 /** Tooltip heading: "Wed 7 Oct 2026 (UTC)" or "Wed 7 Oct, 14:00–15:00 (local)". */
-export function bucketTitle(key: string, unit: BucketUnit, offsetMin?: number): string {
+export function bucketTitle(key: string, unit: BucketUnit, offsetMin?: number, locale?: string): string {
   const ms = parseKey(key);
   if (ms == null) return key;
+  const zone = (kind: "UTC" | "local") => locale?.startsWith("zh") ? `（${kind === "UTC" ? "UTC" : "本地时间"}）` : ` (${kind})`;
+  const date = (d: Date, includeYear: boolean) =>
+    locale
+      ? new Intl.DateTimeFormat(locale, { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).format(d)
+      : `${WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}${includeYear ? ` ${d.getUTCFullYear()}` : ""}`;
   if (unit === "day") {
     const d = new Date(ms);
-    return `${WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()} (UTC)`;
+    return `${date(d, true)}${zone("UTC")}`;
   }
   const off = tzOffset(ms, offsetMin);
   const d = new Date(ms + off * 60_000);
   // Hour buckets are UTC hours, so a half-hour zone (India, Nepal...) starts them at :30 or :45.
   const clock = (t: Date) => `${String(t.getUTCHours()).padStart(2, "0")}:${String(t.getUTCMinutes()).padStart(2, "0")}`;
-  return `${WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}, ${clock(d)}–${clock(new Date(d.getTime() + 3_600_000))} (local)`;
+  return `${date(d, false)}, ${clock(d)}–${clock(new Date(d.getTime() + 3_600_000))}${zone("local")}`;
 }
 
 export interface RangeWindow {
@@ -517,6 +522,27 @@ export interface InsightInput {
   firstKey: string | null;
   sparkName: (id: string) => string;
   tzOffsetMin?: number;
+  /** UI callers may localize calendar text without changing the stable pure-helper default. */
+  formatBucketTitle?: (key: string, unit: BucketUnit, offsetMin?: number) => string;
+  labels?: TokenInsightLabels;
+}
+
+/** Optional rendering copy; omitted callers retain the stable English pure-helper output. */
+export interface TokenInsightLabels {
+  busiest: (values: { unit: string; when: string; tokens: string; share: string; period: string }) => string;
+  cacheUnmeasured: (values: { prompt: string }) => string;
+  cacheUnavailable: () => string;
+  cachePartial: (values: { rate: string; measured: string; unreported: string }) => string;
+  cacheSaved: (values: { rate: string; cached: string }) => string;
+  cacheNone: () => string;
+  onlyModel: (values: { model: string }) => string;
+  dominantModel: (values: { model: string; share: string; count: number }) => string;
+  spreadModels: (values: { model: string; share: string; count: number }) => string;
+  workload: (values: { promptPerGenerated: string; shape: string }) => string;
+  idle: (values: { idle: number; completed: number; unit: string; period: string }) => string;
+  topSpark: (values: { spark: string; share: string; count: number }) => string;
+  flat: (values: { period: string }) => string;
+  changed: (values: { direction: string; change: string; period: string }) => string;
 }
 
 const compact = formatTokensCompact;
@@ -531,29 +557,30 @@ export function buildInsights(i: InsightInput): string[] {
 
   if (s.busiest && s.activeBuckets >= 2) {
     const share = s.busiest.total / Math.max(1, i.totals.reduce((a, b) => a + b.total, 0));
-    out.push(`The busiest ${unitWord} was ${bucketTitle(s.busiest.key, i.spec.unit, i.tzOffsetMin).replace(/ \((UTC|local)\)$/, "")} with ${compact(s.busiest.total)} tokens, ${fmtPct(share)} of ${period === "all time" ? "the retained history" : period}.`);
+    const when = (i.formatBucketTitle?.(s.busiest.key, i.spec.unit, i.tzOffsetMin) ?? bucketTitle(s.busiest.key, i.spec.unit, i.tzOffsetMin)).replace(/(?: \((?:UTC|local)\)|（(?:UTC|本地时间)）)$/, "");
+    out.push(i.labels?.busiest({ unit: unitWord, when, tokens: compact(s.busiest.total), share: fmtPct(share), period: period === "all time" ? "the retained history" : period }) ?? `The busiest ${unitWord} was ${when} with ${compact(s.busiest.total)} tokens, ${fmtPct(share)} of ${period === "all time" ? "the retained history" : period}.`);
   }
 
   if (s.prompt > 0) {
     const rate = hitRate(s);
     if (rate == null && s.cacheReported !== false) {
-      out.push(`None of the ${compact(s.prompt)} prompt tokens was measured: they were read before the engine reported its prefix cache.`);
+      out.push(i.labels?.cacheUnmeasured({ prompt: compact(s.prompt) }) ?? `None of the ${compact(s.prompt)} prompt tokens was measured: they were read before the engine reported its prefix cache.`);
     } else if (rate == null) {
-      out.push("This engine does not publish a prefix-cache counter, so the cache hit rate cannot be measured — only the per-response split knows it.");
+      out.push(i.labels?.cacheUnavailable() ?? "This engine does not publish a prefix-cache counter, so the cache hit rate cannot be measured — only the per-response split knows it.");
     } else if (s.unreported > 0) {
-      out.push(`The prefix cache served ${fmtPct(rate)} of the ${compact(s.prompt - s.unreported)} prompt tokens it was measured on (${compact(s.unreported)} more were not reported).`);
+      out.push(i.labels?.cachePartial({ rate: fmtPct(rate), measured: compact(s.prompt - s.unreported), unreported: compact(s.unreported) }) ?? `The prefix cache served ${fmtPct(rate)} of the ${compact(s.prompt - s.unreported)} prompt tokens it was measured on (${compact(s.unreported)} more were not reported).`);
     } else if (s.cached > 0) {
-      out.push(`The prefix cache served ${fmtPct(rate)} of prompt tokens, so about ${compact(s.cached)} prefill tokens did not have to be recomputed.`);
+      out.push(i.labels?.cacheSaved({ rate: fmtPct(rate), cached: compact(s.cached) }) ?? `The prefix cache served ${fmtPct(rate)} of prompt tokens, so about ${compact(s.cached)} prefill tokens did not have to be recomputed.`);
     } else {
-      out.push("No prompt tokens were served from the prefix cache: either prefix caching is off or no prompt reused an earlier one.");
+      out.push(i.labels?.cacheNone() ?? "No prompt tokens were served from the prefix cache: either prefix caching is off or no prompt reused an earlier one.");
     }
   }
 
   const top = i.models[0];
   if (top) {
-    if (i.models.length === 1) out.push(`All traffic ran on ${top.modelId}.`);
-    else if (top.share >= 0.5) out.push(`${top.modelId} dominates, handling ${fmtPct(top.share)} of all tokens across ${i.models.length} models.`);
-    else out.push(`Traffic is spread across ${i.models.length} models; the busiest, ${top.modelId}, has ${fmtPct(top.share)}.`);
+    if (i.models.length === 1) out.push(i.labels?.onlyModel({ model: top.modelId }) ?? `All traffic ran on ${top.modelId}.`);
+    else if (top.share >= 0.5) out.push(i.labels?.dominantModel({ model: top.modelId, share: fmtPct(top.share), count: i.models.length }) ?? `${top.modelId} dominates, handling ${fmtPct(top.share)} of all tokens across ${i.models.length} models.`);
+    else out.push(i.labels?.spreadModels({ model: top.modelId, share: fmtPct(top.share), count: i.models.length }) ?? `Traffic is spread across ${i.models.length} models; the busiest, ${top.modelId}, has ${fmtPct(top.share)}.`);
   }
 
   if (s.genPerPrompt != null && s.generated > 0) {
@@ -561,26 +588,26 @@ export function buildInsights(i: InsightInput): string[] {
     const shape =
       r < 0.1 ? "a very input-heavy workload (long prompts, short answers)" : r < 0.5 ? "an input-heavy workload" : r <= 1.5 ? "a fairly balanced mix of input and output" : "an output-heavy workload";
     const perGen = s.prompt / s.generated;
-    out.push(`For every generated token, ${perGen >= 10 ? Math.round(perGen) : perGen.toFixed(1)} prompt tokens were read: ${shape}.`);
+    out.push(i.labels?.workload({ promptPerGenerated: String(perGen >= 10 ? Math.round(perGen) : perGen.toFixed(1)), shape }) ?? `For every generated token, ${perGen >= 10 ? Math.round(perGen) : perGen.toFixed(1)} prompt tokens were read: ${shape}.`);
   }
 
   const completed = i.totals.slice(0, -1).filter((b) => !i.firstKey || b.key >= i.firstKey);
   const idle = completed.filter((b) => b.total <= 0).length;
   if (idle > 0 && completed.length >= 2) {
-    out.push(`${idle} of the ${completed.length} completed ${unitWord}s in ${period === "all time" ? "the retained history" : period} had no traffic at all.`);
+    out.push(i.labels?.idle({ idle, completed: completed.length, unit: unitWord, period: period === "all time" ? "the retained history" : period }) ?? `${idle} of the ${completed.length} completed ${unitWord}s in ${period === "all time" ? "the retained history" : period} had no traffic at all.`);
   }
 
   const sparkTotals = new Map<string, number>();
   for (const e of i.endpoints) sparkTotals.set(e.sparkId, (sparkTotals.get(e.sparkId) || 0) + e.total);
   if (sparkTotals.size >= 2 && out.length < 6) {
     const [id, v] = [...sparkTotals.entries()].sort((a, b) => b[1] - a[1])[0];
-    out.push(`${i.sparkName(id)} served ${fmtPct(v / s.total)} of all tokens, the most of ${sparkTotals.size} Sparks.`);
+    out.push(i.labels?.topSpark({ spark: i.sparkName(id), share: fmtPct(v / s.total), count: sparkTotals.size }) ?? `${i.sparkName(id)} served ${fmtPct(v / s.total)} of all tokens, the most of ${sparkTotals.size} Sparks.`);
   }
 
   if (i.comparison?.total != null && out.length < 6) {
     const c = i.comparison.total;
     const prev = i.spec.phrase.replace("the last", "the previous");
-    out.push(Math.abs(c) < 0.01 ? `Usage is flat compared with ${prev}.` : `Usage is ${c > 0 ? "up" : "down"} ${fmtPct(Math.abs(c))} compared with ${prev}.`);
+    out.push(Math.abs(c) < 0.01 ? (i.labels?.flat({ period: prev }) ?? `Usage is flat compared with ${prev}.`) : (i.labels?.changed({ direction: c > 0 ? "up" : "down", change: fmtPct(Math.abs(c)), period: prev }) ?? `Usage is ${c > 0 ? "up" : "down"} ${fmtPct(Math.abs(c))} compared with ${prev}.`));
   }
   return out.slice(0, 6);
 }

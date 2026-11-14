@@ -1,10 +1,15 @@
+import { i18n, setLocale } from "../../i18n";
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const fetchLaunchers = vi.fn();
 const runLauncher = vi.fn();
 const reorderLaunchers = vi.fn();
+const fetchRuntimeControl = vi.fn();
 vi.mock("../../api/client", () => ({
+  fetchRuntimeControl: (...a: unknown[]) => fetchRuntimeControl(...a),
+  startMacRuntime: vi.fn(),
+  stopMacRuntime: vi.fn(),
   fetchLaunchers: (...a: unknown[]) => fetchLaunchers(...a),
   runLauncher: (...a: unknown[]) => runLauncher(...a),
   reorderLaunchers: (...a: unknown[]) => reorderLaunchers(...a),
@@ -13,6 +18,8 @@ vi.mock("../../api/client", () => ({
   updateLauncher: vi.fn(),
   readLauncherJob: vi.fn(() => new Promise(() => {})),
   cancelLauncherJob: vi.fn(),
+  // The Add-a-model dialog scans on open; keep it pending so the validation alert is the only one.
+  discoverModels: vi.fn(() => new Promise(() => {})),
 }));
 
 import type { LauncherJob } from "../../api/types";
@@ -21,8 +28,26 @@ import { appendLines } from "../../hooks/useLauncherJob";
 import { makeSpark } from "../../testing/fixtures";
 import { flush, render } from "../../testing/render";
 import { terminalText } from "../ui/LiveTerminal";
-import { validateLauncherForm } from "./LlmLauncherDialog";
-import { formatElapsed, jobHeadline, jobTone, LlmModelsPanel } from "./LlmModelsPanel";
+import { LlmLauncherDialog, validateLauncherForm } from "./LlmLauncherDialog";
+import { addLauncher } from "../../api/client";
+import { formatElapsed, jobHeadline as localizedJobHeadline, jobTone, LlmModelsPanel } from "./LlmModelsPanel";
+
+const jobHeadline = (job: LauncherJob) => localizedJobHeadline(job, i18n.getFixedT("en", "hardware"));
+
+describe("Mac Models profiles", () => {
+  it("uses the authenticated profile catalog instead of script registration on agent Macs", async () => {
+    fetchRuntimeControl.mockResolvedValue({ state: "ready", serving: [], targets: [] });
+    fetchLaunchers.mockClear();
+    const spark = { ...makeSpark("mac"), kind: "mac" as const, macTransport: "agent" as const };
+    const { container } = render(<LlmModelsPanel spark={spark} />);
+    await flush();
+    expect(container.querySelector(".panel-title")?.textContent).toBe("Models");
+    expect(container.querySelector('[data-testid="runtime-launcher"]')).not.toBeNull();
+    expect(container.textContent).not.toContain("Add your first model");
+    expect(fetchLaunchers).not.toHaveBeenCalled();
+    expect(fetchRuntimeControl).toHaveBeenCalledWith("mac");
+  });
+});
 
 const job = (over: Partial<LauncherJob>): LauncherJob => ({
   id: "j1",
@@ -81,14 +106,48 @@ describe("terminal buffer", () => {
 });
 
 describe("add model form validation", () => {
+  it("translates validation while retaining draft input and an in-flight save", async () => {
+    const initialLocale = i18n.language;
+    await setLocale("en");
+    vi.mocked(addLauncher).mockClear();
+    vi.mocked(addLauncher).mockImplementation(() => new Promise(() => {}));
+    try {
+      render(<LlmLauncherDialog open sparkId="s1" sparkName="Raw host" onClose={vi.fn()} onSaved={vi.fn()} />);
+      const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
+      const inputs = [...dialog.querySelectorAll<HTMLInputElement>("input")];
+      const set = (input: HTMLInputElement, value: string) => act(() => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      set(inputs[0], "Raw model");
+      set(inputs[1], "relative/path");
+      act(() => dialog.querySelector<HTMLButtonElement>('[type="submit"]')!.click());
+      expect(dialog.querySelector('[role="alert"]')?.textContent).toContain("must start with");
+      await act(async () => { await setLocale("zh-CN"); });
+      expect(dialog.querySelector('[role="alert"]')?.textContent).toContain("目录必须以");
+      expect(inputs[0].value).toBe("Raw model");
+      expect(inputs[1].value).toBe("relative/path");
+      expect(addLauncher).not.toHaveBeenCalled();
+      set(inputs[1], "/models/raw");
+      act(() => dialog.querySelector<HTMLButtonElement>('[type="submit"]')!.click());
+      expect(addLauncher).toHaveBeenCalledTimes(1);
+      await act(async () => { await setLocale("en"); });
+      expect(addLauncher).toHaveBeenCalledTimes(1);
+      expect(dialog.querySelector<HTMLButtonElement>('[type="submit"]')!.disabled).toBe(true);
+      expect(inputs[0].value).toBe("Raw model");
+    } finally {
+      await act(async () => { await i18n.changeLanguage(initialLocale); });
+    }
+  });
+
   it("accepts a normal form and flags the common mistakes", () => {
     expect(validateLauncherForm({ name: "GLM", dir: "/home/me/glm", port: "8888" })).toBeNull();
     expect(validateLauncherForm({ name: "GLM", dir: "~/glm", port: "" })).toBeNull();
-    expect(validateLauncherForm({ name: " ", dir: "/x", port: "" })).toMatch(/name/i);
-    expect(validateLauncherForm({ name: "a", dir: "", port: "" })).toMatch(/directory/i);
-    expect(validateLauncherForm({ name: "a", dir: "relative/x", port: "" })).toMatch(/start with/);
-    expect(validateLauncherForm({ name: "a", dir: "/with space", port: "" })).toMatch(/Spaces/);
-    expect(validateLauncherForm({ name: "a", dir: "/x", port: "99999" })).toMatch(/Port/);
+    expect(validateLauncherForm({ name: " ", dir: "/x", port: "" })).toBe("name");
+    expect(validateLauncherForm({ name: "a", dir: "", port: "" })).toBe("directory");
+    expect(validateLauncherForm({ name: "a", dir: "relative/x", port: "" })).toBe("absolute");
+    expect(validateLauncherForm({ name: "a", dir: "/with space", port: "" })).toBe("spaces");
+    expect(validateLauncherForm({ name: "a", dir: "/x", port: "99999" })).toBe("port");
   });
 });
 
@@ -186,6 +245,9 @@ describe("reordering the model list", () => {
     const container = await open();
     expect(names(container)).toEqual(["Alpha", "Beta", "Gamma"]);
     expect(grips(container).map((g) => g.getAttribute("aria-label"))).toEqual(["Reorder Alpha", "Reorder Beta", "Reorder Gamma"]);
+    await act(async () => { await setLocale("zh-CN"); });
+    expect(grips(container).map((g) => g.getAttribute("aria-label"))).toEqual(["重新排序 Alpha", "重新排序 Beta", "重新排序 Gamma"]);
+    await act(async () => { await setLocale("en"); });
   });
 
   it("shows no handle for a single model", async () => {

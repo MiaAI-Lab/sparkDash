@@ -106,7 +106,7 @@ export function GpuClockSection({ sparkId }: { sparkId: string }) {
   const sudoMissing = status.sudo === "no";
   /** A password typed here crosses the network: only over https or from the machine itself. */
   const secure =
-    (typeof window === "undefined" || window.isSecureContext !== false) && status.passwordAllowed !== false;
+    (typeof window === "undefined" || window.isSecureContext !== false || status.plainPasswordAllowed === true) && status.passwordAllowed !== false;
   const needPw = sudoMissing && secure;
   const pwOk = !needPw || sudoPw.length > 0;
   const pwArg = needPw ? sudoPw : undefined;

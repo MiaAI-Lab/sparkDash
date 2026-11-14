@@ -3,12 +3,17 @@ dist/
 .env
 sparks.json
 config/sparks-secrets.json
+config/storage-sudo.json
+config/storage-scans.json
+config/storage-acks.json
 config/.secrets-key
 config/bench-history.json
 config/bench-active.json
 config/prefill-bench-history.json
 config/prefill-bench-active.json
 config/quality-bench-history.json
+config/quality-bench-references.json
+config/quality-fidelity/
 config/quality-bench-active.json
 config/showcase-history.json
 config/llm-daily.json
@@ -18,8 +23,10 @@ config/model-prices.json
 config/model-prices.json.*
 config/fleet-energy.json
 config/fleet-energy-monthly.json*
+config/power-meters.json
 config/fleet-energy-monthly.unreadable-*
 config/.fleet-energy.json.*.tmp
+config/fleet-energy.recent.json
 config/alerts.json
 config/alerts.json.*
 config/gpu-memory.json
@@ -51,6 +58,8 @@ config/metrics-history.json.corrupt-*
 config/fleet-energy.scope-*.json
 config/*.tmp
 config/*.json.*.tmp
+__pycache__/
+*.pyc
 
 # Keep only the unified localization inventory under version control.
 !/docs/

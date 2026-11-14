@@ -17,6 +17,7 @@
     "prometheus": { "title": "Prometheus 指标", "help": "为 Prometheus / Grafana 提供各节点指标，可从 {{origin}}/metrics 抓取。默认关闭。" },
     "intelVramSudo": { "title": "通过 sudo 读取 Intel Arc VRAM", "help": "通过每台主机上的 sudo -n 从仅 root 可访问的 debugfs 读取精确 Intel Arc VRAM 使用量。默认关闭：此时 VRAM 显示 PCI BAR 大小，且不会以 sudo 运行任何操作。" },
     "metricsHistory": { "title": "指标历史", "help": "在服务器中为每个节点保留 48 小时的 1 分钟历史和 30 天的 15 分钟历史（GPU、内存余量、CPU、网络、LLM tok/s 和 KV；每节点磁盘至多约 1 MB），并在每个节点页面的 History 面板中绘制图表。默认关闭。" },
+    "llmStreamSample": { "title": "对流采样无指标引擎", "help": "对于不发布任何实时计数器的 LLM 引擎（Pico），每 15 秒发送一次微型流式补全并对 token 计时，从而测量解码 tok/s；面板会将该数值标注为采样值。默认关闭。当基准测试、展示或模型启动占用该节点时采样会暂停；预填充不做采样——能测出预填充速度的提示词就是真实负载，而非探测。" },
     "fleetEnergy": { "title": "显示集群能耗", "help": "Overview 卡片显示滚动的集群功耗估算。完整 Fleet energy 页面始终可从侧边栏进入。" },
     "llmTokenTotals": { "title": "显示 LLM Token 总数", "help": "Overview 卡片显示每个模型的累计提示 / 生成 Token。完整 Token totals 页面始终可从侧边栏进入。" },
     "recentActivity": { "title": "显示最近活动", "help": "Overview 卡片显示最新健康和内核事件。完整 Activity 页面始终可从侧边栏进入。" },
@@ -25,10 +26,11 @@
     "memoryInUse": { "title": "显示已用内存磁贴", "help": "Overview 磁贴显示集群已用内存总量。" },
     "tokens24Hours": { "title": "显示最近 24 小时 Token 磁贴", "help": "Overview 磁贴显示最近 24 小时生成的 Token（尚未跟踪 Token 时显示在线节点数）。" },
     "fleetExceptions": { "title": "显示活跃集群异常", "help": "Overview 条带显示离线主机、GPU 降频、磁盘、LLM 和 Tailnet 告警。默认关闭。" },
-    "benchDebugTraces": { "title": "保存基准测试调试追踪", "help": "在基准测试历史中存储 prompts、HTTP/completion ID、内容预览和 GPU 样本。默认关闭；会产生更大的历史文件。" }
+    "benchDebugTraces": { "title": "保存基准测试调试追踪", "help": "在基准测试历史中存储 prompts、HTTP/completion ID、内容预览和 GPU 样本。默认关闭；会产生更大的历史文件。" },
+    "apiKeys": { "title": "API 密钥页面", "help": "通过 Unix socket 上的主机端桥接服务，只读查看 LiteLLM 虚拟密钥。默认关闭；需要在服务器环境中设置 SPARKDASH_APIKEYS_BRIDGE_SOCKET 和 SPARKDASH_APIKEYS_BRIDGE_TOKEN。详见 README 的 API Keys 章节。" }
   },
   "electricityPrice": { "title": "电价", "help": "每 kWh 的价格，用于 Fleet energy 页面上的估算成本。留空可隐藏成本。", "currency": "货币符号" },
-  "alertNotifications": { "title": "告警通知", "help": "当 Health 发现和 Overview 异常持续一段时间后，以及它们恢复时，发送到 ntfy、Discord、Slack 或 webhook。默认关闭。", "on": "开启", "off": "关闭", "configure": "配置…" },
+  "alertNotifications": { "title": "告警通知", "help": "当 Health 发现和 Overview 异常持续一段时间后，以及它们恢复时，发送到 ntfy、Discord、Slack、Gotify 或 webhook。默认关闭。", "on": "开启", "off": "关闭", "configure": "配置…" },
   "browserAlerts": { "tabBadge": { "title": "标签页徽标", "help": "标签页标题显示活跃集群告警数量——离线节点、降频、存储、LLM 和 Health——例如“(2) sparkDash”，图标会出现红色（严重）或琥珀色圆点。即使“显示活跃集群异常”关闭，也会统计全部告警。仅此浏览器；立即保存。" }, "desktop": { "title": "桌面通知", "help": "此页面打开期间，当某个集群告警变为活跃（任何类型，与标签页徽标相同）时发送通知。仅此浏览器；立即保存。", "blocked": "此站点的通知已被阻止。请在浏览器的网站设置中允许通知，然后再次开启。", "refused": "此浏览器拒绝了通知权限请求。", "insecure": "浏览器只允许在 HTTPS 或 localhost 上使用通知，而当前页面是普通 HTTP。请使用 SSH 隧道、Tailscale Serve 或 HTTPS 代理，或在告警通知中使用 ntfy 频道。", "unsupported": "此浏览器不支持桌面通知。", "withdrawn": "浏览器中的权限已被撤回；重新允许前不会显示任何内容。" } },
   "accessToken": { "title": "访问令牌", "help": "此浏览器保存的服务器令牌副本，会发送给已经要求令牌的服务器。它无法开启保护：请在主机的 .env 中设置 SPARKDASH_TOKEN 并重新创建容器。只保存在此浏览器中。", "set": "已设置", "notSet": "未设置", "change": "更改", "add": "添加令牌", "clear": "清除" },
   "about": { "version": "sparkDash v{{version}}", "github": "GitHub MiaAI-Lab" },
@@ -37,7 +39,9 @@
     "publishing": { "title": "MQTT 发布", "help": "在动态事件和各设备的监控读数变化时，将其发布到你的 MQTT 服务器（Home Assistant、Node-RED 等）。默认关闭，主题列表见 README 的 MQTT 章节。" },
     "url": { "title": "MQTT 服务器地址", "help": "使用 mqtt://host:1883，TLS 使用 mqtts://，WebSocket 使用 ws(s)://。密码从 SPARKDASH_MQTT_PASSWORD 环境变量读取，不会写入 settings.json。" },
     "username": { "title": "MQTT 用户名", "help": "服务器允许匿名发布时可留空。", "placeholder": "留空" },
-    "prefix": { "title": "MQTT 主题前缀", "help": "所有发布主题的根前缀：PREFIX/events、PREFIX/status/… 和 PREFIX/metrics/…" }
+    "prefix": { "title": "MQTT 主题前缀", "help": "所有发布主题的根前缀：PREFIX/events、PREFIX/status/… 和 PREFIX/metrics/…" },
+    "discovery": { "title": "Home Assistant 自动发现", "help": "发布保留的自动发现配置，让 Home Assistant 为每台设备自动创建设备及其传感器。需要先开启上方的 MQTT 发布。" },
+    "discoveryPrefix": { "title": "自动发现前缀", "help": "必须与 Home Assistant 中 MQTT 集成的自动发现前缀一致（默认 homeassistant）。" }
   },
   "gpuClock": {
     "title": "GPU 频率上限",

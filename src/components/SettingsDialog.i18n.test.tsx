@@ -31,9 +31,11 @@ it("switches the mounted Settings page both ways without saving server settings"
   await flush();
   expect(title()).toBe("Settings");
   expect(button("Save").disabled).toBe(true);
+  expect(document.querySelector('[role="switch"][aria-label="API Keys page"]')).not.toBeNull();
   await act(async () => button("简体中文").click());
   expect(title()).toBe("设置");
   expect(document.querySelector('[aria-label="主题"]')).not.toBeNull();
+  expect(document.querySelector('[role="switch"][aria-label="API 密钥页面"]')).not.toBeNull();
   expect(localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("zh-CN");
   expect(button("保存").disabled).toBe(true);
   await act(async () => button("English").click());

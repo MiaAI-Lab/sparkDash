@@ -1,0 +1,71 @@
+/* API Keys page (opt-in, read-only). Builds on the tk-* page, card and table styles. */
+.ak .ak-head {
+  align-items: flex-end;
+}
+.ak .ak-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.75rem;
+  font-size: 0.8rem;
+}
+.ak .ak-table td,
+.ak .ak-table th {
+  white-space: nowrap;
+  vertical-align: top;
+}
+.ak .ak-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.ak .ak-unknown {
+  color: var(--color-muted);
+  font-style: italic;
+}
+.ak .ak-table tr.is-selected td {
+  background: var(--color-surface-hover);
+}
+.ak .ak-sub {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--color-muted);
+}
+.ak .ak-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--color-text-strong);
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline dotted;
+}
+.ak .ak-pill {
+  display: inline-block;
+  padding: 0.05rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-muted);
+}
+.ak .ak-pill--active {
+  color: var(--color-success);
+}
+.ak .ak-pill--blocked {
+  color: var(--color-warning);
+}
+.ak .ak-pill--down {
+  color: var(--color-danger);
+}
+.ak .ak-detail {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 1rem;
+  font-size: 0.85rem;
+}
+.ak .ak-detail dt {
+  color: var(--color-muted);
+}

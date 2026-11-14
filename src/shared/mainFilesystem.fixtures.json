@@ -1,0 +1,76 @@
+{
+  "about": "Disk layouts for mainFilesystem(). Shared by the browser tests (Spark card vs disk summary) and the server test, so every caller agrees on the main disk. Sizes in bytes; expected is null when no row qualifies.",
+  "layouts": [
+    {
+      "name": "DGX Spark default: one NVMe with an EFI partition",
+      "rows": [
+        { "device": "nvme0n1p1", "mount": "/boot/efi", "totalBytes": 535822336 },
+        { "device": "nvme0n1p2", "mount": "/", "totalBytes": 3936989937664 }
+      ],
+      "expected": { "device": "nvme0n1p2", "mount": "/" }
+    },
+    {
+      "name": "small root disk, large data disk",
+      "rows": [
+        { "device": "sda2", "mount": "/", "totalBytes": 107374182400 },
+        { "device": "nvme0n1", "mount": "/data", "totalBytes": 4000787030016 },
+        { "device": "sda1", "mount": "/boot/efi", "totalBytes": 1073741824 }
+      ],
+      "expected": { "device": "sda2", "mount": "/" }
+    },
+    {
+      "name": "bind mounts repeat devices",
+      "rows": [
+        { "device": "nvme0n1p2", "mount": "/var/lib/docker", "totalBytes": 1000204886016 },
+        { "device": "nvme1n1", "mount": "/home/me/models", "totalBytes": 2000398934016 },
+        { "device": "nvme0n1p2", "mount": "/", "totalBytes": 1000204886016 },
+        { "device": "nvme1n1", "mount": "/mnt/models", "totalBytes": 2000398934016 }
+      ],
+      "expected": { "device": "nvme0n1p2", "mount": "/" }
+    },
+    {
+      "name": "no root row: the biggest data disk, at its real mount",
+      "rows": [
+        { "device": "nvme0n1p3", "mount": "/home", "totalBytes": 1000204886016 },
+        { "device": "nvme1n1", "mount": "/data/sub", "totalBytes": 2000398934016 },
+        { "device": "nvme1n1", "mount": "/data", "totalBytes": 2000398934016 },
+        { "device": "nvme0n1p1", "mount": "/boot/efi", "totalBytes": 535822336 }
+      ],
+      "expected": { "device": "nvme1n1", "mount": "/data" }
+    },
+    {
+      "name": "a boot partition is never the main disk, even when it is the biggest",
+      "rows": [
+        { "device": "sdb1", "mount": "/boot/efi", "totalBytes": 8001563222016 },
+        { "device": "sdb2", "mount": "/boot", "totalBytes": 6001563222016 },
+        { "device": "nvme0n1p3", "mount": "/home", "totalBytes": 1000204886016 },
+        { "device": "loop3", "mount": "/snap/core22/1380", "totalBytes": 9001563222016 }
+      ],
+      "expected": { "device": "nvme0n1p3", "mount": "/home" }
+    },
+    {
+      "name": "only boot partitions",
+      "rows": [
+        { "device": "nvme0n1p1", "mount": "/boot/efi", "totalBytes": 535822336 },
+        { "device": "nvme0n1p2", "mount": "/boot", "totalBytes": 1073741824 }
+      ],
+      "expected": null
+    },
+    {
+      "name": "equal sizes break the tie the same way everywhere",
+      "rows": [
+        { "device": "sdc", "mount": "/b", "totalBytes": 1000204886016 },
+        { "device": "sdd", "mount": "/a", "totalBytes": 1000204886016 }
+      ],
+      "expected": { "device": "sdd", "mount": "/a" }
+    },
+    {
+      "name": "two rows at / (separate system and data volumes): the bigger one",
+      "rows": [
+        { "device": "disk3s1", "mount": "/", "totalBytes": 494384795648 },
+        { "device": "disk3s5", "mount": "/", "totalBytes": 994662584320 }
+      ],
+      "expected": { "device": "disk3s5", "mount": "/" }
+    }
+  ]
+}

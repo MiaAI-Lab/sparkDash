@@ -1,4 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import "../../styles/kiosk.css";
 import { fetchFleetEnergy, fetchSettings } from "../../api/client";
 import type { FleetEnergy, Settings, SparkSnapshot } from "../../api/types";
@@ -6,7 +7,7 @@ import { resolveSparkRole } from "../../api/sparkRole";
 import { OVERVIEW_ID, idToPath } from "../../constants";
 import { useSnapshot } from "../../hooks/useSnapshot";
 import { useFleetAlerts } from "../../hooks/useFleetAlerts";
-import { formatTemperature } from "../../shared/fleetExceptions";
+import { fleetExceptions, formatTemperature } from "../../shared/fleetExceptions";
 import { formatDiskSize } from "../../shared/formatBytes";
 import { headroomTextClass } from "../../shared/vramBreakdown";
 import { makeHeadResolver } from "../../shared/sparkHead";
@@ -98,24 +99,25 @@ function rateText(v: number | null): string {
 
 /** A unit's 30-minute trace inside its card. */
 function UnitTrace({ traces }: { traces: KioskTraces | undefined }) {
+  const { t } = useTranslation("statistics");
   if (!traces) return <div className="kiosk-card__trace" />;
   const series: Series[] = [
-    { key: "gpu", label: "GPU", values: traces.gpu, max: 100, format: pctText },
-    { key: "cpu", label: "CPU", values: traces.cpu, max: 100, format: pctText },
+    { key: "gpu", label: t("kiosk.gpu"), values: traces.gpu, max: 100, format: pctText },
+    { key: "cpu", label: t("kiosk.cpu"), values: traces.cpu, max: 100, format: pctText },
   ];
   const scales: string[] = [];
   if (traces.gen.some((v) => v != null)) {
     const max = rateScale(traces.gen);
-    series.push({ key: "gen", label: "gen tok/s", values: traces.gen, max, format: rateText });
-    scales.push(`gen ≤${max}`);
+    series.push({ key: "gen", label: t("kiosk.genRate"), values: traces.gen, max, format: rateText });
+    scales.push(t("kiosk.traceScale", { name: t("kiosk.gen"), max }));
   }
   if (traces.prefill.some((v) => v != null)) {
     const max = rateScale(traces.prefill, 100);
-    series.push({ key: "prefill", label: "prefill tok/s", values: traces.prefill, max, dashed: true, format: rateText });
-    scales.push(`prefill ≤${max}`);
+    series.push({ key: "prefill", label: t("kiosk.prefillRate"), values: traces.prefill, max, dashed: true, format: rateText });
+    scales.push(t("kiosk.traceScale", { name: t("kiosk.tracePrefill"), max }));
   }
   // The % lines share 0–100; each tok/s line gets its own auto peak, so name both tops.
-  const caption = scales.length ? `tok/s auto peak · ${scales.join(" · ")}` : undefined;
+  const caption = scales.length ? t("kiosk.traceAutoPeak", { scales: scales.join(" · ") }) : undefined;
   return <KioskTrace series={series} className="kiosk-card__trace" caption={caption} />;
 }
 
@@ -150,17 +152,18 @@ const KioskCardView = memo(function KioskCardView({
   traces: KioskTraces | undefined;
   tempUnit: TempUnit;
 }) {
-  const c = kioskCard(spark, headSpark, vramContext);
+  const { t } = useTranslation("statistics");
+  const c = kioskCard(spark, headSpark, vramContext, t);
   const temp = (v: number | null) => (v == null ? "—" : formatTemperature(v, tempUnit));
   return (
-    <article className={`kiosk-card${c.online ? "" : " is-offline"}`} aria-label={c.online ? c.name : `${c.name}, offline`}>
+    <article className={`kiosk-card${c.online ? "" : " is-offline"}`} aria-label={c.online ? c.name : t("kiosk.offlineAria", { name: c.name })}>
       <div className="kiosk-card__in">
         <header className="kiosk-card__head">
           <span className={`kiosk-dot${c.online ? "" : " is-off"}`} />
           <span className="kiosk-card__name">{c.name}</span>
           {c.role !== "standalone" ? (
-            <span className="kiosk-card__role" title={c.workerOf ? `Worker of ${c.workerOf.name}` : undefined}>
-              {c.workerOf ? `worker · ${c.workerOf.name}` : c.role}
+            <span className="kiosk-card__role" title={c.workerOf ? t("kiosk.workerOf", { name: c.workerOf.name }) : undefined}>
+              {c.workerOf ? t("kiosk.workerOfShort", { name: c.workerOf.name }) : c.role === "head" ? t("kiosk.roleHead") : t("kiosk.roleWorker")}
             </span>
           ) : null}
           {c.online && c.model ? (
@@ -173,7 +176,7 @@ const KioskCardView = memo(function KioskCardView({
         </header>
         {!c.online ? (
           <div className="kiosk-card__offline">
-            <span>offline</span>
+            <span>{t("kiosk.offline")}</span>
             {c.offlineReason ? <small>{c.offlineReason}</small> : null}
           </div>
         ) : (
@@ -197,22 +200,22 @@ const KioskCardView = memo(function KioskCardView({
                         {it.label} {it.gb} GB
                       </span>
                     ))}
-                    {c.memory.ram ? <span>RAM {c.memory.ram}</span> : null}
+                    {c.memory.ram ? <span>{t("kiosk.ram", { value: c.memory.ram })}</span> : null}
                   </div>
                 ) : null}
               </div>
             ) : null}
             <div className="kiosk-card__stats">
-              <Stat label="GPU" value={pctText(c.gpuPct)} />
-              <Stat label="CPU" value={pctText(c.cpuPct)} />
-              <Stat label="GPU temp" value={temp(c.gpuTempC)} />
-              <Stat label="CPU temp" value={temp(c.cpuTempC)} />
-              <Stat label="GPU power" value={c.gpuW == null ? "—" : `${Math.round(c.gpuW)} W`} />
-              <Stat label="Disk free" value={c.diskFreeMb == null ? "—" : formatDiskSize(c.diskFreeMb)} />
+              <Stat label={t("kiosk.gpu")} value={pctText(c.gpuPct)} />
+              <Stat label={t("kiosk.cpu")} value={pctText(c.cpuPct)} />
+              <Stat label={t("kiosk.gpuTemp")} value={temp(c.gpuTempC)} />
+              <Stat label={t("kiosk.cpuTemp")} value={temp(c.cpuTempC)} />
+              <Stat label={t("kiosk.gpuPower")} value={c.gpuW == null ? "—" : `${Math.round(c.gpuW)} W`} />
+              <Stat label={t("kiosk.diskFree")} value={c.diskFreeMb == null ? "—" : formatDiskSize(c.diskFreeMb)} />
               {c.rates ? (
                 <>
-                  <Stat label="Decode" value={c.rates.decode} unit="tok/s" live={c.rates.decodeLive} />
-                  <Stat label="Prefill" value={c.rates.prefill} unit={c.rates.prefill === "prefilling" ? undefined : "tok/s"} />
+                  <Stat label={t("kiosk.decode")} value={c.rates.decode} unit={t("kiosk.tokPerSec")} live={c.rates.decodeLive} />
+                  <Stat label={t("kiosk.prefill")} value={c.rates.prefill} unit={c.rates.prefill === t("kiosk.prefilling") ? undefined : t("kiosk.tokPerSec")} />
                 </>
               ) : null}
             </div>
@@ -314,6 +317,7 @@ function useCursorActive(): boolean {
  * says how old it is.
  */
 export function KioskPage() {
+  const { t } = useTranslation("statistics");
   const options = useMemo(() => parseKioskOptions(window.location.search), []);
   const { sparks, connected, lastValidSnapshotAt, refreshInterval, serverAlerts } = useSnapshot();
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -328,7 +332,7 @@ export function KioskPage() {
   }, [options.theme]);
 
   useEffect(() => {
-    document.title = "sparkDash · Kiosk";
+    document.title = t("kiosk.documentTitle");
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") window.location.href = idToPath(OVERVIEW_ID);
     };
@@ -339,7 +343,7 @@ export function KioskPage() {
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("resize", onResize);
     };
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -385,6 +389,19 @@ export function KioskPage() {
   const stats = useMemo(() => kioskFleetStats(sparks), [sparks]);
   const traces = useKioskTraces(sparks);
   const alerts = useFleetAlerts({ sparks, alertsEnabled: Boolean(settings?.alertsEnabled), serverAlerts, temperatureUnit: tempUnit });
+  const localizedAlertLabels = useMemo(() => {
+    const labelFor = (id: string, label: string) => {
+      switch (id) {
+        case "offline": return t("kiosk.alertOffline");
+        case "disk": return t("kiosk.alertDisk");
+        case "llm": return t("kiosk.alertLlm");
+        case "tailnet": return t("kiosk.alertTailnet");
+        case "throttle": return label === "is thermal throttling" ? t("kiosk.alertThermalThrottle") : t("kiosk.alertHardwareSlowdown");
+        default: return label;
+      }
+    };
+    return new Map(sparks.flatMap((spark) => fleetExceptions(spark, tempUnit).map((exception) => [`${spark.id}:${exception.id}`, labelFor(exception.id, exception.label)])));
+  }, [sparks, t, tempUnit]);
 
   const fleetGen = useMemo(() => sumTraces(Object.values(traces).map((t) => t.gen)), [traces]);
   const showBreakdown = settings?.showVramBreakdown !== false;
@@ -413,7 +430,7 @@ export function KioskPage() {
   return (
     <div className={`kiosk kiosk--${options.fit}${cursorActive ? "" : " is-idle"}`}>
       <header className="kiosk-head">
-        <a href="/" className="kiosk-brand" title="Back to the dashboard (Esc)">
+        <a href="/" className="kiosk-brand" title={t("kiosk.back")}>
           <span className="brand__mark">
             <BoltIcon className="h-[17px] w-[17px]" />
           </span>
@@ -421,25 +438,25 @@ export function KioskPage() {
             spark<span className="brand__dash">Dash</span>
           </span>
         </a>
-        <HeadKpi value={rateText(totals.decodeTps)} label="tok/s fleet decode" trace={fleetGen} traceKey="gen" />
-        <HeadKpi value={totals.powerW == null ? "—" : totals.powerW.toFixed(0)} unit={totals.powerW == null ? undefined : "W"} label="GPU power" />
-        <HeadKpi value={stats.gpuTempMaxC == null ? "—" : formatTemperature(stats.gpuTempMaxC, tempUnit)} label="hottest GPU" />
-        <HeadKpi value={stats.queued == null ? "—" : String(stats.queued)} label="queued" />
+        <HeadKpi value={rateText(totals.decodeTps)} label={t("kiosk.fleetDecode")} trace={fleetGen} traceKey="gen" />
+        <HeadKpi value={totals.powerW == null ? "—" : totals.powerW.toFixed(0)} unit={totals.powerW == null ? undefined : "W"} label={t("kiosk.gpuPower")} />
+        <HeadKpi value={stats.gpuTempMaxC == null ? "—" : formatTemperature(stats.gpuTempMaxC, tempUnit)} label={t("kiosk.hottestGpu")} />
+        <HeadKpi value={stats.queued == null ? "—" : String(stats.queued)} label={t("kiosk.queued")} />
         <HeadKpi
           value={energy?.energy24hKwh == null ? "—" : energy.energy24hKwh.toFixed(1)}
           unit="kWh"
-          label={energy?.estimated ? "24 h · est." : "24 h"}
+          label={energy?.estimated ? t("kiosk.energyEstimated") : t("kiosk.energy24h")}
         />
-        <HeadKpi value={energy ? formatTokensCompact(energy.outputTokens24h) : "—"} label="tokens · 24 h" />
-        <HeadKpi value={`${stats.online}/${stats.total}`} label="online" />
+        <HeadKpi value={energy ? formatTokensCompact(energy.outputTokens24h) : "—"} label={t("kiosk.tokens24h")} />
+        <HeadKpi value={`${stats.online}/${stats.total}`} label={t("kiosk.online")} />
         <div className="kiosk-clock">
           <div className="kiosk-clock__time">{clock}</div>
           <div className="kiosk-clock__date">{date}</div>
           {!connected || stale ? (
             <div className="kiosk-clock__stale">
               {lastValidSnapshotAt
-                ? `stale · ${new Date(lastValidSnapshotAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", timeZone: tz })}`
-                : "connecting…"}
+                ? t("kiosk.stale", { time: new Date(lastValidSnapshotAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", timeZone: tz }) })
+                : t("kiosk.connecting")}
             </div>
           ) : null}
         </div>
@@ -453,10 +470,10 @@ export function KioskPage() {
         </div>
       </main>
       {alerts.ready && alerts.rows.length ? (
-        <section className="kiosk-alerts" aria-label="Active alerts">
+        <section className="kiosk-alerts" aria-label={t("kiosk.activeAlerts")}>
           {alerts.rows.map((a) => (
             <span key={a.key} className={`kiosk-alert is-${a.severity}`}>
-              <b>{a.unitName}</b> {a.label}
+              <b>{a.unitName}</b> {localizedAlertLabels.get(a.key) ?? a.label}
             </span>
           ))}
         </section>

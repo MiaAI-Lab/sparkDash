@@ -5,11 +5,15 @@ export const TOKENS_ID = "__tokens__";
 export const ENERGY_ID = "__energy__";
 export const TEMPS_ID = "__temps__";
 export const ACTIVITY_ID = "__activity__";
+/** Storage Manager: what fills a Spark's disk, Docker images, and deleting them. */
+export const STORAGE_ID = "__storage__";
 export const SHOWCASE_ID = "__showcase__";
 /** Cost compare page: fleet token usage priced as a hosted API model. */
 export const COST_ID = "__cost__";
 /** Kiosk wall display: rendered outside the dashboard shell (useAppRoute), so the app never navigates to it in place. */
 export const KIOSK_ID = "__kiosk__";
+/** Opt-in API Keys page (Settings → API Keys); only reachable while that setting is on. */
+export const API_KEYS_ID = "__apikeys__";
 /** Benchmark pages: the active id is this prefix + the benchmark type (decode, tool-eval, …). */
 export const BENCH_PREFIX = "__bench__:";
 
@@ -19,9 +23,11 @@ const FIXED_PATHS: Record<string, string> = {
   [ENERGY_ID]: "/energy",
   [TEMPS_ID]: "/temps",
   [ACTIVITY_ID]: "/activity",
+  [STORAGE_ID]: "/storage",
   [SHOWCASE_ID]: "/showcase",
   [COST_ID]: "/cost",
   [KIOSK_ID]: "/kiosk",
+  [API_KEYS_ID]: "/api-keys",
 };
 
 export function benchId(type: string): string {

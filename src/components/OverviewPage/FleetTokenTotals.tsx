@@ -7,22 +7,13 @@ import { TOKENS_ID, idToPath } from "../../constants";
  * OverviewPage (see docs/LOCAL-MODS.md).
  */
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { fetchLlmTokenTotals } from "../../api/llmTokenClient";
 import { addTokens, formatTokensCompact } from "../../shared/tokenFormat";
 import type { LlmTokenRange, LlmTokenSeriesTotals } from "../../api/llmTokenTypes";
-import { LEDGER_HINT, LEDGER_TITLE, tokenRowTitle, unreportedOf } from "../SparkPage/tokenTotalsCopy";
+import { unreportedOf } from "../SparkPage/tokenTotalsCopy";
 
 const POLL_MS = 60_000;
-
-const RANGE_OPTIONS: Array<{ value: LlmTokenRange; label: string }> = [
-  { value: "all", label: "All time" },
-  { value: "today", label: "Last 24 hours" },
-  { value: "6h", label: "Last 6 hours" },
-  { value: "1h", label: "Last 1 hour" },
-  { value: "7d", label: "Last 7 days" },
-  { value: "14d", label: "Last 14 days" },
-  { value: "30d", label: "Last month" },
-];
 
 /** Aggregate per-series model rows into one fleet-wide per-model table. */
 export function aggregateModelTotals(
@@ -76,6 +67,16 @@ export function aggregateModelTotals(
 }
 
 export function FleetTokenTotals({ onOpenDetails }: { onOpenDetails?: () => void }) {
+  const { t } = useTranslation("overview");
+  const rangeOptions: Array<{ value: LlmTokenRange; label: string }> = [
+    { value: "all", label: t("tokens.ranges.all") },
+    { value: "today", label: t("tokens.ranges.today") },
+    { value: "6h", label: t("tokens.ranges.6h") },
+    { value: "1h", label: t("tokens.ranges.1h") },
+    { value: "7d", label: t("tokens.ranges.7d") },
+    { value: "14d", label: t("tokens.ranges.14d") },
+    { value: "30d", label: t("tokens.ranges.30d") },
+  ];
   const [series, setSeries] = useState<LlmTokenSeriesTotals[] | null>(null);
   const [range, setRange] = useState<LlmTokenRange>("all");
 
@@ -140,26 +141,26 @@ export function FleetTokenTotals({ onOpenDetails }: { onOpenDetails?: () => void
   return (
     <section className="panel ov-card" aria-labelledby="fleet-token-totals-title">
       <div className="ov-card__head">
-        <h2 id="fleet-token-totals-title" className="ov-card__title">LLM token totals</h2>
+        <h2 id="fleet-token-totals-title" className="ov-card__title">{t("tokens.title")}</h2>
         <div className="ov-card__tools">
           <span className="tag">
-            {activeEndpoints} endpoint{activeEndpoints === 1 ? "" : "s"}
+            {t("tokens.endpoints", { count: activeEndpoints })}
           </span>
           <select
             value={range}
             onChange={(e) => setRange(e.target.value as LlmTokenRange)}
-            aria-label="Token totals time range"
+            aria-label={t("tokens.timeRange")}
             className="ov-select"
           >
-            {RANGE_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
+            {rangeOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
               </option>
             ))}
           </select>
           {onOpenDetails ? (
             <AppLink href={idToPath(TOKENS_ID)} className="btn btn--sm btn--ghost" onNavigate={onOpenDetails}>
-              Details
+              {t("tokens.details")}
             </AppLink>
           ) : null}
         </div>
@@ -167,39 +168,45 @@ export function FleetTokenTotals({ onOpenDetails }: { onOpenDetails?: () => void
       <div>
         <div className="big-num">
           {formatTokensCompact(totalCompletion)}
-          <small>generated</small>
+          <small>{t("tokens.generated")}</small>
         </div>
-        <div className="ov-card__sub" title={LEDGER_TITLE}>
-          {LEDGER_HINT}, whole fleet
+        <div className="ov-card__sub" title={t("tokens.ledgerTitle")}>
+          {t("tokens.ledgerHint")}
         </div>
       </div>
-      <div className="seg-bar" role="img" aria-label="Generated, cached prefill and computed prefill token share">
+      <div className="seg-bar" role="img" aria-label={t("tokens.shareAria")}>
         <i className="ov-seg ov-seg--gen" style={{ width: pct(totalCompletion) }} />
         <i className="ov-seg ov-seg--cached" style={{ width: pct(totalCached) }} />
         <i className="ov-seg ov-seg--comp" style={{ width: pct(prefillComputed) }} />
         {totalUnreported > 0 ? <i className="ov-seg ov-seg--unrep" style={{ width: pct(totalUnreported) }} /> : null}
       </div>
       <div className="legend">
-        <span className="ov-leg--gen">Generated</span>
-        <span className="ov-leg--cached">Cached</span>
-        <span className="ov-leg--comp">Prefill</span>
-        {totalUnreported > 0 ? <span className="ov-leg--unrep" title="Prompt read while the engine published no prefix-cache counter">Not reported</span> : null}
+        <span className="ov-leg--gen">{t("tokens.legendGenerated")}</span>
+        <span className="ov-leg--cached">{t("tokens.cached")}</span>
+        <span className="ov-leg--comp">{t("tokens.prefill")}</span>
+        {totalUnreported > 0 ? <span className="ov-leg--unrep" title={t("tokens.notReportedHelp")}>{t("tokens.notReported")}</span> : null}
       </div>
       <div className="ov-rows">
         <div className="ov-row ov-row--head">
-          <span className="ov-row__name eyebrow">Machine · Model</span>
-          <span className="ov-row__num eyebrow">Cached</span>
-          <span className="ov-row__num eyebrow">Prefill</span>
-          <span className="ov-row__num eyebrow">Gen</span>
+          <span className="ov-row__name eyebrow">{t("tokens.machineModel")}</span>
+          <span className="ov-row__num eyebrow">{t("tokens.cached")}</span>
+          <span className="ov-row__num eyebrow">{t("tokens.prefill")}</span>
+          <span className="ov-row__num eyebrow">{t("tokens.gen")}</span>
         </div>
         {rows.length === 0 ? (
-          <p className="ov-card__sub">No tokens recorded in this period.</p>
+          <p className="ov-card__sub">{t("tokens.noTokens")}</p>
         ) : (
           combinedRows.map((row) => (
             <div
               key={`${row.sparkId}\u0000${row.modelId}`}
               className="ov-row"
-              title={tokenRowTitle(row)}
+              title={t("tokens.rowTitle", {
+                prompt: row.promptTokens.toLocaleString(),
+                cached: row.cachedTokens.toLocaleString(),
+                prefill: (row.promptTokens - row.cachedTokens - row.unreportedPromptTokens).toLocaleString(),
+                unreported: row.unreportedPromptTokens > 0 ? t("tokens.rowUnreported", { count: row.unreportedPromptTokens.toLocaleString() }) : "",
+                generated: row.completionTokens.toLocaleString(),
+              })}
             >
               <span className="ov-row__name" title={row.modelId}>
                 {row.sparkId}
@@ -212,7 +219,7 @@ export function FleetTokenTotals({ onOpenDetails }: { onOpenDetails?: () => void
           ))
         )}
         <div className="ov-row ov-row--total">
-          <span className="ov-row__name eyebrow">Total</span>
+          <span className="ov-row__name eyebrow">{t("tokens.total")}</span>
           <span className="ov-row__num mono">{totalCached > 0 ? formatTokensCompact(totalCached) : "\u2014"}</span>
           <span className="ov-row__num mono">{formatTokensCompact(prefillComputed)}</span>
           <span className="ov-row__num ov-row__num--strong mono">{formatTokensCompact(totalCompletion)}</span>

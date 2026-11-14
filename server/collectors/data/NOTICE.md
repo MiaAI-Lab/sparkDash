@@ -23,3 +23,17 @@ BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR P
 NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
 DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+`gsm8k-platinum-200.json` is the same 200-item sample re-labelled with GSM8K-Platinum, which revised
+or removed the mislabeled originals (188 kept, two answers revised).
+Copyright (c) 2025 MIT Madry Lab (Joshua Vendrow, Edward Vendrow, Sara Beery, Aleksander Madry).
+MIT License. https://huggingface.co/datasets/madrylab/gsm8k-platinum
+
+`mmlu-pro-300.json` is a fixed stratified sample of the MMLU-Pro test split (21–22 questions from each
+of its 14 categories), built by scripts/build-datasets.mjs.
+Copyright (c) 2024 TIGER-Lab (Yubo Wang, Xueguang Ma, Ge Zhang, et al.). MIT License.
+https://huggingface.co/datasets/TIGER-Lab/MMLU-Pro
+
+`math500.json` is the MATH-500 test subset (Lightman et al., "Let's Verify Step by Step") of the MATH
+dataset (Hendrycks et al. 2021), as published by HuggingFaceH4; the MATH dataset is MIT-licensed.
+https://huggingface.co/datasets/HuggingFaceH4/MATH-500 · https://github.com/hendrycks/math

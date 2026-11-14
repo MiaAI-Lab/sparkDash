@@ -17,7 +17,9 @@ import { useOverlayClose } from "../hooks/useOverlayClose";
 import { InfoIcon } from "./ui/icons";
 import { TestResultList } from "./TestResultList";
 import { GpuClockSection } from "./GpuClockSection";
+import { GpuPowerSection } from "./GpuPowerSection";
 import { XIcon } from "./ui/icons";
+import { MacAgentFields } from "./MacAgentFields";
 import "../styles/dialogs.css";
 
 interface EditSparkDialogProps {
@@ -253,6 +255,7 @@ export function EditSparkDialog({
         llmMonitoring:
           role === "worker" ? false : role === "head" ? true : config.llmMonitoring !== false,
         comfyMonitoring: Boolean(config.comfyMonitoring),
+        agent: config.kind === "mac" ? config.agent ?? null : null,
         comfyPort: (() => {
           const n = Number(config.comfyPort);
           return Number.isInteger(n) && n >= 1 && n <= 65535 ? n : 8188;
@@ -365,7 +368,11 @@ export function EditSparkDialog({
                 )}
               </div>
 
-              {config.kind !== "host" && (
+              {config.kind === "mac" && (
+                <MacAgentFields agent={config.agent} onChange={(agent) => update({ agent })} />
+              )}
+
+              {config.kind !== "host" && config.kind !== "mac" && (
                 <div>
                   <label className="field-label">{t("fields.cx7")}</label>
                   <input
@@ -682,6 +689,9 @@ export function EditSparkDialog({
 
               {sparkId && config.kind !== "host" && config.platform !== "windows" && config.platform !== "darwin" && (
                 <GpuClockSection sparkId={sparkId} />
+              )}
+              {sparkId && config.kind === "host" && config.platform !== "windows" && config.platform !== "darwin" && (
+                <GpuPowerSection sparkId={sparkId} />
               )}
             </div>
           )}

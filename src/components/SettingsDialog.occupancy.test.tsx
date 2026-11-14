@@ -41,6 +41,8 @@ const settings = {
   mqttUrl: "",
   mqttUsername: "",
   mqttTopicPrefix: "sparkdash",
+  mqttDiscovery: false,
+  mqttDiscoveryPrefix: "homeassistant",
 } satisfies Settings;
 
 describe("SettingsDialog session age", () => {

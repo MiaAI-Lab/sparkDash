@@ -4,6 +4,7 @@ const ICONS: Record<string, typeof FlaskIcon> = {
   decode: GaugeIcon,
   prefill: PrefillIcon,
   quality: QualityIcon,
+  "quality-compare": QualityIcon,
   "tool-eval": WrenchIcon,
 };
 

@@ -84,6 +84,10 @@ describe("year view", () => {
     expect(yearTotalKwh(months, 2026)).toBeCloseTo(3.5);
     expect(yearTotalKwh(months, 2025)).toBeCloseTo(9);
   });
+
+  it("localizes chart-axis months from their UTC archive keys", () => {
+    expect(yearBars(months, 2026, "zh-CN")[0].label).toBe("1月");
+  });
 });
 
 describe("node colours", () => {

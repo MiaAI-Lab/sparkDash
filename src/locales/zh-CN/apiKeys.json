@@ -1,0 +1,15 @@
+{
+  "title": "API 密钥",
+  "subtitle": "通过主机端桥接服务只读查看 LiteLLM 虚拟密钥。",
+  "refresh": "刷新",
+  "refreshing": "正在刷新…",
+  "status": { "bridge": "桥接服务 {{state}}", "upstream": "LiteLLM {{state}}", "retrying": "{{seconds}} 秒后重试" },
+  "errors": { "keys": "无法加载密钥：{{error}}", "key": "无法加载密钥：{{error}}" },
+  "keys": { "title": "密钥（{{count}}）", "empty": "桥接服务未报告任何密钥。" },
+  "table": { "key": "密钥", "state": "状态", "spend": "花费", "budget": "预算", "rpm": "RPM", "tpm": "TPM", "expires": "到期时间", "lastActive": "最后活跃时间" },
+  "detail": { "spend": "花费", "budget": "预算", "budgetResets": "预算重置时间", "parallelRequests": "并行请求数", "created": "创建时间", "models": "模型", "spendUnknown": "花费为 {{unknown}}：桥接服务未报告此密钥的花费。" },
+  "states": { "ok": "正常", "down": "不可用", "unconfigured": "未配置", "unknown": "未知", "active": "活跃", "blocked": "已阻止", "expired": "已过期" },
+  "unknown": "未知",
+  "unlimited": "不限",
+  "all": "全部"
+}

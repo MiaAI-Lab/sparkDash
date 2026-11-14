@@ -43,6 +43,11 @@ const KEY_LEN = 32;
 /** Cached key so we never regenerate mid-process. */
 let _cachedKey = null;
 
+/** Test helper: drop the in-process key cache. Does not rotate the key file. */
+export function resetSecretsKeyCache() {
+  _cachedKey = null;
+}
+
 function ensureDir(filePath) {
   const dir = path.dirname(filePath);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -126,6 +131,15 @@ function decrypt(blobB64, key) {
 }
 
 let lastLoggedHelperTokens = -1;
+/** Encrypt one value with the dashboard's secrets key (for stores that keep their own file). */
+export function encryptSecret(plaintext) {
+  return encrypt(plaintext, resolveKey());
+}
+
+/** Decrypt a value made by {@link encryptSecret}. Throws when the key is wrong or the data was changed. */
+export function decryptSecret(blob) {
+  return decrypt(blob, resolveKey());
+}
 
 /**
  * @returns {{
@@ -134,6 +148,8 @@ let lastLoggedHelperTokens = -1;
  *   helperTokens: Map<string, string>,
  * }}
  */
+let tightenWarned = false;
+
 export function loadSecrets() {
   /** @type {Map<string, string>} */
   const passwords = new Map();
@@ -144,6 +160,20 @@ export function loadSecrets() {
 
   if (!fs.existsSync(SPARKS_SECRETS_PATH)) {
     return { passwords, llmApiKeys, helperTokens };
+  }
+
+  // Versions before the save-time mode was tightened left this file 0644, and a
+  // stable fleet may never save again, so close it here too. Only a regular
+  // file is touched: a symlink is left alone so its target's mode is never
+  // changed, and a failure is logged once rather than on every load.
+  try {
+    const st = fs.lstatSync(SPARKS_SECRETS_PATH);
+    if (st.isFile() && (st.mode & 0o077) !== 0) fs.chmodSync(SPARKS_SECRETS_PATH, 0o600);
+  } catch (err) {
+    if (!tightenWarned) {
+      tightenWarned = true;
+      console.warn(`[secretsStore] Could not make ${SPARKS_SECRETS_PATH} owner-only (${err?.message ?? err}); the next save rewrites it`);
+    }
   }
 
   try {
@@ -388,7 +418,9 @@ function writeSecretsFile({ secrets, llmApiKeys, alertChannels, helperTokens }) 
   const body = { version: 2, secrets, llmApiKeys };
   if (alertChannels && Object.keys(alertChannels).length > 0) body.alertChannels = alertChannels;
   if (helperTokens && Object.keys(helperTokens).length > 0) body.helperTokens = helperTokens;
-  atomicWrite(SPARKS_SECRETS_PATH, JSON.stringify(body, null, 2) + "\n", 0o644);
+  // Owner-only, like the key file beside it: with a passphrase key the
+  // ciphertext alone is enough for an offline guess.
+  atomicWrite(SPARKS_SECRETS_PATH, JSON.stringify(body, null, 2) + "\n", 0o600);
 }
 
 // ─── Alert channel URLs ──────────────────────────────────

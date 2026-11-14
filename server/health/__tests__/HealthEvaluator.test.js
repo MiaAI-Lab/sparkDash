@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { HealthEvaluator, LOW_POWER_STREAK, KERNEL_FINDING_TTL_MS } from "../HealthEvaluator.js";
+import { HealthEvaluator, LOW_POWER_STREAK, LOW_POWER_PROGRESS_MS, KERNEL_FINDING_TTL_MS } from "../HealthEvaluator.js";
 
 const ids = (f) => f.map((x) => x.id);
 
@@ -145,16 +145,179 @@ test("parseKernelErrors reads counters and the latest Xid code", () => {
   assert.equal(parseKernelErrors(undefined), null);
 });
 
-// Busy memory-bound decode is not enough evidence to diagnose a stuck GPU.
-test("low-power finding describes the observation and recommends checking progress first", () => {
+// An integrated GPU draws about as much at idle as it does while stalled in a
+// collective, so a ceiling written for discrete cards flags ordinary decode.
+test("low-power: a stall at well-above-idle draw does not fire", () => {
   const h = new HealthEvaluator();
-  let findings;
-  for (let i = 0; i < LOW_POWER_STREAK; i++) findings = h.evaluate({ gpu: { usage: 96, power: { draw: 9 } } }, "gpu");
-  const finding = findings.find((f) => f.id === "low-power");
-  assert.equal(finding.title, "GPU has high utilisation with low power draw");
-  assert.match(finding.hint, /memory-bound/);
-  assert.match(finding.hint, /progress/);
-  assert.doesNotMatch(finding.hint, /reset|reboot/);
+  // GB10 measured: ~10 W idle, ~14 W stalled in an all-gather, 34-55 W decoding.
+  for (let i = 0; i < LOW_POWER_STREAK * 4; i++) {
+    assert.deepEqual(h.evaluate({ gpu: { usage: 96, power: { draw: 14.1 } } }, "gpu"), []);
+  }
+  for (let i = 0; i < LOW_POWER_STREAK * 4; i++) {
+    assert.deepEqual(h.evaluate({ gpu: { usage: 96, power: { draw: 45 } } }, "gpu"), []);
+  }
+});
+
+test("low-power: busy at idle-level draw still fires after the streak", () => {
+  const h = new HealthEvaluator();
+  const idleBusy = { gpu: { usage: 96, power: { draw: 10.3 } } };
+  for (let i = 0; i < LOW_POWER_STREAK - 1; i++) assert.deepEqual(h.evaluate(idleBusy, "gpu"), []);
+  assert.deepEqual(ids(h.evaluate(idleBusy, "gpu")), ["low-power"]);
+});
+
+const llmEndpoint = (over = {}) => ({
+  port: 8888,
+  available: true,
+  backend: "tensorfold",
+  modelId: "m",
+  totalOutputTokens: 100,
+  totalPromptTokens: 50,
+  prefillProgressTokens: null,
+  generationProgressTokens: null,
+  generationTps: 0,
+  prefillTps: 0,
+  ...over,
+});
+
+test("low-power: measured token progress suppresses the warning and expiry restores it", () => {
+  let t = 1_000_000;
+  const h = new HealthEvaluator({ now: () => t });
+  const gpu = { gpu: { temperature: 88, usage: 96, power: { draw: 9 } } };
+  let out = 100;
+  const llm = () => [llmEndpoint({ totalOutputTokens: out })];
+  h.evaluate({ ...gpu, llm: llm() }, "llm"); // baseline
+  for (let i = 0; i < LOW_POWER_STREAK; i++) {
+    t += 1000;
+    h.evaluate({ ...gpu, llm: llm() }, "gpu");
+  }
+  assert.deepEqual(ids(h.evaluate({ ...gpu, llm: llm() }, "gpu")).sort(), ["low-power", "thermal"]);
+  // real decode: the counter rises on a fresh LLM poll
+  t += 1000;
+  out += 10;
+  assert.deepEqual(ids(h.evaluate({ ...gpu, llm: llm() }, "llm")), ["thermal"]);
+  assert.equal(h.lowPowerProgressing, true);
+  assert.equal(h.llmProgressAt, t);
+  // the same snapshot on a GPU poll does not renew the evidence
+  t += 1000;
+  assert.deepEqual(ids(h.evaluate({ ...gpu, llm: llm() }, "gpu")), ["thermal"]);
+  // once the evidence is older than the window, the sustained streak warns again
+  t += LOW_POWER_PROGRESS_MS;
+  assert.deepEqual(ids(h.evaluate({ ...gpu, llm: llm() }, "gpu")).sort(), ["low-power", "thermal"]);
+  assert.equal(h.lowPowerProgressing, false);
+});
+
+test("low-power: prefill progress counts even when decode is idle", () => {
+  let t = 1_000_000;
+  const h = new HealthEvaluator({ now: () => t });
+  const gpu = { gpu: { usage: 96, power: { draw: 9 } } };
+  let position = 2048;
+  const llm = () => [llmEndpoint({ prefillProgressTokens: position, generationTps: 0, prefillTps: 0 })];
+  h.evaluate({ ...gpu, llm: llm() }, "llm");
+  for (let i = 0; i < LOW_POWER_STREAK; i++) {
+    t += 1000;
+    h.evaluate({ ...gpu, llm: llm() }, "gpu");
+  }
+  assert.deepEqual(ids(h.evaluate({ ...gpu, llm: llm() }, "gpu")), ["low-power"]);
+  t += 1000;
+  position += 2048;
+  assert.deepEqual(ids(h.evaluate({ ...gpu, llm: llm() }, "llm")), []);
+  assert.equal(h.lowPowerProgressing, true);
+});
+
+test("low-power: generation progress counts when decode tokens are not reported", () => {
+  let t = 1_000_000;
+  const h = new HealthEvaluator({ now: () => t });
+  const gpu = { gpu: { usage: 96, power: { draw: 9 } } };
+  let produced = 0;
+  const llm = () => [llmEndpoint({ totalOutputTokens: null, generationProgressTokens: produced })];
+  h.evaluate({ ...gpu, llm: llm() }, "llm");
+  for (let i = 0; i < LOW_POWER_STREAK; i++) {
+    t += 1000;
+    h.evaluate({ ...gpu, llm: llm() }, "gpu");
+  }
+  assert.deepEqual(ids(h.evaluate({ ...gpu, llm: llm() }, "gpu")), ["low-power"]);
+  t += 1000;
+  produced += 64;
+  assert.deepEqual(ids(h.evaluate({ ...gpu, llm: llm() }, "llm")), []);
+  assert.equal(h.lowPowerProgressing, true);
+});
+
+test("low-power: rates, active flags and unavailable endpoints are not progress", () => {
+  let t = 1_000_000;
+  const h = new HealthEvaluator({ now: () => t });
+  const gpu = { gpu: { usage: 96, power: { draw: 9 } } };
+  const busy = () => [llmEndpoint({
+    generationTps: 42,
+    prefillTps: 900,
+    generationTpsSource: "slot-mean",
+    prefillTpsSource: "live",
+    decodeActive: true,
+    prefillActive: true,
+    requestsRunning: 4,
+    requestsWaiting: 2,
+    lastActiveAt: t,
+  })];
+  h.evaluate({ ...gpu, llm: busy() }, "llm");
+  for (let i = 0; i < LOW_POWER_STREAK; i++) {
+    t += 1000;
+    h.evaluate({ ...gpu, llm: busy() }, "gpu");
+  }
+  assert.equal(h.lowPowerProgressing, false);
+  assert.deepEqual(ids(h.evaluate({ ...gpu, llm: busy() }, "gpu")), ["low-power"]);
+  h.evaluate({ ...gpu, llm: [llmEndpoint({ measurementValid: false, totalOutputTokens: 1000 })] }, "llm");
+  assert.equal(h.lowPowerProgressing, false);
+  h.evaluate({ ...gpu, llm: busy() }, "llm"); // fresh baseline after an invalid measurement
+  // an endpoint that goes unavailable cannot keep progress alive
+  t += 1000;
+  h.evaluate({ ...gpu, llm: [llmEndpoint({ totalOutputTokens: 110 })] }, "llm");
+  assert.equal(h.lowPowerProgressing, true);
+  t += 1000;
+  h.evaluate({ ...gpu, llm: [llmEndpoint({ available: false, totalOutputTokens: 120 })] }, "gpu");
+  assert.equal(h.lowPowerProgressing, false);
+  assert.equal(h.llmProgressAt, null);
+});
+
+test("low-power: counter resets and model replacement start a new baseline, not progress", () => {
+  let t = 1_000_000;
+  const h = new HealthEvaluator({ now: () => t });
+  const gpu = { gpu: { usage: 96, power: { draw: 9 } } };
+  h.evaluate({ ...gpu, llm: [llmEndpoint({ totalOutputTokens: 1000 })] }, "llm");
+  t += 1000;
+  // a lower counter is a reset, not progress
+  h.evaluate({ ...gpu, llm: [llmEndpoint({ totalOutputTokens: 10 })] }, "llm");
+  assert.equal(h.lowPowerProgressing, false);
+  assert.equal(h.llmProgressAt, null);
+  // a different model is a different endpoint with no inherited progress
+  t += 1000;
+  h.evaluate({ ...gpu, llm: [llmEndpoint({ totalOutputTokens: 5000, modelId: "other" })] }, "llm");
+  assert.equal(h.lowPowerProgressing, false);
+  assert.equal(h.llmProgressAt, null);
+  // Invalid counters must not turn a later zero into apparent work.
+  h.evaluate({ ...gpu, llm: [llmEndpoint({ totalOutputTokens: -1, modelId: "other" })] }, "llm");
+  h.evaluate({ ...gpu, llm: [llmEndpoint({ totalOutputTokens: 0, modelId: "other" })] }, "llm");
+  assert.equal(h.lowPowerProgressing, false);
+});
+
+test("low-power: head progress suppresses the warning only while it is recent", () => {
+  let t = 1_000_000;
+  const h = new HealthEvaluator({ now: () => t });
+  const gpu = { gpu: { usage: 96, power: { draw: 9 } } };
+  for (let i = 0; i < LOW_POWER_STREAK; i++) {
+    t += 1000;
+    h.evaluate(gpu, "gpu");
+  }
+  assert.deepEqual(ids(h.evaluate(gpu, "gpu")), ["low-power"]);
+  const headAt = t;
+  assert.deepEqual(ids(h.evaluate({ ...gpu, headLlmProgressAt: headAt }, "gpu")), []);
+  assert.equal(h.lowPowerProgressing, true);
+  assert.equal(h.llmProgressAt, null);
+  // future and invalid timestamps are not evidence
+  assert.deepEqual(ids(h.evaluate({ ...gpu, headLlmProgressAt: headAt + 1 }, "gpu")), ["low-power"]);
+  assert.deepEqual(ids(h.evaluate({ ...gpu, headLlmProgressAt: NaN }, "gpu")), ["low-power"]);
+  // the head's evidence expires with the same window
+  assert.deepEqual(ids(h.evaluate({ ...gpu, headLlmProgressAt: headAt }, "gpu")), []);
+  t += LOW_POWER_PROGRESS_MS;
+  assert.deepEqual(ids(h.evaluate({ ...gpu, headLlmProgressAt: headAt }, "gpu")), ["low-power"]);
 });
 
 test("thermal: configured thresholds move the finding and its text, and apply without a new evaluator", () => {

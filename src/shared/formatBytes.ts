@@ -36,3 +36,23 @@ export function formatDiskSize(mb: number): string {
   if (mb >= K || Math.round(mb) >= K) return `${Math.round(gb)} GB`;
   return `${Math.round(mb)} MB`;
 }
+
+const BYTE_UNITS = ["KB", "MB", "GB", "TB", "PB"] as const;
+
+/**
+ * Exact byte counts for file and folder sizes: `18 KB`, `512 MB`, `4.2 GB`, `1.3 TB`.
+ * Units are 1024 apart like the rest of the dashboard. Whole numbers from 100 up, one decimal
+ * below; 1023.95 of a unit rolls into the next unit instead of printing 1024.0.
+ */
+export function formatBytes(bytes: number | null | undefined): string {
+  if (bytes == null || !Number.isFinite(bytes) || bytes < 0) return "\u2014";
+  if (bytes < K) return `${Math.round(bytes)} B`;
+  let value = bytes / K;
+  let unit = 0;
+  const digits = (u: number, v: number) => (u === 0 || v >= 100 ? 0 : 1);
+  while (unit < BYTE_UNITS.length - 1 && Number(value.toFixed(digits(unit, value))) >= K) {
+    value /= K;
+    unit += 1;
+  }
+  return `${value.toFixed(digits(unit, value))} ${BYTE_UNITS[unit]}`;
+}

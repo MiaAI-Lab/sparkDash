@@ -4,6 +4,7 @@ import { flush, render } from "../../testing/render";
 import type { MetricsHistoryData, MetricsHistoryResponse } from "../../api/types";
 import { nearestIndex, segmentRuns, windowStats, yDomain } from "./HistoryChart";
 import { HISTORY_POLL_MS, HISTORY_RANGE_KEY, HistoryPanel } from "./HistoryPanel";
+import { i18n, setLocale } from "../../i18n";
 
 vi.mock("../../api/client", () => ({
   getUnitHistory: vi.fn(),
@@ -12,6 +13,47 @@ vi.mock("../../api/client", () => ({
 import { getUnitHistory } from "../../api/client";
 
 const fetchHistory = vi.mocked(getUnitHistory);
+
+describe("complete cache history", () => {
+  it("renders churn, spare/entries, latency, boundaries, duration coverage and weighted reuse without averaging p95", async () => {
+    const point = {
+      t: T0, n: 3, coveredMs: 30_000, promptTokens: 1000, cachedTokens: 900, reusePct: 90, completions: 10,
+      pool: { capacity: 100, active: 20, prefix: 30, growth: 10, unclaimed: 40 },
+      store: { held: 100, spare: 200, budget: 500, entries: 2 }, waiting: 1,
+      churn: { evictions: 3, invalidations: 1, failures: 0, refusals: 0, placementBlocks: 0 },
+      ttftP95: { value: 1, upperBound: 2, exact: false as const },
+      latencyP95: { value: null, lowerBound: 300, open: true, exact: false as const },
+      histogramSamples: { ttft: 10, latency: 10 },
+    };
+    const { container } = await mount(data({
+      points: [{ t: T0, memAvailableMB: { avg: 20_000, min: 18_000, max: 21_000 } }],
+      cache: { range: "1h", stepMs: STEP, from: T0, to: T0 + 6 * STEP,
+        endpoints: [{ port: 8888, engineEpoch: "2", firstAvailableAt: T0, points: [point, {
+          ...point, t: T0 + STEP, promptTokens: 10, cachedTokens: 0, reusePct: 0,
+          coveredMs: undefined, coveragePartial: true, waiting: 0,
+          churn: { evictions: 0, invalidations: 0, failures: 0, refusals: 0, placementBlocks: 0 },
+          latencyP95: { value: 2, upperBound: 3, exact: false },
+        }] }],
+        events: [{ t: T0 + 30_000, port: 8888, kind: "engine_restart" }, { t: T0 + 90_000, port: 8888, kind: "counter_reset" }],
+      },
+    }));
+    expect(chart(container, "cache-8888-churn").textContent).toContain("Invalidations");
+    expect(chart(container, "cache-8888-store").textContent).toContain("Spare");
+    expect(chart(container, "cache-8888-entries")).toBeTruthy();
+    expect(chart(container, "cache-8888-latency").textContent).toContain("Request latency p95");
+    expect(chart(container, "cache-8888-ttft").querySelector('[aria-label="window summary"]')!.textContent).not.toContain("avg");
+    expect(chart(container, "cache-8888-reuse").querySelector('[aria-label="window summary"]')!.textContent).not.toContain("avg");
+    expect(chart(container, "memAvailable").textContent).toContain("this rank only");
+    expect(container.querySelectorAll("[data-cache-event]").length).toBe(2);
+    expect(container.textContent).toContain("89.11%");
+    expect(container.textContent).toContain("legacy duration coverage not recorded");
+    expect(container.textContent).toContain("above 300 s (open upper bound)");
+    expect(container.textContent).toContain("6.00"); // 3 evictions / 30 covered seconds
+    expect(container.textContent).toContain("engine restart");
+    expect(container.textContent).toContain("counter reset");
+    expect(container.textContent).toContain("Demand / latency / headroom");
+  });
+});
 
 const STEP = 60_000;
 const T0 = Date.UTC(2026, 9, 1, 12, 0, 0);
@@ -137,6 +179,39 @@ describe("HistoryChart helpers", () => {
 });
 
 describe("HistoryPanel", () => {
+  it("keeps range, keyboard focus, chart gaps and reads across a locale round trip", async () => {
+    const initialLocale = i18n.language;
+    await setLocale("en");
+    try {
+      const { container } = await mount();
+      const chip = [...container.querySelectorAll<HTMLButtonElement>(".seg button")].find((b) => b.textContent === "24h")!;
+      act(() => chip.click());
+      await flush();
+      const gpu = plot(container, "gpuUtil");
+      act(() => gpu.focus());
+      key(gpu, "ArrowLeft");
+      const geometry = () => [...container.querySelectorAll("polyline, polygon")].map((node) => node.getAttribute("points"));
+      const before = geometry();
+      const calls = fetchHistory.mock.calls.length;
+      await act(async () => { await setLocale("zh-CN"); });
+      expect(container.textContent).toContain("历史记录 · 最近 24 小时");
+      expect(container.querySelector("[data-window-summary]")?.textContent).toContain("窗口");
+      expect(container.querySelector("[data-window-summary]")?.textContent).toContain("平均");
+      expect(gpu.getAttribute("aria-label")).toContain("使用方向键");
+      expect(document.activeElement).toBe(gpu);
+      expect(chip.getAttribute("aria-pressed")).toBe("true");
+      expect(geometry()).toEqual(before);
+      expect(fetchHistory).toHaveBeenCalledTimes(calls);
+      await act(async () => { await setLocale("en"); });
+      expect(container.textContent).toContain("History · last 24 hours");
+      expect(container.querySelector("[data-window-summary]")?.textContent).toContain("window");
+      expect(geometry()).toEqual(before);
+      expect(fetchHistory).toHaveBeenCalledTimes(calls);
+    } finally {
+      await act(async () => { await i18n.changeLanguage(initialLocale); });
+    }
+  });
+
   it("defaults to 1h, and the range chips refetch and are remembered", async () => {
     const { container } = await mount();
     expect(fetchHistory).toHaveBeenLastCalledWith("spark-1", "1h");
@@ -410,5 +485,61 @@ describe("HistoryPanel", () => {
     expect(mem.textContent).toMatch(/peak 9\.3 GB/);
     expect(mem.textContent).toMatch(/low 6\.8 GB/);
     expect(mem.textContent).not.toContain("*");
+  });
+});
+
+// ─── TensorFold cache history ────────────────────────────────────────────
+describe("HistoryPanel cache", () => {
+  const cacheData = () =>
+    data({
+      cache: {
+        range: "6h",
+        stepMs: STEP,
+        from: T0,
+        to: T0 + 6 * STEP,
+        endpoints: [
+          {
+            port: 8888,
+            engineEpoch: "1793692800123456789",
+            points: [0, 1, 2].map((i) => ({
+              t: T0 + i * STEP,
+              n: 30,
+              pool: {
+                capacity: 8_388_608,
+                active: 1_048_576,
+                prefix: 2_097_152 + i * 1024,
+                growth: 524_288,
+                unclaimed: 4_718_592 - i * 1024,
+              },
+              store: { held: 268_435_456, spare: 268_435_456, entries: 7, budget: 536_870_912 },
+              running: 2,
+              waiting: 0,
+              reusePct: 80 + i,
+              ttftP95: { value: 0.42, exact: false },
+            })),
+          },
+        ],
+        events: [{ t: T0 + STEP, port: 8888, kind: "engine_restart" }],
+      },
+    });
+
+  it("draws the shared pool stack and the cache scalar charts", async () => {
+    const { container } = await mount(cacheData());
+    const pool = container.querySelector<HTMLElement>("[data-cache-pool-chart]");
+    expect(pool).not.toBeNull();
+    expect(pool!.textContent).toContain("Shared pool");
+    expect(pool!.querySelectorAll("polygon[data-band]").length).toBeGreaterThan(0);
+    expect(chart(container, "cache-8888-reuse").textContent).toContain("Cache reuse");
+    expect(chart(container, "cache-8888-store").textContent).toContain("Snapshot store");
+  });
+
+  it("anchors itself for the live panel's cache-history link", async () => {
+    const { container } = await mount(cacheData());
+    expect(container.querySelector("#history")).not.toBeNull();
+  });
+
+  it("shows no pool chart when the engine reported none", async () => {
+    const { container } = await mount(data());
+    expect(container.querySelector("[data-cache-pool-chart]")).toBeNull();
   });
 });

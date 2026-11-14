@@ -9,8 +9,14 @@ import os from "os";
 import path from "path";
 import fs from "fs";
 import {
+  GSM8K_DISPUTED,
+  normalizeMathAnswer,
+  scoreMath,
+  SCORING_VERSION,
   buildLongPrompt,
+  followRuleName,
   generateSuite,
+  normalizeAnswerRemainder,
   longItem,
   longSizesForContext,
   mulberry32,
@@ -24,9 +30,9 @@ import {
   visibleAnswer,
 } from "../qualitySuite.js";
 import { QualityBenchManager, normalizeQualityOptions } from "../QualityBench.js";
-import { compareQualityRuns, mcnemarExactP } from "../../../src/shared/qualityBench.js";
+import { compareQualityRuns, mcnemarExactP, qualityRowUnscored } from "../../../src/shared/qualityBench.js";
 
-const ALL = ["qa", "reason", "arith", "track", "gsm8k", "mmlu", "follow", "long"];
+const ALL = ["qa", "reason", "arith", "track", "gsm8k", "mmlupro", "math500", "mmlu", "follow", "long", "tokenizer"];
 
 // ─── Generation ──────────────────────────────────────────
 
@@ -55,20 +61,37 @@ test("suite is identical across generations (ids, prompts, answers)", () => {
 test("category counts", () => {
   const s = generateSuite({ categories: ALL, longSizes: [8192, 16384], longItems: 3 });
   const count = (c) => s.filter((i) => i.category === c).length;
+  // Suite v2 sizes.
   assert.equal(count("qa"), 150);
-  assert.equal(count("reason"), 40);
-  assert.equal(count("arith"), 40);
-  assert.equal(count("track"), 40);
-  assert.equal(count("gsm8k"), 200);
+  assert.equal(count("reason"), 200);
+  assert.equal(count("arith"), 200);
+  assert.equal(count("track"), 200);
+  assert.equal(count("gsm8k"), 188); // GSM8K-Platinum kept 188 of the 200
+  assert.equal(count("mmlupro"), 300);
+  assert.equal(count("math500"), 500);
   assert.equal(count("mmlu"), 285);
   assert.equal(count("follow"), 40);
   assert.equal(count("long"), 6);
+  assert.equal(count("tokenizer"), 44);
   const qa = s.filter((i) => i.category === "qa");
-  for (const prefix of ["fixed", "mul", "addsub", "rev", "count", "sort", "bin", "date", "lcm"]) {
+  for (const prefix of ["fixed", "mul", "addsub", "sort", "date", "lcm"]) {
     const n = qa.filter((i) => i.id.startsWith(`qa-${prefix}-`)).length;
-    assert.equal(n, { fixed: 30, mul: 20, addsub: 15, rev: 15, count: 15, sort: 15, bin: 10, date: 15, lcm: 15 }[prefix], prefix);
+    assert.equal(n, { fixed: 26, mul: 29, addsub: 25, sort: 20, date: 25, lcm: 25 }[prefix], prefix);
   }
-  assert.ok(qa.every((i) => i.maxTokens >= 64 && i.thinking === false));
+  assert.ok(qa.every((i) => i.maxTokens >= 256 && i.thinking === false));
+  const tok = s.filter((i) => i.category === "tokenizer");
+  for (const prefix of ["fixed", "rev", "count", "bin"]) {
+    const n = tok.filter((i) => i.id.startsWith(`tok-${prefix}-`)).length;
+    assert.equal(n, { fixed: 4, rev: 15, count: 15, bin: 10 }[prefix], prefix);
+  }
+  const shapes = {};
+  for (const it of s.filter((i) => i.category === "reason")) shapes[it.shape] = (shapes[it.shape] || 0) + 1;
+  assert.deepEqual(shapes, { boxes: 40, shop: 40, travel: 40, ages: 40, shares: 40 });
+  assert.deepEqual(s.filter((i) => i.category === "arith").map((i) => i.steps).filter((v, k, arr) => arr.indexOf(v) === k), [10, 20]);
+  assert.deepEqual(s.filter((i) => i.category === "track").map((i) => i.events).filter((v, k, arr) => arr.indexOf(v) === k), [25, 50]);
+  assert.deepEqual(s.filter((i) => i.category === "long").map((i) => i.depth), ["spread", "early", "middle", "spread", "early", "middle"]);
+  // Keep the sort-budget regression from main.
+  assert.ok(qa.filter((i) => i.id.startsWith("qa-sort-")).every((i) => i.maxTokens >= 192));
   assert.ok(s.filter((i) => i.category === "reason").every((i) => i.maxTokens === 8192 && i.thinking));
   assert.ok(s.filter((i) => ["arith", "track"].includes(i.category)).every((i) => i.maxTokens === 12288 && i.thinking));
 });
@@ -104,6 +127,7 @@ test("generated qa answers are correct", () => {
 /** Independent re-simulation of an arith prompt. */
 function simulateArith(prompt) {
   let v = Number(prompt.match(/^Start with (\d+)\./)[1]);
+  const values = [];
   for (const [, step] of prompt.matchAll(/\(\d+\) ([^;.]+(?:, [^;.]+)?)[;.]/g)) {
     let m;
     if ((m = step.match(/^multiply it by (\d+)/))) v *= +m[1];
@@ -112,8 +136,9 @@ function simulateArith(prompt) {
     else if ((m = step.match(/^replace it by its remainder when divided by (\d+), then add 1000/))) v = (v % +m[1]) + 1000;
     else if ((m = step.match(/^divide it by (\d+), rounding down/))) v = Math.floor(v / +m[1]);
     else throw new Error(`unparsed step: ${step}`);
+    values.push(v);
   }
-  return v;
+  return { final: v, values };
 }
 
 /** Independent re-simulation of a track prompt. */
@@ -133,24 +158,22 @@ function simulateTrack(prompt) {
     } else if ((m = sentence.match(/^(\w+) finds (\d+)\.$/))) have[m[1]] += +m[2];
     else throw new Error(`unparsed: ${sentence}`);
   }
-  return have[prompt.match(/How many tokens does (\w+) have/)[1]];
+  return have;
 }
 
 test("arith: first item is hand-verifiable and every expected value re-simulates", () => {
   const items = generateSuite({ categories: ["arith"] });
   const first = items[0];
-  assert.equal(first.id, "arith-01");
-  assert.ok(
-    first.prompt.startsWith(
-      "Start with 557. Then, in order: (1) add 3542; (2) replace it by its remainder when divided by 3046, then add 1000;"
-    )
-  );
-  // 557+3542=4099 → 4099%3046+1000=2053 → 2053%6350+1000=3053 → ×17=51901 → ⌊/7⌋=7414
-  // → ×10=74140 → ⌊/8⌋=9267 → +1779=11046 → ×18=198828 → 198828%6115+1000=4148
-  assert.equal(first.expected, 4148);
-  assert.ok(first.prompt.endsWith("What is the final number? End your reply with a line 'Answer: <number>'."));
+  assert.equal(first.id, "arith-001");
+  assert.ok(first.prompt.startsWith("Start with 479. Then, in order: (1) divide it by 9, rounding down; (2) divide it by 3, rounding down;"));
+  assert.ok(first.prompt.endsWith("After each step write a line 'Step <n>: <value>' with the value at that point, then end your reply with a line 'Answer: <final number>'."));
+  assert.equal(items[100].id, "arith-101");
+  assert.equal(items[100].steps, 20);
   for (const it of items) {
-    assert.equal(simulateArith(it.prompt), it.expected, it.id);
+    const sim = simulateArith(it.prompt);
+    assert.equal(sim.final, it.expected, it.id);
+    assert.deepEqual(sim.values, it.expectedSteps, it.id);
+    assert.equal(it.expectedSteps.length, it.steps);
     assert.ok(Number.isSafeInteger(it.expected));
   }
 });
@@ -158,23 +181,24 @@ test("arith: first item is hand-verifiable and every expected value re-simulates
 test("track: first item is hand-verifiable and every expected value re-simulates", () => {
   const items = generateSuite({ categories: ["track"] });
   const first = items[0];
-  assert.equal(first.id, "track-01");
-  assert.ok(
-    first.prompt.startsWith(
-      "Track the tokens carefully. Ana starts with 57 tokens. Bo starts with 33 tokens. Cy starts with 58 tokens. Di starts with 52 tokens. Ed starts with 34 tokens. Ana gives 4 to Ed."
-    )
-  );
-  assert.ok(first.prompt.includes("How many tokens does Cy have at the end?"));
-  assert.equal(first.expected, 32);
+  assert.equal(first.id, "track-001");
+  assert.ok(first.prompt.startsWith("Track the tokens carefully. Ana starts with 59 tokens. Bo starts with 44 tokens. Cy starts with 32 tokens. Di starts with 46 tokens. Ed starts with 26 tokens. Ed gives 2 to Di."));
+  assert.ok(first.prompt.includes("How many tokens does each person have at the end?"));
+  assert.ok(first.prompt.endsWith("End your reply with a line 'Answer: Ana=<number>, Bo=<number>, Cy=<number>, Di=<number>, Ed=<number>'."));
+  assert.equal(items[100].events, 50);
   for (const it of items) {
-    assert.equal(simulateTrack(it.prompt), it.expected, it.id);
+    assert.deepEqual(simulateTrack(it.prompt), it.expected, it.id);
     assert.equal((it.prompt.match(/ starts with /g) || []).length, 5);
+    assert.equal((it.prompt.match(/\. (?:\w+ gives|\w+ finds)/g) || []).length, it.events);
   }
 });
 
 test("reason: expected jar / per-box match the story arithmetic", () => {
   const items = generateSuite({ categories: ["reason"] });
   for (const it of items) {
+    assert.ok(Number.isInteger(it.expected.first) && Number.isInteger(it.expected.second) && it.expected.first >= 0 && it.expected.second >= 0, it.id);
+    assert.ok(/End your reply with a line 'Answer: <[^>]+>, <[^>]+>'\.$/.test(it.prompt), it.id);
+    if (it.shape !== "boxes") continue;
     const m = it.prompt.match(
       /has (\d+) (\w+)\. \w+ has (\d+) times as many \w+ as \w+\. \w+ has (\d+) \w+\. \w+ gives (\d+) \w+ to \w+\. Then \w+ loses (\d+) \w+.*into (\d) boxes/
     );
@@ -183,7 +207,7 @@ test("reason: expected jar / per-box match the story arithmetic", () => {
     assert.ok(x >= 20 && x <= 90 && k >= 2 && k <= 5 && g >= 3 && g <= 15 && c >= 5 && c <= 40);
     assert.ok(h >= 2 && h <= Math.floor(x / 2) && [2, 3, 4].includes(p));
     const total = x - h + (k * x - g) + 2 * (c + g);
-    assert.deepEqual(it.expected, { jar: total % p, box: Math.floor(total / p) });
+    assert.deepEqual(it.expected, { first: total % p, second: Math.floor(total / p) });
   }
 });
 
@@ -274,12 +298,14 @@ test("qa suite: unique prompts, answers verified independently, own answer alway
 
 
 test("reason scoring: last 'Answer: J, B', markdown tolerated, content only", () => {
-  assert.deepEqual(parseReasonAnswer("blah\nAnswer: 3, 77"), { jar: 3, box: 77 });
-  assert.deepEqual(parseReasonAnswer("**Answer:** **3**, **77**"), { jar: 3, box: 77 });
-  assert.deepEqual(parseReasonAnswer("Answer: 1, 2\n...recheck...\nanswer: 3, 77"), { jar: 3, box: 77 });
+  assert.deepEqual(parseReasonAnswer("blah\nAnswer: 3, 77"), { first: 3, second: 77 });
+  assert.deepEqual(parseReasonAnswer("**Answer:** **3**, **77**"), { first: 3, second: 77 });
+  assert.deepEqual(parseReasonAnswer("Answer: 1, 2\n...recheck...\nanswer: 3, 77"), { first: 3, second: 77 });
   assert.equal(parseReasonAnswer("jar 3, box 77"), null);
-  const item = { category: "reason", expected: { jar: 3, box: 77 } };
+  const item = { category: "reason", expected: { first: 3, second: 77 } };
   assert.equal(scoreItem(item, "Answer: 3, 77").ok, true);
+  // suite v1 items named the pair jar/box
+  assert.equal(scoreItem({ category: "reason", expected: { jar: 3, box: 77 } }, "Answer: 3, 77").ok, true);
   assert.equal(scoreItem(item, "Answer: 77, 3").ok, false);
   assert.equal(scoreItem(item, "<think>Answer: 3, 77</think>Answer: 0, 0").ok, false);
 });
@@ -345,13 +371,18 @@ test("summarize: per-category %, overall = mean of category %, long keys + stale
   ];
   const s = summarize(rows);
   assert.equal(s.categories.qa.pct, 50);
-  assert.equal(s.categories.reason.pct, 75);
+  // The length-cut reply never committed to an answer: reported as truncated, not failed.
+  assert.equal(s.categories.reason.pct, 100);
+  assert.equal(s.categories.reason.scored, 3);
+  assert.equal(s.categories.reason.truncated, 1);
+  assert.equal(s.categories.reason.budgetLimited, true);
+  assert.equal(s.categories.qa.budgetLimited, false);
   assert.equal(s.categories.reason.meanCompletionTokens, 200);
   assert.equal(s.categories.reason.hitMaxTokens, 1);
   assert.equal(s.categories.long.keysFound, 12);
   assert.equal(s.categories.long.keysTotal, 16);
   assert.equal(s.categories.long.stale, 3);
-  assert.equal(s.overallPct, Math.round(((50 + 75 + 0) / 3) * 10) / 10);
+  assert.equal(s.overallPct, Math.round(((50 + 100 + 0) / 3) * 10) / 10);
 });
 
 // ─── GSM8K / MMLU subsets ────────────────────────────────
@@ -360,10 +391,10 @@ test("GSM8K and MMLU subsets: sizes, ids, shape and 5 questions for each of 57 s
   const s = generateSuite({ categories: ["gsm8k", "mmlu"] });
   const g = s.filter((i) => i.category === "gsm8k");
   const m = s.filter((i) => i.category === "mmlu");
-  assert.equal(g.length, 200);
+  assert.equal(g.length, 188); // the 200-item sample under the GSM8K-Platinum labels
   assert.equal(m.length, 285);
   assert.equal(new Set(s.map((i) => i.id)).size, s.length);
-  assert.ok(g.every((i) => Number.isInteger(i.expected) && i.thinking === true && /^gsm8k-\d{4}$/.test(i.id)));
+  assert.ok(g.every((i) => Number.isInteger(i.expected) && i.thinking === true && /^gsm8k-\d{4}$/.test(i.id) && !i.disputed));
   assert.ok(m.every((i) => /^[ABCD]$/.test(i.expected) && i.thinking === false && /\nA\. .+\nB\. .+\nC\. .+\nD\. /s.test(i.prompt)));
   const perSubject = new Map();
   for (const i of m) perSubject.set(i.subject, (perSubject.get(i.subject) || 0) + 1);
@@ -436,7 +467,7 @@ test("compareQualityRuns pairs by id and counts discordant items", () => {
 
 test("normalizeQualityOptions clamps and defaults", () => {
   const d = normalizeQualityOptions({});
-  assert.deepEqual(d.categories, ["qa", "reason", "arith", "track", "gsm8k", "mmlu"]);
+  assert.deepEqual(d.categories, ["qa", "reason", "arith", "track", "gsm8k", "mmlupro"]);
   assert.deepEqual(d.longSizes, []);
   assert.equal(d.concurrency, 4);
   const o = normalizeQualityOptions({
@@ -498,6 +529,15 @@ function fakeServer(answerFor, seen) {
       res.end(JSON.stringify({ data: [{ id: "fake-model", max_model_len: 16384 }] }));
       return;
     }
+    if (req.url === "/v1/completions") {
+      // The WP0 engine probe: this fake engine has no completions route.
+      req.resume();
+      req.on("end", () => {
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: { message: "not here" } }));
+      });
+      return;
+    }
     let raw = "";
     req.on("data", (d) => (raw += d));
     req.on("end", () => {
@@ -523,7 +563,7 @@ test("end-to-end: fake server, perfect answers except one, long size skipped by 
       const latest = it.facts.map((f) => `${f.name}: ${f.corrected || f.code}`).join("\n");
       byPrompt.set(buildLongPrompt(it), latest);
     } else if (it.category === "qa") byPrompt.set(it.prompt, it.id === "qa-fixed-01" ? "390" : it.accept[0]);
-    else if (it.category === "track") byPrompt.set(it.prompt, `Working…\n**Answer:** ${it.expected}`);
+    else if (it.category === "track") byPrompt.set(it.prompt, `Working…\n**Answer:** ${Object.entries(it.expected).map(([p, n]) => `${p}=${n}`).join(", ")}`);
     else byPrompt.set(it.prompt, `Reasoning.\nAnswer: ${it.expected}`);
   }
   const seen = [];
@@ -550,15 +590,29 @@ test("end-to-end: fake server, perfect answers except one, long size skipped by 
     assert.equal(job.config.modelId, "fake-model");
     assert.equal(job.config.contextLength, 16384);
     assert.deepEqual(job.results.skippedLongSizes, [32768]);
-    assert.equal(job.results.items.length, 150 + 40 + 285 + 1);
+    assert.equal(job.results.items.length, 150 + 200 + 285 + 1);
     assert.equal(job.results.items[0].id, "qa-fixed-01", "items kept in suite order");
     assert.equal(job.results.categories.qa.passed, 149);
-    assert.equal(job.results.categories.track.passed, 40);
+    assert.equal(job.results.categories.track.passed, 200);
+    assert.equal(job.results.categories.track.gradeCorrect, 1000);
+    assert.equal(job.results.categories.track.gradeTotal, 1000);
+    assert.equal(job.results.categories.track.gradePct, 100);
+    assert.deepEqual(job.results.categories.track.gradeCi, [100, 100]);
     assert.equal(job.results.categories.mmlu.passed, 285);
     assert.equal(job.results.categories.long.passed, 1);
     assert.equal(job.results.categories.long.keysFound, 16);
     assert.equal(job.results.categories.qa.pct, 99.3);
-    assert.equal(job.results.overallPct, 99.8);
+    // WP1: a custom category set is a partial run and carries no headline overall; the per-category
+    // coverage, budgeted success and Wilson intervals are there.
+    assert.equal(job.config.profile, "custom");
+    assert.equal(job.results.overallPct, null);
+    assert.equal(job.results.overallCi, null);
+    assert.equal(job.results.categories.qa.coveragePct, 100);
+    assert.equal(job.results.categories.qa.budgetedPct, 99.3);
+    assert.deepEqual(job.results.categories.qa.ci, [96.3, 99.9]);
+    assert.equal(job.results.categories.long.keysPct, 100);
+    assert.deepEqual(job.results.categories.long.keysCi, [100, 100]);
+    assert.deepEqual(job.results.warnings, []);
     const req = seen.find((b) => b.messages[0].content.startsWith("Track the tokens"));
     assert.equal(req.temperature, 0);
     assert.equal(req.seed, 1234);
@@ -566,7 +620,7 @@ test("end-to-end: fake server, perfect answers except one, long size skipped by 
     assert.equal(req.chat_template_kwargs.enable_thinking, true);
     const qaReq = seen.find((b) => b.messages[0].content.startsWith("What is 17 * 23"));
     assert.equal(qaReq.chat_template_kwargs.enable_thinking, false);
-    assert.equal(qaReq.max_tokens, 64);
+    assert.equal(qaReq.max_tokens, 256);
     // History persisted with per-item hashes; summaries drop the rows.
     assert.equal(mgr.getHistory("s1")[0].results.items[0].hash.length, 16);
     assert.equal(mgr.getHistorySummaries("s1")[0].results.items, undefined);
@@ -688,4 +742,179 @@ test("summarize excludes request errors from passed/pct and reports them", () =>
   assert.equal(categories.qa.pct, 50);
   assert.equal(categories.mmlu.pct, null);
   assert.equal(overallPct, 50);
+});
+
+// ─── Scoring v3 ──────────────────────────────────────────
+
+test("scoring v3: a reply cut off by max_tokens before its answer is truncated, not failed", () => {
+  const cut = { category: "mmlu", ok: false, finishReason: "length" };
+  const cutButAnswered = { category: "mmlu", ok: true, finishReason: "length" };
+  const wrong = { category: "mmlu", ok: false, finishReason: "stop" };
+  assert.equal(qualityRowUnscored(cut), "truncated");
+  assert.equal(qualityRowUnscored(cutButAnswered), null);
+  assert.equal(qualityRowUnscored(wrong), null);
+  assert.equal(qualityRowUnscored({ category: "qa", ok: false, finishReason: "length", error: "x" }), "error");
+  const { categories, overallPct } = summarize([cut, cut, cutButAnswered, wrong, { category: "mmlu", ok: true }]);
+  const m = categories.mmlu;
+  assert.equal(m.total, 5);
+  assert.equal(m.truncated, 2);
+  assert.equal(m.hitMaxTokens, 3);
+  assert.equal(m.scored, 3);
+  assert.equal(m.passed, 2);
+  assert.equal(m.pct, 66.7);
+  assert.equal(m.budgetLimited, true);
+  assert.equal(overallPct, 66.7);
+  assert.ok(SCORING_VERSION >= 3);
+});
+
+test("scoring v3: disputed GSM8K items run but never move the score, and compare leaves them out", () => {
+  // Suite v2 reads the GSM8K-Platinum labels: the disputed list is resolved (removed or revised),
+  // so no generated item is disputed; the map stays for runs saved from the original file.
+  const items = generateSuite({ categories: ["gsm8k"] });
+  assert.equal(items.filter((it) => it.disputed).length, 0);
+  assert.equal(Object.keys(GSM8K_DISPUTED).length, 6);
+  for (const n of Object.keys(GSM8K_DISPUTED)) assert.equal(typeof GSM8K_DISPUTED[n], "string");
+  // The original reference said 360; Platinum revised it to 1,800.
+  const r952 = items.find((it) => it.id === "gsm8k-0952");
+  assert.equal(r952.expected, 1800);
+  const rows = [
+    { id: "gsm8k-0952", category: "gsm8k", ok: false, finishReason: "stop", disputed: true },
+    { id: "gsm8k-0003", category: "gsm8k", ok: true, finishReason: "stop" },
+    { id: "gsm8k-0004", category: "gsm8k", ok: false, finishReason: "stop" },
+  ];
+  const s = summarize(rows);
+  assert.equal(s.categories.gsm8k.disputed, 1);
+  assert.equal(s.categories.gsm8k.scored, 2);
+  assert.equal(s.categories.gsm8k.pct, 50);
+  assert.equal(s.categories.gsm8k.budgetLimited, false);
+  const other = rows.map((r) => ({ ...r, ok: r.id === "gsm8k-0952" ? true : r.ok }));
+  const [cmp] = compareQualityRuns({ results: { items: rows } }, { results: { items: other } });
+  assert.equal(cmp.excluded, 1);
+  assert.equal(cmp.paired, 2);
+  assert.equal(cmp.onlyA + cmp.onlyB, 0);
+});
+
+test("scoring v3: QA reads a quoted word, a committed lead and a binary string checked in decimal", () => {
+  const suite = generateSuite({ categories: ["qa", "tokenizer"] });
+  const by = (id) => suite.find((it) => it.id === id);
+  const yesNo = by("qa-fixed-15");
+  assert.equal(scoreQa(yesNo, "Yes. This follows from the transitivity of the 'all' relation: since all bloops are razzies, and all razzies are lazzies, every bloop must also be a lazzie.").ok, true);
+  assert.equal(
+    scoreQa(yesNo, "Yes, at first glance it seems so. Actually, no: the premises only say every bloop is a razzie and every razzie is a lazzie, which does not settle it.").ok,
+    false
+  );
+  assert.equal(scoreQa(yesNo, "Yes or no, depending on how the premises are read.").ok, false);
+  const rev = by("tok-fixed-11");
+  assert.equal(scoreQa(rev, "'dlofrosnet'").ok, true);
+  assert.equal(scoreQa(rev, '"dlofrosnet"').ok, true);
+  assert.equal(scoreQa(rev, "dlofrosnet's").ok, false);
+  const capital = by("qa-fixed-17");
+  assert.equal(scoreQa(capital, "Canberra, since Sydney is only the largest city.").ok, true);
+  assert.equal(scoreQa(capital, "Canberra is wrong; it is Sydney.").ok, false);
+  const bin = by("tok-fixed-25");
+  assert.equal(bin.mode, "binary");
+  assert.equal(scoreQa(bin, "1101 8 + 4 + 1 = 13").ok, true);
+  assert.equal(scoreQa(bin, "1101 **Check:** 8 + 4 + 0 + 1 = 13 ✓").ok, true);
+  assert.equal(scoreQa(bin, "0b1101").ok, true);
+  assert.equal(scoreQa(bin, "1100 … wait, 1101").ok, true);
+  assert.equal(scoreQa(bin, "1101, or maybe 1100").ok, false);
+  assert.equal(scoreQa(bin, "13 ÷ 2 = 6 remainder 1").ok, false);
+  const bin224 = by("tok-bin-01");
+  assert.equal(bin224.mode, "binary");
+  assert.deepEqual(bin224.accept, ["11100000"]);
+  assert.equal(scoreQa(bin224, "11100000 128 + 64 + 32 = 224").ok, true);
+  // A plain number whose digits happen to be 0/1 is still a number ("10,000" passes).
+  const tenK = by("qa-fixed-02");
+  assert.equal(tenK.mode, "number");
+  assert.equal(scoreQa(tenK, "10,000").ok, true);
+});
+
+test("scoring v3: answer lines read \\boxed{}, a Unicode minus, a lead-in and a trailing working", () => {
+  assert.equal(parseSingleAnswer("Answer: \\boxed{540}"), 540);
+  assert.equal(parseSingleAnswer("Answer: $\\boxed{540}$"), 540);
+  assert.equal(parseSingleAnswer("Answer: $\\boxed{\\text{540 meters}}$"), 540);
+  assert.equal(parseSingleAnswer("Answer: \u221212"), -12);
+  assert.equal(parseSingleAnswer("Answer: The final number is 540"), 540);
+  assert.equal(parseSingleAnswer("Answer: 540 meters (3*3*60)"), 540);
+  assert.equal(parseSingleAnswer("Answer: 540 (meters)"), 540);
+  assert.equal(parseSingleAnswer("Answer: 540 (or 541)"), null);
+  assert.equal(parseSingleAnswer("Answer: 540 (541)"), null);
+  assert.deepEqual(parseReasonAnswer("Answer: \\boxed{3, 71}"), { first: 3, second: 71 });
+  assert.equal(normalizeAnswerRemainder("(C)."), "(C).");
+  assert.equal(parseMmluAnswer("Answer: \\boxed{C}"), "C");
+  assert.equal(parseMmluAnswer("Answer: $\\boxed{\\text{C}}$"), "C");
+  assert.equal(parseMmluAnswer("Answer: (C)."), "C");
+  assert.equal(parseMmluAnswer("**Answer:** (b)"), "B");
+  assert.equal(parseMmluAnswer("Reasoning.\nC. 24"), "C");
+  assert.equal(parseMmluAnswer("Reasoning.\nC) 24"), "C");
+  assert.equal(parseMmluAnswer("Reasoning.\n(C) 24"), "C");
+  assert.equal(parseMmluAnswer("A cat is an animal."), null);
+  assert.equal(parseMmluAnswer("c. 24"), null);
+});
+
+test("scoring v3: follow names the rules that failed", () => {
+  const item = generateSuite({ categories: ["follow"] }).find((it) => it.id === "follow-16");
+  assert.deepEqual(item.rules.map(followRuleName), ["postscript", "bullets 5"]);
+  const s = scoreItem(item, "* one\n* two\n* three\n* four\n* five");
+  assert.equal(s.ok, false);
+  assert.deepEqual(s.failed, ["postscript"]);
+  assert.equal(s.passed, 1);
+  const empty = scoreItem(item, "   ");
+  assert.equal(empty.ok, false);
+  assert.equal(empty.failed.length, 2);
+});
+
+test("scoring v4: a restated instruction ('Answer: <final number>') is not an answer line", () => {
+  const echo = "Step 1: 123\nStep 2: 738\n… then end your reply with a line 'Answer: <final number>'.";
+  assert.equal(parseSingleAnswer(echo), null);
+  assert.equal(parseSingleAnswer(`${echo}\nAnswer: 738`), 738);
+  assert.equal(parseSingleAnswer("Answer: 5\nRecap: end with 'Answer: <number>'"), 5);
+  const item = { category: "arith", expected: 738, expectedSteps: [123, 738] };
+  const s = scoreItem(item, echo);
+  assert.equal(s.ok, false);
+  assert.equal(s.labeled, false);
+  assert.equal(s.gradeCorrect, 2);
+});
+
+
+test("datasets (WP6): Platinum labels, MMLU-Pro letters to J, MATH-500 canonical answers", () => {
+  const s = generateSuite({ categories: ["gsm8k", "mmlupro", "math500"] });
+  const gsm = s.filter((i) => i.category === "gsm8k");
+  assert.equal(gsm.filter((i) => i.disputed).length, 0, "Platinum resolved the disputed items");
+  assert.equal(gsm.find((i) => i.id === "gsm8k-0952").expected, 1800);
+  assert.equal(gsm.find((i) => i.id === "gsm8k-1035").expected, 40);
+  assert.equal(gsm.find((i) => i.id === "gsm8k-0675"), undefined);
+  const pro = s.filter((i) => i.category === "mmlupro");
+  assert.equal(pro.length, 300);
+  assert.equal(new Set(pro.map((i) => i.subject)).size, 14);
+  assert.ok(pro.every((i) => i.thinking === true && i.maxTokens === 6144 && /^[A-J]$/.test(i.expected) && i.options >= 3 && i.options <= 10));
+  assert.ok(pro[0].prompt.includes("\nA. ") && pro.some((i) => i.prompt.includes("\nJ. ")));
+  assert.equal(parseMmluAnswer("Answer: J"), "J");
+  assert.equal(parseMmluAnswer("Reasoning.\nAnswer: (h)"), "H");
+  assert.equal(parseMmluAnswer("Reasoning.\nE) the fifth option"), "E");
+  assert.equal(parseMmluAnswer("Answer: B or C"), null);
+  assert.equal(scoreItem(pro.find((i) => i.expected === "J") ?? { category: "mmlupro", expected: "J" }, "**Answer:** J").ok, true);
+  const math = s.filter((i) => i.category === "math500");
+  assert.equal(math.length, 500);
+  assert.ok(math.every((i) => i.thinking === true && i.maxTokens === 8192 && i.source.startsWith("test/")));
+  for (const [got, want] of [
+    ["\\boxed{\\frac{3}{4}}", "\\frac{3}{4}"],
+    ["$0.75$", "\\frac34"],
+    ["\\left( 3, \\frac{\\pi}{2} \\right)", "(3,\\frac{\\pi}{2})"],
+    ["x = 5", "5"],
+    ["1,000", "1000"],
+    ["90^\\circ", "90"],
+    ["\\dfrac{1}{2}", "\\frac{1}{2}"],
+    ["-\\frac{2}{3}", "-2/3"],
+    ["10\\%", "10"],
+    ["\\text{(B)}", "(B)"],
+    ["[-2, 7]", "x\\in[-2,7]"],
+    ["\\boxed{(1, 2)}", "(1,2)"],
+  ]) {
+    assert.equal(scoreMath({ expected: want }, `Working…\nAnswer: ${got}`).ok, true, `${got} vs ${want}`);
+  }
+  assert.equal(scoreMath({ expected: "\\frac{3}{4}" }, "Answer: \\frac{3}{5}").ok, false);
+  assert.equal(scoreMath({ expected: "5" }, "The answer is 5").ok, false);
+  assert.equal(scoreMath({ expected: "5" }, "The answer is 5").labeled, false);
+  assert.equal(normalizeMathAnswer("\\boxed{(1, 2)}"), "(1,2)");
 });

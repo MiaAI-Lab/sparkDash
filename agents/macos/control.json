@@ -1,0 +1,121 @@
+{
+  "schema": "sparkdash.mac-control/1",
+  "source": "Explicit locally installed profiles. Configure private ~/.config/sparkdash/profiles.json before enabling control. The profile runner owns stop, release, launch and readiness.",
+  "targets": [
+    {
+      "name": "omlx-thinkingcap",
+      "label": "ThinkingCap Qwen3.8 27B \u00b7 32K",
+      "group": "omlx",
+      "groupLabel": "oMLX",
+      "models": [
+        {
+          "id": "bottlecapai--ThinkingCap-Qwen3.8-27B-MLX-4bit-DWQ",
+          "label": "ThinkingCap Qwen3.8 27B \u00b7 32K"
+        }
+      ],
+      "start": [
+        "/bin/zsh",
+        "-c",
+        "exec /usr/bin/python3 \"$HOME/projects/sparkDash/agents/macos/profile_runner.py\" --profiles \"$HOME/.config/sparkdash/profiles.json\" --inventory \"$HOME/projects/sparkDash/agents/macos/runtimes.json\" start omlx-thinkingcap"
+      ],
+      "stop": [
+        "/bin/zsh",
+        "-c",
+        "exec /usr/bin/python3 \"$HOME/projects/sparkDash/agents/macos/profile_runner.py\" --profiles \"$HOME/.config/sparkdash/profiles.json\" --inventory \"$HOME/projects/sparkDash/agents/macos/runtimes.json\" stop omlx-thinkingcap"
+      ],
+      "timeoutSeconds": 600
+    },
+    {
+      "name": "mlx-serve-27b",
+      "label": "Qwen3.8 27B 4-bit \u00b7 128K",
+      "group": "qflash",
+      "groupLabel": "mlx-serve",
+      "models": [
+        {
+          "id": "Qwen3.8-27B-4bit",
+          "label": "Qwen3.8 27B 4-bit \u00b7 128K"
+        }
+      ],
+      "start": [
+        "/bin/zsh",
+        "-c",
+        "exec /usr/bin/python3 \"$HOME/projects/sparkDash/agents/macos/profile_runner.py\" --profiles \"$HOME/.config/sparkdash/profiles.json\" --inventory \"$HOME/projects/sparkDash/agents/macos/runtimes.json\" start mlx-serve-27b"
+      ],
+      "stop": [
+        "/bin/zsh",
+        "-c",
+        "exec /usr/bin/python3 \"$HOME/projects/sparkDash/agents/macos/profile_runner.py\" --profiles \"$HOME/.config/sparkdash/profiles.json\" --inventory \"$HOME/projects/sparkDash/agents/macos/runtimes.json\" stop mlx-serve-27b"
+      ],
+      "timeoutSeconds": 600
+    },
+    {
+      "name": "mlx-serve-35b",
+      "label": "Qwen3.6 35B A3B oQ8e \u00b7 128K",
+      "group": "qflash",
+      "groupLabel": "mlx-serve",
+      "models": [
+        {
+          "id": "Qwen3.6-35B-A3B-oQ8e-mtp",
+          "label": "Qwen3.6 35B A3B oQ8e \u00b7 128K"
+        }
+      ],
+      "start": [
+        "/bin/zsh",
+        "-c",
+        "exec /usr/bin/python3 \"$HOME/projects/sparkDash/agents/macos/profile_runner.py\" --profiles \"$HOME/.config/sparkdash/profiles.json\" --inventory \"$HOME/projects/sparkDash/agents/macos/runtimes.json\" start mlx-serve-35b"
+      ],
+      "stop": [
+        "/bin/zsh",
+        "-c",
+        "exec /usr/bin/python3 \"$HOME/projects/sparkDash/agents/macos/profile_runner.py\" --profiles \"$HOME/.config/sparkdash/profiles.json\" --inventory \"$HOME/projects/sparkDash/agents/macos/runtimes.json\" stop mlx-serve-35b"
+      ],
+      "timeoutSeconds": 600
+    },
+    {
+      "name": "splash-thinkingcap",
+      "label": "ThinkingCap Qwen3.8 27B",
+      "group": "splash",
+      "groupLabel": "Splash",
+      "models": [
+        {
+          "id": "bottlecapai/ThinkingCap-Qwen3.8-27B-MLX-4bit-DWQ",
+          "label": "ThinkingCap Qwen3.8 27B"
+        }
+      ],
+      "start": [
+        "/bin/zsh",
+        "-c",
+        "exec /usr/bin/python3 \"$HOME/projects/sparkDash/agents/macos/profile_runner.py\" --profiles \"$HOME/.config/sparkdash/profiles.json\" --inventory \"$HOME/projects/sparkDash/agents/macos/runtimes.json\" start splash-thinkingcap"
+      ],
+      "stop": [
+        "/bin/zsh",
+        "-c",
+        "exec /usr/bin/python3 \"$HOME/projects/sparkDash/agents/macos/profile_runner.py\" --profiles \"$HOME/.config/sparkdash/profiles.json\" --inventory \"$HOME/projects/sparkDash/agents/macos/runtimes.json\" stop splash-thinkingcap"
+      ],
+      "timeoutSeconds": 600
+    },
+    {
+      "name": "mtplx-27b",
+      "label": "Qwen3.8 27B MTP \u00b7 256K",
+      "group": "mtplx",
+      "groupLabel": "MTPLX",
+      "models": [
+        {
+          "id": "mtplx-qwen38-27b-optimized-speed",
+          "label": "Qwen3.8 27B MTP \u00b7 256K"
+        }
+      ],
+      "start": [
+        "/bin/zsh",
+        "-c",
+        "exec /usr/bin/python3 \"$HOME/projects/sparkDash/agents/macos/profile_runner.py\" --profiles \"$HOME/.config/sparkdash/profiles.json\" --inventory \"$HOME/projects/sparkDash/agents/macos/runtimes.json\" start mtplx-27b"
+      ],
+      "stop": [
+        "/bin/zsh",
+        "-c",
+        "exec /usr/bin/python3 \"$HOME/projects/sparkDash/agents/macos/profile_runner.py\" --profiles \"$HOME/.config/sparkdash/profiles.json\" --inventory \"$HOME/projects/sparkDash/agents/macos/runtimes.json\" stop mtplx-27b"
+      ],
+      "timeoutSeconds": 600
+    }
+  ]
+}
