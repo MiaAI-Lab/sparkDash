@@ -30,6 +30,9 @@ const LLM_DAILY_JSON_PATH =
 /** Cumulative LLM token totals per model (gitignored). */
 const LLM_TOKEN_JSON_PATH =
   process.env.LLM_TOKEN_JSON_PATH || path.join(ROOT, "config", "llm-token-totals.json");
+/** Ten-second LLM telemetry history for the Overview footer (gitignored). */
+const LLM_TELEMETRY_JSON_PATH =
+  process.env.LLM_TELEMETRY_JSON_PATH || path.join(ROOT, "config", "llm-telemetry.json");
 /** Rolling fleet energy estimates (gitignored; written atomically at mode 0600). */
 const FLEET_ENERGY_JSON_PATH =
   process.env.FLEET_ENERGY_JSON_PATH || path.join(ROOT, "config", "fleet-energy.json");
@@ -252,6 +255,7 @@ export {
   SECRETS_KEY_PATH,
   LLM_DAILY_JSON_PATH,
   LLM_TOKEN_JSON_PATH,
+  LLM_TELEMETRY_JSON_PATH,
   FLEET_ENERGY_JSON_PATH,
   FLEET_ENERGY_MONTHLY_JSON_PATH,
   METRICS_HISTORY_JSON_PATH,

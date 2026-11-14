@@ -1,6 +1,7 @@
 // First on purpose: imports are evaluated in order, and config.js, settings.js
 // and the bench modules read process.env while they load.
 import "dotenv/config";
+import { LlmTelemetryStore } from "./collectors/LlmTelemetry.js";
 import express from "express";
 import { createServer } from "http";
 import { WebSocketServer } from "ws";
@@ -276,6 +277,8 @@ const allowStorageRead = createRateLimiter(120, 60_000);
 const allowDestructive = createRateLimiter(10, 60_000);
 /** Decode + prefill starts per principal (retries that 400/409 do not count). */
 const allowBench = createRateLimiter(20, 60_000);
+/** Overview telemetry reads per principal; each visible card polls every 30 s. */
+const allowLlmTelemetry = createRateLimiter(120, 60_000);
 const allowGlobalDestructive = createRateLimiter(30, 60_000);
 /** Anti double-submit only; per-Spark mutex + MAX_ACTIVE_BENCH_JOBS cap load. */
 const benchCooldown = createRateLimiter(1, 3_000);
@@ -429,6 +432,8 @@ const toolEvalManager = new ToolEvalManager({
 const allowToolEval = createRateLimiter(30, 60_000);
 
 // ─── Monitor map ─────────────────────────────────────────
+// Construct after dotenv/config has loaded .env (it runs first above).
+const llmTelemetry = new LlmTelemetryStore();
 const monitors = new Map();
 
 /** True while a bench, showcase or model launch owns the unit: stream-samples pause. */
@@ -446,6 +451,7 @@ function llmStreamSampleBlocked(sparkId) {
 function startMonitor(spark) {
   if (monitors.has(spark.id)) return;
   const monitor = new SparkMonitor(spark, {
+    llmTelemetry,
     onWolMac: (id, mac) => {
       const updated = registry.noteDetectedMac(id, mac);
       if (updated) {
@@ -1525,6 +1531,40 @@ app.get("/api/sparks/:id/llm/daily", (req, res) => {
   let days = req.query.days != null ? Number(req.query.days) : 14;
   if (!Number.isFinite(days)) days = 14;
   res.json(llmDaily.getSeries(spark.id, port, { days }));
+});
+
+/**
+ * Ten-second LLM telemetry buckets. Query: port, hours (1–168), since (ms
+ * cursor, exclusive) and model (served model id; defaults to the newest
+ * series on the port so two models are never merged into one median).
+ */
+app.get("/api/sparks/:id/llm/telemetry", (req, res) => {
+  const spark = registry.getSpark(req.params.id);
+  if (!spark) return res.status(404).json({ error: "Spark not found" });
+  if (!allowLlmTelemetry(principalKey(req))) {
+    return rejectLimited(res, "Too many telemetry reads");
+  }
+  const ports =
+    Array.isArray(spark.llmPorts) && spark.llmPorts.length
+      ? spark.llmPorts
+      : [resolveLlmPort(spark)];
+  const port = req.query.port != null ? Number(req.query.port) : ports[0];
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    return res.status(400).json({ error: "Invalid port" });
+  }
+  if (!ports.includes(port)) return res.status(400).json({ error: "Port not configured" });
+  let hours = req.query.hours != null ? Number(req.query.hours) : 24;
+  if (!Number.isFinite(hours)) hours = 24;
+  let since = null;
+  if (req.query.since != null) {
+    since = Number(req.query.since);
+    if (!Number.isFinite(since) || since < 0) {
+      return res.status(400).json({ error: "Invalid since" });
+    }
+  }
+  const model =
+    typeof req.query.model === "string" && req.query.model !== "" ? req.query.model : null;
+  res.json(llmTelemetry.getSeries(spark.id, port, { hours, since, model }));
 });
 
 /**
@@ -2993,6 +3033,11 @@ async function shutdown(signal) {
     llmDaily.flush();
   } catch (err) {
     console.error("[sparkDash] failed to flush LLM daily history:", err.message);
+  }
+  try {
+    llmTelemetry.flush();
+  } catch (err) {
+    console.error("[sparkDash] failed to flush LLM telemetry:", err.message);
   }
   llmTokenRuntime.stop();
   try {
