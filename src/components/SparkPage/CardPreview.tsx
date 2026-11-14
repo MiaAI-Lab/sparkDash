@@ -4,6 +4,7 @@
  * Escape handling and what the buttons do.
  */
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 
 interface CardPreviewProps {
   /** Blob URL of the rendered PNG. */
@@ -19,7 +20,8 @@ interface CardPreviewProps {
   copyLabel?: string;
 }
 
-export function CardPreview({ url, label, imgAlt, hint, onClose, onDownload, onCopy, copyLabel = "Copy image" }: CardPreviewProps) {
+export function CardPreview({ url, label, imgAlt, hint, onClose, onDownload, onCopy, copyLabel }: CardPreviewProps) {
+  const { t } = useTranslation("shareCards");
   return (
     <div
       role="dialog"
@@ -32,8 +34,8 @@ export function CardPreview({ url, label, imgAlt, hint, onClose, onDownload, onC
     >
       <div className="card-preview__panel">
         <div className="card-preview__head">
-          <h2>Share card</h2>
-          <button type="button" className="icon-circle" onClick={onClose} aria-label="Close share card">
+          <h2>{t("preview.title")}</h2>
+          <button type="button" className="icon-circle" onClick={onClose} aria-label={t("preview.closeLabel")}>
             ✕
           </button>
         </div>
@@ -42,14 +44,14 @@ export function CardPreview({ url, label, imgAlt, hint, onClose, onDownload, onC
         <div className="card-preview__actions">
           {onCopy ? (
             <button type="button" className="btn" onClick={onCopy}>
-              {copyLabel}
+              {copyLabel ?? t("preview.copy")}
             </button>
           ) : null}
           <button type="button" className="btn" onClick={onDownload}>
-            Download PNG
+            {t("preview.download")}
           </button>
           <button type="button" className="btn btn--primary" onClick={onClose}>
-            Close
+            {t("preview.close")}
           </button>
         </div>
       </div>
