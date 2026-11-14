@@ -1342,19 +1342,38 @@ export class LlmProbe {
 
     if (this.backendType === "vllm") await this._refreshEngineVersion();
 
-    // Pico has no live counters. A sample belongs only to the poll that measured
-    // it; replaying it on later polls makes an idle engine look busy forever.
+    // Pico publishes no live counters of its own, but its front end can: pico-dgx-ds4
+    // >= f36af01 serves `GET /metrics` with tensorfold:-prefixed counters
+    // (Picom-code/pico-dgx-ds4#12), the same series set the TensorFold reader below
+    // parses. Read them when present; an older dsfront answers 404 and the branch
+    // below behaves exactly as before.
     if (this.backendType === "pico") {
+      // Clear first: a rate left by the previous poll's sample must not be mistaken
+      // for a counter-derived one, and a failed scrape must not keep a stale figure.
       this.generationTps = 0;
-      const liveTps = this._liveDecodeTps?.(this.port);
-      if (Number.isFinite(liveTps) && liveTps >= 0) {
-        this.generationTps = liveTps;
-        this.generationTpsSource = "dashboard-stream";
-        this.decodeActive = liveTps > 0;
+      this.generationTpsSource = null;
+      this.decodeActive = false;
+      await this._applyTensorFoldMetrics(dtSec);
+      if (this.generationTps > 0) {
+        // Counter-diff window: real tokens, but it only advances when a request
+        // finishes (this engine publishes no in-flight generation counter), so the
+        // figure is honest and lumpy rather than a smooth live rate.
+        this.generationTpsSource = "window";
+        this.decodeActive = true;
       } else {
-        await this._maybeStreamSample();
-        if (this._liveDecodeTps && this.generationTpsSource == null) {
+        // A sample belongs only to the poll that measured it; replaying it on later
+        // polls makes an idle engine look busy forever.
+        this.generationTps = 0;
+        const liveTps = this._liveDecodeTps?.(this.port);
+        if (Number.isFinite(liveTps) && liveTps >= 0) {
+          this.generationTps = liveTps;
           this.generationTpsSource = "dashboard-stream";
+          this.decodeActive = liveTps > 0;
+        } else {
+          await this._maybeStreamSample();
+          if (this._liveDecodeTps && this.generationTpsSource == null) {
+            this.generationTpsSource = "dashboard-stream";
+          }
         }
       }
     }
