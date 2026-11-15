@@ -222,6 +222,15 @@ export function ComfyPanel({
   const progress = comfy?.progress ?? null;
   const lastJob = comfy?.lastJob ?? null;
   const modelsInstalled = comfy?.modelsInstalled ?? null;
+  const modelGroups = modelsInstalled
+    ? [
+        { key: "checkpoints", label: t("comfy.checkpoints"), list: modelsInstalled.checkpoints ?? [] },
+        { key: "loras", label: "LoRAs", list: modelsInstalled.loras ?? [] },
+        { key: "diffusionModels", label: t("comfy.diffusionModels"), list: modelsInstalled.diffusionModels ?? [] },
+        { key: "textEncoders", label: t("comfy.textEncoders"), list: modelsInstalled.textEncoders ?? [] },
+        { key: "vae", label: t("comfy.vae"), list: modelsInstalled.vae ?? [] },
+      ]
+    : [];
   const etaLabel = formatEtaMs(comfy?.queueEtaMs ?? null);
   const openUrl = comfyOpenUrl(lanIp, comfyPort, comfy?.openUrl ?? null);
 
@@ -389,8 +398,7 @@ export function ComfyPanel({
             </p>
           ) : null}
 
-          {modelsInstalled &&
-          (modelsInstalled.checkpoints.length > 0 || modelsInstalled.loras.length > 0) ? (
+          {modelsInstalled && modelGroups.some((g) => g.list.length > 0) ? (
             <div className="sp-section">
               <button
                 type="button"
@@ -398,46 +406,30 @@ export function ComfyPanel({
                 className="flex w-full items-center justify-between text-left text-[11px] text-muted hover:text-text"
               >
                 <span>
-                  {t("comfy.installed", { checkpoints: modelsInstalled.checkpoints.length, loras: modelsInstalled.loras.length })}
+                  {t("comfy.installedTotal", { total: modelGroups.reduce((n, g) => n + g.list.length, 0) })}
                 </span>
                 <span className="text-[10px]">{modelsOpen ? t("comfy.hide") : t("comfy.show")}</span>
               </button>
               {modelsOpen ? (
                 <div className="mt-1.5 grid gap-2 sm:grid-cols-2">
-                  {modelsInstalled.checkpoints.length > 0 ? (
-                    <div>
-                      <div className="text-[10px] uppercase tracking-wide text-muted">
-                        {t("comfy.checkpoints")}
+                  {modelGroups
+                    .filter((g) => g.list.length > 0)
+                    .map((g) => (
+                      <div key={g.key}>
+                        <div className="text-[10px] uppercase tracking-wide text-muted">{g.label}</div>
+                        <ul className="mt-0.5 space-y-0.5">
+                          {g.list.slice(0, 12).map((m) => (
+                            <li
+                              key={g.key + m}
+                              className="truncate font-tabular text-[11px] text-text"
+                              title={m}
+                            >
+                              {m}
+                            </li>
+                          ))}
+                        </ul>
                       </div>
-                      <ul className="mt-0.5 space-y-0.5">
-                        {modelsInstalled.checkpoints.slice(0, 12).map((m) => (
-                          <li
-                            key={m}
-                            className="truncate font-tabular text-[11px] text-text"
-                            title={m}
-                          >
-                            {m}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
-                  {modelsInstalled.loras.length > 0 ? (
-                    <div>
-                      <div className="text-[10px] uppercase tracking-wide text-muted">LoRAs</div>
-                      <ul className="mt-0.5 space-y-0.5">
-                        {modelsInstalled.loras.slice(0, 12).map((m) => (
-                          <li
-                            key={m}
-                            className="truncate font-tabular text-[11px] text-text"
-                            title={m}
-                          >
-                            {m}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
+                    ))}
                 </div>
               ) : null}
             </div>

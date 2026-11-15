@@ -175,3 +175,60 @@ test("openUrl prefers lanIp over localhost probe host", () => {
   assert.match(probe.baseUrl, /127\.0\.0\.1:8188/); // probe still loopback when local
   probe.dispose();
 });
+
+test("ComfyProbe lists new-format model folders (diffusion_models, text_encoders, vae)", async () => {
+  // ComfyUI's /models/<folder> endpoints answer with plain filename arrays.
+  // Qwen Image / Flux style models live in diffusion_models + text_encoders + vae,
+  // not checkpoints — an older probe showed an empty Installed section for them.
+  const byPath = {
+    "/models/checkpoints": ["sd_xl_base.safetensors"],
+    "/models/loras": ["anime_style.safetensors", "sub/detail_lora.safetensors"],
+    "/models/diffusion_models": ["qwen_image_2.1_turbo_int8_convrot.safetensors"],
+    "/models/text_encoders": [
+      "qwen3.5_9b_pe_t2i.int8_convrot.safetensors",
+      "qwen3vl_8b_int8_convrot.safetensors",
+    ],
+    "/models/vae": ["qwen_image_2.1_vae_bf16.safetensors"],
+  };
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    if (u.includes("/system_stats")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          system: { comfyui_version: "0.45.3", pytorch_version: "2.14.1+cu130" },
+          devices: [{ type: "cuda" }],
+        }),
+      };
+    }
+    if (u.includes("/queue") && !u.includes("api")) {
+      return { ok: true, status: 200, json: async () => ({ queue_running: [], queue_pending: [] }) };
+    }
+    if (u.includes("/api/jobs")) {
+      return { ok: true, status: 200, json: async () => ({ jobs: [] }) };
+    }
+    const hit = Object.entries(byPath).find(([p]) => u.endsWith(p));
+    if (hit) return { ok: true, status: 200, json: async () => hit[1] };
+    return { ok: false, status: 404, json: async () => ({}) };
+  };
+  try {
+    const probe = new ComfyProbe({ isLocal: true }, 8188);
+    const snap = await probe.probe();
+    assert.equal(snap.available, true);
+    assert.deepEqual(snap.modelsInstalled?.checkpoints, ["sd_xl_base.safetensors"]);
+    assert.deepEqual(snap.modelsInstalled?.diffusionModels, ["qwen_image_2.1_turbo_int8_convrot.safetensors"]);
+    assert.deepEqual(snap.modelsInstalled?.textEncoders, [
+      "qwen3.5_9b_pe_t2i.int8_convrot.safetensors",
+      "qwen3vl_8b_int8_convrot.safetensors",
+    ]);
+    assert.deepEqual(snap.modelsInstalled?.vae, ["qwen_image_2.1_vae_bf16.safetensors"]);
+    // subfolder paths collapse to basename, like the existing categories
+    assert.deepEqual(snap.modelsInstalled?.loras, ["anime_style.safetensors", "detail_lora.safetensors"]);
+    probe.dispose();
+    await new Promise((r) => setTimeout(r, 30));
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});

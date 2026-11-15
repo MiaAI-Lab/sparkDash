@@ -798,6 +798,9 @@ export interface ComfyLastJob {
 export interface ComfyModelsInstalled {
   checkpoints: string[];
   loras: string[];
+  diffusionModels?: string[];
+  textEncoders?: string[];
+  vae?: string[];
 }
 
 export interface ComfyMetrics {
