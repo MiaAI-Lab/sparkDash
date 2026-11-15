@@ -237,7 +237,7 @@ export class ComfyProbe {
     this.baseUrl = `http://${llmProbeHost(spark)}:${this.port}`;
     this.error = null;
     this._progress = new ComfyProgressSocket(spark, this.port);
-    /** @type {{ checkpoints: string[], loras: string[], fetchedAt: number } | null} */
+    /** @type {{ checkpoints: string[], loras: string[], diffusionModels: string[], textEncoders: string[], vae: string[], fetchedAt: number } | null} */
     this._modelsCache = null;
     /** @type {{ lastJob: object | null, durationsMs: number[], fetchedAt: number } | null} */
     this._historyCache = null;
@@ -381,6 +381,9 @@ export class ComfyProbe {
           ? {
               checkpoints: this._modelsCache.checkpoints,
               loras: this._modelsCache.loras,
+              diffusionModels: this._modelsCache.diffusionModels ?? [],
+              textEncoders: this._modelsCache.textEncoders ?? [],
+              vae: this._modelsCache.vae ?? [],
             }
           : null,
         queueEtaMs: busy ? queueEtaMs : null,
@@ -504,9 +507,12 @@ export class ComfyProbe {
     const now = Date.now();
     if (this._modelsCache && now - this._modelsCache.fetchedAt < MODELS_TTL_MS) return;
     try {
-      const [ckRes, loraRes] = await Promise.all([
+      const [ckRes, loraRes, dmRes, teRes, vaeRes] = await Promise.all([
         fetch(`${this.baseUrl}/models/checkpoints`, { signal }),
         fetch(`${this.baseUrl}/models/loras`, { signal }),
+        fetch(`${this.baseUrl}/models/diffusion_models`, { signal }),
+        fetch(`${this.baseUrl}/models/text_encoders`, { signal }),
+        fetch(`${this.baseUrl}/models/vae`, { signal }),
       ]);
       /** @param {Response} res */
       const list = async (res) => {
@@ -521,6 +527,9 @@ export class ComfyProbe {
       this._modelsCache = {
         checkpoints: await list(ckRes),
         loras: await list(loraRes),
+        diffusionModels: await list(dmRes),
+        textEncoders: await list(teRes),
+        vae: await list(vaeRes),
         fetchedAt: now,
       };
     } catch {
