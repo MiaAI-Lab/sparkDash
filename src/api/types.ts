@@ -1114,6 +1114,12 @@ export interface WsSnapshot {
   alerts?: { active: AlertInstance[] };
 }
 
+/** Pushed on /ws whenever the shared clipboard changes; carries no content. */
+export interface WsClipboardRevision {
+  type: "clipboard";
+  revision: number;
+}
+
 // ─── Alert notifications (server/alerts) ──────────────────
 export type AlertSeverity = "warning" | "critical";
 
@@ -1383,6 +1389,8 @@ export interface Settings {
   mqttDiscoveryPrefix: string;
   /** Read-only API Keys page (LiteLLM keys via a host bridge). Off by default; while off there is no nav entry. */
   apiKeysEnabled?: boolean;
+  /** Shared clipboard page and its /api/clipboard routes. Off by default; while off there is no nav entry. */
+  clipboardEnabled?: boolean;
   /**
    * Hide harness sessions older than this. Finite: 1 minute through 14 days.
    * Missing or out of range becomes 12 hours.

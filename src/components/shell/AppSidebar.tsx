@@ -21,9 +21,9 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import type { AuthMode, SparkSnapshot } from "../../api/types";
 import { isWorkerSpark } from "../../api/sparkRole";
-import { ACTIVITY_ID, API_KEYS_ID, benchId, COST_ID, ENERGY_ID, idToPath, KIOSK_ID, OVERVIEW_ID, SHOWCASE_ID, STORAGE_ID, TEMPS_ID, TOKENS_ID } from "../../constants";
+import { ACTIVITY_ID, API_KEYS_ID, benchId, CLIPBOARD_ID, COST_ID, ENERGY_ID, idToPath, KIOSK_ID, OVERVIEW_ID, SHOWCASE_ID, STORAGE_ID, TEMPS_ID, TOKENS_ID } from "../../constants";
 import { NAV_BENCH_TYPES, benchNavActive } from "../bench/benchCatalog";
-import { BoltIcon, ChevronDownIcon, CoinsIcon, DiskIcon, ExpandIcon, GearIcon, GithubIcon, GlobeIcon, GridIcon, KeyIcon, ListIcon, PanelLeftIcon, PlusIcon, SearchIcon, TerminalIcon, ThermometerIcon, TokensIcon, XLogoIcon } from "../ui/icons";
+import { BoltIcon, ChevronDownIcon, ClipboardIcon, CoinsIcon, DiskIcon, ExpandIcon, GearIcon, GithubIcon, GlobeIcon, GridIcon, KeyIcon, ListIcon, PanelLeftIcon, PlusIcon, SearchIcon, TerminalIcon, ThermometerIcon, TokensIcon, XLogoIcon } from "../ui/icons";
 import { OpenAccessChip } from "../OpenAccessChip";
 import { ThemeSwitch } from "../ThemeSwitch";
 import { isThrottling, railSubLabel } from "./sparkSummary";
@@ -49,6 +49,8 @@ interface AppSidebarProps {
   onCollapse?: () => void;
   /** Show the opt-in API Keys entry (Settings → API Keys). */
   showApiKeys?: boolean;
+  /** Show the opt-in Shared clipboard entry (Settings → Shared clipboard). */
+  showClipboard?: boolean;
 }
 
 /**
@@ -184,6 +186,7 @@ export function AppSidebar({
   authMode = null,
   onCollapse,
   showApiKeys = false,
+  showClipboard = false,
 }: AppSidebarProps) {
   const { t } = useTranslation("shell");
   const benchLabels = useBenchLabels();
@@ -379,6 +382,17 @@ export function AppSidebar({
             >
               <KeyIcon className="h-4 w-4" />
               <span className="rail-item__name">{t("nav.apiKeys")}</span>
+            </a>
+          ) : null}
+          {showClipboard ? (
+            <a
+              href={idToPath(CLIPBOARD_ID)}
+              className={`rail-item ${activeId === CLIPBOARD_ID ? "is-active" : ""}`}
+              onClick={inApp(() => onSelect(CLIPBOARD_ID))}
+              aria-current={activeId === CLIPBOARD_ID ? "page" : undefined}
+            >
+              <ClipboardIcon className="h-4 w-4" />
+              <span className="rail-item__name">{t("nav.clipboard")}</span>
             </a>
           ) : null}
           <a

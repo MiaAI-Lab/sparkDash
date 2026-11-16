@@ -1,0 +1,62 @@
+{
+  "title": "剪贴板",
+  "subtitle": "在访问此仪表盘的浏览器和设备之间共享。在本页面任意位置粘贴即可共享。",
+  "refresh": "刷新",
+  "refreshing": "正在刷新…",
+  "loading": "正在加载…",
+  "errors": { "load": "无法加载剪贴板：{{error}}" },
+  "latest": {
+    "title": "最新",
+    "empty": "尚未共享任何内容。",
+    "truncated": "仅显示共 {{size}} 文本的开头部分。复制时会复制全部内容。"
+  },
+  "share": {
+    "title": "共享",
+    "textLabel": "要共享的文本",
+    "placeholder": "输入或粘贴文本…",
+    "text": "共享",
+    "drop": "将文件或图片拖放到此处",
+    "choose": "选择文件",
+    "limits": "最多 {{parts}} 个文件，每个不超过 {{part}}；文本不超过 {{text}}。",
+    "pasteHint": "在文本框外按 Ctrl+V 或 Cmd+V 即可共享粘贴的内容。"
+  },
+  "history": {
+    "title": "历史记录",
+    "empty": "历史记录为空。",
+    "clear": "清除…",
+    "clearAll": "清除所有条目",
+    "clearAsk": "删除所有剪贴板条目？",
+    "cancel": "取消",
+    "confirm": "删除",
+    "deleting": "正在删除…",
+    "irreversible": "此操作无法撤销。",
+    "nothing": "没有可删除的内容",
+    "cleared": "已删除条目：{{count}}",
+    "failed": "无法清除剪贴板"
+  },
+  "actions": {
+    "copy": "复制",
+    "copyLabel": "复制{{type}}",
+    "download": "下载",
+    "downloadLabel": "下载{{type}}",
+    "delete": "删除",
+    "deleteLabel": "删除{{type}}"
+  },
+  "notice": {
+    "shared": "已共享",
+    "duplicate": "已是最新条目",
+    "copied": "已复制",
+    "copyFailed": "此浏览器阻止了复制",
+    "downloaded": "已下载",
+    "deleted": "已删除"
+  },
+  "limits": {
+    "text": "文本超过了 {{limit}} 的限制。",
+    "parts": "一次最多共享 {{limit}} 个文件。",
+    "part": "{{name}} 超过了单个文件 {{limit}} 的限制。",
+    "entry": "这些文件超过了 {{limit}} 的总大小限制。"
+  },
+  "type": { "text": "文本", "image": "图片", "files": "文件：{{count}}" },
+  "source": { "browser": "浏览器", "device": "设备" },
+  "ago": { "now": "刚刚", "minutes": "{{count}} 分钟前", "hours": "{{count}} 小时前", "days": "{{count}} 天前" }
+}

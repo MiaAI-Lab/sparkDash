@@ -7,6 +7,7 @@ dist
 *.log
 .DS_Store
 node_modules/
+config/clipboard
 
 # Don't skip server/ or config/ in Docker build
 # They are needed at runtime

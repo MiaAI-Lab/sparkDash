@@ -117,6 +117,11 @@ const DEFAULTS = Object.freeze({
    */
   apiKeysEnabled: false,
   /**
+   * Shared clipboard page and /api/clipboard (text, images and files across the fleet's
+   * desktops). Off by default; while off every clipboard route answers 404.
+   */
+  clipboardEnabled: false,
+  /**
    * Hide harness sessions older than this. Finite: 1 minute through 14 days.
    * A missing or out-of-range value becomes 12 hours. There is no unlimited value.
    */
@@ -298,6 +303,7 @@ function _clampSettings(settings) {
   s.alertsEnabled = Boolean(s.alertsEnabled);
   s.mqttEnabled = Boolean(s.mqttEnabled);
   s.apiKeysEnabled = Boolean(s.apiKeysEnabled);
+  s.clipboardEnabled = s.clipboardEnabled === true;
   s.mqttUrl = normalizeMqttUrl(s.mqttUrl);
   s.mqttUsername = typeof s.mqttUsername === "string" ? s.mqttUsername.trim().slice(0, 128) : "";
   // Trailing slashes are normal while typing; strip them instead of rejecting.
