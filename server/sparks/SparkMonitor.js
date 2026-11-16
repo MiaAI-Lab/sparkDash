@@ -6,6 +6,8 @@ import {
 } from "../collectors/SystemCollector.js";
 import { MacSystemCollector } from "../collectors/MacSystemCollector.js";
 import { MacAgentCollector } from "../collectors/MacAgentCollector.js";
+import { NodeAgentCollector } from "../collectors/NodeAgentCollector.js";
+import { usesNodeAgent } from "../collectors/nodeAgent.js";
 import { LlmProbe } from "../collectors/LlmProbe.js";
 import { ComfyProbe } from "../collectors/ComfyProbe.js";
 import { HermesProbe } from "../collectors/HermesProbe.js";
@@ -294,7 +296,8 @@ export class SparkMonitor {
     // The agent endpoint is baked into the collector, so moving or removing it
     // needs a fresh collector just like a kind change does.
     const transportChanged =
-      JSON.stringify(this.spark?.agent ?? null) !== JSON.stringify(spark?.agent ?? null);
+      JSON.stringify(this.spark?.agent ?? null) !== JSON.stringify(spark?.agent ?? null) ||
+      usesNodeAgent(this.spark) !== usesNodeAgent(spark);
     this.spark = spark;
     if (kindChanged || transportChanged) {
       this.collector = createCollector(spark);
@@ -423,7 +426,7 @@ export class SparkMonitor {
   /** Resident-model discovery: LLM monitoring on, remote, and a Linux host. */
   _residentModelsEnabled(spark = this.spark) {
     if (!this._llmMonitoringEnabled(spark)) return false;
-    if (spark?.isLocal) return false;
+    if (spark?.isLocal || usesNodeAgent(spark)) return false;
     return spark?.platform !== "windows" && spark?.platform !== "darwin";
   }
 
@@ -819,6 +822,7 @@ export class SparkMonitor {
     if (this.spark.platform === "windows" && !this.spark.isLocal) {
       return this.collector.readWindowsUptime();
     }
+    if (this.collector instanceof NodeAgentCollector) return this.collector.readUptime();
     let content;
     if (this.spark.isLocal) {
       const mapped = path.join(HOST_PATHS.PROC, "uptime");
@@ -1044,7 +1048,7 @@ export class SparkMonitor {
     } catch (err) {
       if (!isCurrentRun()) return;
       this._livenessFailures += 1;
-      const reason = livenessReason(err);
+      const reason = this.collector instanceof NodeAgentCollector ? `node agent: ${livenessReason(err)}` : livenessReason(err);
       this.offlineReason =
         isSshAuthFailure(reason) && sshAuthGaveUp(this._livenessFailures)
           ? `${reason} (paused after ${this._livenessFailures} attempts — edit the unit to retry now)`
@@ -1544,6 +1548,7 @@ export class SparkMonitor {
  * @param {object} spark
  */
 export function createCollector(spark) {
+  if (usesNodeAgent(spark)) return new NodeAgentCollector(spark);
   if (spark?.kind !== "mac") return new SystemCollector(spark);
   return spark.agent
     ? new MacAgentCollector(spark)

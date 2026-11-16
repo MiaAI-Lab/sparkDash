@@ -11,7 +11,8 @@ The package uses ESM throughout. `server/index.js` runs directly in Node and cre
 | Path | Responsibility |
 | --- | --- |
 | `server/sparks/` | Persistent unit registry and independent poll loops |
-| `server/collectors/` | Hardware, platform-specific probes, LLM detection, streaming, benchmarks and Showcase |
+| `server/collectors/` | Hardware, platform-specific probes, LLM detection, streaming, benchmarks and Showcase. `NodeAgentCollector.js` reads opt-in node-agent units by rendering the agent's snapshot into the SSH commands' output for the same parsers |
+| `agent/` | `sparkdash-agent`, the optional read-only Rust node agent for Linux units (Cargo crate, systemd unit, installer; docs/NODE-AGENT.md). Checked with `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test` in that directory |
 | `server/auth.js`, `server/validate.js` | Incoming access checks and configured-target validation |
 | `server/secretsStore.js`, `server/settings.js` | Encrypted credentials and ordinary persistent settings |
 | `server/metrics/`, `server/llmtokens/`, `server/energy/` | Metric histories, token accounting and fleet energy. The permanent monthly archive (`FleetEnergyMonthly.js`) also keeps each node's energy per UTC hour of the month, so any tariff can price past months; it stores energy, never money |

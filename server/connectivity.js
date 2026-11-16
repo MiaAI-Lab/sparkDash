@@ -2,6 +2,8 @@ import { SystemCollector, collectionWasSuccessful } from "./collectors/SystemCol
 import { HermesProbe } from "./collectors/HermesProbe.js";
 import { TailscaleProbe } from "./collectors/TailscaleProbe.js";
 import { comfyTest, llmTest, sshTest } from "./collectors/ssh.js";
+import { NodeAgentCollector } from "./collectors/NodeAgentCollector.js";
+import { usesNodeAgent } from "./collectors/nodeAgent.js";
 
 const RECOVERY = {
   host: {
@@ -25,7 +27,7 @@ export function buildConnectivityPlan(spark) {
   const role = roleOf(spark);
   const llmEnabled = role === "head" || (role !== "worker" && spark?.llmMonitoring !== false);
   return [
-    { id: "host", label: spark?.isLocal ? "Local collectors" : "Remote SSH", required: true, enabled: true },
+    { id: "host", label: spark?.isLocal ? "Local collectors" : usesNodeAgent(spark) ? "Node agent" : "Remote SSH", required: true, enabled: true },
     { id: "llm", label: "LLM API", required: llmEnabled, enabled: llmEnabled },
     { id: "comfy", label: "ComfyUI", required: Boolean(spark?.comfyMonitoring), enabled: Boolean(spark?.comfyMonitoring) },
     { id: "hermes", label: "Hermes Agent", required: Boolean(spark?.hermesMonitoring), enabled: Boolean(spark?.hermesMonitoring) },
@@ -69,6 +71,10 @@ export async function testSparkConnectivity(spark, { llmPort, comfyPort }) {
   const enabled = new Set(plan.filter((capability) => capability.enabled).map((capability) => capability.id));
   const entries = await Promise.all([
     checked(async () => {
+      if (usesNodeAgent(spark)) {
+        await new NodeAgentCollector(spark).pingHost();
+        return { ok: true, message: "The node agent answered" };
+      }
       if (!spark.isLocal) {
         const ssh = await sshTest(spark);
         if (!ssh.ok || spark.platform !== "windows") return ssh;
