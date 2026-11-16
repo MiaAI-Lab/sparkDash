@@ -1,3 +1,4 @@
+// Modified by Maxrio9, 2026: verify training probes are disabled in fixtures.
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import fs from "node:fs";
@@ -32,5 +33,8 @@ test("isolatedConfigEnv keeps every file inside the given directory", () => {
   for (const name of [...CONFIG_PATH_VARS, ...CONFIG_DIR_VARS]) assert.ok(env[name].startsWith(`${dir}${path.sep}`), env[name]);
   assert.equal(env.SPARKDASH_INFERENCE_ACTIVITY_URL, "");
   assert.equal(env.SPARKDASH_INFERENCE_ACTIVITY_LABELS, "");
-  assert.equal(Object.keys(env).length, CONFIG_PATH_VARS.length + CONFIG_DIR_VARS.length + 2);
+  assert.equal(env.TRAINING_PROGRESS_ENABLED, "0");
+  assert.equal(env.TRAINING_PROGRESS_ROOTS, "[]");
+  assert.equal(env.TRAINING_PROGRESS_ROOTS_BY_UNIT, "{}");
+  assert.equal(Object.keys(env).length, CONFIG_PATH_VARS.length + CONFIG_DIR_VARS.length + 5);
 });

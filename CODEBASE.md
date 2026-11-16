@@ -20,6 +20,7 @@ The package uses ESM throughout. `server/index.js` runs directly in Node and cre
 | `server/llmlaunch/`, `server/tooleval/`, `server/gpuclock/` | Model launcher jobs, tool evaluation, GPU-clock management and per-card power limits on GPU hosts (`gpuclock/powerCommands.js`) |
 | `server/prices/` | Opt-in hosted-model price catalog and offline cache |
 | `server/apiKeys/`, `scripts/apikeys-bridge/` | Opt-in read-only API Keys views and the reference host bridge they call over a unix socket |
+| `server/training/`, `server/collectors/TrainingProgressCollector.js` | Opt-in JSON training-report provider, bounded snapshots and one authenticated read-only route; [report contract](server/training/README.md) |
 | `server/storage/` | Storage Manager: disk scans, Docker images, deletes. Shell programs in `scripts/`, path safety in `policy.js`, execution contexts (ssh / native-local / container-local) and the per-feature `supports()` table in `context.js`, what may start (one job per Spark, two scans per fleet) in `admission.js`, scan stop and reconcile rules in `scanJob.js` (unit-side lock and job records in `scripts/unit-state.sh`, stop in `scripts/job.sh`), the delete advisor's rules and known-place table in `advice.js` (pure; evidence from the read-only `scripts/advise.sh`, parsed by `parseAdviseOutput` in `commands.js`), routes under `/api/sparks/:id/storage` |
 | `src/api/` | API clients and browser-facing data types |
 | `src/hooks/` | Snapshot subscription, metric history and UI hooks |
@@ -31,6 +32,8 @@ The package uses ESM throughout. `server/index.js` runs directly in Node and cre
 | `homeassistant/` | Home Assistant custom component (Python) that polls a hub's `/api/sparks` endpoints; not run by `npm test`, only its docs are checked |
 
 Most API routes are inline in `server/index.js`; larger existing feature modules register their routes there. Snapshot payloads contain a list of self-contained units. Frontend history and summary views consume those shared records. A failure in one collector must not stop other units or the polling loop; missing measurement data must not be fabricated as observed zero.
+
+The optional JSON training module reads one `training-progress.json` directly in each explicit output root. `TRAINING_PROGRESS_ENABLED=1` enables its dedicated page and collector; without it no training probes run. The per-unit collector is in `server/collectors/`; the feature module owns one provider and `GET /api/training-progress` behind existing authentication. Worker timestamps bound freshness and retention; polling cannot make an old file live. Stages, counters and ETA come only from report fields. There is no framework-specific parsing, process inference or job control. See the module guide for limits and the synthetic example.
 
 ## Development and validation
 

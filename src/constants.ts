@@ -1,3 +1,4 @@
+// Modified by Maxrio9, 2026: optional JSON training progress page.
 /** Reserved tab id for the cross-Spark overview (not a real Spark). */
 export const OVERVIEW_ID = "__overview__";
 /** Reserved ids for the dedicated fleet pages. */
@@ -14,6 +15,8 @@ export const COST_ID = "__cost__";
 export const KIOSK_ID = "__kiosk__";
 /** Opt-in API Keys page (Settings → API Keys); only reachable while that setting is on. */
 export const API_KEYS_ID = "__apikeys__";
+/** Read-only JSON training progress; present only when the server capability is enabled. */
+export const TRAINING_ID = "__training__:json";
 /** Benchmark pages: the active id is this prefix + the benchmark type (decode, tool-eval, …). */
 export const BENCH_PREFIX = "__bench__:";
 
@@ -28,6 +31,7 @@ const FIXED_PATHS: Record<string, string> = {
   [COST_ID]: "/cost",
   [KIOSK_ID]: "/kiosk",
   [API_KEYS_ID]: "/api-keys",
+  [TRAINING_ID]: "/training",
 };
 
 export function benchId(type: string): string {

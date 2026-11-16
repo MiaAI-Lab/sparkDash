@@ -10,6 +10,7 @@ Format: version sections are listed newest first.
 ## [Unreleased]
 
 ### Added
+- Opt-in, read-only JSON training reports on a dedicated Training page. One collector reads only `training-progress.json` directly inside explicit output folders; worker-reported stages, counters, metrics and ETA retain unknown/stale semantics and bounded retention. Includes a synthetic example and English/Simplified Chinese UI. First slice of #387.
 - **spark-attic card: spare GPU memory (opt-in).** [spark-attic](https://github.com/bertholomus/spark-attic)'s atticd lends a GB10's display carveout to CUDA programs. With **Display carveout** ticked in Edit Spark (default off; Linux Sparks only), sparkDash reads atticd's keyless status file `/run/spark-attic/status.json` and `attic.service`'s state over the unit's existing SSH path, as the SSH user with no root and no new port, and shows what spark-attic does: not installed, off, refusing (and why), driver not yet validated, or lending N of the carveout's MiB, with MiB free and in the largest free block, clients, mode, and the driver and whether it is validated. A status file older than three of its own rewrite periods reads stale with no numbers, an unreadable one reads unreadable, and with no status file the card needs systemd's word for off or not installed; anything else reads unknown, with the reason. English and Simplified Chinese. When the setting is off, no probe exists and nothing runs on the unit.
 
 ## [2.90.0] — 2026-11-12

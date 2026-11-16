@@ -1,4 +1,6 @@
+// Modified by Maxrio9, 2026: server-gated training route regressions.
 import { act } from "react";
+import { TRAINING_ID } from "./constants";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setLocale } from "./i18n";
 import { makeSpark } from "./testing/fixtures";
@@ -16,6 +18,7 @@ vi.mock("./hooks/useFleetAlerts", () => ({ useFleetAlerts: () => ({ rows: [], re
 vi.mock("./hooks/useBrowserAlerts", () => ({ useBrowserAlerts: () => {} }));
 vi.mock("./hooks/useSmoothWheel", () => ({ useSmoothWheel: () => {} }));
 vi.mock("./api/client", () => ({ fetchSettings: mocks.fetchSettings, fetchHealth: mocks.fetchHealth, fetchSparks: mocks.fetchSparks, reorderSparks: mocks.reorderSparks }));
+vi.mock("./components/TrainingPage/TrainingPage", () => ({ TrainingPage: () => <div data-training-page /> }));
 vi.mock("./components/OverviewPage/OverviewPage", () => ({ OverviewPage: () => null }));
 vi.mock("./components/SparkPage/SparkPage", () => ({ SparkPage: () => null }));
 vi.mock("./components/TokensPage/TokensPage", () => ({ TokensPage: () => null }));
@@ -58,6 +61,25 @@ afterEach(async () => {
 });
 
 describe("application shell localization", () => {
+  it("redirects a disabled training deep link and does not expose its navigation", async () => {
+    mocks.snapshot.activeId = TRAINING_ID;
+    const { container } = render(<App />);
+    await flush();
+    expect(mocks.navigate).toHaveBeenCalledWith("__overview__");
+    expect(container.querySelector("[data-training-page]")).toBeNull();
+    expect(container.querySelector('a[href="/training"]')).toBeNull();
+  });
+
+  it("opens the enabled training page, even without any configured devices", async () => {
+    mocks.snapshot = { ...mocks.snapshot, sparks: [], activeId: TRAINING_ID };
+    mocks.fetchSettings.mockResolvedValue({ trainingProgressEnabled: true });
+    const { container } = render(<App />);
+    await flush();
+    expect(container.querySelector("[data-training-page]")).not.toBeNull();
+    expect(container.querySelector('a[href="/training"]')).not.toBeNull();
+    expect(mocks.navigate).not.toHaveBeenCalledWith("__overview__");
+  });
+
   it("updates generated commands, keeps English aliases and query, and navigates by the original IDs", async () => {
     render(<App />);
     await flush();
