@@ -142,6 +142,27 @@ test("a Pico that publishes /metrics is read: token totals recorded, cached clam
   assert.equal(idle.decodeActive, false);
 });
 
+test("a failed /metrics scrape after a good one is not reported as a measured zero", async () => {
+  let metricsUp = true;
+  const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888);
+  probe._fetch = async (url) => {
+    const path = new URL(String(url)).pathname;
+    if (path === "/v1/models") {
+      return { ok: true, status: 200, json: async () => PICO_MODELS, text: async () => JSON.stringify(PICO_MODELS) };
+    }
+    if (path === "/metrics" && metricsUp) {
+      return { ok: true, status: 200, json: async () => ({}), text: async () => PICO_METRICS(1000, 900, 100) };
+    }
+    return { ok: false, status: 404, json: async () => ({}), text: async () => "" };
+  };
+  await probe._detectServerType();
+  await probe._probeOpenAICompatible();
+  metricsUp = false;
+  probe.lastProbeTime = Date.now() - 5000;
+  const snap = await probe._probeOpenAICompatible();
+  assert.notEqual(snap.generationTpsSource, "window");
+});
+
 // "dsgb10" is a namespace tag, so the match must be exact: another engine's
 // namespace that merely contains it must not read as Pico.
 test("an owned_by that only contains dsgb10 is not Pico", async () => {

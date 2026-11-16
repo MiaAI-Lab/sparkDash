@@ -1353,8 +1353,10 @@ export class LlmProbe {
       this.generationTps = 0;
       this.generationTpsSource = null;
       this.decodeActive = false;
-      const hadCounters = Number.isFinite(this._tensorfoldPromProduced);
+      this._tensorfoldScrapedCounters = false;
       await this._applyTensorFoldMetrics(dtSec);
+      // Only this scrape counts: counters seen on an earlier poll say nothing about a failed one.
+      const hadCounters = this._tensorfoldScrapedCounters === true;
       if (this.generationTps > 0) {
         // Counter-diff window: real tokens, but it only advances when a request
         // finishes (this engine publishes no in-flight generation counter), so the
@@ -2716,6 +2718,7 @@ export class LlmProbe {
       // tokens of an in-flight request. The rate fallback below keeps `produced`.
       this.generationProgressTokens =
         Number.isFinite(inFlight) && inFlight >= 0 ? produced : null;
+      this._tensorfoldScrapedCounters = true;
       const prev = this._tensorfoldPromProduced;
       this._tensorfoldPromProduced = produced;
       if (!preserveLiveDecode && prev != null && Number.isFinite(dtSec) && dtSec > 0) {
