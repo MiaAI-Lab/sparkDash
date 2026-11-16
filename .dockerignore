@@ -7,6 +7,8 @@ dist
 *.log
 .DS_Store
 node_modules/
+# The node agent runs on monitored hosts, not in the dashboard image.
+agent/
 
 # Don't skip server/ or config/ in Docker build
 # They are needed at runtime

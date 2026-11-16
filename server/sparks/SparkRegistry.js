@@ -4,6 +4,7 @@ import { loadSecrets, saveSecrets } from "../secretsStore.js";
 import { atomicWrite, quarantineCorrupt } from "../util/atomicWrite.js";
 import { isValidSparkId, normalizeSshPort } from "../validate.js";
 import { llmProbeHost } from "../collectors/llmHost.js";
+import { normalizeNodeAgent } from "../collectors/nodeAgent.js";
 
 /**
  * SparkRegistry — loads, persists, and emits change events for the Spark list.
@@ -91,7 +92,7 @@ export class SparkRegistry {
       );
     }
     if (this.getSpark(config.id)) throw new Error(`Spark ${config.id} already exists`);
-    const spark = this._normalizeConfig(config);
+    const spark = this._normalizeConfig(config.kind === "mac" ? config : { ...config, agent: null });
     const nextSparks = [...this._sparks, spark];
     this._save(nextSparks);
     try {
@@ -178,6 +179,8 @@ export class SparkRegistry {
       id, // never overwrite id
       ssh: mergedSsh,
     };
+    // A node agent endpoint receives SPARKDASH_AGENT_TOKEN, so only config/sparks.json sets it.
+    if (updated.kind !== "mac") updated.agent = prev.kind === "mac" ? null : prev.agent;
     const nextSparks = [...this._sparks];
     nextSparks[idx] = this._normalizeConfig(updated);
     // Secrets belong to the host they were entered for. LLM keys also reach a
@@ -629,7 +632,13 @@ export class SparkRegistry {
       name: config.name || config.id,
       /** Unit type: spark (DGX Spark) or host (dedicated GPU Linux box). */
       kind: config.kind === "mac" ? "mac" : config.kind === "host" || config.platform === "windows" ? "host" : "spark",
-      agent: config.kind === "mac" ? normalizeMacAgent(config.agent) : null,
+      /** Mac: the optional Mac agent. Remote Linux units: the optional node agent (docs/NODE-AGENT.md). */
+      agent:
+        config.kind === "mac"
+          ? normalizeMacAgent(config.agent)
+          : config.isLocal || config.platform === "windows" || config.platform === "darwin"
+            ? null
+            : normalizeNodeAgent(config.agent),
       /**
        * Optional OS platform override for SSH-collected units: "darwin" for
        * macOS hosts (Mac Studio etc.). Absent/"linux" keeps the existing

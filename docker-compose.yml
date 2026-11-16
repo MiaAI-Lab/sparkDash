@@ -82,6 +82,8 @@ services:
       - HOST_SYS_PATH=/host/sys
       - HOST_ROOT_PATH=/host/root
       - SSH_CONTROL_PERSIST_SECONDS=${SSH_CONTROL_PERSIST_SECONDS:-60}
+      # Node agent units (docs/NODE-AGENT.md): bearer token sent to their agents.
+      - SPARKDASH_AGENT_TOKEN=${SPARKDASH_AGENT_TOKEN:-}
       - MAX_ACTIVE_BENCH_JOBS=${MAX_ACTIVE_BENCH_JOBS:-2}
       # Cost compare opt-in: fetch the hosted-model price catalog (README: MODEL_PRICES_FETCH).
       - MODEL_PRICES_FETCH=${MODEL_PRICES_FETCH:-0}
