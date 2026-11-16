@@ -77,26 +77,7 @@ import type { AuthMode, Settings, SparkSnapshot } from "./api/types";
 import { AccessTokenPrompt } from "./components/AccessTokenDialog";
 import { onTokenChange } from "./api/authToken";
 import { isWorkerSpark } from "./api/sparkRole";
-
-/** Keep hidden worker ids in their original slots when the visible tabs are reordered. */
-function mergeTabOrderKeepingHidden(
-  allSparks: SparkSnapshot[],
-  visibleOrder: string[],
-  hiddenIds: Set<string>
-): string[] {
-  if (hiddenIds.size === 0) return visibleOrder;
-  const result: string[] = [];
-  let vi = 0;
-  for (const spark of allSparks) {
-    if (hiddenIds.has(spark.id)) {
-      result.push(spark.id);
-    } else if (vi < visibleOrder.length) {
-      result.push(visibleOrder[vi++]);
-    }
-  }
-  while (vi < visibleOrder.length) result.push(visibleOrder[vi++]);
-  return result;
-}
+import { mergeTabOrderKeepingHidden } from "./api/tabOrder";
 
 function placeholderSnapshot(
   id: string,

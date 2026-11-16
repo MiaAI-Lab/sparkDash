@@ -356,7 +356,15 @@ export function EditSparkDialog({
                 <input
                   type="text"
                   value={config.lanIp}
-                  onChange={(e) => update({ lanIp: e.target.value })}
+                  onChange={(e) => {
+                    const lanIp = e.target.value;
+                    // The SSH host follows the LAN IP unless it was set to something else on purpose.
+                    setConfig((prev) =>
+                      prev
+                        ? { ...prev, lanIp, ssh: { ...prev.ssh, host: prev.ssh.host === prev.lanIp ? lanIp : prev.ssh.host } }
+                        : prev
+                    );
+                  }}
                 />
                 {config.isLocal && !config.lanIp && (
                   <p className="field-hint">

@@ -95,4 +95,25 @@ describe("EditSparkDialog SSH port", () => {
       })
     );
   });
+
+  it("sends the edited LAN IP as the SSH host when the host followed the old IP", async () => {
+    render(<EditSparkDialog open sparkId="lab" onClose={() => {}} onSaved={() => {}} />);
+    await flush();
+
+    const lan = Array.from(document.querySelectorAll<HTMLInputElement>("input")).find((input) => input.value === "192.168.1.50");
+    expect(lan).toBeDefined();
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    setter?.call(lan, "192.168.1.60");
+    act(() => lan?.dispatchEvent(new Event("input", { bubbles: true })));
+
+    const save = Array.from(document.querySelectorAll("button")).find((button) => button.textContent === "Save");
+    await act(async () => {
+      save?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(updateSpark).toHaveBeenCalledWith(
+      "lab",
+      expect.objectContaining({ lanIp: "192.168.1.60", ssh: expect.objectContaining({ host: "192.168.1.60" }) })
+    );
+  });
 });
