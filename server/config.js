@@ -19,6 +19,7 @@ const SECRETS_KEY_PATH =
 const STORAGE_SCANS_JSON_PATH =
   process.env.STORAGE_SCANS_JSON_PATH || path.join(ROOT, "config", "storage-scans.json");
 /** Storage Manager: sudo passwords the user chose to remember, encrypted with the secrets key (gitignored). */
+const CLIPBOARD_DIR = process.env.CLIPBOARD_DIR || path.join(ROOT, "config", "clipboard");
 const STORAGE_SUDO_JSON_PATH =
   process.env.STORAGE_SUDO_JSON_PATH || path.join(ROOT, "config", "storage-sudo.json");
 /** Storage Manager: per-Spark acknowledgements that allow deleting folders as administrator (gitignored). */
@@ -246,6 +247,7 @@ const HOST_PATHS = {
 };
 
 export {
+  CLIPBOARD_DIR,
   STORAGE_SCANS_JSON_PATH,
   STORAGE_SUDO_JSON_PATH,
   STORAGE_ACKS_JSON_PATH,

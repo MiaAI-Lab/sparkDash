@@ -69,7 +69,7 @@ import {
 import { closeLlmStreamAgent } from "./collectors/LlmStreaming.js";
 import { compareSemver, getLatestRelease } from "./collectors/HermesReleases.js";
 import { createModelPricesHandler } from "./prices/ModelPrices.js";
-import { ALERTS_JSON_PATH, FLEET_ENERGY_JSON_PATH, FLEET_ENERGY_MONTHLY_JSON_PATH, MAX_ACTIVE_BENCH_JOBS, METRICS_HISTORY_JSON_PATH, STORAGE_ACKS_JSON_PATH, STORAGE_SCANS_JSON_PATH, STORAGE_SUDO_JSON_PATH } from "./config.js";
+import { ALERTS_JSON_PATH, CLIPBOARD_DIR, FLEET_ENERGY_JSON_PATH, FLEET_ENERGY_MONTHLY_JSON_PATH, MAX_ACTIVE_BENCH_JOBS, METRICS_HISTORY_JSON_PATH, STORAGE_ACKS_JSON_PATH, STORAGE_SCANS_JSON_PATH, STORAGE_SUDO_JSON_PATH } from "./config.js";
 import { createAlertsRuntime, registerAlertRoutes } from "./alerts/runtime.js";
 import { FleetEnergyTracker } from "./energy/FleetEnergyTracker.js";
 import { EventLog } from "./events/EventLog.js";
@@ -84,6 +84,7 @@ import { ToolEvalStore } from "./tooleval/ToolEvalStore.js";
 import { ToolEvalManager } from "./tooleval/ToolEvalManager.js";
 import { registerToolEvalRoutes } from "./tooleval/routes.js";
 import { registerApiKeysRoutes } from "./apiKeys/routes.js";
+import { registerClipboardRoutes } from "./clipboard/routes.js";
 import { benchEvent } from "./events/eventFormat.js";
 import {
   createFleetEnergyRuntime,
@@ -940,6 +941,16 @@ registerApiKeysRoutes(app, {
   allow: createRateLimiter(60, 60_000),
   principalKey,
   rejectLimited,
+});
+
+// ─── Shared clipboard (opt-in, Settings → Shared clipboard) ───
+// 404 while the setting is off. Open dashboards hear only the new revision and refetch over the API.
+registerClipboardRoutes(app, {
+  getSettings,
+  dir: CLIPBOARD_DIR,
+  allow: createRateLimiter(600, 60_000),
+  principalKey,
+  onChange: (revision) => broadcastPayload(JSON.stringify({ type: "clipboard", revision })),
 });
 
 // ─── LLM launchers: register a directory with start.sh / stop.sh and run it ───
