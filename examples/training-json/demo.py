@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Write synthetic JSON progress; no model, framework or GPU is used.
 
-Copyright 2026 Maxrio9. SPDX-License-Identifier: Apache-2.0
 """
 import argparse
 import json

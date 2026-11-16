@@ -1,4 +1,3 @@
-// Copyright 2026 Maxrio9. SPDX-License-Identifier: Apache-2.0
 export const FRESH_MS = 30_000;
 export const RETENTION_MS = 60 * 60_000;
 export const FUTURE_TOLERANCE_MS = 5_000;

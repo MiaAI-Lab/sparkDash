@@ -1,4 +1,3 @@
-// Copyright 2026 Maxrio9. SPDX-License-Identifier: Apache-2.0
 import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
@@ -12,12 +11,16 @@ export const progressLocationKey = (value) => createHash("sha256").update(value)
 export async function runProgressProbe(unit, roots, execute = sshExec) {
   const source = await readFile(probeUrl, "utf8");
   const argument = JSON.stringify(roots);
-  if (!unit.isLocal) return execute(unit, `python3 -I -S - ${quote(argument)}`, { input: source, timeoutMs: 8_000, maxBuffer: 256 * 1024 });
+  if (!unit.isLocal) {
+    const output = await execute(unit, `if command -v python3 >/dev/null 2>&1; then python3 -I -S - ${quote(argument)}; else printf '%s' 'SPARKDASH_PYTHON3_UNAVAILABLE'; fi`, { input: source, timeoutMs: 8_000, maxBuffer: 256 * 1024 });
+    if (output === "SPARKDASH_PYTHON3_UNAVAILABLE") throw Object.assign(new Error("python3 not available"), { code: "PYTHON_UNAVAILABLE" });
+    return output;
+  }
   return new Promise((resolve, reject) => {
     const child = execFile("python3", ["-I", "-S", "-", argument], {
       timeout: 8_000, killSignal: "SIGKILL", maxBuffer: 256 * 1024,
       env: { HOME: process.env.HOME, PATH: process.env.PATH },
-    }, (error, stdout) => error ? reject(error) : resolve(stdout));
+    }, (error, stdout) => error ? reject(error.code === "ENOENT" ? Object.assign(new Error("python3 not available"), { code: "PYTHON_UNAVAILABLE" }) : error) : resolve(stdout));
     child.stdin.on("error", () => {});
     child.stdin.end(source);
   });

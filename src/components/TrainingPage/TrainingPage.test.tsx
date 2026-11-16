@@ -1,4 +1,3 @@
-// Copyright 2026 Maxrio9. SPDX-License-Identifier: Apache-2.0
 import { act } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { fetchTrainingProgress, type TrainingProgress } from "../../api/trainingClient";

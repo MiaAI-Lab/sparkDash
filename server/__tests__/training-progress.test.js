@@ -1,4 +1,3 @@
-// Copyright 2026 Maxrio9. SPDX-License-Identifier: Apache-2.0
 import assert from "node:assert/strict";
 import test from "node:test";
 import { registerTrainingProgressRoutes } from "../training/progress.js";
@@ -153,4 +152,11 @@ test("byte-heavy reports and many reporters of one run remain bounded independen
   assert.equal(result.runs.length, 1);
   assert.ok(result.runs[0].sources.length <= 32);
   assert.ok(Buffer.byteLength(JSON.stringify(result)) <= MAX_BYTES);
+});
+
+test("missing Python makes the unit unavailable with an actionable diagnostic", async () => {
+  const runtime = fixture({ createCollector: () => ({ collect: async () => { throw Object.assign(new Error("private"), { code: "PYTHON_UNAVAILABLE" }); } }) });
+  await runtime.poll();
+  assert.equal(runtime.snapshot().units[0].detail, "python3 not available");
+  assert.equal(runtime.snapshot().units[0].status, "unavailable");
 });

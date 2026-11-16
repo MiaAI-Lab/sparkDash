@@ -1,4 +1,3 @@
-// Copyright 2026 Maxrio9. SPDX-License-Identifier: Apache-2.0
 import { TrainingProgressCollector, progressLocationKey } from "../collectors/TrainingProgressCollector.js";
 import { FRESH_MS, RETENTION_MS, FUTURE_TOLERANCE_MS, MAX_REPORTS, MAX_SOURCES, MAX_BYTES, GROUPS, progressConfig } from "./schema.js";
 
@@ -83,8 +82,8 @@ export function registerTrainingProgressRoutes(app, {
       units.set(sparkId, { sparkId, label, status: "live",
         ...(result.partial ? { detail: "Some progress documents could not be read" } : {}) });
       truncated ||= result.truncated;
-    } catch {
-      units.set(sparkId, { sparkId, label, status: "unavailable", detail: "Progress collection is unavailable" });
+    } catch (error) {
+      units.set(sparkId, { sparkId, label, status: "unavailable", detail: error?.code === "PYTHON_UNAVAILABLE" ? "python3 not available" : "Progress collection is unavailable" });
       for (const entry of cache.values()) if (entry.sparkId === sparkId) entry.status = "unavailable";
     } finally { prune(); }
   }

@@ -1,4 +1,3 @@
-// Copyright 2026 Maxrio9. SPDX-License-Identifier: Apache-2.0
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { fetchTrainingProgress, type TrainingProgress, type TrainingStage } from "../../api/trainingClient";

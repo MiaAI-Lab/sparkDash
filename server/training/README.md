@@ -20,7 +20,7 @@ An empty per-unit array disables collection for that unit. Paths must be absolut
 
 Python 3 is required on the dashboard host for native collection and on each SSH target. The standard-library probe is the same for both transports. Windows targets are unsupported in this first slice. An unavailable Python interpreter or SSH transport makes that unit unavailable without stopping other units.
 
-In Docker, local roots are paths visible **inside the dashboard container**. Explicitly mount the output folder read-only, or configure an SSH unit to read the host's files under the appropriate account. The reader does not enter host namespaces, infer a host home directory or use model processes as activity evidence. The runtime image includes Python for the probe.
+In Docker, local roots are paths visible **inside the dashboard container**. Explicitly mount the output folder read-only, or configure an SSH unit to read the host's files under the appropriate account. The reader does not enter host namespaces, infer a host home directory or use model processes as activity evidence. Python 3 must be available on the machine executing the probe: inside the dashboard container for local units, or on the SSH host for remote units. The standard runtime image does not include it. To use local collection in Docker, provide Python in a custom image and pass the training settings and read-only mounts through a Compose override. If Python is missing, the unit is shown as unavailable.
 
 ## Document contract, version 1
 

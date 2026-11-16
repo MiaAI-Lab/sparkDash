@@ -1,4 +1,3 @@
-# Copyright 2026 Maxrio9. SPDX-License-Identifier: Apache-2.0
 """Read only the fixed progress document directly inside each explicit root."""
 import json
 import os

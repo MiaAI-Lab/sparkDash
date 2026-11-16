@@ -1,4 +1,3 @@
-// Copyright 2026 Maxrio9. SPDX-License-Identifier: Apache-2.0
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, writeFile, symlink, rm } from "node:fs/promises";
 import os from "node:os";
@@ -68,7 +67,7 @@ test("remote roots are shell-quoted as one JSON argument, with a fixed bounded p
     return "{}";
   });
   assert.equal(result, "{}");
-  assert.ok(call[1].startsWith("python3 -I -S - '"));
+  assert.ok(call[1].includes("python3 -I -S - '"));
   assert.ok(call[1].includes("'\\''"));
   assert.ok(call[2].input.includes('"training-progress.json"'));
   assert.equal(call[2].timeoutMs, 8000);
@@ -111,4 +110,19 @@ test("sixteen near-limit roots cannot overflow the aggregate probe output", { sk
   const result = JSON.parse(output);
   assert.equal(result.files.length, 16);
   assert.equal(result.truncated, true);
+});
+
+ test("missing remote python is reported explicitly", async () => {
+  await assert.rejects(runProgressProbe({ ...unit, isLocal: false }, ["/reports"], async () => "SPARKDASH_PYTHON3_UNAVAILABLE"), { code: "PYTHON_UNAVAILABLE" });
+});
+
+test("missing local python is reported explicitly", async () => {
+  const previous = process.env.PATH;
+  try {
+    process.env.PATH = "/nonexistent-sparkdash-test";
+    await assert.rejects(runProgressProbe(unit, ["/reports"]), { code: "PYTHON_UNAVAILABLE" });
+  } finally {
+    if (previous === undefined) delete process.env.PATH;
+    else process.env.PATH = previous;
+  }
 });
