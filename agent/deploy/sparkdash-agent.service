@@ -41,8 +41,9 @@ SystemCallFilter=@system-service
 SystemCallFilter=~@privileged
 # /dev/nvidia* (NVML) and /dev/kmsg must stay visible, so no PrivateDevices.
 
-# Hard ceilings well above normal use.
-MemoryMax=32M
+# Hard ceilings well above normal use (about 21 MB RSS on a GB10, most of it NVML).
+# MemoryMax counts page cache too, so leave headroom.
+MemoryMax=64M
 CPUQuota=5%
 TasksMax=8
 Nice=10

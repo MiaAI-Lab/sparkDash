@@ -14,8 +14,6 @@ use nvml_wrapper::enums::device::UsedGpuMemory;
 use nvml_wrapper::Nvml;
 use serde::Serialize;
 
-use crate::procfs::round1;
-
 const RETRY_INIT: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone, Serialize)]
@@ -172,11 +170,11 @@ impl Gpus {
                     uuid: d.uuid().ok(),
                     temp_c: d.temperature(TemperatureSensor::Gpu).ok(),
                     util_pct: util.map(|u| u.gpu),
-                    power_w: d.power_usage().ok().map(|mw| round1(mw as f64 / 1000.0)),
+                    power_w: d.power_usage().ok().map(|mw| f64::from(mw) / 1000.0),
                     power_limit_w: d
                         .enforced_power_limit()
                         .ok()
-                        .map(|mw| round1(mw as f64 / 1000.0)),
+                        .map(|mw| f64::from(mw) / 1000.0),
                     sm_clock_mhz: d.clock_info(Clock::SM).ok(),
                     sm_clock_max_mhz: d.max_clock_info(Clock::SM).ok(),
                     fan_pct: d.fan_speed(0).ok(),

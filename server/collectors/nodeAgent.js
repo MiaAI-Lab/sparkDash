@@ -69,9 +69,8 @@ export class NodeAgentClient {
   /** The agent's latest snapshot; rejects when the agent cannot be read. */
   snapshot() {
     if (this._cached && this._now() - this._cached.at < SNAPSHOT_SHARE_MS) return Promise.resolve(this._cached.data);
-    this._inflight ??= this._get("/v1/snapshot")
+    this._inflight ??= this._document("/v1/snapshot")
       .then((data) => {
-        if (data?.schema !== NODE_AGENT_SCHEMA) throw new Error(`node agent ${this.baseUrl} sent an unsupported document`);
         this._cached = { at: this._now(), data };
         return data;
       })
@@ -79,6 +78,20 @@ export class NodeAgentClient {
         this._inflight = null;
       });
     return this._inflight;
+  }
+
+  /**
+   * RDMA/RoCE port state and counters. Separate from the snapshot because the
+   * agent reads them from the NIC's firmware; the RoCE sampler asks every few seconds.
+   */
+  rdma() {
+    return this._document("/v1/rdma");
+  }
+
+  async _document(path) {
+    const data = await this._get(path);
+    if (data?.schema !== NODE_AGENT_SCHEMA) throw new Error(`node agent ${this.baseUrl} sent an unsupported document`);
+    return data;
   }
 
   async _get(path) {

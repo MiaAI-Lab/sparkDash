@@ -17,10 +17,13 @@ const MIB = 1024 * 1024;
 const DF_HEADER = "Filesystem Type 1B-blocks Used Available Use% Mounted";
 
 const na = (v) => (v == null || !Number.isFinite(Number(v)) ? "[N/A]" : String(v));
+/** Watts with two decimals, as nvidia-smi prints them. */
+const watts = (v) => (v == null || !Number.isFinite(Number(v)) ? "[N/A]" : Number(v).toFixed(2));
 const field = (v) => (v == null ? "" : String(v).replace(/[\r\n|]/g, " "));
 const oneLine = (v) => String(v ?? "").replace(/[\r\n]+/g, " ").trim();
 const active = (flag) => (flag ? "Active" : "Not Active");
-const mib = (bytes) => (bytes == null ? null : bytes / MIB);
+/** Whole MiB, truncated the way nvidia-smi prints them. */
+const mib = (bytes) => (bytes == null ? null : Math.floor(bytes / MIB));
 
 /** /proc/meminfo lines for the fields the agent read. */
 export function meminfoText(memory) {
@@ -54,7 +57,7 @@ export function gpuOutput(snap) {
     for (const g of gpus) {
       const t = g.throttle;
       out.push([
-        na(g.tempC), na(g.utilPct), na(g.powerW), na(g.powerLimitW), na(g.smClockMhz), na(g.smClockMaxMhz),
+        na(g.tempC), na(g.utilPct), watts(g.powerW), watts(g.powerLimitW), na(g.smClockMhz), na(g.smClockMaxMhz),
         t ? active(t.hwThermal) : "[N/A]", t ? active(t.swThermal) : "[N/A]",
         t ? active(t.hwSlowdown) : "[N/A]", t ? active(t.swPowerCap) : "[N/A]",
         g.index, oneLine(g.name).replace(/,/g, " ") || "[N/A]", g.uuid || "[N/A]", na(g.fanPct),
@@ -127,17 +130,17 @@ export function hardwareOutput(snap) {
   return [smi.join("\n"), model, String(snap.cpu?.cores ?? ""), meminfoText(snap.memory)].join("\n---\n");
 }
 
-/** ROCE_FAST_SCRIPT output from the agent's RDMA readings. */
-export function roceFastOutput(snap) {
+/** ROCE_FAST_SCRIPT output from the agent's `/v1/rdma` document. */
+export function roceFastOutput(rdma) {
   const lines = [];
-  for (const d of snap.rdma?.devices ?? []) {
+  for (const d of rdma?.devices ?? []) {
     const name = field(d.name);
     if (!name) continue;
     lines.push(["DEV", name, field(d.state), field(d.physState), field(d.rate), field(d.linkLayer), field(d.netdev)].join("|"));
     for (const [counter, value] of Object.entries(d.hwCounters ?? {})) lines.push(`CNT|${name}|${field(counter)}|${field(value)}`);
     lines.push(`DATA|${name}|${field(d.rxData)}|${field(d.txData)}`);
   }
-  for (const n of snap.rdma?.netdevs ?? []) {
+  for (const n of rdma?.netdevs ?? []) {
     lines.push(["NET", field(n.name), field(n.operstate), field(n.mtu), field(n.speed), field(n.rxBytes), field(n.txBytes),
       field(n.rxErrors), field(n.txErrors), field(n.rxDropped), field(n.txDropped)].join("|"));
   }
@@ -237,7 +240,7 @@ export class NodeAgentCollector extends SystemCollector {
   /** RDMA link state and counters from the agent. Its ethtool/mlnx_qos details need a shell, so they stay empty. */
   async collectRoce() {
     this._roceSampler ??= new RoceSampler({
-      run: async (script) => (script === ROCE_FAST_SCRIPT ? roceFastOutput(await this.agent.snapshot()) : ""),
+      run: async (script) => (script === ROCE_FAST_SCRIPT ? roceFastOutput(await this.agent.rdma()) : ""),
     });
     try {
       return await this._roceSampler.sample();

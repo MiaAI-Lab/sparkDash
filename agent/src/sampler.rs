@@ -45,7 +45,6 @@ struct Snapshot<'a> {
     disks: Vec<DiskOut>,
     block_stats: BTreeMap<String, BlockStat>,
     network: NetworkOut,
-    rdma: Rdma,
     agent: AgentOut,
 }
 
@@ -83,7 +82,7 @@ struct NetworkOut {
 #[serde(rename_all = "camelCase")]
 struct IfaceOut {
     name: String,
-    /// Cumulative kernel counters; RoCE traffic bypasses these (see `rdma`).
+    /// Cumulative kernel counters; RoCE traffic bypasses these (see `/v1/rdma`).
     rx_bytes: u64,
     tx_bytes: u64,
     operstate: String,
@@ -111,7 +110,6 @@ pub struct Sampler {
     cores: usize,
     model: Option<String>,
     temp_files: Vec<TempFile>,
-    rdma: Option<(Instant, Vec<RdmaDevice>)>,
     clk_tck: f64,
     started_at_ms: u64,
     gpus: Gpus,
@@ -134,7 +132,6 @@ impl Sampler {
                 Path::new("/sys/class/hwmon"),
                 Path::new("/sys/class/thermal"),
             ),
-            rdma: None,
             // SAFETY: sysconf has no preconditions.
             clk_tck: unsafe { libc::sysconf(libc::_SC_CLK_TCK) }.max(1) as f64,
             started_at_ms: now_ms(),
@@ -158,22 +155,9 @@ impl Sampler {
         body
     }
 
-    fn rdma_devices(&mut self) -> &[RdmaDevice] {
-        if self
-            .rdma
-            .as_ref()
-            .is_none_or(|(at, _)| at.elapsed() >= RDMA_REDISCOVER)
-        {
-            let devices = sysfs::discover_rdma(Path::new("/sys/class/infiniband"));
-            self.rdma = Some((Instant::now(), devices));
-        }
-        self.rdma.as_ref().map_or(&[], |(_, d)| d.as_slice())
-    }
-
     fn sample(&mut self) -> Vec<u8> {
         self.samples += 1;
         let gpus = self.gpus.sample(process_name);
-        let rdma = sysfs::sample_rdma(self.rdma_devices(), Path::new("/sys/class/net"));
         let self_status = read("/proc/self/status").unwrap_or_default();
         let snapshot = Snapshot {
             schema: SCHEMA,
@@ -199,7 +183,6 @@ impl Sampler {
             disks: disks(),
             block_stats: sysfs::block_stats(Path::new("/sys/block")),
             network: network(),
-            rdma,
             agent: AgentOut {
                 version: env!("CARGO_PKG_VERSION"),
                 started_at_ms: self.started_at_ms,
@@ -212,6 +195,59 @@ impl Sampler {
             },
         };
         serde_json::to_vec(&snapshot).unwrap_or_else(|_| b"{}".to_vec())
+    }
+}
+
+/// The `/v1/rdma` document. Kept out of the snapshot because every mlx5
+/// `hw_counters` read is a firmware query (2–3 ms each, about 130 per sample
+/// on a DGX Spark), which the RoCE view needs only every few seconds.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RdmaDoc {
+    schema: &'static str,
+    collected_at_ms: u64,
+    #[serde(flatten)]
+    rdma: Rdma,
+}
+
+pub struct RdmaSampler {
+    min_interval: Duration,
+    devices: Option<(Instant, Vec<RdmaDevice>)>,
+    cached: Option<(Instant, Arc<Vec<u8>>)>,
+}
+
+impl RdmaSampler {
+    pub fn new(min_interval: Duration) -> Self {
+        RdmaSampler {
+            min_interval,
+            devices: None,
+            cached: None,
+        }
+    }
+
+    pub fn document(&mut self) -> Arc<Vec<u8>> {
+        if let Some((at, body)) = &self.cached {
+            if at.elapsed() < self.min_interval {
+                return Arc::clone(body);
+            }
+        }
+        if self
+            .devices
+            .as_ref()
+            .is_none_or(|(at, _)| at.elapsed() >= RDMA_REDISCOVER)
+        {
+            let found = sysfs::discover_rdma(Path::new("/sys/class/infiniband"));
+            self.devices = Some((Instant::now(), found));
+        }
+        let devices = self.devices.as_ref().map_or(&[][..], |(_, d)| d.as_slice());
+        let doc = RdmaDoc {
+            schema: SCHEMA,
+            collected_at_ms: now_ms(),
+            rdma: sysfs::sample_rdma(devices, Path::new("/sys/class/net")),
+        };
+        let body = Arc::new(serde_json::to_vec(&doc).unwrap_or_else(|_| b"{}".to_vec()));
+        self.cached = Some((Instant::now(), Arc::clone(&body)));
+        body
     }
 }
 
@@ -363,8 +399,11 @@ mod tests {
         assert!(doc["cpu"]["tempSensors"].is_array());
         assert!(doc["kernelLog"].is_null());
         assert!(doc["blockStats"].is_object());
-        assert!(doc["rdma"]["devices"].is_array());
-        assert!(doc["rdma"]["netdevs"].is_array());
+        assert!(doc.get("rdma").is_none());
+        let rdma: serde_json::Value =
+            serde_json::from_slice(&RdmaSampler::new(Duration::from_secs(60)).document()).unwrap();
+        assert_eq!(rdma["schema"], SCHEMA);
+        assert!(rdma["devices"].is_array() && rdma["netdevs"].is_array());
         let ifaces = doc["network"]["interfaces"].as_array().unwrap();
         assert!(ifaces.iter().any(|i| i["name"] == "lo"));
         for key in [

@@ -47,7 +47,7 @@ function snapshot(over = {}) {
         uuid: "GPU-11111111-2222-3333-4444-555555555555",
         tempC: 45,
         utilPct: 37,
-        powerW: 12.5,
+        powerW: 12.468,
         powerLimitW: null,
         smClockMhz: 2400,
         smClockMaxMhz: 3000,
@@ -56,7 +56,7 @@ function snapshot(over = {}) {
         memUsedBytes: null,
         memTotalBytes: null,
         throttle: { hwThermal: false, swThermal: false, hwSlowdown: false, swPowerCap: true, hwPowerBrake: false, raw: 4 },
-        processes: [{ pid: 4242, name: "/usr/bin/python3 -m vllm, serve", usedBytes: 20 * GIB }],
+        processes: [{ pid: 4242, name: "/usr/bin/python3 -m vllm, serve", usedBytes: 20 * GIB + 769_000 }],
       },
     ],
     gpuDriver: "580.95.05",
@@ -75,28 +75,31 @@ function snapshot(over = {}) {
         { name: "docker0", rxBytes: 0, txBytes: 0, operstate: "down", speedMbps: null, mac: null, ipv4: [] },
       ],
     },
-    rdma: {
-      devices: [
-        {
-          name: "rocep1s0f0",
-          state: "4: ACTIVE",
-          physState: "5: LinkUp",
-          rate: "200 Gb/sec (2X NDR)",
-          linkLayer: "Ethernet",
-          netdev: "enp1s0f0np0",
-          hwCounters: { out_of_buffer: 0, packet_seq_err: 0 },
-          rxData: 100,
-          txData: 200,
-        },
-      ],
-      netdevs: [
-        { name: "enp1s0f0np0", operstate: "up", mtu: 9000, speed: 200000, rxBytes: 10, txBytes: 20, rxErrors: 0, txErrors: 0, rxDropped: 0, txDropped: 0 },
-      ],
-    },
     agent: { version: "0.1.0", startedAtMs: 1, rssKb: 3000, cpuSeconds: 0.5, samples: 3, minIntervalMs: 1000 },
     ...over,
   };
 }
+
+const RDMA = {
+  schema: NODE_AGENT_SCHEMA,
+  collectedAtMs: 1_000_000,
+  devices: [
+    {
+      name: "rocep1s0f0",
+      state: "4: ACTIVE",
+      physState: "5: LinkUp",
+      rate: "200 Gb/sec (2X NDR)",
+      linkLayer: "Ethernet",
+      netdev: "enp1s0f0np0",
+      hwCounters: { out_of_buffer: 0, packet_seq_err: 0 },
+      rxData: 100,
+      txData: 200,
+    },
+  ],
+  netdevs: [
+    { name: "enp1s0f0np0", operstate: "up", mtu: 9000, speed: 200000, rxBytes: 10, txBytes: 20, rxErrors: 0, txErrors: 0, rxDropped: 0, txDropped: 0 },
+  ],
+};
 
 /** Collector over a scripted sequence of snapshots; `null` in the list means the agent is down. */
 function collectorWith(list) {
@@ -108,6 +111,10 @@ function collectorWith(list) {
       client.calls += 1;
       if (current === null) throw new Error("node agent http://192.0.2.10:9110: ECONNREFUSED");
       return structuredClone(current);
+    },
+    async rdma() {
+      if (current === null) throw new Error("node agent http://192.0.2.10:9110: ECONNREFUSED");
+      return structuredClone(RDMA);
     },
   };
   const collector = new NodeAgentCollector({ ...spark }, { client });
@@ -139,13 +146,14 @@ test("agent urls keep only a safe origin", () => {
   assert.equal(normalizeNodeAgent(null), null);
 });
 
-test("GPU readings follow the SSH rules: GB10 pool from MemTotal, processes, throttle, clock cap and kernel counters", async () => {
+test("GPU readings follow the SSH rules: GB10 pool from MemTotal, whole-MiB processes, exact power, throttle, clock cap and kernel counters", async () => {
   const { collector } = collectorWith([snapshot()]);
   const gpu = await collector.collectGpu();
   assert.equal(collectionWasSuccessful(gpu), true);
   assert.equal(gpu.temperature, 45);
   assert.equal(gpu.usage, 37);
-  assert.equal(gpu.power.draw, 12.5);
+  assert.equal(gpu.power.draw, 12.47);
+  assert.equal(gpu.gpus[0].power.draw, 12.47);
   assert.equal(gpu.power.limit, 120);
   assert.deepEqual(gpu.vram, { used: 20480, total: 131072, percentage: 16, available: 102400 });
   assert.deepEqual(gpu.processes, [{ pid: 4242, name: "/usr/bin/python3 -m vllm,serve", vramMB: 20480 }]);

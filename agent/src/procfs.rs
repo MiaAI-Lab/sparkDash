@@ -215,10 +215,6 @@ pub fn parse_cpuinfo(text: &str) -> (usize, Option<String>) {
     (cores, model)
 }
 
-pub fn round1(v: f64) -> f64 {
-    (v * 10.0).round() / 10.0
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

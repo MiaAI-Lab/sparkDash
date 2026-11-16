@@ -8,7 +8,14 @@ Without the agent, sparkDash polls every unit with about five SSH commands every
 
 The agent reads the same data in-process. It opens no sessions, spawns no processes, runs no commands and holds no GPU memory. It uses only std threads, `serde`, `libc` and `nvml-wrapper`.
 
-Footprint, measured on an x86_64 Linux host serving one sparkDash dashboard (about 0.6 snapshots/s): 3.4 MB peak RSS, about 0.15% of one core (0.15 s of CPU in 100 s), two threads (three with `/dev/kmsg` readable). Release binaries are about 650–750 KB.
+Footprint, measured with dashboard-shaped polling (a snapshot every 2 s, `/v1/rdma` every 6 s):
+
+| Host | Peak RSS | CPU | Snapshot time |
+| --- | --- | --- | --- |
+| DGX Spark (GB10), NVML loaded, 4 RoCE ports | 21.5 MB (15 MB of it is NVML's own state) | 0.56 % of one core | 20–30 ms (`/v1/rdma`: about 160 ms) |
+| x86_64 host without a GPU | 3.4 MB | 0.15 % of one core | under 5 ms |
+
+Loading NVML maps `libcuda` but creates no CUDA context: no compute process appears in `nvidia-smi`. Release binaries are about 650–760 KB.
 
 ## What it reads
 
@@ -24,7 +31,7 @@ Footprint, measured on an x86_64 Linux host serving one sparkDash dashboard (abo
 | Local filesystems | `/proc/mounts` + `statvfs` (block devices only; network filesystems are never touched) |
 | Block device I/O | `/sys/block/*/stat` |
 | Interfaces, default route, IPv4, operstate, speed, MAC | `/proc/net/dev`, `/proc/net/route`, `getifaddrs`, `/sys/class/net` |
-| RDMA/RoCE port state, rate, counters | `/sys/class/infiniband/*/ports/1` and the port's netdev (RoCE traffic never shows in `/proc/net/dev`) |
+| RDMA/RoCE port state, rate, counters (`/v1/rdma`) | `/sys/class/infiniband/*/ports/1` and the port's netdev (RoCE traffic never shows in `/proc/net/dev`) |
 
 Samples are taken on demand and cached for at least `--min-interval-ms` (1 s minimum). The host is read at most once per interval however many dashboards poll, and not at all when nobody asks.
 
@@ -33,6 +40,8 @@ Samples are taken on demand and cached for at least `--min-interval-ms` (1 s min
 - `GET /healthz`: `ok`, no token.
 - `GET /v1/snapshot`: the metrics document, schema `sparkdash.node-agent/1`. Needs `Authorization: Bearer <token>`. The `Snapshot` struct in [`src/sampler.rs`](src/sampler.rs) is the contract. Unknown values are `null`, never 0.
 
+- `GET /v1/rdma`: RDMA/RoCE port state, rate, `hw_counters` and payload counters, plus the ports' netdev statistics. Same token. It is a separate route because on mlx5 every `hw_counters` read is a firmware query (2–3 ms each, about 130 per sample on a DGX Spark), which the dashboard needs only every few seconds; it is cached for the same minimum interval.
+
 Unknown paths get 404. Another method on a known path gets 405 with `Allow`, and a missing or wrong token gets 401.
 
 ## Security
@@ -40,7 +49,7 @@ Unknown paths get 404. Another method on a known path gets 405 with `Allow`, and
 - The agent binds only the addresses given with `--listen` and refuses `0.0.0.0`/`::`. Peers outside the `--allow` CIDRs are dropped before any byte is read.
 - The token (at least 24 characters) comes from a systemd credential (`/etc/sparkdash-agent/token`, mode 0600) and is compared in constant time.
 - One request per connection: 8 KiB head limit, per-route body limit, 2 s IO timeouts and a 5 s deadline per request.
-- Under systemd it runs as a `DynamicUser` with only `CAP_SYSLOG` (for `/dev/kmsg`), `ProtectSystem=strict`, `ProtectHome=read-only`, a syscall filter, `MemoryMax=32M`, `CPUQuota=5%` and `TasksMax=8`.
+- Under systemd it runs as a `DynamicUser` with only `CAP_SYSLOG` (for `/dev/kmsg`), `ProtectSystem=strict`, `ProtectHome=read-only`, a syscall filter, `MemoryMax=64M`, `CPUQuota=5%` and `TasksMax=8`.
 
 ## Build
 

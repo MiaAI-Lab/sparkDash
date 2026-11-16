@@ -19,7 +19,7 @@ use std::time::Duration;
 
 use http::Cidr;
 use routes::Router;
-use sampler::Sampler;
+use sampler::{RdmaSampler, Sampler};
 
 const USAGE: &str = "\
 usage: sparkdash-agent --listen IP:PORT [--listen IP:PORT ...] [options]
@@ -135,7 +135,8 @@ fn main() {
 
     let sampler = Arc::new(Mutex::new(Sampler::new(args.min_interval, kernel_log)));
     let mut router = Router::new(token);
-    routes::metrics::register(&mut router, sampler);
+    let rdma = Arc::new(Mutex::new(RdmaSampler::new(args.min_interval)));
+    routes::metrics::register(&mut router, sampler, rdma);
     let router = Arc::new(router);
     let allow: Arc<[Cidr]> = args.allow.into();
 
