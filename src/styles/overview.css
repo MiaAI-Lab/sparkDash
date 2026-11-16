@@ -444,6 +444,12 @@
 .ov .ov-tps__trend {
   margin-top: 6px;
 }
+/* LLM footer: live rates, the last hour's shape, then request concurrency. */
+.ov .ov-llm-footer {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
 .ov .ov-launch {
   flex: 1;
   display: flex;

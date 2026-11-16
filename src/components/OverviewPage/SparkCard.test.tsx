@@ -6,10 +6,23 @@ vi.mock("../../api/client", () => ({
   runLauncher: vi.fn(),
   wakeSpark: vi.fn(),
 }));
+vi.mock("../../api/llmTelemetryClient", () => ({
+  fetchLlmTelemetry: () =>
+    Promise.resolve({
+      sparkId: "fixture",
+      port: 8888,
+      modelId: null,
+      bucketSeconds: 10,
+      retentionHours: 168,
+      since: null,
+      nextSince: null,
+      points: [],
+    }),
+}));
 
 import { SparkCard } from "./SparkCard";
 import { makeSpark } from "../../testing/fixtures";
-import { render } from "../../testing/render";
+import { flush, render } from "../../testing/render";
 import type { SparkSnapshot } from "../../api/types";
 
 function worker(): SparkSnapshot {
@@ -58,47 +71,51 @@ describe("SparkCard", () => {
     expect(bars.some((b) => b?.startsWith("GPU 0"))).toBe(false);
   });
 
-  it.each([null, undefined, 0, 2])("renders queue %s without inventing a zero", (waiting) => {
+  it.each([null, undefined, 0, 2])("renders queue %s without inventing a zero", async (waiting) => {
     const spark = makeSpark("fixture");
     Object.assign(spark.metrics.llm[0], {
       backend: "tensorfold", slotsActive: 8, slotsTotal: 8,
       requestsRunning: 8, requestsWaiting: waiting,
     });
     const { container } = render(<SparkCard spark={spark} temperatureUnit="celsius" />);
-    expect(container.querySelector(".ov-chips")?.textContent).toContain(
+    await flush();
+    expect(container.querySelector(".ov-llm-footer")?.textContent).toContain(
       waiting == null ? "8 running · queue unknown" : `8 running · ${waiting} queued`
     );
   });
 
-  it("renders unknown slot occupancy without presenting it as zero", () => {
+  it("renders unknown slot occupancy without presenting it as zero", async () => {
     const spark = makeSpark("fixture");
     Object.assign(spark.metrics.llm[0], {
       backend: "tensorfold", slotsActive: null, slotsTotal: 8, requestsRunning: null,
     });
     const { container } = render(<SparkCard spark={spark} temperatureUnit="celsius" />);
-    expect(container.querySelector(".ov-chips")?.textContent).toContain("?/8 slots");
+    await flush();
+    expect(container.querySelector(".ov-llm-footer")?.textContent).toContain("?/8 slots");
   });
 
-  it("names the parallel capacity next to running and queued, so --parallel 4 and 8 read differently", () => {
+  it("names the parallel capacity next to running and queued, so --parallel 4 and 8 read differently", async () => {
     for (const total of [4, 8]) {
       const spark = makeSpark("fixture");
       Object.assign(spark.metrics.llm[0], {
         backend: "tensorfold", slotsActive: 1, slotsTotal: total, requestsRunning: 1, requestsWaiting: 0,
       });
       const { container } = render(<SparkCard spark={spark} temperatureUnit="celsius" />);
-      const chip = container.querySelector(".ov-chips")!;
-      expect(chip.textContent).toContain(`1 running · 0 queued · ${total} slots`);
-      expect(chip.querySelector(`[title="${total} requests decode in parallel on this engine"]`)).not.toBeNull();
+      await flush();
+      const footer = container.querySelector(".ov-llm-footer")!;
+      expect(footer.textContent).toContain(`1 running · 0 queued · ${total} slots`);
+      expect(footer.querySelector(`[title="${total} requests decode in parallel on this engine"]`)).not.toBeNull();
     }
   });
 
-  it("adds no slot count when the engine reports no capacity", () => {
+  it("adds no slot count when the engine reports no capacity", async () => {
     const spark = makeSpark("fixture");
     Object.assign(spark.metrics.llm[0], {
       backend: "vllm", slotsActive: 0, slotsTotal: 0, requestsRunning: 2, requestsWaiting: 1,
     });
     const { container } = render(<SparkCard spark={spark} temperatureUnit="celsius" />);
-    const text = container.querySelector(".ov-chips")!.textContent!;
+    await flush();
+    const text = container.querySelector(".ov-llm-footer")!.textContent!;
     expect(text).toContain("2 running · 1 queued");
     expect(text).not.toContain("slots");
   });

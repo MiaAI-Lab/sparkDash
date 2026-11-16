@@ -20,6 +20,7 @@ import { HEADROOM_THRESHOLDS_MB, computeVramBreakdown, memoryModelFor, type Vram
 import { ImageIcon, PowerOnIcon } from "../ui/icons";
 import { formatCtx } from "./fleetStats";
 import { ModelLauncher } from "./ModelLauncher";
+import { OverviewLlmFooter } from "./OverviewLlmFooter";
 
 type Unit = "celsius" | "fahrenheit";
 type WakeMessage = "sent" | "failed" | { raw: string } | null;
@@ -136,6 +137,11 @@ function SparkCardImpl({
   const llmList = Array.isArray(spark.metrics.llm) ? spark.metrics.llm : [];
   const llmIdx = llmList.findIndex((l) => l.available);
   const llm = llmIdx >= 0 ? llmList[llmIdx] : null;
+  // History is keyed by port, so read the port the measurement came from: an
+  // edit can reorder or remove ports before the next live poll arrives.
+  const configuredPorts = spark.llmPorts?.length ? spark.llmPorts : [spark.llmPort ?? 8888];
+  const measuredPort = llm?.port ?? configuredPorts[llmIdx] ?? null;
+  const historyPort = measuredPort != null && configuredPorts.includes(measuredPort) ? measuredPort : null;
   const [wakeMsg, setWakeMsg] = useState<WakeMessage>(null);
   const [waking, setWaking] = useState(false);
 
@@ -274,21 +280,6 @@ function SparkCardImpl({
   const showLauncher = role !== "worker" && !llm && !spark.llmMovedTo && spark.llmMonitoring !== false && spark.platform !== "windows";
 
   const showTps = role !== "worker" && !!llm;
-  const isStrata = llm?.backend === "strata";
-  const isTensorFold = llm?.backend === "tensorfold";
-  const completedPrefill = llm?.prefillTpsSource?.startsWith("completed-") === true;
-  // Engines that report requests (TensorFold, Strata, …) used to hide their parallelism behind
-  // "N running": a unit set to --parallel 4 and one set to 8 read the same. Name the capacity too.
-  const parallel = llm && llm.slotsTotal > 0 ? llm.slotsTotal : null;
-  const llmChip = llm
-    ? llm.requestsRunning != null
-      ? t("card.requestStatus", { running: llm.requestsRunning, waiting: llm.requestsWaiting == null ? t("card.queueUnknown") : t("card.queued", { count: llm.requestsWaiting }), slots: parallel == null ? "" : t("card.slots", { count: parallel }) })
-      : llm.slotsTotal > 0
-        ? t("card.activeSlots", { active: llm.slotsActive ?? "?", total: llm.slotsTotal })
-        : null
-    : null;
-  const llmChipTitle =
-    parallel != null && llm?.requestsRunning != null ? t("card.parallelRequests", { count: parallel }) : undefined;
   // TensorFold's shared cache: how much of the pool is reserved and how much is kept, from the
   // engine's own accounting. Absent for engines or builds that report no cache group.
   const cache = llm?.cache?.pool ? llm.cache : null;
@@ -315,7 +306,6 @@ function SparkCardImpl({
           {t("card.clockCap", { value: (throttle.clockCapMHz / 1000).toFixed(1) })}
         </Tag>
       ) : null}
-      {online && llmChip ? <Tag tone={(llm?.requestsRunning ?? llm?.slotsActive ?? 0) > 0 ? "good" : "neutral"} title={llmChipTitle}>{llmChip}</Tag> : null}
       {online && cacheChip ? <Tag title={cacheChipTitle}>{cacheChip}</Tag> : null}
       {comfy !== undefined || spark.comfyMonitoring ? (
         !comfy?.available ? (
@@ -505,66 +495,7 @@ function SparkCardImpl({
             </div>
           ) : null}
           {showTps && llm ? (
-            <div className="ov-tps">
-              <div
-                title={
-                  isStrata
-                    ? t("card.decodeStrataHelp")
-                    : undefined
-                }
-              >
-                <div className="eyebrow" title={isTensorFold ? t("card.decodeAggregateHelp") : undefined}>{isTensorFold ? t("card.decodeAggregate") : t("card.decode")}</div>
-                {llm.measurementValid === false ? (
-                  <div className="big-num ov-tps__num" title={llm.measurementError ?? t("card.statsCouldNotBeRead")}>—</div>
-                ) : isStrata && llm.decodeActive && llm.generationTps <= 0 ? (
-                  <div className="big-num ov-tps__num ov-tps__num--live">
-                    <span className="ov-tps__dots" aria-hidden />
-                    <small>{t("card.decoding")}</small>
-                  </div>
-                ) : (
-                  <div className="big-num ov-tps__num">{llm.generationTps.toFixed(1)}<small>{t("card.tokPerSecond")}</small></div>
-                )}
-                {isStrata && llm.generationTpsSource === "slot-mean" && <small className="text-muted">{t("card.activeSlotMean")}</small>}
-                {llm.measurementValid !== false && llm.perStreamTps != null && (
-                  <small
-                    className="text-muted"
-                    title={isTensorFold
-                      ? t("card.completedDecodeHelp")
-                      : t("card.perStreamDecodeHelp")}
-                  >
-                    {isTensorFold ? t("card.completedDecodeRate", { value: llm.perStreamTps.toFixed(1) }) : t("card.tokPerSecondPerStream", { value: llm.perStreamTps.toFixed(1) })}
-                  </small>
-                )}
-              </div>
-              <div
-                title={
-                  isStrata
-                    ? t("card.prefillStrataHelp")
-                    : undefined
-                }
-              >
-                <div className="eyebrow">{completedPrefill ? t("card.prefillCompleted") : t("card.prefill")}</div>
-                {llm.measurementValid === false ? (
-                  <div className="big-num ov-tps__num" title={llm.measurementError ?? t("card.statsCouldNotBeRead")}>—</div>
-                ) : llm.prefillActive && llm.prefillTps <= 0 ? (
-                  <div className="big-num ov-tps__num ov-tps__num--live" title={isStrata ? t("card.prefillProcessingStrata") : t("card.prefillProcessing")}>
-                    <span className="ov-tps__dots" aria-hidden />
-                    <small>{t("card.prefilling")}</small>
-                  </div>
-                ) : isTensorFold && llm.prefillTps <= 0 && !completedPrefill ? (
-                  <div className="big-num ov-tps__num" title={t("card.prefillNotMeasuredHelp")}>—</div>
-                ) : (
-                  <div className="big-num ov-tps__num">{Math.round(llm.prefillTps).toLocaleString()}<small>{t("card.tokPerSecond")}</small></div>
-                )}
-                {isTensorFold && !completedPrefill && llm.prefillTps <= 0 && <small className="text-muted">{t("card.notMeasuredLive")}</small>}
-                {llm.measurementValid !== false && completedPrefill && (
-                  <small className="text-muted" title={t("card.completedPrefillHelp")}>
-                    {t("card.effectiveIncludesCached")}
-                  </small>
-                )}
-                {isStrata && llm.prefillTps > 0 && <small className="text-muted">{t("card.lastReportedMean")}</small>}
-              </div>
-            </div>
+            <OverviewLlmFooter sparkId={spark.id} port={historyPort} llm={llm} />
           ) : null}
           {chips}
           {/* Mac agent units report what is serving from the node's process table.

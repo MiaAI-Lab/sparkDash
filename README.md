@@ -1548,3 +1548,11 @@ On a fresh install, Cost compare shows **No price data yet** until a catalog is 
 ### Interpreting RoCE traffic
 
 The RoCE panel shows netdev byte-counter rates, which do not measure RDMA payload throughput; a busy tensor-parallel link can therefore show little netdev traffic. Pause-frame counters are cumulative totals and are separate from the current PFC setting. RDMA error counters and their deltas remain available in the panel.
+
+### Overview LLM activity
+
+A host card shows the engine's current decode and prefill rates, then the hour behind them. The sparkline and the median rates come from ten-second buckets kept by the server, so they survive a dashboard restart and do not depend on the tab staying open. Medians count only busy buckets — an idle hour is mostly zeros, and including them would report a typical speed of 0 for an engine that was fast whenever it worked — and the newest bucket stays out of every aggregate until it closes, since its rate covers only part of a ten-second interval. A median is therefore of measured busy-bucket rates for the port, not of per-request speeds, and it is scoped to the model the engine serves now: a router that changed models over the retention window keeps a separate series per model, and the card reads the newest one. `?model=` picks a specific series, and `?since=` returns only newer buckets.
+
+The request row reports what the engine itself says: running, queued, and an engine-reported slot cap when it publishes one. Unknown stays unknown (`queue unknown`, `?/8 slots`), and the KV-cache concurrency estimate is never shown as a slot cap because short requests routinely exceed it. Without a cap the row shows the hour's peak instead.
+
+History persists locally for up to seven days in `LLM_TELEMETRY_JSON_PATH` (default `config/llm-telemetry.json`), one latest sample per ten-second bucket, written through a 0600 journal that is replayed after a torn write and compacted hourly. The endpoint is `GET /api/sparks/:id/llm/telemetry`, read-only and limited to 120 requests a minute per principal.
