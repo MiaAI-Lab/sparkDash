@@ -82,8 +82,9 @@ increases with every change and survives restarts; compare it for equality only.
 `contentKey` identifies content independently of where and when it was copied:
 
 - text: the SHA-256 (hex) of its UTF-8 bytes;
-- image and files: the SHA-256 (hex) of `"<type>:" + <part sha256s joined by ",">`,
-  for example `sha256("image:" + pngSha256)`.
+- image: the SHA-256 (hex) of `"image:" + <the image's sha256>`;
+- files: the SHA-256 (hex) of `"files:" + <"<name>/<sha256>" of each file, joined by ",">`.
+  Names count: copying `a.txt` and then `b.txt` with the same bytes is two copies.
 
 An agent computes the same key for what it reads from its OS clipboard, so it can
 tell its own copies from new ones without downloading anything.
