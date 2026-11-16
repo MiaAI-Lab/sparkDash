@@ -229,7 +229,7 @@ mark "$C"
   return wrap(program);
 }
 
-export function buildStopCommand({ dir, script, nonce }) {
+export function buildStopCommand({ id, dir, script, nonce }) {
   assertNonce(nonce);
   const program = `
 ${markerFn(nonce)}
@@ -250,6 +250,17 @@ while kill -0 "$SP" 2>/dev/null; do
   sleep 0.5
 done
 wait "$SP"; RC=$?
+if [ "$RC" = 0 ]; then
+  # A start script still waiting for readiness would keep the card "running" after the stop
+  # script removed what it was waiting for: end the whole detached start group as well.
+  P="$HOME/.cache/sparkdash/llm/${id}.pid"; loadpid
+  if alive; then
+    kill -TERM -- "-$PID" 2>/dev/null
+    n=0; while alive && [ $n -lt 10 ]; do sleep 0.5; n=$((n+1)); done
+    alive && kill -KILL -- "-$PID" 2>/dev/null
+  fi
+  alive || rm -f "$P"
+fi
 mark "$RC"
 `;
   return wrap(program);
