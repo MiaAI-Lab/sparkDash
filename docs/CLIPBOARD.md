@@ -93,7 +93,8 @@ tell its own copies from new ones without downloading anything.
 A device agent keeps one desktop's OS clipboard in step with the shared one. It is
 opt-in on each device and off by default; headless machines have no clipboard and do
 not run it. It needs the dashboard URL, the dashboard's `SPARKDASH_TOKEN` and a device
-name.
+name. `sparkdash-agent clipboard` (agent/README.md, "Clipboard sync") implements the
+steps below for Wayland, X11, macOS and Windows.
 
 1. **Shared → local.** Long-poll `GET /api/clipboard/changes?since=<last revision>`.
    When `latest` changes and its `contentKey` is not the key of what this device last
