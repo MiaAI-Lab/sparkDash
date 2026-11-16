@@ -19,7 +19,7 @@
     "othersRunAtBoot": "Without Keep after reboot, the cards go back to its value at the next reboot.",
     "sudoPassword": "sudo password for this host",
     "passwordHelp": "This host has no passwordless sudo. The password is sent once, over this connection, to run the change, then discarded: it is never stored or logged.",
-    "insecureHelp": "This connection is not on HTTPS or the machine itself, so a sudo password is not typed here (it would cross the network in the clear). Open the dashboard over HTTPS, turn on Settings → Allow sudo password over plain HTTP, or run this on the host (it does not install the boot service):",
+    "insecureHelp": "This connection is not on HTTPS or the machine itself, so a sudo password is not typed here (it would cross the network in the clear). Open the dashboard over HTTPS, turn on Settings → Allow sudo password over plain http, or run this on the host (it does not install the boot service):",
     "commandLabel": "Command to run on the host",
     "fillDefaults": "Fill in defaults",
     "runsAsRoot": "Runs <command>nvidia-smi -i CARD -pl WATTS</command> as root on this machine, using the saved connection settings. Applies at once; it is not part of Save.",
