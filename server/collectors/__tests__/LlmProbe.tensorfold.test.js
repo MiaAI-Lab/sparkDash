@@ -1403,6 +1403,7 @@ test("TensorFold queue-only /metrics scrape reports the position gauges as unkno
   await f.probe._applyTensorFoldMetrics(undefined, true);
   assert.equal(f.probe.prefillProgressTokens, null);
   assert.equal(f.probe.generationProgressTokens, null);
+});
 
 test("_applyTensorFoldLive: a live-only /health marks prefill when a connection decodes nothing", () => {
   // This engine publishes live.connections/decode and no `streams` block. A 380k-token prompt
