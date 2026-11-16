@@ -311,7 +311,13 @@ pub fn run(args: Args) -> i32 {
             Err(RecvTimeoutError::Disconnected) => return 1,
         }
 
-        if paused_until.is_some_and(|t| Instant::now() < t) || !backend.changed() {
+        if paused_until.is_some_and(|t| Instant::now() < t) {
+            continue;
+        }
+        // A paused share is retried even if the clipboard's change counter has
+        // not moved since: the counter was spent on the attempt that failed.
+        let retrying = paused_until.take().is_some();
+        if !backend.changed() && !retrying {
             continue;
         }
         let unchanged = match backend.peek() {

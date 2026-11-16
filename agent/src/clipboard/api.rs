@@ -107,6 +107,8 @@ impl Api {
             .http_status_as_error(false)
             .timeout_connect(Some(Duration::from_secs(10)))
             .timeout_global(Some(Duration::from_secs(120)))
+            // Node closes idle keep-alive sockets after 5 s; reusing one fails the request.
+            .max_idle_age(Duration::from_secs(4))
             .user_agent(concat!("sparkdash-agent/", env!("CARGO_PKG_VERSION")))
             .build()
             .into();
