@@ -597,6 +597,12 @@ export function SettingsDialog({ open, onClose, onSaved, onOpenHarness, section 
                 checked={Boolean(settings.apiKeysEnabled)}
                 onChange={(v) => update({ apiKeysEnabled: v })}
               />
+              <ToggleRow
+                title={t("toggles.clipboard.title")}
+                help={t("toggles.clipboard.help")}
+                checked={Boolean(settings.clipboardEnabled)}
+                onChange={(v) => update({ clipboardEnabled: v })}
+              />
               <SettingRow
                 title={t("mqtt.url.title")}
                 help={t("mqtt.url.help")}

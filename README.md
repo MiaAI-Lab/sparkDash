@@ -54,9 +54,11 @@ Monitored units run **Linux**, **macOS**, or **Windows** (a Windows PC with an N
 - [Prometheus](#prometheus)
 - [Alert notifications](#alert-notifications)
 - [Power meters (wall power)](#power-meters-wall-power)
+- [Shared clipboard](#shared-clipboard)
 - [RoCE / RDMA monitoring](#roce--rdma-monitoring)
 - [Intel Arc GPUs](#intel-arc-gpus)
 - [Windows PCs](#windows-pcs)
+- [Node agent (Linux units without SSH polling)](#node-agent-linux-units-without-ssh-polling)
 - [Full changelog](./CHANGELOG.md)
 - [Quick start](#quick-start)
 - [Architecture](#architecture)
@@ -712,6 +714,12 @@ Until step 3, sparkDash backs off after each rejection (see **Bad token, lockout
 
 **Audit log.** None: this page cannot change anything, so nothing is logged and nothing grows on disk.
 
+## Shared clipboard
+
+Opt-in (default **off**). **Settings → Shared clipboard** adds a **Clipboard** page: one clipboard shared by every browser that opens the dashboard, with the newest 10 copies of text, an image or files. Paste or drop into the page to share, copy any entry back, download its files, delete one entry or clear the history. Open dashboards update live. Device agents can keep each desktop's OS clipboard in step through the same API.
+
+With `SPARKDASH_TOKEN` set, every clipboard request needs the token, reads included; without one, the clipboard answers only on a loopback bind. Content is kept under `config/clipboard/` (or `CLIPBOARD_DIR`) and leaves the disk as soon as it drops out of the history. While the setting is off, every `/api/clipboard` route answers `404` and nothing is written. Limits, the API and the device-agent protocol are in [docs/CLIPBOARD.md](docs/CLIPBOARD.md).
+
 ## RoCE / RDMA monitoring
 
 Spark units with RDMA devices (the CX7 ports) get a **RoCE / RDMA** panel on their page, with no switch integration and no root. Per port: link state and rate, MTU, netdev RX/TX traffic, RDMA payload throughput (the port's own `port_rcv_data` / `port_xmit_data` counters), interface errors and drops, PFC priorities, QoS trust mode (PCP or DSCP) and the DSCP map, global pause settings, and the RDMA counters (out of buffer, sequence errors, ACK timeouts, ECN-marked packets, CNPs sent and handled) plus ethtool discards, CRC errors and pause frames, with the change since the last sample.
@@ -763,6 +771,10 @@ A refused key on a Windows unit also shows this hint in the connection error.
 sparkDash then runs two short PowerShell scripts over SSH per poll (no files are installed): GPU temperature, utilisation, power, VRAM and GPU processes from `nvidia-smi`, and RAM, uptime, CPU load, disks (fixed drives) and network adapters from Windows' CIM classes. Shutdown works (`shutdown.exe /s`). Not available on Windows: CPU temperature (Windows exposes no unprivileged sensor; CPU power is estimated from load), automatic Wake-on-LAN MAC detection (enter the MAC by hand), Hermes and Tailnet checks, model launchers, and the kernel Xid/OOM events. LLM servers on the PC (llama.cpp, Ollama, LM Studio, vLLM) are probed over HTTP as for any unit; if the server only listens on `127.0.0.1`, benchmarks fall back to an SSH tunnel.
 
 **AMD-iGPU Windows hosts (Strix Halo)**: if `nvidia-smi` is not installed, the same GPU script falls back to Windows' GPU Engine / GPU Adapter Memory performance counters — utilization is the busiest engine per physical adapter (three samples per poll, clamped to 100%), and memory comes from the adapter counters, with the total read from the driver's reported memory size (on a unified-memory iGPU this is the BIOS carve-out, e.g. 96 GB on a 128 GB Strix Halo; a MemTotal/MemAvailable fallback applies when the driver does not report it). The unit type is the same *Windows* option. An NVIDIA PC whose `nvidia-smi` is installed but failing does not use this fallback; it reports the failure instead. AMD publishes no GPU temperature or power to Windows, so those read 0. The model launchers are bash/systemd and stay unsupported on Windows; HTTP probing and benchmarks work as usual.
+
+## Node agent (Linux units without SSH polling)
+
+A remote Linux unit can optionally run `sparkdash-agent`, a small read-only Rust service in [`agent/`](./agent/README.md) that serves the unit's `/proc`, `/sys` and NVML readings over one token-gated HTTP request per poll, instead of about five SSH commands every 2 s. Enable it per unit with `"agent": { "url": "http://<unit>:9110" }` in `config/sparks.json` and `SPARKDASH_AGENT_TOKEN` in the environment; units without it keep SSH unchanged. There is no SSH fallback: an unreachable agent shows the unit offline with the reason. Details, what still uses SSH and what is not covered yet: [docs/NODE-AGENT.md](./docs/NODE-AGENT.md).
 
 ---
 

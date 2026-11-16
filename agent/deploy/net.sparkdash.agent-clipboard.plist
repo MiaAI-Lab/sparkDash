@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- macOS LaunchAgent for clipboard sync; see agent/README.md "Clipboard sync".
+     Edit the dashboard URL, copy to ~/Library/LaunchAgents/, then:
+     launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/net.sparkdash.agent-clipboard.plist -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>net.sparkdash.agent-clipboard</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/sparkdash-agent</string>
+    <string>clipboard</string>
+    <string>--dashboard</string>
+    <string>http://192.0.2.20:5555</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>

@@ -560,7 +560,7 @@ print(json.dumps(models))
 PY`;
 
 /** Separates `df` output from the block-device counters in the remote storage command. */
-const REMOTE_IO_MARKER = "---sparkdash-block-io---";
+export const REMOTE_IO_MARKER = "---sparkdash-block-io---";
 /** Samples of one disk closer together than this (ms) are the same poll and share one rate. */
 const DISK_RATE_MIN_WINDOW_MS = 250;
 
@@ -2386,10 +2386,10 @@ export class SystemCollector {
     return 0;
   }
 
-  async _getRemoteRam() {
+  async _getRemoteRam(execute = this._sshExec) {
     try {
       const cmd = "grep -E 'MemTotal|MemAvailable' /proc/meminfo 2>/dev/null";
-      const output = await this._sshExec(this.spark, cmd);
+      const output = await execute(this.spark, cmd);
       const totalMatch = output.match(/MemTotal:\s+(\d+)\s+kB/);
       const availMatch = output.match(/MemAvailable:\s+(\d+)\s+kB/);
       const totalKB = totalMatch ? parseInt(totalMatch[1]) : 0;
@@ -2868,7 +2868,7 @@ export class SystemCollector {
     }
   }
 
-  async _getRemoteUnifiedMemory() {
+  async _getRemoteUnifiedMemory(execute = this._sshExec) {
     try {
       const cmd = [
         "grep -E 'MemTotal|MemAvailable' /proc/meminfo 2>/dev/null",
@@ -2876,7 +2876,7 @@ export class SystemCollector {
         "nvidia-smi --query-compute-apps=pid,process_name,used_gpu_memory --format=csv,noheader,nounits 2>/dev/null",
       ].join("; ");
 
-      const output = await this._sshExec(this.spark, cmd);
+      const output = await execute(this.spark, cmd);
       const sections = output.split("---");
       const memOut = sections[0]?.trim() || "";
       const computeOut = sections[1]?.trim() || "";
@@ -3262,7 +3262,7 @@ export class SystemCollector {
    * its static fallback summary.
    * @returns {Promise<object|null>}
    */
-  async detectHardware() {
+  async detectHardware(execute = this._sshExec) {
     try {
       let smiOut = "";
       let cpuinfo = "";
@@ -3281,7 +3281,7 @@ export class SystemCollector {
         meminfo = results[2];
         coresParsed = (cpuinfo.match(/processor\s*:/g) || []).length;
       } else {
-        const out = await this._sshExec(this.spark, [
+        const out = await execute(this.spark, [
           "nvidia-smi --query-gpu=name,driver_version --format=csv,noheader,nounits 2>/dev/null",
           "echo '---'",
           "grep -E '^model name' /proc/cpuinfo | head -1",

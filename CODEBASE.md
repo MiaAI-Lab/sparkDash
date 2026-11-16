@@ -11,7 +11,8 @@ The package uses ESM throughout. `server/index.js` runs directly in Node and cre
 | Path | Responsibility |
 | --- | --- |
 | `server/sparks/` | Persistent unit registry and independent poll loops |
-| `server/collectors/` | Hardware, platform-specific probes, LLM detection, streaming, benchmarks and Showcase |
+| `server/collectors/` | Hardware, platform-specific probes, LLM detection, streaming, benchmarks and Showcase. `NodeAgentCollector.js` reads opt-in node-agent units by rendering the agent's snapshot into the SSH commands' output for the same parsers |
+| `agent/` | `sparkdash-agent`, the optional read-only Rust node agent for Linux units (Cargo crate, systemd unit, installer; docs/NODE-AGENT.md). The `clipboard` cargo feature adds `sparkdash-agent clipboard`, the opt-in desktop clipboard sync for Linux, macOS and Windows (`src/clipboard/`, docs/CLIPBOARD.md). Checked with `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test` in that directory, with and without `--features clipboard` |
 | `server/auth.js`, `server/validate.js` | Incoming access checks and configured-target validation |
 | `server/secretsStore.js`, `server/settings.js` | Encrypted credentials and ordinary persistent settings |
 | `server/metrics/`, `server/llmtokens/`, `server/energy/` | Metric histories, token accounting and fleet energy. The permanent monthly archive (`FleetEnergyMonthly.js`) also keeps each node's energy per UTC hour of the month, so any tariff can price past months; it stores energy, never money |
@@ -20,6 +21,7 @@ The package uses ESM throughout. `server/index.js` runs directly in Node and cre
 | `server/llmlaunch/`, `server/tooleval/`, `server/gpuclock/` | Model launcher jobs, tool evaluation, GPU-clock management and per-card power limits on GPU hosts (`gpuclock/powerCommands.js`) |
 | `server/prices/` | Opt-in hosted-model price catalog and offline cache |
 | `server/apiKeys/`, `scripts/apikeys-bridge/` | Opt-in read-only API Keys views and the reference host bridge they call over a unix socket |
+| `server/clipboard/` | Opt-in shared clipboard: bounded history store with content-addressed blobs (`store.js`) and `/api/clipboard` routes with their stricter access rule and the device-agent long poll (`routes.js`); protocol in `docs/CLIPBOARD.md` |
 | `server/storage/` | Storage Manager: disk scans, Docker images, deletes. Shell programs in `scripts/`, path safety in `policy.js`, execution contexts (ssh / native-local / container-local) and the per-feature `supports()` table in `context.js`, what may start (one job per Spark, two scans per fleet) in `admission.js`, scan stop and reconcile rules in `scanJob.js` (unit-side lock and job records in `scripts/unit-state.sh`, stop in `scripts/job.sh`), the delete advisor's rules and known-place table in `advice.js` (pure; evidence from the read-only `scripts/advise.sh`, parsed by `parseAdviseOutput` in `commands.js`), routes under `/api/sparks/:id/storage` |
 | `src/api/` | API clients and browser-facing data types |
 | `src/hooks/` | Snapshot subscription, metric history and UI hooks |

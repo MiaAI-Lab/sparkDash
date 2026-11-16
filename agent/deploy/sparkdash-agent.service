@@ -1,0 +1,52 @@
+# sparkdash-agent: read-only host metrics for sparkDash over token-gated HTTP.
+# Installed by install.sh; per-host flags live in /etc/sparkdash-agent/agent.env.
+[Unit]
+Description=sparkDash metrics agent (read-only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/sparkdash-agent/agent.env
+# $SPARKDASH_AGENT_ARGS is split on whitespace, e.g.
+#   --listen <LAN IP>:9110 --allow <dashboard network CIDR>
+ExecStart=/usr/local/bin/sparkdash-agent $SPARKDASH_AGENT_ARGS
+LoadCredential=token:/etc/sparkdash-agent/token
+Restart=on-failure
+RestartSec=5
+
+# No root: a throwaway user. CAP_SYSLOG only so it can read /dev/kmsg
+# (kernel.dmesg_restrict=1) for the kernel log counters.
+DynamicUser=yes
+AmbientCapabilities=CAP_SYSLOG
+CapabilityBoundingSet=CAP_SYSLOG
+NoNewPrivileges=yes
+ProtectSystem=strict
+# read-only, not yes: disk usage of /home must come from the real filesystem.
+ProtectHome=read-only
+PrivateTmp=yes
+ProtectControlGroups=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+# /dev/nvidia* (NVML) and /dev/kmsg must stay visible, so no PrivateDevices.
+
+# Hard ceilings well above normal use (about 21 MB RSS on a GB10, most of it NVML).
+# MemoryMax counts page cache too, so leave headroom.
+MemoryMax=64M
+CPUQuota=5%
+TasksMax=8
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

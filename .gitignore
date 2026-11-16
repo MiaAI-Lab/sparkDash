@@ -7,6 +7,7 @@ config/storage-sudo.json
 config/storage-scans.json
 config/storage-acks.json
 config/.secrets-key
+config/clipboard/
 config/bench-history.json
 config/bench-active.json
 config/prefill-bench-history.json
