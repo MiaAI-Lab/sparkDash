@@ -312,7 +312,7 @@ export class ClipboardStore {
       textSize: 0,
       parts,
       size: total,
-      contentKey: contentKeyOf(kind, parts.map((p) => p.sha256)),
+      contentKey: contentKeyOf(kind, parts.map((p) => (kind === "files" ? `${p.name}/${p.sha256}` : p.sha256))),
       source,
       createdAt: this.now(),
     });

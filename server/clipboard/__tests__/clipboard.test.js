@@ -131,6 +131,20 @@ test("an uploaded image becomes an image entry served inline; several uploads be
   await a.close();
 });
 
+test("files with the same bytes under other names are a new copy; the same files again are a duplicate", async () => {
+  const a = await startApp();
+  const stage = async (name) => (await (await upload(a.base, "x", name, "text/plain")).json()).upload.id;
+  const first = await commit(a.base, [await stage("a.txt"), await stage("b.txt")]);
+  assert.equal(first.status, 201);
+  const renamed = await commit(a.base, [await stage("a.txt"), await stage("c.txt")]);
+  assert.equal(renamed.status, 201);
+  assert.deepEqual((await renamed.json()).entry.parts.map((p) => p.name), ["a.txt", "c.txt"]);
+  const again = await commit(a.base, [await stage("a.txt"), await stage("c.txt")]);
+  assert.equal(again.status, 200);
+  assert.equal((await again.json()).duplicate, true);
+  await a.close();
+});
+
 test("text, files and entries over the limits are refused with 413", async () => {
   const a = await startApp({ limits: { maxTextBytes: 8, maxPartBytes: 16, maxEntryBytes: 20, maxParts: 2 } });
   assert.equal((await postText(a.base, "123456789")).status, 413);
