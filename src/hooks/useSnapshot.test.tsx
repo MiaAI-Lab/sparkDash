@@ -5,6 +5,7 @@ import { useSnapshot } from "./useSnapshot";
 import { makeSpark } from "../testing/fixtures";
 import { onAuthRequired, setToken } from "../api/authToken";
 import { flush, render } from "../testing/render";
+import { _resetClipboardRevision, getClipboardRevision } from "./clipboardRevision";
 
 class MockSocket {
   static OPEN = 1;
@@ -119,6 +120,19 @@ describe("useSnapshot connection lifecycle", () => {
     act(() => socket.emit({ type: "snapshot", refreshInterval: 2000, sparks: [makeSpark("alpha")] }));
     await flush();
     expect(readProbe().alerts).toBeNull();
+  });
+
+  it("passes clipboard revisions on without touching the snapshot state", async () => {
+    _resetClipboardRevision();
+    render(<Probe />);
+    const socket = MockSocket.instances[0];
+    act(() => socket.open());
+    act(() => socket.emit({ type: "snapshot", refreshInterval: 2000, sparks: [makeSpark("alpha")] }));
+    await flush();
+    act(() => socket.emit({ type: "clipboard", revision: 7 }));
+    await flush();
+    expect(getClipboardRevision()).toBe(7);
+    expect(readProbe()).toMatchObject({ connected: true, count: 1, error: null });
   });
 
   it("reconnects with the new ?token= as soon as a token is saved", async () => {

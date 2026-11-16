@@ -1,0 +1,62 @@
+{
+  "title": "Clipboard",
+  "subtitle": "Shared between the browsers and devices that reach this dashboard. Paste anywhere on this page to share.",
+  "refresh": "Refresh",
+  "refreshing": "Refreshing…",
+  "loading": "Loading…",
+  "errors": { "load": "Could not load the clipboard: {{error}}" },
+  "latest": {
+    "title": "Latest",
+    "empty": "Nothing shared yet.",
+    "truncated": "Showing the start of {{size}} of text. Copy takes all of it."
+  },
+  "share": {
+    "title": "Share",
+    "textLabel": "Text to share",
+    "placeholder": "Type or paste text…",
+    "text": "Share",
+    "drop": "Drop files or images here",
+    "choose": "Choose files",
+    "limits": "Up to {{parts}} files, {{part}} each; text up to {{text}}.",
+    "pasteHint": "Ctrl+V or Cmd+V outside the text box shares what you pasted."
+  },
+  "history": {
+    "title": "History",
+    "empty": "The history is empty.",
+    "clear": "Clear…",
+    "clearAll": "Clear all entries",
+    "clearAsk": "Delete every clipboard entry?",
+    "cancel": "Cancel",
+    "confirm": "Delete",
+    "deleting": "Deleting…",
+    "irreversible": "This can't be undone.",
+    "nothing": "Nothing to delete",
+    "cleared": "Entries deleted: {{count}}",
+    "failed": "Could not clear the clipboard"
+  },
+  "actions": {
+    "copy": "Copy",
+    "copyLabel": "Copy {{type}}",
+    "download": "Download",
+    "downloadLabel": "Download {{type}}",
+    "delete": "Delete",
+    "deleteLabel": "Delete {{type}}"
+  },
+  "notice": {
+    "shared": "Shared",
+    "duplicate": "Already the latest entry",
+    "copied": "Copied",
+    "copyFailed": "This browser blocked copying",
+    "downloaded": "Downloaded",
+    "deleted": "Deleted"
+  },
+  "limits": {
+    "text": "Text is larger than the {{limit}} limit.",
+    "parts": "Share at most {{limit}} files at once.",
+    "part": "{{name}} is larger than the {{limit}} file limit.",
+    "entry": "These files are larger than the {{limit}} total limit."
+  },
+  "type": { "text": "Text", "image": "Image", "files": "Files: {{count}}" },
+  "source": { "browser": "Browser", "device": "Device" },
+  "ago": { "now": "just now", "minutes": "{{count}} min ago", "hours": "{{count}} h ago", "days": "{{count}} d ago" }
+}

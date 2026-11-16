@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import type { AlertInstance, SparkSnapshot, WsSnapshot } from "../api/types";
+import type { AlertInstance, SparkSnapshot, WsClipboardRevision, WsSnapshot } from "../api/types";
 import { ingestSnapshots } from "./metricsStore";
+import { publishClipboardRevision } from "./clipboardRevision";
 import { initialActiveId } from "../constants";
 import { fetchAuthStatus, getToken, onTokenChange, reportAuthRequired } from "../api/authToken";
 
@@ -71,8 +72,10 @@ export function useSnapshot() {
 
     ws.onmessage = (ev) => {
       try {
-        const msg: WsSnapshot = JSON.parse(ev.data);
-        if (msg.type === "snapshot" && Array.isArray(msg.sparks)) {
+        const msg: WsSnapshot | WsClipboardRevision = JSON.parse(ev.data);
+        if (msg.type === "clipboard") {
+          if (typeof msg.revision === "number") publishClipboardRevision(msg.revision);
+        } else if (msg.type === "snapshot" && Array.isArray(msg.sparks)) {
           const receivedAt = Date.now();
           // Feed the central history store (8b) before notifying React state.
           ingestSnapshots(msg.sparks, msg.generatedAt ?? receivedAt);

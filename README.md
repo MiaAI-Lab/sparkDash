@@ -54,6 +54,7 @@ Monitored units run **Linux**, **macOS**, or **Windows** (a Windows PC with an N
 - [Prometheus](#prometheus)
 - [Alert notifications](#alert-notifications)
 - [Power meters (wall power)](#power-meters-wall-power)
+- [Shared clipboard](#shared-clipboard)
 - [RoCE / RDMA monitoring](#roce--rdma-monitoring)
 - [Intel Arc GPUs](#intel-arc-gpus)
 - [Windows PCs](#windows-pcs)
@@ -712,6 +713,12 @@ Until step 3, sparkDash backs off after each rejection (see **Bad token, lockout
 **Reference bridge.** `scripts/apikeys-bridge/bridge.js` (Node, no dependencies) implements exactly the three calls above, using LiteLLM's `/health/readiness`, `/key/list` and `/key/info` with the master key. It refuses every other method (`405`) and path (`404`) without contacting LiteLLM. `scripts/apikeys-bridge/sparkdash-apikeys-bridge.service.example` runs it under systemd with the master key passed through `LoadCredential`, so the key file can stay root-only. Hash the token with `printf %s "$TOKEN" | sha256sum`. You may write your own bridge instead: anything that speaks the protocol above works.
 
 **Audit log.** None: this page cannot change anything, so nothing is logged and nothing grows on disk.
+
+## Shared clipboard
+
+Opt-in (default **off**). **Settings → Shared clipboard** adds a **Clipboard** page: one clipboard shared by every browser that opens the dashboard, with the newest 10 copies of text, an image or files. Paste or drop into the page to share, copy any entry back, download its files, delete one entry or clear the history. Open dashboards update live. Device agents can keep each desktop's OS clipboard in step through the same API.
+
+With `SPARKDASH_TOKEN` set, every clipboard request needs the token, reads included; without one, the clipboard answers only on a loopback bind. Content is kept under `config/clipboard/` (or `CLIPBOARD_DIR`) and leaves the disk as soon as it drops out of the history. While the setting is off, every `/api/clipboard` route answers `404` and nothing is written. Limits, the API and the device-agent protocol are in [docs/CLIPBOARD.md](docs/CLIPBOARD.md).
 
 ## RoCE / RDMA monitoring
 
