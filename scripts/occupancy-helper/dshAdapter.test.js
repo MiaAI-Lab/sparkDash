@@ -139,3 +139,60 @@ test("optional model lookups share the list deadline instead of restarting it", 
   assert.equal(result.coverage, 'unavailable');
   assert.equal(signal.aborted, true);
 });
+
+test("a DSH launch token is refused in cleartext beyond loopback", async () => {
+  const calls = [];
+  for (const webUrl of ["http://10.1.1.5:3080", "http://dsh.tailnet.ts.net", "http://0.0.0.0:3080"]) {
+    const result = await loadDsh({
+      webUrl,
+      token: "launch-token",
+      readProfiles: false,
+      fetchFn: async (url) => { calls.push(String(url)); return response({ result: { ok: true, value: { items: [] } } }); },
+    });
+    assert.equal(result.coverage, "unavailable");
+    assert.match(result.error, /DSH_WEB_TOKEN is only sent to loopback over http/);
+    assert.deepEqual(result.rows, []);
+  }
+  assert.deepEqual(calls, []);
+});
+
+test("a loopback launch token becomes the DSH auth cookie once per refresh", async () => {
+  const calls = [];
+  const loaded = await loadDsh({
+    webUrl: "http://127.0.0.1:3080",
+    token: "launch-token",
+    readProfiles: false,
+    fetchFn: async (url, opts = {}) => {
+      calls.push({ url: String(url), cookie: opts.headers?.cookie });
+      if (String(url).includes("?token=")) {
+        return new Response(null, { status: 303, headers: { "set-cookie": "dsh-auth-127.0.0.1=demo; Path=/; HttpOnly" } });
+      }
+      return response({ result: { ok: true, value: { items: [{ sessionId: "one" }] } } });
+    },
+  });
+  assert.equal(loaded.coverage, "supported");
+  assert.equal(calls[0].url, "http://127.0.0.1:3080/?token=launch-token");
+  assert.equal(calls.filter((call) => call.url.includes("?token=")).length, 1);
+  assert.equal(calls[1].cookie, "dsh-auth-127.0.0.1=demo");
+  assert.equal(calls.slice(1).every((call) => call.cookie === "dsh-auth-127.0.0.1=demo"), true);
+});
+
+test("https and IPv6 loopback may carry the DSH launch token", async () => {
+  for (const webUrl of ["https://dsh.example.com", "http://[::1]:3080"]) {
+    const calls = [];
+    const loaded = await loadDsh({
+      webUrl,
+      token: "launch-token",
+      readProfiles: false,
+      fetchFn: async (url) => {
+        calls.push(String(url));
+        if (String(url).includes("?token=")) {
+          return new Response(null, { status: 303, headers: { "set-cookie": "dsh-auth-x=demo; Path=/" } });
+        }
+        return response({ result: { ok: true, value: { items: [] } } });
+      },
+    });
+    assert.equal(loaded.coverage, "supported", `${webUrl} must be allowed`);
+    assert.equal(calls[0], `${webUrl}/?token=launch-token`);
+  }
+});

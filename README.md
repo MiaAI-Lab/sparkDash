@@ -1195,7 +1195,7 @@ OCCUPANCY_ADAPTERS=openclaw,opencode,omp,hermes,dsh \
 node scripts/occupancy-helper/index.js
 ```
 
-`OCCUPANCY_ADAPTERS` lists only the harnesses you enabled. Hermes reads `HERMES_STATE_DIR` (it does not launch `hermes-acp`, because that list path can write). DeepSeek Harness reads `DSH_WEB_URL` (default `http://127.0.0.1:3080`). A helper bound to anything other than loopback requires `OCCUPANCY_TOKEN`, and it refuses `0.0.0.0` and `::`. A helper hostname that is not loopback must be listed in `SPARKDASH_HELPER_HOSTS`.
+`OCCUPANCY_ADAPTERS` lists only the harnesses you enabled. Hermes reads `HERMES_STATE_DIR` (it does not launch `hermes-acp`, because that list path can write). DeepSeek Harness reads `DSH_WEB_URL` (default `http://127.0.0.1:3080`) and `DSH_WEB_TOKEN` when its web gate requires a launch token. DSH accepts that token only as a query string, so the adapter sends it only to a loopback `http` URL or an `https` URL and reports DSH unavailable rather than put the token on a cleartext remote connection. A helper bound to anything other than loopback requires `OCCUPANCY_TOKEN`, and it refuses `0.0.0.0` and `::`. A helper hostname that is not loopback must be listed in `SPARKDASH_HELPER_HOSTS`.
 
 A missing ACP command marks that adapter unavailable while the helper keeps serving its cache. Adapter subprocesses keep their harness configuration but do not receive `OCCUPANCY_TOKEN`. ACP stdout frames are capped at 2,000,000 bytes, including unfinished lines; exceeding the cap closes that bridge and retains any previous rows as stale. Diagnostic RPC history retains only the latest 64 method names.
 

@@ -27,12 +27,25 @@ export async function loadDsh({
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     return { coverage: "unavailable", stale: false, error: "DSH_WEB_URL must be http or https", rows: [] };
   }
+  const launchToken = String(token || "");
+  // DSH's web gate accepts its launch token only as `?token=` on GET / and
+  // trades it for a signed cookie, so the token cannot be moved into a header
+  // or a body. Keep it off the wire in cleartext: same rule as the helper's own
+  // bearer token, loopback http or https anywhere.
+  if (launchToken && parsed.protocol === "http:" && !isLoopbackHost(parsed.hostname)) {
+    return {
+      coverage: "unavailable",
+      stale: false,
+      error: "DSH_WEB_TOKEN is only sent to loopback over http; use an https DSH_WEB_URL for a remote host",
+      rows: [],
+    };
+  }
   const controller = new AbortController();
   const abort = () => controller.abort(new Error("DSH refresh cancelled"));
   signal?.addEventListener("abort", abort, { once: true });
   if (signal?.aborted) abort();
   const timer = setTimeout(() => controller.abort(new Error("DSH refresh timed out")), timeoutMs);
-  const rpcOptions = { signal: controller.signal, maxBytes, token: String(token || ""), cookie: "" };
+  const rpcOptions = { signal: controller.signal, maxBytes, token: launchToken, cookie: "" };
   try {
     const origins = readProfiles ? loadProviderOrigins(profileDir) : new Map();
     const items = await fetchSessionList(fetchFn, parsed, rpcOptions);
@@ -79,6 +92,8 @@ async function fetchSessionModels(fetchFn, webUrl, sessionId, options) {
 
 // DSH web gates /api behind a cookie it hands out for its launch token
 // (GET /?token=...). Exchange once per refresh, only when a token is set.
+// The query string is DSH's only accepted channel; loadDsh refuses to use it
+// in cleartext beyond loopback.
 async function authCookie(fetchFn, webUrl, token, signal) {
   const res = await fetchFn(`${webUrl.origin}/?token=${encodeURIComponent(token)}`, { redirect: "manual", signal });
   void res.body?.cancel().catch(() => {});
@@ -86,6 +101,14 @@ async function authCookie(fetchFn, webUrl, token, signal) {
   const pair = raw.map((line) => String(line).split(";", 1)[0]).find((line) => line.startsWith("dsh-auth-"));
   if (!pair) throw new Error("DSH web token was not accepted");
   return pair;
+}
+
+function isLoopbackHost(hostname) {
+  const host = String(hostname || "").toLowerCase().replace(/^\[|\]$/g, "");
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
+  if (host === "::1" || host === "0:0:0:0:0:0:0:1") return true;
+  const mapped = host.startsWith("::ffff:") ? host.slice("::ffff:".length) : host;
+  return /^127\.(?:\d{1,3})\.(?:\d{1,3})\.(?:\d{1,3})$/.test(mapped);
 }
 
 async function rpc(fetchFn, webUrl, method, payload, options) {
