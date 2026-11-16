@@ -3,24 +3,45 @@
 //! It reads /proc, /sys, /dev/kmsg and NVML in-process and serves the result
 //! over token-gated HTTP on the addresses it is told to bind, so the dashboard
 //! needs no SSH session per metric. See README.md.
+//!
+//! Built with the `clipboard` feature, `sparkdash-agent clipboard` also syncs a
+//! desktop's OS clipboard with the dashboard's shared clipboard (Linux, macOS
+//! and Windows); see src/clipboard and docs/CLIPBOARD.md.
 
+#[cfg(feature = "clipboard")]
+mod clipboard;
+#[cfg(target_os = "linux")]
 mod gpu;
+#[cfg(target_os = "linux")]
 mod http;
+#[cfg(target_os = "linux")]
 mod kmsg;
+#[cfg(target_os = "linux")]
 mod procfs;
+#[cfg(target_os = "linux")]
 mod routes;
+#[cfg(target_os = "linux")]
 mod sampler;
+#[cfg(target_os = "linux")]
 mod sysfs;
 
+#[cfg(target_os = "linux")]
 use std::net::{SocketAddr, TcpListener};
+#[cfg(target_os = "linux")]
 use std::path::PathBuf;
+#[cfg(target_os = "linux")]
 use std::sync::{Arc, Mutex};
+#[cfg(target_os = "linux")]
 use std::time::Duration;
 
+#[cfg(target_os = "linux")]
 use http::Cidr;
+#[cfg(target_os = "linux")]
 use routes::Router;
+#[cfg(target_os = "linux")]
 use sampler::{RdmaSampler, Sampler};
 
+#[cfg(target_os = "linux")]
 const USAGE: &str = "\
 usage: sparkdash-agent --listen IP:PORT [--listen IP:PORT ...] [options]
 
@@ -31,8 +52,11 @@ usage: sparkdash-agent --listen IP:PORT [--listen IP:PORT ...] [options]
                          (default $CREDENTIALS_DIRECTORY/token)
   --min-interval-ms N    minimum time between samples (default and floor 1000)
   --version              print the version and exit
+
+  sparkdash-agent clipboard --help   desktop clipboard sync (clipboard builds only)
 ";
 
+#[cfg(target_os = "linux")]
 #[derive(Debug)]
 struct Args {
     listen: Vec<SocketAddr>,
@@ -41,11 +65,13 @@ struct Args {
     min_interval: Duration,
 }
 
+#[cfg(target_os = "linux")]
 enum Exit {
     Usage(String),
     Version,
 }
 
+#[cfg(target_os = "linux")]
 fn parse_args(mut it: impl Iterator<Item = String>) -> Result<Args, Exit> {
     let mut a = Args {
         listen: Vec::new(),
@@ -91,6 +117,7 @@ fn parse_args(mut it: impl Iterator<Item = String>) -> Result<Args, Exit> {
     Ok(a)
 }
 
+#[cfg(target_os = "linux")]
 fn load_token(path: Option<PathBuf>) -> Result<String, String> {
     let path = path
         .or_else(|| {
@@ -111,7 +138,53 @@ fn load_token(path: Option<PathBuf>) -> Result<String, String> {
 }
 
 fn main() {
-    let args = match parse_args(std::env::args().skip(1)) {
+    let mut argv = std::env::args().skip(1).peekable();
+    if argv.peek().map(String::as_str) == Some("clipboard") {
+        argv.next();
+        std::process::exit(clipboard_main(argv));
+    }
+    if argv
+        .peek()
+        .map(String::as_str)
+        .is_some_and(|a| a == "--version" || a == "-V")
+    {
+        println!("sparkdash-agent {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+    serve_metrics(argv);
+}
+
+#[cfg(feature = "clipboard")]
+fn clipboard_main(args: impl Iterator<Item = String>) -> i32 {
+    match clipboard::parse_args(args) {
+        Ok(a) => clipboard::run(a),
+        Err(e) => {
+            if !e.is_empty() {
+                eprintln!("sparkdash-agent clipboard: {e}");
+            }
+            eprint!("{}", clipboard::USAGE);
+            2
+        }
+    }
+}
+
+#[cfg(not(feature = "clipboard"))]
+fn clipboard_main(_args: impl Iterator<Item = String>) -> i32 {
+    eprintln!(
+        "sparkdash-agent: this build has no clipboard sync (build with --features clipboard)"
+    );
+    2
+}
+
+#[cfg(not(target_os = "linux"))]
+fn serve_metrics(_args: impl Iterator<Item = String>) {
+    eprintln!("sparkdash-agent: the metrics service runs on Linux only; use `sparkdash-agent clipboard` here");
+    std::process::exit(2);
+}
+
+#[cfg(target_os = "linux")]
+fn serve_metrics(argv: impl Iterator<Item = String>) {
+    let args = match parse_args(argv) {
         Ok(a) => a,
         Err(Exit::Version) => {
             println!("sparkdash-agent {}", env!("CARGO_PKG_VERSION"));
@@ -162,6 +235,7 @@ fn main() {
 }
 
 /// A tailnet address doesn't exist until tailscaled is up, so keep trying.
+#[cfg(target_os = "linux")]
 fn bind_when_ready(addr: SocketAddr) -> TcpListener {
     let mut warned = false;
     loop {
@@ -183,7 +257,7 @@ fn bind_when_ready(addr: SocketAddr) -> TcpListener {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
 

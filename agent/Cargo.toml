@@ -1,16 +1,40 @@
 [package]
 name = "sparkdash-agent"
 version = "0.1.0"
-description = "Read-only metrics agent for DGX Sparks: /proc, /sys and NVML over token-gated HTTP for sparkDash"
+description = "Read-only metrics agent for DGX Sparks (/proc, /sys and NVML over token-gated HTTP) and opt-in desktop clipboard sync for sparkDash"
 edition = "2021"
 rust-version = "1.90"
 publish = false
 
+[features]
+clipboard = [
+    "dep:arboard",
+    "dep:png",
+    "dep:ureq",
+    "dep:wl-clipboard-rs",
+    "dep:objc2-app-kit",
+    "dep:objc2-foundation",
+    "dep:windows-sys",
+]
+
 [dependencies]
 libc = "0.2"
-nvml-wrapper = "0.13"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+arboard = { version = "3.6", optional = true, default-features = false, features = ["image-data"] }
+png = { version = "0.18", optional = true }
+ureq = { version = "3.4", optional = true, default-features = false, features = ["rustls"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+nvml-wrapper = "0.13"
+wl-clipboard-rs = { version = "0.9", optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.3", optional = true, default-features = false, features = ["std", "NSPasteboard"] }
+objc2-foundation = { version = "0.3", optional = true, default-features = false, features = ["std", "NSArray", "NSString"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.60", optional = true, features = ["Win32_Foundation", "Win32_System_DataExchange"] }
 
 [profile.release]
 opt-level = 3

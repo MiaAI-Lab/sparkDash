@@ -1,0 +1,21 @@
+# systemd user unit for desktop clipboard sync; see agent/README.md "Clipboard sync".
+#   install -Dm644 sparkdash-agent-clipboard.service ~/.config/systemd/user/sparkdash-agent-clipboard.service
+#   install -Dm600 clipboard.env.example ~/.config/sparkdash-agent/clipboard.env   # then edit it
+#   (optional) put the dashboard token in ~/.config/sparkdash-agent/token, mode 600
+#   systemctl --user enable --now sparkdash-agent-clipboard
+[Unit]
+Description=sparkDash shared clipboard sync
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+EnvironmentFile=%h/.config/sparkdash-agent/clipboard.env
+ExecStart=/usr/local/bin/sparkdash-agent clipboard $SPARKDASH_CLIPBOARD_ARGS
+Restart=on-failure
+RestartSec=10
+MemoryMax=64M
+CPUQuota=10%
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=graphical-session.target
