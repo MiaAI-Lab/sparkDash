@@ -58,6 +58,7 @@ import {
 import { showcaseManager } from "./collectors/ShowcaseManager.js";
 import { InferenceActivityStore } from "./collectors/InferenceActivity.js";
 import { llmProbeHost } from "./collectors/llmHost.js";
+import { PicoFrontLog } from "./collectors/picoFrontLog.js";
 import { onceClose, resolveLlmHttpTarget } from "./collectors/llmTunnel.js";
 import { formatLlmBaseUrl, parseLlmTargetInput } from "../src/shared/llmTarget.js";
 import { llmDaily } from "./collectors/LlmDaily.js";
@@ -471,6 +472,9 @@ function startMonitor(spark) {
       liveDecodeTps: (port) => decodeBenchManager.getLiveDecodeTps(spark.id, port)
         ?? showcaseManager.getLiveDecodeTps(spark.id, port),
       streamSampleEnabled: () => getSettings().llmStreamSample === true,
+      // Pico publishes no counters; its front end's request log on the unit does
+      // record every finished request. One follower per probe (per port).
+      picoLog: (port) => new PicoFrontLog(spark, port),
       streamSampleBlocked: () => llmStreamSampleBlocked(spark.id),
     }),
   });

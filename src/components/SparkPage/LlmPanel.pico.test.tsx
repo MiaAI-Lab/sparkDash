@@ -37,3 +37,19 @@ it("shows Pico's live dashboard stream rate with sampling paused, then clears on
   expect(container.querySelector(".sp-decode .big-num")?.textContent).toBe("0.0tok/s");
   expect(container.querySelector("[data-llm-idle]")).not.toBeNull();
 });
+
+it("shows Pico's decode from the engine log, labelled, and a measured zero when the log is idle", () => {
+  const llm = {
+    ...makeSpark().metrics.llm[0], backend: "pico" as const,
+    generationTps: 131.5, generationTpsSource: "engine-log" as const,
+    prefillTps: 0, decodeActive: true,
+  };
+  const { container, root } = render(<LlmPanel llm={llm} sparkId="fixture" llmPort={8888} />);
+  expect(container.querySelector(".sp-decode .big-num")?.textContent).toBe("131.5tok/s");
+  expect(container.textContent).toContain("Engine log");
+  expect(container.textContent).not.toContain("Dashboard streams");
+  expect(container.textContent).not.toContain("sampled");
+  act(() => root.render(<LlmPanel llm={{ ...llm, generationTps: 0, decodeActive: false }} sparkId="fixture" llmPort={8888} />));
+  expect(container.querySelector(".sp-decode .big-num")?.textContent).toBe("0.0tok/s");
+  expect(container.textContent).toContain("Engine log");
+});
