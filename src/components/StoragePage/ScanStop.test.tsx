@@ -4,6 +4,7 @@ import { cancelStorageScan, fetchStorageScan, fetchStorageStatus } from "../../a
 import type { StorageScanJob, StorageScanSnapshot, StorageStatus } from "../../api/types";
 import { makeSpark } from "../../testing/fixtures";
 import { flush, render } from "../../testing/render";
+import { i18n } from "../../i18n";
 import { ScanProgress, minutesUntil, scanHoldNote, scanStopNote } from "./ScanProgress";
 import { StoragePage } from "./StoragePage";
 
@@ -23,6 +24,7 @@ vi.mock("../../api/client", async (importOriginal) => ({
 }));
 
 const NOW = 1_800_000_000_000;
+const enT = i18n.getFixedT("en", "storage");
 const RUNNING: StorageScanJob = {
   id: "j1",
   state: "running",
@@ -110,13 +112,13 @@ describe("scan notes", () => {
   });
 
   it("explains why the Spark is still busy, including after lost contact", () => {
-    expect(scanHoldNote(null, NOW)).toBeNull();
-    expect(scanHoldNote({ ...RUNNING, state: "done", holdsSpark: false }, NOW)).toBeNull();
-    expect(scanHoldNote(RUNNING, NOW)).toBe("A scan is still running on this Spark.");
-    expect(scanHoldNote({ ...RUNNING, state: "error", error: { code: "unreachable", message: "x" }, holdReason: "unreachable", holdUntil: NOW + 10 * 60_000 }, NOW)).toMatch(
+    expect(scanHoldNote(null, NOW, enT)).toBeNull();
+    expect(scanHoldNote({ ...RUNNING, state: "done", holdsSpark: false }, NOW, enT)).toBeNull();
+    expect(scanHoldNote(RUNNING, NOW, enT)).toBe("A scan is still running on this Spark.");
+    expect(scanHoldNote({ ...RUNNING, state: "error", error: { code: "unreachable", message: "x" }, holdReason: "unreachable", holdUntil: NOW + 10 * 60_000 }, NOW, enT)).toMatch(
       /lost contact .* stays busy until the dashboard can confirm the scan has ended \(in 10 min at the latest\)/
     );
-    expect(scanStopNote(RUNNING, NOW)).toBeNull();
+    expect(scanStopNote(RUNNING, NOW, enT)).toBeNull();
   });
 });
 

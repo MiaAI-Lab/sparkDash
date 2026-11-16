@@ -246,7 +246,7 @@ export class LauncherManager {
       cmd = buildAttachCommand({ id: launcher.id, nonce });
       maxMs = START_WATCH_MAX_MS;
     } else {
-      cmd = buildStopCommand({ dir: launcher.dir, script: launcher.stopScript, nonce });
+      cmd = buildStopCommand({ id: launcher.id, dir: launcher.dir, script: launcher.stopScript, nonce });
       maxMs = STOP_MAX_MS;
     }
     const markerPrefix = exitPrefix(nonce);

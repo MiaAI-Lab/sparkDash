@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { cancelStorageScan, fetchStorageScan, startStorageScan } from "../../api/client";
 import type { StorageScanJob, StorageScanRequest, StorageSession } from "../../api/types";
 
@@ -31,6 +32,7 @@ export interface StorageScan {
  * so leaving the page and coming back finds the same analysis (or the scan still running).
  */
 export function useStorageScan(sparkId: string | null): StorageScan {
+  const { t } = useTranslation("storage");
   const [job, setJob] = useState<StorageScanJob | null>(null);
   const [session, setSession] = useState<StorageSession | null>(null);
   const [loading, setLoading] = useState(Boolean(sparkId));
@@ -56,11 +58,11 @@ export function useStorageScan(sparkId: string | null): StorageScan {
       setLoadError(null);
     } catch (err) {
       if (mine !== generation.current) return;
-      setLoadError(err instanceof Error ? err.message : "Could not read the scan");
+      setLoadError(err instanceof Error ? err.message : t("scan.readError"));
     } finally {
       if (mine === generation.current) setLoading(false);
     }
-  }, [sparkId]);
+  }, [sparkId, t]);
 
   useEffect(() => {
     generation.current += 1;

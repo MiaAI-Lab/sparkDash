@@ -135,6 +135,22 @@ describe("SparkCard", () => {
     expect(onSelect).toHaveBeenCalledWith("a");
   });
 
+  it("carries the address in the name's tooltip, so a narrow header can drop the IP text", () => {
+    const spark = { ...makeSpark("a"), lanIp: "10.0.0.12" } as SparkSnapshot;
+    const { container } = render(<SparkCard spark={spark} temperatureUnit="celsius" onSelect={() => {}} />);
+    expect(container.querySelector(".ov-sc__ip")?.textContent).toBe("10.0.0.12");
+    const link = container.querySelector<HTMLAnchorElement>("a.ov-sc__link")!;
+    expect(link.getAttribute("title")).toContain("10.0.0.12");
+  });
+
+  it("leaves the tooltip as the name alone when the address is unknown", () => {
+    const spark = { ...makeSpark("a"), lanIp: "" } as SparkSnapshot;
+    const { container } = render(<SparkCard spark={spark} temperatureUnit="celsius" onSelect={() => {}} />);
+    expect(container.querySelector(".ov-sc__ip")).toBeNull();
+    const link = container.querySelector<HTMLAnchorElement>("a.ov-sc__link")!;
+    expect(link.getAttribute("title")).not.toContain("·");
+  });
+
   it("does not select when clicking the card body (only the stretched name does)", () => {
     const onSelect = vi.fn();
     const { container } = render(<SparkCard spark={makeSpark("a")} temperatureUnit="celsius" onSelect={onSelect} />);

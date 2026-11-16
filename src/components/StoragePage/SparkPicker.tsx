@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import type { SparkSnapshot } from "../../api/types";
 import { formatBytes } from "../../shared/formatBytes";
 import { mainFilesystem, metricsView } from "../../shared/mainFilesystem";
@@ -36,8 +37,9 @@ interface SparkPickerProps {
  * be picked too, to look at its saved analysis; the page then says what cannot be done until it is back.
  */
 export function SparkPicker({ sparks, activeId, onSelect }: SparkPickerProps) {
+  const { t } = useTranslation("storage");
   return (
-    <div className="st-picker" role="radiogroup" aria-label="Spark to analyse">
+    <div className="st-picker" role="radiogroup" aria-label={t("picker.label")}>
       {sparks.map((s) => {
         // An offline unit's disk numbers are not current: say it is offline instead of showing old ones.
         const disk = s.online ? mainDisk(s) : null;
@@ -55,7 +57,7 @@ export function SparkPicker({ sparks, activeId, onSelect }: SparkPickerProps) {
             <span className="st-spark__top">
               <i className={`sdot${s.online ? "" : " sdot--off"}`} aria-hidden />
               <span className="st-spark__name">{s.name}</span>
-              {!s.online ? <Tag>Offline</Tag> : null}
+              {!s.online ? <Tag>{t("picker.offline")}</Tag> : null}
             </span>
             {disk && pct != null ? (
               <>
@@ -63,11 +65,11 @@ export function SparkPicker({ sparks, activeId, onSelect }: SparkPickerProps) {
                   <i className={`is-${usageTone(pct)}`} style={{ ["--w" as string]: `${pct}%` }} />
                 </span>
                 <span className="st-spark__sub">
-                  {formatBytes(disk.usedBytes)} used of {formatBytes(disk.totalBytes)}
+                  {t("disk.usedOf", { used: formatBytes(disk.usedBytes), total: formatBytes(disk.totalBytes) })}
                 </span>
               </>
             ) : (
-              <span className="st-spark__sub">{s.online ? "Disk size not reported yet" : "Not reachable · saved results only"}</span>
+              <span className="st-spark__sub">{s.online ? t("picker.sizeUnknown") : t("picker.savedOnly")}</span>
             )}
           </button>
         );

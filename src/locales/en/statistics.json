@@ -315,6 +315,12 @@
     "delta": "{{change}} vs previous {{range}}",
     "estimatedCost": "Estimated cost",
     "costRate": "{{daily}} per day at {{price}}/kWh",
+    "costRateTou": "{{daily}} per day, averaging {{price}}/kWh (time of use)",
+    "setBasePrice": "Some hours have no price: set the price for other hours in Settings",
+    "costLine": "Cost",
+    "costLineLegend": "Cost ({{currency}}, right axis)",
+    "priceAt": "Price {{price}}/kWh",
+    "priceAverage": "Average price {{price}}/kWh",
     "localTime": "{{time}} local",
     "sinceHistory": "since history began",
     "ofRange": "of the range",
@@ -372,7 +378,9 @@
       "empty": "Nothing archived yet. Each finished minute is added to its month once the Sparks have been reporting for a little while.",
       "coverageNote": "Only the Sparks that reported are listed. Coverage is the share of the month each one was measured",
       "metered": "Measured at the wall.",
-      "meteredFilled": "Measured at the wall, {{percent}} filled from the estimate."
+      "meteredFilled": "Measured at the wall, {{percent}} filled from the estimate.",
+      "unbinned": "{{kwh}} kWh was recorded before hourly records began, so it is estimated at the other-hours price ({{price}}/kWh).",
+      "unbinnedNoPrice": "{{kwh}} kWh was recorded before hourly records began; set the price for other hours in Settings to cost it."
     },
     "title": "Fleet energy",
     "loadError": "Could not load energy history",

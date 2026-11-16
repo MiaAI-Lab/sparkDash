@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import { ApiError, fetchDockerStorage, removeDockerContainers, removeDockerImages } from "../../api/client";
 import type { DockerContainer, DockerImage, DockerRemoveResult, DockerStorage, DockerUsageRow, SparkSnapshot } from "../../api/types";
 import { formatBytes } from "../../shared/formatBytes";
@@ -16,52 +18,48 @@ import type { AdminAccess } from "./useAdminAccess";
 
 type Filter = "all" | "unused" | "used";
 
-const TILES: { key: keyof DockerStorage["usage"]; label: string; noun: string; hint: string }[] = [
-  { key: "images", label: "Images", noun: "images", hint: "Downloaded or built images. Unused ones can be removed below." },
-  { key: "containers", label: "Containers", noun: "containers", hint: "Running and stopped containers, with the files they wrote." },
-  { key: "volumes", label: "Volumes", noun: "volumes", hint: "Data kept for containers. Not touched here." },
-  { key: "buildCache", label: "Build cache", noun: "entries", hint: "Layers kept to speed up builds. Clear it with docker builder prune." },
-];
-
-function Tile({ label, noun, hint, row }: { label: string; noun: string; hint: string; row: DockerUsageRow }) {
+function Tile({ label, detail, hint, row }: { label: string; detail: string; hint: string; row?: DockerUsageRow }) {
+  const { t } = useTranslation("storage");
+  if (!row) return null;
   return (
     <div className="st-tile" title={hint}>
       <span className="st-tile__label">{label}</span>
       <span className="st-tile__size mono">{formatBytes(row.sizeBytes)}</span>
       <span className="st-tile__sub">
-        {row.count ?? "?"} {noun}
-        {row.reclaimableBytes ? <> · {formatBytes(row.reclaimableBytes)} reclaimable</> : null}
+        {detail}
+        {row.reclaimableBytes ? <> · {t("docker.reclaimable", { size: formatBytes(row.reclaimableBytes) })}</> : null}
       </span>
     </div>
   );
 }
 
-function statusTag(img: DockerImage) {
-  if (img.status === "running") return <Tag tone="good">In use</Tag>;
-  if (img.status === "stopped") return <Tag tone="warn">Stopped container</Tag>;
+function statusTag(img: DockerImage, t: TFunction<"storage">) {
+  if (img.status === "running") return <Tag tone="good">{t("docker.imageInUse")}</Tag>;
+  if (img.status === "stopped") return <Tag tone="warn">{t("docker.imageStopped")}</Tag>;
   // The Spark could not list its containers: never offered for removal.
-  if (img.status === "unknown") return <Tag tone="warn">Usage unknown</Tag>;
-  return <Tag tone="acc">Unused</Tag>;
+  if (img.status === "unknown") return <Tag tone="warn">{t("docker.imageUsageUnknown")}</Tag>;
+  return <Tag tone="acc">{t("docker.imageUnused")}</Tag>;
 }
 
 /**
  * What removing images frees. Image sizes overlap (they share layers), so adding them up overstates it a lot.
  * Docker's own "reclaimable" figure counts shared layers once; it is only valid for removing every unused image.
  */
-function freeEstimate(chosen: DockerImage[], unused: DockerImage[], reclaimableBytes: number | null | undefined): string {
+function freeEstimate(chosen: DockerImage[], unused: DockerImage[], reclaimableBytes: number | null | undefined, t: TFunction<"storage">): string {
   const combined = chosen.reduce((sum, i) => sum + (i.sizeBytes ?? 0), 0);
   const everyUnused = chosen.length > 0 && chosen.length === unused.length;
-  if (everyUnused && reclaimableBytes != null) return `about ${formatBytes(reclaimableBytes)} (Docker's estimate)`;
-  return `less than their combined ${formatBytes(combined)}, because images share layers`;
+  if (everyUnused && reclaimableBytes != null) return t("docker.estimatedSpace", { size: formatBytes(reclaimableBytes) });
+  return t("docker.sharedSpace", { size: formatBytes(combined) });
 }
 
-function usedByText(img: DockerImage): string {
+function usedByText(img: DockerImage, t: TFunction<"storage">): string {
   const names = img.usedBy.slice(0, 3).map((c) => c.name);
   const more = img.usedBy.length - names.length;
-  return `Used by ${names.join(", ")}${more > 0 ? ` and ${more} more` : ""}`;
+  return more > 0 ? t("docker.usedByMore", { names: names.join(", "), count: more }) : t("docker.usedBy", { names: names.join(", ") });
 }
 
 function ContainerRow({ container: c, image, selected, onToggle }: { container: DockerContainer; image: DockerImage | undefined; selected: boolean; onToggle: (id: string) => void }) {
+  const { t } = useTranslation("storage");
   const created = c.created ? formatSince(Date.parse(c.created)) : null;
   return (
     <li className={`st-img st-img--container${selected ? " is-selected" : ""}${c.removable ? "" : " is-locked"}`}>
@@ -73,18 +71,18 @@ function ContainerRow({ container: c, image, selected, onToggle }: { container: 
           checked={selected}
           disabled={!c.removable}
           onChange={() => onToggle(c.id)}
-          aria-label={`Select container ${c.name}`}
-          title={c.removable ? undefined : "Running. Stop it first."}
+          aria-label={t("docker.selectContainer", { name: c.name })}
+          title={c.removable ? undefined : t("docker.stopBeforeRemove")}
         />
       </label>
       <div className="st-img__main">
         <span className="st-img__name">{c.name}</span>
         <span className="st-img__meta">
-          <span>image {image ? imageName(image) : "removed"}</span>
-          {created ? <span>created {created} ago</span> : null}
+          <span>{image ? t("docker.containerImage", { image: imageName(image, t) }) : t("docker.containerImageRemoved")}</span>
+          {created ? <span>{t("docker.createdAgo", { age: created })}</span> : null}
         </span>
       </div>
-      <span className="st-img__tag">{c.removable ? <Tag tone="warn">{c.state === "created" ? "Never started" : "Stopped"}</Tag> : <Tag tone="good">Running</Tag>}</span>
+      <span className="st-img__tag">{c.removable ? <Tag tone="warn">{c.state === "created" ? t("docker.neverStarted") : t("docker.containerStopped")}</Tag> : <Tag tone="good">{t("docker.containerRunning")}</Tag>}</span>
     </li>
   );
 }
@@ -101,6 +99,7 @@ interface DockerTabProps {
 
 /** Docker's share of the disk and its images: see them biggest first and remove the unused ones. */
 export function DockerTab({ spark, peers = [], access, onNotice, onDiskChanged }: DockerTabProps) {
+  const { t } = useTranslation("storage");
   const [data, setData] = useState<DockerStorage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<{ code?: string; message: string } | null>(null);
@@ -137,11 +136,11 @@ export function DockerTab({ spark, peers = [], access, onNotice, onDiskChanged }
           if (access.sudo !== "no") return void load(true);
         }
         if (code === "bad-password") access.forget();
-        setError({ code, message: err instanceof Error ? err.message : "Could not read Docker" });
+        setError({ code, message: err instanceof Error ? err.message : t("docker.couldNotRead") });
         setLoading(false);
       }
     },
-    [spark.id, access]
+    [spark.id, access, t]
   );
 
   useEffect(() => {
@@ -162,7 +161,7 @@ export function DockerTab({ spark, peers = [], access, onNotice, onDiskChanged }
     [images, filter]
   );
   const chosen = useMemo(() => images.filter((i) => selected.has(i.id)), [images, selected]);
-  const estimate = freeEstimate(chosen, unused, reclaimable);
+  const estimate = freeEstimate(chosen, unused, reclaimable, t);
   const allUnusedSelected = unused.length > 0 && unused.every((i) => selected.has(i.id));
 
   const toggle = (id: string) =>
@@ -205,10 +204,10 @@ export function DockerTab({ spark, peers = [], access, onNotice, onDiskChanged }
     const res = await removeDockerContainers(spark.id, { ids: targets.map((c) => c.id), ...elevation });
     const parts: string[] = [];
     let tone: Notice["tone"] = res.removed.length > 0 ? "ok" : "info";
-    if (res.removed.length > 0) parts.push(`Removed ${res.removed.length} container${res.removed.length === 1 ? "" : "s"}.`);
-    if (res.skipped.length > 0) parts.push(`${res.skipped.length} skipped (running again or already gone).`);
+    if (res.removed.length > 0) parts.push(t("docker.containersRemoved", { count: res.removed.length }));
+    if (res.skipped.length > 0) parts.push(t("docker.containersSkipped", { count: res.skipped.length }));
     if (res.failed.length > 0) {
-      parts.push(`${res.failed.length} could not be removed: ${res.failed[0].message || "Docker refused"}.`);
+      parts.push(t("docker.removalFailed", { count: res.failed.length, error: res.failed[0].message || t("docker.refused") }));
       tone = "warn";
     }
     if (alsoImages && res.removed.length > 0) {
@@ -218,22 +217,22 @@ export function DockerTab({ spark, peers = [], access, onNotice, onDiskChanged }
         const free = fresh.images.filter((i) => removedImageIds.has(i.id) && i.status === "unused").map((i) => i.id);
         if (free.length > 0) {
           const imgRes = await removeDockerImages(spark.id, { ids: free, ...elevation });
-          if (imgRes.removed.length > 0) parts.push(`Removed ${imgRes.removed.length} image${imgRes.removed.length === 1 ? "" : "s"}.`);
+          if (imgRes.removed.length > 0) parts.push(t("docker.imagesRemoved", { count: imgRes.removed.length }));
           if (imgRes.failed.length > 0) {
-            parts.push(`${imgRes.failed.length} image${imgRes.failed.length === 1 ? "" : "s"} could not be removed: ${imgRes.failed[0].message || "Docker refused"}.`);
+            parts.push(t("docker.imagesRemovalFailed", { count: imgRes.failed.length, error: imgRes.failed[0].message || t("docker.refused") }));
             tone = "warn";
           }
         } else {
-          parts.push("The images are still used by other containers, so they were kept.");
+          parts.push(t("docker.imagesKept"));
         }
       } catch (err) {
-        parts.push(`The containers are gone, but the images could not be removed: ${err instanceof Error ? err.message : "Docker refused"}.`);
+        parts.push(t("docker.containersRemovedImagesFailed", { error: err instanceof Error ? err.message : t("docker.refused") }));
         tone = "warn";
       }
     }
     setContainerDialog(null);
     setSelectedC(new Set());
-    onNotice({ tone, text: parts.join(" ") || "Nothing was removed." });
+    onNotice({ tone, text: parts.join(" ") || t("docker.nothingRemoved") });
     void load(asAdmin);
     onDiskChanged();
   };
@@ -242,12 +241,12 @@ export function DockerTab({ spark, peers = [], access, onNotice, onDiskChanged }
     setConfirming(false);
     setSelected(new Set());
     const parts: string[] = [];
-    if (result.removed.length > 0) parts.push(`Removed ${result.removed.length} image${result.removed.length === 1 ? "" : "s"}.`);
-    if (result.skipped.length > 0) parts.push(`${result.skipped.length} skipped because a container started using ${result.skipped.length === 1 ? "it" : "them"}.`);
-    if (result.failed.length > 0) parts.push(`${result.failed.length} could not be removed: ${result.failed[0].message || "Docker refused"}.`);
+    if (result.removed.length > 0) parts.push(t("docker.imagesRemoved", { count: result.removed.length }));
+    if (result.skipped.length > 0) parts.push(t("docker.imagesSkipped", { count: result.skipped.length }));
+    if (result.failed.length > 0) parts.push(t("docker.removalFailed", { count: result.failed.length, error: result.failed[0].message || t("docker.refused") }));
     for (const o of peerOutcomes) parts.push(o.text);
     const failed = result.failed.length > 0 || peerOutcomes.some((o) => o.failed);
-    onNotice({ tone: failed ? "warn" : result.removed.length > 0 ? "ok" : "info", text: parts.join(" ") || "Nothing was removed." });
+    onNotice({ tone: failed ? "warn" : result.removed.length > 0 ? "ok" : "info", text: parts.join(" ") || t("docker.nothingRemoved") });
     void load(asAdmin);
     onDiskChanged();
   };
@@ -256,8 +255,8 @@ export function DockerTab({ spark, peers = [], access, onNotice, onDiskChanged }
   if (loading && !data) {
     return (
       <section className="panel st-state" role="status" aria-live="polite">
-        <h2>Reading Docker on {spark.name}…</h2>
-        <p>Docker measures its images and layers, which can take a few seconds.</p>
+        <h2>{t("docker.reading", { spark: spark.name })}</h2>
+        <p>{t("docker.readingHint", { })}</p>
       </section>
     );
   }
@@ -266,17 +265,17 @@ export function DockerTab({ spark, peers = [], access, onNotice, onDiskChanged }
     const needsAdmin = error.code === "docker-denied" || error.code === "no-sudo" || error.code === "bad-password";
     return (
       <section className="panel st-state" role="alert">
-        <h2>{error.code === "no-docker" ? "Docker is not installed here" : needsAdmin ? "Docker needs administrator access" : "Could not read Docker"}</h2>
+        <h2>{error.code === "no-docker" ? t("docker.notInstalled", { }) : needsAdmin ? t("docker.needsAdmin", { }) : t("docker.couldNotRead", { })}</h2>
         <p>{error.message}</p>
         {needsAdmin ? (
           <div className="st-state__admin">
-            <AdminFields access={access} purpose="to run Docker as administrator" onSubmit={() => void load(true)} problem={null} />
+            <AdminFields access={access} purpose={t("docker.adminPurpose")} onSubmit={() => void load(true)} problem={null} />
           </div>
         ) : null}
         {error.code === "no-docker" ? null : (
           <button type="button" className="btn btn--primary btn--sm" onClick={() => void load(needsAdmin)} disabled={needsAdmin && (!access.available || !access.ready)}>
             <RotateIcon className="h-3.5 w-3.5" />
-            {needsAdmin ? "Unlock Docker" : "Try again"}
+            {needsAdmin ? t("docker.unlock", { }) : t("docker.tryAgain", { })}
           </button>
         )}
       </section>
@@ -298,94 +297,87 @@ export function DockerTab({ spark, peers = [], access, onNotice, onDiskChanged }
         }}
       />
 
-      <section className="st-tiles" aria-label="Docker disk use">
-        {TILES.map((t) => {
-          const row = data.usage[t.key];
-          return row ? <Tile key={t.key} label={t.label} noun={t.noun} hint={t.hint} row={row} /> : null;
-        })}
+      <section className="st-tiles" aria-label={t("docker.diskUse", { })}>
+        <Tile label={t("docker.images")} detail={t("docker.imageCount", { amount: data.usage.images?.count ?? "?" })}
+          hint={t("docker.imagesHint")} row={data.usage.images} />
+        <Tile label={t("docker.containers")} detail={t("docker.containerCount", { amount: data.usage.containers?.count ?? "?" })}
+          hint={t("docker.containersHint")} row={data.usage.containers} />
+        <Tile label={t("docker.volumes")} detail={t("docker.volumeCount", { amount: data.usage.volumes?.count ?? "?" })}
+          hint={t("docker.volumesHint")} row={data.usage.volumes} />
+        <Tile label={t("docker.buildCache")} detail={t("docker.cacheCount", { amount: data.usage.buildCache?.count ?? "?" })}
+          hint={t("docker.buildCacheHint")} row={data.usage.buildCache} />
         {data.rootDir ? (
           <p className="st-tiles__root">
-            Docker keeps all of this in <span className="mono">{data.rootDir}</span>. It shows up there on the Files tab when you
-            analyse with administrator access.
+            {t("docker.rootNote", { path: data.rootDir })}
           </p>
         ) : null}
       </section>
 
-      <section className="panel st-images" aria-label="Docker images">
+      <section className="panel st-images" aria-label={t("docker.imagesAria", { })}>
         <header className="st-images__head">
           <div>
             <h2>
-              <BoxIcon className="h-4 w-4" /> Images
+              <BoxIcon className="h-4 w-4" /> {t("docker.images", { })}
             </h2>
             <p>
               {unused.length > 0 ? (
                 <>
-                  <b>{unused.length} unused</b> image{unused.length === 1 ? "" : "s"}: no container uses {unused.length === 1 ? "it" : "them"}
-                  {reclaimable ? (
-                    <>
-                      , and Docker estimates that removing {unused.length === 1 ? "it" : "all of them"} frees about <b>{formatBytes(reclaimable)}</b>
-                    </>
-                  ) : null}
-                  . Review before removing: a pulled image can only be pulled again while its registry still has it
-                  {builtHere > 0 ? (
-                    <>
-                      , and {builtHere === 1 ? "one was" : `${builtHere} were`} <b>built here, not pulled</b>, so {builtHere === 1 ? "it" : "they"} may be the
-                      only copy
-                    </>
-                  ) : null}
-                  .
+                  {t("docker.unusedSummary", { count: unused.length })}{" "}
+                  {reclaimable ? <>{t("docker.reclaimSummary", { size: formatBytes(reclaimable) })}{" "}</> : null}
+                  {t("docker.reviewBeforeRemove")}
+                  {builtHere > 0 ? <>{" "}{t("docker.builtSummary", { count: builtHere })}</> : null}
                 </>
               ) : containersUnknown ? (
-                "Which containers use these images could not be checked, so none of them can be removed right now."
+                t("docker.noRemovalUnknown", { })
               ) : (
-                "Every image is used by a container. Nothing to clean up here."
+                t("docker.noUnused", { })
               )}
             </p>
           </div>
           <div className="st-images__tools">
             {asAdmin ? (
-              <Tag tone="info" title="Docker commands run through sudo on this Spark">
-                <ShieldIcon className="h-3 w-3" /> Administrator
+              <Tag tone="info" title={t("docker.adminTitle", { })}>
+                <ShieldIcon className="h-3 w-3" /> {t("docker.administrator", { })}
               </Tag>
             ) : null}
             <button type="button" className="btn btn--sm btn--ghost" onClick={() => void load(asAdmin)} disabled={loading}>
               <RotateIcon className="h-3.5 w-3.5" />
-              {loading ? "Reading…" : "Refresh"}
+              {loading ? t("docker.readingShort", { }) : t("docker.refresh", { })}
             </button>
           </div>
         </header>
 
-        {error ? <Banner tone="warn">Could not refresh: {error.message}</Banner> : null}
+        {error ? <Banner tone="warn">{t("docker.refreshFailed", { message: error.message })}</Banner> : null}
         {containersUnknown || imagesUnknown ? (
           <Banner tone="warn">
-            {containersUnknown ? "Docker did not list its containers, so whether an image is in use is unknown and nothing is offered for removal. " : ""}
-            {imagesUnknown ? "Some images could not be read, so this list may be incomplete. " : ""}
-            Refresh to try again.
+            {containersUnknown ? t("docker.containersUnknown", { }) : ""}
+            {imagesUnknown ? t("docker.imagesUnknown", { }) : ""}
+            {t("docker.refreshTryAgain", { })}
           </Banner>
         ) : null}
 
         <div className="st-toolbar">
-          <div className="seg" role="group" aria-label="Show images">
+          <div className="seg" role="group" aria-label={t("docker.showImages", { })}>
             <button type="button" aria-pressed={filter === "all"} onClick={() => setFilter("all")}>
-              All {images.length}
+              {t("docker.all", { count: images.length })}
             </button>
             <button type="button" aria-pressed={filter === "unused"} onClick={() => setFilter("unused")}>
-              Unused {unused.length}
+              {t("docker.unused", { count: unused.length })}
             </button>
             <button type="button" aria-pressed={filter === "used"} onClick={() => setFilter("used")}>
-              In use {images.length - unused.length}
+              {t("docker.inUse", { count: images.length - unused.length })}
             </button>
           </div>
           {unused.length > 0 ? (
             <button type="button" className="btn btn--sm" onClick={toggleAllUnused}>
-              {allUnusedSelected ? "Clear selection" : `Select all ${unused.length} unused`}
+              {allUnusedSelected ? t("docker.clearSelection", { }) : t("docker.selectAllUnused", { count: unused.length })}
             </button>
           ) : null}
         </div>
 
         {shown.length === 0 ? (
           <div className="st-empty">
-            <p>{images.length === 0 ? (imagesUnknown ? "The images could not be listed." : "There are no images on this Spark.") : "No images in this view."}</p>
+            <p>{images.length === 0 ? (imagesUnknown ? t("docker.imagesUnlisted", { }) : t("docker.noImages", { })) : t("docker.noImagesView", { })}</p>
           </div>
         ) : (
           <ul className="st-imgs">
@@ -402,20 +394,20 @@ export function DockerTab({ spark, peers = [], access, onNotice, onDiskChanged }
                       checked={selected.has(img.id)}
                       disabled={!removable}
                       onChange={() => toggle(img.id)}
-                      aria-label={`Select ${imageName(img)}`}
-                      title={removable ? undefined : `${usedByText(img)}. Remove ${img.usedBy.length === 1 ? "the container" : "the containers"} first (button on the right).`}
+                      aria-label={t("docker.selectImage", { image: imageName(img, t) })}
+                      title={removable ? undefined : t("docker.usedImageTitle", { usedBy: usedByText(img, t), count: img.usedBy.length })}
                     />
                   </label>
                   <div className="st-img__main">
                     <span className="st-img__name" title={img.tags.join("\n") || img.id}>
-                      {imageName(img)}
+                      {imageName(img, t)}
                       {extra > 0 ? <span className="st-img__more"> +{extra}</span> : null}
                     </span>
                     <span className="st-img__meta">
                       <span className="mono">{shortId(img.id)}</span>
                       {img.registryDigest === false ? <BuiltHereTag /> : null}
-                      {created ? <span>created {created} ago</span> : null}
-                      {img.usedBy.length > 0 ? <span>{usedByText(img)}</span> : null}
+                      {created ? <span>{t("docker.createdAgo", { age: created })}</span> : null}
+                      {img.usedBy.length > 0 ? <span>{usedByText(img, t)}</span> : null}
                       {img.status === "stopped" ? (
                         <button
                           type="button"
@@ -424,12 +416,12 @@ export function DockerTab({ spark, peers = [], access, onNotice, onDiskChanged }
                             setContainerDialog({ ids: containers.filter((c) => c.imageId === img.id && c.removable).map((c) => c.id), alsoImages: true })
                           }
                         >
-                          Remove {img.usedBy.length === 1 ? "container" : "containers"}…
+                          {t("docker.removeImageContainers", { count: img.usedBy.length })}
                         </button>
                       ) : null}
                     </span>
                   </div>
-                  <span className="st-img__tag">{statusTag(img)}</span>
+                  <span className="st-img__tag">{statusTag(img, t)}</span>
                   <span className="st-img__size mono">{formatBytes(img.sizeBytes)}</span>
                 </li>
               );
@@ -438,57 +430,54 @@ export function DockerTab({ spark, peers = [], access, onNotice, onDiskChanged }
         )}
 
         <p className="st-hint st-images__foot">
-          Sizes use 1 GB = 1024 MB like the rest of sparkDash, so they read about 7% lower than the Docker command line, which
-          counts in thousands. Images share layers, so the sizes listed overlap: they add up to far more than the space the images really use.
+          {t("docker.sizeFootnote", { })}
         </p>
       </section>
 
       {containers.length > 0 ? (
-        <section className="panel st-images" aria-label="Docker containers">
+        <section className="panel st-images" aria-label={t("docker.containersAria", { })}>
           <header className="st-images__head">
             <div>
               <h2>
-                <BoxIcon className="h-4 w-4" /> Containers
+                <BoxIcon className="h-4 w-4" /> {t("docker.containers", { })}
               </h2>
               <p>
                 {stopped.length > 0 ? (
                   <>
-                    <b>{stopped.length} stopped</b> container{stopped.length === 1 ? "" : "s"}. They keep their image on disk, which is why
-                    that image cannot be removed. Removing a container keeps its volumes but deletes its writable layer, which may hold data you
-                    can&rsquo;t re-create.
+                    {t("docker.stoppedSummary", { count: stopped.length })}
                   </>
                 ) : (
-                  "Every container is running. Nothing to clean up here."
+                  t("docker.noStopped", { })
                 )}
               </p>
             </div>
           </header>
           <div className="st-toolbar">
-            <div className="seg" role="group" aria-label="Show containers">
+            <div className="seg" role="group" aria-label={t("docker.showContainers", { })}>
               <button type="button" aria-pressed={containerFilter === "stopped"} onClick={() => setContainerFilter("stopped")}>
-                Stopped {stopped.length}
+                {t("docker.stopped", { count: stopped.length })}
               </button>
               <button type="button" aria-pressed={containerFilter === "all"} onClick={() => setContainerFilter("all")}>
-                All {containers.length}
+                {t("docker.all", { count: containers.length })}
               </button>
             </div>
             <div className="st-toolbar__group">
               {stopped.length > 0 ? (
                 <button type="button" className="btn btn--sm" onClick={() => setSelectedC(allStoppedSelected ? new Set() : new Set(stopped.map((c) => c.id)))}>
-                  {allStoppedSelected ? "Clear selection" : `Select all ${stopped.length} stopped`}
+                  {allStoppedSelected ? t("docker.clearSelection", { }) : t("docker.selectAllStopped", { count: stopped.length })}
                 </button>
               ) : null}
               {chosenContainers.length > 0 ? (
                 <button type="button" className="btn btn--sm btn--danger" onClick={() => setContainerDialog({ ids: chosenContainers.map((c) => c.id), alsoImages: false })}>
                   <TrashIcon className="h-3.5 w-3.5" />
-                  Remove {chosenContainers.length === 1 ? "container" : `${chosenContainers.length} containers`}
+                  {t("docker.removeContainers", { count: chosenContainers.length })}
                 </button>
               ) : null}
             </div>
           </div>
           {shownContainers.length === 0 ? (
             <div className="st-empty">
-              <p>No containers in this view.</p>
+              <p>{t("docker.noContainersView", { })}</p>
             </div>
           ) : (
             <ul className="st-imgs">
@@ -501,16 +490,16 @@ export function DockerTab({ spark, peers = [], access, onNotice, onDiskChanged }
       ) : null}
 
       {chosen.length > 0 ? (
-        <div className="st-actionbar" role="region" aria-label="Selected images">
+        <div className="st-actionbar" role="region" aria-label={t("docker.selectedImages", { })}>
           <span>
-            <b>{chosen.length}</b> selected · frees {estimate}
+            {t("docker.selectedEstimate", { count: chosen.length, estimate })}
           </span>
           <button type="button" className="btn btn--sm btn--ghost" onClick={() => setSelected(new Set())}>
-            Clear
+            {t("docker.clear", { })}
           </button>
           <button type="button" className="btn btn--danger" onClick={() => setConfirming(true)}>
             <TrashIcon className="h-3.5 w-3.5" />
-            Remove {chosen.length === 1 ? "image" : `${chosen.length} images`}
+            {t("docker.removeImages", { count: chosen.length })}
           </button>
         </div>
       ) : null}

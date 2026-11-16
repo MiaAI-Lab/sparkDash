@@ -12,6 +12,7 @@
  *   estimate when it covers exactly the chosen set, otherwise an upper bound that says so.
  */
 import type { DockerContainer, DockerImage, DockerStorage, DockerRemoveResult, StorageFilesystem } from "../../api/types";
+import type { TFunction } from "i18next";
 import { formatBytes } from "../../shared/formatBytes";
 import { mainFilesystem, statusView } from "../../shared/mainFilesystem";
 import { isBuiltHere } from "./dockerProvenance";
@@ -257,12 +258,19 @@ export function presetClass(id: QuickPresetId): { label: string; tone: "warn" | 
  * "… on 3 Sparks" when other Sparks take part ("… on Spark Two" when only that one removes anything);
  * "Nothing selected" when nothing is ticked.
  */
-export function actionLabel({ images, containers, buildCache, sparks = 1, where }: { images: number; containers: number; buildCache: boolean; sparks?: number; where?: string }): string {
-  const things = [images > 0 ? countText(images, "image") : "", containers > 0 ? countText(containers, "container") : ""].filter(Boolean);
-  const place = sparks > 1 ? ` on ${sparks} Sparks` : where ? ` on ${where}` : "";
-  const removal = things.length > 0 ? `Remove ${things.join(" and ")}${place}` : "";
-  if (!removal) return buildCache ? "Clear build cache" : "Nothing selected";
-  return buildCache ? `${removal}, clear build cache` : removal;
+export function joinCleanupItems(items: readonly string[], t: TFunction<"storage">): string {
+  if (items.length < 2) return items[0] ?? "";
+  return t("quickDetails.joinItems", { start: items.slice(0, -1).join(t("quickDetails.listSeparator")), end: items[items.length - 1] });
+}
+
+export function actionLabel({ images, containers, buildCache, sparks = 1, where }: { images: number; containers: number; buildCache: boolean; sparks?: number; where?: string }, t: TFunction<"storage">): string {
+  const things = [images > 0 ? t("quickDetails.images", { count: images }) : "", containers > 0 ? t("quickDetails.containers", { count: containers }) : ""].filter(Boolean);
+  if (things.length === 0) return buildCache ? t("quickDetails.clearBuildCache") : t("quickDetails.nothingSelected");
+  const items = joinCleanupItems(things, t);
+  const removal = sparks > 1
+    ? t("quickDetails.removeAcross", { count: sparks, items })
+    : where ? t("quickDetails.removeAt", { where, items }) : t("quickDetails.remove", { items });
+  return buildCache ? t("quickDetails.removeAndClearCache", { removal }) : removal;
 }
 
 // ─── After a run ─────────────────────────────────────────
@@ -280,28 +288,31 @@ export interface SparkRun {
   names: Record<string, string>;
 }
 
-const SKIP_REASONS: Record<string, string> = {
-  "in-use": "a container uses it now",
-  running: "it is running again",
-  gone: "it was already gone",
-  invalid: "not a valid ID",
-};
-
-function skipText(kind: QuickKind, reason: string): string {
-  if (reason === "check-failed") return kind === "containers" ? "Docker could not confirm it is stopped" : "Docker could not confirm nothing uses it";
-  return SKIP_REASONS[reason] ?? reason;
+function skipText(kind: QuickKind, reason: string, t: TFunction<"storage">): string {
+  switch (reason) {
+    case "in-use": return t("quickDetails.nowInUse");
+    case "running": return t("quickDetails.runningAgain");
+    case "gone": return t("quickDetails.alreadyGone");
+    case "invalid": return t("quickDetails.invalidId");
+    case "check-failed": return kind === "containers" ? t("quickDetails.couldNotConfirmStopped") : t("quickDetails.couldNotConfirmUnused");
+    default: return reason;
+  }
 }
 
 /** "Removed 4 images and 2 containers, and cleared build cache." for one Spark, or what could not be done. */
-export function runSentence(run: SparkRun): string {
+function runSentence(run: SparkRun, t: TFunction<"storage">): string {
   const parts: string[] = [];
-  const removed = [run.images && run.images.removed.length > 0 ? countText(run.images.removed.length, "image") : "", run.containers && run.containers.removed.length > 0 ? countText(run.containers.removed.length, "container") : ""].filter(Boolean);
-  if (removed.length > 0) parts.push(`removed ${removed.join(" and ")}`);
-  if (run.buildCache) parts.push("cleared build cache");
+  const removed = [run.images && run.images.removed.length > 0 ? t("quickDetails.images", { count: run.images.removed.length }) : "", run.containers && run.containers.removed.length > 0 ? t("quickDetails.containers", { count: run.containers.removed.length }) : ""].filter(Boolean);
+  if (removed.length > 0) parts.push(t("quickDetails.removed", { items: joinCleanupItems(removed, t) }));
+  if (run.buildCache) parts.push(t("quickDetails.clearedCache"));
   const asked = run.images != null || run.containers != null || run.buildCache != null;
-  let text = parts.length === 0 ? (asked ? "nothing was removed" : "") : parts.length === 1 ? parts[0] : `${parts[0]}, and ${parts[1]}`;
-  if (run.errors.length > 0) text = `${text ? `${text}; ` : ""}${run.errors.map((e) => `${e.step === "build-cache" ? "build cache" : e.step} could not be cleaned (${e.message})`).join("; ")}`;
-  return text;
+  const result = parts.length === 0 ? (asked ? t("quickDetails.nothingRemoved") : "") : parts.length === 1 ? parts[0] : t("quickDetails.joinClauses", { start: parts[0], end: parts[1] });
+  const errors = run.errors.map(({ step, message }) => {
+    if (step === "images") return t("quickDetails.imagesStepFailed", { message });
+    if (step === "containers") return t("quickDetails.containersStepFailed", { message });
+    return t("quickDetails.cacheStepFailed", { message });
+  });
+  return [result, ...errors].filter(Boolean).join(t("quickDetails.clauseSeparator"));
 }
 
 /** What a quick clean-up did: this Spark first, then the other Sparks that took part. */
@@ -317,30 +328,30 @@ export interface QuickOutcome {
  * The result in plain counts, then Docker's own figures, each other Spark, and the change in available space; the
  * items that were kept or failed, per Spark, for a disclosure. Nothing here claims bytes the clean-up freed.
  */
-export function outcomeSummary(o: QuickOutcome): { text: string; tone: "ok" | "info" | "warn"; problems: { name: string; lines: string[] }[] } {
+export function outcomeSummary(o: QuickOutcome, t: TFunction<"storage">): { text: string; tone: "ok" | "info" | "warn"; problems: { name: string; lines: string[] }[] } {
   const [here, ...others] = o.runs;
   const sentences: string[] = [];
-  const first = here ? runSentence(here) : "";
-  if (first) sentences.push(`${first.charAt(0).toUpperCase()}${first.slice(1)}.`);
+  const first = here ? runSentence(here, t) : "";
+  if (first) sentences.push(first.charAt(0).toUpperCase() + first.slice(1) + t("quickDetails.sentenceEnd"));
   sentences.push(...o.figures);
-  for (const r of others) sentences.push(`${r.name}: ${runSentence(r) || "nothing was asked"}.`);
+  for (const r of others) sentences.push(t("quickDetails.peerOutcome", { name: r.name, outcome: runSentence(r, t) || t("quickDetails.nothingAsked") }));
   if (o.space) sentences.push(o.space);
-  const problems = o.runs.map((r) => ({ name: r.name, lines: runProblems(r) })).filter((p) => p.lines.length > 0);
+  const problems = o.runs.map((r) => ({ name: r.name, lines: runProblems(r, t) })).filter((p) => p.lines.length > 0);
   const kept = problems.reduce((n, p) => n + p.lines.length, 0);
-  if (kept > 0) sentences.push(`${countText(kept, "item")} ${kept === 1 ? "was" : "were"} kept or could not be removed (listed below).`);
+  if (kept > 0) sentences.push(t("quickDetails.keptSummary", { count: kept }));
   const failed = o.runs.some((r) => r.errors.length > 0 || (r.images?.failed.length ?? 0) > 0 || (r.containers?.failed.length ?? 0) > 0);
   const did = o.runs.some((r) => (r.images?.removed.length ?? 0) + (r.containers?.removed.length ?? 0) > 0 || r.buildCache != null);
   return { text: sentences.join(" "), tone: failed ? "warn" : did ? "ok" : "info", problems };
 }
 
 /** Items that were skipped or failed, one line each, for the disclosure under the result. */
-export function runProblems(run: SparkRun): string[] {
+function runProblems(run: SparkRun, t: TFunction<"storage">): string[] {
   const lines: string[] = [];
   const name = (id: string) => run.names[id] ?? id.replace(/^sha256:/, "").slice(0, 12);
   for (const [kind, res] of [["images", run.images], ["containers", run.containers]] as const) {
     if (!res) continue;
-    for (const s of res.skipped) lines.push(`${name(s.id)}: kept, ${skipText(kind, s.reason)}`);
-    for (const f of res.failed) lines.push(`${name(f.id)}: could not be removed (${f.message || "Docker refused"})`);
+    for (const s of res.skipped) lines.push(t("quickDetails.keptProblem", { name: name(s.id), reason: skipText(kind, s.reason, t) }));
+    for (const f of res.failed) lines.push(t("quickDetails.failedProblem", { name: name(f.id), error: f.message || t("docker.refused") }));
   }
   return lines;
 }
@@ -363,8 +374,8 @@ export function dockerFilesystem(filesystems: readonly StorageFilesystem[] | nul
  * "Available space on / changed by +9.6 GB while this ran." Never claimed as what the clean-up freed: other programs
  * write to the disk too, so it can be zero or negative.
  */
-export function spaceChangeText(before: StorageFilesystem, after: StorageFilesystem): string {
+export function spaceChangeText(before: StorageFilesystem, after: StorageFilesystem, t: TFunction<"storage">): string {
   const delta = after.availBytes - before.availBytes;
-  if (delta === 0) return `Available space on ${before.mount} did not change while this ran.`;
-  return `Available space on ${before.mount} changed by ${delta > 0 ? "+" : "−"}${formatBytes(Math.abs(delta))} while this ran.`;
+  if (delta === 0) return t("quickDetails.spaceUnchanged", { mount: before.mount });
+  return t("quickDetails.spaceChanged", { mount: before.mount, change: (delta > 0 ? "+" : "−") + formatBytes(Math.abs(delta)) });
 }

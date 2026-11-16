@@ -80,26 +80,8 @@ import type { AuthMode, Settings, SparkSnapshot } from "./api/types";
 import { AccessTokenPrompt } from "./components/AccessTokenDialog";
 import { onTokenChange } from "./api/authToken";
 import { isWorkerSpark } from "./api/sparkRole";
-
-/** Keep hidden worker ids in their original slots when the visible tabs are reordered. */
-function mergeTabOrderKeepingHidden(
-  allSparks: SparkSnapshot[],
-  visibleOrder: string[],
-  hiddenIds: Set<string>
-): string[] {
-  if (hiddenIds.size === 0) return visibleOrder;
-  const result: string[] = [];
-  let vi = 0;
-  for (const spark of allSparks) {
-    if (hiddenIds.has(spark.id)) {
-      result.push(spark.id);
-    } else if (vi < visibleOrder.length) {
-      result.push(visibleOrder[vi++]);
-    }
-  }
-  while (vi < visibleOrder.length) result.push(visibleOrder[vi++]);
-  return result;
-}
+import { mergeTabOrderKeepingHidden } from "./api/tabOrder";
+import { clearSettingsHash, useSettingsHash } from "./hooks/settingsLink";
 
 function placeholderSnapshot(
   id: string,
@@ -116,6 +98,7 @@ function placeholderSnapshot(
     comfyMonitoring?: boolean;
     comfyPort?: number;
     tailscaleMonitoring?: boolean;
+    atticMonitoring?: boolean;
     kind?: "spark" | "host" | "mac";
   }
 ): SparkSnapshot {
@@ -151,6 +134,7 @@ function placeholderSnapshot(
     comfyMonitoring: Boolean(roleFields?.comfyMonitoring),
     comfyPort: roleFields?.comfyPort ?? 8188,
     tailscaleMonitoring: Boolean(roleFields?.tailscaleMonitoring),
+    atticMonitoring: Boolean(roleFields?.atticMonitoring),
     hermes: {
       monitoring: false,
       installed: null,
@@ -182,6 +166,7 @@ function placeholderSnapshot(
       llm: [],
       comfy: null,
       tailscale: null,
+      attic: null,
     },
   };
 }
@@ -207,6 +192,18 @@ function DashboardApp() {
   const [showAdd, setShowAdd] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  // A "#settings/<section>" link (e.g. the Energy page's price hint) opens Settings at that section.
+  const [settingsSection, setSettingsSection] = useState<string | null>(null);
+  const openSettingsAt = useCallback((section: string | null) => {
+    setSettingsSection(section);
+    setShowSettings(true);
+  }, []);
+  useSettingsHash(openSettingsAt);
+  const closeSettings = useCallback(() => {
+    clearSettingsHash();
+    setSettingsSection(null);
+    setShowSettings(false);
+  }, []);
   const [showHarness, setShowHarness] = useState(false);
   const [harnessSparkId, setHarnessSparkId] = useState<string | undefined>();
   // Desktop sidebar can be hidden to give the page the full width; remembered per browser.
@@ -395,6 +392,7 @@ function DashboardApp() {
               comfyMonitoring: c.comfyMonitoring ?? existing.comfyMonitoring,
               comfyPort: c.comfyPort ?? existing.comfyPort,
               tailscaleMonitoring: c.tailscaleMonitoring ?? existing.tailscaleMonitoring,
+              atticMonitoring: c.atticMonitoring ?? existing.atticMonitoring,
               disabledDevices: c.disabledDevices || existing.disabledDevices,
               disabledInterfaces: c.disabledInterfaces || existing.disabledInterfaces,
               llmPorts: c.llmPorts ?? existing.llmPorts,
@@ -417,6 +415,7 @@ function DashboardApp() {
               comfyMonitoring: c.comfyMonitoring,
               comfyPort: c.comfyPort,
               tailscaleMonitoring: c.tailscaleMonitoring,
+              atticMonitoring: c.atticMonitoring,
               kind: c.kind,
             }
           );
@@ -501,7 +500,7 @@ function DashboardApp() {
       { id: "nav:showcase", group: t("commands.goTo"), label: t("nav.showcase"), hint: t("commands.page"), icon: <TerminalIcon className="h-4 w-4" />, keywords: "Showcase prompts terminals stream demo", run: () => navigate(SHOWCASE_ID) },
       { id: "nav:activity", group: t("commands.goTo"), label: t("nav.activity"), hint: t("commands.page"), icon: <ListIcon className="h-4 w-4" />, keywords: "Activity events log history recent", run: () => navigate(ACTIVITY_ID) },
       { id: "nav:kiosk", group: t("commands.goTo"), label: t("nav.kiosk"), hint: t("commands.wallDisplay"), icon: <ExpandIcon className="h-4 w-4" />, keywords: "Kiosk wall tv display fullscreen full screen", run: () => window.location.assign(idToPath(KIOSK_ID)) },
-      { id: "nav:storage", group: "Go to", label: "Storage Manager", hint: "Page", icon: <DiskIcon className="h-4 w-4" />, keywords: "storage disk space folders files docker images delete clean cleanup du", run: () => navigate(STORAGE_ID) },
+      { id: "nav:storage", group: t("commands.goTo"), label: t("nav.storageManager"), hint: t("commands.page"), icon: <DiskIcon className="h-4 w-4" />, keywords: "storage disk space folders files docker images delete clean cleanup du", run: () => navigate(STORAGE_ID) },
     );
     for (const s of displaySparks) {
       cmds.push({
@@ -721,11 +720,12 @@ function DashboardApp() {
       />
       <SettingsDialog
         open={showSettings}
-        onClose={() => setShowSettings(false)}
+        section={settingsSection}
+        onClose={closeSettings}
         onSaved={handleSettingsSaved}
         serverVersion={serverVersion}
         onOpenHarness={() => {
-          setShowSettings(false);
+          closeSettings();
           setHarnessSparkId(displayActive?.id);
           setShowHarness(true);
         }}

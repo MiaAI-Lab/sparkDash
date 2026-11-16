@@ -15,6 +15,7 @@
     "benchShareImage": { "title": "基准测试分享图片", "help": "decode/prefill 的 Copy results 按钮会增加一个菜单，可选择 Copy as text / Copy as image（分享卡片）。关闭后保留纯文本按钮。" },
     "vramBreakdown": { "title": "详细 VRAM 明细", "help": "VRAM 条将内存拆分为 LLM 引擎、系统和空闲，并在空闲内存较低时显示琥珀色或红色，而不是按高百分比显示。关闭后使用单一百分比条。" },
     "prometheus": { "title": "Prometheus 指标", "help": "为 Prometheus / Grafana 提供各节点指标，可从 {{origin}}/metrics 抓取。默认关闭。" },
+    "allowPlainSudoPassword": { "title": "允许通过明文 HTTP 输入 sudo 密码", "help": "从另一台设备通过明文 HTTP 访问仪表盘时，允许在存储管理和 GPU 频率上限功能中输入 sudo 密码。密码会在网络中以未加密形式传输，因此仅应在可信网络中开启。默认关闭；关闭时，只有通过 HTTPS 或从 Spark 本机访问时才接受密码。保存此设置后，页面会重新加载。" },
     "intelVramSudo": { "title": "通过 sudo 读取 Intel Arc VRAM", "help": "通过每台主机上的 sudo -n 从仅 root 可访问的 debugfs 读取精确 Intel Arc VRAM 使用量。默认关闭：此时 VRAM 显示 PCI BAR 大小，且不会以 sudo 运行任何操作。" },
     "metricsHistory": { "title": "指标历史", "help": "在服务器中为每个节点保留 48 小时的 1 分钟历史和 30 天的 15 分钟历史（GPU、内存余量、CPU、网络、LLM tok/s 和 KV；每节点磁盘至多约 1 MB），并在每个节点页面的 History 面板中绘制图表。默认关闭。" },
     "llmStreamSample": { "title": "对流采样无指标引擎", "help": "对于不发布任何实时计数器的 LLM 引擎（Pico），每 15 秒发送一次微型流式补全并对 token 计时，从而测量解码 tok/s；面板会将该数值标注为采样值。默认关闭。当基准测试、展示或模型启动占用该节点时采样会暂停；预填充不做采样——能测出预填充速度的提示词就是真实负载，而非探测。" },
@@ -29,7 +30,7 @@
     "benchDebugTraces": { "title": "保存基准测试调试追踪", "help": "在基准测试历史中存储 prompts、HTTP/completion ID、内容预览和 GPU 样本。默认关闭；会产生更大的历史文件。" },
     "apiKeys": { "title": "API 密钥页面", "help": "通过 Unix socket 上的主机端桥接服务，只读查看 LiteLLM 虚拟密钥。默认关闭；需要在服务器环境中设置 SPARKDASH_APIKEYS_BRIDGE_SOCKET 和 SPARKDASH_APIKEYS_BRIDGE_TOKEN。详见 README 的 API Keys 章节。" }
   },
-  "electricityPrice": { "title": "电价", "help": "每 kWh 的价格，用于 Fleet energy 页面上的估算成本。留空可隐藏成本。", "currency": "货币符号" },
+  "electricityPrice": {"title": "电价", "help": "每 kWh 的价格，用于 Fleet energy 页面上的估算成本。留空可隐藏成本。", "currency": "货币符号", "mode": "计价方式", "modeFlat": "固定电价", "modeTou": "分时电价", "perKwh": "每 kWh", "otherHours": "每 kWh，其他时段", "touHelp": "时段内的小时按该时段的电价计费；其他小时按上方电价计费。小时按图表时区计算；从 22:00 到 06:00 的时段会跨过午夜。", "from": "时段 {{period}} 开始", "to": "时段 {{period}} 结束", "days": "时段 {{period}} 适用日", "daysAll": "每天", "daysWeekdays": "周一至周五", "daysWeekends": "周六至周日", "periodPrice": "时段 {{period}} 每 kWh 电价", "remove": "删除时段 {{period}}", "add": "添加时段", "errorOverlap": "电价：时段 {{period}} 与时段 {{other}} 在相同的日子里有重叠的小时。", "errorTooMany": "电价：最多 {{max}} 个时段。", "errorInvalid": "电价：时段 {{period}} 的开始和结束不能相同，电价需在 0 到 100 之间。"},
   "alertNotifications": { "title": "告警通知", "help": "当 Health 发现和 Overview 异常持续一段时间后，以及它们恢复时，发送到 ntfy、Discord、Slack、Gotify 或 webhook。默认关闭。", "on": "开启", "off": "关闭", "configure": "配置…" },
   "browserAlerts": { "tabBadge": { "title": "标签页徽标", "help": "标签页标题显示活跃集群告警数量——离线节点、降频、存储、LLM 和 Health——例如“(2) sparkDash”，图标会出现红色（严重）或琥珀色圆点。即使“显示活跃集群异常”关闭，也会统计全部告警。仅此浏览器；立即保存。" }, "desktop": { "title": "桌面通知", "help": "此页面打开期间，当某个集群告警变为活跃（任何类型，与标签页徽标相同）时发送通知。仅此浏览器；立即保存。", "blocked": "此站点的通知已被阻止。请在浏览器的网站设置中允许通知，然后再次开启。", "refused": "此浏览器拒绝了通知权限请求。", "insecure": "浏览器只允许在 HTTPS 或 localhost 上使用通知，而当前页面是普通 HTTP。请使用 SSH 隧道、Tailscale Serve 或 HTTPS 代理，或在告警通知中使用 ntfy 频道。", "unsupported": "此浏览器不支持桌面通知。", "withdrawn": "浏览器中的权限已被撤回；重新允许前不会显示任何内容。" } },
   "accessToken": { "title": "访问令牌", "help": "此浏览器保存的服务器令牌副本，会发送给已经要求令牌的服务器。它无法开启保护：请在主机的 .env 中设置 SPARKDASH_TOKEN 并重新创建容器。只保存在此浏览器中。", "set": "已设置", "notSet": "未设置", "change": "更改", "add": "添加令牌", "clear": "清除" },

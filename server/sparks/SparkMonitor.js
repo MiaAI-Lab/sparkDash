@@ -10,6 +10,7 @@ import { LlmProbe } from "../collectors/LlmProbe.js";
 import { ComfyProbe } from "../collectors/ComfyProbe.js";
 import { HermesProbe } from "../collectors/HermesProbe.js";
 import { TailscaleProbe } from "../collectors/TailscaleProbe.js";
+import { AtticProbe } from "../collectors/AtticProbe.js";
 import { llmDaily } from "../collectors/LlmDaily.js";
 import { HealthEvaluator } from "../health/HealthEvaluator.js";
 import { getSettings } from "../settings.js";
@@ -23,6 +24,7 @@ import {
   POLL_INTERVAL_LIVENESS,
   POLL_INTERVAL_HERMES,
   POLL_INTERVAL_TAILSCALE,
+  POLL_INTERVAL_ATTIC,
   LLM_PORT,
   COMFY_PORT,
   HOST_PATHS,
@@ -172,6 +174,9 @@ export class SparkMonitor {
       ? new TailscaleProbe(spark)
       : null;
 
+    /** @type {AtticProbe | null} */
+    this.atticProbe = this._atticMonitoringEnabled(spark) ? new AtticProbe(spark) : null;
+
     /** @type {HermesProbe | null} */
     this.hermesProbe = this._hermesMonitoringEnabled(spark)
       ? new HermesProbe(spark)
@@ -223,6 +228,7 @@ export class SparkMonitor {
       /** Mac-agent units only: detected model runtimes + what it could not read. */
       runtimes: null,
       unavailable: null,
+      attic: null,
     };
     this._lastUpdate = {};
     /** domain → epoch ms of the last poll that returned real data (see _domainSucceeded). Not in snapshot(): it would defeat the broadcast cache. */
@@ -259,6 +265,7 @@ export class SparkMonitor {
     this._tailscaleIntervalId = null;
     /** @type {ReturnType<typeof setInterval> | null} */
     this._runtimesIntervalId = null;
+    this._atticIntervalId = null;
     this._running = false;
     this._runGeneration = 0;
     /** @type {Record<string, boolean | symbol>} in-flight domain guards */
@@ -278,6 +285,7 @@ export class SparkMonitor {
     const prevComfyPort = this._comfyPort(this.spark);
     const wasHermes = this._hermesMonitoringEnabled(this.spark);
     const wasTailscale = this._tailscaleMonitoringEnabled(this.spark);
+    const wasAttic = this._atticMonitoringEnabled(this.spark);
     this.collector.invalidatePendingCollections();
     this._runGeneration += 1;
     this._inflight = {};
@@ -356,6 +364,18 @@ export class SparkMonitor {
       this._metrics.tailscale = null;
     }
 
+    // Display-carveout probe — create / update / clear
+    if (this._atticMonitoringEnabled()) {
+      if (this.atticProbe) {
+        this.atticProbe.setTarget(spark);
+      } else {
+        this.atticProbe = new AtticProbe(spark);
+      }
+    } else {
+      this.atticProbe = null;
+      this._metrics.attic = null;
+    }
+
     // Hermes probe — create / update / clear
     if (this._hermesMonitoringEnabled()) {
       if (this.hermesProbe) {
@@ -383,6 +403,9 @@ export class SparkMonitor {
     }
     if (this._running && wasTailscale !== this._tailscaleMonitoringEnabled()) {
       this._restartTailscalePollInterval();
+    }
+    if (this._running && wasAttic !== this._atticMonitoringEnabled()) {
+      this._restartAtticPollInterval();
     }
   }
 
@@ -534,6 +557,29 @@ export class SparkMonitor {
   }
 
   /**
+   * Opt-in display-carveout card (GB10 Sparks; default off). When off, no
+   * probe exists and nothing runs.
+   * @param {object} [spark]
+   */
+  _atticMonitoringEnabled(spark = this.spark) {
+    return Boolean(spark?.atticMonitoring);
+  }
+
+  /** Start or clear the display-carveout poll timer based on monitoring flag. */
+  _restartAtticPollInterval() {
+    if (this._atticIntervalId != null) {
+      clearInterval(this._atticIntervalId);
+      this._intervals = this._intervals.filter((id) => id !== this._atticIntervalId);
+      this._atticIntervalId = null;
+    }
+    if (this._atticMonitoringEnabled() && this._running) {
+      this._atticIntervalId = setInterval(() => this._pollDomain("attic"), POLL_INTERVAL_ATTIC);
+      this._intervals.push(this._atticIntervalId);
+      void this._pollDomain("attic");
+    }
+  }
+
+  /**
    * Opt-in Hermes Agent monitoring (all roles; default off).
    * @param {object} [spark]
    */
@@ -657,6 +703,7 @@ export class SparkMonitor {
     this._restartHermesPollInterval();
     this._restartTailscalePollInterval();
     this._restartRuntimesPollInterval();
+    this._restartAtticPollInterval();
     // Liveness on a slightly slower cadence
     this._intervals.push(setInterval(() => this._checkOnline(), POLL_INTERVAL_LIVENESS));
     console.log(`[SparkMonitor] ${this.spark.id} started`);
@@ -677,6 +724,7 @@ export class SparkMonitor {
     this._hermesIntervalId = null;
     this._tailscaleIntervalId = null;
     this._runtimesIntervalId = null;
+    this._atticIntervalId = null;
     this._inflight = {};
     for (const probe of this.llmProbes.values()) {
       try {
@@ -700,6 +748,7 @@ export class SparkMonitor {
     const ports = this._llmMonitoringEnabled() ? this._llmPorts() : [];
     const comfyOn = this._comfyMonitoringEnabled();
     const tailscaleOn = this._tailscaleMonitoringEnabled();
+    const atticOn = this._atticMonitoringEnabled();
     return {
       id: this.spark.id,
       name: this.spark.name,
@@ -733,6 +782,7 @@ export class SparkMonitor {
       comfyMonitoring: comfyOn,
       comfyPort: this._comfyPort(),
       tailscaleMonitoring: tailscaleOn,
+      atticMonitoring: atticOn,
       hermes: this._hermes,
       health: this._health,
       hardware: this._hardwareSummary,
@@ -754,6 +804,7 @@ export class SparkMonitor {
         residentModels: this._metrics.residentModels,
         comfy: comfyOn ? this._metrics.comfy : null,
         tailscale: tailscaleOn ? this._metrics.tailscale : null,
+        attic: atticOn ? this._metrics.attic : null,
       },
     };
   }
@@ -1066,6 +1117,7 @@ export class SparkMonitor {
       this._pollDomain("comfy"),
       this._pollDomain("hermes"),
       this._pollDomain("tailscale"),
+      this._pollDomain("attic"),
       this._pollDomain("residentModels"),
     ]);
   }
@@ -1105,6 +1157,7 @@ export class SparkMonitor {
     if (domain === "tailscale" && !this._tailscaleMonitoringEnabled()) return;
     // Only agent-backed units can report runtimes / declared gaps.
     if (domain === "runtimes" && typeof this.collector.collectRuntimes !== "function") return;
+    if (domain === "attic" && !this._atticMonitoringEnabled()) return;
     const runGeneration = this._runGeneration;
     const pollToken = Symbol(domain);
     this._inflight[domain] = pollToken;
@@ -1154,6 +1207,9 @@ export class SparkMonitor {
           break;
         case "tailscale":
           result = this.tailscaleProbe ? await this.tailscaleProbe.probe() : null;
+          break;
+        case "attic":
+          result = this.atticProbe ? await this.atticProbe.probe() : null;
           break;
         case "hermes":
           result = this.hermesProbe ? await this.hermesProbe.check() : null;
@@ -1228,6 +1284,9 @@ export class SparkMonitor {
           break;
         case "tailscale":
           this._metrics.tailscale = result;
+          break;
+        case "attic":
+          this._metrics.attic = result;
           break;
         case "hermes":
           this.applyHermesCheck(result);

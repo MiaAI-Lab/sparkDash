@@ -203,6 +203,7 @@ export function EditSparkDialog({
         Boolean(config.comfyMonitoring) !== Boolean(savedConfig.comfyMonitoring) ||
         Boolean(config.hermesMonitoring) !== Boolean(savedConfig.hermesMonitoring) ||
         Boolean(config.tailscaleMonitoring) !== Boolean(savedConfig.tailscaleMonitoring) ||
+        Boolean(config.atticMonitoring) !== Boolean(savedConfig.atticMonitoring) ||
         (config.comfyPort ?? 8188) !== (savedConfig.comfyPort ?? 8188);
 
       const result = formDirty
@@ -262,6 +263,7 @@ export function EditSparkDialog({
         })(),
         hermesMonitoring: Boolean(config.hermesMonitoring),
         tailscaleMonitoring: Boolean(config.tailscaleMonitoring),
+        atticMonitoring: Boolean(config.atticMonitoring),
         ssh: {
           host: config.ssh.host || config.lanIp,
           user: config.ssh.user,
@@ -356,7 +358,15 @@ export function EditSparkDialog({
                 <input
                   type="text"
                   value={config.lanIp}
-                  onChange={(e) => update({ lanIp: e.target.value })}
+                  onChange={(e) => {
+                    const lanIp = e.target.value;
+                    // The SSH host follows the LAN IP unless it was set to something else on purpose.
+                    setConfig((prev) =>
+                      prev
+                        ? { ...prev, lanIp, ssh: { ...prev.ssh, host: prev.ssh.host === prev.lanIp ? lanIp : prev.ssh.host } }
+                        : prev
+                    );
+                  }}
                 />
                 {config.isLocal && !config.lanIp && (
                   <p className="field-hint">
@@ -554,6 +564,26 @@ export function EditSparkDialog({
                     </span>
                   </label>
                 </div>
+
+                {config.kind !== "host" && config.kind !== "mac" && config.platform !== "darwin" && (
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                    <label className="flex min-w-0 items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(config.atticMonitoring)}
+                        onChange={(e) => update({ atticMonitoring: e.target.checked })}
+                      />
+                      <span>{t("edit.displayCarveout")}</span>
+                      <span
+                        className="inline-flex shrink-0 cursor-help text-muted hover:text-text"
+                        title={t("edit.displayCarveoutHelp")}
+                        aria-label={t("edit.displayCarveoutHelp")}
+                      >
+                        <InfoIcon className="h-3.5 w-3.5" />
+                      </span>
+                    </label>
+                  </div>
+                )}
                 </>
               )}
 

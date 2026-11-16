@@ -1,5 +1,6 @@
 import type { EnergyHistoryRow } from "../../api/types";
 import { tzOffsetMinutes } from "../../shared/timeZone";
+import { tariffPriceAt, type EnergyTariff } from "../../shared/energyTariff";
 
 /**
  * Pure maths for the Fleet energy page: range selection, local-calendar grouping,
@@ -150,6 +151,10 @@ export interface EnergyBucket {
   avgWatts: number | null;
   /** Wh per 1,000 generated tokens, null without token data. */
   whPer1kTokens: number | null;
+  /** What the bucket's energy cost, each hour at its own price; null without a price or data. */
+  cost: number | null;
+  /** Average price per kWh over the bucket's energy (an empty hour shows the hour's price). */
+  pricePerKwh: number | null;
   hasData: boolean;
 }
 
@@ -166,7 +171,8 @@ export function buildBuckets(
   rows: readonly EnergyHistoryRow[],
   win: RangeWindow,
   mode: "hour" | "day",
-  tz: TzOffsetFn
+  tz: TzOffsetFn,
+  price: HourPrice | null = null
 ): EnergyBucket[] {
   const from = mode === "hour" ? win.startMs : win.windowStartMs;
   const byKey = new Map<string, EnergyBucket>();
@@ -190,6 +196,8 @@ export function buildBuckets(
         coveredTokens: 0,
         avgWatts: null,
         whPer1kTokens: null,
+        cost: null,
+        pricePerKwh: null,
         hasData: false,
       };
       byKey.set(key, b);
@@ -200,13 +208,23 @@ export function buildBuckets(
   for (let t = floorHour(from); t <= win.endHourMs; t += HOUR_MS) {
     ensure(t).expectedMs += t === win.endHourMs ? Math.max(0, Math.min(HOUR_MS, win.nowMs - t)) : HOUR_MS;
   }
+  const costs = new Map<EnergyBucket, { sum: number; unpriced: boolean }>();
   for (const r of rows) {
     if (r.t < floorHour(from) || r.t > win.endHourMs) continue;
     const b = ensure(r.t);
+    let rowKwh = 0;
     for (const [id, wh] of Object.entries(r.nodeWh)) {
       if (!Number.isFinite(wh) || wh <= 0) continue;
       b.nodeKwh[id] = (b.nodeKwh[id] || 0) + wh / 1000;
       b.kwh += wh / 1000;
+      rowKwh += wh / 1000;
+    }
+    if (price) {
+      const c = costs.get(b) ?? { sum: 0, unpriced: false };
+      const p = price(r.t);
+      if (p == null) c.unpriced ||= rowKwh > 0;
+      else c.sum += rowKwh * p;
+      costs.set(b, c);
     }
     b.fleetWh += r.fleetEnergyWh || 0;
     b.fleetCoverageMs += r.fleetCoverageMs || 0;
@@ -217,6 +235,9 @@ export function buildBuckets(
   for (const b of order) {
     b.avgWatts = b.fleetCoverageMs > 0 ? b.fleetWh / (b.fleetCoverageMs / HOUR_MS) : null;
     b.whPer1kTokens = whPer1kTokens(b.fleetWh, b.coveredTokens);
+    const c = costs.get(b);
+    b.cost = price && b.hasData && c && !c.unpriced ? c.sum : null;
+    b.pricePerKwh = b.cost != null && b.kwh > 0 ? b.cost / b.kwh : price && mode === "hour" ? price(b.startMs) : null;
   }
   return order;
 }
@@ -268,12 +289,39 @@ export function costFor(kwh: number, price: number | null | undefined): number |
   return price != null && Number.isFinite(price) && price >= 0 ? kwh * price : null;
 }
 
+/** Price per kWh of the hour starting at `hourStartMs`, or null when that hour has no price. */
+export type HourPrice = (hourStartMs: number) => number | null;
+
+/**
+ * The Settings tariff as a price per hour in the chart time zone, or null when no
+ * price is set at all. A flat tariff (or time of use without periods) is one price.
+ */
+export function tariffHourPrice(tariff: EnergyTariff, tz: TzOffsetFn): HourPrice | null {
+  if (tariff.mode !== "tou" || tariff.periods.length === 0) {
+    const base = tariff.base;
+    return base != null && Number.isFinite(base) && base >= 0 ? () => base : null;
+  }
+  return (ms) => {
+    const d = wall(ms, tz);
+    return tariffPriceAt(tariff, d.getUTCHours(), d.getUTCDay());
+  };
+}
+
+/**
+ * Totals for the range. `price` is a flat price per kWh, or an HourPrice: then every
+ * hour's energy is priced at that hour's rate, and a cost is null while any hour that
+ * used energy has no price.
+ */
 export function summarize(
   rows: readonly EnergyHistoryRow[],
   win: RangeWindow,
   nodeIds: readonly string[],
-  price: number | null | undefined
+  price: number | HourPrice | null | undefined
 ): EnergySummary {
+  const hourPrice = typeof price === "function" ? price : null;
+  const flat = typeof price === "function" ? null : price;
+  const nodeCost = new Map<string, number>();
+  const unpriced = new Set<string>();
   const inRange = rowsInRange(rows, win.startMs, win.endHourMs);
   const nodeWh = new Map<string, number>();
   const nodeCov = new Map<string, number>();
@@ -288,8 +336,13 @@ export function summarize(
     nodeCov.set(id, 0);
   }
   for (const r of inRange) {
+    const p = hourPrice ? hourPrice(r.t) : null;
     for (const [id, wh] of Object.entries(r.nodeWh)) {
-      if (Number.isFinite(wh)) nodeWh.set(id, (nodeWh.get(id) || 0) + wh);
+      if (!Number.isFinite(wh)) continue;
+      nodeWh.set(id, (nodeWh.get(id) || 0) + wh);
+      if (!hourPrice) continue;
+      if (p != null) nodeCost.set(id, (nodeCost.get(id) || 0) + (wh / 1000) * p);
+      else if (wh > 0) unpriced.add(id);
     }
     for (const [id, ms] of Object.entries(r.nodeCoverageMs)) {
       if (!Number.isFinite(ms)) continue;
@@ -323,12 +376,14 @@ export function summarize(
         peakAtMs: pk?.atMs ?? null,
         coverageMs: cov,
         coverage: win.windowMs > 0 ? Math.min(1, cov / win.windowMs) : 0,
-        cost: costFor(wh / 1000, price),
+        cost: hourPrice ? (unpriced.has(id) ? null : nodeCost.get(id) || 0) : costFor(wh / 1000, flat),
       };
     })
     .sort((a, b) => b.kwh - a.kwh);
   const dataSpanDays = win.windowMs / DAY_MS;
-  const cost = costFor(kwh, price);
+  const cost = hourPrice
+    ? unpriced.size > 0 ? null : [...nodeCost.values()].reduce((s, v) => s + v, 0)
+    : costFor(kwh, flat);
   return {
     kwh,
     avgWatts: fleetCov > 0 ? fleetWh / (fleetCov / HOUR_MS) : null,

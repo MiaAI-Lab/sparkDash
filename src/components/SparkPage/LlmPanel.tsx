@@ -20,6 +20,7 @@ import { LlmDailyChart } from "./LlmDailyChart";
 import { LlmTokenTotals } from "./LlmTokenTotals";
 import { parseLlmTargetInput } from "../../shared/llmTarget.js";
 import { backendLabel } from "../../shared/llmBackends.js";
+import { formatTokensCompact } from "../../shared/tokenFormat.js";
 import { LlmTrendChart } from "./LlmTrendChart";
 import type { BenchKind } from "./BenchSwitcher";
 import { engineStateLabel } from "./llmEngineState";
@@ -878,7 +879,9 @@ export function LlmPanel({
               <TrendLine data={prefillHistory} height={44} color="var(--color-info)" />
               {prefillAvg != null && <span className="sp-avg mono">{t("llm.average", { value: fmtAvg(prefillAvg) })}</span>}
               {isStrata && prefillTps > 0 && <span className="sp-avg">{t("llm.lastReportedMean")}</span>}
-              {(isTensorFold || isPico) && !completedPrefill && prefillTps <= 0 && <span className="sp-avg">{t("llm.notMeasuredLive")}</span>}
+              {(isTensorFold || isPico) && !completedPrefill && prefillTps <= 0 && !llm?.prefillActive && (
+                <span className="sp-avg">{t("llm.notMeasuredLive")}</span>
+              )}
               {measured && completedPrefill && (
                 <span className="sp-avg" title={t("llm.completedPrefillHelp")}>
                   {t("llm.effectiveIncludesCached")}
@@ -998,8 +1001,15 @@ export function LlmPanel({
                 </button>
               </div>
             </div>
-            <div className="sp-tile" title={t("llm.engineGeneratedHelp")}>
-              <b>{llm && llm.totalOutputTokens > 0 ? llm.totalOutputTokens.toLocaleString() : "—"}</b>
+            <div
+              className="sp-tile"
+              title={
+                llm?.totalOutputTokens != null && llm.totalOutputTokens > 0
+                  ? `${llm.totalOutputTokens.toLocaleString()} tokens · ${t("llm.engineGeneratedHelp")}`
+                  : t("llm.engineGeneratedHelp")
+              }
+            >
+              <b>{llm && llm.totalOutputTokens > 0 ? formatTokensCompact(llm.totalOutputTokens) : "—"}</b>
               <span>{t("llm.engineGenerated")}</span>
             </div>
           </div>

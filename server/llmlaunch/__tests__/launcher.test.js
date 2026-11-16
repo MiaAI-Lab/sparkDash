@@ -259,18 +259,8 @@ test("a new action detaches a running start watcher instead of being blocked by 
   assert.equal(stop.ok, true, "stop must not be refused while the start output is being watched");
   await until(() => mgr.latestJob("s1").status !== "running");
   assert.equal(mgr.readJob("s1", stop.job.id, 0).job.status, "completed");
-  // The start script itself was untouched by detaching its watcher.
-  assert.equal((await mgr.statuses(spark, [launcher]))[launcher.id], "running");
-  const pid = readPid(home, launcher);
-  process.kill(-pid, "SIGTERM");
-  await until(() => {
-    try {
-      process.kill(-pid, 0);
-      return false;
-    } catch {
-      return true;
-    }
-  });
+  // Detaching the watcher left the start script alive for the stop to find; the successful stop then ended it.
+  assert.equal((await mgr.statuses(spark, [launcher]))[launcher.id], "stopped");
 });
 
 test("only one job runs per Spark at a time", async () => {
@@ -284,6 +274,46 @@ test("only one job runs per Spark at a time", async () => {
   assert.equal(second.ok, false);
   assert.equal(second.reason, "busy");
   await until(() => mgr.latestJob("s1").status !== "running");
+});
+
+test("a successful stop also ends a start script that is still waiting for readiness", async () => {
+  const home = tmpDir("sd-home-");
+  const llm = path.join(home, "llm");
+  // start.sh models "run a container, then poll for readiness"; stop.sh removes only the container.
+  writeScript(llm, "start.sh", 'echo "waiting"; sleep 30');
+  writeScript(llm, "stop.sh", 'echo "container removed"');
+  const { mgr } = realManager(home);
+  const launcher = mgr.store.add("s1", { name: "Demo", dir: llm }).launcher;
+  const start = mgr.startJob(spark, launcher, "start");
+  await until(() => mgr.readJob("s1", start.job.id, 0).lines.some((l) => l.text === "waiting"));
+  mgr.cancel("s1");
+  await until(() => mgr.latestJob("s1").status !== "running");
+  assert.equal((await mgr.statuses(spark, [launcher]))[launcher.id], "running");
+  const pid = readPid(home, launcher);
+
+  const stop = mgr.startJob(spark, launcher, "stop");
+  await until(() => mgr.latestJob("s1").status !== "running", 15000);
+  assert.equal(mgr.readJob("s1", stop.job.id, 0).job.status, "completed");
+  assert.equal((await mgr.statuses(spark, [launcher]))[launcher.id], "stopped");
+  assert.throws(() => process.kill(-pid, 0));
+});
+
+test("a failed stop script leaves the start script running", async () => {
+  const home = tmpDir("sd-home-");
+  const llm = path.join(home, "llm");
+  writeScript(llm, "start.sh", 'echo "up"; sleep 30');
+  writeScript(llm, "stop.sh", "exit 3");
+  const { mgr } = realManager(home);
+  const launcher = mgr.store.add("s1", { name: "Demo", dir: llm }).launcher;
+  const start = mgr.startJob(spark, launcher, "start");
+  await until(() => mgr.readJob("s1", start.job.id, 0).lines.some((l) => l.text === "up"));
+  mgr.cancel("s1");
+  await until(() => mgr.latestJob("s1").status !== "running");
+  const pid = readPid(home, launcher);
+  mgr.startJob(spark, launcher, "stop");
+  await until(() => mgr.latestJob("s1").status !== "running");
+  assert.equal((await mgr.statuses(spark, [launcher]))[launcher.id], "running");
+  process.kill(-pid, "SIGKILL");
 });
 
 test("a long-running start survives cancel; status sees it; attach re-opens its output", async () => {
