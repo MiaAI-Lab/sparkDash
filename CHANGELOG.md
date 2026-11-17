@@ -11,11 +11,14 @@ Format: version sections are listed newest first.
 
 ### Added
 - Show an Installed badge in Edit Spark when the spark-attic service is detected.
+- **Pico counters: decode, the prefill split and the request gauges.** A Pico front end that serves `GET /metrics` (pico-dgx-ds4's `dsfront`) publishes `tensorfold:`-prefixed counters, which the probe reads through the TensorFold reader. Decode is the `generation_tokens_total` (+ `generation_tokens_running`) diff, labelled **window** because it advances as requests finish; prefill is `(prompt_tokens_total − prompt_tokens_cached_total) / request_prefill_seconds_sum` over the last minute of finished requests, shown as the **Cached** / **Uncached** split; and `requests_running` / `requests_waiting` fill the requests tile. A build without `/metrics` answers 404 and behaves exactly as before, so no other engine's series or labels change. The scrape itself is [@Robert Ung](https://github.com/robertung88)'s work (`f5e3f7b`, `f8b5046`); the endpoint it reads is [@100menotu001](https://github.com/100menotu001)'s ([pico-dgx-ds4#12](https://github.com/Picom-code/pico-dgx-ds4/pull/12)).
 
 ### Fixed
 - Show installation success and failure beside the install button, including CUDA_ERROR_OUT_OF_MEMORY when validation detects it.
 
 - Show the spark-attic install button before monitoring is saved, and enable it as soon as the option is checked. Installation enables monitoring after confirmation.
+- **Pico's counter-derived decode rate was hidden.** A Pico front end that publishes counters yields a `window` decode rate, but the panel and the overview card only rendered `probe-sample` and `dashboard-stream` figures for Pico and showed an em dash for everything else. A measured rate is now shown; the em dash is kept for a build that publishes nothing at all.
+- **The completed-prefill label claimed cached tokens were included.** A `completed-split` prefill rate is computed tokens only (cached tokens are the separate Cached prefill figure), so it now reads *Computed tokens · cached excluded* instead of *Effective rate · includes cached tokens*.
 
 ## [2.90.1] — 2026-11-17
 
@@ -27,7 +30,6 @@ Format: version sections are listed newest first.
 ### Fixed
 - Build the replacement image before recreating the service, retry the Node base image from Docker Hub if the default registry fails, and refresh the host-mounted frontend bundle from the image.
 - Make the spark-attic help control accessible by click or keyboard without toggling monitoring.
-
 
 ## [2.90.0] — 2026-11-12
 
