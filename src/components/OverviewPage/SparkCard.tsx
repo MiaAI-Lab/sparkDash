@@ -276,6 +276,10 @@ function SparkCardImpl({
   const showTps = role !== "worker" && !!llm;
   const isStrata = llm?.backend === "strata";
   const isTensorFold = llm?.backend === "tensorfold";
+  // Pico publishes counters only on a front end that serves /metrics; without them a 0 is not a
+  // measurement, so the card shows no figure rather than a measured-looking zero.
+  const isPico = llm?.backend === "pico";
+  const picoUnmeasured = isPico && llm?.generationTpsSource == null;
   const completedPrefill = llm?.prefillTpsSource?.startsWith("completed-") === true;
   // Engines that report requests (TensorFold, Strata, …) used to hide their parallelism behind
   // "N running": a unit set to --parallel 4 and one set to 8 read the same. Name the capacity too.
@@ -521,6 +525,8 @@ function SparkCardImpl({
                     <span className="ov-tps__dots" aria-hidden />
                     <small>{t("card.decoding")}</small>
                   </div>
+                ) : picoUnmeasured ? (
+                  <div className="big-num ov-tps__num" title={t("card.picoNoCountersHelp")}>—</div>
                 ) : (
                   <div className="big-num ov-tps__num">{llm.generationTps.toFixed(1)}<small>{t("card.tokPerSecond")}</small></div>
                 )}
@@ -559,7 +565,9 @@ function SparkCardImpl({
                 {isTensorFold && !completedPrefill && llm.prefillTps <= 0 && <small className="text-muted">{t("card.notMeasuredLive")}</small>}
                 {llm.measurementValid !== false && completedPrefill && (
                   <small className="text-muted" title={t("card.completedPrefillHelp")}>
-                    {t("card.effectiveIncludesCached")}
+                    {llm.prefillTpsSource === "completed-split"
+                      ? t("card.completedPrefillSplit")
+                      : t("card.effectiveIncludesCached")}
                   </small>
                 )}
                 {isStrata && llm.prefillTps > 0 && <small className="text-muted">{t("card.lastReportedMean")}</small>}

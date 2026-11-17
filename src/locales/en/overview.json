@@ -201,6 +201,8 @@
     "notMeasuredLive": "no live sample",
     "completedPrefillHelp": "Completion-window tokens divided by prefill seconds; not continuous live throughput.",
     "effectiveIncludesCached": "incl. cached tokens",
+    "completedPrefillSplit": "computed, cached excluded",
+    "picoNoCountersHelp": "This Pico front end publishes no counters. Update dsfront to a build that serves /metrics, or turn on Settings → Stream-sample engines without gauges.",
     "gpuLoad": "Load",
     "gpuTemperature": "Temp",
     "gpuPowerShort": "Power",

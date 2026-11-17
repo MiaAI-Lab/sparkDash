@@ -201,6 +201,8 @@
     "notMeasuredLive": "无实时采样",
     "completedPrefillHelp": "完成窗口内的 Token 数除以预填充秒数；并非持续的实时吞吐。",
     "effectiveIncludesCached": "含缓存 Token",
+    "completedPrefillSplit": "已计算，不含缓存",
+    "picoNoCountersHelp": "此 Pico 前端不发布任何计数器。请将 dsfront 更新到提供 /metrics 的版本，或在设置中开启“对流采样无指标引擎”。",
     "gpuLoad": "负载",
     "gpuTemperature": "温度",
     "gpuPowerShort": "功耗",

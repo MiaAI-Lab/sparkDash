@@ -238,6 +238,7 @@
     "sampleOffHelp": "该引擎不发布任何实时计数器。在设置中开启“对流采样无指标引擎”，让面板自行测量解码 tok/s。",
     "completedPrefillHelp": "同一窗口内已完成请求的 Token 与预填充耗时增量；并非持续的实时吞吐。",
     "effectiveIncludesCached": "有效速率 · 包含缓存 Token",
+    "completedPrefillSplit": "已计算 Token · 不含缓存",
     "completedDecodeRate": "{{rate}} tok/s · 最近完成"
   },
   "sessions": {
