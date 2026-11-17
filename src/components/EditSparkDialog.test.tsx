@@ -73,24 +73,28 @@ describe("EditSparkDialog SSH port", () => {
     expect(document.getElementById("attic-monitoring-help")).toBeNull();
   });
 
-  it("confirms installation when enabling spark-attic and does not install if declined", async () => {
+  it("enables the install button when checked and installs only after confirmation", async () => {
     const confirmation = vi.spyOn(window, "confirm").mockReturnValue(false);
     vi.mocked(installSparkAttic).mockReset();
     vi.mocked(updateSpark).mockClear();
+    vi.mocked(updateSpark).mockResolvedValue({ success: true, spark: { ...spark, atticMonitoring: true } });
     render(<EditSparkDialog open sparkId="lab" onClose={() => {}} onSaved={() => {}} />);
     await flush();
     const checkbox = Array.from(document.querySelectorAll("label")).find((label) => label.textContent?.includes("spark-attic"))!.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    const install = Array.from(document.querySelectorAll("button")).find((button) => button.textContent === "Install or retry spark-attic")!;
+    expect(install.disabled).toBe(true);
     await act(async () => checkbox.click());
-    const save = Array.from(document.querySelectorAll("button")).find((button) => button.textContent === "Save")!;
-    await act(async () => save.click());
+    expect(install.disabled).toBe(false);
+    await act(async () => install.click());
     expect(confirmation).toHaveBeenCalledWith(expect.stringContaining("stop its graphical desktop"));
     expect(updateSpark).not.toHaveBeenCalled();
     expect(installSparkAttic).not.toHaveBeenCalled();
     confirmation.mockReturnValue(true);
     vi.mocked(installSparkAttic).mockResolvedValue({ success: true });
-    await act(async () => save.click());
-    expect(updateSpark).toHaveBeenCalledWith("lab", expect.objectContaining({ atticMonitoring: true }));
+    await act(async () => install.click());
+    expect(updateSpark).toHaveBeenCalledWith("lab", { atticMonitoring: true });
     expect(installSparkAttic).toHaveBeenCalledWith("lab", undefined);
+    expect(document.body.textContent).toContain("spark-attic is installed and running");
     confirmation.mockRestore();
   });
 

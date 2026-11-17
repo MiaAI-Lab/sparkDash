@@ -9,6 +9,9 @@ Format: version sections are listed newest first.
 
 ## [Unreleased]
 
+### Fixed
+- Show the spark-attic install button before monitoring is saved, and enable it as soon as the option is checked. Installation enables monitoring after confirmation.
+
 ## [2.90.1] — 2026-11-17
 
 ### Added

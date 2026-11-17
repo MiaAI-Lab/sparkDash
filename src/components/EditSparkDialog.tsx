@@ -53,6 +53,7 @@ export function EditSparkDialog({
   const [config, setConfig] = useState<SparkConfig | null>(null);
   const [atticHelpOpen, setAtticHelpOpen] = useState(false);
   const [atticSudoPassword, setAtticSudoPassword] = useState("");
+  const [atticInstallSuccess, setAtticInstallSuccess] = useState(false);
   const [atticPasswordAllowed, setAtticPasswordAllowed] = useState(false);
   useEffect(() => {
     setAtticPasswordAllowed(false);
@@ -247,8 +248,6 @@ export function EditSparkDialog({
       setError("passwordRequiredError");
       return;
     }
-    const installAttic = Boolean(config.atticMonitoring) && !savedConfig?.atticMonitoring;
-    if (installAttic && !confirm(t("edit.atticInstallConfirm", { name: config.name }))) return;
     setSaving(true);
     setError(null);
     try {
@@ -291,9 +290,7 @@ export function EditSparkDialog({
           ...(password && sshTargetChanged ? { password } : {}),
         },
       };
-      const updated = await updateSpark(config.id, patch);
-      setSavedConfig(updated.spark);
-      if (installAttic) await installSparkAttic(config.id, atticSudoPassword || undefined);
+      await updateSpark(config.id, patch);
       onSaved();
       onClose();
     } catch (err: unknown) {
@@ -305,14 +302,19 @@ export function EditSparkDialog({
   };
 
   const handleAtticInstall = async () => {
-    if (!config || !confirm(t("edit.atticInstallConfirm", { name: config.name }))) return;
+    if (!config || !confirm(t("edit.atticInstallConfirm", { name: savedConfig?.name ?? config.name }))) return;
     setSaving(true);
     setError(null);
     try {
+      setAtticInstallSuccess(false);
+      if (!savedConfig?.atticMonitoring) {
+        const updated = await updateSpark(config.id, { atticMonitoring: true });
+        setSavedConfig(updated.spark);
+        onSaved();
+      }
       await installSparkAttic(config.id, atticSudoPassword || undefined);
-      setError(null);
+      setAtticInstallSuccess(true);
       onSaved();
-      onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -607,7 +609,7 @@ export function EditSparkDialog({
                       <input
                         type="checkbox"
                         checked={Boolean(config.atticMonitoring)}
-                        onChange={(e) => update({ atticMonitoring: e.target.checked })}
+                        onChange={(e) => { setAtticInstallSuccess(false); update({ atticMonitoring: e.target.checked }); }}
                       />
                       <span>{t("edit.displayCarveout")}</span>
                     </label>
@@ -629,9 +631,10 @@ export function EditSparkDialog({
                           <label className="field-label" htmlFor="attic-sudo-password">{t("edit.atticSudoPassword")}</label>
                           <input id="attic-sudo-password" className="field-input" type="password" autoComplete="off" value={atticSudoPassword} onChange={(e) => setAtticSudoPassword(e.target.value)} disabled={saving} />
                         </> : <p className="field-hint">{t("edit.atticPasswordUnavailable")}</p>}
-                        {savedConfig?.atticMonitoring && <button type="button" className="btn" disabled={saving} onClick={() => void handleAtticInstall()}>{saving ? t("edit.atticInstalling") : t("edit.atticInstall")}</button>}
+                        {atticInstallSuccess && <p className="field-hint" role="status">{t("edit.atticInstallSuccess")}</p>}
                       </div>
                     )}
+                    <button type="button" className="btn" disabled={saving || !config.atticMonitoring} onClick={() => void handleAtticInstall()}>{saving ? t("edit.atticInstalling") : t("edit.atticInstall")}</button>
                   </div>
                 )}
                 </>
