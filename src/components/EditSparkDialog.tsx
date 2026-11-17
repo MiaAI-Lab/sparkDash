@@ -4,6 +4,8 @@ import { useTranslation } from "react-i18next";
 import {
   deleteSpark,
   fetchSparks,
+  installSparkAttic,
+  fetchAtticInstallFlags,
   setSparkPassword,
   testSpark,
   testSparkConfig,
@@ -49,6 +51,18 @@ export function EditSparkDialog({
 }: EditSparkDialogProps) {
   const { t } = useTranslation("devices");
   const [config, setConfig] = useState<SparkConfig | null>(null);
+  const [atticHelpOpen, setAtticHelpOpen] = useState(false);
+  const [atticSudoPassword, setAtticSudoPassword] = useState("");
+  const [atticPasswordAllowed, setAtticPasswordAllowed] = useState(false);
+  useEffect(() => {
+    setAtticPasswordAllowed(false);
+    if (!open || !sparkId) return;
+    let cancelled = false;
+    fetchAtticInstallFlags(sparkId).then((flags) => {
+      if (!cancelled) setAtticPasswordAllowed(flags.passwordAllowed && (window.isSecureContext !== false || flags.plainPasswordAllowed));
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [open, sparkId]);
   /** Snapshot of the Spark config as last fetched from the server. Used to
    *  detect form-vs-saved divergence so Test can target what the user is
    *  actually looking at (vs. the stored config the registered test route
@@ -233,6 +247,8 @@ export function EditSparkDialog({
       setError("passwordRequiredError");
       return;
     }
+    const installAttic = Boolean(config.atticMonitoring) && !savedConfig?.atticMonitoring;
+    if (installAttic && !confirm(t("edit.atticInstallConfirm", { name: config.name }))) return;
     setSaving(true);
     setError(null);
     try {
@@ -275,12 +291,32 @@ export function EditSparkDialog({
           ...(password && sshTargetChanged ? { password } : {}),
         },
       };
-      await updateSpark(config.id, patch);
+      const updated = await updateSpark(config.id, patch);
+      setSavedConfig(updated.spark);
+      if (installAttic) await installSparkAttic(config.id, atticSudoPassword || undefined);
       onSaved();
       onClose();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
+      setAtticSudoPassword("");
+      setSaving(false);
+    }
+  };
+
+  const handleAtticInstall = async () => {
+    if (!config || !confirm(t("edit.atticInstallConfirm", { name: config.name }))) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await installSparkAttic(config.id, atticSudoPassword || undefined);
+      setError(null);
+      onSaved();
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAtticSudoPassword("");
       setSaving(false);
     }
   };
@@ -574,14 +610,28 @@ export function EditSparkDialog({
                         onChange={(e) => update({ atticMonitoring: e.target.checked })}
                       />
                       <span>{t("edit.displayCarveout")}</span>
-                      <span
-                        className="inline-flex shrink-0 cursor-help text-muted hover:text-text"
-                        title={t("edit.displayCarveoutHelp")}
-                        aria-label={t("edit.displayCarveoutHelp")}
-                      >
-                        <InfoIcon className="h-3.5 w-3.5" />
-                      </span>
                     </label>
+                    <button
+                      type="button"
+                      className="inline-flex shrink-0 text-muted hover:text-text"
+                      aria-label={t("edit.displayCarveoutHelp")}
+                      aria-expanded={atticHelpOpen}
+                      aria-controls="attic-monitoring-help"
+                      onClick={() => setAtticHelpOpen((open) => !open)}
+                    >
+                      <InfoIcon className="h-3.5 w-3.5" />
+                    </button>
+                    {atticHelpOpen && <p id="attic-monitoring-help" className="field-hint w-full">{t("edit.displayCarveoutHelp")}</p>}
+                    {config.atticMonitoring && (
+                      <div className="w-full space-y-2">
+                        <p className="field-hint">{t("edit.atticInstallHint")}</p>
+                        {atticPasswordAllowed ? <>
+                          <label className="field-label" htmlFor="attic-sudo-password">{t("edit.atticSudoPassword")}</label>
+                          <input id="attic-sudo-password" className="field-input" type="password" autoComplete="off" value={atticSudoPassword} onChange={(e) => setAtticSudoPassword(e.target.value)} disabled={saving} />
+                        </> : <p className="field-hint">{t("edit.atticPasswordUnavailable")}</p>}
+                        {savedConfig?.atticMonitoring && <button type="button" className="btn" disabled={saving} onClick={() => void handleAtticInstall()}>{saving ? t("edit.atticInstalling") : t("edit.atticInstall")}</button>}
+                      </div>
+                    )}
                   </div>
                 )}
                 </>

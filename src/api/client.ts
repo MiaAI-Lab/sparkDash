@@ -1177,3 +1177,12 @@ export function getGpuHistory(sparkId: string, windowMs: number): Promise<GpuHis
 export function getUnitHistory(sparkId: string, range: MetricsHistoryRange): Promise<MetricsHistoryResponse> {
   return apiFetch<MetricsHistoryResponse>(`/api/sparks/${encodeURIComponent(sparkId)}/history?range=${range}`);
 }
+
+/** Install the pinned spark-attic release after explicit user confirmation. */
+export function installSparkAttic(id: string, sudoPassword?: string): Promise<{ success: boolean }> {
+  return apiFetch(`/api/sparks/${encodeURIComponent(id)}/attic/install`, { method: "POST", body: JSON.stringify({ confirm: true, stopDesktopConfirmed: true, ...(sudoPassword ? { sudoPassword } : {}) }) });
+}
+
+export function fetchAtticInstallFlags(id: string): Promise<{ passwordAllowed: boolean; plainPasswordAllowed: boolean }> {
+  return apiFetch(`/api/sparks/${encodeURIComponent(id)}/attic/install`);
+}

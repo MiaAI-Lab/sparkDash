@@ -1,7 +1,7 @@
 # sparkDash ⚡ — Multi-unit monitoring dashboard for NVIDIA DGX Spark
 
 <p align="center">
-  <a href="#latest-version-changelog"><img src="https://img.shields.io/badge/version-v2.90.0-2d9d78?style=flat-square" alt="Latest version: v2.90.0"></a>
+  <a href="#latest-version-changelog"><img src="https://img.shields.io/badge/version-v2.90.1-2d9d78?style=flat-square" alt="Latest version: v2.90.1"></a>
   <img src="https://img.shields.io/badge/platform-arm64-2d9d78?style=flat-square" alt="Platform: ARM64">
   <img src="https://img.shields.io/badge/React-19-58c4dc?style=flat-square&logo=react" alt="React 19">
   <img src="https://img.shields.io/badge/Express-5-000000?style=flat-square&logo=express" alt="Express 5">
@@ -14,7 +14,7 @@
 
 <p align="center"><sub>macOS (darwin) SSH collectors authored by <a href="https://github.com/MikeGibbsOnyx">C. Michael Gibbs</a> and <a href="https://x.com/nyxvoss_ai">Nyx Voss</a> (Onyx AI Labs) — <a href="https://github.com/MikeGibbsOnyx/sparkDash/commits?author=MikeGibbsOnyx">commits</a>. sparkDash by <a href="https://github.com/MiaAI-Lab">Mia's AI Lab</a>.</sub></p>
 
-> **New in v2.90.0:** Storage Manager with staged deletes, batch deletion, pre-delete checks and Docker cleanup; Quality bench v2; Pico engine support; and per-card GPU power limits. [See the release highlights](#latest-version-changelog).
+> **New in v2.90.1:** Confirmed spark-attic installation and monitoring, and a more resilient deployment script. [See the release highlights](#latest-version-changelog).
 
 sparkDash is a real-time web dashboard for one or more **NVIDIA DGX Spark (GB10)** machines in a single browser window. It streams GPU, CPU, unified memory, storage, network, and local LLM metrics — and lets you add, edit, reorder, or remove Sparks from the UI without restarts or code changes.
 
@@ -74,6 +74,11 @@ Monitored units run **Linux**, **macOS**, or **Windows** (a Windows PC with an N
 ---
 
 ## Latest version changelog
+
+### Version 2.90.1
+
+- **spark-attic installation:** install the upstream service on a Spark after confirmation, with sudo support and a warning before stopping its graphical desktop; monitor its state from Resources.
+- **Deployment:** keep the existing service running during builds, retry with Docker Hub if the default registry fails, and refresh the mounted frontend bundle.
 
 ### Version 2.90.0
 
@@ -153,7 +158,7 @@ Full history: [CHANGELOG.md](./CHANGELOG.md)
 | **ComfyUI** | Opt-in probe: queue/jobs, progress, cancel, Open link, inventory, overview chip |
 | **Hermes Agent** | Opt-in per unit: background update check (10 min), status badges, one-click or batch `hermes update` |
 | **Tailnet** | Opt-in probe: flags a unit that is healthy on the LAN but off its tailnet |
-| **spark-attic (spare GPU memory)** | Opt-in per Spark: whether spark-attic lends the GB10's display carveout to CUDA, and how much of it |
+| **spark-attic (spare GPU memory)** | Opt-in per Spark: install the service with confirmation and monitor how much of the GB10 display carveout it lends to CUDA |
 | **Decode benchmark** | Multi-concurrency streaming decode tok/s; type picker (Structured / Prose / Code / JSON). Code is a different Python task per stream. Temperature (default 0.7) and thinking on/off (default on) are selectable; persisted last run. **Start context** (16k to 256k or a custom size) prefills every stream to that depth first, then measures decode from there; it needs prefix caching, and a wave whose context was recomputed is flagged instead of reported as clean. Remote units: LAN HTTP, or SSH tunnel to loopback. **Remote** button for an on-demand HTTPS/host:port target |
 | **Prefill benchmark** | Context-size sweep (1k–300k) of prefill tok/s and TTFT; unique prefix per size; persisted last run. Same remote targeting as decode |
 | **Quality benchmark** | Fixed, seeded quality suite (QA, reasoning, arithmetic, state tracking, GSM8K, MMLU, plus optional instruction following and long-context recall) at temperature 0; per-category and overall score; last 30 runs kept; paired compare with McNemar p-value. Same remote targeting as decode |
@@ -331,7 +336,7 @@ Env (optional): `POLL_INTERVAL_TAILSCALE` (default `30000`), `TAILSCALE_PROBE_TI
 
 ## spark-attic monitoring (spare GPU memory)
 
-Opt-in per Spark (default **off**). Shows a **spark-attic (spare GPU memory)** card under Resources: what [spark-attic](https://github.com/bertholomus/spark-attic) does with the GB10's display carveout, and how much of it is lent to CUDA programs.
+Opt-in per Spark (default **off**). sparkDash can install and monitor **[spark-attic](https://github.com/bertholomus/spark-attic)**, created by **bertholomus**. Credit and thanks to the original author and contributors for the upstream project. The Resources card shows what spark-attic does with the GB10 display carveout and how much it lends to CUDA programs.
 
 A GB10 keeps a display carveout (about 2 GiB) outside the kernel's System RAM, so MemAvailable never counts it. spark-attic's daemon, atticd (unit `attic.service`), lends it to CUDA programs, such as an engine's KV cache, and keeps a keyless status file that says what it does.
 
@@ -339,7 +344,7 @@ A GB10 keeps a display carveout (about 2 GiB) outside the kernel's System RAM, s
 
 | Capability | Details |
 |------------|---------|
-| **Opt-in per unit** | `atticMonitoring` (default **off**) in **Edit Spark**; Linux Sparks only. When off, nothing runs on the unit |
+| **Opt-in per unit** | `atticMonitoring` (default **off**) in **Edit Spark**; Linux Sparks only. Turning monitoring off stops the probe; it does not uninstall or stop an existing service |
 | **States** | **not installed** (no `attic.service`, no status file), **off** (`attic.service` stopped or failed), **refusing** (atticd lends nothing; the card shows its reason), **driver not yet validated** (atticd waits until the running NVIDIA driver is validated), **lending** (N of the carveout's MiB) |
 | **Numbers** | From atticd's keyless status file `/run/spark-attic/status.json` (mode 0644, no key in it): MiB lent, free and in the largest free block, MiB still returning, clients, mode, driver and whether that driver is validated |
 | **Unknown stays unknown** | atticd rewrites its file on every change and at least once a period (`every_s` in the file, 10 s by default): a file older than three of its periods is **stale** and shows no numbers, one that cannot be read is **unreadable**, and with no status file the card needs systemd's word for **off** or **not installed**. Anything else reads **unknown**, with the reason |
@@ -348,13 +353,17 @@ The probe is one read-only shell command as the SSH user: no root, no socket, no
 
 ### How to enable
 
-1. Open **Edit Spark**.
-2. Tick **spark-attic**.
-3. Save. The spark-attic card appears under Resources.
+1. Open **Edit Spark** and tick **spark-attic**.
+2. Enter a sudo password if needed; leave it blank for passwordless sudo. Password entry follows the same HTTPS, local-connection, and plain-HTTP setting rules as GPU clock controls.
+3. Save and confirm installation on the named Spark. After checking the host, sparkDash stops the display manager if it is running, disconnecting graphical desktop sessions; the desktop stays stopped until restarted or the Spark reboots. sparkDash downloads the pinned upstream v0.1.4 installer, verifies its checksum, and runs it as root. The upstream installer checks the host and driver and enables `attic.service` only when its checks pass. The card appears under Resources.
+
+For a Spark that already has monitoring enabled, open **Edit Spark** and use **Install or retry spark-attic**. A failed installation is reported in the dialog and can be retried. Disabling monitoring does not remove or stop the service. Installing the service alone does not configure an inference engine to use the memory; see the [upstream instructions](https://github.com/bertholomus/spark-attic) for engine integration.
 
 ### Host requirements
 
-- [spark-attic](https://github.com/bertholomus/spark-attic) on the Spark: atticd writes the status file.
+- Linux aarch64 GB10 with systemd and a supported NVIDIA driver; the upstream installer checks the host and driver.
+- Root access on the Spark, using passwordless sudo or a one-time sudo password, plus `curl`, `sha256sum`, and network access to the upstream release.
+- The installed spark-attic daemon writes the status file.
 - `systemctl`, for `attic.service`'s state. Without it, **off** and **not installed** read unknown.
 - Remote units: existing SSH. Local Docker: `nsenter` into the host mount namespace (same as the Tailnet probe).
 

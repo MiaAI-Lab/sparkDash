@@ -1,0 +1,50 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { registerAtticInstallRoute, INSTALL_PROGRAM } from '../attic/install.js';
+
+function setup(run = async () => {}) {
+  let handler;
+  const spark = { id: 's1', atticMonitoring: true, ssh: { user: 'user' } };
+  registerAtticInstallRoute({ get: () => {}, post: (_path, fn) => { handler = fn; } }, {
+    registry: { getSpark: () => spark }, allowChange: () => true, rejectLimited() {}, run,
+  });
+  const call = async (body, headers = {}) => {
+    const res = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(value) { this.body = value; return this; } };
+    await handler({ body, params: { id: 's1' }, headers, socket: { remoteAddress: '127.0.0.1' } }, res);
+    return res;
+  };
+  return { call, spark };
+}
+
+test('installation requires confirmation, supported Spark and enabled monitoring', async () => {
+  let calls = 0;
+  const { call, spark } = setup(async () => { calls++; });
+  assert.equal((await call({})).statusCode, 400);
+  assert.equal((await call({ confirm: true })).statusCode, 400);
+  spark.kind = 'host';
+  assert.equal((await call({ confirm: true, stopDesktopConfirmed: true })).statusCode, 400);
+  spark.kind = 'spark'; spark.atticMonitoring = false;
+  assert.equal((await call({ confirm: true, stopDesktopConfirmed: true })).statusCode, 400);
+  assert.equal(calls, 0);
+});
+
+test('confirmed install sends password through runner input and reports failure', async () => {
+  let args;
+  const { call } = setup(async (...a) => { args = a; throw new Error('failed safely'); });
+  const res = await call({ confirm: true, stopDesktopConfirmed: true, sudoPassword: 'secret' });
+  assert.equal(res.statusCode, 502);
+  assert.match(res.body.error, /failed safely/);
+  assert.equal(args[2].input, 'secret');
+  assert.ok(!args[1].includes('secret'));
+  assert.match(INSTALL_PROGRAM, /sha256sum -c/);
+  assert.ok(INSTALL_PROGRAM.indexOf('--check --plain') < INSTALL_PROGRAM.indexOf('systemctl stop display-manager.service'));
+  assert.ok(INSTALL_PROGRAM.indexOf('systemctl stop display-manager.service') < INSTALL_PROGRAM.lastIndexOf('bash "$tmp/install.sh" --plain'));
+});
+
+test('refuses a password on a relayed HTTP connection', async () => {
+  let calls = 0;
+  const { call } = setup(async () => { calls++; });
+  const res = await call({ confirm: true, stopDesktopConfirmed: true, sudoPassword: 'secret' }, { 'x-forwarded-for': '10.0.0.2' });
+  assert.equal(res.statusCode, 400);
+  assert.equal(calls, 0);
+});

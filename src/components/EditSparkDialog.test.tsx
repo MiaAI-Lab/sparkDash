@@ -1,6 +1,6 @@
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchGpuClock, fetchGpuPower, fetchSparks, updateSpark } from "../api/client";
+import { fetchGpuClock, fetchGpuPower, fetchSparks, updateSpark, installSparkAttic } from "../api/client";
 import type { SparkConfig } from "../api/types";
 import { EditSparkDialog } from "./EditSparkDialog";
 import { flush, render } from "../testing/render";
@@ -8,6 +8,8 @@ import { flush, render } from "../testing/render";
 vi.mock("../api/client", () => ({
   deleteSpark: vi.fn(),
   fetchSparks: vi.fn(),
+  installSparkAttic: vi.fn(),
+  fetchAtticInstallFlags: vi.fn(() => Promise.resolve({ passwordAllowed: true, plainPasswordAllowed: false })),
   setSparkPassword: vi.fn(),
   testSpark: vi.fn(),
   testSparkConfig: vi.fn(),
@@ -55,6 +57,55 @@ describe("EditSparkDialog SSH port", () => {
     vi.mocked(updateSpark).mockResolvedValue({ success: true, spark });
   });
   afterEach(() => vi.unstubAllGlobals());
+
+  it("opens spark-attic help without changing monitoring", async () => {
+    render(<EditSparkDialog open sparkId="lab" onClose={() => {}} onSaved={() => {}} />);
+    await flush();
+    const button = document.querySelector<HTMLButtonElement>('button[aria-controls="attic-monitoring-help"]')!;
+    const checkbox = Array.from(document.querySelectorAll("label")).find((label) => label.textContent?.includes("spark-attic"))?.querySelector<HTMLInputElement>('input[type="checkbox"]');
+    expect(checkbox?.checked).toBe(false);
+    expect(document.getElementById("attic-monitoring-help")).toBeNull();
+    await act(async () => button.click());
+    expect(button.getAttribute("aria-expanded")).toBe("true");
+    expect(document.getElementById("attic-monitoring-help")?.textContent).toContain("status.json");
+    expect(checkbox?.checked).toBe(false);
+    await act(async () => button.click());
+    expect(document.getElementById("attic-monitoring-help")).toBeNull();
+  });
+
+  it("confirms installation when enabling spark-attic and does not install if declined", async () => {
+    const confirmation = vi.spyOn(window, "confirm").mockReturnValue(false);
+    vi.mocked(installSparkAttic).mockReset();
+    vi.mocked(updateSpark).mockClear();
+    render(<EditSparkDialog open sparkId="lab" onClose={() => {}} onSaved={() => {}} />);
+    await flush();
+    const checkbox = Array.from(document.querySelectorAll("label")).find((label) => label.textContent?.includes("spark-attic"))!.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    await act(async () => checkbox.click());
+    const save = Array.from(document.querySelectorAll("button")).find((button) => button.textContent === "Save")!;
+    await act(async () => save.click());
+    expect(confirmation).toHaveBeenCalledWith(expect.stringContaining("stop its graphical desktop"));
+    expect(updateSpark).not.toHaveBeenCalled();
+    expect(installSparkAttic).not.toHaveBeenCalled();
+    confirmation.mockReturnValue(true);
+    vi.mocked(installSparkAttic).mockResolvedValue({ success: true });
+    await act(async () => save.click());
+    expect(updateSpark).toHaveBeenCalledWith("lab", expect.objectContaining({ atticMonitoring: true }));
+    expect(installSparkAttic).toHaveBeenCalledWith("lab", undefined);
+    confirmation.mockRestore();
+  });
+
+  it("offers a confirmed retry for an already monitored Spark and shows failure", async () => {
+    vi.mocked(fetchSparks).mockResolvedValue({ sparks: [{ ...spark, atticMonitoring: true }] });
+    vi.mocked(installSparkAttic).mockRejectedValueOnce(new Error("sudo refused"));
+    const confirmation = vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<EditSparkDialog open sparkId="lab" onClose={() => {}} onSaved={() => {}} />);
+    await flush();
+    const retry = Array.from(document.querySelectorAll("button")).find((button) => button.textContent === "Install or retry spark-attic")!;
+    await act(async () => retry.click());
+    expect(installSparkAttic).toHaveBeenCalledWith("lab", undefined);
+    expect(document.body.textContent).toContain("sudo refused");
+    confirmation.mockRestore();
+  });
 
   it("offers the power limit on Linux GPU hosts and the clock cap on Sparks, and neither on Windows", async () => {
     const opened = async (config: Partial<SparkConfig>) => {

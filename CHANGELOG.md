@@ -9,8 +9,17 @@ Format: version sections are listed newest first.
 
 ## [Unreleased]
 
+## [2.90.1] — 2026-11-17
+
 ### Added
-- **spark-attic card: spare GPU memory (opt-in).** [spark-attic](https://github.com/bertholomus/spark-attic)'s atticd lends a GB10's display carveout to CUDA programs. With **Display carveout** ticked in Edit Spark (default off; Linux Sparks only), sparkDash reads atticd's keyless status file `/run/spark-attic/status.json` and `attic.service`'s state over the unit's existing SSH path, as the SSH user with no root and no new port, and shows what spark-attic does: not installed, off, refusing (and why), driver not yet validated, or lending N of the carveout's MiB, with MiB free and in the largest free block, clients, mode, and the driver and whether it is validated. A status file older than three of its own rewrite periods reads stale with no numbers, an unreadable one reads unreadable, and with no status file the card needs systemd's word for off or not installed; anything else reads unknown, with the reason. English and Simplified Chinese. When the setting is off, no probe exists and nothing runs on the unit.
+- Install [spark-attic](https://github.com/bertholomus/spark-attic) by bertholomus on supported Sparks after confirmation. The installer supports sudo and warns before stopping an active graphical desktop; an existing monitoring setup can retry installation.
+
+- **spark-attic card: spare GPU memory (opt-in).** [spark-attic](https://github.com/bertholomus/spark-attic)'s atticd lends a GB10's display carveout to CUDA programs. With **spark-attic** ticked in Edit Spark (default off; Linux Sparks only), sparkDash reads atticd's keyless status file `/run/spark-attic/status.json` and `attic.service`'s state over the unit's existing SSH path, as the SSH user with no root and no new port, and shows what spark-attic does: not installed, off, refusing (and why), driver not yet validated, or lending N of the carveout's MiB, with MiB free and in the largest free block, clients, mode, and the driver and whether it is validated. A status file older than three of its own rewrite periods reads stale with no numbers, an unreadable one reads unreadable, and with no status file the card needs systemd's word for off or not installed; anything else reads unknown, with the reason. English and Simplified Chinese. When the setting is off, the probe does not run.
+
+### Fixed
+- Build the replacement image before recreating the service, retry the Node base image from Docker Hub if the default registry fails, and refresh the host-mounted frontend bundle from the image.
+- Make the spark-attic help control accessible by click or keyboard without toggling monitoring.
+
 
 ## [2.90.0] — 2026-11-12
 

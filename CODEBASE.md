@@ -20,6 +20,7 @@ The package uses ESM throughout. `server/index.js` runs directly in Node and cre
 | `server/llmlaunch/`, `server/tooleval/`, `server/gpuclock/` | Model launcher jobs, tool evaluation, GPU-clock management and per-card power limits on GPU hosts (`gpuclock/powerCommands.js`) |
 | `server/prices/` | Opt-in hosted-model price catalog and offline cache |
 | `server/apiKeys/`, `scripts/apikeys-bridge/` | Opt-in read-only API Keys views and the reference host bridge they call over a unix socket |
+| `server/attic/` | Confirmed spark-attic installation on Linux Sparks using a pinned installer and sudo; status collection remains in `collectors/AtticProbe.js` |
 | `server/storage/` | Storage Manager: disk scans, Docker images, deletes. Shell programs in `scripts/`, path safety in `policy.js`, execution contexts (ssh / native-local / container-local) and the per-feature `supports()` table in `context.js`, what may start (one job per Spark, two scans per fleet) in `admission.js`, scan stop and reconcile rules in `scanJob.js` (unit-side lock and job records in `scripts/unit-state.sh`, stop in `scripts/job.sh`), the delete advisor's rules and known-place table in `advice.js` (pure; evidence from the read-only `scripts/advise.sh`, parsed by `parseAdviseOutput` in `commands.js`), routes under `/api/sparks/:id/storage` |
 | `src/api/` | API clients and browser-facing data types |
 | `src/hooks/` | Snapshot subscription, metric history and UI hooks |
