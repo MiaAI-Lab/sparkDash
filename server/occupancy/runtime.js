@@ -16,8 +16,8 @@ export function createOccupancyRuntime({ listSparks } = {}) {
     async stop() {
       await poller.stop();
     },
-    projection() {
-      return poller.projection();
+    projection(snapshots) {
+      return poller.projection(snapshots);
     },
     register(app) {
       registerOccupancyRoutes(app, { poller, listSparks });

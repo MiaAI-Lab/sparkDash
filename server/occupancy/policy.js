@@ -2,6 +2,7 @@ import dns from "node:dns/promises";
 import { assertAllowedTarget } from "../validate.js";
 import { fetchPinned } from "./pinnedFetch.js";
 import { ACP_HARNESS_IDS, COVERAGE, HARNESS_IDS } from "./catalog.js";
+import { normalizePiRow } from "./piSchema.js";
 
 const ACP = new Set(ACP_HARNESS_IDS);
 const ROW_CAP = 500;
@@ -109,7 +110,7 @@ export function normalizeOccupancyPayload(body) {
       if (index >= bucket.length) continue;
       taken.set(id, index + 1);
       advanced = true;
-      const row = normalizeRow(bucket[index]);
+      const row = normalizeRow(bucket[index], body.observedAt);
       if (row) rows.push(row);
     }
     if (!advanced) break;
@@ -127,10 +128,40 @@ export function normalizeOccupancyPayload(body) {
   };
 }
 
-function normalizeRow(raw) {
+function normalizeRow(raw, now = Date.now()) {
   if (!raw || typeof raw !== "object") return null;
   const harness = String(raw.harness || "");
   if (!HARNESS_IDS.includes(harness)) return null;
+  // Pi has its own pinned schema. Generic activity and origin fields are
+  // discarded rather than trusted, and an invalid Pi row is dropped.
+  if (harness === "pi") {
+    const pi = normalizePiRow(raw, now);
+    if (!pi) return null;
+    return {
+      harness: "pi",
+      sessionId: pi.sessionId,
+      title: pi.title,
+      cwd: pi.cwd,
+      updatedAt: pi.updatedAt,
+      activity: "unknown",
+      activityProvenance: "none",
+      origin: null,
+      originProvenance: "none",
+      contextUsed: null,
+      contextWindow: null,
+      contextApprox: false,
+      agent: "",
+      publisherId: pi.publisherId,
+      sequence: pi.sequence,
+      selection: pi.selection,
+      requestDestination: pi.requestDestination,
+      destinationEvidence: pi.destinationEvidence,
+      phase: pi.phase,
+      requestOpen: pi.requestOpen,
+      lastDeltaAt: pi.lastDeltaAt,
+      lastSeenAt: pi.lastSeenAt,
+    };
+  }
   const sessionId = String(raw.sessionId || "").trim();
   if (!sessionId || sessionId.length > 200) return null;
   const title = typeof raw.title === "string" ? raw.title.trim().slice(0, 200) : "";

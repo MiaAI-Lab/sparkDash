@@ -1181,7 +1181,7 @@ Gear icon in the header, or `GET`/`PUT` `/api/settings`:
 
 ### Harness sessions
 
-Each LLM card can list sessions from OpenClaw, OpenCode, oh-my-pi, Hermes and DeepSeek Harness. One occupancy helper runs on the machine that has those tools. The dashboard does not open an ACP connection per session and does not spawn a bridge per poll. It stores the helper URL and bearer token, then reads that helper's cache.
+Each LLM card can list sessions from OpenClaw, OpenCode, oh-my-pi, Hermes, DeepSeek Harness and Pi. One occupancy helper runs on the machine that has those tools. The dashboard does not open an ACP connection per session and does not spawn a bridge per poll. It stores the helper URL and bearer token, then reads that helper's cache.
 
 Open the wizard from **Settings → Harness sessions**, the command palette (**Set up harness sessions**), or **+ Harness** on an empty LLM card. Pick the harnesses, the helper URL and token, and a route for each harness (Spark, port, optional directory prefix). **Check connection** reports coverage and a session count. It does not show session titles, install packages, or start an agent. If the helper rejects the token, the wizard says so. That response does not open the dashboard's own access-token dialog.
 
@@ -1190,11 +1190,13 @@ On the helper machine:
 ```bash
 OCCUPANCY_BIND=127.0.0.1 \
 OCCUPANCY_TOKEN="$(openssl rand -hex 32)" \
-OCCUPANCY_ADAPTERS=openclaw,opencode,omp,hermes,dsh \
+OCCUPANCY_ADAPTERS=openclaw,opencode,omp,hermes,dsh,pi \
 node scripts/occupancy-helper/index.js
 ```
 
-`OCCUPANCY_ADAPTERS` lists only the harnesses you enabled. Hermes reads `HERMES_STATE_DIR` (it does not launch `hermes-acp`, because that list path can write). DeepSeek Harness reads `DSH_WEB_URL` (default `http://127.0.0.1:3080`). A helper bound to anything other than loopback requires `OCCUPANCY_TOKEN`, and it refuses `0.0.0.0` and `::`. A helper hostname that is not loopback must be listed in `SPARKDASH_HELPER_HOSTS`.
+`OCCUPANCY_ADAPTERS` lists only the harnesses you enabled. Hermes reads `HERMES_STATE_DIR` (it does not launch `hermes-acp`, because that list path can write). DeepSeek Harness reads `DSH_WEB_URL` (default `http://127.0.0.1:3080`). Pi reads `$XDG_RUNTIME_DIR/pi-sparkdash-occupancy` (override with `OCCUPANCY_PI_STATE_DIR`). A helper bound to anything other than loopback requires `OCCUPANCY_TOKEN`, and it refuses `0.0.0.0` and `::`. A helper hostname that is not loopback must be listed in `SPARKDASH_HELPER_HOSTS`.
+
+Pi is native: install the optional extension in [`agents/pi`](agents/pi/README.md) in Pi, and the helper reads the metadata files it writes. Pi has no folder route. A session is placed on a card only when the request it is making goes to that card's endpoint: the base URL's host and port must be the Spark and LLM port the card monitors, and the model must be the model that card reports. A session using a cloud model, or a local endpoint sparkDash does not monitor, stays off the cards. A file left by a crashed Pi process stops counting after two minutes.
 
 A missing ACP command marks that adapter unavailable while the helper keeps serving its cache. Adapter subprocesses keep their harness configuration but do not receive `OCCUPANCY_TOKEN`. ACP stdout frames are capped at 2,000,000 bytes, including unfinished lines; exceeding the cap closes that bridge and retains any previous rows as stale. Diagnostic RPC history retains only the latest 64 method names.
 
@@ -1204,7 +1206,7 @@ DSH refreshes have one 8-second budget for headers, bodies and optional model lo
 
 Each dashboard helper request has an 8-second deadline, including its response body. Disconnects, oversized responses and malformed occupancy replies fail that helper's refresh. Replies must carry the helper's existing version-1 envelope (`schemaVersion`, numeric `observedAt`, `adapters`, and `rows`). Dashboard snapshots use cached helper configuration; a corrupt config keeps the last valid configuration until repaired, logs a warning, and cannot be overwritten through helper mutations.
 
-ACP rows are metadata only: they can look recent, and they are never labeled Generating or Stalled. Those labels are reserved for Hermes and DeepSeek Harness when the adapter itself reports a running session. A row with no timestamp stays in the list and stays unlabeled. Sessions with no matching route stay off the cards.
+ACP rows are metadata only: they can look recent, and they are never labeled Generating or Stalled. Those labels are reserved for Hermes and DeepSeek Harness when the adapter itself reports a running session, and for Pi when an open, matched request has produced a recognised delta within ten seconds. A row with no timestamp stays in the list and stays unlabeled. Sessions with no matching route stay off the cards.
 
 ### Environment variables
 

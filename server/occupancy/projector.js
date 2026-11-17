@@ -1,5 +1,7 @@
 import { OCCUPANCY_AGE_DEFAULT_MS } from "../settings.js";
+import { llmProbeHost } from "../collectors/llmHost.js";
 import { ACP_HARNESS_IDS, HARNESS_IDS } from "./catalog.js";
+import { PI_EXPIRE_MS, PI_GENERATION_MS, PI_STALE_MS, baseUrlEndpoint } from "./piSchema.js";
 
 const ACP = new Set(ACP_HARNESS_IDS);
 
@@ -8,11 +10,12 @@ const LIST_CAP = 20;
 /**
  * Assign helper rows onto Spark LLM ports.
  * ACP metadata never becomes "generating" or "stalled". A row with no explicit
- * route and no native endpoint stays unmapped.
+ * route and no native endpoint stays unmapped. Pi is placed only by its request
+ * destination, matched against the endpoint the card monitors.
  *
  * @returns {{ bySpark: Record<string, Record<string, object[]>>, unmapped: number }}
  */
-export function projectOccupancy({ helpers, caches, sparks, now, maxAgeMs }) {
+export function projectOccupancy({ helpers, caches, sparks, now, maxAgeMs, endpoints }) {
   const age = finiteAge(maxAgeMs);
   const list = Array.isArray(sparks) ? sparks : [];
   /** @type {Record<string, Record<string, object[]>>} */
@@ -24,14 +27,15 @@ export function projectOccupancy({ helpers, caches, sparks, now, maxAgeMs }) {
     if (!payload || !Array.isArray(payload.rows)) continue;
     for (const row of payload.rows) {
       if (!fresh(row, now, age)) continue;
-      const target = assignRow(row, helper, list);
+      if (row.harness === "pi" && !piLive(row, now)) continue;
+      const target = assignRow(row, helper, list, endpoints);
       if (!target) {
         unmapped += 1;
         continue;
       }
       const port = String(target.port);
       const bucket = (bySpark[target.sparkId] ??= {});
-      (bucket[port] ??= []).push(toConversation(helper, row, payload, target));
+      (bucket[port] ??= []).push(toConversation(helper, row, payload, { ...target, now }));
     }
   }
   for (const sparkId of Object.keys(bySpark)) {
@@ -60,7 +64,11 @@ function timestamp(row) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function assignRow(row, helper, sparks) {
+function assignRow(row, helper, sparks, endpoints) {
+  // Pi never uses saved routes or generic native-origin matching: only the
+  // request destination can place it, so a cloud session in the same folder
+  // stays off the Spark card.
+  if (row.harness === "pi") return assignPi(row, sparks, endpoints);
   const routes = (helper.routes || []).filter((route) => route && route.harness === row.harness);
   const cwd = row.cwd || "";
   const prefixed = routes
@@ -83,11 +91,82 @@ function assignRow(row, helper, sparks) {
   return null;
 }
 
+/**
+ * The live LLM entries each card monitors, keyed by Spark id. A Pi destination
+ * is matched against these, so a port alone is not enough: the card must also
+ * report the model the session asked for.
+ */
+export function llmEndpoints(snapshots) {
+  const out = {};
+  for (const snap of Array.isArray(snapshots) ? snapshots : []) {
+    if (!snap?.id) continue;
+    out[snap.id] = (snap.metrics?.llm || []).map((entry) => ({
+      port: Number(entry.port),
+      modelId: typeof entry.modelId === "string" ? entry.modelId : null,
+      models: Array.isArray(entry.models) ? entry.models.filter((model) => typeof model === "string") : [],
+    }));
+  }
+  return out;
+}
+
+function endpointsFor(endpoints, sparkId) {
+  if (endpoints instanceof Map) return endpoints.get(sparkId) || [];
+  return endpoints?.[sparkId] || [];
+}
+
+function assignPi(row, sparks, endpoints) {
+  if (row.destinationEvidence !== "provider-matched" || !row.requestDestination) return null;
+  const destination = row.requestDestination;
+  const endpoint = baseUrlEndpoint(destination.baseUrl);
+  if (!endpoint) return null;
+  const spark = sparks.find(
+    (item) => item?.id && monitoredHostMatches(item, endpoint.host) && listenPorts(item).has(endpoint.port)
+  );
+  if (!spark) return null;
+  const served = endpointsFor(endpoints, spark.id).find((entry) => entry.port === endpoint.port);
+  if (!served) return null;
+  const models = served.models.length > 0 ? served.models : served.modelId ? [served.modelId] : [];
+  if (!models.includes(destination.model)) return null;
+  return { sparkId: spark.id, port: endpoint.port, provenance: "pi-destination" };
+}
+
+/** Pi rows expire on their own clocks, independent of cache or poll freshness. */
+function piLive(row, now) {
+  const seen = row.lastSeenAt;
+  return Number.isFinite(seen) && now - seen <= PI_EXPIRE_MS;
+}
+
+function piStale(row, now) {
+  const seen = row.lastSeenAt;
+  return !Number.isFinite(seen) || now - seen > PI_STALE_MS;
+}
+
+function piBadge(row, now, helperStale) {
+  if (helperStale || piStale(row, now)) return "unknown";
+  // Tools, requesting, idle and unknown phases are never a GPU-generation claim.
+  if (row.phase !== "receiving") return "unknown";
+  if (!row.requestOpen || row.destinationEvidence !== "provider-matched" || !row.requestDestination) return "unknown";
+  if (!Number.isFinite(row.lastDeltaAt)) return "unknown";
+  return now - row.lastDeltaAt <= PI_GENERATION_MS ? "generating" : "unknown";
+}
+
 function hostMatches(spark, host) {
   const want = normalizeHost(host);
   if (!want) return false;
   const candidates = [spark.lanIp, spark.name, spark.ssh?.host, ...(spark.occupancyHosts || [])];
   return candidates.some((value) => normalizeHost(value) === want);
+}
+
+/**
+ * A Pi destination must name the host the card's LLM probe actually talks to.
+ * A pinned `llmHost` is a different machine from the SSH host, and a local
+ * Spark is probed on loopback, so the origin aliases above would place a
+ * session on a card that never sees its traffic.
+ */
+function monitoredHostMatches(spark, host) {
+  const want = normalizeHost(host);
+  if (!want) return false;
+  return normalizeHost(llmProbeHost(spark)) === want;
 }
 
 function listenPorts(spark) {
@@ -103,6 +182,7 @@ function normalizeHost(value) {
   if (value == null) return "";
   let host = String(value).trim().toLowerCase();
   if (host.startsWith("[") && host.endsWith("]")) host = host.slice(1, -1);
+  if (host === "localhost" || host === "::1") host = "127.0.0.1";
   return host;
 }
 
@@ -115,10 +195,10 @@ function toConversation(helper, row, payload, target) {
     id: `${helper.id}:${row.harness}:${row.sessionId}`,
     source: row.harness,
     handle,
-    badge: badgeFor(row),
+    badge: row.harness === "pi" ? piBadge(row, target.now, stale) : badgeFor(row),
     port: target.port,
     routingProvenance: target.provenance,
-    stale,
+    stale: row.harness === "pi" ? stale || piStale(row, target.now) : stale,
   };
   if (lastUsedAt != null) projected.lastUsedAt = lastUsedAt;
   if (row.agent) projected.agent = row.agent;
