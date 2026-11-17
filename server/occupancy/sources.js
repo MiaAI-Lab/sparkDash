@@ -74,7 +74,9 @@ function normalizeStored(raw) {
     url,
     enabled: raw.enabled !== false,
     harnesses: uniqueHarnesses(raw.harnesses),
-    routes: normalizeRoutes(raw.routes),
+    // Pi is placed by its request destination, never by a saved route. A file
+    // written by an older build must not fail unrelated edits.
+    routes: normalizeRoutes(raw.routes).filter((route) => route.harness !== "pi"),
   };
 }
 
@@ -156,6 +158,7 @@ function normalizeReplacement(input, current, sparks) {
     const harnesses = uniqueHarnesses(raw.harnesses ?? previous?.harnesses ?? []);
     if (harnesses.length === 0) throw status(400, "Pick at least one harness");
     const routes = normalizeRoutes(raw.routes ?? [], { strict: true, harnesses, sparkIds, sparkPorts });
+    if (routes.some((route) => route.harness === "pi")) throw status(400, "Pi routes are not supported");
     const label = typeof raw.label === "string" ? raw.label.trim().slice(0, 80) : previous?.label || "";
     return {
       id,
