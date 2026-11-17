@@ -184,6 +184,22 @@ export async function readServerGenerationTokens(baseUrl, opts = {}) {
     /* try next */
   }
 
+  // ignis (gpillon/ignis) serves its Prometheus text at /ui/metrics on the API port;
+  // ignis_decoded_tokens_total counts each token as it is emitted.
+  try {
+    const res = await fetch(`${baseUrl}/ui/metrics`, {
+      signal: AbortSignal.timeout(5_000),
+      headers,
+    });
+    if (res.ok) {
+      const m = /^ignis_decoded_tokens_total(?:\{[^}]*\})?\s+([\d.eE+-]+)\s*$/m.exec(await res.text());
+      const v = m ? parseFloat(m[1]) : NaN;
+      if (Number.isFinite(v)) return v;
+    }
+  } catch {
+    /* try next */
+  }
+
   // EXL3 serve_openai.py / TensorFold — cumulative completion tokens on /health
   try {
     const res = await fetch(`${baseUrl}/health`, {
