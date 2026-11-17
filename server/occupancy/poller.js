@@ -1,7 +1,7 @@
 import { loadHelpers } from "./sources.js";
 import { loadHelperTokens } from "../secretsStore.js";
 import { fetchHelper, helperAllowlist } from "./policy.js";
-import { projectOccupancy } from "./projector.js";
+import { projectOccupancy, llmEndpoints } from "./projector.js";
 
 const DEFAULT_INTERVAL_MS = 15_000;
 
@@ -132,13 +132,14 @@ export function createOccupancyPoller({
     if (timer) void tick();
   }
 
-  function projection() {
+  function projection(snapshots = []) {
     return projectOccupancy({
       helpers,
       caches,
       sparks: listSparks(),
       now: now(),
       maxAgeMs: maxAgeMs(),
+      endpoints: llmEndpoints(snapshots),
     });
   }
 
