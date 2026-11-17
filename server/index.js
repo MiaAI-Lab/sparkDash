@@ -2448,7 +2448,15 @@ app.post("/api/sparks/shutdown-all", async (_req, res) => {
         try {
           await checkLocalShutdown();
         } catch (err) {
-          results.push({ id: spark.id, ok: false, error: err.message || String(err) });
+          const msg = err.message || String(err);
+          results.push({ id: spark.id, ok: false, error: msg });
+          recordEvent({
+            type: "power.shutdown",
+            severity: "error",
+            sparkId: spark.id,
+            sparkName: spark.name,
+            message: `Shutdown failed for ${spark.name || spark.id}: ${msg}`,
+          });
           continue;
         }
         results.push({ id: spark.id, ok: true, message: "Shutdown initiated" });
@@ -2462,7 +2470,15 @@ app.post("/api/sparks/shutdown-all", async (_req, res) => {
       await initiateSparkShutdown(spark);
       results.push({ id: spark.id, ok: true });
     } catch (err) {
-      results.push({ id: spark.id, ok: false, error: err.message || String(err) });
+      const msg = err.message || String(err);
+      results.push({ id: spark.id, ok: false, error: msg });
+      recordEvent({
+        type: "power.shutdown",
+        severity: "error",
+        sparkId: spark.id,
+        sparkName: spark.name,
+        message: `Shutdown failed for ${spark.name || spark.id}: ${msg}`,
+      });
     }
   }
   res.json({ success: true, results });
@@ -2515,6 +2531,13 @@ app.post("/api/sparks/:id/shutdown", async (req, res) => {
         await checkLocalShutdown();
       } catch (err) {
         const msg = err.message || String(err);
+        recordEvent({
+          type: "power.shutdown",
+          severity: "error",
+          sparkId: spark.id,
+          sparkName: spark.name,
+          message: `Shutdown failed for ${spark.name || spark.id}: ${msg}`,
+        });
         return res.status(shutdownErrorStatus(msg)).json({ error: msg });
       }
       res.json({ success: true, message: "Shutdown initiated" });
@@ -2531,6 +2554,13 @@ app.post("/api/sparks/:id/shutdown", async (req, res) => {
       res.json({ success: true, message, output: message });
     } catch (err) {
       const msg = err.message || String(err);
+      recordEvent({
+        type: "power.shutdown",
+        severity: "error",
+        sparkId: spark.id,
+        sparkName: spark.name,
+        message: `Shutdown failed for ${spark.name || spark.id}: ${msg}`,
+      });
       res.status(shutdownErrorStatus(msg)).json({
         error: shutdownErrorStatus(msg) === 503 ? `Spark unreachable: ${msg}` : msg,
       });

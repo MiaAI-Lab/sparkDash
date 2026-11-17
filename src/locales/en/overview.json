@@ -67,6 +67,8 @@
     "skipped_other": "{{count}} skipped",
     "failed_one": "{{count}} failed",
     "failed_other": "{{count}} failed",
+    "moreFailures_one": "+{{count}} more",
+    "moreFailures_other": "+{{count}} more",
     "hermesFailed": "Batch hermes update failed",
     "wakeFailed": "Batch wake failed",
     "shutdownFailed": "Batch shutdown failed",

@@ -13,6 +13,8 @@ Format: version sections are listed newest first.
 - Show an Installed badge in Edit Spark when the spark-attic service is detected.
 
 ### Fixed
+- Name each unit and its reason when a batch shutdown fails ("SparkOne: missing /usr/local/bin/spark-shutdown" after "0 shut down, 2 failed"): the first three reasons show inline, the rest collapse into "+N more", and the full list is on hover. Failed shutdown attempts — batch and single-unit — are now recorded in the activity log, so a power-off that did not happen leaves a trace.
+
 - Show installation success and failure beside the install button, including CUDA_ERROR_OUT_OF_MEMORY when validation detects it.
 
 - Show the spark-attic install button before monitoring is saved, and enable it as soon as the option is checked. Installation enables monitoring after confirmation.
