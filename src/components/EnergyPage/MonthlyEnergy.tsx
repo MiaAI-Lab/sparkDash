@@ -169,7 +169,10 @@ function MonthView({
         <div><span className="eyebrow">{t("energy.energy")}</span><b className="mono">{formatKwh(kwh)} {t("energy.kwh")}</b></div>
         <div><span className="eyebrow">{t("energy.cost")}</span><b className="mono">{cost != null ? formatMoney(cost, currency) : "—"}</b></div>
         <div>
-          <span className="eyebrow">{t("energy.efficiency")}</span>
+          <span className="eyebrow flex items-center gap-1.5">
+            {t("energy.efficiency")}
+            <Tag tone="neutral">{t("energy.lowerIsBetter")}</Tag>
+          </span>
           <b className="mono">{eff != null ? t("energy.efficiencyValue", { value: eff < 10 ? eff.toFixed(2) : eff.toFixed(1) }) : "—"}</b>
         </div>
         <div><span className="eyebrow">{t("energy.fleetCoverage")}</span><b className="mono">{pct(fleetCoverage(month, now))}</b></div>

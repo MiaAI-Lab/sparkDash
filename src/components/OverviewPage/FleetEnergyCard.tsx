@@ -1,5 +1,6 @@
 import { RestartButton } from "../ui/RestartButton";
 import { AppLink } from "../ui/AppLink";
+import { Tag } from "../ui/Tag";
 import { ENERGY_ID, idToPath } from "../../constants";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -139,7 +140,7 @@ export function FleetEnergyCard({
       <dl className="ov-stats">
         <div><dt>{t("energy.current")}</dt><dd className="mono">{number(view?.currentWatts30s ?? null, 0)} W</dd></div>
         <div><dt>{t("energy.days", { count: 31 })}</dt><dd className="mono">{number(view?.energy31dKwh ?? null)} kWh</dd></div>
-        <div><dt>{t("energy.efficiency")}</dt><dd className="mono">{significant(view?.whPerOutputToken24h ?? null)} Wh/token</dd></div>
+        <div><dt className="flex items-center gap-1.5">{t("energy.efficiency")} <Tag tone="neutral">{t("energy.lowerIsBetter")}</Tag></dt><dd className="mono">{significant(view?.whPerOutputToken24h ?? null)} Wh/token</dd></div>
       </dl>
     </section>
   );
