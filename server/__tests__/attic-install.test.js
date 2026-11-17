@@ -70,3 +70,36 @@ test('status distinguishes an installed service from missing and unknown results
   result = { available: false, atticd: { present: null } };
   assert.deepEqual(await call(), { installed: null });
 });
+
+test('local installer surfaces failed full-check details ahead of routine preflight output', async () => {
+  const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { spawnSync } = await import('node:child_process');
+  const dir = mkdtempSync(join(tmpdir(), 'attic-error-'));
+  try {
+    const script = (name, content) => writeFileSync(join(dir, name), `#!/bin/sh\n${content}\n`, { mode: 0o755 });
+    script('id', 'echo 0');
+    script('systemctl', 'exit 1');
+    script('curl', 'while [ "$1" != "-o" ]; do shift; done; shift; : > "$1"');
+    script('sha256sum', 'exit 0');
+    script('bash', 'case "$*" in *--check*) printf "ok routine preflight\\n"; exit 0;; *) echo "FAIL validation"; exit 1;; esac');
+    script('find', 'printf \'%s\\n\' \'{"full":{"pass":false,"size":532676608,"why":""}}\'');
+    const product = join(dir, 'product-name');
+    const program = INSTALL_PROGRAM.replace('/sys/class/dmi/id/product_name', product);
+    writeFileSync(product, 'Other GB10');
+    const run = () => spawnSync('sh', ['-c', program], {
+      env: { ...process.env, PATH: `${dir}:${process.env.PATH}` }, encoding: 'utf8',
+    });
+    const out = run();
+    assert.notEqual(out.status, 0);
+    assert.match(out.stderr, /full carveout memory check failed \(available carveout: 508 MiB\)/);
+    assert.doesNotMatch(out.stderr, /ok routine preflight/);
+    writeFileSync(product, 'NVIDIA_DGX_Spark');
+    const founders = run();
+    assert.notEqual(founders.status, 0);
+    assert.match(founders.stderr, /A Founders Edition DGX Spark has been detected\. The display memory reserve is already disabled through BIOS\./);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

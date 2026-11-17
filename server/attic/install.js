@@ -25,14 +25,34 @@ else
 fi
 # Check the host before stopping any desktop session. The artifact-dependent
 # display check happens in the installer after the display manager is stopped.
-as_root bash "$tmp/install.sh" --check --plain 1>&2
+if ! as_root bash "$tmp/install.sh" --check --plain >"$tmp/preflight-output" 2>&1; then
+  sed -n '/^[[:space:]]*FAIL /,+1p' "$tmp/preflight-output" >&2
+  tail -n 4 "$tmp/preflight-output" >&2
+  exit 1
+fi
 if systemctl is-active --quiet display-manager.service; then
   as_root systemctl stop display-manager.service || { echo 'Could not stop the display manager' >&2; exit 1; }
 fi
 touch "$tmp/install-started"
 if ! as_root bash "$tmp/install.sh" --plain >"$tmp/install-output" 2>&1; then
-  if as_root sh -c 'find /var/log/spark-attic -maxdepth 2 -name check-heap.json -newer "$1" -exec grep -l CUDA_ERROR_OUT_OF_MEMORY {} + 2>/dev/null | grep -q .' sh "$tmp/install-started"; then
+  report=$(as_root sh -c 'find /var/log/spark-attic -maxdepth 2 -name check-heap.json -newer "$1" -exec cat {} + 2>/dev/null' sh "$tmp/install-started" || true)
+  if printf '%s' "$report" | grep -q CUDA_ERROR_OUT_OF_MEMORY; then
     echo 'Validation failed: CUDA_ERROR_OUT_OF_MEMORY. Stop or reduce GPU workloads and retry.' >&2
+  elif printf '%s' "$report" | grep -q '"full":{"pass":false'; then
+    size=$(printf '%s' "$report" | sed -n 's/.*"full":{"pass":false,"size":\\([0-9][0-9]*\\).*/\\1/p')
+    case "$size" in
+      ''|*[!0-9]*) echo 'Validation failed: the full carveout memory check failed. See the spark-attic validation report on the Spark.' >&2 ;;
+      *)
+        model=$(cat /sys/class/dmi/id/product_name 2>/dev/null || true)
+        if [ "$model" = NVIDIA_DGX_Spark ] && [ "$size" -le 536870912 ]; then
+          echo 'A Founders Edition DGX Spark has been detected. The display memory reserve is already disabled through BIOS.' >&2
+        else
+          echo "Validation failed: the full carveout memory check failed (available carveout: $((size / 1048576)) MiB). See the spark-attic validation report on the Spark." >&2
+        fi ;;
+
+    esac
+  else
+    echo 'spark-attic validation or installation failed; see the output below.' >&2
   fi
   tail -n 12 "$tmp/install-output" >&2
   exit 1
