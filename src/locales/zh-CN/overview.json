@@ -80,6 +80,8 @@
     "skipped_other": "已跳过 {{count}} 个",
     "failed_one": "{{count}} 个失败",
     "failed_other": "{{count}} 个失败",
+    "moreFailures_one": "还有 {{count}} 条",
+    "moreFailures_other": "还有 {{count}} 条",
     "hermesUpdateAvailable_one": "{{count}} 台 Spark 有可用 Hermes 更新",
     "hermesUpdateAvailable_other": "{{count}} 台 Spark 有可用 Hermes 更新"
   },

@@ -9,6 +9,9 @@ Format: version sections are listed newest first.
 
 ## [Unreleased]
 
+### Fixed
+- Name each unit and its reason when a batch shutdown fails ("SparkOne: missing /usr/local/bin/spark-shutdown" after "0 shut down, 2 failed"): the first three reasons show inline, the rest collapse into "+N more", and the full list is on hover. Failed shutdown attempts — batch and single-unit — are now recorded in the activity log, so a power-off that did not happen leaves a trace.
+
 ## [2.91.0] — 2026-11-22
 
 ### Changed
