@@ -9,7 +9,12 @@ Format: version sections are listed newest first.
 
 ## [Unreleased]
 
+### Added
+- Show an Installed badge in Edit Spark when the spark-attic service is detected.
+
 ### Fixed
+- Show installation success and failure beside the install button, including CUDA_ERROR_OUT_OF_MEMORY when validation detects it.
+
 - Show the spark-attic install button before monitoring is saved, and enable it as soon as the option is checked. Installation enables monitoring after confirmation.
 
 ## [2.90.1] — 2026-11-17

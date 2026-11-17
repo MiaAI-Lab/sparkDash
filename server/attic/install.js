@@ -1,4 +1,5 @@
 import { runProgram } from "../gpuclock/GpuClockManager.js";
+import { AtticProbe } from "../collectors/AtticProbe.js";
 import { parseSudoPassword } from "../gpuclock/commands.js";
 import { passwordAllowed } from "../gpuclock/routes.js";
 import { SudoPasswordGuard } from "../util/sudoPasswordGuard.js";
@@ -28,16 +29,35 @@ as_root bash "$tmp/install.sh" --check --plain 1>&2
 if systemctl is-active --quiet display-manager.service; then
   as_root systemctl stop display-manager.service || { echo 'Could not stop the display manager' >&2; exit 1; }
 fi
-as_root bash "$tmp/install.sh" --plain 1>&2
+touch "$tmp/install-started"
+if ! as_root bash "$tmp/install.sh" --plain >"$tmp/install-output" 2>&1; then
+  if as_root sh -c 'find /var/log/spark-attic -maxdepth 2 -name check-heap.json -newer "$1" -exec grep -l CUDA_ERROR_OUT_OF_MEMORY {} + 2>/dev/null | grep -q .' sh "$tmp/install-started"; then
+    echo 'Validation failed: CUDA_ERROR_OUT_OF_MEMORY. Stop or reduce GPU workloads and retry.' >&2
+  fi
+  tail -n 12 "$tmp/install-output" >&2
+  exit 1
+fi
 systemctl is-active --quiet attic.service || { echo 'Installer completed but attic.service is not active' >&2; exit 1; }
 `;
 
-export function registerAtticInstallRoute(app, { registry, allowChange, rejectLimited, allowPlainPassword = () => false, run = runProgram }) {
+export function registerAtticInstallRoute(app, { registry, allowChange, rejectLimited, allowRead = () => true, allowPlainPassword = () => false, run = runProgram, probe = (spark) => new AtticProbe(spark).probe() }) {
   const guard = new SudoPasswordGuard();
   const running = new Set();
   app.get("/api/sparks/:id/attic/install", (req, res) => {
     if (!registry.getSpark(req.params.id)) return res.status(404).json({ error: "Spark not found" });
     res.json({ passwordAllowed: passwordAllowed(req, allowPlainPassword()), plainPasswordAllowed: allowPlainPassword() === true });
+  });
+  app.get("/api/sparks/:id/attic/status", async (req, res) => {
+    if (!allowRead(req)) return rejectLimited(res, "Too many requests");
+    const spark = registry.getSpark(req.params.id);
+    if (!spark) return res.status(404).json({ error: "Spark not found" });
+    if (spark.kind === "host" || spark.kind === "mac" || ["windows", "darwin"].includes(spark.platform)) return res.json({ installed: null });
+    try {
+      const status = await probe(spark);
+      res.json({ installed: status?.available ? status.atticd?.present ?? null : null });
+    } catch {
+      res.json({ installed: null });
+    }
   });
   app.post("/api/sparks/:id/attic/install", async (req, res) => {
     if (!allowChange(req)) return rejectLimited(res, "Too many requests");
@@ -60,7 +80,7 @@ export function registerAtticInstallRoute(app, { registry, allowChange, rejectLi
     } catch (err) {
       const message = String(err.message || err).replaceAll(password || "\0", "[redacted]");
       if (password && message.includes("sudo password was rejected")) guard.note(spark, true);
-      res.status(502).json({ error: `spark-attic installation failed: ${message.slice(0, 600)}` });
+      res.status(502).json({ error: `spark-attic installation failed: ${message.slice(0, 1600)}` });
     } finally {
       running.delete(spark.id);
     }

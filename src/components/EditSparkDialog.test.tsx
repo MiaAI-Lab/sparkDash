@@ -1,6 +1,6 @@
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchGpuClock, fetchGpuPower, fetchSparks, updateSpark, installSparkAttic } from "../api/client";
+import { fetchGpuClock, fetchGpuPower, fetchSparks, updateSpark, installSparkAttic, fetchAtticInstallStatus } from "../api/client";
 import type { SparkConfig } from "../api/types";
 import { EditSparkDialog } from "./EditSparkDialog";
 import { flush, render } from "../testing/render";
@@ -10,6 +10,7 @@ vi.mock("../api/client", () => ({
   fetchSparks: vi.fn(),
   installSparkAttic: vi.fn(),
   fetchAtticInstallFlags: vi.fn(() => Promise.resolve({ passwordAllowed: true, plainPasswordAllowed: false })),
+  fetchAtticInstallStatus: vi.fn(() => Promise.resolve({ installed: true })),
   setSparkPassword: vi.fn(),
   testSpark: vi.fn(),
   testSparkConfig: vi.fn(),
@@ -64,6 +65,7 @@ describe("EditSparkDialog SSH port", () => {
     const button = document.querySelector<HTMLButtonElement>('button[aria-controls="attic-monitoring-help"]')!;
     const checkbox = Array.from(document.querySelectorAll("label")).find((label) => label.textContent?.includes("spark-attic"))?.querySelector<HTMLInputElement>('input[type="checkbox"]');
     expect(checkbox?.checked).toBe(false);
+    expect(document.body.querySelector(".tag--good")?.textContent).toBe("Installed");
     expect(document.getElementById("attic-monitoring-help")).toBeNull();
     await act(async () => button.click());
     expect(button.getAttribute("aria-expanded")).toBe("true");
@@ -71,6 +73,13 @@ describe("EditSparkDialog SSH port", () => {
     expect(checkbox?.checked).toBe(false);
     await act(async () => button.click());
     expect(document.getElementById("attic-monitoring-help")).toBeNull();
+  });
+
+  it("does not claim installation when the service status is unknown", async () => {
+    vi.mocked(fetchAtticInstallStatus).mockResolvedValueOnce({ installed: null });
+    render(<EditSparkDialog open sparkId="lab" onClose={() => {}} onSaved={() => {}} />);
+    await flush();
+    expect(document.body.querySelector(".tag--good")).toBeNull();
   });
 
   it("enables the install button when checked and installs only after confirmation", async () => {
@@ -94,7 +103,8 @@ describe("EditSparkDialog SSH port", () => {
     await act(async () => install.click());
     expect(updateSpark).toHaveBeenCalledWith("lab", { atticMonitoring: true });
     expect(installSparkAttic).toHaveBeenCalledWith("lab", undefined);
-    expect(document.body.textContent).toContain("spark-attic is installed and running");
+    const result = Array.from(document.querySelectorAll('[role="status"]')).find((el) => el.textContent?.includes("spark-attic is installed and running"));
+    expect(result?.className).toContain("modal-sheet__success");
     confirmation.mockRestore();
   });
 
@@ -107,7 +117,9 @@ describe("EditSparkDialog SSH port", () => {
     const retry = Array.from(document.querySelectorAll("button")).find((button) => button.textContent === "Install or retry spark-attic")!;
     await act(async () => retry.click());
     expect(installSparkAttic).toHaveBeenCalledWith("lab", undefined);
-    expect(document.body.textContent).toContain("sudo refused");
+    const result = document.querySelector('[role="alert"]');
+    expect(result?.textContent).toContain("sudo refused");
+    expect(result?.className).toContain("modal-sheet__error");
     confirmation.mockRestore();
   });
 

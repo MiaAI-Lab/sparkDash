@@ -2568,6 +2568,7 @@ registerGpuClockRoutes(app, {
 
 registerAtticInstallRoute(app, {
   registry,
+  allowRead: (req) => allowTest(principalKey(req)),
   allowPlainPassword: () => getSettings().allowPlainSudoPassword === true,
   allowChange: (req) => allowDestructive(principalKey(req)) && allowGlobalDestructive(clientKey(req)),
   rejectLimited,

@@ -37,6 +37,7 @@ test('confirmed install sends password through runner input and reports failure'
   assert.equal(args[2].input, 'secret');
   assert.ok(!args[1].includes('secret'));
   assert.match(INSTALL_PROGRAM, /sha256sum -c/);
+  assert.match(INSTALL_PROGRAM, /Validation failed: CUDA_ERROR_OUT_OF_MEMORY/);
   assert.ok(INSTALL_PROGRAM.indexOf('--check --plain') < INSTALL_PROGRAM.indexOf('systemctl stop display-manager.service'));
   assert.ok(INSTALL_PROGRAM.indexOf('systemctl stop display-manager.service') < INSTALL_PROGRAM.lastIndexOf('bash "$tmp/install.sh" --plain'));
 });
@@ -47,4 +48,25 @@ test('refuses a password on a relayed HTTP connection', async () => {
   const res = await call({ confirm: true, stopDesktopConfirmed: true, sudoPassword: 'secret' }, { 'x-forwarded-for': '10.0.0.2' });
   assert.equal(res.statusCode, 400);
   assert.equal(calls, 0);
+});
+
+
+test('status distinguishes an installed service from missing and unknown results', async () => {
+  let handler;
+  let result;
+  registerAtticInstallRoute({ get: (path, fn) => { if (path.endsWith('/status')) handler = fn; }, post() {} }, {
+    registry: { getSpark: () => ({ id: 's1' }) }, allowChange: () => true, rejectLimited() {},
+    probe: async () => result,
+  });
+  const call = async () => {
+    const res = { json(body) { this.body = body; return this; } };
+    await handler({ params: { id: 's1' } }, res);
+    return res.body;
+  };
+  result = { available: true, atticd: { present: true } };
+  assert.deepEqual(await call(), { installed: true });
+  result = { available: true, atticd: { present: false } };
+  assert.deepEqual(await call(), { installed: false });
+  result = { available: false, atticd: { present: null } };
+  assert.deepEqual(await call(), { installed: null });
 });

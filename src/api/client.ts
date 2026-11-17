@@ -1186,3 +1186,7 @@ export function installSparkAttic(id: string, sudoPassword?: string): Promise<{ 
 export function fetchAtticInstallFlags(id: string): Promise<{ passwordAllowed: boolean; plainPasswordAllowed: boolean }> {
   return apiFetch(`/api/sparks/${encodeURIComponent(id)}/attic/install`);
 }
+
+export function fetchAtticInstallStatus(id: string): Promise<{ installed: boolean | null }> {
+  return apiFetch(`/api/sparks/${encodeURIComponent(id)}/attic/status`);
+}

@@ -6,6 +6,7 @@ import {
   fetchSparks,
   installSparkAttic,
   fetchAtticInstallFlags,
+  fetchAtticInstallStatus,
   setSparkPassword,
   testSpark,
   testSparkConfig,
@@ -17,6 +18,7 @@ import { resolveSparkRole } from "../api/sparkRole";
 import { useModalPresence } from "../hooks/useModalPresence";
 import { useOverlayClose } from "../hooks/useOverlayClose";
 import { InfoIcon } from "./ui/icons";
+import { Tag } from "./ui/Tag";
 import { TestResultList } from "./TestResultList";
 import { GpuClockSection } from "./GpuClockSection";
 import { GpuPowerSection } from "./GpuPowerSection";
@@ -53,12 +55,18 @@ export function EditSparkDialog({
   const [config, setConfig] = useState<SparkConfig | null>(null);
   const [atticHelpOpen, setAtticHelpOpen] = useState(false);
   const [atticSudoPassword, setAtticSudoPassword] = useState("");
-  const [atticInstallSuccess, setAtticInstallSuccess] = useState(false);
+  const [atticInstallResult, setAtticInstallResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [atticPasswordAllowed, setAtticPasswordAllowed] = useState(false);
+  const [atticInstalled, setAtticInstalled] = useState<boolean | null>(null);
   useEffect(() => {
+    setAtticInstallResult(null);
+    setAtticInstalled(null);
     setAtticPasswordAllowed(false);
     if (!open || !sparkId) return;
     let cancelled = false;
+    fetchAtticInstallStatus(sparkId).then((status) => {
+      if (!cancelled) setAtticInstalled((current) => current === true ? true : status.installed);
+    }).catch(() => {});
     fetchAtticInstallFlags(sparkId).then((flags) => {
       if (!cancelled) setAtticPasswordAllowed(flags.passwordAllowed && (window.isSecureContext !== false || flags.plainPasswordAllowed));
     }).catch(() => {});
@@ -306,17 +314,18 @@ export function EditSparkDialog({
     setSaving(true);
     setError(null);
     try {
-      setAtticInstallSuccess(false);
+      setAtticInstallResult(null);
       if (!savedConfig?.atticMonitoring) {
         const updated = await updateSpark(config.id, { atticMonitoring: true });
         setSavedConfig(updated.spark);
         onSaved();
       }
       await installSparkAttic(config.id, atticSudoPassword || undefined);
-      setAtticInstallSuccess(true);
+      setAtticInstalled(true);
+      setAtticInstallResult({ ok: true, message: t("edit.atticInstallSuccess") });
       onSaved();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setAtticInstallResult({ ok: false, message: err instanceof Error ? err.message : String(err) });
     } finally {
       setAtticSudoPassword("");
       setSaving(false);
@@ -609,10 +618,11 @@ export function EditSparkDialog({
                       <input
                         type="checkbox"
                         checked={Boolean(config.atticMonitoring)}
-                        onChange={(e) => { setAtticInstallSuccess(false); update({ atticMonitoring: e.target.checked }); }}
+                        onChange={(e) => { setAtticInstallResult(null); update({ atticMonitoring: e.target.checked }); }}
                       />
                       <span>{t("edit.displayCarveout")}</span>
                     </label>
+                    {atticInstalled === true && <Tag tone="good">{t("edit.atticInstalled")}</Tag>}
                     <button
                       type="button"
                       className="inline-flex shrink-0 text-muted hover:text-text"
@@ -631,10 +641,10 @@ export function EditSparkDialog({
                           <label className="field-label" htmlFor="attic-sudo-password">{t("edit.atticSudoPassword")}</label>
                           <input id="attic-sudo-password" className="field-input" type="password" autoComplete="off" value={atticSudoPassword} onChange={(e) => setAtticSudoPassword(e.target.value)} disabled={saving} />
                         </> : <p className="field-hint">{t("edit.atticPasswordUnavailable")}</p>}
-                        {atticInstallSuccess && <p className="field-hint" role="status">{t("edit.atticInstallSuccess")}</p>}
                       </div>
                     )}
                     <button type="button" className="btn" disabled={saving || !config.atticMonitoring} onClick={() => void handleAtticInstall()}>{saving ? t("edit.atticInstalling") : t("edit.atticInstall")}</button>
+                    {atticInstallResult && <div className={`w-full ${atticInstallResult.ok ? "modal-sheet__success" : "modal-sheet__error"}`} role={atticInstallResult.ok ? "status" : "alert"}>{atticInstallResult.message}</div>}
                   </div>
                 )}
                 </>
