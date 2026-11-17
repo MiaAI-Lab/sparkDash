@@ -32,7 +32,8 @@ import { createOccupancyRuntime } from "./occupancy/runtime.js";
 import { formatContextSize, parseContextSize } from "../src/shared/prefillBench.js";
 import { PREFILL_RESERVE_TOKENS, sizeFitsContext } from "../src/shared/contextFit.js";
 import { broadcastForLanIp, effectiveMac, normalizeMac, sendWol } from "./wol.js";
-import { checkLocalShutdown, remoteShutdownCommand, spawnLocalShutdown } from "./shutdown.js";
+import { checkLocalPowerOff, remoteShutdownCommand, spawnLocalPowerOff } from "./shutdown.js";
+import { registerShutdownHelperInstallRoute } from "./shutdownHelper.js";
 import { GpuClockManager } from "./gpuclock/GpuClockManager.js";
 import { registerGpuClockFleetRoute, registerGpuClockRoutes } from "./gpuclock/routes.js";
 import { StorageManager } from "./storage/StorageManager.js";
@@ -2397,7 +2398,7 @@ function initiateSparkShutdown(spark) {
   };
   if (spark.isLocal) {
     noteShutdown();
-    return spawnLocalShutdown();
+    return spawnLocalPowerOff();
   }
 
   const shutdownCmd = spark.platform === "windows" ? "shutdown.exe /s /t 5 /c sparkDash" : SHUTDOWN_REMOTE_CMD;
@@ -2442,11 +2443,13 @@ app.post("/api/sparks/shutdown-all", async (_req, res) => {
       continue;
     }
     try {
-      // Local dashboard host: verify the helper first (#379), then acknowledge
-      // before power-off kills this process.
+      // Local dashboard host: verify power-off first (#379) — direct through the
+      // host mount namespace when the dashboard runs as root in a privileged
+      // container, otherwise the helper — then acknowledge before power-off
+      // kills this process.
       if (spark.isLocal) {
         try {
-          await checkLocalShutdown();
+          await checkLocalPowerOff();
         } catch (err) {
           const msg = err.message || String(err);
           results.push({ id: spark.id, ok: false, error: msg });
@@ -2522,13 +2525,13 @@ app.post("/api/sparks/:id/shutdown", async (req, res) => {
     const spark = registry.getSpark(req.params.id);
     if (!spark) return res.status(404).json({ error: "Spark not found" });
 
-    // Local: verify the helper first — a missing or unauthorized helper is an
-    // error, not a success (#379) — then send JSON before the power-off,
-    // otherwise the process dies mid-response and the UI shows "Failed to
-    // fetch".
+    // Local: verify power-off first — a missing helper, an unauthorized sudo
+    // rule, or an unreachable host namespace is an error, not a success (#379)
+    // — then send JSON before the power-off, otherwise the process dies
+    // mid-response and the UI shows "Failed to fetch".
     if (spark.isLocal) {
       try {
-        await checkLocalShutdown();
+        await checkLocalPowerOff();
       } catch (err) {
         const msg = err.message || String(err);
         recordEvent({
@@ -2602,6 +2605,16 @@ registerAtticInstallRoute(app, {
   allowPlainPassword: () => getSettings().allowPlainSudoPassword === true,
   allowChange: (req) => allowDestructive(principalKey(req)) && allowGlobalDestructive(clientKey(req)),
   rejectLimited,
+});
+
+// Shutdown helper installer: writes /usr/local/bin/spark-shutdown and a
+// sudoers rule scoped to that binary on a remote unit, with the unit's sudo
+// password used once. Same guards and limiters as the spark-attic installer.
+registerShutdownHelperInstallRoute(app, {
+  registry,
+  allowChange: (req) => allowDestructive(principalKey(req)) && allowGlobalDestructive(clientKey(req)),
+  rejectLimited,
+  allowPlainPassword: () => getSettings().allowPlainSudoPassword === true,
 });
 
 // Storage Manager: disk use of a Spark's folders and Docker images, and deleting them. Deleting
