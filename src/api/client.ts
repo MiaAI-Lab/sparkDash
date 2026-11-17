@@ -740,6 +740,21 @@ export function shutdownAllSparks(): Promise<BatchPowerResult> {
   return apiFetch("/api/sparks/shutdown-all", { method: "POST" });
 }
 
+/** Policy for the in-UI shutdown-helper installer: whether a sudo password may
+ * be sent on this connection and whether the unit still needs the helper. */
+export function fetchShutdownHelperPolicy(id: string): Promise<{ passwordAllowed: boolean; plainPasswordAllowed: boolean; directPowerOff: boolean; installSupported: boolean }> {
+  return apiFetch(`/api/sparks/${encodeURIComponent(id)}/shutdown/install-helper`);
+}
+
+/** Install the pinned spark-shutdown helper + scoped sudoers rule on a unit
+ * after explicit user confirmation. */
+export function installShutdownHelper(id: string, sudoPassword?: string): Promise<{ success: boolean; message?: string }> {
+  return apiFetch(`/api/sparks/${encodeURIComponent(id)}/shutdown/install-helper`, {
+    method: "POST",
+    body: JSON.stringify({ confirm: true, ...(sudoPassword ? { sudoPassword } : {}) }),
+  });
+}
+
 /** Send WoL to all registered Sparks that have a MAC configured. */
 export function wakeAllSparks(): Promise<BatchPowerResult> {
   return apiFetch("/api/sparks/wake-all", { method: "POST" });
