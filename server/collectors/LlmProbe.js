@@ -18,6 +18,13 @@ const TUNNEL_DROP_AFTER_FAILURES = 5;
 const TUNNEL_RETRY_MIN_MS = 60_000;
 const TUNNEL_RETRY_MAX_MS = 15 * 60_000;
 const REDETECT_INTERVAL_MS = 60_000;
+/**
+ * Longest gap between two ignis counter reads that still yields a rate. A unit's ports are
+ * probed as one round that waits for its slowest port, so a stopped engine on another port
+ * that times out stretches every round to about 10 s; the delta over the real elapsed time
+ * is still the true average rate, and a 10 s cut-off would discard nearly every sample.
+ */
+const IGNIS_MAX_SAMPLE_GAP_SEC = 30;
 /** How long a vLLM `/version` answer is reused before it is asked for again. */
 const ENGINE_VERSION_TTL_MS = 10 * 60_000;
 
@@ -1987,7 +1994,7 @@ export class LlmProbe {
    * is emitted, so it moves during a long generation; `ignis_generated_tokens_total` only
    * moves when a request completes and would read 0 until then. ignis publishes no prompt
    * or prefill token counters, so prefill tok/s and the input side of the token ledger stay
-   * unreported rather than guessed.
+   * unreported rather than guessed. Samples up to IGNIS_MAX_SAMPLE_GAP_SEC apart are measured.
    * @param {string} txt
    * @param {number} dtSec
    */
@@ -2009,7 +2016,7 @@ export class LlmProbe {
     let why = null;
     if (this._seedNext) why = "re-seeding counters after an interruption";
     else if (!before) why = "no earlier sample to measure against";
-    else if (!(dtSec > 0 && dtSec < 10)) why = "no earlier sample within 10 s to measure against";
+    else if (!(dtSec > 0 && dtSec < IGNIS_MAX_SAMPLE_GAP_SEC)) why = "no earlier sample within 30 s to measure against";
     else if (decoded < before.out) why = "engine counters restarted";
     this._seedNext = false;
     this._ignisBase = { out: decoded };

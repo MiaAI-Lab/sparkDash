@@ -128,6 +128,24 @@ test("_applyIgnisMetrics: decode tok/s is the emitted-token delta over the inter
   assert.equal(probe.measurementValid, true); // a measured zero, not an unknown
 });
 
+test("_applyIgnisMetrics: a slow probe round (about 10 s) is still measured; a long gap is not", () => {
+  // A stopped engine on another port of the same unit times out and stretches every round
+  // to roughly 10 s. The delta over the real elapsed time is the true average rate.
+  const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8892);
+  probe._applyIgnisMetrics(IGNIS_METRICS, 1_700_000_000);
+  probe._applyIgnisMetrics(advance(IGNIS_METRICS, { ignis_decoded_tokens_total: 545434 }), 10.02);
+  assert.equal(probe.measurementValid, true);
+  assert.equal(probe.generationTps, 287.03); // (545434-542558)/10.02
+
+  // 30 s or more apart: too stale to call a current rate. It re-seeds and the next poll measures.
+  probe._applyIgnisMetrics(advance(IGNIS_METRICS, { ignis_decoded_tokens_total: 550000 }), 31);
+  assert.equal(probe.measurementValid, false);
+  assert.equal(probe.generationTps, 0);
+  assert.match(probe.measurementError, /within 30 s/);
+  probe._applyIgnisMetrics(advance(IGNIS_METRICS, { ignis_decoded_tokens_total: 550400 }), 2);
+  assert.equal(probe.generationTps, 200);
+});
+
 test("_applyIgnisMetrics: the live counter is read, not the completed-request one", () => {
   const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8892);
   probe._applyIgnisMetrics(IGNIS_METRICS, 1_700_000_000);
