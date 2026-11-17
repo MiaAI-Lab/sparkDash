@@ -4,6 +4,9 @@ import { useTranslation } from "react-i18next";
 import {
   deleteSpark,
   fetchSparks,
+  installSparkAttic,
+  fetchAtticInstallFlags,
+  fetchAtticInstallStatus,
   setSparkPassword,
   testSpark,
   testSparkConfig,
@@ -15,6 +18,7 @@ import { resolveSparkRole } from "../api/sparkRole";
 import { useModalPresence } from "../hooks/useModalPresence";
 import { useOverlayClose } from "../hooks/useOverlayClose";
 import { InfoIcon } from "./ui/icons";
+import { Tag } from "./ui/Tag";
 import { TestResultList } from "./TestResultList";
 import { GpuClockSection } from "./GpuClockSection";
 import { GpuPowerSection } from "./GpuPowerSection";
@@ -49,6 +53,25 @@ export function EditSparkDialog({
 }: EditSparkDialogProps) {
   const { t } = useTranslation("devices");
   const [config, setConfig] = useState<SparkConfig | null>(null);
+  const [atticHelpOpen, setAtticHelpOpen] = useState(false);
+  const [atticSudoPassword, setAtticSudoPassword] = useState("");
+  const [atticInstallResult, setAtticInstallResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [atticPasswordAllowed, setAtticPasswordAllowed] = useState(false);
+  const [atticInstalled, setAtticInstalled] = useState<boolean | null>(null);
+  useEffect(() => {
+    setAtticInstallResult(null);
+    setAtticInstalled(null);
+    setAtticPasswordAllowed(false);
+    if (!open || !sparkId) return;
+    let cancelled = false;
+    fetchAtticInstallStatus(sparkId).then((status) => {
+      if (!cancelled) setAtticInstalled((current) => current === true ? true : status.installed);
+    }).catch(() => {});
+    fetchAtticInstallFlags(sparkId).then((flags) => {
+      if (!cancelled) setAtticPasswordAllowed(flags.passwordAllowed && (window.isSecureContext !== false || flags.plainPasswordAllowed));
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [open, sparkId]);
   /** Snapshot of the Spark config as last fetched from the server. Used to
    *  detect form-vs-saved divergence so Test can target what the user is
    *  actually looking at (vs. the stored config the registered test route
@@ -281,6 +304,30 @@ export function EditSparkDialog({
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
+      setAtticSudoPassword("");
+      setSaving(false);
+    }
+  };
+
+  const handleAtticInstall = async () => {
+    if (!config || !confirm(t("edit.atticInstallConfirm", { name: savedConfig?.name ?? config.name }))) return;
+    setSaving(true);
+    setError(null);
+    try {
+      setAtticInstallResult(null);
+      if (!savedConfig?.atticMonitoring) {
+        const updated = await updateSpark(config.id, { atticMonitoring: true });
+        setSavedConfig(updated.spark);
+        onSaved();
+      }
+      await installSparkAttic(config.id, atticSudoPassword || undefined);
+      setAtticInstalled(true);
+      setAtticInstallResult({ ok: true, message: t("edit.atticInstallSuccess") });
+      onSaved();
+    } catch (err) {
+      setAtticInstallResult({ ok: false, message: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setAtticSudoPassword("");
       setSaving(false);
     }
   };
@@ -571,17 +618,33 @@ export function EditSparkDialog({
                       <input
                         type="checkbox"
                         checked={Boolean(config.atticMonitoring)}
-                        onChange={(e) => update({ atticMonitoring: e.target.checked })}
+                        onChange={(e) => { setAtticInstallResult(null); update({ atticMonitoring: e.target.checked }); }}
                       />
                       <span>{t("edit.displayCarveout")}</span>
-                      <span
-                        className="inline-flex shrink-0 cursor-help text-muted hover:text-text"
-                        title={t("edit.displayCarveoutHelp")}
-                        aria-label={t("edit.displayCarveoutHelp")}
-                      >
-                        <InfoIcon className="h-3.5 w-3.5" />
-                      </span>
                     </label>
+                    {atticInstalled === true && <Tag tone="good">{t("edit.atticInstalled")}</Tag>}
+                    <button
+                      type="button"
+                      className="inline-flex shrink-0 text-muted hover:text-text"
+                      aria-label={t("edit.displayCarveoutHelp")}
+                      aria-expanded={atticHelpOpen}
+                      aria-controls="attic-monitoring-help"
+                      onClick={() => setAtticHelpOpen((open) => !open)}
+                    >
+                      <InfoIcon className="h-3.5 w-3.5" />
+                    </button>
+                    {atticHelpOpen && <p id="attic-monitoring-help" className="field-hint w-full">{t("edit.displayCarveoutHelp")}</p>}
+                    {config.atticMonitoring && (
+                      <div className="w-full space-y-2">
+                        <p className="field-hint">{t("edit.atticInstallHint")}</p>
+                        {atticPasswordAllowed ? <>
+                          <label className="field-label" htmlFor="attic-sudo-password">{t("edit.atticSudoPassword")}</label>
+                          <input id="attic-sudo-password" className="field-input" type="password" autoComplete="off" value={atticSudoPassword} onChange={(e) => setAtticSudoPassword(e.target.value)} disabled={saving} />
+                        </> : <p className="field-hint">{t("edit.atticPasswordUnavailable")}</p>}
+                      </div>
+                    )}
+                    <button type="button" className="btn" disabled={saving || !config.atticMonitoring} onClick={() => void handleAtticInstall()}>{saving ? t("edit.atticInstalling") : t("edit.atticInstall")}</button>
+                    {atticInstallResult && <div className={`w-full ${atticInstallResult.ok ? "modal-sheet__success" : "modal-sheet__error"}`} role={atticInstallResult.ok ? "status" : "alert"}>{atticInstallResult.message}</div>}
                   </div>
                 )}
                 </>

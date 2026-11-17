@@ -1,6 +1,7 @@
 // First on purpose: imports are evaluated in order, and config.js, settings.js
 // and the bench modules read process.env while they load.
 import "dotenv/config";
+import { registerAtticInstallRoute } from "./attic/install.js";
 import express from "express";
 import { createServer } from "http";
 import { WebSocketServer } from "ws";
@@ -2563,6 +2564,14 @@ registerGpuClockRoutes(app, {
   allowChange: (req) => allowDestructive(principalKey(req)) && allowGlobalDestructive(clientKey(req)),
   rejectLimited,
   allowPlainPassword: () => getSettings().allowPlainSudoPassword === true,
+});
+
+registerAtticInstallRoute(app, {
+  registry,
+  allowRead: (req) => allowTest(principalKey(req)),
+  allowPlainPassword: () => getSettings().allowPlainSudoPassword === true,
+  allowChange: (req) => allowDestructive(principalKey(req)) && allowGlobalDestructive(clientKey(req)),
+  rejectLimited,
 });
 
 // Storage Manager: disk use of a Spark's folders and Docker images, and deleting them. Deleting
