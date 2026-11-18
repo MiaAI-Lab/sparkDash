@@ -694,6 +694,16 @@ export class SparkRegistry {
         config.platform !== "windows" &&
         config.platform !== "darwin" &&
         Boolean(config.atticMonitoring),
+      /**
+       * Opt-in headless-desktop card (default false): the boot default target,
+       * the display manager and the desktop session's memory. Linux units
+       * only; a Mac or Windows unit has no systemd to ask.
+       */
+      headlessMonitoring:
+        config.kind !== "mac" &&
+        config.platform !== "windows" &&
+        config.platform !== "darwin" &&
+        Boolean(config.headlessMonitoring),
       disabledDevices: Array.isArray(config.disabledDevices) ? config.disabledDevices : [],
       disabledInterfaces: Array.isArray(config.disabledInterfaces) ? config.disabledInterfaces : [],
       storagePollDisabled: Boolean(config.storagePollDisabled),

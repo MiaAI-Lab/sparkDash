@@ -54,6 +54,7 @@ export function EditSparkDialog({
   const { t } = useTranslation("devices");
   const [config, setConfig] = useState<SparkConfig | null>(null);
   const [atticHelpOpen, setAtticHelpOpen] = useState(false);
+  const [headlessHelpOpen, setHeadlessHelpOpen] = useState(false);
   const [atticSudoPassword, setAtticSudoPassword] = useState("");
   const [atticInstallResult, setAtticInstallResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [atticPasswordAllowed, setAtticPasswordAllowed] = useState(false);
@@ -645,6 +646,30 @@ export function EditSparkDialog({
                     )}
                     <button type="button" className="btn" disabled={saving || !config.atticMonitoring} onClick={() => void handleAtticInstall()}>{saving ? t("edit.atticInstalling") : t("edit.atticInstall")}</button>
                     {atticInstallResult && <div className={`w-full ${atticInstallResult.ok ? "modal-sheet__success" : "modal-sheet__error"}`} role={atticInstallResult.ok ? "status" : "alert"}>{atticInstallResult.message}</div>}
+                  </div>
+                )}
+
+                {config.kind !== "mac" && config.platform !== "darwin" && (
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                    <label className="flex min-w-0 items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(config.headlessMonitoring)}
+                        onChange={(e) => update({ headlessMonitoring: e.target.checked })}
+                      />
+                      <span>{t("edit.headless")}</span>
+                    </label>
+                    <button
+                      type="button"
+                      className="inline-flex shrink-0 text-muted hover:text-text"
+                      aria-label={t("edit.headlessHelp")}
+                      aria-expanded={headlessHelpOpen}
+                      aria-controls="headless-monitoring-help"
+                      onClick={() => setHeadlessHelpOpen((open) => !open)}
+                    >
+                      <InfoIcon className="h-3.5 w-3.5" />
+                    </button>
+                    {headlessHelpOpen && <p id="headless-monitoring-help" className="field-hint w-full">{t("edit.headlessHelp")}</p>}
                   </div>
                 )}
                 </>

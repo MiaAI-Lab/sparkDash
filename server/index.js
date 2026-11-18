@@ -2,6 +2,7 @@
 // and the bench modules read process.env while they load.
 import "dotenv/config";
 import { registerAtticInstallRoute } from "./attic/install.js";
+import { registerHeadlessRoutes } from "./headless/actions.js";
 import express from "express";
 import { createServer } from "http";
 import { WebSocketServer } from "ws";
@@ -1161,8 +1162,8 @@ app.post("/api/sparks/:id/refresh/:domain", async (req, res) => {
     const monitor = monitors.get(req.params.id);
     if (!monitor) return res.status(404).json({ error: "Spark not found" });
     const { domain } = req.params;
-    if (domain !== "storage" && domain !== "llm") {
-      return res.status(400).json({ error: "Only 'storage' and 'llm' domains are supported" });
+    if (domain !== "storage" && domain !== "llm" && domain !== "headless") {
+      return res.status(400).json({ error: "Only 'storage', 'llm' and 'headless' domains are supported" });
     }
     await monitor.refreshDomain(domain);
     forceBroadcast();
@@ -2599,6 +2600,17 @@ registerGpuClockRoutes(app, {
 });
 
 registerAtticInstallRoute(app, {
+  registry,
+  allowRead: (req) => allowTest(principalKey(req)),
+  allowPlainPassword: () => getSettings().allowPlainSudoPassword === true,
+  allowChange: (req) => allowDestructive(principalKey(req)) && allowGlobalDestructive(clientKey(req)),
+  rejectLimited,
+});
+
+// Headless desktop: stop the graphical desktop on a Linux unit, or restore it
+// from the record the make action wrote. Same auth and limiters as the
+// spark-attic installer, because both change the unit as root.
+registerHeadlessRoutes(app, {
   registry,
   allowRead: (req) => allowTest(principalKey(req)),
   allowPlainPassword: () => getSettings().allowPlainSudoPassword === true,
