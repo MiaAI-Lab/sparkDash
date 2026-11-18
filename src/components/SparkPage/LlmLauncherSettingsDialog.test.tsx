@@ -94,7 +94,7 @@ const props = {
   sparkId: "spark-a",
   sparkName: "Spark A",
   launcher,
-  running: true,
+  runState: "running" as "running" | "stopped" | "unknown",
   availableMemoryMb: 3072,
   onClose: vi.fn(),
   onRestart: vi.fn(),
@@ -124,6 +124,16 @@ describe("settings form helpers", () => {
 
   it("falls back to the manifest default for a key the values omit", () => {
     expect(toFormValues(manifest, {})).toEqual({ PROMPT_CACHE_GIB: "4", ENABLE_PREFIX_CACHE: true, ATTENTION_BACKEND: "flashinfer" });
+  });
+
+  it("sends string values trimmed, so what the client checked is what the server receives", () => {
+    const stringManifest: LauncherManifest = {
+      version: 1,
+      settings: [
+        { key: "SERVED_NAME", label: "Served name", type: "string", default: "model", min: null, max: null, step: null, options: null, unit: null, help: null, restart: true, memory: null },
+      ],
+    };
+    expect(fromFormValues(stringManifest, { SERVED_NAME: "  my-model  " })).toEqual({ SERVED_NAME: "my-model" });
   });
 
   it("flags a non-integer, an out-of-range value and an unknown option", () => {
@@ -214,7 +224,7 @@ describe("LlmLauncherSettingsDialog", () => {
       values: { PROMPT_CACHE_GIB: 8, ENABLE_PREFIX_CACHE: true, ATTENTION_BACKEND: "flashinfer" },
       restartRequired: true,
     });
-    render(<LlmLauncherSettingsDialog {...props} running={false} />);
+    render(<LlmLauncherSettingsDialog {...props} runState="stopped" />);
     await flush();
     setInput(dialog().querySelector<HTMLInputElement>('input[type="number"]')!, "8");
     await click(button("Save")!);
@@ -222,6 +232,24 @@ describe("LlmLauncherSettingsDialog", () => {
 
     expect(dialog().textContent).toContain("Cache model is not running");
     expect(button("Restart Cache model")).toBeUndefined();
+  });
+
+  it("offers a restart, without claiming the model is stopped, when its run state could not be read", async () => {
+    vi.mocked(fetchLauncherSettings).mockResolvedValue(response());
+    vi.mocked(saveLauncherSettings).mockResolvedValue({
+      values: { PROMPT_CACHE_GIB: 8, ENABLE_PREFIX_CACHE: true, ATTENTION_BACKEND: "flashinfer" },
+      restartRequired: true,
+    });
+    render(<LlmLauncherSettingsDialog {...props} runState="unknown" />);
+    await flush();
+    setInput(dialog().querySelector<HTMLInputElement>('input[type="number"]')!, "8");
+    await click(button("Save")!);
+    await flush();
+
+    expect(dialog().textContent).toContain("Could not check whether Cache model is running");
+    expect(dialog().textContent).not.toContain("is not running");
+    await click(button("Restart Cache model")!);
+    expect(props.onRestart).toHaveBeenCalledTimes(1);
   });
 
   it("does not ask for a restart when nothing that needs one changed", async () => {

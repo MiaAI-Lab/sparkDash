@@ -6,6 +6,8 @@ const fetchLaunchers = vi.fn();
 const runLauncher = vi.fn();
 const reorderLaunchers = vi.fn();
 const fetchRuntimeControl = vi.fn();
+const fetchLauncherSettings = vi.fn();
+const saveLauncherSettings = vi.fn();
 vi.mock("../../api/client", () => ({
   fetchRuntimeControl: (...a: unknown[]) => fetchRuntimeControl(...a),
   startMacRuntime: vi.fn(),
@@ -20,6 +22,8 @@ vi.mock("../../api/client", () => ({
   cancelLauncherJob: vi.fn(),
   // The Add-a-model dialog scans on open; keep it pending so the validation alert is the only one.
   discoverModels: vi.fn(() => new Promise(() => {})),
+  fetchLauncherSettings: (...a: unknown[]) => fetchLauncherSettings(...a),
+  saveLauncherSettings: (...a: unknown[]) => saveLauncherSettings(...a),
 }));
 
 import type { LauncherJob } from "../../api/types";
@@ -285,5 +289,71 @@ describe("reordering the model list", () => {
     await tick();
     expect(reorderLaunchers).not.toHaveBeenCalled();
     expect(names(container)).toEqual(["Alpha", "Beta", "Gamma"]);
+  });
+});
+
+describe("restarting a model to apply its settings", () => {
+  const launcher = { id: "a", name: "Alpha", dir: "/m", startScript: "start.sh", stopScript: "stop.sh", port: 8000, notes: "" };
+  const manifest = {
+    version: 1,
+    settings: [
+      { key: "PROMPT_CACHE_GIB", label: "Prompt cache", type: "integer", default: 4, min: 1, max: 16, step: 1, options: null, unit: "GiB", help: null, restart: true, memory: null },
+    ],
+  };
+  const button = (text: string) => [...document.querySelectorAll("button")].find((b) => b.textContent?.trim() === text) as HTMLButtonElement | undefined;
+  const click = (el: Element) => act(async () => el.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+
+  beforeEach(() => {
+    _resetLauncherCache();
+    runLauncher.mockReset();
+    fetchLaunchers.mockResolvedValue({ launchers: [launcher], job: null, statuses: { a: "running" } });
+    fetchLauncherSettings.mockResolvedValue({ manifest, values: { PROMPT_CACHE_GIB: 4 }, invalid: [], envFile: "launcher.env" });
+    saveLauncherSettings.mockResolvedValue({ values: { PROMPT_CACHE_GIB: 8 }, restartRequired: true });
+    // The stop finishes at once; the start that follows it is the second call.
+    runLauncher.mockImplementation(async (_spark: string, id: string, action: string) => ({
+      job: job({ id: `j-${action}`, launcherId: id, launcherName: "Alpha", action: action as LauncherJob["action"], status: action === "stop" ? "completed" : "running" }),
+    }));
+  });
+
+  it("stops the running model, then starts it again, and only after the save", async () => {
+    const { container } = render(<LlmModelsPanel spark={makeSpark("s1")} />);
+    await flush();
+    await click(container.querySelector('button[aria-label="Settings for Alpha"]')!);
+    await flush();
+
+    const input = document.querySelector<HTMLInputElement>('[role="dialog"] input[type="number"]')!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "8");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await click(button("Save")!);
+    await flush();
+    expect(saveLauncherSettings).toHaveBeenCalledTimes(1);
+    expect(runLauncher).not.toHaveBeenCalled();
+
+    await click(button("Restart Alpha")!);
+    await flush();
+    await flush();
+    expect(runLauncher.mock.calls.map((c) => [c[1], c[2]])).toEqual([
+      ["a", "stop"],
+      ["a", "start"],
+    ]);
+  });
+
+  it("offers the restart when the run state could not be read", async () => {
+    fetchLaunchers.mockResolvedValue({ launchers: [launcher], job: null, statuses: { a: "unknown" } });
+    const { container } = render(<LlmModelsPanel spark={makeSpark("s1")} />);
+    await flush();
+    await click(container.querySelector('button[aria-label="Settings for Alpha"]')!);
+    await flush();
+    const input = document.querySelector<HTMLInputElement>('[role="dialog"] input[type="number"]')!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "8");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await click(button("Save")!);
+    await flush();
+    expect(document.body.textContent).toContain("Could not check whether Alpha is running");
+    expect(button("Restart Alpha")).toBeTruthy();
   });
 });

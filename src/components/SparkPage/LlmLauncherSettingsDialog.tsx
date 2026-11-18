@@ -10,6 +10,7 @@ import type {
   LauncherSetting,
   LauncherSettingValue,
   LauncherSettingsResponse,
+  LauncherRunState,
   LlmLauncher,
 } from "../../api/types";
 import "../../styles/dialogs.css";
@@ -36,7 +37,8 @@ export function fromFormValues(manifest: LauncherManifest, form: SettingsForm): 
     const raw = form[setting.key];
     if (setting.type === "boolean") values[setting.key] = Boolean(raw);
     else if (setting.type === "integer" || setting.type === "number") values[setting.key] = Number(raw);
-    else values[setting.key] = String(raw ?? "");
+    // Trimmed like the check in validateSettingsForm: what is checked is what is sent.
+    else values[setting.key] = String(raw ?? "").trim();
   }
   return values;
 }
@@ -102,8 +104,12 @@ interface LlmLauncherSettingsDialogProps {
   sparkId: string;
   sparkName: string;
   launcher: LlmLauncher | null;
-  /** Whether the model's script is running now, so a restart is needed to apply a change. */
-  running: boolean;
+  /**
+   * Whether the model's script is running now. A restart is needed to apply a
+   * change to a running model; "unknown" means the status check failed, so the
+   * dialog cannot say the model is stopped.
+   */
+  runState: LauncherRunState;
   /** MemAvailable on the unit in MB, or null when unknown. */
   availableMemoryMb: number | null;
   onClose: () => void;
@@ -121,12 +127,15 @@ export function LlmLauncherSettingsDialog({
   sparkId,
   sparkName,
   launcher,
-  running,
+  runState,
   availableMemoryMb,
   onClose,
   onRestart,
 }: LlmLauncherSettingsDialogProps) {
   const { t } = useTranslation("hardware");
+  // A restart is offered unless the model is known to be stopped: when the status
+  // check failed it may well be running on the old values.
+  const mayBeRunning = runState !== "stopped";
   const titleId = useId();
   const { mounted, visible } = useModalPresence(open);
   const trapRef = useFocusTrap(mounted);
@@ -361,9 +370,13 @@ export function LlmLauncherSettingsDialog({
             {saved ? (
               <div className="launcher-settings__saved">
                 <p className="modal-sheet__success">{t("models.settingsSaved", { file: envFile })}</p>
-                {saved.restartRequired && running ? (
+                {saved.restartRequired && mayBeRunning ? (
                   <>
-                    <p className="field-hint is-warn">{t("models.settingsRestartAsk", { name: launcher.name })}</p>
+                    <p className="field-hint is-warn">
+                      {runState === "running"
+                        ? t("models.settingsRestartAsk", { name: launcher.name })
+                        : t("models.settingsRestartUnknown", { name: launcher.name })}
+                    </p>
                     <div className="launcher-settings__saved-actions">
                       <button type="button" className="btn btn--primary btn--sm" onClick={onRestart}>
                         {t("models.settingsRestart", { name: launcher.name })}
@@ -374,7 +387,7 @@ export function LlmLauncherSettingsDialog({
                     </div>
                   </>
                 ) : null}
-                {saved.restartRequired && !running ? (
+                {saved.restartRequired && !mayBeRunning ? (
                   <p className="field-hint">{t("models.settingsNextStart", { name: launcher.name })}</p>
                 ) : null}
               </div>

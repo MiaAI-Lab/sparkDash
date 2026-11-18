@@ -264,9 +264,28 @@ export function validateValues(manifest, input) {
   return { ok: true, values };
 }
 
+/**
+ * A number as plain decimal digits. `String()` switches to exponent notation for very
+ * small and very large values (1e-7, 1e+21), which NUMBER_RE rejects, so a saved value
+ * would read back as invalid. Expanding the exponent keeps the same digits, so the
+ * text parses back to the same number.
+ */
+export function plainNumber(value) {
+  const text = String(value);
+  const m = /^(-?)(\d+)(?:\.(\d+))?e([+-]\d+)$/.exec(text);
+  if (!m) return text;
+  const [, sign, whole, fraction = "", exponent] = m;
+  const digits = whole + fraction;
+  const point = whole.length + Number(exponent);
+  if (point <= 0) return `${sign}0.${"0".repeat(-point)}${digits}`;
+  if (point >= digits.length) return `${sign}${digits}${"0".repeat(point - digits.length)}`;
+  return `${sign}${digits.slice(0, point)}.${digits.slice(point)}`;
+}
+
 /** The env file line for one value. Booleans are written as true / false. */
 export function envValue(setting, value) {
   if (setting.type === "boolean") return value ? "true" : "false";
+  if (setting.type === "integer" || setting.type === "number") return plainNumber(value);
   return String(value);
 }
 

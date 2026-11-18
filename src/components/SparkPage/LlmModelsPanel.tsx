@@ -585,7 +585,7 @@ function LlmModelsPanelFor({ spark, className }: { spark: SparkSnapshot; classNa
         sparkId={sparkId}
         sparkName={spark.name}
         launcher={settingsFor}
-        running={settingsFor ? statuses[settingsFor.id] === "running" : false}
+        runState={settingsFor ? (statuses[settingsFor.id] ?? "unknown") : "stopped"}
         availableMemoryMb={spark.metrics.unifiedMemory?.available ?? null}
         onClose={() => setSettingsFor(null)}
         onRestart={() => {
