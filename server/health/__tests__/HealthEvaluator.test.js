@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { HealthEvaluator, LOW_POWER_STREAK, LOW_POWER_PROGRESS_MS, KERNEL_FINDING_TTL_MS } from "../HealthEvaluator.js";
+import { HealthEvaluator, LOW_POWER_STREAK, LOW_POWER_PROGRESS_MS, KERNEL_FINDING_TTL_MS, SWAP_STREAK } from "../HealthEvaluator.js";
 
 const ids = (f) => f.map((x) => x.id);
 
@@ -339,4 +339,117 @@ test("thermal: unusable thresholds fall back to 85/90", () => {
     assert.equal(h.evaluate({ gpu: { temperature: 85 } })[0].severity, "warn");
     assert.equal(h.evaluate({ gpu: { temperature: 90 } })[0].severity, "critical");
   }
+});
+
+// ─── Cold prefill ─────────────────────────────────────────
+// Cumulative prompt counters as the probe reports them: every prompt token
+// submitted, and the subset the engine's prompt cache served.
+const prefillEndpoint = (submitted, cached, over = {}) =>
+  llmEndpoint({ totalPromptTokens: submitted, totalCachedTokens: cached, ...over });
+
+test("cold-prefill: one cold request of a new session does not fire", () => {
+  let t = 1_000_000;
+  const h = new HealthEvaluator({ now: () => t });
+  h.evaluate({ llm: [prefillEndpoint(0, 0)] }, "llm"); // baseline
+  t += 60_000;
+  assert.deepEqual(ids(h.evaluate({ llm: [prefillEndpoint(80_000, 0)] }, "llm")), []);
+
+  // A single 255k first turn is one request, still below the threshold.
+  const one = new HealthEvaluator({ now: () => t });
+  one.evaluate({ llm: [prefillEndpoint(0, 0)] }, "llm");
+  t += 60_000;
+  assert.deepEqual(ids(one.evaluate({ llm: [prefillEndpoint(255_000, 0)] }, "llm")), []);
+});
+
+test("cold-prefill: a session that misses the cache on every turn fires", () => {
+  let t = 1_000_000;
+  const h = new HealthEvaluator({ now: () => t });
+  h.evaluate({ llm: [prefillEndpoint(0, 0)] }, "llm");
+  t += 60_000;
+  assert.deepEqual(ids(h.evaluate({ llm: [prefillEndpoint(255_000, 0)] }, "llm")), []);
+  t += 60_000;
+  const f = h.evaluate({ llm: [prefillEndpoint(510_000, 0)] }, "llm");
+  assert.deepEqual(ids(f), ["cold-prefill"]);
+  assert.equal(f[0].severity, "warn");
+  assert.match(f[0].detail, /510,000 uncached prompt tokens in the last 10 minutes/);
+  assert.match(f[0].detail, /0% of 510,000 submitted/);
+  assert.match(f[0].detail, /m on port 8888/);
+});
+
+test("cold-prefill: a large volume that the cache mostly served stays silent", () => {
+  let t = 1_000_000;
+  const h = new HealthEvaluator({ now: () => t });
+  h.evaluate({ llm: [prefillEndpoint(0, 0)] }, "llm");
+  // 5M submitted, 4M served from cache: 1M uncached, but the cache is working.
+  for (let i = 1; i <= 10; i++) {
+    t += 30_000;
+    assert.deepEqual(ids(h.evaluate({ llm: [prefillEndpoint(i * 500_000, i * 400_000)] }, "llm")), []);
+  }
+});
+
+test("cold-prefill: a counter reset starts a new baseline, not a negative delta", () => {
+  let t = 1_000_000;
+  const h = new HealthEvaluator({ now: () => t });
+  h.evaluate({ llm: [prefillEndpoint(0, 0)] }, "llm");
+  t += 60_000;
+  h.evaluate({ llm: [prefillEndpoint(255_000, 0)] }, "llm");
+  // The engine restarted: the counters go back to zero and the window is dropped.
+  t += 60_000;
+  assert.deepEqual(ids(h.evaluate({ llm: [prefillEndpoint(0, 0)] }, "llm")), []);
+  // The next turn is measured from the new baseline, not from the old one.
+  t += 60_000;
+  assert.deepEqual(ids(h.evaluate({ llm: [prefillEndpoint(255_000, 0)] }, "llm")), []);
+});
+
+test("cold-prefill: an engine with no cache split, or an unusable sample, raises nothing", () => {
+  let t = 1_000_000;
+  const h = new HealthEvaluator({ now: () => t });
+  const noSplit = (submitted) => ({ llm: [llmEndpoint({ totalPromptTokens: submitted, totalCachedTokens: null })] });
+  h.evaluate(noSplit(0), "llm");
+  for (let i = 1; i <= 5; i++) {
+    t += 60_000;
+    assert.deepEqual(ids(h.evaluate(noSplit(i * 255_000), "llm")), []);
+  }
+  // An unavailable endpoint and an invalid measurement are not evidence either.
+  t += 60_000;
+  assert.deepEqual(ids(h.evaluate({ llm: [prefillEndpoint(2_000_000, 0, { available: false })] }, "llm")), []);
+  t += 60_000;
+  assert.deepEqual(ids(h.evaluate({ llm: [prefillEndpoint(4_000_000, 0, { measurementValid: false })] }, "llm")), []);
+});
+
+// ─── Swap traffic ─────────────────────────────────────────
+const swapMem = (inPagesPerSec, outPagesPerSec) => ({
+  unifiedMemory: { total: 124000, available: 8000, percentage: 50, swap: { inPagesPerSec, outPagesPerSec } },
+});
+
+test("swap-traffic: sustained swapping fires after the streak, static swap does not", () => {
+  const h = new HealthEvaluator();
+  // Swap occupied but idle reads 0 pages/s, so it never fires however long it sits there.
+  for (let i = 0; i < SWAP_STREAK * 2; i++) assert.deepEqual(ids(h.evaluate(swapMem(0, 0), "memory")), []);
+  // One burst is not sustained traffic.
+  assert.deepEqual(ids(h.evaluate(swapMem(5000, 0), "memory")), []);
+  assert.deepEqual(ids(h.evaluate(swapMem(0, 0), "memory")), []);
+  for (let i = 0; i < SWAP_STREAK - 1; i++) assert.deepEqual(ids(h.evaluate(swapMem(0, 1200), "memory")), []);
+  const f = h.evaluate(swapMem(0, 1200), "memory");
+  assert.deepEqual(ids(f), ["swap-traffic"]);
+  assert.equal(f[0].severity, "warn");
+  assert.match(f[0].detail, /swap-out 1200 pages\/s/);
+});
+
+test("swap-traffic: only memory samples advance the streak", () => {
+  const h = new HealthEvaluator();
+  for (let i = 0; i < SWAP_STREAK - 1; i++) h.evaluate(swapMem(5000, 5000), "memory");
+  // Network polls carry the same memory object but are not a new memory sample.
+  for (let i = 0; i < SWAP_STREAK * 2; i++) assert.deepEqual(ids(h.evaluate(swapMem(5000, 5000), "other")), []);
+  assert.deepEqual(ids(h.evaluate(swapMem(5000, 5000), "memory")), ["swap-traffic"]);
+});
+
+test("swap-traffic: a unit with no swap counters resets the streak and raises nothing", () => {
+  const h = new HealthEvaluator();
+  for (let i = 0; i < SWAP_STREAK - 1; i++) h.evaluate(swapMem(5000, 5000), "memory");
+  // macOS and Windows report no swap rate. That is unknown, not healthy, and it
+  // must not let a stale streak fire on the next sample.
+  const unknown = { unifiedMemory: { total: 124000, available: 8000, percentage: 50, swap: null } };
+  assert.deepEqual(ids(h.evaluate(unknown, "memory")), []);
+  assert.deepEqual(ids(h.evaluate(swapMem(5000, 5000), "memory")), []);
 });

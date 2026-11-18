@@ -1442,3 +1442,70 @@ test("_applyTensorFoldLive: a build that publishes streams keeps its own prefill
   probe._applyTensorFoldLive(health);
   assert.equal(probe.prefillActive, false);
 });
+
+test("_applyTensorFoldMetrics: the prefill split gives the cached share when no named counter exists", async () => {
+  // Live sample from a CUDA `tensorfold serve` on a Spark: the build publishes the
+  // prefill split but none of the named cached counters, so the ledger used to
+  // record no cached tokens at all and the cold-prefill rule had nothing to read.
+  const probe = metricsProbe(() =>
+    [
+      "tensorfold:prompt_tokens_total 255715",
+      "tensorfold:prefill_input_tokens_total 255715",
+      "tensorfold:prefill_computed_tokens_total 255715",
+      "tensorfold:generation_tokens_total 900",
+    ].join("\n")
+  );
+  await probe._applyTensorFoldMetrics(2);
+  assert.equal(probe.totalPromptTokens, 255715);
+  assert.equal(probe.totalCachedTokens, 0);
+
+  // A turn that the cache served: 250k of 255k restored, 5k computed.
+  const hit = metricsProbe(() =>
+    [
+      "tensorfold:prompt_tokens_total 255715",
+      "tensorfold:prefill_input_tokens_total 255715",
+      "tensorfold:prefill_computed_tokens_total 5715",
+      "tensorfold:generation_tokens_total 900",
+    ].join("\n")
+  );
+  await hit._applyTensorFoldMetrics(2);
+  assert.equal(hit.totalCachedTokens, 250000);
+
+  // A build that publishes the split but not prompt_tokens_total still reports
+  // every prompt token it accepted, so that is the submitted total.
+  const splitOnly = metricsProbe(() =>
+    [
+      "tensorfold:prefill_input_tokens_total 120000",
+      "tensorfold:prefill_computed_tokens_total 20000",
+      "tensorfold:generation_tokens_total 900",
+    ].join("\n")
+  );
+  await splitOnly._applyTensorFoldMetrics(2);
+  assert.equal(splitOnly.totalPromptTokens, 120000);
+  assert.equal(splitOnly.totalCachedTokens, 100000);
+
+  // A computed count larger than the input is a broken pair, not a negative cache.
+  const broken = metricsProbe(() =>
+    [
+      "tensorfold:prompt_tokens_total 1000",
+      "tensorfold:prefill_input_tokens_total 1000",
+      "tensorfold:prefill_computed_tokens_total 2000",
+      "tensorfold:generation_tokens_total 900",
+    ].join("\n")
+  );
+  await broken._applyTensorFoldMetrics(2);
+  assert.equal(broken.totalCachedTokens, null);
+
+  // A named cached counter still wins where a build publishes both.
+  const both = metricsProbe(() =>
+    [
+      "tensorfold:prompt_tokens_total 1000",
+      "tensorfold:prompt_tokens_cached_total 700",
+      "tensorfold:prefill_input_tokens_total 1000",
+      "tensorfold:prefill_computed_tokens_total 100",
+      "tensorfold:generation_tokens_total 900",
+    ].join("\n")
+  );
+  await both._applyTensorFoldMetrics(2);
+  assert.equal(both.totalCachedTokens, 700);
+});

@@ -22,6 +22,47 @@ export const LOW_POWER_PROGRESS_MS = 60 * 1000;
 /** Kernel-error findings stay visible this long after the counter last rose. */
 export const KERNEL_FINDING_TTL_MS = 60 * 60 * 1000;
 
+/**
+ * How far back the cold-prefill rule looks. Ten minutes holds a handful of
+ * turns of one conversation, which is the unit the rule judges: a session that
+ * misses the cache on every turn, not one slow request.
+ */
+export const COLD_PREFILL_WINDOW_MS = 10 * 60 * 1000;
+/**
+ * Uncached prompt tokens inside the window before the rule fires.
+ *
+ * Measured on a three-Spark TensorFold cluster: a client session of ~255k
+ * tokens missed the server prompt cache on every turn (`prompt=255715 cached=0`),
+ * so each turn prefilled the whole prompt again at ~1.1k tok/s and stopped
+ * decode for every other session for 45 s. Two such turns inside five minutes
+ * is ~510k uncached tokens with a cached share near zero.
+ *
+ * A single cold first request of a new session is normal. The long conversations
+ * we see start at 30-120k tokens, so 300k sits above the largest single cold
+ * prompt and below two 255k misses.
+ */
+export const COLD_PREFILL_MIN_UNCACHED_TOKENS = 300_000;
+/**
+ * Cached share of submitted prompt tokens below which the cache is judged not to
+ * be serving the session. A healthy agent session re-sends a growing
+ * conversation and is 80-98 % cached; under half means the prompt is being
+ * recomputed rather than restored.
+ */
+export const COLD_PREFILL_MAX_CACHED_SHARE = 0.5;
+
+/**
+ * Swap traffic, in pages per second, that counts as sustained swapping. A page
+ * is 4 KiB on the Linux platforms sparkDash runs on, so this is ~400 KiB/s.
+ * Idle units read 0; a unit under memory pressure reads thousands.
+ */
+export const SWAP_RATE_PAGES_PER_SEC = 100;
+/**
+ * Memory samples the swap rate must stay above the threshold for. Mirrors
+ * LOW_POWER_STREAK: long enough to ignore one process being paged out once,
+ * short enough to catch a unit thrashing for half a minute.
+ */
+export const SWAP_STREAK = 15;
+
 const DEFAULT_TEMP_THRESHOLDS = Object.freeze({ warnC: 85, criticalC: 90 });
 const MEM_AVAIL_WARN_MB = 3072;
 const MEM_AVAIL_CRITICAL_MB = 1536;
@@ -86,6 +127,31 @@ function isRecentProgress(at, now) {
 }
 
 /**
+ * Cumulative prompt counters for one endpoint, or null when the engine reports
+ * no cache split. `totalPromptTokens` is every prompt token submitted (cached
+ * and computed); `totalCachedTokens` is the subset the prompt cache served.
+ */
+function promptCounters(entry) {
+  const submitted = num(entry?.totalPromptTokens);
+  const cached = num(entry?.totalCachedTokens);
+  if (submitted == null || submitted < 0 || cached == null || cached < 0) return null;
+  return { submitted, cached: Math.min(cached, submitted) };
+}
+
+/** Thousands-separated token count, so a detail line reads as a number. */
+const tokens = (n) => Math.round(n).toLocaleString("en-US");
+
+/** "model on port 8888", or the port alone when the model is unknown. */
+function endpointLabel(entry) {
+  const port = num(entry?.port);
+  const model = typeof entry?.modelId === "string" && entry.modelId ? entry.modelId : null;
+  if (model && port != null) return `${model} on port ${port}`;
+  if (model) return model;
+  if (port != null) return `port ${port}`;
+  return "an engine";
+}
+
+/**
  * The GPU thresholds below are tuned for NVIDIA cards. Other vendors (Intel Arc
  * today) stay in the displayed panel and the power totals but are not judged
  * here: their temperature, utilisation and power-cap behaviour differ, so the
@@ -123,6 +189,10 @@ export class HealthEvaluator {
     this._kernelLast = { xid: null, oom: null };
     /** Per-endpoint cumulative counters and the last time they advanced. */
     this._llmProgress = new Map();
+    /** Per-endpoint prompt-cache window: cumulative counters plus the recent deltas. */
+    this._prefill = new Map();
+    /** Consecutive memory samples with sustained swap traffic. */
+    this._swapStreak = 0;
     /** Latest measured progress across the endpoints available right now, or null. */
     this.llmProgressAt = null;
     /** Whether local or head progress is recent enough to explain a busy low-power GPU. */
@@ -133,8 +203,9 @@ export class HealthEvaluator {
 
   /**
    * @param {{ gpu?: any, unifiedMemory?: any, network?: any, llm?: any[], headLlmProgressAt?: number|null }} metrics
-   * @param {"gpu"|"llm"|"other"} [domain] "gpu" advances the per-sample streaks,
-   *   "llm" advances the per-endpoint inference-progress counters.
+   * @param {"gpu"|"llm"|"memory"|"other"} [domain] "gpu" advances the per-sample
+   *   streaks, "llm" advances the per-endpoint inference-progress counters and
+   *   the prompt-cache window, "memory" advances the swap streak.
    * @returns {Array<{id:string,severity:string,title:string,detail:string,hint:string}>}
    */
   evaluate(metrics, domain = "other") {
@@ -146,11 +217,14 @@ export class HealthEvaluator {
       const net = metrics?.network ?? null;
       const llm = Array.isArray(metrics?.llm) ? metrics.llm : [];
       this._trackLlmProgress(llm, domain, metrics?.headLlmProgressAt);
+      this._trackPrefill(llm, domain);
       this._thermal(gpu, out);
       this._lowPower(gpu, domain, out);
       this._memory(mem, out);
+      this._swap(mem, domain, out);
       this._kernelErrors(gpu, out);
       this._concurrency(llm, mem, out);
+      this._coldPrefill(out);
       this._link(net, out);
       this._roce(metrics?.roce ?? null, out);
     } catch {
@@ -241,6 +315,99 @@ export class HealthEvaluator {
       title: critical ? "Unified memory is almost exhausted" : "Unified memory is running low",
       detail: `${(avail / 1024).toFixed(1)} GB available of ${(total / 1024).toFixed(0)} GB.`,
       hint: "The kernel may start killing processes. Stop a model you are not using, lower the context length or the GPU memory utilisation.",
+    });
+  }
+
+  /**
+   * Sustained swap traffic. Only the rate matters: swap that is merely occupied
+   * by cold pages reads 0 pages/s and must not fire. A unit that reports no swap
+   * counters (macOS, Windows, an unreadable /proc/vmstat) resets the streak and
+   * raises nothing.
+   */
+  _swap(mem, domain, out) {
+    const swap = mem?.swap;
+    const inRate = num(swap?.inPagesPerSec);
+    const outRate = num(swap?.outPagesPerSec);
+    if (inRate == null || outRate == null) {
+      if (domain === "memory") this._swapStreak = 0;
+      return;
+    }
+    const busy = inRate >= SWAP_RATE_PAGES_PER_SEC || outRate >= SWAP_RATE_PAGES_PER_SEC;
+    if (domain === "memory") this._swapStreak = busy ? this._swapStreak + 1 : 0;
+    if (this._swapStreak < SWAP_STREAK) return;
+    out.push({
+      id: "swap-traffic",
+      severity: "warn",
+      title: "The unit is swapping",
+      detail: `Swap-in ${Math.round(inRate)} pages/s and swap-out ${Math.round(outRate)} pages/s for ${this._swapStreak} samples in a row.`,
+      hint: "Sustained swapping on a unified-memory Spark moves pages over the same memory the GPU uses, so everything slows down. Free memory: stop a model you are not using, lower the context length or the GPU memory utilization.",
+    });
+  }
+
+  /**
+   * Remember how much prompt each endpoint submitted and how much of it the
+   * prompt cache served. Only a fresh LLM poll may advance the window; every
+   * evaluation prunes endpoints that disappeared, went unavailable or errored.
+   * A counter that went backwards is an engine restart, so it reseeds the
+   * baseline instead of producing a negative delta.
+   */
+  _trackPrefill(llm, domain) {
+    const now = this._now();
+    const current = new Map();
+    for (const entry of llm) {
+      if (!entry || entry.available !== true || entry.measurementValid === false || entry.error) continue;
+      current.set(endpointKey(entry), entry);
+    }
+    for (const key of this._prefill.keys()) {
+      if (!current.has(key)) this._prefill.delete(key);
+    }
+    if (domain !== "llm") return;
+    for (const [key, entry] of current) {
+      const counters = promptCounters(entry);
+      const prev = this._prefill.get(key);
+      // An engine that stops reporting the split has no window to judge.
+      if (!counters) {
+        this._prefill.delete(key);
+        continue;
+      }
+      const label = endpointLabel(entry);
+      if (!prev || counters.submitted < prev.submitted || counters.cached < prev.cached) {
+        this._prefill.set(key, { submitted: counters.submitted, cached: counters.cached, samples: [], label });
+        continue;
+      }
+      const samples = prev.samples.filter((s) => now - s.at < COLD_PREFILL_WINDOW_MS);
+      const dSubmitted = counters.submitted - prev.submitted;
+      if (dSubmitted > 0) {
+        const dCached = Math.min(counters.cached - prev.cached, dSubmitted);
+        samples.push({ at: now, submitted: dSubmitted, cached: dCached });
+      }
+      this._prefill.set(key, { submitted: counters.submitted, cached: counters.cached, samples, label });
+    }
+  }
+
+  /** A large amount of prompt prefilled uncached while the cache served little of it. */
+  _coldPrefill(out) {
+    const now = this._now();
+    let worst = null;
+    for (const state of this._prefill.values()) {
+      const samples = state.samples.filter((s) => now - s.at < COLD_PREFILL_WINDOW_MS);
+      if (samples.length === 0) continue;
+      const submitted = samples.reduce((n, s) => n + s.submitted, 0);
+      if (submitted <= 0) continue;
+      const cached = samples.reduce((n, s) => n + s.cached, 0);
+      const uncached = submitted - cached;
+      const share = cached / submitted;
+      if (uncached < COLD_PREFILL_MIN_UNCACHED_TOKENS || share >= COLD_PREFILL_MAX_CACHED_SHARE) continue;
+      if (!worst || uncached > worst.uncached) worst = { submitted, cached, uncached, share, label: state.label };
+    }
+    if (!worst) return;
+    const minutes = Math.round(COLD_PREFILL_WINDOW_MS / 60_000);
+    out.push({
+      id: "cold-prefill",
+      severity: "warn",
+      title: "Large prompts keep missing the engine cache",
+      detail: `${tokens(worst.uncached)} uncached prompt tokens in the last ${minutes} minutes on ${worst.label}: the cache served ${Math.round(worst.share * 100)}% of ${tokens(worst.submitted)} submitted.`,
+      hint: "The client session is too large to stay in the prompt cache, or the engine's prompt cache is too small. Compact or restart the session, or raise the engine's prompt-cache size.",
     });
   }
 

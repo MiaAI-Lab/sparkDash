@@ -40,12 +40,15 @@ export const RULES = Object.freeze([
   { id: "tailnet", source: "strip", name: "Tailnet unavailable", description: "Tailnet monitoring is on and the node is not connected (Overview strip).", defaults: { enabled: true, forSec: 120 } },
   { id: "thermal", source: "health", name: "GPU temperature", description: "Health finding: the GPU is running hot, or close to its shutdown temperature.", defaults: { enabled: true, forSec: 60 } },
   { id: "memory", source: "health", name: "Unified memory low", description: "Health finding: little unified memory left before the kernel starts killing processes.", defaults: { enabled: true, forSec: 60 } },
+  { id: "swap-traffic", source: "health", name: "Sustained swap traffic", description: "Health finding: the unit keeps swapping pages in or out. Swap that is merely occupied does not count.", defaults: { enabled: true, forSec: 0 } },
   { id: "low-power", source: "health", name: "GPU stuck in low power", description: "Health finding: high utilisation at a few watts for several samples in a row.", defaults: { enabled: true, forSec: 0 } },
   { id: "xid", source: "health", name: "NVIDIA Xid error", description: "Health finding: the kernel logged a GPU or driver error within the last hour.", defaults: { enabled: true, forSec: 0 } },
   { id: "oom", source: "health", name: "Out-of-memory kill", description: "Health finding: the kernel's OOM killer ended a process within the last hour.", defaults: { enabled: true, forSec: 0 } },
   { id: "roce-link", source: "health", name: "RoCE link down", description: "Health finding: a RoCE port that was up went down.", defaults: { enabled: true, forSec: 60 } },
   { id: "roce-loss", source: "health", name: "RoCE packet loss", description: "Health finding: RoCE loss counters keep rising.", defaults: { enabled: true, forSec: 120 } },
   { id: "link-speed", source: "health", name: "Slow network link", description: "Health finding: the primary interface negotiated less than 1 Gb/s.", defaults: { enabled: true, forSec: 300 } },
+  // The rule already judges a ten-minute window, so it fires as soon as it holds.
+  { id: "cold-prefill", source: "health", name: "Prompt cache missing", description: "Health finding: a large prompt was prefilled uncached while the prompt cache served little of it.", defaults: { enabled: true, forSec: 0 } },
   // Advice rather than a fault, so it does not notify unless asked to.
   { id: "concurrency", source: "health", name: "Several models loaded", description: "Health finding: more than one model serving while memory is above 70 %.", defaults: { enabled: false, forSec: 300 } },
 ]);
