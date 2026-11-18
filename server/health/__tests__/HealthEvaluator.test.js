@@ -526,3 +526,20 @@ test("swap-traffic: a unit with no swap counters resets the streak and raises no
   assert.deepEqual(ids(h.evaluate(unknown, "memory")), []);
   assert.deepEqual(ids(h.evaluate(swapMem(5000, 5000), "memory")), []);
 });
+
+test("swap-traffic: swap-in alone is enough to fire", () => {
+  const h = new HealthEvaluator();
+  for (let i = 0; i < SWAP_STREAK - 1; i++) assert.deepEqual(ids(h.evaluate(swapMem(500, 0), "memory")), []);
+  const f = h.evaluate(swapMem(500, 0), "memory");
+  assert.deepEqual(ids(f), ["swap-traffic"]);
+  assert.match(f[0].detail, /Swap-in 500 pages\/s and swap-out 0 pages\/s for 15 samples in a row/);
+});
+
+test("swap-traffic: the finding clears once the swapping stops", () => {
+  const h = new HealthEvaluator();
+  for (let i = 0; i < SWAP_STREAK; i++) h.evaluate(swapMem(500, 0), "memory");
+  assert.deepEqual(ids(h.evaluate(swapMem(500, 0), "memory")), ["swap-traffic"]);
+  // The pages are still in swap, but nothing is moving them: the streak resets.
+  assert.deepEqual(ids(h.evaluate(swapMem(0, 0), "memory")), []);
+  assert.deepEqual(ids(h.evaluate(swapMem(0, 0), "memory")), []);
+});

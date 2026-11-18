@@ -93,3 +93,29 @@ test("_getRemoteUnifiedMemory: a unit without /proc/vmstat reports swap as unkno
   const mem = await collector._getRemoteUnifiedMemory();
   assert.equal(mem.swap, null);
 });
+
+test("_getUnifiedMemory: the local unit reads swap counters from /proc/vmstat", async (t) => {
+  const collector = new SystemCollector(localSpark());
+  let now = 1_000_000;
+  t.mock.method(Date, "now", () => now);
+  const reads = [];
+  let counters = vmstat(4000, 1000);
+  collector._readHostFile = async (hostPath) => {
+    reads.push(hostPath);
+    if (hostPath === "/proc/meminfo") {
+      return "MemTotal:       131072000 kB\nMemAvailable:    8388608 kB\n";
+    }
+    if (hostPath === "/proc/vmstat") return counters;
+    throw new Error(`unexpected read ${hostPath}`);
+  };
+  collector._nvidiaSmi = async () => "";
+
+  const first = await collector._getUnifiedMemory();
+  assert.ok(reads.includes("/proc/vmstat"));
+  assert.equal(first.swap, null); // baseline only
+
+  now += 2000;
+  counters = vmstat(6000, 3000);
+  const second = await collector._getUnifiedMemory();
+  assert.deepEqual(second.swap, { inPagesPerSec: 1000, outPagesPerSec: 1000 });
+});
