@@ -18,7 +18,10 @@
  * is random per job, so script output can not forge the end of a job.
  */
 
+import { ENV_FILE, MANIFEST_FILE, MAX_MANIFEST_BYTES } from "./manifest.js";
+
 export const EXIT_MARKER = "__SDEXIT__";
+export const SETTINGS_MARKER = "__SDSET__";
 export const LOG_DIR = '$HOME/.cache/sparkdash/llm';
 export const LOG_MAX_BYTES = 32 * 1024 * 1024;
 export const LOG_KEEP_BYTES = 8 * 1024 * 1024;
@@ -264,6 +267,116 @@ fi
 mark "$RC"
 `;
   return wrap(program);
+}
+
+/**
+ * Read the optional manifest and env file of a launcher directory. One round trip
+ * answers both, and the same ownership / permission checks as check_script apply:
+ * the directory must resolve inside the user's home and not be world-writable, and
+ * each file must be a regular, non-symlink file owned by the user and not
+ * world-writable. Output is one marker line per part:
+ *   __SDSET__<nonce>:MANIFEST:<base64>   (or "-" when the file does not exist)
+ *   __SDSET__<nonce>:ENV:<base64>        (or "-")
+ *   __SDSET__<nonce>:DONE
+ * or __SDSET__<nonce>:ERROR:<message> and nothing else.
+ */
+export function buildSettingsReadCommand({ dir, nonce }) {
+  assertNonce(nonce);
+  const program = `
+mark() { printf '%s%s:%s\\n' '${SETTINGS_MARKER}' '${nonce}' "$1"; }
+${HELPERS}
+cd ${dirExpr(dir)} 2>/dev/null || { mark "ERROR:cannot open directory ${dir}"; exit 0; }
+H=$(cd "$HOME" 2>/dev/null && pwd -P) || { mark "ERROR:cannot resolve the home directory"; exit 0; }
+D=$(pwd -P)
+case "$D/" in "$H"/*) ;; *) mark "ERROR:$D is not inside $H"; exit 0 ;; esac
+if wwrite .; then mark "ERROR:directory $D is world-writable"; exit 0; fi
+readfile() {
+  if [ ! -e "./$1" ] && [ ! -L "./$1" ]; then mark "$2:-"; return 0; fi
+  if [ -L "./$1" ] || [ ! -f "./$1" ]; then mark "ERROR:$1 must be a regular file"; return 1; fi
+  [ "$(fowner "./$1")" = "$(id -u)" ] || { mark "ERROR:$1 is not owned by $(id -un)"; return 1; }
+  if wwrite "./$1"; then mark "ERROR:$1 is world-writable"; return 1; fi
+  [ -r "./$1" ] || { mark "ERROR:cannot read $1"; return 1; }
+  S=$(fsize "./$1"); case "$S" in ''|*[!0-9]*) mark "ERROR:cannot read the size of $1"; return 1 ;; esac
+  if [ "$S" -gt ${MAX_MANIFEST_BYTES} ]; then mark "ERROR:$1 is larger than ${MAX_MANIFEST_BYTES} bytes"; return 1; fi
+  mark "$2:$(base64 < "./$1" | tr -d '\\n')"
+}
+readfile '${MANIFEST_FILE}' MANIFEST || exit 0
+readfile '${ENV_FILE}' ENV || exit 0
+mark DONE
+`;
+  return wrap(program);
+}
+
+/**
+ * Replace the launcher's env file with `env` (already validated and serialised by
+ * manifest.js). The payload travels base64-encoded, so no value is ever part of a
+ * shell string. Written to a temporary file in the same directory and renamed, so
+ * a reader never sees half a file; mode 0600, owned by the SSH user.
+ */
+export function buildSettingsWriteCommand({ dir, env, nonce }) {
+  assertNonce(nonce);
+  const b64 = Buffer.from(String(env), "utf8").toString("base64");
+  const program = `
+mark() { printf '%s%s:%s\\n' '${SETTINGS_MARKER}' '${nonce}' "$1"; }
+${HELPERS}
+cd ${dirExpr(dir)} 2>/dev/null || { mark "ERROR:cannot open directory ${dir}"; exit 0; }
+H=$(cd "$HOME" 2>/dev/null && pwd -P) || { mark "ERROR:cannot resolve the home directory"; exit 0; }
+D=$(pwd -P)
+case "$D/" in "$H"/*) ;; *) mark "ERROR:$D is not inside $H"; exit 0 ;; esac
+if wwrite .; then mark "ERROR:directory $D is world-writable"; exit 0; fi
+if [ -L './${ENV_FILE}' ]; then mark "ERROR:${ENV_FILE} is a symlink"; exit 0; fi
+if [ -e './${ENV_FILE}' ]; then
+  [ -f './${ENV_FILE}' ] || { mark "ERROR:${ENV_FILE} is not a regular file"; exit 0; }
+  [ "$(fowner './${ENV_FILE}')" = "$(id -u)" ] || { mark "ERROR:${ENV_FILE} is not owned by $(id -un)"; exit 0; }
+fi
+umask 077
+T="./${ENV_FILE}.tmp.$$"
+printf %s '${b64}' | base64 -d > "$T" || { rm -f "$T"; mark "ERROR:cannot write ${ENV_FILE}"; exit 0; }
+chmod 600 "$T" 2>/dev/null
+mv -f "$T" "./${ENV_FILE}" || { rm -f "$T"; mark "ERROR:cannot replace ${ENV_FILE}"; exit 0; }
+mark OK
+`;
+  return wrap(program);
+}
+
+/**
+ * Parse the marker lines of a settings read.
+ * @returns {{ ok: true, manifestText: string|null, envText: string|null } | { ok: false, error: string }}
+ */
+export function parseSettingsReadOutput(text, nonce) {
+  const prefix = `${SETTINGS_MARKER}${nonce}:`;
+  let manifestText = null;
+  let envText = null;
+  let done = false;
+  for (const line of String(text ?? "").split("\n")) {
+    if (!line.startsWith(prefix)) continue;
+    const rest = line.slice(prefix.length);
+    if (rest === "DONE") {
+      done = true;
+    } else if (rest.startsWith("ERROR:")) {
+      return { ok: false, error: rest.slice("ERROR:".length) };
+    } else if (rest.startsWith("MANIFEST:")) {
+      const payload = rest.slice("MANIFEST:".length);
+      manifestText = payload === "-" ? null : Buffer.from(payload, "base64").toString("utf8");
+    } else if (rest.startsWith("ENV:")) {
+      const payload = rest.slice("ENV:".length);
+      envText = payload === "-" ? null : Buffer.from(payload, "base64").toString("utf8");
+    }
+  }
+  if (!done) return { ok: false, error: "The Spark did not answer the settings request" };
+  return { ok: true, manifestText, envText };
+}
+
+/** Parse the marker line of a settings write. */
+export function parseSettingsWriteOutput(text, nonce) {
+  const prefix = `${SETTINGS_MARKER}${nonce}:`;
+  for (const line of String(text ?? "").split("\n")) {
+    if (!line.startsWith(prefix)) continue;
+    const rest = line.slice(prefix.length);
+    if (rest === "OK") return { ok: true };
+    if (rest.startsWith("ERROR:")) return { ok: false, error: rest.slice("ERROR:".length) };
+  }
+  return { ok: false, error: "The Spark did not confirm the settings write" };
 }
 
 /** One line per launcher id: "<id> RUNNING|STOPPED". */

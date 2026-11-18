@@ -2473,6 +2473,48 @@ export interface LauncherJobRead {
   truncated: boolean;
 }
 
+// ─── Launcher settings (optional sparkdash-launcher.json in the model directory) ───
+export type LauncherSettingType = "integer" | "number" | "boolean" | "enum" | "string";
+export type LauncherSettingValue = string | number | boolean;
+
+/** One setting a launcher's manifest declares. Bounds and options are null when unused. */
+export interface LauncherSetting {
+  key: string;
+  label: string;
+  type: LauncherSettingType;
+  default: LauncherSettingValue;
+  min: number | null;
+  max: number | null;
+  step: number | null;
+  options: string[] | null;
+  unit: string | null;
+  help: string | null;
+  /** Whether a change needs the model restarted to take effect. */
+  restart: boolean;
+  /** Set when the value reserves host memory, in this unit. */
+  memory: "GiB" | null;
+}
+
+export interface LauncherManifest {
+  version: number;
+  settings: LauncherSetting[];
+}
+
+export interface LauncherSettingsResponse {
+  /** null when the launcher directory has no manifest: the model has no settings. */
+  manifest: LauncherManifest | null;
+  values: Record<string, LauncherSettingValue>;
+  /** Values the env file holds that the manifest rejects; the default is shown instead. */
+  invalid: { key: string; raw: string }[];
+  envFile: string;
+}
+
+export interface LauncherSettingsSaveResponse {
+  values: Record<string, LauncherSettingValue>;
+  /** True when a changed setting needs a restart to take effect. */
+  restartRequired: boolean;
+}
+
 // ─── Model discovery ("Discover on this Spark") ───
 /** A model the discovery scan found on the dashboard's own Spark. */
 export type ModelCandidateKind = "scripted" | "ollama" | "huggingface";
