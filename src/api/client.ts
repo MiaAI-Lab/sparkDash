@@ -24,6 +24,9 @@ import type {
   LauncherJob,
   LauncherJobRead,
   LauncherListResponse,
+  LauncherSettingValue,
+  LauncherSettingsResponse,
+  LauncherSettingsSaveResponse,
   LlmLauncher,
   LlmLauncherInput,
   LlmMetrics,
@@ -1016,6 +1019,23 @@ export function readLauncherJob(sparkId: string, jobId: string, since = 0): Prom
 /** Stop watching the active job. A start script keeps running on the Spark. */
 export function cancelLauncherJob(sparkId: string): Promise<{ success: boolean }> {
   return apiFetch(`${launchersBase(sparkId)}/jobs/active`, { method: "DELETE" });
+}
+
+/** The launcher's optional manifest and the values in its env file (one SSH round trip). */
+export function fetchLauncherSettings(sparkId: string, launcherId: string): Promise<LauncherSettingsResponse> {
+  return apiFetch(`${launchersBase(sparkId)}/${encodeURIComponent(launcherId)}/settings`);
+}
+
+/** Validate against the manifest on the Spark and rewrite its env file. */
+export function saveLauncherSettings(
+  sparkId: string,
+  launcherId: string,
+  values: Record<string, LauncherSettingValue>
+): Promise<LauncherSettingsSaveResponse> {
+  return apiFetch(`${launchersBase(sparkId)}/${encodeURIComponent(launcherId)}/settings`, {
+    method: "PUT",
+    body: JSON.stringify({ values }),
+  });
 }
 
 /**

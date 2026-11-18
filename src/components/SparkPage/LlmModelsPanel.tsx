@@ -25,10 +25,11 @@ import { useLauncherJob } from "../../hooks/useLauncherJob";
 import { LiveTerminal, terminalText } from "../ui/LiveTerminal";
 import { Panel } from "../ui/Panel";
 import { Tag, type TagTone } from "../ui/Tag";
-import { BotIcon, EditIcon, ExpandIcon, GripVerticalIcon, PlusIcon, XIcon } from "../ui/icons";
+import { BotIcon, EditIcon, ExpandIcon, GearIcon, GripVerticalIcon, PlusIcon, XIcon } from "../ui/icons";
 import { useModelOutputPreference, TerminalModal } from "../ui/ModelOutput";
 import { RuntimeLauncher } from "./RuntimeLauncher";
 import { LlmLauncherDialog } from "./LlmLauncherDialog";
+import { LlmLauncherSettingsDialog } from "./LlmLauncherSettingsDialog";
 
 const STATUS_REFRESH_MS = 20_000;
 
@@ -154,6 +155,7 @@ function LlmModelsPanelFor({ spark, className }: { spark: SparkSnapshot; classNa
   const [actionError, setActionError] = useState<string | null>(null);
   const [stopFailed, setStopFailed] = useState(false);
   const [dialog, setDialog] = useState<{ open: boolean; launcher: LlmLauncher | null }>({ open: false, launcher: null });
+  const [settingsFor, setSettingsFor] = useState<LlmLauncher | null>(null);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [termOpen, setTermOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -257,6 +259,13 @@ function LlmModelsPanelFor({ spark, className }: { spark: SparkSnapshot; classNa
   async function switchTo(l: LlmLauncher, otherId: string) {
     setQueuedStart(l.id);
     await run(otherId, "stop");
+  }
+
+  /** Apply saved settings: stop the model, then start it again through the same job machinery. */
+  function restart(l: LlmLauncher) {
+    setSettingsFor(null);
+    setQueuedStart(l.id);
+    void run(l.id, "stop");
   }
 
   async function doRemove(id: string) {
@@ -428,6 +437,16 @@ function LlmModelsPanelFor({ spark, className }: { spark: SparkSnapshot; classNa
               <button
                 type="button"
                 className="sp-iconbtn"
+                aria-label={t("models.settingsName", { name: l.name })}
+                title={t("models.settings")}
+                disabled={!online}
+                onClick={() => setSettingsFor(l)}
+              >
+                <GearIcon className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                className="sp-iconbtn"
                 aria-label={t("models.editName", { name: l.name })}
                 title={t("models.edit")}
                 disabled={busy && mine}
@@ -559,6 +578,18 @@ function LlmModelsPanelFor({ spark, className }: { spark: SparkSnapshot; classNa
         onSaved={() => {
           invalidateLaunchers(sparkId);
           void refresh(true);
+        }}
+      />
+      <LlmLauncherSettingsDialog
+        open={settingsFor !== null}
+        sparkId={sparkId}
+        sparkName={spark.name}
+        launcher={settingsFor}
+        running={settingsFor ? statuses[settingsFor.id] === "running" : false}
+        availableMemoryMb={spark.metrics.unifiedMemory?.available ?? null}
+        onClose={() => setSettingsFor(null)}
+        onRestart={() => {
+          if (settingsFor) restart(settingsFor);
         }}
       />
       <TerminalModal

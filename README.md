@@ -824,6 +824,78 @@ sparkDash only needs the engine's HTTP port; it does not care how the engine was
 
 Model launchers require Bash, util-linux `setsid`, and GNU `tail` with `--pid` support on the Linux unit. **Start** and live **Output** drain the log before reporting completion, including the last line without a newline. The follower tracks the script's whole process group, so output continues when the wrapper exits but the model process is still running.
 
+### Model settings
+
+A model directory can declare settings that the dashboard edits for you. Put a `sparkdash-launcher.json` beside `start.sh`:
+
+```json
+{
+  "version": 1,
+  "settings": [
+    {
+      "key": "PROMPT_CACHE_GIB",
+      "label": "Prompt cache",
+      "type": "integer",
+      "default": 4,
+      "min": 1,
+      "max": 16,
+      "step": 1,
+      "unit": "GiB",
+      "help": "Server prompt cache. A larger cache keeps more of a long conversation warm.",
+      "memory": "GiB"
+    },
+    {
+      "key": "GPU_MEMORY_UTILIZATION",
+      "label": "GPU memory utilization",
+      "type": "number",
+      "default": 0.9,
+      "min": 0.5,
+      "max": 0.95,
+      "step": 0.01
+    },
+    {
+      "key": "ENABLE_PREFIX_CACHE",
+      "label": "Prefix cache",
+      "type": "boolean",
+      "default": true,
+      "restart": false
+    },
+    {
+      "key": "ATTENTION_BACKEND",
+      "label": "Attention backend",
+      "type": "enum",
+      "default": "flashinfer",
+      "options": ["flashinfer", "triton"]
+    }
+  ]
+}
+```
+
+The **Settings** button on a model row opens these fields. Saving writes `launcher.env` in the same directory, one `KEY=value` line per setting, mode 0600. The start script reads it:
+
+```bash
+set -a
+[ -f ./launcher.env ] && . ./launcher.env
+set +a
+```
+
+| Field | Meaning |
+|---|---|
+| `key` | Environment variable name: `A-Z`, `0-9` and `_`, starting with a letter, 64 characters max. |
+| `label` | Shown in the dialog. |
+| `type` | `integer`, `number`, `boolean`, `enum` or `string`. |
+| `default` | Required. Used when `launcher.env` has no value for the key. |
+| `min`, `max`, `step` | Numeric types only. |
+| `options` | Enum only, up to 64 entries. |
+| `unit` | Shown beside the input, 16 characters max. |
+| `help` | One line under the field, 300 characters max. |
+| `restart` | Defaults to `true`. When a changed setting has `restart: true` and the model is running, the dialog offers to restart it. |
+| `memory` | `"GiB"` on a numeric setting that reserves host memory. Raising it past the unit's free memory, less a 1 GiB margin, shows a warning. The save still goes through. |
+
+Limits: 32 settings and 16 KiB for the manifest. String and enum values may use letters, digits and `. _ : @ % + = , / -` only, so the env file is safe to source without quoting. A value the file holds that the manifest rejects is reported in the dialog, and the default is shown in its place.
+
+The dashboard checks every value against the manifest on the Spark before writing, and rewrites the whole file, so a save cannot leave a key behind. A model without `sparkdash-launcher.json` has no settings, and the dialog says so instead of showing an empty form.
+
 ---
 
 ## Storage Manager
