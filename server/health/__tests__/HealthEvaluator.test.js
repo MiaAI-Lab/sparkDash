@@ -417,6 +417,79 @@ test("cold-prefill: an engine with no cache split, or an unusable sample, raises
   assert.deepEqual(ids(h.evaluate({ llm: [prefillEndpoint(4_000_000, 0, { measurementValid: false })] }, "llm")), []);
 });
 
+test("cold-prefill: cache hits and prompt tokens that arrive in different polls stay one turn", () => {
+  let t = 1_000_000;
+  const h = new HealthEvaluator({ now: () => t });
+  // A session with a large warm cache: 10M submitted, 9M of it served.
+  let submitted = 10_000_000;
+  let cached = 9_000_000;
+  h.evaluate({ llm: [prefillEndpoint(submitted, cached)] }, "llm");
+  // Some engines count cache hits when the request is scheduled and prompt
+  // tokens when the first output token arrives, so one turn spans two polls.
+  for (let turn = 0; turn < 2; turn++) {
+    t += 30_000;
+    cached += 250_000;
+    assert.deepEqual(ids(h.evaluate({ llm: [prefillEndpoint(submitted, cached)] }, "llm")), []);
+    t += 30_000;
+    submitted += 255_000;
+    assert.deepEqual(ids(h.evaluate({ llm: [prefillEndpoint(submitted, cached)] }, "llm")), []);
+  }
+  // The same deltas inside one poll are the same turn, and equally healthy.
+  const one = new HealthEvaluator({ now: () => t });
+  one.evaluate({ llm: [prefillEndpoint(10_000_000, 9_000_000)] }, "llm");
+  for (let turn = 0; turn < 2; turn++) {
+    t += 60_000;
+    assert.deepEqual(ids(one.evaluate({ llm: [prefillEndpoint(10_255_000 + turn * 255_000, 9_250_000 + turn * 250_000)] }, "llm")), []);
+  }
+});
+
+test("cold-prefill: a cold turn older than the window does not add to a later one", () => {
+  let t = 1_000_000;
+  const h = new HealthEvaluator({ now: () => t });
+  h.evaluate({ llm: [prefillEndpoint(0, 0)] }, "llm");
+  t += 60_000;
+  assert.deepEqual(ids(h.evaluate({ llm: [prefillEndpoint(255_000, 0)] }, "llm")), []);
+  // Eleven minutes later the first turn has left the ten-minute window.
+  t += 11 * 60_000;
+  assert.deepEqual(ids(h.evaluate({ llm: [prefillEndpoint(510_000, 0)] }, "llm")), []);
+});
+
+test("cold-prefill: each endpoint is judged on its own window", () => {
+  let t = 1_000_000;
+  const h = new HealthEvaluator({ now: () => t });
+  const two = (a, b) => ({
+    llm: [prefillEndpoint(a, 0, { port: 8000 }), prefillEndpoint(b, 0, { port: 8001 })],
+  });
+  h.evaluate(two(0, 0), "llm");
+  t += 60_000;
+  // One cold turn on each engine is one turn each, not two on one.
+  assert.deepEqual(ids(h.evaluate(two(255_000, 255_000), "llm")), []);
+  t += 60_000;
+  // A second cold turn on port 8000 alone crosses the threshold there.
+  const f = h.evaluate(two(510_000, 255_000), "llm");
+  assert.deepEqual(ids(f), ["cold-prefill"]);
+  assert.match(f[0].detail, /510,000 uncached prompt tokens/);
+  assert.match(f[0].detail, /m on port 8000/);
+  assert.doesNotMatch(f[0].detail, /port 8001/);
+});
+
+test("cold-prefill: a cached share of exactly half is not a miss", () => {
+  let t = 1_000_000;
+  const half = new HealthEvaluator({ now: () => t });
+  half.evaluate({ llm: [prefillEndpoint(0, 0)] }, "llm");
+  t += 60_000;
+  // 300k uncached of 600k submitted: the boundary itself stays silent.
+  assert.deepEqual(ids(half.evaluate({ llm: [prefillEndpoint(600_000, 300_000)] }, "llm")), []);
+
+  const below = new HealthEvaluator({ now: () => t });
+  below.evaluate({ llm: [prefillEndpoint(0, 0)] }, "llm");
+  t += 60_000;
+  // One token less cached crosses both the share and the uncached threshold.
+  const f = below.evaluate({ llm: [prefillEndpoint(600_000, 299_999)] }, "llm");
+  assert.deepEqual(ids(f), ["cold-prefill"]);
+  assert.match(f[0].detail, /300,001 uncached prompt tokens/);
+});
+
 // ─── Swap traffic ─────────────────────────────────────────
 const swapMem = (inPagesPerSec, outPagesPerSec) => ({
   unifiedMemory: { total: 124000, available: 8000, percentage: 50, swap: { inPagesPerSec, outPagesPerSec } },

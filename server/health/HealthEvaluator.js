@@ -376,9 +376,14 @@ export class HealthEvaluator {
         continue;
       }
       const samples = prev.samples.filter((s) => now - s.at < COLD_PREFILL_WINDOW_MS);
+      // Some engines count cache hits when the request is scheduled and prompt
+      // tokens when the first output token arrives, so the two counters can rise
+      // in different polls. Record a sample whenever either moved, and keep the
+      // raw cached delta: clamping it to this poll's submitted delta would drop
+      // the cache hits and make the next poll look fully uncached.
       const dSubmitted = counters.submitted - prev.submitted;
-      if (dSubmitted > 0) {
-        const dCached = Math.min(counters.cached - prev.cached, dSubmitted);
+      const dCached = counters.cached - prev.cached;
+      if (dSubmitted > 0 || dCached > 0) {
         samples.push({ at: now, submitted: dSubmitted, cached: dCached });
       }
       this._prefill.set(key, { submitted: counters.submitted, cached: counters.cached, samples, label });
@@ -394,7 +399,9 @@ export class HealthEvaluator {
       if (samples.length === 0) continue;
       const submitted = samples.reduce((n, s) => n + s.submitted, 0);
       if (submitted <= 0) continue;
-      const cached = samples.reduce((n, s) => n + s.cached, 0);
+      // Cache hits can land in a poll of their own, so a single sample's cached
+      // delta may exceed its submitted delta. Clamp the window total instead.
+      const cached = Math.min(samples.reduce((n, s) => n + s.cached, 0), submitted);
       const uncached = submitted - cached;
       const share = cached / submitted;
       if (uncached < COLD_PREFILL_MIN_UNCACHED_TOKENS || share >= COLD_PREFILL_MAX_CACHED_SHARE) continue;
