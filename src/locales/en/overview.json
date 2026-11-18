@@ -295,6 +295,7 @@
     "estimatedCoverage": "Estimated, not wall-metered · 24h coverage {{coverage}}%",
     "hourlyWattsAria": "Hourly estimated watts for the last 24 hours, with gaps shown empty",
     "noCompleteCoverage": "No complete coverage",
+    "reportingOf": "{{fresh}}/{{total}} reporting",
     "hoursAgo": "{{count}}h ago",
     "now": "now",
     "current": "Current",

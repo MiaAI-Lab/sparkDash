@@ -84,6 +84,7 @@ export function FleetEnergyCard({
             : null;
 
   const hourly = view?.hourlyWatts24h ?? Array(24).fill(null);
+  const hourlyCounts = view?.hourlyReportingNodeCount24h ?? Array(24).fill(null);
   const max = Math.max(1, ...hourly.filter((value): value is number => value != null));
   return (
     <section className="panel ov-card" aria-labelledby="fleet-energy-title">
@@ -124,7 +125,13 @@ export function FleetEnergyCard({
             key={index}
             className={index === hourly.length - 1 ? "is-now" : undefined}
             style={{ height: watts == null ? 0 : `${Math.max(4, (watts / max) * 100)}%` }}
-            title={watts == null ? t("energy.noCompleteCoverage") : `${watts.toFixed(0)} W`}
+            title={
+              watts == null
+                ? t("energy.noCompleteCoverage")
+                : `${watts.toFixed(0)} W${hourlyCounts[index] != null && hourlyCounts[index]! < nodeCount
+                    ? ` · ${t("energy.reportingOf", { fresh: hourlyCounts[index], total: nodeCount })}`
+                    : ""}`
+            }
           />
         ))}
       </div>

@@ -210,6 +210,8 @@ function restoreBucket(candidate, minuteStartMs, nodeIds) {
     validCoverage(coverageMs) && withinWatts(wh, coverageMs, MAX_WALL_WATTS) && validNonnegative(meteredMs) && meteredMs <= coverageMs
   );
   if (wall) bucket.wall = wall;
+  const reporting = restoreReporting(candidate.reporting, nodeIds.length);
+  if (reporting) bucket.reporting = reporting;
   return bucket;
 }
 
@@ -225,11 +227,12 @@ function roundSeries(series) {
  * written without them, and the optional series are rounded to a microwatt-hour.
  */
 function serializeBucket(bucket) {
-  if (!bucket.parts && !bucket.wall) return bucket;
-  const { parts, wall, ...estimate } = bucket;
+  if (!bucket.parts && !bucket.wall && !bucket.reporting) return bucket;
+  const { parts, wall, reporting, ...estimate } = bucket;
   const out = estimateEmpty(bucket) ? { minuteStartMs: bucket.minuteStartMs } : { ...estimate };
   if (parts) out.parts = roundSeries(parts);
   if (wall) out.wall = roundSeries(wall);
+  if (reporting) out.reporting = reporting.map(roundMicro);
   return out;
 }
 
@@ -238,6 +241,7 @@ function estimateEmpty(bucket) {
   return (
     !bucket.fleetWattMs &&
     !bucket.fleetCoverageMs &&
+    !bucket.reporting &&
     !bucket.outputTokens &&
     !bucket.coveredOutputTokens &&
     Object.values(bucket.nodeWh).every((v) => !v) &&
@@ -265,6 +269,21 @@ function restoreSeries(raw, nodeIds, valid) {
     if (Array.isArray(entry) && entry.length === 3 && entry.every(Number.isFinite) && valid(entry)) out[id] = [...entry];
   }
   return Object.keys(out).length ? out : null;
+}
+
+/**
+ * The reporting series is one triple, not a per-node map: [wattMs, coverageMs, nodeCount].
+ * The bounds use the whole fleet, because which machines were in the set is not recorded;
+ * a loose upper bound beats rejecting a minute where a node joined part-way through.
+ */
+function restoreReporting(raw, nodeCount) {
+  if (!Array.isArray(raw) || raw.length !== 3 || !raw.every(Number.isFinite)) return null;
+  const [wattMs, coverageMs, count] = raw;
+  if (!validNonnegative(wattMs) || !validCoverage(coverageMs)) return null;
+  if (!Number.isSafeInteger(count) || count < 1 || count > nodeCount) return null;
+  if (exceedsWithFloatingTolerance(wattMs, 240 * nodeCount * coverageMs)) return null;
+  if (fallsBelowWithFloatingTolerance(wattMs, MIN_NODE_WATTS * coverageMs)) return null;
+  return [wattMs, coverageMs, count];
 }
 
 /**
@@ -764,7 +783,28 @@ export class FleetEnergyTracker {
     return { minutes, months };
   }
 
-  _integrateFleet(previous, current) {
+  /**
+   * The fleet series the charts draw: the sum over the nodes that reported in this interval.
+   * `nodeCount` rides along, so a bucket can say how many machines that sum covered.
+   */
+  _integrateReportingFleet(previous, current, nodeCount) {
+    this._splitInterval(
+      previous.atMs,
+      current.atMs,
+      previous.watts,
+      current.watts,
+      (bucket, durationMs, averageWatts) => {
+        const entry = (bucket.reporting ??= [0, 0, 0]);
+        entry[0] += averageWatts * durationMs;
+        entry[1] += durationMs;
+        // The fewest reporting nodes any interval in this minute had: the honest label.
+        entry[2] = entry[2] > 0 ? Math.min(entry[2], nodeCount) : nodeCount;
+      }
+    );
+  }
+
+  /** The strict series: only while every node was fresh (coverage, tokens, efficiency). */
+  _integrateFullFleet(previous, current) {
     this._splitInterval(
       previous.atMs,
       current.atMs,
@@ -928,12 +968,20 @@ export class FleetEnergyTracker {
     }
 
     let hasFullFleetInterval = false;
-    if (this.nodeIds.length > 0 && validNodes.size === this.nodeIds.length) {
+    if (this.nodeIds.length > 0 && validNodes.size > 0) {
       const fleetWatts = [...validNodes.values()].reduce((sum, watts) => sum + watts, 0);
+      const freshNodeIds = [...validNodes.keys()];
+      const fullFleet = freshNodeIds.length === this.nodeIds.length;
       const previous = this._fleetBaseline;
+      // Both ends of the interval must be the same set of machines: a node joining or leaving
+      // moves the sum by its own draw, which is not energy the fleet spent over that time.
+      const sameSet =
+        previous !== null &&
+        previous.nodeIds.length === freshNodeIds.length &&
+        previous.nodeIds.every((id) => validNodes.has(id));
       const gapMs = previous ? timestamp - previous.atMs : null;
       const interval =
-        previous && gapMs > 0 && gapMs <= MAX_GAP_MS
+        sameSet && gapMs > 0 && gapMs <= MAX_GAP_MS
           ? unaccountedInterval(
               previous,
               { atMs: timestamp, watts: fleetWatts },
@@ -941,12 +989,16 @@ export class FleetEnergyTracker {
             )
           : null;
       if (interval) {
-        this._integrateFleet(interval.previous, interval.current);
-        hasFullFleetInterval = true;
+        this._integrateReportingFleet(interval.previous, interval.current, freshNodeIds.length);
         integratedAtTimestamp = true;
+        // Coverage, tokens and efficiency stay full-fleet only; the chart series does not.
+        if (fullFleet) {
+          this._integrateFullFleet(interval.previous, interval.current);
+          hasFullFleetInterval = true;
+        }
       }
-      this._fleetBaseline = { atMs: timestamp, watts: fleetWatts };
-      this._recentFullFleetSamples.push({ atMs: timestamp, watts: fleetWatts });
+      this._fleetBaseline = { atMs: timestamp, watts: fleetWatts, nodeIds: freshNodeIds };
+      if (fullFleet) this._recentFullFleetSamples.push({ atMs: timestamp, watts: fleetWatts });
     } else {
       this._fleetBaseline = null;
     }
@@ -1047,23 +1099,40 @@ export class FleetEnergyTracker {
     };
   }
 
+  /**
+   * The 24 hourly slots the Overview bars and the Energy page's fleet line draw: the mean
+   * watts of the reporting series, plus how many nodes each slot was summed over. Minutes
+   * recorded before that series existed fall back to their full-fleet figures.
+   */
   _hourly(atMs) {
     const graphEnd = Math.floor(atMs / MINUTE_MS) * MINUTE_MS;
     const graphStart = graphEnd - DAY_MS;
     const aggregates = Array.from({ length: 24 }, () => ({
-      fleetWattMs: 0,
-      fleetCoverageMs: 0,
+      wattMs: 0,
+      coverageMs: 0,
+      nodeCount: null,
     }));
     for (const bucket of this._buckets.values()) {
       if (bucket.minuteStartMs < graphStart || bucket.minuteStartMs >= graphEnd) continue;
       const index = Math.floor((bucket.minuteStartMs - graphStart) / HOUR_MS);
-      aggregates[index].fleetWattMs += bucket.fleetWattMs;
-      aggregates[index].fleetCoverageMs += bucket.fleetCoverageMs;
+      const aggregate = aggregates[index];
+      if (bucket.reporting) {
+        aggregate.wattMs += bucket.reporting[0];
+        aggregate.coverageMs += bucket.reporting[1];
+        aggregate.nodeCount =
+          aggregate.nodeCount === null ? bucket.reporting[2] : Math.min(aggregate.nodeCount, bucket.reporting[2]);
+      } else if (bucket.fleetCoverageMs > 0) {
+        aggregate.wattMs += bucket.fleetWattMs;
+        aggregate.coverageMs += bucket.fleetCoverageMs;
+        aggregate.nodeCount =
+          aggregate.nodeCount === null ? this.nodeIds.length : Math.min(aggregate.nodeCount, this.nodeIds.length);
+      }
     }
 
-    return aggregates.map(({ fleetWattMs, fleetCoverageMs }) =>
-      fleetCoverageMs > 0 ? fleetWattMs / fleetCoverageMs : null
-    );
+    return {
+      watts: aggregates.map(({ wattMs, coverageMs }) => (coverageMs > 0 ? wattMs / coverageMs : null)),
+      nodeCounts: aggregates.map(({ coverageMs, nodeCount }) => (coverageMs > 0 ? nodeCount : null)),
+    };
   }
 
   /**
@@ -1260,6 +1329,9 @@ export class FleetEnergyTracker {
       latestRecordAgeMs !== null && latestRecordAgeMs >= 0 && latestRecordAgeMs <= MAX_GAP_MS
         ? this._latestFreshNodeCount
         : 0;
+    const hourly = this._membershipChanged
+      ? { watts: Array(24).fill(null), nodeCounts: Array(24).fill(null) }
+      : this._hourly(safeTimestamp);
 
     return {
       estimated: true,
@@ -1292,9 +1364,9 @@ export class FleetEnergyTracker {
       coverage31dWindowMs: RETENTION_MS,
       nodeCoverage24hMs: last24h.nodeCoverageMs,
       nodeCoverage31dMs: last31d.nodeCoverageMs,
-      hourlyWatts24h: this._membershipChanged
-        ? Array(24).fill(null)
-        : this._hourly(safeTimestamp),
+      hourlyWatts24h: hourly.watts,
+      /** How many nodes each hourly figure was summed over (null = no data in that slot). */
+      hourlyReportingNodeCount24h: hourly.nodeCounts,
       // Present only while external meters are configured: the estimate's fields stay as they are.
       ...(this._wallNodeIds.length > 0 && !this._membershipChanged ? { wall: this._wallSnapshot(safeTimestamp) } : {}),
     };
@@ -1321,6 +1393,9 @@ export class FleetEnergyTracker {
           nodeCoverageMs: nodeValues(this.nodeIds),
           fleetWattMs: 0,
           fleetCoverageMs: 0,
+          reportingWattMs: 0,
+          reportingCoverageMs: 0,
+          reportingNodeCount: null,
           outputTokens: 0,
           coveredOutputTokens: 0,
           parts: null,
@@ -1378,6 +1453,22 @@ export class FleetEnergyTracker {
       if (minute) addWall(row, minute, bucket.outputTokens);
       row.fleetWattMs += bucket.fleetWattMs;
       row.fleetCoverageMs += bucket.fleetCoverageMs;
+      if (bucket.reporting) {
+        row.reportingWattMs += bucket.reporting[0];
+        row.reportingCoverageMs += bucket.reporting[1];
+        row.reportingNodeCount =
+          row.reportingNodeCount === null
+            ? bucket.reporting[2]
+            : Math.min(row.reportingNodeCount, bucket.reporting[2]);
+      } else if (bucket.fleetCoverageMs > 0) {
+        // Minutes recorded before the reporting series existed only hold the full-fleet one.
+        row.reportingWattMs += bucket.fleetWattMs;
+        row.reportingCoverageMs += bucket.fleetCoverageMs;
+        row.reportingNodeCount =
+          row.reportingNodeCount === null
+            ? this.nodeIds.length
+            : Math.min(row.reportingNodeCount, this.nodeIds.length);
+      }
       row.outputTokens += bucket.outputTokens;
       row.coveredOutputTokens += bucket.coveredOutputTokens;
     }
@@ -1402,6 +1493,15 @@ export class FleetEnergyTracker {
             avgWatts: row.fleetCoverageMs > 0 ? round(row.fleetWattMs / row.fleetCoverageMs, 1) : null,
             fleetEnergyWh: round(row.fleetWattMs / 3_600_000),
             fleetCoverageMs: row.fleetCoverageMs,
+            // The series the charts draw: the sum over the machines that reported, so an hour
+            // with one unit asleep still has a value. Falls back to the full-fleet series on
+            // records written before it existed.
+            avgReportingWatts:
+              row.reportingCoverageMs > 0 ? round(row.reportingWattMs / row.reportingCoverageMs, 1) : null,
+            reportingEnergyWh: round(row.reportingWattMs / 3_600_000),
+            reportingCoverageMs: row.reportingCoverageMs,
+            /** Fewest nodes the reporting series covered in this hour (null = no data). */
+            reportingNodeCount: row.reportingNodeCount,
             outputTokens: row.outputTokens,
             coveredOutputTokens: row.coveredOutputTokens,
             // Pure additions: present only in hours that have them.

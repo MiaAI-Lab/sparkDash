@@ -409,9 +409,19 @@ function EnergyBody({
   const powerPoints: LinePoint[] = powerBuckets.map((b) => ({
     key: b.key,
     label: win.range === "24h" ? b.label : `${formatShortDay(b.startMs, tz)}`,
-    title: formatLocalHour(b.startMs, tz),
+    title:
+      b.reportingNodeCount != null && b.reportingNodeCount < total
+        ? `${formatLocalHour(b.startMs, tz)} · ${t("energy.reportingOf", { fresh: b.reportingNodeCount, total })}`
+        : formatLocalHour(b.startMs, tz),
     value: b.avgWatts,
   }));
+  // The line is drawn from whatever reported; say how few machines that was at the worst hour.
+  const minReporting = powerBuckets.reduce<number | null>(
+    (min, b) => (b.reportingNodeCount != null && b.reportingNodeCount < total
+      ? (min == null ? b.reportingNodeCount : Math.min(min, b.reportingNodeCount))
+      : min),
+    null
+  );
   const lineAt = (key: keyof HourLines) => powerBuckets.map((b) => wall?.lines.get(b.startMs)?.[key] ?? null);
   const overlays: LineOverlay[] = metered
     ? [
@@ -548,7 +558,11 @@ function EnergyBody({
               <header className="en-panel__head">
                 <div>
                   <h2 id="en-h-power">{t("energy.averagePower")}</h2>
-                  <p className="en-panel__sub">{t("energy.powerSubtitle")}</p>
+                  <p className="en-panel__sub">
+                    {minReporting != null
+                      ? t("energy.powerSubtitleReporting", { fresh: minReporting, total })
+                      : t("energy.powerSubtitle")}
+                  </p>
                 </div>
                 {metered ? (
                   <div className="legend" aria-label="Lines">

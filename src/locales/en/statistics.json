@@ -421,6 +421,8 @@
     "noTelemetry": "No telemetry recorded",
     "averagePower": "Average fleet power",
     "powerSubtitle": "Watts per hour while every node reported. Gaps mean no full-fleet coverage.",
+    "powerSubtitleReporting": "Watts per hour from the machines that reported (at least {{fresh}}/{{total}}); gaps mean no machine reported.",
+    "reportingOf": "{{fresh}}/{{total}} reporting",
     "byNode": "By node",
     "nodeSubtitle": "Each node is measured only while it reports, so coverage differs per node.",
     "avgW": "Avg W",

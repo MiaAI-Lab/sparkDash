@@ -11,6 +11,8 @@ import { tariffPriceAt, type EnergyTariff } from "../../shared/energyTariff";
  * Data semantics (mirrors server/energy/FleetEnergyTracker.js):
  *  - nodeWh / nodeCoverageMs: per node, while THAT node reported fresh telemetry.
  *  - fleetEnergyWh / fleetCoverageMs / coveredOutputTokens: only while EVERY node was fresh.
+ *  - avgReportingWatts / reportingEnergyWh / reportingCoverageMs: the sum over the nodes that
+ *    reported, which the fleet line and its "n/m reporting" label are drawn from.
  *  - Hours with no coverage at all are omitted by the server (gaps).
  */
 
@@ -144,6 +146,11 @@ export interface EnergyBucket {
   kwh: number;
   fleetWh: number;
   fleetCoverageMs: number;
+  /** Energy of the reporting series (sum over the nodes that reported), which charts draw. */
+  reportingWh: number;
+  reportingCoverageMs: number;
+  /** Fewest nodes that series covered in the bucket; null = no reporting data. */
+  reportingNodeCount: number | null;
   /** Time in the bucket that could have been covered (hours elapsed in range). */
   expectedMs: number;
   outputTokens: number;
@@ -191,6 +198,9 @@ export function buildBuckets(
         kwh: 0,
         fleetWh: 0,
         fleetCoverageMs: 0,
+        reportingWh: 0,
+        reportingCoverageMs: 0,
+        reportingNodeCount: null,
         expectedMs: 0,
         outputTokens: 0,
         coveredTokens: 0,
@@ -228,12 +238,23 @@ export function buildBuckets(
     }
     b.fleetWh += r.fleetEnergyWh || 0;
     b.fleetCoverageMs += r.fleetCoverageMs || 0;
+    // The reporting series, with the full-fleet figures as the fallback for older records.
+    const reportingWh = r.reportingEnergyWh ?? r.fleetEnergyWh ?? 0;
+    const reportingCoverageMs = r.reportingCoverageMs ?? r.fleetCoverageMs ?? 0;
+    b.reportingWh += reportingWh;
+    b.reportingCoverageMs += reportingCoverageMs;
+    if (reportingCoverageMs > 0) {
+      const count = r.reportingNodeCount ?? Object.keys(r.nodeWh).length;
+      b.reportingNodeCount =
+        b.reportingNodeCount == null ? count : Math.min(b.reportingNodeCount, count);
+    }
     b.outputTokens += r.outputTokens || 0;
     b.coveredTokens += r.coveredOutputTokens || 0;
     b.hasData = true;
   }
   for (const b of order) {
-    b.avgWatts = b.fleetCoverageMs > 0 ? b.fleetWh / (b.fleetCoverageMs / HOUR_MS) : null;
+    // The chart's line is the reporting series; efficiency stays on the full-fleet one.
+    b.avgWatts = b.reportingCoverageMs > 0 ? b.reportingWh / (b.reportingCoverageMs / HOUR_MS) : null;
     b.whPer1kTokens = whPer1kTokens(b.fleetWh, b.coveredTokens);
     const c = costs.get(b);
     b.cost = price && b.hasData && c && !c.unpriced ? c.sum : null;
