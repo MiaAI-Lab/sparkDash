@@ -13,6 +13,7 @@ import type {
   DecodeBenchJob,
   DecodeBenchListResponse,
   FleetEnergy,
+  HeadlessActionResult,
   HealthResponse,
   InferenceActivity,
   HermesBatchUpdateResponse,
@@ -1189,4 +1190,36 @@ export function fetchAtticInstallFlags(id: string): Promise<{ passwordAllowed: b
 
 export function fetchAtticInstallStatus(id: string): Promise<{ installed: boolean | null }> {
   return apiFetch(`/api/sparks/${encodeURIComponent(id)}/attic/status`);
+}
+
+// ─── Headless desktop ────────────────────────────────────
+/** Whether a typed sudo password would be accepted from this browser. */
+export function fetchHeadlessFlags(id: string): Promise<{ passwordAllowed: boolean; plainPasswordAllowed: boolean }> {
+  return apiFetch(`/api/sparks/${encodeURIComponent(id)}/headless/flags`);
+}
+
+/**
+ * Stop the graphical desktop on a Linux unit and set the boot default to
+ * multi-user.target. `units` must be names from the server's allow-list.
+ */
+export function makeHeadless(
+  id: string,
+  units: string[],
+  sudoPassword?: string
+): Promise<{ success: boolean; result: HeadlessActionResult }> {
+  return apiFetch(`/api/sparks/${encodeURIComponent(id)}/headless/make`, {
+    method: "POST",
+    body: JSON.stringify({ confirm: true, stopDesktopConfirmed: true, units, ...(sudoPassword ? { sudoPassword } : {}) }),
+  });
+}
+
+/** Restore the desktop from the record the make action wrote. */
+export function restoreDesktop(
+  id: string,
+  sudoPassword?: string
+): Promise<{ success: boolean; result: HeadlessActionResult }> {
+  return apiFetch(`/api/sparks/${encodeURIComponent(id)}/headless/restore`, {
+    method: "POST",
+    body: JSON.stringify({ confirm: true, ...(sudoPassword ? { sudoPassword } : {}) }),
+  });
 }

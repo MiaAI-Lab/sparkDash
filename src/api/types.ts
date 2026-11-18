@@ -106,6 +106,11 @@ export interface SparkConfig {
    * display carveout and how much of it is lent (default false; Linux Sparks).
    */
   atticMonitoring?: boolean;
+  /**
+   * Show the headless-desktop card and allow stopping or restoring the
+   * desktop (default false; Linux units).
+   */
+  headlessMonitoring?: boolean;
   /** When true, storage is only updated on manual refresh, not auto-polled. */
   storagePollDisabled?: boolean;
 }
@@ -917,6 +922,73 @@ export interface AtticMetrics {
   error: string | null;
 }
 
+// ─── Headless desktop ────────────────────────────────────
+/** A systemd unit the headless-desktop probe asked about; nulls when systemd could not be asked. */
+export interface HeadlessUnit {
+  unit: string;
+  /** false: not installed. */
+  present: boolean | null;
+  /** true while it runs, false when stopped or failed, null while it starts or stops. */
+  active: boolean | null;
+  /** true only for an enabled unit file; null for static, indirect or unknown. */
+  enabled: boolean | null;
+  /** systemd's ActiveState ("active", "inactive", "failed", …) or "not installed". */
+  state: string | null;
+}
+
+/** One desktop session process, as `ps` reported it. */
+export interface HeadlessProcess {
+  name: string;
+  rssMib: number;
+  /** null when /proc/<pid>/status could not be read. */
+  swapMib: number | null;
+}
+
+/**
+ * What the unit's desktop is doing. desktop: the display manager runs and the
+ * boot default is graphical.target. headless: the display manager is stopped
+ * and the boot default is multi-user.target. mixed: the boot default is
+ * multi-user.target but the desktop still runs until the next boot. unknown:
+ * the probe failed, or its answer cannot be trusted.
+ */
+export type HeadlessState = "desktop" | "headless" | "mixed" | "unknown";
+
+export interface HeadlessMetrics {
+  /** True when the probe ran and its output was understood. */
+  available: boolean;
+  state: HeadlessState;
+  /** systemd's default target, e.g. "graphical.target". */
+  defaultTarget: string | null;
+  /** display-manager.service, the unit that starts the desktop. */
+  displayManager: HeadlessUnit;
+  desktop: {
+    processes: HeadlessProcess[];
+    /** Sum of the processes' resident memory; null when there are none. */
+    rssMib: number | null;
+    /** Sum of their swap; null when there are none or one could not be read. */
+    swapMib: number | null;
+  };
+  /** Every unit the actions may change, whether or not it is installed. */
+  units: HeadlessUnit[];
+  error: string | null;
+}
+
+/** What a make-headless or restore-desktop run reported. */
+export interface HeadlessActionResult {
+  /** "recorded" or "default-only" for a restore; null for a make. */
+  mode: string | null;
+  memBeforeKib: number | null;
+  memAfterKib: number | null;
+  defaultBefore: string | null;
+  defaultAfter: string | null;
+  stoppedDisplayManager: boolean;
+  startedDisplayManager: boolean;
+  disabled: string[];
+  restored: string[];
+  failed: string[];
+  stateFile: string | null;
+}
+
 // ─── Full metrics snapshot ────────────────────────────────
 export interface SparkMetrics {
   gpu: GpuMetrics | null;
@@ -937,6 +1009,8 @@ export interface SparkMetrics {
   tailscale?: TailscaleMetrics | null;
   /** Display-carveout probe result when monitoring is enabled; null when off or not yet polled. */
   attic?: AtticMetrics | null;
+  /** Headless-desktop probe result when monitoring is enabled; null when off or not yet polled. */
+  headless?: HeadlessMetrics | null;
   /**
    * Mac-agent units: model runtimes detected on the machine. null for other
    * transports (DGX Sparks, macs read over SSH) — an empty array only when the
@@ -1095,6 +1169,12 @@ export interface SparkSnapshot {
   tailscaleMonitoring?: boolean;
   /** Whether the display carveout is probed (opt-in; Linux Sparks) */
   atticMonitoring?: boolean;
+  /**
+   * Whether the headless-desktop card is probed (opt-in; Linux units). When
+   * enabled, sparkDash reads the boot default target, the display manager and
+   * the desktop session's memory, and can stop or restore the desktop.
+   */
+  headlessMonitoring?: boolean;
   /** Hermes Agent update monitoring state (present in every snapshot). */
   hermes?: HermesStatus;
   hardware: HardwareInfo;

@@ -45,6 +45,7 @@ Monitored units run **Linux**, **macOS**, or **Windows** (a Windows PC with an N
 - [Hermes Agent monitoring](#hermes-agent-monitoring)
 - [Tailnet monitoring](#tailnet-monitoring)
 - [spark-attic monitoring (spare GPU memory)](#spark-attic-monitoring-spare-gpu-memory)
+- [Headless desktop (optional)](#headless-desktop-optional)
 - [Tailscale Serve (HTTPS)](#tailscale-serve-https)
 - [Mobile PWA (install on a phone)](#mobile-pwa-install-on-a-phone)
 - [Kiosk (wall display)](#kiosk-wall-display)
@@ -159,6 +160,7 @@ Full history: [CHANGELOG.md](./CHANGELOG.md)
 | **Hermes Agent** | Opt-in per unit: background update check (10 min), status badges, one-click or batch `hermes update` |
 | **Tailnet** | Opt-in probe: flags a unit that is healthy on the LAN but off its tailnet |
 | **spark-attic (spare GPU memory)** | Opt-in per Spark: install the service with confirmation and monitor how much of the GB10 display carveout it lends to CUDA |
+| **Headless desktop** | Opt-in per Linux unit: shows the boot default, the display manager and the desktop session's memory, and can stop or restore the desktop with confirmation |
 | **Decode benchmark** | Multi-concurrency streaming decode tok/s; type picker (Structured / Prose / Code / JSON). Code is a different Python task per stream. Temperature (default 0.7) and thinking on/off (default on) are selectable; persisted last run. **Start context** (16k to 256k or a custom size) prefills every stream to that depth first, then measures decode from there; it needs prefix caching, and a wave whose context was recomputed is flagged instead of reported as clean. Remote units: LAN HTTP, or SSH tunnel to loopback. **Remote** button for an on-demand HTTPS/host:port target |
 | **Prefill benchmark** | Context-size sweep (1k–300k) of prefill tok/s and TTFT; unique prefix per size; persisted last run. Same remote targeting as decode |
 | **Quality benchmark** | Fixed, seeded quality suite (QA, reasoning, arithmetic, state tracking, GSM8K, MMLU, plus optional instruction following and long-context recall) at temperature 0; per-category and overall score; last 30 runs kept; paired compare with McNemar p-value. Same remote targeting as decode |
@@ -374,6 +376,52 @@ For a Spark that already has monitoring enabled, open **Edit Spark** and use **I
 | `atticMonitoring` | `false` | Read spark-attic's state and show the spark-attic card |
 
 Env (optional): `POLL_INTERVAL_ATTIC` (default `15000`), `ATTIC_PROBE_TIMEOUT_MS` (default `8000`).
+
+---
+
+## Headless desktop (optional)
+
+Opt-in per unit (default **off**). The Resources card shows whether a Linux unit boots to a graphical desktop, what the desktop session holds in memory, and which optional desktop services are on. Two buttons stop the desktop or restore it.
+
+A desktop session costs memory on a box with single-digit GiB headroom. On DGX Sparks the session processes held about 0.2 to 0.4 GiB resident (gnome-shell 106 to 132 MiB, Xorg 12 to 25 MiB, measured on two units). Stopping it frees that memory for inference, and the unit boots to a multi-user target with no desktop.
+
+### What is supported
+
+| Capability | Details |
+|------------|---------|
+| **Opt-in per unit** | `headlessMonitoring` (default **off**) in **Edit Spark**; Linux units only. Turning monitoring off stops the probe; it does not change the boot default or restart the desktop |
+| **States** | **desktop** (display manager running, boot default `graphical.target`), **headless** (display manager stopped, boot default `multi-user.target`), **mixed** (boot default `multi-user.target` but the desktop still runs until the next boot), **unknown** |
+| **Numbers** | Resident memory and swap of the desktop session processes (`gnome-shell`, `Xorg`, `Xwayland`, `mutter*`, `gdm*`) from `/proc/<pid>/status`, and MemAvailable before and after each change |
+| **Optional services** | A fixed allow-list: `cups.service`, `cups.socket`, `cups.path`, `cups-browsed.service`, `bluetooth.service`, `fwupd-refresh.timer`, `colord.service`, `whoopsie.service`, `kerneloops.service`. Nothing networking, storage, container or NVIDIA related is on it |
+| **Unknown stays unknown** | A failed probe, a missing `systemctl`, or a stopped display manager on a `graphical.target` boot default reads **unknown**, never **headless** |
+
+The probe is one read-only shell command as the SSH user: no root, no socket, no key, no new port.
+
+### How to enable
+
+1. Open **Edit Spark** and tick **Headless desktop**.
+2. Open the unit's page. The card appears under Resources.
+3. Select **Make headless** and confirm. Enter a sudo password if needed; leave it blank for passwordless sudo. Password entry follows the same HTTPS, local-connection, and plain-HTTP setting rules as GPU clock controls.
+4. Tick any optional services to disable with the desktop. They are unticked by default.
+
+The action records the current boot default, the display manager's state and the state of each ticked service in `/var/lib/sparkdash-headless/state` before it changes anything, then sets the boot default to `multi-user.target`, stops `display-manager.service` and disables the ticked services. Anyone using the desktop is disconnected.
+
+**Restore desktop** reads that record and puts back the previous boot default, re-enables and starts the services that were enabled or active, and starts the display manager. With no record, it only sets the boot default back to `graphical.target` and says so.
+
+### Host requirements
+
+- Linux with systemd and a display manager unit (`display-manager.service`).
+- Root access on the unit, using passwordless sudo or a one-time sudo password.
+- `systemctl`, `ps` and `/proc`, for the probe. Without them the card reads unknown.
+- Remote units: existing SSH. Local Docker: `nsenter` into the host mount namespace (same as the Tailnet probe).
+
+### Config fields
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `headlessMonitoring` | `false` | Read the desktop state and show the headless-desktop card |
+
+Env (optional): `POLL_INTERVAL_HEADLESS` (default `30000`), `HEADLESS_PROBE_TIMEOUT_MS` (default `8000`).
 
 ---
 

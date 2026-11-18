@@ -13,6 +13,7 @@ import { StoragePanel } from "./StoragePanel";
 import { NetworkPanel } from "./NetworkPanel";
 import { TailscalePanel } from "./TailscalePanel";
 import { AtticPanel } from "./AtticPanel";
+import { HeadlessPanel } from "./HeadlessPanel";
 import { LlmPanel } from "./LlmPanel";
 import { ComfyPanel } from "./ComfyPanel";
 import { RuntimesPanel } from "../ui/RuntimeChips";
@@ -145,6 +146,7 @@ export function SparkPage({
   const comfyOn = Boolean(spark.comfyMonitoring);
   const tailscaleOn = Boolean(spark.tailscaleMonitoring);
   const atticOn = Boolean(spark.atticMonitoring);
+  const headlessOn = Boolean(spark.headlessMonitoring);
   const showServices = llmOn || comfyOn;
   // Everything on one page: hardware and services together (no sub-tabs).
   const view: SparkView = showServices ? "all" : "resources";
@@ -376,6 +378,16 @@ export function SparkPage({
             {atticOn && (
               <Item order={9}>
                 <AtticPanel attic={metrics.attic ?? null} />
+              </Item>
+            )}
+            {/* After spark-attic: same order, DOM order breaks the tie. */}
+            {headlessOn && (
+              <Item order={9}>
+                <HeadlessPanel
+                  sparkId={spark.id}
+                  sparkName={spark.name}
+                  headless={metrics.headless ?? null}
+                />
               </Item>
             )}
           </div>
