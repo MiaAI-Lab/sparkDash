@@ -1234,7 +1234,14 @@ export interface FleetEnergy {
   coverage31dWindowMs?: number;
   nodeCoverage24hMs: Record<string, number>;
   nodeCoverage31dMs: Record<string, number>;
+  /**
+   * Mean watts per hour of the reporting series: the sum over the machines that reported,
+   * so one sleeping unit no longer blanks the slot. Falls back to the full-fleet series on
+   * records written before it existed.
+   */
   hourlyWatts24h: Array<number | null>;
+  /** How many nodes each hourly figure was summed over (null = no data in that slot). */
+  hourlyReportingNodeCount24h?: Array<number | null>;
   /** Wall power from external meters; present only while power meters are configured. */
   wall?: FleetWallEnergy;
 }
@@ -1269,6 +1276,8 @@ export interface FleetWallEnergy {
   nodeCoverage24hMs: Record<string, number>;
   nodeCoverage31dMs: Record<string, number>;
   hourlyWatts24h: Array<number | null>;
+  /** Absent on wall power: its fleet series stays full-fleet only. */
+  hourlyReportingNodeCount24h?: Array<number | null>;
 }
 
 // ─── API responses ────────────────────────────────────────
@@ -2516,6 +2525,16 @@ export interface EnergyHistoryRow {
   avgWatts: number | null;
   fleetEnergyWh: number;
   fleetCoverageMs: number;
+  /**
+   * The series the charts draw: energy summed over the nodes reporting in each minute, so an
+   * hour with one unit asleep still has a value. Older records fall back to the full-fleet
+   * figures above.
+   */
+  avgReportingWatts?: number | null;
+  reportingEnergyWh?: number;
+  reportingCoverageMs?: number;
+  /** Fewest nodes the reporting series covered in this hour (null = no reporting data). */
+  reportingNodeCount?: number | null;
   outputTokens: number;
   coveredOutputTokens: number;
   // ── Optional, present only in hours that have them ──
