@@ -91,18 +91,30 @@ export function HeadlessPanel({ sparkId, sparkName, headless, className }: Headl
     const lines: string[] = [];
     const before = r.memBeforeKib != null ? mib(Math.round(r.memBeforeKib / 1024)) : null;
     const after = r.memAfterKib != null ? mib(Math.round(r.memAfterKib / 1024)) : null;
-    if (kind === "restore" && r.mode === "default-only") {
+    if (kind === "make") {
+      if (before != null && after != null) {
+        lines.push(t("headless.madeHeadless", { before, after }));
+      } else {
+        lines.push(t("headless.madeHeadlessNoMemory"));
+      }
+      if (r.disabled.length > 0) lines.push(t("headless.disabledUnits", { units: r.disabled.join(", ") }));
+      if (r.failed.length > 0) lines.push(t("headless.failedUnits", { units: r.failed.join(", ") }));
+      return lines;
+    }
+    if (r.failed.length > 0) {
+      lines.push(t("headless.restoreFailed"));
+    } else if (r.defaultAfter !== "graphical.target") {
+      lines.push(t("headless.restoreDefaultNotGraphical", { target: r.defaultAfter ?? t("headless.unknown") }));
+    } else if (r.mode === "default-only") {
       lines.push(t("headless.restoredDefaultOnly"));
     } else if (before != null && after != null) {
-      lines.push(
-        kind === "make"
-          ? t("headless.madeHeadless", { before, after })
-          : t("headless.restoredDesktop", { before, after })
-      );
+      lines.push(t("headless.restoredDesktop", { before, after }));
     } else {
-      lines.push(kind === "make" ? t("headless.madeHeadlessNoMemory") : t("headless.restoredDesktopNoMemory"));
+      lines.push(t("headless.restoredDesktopNoMemory"));
     }
-    if (r.disabled.length > 0) lines.push(t("headless.disabledUnits", { units: r.disabled.join(", ") }));
+    if (r.defaultAfter && r.defaultAfter !== "graphical.target") {
+      lines.push(t("headless.bootDefaultAfter", { target: r.defaultAfter }));
+    }
     if (r.restored.length > 0) lines.push(t("headless.restoredUnits", { units: r.restored.join(", ") }));
     if (r.failed.length > 0) lines.push(t("headless.failedUnits", { units: r.failed.join(", ") }));
     return lines;
@@ -121,7 +133,13 @@ export function HeadlessPanel({ sparkId, sparkName, headless, className }: Headl
         kind === "make"
           ? await makeHeadless(sparkId, selected, password || undefined)
           : await restoreDesktop(sparkId, password || undefined);
-      setResult({ ok: true, lines: describe(kind, res.result) });
+      // A restore only succeeded when every step worked and the boot default
+      // is back to graphical.target; a failed unit or a default left on
+      // multi-user.target means the desktop does not come back at boot.
+      const ok =
+        res.result.failed.length === 0 &&
+        (kind === "make" || res.result.defaultAfter === "graphical.target");
+      setResult({ ok, lines: describe(kind, res.result) });
       setPassword("");
       await refreshSparkMetric(sparkId, "headless").catch(() => {});
     } catch (err) {
@@ -174,9 +192,9 @@ export function HeadlessPanel({ sparkId, sparkName, headless, className }: Headl
             tabular
           />
         )}
-        {desktop?.processes.map((p) => (
+        {desktop?.processes.map((p, index) => (
           <Row
-            key={p.name}
+            key={`${p.name}-${index}`}
             label={p.name}
             value={
               p.swapMib

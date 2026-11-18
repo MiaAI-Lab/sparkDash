@@ -228,6 +228,7 @@ export function EditSparkDialog({
         Boolean(config.hermesMonitoring) !== Boolean(savedConfig.hermesMonitoring) ||
         Boolean(config.tailscaleMonitoring) !== Boolean(savedConfig.tailscaleMonitoring) ||
         Boolean(config.atticMonitoring) !== Boolean(savedConfig.atticMonitoring) ||
+        Boolean(config.headlessMonitoring) !== Boolean(savedConfig.headlessMonitoring) ||
         (config.comfyPort ?? 8188) !== (savedConfig.comfyPort ?? 8188);
 
       const result = formDirty
@@ -288,6 +289,7 @@ export function EditSparkDialog({
         hermesMonitoring: Boolean(config.hermesMonitoring),
         tailscaleMonitoring: Boolean(config.tailscaleMonitoring),
         atticMonitoring: Boolean(config.atticMonitoring),
+        headlessMonitoring: Boolean(config.headlessMonitoring),
         ssh: {
           host: config.ssh.host || config.lanIp,
           user: config.ssh.user,

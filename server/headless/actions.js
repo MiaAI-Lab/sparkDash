@@ -19,6 +19,22 @@ import { HEADLESS_UNITS, DISPLAY_MANAGER_UNIT } from "../collectors/HeadlessProb
 export const HEADLESS_STATE_DIR = "/var/lib/sparkdash-headless";
 export const HEADLESS_STATE_FILE = `${HEADLESS_STATE_DIR}/state`;
 
+/** A state directory that can be pasted into a shell program without quoting. */
+const SAFE_STATE_DIR = /^\/[A-Za-z0-9_./-]*$/;
+
+/**
+ * The state directory for a program. The routes always pass the constant; the
+ * argument exists so tests can run the programs against a temporary tree, and
+ * it is checked so no caller can put shell text into the program.
+ * @param {string} dir
+ */
+function checkedStateDir(dir) {
+  if (typeof dir !== "string" || !SAFE_STATE_DIR.test(dir) || dir.includes("..")) {
+    throw new Error("unsafe headless state directory");
+  }
+  return dir;
+}
+
 /** The sudo preamble shared by both programs (same shape as the spark-attic installer). */
 const SUDO_PREAMBLE = `PW=\${SPARKDASH_SUDO_PW-}
 unset SPARKDASH_SUDO_PW
@@ -42,15 +58,22 @@ const UNIT_CASE = HEADLESS_UNITS.join("|");
  * ticked allow-listed services.
  *
  * The record is written before anything changes, so a failed action still
- * leaves an accurate undo. Only allow-listed units are recorded or changed.
+ * leaves an accurate undo. A second make adds to the record instead of
+ * replacing it: the first run's default target, display manager and units stay
+ * as they were, and only units not already recorded are appended. Only
+ * allow-listed units are recorded or changed.
  *
  * @param {string[]} [units] allow-listed unit names to disable; anything else is ignored
+ * @param {{ stateDir?: string }} [options] state directory; the routes use the constant
  * @returns {string}
  */
-export function makeHeadlessProgram(units = []) {
+export function makeHeadlessProgram(units = [], { stateDir = HEADLESS_STATE_DIR } = {}) {
+  const dir = checkedStateDir(stateDir);
+  const stateFile = `${dir}/state`;
   const selected = HEADLESS_UNITS.filter((unit) => units.includes(unit));
   const record = selected.length
     ? `for u in ${selected.join(" ")}; do
+  if already_recorded "$u"; then continue; fi
   ufs=$(systemctl show -p UnitFileState "$u" 2>/dev/null | sed -n 's/^UnitFileState=//p')
   as=$(systemctl show -p ActiveState "$u" 2>/dev/null | sed -n 's/^ActiveState=//p')
   [ -n "$ufs" ] || ufs=-
@@ -75,10 +98,28 @@ before=$(mem_available)
 prev_default=$(systemctl get-default 2>/dev/null || true)
 [ -n "$prev_default" ] || { echo 'Could not read the current default target' >&2; exit 1; }
 dm_state=$(systemctl show -p ActiveState ${DISPLAY_MANAGER_UNIT} 2>/dev/null | sed -n 's/^ActiveState=//p')
-state="default_target=$prev_default
+state_file=${stateFile}
+existing=
+if as_root test -f "$state_file"; then
+  existing=$(as_root cat "$state_file")
+fi
+if [ -n "$existing" ]; then
+  state="$existing"
+else
+  state="default_target=$prev_default
 display_manager=$dm_state"
+fi
+already_recorded() {
+  case "
+$existing
+" in
+    *"
+unit $1 "*) return 0 ;;
+  esac
+  return 1
+}
 ${record}
-as_root sh -c 'mkdir -p "$1" && printf "%s\\n" "$2" > "$1/state"' sh ${HEADLESS_STATE_DIR} "$state"
+as_root sh -c 'mkdir -p "$1" && printf "%s\\n" "$2" > "$1/state"' sh ${dir} "$state"
 as_root systemctl set-default multi-user.target || { echo 'Could not set the default target to multi-user.target' >&2; exit 1; }
 stopped_dm=0
 if systemctl is-active --quiet ${DISPLAY_MANAGER_UNIT}; then
@@ -96,21 +137,28 @@ printf 'headless-result default_after=%s\\n' "$(systemctl get-default 2>/dev/nul
 printf 'headless-result stopped_display_manager=%s\\n' "$stopped_dm"
 printf 'headless-result disabled=%s\\n' "$disabled"
 printf 'headless-result failed=%s\\n' "$failed"
-printf 'headless-result state_file=%s\\n' ${HEADLESS_STATE_FILE}
+printf 'headless-result state_file=%s\\n' ${stateFile}
 `;
 }
 
 /**
  * Restore the desktop from the recorded state: the previous default target,
  * the units that were enabled or active, and the display manager. With no
- * record, only the default target goes back to graphical.target.
+ * record, only the default target goes back to graphical.target. The record is
+ * removed only when every step succeeded, so a failed restore can be retried.
+ *
+ * @param {{ stateDir?: string }} [options] state directory; the routes use the constant
+ * @returns {string}
  */
-export const RESTORE_PROGRAM = `set -eu
+export function restoreProgram({ stateDir = HEADLESS_STATE_DIR } = {}) {
+  const dir = checkedStateDir(stateDir);
+  const stateFile = `${dir}/state`;
+  return `set -eu
 ${SUDO_PREAMBLE}
 ${MEM_AVAILABLE}
 before=$(mem_available)
 prev_default=$(systemctl get-default 2>/dev/null || true)
-state_file=${HEADLESS_STATE_FILE}
+state_file=${stateFile}
 restored=
 failed=
 started_dm=0
@@ -160,6 +208,7 @@ printf 'headless-result started_display_manager=%s\\n' "$started_dm"
 printf 'headless-result restored=%s\\n' "$restored"
 printf 'headless-result failed=%s\\n' "$failed"
 `;
+}
 
 const RESULT_LINE = /^headless-result (\S+)=(.*)$/;
 
@@ -316,5 +365,5 @@ export function registerHeadlessRoutes(app, { registry, allowChange, rejectLimit
     })
   );
 
-  app.post("/api/sparks/:id/headless/restore", handle(() => ({ program: RESTORE_PROGRAM })));
+  app.post("/api/sparks/:id/headless/restore", handle(() => ({ program: restoreProgram() })));
 }

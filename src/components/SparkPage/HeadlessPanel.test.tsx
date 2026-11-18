@@ -242,7 +242,7 @@ describe("HeadlessPanel", () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     restore.mockResolvedValue({
       success: true,
-      result: { ...RESULT, mode: "default-only", disabled: [], stoppedDisplayManager: false },
+      result: { ...RESULT, mode: "default-only", disabled: [], stoppedDisplayManager: false, defaultAfter: "graphical.target" },
     });
     const { container } = render(
       <HeadlessPanel sparkId="s1" sparkName="spark-a" headless={metrics({ state: "headless", displayManager: DM_STOPPED })} />
@@ -283,6 +283,90 @@ describe("HeadlessPanel", () => {
     await flush();
     expect(container.querySelector('input[type="password"]')).toBeNull();
     expect(container.textContent).toContain("open sparkDash over HTTPS");
+  });
+
+  it("does not report a restore as done when a step failed", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    restore.mockResolvedValue({
+      success: true,
+      result: {
+        ...RESULT,
+        mode: "recorded",
+        disabled: [],
+        defaultAfter: "graphical.target",
+        startedDisplayManager: false,
+        failed: ["display-manager.service"],
+      },
+    });
+    const { container } = render(
+      <HeadlessPanel sparkId="s1" sparkName="spark-a" headless={metrics({ state: "headless", displayManager: DM_STOPPED })} />
+    );
+    await flush();
+    await act(async () => {
+      button(container, "Restore desktop").click();
+    });
+    await flush();
+    const v = read(container);
+    expect(v.callouts).toHaveLength(1);
+    expect(v.callouts[0].bad).toBe(true);
+    expect(v.callouts[0].text).toContain("The desktop was not fully restored.");
+    expect(v.callouts[0].text).toContain("Failed: display-manager.service");
+    expect(v.callouts[0].text).not.toContain("Desktop restored");
+  });
+
+  it("says the desktop will not start at boot when the default is still multi-user", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    restore.mockResolvedValue({
+      success: true,
+      result: { ...RESULT, mode: "recorded", disabled: [], defaultAfter: "multi-user.target", failed: [] },
+    });
+    const { container } = render(
+      <HeadlessPanel sparkId="s1" sparkName="spark-a" headless={metrics({ state: "headless", displayManager: DM_STOPPED })} />
+    );
+    await flush();
+    await act(async () => {
+      button(container, "Restore desktop").click();
+    });
+    await flush();
+    const v = read(container);
+    expect(v.callouts[0].bad).toBe(true);
+    expect(v.callouts[0].text).toContain("The boot default is still multi-user.target");
+  });
+
+  it("offers only the action that applies to the current state", async () => {
+    const desktop = render(<HeadlessPanel sparkId="s1" sparkName="spark-a" headless={metrics()} />).container;
+    await flush();
+    expect(button(desktop, "Make headless").disabled).toBe(false);
+    expect(button(desktop, "Restore desktop").disabled).toBe(true);
+    const headless = render(
+      <HeadlessPanel sparkId="s1" sparkName="spark-a" headless={metrics({ state: "headless", displayManager: DM_STOPPED })} />
+    ).container;
+    await flush();
+    expect(button(headless, "Make headless").disabled).toBe(true);
+    expect(button(headless, "Restore desktop").disabled).toBe(false);
+  });
+
+  it("renders two processes with the same name without duplicate keys", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { container } = render(
+      <HeadlessPanel
+        sparkId="s1"
+        sparkName="spark-a"
+        headless={metrics({
+          desktop: {
+            processes: [
+              { name: "gnome-shell", rssMib: 90, swapMib: 0 },
+              { name: "gnome-shell", rssMib: 106, swapMib: 0 },
+            ],
+            rssMib: 196,
+            swapMib: 0,
+          },
+        })}
+      />
+    );
+    await flush();
+    expect(container.textContent).toContain("gnome-shell");
+    expect(errors.mock.calls.some((c) => String(c[0]).includes("same key"))).toBe(false);
   });
 
   it("switches to Simplified Chinese without changing the numbers", async () => {

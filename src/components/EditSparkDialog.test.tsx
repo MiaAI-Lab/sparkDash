@@ -183,4 +183,25 @@ describe("EditSparkDialog SSH port", () => {
       expect.objectContaining({ lanIp: "192.168.1.60", ssh: expect.objectContaining({ host: "192.168.1.60" }) })
     );
   });
+
+  it("saves the Headless desktop opt-in", async () => {
+    render(<EditSparkDialog open sparkId="lab" onClose={() => {}} onSaved={() => {}} />);
+    await flush();
+    vi.mocked(updateSpark).mockClear();
+
+    const checkbox = Array.from(document.querySelectorAll("label"))
+      .find((label) => label.textContent?.includes("Headless desktop"))
+      ?.querySelector<HTMLInputElement>('input[type="checkbox"]');
+    expect(checkbox).toBeTruthy();
+    expect(checkbox!.checked).toBe(false);
+    act(() => checkbox!.click());
+
+    const save = Array.from(document.querySelectorAll("button")).find((button) => button.textContent === "Save");
+    expect(save?.disabled).toBe(false);
+    await act(async () => {
+      save?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(updateSpark).toHaveBeenCalledWith("lab", expect.objectContaining({ headlessMonitoring: true }));
+  });
 });

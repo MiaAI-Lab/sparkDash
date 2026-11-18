@@ -5,10 +5,12 @@ import {
   makeHeadlessProgram,
   parseHeadlessResult,
   parseHeadlessUnits,
-  RESTORE_PROGRAM,
+  restoreProgram,
   HEADLESS_STATE_FILE,
 } from "../headless/actions.js";
 import { HEADLESS_UNITS } from "../collectors/HeadlessProbe.js";
+
+const RESTORE_PROGRAM = restoreProgram();
 
 function setup({ run = async () => "", spark = {}, found = true } = {}) {
   const handlers = {};
