@@ -305,7 +305,18 @@ export type GpuPowerStatus =
 
 /** One health finding for a Spark (server rules in server/health/HealthEvaluator.js). */
 export interface HealthFinding {
-  id: "thermal" | "low-power" | "memory" | "xid" | "oom" | "concurrency" | "link-speed" | "roce-link" | "roce-loss";
+  id:
+    | "thermal"
+    | "low-power"
+    | "memory"
+    | "swap-traffic"
+    | "xid"
+    | "oom"
+    | "concurrency"
+    | "cold-prefill"
+    | "link-speed"
+    | "roce-link"
+    | "roce-loss";
   severity: "warn" | "critical";
   title: string;
   detail: string;
@@ -525,6 +536,14 @@ export interface UnifiedMemoryMetrics {
     current: number;
     peak: number;
   };
+  /**
+   * Swap traffic in pages per second since the previous memory poll, from
+   * /proc/vmstat. Null on macOS, Windows and when the counters could not be read.
+   */
+  swap?: {
+    inPagesPerSec: number;
+    outPagesPerSec: number;
+  } | null;
 }
 
 // ─── LLM metrics ─────────────────────────────────────────

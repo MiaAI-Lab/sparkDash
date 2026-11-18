@@ -111,7 +111,9 @@ const HEALTH_LABELS = {
   thermal: "GPU temperature",
   "low-power": "GPU power draw",
   memory: "Unified memory",
+  "swap-traffic": "Swap traffic",
   concurrency: "Model concurrency",
+  "cold-prefill": "Prompt cache",
   "link-speed": "Network link speed",
   "roce-link": "RoCE link",
   "roce-loss": "RoCE packet loss",
@@ -1261,7 +1263,7 @@ export class SparkMonitor {
           break;
         case "memory":
           this._metrics.unifiedMemory = result;
-          this._updateHealth();
+          this._updateHealth("memory");
           break;
         case "runtimes":
           this._metrics.runtimes = Array.isArray(result?.runtimes) ? result.runtimes : null;
