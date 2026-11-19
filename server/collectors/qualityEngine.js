@@ -24,7 +24,7 @@ const CAP_LADDER = [128, 20, 5];
 
 /** owned_by values that name the engine itself (mirrors LlmProbe's set). */
 const OWNED_BY_ENGINES = new Set([
-  "locals", "splash", "tensorfold", "ds4", "sglang", "exl3", "q27", "freetoken", "radiance", "ninfer", "vllm",
+  "locals", "splash", "tensorfold", "ds4", "sglang", "exl3", "q27", "freetoken", "radiance", "ninfer", "ignis", "vllm",
 ]);
 
 const num = (v) => (Number.isFinite(Number(v)) && v !== null && v !== "" ? Number(v) : null);

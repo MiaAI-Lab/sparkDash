@@ -13,6 +13,7 @@ Format: version sections are listed newest first.
 - Install spark-attic v0.1.6 (was v0.1.4). It adds the Ubuntu firmware-console display fix from 0.1.5; the status file and the installer's `--check`/`--plain` flags are unchanged.
 
 ### Added
+- **ignis engines are recognised and report their own metrics.** [ignis](https://github.com/gpillon/ignis) answers `owned_by: "ignis"` on `/v1/models` and was shown as a generic vLLM server with no rates, because its Prometheus text is at `/ui/metrics` on the API port (its `/metrics` is a separate loopback listener) under `ignis_*` names. The probe now labels the backend, reads the engine version from `ignis_build_info`, and reports live decode tok/s (from `ignis_decoded_tokens_total`, which moves as tokens are emitted), output-token totals, running and queued requests against the model card's `decode_lanes`, KV pool use and size, draft acceptance and TTFT / end-to-end p95. ignis publishes no prompt or prefill token counters, so prefill tok/s and input totals are left unreported, not shown as 0 work. Counter reads up to 30 s apart are measured, since one stopped engine on another port of the same unit stretches every probe round to about 10 s.
 - Show an Installed badge in Edit Spark when the spark-attic service is detected.
 
 ### Fixed
