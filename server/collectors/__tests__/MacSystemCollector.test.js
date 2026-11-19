@@ -159,12 +159,30 @@ test("collector batches non-sudo reads into one SSH call and maps shapes", async
   assert.equal(storage[0].label, "/System/Volumes/Data");
   assert.equal(gpu.usage, 100);
   assert.equal(gpu.power.draw, 84.9);
-  assert.equal(gpu.power.systemDraw, 90);
+  assert.equal(gpu.power.systemDraw, 96.5, "90 W of rails over the M5 Ultra's 9 W floor, one idle share counted once");
+  assert.equal(gpu.power.systemPowerSource, "apple-idle", "the SSH path labels the estimate as the agent path does");
   assert.equal(gpu.vram.total, 262144);
   assert.equal(gpu.vram.used, um.used, "the GPU card shows all unified memory in use");
   assert.equal(gpu.throttle.smClockMHz, 1620);
   assert.equal(gpu.powermetricsAvailable, true);
   assert.equal((await collector.collectCpu()).draw, 5.1);
+});
+
+test("the SSH path asks for the model it needs for the power floor", async () => {
+  const { collector, calls } = collectorWith(() => snapshotOutput());
+  await collector.collectGpu();
+  const snapshot = calls.find((c) => c.includes("__SPARKDASH_SECTION__sysctl"));
+  assert.match(snapshot, /sysctl hw\.model [^;]*machdep\.cpu\.brand_string/);
+});
+
+test("a laptop over SSH keeps the package figure and claims no estimate", async () => {
+  const laptop = snapshotOutput().replace("hw.model: Mac17,15", "hw.model: Mac14,9");
+  const { collector } = collectorWith((cmd) =>
+    cmd.includes("powermetrics") ? fx("powermetrics-busy.txt") : laptop
+  );
+  const gpu = await collector.collectGpu();
+  assert.equal(gpu.power.systemDraw, 90, "no wall floor for a machine whose draw follows its battery");
+  assert.equal(gpu.power.systemPowerSource, "powermetrics");
 });
 
 test("network speeds come from counter deltas between samples", async () => {
@@ -192,6 +210,8 @@ test("sudo refusal leaves GPU fields at defaults and backs off", async () => {
   assert.equal(gpu.powermetricsAvailable, false);
   assert.equal(gpu.usage, null);
   assert.equal(gpu.power.draw, null);
+  assert.equal(gpu.power.systemDraw, null);
+  assert.equal(gpu.power.systemPowerSource, null, "no reading, so no claim about how it was made");
   assert.equal(gpu.vram.total, 262144);
   collector._snapshotCache = null;
   await collector.collectGpu();

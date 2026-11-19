@@ -20,6 +20,7 @@ import { MacSystemCollector, macGpuAvailability } from "./MacSystemCollector.js"
 import { tagCollectionResult } from "./SystemCollector.js";
 import { isAllowedTargetHost, assertAllowedTarget, pinnedLookup } from "../validate.js";
 import { llmProbeHost } from "./llmHost.js";
+import { estimateSystemPowerW } from "./macModelPower.js";
 
 export const MAC_AGENT_DEFAULT_PORT = 8790;
 const SNAPSHOT_TTL_MS = 1500;
@@ -246,12 +247,27 @@ export class MacAgentCollector extends MacSystemCollector {
     // from a measured 0 W / 0% and drags fleet energy down as if measured.
     const usage = read && Number.isFinite(gpu.activePercent) ? Math.round(gpu.activePercent) : null;
     const draw = read && Number.isFinite(gpu.powerW) ? gpu.powerW : null;
-    const systemDraw = read && Number.isFinite(gpu.combinedPowerW) ? gpu.combinedPowerW : null;
+    const packageW = read && Number.isFinite(gpu.combinedPowerW) ? gpu.combinedPowerW : null;
+    // A known desktop gets Apple's published idle wall draw under the three rails
+    // powermetrics reads; a laptop keeps the rails alone.
+    const systemEstimate = estimateSystemPowerW({
+      model: snapshot.host?.model,
+      chip: snapshot.host?.chip,
+      packageW,
+    });
     return tagCollectionResult({
       ...base,
       temperature: finiteTemperature(gpu.temperature) ? gpu.temperature : null,
+      // The agent says which sensor answered: a powermetrics die read, or an
+      // AppleSMC key when powermetrics printed no temperature line at all.
+      temperatureSource: finiteTemperature(gpu.temperature) ? (gpu.temperatureSource ?? null) : null,
       usage,
-      power: { draw, limit: 0, systemDraw },
+      power: {
+        draw,
+        limit: 0,
+        systemDraw: systemEstimate?.watts ?? packageW,
+        systemPowerSource: systemEstimate?.source ?? (packageW == null ? null : "powermetrics"),
+      },
       vram: {
         used: mem.used ?? 0,
         total: mem.total ?? 0,
@@ -286,6 +302,9 @@ export class MacAgentCollector extends MacSystemCollector {
       usageAvailable: valid,
       unavailable: this._agentEntries(snapshot),
       temperature: finiteTemperature(snapshot.cpu?.temperature) ? snapshot.cpu.temperature : null,
+      temperatureSource: finiteTemperature(snapshot.cpu?.temperature)
+        ? (snapshot.cpu?.temperatureSource ?? null)
+        : null,
       draw: snapshot.gpu?.powermetrics === "ok" && Number.isFinite(snapshot.gpu?.cpuW) ? snapshot.gpu.cpuW : null,
       tdp: 0,
     }, valid);

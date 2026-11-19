@@ -188,6 +188,6 @@ it("shows recovered measured Mac power despite an older runtime-poll power gap",
     unavailable: [ROOT_POWER_GAP],
   });
   const { container } = render(<OverviewPage sparks={[spark]} />);
-  expect(container.textContent).toContain("8 W · sys 12 W");
+  expect(container.textContent).toContain("8 W · sys ≈ 12 W");
   expect(container.querySelector('[title*="powermetrics requires root"]')).toBeNull();
 });

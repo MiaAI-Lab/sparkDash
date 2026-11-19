@@ -65,9 +65,26 @@ export function CpuPanel({
   const tempView = honestGap(gaps, "cpu.temperature", tempValueText, {
     nonDgx: !hasTemperature && (mac || cpu?.temperature == null),
   });
+  // Both Mac paths give null when powermetrics did not answer that rail and a
+  // number when it did, so only null is a gap. A measured zero has to render as
+  // zero: powermetrics reports 0 mW for an idle GPU, and calling that "not
+  // reported by this platform" contradicts the GPU tile next to it.
   const powerView = honestGap(gaps, "cpu.power", `${draw}W${tdp > 0 ? ` / ${tdp}W` : ""}`, {
-    nonDgx: mac && draw === 0,
+    nonDgx: mac && cpu?.draw == null,
   });
+
+  // Say where a temperature came from, rather than letting any number read as a
+  // die temperature. The Mac agent reports "smc" when Apple's power controller
+  // keys answered because powermetrics printed no temperature line.
+  const tempTitle = tempView.muted
+    ? tempView.title
+    : cpu?.temperatureSource === "smc"
+      ? t("cpu.smcSensorHelp", { source: cpu.temperatureSource })
+      : cpu?.temperatureSource
+        ? cpu.temperatureLabel === "CPU"
+          ? t("cpu.cpuSensorHelp", { source: cpu.temperatureSource })
+          : t("cpu.boardSensorHelp", { source: cpu.temperatureSource })
+        : undefined;
 
   // GB10 SoC bands: the CPU complex derates in the mid-80s; x86 hosts run
   // hotter before throttling, so the danger band sits higher.
@@ -107,15 +124,7 @@ export function CpuPanel({
             className="eyebrow"
             // GB10 exposes no CPU package sensor, so the reading is an ACPI/SoC zone:
             // say so rather than letting the tile claim it is the CPU (#142).
-            title={
-              tempView.muted
-                ? tempView.title
-                : cpu?.temperatureSource
-                  ? cpu.temperatureLabel === "CPU"
-                    ? t("cpu.cpuSensorHelp", { source: cpu.temperatureSource })
-                    : t("cpu.boardSensorHelp", { source: cpu.temperatureSource })
-                  : undefined
-            }
+            title={tempTitle}
           >
             {cpu?.temperatureLabel && cpu.temperatureLabel !== "CPU"
               ? t("cpu.namedTemperature", { label: cpu.temperatureLabel })

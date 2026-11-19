@@ -346,7 +346,17 @@ export function GpuPanel({
           className="sp-gpu-top__ring"
         />
         <div className="sp-stat">
-          <span className="eyebrow">{tr("gpu.temperature")}</span>
+          <span
+            className="eyebrow"
+            // An AppleSMC key is a power-controller reading, not the die: say which.
+            title={
+              gpu?.temperatureSource === "smc"
+                ? tr("gpu.smcSensorHelp", { source: gpu.temperatureSource })
+                : undefined
+            }
+          >
+            {tr("gpu.temperature")}
+          </span>
           <div className="big-num" title={tempView.title}>
             {tempView.muted ? (
               <span className="font-normal text-muted">
@@ -379,7 +389,18 @@ export function GpuPanel({
             )}
           </div>
           {systemDraw != null && systemDraw > 0 ? (
-            <span className="sp-stat__sub mono">{tr("gpu.systemPower", { watts: systemDraw })}</span>
+            <span
+              className="sp-stat__sub mono"
+              // Say when part of the total is Apple's published idle figure rather
+              // than something this Mac measured: powermetrics sees three rails.
+              title={
+                gpu?.power?.systemPowerSource === "apple-idle" || gpu?.power?.systemPowerSource === "desktop-idle"
+                  ? tr("gpu.systemPowerEstimateHelp")
+                  : undefined
+              }
+            >
+              {tr("gpu.systemPower", { watts: systemDraw })}
+            </span>
           ) : null}
         </div>
         <div className="sp-stat" title={t?.detail ?? undefined}>

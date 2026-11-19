@@ -165,7 +165,8 @@ function SparkCardImpl({
   const cpuTempRaw = cpuMetrics && cpuMetrics.temperature != null && Number.isFinite(cpuMetrics.temperature) && cpuMetrics.temperature > 0 ? cpuMetrics.temperature : null;
   const cpuTempVal = cpuTempRaw === null ? 0 : temperatureUnit === "fahrenheit" ? toF(cpuTempRaw) : cpuTempRaw;
   const cpuTempColor = cpuTempRaw !== null && cpuTempRaw > 80 ? "var(--color-danger)" : cpuTempRaw !== null && cpuTempRaw >= 75 ? "var(--color-warning)" : "var(--color-success)";
-  const cpuPower = cpuMetrics && (cpuMetrics.draw > 0 || cpuMetrics.tdp > 0) ? { draw: cpuMetrics.draw, tdp: cpuMetrics.tdp } : null;
+  const cpuDraw = cpuMetrics?.draw ?? 0;
+  const cpuPower = cpuMetrics && (cpuDraw > 0 || cpuMetrics.tdp > 0) ? { draw: cpuDraw, tdp: cpuMetrics.tdp } : null;
   const cpuPowerPct = cpuPower && cpuPower.tdp > 0 ? (cpuPower.draw / cpuPower.tdp) * 100 : 0;
   const power = gpu?.power;
   // Mac units: a metric the node cannot measure (powermetrics needs root) is a
@@ -182,7 +183,7 @@ function SparkCardImpl({
       : null;
   const macPower =
     spark.kind === "mac"
-      ? honestValue(spark, "gpu.power", `${power?.draw ?? 0} W · sys ${power?.systemDraw ?? 0} W`, {
+      ? honestValue(spark, "gpu.power", `${power?.draw ?? 0} W · sys ≈ ${power?.systemDraw ?? 0} W`, {
           fallbackForNonDgx: macNoPowermetrics,
         })
       : null;

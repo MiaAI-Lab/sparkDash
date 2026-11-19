@@ -1,5 +1,6 @@
 import { SystemCollector, tagCollectionResult } from "./SystemCollector.js";
 import { sshExec } from "./ssh.js";
+import { estimateSystemPowerW } from "./macModelPower.js";
 
 /**
  * MacSystemCollector — hardware metrics for an Apple Silicon Mac (unit kind
@@ -21,7 +22,7 @@ const SECTION = "__SPARKDASH_SECTION__";
 /** Shell snippet run on the Mac; each section is prefixed with a sentinel line. */
 const SNAPSHOT_CMD = [
   `echo ${SECTION}sysctl`,
-  "sysctl hw.memsize hw.pagesize vm.swapusage kern.boottime 2>/dev/null",
+  "sysctl hw.model hw.memsize hw.pagesize vm.swapusage kern.boottime machdep.cpu.brand_string 2>/dev/null",
   `echo ${SECTION}vm_stat`,
   "vm_stat 2>/dev/null",
   `echo ${SECTION}top`,
@@ -282,18 +283,27 @@ export class MacSystemCollector extends SystemCollector {
 
   async collectGpu() {
     try {
-      const [power, mem] = await Promise.all([this._powermetrics(), this._unified()]);
+      const [power, snap] = await Promise.all([this._powermetrics(), this._snapshot()]);
+      const mem = await this._unified(snap);
       const base = this._defaultGpu();
       if (!power) {
         return tagCollectionResult({
           ...base,
           usage: null,
-          power: { draw: null, limit: 0, systemDraw: null },
+          power: { draw: null, limit: 0, systemDraw: null, systemPowerSource: null },
           vram: { used: mem.used, total: mem.total, percentage: mem.percentage, available: mem.available },
           powermetricsAvailable: false,
           metricAvailability: macGpuAvailability({ powermetrics: false, temperature: null }),
         }, mem.total > 0);
       }
+      const sys = parseSysctl(snap.sysctl);
+      const packageW = Number.isFinite(power.combinedW) ? power.combinedW : null;
+      // The floor the agent path uses too, so a Mac reads the same either way.
+      const systemEstimate = estimateSystemPowerW({
+        model: sys["hw.model"],
+        chip: sys["machdep.cpu.brand_string"],
+        packageW,
+      });
       const thermal = power.thermalPressure && power.thermalPressure !== "Nominal";
       return tagCollectionResult({
         ...base,
@@ -302,7 +312,8 @@ export class MacSystemCollector extends SystemCollector {
         power: {
           draw: Number.isFinite(power.gpuW) ? power.gpuW : null,
           limit: 0,
-          systemDraw: Number.isFinite(power.combinedW) ? power.combinedW : null,
+          systemDraw: systemEstimate?.watts ?? packageW,
+          systemPowerSource: systemEstimate?.source ?? (packageW == null ? null : "powermetrics"),
         },
         vram: { used: mem.used, total: mem.total, percentage: mem.percentage, available: mem.available },
         processes: [],
