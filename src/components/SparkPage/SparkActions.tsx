@@ -1,8 +1,8 @@
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { SparkSnapshot } from "../../api/types";
-import { shutdownSpark, wakeSpark } from "../../api/client";
+import { fetchShutdownHelperPolicy, installShutdownHelper, shutdownSpark, wakeSpark } from "../../api/client";
 import { ConfirmShutdownDialog } from "../ConfirmShutdownDialog";
 import { openHermesUpdateDialog } from "../../hooks/useHermesUpdateDialog";
 import { EditIcon, PowerOffIcon, PowerOnIcon, RotateIcon } from "../ui/icons";
@@ -37,6 +37,12 @@ export function shutdownWarnings(spark: SparkSnapshot, t: TFunction): string[] {
   return out;
 }
 
+/** True when a shutdown failed because the unit lacks the spark-shutdown
+ * helper or passwordless sudo for it — the in-UI installer can fix both. */
+export function isHelperInstallError(message: string): boolean {
+  return /spark-shutdown|passwordless sudo/i.test(message || "");
+}
+
 /**
  * Update Hermes / Edit / Power action cluster.
  * Rendered twice: inline in the SparkHeader (desktop) and as a standalone row
@@ -50,6 +56,24 @@ export function SparkActions({ spark, onEdit, className }: SparkActionsProps) {
   const [powerLoading, setPowerLoading] = useState(false);
   const [powerMsg, setPowerMsg] = useState<{ text: string; kind: "shutdownOk" | "shutdownError" | "wakeOk" | "wakeError"; tone: "ok" | "err" } | null>(null);
   const [shutdownOpen, setShutdownOpen] = useState(false);
+  const [helper, setHelper] = useState<{ passwordAllowed: boolean | null; pw: string; busy: boolean; result: { ok: boolean; message: string } | null } | null>(null);
+  const powerMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /** Show a transient power message; replaces any pending auto-clear so a
+   * quick install→retry sequence cannot have its message cleared early. */
+  function flashPowerMsg(msg: { text: string; kind: "shutdownOk" | "shutdownError" | "wakeOk" | "wakeError"; tone: "ok" | "err" }) {
+    if (powerMsgTimer.current) clearTimeout(powerMsgTimer.current);
+    setPowerMsg(msg);
+    powerMsgTimer.current = setTimeout(() => setPowerMsg(null), 5000);
+  }
+
+  /** Offer the in-UI helper install after a helper/sudo shutdown failure. */
+  function openHelperInstall() {
+    setHelper((h) => h ?? { passwordAllowed: null, pw: "", busy: false, result: null });
+    fetchShutdownHelperPolicy(spark.id)
+      .then((policy) => setHelper((h) => (h ? { ...h, passwordAllowed: policy.passwordAllowed } : h)))
+      .catch(() => {}); // the installer itself reports a blocked password
+  }
 
   const hermes = spark.hermes;
   const hermesRunning = hermes?.status === "running";
@@ -67,15 +91,13 @@ export function SparkActions({ spark, onEdit, className }: SparkActionsProps) {
     setPowerMsg(null);
     try {
       const res = await shutdownSpark(spark.id);
-      setPowerMsg({ text: res.message || "", kind: "shutdownOk", tone: "ok" });
+      flashPowerMsg({ text: res.message || "", kind: "shutdownOk", tone: "ok" });
     } catch (err: unknown) {
-      setPowerMsg({
-        text: err instanceof Error ? err.message : "", kind: "shutdownError",
-        tone: "err",
-      });
+      const message = err instanceof Error ? err.message : "";
+      flashPowerMsg({ text: message, kind: "shutdownError", tone: "err" });
+      if (isHelperInstallError(message)) openHelperInstall();
     } finally {
       setPowerLoading(false);
-      setTimeout(() => setPowerMsg(null), 5000);
     }
   }
 
@@ -84,15 +106,30 @@ export function SparkActions({ spark, onEdit, className }: SparkActionsProps) {
     setPowerMsg(null);
     try {
       const res = await wakeSpark(spark.id);
-      setPowerMsg({ text: res.message || "", kind: "wakeOk", tone: "ok" });
+      flashPowerMsg({ text: res.message || "", kind: "wakeOk", tone: "ok" });
     } catch (err: unknown) {
-      setPowerMsg({
+      flashPowerMsg({
         text: err instanceof Error ? err.message : "", kind: "wakeError",
         tone: "err",
       });
     } finally {
       setPowerLoading(false);
-      setTimeout(() => setPowerMsg(null), 5000);
+    }
+  }
+
+  /** Install the shutdown helper on this unit (one sudo password, used once),
+   * then finish the shutdown the user originally asked for. */
+  async function handleHelperInstall() {
+    if (!helper || helper.busy) return;
+    if (!window.confirm(t("actions.helperInstallConfirm", { name: spark.name }))) return;
+    setHelper({ ...helper, busy: true, result: null });
+    try {
+      await installShutdownHelper(spark.id, helper.pw || undefined);
+      setHelper(null);
+      flashPowerMsg({ text: t("actions.helperInstallSuccess", { name: spark.name }), kind: "shutdownOk", tone: "ok" });
+      window.setTimeout(() => { void handleShutdown(); }, 1200);
+    } catch (err: unknown) {
+      setHelper((h) => (h ? { ...h, busy: false, result: { ok: false, message: err instanceof Error ? err.message : t("actions.shutdownError") } } : h));
     }
   }
 
@@ -185,6 +222,34 @@ export function SparkActions({ spark, onEdit, className }: SparkActionsProps) {
           >
             {t("actions.noWake")}
           </span>
+        )}
+        {helper && (
+          <div className="flex w-full basis-full flex-col gap-1.5">
+            <p className="field-hint">{t("actions.helperInstallHint", { name: spark.name })}</p>
+            {helper.passwordAllowed !== false && (
+              <>
+                <label className="field-label" htmlFor="shutdown-helper-sudo-password">{t("actions.helperSudoPassword", { name: spark.name })}</label>
+                <input
+                  id="shutdown-helper-sudo-password"
+                  className="field-input"
+                  type="password"
+                  autoComplete="off"
+                  value={helper.pw}
+                  onChange={(e) => setHelper((h) => (h ? { ...h, pw: e.target.value } : h))}
+                  disabled={helper.busy}
+                />
+              </>
+            )}
+            {helper.passwordAllowed === false && <p className="field-hint">{t("actions.helperPasswordNotPermitted")}</p>}
+            <button type="button" className="btn" disabled={helper.busy} onClick={() => void handleHelperInstall()}>
+              {helper.busy ? t("actions.helperInstalling") : t("actions.helperInstall")}
+            </button>
+            {helper.result && (
+              <div className={helper.result.ok ? "modal-sheet__success" : "modal-sheet__error"} role={helper.result.ok ? "status" : "alert"}>
+                {helper.result.message}
+              </div>
+            )}
+          </div>
         )}
       </div>
 

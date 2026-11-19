@@ -14,8 +14,12 @@ Format: version sections are listed newest first.
 
 ### Added
 - Show an Installed badge in Edit Spark when the spark-attic service is detected.
+- Install the shutdown helper from the UI: when a unit's power-off fails because `/usr/local/bin/spark-shutdown` is missing or passwordless sudo does not cover it, the Spark page offers "Install shutdown helper" — one confirmed sudo password writes the pinned helper and a sudoers rule scoped to that exact binary (validated with visudo before it goes live, installed atomically), then finishes the shutdown. Same guard rails as the spark-attic installer (HTTPS/local-only passwords, wrong-password lockout, one install at a time).
+- Power the dashboard's own host off without the helper when sparkDash runs as root in a privileged container: it enters the host mount namespace and runs the host's own poweroff binary directly (nsenter, no sudoers change). Bare-metal and non-root installs keep using the helper path.
 
 ### Fixed
+- Name each unit and its reason when a batch shutdown fails ("SparkOne: missing /usr/local/bin/spark-shutdown" after "0 shut down, 2 failed"): the first three reasons show inline, the rest collapse into "+N more", and the full list is on hover. Failed shutdown attempts — batch and single-unit — are now recorded in the activity log, so a power-off that did not happen leaves a trace.
+
 - Show installation success and failure beside the install button, including CUDA_ERROR_OUT_OF_MEMORY when validation detects it.
 
 - Show the spark-attic install button before monitoring is saved, and enable it as soon as the option is checked. Installation enables monitoring after confirmation.
