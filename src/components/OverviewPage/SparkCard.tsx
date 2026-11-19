@@ -16,6 +16,7 @@ import { HealthChips, worstSeverity } from "../ui/HealthFindings";
 import { AppLink } from "../ui/AppLink";
 import { idToPath } from "../../constants";
 import { VramBreakdownBar } from "../ui/VramBreakdownBar";
+import { MacPhysicalMemoryBar } from "../ui/MacPhysicalMemoryBar";
 import { HEADROOM_THRESHOLDS_MB, computeVramBreakdown, memoryModelFor, type VramBreakdownContext } from "../../shared/vramBreakdown";
 import { ImageIcon, PowerOnIcon } from "../ui/icons";
 import { formatCtx } from "./fleetStats";
@@ -383,7 +384,9 @@ function SparkCardImpl({
         <>
           <div className="ov-sc__body">
             <div className="ov-sc__stats">
-              {cards ? (
+              {um?.memoryPressure !== undefined ? (
+                <MacPhysicalMemoryBar memory={um} />
+              ) : cards ? (
                 cards.map((card) => <GpuCardBar key={card.index} card={card} fmtTemp={fmtTemp} />)
               ) : breakdown ? (
                 <VramBreakdownBar
@@ -409,7 +412,7 @@ function SparkCardImpl({
                   color={ringColor}
                 />
               )}
-              {spark.kind === "host" && spark.metrics.ram?.total ? (
+              {spark.kind === "host" && um?.memoryPressure === undefined && spark.metrics.ram?.total ? (
                 <Bar
                   label={t("card.ram")}
                   caption={`${fmtStorage(spark.metrics.ram.used, false)} / ${fmtStorage(spark.metrics.ram.total, true)}`}
