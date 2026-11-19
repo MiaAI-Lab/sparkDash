@@ -88,7 +88,7 @@ export function UnifiedMemoryPanel({ um, gpu, llm, className }: UnifiedMemoryPan
                 {um.oomRisk === "high" ? t("memory.highOomRisk") : t("memory.pressure")}
               </Tag>
             )}
-            {um && um.bandwidth.current > 0 && (
+            {um && um.bandwidth.current != null && um.bandwidth.current > 0 && (
               <Tag title={t("memory.bandwidthHelp")}>
                 {um.bandwidth.current.toFixed(1)} / {um.bandwidth.peak} GB/s
               </Tag>
