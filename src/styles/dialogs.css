@@ -372,6 +372,31 @@
 .settings-panel .field-input--port {
   width: 6rem;
 }
+/* Launcher settings: a number input with its unit beside it, and the saved block. */
+.launcher-settings__input {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.launcher-settings__input input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.launcher-settings__unit {
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+  color: var(--color-muted);
+}
+.launcher-settings__saved {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.launcher-settings__saved-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
 .check-row {
   display: flex;
   align-items: flex-start;

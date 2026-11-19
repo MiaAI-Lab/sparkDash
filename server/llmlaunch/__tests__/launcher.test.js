@@ -7,7 +7,7 @@ import { spawn, execFile } from "node:child_process";
 import { validateDir, validateScriptName, normalizeLauncherInput, slugify } from "../validate.js";
 import { LineSplitter, LauncherManager, stripAnsi } from "../LauncherManager.js";
 import { LauncherStore } from "../LauncherStore.js";
-import { buildStartCommand, LOG_MAX_BYTES } from "../commands.js";
+import { buildStartCommand, buildSettingsWriteCommand, LOG_MAX_BYTES } from "../commands.js";
 
 function tmpDir(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -633,4 +633,123 @@ test("start and stop refuse when the host cannot report a script's mode or owner
       assert.ok(!r.lines.some((l) => l.text === "should not run"), `${label}: ${action} ran the script`);
     }
   }
+});
+
+// ─── Launcher settings: the optional manifest and its env file ───
+
+const SETTINGS_MANIFEST = {
+  version: 1,
+  settings: [
+    { key: "PROMPT_CACHE_GIB", label: "Prompt cache", type: "integer", default: 4, min: 1, max: 16, step: 1, unit: "GiB", memory: "GiB" },
+    { key: "ENABLE_PREFIX_CACHE", label: "Prefix cache", type: "boolean", default: true, restart: false },
+  ],
+};
+
+function settingsLauncher(home, manifest = SETTINGS_MANIFEST) {
+  const llm = path.join(home, "llm");
+  writeScript(llm, "start.sh", "true");
+  if (manifest) fs.writeFileSync(path.join(llm, "sparkdash-launcher.json"), JSON.stringify(manifest));
+  const { mgr } = realManager(home);
+  return { mgr, llm, launcher: mgr.store.add("s1", { name: "Demo", dir: llm }).launcher };
+}
+
+test("readSettings returns the manifest and the defaults when there is no env file", async () => {
+  const { mgr, launcher } = settingsLauncher(tmpDir("sd-home-"));
+  const r = await mgr.readSettings(spark, launcher);
+  assert.equal(r.ok, true, r.error);
+  assert.equal(r.manifest.settings.length, 2);
+  assert.deepEqual(r.values, { PROMPT_CACHE_GIB: 4, ENABLE_PREFIX_CACHE: true });
+  assert.deepEqual(r.invalid, []);
+  assert.equal(r.envFile, "launcher.env");
+});
+
+test("readSettings reports a launcher with no manifest as having no settings", async () => {
+  const { mgr, launcher } = settingsLauncher(tmpDir("sd-home-"), null);
+  assert.deepEqual(await mgr.readSettings(spark, launcher), {
+    ok: true,
+    manifest: null,
+    values: {},
+    invalid: [],
+    envFile: "launcher.env",
+  });
+});
+
+test("readSettings reports a value the env file holds that the manifest rejects", async () => {
+  const { mgr, llm, launcher } = settingsLauncher(tmpDir("sd-home-"));
+  fs.writeFileSync(path.join(llm, "launcher.env"), "PROMPT_CACHE_GIB=99\n");
+  const r = await mgr.readSettings(spark, launcher);
+  assert.equal(r.ok, true, r.error);
+  assert.deepEqual(r.values, { PROMPT_CACHE_GIB: 4, ENABLE_PREFIX_CACHE: true });
+  assert.deepEqual(r.invalid, [{ key: "PROMPT_CACHE_GIB", raw: "99" }]);
+});
+
+test("readSettings refuses a manifest that is a symlink", async () => {
+  const home = tmpDir("sd-home-");
+  const { mgr, llm, launcher } = settingsLauncher(home);
+  const target = path.join(home, "elsewhere.json");
+  fs.writeFileSync(target, JSON.stringify(SETTINGS_MANIFEST));
+  fs.rmSync(path.join(llm, "sparkdash-launcher.json"));
+  fs.symlinkSync(target, path.join(llm, "sparkdash-launcher.json"));
+  const r = await mgr.readSettings(spark, launcher);
+  assert.equal(r.ok, false);
+  assert.match(r.error, /regular file/);
+});
+
+test("saveSettings writes the env file with mode 0600 and reads back", async () => {
+  const { mgr, llm, launcher } = settingsLauncher(tmpDir("sd-home-"));
+  const saved = await mgr.saveSettings(spark, launcher, { values: { PROMPT_CACHE_GIB: 8, ENABLE_PREFIX_CACHE: false } });
+  assert.equal(saved.ok, true, saved.error);
+  assert.deepEqual(saved.values, { PROMPT_CACHE_GIB: 8, ENABLE_PREFIX_CACHE: false });
+  assert.equal(saved.restartRequired, true, "PROMPT_CACHE_GIB restarts by default");
+
+  const file = path.join(llm, "launcher.env");
+  const text = fs.readFileSync(file, "utf8");
+  assert.match(text, /^PROMPT_CACHE_GIB=8$/m);
+  assert.match(text, /^ENABLE_PREFIX_CACHE=false$/m);
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+
+  const again = await mgr.readSettings(spark, launcher);
+  assert.deepEqual(again.values, { PROMPT_CACHE_GIB: 8, ENABLE_PREFIX_CACHE: false });
+  assert.deepEqual(again.invalid, []);
+});
+
+test("saveSettings asks for a restart only when a restart setting changed", async () => {
+  const { mgr, launcher } = settingsLauncher(tmpDir("sd-home-"));
+  await mgr.saveSettings(spark, launcher, { values: { PROMPT_CACHE_GIB: 8, ENABLE_PREFIX_CACHE: true } });
+  const quiet = await mgr.saveSettings(spark, launcher, { values: { PROMPT_CACHE_GIB: 8, ENABLE_PREFIX_CACHE: false } });
+  assert.equal(quiet.ok, true, quiet.error);
+  assert.equal(quiet.restartRequired, false, "ENABLE_PREFIX_CACHE declares restart: false");
+  const same = await mgr.saveSettings(spark, launcher, { values: { PROMPT_CACHE_GIB: 8, ENABLE_PREFIX_CACHE: false } });
+  assert.equal(same.restartRequired, false, "nothing changed");
+});
+
+test("saveSettings refuses undeclared keys, missing keys and out-of-range values without writing", async () => {
+  const { mgr, llm, launcher } = settingsLauncher(tmpDir("sd-home-"));
+  for (const values of [
+    { PROMPT_CACHE_GIB: 8 },
+    { PROMPT_CACHE_GIB: 8, ENABLE_PREFIX_CACHE: true, EXTRA: 1 },
+    { PROMPT_CACHE_GIB: 99, ENABLE_PREFIX_CACHE: true },
+    { PROMPT_CACHE_GIB: 1.5, ENABLE_PREFIX_CACHE: true },
+  ]) {
+    const r = await mgr.saveSettings(spark, launcher, { values });
+    assert.equal(r.ok, false, `should refuse ${JSON.stringify(values)}`);
+  }
+  assert.equal(fs.existsSync(path.join(llm, "launcher.env")), false);
+});
+
+test("saveSettings refuses when the launcher has no manifest", async () => {
+  const { mgr, launcher } = settingsLauncher(tmpDir("sd-home-"), null);
+  const r = await mgr.saveSettings(spark, launcher, { values: {} });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /sparkdash-launcher\.json/);
+});
+
+test("the settings write command carries the env file base64-encoded, never as shell text", () => {
+  const env = "MODEL_PATH=/models/x\nPROMPT_CACHE_GIB=8\n";
+  const cmd = buildSettingsWriteCommand({ dir: "/home/me/llm", env, nonce: "abcdef0123456789" });
+  assert.ok(!cmd.includes("MODEL_PATH=/models/x"), "the value must not appear in the command");
+  // The program is itself base64-encoded by wrap(), so decode it before looking for the payload.
+  const program = Buffer.from(/printf %s '([^']+)' \| base64 -d/.exec(cmd)[1], "base64").toString("utf8");
+  assert.ok(program.includes(Buffer.from(env, "utf8").toString("base64")));
+  assert.ok(!program.includes("MODEL_PATH=/models/x"));
 });

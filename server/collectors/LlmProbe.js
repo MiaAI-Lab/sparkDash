@@ -2701,6 +2701,20 @@ export class LlmProbe {
           break;
         }
       }
+      // TensorFold also publishes the prefill split directly: every prompt token it
+      // accepted for prefill (`prefill_input_tokens_total`) and the subset it actually
+      // computed (`prefill_computed_tokens_total`). The difference is what the prompt
+      // cache served, and it is the only cached figure on builds that publish none of
+      // the named counters above. A computed count larger than the input is a broken
+      // pair, so it is ignored rather than clamped to a made-up number.
+      const input = m("prefill_input_tokens_total");
+      const computed = m("prefill_computed_tokens_total");
+      const splitValid =
+        Number.isFinite(input) && input >= 0 && Number.isFinite(computed) && computed >= 0 && computed <= input;
+      if (cachedTotal == null && splitValid) cachedTotal = input - computed;
+      // A build that publishes the split but not prompt_tokens_total still reports
+      // every prompt token it accepted, so that is the submitted total.
+      if (splitValid && !(Number.isFinite(prompt) && prompt >= 0)) this.totalPromptTokens = input;
     }
     if (cachedTotal != null) {
       this.totalCachedTokens =

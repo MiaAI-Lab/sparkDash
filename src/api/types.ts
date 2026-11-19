@@ -106,6 +106,11 @@ export interface SparkConfig {
    * display carveout and how much of it is lent (default false; Linux Sparks).
    */
   atticMonitoring?: boolean;
+  /**
+   * Show the headless-desktop card and allow stopping or restoring the
+   * desktop (default false; Linux units).
+   */
+  headlessMonitoring?: boolean;
   /** When true, storage is only updated on manual refresh, not auto-polled. */
   storagePollDisabled?: boolean;
 }
@@ -305,7 +310,18 @@ export type GpuPowerStatus =
 
 /** One health finding for a Spark (server rules in server/health/HealthEvaluator.js). */
 export interface HealthFinding {
-  id: "thermal" | "low-power" | "memory" | "xid" | "oom" | "concurrency" | "link-speed" | "roce-link" | "roce-loss";
+  id:
+    | "thermal"
+    | "low-power"
+    | "memory"
+    | "swap-traffic"
+    | "xid"
+    | "oom"
+    | "concurrency"
+    | "cold-prefill"
+    | "link-speed"
+    | "roce-link"
+    | "roce-loss";
   severity: "warn" | "critical";
   title: string;
   detail: string;
@@ -525,6 +541,14 @@ export interface UnifiedMemoryMetrics {
     current: number;
     peak: number;
   };
+  /**
+   * Swap traffic in pages per second since the previous memory poll, from
+   * /proc/vmstat. Null on macOS, Windows and when the counters could not be read.
+   */
+  swap?: {
+    inPagesPerSec: number;
+    outPagesPerSec: number;
+  } | null;
 }
 
 // ─── LLM metrics ─────────────────────────────────────────
@@ -917,6 +941,73 @@ export interface AtticMetrics {
   error: string | null;
 }
 
+// ─── Headless desktop ────────────────────────────────────
+/** A systemd unit the headless-desktop probe asked about; nulls when systemd could not be asked. */
+export interface HeadlessUnit {
+  unit: string;
+  /** false: not installed. */
+  present: boolean | null;
+  /** true while it runs, false when stopped or failed, null while it starts or stops. */
+  active: boolean | null;
+  /** true only for an enabled unit file; null for static, indirect or unknown. */
+  enabled: boolean | null;
+  /** systemd's ActiveState ("active", "inactive", "failed", …) or "not installed". */
+  state: string | null;
+}
+
+/** One desktop session process, as `ps` reported it. */
+export interface HeadlessProcess {
+  name: string;
+  rssMib: number;
+  /** null when /proc/<pid>/status could not be read. */
+  swapMib: number | null;
+}
+
+/**
+ * What the unit's desktop is doing. desktop: the display manager runs and the
+ * boot default is graphical.target. headless: the display manager is stopped
+ * and the boot default is multi-user.target. mixed: the boot default is
+ * multi-user.target but the desktop still runs until the next boot. unknown:
+ * the probe failed, or its answer cannot be trusted.
+ */
+export type HeadlessState = "desktop" | "headless" | "mixed" | "unknown";
+
+export interface HeadlessMetrics {
+  /** True when the probe ran and its output was understood. */
+  available: boolean;
+  state: HeadlessState;
+  /** systemd's default target, e.g. "graphical.target". */
+  defaultTarget: string | null;
+  /** display-manager.service, the unit that starts the desktop. */
+  displayManager: HeadlessUnit;
+  desktop: {
+    processes: HeadlessProcess[];
+    /** Sum of the processes' resident memory; null when there are none. */
+    rssMib: number | null;
+    /** Sum of their swap; null when there are none or one could not be read. */
+    swapMib: number | null;
+  };
+  /** Every unit the actions may change, whether or not it is installed. */
+  units: HeadlessUnit[];
+  error: string | null;
+}
+
+/** What a make-headless or restore-desktop run reported. */
+export interface HeadlessActionResult {
+  /** "recorded" or "default-only" for a restore; null for a make. */
+  mode: string | null;
+  memBeforeKib: number | null;
+  memAfterKib: number | null;
+  defaultBefore: string | null;
+  defaultAfter: string | null;
+  stoppedDisplayManager: boolean;
+  startedDisplayManager: boolean;
+  disabled: string[];
+  restored: string[];
+  failed: string[];
+  stateFile: string | null;
+}
+
 // ─── Full metrics snapshot ────────────────────────────────
 export interface SparkMetrics {
   gpu: GpuMetrics | null;
@@ -937,6 +1028,8 @@ export interface SparkMetrics {
   tailscale?: TailscaleMetrics | null;
   /** Display-carveout probe result when monitoring is enabled; null when off or not yet polled. */
   attic?: AtticMetrics | null;
+  /** Headless-desktop probe result when monitoring is enabled; null when off or not yet polled. */
+  headless?: HeadlessMetrics | null;
   /**
    * Mac-agent units: model runtimes detected on the machine. null for other
    * transports (DGX Sparks, macs read over SSH) — an empty array only when the
@@ -1095,6 +1188,12 @@ export interface SparkSnapshot {
   tailscaleMonitoring?: boolean;
   /** Whether the display carveout is probed (opt-in; Linux Sparks) */
   atticMonitoring?: boolean;
+  /**
+   * Whether the headless-desktop card is probed (opt-in; Linux units). When
+   * enabled, sparkDash reads the boot default target, the display manager and
+   * the desktop session's memory, and can stop or restore the desktop.
+   */
+  headlessMonitoring?: boolean;
   /** Hermes Agent update monitoring state (present in every snapshot). */
   hermes?: HermesStatus;
   hardware: HardwareInfo;
@@ -2452,6 +2551,48 @@ export interface LauncherJobRead {
   partial: string;
   nextSeq: number;
   truncated: boolean;
+}
+
+// ─── Launcher settings (optional sparkdash-launcher.json in the model directory) ───
+export type LauncherSettingType = "integer" | "number" | "boolean" | "enum" | "string";
+export type LauncherSettingValue = string | number | boolean;
+
+/** One setting a launcher's manifest declares. Bounds and options are null when unused. */
+export interface LauncherSetting {
+  key: string;
+  label: string;
+  type: LauncherSettingType;
+  default: LauncherSettingValue;
+  min: number | null;
+  max: number | null;
+  step: number | null;
+  options: string[] | null;
+  unit: string | null;
+  help: string | null;
+  /** Whether a change needs the model restarted to take effect. */
+  restart: boolean;
+  /** Set when the value reserves host memory, in this unit. */
+  memory: "GiB" | null;
+}
+
+export interface LauncherManifest {
+  version: number;
+  settings: LauncherSetting[];
+}
+
+export interface LauncherSettingsResponse {
+  /** null when the launcher directory has no manifest: the model has no settings. */
+  manifest: LauncherManifest | null;
+  values: Record<string, LauncherSettingValue>;
+  /** Values the env file holds that the manifest rejects; the default is shown instead. */
+  invalid: { key: string; raw: string }[];
+  envFile: string;
+}
+
+export interface LauncherSettingsSaveResponse {
+  values: Record<string, LauncherSettingValue>;
+  /** True when a changed setting needs a restart to take effect. */
+  restartRequired: boolean;
 }
 
 // ─── Model discovery ("Discover on this Spark") ───

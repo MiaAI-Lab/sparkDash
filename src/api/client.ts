@@ -13,6 +13,7 @@ import type {
   DecodeBenchJob,
   DecodeBenchListResponse,
   FleetEnergy,
+  HeadlessActionResult,
   HealthResponse,
   InferenceActivity,
   HermesBatchUpdateResponse,
@@ -24,6 +25,9 @@ import type {
   LauncherJob,
   LauncherJobRead,
   LauncherListResponse,
+  LauncherSettingValue,
+  LauncherSettingsResponse,
+  LauncherSettingsSaveResponse,
   LlmLauncher,
   LlmLauncherInput,
   LlmMetrics,
@@ -1018,6 +1022,23 @@ export function cancelLauncherJob(sparkId: string): Promise<{ success: boolean }
   return apiFetch(`${launchersBase(sparkId)}/jobs/active`, { method: "DELETE" });
 }
 
+/** The launcher's optional manifest and the values in its env file (one SSH round trip). */
+export function fetchLauncherSettings(sparkId: string, launcherId: string): Promise<LauncherSettingsResponse> {
+  return apiFetch(`${launchersBase(sparkId)}/${encodeURIComponent(launcherId)}/settings`);
+}
+
+/** Validate against the manifest on the Spark and rewrite its env file. */
+export function saveLauncherSettings(
+  sparkId: string,
+  launcherId: string,
+  values: Record<string, LauncherSettingValue>
+): Promise<LauncherSettingsSaveResponse> {
+  return apiFetch(`${launchersBase(sparkId)}/${encodeURIComponent(launcherId)}/settings`, {
+    method: "PUT",
+    body: JSON.stringify({ values }),
+  });
+}
+
 /**
  * "Discover on this Spark": scan the dashboard's own unit for launchable model
  * folders, ollama weights and HF-cache repos (server caches the scan 15 s).
@@ -1189,4 +1210,36 @@ export function fetchAtticInstallFlags(id: string): Promise<{ passwordAllowed: b
 
 export function fetchAtticInstallStatus(id: string): Promise<{ installed: boolean | null }> {
   return apiFetch(`/api/sparks/${encodeURIComponent(id)}/attic/status`);
+}
+
+// ─── Headless desktop ────────────────────────────────────
+/** Whether a typed sudo password would be accepted from this browser. */
+export function fetchHeadlessFlags(id: string): Promise<{ passwordAllowed: boolean; plainPasswordAllowed: boolean }> {
+  return apiFetch(`/api/sparks/${encodeURIComponent(id)}/headless/flags`);
+}
+
+/**
+ * Stop the graphical desktop on a Linux unit and set the boot default to
+ * multi-user.target. `units` must be names from the server's allow-list.
+ */
+export function makeHeadless(
+  id: string,
+  units: string[],
+  sudoPassword?: string
+): Promise<{ success: boolean; result: HeadlessActionResult }> {
+  return apiFetch(`/api/sparks/${encodeURIComponent(id)}/headless/make`, {
+    method: "POST",
+    body: JSON.stringify({ confirm: true, stopDesktopConfirmed: true, units, ...(sudoPassword ? { sudoPassword } : {}) }),
+  });
+}
+
+/** Restore the desktop from the record the make action wrote. */
+export function restoreDesktop(
+  id: string,
+  sudoPassword?: string
+): Promise<{ success: boolean; result: HeadlessActionResult }> {
+  return apiFetch(`/api/sparks/${encodeURIComponent(id)}/headless/restore`, {
+    method: "POST",
+    body: JSON.stringify({ confirm: true, ...(sudoPassword ? { sudoPassword } : {}) }),
+  });
 }

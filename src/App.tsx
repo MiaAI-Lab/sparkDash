@@ -96,6 +96,7 @@ function placeholderSnapshot(
     comfyPort?: number;
     tailscaleMonitoring?: boolean;
     atticMonitoring?: boolean;
+    headlessMonitoring?: boolean;
     kind?: "spark" | "host" | "mac";
   }
 ): SparkSnapshot {
@@ -132,6 +133,7 @@ function placeholderSnapshot(
     comfyPort: roleFields?.comfyPort ?? 8188,
     tailscaleMonitoring: Boolean(roleFields?.tailscaleMonitoring),
     atticMonitoring: Boolean(roleFields?.atticMonitoring),
+    headlessMonitoring: Boolean(roleFields?.headlessMonitoring),
     hermes: {
       monitoring: false,
       installed: null,
@@ -389,6 +391,7 @@ function DashboardApp() {
               comfyPort: c.comfyPort ?? existing.comfyPort,
               tailscaleMonitoring: c.tailscaleMonitoring ?? existing.tailscaleMonitoring,
               atticMonitoring: c.atticMonitoring ?? existing.atticMonitoring,
+              headlessMonitoring: c.headlessMonitoring ?? existing.headlessMonitoring,
               disabledDevices: c.disabledDevices || existing.disabledDevices,
               disabledInterfaces: c.disabledInterfaces || existing.disabledInterfaces,
               llmPorts: c.llmPorts ?? existing.llmPorts,
@@ -412,6 +415,7 @@ function DashboardApp() {
               comfyPort: c.comfyPort,
               tailscaleMonitoring: c.tailscaleMonitoring,
               atticMonitoring: c.atticMonitoring,
+              headlessMonitoring: c.headlessMonitoring,
               kind: c.kind,
             }
           );

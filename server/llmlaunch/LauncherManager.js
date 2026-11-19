@@ -9,10 +9,23 @@ import { chooseLocalInvocation } from "../collectors/HermesProbe.js";
 import {
   exitPrefix,
   buildAttachCommand,
+  buildSettingsReadCommand,
+  buildSettingsWriteCommand,
   buildStartCommand,
   buildStatusCommand,
   buildStopCommand,
+  parseSettingsReadOutput,
+  parseSettingsWriteOutput,
 } from "./commands.js";
+import {
+  ENV_FILE,
+  MANIFEST_FILE,
+  parseEnvFile,
+  parseManifest,
+  resolveValues,
+  serializeEnvFile,
+  validateValues,
+} from "./manifest.js";
 
 export const MAX_LINES = 5000;
 const START_WATCH_MAX_MS = 6 * 60 * 60 * 1000;
@@ -419,6 +432,61 @@ export class LauncherManager {
         this._kill(job);
       }
     }
+  }
+
+  /**
+   * The launcher's optional settings: its manifest and the values in its env file.
+   * A launcher without a manifest answers `manifest: null` and no values, which is
+   * exactly how it behaved before settings existed.
+   * @returns {Promise<{ ok: true, manifest: object|null, values: object, invalid: object[], envFile: string } | { ok: false, error: string }>}
+   */
+  async readSettings(spark, launcher) {
+    const nonce = crypto.randomBytes(12).toString("hex");
+    let text;
+    try {
+      text = await this.exec(spark, buildSettingsReadCommand({ dir: launcher.dir, nonce }), 15000);
+    } catch (err) {
+      return { ok: false, error: `Could not read the settings on the Spark: ${err instanceof Error ? err.message : String(err)}` };
+    }
+    const read = parseSettingsReadOutput(text, nonce);
+    if (!read.ok) return read;
+    if (read.manifestText == null) {
+      return { ok: true, manifest: null, values: {}, invalid: [], envFile: ENV_FILE };
+    }
+    const parsed = parseManifest(read.manifestText);
+    if (!parsed.ok) return { ok: false, error: `${MANIFEST_FILE} is invalid: ${parsed.error}` };
+    const fileValues = read.envText ? parseEnvFile(read.envText) : {};
+    const { values, invalid } = resolveValues(parsed.manifest, fileValues);
+    return { ok: true, manifest: parsed.manifest, values, invalid, envFile: ENV_FILE };
+  }
+
+  /**
+   * Validate a full set of values against the manifest on the Spark and write them
+   * to the env file. Only declared keys are written; the file is replaced whole.
+   * @returns {Promise<{ ok: true, values: object, restartRequired: boolean } | { ok: false, error: string }>}
+   */
+  async saveSettings(spark, launcher, input) {
+    const current = await this.readSettings(spark, launcher);
+    if (!current.ok) return current;
+    if (!current.manifest) {
+      return { ok: false, error: `This model has no ${MANIFEST_FILE} in ${launcher.dir}, so it has no settings to save` };
+    }
+    const checked = validateValues(current.manifest, input?.values);
+    if (!checked.ok) return checked;
+    const env = serializeEnvFile(current.manifest, checked.values);
+    const nonce = crypto.randomBytes(12).toString("hex");
+    let text;
+    try {
+      text = await this.exec(spark, buildSettingsWriteCommand({ dir: launcher.dir, env, nonce }), 15000);
+    } catch (err) {
+      return { ok: false, error: `Could not write the settings on the Spark: ${err instanceof Error ? err.message : String(err)}` };
+    }
+    const written = parseSettingsWriteOutput(text, nonce);
+    if (!written.ok) return written;
+    const restartRequired = current.manifest.settings.some(
+      (setting) => setting.restart && checked.values[setting.key] !== current.values[setting.key]
+    );
+    return { ok: true, values: checked.values, restartRequired };
   }
 
   /** True when the launcher's script (process group) is alive on the Spark. */

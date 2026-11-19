@@ -184,3 +184,76 @@ test("the model order is saved through the HTTP API and survives a restart of th
   assert.deepEqual(await listed(), [two, three, one], "a rejected request leaves the order alone");
   assert.equal((await api(port, "/api/sparks/nope/llm-launchers/order", { method: "PUT", body: JSON.stringify({ order: [] }) })).status, 404);
 });
+
+// The local launcher exec drops to the Spark's SSH user, which it resolves from
+// /etc/passwd. macOS keeps local accounts in OpenDirectory, so the drop is refused
+// there and every local launcher exec fails. The other tests in this file fail the
+// same way on macOS; this one skips so it does not add to that.
+test(
+  "launcher settings are read and saved through the HTTP API",
+  { skip: process.platform === "darwin" ? "local launcher exec needs the SSH user in /etc/passwd" : false },
+  async (t) => {
+    const { port, tmp } = await startServer(t);
+    const created = await api(port, "/api/sparks", {
+      method: "POST",
+      body: JSON.stringify({ id: "alpha", name: "alpha", lanIp: "127.0.0.1", isLocal: true, ssh: { host: "127.0.0.1", user: os.userInfo().username, auth: "key" } }),
+    });
+    assert.equal(created.status, 200);
+
+    const base = "/api/sparks/alpha/llm-launchers";
+    const llm = path.join(tmp, "cache-model");
+    script(llm, "start.sh", "true");
+    script(llm, "stop.sh", "true");
+    const add = await api(port, base, { method: "POST", body: JSON.stringify({ name: "Cache model", dir: llm }) });
+    assert.equal(add.status, 201);
+    const lid = add.body.launcher.id;
+
+    // A launcher without a manifest has no settings, and says so rather than failing.
+    const none = await api(port, `${base}/${lid}/settings`);
+    assert.equal(none.status, 200, JSON.stringify(none.body));
+    assert.equal(none.body.manifest, null);
+    assert.deepEqual(none.body.values, {});
+    assert.equal(none.body.envFile, "launcher.env");
+
+    fs.writeFileSync(
+      path.join(llm, "sparkdash-launcher.json"),
+      JSON.stringify({
+        version: 1,
+        settings: [
+          { key: "PROMPT_CACHE_GIB", label: "Prompt cache", type: "integer", default: 4, min: 1, max: 16, unit: "GiB", memory: "GiB" },
+          { key: "ENABLE_PREFIX_CACHE", label: "Prefix cache", type: "boolean", default: true, restart: false },
+        ],
+      })
+    );
+
+    const read = await api(port, `${base}/${lid}/settings`);
+    assert.equal(read.status, 200);
+    assert.equal(read.body.manifest.settings.length, 2);
+    assert.deepEqual(read.body.values, { PROMPT_CACHE_GIB: 4, ENABLE_PREFIX_CACHE: true });
+    assert.deepEqual(read.body.invalid, []);
+
+    const saved = await api(port, `${base}/${lid}/settings`, {
+      method: "PUT",
+      body: JSON.stringify({ values: { PROMPT_CACHE_GIB: 8, ENABLE_PREFIX_CACHE: false } }),
+    });
+    assert.equal(saved.status, 200);
+    assert.deepEqual(saved.body.values, { PROMPT_CACHE_GIB: 8, ENABLE_PREFIX_CACHE: false });
+    assert.equal(saved.body.restartRequired, true);
+    assert.match(fs.readFileSync(path.join(llm, "launcher.env"), "utf8"), /^PROMPT_CACHE_GIB=8$/m);
+
+    const again = await api(port, `${base}/${lid}/settings`);
+    assert.deepEqual(again.body.values, { PROMPT_CACHE_GIB: 8, ENABLE_PREFIX_CACHE: false });
+
+    for (const values of [
+      { PROMPT_CACHE_GIB: 8 },
+      { PROMPT_CACHE_GIB: 99, ENABLE_PREFIX_CACHE: true },
+      { PROMPT_CACHE_GIB: 8, ENABLE_PREFIX_CACHE: true, EXTRA: 1 },
+    ]) {
+      const refused = await api(port, `${base}/${lid}/settings`, { method: "PUT", body: JSON.stringify({ values }) });
+      assert.equal(refused.status, 400, `should refuse ${JSON.stringify(values)}`);
+      assert.ok(refused.body.error);
+    }
+
+    assert.equal((await api(port, `${base}/nope/settings`)).status, 404);
+  }
+);

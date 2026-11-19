@@ -45,6 +45,7 @@ Monitored units run **Linux**, **macOS**, or **Windows** (a Windows PC with an N
 - [Hermes Agent monitoring](#hermes-agent-monitoring)
 - [Tailnet monitoring](#tailnet-monitoring)
 - [spark-attic monitoring (spare GPU memory)](#spark-attic-monitoring-spare-gpu-memory)
+- [Headless desktop (optional)](#headless-desktop-optional)
 - [Tailscale Serve (HTTPS)](#tailscale-serve-https)
 - [Mobile PWA (install on a phone)](#mobile-pwa-install-on-a-phone)
 - [Kiosk (wall display)](#kiosk-wall-display)
@@ -159,6 +160,7 @@ Full history: [CHANGELOG.md](./CHANGELOG.md)
 | **Hermes Agent** | Opt-in per unit: background update check (10 min), status badges, one-click or batch `hermes update` |
 | **Tailnet** | Opt-in probe: flags a unit that is healthy on the LAN but off its tailnet |
 | **spark-attic (spare GPU memory)** | Opt-in per Spark: install the service with confirmation and monitor how much of the GB10 display carveout it lends to CUDA |
+| **Headless desktop** | Opt-in per Linux unit: shows the boot default, the display manager and the desktop session's memory, and can stop or restore the desktop with confirmation |
 | **Decode benchmark** | Multi-concurrency streaming decode tok/s; type picker (Structured / Prose / Code / JSON). Code is a different Python task per stream. Temperature (default 0.7) and thinking on/off (default on) are selectable; persisted last run. **Start context** (16k to 256k or a custom size) prefills every stream to that depth first, then measures decode from there; it needs prefix caching, and a wave whose context was recomputed is flagged instead of reported as clean. Remote units: LAN HTTP, or SSH tunnel to loopback. **Remote** button for an on-demand HTTPS/host:port target |
 | **Prefill benchmark** | Context-size sweep (1k–300k) of prefill tok/s and TTFT; unique prefix per size; persisted last run. Same remote targeting as decode |
 | **Quality benchmark** | Fixed, seeded quality suite (QA, reasoning, arithmetic, state tracking, GSM8K, MMLU, plus optional instruction following and long-context recall) at temperature 0; per-category and overall score; last 30 runs kept; paired compare with McNemar p-value. Same remote targeting as decode |
@@ -172,7 +174,7 @@ Full history: [CHANGELOG.md](./CHANGELOG.md)
 | **Power controls** | Graceful shutdown (SSH host script). Wake-on-LAN is for dedicated GPU hosts whose NIC supports it. DGX Spark does not wake from a magic packet |
 | **Spark roles** | **Head** / **Worker** / **Standalone** — worker label + head link; standalone can disable LLM monitoring; optional hide workers from Overview and tabs |
 | **Unified memory** | GB10 128 GB LPDDR5X pool (~273 GB/s), GPU/CPU split, bandwidth via `nvidia-smi dmon`. Non-Spark hosts show discrete **VRAM** (nvidia-smi) and system **RAM** separately |
-| **Health findings** | Small explainable rules over metrics already collected: GPU running hot (85 / 90 °C), GPU stuck in a low-power state, unified memory low (under 3 GB warns, under 1.5 GB critical), NVIDIA **Xid** errors and kernel **OOM kills**, several models loaded while memory is busy, a link slower than 1 Gb/s, and RoCE link / loss. Shown as chips on the cards and in full on the unit page; changes are logged to **Activity** |
+| **Health findings** | Small explainable rules over metrics already collected: GPU running hot (85 / 90 °C), GPU stuck in a low-power state, unified memory low (under 3 GB warns, under 1.5 GB critical), sustained swap traffic, NVIDIA **Xid** errors and kernel **OOM kills**, several models loaded while memory is busy, large prompts prefilled uncached, a link slower than 1 Gb/s, and RoCE link / loss. Shown as chips on the cards and in full on the unit page; changes are logged to **Activity** |
 | **Fleet pages** | **Token totals** (per model, hourly / daily history), **Fleet energy** (rolling 24 h / 31 d plus a permanent monthly archive, optional cost), and **Activity** (event log with filters). Each page can be cleared or reset from its **Clear / Reset…** menu |
 | **RoCE / RDMA** | Per-port link state and rate, traffic, drops, PFC and QoS (trust mode, DSCP), and RDMA counters, read from sysfs / ethtool / `mlnx_qos` on the Spark (see [RoCE / RDMA monitoring](#roce--rdma-monitoring)) |
 | **Windows PCs** | A Windows PC with an NVIDIA GPU is a first-class unit over the built-in OpenSSH server; an AMD-iGPU Windows host (Strix Halo) works too — its GPU usage comes from Windows' GPU engine counters (see [Windows PCs](#windows-pcs)) |
@@ -374,6 +376,52 @@ For a Spark that already has monitoring enabled, open **Edit Spark** and use **I
 | `atticMonitoring` | `false` | Read spark-attic's state and show the spark-attic card |
 
 Env (optional): `POLL_INTERVAL_ATTIC` (default `15000`), `ATTIC_PROBE_TIMEOUT_MS` (default `8000`).
+
+---
+
+## Headless desktop (optional)
+
+Opt-in per unit (default **off**). The Resources card shows whether a Linux unit boots to a graphical desktop, what the desktop session holds in memory, and which optional desktop services are on. Two buttons stop the desktop or restore it.
+
+A desktop session costs memory on a box with single-digit GiB headroom. On DGX Sparks the session processes held about 0.2 to 0.4 GiB resident (gnome-shell 106 to 132 MiB, Xorg 12 to 25 MiB, measured on two units). Stopping it frees that memory for inference, and the unit boots to a multi-user target with no desktop.
+
+### What is supported
+
+| Capability | Details |
+|------------|---------|
+| **Opt-in per unit** | `headlessMonitoring` (default **off**) in **Edit Spark**; Linux units only. Turning monitoring off stops the probe; it does not change the boot default or restart the desktop |
+| **States** | **desktop** (display manager running, boot default `graphical.target`), **headless** (display manager stopped, boot default `multi-user.target`), **mixed** (boot default `multi-user.target` but the desktop still runs until the next boot), **unknown** |
+| **Numbers** | Resident memory and swap of the desktop session processes (`gnome-shell`, `Xorg`, `Xwayland`, `mutter*`, `gdm*`) from `/proc/<pid>/status`, and MemAvailable before and after each change |
+| **Optional services** | A fixed allow-list: `cups.service`, `cups.socket`, `cups.path`, `cups-browsed.service`, `bluetooth.service`, `fwupd-refresh.timer`, `colord.service`, `whoopsie.service`, `kerneloops.service`. Nothing networking, storage, container or NVIDIA related is on it |
+| **Unknown stays unknown** | A failed probe, a missing `systemctl`, or a stopped display manager on a `graphical.target` boot default reads **unknown**, never **headless** |
+
+The probe is one read-only shell command as the SSH user: no root, no socket, no key, no new port.
+
+### How to enable
+
+1. Open **Edit Spark** and tick **Headless desktop**.
+2. Open the unit's page. The card appears under Resources.
+3. Select **Make headless** and confirm. Enter a sudo password if needed; leave it blank for passwordless sudo. Password entry follows the same HTTPS, local-connection, and plain-HTTP setting rules as GPU clock controls.
+4. Tick any optional services to disable with the desktop. They are unticked by default.
+
+The action records the current boot default, the display manager's state and the state of each ticked service in `/var/lib/sparkdash-headless/state` before it changes anything, then sets the boot default to `multi-user.target`, stops `display-manager.service` and disables the ticked services. Anyone using the desktop is disconnected.
+
+**Restore desktop** reads that record and puts back the previous boot default, re-enables and starts the services that were enabled or active, and starts the display manager. With no record, it only sets the boot default back to `graphical.target` and says so.
+
+### Host requirements
+
+- Linux with systemd and a display manager unit (`display-manager.service`).
+- Root access on the unit, using passwordless sudo or a one-time sudo password.
+- `systemctl`, `ps` and `/proc`, for the probe. Without them the card reads unknown.
+- Remote units: existing SSH. Local Docker: `nsenter` into the host mount namespace (same as the Tailnet probe).
+
+### Config fields
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `headlessMonitoring` | `false` | Read the desktop state and show the headless-desktop card |
+
+Env (optional): `POLL_INTERVAL_HEADLESS` (default `30000`), `HEADLESS_PROBE_TIMEOUT_MS` (default `8000`).
 
 ---
 
@@ -606,7 +654,7 @@ Opt-in (default **off**): **Settings → Alert notifications → Configure…**.
 
 Nothing new is detected here. The conditions are the ones sparkDash already shows, with their own thresholds:
 
-- the **Health findings** on the unit cards (`server/health/HealthEvaluator.js`: GPU temperature, unified memory, stuck low-power state, Xid / OOM, RoCE link and loss, slow link, several models loaded), and
+- the **Health findings** on the unit cards (`server/health/HealthEvaluator.js`: GPU temperature, unified memory, sustained swap traffic, stuck low-power state, Xid / OOM, RoCE link and loss, slow link, several models loaded, large prompts prefilled uncached), and
 - the **Overview exceptions** (`src/shared/fleetExceptions.js`, the strip's own code): unit offline, thermal or hardware throttle (never the software power cap), storage at or above 90 %, LLM unavailable, tailnet unavailable.
 
 Each can be switched off, and given its own wait. Timing works like Prometheus: a condition has to hold for its wait before it fires (until then it is *pending*), and a firing alert clears only after the condition has stayed clear for the same wait (at least 30 s), so a reading hovering on a threshold does not notify on every crossing. An offline unit keeps its other alerts as they are instead of clearing them. The firing set is saved, so a restart neither repeats a notification nor resets a duration.
@@ -823,6 +871,78 @@ sparkDash only needs the engine's HTTP port; it does not care how the engine was
 **Discover on this Spark.** On the local unit, the *Add a model* dialog scans the machine when it opens (and on the button) and lists what it finds: directories holding a `start.sh` under `$HOME`, `$HOME/llms`, `$HOME/models` and `$HOME/Qwen*` (depth 3, at most 30), model names from `ollama list` inside the `spark-ollama-engine` container when it is running, and repos in `~/.cache/huggingface/hub`. The commands are fixed read-only templates (`find`, `docker ps`, `docker exec … ollama list`, `ls`); nothing from the browser reaches them. They run **as the host SSH user** through the launcher's `nsenter` + `setpriv` drop, the same privilege the launchers themselves use. `MODEL_DISCOVERY_ROOTS` (colon-separated) adds scan roots; each root must pass a character allow-list, and the value is **shell-expanded** on the unit (so `$HOME/x` and `Qwen*` work), not treated as a literal path list. Results are cached for 15 s and the route is rate-limited and local-unit-only.
 
 Model launchers require Bash, util-linux `setsid`, and GNU `tail` with `--pid` support on the Linux unit. **Start** and live **Output** drain the log before reporting completion, including the last line without a newline. The follower tracks the script's whole process group, so output continues when the wrapper exits but the model process is still running.
+
+### Model settings
+
+A model directory can declare settings that the dashboard edits for you. Put a `sparkdash-launcher.json` beside `start.sh`:
+
+```json
+{
+  "version": 1,
+  "settings": [
+    {
+      "key": "PROMPT_CACHE_GIB",
+      "label": "Prompt cache",
+      "type": "integer",
+      "default": 4,
+      "min": 1,
+      "max": 16,
+      "step": 1,
+      "unit": "GiB",
+      "help": "Server prompt cache. A larger cache keeps more of a long conversation warm.",
+      "memory": "GiB"
+    },
+    {
+      "key": "GPU_MEMORY_UTILIZATION",
+      "label": "GPU memory utilization",
+      "type": "number",
+      "default": 0.9,
+      "min": 0.5,
+      "max": 0.95,
+      "step": 0.01
+    },
+    {
+      "key": "ENABLE_PREFIX_CACHE",
+      "label": "Prefix cache",
+      "type": "boolean",
+      "default": true,
+      "restart": false
+    },
+    {
+      "key": "ATTENTION_BACKEND",
+      "label": "Attention backend",
+      "type": "enum",
+      "default": "flashinfer",
+      "options": ["flashinfer", "triton"]
+    }
+  ]
+}
+```
+
+The **Settings** button on a model row opens these fields. Saving writes `launcher.env` in the same directory, one `KEY=value` line per setting, mode 0600. The start script reads it:
+
+```bash
+set -a
+[ -f ./launcher.env ] && . ./launcher.env
+set +a
+```
+
+| Field | Meaning |
+|---|---|
+| `key` | Environment variable name: `A-Z`, `0-9` and `_`, starting with a letter, 64 characters max. |
+| `label` | Shown in the dialog. |
+| `type` | `integer`, `number`, `boolean`, `enum` or `string`. |
+| `default` | Required. Used when `launcher.env` has no value for the key. |
+| `min`, `max`, `step` | Numeric types only. |
+| `options` | Enum only, up to 64 entries. |
+| `unit` | Shown beside the input, 16 characters max. |
+| `help` | One line under the field, 300 characters max. |
+| `restart` | Defaults to `true`. When a changed setting has `restart: true` and the model is running, the dialog offers to restart it. |
+| `memory` | `"GiB"` on a numeric setting that reserves host memory. Raising it past the unit's free memory, less a 1 GiB margin, shows a warning. The save still goes through. |
+
+Limits: 32 settings and 16 KiB for the manifest. String and enum values may use letters, digits and `. _ : @ % + = , / -` only, so the env file is safe to source without quoting. A value the file holds that the manifest rejects is reported in the dialog, and the default is shown in its place.
+
+The dashboard checks every value against the manifest on the Spark before writing, and rewrites the whole file, so a save cannot leave a key behind. A model without `sparkdash-launcher.json` has no settings, and the dialog says so instead of showing an empty form.
 
 ---
 
@@ -1469,7 +1589,11 @@ If host memory remains low, compare Linux `MemAvailable` and per-process residen
 
 `server/health/HealthEvaluator.js` runs a handful of rules over metrics sparkDash already collects, once per Spark, and reports them as `health[]` on the unit's snapshot. A rule never guesses: a missing metric raises nothing. Findings carry a severity, a detail and a hint, show up as chips on the Overview cards and in full on the unit page, and the monitor writes an Activity event when one appears or clears (never for the first baseline after a restart). The kernel NV_ERR / Xid / OOM counters share one cached journal cursor. Reads process at most 10,000 records and have a host-side 3-second hard timeout, including over SSH. Initial history is backfilled one page per 10 seconds (when polled); counters remain unknown until the baseline is complete. Later reads resume after the cursor at `POLL_INTERVAL_NVERR` cadence rather than scanning the whole boot journal again. Failed reads retain the last complete reading and retry after that interval.
 
-The low-power warning requires at least 90% GPU utilisation and under 11 W for 30 consecutive GPU samples. Advancing token counters suppress this warning for 60 seconds after the last measured progress; new progress also clears a warning retained by the normal 90-second finding hold. TensorFold's live prefill position and completed-plus-running generation count cover long requests whose completion totals have not moved yet. Rates, busy flags, initial counter baselines and counter resets are not proof of progress. A configured worker inherits progress only from its explicitly paired, online head; unrelated units do not. If progress is unknown or stops advancing for 60 seconds, the usual low-power warning remains eligible—it is an observation to investigate, not proof of a stuck GPU.
+The low-power warning requires at least 90% GPU utilisation and under 11 W for 30 consecutive GPU samples. Advancing token counters suppress this warning for 60 seconds after the last measured progress; new progress also clears a warning retained by the normal 90-second finding hold. TensorFold's live prefill position and completed-plus-running generation count cover long requests whose completion totals have not moved yet. Rates, busy flags, initial counter baselines and counter resets are not proof of progress. A configured worker inherits progress only from its explicitly paired, online head; unrelated units do not. If progress is unknown or stops advancing for 60 seconds, the usual low-power warning remains eligible—it is an observation to investiga…
+
+The cold-prefill warning fires when an engine prefills at least 300,000 prompt tokens uncached inside ten minutes while its prompt cache served under half of what was submitted. It reads the cumulative counters the probe already collects: `totalPromptTokens` (every prompt token submitted) and `totalCachedTokens` (the subset the cache served). TensorFold publishes the split as `prefill_input_tokens_total` minus `prefill_computed_tokens_total`; vLLM, ds4, q27, Splash, locals and ninfer publish their own cached counters. An engine that reports no cache split raises nothing. A single cold first request of a new session is normal and stays below the threshold; a session that misses the cache on every turn crosses it in two turns. The detail names the uncached volume, the cached share and the endpoint. A counter that goes backwards is an engine restart, so it starts a new baseline rather than a negative delta.
+
+The swap-traffic warning fires when swap-in or swap-out stays above 100 pages per second for 15 consecutive memory samples. The rate comes from `pswpin` and `pswpout` in `/proc/vmstat`, read on the same poll as `/proc/meminfo`; the remote path adds one `grep` to the command it already sends, so there is no extra SSH round trip. The snapshot carries it as `unifiedMemory.swap` with `inPagesPerSec` and `outPagesPerSec`. Swap that is merely occupied by cold pages reads 0 pages/s and does not fire. macOS and Windows units report no swap rate, so they raise nothing. A page is 4 KiB on the platforms sparkDash runs on, so the threshold is about 400 KiB/s.
 
 ### Windows units
 
@@ -1492,7 +1616,7 @@ Each configured LLM port gets its own `LlmProbe` instance running in parallel. P
 - **EXL3** (ExLlamaV3 `tools/serve_openai.py`) — `/v1/models` (`owned_by: exl3`) or `/health` `{ok, busy}`; live tok/s from `/health` cumulative counters
 - **Flare** (NVIDIA flare-local-inference) — `/v1/models` card with a `flare` object; live tok/s from `flare_generated_tokens_total` / `flare_prefill_tokens_total` counter diffs, cached vs uncached prefill from `flare_cache_reused_tokens_total`, slots, queue, preemptions and KV pool from `flare_*` gauges
 - **q27** (signalnine/q27 engine) — `/v1/models` (`owned_by: q27`) or Prometheus `q27_*` series; live tok/s from `q27_*_processed` counter diffs (completion-based totals as fallback), exact computed-only prefill with the cached/uncached split doubling as the prefix-cache hit rate, TTFT/E2E/ITL p95 histograms, and constant-0 preemptions (FIFO admission, no wait queue)
-- **TensorFold** (ashhart/TensorFold) — `/v1/models` (`owned_by: tensorfold`). No `/metrics`. Live tok/s comes from `/health` when it publishes `prompt_tokens_total`, `completion_tokens_total`, and `prefill_seconds_total` (decode is the completion-counter diff; prefill is prompt tokens ÷ prefill time). The slots tile reads `streams.max` and `requests_running` on CUDA 0.6.0, and `max_batch_size` on MLX. A stock server that only returns `{ok: true}` stays at 0. Decode/prefill benches and the showcase work regardless.
+- **TensorFold** (ashhart/TensorFold) — `/v1/models` (`owned_by: tensorfold`). Older builds publish no `/metrics`. Live tok/s comes from `/health` when it publishes `prompt_tokens_total`, `completion_tokens_total`, and `prefill_seconds_total` (decode is the completion-counter diff; prefill is prompt tokens ÷ prefill time). Where the build does expose Prometheus `/metrics`, the prompt-cache split comes from `prefill_input_tokens_total` minus `prefill_computed_tokens_total`, falling back to `prompt_tokens_cached_total`, `prompt_cache_cached_tokens` or `prefix_cache_hits_total`. The slots tile reads `streams.max` and `requests_running` on CUDA 0.6.0, and `max_batch_size` on MLX. A stock server that only returns `{ok: true}` stays at 0. Decode/prefill benches and the showcase work regardless.
 - **FreeToken** — `/v1/models` (`owned_by: FreeToken`), or a `/v1/stats` document with `throughput.decode_tps` / `prefill_tps` and lifetime prompt/completion totals. Those rates are FreeToken's own 5-second window (0 when idle). `requests.ttft_mean_ms` is a mean; `requests.p95_ms` is end-to-end latency, not TTFT p95. Queue length, slot capacity, and preemptions stay unset.
 - **Pico** — `/v1/models` with `owned_by: dsgb10` (the engine tags its DeepSeek-on-GB10 namespace rather than its own name; matched exactly). During sparkDash decode benchmarks and Showcase, the dashboard reads a rolling decode rate from its own active streams, labelled **Dashboard streams**, and clears it when the run ends. This covers only requests made by sparkDash. Pico publishes no counters, gauges or stats endpoints — only `/health`, `/v1/models` and OpenAI `/v1/chat/completions` — so nothing can be read live from the engine itself. With **Settings → Stream-sample engines without gauges** on, the probe measures decode tok/s by sending one tiny streamed completion (a count to 60, greedy, thinking off, ~120 tokens) every 15 s and timing its own token window — the panel labels the figure **sampled**, because it is the engine's single-stream decode speed, not other clients' traffic; sampling pauses while a benchmark, showcase or model launch owns the unit, and prefill is not sampled (a prompt large enough to time it would be real load). With the setting off the panel shows no figure rather than a guessed one. Decode and prefill benches and the showcase work over its standard streaming chat completions (verified against a live Pico serving DeepSeek V4.1 Flash on a DGX Spark); the engine tiles (KV pool, TTFT histograms) stay hidden as with other gauge-less engines.
 - **vLLM / sglang** — `/v1/models`; sglang via `/server_info` (`last_gen_throughput` when metrics off; `/get_server_info` fallback), vLLM via Prometheus `/metrics` counters (scientific notation supported)

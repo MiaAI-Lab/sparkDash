@@ -14,6 +14,9 @@ Format: version sections are listed newest first.
 
 ### Added
 - Show an Installed badge in Edit Spark when the spark-attic service is detected.
+- **Health findings for repeated prompt-cache misses and swap traffic.** `cold-prefill` fires when at least 300,000 prompt tokens were prefilled uncached within ten minutes and the cache served under half of what was submitted. A single cold request from a new session stays silent. `swap-traffic` fires when pages move in or out of swap (over 100 pages/s) for 15 consecutive samples; swap that is only occupied does not fire. Both appear on the unit card and as alert-notification rules. TensorFold derives its cached share from `prefill_input_tokens_total - prefill_computed_tokens_total` when a build publishes no cached counter.
+- **Per-launcher settings.** A model launcher can add an optional `sparkdash-launcher.json` next to `start.sh` declaring typed settings (integer, number, boolean, enum, string). The Models panel gets a Settings dialog; saving validates each value against the manifest and writes only declared keys to `launcher.env` on the Spark (mode 0600, atomic replace). **Restart to apply** reuses the existing stop and start jobs. A launcher without a manifest behaves as before.
+- **Headless desktop card (opt-in).** With **Headless desktop** ticked in Edit Spark (default off, Linux units only), a read-only probe shows the boot target, the display manager and the memory the desktop session holds. **Make headless** and **Restore desktop** use the same sudo handling as spark-attic, touch only a fixed list of optional services, and record what they changed so restore puts it back.
 
 ### Fixed
 - Show installation success and failure beside the install button, including CUDA_ERROR_OUT_OF_MEMORY when validation detects it.

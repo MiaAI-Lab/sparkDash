@@ -2,6 +2,7 @@
 // and the bench modules read process.env while they load.
 import "dotenv/config";
 import { registerAtticInstallRoute } from "./attic/install.js";
+import { registerHeadlessRoutes } from "./headless/actions.js";
 import express from "express";
 import { createServer } from "http";
 import { WebSocketServer } from "ws";
@@ -1057,6 +1058,38 @@ for (const action of ["start", "stop", "attach"]) {
   });
 }
 
+// ─── Launcher settings: the optional manifest and its env file ───
+// A launcher directory may hold sparkdash-launcher.json declaring typed settings;
+// values live in launcher.env beside it. Both are read and written on the Spark
+// through the launcher's own exec path (see llmlaunch/commands.js), and every
+// value is checked against the manifest here before it is written.
+
+app.get("/api/sparks/:id/llm-launchers/:lid/settings", async (req, res) => {
+  const spark = launcherContext(req, res);
+  if (!spark) return;
+  const launcher = launcherStore.get(spark.id, req.params.lid);
+  if (!launcher) return res.status(404).json({ error: "Model not found" });
+  if (!allowLaunchProbe(principalKey(req))) {
+    return rejectLimited(res, "Too many settings requests; try again shortly");
+  }
+  const result = await launcherManager.readSettings(spark, launcher);
+  if (!result.ok) return res.status(502).json({ error: result.error });
+  res.json({ manifest: result.manifest, values: result.values, invalid: result.invalid, envFile: result.envFile });
+});
+
+app.put("/api/sparks/:id/llm-launchers/:lid/settings", async (req, res) => {
+  const spark = launcherContext(req, res);
+  if (!spark) return;
+  const launcher = launcherStore.get(spark.id, req.params.lid);
+  if (!launcher) return res.status(404).json({ error: "Model not found" });
+  if (!allowLaunch(principalKey(req))) {
+    return rejectLimited(res, "Too many settings requests; try again shortly");
+  }
+  const result = await launcherManager.saveSettings(spark, launcher, req.body);
+  if (!result.ok) return res.status(400).json({ error: result.error });
+  res.json({ values: result.values, restartRequired: result.restartRequired });
+});
+
 // ─── Model discovery: "Discover on this Spark" ───────────
 // Scans the unit sparkDash itself runs on (LOCAL-UNIT ONLY — the same local-
 // identity rule the power actions follow; remote units are never scanned).
@@ -1129,8 +1162,8 @@ app.post("/api/sparks/:id/refresh/:domain", async (req, res) => {
     const monitor = monitors.get(req.params.id);
     if (!monitor) return res.status(404).json({ error: "Spark not found" });
     const { domain } = req.params;
-    if (domain !== "storage" && domain !== "llm") {
-      return res.status(400).json({ error: "Only 'storage' and 'llm' domains are supported" });
+    if (domain !== "storage" && domain !== "llm" && domain !== "headless") {
+      return res.status(400).json({ error: "Only 'storage', 'llm' and 'headless' domains are supported" });
     }
     await monitor.refreshDomain(domain);
     forceBroadcast();
@@ -2567,6 +2600,17 @@ registerGpuClockRoutes(app, {
 });
 
 registerAtticInstallRoute(app, {
+  registry,
+  allowRead: (req) => allowTest(principalKey(req)),
+  allowPlainPassword: () => getSettings().allowPlainSudoPassword === true,
+  allowChange: (req) => allowDestructive(principalKey(req)) && allowGlobalDestructive(clientKey(req)),
+  rejectLimited,
+});
+
+// Headless desktop: stop the graphical desktop on a Linux unit, or restore it
+// from the record the make action wrote. Same auth and limiters as the
+// spark-attic installer, because both change the unit as root.
+registerHeadlessRoutes(app, {
   registry,
   allowRead: (req) => allowTest(principalKey(req)),
   allowPlainPassword: () => getSettings().allowPlainSudoPassword === true,

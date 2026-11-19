@@ -111,3 +111,47 @@ test("capText flattens control characters and keeps short text as is", () => {
   assert.equal(capText(null), "");
   assert.equal(capText("abcdef", 4), "abc…");
 });
+
+test("cold-prefill and swap-traffic are catalogue rules that notify from a Health finding", () => {
+  for (const id of ["cold-prefill", "swap-traffic"]) {
+    const rule = RULES.find((r) => r.id === id);
+    assert.ok(rule, `${id} is in the catalogue`);
+    assert.equal(rule.source, "health");
+    assert.equal(rule.defaults.enabled, true);
+    // Both rules judge their own window or streak, so the alert adds no wait.
+    assert.equal(rule.defaults.forSec, 0);
+  }
+
+  const cold = unit({
+    health: [
+      {
+        id: "cold-prefill",
+        severity: "warn",
+        title: "Large prompts keep missing the engine cache",
+        detail: "510,000 uncached prompt tokens in the last 10 minutes on m on port 8888: the cache served 0% of 510,000 submitted.",
+        hint: "Compact or restart the session.",
+      },
+    ],
+  });
+  const [c] = collectConditions(cold).conditions;
+  assert.equal(c.ruleId, "cold-prefill");
+  assert.equal(c.ruleName, "Prompt cache missing");
+  assert.equal(c.severity, "warning");
+  assert.match(c.summary, /510,000 uncached prompt tokens/);
+
+  const swap = unit({
+    health: [
+      {
+        id: "swap-traffic",
+        severity: "warn",
+        title: "The unit is swapping",
+        detail: "Swap-in 0 pages/s and swap-out 1200 pages/s for 15 samples in a row.",
+        hint: "Free memory.",
+      },
+    ],
+  });
+  const [s] = collectConditions(swap).conditions;
+  assert.equal(s.ruleId, "swap-traffic");
+  assert.equal(s.ruleName, "Sustained swap traffic");
+  assert.equal(s.severity, "warning");
+});

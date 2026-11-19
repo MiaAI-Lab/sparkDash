@@ -579,6 +579,8 @@ export class SystemCollector {
     this.lastRaplReading = null;
     this.lastDiskIO = new Map();
     this.currentDiskIOSpeeds = new Map();
+    /** Previous /proc/vmstat swap counters, for the pages/s rate. null until the first read. */
+    this._lastVmstat = null;
 
     // Cached ARM detection (resolved lazily once; /proc/cpuinfo never changes
     // mid-process). Avoids a redundant host read on every CPU poll.
@@ -2115,6 +2117,13 @@ export class SystemCollector {
       }
     } catch {}
 
+    // Swap traffic. /proc/vmstat is a local file read, so this costs no extra
+    // round trip; a failure leaves the rate unknown rather than zero.
+    let swap = null;
+    try {
+      swap = this._swapRates(await this._readHostFile("/proc/vmstat"));
+    } catch {}
+
     return {
       total: totalMB,
       gpuUsed: gpuUsedMB,
@@ -2125,6 +2134,43 @@ export class SystemCollector {
       percentage,
       oomRisk,
       bandwidth,
+      swap,
+    };
+  }
+
+  /**
+   * Swap traffic from /proc/vmstat, as pages per second since the previous read.
+   *
+   * `pswpin` and `pswpout` are cumulative page counts since boot, so one read has
+   * no rate: the first read only seeds the baseline and returns null. A counter
+   * that went backwards means the unit rebooted, so it reseeds instead of
+   * reporting a negative rate. A page is 4 KiB on the Linux platforms sparkDash
+   * runs on.
+   *
+   * @param {string} raw /proc/vmstat contents
+   * @param {number} [nowMs]
+   * @returns {{ inPagesPerSec: number, outPagesPerSec: number } | null}
+   */
+  _swapRates(raw, nowMs = Date.now()) {
+    const read = (name) => {
+      const m = String(raw ?? "").match(new RegExp(`^${name}\\s+(\\d+)\\s*$`, "m"));
+      return m ? parseInt(m[1], 10) : null;
+    };
+    const inPages = read("pswpin");
+    const outPages = read("pswpout");
+    if (inPages == null || outPages == null) {
+      this._lastVmstat = null;
+      return null;
+    }
+    const prev = this._lastVmstat;
+    this._lastVmstat = { inPages, outPages, at: nowMs };
+    if (!prev || inPages < prev.inPages || outPages < prev.outPages) return null;
+    const dtSec = (nowMs - prev.at) / 1000;
+    if (!(dtSec > 0)) return null;
+    const rate = (delta) => Math.round((delta / dtSec) * 100) / 100;
+    return {
+      inPagesPerSec: rate(inPages - prev.inPages),
+      outPagesPerSec: rate(outPages - prev.outPages),
     };
   }
 
@@ -2638,6 +2684,8 @@ export class SystemCollector {
       percentage: ram.percentage,
       oomRisk: ram.percentage > 85 ? "high" : ram.percentage > 60 ? "medium" : "low",
       bandwidth: { current: 0, peak: 0 },
+      // macOS has no /proc/vmstat, so the swap rate stays unknown rather than 0.
+      swap: null,
     };
   }
 
@@ -2872,6 +2920,7 @@ export class SystemCollector {
     try {
       const cmd = [
         "grep -E 'MemTotal|MemAvailable' /proc/meminfo 2>/dev/null",
+        "grep -E '^pswp(in|out) ' /proc/vmstat 2>/dev/null",
         "echo '---'",
         "nvidia-smi --query-compute-apps=pid,process_name,used_gpu_memory --format=csv,noheader,nounits 2>/dev/null",
       ].join("; ");
@@ -2916,6 +2965,7 @@ export class SystemCollector {
         percentage,
         oomRisk,
         bandwidth: { current: 0, peak: 400 },
+        swap: this._swapRates(memOut),
       };
     } catch (err) {
       console.error(`[SystemCollector] Remote Unified Memory error for ${this.spark.id}:`, err.message);
@@ -3121,6 +3171,8 @@ export class SystemCollector {
         percentage,
         oomRisk: percentage > 85 ? "high" : percentage > 60 ? "medium" : "low",
         bandwidth: { current: 0, peak: 400 },
+        // Windows has no /proc/vmstat, so the swap rate stays unknown rather than 0.
+        swap: null,
       };
     } catch (err) {
       console.error(`[SystemCollector] Windows unified memory error for ${this.spark.id}:`, err.message);
@@ -3482,6 +3534,7 @@ export class SystemCollector {
       percentage: 0,
       oomRisk: "low",
       bandwidth: { current: 0, peak: 0 },
+      swap: null,
     };
   }
 
