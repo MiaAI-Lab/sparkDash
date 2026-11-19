@@ -8,6 +8,7 @@ import { getSettings } from "../settings.js";
 import { RoceSampler } from "./roce.js";
 import { KernelJournal } from "./kernelJournal.js";
 import { IntelSudoGate, IntelVramCache, buildIntelProbeScript, parseIntelProbe, sampleIntelCards } from "./intelGpu.js";
+import { MAC_MEMORY_CMD, macMemoryFromOutput } from "./macMemory.js";
 import {
   WINDOWS_GPU_SCRIPT,
   WINDOWS_SYSTEM_SCRIPT,
@@ -164,6 +165,7 @@ const MACMON_CANDIDATES = [
   "$HOME/.cargo/bin/macmon",
 ].filter(Boolean);
 export const MACMON_CMD =
+  `${MAC_MEMORY_CMD}; ` +
   // The GPU's share of unified memory first (macmon only reports RAM as a whole): the driver's
   // "In use system memory" per accelerator, filtered to those lines, so macmon's JSON stays last.
   `ioreg -r -d 1 -w 0 -c IOAccelerator 2>/dev/null | grep -o '"In use system memory"=[0-9]*'; ` +
@@ -2510,6 +2512,7 @@ export class SystemCollector {
       }
       // Not a macmon field: the GPU's share of unified memory from the same SSH call (bytes, or null).
       sample.gpuInUseBytes = parseMacGpuMemory(out);
+      sample.macMemory = macMemoryFromOutput(out);
       return sample;
     });
     const entry = { at: now, promise, ttl: 1500 };
@@ -2538,8 +2541,9 @@ export class SystemCollector {
       const temperature = r1(j.temp?.gpu_temp_avg);
       const usage = Math.round((Number(j.gpu_usage?.[1]) || 0) * 100);
       const draw = r1(j.gpu_power);
-      const total = Math.round((Number(j.memory?.ram_total) || 0) / 1048576);
-      const ramUsed = Math.round((Number(j.memory?.ram_usage) || 0) / 1048576);
+      const ram = await this._macmonRam();
+      const total = ram?.total ?? 0;
+      const ramUsed = ram?.used ?? 0;
       // The GPU's own share when the driver reports it, as on a Spark; otherwise the whole pool's use.
       const used = macGpuUsedMB(j, ramUsed) ?? ramUsed;
       const vram = {
@@ -2610,11 +2614,13 @@ export class SystemCollector {
 
   async _macmonRam() {
     try {
-      const m = (await this._macmonSample()).memory || {};
-      const total = Math.round((Number(m.ram_total) || 0) / 1048576);
-      const used = Math.round((Number(m.ram_usage) || 0) / 1048576);
+      const sample = await this._macmonSample();
+      const m = sample.memory || {};
+      const native = sample.macMemory ?? macMemoryFromOutput("");
+      const total = native.total ?? Math.round((Number(m.ram_total) || 0) / 1048576);
+      const used = native.used ?? Math.round((Number(m.ram_usage) || 0) / 1048576);
       if (!(total > 0)) return null;
-      return { used, total, percentage: Math.round((used / total) * 100) };
+      return { ...native, used, total, percentage: Math.round((used / total) * 100) };
     } catch {
       return null;
     }
@@ -2622,7 +2628,7 @@ export class SystemCollector {
 
   async _getRemoteUnifiedMemoryMac() {
     const ram = await this._macmonRam();
-    if (!ram) return this._defaultUnifiedMemory();
+    if (!ram) return { ...this._defaultUnifiedMemory(), memoryPressure: "unknown", oomRisk: null };
     let gpuUsed = 0;
     try {
       gpuUsed = macGpuUsedMB(await this._macmonSample(), ram.used) ?? 0;
@@ -2630,13 +2636,12 @@ export class SystemCollector {
       /* _macmonRam just read the same sample; a failure here keeps the pool unsplit */
     }
     return {
-      total: ram.total,
+      ...ram,
       gpuUsed,
       cpuUsed: ram.used - gpuUsed,
       used: ram.used,
       available: Math.max(0, ram.total - ram.used),
       percentage: ram.percentage,
-      oomRisk: ram.percentage > 85 ? "high" : ram.percentage > 60 ? "medium" : "low",
       bandwidth: { current: 0, peak: 0 },
     };
   }

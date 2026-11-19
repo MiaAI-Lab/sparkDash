@@ -232,6 +232,22 @@ class ModelExtractionTests(unittest.TestCase):
 class ParsingTests(unittest.TestCase):
     """Shared arithmetic with the SSH collector: same fixture, same numbers."""
 
+    def test_physical_memory_and_pressure_use_native_counters(self):
+        vm = agent.parse_vm_stat("Pages occupied by compressor: 65536.\n")
+        counters = {
+            "hw.memsize": "17179869184", "hw.pagesize": "16384",
+            "vm.page_pageable_internal_count": "327680", "vm.page_pageable_external_count": "196608",
+            "vm.page_free_count": "262144", "vm.page_wired_count": "131072", "vm.page_purgeable_count": "32768",
+            "kern.memorystatus_vm_pressure_level": "1",
+        }
+        mem = agent.unified_memory(vm, 17179869184, counters)
+        self.assertEqual(mem["physical"], {"apps": 4608, "wired": 2048, "compressed": 1024, "cached": 3584, "free": 4096, "other": 1024})
+        self.assertEqual(mem["used"], 8704)
+        self.assertEqual(mem["memoryPressure"], "normal")
+        self.assertEqual(mem["oomRisk"], "low")
+        counters.pop("kern.memorystatus_vm_pressure_level")
+        self.assertEqual(agent.unified_memory(vm, 17179869184, counters)["oomRisk"], None)
+
     def test_vm_stat_and_sysctl_match_the_ssh_collector_fixture_expectations(self):
         vm = agent.parse_vm_stat(fixture("vm_stat.txt"))
         memsize = int(agent.parse_sysctl(fixture("sysctl.txt"))["hw.memsize"])
@@ -243,7 +259,7 @@ class ParsingTests(unittest.TestCase):
         self.assertEqual(mem["used"], 195304)
         self.assertEqual(mem["available"], 66840)
         self.assertEqual(mem["percentage"], 75)
-        self.assertEqual(mem["oomRisk"], "medium")
+        self.assertIsNone(mem["oomRisk"])
 
     def test_an_unwired_idle_model_still_counts_as_used(self):
         vm = agent.parse_vm_stat(fixture("vm_stat-unwired.txt"))

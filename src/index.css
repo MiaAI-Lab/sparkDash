@@ -367,6 +367,10 @@ input:disabled {
   width: var(--bar-pct, 0%);
 }
 
+.mac-memory-cache {
+  background: repeating-linear-gradient(135deg, var(--color-info) 0 2px, var(--color-surface-hover) 2px 4px);
+}
+
 /* VRAM breakdown bar segments (see src/shared/vramBreakdown.ts) */
 .mem-seg-engine {
   background-color: var(--color-mem-engine);

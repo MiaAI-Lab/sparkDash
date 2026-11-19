@@ -56,6 +56,12 @@ operation output with copy and expanded views. The configured `macTransport`
 snapshot field keeps that control surface stable while telemetry is offline.
 SSH-backed hosts retain the script-based Models panel.
 
+Mac RAM composition uses direct kernel page counters for resident apps, wired
+memory, physical compressor storage, reclaimable cache and free pages; any
+unattributed physical capacity is shown separately. The shared physical-memory
+bar appears on the overview and unit page. Native macOS pressure drives Mac
+memory warnings; absent pressure stays unknown. Swap remains outside the RAM bar.
+
 ## Metric conventions
 
 Preserve the meaning of existing metrics when adding platform support: active residency and frequency-scaled utilisation are distinct signals and should have explicit fields or a documented basis before changing historical series. Hardware names may come from platform probes such as macmon, but a model name is not evidence of an engine version. Cost compare uses an explicitly selected hosted model and an opt-in price catalog; it does not infer a provider from a local model name.

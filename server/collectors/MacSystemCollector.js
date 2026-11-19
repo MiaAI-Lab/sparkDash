@@ -1,5 +1,6 @@
 import { SystemCollector, tagCollectionResult } from "./SystemCollector.js";
 import { sshExec } from "./ssh.js";
+import { macMemoryFromOutput, macMemoryPressure } from "./macMemory.js";
 
 /**
  * MacSystemCollector — hardware metrics for an Apple Silicon Mac (unit kind
@@ -21,7 +22,7 @@ const SECTION = "__SPARKDASH_SECTION__";
 /** Shell snippet run on the Mac; each section is prefixed with a sentinel line. */
 const SNAPSHOT_CMD = [
   `echo ${SECTION}sysctl`,
-  "sysctl hw.memsize hw.pagesize vm.swapusage kern.boottime 2>/dev/null",
+  "sysctl hw.memsize hw.pagesize vm.swapusage kern.boottime vm.page_pageable_internal_count vm.page_pageable_external_count vm.page_free_count vm.page_wired_count vm.page_purgeable_count kern.memorystatus_vm_pressure_level 2>/dev/null",
   `echo ${SECTION}vm_stat`,
   "vm_stat 2>/dev/null",
   `echo ${SECTION}top`,
@@ -109,7 +110,7 @@ export function parseVmStat(text) {
  * be un-wired back into ordinary anonymous memory without being freed, so
  * wired alone is not "memory in use". `gpuUsed` is the currently wired share.
  */
-export function unifiedMemoryFromVmStat(vm, memsizeBytes) {
+export function unifiedMemoryFromVmStat(vm, memsizeBytes, pressureLevel) {
   const toMB = (count) => Math.round((count * vm.pageSize) / MB);
   const total = Math.round((Number(memsizeBytes) || 0) / MB);
   // Older vm_stat builds without an "Anonymous pages" line: fall back to active.
@@ -119,8 +120,9 @@ export function unifiedMemoryFromVmStat(vm, memsizeBytes) {
   const used = Math.min(total || Infinity, gpuUsed + cpuUsed);
   const available = Math.max(0, total - used);
   const percentage = total > 0 ? Math.round((used / total) * 100) : 0;
-  const oomRisk = percentage > 85 ? "high" : percentage > 60 ? "medium" : "low";
-  return { total, gpuUsed, cpuUsed, used, available, percentage, oomRisk };
+  const memoryPressure = macMemoryPressure(pressureLevel);
+  const oomRisk = ({ normal: "low", warning: "medium", critical: "high" })[memoryPressure] ?? null;
+  return { total, gpuUsed, cpuUsed, used, available, percentage, oomRisk, memoryPressure };
 }
 
 /** CPU usage percentage from top's "CPU usage: 2.0% user, 6.25% sys, 91.74% idle". */
@@ -233,6 +235,10 @@ export class MacSystemCollector extends SystemCollector {
     return { ...super._defaultCpu(), temperature: null, usageAvailable: false };
   }
 
+  _defaultUnifiedMemory() {
+    return { ...super._defaultUnifiedMemory(), memoryPressure: "unknown", oomRisk: null };
+  }
+
   /** One batched SSH read shared by every collector call inside the TTL. */
   async _snapshot() {
     const now = Date.now();
@@ -277,7 +283,11 @@ export class MacSystemCollector extends SystemCollector {
   async _unified(snap) {
     snap = snap ?? (await this._snapshot());
     const sys = parseSysctl(snap.sysctl);
-    return unifiedMemoryFromVmStat(parseVmStat(snap.vm_stat), sys["hw.memsize"]);
+    const mem = unifiedMemoryFromVmStat(parseVmStat(snap.vm_stat), sys["hw.memsize"], sys["kern.memorystatus_vm_pressure_level"]);
+    const native = macMemoryFromOutput(`${snap.sysctl}\n${snap.vm_stat}`);
+    const used = native.used ?? mem.used;
+    const gpuUsed = Math.min(mem.gpuUsed, used);
+    return { ...mem, ...native, gpuUsed, cpuUsed: used - gpuUsed };
   }
 
   async collectGpu() {
@@ -337,7 +347,7 @@ export class MacSystemCollector extends SystemCollector {
       const snap = await this._snapshot();
       const mem = await this._unified(snap);
       const swap = parseSwapUsage(parseSysctl(snap.sysctl)["vm.swapusage"]);
-      return { used: mem.used, total: mem.total, percentage: mem.percentage, swap };
+      return { used: mem.used, total: mem.total, percentage: mem.percentage, swap, physical: mem.physical, memoryPressure: mem.memoryPressure };
     } catch (err) {
       console.error(`[MacSystemCollector] RAM error for ${this.spark.id}:`, err.message);
       return this._defaultRam();
