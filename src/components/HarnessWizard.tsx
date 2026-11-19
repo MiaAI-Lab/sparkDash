@@ -17,7 +17,11 @@ const HARNESSES = [
   { id: "omp", label: "oh-my-pi" },
   { id: "hermes", label: "Hermes" },
   { id: "dsh", label: "DeepSeek Harness" },
+  { id: "pi", label: "Pi" },
 ] as const;
+
+/** Pi is placed by its request destination, so it never gets a folder route. */
+const PI_HARNESS = "pi";
 
 export interface HarnessSparkOption {
   id: string;
@@ -87,8 +91,9 @@ function preferredSpark(sparks: HarnessSparkOption[], sparkId?: string) {
 
 function withRoutes(draft: Draft, sparks: HarnessSparkOption[], sparkId?: string): Draft {
   const spark = preferredSpark(sparks, sparkId);
-  const routes = draft.routes.filter((route) => draft.harnesses.includes(route.harness));
+  const routes = draft.routes.filter((route) => draft.harnesses.includes(route.harness) && route.harness !== PI_HARNESS);
   for (const harness of draft.harnesses) {
+    if (harness === PI_HARNESS) continue;
     if (routes.some((route) => route.harness === harness)) continue;
     routes.push({
       harness,
@@ -137,7 +142,7 @@ function toInput(helper: OccupancyHelper): OccupancyHelperInput {
 
 function routesFromDraft(routes: RouteDraft[]): OccupancyRoute[] {
   return routes
-    .filter((route) => route.sparkId && route.port)
+    .filter((route) => route.sparkId && route.port && route.harness !== PI_HARNESS)
     .map((route) => ({
       harness: route.harness,
       sparkId: route.sparkId,
@@ -380,6 +385,9 @@ export function HarnessWizard({ open, onClose, sparks, sparkId }: HarnessWizardP
               {step === 2 && (
                 <div className="harness-routes">
                   <p className="bench-sheet__hint">{t("harness.routesHelp")}</p>
+                  {draft.harnesses.includes(PI_HARNESS) && (
+                    <p className="bench-sheet__hint">{t("harness.piNoRoute")}</p>
+                  )}
                   {draft.routes.map((route, index) => (
                     <div key={`${route.harness}-${index}`}>
                       <strong>{HARNESSES.find((item) => item.id === route.harness)?.label || route.harness}</strong>

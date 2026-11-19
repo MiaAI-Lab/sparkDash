@@ -35,6 +35,13 @@ export const HARNESSES = Object.freeze([
     commandEnv: null,
     defaultCommand: null,
   },
+  {
+    id: "pi",
+    label: "Pi",
+    transport: "native",
+    commandEnv: null,
+    defaultCommand: null,
+  },
 ]);
 
 export const HARNESS_IDS = Object.freeze(HARNESSES.map((item) => item.id));

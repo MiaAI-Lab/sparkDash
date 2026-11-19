@@ -8,6 +8,7 @@ const SOURCE_LABEL: Record<string, string> = {
   opencode: "OpenCode",
   omp: "oh-my-pi",
   dsh: "DeepSeek Harness",
+  pi: "Pi",
 };
 
 interface ConversationListProps {
