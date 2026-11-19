@@ -60,6 +60,8 @@ SSH-backed hosts retain the script-based Models panel.
 
 Preserve the meaning of existing metrics when adding platform support: active residency and frequency-scaled utilisation are distinct signals and should have explicit fields or a documented basis before changing historical series. Hardware names may come from platform probes such as macmon, but a model name is not evidence of an engine version. Cost compare uses an explicitly selected hosted model and an opt-in price catalog; it does not infer a provider from a local model name.
 
+TensorFold reports shared KV capacity and per-request context separately. The probe reads explicit counts from healthy `/health`, including the versioned `live.cache` group. For local or SSH-managed Linux native dsv41, `collectors/tensorfoldCapacity.js` can qualify `--context` against the current listener, executable, model family and non-warming health. Its pool must match explicit health before the probe combines the two reads. Legacy native dsv41 with neither pool field nor cache group can contribute request context only. Optional process lookup failures preserve a valid engine-reported pool. Process metadata never invents free tokens, and `LlmProbe.getSharedPoolCapacity()` reads fresh data without replacing the dashboard's poll snapshot.
+
 Keep this overview synchronized when module boundaries, scripts, architecture or dependencies change. Historical local design notes may describe earlier versions; verify them against the current source.
 
 ## Apple Silicon units
