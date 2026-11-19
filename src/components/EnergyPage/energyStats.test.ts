@@ -371,6 +371,42 @@ describe("sortNodes", () => {
   });
 });
 
+describe("reporting fleet series", () => {
+  it("draws the fleet line from the nodes that reported while coverage stays strict", () => {
+    const t = floorHour(NOW) - HOUR_MS;
+    const partial = row(t, 100, 50, {
+      avgWatts: null,
+      fleetEnergyWh: 0,
+      fleetCoverageMs: 0,
+      avgReportingWatts: 150,
+      reportingEnergyWh: 150,
+      reportingCoverageMs: HOUR_MS,
+      reportingNodeCount: 2,
+    });
+    const win = rangeWindow("24h", NOW, [partial]);
+    const bucket = buildBuckets([partial], win, "hour", fixedTz(0)).find((b) => b.startMs === t)!;
+    expect(bucket.avgWatts).toBe(150);
+    expect(bucket.reportingNodeCount).toBe(2);
+    // Efficiency keeps the full-fleet numerator and denominator.
+    expect(bucket.whPer1kTokens).toBeNull();
+
+    // Peak and average power stay full-fleet gated: no hour had every node fresh.
+    const summary = summarize([partial], win, NODES, null);
+    expect(summary.avgWatts).toBeNull();
+    expect(summary.peak).toBeNull();
+    expect(summary.coverage).toBe(0);
+  });
+
+  it("falls back to the full-fleet figures on records without the reporting series", () => {
+    const t = floorHour(NOW) - HOUR_MS;
+    const legacy = row(t, 100, 50);
+    const win = rangeWindow("24h", NOW, [legacy]);
+    const bucket = buildBuckets([legacy], win, "hour", fixedTz(0)).find((b) => b.startMs === t)!;
+    expect(bucket.avgWatts).toBe(150);
+    expect(bucket.reportingNodeCount).toBe(2);
+  });
+});
+
 describe("toCsv", () => {
   it("writes a header, ISO hours and escapes names", () => {
     const rows = [row(Date.UTC(2026, 9, 7, 10), 100.1234, 50, { avgWatts: null, outputTokens: 5, coveredOutputTokens: 4 })];

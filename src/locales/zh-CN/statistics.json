@@ -421,6 +421,8 @@
     "noTelemetry": "未记录遥测",
     "averagePower": "集群平均功耗",
     "powerSubtitle": "每个节点都上报时的每小时功率。空白表示没有全量集群覆盖。",
+    "powerSubtitleReporting": "按当时上报的机器计算的每小时功率（至少 {{fresh}}/{{total}} 台）；空白表示没有任何机器上报。",
+    "reportingOf": "{{fresh}}/{{total}} 台上报",
     "byNode": "按节点",
     "nodeSubtitle": "每个节点仅在上报时计量，因此各节点覆盖率不同。",
     "avgW": "平均 W",

@@ -187,6 +187,7 @@ const APPROVED_RESPONSE_FIELDS = [
   "nodeCoverage24hMs",
   "nodeCoverage31dMs",
   "hourlyWatts24h",
+  "hourlyReportingNodeCount24h",
 ];
 
 function assertNullableFiniteNumber(value) {
@@ -229,6 +230,8 @@ function assertFleetEnergyResponseContract(response) {
   }
   assert.equal(response.hourlyWatts24h.length, 24);
   response.hourlyWatts24h.forEach(assertNullableFiniteNumber);
+  assert.equal(response.hourlyReportingNodeCount24h.length, 24);
+  response.hourlyReportingNodeCount24h.forEach(assertNullableFiniteNumber);
 }
 
 test("power telemetry freshness accepts current and 10-second-old real monitor samples", () => {
@@ -1837,4 +1840,86 @@ test("snapshot names the tracked nodes that have no fresh power reading", () => 
   const snap = tracker.snapshot(now);
   assert.equal(snap.freshNodeCount, 3);
   assert.deepEqual(snap.staleNodeIds, [offline]);
+});
+
+/** The four-node fleet with one node's telemetry stale, i.e. three machines reporting. */
+function threeOfFour(watts = 100) {
+  return fleetSnapshots(watts).map((snapshot) =>
+    snapshot.id === "node-d" ? nodeSnapshot("node-d", { telemetryFresh: false }) : snapshot
+  );
+}
+
+test("a partial fleet keeps the fleet series and says how many nodes it covers", () => {
+  const now = Date.UTC(2026, 7, 23, 12, 34, 45);
+  const tracker = new FleetEnergyTracker({ ...noTimerOptions(), now: () => now });
+  const start = now - 30 * MINUTE_MS;
+  tracker.record(threeOfFour(), start);
+  tracker.record(threeOfFour(), start + 2_000);
+
+  const snapshot = tracker.snapshot(now);
+  almostEqual(snapshot.hourlyWatts24h.at(-1), 300);
+  assert.equal(snapshot.hourlyReportingNodeCount24h.at(-1), 3);
+  // Coverage, efficiency and peak stay strict: no interval had every node fresh.
+  assert.equal(snapshot.coverage24hMs, 0);
+  assert.equal(snapshot.whPerOutputToken24h, null);
+
+  const row = tracker.history(now).hourly.at(-1);
+  almostEqual(row.avgReportingWatts, 300);
+  assert.equal(row.reportingNodeCount, 3);
+  almostEqual(row.reportingEnergyWh, (300 * 2_000) / 3_600_000, 1e-3);
+  assert.equal(row.avgWatts, null);
+  assert.equal(row.fleetEnergyWh, 0);
+  assert.equal(row.fleetCoverageMs, 0);
+});
+
+test("the reporting set changing does not fabricate energy across the change", () => {
+  const now = Date.UTC(2026, 7, 23, 12, 0, 0);
+  const tracker = new FleetEnergyTracker({ ...noTimerOptions(), now: () => now });
+  const start = now - 60_000;
+  tracker.record(threeOfFour(), start);
+  tracker.record(threeOfFour(), start + 2_000);
+  // The fourth node comes back: neither interval across that change is integrated.
+  tracker.record(fleetSnapshots(100), start + 4_000);
+  tracker.record(fleetSnapshots(100), start + 6_000);
+
+  const row = tracker.history(now).hourly.at(-1);
+  // 300 W × 2 s from the stable partial set, then 400 W × 2 s from the stable full set.
+  almostEqual(row.reportingEnergyWh, (300 * 2_000 + 400 * 2_000) / 3_600_000, 1e-3);
+  assert.equal(row.reportingNodeCount, 3);
+  almostEqual(row.avgReportingWatts, 350);
+  // The strict series only counts the stable full-fleet interval.
+  almostEqual(row.fleetEnergyWh, (400 * 2_000) / 3_600_000, 1e-3);
+  almostEqual(row.avgWatts, 400);
+});
+
+test("minutes recorded before the reporting series fall back to their full-fleet figures", () => {
+  const now = Date.UTC(2026, 7, 23, 12, 34, 45);
+  const tracker = new FleetEnergyTracker({ ...noTimerOptions(), now: () => now });
+  const start = now - 30 * MINUTE_MS;
+  tracker.record(fleetSnapshots(100), start);
+  tracker.record(fleetSnapshots(100), start + 2_000);
+  for (const bucket of tracker._buckets.values()) delete bucket.reporting;
+
+  const snapshot = tracker.snapshot(now);
+  almostEqual(snapshot.hourlyWatts24h.at(-1), 400);
+  assert.equal(snapshot.hourlyReportingNodeCount24h.at(-1), CANONICAL_NODE_IDS.length);
+});
+
+test("the reporting series survives a flush and reload", (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sparkdash-energy-reporting-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const filePath = path.join(dir, "fleet-energy.json");
+  const now = Date.UTC(2026, 7, 23, 12, 0, 0);
+  const timerOptions = { setIntervalFn: () => 1, clearIntervalFn: () => {} };
+
+  const first = new FleetEnergyTracker({ filePath, load: false, now: () => now, ...timerOptions });
+  first.record(threeOfFour(), now - 120_000);
+  first.record(threeOfFour(), now - 118_000);
+  assert.equal(first.flush(), true);
+
+  const reloaded = new FleetEnergyTracker({ filePath, now: () => now, ...timerOptions });
+  const row = reloaded.history(now).hourly.at(-1);
+  assert.equal(row.reportingNodeCount, 3);
+  almostEqual(row.reportingEnergyWh, (300 * 2_000) / 3_600_000, 1e-3);
+  assert.equal(reloaded.snapshot(now).hourlyReportingNodeCount24h.at(-1), 3);
 });

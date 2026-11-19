@@ -295,6 +295,7 @@
     "estimatedCoverage": "估算值，非电表读数 · 24 小时覆盖率 {{coverage}}%",
     "hourlyWattsAria": "过去 24 小时的每小时估算功率，空白表示缺口",
     "noCompleteCoverage": "没有完整覆盖",
+    "reportingOf": "{{fresh}}/{{total}} 台上报",
     "hoursAgo": "{{count}} 小时前",
     "now": "现在",
     "current": "当前",
