@@ -392,6 +392,9 @@ export async function sshExec(spark, cmd, options = {}) {
         child.stdin?.on("error", () => {});
         child.stdin?.end(options.input);
       }
+      // Nothing to send: close stdin. Win32-OpenSSH's ssh.exe can otherwise hang after the
+      // remote command exits until the timeout kills it, which reads as the unit going offline.
+      else child.stdin?.end();
     });
 
   if (multiplex) {

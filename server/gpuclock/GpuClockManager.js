@@ -86,15 +86,22 @@ export function assertPowerSupported(spark) {
 }
 
 /**
- * The one command line sent over ssh. With a password the outer sh reads it from stdin into
- * the environment of the inner program, which moves it into a plain variable at once; the
- * program itself arrives base64-encoded (no quoting issues, nothing secret in the argv).
+ * The one command line sent over ssh. The program itself is not on it: it arrives on stdin as one
+ * base64 line (see remoteInput), because the storage programs run to tens of kilobytes and a command
+ * line that long fails on a Windows host (spawn ENAMETOOLONG past ~32 K) and nears Linux's 128 KB
+ * per-argument cap. With a password the outer sh first reads it from stdin into the environment of
+ * the inner program, which moves it into a plain variable at once; nothing secret is in the argv.
  */
-export function remoteCommand(program, withPassword) {
-  const b64 = Buffer.from(program, "utf8").toString("base64");
+export function remoteCommand(withPassword) {
   return withPassword
-    ? `sh -c 'IFS= read -r SPARKDASH_SUDO_PW; export SPARKDASH_SUDO_PW; echo ${b64} | base64 -d | sh'`
-    : `echo ${b64} | base64 -d | sh`;
+    ? `sh -c 'IFS= read -r SPARKDASH_SUDO_PW; export SPARKDASH_SUDO_PW; head -n 1 | base64 -d | sh'`
+    : `head -n 1 | base64 -d | sh`;
+}
+
+/** What goes to the ssh child's stdin for remoteCommand: the password line (if any), then the program. */
+export function remoteInput(program, password = null) {
+  const b64 = Buffer.from(program, "utf8").toString("base64");
+  return password == null ? `${b64}\n` : `${password}\n${b64}\n`;
 }
 
 /**
@@ -104,8 +111,7 @@ export function remoteCommand(program, withPassword) {
  */
 export function runProgram(spark, program, { timeoutMs = ACTION_TIMEOUT_MS, input = null, maxBuffer = 10 * 1024 * 1024 } = {}) {
   if (!spark.isLocal) {
-    const cmd = remoteCommand(program, input != null);
-    return sshExec(spark, cmd, input == null ? { timeoutMs, maxBuffer } : { timeoutMs, maxBuffer, input: `${input}\n` });
+    return sshExec(spark, remoteCommand(input != null), { timeoutMs, maxBuffer, input: remoteInput(program, input) });
   }
   const mntNs = hostMountNs();
   const [file, args] = mntNs

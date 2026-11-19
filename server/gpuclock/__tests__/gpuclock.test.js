@@ -16,7 +16,7 @@ import {
   MARKER_FILE,
   UNIT_NAME,
 } from "../commands.js";
-import { GpuClockManager, assertSupported, remoteCommand } from "../GpuClockManager.js";
+import { GpuClockManager, assertSupported, remoteCommand, remoteInput } from "../GpuClockManager.js";
 
 /** A temp tree with fake nvidia-smi, systemctl, sudo and crontab; the programs run
  * unprivileged against it. `narrowSudo` stands in for a unit whose only
@@ -1208,14 +1208,25 @@ test("a wrong sudo password is reported as such and changes nothing", () => {
 
 test("the ssh wrapper reads the password from stdin into the program's environment, not from argv", () => {
   const program = 'printf "%s|" "${SPARKDASH_SUDO_PW-none}"';
-  const withPw = remoteCommand(program, true);
+  const withPw = remoteCommand(true);
   assert.doesNotMatch(withPw, /hunter2/);
-  const out = execFileSync("sh", ["-c", withPw], { input: "hunter2\n", encoding: "utf8" });
+  const out = execFileSync("sh", ["-c", withPw], { input: remoteInput(program, "hunter2"), encoding: "utf8" });
   assert.equal(out, "hunter2|");
-  assert.equal(execFileSync("sh", ["-c", remoteCommand(program, false)], { encoding: "utf8", input: "" }), "none|");
+  assert.equal(execFileSync("sh", ["-c", remoteCommand(false)], { encoding: "utf8", input: remoteInput(program) }), "none|");
   // A password with shell metacharacters stays data.
   const odd = "a b'c\"d$(id)`x`;&|\\%s";
-  assert.equal(execFileSync("sh", ["-c", withPw], { input: `${odd}\n`, encoding: "utf8" }), `${odd}|`);
+  assert.equal(execFileSync("sh", ["-c", withPw], { input: remoteInput(program, odd), encoding: "utf8" }), `${odd}|`);
+});
+
+test("the ssh command line stays short however large the program: the program travels on stdin", () => {
+  // A Windows host refuses a command line past ~32 K (spawn ENAMETOOLONG); the storage programs exceed it.
+  const program = `printf '%s' ok; : '${"x".repeat(100_000)}'`;
+  for (const withPw of [false, true]) {
+    assert.ok(remoteCommand(withPw).length < 200);
+    assert.doesNotMatch(remoteCommand(withPw), /x{100}/);
+  }
+  assert.equal(execFileSync("sh", ["-c", remoteCommand(false)], { input: remoteInput(program), encoding: "utf8" }), "ok");
+  assert.equal(execFileSync("sh", ["-c", remoteCommand(true)], { input: remoteInput(program, "pw"), encoding: "utf8" }), "ok");
 });
 
 test("parseSudoPassword: a single line, bounded; anything else is a 400", () => {
