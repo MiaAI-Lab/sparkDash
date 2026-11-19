@@ -230,6 +230,18 @@ export class HealthEvaluator {
   }
 
   _memory(mem, out) {
+    if (mem?.memoryPressure !== undefined) {
+      if (mem.memoryPressure !== "warning" && mem.memoryPressure !== "critical") return;
+      const critical = mem.memoryPressure === "critical";
+      out.push({
+        id: "memory",
+        severity: critical ? "critical" : "warn",
+        title: critical ? "Memory pressure is critical" : "Memory pressure is elevated",
+        detail: `macOS reports ${mem.memoryPressure} memory pressure.`,
+        hint: "Stop a model you are not using or lower its context length to reduce memory use.",
+      });
+      return;
+    }
     const avail = num(mem?.available);
     const total = num(mem?.total);
     if (avail == null || total == null || total <= 0) return;
@@ -283,6 +295,7 @@ export class HealthEvaluator {
   }
 
   _concurrency(llm, mem, out) {
+    if (mem?.memoryPressure !== undefined && mem.memoryPressure !== "warning" && mem.memoryPressure !== "critical") return;
     const serving = llm.filter((l) => l && l.available && l.modelId);
     const ids = new Set(serving.map((l) => l.modelId));
     if (ids.size < 2) return;

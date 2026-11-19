@@ -419,10 +419,25 @@ export interface CpuMetrics {
 }
 
 // ─── RAM metrics ─────────────────────────────────────────
+export type MacMemoryPressure = "normal" | "warning" | "critical" | "unknown";
+
+/** Disjoint physical RAM slices in MiB; GPU allocations belong within these slices. */
+export interface MacPhysicalMemory {
+  apps: number;
+  wired: number;
+  compressed: number;
+  cached: number;
+  free: number;
+  other: number;
+}
+
 export interface RamMetrics {
   used: number;
   total: number;
   percentage: number;
+  physical?: MacPhysicalMemory | null;
+  memoryPressure?: MacMemoryPressure;
+  swap?: { total: number; used: number; free: number };
 }
 
 // ─── Storage metrics ─────────────────────────────────────
@@ -520,7 +535,10 @@ export interface UnifiedMemoryMetrics {
   used: number;
   available: number;
   percentage: number;
-  oomRisk: "low" | "medium" | "high";
+  oomRisk: "low" | "medium" | "high" | null;
+  memoryPressure?: MacMemoryPressure;
+  physical?: MacPhysicalMemory | null;
+  swap?: { total: number; used: number; free: number };
   bandwidth: {
     current: number;
     peak: number;

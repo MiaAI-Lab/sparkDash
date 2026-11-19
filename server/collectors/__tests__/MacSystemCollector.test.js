@@ -62,7 +62,7 @@ test("vm_stat and memsize give unified memory in MB", () => {
   assert.equal(mem.used, 195304);
   assert.equal(mem.available, 66840);
   assert.equal(mem.percentage, 75);
-  assert.equal(mem.oomRisk, "medium");
+  assert.equal(mem.oomRisk, null);
 });
 
 test("an idle MLX model that macOS un-wired still counts as memory in use", () => {
