@@ -142,6 +142,65 @@ test("a Pico that publishes /metrics is read: token totals recorded, cached clam
   assert.equal(idle.decodeActive, false);
 });
 
+// The body dsfront serves (pico-dgx-ds4's /metrics): the two request gauges, the token counters and
+// the engine's own prefill summary. sparkDash derives prefill as (prompt - cached) / prefill seconds.
+const DSFRONT_METRICS = ({ running, waiting, gen, prompt, cached, prefillSum, prefillCount }) =>
+  [
+    "# TYPE tensorfold:requests_running gauge",
+    `tensorfold:requests_running ${running}`,
+    "# TYPE tensorfold:requests_waiting gauge",
+    `tensorfold:requests_waiting ${waiting}`,
+    "# TYPE tensorfold:generation_tokens_total counter",
+    `tensorfold:generation_tokens_total ${gen}`,
+    "# TYPE tensorfold:prompt_tokens_total counter",
+    `tensorfold:prompt_tokens_total ${prompt}`,
+    "# TYPE tensorfold:prompt_tokens_cached_total counter",
+    `tensorfold:prompt_tokens_cached_total ${cached}`,
+    "# TYPE tensorfold:time_to_first_token_seconds summary",
+    `tensorfold:time_to_first_token_seconds_sum ${prefillSum}`,
+    `tensorfold:time_to_first_token_seconds_count ${prefillCount}`,
+    "# TYPE tensorfold:request_prefill_seconds summary",
+    `tensorfold:request_prefill_seconds_sum ${prefillSum}`,
+    `tensorfold:request_prefill_seconds_count ${prefillCount}`,
+  ].join("\n") + "\n";
+
+test("a dsfront /metrics yields decode, the prefill split and the request gauges", async () => {
+  let body = DSFRONT_METRICS({ running: 1, waiting: 0, gen: 100, prompt: 1000, cached: 900, prefillSum: 0.5, prefillCount: 1 });
+  const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888);
+  probe._fetch = async (url) => {
+    const path = new URL(String(url)).pathname;
+    if (path === "/v1/models") {
+      return { ok: true, status: 200, json: async () => PICO_MODELS, text: async () => JSON.stringify(PICO_MODELS) };
+    }
+    if (path === "/metrics") {
+      return { ok: true, status: 200, json: async () => ({}), text: async () => body };
+    }
+    return { ok: false, status: 404, json: async () => ({}), text: async () => "" };
+  };
+  await probe._detectServerType();
+  await probe._probeOpenAICompatible(); // seeds the counter baselines
+
+  // A second request finished: 2000 prompt tokens of which 1600 were cached, 1.0 s of engine prefill.
+  body = DSFRONT_METRICS({ running: 2, waiting: 1, gen: 300, prompt: 3000, cached: 2500, prefillSum: 1.5, prefillCount: 2 });
+  probe.lastProbeTime = Date.now() - 5000;
+  const snap = await probe._probeOpenAICompatible();
+
+  // Decode: 200 completion tokens over the 5 s poll window.
+  assert.equal(snap.generationTpsSource, "window");
+  assert.ok(snap.generationTps > 0, `generationTps ${snap.generationTps}`);
+  assert.equal(snap.decodeActive, true);
+
+  // Prefill: 2000 prompt tokens of which 1600 were cached, over 1.0 s of engine prefill time.
+  assert.equal(snap.prefillTpsSource, "completed-split");
+  assert.equal(snap.uncachedPrefillTps, 400);
+  assert.equal(snap.cachedPrefillTps, 1600);
+  assert.equal(snap.prefillTps, 400);
+
+  // The two request gauges are what the panel's engine tiles read.
+  assert.equal(snap.requestsRunning, 2);
+  assert.equal(snap.requestsWaiting, 1);
+});
+
 test("a failed /metrics scrape after a good one is not reported as a measured zero", async () => {
   let metricsUp = true;
   const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8888);

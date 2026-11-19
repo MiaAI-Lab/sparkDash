@@ -238,6 +238,7 @@
     "sampleOffHelp": "This engine publishes no live counters. Turn on Settings → Stream-sample engines without gauges to have the dashboard measure decode tok/s itself.",
     "completedPrefillHelp": "Token and prefill-time deltas over requests that finished in the same window; not continuous live throughput.",
     "effectiveIncludesCached": "Effective rate · includes cached tokens",
+    "completedPrefillSplit": "Computed tokens · cached excluded",
     "completedDecodeRate": "{{rate}} tok/s · last completions"
   },
   "sessions": {
