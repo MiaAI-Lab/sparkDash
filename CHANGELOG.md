@@ -9,6 +9,9 @@ Format: version sections are listed newest first.
 
 ## [Unreleased]
 
+### Changed
+- Install spark-attic v0.1.6 (was v0.1.4). It adds the Ubuntu firmware-console display fix from 0.1.5; the status file and the installer's `--check`/`--plain` flags are unchanged.
+
 ### Added
 - Show an Installed badge in Edit Spark when the spark-attic service is detected.
 - **Health findings for repeated prompt-cache misses and swap traffic.** `cold-prefill` fires when at least 300,000 prompt tokens were prefilled uncached within ten minutes and the cache served under half of what was submitted. A single cold request from a new session stays silent. `swap-traffic` fires when pages move in or out of swap (over 100 pages/s) for 15 consecutive samples; swap that is only occupied does not fire. Both appear on the unit card and as alert-notification rules. TensorFold derives its cached share from `prefill_input_tokens_total - prefill_computed_tokens_total` when a build publishes no cached counter.
