@@ -13,8 +13,8 @@ command -v curl >/dev/null || { echo 'curl is required on the Spark' >&2; exit 1
 command -v sha256sum >/dev/null || { echo 'sha256sum is required on the Spark' >&2; exit 1; }
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-curl -fsSL --connect-timeout 15 --max-time 120 https://github.com/bertholomus/spark-attic/releases/download/v0.1.4/install.sh -o "$tmp/install.sh"
-printf '%s  %s\\n' 67377118411069f6ba6b7cadd1c4a31f95c78dcc08029101ec67c281fff19dba "$tmp/install.sh" | sha256sum -c -
+curl -fsSL --connect-timeout 15 --max-time 120 https://github.com/bertholomus/spark-attic/releases/download/v0.1.6/install.sh -o "$tmp/install.sh"
+printf '%s  %s\\n' 28a6fe8e4e028d4a9069bfb8a4036756e3ee2684cf0aa44e033dda8af628165b "$tmp/install.sh" | sha256sum -c -
 if [ "$(id -u)" = 0 ]; then
   as_root() { "$@"; }
 elif [ -n "$PW" ]; then
