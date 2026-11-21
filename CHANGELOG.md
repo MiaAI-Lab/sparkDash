@@ -16,6 +16,8 @@ Format: version sections are listed newest first.
 - Show an Installed badge in Edit Spark when the spark-attic service is detected.
 
 ### Fixed
+- Keep the fleet energy series when a unit is offline: hours are integrated over the nodes that reported and labelled "at least n/m" (#359). Thanks @markyu0401 (#425).
+- Label the energy-per-token panels as energy intensity, lower is better (#341). Thanks @kings-avathar54 (#420).
 - Show installation success and failure beside the install button, including CUDA_ERROR_OUT_OF_MEMORY when validation detects it.
 
 - Show the spark-attic install button before monitoring is saved, and enable it as soon as the option is checked. Installation enables monitoring after confirmation.

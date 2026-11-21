@@ -421,7 +421,7 @@
     "tryLonger": "Try a longer range, or check that the Sparks are reporting power telemetry.",
     "noTelemetry": "No telemetry recorded",
     "averagePower": "Average fleet power",
-    "powerSubtitle": "Watts per hour while every node reported. Gaps mean no full-fleet coverage.",
+    "powerSubtitle": "Watts per hour while every node reported. Gaps mean no machine reported.",
     "powerSubtitleReporting": "Watts per hour from the machines that reported (at least {{fresh}}/{{total}}); gaps mean no machine reported.",
     "reportingOf": "{{fresh}}/{{total}} reporting",
     "byNode": "By node",

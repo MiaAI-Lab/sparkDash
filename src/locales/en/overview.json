@@ -294,7 +294,7 @@
     "kwhPer24Hours": "kWh / 24 h",
     "estimatedCoverage": "Estimated, not wall-metered · 24h coverage {{coverage}}%",
     "hourlyWattsAria": "Hourly estimated watts for the last 24 hours, with gaps shown empty",
-    "noCompleteCoverage": "No complete coverage",
+    "noCompleteCoverage": "No machine reported",
     "reportingOf": "{{fresh}}/{{total}} reporting",
     "hoursAgo": "{{count}}h ago",
     "now": "now",
