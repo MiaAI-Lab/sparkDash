@@ -2040,7 +2040,7 @@ export class LlmProbe {
     const poolPages = counter("ignis_kv_pool_pages");
     const usedPages = counter("ignis_kv_pool_used_pages");
     const pageBytes = counter("ignis_kv_page_bytes");
-    this.kvCacheUsage = poolPages ? Math.min(1, Math.max(0, (usedPages ?? 0) / poolPages)) : null;
+    this.kvCacheUsage = poolPages && usedPages != null ? Math.min(1, Math.max(0, usedPages / poolPages)) : null;
     this.kvCacheMemoryBytes = poolPages && pageBytes ? Math.round(poolPages * pageBytes) : null;
     const weightBytes = this._getPromMetricLabeled(txt, "ignis_vram_reserved_bytes", "line", "weights");
     this.weightsGb = weightBytes ? Math.round((weightBytes / 1e9) * 100) / 100 : null;

@@ -286,3 +286,11 @@ test("readServerGenerationTokens: ignis emitted-token counter from /ui/metrics",
     globalThis.fetch = realFetch;
   }
 });
+
+test("_applyIgnisMetrics: a missing used-pages gauge leaves KV use unmeasured, not 0%", () => {
+  const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8892);
+  const body = IGNIS_METRICS.split("\n").filter((line) => !line.startsWith("ignis_kv_pool_used_pages")).join("\n");
+  probe._applyIgnisMetrics(body, 1_700_000_000);
+  assert.equal(probe.kvCacheUsage, null);
+  assert.equal(probe.kvCacheMemoryBytes, 91998 * 239616);
+});
