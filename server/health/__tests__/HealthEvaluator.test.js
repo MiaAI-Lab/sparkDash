@@ -94,7 +94,9 @@ test("macOS memory findings follow native pressure rather than calculated headro
   const h = new HealthEvaluator();
   const mem = (memoryPressure, available) => ({ unifiedMemory: { total: 16384, percentage: 97, available, memoryPressure } });
   assert.deepEqual(h.evaluate(mem("normal", 100)), []);
-  assert.deepEqual(h.evaluate(mem("unknown", 100)), []);
+  // Unreadable pressure is not healthy: the headroom check still applies.
+  assert.equal(h.evaluate(mem("unknown", 100))[0].severity, "critical");
+  assert.deepEqual(h.evaluate(mem("unknown", 10000)), []);
   assert.equal(h.evaluate(mem("warning", 10000))[0].severity, "warn");
   assert.equal(h.evaluate(mem("critical", 10000))[0].severity, "critical");
   const normal = mem("normal", 100);

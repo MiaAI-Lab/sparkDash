@@ -230,8 +230,9 @@ export class HealthEvaluator {
   }
 
   _memory(mem, out) {
-    if (mem?.memoryPressure !== undefined) {
-      if (mem.memoryPressure !== "warning" && mem.memoryPressure !== "critical") return;
+    // macOS reports native pressure; when it could not be read ("unknown"), fall back to headroom.
+    if (mem?.memoryPressure === "normal") return;
+    if (mem?.memoryPressure === "warning" || mem?.memoryPressure === "critical") {
       const critical = mem.memoryPressure === "critical";
       out.push({
         id: "memory",
@@ -295,7 +296,7 @@ export class HealthEvaluator {
   }
 
   _concurrency(llm, mem, out) {
-    if (mem?.memoryPressure !== undefined && mem.memoryPressure !== "warning" && mem.memoryPressure !== "critical") return;
+    if (mem?.memoryPressure === "normal") return;
     const serving = llm.filter((l) => l && l.available && l.modelId);
     const ids = new Set(serving.map((l) => l.modelId));
     if (ids.size < 2) return;
