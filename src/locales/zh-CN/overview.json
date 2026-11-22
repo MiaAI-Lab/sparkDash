@@ -208,7 +208,12 @@
     "gpuPowerShort": "功耗",
     "workerHeadCompletedDecode": " · {{value}} 已完成",
     "workerHeadCompletedPrefill": " · {{value}} 预填充，含缓存",
-    "completedDecodeRate": "{{value}} tok/s · 已完成"
+    "completedDecodeRate": "{{value}} tok/s · 已完成",
+    "macPower": "{{gpu}} W · 系统 {{system}} W",
+    "cacheChip": "{{active}}% 活跃 · {{kept}}% 保留",
+    "cacheChipTitle": "共享池 {{capacity}} 个位置，每请求 {{context}} 个位置，{{streams}} 路并发；快照存储 {{store}}",
+    "cacheStoreBytes": "{{held}} / {{budget}} 字节",
+    "cacheStoreUnreported": "未报告"
   },
   "launcher": {
     "modelsUnavailable": "模型不可用",
