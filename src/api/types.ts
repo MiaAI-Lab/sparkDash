@@ -1494,6 +1494,8 @@ export interface HistoryStat {
   avg: number;
   max: number;
   min?: number;
+  activeSum?: number;
+  activeCount?: number;
 }
 
 /** Unit-level series: %, °C, W, MB, bytes/s. */

@@ -495,6 +495,26 @@ describe("HistoryPanel", () => {
     expect(container.querySelector("[data-chart]")).not.toBeNull(); // the last answer stays
   });
 
+  it("shows sample-weighted active throughput alongside the whole-window average", async () => {
+    const { container } = await mount(data({ llm: [{ port: 8888, points: [
+      { t: T0, genTps: { avg: 30, max: 60, activeSum: 120, activeCount: 2 } },
+      { t: T0 + STEP, genTps: { avg: 0, max: 0, activeSum: 0, activeCount: 0 } },
+    ] }] }));
+    const summary = chart(container, "llm-8888-gen").querySelector('[data-stat="genTps"]')!;
+    expect(summary.textContent).toContain("avg 15.0");
+    expect(summary.textContent).toContain("Active avg 60.0");
+  });
+
+  it("omits active throughput in an idle or partially legacy window", async () => {
+    const idle = { avg: 0, max: 0, activeSum: 0, activeCount: 0 };
+    const { container } = await mount(data({ llm: [{ port: 8888, points: [
+      { t: T0, genTps: idle, prefillTps: { avg: 100, max: 100 } },
+      { t: T0 + STEP, genTps: idle, prefillTps: { avg: 50, max: 50, activeSum: 50, activeCount: 1 } },
+    ] }] }));
+    expect(chart(container, "llm-8888-gen").textContent).not.toContain("Active avg");
+    expect(chart(container, "llm-8888-prefill").textContent).not.toContain("Active avg");
+  });
+
   it("shows avg / peak / low for the visible window, flagging low when no true min is stored", async () => {
     const { container } = await mount();
     const gpu = chart(container, "gpuUtil").querySelector('[data-stat="gpuUtil"]')!;

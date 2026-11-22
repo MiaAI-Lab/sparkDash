@@ -220,6 +220,7 @@
   "history.maximum": "最大 {{value}}",
   "history.minimum": "最小 {{value}}",
   "history.windowSummary": "窗口摘要",
+  "history.activeAverage": "活跃采样均值 {{value}}",
   "history.average": "平均 {{value}}",
   "history.peak": "峰值 {{value}}",
   "history.lowFromAverage": "最低值为桶平均值 — 真实的每桶最小值仅为内存余量保留",

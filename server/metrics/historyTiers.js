@@ -89,11 +89,20 @@ export function keepsMin(key) {
   return MIN_SERIES.has(parseLlmKey(key)?.name ?? key);
 }
 
+export function keepsActiveCount(key) {
+  const name = parseLlmKey(key)?.name;
+  return name === "genTps" || name === "prefillTps";
+}
+
 export const finite = (v) => typeof v === "number" && Number.isFinite(v);
 
 /** A running aggregate of one value: sum (not avg) so merges stay exact. */
-export function statOf(value) {
-  return { sum: value, max: value, min: value, n: 1 };
+export function statOf(value, key) {
+  const stat = { sum: value, max: value, min: value, n: 1 };
+  // Idle zeroes contribute nothing to the sum, so a count alone tracks active
+  // throughput. A negative reading cannot use that identity.
+  if (key && value >= 0 && keepsActiveCount(key)) stat.activeCount = value > 0 ? 1 : 0;
+  return stat;
 }
 
 /** Fold `add` into `into` (weighted by sample count). */
@@ -103,6 +112,8 @@ export function mergeStat(into, add) {
   into.max = Math.max(into.max, add.max);
   into.min = Math.min(into.min, add.min);
   into.n += add.n;
+  if (into.activeCount != null && add.activeCount != null) into.activeCount += add.activeCount;
+  else delete into.activeCount;
   return into;
 }
 
@@ -146,6 +157,7 @@ export class BucketRing {
         max: new Float32Array(this.slots),
         min: keepsMin(key) ? new Float32Array(this.slots) : null,
         n: new Uint16Array(this.slots),
+        activeCount: keepsActiveCount(key) ? new Int32Array(this.slots) : null,
       };
       this.cols.set(key, col);
     }
@@ -168,13 +180,16 @@ export class BucketRing {
       col.max[i] = next.max;
       if (col.min) col.min[i] = next.min;
       col.n[i] = Math.min(MAX_COUNT, next.n);
+      if (col.activeCount) col.activeCount[i] = next.activeCount ?? -1;
     }
   }
 
   _stat(col, i) {
     const n = col.n[i];
     const avg = col.avg[i];
-    return { sum: avg * n, max: col.max[i], min: col.min ? col.min[i] : avg, n };
+    const stat = { sum: avg * n, max: col.max[i], min: col.min ? col.min[i] : avg, n };
+    if (col.activeCount && col.activeCount[i] >= 0) stat.activeCount = col.activeCount[i];
+    return stat;
   }
 
   /** Closed buckets with t ≥ fromMs, oldest first: [{ t, stats: Map }]. */
@@ -215,6 +230,7 @@ export class BucketRing {
       const extra = openT !== null ? open.stats.get(key) : undefined;
       const out = { avg: [], max: [], n: [] };
       if (keepsMin(key)) out.min = [];
+      if (keepsActiveCount(key)) out.activeCount = [];
       let any = false;
       for (const { t, slot } of rows) {
         let s = slot >= 0 && col && col.n[slot] > 0 ? this._stat(col, slot) : null;
@@ -223,6 +239,7 @@ export class BucketRing {
         out.max.push(s ? round(s.max) : null);
         if (out.min) out.min.push(s ? round(s.min) : null);
         out.n.push(s ? Math.min(MAX_COUNT, s.n) : 0);
+        if (out.activeCount) out.activeCount.push(s?.activeCount ?? null);
         if (s) any = true;
       }
       if (any) series[key] = out;
@@ -254,5 +271,9 @@ export function coarsen(entries, stepMs) {
 export function statOut(key, s) {
   const out = { avg: round(s.sum / s.n), max: round(s.max) };
   if (keepsMin(key)) out.min = round(s.min);
+  if (s.activeCount != null) {
+    out.activeSum = round(s.sum);
+    out.activeCount = s.activeCount;
+  }
   return out;
 }
