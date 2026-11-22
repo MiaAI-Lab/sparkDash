@@ -398,9 +398,9 @@ export function GpuPanel({
       </div>
       {mac ? (
         <div className="sp-row">
-          <span className="text-muted">Thermal pressure (last recorded)</span>
+          <span className="text-muted">{tr("gpu.thermalPressureLastRecorded")}</span>
           <span className="mono text-text" title={gpu?.thermal?.lastRecordedEvents?.join("\n")}>
-            {gpu?.thermalPressure ?? "unknown"}
+            {gpu?.thermalPressure ?? tr("gpu.thermalPressureUnknown")}
           </span>
         </div>
       ) : null}

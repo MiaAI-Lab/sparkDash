@@ -84,6 +84,8 @@
     "allCardsPower": "Power (all cards)",
     "systemPower": "System ≈ {{watts}} W",
     "smClock": "SM clock",
+    "thermalPressureLastRecorded": "Thermal pressure (last recorded)",
+    "thermalPressureUnknown": "unknown",
     "clockCapHelp": "Locked with nvidia-smi -lgc",
     "clockCap": "cap {{mhz}} MHz",
     "utilizationLegend": "GPU utilization %",
