@@ -9,6 +9,9 @@ Format: version sections are listed newest first.
 
 ## [Unreleased]
 
+### Added
+- **llama-swap is recognised and its loaded engine fills the card.** [llama-swap](https://github.com/mostlygeek/llama-swap) answers `owned_by: "llama-swap"` on `/v1/models` and lists every configured model, loaded or not, so the card showed the first configured model (often an unloaded one) as a generic vLLM server with no rates. The probe now reads llama-swap's `/running` for the loaded model and its engine's address (`proxy`), and probes that engine on its own port — over its own SSH forward when only SSH reaches it — so the engine's reader (TensorFold, vLLM, …) reports the model, rates, KV and requests on the configured llama-swap port. It never polls through llama-swap's `/upstream/<model>/…` proxy, where every request resets the model's TTL and could start an unloaded model. While nothing is loaded the card is available with no model; while a model is starting, its engine is not on llama-swap's loopback, or the engine is not answering yet, the card names the model and marks the rates unmeasured. Only the first running model is shown, and benchmarks still go through the llama-swap port.
+
 ## [2.91.0] — 2026-11-22
 
 ### Changed
