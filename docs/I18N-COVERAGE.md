@@ -31,7 +31,7 @@ Keep one progress list while retaining separate, complete-feature pull requests.
 | Device Setup | [#321](https://github.com/MiaAI-Lab/sparkDash/pull/321) | Implemented; pending maintainer review, not merged or deployed. |
 | Spark Details | [#322](https://github.com/MiaAI-Lab/sparkDash/pull/322) | Implemented; pending maintainer review, not merged or deployed. |
 | Benchmarks | [#323](https://github.com/MiaAI-Lab/sparkDash/pull/323) | Implemented; pending maintainer review, not merged or deployed. |
-| Showcase | [#324](https://github.com/MiaAI-Lab/sparkDash/pull/324) | Implemented; pending maintainer review, not merged or deployed. |
+| Showcase | [#324](https://github.com/MiaAI-Lab/sparkDash/pull/324) | Controls and session feedback landed in [`61bd4fd`](https://github.com/MiaAI-Lab/sparkDash/commit/61bd4fd), with the history confirmation in [`f0f7180`](https://github.com/MiaAI-Lab/sparkDash/commit/f0f7180), via `9ad3711`. |
 | Server Messages | [#325](https://github.com/MiaAI-Lab/sparkDash/pull/325) | Implemented; pending maintainer review, not merged or deployed. |
 
 [#194](https://github.com/MiaAI-Lab/sparkDash/pull/194) stays open as the original integration and server-message design reference, per the maintainer's [latest direction](https://github.com/MiaAI-Lab/sparkDash/pull/194#issuecomment-6517707651). It is not an active merge target. Do not rebase it or count its broad translation work as shipped. Its historical content would remain accessible after closure, but the maintainer explicitly requested an open reference; revisit its status when that reference has an agreed replacement.
