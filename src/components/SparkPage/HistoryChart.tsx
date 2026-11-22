@@ -58,6 +58,19 @@ export function windowStats(values: ReadonlyArray<HistoryStat | null>): WindowSt
   return { avg: sum / n, peak, low, lowFromAvg: missingMin > 0 };
 }
 
+/** Positive measured polls, weighted by sample count across the visible buckets. */
+function activeWindowAverage(values: ReadonlyArray<HistoryStat | null>): number | null {
+  let sum = 0;
+  let count = 0;
+  for (const stat of values) {
+    if (!stat) continue;
+    if (stat.activeSum == null || stat.activeCount == null) return null;
+    sum += stat.activeSum;
+    count += stat.activeCount;
+  }
+  return count > 0 ? sum / count : null;
+}
+
 export interface HistoryChartSeries {
   /** Configuration values remain steps, not interpolated intermediate configurations. */
   step?: boolean;
@@ -284,7 +297,7 @@ export function HistoryChart({
     const w = windowStats(s.values);
     return w.avg == null
       ? []
-      : [{ series: s, avg: w.avg, peak: w.peak, low: w.low, lowFromAvg: w.lowFromAvg }];
+      : [{ series: s, ...w, avg: w.avg, activeAvg: activeWindowAverage(s.values) }];
   });
 
   const point = (i: number, v: number) => `${xOf(timeline[i]).toFixed(2)},${yOf(v).toFixed(2)}`;
@@ -306,10 +319,11 @@ export function HistoryChart({
         </span>
       </div>
       <div className="sp-hist-chart__stats mono" aria-label={t("history.windowSummary")}>
-        {windowRows.map(({ series: s, avg, peak, low, lowFromAvg }) => (
+        {windowRows.map(({ series: s, avg, peak, low, lowFromAvg, activeAvg }) => (
           <span key={s.key} className="sp-hist-chart__stat" data-stat={s.key}>
             {series.length > 1 && <small>{s.label}</small>}
             <span>{t("history.average", { value: format(avg) })}</span>
+            {activeAvg != null && <span>{t("history.activeAverage", { value: format(activeAvg) })}</span>}
             <span>{t("history.peak", { value: format(peak ?? avg) })}</span>
             {low != null && (
               <span
@@ -517,8 +531,10 @@ export function HistoryChart({
               )}
               {windowRows.length > 0 && (
                 <div className="chart__tip-foot sp-hist-chart__tip-window" data-window-summary="">
-                  {windowRows.map(({ series: s, avg, peak, low, lowFromAvg }) => {
-                    const parts = [t("history.average", { value: format(avg) }), t("history.peak", { value: format(peak ?? avg) })];
+                  {windowRows.map(({ series: s, avg, peak, low, lowFromAvg, activeAvg }) => {
+                    const parts = [t("history.average", { value: format(avg) })];
+                    if (activeAvg != null) parts.push(t("history.activeAverage", { value: format(activeAvg) }));
+                    parts.push(t("history.peak", { value: format(peak ?? avg) }));
                     if (low != null) parts.push(`${t("history.low", { value: format(low) })}${lowFromAvg ? "*" : ""}`);
                     return (
                       <div

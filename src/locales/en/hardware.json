@@ -218,6 +218,7 @@
   "history.maximum": "max {{value}}",
   "history.minimum": "min {{value}}",
   "history.windowSummary": "window summary",
+  "history.activeAverage": "Active avg {{value}}",
   "history.average": "avg {{value}}",
   "history.peak": "peak {{value}}",
   "history.lowFromAverage": "lowest bucket average — a true per-bucket minimum is only stored for memory headroom",
