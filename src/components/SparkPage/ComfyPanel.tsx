@@ -225,7 +225,7 @@ export function ComfyPanel({
   const modelGroups = modelsInstalled
     ? [
         { key: "checkpoints", label: t("comfy.checkpoints"), list: modelsInstalled.checkpoints ?? [] },
-        { key: "loras", label: "LoRAs", list: modelsInstalled.loras ?? [] },
+        { key: "loras", label: t("comfy.loras"), list: modelsInstalled.loras ?? [] },
         { key: "diffusionModels", label: t("comfy.diffusionModels"), list: modelsInstalled.diffusionModels ?? [] },
         { key: "textEncoders", label: t("comfy.textEncoders"), list: modelsInstalled.textEncoders ?? [] },
         { key: "vae", label: t("comfy.vae"), list: modelsInstalled.vae ?? [] },

@@ -52,6 +52,15 @@ describe("complete cache history", () => {
     expect(container.textContent).toContain("engine restart");
     expect(container.textContent).toContain("counter reset");
     expect(container.textContent).toContain("Demand / latency / headroom");
+    try {
+      await act(() => setLocale("zh-CN"));
+      expect(chart(container, "cache-8888-store").textContent).toContain("快照存储 · :8888");
+      expect(container.querySelector("[data-cache-pressure] summary")?.textContent).toContain("缓存事件与压力");
+      expect(container.querySelectorAll("[data-cache-event]").length).toBe(2);
+      expect(container.textContent).toContain("89.11%");
+    } finally {
+      await act(() => setLocale("en"));
+    }
   });
 });
 
