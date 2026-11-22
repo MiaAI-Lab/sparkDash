@@ -117,7 +117,7 @@ export function EnergyPage({
   settings: Settings | null;
   onSelectSpark?: (id: string) => void;
 }) {
-  const { t } = useTranslation("statistics");
+  const { t, i18n } = useTranslation("statistics");
   const energyClear = [
     { id: "7d", label: t("energy.clear.7d"), ask: t("energy.clear.7dAsk"), arg: 7 * DAY_MS },
     { id: "24h", label: t("energy.clear.24h"), ask: t("energy.clear.24hAsk"), arg: DAY_MS },
@@ -168,7 +168,10 @@ export function EnergyPage({
 
   const meterStatus = usePowerMeterStatus();
   const metered = hasWall(history);
-  const meterLabel = meterStatus?.enabled ? [...new Set(meterStatus.meters.map((m) => m.label))].join(" and ") : "external power meters";
+  const meterNames = meterStatus?.enabled ? [...new Set(meterStatus.meters.map((m) => m.label))] : [];
+  const meterLabel = meterNames.length
+    ? new Intl.ListFormat(i18n.resolvedLanguage).format(meterNames)
+    : t("energy.externalMeters");
 
   const model = useMemo(() => {
     if (!history || history.membershipChanged) return null;
@@ -472,7 +475,7 @@ function EnergyBody({
             ) : (
               <span>{t("energy.noEarlier")}</span>
             )}
-            {metered && wall.filled >= 0.005 ? <Tag tone="warn">{pct(wall.filled, wall.filled < 0.1 ? 1 : 0)} filled</Tag> : null}
+            {metered && wall.filled >= 0.005 ? <Tag tone="warn">{t("energy.filledShare", { percent: pct(wall.filled, wall.filled < 0.1 ? 1 : 0) })}</Tag> : null}
           </div>
         </Tile>
         <Tile label={metered ? t("energy.cost") : t("energy.estimatedCost")}>
@@ -503,7 +506,7 @@ function EnergyBody({
         </Tile>
         <Tile
           label={
-            <span className="flex items-center gap-1.5">
+            <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
               {t("energy.efficiency")}
               <Tag tone="neutral">{t("energy.lowerIsBetter")}</Tag>
             </span>
@@ -572,8 +575,8 @@ function EnergyBody({
                   </p>
                 </div>
                 {metered ? (
-                  <div className="legend" aria-label="Lines">
-                    <span style={{ "--c": "var(--color-info)" } as React.CSSProperties}>Wall</span>
+                  <div className="legend" aria-label={t("energy.powerLines")}>
+                    <span style={{ "--c": "var(--color-info)" } as React.CSSProperties}>{t("energy.wallLine")}</span>
                     {overlays.map((o) => (
                       <span key={o.id} style={{ "--c": o.color } as React.CSSProperties}>{o.label}</span>
                     ))}
@@ -594,7 +597,7 @@ function EnergyBody({
               <section className="panel en-panel" aria-labelledby="en-h-eff">
                 <header className="en-panel__head">
                   <div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                       <h2 id="en-h-eff">{t("energy.efficiency")}</h2>
                       <Tag tone="neutral">{t("energy.lowerIsBetter")}</Tag>
                     </div>
