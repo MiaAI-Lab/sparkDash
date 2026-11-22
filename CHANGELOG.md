@@ -9,11 +9,15 @@ Format: version sections are listed newest first.
 
 ## [Unreleased]
 
+## [2.91.0] — 2026-11-22
+
 ### Changed
+- **Storage Manager works on Linux GPU hosts**, not only DGX Sparks. Any Linux unit reached over SSH can be analysed, cleaned and have its Docker images managed; Windows and macOS units are still not offered.
 - Install spark-attic v0.1.6 (was v0.1.4). It adds the Ubuntu firmware-console display fix from 0.1.5; the status file and the installer's `--check`/`--plain` flags are unchanged.
 - **The local unit no longer starts nvidia-smi on every poll.** Each GPU poll ran three `nvidia-smi` queries (GPU metrics, memory, compute apps) and each bandwidth poll a one-shot `nvidia-smi dmon -c 1` that blocked for a second, every one through `nsenter` and `sh` in Docker. The GPU and memory fields are now one `nvidia-smi --query-gpu … -lms <GPU interval>` process and bandwidth one continuous `nvidia-smi dmon -d <seconds>`, supervised by the collector: output is read line by line, a sample older than three intervals (at least 3 s) is reported as missing rather than repeated, an exited reader is restarted with backoff (1 s doubling to 30 s), a silent one is killed and restarted, and the readers are stopped with the monitor and on exit. The process list (`--query-compute-apps`) is still a one-shot query, at most every `POLL_INTERVAL_COMPUTE_APPS` (default 5 s), because an empty list cannot be told apart from a stalled loop. A `dmon` reader that fails three times in a row within 10 s of starting and without a single data line is treated as unsupported and not restarted (GB10 with driver 580.159.03 has no `dmon -s B`), so it cannot crash-loop. One-shot collectors (the connectivity test) keep the previous per-call path. Thanks @iha-siv (#385).
 
 ### Added
+- **Remove agent junk** (Storage → Remove agent junk). Finds what coding agents left behind in earlier sessions: agent worktrees, temporary folders in `/tmp` and `/var/tmp`, session logs and state (Claude Code, Codex, Gemini CLI, opencode, Continue), old VS Code / Cursor / Windsurf server versions, scratch scripts, `.bak`/`.orig` copies and reports never added to git, and npx/pip/uv/browser download caches. Each item gets a smart guess (Junk, Probably junk, Check first, Keep) from where it is, its age and its git state; **Smart pick** ticks only what is clearly junk. Files git tracks are never listed, and anything changed today, a worktree with uncommitted changes, a transcript folder holding saved memory and the editor server in use are never pre-ticked. The search only reads, never as administrator; removing uses the ordinary bulk delete with its checks and typed confirmation. API: `GET /api/sparks/:id/storage/agent-junk`.
 - Show an Installed badge in Edit Spark when the spark-attic service is detected.
 - The occupancy helper reads DSH 0.2.2 (token-to-cookie sign-in, `session/list`); the DSH launch token is refused over plain http to a non-loopback host. Thanks @100menotu001 (#397).
 - macOS units show physical memory and the native memory-pressure level; health findings follow that pressure, and fall back to memory headroom when it cannot be read. Thanks @ezoushen (#427).
