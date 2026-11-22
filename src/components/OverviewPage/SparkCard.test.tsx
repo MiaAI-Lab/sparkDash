@@ -6,10 +6,23 @@ vi.mock("../../api/client", () => ({
   runLauncher: vi.fn(),
   wakeSpark: vi.fn(),
 }));
+vi.mock("../../api/llmTelemetryClient", () => ({
+  fetchLlmTelemetry: () =>
+    Promise.resolve({
+      sparkId: "fixture",
+      port: 8888,
+      modelId: null,
+      bucketSeconds: 10,
+      retentionHours: 168,
+      since: null,
+      nextSince: null,
+      points: [],
+    }),
+}));
 
 import { SparkCard } from "./SparkCard";
 import { makeSpark } from "../../testing/fixtures";
-import { render } from "../../testing/render";
+import { flush, render } from "../../testing/render";
 import type { SparkSnapshot } from "../../api/types";
 
 function worker(): SparkSnapshot {
