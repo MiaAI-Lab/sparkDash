@@ -1,4 +1,6 @@
+import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { setLocale } from "../../i18n";
 import { EnergyPage } from "./EnergyPage";
 import { MonthlyEnergy } from "./MonthlyEnergy";
 import { FleetEnergyCard } from "../OverviewPage/FleetEnergyCard";
@@ -200,6 +202,15 @@ describe("Energy page", () => {
     expect(headers).toEqual(expect.arrayContaining(["GPU", "CPU"]));
     expect(headers).not.toContain("Estimate");
     expect(text).toContain("Dan 140%, Stepan 141%");
+    try {
+      await act(() => setLocale("zh-CN"));
+      const translated = [...container.querySelectorAll('[aria-label="功率曲线"] span')].map((x) => x.textContent);
+      expect(translated).toEqual(["电表", "GPU", "CPU"]);
+      expect(container.textContent).toContain("50% 由估算补齐");
+      expect(container.textContent).toContain("Home Assistant");
+    } finally {
+      await act(() => setLocale("en"));
+    }
   });
 
   it("names meters the way their provider does", async () => {

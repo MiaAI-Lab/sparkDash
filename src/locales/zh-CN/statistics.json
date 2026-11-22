@@ -443,6 +443,10 @@
       "ratiosNotLearned": "尚未学习"
     },
     "subtitleMetered": "由 {{meter}} 按电表测量。",
+    "externalMeters": "外接电表",
+    "filledShare": "{{percent}} 由估算补齐",
+    "powerLines": "功率曲线",
+    "wallLine": "电表",
     "currentPowerFilled": "30 秒平均值，部分由估算补齐",
     "gpu": "GPU",
     "cpu": "CPU"
