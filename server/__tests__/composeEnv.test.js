@@ -20,3 +20,18 @@ test("docker-compose.yml and docker-compose.image.yml forward the MODEL_PRICES_*
     assert.match(compose, /MAX_ACTIVE_BENCH_JOBS=/, `${file}: environment block present`);
   }
 });
+
+test("production compose files forward poll interval overrides with empty defaults", () => {
+  const config = fs.readFileSync(path.join(ROOT, "server/config.js"), "utf8");
+  const variables = [...config.matchAll(/process\.env\.(POLL_INTERVAL_[A-Z_]+)/g)]
+    .map((match) => match[1]);
+  assert.ok(variables.includes("POLL_INTERVAL_GPU"));
+
+  for (const file of ["docker-compose.yml", "docker-compose.image.yml"]) {
+    const compose = fs.readFileSync(path.join(ROOT, file), "utf8");
+    for (const name of new Set(variables)) {
+      const entry = "- " + name + "=${" + name + ":-}";
+      assert.ok(compose.split("\n").some((line) => line.trim() === entry), `${file}: ${name} passthrough`);
+    }
+  }
+});
