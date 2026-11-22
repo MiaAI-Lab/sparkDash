@@ -132,8 +132,7 @@ export function llamaSwapEnginePort(proxy) {
   }
   if (url.protocol !== "http:") return null;
   if (!["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) return null;
-  const port = Number(url.port);
-  return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : null;
+  return Number(url.port) || null;
 }
 
 /** True when `id` looks like a Hugging Face hub cache directory (models--org--name). */
@@ -195,7 +194,7 @@ export class LlmProbe {
       });
 
     // State
-    this.backendType = null; // 'vllm' | 'llama.cpp' | 'sglang' | 'lmstudio' | 'ollama' | 'ds4' | 'exl3' | 'q27' | 'tensorfold' | 'ninfer' | 'freetoken' | 'radiance' | 'strata' | 'flare' | 'pico' | null
+    this.backendType = null; // 'vllm' | 'llama.cpp' | 'sglang' | 'lmstudio' | 'ollama' | 'ds4' | 'exl3' | 'q27' | 'tensorfold' | 'ninfer' | 'freetoken' | 'radiance' | 'strata' | 'flare' | 'pico' | 'llama-swap' | null
     this.serverIsOpenAI = null; // true = OpenAI-compatible
     /** Whether /v1/models (or /slots) answered without credentials. null = unknown. */
     this.authOpen = null;
@@ -1121,7 +1120,8 @@ export class LlmProbe {
     if (!snap.available) {
       return this._llamaSwapNameOnly(model, `llama-swap: the engine of ${model} (port ${enginePort}) is not answering`, false);
     }
-    return { ...snap, port: this.port, posture: this._buildPosture() };
+    // llama-swap's id is the one clients request; the engine may serve under another name.
+    return { ...snap, port: this.port, modelId: model, posture: this._buildPosture() };
   }
 
   /**
@@ -1140,13 +1140,8 @@ export class LlmProbe {
   }
 
   _dropEngineProbe() {
-    const probe = this._engineProbe;
+    this._engineProbe?.dispose();
     this._engineProbe = null;
-    try {
-      probe?.dispose();
-    } catch {
-      /* already gone */
-    }
   }
 
   // ─── OpenAI-compatible path (vLLM/sglang/ds4) ────────────

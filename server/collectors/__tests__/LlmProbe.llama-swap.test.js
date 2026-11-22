@@ -49,12 +49,12 @@ async function llamaSwap(t, running) {
 async function tensorFold(t) {
   return listen(t, (req, res) => {
     if (req.url === "/v1/models") {
-      return json(res, { object: "list", data: [{ id: "B-loaded-model", owned_by: "tensorfold", context_length: 131072 }] });
+      return json(res, { object: "list", data: [{ id: "engine-served-name", owned_by: "tensorfold", context_length: 131072 }] });
     }
     if (req.url === "/health") {
       return json(res, {
         status: "ok",
-        model: "B-loaded-model",
+        model: "engine-served-name",
         live: { connections: 1, waiting: 0, decode_tokens_per_second: 42.5, prefill_tokens_per_second: 1500 },
         version: "1.1.9",
       });
@@ -115,7 +115,7 @@ test("a ready model is read from its engine's own port: engine backend and rates
   assert.equal(snap.available, true);
   assert.equal(snap.port, swap.port); // the card stays keyed to the configured port
   assert.equal(snap.backend, "tensorfold");
-  assert.equal(snap.modelId, "B-loaded-model"); // not data[0] of llama-swap's list
+  assert.equal(snap.modelId, "B-loaded-model"); // llama-swap's id: not data[0] of its list, not the engine's served name
   assert.equal(snap.generationTps, 42.5);
   assert.equal(snap.engineVersion, "1.1.9");
   // Only llama-swap's own endpoints were asked: none of them loads a model or resets its TTL
