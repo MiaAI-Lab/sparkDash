@@ -679,14 +679,29 @@ export class LlmProbe {
       try {
         const healthRes = await this._fetch(`${this.baseUrl}/health`);
         if (healthRes.ok) {
-          const health = await healthRes.json();
-          if (health?.service === "strata") {
+          let health = await healthRes.json();
+          const isPlain = (v) => v != null && typeof v === "object" && !Array.isArray(v);
+          let mayaShape = false;
+          let fingerprintRead = false;
+          if (isPlain(health) && health.service === undefined &&
+            health.status === "ok" && health.max_context != null) {
+            mayaShape = true;
+            try {
+              const statusRes = await this._fetch(`${this.baseUrl}/v1/status`);
+              if (statusRes.ok) {
+                const st = await statusRes.json();
+                fingerprintRead = isPlain(st);
+                if (isPlain(st) && st.service) health = st;
+              }
+            } catch {}
+          }
+          if (health?.service === "strata" || health?.service === "maya") {
             this.serverIsOpenAI = true;
             this.backendType = "strata";
             return;
           }
-          // A JSON object that is not Strata's means another server took the port.
-          otherServer = health != null && typeof health === "object" && !Array.isArray(health);
+          otherServer = isPlain(health) &&
+            !(mayaShape && !fingerprintRead && health.service === undefined);
         }
       } catch { /* continue with the other backend signatures */ }
       // A transient health failure must not demote a known Strata to its
