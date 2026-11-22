@@ -1,6 +1,6 @@
+import { useTranslation } from "react-i18next";
 import type { MetricsHistoryCacheEndpoints, MetricsHistoryCacheEvent } from "../../api/types";
 
-const count = (n: number | undefined) => n == null ? "not reported" : n.toLocaleString();
 const seconds = (n: number) => `${(n / 1000).toFixed(1)} s`;
 const eventName = (kind: string) => kind.replaceAll("_", " ");
 
@@ -12,6 +12,9 @@ export function CacheHistoryDetails({ endpoint, events, stepMs, formatTime, onCu
   formatTime: (t: number) => string;
   onCursor: (t: number) => void;
 }) {
+  const { t } = useTranslation("hardware");
+  const notReported = t("cacheHistory.notReported");
+  const count = (n: number | undefined) => n == null ? notReported : n.toLocaleString();
   const points = endpoint.points;
   const promptMeasured = points.some((p) => p.promptTokens != null);
   const prompts = points.reduce((s, p) => s + (p.promptTokens ?? 0), 0);
@@ -21,42 +24,60 @@ export function CacheHistoryDetails({ endpoint, events, stepMs, formatTime, onCu
   const pressure = points.filter((p) => (p.waiting ?? 0) > 0 || Object.entries(p.churn ?? {}).some(([k, v]) =>
     ["evictions", "invalidations", "failures", "failuresKeep", "failuresRestore", "failuresPeerForget", "refusals", "placementBlocks"].includes(k) && (v ?? 0) > 0));
   const selectedEvents = events.filter((e) => e.port === endpoint.port);
-  const q = (value: typeof points[number]["ttftP95"]) => !value ? "not reported" : value.open
-    ? `above ${value.lowerBound} s (open upper bound)` : `≈ ${value.value} s (bucket upper bound ${value.upperBound} s)`;
+  const q = (value: typeof points[number]["ttftP95"]) => !value ? notReported : value.open
+    ? t("cacheHistory.quantileOpen", { lower: value.lowerBound })
+    : t("cacheHistory.quantile", { value: value.value, upper: value.upperBound });
   const populated = [...points].reverse().find((p) => (p.histogramSamples?.ttft ?? 0) > 0 || p.ttftP95 || p.latencyP95);
+  const reuse = !promptMeasured ? notReported : prompts > 0
+    ? t("cacheHistory.reuseTokens", { percent: (100 * cached / prompts).toFixed(2), cached: count(cached), prompts: count(prompts) })
+    : points.some((p) => p.completions === 0) ? t("cacheHistory.noCompletions") : t("cacheHistory.noPromptTokens");
+  const histogram = populated
+    ? t("cacheHistory.histogramValues", {
+        time: formatTime(populated.t), ttft: q(populated.ttftP95), ttftSamples: count(populated.histogramSamples?.ttft),
+        latency: q(populated.latencyP95), latencySamples: count(populated.histogramSamples?.latency),
+      })
+    : t("cacheHistory.histogramMissing");
   return (
     <details className="sp-stack" data-cache-pressure={endpoint.port}>
-      <summary>Cache events and pressure · :{endpoint.port} · {pressure.length} pressure buckets</summary>
+      <summary>{t("cacheHistory.details", { port: endpoint.port, buckets: pressure.length })}</summary>
       <p className="sp-hint">
-        Completion-window reuse: {!promptMeasured ? "not reported" : prompts > 0 ? `${(100 * cached / prompts).toFixed(2)}% (${count(cached)} / ${count(prompts)} prompt tokens)` : points.some((p) => p.completions === 0) ? "No completions" : "No completed prompt tokens"}.
-        {" "}First available bucket: {endpoint.firstAvailableAt != null ? formatTime(endpoint.firstAvailableAt) : "not reported"}; no pre-instrumentation backfill.
+        {t("cacheHistory.reuse", { reuse, first: endpoint.firstAvailableAt != null ? formatTime(endpoint.firstAvailableAt) : notReported })}
       </p>
       <p className="sp-hint">
-        Coverage: {seconds(covered)} of valid observation intervals{partial ? "; partial — legacy duration coverage not recorded" : ""}.
-        {" "}Buckets are {seconds(stepMs)} observation windows, not exact incident timestamps. Gaps and restart/reset boundaries are not backfilled.
-        {" "}Headroom is per rank only, not a complete fleet minimum. The 16 GiB line is a prior validation threshold, not a reservation or automatic enforcement.
-        {" "}Quantiles are approximate, calculated from histogram-count deltas; never an average of p95 values. Coarse ranges do not retain histograms.
+        {t("cacheHistory.coverage", { duration: seconds(covered), partial: partial ? t("cacheHistory.partialCoverage") : "", step: seconds(stepMs) })}
+        {" "}{t("cacheHistory.headroom")}{" "}{t("cacheHistory.quantileHelp")}
       </p>
-      <p className="sp-hint">Latest populated histogram window: {populated ? `${formatTime(populated.t)} · TTFT ${q(populated.ttftP95)} (n=${count(populated.histogramSamples?.ttft)}) · request latency ${q(populated.latencyP95)} (n=${count(populated.histogramSamples?.latency)})` : "not reported in this range"}.</p>
-      <ul aria-label={`Cache event boundaries :${endpoint.port}`}>
-        {selectedEvents.length === 0 ? <li>No recorded event boundaries in this range.</li> : selectedEvents.map((e, i) => (
+      <p className="sp-hint">{t("cacheHistory.histogram", { summary: histogram })}</p>
+      <ul aria-label={t("cacheHistory.eventBoundaries", { port: endpoint.port })}>
+        {selectedEvents.length === 0 ? <li>{t("cacheHistory.noEvents")}</li> : selectedEvents.map((e, i) => (
           <li key={`${e.t}-${e.kind}-${i}`}>
             <button type="button" onClick={() => onCursor(e.t)}>{formatTime(e.t)} · {eventName(e.kind)}</button>
-            {e.until != null && ` through ${formatTime(e.until)}`}
+            {e.until != null && t("cacheHistory.through", { time: formatTime(e.until) })}
             {e.detail && Object.entries(e.detail).filter(([, v]) => typeof v === "number").map(([k, v]) => ` · ${eventName(k)} ${v}`).join("")}
           </li>
         ))}
       </ul>
-      <p className="sp-hint">Latest 24 pressure buckets, newest first. Counts are valid counter deltas; rates use covered observation duration. Missing is not zero. Scroll the table horizontally on narrow screens.</p>
-      <div style={{ overflowX: "auto", maxWidth: "100%" }} role="region" aria-label={`Pressure drill-down :${endpoint.port}`} tabIndex={0}>
+      <p className="sp-hint">{t("cacheHistory.drillHelp")}</p>
+      <div style={{ overflowX: "auto", maxWidth: "100%" }} role="region" aria-label={t("cacheHistory.drill", { port: endpoint.port })} tabIndex={0}>
         <table style={{ width: "100%", minWidth: 1000 }}>
-          <thead><tr><th>Window</th><th>Coverage</th><th>Evictions / invalidations</th><th>Refusals / failures / blocked</th><th>Evictions/min</th><th>TTFT / latency p95</th><th>Histogram samples</th></tr></thead>
+          <thead><tr>
+            <th>{t("cacheHistory.window")}</th><th>{t("cacheHistory.coverageColumn")}</th>
+            <th>{t("cacheHistory.evictionsAndInvalidations")}</th><th>{t("cacheHistory.refusalsFailuresBlocked")}</th>
+            <th>{t("cacheHistory.evictionsRate")}</th><th>{t("cacheHistory.latencyColumn")}</th>
+            <th>{t("cacheHistory.histogramSamples")}</th>
+          </tr></thead>
           <tbody>{pressure.slice(-24).reverse().map((p) => <tr key={p.t}>
             <td><button type="button" onClick={() => onCursor(p.t)}>{formatTime(p.t)}</button></td>
-            <td>{p.coveredMs == null ? "unknown (legacy)" : `${seconds(p.coveredMs)}${p.coveragePartial ? " partial" : ""}`} · {p.n} observations</td>
+            <td>{t("cacheHistory.observations", {
+              coverage: p.coveredMs == null ? t("cacheHistory.unknownLegacy")
+                : p.coveragePartial ? t("cacheHistory.partial", { duration: seconds(p.coveredMs) }) : seconds(p.coveredMs),
+              samples: p.n,
+            })}</td>
             <td>{count(p.churn?.evictions)} / {count(p.churn?.invalidations)}</td>
-            <td>{count(p.churn?.refusals)} / {count(p.churn?.failures)} / {count(p.churn?.placementBlocks)}<br />Failures: keep {count(p.churn?.failuresKeep)}, restore {count(p.churn?.failuresRestore)}, peer forget {count(p.churn?.failuresPeerForget)}</td>
-            <td>{p.coveredMs && !p.coveragePartial && p.churn?.evictions != null ? (p.churn.evictions * 60_000 / p.coveredMs).toFixed(2) : "not reported"}</td>
+            <td>{count(p.churn?.refusals)} / {count(p.churn?.failures)} / {count(p.churn?.placementBlocks)}<br />
+              {t("cacheHistory.failureBreakdown", { keep: count(p.churn?.failuresKeep), restore: count(p.churn?.failuresRestore), forget: count(p.churn?.failuresPeerForget) })}
+            </td>
+            <td>{p.coveredMs && !p.coveragePartial && p.churn?.evictions != null ? (p.churn.evictions * 60_000 / p.coveredMs).toFixed(2) : notReported}</td>
             <td>{q(p.ttftP95)} / {q(p.latencyP95)}</td>
             <td>{count(p.histogramSamples?.ttft)} / {count(p.histogramSamples?.latency)}</td>
           </tr>)}</tbody>

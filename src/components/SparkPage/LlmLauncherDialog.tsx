@@ -32,13 +32,6 @@ export function validateLauncherForm(form: { name: string; dir: string; port: st
   return null;
 }
 
-/** Display order and badge text for each discovery source. */
-const DISCOVERY_GROUPS: { kind: ModelCandidateKind; badge: string }[] = [
-  { kind: "scripted", badge: "launchable" },
-  { kind: "ollama", badge: "ollama weights" },
-  { kind: "huggingface", badge: "HF cache" },
-];
-
 /**
  * The candidate list of a finished scan: grouped, compact, scrollable. One
  * button per candidate; picking one prefills the form (the caller decides how).
@@ -51,17 +44,23 @@ export function ModelDiscoveryList({
   result: ModelDiscoveryResponse;
   onPick: (candidate: ModelCandidate) => void;
 }) {
+  const { t } = useTranslation("hardware");
+  const groups: { kind: ModelCandidateKind; badge: string }[] = [
+    { kind: "scripted", badge: t("launcher.discover.launchable") },
+    { kind: "ollama", badge: t("launcher.discover.ollamaWeights") },
+    { kind: "huggingface", badge: t("launcher.discover.hfCache") },
+  ];
   if (result.candidates.length === 0) {
     return (
       <p className="field-hint" role="status">
-        Nothing launchable found in the scanned folders
+        {t("launcher.discover.empty")}
       </p>
     );
   }
   return (
     <div className="model-discovery">
       <div className="model-discovery__list" role="list">
-        {DISCOVERY_GROUPS.map((group) => {
+        {groups.map((group) => {
           const items = result.candidates.filter((c) => c.kind === group.kind);
           if (items.length === 0) return null;
           return (
@@ -87,7 +86,7 @@ export function ModelDiscoveryList({
         })}
       </div>
       {result.scannedRoots.length > 0 ? (
-        <p className="model-discovery__scan">Scanned {result.scannedRoots.join(", ")}</p>
+        <p className="model-discovery__scan">{t("launcher.discover.scanned", { paths: result.scannedRoots.join(", ") })}</p>
       ) : null}
       {result.notes.map((note, i) => (
         <p className="field-hint" key={`note-${i}`}>

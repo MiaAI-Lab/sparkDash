@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import type { MetricsHistoryCachePoint, MetricsHistoryCacheEvent } from "../../api/types";
 
 /**
@@ -16,10 +17,10 @@ const PAD_Y = 3;
 const GAP_STEPS = 1.5;
 
 const BANDS = [
-  { key: "unclaimed", label: "Unclaimed", color: "var(--color-mem-other)" },
-  { key: "growth", label: "Reclaimable", color: "var(--color-mem-system)" },
-  { key: "prefix", label: "Kept prefixes", color: "var(--color-accent)" },
-  { key: "active", label: "Active", color: "var(--color-mem-engine)" },
+  { key: "unclaimed", color: "var(--color-mem-other)" },
+  { key: "growth", color: "var(--color-mem-system)" },
+  { key: "prefix", color: "var(--color-accent)" },
+  { key: "active", color: "var(--color-mem-engine)" },
 ] as const;
 
 const positions = (n: number): string => {
@@ -73,6 +74,7 @@ export function CachePoolChart({
   from?: number;
   to?: number;
 }) {
+  const { t } = useTranslation("hardware");
   const present = points.filter((p): p is MetricsHistoryCachePoint => p?.pool != null);
   if (present.length === 0) return null;
   const capacity = Math.max(...present.map((p) => p.pool!.capacity));
@@ -82,13 +84,20 @@ export function CachePoolChart({
   const runs = runsOf(timeline, points, stepMs, events);
   const latest = present[present.length - 1];
   const last = latest.pool!;
-  const summary = `Shared pool over ${present.length} buckets, scale maximum ${positions(capacity)} positions: active ${positions(last.active ?? NaN)}, kept prefixes ${positions(last.prefix ?? NaN)}, reclaimable ${positions(last.growth ?? NaN)}, unclaimed ${positions(last.unclaimed ?? NaN)}`;
+  const labels = {
+    unclaimed: t("history.cachePoolUnclaimed"), growth: t("history.cachePoolGrowth"),
+    prefix: t("history.cachePoolPrefix"), active: t("history.cachePoolActive"),
+  };
+  const summary = t("history.cachePoolSummary", {
+    buckets: present.length, capacity: positions(capacity), active: positions(last.active ?? NaN),
+    prefix: positions(last.prefix ?? NaN), growth: positions(last.growth ?? NaN), unclaimed: positions(last.unclaimed ?? NaN),
+  });
 
   return (
     <div className="sp-cachepool" data-cache-pool-chart>
       <div className="sp-cachepool__head">
-        <span>Shared pool</span>
-        <span className="sp-cachepool__cap font-tabular">{positions(capacity)} positions</span>
+        <span>{t("history.cachePool")}</span>
+        <span className="sp-cachepool__cap font-tabular">{t("history.cachePoolCapacity", { value: positions(capacity) })}</span>
       </div>
       <svg
         viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
@@ -161,10 +170,10 @@ export function CachePoolChart({
         {[...BANDS].reverse().map((band) => (
           <span key={band.key}>
             <span aria-hidden className="sp-cachepool__swatch" style={{ background: band.color }} />
-            {band.label}
+            {labels[band.key]}
           </span>
         ))}
-        {events.length > 0 && <span>Dashed markers: restart/reset, gaps or pressure (details below)</span>}
+        {events.length > 0 && <span>{t("history.cachePoolMarkers")}</span>}
         <span className="sp-cachepool__time">
           {formatTime(timeline[0])} – {formatTime(timeline[timeline.length - 1])}
         </span>
