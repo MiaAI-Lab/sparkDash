@@ -274,7 +274,15 @@
   },
   "health": {
     "findings": "Health findings",
-    "more": "+{{count}} more"
+    "more": "+{{count}} more",
+    "warning": "Warning",
+    "critical": "Critical",
+    "thermal": {
+      "warningTitle": "GPU is running hot",
+      "criticalTitle": "GPU is close to its shutdown temperature",
+      "detail": "{{current}}°C (warns at {{warning}}°C, critical at {{critical}}°C).",
+      "hint": "Check airflow and the room temperature, and that nothing blocks the vents. Lower the power limit or the load if it keeps climbing."
+    }
   },
   "kpis": {
     "fleetDecode": "Fleet decode",
