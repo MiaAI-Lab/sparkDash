@@ -26,7 +26,7 @@ Keep one progress list while retaining separate, complete-feature pull requests.
 | Overview page and fleet controls | [#316](https://github.com/MiaAI-Lab/sparkDash/pull/316) | Open, independent Overview review. |
 | Spark detail GPU, CPU and memory | [#317](https://github.com/MiaAI-Lab/sparkDash/pull/317) | Open, resource-panel review with separate CPU/memory and GPU commits. |
 | Spark detail LLM live panel and sessions | [#318](https://github.com/MiaAI-Lab/sparkDash/pull/318) | Open, independent review; metrics/help, endpoint settings, benchmark entry controls and sessions. Charts/totals and benchmark dialogs remain separate. |
-| Spark detail LLM history, daily statistics and token totals | [#319](https://github.com/MiaAI-Lab/sparkDash/pull/319) | Open, independent review; chart presentation, daily tooltips/accessibility and cumulative token table/range labels. |
+| Spark detail LLM history, daily statistics and token totals | [#319](https://github.com/MiaAI-Lab/sparkDash/pull/319) | Chart presentation, daily tooltips/accessibility and cumulative token table/range labels landed in [`2499a40`](https://github.com/MiaAI-Lab/sparkDash/commit/2499a40) via `9ad3711`. The original PR remains open for this follow-up. |
 | Fleet Reports | [#320](https://github.com/MiaAI-Lab/sparkDash/pull/320) | Implemented; pending maintainer review, not merged or deployed. |
 | Device Setup | [#321](https://github.com/MiaAI-Lab/sparkDash/pull/321) | Implemented; pending maintainer review, not merged or deployed. |
 | Spark Details | [#322](https://github.com/MiaAI-Lab/sparkDash/pull/322) | Implemented; pending maintainer review, not merged or deployed. |
