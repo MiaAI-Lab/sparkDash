@@ -84,6 +84,8 @@
     "allCardsPower": "功耗（所有显卡）",
     "systemPower": "系统 ≈ {{watts}} W",
     "smClock": "SM 频率",
+    "thermalPressureLastRecorded": "热压力（最近记录）",
+    "thermalPressureUnknown": "未知",
     "clockCapHelp": "通过 nvidia-smi -lgc 锁定",
     "clockCap": "上限 {{mhz}} MHz",
     "utilizationLegend": "GPU 利用率 %",
