@@ -64,7 +64,7 @@ const TENSORFOLD_CACHED_PROMPT_COUNTERS = [
   "prefix_cache_hits_total",
 ];
 /** owned_by values that are exactly an engine's own name (each is also its backend type). */
-const OWNED_BY_ENGINES = new Set(["locals", "splash", "tensorfold", "ds4", "sglang", "exl3", "q27", "freetoken", "radiance", "ninfer", "ignis"]);
+const OWNED_BY_ENGINES = new Set(["locals", "splash", "tensorfold", "ds4", "sglang", "exl3", "q27", "freetoken", "radiance", "ninfer", "ignis", "llama-swap"]);
 /** Current SGLang names first. Deprecated aliases still work but log a warning per hit. */
 const SGLANG_SERVER_INFO_PATHS = ["/server_info", "/get_server_info"];
 const SGLANG_MODEL_INFO_PATHS = ["/model_info", "/get_model_info"];
@@ -117,6 +117,25 @@ export function normalizeModelId(id) {
   return s;
 }
 
+/**
+ * Port of a llama-swap `/running` entry's `proxy` when the engine listens on the same machine as
+ * llama-swap (plain http on loopback), else null: an engine elsewhere is not this unit's to probe.
+ * @param {unknown} proxy
+ * @returns {number | null}
+ */
+export function llamaSwapEnginePort(proxy) {
+  let url;
+  try {
+    url = new URL(String(proxy));
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "http:") return null;
+  if (!["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) return null;
+  const port = Number(url.port);
+  return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : null;
+}
+
 /** True when `id` looks like a Hugging Face hub cache directory (models--org--name). */
 export function isHfHubCachePath(id) {
   if (id == null) return false;
@@ -165,6 +184,15 @@ export class LlmProbe {
     this._tunnelOpening = false;
     /** Replaceable in tests. */
     this._openTunnel = openSshLlmTunnel;
+    /** Probe of the engine behind a llama-swap on this port (see _probeLlamaSwap); null otherwise. */
+    this._engineProbe = null;
+    /** Builds that probe; replaceable in tests. */
+    this._newEngineProbe = (enginePort) =>
+      new LlmProbe(this.spark, enginePort, {
+        ...options,
+        // A bench or Showcase runs against this (llama-swap) port, not the engine's.
+        liveDecodeTps: this._liveDecodeTps ? () => this._liveDecodeTps(this.port) : undefined,
+      });
 
     // State
     this.backendType = null; // 'vllm' | 'llama.cpp' | 'sglang' | 'lmstudio' | 'ollama' | 'ds4' | 'exl3' | 'q27' | 'tensorfold' | 'ninfer' | 'freetoken' | 'radiance' | 'strata' | 'flare' | 'pico' | null
@@ -464,7 +492,11 @@ export class LlmProbe {
         this._lastDetectAt = Date.now();
       }
 
-      if (this.serverIsOpenAI === false) {
+      if (this.backendType === "llama-swap") {
+        const snap = await this._probeLlamaSwap();
+        this._noteSuccess();
+        return snap;
+      } else if (this.serverIsOpenAI === false) {
         const snap = await this._probeLlamaCpp();
         this._noteSuccess();
         return snap;
@@ -546,6 +578,7 @@ export class LlmProbe {
   /** Release the SSH forward (monitor stopped, port removed). */
   dispose() {
     this._closeTunnel();
+    this._dropEngineProbe();
     this.baseUrl = this._directBase;
   }
 
@@ -568,6 +601,7 @@ export class LlmProbe {
   }
 
   _resetDetection() {
+    this._dropEngineProbe();
     this.serverIsOpenAI = null;
     this.backendType = null;
     this.authOpen = null;
@@ -716,7 +750,8 @@ export class LlmProbe {
       this.backendType !== "radiance" &&
       this.backendType !== "flare" &&
       this.backendType !== "pico" &&
-      this.backendType !== "ignis"
+      this.backendType !== "ignis" &&
+      this.backendType !== "llama-swap"
     ) {
       const slotUrl = `${this.baseUrl}/slots`;
       try {
@@ -1030,6 +1065,73 @@ export class LlmProbe {
     return /(?:^|\n)splash_(?:decode_output_tokens_total|requests_submitted_total)(?:\{|\s)/m.test(
       String(body || "")
     );
+  }
+
+  // ─── llama-swap (mostlygeek/llama-swap) ──────────────────
+  /**
+   * llama-swap lists every configured model on /v1/models and loads one on demand. Its
+   * `/running` names the loaded model and the engine's own address; that engine is probed
+   * there by a probe of its own, so its reader (TensorFold, vLLM, …) fills the card. Nothing
+   * goes through llama-swap's proxy (`/upstream/<model>/…`), where every poll would reset the
+   * model's TTL and could start a model that is not loaded.
+   *
+   * llama-swap answering is enough for an available card: while nothing is loaded, a model is
+   * starting, or its engine is not reachable yet, the card names what llama-swap reports and
+   * marks the rates unmeasured. Only the first `/running` entry is shown.
+   */
+  async _probeLlamaSwap() {
+    const res = await this._fetch(`${this.baseUrl}/running`);
+    if (this._noteAuthStatus(res.status) === "auth") {
+      this._dropEngineProbe();
+      return this._getSnapshot();
+    }
+    if (!res.ok) throw new Error(`llama-swap /running answered ${res.status}`);
+    const body = await res.json();
+    const run = Array.isArray(body?.running) ? body.running[0] : null;
+    const model = typeof run?.model === "string" && run.model.trim() ? run.model.trim() : null;
+    if (!model) return this._llamaSwapNameOnly(null, null);
+    if (run.state !== "ready") return this._llamaSwapNameOnly(model, `llama-swap: ${model} is ${run.state || "not ready"}`);
+    const enginePort = llamaSwapEnginePort(run.proxy);
+    if (enginePort == null || enginePort === this.port) {
+      return this._llamaSwapNameOnly(model, "llama-swap: the engine is not on this unit's loopback");
+    }
+    if (this._engineProbe?.port !== enginePort) {
+      this._dropEngineProbe();
+      this._engineProbe = this._newEngineProbe(enginePort);
+    }
+    // SparkMonitor swaps in an edited spark object without rebuilding its probes.
+    this._engineProbe.spark = this.spark;
+    this._engineProbe.setPort(enginePort);
+    const snap = await this._engineProbe.probe();
+    if (!snap.available) {
+      return this._llamaSwapNameOnly(model, `llama-swap: the engine of ${model} (port ${enginePort}) is not answering`, false);
+    }
+    return { ...snap, port: this.port, posture: this._buildPosture() };
+  }
+
+  /**
+   * Snapshot from llama-swap alone. `unmeasured` names why there are no rates; null means
+   * nothing is loaded, which is a measured idle state.
+   * @param {string | null} model
+   * @param {string | null} unmeasured
+   * @param {boolean} [dropEngine=true] keep the engine probe while its tunnel comes up
+   */
+  _llamaSwapNameOnly(model, unmeasured, dropEngine = true) {
+    if (dropEngine) this._dropEngineProbe();
+    this.modelId = model;
+    this.models = model ? [model] : [];
+    if (unmeasured) this._markUnmeasured(unmeasured);
+    return this._getSnapshot();
+  }
+
+  _dropEngineProbe() {
+    const probe = this._engineProbe;
+    this._engineProbe = null;
+    try {
+      probe?.dispose();
+    } catch {
+      /* already gone */
+    }
   }
 
   // ─── OpenAI-compatible path (vLLM/sglang/ds4) ────────────
