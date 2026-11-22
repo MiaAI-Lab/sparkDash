@@ -4,6 +4,7 @@ import { deleteQualityBenchRun, getQualityBench, getQualityFidelityCompare, list
 import type { QualityBenchDefaults, QualityBenchJob } from "../../api/types";
 import { mcnemarExactP } from "../../shared/qualityBench.js";
 import { flush, render } from "../../testing/render";
+import { setLocale } from "../../i18n";
 import { QualityBenchDialog } from "./QualityBenchDialog";
 
 vi.mock("../../api/client", () => ({
@@ -327,6 +328,16 @@ describe("QualityBenchDialog", () => {
     expect(text).toContain("+0.0100 to +0.0600");
     expect(text).toContain("97.5%");
     expect(text).toContain("not a KL");
+    try {
+      await act(() => setLocale("zh-CN"));
+      expect(dialog.querySelector(".q-fid__docs th.is-num")?.textContent).toBe("Token 数");
+      expect(dialog.querySelector(".q-fid__docs")?.textContent).toContain("prose-a");
+      expect(dialog.textContent).toContain("+0.0100 至 +0.0600");
+      expect(dialog.textContent).toContain("97.5%");
+      expect(select.value).toBe("f-ref");
+    } finally {
+      await act(() => setLocale("en"));
+    }
     await act(async () => root.unmount());
   });
 
