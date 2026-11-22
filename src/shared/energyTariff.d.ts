@@ -17,7 +17,6 @@ export interface EnergyTariff {
 
 export type EnergyPeriodsError = { code: "too-many" } | { code: "invalid"; index: number } | { code: "overlap"; index: number; other: number };
 
-export const ENERGY_PRICE_MAX: number;
 export const ENERGY_PERIODS_MAX: number;
 export const ENERGY_PERIOD_DAYS: readonly EnergyPeriodDays[];
 export function energyPriceValue(value: unknown): number | null;

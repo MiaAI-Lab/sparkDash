@@ -63,7 +63,6 @@ export function EnergyPriceSetting({ settings, update }: { settings: Settings; u
             data-settings-focus
             type="number"
             min={0}
-            max={100}
             step="0.01"
             inputMode="decimal"
             placeholder="0.15"
@@ -96,7 +95,6 @@ export function EnergyPriceSetting({ settings, update }: { settings: Settings; u
                 <input
                   type="number"
                   min={0}
-                  max={100}
                   step="0.01"
                   inputMode="decimal"
                   aria-label={t("electricityPrice.periodPrice", { period: i + 1 })}

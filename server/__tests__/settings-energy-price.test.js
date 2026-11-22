@@ -30,7 +30,7 @@ test("a time-of-use tariff is saved and read back as numbers", () => {
 
 test("overlapping or malformed periods are refused and nothing changes", () => {
   assert.throws(() => updateSettings({ energyPricePeriods: [NIGHT, { from: 5, to: 8, price: 0.3, days: "weekdays" }] }), /period 2 overlaps period 1/);
-  for (const bad of [{ ...PEAK, from: 24 }, { ...PEAK, to: 0 }, { ...PEAK, to: 14 }, { ...PEAK, price: -1 }, { ...PEAK, price: 101 }, { ...PEAK, days: "sundays" }, { ...PEAK, from: 1.5 }]) {
+  for (const bad of [{ ...PEAK, from: 24 }, { ...PEAK, to: 0 }, { ...PEAK, to: 14 }, { ...PEAK, price: -1 }, { ...PEAK, price: "Infinity" }, { ...PEAK, days: "sundays" }, { ...PEAK, from: 1.5 }]) {
     assert.throws(() => updateSettings({ energyPricePeriods: [bad] }), /period 1 needs/, JSON.stringify(bad));
   }
   assert.throws(() => updateSettings({ energyPricePeriods: "peak" }), /must be a list/);
@@ -48,4 +48,15 @@ test("an unknown mode reads as flat, and a hand-edited unusable list is dropped 
   const s = loadSettings();
   assert.equal(s.energyPriceMode, "flat");
   assert.deepEqual(s.energyPricePeriods, []);
+});
+
+test("prices above 100 persist for flat rates and time-of-use tariffs", () => {
+  updateSettings({ energyPriceMode: "flat", energyPricePerKwh: 1250.25 });
+  assert.equal(loadSettings().energyPricePerKwh, 1250.25);
+
+  const period = { ...PEAK, price: 2430.5 };
+  updateSettings({ energyPriceMode: "tou", energyPricePerKwh: 1250.25, energyPricePeriods: [period] });
+  const saved = loadSettings();
+  assert.equal(saved.energyPricePerKwh, 1250.25);
+  assert.deepEqual(saved.energyPricePeriods, [period]);
 });

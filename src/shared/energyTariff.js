@@ -9,15 +9,14 @@
  * an hour no period covers uses the base rate (`energyPricePerKwh`).
  */
 
-export const ENERGY_PRICE_MAX = 100;
 export const ENERGY_PERIODS_MAX = 12;
 export const ENERGY_PERIOD_DAYS = Object.freeze(["all", "weekdays", "weekends"]);
 
-/** A price per kWh in range, otherwise null. */
+/** A finite, non-negative price per kWh, otherwise null. */
 export function energyPriceValue(value) {
   if (value == null || value === "" || typeof value === "boolean") return null;
   const n = Number(value);
-  return Number.isFinite(n) && n >= 0 && n <= ENERGY_PRICE_MAX ? n : null;
+  return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
 function hourValue(value, min, max) {

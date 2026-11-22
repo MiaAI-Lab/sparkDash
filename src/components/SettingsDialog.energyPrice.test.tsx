@@ -70,17 +70,21 @@ describe("SettingsDialog electricity price", () => {
     await flush();
     expect(document.querySelector(".set-tariff__period")).toBeNull();
     click(buttonByText("Time of use"));
-    change(document.getElementById("settings-energy-price") as HTMLInputElement, "0.2");
+    const basePrice = document.getElementById("settings-energy-price") as HTMLInputElement;
+    change(basePrice, "1250.25");
     click(buttonByText("Add period"));
     change(byLabel<HTMLSelectElement>("Period 1 days"), "weekdays");
-    change(byLabel<HTMLInputElement>("Period 1 price per kWh"), "0.42");
+    const periodPrice = byLabel<HTMLInputElement>("Period 1 price per kWh");
+    change(periodPrice, "2430.50");
+    expect(basePrice.checkValidity()).toBe(true);
+    expect(periodPrice.checkValidity()).toBe(true);
     click(buttonByText("Save"));
     await flush();
     expect(updateSettings).toHaveBeenCalledWith(
       expect.objectContaining({
         energyPriceMode: "tou",
-        energyPricePerKwh: 0.2,
-        energyPricePeriods: [{ from: 14, to: 19, price: 0.42, days: "weekdays" }],
+        energyPricePerKwh: 1250.25,
+        energyPricePeriods: [{ from: 14, to: 19, price: 2430.5, days: "weekdays" }],
       })
     );
   });
