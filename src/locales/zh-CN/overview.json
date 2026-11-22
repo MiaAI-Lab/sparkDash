@@ -274,7 +274,15 @@
   },
   "health": {
     "findings": "健康发现",
-    "more": "+{{count}} 更多"
+    "more": "+{{count}} 更多",
+    "warning": "警告",
+    "critical": "严重",
+    "thermal": {
+      "warningTitle": "GPU 温度过高",
+      "criticalTitle": "GPU 温度接近关机阈值",
+      "detail": "当前 {{current}}°C（警告阈值 {{warning}}°C，严重阈值 {{critical}}°C）。",
+      "hint": "请检查机箱风道和室温，确认通风口没有堵塞。如果温度继续上升，请降低功耗上限或减轻负载。"
+    }
   },
   "kpis": {
     "fleetDecode": "集群解码",
