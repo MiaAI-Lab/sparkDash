@@ -291,3 +291,66 @@ test("unknown outside-slot counts cannot authorize a partial decode aggregate", 
     assert.equal(snap.generationTpsSource, null);
   }
 });
+
+function setupMaya(v1Status = () => response({ service: "maya" })) {
+  const probe = new LlmProbe({ lanIp: "127.0.0.1" }, 8000);
+  const state = { calls: [], v1Status };
+  probe._fetch = async (url) => {
+    const path = new URL(url).pathname;
+    state.calls.push(path);
+    if (path === "/health") return response({ status: "ok", loaded: true, max_context: 262144 });
+    if (path === "/v1/status") return state.v1Status(path);
+    if (path === "/slots") return response([{ id: 0, n_ctx: 262144, is_processing: false }]);
+    if (path === "/v1/models") return response({ data: [{ id: "maya-model" }] });
+    if (path === "/metrics") return response(metrics());
+    return response({}, 404);
+  };
+  return { probe, state };
+}
+
+test("Maya health without service is resolved by the keyed /v1/status fingerprint", async () => {
+  const { probe, state } = setupMaya();
+  const snap = await probe.probe();
+  assert.equal(snap.backend, "strata");
+  assert.equal(snap.available, true);
+  assert.equal(snap.contextLength, 262144);
+  assert.ok(state.calls.includes("/v1/status"));
+});
+
+test("a transient /v1/status failure keeps a detected Maya on the strata reader", async () => {
+  const { probe } = setupMaya();
+  await probe._detectServerType();
+  assert.equal(probe.backendType, "strata");
+  for (const failing of [() => response({}, 503), () => { throw new Error("timeout"); }]) {
+    const inner = probe._fetch;
+    probe._fetch = async (url) =>
+      (new URL(url).pathname === "/v1/status" ? failing() : inner(url));
+    probe._lastDetectAt = 0;
+    const snap = await probe.probe();
+    assert.equal(snap.backend, "strata");
+    assert.equal(snap.available, true);
+  }
+});
+
+test("a foreign service fingerprint releases the port from a detected Maya", async () => {
+  const { probe, state } = setupMaya();
+  let round = 0;
+  state.v1Status = () => (++round === 1 ? response({ service: "maya" }) : response({ service: "other" }));
+  await probe._detectServerType();
+  assert.equal(probe.backendType, "strata");
+  probe._lastDetectAt = 0;
+  await probe._detectServerType();
+  assert.notEqual(probe.backendType, "strata");
+});
+
+test("engines with foreign health shapes are never probed on /v1/status", async () => {
+  for (const health of [{ status: "ok" }, { ok: true, busy: false }, {},
+    { service: "strata", status: "ok", loaded: true, max_context: 262144 }, ["x"], null]) {
+    const { probe, state } = setupMaya();
+    const inner = probe._fetch;
+    probe._fetch = async (url) =>
+      (new URL(url).pathname === "/health" ? response(health) : inner(url));
+    await probe._detectServerType();
+    assert.ok(!state.calls.includes("/v1/status"), `unexpected probe for ${JSON.stringify(health)}`);
+  }
+});
