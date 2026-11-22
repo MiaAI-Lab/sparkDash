@@ -208,7 +208,12 @@
     "gpuPowerShort": "Power",
     "workerHeadCompletedDecode": " · {{value}} completed",
     "workerHeadCompletedPrefill": " · {{value}} prefill, incl. cached",
-    "completedDecodeRate": "{{value}} tok/s · completed"
+    "completedDecodeRate": "{{value}} tok/s · completed",
+    "macPower": "{{gpu}} W · sys {{system}} W",
+    "cacheChip": "{{active}}% active · {{kept}}% kept",
+    "cacheChipTitle": "Shared pool {{capacity}} positions, {{context}} per request, {{streams}} streams; snapshot store {{store}}",
+    "cacheStoreBytes": "{{held}} of {{budget}} bytes",
+    "cacheStoreUnreported": "not reported"
   },
   "launcher": {
     "modelsUnavailable": "Models unavailable",

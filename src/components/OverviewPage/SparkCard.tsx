@@ -129,7 +129,7 @@ function SparkCardImpl({
   temperatureUnit: Unit;
   onSelect?: (id: string) => void;
 }) {
-  const { t } = useTranslation("overview");
+  const { t, i18n } = useTranslation("overview");
   const gpu = spark.metrics.gpu;
   const um = spark.metrics.unifiedMemory;
   const online = spark.online;
@@ -183,7 +183,7 @@ function SparkCardImpl({
       : null;
   const macPower =
     spark.kind === "mac"
-      ? honestValue(spark, "gpu.power", `${power?.draw ?? 0} W · sys ${power?.systemDraw ?? 0} W`, {
+      ? honestValue(spark, "gpu.power", t("card.macPower", { gpu: power?.draw ?? 0, system: power?.systemDraw ?? 0 }), {
           fallbackForNonDgx: macNoPowermetrics,
         })
       : null;
@@ -296,15 +296,22 @@ function SparkCardImpl({
     parallel != null && llm?.requestsRunning != null ? t("card.parallelRequests", { count: parallel }) : undefined;
   // TensorFold's shared cache: how much of the pool is reserved and how much is kept, from the
   // engine's own accounting. Absent for engines or builds that report no cache group.
-  const cache = llm?.cache?.pool ? llm.cache : null;
-  const cacheCapacity = cache?.pool?.capacityPositions ?? 0;
+  const cache = llm?.cache;
+  const pool = cache?.pool;
+  const cacheCapacity = pool?.capacityPositions ?? 0;
   const cachePct = (n: number) => (cacheCapacity > 0 ? Math.round((n / cacheCapacity) * 100) : 0);
-  const cacheChip = cache
-    ? `${cachePct(cache.pool!.activeReservedPositions)}% active · ${cachePct(cache.pool!.retainedPrefixPositions)}% kept`
+  const cacheChip = pool
+    ? t("card.cacheChip", { active: cachePct(pool.activeReservedPositions), kept: cachePct(pool.retainedPrefixPositions) })
     : null;
-  const cacheChipTitle = cache
-    ? `Shared pool ${cache.pool!.capacityPositions.toLocaleString()} positions, ${cache.contextLimitPositions?.toLocaleString() ?? "?"} per request, ${cache.streamCapacity ?? "?"} streams; ` +
-      `snapshot store ${cache.promptState?.enabled ? `${cache.promptState.heldBytes ?? 0} of ${cache.promptState.budgetBytes ?? 0} bytes` : "not reported"}`
+  const cacheChipTitle = cache && pool
+    ? t("card.cacheChipTitle", {
+        capacity: pool.capacityPositions.toLocaleString(i18n.resolvedLanguage),
+        context: cache.contextLimitPositions?.toLocaleString(i18n.resolvedLanguage) ?? "?",
+        streams: cache.streamCapacity ?? "?",
+        store: cache.promptState?.enabled
+          ? t("card.cacheStoreBytes", { held: cache.promptState.heldBytes ?? 0, budget: cache.promptState.budgetBytes ?? 0 })
+          : t("card.cacheStoreUnreported"),
+      })
     : undefined;
 
   const chips = (
