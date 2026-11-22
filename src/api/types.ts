@@ -3070,6 +3070,43 @@ export interface StorageEntry {
   modifiedAt?: number;
 }
 
+/** Remove agent junk: where an item came from, as the dashboard groups it. */
+export type AgentJunkGroup = "worktrees" | "temp" | "sessions" | "editors" | "scratch" | "caches";
+/** The smart guess: junk (ticked by Smart pick), likely, review (check first) or keep. */
+export type AgentJunkVerdict = "junk" | "likely" | "review" | "keep";
+
+export interface AgentJunkSignal {
+  /** age, recent, age-unknown, untracked, no-git, home-root, uncommitted, memory, tests-folder, worktree-session, current-version, size-partial */
+  code: string;
+  days?: number;
+}
+
+export interface AgentJunkItem {
+  path: string;
+  name: string;
+  type: "d" | "f";
+  /** Null when it could not be measured in time. */
+  bytes: number | null;
+  /** Newest change of anything in it, seconds since 1970 by the unit's clock; null when not known. */
+  modifiedAt: number | null;
+  rule: string;
+  group: AgentJunkGroup;
+  agent: string;
+  verdict: AgentJunkVerdict;
+  score: number;
+  signals: AgentJunkSignal[];
+}
+
+export interface AgentJunkResult {
+  checkedAt: number;
+  home: string | null;
+  git: "ok" | "missing";
+  /** Every home folder was looked through in time and nothing was left out. */
+  complete: boolean;
+  more: boolean;
+  items: AgentJunkItem[];
+}
+
 export interface StorageScanRequest extends StorageElevation {
   path?: string;
   depth?: number;

@@ -575,3 +575,13 @@ export function CopyIcon({ className = "" }: { className?: string }) {
     </svg>
   );
 }
+
+export function SparkleIcon({ className }: IconProps) {
+  return (
+    <svg {...baseProps(className)}>
+      <path d="M12 3l1.8 4.9L18.7 9.7l-4.9 1.8L12 16.4l-1.8-4.9L5.3 9.7l4.9-1.8z" />
+      <path d="M19 15l.7 1.8 1.8.7-1.8.7L19 20l-.7-1.8-1.8-.7 1.8-.7z" />
+      <path d="M5 2.5l.5 1.3 1.3.5-1.3.5L5 6.1l-.5-1.3-1.3-.5 1.3-.5z" />
+    </svg>
+  );
+}

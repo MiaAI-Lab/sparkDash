@@ -58,6 +58,7 @@ import type {
   StorageScanJob,
   StorageScanRequest,
   StorageScanSnapshot,
+  AgentJunkResult,
   StorageStatus,
   StorageContext,
   StorageFolders,
@@ -832,6 +833,11 @@ export function fetchStorageFolders(id: string, path: string): Promise<StorageFo
 /** How the dashboard reaches the Spark and which features that allows (probed once, cached by the server). */
 export function fetchStorageContext(id: string): Promise<StorageContext> {
   return apiFetch(storageUrl(id, "/context"));
+}
+
+/** Remove agent junk: what coding agents left behind on the unit, with a smart guess per item (read-only). */
+export function fetchAgentJunk(id: string): Promise<AgentJunkResult> {
+  return apiFetch(storageUrl(id, "/agent-junk"));
 }
 
 /** The latest scan job and, when it changed since `since`, the scan result. */

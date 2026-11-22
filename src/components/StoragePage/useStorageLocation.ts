@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-export type StorageTab = "files" | "docker";
+export type StorageTab = "files" | "docker" | "junk";
 
 /** What the address bar says about the Storage page: which Spark, which tab and which folder. */
 export interface StorageLocation {
@@ -26,7 +26,7 @@ export function parseSearch(search: string): StorageLocation {
   const path = q.get("path");
   return {
     spark: q.get("spark") || null,
-    tab: tab === "files" || tab === "docker" ? tab : null,
+    tab: tab === "files" || tab === "docker" || tab === "junk" ? tab : null,
     path: path && path.startsWith("/") ? path : null,
   };
 }
