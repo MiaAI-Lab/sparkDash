@@ -190,6 +190,8 @@
   "history.gpuTemp": "GPU temperature",
   "history.gpuPower": "GPU power",
   "history.power": "Power",
+  "history.memAvailableTitle": "Linux MemAvailable · this rank only",
+  "history.memAvailableValidation": "prior validation 16 GiB",
   "history.unifiedFree": "Memory free (unified)",
   "history.vramFree": "VRAM free",
   "history.free": "Free",

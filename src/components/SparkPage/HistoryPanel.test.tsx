@@ -251,6 +251,29 @@ describe("HistoryPanel", () => {
     expect(mem.textContent).toContain("critical 4.0 GB");
   });
 
+  it("shares one chart and all three thresholds for identical GB10 memory traces", async () => {
+    const points = data().points.map((p) => ({ ...p, memAvailableMB: p.memFreeMB }));
+    const { container } = await mount(data({ points }));
+    expect(container.querySelector('[data-chart="memAvailable"]')).toBeNull();
+    const mem = chart(container, "memFree");
+    expect(mem.querySelectorAll("[data-threshold]")).toHaveLength(3);
+    expect(mem.textContent).toContain("prior validation 16 GiB");
+  });
+
+  it("keeps MemAvailable separate when the GB10 history has different sample coverage", async () => {
+    const points = data().points.map((p, i) => ({ ...p, memAvailableMB: i === 0 ? undefined : p.memFreeMB }));
+    const { container } = await mount(data({ points }));
+    expect(chart(container, "memAvailable").textContent).toContain("prior validation 16 GiB");
+  });
+
+  it("keeps MemAvailable separate from discrete GPU VRAM even if the numbers match", async () => {
+    const points = data().points.map((p) => ({ ...p, memAvailableMB: p.memFreeMB }));
+    fetchHistory.mockResolvedValue(data({ points }));
+    const { container } = render(<HistoryPanel sparkId="h" kind="host" platform="linux" temperatureUnit="celsius" />);
+    await flush();
+    expect(chart(container, "memAvailable").textContent).toContain("prior validation 16 GiB");
+  });
+
   it("charts what consumed a unified pool in its own cell, and adds none on a discrete card", async () => {
     const split = data();
     split.points = split.points.map((p) => ({

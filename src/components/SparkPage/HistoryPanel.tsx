@@ -261,6 +261,21 @@ function buildCharts(
   // gets its own chart rather than sharing this y-axis: on one domain the free trace collapsed to
   // a sub-pixel band and the two threshold labels landed 3 px apart (#350 review).
   const memFree = aligned(timeline, pts, (p) => p.memFreeMB);
+  const available = aligned(timeline, pts, (p) => p.memAvailableMB);
+  const hasMemAvailable = hasAny(available);
+  // On GB10 the two readings share a source. Keep them separate when older
+  // samples or a fallback give the charts different values or coverage.
+  const sharedMemAvailable = model === "unified" && platform !== "darwin" && hasMemAvailable
+    && available.every((sample, i) => {
+      const free = memFree[i];
+      if (!sample || !free) return sample === free;
+      return sample.avg === free.avg && sample.min === free.min && sample.max === free.max;
+    });
+  const validationThreshold = {
+    value: 16 * 1024,
+    label: t("history.memAvailableValidation"),
+    color: "var(--color-warning)",
+  };
   const gpuUsed = model === "unified" ? aligned(timeline, pts, (p) => p.memGpuMB) : null;
   const sysUsed = model === "unified" ? aligned(timeline, pts, (p) => p.memSysMB) : null;
   // A unified pool has two owners — the GPU/model side and everything else — so the split answers
@@ -313,8 +328,9 @@ function buildCharts(
       thresholds: [
         { value: headroom.low, label: t("history.low", { value: formatMb(headroom.low) }), color: "var(--color-warning)" },
         { value: headroom.critical, label: t("history.critical", { value: formatMb(headroom.critical) }), color: "var(--color-danger)" },
+        ...(sharedMemAvailable ? [validationThreshold] : []),
       ],
-      series: [{ key: "memFreeMB", label: t("history.free"), color: "var(--color-success)", band: "min", values: aligned(timeline, pts, (p) => p.memFreeMB) }],
+      series: [{ key: "memFreeMB", label: t("history.free"), color: "var(--color-success)", band: "min", values: memFree }],
     },
     ...(memSplit ? [memSplit] : []),
     {
@@ -392,9 +408,8 @@ function buildCharts(
   for (const endpoint of data.cache?.endpoints ?? []) {
     charts.push(...buildCacheCharts({ ...data, cache: { ...data.cache!, endpoints: [endpoint] } }, timeline));
   }
-  const available = aligned(timeline, pts, (p) => p.memAvailableMB);
-  if (hasAny(available)) charts.push({ id: "memAvailable", title: "Linux MemAvailable · this rank only", format: formatMb, yMin: 0, yUnit: 1024,
-    thresholds: [{ value: 16 * 1024, label: "prior validation 16 GiB", color: "var(--color-warning)" }],
+  if (hasMemAvailable && !sharedMemAvailable) charts.push({ id: "memAvailable", title: t("history.memAvailableTitle"), format: formatMb, yMin: 0, yUnit: 1024,
+    thresholds: [validationThreshold],
     series: [{ key: "memAvailableMB", label: "MemAvailable", color: "var(--color-success)", band: "min", values: available }] });
   // Stable sort: within a domain the metric order above is kept.
   return charts.sort((a, b) => chartDomain(a.id) - chartDomain(b.id));
