@@ -190,6 +190,8 @@
   "history.gpuTemp": "GPU 温度",
   "history.gpuPower": "GPU 功耗",
   "history.power": "功耗",
+  "history.memAvailableTitle": "Linux MemAvailable · 仅此节点",
+  "history.memAvailableValidation": "先前验证值 16 GiB",
   "history.unifiedFree": "可用统一内存",
   "history.vramFree": "可用显存",
   "history.free": "可用",
