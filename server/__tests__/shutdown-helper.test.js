@@ -63,7 +63,7 @@ test("confirmed install sends the password through the runner and pins the progr
   assert.ok(!args[1].includes("secret"));
   assert.match(SHUTDOWN_HELPER_INSTALL_PROGRAM, /visudo -cf/);
   assert.match(SHUTDOWN_HELPER_INSTALL_PROGRAM, /install -m 0440/);
-  assert.match(SHUTDOWN_HELPER_INSTALL_PROGRAM, /NOPASSWD/);
+  assert.match(SHUTDOWN_HELPER_INSTALL_PROGRAM, /NOPASSWD: %s "", %s --check/);
   assert.match(SHUTDOWN_HELPER_INSTALL_PROGRAM, /sudo password was rejected/);
   // Nothing is piped through sudo: its stdin is reserved for the password.
   assert.doesNotMatch(SHUTDOWN_HELPER_INSTALL_PROGRAM, /\| as_root /);
@@ -159,7 +159,9 @@ test("the pinned installer program works end to end against a stubbed host", () 
     assert.equal(statSync(rootBin).mode & 0o777, 0o755);
     const sudoers = readFileSync(rootSudoers, "utf8").trim();
     assert.match(sudoers, / ALL=\(root\) NOPASSWD: /);
-    assert.ok(sudoers.endsWith(rootBin));
+    assert.ok(sudoers.includes(rootBin));
+    // The rule pins the helper's exact arguments: none and --check.
+    assert.ok(sudoers.endsWith(` "", ${rootBin} --check`), sudoers);
     assert.equal(statSync(rootSudoers).mode & 0o777, 0o440);
     assert.match(readFileSync(calls, "utf8"), /visudo -cf/);
 
@@ -180,11 +182,29 @@ test("the pinned installer program works end to end against a stubbed host", () 
     assert.match(denied.stderr, /sudo password was rejected/);
     rmSync(join(dir, "sudo-fail"));
 
+    // A differing helper on the host is refused, not replaced.
+    writeFileSync(rootBin, "#!/bin/sh\nexit 7\n", { mode: 0o755 });
+    const differs = spawnSync("sh", ["-c", program], { env, encoding: "utf8" });
+    assert.notEqual(differs.status, 0);
+    assert.match(differs.stderr, /refusing to replace it/);
+    assert.match(readFileSync(rootBin, "utf8"), /exit 7/);
+
+    // A differing sudoers rule is refused too (fresh host, so the pre-check
+    // fails and the installer is reached).
+    rmSync(rootBin);
+    rmSync(rootSudoers);
+    writeFileSync(rootSudoers, "# someone else's rule\n");
+    const foreign = spawnSync("sh", ["-c", program], { env, encoding: "utf8" });
+    assert.notEqual(foreign.status, 0);
+    assert.match(foreign.stderr, /differs from the pinned rule/);
+    assert.ok(!existsSync(rootBin));
+    assert.match(readFileSync(rootSudoers, "utf8"), /someone else's rule/);
+
     // A sudoers rule that fails visudo validation is never moved into place.
     // Start from a fresh host: otherwise the authorized helper short-circuits
     // the run before the installer is reached at all.
-    rmSync(rootBin);
-    rmSync(rootSudoers);
+    rmSync(rootBin, { force: true });
+    rmSync(rootSudoers, { force: true });
     writeFileSync(join(dir, "visudo-fail"), "");
     const invalid = spawnSync("sh", ["-c", program], { env: { ...env, VISUDO_FAIL: join(dir, "visudo-fail") }, encoding: "utf8" });
     assert.notEqual(invalid.status, 0);

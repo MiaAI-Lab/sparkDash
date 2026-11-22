@@ -15,6 +15,7 @@ import {
   checkLocalShutdown,
   directPowerOffCheckCommand,
   directPowerOffCommand,
+  directPowerOffEnabled,
   localPowerOffMode,
   localShutdownCheckCommand,
   localShutdownCommand,
@@ -124,11 +125,21 @@ test("spawnLocalShutdown: a missing binary still reports through 'error', never 
   await assert.rejects(pending, /not found/);
 });
 
-test("localPowerOffMode: root with the host namespace is direct; anything else uses the helper", () => {
-  assert.equal(localPowerOffMode({ uid: 0, mntNs: "/host/proc/1/ns/mnt" }), "direct");
-  assert.equal(localPowerOffMode({ uid: 1000, mntNs: "/host/proc/1/ns/mnt" }), "helper");
-  assert.equal(localPowerOffMode({ uid: 0, mntNs: null }), "helper");
-  assert.equal(localPowerOffMode({ uid: null, mntNs: "/host/proc/1/ns/mnt" }), "helper");
+test("localPowerOffMode: direct needs the deployment opt-in plus root and the host namespace", () => {
+  assert.equal(localPowerOffMode({ uid: 0, mntNs: "/host/proc/1/ns/mnt" }), "helper");
+  assert.equal(localPowerOffMode({ uid: 0, mntNs: "/host/proc/1/ns/mnt", direct: true }), "direct");
+  assert.equal(localPowerOffMode({ uid: 0, mntNs: "/host/proc/1/ns/mnt", direct: false }), "helper");
+  assert.equal(localPowerOffMode({ uid: 1000, mntNs: "/host/proc/1/ns/mnt", direct: true }), "helper");
+  assert.equal(localPowerOffMode({ uid: 0, mntNs: null, direct: true }), "helper");
+  assert.equal(localPowerOffMode({ uid: null, mntNs: "/host/proc/1/ns/mnt", direct: true }), "helper");
+});
+
+test("directPowerOffEnabled: SPARKDASH_DIRECT_POWEROFF opts the deployment in", () => {
+  assert.equal(directPowerOffEnabled({}), false);
+  assert.equal(directPowerOffEnabled({ SPARKDASH_DIRECT_POWEROFF: "1" }), true);
+  assert.equal(directPowerOffEnabled({ SPARKDASH_DIRECT_POWEROFF: "true" }), true);
+  assert.equal(directPowerOffEnabled({ SPARKDASH_DIRECT_POWEROFF: "0" }), false);
+  assert.equal(directPowerOffEnabled({ SPARKDASH_DIRECT_POWEROFF: "" }), false);
 });
 
 test("directPowerOffCommand: nsenter runs the host poweroff binary; the check reserves 127 for a missing binary", () => {
@@ -142,10 +153,11 @@ test("directPowerOffCommand: nsenter runs the host poweroff binary; the check re
   assert.match(check.args.at(-1), /exit 127/);
 });
 
-test("checkLocalPowerOff dispatches: root with a namespace checks poweroff, otherwise the helper", async () => {
+test("checkLocalPowerOff dispatches: opted-in root with a namespace checks poweroff, otherwise the helper", async () => {
   let direct;
   const directPending = checkLocalPowerOff({
     uid: 0,
+    direct: true,
     mntNs: "/host/proc/1/ns/mnt",
     spawnFn: (file, args) => {
       direct = { file, args };
@@ -213,7 +225,7 @@ test("checkLocalDirectPowerOff: exit 0 resolves; a missing binary and an unreach
 
 test("spawnLocalPowerOff dispatches the direct spawn for root and reports a failed power-off", async () => {
   const okChild = fakeChild();
-  const ok = spawnLocalPowerOff({ uid: 0, mntNs: "/host/proc/1/ns/mnt", spawnFn: () => okChild });
+  const ok = spawnLocalPowerOff({ uid: 0, direct: true, mntNs: "/host/proc/1/ns/mnt", spawnFn: () => okChild });
   okChild.emit("spawn");
   okChild.emit("exit", 0);
   await assert.doesNotReject(ok);

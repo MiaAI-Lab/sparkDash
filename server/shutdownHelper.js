@@ -49,7 +49,18 @@ exec /usr/sbin/poweroff
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 printf '%s\\n' "$HELPER" > "$work/spark-shutdown"
-printf '%s\\n' "$(id -un) ALL=(root) NOPASSWD: $BIN" > "$work/spark-shutdown.sudoers"
+printf '%s ALL=(root) NOPASSWD: %s "", %s --check\\n' "$(id -un)" "$BIN" "$BIN" > "$work/spark-shutdown.sudoers"
+# A differing helper or sudoers rule on the host is someone else's — refuse
+# rather than replace it. (sudoers content is only comparable with root, so
+# without a password any existing rule counts as differing.)
+if [ -e "$BIN" ] && ! cmp -s "$work/spark-shutdown" "$BIN"; then
+  echo "an existing $BIN differs from the pinned helper — refusing to replace it" >&2
+  exit 1
+fi
+if [ -f "$SUDOERS" ] && ! as_root cmp -s "$work/spark-shutdown.sudoers" "$SUDOERS" 2>/dev/null; then
+  echo "an existing $SUDOERS differs from the pinned rule — remove it or rerun with the sudo password" >&2
+  exit 1
+fi
 as_root install -m 0755 "$work/spark-shutdown" "$BIN"
 as_root install -m 0440 "$work/spark-shutdown.sudoers" "$SUDOERS.tmp"
 if ! as_root visudo -cf "$SUDOERS.tmp" >/dev/null; then

@@ -193,21 +193,34 @@ export function spawnLocalShutdown({
 }
 
 /**
+ * Direct power-off is an explicit deployment opt-in: set
+ * SPARKDASH_DIRECT_POWEROFF=1 in the dashboard's environment. Installing the
+ * helper remains the default, deliberate path that grants power-off.
+ * @param {{ SPARKDASH_DIRECT_POWEROFF?: string }} [env]
+ * @returns {boolean}
+ */
+export function directPowerOffEnabled(env = process.env) {
+  return /^(1|true|yes|on)$/i.test(String(env?.SPARKDASH_DIRECT_POWEROFF ?? "").trim());
+}
+
+/**
  * How a power-off of the dashboard's own host can happen right now:
- * - "direct": the dashboard runs as root with the host mount namespace in
- *   reach (a privileged container with PidMode: host, or root on the host
- *   itself) — the host's own poweroff binary can be run through nsenter, no
- *   helper or sudoers rule needed.
+ * - "direct": the deployment opted in (SPARKDASH_DIRECT_POWEROFF=1), the
+ *   dashboard runs as root with the host mount namespace in reach (a
+ *   privileged container with PidMode: host, or root on the host itself) —
+ *   the host's own poweroff binary can be run through nsenter, no helper or
+ *   sudoers rule needed.
  * - "helper": everything else — power-off goes through the installed
  *   `/usr/local/bin/spark-shutdown` helper (README: "Power off a unit").
- * @param {{ uid?: number | null, mntNs?: string | null }} [opts]
+ * @param {{ uid?: number | null, mntNs?: string | null, direct?: boolean }} [opts]
  * @returns {"direct" | "helper"}
  */
 export function localPowerOffMode({
   uid = typeof process.getuid === "function" ? process.getuid() : null,
   mntNs = hostMountNs(),
+  direct = directPowerOffEnabled(),
 } = {}) {
-  return uid === 0 && mntNs ? "direct" : "helper";
+  return direct && uid === 0 && mntNs ? "direct" : "helper";
 }
 
 /**
@@ -329,13 +342,14 @@ export function spawnLocalDirectPowerOff({
  */
 export function checkLocalPowerOff({
   uid,
+  direct = directPowerOffEnabled(),
   bin = SHUTDOWN_BIN,
   powerBin = POWEROFF_BIN,
   mntNs = hostMountNs(),
   spawnFn = spawn,
   timeoutMs = 8000,
 } = {}) {
-  if (localPowerOffMode({ uid, mntNs }) === "direct") {
+  if (localPowerOffMode({ uid, mntNs, direct }) === "direct") {
     return checkLocalDirectPowerOff({ bin: powerBin, mntNs, spawnFn, timeoutMs });
   }
   return checkLocalShutdown({ bin, mntNs, spawnFn, timeoutMs });
@@ -347,12 +361,13 @@ export function checkLocalPowerOff({
  */
 export function spawnLocalPowerOff({
   uid,
+  direct = directPowerOffEnabled(),
   bin = SHUTDOWN_BIN,
   powerBin = POWEROFF_BIN,
   mntNs = hostMountNs(),
   spawnFn = spawn,
 } = {}) {
-  if (localPowerOffMode({ uid, mntNs }) === "direct") {
+  if (localPowerOffMode({ uid, mntNs, direct }) === "direct") {
     return spawnLocalDirectPowerOff({ bin: powerBin, mntNs, spawnFn });
   }
   return spawnLocalShutdown({ bin, mntNs, spawnFn });

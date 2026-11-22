@@ -2428,7 +2428,11 @@ function noteWake(spark) {
 }
 
 /** Batch routes first so they never collide with /:id/* if routing changes. */
-app.post("/api/sparks/shutdown-all", async (_req, res) => {
+app.post("/api/sparks/shutdown-all", async (req, res) => {
+  // Power-off is destructive: same limiter as the other destructive routes.
+  if (!(allowDestructive(principalKey(req)) && allowGlobalDestructive(clientKey(req)))) {
+    return rejectLimited(res, "Too many shutdown requests; try again shortly");
+  }
   const results = [];
   // Remotes first, local last — shutting down the dashboard host mid-loop would
   // skip remaining Sparks.
@@ -2521,6 +2525,10 @@ app.post("/api/sparks/wake-all", async (_req, res) => {
 });
 
 app.post("/api/sparks/:id/shutdown", async (req, res) => {
+  // Power-off is destructive: same limiter as the other destructive routes.
+  if (!(allowDestructive(principalKey(req)) && allowGlobalDestructive(clientKey(req)))) {
+    return rejectLimited(res, "Too many shutdown requests; try again shortly");
+  }
   try {
     const spark = registry.getSpark(req.params.id);
     if (!spark) return res.status(404).json({ error: "Spark not found" });
