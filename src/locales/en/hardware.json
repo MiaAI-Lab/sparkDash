@@ -280,6 +280,8 @@
   "history.critical": "critical {{value}}",
   "history.decodeTitle": "Decode tok/s · :{{port}}",
   "history.prefillTitle": "Prefill tok/s · :{{port}}",
+  "history.currentKvStreams": "Current stream usage",
+  "history.kvStreamRatio": "Stream {{pool}} · {{percent}}%",
   "history.kvTitle": "KV cache · :{{port}}",
   "history.kvTokens": "{{used}} / {{total}} tok (at current pool size)",
   "history.kvPoolTokens": "pool {{tokens}} tok",

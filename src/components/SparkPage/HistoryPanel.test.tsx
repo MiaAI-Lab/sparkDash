@@ -252,6 +252,23 @@ describe("HistoryPanel", () => {
     expect(gpu.querySelector('[data-axis="xend"]')!.textContent).not.toBe("");
   });
 
+  it("labels the KV stream rows as live and matches them to the history endpoint port", async () => {
+    fetchHistory.mockResolvedValue(data());
+    const kvPoolUsage = [{ pool: "2", ratio: 0 }, { pool: "9", ratio: 0.39 }];
+    const base = makeSpark().metrics.llm[0];
+    const { container } = render(<HistoryPanel sparkId="spark-1" temperatureUnit="celsius"
+      liveLlm={[
+        { ...base, port: 9999, available: true, kvPoolUsage: [{ pool: "other", ratio: 0.88 }] },
+        { ...base, port: 8888, available: true, kvPoolUsage },
+      ]} />);
+    await flush();
+    act(() => plot(container, "llm-8888-kv").focus());
+    const tooltip = chart(container, "llm-8888-kv").querySelector("[data-tooltip]");
+    expect(tooltip?.textContent).toContain("Current stream usage");
+    expect(tooltip?.textContent).toContain("Stream 9 · 39%");
+    expect(tooltip?.textContent).not.toContain("Stream other");
+  });
+
   it("shows the headroom thresholds on the free-memory chart", async () => {
     const { container } = await mount();
     const mem = chart(container, "memFree");

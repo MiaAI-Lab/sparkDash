@@ -1207,6 +1207,35 @@ test("_applyTensorFoldMetrics: per-pool KV ratios report the worst lane, not the
   assert.equal(probe.kvCacheUsage, 0.38793);
 });
 
+test("_applyTensorFoldMetrics: exposes distinct current KV streams (with or without timestamps) and clears unavailable details", async () => {
+  let body = tfMetrics({ gen: 1000 }) + [
+    'tensorfold:kv_cache_usage_ratio{pool="9",device="a"} 0.39 1730000000000',
+    'tensorfold:kv_cache_usage_ratio{device="b",pool="2"} 0',
+    'tensorfold:kv_cache_usage_ratio{pool="4"} -1',
+    'tensorfold:kv_cache_usage_ratio{pool="7"} NaN',
+  ].join("\n");
+  const probe = metricsProbe(() => body);
+  await probe._applyTensorFoldMetrics(2);
+  assert.equal(probe.kvCacheUsage, 0.39);
+  assert.deepEqual(probe._getSnapshot().kvPoolUsage, [{ pool: "2", ratio: 0 }, { pool: "9", ratio: 0.39 }]);
+
+  await probe._applyTensorFoldMetrics(2, true);
+  assert.equal(probe._getSnapshot().kvPoolUsage, null);
+
+  await probe._applyTensorFoldMetrics(2);
+  assert.ok(probe._getSnapshot().kvPoolUsage);
+  probe._fetch = async () => ({ ok: false, status: 503 });
+  await probe._applyTensorFoldMetrics(2);
+  assert.equal(probe._getSnapshot().kvPoolUsage, null);
+
+  probe._fetch = async () => ({ ok: true, text: async () => body });
+
+  body = tfMetrics({ gen: 1000, kv: 0.42 });
+  await probe._applyTensorFoldMetrics(2);
+  assert.equal(probe.kvCacheUsage, 0.42);
+  assert.equal(probe.kvPoolUsage, null);
+});
+
 test("_applyTensorFoldMetrics: a single fleet-wide KV ratio is unchanged", async () => {
   const probe = metricsProbe(() => tfMetrics({ gen: 1000, kv: 0.42 }));
   await probe._applyTensorFoldMetrics(2);

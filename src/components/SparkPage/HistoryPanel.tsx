@@ -17,6 +17,7 @@ import { HEADROOM_THRESHOLDS_MB, memoryModelFor } from "../../shared/vramBreakdo
 import { Panel } from "../ui/Panel";
 import { ChartIcon } from "../ui/icons";
 import { HistoryChart, type HistoryChartSeries, type HistoryThreshold } from "./HistoryChart";
+import { KvPoolRows } from "./KvPoolRows";
 import { CachePoolChart } from "./CachePoolChart";
 import { CacheHistoryDetails } from "./CacheHistoryDetails";
 
@@ -97,6 +98,7 @@ interface ChartDef {
   yMax?: number;
   yUnit?: number;
   thresholds?: HistoryThreshold[];
+  kvPort?: number;
 }
 
 /** The live pool reading behind one endpoint's KV chart. */
@@ -456,6 +458,7 @@ function buildCharts(
     if (hasAny(kv)) {
       charts.push({
         id: `llm-${port}-kv`,
+        kvPort: port,
         title: t("history.kvTitle", { port }),
         format: pct,
         yMin: 0,
@@ -565,7 +568,7 @@ export function HistoryPanel({
   /** A macOS host's memory is unified, like a Spark's. */
   platform?: string;
   temperatureUnit: "celsius" | "fahrenheit";
-  /** The unit's live LLM endpoints: the KV chart shows their pool size in tokens. */
+  /** The unit's live LLM endpoints: the KV chart shows their pool size and live stream ratios. */
   liveLlm?: readonly (LlmMetrics | null)[] | null;
 }) {
   const { t } = useTranslation("hardware");
@@ -611,11 +614,19 @@ export function HistoryPanel({
     </div>
   );
 
-  const renderChart = (c: ChartDef) => <HistoryChart key={c.id} id={c.id} title={c.title}
-    timeline={timeline} stepMs={enabled?.stepMs ?? 0} from={enabled?.from ?? 0} to={enabled?.to ?? 0}
-    series={c.series} format={c.format} yMin={c.yMin} yMax={c.yMax} yUnit={c.yUnit}
-    thresholds={c.thresholds} showWindowSummary={!c.id.startsWith("cache-")}
-    cursorT={cursorT} onCursor={setCursorT} formatTime={formats.tooltip} formatAxisTime={formats.axis} />;
+  const renderChart = (c: ChartDef) => {
+    const live = c.kvPort == null ? undefined : liveLlm?.find((endpoint) => endpoint?.port === c.kvPort);
+    const pools = live?.available && live.measurementValid !== false ? live.kvPoolUsage : null;
+    return <HistoryChart key={c.id} id={c.id} title={c.title}
+      timeline={timeline} stepMs={enabled?.stepMs ?? 0} from={enabled?.from ?? 0} to={enabled?.to ?? 0}
+      series={c.series} format={c.format} yMin={c.yMin} yMax={c.yMax} yUnit={c.yUnit}
+      thresholds={c.thresholds} showWindowSummary={!c.id.startsWith("cache-")}
+      tooltipExtra={pools && <div className="chart__tip-foot">
+        <b>{t("history.currentKvStreams")}</b>
+        <KvPoolRows pools={pools} />
+      </div>}
+      cursorT={cursorT} onCursor={setCursorT} formatTime={formats.tooltip} formatAxisTime={formats.axis} />;
+  };
   const capacityChart = (c: ChartDef) => /^cache-\d+-(store|entries)$/.test(c.id);
   const reuseChart = (c: ChartDef) => /^cache-\d+-(reuse|churn|failures)$/.test(c.id);
   const cachePresent = (enabled?.cache?.endpoints ?? []).some((e) => e.points.length > 0);

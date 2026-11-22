@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { useId, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { useId, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import type { HistoryStat } from "../../api/types";
 import "../../styles/charts.css";
 
@@ -113,6 +113,7 @@ export interface HistoryChartProps {
   thresholds?: readonly HistoryThreshold[];
   /** Quantiles and ratios must not get a mean-of-bucket-values window summary. */
   showWindowSummary?: boolean;
+  tooltipExtra?: ReactNode;
   /** The shared crosshair timestamp, or null. */
   cursorT: number | null;
   onCursor: (t: number | null) => void;
@@ -235,6 +236,7 @@ export function HistoryChart({
   yUnit,
   thresholds = [],
   showWindowSummary = true,
+  tooltipExtra,
   cursorT,
   onCursor,
   formatTime,
@@ -537,6 +539,7 @@ export function HistoryChart({
                     .join(" · ")}
                 </div>
               )}
+              {tooltipExtra}
               {windowRows.length > 0 && (
                 <div className="chart__tip-foot sp-hist-chart__tip-window" data-window-summary="">
                   {windowRows.map(({ series: s, avg, peak, low, lowFromAvg, activeAvg }) => {

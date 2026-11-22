@@ -620,6 +620,8 @@ export interface LlmMetrics {
    * depends on the backend — see `kvCacheUsageBasis`. null when unknown.
    */
   kvCacheUsage?: number | null;
+  /** Live named TensorFold stream ratios, distinct from shared cache occupancy. */
+  kvPoolUsage?: KvPoolRatio[] | null;
   /**
    * What `kvCacheUsage` is a share of, where the backend also reports `kvCacheTokens`:
    * "pool" means it is the used fraction of that pool, so ratio × pool is the pool's used
@@ -675,6 +677,11 @@ export interface LlmMetrics {
    */
   lastActiveAt?: number | null;
   error: string | null;
+}
+
+export interface KvPoolRatio {
+  pool: string;
+  ratio: number;
 }
 
 /**

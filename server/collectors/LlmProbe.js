@@ -322,6 +322,7 @@ export class LlmProbe {
     // vLLM inference metrics from /metrics (null when not vLLM / missing series)
     // Metric names follow stock vLLM Prometheus exposition (versions may differ).
     this.kvCacheUsage = null; // 0–1 fraction
+    this.kvPoolUsage = null;
     /**
      * What `kvCacheUsage` is a share of, for the backends that also report `kvCacheTokens`:
      * "pool" when it is the used fraction of that pool (vLLM, FreeToken), so ratio × pool is
@@ -644,6 +645,7 @@ export class LlmProbe {
     this.prefillProgressTokens = null;
     this.generationProgressTokens = null;
     this.kvCacheUsage = null;
+    this.kvPoolUsage = null;
     this.cache = null;
     this.cacheHistograms = null;
     this._clearEngineMemory();
@@ -2907,6 +2909,7 @@ export class LlmProbe {
     // A full scrape is the only source of the live position gauges. Clear them
     // first so a failed, counterless or queue-only scrape reports unknown
     // instead of a position measured by an earlier poll.
+    this.kvPoolUsage = null;
     this.prefillProgressTokens = null;
     this.generationProgressTokens = null;
     // Live free pool tokens come only from a full /metrics scrape; clear them
@@ -3040,13 +3043,16 @@ export class LlmProbe {
         Number.isFinite(preemptions) && preemptions >= 0 ? Math.round(preemptions) : null;
     }
 
-    // A multi-pool engine exports one 0–1 ratio per pool/stream. `m()` sums every
-    // matching series, so six half-empty pools would clamp at 1 and read as "full"
+    // A multi-pool engine exports one 0–1 ratio per stream. `m()` sums every
+    // matching series, so six half-empty streams would clamp at 1 and read as "full"
     // while every lane is mostly empty (#330). The worst lane is the number that
     // forecasts queueing/preemption pressure; on a single-series engine max is that
-    // same value. Per-pool detail would need a separate field.
+    // same value. Keep live per-stream detail separate from the headline.
     const kv = queueOnly ? null : this._getPromMetricMax(txt, "tensorfold:kv_cache_usage_ratio");
-    if (Number.isFinite(kv) && kv >= 0) this.kvCacheUsage = Math.min(1, kv);
+    if (Number.isFinite(kv) && kv >= 0) {
+      this.kvCacheUsage = Math.min(1, kv);
+      this.kvPoolUsage = this._getTensorFoldKvPools(txt);
+    }
     // Absolute pool accounting from the engine's own shard math (#348): the pool
     // holds `kv_shard_parts` ownership parts of `kv_shard_part_rows` positions
     // each, and `kv_shard_part_free` sums the rows of each part nothing holds —
@@ -4087,6 +4093,27 @@ export class LlmProbe {
     return found ? sum : null;
   }
 
+  /** Read a bounded set of named stream ratios from the current TensorFold scrape. */
+  _getTensorFoldKvPools(body) {
+    const series = /^tensorfold:kv_cache_usage_ratio\{([^}]*)\}[ \t]+([\d.eE+-]+)(?:[ \t]+\d+(?:\.\d+)?)?[ \t]*\r?$/gm;
+    const pools = new Map();
+    for (const [, labels, value] of body.matchAll(series)) {
+      const ratio = Number(value);
+      if (!Number.isFinite(ratio) || ratio < 0) continue;
+      // Consume whole quoted label values so an unrelated value cannot look like a pool label.
+      const pool = [...labels.matchAll(/(\w+)="((?:[^"\\]|\\.)*)"/g)]
+        .find(([, key]) => key === "pool")?.[2];
+      if (!pool || pool.length > 32) continue;
+      // Ambiguous duplicate labels or an oversized vector cannot describe every stream.
+      if (pools.has(pool) || pools.size === 32) return null;
+      pools.set(pool, Math.min(1, ratio));
+    }
+    return pools.size > 1
+      ? [...pools].sort(([a], [b]) => a.localeCompare(b, "en", { numeric: true }))
+        .map(([pool, ratio]) => ({ pool, ratio }))
+      : null;
+  }
+
   /**
    * Max of Prometheus series matching `name` (avoids summing HiCache layers).
    * @param {string} body
@@ -4095,7 +4122,7 @@ export class LlmProbe {
    */
   _getPromMetricMax(body, name) {
     const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const re = new RegExp(`^${esc}(?:\\{[^}]*\\})?\\s+([\\d.eE+-]+)\\s*$`, "gm");
+    const re = new RegExp(`^${esc}(?:\\{[^}]*\\})?[ \\t]+([\\d.eE+-]+)(?:[ \\t]+\\d+(?:\\.\\d+)?)?[ \\t]*\\r?$`, "gm");
     let best = null;
     let m;
     while ((m = re.exec(body)) !== null) {
@@ -4425,6 +4452,7 @@ export class LlmProbe {
       prefillProgressTokens: this.backendType === "tensorfold" ? this.prefillProgressTokens ?? null : null,
       generationProgressTokens: this.backendType === "tensorfold" ? this.generationProgressTokens ?? null : null,
       kvCacheUsage: this.kvCacheUsage,
+      kvPoolUsage: this.backendType === "tensorfold" ? this.kvPoolUsage : null,
       kvCacheUsageBasis: this.kvCacheUsageBasis,
       cache: this.cache,
       cacheHistograms: this.cacheHistograms,
@@ -4478,6 +4506,7 @@ export class LlmProbe {
       prefillProgressTokens: null,
       generationProgressTokens: null,
       kvCacheUsage: null,
+      kvPoolUsage: null,
       kvCacheUsageBasis: null,
       cache: null,
       cacheHistograms: null,

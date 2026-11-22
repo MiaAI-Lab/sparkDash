@@ -280,6 +280,8 @@
   "history.critical": "严重不足 {{value}}",
   "history.decodeTitle": "解码 tok/s · :{{port}}",
   "history.prefillTitle": "预填充 tok/s · :{{port}}",
+  "history.currentKvStreams": "当前流占用",
+  "history.kvStreamRatio": "流 {{pool}} · {{percent}}%",
   "history.kvTitle": "KV 缓存 · :{{port}}",
   "history.kvTokens": "{{used}} / {{total}} tok（按当前池容量）",
   "history.kvPoolTokens": "池容量 {{tokens}} tok",
