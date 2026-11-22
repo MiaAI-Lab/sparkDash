@@ -1,4 +1,6 @@
+import { act } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { setLocale } from "../../i18n";
 import { render } from "../../testing/render";
 import { makeSpark } from "../../testing/fixtures";
 import type { LlmCacheMetrics, LlmMetrics } from "../../api/types";
@@ -60,7 +62,7 @@ function llmWith(cache: LlmCacheMetrics | null): LlmMetrics {
 }
 
 describe("LlmCachePanel", () => {
-  it("draws the four disjoint categories and the snapshot store", () => {
+  it("draws the four disjoint categories and translates them without changing the accounting", async () => {
     const { container } = render(<LlmCachePanel llm={llmWith(fullCache())} />);
     const bar = container.querySelector("[data-cache-pool]")!;
     expect(bar).not.toBeNull();
@@ -73,6 +75,15 @@ describe("LlmCachePanel", () => {
     // The detail block separates replacement, invalidation and classified failures.
     expect(container.textContent).toContain("Pool invalidated");
     expect(container.textContent).toContain("keep 1, restore 1, peer forget 1");
+    try {
+      await act(() => setLocale("zh-CN"));
+      expect(bar.getAttribute("aria-label")).toContain("保留前缀");
+      expect(container.textContent).toContain("快照存储");
+      expect(container.textContent).toContain("8.39M");
+      expect(container.textContent).toContain("90%");
+    } finally {
+      await act(() => setLocale("en"));
+    }
   });
 
   it("says unavailable instead of drawing a healthy zero for an old engine", () => {
