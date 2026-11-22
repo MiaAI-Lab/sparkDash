@@ -1,9 +1,9 @@
 {
   "page": {
     "title": "存储管理",
-    "description": "查看 DGX Spark 上哪些文件夹占用空间最多，检查 Docker 的空间占用，并删除不再需要的内容。",
-    "noSpark": "没有可查看的 DGX Spark",
-    "noSparkHelp": "存储管理适用于 DGX Spark 节点。通过侧栏添加节点后，就可以在此查看。",
+    "description": "查看 Linux 节点上哪些文件夹占用空间最多，检查 Docker 的空间占用，并删除不再需要的内容。",
+    "noSpark": "没有可用的 Linux 节点",
+    "noSparkHelp": "存储管理支持 DGX Spark 和其他 Linux 主机。通过侧栏添加 Linux 节点，即可在此管理其存储。",
     "offline": "{{name}} 已离线。",
     "offlineShort": "{{name}} 已离线",
     "offlineHelp": "节点恢复连接后，即可重新分析、删除和管理 Docker。",
@@ -41,7 +41,7 @@
     "sshHelp": "命令通过 SSH 使用为此 Spark 配置的账户执行。"
   },
   "picker": {
-    "label": "选择要分析的 Spark",
+    "label": "选择要分析的节点",
     "offline": "离线",
     "sizeUnknown": "尚未报告磁盘容量",
     "savedOnly": "无法连接 · 仅可查看已保存的结果"

@@ -253,7 +253,7 @@ test("GET /storage/context answers with the context and the feature table; a cac
   const app = express();
   registerStorageRoutes(app, {
     manager: m,
-    registry: { getSpark: (id) => ({ s1: spark, h1: { id: "h1", kind: "host" } })[id] },
+    registry: { getSpark: (id) => ({ s1: spark, h1: { id: "h1", kind: "host", platform: "windows" } })[id] },
     recordEvent: () => {},
     allowRead: () => (reads += 1) <= 2,
     allowChange: () => true,

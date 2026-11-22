@@ -38,7 +38,7 @@ function writePref(key: string, value: string) {
 }
 
 /**
- * Storage Manager: pick a DGX Spark, analyse its disk to see which folders take the most space,
+ * Storage Manager: pick a Linux unit, analyse its disk to see which folders take the most space,
  * look at Docker's images, and delete what is not needed (as administrator when it takes sudo).
  */
 export function StoragePage({ sparks }: { sparks: SparkSnapshot[] }) {

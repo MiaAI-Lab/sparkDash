@@ -1,9 +1,9 @@
 {
   "page": {
     "title": "Storage Manager",
-    "description": "See which folders take the most space on a DGX Spark, check what Docker is holding on to, and delete what you no longer need.",
-    "noSpark": "No DGX Spark to look at",
-    "noSparkHelp": "Storage Manager works with DGX Spark units. Add one from the sidebar and it will show up here.",
+    "description": "See which folders take the most space on a Linux unit, check what Docker is holding on to, and delete what you no longer need.",
+    "noSpark": "No Linux units available",
+    "noSparkHelp": "Storage Manager supports DGX Sparks and other Linux hosts. Add a Linux unit from the sidebar to manage its storage.",
     "offline": "{{name}} is offline.",
     "offlineShort": "{{name}} is offline",
     "offlineHelp": "Analysing, deleting and Docker work again once it can be reached.",
@@ -41,7 +41,7 @@
     "sshHelp": "Commands run over SSH as the account set for this Spark."
   },
   "picker": {
-    "label": "Spark to analyse",
+    "label": "Unit to analyse",
     "offline": "Offline",
     "sizeUnknown": "Disk size not reported yet",
     "savedOnly": "Not reachable · saved results only"
