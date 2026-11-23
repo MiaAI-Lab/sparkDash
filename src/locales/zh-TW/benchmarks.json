@@ -7,7 +7,7 @@
     "noSparks": "沒有可用的 Spark"
   },
   "catalog": {
-    "decode": { "label": "解碼", "blurb": "在不同並行數下的生成速度（token/s）。" },
+    "decode": { "label": "解碼", "blurb": "在不同並行數下的生成速度（每秒 token 數）。" },
     "prefill": { "label": "預填充", "blurb": "各種上下文大小下的提示詞處理速度與首個 token 時間。" },
     "quality": { "label": "品質", "blurb": "固定且具隨機種子的品質套件，用來比較模型、量化方式與 KV 快取格式。", "tab": "套件" },
     "toolEval": { "label": "工具評測", "blurb": "涵蓋 69 個決定性情境（工具選擇、參數、多步驟、安全）的工具呼叫品質。", "family": "工具評測" },
