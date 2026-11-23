@@ -1,4 +1,3 @@
-// Modified by Maxrio9, 2026: server-gated training route regressions.
 import { act } from "react";
 import { TRAINING_ID } from "./constants";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

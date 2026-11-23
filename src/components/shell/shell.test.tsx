@@ -1,4 +1,3 @@
-// Modified by Maxrio9, 2026: optional training navigation regressions.
 import { act } from "react";
 import { TRAINING_ID } from "../../constants";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

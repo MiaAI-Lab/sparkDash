@@ -1,4 +1,3 @@
-// Modified by Maxrio9, 2026: optional JSON training progress capability.
 import type { EnergyPricePeriod } from "../shared/energyTariff";
 
 // ─── Spark config (matches server/sparks.json) ────────────

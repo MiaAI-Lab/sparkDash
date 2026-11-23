@@ -1,4 +1,3 @@
-// Modified by Maxrio9, 2026: optional JSON training progress navigation.
 import { BenchIcon } from "../bench/BenchIcon";
 import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";

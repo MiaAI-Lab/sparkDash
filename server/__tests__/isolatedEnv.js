@@ -1,4 +1,3 @@
-// Modified by Maxrio9, 2026: keep optional training probes isolated.
 import path from "node:path";
 
 /**

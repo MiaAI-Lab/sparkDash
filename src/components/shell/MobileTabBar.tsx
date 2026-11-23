@@ -1,4 +1,3 @@
-// Modified by Maxrio9, 2026: optional JSON training progress navigation.
 import { BenchIcon } from "../bench/BenchIcon";
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";

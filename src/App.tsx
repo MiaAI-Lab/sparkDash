@@ -1,4 +1,3 @@
-// Modified by Maxrio9, 2026: optional JSON training progress page.
 import { BenchIcon } from "./components/bench/BenchIcon";
 import { setConfiguredTimeZone } from "./shared/timeZone";
 import { useState, useCallback, useEffect, useMemo } from "react";

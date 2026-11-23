@@ -1,4 +1,3 @@
-// Modified by Maxrio9, 2026: optional JSON training progress page.
 /** Reserved tab id for the cross-Spark overview (not a real Spark). */
 export const OVERVIEW_ID = "__overview__";
 /** Reserved ids for the dedicated fleet pages. */

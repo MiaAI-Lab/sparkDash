@@ -1,4 +1,3 @@
-// Modified by Maxrio9, 2026: JSON training progress page catalog.
 import { createInstance } from "i18next";
 import { initReactI18next } from "react-i18next";
 import enSettings from "../locales/en/settings.json";

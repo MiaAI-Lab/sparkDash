@@ -1,4 +1,3 @@
-// Modified by Maxrio9, 2026: training page route regression.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { benchId, benchTypeOf, ENERGY_ID, idToPath, initialActiveId, isPageId, isStaleSparkId, KIOSK_ID, OVERVIEW_ID, pathToId, STORAGE_ID, TRAINING_ID, TEMPS_ID } from "./constants";
 

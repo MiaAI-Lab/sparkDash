@@ -1,4 +1,3 @@
-// Modified by Maxrio9, 2026: optional read-only JSON training progress.
 // First on purpose: imports are evaluated in order, and config.js, settings.js
 // and the bench modules read process.env while they load.
 import "dotenv/config";

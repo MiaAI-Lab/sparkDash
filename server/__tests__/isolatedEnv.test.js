@@ -1,4 +1,3 @@
-// Modified by Maxrio9, 2026: verify training probes are disabled in fixtures.
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import fs from "node:fs";
