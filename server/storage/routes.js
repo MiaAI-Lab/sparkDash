@@ -6,6 +6,8 @@
 import { passwordAllowed } from "../gpuclock/routes.js";
 import { featureTable } from "./context.js";
 import { reclaimedNote } from "./builderPrune.js";
+import { findAgentJunk } from "./agentJunk.js";
+import { assertSupported } from "./StorageManager.js";
 
 const baseName = (p) => p.slice(p.lastIndexOf("/") + 1) || p;
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -162,6 +164,16 @@ export function registerStorageRoutes(app, { manager, registry, recordEvent, all
           },
         })
       );
+    })
+  );
+
+  // Remove agent junk: what coding agents left behind (worktrees, temporary folders, session logs, scratch files),
+  // with a smart guess per item. Read-only and never elevated; removing goes through delete-many.
+  app.get(
+    "/api/sparks/:id/storage/agent-junk",
+    handle(async (spark, req, res) => {
+      if (!allowRead(req)) return rejectLimited(res, "Too many requests");
+      res.json(await findAgentJunk(manager, spark, { assertSupported }));
     })
   );
 

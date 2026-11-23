@@ -300,6 +300,8 @@ export class MacAgentCollector extends MacSystemCollector {
       total: mem.total ?? 0,
       percentage: mem.percentage ?? 0,
       swap: mem.swap || { total: 0, used: 0, free: 0 },
+      physical: mem.physical ?? null,
+      memoryPressure: mem.memoryPressure ?? "unknown",
       unavailable: this._agentEntries(snapshot).filter((row) => String(row.metric).startsWith("memory")),
     };
   }
@@ -315,7 +317,10 @@ export class MacAgentCollector extends MacSystemCollector {
       used: mem.used ?? 0,
       available: mem.available ?? 0,
       percentage: mem.percentage ?? 0,
-      oomRisk: mem.oomRisk || "low",
+      memoryPressure: mem.memoryPressure ?? "unknown",
+      oomRisk: ({ normal: "low", warning: "medium", critical: "high" })[mem.memoryPressure] ?? null,
+      physical: mem.physical ?? null,
+      swap: mem.swap,
       bandwidth: { current: 0, peak: 0 },
       unavailable: this._agentEntries(snapshot).filter((row) => String(row.metric).startsWith("memory")),
     };

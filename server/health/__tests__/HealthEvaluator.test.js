@@ -90,6 +90,20 @@ test("memory: warn below 3 GB available, critical below 1.5 GB", () => {
   assert.deepEqual(h.evaluate({ unifiedMemory: { total: 0, available: 0 } }), []);
 });
 
+test("macOS memory findings follow native pressure rather than calculated headroom", () => {
+  const h = new HealthEvaluator();
+  const mem = (memoryPressure, available) => ({ unifiedMemory: { total: 16384, percentage: 97, available, memoryPressure } });
+  assert.deepEqual(h.evaluate(mem("normal", 100)), []);
+  // Unreadable pressure is not healthy: the headroom check still applies.
+  assert.equal(h.evaluate(mem("unknown", 100))[0].severity, "critical");
+  assert.deepEqual(h.evaluate(mem("unknown", 10000)), []);
+  assert.equal(h.evaluate(mem("warning", 10000))[0].severity, "warn");
+  assert.equal(h.evaluate(mem("critical", 10000))[0].severity, "critical");
+  const normal = mem("normal", 100);
+  normal.llm = [{ available: true, modelId: "a" }, { available: true, modelId: "b" }];
+  assert.deepEqual(h.evaluate(normal), []);
+});
+
 test("kernel errors: first sample is a baseline, a rise raises an event and a finding for an hour", () => {
   let t = 1_000_000;
   const h = new HealthEvaluator({ now: () => t });

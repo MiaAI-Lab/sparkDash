@@ -1,9 +1,9 @@
 {
   "page": {
     "title": "Storage Manager",
-    "description": "See which folders take the most space on a DGX Spark, check what Docker is holding on to, and delete what you no longer need.",
-    "noSpark": "No DGX Spark to look at",
-    "noSparkHelp": "Storage Manager works with DGX Spark units. Add one from the sidebar and it will show up here.",
+    "description": "See which folders take the most space on a Linux unit, check what Docker is holding on to, and delete what you no longer need.",
+    "noSpark": "No Linux units available",
+    "noSparkHelp": "Storage Manager supports DGX Sparks and other Linux hosts. Add a Linux unit from the sidebar to manage its storage.",
     "offline": "{{name}} is offline.",
     "offlineShort": "{{name}} is offline",
     "offlineHelp": "Analysing, deleting and Docker work again once it can be reached.",
@@ -41,7 +41,7 @@
     "sshHelp": "Commands run over SSH as the account set for this Spark."
   },
   "picker": {
-    "label": "Spark to analyse",
+    "label": "Unit to analyse",
     "offline": "Offline",
     "sizeUnknown": "Disk size not reported yet",
     "savedOnly": "Not reachable · saved results only"
@@ -611,5 +611,130 @@
     "imagesReclaimable": "Docker estimated about {{bytes}} reclaimable for the images.",
     "containersReclaimable": "Docker estimated about {{bytes}} reclaimable for the containers.",
     "cacheReclaimed": "Docker reports {{bytes}} of build cache reclaimed."
+  },
+  "junk": {
+    "tab": "Remove agent junk",
+    "new": "New",
+    "title": "Remove agent junk",
+    "description": "Coding agents leave things behind: worktrees from finished tasks, temporary folders, session logs, old editor servers, scratch scripts, backups and reports. This finds them in the home folders and /tmp, and makes a smart guess about each one. Nothing is removed until you confirm.",
+    "look": "Find agent junk",
+    "lookAgain": "Look again",
+    "looking": "Looking through {{name}}…",
+    "lookingHelp": "Home folders, /tmp and the places agents keep their sessions. This only reads and usually takes under a minute.",
+    "offline": "{{name}} is offline. Looking for agent junk works again once it can be reached.",
+    "failed": "Could not look for agent junk",
+    "failedWith": "Could not look for agent junk: {{error}}",
+    "clean": "Nothing left behind on {{name}}.",
+    "cleanHelp": "No agent worktrees, temporary folders, session logs or scratch files were found.",
+    "found_one": "{{count}} item found",
+    "found_other": "{{count}} items found",
+    "smartFound_one": "Smart pick: {{count}} item that is safe to remove",
+    "smartFound_other": "Smart pick: {{count}} items that are safe to remove",
+    "pickLabel": "Tick",
+    "pick": {
+      "smart": "Smart pick",
+      "likely": "+ Probably junk",
+      "all": "Everything",
+      "none": "Nothing"
+    },
+    "how": "Smart pick ticks only what is clearly junk: old, unused and not part of anything you keep in git. Look over “Probably junk” and “Check first”, tick or untick anything, then remove. Every item is checked again before it is deleted.",
+    "filterLabel": "Show",
+    "verdict": {
+      "junk": "Junk",
+      "likely": "Probably junk",
+      "review": "Check first",
+      "keep": "Keep"
+    },
+    "search": "Filter by name, path or agent",
+    "noMatch": "Nothing matches the filter.",
+    "incomplete": "The look ran out of time or found more than it can list, so some items may be missing. Remove these and look again.",
+    "selectGroup": "Tick everything in {{group}}",
+    "groupCount": "{{picked}} of {{count}} ticked",
+    "showMore_one": "Show {{count}} more",
+    "showMore_other": "Show {{count}} more",
+    "checkedAt": "Looked {{age}} ago.",
+    "barLabel": "Remove the ticked items",
+    "selected_one": "{{count}} item ticked",
+    "selected_other": "{{count}} items ticked",
+    "plusUnmeasured_one": "(plus {{count}} not measured)",
+    "plusUnmeasured_other": "(plus {{count}} not measured)",
+    "nothingSelected": "Tick what you want to remove.",
+    "clear": "Untick all",
+    "remove_one": "Remove {{count}} item · {{size}}",
+    "remove_other": "Remove {{count}} items · {{size}}",
+    "removeNothing": "Remove",
+    "group": {
+      "worktrees": {
+        "title": "Agent worktrees",
+        "why": "Extra checkouts agents made for a task. Commits stay in the repository; only the copy of the files goes."
+      },
+      "temp": {
+        "title": "Temporary folders",
+        "why": "Left in /tmp by agents, test browsers and build tools after their sessions ended."
+      },
+      "sessions": {
+        "title": "Session logs and state",
+        "why": "Transcripts, debug logs and per-session scratch that agents keep in your home folder."
+      },
+      "editors": {
+        "title": "Editor servers",
+        "why": "Older versions of the VS Code, Cursor or Windsurf server and their logs. The version in use is kept."
+      },
+      "scratch": {
+        "title": "Scratch, backup and report files",
+        "why": "One-off scripts, .bak and .orig copies and summary reports written next to your code and never added to git."
+      },
+      "caches": {
+        "title": "Downloads agents filled",
+        "why": "Package and browser downloads. Removing them is safe; they are downloaded again when needed."
+      }
+    },
+    "rule": {
+      "claude-worktree": "Claude Code worktree.",
+      "codex-worktree": "Codex worktree.",
+      "agent-worktree": "Agent worktree.",
+      "tmp-agent": "An agent's temporary folder.",
+      "tmp-browser": "A test browser's temporary profile.",
+      "tmp-tool": "A build or test tool's temporary folder.",
+      "claude-sessions": "Claude Code transcripts for one project (only /resume history).",
+      "claude-state": "Claude Code per-session scratch, recreated when needed.",
+      "claude-logs": "Claude Code debug and MCP logs.",
+      "codex-sessions": "Codex session logs.",
+      "gemini-tmp": "Gemini CLI temporary files.",
+      "opencode-logs": "opencode logs and snapshots.",
+      "continue-sessions": "Continue session history.",
+      "editor-server": "An editor server version.",
+      "editor-logs": "Editor server logs.",
+      "aider-files": "Aider chat history or tag cache.",
+      "scratch-script": "A one-off script.",
+      "agent-report": "A summary or report an agent wrote.",
+      "backup-file": "A backup copy left after an edit.",
+      "core-dump": "A crashed program's memory dump.",
+      "stray-log": "A large log file.",
+      "npx-cache": "Packages fetched with npx.",
+      "browser-cache": "Browsers downloaded for tests; tests download them again.",
+      "package-cache": "pip or uv download cache."
+    },
+    "signal": {
+      "age_day_one": "{{count}} day old",
+      "age_day_other": "{{count}} days old",
+      "age_week_one": "{{count}} week old",
+      "age_week_other": "{{count}} weeks old",
+      "age_month_one": "{{count}} month old",
+      "age_month_other": "{{count}} months old",
+      "age_year_one": "{{count}} year old",
+      "age_year_other": "{{count}} years old",
+      "recent": "Changed today: may be in use",
+      "age-unknown": "Age not known",
+      "untracked": "Not in git",
+      "no-git": "Outside git",
+      "home-root": "Loose in home folder",
+      "uncommitted": "Has uncommitted changes",
+      "memory": "Holds saved agent memory",
+      "tests-folder": "In a tests folder",
+      "worktree-session": "From a removed worktree",
+      "current-version": "Version in use",
+      "size-partial": "Size only partly measured"
+    }
   }
 }

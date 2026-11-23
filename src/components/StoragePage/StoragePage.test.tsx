@@ -100,7 +100,7 @@ describe("StoragePage", () => {
     try {
       await act(async () => setLocale("zh-CN"));
       expect(document.querySelector("h1")?.textContent).toBe("存储管理");
-      expect(byLabel("选择要分析的 Spark").querySelector('[aria-checked="true"]')?.textContent).toContain("Spark s1");
+      expect(byLabel("选择要分析的节点").querySelector('[aria-checked="true"]')?.textContent).toContain("Spark s1");
       expect(text()).toContain("文件和文件夹");
       expect(byLabel("主磁盘")).not.toBeNull();
       expect(window.location.href).toBe(route);
@@ -111,8 +111,8 @@ describe("StoragePage", () => {
     expect(text()).toContain("Storage Manager");
   });
 
-  it("offers Sparks only, shows their disks, and starts at the question 'what to look at'", async () => {
-    const host = { ...makeSpark("pc"), kind: "host" as const, name: "Gaming PC" };
+  it("offers Linux units, shows their disks, and starts at the question 'what to look at'", async () => {
+    const host = { ...makeSpark("pc"), kind: "host" as const, platform: "windows" as const, name: "Gaming PC" };
     render(<StoragePage sparks={[makeSpark("s1"), host]} />);
     await flush();
     expect(text()).toContain("Storage Manager");
@@ -198,10 +198,20 @@ describe("StoragePage", () => {
     expect(document.body.querySelector(".st-picker__chosen")?.textContent).toContain("/");
   });
 
-  it("says so when there is no Spark at all", async () => {
-    render(<StoragePage sparks={[{ ...makeSpark("pc"), kind: "host" }]} />);
+  it("offers a Linux GPU host and loads its storage", async () => {
+    render(<StoragePage sparks={[{ ...makeSpark("gpu"), kind: "host", platform: "linux", name: "GPU Box" }]} />);
     await flush();
-    expect(text()).toContain("No DGX Spark to look at");
+    expect(text()).toContain("GPU Box");
+    expect(fetchStorageStatus).toHaveBeenCalledWith("gpu");
+  });
+
+  it("shows the empty state when only Windows and macOS units are configured", async () => {
+    render(<StoragePage sparks={[
+      { ...makeSpark("pc"), kind: "host", platform: "windows" },
+      { ...makeSpark("mac"), kind: "mac", platform: "darwin" },
+    ]} />);
+    await flush();
+    expect(text()).toContain("No Linux units available");
     expect(fetchStorageStatus).not.toHaveBeenCalled();
   });
 

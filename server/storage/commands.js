@@ -40,6 +40,8 @@ const SCRIPTS = Object.freeze({
   job: { body: `${read("unit-state.sh")}\n${read("job.sh")}`, shell: "bash" },
   // Read-only evidence for the delete advisor (see advice.js). Never elevated, never takes the unit lock.
   advise: { body: read("advise.sh"), shell: "sh" },
+  // Read-only candidates for "Remove agent junk" (see agentJunk.js). Never elevated, never takes the unit lock.
+  agentJunk: { body: read("agent-junk.sh"), shell: "bash" },
 });
 /** Unit lock, scan job records and process identity checks (see the file's header). */
 const UNIT_STATE = read("unit-state.sh");

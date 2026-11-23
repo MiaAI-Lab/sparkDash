@@ -409,9 +409,19 @@ function EnergyBody({
   const powerPoints: LinePoint[] = powerBuckets.map((b) => ({
     key: b.key,
     label: win.range === "24h" ? b.label : `${formatShortDay(b.startMs, tz)}`,
-    title: formatLocalHour(b.startMs, tz),
+    title:
+      b.reportingNodeCount != null && b.reportingNodeCount < total
+        ? `${formatLocalHour(b.startMs, tz)} · ${t("energy.reportingOf", { fresh: b.reportingNodeCount, total })}`
+        : formatLocalHour(b.startMs, tz),
     value: b.avgWatts,
   }));
+  // The line is drawn from whatever reported; say how few machines that was at the worst hour.
+  const minReporting = powerBuckets.reduce<number | null>(
+    (min, b) => (b.reportingNodeCount != null && b.reportingNodeCount < total
+      ? (min == null ? b.reportingNodeCount : Math.min(min, b.reportingNodeCount))
+      : min),
+    null
+  );
   const lineAt = (key: keyof HourLines) => powerBuckets.map((b) => wall?.lines.get(b.startMs)?.[key] ?? null);
   const overlays: LineOverlay[] = metered
     ? [
@@ -491,7 +501,14 @@ function EnergyBody({
           <div className="big-num mono">{summary.peak ? Math.round(summary.peak.watts) : "—"}<small>W</small></div>
           <div className="en-tile__sub"><span>{summary.peak ? t("energy.localTime", { time: formatLocalHour(summary.peak.atMs, tz) }) : t("energy.noFullHour")}</span></div>
         </Tile>
-        <Tile label={t("energy.efficiency")}>
+        <Tile
+          label={
+            <span className="flex items-center gap-1.5">
+              {t("energy.efficiency")}
+              <Tag tone="neutral">{t("energy.lowerIsBetter")}</Tag>
+            </span>
+          }
+        >
           <div className="big-num mono">{summary.whPer1kTokens != null ? (summary.whPer1kTokens < 10 ? summary.whPer1kTokens.toFixed(2) : summary.whPer1kTokens.toFixed(1)) : "—"}<small>{t("energy.efficiencyValue", { value: "" })}</small></div>
           <div className="en-tile__sub">
             <span>{summary.coveredTokens > 0 ? t("energy.outputTokens", { tokens: compact(summary.coveredTokens) }) : t("energy.noTokenData")}</span>
@@ -548,7 +565,11 @@ function EnergyBody({
               <header className="en-panel__head">
                 <div>
                   <h2 id="en-h-power">{t("energy.averagePower")}</h2>
-                  <p className="en-panel__sub">{t("energy.powerSubtitle")}</p>
+                  <p className="en-panel__sub">
+                    {minReporting != null
+                      ? t("energy.powerSubtitleReporting", { fresh: minReporting, total })
+                      : t("energy.powerSubtitle")}
+                  </p>
                 </div>
                 {metered ? (
                   <div className="legend" aria-label="Lines">
@@ -573,7 +594,10 @@ function EnergyBody({
               <section className="panel en-panel" aria-labelledby="en-h-eff">
                 <header className="en-panel__head">
                   <div>
-                    <h2 id="en-h-eff">{t("energy.efficiency")}</h2>
+                    <div className="flex items-center gap-2">
+                      <h2 id="en-h-eff">{t("energy.efficiency")}</h2>
+                      <Tag tone="neutral">{t("energy.lowerIsBetter")}</Tag>
+                    </div>
                     <p className="en-panel__sub">{t("energy.efficiencyHint", { unit: unitLabel })}</p>
                   </div>
                 </header>
@@ -698,7 +722,7 @@ function PartCells({ parts }: { parts?: NodeParts }) {
   );
 }
 
-function Tile({ label, children }: { label: string; children: React.ReactNode }) {
+function Tile({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="panel en-tile">
       <div className="eyebrow">{label}</div>

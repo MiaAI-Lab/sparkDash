@@ -26,9 +26,10 @@ function make({ run, ...opts } = {}) {
   return { m, calls };
 }
 
-test("only Spark units are supported", () => {
+test("only Linux units are supported", () => {
   assert.doesNotThrow(() => assertSupported(spark));
-  assert.throws(() => assertSupported({ id: "h", kind: "host" }), (e) => e.status === 400 && /DGX Spark/.test(e.message));
+  assert.doesNotThrow(() => assertSupported({ id: "h", kind: "host", platform: "linux" }), "Linux GPU hosts are supported");
+  assert.throws(() => assertSupported({ id: "w", kind: "host", platform: "windows" }), (e) => e.status === 400 && /Linux/.test(e.message));
   assert.throws(() => assertSupported({ id: "m", kind: "spark", platform: "darwin" }), (e) => e.status === 400);
   assert.throws(() => assertSupported(undefined), (e) => e.status === 404);
 });

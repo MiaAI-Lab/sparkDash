@@ -7,6 +7,7 @@ import { MemoryIcon } from "../ui/icons";
 import { formatMb } from "../../shared/formatBytes";
 import { memoryBreakdown } from "./chartMath";
 import { GpuProcessTable } from "./GpuPanel";
+import { MacPhysicalMemoryBar } from "../ui/MacPhysicalMemoryBar";
 
 interface UnifiedMemoryPanelProps {
   um: UnifiedMemoryMetrics | null;
@@ -47,6 +48,15 @@ export function UnifiedMemoryPanel({ um, gpu, llm, className }: UnifiedMemoryPan
   const pct = um?.percentage ?? 0;
   const processes = gpu?.processes ?? [];
 
+  if (um?.memoryPressure !== undefined) {
+    return (
+      <Panel title={t("memory.title")} icon={<MemoryIcon />} className={`panel-memory ${className ?? ""}`} bodyClassName="sp-stack">
+        <MacPhysicalMemoryBar memory={um} />
+        {processes.length > 0 && <GpuProcessTable processes={processes} />}
+      </Panel>
+    );
+  }
+
   return (
     <Panel
       title={t("memory.title")}
@@ -83,12 +93,12 @@ export function UnifiedMemoryPanel({ um, gpu, llm, className }: UnifiedMemoryPan
             ))}
           </div>
           <div className="sp-chips">
-            {um && um.oomRisk !== "low" && (
+            {um && um.oomRisk != null && um.oomRisk !== "low" && (
               <Tag tone={um.oomRisk === "high" ? "bad" : "warn"}>
                 {um.oomRisk === "high" ? t("memory.highOomRisk") : t("memory.pressure")}
               </Tag>
             )}
-            {um && um.bandwidth.current > 0 && (
+            {um && um.bandwidth.current != null && um.bandwidth.current > 0 && (
               <Tag title={t("memory.bandwidthHelp")}>
                 {um.bandwidth.current.toFixed(1)} / {um.bandwidth.peak} GB/s
               </Tag>

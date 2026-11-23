@@ -1,9 +1,9 @@
 {
   "page": {
     "title": "存储管理",
-    "description": "查看 DGX Spark 上哪些文件夹占用空间最多，检查 Docker 的空间占用，并删除不再需要的内容。",
-    "noSpark": "没有可查看的 DGX Spark",
-    "noSparkHelp": "存储管理适用于 DGX Spark 节点。通过侧栏添加节点后，就可以在此查看。",
+    "description": "查看 Linux 节点上哪些文件夹占用空间最多，检查 Docker 的空间占用，并删除不再需要的内容。",
+    "noSpark": "没有可用的 Linux 节点",
+    "noSparkHelp": "存储管理支持 DGX Spark 和其他 Linux 主机。通过侧栏添加 Linux 节点，即可在此管理其存储。",
     "offline": "{{name}} 已离线。",
     "offlineShort": "{{name}} 已离线",
     "offlineHelp": "节点恢复连接后，即可重新分析、删除和管理 Docker。",
@@ -41,7 +41,7 @@
     "sshHelp": "命令通过 SSH 使用为此 Spark 配置的账户执行。"
   },
   "picker": {
-    "label": "选择要分析的 Spark",
+    "label": "选择要分析的节点",
     "offline": "离线",
     "sizeUnknown": "尚未报告磁盘容量",
     "savedOnly": "无法连接 · 仅可查看已保存的结果"
@@ -611,5 +611,130 @@
     "imagesReclaimable": "Docker 估算这些镜像约有 {{bytes}} 可回收。",
     "containersReclaimable": "Docker 估算这些容器约有 {{bytes}} 可回收。",
     "cacheReclaimed": "Docker 报告已回收 {{bytes}} 的构建缓存。"
+  },
+  "junk": {
+    "tab": "清理智能体残留",
+    "new": "新",
+    "title": "清理智能体残留",
+    "description": "编程智能体会留下各种东西：已完成任务的工作树、临时文件夹、会话日志、旧的编辑器服务器、临时脚本、备份和报告。这里会在主目录和 /tmp 中找出它们，并对每一项做出智能判断。在你确认之前不会删除任何内容。",
+    "look": "查找智能体残留",
+    "lookAgain": "重新查找",
+    "looking": "正在检查 {{name}}…",
+    "lookingHelp": "主目录、/tmp 以及智能体保存会话的位置。此操作只读，通常不到一分钟。",
+    "offline": "{{name}} 已离线。恢复连接后可再次查找智能体残留。",
+    "failed": "无法查找智能体残留",
+    "failedWith": "无法查找智能体残留：{{error}}",
+    "clean": "{{name}} 上没有残留。",
+    "cleanHelp": "没有找到智能体工作树、临时文件夹、会话日志或临时文件。",
+    "found_one": "找到 {{count}} 项",
+    "found_other": "找到 {{count}} 项",
+    "smartFound_one": "智能选择：{{count}} 项可安全删除",
+    "smartFound_other": "智能选择：{{count}} 项可安全删除",
+    "pickLabel": "勾选",
+    "pick": {
+      "smart": "智能选择",
+      "likely": "+ 可能是残留",
+      "all": "全部",
+      "none": "不选"
+    },
+    "how": "智能选择只勾选明显的残留：较旧、未在使用、且不属于你在 git 中保存的内容。请查看“可能是残留”和“需先检查”，按需勾选或取消，然后删除。每一项在删除前都会再次检查。",
+    "filterLabel": "显示",
+    "verdict": {
+      "junk": "残留",
+      "likely": "可能是残留",
+      "review": "需先检查",
+      "keep": "保留"
+    },
+    "search": "按名称、路径或智能体筛选",
+    "noMatch": "没有符合筛选条件的项。",
+    "incomplete": "查找超时或结果超出可列出的数量，可能遗漏部分项。删除这些后请重新查找。",
+    "selectGroup": "勾选 {{group}} 中的全部项",
+    "groupCount": "已勾选 {{picked}} / {{count}}",
+    "showMore_one": "再显示 {{count}} 项",
+    "showMore_other": "再显示 {{count}} 项",
+    "checkedAt": "{{age}} 前检查。",
+    "barLabel": "删除已勾选的项",
+    "selected_one": "已勾选 {{count}} 项",
+    "selected_other": "已勾选 {{count}} 项",
+    "plusUnmeasured_one": "（另有 {{count}} 项未测量）",
+    "plusUnmeasured_other": "（另有 {{count}} 项未测量）",
+    "nothingSelected": "勾选你要删除的内容。",
+    "clear": "全部取消",
+    "remove_one": "删除 {{count}} 项 · {{size}}",
+    "remove_other": "删除 {{count}} 项 · {{size}}",
+    "removeNothing": "删除",
+    "group": {
+      "worktrees": {
+        "title": "智能体工作树",
+        "why": "智能体为任务创建的额外检出。提交仍保留在仓库中，只删除文件副本。"
+      },
+      "temp": {
+        "title": "临时文件夹",
+        "why": "智能体、测试浏览器和构建工具在会话结束后留在 /tmp 中的内容。"
+      },
+      "sessions": {
+        "title": "会话日志与状态",
+        "why": "智能体保存在主目录中的会话记录、调试日志和会话临时数据。"
+      },
+      "editors": {
+        "title": "编辑器服务器",
+        "why": "旧版本的 VS Code、Cursor 或 Windsurf 服务器及其日志。正在使用的版本会保留。"
+      },
+      "scratch": {
+        "title": "临时、备份与报告文件",
+        "why": "写在代码旁且从未加入 git 的一次性脚本、.bak/.orig 副本和总结报告。"
+      },
+      "caches": {
+        "title": "智能体下载的内容",
+        "why": "软件包和浏览器下载。可以安全删除，需要时会重新下载。"
+      }
+    },
+    "rule": {
+      "claude-worktree": "Claude Code 工作树。",
+      "codex-worktree": "Codex 工作树。",
+      "agent-worktree": "智能体工作树。",
+      "tmp-agent": "智能体的临时文件夹。",
+      "tmp-browser": "测试浏览器的临时配置。",
+      "tmp-tool": "构建或测试工具的临时文件夹。",
+      "claude-sessions": "某个项目的 Claude Code 会话记录（仅 /resume 历史）。",
+      "claude-state": "Claude Code 会话临时数据，需要时会重建。",
+      "claude-logs": "Claude Code 调试和 MCP 日志。",
+      "codex-sessions": "Codex 会话日志。",
+      "gemini-tmp": "Gemini CLI 临时文件。",
+      "opencode-logs": "opencode 日志和快照。",
+      "continue-sessions": "Continue 会话历史。",
+      "editor-server": "一个编辑器服务器版本。",
+      "editor-logs": "编辑器服务器日志。",
+      "aider-files": "Aider 聊天历史或标签缓存。",
+      "scratch-script": "一次性脚本。",
+      "agent-report": "智能体写的总结或报告。",
+      "backup-file": "编辑后留下的备份副本。",
+      "core-dump": "崩溃程序的内存转储。",
+      "stray-log": "较大的日志文件。",
+      "npx-cache": "通过 npx 获取的软件包。",
+      "browser-cache": "为测试下载的浏览器；测试时会重新下载。",
+      "package-cache": "pip 或 uv 下载缓存。"
+    },
+    "signal": {
+      "age_day_one": "{{count}} 天前",
+      "age_day_other": "{{count}} 天前",
+      "age_week_one": "{{count}} 周前",
+      "age_week_other": "{{count}} 周前",
+      "age_month_one": "{{count}} 个月前",
+      "age_month_other": "{{count}} 个月前",
+      "age_year_one": "{{count}} 年前",
+      "age_year_other": "{{count}} 年前",
+      "recent": "今天有改动：可能正在使用",
+      "age-unknown": "时间未知",
+      "untracked": "未加入 git",
+      "no-git": "不在 git 中",
+      "home-root": "散落在主目录",
+      "uncommitted": "有未提交的更改",
+      "memory": "包含智能体保存的记忆",
+      "tests-folder": "位于测试文件夹",
+      "worktree-session": "来自已删除的工作树",
+      "current-version": "正在使用的版本",
+      "size-partial": "大小仅部分测量"
+    }
   }
 }

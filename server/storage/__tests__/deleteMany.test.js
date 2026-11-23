@@ -93,7 +93,7 @@ test("every path is checked first: one bad path refuses the whole request and no
     assert.throws(() => m.startDeleteMany(spark, { paths }), (e) => e.status === 400 && e.code === "bad-paths", String(paths?.length));
   }
   assert.throws(() => m.startDeleteMany(spark, { paths: ["/home/me/a"], sudoPassword: "pw" }), (e) => e.status === 400, "a password needs sudo: true");
-  assert.throws(() => m.startDeleteMany({ id: "h", kind: "host" }, { paths: ["/home/me/a"] }), (e) => e.status === 400);
+  assert.throws(() => m.startDeleteMany({ id: "h", kind: "host", platform: "windows" }, { paths: ["/home/me/a"] }), (e) => e.status === 400);
   assert.equal(calls.length, 0, "nothing ran");
   assert.equal(m.deleteManyJob(spark), null, "no job was created");
   // The Spark is free: a refused request held nothing.

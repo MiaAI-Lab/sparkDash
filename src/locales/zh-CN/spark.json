@@ -17,6 +17,31 @@
     "usage": "使用率"
   },
   "memory": {
+    "physical": {
+      "title": "物理内存",
+      "usedOf": "使用中 {{used}} / {{total}}",
+      "apps": "应用",
+      "wired": "联动内存",
+      "compressed": "已压缩",
+      "cached": "缓存（可回收）",
+      "other": "其他 / 保留",
+      "free": "空闲",
+      "appsHelp": "驻留的应用和匿名内存，不含可清除页面。GPU 内存可能包含在内。",
+      "wiredHelp": "系统和驱动程序锁定的内存，包括锁定的 GPU 分配。",
+      "compressedHelp": "压缩器实际占用的物理内存，并非解压后的大小。",
+      "cachedHelp": "文件缓存和可清除页面。占用内存，但 macOS 可以回收。",
+      "otherHelp": "物理内存中未被本次页面计数归类的剩余部分。",
+      "freeHelp": "未占用的物理内存。",
+      "unavailable": "物理内存分类不可用",
+      "pressure": "内存压力：",
+      "pressureStates": {
+        "normal": "正常",
+        "warning": "偏高",
+        "critical": "严重",
+        "unknown": "不可用"
+      },
+      "swap": "磁盘交换空间：{{value}}"
+    },
     "title": "统一内存",
     "usedOf": "已用 {{used}} / {{total}} · {{percentage}}%",
     "usedLabel": "统一内存已用 {{percentage}}%",
@@ -238,6 +263,7 @@
     "sampleOffHelp": "该引擎不发布任何实时计数器。在设置中开启“对流采样无指标引擎”，让面板自行测量解码 tok/s。",
     "completedPrefillHelp": "同一窗口内已完成请求的 Token 与预填充耗时增量；并非持续的实时吞吐。",
     "effectiveIncludesCached": "有效速率 · 包含缓存 Token",
+    "completedPrefillSplit": "已计算 Token · 不含缓存",
     "completedDecodeRate": "{{rate}} tok/s · 最近完成"
   },
   "sessions": {

@@ -23,7 +23,7 @@ const cleanAnswer = (n, extra = []) =>
 async function withApp({ run, allowRead = () => true, allowChange = () => true, sparks, scansFile = null, adviceRefs }, fn) {
   const app = express();
   app.use(express.json());
-  const known = sparks ?? { s1: { id: "s1", name: "Spark One", kind: "spark" }, s2: { id: "s2", name: "Spark Two", kind: "spark" }, h1: { id: "h1", name: "H1", kind: "host" } };
+  const known = sparks ?? { s1: { id: "s1", name: "Spark One", kind: "spark" }, s2: { id: "s2", name: "Spark Two", kind: "spark" }, h1: { id: "h1", name: "H1", kind: "host", platform: "windows" } };
   const manager = new StorageManager({ run, holdMs: 0, scansFile, now: () => NOW_S * 1000 });
   registerStorageRoutes(app, {
     manager,

@@ -13,7 +13,7 @@ async function withApp({ run, allow = () => true, sparks, remoteAddr, headers, p
   // Test hook: pretend the browser connected from another machine.
   if (remoteAddr) app.use((req, _res, next) => { Object.defineProperty(req.socket, "remoteAddress", { value: remoteAddr, configurable: true }); next(); });
   if (headers) app.use((req, _res, next) => { Object.assign(req.headers, headers); next(); });
-  const known = sparks ?? { s1: { id: "s1", name: "S1", kind: "spark" }, h1: { id: "h1", name: "H1", kind: "host" } };
+  const known = sparks ?? { s1: { id: "s1", name: "S1", kind: "spark" }, gpu: { id: "gpu", name: "GPU Box", kind: "host", platform: "linux" }, h1: { id: "h1", name: "H1", kind: "host", platform: "windows" } };
   const manager = new StorageManager({ run, holdMs: 0 });
   registerStorageRoutes(app, {
     manager,
@@ -49,18 +49,18 @@ test("status carries whether a typed password would be accepted from here", asyn
   });
 });
 
-test("scan: start, poll, then read the result", async () => {
+test("Linux GPU host scan: start, poll, then read the result", async () => {
   await withApp({ run: async () => scan([[100, "d", "/"], [60, "d", "/home"]]) }, async (base, _e, manager) => {
-    const start = await fetch(`${base}/s1/storage/scan`, json("POST", { path: "/", depth: 2 }));
+    const start = await fetch(`${base}/gpu/storage/scan`, json("POST", { path: "/", depth: 2 }));
     assert.equal(start.status, 202);
     assert.equal((await start.json()).job.state, "running");
-    await manager.settled("s1");
-    const done = await (await fetch(`${base}/s1/storage/scan`)).json();
+    await manager.settled("gpu");
+    const done = await (await fetch(`${base}/gpu/storage/scan`)).json();
     assert.equal(done.job.state, "done");
     assert.equal(done.session.entries.length, 2);
-    const same = await (await fetch(`${base}/s1/storage/scan?since=${done.revision}`)).json();
+    const same = await (await fetch(`${base}/gpu/storage/scan?since=${done.revision}`)).json();
     assert.equal(same.session, null);
-    const stop = await fetch(`${base}/s1/storage/scan`, json("DELETE"));
+    const stop = await fetch(`${base}/gpu/storage/scan`, json("DELETE"));
     assert.equal(stop.status, 200);
   });
 });
@@ -134,7 +134,7 @@ test("docker: overview, and removing images logs one event", async () => {
   });
 });
 
-test("host units, unknown units and rate-limited callers are refused before anything runs", async () => {
+test("Windows units, unknown units and rate-limited callers are refused before anything runs", async () => {
   let ran = 0;
   const run = async () => { ran += 1; return "RESULT=ok\n"; };
   await withApp({ run }, async (base) => {

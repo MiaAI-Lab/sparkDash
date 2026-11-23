@@ -4,7 +4,8 @@ import { Trans, useTranslation } from "react-i18next";
 import { fetchStorageContext, fetchStorageStatus } from "../../api/client";
 import type { SparkSnapshot, StorageContext, StorageStatus } from "../../api/types";
 import { formatSince } from "../../shared/formatSince";
-import { BoxIcon, DiskIcon, RotateIcon } from "../ui/icons";
+import { BoxIcon, DiskIcon, RotateIcon, SparkleIcon } from "../ui/icons";
+import { AgentJunkTab } from "./AgentJunkTab";
 import { AdminDeleteAckNote } from "./AdminDeleteAck";
 import { Banner } from "./Banner";
 import { DiskSummary } from "./DiskSummary";
@@ -38,7 +39,7 @@ function writePref(key: string, value: string) {
 }
 
 /**
- * Storage Manager: pick a DGX Spark, analyse its disk to see which folders take the most space,
+ * Storage Manager: pick a Linux unit, analyse its disk to see which folders take the most space,
  * look at Docker's images, and delete what is not needed (as administrator when it takes sudo).
  */
 export function StoragePage({ sparks }: { sparks: SparkSnapshot[] }) {
@@ -48,10 +49,13 @@ export function StoragePage({ sparks }: { sparks: SparkSnapshot[] }) {
   // last Spark and tab picked are the defaults when the address says nothing.
   const [loc, go] = useStorageLocation();
   const chosen = loc.spark ?? readPref(SPARK_PREF);
-  const tab: StorageTab = loc.tab ?? (readPref(TAB_PREF) === "docker" ? "docker" : "files");
+  const savedTab = readPref(TAB_PREF);
+  const tab: StorageTab = loc.tab ?? (savedTab === "docker" || savedTab === "junk" ? savedTab : "files");
   const [dockerSeen, setDockerSeen] = useState(tab === "docker");
+  const [junkSeen, setJunkSeen] = useState(tab === "junk");
   useEffect(() => {
     if (tab === "docker") setDockerSeen(true);
+    if (tab === "junk") setJunkSeen(true);
   }, [tab]);
   const [notice, setNotice] = useState<Notice | null>(null);
 
@@ -232,6 +236,11 @@ export function StoragePage({ sparks }: { sparks: SparkSnapshot[] }) {
                   <BoxIcon className="h-3.5 w-3.5" />
                   Docker
                 </button>
+                <button type="button" role="tab" id="st-tab-junk" className="st-tab--junk" aria-controls="st-panel-junk" aria-selected={tab === "junk"} onClick={() => pickTab("junk")}>
+                  <SparkleIcon className="h-3.5 w-3.5" />
+                  {t("junk.tab")}
+                  <span className="st-tab__new">{t("junk.new")}</span>
+                </button>
               </div>
 
               {/* Both tabs stay mounted once opened, so an analysis or a selection survives switching. */}
@@ -259,6 +268,11 @@ export function StoragePage({ sparks }: { sparks: SparkSnapshot[] }) {
                   ) : (
                     <DockerTab key={spark.id} spark={spark} peers={candidates.filter((s) => s.id !== spark.id && s.online)} access={access} onNotice={setNotice} onDiskChanged={refreshDisks} />
                   )}
+                </div>
+              ) : null}
+              {junkSeen ? (
+                <div className="st-panel" role="tabpanel" id="st-panel-junk" aria-labelledby="st-tab-junk" hidden={tab !== "junk"}>
+                  <AgentJunkTab key={spark.id} spark={spark} status={offline ? null : status} access={access} active={tab === "junk"} onNotice={setNotice} onDiskChanged={refreshDisks} />
                 </div>
               ) : null}
             </>

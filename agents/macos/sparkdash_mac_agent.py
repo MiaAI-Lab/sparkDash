@@ -218,20 +218,18 @@ def parse_vm_stat(text: str) -> dict[str, int]:
         "speculative": pages("Pages speculative"),
         "wired": pages("Pages wired down"),
         "compressed": pages("Pages occupied by compressor"),
+        "compressedAvailable": bool(re.search(r"Pages occupied by compressor:\s+\d+", text)),
         "purgeable": pages("Pages purgeable"),
         "anonymous": pages("Anonymous pages"),
         "fileBacked": pages("File-backed pages"),
     }
 
 
-def unified_memory(vm: dict[str, int], memsize_bytes: int) -> dict[str, object]:
-    """Unified memory in MB, counted like Activity Monitor's "Memory Used".
+def unified_memory(vm: dict[str, int], memsize_bytes: int, counters: dict[str, str] | None = None) -> dict[str, object]:
+    """RAM in MiB, native pressure, and optional disjoint physical page slices.
 
-    Same arithmetic and field names as the SSH Mac collector
-    (MacSystemCollector.unifiedMemoryFromVmStat) so a node reads identically
-    over either transport: app memory (anonymous pages minus purgeable) + wired
-    (what Metal pins, incl. MLX weights and KV cache) + compressor pages;
-    file-backed cache counts as available.
+    Direct kernel counters define physical use when available. Otherwise retain
+    the legacy anonymous/wired/compressor usage estimate without inventing slices.
     """
     def to_mb(count: int) -> int:
         return int(round(count * vm["pageSize"] / MB))
@@ -246,7 +244,29 @@ def unified_memory(vm: dict[str, int], memsize_bytes: int) -> dict[str, object]:
     used = min(total or float("inf"), gpu_used + cpu_used)
     available = max(0, total - used)
     percentage = int(round(used / total * 100)) if total > 0 else 0
-    oom_risk = "high" if percentage > 85 else "medium" if percentage > 60 else "low"
+    counters = counters or {}
+    pressure = {"1": "normal", "2": "warning", "4": "critical"}.get(counters.get("kern.memorystatus_vm_pressure_level"), "unknown")
+    oom_risk = {"normal": "low", "warning": "medium", "critical": "high"}.get(pressure)
+    physical = None
+    keys = ["vm.page_pageable_internal_count", "vm.page_pageable_external_count", "vm.page_free_count", "vm.page_wired_count", "vm.page_purgeable_count"]
+    if total > 0 and vm.get("compressedAvailable") and all(re.fullmatch(r"\d+", counters.get(key, "")) for key in keys):
+        internal, external, free_pages, wired_pages, purgeable = (int(counters[key]) for key in keys)
+        physical = {
+            "apps": (internal - purgeable) * vm["pageSize"] / MB,
+            "wired": wired_pages * vm["pageSize"] / MB,
+            "compressed": vm["compressed"] * vm["pageSize"] / MB,
+            "cached": (external + purgeable) * vm["pageSize"] / MB,
+            "free": free_pages * vm["pageSize"] / MB,
+        }
+        physical["other"] = total - sum(physical.values())
+        if min(physical.values()) < 0:
+            physical = None
+        else:
+            available = int(round(physical["cached"] + physical["free"]))
+            used = total - available
+            gpu_used = min(gpu_used, used)
+            cpu_used = used - gpu_used
+            percentage = int(round(used / total * 100))
     return {
         "total": total,
         "gpuUsed": gpu_used,
@@ -255,6 +275,8 @@ def unified_memory(vm: dict[str, int], memsize_bytes: int) -> dict[str, object]:
         "available": available,
         "percentage": percentage,
         "oomRisk": oom_risk,
+        "memoryPressure": pressure,
+        "physical": physical,
     }
 
 
@@ -1135,8 +1157,8 @@ def collect_snapshot(inventory: dict[str, object], *, allow_powermetrics: bool,
         unavailable.append({"metric": "cpu.perCore", "reason": "install psutil for per-core readings"})
 
     vm = parse_vm_stat(run(["vm_stat"], timeout=3.0))
-    memsize = sysctl_read(["hw.memsize", "vm.swapusage"])
-    memory = unified_memory(vm, int(memsize.get("hw.memsize") or 0))
+    memsize = sysctl_read(["hw.memsize", "vm.swapusage", "vm.page_pageable_internal_count", "vm.page_pageable_external_count", "vm.page_free_count", "vm.page_wired_count", "vm.page_purgeable_count", "kern.memorystatus_vm_pressure_level"])
+    memory = unified_memory(vm, int(memsize.get("hw.memsize") or 0), memsize)
     memory["swap"] = parse_swap_usage(memsize.get("vm.swapusage"))
     memory["source"] = "vm_stat"
 

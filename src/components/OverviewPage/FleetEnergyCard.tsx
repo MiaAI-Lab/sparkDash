@@ -1,5 +1,6 @@
 import { RestartButton } from "../ui/RestartButton";
 import { AppLink } from "../ui/AppLink";
+import { Tag } from "../ui/Tag";
 import { ENERGY_ID, idToPath } from "../../constants";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -84,6 +85,7 @@ export function FleetEnergyCard({
             : null;
 
   const hourly = view?.hourlyWatts24h ?? Array(24).fill(null);
+  const hourlyCounts = view?.hourlyReportingNodeCount24h ?? Array(24).fill(null);
   const max = Math.max(1, ...hourly.filter((value): value is number => value != null));
   return (
     <section className="panel ov-card" aria-labelledby="fleet-energy-title">
@@ -124,7 +126,13 @@ export function FleetEnergyCard({
             key={index}
             className={index === hourly.length - 1 ? "is-now" : undefined}
             style={{ height: watts == null ? 0 : `${Math.max(4, (watts / max) * 100)}%` }}
-            title={watts == null ? t("energy.noCompleteCoverage") : `${watts.toFixed(0)} W`}
+            title={
+              watts == null
+                ? t("energy.noCompleteCoverage")
+                : `${watts.toFixed(0)} W${hourlyCounts[index] != null && hourlyCounts[index]! < nodeCount
+                    ? ` · ${t("energy.reportingOf", { fresh: hourlyCounts[index], total: nodeCount })}`
+                    : ""}`
+            }
           />
         ))}
       </div>
@@ -132,7 +140,7 @@ export function FleetEnergyCard({
       <dl className="ov-stats">
         <div><dt>{t("energy.current")}</dt><dd className="mono">{number(view?.currentWatts30s ?? null, 0)} W</dd></div>
         <div><dt>{t("energy.days", { count: 31 })}</dt><dd className="mono">{number(view?.energy31dKwh ?? null)} kWh</dd></div>
-        <div><dt>{t("energy.efficiency")}</dt><dd className="mono">{significant(view?.whPerOutputToken24h ?? null)} Wh/token</dd></div>
+        <div><dt className="flex items-center gap-1.5">{t("energy.efficiency")} <Tag tone="neutral">{t("energy.lowerIsBetter")}</Tag></dt><dd className="mono">{significant(view?.whPerOutputToken24h ?? null)} Wh/token</dd></div>
       </dl>
     </section>
   );

@@ -524,10 +524,13 @@ export function LlmPanel({
 
   const fmtTps = (n: number) => (n >= 1000 ? Math.round(n).toLocaleString() : n.toFixed(1));
   const fmtAvg = (n: number) => (n >= 100 ? n.toFixed(0) : n.toFixed(1));
-  const isVllm = llm != null && (llm.backend === "vllm" || llm.backend === "q27" || llm.backend === "radiance" || llm.backend === "flare" || llm.backend === "locals" || llm.backend === "splash");
+  const isVllm = llm != null && (llm.backend === "vllm" || llm.backend === "q27" || llm.backend === "radiance" || llm.backend === "flare" || llm.backend === "locals" || llm.backend === "splash" || llm.backend === "ignis");
   // FreeToken reports KV use, active requests and a TTFT mean in /v1/stats; the tiles below are null-gated.
   const isFreeToken = llm?.backend === "freetoken";
-  const showEngineTiles = isVllm || isFreeToken || isStrata;
+  // Pico publishes the two request gauges on /metrics (pico-dgx-ds4 >= the /metrics front end); every
+  // other tile stays null-gated, so a build without counters shows only what it measured.
+  const isPicoCounters = isPico && llm?.requestsRunning != null;
+  const showEngineTiles = isVllm || isFreeToken || isStrata || isPicoCounters;
   const kvTone =
     llm?.kvCacheUsage == null
       ? ""
@@ -805,7 +808,7 @@ export function LlmPanel({
                     <span className="ov-tps__dots" aria-hidden />
                     <small>{t("llm.decoding")}</small>
                   </>
-                ) : isPico && !sampledDecode && llm?.generationTpsSource !== "dashboard-stream" ? (
+                ) : isPico && llm?.generationTpsSource == null ? (
                   <span title={t("llm.sampleOffHelp")}>—</span>
                 ) : (
                   <>
@@ -884,7 +887,9 @@ export function LlmPanel({
               )}
               {measured && completedPrefill && (
                 <span className="sp-avg" title={t("llm.completedPrefillHelp")}>
-                  {t("llm.effectiveIncludesCached")}
+                  {llm?.prefillTpsSource === "completed-split"
+                    ? t("llm.completedPrefillSplit")
+                    : t("llm.effectiveIncludesCached")}
                 </span>
               )}
             </div>

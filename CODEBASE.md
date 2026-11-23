@@ -20,6 +20,7 @@ The package uses ESM throughout. `server/index.js` runs directly in Node and cre
 | `server/llmlaunch/`, `server/tooleval/`, `server/gpuclock/` | Model launcher jobs, tool evaluation, GPU-clock management and per-card power limits on GPU hosts (`gpuclock/powerCommands.js`) |
 | `server/prices/` | Opt-in hosted-model price catalog and offline cache |
 | `server/apiKeys/`, `scripts/apikeys-bridge/` | Opt-in read-only API Keys views and the reference host bridge they call over a unix socket |
+| `server/attic/` | Confirmed spark-attic installation on Linux Sparks using a pinned installer and sudo; status collection remains in `collectors/AtticProbe.js` |
 | `server/training/`, `server/collectors/TrainingProgressCollector.js` | Opt-in JSON training-report provider, bounded snapshots and one authenticated read-only route; [report contract](server/training/README.md) |
 | `server/storage/` | Storage Manager: disk scans, Docker images, deletes. Shell programs in `scripts/`, path safety in `policy.js`, execution contexts (ssh / native-local / container-local) and the per-feature `supports()` table in `context.js`, what may start (one job per Spark, two scans per fleet) in `admission.js`, scan stop and reconcile rules in `scanJob.js` (unit-side lock and job records in `scripts/unit-state.sh`, stop in `scripts/job.sh`), the delete advisor's rules and known-place table in `advice.js` (pure; evidence from the read-only `scripts/advise.sh`, parsed by `parseAdviseOutput` in `commands.js`), routes under `/api/sparks/:id/storage` |
 | `src/api/` | API clients and browser-facing data types |
@@ -57,6 +58,12 @@ Agent-backed Macs expose this catalog in the Models panel, including bounded
 operation output with copy and expanded views. The configured `macTransport`
 snapshot field keeps that control surface stable while telemetry is offline.
 SSH-backed hosts retain the script-based Models panel.
+
+Mac RAM composition uses direct kernel page counters for resident apps, wired
+memory, physical compressor storage, reclaimable cache and free pages; any
+unattributed physical capacity is shown separately. The shared physical-memory
+bar appears on the overview and unit page. Native macOS pressure drives Mac
+memory warnings; absent pressure stays unknown. Swap remains outside the RAM bar.
 
 ## Metric conventions
 

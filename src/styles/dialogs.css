@@ -268,6 +268,14 @@
   color: var(--color-danger);
   font-size: 0.75rem;
 }
+.modal-sheet__success {
+  padding: 0.6rem 0.8rem;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--color-success) 35%, transparent);
+  background: color-mix(in srgb, var(--color-success) 12%, transparent);
+  color: var(--color-success);
+  font-size: 0.75rem;
+}
 .settings-panel > .modal-sheet__error {
   margin: 0 1.35rem 0.75rem;
 }

@@ -17,6 +17,31 @@
     "usage": "Usage"
   },
   "memory": {
+    "physical": {
+      "title": "Physical memory",
+      "usedOf": "{{used}} in use / {{total}}",
+      "apps": "Apps",
+      "wired": "Wired",
+      "compressed": "Compressed",
+      "cached": "Cache (reclaimable)",
+      "other": "Other / reserved",
+      "free": "Free",
+      "appsHelp": "Resident app and anonymous memory, excluding purgeable pages. GPU memory can be part of this.",
+      "wiredHelp": "Pinned system and driver memory, including pinned GPU allocations.",
+      "compressedHelp": "Physical RAM occupied by the compressor, not the larger uncompressed size.",
+      "cachedHelp": "File cache and purgeable pages. Occupies RAM, but macOS can reclaim it.",
+      "otherHelp": "The physical-memory remainder not attributed by the sampled page counters.",
+      "freeHelp": "Unoccupied physical RAM.",
+      "unavailable": "Physical breakdown unavailable",
+      "pressure": "Memory pressure:",
+      "pressureStates": {
+        "normal": "Normal",
+        "warning": "Elevated",
+        "critical": "Critical",
+        "unknown": "Unavailable"
+      },
+      "swap": "Swap on disk: {{value}}"
+    },
     "title": "Unified memory",
     "usedOf": "{{used}} of {{total}} · {{percentage}}%",
     "usedLabel": "Unified memory {{percentage}}% used",
@@ -238,6 +263,7 @@
     "sampleOffHelp": "This engine publishes no live counters. Turn on Settings → Stream-sample engines without gauges to have the dashboard measure decode tok/s itself.",
     "completedPrefillHelp": "Token and prefill-time deltas over requests that finished in the same window; not continuous live throughput.",
     "effectiveIncludesCached": "Effective rate · includes cached tokens",
+    "completedPrefillSplit": "Computed tokens · cached excluded",
     "completedDecodeRate": "{{rate}} tok/s · last completions"
   },
   "sessions": {
