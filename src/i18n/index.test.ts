@@ -8,9 +8,10 @@ afterEach(async () => {
 });
 
 describe("language preference", () => {
-  it("recognizes supported Simplified Chinese tags and the previous browser preference", () => {
+  it("recognizes supported Simplified and Traditional Chinese tags and the previous browser preference", () => {
     for (const tag of ["zh", "zh-CN", "zh-SG", "zh_MY", "zh-Hans", "zh-Hans-CN"]) expect(normalizeLocale(tag)).toBe("zh-CN");
-    for (const tag of ["zh-TW", "zh-Hant", "zh-HK", "de", ""]) expect(normalizeLocale(tag)).toBeNull();
+    for (const tag of ["zh-TW", "zh-Hant", "zh-HK", "zh-MO", "zh_Hant_TW"]) expect(normalizeLocale(tag)).toBe("zh-TW");
+    for (const tag of ["de", ""]) expect(normalizeLocale(tag)).toBeNull();
     expect(normalizeLocale("en-GB")).toBe("en");
   });
 
@@ -29,6 +30,18 @@ describe("language preference", () => {
     expect(localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("zh-CN");
     expect(detectLocale()).toBe("zh-CN");
     await setLocale("en");
+    expect(document.documentElement.lang).toBe("en");
+  });
+
+  it("switches to Traditional Chinese, updates HTML, and survives preference reads", async () => {
+    await setLocale("zh-TW");
+    expect(i18n.resolvedLanguage).toBe("zh-TW");
+    expect(document.documentElement.lang).toBe("zh-TW");
+    expect(localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("zh-TW");
+    expect(detectLocale()).toBe("zh-TW");
+    expect(i18n.t("language:traditionalChinese")).toBe("繁體中文");
+    await setLocale("en");
+    expect(i18n.resolvedLanguage).toBe("en");
     expect(document.documentElement.lang).toBe("en");
   });
 

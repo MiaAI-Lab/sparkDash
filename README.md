@@ -99,7 +99,7 @@ Monitored units run **Linux**, **macOS**, or **Windows** (a Windows PC with an N
 - **Pico** is recognised as its own engine; with **Settings → Stream-sample engines without gauges** the dashboard measures decode tok/s itself and labels it *sampled*.
 - **Storage Manager** (sidebar → Storage): analyse a Spark's disk, browse files and Docker images, multi-select deletes with a pre-delete check and staged deletion.
 - **GPU power limit per card** on GPU hosts, and **Settings → Allow sudo password over plain http** for units without passwordless sudo.
-- **API Keys page** (opt-in, read-only LiteLLM keys) and English/简体中文 across the main surfaces.
+- **API Keys page** (opt-in, read-only LiteLLM keys) and English/简体中文/繁體中文 across the main surfaces.
 
 ### Version 2.70.0
 - **Decode benchmark**: temperature (default 0.7) and thinking on or off are selectable for every type; the copied result text and the share card show both.

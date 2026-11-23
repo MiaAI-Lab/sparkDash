@@ -1,0 +1,268 @@
+{
+  "dialog": {
+    "title": "設定",
+    "close": "關閉",
+    "loading": "載入中…",
+    "cancel": "取消",
+    "save": "儲存",
+    "saving": "儲存中…"
+  },
+  "appearance": {
+    "title": "外觀",
+    "help": "會立即套用到這台裝置，並儲存在這個瀏覽器中。",
+    "theme": "主題",
+    "white": "白色",
+    "light": "淺色",
+    "dark": "深色",
+    "oled": "OLED"
+  },
+  "refresh": {
+    "title": "重新整理頻率",
+    "help": "每個節點被輪詢 GPU、CPU、記憶體、網路與 LLM 指標的頻率，以及儀表板更新的頻率。遠端節點是透過 SSH 輪詢，因此 1 秒的負擔最大；儲存空間與存活狀態仍使用各自較慢的檢查。",
+    "interval": "輪詢間隔",
+    "oneSecond": "1 秒",
+    "twoSeconds": "2 秒",
+    "fiveSeconds": "5 秒",
+    "tenSeconds": "10 秒"
+  },
+  "sessionAge": {
+    "title": "工作階段時限",
+    "help": "隱藏早於此時限的 harness 工作階段。最長可選 14 天，沒有「無限制」這個選項。",
+    "hours": "{{count}} 小時",
+    "days": "{{count}} 天"
+  },
+  "harnessSessions": {
+    "title": "Harness 工作階段",
+    "help": "每台機器上的輔助程式會列出 OpenClaw、OpenCode、oh-my-pi、Hermes 與 DeepSeek Harness。儀表板只會儲存輔助程式的位址與 token。",
+    "setup": "設定"
+  },
+  "temperature": {
+    "title": "溫度單位",
+    "aria": "溫度單位"
+  },
+  "healthTemps": {
+    "title": "GPU 溫度警示",
+    "help": "當最熱的 GPU 達到第一個數值時，健康檢查會發出警告；達到第二個數值時轉為嚴重。無論顯示單位為何，皆以 °C 計算。警示通知也使用相同的限值。預設為 85 與 90；警告值必須低於嚴重值。",
+    "warn": "警告溫度（°C）",
+    "reset": "重設為預設值",
+    "critical": "嚴重溫度（°C）"
+  },
+  "timeZone": {
+    "title": "時區",
+    "help": "token、能耗與活動圖表上的小時與日期界線及標籤。留空則跟隨此瀏覽器（{{timeZone}}）。每日 token 分桶與每月能耗總計仍以 UTC 計算。",
+    "placeholder": "瀏覽器預設",
+    "inputTitle": "留空則跟隨此瀏覽器（{{timeZone}}）",
+    "useBrowser": "使用瀏覽器設定",
+    "unknown": "未知的時區。試試 Europe/Paris。"
+  },
+  "defaultLlmPort": {
+    "title": "預設 LLM 連接埠",
+    "help": "新增 Spark 時會預先填入（1–65535）。"
+  },
+  "toggles": {
+    "hideOffline": {
+      "title": "隱藏離線的 Spark",
+      "help": "在總覽中自動隱藏離線的 Spark。"
+    },
+    "hideWorkers": {
+      "title": "隱藏工作節點",
+      "help": "從總覽與側邊欄移除角色為工作節點的 Spark。直接開啟網址與批次電源／Hermes 操作仍會包含它們。"
+    },
+    "overviewSearch": {
+      "title": "顯示搜尋與狀態篩選",
+      "help": "總覽的搜尋欄位與狀態下拉選單（全部／上線／離線／問題）。預設關閉。"
+    },
+    "benchShareImage": {
+      "title": "基準測試分享圖片",
+      "help": "解碼／預填充的「複製結果」按鈕會多出一個下拉選單，提供「複製為文字／複製為圖片」（分享卡片）。關閉後會保留單純的文字複製按鈕。"
+    },
+    "vramBreakdown": {
+      "title": "詳細 VRAM 細分",
+      "help": "VRAM 長條圖會把記憶體拆分為 LLM 引擎、系統與可用，並在可用記憶體偏低時（而非使用比例偏高時）轉為琥珀色或紅色。關閉後會改為單一百分比長條。"
+    },
+    "prometheus": {
+      "title": "Prometheus 指標",
+      "help": "在 {{origin}}/metrics 提供每個節點的指標，供 Prometheus／Grafana 抓取。預設關閉。"
+    },
+    "allowPlainSudoPassword": {
+      "title": "允許透過純 http 傳送 sudo 密碼",
+      "help": "當你從其他機器以純 http 開啟儀表板時，可在儀表板中輸入 sudo 密碼（儲存空間管理、GPU 時脈上限）。密碼會以未加密方式經過你的網路，因此只在你信任的網路上開啟。預設關閉：否則密碼只會透過 https 或在 Spark 本機被接受。儲存此設定後頁面會重新載入。"
+    },
+    "intelVramSudo": {
+      "title": "透過 sudo 讀取 Intel Arc VRAM",
+      "help": "在各主機上以 sudo -n 從僅限 root 的 debugfs 讀取 Intel Arc 的實際 VRAM 用量。預設關閉：關閉時 VRAM 會顯示 PCI BAR 大小，且不會有任何操作以 sudo 執行。"
+    },
+    "metricsHistory": {
+      "title": "指標歷史",
+      "help": "在伺服器上為每個節點保留 48 小時的 1 分鐘粒度與 30 天的 15 分鐘粒度歷史（GPU、記憶體餘裕、CPU、網路、LLM tok/s 與 KV；每個節點在磁碟上最多約 1 MB），並在各節點頁面的「歷史」面板中以圖表呈現。預設關閉。"
+    },
+    "llmStreamSample": {
+      "title": "對沒有計量指標的引擎進行串流取樣",
+      "help": "對於不發布即時計數器的 LLM 引擎（Pico），每隔 15 秒送出一個極小的串流完成請求，並計時其 token，以量測解碼 tok/s；面板會標示該數值為取樣值。預設關閉。當節點上有基準測試、展示或模型啟動執行時，取樣會暫停；預填充不會取樣 — 足以計時的大型提示詞會成為實際負載，而非探測。"
+    },
+    "fleetEnergy": {
+      "title": "顯示機群能耗",
+      "help": "總覽卡片，顯示滾動式的機群功耗估計。完整的機群能耗頁面隨時可從側邊欄開啟。"
+    },
+    "llmTokenTotals": {
+      "title": "顯示 LLM token 總計",
+      "help": "總覽卡片，顯示各模型的累計提示詞／已生成 token。完整的 token 總計頁面隨時可從側邊欄開啟。"
+    },
+    "recentActivity": {
+      "title": "顯示最近的活動",
+      "help": "總覽卡片，顯示最新的健康狀態與核心事件。完整的活動頁面隨時可從側邊欄開啟。"
+    },
+    "fleetDecode": {
+      "title": "顯示機群解碼卡片",
+      "help": "總覽卡片，顯示機群的總生成 tok/s。"
+    },
+    "fleetPower": {
+      "title": "顯示機群功耗卡片",
+      "help": "總覽卡片，顯示機群的總功耗。"
+    },
+    "memoryInUse": {
+      "title": "顯示記憶體使用中卡片",
+      "help": "總覽卡片，顯示機群的總記憶體使用量。"
+    },
+    "tokens24Hours": {
+      "title": "顯示最近 24 小時 token 卡片",
+      "help": "總覽卡片，顯示最近 24 小時生成的 token 數（若尚未追蹤 token，則顯示上線節點數）。"
+    },
+    "fleetExceptions": {
+      "title": "顯示使用中的機群例外",
+      "help": "總覽列，顯示離線主機、GPU 降頻、磁碟、LLM 與 Tailnet 警示。預設關閉。"
+    },
+    "benchDebugTraces": {
+      "title": "儲存基準測試除錯追蹤",
+      "help": "在基準測試歷史中儲存提示詞、HTTP／完成 ID、內容預覽與 GPU 取樣。預設關閉；歷史檔案會較大。"
+    },
+    "apiKeys": {
+      "title": "API 金鑰頁面",
+      "help": "LiteLLM 虛擬金鑰的唯讀檢視，由主機端的橋接程式透過 unix socket 提供。預設關閉；需要在伺服器環境中設定 SPARKDASH_APIKEYS_BRIDGE_SOCKET 與 SPARKDASH_APIKEYS_BRIDGE_TOKEN。請參閱 README 的 API Keys 章節。"
+    }
+  },
+  "electricityPrice": {
+    "title": "電價",
+    "help": "每 kWh 的價格，用於機群能耗頁面上的估計成本。留空則不顯示成本。",
+    "currency": "貨幣符號",
+    "mode": "計價方式",
+    "modeFlat": "單一費率",
+    "modeTou": "分時電價",
+    "perKwh": "每 kWh",
+    "otherHours": "每 kWh，其他時段",
+    "touHelp": "時段內的時數按該時段的價格計算；其他所有時數則按上方的價格計算。時數依圖表時區判定；22:00 到 06:00 的時段會跨越午夜。",
+    "from": "時段 {{period}} 開始",
+    "to": "時段 {{period}} 結束",
+    "days": "時段 {{period}} 適用日",
+    "daysAll": "每天",
+    "daysWeekdays": "週一至週五",
+    "daysWeekends": "週六至週日",
+    "periodPrice": "時段 {{period}} 每 kWh 價格",
+    "remove": "移除時段 {{period}}",
+    "add": "新增時段",
+    "errorOverlap": "電價：時段 {{period}} 與時段 {{other}} 在同一天有重疊時數。",
+    "errorTooMany": "電價：最多 {{max}} 個時段。",
+    "errorInvalid": "電價：時段 {{period}} 的開始與結束時間必須不同，價格必須介於 0 到 100。"
+  },
+  "alertNotifications": {
+    "title": "警示通知",
+    "help": "當健康檢查發現與總覽例外持續一段時間後，以及解除時，將其傳送到 ntfy、Discord、Slack、Gotify 或 webhook。預設關閉。",
+    "on": "開啟",
+    "off": "關閉",
+    "configure": "設定…"
+  },
+  "browserAlerts": {
+    "tabBadge": {
+      "title": "分頁標記",
+      "help": "分頁標題會以「(2) sparkDash」顯示目前有幾個機群警示（離線節點、降頻、儲存空間、LLM 與健康檢查），圖示也會加上紅色（嚴重）或琥珀色圓點。即使「顯示使用中的機群例外」關閉，仍會全部計入。僅限此瀏覽器；立即儲存。"
+    },
+    "desktop": {
+      "title": "桌面通知",
+      "help": "當機群警示開始作用時（任何類型，與分頁標記相同），且此頁面開啟時，會顯示通知。僅限此瀏覽器；立即儲存。",
+      "blocked": "此網站的通知已被封鎖。請在瀏覽器的網站設定中允許通知，然後再開啟此項。",
+      "refused": "此瀏覽器拒絕了通知權限請求。",
+      "insecure": "瀏覽器只允許在 HTTPS 或 localhost 上顯示通知，而此頁面是純 HTTP。請使用 SSH 通道、Tailscale Serve 或 HTTPS 反向代理，或改用「警示通知」下的 ntfy 頻道。",
+      "unsupported": "此瀏覽器不支援桌面通知。",
+      "withdrawn": "瀏覽器中的權限已被撤回；在重新允許之前不會顯示任何通知。"
+    }
+  },
+  "accessToken": {
+    "title": "存取 token",
+    "help": "此瀏覽器所儲存的伺服器 token 副本，會傳送給已要求 token 的伺服器。它無法開啟保護機制：請在主機的 .env 中設定 SPARKDASH_TOKEN 並重新建立容器。僅儲存在此瀏覽器。",
+    "set": "已設定",
+    "notSet": "未設定",
+    "change": "變更",
+    "add": "新增 token",
+    "clear": "清除"
+  },
+  "about": {
+    "version": "sparkDash v{{version}}",
+    "github": "GitHub MiaAI-Lab"
+  },
+  "errors": {
+    "healthTempsRange": "GPU 溫度限值必須是介於 {{min}} 與 {{max}} °C 之間的數字。",
+    "healthTempsOrder": "警告溫度必須低於嚴重溫度。",
+    "invalidTimeZone": "「{{timeZone}}」不是已知的時區（例如 Europe/Paris），或請清空欄位以跟隨瀏覽器。",
+    "invalidMqttUrl": "「{{url}}」不是 broker URL — 請使用 mqtt://host:1883（或 mqtts://、ws://、wss://），或清空欄位。",
+    "mqttCredentials": "請從 broker URL 中移除使用者名稱與密碼：把使用者名稱填入 MQTT 使用者名稱，密碼則放在 SPARKDASH_MQTT_PASSWORD 環境變數中。"
+  },
+  "mqtt": {
+    "publishing": {
+      "title": "MQTT 發布",
+      "help": "當活動摘要事件與各節點的讀值變更時，將其發布到你的 MQTT broker（Home Assistant、Node-RED…）。預設關閉。README 的 MQTT 章節列出了主題。"
+    },
+    "url": {
+      "title": "MQTT broker URL",
+      "help": "mqtt://host:1883、mqtts:// 用於 TLS、ws(s):// 用於 websocket broker。密碼會從 SPARKDASH_MQTT_PASSWORD 環境變數讀取，絕不會儲存在 settings.json 中。"
+    },
+    "username": {
+      "title": "MQTT 使用者名稱",
+      "help": "若 broker 允許匿名發布，請留空。",
+      "placeholder": "空白"
+    },
+    "prefix": {
+      "title": "MQTT 主題前綴",
+      "help": "所有發布內容的主題根：PREFIX/events、PREFIX/status/… 與 PREFIX/metrics/…"
+    },
+    "discovery": {
+      "title": "Home Assistant 探索",
+      "help": "發布保留式探索設定，讓 Home Assistant 自動為每個節點建立裝置及其感測器。需要先開啟上方的 MQTT 發布。"
+    },
+    "discoveryPrefix": {
+      "title": "探索前綴",
+      "help": "必須與 Home Assistant 中 MQTT 整合的探索前綴一致（預設為 homeassistant）。"
+    }
+  },
+  "gpuClock": {
+    "title": "GPU 時脈上限",
+    "help": "一次為所有 Spark 設定 GPU 繪圖時脈上限（nvidia-smi -lgc）：選擇它們應處於的狀態 — 完整效能或 1800–2400 MHz — 按下「儲存」即會套用。離線或沒有 GPU 的節點會略過並回報。",
+    "reading": "正在讀取機群…",
+    "unknown": "目前沒有任何節點回報時脈 — 請重新開啟設定再試一次。",
+    "nowMixed": "目前：混合 — {{caps}}{{unreadable}}",
+    "nowFull_one": "目前：{{count}} 個節點為完整效能{{unreadable}}",
+    "nowFull_other": "目前：{{count}} 個節點為完整效能{{unreadable}}",
+    "nowCapped_one": "目前：{{count}} 個節點上限為 {{mhz}} MHz{{unreadable}}",
+    "nowCapped_other": "目前：{{count}} 個節點上限為 {{mhz}} MHz{{unreadable}}",
+    "unreadable": "，{{count}} 個無法讀取",
+    "states": "GPU 時脈上限狀態",
+    "fullCapacity": "完整效能",
+    "fullCapacityState": "完整效能",
+    "frequency": "{{mhz}} MHz",
+    "keepAfterReboot": "重新開機後仍保留 — 所選狀態也會在每個節點安裝開機掛勾",
+    "persistenceUnavailable": "此處不提供：這些節點沒有上限可用的開機掛勾 — 既沒有可供開機服務使用的 root shell，也沒有可供 @reboot 工作使用的執行中 cron 服務。上限會套用到下次重新開機為止。",
+    "pending": "尚未套用 — 按下「儲存」即可變更所有節點。",
+    "applying": "套用中…",
+    "requestFailed": "GPU 時脈請求失敗",
+    "skipped": "，已略過 {{count}} 個",
+    "skippedReason": "{{id}}：已略過 — {{reason}}",
+    "retryWithoutPersistence": "取消勾選「重新開機後仍保留」，改為只套用到下次重新開機。",
+    "keptCron": " — 已由每個節點上的 @reboot cron 工作保留",
+    "keptMixed": " — 已在重新開機後保留（依節點為開機服務或 @reboot 工作）",
+    "kept": " — 已在重新開機後保留",
+    "incomplete": "沒有節點完成所要求的變更 — 部分變更可能已套用{{skipped}}",
+    "nothingUnlocked": "沒有任何變更 — {{total}} 個節點中有 0 個已解除上限{{skipped}}",
+    "nothingCapped": "沒有任何變更 — {{total}} 個節點中有 0 個已設定上限{{skipped}}",
+    "resultFull": "完整效能 — {{total}} 個節點中有 {{count}} 個{{skipped}}{{persistence}}",
+    "resultCapped": "上限為 {{mhz}} MHz — {{total}} 個節點中有 {{count}} 個{{skipped}}{{persistence}}"
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "title": "API 金鑰",
+  "subtitle": "透過主機端橋接服務，以唯讀方式檢視 LiteLLM 虛擬金鑰。",
+  "refresh": "重新整理",
+  "refreshing": "重新整理中…",
+  "status": {
+    "bridge": "橋接服務 {{state}}",
+    "upstream": "LiteLLM {{state}}",
+    "retrying": "將於 {{seconds}} 秒後重試"
+  },
+  "errors": {
+    "keys": "無法載入金鑰：{{error}}",
+    "key": "無法載入金鑰：{{error}}"
+  },
+  "keys": {
+    "title": "金鑰（{{count}}）",
+    "empty": "橋接服務回報沒有金鑰。"
+  },
+  "table": {
+    "key": "金鑰",
+    "state": "狀態",
+    "spend": "花費",
+    "budget": "預算",
+    "rpm": "RPM",
+    "tpm": "TPM",
+    "expires": "到期時間",
+    "lastActive": "最後活動時間"
+  },
+  "detail": {
+    "spend": "花費",
+    "budget": "預算",
+    "budgetResets": "預算重設時間",
+    "parallelRequests": "平行請求數",
+    "created": "建立時間",
+    "models": "模型",
+    "spendUnknown": "花費為 {{unknown}}：橋接服務未回報這把金鑰的花費。"
+  },
+  "states": {
+    "ok": "正常",
+    "down": "無法使用",
+    "unconfigured": "未設定",
+    "unknown": "未知",
+    "active": "啟用中",
+    "blocked": "已封鎖",
+    "expired": "已過期"
+  },
+  "unknown": "未知",
+  "unlimited": "無限制",
+  "all": "全部"
+}

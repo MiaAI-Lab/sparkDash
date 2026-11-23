@@ -1,0 +1,151 @@
+{
+  "page": {
+    "unknown": "未知的基準測試。",
+    "benchmarks": "基準測試",
+    "benchmark": "基準測試",
+    "runOn": "執行於",
+    "noSparks": "沒有可用的 Spark"
+  },
+  "catalog": {
+    "decode": { "label": "解碼", "blurb": "在不同並行數下的生成速度（token/s）。" },
+    "prefill": { "label": "預填充", "blurb": "各種上下文大小下的提示詞處理速度與首個 token 時間。" },
+    "quality": { "label": "品質", "blurb": "固定且具隨機種子的品質套件，用來比較模型、量化方式與 KV 快取格式。", "tab": "套件" },
+    "toolEval": { "label": "工具評測", "blurb": "涵蓋 69 個決定性情境（工具選擇、參數、多步驟、安全）的工具呼叫品質。", "family": "工具評測" },
+    "qualityCompare": {
+      "label": "品質比較",
+      "blurb": "任意兩筆已儲存的品質執行並排比較，不限節點：以白話與數據說明哪個建置版本較好。",
+      "tab": "比較"
+    }
+  },
+  "sparkChips": {
+    "group": "要測試的 Spark",
+    "workerTitle": "{{name}} 是工作節點：沒有本機 LLM，僅顯示已儲存的結果",
+    "offlineTitle": "{{name}} 已離線",
+    "worker": "工作節點"
+  },
+  "target": {
+    "enterHost": "輸入要測試的 LLM 端點主機。",
+    "noSparkTitle": "沒有可測試的 Spark",
+    "noSparkBody": "請先從機群側欄新增一台 Spark。基準測試會針對 Spark 上的 LLM 伺服器執行，或針對你輸入的遠端端點執行。",
+    "aria": "基準測試目標",
+    "remoteTitle": "改為測試其他 LLM 端點，而非 Spark 上的端點",
+    "remote": "遠端",
+    "llmPort": "LLM 連接埠",
+    "port": "連接埠 {{port}}",
+    "servedModel": "目前在此連接埠提供的模型",
+    "host": "主機",
+    "remoteHost": "遠端主機",
+    "portLabel": "連接埠",
+    "remotePort": "遠端連接埠",
+    "offlineTitle": "{{name}} 已離線。",
+    "offlineBody": "請讓它恢復上線以測試其 LLM，或將目標切換為遠端並指向其他端點。下方已儲存的執行仍可檢視。",
+    "workerTitle": "{{name}} 是工作節點",
+    "workerBody": "，本身不提供 LLM，因此這裡無法執行測試。下方已儲存的執行仍可檢視。",
+    "unreachableTitle": "連接埠 {{port}} 上沒有可連線的 LLM。",
+    "unreachableBody": "請在這台 Spark 上啟動模型（可在其頁面的「模型」面板操作）、檢查設定中的 LLM 連接埠，或將目標切換為遠端。下方已儲存的執行仍可檢視。",
+    "remoteHint": "隨選端點：在你執行之前不會進行任何探測。遠端節點使用區域網路 HTTP；若伺服器只監聽 127.0.0.1，則透過 SSH 通道連到 loopback。"
+  },
+  "switcher": { "aria": "基準測試類型" },
+  "pageParts": { "runConfiguration": "執行設定", "configuration": "設定" },
+  "history": {
+    "date": "日期", "model": "模型", "result": "結果", "actions": "操作",
+    "open": "開啟", "view": "檢視", "comparing": "比較中", "compare": "比較",
+    "delete": "刪除", "deleteTitle": "從歷史紀錄中移除此執行", "peakAt": "峰值於", "streamAtOne": "/串流（×1）", "startContext": "起始上下文", "bestAt": "最佳於", "category": "類別", "categories": "類別"
+  },
+  "dialog": {
+    "model": "模型", "running": "執行中", "completedLevels": "已完成的負載等級", "load": "負載", "aggregate": "合計", "stream": "單串流",
+    "loadingLast": "載入上次結果…", "cancelRun": "取消執行", "starting": "啟動中…", "run": "執行基準測試", "progress": "進度", "results": "結果",
+    "clearTitle": "清除此連接埠已儲存的結果", "clearHistory": "清除歷史紀錄", "noRuns": "尚無執行紀錄", "history": "歷史紀錄 · {{count}}",
+    "closeDialog": "關閉對話框", "close": "關閉", "cancel": "取消", "clear": "清除", "done": "完成", "runAgain": "再次執行", "customExample": "自訂，例如 100k",
+    "paused": "已暫停"
+  },
+  "decode": {
+    "title": "解碼基準測試", "modelHint": "選擇基準測試要針對的模型。", "noModels": "此目標目前沒有提供任何模型。",
+    "type": "類型", "typeAria": "解碼基準測試類型", "thinking": "思考", "thinkingHint": "預設開啟。推理 token 會計入解碼 tok/s。",
+    "withThinking": "含思考", "withoutThinking": "不含思考", "temperature": "溫度", "concurrency": "並行數", "concurrencyHint": "各等級會依序執行；每個等級會開啟對應數量的並行串流。",
+    "startContext": "起始上下文／串流", "startContextAria": "起始上下文預設組合", "empty": "空白", "maxTokens": "每串流最大 token 數", "contextAbbr": "上下文", "streams": "串流",
+    "emptyBody": "選擇提示詞類型與並行等級後執行。每個等級會開啟對應數量的並行串流，並回報合計與每串流的解碼 tok/s。", "errorModel": "執行基準測試前，請先選擇目前有提供的模型", "errorConcurrency": "請至少選擇一個並行等級", "errorMaxTokens": "最大 token 數必須是 64 到 2048 之間的整數", "errorTemperature": "溫度必須是 0 到 2 之間的數字", "temperatureHint":"預設 0.7 · 0 為貪婪解碼 · 範圍 0 到 2。v2.70 之前的版本一律以溫度 0、關閉思考執行：若要與那些執行比較，請設為 0。若伺服器使用投機解碼，溫度高於 0 可能會慢上許多。", "contextHint":"每路串流會先預填充到這個 token 數，再從該處開始解碼。需要前綴快取，且 KV 空間須足以容納並行數 × 上下文。", "maxHint":"預設 400", "maxStructuredHint":"預設 400 · 數量 1→200", "legend":"合計 — 所有並行串流的解碼 tok/s 總和。單串流 — 每路串流的平均解碼速度。", "mixedHistory":"這些執行使用了不同的溫度或思考設定。請只在設定相同的執行之間比較 tok/s；溫度高於 0 可能慢上好幾倍。"
+  },
+  "copy": {
+    "idle": "複製結果", "working": "複製中…", "image": "已複製圖片！", "downloaded": "已儲存 PNG", "shown": "已顯示卡片", "text": "已複製文字！", "textShort": "已複製！",
+    "errorText": "無法將結果複製到剪貼簿", "errorImage": "無法將圖片複製到剪貼簿", "errorRender": "無法產生卡片圖片 — 瀏覽器回傳空白畫布。可能是 canvas 指紋追蹤防護（瀏覽器設定或隱私擴充功能）所阻擋；請允許此網站存取 canvas 後再試一次",
+    "textTitle": "將純文字摘要複製到剪貼簿", "buttonTitle": "以純文字複製結果 — 右側的下拉箭頭則改為複製分享卡片圖片", "format": "複製格式",
+    "imageTitle": "以文字或圖片形式複製", "showTitle": "以文字複製，或顯示／下載圖片", "asText": "以文字複製", "asImage": "以圖片複製", "showCard": "顯示卡片", "download": "下載 PNG",
+    "showHint": "此頁面透過區域網路的 http 位址提供，在這種情況下網頁無法將圖片寫入剪貼簿。因此改為顯示卡片圖片 — 請按右鍵 →「複製圖片」，或將圖片拖曳到你的貼文中。",
+    "cardLabel": "基準測試分享卡片", "cardAlt": "基準測試結果卡片 — 按右鍵即可複製", "previewBefore": "按右鍵 → ", "copyImage": "複製圖片", "previewAfter": "，或將卡片拖曳到你的貼文中。瀏覽器只允許網頁在 HTTPS 或 localhost 下複製圖片，因此這裡改為顯示卡片，讓你的瀏覽器自行複製。"
+  },
+  "prefill": {
+    "title": "預填充基準測試", "contextSize": "上下文大小", "contextSizes": "上下文大小", "contextHint": "輸入自訂的 token 數即可新增。",
+    "custom": "自訂", "customAria": "自訂上下文大小（token 數）", "add": "新增", "progressAria": "預填充基準測試進度", "completedSizes": "已完成的大小", "context": "上下文", "ttft": "TTFT", "tokens": "token", "failed": "失敗", "noRate": "未測得預填充速率", "contextLimit": "模型上下文為 {{context}} — 更大的大小已停用。", "contextUnknownHint": "使用唯一前綴的提示詞；TTFT 為首個 token 的時間。128k–300k 可能需數十分鐘。", "contextOption": "{{count}} 個 token", "contextTooLarge": "加上範本與回覆後，超出模型上下文（{{context}} 個 token）", "errorCustomSize": "自訂大小必須是 {{min}} 到 {{max}} 個 token 之間的整數（例如 131072 或 128k）", "errorDoesNotFit": "自訂大小加上範本與回覆後，超出模型上下文（{{context}} 個 token）", "errorSelectFittingSize": "請至少選擇一個符合此模型上下文的大小", "legend":"預填充 — 若伺服器有回報，則採用其提示詞處理計時；否則以 token ÷（TTFT − 校正後的請求額外開銷）計算，並排除前綴快取命中，且校正值上限為 TTFT 的一半。TTFT — 從請求開始到首個串流 token 的時間。token、TTFT 與 tok/s 取自各大小的中位速率樣本。每個大小都使用唯一前綴，以免前綴快取虛增後續大小的數值。信心度偏低 — 額外開銷超過 TTFT 的 30%，因此速率高度依賴校正值；n/m 個樣本 — 部分重複測試失敗。", "emptyBody":"選擇要測試的上下文大小後執行。每個大小會送出唯一提示詞，並回報預填充 tok/s 與首個 token 時間。"
+  },
+  "quality": {
+    "title": "品質基準測試", "subTabsAria": "品質檢視", "categories": "類別", "defaults": "預設", "selectAll": "全選", "optional": "選填", "hideDetails": "隱藏詳細資料", "howItWorks": "運作方式",
+    "longSizes": "長上下文大小", "itemsPerSize": "每個大小的項目數", "selected": "已選 {{count}} 項", "concurrency": "並行數", "concurrencyTitle": "同時送給模型的問題數量",
+    "runLabel": "執行標籤", "runLabelPlaceholder": "例如 fp4 KV", "progressAria": "品質基準測試進度", "compareWith": "比較對象", "pickRun": "— 選擇先前的執行 —", "noSharedItems": "這兩次執行沒有共同的項目。",
+    "show": "顯示", "historyScope": "歷史紀錄範圍", "allPorts": "所有連接埠", "label": "標籤", "run": "執行品質基準測試", "category":"類別", "score":"分數", "notes":"備註", "overall":"總分", "thisRun":"本次執行", "otherRun":"另一次執行", "sameScore":"分數相同", "vsOther":"對比其他執行", "meanScores":"{{categories}} 個類別分數的平均 · {{items}} 個項目", "scoreByCategory":"各類別分數", "runA":"執行 A", "runB":"執行 B", "items":"項目", "disagreements":"兩次執行結果不一致的項目", "of":"/", "aOnly":"僅 A：{{count}}", "bOnly":"僅 B：{{count}}", "sameItems":"兩次執行在相同項目上的通過與失敗結果一致。", "item":"項目", "runADetail":"執行 A 詳細資料", "perItem":"逐項結果（{{count}}）", "id":"ID", "ok":"通過", "reply":"回覆", "cancelRun":"取消執行", "selectCategories":"選擇類別", "suiteHint":"固定且具隨機種子的套件，溫度為 0 — 每次執行都是相同項目，因此可逐項配對比較。", "thinkingOn":"思考已開啟", "howTitle":"{{category}}：運作方式", "measures":"測量內容", "sends":"送出內容", "scored":"評分方式", "settings":"設定與成本", "example":"範例（實際提示詞的樣貌）", "aboutRequests":"約 {{count}} 次請求", "skippedLong":"已略過超出模型上下文的長尺寸：{{sizes}}", "legend":"分數 — 通過的項目。p — 針對只有一次執行答對的項目所做的精確 McNemar 檢定；p ≥ 0.05 表示差異在雜訊範圍內。請求錯誤或逾時的項目、在作答前就被 max_tokens 截斷的回覆，以及參考答案有爭議的項目都不計分，也不會納入比較。* — 受預算限制：部分回覆被截斷，因此分數只涵蓋已完成的部分。", "budgetLimited":"受預算限制", "budgetLimitedTitle":"部分回覆在作答前就達到 max_tokens — 此分數只涵蓋已完成的回覆，因此在這個預算下並非乾淨的測量結果", "errorTitle":"請求錯誤 — 不計分", "truncatedTitle":"作答前被 max_tokens 截斷 — 不計分", "disputedTitle":"參考答案有爭議 — 會列出但不計分", "fullReply":"完整回覆", "emptyBody":"選擇要計分的類別、為這次執行加上標籤（例如量化方式或 KV 快取格式），然後執行。套件固定且具隨機種子，因此任意兩次執行都能逐項比較。", "port":"連接埠 {{port}}", "deleteTitle":"從歷史紀錄中刪除這次執行，保留其他執行", "deleteRun":"刪除執行",
+    "noiseFloor":"雜訊底線", "noiseFloorTitle":"以相同設定把每個類別再跑一次，若這次執行採批次處理，再以並行數 1 跑兩次，以便在分數旁一併測量逐次執行與批次造成的雜訊（請求數為 2–4 倍）",
+    "noiseHead":"雜訊底線", "noiseHint":"額外回合會與主要回合逐項配對。翻轉 — 判定結果改變；完全相同 — 回覆位元組完全一致。",
+    "noisePassRepeat":"以並行數 {{concurrency}} 重複", "noisePassSerial":"序列回合（並行數 1）", "noisePass":"回合", "noiseFlipped":"翻轉", "noiseIdentical":"完全相同的回覆",
+    "noiseSummary":"逐次執行雜訊 {{repeat}} · 批次效應 {{batch}}", "noiseRepeatOnly":"逐次執行雜訊 {{repeat}}",
+    "engine":"引擎", "engineUnknown":"無法取得引擎紀錄", "fidelityYes":"提示詞 logprobs：有，K ≤ {{cap}}", "fidelityNo":"提示詞 logprobs：無 — {{reason}}",
+    "engineDetails":"引擎紀錄", "reasoningTok":"{{count}} 個推理 token", "reasoningTail":"推理（尾段）", "longMeasured":"實測提示詞 token 數：{{list}}",
+    "coverage":"涵蓋率", "coverageTitle":"計分 ÷ 總數 — 分數所依據的類別比例。計入預算 — 通過 ÷ 所有實際執行的項目，其中被截斷的回覆視為未通過", "budgeted":"計入預算", "ci":"95% 信賴區間",
+    "fidelityHead":"保真度", "fidelityNll":"NLL／token", "fidelityPpl":"困惑度", "fidelityBpb":"位元／位元組", "fidelityTokens":"{{docs}} 份文件中的 {{count}} 個 token · top-{{k}}",
+    "fidelityUnsupported":"已略過保真度：{{reason}}", "fidelityDoc":"文件", "fidelityDNll":"ΔNLL 對比參考", "fidelityAgree":"Top-1 一致率", "fidelityTail":"尾端損失", "fidelityDiv":"截斷後的散度（診斷用）",
+    "fidelityCompareHint":"ΔNLL = 本次執行 − 另一次執行的每 token 值，正值表示本次執行較差；為跨文件的 95% 區間。尾端損失 — 另一次執行最可能的 token 落在本次執行 top-K 之外的頻率。散度是針對共同 top-K 加上一個「其他」分桶計算：屬於粗略診斷，並非 KL 散度。",
+    "fidelityMismatch":"有 {{count}} 份文件的 token 化方式不同，因此未配對", "fidelityNoCompare":"無法進行保真度比較：{{reason}}", "fidelityLoading":"正在逐 token 比較…",
+    "divergenceHead":"散度", "divergenceSub":"{{count}} 筆已儲存的回覆，貪婪解碼，思考關閉", "divTerminated":"已終止", "divLoops":"迴圈", "divJson":"JSON schema", "divJsonValid":"有效", "divTool":"工具呼叫", "divLength":"平均長度（字元）",
+    "divIdentical":"完全相同的回覆", "divFirst":"首次分歧（中位數）", "divEdit":"編輯距離", "divLenRatio":"長度比", "divDrift":"文章維持一致到", "divKind":"類型",
+    "divNoCompare":"用來比較的執行沒有可配對的散度回覆。", "divCompareHint":"回覆一致性衡量的是輸出對服務堆疊的敏感程度，而非是否正確：請比較相同引擎與設定下的執行，才能把差異解讀為建置版本造成的。編輯距離是以前 1,200 個字元正規化；漂移是在約 256、1,024、2,048 個 token 的字元位置讀取。",
+    "compareGone":"被選為比較對象的執行已不再儲存 — 它已從歷史紀錄中刪除，因此若它原本是釘選的參考執行，請改釘選其他執行", "otherUnits":"其他節點", "referenceTag":"參考", "pinReference":"釘選為參考", "unpinReference":"取消釘選參考", "pinTitle":"此模型系列的參考執行：此模型任何建置版本的比較都會預設以它為基準，且套用於所有節點",
+    "servingMismatch":"這兩次執行在 {{keys}} 上不同：此比較涵蓋服務設定，不只是權重。", "servingSame":"兩邊的節點、引擎、建置版本與設定都相同：差異來自權重。",
+    "quantHead":"量化儀表板", "quantSub":"A = 本次執行，B = 比較的執行", "quantHint":"ΔNLL 與困惑度來自保真度語料；完全相同的回覆、首次分歧與迴圈來自散度資料集；推理 token 與截斷次數取自兩次執行都計分的生成類別；各類別的配對差值與 95% 區間；解碼 tok/s 來自該連接埠最近一次解碼基準測試（或即時探測），記憶體則來自執行開始時的探測。",
+    "quantReasoning":"平均推理 token 數", "quantTruncated":"被截斷的回覆", "quantDecode":"解碼 tok/s", "quantMemory":"記憶體",
+    "quantPreset":"量化檢查", "quantPresetTitle":"算術鏈、狀態追蹤、長上下文召回、保真度與散度，並行數為 1：這些類別能看出量化的影響，且不受批次雜訊干擾",
+    "partialRun":"部分執行 — 沒有總體總分", "partialRunHint":"只有預設與完整設定檔會產生總分；這次執行計分了 {{categories}}。",
+    "thinkingWarning":"{{model}} 在 {{category}} 中未遵守關閉思考的設定：{{rows}} 筆回覆中有 {{reasoningRows}} 筆帶有推理內容，另有 {{truncated}} 筆被截斷。此類別的分數反映的是預算限制，而非模型能力。",
+    "legendV2":"分數 — 通過的項目，附 Wilson 95% 區間；總分另附分層 bootstrap 區間。涵蓋率 — 計分 ÷ 總數；計入預算 — 通過 ÷ 所有實際執行的項目，因此截斷越多的模型不會顯得越好。p — 針對只有一次執行答對的項目所做的精確 McNemar 檢定，並跨類別做 Holm 校正；p ≥ 0.05 表示不足以證明有差異，但不代表兩者等效。等效 — 配對差值的區間落在 ±2 分以內。差值若落在該執行實測的雜訊底線內，無論 p 值為何都視為雜訊。請求錯誤或逾時的項目、在作答前就被 max_tokens 截斷的回覆，以及參考答案有爭議的項目都不計分，也不會納入比較。* — 受預算限制：部分回覆被截斷，因此分數只涵蓋已完成的部分。",
+    "area": {
+      "maths": "數學與推理",
+      "knowledge": "知識問答",
+      "coding": "程式撰寫",
+      "prose": "寫作與散文",
+      "languages": "其他語言",
+      "instructions": "指令遵循與結構化輸出",
+      "longdocs": "長文件",
+      "facts": "快速事實與算術",
+      "reliability": "輸出的可靠性",
+      "cost": "速度與記憶體"
+    },
+    "verdictUnknown": "未測量",
+    "verdictSame": "大致相同",
+    "verdictB": "{{name}} 較好",
+    "verdictA": "{{name}} 較好",
+    "verdictHint": "以下用白話解讀下方數據。A = {{a}}，B = {{b}}。「較好」代表差異超出雜訊；「大致相同」代表沒有明顯差異，或差異落在實測的雜訊底線內。",
+    "verdictHead": "差異所在",
+    "resumeTitle": "從下一個項目繼續",
+    "pauseTitle": "已在進行中的回覆會完成並計入；在你繼續之前不會送出新的請求。執行會保留原有進度、結果與執行槽，計時也會停止。",
+    "resumeRun": "繼續",
+    "pauseRun": "暫停",
+    "resumeRunTitle": "從這次執行已計分的項目繼續：因伺服器重新啟動而中斷、因連續錯誤而停止或被取消的執行，會保留那些項目，只執行其餘部分。保真度會重新執行。中斷期間的時間不計入。",
+    "resumeSaved": "從已計分的 {{count}} 項繼續"
+  },
+  "share": {
+    "completed": "已完成", "running": "執行中", "failed": "失敗", "cancelled": "已取消",
+    "score": "分數", "category": "類別", "versusOther": "對比其他"
+  },
+  "liveTps": { "aria": "即時生成速度", "live": "即時生成", "peak": "峰值 {{value}} tok/s" },
+  "compare": {
+    "title": "選擇兩次執行",
+    "resultTitle": "比較",
+    "pickA": "A · 受測執行",
+    "pickB": "B · 參考執行",
+    "swap": "對調 A 與 B",
+    "swapTitle": "交換這兩次執行：差值一律以 A 減 B 計算",
+    "hint": "A 是以 B 為基準解讀：差值為正表示 A 表現較好。來自不同節點或不同引擎建置版本的執行，比較的是服務設定，不只是權重；標頭會指出哪些欄位不同。",
+    "noRuns": "目前任何節點上都還沒有完成的品質執行。",
+    "loading": "正在載入兩次執行…",
+    "emptyTitle": "尚無可比較的內容",
+    "emptyBody": "選擇受測執行與參考執行。若 A 的模型系列已有釘選的參考執行，系統會自動填入 B。"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "preview": { "title": "分享卡片", "closeLabel": "關閉分享卡片", "copy": "複製圖片", "download": "下載 PNG", "close": "關閉" },
+  "stopped": "已停止",
+  "completed": "已完成", "running": "執行中", "failed": "失敗", "cancelled": "已取消", "decodeTitle": "解碼基準測試", "prefillTitle": "預填充基準測試", "load": "負載", "aggregate": "合計", "stream": "單串流", "context": "上下文", "prefill": "預填充", "versusOther": "對比其他",
+  "qualityBenchmark": "品質基準測試", "overall": "總分", "unknownModel": "未知模型", "same": "相同", "pts": "分",
+  "toolEvalBench": "工具評測", "toolEvalComparison": "工具評測比較", "score": "分數", "category": "類別",
+  "scenarioOutcomes": "情境結果", "safetyWarnings": "安全警告（{{count}}）· 評級已受限", "more": "+{{count}} 項",
+  "pass": "通過", "fail": "失敗", "partial": "部分通過", "other": "其他", "scoreChange": "分數變化", "runBVsA": "執行 B 對比執行 A",
+  "scenarioChanges": "情境變化", "better": "較好", "worse": "較差", "unchanged": "{{count}} 項未變", "runA": "執行 A", "runB": "執行 B", "change": "變化",
+  "decodeDetail": "TTFT {{ttft}} · {{ok}}/{{total}} 路串流", "decodeMeta": "{{prompt}} · {{tokens}} tok · {{sampling}}{{context}} · {{concurrency}}{{duration}}", "decodeLegend": "合計 — 所有並行串流的解碼 tok/s 總和。單串流 — 每路串流的平均解碼速度。", "prefillFailed": "未測得預填充速率", "prefillDetail": "TTFT {{ttft}} · {{tokens}}{{flags}}", "samples": "{{actual}}/{{requested}} 個樣本", "lowConfidence": "信心度偏低", "prefillMeta": "{{contexts}}{{duration}}", "prefillLegend": "預填充 — 伺服器端提示詞處理計時；若未提供，則以 token ÷（TTFT − 請求額外開銷）估算，並排除快取命中。TTFT — 首個 token 的時間。取中位速率樣本。", "error": "個錯誤", "errors": "個錯誤", "qualityDetail": "{{passed}}/{{scored}} 項{{errors}}", "qualitySummary": "{{categories}} 個類別 · {{items}} 個項目{{duration}}", "qualityMeta": "總分 {{overall}}{{runLabel}}{{duration}}", "qualityLegend": "分數 — 通過項目的比例。溫度 0，固定隨機種子。", "deployability": "可部署性", "responsiveness": "回應性", "scenariosPassed": "已通過情境", "points": "{{value}}/{{max}} 分", "scenarioSummary": "{{total}} 個情境{{duration}}", "safetyChip": "{{count}} 項安全警告", "scoreMeta": "分數 {{score}}{{rating}} · {{summary}}", "scoreLegend": "分數 0–100。等級：90+ 優秀、75+ 良好、60+ 合格、40+ 較弱，其餘為較差。", "runHeading": "執行 {{tag}}{{spark}} · {{label}}", "sideSummary": "{{pass}} 通過 · {{partial}} 部分通過", "differentSetup": "設定不同", "sameSetup": "設定相同", "runAFallback": "執行 A", "runBFallback": "執行 B", "comparisonMeta": "分數 {{score}} · {{a}} → {{b}}", "comparisonLegend": "以執行 A 為基準比較執行 B。綠色代表較好，紅色代表較差。分數 0–100。", "moreWord": "項", "caveat": "{{text}}{{extra}}"
+}

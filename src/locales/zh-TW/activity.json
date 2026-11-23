@@ -1,0 +1,201 @@
+{
+  "toast": {
+    "copied_one": "已複製 {{count}} 筆事件",
+    "copied_other": "已複製 {{count}} 筆事件",
+    "copyBlocked": "無法複製（剪貼簿被封鎖）"
+  },
+  "tile": {
+    "eventsCount_one": "{{count}} 筆事件",
+    "eventsCount_other": "{{count}} 筆事件",
+    "events24h": "事件（24 小時）",
+    "errors24h": "錯誤（24 小時）",
+    "warnings24h": "警告（24 小時）",
+    "problems": "有問題的 Spark",
+    "mostActive": "活動最多的 Spark",
+    "none": "無",
+    "noEventsYet": "尚無事件",
+    "in7d": "7 天內 {{count}} 筆"
+  },
+  "newbar_one": "{{count}} 筆新事件，跳至最上方",
+  "newbar_other": "{{count}} 筆新事件，跳至最上方",
+  "clear": {
+    "older7d": "超過 7 天",
+    "older7dAsk": "要刪除超過 7 天的事件嗎？",
+    "older24h": "超過 24 小時",
+    "older24hAsk": "要刪除超過 24 小時的事件嗎？",
+    "everything": "全部",
+    "everythingAsk": "要刪除整份活動歷史紀錄嗎？",
+    "cancel": "取消",
+    "delete": "刪除",
+    "deleting": "刪除中…",
+    "irreversible": "此操作無法復原。",
+    "nothing": "沒有可刪除的內容",
+    "failed": "無法刪除",
+    "deleted_one": "已刪除 {{count}} 筆事件",
+    "deleted_other": "已刪除 {{count}} 筆事件"
+  },
+  "severity": {
+    "errors": "錯誤",
+    "warnings": "警告",
+    "success": "成功",
+    "info": "資訊",
+    "error": "錯誤",
+    "warn": "警告"
+  },
+  "range": {
+    "h24": "24 小時",
+    "d7": "7 天",
+    "all": "全部"
+  },
+  "updated": {
+    "connecting": "連線中",
+    "justNow": "剛剛",
+    "secondsAgo": "{{count}} 秒前",
+    "minutesAgo": "{{count}} 分鐘前"
+  },
+  "live": {
+    "failed": "更新失敗，正在重試",
+    "paused": "已暫停（分頁隱藏）",
+    "live": "即時 · {{updated}}"
+  },
+  "chart": {
+    "empty": "最近 14 天沒有事件。",
+    "aria": "最近 14 天的每日事件數，總計 {{total}} 筆",
+    "title": "每日事件數",
+    "total": "總計",
+    "events": "事件"
+  },
+  "more": {
+    "loadOlder": "載入更早的資料",
+    "loadError": "無法載入更早的事件：{{message}}",
+    "end": "已到達伺服器保留的最早事件。",
+    "filtersHint": "篩選條件只套用於目前已載入的事件。"
+  },
+  "count": {
+    "filtered": "（已篩選）",
+    "showing": "顯示 {{shown}} / {{total}} 筆已載入事件"
+  },
+  "filters": {
+    "severityChipTitle": "{{severity}} 事件",
+    "category": "類別",
+    "allCategories": "所有類別",
+    "spark": "Spark",
+    "allSparks": "所有 Spark",
+    "aria": "篩選",
+    "severityAria": "嚴重程度",
+    "rangeAria": "時間範圍",
+    "searchPlaceholder": "搜尋訊息、Spark 或類型",
+    "searchAria": "搜尋事件",
+    "all": "全部",
+    "fleetWide": "全機群（{{count}}）"
+  },
+  "error": {
+    "title": "無法載入活動",
+    "retry": "重試"
+  },
+  "empty": {
+    "nothing": "尚無紀錄",
+    "filtered": "沒有符合篩選條件的事件",
+    "filteredHint": "試試較長的時間範圍，或清除篩選條件。",
+    "detail": "伺服器會在機群事件發生時記錄：Spark 上線或離線、GPU 溫度過高降頻、Hermes 更新、基準測試執行、關機與喚醒、LLM 啟動與停止，以及新增或移除 Spark。"
+  },
+  "action": {
+    "resetFilters": "重設篩選",
+    "copyText": "複製為文字",
+    "refresh": "重新整理"
+  },
+  "title": "活動",
+  "loading": "載入中…",
+  "skel": {
+    "loading": "正在載入活動"
+  },
+  "header": {
+    "clearMenu": "清除歷史紀錄…",
+    "summaryAria": "摘要，點擊即可篩選",
+    "subtitle": "機群中發生的所有事件：重新啟動、降頻、更新、基準測試、電源與 LLM 執行。伺服器會保留最新 2,000 筆事件。"
+  },
+  "day": {
+    "today": "今天",
+    "yesterday": "昨天"
+  },
+  "ago": {
+    "hours": "{{count}} 小時前",
+    "days": "{{count}} 天前"
+  },
+  "row": {
+    "openSpark": "開啟 {{name}}",
+    "hideDetails": "隱藏詳細資料：{{label}}",
+    "showDetails": "顯示詳細資料：{{label}}"
+  },
+  "message": {
+    "throttleStarted": "{{name}} 開始溫度過高降頻{{temperature}}",
+    "throttleStopped": "{{name}} 停止溫度過高降頻{{temperature}}",
+    "temperature": "（{{temperature}}°C）"
+  },
+  "detail": {
+    "message": "訊息",
+    "time": "時間",
+    "severity": "嚴重程度",
+    "type": "類型",
+    "eventId": "事件 ID",
+    "spark": "Spark",
+    "category": "類別",
+    "data": "資料",
+    "copied": "已複製",
+    "copy": "複製"
+  },
+  "category": {
+    "status": "狀態（上線／離線）",
+    "thermal": "溫度",
+    "health": "健康狀態",
+    "alerts": "警示通知",
+    "hermes": "Hermes",
+    "bench": "基準測試",
+    "power": "電源",
+    "llm": "LLM 模型",
+    "fleet": "機群變更",
+    "other": "其他"
+  },
+  "type": {
+    "sparkOnline": "上線",
+    "sparkOffline": "離線",
+    "sparkAdded": "新增 Spark",
+    "sparkRemoved": "移除 Spark",
+    "throttleThermal": "溫度過高降頻",
+    "throttleCleared": "降頻解除",
+    "hermesAvailable": "有可用的 Hermes 更新",
+    "hermesUpdated": "Hermes 已更新",
+    "hermesFailed": "Hermes 更新失敗",
+    "xid": "Xid 錯誤",
+    "oom": "記憶體不足終止",
+    "runningHot": "溫度偏高",
+    "lowPower": "低功耗狀態",
+    "lowMemory": "記憶體不足",
+    "concurrency": "載入過多模型",
+    "linkSpeed": "連線速度過慢",
+    "roceLink": "RoCE 連線中斷",
+    "roceLoss": "RoCE 封包遺失",
+    "healthOk": "健康狀態正常",
+    "notifySent": "通知已送出",
+    "notifyFailed": "通知傳送失敗",
+    "shutdown": "關機",
+    "wake": "喚醒",
+    "benchDecode": "解碼基準測試",
+    "benchPrefill": "預填充基準測試",
+    "benchQuality": "品質基準測試",
+    "llmStart": "LLM 啟動",
+    "llmStop": "LLM 停止",
+    "llmAttach": "LLM 掛載",
+    "benchFailed": "{{name}} 失敗",
+    "benchCancelled": "{{name}} 已取消",
+    "llmAction": "{{action}} {{stage}}",
+    "event": "事件"
+  },
+  "stage": {
+    "requested": "已請求",
+    "completed": "已完成",
+    "cancelled": "已取消",
+    "failed": "失敗",
+    "detached": "已分離"
+  }
+}

@@ -1,0 +1,168 @@
+{
+  "nav": {
+    "overview": "總覽",
+    "tokens": "token 總計",
+    "cost": "成本比較",
+    "energy": "機群能耗",
+    "temps": "溫度",
+    "activity": "活動",
+    "showcase": "展示",
+    "kiosk": "Kiosk",
+    "sparks": "Spark",
+    "stats": "統計",
+    "settings": "設定",
+    "benchmarks": "基準測試",
+    "benchsTools": "基準測試與工具",
+    "storage": "儲存空間",
+    "storageManager": "儲存空間管理",
+    "fleet": "機群",
+    "brandOverview": "sparkDash 總覽",
+    "openSearch": "開啟命令選擇區",
+    "showSidebar": "顯示側邊欄",
+    "showSidebarTitle": "顯示側邊欄（Ctrl+B）",
+    "apiKeys": "API 金鑰"
+  },
+  "sidebar": {
+    "sortable": "可排序",
+    "dragStart": "已拿起可拖曳項目 {{id}}。",
+    "dragOver": "可拖曳項目 {{id}} 已移到可放置區域 {{over}} 上方。",
+    "dragOutside": "可拖曳項目 {{id}} 已不在可放置區域上方。",
+    "dragEndOver": "可拖曳項目 {{id}} 已放置在可放置區域 {{over}} 上方",
+    "dragEnd": "可拖曳項目 {{id}} 已放置。",
+    "dragCancel": "拖曳已取消。可拖曳項目 {{id}} 已放置。",
+    "fleetNavigation": "機群導覽",
+    "hideSidebar": "隱藏側邊欄",
+    "hideSidebarTitle": "隱藏側邊欄（Ctrl+B）",
+    "jumpTo": "跳至…",
+    "addSpark": "新增 Spark 或 GPU 主機",
+    "addSparkTitle": "新增 Spark／GPU 主機",
+    "noSparks": "尚無 Spark。使用 + 即可新增。",
+    "workspace": "工作區",
+    "kioskTitle": "全螢幕牆面顯示（按 Esc 返回）",
+    "dragInstructions": "按 Enter 開啟此 Spark。若要調整順序，請按 M，使用方向鍵移動，再按 Enter 放置或按 Escape 取消。",
+    "dragTitle": "拖曳以調整順序（鍵盤：M）。",
+    "live": "即時",
+    "livePoll": "即時 · {{seconds}} 秒輪詢",
+    "reconnecting": "重新連線中…",
+    "credit": "由 Mia's AI Lab 製作",
+    "website": "Mia's AI Lab 網站",
+    "github": "GitHub 上的 sparkDash",
+    "x": "Mia's AI Lab 的 X"
+  },
+  "mobile": {
+    "primary": "主要",
+    "chooseSpark": "選擇 Spark",
+    "addSpark": "新增 Spark／GPU 主機"
+  },
+  "spark": {
+    "offline": "關閉",
+    "offlineTooltip": "離線",
+    "worker": "工作節點",
+    "prefilling": "預填充中",
+    "decoding": "解碼中"
+  },
+  "bench": {
+    "decode": {
+      "label": "解碼",
+      "blurb": "在不同並行數下的生成速度（每秒 token 數）。"
+    },
+    "prefill": {
+      "label": "預填充",
+      "blurb": "不同上下文長度下的提示詞處理速度與首個 token 時間。"
+    },
+    "quality": {
+      "label": "品質",
+      "blurb": "固定且具隨機種子的品質測試套件，用來比較模型、量化與 KV 快取格式。"
+    },
+    "toolEval": {
+      "label": "工具評測",
+      "blurb": "涵蓋 69 個決定性情境（工具選擇、參數、多步驟、安全）的工具呼叫品質。"
+    },
+    "qualityCompare": {
+      "label": "品質比較",
+      "blurb": "任意兩個已儲存的品質執行結果並列比較，可來自任何節點。"
+    }
+  },
+  "palette": {
+    "dialogLabel": "命令選擇區",
+    "placeholder": "跳至某個 Spark、執行操作、開啟設定…",
+    "searchLabel": "搜尋命令",
+    "escapeKey": "Esc",
+    "listLabel": "命令",
+    "noMatch": "沒有符合「{{query}}」的結果。",
+    "move": "↑↓ 移動",
+    "open": "↵ 開啟",
+    "close": "Esc 關閉"
+  },
+  "install": {
+    "dialogLabel": "安裝 sparkDash",
+    "title": "安裝 sparkDash",
+    "description": "加入主畫面，即可使用全螢幕、類似應用程式的儀表板。",
+    "button": "安裝",
+    "dismiss": "略過",
+    "ios": {
+      "title": "在 iPhone 上安裝 sparkDash",
+      "tapShare": "點選",
+      "share": "分享",
+      "icon": "圖示",
+      "then": "（Safari），接著",
+      "addToHomeScreen": "加入主畫面",
+      "period": "。"
+    }
+  },
+  "theme": {
+    "title": "主題：{{theme}}",
+    "switchLabel": "切換主題（目前為 {{theme}}）",
+    "white": "白色",
+    "light": "淺色",
+    "dark": "深色",
+    "oled": "OLED"
+  },
+  "connection": {
+    "ageSeconds": "{{seconds}} 秒",
+    "ageMinutes": "{{minutes}} 分 {{seconds}} 秒",
+    "connecting": "正在連線至即時遙測…",
+    "staleWithAge": "遙測資料已過期。上次有效更新是在 {{age}} 前。",
+    "disconnectedWithAge": "即時遙測已中斷。目前顯示 {{age}} 前的資料。",
+    "waitingForFirstUpdate": "即時遙測已中斷。正在等待第一次有效更新…",
+    "dataError": "遙測資料錯誤。",
+    "stale": "遙測資料已過期。",
+    "disconnected": "即時遙測已中斷。"
+  },
+  "error": {
+    "dismiss": "關閉",
+    "dismissLabel": "關閉錯誤"
+  },
+  "openAccess": {
+    "label": "開放存取",
+    "dialogLabel": "開放存取",
+    "explanation": "此儀表板可從你的網路在沒有 token 的情況下連線，因此網路上的任何人都能變更設定。請在伺服器上設定 SPARKDASH_TOKEN 以要求 token。",
+    "dismiss": "不再顯示"
+  },
+  "commands": {
+    "goTo": "前往",
+    "actions": "操作",
+    "benchmarks": "基準測試",
+    "page": "頁面",
+    "wallDisplay": "牆面顯示",
+    "online": "上線",
+    "offline": "離線",
+    "benchmark": "{{name}} 基準測試",
+    "add": "新增 Spark 或 GPU 主機",
+    "showcase": "在新視窗開啟 {{name}} 的展示",
+    "edit": "編輯 {{name}}",
+    "theme": "切換主題",
+    "themeHint": "白色 · 淺色 · 深色 · OLED",
+    "sidebar": "顯示或隱藏側邊欄",
+    "settings": "開啟設定",
+    "harness": "設定 harness 工作階段"
+  },
+  "app": {
+    "settingsError": "無法載入設定：{{detail}}。請重新載入以重試。",
+    "refreshError": "無法重新整理 Spark：{{detail}}。先前的資料仍會顯示。",
+    "reorderError": "無法儲存 Spark 順序：{{detail}}。已還原先前的順序。",
+    "emptyTitle": "尚未註冊任何 Spark",
+    "emptyDescription": "新增 DGX Spark 或 GPU 主機即可開始監控。",
+    "addSpark": "新增 Spark"
+  }
+}
