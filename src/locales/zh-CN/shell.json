@@ -20,7 +20,8 @@
     "openSearch": "打开命令面板",
     "showSidebar": "显示侧边栏",
     "showSidebarTitle": "显示侧边栏 (Ctrl+B)",
-    "apiKeys": "API 密钥"
+    "apiKeys": "API 密钥",
+    "llmServers": "LLM 服务器"
   },
   "sidebar": {
     "sortable": "可排序",

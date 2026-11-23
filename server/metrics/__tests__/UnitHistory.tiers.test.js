@@ -542,6 +542,21 @@ test("the worst-case tiers stay within the documented size", () => {
   assert.ok(bytes < 1.4 * 1024 * 1024, `worst case ${bytes} bytes`);
 });
 
+test("withCounts adds the sample count for the insights endpoint", () => {
+  const s = store();
+  rec(s, T0 + 2_000, { gpuUtil: 10 });
+  rec(s, T0 + 4_000, { gpuUtil: 30 });
+  assert.deepEqual(s.query("a", "1h", T0 + 5_000, { withCounts: true }).points[0], {
+    t: T0,
+    gpuUtil: { avg: 20, max: 30, n: 2 },
+  });
+  // The ordinary history response keeps its public shape (no sample count).
+  assert.deepEqual(s.query("a", "1h", T0 + 5_000).points[0], {
+    t: T0,
+    gpuUtil: { avg: 20, max: 30 },
+  });
+});
+
 test("turning the setting off stops tier writes, buckets still pending included", async (t) => {
   const tiersFile = path.join(tmpDir(t), "metrics-history.json");
   let enabled = true;

@@ -18,6 +18,8 @@ import { AddSparkDialog } from "./components/AddSparkDialog";
 import { EditSparkDialog } from "./components/EditSparkDialog";
 import { SparkPage } from "./components/SparkPage/SparkPage";
 import { HermesUpdateDialog } from "./components/SparkPage/HermesUpdateDialog";
+import { LlmServersPage } from "./components/LlmServersPage/LlmServersPage";
+import { LlmServerDetailPage } from "./components/LlmServersPage/LlmServerDetailPage";
 import { OverviewPage } from "./components/OverviewPage/OverviewPage";
 import { ShowcasePage } from "./components/ShowcasePage/ShowcasePage";
 import { ShowcaseView } from "./components/ShowcasePage/ShowcaseView";
@@ -58,6 +60,9 @@ import {
   COST_ID,
   KIOSK_ID,
   API_KEYS_ID,
+  LLM_SERVERS_ID,
+  llmServerId,
+  llmServerIdOf,
   benchId,
   benchTypeOf,
   idToPath,
@@ -489,6 +494,7 @@ function DashboardApp() {
     ];
     cmds.push(
       { id: "nav:tokens", group: t("commands.goTo"), label: t("nav.tokens"), hint: t("commands.page"), icon: <TokensIcon className="h-4 w-4" />, keywords: "Token totals llm tokens generated prompt cached usage", run: () => navigate(TOKENS_ID) },
+      { id: "nav:llm", group: t("commands.goTo"), label: t("nav.llmServers"), hint: t("commands.page"), icon: <BotIcon className="h-4 w-4" />, keywords: "LLM servers queue prefill decode cache KV tok/s engine models", run: () => navigate(LLM_SERVERS_ID) },
       { id: "nav:cost", group: t("commands.goTo"), label: t("nav.cost"), hint: t("commands.page"), icon: <CoinsIcon className="h-4 w-4" />, keywords: "Cost compare cost price money usd dollars api hosted opus sonnet gpt gemini compare", run: () => navigate(COST_ID) },
       { id: "nav:energy", group: t("commands.goTo"), label: t("nav.energy"), hint: t("commands.page"), icon: <BoltIcon className="h-4 w-4" />, keywords: "Fleet energy power kwh watts cost electricity", run: () => navigate(ENERGY_ID) },
       { id: "nav:temps", group: t("commands.goTo"), label: t("nav.temps"), hint: t("commands.page"), icon: <ThermometerIcon className="h-4 w-4" />, keywords: "Temps gpu temperature thermal temps heat cooling", run: () => navigate(TEMPS_ID) },
@@ -600,6 +606,18 @@ function DashboardApp() {
             <main key={chartTimeZone} className={telemetryStale || !connected ? "telemetry-stale" : undefined}>
               {activeId === TOKENS_ID ? (
                 <TokensPage sparks={displaySparks} onSelectSpark={navigate} />
+              ) : activeId === LLM_SERVERS_ID ? (
+                <LlmServersPage
+                  sparks={displaySparks}
+                  onSelectSpark={(id) => navigate(llmServerId(id))}
+                />
+              ) : llmServerIdOf(activeId) ? (
+                <LlmServerDetailPage
+                  sparkId={llmServerIdOf(activeId)!}
+                  sparks={displaySparks}
+                  onBack={() => navigate(LLM_SERVERS_ID)}
+                  onSelectSpark={navigate}
+                />
               ) : activeId === COST_ID ? (
                 <CostPage />
               ) : activeId === API_KEYS_ID ? (

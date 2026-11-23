@@ -13,7 +13,7 @@ import { unreportedOf } from "./tokenTotalsCopy";
 
 const POLL_MS = 60_000;
 
-export function LlmTokenTotals({ sparkId, llmPort }: { sparkId: string; llmPort: number }) {
+export function LlmTokenTotals({ sparkId, llmPort, modelId }: { sparkId: string; llmPort: number; modelId?: string | null }) {
   const { t } = useTranslation("spark");
   const rangeOptions: Array<{ value: LlmTokenRange; label: string }> = [
     { value: "all", label: t("llmTokens.ranges.all") },
@@ -51,6 +51,7 @@ export function LlmTokenTotals({ sparkId, llmPort }: { sparkId: string; llmPort:
   const rows = series
     .filter((s) => s.sparkId === sparkId && s.port === llmPort)
     .flatMap((s) => s.models)
+    .filter((m) => !modelId || m.modelId === modelId)
     .map((m) => ({ ...m, unreportedPromptTokens: unreportedOf(m) }));
 
   if (rows.length === 0 && range === "all") return null;

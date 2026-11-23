@@ -7,6 +7,7 @@
 import { collectionWasSuccessful } from "../collectors/SystemCollector.js";
 import { deviceReadings } from "./UnitHistory.js";
 import { extractSample } from "./historySample.js";
+import { createLlmHistoryTracker } from "./LlmHistoryTracker.js";
 import { HISTORY_RANGES } from "./historyTiers.js";
 
 /** One sample per collector poll at the default 2 s cadence. */
@@ -91,6 +92,7 @@ export function createUnitHistoryHandler({ store, cacheStore = null, hasUnit, is
     }
     if (!isEnabled()) return res.json({ enabled: false });
     const atMs = now();
+    const withCounts = req.query?.counts === "1";
     let cache = null;
     try {
       cache = cacheStore ? cacheStore.query(id, range, atMs) : null;
@@ -98,7 +100,7 @@ export function createUnitHistoryHandler({ store, cacheStore = null, hasUnit, is
       // The gauge tiers must answer even if the cache sidecar cannot.
       cache = null;
     }
-    return res.json({ enabled: true, ...store.query(id, range, atMs), cache });
+    return res.json({ enabled: true, ...store.query(id, range, atMs, { withCounts }), cache });
   };
 }
 
@@ -126,6 +128,7 @@ export function createUnitHistoryRuntime({
   let started = false;
   let stopped = false;
   let sampleTimer = null;
+  const llmTracker = createLlmHistoryTracker();
 
   const reportError = (message, error) => {
     try {
@@ -162,11 +165,17 @@ export function createUnitHistoryRuntime({
         /* pruning is best effort */
       }
       store.recordSample(
-        snapshots.map((snap) => ({
-          id: snap?.id,
-          llmPorts: snap?.llmPorts,
-          values: extractSample(snap, monitorFreshness(monitors?.get?.(snap?.id), atMs)),
-        })),
+        snapshots.map((snap) => {
+          const freshness = monitorFreshness(monitors?.get?.(snap?.id), atMs);
+          return {
+            id: snap?.id,
+            llmPorts: snap?.llmPorts,
+            values: {
+              ...extractSample(snap, freshness),
+              ...llmTracker.record(snap, atMs, freshness),
+            },
+          };
+        }),
         atMs
       );
     } catch (error) {

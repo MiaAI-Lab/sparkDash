@@ -514,9 +514,10 @@ export class UnitHistory {
    *   llm: [{ port, points: [{ t, genTps?, prefillTps?, kvUsage? }] }] }.
    * Throws on an unknown range (the route validates first).
    */
-  query(unitId, range, atMs = this._now()) {
+  query(unitId, range, atMs = this._now(), options = {}) {
     const spec = Object.hasOwn(HISTORY_RANGES, range) ? HISTORY_RANGES[range] : null;
     if (!spec) throw new Error(`unknown range: ${range}`);
+    const withCounts = options?.withCounts === true;
     this._ensureTiersLoaded();
     const to = atMs;
     const from = atMs - spec.spanMs;
@@ -542,10 +543,10 @@ export class UnitHistory {
             lp = { t };
             byT.set(t, lp);
           }
-          lp[parsed.name] = statOut(key, s);
+          lp[parsed.name] = statOut(key, s, withCounts);
         } else {
           if (!point) point = { t };
-          point[key] = statOut(key, s);
+          point[key] = statOut(key, s, withCounts);
         }
       }
       if (point) points.push(point);

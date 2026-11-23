@@ -1,4 +1,4 @@
-import { benchId } from "../../constants";
+import { benchId, llmServerId } from "../../constants";
 import { BenchIcon } from "../bench/BenchIcon";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
@@ -619,6 +619,21 @@ export function LlmPanel({
               <span>{t("llm.remove")}</span>
             </button>
           )}
+          <button
+            type="button"
+            title={t("llm.openServerViewHelp")}
+            onClick={() =>
+              window.dispatchEvent(
+                new CustomEvent("sparkdash:navigate", {
+                  detail: { id: llmServerId(sparkId) },
+                })
+              )
+            }
+            className="btn btn--sm btn--ghost"
+          >
+            <BotIcon />
+            <span>{t("llm.openServerView")}</span>
+          </button>
           <button
             type="button"
             title={showSettings ? t("llm.done") : t("llm.settings.title")}
