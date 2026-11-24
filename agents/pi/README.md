@@ -30,7 +30,9 @@ A session appears on a card only when the request it is making goes to that
 card's endpoint: the base URL's host and port must be the Spark and LLM port the
 card monitors, and the model must be the model that card reports. A session
 using a cloud model, or a local endpoint sparkDash does not monitor, stays off
-the cards. Folder names and model names alone are not used.
+the cards. Folder names and model names alone are not used. A `localhost`
+destination means the machine the helper runs on, so a session on one Spark
+never lands on another Spark's card.
 
 The helper reads the files; the dashboard never reads them directly. A file
 left behind by a crashed Pi process stops counting after two minutes.

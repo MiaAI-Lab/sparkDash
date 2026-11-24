@@ -99,6 +99,46 @@ test('the destination must name the host the card actually probes', () => {
   assert.deepEqual(cards(project([at(SPARK_URL)], { sparks: [local] })), []);
 });
 
+test('a loopback destination belongs to the helper\'s own Spark, never the dashboard host\'s', () => {
+  const at = (baseUrl) => piRow({ selection: { provider: 'local', model: 'example-model', baseUrl },
+    requestDestination: { provider: 'local', model: 'example-model', baseUrl } });
+  const localSpark = { ...spark, isLocal: true };
+  const remoteSpark = { id: 'spark-2', name: 'Spark 2', lanIp: '192.0.2.50', ssh: { host: 'spark-2.example' },
+    llmPorts: [8000] };
+  const live = { 'dgx-spark': endpoints['dgx-spark'],
+    'spark-2': [{ port: 8000, modelId: 'example-model', models: ['example-model'] }] };
+  const remoteHelper = helper({ id: 'spark-2-helper', url: 'http://192.0.2.50:8790/occupancy' });
+
+  // The bug: a helper on another machine whose Pi calls its own localhost used
+  // to match the dashboard host's local Spark whenever the model id matched.
+  const onlyLocal = project([at('http://localhost:8000/v1')],
+    { helpers: [remoteHelper], sparks: [localSpark], live: { 'dgx-spark': endpoints['dgx-spark'] } });
+  assert.deepEqual(cards(onlyLocal), []); assert.equal(onlyLocal.unmapped, 1);
+
+  // With that helper's Spark registered, the session lands on that Spark.
+  const both = project([at('http://localhost:8000/v1')],
+    { helpers: [remoteHelper], sparks: [localSpark, remoteSpark], live });
+  assert.deepEqual(cards(both).map(c => [c.id, c.port]), [['spark-2', '8000']]);
+  assert.equal(both.unmapped, 0);
+  // A loopback destination on IPv6 loopback resolves the same way.
+  assert.deepEqual(cards(project([at('http://[::1]:8000/v1')],
+    { helpers: [remoteHelper], sparks: [localSpark, remoteSpark], live })).map(c => c.id), ['spark-2']);
+
+  // A helper host that is not one of the registered Sparks cannot be resolved.
+  const stranger = helper({ id: 'spark-3-helper', url: 'http://192.0.2.77:8790/occupancy' });
+  assert.deepEqual(cards(project([at('http://127.0.0.1:8000/v1')],
+    { helpers: [stranger], sparks: [localSpark, remoteSpark], live })), []);
+
+  // A loopback helper is the dashboard host, so its local Spark still matches.
+  assert.deepEqual(cards(project([at('http://127.0.0.1:8000/v1')],
+    { sparks: [localSpark, remoteSpark], live })).map(c => c.id), ['dgx-spark']);
+
+  // The card must still serve that model on that port on the helper's Spark.
+  const unserved = { ...live, 'spark-2': [{ port: 8000, modelId: 'other-model', models: ['other-model'] }] };
+  assert.deepEqual(cards(project([at('http://localhost:8000/v1')],
+    { helpers: [remoteHelper], sparks: [localSpark, remoteSpark], live: unserved })), []);
+});
+
 test('selection alone, an unproven destination and saved routes never place a Pi row', () => {
   const selectionOnly = piRow({ requestDestination: null, destinationEvidence: 'none', requestOpen: false, lastDeltaAt: null });
   const legacy = helper({ routes: [{ harness: 'pi', sparkId: 'dgx-spark', port: 8000 },
