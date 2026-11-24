@@ -59,6 +59,25 @@ test('registration is inert and registers only the approved hooks', () => {
   assert.equal(f.controller.snapshot(), null);
 });
 
+test('only the project folder name is published, never the absolute path', async () => {
+  const f = fixture();
+  f.ctx.cwd = '/home/alice/private-projects/app';
+  f.begin(); f.tick(250);
+  assert.equal(f.controller.snapshot().cwd, 'app');
+  assert.equal(JSON.stringify(f.writes).includes('/home/alice'), false);
+  // A renamed folder republishes the new folder name only.
+  f.ctx.cwd = '/home/alice/private-projects/renamed';
+  f.emit('session_info_changed'); f.tick(250);
+  assert.equal(f.controller.snapshot().cwd, 'renamed');
+  assert.equal(JSON.stringify(f.writes).includes('/home/alice'), false);
+  // Windows separators, a trailing separator and the filesystem root.
+  for (const [cwd, want] of [['C:\\Users\\alice\\proj\\', 'proj'], ['/', ''], ['', '']]) {
+    f.ctx.cwd = cwd; f.emit('session_info_changed');
+    assert.equal(f.controller.snapshot().cwd, want, JSON.stringify(cwd));
+  }
+  await f.controller.stop();
+});
+
 test('a matching request is receiving, and only recognised deltas renew generation time', async () => {
   const f = fixture(); f.begin();
   assert.equal(f.controller.snapshot().destinationEvidence, 'provider-matched');
@@ -191,6 +210,7 @@ test('the default writer composes with the real scheduler and removes the file o
   assert.equal(files.length, 1);
   const data = JSON.parse(await fs.readFile(path.join(dir, files[0]), 'utf8'));
   assert.equal(data.sessionId, 'fixture-session');
+  assert.equal(data.cwd, 'shared', 'the file holds the folder name, not /fixture/shared');
   assert.equal(data.destinationEvidence, 'none');
   assert.equal((await fs.stat(path.join(dir, files[0]))).mode & 0o777, 0o600);
   await hooks.get('session_shutdown')({}, ctx);
