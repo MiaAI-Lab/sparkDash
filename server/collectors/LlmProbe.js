@@ -323,6 +323,13 @@ export class LlmProbe {
     // Metric names follow stock vLLM Prometheus exposition (versions may differ).
     this.kvCacheUsage = null; // 0–1 fraction
     /**
+     * What `kvCacheUsage` is a share of, for the backends that also report `kvCacheTokens`:
+     * "pool" when it is the used fraction of that pool (vLLM, FreeToken), so ratio × pool is
+     * the pool's used tokens; "stream" for TensorFold, whose ratio is one stream's cache over
+     * that stream's own context window (#348). null for every other backend.
+     */
+    this.kvCacheUsageBasis = null;
+    /**
      * TensorFold's own cache observation (`/health.live.cache`), kept as a distinct group:
      * { status, pool, promptState, ... }. Null when the endpoint is not a TensorFold engine,
      * `status: "unavailable"` when a TensorFold engine does not publish the group (old build).
@@ -336,9 +343,16 @@ export class LlmProbe {
      * @type {{ ttft: { edges: number[], counts: number[] }, latency: { edges: number[], counts: number[] } } | null}
      */
     this.cacheHistograms = null;
-    /** Allocated KV-cache pool, tokens (vLLM `cache_config_info`). */
+    /**
+     * Allocated KV-cache pool, tokens. vLLM `cache_config_info`; TensorFold
+     * `kv_shard_parts × kv_shard_part_rows` (the engine's own shard math, #348).
+     */
     this.kvCacheTokens = null;
-    /** Free tokens in that pool. null until both pool size and usage are known. */
+    /**
+     * Free tokens in that pool. vLLM derives it from the pool usage; TensorFold
+     * sums `kv_shard_part_free` (rows nothing holds, kept prompt states
+     * included — the per-stream usage ratio never derives a pool figure).
+     */
     this.kvCacheTokensAvailable = null;
     /** Allocated KV-cache pool, bytes. */
     this.kvCacheMemoryBytes = null;
@@ -2239,6 +2253,7 @@ export class LlmProbe {
     this.generationTps = 0;
     this.prefillTps = 0;
     this.kvCacheUsage = null;
+    this.kvCacheUsageBasis = null;
     this.kvCacheTokens = null;
     this.kvCacheTokensAvailable = null;
     this.kvCacheMemoryBytes = null;
@@ -2310,12 +2325,16 @@ export class LlmProbe {
       if (Number.isFinite(page) && page > 0) {
         this.kvCacheTokens = Math.round(total * page);
         this.kvCacheTokensAvailable = Math.max(0, Math.round((total - used) * page));
+        // The page gauge is the used fraction of this pool.
+        this.kvCacheUsageBasis = "pool";
       } else {
         this.kvCacheTokens = null;
         this.kvCacheTokensAvailable = null;
+        this.kvCacheUsageBasis = null;
       }
     } else {
       this.kvCacheUsage = null;
+      this.kvCacheUsageBasis = null;
       this.kvCacheTokens = null;
       this.kvCacheTokensAvailable = null;
     }
@@ -2890,6 +2909,10 @@ export class LlmProbe {
     // instead of a position measured by an earlier poll.
     this.prefillProgressTokens = null;
     this.generationProgressTokens = null;
+    // Live free pool tokens come only from a full /metrics scrape; clear them
+    // before returning early on a failed or non-TensorFold response while leaving
+    // queue-only scrapes alone.
+    if (!queueOnly) this.kvCacheTokensAvailable = null;
     let txt;
     try {
       const res = await this._fetch(`${this.baseUrl}/metrics`);
@@ -3024,6 +3047,33 @@ export class LlmProbe {
     // same value. Per-pool detail would need a separate field.
     const kv = queueOnly ? null : this._getPromMetricMax(txt, "tensorfold:kv_cache_usage_ratio");
     if (Number.isFinite(kv) && kv >= 0) this.kvCacheUsage = Math.min(1, kv);
+    // Absolute pool accounting from the engine's own shard math (#348): the pool
+    // holds `kv_shard_parts` ownership parts of `kv_shard_part_rows` positions
+    // each, and `kv_shard_part_free` sums the rows of each part nothing holds —
+    // the pool's free positions (one row is one token position: three live
+    // requests each reserved a multiple of 2048 rows of prompt + max tokens).
+    // It is read on its own and never derived from the ratio above, which is one
+    // stream's cache over its own context window, not a share of this pool: a
+    // stream 2.3% into a 1M window read 0.023 while kept prompt states held a
+    // third of the rows. A build without the series keeps the token counts null,
+    // as before; a queue-only scrape leaves whatever the last full scrape read.
+    // `Max` reads the two config gauges because a per-part export would repeat
+    // the same values, and their sum would multiply the capacity.
+    if (!queueOnly) {
+      const parts = this._getPromMetricMax(txt, "tensorfold:kv_shard_parts");
+      const partRows = this._getPromMetricMax(txt, "tensorfold:kv_shard_part_rows");
+      const capacity =
+        Number.isFinite(parts) && parts >= 1 && Number.isFinite(partRows) && partRows >= 1
+          ? Math.round(parts) * Math.round(partRows)
+          : null;
+      const freeRows = this._getPromMetric(txt, "tensorfold:kv_shard_part_free");
+      this.kvCacheTokens = capacity;
+      this.kvCacheUsageBasis = capacity != null ? "stream" : null;
+      this.kvCacheTokensAvailable =
+        capacity != null && Number.isFinite(freeRows) && freeRows >= 0
+          ? Math.min(capacity, Math.round(freeRows))
+          : null;
+    }
     const drafted = queueOnly ? null : m("mtp_drafted_total");
     const accepted = queueOnly ? null : m("mtp_accepted_total");
     if (Number.isFinite(drafted) && drafted > 0 && Number.isFinite(accepted)) {
@@ -4129,6 +4179,7 @@ export class LlmProbe {
     this.kvCacheTokens = null;
     this.kvCacheTokensAvailable = null;
     this.kvCacheMemoryBytes = null;
+    this.kvCacheUsageBasis = null;
   }
 
   /**
@@ -4147,6 +4198,9 @@ export class LlmProbe {
       this._getPromMetric(txt, "radiance:kv_cache_max_bytes");
     this.kvCacheTokens = tokens;
     this.kvCacheMemoryBytes = bytes;
+    // The vLLM usage gauge is the used fraction of this pool, whichever way the size was
+    // read; without a pool size there is no figure a consumer could derive against it.
+    this.kvCacheUsageBasis = tokens != null ? "pool" : null;
     if (tokens != null && this.kvCacheUsage != null && Number.isFinite(this.kvCacheUsage)) {
       const used = Math.min(1, Math.max(0, this.kvCacheUsage));
       this.kvCacheTokensAvailable = Math.max(0, Math.round(tokens * (1 - used)));
@@ -4371,6 +4425,7 @@ export class LlmProbe {
       prefillProgressTokens: this.backendType === "tensorfold" ? this.prefillProgressTokens ?? null : null,
       generationProgressTokens: this.backendType === "tensorfold" ? this.generationProgressTokens ?? null : null,
       kvCacheUsage: this.kvCacheUsage,
+      kvCacheUsageBasis: this.kvCacheUsageBasis,
       cache: this.cache,
       cacheHistograms: this.cacheHistograms,
       kvCacheTokens: this.kvCacheTokens,
@@ -4423,6 +4478,7 @@ export class LlmProbe {
       prefillProgressTokens: null,
       generationProgressTokens: null,
       kvCacheUsage: null,
+      kvCacheUsageBasis: null,
       cache: null,
       cacheHistograms: null,
       kvCacheTokens: null,

@@ -139,7 +139,7 @@
   },
   "llm": {
     "metricHelp": {
-      "kvCache": "Free tokens left in the engine’s KV-cache pool, over the allocated pool (tokens and memory). The pool is shared across concurrent requests and can be larger than one request’s max context. High usage (≥80% full) means little room for new or long contexts and often leads to queuing or preemptions.",
+      "kvCache": "Free tokens left in the engine’s KV-cache pool, over the allocated pool (tokens and memory). The pool is shared across concurrent requests and can be larger than one request’s max context. High usage (≥80% full) means little room for new or long contexts and often leads to queuing or preemptions. On TensorFold the percentage is the fullest stream’s share of its own context window, while the free and pool figures are the engine’s whole pool (kept prompt states hold pool rows no stream counts).",
       "requests": "Run = requests actively generating on the GPU. Wait = accepted but not yet scheduled (capacity or constraints). Growing wait with high KV cache usually means the server is overloaded.",
       "ttftMean": "Mean time-to-first-token reported by FreeToken (a mean, not a percentile): how long requests wait until the first output token.",
       "ttftP95": "95th percentile time-to-first-token from the engine’s request history: how long “slow” requests wait until the first output token. Spikes mean queueing, long prefills, or cold paths—not average decode speed.",

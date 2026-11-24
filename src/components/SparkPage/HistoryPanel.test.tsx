@@ -1,6 +1,7 @@
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flush, render } from "../../testing/render";
+import { makeSpark } from "../../testing/fixtures";
 import type { MetricsHistoryData, MetricsHistoryResponse } from "../../api/types";
 import { nearestIndex, segmentRuns, windowStats, yDomain } from "./HistoryChart";
 import { HISTORY_POLL_MS, HISTORY_RANGE_KEY, HistoryPanel } from "./HistoryPanel";
@@ -365,6 +366,62 @@ describe("HistoryPanel", () => {
     expect(chart(container, "llm-8888-gen")).toBeTruthy();
     expect(chart(container, "llm-8888-prefill").textContent).toContain("No data in this range");
     expect(chart(container, "llm-8888-kv")).toBeTruthy();
+  });
+
+  it("shows used over pool tokens on the KV chart when the ratio is a pool share", async () => {
+    fetchHistory.mockResolvedValue(data());
+    const live = { ...makeSpark().metrics.llm[0], port: 8888, kvCacheTokens: 6_291_456, kvCacheUsageBasis: "pool" as const };
+    const { container } = render(
+      <HistoryPanel sparkId="spark-1" kind="spark" temperatureUnit="celsius" liveLlm={[live]} />,
+    );
+    await flush();
+    // Newest bucket: 25% of the 6,291,456-token pool → 1.6M of 6.3M.
+    const readout = chart(container, "llm-8888-kv").querySelector('[data-readout="kvUsage"]')!;
+    expect(readout.querySelector("b")!.textContent).toBe("25%");
+    expect(readout.querySelector("[data-tokens]")!.textContent).toBe("1.6M / 6.3M tok (at current pool size)");
+    // Focus lands on the newest timeline bucket, where this endpoint reported no KV;
+    // Home moves to the first bucket, which has the 25% reading.
+    const kvPlot = plot(container, "llm-8888-kv");
+    act(() => kvPlot.focus());
+    key(kvPlot, "Home");
+    expect(container.querySelector("[data-tooltip]")!.textContent).toContain("25% · 1.6M / 6.3M tok (at current pool size)");
+  });
+
+  it("shows only the pool size for a per-stream ratio (TensorFold)", async () => {
+    fetchHistory.mockResolvedValue(data());
+    // TensorFold's ratio is one stream's share of its own window, so no used figure is
+    // derived from it; the engine's pool size is still an absolute reading.
+    const live = { ...makeSpark().metrics.llm[0], port: 8888, kvCacheTokens: 2_101_248, kvCacheUsageBasis: "stream" as const };
+    const { container } = render(
+      <HistoryPanel sparkId="spark-1" kind="spark" temperatureUnit="celsius" liveLlm={[live]} />,
+    );
+    await flush();
+    const readout = chart(container, "llm-8888-kv").querySelector('[data-readout="kvUsage"]')!;
+    expect(readout.querySelector("[data-tokens]")!.textContent).toBe("pool 2.1M tok");
+    const kvPlot = plot(container, "llm-8888-kv");
+    act(() => kvPlot.focus());
+    key(kvPlot, "Home");
+    expect(container.querySelector("[data-tooltip]")!.textContent).toContain("pool 2.1M tok");
+  });
+
+  it("ignores unreachable or invalid endpoints for live KV pool size", async () => {
+    fetchHistory.mockResolvedValue(data());
+    const unreachable = { ...makeSpark().metrics.llm[0], port: 8888, available: false, kvCacheTokens: 6_291_456, kvCacheUsageBasis: "pool" as const };
+    const { container, root } = render(
+      <HistoryPanel sparkId="spark-1" kind="spark" temperatureUnit="celsius" liveLlm={[unreachable]} />,
+    );
+    await flush();
+    expect(chart(container, "llm-8888-kv").querySelector("[data-tokens]")).toBeNull();
+
+    const invalid = { ...makeSpark().metrics.llm[0], port: 8888, available: true, measurementValid: false, kvCacheTokens: 6_291_456, kvCacheUsageBasis: "pool" as const };
+    act(() => root.render(<HistoryPanel sparkId="spark-1" kind="spark" temperatureUnit="celsius" liveLlm={[invalid]} />));
+    await flush();
+    expect(chart(container, "llm-8888-kv").querySelector("[data-tokens]")).toBeNull();
+  });
+
+  it("shows no token reading without a live pool", async () => {
+    const { container } = await mount();
+    expect(chart(container, "llm-8888-kv").querySelector("[data-tokens]")).toBeNull();
   });
 
   it("moves one crosshair across every chart from the keyboard, with a tooltip", async () => {

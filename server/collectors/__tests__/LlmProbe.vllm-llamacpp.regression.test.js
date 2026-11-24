@@ -105,6 +105,8 @@ test("vLLM probe: counter diffs + tiles; skips get_server_info when known vllm",
   assert.equal(snap.kvCacheUsage, 0.42);
   assert.equal(snap.kvCacheTokens, null);
   assert.equal(snap.kvCacheTokensAvailable, null);
+  // No cache_config_info pool to describe the ratio against.
+  assert.equal(snap.kvCacheUsageBasis, null);
   assert.equal(snap.kvCacheGb, null); // vLLM reports no pool size
   assert.equal(snap.weightsGb, null);
   assert.equal(snap.preemptionsTotal, 3);
@@ -431,6 +433,9 @@ test("vLLM cache_config_info: free tokens from pool size and usage", () => {
   assert.equal(probe.kvCacheTokens, 883552);
   assert.equal(probe.kvCacheMemoryBytes, 15032385536);
   assert.equal(probe.kvCacheTokensAvailable, Math.round(883552 * 0.6));
+  // The usage gauge is the used fraction of this pool (basis "pool"), so the history
+  // chart derives used tokens from it.
+  assert.equal(probe.kvCacheUsageBasis, "pool");
 });
 
 test("vLLM cache_config_info: sums pools across engines and clamps usage", () => {

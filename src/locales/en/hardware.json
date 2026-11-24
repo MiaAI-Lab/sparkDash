@@ -281,6 +281,8 @@
   "history.decodeTitle": "Decode tok/s · :{{port}}",
   "history.prefillTitle": "Prefill tok/s · :{{port}}",
   "history.kvTitle": "KV cache · :{{port}}",
+  "history.kvTokens": "{{used}} / {{total}} tok (at current pool size)",
+  "history.kvPoolTokens": "pool {{tokens}} tok",
   "history.title": "History · {{range}}",
   "history.loading": "Loading history…",
   "history.disabled": "Metrics history is off on the server. Turn it on in Settings → Metrics history.",

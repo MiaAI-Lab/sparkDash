@@ -26,6 +26,7 @@ import type { BenchKind } from "./BenchSwitcher";
 import { engineStateLabel } from "./llmEngineState";
 import { isLlmIdle } from "../../shared/llmIdle";
 import { formatSince } from "../../shared/formatSince";
+import { formatKvTokens } from "../../shared/formatBytes";
 import { measuredGenerationTps } from "../../shared/llmRate";
 import { ConversationList } from "./ConversationList";
 import { LlmCachePanel } from "./LlmCachePanel";
@@ -44,20 +45,6 @@ interface LlmPanelProps {
   className?: string;
   conversations?: ConversationRow[];
   onAddHarness?: () => void;
-}
-
-/** Compact token counts for the KV pool tile (883552 → 884k). */
-function formatKvTokens(n: number): string {
-  const abs = Math.abs(n);
-  if (abs >= 1_000_000) {
-    const v = Math.round((n / 1_000_000) * 10) / 10;
-    return `${Number.isInteger(v) ? v.toFixed(0) : v.toFixed(1)}M`;
-  }
-  if (abs >= 1000) {
-    const v = abs >= 10_000 ? Math.round(n / 1000) : Math.round((n / 1000) * 10) / 10;
-    return `${Number.isInteger(v) ? v.toFixed(0) : v.toFixed(1)}k`;
-  }
-  return Math.round(n).toLocaleString();
 }
 
 function formatKvBytes(n: number): string {

@@ -281,6 +281,8 @@
   "history.decodeTitle": "解码 tok/s · :{{port}}",
   "history.prefillTitle": "预填充 tok/s · :{{port}}",
   "history.kvTitle": "KV 缓存 · :{{port}}",
+  "history.kvTokens": "{{used}} / {{total}} tok（按当前池容量）",
+  "history.kvPoolTokens": "池容量 {{tokens}} tok",
   "history.title": "历史记录 · {{range}}",
   "history.loading": "正在加载历史记录…",
   "history.disabled": "服务端已关闭指标历史。请在设置 → 指标历史中开启。",

@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { formatBytes, formatBytesPerSec, formatDiskSize, formatGb, formatMb } from "./formatBytes";
+import { formatBytes, formatBytesPerSec, formatDiskSize, formatGb, formatKvTokens, formatMb } from "./formatBytes";
+
+describe("formatKvTokens", () => {
+  it("compacts KV pool counts the way the tile and the history corner print them", () => {
+    expect(formatKvTokens(883552)).toBe("884k");
+    expect(formatKvTokens(6_291_456)).toBe("6.3M");
+    expect(formatKvTokens(2_101_248)).toBe("2.1M");
+    expect(formatKvTokens(1433)).toBe("1.4k");
+    expect(formatKvTokens(512)).toBe("512");
+  });
+});
 
 describe("formatBytesPerSec", () => {
   it("rolls 1024.0 of a unit into the next unit", () => {

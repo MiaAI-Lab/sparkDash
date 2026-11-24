@@ -71,6 +71,9 @@ test("_applyFreeTokenStats maps window rates, mean TTFT, and KV without inventin
   assert.equal(probe.totalOutputTokens, 400);
   assert.equal(probe.kvCacheUsage, 0.3);
   assert.equal(probe.kvCacheTokens, 160);
+  // The page gauge is the used fraction of that pool, so the history chart may derive
+  // used tokens from the ratio.
+  assert.equal(probe.kvCacheUsageBasis, "pool");
   assert.equal(probe.contextLength, 131072);
 
   probe._applyFreeTokenStats({
