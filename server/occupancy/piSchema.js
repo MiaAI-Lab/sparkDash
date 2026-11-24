@@ -9,6 +9,8 @@ export const PI_EXPIRE_MS = 120_000;
 export const PI_GENERATION_MS = 10_000;
 export const PI_MAX_FILE_BYTES = 16_384;
 export const PI_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+// `cwd` is the project folder name the extension publishes: a basename, never
+// an absolute path. The field name is shared with the other harnesses' rows.
 const FIELDS = ['schemaVersion', 'publisherId', 'sequence', 'sessionId', 'title', 'cwd', 'selection',
   'requestDestination', 'destinationEvidence', 'phase', 'requestOpen', 'updatedAt', 'lastDeltaAt'];
 const GENERIC = ['activity', 'activityProvenance', 'origin', 'originProvenance'];

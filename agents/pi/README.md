@@ -6,8 +6,9 @@ card whose endpoint they are calling. Without it, Pi sessions do not appear.
 The extension writes one small metadata file per Pi process under
 `$XDG_RUNTIME_DIR/pi-sparkdash-occupancy/` (mode `0700`, files `0600`). The file
 holds the session id, project folder name, state, the request destination
-(provider, model and base URL) and timestamps. It never holds prompts,
-responses, tool output or credentials.
+(provider, model and base URL) and timestamps. It holds the folder name only,
+never the absolute path. It never holds prompts, responses, tool output or
+credentials.
 
 ## Install
 

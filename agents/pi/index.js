@@ -16,7 +16,7 @@ import { createPiFileWriter } from './writer.js';
  * @property {number} sequence
  * @property {string} sessionId
  * @property {string} title
- * @property {string} cwd
+ * @property {string} cwd Project folder name only, never the absolute path
  * @property {Selection | null} selection
  * @property {Selection | null} requestDestination
  * @property {'none' | 'provider-matched'} destinationEvidence
@@ -268,7 +268,20 @@ function makeRuntime(shared, writer, now, clock, shutdownMs) {
   return runtime;
 }
 function sessionMetadata(ctx) {
-  return { id: ctx.sessionManager.getSessionId(), title: ctx.sessionManager.getSessionName(), cwd: ctx.cwd };
+  return {
+    id: ctx.sessionManager.getSessionId(),
+    title: ctx.sessionManager.getSessionName(),
+    cwd: folderName(ctx.cwd),
+  };
+}
+/**
+ * The project folder name only. The absolute path stays on this machine, so the
+ * metadata file cannot leak a user's directory layout even if it is read.
+ */
+function folderName(value) {
+  const parts = (typeof value === 'string' ? value : '').split(/[\\/]+/).filter(Boolean);
+  const name = parts.length ? parts[parts.length - 1] : '';
+  return name.length > 200 ? name.slice(0, 200) : name;
 }
 function modelMetadata(ctx) {
   const m = ctx.model;
