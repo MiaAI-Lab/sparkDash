@@ -150,6 +150,50 @@ test('more than 500 live rows fails loudly, not a truncated active claim', async
   assert.match(out.error, /capacity/i);
 });
 
+// Directory entries with stat-only content: no disk cost, and enough of them to
+// cross the scan bound a real directory would need thousands of crashed files
+// to reach.
+function patchedFilesystem({ dir, names, mtimeMs, synthetic = names }) {
+  const stat = new Map(synthetic.map(name => [path.join(dir, name), { uid: process.getuid(), mode: 0o600,
+    mtimeMs, size: 512, ino: 9, dev: 9, isFile: () => true, isDirectory: () => false,
+    isSymbolicLink: () => false }]));
+  return { ...fs,
+    opendir: async () => (async function* () { for (const name of names) yield { name }; })(),
+    lstat: async p => stat.get(p) || fs.lstat(p) };
+}
+
+test('where crashed sessions have left expired files behind, the adapter still reads live ones', async t => {
+  const f = await fixture(t);
+  // Before this fix, 2000 directory entries made the whole adapter unavailable.
+  for (let i = 1; i <= 2100; i++) await f.put(record(i), NOW - 120_001);
+  await f.put(record(2101));
+  let opens = 0;
+  const filesystem = { ...fs, open: (...args) => { opens++; return fs.open(...args); } };
+  const out = await f.read(NOW, { filesystem });
+  assert.equal(out.coverage, 'supported'); assert.equal(out.error, null);
+  assert.equal(out.rows.length, 1); assert.equal(out.rows[0].sessionId, `session-2101:${uuid(2101)}`);
+  assert.equal(opens, 1, 'expired files are skipped from stat alone');
+});
+
+test('live metadata files still stop at the directory capacity', async t => {
+  const f = await fixture(t);
+  const names = Array.from({ length: 2001 }, (_, i) => `${uuid(i + 1)}.json`);
+  const out = await f.read(NOW, { filesystem: patchedFilesystem({ dir: f.dir, names, mtimeMs: NOW }) });
+  assert.equal(out.coverage, 'unavailable'); assert.equal(out.rows.length, 0);
+  assert.match(out.error, /capacity/i);
+});
+
+test('a directory that never ends costs a bounded scan: live rows are kept and the rest is partial', async t => {
+  const f = await fixture(t), r = record();
+  const file = await f.put(r);
+  const names = [path.basename(file),
+    ...Array.from({ length: 20_000 }, (_, i) => `${uuid(i + 1000)}.json`)];
+  const out = await f.read(NOW, { filesystem: patchedFilesystem({
+    dir: f.dir, names, synthetic: names.slice(1), mtimeMs: NOW - 120_001 }) });
+  assert.equal(out.coverage, 'partial'); assert.match(out.error, /scan/i);
+  assert.equal(out.rows.length, 1); assert.equal(out.rows[0].sessionId, r.sessionId + ':' + r.publisherId);
+});
+
 test('missing/relative/non-private/state-history paths are unavailable without a history fallback', async t => {
   const f = await fixture(t);
   for (const stateDir of [path.join(f.root, 'missing'), 'relative', path.join(f.root, 'sessions')]) {
