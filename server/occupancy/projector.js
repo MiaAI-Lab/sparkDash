@@ -68,7 +68,7 @@ function assignRow(row, helper, sparks, endpoints) {
   // Pi never uses saved routes or generic native-origin matching: only the
   // request destination can place it, so a cloud session in the same folder
   // stays off the Spark card.
-  if (row.harness === "pi") return assignPi(row, sparks, endpoints);
+  if (row.harness === "pi") return assignPi(row, helper, sparks, endpoints);
   const routes = (helper.routes || []).filter((route) => route && route.harness === row.harness);
   const cwd = row.cwd || "";
   const prefixed = routes
@@ -114,13 +114,19 @@ function endpointsFor(endpoints, sparkId) {
   return endpoints?.[sparkId] || [];
 }
 
-function assignPi(row, sparks, endpoints) {
+function assignPi(row, helper, sparks, endpoints) {
   if (row.destinationEvidence !== "provider-matched" || !row.requestDestination) return null;
   const destination = row.requestDestination;
   const endpoint = baseUrlEndpoint(destination.baseUrl);
   if (!endpoint) return null;
+  // A loopback destination means `this machine`, which for a Pi session is the
+  // machine its helper runs on — never the dashboard host. A session on another
+  // Spark that calls its own http://localhost:8000 therefore lands on that
+  // Spark, or nowhere, and cannot claim the dashboard host's local Spark.
+  const host = loopbackHost(endpoint.host) ? helperHost(helper) : endpoint.host;
+  if (!host) return null;
   const spark = sparks.find(
-    (item) => item?.id && monitoredHostMatches(item, endpoint.host) && listenPorts(item).has(endpoint.port)
+    (item) => item?.id && monitoredHostMatches(item, host) && listenPorts(item).has(endpoint.port)
   );
   if (!spark) return null;
   const served = endpointsFor(endpoints, spark.id).find((entry) => entry.port === endpoint.port);
@@ -157,13 +163,27 @@ function hostMatches(spark, host) {
   return candidates.some((value) => normalizeHost(value) === want);
 }
 
+/** Host the dashboard fetches this helper from; that host is the helper's own unit. */
+function helperHost(helper) {
+  try {
+    return normalizeHost(new URL(String(helper?.url || "")).hostname);
+  } catch {
+    return "";
+  }
+}
+
+function loopbackHost(value) {
+  const host = normalizeHost(value);
+  return host === "127.0.0.1" || host === "::1";
+}
+
 /**
  * A Pi destination must name the host the card's LLM probe actually talks to.
  * A pinned `llmHost` is a different machine from the SSH host, and a local
  * Spark is probed on loopback, so the origin aliases above would place a
- * session on a card that never sees its traffic.
- */
-function monitoredHostMatches(spark, host) {
+ * session on a card that never sees its traffic. A loopback destination is
+ * resolved to the helper's own host before this check.
+ */function monitoredHostMatches(spark, host) {
   const want = normalizeHost(host);
   if (!want) return false;
   return normalizeHost(llmProbeHost(spark)) === want;
