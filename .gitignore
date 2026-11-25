@@ -58,6 +58,10 @@ config/metrics-history.json.corrupt-*
 config/fleet-energy.scope-*.json
 config/*.tmp
 config/*.json.*.tmp
+
+# Persisted ten-second LLM telemetry
+config/llm-telemetry.json
+config/llm-telemetry.json.journal
 __pycache__/
 *.pyc
 

@@ -21,6 +21,7 @@ import { HEADROOM_THRESHOLDS_MB, computeVramBreakdown, memoryModelFor, type Vram
 import { ImageIcon, PowerOnIcon } from "../ui/icons";
 import { formatCtx } from "./fleetStats";
 import { ModelLauncher } from "./ModelLauncher";
+import { OverviewLlmFooter } from "./OverviewLlmFooter";
 
 type Unit = "celsius" | "fahrenheit";
 type WakeMessage = "sent" | "failed" | { raw: string } | null;
@@ -137,6 +138,11 @@ function SparkCardImpl({
   const llmList = Array.isArray(spark.metrics.llm) ? spark.metrics.llm : [];
   const llmIdx = llmList.findIndex((l) => l.available);
   const llm = llmIdx >= 0 ? llmList[llmIdx] : null;
+  // History is keyed by port, so read the port the measurement came from: an
+  // edit can reorder or remove ports before the next live poll arrives.
+  const configuredPorts = spark.llmPorts?.length ? spark.llmPorts : [spark.llmPort ?? 8888];
+  const measuredPort = llm?.port ?? configuredPorts[llmIdx] ?? null;
+  const historyPort = measuredPort != null && configuredPorts.includes(measuredPort) ? measuredPort : null;
   const [wakeMsg, setWakeMsg] = useState<WakeMessage>(null);
   const [waking, setWaking] = useState(false);
 
@@ -577,6 +583,7 @@ function SparkCardImpl({
               </div>
             </div>
           ) : null}
+          {showTps && llm ? <OverviewLlmFooter sparkId={spark.id} port={historyPort} llm={llm} /> : null}
           {chips}
           {/* Mac agent units report what is serving from the node's process table.
               null means this transport has no inventory: show nothing rather than
