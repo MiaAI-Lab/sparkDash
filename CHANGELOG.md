@@ -10,8 +10,18 @@ Format: version sections are listed newest first.
 ## [Unreleased]
 
 ### Added
+- **History shows an Active avg for decode and prefill.** The whole-window Avg counts idle polls; the Decode and Prefill charts now also show the mean of the polls that moved tokens, carried exactly through the 1-minute and 15-minute tiers. A fully idle range, or one with legacy buckets that lack the count, shows no active average. Thanks @markyu0401 (#439, #428).
 - **llama-swap is recognised and its loaded engine fills the card.** [llama-swap](https://github.com/mostlygeek/llama-swap) answers `owned_by: "llama-swap"` on `/v1/models` and lists every configured model, loaded or not, so the card showed the first configured model (often an unloaded one) as a generic vLLM server with no rates. The probe now reads llama-swap's `/running` for the loaded model and its engine's address (`proxy`), and probes that engine on its own port — over its own SSH forward when only SSH reaches it — so the engine's reader (TensorFold, vLLM, …) reports the model, rates, KV and requests on the configured llama-swap port. It never polls through llama-swap's `/upstream/<model>/…` proxy, where every request resets the model's TTL and could start an unloaded model. While nothing is loaded the card is available with no model; while a model is starting, its engine is not on llama-swap's loopback, or the engine is not answering yet, the card names the model and marks the rates unmeasured. Only the first running model is shown, and benchmarks still go through the llama-swap port.
 - Opt-in, read-only JSON training reports on a dedicated Training page. One collector reads only `training-progress.json` directly inside explicit output folders; worker-reported stages, counters, metrics and ETA retain unknown/stale semantics and bounded retention. Includes a synthetic example and English/Simplified Chinese UI. First slice of #387.
+
+### Changed
+- More of the interface is translated into Simplified Chinese: Mac GPU thermal pressure, live LLM cache telemetry, Spark cache history and model discovery, newer Quality bench results and share categories, and fleet wall-meter labels. With three or more distinct wall meters the English label list now reads "A, B, and C". Thanks @oscarlius (#317, #318, #320, #322, #323).
+
+### Fixed
+- llama-swap: the probe of the engine behind a llama-swap no longer follows a second llama-swap, so two instances whose `/running` point at each other cannot build probes without end.
+
+### Security
+- Bump body-parser to 2.4.0, qs to 6.17.1 and undici to 8.13.1 (lockfile only, same major versions). Thanks @maxazcona (#431).
 
 ## [2.91.0] — 2026-11-22
 
