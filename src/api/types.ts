@@ -1342,6 +1342,8 @@ export interface InferenceActivity {
 }
 
 export interface Settings {
+  /** Read-only capability configured by TRAINING_PROGRESS_ENABLED on the server. */
+  trainingProgressEnabled?: boolean;
   /** Read-only server capability; configured through environment variables. */
   inferenceActivityEnabled?: boolean;
   pollIntervalMs: number;

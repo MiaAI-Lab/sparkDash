@@ -21,7 +21,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import type { AuthMode, SparkSnapshot } from "../../api/types";
 import { isWorkerSpark } from "../../api/sparkRole";
-import { ACTIVITY_ID, API_KEYS_ID, benchId, COST_ID, ENERGY_ID, idToPath, KIOSK_ID, OVERVIEW_ID, SHOWCASE_ID, STORAGE_ID, TEMPS_ID, TOKENS_ID } from "../../constants";
+import { ACTIVITY_ID, API_KEYS_ID, TRAINING_ID, benchId, COST_ID, ENERGY_ID, idToPath, KIOSK_ID, OVERVIEW_ID, SHOWCASE_ID, STORAGE_ID, TEMPS_ID, TOKENS_ID } from "../../constants";
 import { NAV_BENCH_TYPES, benchNavActive } from "../bench/benchCatalog";
 import { BoltIcon, ChevronDownIcon, CoinsIcon, DiskIcon, ExpandIcon, GearIcon, GithubIcon, GlobeIcon, GridIcon, KeyIcon, ListIcon, PanelLeftIcon, PlusIcon, SearchIcon, TerminalIcon, ThermometerIcon, TokensIcon, XLogoIcon } from "../ui/icons";
 import { OpenAccessChip } from "../OpenAccessChip";
@@ -49,6 +49,8 @@ interface AppSidebarProps {
   onCollapse?: () => void;
   /** Show the opt-in API Keys entry (Settings → API Keys). */
   showApiKeys?: boolean;
+  /** Server-controlled training progress capability. */
+  showTraining?: boolean;
 }
 
 /**
@@ -184,6 +186,7 @@ export function AppSidebar({
   authMode = null,
   onCollapse,
   showApiKeys = false,
+  showTraining = false,
 }: AppSidebarProps) {
   const { t } = useTranslation("shell");
   const benchLabels = useBenchLabels();
@@ -370,6 +373,17 @@ export function AppSidebar({
             <CoinsIcon className="h-4 w-4" />
             <span className="rail-item__name">{t("nav.cost")}</span>
           </a>
+          {showTraining ? (
+            <a
+              href={idToPath(TRAINING_ID)}
+              className={`rail-item ${activeId === TRAINING_ID ? "is-active" : ""}`}
+              onClick={inApp(() => onSelect(TRAINING_ID))}
+              aria-current={activeId === TRAINING_ID ? "page" : undefined}
+            >
+              <ListIcon className="h-4 w-4" />
+              <span className="rail-item__name">{t("nav.training")}</span>
+            </a>
+          ) : null}
           {showApiKeys ? (
             <a
               href={idToPath(API_KEYS_ID)}
