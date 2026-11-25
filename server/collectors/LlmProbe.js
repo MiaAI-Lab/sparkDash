@@ -191,7 +191,12 @@ export class LlmProbe {
         ...options,
         // A bench or Showcase runs against this (llama-swap) port, not the engine's.
         liveDecodeTps: this._liveDecodeTps ? () => this._liveDecodeTps(this.port) : undefined,
+        // The engine probe never follows another llama-swap: two whose /running point at each
+        // other would otherwise build probes without end.
+        nestedEngine: true,
       });
+    /** True for the probe of the engine behind a llama-swap. */
+    this._nestedEngine = options.nestedEngine === true;
 
     // State
     this.backendType = null; // 'vllm' | 'llama.cpp' | 'sglang' | 'lmstudio' | 'ollama' | 'ds4' | 'exl3' | 'q27' | 'tensorfold' | 'ninfer' | 'freetoken' | 'radiance' | 'strata' | 'flare' | 'pico' | 'llama-swap' | null
@@ -1108,6 +1113,9 @@ export class LlmProbe {
     const enginePort = llamaSwapEnginePort(run.proxy);
     if (enginePort == null || enginePort === this.port) {
       return this._llamaSwapNameOnly(model, "llama-swap: the engine is not on this unit's loopback");
+    }
+    if (this._nestedEngine) {
+      return this._llamaSwapNameOnly(model, "llama-swap: an engine behind another llama-swap is not followed");
     }
     if (this._engineProbe?.port !== enginePort) {
       this._dropEngineProbe();

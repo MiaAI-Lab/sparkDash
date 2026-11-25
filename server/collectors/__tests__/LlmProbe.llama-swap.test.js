@@ -201,3 +201,19 @@ test("the engine probe follows an edited spark and reports a bench on the config
   await probe.probe();
   assert.equal(built.spark, edited);
 });
+
+test("two llama-swaps pointing at each other: the engine probe does not follow the second one", async (t) => {
+  let portB = 0;
+  const swapA = await llamaSwap(t, () => [{ model: "B-loaded-model", state: "ready", proxy: `http://localhost:${portB}` }]);
+  const swapB = await llamaSwap(t, () => [{ model: "B-loaded-model", state: "ready", proxy: `http://localhost:${swapA.port}` }]);
+  portB = swapB.port;
+  const probe = new LlmProbe(LOCAL, swapA.port);
+  t.after(() => probe.dispose());
+
+  const snap = await probe.probe();
+  assert.equal(snap.port, swapA.port);
+  assert.equal(snap.modelId, "B-loaded-model");
+  // A probed B once; B, itself an engine probe, never came back to A's /running.
+  assert.equal(swapA.paths.filter((p) => p === "/running").length, 1);
+  assert.equal(swapB.paths.filter((p) => p === "/running").length, 1);
+});
