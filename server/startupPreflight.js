@@ -7,6 +7,15 @@ export function isLoopbackHost(host) {
   return host === "localhost" || host === "::1" || /^127\./.test(host || "");
 }
 
+/**
+ * Whether a private key's mode keeps group and others out; null when it cannot be told.
+ * Windows has no POSIX modes (stat reports 0666 for any ACL), so the test means nothing there.
+ */
+export function identityPermissionsSafe(mode, platform = process.platform) {
+  if (mode == null || platform === "win32") return null;
+  return (mode & 0o077) === 0;
+}
+
 export function evaluateStartupPreflight(input) {
   const loopback = isLoopbackHost(input.bindHost);
   const errors = [];
@@ -74,7 +83,7 @@ export function inspectStartupPreflight(bindHost) {
     sshIdentity: {
       configured: identityMode != null,
       path: identity,
-      safePermissions: identityMode == null ? null : (identityMode & 0o077) === 0,
+      safePermissions: identityPermissionsSafe(identityMode),
     },
     localCollectors: {
       available: fs.existsSync(path.join(HOST_PATHS.PROC, "meminfo")) && fs.existsSync(HOST_PATHS.SYS),

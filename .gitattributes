@@ -1,0 +1,3 @@
+# Programs sent to a unit's shell must keep LF endings on every checkout (Windows core.autocrlf included).
+*.sh text eol=lf
+*.pl text eol=lf
