@@ -6,6 +6,9 @@ import { ConfirmShutdownDialog } from "./ConfirmShutdownDialog";
 import { shutdownWarnings } from "./OverviewPage/fleetStats";
 import { PowerOffIcon } from "./ui/icons";
 
+/** Per-unit failure reasons shown after the counts; the rest collapse into "+N more". */
+const DETAIL_LIMIT = 3;
+
 /**
  * "Shut down all" with its confirmation and result message. Used in the Overview header (desktop)
  * and in the mobile Sparks sheet, so the flow exists once.
@@ -15,7 +18,7 @@ export function ShutdownAll({ sparks, className = "" }: { sparks: SparkSnapshot[
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<
-    | { kind: "result"; ok: number; fail: number; skipped: number }
+    | { kind: "result"; ok: number; fail: number; skipped: number; details: string[] }
     | { kind: "error"; rawMessage?: string }
     | null
   >(null);
@@ -33,7 +36,13 @@ export function ShutdownAll({ sparks, className = "" }: { sparks: SparkSnapshot[
       const ok = res.results.filter((r) => r.ok).length;
       const fail = res.results.filter((r) => !r.ok && !r.skipped).length;
       const skipped = res.results.filter((r) => r.skipped).length;
-      setMsg({ kind: "result", ok, fail, skipped });
+      // The server reports why each unit failed (missing helper, no passwordless
+      // sudo, unreachable); "0 shut down, N failed" alone hides that.
+      const nameOf = (id: string) => sparks.find((s) => s.id === id)?.name ?? id;
+      const details = res.results
+        .filter((r) => !r.ok && !r.skipped && r.error)
+        .map((r) => `${nameOf(r.id)}: ${r.error}`);
+      setMsg({ kind: "result", ok, fail, skipped, details });
     } catch (err: unknown) {
       setMsg({ kind: "error", rawMessage: err instanceof Error ? err.message : undefined });
     } finally {
@@ -43,17 +52,27 @@ export function ShutdownAll({ sparks, className = "" }: { sparks: SparkSnapshot[
     }
   }
 
+  function detailText(details: string[]): string {
+    const shown = details.slice(0, DETAIL_LIMIT);
+    const rest = details.length - shown.length;
+    return [...shown, ...(rest > 0 ? [t("batch.moreFailures", { count: rest })] : [])].join("; ");
+  }
+
   return (
     <>
       {msg ? (
-        <span className={`ov-batchmsg ${msg.kind === "result" && msg.fail === 0 ? "is-ok" : "is-err"}`} role="status">
+        <span
+          className={`ov-batchmsg ${msg.kind === "result" && msg.fail === 0 ? "is-ok" : "is-err"}`}
+          role="status"
+          title={msg.kind === "result" && msg.details.length ? msg.details.join("\n") : undefined}
+        >
           {msg.kind === "error"
             ? msg.rawMessage ?? t("batch.shutdownFailed")
             : [
                 t("batch.shutdownComplete", { count: msg.ok }),
                 ...(msg.fail ? [t("batch.failed", { count: msg.fail })] : []),
                 ...(msg.skipped ? [t("batch.skipped", { count: msg.skipped })] : []),
-              ].join(", ")}
+              ].join(", ") + (msg.details.length ? ` — ${detailText(msg.details)}` : "")}
         </span>
       ) : null}
       <button

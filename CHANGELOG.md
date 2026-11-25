@@ -9,6 +9,15 @@ Format: version sections are listed newest first.
 
 ## [Unreleased]
 
+### Added
+- Install the shutdown helper from the UI: when a unit's power-off fails because `/usr/local/bin/spark-shutdown` is missing or passwordless sudo does not cover it, the Spark page offers "Install shutdown helper" — one confirmed sudo password writes the pinned helper and a sudoers rule scoped to that exact binary (validated with visudo before it goes live, installed atomically), then finishes the shutdown. Same guard rails as the spark-attic installer (HTTPS/local-only passwords, wrong-password lockout, one install at a time).
+- Power the dashboard's own host off without the helper only when the deployment opts in with SPARKDASH_DIRECT_POWEROFF=1: then a root dashboard in a privileged container enters the host mount namespace and runs the host's own poweroff binary directly (nsenter, no sudoers change). Without the opt-in, and on bare-metal or non-root installs, the helper remains the required path.
+- The shutdown routes (batch and single-unit) now sit behind the same destructive-action limiter as the other destructive routes, like the helper installer.
+- The helper installer's sudoers rule is pinned to the helper's exact invocations (no arguments, and `--check`) instead of all arguments, and the installer refuses to replace an existing /usr/local/bin/spark-shutdown or /etc/sudoers.d/spark-shutdown that differs from the pinned content instead of overwriting it.
+
+### Fixed
+- Name each unit and its reason when a batch shutdown fails ("SparkOne: missing /usr/local/bin/spark-shutdown" after "0 shut down, 2 failed"): the first three reasons show inline, the rest collapse into "+N more", and the full list is on hover. Failed shutdown attempts — batch and single-unit — are now recorded in the activity log, so a power-off that did not happen leaves a trace.
+
 ## [2.91.0] — 2026-11-22
 
 ### Changed
