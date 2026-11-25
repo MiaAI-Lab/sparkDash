@@ -13,7 +13,9 @@
  *
  * Slot = bucket index modulo the ring length, so memory is fixed per series
  * once it exists: 2 tiers × 2,880 slots × (4 + 4 + 2 bytes) ≈ 58 KB, plus 23 KB
- * of min for headroom and 46 KB of bucket times per unit.
+ * of min for headroom and 46 KB of bucket times per unit. genTps and prefillTps
+ * also keep an Int32 active-sample count: 2 tiers × 2,880 × 4 bytes ≈ 23 KB each
+ * per LLM endpoint.
  */
 
 const MINUTE_MS = 60_000;
