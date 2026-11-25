@@ -19,6 +19,7 @@ Format: version sections are listed newest first.
 
 ### Fixed
 - llama-swap: the probe of the engine behind a llama-swap no longer follows a second llama-swap, so two instances whose `/running` point at each other cannot build probes without end.
+- **SGLang cache hits are no longer under-counted in Token totals and Cost compare.** The lifetime cached-prompt total came from the scheduler's `realtime_tokens_total{mode="prefill_cache"}` (or only the `cache_source="device"` series), which on long agent sessions ran about 5 % of prompt tokens below the per-request count, so those tokens were shown and priced as computed. The total now comes from `sglang:cached_tokens_total` summed over its disjoint `cache_source` series, the same count clients receive as `usage.prompt_tokens_details.cached_tokens`; the live cached/computed prefill tok/s split still follows the realtime counters. History recorded before the fix is unchanged (#448).
 
 ### Security
 - Bump body-parser to 2.4.0, qs to 6.17.1 and undici to 8.13.1 (lockfile only, same major versions). Thanks @maxazcona (#431).

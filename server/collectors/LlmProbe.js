@@ -3865,8 +3865,9 @@ export class LlmProbe {
     this._sglangTokenSource = "prometheus";
     this.totalOutputTokens = gen;
     this.totalPromptTokens = prompt ?? null;
-    // Cached share from the same exposition (device layer preferred).
-    const cachedNow = this._sglangCachedTokens(txt);
+    // Lifetime cached share for the token ledger: the per-request counter (see
+    // _sglangRequestCachedTokens), not the scheduler's per-chunk prefill_cache.
+    const cachedNow = this._sglangRequestCachedTokens(txt) ?? this._sglangCachedTokens(txt);
     if (cachedNow != null) this.totalCachedTokens = cachedNow;
 
     // The tile reads cache-served + computed; the split rows below show the
@@ -3888,15 +3889,40 @@ export class LlmProbe {
 
   /**
    * Cache split only — does not touch generation/prefill lastTokenCounts.
-   * Prefers cache_source="device" so HiCache L1/L2/L3 labels are not summed.
+   * Rates use the scheduler's per-mode counters; the lifetime total uses the
+   * per-request counter summed over its disjoint cache_source series.
    */
   _applySglangPrefillSplit(txt, dtSec) {
     const compute = this._sglangPrefillComputeTokens(txt);
     const cached = this._sglangCachedTokens(txt);
-    if (cached != null) this.totalCachedTokens = cached;
+    const cachedTotal = this._sglangRequestCachedTokens(txt) ?? cached;
+    if (cachedTotal != null) this.totalCachedTokens = cachedTotal;
     if (compute != null && cached != null) {
       this._setPrefillSplitRates(cached, compute, dtSec);
     }
+  }
+
+  /**
+   * Lifetime cache-served prompt tokens for Token totals / Cost compare:
+   * `sglang:cached_tokens_total` summed over every series. SGLang splits each
+   * request's cached prefix into DISJOINT device / host / storage parts
+   * (split_cached_prefix_by_tier), or writes one cache_source="total" series
+   * when a build reports no breakdown, so the sum is exactly the per-request
+   * `usage.prompt_tokens_details.cached_tokens` clients receive, and
+   * prompt − it equals realtime_tokens_total{mode="prefill_compute"}.
+   * The scheduler-side realtime{mode="prefill_cache"} counts prefix hits as
+   * prefill chunks are admitted; on long agent sessions it ran ~5 % of prompt
+   * tokens below the per-request count, so those cache hits were shown and
+   * priced as computed prompt tokens (#448). It stays the source for the live
+   * cached/uncached prefill tok/s split.
+   * @param {string} txt
+   * @returns {number | null}
+   */
+  _sglangRequestCachedTokens(txt) {
+    return (
+      this._getPromMetric(txt, "sglang:cached_tokens_total") ??
+      this._getPromMetric(txt, "sglang_cached_tokens_total")
+    );
   }
 
   _sglangCachedTokens(txt) {
