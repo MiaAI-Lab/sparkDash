@@ -6,9 +6,9 @@ The optional JSON training-report slice adds a `training` namespace and gated na
 
 **Snapshot baseline:** `main` at `7c2b9638b025cd39fb43f95c225de62980f130ee` on 2026-11-03. This is an inventory and update checklist, not a completion metric: passing tests or a successful build do not establish that a page is localized.
 
-## Traditional Chinese locale (2026-11-24)
+## Traditional Chinese locale (2026-11-24, rebased 2026-11-26)
 
-Adds `src/locales/zh-TW/` catalogs for all 16 namespaces, aligned with the English key and interpolation sets. The loader, language selector and i18n tests are wired for `zh-TW`, and `zh-TW`, `zh-Hant`, `zh-HK` and `zh-MO` browser tags now resolve to the Traditional Chinese locale instead of falling back to English. The README language line lists English/简体中文/繁體中文. Translating the full README remains a separate follow-up PR.
+Adds `src/locales/zh-TW/` catalogs for all 17 namespaces, aligned with the English key and interpolation sets, including the `training` namespace and the keys that landed with the Simplified Chinese slices after this work started. The loader, language selector and i18n tests are wired for `zh-TW`, and `zh-TW`, `zh-Hant`, `zh-HK` and `zh-MO` browser tags now resolve to the Traditional Chinese locale instead of falling back to English. The language note is in the CHANGELOG `[Unreleased]` section rather than the README release notes. Translating the full README remains a separate follow-up PR.
 
 ## API Keys follow-up (2026-11-11)
 
