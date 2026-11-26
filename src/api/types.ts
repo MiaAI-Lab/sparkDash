@@ -1,5 +1,11 @@
 import type { EnergyPricePeriod } from "../shared/energyTariff";
 
+/** Additive display metadata; its associated English field remains authoritative for compatibility. */
+export interface LocalizedMessage {
+  key: string;
+  params?: Record<string, string | number>;
+}
+
 // ─── Spark config (matches server/sparks.json) ────────────
 export interface SparkConfig {
   id: string;
@@ -310,6 +316,7 @@ export interface HealthFinding {
   title: string;
   detail: string;
   hint: string;
+  i18n?: { title?: LocalizedMessage; detail?: LocalizedMessage; hint?: LocalizedMessage };
 }
 
 export interface GpuMetricAvailability {
@@ -1643,6 +1650,9 @@ export interface SparkTestResponse {
 
 export interface ApiError {
   error: string;
+  code?: string;
+  partial?: boolean;
+  i18n?: { error?: LocalizedMessage; message?: LocalizedMessage };
 }
 
 // ─── LLM decode benchmark ────────────────────────────────
@@ -2430,6 +2440,7 @@ export interface ActivityEvent {
   sparkName?: string | null;
   message: string;
   data?: unknown;
+  i18n?: { message?: LocalizedMessage };
 }
 
 // ─── User-registered LLM launchers (start.sh / stop.sh) ───

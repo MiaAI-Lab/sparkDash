@@ -420,6 +420,8 @@ The pending Overview PR #316 also includes shared VRAM tooltips, health-chip con
 
 Status: **Pending [#325](https://github.com/MiaAI-Lab/sparkDash/pull/325)**. Optional API descriptors cover known top-level responses; nested batch entries retain their original text. Health titles/hints and bounded known details are translated; unknown details stay raw. Activity summaries can render descriptors while expanded messages/data preserve the original. Power feedback retains descriptors in state so changing language does not repeat the action. Other API consumers keep their original raw-error display until explicitly wired; this batch does not claim arbitrary server text is translated.
 
+The rebased slice uses the existing `overview` translations for GPU thermal findings, including snapshots without descriptors. Evaluator-generated warnings and critical findings are tested in the Spark detail banner and Overview tooltip. The `serverMessages` namespace supplies the other descriptor translations. See the [server message format](../server/i18n/README.md) for bounds and fallback behavior.
+
 ## Per-page acceptance and update checklist
 
 Use this for each feature review. Mark implementation as Pending when submitted; mark shipped coverage only after a verified merge.

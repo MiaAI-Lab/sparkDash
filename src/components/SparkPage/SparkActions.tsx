@@ -1,8 +1,9 @@
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { useState } from "react";
+import { useServerMessage, type ServerMessageDescriptor } from "../../i18n/serverMessages";
 import type { SparkSnapshot } from "../../api/types";
-import { shutdownSpark, wakeSpark } from "../../api/client";
+import { ApiError, shutdownSpark, wakeSpark } from "../../api/client";
 import { ConfirmShutdownDialog } from "../ConfirmShutdownDialog";
 import { openHermesUpdateDialog } from "../../hooks/useHermesUpdateDialog";
 import { EditIcon, PowerOffIcon, PowerOnIcon, RotateIcon } from "../ui/icons";
@@ -45,10 +46,11 @@ export function shutdownWarnings(spark: SparkSnapshot, t: TFunction): string[] {
  */
 export function SparkActions({ spark, onEdit, className }: SparkActionsProps) {
   const { t } = useTranslation("hardware");
+  const serverMessage = useServerMessage();
   const powerLabels = { shutdownOk: t("actions.shutdownOk"), shutdownError: t("actions.shutdownError"), wakeOk: t("actions.wakeOk"), wakeError: t("actions.wakeError") };
   const online = spark.online;
   const [powerLoading, setPowerLoading] = useState(false);
-  const [powerMsg, setPowerMsg] = useState<{ text: string; kind: "shutdownOk" | "shutdownError" | "wakeOk" | "wakeError"; tone: "ok" | "err" } | null>(null);
+  const [powerMsg, setPowerMsg] = useState<{ text: string; meta?: ServerMessageDescriptor; kind: "shutdownOk" | "shutdownError" | "wakeOk" | "wakeError"; tone: "ok" | "err" } | null>(null);
   const [shutdownOpen, setShutdownOpen] = useState(false);
 
   const hermes = spark.hermes;
@@ -67,10 +69,11 @@ export function SparkActions({ spark, onEdit, className }: SparkActionsProps) {
     setPowerMsg(null);
     try {
       const res = await shutdownSpark(spark.id);
-      setPowerMsg({ text: res.message || "", kind: "shutdownOk", tone: "ok" });
+      setPowerMsg({ text: res.message || "", meta: res.i18n?.message, kind: "shutdownOk", tone: "ok" });
     } catch (err: unknown) {
       setPowerMsg({
         text: err instanceof Error ? err.message : "", kind: "shutdownError",
+        meta: err instanceof ApiError ? err.i18n?.error : undefined,
         tone: "err",
       });
     } finally {
@@ -84,10 +87,11 @@ export function SparkActions({ spark, onEdit, className }: SparkActionsProps) {
     setPowerMsg(null);
     try {
       const res = await wakeSpark(spark.id);
-      setPowerMsg({ text: res.message || "", kind: "wakeOk", tone: "ok" });
+      setPowerMsg({ text: res.message || "", meta: res.i18n?.message, kind: "wakeOk", tone: "ok" });
     } catch (err: unknown) {
       setPowerMsg({
         text: err instanceof Error ? err.message : "", kind: "wakeError",
+        meta: err instanceof ApiError ? err.i18n?.error : undefined,
         tone: "err",
       });
     } finally {
@@ -101,7 +105,7 @@ export function SparkActions({ spark, onEdit, className }: SparkActionsProps) {
       <div className={className}>
         {powerMsg && (
           <span className={`sp-flash ${powerMsg.tone === "ok" ? "text-success" : "text-danger"}`}>
-            {powerMsg.text || powerLabels[powerMsg.kind]}
+            {serverMessage(powerMsg.meta, powerMsg.text || powerLabels[powerMsg.kind])}
           </span>
         )}
         {hermesRunning && (

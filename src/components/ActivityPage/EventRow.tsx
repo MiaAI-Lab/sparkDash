@@ -4,6 +4,7 @@ import { useActivityLabels } from "./useActivityLabels";
 import type { ActivityEvent } from "../../api/types";
 import { ChevronRightIcon } from "../ui/icons";
 import { Tag, type TagTone } from "../ui/Tag";
+import { useServerMessage } from "../../i18n/serverMessages";
 import { splitMessage } from "../OverviewPage/activityFormat";
 import { categorize, formatClock, formatStamp } from "./activityStats";
 
@@ -54,7 +55,9 @@ function formatAgo(ts: number, now: number): string {
 }
 
 
-  const displayMessage = localizedThrottleMessage(e, t) ?? e.message;
+  const renderServerMessage = useServerMessage();
+  const throttleMessage = localizedThrottleMessage(e, t);
+  const displayMessage = throttleMessage ?? renderServerMessage(e.i18n?.message, e.message);
   const { before, name, after } = splitMessage(displayMessage, e.sparkName);
   const clickable = Boolean(e.sparkId && onSelectSpark);
   const label = eventType(e.type);
@@ -123,7 +126,7 @@ function formatAgo(ts: number, now: number): string {
         <dl className="ac-detail" id={detailId}>
           <div className="ac-detail__wide">
             <dt>{t("detail.message")}</dt>
-            <dd>{displayMessage}</dd>
+            <dd>{throttleMessage ?? e.message}</dd>
           </div>
           <div>
             <dt>{t("detail.time")}</dt>
