@@ -1,0 +1,39 @@
+{
+  "title": "학습 진행 상황",
+  "subtitle": "워커가 보고한 단계, 카운터 및 남은 시간입니다. 읽기 전용입니다.",
+  "loading": "진행 상황 불러오는 중…",
+  "empty": "설정된 경로에 진행 보고서가 없습니다.",
+  "disabled": "이 서버에서 학습 진행 상황이 비활성화되었습니다.",
+  "truncated": "스냅샷이 수집 한도에 도달해 일부 보고서를 표시하지 않습니다.",
+  "unknown": "알 수 없음",
+  "reportedAt": "보고 시각 {{time}}",
+  "lastState": "마지막 보고 상태: {{state}}",
+  "progress": "{{completed}} / {{total}}",
+  "reportedEta": "보고된 남은 시간: {{seconds}}초",
+  "errors": {
+    "load": "학습 진행 상황을 불러오지 못했습니다. 자동으로 다시 시도합니다.",
+    "stale": "진행 상황을 새로 고치지 못했습니다. 마지막으로 받은 보고서를 오래된 데이터로 표시합니다.",
+    "configuration": "설정 오류: {{error}}"
+  },
+  "unit": {
+    "unavailable": "수집할 수 없음",
+    "unsupported": "수집을 지원하지 않음",
+    "partial": "부분 수집"
+  },
+  "source": {
+    "live": "최신 워커 보고서",
+    "stale": "오래된 보고서"
+  },
+  "groups": {
+    "data": "데이터 준비",
+    "training": "학습",
+    "evaluation": "평가"
+  },
+  "states": {
+    "running": "실행 중",
+    "waiting": "대기 중",
+    "complete": "완료",
+    "stopped": "중지됨",
+    "failed": "실패"
+  }
+}

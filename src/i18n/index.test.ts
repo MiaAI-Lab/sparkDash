@@ -14,6 +14,19 @@ describe("language preference", () => {
     expect(normalizeLocale("en-GB")).toBe("en");
   });
 
+  it("detects Korean and persists a Korean language change", async () => {
+    expect(normalizeLocale("ko-KR")).toBe("ko");
+    vi.spyOn(navigator, "language", "get").mockReturnValue("ko-KR");
+    expect(detectLocale()).toBe("ko");
+    await setLocale("ko");
+    expect(i18n.resolvedLanguage).toBe("ko");
+    expect(document.documentElement.lang).toBe("ko");
+    expect(localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("ko");
+    expect(i18n.t("language:title")).toBe("언어");
+    expect(detectLocale()).toBe("ko");
+    expect(i18n.t("training:title")).toBe("학습 진행 상황");
+  });
+
   it("prefers saved language over browser language and ignores unsupported saved values", () => {
     vi.spyOn(navigator, "language", "get").mockReturnValue("zh-CN");
     localStorage.setItem(LOCALE_STORAGE_KEY, "en");

@@ -1,0 +1,169 @@
+{
+  "nav": {
+    "overview": "개요",
+    "tokens": "토큰 합계",
+    "cost": "비용 비교",
+    "energy": "전체 에너지",
+    "temps": "온도",
+    "activity": "활동",
+    "showcase": "Showcase",
+    "kiosk": "키오스크",
+    "sparks": "Sparks",
+    "stats": "통계",
+    "settings": "설정",
+    "benchmarks": "벤치마크",
+    "benchsTools": "벤치마크 및 도구",
+    "storage": "스토리지",
+    "storageManager": "스토리지 관리자",
+    "fleet": "전체 장치",
+    "brandOverview": "sparkDash 개요",
+    "openSearch": "명령 팔레트 열기",
+    "showSidebar": "사이드바 표시",
+    "showSidebarTitle": "사이드바 표시 (Ctrl+B)",
+    "apiKeys": "API Keys",
+    "training": "학습"
+  },
+  "sidebar": {
+    "sortable": "정렬 가능",
+    "dragStart": "드래그 가능한 항목 {{id}}을(를) 선택했습니다.",
+    "dragOver": "드래그 가능한 항목 {{id}}을(를) 놓을 수 있는 영역 {{over}} 위로 이동했습니다.",
+    "dragOutside": "드래그 가능한 항목 {{id}}이(가) 더 이상 놓을 수 있는 영역 위에 있지 않습니다.",
+    "dragEndOver": "드래그 가능한 항목 {{id}}을(를) 놓을 수 있는 영역 {{over}}에 놓았습니다",
+    "dragEnd": "드래그 가능한 항목 {{id}}을(를) 놓았습니다.",
+    "dragCancel": "드래그가 취소되었습니다. 드래그 가능한 항목 {{id}}을(를) 놓았습니다.",
+    "fleetNavigation": "전체 장치 탐색",
+    "hideSidebar": "사이드바 숨기기",
+    "hideSidebarTitle": "사이드바 숨기기 (Ctrl+B)",
+    "jumpTo": "이동…",
+    "addSpark": "Spark 또는 GPU 호스트 추가",
+    "addSparkTitle": "Spark / GPU 호스트 추가",
+    "noSparks": "아직 Spark가 없습니다. +를 눌러 추가하세요.",
+    "workspace": "작업 공간",
+    "kioskTitle": "전체 화면 벽면 디스플레이 (Esc로 돌아가기)",
+    "dragInstructions": "Enter를 눌러 이 Spark를 엽니다. 순서를 바꾸려면 M을 누르고 화살표 키로 이동한 다음 Enter로 놓거나 Escape로 취소하세요.",
+    "dragTitle": "드래그하여 순서 변경 (키보드: M).",
+    "live": "실시간",
+    "livePoll": "실시간 · {{seconds}}초 조회",
+    "reconnecting": "다시 연결 중…",
+    "credit": "by Mia's AI Lab",
+    "website": "Mia's AI Lab 웹사이트",
+    "github": "GitHub의 sparkDash",
+    "x": "X의 Mia's AI Lab"
+  },
+  "mobile": {
+    "primary": "기본",
+    "chooseSpark": "Spark 선택",
+    "addSpark": "Spark / GPU 호스트 추가"
+  },
+  "spark": {
+    "offline": "꺼짐",
+    "offlineTooltip": "오프라인",
+    "worker": "워커",
+    "prefilling": "prefill 중",
+    "decoding": "decode 중"
+  },
+  "bench": {
+    "decode": {
+      "label": "Decode",
+      "blurb": "동시 요청 수 증가에 따른 생성 속도 (tokens/s)."
+    },
+    "prefill": {
+      "label": "Prefill",
+      "blurb": "컨텍스트 크기별 프롬프트 처리 속도와 첫 토큰까지 걸리는 시간."
+    },
+    "quality": {
+      "label": "품질",
+      "blurb": "모델, 양자화 및 KV-cache 형식을 비교하는 고정 시드 품질 테스트 모음."
+    },
+    "toolEval": {
+      "label": "도구 평가 벤치마크",
+      "blurb": "69개의 결정적 시나리오에 걸친 도구 호출 품질 (선택, 매개변수, 다단계, 안전성)."
+    },
+    "qualityCompare": {
+      "label": "품질 비교",
+      "blurb": "어느 장치에서든 저장된 품질 실행 결과 두 개를 나란히 비교합니다."
+    }
+  },
+  "palette": {
+    "dialogLabel": "명령 팔레트",
+    "placeholder": "Spark로 이동, 작업 실행, 설정 열기…",
+    "searchLabel": "명령 검색",
+    "escapeKey": "Esc",
+    "listLabel": "명령",
+    "noMatch": "“{{query}}”에 일치하는 항목이 없습니다.",
+    "move": "↑↓ 이동",
+    "open": "↵ 열기",
+    "close": "Esc 닫기"
+  },
+  "install": {
+    "dialogLabel": "sparkDash 설치",
+    "title": "sparkDash 설치",
+    "description": "홈 화면에 추가하여 앱처럼 전체 화면으로 대시보드를 사용하세요.",
+    "button": "설치",
+    "dismiss": "닫기",
+    "ios": {
+      "title": "iPhone에 sparkDash 설치",
+      "tapShare": "Safari에서 ",
+      "share": "공유",
+      "icon": " 아이콘을 ",
+      "then": "누른 다음 ",
+      "addToHomeScreen": "홈 화면에 추가",
+      "period": "를 누르세요."
+    }
+  },
+  "theme": {
+    "title": "테마: {{theme}}",
+    "switchLabel": "테마 전환 (현재 {{theme}})",
+    "white": "화이트",
+    "light": "라이트",
+    "dark": "다크",
+    "oled": "oled"
+  },
+  "connection": {
+    "ageSeconds": "{{seconds}}초",
+    "ageMinutes": "{{minutes}}분 {{seconds}}초",
+    "connecting": "실시간 측정 데이터에 연결 중…",
+    "staleWithAge": "측정 데이터가 오래되었습니다. 마지막 유효 업데이트는 {{age}} 전입니다.",
+    "disconnectedWithAge": "실시간 측정 데이터 연결이 끊어졌습니다. {{age}} 전 데이터를 표시합니다.",
+    "waitingForFirstUpdate": "실시간 측정 데이터 연결이 끊어졌습니다. 첫 유효 업데이트를 기다리는 중…",
+    "dataError": "측정 데이터 오류.",
+    "stale": "측정 데이터가 오래되었습니다.",
+    "disconnected": "실시간 측정 데이터 연결이 끊어졌습니다."
+  },
+  "error": {
+    "dismiss": "닫기",
+    "dismissLabel": "오류 닫기"
+  },
+  "openAccess": {
+    "label": "개방형 접근",
+    "dialogLabel": "개방형 접근",
+    "explanation": "이 대시보드는 네트워크에서 토큰 없이 접근할 수 있으므로 네트워크의 누구나 설정을 변경할 수 있습니다. 토큰을 요구하려면 서버에 SPARKDASH_TOKEN을 설정하세요.",
+    "dismiss": "다시 표시하지 않기"
+  },
+  "commands": {
+    "goTo": "이동",
+    "actions": "작업",
+    "benchmarks": "벤치마크",
+    "page": "페이지",
+    "wallDisplay": "벽면 디스플레이",
+    "online": "온라인",
+    "offline": "오프라인",
+    "benchmark": "{{name}} 벤치마크",
+    "add": "Spark 또는 GPU 호스트 추가",
+    "showcase": "새 창에서 {{name}}의 showcase 열기",
+    "edit": "{{name}} 편집",
+    "theme": "테마 전환",
+    "themeHint": "white · light · dark · oled",
+    "sidebar": "사이드바 표시 또는 숨기기",
+    "settings": "설정 열기",
+    "harness": "harness 세션 설정"
+  },
+  "app": {
+    "settingsError": "설정을 불러올 수 없습니다: {{detail}}. 다시 시도하려면 새로고침하세요.",
+    "refreshError": "Spark를 새로고침할 수 없습니다: {{detail}}. 이전 데이터가 계속 표시됩니다.",
+    "reorderError": "Spark 순서를 저장할 수 없습니다: {{detail}}. 이전 순서가 복원되었습니다.",
+    "emptyTitle": "등록된 Spark 없음",
+    "emptyDescription": "모니터링을 시작하려면 DGX Spark 또는 GPU 호스트를 추가하세요.",
+    "addSpark": "Spark 추가"
+  }
+}

@@ -23,7 +23,7 @@ afterEach(async () => {
   localStorage.clear();
 });
 
-it("switches the mounted Settings page both ways without saving server settings", async () => {
+it("switches the mounted Settings page between English, Simplified Chinese and Korean without saving server settings", async () => {
   const fetchMock = vi.fn(async (_url: unknown, _init?: RequestInit) => json(defaults));
   vi.stubGlobal("fetch", fetchMock);
   const onSaved = vi.fn();
@@ -31,6 +31,7 @@ it("switches the mounted Settings page both ways without saving server settings"
   await flush();
   expect(title()).toBe("Settings");
   expect(button("Save").disabled).toBe(true);
+  expect(button("Korean").getAttribute("aria-checked")).toBe("false");
   expect(document.querySelector('[role="switch"][aria-label="API Keys page"]')).not.toBeNull();
   await act(async () => button("简体中文").click());
   expect(title()).toBe("设置");
@@ -38,6 +39,11 @@ it("switches the mounted Settings page both ways without saving server settings"
   expect(document.querySelector('[role="switch"][aria-label="API 密钥页面"]')).not.toBeNull();
   expect(localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("zh-CN");
   expect(button("保存").disabled).toBe(true);
+  await act(async () => button("韩语").click());
+  expect(button("한국어").getAttribute("aria-checked")).toBe("true");
+  expect(title()).toBe("설정");
+  expect(document.documentElement.lang).toBe("ko");
+  expect(localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("ko");
   await act(async () => button("English").click());
   expect(title()).toBe("Settings");
   expect(document.querySelector('[aria-label="Theme"]')).not.toBeNull();
