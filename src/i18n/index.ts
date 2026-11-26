@@ -35,13 +35,32 @@ import zhApiKeys from "../locales/zh-CN/apiKeys.json";
 import enStorage from "../locales/en/storage.json";
 import zhStorage from "../locales/zh-CN/storage.json";
 
-export type Locale = "en" | "zh-CN";
+import koSettings from "../locales/ko/settings.json";
+import koLanguage from "../locales/ko/language.json";
+import koShell from "../locales/ko/shell.json";
+import koOverview from "../locales/ko/overview.json";
+import koSpark from "../locales/ko/spark.json";
+import koStatistics from "../locales/ko/statistics.json";
+import koActivity from "../locales/ko/activity.json";
+import koDevices from "../locales/ko/devices.json";
+import koHardware from "../locales/ko/hardware.json";
+import koBenchmarks from "../locales/ko/benchmarks.json";
+import koTooleval from "../locales/ko/tooleval.json";
+import koToolMessages from "../locales/ko/toolMessages.json";
+import koShareCards from "../locales/ko/shareCards.json";
+import koShowcase from "../locales/ko/showcase.json";
+import koTraining from "../locales/ko/training.json";
+import koApiKeys from "../locales/ko/apiKeys.json";
+import koStorage from "../locales/ko/storage.json";
+
+export type Locale = "en" | "zh-CN" | "ko";
 export const LOCALE_STORAGE_KEY = "sparkdash-locale";
 
 export function normalizeLocale(value: string | null | undefined): Locale | null {
   if (!value) return null;
   const tag = value.toLowerCase().replace(/_/g, "-");
   if (tag === "en" || tag.startsWith("en-")) return "en";
+  if (tag === "ko" || tag.startsWith("ko-")) return "ko";
   if (tag === "zh" || tag === "zh-cn" || tag === "zh-sg" || tag === "zh-my" || tag === "zh-hans" || tag.startsWith("zh-hans-")) return "zh-CN";
   return null;
 }
@@ -61,10 +80,11 @@ void i18n.use(initReactI18next).init({
   resources: {
     en: { settings: enSettings, language: enLanguage, shell: enShell, overview: enOverview, spark: enSpark, activity: enActivity, statistics: enStatistics, devices: enDevices, hardware: enHardware, shareCards: enShareCards, toolMessages: enToolMessages, tooleval: enTooleval, benchmarks: enBenchmarks, showcase: enShowcase, apiKeys: enApiKeys, training: enTraining, storage: enStorage },
     "zh-CN": { settings: zhSettings, language: zhLanguage, shell: zhShell, overview: zhOverview, spark: zhSpark, activity: zhActivity, statistics: zhStatistics, devices: zhDevices, hardware: zhHardware, shareCards: zhShareCards, toolMessages: zhToolMessages, tooleval: zhTooleval, benchmarks: zhBenchmarks, showcase: zhShowcase, apiKeys: zhApiKeys, training: zhTraining, storage: zhStorage },
+    ko: { settings: koSettings, language: koLanguage, shell: koShell, overview: koOverview, spark: koSpark, activity: koActivity, statistics: koStatistics, devices: koDevices, hardware: koHardware, shareCards: koShareCards, toolMessages: koToolMessages, tooleval: koTooleval, benchmarks: koBenchmarks, showcase: koShowcase, apiKeys: koApiKeys, training: koTraining, storage: koStorage },
   },
   lng: detectLocale(),
   fallbackLng: "en",
-  supportedLngs: ["en", "zh-CN"],
+  supportedLngs: ["en", "zh-CN", "ko"],
   load: "currentOnly",
   defaultNS: "settings",
   ns: ["settings", "language", "shell", "overview", "spark", "activity", "statistics", "devices", "hardware", "shareCards", "toolMessages", "tooleval", "benchmarks", "showcase", "apiKeys", "training", "storage"],

@@ -14,6 +14,9 @@ export function LanguageSelector() {
         <button type="button" role="radio" aria-checked={locale === "zh-CN"} className={locale === "zh-CN" ? "is-on" : ""} onClick={() => void setLocale("zh-CN")}>
           {t("simplifiedChinese")}
         </button>
+        <button type="button" role="radio" aria-checked={locale === "ko"} className={locale === "ko" ? "is-on" : ""} onClick={() => void setLocale("ko")}>
+          {t("korean")}
+        </button>
       </div>
     </SettingRow>
   );

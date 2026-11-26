@@ -1,0 +1,15 @@
+{
+  "title": "API 키",
+  "subtitle": "호스트 측 브리지를 통한 LiteLLM 가상 키 읽기 전용 보기입니다.",
+  "refresh": "새로고침",
+  "refreshing": "새로고침 중…",
+  "status": { "bridge": "브리지 {{state}}", "upstream": "LiteLLM {{state}}", "retrying": "{{seconds}}초 후 재시도" },
+  "errors": { "keys": "키를 불러오지 못했습니다: {{error}}", "key": "키를 불러오지 못했습니다: {{error}}" },
+  "keys": { "title": "키 ({{count}})", "empty": "브리지에 등록된 키가 없습니다." },
+  "table": { "key": "키", "state": "상태", "spend": "사용 금액", "budget": "예산", "rpm": "RPM", "tpm": "TPM", "expires": "만료", "lastActive": "마지막 활동" },
+  "detail": { "spend": "사용 금액", "budget": "예산", "budgetResets": "예산 초기화", "parallelRequests": "병렬 요청", "created": "생성일", "models": "모델", "spendUnknown": "사용 금액은 {{unknown}}입니다. 브리지가 이 키의 사용 금액을 보고하지 않았습니다." },
+  "states": { "ok": "정상", "down": "중단", "unconfigured": "미설정", "unknown": "알 수 없음", "active": "활성", "blocked": "차단됨", "expired": "만료됨" },
+  "unknown": "알 수 없음",
+  "unlimited": "제한 없음",
+  "all": "전체"
+}
