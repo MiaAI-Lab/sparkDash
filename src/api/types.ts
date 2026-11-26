@@ -1858,6 +1858,20 @@ export interface PrefillBenchSizeResult {
   samples?: number;
   /** Samples the size asked for; samples < samplesRequested means a partial row (see `notice`). */
   samplesRequested?: number;
+  /** Successful measurements in request order. Older benchmark records may omit this field. */
+  sampleMeasurements?: {
+    prefillTps: number;
+    method: "server" | "ttft";
+    lowConfidence: boolean;
+    promptTokens: number;
+    cachedTokens: number;
+    serverPromptMs: number | null;
+    serverPromptN: number | null;
+    ttftMs: number;
+    ttftContentMs: number | null;
+    completionTokens: number;
+    durationMs: number;
+  }[];
   /** The TTFT-method rate leans heavily on the overhead calibration (overhead > 30% of TTFT). */
   lowConfidence?: boolean;
   /** Why a row is partial (some samples failed or were cancelled). */

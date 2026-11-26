@@ -1135,6 +1135,11 @@ sparkDash/
 | GET | `/api/apikeys/status` · `/api/apikeys/keys` · `/api/apikeys/keys/:id` | Read-only API keys views through the host bridge (opt-in, `404` while off; see [API Keys](#api-keys)) |
 | WS | `/ws` | Real-time metrics stream |
 
+Prefill benchmark result rows include `sampleMeasurements` in request order for successful samples.
+Each entry includes TTFT, elapsed time, token counts and the rate calculation method. The row
+continues to report the median-rate sample and the total elapsed time across all attempts.
+Older saved runs may omit `sampleMeasurements`.
+
 There is no application authentication on the HTTP/WebSocket API. sparkDash therefore binds to loopback and refuses direct LAN binding. Use an SSH tunnel, authenticated TLS reverse proxy, or Tailscale Serve; see [Remote access](./docs/REMOTE-ACCESS.md).
 
 `/api/fleet-energy` samples the configured fleet independently every two seconds. It estimates

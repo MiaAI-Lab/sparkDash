@@ -188,17 +188,33 @@ const sample = (over = {}) => ({
   ...over,
 });
 
-test("runPrefillMeasured reports the median-rate sample's own values and the summed duration", async () => {
-  const ttfts = [1000, 500, 2000]; // 4000, 8000, 2000 tok/s -> median 4000 (ttft 1000)
+test("runPrefillMeasured preserves sample order and reports the median-rate row", async () => {
+  const attempts = [
+    sample(),
+    sample({ ttftMs: 500, durationMs: 650, cachedTokens: 500 }),
+    sample({ ttftMs: 2000, durationMs: 2200, serverPromptMs: 1500, serverPromptN: 3000 }),
+  ];
   let i = 0;
-  const row = await runPrefillMeasured({ targetTokens: 4096 }, 0, null, async () => sample({ ttftMs: ttfts[i++] }));
+  const row = await runPrefillMeasured({ targetTokens: 4096 }, 0, null, async () => attempts[i++]);
   assert.equal(row.error, null);
   assert.equal(row.samples, 3);
   assert.equal(row.samplesRequested, 3);
   assert.equal(row.prefillTps, 4000);
   assert.equal(row.ttftMs, 1000);
-  assert.equal(row.durationMs, 3300);
+  assert.equal(row.durationMs, 3950);
   assert.equal(row.notice, undefined);
+  assert.deepEqual(
+    row.sampleMeasurements.map(({ ttftMs, durationMs, prefillTps, method, cachedTokens }) => [
+      ttftMs, durationMs, prefillTps, method, cachedTokens,
+    ]),
+    [
+      [1000, 1100, 4000, "ttft", 0],
+      [500, 650, 7000, "ttft", 500],
+      [2000, 2200, 2000, "server", 0],
+    ]
+  );
+  assert.equal(row.sampleMeasurements[2].serverPromptMs, 1500);
+  assert.equal(row.sampleMeasurements[2].serverPromptN, 3000);
 });
 
 test("runPrefillMeasured marks a partially failed size and keeps the reason", async () => {
@@ -211,11 +227,13 @@ test("runPrefillMeasured marks a partially failed size and keeps the reason", as
   assert.equal(row.samplesRequested, 3);
   assert.match(row.notice, /1 of 3 samples succeeded \(HTTP 500\)/);
   assert.equal(row.durationMs, 1150); // failed attempt counted
+  assert.deepEqual(row.sampleMeasurements.map(({ durationMs }) => durationMs), [1100]);
 });
 
 test("runPrefillMeasured: no-TTFT and fully-cached samples fail with an explicit error", async () => {
   const noTtft = await runPrefillMeasured({ targetTokens: 4096 }, 0, null, async () => sample({ ttftMs: 0 }));
   assert.equal(noTtft.samples, 0);
+  assert.deepEqual(noTtft.sampleMeasurements, []);
   assert.match(noTtft.error, /first token/i);
   assert.equal(noTtft.prefillTps, 0);
   const cached = await runPrefillMeasured({ targetTokens: 4096 }, 0, null, async () => sample({ cachedTokens: 4000 }));
@@ -234,6 +252,7 @@ test("runPrefillMeasured stops on abort and reports Cancelled", async () => {
   const row = await runPrefillMeasured({ targetTokens: 4096, abortSignal: ctrl.signal }, 0, null, async () => sample());
   assert.equal(row.error, "Cancelled");
   assert.equal(row.samples, 0);
+  assert.deepEqual(row.sampleMeasurements, []);
 });
 
 test("PrefillBenchManager prunes finished jobs and only clears its own active slot", async () => {
