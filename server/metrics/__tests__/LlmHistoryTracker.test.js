@@ -54,13 +54,13 @@ test("the first sample seeds cumulative baselines and records gauges only", () =
   const values = tracker.record(snap(), 1_000, () => true);
   assert.equal(values[llmKey(8888, "requestsRunning")], 2);
   assert.equal(values[llmKey(8888, "requestsWaiting")], 1);
-  assert.equal(values[llmKey(8888, "queued")], 1);
-  assert.equal(values[llmKey(8888, "idle")], 0);
   assert.equal(values[llmKey(8888, "perStreamTps")], 25);
   assert.equal(values[llmKey(8888, "decodeActive")], 1);
   assert.equal(values[llmKey(8888, "deviceMemory")], 100);
   // No delta on the first sample: a restart is not one interval of requests.
   assert.equal(values[llmKey(8888, "prefillSeconds")], undefined);
+  // Derived series are computed at query time, never recorded here.
+  assert.equal(values[llmKey(8888, "queued")], undefined);
   assert.equal(values[llmKey(8888, "queueWait")], undefined);
 });
 
@@ -91,15 +91,15 @@ test("the second sample differences counters and derives queue/prefill shares", 
   assert.equal(values[llmKey(8888, "prefillCount")], 1);
   assert.equal(values[llmKey(8888, "decodeSeconds")], 4);
   assert.equal(values[llmKey(8888, "ttftTime")], 10);
-  // TTFT includes queue wait + prefill: 10 − 3 = 7.
-  assert.equal(values[llmKey(8888, "queueWait")], 7);
-  assert.ok(Math.abs(values[llmKey(8888, "prefillShare")] - 3 / 14) < 1e-9);
   assert.equal(values[llmKey(8888, "promptTokens")], 500);
   assert.equal(values[llmKey(8888, "cachedTokens")], 200);
   assert.equal(values[llmKey(8888, "genTokens")], 60);
   assert.equal(values[llmKey(8888, "decodeRounds")], 6);
   assert.equal(values[llmKey(8888, "latencyTime")], 16);
-  assert.equal(values[llmKey(8888, "overheadSeconds")], 2);
+  // Derived series are computed at query time, never recorded here.
+  assert.equal(values[llmKey(8888, "queueWait")], undefined);
+  assert.equal(values[llmKey(8888, "prefillShare")], undefined);
+  assert.equal(values[llmKey(8888, "overheadSeconds")], undefined);
 });
 
 test("a gap longer than the baseline window seeds instead of reporting the gap", () => {

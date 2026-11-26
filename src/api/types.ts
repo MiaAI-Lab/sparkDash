@@ -1704,8 +1704,10 @@ export type HistoryLlmPoint = { t: number } & Partial<Record<HistoryLlmSeries, H
 export interface MetricsHistoryData {
   enabled: true;
   range: MetricsHistoryRange;
-  /** Bucket width of the points; a jump larger than this is a gap. */
+  /** Bucket width of the unit points; a jump larger than this is a gap. */
   stepMs: number;
+  /** Bucket width of the LLM points (their own coarser tiers), when present. */
+  llmStepMs?: number;
   /** Window the range covers (epoch ms); the x-axis spans exactly this. */
   from: number;
   to: number;

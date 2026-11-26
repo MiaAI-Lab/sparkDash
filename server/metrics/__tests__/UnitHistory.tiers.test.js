@@ -4,7 +4,16 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { UnitHistory } from "../UnitHistory.js";
-import { BUCKET_TIERS, HISTORY_RANGES, coarsen, llmKey, mergeStat } from "../historyTiers.js";
+import {
+  BUCKET_TIERS,
+  HISTORY_RANGES,
+  LLM_BUCKET_TIERS,
+  LLM_HISTORY_RANGES,
+  LLM_SERIES,
+  coarsen,
+  llmKey,
+  mergeStat,
+} from "../historyTiers.js";
 import { extractSample, memoryReading, networkRates } from "../historySample.js";
 import { atomicWriteAsync } from "../../util/atomicWrite.js";
 
@@ -271,6 +280,16 @@ test("each range picks the finest tier that covers it, in bounded points", () =>
     assert.ok(spec.spanMs / spec.stepMs <= 500, "bounded points per response");
     assert.equal(spec.stepMs % tier.stepMs, 0);
   }
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(LLM_HISTORY_RANGES).map(([k, v]) => [k, LLM_BUCKET_TIERS[v.tier].name])),
+    { "1h": "5m", "6h": "5m", "24h": "5m", "7d": "1h", "30d": "1h" }
+  );
+  for (const spec of Object.values(LLM_HISTORY_RANGES)) {
+    const tier = LLM_BUCKET_TIERS[spec.tier];
+    assert.ok(tier.retentionMs >= spec.spanMs, "LLM tier must cover the range");
+    assert.ok(spec.spanMs / spec.stepMs <= 500, "bounded LLM points per response");
+    assert.equal(spec.stepMs % tier.stepMs, 0);
+  }
   const s = store();
   rec(s, T0 + 2_000, { gpuUtil: 10 });
   rec(s, T0 + 4_000, { gpuUtil: 30 });
@@ -302,6 +321,54 @@ test("LLM series are grouped per endpoint", () => {
   assert.deepEqual(res.llm.map((e) => e.port), [8888, 30000]);
   assert.deepEqual(res.llm[0].points, [{ t: T0, genTps: { avg: 40, max: 40, activeSum: 40, activeCount: 1 }, kvUsage: { avg: 0.25, max: 0.25 } }]);
   assert.deepEqual(res.points, [{ t: T0, gpuUtil: { avg: 5, max: 5 } }]);
+});
+
+test("LLM request-time series are derived at query time, never persisted", () => {
+  const s = store();
+  rec(
+    s,
+    T0,
+    {
+      gpuUtil: 5,
+      [llmKey(8888, "genTps")]: 50,
+      [llmKey(8888, "perStreamTps")]: 25,
+      [llmKey(8888, "requestsRunning")]: 2,
+      [llmKey(8888, "requestsWaiting")]: 1,
+      [llmKey(8888, "prefillSeconds")]: 3,
+      [llmKey(8888, "decodeSeconds")]: 4,
+      [llmKey(8888, "ttftTime")]: 10,
+      [llmKey(8888, "latencyTime")]: 16,
+    },
+    { llmPorts: [8888] }
+  );
+  const [point] = s.query("a", "1h", T0, { withCounts: true }).llm[0].points;
+  assert.deepEqual(point.queued, { avg: 1, max: 1, n: 1 });
+  assert.deepEqual(point.idle, { avg: 0, max: 0, n: 1 });
+  assert.deepEqual(point.decodeEfficiency, { avg: 1, max: 1, n: 1 });
+  // TTFT includes queue wait + prefill: 10 − 3 = 7.
+  assert.deepEqual(point.queueWait, { avg: 7, max: 7, n: 1 });
+  assert.equal(point.prefillShare.avg, 0.2143); // 3 / (3 + 4 + 7)
+  assert.deepEqual(point.overheadSeconds, { avg: 2, max: 2, n: 1 });
+
+  const saved = JSON.parse(JSON.stringify(s.serializeTiers(T0)));
+  const keys = Object.keys(saved.units.a["5m"].series);
+  for (const derived of ["queued", "idle", "decodeEfficiency", "queueWait", "prefillShare", "overheadSeconds"]) {
+    assert.equal(keys.includes(llmKey(8888, derived)), false, `${derived} must not be persisted`);
+  }
+});
+
+test("LLM series keep their own 5-minute/1-hour tiers, separate from unit tiers", (t) => {
+  const tiersFile = path.join(tmpDir(t), "metrics-history.json");
+  const s = store({ tiersFile });
+  rec(s, T0, { gpuUtil: 5, [llmKey(8888, "genTps")]: 40 }, { llmPorts: [8888] });
+  s.flush();
+  const saved = JSON.parse(fs.readFileSync(tiersFile, "utf8"));
+  assert.deepEqual(Object.keys(saved.units.a["1m"].series), ["gpuUtil"]);
+  assert.deepEqual(Object.keys(saved.units.a["15m"].series), ["gpuUtil"]);
+  assert.deepEqual(Object.keys(saved.units.a["5m"].series), [llmKey(8888, "genTps")]);
+  assert.deepEqual(Object.keys(saved.units.a["1h"].series), [llmKey(8888, "genTps")]);
+  assert.equal(s.query("a", "1h", T0).llmStepMs, 5 * MINUTE);
+  assert.equal(s.query("a", "7d", T0).llmStepMs, HOUR);
 });
 
 test("an unknown unit answers with empty series", () => {
@@ -476,7 +543,8 @@ test("removed units and LLM ports are dropped on the next save", (t) => {
   assert.equal(s.flush(), true, "membership change alone is worth a write");
   const saved = JSON.parse(fs.readFileSync(tiersFile, "utf8"));
   assert.deepEqual(Object.keys(saved.units), ["a"]);
-  assert.deepEqual(Object.keys(saved.units.a["1m"].series).sort(), ["gpuUtil", llmKey(8888, "genTps")]);
+  assert.deepEqual(Object.keys(saved.units.a["1m"].series).sort(), ["gpuUtil"]);
+  assert.deepEqual(Object.keys(saved.units.a["5m"].series).sort(), [llmKey(8888, "genTps")]);
 });
 
 test("a store whose tiers never record never reads or writes the tiers file", (t) => {
@@ -542,6 +610,22 @@ test("the worst-case tiers stay within the documented size", () => {
   assert.ok(bytes < 1.4 * 1024 * 1024, `worst case ${bytes} bytes`);
 });
 
+test("the LLM tiers stay within the documented size", () => {
+  // Every 5-minute and 1-hour bucket filled with all persisted raw series.
+  const s = store();
+  const values = Object.fromEntries(
+    LLM_SERIES.map((name, i) => [llmKey(8888, name), i % 2 === 0 ? 42.5 : 1.2345])
+  );
+  const unit = { id: "a", llmPorts: [8888], values };
+  for (let at = T0; at < T0 + 30 * DAY; at += 5 * MINUTE) {
+    s.setNow(at);
+    s.recordSample([unit], at);
+  }
+  const bytes = Buffer.byteLength(JSON.stringify(s.serializeTiers(T0 + 30 * DAY)));
+  // Documented in UnitHistory.js: ~0.3 MB per LLM endpoint.
+  assert.ok(bytes < 0.4 * 1024 * 1024, `LLM worst case ${bytes} bytes`);
+});
+
 test("withCounts adds the sample count for the insights endpoint", () => {
   const s = store();
   rec(s, T0 + 2_000, { gpuUtil: 10 });
@@ -589,8 +673,8 @@ test("active throughput counts positive polls across buckets and survives a rest
     assert.deepEqual(point.genTps, { avg: 15, max: 60, activeSum: 120, activeCount: 2 });
     assert.deepEqual(point.prefillTps, { avg: 250, max: 1000, activeSum: 2000, activeCount: 2 });
   }
-  assert.deepEqual(reopened.query("a", "1h", now).llm[0].points[1].genTps,
-    { avg: 0, max: 0, activeSum: 0, activeCount: 0 });
+  // The LLM tiers are 5-minute/1-hour buckets, so both minutes share one point.
+  assert.equal(reopened.query("a", "1h", now).llm[0].points.length, 1);
 
   const legacy = JSON.parse(fs.readFileSync(tiersFile, "utf8"));
   for (const tier of Object.values(legacy.units.a)) {

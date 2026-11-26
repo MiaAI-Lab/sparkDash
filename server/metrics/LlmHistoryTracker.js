@@ -64,12 +64,6 @@ export function createLlmHistoryTracker() {
         const waiting = entry.slots?.waiting ?? entry.requestsWaiting;
         set("requestsRunning", running);
         set("requestsWaiting", waiting);
-        if (Number.isFinite(waiting)) {
-          set("queued", waiting > 0 ? 1 : 0);
-        }
-        if (Number.isFinite(running) && Number.isFinite(waiting)) {
-          set("idle", running === 0 && waiting === 0 ? 1 : 0);
-        }
         set("slotsTotal", entry.slots?.total ?? entry.slotsTotal);
         // A positive rate means decoding even when the backend has no flag.
         const generating =
@@ -83,21 +77,6 @@ export function createLlmHistoryTracker() {
         set("generationProgress", entry.generationProgressTokens);
         if (finite(entry.deviceMemoryBytes)) {
           set("deviceMemory", entry.deviceMemoryBytes / 1024 ** 3);
-        }
-
-        // 1.0 = every running stream decodes at its measured per-stream rate.
-        const runningCount = Number(running);
-        const gen = Number(entry.generationTps);
-        const per = Number(entry.perStreamTps);
-        if (
-          Number.isFinite(runningCount) &&
-          runningCount > 0 &&
-          Number.isFinite(gen) &&
-          gen >= 0 &&
-          Number.isFinite(per) &&
-          per > 0
-        ) {
-          set("decodeEfficiency", Math.min(1, gen / (runningCount * per)));
         }
 
         const counters = [
@@ -125,22 +104,6 @@ export function createLlmHistoryTracker() {
           const { delta: d, next } = delta(current, state.prev[name]);
           state.prev[name] = next;
           if (d != null) set(name, d);
-        }
-
-        // TTFT includes queue wait + prefill; shares cover queue + prefill + decode.
-        const prefill = out[llmKey(port, "prefillSeconds")];
-        const decode = out[llmKey(port, "decodeSeconds")];
-        const ttft = out[llmKey(port, "ttftTime")];
-        if (finite(prefill) && finite(ttft)) {
-          const queue = Math.max(0, ttft - prefill);
-          set("queueWait", queue);
-          const total = prefill + (finite(decode) ? decode : 0) + queue;
-          if (total > 0) set("prefillShare", Math.min(1, Math.max(0, prefill / total)));
-        }
-        // End-to-end minus TTFT and decode is request overhead.
-        const latency = out[llmKey(port, "latencyTime")];
-        if (finite(latency) && finite(ttft) && finite(decode)) {
-          set("overheadSeconds", Math.max(0, latency - ttft - decode));
         }
       });
 

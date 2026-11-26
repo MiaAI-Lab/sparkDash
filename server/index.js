@@ -1567,10 +1567,10 @@ app.get("/api/sparks/:id/llm/insights", (req, res) => {
     enabled: true,
     port,
     range,
-    stepMs: history.stepMs,
+    stepMs: history.llmStepMs ?? history.stepMs,
     from: history.from,
     to: history.to,
-    ...computeLlmInsights({ points: entry.points, stepMs: history.stepMs, live }),
+    ...computeLlmInsights({ points: entry.points, stepMs: history.llmStepMs ?? history.stepMs, live }),
   });
 });
 

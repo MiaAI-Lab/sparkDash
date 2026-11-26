@@ -61,8 +61,10 @@ export const UNIT_SERIES = Object.freeze([
 ]);
 
 /**
- * Per LLM endpoint: live gauges (rates, queue, state flags, cache/KV/device),
- * per-sample counter deltas, and derived request-time series. Missing stays absent.
+ * Per LLM endpoint, persisted raw inputs only: live gauges (rates, queue, state
+ * flags, cache/KV/device) and per-sample counter deltas. Missing stays absent.
+ * Derived request-time series (see LLM_DERIVED_SERIES) are computed at query
+ * time, so they never take disk space.
  */
 export const LLM_SERIES = Object.freeze([
   "genTps",
@@ -71,8 +73,6 @@ export const LLM_SERIES = Object.freeze([
   "perStreamTps",
   "requestsRunning",
   "requestsWaiting",
-  "queued",
-  "idle",
   "slotsTotal",
   "prefillActive",
   "decodeActive",
@@ -81,7 +81,6 @@ export const LLM_SERIES = Object.freeze([
   "prefillProgress",
   "generationProgress",
   "deviceMemory",
-  "decodeEfficiency",
   "prefillSeconds",
   "prefillCount",
   "decodeSeconds",
@@ -93,14 +92,40 @@ export const LLM_SERIES = Object.freeze([
   "tpotTime",
   "tpotCount",
   "preemptions",
-  "queueWait",
-  "prefillShare",
-  "overheadSeconds",
   "promptTokens",
   "cachedTokens",
   "genTokens",
   "decodeRounds",
 ]);
+
+/** Request-time series derived from persisted raw inputs when a range is queried. */
+export const LLM_DERIVED_SERIES = Object.freeze([
+  "queued",
+  "idle",
+  "decodeEfficiency",
+  "queueWait",
+  "prefillShare",
+  "overheadSeconds",
+]);
+
+/**
+ * LLM endpoints get their own coarser tiers, separate from the unit tiers: a
+ * 5-minute bucket for 24 h and a 1-hour bucket for 30 d. With 29 raw series per
+ * endpoint that is ~0.3 MB on disk, instead of ~1.7 MB in the shared tiers.
+ */
+export const LLM_BUCKET_TIERS = Object.freeze([
+  Object.freeze({ name: "5m", stepMs: 5 * MINUTE_MS, retentionMs: 24 * HOUR_MS }),
+  Object.freeze({ name: "1h", stepMs: HOUR_MS, retentionMs: 30 * DAY_MS }),
+]);
+
+/** Query ranges for the LLM tiers. The unit tiers keep their own HISTORY_RANGES. */
+export const LLM_HISTORY_RANGES = Object.freeze({
+  "1h": Object.freeze({ spanMs: HOUR_MS, tier: 0, stepMs: 5 * MINUTE_MS }),
+  "6h": Object.freeze({ spanMs: 6 * HOUR_MS, tier: 0, stepMs: 5 * MINUTE_MS }),
+  "24h": Object.freeze({ spanMs: DAY_MS, tier: 0, stepMs: 5 * MINUTE_MS }),
+  "7d": Object.freeze({ spanMs: 7 * DAY_MS, tier: 1, stepMs: HOUR_MS }),
+  "30d": Object.freeze({ spanMs: 30 * DAY_MS, tier: 1, stepMs: 2 * HOUR_MS }),
+});
 
 /** Series whose buckets also keep the minimum. */
 const MIN_SERIES = new Set(["memFreeMB", "memAvailableMB"]);
@@ -306,6 +331,69 @@ export function coarsen(entries, stepMs) {
     for (const [key, s] of stats) addToStats(into, key, { ...s });
   }
   return [...grid.entries()].sort((a, b) => a[0] - b[0]).map(([t, stats]) => ({ t, stats }));
+}
+
+/**
+ * Request-time series derived from one LLM bucket's raw inputs. The formulas
+ * mirror the per-sample ones the sampler used before: a bucket total is
+ * `avg × n`, and the derived stat keeps that total in `sum` so `statOut`
+ * reports the same avg. `n` is the number of samples that carried the inputs.
+ * @param {Map<string, { sum: number, max: number, min: number, n: number }>} raw
+ * @returns {Record<string, { sum: number, max: number, min: number, n: number }>}
+ */
+export function deriveLlmStats(raw) {
+  const out = {};
+  const avgOf = (name) => {
+    const s = raw.get(name);
+    return s && s.n > 0 ? s.sum / s.n : null;
+  };
+  const totalOf = (name) => {
+    const s = raw.get(name);
+    return s && s.n > 0 ? s.sum : null;
+  };
+  const nOf = (name) => {
+    const s = raw.get(name);
+    return s && s.n > 0 ? s.n : 0;
+  };
+  const put = (name, value, count) => {
+    if (value == null || count <= 0) return;
+    out[name] = { sum: value * count, max: value, min: value, n: count };
+  };
+
+  const running = avgOf("requestsRunning");
+  const waiting = avgOf("requestsWaiting");
+  const waitingCount = nOf("requestsWaiting");
+  const runningCount = nOf("requestsRunning");
+  // Bucket-level state indicators: the insights endpoint averages these across buckets.
+  if (waiting != null) put("queued", waiting > 0 ? 1 : 0, waitingCount);
+  if (running != null && waiting != null) {
+    put("idle", running === 0 && waiting === 0 ? 1 : 0, runningCount);
+  }
+
+  const gen = avgOf("genTps");
+  const perStream = avgOf("perStreamTps");
+  if (running != null && running > 0 && gen != null && gen >= 0 && perStream != null && perStream > 0) {
+    const count = Math.min(runningCount, nOf("genTps"), nOf("perStreamTps"));
+    put("decodeEfficiency", Math.min(1, gen / (running * perStream)), count);
+  }
+
+  const ttftTotal = totalOf("ttftTime");
+  const prefillTotal = totalOf("prefillSeconds");
+  const decodeTotal = totalOf("decodeSeconds");
+  if (ttftTotal != null && prefillTotal != null) {
+    const queueTotal = Math.max(0, ttftTotal - prefillTotal);
+    put("queueWait", queueTotal / nOf("ttftTime"), nOf("ttftTime"));
+    const parts = prefillTotal + (decodeTotal ?? 0) + queueTotal;
+    if (parts > 0) put("prefillShare", Math.min(1, Math.max(0, prefillTotal / parts)), nOf("ttftTime"));
+  }
+
+  const latencyTotal = totalOf("latencyTime");
+  if (latencyTotal != null && ttftTotal != null && decodeTotal != null) {
+    const overhead = Math.max(0, latencyTotal - ttftTotal - decodeTotal);
+    put("overheadSeconds", overhead / nOf("latencyTime"), nOf("latencyTime"));
+  }
+
+  return out;
 }
 
 /** `{ avg, max, min? }` of one merged stat, rounded for transport. */
