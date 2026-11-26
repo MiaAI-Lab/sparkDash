@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { benchId, benchTypeOf, ENERGY_ID, idToPath, initialActiveId, isPageId, isStaleSparkId, KIOSK_ID, OVERVIEW_ID, pathToId, STORAGE_ID, TRAINING_ID, TEMPS_ID } from "./constants";
+import { benchId, benchTypeOf, ENERGY_ID, idToPath, initialActiveId, isPageId, isStaleSparkId, KIOSK_ID, LLM_SERVERS_ID, llmServerId, llmServerIdOf, OVERVIEW_ID, pathToId, STORAGE_ID, TEMPS_ID, TRAINING_ID } from "./constants";
 
 describe("route helpers", () => {
   it("round-trips ids and paths", () => {
@@ -19,6 +19,19 @@ describe("route helpers", () => {
     expect(idToPath(KIOSK_ID)).toBe("/kiosk");
     expect(pathToId("/kiosk/")).toBe(KIOSK_ID);
     expect(pathToId("/nothing-here")).toBe(OVERVIEW_ID);
+  });
+
+  it("routes the LLM Servers list and each server detail page", () => {
+    expect(pathToId("/llm")).toBe(LLM_SERVERS_ID);
+    expect(pathToId("/llm/")).toBe(LLM_SERVERS_ID);
+    expect(pathToId("/llm/unit-a")).toBe(llmServerId("unit-a"));
+    expect(pathToId("/llm/a%20b/")).toBe(llmServerId("a b"));
+    expect(idToPath(LLM_SERVERS_ID)).toBe("/llm");
+    expect(idToPath(llmServerId("a b"))).toBe("/llm/a%20b");
+    expect(llmServerIdOf(llmServerId("unit-a"))).toBe("unit-a");
+    expect(llmServerIdOf(LLM_SERVERS_ID)).toBeNull();
+    expect(isPageId(llmServerId("unit-a"))).toBe(true);
+    expect(isStaleSparkId(llmServerId("gone"), [], true)).toBe(false);
   });
 
   describe("initialActiveId", () => {

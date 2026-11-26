@@ -141,3 +141,61 @@ vllm:request_prefill_kv_computed_tokens_sum{engine="0"} ${counters.kv}
   assert.ok(Math.abs(snap.prefillTps - 900) < 1, `prefillTps ${snap.prefillTps}`);
   assert.ok(snap.prefillTps > 0, "a fresh completion is still published");
 });
+
+test("vLLM decode/prefill flags follow running requests and new output", () => {
+  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 8000);
+  probe.lastTokenCounts = { input: 1000, output: 500 };
+  probe._tokenCountsSeeded = true;
+  const metrics = (running, out) => `vllm:prompt_tokens_total{engine="0"} 1000
+vllm:generation_tokens_total{engine="0"} ${out}
+vllm:num_requests_running{engine="0"} ${running}
+vllm:num_requests_waiting{engine="0"} 0
+`;
+
+  // New output with running requests: decoding, not prefilling.
+  probe._applyVllmMetrics(metrics(2, 600), 2);
+  assert.equal(probe.decodeActive, true);
+  assert.equal(probe.prefillActive, false);
+
+  // Open requests with no new output: prefilling, not decoding.
+  probe._applyVllmMetrics(metrics(2, 600), 2);
+  assert.equal(probe.decodeActive, false);
+  assert.equal(probe.prefillActive, true);
+
+  // No running requests: neither.
+  probe._applyVllmMetrics(metrics(0, 600), 2);
+  assert.equal(probe.decodeActive, false);
+  assert.equal(probe.prefillActive, false);
+});
+
+test("vLLM optional cumulative counters clear when a scrape omits them", () => {
+  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 8000);
+  const fields = {
+    prefillSecondsTotal: 1,
+    prefillCountTotal: 2,
+    decodeSecondsTotal: 3,
+    decodeCountTotal: 4,
+    ttftSecondsTotal: 5,
+    ttftCountTotal: 6,
+    latencySecondsTotal: 7,
+    latencyCountTotal: 8,
+    tpotSecondsTotal: 9,
+    tpotCountTotal: 10,
+    decodeRoundsTotal: 11,
+    prefixCacheQueriesTotal: 12,
+    prefixCacheHitsTotal: 13,
+    mtpDraftedTotal: 14,
+    mtpAcceptedTotal: 15,
+    deviceMemoryBytes: 16,
+    deviceMemoryPeakBytes: 17,
+    clientDisconnectionsTotal: 18,
+    requestLatencySeconds: 19,
+    prefillP95Seconds: 20,
+    decodeP95Seconds: 21,
+  };
+  Object.assign(probe, fields);
+  probe._applyVllmMetrics('vllm:num_requests_running{engine="0"} 1\n', 2);
+  for (const name of Object.keys(fields)) {
+    assert.equal(probe[name], null, `${name} must be unknown, not the previous scrape`);
+  }
+});

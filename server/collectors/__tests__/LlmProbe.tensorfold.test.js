@@ -359,6 +359,54 @@ test("probe: a decode rate reported in /health is not replaced by the /metrics c
   const snap = await probe.probe();
   assert.equal(snap.totalOutputTokens, 5000);
   assert.equal(snap.generationTps, 33.5);
+  // /health's live decode is authoritative; the counterless /metrics scrape
+  // must not turn the same poll into a prefill.
+  assert.equal(probe.decodeActive, true);
+  assert.equal(probe.prefillActive, false);
+});
+
+test("_applyTensorFoldMetrics clears cumulative counters a scrape omits", async () => {
+  const probe = new LlmProbe({ lanIp: "192.0.2.10" }, 8888);
+  const fields = {
+    prefillSecondsTotal: 1,
+    prefillCountTotal: 2,
+    decodeSecondsTotal: 3,
+    decodeCountTotal: 4,
+    ttftSecondsTotal: 5,
+    ttftCountTotal: 6,
+    latencySecondsTotal: 7,
+    latencyCountTotal: 8,
+    tpotSecondsTotal: 9,
+    tpotCountTotal: 10,
+    decodeRoundsTotal: 11,
+    prefixCacheQueriesTotal: 12,
+    prefixCacheHitsTotal: 13,
+    mtpDraftedTotal: 14,
+    mtpAcceptedTotal: 15,
+    deviceMemoryBytes: 16,
+    deviceMemoryPeakBytes: 17,
+    clientDisconnectionsTotal: 18,
+    requestLatencySeconds: 19,
+    prefillP95Seconds: 20,
+    decodeP95Seconds: 21,
+  };
+  Object.assign(probe, fields);
+  probe._fetch = async (url) => {
+    if (String(url).endsWith("/metrics")) {
+      const txt = "tensorfold:requests_running 1\ntensorfold:requests_waiting 0\n";
+      return { ok: true, status: 200, text: async () => txt, json: async () => ({}) };
+    }
+    return notFound();
+  };
+  await probe._applyTensorFoldMetrics(2);
+  for (const name of Object.keys(fields)) {
+    assert.equal(probe[name], null, `${name} must be unknown, not the previous scrape`);
+  }
+
+  // A queue-only poll does not read them either: unknown, not stale.
+  Object.assign(probe, fields);
+  await probe._applyTensorFoldMetrics(undefined, true);
+  assert.equal(probe.prefillSecondsTotal, null);
 });
 
 test("probe: TensorFold with cumulative counters in /health reads only the queue from /metrics", async () => {
@@ -1441,4 +1489,118 @@ test("_applyTensorFoldLive: a build that publishes streams keeps its own prefill
   probe._applyTensorFoldHealth(health, 2);
   probe._applyTensorFoldLive(health);
   assert.equal(probe.prefillActive, false);
+});
+
+/** Synthetic two-rank TensorFold metrics. */
+const TWO_RANK_METRICS = `
+tensorfold:requests_running 1
+tensorfold:kv_shard_parts 2
+tensorfold:kv_shard_part_rows 1000
+tensorfold:kv_shard_ranks 1
+tensorfold:kv_shard_part_free{part="0"} 200
+tensorfold:kv_shard_part_live_rows{part="0"} 0
+tensorfold:kv_shard_part_kept_rows{part="0"} 800
+tensorfold:kv_shard_part_twin_rows{part="0"} 0
+tensorfold:kv_shard_part_hold_rows{part="0"} 0
+tensorfold:kv_shard_part_live{part="0"} 0
+tensorfold:kv_shard_part_free{part="1"} 300
+tensorfold:kv_shard_part_live_rows{part="1"} 100
+tensorfold:kv_shard_part_kept_rows{part="1"} 600
+tensorfold:kv_shard_part_twin_rows{part="1"} 0
+tensorfold:kv_shard_part_hold_rows{part="1"} 0
+tensorfold:kv_shard_part_live{part="1"} 1
+tensorfold:spill_points{rank="0"} 3
+tensorfold:spill_points{rank="1"} 3
+tensorfold:spill_blocks{rank="0"} 10
+tensorfold:spill_blocks{rank="1"} 10
+tensorfold:spill_stored_bytes{rank="0"} 100
+tensorfold:spill_stored_bytes{rank="1"} 120
+tensorfold:spill_cap_bytes{rank="0"} 1024
+tensorfold:spill_cap_bytes{rank="1"} 1024
+tensorfold:spill_disk_free_bytes{rank="0"} 500
+tensorfold:spill_disk_free_bytes{rank="1"} 480
+tensorfold:spill_staging_bytes{rank="0"} 0
+tensorfold:spill_staging_bytes{rank="1"} 0
+tensorfold:spill_writes_committed{rank="0"} 10
+tensorfold:spill_writes_committed{rank="1"} 10
+tensorfold:spill_writes_failed{rank="0"} 0
+tensorfold:spill_writes_failed{rank="1"} 0
+tensorfold:spill_read_bytes{rank="0"} 2
+tensorfold:spill_read_bytes{rank="1"} 3
+tensorfold:kv_shard_rank_prompt_fetches{rank="0"} 20
+tensorfold:kv_shard_rank_prompt_bytes{rank="0"} 8
+tensorfold:kv_shard_rank_fetch_rounds{rank="0"} 40
+tensorfold:kv_shard_rank_copies{rank="0"} 1
+tensorfold:kv_shard_rank_transfers_failed{rank="0"} 0
+tensorfold:kv_shard_carries 2
+tensorfold:kv_shard_moves 1
+tensorfold:kv_shard_moved_tokens 400
+tensorfold:kv_shard_prompt_bytes 8
+tensorfold:kv_shard_fetch_rounds 40
+tensorfold:kv_shard_copies 1
+tensorfold:kv_shard_transfers_failed 0
+tensorfold:kv_shard_refused_no_target 5
+tensorfold:pair_failed 0
+tensorfold:pair_busy_ms 18
+tensorfold:pair_stall_ms 120000
+tensorfold:pair_stalled 0
+tensorfold:pair_broken 0
+`;
+
+test("_applyTensorFoldMetrics: both ranks are reported with KV parts, spill tiers and pair health", async () => {
+  const probe = new LlmProbe({ lanIp: "192.0.2.10" }, 8888);
+  probe.backendType = "tensorfold";
+  probe._fetch = async () => ({ ok: true, text: async () => TWO_RANK_METRICS });
+  await probe._applyTensorFoldMetrics(2);
+  const cluster = probe.cluster;
+  assert.ok(cluster);
+  assert.equal(cluster.parts, 2);
+  assert.equal(cluster.partRows, 1000);
+  assert.equal(cluster.ranksReported, 1);
+  assert.equal(cluster.partStats.length, 2);
+  const part1 = cluster.partStats.find((p) => p.id === "1");
+  assert.equal(part1.freeRows, 300);
+  assert.equal(part1.liveRows, 100);
+  assert.equal(part1.keptRows, 600);
+  assert.equal(part1.liveStreams, 1);
+  assert.equal(cluster.ranks.length, 2);
+  const rank0 = cluster.ranks.find((r) => r.id === "0");
+  assert.equal(rank0.storedBytes, 100);
+  assert.equal(rank0.capacityBytes, 1024);
+  assert.equal(rank0.diskFreeBytes, 500);
+  assert.equal(rank0.writesCommitted, 10);
+  assert.equal(rank0.promptBytes, 8);
+  assert.equal(rank0.fetchRounds, 40);
+  const rank1 = cluster.ranks.find((r) => r.id === "1");
+  assert.equal(rank1.storedBytes, 120);
+  assert.equal(rank1.readBytes, 3);
+  assert.equal(rank1.promptBytes, null);
+  assert.equal(cluster.pair.stalled, false);
+  assert.equal(cluster.pair.broken, false);
+  assert.equal(cluster.pair.busyMs, 18);
+  assert.equal(cluster.pair.stallMs, 120000);
+  assert.equal(cluster.transfer.carries, 2);
+  assert.equal(cluster.transfer.promptBytes, 8);
+  assert.equal(cluster.transfer.fetchRounds, 40);
+  assert.equal(cluster.transfer.copies, 1);
+  assert.equal(cluster.transfer.transfersFailed, 0);
+  assert.equal(cluster.transfer.refusedNoTarget, 5);
+  assert.equal(probe._getSnapshot().cluster.parts, 2);
+});
+
+test("_applyTensorFoldMetrics: a single-rank scrape leaves cluster null", async () => {
+  const probe = new LlmProbe({ lanIp: "192.0.2.10" }, 8888);
+  probe._fetch = async () => ({ ok: true, text: async () => "tensorfold:requests_running 1" });
+  await probe._applyTensorFoldMetrics(2);
+  assert.equal(probe.cluster, null);
+});
+
+test("_applyTensorFoldMetrics: a failed scrape clears the previous cluster reading", async () => {
+  const probe = new LlmProbe({ lanIp: "192.0.2.10" }, 8888);
+  probe._fetch = async () => ({ ok: true, text: async () => TWO_RANK_METRICS });
+  await probe._applyTensorFoldMetrics(2);
+  assert.ok(probe.cluster);
+  probe._fetch = async () => ({ ok: false, status: 500, text: async () => "" });
+  await probe._applyTensorFoldMetrics(2);
+  assert.equal(probe.cluster, null);
 });

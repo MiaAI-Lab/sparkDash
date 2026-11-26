@@ -28,6 +28,7 @@ import type {
   LlmLauncherInput,
   LlmMetrics,
   LlmDailyResponse,
+  LlmInsightsResponse,
   MetricsHistoryRange,
   MetricsHistoryResponse,
   ModelDiscoveryResponse,
@@ -1180,8 +1181,27 @@ export function getGpuHistory(sparkId: string, windowMs: number): Promise<GpuHis
 }
 
 /** The 48 h / 30 d unit history (Settings → Metrics history; `{ enabled: false }` while off). */
-export function getUnitHistory(sparkId: string, range: MetricsHistoryRange): Promise<MetricsHistoryResponse> {
-  return apiFetch<MetricsHistoryResponse>(`/api/sparks/${encodeURIComponent(sparkId)}/history?range=${range}`);
+export function getUnitHistory(
+  sparkId: string,
+  range: MetricsHistoryRange,
+  withCounts = false
+): Promise<MetricsHistoryResponse> {
+  const counts = withCounts ? "&counts=1" : "";
+  return apiFetch<MetricsHistoryResponse>(
+    `/api/sparks/${encodeURIComponent(sparkId)}/history?range=${range}${counts}`
+  );
+}
+
+/** Queue/knee/cache insights for one LLM endpoint (`{ enabled: false }` while metrics history is off). */
+export function getLlmInsights(
+  sparkId: string,
+  port: number,
+  range: MetricsHistoryRange
+): Promise<LlmInsightsResponse> {
+  const params = new URLSearchParams({ port: String(port), range });
+  return apiFetch<LlmInsightsResponse>(
+    `/api/sparks/${encodeURIComponent(sparkId)}/llm/insights?${params.toString()}`
+  );
 }
 
 /** Install the pinned spark-attic release after explicit user confirmation. */

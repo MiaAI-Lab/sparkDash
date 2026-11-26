@@ -77,6 +77,8 @@ import { EventLog } from "./events/EventLog.js";
 import { planListenRetry } from "./listenRetry.js";
 import { UnitHistory } from "./metrics/UnitHistory.js";
 import { createUnitHistoryRuntime, registerUnitHistoryRoutes } from "./metrics/UnitHistoryRuntime.js";
+import { HISTORY_RANGES } from "./metrics/historyTiers.js";
+import { computeLlmInsights } from "./metrics/llmInsights.js";
 import { CacheHistory } from "./metrics/CacheHistory.js";
 import { LauncherStore } from "./llmlaunch/LauncherStore.js";
 import { LauncherManager, defaultExec } from "./llmlaunch/LauncherManager.js";
@@ -1528,6 +1530,48 @@ app.get("/api/sparks/:id/llm/daily", (req, res) => {
   let days = req.query.days != null ? Number(req.query.days) : 14;
   if (!Number.isFinite(days)) days = 14;
   res.json(llmDaily.getSeries(spark.id, port, { days }));
+});
+
+/**
+ * LLM server insights: queue-depth bins, the queue-vs-decode knee, request-time
+ * breakdown, cache savings, KV/device pressure and MTP efficiency for one
+ * endpoint. Query: port (required for multi-port), range (1h|6h|24h|7d|30d,
+ * default 24h). `{ enabled: false }` while metrics history is off.
+ */
+app.get("/api/sparks/:id/llm/insights", (req, res) => {
+  const spark = registry.getSpark(req.params.id);
+  if (!spark) return res.status(404).json({ error: "Spark not found" });
+  const ports =
+    Array.isArray(spark.llmPorts) && spark.llmPorts.length
+      ? spark.llmPorts
+      : [resolveLlmPort(spark)];
+  const port = req.query.port != null ? Number(req.query.port) : ports[0];
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    return res.status(400).json({ error: "Invalid port" });
+  }
+  const range = req.query.range ?? "24h";
+  if (typeof range !== "string" || !Object.hasOwn(HISTORY_RANGES, range)) {
+    return res.status(400).json({
+      error: `range must be one of: ${Object.keys(HISTORY_RANGES).join(", ")}`,
+    });
+  }
+  if (!metricsHistoryEnabled()) return res.json({ enabled: false });
+  const atMs = Date.now();
+  const history = unitHistory.query(spark.id, range, atMs, { withCounts: true });
+  const entry = history.llm.find((e) => e.port === port) ?? { port, points: [] };
+  const snap = monitors.get(spark.id)?.snapshot() ?? null;
+  const live = Array.isArray(snap?.metrics?.llm)
+    ? snap.metrics.llm.find((e) => e.port === port) ?? null
+    : null;
+  res.json({
+    enabled: true,
+    port,
+    range,
+    stepMs: history.llmStepMs ?? history.stepMs,
+    from: history.from,
+    to: history.to,
+    ...computeLlmInsights({ points: entry.points, stepMs: history.llmStepMs ?? history.stepMs, live }),
+  });
 });
 
 /**

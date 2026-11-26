@@ -3,8 +3,11 @@ import { atomicWrite, atomicWriteAsync, quarantineCorrupt } from "../util/atomic
 import {
   BUCKET_TIERS,
   HISTORY_RANGES,
+  LLM_BUCKET_TIERS,
+  LLM_HISTORY_RANGES,
   addToStats,
   coarsen,
+  deriveLlmStats,
   finite,
   isKnownKey,
   keepsActiveCount,
@@ -58,13 +61,18 @@ function objectText(parts) {
   return `{${parts.map(([k, json]) => `${JSON.stringify(k)}:${json}`).join(",")}}`;
 }
 
+function newTiers(specs) {
+  return specs.map((tier) => ({
+    ring: new BucketRing(tier.stepMs, tier.retentionMs),
+    /** The bucket still filling: { t, stats: Map } or null. */
+    open: null,
+  }));
+}
+
 function newUnit() {
   return {
-    tiers: BUCKET_TIERS.map((tier) => ({
-      ring: new BucketRing(tier.stepMs, tier.retentionMs),
-      /** The bucket still filling: { t, stats: Map } or null. */
-      open: null,
-    })),
+    tiers: newTiers(BUCKET_TIERS),
+    llmTiers: newTiers(LLM_BUCKET_TIERS),
     /** LLM ports the unit has configured; series for other ports are dropped on save. */
     ports: null,
   };
@@ -253,15 +261,19 @@ class GpuSeries {
  *
  * Bucketed tiers (opt-in, Settings → `metricsHistory`; see historyTiers.js): 1-minute buckets
  * for 48 h and 15-minute buckets for 30 days of GPU util/temp/power (W), memory used and
- * headroom, CPU util/temp, host RAM, network rx/tx, and per LLM endpoint decode/prefill tok/s
- * and KV fill. Persisted to `tiersFile` (metrics-history.json), which is only read once the
- * setting has been on and only written while it holds data and the setting is on, so an
- * install that never enables it never gets the file, and turning it off stops the writes. There is deliberately no raw tier for these series: 8 h of 2 s
- * samples for ~13 series would add ~2–3 MB of heap and a multi-MB file per unit for detail the
- * 1-minute avg/max already summarises; the GPU chart keeps its 8 h of raw readings.
- * Worst case with every bucket full: ~0.75 MB of heap and ~1.3 MB on disk per unit, plus ~0.17 MB
- * of heap and ~0.3 MB on disk per LLM endpoint. The disk budget is nearly spent at that size, so a
- * further series needs a retention/tier decision, not just a key added to UNIT_SERIES.
+ * headroom, CPU util/temp, host RAM, and network rx/tx. LLM endpoints keep a separate, coarser
+ * pair of tiers — 5-minute buckets for 24 h and 1-hour buckets for 30 days — holding only raw
+ * inputs (gauges and counter deltas); request-time series (queue wait, prefill share, overhead,
+ * efficiency, queued/idle) are derived when a range is queried and never written. Persisted to
+ * `tiersFile` (metrics-history.json), which is only read once the setting has been on and only
+ * written while it holds data and the setting is on, so an install that never enables it never
+ * gets the file, and turning it off stops the writes. There is deliberately no raw tier for
+ * these series: 8 h of 2 s samples for ~13 series would add ~2–3 MB of heap and a multi-MB file
+ * per unit for detail the 1-minute avg/max already summarises; the GPU chart keeps its 8 h of
+ * raw readings.
+ * Worst case with every bucket full: ~0.75 MB of heap and ~1.3 MB on disk per unit, plus ~0.1 MB
+ * of heap and ~0.3 MB on disk per LLM endpoint (29 raw series × 1,008 slots). A further unit or
+ * LLM series needs a retention/tier decision, not just a key added to UNIT_SERIES/LLM_SERIES.
  *
  * Persistence is asynchronous (fs.promises, temp + rename, one unit serialized per event-loop
  * turn) every few minutes, coalesced (one save in flight at a time; a revision counter decides
@@ -404,18 +416,74 @@ export class UnitHistory {
       return;
     }
     const atMs = this._now();
+    let migrated = false;
     for (const [id, tiers] of Object.entries(state.units)) {
       if (!tiers || typeof tiers !== "object") continue;
       const unit = newUnit();
       let any = false;
-      BUCKET_TIERS.forEach((spec, idx) => {
-        const tier = tiers[spec.name];
-        if (!tier || !Array.isArray(tier.t) || !tier.series || typeof tier.series !== "object") return;
-        const cutoff = atMs - spec.retentionMs;
-        const cols = Object.entries(tier.series).filter(([key, col]) => isKnownKey(key) && col);
-        tier.t.forEach((t, i) => {
-          if (!finite(t) || t < cutoff || t % spec.stepMs !== 0) return;
-          const stats = new Map();
+      const loadTiers = (specs, target, llmOnly) => {
+        specs.forEach((spec, idx) => {
+          const tier = tiers[spec.name];
+          if (!tier || !Array.isArray(tier.t) || !tier.series || typeof tier.series !== "object") return;
+          const cutoff = atMs - spec.retentionMs;
+          const cols = Object.entries(tier.series).filter(([key, col]) => {
+            if (!isKnownKey(key) || !col) return false;
+            const parsed = parseLlmKey(key);
+            return llmOnly ? parsed !== null : parsed === null;
+          });
+          tier.t.forEach((t, i) => {
+            if (!finite(t) || t < cutoff || t % spec.stepMs !== 0) return;
+            const stats = new Map();
+            for (const [key, col] of cols) {
+              const n = col.n?.[i];
+              const avg = col.avg?.[i];
+              const max = col.max?.[i];
+              if (!(Number.isInteger(n) && n > 0) || !finite(avg) || !finite(max)) continue;
+              const min = finite(col.min?.[i]) ? col.min[i] : avg;
+              const stat = { sum: avg * n, max, min, n };
+              const activeCount = col.activeCount?.[i];
+              if (keepsActiveCount(key) && Number.isInteger(activeCount) && activeCount >= 0 && activeCount <= n && avg >= 0) {
+                stat.activeCount = activeCount;
+              }
+              stats.set(key, stat);
+            }
+            if (stats.size > 0) {
+              target[idx].ring.put(t, stats);
+              any = true;
+            }
+          });
+        });
+      };
+      loadTiers(BUCKET_TIERS, unit.tiers, false);
+      loadTiers(LLM_BUCKET_TIERS, unit.llmTiers, true);
+      // Before LLM endpoints had their own tiers, their raw series lived in the
+      // unit's 1m/15m tiers. Move those into 5m/1h (coarsening the buckets) so an
+      // upgrade does not silently drop the LLM history. Derived series are not
+      // known keys anymore and are ignored; they are recomputed at query time.
+      const migrateOldLlm = (fromSpec, toSpec, toIdx) => {
+        const fromTier = tiers[fromSpec.name];
+        if (!fromTier || !Array.isArray(fromTier.t) || !fromTier.series || typeof fromTier.series !== "object") return;
+        const toTier = tiers[toSpec.name];
+        const existing = new Set(
+          toTier?.series && typeof toTier.series === "object"
+            ? Object.keys(toTier.series).filter((key) => parseLlmKey(key) !== null)
+            : []
+        );
+        const cols = Object.entries(fromTier.series).filter(([key, col]) => {
+          if (!isKnownKey(key) || !col || parseLlmKey(key) === null) return false;
+          return !existing.has(key);
+        });
+        if (cols.length === 0) return;
+        const cutoff = atMs - toSpec.retentionMs;
+        const buckets = new Map();
+        fromTier.t.forEach((t, i) => {
+          if (!finite(t) || t < cutoff) return;
+          const bucketT = Math.floor(t / toSpec.stepMs) * toSpec.stepMs;
+          let stats = buckets.get(bucketT);
+          if (!stats) {
+            stats = new Map();
+            buckets.set(bucketT, stats);
+          }
           for (const [key, col] of cols) {
             const n = col.n?.[i];
             const avg = col.avg?.[i];
@@ -427,26 +495,37 @@ export class UnitHistory {
             if (keepsActiveCount(key) && Number.isInteger(activeCount) && activeCount >= 0 && activeCount <= n && avg >= 0) {
               stat.activeCount = activeCount;
             }
-            stats.set(key, stat);
-          }
-          if (stats.size > 0) {
-            unit.tiers[idx].ring.put(t, stats);
-            any = true;
+            addToStats(stats, key, stat);
           }
         });
-      });
+        for (const [t, stats] of buckets) {
+          if (stats.size > 0) {
+            unit.llmTiers[toIdx].ring.put(t, stats);
+            any = true;
+            migrated = true;
+          }
+        }
+      };
+      migrateOldLlm(BUCKET_TIERS[0], LLM_BUCKET_TIERS[0], 0);
+      migrateOldLlm(BUCKET_TIERS[1], LLM_BUCKET_TIERS[1], 1);
       if (any) this._units.set(id, unit);
     }
+    // A migrated file is in the old layout; make the next save rewrite it.
+    if (migrated) this._tiersRev++;
   }
 
   /** Close open buckets whose period has ended by `atMs`. */
   _closeEnded(unit, atMs) {
-    unit.tiers.forEach((tier, idx) => {
-      if (tier.open && tier.open.t + BUCKET_TIERS[idx].stepMs <= atMs) {
-        tier.ring.put(tier.open.t, tier.open.stats);
-        tier.open = null;
-      }
-    });
+    const close = (specs, tiers) => {
+      tiers.forEach((tier, idx) => {
+        if (tier.open && tier.open.t + specs[idx].stepMs <= atMs) {
+          tier.ring.put(tier.open.t, tier.open.stats);
+          tier.open = null;
+        }
+      });
+    };
+    close(BUCKET_TIERS, unit.tiers);
+    close(LLM_BUCKET_TIERS, unit.llmTiers);
   }
 
   /**
@@ -472,18 +551,25 @@ export class UnitHistory {
       if (!unit) continue;
       if (Array.isArray(input.llmPorts)) unit.ports = new Set(input.llmPorts.filter(Number.isInteger));
       this._closeEnded(unit, atMs);
-      if (keys.length === 0) continue;
-      unit.tiers.forEach((tier, idx) => {
-        const { stepMs } = BUCKET_TIERS[idx];
-        const bucketT = Math.floor(atMs / stepMs) * stepMs;
-        if (tier.open && tier.open.t !== bucketT) {
-          // Clock stepped backwards into an older bucket: store what we have.
-          tier.ring.put(tier.open.t, tier.open.stats);
-          tier.open = null;
-        }
-        if (!tier.open) tier.open = { t: bucketT, stats: new Map() };
-        for (const k of keys) addToStats(tier.open.stats, k, statOf(values[k], k));
-      });
+      const unitKeys = keys.filter((k) => parseLlmKey(k) === null);
+      const llmKeys = keys.filter((k) => parseLlmKey(k) !== null);
+      if (unitKeys.length === 0 && llmKeys.length === 0) continue;
+      const recordInto = (specs, tiers, list) => {
+        if (list.length === 0) return;
+        tiers.forEach((tier, idx) => {
+          const { stepMs } = specs[idx];
+          const bucketT = Math.floor(atMs / stepMs) * stepMs;
+          if (tier.open && tier.open.t !== bucketT) {
+            // Clock stepped backwards into an older bucket: store what we have.
+            tier.ring.put(tier.open.t, tier.open.stats);
+            tier.open = null;
+          }
+          if (!tier.open) tier.open = { t: bucketT, stats: new Map() };
+          for (const k of list) addToStats(tier.open.stats, k, statOf(values[k], k));
+        });
+      };
+      recordInto(BUCKET_TIERS, unit.tiers, unitKeys);
+      recordInto(LLM_BUCKET_TIERS, unit.llmTiers, llmKeys);
       this._tiersRev++;
     }
     this._live = live;
@@ -495,9 +581,9 @@ export class UnitHistory {
     }
   }
 
-  /** A tier's buckets with t ≥ fromMs, the open one merged in. */
-  _tierEntries(unit, idx, fromMs) {
-    const tier = unit.tiers[idx];
+  /** A tier set's buckets with t ≥ fromMs, the open one merged in. */
+  _tierEntries(tiers, idx, fromMs) {
+    const tier = tiers[idx];
     const entries = tier.ring.entries(fromMs);
     const open = tier.open;
     if (open && open.t >= fromMs && open.stats.size > 0) {
@@ -516,49 +602,72 @@ export class UnitHistory {
 
   /**
    * Bucketed history for one unit:
-   * { range, stepMs, from, to, points: [{ t, <series>: { avg, max, min? } }],
-   *   llm: [{ port, points: [{ t, genTps?, prefillTps?, kvUsage? }] }] }.
+   * { range, stepMs, llmStepMs, from, to, points: [{ t, <series>: { avg, max, min? } }],
+   *   llm: [{ port, points: [{ t, genTps?, prefillTps?, kvUsage?, <derived>? }] }] }.
+   * The unit and LLM series answer from their own tiers; derived LLM series are
+   * computed here from the persisted raw inputs, never stored.
    * Throws on an unknown range (the route validates first).
    */
-  query(unitId, range, atMs = this._now()) {
+  query(unitId, range, atMs = this._now(), options = {}) {
     const spec = Object.hasOwn(HISTORY_RANGES, range) ? HISTORY_RANGES[range] : null;
     if (!spec) throw new Error(`unknown range: ${range}`);
+    const llmSpec = Object.hasOwn(LLM_HISTORY_RANGES, range) ? LLM_HISTORY_RANGES[range] : spec;
+    const withCounts = options?.withCounts === true;
     this._ensureTiersLoaded();
     const to = atMs;
     const from = atMs - spec.spanMs;
     const gridFrom = Math.floor(from / spec.stepMs) * spec.stepMs;
+    const llmGridFrom = Math.floor(from / llmSpec.stepMs) * llmSpec.stepMs;
     const unit = this._units.get(unitId) ?? null;
-    const merged = unit ? coarsen(this._tierEntries(unit, spec.tier, gridFrom), spec.stepMs) : [];
+    const merged = unit ? coarsen(this._tierEntries(unit.tiers, spec.tier, gridFrom), spec.stepMs) : [];
+    const llmMerged = unit ? coarsen(this._tierEntries(unit.llmTiers, llmSpec.tier, llmGridFrom), llmSpec.stepMs) : [];
 
     const points = [];
-    const llm = new Map();
     for (const { t, stats } of merged) {
       let point = null;
       for (const [key, s] of stats) {
-        const parsed = parseLlmKey(key);
-        if (parsed) {
-          if (unit?.ports && !unit.ports.has(parsed.port)) continue;
-          let byT = llm.get(parsed.port);
-          if (!byT) {
-            byT = new Map();
-            llm.set(parsed.port, byT);
-          }
-          let lp = byT.get(t);
-          if (!lp) {
-            lp = { t };
-            byT.set(t, lp);
-          }
-          lp[parsed.name] = statOut(key, s);
-        } else {
-          if (!point) point = { t };
-          point[key] = statOut(key, s);
-        }
+        if (parseLlmKey(key)) continue;
+        if (!point) point = { t };
+        point[key] = statOut(key, s, withCounts);
       }
       if (point) points.push(point);
+    }
+
+    const llm = new Map();
+    for (const { t, stats } of llmMerged) {
+      const byPort = new Map();
+      for (const [key, s] of stats) {
+        const parsed = parseLlmKey(key);
+        if (!parsed) continue;
+        if (unit?.ports && !unit.ports.has(parsed.port)) continue;
+        let raw = byPort.get(parsed.port);
+        if (!raw) {
+          raw = new Map();
+          byPort.set(parsed.port, raw);
+        }
+        raw.set(parsed.name, s);
+      }
+      for (const [port, raw] of byPort) {
+        let byT = llm.get(port);
+        if (!byT) {
+          byT = new Map();
+          llm.set(port, byT);
+        }
+        let lp = byT.get(t);
+        if (!lp) {
+          lp = { t };
+          byT.set(t, lp);
+        }
+        for (const [name, s] of raw) lp[name] = statOut(`llm:${port}:${name}`, s, withCounts);
+        for (const [name, derived] of Object.entries(deriveLlmStats(raw))) {
+          lp[name] = statOut(name, derived, withCounts);
+        }
+      }
     }
     return {
       range,
       stepMs: spec.stepMs,
+      llmStepMs: llmSpec.stepMs,
       from,
       to,
       points,
@@ -581,7 +690,7 @@ export class UnitHistory {
         const parsed = parseLlmKey(key);
         return parsed !== null && !unit.ports.has(parsed.port);
       };
-      for (const tier of unit.tiers) {
+      for (const tier of [...unit.tiers, ...unit.llmTiers]) {
         tier.ring.dropKeys(stale);
         if (tier.open) for (const key of [...tier.open.stats.keys()]) if (stale(key)) tier.open.stats.delete(key);
       }
@@ -592,14 +701,18 @@ export class UnitHistory {
   _unitTiers(unit, atMs) {
     const tiers = {};
     let any = false;
-    BUCKET_TIERS.forEach((spec, idx) => {
-      const tier = unit.tiers[idx];
-      const cols = tier.ring.columns(atMs - spec.retentionMs, tier.open);
-      if (Object.keys(cols.series).length > 0) {
-        tiers[spec.name] = cols;
-        any = true;
-      }
-    });
+    const add = (specs, source) => {
+      specs.forEach((spec, idx) => {
+        const tier = source[idx];
+        const cols = tier.ring.columns(atMs - spec.retentionMs, tier.open);
+        if (Object.keys(cols.series).length > 0) {
+          tiers[spec.name] = cols;
+          any = true;
+        }
+      });
+    };
+    add(BUCKET_TIERS, unit.tiers);
+    add(LLM_BUCKET_TIERS, unit.llmTiers);
     return any ? tiers : null;
   }
 

@@ -18,6 +18,19 @@ export const API_KEYS_ID = "__apikeys__";
 export const TRAINING_ID = "__training__:json";
 /** Benchmark pages: the active id is this prefix + the benchmark type (decode, tool-eval, …). */
 export const BENCH_PREFIX = "__bench__:";
+/** LLM Servers: the list page, and a detail page per Spark via this prefix. */
+export const LLM_SERVERS_ID = "__llm__";
+export const LLM_PREFIX = "__llm__:";
+
+/** Detail-page id for one Spark's LLM server. */
+export function llmServerId(sparkId: string): string {
+  return `${LLM_PREFIX}${sparkId}`;
+}
+
+/** The Spark id behind an LLM detail-page id, or null. */
+export function llmServerIdOf(id: string | null | undefined): string | null {
+  return id && id.startsWith(LLM_PREFIX) ? id.slice(LLM_PREFIX.length) : null;
+}
 
 const FIXED_PATHS: Record<string, string> = {
   [OVERVIEW_ID]: "/",
@@ -30,6 +43,7 @@ const FIXED_PATHS: Record<string, string> = {
   [COST_ID]: "/cost",
   [KIOSK_ID]: "/kiosk",
   [API_KEYS_ID]: "/api-keys",
+  [LLM_SERVERS_ID]: "/llm",
   [TRAINING_ID]: "/training",
 };
 
@@ -44,13 +58,18 @@ export function benchTypeOf(id: string | null | undefined): string | null {
 
 /** True for every id that is a page rather than a Spark. */
 export function isPageId(id: string | null | undefined): boolean {
-  return Boolean(id) && (id! in FIXED_PATHS || id!.startsWith(BENCH_PREFIX));
+  return (
+    Boolean(id) &&
+    (id! in FIXED_PATHS || id!.startsWith(BENCH_PREFIX) || id!.startsWith(LLM_PREFIX))
+  );
 }
 
 /** URL path for an active id (a Spark id gets its detail page; null is the overview). */
 export function idToPath(id: string | null): string {
   if (!id) return "/";
   if (id in FIXED_PATHS) return FIXED_PATHS[id];
+  const llmSpark = llmServerIdOf(id);
+  if (llmSpark) return `/llm/${encodeURIComponent(llmSpark)}`;
   const bench = benchTypeOf(id);
   if (bench) return `/bench/${encodeURIComponent(bench)}`;
   return `/spark/${encodeURIComponent(id)}`;
@@ -59,6 +78,8 @@ export function idToPath(id: string | null): string {
 /** Active id for a URL path, or null when the path is not an app page (e.g. /showcase/...). */
 export function pathToId(pathname: string): string | null {
   if (pathname.startsWith("/showcase/")) return null;
+  const llm = pathname.match(/^\/llm\/([^/]+)\/?$/);
+  if (llm) return llmServerId(decodeURIComponent(llm[1]));
   for (const [id, p] of Object.entries(FIXED_PATHS)) {
     if (p !== "/" && (pathname === p || pathname === `${p}/`)) return id;
   }
