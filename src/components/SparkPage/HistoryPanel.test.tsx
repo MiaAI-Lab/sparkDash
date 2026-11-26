@@ -52,6 +52,15 @@ describe("complete cache history", () => {
     expect(container.textContent).toContain("engine restart");
     expect(container.textContent).toContain("counter reset");
     expect(container.textContent).toContain("Demand / latency / headroom");
+    try {
+      await act(() => setLocale("zh-CN"));
+      expect(chart(container, "cache-8888-store").textContent).toContain("快照存储 · :8888");
+      expect(container.querySelector("[data-cache-pressure] summary")?.textContent).toContain("缓存事件与压力");
+      expect(container.querySelectorAll("[data-cache-event]").length).toBe(2);
+      expect(container.textContent).toContain("89.11%");
+    } finally {
+      await act(() => setLocale("en"));
+    }
   });
 });
 
@@ -249,6 +258,29 @@ describe("HistoryPanel", () => {
     expect(mem.querySelectorAll("[data-threshold]")).toHaveLength(2);
     expect(mem.textContent).toContain("low 8.0 GB");
     expect(mem.textContent).toContain("critical 4.0 GB");
+  });
+
+  it("shares one chart and all three thresholds for identical GB10 memory traces", async () => {
+    const points = data().points.map((p) => ({ ...p, memAvailableMB: p.memFreeMB }));
+    const { container } = await mount(data({ points }));
+    expect(container.querySelector('[data-chart="memAvailable"]')).toBeNull();
+    const mem = chart(container, "memFree");
+    expect(mem.querySelectorAll("[data-threshold]")).toHaveLength(3);
+    expect(mem.textContent).toContain("prior validation 16 GiB");
+  });
+
+  it("keeps MemAvailable separate when the GB10 history has different sample coverage", async () => {
+    const points = data().points.map((p, i) => ({ ...p, memAvailableMB: i === 0 ? undefined : p.memFreeMB }));
+    const { container } = await mount(data({ points }));
+    expect(chart(container, "memAvailable").textContent).toContain("prior validation 16 GiB");
+  });
+
+  it("keeps MemAvailable separate from discrete GPU VRAM even if the numbers match", async () => {
+    const points = data().points.map((p) => ({ ...p, memAvailableMB: p.memFreeMB }));
+    fetchHistory.mockResolvedValue(data({ points }));
+    const { container } = render(<HistoryPanel sparkId="h" kind="host" platform="linux" temperatureUnit="celsius" />);
+    await flush();
+    expect(chart(container, "memAvailable").textContent).toContain("prior validation 16 GiB");
   });
 
   it("charts what consumed a unified pool in its own cell, and adds none on a discrete card", async () => {
@@ -470,6 +502,26 @@ describe("HistoryPanel", () => {
     expect(container.querySelector("[data-chart]")).not.toBeNull();
     act(() => notify!([{ isIntersecting: false }]));
     expect(container.querySelector("[data-chart]")).not.toBeNull(); // the last answer stays
+  });
+
+  it("shows sample-weighted active throughput alongside the whole-window average", async () => {
+    const { container } = await mount(data({ llm: [{ port: 8888, points: [
+      { t: T0, genTps: { avg: 30, max: 60, activeSum: 120, activeCount: 2 } },
+      { t: T0 + STEP, genTps: { avg: 0, max: 0, activeSum: 0, activeCount: 0 } },
+    ] }] }));
+    const summary = chart(container, "llm-8888-gen").querySelector('[data-stat="genTps"]')!;
+    expect(summary.textContent).toContain("avg 15.0");
+    expect(summary.textContent).toContain("Active avg 60.0");
+  });
+
+  it("omits active throughput in an idle or partially legacy window", async () => {
+    const idle = { avg: 0, max: 0, activeSum: 0, activeCount: 0 };
+    const { container } = await mount(data({ llm: [{ port: 8888, points: [
+      { t: T0, genTps: idle, prefillTps: { avg: 100, max: 100 } },
+      { t: T0 + STEP, genTps: idle, prefillTps: { avg: 50, max: 50, activeSum: 50, activeCount: 1 } },
+    ] }] }));
+    expect(chart(container, "llm-8888-gen").textContent).not.toContain("Active avg");
+    expect(chart(container, "llm-8888-prefill").textContent).not.toContain("Active avg");
   });
 
   it("shows avg / peak / low for the visible window, flagging low when no true min is stored", async () => {

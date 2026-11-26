@@ -1,0 +1,39 @@
+{
+  "title": "Training progress",
+  "subtitle": "Stages, counters and remaining time reported by workers. Read-only.",
+  "loading": "Loading progress…",
+  "empty": "No progress documents are available in the configured roots.",
+  "disabled": "Training progress is disabled on this server.",
+  "truncated": "The snapshot reached a collection limit; some documents are not shown.",
+  "unknown": "unknown",
+  "reportedAt": "Reported {{time}}",
+  "lastState": "Last reported: {{state}}",
+  "progress": "{{completed}} / {{total}}",
+  "reportedEta": "Reported remaining: {{seconds}} s",
+  "errors": {
+    "load": "Could not load training progress. Retrying automatically.",
+    "stale": "Could not refresh progress. The last received reports are shown as stale.",
+    "configuration": "Configuration: {{error}}"
+  },
+  "unit": {
+    "unavailable": "Collection unavailable",
+    "unsupported": "Collection unsupported",
+    "partial": "Partial collection"
+  },
+  "source": {
+    "live": "Fresh worker report",
+    "stale": "Stale report"
+  },
+  "groups": {
+    "data": "Data preparation",
+    "training": "Training",
+    "evaluation": "Evaluation"
+  },
+  "states": {
+    "running": "Running",
+    "waiting": "Waiting",
+    "complete": "Complete",
+    "stopped": "Stopped",
+    "failed": "Failed"
+  }
+}

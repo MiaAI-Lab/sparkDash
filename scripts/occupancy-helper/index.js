@@ -1,20 +1,22 @@
 /**
  * One occupancy helper per host. It keeps one ACP bridge per enabled ACP
- * harness and one private adapter each for Hermes and DSH. HTTP handlers only
- * read the cache: concurrent dashboard polls cannot spawn another bridge.
+ * harness and one private adapter each for Hermes, DSH and Pi. HTTP handlers
+ * only read the cache: concurrent dashboard polls cannot spawn another bridge.
  *
  *   OCCUPANCY_BIND=127.0.0.1 OCCUPANCY_TOKEN="$(openssl rand -hex 32)" \
- *   OCCUPANCY_ADAPTERS=openclaw,opencode,omp,hermes,dsh \
+ *   OCCUPANCY_ADAPTERS=openclaw,opencode,omp,hermes,dsh,pi \
  *   node scripts/occupancy-helper/index.js
  */
 import http from "node:http";
 import { timingSafeEqual } from "node:crypto";
+import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { HARNESSES } from "../../server/occupancy/catalog.js";
 import { argvFromEnv, createAcpBridge, defaultOpenProcess } from "./acpBridge.js";
 import { loadDsh } from "./dshAdapter.js";
 import { loadHermes } from "./hermesAdapter.js";
+import { loadPi } from "./piAdapter.js";
 
 const SCHEMA_VERSION = 1;
 const REFRESH_MS = 10_000;
@@ -27,11 +29,12 @@ export function createOccupancyHelper(opts = {}) {
   const port = Number(opts.port ?? env.OCCUPANCY_PORT ?? 8790);
   const refreshMs = Number(opts.refreshMs ?? env.OCCUPANCY_REFRESH_MS ?? REFRESH_MS);
   const slots = new Map();
+  const piSeen = new Map();
   let timer = null;
   let server = null;
 
   for (const id of adapters) {
-    slots.set(id, createSlot(id, opts, env));
+    slots.set(id, createSlot(id, opts, env, piSeen));
   }
 
   function payload(now = Date.now()) {
@@ -122,7 +125,7 @@ export function createOccupancyHelper(opts = {}) {
   };
 }
 
-function createSlot(id, opts, env) {
+function createSlot(id, opts, env, piSeen) {
   const spec = HARNESSES.find((item) => item.id === id);
   if (spec?.transport === "acp") {
     const command = opts.commands?.[id] ?? env[spec.commandEnv] ?? spec.defaultCommand;
@@ -164,7 +167,14 @@ function createSlot(id, opts, env) {
   };
   async function run(signal) {
     const gen = generation;
-    const result = id === "hermes"
+    const result = id === "pi"
+      ? await loadPi({
+          stateDir: opts.piStateDir ?? env.OCCUPANCY_PI_STATE_DIR,
+          now: opts.now,
+          filesystem: opts.filesystem,
+          seen: piSeen,
+        })
+      : id === "hermes"
       ? await loadHermes({ signal, stateDir: opts.hermesStateDir ?? env.HERMES_STATE_DIR, readFile: opts.readFile, readDb: opts.readDb })
       : await loadDsh({
           webUrl: opts.dshWebUrl ?? env.DSH_WEB_URL,
@@ -191,7 +201,7 @@ function createSlot(id, opts, env) {
 }
 
 function selectedAdapters(value) {
-  const wanted = String(value || "openclaw,opencode,omp,hermes,dsh")
+  const wanted = String(value || "openclaw,opencode,omp,hermes,dsh,pi")
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
@@ -236,7 +246,17 @@ function urlPath(req) {
   }
 }
 
-const isMain = Boolean(process.argv[1]) && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
+/** True when this file is the entrypoint, including when started through a symlink. */
+export function isMainModule(argv1, moduleUrl) {
+  if (!argv1) return false;
+  try {
+    return fileURLToPath(moduleUrl) === realpathSync(path.resolve(argv1));
+  } catch {
+    return false;
+  }
+}
+
+const isMain = isMainModule(process.argv[1], import.meta.url);
 
 if (isMain) {
   const helper = createOccupancyHelper();

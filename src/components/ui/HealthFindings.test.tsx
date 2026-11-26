@@ -1,6 +1,8 @@
+import { act } from "react";
 import { render } from "../../testing/render";
 import { describe, expect, it } from "vitest";
 import type { HealthFinding } from "../../api/types";
+import { setLocale } from "../../i18n";
 import { HealthChips, HealthList, sortFindings, worstSeverity } from "./HealthFindings";
 
 const f = (id: HealthFinding["id"], severity: HealthFinding["severity"]): HealthFinding => ({
@@ -48,5 +50,47 @@ describe("HealthFindings", () => {
     expect(text).toContain("D-thermal");
     expect(text).toContain("H-thermal");
     expect(text).toContain("Warning");
+  });
+
+  it("retranslates thermal warnings and critical findings while retaining custom diagnostics", async () => {
+    const hint = "Check airflow and the room temperature, and that nothing blocks the vents. Lower the power limit or the load if it keeps climbing.";
+    const warning: HealthFinding = {
+      ...f("thermal", "warn"),
+      title: "GPU is running hot",
+      detail: "86°C (warns at 85°C, critical at 90°C).",
+      hint,
+    };
+    const critical: HealthFinding = {
+      ...warning,
+      severity: "critical",
+      title: "GPU is close to its shutdown temperature",
+      detail: "92°C (warns at 85.5°C, critical at 90.5°C).",
+    };
+    const custom: HealthFinding = { ...warning, detail: "Custom sensor detail <raw>", hint: "Custom diagnostic hint" };
+    const { container } = render(
+      <>
+        <HealthList findings={[warning]} />
+        <HealthList findings={[critical]} />
+        <HealthList findings={[custom]} />
+        <HealthChips findings={[warning]} />
+      </>
+    );
+    expect(container.textContent).toContain(warning.detail);
+    try {
+      await act(() => setLocale("zh-CN"));
+      const [warningList, criticalList, customList] = container.querySelectorAll(".health-list");
+      expect(warningList.textContent).toContain("警告GPU 温度过高");
+      expect(warningList.textContent).toContain("当前 86°C（警告阈值 85°C，严重阈值 90°C）。");
+      expect(warningList.textContent).toContain("确认通风口没有堵塞");
+      expect(criticalList.textContent).toContain("严重GPU 温度接近关机阈值");
+      expect(criticalList.textContent).toContain("当前 92°C（警告阈值 85.5°C，严重阈值 90.5°C）。");
+      expect(customList.textContent).toContain(custom.detail);
+      expect(customList.textContent).toContain(custom.hint);
+      expect(container.querySelector(".health-row")?.getAttribute("title")).toContain("当前 86°C");
+    } finally {
+      await act(() => setLocale("en"));
+    }
+    expect(container.textContent).toContain(warning.detail);
+    expect(container.textContent).toContain(warning.hint);
   });
 });

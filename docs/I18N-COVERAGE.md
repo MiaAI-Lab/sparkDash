@@ -1,5 +1,9 @@
 # UI localization coverage
 
+## Proposed JSON training-report page
+
+The optional JSON training-report slice adds a `training` namespace and gated navigation labels in English and Simplified Chinese. Its one page covers report availability, stage states, reported counters/ETA, empty/error feedback and truncation. Worker-provided experiment/model names, metric labels, units and diagnostic text remain data. This entry describes the proposed slice; it does not mark the broader training-module feature request as merged.
+
 **Snapshot baseline:** `main` at `7c2b9638b025cd39fb43f95c225de62980f130ee` on 2026-11-03. This is an inventory and update checklist, not a completion metric: passing tests or a successful build do not establish that a page is localized.
 
 ## API Keys follow-up (2026-11-11)

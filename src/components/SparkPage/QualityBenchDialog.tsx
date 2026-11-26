@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
+import { i18n } from "../../i18n";
 import "../../styles/dialogs.css";
 import {
   clearQualityReference,
@@ -28,6 +30,7 @@ import { useModalPresence } from "../../hooks/useModalPresence";
 import { BenchCopyButton } from "./BenchCopyButton";
 import { BenchSwitcher, type BenchKind } from "./BenchSwitcher";
 import { buildQualityShareCard } from "./benchShareCard";
+import { useQualityCategoryHints, useQualityCategoryLabels } from "./qualityCategoryLabels";
 import { useShareCardLabels } from "../bench/tooleval/shareCardLabels";
 import {
   categoryVerdictLine,
@@ -95,22 +98,6 @@ interface QualityBenchDialogProps {
   /** Switch to another benchmark dialog (Decode / Prefill / Quality). Switcher hidden when omitted. */
   onSwitchBench?: (kind: BenchKind) => void;
 }
-
-const CATEGORY_HINTS: Record<QualityCategory, string> = {
-  qa: "Short factual and arithmetic questions: multiplication, sorting, dates, LCM.",
-  reason: "Multi-step word problems in five shapes, each with a two-number answer.",
-  arith: "Ten- and twenty-step arithmetic chains, graded by every step's value.",
-  track: "Token-transfer stories of 25 and 50 events, graded by every person's total.",
-  gsm8k: "Grade-school maths from the GSM8K test set with the GSM8K-Platinum labels (188 items).",
-  mmlupro: "MMLU-Pro: ten-option multiple choice that needs reasoning, 300 across 14 categories.",
-  math500: "MATH-500: competition maths with LaTeX answers, 500 problems at five levels.",
-  mmlu: "Plain MMLU, 5 per subject across 57 subjects: saturated; kept for older comparisons.",
-  follow: "Prompts with verifiable formatting rules, checked by code, not a judge.",
-  long: "Needle recall: 16 codes, 4 corrected late in the text, at three depths. Sequential.",
-  tokenizer: "String reversal, letter counts and binary: decided by how the tokenizer splits text, not by reasoning.",
-  fidelity: "Per-token log-probabilities on a fixed 34k-token corpus: NLL, perplexity, and against a reference run ΔNLL, top-1 agreement and tail loss. Engines with prompt logprobs only.",
-  divergence: "120 stored replies (prose, code, maths, JSON, tool calls, ten languages, essays): loops, termination, structured output, and reply-by-reply differences against another run.",
-};
 
 /** Fixed item counts; long recall depends on the chosen sizes. */
 const CATEGORY_ITEMS: Record<Exclude<QualityCategory, "long">, number> = { qa: 150, reason: 200, arith: 200, track: 200, gsm8k: 188, mmlupro: 300, math500: 500, mmlu: 285, follow: 40, tokenizer: 44, fidelity: 9, divergence: 120 };
@@ -206,46 +193,50 @@ function verdictLine(r: QualityCompareRow, band: number | null = null): string {
   return categoryVerdictLine(r, band);
 }
 
-function categoryNotes(cat: QualityCategory, s: QualityCategorySummary): string {
+function categoryNotes(cat: QualityCategory, s: QualityCategorySummary, t: TFunction<"benchmarks">): string {
   const notes: string[] = [];
   if (cat === "divergence") {
     const d = s.divergence;
     if (d) {
-      notes.push(`terminated ${pct(d.terminatedPct)}`, `loops ${d.loops}`);
-      if (d.jsonValidPct != null) notes.push(`JSON schema ${pct(d.jsonSchemaPct)}`);
-      if (d.toolOkPct != null) notes.push(`tool calls ${pct(d.toolOkPct)}`);
-      if (d.meanChars != null) notes.push(`mean ${d.meanChars.toLocaleString()} chars`);
+      notes.push(t("quality.categoryNotes.terminated", { value: pct(d.terminatedPct) }), t("quality.categoryNotes.loops", { value: d.loops }));
+      if (d.jsonValidPct != null) notes.push(t("quality.categoryNotes.schema", { value: pct(d.jsonSchemaPct) }));
+      if (d.toolOkPct != null) notes.push(t("quality.categoryNotes.toolCalls", { value: pct(d.toolOkPct) }));
+      if (d.meanChars != null) notes.push(t("quality.categoryNotes.meanChars", { value: d.meanChars.toLocaleString() }));
     }
-    if (s.errors > 0) notes.push(`${s.errors} request error${s.errors === 1 ? "" : "s"}`);
+    if (s.errors > 0) notes.push(t("quality.categoryNotes.errors", { count: s.errors }));
     return notes.join(" · ");
   }
   if (cat === "fidelity") {
     const f = s.fidelity;
-    if (f?.nll != null) notes.push(`NLL ${f.nll.toFixed(4)} · ppl ${f.ppl?.toFixed(3)} · ${f.tokens.toLocaleString()} tokens · top-${f.k}`);
-    if (s.errors > 0) notes.push(`${s.errors} request error${s.errors === 1 ? "" : "s"}`);
+    if (f?.nll != null) notes.push(t("quality.categoryNotes.fidelity", {
+      nll: f.nll.toFixed(4), ppl: String(f.ppl?.toFixed(3)), tokens: f.tokens.toLocaleString(), k: f.k,
+    }));
+    if (s.errors > 0) notes.push(t("quality.categoryNotes.errors", { count: s.errors }));
     return notes.join(" · ");
   }
   if (cat === "long" && s.keysTotal != null) {
-    notes.push(`keys ${s.keysFound ?? 0}/${s.keysTotal}${s.keysCi ? ` (${formatCi(s.keysCi)})` : ""}`);
-    notes.push(`${s.stale ?? 0} stale`);
+    notes.push(t("quality.categoryNotes.keys", { found: s.keysFound ?? 0, total: s.keysTotal }) + (s.keysCi ? ` (${formatCi(s.keysCi)})` : ""));
+    notes.push(t("quality.categoryNotes.stale", { value: s.stale ?? 0 }));
   } else if (s.gradeTotal != null && s.gradeTotal > 0) {
     // Suite v2 grades: steps (arithmetic) or people (tracking) right, beside the all-or-nothing score.
-    notes.push(`${cat === "arith" ? "steps" : cat === "track" ? "people" : "graded"} ${s.gradeCorrect ?? 0}/${s.gradeTotal}${s.gradePct != null ? ` = ${s.gradePct.toFixed(1)}%` : ""}${s.gradeCi ? ` (${formatCi(s.gradeCi)})` : ""}`);
+    const label = cat === "arith" ? t("quality.categoryNotes.steps")
+      : cat === "track" ? t("quality.categoryNotes.people") : t("quality.categoryNotes.graded");
+    notes.push(`${label} ${s.gradeCorrect ?? 0}/${s.gradeTotal}${s.gradePct != null ? ` = ${s.gradePct.toFixed(1)}%` : ""}${s.gradeCi ? ` (${formatCi(s.gradeCi)})` : ""}`);
   }
   // WP1 coverage beside accuracy: only worth a note when the score does not rest on the whole category.
   if (s.coveragePct != null && s.coveragePct < 100) {
-    notes.push(`coverage ${s.coveragePct.toFixed(1)}%`);
-    if (s.budgetedPct != null) notes.push(`budgeted ${s.budgetedPct.toFixed(1)}%`);
+    notes.push(t("quality.categoryNotes.coverage", { value: s.coveragePct.toFixed(1) }));
+    if (s.budgetedPct != null) notes.push(t("quality.categoryNotes.budgeted", { value: s.budgetedPct.toFixed(1) }));
   }
   if (cat === "reason" || cat === "arith" || cat === "track" || cat === "gsm8k" || cat === "mmlupro" || cat === "math500") {
-    notes.push(`mean ${s.meanCompletionTokens.toLocaleString()} tok`);
-    notes.push(`${s.hitMaxTokens} hit max_tokens`);
+    notes.push(t("quality.categoryNotes.meanTokens", { value: s.meanCompletionTokens.toLocaleString() }));
+    notes.push(t("quality.categoryNotes.hitLimit", { value: s.hitMaxTokens }));
   }
-  if (s.errors > 0) notes.push(`${s.errors} request error${s.errors === 1 ? "" : "s"}`);
+  if (s.errors > 0) notes.push(t("quality.categoryNotes.errors", { count: s.errors }));
   // Scoring v3: unscored rows are named, and a category whose replies were cut off is not a clean score.
-  if (s.truncated) notes.push(`${s.truncated} ${s.truncated === 1 ? "reply" : "replies"} ran out of token budget before answering, left out`);
-  if (s.disputed) notes.push(`${s.disputed} disputed, not scored`);
-  if (s.budgetLimited) notes.push("score covers the finished replies; see budgeted for the rate with them counted as failed");
+  if (s.truncated) notes.push(t("quality.categoryNotes.truncated", { count: s.truncated }));
+  if (s.disputed) notes.push(t("quality.categoryNotes.disputed", { value: s.disputed }));
+  if (s.budgetLimited) notes.push(t("quality.categoryNotes.limited"));
   return notes.join(" · ");
 }
 
@@ -277,7 +268,7 @@ function buildShareText(
   for (const cat of QUALITY_CATEGORIES) {
     const s = job.results.categories?.[cat];
     if (!s) continue;
-    const notes = categoryNotes(cat, s);
+    const notes = categoryNotes(cat, s, i18n.getFixedT("en", "benchmarks"));
     if (cat === "fidelity" || cat === "divergence") {
       lines.push(`${QUALITY_CATEGORY_LABELS[cat].padEnd(20)} ${`${s.scored ?? s.total} ${cat === "fidelity" ? "docs" : "items"}`.padStart(9)}  ${notes}`);
       continue;
@@ -339,43 +330,43 @@ function EngineLine({ job }: { job: QualityBenchJob }) {
   const fidelity = cap
     ? cap.promptLogprobs
       ? t("quality.fidelityYes", { cap: cap.cap ?? "?" })
-      : t("quality.fidelityNo", { reason: cap.reason ?? "unsupported" })
+      : t("quality.fidelityNo", { reason: cap.reason ?? t("quality.fidelityUnsupportedReason") })
     : null;
   const details: Array<[string, string]> = [];
   const push = (k: string, v: unknown) => {
     if (v != null && v !== "") details.push([k, typeof v === "object" ? JSON.stringify(v) : String(v)]);
   };
   if (rec) {
-    push("model", rec.modelId);
-    push("backend", rec.backend);
-    push("version", rec.engineVersion);
-    push("commit", rec.gitCommit);
-    push("patches", rec.patches);
-    push("device", rec.device);
-    push("checkpoint", rec.checkpoint);
-    push("checkpoint sha256", rec.checkpointSha256);
-    push("quantization", rec.quantization);
-    push("compute dtype", rec.computeDtype);
-    push("KV cache", rec.kvCacheDtype);
-    push("tensor parallel", rec.tensorParallel);
-    push("context", rec.contextLength);
-    push("speculative", rec.speculative);
-    push("tokenizer", rec.tokenizerName);
-    push("tokenizer sha256", rec.tokenizerSha256);
-    push("BOS on raw prompts", rec.promptBos);
-    push("prompt_logprobs cap", rec.promptLogprobsCap);
+    push(t("quality.engineFields.model"), rec.modelId);
+    push(t("quality.engineFields.backend"), rec.backend);
+    push(t("quality.engineFields.version"), rec.engineVersion);
+    push(t("quality.engineFields.commit"), rec.gitCommit);
+    push(t("quality.engineFields.patches"), rec.patches);
+    push(t("quality.engineFields.device"), rec.device);
+    push(t("quality.engineFields.checkpoint"), rec.checkpoint);
+    push(t("quality.engineFields.checkpointSha"), rec.checkpointSha256);
+    push(t("quality.engineFields.quantization"), rec.quantization);
+    push(t("quality.engineFields.computeDtype"), rec.computeDtype);
+    push(t("quality.engineFields.kvCache"), rec.kvCacheDtype);
+    push(t("quality.engineFields.tensorParallel"), rec.tensorParallel);
+    push(t("quality.engineFields.context"), rec.contextLength);
+    push(t("quality.engineFields.speculative"), rec.speculative);
+    push(t("quality.engineFields.tokenizer"), rec.tokenizerName);
+    push(t("quality.engineFields.tokenizerSha"), rec.tokenizerSha256);
+    push(t("quality.engineFields.promptBos"), rec.promptBos);
+    push(t("quality.engineFields.logprobsCap"), rec.promptLogprobsCap);
   }
   if (cap?.promptLogprobs) {
-    push("prompt logprobs shape", cap.shape);
-    push("actual token outside top-K", cap.actualIncluded);
-    push("positions aligned", cap.aligned);
-    push("exact mode", cap.exactMode);
+    push(t("quality.engineFields.logprobsShape"), cap.shape);
+    push(t("quality.engineFields.outsideTopK"), cap.actualIncluded);
+    push(t("quality.engineFields.positionsAligned"), cap.aligned);
+    push(t("quality.engineFields.exactMode"), cap.exactMode);
   }
-  push("concurrency", job.config.concurrency);
-  push("suite / scoring", `v${job.config.suiteVersion} / v${job.config.scoringVersion ?? 1}`);
+  push(t("quality.engineFields.concurrency"), job.config.concurrency);
+  push(t("quality.engineFields.suiteScoring"), `v${job.config.suiteVersion} / v${job.config.scoringVersion ?? 1}`);
   if (job.results.longTokens) {
     push(
-      "measured long prompt tokens",
+      t("quality.engineFields.longTokens"),
       Object.entries(job.results.longTokens)
         .map(([s, n]) => `${formatContextSize(Number(s))} → ${n.toLocaleString()}`)
         .join(", ")
@@ -486,7 +477,7 @@ function FidelityCard({
               <div className="q-fid__stat q-fid__stat--cmp">
                 <span className="eyebrow">{t("quality.fidelityDNll")}</span>
                 <b className={cmp.dNll != null && cmp.dNll > 0 ? "is-down" : cmp.dNll != null && cmp.dNll < 0 ? "is-up" : ""}>{fmtSigned(cmp.dNll)}</b>
-                <span className="q-ci">{cmp.dNllCi ? `${fmtSigned(cmp.dNllCi[0])} to ${fmtSigned(cmp.dNllCi[1])}` : ""}</span>
+                <span className="q-ci">{cmp.dNllCi ? t("quality.signedRange", { low: fmtSigned(cmp.dNllCi[0]), high: fmtSigned(cmp.dNllCi[1]) }) : ""}</span>
               </div>
               <div className="q-fid__stat q-fid__stat--cmp">
                 <span className="eyebrow">{t("quality.fidelityAgree")}</span>
@@ -511,48 +502,50 @@ function FidelityCard({
         <p className="bench-sheet__hint">{t("quality.fidelityMismatch", { count: cmp.mismatchedDocs })}</p>
       )}
       {rows.length > 0 && (
-        <table className="q-cat-table q-fid__docs">
-          <thead>
-            <tr>
-              <th>{t("quality.fidelityDoc")}</th>
-              <th className="is-num">tokens</th>
-              <th className="is-num">{t("quality.fidelityNll")}</th>
-              <th className="is-num">{t("quality.fidelityPpl")}</th>
-              <th className="is-num">top-1</th>
-              {cmp?.comparable && (
-                <>
-                  <th className="is-num">ΔNLL</th>
-                  <th className="is-num">{t("quality.fidelityAgree")}</th>
-                  <th className="is-num">{t("quality.fidelityTail")}</th>
-                </>
-              )}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => {
-              const d = cmpByDoc.get(r.id);
-              return (
-                <tr key={r.id}>
-                  <td className="q-cat-table__name">
-                    {r.docId ?? r.id}
-                    <small className="q-muted"> {r.kind} · {r.lang}</small>
-                  </td>
-                  <td className="is-num">{r.error ? <span className="text-danger">{r.error}</span> : r.tokens?.toLocaleString()}</td>
-                  <td className="is-num is-strong">{fmtNll(r.nll)}</td>
-                  <td className="is-num">{r.ppl?.toFixed(2) ?? "—"}</td>
-                  <td className="is-num">{r.top1Pct != null ? `${r.top1Pct.toFixed(1)}%` : "—"}</td>
-                  {cmp?.comparable && (
-                    <>
-                      <td className="is-num">{d?.match ? fmtSigned(d.dNll) : "not paired"}</td>
-                      <td className="is-num">{d?.match ? pct(d.top1AgreementPct) : "—"}</td>
-                      <td className="is-num">{d?.match ? pct(d.tailLossPct) : "—"}</td>
-                    </>
-                  )}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <div className="overflow-x-auto" role="region" aria-label={t("quality.fidelityHead")} tabIndex={0}>
+          <table className="q-cat-table q-fid__docs">
+            <thead>
+              <tr>
+                <th>{t("quality.fidelityDoc")}</th>
+                <th className="is-num">{t("quality.fidelityTokenColumn")}</th>
+                <th className="is-num">{t("quality.fidelityNll")}</th>
+                <th className="is-num">{t("quality.fidelityPpl")}</th>
+                <th className="is-num">{t("quality.fidelityTop1Column")}</th>
+                {cmp?.comparable && (
+                  <>
+                    <th className="is-num">ΔNLL</th>
+                    <th className="is-num">{t("quality.fidelityAgree")}</th>
+                    <th className="is-num">{t("quality.fidelityTail")}</th>
+                  </>
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => {
+                const d = cmpByDoc.get(r.id);
+                return (
+                  <tr key={r.id}>
+                    <td className="q-cat-table__name">
+                      {r.docId ?? r.id}
+                      <small className="q-muted"> {r.kind} · {r.lang}</small>
+                    </td>
+                    <td className="is-num">{r.error ? <span className="text-danger">{r.error}</span> : r.tokens?.toLocaleString()}</td>
+                    <td className="is-num is-strong">{fmtNll(r.nll)}</td>
+                    <td className="is-num">{r.ppl?.toFixed(2) ?? "—"}</td>
+                    <td className="is-num">{r.top1Pct != null ? `${r.top1Pct.toFixed(1)}%` : "—"}</td>
+                    {cmp?.comparable && (
+                      <>
+                        <td className="is-num">{d?.match ? fmtSigned(d.dNll) : t("quality.fidelityUnpaired")}</td>
+                        <td className="is-num">{d?.match ? pct(d.top1AgreementPct) : "—"}</td>
+                        <td className="is-num">{d?.match ? pct(d.tailLossPct) : "—"}</td>
+                      </>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
       {cmp?.comparable && <p className="bench-sheet__hint">{t("quality.fidelityCompareHint")}</p>}
     </div>
@@ -718,6 +711,7 @@ function QuantDashboard({
   fidelity: QualityFidelityCompare | null;
 }) {
   const { t } = useTranslation("benchmarks");
+  const qualityCategories = useQualityCategoryLabels();
   const div = useMemo(() => compareDivergence(job, compareJob), [job, compareJob]);
   const band = useMemo(() => noiseBand(job, compareJob), [job, compareJob]);
   const rows: Array<{ label: string; a: string; b: string; delta: string; tone?: "up" | "down"; note?: string }> = [];
@@ -752,12 +746,14 @@ function QuantDashboard({
   for (const r of compareRows) {
     const inBand = insideNoise(r.deltaPts, band?.categories[r.category] ?? null);
     rows.push({
-      label: QUALITY_CATEGORY_LABELS[r.category],
+      label: qualityCategories[r.category],
       a: pct(r.pairedPctA),
       b: pct(r.pairedPctB),
       delta: `${signed(r.deltaPts, 1, " pts")}${r.deltaCi ? ` (${signed(r.deltaCi[0], 1)} to ${signed(r.deltaCi[1], 1)})` : ""}`,
       tone: r.verdict === "different" && !inBand ? (r.deltaPts != null && r.deltaPts > 0 ? "up" : "down") : undefined,
-      note: r.verdict === "different" && !inBand ? `Holm p ${formatP(r.pAdj)}` : r.equivalent ? `equivalent ±${r.margin}` : inBand ? "inside noise floor" : "insufficient evidence",
+      note: r.verdict === "different" && !inBand ? `Holm p ${formatP(r.pAdj)}`
+        : r.equivalent ? t("quality.equivalence", { margin: r.margin })
+          : inBand ? t("quality.noiseInside") : t("quality.insufficientEvidence"),
     });
   }
   const costA = costLine(job.cost);
@@ -804,6 +800,7 @@ function insideNoise(delta: number | null | undefined, band: number | null): boo
 /** WP1 run hygiene: a thinking-off category whose replies carried reasoning or were cut off a lot. */
 function RunWarnings({ job }: { job: QualityBenchJob }) {
   const { t } = useTranslation("benchmarks");
+  const qualityCategories = useQualityCategoryLabels();
   const warnings = job.results.warnings ?? [];
   if (!warnings.length) return null;
   return (
@@ -812,7 +809,7 @@ function RunWarnings({ job }: { job: QualityBenchJob }) {
         <p key={`${w.kind}-${w.category}`} className="q-warning">
           {t("quality.thinkingWarning", {
             model: job.config.modelId || "the model",
-            category: QUALITY_CATEGORY_LABELS[w.category],
+            category: qualityCategories[w.category],
             rows: w.rows,
             reasoningRows: w.reasoningRows,
             truncated: w.truncated,
@@ -826,6 +823,7 @@ function RunWarnings({ job }: { job: QualityBenchJob }) {
 /** WP0: the noise floor — every extra pass paired with the primary pass item by item. */
 function NoiseFloor({ job }: { job: QualityBenchJob }) {
   const { t } = useTranslation("benchmarks");
+  const qualityCategories = useQualityCategoryLabels();
   const noise = job.results.noise;
   if (!noise || !noise.passes.length) return null;
   const cats = QUALITY_CATEGORIES.filter((c) => noise.passes.some((p) => p.categories[c]));
@@ -847,7 +845,7 @@ function NoiseFloor({ job }: { job: QualityBenchJob }) {
             <th className="is-num">{t("quality.noiseIdentical")}</th>
             {cats.map((c) => (
               <th key={c} className="is-num">
-                {QUALITY_CATEGORY_LABELS[c]}
+                {qualityCategories[c]}
               </th>
             ))}
           </tr>
@@ -881,6 +879,7 @@ function NoiseFloor({ job }: { job: QualityBenchJob }) {
 
 function CategoryTable({ job }: { job: QualityBenchJob }) {
   const { t } = useTranslation("benchmarks");
+  const qualityCategories = useQualityCategoryLabels();
   const rows = QUALITY_CATEGORIES.filter((c) => job.results.categories?.[c]);
   if (!rows.length) return null;
   return (
@@ -902,7 +901,7 @@ function CategoryTable({ job }: { job: QualityBenchJob }) {
             const ci = categoryCi(s);
             return (
               <tr key={cat} className={s.budgetLimited ? "is-budget-limited" : undefined}>
-                <td className="q-cat-table__name">{QUALITY_CATEGORY_LABELS[cat]}</td>
+                <td className="q-cat-table__name">{qualityCategories[cat]}</td>
                 <td className="is-num">
                   {s.passed}/{s.scored ?? s.total}
                 </td>
@@ -917,7 +916,7 @@ function CategoryTable({ job }: { job: QualityBenchJob }) {
                 </td>
                 <td className="q-cat-table__note">
                   {s.budgetLimited ? <span className="q-note-tag" title={t("quality.budgetLimitedTitle")}>{t("quality.budgetLimited")}</span> : null}
-                  {categoryNotes(cat, s)}
+                  {categoryNotes(cat, s, t)}
                 </td>
               </tr>
             );
@@ -949,6 +948,7 @@ function ScoreCard({
   compareRows: QualityCompareRow[];
 }) {
   const { t } = useTranslation("benchmarks");
+  const qualityCategories = useQualityCategoryLabels();
   const headline = useMemo(() => overallOf(job), [job]);
   const overall = headline.pct;
   const partial = jobProfile(job) === "custom";
@@ -973,14 +973,14 @@ function ScoreCard({
         )}
         {headline.ci && <span className="q-ci q-score__ci">{t("quality.ci")} {formatCi(headline.ci)}</span>}
         {partial && (
-          <span className="q-score__hint q-score__partial" title={t("quality.partialRunHint", { categories: Object.keys(job.results.categories ?? {}).map((c) => QUALITY_CATEGORY_LABELS[c as QualityCategory]).join(", ") })}>
+          <span className="q-score__hint q-score__partial" title={t("quality.partialRunHint", { categories: Object.keys(job.results.categories ?? {}).map((c) => qualityCategories[c as QualityCategory]).join(", ") })}>
             {t("quality.partialRun")}
           </span>
         )}
         {delta != null && (
           <div className={`q-delta${delta > 0 ? " is-up" : delta < 0 ? " is-down" : ""}`}>
             {delta === 0 ? t("quality.sameScore") : formatDelta(delta)} {t("quality.vsOther")}
-            {shared && shared.categories < totalCats ? ` · ${shared.categories} shared categor${shared.categories === 1 ? "y" : "ies"}` : ""}
+            {shared && shared.categories < totalCats ? t("quality.sharedCategories", { count: shared.categories }) : ""}
           </div>
         )}
         {verdict && (
@@ -1027,6 +1027,7 @@ function CategoryBars({
   compareRows: QualityCompareRow[];
 }) {
   const { t } = useTranslation("benchmarks");
+  const qualityCategories = useQualityCategoryLabels();
   // Fidelity and divergence have no pass rate: they get their own cards below the bars.
   const cats = QUALITY_CATEGORIES.filter((c) => c !== "fidelity" && c !== "divergence" && job.results.categories?.[c]);
   const band = useMemo(() => noiseBand(job, compareJob), [job, compareJob]);
@@ -1049,11 +1050,11 @@ function CategoryBars({
           const cmp = rowByCat.get(cat);
           const other = compareJob?.results?.categories?.[cat];
           const delta = cmp ? deltaPts(cmp.pctA, cmp.pctB) : null;
-          const notes = categoryNotes(cat, s);
+          const notes = categoryNotes(cat, s, t);
           return (
             <div key={cat} className="q-cat">
               <div className="q-cat__name">
-                {QUALITY_CATEGORY_LABELS[cat]}
+                {qualityCategories[cat]}
                 <small>
                   {s.passed}/{s.scored ?? s.total} {t("quality.items")}
                 </small>
@@ -1098,6 +1099,7 @@ function CategoryBars({
 
 function DisagreementTable({ job, compareJob }: { job: QualityBenchJob; compareJob: QualityBenchJob }) {
   const { t } = useTranslation("benchmarks");
+  const qualityCategories = useQualityCategoryLabels();
   const rows = useMemo(() => disagreements(job, compareJob), [job, compareJob]);
   const paired = useMemo(() => {
     const ok = new Set((compareJob.results?.items ?? []).filter((it) => !it.error).map((it) => it.id));
@@ -1132,7 +1134,7 @@ function DisagreementTable({ job, compareJob }: { job: QualityBenchJob; compareJ
               {rows.map((r) => (
                 <tr key={r.id}>
                   <td className="mono">{r.id}</td>
-                  <td>{QUALITY_CATEGORY_LABELS[r.category]}</td>
+                  <td>{qualityCategories[r.category]}</td>
                   <td className={r.okA ? "is-ok" : "is-no"}>{r.okA ? "✓ pass" : "✕ fail"}</td>
                   <td className={r.okB ? "is-ok" : "is-no"}>{r.okB ? "✓ pass" : "✕ fail"}</td>
                   <td className="q-table__note">{r.note}</td>
@@ -1148,6 +1150,7 @@ function DisagreementTable({ job, compareJob }: { job: QualityBenchJob; compareJ
 
 function ItemTable({ job }: { job: QualityBenchJob }) {
   const { t } = useTranslation("benchmarks");
+  const qualityCategories = useQualityCategoryLabels();
   const [filter, setFilter] = useState<QualityCategory | "all" | "failed">("all");
   const items = job.results.items ?? [];
   const shown = items.filter((it) =>
@@ -1181,7 +1184,7 @@ function ItemTable({ job }: { job: QualityBenchJob }) {
                   : "border-border text-muted hover:text-text"
               }`}
             >
-              {f === "all" || f === "failed" ? f : QUALITY_CATEGORY_LABELS[f]}
+              {f === "all" || f === "failed" ? f : qualityCategories[f]}
             </button>
           ))}
         </div>
@@ -1353,7 +1356,9 @@ export function QualityBenchDialog({
   onSwitchBench,
 }: QualityBenchDialogProps) {
   const { t } = useTranslation("benchmarks");
+  const qualityCategories = useQualityCategoryLabels();
   const shareCardLabels = useShareCardLabels();
+  const qualityCategoryHints = useQualityCategoryHints();
   const historyLabels = { peakAt: t("history.peakAt"), streamAtOne: t("history.streamAtOne"), startContext: t("history.startContext"), bestAt: t("history.bestAt"), category: t("history.category"), categories: t("history.categories") };
   const isPage = variant === "page";
   const open = isPage || openProp;
@@ -1720,11 +1725,11 @@ export function QualityBenchDialog({
     setCompareId("");
   };
 
-  const clearLabel = historyScope === "all" ? "Clear all ports" : `Clear port ${historyScope}`;
+  const clearLabel = historyScope === "all" ? t("quality.clearAllPorts") : t("quality.clearOnePort", { port: historyScope });
   const clearTitle =
     historyScope === "all"
-      ? "Clear every saved quality run on this unit, on all LLM ports"
-      : `Clear the saved quality runs of port ${historyScope} only`;
+      ? t("quality.clearAllPortsTitle")
+      : t("quality.clearOnePortTitle", { port: historyScope });
 
   const handleClear = async () => {
     if (!job || job.status === "running") return;
@@ -1743,7 +1748,7 @@ export function QualityBenchDialog({
 
   /** Remove one saved run, keeping the rest of the history (and the other ports) intact. */
   const handleDelete = async (id: string) => {
-    if (!confirm("Delete this run from the history? This cannot be undone.")) return;
+    if (!confirm(t("quality.deleteConfirm"))) return;
     setError(null);
     try {
       await deleteQualityBenchRun(sparkId, id);
@@ -1817,11 +1822,11 @@ export function QualityBenchDialog({
     <>
       {job?.resumable ? (
         <button type="button" className="btn btn--primary" onClick={() => void handleResumeRun()} disabled={starting} title={t("quality.resumeRunTitle")}>
-          {starting ? "Starting…" : t("quality.resumeSaved", { count: job.progress.done })}
+          {starting ? t("quality.starting") : t("quality.resumeSaved", { count: job.progress.done })}
         </button>
       ) : null}
       <button type="button" className={`btn ${job?.resumable ? "" : "btn--primary"}`} onClick={() => void handleStart()} disabled={starting || categories.length === 0}>
-        {starting ? "Starting…" : "Run quality bench"}
+        {starting ? t("quality.starting") : t("quality.run")}
       </button>
     </>
   );
@@ -1891,12 +1896,12 @@ export function QualityBenchDialog({
                           </span>
                           <span className="qsel-card__body">
                             <span className="qsel-card__name">
-                              {QUALITY_CATEGORY_LABELS[c]}
+                              {qualityCategories[c]}
                               {!QUALITY_DEFAULT_CATEGORIES.includes(c) ? <em>{t("quality.optional")}</em> : null}
                             </span>
-                            <span className="qsel-card__hint">{CATEGORY_HINTS[c]}</span>
+                            <span className="qsel-card__hint">{qualityCategoryHints[c]}</span>
                             <span className="qsel-card__meta">
-                              {c === "long" ? `${Number(longItems) || 0} per size` : `${items} items`}
+                              {c === "long" ? t("quality.categoryPerSize", { value: Number(longItems) || 0 }) : t("quality.categoryItems", { value: items })}
                               {THINKING_CATEGORIES.includes(c) ? <small>{t("quality.thinkingOn")}</small> : null}
                             </span>
                           </span>
@@ -1915,9 +1920,9 @@ export function QualityBenchDialog({
                   })}
                 </div>
                 {infoFor ? (
-                  <div className="q-info" id="q-info-panel" ref={infoRef} role="region" aria-label={t("quality.howTitle", { category: QUALITY_CATEGORY_LABELS[infoFor] })}>
+                  <div className="q-info" id="q-info-panel" ref={infoRef} role="region" aria-label={t("quality.howTitle", { category: qualityCategories[infoFor] })}>
                     <div className="q-info__head">
-                      <b>{t("quality.howTitle", { category: QUALITY_CATEGORY_LABELS[infoFor] })}</b>
+                      <b>{t("quality.howTitle", { category: qualityCategories[infoFor] })}</b>
                       <button type="button" className="btn btn--sm btn--ghost" onClick={() => setInfoFor(null)}>
                         {t("dialog.close")}
                       </button>
@@ -2046,7 +2051,7 @@ export function QualityBenchDialog({
                   <span className="bench-progress__status" role="status" aria-live="polite">
                     {job.paused ? t("dialog.paused") : t("dialog.running")}
                     {job.progress.currentCategory
-                      ? ` · ${QUALITY_CATEGORY_LABELS[job.progress.currentCategory]} ${job.progress.categoryDone}/${job.progress.categoryTotal}`
+                      ? ` · ${qualityCategories[job.progress.currentCategory]} ${job.progress.categoryDone}/${job.progress.categoryTotal}`
                       : ""}
                   </span>
                   <span className="bench-progress__meta">
@@ -2170,6 +2175,7 @@ export function QualityBenchDialog({
             posture,
             remoteHost: remoteTarget?.host ?? null,
             labels: shareCardLabels,
+            qualityCategories,
           })
         }
         kind="quality"
@@ -2347,6 +2353,7 @@ export function QualityBenchDialog({
                       posture,
                       remoteHost: remoteTarget?.host ?? null,
                       labels: shareCardLabels,
+                      qualityCategories,
                     })
                   }
                   kind="quality"

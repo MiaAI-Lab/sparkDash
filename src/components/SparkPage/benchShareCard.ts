@@ -14,7 +14,7 @@ import { decodeBenchTypeLabel } from "../../shared/llmPrompts.js";
 import { backendLabel } from "../../shared/llmBackends.js";
 import { formatContextSize } from "../../shared/prefillBench.js";
 import { QUALITY_CATEGORIES, QUALITY_CATEGORY_LABELS, checkQualityComparable } from "../../shared/qualityBench.js";
-import type { DecodeBenchJob, PrefillBenchJob, QualityBenchJob, ToolEvalRun } from "../../api/types";
+import type { DecodeBenchJob, PrefillBenchJob, QualityBenchJob, QualityCategory, ToolEvalRun } from "../../api/types";
 import { compareToolResults, configCaveats, type Delta as CompareDelta } from "../bench/tooleval/compare";
 import { scoreTier } from "../bench/tooleval/format";
 import { CATEGORY_NAMES, type NormToolResult } from "../bench/tooleval/normalize";
@@ -196,6 +196,7 @@ export interface ShareCardSource {
   /** Probe exposure/auth posture, as shown on the LLM panel. */
   posture?: { label: string; level: "ok" | "warn" | "danger" } | null;
   labels?: BenchmarkShareCardLabels & Partial<ShareCardLabels>;
+  qualityCategories?: Partial<Record<QualityCategory, string>>;
   /** Unit display name, when the caller knows it. */
   sparkName?: string | null;
   /** Remote bench host (hostname / URL) instead of this Spark's LAN path. */
@@ -502,7 +503,7 @@ export function buildQualityShareCard(
     const other = compare?.results?.categories?.[cat];
     const delta = s.pct != null && other?.pct != null ? Math.round((s.pct - other.pct) * 10) / 10 : null;
     rows.push({
-      load: QUALITY_CATEGORY_LABELS[cat],
+      load: src.qualityCategories?.[cat] ?? QUALITY_CATEGORY_LABELS[cat],
       detail: painterLabels.qualityDetail(s.passed, s.scored ?? s.total, s.errors, (s.truncated ?? 0) + (s.disputed ?? 0)),
       primary: s.pct == null ? "—" : s.pct.toFixed(1),
       secondary: delta == null ? "" : `${delta > 0 ? "+" : ""}${delta.toFixed(1)}`,

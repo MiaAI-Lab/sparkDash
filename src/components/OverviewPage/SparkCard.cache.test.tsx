@@ -1,4 +1,6 @@
+import { act } from "react";
 import { describe, expect, it } from "vitest";
+import { setLocale } from "../../i18n";
 import { render } from "../../testing/render";
 import { makeSpark } from "../../testing/fixtures";
 import type { LlmCacheMetrics } from "../../api/types";
@@ -28,7 +30,7 @@ function cache(): LlmCacheMetrics {
 }
 
 describe("Overview cache chip", () => {
-  it("names pool reservations and kept prefixes from the engine's own accounting", () => {
+  it("retranslates cache accounting while preserving measured values", async () => {
     const spark = makeSpark("spark-1");
     Object.assign(spark.metrics.llm[0], { backend: "tensorfold", cache: cache() });
     const { container } = render(<SparkCard spark={spark} temperatureUnit="celsius" />);
@@ -37,6 +39,14 @@ describe("Overview cache chip", () => {
     );
     expect(tag).toBeTruthy();
     expect(tag!.textContent).toBe("13% active · 25% kept");
+    try {
+      await act(() => setLocale("zh-CN"));
+      expect(tag!.textContent).toBe("13% 活跃 · 25% 保留");
+      expect(tag!.getAttribute("title")).toContain("共享池 8,388,608 个位置");
+      expect(tag!.getAttribute("title")).toContain("快照存储 未报告");
+    } finally {
+      await act(() => setLocale("en"));
+    }
   });
 
   it("adds no chip when the engine reports no cache group", () => {

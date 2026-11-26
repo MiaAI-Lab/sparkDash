@@ -87,6 +87,7 @@ import { ToolEvalStore } from "./tooleval/ToolEvalStore.js";
 import { ToolEvalManager } from "./tooleval/ToolEvalManager.js";
 import { registerToolEvalRoutes } from "./tooleval/routes.js";
 import { registerApiKeysRoutes } from "./apiKeys/routes.js";
+import { registerTrainingProgressRoutes } from "./training/progress.js";
 import { benchEvent } from "./events/eventFormat.js";
 import {
   createFleetEnergyRuntime,
@@ -499,14 +500,14 @@ function startAllMonitors() {
 
 /** Snapshots in registry tab order (not Map insertion order). */
 function orderedSnapshots() {
-  const conversations = occupancy.projection().bySpark;
-  return registry.sparkIds
+  const snapshots = registry.sparkIds
     .map((id) => monitors.get(id))
     .filter(Boolean)
-    .map((m) => {
-      const snap = m.snapshot();
-      return { ...snap, conversations: conversations[snap.id] || {} };
-    });
+    .map((m) => m.snapshot());
+  // Pi placement needs the live LLM entries each card monitors, so the
+  // projection reads the snapshots it is about to return.
+  const conversations = occupancy.projection(snapshots).bySpark;
+  return snapshots.map((snap) => ({ ...snap, conversations: conversations[snap.id] || {} }));
 }
 
 // Wall power from external meters (smart strips, PDUs, Home Assistant), recorded by the
@@ -563,6 +564,7 @@ app.get("/api/auth/status", createHostGuardMiddleware(), (req, res) => {
 });
 app.use(createAuthMiddleware());
 occupancy.register(app);
+const trainingProgress = registerTrainingProgressRoutes(app, { getSparks: () => registry.sparks });
 
 /** Fleet event log, newest first. Query: limit, sparkId, sinceId. */
 app.get("/api/events", (req, res) => {
@@ -820,7 +822,7 @@ app.put("/api/sparks/order", (req, res) => {
 
 // ─── Global settings ──────────────────────────────────────
 app.get("/api/settings", (_req, res) => {
-  res.json({ ...getSettings(), inferenceActivityEnabled: inferenceActivity.enabled });
+  res.json({ ...getSettings(), inferenceActivityEnabled: inferenceActivity.enabled, trainingProgressEnabled: trainingProgress.enabled });
 });
 
 app.put("/api/settings", (req, res) => {
@@ -837,7 +839,7 @@ app.put("/api/settings", (req, res) => {
     }
     // MQTT broker URL / prefix / enablement changed: reconnect (a no-op otherwise).
     mqttPublisher.applySettings();
-    res.json({ ...newSettings, inferenceActivityEnabled: inferenceActivity.enabled });
+    res.json({ ...newSettings, inferenceActivityEnabled: inferenceActivity.enabled, trainingProgressEnabled: trainingProgress.enabled });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

@@ -67,6 +67,7 @@ Monitored units run **Linux**, **macOS**, or **Windows** (a Windows PC with an N
 - [Security](#security)
 - [Scripts](#scripts)
 - [How it works](#how-it-works)
+- [JSON training progress](#json-training-progress)
 - [Contributing](#contributing)
 - [License](#license)
 - [Acknowledgements](#acknowledgements)
@@ -1193,7 +1194,7 @@ Gear icon in the header, or `GET`/`PUT` `/api/settings`:
 
 ### Harness sessions
 
-Each LLM card can list sessions from OpenClaw, OpenCode, oh-my-pi, Hermes and DeepSeek Harness. One occupancy helper runs on the machine that has those tools. The dashboard does not open an ACP connection per session and does not spawn a bridge per poll. It stores the helper URL and bearer token, then reads that helper's cache.
+Each LLM card can list sessions from OpenClaw, OpenCode, oh-my-pi, Hermes, DeepSeek Harness and Pi. One occupancy helper runs on the machine that has those tools. The dashboard does not open an ACP connection per session and does not spawn a bridge per poll. It stores the helper URL and bearer token, then reads that helper's cache.
 
 Open the wizard from **Settings → Harness sessions**, the command palette (**Set up harness sessions**), or **+ Harness** on an empty LLM card. Pick the harnesses, the helper URL and token, and a route for each harness (Spark, port, optional directory prefix). **Check connection** reports coverage and a session count. It does not show session titles, install packages, or start an agent. If the helper rejects the token, the wizard says so. That response does not open the dashboard's own access-token dialog.
 
@@ -1202,11 +1203,13 @@ On the helper machine:
 ```bash
 OCCUPANCY_BIND=127.0.0.1 \
 OCCUPANCY_TOKEN="$(openssl rand -hex 32)" \
-OCCUPANCY_ADAPTERS=openclaw,opencode,omp,hermes,dsh \
+OCCUPANCY_ADAPTERS=openclaw,opencode,omp,hermes,dsh,pi \
 node scripts/occupancy-helper/index.js
 ```
 
-`OCCUPANCY_ADAPTERS` lists only the harnesses you enabled. Hermes reads `HERMES_STATE_DIR` (it does not launch `hermes-acp`, because that list path can write). DeepSeek Harness reads `DSH_WEB_URL` (default `http://127.0.0.1:3080`) and `DSH_WEB_TOKEN` when its web gate requires a launch token. DSH accepts that token only as a query string, so the adapter sends it only to a loopback `http` URL or an `https` URL and reports DSH unavailable rather than put the token on a cleartext remote connection. A helper bound to anything other than loopback requires `OCCUPANCY_TOKEN`, and it refuses `0.0.0.0` and `::`. A helper hostname that is not loopback must be listed in `SPARKDASH_HELPER_HOSTS`.
+`OCCUPANCY_ADAPTERS` lists only the harnesses you enabled. Hermes reads `HERMES_STATE_DIR` (it does not launch `hermes-acp`, because that list path can write). DeepSeek Harness reads `DSH_WEB_URL` (default `http://127.0.0.1:3080`) and `DSH_WEB_TOKEN` when its web gate requires a launch token. DSH accepts that token only as a query string, so the adapter sends it only to a loopback `http` URL or an `https` URL and reports DSH unavailable rather than put the token on a cleartext remote connection. Pi reads `$XDG_RUNTIME_DIR/pi-sparkdash-occupancy` (override with `OCCUPANCY_PI_STATE_DIR`). A helper bound to anything other than loopback requires `OCCUPANCY_TOKEN`, and it refuses `0.0.0.0` and `::`. A helper hostname that is not loopback must be listed in `SPARKDASH_HELPER_HOSTS`.
+
+Pi is native: install the optional extension in [`agents/pi`](agents/pi/README.md) in Pi, and the helper reads the metadata files it writes. Pi has no folder route. A session is placed on a card only when the request it is making goes to that card's endpoint: the base URL's host and port must be the Spark and LLM port the card monitors, and the model must be the model that card reports. A session using a cloud model, or a local endpoint sparkDash does not monitor, stays off the cards. A loopback destination belongs to the helper's own host, so a Pi session on another Spark that calls its own `localhost` lands on that Spark, or nowhere, and never on the dashboard host's Spark. A file left by a crashed Pi process stops counting after two minutes, and it neither uses up the adapter's session capacity nor makes the adapter unavailable. One refresh scans a bounded number of directory entries, and live sessions found are kept even when that scan is truncated.
 
 A missing ACP command marks that adapter unavailable while the helper keeps serving its cache. Adapter subprocesses keep their harness configuration but do not receive `OCCUPANCY_TOKEN`. ACP stdout frames are capped at 2,000,000 bytes, including unfinished lines; exceeding the cap closes that bridge and retains any previous rows as stale. Diagnostic RPC history retains only the latest 64 method names.
 
@@ -1216,7 +1219,7 @@ DSH refreshes have one 8-second budget for headers, bodies and optional model lo
 
 Each dashboard helper request has an 8-second deadline, including its response body. Disconnects, oversized responses and malformed occupancy replies fail that helper's refresh. Replies must carry the helper's existing version-1 envelope (`schemaVersion`, numeric `observedAt`, `adapters`, and `rows`). Dashboard snapshots use cached helper configuration; a corrupt config keeps the last valid configuration until repaired, logs a warning, and cannot be overwritten through helper mutations.
 
-ACP rows are metadata only: they can look recent, and they are never labeled Generating or Stalled. Those labels are reserved for Hermes and DeepSeek Harness when the adapter itself reports a running session. A row with no timestamp stays in the list and stays unlabeled. Sessions with no matching route stay off the cards.
+ACP rows are metadata only: they can look recent, and they are never labeled Generating or Stalled. Those labels are reserved for Hermes and DeepSeek Harness when the adapter itself reports a running session, and for Pi when an open, matched request has produced a recognised delta within ten seconds. A row with no timestamp stays in the list and stays unlabeled. Sessions with no matching route stay off the cards.
 
 ### Environment variables
 
@@ -1551,6 +1554,12 @@ The source must return `application/json` with this shape:
 The source is read at most once per 5 seconds, shared between dashboard viewers. The server judges sample freshness: samples older than 30 seconds, invalid payloads and failed reads show **unknown**, not zero. The browser trusts the server's `available`, without comparing server timestamps to its own clock. A separate 30-second no-response timer hides the last live display if a later browser fetch hangs, and resets on a successful response. A fresh empty `active` array is a measured zero. The read-only `/api/inference/activity` route uses the dashboard's existing GET access policy and `Cache-Control: no-store`: loopback GETs remain open, while a token-protected remote bind requires the dashboard token. Configuration is not writable through that route or Settings. The card is absent when no URL is configured, including when the normal sidebar cards are hidden.
 
 **In flight includes queued, prefill and decoding HTTP requests.** It is not the number of active GPU slots, does not distinguish engine queueing, and does not measure per-key token throughput. This card needs an external sanitized activity source; an unmodified model server without that source remains unchanged.
+
+## JSON training progress
+
+Opt-in, read-only reporting for training workers. Set `TRAINING_PROGRESS_ENABLED=1` and explicitly configure output folders with `TRAINING_PROGRESS_ROOTS='["/srv/training/example-run"]'`. Each folder supplies one `training-progress.json`; the collector does not search subfolders or parse framework logs. The **Training** page displays the worker's reported stages, counters, metrics and remaining time, with explicit unknown/stale/unavailable readings. Worker timestamps determine freshness and bounded retention; successful polling does not make an abandoned report current.
+
+The module defaults off with no roots. It does not launch jobs, infer ETA, compare checkpoints or allocate resources. See [the document contract and limits](server/training/README.md) and [the synthetic worker example](examples/training-json/). Python 3 is required for the local/SSH reader; container roots are paths visible to the collection process. Windows collection is unsupported in this first slice.
 
 ## Contributing
 

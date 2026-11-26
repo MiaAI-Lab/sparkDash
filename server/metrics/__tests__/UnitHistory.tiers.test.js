@@ -300,7 +300,7 @@ test("LLM series are grouped per endpoint", () => {
   );
   const res = s.query("a", "1h", T0);
   assert.deepEqual(res.llm.map((e) => e.port), [8888, 30000]);
-  assert.deepEqual(res.llm[0].points, [{ t: T0, genTps: { avg: 40, max: 40 }, kvUsage: { avg: 0.25, max: 0.25 } }]);
+  assert.deepEqual(res.llm[0].points, [{ t: T0, genTps: { avg: 40, max: 40, activeSum: 40, activeCount: 1 }, kvUsage: { avg: 0.25, max: 0.25 } }]);
   assert.deepEqual(res.points, [{ t: T0, gpuUtil: { avg: 5, max: 5 } }]);
 });
 
@@ -360,7 +360,7 @@ test("save() round-trips the tiers asynchronously, open buckets included, mode 0
   assert.deepEqual(res.points, [
     { t: T0, gpuUtil: { avg: 30, max: 50 }, memFreeMB: { avg: 6_000, max: 8_000, min: 4_000 } },
   ]);
-  assert.deepEqual(res.llm, [{ port: 8888, points: [{ t: T0, genTps: { avg: 40, max: 50 } }] }]);
+  assert.deepEqual(res.llm, [{ port: 8888, points: [{ t: T0, genTps: { avg: 40, max: 50, activeSum: 80, activeCount: 2 } }] }]);
 });
 
 test("unit ids like __proto__, constructor and toString round-trip through save and load", async (t) => {
@@ -570,4 +570,34 @@ test("turning the setting off stops tier writes, buckets still pending included"
   enabled = true;
   assert.equal(s.flush(), true, "turned on again before a restart: the pending buckets are written");
   assert.deepEqual(JSON.parse(fs.readFileSync(tiersFile, "utf8")).units.a["1m"].t, [T0]);
+});
+
+test("active throughput counts positive polls across buckets and survives a restart", (t) => {
+  const tiersFile = path.join(tmpDir(t), "metrics-history.json");
+  const s = store({ tiersFile });
+  const decode = llmKey(8888, "genTps");
+  const prefill = llmKey(8888, "prefillTps");
+  for (let i = 0; i < 8; i++) {
+    const at = T0 + Math.floor(i / 4) * MINUTE + (i % 4) * 10_000;
+    rec(s, at, { [decode]: i < 2 ? 60 : 0, [prefill]: i < 2 ? 1000 : 0 }, { llmPorts: [8888] });
+  }
+  s.flush();
+  const now = T0 + 2 * MINUTE;
+  const reopened = store({ tiersFile, at: now });
+  for (const range of ["24h", "7d"]) {
+    const [point] = reopened.query("a", range, now).llm[0].points;
+    assert.deepEqual(point.genTps, { avg: 15, max: 60, activeSum: 120, activeCount: 2 });
+    assert.deepEqual(point.prefillTps, { avg: 250, max: 1000, activeSum: 2000, activeCount: 2 });
+  }
+  assert.deepEqual(reopened.query("a", "1h", now).llm[0].points[1].genTps,
+    { avg: 0, max: 0, activeSum: 0, activeCount: 0 });
+
+  const legacy = JSON.parse(fs.readFileSync(tiersFile, "utf8"));
+  for (const tier of Object.values(legacy.units.a)) {
+    delete tier.series[decode].activeCount;
+  }
+  fs.writeFileSync(tiersFile, JSON.stringify(legacy));
+  const old = store({ tiersFile, at: now });
+  rec(old, T0 + MINUTE + 45_000, { [decode]: 30 }, { llmPorts: [8888] });
+  assert.deepEqual(old.query("a", "24h", now).llm[0].points[0].genTps, { avg: 16.67, max: 60 });
 });

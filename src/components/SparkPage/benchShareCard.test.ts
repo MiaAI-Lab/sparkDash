@@ -596,6 +596,10 @@ describe("quality share card", () => {
     ]);
     expect(m.quality?.summary).toBe("2 categories · 70 items · 1m 0s");
     expect([m.quality?.modelName, m.quality?.target, m.quality?.runLabel]).toEqual(["m", "Port 8888", "fp8"]);
+    const localized = buildQualityShareCard(qJob(), null, {
+      llmPort: 8888, modelId: "m", qualityCategories: { qa: "问答" },
+    }, 0);
+    expect(localized.quality?.tiles[0]).toMatchObject({ label: "问答", pct: 90, detail: "45/50 items" });
   });
 
   it("shows the points change against a compared run", async () => {

@@ -49,6 +49,9 @@ export const CONFIG_DIR_VARS = ["TOOL_EVAL_RESULTS_DIR", "QUALITY_FIDELITY_DIR"]
 /** Env entries mapping each config path variable to a file (or directory) inside `dir`. */
 export function isolatedConfigEnv(dir) {
   return {
+    TRAINING_PROGRESS_ENABLED: "0",
+    TRAINING_PROGRESS_ROOTS: "[]",
+    TRAINING_PROGRESS_ROOTS_BY_UNIT: "{}",
     SPARKDASH_INFERENCE_ACTIVITY_URL: "",
     SPARKDASH_INFERENCE_ACTIVITY_LABELS: "",
     ...Object.fromEntries(

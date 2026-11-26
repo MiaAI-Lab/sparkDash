@@ -1,3 +1,5 @@
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import type { LlmCacheMetrics, LlmMetrics, LlmCachePool } from "../../api/types";
 
 /**
@@ -28,27 +30,34 @@ const count = (n: number | null | undefined): string =>
 
 /** Segment order and colours: active reservations, kept prefixes, reclaimable growth, unclaimed. */
 const SEGMENTS = [
-  { key: "activeReservedPositions", label: "Active", cls: "sp-cache-seg--active" },
-  { key: "retainedPrefixPositions", label: "Kept prefixes", cls: "sp-cache-seg--prefix" },
-  { key: "retainedGrowthPositions", label: "Reclaimable growth", cls: "sp-cache-seg--growth" },
-  { key: "unclaimedPositions", label: "Unclaimed", cls: "sp-cache-seg--free" },
-] as const satisfies ReadonlyArray<{ key: keyof LlmCachePool; label: string; cls: string }>;
+  { key: "activeReservedPositions", cls: "sp-cache-seg--active" },
+  { key: "retainedPrefixPositions", cls: "sp-cache-seg--prefix" },
+  { key: "retainedGrowthPositions", cls: "sp-cache-seg--growth" },
+  { key: "unclaimedPositions", cls: "sp-cache-seg--free" },
+] as const satisfies ReadonlyArray<{ key: keyof LlmCachePool; cls: string }>;
 
 function PoolBar({ pool }: { pool: LlmCachePool }) {
+  const { t } = useTranslation("spark");
   const capacity = pool.capacityPositions;
+  const labels = {
+    activeReservedPositions: t("llmCache.active"),
+    retainedPrefixPositions: t("llmCache.keptPrefixes"),
+    retainedGrowthPositions: t("llmCache.reclaimableGrowth"),
+    unclaimedPositions: t("llmCache.unclaimed"),
+  };
   const summary = SEGMENTS.map(
-    (s) => `${s.label} ${positions(pool[s.key] as number)} of ${positions(capacity)}`
+    (s) => t("llmCache.segmentSummary", { label: labels[s.key], value: positions(pool[s.key]), capacity: positions(capacity) })
   ).join(", ");
   return (
     <>
       <div
         className="sp-cache-bar"
         role="img"
-        aria-label={`Shared pool in positions: ${summary}`}
+        aria-label={t("llmCache.poolSummary", { summary })}
         data-cache-pool
       >
         {SEGMENTS.map((s) => {
-          const value = pool[s.key] as number;
+          const value = pool[s.key];
           return (
             <span
               key={s.key}
@@ -62,9 +71,9 @@ function PoolBar({ pool }: { pool: LlmCachePool }) {
         {SEGMENTS.map((s) => (
           <li key={s.key}>
             <span aria-hidden className={`sp-cache-swatch ${s.cls}`} />
-            <span>{s.label}</span>
-            <b className="font-tabular">{positions(pool[s.key] as number)}</b>
-            <small>{share(pool[s.key] as number, capacity)}</small>
+            <span>{labels[s.key]}</span>
+            <b className="font-tabular">{positions(pool[s.key])}</b>
+            <small>{share(pool[s.key], capacity)}</small>
           </li>
         ))}
       </ul>
@@ -73,31 +82,34 @@ function PoolBar({ pool }: { pool: LlmCachePool }) {
 }
 
 /** The line the panel shows instead of numbers when the engine has none to give. */
-function unavailableText(cache: LlmCacheMetrics): string {
+function unavailableText(cache: LlmCacheMetrics, t: TFunction<"spark">): string {
   switch (cache.status) {
     case "unavailable":
-      return "This engine build reports no cache telemetry. Pool and snapshot figures stay unavailable; the per-stream KV ratio is not used as a substitute.";
+      return t("llmCache.noTelemetry");
     case "inconsistent":
-      return `The engine reports inconsistent cache accounting${cache.reason ? ` (${cache.reason})` : ""}; no values are shown for this observation.`;
+      return cache.reason
+        ? t("llmCache.inconsistentReason", { reason: cache.reason })
+        : t("llmCache.inconsistent");
     case "unsupported":
-      return `Cache telemetry schema ${cache.schemaVersion ?? "unknown"} is newer than this dashboard reads; no values are shown.`;
+      return t("llmCache.unsupported", { version: cache.schemaVersion ?? t("llmCache.unknown") });
     default:
-      return "The cache group could not be read this poll.";
+      return t("llmCache.unreadable");
   }
 }
 
 export function LlmCachePanel({ llm }: { llm: LlmMetrics }) {
+  const { t } = useTranslation("spark");
   const cache = llm.cache ?? null;
   if (!cache) return null;
 
   if (cache.status === "unavailable" || cache.status === "inconsistent" || cache.status === "unsupported" || cache.status === "invalid") {
     return (
-      <section className="sp-cache" aria-label="Shared cache pool" data-cache-status={cache.status}>
+      <section className="sp-cache" aria-label={t("llmCache.title")} data-cache-status={cache.status}>
         <div className="sp-cache-head">
-          <span className="eyebrow">Shared cache pool</span>
-          <span className="sp-cache-badge">Unavailable</span>
+          <span className="eyebrow">{t("llmCache.title")}</span>
+          <span className="sp-cache-badge">{t("llmCache.unavailable")}</span>
         </div>
-        <p className="sp-cache-note">{unavailableText(cache)}</p>
+        <p className="sp-cache-note">{unavailableText(cache, t)}</p>
       </section>
     );
   }
@@ -112,17 +124,17 @@ export function LlmCachePanel({ llm }: { llm: LlmMetrics }) {
       : null;
   const failures = store?.failuresTotal ?? null;
   const stages = [
-    store?.failuresKeepTotal != null ? `keep ${count(store.failuresKeepTotal)}` : null,
-    store?.failuresRestoreTotal != null ? `restore ${count(store.failuresRestoreTotal)}` : null,
-    store?.failuresPeerForgetTotal != null ? `peer forget ${count(store.failuresPeerForgetTotal)}` : null,
+    store?.failuresKeepTotal != null ? t("llmCache.keepFailures", { value: count(store.failuresKeepTotal) }) : null,
+    store?.failuresRestoreTotal != null ? t("llmCache.restoreFailures", { value: count(store.failuresRestoreTotal) }) : null,
+    store?.failuresPeerForgetTotal != null ? t("llmCache.forgetFailures", { value: count(store.failuresPeerForgetTotal) }) : null,
   ].filter(Boolean);
 
   return (
-    <section className="sp-cache" aria-label="Shared cache pool" data-cache-status={cache.status}>
+    <section className="sp-cache" aria-label={t("llmCache.title")} data-cache-status={cache.status}>
       <div className="sp-cache-head">
-        <span className="eyebrow">Shared cache pool</span>
+        <span className="eyebrow">{t("llmCache.title")}</span>
         <span className="sp-cache-headline font-tabular">
-          {active != null && capacity != null ? `${share(active, capacity)} active` : "partial report"}
+          {active != null && capacity != null ? t("llmCache.activeShare", { value: share(active, capacity) }) : t("llmCache.partial")}
         </span>
       </div>
 
@@ -132,78 +144,79 @@ export function LlmCachePanel({ llm }: { llm: LlmMetrics }) {
           <div className="sp-tiles sp-cache-tiles">
             <div className="sp-tile">
               <b>{positions(capacity ?? 0)}</b>
-              <span className="sp-tile__label">Pool positions</span>
+              <span className="sp-tile__label">{t("llmCache.poolPositions")}</span>
             </div>
             <div className="sp-tile">
               <b>{cache.contextLimitPositions != null ? positions(cache.contextLimitPositions) : "—"}</b>
-              <span className="sp-tile__label">Per request</span>
+              <span className="sp-tile__label">{t("llmCache.perRequest")}</span>
             </div>
             <div className="sp-tile">
               <b>{cache.streamCapacity != null ? String(cache.streamCapacity) : "—"}</b>
-              <span className="sp-tile__label">Streams</span>
+              <span className="sp-tile__label">{t("llmCache.streams")}</span>
             </div>
             <div className="sp-tile">
               <b>{reused != null ? `${Math.round(reused * 100)}%` : "—"}</b>
-              <span className="sp-tile__label" title="Prompt tokens restored from the prefix cache over all prompt tokens, since the engine started. The recent window is in the history charts.">
-                Reused (lifetime)
+              <span className="sp-tile__label" title={t("llmCache.reusedHelp")}>
+                {t("llmCache.reused")}
               </span>
             </div>
           </div>
         </>
       ) : (
         <p className="sp-cache-note">
-          The engine did not report the shared pool in this observation{cache.missing?.length ? ` (missing: ${cache.missing.join(", ")})` : ""}.
+          {cache.missing?.length
+            ? t("llmCache.poolMissingFields", { fields: cache.missing.join(", ") })
+            : t("llmCache.poolMissing")}
         </p>
       )}
 
       <details className="sp-cache-details">
-        <summary>Cache detail</summary>
+        <summary>{t("llmCache.detail")}</summary>
         <dl className="sp-cache-grid">
-          <dt>Snapshot store</dt>
+          <dt>{t("llmCache.snapshotStore")}</dt>
           <dd>
             {store ? (
               store.enabled ? (
-                <>
-                  {gib(store.heldBytes)} / {gib(store.budgetBytes)} charged · {gib(store.spareBytes)} spare ·{" "}
-                  {count(store.entries)} states
-                </>
+                t("llmCache.storeSummary", {
+                  held: gib(store.heldBytes), budget: gib(store.budgetBytes), spare: gib(store.spareBytes), entries: count(store.entries),
+                })
               ) : (
-                "disabled in this launch"
+                t("llmCache.storeDisabled")
               )
             ) : (
-              "not reported"
+              t("llmCache.notReported")
             )}
           </dd>
-          <dt>Valid kept states</dt>
+          <dt>{t("llmCache.validStates")}</dt>
           <dd>{count(pool?.validStates ?? null)}</dd>
-          <dt>Pool invalidated</dt>
-          <dd title="Kept prefixes whose rows a later placement reused, since the engine started. A later resume of such a prefix must reprocess it; this is not a failed request.">
-            {count(pool?.invalidationsTotal ?? null)} prefixes
+          <dt>{t("llmCache.invalidated")}</dt>
+          <dd title={t("llmCache.invalidatedHelp")}>
+            {t("llmCache.invalidatedCount", { value: count(pool?.invalidationsTotal) })}
           </dd>
-          <dt>Placements refused</dt>
-          <dd title="Reservations that could not be placed for lack of room — distinct from invalidating a kept prefix.">
+          <dt>{t("llmCache.placementsRefused")}</dt>
+          <dd title={t("llmCache.placementsRefusedHelp")}>
             {count(pool?.placementBlocksTotal ?? null)}
           </dd>
-          <dt>Snapshot churn</dt>
+          <dt>{t("llmCache.churn")}</dt>
           <dd>
-            {count(store?.evictionsTotal ?? null)} evicted · {count(store?.refusalsTotal ?? null)} refused (too large)
+            {t("llmCache.churnSummary", { evicted: count(store?.evictionsTotal), refused: count(store?.refusalsTotal) })}
           </dd>
-          <dt>Snapshot lookups</dt>
+          <dt>{t("llmCache.lookups")}</dt>
           <dd>
-            {count(store?.hitsTotal ?? null)} hits · {count(store?.missesTotal ?? null)} misses
+            {t("llmCache.lookupsSummary", { hits: count(store?.hitsTotal), misses: count(store?.missesTotal) })}
           </dd>
-          <dt>Snapshot failures</dt>
-          <dd title="Keep/restore/peer-forget stages partition the legacy total when the build classifies them.">
+          <dt>{t("llmCache.failures")}</dt>
+          <dd title={t("llmCache.failuresHelp")}>
             {count(failures)}
             {stages.length ? ` (${stages.join(", ")})` : null}
           </dd>
-          <dt>Engine epoch</dt>
-          <dd className="font-tabular" title="Process identity of the engine that produced this observation; a change resets the counters.">
+          <dt>{t("llmCache.epoch")}</dt>
+          <dd className="font-tabular" title={t("llmCache.epochHelp")}>
             {cache.engineEpoch ? cache.engineEpoch.slice(-8) : "—"}
           </dd>
         </dl>
         <p className="sp-cache-note">
-          <a href="#history">Cache history</a> shows the recent reuse window, pool categories, churn and latency over time.
+          <a href="#history">{t("llmCache.history")}</a>{" "}{t("llmCache.historyHelp")}
         </p>
       </details>
     </section>

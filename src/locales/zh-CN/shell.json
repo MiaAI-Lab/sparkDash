@@ -21,7 +21,8 @@
     "showSidebar": "显示侧边栏",
     "showSidebarTitle": "显示侧边栏 (Ctrl+B)",
     "apiKeys": "API 密钥",
-    "llmServers": "LLM 服务器"
+    "llmServers": "LLM 服务器",
+    "training": "训练"
   },
   "sidebar": {
     "sortable": "可排序",

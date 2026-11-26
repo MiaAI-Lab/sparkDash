@@ -208,7 +208,12 @@
     "gpuPowerShort": "功耗",
     "workerHeadCompletedDecode": " · {{value}} 已完成",
     "workerHeadCompletedPrefill": " · {{value}} 预填充，含缓存",
-    "completedDecodeRate": "{{value}} tok/s · 已完成"
+    "completedDecodeRate": "{{value}} tok/s · 已完成",
+    "macPower": "{{gpu}} W · 系统 {{system}} W",
+    "cacheChip": "{{active}}% 活跃 · {{kept}}% 保留",
+    "cacheChipTitle": "共享池 {{capacity}} 个位置，每请求 {{context}} 个位置，{{streams}} 路并发；快照存储 {{store}}",
+    "cacheStoreBytes": "{{held}} / {{budget}} 字节",
+    "cacheStoreUnreported": "未报告"
   },
   "launcher": {
     "modelsUnavailable": "模型不可用",
@@ -269,7 +274,15 @@
   },
   "health": {
     "findings": "健康发现",
-    "more": "+{{count}} 更多"
+    "more": "+{{count}} 更多",
+    "warning": "警告",
+    "critical": "严重",
+    "thermal": {
+      "warningTitle": "GPU 温度过高",
+      "criticalTitle": "GPU 温度接近关机阈值",
+      "detail": "当前 {{current}}°C（警告阈值 {{warning}}°C，严重阈值 {{critical}}°C）。",
+      "hint": "请检查机箱风道和室温，确认通风口没有堵塞。如果温度继续上升，请降低功耗上限或减轻负载。"
+    }
   },
   "kpis": {
     "fleetDecode": "集群解码",

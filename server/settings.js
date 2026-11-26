@@ -178,7 +178,7 @@ function assertEnergyPeriods(patch) {
   throw new Error(
     err.index < 0
       ? "energyPricePeriods must be a list"
-      : `energyPricePeriods: period ${err.index + 1} needs whole hours from 0-23 to 1-24 (not equal), a price from 0 to 100 and days all, weekdays or weekends`
+      : `energyPricePeriods: period ${err.index + 1} needs whole hours from 0-23 to 1-24 (not equal), a finite, non-negative price and days all, weekdays or weekends`
   );
 }
 
@@ -378,14 +378,19 @@ export function getSettings() {
 
 /**
  * Apply a partial patch, persist, and return the new settings.
- * Throws when the GPU temperature thresholds in the patch are not usable.
+ * Throws when the patch contains invalid temperature thresholds or electricity pricing.
  * @param {Partial<typeof DEFAULTS>} patch
  * @returns {typeof DEFAULTS}
  */
 export function updateSettings(patch) {
-  assertHealthTemps(_settings, _whitelist(patch));
-  assertEnergyPeriods(_whitelist(patch));
-  const merged = _clampSettings({ ..._settings, ..._whitelist(patch) });
+  const settingsPatch = _whitelist(patch);
+  assertHealthTemps(_settings, settingsPatch);
+  const price = settingsPatch.energyPricePerKwh;
+  if (price != null && price !== "" && energyPriceValue(price) == null) {
+    throw new Error("Electricity price must be a number of 0 or more.");
+  }
+  assertEnergyPeriods(settingsPatch);
+  const merged = _clampSettings({ ..._settings, ...settingsPatch });
   _settings = merged;
   saveSettings();
   return { ..._settings };

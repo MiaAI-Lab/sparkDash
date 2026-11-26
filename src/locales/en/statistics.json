@@ -443,6 +443,10 @@
       "ratiosNotLearned": "not learned yet"
     },
     "subtitleMetered": "Measured at the wall by {{meter}}.",
+    "externalMeters": "external power meters",
+    "filledShare": "{{percent}} filled",
+    "powerLines": "Lines",
+    "wallLine": "Wall",
     "currentPowerFilled": "30 s average, partly filled",
     "gpu": "GPU",
     "cpu": "CPU"

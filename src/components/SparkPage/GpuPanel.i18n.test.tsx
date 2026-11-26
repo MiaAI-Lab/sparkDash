@@ -68,6 +68,16 @@ const device = (index: number, overrides: Partial<GpuDevice> = {}): GpuDevice =>
   ...overrides,
 });
 
+it("translates the Mac thermal heading and missing state while preserving recorded pressure", async () => {
+  const gpu = makeSpark("mac").metrics.gpu!;
+  const { container, root } = render(<GpuPanel gpu={gpu} mac sparkId="mac" temperatureUnit="celsius" />);
+  expect(container.textContent).toContain("Thermal pressure (last recorded)unknown");
+  await act(() => setLocale("zh-CN"));
+  expect(container.textContent).toContain("热压力（最近记录）未知");
+  act(() => root.render(<GpuPanel gpu={{ ...gpu, thermalPressure: "raw pressure state" }} mac sparkId="mac" temperatureUnit="celsius" />));
+  expect(container.textContent).toContain("热压力（最近记录）raw pressure state");
+});
+
 it("translates per-card states without changing physical identities or unavailable measurements", async () => {
   const gpu: GpuMetrics = {
     ...makeSpark().metrics.gpu!, temperature: 70,

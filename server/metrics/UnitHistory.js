@@ -7,6 +7,7 @@ import {
   coarsen,
   finite,
   isKnownKey,
+  keepsActiveCount,
   parseLlmKey,
   statOf,
   statOut,
@@ -421,7 +422,12 @@ export class UnitHistory {
             const max = col.max?.[i];
             if (!(Number.isInteger(n) && n > 0) || !finite(avg) || !finite(max)) continue;
             const min = finite(col.min?.[i]) ? col.min[i] : avg;
-            stats.set(key, { sum: avg * n, max, min, n });
+            const stat = { sum: avg * n, max, min, n };
+            const activeCount = col.activeCount?.[i];
+            if (keepsActiveCount(key) && Number.isInteger(activeCount) && activeCount >= 0 && activeCount <= n && avg >= 0) {
+              stat.activeCount = activeCount;
+            }
+            stats.set(key, stat);
           }
           if (stats.size > 0) {
             unit.tiers[idx].ring.put(t, stats);
@@ -476,7 +482,7 @@ export class UnitHistory {
           tier.open = null;
         }
         if (!tier.open) tier.open = { t: bucketT, stats: new Map() };
-        for (const k of keys) addToStats(tier.open.stats, k, statOf(values[k]));
+        for (const k of keys) addToStats(tier.open.stats, k, statOf(values[k], k));
       });
       this._tiersRev++;
     }

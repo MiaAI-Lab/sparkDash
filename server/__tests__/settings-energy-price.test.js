@@ -30,8 +30,8 @@ test("a time-of-use tariff is saved and read back as numbers", () => {
 
 test("overlapping or malformed periods are refused and nothing changes", () => {
   assert.throws(() => updateSettings({ energyPricePeriods: [NIGHT, { from: 5, to: 8, price: 0.3, days: "weekdays" }] }), /period 2 overlaps period 1/);
-  for (const bad of [{ ...PEAK, from: 24 }, { ...PEAK, to: 0 }, { ...PEAK, to: 14 }, { ...PEAK, price: -1 }, { ...PEAK, price: 101 }, { ...PEAK, days: "sundays" }, { ...PEAK, from: 1.5 }]) {
-    assert.throws(() => updateSettings({ energyPricePeriods: [bad] }), /period 1 needs/, JSON.stringify(bad));
+  for (const bad of [{ ...PEAK, from: 24 }, { ...PEAK, to: 0 }, { ...PEAK, to: 14 }, { ...PEAK, price: -1 }, { ...PEAK, price: "Infinity" }, { ...PEAK, days: "sundays" }, { ...PEAK, from: 1.5 }]) {
+    assert.throws(() => updateSettings({ energyPricePeriods: [bad] }), /period 1 needs.*a finite, non-negative price/, JSON.stringify(bad));
   }
   assert.throws(() => updateSettings({ energyPricePeriods: "peak" }), /must be a list/);
   assert.throws(() => updateSettings({ energyPricePeriods: Array.from({ length: 13 }, (_, i) => ({ from: i, to: i + 1, price: 0.1, days: "all" })) }), /at most 12/);
@@ -48,4 +48,30 @@ test("an unknown mode reads as flat, and a hand-edited unusable list is dropped 
   const s = loadSettings();
   assert.equal(s.energyPriceMode, "flat");
   assert.deepEqual(s.energyPricePeriods, []);
+});
+
+test("prices above 100 persist for flat rates and time-of-use tariffs", () => {
+  updateSettings({ energyPriceMode: "flat", energyPricePerKwh: 1250.25 });
+  assert.equal(loadSettings().energyPricePerKwh, 1250.25);
+
+  const period = { ...PEAK, price: 2430.5 };
+  updateSettings({ energyPriceMode: "tou", energyPricePerKwh: 1250.25, energyPricePeriods: [period] });
+  const saved = loadSettings();
+  assert.equal(saved.energyPricePerKwh, 1250.25);
+  assert.deepEqual(saved.energyPricePeriods, [period]);
+});
+
+test("invalid flat prices are rejected without clearing the saved rate", () => {
+  updateSettings({ energyPriceMode: "flat", energyPricePerKwh: 2159 });
+  for (const price of [-0.15, "Infinity", "invalid", false]) {
+    assert.throws(() => updateSettings({ energyPricePerKwh: price }), /Electricity price must be a number of 0 or more/);
+  }
+  assert.equal(getSettings().energyPricePerKwh, 2159);
+  assert.equal(loadSettings().energyPricePerKwh, 2159);
+});
+
+test("zero can be saved and a flat price can be cleared deliberately", () => {
+  assert.equal(updateSettings({ energyPricePerKwh: 0 }).energyPricePerKwh, 0);
+  assert.equal(updateSettings({ energyPricePerKwh: null }).energyPricePerKwh, null);
+  assert.equal(loadSettings().energyPricePerKwh, null);
 });

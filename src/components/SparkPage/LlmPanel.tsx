@@ -1025,7 +1025,7 @@ export function LlmPanel({
               className="sp-tile"
               title={
                 llm?.totalOutputTokens != null && llm.totalOutputTokens > 0
-                  ? `${llm.totalOutputTokens.toLocaleString()} tokens · ${t("llm.engineGeneratedHelp")}`
+                  ? t("llm.engineGeneratedWithCount", { value: llm.totalOutputTokens.toLocaleString(), help: t("llm.engineGeneratedHelp") })
                   : t("llm.engineGeneratedHelp")
               }
             >

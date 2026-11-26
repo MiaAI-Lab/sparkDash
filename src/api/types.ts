@@ -657,7 +657,7 @@ export interface LlmMetrics {
   measurementValid?: boolean;
   /** Why the last poll's stats could not be read; null while they can. */
   measurementError?: string | null;
-  backend: "vllm" | "llama.cpp" | "sglang" | "lmstudio" | "ollama" | "ds4" | "exl3" | "q27" | "tensorfold" | "freetoken" | "radiance" | "strata" | "flare" | "locals" | "splash" | "pico" | "ignis" | null;
+  backend: "vllm" | "llama.cpp" | "sglang" | "lmstudio" | "ollama" | "ds4" | "exl3" | "q27" | "tensorfold" | "freetoken" | "radiance" | "strata" | "flare" | "locals" | "splash" | "pico" | "ignis" | "llama-swap" | null;
   /** How the monitor reaches the engine: its own address, or an SSH forward when only SSH gets there. */
   via?: "direct" | "ssh-tunnel";
   modelId: string | null;
@@ -1483,6 +1483,8 @@ export interface InferenceActivity {
 }
 
 export interface Settings {
+  /** Read-only capability configured by TRAINING_PROGRESS_ENABLED on the server. */
+  trainingProgressEnabled?: boolean;
   /** Read-only server capability; configured through environment variables. */
   inferenceActivityEnabled?: boolean;
   pollIntervalMs: number;
@@ -1637,6 +1639,8 @@ export interface HistoryStat {
   min?: number;
   /** Samples behind the bucket; only the insights endpoint asks for it. */
   n?: number;
+  activeSum?: number;
+  activeCount?: number;
 }
 
 /** Unit-level series: %, °C, W, MB, bytes/s. */

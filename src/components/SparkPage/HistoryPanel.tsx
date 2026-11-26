@@ -155,7 +155,7 @@ const gibLabel = (v: number) => `${v < 10 ? v.toFixed(2) : v.toFixed(1)} GiB`;
 /** A figure with no meaningful peak of its own (percentages, counts, quantiles). */
 const flat = (v: number | undefined | null): HistoryStat | null => (v == null ? null : { avg: v, max: v });
 
-function buildCacheCharts(data: MetricsHistoryData, timeline: readonly number[]): ChartDef[] {
+function buildCacheCharts(data: MetricsHistoryData, timeline: readonly number[], t: TFunction): ChartDef[] {
   const cache = data.cache;
   if (!cache) return [];
   const scalar = cacheScalars(timeline, cache);
@@ -168,11 +168,11 @@ function buildCacheCharts(data: MetricsHistoryData, timeline: readonly number[])
   if (hasAny(reuse)) {
     charts.push({
       id: `cache-${port}-reuse`,
-      title: `Cache reuse · :${port}`,
+      title: t("history.cacheReuseTitle", { port }),
       format: pct,
       yMin: 0,
       yMax: 100,
-      series: [{ key: "reuse", label: "Prompt tokens reused", color: "var(--color-accent)", values: reuse }],
+      series: [{ key: "reuse", label: t("history.cacheReused"), color: "var(--color-accent)", values: reuse }],
     });
   }
 
@@ -183,32 +183,33 @@ function buildCacheCharts(data: MetricsHistoryData, timeline: readonly number[])
   if (hasAny(held)) {
     charts.push({
       id: `cache-${port}-store`,
-      title: `Snapshot store · :${port}`,
+      title: t("history.cacheStoreTitle", { port }),
       format: gibLabel,
       yMin: 0,
       series: [
-        { key: "held", label: "Charged", color: "var(--color-violet)", values: held },
-        { key: "spare", label: "Spare", color: "var(--color-info)", values: p.map((x) => flat(x?.store?.spare == null ? null : gibFrom(x.store.spare))) },
+        { key: "held", label: t("history.cacheCharged"), color: "var(--color-violet)", values: held },
+        { key: "spare", label: t("history.cacheSpare"), color: "var(--color-info)", values: p.map((x) => flat(x?.store?.spare == null ? null : gibFrom(x.store.spare))) },
         ...(hasAny(budget)
-          ? [{ key: "budget", label: "Budget", color: "var(--color-muted)", values: budget, step: true } as HistoryChartSeries]
+          ? [{ key: "budget", label: t("history.cacheBudget"), color: "var(--color-muted)", values: budget, step: true } as HistoryChartSeries]
           : []),
       ],
     });
   }
 
   const entries = p.map((x) => flat(x?.store?.entries));
-  if (hasAny(entries)) charts.push({ id: `cache-${port}-entries`, title: `Snapshot entries · :${port}`, format: (v) => v.toFixed(1), yMin: 0,
-    series: [{ key: "entries", label: "Entries", color: "var(--color-violet)", values: entries }] });
+  if (hasAny(entries)) charts.push({ id: `cache-${port}-entries`, title: t("history.cacheEntriesTitle", { port }), format: (v) => v.toFixed(1), yMin: 0,
+    series: [{ key: "entries", label: t("history.cacheEntries"), color: "var(--color-violet)", values: entries }] });
   const churnKeys = ["evictions", "invalidations", "refusals", "failures", "placementBlocks"] as const;
   const colors = ["var(--color-warning)", "var(--color-violet)", "var(--color-info)", "var(--color-danger)", "var(--color-accent)"];
-  const churn = churnKeys.map((key, i) => ({ key, label: key === "placementBlocks" ? "Placement blocked" : key[0].toUpperCase() + key.slice(1), color: colors[i], values: p.map((x) => flat(x?.churn?.[key])) }));
-  if (churn.some((s) => hasAny(s.values))) charts.push({ id: `cache-${port}-churn`, title: `Cache churn · counts/window · :${port}`, format: (v) => v.toLocaleString(), yMin: 0, series: churn });
+  const churnLabels = [t("history.cacheEvictions"), t("history.cacheInvalidations"), t("history.cacheRefusals"), t("history.cacheFailures"), t("history.cachePlacementBlocked")];
+  const churn = churnKeys.map((key, i) => ({ key, label: churnLabels[i], color: colors[i], values: p.map((x) => flat(x?.churn?.[key])) }));
+  if (churn.some((s) => hasAny(s.values))) charts.push({ id: `cache-${port}-churn`, title: t("history.cacheChurnTitle", { port }), format: (v) => v.toLocaleString(), yMin: 0, series: churn });
   const failureKeys = ["failuresKeep", "failuresRestore", "failuresPeerForget"] as const;
-  const failureLabels = ["Keep", "Restore", "Peer forget"];
+  const failureLabels = [t("history.cacheKeep"), t("history.cacheRestore"), t("history.cacheForget")];
   const failures = failureKeys.map((key, i) => ({ key, label: failureLabels[i], color: colors[i], values: p.map((x) => flat(x?.churn?.[key])) }));
-  if (failures.some((s) => hasAny(s.values))) charts.push({ id: `cache-${port}-failures`, title: `Classified failures · counts/window · :${port}`, format: (v) => v.toLocaleString(), yMin: 0, series: failures });
+  if (failures.some((s) => hasAny(s.values))) charts.push({ id: `cache-${port}-failures`, title: t("history.cacheFailuresTitle", { port }), format: (v) => v.toLocaleString(), yMin: 0, series: failures });
   const latency = p.map((x) => flat(x?.latencyP95?.value));
-  if (hasAny(latency)) charts.push({ id: `cache-${port}-latency`, title: `Request latency p95 · approximate · :${port}`, format: (v) => `${v.toFixed(2)} s`, yMin: 0,
+  if (hasAny(latency)) charts.push({ id: `cache-${port}-latency`, title: t("history.cacheLatencyTitle", { port }), format: (v) => `${v.toFixed(2)} s`, yMin: 0,
     series: [{ key: "latencyP95", label: "p95", color: "var(--color-violet)", values: latency }] });
 
   // A p95 that fell in the +Inf bucket has no value: it stays a gap rather than a clamped number.
@@ -216,7 +217,7 @@ function buildCacheCharts(data: MetricsHistoryData, timeline: readonly number[])
   if (hasAny(ttft)) {
     charts.push({
       id: `cache-${port}-ttft`,
-      title: `TTFT p95 · approximate · :${port}`,
+      title: t("history.cacheTtftTitle", { port }),
       format: (v) => `${Math.round(v * 1000)} ms`,
       yMin: 0,
       series: [{ key: "ttftP95", label: "p95", color: "var(--color-info)", values: ttft }],
@@ -228,12 +229,12 @@ function buildCacheCharts(data: MetricsHistoryData, timeline: readonly number[])
   if (hasAny(running) || hasAny(waiting)) {
     charts.push({
       id: `cache-${port}-running`,
-      title: `Requests · :${port}`,
+      title: t("history.cacheRequestsTitle", { port }),
       format: (v) => v.toFixed(1),
       yMin: 0,
       series: [
-        { key: "running", label: "Running", color: "var(--color-mem-engine)", values: running },
-        { key: "waiting", label: "Waiting", color: "var(--color-warning)", values: waiting },
+        { key: "running", label: t("history.cacheRunning"), color: "var(--color-mem-engine)", values: running },
+        { key: "waiting", label: t("history.cacheWaiting"), color: "var(--color-warning)", values: waiting },
       ],
     });
   }
@@ -261,6 +262,21 @@ function buildCharts(
   // gets its own chart rather than sharing this y-axis: on one domain the free trace collapsed to
   // a sub-pixel band and the two threshold labels landed 3 px apart (#350 review).
   const memFree = aligned(timeline, pts, (p) => p.memFreeMB);
+  const available = aligned(timeline, pts, (p) => p.memAvailableMB);
+  const hasMemAvailable = hasAny(available);
+  // On GB10 the two readings share a source. Keep them separate when older
+  // samples or a fallback give the charts different values or coverage.
+  const sharedMemAvailable = model === "unified" && platform !== "darwin" && hasMemAvailable
+    && available.every((sample, i) => {
+      const free = memFree[i];
+      if (!sample || !free) return sample === free;
+      return sample.avg === free.avg && sample.min === free.min && sample.max === free.max;
+    });
+  const validationThreshold = {
+    value: 16 * 1024,
+    label: t("history.memAvailableValidation"),
+    color: "var(--color-warning)",
+  };
   const gpuUsed = model === "unified" ? aligned(timeline, pts, (p) => p.memGpuMB) : null;
   const sysUsed = model === "unified" ? aligned(timeline, pts, (p) => p.memSysMB) : null;
   // A unified pool has two owners — the GPU/model side and everything else — so the split answers
@@ -270,13 +286,13 @@ function buildCharts(
     gpuUsed && sysUsed && hasAny(gpuUsed) && hasAny(sysUsed)
       ? {
           id: "memSplit",
-          title: "Memory used",
+          title: t("history.memoryUsed"),
           format: formatMb,
           yMin: 0,
           yUnit: 1024,
           series: [
             { key: "memGpuMB", label: "GPU", color: "var(--color-violet)", band: "max", values: gpuUsed },
-            { key: "memSysMB", label: "System", color: "var(--color-info)", band: "max", values: sysUsed },
+            { key: "memSysMB", label: t("history.system"), color: "var(--color-info)", band: "max", values: sysUsed },
           ],
         }
       : null;
@@ -313,8 +329,9 @@ function buildCharts(
       thresholds: [
         { value: headroom.low, label: t("history.low", { value: formatMb(headroom.low) }), color: "var(--color-warning)" },
         { value: headroom.critical, label: t("history.critical", { value: formatMb(headroom.critical) }), color: "var(--color-danger)" },
+        ...(sharedMemAvailable ? [validationThreshold] : []),
       ],
-      series: [{ key: "memFreeMB", label: t("history.free"), color: "var(--color-success)", band: "min", values: aligned(timeline, pts, (p) => p.memFreeMB) }],
+      series: [{ key: "memFreeMB", label: t("history.free"), color: "var(--color-success)", band: "min", values: memFree }],
     },
     ...(memSplit ? [memSplit] : []),
     {
@@ -390,11 +407,10 @@ function buildCharts(
     }
   }
   for (const endpoint of data.cache?.endpoints ?? []) {
-    charts.push(...buildCacheCharts({ ...data, cache: { ...data.cache!, endpoints: [endpoint] } }, timeline));
+    charts.push(...buildCacheCharts({ ...data, cache: { ...data.cache!, endpoints: [endpoint] } }, timeline, t));
   }
-  const available = aligned(timeline, pts, (p) => p.memAvailableMB);
-  if (hasAny(available)) charts.push({ id: "memAvailable", title: "Linux MemAvailable · this rank only", format: formatMb, yMin: 0, yUnit: 1024,
-    thresholds: [{ value: 16 * 1024, label: "prior validation 16 GiB", color: "var(--color-warning)" }],
+  if (hasMemAvailable && !sharedMemAvailable) charts.push({ id: "memAvailable", title: t("history.memAvailableTitle"), format: formatMb, yMin: 0, yUnit: 1024,
+    thresholds: [validationThreshold],
     series: [{ key: "memAvailableMB", label: "MemAvailable", color: "var(--color-success)", band: "min", values: available }] });
   // Stable sort: within a domain the metric order above is kept.
   return charts.sort((a, b) => chartDomain(a.id) - chartDomain(b.id));
@@ -552,7 +568,7 @@ export function HistoryPanel({
           {t("history.hint", { step: stepLabel(enabled.stepMs) })}
         </p>
         <div className="sp-hist-grid">
-          {cachePresent && <h3 style={{ gridColumn: "1 / -1" }}>Capacity / working set</h3>}
+          {cachePresent && <h3 style={{ gridColumn: "1 / -1" }}>{t("history.cacheCapacity")}</h3>}
           {(() => {
             const cache = enabled.cache;
             if (!cache || cache.endpoints.length === 0) return null;
@@ -569,9 +585,9 @@ export function HistoryPanel({
             });
           })()}
           {charts.filter(capacityChart).map(renderChart)}
-          {cachePresent && <h3 style={{ gridColumn: "1 / -1" }}>Reuse / churn</h3>}
+          {cachePresent && <h3 style={{ gridColumn: "1 / -1" }}>{t("history.cacheReuseChurn")}</h3>}
           {charts.filter(reuseChart).map(renderChart)}
-          {cachePresent && <h3 style={{ gridColumn: "1 / -1" }}>Demand / latency / headroom</h3>}
+          {cachePresent && <h3 style={{ gridColumn: "1 / -1" }}>{t("history.cacheDemand")}</h3>}
           {charts.filter((c) => (c.id.startsWith("cache-") && !capacityChart(c) && !reuseChart(c)) || c.id === "memAvailable").map(renderChart)}
           {charts.filter((c) => !c.id.startsWith("cache-") && c.id !== "memAvailable").map(renderChart)}
         </div>
