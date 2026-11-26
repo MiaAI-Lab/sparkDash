@@ -6,16 +6,18 @@ import type {
   MetricsHistoryCachePoint,
   MetricsHistoryCache,
   HistoryStat,
+  LlmMetrics,
   MetricsHistoryData,
   MetricsHistoryRange,
   MetricsHistoryResponse,
 } from "../../api/types";
-import { formatBytesPerSec, formatMb } from "../../shared/formatBytes";
+import { formatBytesPerSec, formatKvTokens, formatMb } from "../../shared/formatBytes";
 import { configuredTimeZone } from "../../shared/timeZone";
 import { HEADROOM_THRESHOLDS_MB, memoryModelFor } from "../../shared/vramBreakdown";
 import { Panel } from "../ui/Panel";
 import { ChartIcon } from "../ui/icons";
 import { HistoryChart, type HistoryChartSeries, type HistoryThreshold } from "./HistoryChart";
+import { KvPoolRows } from "./KvPoolRows";
 import { CachePoolChart } from "./CachePoolChart";
 import { CacheHistoryDetails } from "./CacheHistoryDetails";
 
@@ -96,6 +98,63 @@ interface ChartDef {
   yMax?: number;
   yUnit?: number;
   thresholds?: HistoryThreshold[];
+  kvPort?: number;
+}
+
+/** The live pool reading behind one endpoint's KV chart. */
+interface KvPoolReading {
+  /** Pool size in tokens, or null when the engine does not report it. */
+  tokens: number | null;
+  /** Whether the usage ratio is a share of that pool, or one stream's own window. */
+  basis: "pool" | "stream" | null;
+}
+
+/**
+ * The live pool readings per LLM port, as a value key. The unit snapshot changes every
+ * poll, but a pool size and its usage basis only change when an engine restarts or the
+ * backend changes — keying the chart list by this value keeps the small multiples from
+ * being rebuilt on every poll (this panel polls history on its own cadence).
+ */
+function kvPoolKey(llm: readonly (LlmMetrics | null)[] | null | undefined): string {
+  const parts: string[] = [];
+  for (const endpoint of llm ?? []) {
+    if (endpoint?.port == null || !endpoint.available || endpoint.measurementValid === false) continue;
+    parts.push(`${endpoint.port}:${endpoint.kvCacheTokens ?? ""}:${endpoint.kvCacheUsageBasis ?? ""}`);
+  }
+  return parts.sort().join(";");
+}
+
+/** Parse {@link kvPoolKey} back into per-port readings. */
+function kvPoolsFromKey(key: string): ReadonlyMap<number, KvPoolReading> {
+  const pools = new Map<number, KvPoolReading>();
+  for (const part of key.split(";")) {
+    if (!part) continue;
+    const [port, tokens, basis] = part.split(":");
+    const n = Number(tokens);
+    pools.set(Number(port), {
+      tokens: Number.isFinite(n) && n > 0 ? n : null,
+      basis: basis === "pool" || basis === "stream" ? basis : null,
+    });
+  }
+  return pools;
+}
+
+/**
+ * The token reading shown next to a KV ratio. When the ratio is the used fraction of the
+ * pool that `kvCacheTokens` counts (vLLM, FreeToken), used = ratio × pool is exact at every
+ * bucket. TensorFold's ratio is one stream's cache over that stream's own context window,
+ * while kept prompt states hold pool rows no live stream counts — so only the pool size is
+ * shown and no used figure is derived. The pool is the current one, exact while the engine
+ * keeps its size between launches.
+ */
+function kvTokenNote(t: TFunction, pool: KvPoolReading | undefined): ((value: number) => string) | undefined {
+  const tokens = pool?.tokens;
+  if (tokens == null) return undefined;
+  const total = formatKvTokens(tokens);
+  if (pool?.basis === "pool") {
+    return (value) => t("history.kvTokens", { used: formatKvTokens((value / 100) * tokens), total });
+  }
+  return () => t("history.kvPoolTokens", { tokens: total });
 }
 
 /** Every bucket start in the response (unit and LLM points), ascending. */
@@ -248,6 +307,7 @@ function buildCharts(
   platform: string | undefined,
   temperatureUnit: "celsius" | "fahrenheit",
   t: TFunction,
+  kvPools: ReadonlyMap<number, KvPoolReading> = new Map(),
 ): ChartDef[] {
   const pts = data.points;
   const f = temperatureUnit === "fahrenheit";
@@ -398,11 +458,19 @@ function buildCharts(
     if (hasAny(kv)) {
       charts.push({
         id: `llm-${port}-kv`,
+        kvPort: port,
         title: t("history.kvTitle", { port }),
         format: pct,
         yMin: 0,
         yMax: 100,
-        series: [{ key: "kvUsage", label: "KV", color: "var(--color-mem-engine)", band: "max", values: kv }],
+        series: [{
+          key: "kvUsage",
+          label: "KV",
+          color: "var(--color-mem-engine)",
+          band: "max",
+          values: kv,
+          tokens: kvTokenNote(t, kvPools.get(port)),
+        }],
       });
     }
   }
@@ -493,12 +561,15 @@ export function HistoryPanel({
   kind,
   platform,
   temperatureUnit,
+  liveLlm,
 }: {
   sparkId: string;
   kind?: string;
   /** A macOS host's memory is unified, like a Spark's. */
   platform?: string;
   temperatureUnit: "celsius" | "fahrenheit";
+  /** The unit's live LLM endpoints: the KV chart shows their pool size and live stream ratios. */
+  liveLlm?: readonly (LlmMetrics | null)[] | null;
 }) {
   const { t } = useTranslation("hardware");
   const [range, setRange] = useState<MetricsHistoryRange>(readHistoryRange);
@@ -510,9 +581,13 @@ export function HistoryPanel({
 
   const enabled = data?.enabled === true ? data : null;
   const timeline = useMemo(() => (enabled ? buildTimeline(enabled) : []), [enabled]);
+  // The live snapshot changes every poll, but an endpoint's pool size and usage basis only
+  // change on an engine restart or backend change, so the chart list is keyed by value.
+  const kvPoolValues = kvPoolKey(liveLlm);
+  const kvPools = useMemo(() => kvPoolsFromKey(kvPoolValues), [kvPoolValues]);
   const charts = useMemo(
-    () => (enabled ? buildCharts(enabled, timeline, kind, platform, temperatureUnit, t) : []),
-    [enabled, timeline, kind, platform, temperatureUnit, t],
+    () => (enabled ? buildCharts(enabled, timeline, kind, platform, temperatureUnit, t, kvPools) : []),
+    [enabled, timeline, kind, platform, temperatureUnit, t, kvPools],
   );
   const formats = useMemo(() => timeFormatters(range), [range]);
 
@@ -539,11 +614,19 @@ export function HistoryPanel({
     </div>
   );
 
-  const renderChart = (c: ChartDef) => <HistoryChart key={c.id} id={c.id} title={c.title}
-    timeline={timeline} stepMs={enabled?.stepMs ?? 0} from={enabled?.from ?? 0} to={enabled?.to ?? 0}
-    series={c.series} format={c.format} yMin={c.yMin} yMax={c.yMax} yUnit={c.yUnit}
-    thresholds={c.thresholds} showWindowSummary={!c.id.startsWith("cache-")}
-    cursorT={cursorT} onCursor={setCursorT} formatTime={formats.tooltip} formatAxisTime={formats.axis} />;
+  const renderChart = (c: ChartDef) => {
+    const live = c.kvPort == null ? undefined : liveLlm?.find((endpoint) => endpoint?.port === c.kvPort);
+    const pools = live?.available && live.measurementValid !== false ? live.kvPoolUsage : null;
+    return <HistoryChart key={c.id} id={c.id} title={c.title}
+      timeline={timeline} stepMs={enabled?.stepMs ?? 0} from={enabled?.from ?? 0} to={enabled?.to ?? 0}
+      series={c.series} format={c.format} yMin={c.yMin} yMax={c.yMax} yUnit={c.yUnit}
+      thresholds={c.thresholds} showWindowSummary={!c.id.startsWith("cache-")}
+      tooltipExtra={pools && <div className="chart__tip-foot">
+        <b>{t("history.currentKvStreams")}</b>
+        <KvPoolRows pools={pools} />
+      </div>}
+      cursorT={cursorT} onCursor={setCursorT} formatTime={formats.tooltip} formatAxisTime={formats.axis} />;
+  };
   const capacityChart = (c: ChartDef) => /^cache-\d+-(store|entries)$/.test(c.id);
   const reuseChart = (c: ChartDef) => /^cache-\d+-(reuse|churn|failures)$/.test(c.id);
   const cachePresent = (enabled?.cache?.endpoints ?? []).some((e) => e.points.length > 0);

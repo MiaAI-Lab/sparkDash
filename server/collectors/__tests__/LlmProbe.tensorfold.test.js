@@ -636,6 +636,139 @@ test("_applyTensorFoldMetrics reads the TensorFold 1.1 KV occupancy ratio", asyn
   assert.equal(probe.requestsRunning, 1);
 });
 
+test("_applyTensorFoldMetrics reads the pool from the shard math, not from the ratio", async () => {
+  const probe = metricsProbe(() =>
+    [
+      'tensorfold:kv_cache_usage_ratio{pool="0"} 0',
+      "tensorfold:kv_shard_parts 2",
+      "tensorfold:kv_shard_part_rows 1050624",
+      'tensorfold:kv_shard_part_free{part="0"} 792576',
+      'tensorfold:kv_shard_part_free{part="1"} 641024',
+      'tensorfold:kv_shard_part_kept_rows{part="0"} 258048',
+      'tensorfold:kv_shard_part_kept_rows{part="1"} 409600',
+    ].join("\n")
+  );
+  await probe._applyTensorFoldMetrics(2);
+  // Capacity = 2 parts × 1,050,624 positions; free = both parts' unheld rows. On this
+  // live idle reading kept prompt states held the other 667,648 rows while the
+  // per-stream ratio read 0 — the ratio is no share of this pool.
+  assert.equal(probe.kvCacheTokens, 2 * 1050624);
+  assert.equal(probe.kvCacheTokensAvailable, 792576 + 641024);
+  assert.equal(probe.kvCacheUsage, 0);
+  assert.equal(probe.kvCacheUsageBasis, "stream");
+  const snap = probe._getSnapshot();
+  assert.equal(snap.kvCacheTokens, 2 * 1050624);
+  assert.equal(snap.kvCacheTokensAvailable, 792576 + 641024);
+  assert.equal(snap.kvCacheUsageBasis, "stream");
+});
+
+test("_applyTensorFoldMetrics keeps the pool unknown on a build without the shard series", async () => {
+  const probe = metricsProbe(() => "tensorfold:kv_cache_usage_ratio 0.42\n");
+  await probe._applyTensorFoldMetrics(2);
+  assert.equal(probe.kvCacheUsage, 0.42);
+  assert.equal(probe.kvCacheTokens, null);
+  assert.equal(probe.kvCacheTokensAvailable, null);
+  // No pool to describe, so no basis either.
+  assert.equal(probe.kvCacheUsageBasis, null);
+});
+
+test("_applyTensorFoldMetrics leaves the pool readings alone on a queue-only scrape", async () => {
+  let txt = [
+    "tensorfold:kv_shard_parts 2",
+    "tensorfold:kv_shard_part_rows 1050624",
+    "tensorfold:kv_shard_part_free 1433600",
+  ].join("\n");
+  const probe = metricsProbe(() => txt);
+  await probe._applyTensorFoldMetrics(2);
+  assert.equal(probe.kvCacheTokens, 2101248);
+  txt = "tensorfold:requests_waiting 3\n";
+  await probe._applyTensorFoldMetrics(2, true);
+  assert.equal(probe.requestsWaiting, 3);
+  assert.equal(probe.kvCacheTokens, 2101248);
+  assert.equal(probe.kvCacheTokensAvailable, 1433600);
+  assert.equal(probe.kvCacheUsageBasis, "stream");
+});
+
+test("_applyTensorFoldMetrics clears kvCacheTokensAvailable on failed or non-TensorFold scrapes", async () => {
+  let res = {
+    ok: true,
+    status: 200,
+    text: async () => [
+      "tensorfold:kv_shard_parts 2",
+      "tensorfold:kv_shard_part_rows 1050624",
+      "tensorfold:kv_shard_part_free 1433600",
+    ].join("\n"),
+  };
+  const probe = new LlmProbe({ lanIp: "192.0.2.10" }, 8888);
+  probe.backendType = "tensorfold";
+  probe._fetch = async () => res;
+  await probe._applyTensorFoldMetrics(2);
+  assert.equal(probe.kvCacheTokensAvailable, 1433600);
+
+  // HTTP error returns early; free tokens must not linger as current.
+  res = { ok: false, status: 503, text: async () => "" };
+  await probe._applyTensorFoldMetrics(2);
+  assert.equal(probe.kvCacheTokensAvailable, null);
+  assert.equal(probe._getSnapshot().kvCacheTokensAvailable, null);
+
+  // Restore, then verify network failure and non-TensorFold responses clear it too.
+  res = {
+    ok: true,
+    status: 200,
+    text: async () => [
+      "tensorfold:kv_shard_parts 2",
+      "tensorfold:kv_shard_part_rows 1050624",
+      "tensorfold:kv_shard_part_free 900000",
+    ].join("\n"),
+  };
+  await probe._applyTensorFoldMetrics(2);
+  assert.equal(probe.kvCacheTokensAvailable, 900000);
+
+  probe._fetch = async () => { throw new Error("ECONNREFUSED"); };
+  await probe._applyTensorFoldMetrics(2);
+  assert.equal(probe.kvCacheTokensAvailable, null);
+
+  probe._fetch = async () => res;
+  await probe._applyTensorFoldMetrics(2);
+  assert.equal(probe.kvCacheTokensAvailable, 900000);
+
+  res = { ok: true, status: 200, text: async () => "vllm:num_requests_running 1\n" };
+  await probe._applyTensorFoldMetrics(2);
+  assert.equal(probe.kvCacheTokensAvailable, null);
+});
+
+test("_applyTensorFoldMetrics rejects a malformed shard math instead of guessing", async () => {
+  const probe = metricsProbe(() =>
+    [
+      "tensorfold:kv_shard_parts 0",
+      "tensorfold:kv_shard_part_rows 1050624",
+      "tensorfold:kv_shard_part_free 100",
+    ].join("\n")
+  );
+  await probe._applyTensorFoldMetrics(2);
+  assert.equal(probe.kvCacheTokens, null);
+  assert.equal(probe.kvCacheTokensAvailable, null);
+  assert.equal(probe.kvCacheUsageBasis, null);
+});
+
+test("_applyTensorFoldMetrics clamps free rows and does not multiply repeated per-part gauges", async () => {
+  const probe = metricsProbe(() =>
+    [
+      'tensorfold:kv_shard_parts{part="0"} 2',
+      'tensorfold:kv_shard_parts{part="1"} 2',
+      'tensorfold:kv_shard_part_rows{part="0"} 10',
+      'tensorfold:kv_shard_part_rows{part="1"} 10',
+      'tensorfold:kv_shard_part_free{part="0"} 15',
+      'tensorfold:kv_shard_part_free{part="1"} 15',
+    ].join("\n")
+  );
+  await probe._applyTensorFoldMetrics(2);
+  // A per-part export repeats the same config: max keeps one pool's capacity (2 × 10)
+  // instead of multiplying it by the part count, and free rows clamp to it.
+  assert.equal(probe.kvCacheTokens, 20);
+  assert.equal(probe.kvCacheTokensAvailable, 20);
+});
+
 for (const [name, buckets, sum] of [
   ["missing infinite bucket", [["0.1", 10]], 1],
   ["mismatched infinite count", [["0.1", 10], ["+Inf", 0]], 1],
@@ -1072,6 +1205,35 @@ test("_applyTensorFoldMetrics: per-pool KV ratios report the worst lane, not the
   );
   await probe._applyTensorFoldMetrics(2);
   assert.equal(probe.kvCacheUsage, 0.38793);
+});
+
+test("_applyTensorFoldMetrics: exposes distinct current KV streams (with or without timestamps) and clears unavailable details", async () => {
+  let body = tfMetrics({ gen: 1000 }) + [
+    'tensorfold:kv_cache_usage_ratio{pool="9",device="a"} 0.39 1730000000000',
+    'tensorfold:kv_cache_usage_ratio{device="b",pool="2"} 0',
+    'tensorfold:kv_cache_usage_ratio{pool="4"} -1',
+    'tensorfold:kv_cache_usage_ratio{pool="7"} NaN',
+  ].join("\n");
+  const probe = metricsProbe(() => body);
+  await probe._applyTensorFoldMetrics(2);
+  assert.equal(probe.kvCacheUsage, 0.39);
+  assert.deepEqual(probe._getSnapshot().kvPoolUsage, [{ pool: "2", ratio: 0 }, { pool: "9", ratio: 0.39 }]);
+
+  await probe._applyTensorFoldMetrics(2, true);
+  assert.equal(probe._getSnapshot().kvPoolUsage, null);
+
+  await probe._applyTensorFoldMetrics(2);
+  assert.ok(probe._getSnapshot().kvPoolUsage);
+  probe._fetch = async () => ({ ok: false, status: 503 });
+  await probe._applyTensorFoldMetrics(2);
+  assert.equal(probe._getSnapshot().kvPoolUsage, null);
+
+  probe._fetch = async () => ({ ok: true, text: async () => body });
+
+  body = tfMetrics({ gen: 1000, kv: 0.42 });
+  await probe._applyTensorFoldMetrics(2);
+  assert.equal(probe.kvCacheUsage, 0.42);
+  assert.equal(probe.kvPoolUsage, null);
 });
 
 test("_applyTensorFoldMetrics: a single fleet-wide KV ratio is unchanged", async () => {

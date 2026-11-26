@@ -40,6 +40,24 @@ export function formatDiskSize(mb: number): string {
 const BYTE_UNITS = ["KB", "MB", "GB", "TB", "PB"] as const;
 
 /**
+ * Compact token counts for KV pool readings: 883552 → 884k, 6291456 → 6.3M.
+ * Shared by the LLM panel's KV tile sub-line and the history KV chart corner,
+ * so both surfaces print the same number for the same reading.
+ */
+export function formatKvTokens(n: number): string {
+  const abs = Math.abs(n);
+  if (abs >= 1_000_000) {
+    const v = Math.round((n / 1_000_000) * 10) / 10;
+    return `${Number.isInteger(v) ? v.toFixed(0) : v.toFixed(1)}M`;
+  }
+  if (abs >= 1000) {
+    const v = abs >= 10_000 ? Math.round(n / 1000) : Math.round((n / 1000) * 10) / 10;
+    return `${Number.isInteger(v) ? v.toFixed(0) : v.toFixed(1)}k`;
+  }
+  return Math.round(n).toLocaleString();
+}
+
+/**
  * Exact byte counts for file and folder sizes: `18 KB`, `512 MB`, `4.2 GB`, `1.3 TB`.
  * Units are 1024 apart like the rest of the dashboard. Whole numbers from 100 up, one decimal
  * below; 1023.95 of a unit rolls into the next unit instead of printing 1024.0.

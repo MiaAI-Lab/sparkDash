@@ -615,10 +615,20 @@ export interface LlmMetrics {
    */
   generationProgressTokens?: number | null;
   /**
-   * Share of the engine's KV cache pool held by requests (0–1): vLLM, q27,
-   * SGLang (`token_usage`) and TensorFold (`pool_tokens`). null when unknown.
+   * Share of the engine's KV cache held by requests (0–1): vLLM, q27, SGLang
+   * (`token_usage`) and TensorFold (`kv_cache_usage_ratio`). What the share is of
+   * depends on the backend — see `kvCacheUsageBasis`. null when unknown.
    */
   kvCacheUsage?: number | null;
+  /** Live named TensorFold stream ratios, distinct from shared cache occupancy. */
+  kvPoolUsage?: KvPoolRatio[] | null;
+  /**
+   * What `kvCacheUsage` is a share of, where the backend also reports `kvCacheTokens`:
+   * "pool" means it is the used fraction of that pool, so ratio × pool is the pool's used
+   * tokens (vLLM, FreeToken); "stream" is TensorFold's one-stream cache over that stream's
+   * own context window, which never derives a pool figure. null elsewhere.
+   */
+  kvCacheUsageBasis?: "pool" | "stream" | null;
   /**
    * TensorFold's own cache observation (`/health.live.cache`): the shared pool's disjoint
    * categories, the prompt-state snapshot store, and the engine's limits. Never derived from
@@ -627,9 +637,9 @@ export interface LlmMetrics {
   cache?: LlmCacheMetrics | null;
   /** Cumulative TTFT / request-latency histogram buckets for the history sampler. TensorFold only. */
   cacheHistograms?: LlmCacheHistograms | null;
-  /** Allocated KV-cache pool in tokens (vLLM `cache_config_info`). null when unknown. */
+  /** Allocated KV-cache pool in tokens (vLLM `cache_config_info`, TensorFold shard parts × rows). null when unknown. */
   kvCacheTokens?: number | null;
-  /** Free tokens in that pool (pool × (1 − usage)). null when pool or usage is unknown. */
+  /** Free tokens in that pool (vLLM: pool × (1 − usage); TensorFold: summed unheld rows). null when unknown. */
   kvCacheTokensAvailable?: number | null;
   /** Allocated KV-cache pool in bytes. null when unknown. */
   kvCacheMemoryBytes?: number | null;
@@ -667,6 +677,11 @@ export interface LlmMetrics {
    */
   lastActiveAt?: number | null;
   error: string | null;
+}
+
+export interface KvPoolRatio {
+  pool: string;
+  ratio: number;
 }
 
 /**
